@@ -120,9 +120,14 @@ describe("gateway change record retention", () => {
 			),
 		).toBe(true);
 
+		// Nothing leaves before a verified copy of its checkpoint is stored.
+		const params = { before, batchSize: 2, maxBatches: 1 };
+		expect(await pruneGatewayChangeRecords(db, params)).toBe(0);
+		sqlite.exec(
+			"update gateway_change_record_checkpoints set evidence_bundle_key = 'bundle'",
+		);
 		// A sample of two sealed rows (1 and 2) reaches the checkpoints of both
 		// organizations and deletes them whole, including 3 and 4.
-		const params = { before, batchSize: 2, maxBatches: 1 };
 		expect(await pruneGatewayChangeRecords(db, params)).toBe(4);
 		expect(remaining(sqlite)).toEqual([
 			"record-4",

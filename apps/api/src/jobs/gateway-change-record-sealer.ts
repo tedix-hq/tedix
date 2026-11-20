@@ -26,14 +26,24 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { loadChangeRecordSigningKey } from "../lib/change-record-signing-key";
 import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
-import { sealRun } from "@tedix/agent-governance/seal";
+import {
+	type CheckpointInput,
+	type DsseEnvelope,
+	importVerifyingKey,
+	sealRun,
+	verifyChain,
+	verifyCheckpoint,
+} from "@tedix/agent-governance/seal";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	getLatestGatewayChangeRecordCheckpoint,
 	getUnsealedGatewayChangeRecordStats,
+	listGatewayChangeRecordCheckpointsWithoutBundle,
+	listGatewayChangeRecordsForCheckpoint,
 	listOrganizationsWithUnsealedGatewayChangeRecords,
 	listUnsealedGatewayChangeRecords,
 	sealGatewayChangeRecords,
+	setGatewayChangeRecordCheckpointBundle,
 } from "@tedix/db/queries/gateway-change-records";
 
 /** Rows recorded within this window are left for a later run. */
@@ -134,6 +144,7 @@ export async function sealGatewayChangeRecordRuns(
 						? JSON.stringify(checkpoint.envelope)
 						: null,
 					keyId: checkpoint.envelope ? (signer?.keyId ?? null) : null,
+					evidenceBundleKey: null,
 				};
 				const written = await sealGatewayChangeRecords(db, {
 					organizationId,
@@ -194,9 +205,176 @@ export async function sealGatewayChangeRecordRuns(
 	};
 }
 
-/** The cron path: reads the database binding and the optional signing key. */
+/** Where evidence bundles live in the EU archive bucket; never deleted. */
+export const EVIDENCE_BUNDLE_PREFIX = "change-record-evidence/v1/";
+/** The bundle's `format`; version 1 holds exactly the fields of `EvidenceBundle`. */
+export const EVIDENCE_BUNDLE_FORMAT =
+	"https://tedix.dev/evidence/change-record-bundle/v1";
+/** Bundles written per run, oldest checkpoint first. */
+export const MAX_BUNDLES_PER_RUN = 25;
+
+export function evidenceBundleKey(checkpoint: {
+	organizationId: string;
+	lastSequence: number;
+	id: string;
+}): string {
+	return `${EVIDENCE_BUNDLE_PREFIX}${encodeURIComponent(checkpoint.organizationId)}/${String(checkpoint.lastSequence).padStart(12, "0")}-${checkpoint.id}.json`;
+}
+
+/**
+ * One checkpoint and every record it covers, as one JSON object a researcher
+ * can download and check offline:
+ * `verifyChain({ records, checkpoints: [checkpoint], publicKey })` from
+ * `@tedix/agent-governance/seal`, with the public key obtained out of band.
+ * Bundles of consecutive checkpoints verify together the same way.
+ */
+export interface EvidenceBundle {
+	format: typeof EVIDENCE_BUNDLE_FORMAT;
+	checkpointId: string;
+	writtenAt: string;
+	checkpoint: CheckpointInput;
+	records: Array<Record<string, unknown>>;
+	/** The key the writer checked the signature with; confirm it elsewhere. */
+	publicKey: { keyId: string; algorithm: "Ed25519"; spki: string } | null;
+	/** What the writer checked before storing the bundle. */
+	verification: {
+		recordsVerified: number;
+		signature: "verified" | "unsigned" | "not_checked";
+	};
+}
+
+export interface BundleWriterKey {
+	keyId: string;
+	publicKeySpki: string;
+}
+
+/**
+ * Write evidence bundles for checkpoints that have none, oldest first. Each
+ * bundle is verified before it is written: every record's digest and chain
+ * link up to the checkpoint's head and, when a public key is given and the
+ * checkpoint is signed, the signature. After the stored object is confirmed,
+ * the checkpoint is marked, which is what lets retention remove its records
+ * from the main database. A checkpoint that fails is left unmarked and logged.
+ */
+export async function writeGatewayChangeRecordEvidenceBundles(
+	db: DbQueryClient,
+	bucket: R2Bucket,
+	key: BundleWriterKey | null,
+	now: number,
+	limit = MAX_BUNDLES_PER_RUN,
+): Promise<{ bundlesWritten: number; bundlesFailed: number }> {
+	const publicKey = key ? await importVerifyingKey(key.publicKeySpki) : null;
+	const checkpoints = await listGatewayChangeRecordCheckpointsWithoutBundle(
+		db,
+		limit,
+	);
+	let bundlesWritten = 0;
+	let bundlesFailed = 0;
+	for (const row of checkpoints) {
+		try {
+			const envelope = row.envelope
+				? (JSON.parse(row.envelope) as DsseEnvelope)
+				: null;
+			const checkpoint: CheckpointInput = {
+				organizationId: row.organizationId,
+				firstSequence: row.firstSequence,
+				lastSequence: row.lastSequence,
+				recordCount: row.recordCount,
+				previousCheckpointDigest: row.previousCheckpointDigest,
+				previousChainHash: row.previousChainHash,
+				sealedAt: row.sealedAt,
+				headChainHash: row.headChainHash,
+				envelope,
+			};
+			// The records as a reader gets them, which is what was digested.
+			const records = (
+				await listGatewayChangeRecordsForCheckpoint(db, row)
+			).map((record) => ({
+				...readerView(record),
+				recordDigest: record.recordDigest,
+				chainHash: record.chainHash,
+			}));
+			// The chain is checked on its own, so a checkpoint signed with an
+			// earlier key still gets a bundle; the signature is checked apart.
+			const chain = await verifyChain({
+				records,
+				checkpoints: [{ ...checkpoint, envelope: null }],
+				publicKey: null,
+				allowUnsigned: true,
+			});
+			if (!chain.ok || chain.recordsVerified !== row.recordCount)
+				throw new Error(
+					chain.ok
+						? `verified ${chain.recordsVerified} of ${row.recordCount} records`
+						: `${chain.reason} at ${chain.sequence}: ${chain.message}`,
+				);
+			let signature: EvidenceBundle["verification"]["signature"] = "unsigned";
+			if (envelope) {
+				signature = "not_checked";
+				if (publicKey) {
+					const verified = await verifyCheckpoint(envelope, publicKey);
+					if (verified.ok) {
+						if (verified.digest !== row.checkpointDigest)
+							throw new Error("signed statement differs from the checkpoint");
+						signature = "verified";
+					}
+				}
+			}
+			const bundle: EvidenceBundle = {
+				format: EVIDENCE_BUNDLE_FORMAT,
+				checkpointId: row.id,
+				writtenAt: new Date(now).toISOString(),
+				checkpoint,
+				records,
+				publicKey:
+					key && signature === "verified"
+						? {
+								keyId: key.keyId,
+								algorithm: "Ed25519",
+								spki: key.publicKeySpki,
+							}
+						: null,
+				verification: { recordsVerified: chain.recordsVerified, signature },
+			};
+			const objectKey = evidenceBundleKey(row);
+			const body = JSON.stringify(bundle);
+			await bucket.put(objectKey, body, {
+				httpMetadata: { contentType: "application/json" },
+				customMetadata: {
+					checkpointDigest: row.checkpointDigest,
+					recordCount: String(row.recordCount),
+				},
+			});
+			const stored = await bucket.head(objectKey);
+			if (
+				!stored ||
+				stored.size !== new TextEncoder().encode(body).byteLength ||
+				stored.customMetadata?.checkpointDigest !== row.checkpointDigest
+			)
+				throw new Error("the stored bundle could not be confirmed");
+			await setGatewayChangeRecordCheckpointBundle(db, row.id, objectKey);
+			bundlesWritten++;
+		} catch (error) {
+			bundlesFailed++;
+			console.error(
+				JSON.stringify({
+					event: "gateway_change_records.bundle_failed",
+					organizationId: row.organizationId,
+					checkpointId: row.id,
+					message: error instanceof Error ? error.message : String(error),
+				}),
+			);
+		}
+	}
+	return { bundlesWritten, bundlesFailed };
+}
+
+/**
+ * The cron path: reads the database binding and the optional signing key,
+ * seals, then writes evidence bundles for checkpoints that have none.
+ */
 export async function runGatewayChangeRecordSealer(
-	env: Pick<CloudflareEnv, "DB">,
+	env: Pick<CloudflareEnv, "DB" | "R2_BUCKET">,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
 	const { createDbQueryClient } = await import("@tedix/db/query-client");
@@ -209,9 +387,20 @@ export async function runGatewayChangeRecordSealer(
 					"CHANGE_RECORD_SIGNING_KEY is not set; checkpoints are written unsigned",
 			}),
 		);
-	return sealGatewayChangeRecordRuns(
-		createDbQueryClient(env.DB),
+	const db = createDbQueryClient(env.DB);
+	const sealed = await sealGatewayChangeRecordRuns(
+		db,
 		scheduledTime,
 		key ? { privateKey: key.privateKey, keyId: key.keyId } : null,
 	);
+	const bundles = await writeGatewayChangeRecordEvidenceBundles(
+		db,
+		env.R2_BUCKET,
+		key,
+		scheduledTime,
+	);
+	console.log(
+		JSON.stringify({ event: "gateway_change_records.bundle.run", ...bundles }),
+	);
+	return { ...sealed, ...bundles };
 }

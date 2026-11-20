@@ -1772,6 +1772,10 @@
 		{
 			"name": "20261120174703_retention_lower_row_caps/migration.sql",
 			"sha256": "76c3fa6ea9249c0728b9847aafb570241a3ea50123676ef5b5ddb98c2e687e4a"
+		},
+		{
+			"name": "20261120174959_change_record_evidence_bundles/migration.sql",
+			"sha256": "c6dc9714601a81b06c834bfa3e031c81260b8c1c38d0a88e5cbb1988a880b752"
 		}
 	]
 }

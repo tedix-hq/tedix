@@ -1,0 +1,2 @@
+ALTER TABLE `gateway_change_record_checkpoints` ADD `evidence_bundle_key` text;--> statement-breakpoint
+CREATE INDEX `idx_gateway_change_record_checkpoints_no_bundle` ON `gateway_change_record_checkpoints` (`sealed_at`) WHERE evidence_bundle_key is null;
