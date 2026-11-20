@@ -39,7 +39,7 @@ import type { TediCapabilityCard } from "../../src/rpc/routers/kernel/tedi-capab
 
 const ALL_CANDIDATE_MODELS = [
 	"@cf/openai/gpt-oss-120b", // comparison baseline
-	"@cf/moonshotai/kimi-k2.6",
+	"@cf/zai-org/glm-5.3",
 	"@cf/meta/llama-3.3-70b-instruct-fp8-fast",
 	"@cf/meta/llama-3.1-8b-instruct-fast", // cheap baseline
 ] as const;
