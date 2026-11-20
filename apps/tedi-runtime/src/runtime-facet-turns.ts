@@ -52,6 +52,7 @@ import {
 import { tedixMcpAITools } from "./ai-sdk-adapter";
 import type { RecentTurn } from "./bridge-turn-input";
 import { isVisionCapableChatDeployment } from "./chat-attachments";
+import { runtimeVoiceBilling } from "./voice-billing";
 import { describeTurnImages } from "./image-description";
 import { observerCompletion } from "./observer-llm";
 import type { ChatTurnParams } from "./chat-turn-input";
@@ -428,9 +429,10 @@ export const runtimeFacetTurns = {
 		this: RuntimeFacetTurnsHost,
 		userText: string,
 		attachments: AudioAttachment[] | undefined,
-		turn?: { runId: string; sessionKey: string },
+		turn?: { runId: string; sessionKey: string; actingUserId?: string },
 	): Promise<{ content: string; images: TurnImagePart[] }> {
-		if (attachments?.some((a) => a.type === "audio"))
+		const hasAudio = attachments?.some((a) => a.type === "audio");
+		if (hasAudio)
 			await requireUnrestrictedModelEgress(
 				this.env,
 				this.state.orgId!,
@@ -442,6 +444,13 @@ export const runtimeFacetTurns = {
 			content: userText,
 			attachments,
 			logContext: "isolate.do",
+			billing: hasAudio
+				? runtimeVoiceBilling(this.env, {
+						organizationId: this.state.orgId ?? "",
+						tediId: this.state.tediId!,
+						userId: turn?.actingUserId,
+					})
+				: undefined,
 			includeNonAudioAttachmentNote: true,
 			resolveImages: isVisionCapableChatDeployment(deployment),
 			gatewayMetadata: {
@@ -2123,7 +2132,7 @@ export const runtimeFacetTurns = {
 			const resolved = await this.resolveAttachmentTurn(
 				input.text.trim(),
 				input.attachments,
-				{ runId, sessionKey },
+				{ runId, sessionKey, actingUserId: input.actingUserId },
 			);
 			const userText = resolved.content.trim();
 			if (!userText) throw new Error("text is required");

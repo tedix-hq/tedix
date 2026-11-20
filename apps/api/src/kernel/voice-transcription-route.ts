@@ -52,6 +52,7 @@ export async function handleKernelVoiceTranscription(
 				billing: createVoiceBilling({
 					env,
 					organizationId: auth.identity.organizationId,
+					userId: auth.identity.descopeUserId,
 					source: "kernel",
 				}),
 			},

@@ -5,8 +5,10 @@ import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 import type { AudioAttachment } from "@tedix/voice/stt";
 import type { StreamChatTurnInput } from "./chat-stream-input";
 import type { ConversationFacet } from "./conversation-facet";
+import { ACTING_USER_HEADER } from "./mcp-authorization";
 
 export type NativeAcpTurnInput = StreamChatTurnInput & {
+	actingUserId?: string;
 	durableSubmissionId?: string;
 	messengerMetadata?: Record<string, unknown>;
 	originalUiMessage?: SessionMessage;
@@ -15,6 +17,7 @@ export type NativeAcpTurnInput = StreamChatTurnInput & {
 export type AcpConnection = Pick<Connection, "id" | "send">;
 interface AcpIdentity {
 	subject: string;
+	actingUserId?: string;
 	orgId: string;
 	tediId: string;
 	canApprove: boolean;
@@ -66,6 +69,7 @@ export class NativeAcpChannel {
 		const headers = request.headers;
 		await this.host.storage.put(`pi:acp:identity:${connection.id}`, {
 			subject: headers.get("X-Tedi-Auth-Subject") ?? "",
+			actingUserId: headers.get(ACTING_USER_HEADER) ?? undefined,
 			orgId: headers.get("X-Tedi-Auth-OrgId") ?? "",
 			tediId: headers.get("X-Tedi-Auth-TediId") ?? "",
 			canApprove: headers.get("X-Tedix-Can-Approve-Tools") === "true",
@@ -479,6 +483,7 @@ export class NativeAcpChannel {
 			this.pumpNativeAcpTurn(connection, event.id, {
 				sessionKey,
 				text,
+				actingUserId: identity.actingUserId,
 				messengerMetadata,
 				originalUiMessage,
 				regenerationOf,

@@ -57,6 +57,22 @@ export interface VoiceBillingHold {
 	release(reason: string): Promise<void>;
 }
 
+export interface RuntimeVoiceAdmission {
+	organizationId: string;
+	tediId: string;
+	userId?: string;
+	attempt: VoiceBillingAttempt;
+}
+
+export type RuntimeVoiceAdmissionResult =
+	| { reservationId: string }
+	| { refusal: Pick<VoiceBillingRefusal, "code" | "message" | "scope"> };
+
+export type RuntimeVoiceCompletion = {
+	organizationId: string;
+	reservationId: string;
+} & ({ usage: VoiceUsageMeasurement } | { reason: string });
+
 export interface VoiceBilling {
 	/** Reserve credits for one provider attempt; throws when admission refuses. */
 	admit(attempt: VoiceBillingAttempt): Promise<VoiceBillingHold>;

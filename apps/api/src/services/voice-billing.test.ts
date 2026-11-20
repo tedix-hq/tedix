@@ -17,7 +17,12 @@ import {
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { tableDdl } from "@tedix/db/test/schema-ddl";
 import type { VoiceBillingAttempt } from "@tedix/voice/billing";
-import { createVoiceBilling, VoiceCreditRefusal } from "./voice-billing";
+import {
+	createVoiceBilling,
+	finishRuntimeVoiceUsage,
+	reserveVoiceUsage,
+	VoiceCreditRefusal,
+} from "./voice-billing";
 
 const NOW = Date.parse("2026-07-27T12:00:00.000Z");
 const SCOPE =
@@ -111,6 +116,7 @@ function setup() {
 	});
 	return {
 		sqlite,
+		env,
 		billing: billing!,
 		publishRate(microsPerMillionUnits: number) {
 			sqlite
@@ -220,6 +226,59 @@ describe("voice credit admission", () => {
 			code: "monthly_credit_limit_reached",
 			scope: "call",
 		});
+	});
+
+	it("applies the acting member cap and settles a runtime receipt once", async () => {
+		const { sqlite, env, publishRate } = setup();
+		publishRate(75_000_000);
+		const at = new Date(NOW).toISOString();
+		sqlite
+			.prepare(
+				`INSERT INTO billing_credit_caps (
+				organization_id, subject_kind, subject_key, monthly_cap_credits,
+				updated_by, created_at, updated_at
+			) VALUES ('org-1', 'member', 'member-1', 1, 'owner', ?, ?)`,
+			)
+			.run(at, at);
+		const subject = {
+			organizationId: "org-1",
+			userId: "member-1",
+			source: "operator" as const,
+		};
+		await expect(
+			reserveVoiceUsage(env, subject, attempt, at),
+		).rejects.toMatchObject({
+			code: "member_monthly_credit_cap_reached",
+		});
+		const reservationId = await reserveVoiceUsage(
+			env,
+			subject,
+			{ ...attempt, estimatedQuantity: 60 },
+			at,
+		);
+		const receipt = { reservationId, usage: { quantity: 30, measured: true } };
+		await expect(
+			finishRuntimeVoiceUsage(env, {
+				...receipt,
+				organizationId: "org-2",
+			}),
+		).rejects.toThrow("Voice reservation not found");
+		await finishRuntimeVoiceUsage(env, { ...receipt, organizationId: "org-1" });
+		await finishRuntimeVoiceUsage(env, { ...receipt, organizationId: "org-1" });
+		expect(
+			sqlite
+				.prepare(
+					`SELECT status, user_id FROM billing_usage_reservations WHERE id = ?`,
+				)
+				.get(reservationId),
+		).toEqual({ status: "settled", user_id: "member-1" });
+		expect(
+			sqlite
+				.prepare(
+					`SELECT COUNT(*) AS count, SUM(credits) AS credits FROM billing_usage_charges`,
+				)
+				.get(),
+		).toEqual({ count: 1, credits: 1 });
 	});
 
 	it("does not admit when the deployment settles credits elsewhere", () => {

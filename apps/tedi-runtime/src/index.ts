@@ -37,7 +37,12 @@ import {
 	GatewayBrowserTokenError,
 	verifyGatewayBrowserToken,
 } from "@tedix/auth/gateway-browser-token";
-import { validateToken } from "@tedix/auth/jwt";
+import {
+	decodeTokenUnsafe,
+	isOAuthClientToken,
+	isUserToken,
+	validateToken,
+} from "@tedix/auth/jwt";
 import { verifyTediBodyGenerationToken } from "@tedix/auth/tedi-identity";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
@@ -76,6 +81,8 @@ import type { McpAuthContext } from "@tedix/mcp-shared/auth/types";
 import { handleProtectedResource } from "@tedix/mcp-shared/well-known";
 import { getDescopeAuthServerUrl } from "@tedix/mcp-shared/well-known/oauth";
 import { encodeBase64Audio, transcribeAudioAttachment } from "@tedix/voice/stt";
+import { VoiceBillingRefusal } from "@tedix/voice/billing";
+import { runtimeVoiceBilling } from "./voice-billing";
 
 import {
 	type AgentHealthProbe,
@@ -107,6 +114,7 @@ import { rankSignedPortableTools } from "./embedded-webmcp-discovery";
 import { executeEmbeddedPortableTool } from "./embedded-portable-tool";
 import { createIsolateApiKeyValidator } from "./mcp-apikey";
 import {
+	ACTING_USER_HEADER,
 	encodeTediMcpCaller,
 	TEDI_MCP_AUTH_CONTEXT_HEADER,
 } from "./mcp-authorization";
@@ -620,6 +628,7 @@ async function authenticateAcpUpgrade(
 	| {
 			ok: true;
 			subject: string;
+			actingUserId?: string;
 			tediId?: string;
 			orgId?: string;
 			allowedOrigin?: string;
@@ -685,6 +694,12 @@ async function authenticateAcpUpgrade(
 		return {
 			ok: true,
 			subject,
+			actingUserId:
+				isUserToken(payload) &&
+				!isOAuthClientToken(decodeTokenUnsafe(token) ?? payload) &&
+				getTenantId(payload) === tedi.organizationDescopeTenantId
+					? payload.sub
+					: undefined,
 			tediId: actor.claims?.tediId,
 			orgId: getTenantId(payload),
 			canApproveTools:
@@ -1935,6 +1950,9 @@ export default {
 			if (tedi.orgId) headersForVoice.set("X-Tedi-Org-Id", tedi.orgId);
 			headersForVoice.set("X-Tedi-Slug", tedi.slug);
 			headersForVoice.set("X-Tedi-Auth-Subject", auth.subject);
+			headersForVoice.delete(ACTING_USER_HEADER);
+			if (auth.actingUserId)
+				headersForVoice.set(ACTING_USER_HEADER, auth.actingUserId);
 			if (auth.tediId) headersForVoice.set("X-Tedi-Auth-TediId", auth.tediId);
 			if (auth.orgId) headersForVoice.set("X-Tedi-Auth-OrgId", auth.orgId);
 
@@ -2024,6 +2042,9 @@ export default {
 			if (tedi.orgId) headersForInput.set("X-Tedi-Org-Id", tedi.orgId);
 			headersForInput.set("X-Tedi-Slug", tedi.slug);
 			headersForInput.set("X-Tedi-Auth-Subject", auth.subject);
+			headersForInput.delete(ACTING_USER_HEADER);
+			if (auth.actingUserId)
+				headersForInput.set(ACTING_USER_HEADER, auth.actingUserId);
 			if (auth.tediId) headersForInput.set("X-Tedi-Auth-TediId", auth.tediId);
 			if (auth.orgId) headersForInput.set("X-Tedi-Auth-OrgId", auth.orgId);
 
@@ -2131,6 +2152,11 @@ export default {
 						mimeType: file.type || "audio/webm",
 					},
 					{
+						billing: runtimeVoiceBilling(env, {
+							organizationId: tedi.orgId ?? "",
+							tediId: tedi.id,
+							userId: auth.actingUserId,
+						}),
 						gatewayMetadata: {
 							channel: "composer-dictation",
 							tediId: tedi.id,
@@ -2141,6 +2167,11 @@ export default {
 				);
 				return Response.json(result, { headers: corsHeaders });
 			} catch (error) {
+				if (error instanceof VoiceBillingRefusal)
+					return Response.json(
+						{ error: error.message, code: error.code },
+						{ status: 403, headers: corsHeaders },
+					);
 				console.error("[tedi.voice.transcription] failed", {
 					tediId: tedi.id,
 					exception: exceptionTopology(error),
@@ -2462,6 +2493,9 @@ export default {
 				const auth = await authenticateAcpUpgrade(request, env, tedi);
 				if (!auth.ok) return auth.response;
 				headersForDo.set("X-Tedi-Auth-Subject", auth.subject);
+				headersForDo.delete(ACTING_USER_HEADER);
+				if (auth.actingUserId)
+					headersForDo.set(ACTING_USER_HEADER, auth.actingUserId);
 				headersForDo.set(
 					"X-Tedix-Can-Approve-Tools",
 					String(auth.canApproveTools),

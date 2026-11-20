@@ -35,6 +35,16 @@ import {
  */
 
 import type { RecordVoiceProviderUsageInput } from "@tedix/api-contract/schemas/billing";
+import {
+	releaseVoiceHold,
+	settleVoiceHold,
+	workersAiVoiceDeploymentScope,
+} from "@tedix/voice/billing";
+import { ACTING_USER_HEADER } from "./mcp-authorization";
+import {
+	billStreamingTranscription,
+	runtimeVoiceBilling,
+} from "./voice-billing";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 import {
 	createInstrumentedVoiceTranscriber,
@@ -71,6 +81,7 @@ interface VoiceCallContext {
 	isolateAgentId: string;
 	tediId: string;
 	organizationId: string;
+	userId?: string;
 	sessionKey: string;
 	/** Stable per-call id for runId derivation on the canonical side. */
 	callId: string;
@@ -108,21 +119,6 @@ export class VoiceCallDO extends VoiceAgentBase {
 	 */
 	static options = { hibernate: false, sendIdentityOnConnect: false };
 
-	// Flux STT is a realtime bidirectional WebSocket. The official package docs
-	// construct it with the raw AI binding, so keep it off the AI Gateway wrapper.
-	// Aura TTS is request/response and can stay gateway-routed for observability.
-	//
-	// End-of-turn tuning for NOISY environments: background noise keeps Flux's
-	// turn-confidence low, so with the default 5000ms timeout a turn can hang
-	// un-finalized while the operator waits for an answer. Bound the wait at 3s
-	// so a pause is always answered. The confidence threshold stays at the 0.7
-	// default — field testing showed mid-sentence pauses ("Can you …") already
-	// finalize eagerly, so lowering it would trade one failure for another.
-	// The client-side mute control (streams silence) is the manual override
-	// for the worst rooms.
-	transcriber = new WorkersAIFluxSTT(this.rawAi(), {
-		eotTimeoutMs: 3000,
-	});
 	tts = new WorkersAITTS(this.gatewayAi());
 
 	/**
@@ -222,82 +218,105 @@ export class VoiceCallDO extends VoiceAgentBase {
 	 * Raw AI binding. Use this for realtime Flux STT because the package opens a
 	 * Workers AI websocket (`ai.run(..., { websocket: true })`).
 	 */
-	private rawAi(): AiRunner {
+	private rawAi(organizationId: () => string): AiRunner {
 		const ai = (this.env as { AI?: AiRunner }).AI;
 		if (!ai) {
 			throw new Error("[VoiceCallDO] AI binding unavailable");
 		}
-		return unrestrictedModelAi(
-			this.env,
-			ai,
-			() => this.#activeContext?.organizationId ?? "",
-		);
+		return unrestrictedModelAi(this.env, ai, organizationId);
 	}
 
 	/**
 	 * AI Gateway wrapper for request/response providers such as TTS.
 	 */
 	private gatewayAi(): AiRunner {
-		const ai = this.rawAi();
 		const gatewayId = (this.env as { AI_GATEWAY_LLM_ID?: string })
 			.AI_GATEWAY_LLM_ID;
 		return {
 			run: async (model, input, options) => {
 				const text = typeof input.text === "string" ? input.text : "";
 				const callCtx = this.#activeContext;
+				if (!callCtx) throw new Error("Missing attribution for live speech");
+				const ai = this.rawAi(() => callCtx.organizationId);
+				const quantity = Math.max(1, text.length);
+				const billing = runtimeVoiceBilling(this.env, callCtx);
+				const hold = await billing?.admit({
+					provider: "workers-ai",
+					model,
+					deploymentScope: workersAiVoiceDeploymentScope(this.env),
+					usageKind: "voice_tts",
+					unit: "characters",
+					estimatedQuantity: quantity,
+				});
 				const priorGatewayLogId = ai.aiGatewayLogId?.trim() || null;
-				const existingGateway = (
+				const gateway = (
 					options as { gateway?: Record<string, unknown> } | undefined
 				)?.gateway;
-				const result = await ai.run(
-					model,
-					input,
-					gatewayId
-						? {
-								...options,
-								gateway: {
-									...existingGateway,
-									id: gatewayId,
-									metadata: {
-										channel: "voice-tts",
-										orgId: this.#activeContext?.organizationId,
-										tediId: this.#activeContext?.tediId,
-										usage: JSON.stringify({
-											k: "voice_tts",
-											u: "characters",
-											q: Math.max(1, text.length),
-										}),
+				let result: unknown;
+				try {
+					result = await ai.run(
+						model,
+						input,
+						gatewayId
+							? {
+									...options,
+									gateway: {
+										...gateway,
+										id: gatewayId,
+										metadata: {
+											channel: "voice-tts",
+											orgId: callCtx.organizationId,
+											tediId: callCtx.tediId,
+											usage: JSON.stringify({
+												k: "voice_tts",
+												u: "characters",
+												q: quantity,
+											}),
+										},
 									},
-								},
-							}
-						: options,
-				);
-				if (callCtx && (!(result instanceof Response) || result.ok)) {
-					callCtx.ttsCount += 1;
-					this.ctx.waitUntil(
-						this.#recordVoiceUsage({
-							organizationId: callCtx.organizationId,
-							tediId: callCtx.tediId,
-							providerUsageId: `workers-ai:voice-tts:${callCtx.callId}:${callCtx.ttsCount}`,
-							gatewayLogId:
-								ai.aiGatewayLogId?.trim() &&
-								ai.aiGatewayLogId.trim() !== priorGatewayLogId
-									? ai.aiGatewayLogId.trim()
-									: null,
-							provider: "workers-ai",
-							model,
-							usageKind: "voice_tts",
-							unit: "characters",
-							quantity: Math.max(1, text.length),
-							occurredAt: new Date().toISOString(),
-							metadata: {
-								callId: callCtx.callId,
-								channel: "voice-tts",
-								sequence: callCtx.ttsCount,
-							},
-						}),
+								}
+							: options,
 					);
+				} catch (error) {
+					await releaseVoiceHold(hold, "provider_failed", "voice-tts");
+					throw error;
 				}
+				if (result instanceof Response && !result.ok) {
+					await releaseVoiceHold(hold, "provider_failed", "voice-tts");
+					return result;
+				}
+				if (hold) {
+					await settleVoiceHold(
+						hold,
+						{ quantity, measured: true },
+						"voice-tts",
+					);
+					return result;
+				}
+				callCtx.ttsCount += 1;
+				this.ctx.waitUntil(
+					this.#recordVoiceUsage({
+						organizationId: callCtx.organizationId,
+						tediId: callCtx.tediId,
+						providerUsageId: `workers-ai:voice-tts:${callCtx.callId}:${callCtx.ttsCount}`,
+						gatewayLogId:
+							ai.aiGatewayLogId?.trim() &&
+							ai.aiGatewayLogId.trim() !== priorGatewayLogId
+								? ai.aiGatewayLogId.trim()
+								: null,
+						provider: "workers-ai",
+						model,
+						usageKind: "voice_tts",
+						unit: "characters",
+						quantity,
+						occurredAt: new Date().toISOString(),
+						metadata: {
+							callId: callCtx.callId,
+							channel: "voice-tts",
+							sequence: callCtx.ttsCount,
+						},
+					}),
+				);
 				return result;
 			},
 		};
@@ -308,7 +327,12 @@ export class VoiceCallDO extends VoiceAgentBase {
 	}
 
 	async #recordSttUsage(ctx: VoiceCallContext, endedAt: number): Promise<void> {
-		if (!ctx.providerStartedAt || ctx.sttRecorded) return;
+		if (
+			this.env.TEDIX_BILLING_SETTLEMENT_MODE === "managed" ||
+			!ctx.providerStartedAt ||
+			ctx.sttRecorded
+		)
+			return;
 		ctx.sttRecorded = true;
 		await this.#recordVoiceUsage({
 			organizationId: ctx.organizationId,
@@ -340,8 +364,15 @@ export class VoiceCallDO extends VoiceAgentBase {
 	 * existing STT telemetry in the same log stream.
 	 */
 	override createTranscriber(connection: Connection): Transcriber | null {
+		const actor = this.#getCtx(connection);
+		const ai = billStreamingTranscription(
+			this.rawAi(() => actor?.organizationId ?? ""),
+			this.env,
+			actor,
+			(work) => this.ctx.waitUntil(work),
+		);
 		return createInstrumentedVoiceTranscriber({
-			base: this.transcriber,
+			base: new WorkersAIFluxSTT(ai, { eotTimeoutMs: 3000 }),
 			fields: () => ({
 				conn: connection.id,
 				slug: this.#getCtx(connection)?.slug,
@@ -393,6 +424,7 @@ export class VoiceCallDO extends VoiceAgentBase {
 				isolateAgentId,
 				tediId,
 				organizationId,
+				userId: ctx.request.headers.get(ACTING_USER_HEADER) ?? undefined,
 				sessionKey,
 				callId: `voice-${this.name}-${connection.id}-${Date.now()}`,
 				startedAt: Date.now(),
@@ -603,6 +635,7 @@ export class VoiceCallDO extends VoiceAgentBase {
 					Accept: "text/event-stream",
 					"X-Service-Binding": "true",
 					"X-Tedi-Slug": ctx.slug,
+					...(ctx.userId ? { [ACTING_USER_HEADER]: ctx.userId } : {}),
 				},
 				body: JSON.stringify({ session_key: ctx.sessionKey, ...body }),
 			},
@@ -793,6 +826,7 @@ export class VoiceCallDO extends VoiceAgentBase {
 					"Content-Type": "application/json",
 					"X-Service-Binding": "true",
 					"X-Tedi-Slug": ctx.slug,
+					...(ctx.userId ? { [ACTING_USER_HEADER]: ctx.userId } : {}),
 				},
 				body: JSON.stringify({ session_key: ctx.sessionKey, ...body }),
 			},

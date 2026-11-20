@@ -3641,7 +3641,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private async resolveAttachmentTurn(
 		userText: string,
 		attachments: AudioAttachment[] | undefined,
-		turn?: { runId: string; sessionKey: string },
+		turn?: { runId: string; sessionKey: string; actingUserId?: string },
 	): Promise<{ content: string; images: TurnImagePart[] }> {
 		return runtimeFacetTurns.resolveAttachmentTurn.call(
 			this.facetTurnsHost(),

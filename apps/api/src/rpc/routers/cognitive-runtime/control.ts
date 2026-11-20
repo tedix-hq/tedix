@@ -113,6 +113,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 								env: context.env,
 								organizationId: tedi.organizationId,
 								tediId: tedi.id,
+								userId:
+									context.authType === "user" ? context.user?.sub : undefined,
 								source: "operator",
 							})
 						: undefined,
