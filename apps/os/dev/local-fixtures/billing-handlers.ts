@@ -201,6 +201,42 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 	},
 	"billing/listPlans": () => CREDIT_PLANS,
 	"billing/listTopUpPacks": () => CREDIT_TOP_UP_PACKS,
+	"billing/getDailyUsage": (input: { window: "month" | "30d" | "7d" }) => {
+		const end = new Date();
+		end.setUTCHours(0, 0, 0, 0);
+		const start = new Date(end);
+		start.setUTCDate(start.getUTCDate() - (input.window === "7d" ? 6 : 29));
+		if (input.window === "month")
+			start.setTime(Math.max(start.getTime(), Date.parse(CREDIT_PERIOD_START)));
+		const days = [];
+		for (
+			let day = new Date(start);
+			day <= end;
+			day.setUTCDate(day.getUTCDate() + 1)
+		) {
+			days.push(day.toISOString().slice(0, 10));
+		}
+		return days.map((day, index) => ({
+			day,
+			aiPercent:
+				(60 * (index % 2 ? 2 : 1)) /
+				(days.length + Math.floor(days.length / 2)),
+			codeRunPercent: 25 / days.length,
+			toolPercent: 15 / days.length,
+		}));
+	},
+	"billing/listTopUpPurchases": () => [
+		{
+			id: "sample-pack-purchase",
+			credits: 5000,
+			purchasedAt: CREDIT_PERIOD_START,
+			expiresAt: new Date(
+				Date.parse(CREDIT_PERIOD_START) + 365 * 86_400_000,
+			).toISOString(),
+		},
+	],
+	"billing/getPaymentDetails": () => ({ email: null, method: null }),
+	"billing/listInvoices": () => ({ invoices: [], nextCursor: null }),
 	"billing/setCreditCaps": (input: {
 		tediCaps?: Array<{ tediId: string; monthlyCapCredits: number | null }>;
 		memberCaps?: Array<{ userId: string; monthlyCapCredits: number | null }>;

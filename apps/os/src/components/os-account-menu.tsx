@@ -107,7 +107,7 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 							</DropdownMenuLabel>
 							<DropdownMenuLinkItem
 								closeOnClick
-								render={<OsRouterLink to="/compute" />}
+								render={<OsRouterLink to="/usage" />}
 								icon={
 									<span className="flex size-4 shrink-0 items-center justify-center">
 										<UsageIcon size={16} />

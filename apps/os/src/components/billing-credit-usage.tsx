@@ -1,14 +1,7 @@
-/**
- * Credits this month: used, included, remaining, top-ups, what used them,
- * and the 80% / 100% notices. Display only; the API decides what is billed
- * and when work stops.
- */
-
 import { Warning } from "@phosphor-icons/react";
-import { BillingSectionHeader } from "@/components/billing-section-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import { Card, CardContent } from "@/components/kumo/card";
+import { Surface } from "@/components/kumo/surface";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
@@ -17,13 +10,12 @@ import {
 	allowanceUsage,
 	creditsPaused,
 	formatCredits,
-	formatUsagePercent,
 	latestCreditNotice,
 	monthlyAllowanceCredits,
-	payAsYouGoRemainingCredits,
 } from "@/lib/billing-credits";
 import { formatBillingAmount } from "@/lib/billing-price";
-import { osLocale } from "@/lib/format";
+import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
+import { formatCount, osLocale } from "@/lib/format";
 
 export function formatCreditPeriod(start: string, end: string): string {
 	const from = new Date(start);
@@ -40,7 +32,7 @@ export function formatCreditPeriod(start: string, end: string): string {
 }
 
 /** The plain-English notice for the highest threshold reached this month. */
-export function CreditNoticeAlert({ credits }: { credits: CreditUsage }) {
+function CreditNoticeAlert({ credits }: { credits: CreditUsage }) {
 	const notice = latestCreditNotice(credits);
 	const paused = creditsPaused(credits);
 	if (paused) {
@@ -74,145 +66,82 @@ export function CreditNoticeAlert({ credits }: { credits: CreditUsage }) {
 	return (
 		<Alert variant="warning" data-credit-notice="80">
 			<AlertTitle>80% of included credits are used</AlertTitle>
-			<AlertDescription>
-				You have {formatCredits(credits.remainingIncludedCredits)} left from
-				your plan this month, plus {formatCredits(credits.topUpCredits)} from
-				credit packs.
-			</AlertDescription>
 		</Alert>
 	);
 }
 
-function formatResetDate(periodEnd: string): string {
+export function formatResetDate(periodEnd: string, year = false): string {
 	return new Intl.DateTimeFormat(osLocale(), {
 		month: "long",
+		...(year ? { year: "numeric" } : {}),
 		day: "numeric",
 		timeZone: "UTC",
 	}).format(new Date(periodEnd));
 }
 
-export function BillingCreditUsage({ credits }: { credits: CreditUsage }) {
+const BILLING_STATUS = {
+	trial: "Trial",
+	active: null,
+	past_due: "Payment overdue",
+	cancelled: "Cancelled",
+	suspended: "Suspended",
+} as const;
+
+export function BillingCreditUsage({
+	overview,
+}: {
+	overview: BillingOverview;
+}) {
+	const { credits } = overview;
 	const usage = allowanceUsage(credits);
-	const allowance = monthlyAllowanceCredits(credits);
-	const paused = creditsPaused(credits);
-	const payAsYouGoLeft = payAsYouGoRemainingCredits(credits.payAsYouGo);
-	const period = formatCreditPeriod(credits.periodStart, credits.periodEnd);
+	const status =
+		BILLING_STATUS[overview.account.status] ??
+		(creditsPaused(credits) ? "Limit reached" : null);
+	const used = formatCount(credits.usedCredits);
+	const allowance = formatCredits(monthlyAllowanceCredits(credits));
 	return (
-		<Card tone="raised" aria-label="Credits this month">
-			<BillingSectionHeader
-				className="px-tedix-card"
-				title="Credits this month"
-				description={`${period} · included credits renew each month`}
-				actions={
-					<Badge variant={paused ? "destructive" : "success"}>
-						{paused ? "Paused" : "Available"}
-					</Badge>
-				}
-			/>
-			<CardContent className="space-y-5">
-				<CreditNoticeAlert credits={credits} />
-				<div className="grid gap-2">
-					<Text
-						as="span"
-						role="metric"
-						weight="semibold"
-						className="tabular-nums"
-						data-credit-percent={usage.percent}
-					>
-						{usage.label} used this month
-					</Text>
-					<Meter
-						label={`${formatCredits(credits.usedCredits)} used of ${formatCredits(allowance)} (included plus top-up credits)`}
-						showValue={false}
-						value={usage.percent}
-						getAriaValueText={() => usage.label}
-					/>
-				</div>
-				<MetricGrid
-					appearance="bounded"
-					columns={3}
-					aria-label="Credit balance"
+		<Surface className="grid gap-2 p-tedix-card">
+			{status && (
+				<Badge
+					className="justify-self-start"
+					variant={
+						overview.account.status === "trial" ? "secondary" : "destructive"
+					}
 				>
-					<MetricItem
-						label="Included this month"
-						value={formatCredits(credits.includedCredits)}
-						description="From your plan; renews each month"
-					/>
-					<MetricItem
-						label="Left from your plan"
-						value={formatCredits(credits.remainingIncludedCredits)}
-						description="Used first"
-					/>
-					<MetricItem
-						label="Top-up credits"
-						value={formatCredits(credits.topUpCredits)}
-						description="From credit packs; used after your plan credits"
-					/>
-				</MetricGrid>
-				{credits.payAsYouGo.enabled &&
-					credits.payAsYouGo.monthlyCapMicros !== null && (
-						<Text tone="secondary">
-							Pay-as-you-go:{" "}
-							{formatUsagePercent(
-								credits.payAsYouGo.spentMicros,
-								credits.payAsYouGo.monthlyCapMicros,
-							)}{" "}
-							of the monthly cap ·{" "}
-							{formatBillingAmount(credits.payAsYouGo.spentMicros, "eur")} of{" "}
-							{formatBillingAmount(credits.payAsYouGo.monthlyCapMicros, "eur")}{" "}
-							used this month ({formatCredits(payAsYouGoLeft)} left).
-						</Text>
-					)}
-				<div className="grid gap-2" aria-label="What used credits">
-					<Text weight="medium">What used credits</Text>
-					<div className="grid gap-3 sm:grid-cols-3">
-						<BreakdownItem
-							label="AI"
-							description="Replies and work by your tedis"
-							credits={credits.breakdown.ai}
-							total={credits.usedCredits}
-						/>
-						<BreakdownItem
-							label="Code runs"
-							description="1 credit per run"
-							credits={credits.breakdown.codeRuns}
-							total={credits.usedCredits}
-						/>
-						<BreakdownItem
-							label="Services"
-							description="Tools such as SEO checks"
-							credits={credits.breakdown.services}
-							total={credits.usedCredits}
-						/>
-					</div>
-				</div>
-			</CardContent>
-		</Card>
+					{status}
+				</Badge>
+			)}
+			<Meter
+				label={`${used} of ${allowance} used (${usage.label})`}
+				showValue={false}
+				value={usage.percent}
+				getAriaValueText={() => usage.label}
+			/>
+			<Text tone="secondary">Renews {formatResetDate(credits.periodEnd)}</Text>
+			<CreditNoticeAlert credits={credits} />
+		</Surface>
 	);
 }
 
-function BreakdownItem({
-	label,
-	description,
-	credits,
-	total,
-}: {
-	label: string;
-	description: string;
-	credits: number;
-	total: number;
-}) {
+export function BillingCreditBalance({ credits }: { credits: CreditUsage }) {
 	return (
-		<div className="grid min-w-0 gap-0.5" data-credit-breakdown={label}>
-			<Text role="label" tone="secondary">
-				{label} · {formatUsagePercent(credits, total)}
-			</Text>
-			<Text weight="medium" className="tabular-nums">
-				{formatCredits(credits)}
-			</Text>
-			<Text role="caption" tone="secondary">
-				{description}
-			</Text>
-		</div>
+		<MetricGrid appearance="bounded" columns={4} aria-label="Billing overview">
+			<MetricItem
+				label="Left from plan"
+				value={formatCredits(credits.remainingIncludedCredits)}
+			/>
+			<MetricItem
+				label="Credit pack balance"
+				value={formatCredits(credits.topUpCredits)}
+			/>
+			<MetricItem
+				label="Pay-as-you-go this month"
+				value={formatBillingAmount(credits.payAsYouGo.spentMicros, "eur")}
+			/>
+			<MetricItem
+				label="Renews on"
+				value={formatResetDate(credits.periodEnd)}
+			/>
+		</MetricGrid>
 	);
 }

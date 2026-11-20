@@ -17,20 +17,20 @@ export const Route = createFileRoute("/_session/_tenant/admin/billing")({
 });
 
 function AdminBillingRoute() {
-	const { checkout, section } = Route.useSearch();
+	const { checkout, tab } = Route.useSearch();
 	const navigate = Route.useNavigate();
 	return (
 		<AdminBillingPage
 			checkout={checkout}
-			section={section ?? "usage"}
+			section={tab ?? "overview"}
 			onSectionChange={(nextSection) =>
 				void navigate({
-					search: nextSection === "usage" ? {} : { section: nextSection },
+					search: { tab: nextSection },
 				})
 			}
 			onClearCheckout={() =>
 				void navigate({
-					search: section ? { section } : {},
+					search: { tab },
 					replace: true,
 				})
 			}

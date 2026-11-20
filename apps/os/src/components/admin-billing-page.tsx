@@ -1,27 +1,11 @@
-/**
- * Admin › Billing
- *
- * Credits, monthly limits, credit packs, plans, and pay-as-you-go on the
- * `billing` contract. Customers see Tedix credits (1 credit = €0.01) only.
- *
- * Authority: the /admin layout gate admits `settings:manage`/`os:admin` and
- * the owner/admin roles, but `billing:manage` is OWNER-only in
- * `packages/auth/src/rbac.ts` — an admin passes the layout and must still not
- * see checkout, the portal, or the org's spend. So this page carries its own
- * narrower in-page check, mirroring (not replacing) the API's guards, which
- * re-check authority on every read and write.
- *
- * Stripe return handshake: checkout and the portal are full-page handoffs,
- * and apps/api mints `/admin/billing?checkout=success|cancelled` return URLs.
- * On success the page invalidates canonical `billing.getOverview` so the new
- * subscription renders without a hard reload; either way the param is cleared
- * with a replace navigation so refresh/back does not replay it.
- */
-
+import {
+	BillingCreditBalance,
+	BillingCreditUsage,
+} from "@/components/billing-credit-usage";
 import { LoadingArea } from "@/components/loading-area";
 import { RestrictedNotice } from "@/components/restricted-notice";
 import { OS_COPY } from "@/shared/os-copy";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Info } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
@@ -32,7 +16,6 @@ import {
 } from "@/components/kumo/alert";
 import {
 	Page,
-	PageDescription,
 	PageHeader,
 	PageHeading,
 	PageTitle,
@@ -47,15 +30,24 @@ import type {
 	AdminBillingSection,
 	BillingCheckoutState,
 } from "@/lib/admin-billing-search";
-import { osQueryKeys } from "@/lib/os-query-options";
+import {
+	billingOverviewQueryOptions,
+	osQueryKeys,
+} from "@/lib/os-query-options";
 
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { isLocalSession } from "@/lib/local-inference";
 import { LocalCapabilityNotice } from "@/components/local-capability-notice";
 
-const BillingUsageOverview = lazy(() =>
-	import("@/components/admin-billing-usage").then((mod) => ({
-		default: mod.BillingUsageOverview,
+const BillingCreditCaps = lazy(() =>
+	import("@/components/billing-credit-caps").then((module) => ({
+		default: module.BillingCreditCaps,
+	})),
+);
+
+const BillingTopUpSection = lazy(() =>
+	import("@/components/billing-top-up-section").then((module) => ({
+		default: module.BillingTopUpSection,
 	})),
 );
 
@@ -108,10 +100,6 @@ export function AdminBillingPage({
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.billing}</PageTitle>
-					<PageDescription>
-						See how many credits you have used this month, what used them, and
-						how many are left.
-					</PageDescription>
 				</PageHeading>
 			</PageHeader>
 			{isLocalSession() ? (
@@ -190,6 +178,11 @@ function AdminBillingBody({
 	onClearCheckout: () => void;
 }) {
 	const queryClient = useQueryClient();
+	const overview = useQuery({
+		...billingOverviewQueryOptions(),
+		staleTime: 30_000,
+		refetchInterval: 60_000,
+	});
 	// Capture the handshake before clearing the URL so the notice survives the
 	// replace navigation that removes ?checkout=.
 	const [checkoutNotice] = useState(checkout);
@@ -203,39 +196,58 @@ function AdminBillingBody({
 		onClearCheckout();
 	}, [checkout, onClearCheckout, queryClient]);
 
+	if (overview.isPending) return <BillingPagePending />;
+	if (overview.isError) {
+		return (
+			<LoadError
+				title="Billing could not be loaded"
+				error={overview.error}
+				onRetry={() => void overview.refetch()}
+			/>
+		);
+	}
+
 	return (
 		<>
 			{checkoutNotice && <CheckoutNotice state={checkoutNotice} />}
-
+			<BillingCreditUsage overview={overview.data} />
 			<Tabs
 				value={section}
 				onValueChange={(value) => onSectionChange(value as AdminBillingSection)}
 			>
 				<TabsList aria-label="Billing sections" variant="line">
-					<TabsTrigger value="usage">Usage</TabsTrigger>
-					<TabsTrigger value="subscription">Subscription</TabsTrigger>
-					<TabsTrigger value="invoices">Invoices &amp; documents</TabsTrigger>
+					<TabsTrigger value="overview">Overview</TabsTrigger>
+					<TabsTrigger value="plan">Plan</TabsTrigger>
+					<TabsTrigger value="credit-packs">Credit packs</TabsTrigger>
+					<TabsTrigger value="limits">Limits</TabsTrigger>
+					<TabsTrigger value="invoices">Invoices</TabsTrigger>
 				</TabsList>
-
-				<TabsContent value="usage" className="space-y-8 pt-4">
+				<TabsContent value="overview" className="pt-4">
+					<BillingCreditBalance credits={overview.data.credits} />
+				</TabsContent>
+				<TabsContent value="plan" className="pt-4">
 					<Suspense fallback={<LoadingArea className="h-32" />}>
-						<BillingUsageOverview />
+						<SubscriptionSection overview={overview.data} />
 					</Suspense>
 				</TabsContent>
-
-				<TabsContent value="subscription" className="space-y-8 pt-4">
-					{/* Checkout CONFLICTs render inside the section's mutation error. */}
+				<TabsContent value="credit-packs" className="pt-4">
 					<Suspense fallback={<LoadingArea className="h-32" />}>
-						<SubscriptionSection />
+						<BillingTopUpSection
+							isTest={overview.data.stripeEnvironment === "test"}
+						/>
 					</Suspense>
+				</TabsContent>
+				<TabsContent value="limits" className="space-y-6 pt-4">
 					<Suspense fallback={<LoadingArea className="h-32" />}>
 						<BillingPayAsYouGoSection />
+						<BillingCreditCaps credits={overview.data.credits} />
 					</Suspense>
 				</TabsContent>
-
 				<TabsContent value="invoices" className="pt-4">
 					<Suspense fallback={<LoadingArea className="h-32" />}>
-						<BillingDocumentsSection />
+						<BillingDocumentsSection
+							isTest={overview.data.stripeEnvironment === "test"}
+						/>
 					</Suspense>
 				</TabsContent>
 			</Tabs>

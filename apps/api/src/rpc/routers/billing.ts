@@ -1,4 +1,8 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
+import {
+	listDailyCreditUsage,
+	listPurchasedCreditPacks,
+} from "@tedix/db/queries/billing/dashboard";
 import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-usage";
 /**
  * Billing Router
@@ -585,6 +589,175 @@ const createPortalContract = os.createPortal
 // CREDITS
 // =============================================================================
 
+function billingOrganization(context: BaseContext): string {
+	requireManagedSettlement(context);
+	if (!context.organizationId) {
+		throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
+	}
+	return context.organizationId;
+}
+
+const DAY_MS = 86_400_000;
+
+const getDailyUsageContract = os.getDailyUsage
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:read", "billing:read"))
+	.handler(async ({ context, input }) => {
+		const organizationId = billingOrganization(context);
+		const now = new Date();
+		const midnight = Date.UTC(
+			now.getUTCFullYear(),
+			now.getUTCMonth(),
+			now.getUTCDate(),
+		);
+		const snapshot =
+			input.window === "month"
+				? await requireCreditPool(context, organizationId, now.toISOString())
+				: null;
+		const from =
+			snapshot?.periodStart ??
+			new Date(
+				midnight - (input.window === "30d" ? 29 : 6) * DAY_MS,
+			).toISOString();
+		const to =
+			snapshot && snapshot.periodEnd < now.toISOString()
+				? snapshot.periodEnd
+				: now.toISOString();
+		if (from >= to) return [];
+
+		const rows = await listDailyCreditUsage(context.db, {
+			organizationId,
+			from,
+			to,
+			periodStart: snapshot?.periodStart,
+		});
+		const total = rows.reduce((sum, row) => sum + row.credits, 0);
+		const days = new Map<
+			string,
+			{
+				day: string;
+				aiPercent: number;
+				codeRunPercent: number;
+				toolPercent: number;
+			}
+		>();
+		for (
+			let at = Date.parse(from.slice(0, 10));
+			at < Date.parse(to);
+			at += DAY_MS
+		) {
+			const day = new Date(at).toISOString().slice(0, 10);
+			days.set(day, { day, aiPercent: 0, codeRunPercent: 0, toolPercent: 0 });
+		}
+		for (const row of rows) {
+			const day = days.get(row.day);
+			if (!day || total === 0) continue;
+			const key =
+				row.kind === "ai"
+					? "aiPercent"
+					: row.kind === "code_run"
+						? "codeRunPercent"
+						: "toolPercent";
+			day[key] = (row.credits / total) * 100;
+		}
+		return [...days.values()];
+	});
+
+const listTopUpPurchasesContract = os.listTopUpPurchases
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context }) => {
+		return listPurchasedCreditPacks(context.db, billingOrganization(context));
+	});
+
+async function getStripeBillingCustomer(context: BaseContext) {
+	const organizationId = billingOrganization(context);
+	const environment = resolveStripeEnvironment(context.env);
+	const entitlement = await getBillingEntitlement(context.db, organizationId);
+	const account = entitlement?.account;
+	if (!account?.stripeCustomerId || account.stripeEnvironment !== environment)
+		return null;
+	const stripe = await getStripe(
+		getStripeEnvironmentConfig(context.env, environment).secretKey,
+	);
+	return {
+		stripe,
+		customerId: account.stripeCustomerId,
+		subscriptionId: account.stripeSubscriptionId,
+	};
+}
+
+const getPaymentDetailsContract = os.getPaymentDetails
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context }) => {
+		const billing = await getStripeBillingCustomer(context);
+		if (!billing) return { email: null, method: null };
+		const { stripe, customerId, subscriptionId } = billing;
+		const [customer, subscription] = await Promise.all([
+			stripe.customers.retrieve(customerId, {
+				expand: ["invoice_settings.default_payment_method"],
+			}),
+			subscriptionId
+				? stripe.subscriptions.retrieve(subscriptionId, {
+						expand: ["default_payment_method"],
+					})
+				: null,
+		]);
+		if (customer.deleted) return { email: null, method: null };
+		const method =
+			subscription?.default_payment_method ??
+			customer.invoice_settings.default_payment_method;
+		const paymentMethod = typeof method === "object" ? method : null;
+		const card = paymentMethod?.card;
+		const bankAccount =
+			paymentMethod?.sepa_debit ??
+			paymentMethod?.us_bank_account ??
+			paymentMethod?.bacs_debit;
+		return {
+			email: customer.email,
+			method: card
+				? `${card.brand.toUpperCase()} ending in ${card.last4}`
+				: bankAccount?.last4
+					? `Bank account ending in ${bankAccount.last4}`
+					: method || customer.default_source
+						? "Payment method on file"
+						: null,
+		};
+	});
+
+const listInvoicesContract = os.listInvoices
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context, input }) => {
+		const billing = await getStripeBillingCustomer(context);
+		if (!billing) return { invoices: [], nextCursor: null };
+		const page = await billing.stripe.invoices.list({
+			customer: billing.customerId,
+			limit: 25,
+			starting_after: input.cursor,
+		});
+		return {
+			invoices: page.data
+				.filter((invoice) => invoice.status !== "draft")
+				.map((invoice) => ({
+					id: invoice.id,
+					number: invoice.number,
+					issuedAt: new Date(
+						(invoice.status_transitions.finalized_at ?? invoice.created) * 1000,
+					).toISOString(),
+					amountMinor: invoice.total,
+					currency: invoice.currency,
+					url: invoice.hosted_invoice_url ?? null,
+				})),
+			nextCursor: page.has_more ? (page.data.at(-1)?.id ?? null) : null,
+		};
+	});
+
 const getOverviewContract = os.getOverview
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -1106,6 +1279,10 @@ export const billingContractRouter = os.router({
 	createTopUpCheckout: createTopUpCheckoutContract,
 	createPortal: createPortalContract,
 	getOverview: getOverviewContract,
+	getDailyUsage: getDailyUsageContract,
+	listTopUpPurchases: listTopUpPurchasesContract,
+	getPaymentDetails: getPaymentDetailsContract,
+	listInvoices: listInvoicesContract,
 	listPlans: listPlansContract,
 	listTopUpPacks: listTopUpPacksContract,
 	setCreditCaps: setCreditCapsContract,

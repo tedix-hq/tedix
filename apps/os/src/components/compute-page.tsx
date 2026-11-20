@@ -1,668 +1,392 @@
-import { BillingSectionHeader } from "@/components/billing-section-header";
-import type { ComputePosture } from "@tedix/api-contract/contracts/os-compute";
-import {
-	COST_PROVENANCE_DETAIL,
-	COST_PROVENANCE_PRODUCED_TODAY,
-	COST_PROVENANCE_SOURCE,
-	type CostProvenance,
-	CostProvenanceSchema,
-} from "@tedix/api-contract/schemas/cost-provenance";
-import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
-	LoadError,
-	Alert,
-	AlertDescription,
-	AlertTitle,
-} from "@/components/kumo/alert";
-import { Badge, type BadgeVariant } from "@/components/kumo/badge";
+	BillingTable,
+	billingSubjectRows,
+	type BillingSubjectGroup,
+} from "@/components/billing-table";
+import {
+	formatCreditPeriod,
+	formatResetDate,
+} from "@/components/billing-credit-usage";
+import { LoadError } from "@/components/kumo/alert";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-	CollapsibleDefaultTrigger,
 	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
 } from "@/components/kumo/collapsible";
+import { Empty } from "@/components/kumo/empty";
+import { Input } from "@/components/kumo/input";
+import { Link } from "@/components/kumo/link";
+import { Meter } from "@/components/kumo/meter";
+import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
-	Collection,
 	Page,
-	PageActions,
-	PageDescription,
 	PageHeader,
 	PageHeading,
-	PageSection,
 	PageTitle,
 } from "@/components/kumo/page";
 import {
-	SegmentedControl,
-	USAGE_PERIOD_OPTIONS,
-} from "@/components/kumo/segmented-control";
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { Surface } from "@/components/kumo/surface";
-import { Meter } from "@/components/kumo/meter";
+import { Switch } from "@/components/kumo/switch";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
-import { ListSkeleton } from "@/components/list-skeleton";
-import { LimitsSection } from "@/components/limits-section";
-import { ModelCatalogSection } from "@/components/model-catalog-card";
-import { queryReading } from "@/lib/cost-reading";
+import { LoadingArea } from "@/components/loading-area";
+import { RestrictedNotice } from "@/components/restricted-notice";
+import {
+	allowanceUsage,
+	type CreditUsage,
+	formatUsagePercent,
+	monthlyAllowanceCredits,
+	usagePercent,
+} from "@/lib/billing-credits";
+import { formatCount } from "@/lib/format";
 import {
 	billingOverviewQueryOptions,
 	computePostureQueryOptions,
+	osQuery,
 } from "@/lib/os-query-options";
-import {
-	type CreditUsage,
-	allowanceUsage,
-	creditsPaused,
-	formatUsagePercent,
-} from "@/lib/billing-credits";
-import { useOsFormattingPreferences, formatCount } from "@/lib/format";
-import { absoluteTime, relativeTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
-// ---------------------------------------------------------------------------
-// Pure helpers (exported for tests)
-// ---------------------------------------------------------------------------
+const UsageChart = lazy(() =>
+	import("@/components/usage-chart").then((module) => ({
+		default: module.UsageChart,
+	})),
+);
 
-type PostureTone = "ok" | "warn" | "bad" | "unknown";
+export type UsageTab = "overview" | "tedis" | "members";
+type UsageWindow = "month" | "30d" | "7d";
+const WINDOWS = {
+	month: "This month",
+	"30d": "Last 30 days",
+	"7d": "Last 7 days",
+} as const;
+const LABELS = {
+	aiPercent: "AI replies",
+	codeRunPercent: "Code runs",
+	toolPercent: "Tools",
+} as const;
 
-type ComputeSummaryProps = {
-	children: ReactNode;
-	embedded?: boolean;
-	spacious?: boolean;
-};
+export function ComputePage({
+	tab,
+	onTabChange,
+}: {
+	tab: UsageTab;
+	onTabChange: (tab: UsageTab) => void;
+}) {
+	const context = useOsOperationalContext();
+	const permissions = context.data?.authority.permissions;
+	const canRead = permissions?.includes("billing:read") ?? false;
+	const canManage = permissions?.includes("billing:manage") ?? false;
+	const overview = useQuery({
+		...billingOverviewQueryOptions(),
+		enabled: canRead,
+	});
 
-const TONE_VARIANTS: Record<PostureTone, BadgeVariant> = {
-	ok: "success",
-	warn: "warning",
-	bad: "destructive",
-	unknown: "outline",
-};
-
-function ComputeSummary({
-	children,
-	embedded = false,
-	spacious = false,
-}: ComputeSummaryProps) {
-	const className = `grid ${spacious ? "gap-2" : "gap-1.5"} px-4 py-3`;
-	if (embedded) return <div className={className}>{children}</div>;
 	return (
-		<Surface tier="panel" className={className}>
-			{children}
+		<Page width="xl">
+			<PageHeader>
+				<PageHeading>
+					<PageTitle>{OS_COPY.navigation.usage}</PageTitle>
+				</PageHeading>
+			</PageHeader>
+			{context.isPending ? (
+				<LoadingArea label="Loading usage" />
+			) : context.isError ? (
+				<LoadError
+					title="Usage is unavailable"
+					error={context.error}
+					onRetry={() => void context.refetch()}
+				/>
+			) : !canRead ? (
+				<RestrictedNotice
+					title="You don’t have access to usage"
+					description="Ask an organization owner for help."
+				/>
+			) : overview.isPending ? (
+				<LoadingArea label="Loading usage" />
+			) : overview.isError ? (
+				<LoadError
+					title="Usage could not be loaded"
+					error={overview.error}
+					onRetry={() => void overview.refetch()}
+				/>
+			) : (
+				<>
+					<UsageSummary credits={overview.data.credits} />
+					<Tabs
+						value={tab}
+						onValueChange={(value) => onTabChange(value as UsageTab)}
+					>
+						<TabsList aria-label="Usage sections" variant="line">
+							<TabsTrigger value="overview">Overview</TabsTrigger>
+							<TabsTrigger value="tedis">Tedis</TabsTrigger>
+							<TabsTrigger value="members">Members</TabsTrigger>
+						</TabsList>
+						<TabsContent value="overview" className="pt-4">
+							<UsageOverview />
+						</TabsContent>
+						<TabsContent value="tedis" className="pt-4">
+							<UsageSubjects group="tedis" credits={overview.data.credits} />
+						</TabsContent>
+						<TabsContent value="members" className="pt-4">
+							<UsageSubjects group="members" credits={overview.data.credits} />
+						</TabsContent>
+					</Tabs>
+					<UsageRecordDetails />
+					{canManage && (
+						<Link href="/admin/billing">
+							Exact credits, caps and invoices are on Billing
+						</Link>
+					)}
+				</>
+			)}
+		</Page>
+	);
+}
+
+function UsageSummary({ credits }: { credits: CreditUsage }) {
+	const usage = allowanceUsage(credits);
+	return (
+		<Surface className="grid gap-2 p-tedix-card">
+			<Meter
+				label={`${usage.label} of this month's credits used`}
+				value={usage.percent}
+				showValue={false}
+				getAriaValueText={() => usage.label}
+			/>
+			<Text tone="secondary">
+				{formatCreditPeriod(credits.periodStart, credits.periodEnd)} · Renews{" "}
+				{formatResetDate(credits.periodEnd)}
+			</Text>
 		</Surface>
 	);
 }
 
-/**
- * Freshness tone. `never_ingested` is deliberately NOT neutral — it is the
- * exact shape a week-long ingestion blackout wore while every dashboard read
- * "clean", so it tones as bad and says so rather than looking quiet.
- */
-export function freshnessTone(
-	state: ComputePosture["freshness"]["state"],
-): PostureTone {
-	switch (state) {
-		case "fresh":
-			return "ok";
-		case "ingestion_pending":
-			return "warn";
-		case "lagging":
-			return "warn";
-		case "dark":
-		case "never_ingested":
-			return "bad";
-	}
-}
-
-export function freshnessLabel(
-	state: ComputePosture["freshness"]["state"],
-): string {
-	switch (state) {
-		case "fresh":
-			return "Ingestion fresh";
-		case "ingestion_pending":
-			return "Ingestion pending";
-		case "lagging":
-			return "Ingestion lagging";
-		case "dark":
-			return "Ingestion dark";
-		case "never_ingested":
-			return "No rows ingested";
-	}
-}
-
-/**
- * Credential health tone. There is no `healthy` value to render: nothing stores
- * a passing probe, so the best available state is `evidenced_ok` — inferred
- * from rows actually arriving — and everything else is explicitly unattested.
- */
-export function credentialTone(
-	status: ComputePosture["credentialHealth"]["status"],
-): PostureTone {
-	switch (status) {
-		case "firing":
-			return "bad";
-		case "evidenced_ok":
-			return "ok";
-		case "unattested":
-			return "unknown";
-	}
-}
-
-export function credentialLabel(
-	status: ComputePosture["credentialHealth"]["status"],
-): string {
-	switch (status) {
-		case "firing":
-			return "Gateway credential drift";
-		case "evidenced_ok":
-			return "Credentials evidenced by ingestion";
-		case "unattested":
-			return "Credential health unattested";
-	}
-}
-
-/**
- * The full provenance legend, including labels that earned nothing.
- *
- * Every label in the vocabulary appears, because the interesting fact about
- * `provider_reported` is precisely that it is empty and structurally cannot be
- * anything else here. A legend that silently omitted it would leave the reader
- * believing the numbers above might be provider-reported.
- */
-export function provenanceLegend(buckets: ComputePosture["provenance"]): Array<{
-	provenance: CostProvenance;
-	bucket: ComputePosture["provenance"][number] | null;
-	producible: boolean;
-}> {
-	const byLabel = new Map(
-		buckets.map((bucket) => [bucket.provenance, bucket] as const),
+function UsageOverview() {
+	const [window, setWindow] = useState<UsageWindow>("month");
+	const usage = useQuery(
+		osQuery.billing.getDailyUsage.queryOptions({ input: { window } }),
 	);
-	return CostProvenanceSchema.options.map((provenance) => ({
-		provenance,
-		bucket: byLabel.get(provenance) ?? null,
-		producible: COST_PROVENANCE_PRODUCED_TODAY[provenance],
-	}));
-}
+	const days = usage.data ?? [];
+	const metrics = Object.entries(LABELS).map(([field, label]) => {
+		const key = field as keyof typeof LABELS;
+		return { label, total: days.reduce((sum, day) => sum + day[key], 0) };
+	});
 
-// ---------------------------------------------------------------------------
-// Pure presentational subcomponents (exported for tests)
-// ---------------------------------------------------------------------------
-
-export function LedgerCard({
-	posture,
-	embedded = false,
-}: {
-	posture: ComputePosture;
-	embedded?: boolean;
-}) {
-	useOsFormattingPreferences();
-	const tone = freshnessTone(posture.freshness.state);
 	return (
-		<ComputeSummary embedded={embedded}>
-			<div className="flex flex-wrap items-center gap-2">
-				<Text as="strong" role="body" weight="medium" tone="strong">
-					AI call record
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<Text as="h2" role="section" weight="semibold">
+					Share of credits used
 				</Text>
-				<Badge variant={TONE_VARIANTS[tone]} data-tone={tone}>
-					{freshnessLabel(posture.freshness.state)}
-				</Badge>
-				<Badge variant="secondary">
-					<span className="tabular-nums">
-						{formatCount(posture.spend.rowCount)} calls in {posture.window}
-					</span>
-				</Badge>
+				<Select
+					items={WINDOWS}
+					value={window}
+					onValueChange={(value) => value && setWindow(value)}
+				>
+					<SelectTrigger aria-label="Period">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{Object.entries(WINDOWS).map(([value, label]) => (
+							<SelectItem key={value} value={value}>
+								{label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
 			</div>
-			<Text as="span" role="label" tone="secondary">
-				{posture.freshness.detail}
-			</Text>
-			{posture.freshness.lastRowAt !== null && (
-				<Text as="span" role="label" tone="secondary">
-					Newest row{" "}
-					<time
-						dateTime={posture.freshness.lastRowAt}
-						title={absoluteTime(posture.freshness.lastRowAt)}
+			{usage.isPending ? (
+				<LoadingArea label="Loading daily usage" />
+			) : usage.isError ? (
+				<LoadError
+					title="Daily usage could not be loaded"
+					error={usage.error}
+					onRetry={() => void usage.refetch()}
+				/>
+			) : metrics.every(({ total }) => total === 0) ? (
+				<Empty title="No usage in this period" />
+			) : (
+				<>
+					<MetricGrid
+						columns={3}
+						appearance="bounded"
+						aria-label="Share by activity"
 					>
-						{relativeTime(posture.freshness.lastRowAt)}
-					</time>{" "}
-					· {formatCount(posture.freshness.rowsLast24h)} in 24h ·{" "}
-					{formatCount(posture.freshness.rowsLast30d)} in 30d
-				</Text>
+						{metrics.map(({ label, total }) => (
+							<MetricItem
+								key={label}
+								label={label}
+								value={total > 0 && total < 1 ? "<1%" : `${Math.round(total)}%`}
+							/>
+						))}
+					</MetricGrid>
+					<Suspense fallback={<LoadingArea label="Loading chart" />}>
+						<UsageChart days={days} />
+					</Suspense>
+				</>
 			)}
-			<Text as="span" role="label" tone="secondary">
-				AI calls recorded for this organization. Their share of this month's
-				credits is part of Credits this month.{" "}
-				{formatCount(posture.spend.pricedRowCount)} priced calls ·{" "}
-				{formatCount(posture.spend.unpricedRowCount)} unpriced calls.
-			</Text>
-			{posture.spend.quarantinedRowCount > 0 && (
-				<Text as="span" role="label" tone="secondary">
-					{formatCount(posture.spend.quarantinedRowCount)} call
-					{posture.spend.quarantinedRowCount === 1 ? " is" : "s are"} held for
-					review.
-				</Text>
-			)}
-		</ComputeSummary>
+		</div>
 	);
 }
 
-export function ProvenanceCard({
-	posture,
-	embedded = false,
-}: {
-	posture: ComputePosture;
-	embedded?: boolean;
-}) {
-	useOsFormattingPreferences();
-	const legend = provenanceLegend(posture.provenance);
-	const details = (
-		<ul className="m-0 grid gap-2 p-0">
-			{legend.map((entry) => (
-				<li key={entry.provenance} className="grid gap-0.5 list-none">
-					<div className="flex flex-wrap items-center gap-2">
-						<Text as="span" role="label" weight="medium" tone="strong">
-							{entry.provenance.replaceAll("_", " ")}
-						</Text>
-						{entry.bucket === null ? (
-							<Badge
-								variant="outline"
-								data-cost-provenance={entry.provenance}
-								data-produced={entry.producible ? "possible" : "never"}
-							>
-								{entry.producible
-									? "no rows in this window"
-									: "never produced here"}
-							</Badge>
-						) : (
-							<Badge
-								variant="secondary"
-								data-cost-provenance={entry.provenance}
-								data-produced="yes"
-							>
-								<span className="tabular-nums">
-									{formatCount(entry.bucket.rowCount)} calls
-								</span>
-							</Badge>
-						)}
-					</div>
-					<Text as="span" role="label" tone="secondary">
-						{COST_PROVENANCE_DETAIL[entry.provenance]}
-					</Text>
-					<Text
-						as="span"
-						className="opacity-70"
-						role="caption"
-						tone="secondary"
-					>
-						Read from {COST_PROVENANCE_SOURCE[entry.provenance]}
-					</Text>
-				</li>
-			))}
-		</ul>
-	);
-	return (
-		<ComputeSummary embedded={embedded} spacious>
-			<Collapsible>
-				<CollapsibleTrigger className="w-full justify-between px-0 text-kumo-default">
-					<Text as="span" role="label" weight="medium" tone="strong">
-						Where these numbers come from
-					</Text>
-					<Badge variant="outline">{legend.length} sources</Badge>
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted className="pt-3">
-					{details}
-				</CollapsibleContent>
-			</Collapsible>
-		</ComputeSummary>
-	);
-}
-
-/**
- * Credits this month for the organization, from `billing.getOverview`. The
- * same numbers as Billing; every limit is monthly.
- */
-export function CreditsCard({
+function UsageSubjects({
 	credits,
-	embedded = false,
+	group,
 }: {
 	credits: CreditUsage;
-	embedded?: boolean;
+	group: BillingSubjectGroup;
 }) {
-	useOsFormattingPreferences();
-	const paused = creditsPaused(credits);
-	const usage = allowanceUsage(credits);
-	const used = credits.usedCredits;
-	return (
-		<ComputeSummary embedded={embedded}>
-			<div className="flex flex-wrap items-center gap-2">
-				<Text as="strong" role="body" weight="medium" tone="strong">
-					Credits this month
-				</Text>
-				<Badge
-					variant={paused ? "destructive" : "info"}
-					data-tone={paused ? "bad" : "ok"}
-				>
-					{paused ? "Out of credits" : "Available"}
-				</Badge>
-			</div>
-			{paused && (
-				<Text role="label" tone="error" className="m-0">
-					New work that uses credits has stopped until the credits renew.
-				</Text>
-			)}
-			<Text
-				as="span"
-				role="metric"
-				weight="semibold"
-				className="tabular-nums"
-				data-credit-percent={usage.percent}
-			>
-				{usage.label} used this month
-			</Text>
-			<Meter
-				label="Share of this month's credits used"
-				hideLabel
-				value={usage.percent}
-				getAriaValueText={() => usage.label}
-			/>
-			<Text as="span" role="label" tone="secondary">
-				Of your plan's monthly credits
-				{credits.topUpCredits > 0 ? " plus credit packs" : ""}.
-			</Text>
-			{used > 0 && (
-				<Text as="span" role="label" tone="secondary">
-					AI {formatUsagePercent(credits.breakdown.ai, used)} · Code runs{" "}
-					{formatUsagePercent(credits.breakdown.codeRuns, used)} · Services{" "}
-					{formatUsagePercent(credits.breakdown.services, used)}
-				</Text>
-			)}
-			<Text as="span" className="opacity-70" role="caption" tone="secondary">
-				Exact credit counts, caps, credit packs, and pay-as-you-go are in{" "}
-				<Link href="/admin/billing">Billing</Link>.
-			</Text>
-		</ComputeSummary>
-	);
-}
-
-function CreditsUnavailable({ refused }: { refused: boolean }) {
-	return (
-		<ComputeSummary embedded>
-			<Text as="strong" role="body" weight="medium" tone="strong">
-				Credits this month
-			</Text>
-			<Text as="span" role="label" tone="secondary">
-				{refused
-					? "Credits are shown to people who can view billing."
-					: "Credits could not be read. They are unknown, not zero."}
-			</Text>
-		</ComputeSummary>
-	);
-}
-
-export function RoutingCard({
-	posture,
-	embedded = false,
-}: {
-	posture: ComputePosture;
-	embedded?: boolean;
-}) {
-	return (
-		<ComputeSummary embedded={embedded}>
-			<div className="flex flex-wrap items-center gap-2">
-				<Text as="strong" role="body" weight="medium" tone="strong">
-					Routing
-				</Text>
-				<Badge
-					variant={posture.routing.modelRef ? "info" : "outline"}
-					title={posture.routing.modelRef ?? undefined}
-				>
-					{posture.routing.modelRef ? "Auto" : "No model selected"}
-				</Badge>
-				<Badge variant="secondary">
-					{posture.routing.allowedCount} allowed
-				</Badge>
-				{posture.routing.deniedCount > 0 && (
-					<Badge variant="outline">{posture.routing.deniedCount} denied</Badge>
-				)}
-			</div>
-			<Text as="span" role="label" tone="secondary">
-				{posture.routing.detail}
-			</Text>
-			<Text as="span" role="label" tone="secondary">
-				{posture.routing.observedProviders.length > 0
-					? `Served in this window by ${posture.routing.observedProviders.join(" · ")}`
-					: "No provider served a call in this window."}
-			</Text>
-			{posture.routing.fallbackDetail !== null && (
-				<Text
-					role="label"
-					tone="warning"
-					className="m-0"
-					data-testid="routing-fallback"
-				>
-					{posture.routing.fallbackDetail}
-				</Text>
-			)}
-		</ComputeSummary>
-	);
-}
-
-export function HealthCard({
-	posture,
-	embedded = false,
-}: {
-	posture: ComputePosture;
-	embedded?: boolean;
-}) {
-	useOsFormattingPreferences();
-	const tone = credentialTone(posture.credentialHealth.status);
-	return (
-		<ComputeSummary embedded={embedded}>
-			<div className="flex flex-wrap items-center gap-2">
-				<Text as="strong" role="body" weight="medium" tone="strong">
-					Credentials and policy
-				</Text>
-				<Badge
-					variant={TONE_VARIANTS[tone]}
-					data-tone={tone}
-					data-credential-status={posture.credentialHealth.status}
-				>
-					{credentialLabel(posture.credentialHealth.status)}
-				</Badge>
-				<Badge variant="outline" data-provider-health="unknown">
-					Provider health unknown
-				</Badge>
-			</div>
-			<Text as="span" role="label" tone="secondary">
-				{posture.credentialHealth.detail}
-			</Text>
-			<Text as="span" role="label" tone="secondary">
-				{posture.providerHealth.detail}
-			</Text>
-			<Text as="span" role="label" tone="secondary">
-				{posture.admissionPolicy.detail}
-			</Text>
-		</ComputeSummary>
-	);
-}
-
-export function AttributionCard({
-	posture,
-	embedded = false,
-}: {
-	posture: ComputePosture;
-	embedded?: boolean;
-}) {
-	useOsFormattingPreferences();
-	const gap = posture.attribution;
-	return (
-		<ComputeSummary embedded={embedded}>
-			<div className="flex flex-wrap items-center gap-2">
-				<Text as="strong" role="body" weight="medium" tone="strong">
-					Unattributed calls
-				</Text>
-				<Badge
-					variant={gap.unattributedRowCount > 0 ? "warning" : "outline"}
-					data-unattributed-rows={gap.unattributedRowCount}
-				>
-					{gap.unattributedRowCount === 0
-						? "None in scope"
-						: `${formatCount(gap.unattributedRowCount)} calls`}
-				</Badge>
-			</div>
-			<Text as="span" role="label" tone="secondary">
-				{gap.detail}
-			</Text>
-		</ComputeSummary>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Query container
-// ---------------------------------------------------------------------------
-
-/**
- * Compute and Models — the OS's answer to "what is this costing, and can I
- * trust the number".
- *
- * One read of `osCompute.posture`, whose every field is already labeled by the
- * API. This container adds no arithmetic: it renders the labels, and it keeps
- * pending, refused, broken and empty as four distinct branches, because
- * collapsing them lets a dead ingestion pipeline render as a clean $0.
- */
-export function ComputePage() {
-	const [window, setWindow] = useState<ComputePosture["window"]>("7d");
-	const posture = useQuery({
-		...computePostureQueryOptions(window),
-		staleTime: 60_000,
-	});
-	const nonData = queryReading(posture);
-	const overview = useQuery({
-		...billingOverviewQueryOptions(),
-		staleTime: 60_000,
-	});
-	const credits = overview.data?.credits;
-	const creditsReading = queryReading(overview);
+	const [search, setSearch] = useState("");
+	const [showUnused, setShowUnused] = useState(false);
+	const [mostFirst, setMostFirst] = useState(true);
+	const allowance = monthlyAllowanceCredits(credits);
+	const searchTerm = search.trim().toLowerCase();
+	const rows = billingSubjectRows(credits, group)
+		.filter(
+			(row) =>
+				(showUnused || row.usedCredits > 0) &&
+				row.name.toLowerCase().includes(searchTerm),
+		)
+		.sort(
+			(a, b) =>
+				(mostFirst
+					? b.usedCredits - a.usedCredits
+					: a.usedCredits - b.usedCredits) || a.name.localeCompare(b.name),
+		);
 
 	return (
-		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{OS_COPY.navigation.usage}</PageTitle>
-					<PageDescription>
-						Share of this month's credits used, recorded AI calls, and model
-						routing. For your plan, caps, credit packs, and invoices, open{" "}
-						<Link href="/admin/billing">Billing</Link>.
-					</PageDescription>
-				</PageHeading>
-				<PageActions>
-					<SegmentedControl
-						ariaLabel="Cost window"
-						value={window}
-						onValueChange={setWindow}
-						options={USAGE_PERIOD_OPTIONS}
-						compact
-					/>
-				</PageActions>
-			</PageHeader>
-
-			<PageSection>
-				<BillingSectionHeader
-					title="Credits and calls"
-					description="Share of this month's credits used, recorded AI calls, record freshness, and where the figures come from."
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-center gap-4">
+				<Input
+					aria-label="Search by name"
+					placeholder="Search by name"
+					value={search}
+					onChange={(event) => setSearch(event.target.value)}
 				/>
-				{posture.isPending && <ListSkeleton rows={3} rowClassName="h-24" />}
-				{nonData?.kind === "refused" && (
-					<Alert>
-						<AlertTitle>Usage is not visible to this account</AlertTitle>
-						<AlertDescription>
-							Reading compute posture needs the OS read verb on this workspace.
-							Nothing here is zero — the read was refused, not empty.
-						</AlertDescription>
-					</Alert>
-				)}
-				{nonData?.kind === "broken" && (
-					<LoadError
-						title="The compute posture is unavailable"
-						error={nonData.message}
-						help="Usage information is unknown until this loads."
-					/>
-				)}
-				{posture.data && (
-					<Collection
-						aria-label="Cost and budget status"
-						className="[&>li]:min-w-0"
-					>
-						<li>
-							<LedgerCard posture={posture.data} embedded />
-						</li>
-						<li>
-							{credits ? (
-								<CreditsCard credits={credits} embedded />
-							) : overview.isPending ? (
-								<ListSkeleton rows={1} rowClassName="h-16" />
-							) : (
-								<CreditsUnavailable
-									refused={creditsReading?.kind === "refused"}
+				<label className="flex items-center gap-2">
+					<Switch checked={showUnused} onCheckedChange={setShowUnused} /> Show
+					unused
+				</label>
+				<Select
+					items={{ most: "Highest share first", least: "Lowest share first" }}
+					value={mostFirst ? "most" : "least"}
+					onValueChange={(value) => setMostFirst(value !== "least")}
+				>
+					<SelectTrigger aria-label="Sort by share">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="most">Highest share first</SelectItem>
+						<SelectItem value="least">Lowest share first</SelectItem>
+					</SelectContent>
+				</Select>
+			</div>
+			<BillingTable
+				key={JSON.stringify([searchTerm, showUnused, mostFirst])}
+				data={rows}
+				rowKey="id"
+				emptyTitle="No matching usage"
+				emptyMessage={
+					showUnused
+						? "Try a different name."
+						: "Turn on Show unused to include people or tedis with no usage."
+				}
+				columns={[
+					{ header: "Name", accessor: "name" },
+					{
+						header: "Share of monthly credits",
+						accessor: (row) => (
+							<div className="flex min-w-28 items-center gap-3">
+								<Text as="span" className="tabular-nums">
+									{formatUsagePercent(row.usedCredits, allowance)}
+								</Text>
+								<Meter
+									label={`Share used by ${row.name}`}
+									hideLabel
+									value={usagePercent(row.usedCredits, allowance)}
+									getAriaValueText={() =>
+										formatUsagePercent(row.usedCredits, allowance)
+									}
+									className="w-16"
 								/>
-							)}
-						</li>
-						<li>
-							<ProvenanceCard posture={posture.data} embedded />
-						</li>
-						<li>
-							<AttributionCard posture={posture.data} embedded />
-						</li>
-					</Collection>
-				)}
-			</PageSection>
+							</div>
+						),
+					},
+					{
+						header: "Cap",
+						accessor: (row) =>
+							row.monthlyCapCredits === null
+								? "No cap"
+								: row.usedCredits >= row.monthlyCapCredits
+									? "Cap reached"
+									: `Cap: ${formatUsagePercent(row.monthlyCapCredits - row.usedCredits, row.monthlyCapCredits)} left`,
+					},
+				]}
+			/>
+		</div>
+	);
+}
 
-			<Collapsible className="space-y-4">
-				<CollapsibleDefaultTrigger>
-					Advanced usage diagnostics
-				</CollapsibleDefaultTrigger>
-				<CollapsibleDefaultContent keepMounted>
-					<div className="space-y-6">
-						{credits && <LimitsSection credits={credits} />}
-
-						<PageSection>
-							<BillingSectionHeader
-								title="Routing and models"
-								description="Selected model, allowed catalog, observed providers, and fallback."
-							/>
-							<Collection
-								aria-label="Routing and model status"
-								className="[&>li]:min-w-0"
-							>
-								{posture.data && (
-									<li>
-										<RoutingCard posture={posture.data} embedded />
-									</li>
-								)}
-								<li>
-									<ModelCatalogSection embedded />
-								</li>
-							</Collection>
-						</PageSection>
-
-						<PageSection>
-							<BillingSectionHeader
-								title="Admission health"
-								description="Credential evidence, provider visibility, and the admission policy."
-							/>
-							{posture.data && (
-								<Collection
-									aria-label="Admission health status"
-									className="[&>li]:min-w-0"
-								>
-									<li>
-										<HealthCard posture={posture.data} embedded />
-									</li>
-								</Collection>
-							)}
-						</PageSection>
-					</div>
-				</CollapsibleDefaultContent>
-			</Collapsible>
-		</Page>
+function UsageRecordDetails() {
+	const [open, setOpen] = useState(false);
+	const posture = useQuery({
+		...computePostureQueryOptions("30d"),
+		enabled: open,
+	});
+	return (
+		<Collapsible open={open} onOpenChange={setOpen}>
+			<CollapsibleDefaultTrigger>
+				How these figures are recorded
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent>
+				<div className="grid gap-2 pt-2">
+					<Text tone="secondary">
+						Credits are counted when AI replies, code runs and tools finish.
+					</Text>
+					{posture.isPending ? (
+						<LoadingArea label="Loading call records" />
+					) : posture.isError ? (
+						<Text tone="secondary">
+							Call records are unavailable right now.
+						</Text>
+					) : (
+						<>
+							<Text tone="secondary">
+								{posture.data.freshness.lastRowAt
+									? `Latest AI call recorded on ${formatResetDate(posture.data.freshness.lastRowAt)}.`
+									: "No AI calls have been recorded yet."}
+							</Text>
+							<Text tone="secondary">
+								{formatCount(
+									posture.data.provenance.filter(
+										(source) => source.rowCount > 0,
+									).length,
+								)}{" "}
+								sources in the last 30 days.
+							</Text>
+							<Text tone="secondary">
+								{formatCount(posture.data.attribution.unattributedRowCount)}{" "}
+								calls were recorded without a linked session in the last 30
+								days.
+							</Text>
+						</>
+					)}
+				</div>
+			</CollapsibleDefaultContent>
+		</Collapsible>
 	);
 }

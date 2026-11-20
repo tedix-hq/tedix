@@ -7,6 +7,8 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUpRight } from "@phosphor-icons/react";
+import { BillingTable } from "@/components/billing-table";
+import { formatResetDate } from "@/components/billing-credit-usage";
 import { LoadingArea } from "@/components/loading-area";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
@@ -22,7 +24,7 @@ import { osApi } from "@/lib/api";
 import { type CreditTopUpPack, formatCredits } from "@/lib/billing-credits";
 import { formatBillingAmount } from "@/lib/billing-price";
 import { errorMessage } from "@/lib/orpc-error";
-import { billingTopUpPacksQueryOptions } from "@/lib/os-query-options";
+import { billingTopUpPacksQueryOptions, osQuery } from "@/lib/os-query-options";
 
 function topUpReturnUrl(state: "topup-success" | "topup-cancelled") {
 	return `${window.location.origin}/admin/billing?checkout=${state}`;
@@ -30,6 +32,7 @@ function topUpReturnUrl(state: "topup-success" | "topup-cancelled") {
 
 export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 	const packsQuery = useQuery(billingTopUpPacksQueryOptions());
+	const history = useQuery(osQuery.billing.listTopUpPurchases.queryOptions({}));
 	const checkoutMutation = useMutation({
 		mutationFn: (packKey: string) =>
 			osApi.billing.createTopUpCheckout({
@@ -104,6 +107,34 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 						</AlertDescription>
 					</Alert>
 				)}
+				<Text as="h3" role="section" weight="semibold">
+					Purchase history
+				</Text>
+				<BillingTable
+					data={history.data ?? []}
+					rowKey="id"
+					isLoading={history.isPending}
+					error={
+						history.isError ? "Purchase history could not be loaded." : null
+					}
+					onRetry={() => void history.refetch()}
+					emptyTitle="No credit packs purchased"
+					emptyMessage="Your purchases will appear here."
+					columns={[
+						{
+							header: "Purchased",
+							accessor: (row) => formatResetDate(row.purchasedAt, true),
+						},
+						{
+							header: "Credits",
+							accessor: (row) => formatCredits(row.credits),
+						},
+						{
+							header: "Expires",
+							accessor: (row) => formatResetDate(row.expiresAt, true),
+						},
+					]}
+				/>
 			</SettingsSectionContent>
 		</SettingsSection>
 	);

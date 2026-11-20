@@ -59,6 +59,7 @@
 		"./queries/billing/model-fit-report": "./src/queries/billing/model-fit-report.ts",
 		"./queries/billing/cost-rollups": "./src/queries/billing/cost-rollups.ts",
 		"./queries/billing/gateway-reconciliation": "./src/queries/billing/gateway-reconciliation.ts",
+		"./queries/billing/dashboard": "./src/queries/billing/dashboard.ts",
 		"./queries/billing/credit-pool": "./src/queries/billing/credit-pool.ts",
 		"./queries/billing/credit-notice-deliveries": "./src/queries/billing/credit-notice-deliveries.ts",
 		"./schema/provider-events": "./src/schema/provider-events.ts",

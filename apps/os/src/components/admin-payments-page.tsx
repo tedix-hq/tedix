@@ -146,7 +146,7 @@ export function AdminPaymentsPage({
 		<Page width="full">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Payments</PageTitle>
+					<PageTitle>Agent payments</PageTitle>
 					<PageDescription>
 						Review paid tool spending, budgets, and receipts.
 					</PageDescription>

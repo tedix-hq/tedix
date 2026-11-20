@@ -1,350 +1,292 @@
-/**
- * Subscription and billing section, shared by the organization settings page
- * and the billing surface — both mount this
- * one component and read current entitlement state through canonical
- * `billing.getOverview`; `billing.listPlans` supplies checkout choices only.
- *
- * Checkout and portal are Stripe-hosted: both mutations end in a full-page
- * `window.location` handoff, so there is nothing to invalidate here. Both
- * flows return to `/admin/billing` on THIS tenant origin — the explicit
- * successUrl/cancelUrl/returnUrl below override the server default (which
- * points at the same route but cannot know which OS hostname the operator is
- * on), and `?checkout=success|cancelled` drives the return handshake in
- * `admin-billing-page.tsx` (invalidate + notice).
- */
-
-import { errorMessage } from "@/lib/orpc-error";
-import { LoadingArea } from "@/components/loading-area";
-import { BillingSectionHeader } from "@/components/billing-section-header";
+import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, FileText, Info, Sparkle } from "@phosphor-icons/react";
-import {
-	LoadError,
-	Alert,
-	AlertDescription,
-	AlertTitle,
-} from "@/components/kumo/alert";
+import { useState } from "react";
+import { BillingSectionHeader } from "@/components/billing-section-header";
+import { formatResetDate } from "@/components/billing-credit-usage";
+import { BILLING_PAGE_SIZE } from "@/components/billing-table";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	SettingsSection,
-	SettingsSectionContent,
-} from "@/components/kumo/page";
+import { DataTable } from "@/components/kumo/data-table";
+import { Link } from "@/components/kumo/link";
+import { Pagination } from "@/components/kumo/pagination";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
+import { LoadingArea } from "@/components/loading-area";
 import { osApi } from "@/lib/api";
-import {
-	type CreditPlan,
-	creditsInEuros,
-	formatCredits,
-} from "@/lib/billing-credits";
-import { formatBillingAmount } from "@/lib/billing-price";
-import {
-	billingOverviewQueryOptions,
-	billingPlansQueryOptions,
-} from "@/lib/os-query-options";
+import { formatCredits, type CreditPlan } from "@/lib/billing-credits";
+import { formatBillingAmount, formatCurrencyAmount } from "@/lib/billing-price";
+import { errorMessage } from "@/lib/orpc-error";
+import { billingPlansQueryOptions, osQuery } from "@/lib/os-query-options";
 
-/**
- * Stripe return destination on the CURRENT tenant origin. Built from
- * `window.location.origin`, not a configured base URL: every `{slug}.os`
- * hostname serves this SPA and the flow must land back on the org it left.
- */
-function billingReturnUrl(
-	state?: "success" | "cancelled",
-	section: "subscription" | "invoices" = "subscription",
-): string {
-	const search = new URLSearchParams({ section });
+const STATUSES = {
+	trial: "Trial",
+	active: "Active",
+	past_due: "Payment overdue",
+	cancelled: "Cancelled",
+	suspended: "Suspended",
+};
+
+function billingReturnUrl(state?: "success" | "cancelled") {
+	const search = new URLSearchParams({ tab: "plan" });
 	if (state) search.set("checkout", state);
-	return `${window.location.origin}/admin/billing?${search.toString()}`;
+	return `${window.location.origin}/admin/billing?${search}`;
 }
 
-/** What a plan card lists, in plain words. */
-export function planCardFeatures(plan: CreditPlan): string[] {
-	if (plan.key === "enterprise") {
-		return [
-			`${formatCredits(plan.includedCredits)} a month by default`,
-			"Monthly credits set in your contract",
-			"Credit packs and pay-as-you-go available",
-		];
-	}
-	return [
-		`${formatCredits(plan.includedCredits)} a month (worth ${creditsInEuros(plan.includedCredits)})`,
-		"Unused included credits do not carry over",
-		plan.priceMicros === 0
-			? "Credit packs available"
-			: "Credit packs and pay-as-you-go available",
-	];
+function planPrice(plan: CreditPlan) {
+	return plan.priceMicros === 0
+		? "Free"
+		: `${formatBillingAmount(plan.priceMicros, plan.currency)} a month`;
 }
 
-function planPriceLabel(plan: CreditPlan): string {
-	if (plan.priceMicros === 0) return "Free";
-	const amount = formatBillingAmount(plan.priceMicros, plan.currency);
-	return plan.key === "enterprise" ? `From ${amount}` : amount;
-}
-
-export function SubscriptionSection() {
-	const plansQuery = useQuery(billingPlansQueryOptions());
-	const overviewQuery = useQuery(billingOverviewQueryOptions());
-
-	const checkoutMutation = useMutation({
-		mutationFn: (selectedTier: "growth" | "business" | "enterprise") =>
+export function SubscriptionSection({
+	overview,
+}: {
+	overview: BillingOverview;
+}) {
+	const { account, plan, credits } = overview;
+	const hasContract =
+		plan.key === "enterprise" ||
+		account.billingMode === "invoice" ||
+		account.billingMode === "internal" ||
+		credits.includedCredits !== plan.includedCredits;
+	const testMode = overview.stripeEnvironment === "test";
+	const plans = useQuery({
+		...billingPlansQueryOptions(),
+		enabled: !hasContract,
+	});
+	const checkout = useMutation({
+		mutationFn: (tier: "growth" | "business") =>
 			osApi.billing.createCheckout({
-				tier: selectedTier,
+				tier,
 				interval: "month",
 				successUrl: billingReturnUrl("success"),
 				cancelUrl: billingReturnUrl("cancelled"),
 			}),
-		onSuccess: (data) => {
-			window.location.href = data.checkoutUrl;
+		onSuccess: ({ checkoutUrl }) => {
+			window.location.href = checkoutUrl;
 		},
 	});
-
-	if (plansQuery.isPending || overviewQuery.isPending) {
-		return (
-			<SettingsSection>
-				<BillingSectionHeader title="Plan &amp; billing" />
-				<SettingsSectionContent>
-					<LoadingArea className="h-24" label="Loading plan" />
-				</SettingsSectionContent>
-			</SettingsSection>
-		);
-	}
-
-	if (
-		plansQuery.isError ||
-		overviewQuery.isError ||
-		!plansQuery.data ||
-		!overviewQuery.data
-	) {
-		return (
-			<SettingsSection>
-				<BillingSectionHeader title="Plan &amp; billing" />
-				<SettingsSectionContent>
-					<LoadError
-						title="Billing is unavailable"
-						error={plansQuery.error ?? overviewQuery.error}
-						onRetry={() => {
-							void plansQuery.refetch();
-							void overviewQuery.refetch();
-						}}
-						retrying={plansQuery.isFetching || overviewQuery.isFetching}
-					/>
-				</SettingsSectionContent>
-			</SettingsSection>
-		);
-	}
-
-	const plans: CreditPlan[] = plansQuery.data;
-	const overview = overviewQuery.data;
-	const isStripeTestMode = overview.stripeEnvironment === "test";
-	const tier = overview.plan.key;
-	const status = overview.account.status;
+	const portal = useMutation({
+		mutationFn: () =>
+			osApi.billing.createPortal({ returnUrl: billingReturnUrl() }),
+		onSuccess: ({ portalUrl }) => {
+			window.location.href = portalUrl;
+		},
+	});
+	const alternatives = plans.data?.filter(
+		({ key }) => (key === "growth" || key === "business") && key !== plan.key,
+	);
 
 	return (
-		<SettingsSection>
-			<BillingSectionHeader
-				title="Plan &amp; billing"
-				description="Each plan includes a number of Tedix credits every month. 1 credit = €0.01."
-			/>
-			<SettingsSectionContent className="space-y-6">
-				{isStripeTestMode && (
-					<Alert>
-						<Info aria-hidden />
-						<AlertTitle>Billing test mode</AlertTitle>
-						<AlertDescription>
-							Checkout, subscriptions, invoices, and the billing portal use test
-							data. No real payment method will be charged. Credits used by your
-							tedis are real usage records.
-						</AlertDescription>
-					</Alert>
+		<div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+			<div className="grid content-start gap-4">
+				<Surface className="grid gap-2 p-tedix-card">
+					<BillingSectionHeader
+						title={plan.name}
+						description="Current plan"
+						actions={
+							<Badge variant="secondary">{STATUSES[account.status]}</Badge>
+						}
+					/>
+					{!(hasContract && plan.priceMicros === 0) && (
+						<Text weight="medium">{planPrice(plan)}</Text>
+					)}
+					<Text>{formatCredits(credits.includedCredits)} a month</Text>
+					<Text tone="secondary">
+						{account.status === "trial" ? "Trial ends" : "Renews"}{" "}
+						{formatResetDate(account.periodEnd)}
+					</Text>
+					{hasContract && (
+						<Text tone="secondary">
+							Your contract sets your credits. Contact your account team to
+							discuss changes.
+						</Text>
+					)}
+				</Surface>
+				{testMode && (
+					<Text tone="secondary">
+						Billing is in test mode. Payments here use test data.
+					</Text>
 				)}
-
-				{(status === "trial" ||
-					status === "suspended" ||
-					status === "past_due" ||
-					tier === "starter") && (
-					<div className="space-y-4">
-						<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-							{plans.map((plan) => {
-								const isCurrent = plan.key === tier;
-								const popular = plan.key === "business";
-								const paidKey = plan.key === "starter" ? null : plan.key;
-								return (
-									<Surface
-										key={plan.key}
-										data-plan={plan.key}
-										className={`relative p-4 ${
-											popular ? "border-kumo-brand ring-1 ring-kumo-brand" : ""
-										}`}
+				{!hasContract && plans.isPending && (
+					<LoadingArea label="Loading plans" />
+				)}
+				{plans.isError && !hasContract && (
+					<LoadError
+						title="Plans could not be loaded"
+						error={plans.error}
+						onRetry={() => void plans.refetch()}
+					/>
+				)}
+				{!hasContract && !!alternatives?.length && (
+					<div className="grid gap-3">
+						<Text as="h3" role="section" weight="semibold">
+							{account.hasStripeCustomer ? "Change plan" : "Choose a plan"}
+						</Text>
+						<div className="grid gap-3 sm:grid-cols-2">
+							{alternatives.map((option) => (
+								<Surface key={option.key} className="grid gap-2 p-tedix-card">
+									<Text weight="semibold">{option.name}</Text>
+									<Text>{planPrice(option)}</Text>
+									<Text tone="secondary">
+										{formatCredits(option.includedCredits)} a month
+									</Text>
+									<Button
+										variant="outline"
+										disabled={portal.isPending || checkout.isPending}
+										onClick={() => {
+											if (account.hasStripeCustomer) portal.mutate();
+											else if (
+												option.key === "growth" ||
+												option.key === "business"
+											)
+												checkout.mutate(option.key);
+										}}
 									>
-										{popular && (
-											<div className="-top-2.5 -translate-x-1/2 absolute left-1/2">
-												<Badge variant="default" className="gap-1">
-													<Sparkle className="h-3 w-3" />
-													Popular
-												</Badge>
-											</div>
-										)}
-										<div className="mb-3">
-											<Text
-												as="h3"
-												role="section"
-												weight="semibold"
-												className="m-0"
-											>
-												{plan.name}
-											</Text>
-											<div className="mt-1">
-												<Text as="span" role="metric" weight="semibold">
-													{planPriceLabel(plan)}
-												</Text>
-												{plan.priceMicros > 0 && (
-													<Text as="span" tone="secondary">
-														/month
-													</Text>
-												)}
-											</div>
-										</div>
-										{/* `ul` is not a supported Text `as` element, and the
-										checkmark span depends on the same ambient text-sm as the
-										feature text, so this size/color cascade is left as raw
-										utilities. */}
-										<ul className="mb-4 space-y-1.5 text-sm">
-											{planCardFeatures(plan).map((f) => (
-												<li key={f} className="flex items-start gap-2">
-													<span className="mt-0.5 text-kumo-success">
-														&#10003;
-													</span>
-													{f}
-												</li>
-											))}
-										</ul>
-										{paidKey && (
-											<Button
-												loading={
-													checkoutMutation.isPending &&
-													checkoutMutation.variables === paidKey
-												}
-												icon={<ArrowUpRight size={16} />}
-												className="w-full"
-												variant={
-													isCurrent
-														? "outline"
-														: popular
-															? "default"
-															: "outline"
-												}
-												disabled={isCurrent || checkoutMutation.isPending}
-												onClick={() => checkoutMutation.mutate(paidKey)}
-											>
-												{isCurrent
-													? "Current plan"
-													: isStripeTestMode
-														? "Test checkout"
-														: "Subscribe"}
-											</Button>
-										)}
-										{!paidKey && isCurrent && (
-											<Text role="label" tone="secondary">
-												Current plan
-											</Text>
-										)}
-									</Surface>
-								);
-							})}
+										{account.hasStripeCustomer
+											? "Change in billing portal"
+											: testMode
+												? "Test checkout"
+												: `Choose ${option.name}`}
+									</Button>
+								</Surface>
+							))}
 						</div>
-						{checkoutMutation.error && (
-							<Text tone="error" className="text-center">
-								{errorMessage(
-									checkoutMutation.error,
-									"Failed to start checkout",
-								)}
-							</Text>
-						)}
 					</div>
 				)}
-			</SettingsSectionContent>
-		</SettingsSection>
+				{checkout.isError && (
+					<Text tone="error">
+						{errorMessage(checkout.error, "Could not open checkout")}
+					</Text>
+				)}
+				{portal.isError && (
+					<Text tone="error">
+						{errorMessage(portal.error, "Could not open the billing portal")}
+					</Text>
+				)}
+			</div>
+			{account.hasStripeCustomer && (
+				<PaymentDetails
+					openPortal={() => portal.mutate()}
+					pending={portal.isPending}
+				/>
+			)}
+		</div>
 	);
 }
 
-export function BillingDocumentsSection() {
-	const overviewQuery = useQuery(billingOverviewQueryOptions());
-	const portalMutation = useMutation({
-		mutationFn: () =>
-			osApi.billing.createPortal({
-				returnUrl: billingReturnUrl(undefined, "invoices"),
-			}),
-		onSuccess: (data) => {
-			window.location.href = data.portalUrl;
-		},
-	});
-
-	if (overviewQuery.isPending) {
-		return <LoadingArea className="h-32" label="Loading invoices" />;
-	}
-	if (overviewQuery.isError || !overviewQuery.data) {
-		return (
-			<LoadError
-				title="Billing documents are unavailable"
-				error={overviewQuery.error}
-				onRetry={() => {
-					void overviewQuery.refetch();
-				}}
-				retrying={overviewQuery.isFetching}
-			/>
-		);
-	}
-
-	const overview = overviewQuery.data;
-	const hasStripeCustomer = overview.account.hasStripeCustomer;
-
+function PaymentDetails({
+	openPortal,
+	pending,
+}: {
+	openPortal: () => void;
+	pending: boolean;
+}) {
+	const details = useQuery(osQuery.billing.getPaymentDetails.queryOptions({}));
 	return (
-		<SettingsSection>
-			<BillingSectionHeader
-				title="Invoices &amp; documents"
-				description="Review finalized invoices, receipts, and payment documents."
-			/>
-			<SettingsSectionContent className="space-y-4">
-				{overview.stripeEnvironment === "test" && (
-					<Alert>
-						<Info aria-hidden />
-						<AlertTitle>Billing test mode</AlertTitle>
-						<AlertDescription>
-							Invoices and payment documents currently use test data.
-						</AlertDescription>
-					</Alert>
-				)}
-				<Surface className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-					<div className="flex items-start gap-3">
-						<FileText className="mt-0.5 size-5 shrink-0" aria-hidden />
-						<div className="grid min-w-0 gap-1">
-							<Text weight="medium">Billing history</Text>
-							<Text tone="secondary">
-								{hasStripeCustomer
-									? "Open finalized invoices and downloadable payment documents in the billing portal."
-									: "Invoices will appear after your organization starts a paid subscription."}
-							</Text>
-						</div>
+		<Surface className="grid h-fit gap-4 p-tedix-card">
+			<BillingSectionHeader title="Payment details" />
+			{details.isPending ? (
+				<LoadingArea label="Loading payment details" />
+			) : details.isError ? (
+				<LoadError
+					title="Payment details could not be loaded"
+					error={details.error}
+					onRetry={() => void details.refetch()}
+				/>
+			) : (
+				<dl className="grid gap-3">
+					<div>
+						<dt className="text-kumo-subtle">Payment method</dt>
+						<dd>{details.data.method ?? "None on file"}</dd>
 					</div>
-					{hasStripeCustomer && (
-						<Button
-							loading={portalMutation.isPending}
-							icon={<ArrowUpRight size={16} />}
-							variant="outline"
-							disabled={portalMutation.isPending}
-							onClick={() => portalMutation.mutate()}
-						>
-							Open invoices
-						</Button>
-					)}
-				</Surface>
-				{portalMutation.isError && (
-					<Text tone="error">
-						{errorMessage(portalMutation.error, "Failed to open invoices")}
-					</Text>
-				)}
-			</SettingsSectionContent>
-		</SettingsSection>
+					<div>
+						<dt className="text-kumo-subtle">Billing email</dt>
+						<dd className="break-all">
+							{details.data.email ?? "None on file"}
+						</dd>
+					</div>
+				</dl>
+			)}
+			<Button
+				variant="outline"
+				loading={pending}
+				disabled={pending}
+				onClick={openPortal}
+			>
+				Manage subscription
+			</Button>
+		</Surface>
+	);
+}
+
+export function BillingDocumentsSection({ isTest }: { isTest: boolean }) {
+	const [cursors, setCursors] = useState<string[]>([]);
+	const page = cursors.length + 1;
+	const result = useQuery(
+		osQuery.billing.listInvoices.queryOptions({
+			input: { cursor: cursors.at(-1) },
+		}),
+	);
+	const next = result.data?.nextCursor;
+	return (
+		<div className="grid gap-4">
+			{isTest && <Text tone="secondary">Invoices here use test data.</Text>}
+			<DataTable
+				data={result.data?.invoices ?? []}
+				rowKey="id"
+				isLoading={result.isPending}
+				error={result.isError ? "Invoices could not be loaded." : null}
+				onRetry={() => void result.refetch()}
+				emptyTitle={
+					next ? "No finalized invoices on this page" : "No invoices yet"
+				}
+				emptyMessage={
+					next
+						? "Go to the next page to see earlier invoices."
+						: "Finalized invoices will appear here."
+				}
+				columns={[
+					{
+						header: "Invoice",
+						accessor: (invoice) => invoice.number ?? "Invoice",
+					},
+					{
+						header: "Issued",
+						accessor: (invoice) => formatResetDate(invoice.issuedAt, true),
+					},
+					{
+						header: "Total",
+						align: "right",
+						accessor: (invoice) =>
+							formatCurrencyAmount(invoice.amountMinor / 100, invoice.currency),
+					},
+					{
+						header: "Document",
+						align: "right",
+						accessor: (invoice) =>
+							invoice.url && (
+								<Link href={invoice.url} target="_blank" rel="noreferrer">
+									View invoice
+								</Link>
+							),
+					},
+				]}
+			/>
+			{(next || page > 1) && (
+				<Pagination
+					page={page}
+					perPage={BILLING_PAGE_SIZE}
+					hasNextPage={!!next}
+					setPage={(target) => {
+						if (target < page) setCursors(cursors.slice(0, target - 1));
+						if (target === page + 1 && next) setCursors([...cursors, next]);
+					}}
+				>
+					<Pagination.Controls controls="simple" />
+				</Pagination>
+			)}
+		</div>
 	);
 }

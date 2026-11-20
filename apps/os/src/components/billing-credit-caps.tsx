@@ -1,198 +1,187 @@
-/**
- * Credits used by each tedi and each member this month, with an optional
- * monthly cap an owner or admin can set. A cap only ever lowers what one tedi
- * or person can use; it never adds credits to the organization.
- */
-
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { BillingSectionHeader } from "@/components/billing-section-header";
+import {
+	BillingTable,
+	billingSubjectRows,
+	type BillingSubjectGroup,
+	type BillingSubjectRow,
+} from "@/components/billing-table";
 import { Button } from "@/components/kumo/button";
-import { Empty } from "@/components/kumo/empty";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/kumo/dialog";
 import { Input } from "@/components/kumo/input";
-import { Meter } from "@/components/kumo/meter";
 import {
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
-import { Surface } from "@/components/kumo/surface";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import {
-	type CreditCapInput,
 	type CreditUsage,
-	creditLevel,
 	formatCredits,
-	formatUsagePercent,
-	monthlyAllowanceCredits,
 	parseCreditCap,
-	usagePercent,
 } from "@/lib/billing-credits";
 import { errorMessage } from "@/lib/orpc-error";
 import { billingOverviewQueryOptions } from "@/lib/os-query-options";
 
-type CapRow = {
-	id: string;
-	name: string;
-	usedCredits: number;
-	monthlyCapCredits: number | null;
-};
+const GROUPS = { tedis: "Tedis", members: "Members" } as const;
 
 export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
-	const maxCap = credits.includedCredits + credits.topUpCredits;
-	const allowance = monthlyAllowanceCredits(credits);
+	const [group, setGroup] = useState<BillingSubjectGroup>("tedis");
+	const [search, setSearch] = useState("");
+	const searchTerm = search.trim().toLowerCase();
+	const rows = billingSubjectRows(credits, group)
+		.filter(({ name }) => name.toLowerCase().includes(searchTerm))
+		.sort((a, b) => a.name.localeCompare(b.name));
+
 	return (
 		<SettingsSection>
 			<BillingSectionHeader
-				title="Usage by tedi and member"
-				description="Set a monthly cap to keep one tedi or person from using up the organization's credits. Leave it empty to share the organization's credits without a separate cap."
+				title="Monthly credit caps"
+				description="Set how many credits a tedi or member can use each month."
 			/>
-			<SettingsSectionContent className="space-y-6">
-				<CapGroup
-					title="Tedis"
-					emptyText="No tedi has used credits this month."
-					maxCap={maxCap}
-					allowance={allowance}
-					rows={credits.tedis.map((tedi) => ({
-						id: tedi.tediId,
-						name: tedi.name,
-						usedCredits: tedi.usedCredits,
-						monthlyCapCredits: tedi.monthlyCapCredits,
-					}))}
-					toInput={(id, monthlyCapCredits) => ({
-						tediCaps: [{ tediId: id, monthlyCapCredits }],
-					})}
-				/>
-				<CapGroup
-					title="Members"
-					emptyText="No member has used credits this month."
-					maxCap={maxCap}
-					allowance={allowance}
-					rows={credits.members.map((member) => ({
-						id: member.userId,
-						name: member.name,
-						usedCredits: member.usedCredits,
-						monthlyCapCredits: member.monthlyCapCredits,
-					}))}
-					toInput={(id, monthlyCapCredits) => ({
-						memberCaps: [{ userId: id, monthlyCapCredits }],
-					})}
+			<SettingsSectionContent className="grid gap-4">
+				<div className="flex flex-wrap items-center gap-3">
+					<Select
+						items={GROUPS}
+						value={group}
+						onValueChange={(value) => value && setGroup(value)}
+					>
+						<SelectTrigger aria-label="Show caps for">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="tedis">Tedis</SelectItem>
+							<SelectItem value="members">Members</SelectItem>
+						</SelectContent>
+					</Select>
+					<Input
+						aria-label="Search by name"
+						placeholder="Search by name"
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+					/>
+				</div>
+				<BillingTable
+					key={JSON.stringify([group, searchTerm])}
+					data={rows}
+					rowKey="id"
+					emptyTitle="No matching accounts"
+					emptyMessage="Try a different name or group."
+					columns={[
+						{ header: "Name", accessor: "name" },
+						{
+							header: "Credits used",
+							accessor: (row) => formatCredits(row.usedCredits),
+							align: "right",
+						},
+						{
+							header: "Monthly cap",
+							accessor: (row) =>
+								row.monthlyCapCredits === null
+									? "No cap"
+									: formatCredits(row.monthlyCapCredits),
+							align: "right",
+						},
+						{
+							header: "Actions",
+							accessor: (row) => (
+								<EditCap
+									row={row}
+									group={group}
+									maxCap={credits.includedCredits + credits.topUpCredits}
+								/>
+							),
+							align: "right",
+						},
+					]}
 				/>
 			</SettingsSectionContent>
 		</SettingsSection>
 	);
 }
 
-function CapGroup({
-	title,
-	emptyText,
-	rows,
-	maxCap,
-	allowance,
-	toInput,
-}: {
-	title: string;
-	emptyText: string;
-	rows: CapRow[];
-	maxCap: number;
-	allowance: number;
-	toInput: (id: string, monthlyCapCredits: number | null) => CreditCapInput;
-}) {
-	return (
-		<div className="grid gap-2" aria-label={title} role="group">
-			<Text weight="medium">{title}</Text>
-			{rows.length === 0 ? (
-				<Empty appearance="quiet" title={emptyText} />
-			) : (
-				rows.map((row) => (
-					<CapRowForm
-						key={`${row.id}:${row.monthlyCapCredits ?? "none"}`}
-						row={row}
-						maxCap={maxCap}
-						allowance={allowance}
-						toInput={toInput}
-					/>
-				))
-			)}
-		</div>
-	);
-}
-
-function CapRowForm({
+function EditCap({
 	row,
+	group,
 	maxCap,
-	allowance,
-	toInput,
 }: {
-	row: CapRow;
+	row: BillingSubjectRow;
+	group: BillingSubjectGroup;
 	maxCap: number;
-	allowance: number;
-	toInput: (id: string, monthlyCapCredits: number | null) => CreditCapInput;
 }) {
-	const queryClient = useQueryClient();
+	const [open, setOpen] = useState(false);
+	const [value, setValue] = useState("");
 	const inputId = useId();
-	const [value, setValue] = useState(
-		row.monthlyCapCredits === null ? "" : String(row.monthlyCapCredits),
-	);
+	const queryClient = useQueryClient();
 	const parsed = parseCreditCap(value, maxCap);
 	const dirty = parsed.ok && parsed.monthlyCapCredits !== row.monthlyCapCredits;
 	const mutation = useMutation({
 		mutationFn: (monthlyCapCredits: number | null) =>
-			osApi.billing.setCreditCaps(toInput(row.id, monthlyCapCredits)),
-		onSuccess: () =>
-			queryClient.invalidateQueries({
+			osApi.billing.setCreditCaps(
+				group === "tedis"
+					? { tediCaps: [{ tediId: row.id, monthlyCapCredits }] }
+					: { memberCaps: [{ userId: row.id, monthlyCapCredits }] },
+			),
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
 				queryKey: billingOverviewQueryOptions().queryKey,
-			}),
+			});
+			setOpen(false);
+		},
 	});
-	const cap = row.monthlyCapCredits;
-	const level = cap === null ? "ok" : creditLevel(row.usedCredits, cap);
-	// With a cap, the share of the cap; without one, the share of the
-	// organization's credits this month. Exact counts follow.
-	const limit = cap ?? allowance;
-	const share = formatUsagePercent(row.usedCredits, limit);
 	return (
-		<Surface className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)] sm:items-start">
-			<div className="grid min-w-0 gap-1" data-credit-row={row.id}>
-				<div className="flex items-baseline justify-between gap-3">
-					<Text weight="medium">{row.name}</Text>
-					<Text weight="medium" className="tabular-nums" data-credit-percent>
-						{cap === null
-							? `${share} of this month's credits`
-							: `${share} of cap used`}
-					</Text>
-				</div>
-				<Meter
-					label={
-						cap === null
-							? `Share of this month's credits used by ${row.name}`
-							: `${row.name} cap used`
-					}
-					hideLabel
-					value={usagePercent(row.usedCredits, limit)}
-					getAriaValueText={() => share}
-					className="h-2"
-				/>
-				<Text role="label" tone={level === "full" ? "error" : "secondary"}>
-					{cap === null
-						? `${formatCredits(row.usedCredits)} used · no separate cap`
-						: level === "full"
-							? `${formatCredits(row.usedCredits)} used · cap of ${formatCredits(cap)} reached; paused until next month`
-							: `${formatCredits(row.usedCredits)} of ${formatCredits(cap)} used`}
-				</Text>
-			</div>
-			<form
-				className="grid gap-1"
-				onSubmit={(event) => {
-					event.preventDefault();
-					if (parsed.ok) mutation.mutate(parsed.monthlyCapCredits);
-				}}
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (mutation.isPending) return;
+				if (next) {
+					setValue(
+						row.monthlyCapCredits === null ? "" : String(row.monthlyCapCredits),
+					);
+					mutation.reset();
+				}
+				setOpen(next);
+			}}
+		>
+			<DialogTrigger
+				render={
+					<Button variant="ghost" aria-label={`Edit cap for ${row.name}`} />
+				}
 			>
-				<label htmlFor={inputId}>
-					<Text as="span" role="label" tone="secondary">
-						Monthly cap for {row.name} (credits)
-					</Text>
-				</label>
-				<div className="flex gap-2">
+				Edit
+			</DialogTrigger>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Edit cap for {row.name}</DialogTitle>
+					<DialogDescription>
+						Leave the cap empty to remove it.
+					</DialogDescription>
+				</DialogHeader>
+				<form
+					className="grid gap-3"
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (dirty && !mutation.isPending)
+							mutation.mutate(parsed.monthlyCapCredits);
+					}}
+				>
+					<label htmlFor={inputId}>Monthly cap (credits)</label>
 					<Input
 						id={inputId}
 						type="number"
@@ -205,22 +194,31 @@ function CapRowForm({
 						disabled={mutation.isPending}
 						onChange={(event) => setValue(event.target.value)}
 					/>
-					<Button
-						type="submit"
-						variant="outline"
-						disabled={!dirty || mutation.isPending}
-						loading={mutation.isPending}
-					>
-						Save
-					</Button>
-				</div>
-				{!parsed.ok && <Text tone="error">{parsed.message}</Text>}
-				{mutation.isError && (
-					<Text tone="error">
-						{errorMessage(mutation.error, "The cap could not be saved")}
-					</Text>
-				)}
-			</form>
-		</Surface>
+					{!parsed.ok && <Text tone="error">{parsed.message}</Text>}
+					{mutation.isError && (
+						<Text tone="error">
+							{errorMessage(mutation.error, "The cap could not be saved")}
+						</Text>
+					)}
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={mutation.isPending}
+							onClick={() => setOpen(false)}
+						>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							disabled={!dirty || mutation.isPending}
+							loading={mutation.isPending}
+						>
+							Save cap
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
 	);
 }

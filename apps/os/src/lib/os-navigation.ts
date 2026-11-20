@@ -185,11 +185,11 @@ const OS_SURFACES = [
 		get label() {
 			return OS_COPY.navigation.usage;
 		},
-		path: "/compute",
+		path: "/usage",
 		get description() {
 			return navigationDescription(
 				"compute",
-				"Check your usage, spending and plan.",
+				"See who used this month’s credits.",
 			);
 		},
 	},
@@ -285,7 +285,7 @@ export const OS_PAGES: readonly OsPage[] = [
 	{
 		id: "admin-payments",
 		path: "/admin/payments",
-		label: "Payments",
+		label: "Agent payments",
 		parentId: "admin",
 		palette: true,
 		settings: true,

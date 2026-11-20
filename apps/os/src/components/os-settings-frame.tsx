@@ -25,8 +25,6 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
-	SidebarMenuSub,
-	SidebarMenuSubButton,
 	SidebarProvider,
 	useSidebar,
 } from "@/components/kumo/sidebar";
@@ -99,14 +97,32 @@ function settingsGroups({
 			label: "Billing",
 			items: [
 				{
-					path: "/compute",
-					label: OS_COPY.navigation.compute,
+					path: "/usage",
+					label: OS_COPY.navigation.usage,
 					icon: SURFACE_ICONS.compute,
 				},
 				...(canManageBilling
-					? [{ path: "/admin/payments", label: "Payments", icon: CreditCard }]
+					? [
+							{
+								path: "/admin/billing",
+								label: OS_COPY.navigation.billing,
+								icon: CreditCard,
+							},
+						]
 					: []),
 			],
+		},
+		{
+			label: "Agents",
+			items: canManageBilling
+				? [
+						{
+							path: "/admin/payments",
+							label: "Agent payments",
+							icon: CreditCard,
+						},
+					]
+				: [],
 		},
 		{ label: "History", items: [surfaceItem("audit")] },
 	];
@@ -132,13 +148,9 @@ export function OsSettingsFrame({
 		OS_SETTINGS_NAVIGATION.some((item) => item.path === pathname);
 	if (!isSettings) return children;
 	const groups = settingsGroups({ isAdmin, canManageBilling });
-	const usageActive = pathname === "/compute" || pathname === "/admin/billing";
 	const active = groups
 		.flatMap((group) => group.items)
-		.find(
-			(item) =>
-				item.path === pathname || (item.path === "/compute" && usageActive),
-		);
+		.find((item) => item.path === pathname);
 	return (
 		// A second, contained Kumo sidebar: it scopes its own state so the shell
 		// rail's collapse and phone sheet stay independent of this one.
@@ -151,7 +163,6 @@ export function OsSettingsFrame({
 		>
 			<SettingsNavigation
 				activePath={active?.path}
-				canManageBilling={canManageBilling}
 				groups={groups}
 				pathname={pathname}
 			/>
@@ -169,12 +180,10 @@ export function OsSettingsFrame({
 
 function SettingsNavigation({
 	activePath,
-	canManageBilling,
 	groups,
 	pathname,
 }: {
 	activePath: string | undefined;
-	canManageBilling: boolean;
 	groups: SettingsGroup[];
 	pathname: string;
 }) {
@@ -220,34 +229,6 @@ function SettingsNavigation({
 											>
 												{item.label}
 											</SidebarMenuButton>
-											{item.path === "/compute" && activePath === "/compute" ? (
-												<SidebarMenuSub>
-													<SidebarMenuSubButton
-														active={pathname === "/compute"}
-														className={SELECTED_ROW}
-														aria-current={
-															pathname === "/compute" ? "page" : undefined
-														}
-														href="/compute"
-													>
-														{OS_COPY.navigation.usage}
-													</SidebarMenuSubButton>
-													{canManageBilling ? (
-														<SidebarMenuSubButton
-															active={pathname === "/admin/billing"}
-															className={SELECTED_ROW}
-															aria-current={
-																pathname === "/admin/billing"
-																	? "page"
-																	: undefined
-															}
-															href="/admin/billing"
-														>
-															{OS_COPY.navigation.billing}
-														</SidebarMenuSubButton>
-													) : null}
-												</SidebarMenuSub>
-											) : null}
 										</SidebarMenuItem>
 									))}
 								</SidebarMenu>

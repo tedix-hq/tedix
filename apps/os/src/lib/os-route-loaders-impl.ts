@@ -39,8 +39,6 @@ import {
 	EXPIRING_API_KEYS_WINDOW_DAYS,
 	expiringApiKeysQueryOptions,
 	billingOverviewQueryOptions,
-	billingPlansQueryOptions,
-	billingTopUpPacksQueryOptions,
 	BLUEPRINT_GALLERY_LIMIT,
 	BLUEPRINTS_LIST_LIMIT,
 	blueprintGalleryQueryOptions,
@@ -521,14 +519,6 @@ export async function prefetchAdminConnectionsRoute(
 }
 
 export async function prefetchAdminOrganizationRoute(queryClient: QueryClient) {
-	// The org detail and features reads need the credential-resolved
-	// organization id first; the billing catalog/overview take no input and can
-	// start immediately. Everything stays catch-tolerant: a failed read lands on
-	// the page with its own error state instead of blocking the navigation.
-	const billingReads = Promise.allSettled([
-		queryClient.ensureQueryData(billingPlansQueryOptions()),
-		queryClient.ensureQueryData(billingOverviewQueryOptions()),
-	]);
 	await queryClient
 		.ensureQueryData(operationalContextQueryOptions())
 		.then((context) =>
@@ -542,20 +532,19 @@ export async function prefetchAdminOrganizationRoute(queryClient: QueryClient) {
 			]),
 		)
 		.catch(() => undefined);
-	await billingReads;
 }
 
 export async function prefetchAdminBillingRoute(queryClient: QueryClient) {
 	if (isLocalSession()) return;
-	// Credits, caps and pay-as-you-go all come from the one overview read; the
-	// plan and credit-pack catalogs take no input and load beside it.
 	await withFirstPaintDeadline(
-		Promise.allSettled([
-			queryClient.ensureQueryData(operationalContextQueryOptions()),
-			queryClient.ensureQueryData(billingPlansQueryOptions()),
-			queryClient.ensureQueryData(billingOverviewQueryOptions()),
-			queryClient.ensureQueryData(billingTopUpPacksQueryOptions()),
-		]),
+		queryClient
+			.ensureQueryData(operationalContextQueryOptions())
+			.then((context) =>
+				context.authority.permissions.includes("billing:manage")
+					? queryClient.ensureQueryData(billingOverviewQueryOptions())
+					: undefined,
+			)
+			.catch(() => undefined),
 	);
 }
 

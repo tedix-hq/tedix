@@ -50,6 +50,8 @@ const expectedPaths = [
 	"/chat",
 	"/cli/login",
 	"/compute",
+	"/usage",
+	"/settings/billing",
 	"/invite",
 	"/install",
 	"/login",
