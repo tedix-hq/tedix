@@ -10,12 +10,17 @@ import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Collection } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
+import { Switch } from "@/components/kumo/switch";
+import type { AppRuntimeTrigger } from "@tedix/api-contract/schemas/os-app-runtime";
+import { absoluteTime, relativeTime } from "@/lib/time";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { availabilityLabel } from "@/components/workspace-resources-panel";
 import { WorkspaceListRow } from "@/components/workspace-list-row";
 import { osApi } from "@/lib/api";
 import {
 	canvasGadgetDetailQueryOptions,
+	osQuery,
 	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
 
@@ -146,6 +151,7 @@ export function WorkspaceAppConnections({
 	};
 	return (
 		<section className="grid gap-3" data-app-connections>
+			<WorkspaceAppTriggers workspaceId={workspaceId} gadgetId={gadgetId} />
 			<SectionEyebrow
 				title="Used by this app"
 				count={detail.data ? rows.length : undefined}
@@ -331,6 +337,90 @@ export function WorkspaceAppConnections({
 					))}
 					.
 				</Text>
+			) : null}
+		</section>
+	);
+}
+
+function automaticRunWhen(trigger: AppRuntimeTrigger): string {
+	switch (trigger.kind) {
+		case "schedule":
+			return `On a schedule · next scheduled time ${absoluteTime(nextSkillScheduleFireAt(trigger.cron, new Date()))}`;
+		case "webhook":
+			return "When a webhook arrives";
+		case "interaction":
+			return "When someone uses the app";
+		case "skill":
+			return "When the linked skill finishes";
+	}
+}
+
+export function WorkspaceAppTriggers({
+	workspaceId,
+	gadgetId,
+}: {
+	workspaceId: string;
+	gadgetId: string;
+}) {
+	const input = { workspaceId, gadgetId };
+	const query = useQuery({
+		...osQuery.osAppRuntime.listTriggers.queryOptions({ input }),
+		retry: false,
+	});
+	const client = useQueryClient();
+	const toggle = useMutation({
+		mutationFn: (choice: { triggerId: string; enabled: boolean }) =>
+			osApi.osAppRuntime.setTriggerEnabled({ ...input, ...choice }),
+		onSuccess: () =>
+			client.invalidateQueries({
+				queryKey: osQuery.osAppRuntime.listTriggers.key(),
+			}),
+	});
+	if (!query.data?.items.length) return null;
+	return (
+		<section aria-label="Automatic runs" className="grid gap-3">
+			<SectionEyebrow title="Automatic runs" count={query.data.items.length} />
+			<Collection aria-label="Automatic runs for this app">
+				{query.data.items.map(({ trigger, enabled, lastRunAt }, index) => (
+					<WorkspaceListRow
+						key={trigger.id}
+						className="items-center justify-between gap-3"
+					>
+						<div className="min-w-0 flex-1">
+							<Text as="p" role="body" className="m-0">
+								{automaticRunWhen(trigger)}
+							</Text>
+							<Text as="p" role="label" tone="secondary" className="m-0">
+								{lastRunAt ? (
+									<time dateTime={lastRunAt} title={absoluteTime(lastRunAt)}>
+										Last ran {relativeTime(lastRunAt)}
+									</time>
+								) : (
+									"Has not run yet"
+								)}
+							</Text>
+							{trigger.kind === "schedule" && !enabled ? (
+								<Text as="p" role="label" tone="secondary" className="m-0">
+									Off until you turn it on.
+								</Text>
+							) : null}
+						</div>
+						<Switch
+							aria-label={`Automatic run ${index + 1}: ${automaticRunWhen(trigger)}`}
+							checked={enabled}
+							disabled={toggle.isPending}
+							onCheckedChange={(checked) =>
+								toggle.mutate({ triggerId: trigger.id, enabled: checked })
+							}
+						/>
+					</WorkspaceListRow>
+				))}
+			</Collection>
+			{toggle.isError ? (
+				<Alert
+					variant="destructive"
+					description="The automatic run could not be changed. Refresh and try again."
+				/>
 			) : null}
 		</section>
 	);

@@ -6,7 +6,10 @@ import type {
 	AppDraftRoomScopeSchema,
 	AppDraftRoomSubmissionSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
-import { AppRuntimeConfigSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	AppRuntimeConfigSchema,
+	appTriggerEnabled,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 import { implement, call as callProcedure, ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
@@ -30,6 +33,8 @@ import {
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	getOsGadget,
+	setOsAppTriggerEnabled,
+	lastOsAppTriggerRuns,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	getOsCollaborationProposal,
@@ -692,6 +697,48 @@ export function createOsAppRuntimeRouter() {
 			grants: code.grants,
 		};
 	});
+	const listTriggers = read.listTriggers.handler(async ({ context, input }) => {
+		const scope = await requireBuilder(context, input);
+		const [code, gadget, runs] = await Promise.all([
+			load(context, scope),
+			getOsGadget(queryDb(context), scope),
+			lastOsAppTriggerRuns(queryDb(context), scope),
+		]);
+		return {
+			items: (code.config.triggers ?? []).map((trigger) => ({
+				trigger,
+				enabled: appTriggerEnabled(trigger, gadget!.triggerEnabled),
+				lastRunAt:
+					runs.find((run) => run.triggerId === trigger.id)?.lastRunAt ?? null,
+			})),
+		};
+	});
+	const setTriggerEnabled = author.setTriggerEnabled.handler(
+		async ({ context, input }) => {
+			const scope = await requireBuilder(context, input);
+			if (context.authType !== "user")
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only a person can switch automatic runs on or off",
+				);
+			const code = await load(context, scope);
+			if (
+				!code.config.triggers?.some((trigger) => trigger.id === input.triggerId)
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "Automatic run not found");
+			const updated = await setOsAppTriggerEnabled(queryDb(context), {
+				...scope,
+				triggerId: input.triggerId,
+				enabled: input.enabled,
+			});
+			if (!updated)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The app changed. Refresh and try again.",
+				);
+			return { enabled: input.enabled };
+		},
+	);
 	const triggerWebhook = author.triggerWebhook.handler(
 		async ({ context, input }) => {
 			const scope = await requireBuilder(context, input);
@@ -1298,6 +1345,8 @@ export function createOsAppRuntimeRouter() {
 		return { recorded: true };
 	});
 	return os.router({
+		listTriggers,
+		setTriggerEnabled,
 		open,
 		client,
 		readOutput,

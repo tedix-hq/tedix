@@ -27,7 +27,7 @@ import {
 } from "@tedix/auth/workspace-app-session";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
-import { userContext } from "../rpc/test-context";
+import { userContext, apiKeyContext } from "../rpc/test-context";
 import { createOsAppRuntimeRouter } from "../rpc/routers/os-app-runtime";
 import {
 	appTriggerExecutionId,
@@ -69,7 +69,11 @@ const triggers = [
 ];
 
 async function fixture(
-	options: { author?: string; triggers?: unknown[] } = {},
+	options: {
+		author?: string;
+		triggers?: unknown[];
+		choices?: Record<string, boolean>;
+	} = {},
 ) {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
@@ -117,6 +121,7 @@ async function fixture(
 		organizationId: "org-1",
 		workspaceId,
 		name: "Inbox",
+		triggerEnabled: options.choices ?? { morning: true },
 		currentRevisionId: revisionId,
 		createdByKind: "user",
 		createdById: "user-1",
@@ -335,6 +340,99 @@ describe("workspace app triggers", () => {
 		const calls = await f.calls();
 		expect(calls[1]!.session).toMatchObject({ role: "viewer", grants: [] });
 		expect(calls[1]!.session.actorUserId).toBeUndefined();
+	});
+
+	it("keeps new schedules off, lists every kind, and runs only after a builder switches it on", async () => {
+		const f = await fixture({
+			choices: {},
+			triggers: [
+				...triggers,
+				interaction,
+				{ ...triggers[0], id: "constructor" },
+			],
+		});
+		const client = createRouterClient(createOsAppRuntimeRouter(), {
+			context: userContext({
+				env: f.env,
+				permissions: ["os:read", "os:author"],
+				sub: "user-1",
+			}),
+		});
+		const scope = { workspaceId, gadgetId };
+		expect(
+			(await client.listTriggers(scope)).items.map((item) => [
+				item.trigger.kind,
+				item.enabled,
+				item.lastRunAt,
+			]),
+		).toEqual([
+			["schedule", false, null],
+			["webhook", true, null],
+			["skill", true, null],
+			["interaction", true, null],
+			["schedule", false, null],
+		]);
+		expect(await dispatchDueAppTriggers(f.env, nineUtc)).toMatchObject({
+			ran: 0,
+		});
+		expect(f.fetch).not.toHaveBeenCalled();
+		await client.setTriggerEnabled({
+			...scope,
+			triggerId: "morning",
+			enabled: true,
+		});
+		expect(await dispatchDueAppTriggers(f.env, nineUtc)).toMatchObject({
+			ran: 1,
+		});
+		expect(
+			(await client.listTriggers(scope)).items[0]!.lastRunAt,
+		).not.toBeNull();
+		await client.setTriggerEnabled({
+			...scope,
+			triggerId: "morning",
+			enabled: false,
+		});
+		await client.setTriggerEnabled({
+			...scope,
+			triggerId: "saved",
+			enabled: false,
+		});
+		f.fetch.mockClear();
+		await runInteractiveAppCall(f.env, f.db, await interactiveInput(f));
+		expect(f.fetch).toHaveBeenCalledTimes(1);
+		expect(
+			(await client.listTriggers(scope)).items
+				.filter((item) => !item.enabled)
+				.map((item) => item.trigger.id),
+		).toEqual(["morning", "saved", "constructor"]);
+		const machine = createRouterClient(createOsAppRuntimeRouter(), {
+			context: apiKeyContext({ env: f.env, scopes: ["apps:write"] }),
+		});
+		await expect(
+			machine.setTriggerEnabled({
+				...scope,
+				triggerId: "morning",
+				enabled: true,
+			}),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Only a person can switch automatic runs on or off",
+		});
+		await expect(
+			client.setTriggerEnabled({
+				...scope,
+				triggerId: "missing",
+				enabled: true,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			client.setTriggerEnabled({
+				...scope,
+				workspaceId: crypto.randomUUID(),
+				triggerId: "morning",
+				enabled: true,
+			}),
+		).rejects.toBeDefined();
 	});
 
 	it("runs a schedule once per fire time, as the revision author with the app's grants", async () => {

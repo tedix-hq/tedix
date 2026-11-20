@@ -8,6 +8,7 @@ import {
 	osGadgetCode,
 	osGadgetCodeBlobs,
 	osGadgetRevisions,
+	osGadgetExecutions,
 	osGadgets,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
@@ -25,6 +26,57 @@ import { getAffectedRows } from "../../utils/d1-result";
 export interface OsGadgetScopeParams {
 	organizationId: string;
 	gadgetId: string;
+}
+
+/** Update one switch without overwriting a concurrent choice for another trigger. */
+export async function setOsAppTriggerEnabled(
+	db: DbQueryClient,
+	params: OsGadgetScopeParams & {
+		workspaceId: string;
+		revisionId: string;
+		triggerId: string;
+		enabled: boolean;
+	},
+) {
+	const [row] = await db
+		.update(osGadgets)
+		.set({
+			triggerEnabled: sql`json_set(${osGadgets.triggerEnabled}, ${`$."${params.triggerId}"`}, json(${JSON.stringify(params.enabled)}))`,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(osGadgets.organizationId, params.organizationId),
+				eq(osGadgets.workspaceId, params.workspaceId),
+				eq(osGadgets.id, params.gadgetId),
+				eq(osGadgets.currentRevisionId, params.revisionId),
+				eq(osGadgets.status, "active"),
+			),
+		)
+		.returning();
+	return row;
+}
+
+export async function lastOsAppTriggerRuns(
+	db: DbQueryClient,
+	params: OsGadgetScopeParams,
+) {
+	return db
+		.select({
+			triggerId: sql<string>`json_extract(${osGadgetExecutions.policyDecision}, '$.trigger.id')`,
+			lastRunAt: sql<string>`max(${osGadgetExecutions.createdAt})`,
+		})
+		.from(osGadgetExecutions)
+		.where(
+			and(
+				eq(osGadgetExecutions.organizationId, params.organizationId),
+				eq(osGadgetExecutions.gadgetId, params.gadgetId),
+				sql`json_extract(${osGadgetExecutions.policyDecision}, '$.trigger.id') IS NOT NULL`,
+			),
+		)
+		.groupBy(
+			sql`json_extract(${osGadgetExecutions.policyDecision}, '$.trigger.id')`,
+		);
 }
 
 export interface ListOsGadgetsOptions {

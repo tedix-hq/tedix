@@ -248,6 +248,11 @@ export const osGadgets = sqliteTable(
 			.default("active"),
 		/** Pointer to the serving `os_gadget_revisions.id`; no FK (circular), queries maintain it. */
 		currentRevisionId: text("current_revision_id"),
+		/** Human choices survive app revisions; new schedules await a person's switch. */
+		triggerEnabled: text("trigger_enabled", { mode: "json" })
+			.$type<Record<string, boolean>>()
+			.notNull()
+			.default({}),
 		/** Per-gadget instantiation lineage: the blueprint revision that declared it. Plain text, no FK — must survive blueprint deletion. */
 		sourceBlueprintRevisionId: text("source_blueprint_revision_id"),
 		createdByKind: text("created_by_kind", { enum: createdByKinds }).notNull(),

@@ -12,6 +12,7 @@ import {
 } from "../schemas/os-workspaces";
 import {
 	AppRuntimeScopeSchema,
+	AppRuntimeTriggerStateSchema,
 	AppRuntimePublicOperationsSchema,
 	AppRuntimeMethodSchema,
 	AppRuntimeArgumentsSchema,
@@ -27,6 +28,27 @@ export const osAppRuntimeContract = oc
 	.route({ tags: ["os-app-runtime"], prefix: "/os-app-runtime" })
 	.errors(baseErrors)
 	.router({
+		listTriggers: oc
+			.route({
+				method: "POST",
+				path: "/triggers",
+				summary: "List an app's automatic runs and switches",
+			})
+			.input(AppRuntimeScopeSchema.strict())
+			.output(z.object({ items: z.array(AppRuntimeTriggerStateSchema) })),
+		setTriggerEnabled: oc
+			.route({
+				method: "POST",
+				path: "/set-trigger-enabled",
+				summary: "Switch one automatic run on or off",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					triggerId: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/),
+					enabled: z.boolean(),
+				}).strict(),
+			)
+			.output(z.object({ enabled: z.boolean() })),
 		client: oc
 			.route({
 				method: "POST",

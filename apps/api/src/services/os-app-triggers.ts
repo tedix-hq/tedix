@@ -22,6 +22,7 @@ import {
 import {
 	AppRuntimeArgumentsSchema,
 	AppRuntimeConfigSchema,
+	appTriggerEnabled,
 	type AppRuntimeTrigger,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
@@ -150,7 +151,16 @@ export async function fireAppTrigger(
 	trigger: AppRuntimeTrigger,
 	event: Record<string, JsonValue>,
 	executionId: string,
-): Promise<"ran" | "duplicate"> {
+): Promise<"ran" | "duplicate" | "disabled"> {
+	const gadget = await getOsGadget(db, app);
+	if (
+		!gadget ||
+		gadget.status !== "active" ||
+		gadget.workspaceId !== app.workspaceId ||
+		gadget.currentRevisionId !== app.revisionId ||
+		!appTriggerEnabled(trigger, gadget.triggerEnabled)
+	)
+		return "disabled";
 	if (
 		await getOsGadgetExecution(db, {
 			organizationId: app.organizationId,
@@ -402,7 +412,7 @@ export async function dispatchDueAppTriggers(
 					event,
 					executionId,
 				);
-				result[outcome === "ran" ? "ran" : "duplicate"]++;
+				if (outcome !== "disabled") result[outcome]++;
 			} catch {
 				// The receipt, when one was written, already records the failure.
 				result.failed++;

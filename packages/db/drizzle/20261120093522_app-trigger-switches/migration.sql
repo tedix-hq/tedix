@@ -1,0 +1,1 @@
+ALTER TABLE `os_gadgets` ADD `trigger_enabled` text DEFAULT '{}' NOT NULL;
