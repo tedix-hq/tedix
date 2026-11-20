@@ -2,12 +2,12 @@
 	"name": "@tedix/desktop",
 	"version": "0.1.0",
 	"private": true,
-	"description": "Tedix desktop shell: the Tedix OS chat in a window, with this computer's runner status and switches from the Tedix CLI.",
+	"description": "Tedix desktop app: the Tedix OS chat in a window, the Tedix command-line tool, and a checklist that sets up this Mac.",
 	"license": "AGPL-3.0-only",
 	"main": "out/main.cjs",
 	"scripts": {
 		"clean": "rm -rf out dist",
-		"compile": "bun build src/main.ts src/preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/panel.ts --outdir out --target browser",
+		"compile": "bun build src/main.ts src/preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/panel.ts src/onboarding.ts --outdir out --target browser",
 		"dev": "bun run compile && node node_modules/electron/install.js && electron .",
 		"build": "bun run compile && electron-builder --dir --publish never",
 		"type-check": "tsc --noEmit"
@@ -35,7 +35,15 @@
 		"files": [
 			"out/**",
 			"panel.html",
+			"setup.html",
+			"assets/icon.png",
 			"package.json"
+		],
+		"extraResources": [
+			{
+				"from": "cli/${arch}",
+				"to": "cli"
+			}
 		],
 		"mac": {
 			"target": "dir",

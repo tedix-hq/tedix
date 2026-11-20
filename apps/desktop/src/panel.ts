@@ -40,7 +40,33 @@ function button(title: string, disabled: boolean, click: () => void) {
 	return node;
 }
 
-function draw({ status, summary, lastOutput, busy, openAtLogin }: PanelState) {
+/**
+ * Which version the background service runs, and a plain line when that is
+ * not the version `~/.local/bin/tedix` now is.
+ */
+function serviceLines({ status, setup }: PanelState): string[] {
+	const running = [
+		...new Set(
+			status.runners
+				.filter((runner) => runner.enabled && runner.version)
+				.map((runner) => runner.version!),
+		),
+	];
+	const lines = setup.cli.service ? [setup.cli.service] : [];
+	if (running.length)
+		lines.push(`Background service runs version ${running.join(", ")}.`);
+	if (
+		setup.cli.version &&
+		running.some((version) => version !== setup.cli.version)
+	)
+		lines.push(
+			`The command-line tool is now ${setup.cli.version}. Choose Restart runners to use it; that stops runs in progress.`,
+		);
+	return lines;
+}
+
+function draw(state: PanelState) {
+	const { status, summary, lastOutput, busy, openAtLogin } = state;
 	const nodes: HTMLElement[] = [
 		element("h1", summary, status.onBattery ? "warning" : ""),
 	];
@@ -50,6 +76,7 @@ function draw({ status, summary, lastOutput, busy, openAtLogin }: PanelState) {
 			`Machine tools: ${status.machineToolsUp ? "running" : "not running"}${status.machineToolsEvent ? ` · last event ${status.machineToolsEvent}` : ""}`,
 		),
 		...status.notes.map((note) => element("p", note, "quiet")),
+		...serviceLines(state).map((line) => element("p", line, "quiet")),
 		element("hr"),
 	);
 
@@ -73,7 +100,13 @@ function draw({ status, summary, lastOutput, busy, openAtLogin }: PanelState) {
 		);
 	}
 	if (!status.runners.length)
-		nodes.push(element("p", "No runners set up on this computer", "quiet"));
+		nodes.push(
+			element(
+				"p",
+				"Tedix does not run tasks on this Mac yet. Choose Set up this Mac… to turn it on.",
+				"quiet",
+			),
+		);
 
 	const serving = status.servingIndex;
 	if (serving !== undefined) {
@@ -112,9 +145,12 @@ function draw({ status, summary, lastOutput, busy, openAtLogin }: PanelState) {
 
 	const commands = element("p");
 	commands.append(
-		button("Sign in", busy, () => void tedixShell.action("login")),
-		button("Update", busy, () => void tedixShell.action("update")),
 		button("Restart runners", busy, () => void tedixShell.action("restart")),
+		button(
+			"Set up this Mac…",
+			false,
+			() => void tedixShell.action("setup-window"),
+		),
 	);
 	nodes.push(element("hr"), commands);
 	if (lastOutput) nodes.push(element("p", lastOutput, "quiet"));

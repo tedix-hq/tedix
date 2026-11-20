@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
 	app,
 	BrowserWindow,
+	clipboard,
 	dialog,
 	ipcMain,
 	type IpcMainInvokeEvent,
@@ -12,10 +13,19 @@ import {
 	shell,
 	WebContentsView,
 } from "electron";
-import type { PanelAction, PanelState, RunnerField } from "./api";
+import type { PanelAction, PanelLink, PanelState, RunnerField } from "./api";
 import { log } from "./log";
 import { setRunnerField } from "./runners-file";
-import { findTedix, lastLine, run } from "./shell";
+import {
+	onSetupChange,
+	refreshSetup,
+	saveSettings,
+	type SetupAction,
+	settings,
+	setupAction,
+	setupState,
+} from "./setup";
+import { lastLine, run } from "./shell";
 import { loadStatus, type Status, summary } from "./status";
 import { checkForUpdate, readyVersion, restartToUpdate } from "./update";
 
@@ -27,7 +37,18 @@ if (!app.isPackaged) {
 	app.setPath("userData", join(app.getPath("appData"), "Tedix Dev"));
 }
 
-const OS_URL = "https://tedix.os.tedix.dev/chat";
+/**
+ * Tedix OS lives at `os.tedix.dev`, where the sign-in picks the organization,
+ * and at `<organization>.os.tedix.dev`. The app opens the one used last.
+ */
+const isOsHost = (host: string) => /^([a-z0-9-]+\.)?os\.tedix\.dev$/.test(host);
+function osOrigin(): string {
+	const host = settings().host ?? "";
+	return `https://${isOsHost(host) ? host : "os.tedix.dev"}`;
+}
+const PANEL_LINKS: Record<PanelLink, string> = {
+	"claude-connectors": "https://claude.ai/settings/connectors",
+};
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
 const RUNNER_FIELDS: RunnerField[] = [
@@ -46,6 +67,7 @@ const localPage = {
 let mainWindow: BrowserWindow | undefined;
 let os: WebContentsView | undefined;
 let panel: BrowserWindow | undefined;
+let setupWindow: BrowserWindow | undefined;
 let status: Status | undefined;
 let lastOutput = "";
 let busy = false;
@@ -56,6 +78,7 @@ async function state(): Promise<PanelState> {
 	status ??= await loadStatus(powerMonitor.isOnBatteryPower());
 	return {
 		status,
+		setup: setupState(),
 		summary: summary(status),
 		lastOutput,
 		busy,
@@ -67,7 +90,9 @@ async function state(): Promise<PanelState> {
 
 async function publish(): Promise<void> {
 	const current = await state();
-	if (panel && !panel.isDestroyed()) panel.webContents.send("state", current);
+	for (const window of [panel, setupWindow])
+		if (window && !window.isDestroyed())
+			window.webContents.send("state", current);
 }
 
 async function refresh(): Promise<void> {
@@ -85,13 +110,6 @@ async function command(file: string, args: string[], done: string) {
 	lastOutput =
 		lastLine(result.output) || (result.ok ? done : "The command failed");
 	await refresh();
-}
-
-async function tedix(args: string[]): Promise<void> {
-	const file = findTedix();
-	if (file) return command(file, args, "Done");
-	lastOutput = "Tedix CLI not found";
-	await publish();
 }
 
 /** The CLI has no restart command, so this restarts the supervisor's login service. */
@@ -147,6 +165,8 @@ interface BrowserSignIn {
 	privateKey: JsonWebKey;
 	publicKey: string;
 	expires: number;
+	/** The Tedix OS address the browser signs in at; the finish page loads there too. */
+	origin?: string;
 }
 const SIGN_IN_WAIT_MS = 30 * 60_000;
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
@@ -184,9 +204,13 @@ async function signInWithBrowser(): Promise<void> {
 			expires: 0,
 		};
 	}
+	// The address the view is on now, so the session is made where it is used.
+	const viewing = URL.parse(os?.webContents.getURL() ?? "");
+	pending.origin =
+		viewing && isOsHost(viewing.host) ? viewing.origin : osOrigin();
 	pending.expires = Date.now() + SIGN_IN_WAIT_MS;
 	writeFileSync(browserSignInFile(), JSON.stringify(pending), { mode: 0o600 });
-	const page = new URL("/auth/desktop/sign-in", OS_URL);
+	const page = new URL("/auth/desktop/sign-in", pending.origin);
 	page.searchParams.set("key", pending.publicKey);
 	await shell.openExternal(page.href);
 }
@@ -279,7 +303,7 @@ async function finishBrowserSignIn(code: string): Promise<void> {
 	}
 	rmSync(browserSignInFile(), { force: true });
 	log("sign-in: code opened, loading the finish page");
-	const finish = new URL("/login", OS_URL);
+	const finish = new URL("/login", pending.origin ?? osOrigin());
 	// The changing value makes this a full page load even when the view is
 	// already on `/login`; a change of only the part after `#` loads nothing.
 	finish.searchParams.set("attempt", String(Date.now()));
@@ -300,16 +324,26 @@ async function finishBrowserSignIn(code: string): Promise<void> {
  * `tedix://sign-in?link=<emailed link>`: the Tedix OS sign-in page sends this
  * from the browser so the emailed link finishes in this window instead.
  * `tedix://sign-in?code=<code>` finishes a sign-in started with the browser.
+ * `tedix://setup` opens the Set up this Mac window.
  */
 function openAppLink(value: string | undefined): void {
 	const target = URL.parse(value ?? "");
-	if (target?.protocol !== "tedix:" || target.host !== "sign-in") return;
+	if (
+		target?.protocol !== "tedix:" ||
+		(target.host !== "sign-in" && target.host !== "setup")
+	)
+		return;
 	if (!os) {
 		startLink = value;
 		return;
 	}
 	mainWindow?.show();
 	mainWindow?.focus();
+	// `tedix://setup`: the Tedix OS page's "Set up this Mac" button.
+	if (target.host === "setup") {
+		log("link: setup window asked for");
+		return openSetup();
+	}
 	const code = target.searchParams.get("code");
 	if (code) {
 		log("link: sign-in code received");
@@ -347,7 +381,7 @@ function finishSignIn(link: string): void {
 		if (!helper.isDestroyed()) helper.destroy();
 		if (view.webContents.isDestroyed()) return;
 		if (URL.parse(view.webContents.getURL())?.pathname === "/login")
-			void view.webContents.loadURL(OS_URL);
+			void view.webContents.loadURL(`${osOrigin()}/chat`);
 	}, 8000);
 }
 
@@ -423,16 +457,19 @@ function createMainWindow(): void {
 	view.webContents.on("did-navigate", (_event, url, status) => {
 		const page = URL.parse(url);
 		log(`page: ${page?.host}${page?.pathname} (${status})`);
+		// Remembered so the next launch opens the same organization.
+		if (page?.protocol === "https:" && isOsHost(page.host) && status < 400)
+			if (settings().host !== page.host) saveSettings({ host: page.host });
 	});
 	// The added name lets the sign-in page tell this app from a browser.
 	view.webContents.setUserAgent(
 		`${view.webContents.getUserAgent()} TedixDesktop/${app.getVersion()}`,
 	);
-	void view.webContents.loadURL(OS_URL);
+	void view.webContents.loadURL(`${osOrigin()}/chat`);
 	view.webContents.focus();
 }
 
-/** The small This Mac window: status, switches and the three commands. */
+/** The small This Mac window: status and the day-to-day switches. */
 function openPanel(): void {
 	if (panel && !panel.isDestroyed()) return panel.show();
 	panel = new BrowserWindow({
@@ -452,9 +489,46 @@ function openPanel(): void {
 	void refresh();
 }
 
-function fromLocalPage(event: IpcMainInvokeEvent): void {
-	if (!panel || panel.isDestroyed() || event.sender !== panel.webContents)
-		throw new Error("Not allowed");
+/**
+ * The Set up this Mac window: one step per screen. It opens by itself while
+ * the sign-in on this Mac is still to do, from the menu, and from a
+ * `tedix://setup` link.
+ */
+function openSetup(): void {
+	if (setupWindow && !setupWindow.isDestroyed()) return setupWindow.show();
+	const window = new BrowserWindow({
+		width: 760,
+		height: 560,
+		title: "Set up this Mac",
+		parent: mainWindow,
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		titleBarStyle: "hiddenInset",
+		backgroundColor: "#030303",
+		webPreferences: localPage,
+	});
+	setupWindow = window;
+	window.setMenuBarVisibility(false);
+	window.webContents.on("will-navigate", (event) => event.preventDefault());
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	// Coming back from the browser shows the new state at once.
+	window.on("focus", () => void refreshSetup(false));
+	void window.loadFile(join(root, "setup.html"));
+	void refresh();
+	void refreshSetup(true);
+}
+
+function fromLocalPage(event: IpcMainInvokeEvent): BrowserWindow {
+	const window = [panel, setupWindow].find(
+		(candidate) =>
+			candidate &&
+			!candidate.isDestroyed() &&
+			event.sender === candidate.webContents,
+	);
+	if (!window) throw new Error("Not allowed");
+	return window;
 }
 
 function navigate(action: "back" | "forward" | "reload"): void {
@@ -505,6 +579,10 @@ function setMenu(): void {
 		accelerator: "CmdOrCtrl+Shift+M",
 		click: openPanel,
 	};
+	const setUp: MenuItemConstructorOptions = {
+		label: "Set Up This Mac…",
+		click: openSetup,
+	};
 	const mac = process.platform === "darwin";
 	Menu.setApplicationMenu(
 		Menu.buildFromTemplate([
@@ -513,6 +591,7 @@ function setMenu(): void {
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
+					setUp,
 					{
 						label: "Sign In with Browser",
 						click: () => void signInWithBrowser(),
@@ -599,9 +678,34 @@ else {
 		);
 		ipcMain.handle("action", (event, name: PanelAction) => {
 			fromLocalPage(event);
-			if (name === "login") return tedix(["-w", "connect", "login"]);
-			if (name === "update") return tedix(["update"]);
 			if (name === "restart") return restartRunners();
+			if (name === "setup-window") return openSetup();
+			if (name === "close-setup") {
+				setupWindow?.close();
+				mainWindow?.show();
+				mainWindow?.focus();
+			}
+		});
+		ipcMain.handle("setup", async (event, action: SetupAction, id: unknown) => {
+			const asking = fromLocalPage(event);
+			await setupAction(action, typeof id === "string" ? id : "", async () => {
+				const options = {
+					message: "Choose the project folder Tedix should work in",
+					properties: ["openDirectory" as const],
+				};
+				const chosen = await dialog.showOpenDialog(asking, options);
+				return chosen.canceled ? undefined : chosen.filePaths[0];
+			});
+			await refresh();
+		});
+		ipcMain.handle("copy", (event, text: unknown) => {
+			fromLocalPage(event);
+			if (typeof text === "string") clipboard.writeText(text.slice(0, 20_000));
+		});
+		ipcMain.handle("open", (event, link: PanelLink) => {
+			fromLocalPage(event);
+			const url = PANEL_LINKS[link];
+			if (url) return shell.openExternal(url);
 		});
 		ipcMain.handle("open-at-login", (event, on: boolean) => {
 			fromLocalPage(event);
@@ -618,6 +722,12 @@ else {
 		powerMonitor.on("on-battery", () => void refresh());
 		powerMonitor.on("on-ac", () => void refresh());
 		setInterval(() => void refresh(), 5000);
+		// The checklist opens by itself while the command-line tool or the
+		// sign-in on this Mac is still to do.
+		onSetupChange(() => void publish());
+		void refreshSetup(true).then(() => {
+			if (setupState().open) openSetup();
+		});
 		setTimeout(() => void checkForUpdates(false), 10_000);
 		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
 		void refresh();
