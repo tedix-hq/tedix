@@ -140,9 +140,19 @@ interface Apps {
   /**
    * Create a new app with its first revision. Always needs the person's approval; the name and files are checked first.
    * files must hold "server.js" and "client.js"; "README.md" and more lowercase one-segment .js, .json or .txt files are optional.
-   * The name must be new in this workspace. The app starts with no access to workspace files.
+   * The name must be new in this workspace.
+   * reads lets the app read files of this workspace, read only: { budget: outputId } gives the file a lower snake_case name.
+   * The person sees "May read: <file titles>" on the card. client.js then reads the file's current content each time it runs:
+   *   const { settings } = await tedix.call("context");
+   *   const sheet = await tedix.call("outputs.read", { slot: settings.reads.budget }); // { kind: "sheet", columns, rows }
+   * To show a file's content, bind it with reads; do not copy its rows into the app. server.js cannot read files.
    */
-  create(input: { name: string; description?: string; files: Record<string, string> }): Promise<{ id: string; name: string; revision: number; revisionId: string }>;
+  create(input: { name: string; description?: string; files: Record<string, string>; reads?: Record<string, string> }): Promise<{ id: string; name: string; revision: number; revisionId: string }>;
+  /**
+   * Let an existing app read more files of this workspace, read only; same reads and client code as create.
+   * Always needs the person's approval and saves a new revision, so call it before editing the app's files, not while a draft is pending.
+   */
+  allowRead(input: { appId: string; expectedRevisionId: string; reads: Record<string, string> }): Promise<{ id: string; name: string; revision: number; revisionId: string }>;
 }`.trim(),
 	resources: `
 /**

@@ -384,11 +384,12 @@ function createdApp(value: unknown): { appId: string; name: string } | null {
 }
 
 /**
- * What the card for a new app shows: its name, what it is for and the size
- * of each file. The source itself stays with the held call, so the card
- * never loses the name to a large file.
+ * What the card for a new app shows: its name, what it is for, the size
+ * of each file and the titles of the workspace files it may read. The source
+ * itself stays with the held call, so the card never loses the name to a
+ * large file.
  */
-function newAppCardInput(request: unknown): unknown {
+function newAppCardInput(request: unknown, mayRead: string[]): unknown {
 	if (!request || typeof request !== "object") return request;
 	const { name, description, files } = request as Record<string, unknown>;
 	return {
@@ -396,6 +397,7 @@ function newAppCardInput(request: unknown): unknown {
 		...(typeof description === "string"
 			? { description: description.slice(0, 2_000) }
 			: {}),
+		...(mayRead.length ? { mayRead } : {}),
 		files:
 			files && typeof files === "object" && !Array.isArray(files)
 				? Object.fromEntries(
@@ -3776,6 +3778,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 								.getOutput(outputId)
 								.catch(() => null)
 						: null;
+				// The files an app asks to read, by title, for its card. A title
+				// that cannot be read never hides that the app asks to read.
+				const mayRead =
+					binding === "apps" &&
+					request &&
+					typeof request === "object" &&
+					"reads" in request
+						? await this.#dataPort(scope, turn.actor.kind)
+								.readableFileTitles(request.reads)
+								.catch(() => ["a file of this workspace"])
+						: [];
 				const approvalEvent = {
 					type: "approval.requested" as const,
 					requester: {
@@ -3794,8 +3807,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					policy: error.decision.gate,
 					input: boundedEventInput(
 						binding === "apps" && method === "create"
-							? newAppCardInput(args[0])
-							: args[0],
+							? newAppCardInput(args[0], mayRead)
+							: binding === "apps" && method === "allowRead"
+								? { ...(request as object), mayRead }
+								: args[0],
 					),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
 					...(appliesNow ? { automatic: true as const } : {}),
@@ -4807,6 +4822,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	registerSchedule(...args: unknown[]) {
 		return this.#call("registerSchedule", args);
+	}
+	allowRead(...args: unknown[]) {
+		return this.#call("allowRead", args);
 	}
 	getCode(...args: unknown[]) {
 		return this.#call("getCode", args);

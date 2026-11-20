@@ -396,6 +396,7 @@ export function stepLabel(
 			readFile: "Reading an app file",
 			grep: "Searching app files",
 			create: "Creating a new app",
+			allowRead: "Letting an app read workspace files",
 			registerSchedule: "Registering a scheduled run",
 			editFile: "Editing an app draft",
 			writeFile: "Writing an app draft file",
@@ -423,7 +424,9 @@ export function stepLabel(
 	};
 	const write =
 		(binding === "apps" &&
-			["editFile", "writeFile", "registerSchedule"].includes(method)) ||
+			["editFile", "writeFile", "registerSchedule", "allowRead"].includes(
+				method,
+			)) ||
 		(binding === "work" &&
 			["startRun", "sendRunMessage", "stopRun"].includes(method)) ||
 		method === "create" ||

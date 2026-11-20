@@ -54,6 +54,10 @@ function fixture(ask = false) {
 		checkNewApp: async () => {
 			throw new Error("unused");
 		},
+		readableFileTitles: async () => [],
+		allowAppRead: async () => {
+			throw new Error("unused");
+		},
 		createApp: async () => {
 			throw new Error("unused");
 		},

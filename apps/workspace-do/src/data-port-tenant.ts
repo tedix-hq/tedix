@@ -29,8 +29,12 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	APP_RUNTIME_ENTRY,
+	AllowAppReadInputSchema,
 	AppRuntimeFilesSchema,
 	AppRuntimeConfigSchema,
+	AppRuntimeReadsSchema,
+	type AllowAppReadInput,
+	type AppRuntimeReads,
 	RegisterAppScheduleInputSchema,
 	type RegisterAppScheduleInput,
 } from "@tedix/api-contract/schemas/os-app-runtime";
@@ -49,7 +53,12 @@ import { listConnectedAccounts } from "@tedix/db/queries/connection-instances";
 import { listConnectionProviderNames } from "@tedix/db/queries/connection-providers";
 import { listAppsReferencingConnectionProvider } from "@tedix/db/queries/app-reference-maintenance";
 import { getAppByIdWithToolsForOrganization } from "@tedix/db/queries/app-records";
-import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import {
+	ensureOsWorkspaceResource,
+	findOsWorkspaceTenantResource,
+	getOsWorkspaceResource,
+	projectOsWorkspaceResource,
+} from "@tedix/db/queries/os-workspaces/resources";
 import { findWorkspaceConnectionTool } from "@tedix/db/queries/tools";
 import {
 	PersonalResourceToolBindingSchema,
@@ -216,6 +225,7 @@ const CreateAppInputSchema = z
 		name: z.string().trim().min(1).max(120),
 		description: z.string().max(2000).optional(),
 		files: AppRuntimeFilesSchema,
+		reads: AppRuntimeReadsSchema.optional(),
 	})
 	.strict();
 
@@ -619,7 +629,99 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		if (existing.some((app) => app.name === parsed.name))
 			throw new Error(APP_NAME_TAKEN);
 		await this.deps.validateAppSource(parsed.files);
-		return parsed;
+		return { ...parsed, readable: await this.readableFiles(parsed.reads) };
+	}
+
+	/**
+	 * The files a `reads` map names. Each must be an active file of this
+	 * workspace that is not removed from its connections.
+	 */
+	private async readableFiles(reads: AppRuntimeReads = {}) {
+		const files = [];
+		for (const [name, outputId] of Object.entries(reads)) {
+			const located = await this.locate(outputId);
+			if (
+				!located ||
+				located.row.status !== "active" ||
+				!this.canRead(located.revision)
+			)
+				throw new Error(
+					`reads.${name}: no file with this id in this workspace; list files with env.outputs.list()`,
+				);
+			const resource = await findOsWorkspaceTenantResource(this.deps.tenant, {
+				...this.scope,
+				providerId: "tedix",
+				resourceType: "output",
+				providerResourceId: outputId,
+			});
+			if (resource && (resource.status !== "active" || !resource.slot))
+				throw new Error(
+					`reads.${name}: "${located.row.title}" was removed from this workspace's connections; a person can add it back`,
+				);
+			files.push({ name, output: located.row, slot: resource?.slot ?? null });
+		}
+		return files;
+	}
+
+	async readableFileTitles(reads: unknown): Promise<string[]> {
+		const parsed = AppRuntimeReadsSchema.safeParse(reads ?? {});
+		if (!parsed.success) return [];
+		const files = await this.readableFiles(parsed.data);
+		return [...new Set(files.map((file) => file.output.title))];
+	}
+
+	/**
+	 * Gives each file the workspace connection apps read files through, the
+	 * same row a file's editor uses, and returns what the manifest needs: one
+	 * read-only grant per file and the slot behind each name. The app's reads
+	 * are then checked like any app's: grant, role and the reader's own access.
+	 */
+	private async bindReads(
+		files: Awaited<ReturnType<TenantDataPort["readableFiles"]>>,
+		actorId: string,
+	) {
+		const slots: Record<string, string> = {};
+		for (const { name, output, slot: bound } of files) {
+			let slot = bound;
+			if (!slot) {
+				const now = new Date().toISOString();
+				const key = {
+					...this.scope,
+					providerId: "tedix",
+					resourceType: "output",
+					providerResourceId: output.id,
+				};
+				await ensureOsWorkspaceResource(this.deps.tenant, {
+					...key,
+					id: crypto.randomUUID(),
+					slot: `file_${output.id.replaceAll("-", "")}`,
+					connectionScope: "tenant",
+					name: output.title.slice(0, 200),
+					metadata: JSON.stringify({ kind: output.kind }),
+					status: "active",
+					createdByKind: this.deps.actorKind,
+					createdById: actorId,
+					createdAt: now,
+					updatedAt: now,
+				});
+				const row = await findOsWorkspaceTenantResource(this.deps.tenant, key);
+				if (row?.status !== "active" || !row.slot)
+					throw new Error(
+						`"${output.title}" could not be connected to the app`,
+					);
+				// List screens read the shared copy of the row.
+				await projectOsWorkspaceResource(this.deps.core, row);
+				slot = row.slot;
+			}
+			slots[name] = slot;
+		}
+		return {
+			slots,
+			grants: [...new Set(Object.values(slots))].map((slot) => ({
+				slot,
+				operations: ["outputs.read"],
+			})),
+		};
 	}
 
 	async checkNewApp(input: CreateAppInput): Promise<void> {
@@ -633,6 +735,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		if (typeof actorId !== "string" || !actorId)
 			throw new Error("A new app needs the actor who creates it");
 		const parsed = await this.checkedNewApp(request);
+		const reads = await this.bindReads(parsed.readable, actorId);
 		const id = crypto.randomUUID();
 		const revisionId = crypto.randomUUID();
 		const now = new Date().toISOString();
@@ -663,11 +766,15 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			id: revisionId,
 			organizationId: this.deps.organizationId,
 			gadgetId: id,
-			// No resource grants: a new app reads and writes only its own storage.
+			// A new app reads and writes its own storage, and reads only the
+			// workspace files the person approved with it.
 			manifest: JSON.stringify({
 				entry: APP_RUNTIME_ENTRY,
 				capabilities: [],
-				config: { version: 1 },
+				config: reads.grants.length
+					? { version: 1, settings: { reads: reads.slots } }
+					: { version: 1 },
+				...(reads.grants.length ? { resourceGrants: reads.grants } : {}),
 			}),
 			createdByKind: this.deps.actorKind,
 			createdById: actorId,
@@ -687,6 +794,76 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		return {
 			id,
 			name: parsed.name,
+			revision: saved.revision.revision,
+			revisionId,
+		};
+	}
+
+	async allowAppRead(input: AllowAppReadInput & { actorId: string }) {
+		const { actorId, ...request } = input;
+		let parsed: AllowAppReadInput;
+		try {
+			parsed = AllowAppReadInputSchema.parse(request);
+		} catch (error) {
+			readableInputError(error);
+		}
+		const current = await this.getAppCode({ appId: parsed.appId });
+		if (current.proposalId || current.revisionId !== parsed.expectedRevisionId)
+			throw new Error(
+				"The app changed. Finish its pending edits and read the current source first.",
+			);
+		const reads = await this.bindReads(
+			await this.readableFiles(parsed.reads),
+			actorId,
+		);
+		const config = AppRuntimeConfigSchema.parse(
+			current.manifest.config ?? { version: 1 },
+		);
+		const named = config.settings?.reads;
+		const kept = current.manifest.resourceGrants ?? [];
+		const manifest = OsGadgetManifestSchema.parse({
+			...current.manifest,
+			config: {
+				...config,
+				settings: {
+					...config.settings,
+					reads: {
+						...(named && typeof named === "object" && !Array.isArray(named)
+							? named
+							: {}),
+						...reads.slots,
+					},
+				},
+			},
+			// A slot the app already holds keeps what it was granted.
+			resourceGrants: [
+				...kept,
+				...reads.grants.filter(
+					(grant) => !kept.some((held) => held.slot === grant.slot),
+				),
+			],
+		});
+		const revisionId = crypto.randomUUID();
+		const saved = await createOsGadgetRevision(this.deps.core, {
+			id: revisionId,
+			organizationId: this.deps.organizationId,
+			gadgetId: current.id,
+			manifest: JSON.stringify(manifest),
+			expectedRevision: current.revision,
+			createdByKind: this.deps.actorKind,
+			createdById: actorId,
+			code: {
+				files: JSON.stringify(current.files),
+				codeLength: appRuntimeCodeLength(current.files),
+			},
+		});
+		if (!saved.ok)
+			throw new Error(
+				"The app changed. Read the current source and try again.",
+			);
+		return {
+			id: current.id,
+			name: current.name,
 			revision: saved.revision.revision,
 			revisionId,
 		};
