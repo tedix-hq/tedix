@@ -100,14 +100,14 @@ it("copies bundled checkpoints, begins the cutover when caught up and finishes a
 	const store = stubStore();
 
 	// No bundle yet: nothing is copied and the cutover does not begin.
-	await runOrganizationLogCutover(db, store.log, NOW);
+	await runOrganizationLogCutover(db, store.log, NOW, 0);
 	expect(store.imports).toHaveLength(0);
 	expect(store.state()).toBe("passthrough");
 
 	sqlite.exec(
 		"UPDATE gateway_change_record_checkpoints SET evidence_bundle_key = 'bundle'",
 	);
-	expect(await runOrganizationLogCutover(db, store.log, NOW)).toMatchObject({
+	expect(await runOrganizationLogCutover(db, store.log, NOW, 0)).toMatchObject({
 		recordsCopied: 3,
 		checkpointsCopied: 1,
 		cutoversBegun: 1,
@@ -117,13 +117,13 @@ it("copies bundled checkpoints, begins the cutover when caught up and finishes a
 	const [head] = sqlite
 		.prepare("SELECT head_chain_hash FROM gateway_change_record_checkpoints")
 		.all() as Array<{ head_chain_hash: string }>;
-	expect(await runOrganizationLogCutover(db, store.log, NOW)).toMatchObject({
+	expect(await runOrganizationLogCutover(db, store.log, NOW, 0)).toMatchObject({
 		cutoversFinished: 1,
 	});
 	expect(store.finished).toEqual([
 		{ sequence: 3, chainHash: head!.head_chain_hash },
 	]);
-	expect(await runOrganizationLogCutover(db, store.log, NOW)).toMatchObject({
+	expect(await runOrganizationLogCutover(db, store.log, NOW, 0)).toMatchObject({
 		organizationsLive: 1,
 	});
 });

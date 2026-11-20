@@ -29,13 +29,21 @@ import {
 	listOrganizationsWithGatewayChangeRecordCheckpoints,
 } from "@tedix/db/queries/gateway-change-records";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { withOverloadBackoff } from "../services/d1-retention-archive";
 import {
 	callOrganizationLog,
 	organizationLogRuntime,
 } from "../services/organization-log";
 
-/** Records copied per import call (one RPC payload, about 1 MB). */
-export const RECORDS_PER_IMPORT = 800;
+/**
+ * Records copied per import call: one page, read from main with one indexed
+ * range query. Same page size as the retention move engine.
+ */
+export const RECORDS_PER_IMPORT = 500;
+/** Records copied per run, at most; the rest waits for the next tick. */
+export const MAX_RECORDS_PER_RUN = 5_000;
+/** Pause after each copied page, so live reads of main keep working. */
+export const PAGE_PAUSE_MS = 1_000;
 /** Time a run may spend copying. */
 export const COPY_BUDGET_MS = 30_000;
 /** A cutover finishes no earlier than this after it began. */
@@ -60,13 +68,16 @@ async function copy(
 	after: number,
 	deadline: number,
 	result: CutoverResult,
+	pagePauseMs: number,
 ): Promise<{ caughtUp: boolean; tail: number }> {
 	let tail = after;
-	while (Date.now() < deadline) {
-		const next = await listGatewayChangeRecordCheckpoints(db, organizationId, {
-			afterLastSequence: tail,
-			limit: 50,
-		});
+	while (Date.now() < deadline && result.recordsCopied < MAX_RECORDS_PER_RUN) {
+		const next = await withOverloadBackoff(() =>
+			listGatewayChangeRecordCheckpoints(db, organizationId, {
+				afterLastSequence: tail,
+				limit: 50,
+			}),
+		);
 		const ready: typeof next = [];
 		let records = 0;
 		for (const checkpoint of next) {
@@ -80,13 +91,14 @@ async function copy(
 			records += checkpoint.recordCount;
 		}
 		if (ready.length === 0) return { caughtUp: next.length === 0, tail };
-		const rows = (
-			await Promise.all(
-				ready.map((checkpoint) =>
-					listGatewayChangeRecordsForCheckpoint(db, checkpoint),
-				),
-			)
-		).flat();
+		const rows = await withOverloadBackoff(() =>
+			listGatewayChangeRecordsForCheckpoint(db, {
+				organizationId,
+				firstSequence: ready[0]!.firstSequence,
+				lastSequence: ready.at(-1)!.lastSequence,
+				recordCount: records,
+			}),
+		);
 		const copied = await log.organizationLogImport(organizationId, {
 			records: rows,
 			checkpoints: ready,
@@ -94,6 +106,8 @@ async function copy(
 		tail = copied.sequence;
 		result.recordsCopied += rows.length;
 		result.checkpointsCopied += ready.length;
+		if (pagePauseMs > 0)
+			await new Promise((resolve) => setTimeout(resolve, pagePauseMs));
 	}
 	return { caughtUp: false, tail };
 }
@@ -118,6 +132,7 @@ export async function runOrganizationLogCutover(
 	db: DbQueryClient,
 	log: OrganizationLogRuntime,
 	now: number,
+	pagePauseMs = PAGE_PAUSE_MS,
 ): Promise<CutoverResult> {
 	const result: CutoverResult = {
 		recordsCopied: 0,
@@ -164,6 +179,7 @@ export async function runOrganizationLogCutover(
 				status.tail?.sequence ?? 0,
 				deadline,
 				result,
+				pagePauseMs,
 			);
 			if (status.state === "passthrough") {
 				if (copied.caughtUp) {
