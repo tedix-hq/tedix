@@ -22,8 +22,8 @@
  *   evidence cites; the writers check the logs database before inserting an
  *   attribution that old, so a replay never creates a second copy.
  *
- * - `tedi_call_costs`: settled or quarantined organization-owned rows past
- *   the financial keep window. Pending settlement and reviewed source rows
+ * - `tedi_call_costs`: settled or quarantined organization rows and platform
+ *   rows (no organization) past the keep window. Pending settlement and reviewed source rows
  *   stay beside authority in main. The organization ledger merges archives.
  *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The

@@ -464,15 +464,15 @@ describe("external agent attribution retention", () => {
 		return { db, spec, seed, review };
 	}
 
-	it("keeps at least 30 days for verified logs moves", () => {
+	it("keeps at least 7 days for verified logs moves", () => {
 		const spec = getD1RetentionTableSpec("external_agent_attributions")!;
 		expect(spec.logsDb).toBe(true);
-		expect(d1RetentionEffectiveKeepDays(spec, { keepDays: 7 })).toBe(30);
+		expect(d1RetentionEffectiveKeepDays(spec, { keepDays: 1 })).toBe(7);
 		expect(
 			d1RetentionPolicyProblem({
 				tableName: "external_agent_attributions",
 				mode: "move_to_logs_db",
-				keepDays: 30,
+				keepDays: 7,
 			}),
 		).toBeNull();
 	});

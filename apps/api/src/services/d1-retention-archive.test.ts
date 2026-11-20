@@ -1405,9 +1405,9 @@ describe("runD1Retention", () => {
 		expect(count()).toBe(0);
 	});
 
-	it("moves expired attributions and settled costs, retains the financial window and pending settlement, and records counts", async () => {
+	it("moves expired attributions, settled and platform costs, retains the window and pending settlement, and records counts", async () => {
 		const { db, sqlite, count, policy } = fixture(
-			"('external_agent_attributions','move_to_logs_db',30,5000,'2026-10-21'), ('tedi_call_costs','move_to_logs_db',400,5000,'2026-10-21')",
+			"('external_agent_attributions','move_to_logs_db',7,5000,'2026-10-21'), ('tedi_call_costs','move_to_logs_db',90,5000,'2026-10-21')",
 		);
 		sqlite.exec(`INSERT INTO external_agent_attributions
 			(id, organization_id, principal_id, session_id, target_type, target_id, role, occurred_at)
@@ -1470,19 +1470,24 @@ describe("runD1Retention", () => {
 				deleted: 1,
 				error: undefined,
 			},
-			{ name: "tedi_call_costs", moved: 1, deleted: 1, error: undefined },
+			{ name: "tedi_call_costs", moved: 2, deleted: 2, error: undefined },
 		]);
 		expect(count("external_agent_attributions")).toBe(1);
-		expect(count("tedi_call_costs")).toBe(3);
+		expect(count("tedi_call_costs")).toBe(2);
 		expect(logs.count("external_agent_attributions")).toBe(1);
-		expect(logs.count("tedi_call_costs")).toBe(1);
+		expect(logs.count("tedi_call_costs")).toBe(2);
 		expect(JSON.parse(policy("tedi_call_costs").report)).toMatchObject({
-			movedRows: 1,
-			deletedRows: 1,
-			referencedRows: 2,
-			keepDays: 400,
+			movedRows: 2,
+			deletedRows: 2,
+			referencedRows: 1,
+			keepDays: 90,
 		});
-		expect(bucket.objects.size).toBe(2);
+		expect(
+			[...bucket.objects.keys()].some((key) =>
+				key.startsWith("d1-archive/v1/tedi_call_costs/_platform/"),
+			),
+		).toBe(true);
+		expect(bucket.objects.size).toBe(3);
 		const archived = (
 			await Promise.all([...bucket.objects.values()].map(gunzipLines))
 		)
@@ -1491,6 +1496,7 @@ describe("runD1Retention", () => {
 		expect(archived.map((row) => row.id).sort()).toEqual([
 			"attribution-old",
 			"cost-old",
+			"cost-unattributed",
 		]);
 	});
 

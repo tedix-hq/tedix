@@ -1756,6 +1756,10 @@
 		{
 			"name": "20261120164457_drop-remaining-tier1-indexes/migration.sql",
 			"sha256": "542d9373ed28ad65eee3dc1e11d46d6f0ebf123efd34d0897222bfaac2b91c8c"
+		},
+		{
+			"name": "20261120165740_shorter_attribution_and_cost_retention/migration.sql",
+			"sha256": "1840f6c97009b5c725a1d89f015d723026f1b9a3588a768689deb81c7cdeb239"
 		}
 	]
 }
