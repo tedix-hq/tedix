@@ -156,9 +156,9 @@ object per organization and one read path.
 
 ## Cutover, one organization at a time
 
-Only organizations named in the `organization_log_cutover_allowlist` table
-move; the row `*` allows all and an empty table moves none, so switching the
-cutover on for one organization or for all is a data change.
+Every organization moves once the store binding is live (decided 20 Nov
+2026: all organizations at once, no staged rollout). The job still takes
+them one after another, fewest checkpoints first.
 
 Each store has a state: `passthrough`, `cutover` or `live`. There is no long
 dual-running, and only one organization is in `cutover` at a time.

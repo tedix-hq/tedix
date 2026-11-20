@@ -9,7 +9,6 @@ import {
 	gatewayChangeRecordCheckpoints,
 	gatewayChangeRecords,
 } from "@tedix/db/schema/gateway-change-records";
-import { organizationLogCutoverAllowlist } from "@tedix/db/schema/organization-log";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { afterEach, expect, it, vi } from "vite-plus/test";
@@ -71,13 +70,7 @@ it("copies bundled checkpoints, begins the cutover when caught up and finishes a
 	vi.spyOn(console, "warn").mockImplementation(() => {});
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
-	sqlite.exec(
-		schemaDdl(
-			gatewayChangeRecords,
-			gatewayChangeRecordCheckpoints,
-			organizationLogCutoverAllowlist,
-		),
-	);
+	sqlite.exec(schemaDdl(gatewayChangeRecords, gatewayChangeRecordCheckpoints));
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	for (let n = 1; n <= 3; n++)
 		sqlite
@@ -105,19 +98,6 @@ it("copies bundled checkpoints, begins the cutover when caught up and finishes a
 			);
 	await sealGatewayChangeRecordRuns(db, NOW, null);
 	const store = stubStore();
-	sqlite.exec(
-		"UPDATE gateway_change_record_checkpoints SET evidence_bundle_key = 'bundle'",
-	);
-
-	// An empty allowlist moves no organization.
-	await runOrganizationLogCutover(db, store.log, NOW);
-	expect(store.imports).toHaveLength(0);
-	sqlite.exec(
-		"INSERT INTO organization_log_cutover_allowlist (organization_id, created_at) VALUES ('org-a', '2026-11-20')",
-	);
-	sqlite.exec(
-		"UPDATE gateway_change_record_checkpoints SET evidence_bundle_key = NULL",
-	);
 
 	// No bundle yet: nothing is copied and the cutover does not begin.
 	await runOrganizationLogCutover(db, store.log, NOW);

@@ -3,9 +3,9 @@
  * organization at a time, on the two-minute tick after the sealer
  * (`docs/engineering/organization-log-store.md`, "Cutover").
  *
- * Only organizations named in `organization_log_cutover_allowlist` move
- * (`*` names all; an empty table moves none). For the first allowed
- * organization (fewest checkpoints first) whose store is not live yet:
+ * Every organization moves once the workspace runtime has the store. For
+ * the first organization (fewest checkpoints first) whose store is not live
+ * yet:
  * - `passthrough`: copy whole sealed checkpoints that already have an
  *   evidence bundle, in sequence order, while writes still go to main. When
  *   every checkpoint is copied, begin the cutover.
@@ -28,7 +28,6 @@ import {
 	listGatewayChangeRecordsForCheckpoint,
 	listOrganizationsWithGatewayChangeRecordCheckpoints,
 } from "@tedix/db/queries/gateway-change-records";
-import { getOrganizationLogCutoverAllowlist } from "@tedix/db/queries/organization-log";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	callOrganizationLog,
@@ -128,13 +127,10 @@ export async function runOrganizationLogCutover(
 		organizationsLive: 0,
 		orphansInMain: 0,
 	};
-	const allowed = await getOrganizationLogCutoverAllowlist(db);
-	if (allowed !== "all" && allowed.size === 0) return result;
 	const deadline = Date.now() + COPY_BUDGET_MS;
 	for (const {
 		organizationId,
 	} of await listOrganizationsWithGatewayChangeRecordCheckpoints(db)) {
-		if (allowed !== "all" && !allowed.has(organizationId)) continue;
 		const status = await log.organizationLogStatus(organizationId);
 		if (!status.available) return result;
 		if (status.state === "live") {
