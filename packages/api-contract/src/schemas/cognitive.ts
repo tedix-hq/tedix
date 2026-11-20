@@ -236,6 +236,20 @@ export const SkillEntrySchema = z.object({
 	preconditions: SkillPreconditionsSchema.nullable().optional(),
 	lifecycleState: SkillLifecycleStateSchema.nullable().optional(),
 	/** Crystallized skill recorded a failure — flagged for human review. */
+	/** What the skill was when it was archived; null outside the archive. */
+	archivedFrom: z
+		.object({
+			lifecycleState: z.enum([
+				"draft",
+				"active",
+				"proven",
+				"crystallized",
+				"stale",
+			]),
+			revision: z.number().int(),
+		})
+		.nullable()
+		.optional(),
 	reviewFlaggedAt: z.string().nullable().optional(),
 	reviewFlagReason: z.string().nullable().optional(),
 	/** Pace layer — auto-derived from lifecycle and always persisted. */
