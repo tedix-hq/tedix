@@ -4,11 +4,11 @@ import fc from "fast-check";
 import { describe, expect, it } from "vite-plus/test";
 import { eq } from "drizzle-orm";
 import { createDbQueryClient } from "../../query-client";
+import { osCollaborationProposals } from "../../schema/os-workspaces";
 import {
-	osCollaborationProposals,
 	osOutputs,
 	osOutputRevisions,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";
 import { createDurableSqliteFixture } from "../../test/durable-sqlite-fixture";

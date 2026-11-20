@@ -30,7 +30,7 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createError, ErrorCodes } from "../rpc/orpc";
 import { mapOsOutputRow } from "./os-output-library";
 import {

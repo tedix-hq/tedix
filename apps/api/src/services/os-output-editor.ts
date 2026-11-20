@@ -23,11 +23,11 @@ import {
 	publishWorkspaceAppTemplate,
 } from "@tedix/db/queries/os-workspaces/install-app";
 import { findOsBlueprintIdByName } from "@tedix/db/queries/os-workspaces/blueprints";
+import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
-	OsWorkspaceRow,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { canonicalDigest } from "../lib/blueprint-digest";
 import { getOsOutputRevision } from "./workspace-output-storage";
 import {

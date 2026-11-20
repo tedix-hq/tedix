@@ -25,7 +25,7 @@ import {
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createWorkspaceFeedConsumer } from "@tedix/workspace-feed/consumer";
 import {
 	WORKSPACE_CHANGE_EXCERPT_MAX,

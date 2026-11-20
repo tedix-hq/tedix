@@ -4,7 +4,7 @@ import type { TenantScope } from "@tedix/db/tenant-scope";
 import type {
 	NewOsOutputRow,
 	NewOsOutputRevisionRow,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import type {
 	ListOsOutputsOptions,
 	UpdateOsOutputPatch,

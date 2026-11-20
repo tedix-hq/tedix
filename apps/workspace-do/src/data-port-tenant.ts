@@ -88,7 +88,7 @@ import {
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { WorkspaceOutputRevisionNotice } from "@tedix/api-contract/utils/workspace-room";
 import {

@@ -1,9 +1,8 @@
 /**
  * Workspace-owned output tables as they exist inside one TenantStore object.
  *
- * Same table and column names as `../schema/os-workspaces.ts`, so the
- * `durable-sqlite/os-outputs.ts` queries (which import that module's table
- * objects) and the migration copy pipeline (`importRows`) both work unchanged.
+ * Files (`os_outputs`) and their revisions live only here. The workspace
+ * directory and resources mirror `../schema/os-workspaces.ts` by name.
  * Cross-domain foreign keys are dropped: organizations and users stay in the
  * core database, so a per-workspace SQLite file cannot reference them.
  */
@@ -64,7 +63,7 @@ export const tenantOsWorkspaces = sqliteTable(
 	],
 );
 
-export const tenantOsOutputs = sqliteTable(
+export const osOutputs = sqliteTable(
 	"os_outputs",
 	{
 		id: text("id").primaryKey(),
@@ -97,14 +96,14 @@ export const tenantOsOutputs = sqliteTable(
 	],
 );
 
-export const tenantOsOutputRevisions = sqliteTable(
+export const osOutputRevisions = sqliteTable(
 	"os_output_revisions",
 	{
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id").notNull(),
 		outputId: text("output_id")
 			.notNull()
-			.references(() => tenantOsOutputs.id, { onDelete: "cascade" }),
+			.references(() => osOutputs.id, { onDelete: "cascade" }),
 		revision: integer("revision").notNull(),
 		/** Always the empty string on this plane; the body lives at `bodyR2Key`. */
 		content: text("content").notNull(),
@@ -204,3 +203,8 @@ export const tenantOsWorkspaceResources = sqliteTable(
 		),
 	],
 );
+
+export type OsOutputRow = typeof osOutputs.$inferSelect;
+export type NewOsOutputRow = typeof osOutputs.$inferInsert;
+export type OsOutputRevisionRow = typeof osOutputRevisions.$inferSelect;
+export type NewOsOutputRevisionRow = typeof osOutputRevisions.$inferInsert;

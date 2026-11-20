@@ -1,9 +1,10 @@
 /**
  * Tedix OS workspace domain wire schemas.
  *
- * D1 is canonical: `os_workspaces`, `os_gadgets`, `os_gadget_revisions`,
- * `os_gadget_executions`, `os_outputs`, `os_output_revisions`,
- * `os_blueprints`, and `os_blueprint_revisions` back these shapes. All ids are
+ * The core database holds `os_workspaces`, `os_gadgets`, `os_gadget_revisions`,
+ * `os_gadget_executions`, `os_blueprints` and `os_blueprint_revisions`; files
+ * (`os_outputs`, `os_output_revisions`) live in each workspace's own store.
+ * These tables back these shapes. All ids are
  * caller/router-generated UUIDs and all timestamps are ISO-8601 text. Revision
  * bodies (`manifest`, `definition`, `content`) persist as JSON text columns;
  * these schemas define their structured wire form — applications serialize at

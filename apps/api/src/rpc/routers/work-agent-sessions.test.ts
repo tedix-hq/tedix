@@ -34,10 +34,10 @@ import {
 	osWorkspaces,
 	osWorkspaceProjects,
 	osGadgetExecutions,
-	osOutputs,
 	osGadgets,
 	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
+import { osOutputs } from "@tedix/db/tenant-store/outputs-schema";
 import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";

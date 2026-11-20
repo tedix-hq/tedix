@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { osOutputs } from "../../schema/os-workspaces";
+import { osOutputs } from "../../tenant-store/outputs-schema";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";

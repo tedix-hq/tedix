@@ -15,11 +15,13 @@ import {
 } from "../../schema/cognitive-runtime";
 import {
 	osGadgets,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
+import {
+	osOutputRevisions,
+	osOutputs,
+} from "../../tenant-store/outputs-schema";
 import { userConfigs } from "../../schema/user-configs";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { eq } from "drizzle-orm";
-import { osOutputRevisions } from "@tedix/db/schema/os-workspaces";
+import { osOutputRevisions } from "@tedix/db/tenant-store/outputs-schema";
 import { clients } from "./__tests__/os-workspaces-env";
 
 describe("Doc blueprint installation", () => {

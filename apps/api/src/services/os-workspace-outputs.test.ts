@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
 	osOutputs,
 	osOutputRevisions,
-	osWorkspaces,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { listOsOutputRevisions } from "./workspace-output-storage";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {

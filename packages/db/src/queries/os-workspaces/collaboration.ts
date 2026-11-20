@@ -8,7 +8,6 @@ import {
 	type NewOsCollaborationProposalRow,
 	type OsCollaborationProposalRow,
 	type OsGadgetRevisionRow,
-	type OsOutputRevisionRow,
 	osCollaborationProposals,
 	osGadgetRevisions,
 	osGadgetCode,
@@ -18,6 +17,7 @@ import {
 	osBlueprintRevisions,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
+import { type OsOutputRevisionRow } from "../../tenant-store/outputs-schema";
 import { normalizeStoredJsonText } from "../../utils/json";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
 import { getOsGadgetRevision } from "./gadgets";

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	hydrateOutputRevision,

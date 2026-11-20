@@ -1,11 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { organizations } from "@tedix/db/schema/organizations";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
 	osOutputRevisions,
 	osOutputs,
-	osWorkspaces,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";

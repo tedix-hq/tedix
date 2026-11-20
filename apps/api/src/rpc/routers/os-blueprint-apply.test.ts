@@ -1,6 +1,6 @@
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { DatabaseSync } from "node:sqlite";
-import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
 import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -11,8 +11,6 @@ import { projects } from "@tedix/db/schema/projects";
 import { workItems, workItemRelations } from "@tedix/db/schema/work-items";
 import { workCaseItems, workCases } from "@tedix/db/schema/work-factory";
 import {
-	osOutputs,
-	osOutputRevisions,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaces,
@@ -21,6 +19,10 @@ import {
 	osGadgets,
 	osGadgetRevisions,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { skillSchedules } from "@tedix/db/schema/cognitive";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { OsBlueprintDefinitionSchema } from "@tedix/api-contract/schemas/os-workspaces";

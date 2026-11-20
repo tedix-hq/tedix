@@ -3,11 +3,11 @@ import { createOsOutput } from "./workspace-output-storage";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { listOsWorkspaces } from "@tedix/db/queries/os-workspaces/workspaces";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
-	osWorkspaces,
 	osOutputs,
 	osOutputRevisions,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";

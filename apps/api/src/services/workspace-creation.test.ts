@@ -9,9 +9,11 @@ import {
 	osWorkspaces,
 	osBlueprints,
 	osBlueprintRevisions,
+} from "@tedix/db/schema/os-workspaces";
+import {
 	osOutputs,
 	osOutputRevisions,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import {
 	kernelConversations,
 	kernelRuntimeRuns,

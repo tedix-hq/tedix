@@ -24,11 +24,13 @@ import {
 } from "@tedix/db/queries/os-workspaces/collaboration";
 import * as d1Outputs from "../../test/shared-output-fixture";
 import {
-	osOutputs,
-	osOutputRevisions,
 	osWorkspaces,
 	osCollaborationProposals,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import {
 	workspaceFeedLedger,
 	workspaceFeedCursors,

@@ -24,10 +24,12 @@ import {
 	osGadgetRevisions,
 	osGadgets,
 	osCollaborationProposals,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputRevisions,
+	osOutputs,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";

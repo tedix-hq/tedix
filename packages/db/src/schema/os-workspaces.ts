@@ -590,115 +590,6 @@ export const osGadgetExecutions = sqliteTable(
 );
 
 /**
- * Tedix OS outputs: durable, revisioned deliverables (documents, sheets,
- * presentations). `workspace_id` is optional grouping context, deliberately
- * plain text with no FK — an output is a durable deliverable that outlives
- * workspace lifecycle. Revisions are append-only; `current_revision_id` is the
- * usual circular plain-text pointer maintained by the revision write batch.
- */
-export const osOutputs = sqliteTable(
-	"os_outputs",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		workspaceId: text("workspace_id"),
-		kind: text("kind", {
-			enum: ["document", "sheet", "presentation", "video"],
-		}).notNull(),
-		title: text("title").notNull(),
-		status: text("status", { enum: ["active", "archived"] })
-			.notNull()
-			.default("active"),
-		/** Pointer to the serving `os_output_revisions.id`; no FK (circular), queries maintain it. */
-		currentRevisionId: text("current_revision_id"),
-		createdByKind: text("created_by_kind", { enum: createdByKinds }).notNull(),
-		createdById: text("created_by_id").notNull(),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(datetime('now'))`),
-		updatedAt: text("updated_at")
-			.notNull()
-			.default(sql`(datetime('now'))`),
-	},
-	(table) => [
-		index("os_outputs_org_idx").on(table.organizationId, table.updatedAt),
-		// Workspace file lists filter by workspace and sort by recency; without
-		// this they walk every Output in the organization.
-		index("os_outputs_workspace_idx").on(
-			table.organizationId,
-			table.workspaceId,
-			table.updatedAt,
-		),
-	],
-);
-
-export const osOutputRevisions = sqliteTable(
-	"os_output_revisions",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		outputId: text("output_id")
-			.notNull()
-			.references(() => osOutputs.id, { onDelete: "cascade" }),
-		revision: integer("revision").notNull(),
-		/**
-		 * JSON string: the semantic content body, discriminated by the output's
-		 * kind. Rows whose body lives in R2 (`body_r2_key`) keep the empty string
-		 * here; read bodies through the API's `hydrateOutputRevision`, never raw.
-		 */
-		content: text("content").notNull(),
-		/** Optional revision message describing the edit. */
-		note: text("note"),
-		createdByKind: text("created_by_kind", { enum: createdByKinds }).notNull(),
-		createdById: text("created_by_id").notNull(),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(datetime('now'))`),
-		/**
-		 * Producer lineage: the skill run that authored these bytes. The workflow
-		 * bridge already forwards `X-Tedix-Skill-Run-Id` / `X-Tedix-Skill-Id`
-		 * through the MCP edge; before this column the API dropped them. Both are
-		 * null for a human-authored revision and for every revision written before
-		 * this column existed — there is no backfill source.
-		 *
-		 * Deliberately plain text with no FK, matching `osGadgetExecutions`: a
-		 * deliverable outlives the skill that produced it, so pruning a skill or
-		 * its runs must never cascade away the receipt. Orphaned ids are expected
-		 * and readers must degrade gracefully.
-		 */
-		skillRunId: text("skill_run_id"),
-		skillId: text("skill_id"),
-		/**
-		 * The agent turn that produced this revision while saving on a person's
-		 * behalf, such as the workspace chat agent. createdByKind/createdById
-		 * still name who is accountable; this only says an agent did the edit,
-		 * so an open editor can offer to undo it. Null for every other revision.
-		 */
-		agentTurnId: text("agent_turn_id"),
-		/** JSON OsDerivedAccessEnvelope inherited from the producing governed run. */
-		accessEnvelope: text("access_envelope"),
-		contentSha256: text("content_sha256"),
-		contentBytes: integer("content_bytes"),
-		bodyR2Key: text("body_r2_key"),
-	},
-	(table) => [
-		uniqueIndex("os_output_revisions_output_revision_unique").on(
-			table.outputId,
-			table.revision,
-		),
-		index("os_output_revisions_org_idx").on(table.organizationId),
-		index("os_output_revisions_skill_run_idx").on(
-			table.skillRunId,
-			table.createdAt,
-		),
-	],
-);
-
-/**
  * Agent-authored collaboration proposals are durable review records, not live
  * collaborative room state and not canonical artifact revisions. A proposal is pinned to one
  * immutable gadget/output revision. Streaming replaces only its preview body
@@ -908,10 +799,6 @@ export type NewOsBlueprintRevisionRow =
 	typeof osBlueprintRevisions.$inferInsert;
 export type OsGadgetExecutionRow = typeof osGadgetExecutions.$inferSelect;
 export type NewOsGadgetExecutionRow = typeof osGadgetExecutions.$inferInsert;
-export type OsOutputRow = typeof osOutputs.$inferSelect;
-export type NewOsOutputRow = typeof osOutputs.$inferInsert;
-export type OsOutputRevisionRow = typeof osOutputRevisions.$inferSelect;
-export type NewOsOutputRevisionRow = typeof osOutputRevisions.$inferInsert;
 export type OsCollaborationProposalRow =
 	typeof osCollaborationProposals.$inferSelect;
 export type NewOsCollaborationProposalRow =
