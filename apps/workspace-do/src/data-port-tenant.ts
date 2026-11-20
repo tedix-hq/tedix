@@ -21,6 +21,7 @@ import {
 	getOsGadget,
 	getOsGadgetRevision,
 	getOsGadgetCode,
+	listOsGadgetRevisions,
 	setOsAppTriggerEnabled,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
@@ -115,6 +116,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
 	AppCode,
+	AppVersion,
 	CreateAppInput,
 	CreatedApp,
 	EditAppFilesInput,
@@ -496,6 +498,40 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		}));
 	}
 
+	async listAppVersions(input: { appId: string }): Promise<AppVersion[]> {
+		const { appId } = z
+			.object({ appId: z.string().min(1) })
+			.strict()
+			.parse(input);
+		const app = await getOsGadget(this.deps.core, {
+			organizationId: this.deps.organizationId,
+			gadgetId: appId,
+		});
+		if (
+			!app ||
+			app.workspaceId !== this.deps.workspaceId ||
+			app.status !== "active"
+		)
+			throw new Error("App not found in this workspace");
+		const rows = await listOsGadgetRevisions(
+			this.deps.core,
+			{ organizationId: this.deps.organizationId, gadgetId: app.id },
+			{ limit: 50 },
+		);
+		return rows.map((row) => ({
+			revision: row.revision,
+			revisionId: row.id,
+			current: row.id === app.currentRevisionId,
+			savedAt: row.createdAt,
+			savedBy:
+				row.createdByKind === "user"
+					? "person"
+					: row.createdByKind === "service"
+						? "automation"
+						: "agent",
+		}));
+	}
+
 	async getAppCode(input: {
 		appId: string;
 		revisionId?: string;
@@ -578,11 +614,14 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 							})
 							.strict(),
 					)
-					.min(1)
 					.max(24),
+				restoreRevisionId: z.string().min(1).optional(),
 				actorId: z.string().min(1),
 			})
 			.strict()
+			.refine((value) => value.edits.length > 0 || value.restoreRevisionId, {
+				message: "An app edit needs at least one change",
+			})
 			.parse(input);
 		if (!this.deps.conversationId)
 			throw new Error("App edits require a workspace conversation");
@@ -591,6 +630,19 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			throw new Error(
 				"App revision conflict; read the current source before editing again",
 			);
+		// Going back keeps today's settings and access; only the files return.
+		const earlier = parsed.restoreRevisionId
+			? await this.getAppCode({
+					appId: parsed.appId,
+					revisionId: parsed.restoreRevisionId,
+				})
+			: undefined;
+		if (
+			earlier &&
+			earlier.revisionId === current.revisionId &&
+			!current.proposalId
+		)
+			throw new Error("That is already the app's current version");
 		const proposal = await proposeOsAppFileEdits(
 			this.deps.core,
 			{
@@ -604,6 +656,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				baseRevision: current.revision,
 				content: { manifest: current.manifest, files: current.files },
 				edits: parsed.edits,
+				replaceFiles: earlier?.files,
 				createdByKind: this.deps.actorKind,
 				createdById: parsed.actorId,
 			},

@@ -127,8 +127,10 @@ interface AppCode { id: string; name: string; revision: number; revisionId: stri
 interface Apps {
   /** Register a new scheduled run. It stays off until a person switches it on in chat, Activity or Connections. Tell the person it is off. */
   registerSchedule(input: { appId: string; expectedRevisionId: string; schedule: { id: string; kind: "schedule"; cron: string; method: string; args?: unknown[] } }): Promise<{ gadgetId: string; triggerId: string; name: string; enabled: false; message: string }>;
-  /** Read current source, or an earlier revision of this same app for restoration. */
+  /** Read current source, or an earlier revision of this same app. */
   getCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
+  /** Saved versions of this app, newest first. Read-only. */
+  versions(input: { appId: string }): Promise<Array<{ revision: number; revisionId: string; current: boolean; savedAt: string; savedBy: "person" | "agent" | "automation" }>>;
   /** Read one file from this chat's pending draft, or committed code when there is no draft. */
   readFile(input: {appId:string; path:string}): Promise<{appId:string; path:string; revisionId:string; proposalId?:string; sequence?:number; content:string}>;
   /** Literal text search across this chat's app files; capped at 200 matches. */
@@ -137,6 +139,8 @@ interface Apps {
   editFile(input: {appId:string; path:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number; before:string; after:string}): Promise<AppCode>;
   /** Stage a new file or replace a file in full. Prefer editFile for small changes. Does not publish. */
   writeFile(input: {appId:string; path:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number; content:string}): Promise<AppCode>;
+  /** Stage an earlier version's files as this chat's draft, replacing the whole file set; settings and access stay as they are now. The person accepts it like any draft, which saves a new version; history is kept. */
+  restoreVersion(input: {appId:string; revisionId:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number}): Promise<AppCode>;
   list(): Promise<Array<{ id: string; name: string; description: string | null; status: string; updatedAt: string }>>;
   /**
    * Create a new app with its first revision. Always needs the person's approval; the name and files are checked first.

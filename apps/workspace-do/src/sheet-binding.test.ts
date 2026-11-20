@@ -68,6 +68,7 @@ function fixture(ask = false) {
 			return output;
 		},
 		listApps: async () => [],
+		listAppVersions: async () => [],
 		getAppCode: async () => {
 			throw new Error("unused");
 		},

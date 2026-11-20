@@ -2,7 +2,13 @@ import {
 	WorkspaceAppRenderer,
 	WorkspaceAppRunsInfo,
 } from "@/components/workspace-app-renderer";
-import { ArrowsIn, FloppyDisk, X } from "@phosphor-icons/react";
+import {
+	ArrowsIn,
+	ClockCounterClockwise,
+	FloppyDisk,
+	X,
+} from "@phosphor-icons/react";
+import { AppVersionHistoryDialog } from "@/components/app-version-history";
 import { ShareButton } from "@/components/share-controls";
 import type {
 	OsGadgetExecution,
@@ -409,6 +415,7 @@ export function CanvasDocPanel({
 	);
 	const [previewExecution, setPreviewExecution] =
 		useState<OsGadgetExecution | null>(null);
+	const [versionsOpen, setVersionsOpen] = useState(false);
 
 	// The newer saved version the user chose to save their changes on top of.
 	// Only that exact version: a later one reopens the choice.
@@ -684,6 +691,25 @@ export function CanvasDocPanel({
 			<OutputWorkshopActions className="canvas-document-actions">
 				{isRuntimeApp && effectiveGadgetView === "preview" && (
 					<AppTranslateButton translation={translation} compact />
+				)}
+				{isRuntimeApp && gadgetDetail.data?.currentRevision && (
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label="Version history"
+						title="Version history"
+						onClick={() => setVersionsOpen(true)}
+					>
+						<ClockCounterClockwise size={16} />
+					</Button>
+				)}
+				{versionsOpen && (
+					<AppVersionHistoryDialog
+						workspaceId={workspaceId}
+						gadgetId={doc.id}
+						title={title ?? "This app"}
+						onClose={() => setVersionsOpen(false)}
+					/>
 				)}
 				{/* Entering focus is a workspace top-bar control; leaving it has
 				    to live here, where the top bar is hidden. */}

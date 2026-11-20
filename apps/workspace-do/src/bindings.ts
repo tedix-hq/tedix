@@ -276,6 +276,7 @@ export function buildWorkspaceBindings(
 		},
 		getCode: (input: { appId: string; revisionId?: string }) =>
 			data.getAppCode(input),
+		versions: (input: { appId: string }) => data.listAppVersions(input),
 		readFile: async (input: { appId: string; path: string }) => {
 			const app = await data.getAppCode({ appId: input.appId });
 			if (!Object.hasOwn(app.files, input.path))
@@ -338,6 +339,22 @@ export function buildWorkspaceBindings(
 				proposalId: input.proposalId,
 				expectedSequence: input.expectedSequence,
 				edits: [{ path: input.path, after: input.content }],
+				actorId: deps.actor.id,
+			}),
+		restoreVersion: (input: {
+			appId: string;
+			revisionId: string;
+			expectedRevisionId: string;
+			proposalId?: string;
+			expectedSequence?: number;
+		}) =>
+			data.editAppFiles({
+				appId: input.appId,
+				expectedRevisionId: input.expectedRevisionId,
+				proposalId: input.proposalId,
+				expectedSequence: input.expectedSequence,
+				edits: [],
+				restoreRevisionId: input.revisionId,
 				actorId: deps.actor.id,
 			}),
 	};
@@ -564,6 +581,7 @@ export function buildWorkspaceBindings(
 				},
 				list: { riskTier: "read", blastRadius: "none" },
 				getCode: { riskTier: "read", blastRadius: "none" },
+				versions: { riskTier: "read", blastRadius: "none" },
 				readFile: { riskTier: "read", blastRadius: "none" },
 				grep: { riskTier: "read", blastRadius: "none" },
 				// The name and source check; the save itself is the gate above.
@@ -584,6 +602,11 @@ export function buildWorkspaceBindings(
 					blastRadius: "single_resource",
 				},
 				writeFile: {
+					resource: "app_draft",
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+				restoreVersion: {
 					resource: "app_draft",
 					riskTier: "bounded_write",
 					blastRadius: "single_resource",

@@ -4952,6 +4952,12 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	grep(...args: unknown[]) {
 		return this.#call("grep", args);
 	}
+	versions(...args: unknown[]) {
+		return this.#call("versions", args);
+	}
+	restoreVersion(...args: unknown[]) {
+		return this.#call("restoreVersion", args);
+	}
 	registerSchedule(...args: unknown[]) {
 		return this.#call("registerSchedule", args);
 	}

@@ -45,6 +45,7 @@ function fixture(ask = false) {
 			return structuredClone(current);
 		},
 		listApps: async () => [],
+		listAppVersions: async () => [],
 		getAppCode: async () => {
 			throw new Error("unused");
 		},
