@@ -7,6 +7,7 @@
  */
 
 import { factoryApprovalContext } from "../../services/factory-approval";
+import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import { createRouterClient, implement, ORPCError } from "@orpc/server";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { skillsImprove } from "./cognitive-skill-catalog";
@@ -103,8 +104,22 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 			});
 			return { created };
 		},
-		linkWorkspaceSkill: (params) =>
-			ensureWorkspaceSkillLink(context, { organizationId: orgId, ...params }),
+		async linkWorkspaceSkill(params) {
+			const link = await ensureWorkspaceSkillLink(context, {
+				organizationId: orgId,
+				...params,
+			});
+			// The lane's tedi runs in this Workspace from now on.
+			const skill = await getSkillEntry(db, params.skillId, orgId);
+			if (skill?.tediId)
+				await ensureWorkspaceTediRole(context, {
+					organizationId: orgId,
+					workspaceId: params.workspaceId,
+					tediId: skill.tediId,
+					note: "Factory lane owner",
+				});
+			return link;
+		},
 		async findOutputById(outputId) {
 			const row = await getOsOutput(db, { organizationId: orgId, outputId });
 			if (!row || row.status !== "active") return null;

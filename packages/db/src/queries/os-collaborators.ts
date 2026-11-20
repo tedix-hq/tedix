@@ -320,6 +320,33 @@ export async function listOsWorkspaceOrganizationMemberRoles(
 	return rows;
 }
 
+/**
+ * The member who stands as sharer when Tedix itself records a tedi's role in
+ * an organization workspace: the first active owner, else admin, else member.
+ */
+export async function findOsWorkspaceOrganizationSharer(
+	db: DbQueryClient,
+	organizationId: string,
+): Promise<string | undefined> {
+	const [row] = await db
+		.select({ userId: organizationMembers.descopeUserId })
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, organizationId),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+				inArray(organizationMembers.role, ["owner", "admin", "member"]),
+			),
+		)
+		.orderBy(
+			sql`case ${organizationMembers.role} when 'owner' then 0 when 'admin' then 1 else 2 end`,
+			asc(organizationMembers.descopeUserId),
+		)
+		.limit(1);
+	return row?.userId ?? undefined;
+}
+
 export interface OsWorkspaceEdgeInput {
 	targetUserId: string;
 	targetEmail: string | null;

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
 import { sumRunCredits } from "@tedix/db/queries/billing/spending";
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
+import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import { getRequestOrganizationMembership } from "../org-membership";
 import type {
 	OsWorkspaceChangeRecordsQuery,
@@ -892,6 +893,14 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 			preflight.decisions,
 		);
 	}
+	// This tedi runs in the Workspace now or once the run is approved; the
+	// approval resume has no caller to record the role for.
+	await ensureWorkspaceTediRole(context, {
+		organizationId: orgId,
+		workspaceId: workspace.id,
+		tediId: input.tediId,
+		note: "App run executor",
+	});
 	if (
 		preflight.status === "needs_approval" ||
 		input.approvalMode === "required"
