@@ -269,7 +269,15 @@ export const osGadgets = sqliteTable(
 			table.workspaceId,
 			table.name,
 		),
-		index("os_gadgets_org_idx").on(table.organizationId),
+		// One organization's active apps, oldest first. With only
+		// (organization_id) the navigation list took the cross-organization
+		// status index and read about 2,900 rows per call (20 Nov 2026).
+		index("os_gadgets_org_status_created_idx").on(
+			table.organizationId,
+			table.status,
+			table.createdAt,
+			table.id,
+		),
 		index("os_gadgets_status_created_idx").on(
 			table.status,
 			table.createdAt,

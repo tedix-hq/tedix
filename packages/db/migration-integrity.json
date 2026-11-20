@@ -1724,6 +1724,10 @@
 		{
 			"name": "20261120121114_workspace_feed_ledger_change_lookup/migration.sql",
 			"sha256": "3d44a30a4af0c2e9332a73f7e0df0b4585a490b465a17af0b69ab93663d38e6e"
+		},
+		{
+			"name": "20261120121137_os_gadgets_org_status_created/migration.sql",
+			"sha256": "693f4a6bfe0b3b6f90f25a8118dcf2a2190272bdedd82849dbb5bd7598bc08f9"
 		}
 	]
 }
