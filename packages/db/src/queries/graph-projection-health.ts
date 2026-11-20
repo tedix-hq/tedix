@@ -27,6 +27,7 @@ import {
 } from "../schema/memory-entities";
 import {
 	memoryDomains,
+	memoryEdgeOrgCounts,
 	memoryEdges,
 	memoryFactOrgCounts,
 	memoryFacts,
@@ -75,8 +76,6 @@ export async function getGraphProjectionCanonicalManagedCounts(
 	db: DbClient,
 	orgId: string,
 ): Promise<GraphProjectionManagedCounts> {
-	const sourceFact = alias(memoryFacts, "projection_count_source_fact");
-	const targetFact = alias(memoryFacts, "projection_count_target_fact");
 	const [
 		facts,
 		edges,
@@ -98,17 +97,13 @@ export async function getGraphProjectionCanonicalManagedCounts(
 			.select({ value: memoryFactOrgCounts.total })
 			.from(memoryFactOrgCounts)
 			.where(eq(memoryFactOrgCounts.organizationId, orgId)),
+		// Triggers keep this total equal to the organization's edges (both
+		// facts in the organization), so one row replaces joining every edge
+		// to both facts (102k rows per call on 19 Nov 2026).
 		db
-			.select({ value: count() })
-			.from(memoryEdges)
-			.innerJoin(sourceFact, eq(sourceFact.id, memoryEdges.sourceFactId))
-			.innerJoin(targetFact, eq(targetFact.id, memoryEdges.targetFactId))
-			.where(
-				and(
-					eq(sourceFact.organizationId, orgId),
-					eq(targetFact.organizationId, orgId),
-				),
-			),
+			.select({ value: memoryEdgeOrgCounts.total })
+			.from(memoryEdgeOrgCounts)
+			.where(eq(memoryEdgeOrgCounts.organizationId, orgId)),
 		db
 			.select({ value: count() })
 			.from(memoryDomains)

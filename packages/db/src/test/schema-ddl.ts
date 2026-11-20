@@ -28,7 +28,10 @@ import { organizations } from "../schema/organizations";
 import { projects } from "../schema/projects";
 import { tediObjectives } from "../schema/tedi-objectives";
 import {
+	MEMORY_EDGE_ORG_COUNT_TRIGGERS,
 	MEMORY_FACT_ORG_COUNT_TRIGGERS,
+	memoryEdgeOrgCounts,
+	memoryEdges,
 	memoryFactOrgCounts,
 	memoryFacts,
 } from "../schema/memory-graph";
@@ -216,6 +219,11 @@ const MAINTAINED_TOTALS = new Map<
 	[
 		memoryFacts,
 		{ totals: memoryFactOrgCounts, triggers: MEMORY_FACT_ORG_COUNT_TRIGGERS },
+	],
+	// Its fact triggers need memory_facts created first, as the foreign keys do.
+	[
+		memoryEdges,
+		{ totals: memoryEdgeOrgCounts, triggers: MEMORY_EDGE_ORG_COUNT_TRIGGERS },
 	],
 ]);
 

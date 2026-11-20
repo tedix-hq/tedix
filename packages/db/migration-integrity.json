@@ -1736,6 +1736,10 @@
 		{
 			"name": "20261120122336_memory_facts_domain_live_index/migration.sql",
 			"sha256": "0526a88966103024d121b90d9ea728f5506952b3d9057f4e99b4e9a9c68d040f"
+		},
+		{
+			"name": "20261120122347_memory_edge_org_totals/migration.sql",
+			"sha256": "7819a407fa29b99168c13412e020d2b5dcd9a249d91e1315100093d77803acec"
 		}
 	]
 }
