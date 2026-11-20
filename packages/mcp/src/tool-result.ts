@@ -22,6 +22,12 @@ import { readInputRequiredResult } from "./protocol";
 
 export const CONNECTION_RECOVERY_META_KEY = "tedix/connectionRecovery";
 
+/**
+ * Set by the gateway only when no credential was on file for the call, so the
+ * provider was never called. Provider output cannot set it.
+ */
+export const CREDENTIAL_MISSING_META_KEY = "tedix/credentialMissing";
+
 /** A canonical credential miss before any provider operation was attempted. */
 export interface ConnectionRecovery {
 	providerId: string;

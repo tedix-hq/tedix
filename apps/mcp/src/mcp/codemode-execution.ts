@@ -88,7 +88,10 @@ import {
 	collectCodeModeReadObservation,
 	attachCodeModeWidgetMetadata,
 } from "./codemode-results";
-import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
+import {
+	CREDENTIAL_MISSING_META_KEY,
+	unwrapCallToolResult,
+} from "@tedix/mcp-shared/tool-result";
 import {
 	type JsonSchemaToolDescriptors,
 	type ToolProvider,
@@ -107,6 +110,9 @@ function innerToolError(result: CallToolResult): Error {
 		...(typeof detail?.code === "string" ? { code: detail.code } : {}),
 		...(typeof detail?.status === "number" ? { status: detail.status } : {}),
 		...(detail?.retryable === false ? { retryable: false } : {}),
+		...(result._meta?.[CREDENTIAL_MISSING_META_KEY] === true
+			? { credentialMissing: true }
+			: {}),
 	});
 }
 
@@ -145,6 +151,8 @@ export interface CodeModeExecutionRefs {
 	paymentExtra: { _meta?: Record<string, unknown> } | undefined;
 	paymentResponses: Record<string, unknown>[];
 	rpcCallCount: number;
+	/** Inner calls that stopped because no credential was on file. */
+	credentialMissingCalls: number;
 	rpcNamespaces: Set<string>;
 	sideEffectQueue: Promise<void>;
 	failureBudget: IdenticalFailureBudget;
@@ -845,6 +853,10 @@ export function buildNamespaceGroups(
 					const retryable =
 						!(error instanceof Error) ||
 						(error as Error & { retryable?: boolean }).retryable !== false;
+					if (
+						(error as { credentialMissing?: unknown } | null)?.credentialMissing
+					)
+						executionRefs.credentialMissingCalls += 1;
 					if (retryable) executionRefs.failureBudget.recordFailure(retryKey);
 					else executionRefs.failureBudget.recordNonRetryableFailure(retryKey);
 					executionRefs.toolReceipts.push({

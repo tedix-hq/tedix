@@ -496,6 +496,9 @@ export async function executeMcpTransport(
 						scopes: config.auth.scopes,
 					}),
 					status: credentialResult.status === 403 ? 403 : 401,
+					...(credentialResult.status === 404
+						? { credentialMissing: true as const }
+						: {}),
 					connectionRecovery: buildCredentialRecovery(credentialResult, {
 						providerId: config.auth.connectionId,
 						connectionInstanceId: selectedConnectionInstanceId(ctx),
@@ -540,6 +543,9 @@ export async function executeMcpTransport(
 						scopes: config.auth.scopes,
 					}),
 					status: credentialResult.status === 403 ? 403 : 401,
+					...(credentialResult.status === 404
+						? { credentialMissing: true as const }
+						: {}),
 					connectionRecovery: buildCredentialRecovery(credentialResult, {
 						providerId: config.auth.connectionId,
 						connectionInstanceId: selectedConnectionInstanceId(ctx),

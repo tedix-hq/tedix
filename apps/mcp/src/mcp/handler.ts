@@ -242,6 +242,8 @@ export interface RpcToolResult {
 	readObservation?: DocsFileObservationReceipt;
 	/** Host-generated only; a pinned credential lookup failed before execution. */
 	connectionRecovery?: ConnectionRecovery;
+	/** Host-generated only; no credential was on file, so the provider was not called. */
+	credentialMissing?: true;
 }
 
 type SecretEgressContext = Pick<

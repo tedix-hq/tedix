@@ -123,6 +123,7 @@ it.each([false, true])(
 			paymentExtra: undefined,
 			paymentResponses: [],
 			rpcCallCount: 0,
+			credentialMissingCalls: 0,
 			rpcNamespaces: new Set(),
 			sideEffectQueue: Promise.resolve(),
 			failureBudget: new IdenticalFailureBudget(),

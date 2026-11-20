@@ -364,6 +364,7 @@ describe("executeApprovedKernelWrite", () => {
 								content: [
 									{ type: "text", text: "Connection credential not found" },
 								],
+								_meta: { "tedix/credentialMissing": true },
 							},
 						},
 					};
@@ -399,6 +400,35 @@ describe("executeApprovedKernelWrite", () => {
 			);
 		},
 	);
+
+	it("does not rerun on the tenant credential after a provider error", async () => {
+		// The provider was called and failed; its words are not a missing credential.
+		const service = mcpService((body) =>
+			body.method === "tools/list"
+				? LISTED
+				: {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								isError: true,
+								content: [{ type: "text", text: "Customer is not connected" }],
+							},
+						},
+					},
+		);
+
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload(),
+			approvalRequestId: "sample-approval",
+		});
+
+		expect(result).toMatchObject({ ok: false });
+		expect(service.calls.filter((c) => c.method === "tools/call")).toHaveLength(
+			1,
+		);
+	});
 
 	it.each([
 		{
