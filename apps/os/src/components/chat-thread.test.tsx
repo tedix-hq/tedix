@@ -96,6 +96,15 @@ vi.mock("@/lib/api", () => ({
 	osApi: {
 		// The usage line under the composer reads the monthly credits.
 		billing: { getOverview: vi.fn(() => new Promise(() => {})) },
+		osWorkspaces: {
+			workspaces: {
+				conversationCharges: vi.fn(async () => ({
+					periodStart: null,
+					credits: 0,
+					chargeCount: 0,
+				})),
+			},
+		},
 		capabilities: capabilitiesApi,
 		kernelRuntime: kernelRuntimeApi,
 		modelCatalog: modelCatalogApi,
