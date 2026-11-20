@@ -224,6 +224,20 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 			await import("./services/workspace-machine");
 		return useWorkspaceMachine(this.env, input);
 	}
+
+	/**
+	 * Read the personal memory of the person who sent a workspace chat turn,
+	 * only in a workspace nobody but them can open.
+	 */
+	async readPersonMemory(
+		input: import("@tedix/api-contract/schemas/workspace-person-memory").WorkspacePersonMemoryInput,
+	): Promise<
+		import("@tedix/api-contract/schemas/workspace-person-memory").WorkspacePersonMemoryResult
+	> {
+		const { readWorkspacePersonMemory } =
+			await import("./services/workspace-person-memory");
+		return readWorkspacePersonMemory(this.env, input);
+	}
 }
 
 /** Only the MCP Worker is configured to bind this service capability. */

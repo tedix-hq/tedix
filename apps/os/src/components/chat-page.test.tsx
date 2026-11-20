@@ -13,22 +13,10 @@ import {
 } from "vite-plus/test";
 const chatHarness = vi.hoisted(() => ({
 	onSelect: null as null | ((conversationId: string | null) => void),
-	onConversationCreated: null as
-		| null
-		| ((conversationId: string, workspaceId?: string) => void),
-	onConversationPrepared: null as
-		| null
-		| ((conversationId: string, workspaceId: string) => void),
-	prepareNewConversation: null as
-		| null
-		| ((content: string) => Promise<{ workspaceId: string }>),
-	onStartWorkspace: null as null | ((question: string) => Promise<void>),
-	onPickTedi: null as null | ((tediId: string, draft: string) => void),
 	onTediConversationCreated: null as null | ((conversationId: string) => void),
 }));
 
 const apiHarness = vi.hoisted(() => ({
-	createWorkspace: vi.fn(),
 	createFromConversation: vi.fn(),
 	readConversation: vi.fn(),
 	personal: { workspace: null, created: false } as {
@@ -103,49 +91,21 @@ vi.mock("@/components/chat-sidebar", () => ({
 vi.mock("@/components/chat-thread", () => ({
 	ChatThread: ({
 		conversationId,
-		onConversationCreated,
-		onConversationPrepared,
-		prepareNewConversation,
-		recoverPendingSend,
 		workspaceId,
 		detailsActions,
-		onStartWorkspace,
-		onPickTediForNewChat,
 	}: {
-		onPickTediForNewChat?: (tediId: string, draft: string) => void;
-		recoverPendingSend?: boolean;
+		conversationId: string | null;
 		workspaceId?: string;
 		detailsActions?: ReactNode;
-		conversationId: string | null;
-		onConversationCreated?: (
-			conversationId: string,
-			workspaceId?: string,
-		) => void;
-		onConversationPrepared?: (
-			conversationId: string,
-			workspaceId: string,
-		) => void;
-		prepareNewConversation?: (
-			content: string,
-		) => Promise<{ workspaceId: string }>;
-		onStartWorkspace?: (question: string) => Promise<void>;
-	}) => {
-		chatHarness.onStartWorkspace = onStartWorkspace ?? null;
-		chatHarness.onPickTedi = onPickTediForNewChat ?? null;
-		chatHarness.onConversationCreated = onConversationCreated ?? null;
-		chatHarness.onConversationPrepared = onConversationPrepared ?? null;
-		chatHarness.prepareNewConversation = prepareNewConversation ?? null;
-		return (
-			<div
-				data-chat-thread={conversationId ?? "new"}
-				data-recover-pending={recoverPendingSend}
-				data-workspace-id={workspaceId}
-			>
-				{detailsActions}
-				Chat thread
-			</div>
-		);
-	},
+	}) => (
+		<div
+			data-chat-thread={conversationId ?? "new"}
+			data-workspace-id={workspaceId}
+		>
+			{detailsActions}
+			Chat thread
+		</div>
+	),
 }));
 
 vi.mock("@/components/chat-tedi-thread", () => ({
@@ -153,14 +113,10 @@ vi.mock("@/components/chat-tedi-thread", () => ({
 	ChatTediThread: ({
 		workspaceId,
 		conversationId,
-		initialTediId,
-		initialDraft,
 		onConversationCreated,
 	}: {
 		workspaceId: string;
 		conversationId: string | null;
-		initialTediId: string | null;
-		initialDraft?: string;
 		onConversationCreated: (conversationId: string) => void;
 	}) => {
 		chatHarness.onTediConversationCreated = onConversationCreated;
@@ -168,8 +124,6 @@ vi.mock("@/components/chat-tedi-thread", () => ({
 			<div
 				data-tedi-thread={conversationId ?? "new"}
 				data-workspace-id={workspaceId}
-				data-tedi-id={initialTediId}
-				data-draft={initialDraft}
 			/>
 		);
 	},
@@ -187,7 +141,6 @@ vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: {
 			workspaces: {
-				create: apiHarness.createWorkspace,
 				createFromConversation: apiHarness.createFromConversation,
 				personal: async () => apiHarness.personal,
 			},
@@ -225,7 +178,6 @@ vi.mock("@/lib/os-query-options", () => ({
 }));
 
 import { ChatPage } from "./chat-page";
-import { takeWorkspaceFirstMessage } from "@/lib/workspace-first-message";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -239,6 +191,10 @@ let cleanup: (() => Promise<void>) | undefined;
 beforeEach(() => {
 	routing.navigate.mockReset();
 	routing.search = {};
+	apiHarness.personal = {
+		workspace: { id: WORKSPACE_ID, organizationId: "org-1" },
+		created: false,
+	};
 	apiHarness.readConversation.mockReset();
 	apiHarness.readConversation.mockImplementation(
 		async ({ conversationId }: { conversationId: string }) => ({
@@ -256,16 +212,10 @@ afterEach(async () => {
 	await cleanup?.();
 	cleanup = undefined;
 	chatHarness.onSelect = null;
-	chatHarness.onConversationCreated = null;
-	chatHarness.onConversationPrepared = null;
-	chatHarness.prepareNewConversation = null;
-	chatHarness.onStartWorkspace = null;
 	window.sessionStorage.clear();
-	apiHarness.createWorkspace.mockReset();
 	apiHarness.createFromConversation.mockReset();
 	apiHarness.conversations = [];
 	apiHarness.personal = { workspace: null, created: false };
-	chatHarness.onPickTedi = null;
 	chatHarness.onTediConversationCreated = null;
 });
 
@@ -300,8 +250,13 @@ function activeThread(host: HTMLElement): string | null | undefined {
 		?.getAttribute("data-chat-thread");
 }
 
+function newThread(host: HTMLElement): HTMLElement | null {
+	return host.querySelector('[data-tedi-thread="new"]');
+}
+
 describe("ChatPage responsive conversation navigation", () => {
 	it("shows one mobile pane at a time while keeping both panes available on desktop", async () => {
+		routing.search = { conversation: CONVERSATION_ID };
 		const host = await mountPage();
 
 		const directory = host.querySelector(
@@ -337,10 +292,12 @@ describe("ChatPage responsive conversation navigation", () => {
 });
 
 describe("ChatPage deep links (/chat?conversation=)", () => {
-	it("lands on the new-conversation state when the URL names no thread", async () => {
+	it("lands on a new chat in the private workspace when the URL names no thread", async () => {
 		const host = await mountPage();
-		// Never a stale auto-selected thread: no param means a fresh thread.
-		expect(activeThread(host)).toBe("new");
+		// Never a stale auto-selected thread: no param means a fresh thread,
+		// and a fresh thread runs in the private workspace, not on Home.
+		expect(newThread(host)?.dataset.workspaceId).toBe(WORKSPACE_ID);
+		expect(activeThread(host)).toBeUndefined();
 		expect(
 			host
 				.querySelector('[aria-label="Conversations"]')
@@ -374,11 +331,8 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 			).toBe(WORKSPACE_ID),
 		);
 		await act(async () => chatHarness.onSelect?.(null));
-		expect(
-			host
-				.querySelector("[data-chat-thread]")
-				?.hasAttribute("data-workspace-id"),
-		).toBe(false);
+		expect(activeThread(host)).toBeUndefined();
+		expect(newThread(host)).not.toBeNull();
 	});
 
 	it.each(["older", "archived"])(
@@ -486,78 +440,21 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 
 	it("starts a fresh thread identity when New is chosen from an already new conversation", async () => {
 		const host = await mountPage();
-		const first = host.querySelector("[data-chat-thread]");
-		expect(first?.getAttribute("data-recover-pending")).toBe("true");
+		const first = newThread(host);
 		await act(async () => chatHarness.onSelect?.(null));
-		const second = host.querySelector("[data-chat-thread]");
+		const second = newThread(host);
+		expect(second).not.toBeNull();
 		expect(second).not.toBe(first);
-		expect(second?.getAttribute("data-recover-pending")).toBe("false");
-		await act(async () => chatHarness.onSelect?.(null));
-		expect(host.querySelector("[data-chat-thread]")).not.toBe(second);
 	});
-
-	it.each([undefined, WORKSPACE_ID])(
-		"ignores a previous send completing after New (workspace %s)",
-		async (workspaceId) => {
-			const host = await mountPage();
-			const previousSendCompleted = chatHarness.onConversationCreated;
-			await act(async () => chatHarness.onSelect?.(null));
-			routing.navigate.mockClear();
-			await act(async () =>
-				previousSendCompleted?.(CONVERSATION_ID, workspaceId),
-			);
-			expect(activeThread(host)).toBe("new");
-			expect(routing.navigate).not.toHaveBeenCalled();
-			await act(async () =>
-				chatHarness.onConversationCreated?.("home:os:orion"),
-			);
-			await vi.waitFor(() => expect(activeThread(host)).toBe("home:os:orion"));
-		},
-	);
 
 	it("clears the old conversation before New navigation finishes", async () => {
 		routing.search = { conversation: CONVERSATION_ID };
 		routing.navigate.mockReturnValue(new Promise(() => {}));
 		const host = await mountPage();
 		await act(async () => chatHarness.onSelect?.(null));
-		expect(activeThread(host)).toBe("new");
+		expect(activeThread(host)).toBeUndefined();
+		expect(newThread(host)).not.toBeNull();
 		expect(routing.search.conversation).toBe(CONVERSATION_ID);
-	});
-
-	it("opens the first send in its workspace with the conversation and no pane override", async () => {
-		await mountPage();
-		await act(async () =>
-			chatHarness.onConversationCreated?.(CONVERSATION_ID, WORKSPACE_ID),
-		);
-		expect(routing.navigate).toHaveBeenCalledTimes(1);
-		expect(routing.navigate).toHaveBeenCalledWith({
-			to: "/workspace/$workspaceId",
-			params: { workspaceId: WORKSPACE_ID },
-			search: { conversation: CONVERSATION_ID },
-		});
-		// A client-side push (no `replace`, no reload): Back returns to /chat.
-		expect(routing.navigate.mock.calls[0]?.[0]).not.toHaveProperty("replace");
-		expect(routing.navigate.mock.calls[0]?.[0].search).not.toHaveProperty(
-			"pane",
-		);
-	});
-
-	it("creates no workspace when a new chat starts", async () => {
-		await mountPage();
-		// No preparation hook: the first send is a plain Home conversation.
-		expect(chatHarness.prepareNewConversation).toBeNull();
-		expect(chatHarness.onConversationPrepared).toBeNull();
-		for (const id of ["one", "two", "three"]) {
-			await act(async () =>
-				chatHarness.onConversationCreated?.(`home:os:${id}`),
-			);
-		}
-		expect(apiHarness.createWorkspace).not.toHaveBeenCalled();
-		expect(routing.navigate).toHaveBeenLastCalledWith({
-			to: "/chat",
-			search: { conversation: "home:os:three" },
-			replace: true,
-		});
 	});
 
 	it("saves a workspace-less chat as a workspace and opens it there", async () => {
@@ -600,67 +497,11 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 		});
 		expect(host.textContent).not.toContain("Save as workspace");
 	});
-
-	it("keeps a workspace-less conversation on /chat", async () => {
-		await mountPage();
-		await act(async () => chatHarness.onConversationCreated?.(CONVERSATION_ID));
-		expect(routing.navigate).toHaveBeenCalledWith({
-			to: "/chat",
-			search: { conversation: CONVERSATION_ID },
-			replace: true,
-		});
-	});
-
-	it("starts a workspace named after the question and sends the question there first", async () => {
-		apiHarness.createWorkspace.mockResolvedValue({
-			workspace: { id: WORKSPACE_ID },
-		});
-		routing.navigate.mockResolvedValue(undefined);
-		await mountPage();
-		const question =
-			"How should we plan the spring offsite in Lisbon next year?";
-		await act(async () => chatHarness.onStartWorkspace?.(question));
-		expect(apiHarness.createWorkspace).toHaveBeenCalledWith({
-			name: "How should we plan the spring",
-		});
-		expect(routing.navigate).toHaveBeenLastCalledWith({
-			to: "/workspace/$workspaceId",
-			params: { workspaceId: WORKSPACE_ID },
-			search: { pane: "chat" },
-		});
-		// The workspace chat takes it once, for its first new conversation.
-		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, "home:os:other")).toBeNull();
-		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBe(question);
-		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBeNull();
-	});
-
-	it("stays on the page and holds nothing when the workspace cannot be created", async () => {
-		apiHarness.createWorkspace.mockRejectedValue(new Error("Not allowed"));
-		await mountPage();
-		await expect(
-			chatHarness.onStartWorkspace?.("Plan the offsite"),
-		).rejects.toThrow("Not allowed");
-		expect(routing.navigate).not.toHaveBeenCalled();
-		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBeNull();
-	});
 });
 
-describe("ChatPage chat with a picked tedi", () => {
-	it("runs it in the private workspace and links it as a ws: conversation", async () => {
-		apiHarness.personal = {
-			workspace: { id: WORKSPACE_ID, organizationId: "org-1" },
-			created: false,
-		};
+describe("ChatPage new chat in the private workspace", () => {
+	it("links the first message's conversation as a ws: conversation", async () => {
 		const host = await mountPage();
-		await act(async () => chatHarness.onPickTedi?.("tedi-1", "Draft so far"));
-
-		const thread = host.querySelector("[data-tedi-thread]") as HTMLElement;
-		expect(thread.dataset.tediThread).toBe("new");
-		expect(thread.dataset.workspaceId).toBe(WORKSPACE_ID);
-		expect(thread.dataset.tediId).toBe("tedi-1");
-		expect(thread.dataset.draft).toBe("Draft so far");
-		expect(host.querySelector("[data-chat-thread]")).toBeNull();
-
 		await act(async () => chatHarness.onTediConversationCreated?.("c1"));
 		expect(routing.navigate).toHaveBeenCalledWith({
 			to: "/chat",

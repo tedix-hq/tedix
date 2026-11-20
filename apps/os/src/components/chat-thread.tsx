@@ -23,7 +23,6 @@ import {
 	File,
 	MagnifyingGlass,
 	Microphone,
-	FolderPlus,
 	Plus,
 	Paperclip,
 	Sparkle,
@@ -300,8 +299,6 @@ export function ChatThread({
 	onOutputCreated,
 	detailsActions,
 	detailsOpen = false,
-	onStartWorkspace,
-	onPickTediForNewChat,
 }: {
 	/** `null` = fresh conversation not yet created; the first send creates it. */
 	conversationId: string | null;
@@ -340,18 +337,6 @@ export function ChatThread({
 	detailsActions?: ReactNode;
 	/** The header's "Chat details" icon button owns this toggle. */
 	detailsOpen?: boolean;
-	/**
-	 * Offers "New workspace" on a fresh thread. When it is on, sending hands
-	 * the question here instead of to Home; the host creates the workspace and
-	 * opens it. A rejection keeps the draft and shows its message.
-	 */
-	onStartWorkspace?: (question: string) => Promise<void>;
-	/**
-	 * A tedi was picked before the first message. The host then runs the chat
-	 * with that tedi itself, so its replies stream at once; this thread is
-	 * replaced; the host gets what was typed so far to carry it over.
-	 */
-	onPickTediForNewChat?: (tediId: string, draft: string) => void;
 }) {
 	const pushVisibilityRef = usePushConversation(
 		composerOnly ? null : conversationId,
@@ -604,15 +589,6 @@ export function ChatThread({
 		? tediTarget.known && selectedTediId === null
 		: tediTarget.known || activeTedis.length === 0;
 	const pickTedi = (tediId: string | null) => {
-		if (tediId && conversationId === null && onPickTediForNewChat) {
-			try {
-				window.localStorage.removeItem(chatDraftKey(null));
-			} catch {
-				// The draft then also stays for the next Home chat.
-			}
-			onPickTediForNewChat(tediId, draft);
-			return;
-		}
 		const target = conversationId ?? newConversationIdRef.current;
 		if (target === null) return;
 		rememberComposerTediPick(target, tediId);
@@ -1811,55 +1787,9 @@ export function ChatThread({
 		},
 		[conversationId],
 	);
-	const [startWorkspace, setStartWorkspace] = useState(false);
-	const [startingWorkspace, setStartingWorkspace] = useState(false);
-	const [startWorkspaceError, setStartWorkspaceError] = useState<string | null>(
-		null,
-	);
-	const startWorkspaceOffered =
-		onStartWorkspace !== undefined && conversationId === null && !composerOnly;
-	const startWorkspaceActive = startWorkspaceOffered && startWorkspace;
-	const submitToNewWorkspace = useCallback(async () => {
-		const question = draft.trim();
-		if (!onStartWorkspace || !question || startingWorkspace) return;
-		if (attachments.length > 0) {
-			setStartWorkspaceError(
-				"Attachments can't start a workspace. Remove them, or turn off New workspace to send them here.",
-			);
-			return;
-		}
-		setStartWorkspaceError(null);
-		setStartingWorkspace(true);
-		try {
-			await onStartWorkspace(question);
-			// The page has usually moved on by now; the saved draft still goes.
-			updateDraft("");
-		} catch (error) {
-			if (mountedRef.current) {
-				setStartWorkspaceError(
-					error instanceof Error && error.message
-						? error.message
-						: "The workspace could not be created.",
-				);
-			}
-		} finally {
-			if (mountedRef.current) setStartingWorkspace(false);
-		}
-	}, [
-		attachments.length,
-		draft,
-		onStartWorkspace,
-		startingWorkspace,
-		updateDraft,
-	]);
-
 	const submit = useCallback(() => {
-		if (startWorkspaceActive) {
-			void submitToNewWorkspace();
-			return;
-		}
 		void startSend(draft);
-	}, [draft, startSend, startWorkspaceActive, submitToNewWorkspace]);
+	}, [draft, startSend]);
 	const dictation = useComposerDictation((transcript) => {
 		updateDraft(appendVoiceTranscript(draft, transcript));
 		composerRef.current?.focus();
@@ -2492,12 +2422,6 @@ export function ChatThread({
 					<AlertDescription>{notice}</AlertDescription>
 				</Alert>
 			) : null}
-			{startWorkspaceError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Workspace not started</AlertTitle>
-					<AlertDescription>{startWorkspaceError}</AlertDescription>
-				</Alert>
-			) : null}
 			{sendError ? (
 				<SendFailureBanner
 					message={sendError}
@@ -2907,24 +2831,6 @@ export function ChatThread({
 									</DropdownMenuGroup>
 								</DropdownMenuContent>
 							</DropdownMenu>
-							{startWorkspaceOffered ? (
-								<Button
-									type="button"
-									size="sm"
-									className="chat-composer-chip"
-									variant={startWorkspace ? "outline" : "ghost"}
-									aria-pressed={startWorkspace}
-									title="Send this question to a new workspace named after it"
-									disabled={startingWorkspace}
-									onClick={() => {
-										setStartWorkspace((value) => !value);
-										setStartWorkspaceError(null);
-									}}
-									icon={<FolderPlus size={14} aria-hidden="true" />}
-								>
-									<span className="chat-composer-label">New workspace</span>
-								</Button>
-							) : null}
 							{context ? (
 								<Button
 									type="button"
@@ -3048,11 +2954,7 @@ export function ChatThread({
 									type="submit"
 									size="icon-sm"
 									aria-label={
-										startWorkspaceActive
-											? "Start a workspace with this"
-											: steeringRunId
-												? "Queue steering message"
-												: "Send message"
+										steeringRunId ? "Queue steering message" : "Send message"
 									}
 									// No spinner here: the sending bubble and the running row
 									// already say the message is on its way.
@@ -3063,7 +2965,6 @@ export function ChatThread({
 										steer.isPending ||
 										cancelRun.isPending ||
 										firstSendInFlight !== null ||
-										startingWorkspace ||
 										directRead.isPending ||
 										blockedByAttachedImage ||
 										!tediTargetKnown ||

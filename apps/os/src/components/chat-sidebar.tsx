@@ -369,7 +369,7 @@ export function ConversationRow({
 		visibility: string;
 		iconUrl?: string | null;
 	};
-	/** The tedi a chat with a picked tedi is with; the row names it. */
+	/** Who answers a chat kept in the private workspace; the row names it. */
 	tedi?: TediChatRowTedi;
 	active?: boolean;
 	/**
@@ -428,7 +428,7 @@ export function ConversationRow({
 							/>
 						) : tedi ? (
 							<EntityAvatar
-								id={tedi.id}
+								id={tedi.id ?? conversation.id}
 								name={tedi.name}
 								image={tedi.avatar}
 								kind="tedi"
@@ -467,7 +467,7 @@ export function ConversationRow({
 					<span className="flex min-w-0 items-center gap-1 text-kumo-subtle type-tedix-label">
 						{tedi ? (
 							<>
-								<span className="truncate" data-row-tedi={tedi.id}>
+								<span className="truncate" data-row-tedi={tedi.id ?? undefined}>
 									{tedi.name}
 								</span>
 								<span aria-hidden="true">·</span>
@@ -602,7 +602,7 @@ export function ChatSidebar({
 	/** When present, list only conversations durably associated with this Workspace. */
 	workspaceId?: string;
 	/**
-	 * Conversations kept somewhere else (chats with a picked tedi), listed with
+	 * Conversations kept in the private workspace, listed with
 	 * the Home ones by recency. They have no row menu here.
 	 */
 	extraConversations?: readonly TediChatListRow[];

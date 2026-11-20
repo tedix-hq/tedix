@@ -1,7 +1,7 @@
 /**
- * Chats with a picked tedi run on the person's private workspace, over the
+ * New /chat conversations run on the person's private workspace, over the
  * workspace chat connection, instead of the Home queue. In the /chat list and
- * URL such a conversation is `ws:{workspaceId}:{conversationId}`; Home
+ * URL such a conversation is `ws:{workspaceId}:{conversationId}`; older Home
  * conversations keep their `home:os:…` ids and their own path.
  */
 import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtime";
@@ -25,9 +25,9 @@ export function parseTediChatConversationId(
 		: null;
 }
 
-/** The tedi a /chat list row names. */
+/** Who a /chat list row names as answering: a tedi, or the workspace agent (id null). */
 export interface TediChatRowTedi {
-	id: string;
+	id: string | null;
 	name: string;
 	avatar: string | null;
 }
@@ -35,9 +35,9 @@ export interface TediChatRowTedi {
 export type TediChatListRow = HomeConversation & { tedi: TediChatRowTedi };
 
 /**
- * The private workspace's conversations with a tedi as rows of the /chat
- * list, each naming the tedi that answered last. Runs an agent started are
- * left out: they are not the person's chats.
+ * The private workspace's conversations as rows of the /chat list, each
+ * naming the tedi that answered last, or the workspace agent. Runs an agent
+ * started are left out: they are not the person's chats.
  */
 export function tediChatListRows(
 	workspaceId: string,
@@ -46,7 +46,7 @@ export function tediChatListRows(
 	tedis: Readonly<Record<string, { name: string; avatar: string | null }>>,
 ): TediChatListRow[] {
 	return conversations.flatMap((conversation) =>
-		conversation.tediId && !conversation.startedBy && !conversation.archivedAt
+		!conversation.startedBy && !conversation.archivedAt
 			? [
 					{
 						id: tediChatConversationId(workspaceId, conversation.id),
@@ -56,11 +56,13 @@ export function tediChatListRows(
 						createdAt: conversation.updatedAt,
 						updatedAt: conversation.lastTurnAt ?? conversation.updatedAt,
 						lastMessageAt: conversation.lastTurnAt,
-						tedi: {
-							id: conversation.tediId,
-							name: tedis[conversation.tediId]?.name ?? "Agent",
-							avatar: tedis[conversation.tediId]?.avatar ?? null,
-						},
+						tedi: conversation.tediId
+							? {
+									id: conversation.tediId,
+									name: tedis[conversation.tediId]?.name ?? "Agent",
+									avatar: tedis[conversation.tediId]?.avatar ?? null,
+								}
+							: { id: null, name: "Workspace agent", avatar: null },
 					},
 				]
 			: [],

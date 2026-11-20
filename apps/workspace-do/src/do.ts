@@ -36,6 +36,7 @@ import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { guestMayUseMemory } from "./guest-memory";
+import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { isWorkspaceGuestTediAllowed } from "@tedix/db/queries/os-workspace-access";
 import {
@@ -87,6 +88,7 @@ import {
 	type AccountService,
 } from "./accounts";
 import { type MachineService, workspaceMachine } from "./machine";
+import { type PersonService, workspacePerson } from "./person";
 import { SqlMemoryAdapter } from "./memory-adapter";
 import { callFailureText, unsavableTextError } from "./call-failure";
 import type { WorkspaceSnapshot } from "./data-port";
@@ -3773,6 +3775,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					tediId: started?.tedi_id,
 					api: this.machineService(),
 				}),
+			person:
+				accountActor &&
+				workspacePerson({
+					scope,
+					userId: accountActor.id,
+					onlyOpenableBySender: () =>
+						this.#onlyOpenableBy(scope, accountActor.id),
+					api: this.personService(),
+				}),
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {
@@ -4505,6 +4516,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.env.API_SERVICE as unknown as MachineService;
 	}
 
+	protected personService(): PersonService {
+		return this.env.API_SERVICE as unknown as PersonService;
+	}
+
+	/** Whether nobody but this person can open the workspace, read live. */
+	async #onlyOpenableBy(scope: WorkspaceScope, userId: string) {
+		const core = createDbClient(this.env.DB);
+		const [workspace, permissions] = await Promise.all([
+			getOsWorkspace(core, scope),
+			loadOsWorkspacePermissionRows(core, { ...scope, collaborators: false }),
+		]);
+		return (
+			workspace?.status === "active" &&
+			workspaceOnlyOpenableBy({
+				userId,
+				workspace,
+				edges: permissions.edges,
+				links: permissions.links,
+			})
+		);
+	}
+
 	/** The model a turn streams from; a test subclass returns a scripted one. */
 	protected modelFor(plan: TurnPlan): ModelPort {
 		return admittedTurnModel(this.env, plan);
@@ -5188,5 +5221,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	/** `machine.call`. */
 	call(...args: unknown[]) {
 		return this.#call("call", args);
+	}
+	/** `person.memory`. */
+	memory(...args: unknown[]) {
+		return this.#call("memory", args);
 	}
 }

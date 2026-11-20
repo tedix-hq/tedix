@@ -26,6 +26,8 @@ import type { ModelPort } from "../src/model";
 import { RUN_CODE_TOOL } from "../src/prompt";
 import type { AccountService } from "../src/accounts";
 import type { MachineService } from "../src/machine";
+import type { PersonService } from "../src/person";
+import type { WorkspacePersonMemoryInput } from "@tedix/api-contract/schemas/workspace-person-memory";
 import type {
 	WorkspaceMachineInput,
 	WorkspaceMachineResult,
@@ -225,6 +227,27 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 				const result = this.#machineResponses.shift();
 				if (!result) throw new Error("Unexpected machine request");
 				return result;
+			},
+		};
+	}
+
+	#personCalls: WorkspacePersonMemoryInput[] = [];
+
+	readPersonCalls(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		return this.#personCalls;
+	}
+
+	protected override personService(): PersonService {
+		return {
+			readPersonMemory: async (input) => {
+				this.#personCalls.push(input);
+				return {
+					status: "memory",
+					records: [
+						{ id: "f1", content: "Prefers short summaries.", updatedAt: null },
+					],
+				};
 			},
 		};
 	}

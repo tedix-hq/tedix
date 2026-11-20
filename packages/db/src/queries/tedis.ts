@@ -330,6 +330,29 @@ export async function getTediById(
 	return row;
 }
 
+/** The ids of a person's own personal tedis that are not retired. */
+export async function listPersonalTediIdsOwnedBy(
+	db: DbClient,
+	organizationId: string,
+	ownerUserId: string,
+	limit: number,
+): Promise<string[]> {
+	const rows = await db
+		.select({ id: tedis.id })
+		.from(tedis)
+		.where(
+			and(
+				eq(tedis.organizationId, organizationId),
+				eq(tedis.scope, "personal"),
+				eq(tedis.ownerUserId, ownerUserId),
+				isNull(tedis.retiredAt),
+			),
+		)
+		.orderBy(asc(tedis.createdAt))
+		.limit(limit);
+	return rows.map((row) => row.id);
+}
+
 /** Resolve a tedi only inside the caller's organization boundary. */
 export async function getTediByIdForOrganization(
 	db: DbClient,

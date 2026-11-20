@@ -457,6 +457,7 @@ export function stepLabel(
 		},
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },
+		person: { memory: "Reading your personal memory" },
 		machine: {
 			list: "Listing machines",
 			call: "Using a machine",

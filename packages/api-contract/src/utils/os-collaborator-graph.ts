@@ -177,3 +177,29 @@ export function planKeptUserEdges(input: {
 				),
 		);
 }
+
+/**
+ * Whether nobody but `userId` can open a workspace: it is private, owned by
+ * them, everyone added to it is them (or one of `alsoAllowed`), and no share
+ * link is open. Private context of that person may be read only there.
+ */
+export function workspaceOnlyOpenableBy(input: {
+	userId: string;
+	workspace: { visibility: string; ownerUserId: string | null };
+	edges: ReadonlyArray<{ targetUserId: string }>;
+	links: ReadonlyArray<{ revokedAt: string | null }>;
+	alsoAllowed?: readonly string[];
+}): boolean {
+	const { userId, workspace } = input;
+	return (
+		!!userId &&
+		workspace.visibility === "private" &&
+		workspace.ownerUserId === userId &&
+		input.edges.every(
+			(edge) =>
+				edge.targetUserId === userId ||
+				!!input.alsoAllowed?.includes(edge.targetUserId),
+		) &&
+		input.links.every((link) => link.revokedAt !== null)
+	);
+}

@@ -8,7 +8,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	CHAT_CONVERSATIONS_QUERY_KEY,
 	ChatConversationHeader,
@@ -36,11 +36,7 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import type { ChatSearch } from "@/lib/canvas-search";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
-import {
-	holdWorkspaceFirstMessage,
-	WORKSPACE_NAME_MAX_CHARS,
-	workspaceNameFromQuestion,
-} from "@/lib/workspace-first-message";
+import { WORKSPACE_NAME_MAX_CHARS } from "@/lib/workspace-first-message";
 import { LoadingArea } from "@/components/loading-area";
 
 /**
@@ -112,17 +108,18 @@ function SaveAsWorkspaceButton({ conversationId }: { conversationId: string }) {
 const ignoreConversations = () => {};
 
 /**
- * The Chat surface: kernel Home conversations with tedis as the agents.
+ * The Chat surface.
  *
  * Selection is the URL — `/chat?conversation=<id>` — so a thread is a
  * shareable, reloadable link (the embedded widget deep-links here) and
  * picking one from the list is a `replace`, never a history entry per click.
  * No param is the synthetic fresh-thread state: landing on `/chat` lands on a
- * new conversation, not on whichever thread happened to be most recent. A
- * new chat is a plain Home conversation: it creates no workspace. Outputs it
- * makes go to the default workspace until "Save as workspace" gives the chat
- * its own. "New workspace" in a fresh composer instead creates a workspace
- * named after the question and opens it, where the question is sent first.
+ * new conversation, not on whichever thread happened to be most recent.
+ *
+ * A new chat runs in the person's private workspace, over that workspace's
+ * chat connection, and its id is `ws:{workspaceId}:{conversationId}`. Older
+ * Home conversations (any other id) stay on the Home path, readable and
+ * continuable there.
  */
 export function ChatPage() {
 	const queryClient = useQueryClient();
@@ -140,27 +137,8 @@ export function ChatPage() {
 	const [mobileListOpen, setMobileListOpen] = useState(false);
 	const [newConversationKey, setNewConversationKey] = useState(0);
 	const [detailsOpen, setDetailsOpen] = useState(false);
-	const selectionGeneration = useRef(0);
-	const generation = selectionGeneration.current;
-	const startWorkspace = async (question: string) => {
-		const { workspace } = await osApi.osWorkspaces.workspaces.create({
-			name: workspaceNameFromQuestion(question),
-		});
-		void queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() });
-		holdWorkspaceFirstMessage(workspace.id, question);
-		await navigate({
-			to: "/workspace/$workspaceId",
-			params: { workspaceId: workspace.id },
-			search: { pane: "chat" },
-		});
-	};
-	// A chat with a picked tedi runs in the person's private workspace, over
-	// that workspace's chat connection; Home chats stay on their own path.
 	const tediChat = parseTediChatConversationId(activeConversationId);
-	const [newTediChat, setNewTediChat] = useState<{
-		tediId: string;
-		draft: string;
-	} | null>(null);
+	const showTediChat = activeConversationId === null || tediChat !== null;
 	const personalInput = { input: { create: false } };
 	const personal = useQuery({
 		...osQuery.osWorkspaces.workspaces.personal.queryOptions(personalInput),
@@ -180,13 +158,12 @@ export function ChatPage() {
 		},
 	});
 	const needsPersonal =
-		newTediChat !== null && personal.isSuccess && !personalWorkspace;
+		activeConversationId === null && personal.isSuccess && !personalWorkspace;
 	const ensure = ensurePersonal.mutate;
 	const ensureIdle = ensurePersonal.isIdle;
 	useEffect(() => {
 		if (needsPersonal && ensureIdle) ensure();
 	}, [needsPersonal, ensureIdle, ensure]);
-	const showTediChat = tediChat !== null || newTediChat !== null;
 	const tediWorkspaceId =
 		tediChat?.workspaceId ?? personalWorkspace?.id ?? null;
 	const [tediConversations, setTediConversations] = useState<
@@ -220,10 +197,8 @@ export function ChatPage() {
 	);
 
 	const selectConversation = (conversationId: string | null) => {
-		selectionGeneration.current += 1;
 		setNewConversationKey((key) => key + 1);
 		setSelection({ conversationId });
-		setNewTediChat(null);
 		setMobileListOpen(false);
 		void navigate({
 			to: "/chat",
@@ -307,8 +282,6 @@ export function ChatPage() {
 								key={newConversationKey}
 								workspaceId={tediWorkspaceId}
 								conversationId={tediChat?.conversationId ?? null}
-								initialTediId={newTediChat?.tediId ?? null}
-								initialDraft={newTediChat?.draft}
 								onOpenList={() => setMobileListOpen(true)}
 								onSelectConversation={(conversationId) =>
 									selectConversation(
@@ -334,13 +307,12 @@ export function ChatPage() {
 										? setTediConversations
 										: ignoreConversations
 								}
-								onPickHome={() => selectConversation(null)}
 							/>
 						) : personal.isError || ensurePersonal.isError ? (
 							<LoadError
 								title="This chat couldn't be opened"
 								error={personal.error ?? ensurePersonal.error}
-								help="Your private workspace, where chats with a tedi run, is not available."
+								help="Your private workspace, where new chats run, is not available."
 								onRetry={() => {
 									ensurePersonal.reset();
 									void personal.refetch();
@@ -370,36 +342,8 @@ export function ChatPage() {
 									/>
 								) : null
 							}
-							recoverPendingSend={newConversationKey === 0}
-							onStartWorkspace={startWorkspace}
-							onPickTediForNewChat={(tediId, draft) =>
-								setNewTediChat({ tediId, draft })
-							}
 							conversationId={activeConversationId}
 							workspaceId={activeConversation?.workspaceId ?? undefined}
-							onConversationCreated={(conversationId, workspaceId) => {
-								queryClient.invalidateQueries({
-									queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
-								});
-								// A pending send may finish after the user has selected New.
-								if (generation !== selectionGeneration.current) return;
-								// Only a conversation that already belongs to a workspace opens
-								// there. `pane` must not travel: it would pin an explicit pane.
-								if (workspaceId) {
-									void navigate({
-										to: "/workspace/$workspaceId",
-										params: { workspaceId },
-										search: { conversation: conversationId },
-									});
-									return;
-								}
-								setSelection({ conversationId });
-								void navigate({
-									to: "/chat",
-									search: { conversation: conversationId },
-									replace: true,
-								});
-							}}
 						/>
 					)}
 				</div>

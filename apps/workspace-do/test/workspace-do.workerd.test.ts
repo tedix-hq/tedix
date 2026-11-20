@@ -149,6 +149,7 @@ type Stub = DurableObjectStub &
 			responses: WorkspaceMachineResult[],
 		): Promise<void>;
 		readMachineCalls(scope: WorkspaceScope): Promise<WorkspaceMachineInput[]>;
+		readPersonCalls(scope: WorkspaceScope): Promise<unknown[]>;
 		readSystemPrompts(scope: WorkspaceScope): Promise<string[]>;
 		readModelCalls(scope: WorkspaceScope): Promise<string[][]>;
 		importRows(
@@ -2787,6 +2788,39 @@ describe("WorkspaceDO", () => {
 				},
 			},
 			{ ...own, userId: "u1", tediId: "tedi1", op: "read", callId },
+		]);
+	});
+
+	test("personal memory is read only in a workspace nobody but the sender can open", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		const ws = workspace(own);
+		const READ = `export default async ({person}) => person.memory({ query: "summaries" }).catch(e => e.message)`;
+		const ask = async () => {
+			await ws.scriptModel(own, [{ code: READ }, { text: "Done." }]);
+			const { turnId, conversationId } = await ws.sendTurn(own, {
+				actorKind: "user",
+				actorId: "u1",
+				text: "What do you remember about me?",
+			});
+			expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+				status: "finished",
+			});
+			return JSON.stringify(await ws.readEvents(own, { conversationId }));
+		};
+		// The organization can open this workspace: nothing is read.
+		expect(await ask()).toContain("Personal memory can be read only");
+		expect(await ws.readPersonCalls(own)).toEqual([]);
+
+		await testEnv.DB.prepare(
+			"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ?",
+		)
+			.bind(own.workspaceId)
+			.run();
+		expect(await ask()).toContain("<<<external_personal_memory>>>");
+		expect(await ws.readPersonCalls(own)).toEqual([
+			{ ...own, userId: "u1", query: "summaries" },
 		]);
 	});
 
