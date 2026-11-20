@@ -1627,6 +1627,86 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 	}
 }
 
+/**
+ * Stops the dev servers and watchers an ended run left behind in its run
+ * folder. They outlive the agent, are re-parented to init, and otherwise keep
+ * a stale checkout "in use" forever: one runner held 45 GB this way. Only
+ * processes whose parent is init and their descendants are stopped; when any
+ * other process uses the folder, nothing is stopped. True when one was.
+ */
+async function stopLeakedRunProcesses(destination: string): Promise<boolean> {
+	try {
+		const root = realpathSync(dirname(destination));
+		const listing = await promisify(execFile)(
+			"ps",
+			["-axo", "pid=,ppid=,command="],
+			{ encoding: "utf8", timeout: 5000, maxBuffer: 16 * 1024 * 1024 },
+		);
+		const rows = listing.stdout.split("\n").flatMap((line) => {
+			const match = line.match(/^\s*(\d+)\s+(\d+)\s(.*)$/);
+			return match
+				? [
+						{
+							pid: Number(match[1]),
+							ppid: Number(match[2]),
+							command: match[3]!,
+						},
+					]
+				: [];
+		});
+		const inside = (row: (typeof rows)[number]) => {
+			if (row.command.includes(root)) return true;
+			try {
+				const cwd = kernelProcessCwd(row.pid);
+				return cwd === root || !!cwd?.startsWith(`${root}${sep}`);
+			} catch {
+				return false;
+			}
+		};
+		const leaked = new Set(
+			rows
+				.filter(
+					(row) => row.ppid === 1 && row.pid !== process.pid && inside(row),
+				)
+				.map((row) => row.pid),
+		);
+		for (let added = leaked.size > 0; added;) {
+			added = false;
+			for (const row of rows)
+				if (!leaked.has(row.pid) && leaked.has(row.ppid)) {
+					leaked.add(row.pid);
+					added = true;
+				}
+		}
+		if (!leaked.size || rows.some((row) => !leaked.has(row.pid) && inside(row)))
+			return false;
+		const signal = (pid: number, name: NodeJS.Signals) => {
+			try {
+				process.kill(pid, name);
+			} catch {}
+		};
+		const running = (pid: number) => {
+			try {
+				process.kill(pid, 0);
+				return true;
+			} catch (error) {
+				return (error as NodeJS.ErrnoException).code !== "ESRCH";
+			}
+		};
+		for (const pid of leaked) signal(pid, "SIGTERM");
+		for (
+			let waited = 0;
+			waited < 5000 && [...leaked].some(running);
+			waited += 250
+		)
+			await new Promise((done) => setTimeout(done, 250));
+		for (const pid of leaked) if (running(pid)) signal(pid, "SIGKILL");
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** How long a folder Git cannot read is kept before eviction deletes it. */
 const STALE_CHECKOUT_MS = 60 * 60_000;
 
@@ -1813,6 +1893,16 @@ export async function cleanupLaneWorktree(
 			),
 		};
 	};
+	// Eviction of a stale checkout first stops what an ended run leaked.
+	const stillInUse = async () =>
+		(await inUse(destination)) &&
+		!(
+			evict &&
+			inUse === laneWorktreeInUse &&
+			staleFolder(destination) &&
+			(await stopLeakedRunProcesses(destination)) &&
+			!(await inUse(destination))
+		);
 	if (!existsSync(destination)) {
 		const registered = await registration();
 		// A lock someone else placed keeps its registration.
@@ -1835,7 +1925,7 @@ export async function cleanupLaneWorktree(
 			refused(`git cannot read the checkout: ${failure}`);
 			return false;
 		}
-		if (await inUse(destination)) {
+		if (await stillInUse()) {
 			refused("a process still uses the checkout");
 			return false;
 		}
@@ -1889,7 +1979,7 @@ export async function cleanupLaneWorktree(
 		refused("holds unpushed commits");
 		return false;
 	}
-	if (await inUse(destination)) {
+	if (await stillInUse()) {
 		refused("a process still uses the checkout");
 		return false;
 	}
@@ -4195,9 +4285,45 @@ export class LaneDispatcher {
 								this.archiveEmptiedRun(run, row.itemId);
 						},
 					});
-			} else if (!this.orphanRun(name, itemId, run, receipted, referenced))
-				hold(name, itemId, "protected: a live run or receipt refers to it");
-			else {
+			} else if (!this.orphanRun(name, itemId, run, receipted, referenced)) {
+				// A receipt that names no checkout here (a held or failed
+				// admission drops `repo`) never reuses the checkouts left in the
+				// folder, so under the cap they are evicted like retry siblings.
+				const stray =
+					receipted.has(name) &&
+					!this.running.has(itemId) &&
+					!this.preparing.has(itemId) &&
+					!this.maintenance.has(itemId) &&
+					!referenced.some(
+						(repo) =>
+							repo === resolve(run) || repo.startsWith(resolve(run) + sep),
+					) &&
+					readdirSync(run).some((entry) => /^repo(-\d+)?$/.test(entry));
+				if (!stray)
+					hold(name, itemId, "protected: a live run or receipt refers to it");
+				else
+					candidates.push({
+						name,
+						run,
+						// The run folder, not the checkout: the removal books each
+						// checkout's own eviction backoff.
+						path: run,
+						itemId,
+						at,
+						size,
+						remove: async (refused) => {
+							await this.cleanupUnreferencedCheckouts(
+								run,
+								itemId,
+								referenced,
+								true,
+								refused,
+							);
+							if (!this.running.has(itemId) && !this.preparing.has(itemId))
+								this.archiveEmptiedRun(run, itemId);
+						},
+					});
+			} else {
 				candidates.push({
 					name,
 					run,
