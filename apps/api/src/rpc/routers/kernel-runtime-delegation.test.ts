@@ -6,7 +6,10 @@ import {
 	delegationMetadataForPick,
 	kernelRuntimeTestHooks,
 } from "./kernel-runtime/policy-normalization";
-import { enqueueHomeMessage } from "../../services/agent-run-ended-notice";
+import {
+	agentRunEndedHomeMessage,
+	enqueueHomeMessage,
+} from "../../services/agent-run-ended-notice";
 import { buildInternalServiceBindingContext } from "./kernel/runtime-shared";
 import {
 	ORG_ID,
@@ -142,51 +145,94 @@ describe("kernel runtime router: delegation", () => {
 		});
 	});
 
-	it("takes the report of a finished agent run as a Home turn in the person's chat", async () => {
+	it("returns the picked tedi's run-ended reply to the original chat", async () => {
 		const db = createKernelRuntimeDb();
-		const dispatch = vi.fn();
-		kernelRuntimeTestHooks.setDelegateRunnerForTest(dispatch);
-		const kernel = vi.fn(async () => ({
-			assistantContent: "The run for the button ended and succeeded.",
-			route: {
-				routeKind: "answer_in_home" as const,
-				rationale: "A report to pass on.",
-				risk: "low" as const,
-				confidence: 0.9,
-			},
+		const context = createContext(db);
+		const conversationId = "home:os:chat-7";
+		const childRunId =
+			"tedi-cpo:mcp:agent-run-ended-attempt-1_delegate_tedi-cpo";
+		const dispatch = vi.fn(async () => ({
+			childConversationId: "agent:main:main",
+			childRunId,
+			status: "queued" as const,
 		}));
-		kernelRuntimeTestHooks.setKernelForTest(
-			kernel as unknown as Parameters<
-				typeof kernelRuntimeTestHooks.setKernelForTest
-			>[0],
+		kernelRuntimeTestHooks.setDelegateRunnerForTest(dispatch);
+		const notice = agentRunEndedHomeMessage(
+			{
+				id: "work-1",
+				orgId: ORG_ID,
+				title: "Rename the button",
+				sourceSessionKey: conversationId,
+				stewardType: "tedi",
+				stewardId: "tedi-cpo",
+			},
+			{
+				id: "attempt-1",
+				executorType: "external_agent",
+				outcome: "succeeded",
+				summary: null,
+			},
 		);
 		const result = await enqueueHomeMessage(
-			buildInternalServiceBindingContext(createContext(db), ORG_ID),
-			{
-				organizationId: ORG_ID,
-				conversationId: "home:os:chat-7",
-				idempotencyKey: "agent-run-ended-attempt-1",
-				content: 'The run for "Rename the button" ended: succeeded.',
-			},
+			buildInternalServiceBindingContext(context, ORG_ID),
+			notice!,
 		);
-		kernelRuntimeTestHooks.setKernelForTest(null);
-		expect(kernel).toHaveBeenCalledTimes(1);
 		expect(result).toMatchObject({
-			status: "completed",
-			conversationId: "home:os:chat-7",
-			assistantMessage: {
-				content: "The run for the button ended and succeeded.",
-			},
+			status: "queued",
+			conversationId,
+			run: { delegatedTediId: "tedi-cpo", childRunId },
+		});
+		expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				delegateToTediId: "tedi-cpo",
+				pickedByPerson: false,
+				content: notice!.content,
+				metadata: expect.objectContaining({
+					agentRunEnded: true,
+					homeConversationId: conversationId,
+				}),
+			}),
+		);
+		expect(db.events).toContainEqual(
+			expect.objectContaining({
+				kind: "message.received",
+				conversationId,
+				payload: expect.objectContaining({
+					metadata: expect.objectContaining({ source: "platform" }),
+				}),
+			}),
+		);
+
+		const answer = "I got the result. The button was renamed successfully.";
+		db.runtimeEvents.push(
+			childRuntimeEvent({
+				createdAt: "2026-06-06T08:01:00.000Z",
+				id: "notice-answer",
+				kind: "message.completed",
+				payload: { role: "assistant", content: answer },
+				runId: childRunId,
+				tediId: "tedi-cpo",
+			}),
+			childRuntimeEvent({
+				createdAt: "2026-06-06T08:01:01.000Z",
+				id: "notice-completed",
+				kind: "run.completed",
+				payload: { status: "completed" },
+				runId: childRunId,
+				tediId: "tedi-cpo",
+			}),
+		);
+		const client = createKernelRuntimeClient(context);
+		await client.readRunSet({ conversationId, limit: 10 });
+		const { messages } = await client.readMessages({
+			conversationId,
+			limit: 10,
 		});
 		expect(
-			db.events.filter(
-				(event) =>
-					event.kind === "message.received" &&
-					event.conversationId === "home:os:chat-7" &&
-					event.runId === "agent-run-ended-attempt-1",
-			),
-		).toHaveLength(1);
-		expect(dispatch).not.toHaveBeenCalled();
+			messages
+				.filter(({ role }) => role === "assistant")
+				.map(({ content }) => content),
+		).toEqual([answer]);
 	});
 
 	it("settles the delegated isolate dispatch before returning the Home receipt", async () => {

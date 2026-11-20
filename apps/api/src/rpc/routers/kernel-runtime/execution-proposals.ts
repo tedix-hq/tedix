@@ -574,8 +574,11 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// owned by approvePlanAssignments, which the `!homePlan` guard separates
 		// from this. Auto-created tracking is fail-soft; an explicit canonical
 		// item request is checked below and fails closed before dispatch.
+		const isAgentRunEndedNotice =
+			context.authType === "service-binding" && metadata.agentRunEnded === true;
 		const delegationWorkItemId =
 			input.delegateToTediId &&
+			!isAgentRunEndedNotice &&
 			!homePlan &&
 			(isolateDelegation ? childRunId : workstationChildRunId)
 				? await createDelegationWorkItem(context, {
