@@ -798,6 +798,7 @@ export const startAttemptProcedure = factoryOs.startAttempt.handler(
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				admissionId: admission.id,
+				admission,
 				executor,
 				sessionId:
 					executor.type === "external_agent" ? executor.sessionId : undefined,

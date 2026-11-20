@@ -75,7 +75,7 @@ import {
 } from "./runtime-shared";
 import {
 	admitWorkAttempt,
-	WORK_ATTEMPT_ADMISSION_TTL_MS,
+	WORK_ATTEMPT_LEASE_TTL_MS,
 } from "../work-items/attempt-admission";
 
 /**
@@ -416,13 +416,14 @@ export async function createDelegationWorkItem(
 		const admission = await admitWorkAttempt(context.db, {
 			workItem: existing,
 			executor: { type: "tedi", id: input.assigneeTediId },
-			leaseTtlMs: WORK_ATTEMPT_ADMISSION_TTL_MS,
+			leaseTtlMs: WORK_ATTEMPT_LEASE_TTL_MS,
 			now: input.createdAt,
 		});
 		await startWorkItemAttempt(context.db, {
 			workItemId: existing.id,
 			orgId: input.organizationId,
 			admissionId: admission.id,
+			admission,
 			executor: { type: "tedi", id: input.assigneeTediId },
 			runId: input.childRunId,
 			startedAt: input.createdAt,
@@ -516,13 +517,14 @@ export async function createDelegationWorkItem(
 	const admission = await admitWorkAttempt(context.db, {
 		workItem: acceptedWorkItem,
 		executor: { type: "tedi", id: input.assigneeTediId },
-		leaseTtlMs: WORK_ATTEMPT_ADMISSION_TTL_MS,
+		leaseTtlMs: WORK_ATTEMPT_LEASE_TTL_MS,
 		now: input.createdAt,
 	});
 	await startWorkItemAttempt(context.db, {
 		workItemId: workItem.id,
 		orgId: input.organizationId,
 		admissionId: admission.id,
+		admission,
 		executor: { type: "tedi", id: input.assigneeTediId },
 		runId: input.childRunId,
 		startedAt: input.createdAt,

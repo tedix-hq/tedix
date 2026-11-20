@@ -99,7 +99,7 @@ import {
 } from "./policy-normalization";
 import {
 	admitWorkAttempt,
-	WORK_ATTEMPT_ADMISSION_TTL_MS,
+	WORK_ATTEMPT_LEASE_TTL_MS,
 } from "../work-items/attempt-admission";
 import {
 	readKernelUserMessageContent,
@@ -454,13 +454,14 @@ async function retryDelegationWorkItem(
 	const admission = await admitWorkAttempt(context.db, {
 		workItem: workItem,
 		executor: { type: "tedi", id: delegatedTediId },
-		leaseTtlMs: WORK_ATTEMPT_ADMISSION_TTL_MS,
+		leaseTtlMs: WORK_ATTEMPT_LEASE_TTL_MS,
 		now: dispatchedAt,
 	});
 	const attemptAdmission = await startWorkItemAttempt(context.db, {
 		workItemId,
 		orgId: organizationId,
 		admissionId: admission.id,
+		admission,
 		executor: { type: "tedi", id: delegatedTediId },
 		runId: predictedChildRunId,
 		startedAt: dispatchedAt,

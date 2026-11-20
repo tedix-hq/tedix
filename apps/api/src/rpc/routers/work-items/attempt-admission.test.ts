@@ -10,7 +10,8 @@ import { admitWorkAttempt, previewWorkAttempt } from "./attempt-admission";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import {
-	evaluateAndRecordWorkAdmission,
+	prepareWorkAdmission,
+	WorkAdmissionError,
 	getWorkAdmissionSpecification,
 	previewWorkAdmission,
 } from "@tedix/db/queries/work-items/admissions";
@@ -21,8 +22,11 @@ vi.mock("@tedix/db/queries/work-items/crud", () => ({
 vi.mock("@tedix/db/queries/work-items/attempts", () => ({
 	listWorkItemAttempts: vi.fn(),
 }));
-vi.mock("@tedix/db/queries/work-items/admissions", () => ({
-	evaluateAndRecordWorkAdmission: vi.fn(),
+vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/work-items/admissions")
+	>()),
+	prepareWorkAdmission: vi.fn(),
 	getWorkAdmissionSpecification: vi.fn(),
 	previewWorkAdmission: vi.fn(),
 }));
@@ -87,26 +91,22 @@ describe("shared factory admission", () => {
 		expect(await previewWorkAttempt(db, params)).toMatchObject({
 			rejection: { code: "budget_blocked" },
 		});
-		expect(evaluateAndRecordWorkAdmission).not.toHaveBeenCalled();
+		expect(prepareWorkAdmission).not.toHaveBeenCalled();
 		vi.mocked(getWorkItemById).mockResolvedValue({ ...item, riskLevel: "low" });
 		await expect(previewWorkAttempt(db, params)).rejects.toThrow();
 		expect(previewWorkAdmission).toHaveBeenCalledTimes(1);
 	});
 	it("uses canonical admission, including approval denials", async () => {
 		await fixture();
-		vi.mocked(evaluateAndRecordWorkAdmission).mockResolvedValue({
-			id: revision,
-			decision: "rejected",
-			rejectionCode: "approval_blocked",
-			rejectionReason: "approval_required",
-			expiresAt: params.now,
-		} as Awaited<ReturnType<typeof evaluateAndRecordWorkAdmission>>);
+		vi.mocked(prepareWorkAdmission).mockRejectedValue(
+			new WorkAdmissionError("approval_blocked", "approval_required"),
+		);
 		await expect(admitWorkAttempt(db, params)).rejects.toMatchObject({
 			code: "CONFLICT",
 			message: "approval_required",
 			data: { rejectionCode: "approval_blocked", reason: "approval_required" },
 		});
-		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledWith(
+		expect(prepareWorkAdmission).toHaveBeenCalledWith(
 			db,
 			expect.objectContaining({
 				expectedWorkItemVersion: 1,
@@ -114,18 +114,6 @@ describe("shared factory admission", () => {
 				executorId: revision,
 			}),
 		);
-	});
-	it("returns only the canonical admitted lease", async () => {
-		await fixture();
-		vi.mocked(evaluateAndRecordWorkAdmission).mockResolvedValue({
-			id: revision,
-			decision: "admitted",
-			expiresAt: "2026-08-28T00:05:00.000Z",
-		} as Awaited<ReturnType<typeof evaluateAndRecordWorkAdmission>>);
-		expect(await admitWorkAttempt(db, params)).toEqual({
-			id: revision,
-			expiresAt: "2026-08-28T00:05:00.000Z",
-		});
 	});
 	it("rejects stale reads and retries before issuing a new admission", async () => {
 		const item = await fixture();
@@ -139,7 +127,7 @@ describe("shared factory admission", () => {
 			nextCursor: null,
 		});
 		await expect(admitWorkAttempt(db, params)).rejects.toThrow("retry budget");
-		expect(evaluateAndRecordWorkAdmission).not.toHaveBeenCalled();
+		expect(prepareWorkAdmission).not.toHaveBeenCalled();
 	});
 	it("cannot weaken pinned execution requirements through a Work edit", async () => {
 		const item = await fixture();
@@ -147,6 +135,6 @@ describe("shared factory admission", () => {
 		await expect(admitWorkAttempt(db, params)).rejects.toThrow(
 			"pinned template",
 		);
-		expect(evaluateAndRecordWorkAdmission).not.toHaveBeenCalled();
+		expect(prepareWorkAdmission).not.toHaveBeenCalled();
 	});
 });

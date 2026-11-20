@@ -1,6 +1,7 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
-	evaluateAndRecordWorkAdmission,
+	prepareWorkAdmission,
+	WorkAdmissionError,
 	previewWorkAdmission,
 } from "@tedix/db/queries/work-items/admissions";
 import { getWorkAdmissionSpecification } from "@tedix/db/queries/work-items/admissions";
@@ -14,7 +15,7 @@ import {
 import type { BaseContext } from "../../orpc";
 import { createError, ErrorCodes } from "../../orpc";
 
-export const WORK_ATTEMPT_ADMISSION_TTL_MS = 5 * 60_000;
+export const WORK_ATTEMPT_LEASE_TTL_MS = 5 * 60_000;
 
 type AttemptAdmissionParams = {
 	workItem: {
@@ -118,40 +119,36 @@ export async function previewWorkAttempt(
 	});
 }
 
-/**
- * Mint a fresh immutable admission receipt from the current Work Item and
- * credential-derived executor. Callers never select or replay a receipt id.
- */
+/** Prepare one atomic start from the current Work and credential-derived executor. */
 export async function admitWorkAttempt(
 	db: BaseContext["db"],
 	params: AttemptAdmissionParams,
-): Promise<{ id: string; expiresAt: string }> {
+) {
 	await assertWorkAttemptPolicy(db, params);
-	const admission = await evaluateAndRecordWorkAdmission(db, {
-		id: crypto.randomUUID(),
-		orgId: params.workItem.orgId,
-		workItemId: params.workItem.id,
-		expectedWorkItemVersion: params.workItem.version,
-		expectedAdmissionSpecRevision: params.workItem.admissionSpecRevision,
-		executorType: params.executor.type,
-		executorId: params.executor.id,
-		executorSessionId:
-			params.executor.type === "external_agent"
-				? params.executor.sessionId
-				: undefined,
-		externalSessionKey: params.externalSessionKey,
-		leaseTtlMs: params.leaseTtlMs,
-		now: params.now,
-	});
-	if (admission.decision !== "admitted") {
-		const reason =
-			admission.rejectionReason ?? "Work Item is not eligible for admission";
+	try {
+		return await prepareWorkAdmission(db, {
+			id: crypto.randomUUID(),
+			orgId: params.workItem.orgId,
+			workItemId: params.workItem.id,
+			expectedWorkItemVersion: params.workItem.version,
+			expectedAdmissionSpecRevision: params.workItem.admissionSpecRevision,
+			executorType: params.executor.type,
+			executorId: params.executor.id,
+			executorSessionId:
+				params.executor.type === "external_agent"
+					? params.executor.sessionId
+					: undefined,
+			externalSessionKey: params.externalSessionKey,
+			leaseTtlMs: params.leaseTtlMs,
+			now: params.now,
+		});
+	} catch (error) {
+		if (!(error instanceof WorkAdmissionError)) throw error;
+		const reason = error.message.replace(/^NOT_ELIGIBLE: /, "");
 		throw baseErrorConstructors.CONFLICT({
 			message: reason,
-			data: admission.rejectionCode
-				? { rejectionCode: admission.rejectionCode, reason }
-				: undefined,
+			data: { rejectionCode: error.rejectionCode, reason },
+			cause: error,
 		});
 	}
-	return { id: admission.id, expiresAt: admission.expiresAt };
 }

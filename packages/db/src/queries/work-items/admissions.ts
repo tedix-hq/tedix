@@ -704,7 +704,6 @@ export async function evaluateAndRecordWorkAdmission(
 			"leaseTtlMs must be 1000..3600000",
 		);
 	const eligibility = await previewWorkAdmission(db, p);
-	const expiresAt = new Date(Date.parse(p.now) + p.leaseTtlMs).toISOString();
 	if (eligibility.rejection) {
 		const key = rejectionKey(p, eligibility.rejection.code);
 		const rejectionExpiresAt = new Date(
@@ -757,51 +756,85 @@ export async function evaluateAndRecordWorkAdmission(
 			);
 		}
 	}
+	const { statements } = buildWorkAdmissionStatements(db, p, eligibility);
+	try {
+		const results = await db.batch(statements);
+		const admission = (results[0] as WorkAdmission[])[0];
+		if (!admission) throw new Error("lost admission race");
+		return admission;
+	} catch (error) {
+		// The reservation triggers are the last word: name the gate they hit
+		// instead of reporting every batch failure as a resource race.
+		const detail = describeCause(error);
+		if (/budget exhausted/i.test(detail))
+			throw new WorkAdmissionError(
+				"budget_blocked",
+				"Budget envelope lacks capacity for this reservation",
+			);
+		if (/resource capacity exhausted/i.test(detail))
+			throw new WorkAdmissionError(
+				"resource_blocked",
+				"Resource pool lacks capacity for this reservation",
+			);
+		throw new WorkAdmissionError(
+			"resource_blocked",
+			"Admission lost an eligibility or reservation race",
+		);
+	}
+}
+/** Prepare the admission and reservations for the Attempt's atomic start batch. */
+export async function prepareWorkAdmission(
+	db: DbQueryClient,
+	p: EvaluateWorkAdmissionParams,
+) {
+	if (
+		!Number.isFinite(p.leaseTtlMs) ||
+		p.leaseTtlMs < 1000 ||
+		p.leaseTtlMs > 3_600_000
+	)
+		throw new WorkAdmissionError(
+			"stale_specification",
+			"leaseTtlMs must be 1000..3600000",
+		);
+	const eligibility = await previewWorkAdmission(db, p);
+	if (eligibility.rejection)
+		throw new WorkAdmissionError(
+			eligibility.rejection.code,
+			eligibility.rejection.reason,
+		);
+	return buildWorkAdmissionStatements(db, p, eligibility);
+}
+
+export interface PreparedWorkAdmission {
+	id: string;
+	expiresAt: string;
+	statements: Parameters<DbQueryClient["batch"]>[0];
+}
+
+function buildWorkAdmissionStatements(
+	db: DbQueryClient,
+	p: EvaluateWorkAdmissionParams,
+	eligibility: Eligibility,
+): PreparedWorkAdmission {
+	const expiresAt = new Date(Date.parse(p.now) + p.leaseTtlMs).toISOString();
 	const admissionInsert = db
 		.insert(workAdmissions)
-		.select(
-			db
-				.select({
-					id: sql<string>`${p.id}`.as("id"),
-					orgId: workItems.orgId,
-					workItemId: workItems.id,
-					workItemVersion: workItems.version,
-					admissionSpecRevision: workItems.admissionSpecRevision,
-					executorType: sql<typeof p.executorType>`${p.executorType}`.as(
-						"executor_type",
-					),
-					executorId: sql<string>`${p.executorId}`.as("executor_id"),
-					executorSessionId: sql<
-						string | null
-					>`${p.executorSessionId ?? null}`.as("executor_session_id"),
-					externalSessionKey: sql<
-						string | null
-					>`${p.externalSessionKey ?? null}`.as("external_session_key"),
-					decision: sql<"admitted">`'admitted'`.as("decision"),
-					rejectionCode: sql<null>`NULL`.as("rejection_code"),
-					rejectionReason: sql<null>`NULL`.as("rejection_reason"),
-					rejectionKey: sql<null>`NULL`.as("rejection_key"),
-					maxCostMicros: sql<number | null>`${p.maxCostMicros ?? null}`.as(
-						"max_cost_micros",
-					),
-					decidedAt: sql<string>`${p.now}`.as("decided_at"),
-					expiresAt: sql<string>`${expiresAt}`.as("expires_at"),
-					createdAt: sql<string>`${p.now}`.as("created_at"),
-				})
-				.from(workItems)
-				.where(
-					and(
-						eq(workItems.orgId, p.orgId),
-						eq(workItems.id, p.workItemId),
-						eq(workItems.version, p.expectedWorkItemVersion),
-						eq(
-							workItems.admissionSpecRevision,
-							p.expectedAdmissionSpecRevision,
-						),
-						eq(workItems.disposition, "accepted"),
-					),
-				),
-		)
+		.values({
+			id: p.id,
+			orgId: p.orgId,
+			workItemId: p.workItemId,
+			workItemVersion: p.expectedWorkItemVersion,
+			admissionSpecRevision: p.expectedAdmissionSpecRevision,
+			executorType: p.executorType,
+			executorId: p.executorId,
+			executorSessionId: p.executorSessionId,
+			externalSessionKey: p.externalSessionKey,
+			decision: "admitted",
+			maxCostMicros: p.maxCostMicros,
+			decidedAt: p.now,
+			expiresAt,
+			createdAt: p.now,
+		})
 		.returning();
 	const resourceInserts = chunkForBoundParams(
 		eligibility.requirements,
@@ -851,35 +884,66 @@ export async function evaluateAndRecordWorkAdmission(
 			)
 			.returning({ id: workBudgetReservations.id }),
 	);
-	try {
-		const results = await db.batch([
+	return {
+		id: p.id,
+		expiresAt,
+		statements: [
 			admissionInsert,
 			...resourceInserts,
 			...budgetInserts,
-		]);
-		const admission = (results[0] as WorkAdmission[])[0];
-		if (!admission) throw new Error("lost admission race");
-		return admission;
-	} catch (error) {
-		// The reservation triggers are the last word: name the gate they hit
-		// instead of reporting every batch failure as a resource race.
-		const detail = describeCause(error);
-		if (/budget exhausted/i.test(detail))
-			throw new WorkAdmissionError(
-				"budget_blocked",
-				"Budget envelope lacks capacity for this reservation",
-			);
-		if (/resource capacity exhausted/i.test(detail))
-			throw new WorkAdmissionError(
-				"resource_blocked",
-				"Resource pool lacks capacity for this reservation",
-			);
-		throw new WorkAdmissionError(
-			"resource_blocked",
-			"Admission lost an eligibility or reservation race",
-		);
-	}
+		] as const,
+	};
 }
+
+export function rethrowWorkAdmissionWriteError(error: unknown): never {
+	const detail = describeCause(error);
+	const gates: Array<[RegExp, WorkAdmissionRejectionCode, string]> = [
+		[
+			/budget (?:exhausted|reservation (?:missing|does not match))/i,
+			"budget_blocked",
+			"Budget reservation is no longer available",
+		],
+		[
+			/resource (?:capacity exhausted|reservation (?:missing|does not match))/i,
+			"resource_blocked",
+			"Resource reservation is no longer available",
+		],
+		[
+			/work already running|uniq_work_attempt_active|work_attempts.org_id, work_attempts.work_item_id/i,
+			"already_running",
+			"An active Attempt already owns this Work Item",
+		],
+		[
+			/dependency blocked/i,
+			"dependencies_blocked",
+			"A blocking dependency is no longer complete",
+		],
+		[
+			/capability (?:missing|revoked)/i,
+			"capability_blocked",
+			"Executor capability is no longer available",
+		],
+		[
+			/approval (?:missing|expired|revoked)/i,
+			"approval_blocked",
+			"Required approval is no longer valid",
+		],
+		[
+			/stale admission|active admission|expired admission|inactive .*executor|NOT NULL constraint failed: work_events.org_id/i,
+			"stale_specification",
+			"Work or executor eligibility changed before Attempt start",
+		],
+		[
+			/facts exceed admission cap/i,
+			"evaluation_required",
+			"Admission facts exceed the evaluation limit",
+		],
+	];
+	for (const [pattern, code, reason] of gates)
+		if (pattern.test(detail)) throw new WorkAdmissionError(code, reason);
+	throw error;
+}
+
 function describeCause(error: unknown): string {
 	const parts: string[] = [];
 	let current: unknown = error;
