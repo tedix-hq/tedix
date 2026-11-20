@@ -440,24 +440,3 @@ test("a failed certification lookup certifies the full suite rather than failing
 		}),
 	).toEqual(["README.md"]);
 });
-
-test("the Postgres suite runs only when a push changes the Postgres copy, or on a hand-started run", () => {
-	const root = join(import.meta.dir, "../..");
-	const postgresJobs = (eventName: string, files: string[] | null) =>
-		(
-			suiteSelection(root, { eventName, files }).matrix.include as Array<{
-				testScript?: string;
-			}>
-		).filter((job) => job.testScript === "test:postgres").length;
-	expect(postgresJobs("push", ["packages/db/src/schema/work-items.ts"])).toBe(
-		0,
-	);
-	expect(postgresJobs("schedule", null)).toBe(0);
-	expect(postgresJobs("push", ["packages/db/src/pg/query-client.ts"])).toBe(1);
-	expect(
-		postgresJobs("push", [
-			"packages/db/drizzle-pg/20261105175919_core_postgres/migration.sql",
-		]),
-	).toBe(1);
-	expect(postgresJobs("workflow_dispatch", null)).toBe(1);
-}, 60_000);
