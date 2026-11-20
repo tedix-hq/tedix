@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.28.0 — 2026-11-20
+
+### Minor Changes
+
+- A follow-up sent to a Codex run now reaches the turn that is already working, without stopping it. "Send now" can still interrupt and resume when live delivery is not available.
+
+### Patch Changes
+
+- A Codex run no longer fails when Codex has not created its sessions folder yet.
+- When a tedi starts an agent run, the machine's dispatcher is woken so the runner checks the task right away.
+
 ## 0.27.0 — 2026-11-20
 
 ### Minor Changes
