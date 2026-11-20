@@ -4,7 +4,6 @@ import {
 	sealDesktopSignInCode,
 } from "@tedix/auth/desktop-sign-in-code";
 import { validateToken } from "@tedix/auth/jwt";
-import { hasStepUpClaim } from "@tedix/auth/types";
 import { z } from "zod";
 
 const inputSchema = z
@@ -23,15 +22,13 @@ const CODE_LIFETIME_SECONDS = 120;
  * for the person who owns `session`, sealed to the key the desktop app made.
  * Descope accepts the token once and only for two minutes.
  *
- * The code starts a lasting desktop session, so an ordinary browser session is
- * not enough: `session` must be the token from a fresh sign-in (Descope's
- * step-up flow sets `su: true` and limits how long it lasts). A stolen or
- * left-open browser session cannot mint one on its own. The code is also
- * readable only by the app instance that made the key and works once.
+ * The person does not sign in a second time. What protects the hand-over is
+ * that the code is readable only by the app instance that made the key, works
+ * once, and is made only when the person clicks Continue on the confirm page.
  *
- * Only InternalEntrypoint routes here. Tedix OS calls it from the confirm
- * page's Continue click, a same-origin request, and passes the stepped-up
- * token, which is checked again here; nothing is logged.
+ * Only InternalEntrypoint routes here. Tedix OS calls it from that click, a
+ * same-origin request, and passes the browser's own session, which is checked
+ * again here; nothing is logged.
  */
 export async function desktopSignInCode(
 	request: Request,
@@ -57,8 +54,6 @@ export async function desktopSignInCode(
 	}).catch(() => undefined);
 	const userId = typeof payload?.sub === "string" ? payload.sub : undefined;
 	if (!userId) return new Response(null, { status: 401, headers });
-	if (!hasStepUpClaim(payload))
-		return new Response(null, { status: 403, headers });
 	const descope = getManagementClient(env).management.user;
 	const user = await descope.loadByUserId(userId);
 	const loginId = user.ok ? user.data?.loginIds?.[0] : undefined;
