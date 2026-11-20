@@ -29,6 +29,36 @@ function overview(): BillingOverview {
 }
 
 describe("the current billing plan", () => {
+	it("shows an internal credit override without a catalog price or payment details", async () => {
+		const value = overview();
+		value.account = {
+			...value.account,
+			hasStripeCustomer: false,
+			hasIncludedCreditsOverride: true,
+			hasPaidPlan: false,
+		};
+		value.plan = { ...value.plan, priceMicros: 1_000_000_000 };
+		const container = document.createElement("div");
+		const root = createRoot(container);
+		const client = new QueryClient();
+		try {
+			await act(async () =>
+				root.render(
+					<QueryClientProvider client={client}>
+						<SubscriptionSection overview={value} />
+					</QueryClientProvider>,
+				),
+			);
+			expect(container.textContent).toContain("Internal account");
+			expect(container.textContent).toContain("Credits are set by Tedix");
+			expect(container.textContent).not.toContain("€");
+			expect(container.textContent).not.toContain("Payment method");
+		} finally {
+			await act(async () => root.unmount());
+			client.clear();
+		}
+	});
+
 	it("keeps a failed portal request visible and allows another attempt", async () => {
 		createPortal.mockRejectedValueOnce(new Error("Billing portal unavailable"));
 		const container = document.createElement("div");
@@ -46,7 +76,7 @@ describe("the current billing plan", () => {
 			);
 			await act(async () => {
 				[...container.querySelectorAll("button")]
-					.find((button) => button.textContent === "Manage subscription")!
+					.find((button) => button.textContent === "Manage in portal")!
 					.click();
 				await new Promise((resolve) => setTimeout(resolve, 20));
 			});

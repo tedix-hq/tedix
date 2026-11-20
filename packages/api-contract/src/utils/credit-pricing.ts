@@ -8,6 +8,23 @@
 /** 1 credit = EUR 0.01, in EUR micros. */
 export const CREDIT_VALUE_EUR_MICROS = 10_000;
 
+/** Monthly included credits plus the remaining and already-spent top-ups. */
+export function monthlyAllowanceCredits(credits: {
+	includedCredits: number;
+	topUpCredits: number;
+	usedCredits: number;
+	payAsYouGo: { spentMicros: number };
+}): number {
+	const payAsYouGoUsed = Math.floor(
+		credits.payAsYouGo.spentMicros / CREDIT_VALUE_EUR_MICROS,
+	);
+	const topUpUsed = Math.max(
+		0,
+		credits.usedCredits - credits.includedCredits - payAsYouGoUsed,
+	);
+	return credits.includedCredits + credits.topUpCredits + topUpUsed;
+}
+
 /** AI use is billed at twice the provider cost. */
 export const AI_CREDIT_COST_MULTIPLIER = 2;
 

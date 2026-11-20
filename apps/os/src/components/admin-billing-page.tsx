@@ -2,7 +2,7 @@ import {
 	BillingCreditBalance,
 	BillingCreditUsage,
 } from "@/components/billing-credit-usage";
-import { LoadingArea } from "@/components/loading-area";
+import { BillingCard, BillingCardSkeleton } from "@/components/billing-card";
 import { RestrictedNotice } from "@/components/restricted-notice";
 import { OS_COPY } from "@/shared/os-copy";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -69,8 +69,16 @@ const BillingPayAsYouGoSection = lazy(() =>
 	})),
 );
 
-function BillingPagePending() {
-	return <LoadingArea label="Loading billing" />;
+function BillingPagePending({
+	title = "Monthly credit usage",
+}: {
+	title?: string;
+}) {
+	return (
+		<BillingCard title={title}>
+			<BillingCardSkeleton label="Loading billing" />
+		</BillingCard>
+	);
 }
 
 function BillingRestricted() {
@@ -226,25 +234,27 @@ function AdminBillingBody({
 					<BillingCreditBalance credits={overview.data.credits} />
 				</TabsContent>
 				<TabsContent value="plan" className="pt-4">
-					<Suspense fallback={<LoadingArea className="h-32" />}>
+					<Suspense fallback={<BillingPagePending title="Current plan" />}>
 						<SubscriptionSection overview={overview.data} />
 					</Suspense>
 				</TabsContent>
 				<TabsContent value="credit-packs" className="pt-4">
-					<Suspense fallback={<LoadingArea className="h-32" />}>
+					<Suspense fallback={<BillingPagePending title="Buy credit packs" />}>
 						<BillingTopUpSection
 							isTest={overview.data.stripeEnvironment === "test"}
 						/>
 					</Suspense>
 				</TabsContent>
 				<TabsContent value="limits" className="space-y-6 pt-4">
-					<Suspense fallback={<LoadingArea className="h-32" />}>
-						<BillingPayAsYouGoSection />
+					<Suspense fallback={<BillingPagePending title="Pay-as-you-go" />}>
+						<BillingPayAsYouGoSection
+							payAsYouGo={overview.data.credits.payAsYouGo}
+						/>
 						<BillingCreditCaps credits={overview.data.credits} />
 					</Suspense>
 				</TabsContent>
 				<TabsContent value="invoices" className="pt-4">
-					<Suspense fallback={<LoadingArea className="h-32" />}>
+					<Suspense fallback={<BillingPagePending title="Invoices" />}>
 						<BillingDocumentsSection
 							isTest={overview.data.stripeEnvironment === "test"}
 						/>

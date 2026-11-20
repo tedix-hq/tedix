@@ -4,9 +4,14 @@ import { BillingOverviewSchema } from "@tedix/api-contract/schemas/billing";
 import type { BaseContext } from "../orpc";
 const storage = vi.hoisted(() => ({
 	coverage: vi.fn(),
+	daily: vi.fn(),
 	snapshot: vi.fn(),
 	tedis: vi.fn(),
 	members: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/billing/dashboard", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/billing/dashboard")>()),
+	listDailyCreditUsage: storage.daily,
 }));
 vi.mock("@tedix/db/queries/billing/provider-usage", async (original) => ({
 	...(await original<
@@ -132,6 +137,36 @@ describe("credits and workstation coverage in the billing overview", () => {
 			},
 		]);
 	});
+	it("reports each activity's daily share of monthly credits", async () => {
+		storage.daily.mockResolvedValue([
+			{ day: "2026-09-01", kind: "ai", credits: 11_000 },
+			{ day: "2026-09-18", kind: "code_run", credits: 500 },
+			{ day: "2026-09-18", kind: "service", credits: 500 },
+		]);
+		const ctx = context();
+		const client = createRouterClient(billingContractRouter, { context: ctx });
+		const days = await client.getDailyUsage({ window: "month" });
+		expect(days[0]).toMatchObject({ day: "2026-09-01", aiPercent: 68.75 });
+		expect(days[17]).toMatchObject({
+			codeRunPercent: 3.125,
+			toolPercent: 3.125,
+		});
+		expect(
+			days.reduce(
+				(sum, day) =>
+					sum + day.aiPercent + day.codeRunPercent + day.toolPercent,
+				0,
+			),
+		).toBe(75);
+		expect(storage.daily).toHaveBeenCalledWith(
+			ctx.db,
+			expect.objectContaining({
+				organizationId: org,
+				periodStart: coverage.periodStart,
+			}),
+		);
+	});
+
 	it("uses canonical org and snapshot window and publishes required coverage separately", async () => {
 		const ctx = context();
 		const client = createRouterClient(billingContractRouter, { context: ctx });

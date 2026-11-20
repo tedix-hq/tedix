@@ -1,3 +1,5 @@
+import { monthlyAllowanceCredits } from "@tedix/api-contract/utils/credit-pricing";
+import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import {
@@ -9,6 +11,10 @@ import {
 	formatCreditPeriod,
 	formatResetDate,
 } from "@/components/billing-credit-usage";
+import { BillingCard, BillingCardSkeleton } from "@/components/billing-card";
+import { Button } from "@/components/kumo/button";
+import { ChartPalette } from "@/components/kumo/event-chart";
+import { useTheme } from "@/hooks/use-theme";
 import { LoadError } from "@/components/kumo/alert";
 import {
 	Collapsible,
@@ -19,7 +25,6 @@ import { Empty } from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
 import { Link } from "@/components/kumo/link";
 import { Meter } from "@/components/kumo/meter";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
 	Page,
 	PageHeader,
@@ -33,7 +38,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Surface } from "@/components/kumo/surface";
 import { Switch } from "@/components/kumo/switch";
 import {
 	Tabs,
@@ -42,13 +46,12 @@ import {
 	TabsTrigger,
 } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
-import { LoadingArea } from "@/components/loading-area";
 import { RestrictedNotice } from "@/components/restricted-notice";
 import {
-	allowanceUsage,
+	formatChartShare,
+	USAGE_ACTIVITIES,
 	type CreditUsage,
 	formatUsagePercent,
-	monthlyAllowanceCredits,
 	usagePercent,
 } from "@/lib/billing-credits";
 import { formatCount } from "@/lib/format";
@@ -66,17 +69,18 @@ const UsageChart = lazy(() =>
 	})),
 );
 
+const UsageBreakdownChart = lazy(() =>
+	import("@/components/usage-chart").then((module) => ({
+		default: module.UsageBreakdownChart,
+	})),
+);
+
 export type UsageTab = "overview" | "tedis" | "members";
 type UsageWindow = "month" | "30d" | "7d";
 const WINDOWS = {
 	month: "This month",
 	"30d": "Last 30 days",
 	"7d": "Last 7 days",
-} as const;
-const LABELS = {
-	aiPercent: "AI replies",
-	codeRunPercent: "Code runs",
-	toolPercent: "Tools",
 } as const;
 
 export function ComputePage({
@@ -103,7 +107,9 @@ export function ComputePage({
 				</PageHeading>
 			</PageHeader>
 			{context.isPending ? (
-				<LoadingArea label="Loading usage" />
+				<BillingCard title="This month">
+					<BillingCardSkeleton label="Loading usage" />
+				</BillingCard>
 			) : context.isError ? (
 				<LoadError
 					title="Usage is unavailable"
@@ -116,7 +122,9 @@ export function ComputePage({
 					description="Ask an organization owner for help."
 				/>
 			) : overview.isPending ? (
-				<LoadingArea label="Loading usage" />
+				<BillingCard title="This month">
+					<BillingCardSkeleton label="Loading usage" />
+				</BillingCard>
 			) : overview.isError ? (
 				<LoadError
 					title="Usage could not be loaded"
@@ -125,7 +133,10 @@ export function ComputePage({
 				/>
 			) : (
 				<>
-					<UsageSummary credits={overview.data.credits} />
+					<UsageSummary
+						credits={overview.data.credits}
+						showBreakdown={tab === "overview"}
+					/>
 					<Tabs
 						value={tab}
 						onValueChange={(value) => onTabChange(value as UsageTab)}
@@ -136,7 +147,11 @@ export function ComputePage({
 							<TabsTrigger value="members">Members</TabsTrigger>
 						</TabsList>
 						<TabsContent value="overview" className="pt-4">
-							<UsageOverview />
+							<UsageOverview
+								hasAllowance={
+									monthlyAllowanceCredits(overview.data.credits) > 0
+								}
+							/>
 						</TabsContent>
 						<TabsContent value="tedis" className="pt-4">
 							<UsageSubjects group="tedis" credits={overview.data.credits} />
@@ -157,41 +172,104 @@ export function ComputePage({
 	);
 }
 
-function UsageSummary({ credits }: { credits: CreditUsage }) {
-	const usage = allowanceUsage(credits);
+function UsageSummary({
+	credits,
+	showBreakdown,
+}: {
+	credits: CreditUsage;
+	showBreakdown: boolean;
+}) {
+	const { theme } = useTheme();
+	const allowance = monthlyAllowanceCredits(credits);
+	const percent = allowance > 0 ? (credits.usedCredits * 100) / allowance : 0;
+	const label = allowance > 0 ? formatChartShare(percent) : "—";
+	const series = USAGE_ACTIVITIES.map(({ name, breakdownKey }, index) => ({
+		name,
+		value:
+			allowance > 0 ? (credits.breakdown[breakdownKey] * 100) / allowance : 0,
+		color: ChartPalette.categorical(index, theme === "dark"),
+	}));
 	return (
-		<Surface className="grid gap-2 p-tedix-card">
-			<Meter
-				label={`${usage.label} of this month's credits used`}
-				value={usage.percent}
-				showValue={false}
-				getAriaValueText={() => usage.label}
-			/>
-			<Text tone="secondary">
-				{formatCreditPeriod(credits.periodStart, credits.periodEnd)} · Renews{" "}
-				{formatResetDate(credits.periodEnd)}
-			</Text>
-		</Surface>
+		<BillingCard title="This month">
+			<div
+				className={
+					showBreakdown ? "grid items-center gap-4 sm:grid-cols-2" : undefined
+				}
+			>
+				<div className="grid gap-3">
+					<div>
+						<Text
+							role="label"
+							tone="secondary"
+							className="uppercase tracking-wider"
+						>
+							Monthly credits used
+						</Text>
+						<Text role="metric" weight="semibold" className="tabular-nums">
+							{label}
+						</Text>
+					</div>
+					{allowance > 0 && (
+						<Meter
+							label={`${label} of this month's credits used`}
+							hideLabel
+							value={Math.min(percent, 100)}
+							getAriaValueText={() => label}
+						/>
+					)}
+					<Text tone="secondary">
+						{formatCreditPeriod(credits.periodStart, credits.periodEnd)} ·
+						Renews {formatResetDate(credits.periodEnd)}
+					</Text>
+					{showBreakdown && allowance > 0 && (
+						<dl className="divide-y divide-kumo-hairline">
+							{series.map(({ name, value, color }) => (
+								<div
+									key={name}
+									className="flex items-center justify-between gap-3 py-2"
+								>
+									<dt className="flex items-center gap-2">
+										<span
+											aria-hidden="true"
+											className="size-2.5 rounded-full"
+											style={{ backgroundColor: color }}
+										/>
+										{name}
+									</dt>
+									<dd className="m-0 text-right tabular-nums">
+										{formatChartShare(value)}
+									</dd>
+								</div>
+							))}
+						</dl>
+					)}
+				</div>
+				{showBreakdown && percent > 0 && (
+					<Suspense
+						fallback={
+							<BillingCardSkeleton label="Loading monthly usage chart" />
+						}
+					>
+						<UsageBreakdownChart series={series} />
+					</Suspense>
+				)}
+			</div>
+		</BillingCard>
 	);
 }
 
-function UsageOverview() {
+function UsageOverview({ hasAllowance }: { hasAllowance: boolean }) {
 	const [window, setWindow] = useState<UsageWindow>("month");
-	const usage = useQuery(
-		osQuery.billing.getDailyUsage.queryOptions({ input: { window } }),
-	);
-	const days = usage.data ?? [];
-	const metrics = Object.entries(LABELS).map(([field, label]) => {
-		const key = field as keyof typeof LABELS;
-		return { label, total: days.reduce((sum, day) => sum + day[key], 0) };
+	const usage = useQuery({
+		...osQuery.billing.getDailyUsage.queryOptions({ input: { window } }),
+		enabled: hasAllowance,
 	});
+	const days = usage.data ?? [];
 
 	return (
-		<div className="grid gap-4">
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<Text as="h2" role="section" weight="semibold">
-					Share of credits used
-				</Text>
+		<BillingCard
+			title="Daily usage"
+			actions={
 				<Select
 					items={WINDOWS}
 					value={window}
@@ -208,38 +286,33 @@ function UsageOverview() {
 						))}
 					</SelectContent>
 				</Select>
-			</div>
-			{usage.isPending ? (
-				<LoadingArea label="Loading daily usage" />
+			}
+		>
+			{!hasAllowance ? (
+				<Empty
+					appearance="inline"
+					title="There is no credit allowance for this month."
+				/>
+			) : usage.isPending ? (
+				<BillingCardSkeleton label="Loading daily usage" />
 			) : usage.isError ? (
 				<LoadError
 					title="Daily usage could not be loaded"
 					error={usage.error}
 					onRetry={() => void usage.refetch()}
 				/>
-			) : metrics.every(({ total }) => total === 0) ? (
-				<Empty title="No usage in this period" />
+			) : days.every((day) =>
+					USAGE_ACTIVITIES.every(({ dailyKey }) => day[dailyKey] === 0),
+			  ) ? (
+				<Empty appearance="inline" title="There is no usage in this period." />
 			) : (
-				<>
-					<MetricGrid
-						columns={3}
-						appearance="bounded"
-						aria-label="Share by activity"
-					>
-						{metrics.map(({ label, total }) => (
-							<MetricItem
-								key={label}
-								label={label}
-								value={total > 0 && total < 1 ? "<1%" : `${Math.round(total)}%`}
-							/>
-						))}
-					</MetricGrid>
-					<Suspense fallback={<LoadingArea label="Loading chart" />}>
-						<UsageChart days={days} />
-					</Suspense>
-				</>
+				<Suspense
+					fallback={<BillingCardSkeleton label="Loading daily usage chart" />}
+				>
+					<UsageChart days={days} />
+				</Suspense>
 			)}
-		</div>
+		</BillingCard>
 	);
 }
 
@@ -269,48 +342,69 @@ function UsageSubjects({
 		);
 
 	return (
-		<div className="grid gap-4">
-			<div className="flex flex-wrap items-center gap-4">
-				<Input
-					aria-label="Search by name"
-					placeholder="Search by name"
-					value={search}
-					onChange={(event) => setSearch(event.target.value)}
-				/>
-				<label className="flex items-center gap-2">
-					<Switch checked={showUnused} onCheckedChange={setShowUnused} /> Show
-					unused
-				</label>
-				<Select
-					items={{ most: "Highest share first", least: "Lowest share first" }}
-					value={mostFirst ? "most" : "least"}
-					onValueChange={(value) => setMostFirst(value !== "least")}
-				>
-					<SelectTrigger aria-label="Sort by share">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="most">Highest share first</SelectItem>
-						<SelectItem value="least">Lowest share first</SelectItem>
-					</SelectContent>
-				</Select>
-			</div>
+		<BillingCard
+			title={group === "tedis" ? "Usage by tedi" : "Usage by member"}
+			bodyClassName="p-0"
+			actions={
+				<div className="flex flex-wrap items-center gap-3">
+					<Input
+						aria-label="Search by name"
+						placeholder="Search by name"
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+					/>
+					<label className="flex items-center gap-2">
+						<Switch checked={showUnused} onCheckedChange={setShowUnused} />
+						Show unused
+					</label>
+				</div>
+			}
+		>
 			<BillingTable
 				key={JSON.stringify([searchTerm, showUnused, mostFirst])}
 				data={rows}
 				rowKey="id"
-				emptyTitle="No matching usage"
-				emptyMessage={
-					showUnused
-						? "Try a different name."
-						: "Turn on Show unused to include people or tedis with no usage."
-				}
+				emptyTitle="No matching usage."
 				columns={[
-					{ header: "Name", accessor: "name" },
 					{
-						header: "Share of monthly credits",
+						header: "Name",
 						accessor: (row) => (
-							<div className="flex min-w-28 items-center gap-3">
+							<>
+								<Text weight="medium">{row.name}</Text>
+								<Text role="label" tone="secondary">
+									{row.monthlyCapCredits === null
+										? "No cap"
+										: row.usedCredits >= row.monthlyCapCredits
+											? "Cap reached"
+											: `${formatUsagePercent(row.monthlyCapCredits - row.usedCredits, row.monthlyCapCredits)} of cap left`}
+								</Text>
+							</>
+						),
+					},
+					{
+						header: (
+							<Button
+								variant="ghost"
+								aria-label={
+									mostFirst
+										? "Sort lowest share first"
+										: "Sort highest share first"
+								}
+								icon={
+									mostFirst ? (
+										<ArrowDown aria-hidden />
+									) : (
+										<ArrowUp aria-hidden />
+									)
+								}
+								onClick={() => setMostFirst(!mostFirst)}
+							>
+								Share of monthly credits
+							</Button>
+						),
+						align: "right",
+						accessor: (row) => (
+							<div className="flex items-center justify-end gap-3">
 								<Text as="span" className="tabular-nums">
 									{formatUsagePercent(row.usedCredits, allowance)}
 								</Text>
@@ -321,23 +415,14 @@ function UsageSubjects({
 									getAriaValueText={() =>
 										formatUsagePercent(row.usedCredits, allowance)
 									}
-									className="w-16"
+									className="hidden w-16 sm:block"
 								/>
 							</div>
 						),
 					},
-					{
-						header: "Cap",
-						accessor: (row) =>
-							row.monthlyCapCredits === null
-								? "No cap"
-								: row.usedCredits >= row.monthlyCapCredits
-									? "Cap reached"
-									: `Cap: ${formatUsagePercent(row.monthlyCapCredits - row.usedCredits, row.monthlyCapCredits)} left`,
-					},
 				]}
 			/>
-		</div>
+		</BillingCard>
 	);
 }
 
@@ -348,45 +433,47 @@ function UsageRecordDetails() {
 		enabled: open,
 	});
 	return (
-		<Collapsible open={open} onOpenChange={setOpen}>
-			<CollapsibleDefaultTrigger>
-				How these figures are recorded
-			</CollapsibleDefaultTrigger>
-			<CollapsibleDefaultContent>
-				<div className="grid gap-2 pt-2">
-					<Text tone="secondary">
-						Credits are counted when AI replies, code runs and tools finish.
-					</Text>
-					{posture.isPending ? (
-						<LoadingArea label="Loading call records" />
-					) : posture.isError ? (
+		<BillingCard title="Usage records">
+			<Collapsible open={open} onOpenChange={setOpen}>
+				<CollapsibleDefaultTrigger>
+					How these figures are recorded
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
+					<div className="grid gap-2 pt-2">
 						<Text tone="secondary">
-							Call records are unavailable right now.
+							Credits are counted when AI replies, code runs and tools finish.
 						</Text>
-					) : (
-						<>
+						{posture.isPending ? (
+							<BillingCardSkeleton label="Loading call records" />
+						) : posture.isError ? (
 							<Text tone="secondary">
-								{posture.data.freshness.lastRowAt
-									? `Latest AI call recorded on ${formatResetDate(posture.data.freshness.lastRowAt)}.`
-									: "No AI calls have been recorded yet."}
+								Call records are unavailable right now.
 							</Text>
-							<Text tone="secondary">
-								{formatCount(
-									posture.data.provenance.filter(
-										(source) => source.rowCount > 0,
-									).length,
-								)}{" "}
-								sources in the last 30 days.
-							</Text>
-							<Text tone="secondary">
-								{formatCount(posture.data.attribution.unattributedRowCount)}{" "}
-								calls were recorded without a linked session in the last 30
-								days.
-							</Text>
-						</>
-					)}
-				</div>
-			</CollapsibleDefaultContent>
-		</Collapsible>
+						) : (
+							<>
+								<Text tone="secondary">
+									{posture.data.freshness.lastRowAt
+										? `Latest AI call recorded on ${formatResetDate(posture.data.freshness.lastRowAt)}.`
+										: "No AI calls have been recorded yet."}
+								</Text>
+								<Text tone="secondary">
+									{formatCount(
+										posture.data.provenance.filter(
+											(source) => source.rowCount > 0,
+										).length,
+									)}{" "}
+									sources in the last 30 days.
+								</Text>
+								<Text tone="secondary">
+									{formatCount(posture.data.attribution.unattributedRowCount)}{" "}
+									calls were recorded without a linked session in the last 30
+									days.
+								</Text>
+							</>
+						)}
+					</div>
+				</CollapsibleDefaultContent>
+			</Collapsible>
+		</BillingCard>
 	);
 }

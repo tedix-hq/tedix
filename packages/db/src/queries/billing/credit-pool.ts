@@ -206,6 +206,9 @@ export function buildCreditPoolSelect(
 			stripeCustomerId: sql<string | null>`${account.stripeCustomerId}`.as(
 				"stripe_customer_id",
 			),
+			stripeSubscriptionId: sql<
+				string | null
+			>`${account.stripeSubscriptionId}`.as("stripe_subscription_id"),
 			periodStart: sql<string>`${account.periodStart}`.as("period_start"),
 			periodEnd: sql<string>`${account.periodEnd}`.as("period_end"),
 			planIncludedCredits: sql<number>`${plan.includedMonthlyCredits}`.as(
@@ -319,6 +322,7 @@ export function buildCreditCapacitySelect(
 			billingMode: pool.billingMode,
 			stripeEnvironment: pool.stripeEnvironment,
 			stripeCustomerId: pool.stripeCustomerId,
+			stripeSubscriptionId: pool.stripeSubscriptionId,
 			periodStart: pool.periodStart,
 			periodEnd: pool.periodEnd,
 			planIncludedCredits: pool.planIncludedCredits,
@@ -400,6 +404,7 @@ export interface CreditPoolSnapshot {
 	billingMode: BillingAccount["billingMode"];
 	stripeEnvironment: "test" | "live" | null;
 	stripeCustomerId: string | null;
+	stripeSubscriptionId: string | null;
 	periodStart: string;
 	periodEnd: string;
 	planIncludedCredits: number;
@@ -451,6 +456,7 @@ function snapshotFromRow(row: CapacityRow): CreditPoolSnapshot {
 		billingMode: row.billingMode,
 		stripeEnvironment: row.stripeEnvironment ?? null,
 		stripeCustomerId: row.stripeCustomerId ?? null,
+		stripeSubscriptionId: row.stripeSubscriptionId ?? null,
 		periodStart: String(row.periodStart),
 		periodEnd: String(row.periodEnd),
 		planIncludedCredits: n(row.planIncludedCredits),

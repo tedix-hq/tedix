@@ -9,15 +9,11 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUpRight } from "@phosphor-icons/react";
 import { BillingTable } from "@/components/billing-table";
 import { formatResetDate } from "@/components/billing-credit-usage";
-import { LoadingArea } from "@/components/loading-area";
-import { BillingSectionHeader } from "@/components/billing-section-header";
+import { BillingCard, BillingCardSkeleton } from "@/components/billing-card";
 import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	SettingsSection,
-	SettingsSectionContent,
-} from "@/components/kumo/page";
+import { Empty } from "@/components/kumo/empty";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -46,15 +42,15 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 	});
 
 	return (
-		<SettingsSection>
-			<BillingSectionHeader
+		<div className="grid gap-4">
+			<BillingCard
 				title="Buy credit packs"
 				description="Add credits whenever you need more. Pack credits are used after your plan's monthly credits and last 12 months."
 				actions={isTest && <Badge variant="secondary">Billing test mode</Badge>}
-			/>
-			<SettingsSectionContent className="space-y-4">
+				bodyClassName="grid gap-4"
+			>
 				{packsQuery.isPending ? (
-					<LoadingArea className="h-28" label="Loading credit packs" />
+					<BillingCardSkeleton label="Loading credit packs" />
 				) : packsQuery.isError ? (
 					<LoadError
 						title="Credit packs are unavailable"
@@ -65,7 +61,10 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 						retrying={packsQuery.isFetching}
 					/>
 				) : packsQuery.data.length === 0 ? (
-					<Text tone="secondary">No credit packs are on sale right now.</Text>
+					<Empty
+						appearance="inline"
+						title="No credit packs are on sale right now."
+					/>
 				) : (
 					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
 						{packsQuery.data.map((pack: CreditTopUpPack) => (
@@ -107,9 +106,8 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 						</AlertDescription>
 					</Alert>
 				)}
-				<Text as="h3" role="section" weight="semibold">
-					Purchase history
-				</Text>
+			</BillingCard>
+			<BillingCard title="Purchase history" bodyClassName="p-0">
 				<BillingTable
 					data={history.data ?? []}
 					rowKey="id"
@@ -118,8 +116,7 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 						history.isError ? "Purchase history could not be loaded." : null
 					}
 					onRetry={() => void history.refetch()}
-					emptyTitle="No credit packs purchased"
-					emptyMessage="Your purchases will appear here."
+					emptyTitle="There are no credit pack purchases yet."
 					columns={[
 						{
 							header: "Purchased",
@@ -127,6 +124,7 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 						},
 						{
 							header: "Credits",
+							align: "right",
 							accessor: (row) => formatCredits(row.credits),
 						},
 						{
@@ -135,7 +133,7 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 						},
 					]}
 				/>
-			</SettingsSectionContent>
-		</SettingsSection>
+			</BillingCard>
+		</div>
 	);
 }

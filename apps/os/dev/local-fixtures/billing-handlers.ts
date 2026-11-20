@@ -204,10 +204,7 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 	"billing/getDailyUsage": (input: { window: "month" | "30d" | "7d" }) => {
 		const end = new Date();
 		end.setUTCHours(0, 0, 0, 0);
-		const start = new Date(end);
-		start.setUTCDate(start.getUTCDate() - (input.window === "7d" ? 6 : 29));
-		if (input.window === "month")
-			start.setTime(Math.max(start.getTime(), Date.parse(CREDIT_PERIOD_START)));
+		const start = new Date(CREDIT_PERIOD_START);
 		const days = [];
 		for (
 			let day = new Date(start);
@@ -216,14 +213,19 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 		) {
 			days.push(day.toISOString().slice(0, 10));
 		}
-		return days.map((day, index) => ({
+		const allowance = creditUsage.includedCredits + creditUsage.topUpCredits;
+		const { ai, codeRuns, services } = creditUsage.breakdown;
+		const rows = days.map((day, index) => ({
 			day,
 			aiPercent:
-				(60 * (index % 2 ? 2 : 1)) /
-				(days.length + Math.floor(days.length / 2)),
-			codeRunPercent: 25 / days.length,
-			toolPercent: 15 / days.length,
+				(ai * 100 * (index % 2 ? 2 : 1)) /
+				(allowance * (days.length + Math.floor(days.length / 2))),
+			codeRunPercent: (codeRuns * 100) / (allowance * days.length),
+			toolPercent: (services * 100) / (allowance * days.length),
 		}));
+		return input.window === "month"
+			? rows
+			: rows.slice(input.window === "7d" ? -7 : -30);
 	},
 	"billing/listTopUpPurchases": () => [
 		{
