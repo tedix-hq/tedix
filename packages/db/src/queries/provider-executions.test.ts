@@ -492,12 +492,7 @@ it("preserves populated execution ledger and indexes through Jev migration", () 
 			)
 			.all()
 			.map((row) => row.name),
-	).toEqual(
-		expect.arrayContaining([
-			"uniq_provider_execution_admission",
-			"idx_provider_execution_run",
-		]),
-	);
+	).toEqual(expect.arrayContaining(["uniq_provider_execution_admission"]));
 	sqlite.close();
 });
 

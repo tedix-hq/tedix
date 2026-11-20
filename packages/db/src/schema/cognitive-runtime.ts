@@ -220,7 +220,6 @@ export const tediRuntimeEvents = sqliteTable(
 			table.kind,
 			table.createdAt,
 		),
-		index("idx_tedi_runtime_events_artifact").on(table.artifactId),
 		index("idx_tedi_runtime_events_trace")
 			.on(table.traceId, table.createdAt)
 			.where(sql`trace_id is not null`),

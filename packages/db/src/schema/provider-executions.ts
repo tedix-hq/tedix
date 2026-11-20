@@ -66,7 +66,6 @@ export const providerExecutionAttempts = sqliteTable(
 			table.organizationId,
 			table.idempotencyKey,
 		),
-		index("idx_provider_execution_run").on(table.organizationId, table.runId),
 		check(
 			"chk_provider_execution_window",
 			sql`julianday(${table.authorizedAt}) IS NOT NULL AND julianday(${table.sendBefore}) IS NOT NULL AND julianday(${table.sendBefore}) > julianday(${table.authorizedAt})`,
