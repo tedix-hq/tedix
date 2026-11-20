@@ -61,6 +61,20 @@ export const RETENTION_CLEANUP_STEP_CAP_MS = 3 * 60_000;
 export const RETENTION_CLEANUP_MIN_STEP_MS = 15_000;
 /** platform_cron_checkpoints row naming the step to start with next time. */
 export const RETENTION_CLEANUP_CHECKPOINT_ID = "retention-cleanup:next-step";
+
+/**
+ * Steps that no longer run because their rows are kept instead of deleted
+ * (docs/engineering/append-only-data-targets.md). Add a step id here when
+ * the move that replaces its delete lands.
+ * - platform-cron-receipts-prune: finished cron receipts are copied to the
+ *   logs database by the d1-retention engine (move_to_logs_db policy,
+ *   commit 414700f67); deleting them here would destroy that history.
+ * - gateway-change-records: still runs; switch it off here when Work
+ *   2661a2c4 moves the gateway change ledger instead of pruning it.
+ */
+export const RETENTION_STEPS_SWITCHED_OFF: ReadonlySet<string> = new Set([
+	"platform-cron-receipts-prune",
+]);
 const CHECKPOINT_IO_TIMEOUT_MS = 10_000;
 
 export interface RetentionStepContext {
@@ -222,7 +236,13 @@ export async function runRetentionCleanupCron(
 		);
 	}
 
-	const steps = retentionCleanupSteps(env, event, runId, db, scheduledDate);
+	const steps = retentionCleanupSteps(
+		env,
+		event,
+		runId,
+		db,
+		scheduledDate,
+	).filter((step) => !RETENTION_STEPS_SWITCHED_OFF.has(step.id));
 	const { counts, nextStepId } = await runRetentionSteps(steps, {
 		deadlineMs,
 		firstStepId,
@@ -295,17 +315,26 @@ function retentionCleanupSteps(
 			},
 		},
 		{
-			id: "platform-cron-receipts",
+			id: "platform-cron-abandoned",
+			run: async () => {
+				const { terminalizeAbandonedPlatformCronExecutions } =
+					await import("@tedix/db/queries/platform-cron-executions");
+				return {
+					platformCronExecutionsAbandoned:
+						await terminalizeAbandonedPlatformCronExecutions(
+							db,
+							scheduledDate.toISOString(),
+						),
+				};
+			},
+		},
+		{
+			id: "platform-cron-receipts-prune",
 			run: async () => {
 				const {
 					PLATFORM_CRON_RECEIPT_RETENTION_DAYS,
 					prunePlatformCronExecutions,
-					terminalizeAbandonedPlatformCronExecutions,
 				} = await import("@tedix/db/queries/platform-cron-executions");
-				const abandoned = await terminalizeAbandonedPlatformCronExecutions(
-					db,
-					scheduledDate.toISOString(),
-				);
 				const cutoff = new Date(
 					event.scheduledTime -
 						PLATFORM_CRON_RECEIPT_RETENTION_DAYS * 86_400_000,
@@ -313,10 +342,11 @@ function retentionCleanupSteps(
 					.toISOString()
 					.replace("T", " ")
 					.slice(0, 19);
-				const deleted = await prunePlatformCronExecutions(db, cutoff);
 				return {
-					platformCronExecutionsAbandoned: abandoned,
-					platformCronExecutionsDeleted: deleted,
+					platformCronExecutionsDeleted: await prunePlatformCronExecutions(
+						db,
+						cutoff,
+					),
 				};
 			},
 		},
