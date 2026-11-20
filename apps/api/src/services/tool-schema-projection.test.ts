@@ -647,7 +647,15 @@ it("projects the gateway change record read as one read-only gateway tool", asyn
 		Object.keys(
 			(tool.inputSchema as { properties: Record<string, unknown> }).properties,
 		).sort(),
-	).toEqual(["actorId", "afterSequence", "from", "limit", "resource", "until"]);
+	).toEqual([
+		"actorId",
+		"afterSequence",
+		"from",
+		"limit",
+		"resource",
+		"subjectId",
+		"until",
+	]);
 });
 
 it("projects the checkpoint read as one read-only gateway tool", async () => {
