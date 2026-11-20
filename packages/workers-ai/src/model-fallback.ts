@@ -20,6 +20,9 @@ export function withModelFallback<T extends object>(
 ): T {
 	let transitions = 0;
 	const visited = new Set([options.primaryRef]);
+	// Later calls start on the model the last call moved to, so an unavailable
+	// model is not tried, and paid for in failed calls, on every call.
+	let current = { model: primary, ref: options.primaryRef };
 	return new Proxy(primary, {
 		get(target, key, receiver) {
 			const original = Reflect.get(target, key, receiver);
@@ -28,8 +31,7 @@ export function withModelFallback<T extends object>(
 					? original.bind(target)
 					: original;
 			return async (...args: unknown[]) => {
-				let model = primary;
-				let ref = options.primaryRef;
+				let { model, ref } = current;
 				let retries = 0;
 				let candidates: string[] = [];
 				let policy: ModelFallbackPolicy | undefined;
@@ -69,6 +71,7 @@ export function withModelFallback<T extends object>(
 						visited.add(next);
 						model = resolved;
 						ref = next;
+						current = { model, ref };
 						retries = 0;
 					}
 				}

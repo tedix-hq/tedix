@@ -86,13 +86,16 @@ describe("governed model fallback", () => {
 		expect(primary).toHaveBeenCalledTimes(3);
 		expect(f.second).toHaveBeenCalledTimes(1);
 	});
-	it("caps a ladder and does not revisit models across SDK retries", async () => {
-		const f = fixture(async () => {
-			throw { statusCode: 402 };
+	it("stays on the fallback for later calls instead of retrying the failed model", async () => {
+		const primary = vi.fn(async () => {
+			throw { statusCode: 503 };
 		});
+		const f = fixture(primary);
 		await f.model.doGenerate();
-		await expect(f.model.doGenerate()).rejects.toEqual({ statusCode: 402 });
-		expect(f.second).toHaveBeenCalledTimes(1);
+		await f.model.doGenerate();
+		expect(primary).toHaveBeenCalledTimes(3);
+		expect(f.second).toHaveBeenCalledTimes(2);
+		expect(f.record).toHaveBeenCalledTimes(1);
 	});
 });
 

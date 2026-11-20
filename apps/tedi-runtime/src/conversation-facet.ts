@@ -365,6 +365,12 @@ export class ConversationFacet extends PiAgent<
 	});
 	private heapProxy = new TurnHeapProxy();
 	private selected?: ReturnType<ConversationFacet["selectModelForTurn"]>;
+	/**
+	 * The model this run moved to after its selected one failed. Later model
+	 * rounds of the run start there instead of paying for the failed model
+	 * again; an unavailable model (retired, out of credits) fails every round.
+	 */
+	private runFallback?: { runId: string; from: string; to: string };
 	private readonly accounting = new PiTurnAccounting(this.ctx.storage, {
 		reconcileEffect: async (runId, toolCallId) =>
 			(await this.parent()).reconcileFacetToolEffect(runId, toolCallId),
@@ -512,11 +518,16 @@ export class ConversationFacet extends PiAgent<
 		model: TedixSdkModel;
 		identity: SelectedConversationModelIdentity;
 	} {
-		const modelRef =
-			this.state.finalReportStop?.continueWithTools &&
+		const turnRef =
+			(this.state.finalReportStop?.continueWithTools &&
 			this.state.finalReportStop.modelRef
 				? this.state.finalReportStop.modelRef
-				: this.state.modelRef;
+				: this.state.modelRef) ?? "";
+		const modelRef =
+			this.runFallback?.runId === this.state.runId &&
+			this.runFallback.from === turnRef
+				? this.runFallback.to
+				: turnRef;
 		const selected = selectChatModelForTurn(
 			this.env as unknown as AzureChatEnv,
 			modelRef ? { modelRef } : null,
@@ -536,6 +547,11 @@ export class ConversationFacet extends PiAgent<
 					await (
 						await this.parent()
 					).recordModelFallback({ runId: this.requireRunId(), step });
+					this.runFallback = {
+						runId: this.requireRunId(),
+						from: turnRef,
+						to: step.to,
+					};
 					const slash = step.to.indexOf("/");
 					this.setState({
 						...this.state,
