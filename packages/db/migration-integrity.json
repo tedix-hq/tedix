@@ -1792,6 +1792,10 @@
 		{
 			"name": "20261120180139_gateway_change_records_retention_final_off/migration.sql",
 			"sha256": "4b847179f6de01e8c4232797d3337302c54511c5a6dc14a33c8a1afabea5296e"
+		},
+		{
+			"name": "20261120180225_workspace_default_tedi/migration.sql",
+			"sha256": "ee983d07b406bd6c7ecd4ccd0b441f461737374137da0ccb0cedb5e1da77f98a"
 		}
 	]
 }
