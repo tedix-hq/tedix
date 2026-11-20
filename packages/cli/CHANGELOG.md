@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.3 — 2026-11-20
+
+### Patch Changes
+
+- d8d8563: The runner state a tedi reads from a Mac no longer counts runs that are not there. A task that a runner was starting was listed as a live run for as long as its record stayed on disk, even after the runner was stopped or the start had failed. It now counts only while the runner is running and the start is less than 15 minutes old. Each live run also shows who runs it, the model, the step it is in and the minutes so far.
+- Runners on 0.29.2 started no tasks: they read the shared runner rules with a command that was missing its input argument, so the read failed and no work was admitted. The read now passes it.
+- d906bca: `tedix update` and `tedix rollback` now reload the background service on macOS when it runs the file they replaced, and say whether it came back. Before, macOS refused to start the service again after an update until it was unloaded and loaded by hand. Runs in progress stop when the service reloads. The copy that comes with the Tedix app can now be updated and rolled back with these commands too.
+
 ## 0.29.2 — 2026-11-20
 
 ### Patch Changes

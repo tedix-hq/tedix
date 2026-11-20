@@ -2898,7 +2898,12 @@ export class LaneDispatcher {
 		let unread: string | undefined;
 		try {
 			inherited = (
-				await this.call<{ rules?: typeof inherited }>(["work", "runner-rules"])
+				await this.call<{ rules?: typeof inherited }>([
+					"work",
+					"runner-rules",
+					"--input",
+					"{}",
+				])
 			).rules;
 		} catch (error) {
 			unread = String((error as Error).message ?? error).slice(0, 200);
