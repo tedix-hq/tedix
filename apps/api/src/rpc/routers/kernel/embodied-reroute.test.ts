@@ -3,7 +3,7 @@ import type { KernelContext } from "./context-assembly";
 import { decideDelegationDispatch } from "./delegation-dispatch";
 import {
 	embodiedMismatchAnswer,
-	rerouteEmbodiedMismatch,
+	answerEmbodiedMismatch,
 } from "./embodied-reroute";
 import type { KernelRouteDecision } from "./route-schema";
 import type { TediCapabilityCard } from "./tedi-capabilities";
@@ -74,31 +74,9 @@ const route: KernelRouteDecision = {
 
 const request = "Fix the failing checkout test and open a pull request";
 
-describe("rerouteEmbodiedMismatch", () => {
-	it("moves workstation work from a bodiless tedi to one with a workstation", () => {
-		const result = rerouteEmbodiedMismatch({
-			content: request,
-			context: context([
-				card("researcher", "Researcher"),
-				card("engineer", "Engineer", {
-					embodied: true,
-					hasRepository: true,
-					availability: "standby",
-				}),
-			]),
-			decision: route,
-		});
-		expect(result).toMatchObject({
-			routeKind: "delegate_tedi",
-			targetTediId: "engineer",
-			targetTediLabel: "Engineer",
-			targetActivityId: null,
-			plannedToolIds: [],
-		});
-	});
-
-	it("prefers a warm workstation over a standby body", () => {
-		const result = rerouteEmbodiedMismatch({
+describe("answerEmbodiedMismatch", () => {
+	it("says which tedi has a workstation instead of moving the work", () => {
+		const result = answerEmbodiedMismatch({
 			content: request,
 			context: context([
 				card("researcher", "Researcher"),
@@ -111,31 +89,18 @@ describe("rerouteEmbodiedMismatch", () => {
 			]),
 			decision: route,
 		});
-		expect(result.targetTediId).toBe("warm");
-	});
-
-	it("answers in Home instead of moving a tedi the operator named", () => {
-		const result = rerouteEmbodiedMismatch({
-			content: `Ask Researcher to ${request.toLowerCase()}`,
-			context: context([
-				card("researcher", "Researcher"),
-				card("engineer", "Engineer", { embodied: true, hasRepository: true }),
-			]),
-			decision: route,
-		});
 		expect(result.routeKind).toBe("answer_in_home");
 		expect(result.targetTediId).toBeNull();
 		expect(result.answer).toBe(
 			embodiedMismatchAnswer({
 				targetName: "Researcher",
-				peerName: "Engineer",
+				peerName: "Warm Engineer",
 			}),
 		);
-		expect(result.answer).toContain("Engineer has one");
 	});
 
 	it("says what to connect when no tedi has a workstation", () => {
-		const result = rerouteEmbodiedMismatch({
+		const result = answerEmbodiedMismatch({
 			content: request,
 			context: context([
 				card("researcher", "Researcher"),
@@ -149,7 +114,7 @@ describe("rerouteEmbodiedMismatch", () => {
 	});
 
 	it("skips peers that are archived or hold no grants", () => {
-		const result = rerouteEmbodiedMismatch({
+		const result = answerEmbodiedMismatch({
 			content: request,
 			context: context([
 				card("researcher", "Researcher"),
@@ -166,13 +131,13 @@ describe("rerouteEmbodiedMismatch", () => {
 			card("researcher", "Researcher"),
 			card("engineer", "Engineer", { embodied: true, hasRepository: true }),
 		]);
-		const read = rerouteEmbodiedMismatch({
+		const read = answerEmbodiedMismatch({
 			content: "Summarize last week's billing questions",
 			context: roster,
 			decision: { ...route, effortClass: "multi_hop_read", plannedToolIds: [] },
 		});
 		expect(read.targetTediId).toBe("researcher");
-		const capable = rerouteEmbodiedMismatch({
+		const capable = answerEmbodiedMismatch({
 			content: request,
 			context: roster,
 			decision: { ...route, targetTediId: "engineer" },

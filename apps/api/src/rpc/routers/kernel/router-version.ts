@@ -45,19 +45,18 @@ import { KernelRouteGenerationObjectSchema } from "./route-generation";
  * Manually-bumped contract revision for semantic changes the content hash
  * cannot see (e.g. an existing routeKind's meaning changes without any prompt
  * or schema text changing). Bump on such changes; never decrement.
- *
- * rev 2: a deterministic post-verdict guard
- * (`delegation-intent.ts`) now downgrades low-risk single-read
- * `delegate_tedi` verdicts over Tedix-internal state to `answer_in_home` and
- * stamps `explicitDelegationIntent` — the meaning of a persisted
- * `delegate_tedi` decision changed without a schema-shape change.
  */
+// rev 2: (retired) a post-verdict guard downgraded some delegations and
+// stamped a delegation-intent label; both are gone as of rev 8.
 // rev 3: normalize omitted nullable fields before validating route output.
 // rev 4: recovery retains the compact schema and Auto's streaming transport.
 // rev 5: unusable self-reported confidence normalizes conservatively to zero.
 // rev 6: direct-answer details omissions and presentation-only JSON wrappers.
 // rev 7: optional decision-model route selection with route-specific writer schemas.
-export const ROUTER_CONTRACT_REV = 7;
+// rev 8: no rule reads the person's wording after the verdict. A decision is
+// no longer relabelled, turned into a delegation, or moved to another tedi;
+// `run_workflow` starts only from the Start button on its offer.
+export const ROUTER_CONTRACT_REV = 8;
 
 /**
  * Stable serialization of the internal and model-facing route shapes: the

@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
-	coerceParkedApprovalDelegationRoute,
-	finalizeKernelRouteDecision,
 	runKernel,
 	constrainUnavailableDelegation,
 	renderDelegationResponse,
@@ -92,60 +90,6 @@ describe("approval-held delegation routing", () => {
 		clarifyingQuestion: null,
 		evidenceExpectation: null,
 	};
-
-	it("coerces a parked approval work order into a machine-readable delegation", () => {
-		const route = coerceParkedApprovalDelegationRoute(
-			answerRoute,
-			"Prepare a CTO delegation work order. Do not dispatch CTO yet; park this for operator approval first.",
-			[
-				{ id: "tedi-cto", slug: "cto", name: "CTO" },
-				{ id: "tedi-cpo", slug: "cpo", name: "CPO" },
-			],
-		);
-
-		expect(route).toMatchObject({
-			routeKind: "delegate_tedi",
-			targetTediId: "tedi-cto",
-			targetTediLabel: "CTO",
-			answer: null,
-		});
-	});
-
-	it("coerces parked approval write detours into machine-readable delegation", () => {
-		const route = coerceParkedApprovalDelegationRoute(
-			{
-				...answerRoute,
-				routeKind: "propose_tool_write",
-				answer: "I will stage this as a pending CTO approval-gated work order.",
-				risk: "medium",
-				toolIntent: {
-					appSlug: "tedix",
-					capability: "work_items.create_pending_delegation",
-					connectionStatus: "unknown",
-				},
-			},
-			"Prepare a CTO delegation work order. Do not dispatch CTO yet; park this for operator approval first.",
-			[{ id: "tedi-cto", slug: "cto", name: "CTO" }],
-		);
-
-		expect(route).toMatchObject({
-			routeKind: "delegate_tedi",
-			targetTediId: "tedi-cto",
-			targetTediLabel: "CTO",
-			answer: null,
-			toolIntent: null,
-		});
-	});
-
-	it("leaves ordinary answers alone", () => {
-		const route = coerceParkedApprovalDelegationRoute(
-			answerRoute,
-			"Explain how approval works for delegations.",
-			[{ id: "tedi-cto", slug: "cto", name: "CTO" }],
-		);
-
-		expect(route).toBe(answerRoute);
-	});
 
 	it("needs-approval delegation copy does not imply dispatch already happened", () => {
 		const msg = renderDelegationResponse(
@@ -469,21 +413,6 @@ const blockedRoute: KernelRouteDecision = {
 	clarifyingQuestion: null,
 	evidenceExpectation: null,
 };
-
-describe("final operator intent boundary", () => {
-	it("keeps explicit parked Work Orders subject to existing approval policy", () => {
-		const result = finalizeKernelRouteDecision(
-			{ ...blockedRoute, routeKind: "answer_in_home" },
-			"Prepare a CTO delegation work order. Do not dispatch CTO yet; park for approval first.",
-			[{ id: "tedi-cto", slug: "cto", name: "CTO" }],
-		);
-		expect(result).toMatchObject({
-			routeKind: "delegate_tedi",
-			targetTediId: "tedi-cto",
-			risk: "high",
-		});
-	});
-});
 
 it("delivers the answer without exposing the planner's technical explanation", async () => {
 	const { assembleHomeContext } = await import("./context-assembly");

@@ -80,6 +80,8 @@ import {
 	ApprovalCard,
 	approvalsFromRunSet,
 	approvalsForAuthority,
+	offeredWorkflowFromRuns,
+	WorkflowOfferCard,
 	DelegationSummaryRow,
 	mergeToolEvents,
 	pruneDepartedRunFrames,
@@ -738,6 +740,10 @@ export function ChatThread({
 				operationalContext.data?.authority,
 			),
 		[runSet, operationalContext.data?.authority],
+	);
+	const offeredWorkflow = useMemo(
+		() => offeredWorkflowFromRuns(runSet?.runs ?? []),
+		[runSet],
 	);
 	const displayMessages = useMemo(
 		() =>
@@ -1583,7 +1589,10 @@ export function ChatThread({
 	 * their key before sending, so reload restores recovery rather than a new draft.
 	 */
 	const startSend = useCallback(
-		async (content: string) => {
+		// `offeredWorkflowSlug` is set only by the Start button on a workflow
+		// offer: that send goes to Home on its own, leaving the draft, the
+		// attachments and the picked tedi as they are.
+		async (content: string, offeredWorkflowSlug?: string) => {
 			if (localAiUnavailable && !parseDirectReadCommand(content)) return;
 			if (
 				(!content.trim() && attachments.length === 0) ||
@@ -1600,9 +1609,11 @@ export function ChatThread({
 			)
 				return;
 			const directCommand =
-				attachments.length === 0 ? parseDirectReadCommand(content) : null;
+				attachments.length === 0 && !offeredWorkflowSlug
+					? parseDirectReadCommand(content)
+					: null;
 			const contextualContent =
-				context && includeContext
+				context && includeContext && !offeredWorkflowSlug
 					? encodeChatContext(context, content)
 					: content;
 			const targetConversationId = conversationIdForSend(
@@ -1624,7 +1635,7 @@ export function ChatThread({
 				priorSteering?.content === content
 					? priorSteering.runId
 					: steeringRunId;
-			if (targetRun) {
+			if (targetRun && !offeredWorkflowSlug) {
 				if (attachments.length) {
 					setSteeringError(
 						"Steering accepts text. Keep these attachments for your next message.",
@@ -1656,14 +1667,16 @@ export function ChatThread({
 				at: new Date().toISOString(),
 			} as const;
 			dispatchProvisional(provisionalAction);
-			setDraft("");
-			if (conversationId === null) {
-				// Every new chat reads the same saved draft. The bubble holds this
-				// text now; left saved, it would reappear in the next new chat.
-				try {
-					window.localStorage.removeItem(chatDraftKey(null));
-				} catch {
-					// Draft storage is optional.
+			if (!offeredWorkflowSlug) {
+				setDraft("");
+				if (conversationId === null) {
+					// Every new chat reads the same saved draft. The bubble holds this
+					// text now; left saved, it would reappear in the next new chat.
+					try {
+						window.localStorage.removeItem(chatDraftKey(null));
+					} catch {
+						// Draft storage is optional.
+					}
 				}
 			}
 			onSendStarted?.();
@@ -1674,18 +1687,24 @@ export function ChatThread({
 				content: contextualContent,
 				conversationId: targetConversationId,
 				idempotencyKey: key,
-				attachments: attachments.map(({ previewUrl, ...attachment }) => {
-					void previewUrl;
-					return attachment;
-				}),
-				metadata:
-					context && includeContext ? { chatContext: context } : undefined,
+				...(offeredWorkflowSlug
+					? { startOfferedWorkflow: offeredWorkflowSlug }
+					: {
+							attachments: attachments.map(({ previewUrl, ...attachment }) => {
+								void previewUrl;
+								return attachment;
+							}),
+							metadata:
+								context && includeContext
+									? { chatContext: context }
+									: undefined,
+							// A tedi that left the active roster falls back to Home.
+							delegateToTediId:
+								selectedTediId && selectedTediName ? selectedTediId : undefined,
+						}),
 				modelRef: localWorkersAi ? undefined : (selectedModelRef ?? undefined),
-				// A tedi that left the active roster falls back to Home.
-				delegateToTediId:
-					selectedTediId && selectedTediName ? selectedTediId : undefined,
 			});
-			setAttachments([]);
+			if (!offeredWorkflowSlug) setAttachments([]);
 		},
 		[
 			attachments,
@@ -2329,6 +2348,24 @@ export function ChatThread({
 												{approvalError}
 											</Text>
 										</li>
+									) : null}
+									{offeredWorkflow && !showRunning ? (
+										<WorkflowOfferCard
+											key={offeredWorkflow.runId}
+											slug={offeredWorkflow.slug}
+											canStart={
+												operationalContext.data?.authority?.permissions.includes(
+													"tedis:update",
+												) ?? false
+											}
+											starting={send.isPending}
+											onStart={() =>
+												void startSend(
+													`Start the ${offeredWorkflow.slug} workflow`,
+													offeredWorkflow.slug,
+												)
+											}
+										/>
 									) : null}
 									{shouldShowRunningIndicator({
 										showRunning,

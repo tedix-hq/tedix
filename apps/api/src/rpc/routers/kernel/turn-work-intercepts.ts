@@ -9,7 +9,6 @@ import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
 import { transitionKernelRuntimeRunStatus } from "@tedix/db/queries/kernel-runtime-runs";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
-	classifyAffirmative,
 	readPendingWorkflowHint,
 	type WorkflowDispatchResult,
 } from "./workflow-confirm";
@@ -160,46 +159,39 @@ async function settleInterceptedTurn(
 }
 
 /**
- * Workflow confirm→dispatch intercept — extracted verbatim from the former
- * inline block in {@link runKernelTurnWork}. When the operator's turn is a
- * clear affirmative to a prior `run_workflow` route proposal, dispatches the
- * named skill workflow and settles this run. Returns `null` when the
- * intercept does not apply, so the caller falls through to normal kernel
- * planning.
+ * Workflow confirm→dispatch intercept. When this turn carries the Start
+ * button of the workflow Home offered in its previous reply, starts that
+ * workflow and settles this run. The text of the message is never read.
+ * Returns `null` when the intercept does not apply, so the caller falls
+ * through to normal kernel planning.
  */
 export async function runWorkflowConfirmIntercept(
 	deps: KernelTurnWorkDeps,
 	input: KernelTurnWorkInput,
 ) {
-	const { organizationId, conversationId, runId, content, runRowMetadata } =
-		input;
+	const { organizationId, conversationId, runId, runRowMetadata } = input;
 
 	// ── Workflow confirm→dispatch intercept ────────────────────────────────────
-	// When the operator replied with a clear affirmative ("yes", "go ahead", …)
-	// and the most recent completed prior run in this conversation proposed a
-	// `run_workflow` route, dispatch the named skill workflow now — skip the LLM
-	// planning pass entirely (saves tokens, gives deterministic dispatch).
+	// When the person pressed Start on a workflow offer and the most recent
+	// completed prior run in this conversation still offers that workflow,
+	// start it now. A stale or mismatched button goes to normal planning.
 	//
 	// Fail-soft at every gate: missing dep → fall through; read fails → fall
 	// through; dispatch fails → normal error reply (never a crash).
 	//
 	// No double-dispatch: this turn's run row carries `kernelWorkflowConfirm`
 	// metadata but no `kernelRoute.run_workflow`, so it shadows the original
-	// pending route as the most-recent run — a second affirmative on the next
-	// turn reads this run first and finds no pending hint. A re-enqueue of the
+	// pending route as the most-recent run — a second press reads this run
+	// first and finds no pending hint. A re-enqueue of the
 	// same runId also can't re-fire: the patch below moves the run off `running`,
 	// and the read excludes the current run by id.
-	if (
-		input.allowWorkflowConfirmation !== false &&
-		deps.dispatchWorkflowConfirm &&
-		classifyAffirmative(content)
-	) {
+	if (input.startOfferedWorkflow && deps.dispatchWorkflowConfirm) {
 		const pendingHint = await readPendingWorkflowHint(deps.db, {
 			organizationId,
 			conversationId,
 			excludeRunId: runId,
 		});
-		if (pendingHint) {
+		if (pendingHint && pendingHint === input.startOfferedWorkflow) {
 			emitProgress(deps, `Starting ${pendingHint} workflow`);
 			let dispatchResult: WorkflowDispatchResult | null = null;
 			try {

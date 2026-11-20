@@ -777,49 +777,6 @@ export async function readPendingWorkflowHint(
 	}
 }
 
-/**
- * The newest of the conversation's runs that is parked on an approval
- * card (`requires_approval` with a stored `approvalRequestId`), so a bare
- * "approve" or "reject" reply can resolve that card even when another turn
- * came in between. Caller must separately authorize conversation access.
- */
-export async function readLatestRunAwaitingApproval(
-	db: DbClient,
-	input: {
-		organizationId: string;
-		conversationId: string;
-		excludeRunId: string;
-	},
-): Promise<{ runId: string; approvalRequestId: string } | null> {
-	const rows = await db
-		.select({
-			id: kernelRuntimeRuns.id,
-			status: kernelRuntimeRuns.status,
-			metadata: kernelRuntimeRuns.metadata,
-		})
-		.from(kernelRuntimeRuns)
-		.where(
-			and(
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
-				eq(kernelRuntimeRuns.conversationId, input.conversationId),
-				eq(kernelRuntimeRuns.status, "requires_approval"),
-				ne(kernelRuntimeRuns.id, input.excludeRunId),
-				sql`json_type(${kernelRuntimeRuns.metadata}, '$.approvalRequestId') = 'text' AND length(json_extract(${kernelRuntimeRuns.metadata}, '$.approvalRequestId')) > 0`,
-			),
-		)
-		.orderBy(desc(kernelRuntimeRuns.updatedAt), desc(kernelRuntimeRuns.id))
-		.limit(1);
-	for (const row of rows) {
-		if (row.id === input.excludeRunId || row.status !== "requires_approval")
-			continue;
-		const approvalRequestId = (row.metadata as Record<string, unknown> | null)
-			?.approvalRequestId;
-		if (typeof approvalRequestId === "string" && approvalRequestId)
-			return { runId: row.id, approvalRequestId };
-	}
-	return null;
-}
-
 /** Conversation-bound pending delegation; completed follow-ups cannot hide it. */
 export async function readLatestRunAwaitingDelegationApproval(
 	db: DbQueryClient,

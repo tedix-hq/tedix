@@ -378,9 +378,11 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// Only this route decides whether a person picked the tedi; see the
 		// delegate dispatch below.
 		delete metadata.pickedByPerson;
-		const allowWorkflowConfirmation =
+		const startOfferedWorkflow =
 			context.authType !== "user" ||
-			userHoldsPermission(context, "tedis:update");
+			userHoldsPermission(context, "tedis:update")
+				? input.startOfferedWorkflow
+				: undefined;
 		if (input.attachments?.some((a) => a.type === "audio"))
 			await requireUnrestrictedModelEgress(
 				context.db,
@@ -748,7 +750,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			// provably pre-side-effect crash. EXCLUDES runRowMetadata itself (no
 			// recursion); runRowMetadata is reconstructed from the row at re-drive.
 			redriveInput: {
-				allowWorkflowConfirmation,
+				startOfferedWorkflow,
 				executionPolicy: input.executionPolicy,
 				attachments,
 				organizationId,
@@ -1051,7 +1053,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// carries runId/message ids, so the DO never double-inserts.
 		if (kernelEligible) {
 			const turnInput: KernelTurnWorkInput = {
-				allowWorkflowConfirmation,
+				startOfferedWorkflow,
 				executionPolicy: input.executionPolicy,
 				attachments,
 				modelRef: input.modelRef,

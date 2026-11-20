@@ -309,6 +309,7 @@ export type ChatTransportActions = {
 			| "metadata"
 			| "modelRef"
 			| "delegateToTediId"
+			| "startOfferedWorkflow"
 		> & { idempotencyKey: string },
 	): Promise<EnqueueHomeMessageOutput>;
 	steerRun: CapnChatActions["steer"];
@@ -408,6 +409,7 @@ function enqueueThroughCapability(
 			metadata: input.metadata,
 			modelRef: input.modelRef,
 			delegateToTediId: input.delegateToTediId,
+			startOfferedWorkflow: input.startOfferedWorkflow,
 		},
 		input.idempotencyKey,
 	);

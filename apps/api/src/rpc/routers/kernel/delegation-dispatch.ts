@@ -1772,15 +1772,15 @@ function computeDispatchVerdict(input: {
 	// 5. Embodied work needs an embodied capability envelope. That can be a
 	//    runtime body or an isolate tedi with a workstation adapter. No approval
 	//    can make a bodiless target able to do it, so this is a capability
-	//    block, not an approval question. `rerouteEmbodiedMismatch` moves the
-	//    route to a capable tedi (or answers in Home) before the gate runs; this
-	//    rule is the floor for callers that skipped it.
+	//    block, not an approval question. `answerEmbodiedMismatch` answers in
+	//    Home with who can do it before the gate runs; this rule is the floor
+	//    for callers that skipped it.
 	if (needsWorkstation && card.embodied === false) {
 		return {
 			canAutoDispatch: false,
 			mode: "blocked",
 			reason:
-				"capability gap: embodied work targeted at a tedi without body/workstation capability; Home must reroute to a tedi that carries one",
+				"capability gap: embodied work targeted at a tedi without body/workstation capability",
 		};
 	}
 

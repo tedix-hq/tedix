@@ -95,7 +95,6 @@ import {
 	approvalHeldDelegationIntent,
 	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
-import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { groundedRosterDecision } from "./grounded-roster";
 import { createKernelHistorySummarizer } from "./history-summarizer";
 import type { KernelEnv } from "./llm";
@@ -120,7 +119,7 @@ import {
 	DELEGATION_LOAD_WINDOW_MS,
 	delegationCapacity,
 } from "./delegation-load";
-import { rerouteEmbodiedMismatch } from "./embodied-reroute";
+import { answerEmbodiedMismatch } from "./embodied-reroute";
 import { readConversationSessionPolicyLayer } from "./session-policy";
 import {
 	type HomeDelegationAgentReview,
@@ -204,12 +203,6 @@ export interface HomeDelegationEvidence {
 	agentReview?: HomeDelegationAgentReview | null;
 }
 
-type KernelTediRosterEntry = {
-	id: string;
-	slug: string;
-	name: string;
-};
-
 /**
  * Per-deployment override of the in-flight recall wait
  * (`KERNEL_RELEVANCE_RECALL_BUDGET_MS`, non-negative integer ms). Undefined
@@ -223,60 +216,6 @@ function kernelRelevanceRecallBudgetMs(env: unknown): number | undefined {
 	return Number.isFinite(parsed) && parsed >= 0
 		? Math.floor(parsed)
 		: undefined;
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function containsToken(text: string, token: string): boolean {
-	const trimmed = token.trim().toLowerCase();
-	if (!trimmed) return false;
-	return new RegExp(
-		`(^|[^a-z0-9])${escapeRegExp(trimmed)}(?=$|[^a-z0-9])`,
-	).test(text);
-}
-
-function findMentionedTedi(
-	content: string,
-	tedis: readonly KernelTediRosterEntry[],
-): KernelTediRosterEntry | null {
-	const text = content.toLowerCase();
-	const matches = tedis.filter((tedi) => {
-		const labels = [tedi.slug, tedi.name].filter(Boolean);
-		return labels.some((label) => containsToken(text, label));
-	});
-	return matches.length === 1 ? (matches[0] ?? null) : null;
-}
-
-export function coerceParkedApprovalDelegationRoute<
-	T extends KernelRouteDecision,
->(route: T, content: string, tedis: readonly KernelTediRosterEntry[]): T {
-	if (
-		route.routeKind !== "answer_in_home" &&
-		route.routeKind !== "propose_tool_write"
-	) {
-		return route;
-	}
-	if (!approvalHeldDelegationIntent(content)) return route;
-	const target = findMentionedTedi(content, tedis);
-	if (!target) return route;
-	return {
-		...route,
-		routeKind: "delegate_tedi",
-		rationale: `${route.rationale} The operator asked for an approval-held delegation, so this must be a machine-readable delegate_tedi recommendation rather than a text-only answer.`,
-		answer: null,
-		targetTediId: target.id,
-		targetTediLabel: target.name || target.slug,
-		targetActivityId: null,
-		plannedToolIds: [],
-		toolIntent: null,
-		workflowHint: null,
-		clarifyingQuestion: null,
-		evidenceExpectation:
-			route.evidenceExpectation ??
-			`After approval, ${target.name || target.slug} should complete the work order and return evidence to Home.`,
-	} as T;
 }
 
 export function constrainUnavailableDelegation<T extends KernelRouteDecision>(
@@ -307,20 +246,13 @@ export function constrainUnavailableDelegation<T extends KernelRouteDecision>(
 	};
 }
 
-/** Last intent boundary before any executable recommendation is constructed. */
+/** Last boundary before any executable recommendation is constructed. */
 export function finalizeKernelRouteDecision<T extends KernelRouteDecision>(
 	route: T,
-	operatorContent: string,
-	tedis: readonly KernelTediRosterEntry[],
 	delegationAvailable?: boolean,
 ): T {
-	const coerced = coerceParkedApprovalDelegationRoute(
-		route,
-		operatorContent,
-		tedis,
-	);
 	return constrainUnavailableDelegation(
-		guardKernelRouteDecision(operatorContent, coerced),
+		guardKernelRouteDecision(route),
 		delegationAvailable,
 	);
 }
@@ -418,10 +350,9 @@ export function renderRouteResponse(
 			const base = `This fits the ${workflow} workflow.`;
 			// Always leave an out: a wrong workflow match should cost the operator
 			// one sentence, not a dead-end confirm loop.
-			const out = "Or tell me what you're after and I'll route it differently.";
-			return expectation
-				? `${base} ${expectation}. Want me to start it? ${out}`
-				: `${base} Want me to start it? ${out}`;
+			const out =
+				"Press Start on this message to run it, or tell me what you're after and I'll route it differently.";
+			return expectation ? `${base} ${expectation}. ${out}` : `${base} ${out}`;
 		}
 
 		default:
@@ -796,10 +727,7 @@ export async function runKernel(args: {
 	let pass = await assemblePass({ maxPromptTokens });
 	let context = pass.context;
 	let contextManifest = buildManifest(context, maxPromptTokens);
-	const rosterDecision = groundedRosterDecision(inputContent, context);
-	const groundedRosterRoute = rosterDecision
-		? guardKernelRouteDecision(inputContent, rosterDecision)
-		: null;
+	const groundedRosterRoute = groundedRosterDecision(inputContent, context);
 	if (groundedRosterRoute) {
 		return {
 			assistantContent: groundedRosterRoute.answer ?? "",
@@ -898,12 +826,9 @@ export async function runKernel(args: {
 	// Compaction retry reuses the same immutable judgment, never another paid call.
 	let routeJudgment: ReturnType<typeof decideHomeRoute> | undefined;
 	const roundSteering = (await args.readSteering?.()) ?? [];
-	const roundContent = [
-		content,
-		...roundSteering.map((text) =>
-			wrapUntrustedInput(text, "operator_steering"),
-		),
-	].join("\n\n");
+	// A signed-in person's follow-up reaches the planner as written, after the
+	// message it follows; the steering store fences any other sender's.
+	const roundContent = [content, ...roundSteering].join("\n\n");
 	const planArgs = {
 		onRouteAttempts: args.onRouteAttempts,
 		readSteering: args.readSteering,
@@ -931,7 +856,6 @@ export async function runKernel(args: {
 		onExecutionAttempts: args.onExecutionAttempts,
 		images,
 		content: roundContent,
-		operatorContent: inputContent,
 		model,
 		env,
 		organizationId,
@@ -1058,12 +982,7 @@ export async function runKernel(args: {
 	}
 	let route = plannedRoute;
 
-	route = finalizeKernelRouteDecision(
-		route,
-		inputContent,
-		context.tedis,
-		context.delegationAvailable,
-	);
+	route = finalizeKernelRouteDecision(route, context.delegationAvailable);
 	const workGateway = workWriteGateway(route, context.apps);
 	if (workGateway && route.toolIntent) {
 		route = {
@@ -1073,9 +992,9 @@ export async function runKernel(args: {
 	}
 
 	// Workstation work for a tedi without a workstation or coding environment
-	// cannot be approved into existence: move it to a tedi that carries one, or
-	// answer in Home with what to connect.
-	route = rerouteEmbodiedMismatch({
+	// cannot be approved into existence: answer in Home with who carries one
+	// or what to connect.
+	route = answerEmbodiedMismatch({
 		content: inputContent,
 		context,
 		decision: route,

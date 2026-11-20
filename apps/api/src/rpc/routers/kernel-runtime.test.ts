@@ -1180,9 +1180,6 @@ describe("kernel runtime router: core", () => {
 			conversationId: "home:test",
 			content: "Capture this idea for the quarterly planning review",
 			idempotencyKey: "kernel-null-1",
-			metadata: {
-				allowWorkflowConfirmation: true,
-			},
 		});
 		const messages = await client.readMessages({
 			conversationId: "home:test",
@@ -1194,9 +1191,6 @@ describe("kernel runtime router: core", () => {
 		expect(result.status).toBe("queued");
 		expect(result.run.status).toBe("queued");
 		expect(scheduled).toHaveLength(1);
-		expect(result.run.metadata).toMatchObject({
-			redriveInput: { allowWorkflowConfirmation: false },
-		});
 		expect(result.assistantMessage?.content).toContain(
 			"configured model did not produce a valid route decision",
 		);

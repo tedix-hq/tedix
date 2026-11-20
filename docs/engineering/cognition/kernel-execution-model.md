@@ -48,9 +48,6 @@ fast turns return inline, slower ones return an ack with a
   deterministic idempotency key, and bounded metadata. Never the parent's
   credentials, scopes, tool bindings, or memory; the child hydrates its own.
   Work-order budget caps are advisory; the child's profile budgets apply.
-- **Work Items only on explicit intent** (`delegation-intent.ts`). A
-  router-decided delegation of a plain question runs a supervised child without
-  a board item.
 - **Approvals inside a child**: a Code Mode pause emits `approval.requested`,
   the Home run stays `requires_approval`, and the Home card resumes or rejects
   the exact recorded call.

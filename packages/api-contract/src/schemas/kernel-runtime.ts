@@ -775,6 +775,16 @@ export const EnqueueHomeMessageInputSchema = z.object({
 		"Optional per-turn model request. Omission preserves the organization routing default; a supplied ref is admitted against the caller's live model catalog before Kernel use.",
 	),
 	attachments: z.array(TediMessageAttachmentSchema).optional(),
+	/** Sent by the Start button on a workflow offer; never inferred from text. */
+	startOfferedWorkflow: z
+		.string()
+		.trim()
+		.min(1)
+		.max(200)
+		.optional()
+		.describe(
+			"Slug of the workflow Home offered in its latest reply in this conversation. The server starts it only while that offer is still the latest reply and the caller may start workflows; otherwise the message is handled as an ordinary turn.",
+		),
 	metadata: z
 		.object({
 			stewardCloseoutTargets: StewardCloseoutTargetsSchema.optional(),

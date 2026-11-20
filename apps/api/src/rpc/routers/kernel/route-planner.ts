@@ -119,7 +119,7 @@ Examples:
 - "save it in our workspace for <client>", workspace unlisted → delegate_tedi to find it; a described destination is a lookup, not ambiguity.
 
 Conversation and evidence:
-- For personalRecall, answer first-person commitments, people, follow-ups, priorities and schedule from the assembled records when sufficient. If records are missing, delegate a bounded read to the caller's own personal tedi when available. Never select another member's personal tedi. Use dated sources; public web cannot establish a person's private commitments or meetings.
+- For questions about the caller's own commitments, answer first-person commitments, people, follow-ups, priorities and schedule from the assembled records when sufficient. If records are missing, delegate a bounded read to the caller's own personal tedi when available. Never select another member's personal tedi. Use dated sources; public web cannot establish a person's private commitments or meetings.
 - Resolve pronouns and references from history; ask_human remains correct. History is not current policy: route retries using current availability; dispatch enforces approval. Preserve explicit holds.
 - A prior access error or denial in history is evidence of that moment, not a standing refusal: on a renewed request route a fresh authorized read when a capable tedi exists; never repeat the historical denial. Consent, ownership, read-scope and critical-effect gates stay authoritative at dispatch.
 - Never assert completion from history alone. For external state, delegate a verification read or explicitly say it is unverified. For Tedix-internal state, verify against assembled context and answer_in_home.
@@ -172,11 +172,6 @@ export function buildUserPrompt(
 	// turns fold into a leading checkpoint message rather than being dropped
 	// (context-compaction.ts). There is no turn or per-message char cap.
 	return [
-		...(context.personalRecall
-			? [
-					"Personal recall: answer from the caller\'s authorized records; if insufficient, prefer their own personal tedi for a bounded read.",
-				]
-			: []),
 		"ASSEMBLED CONTEXT:",
 		renderHomeStableContext(context),
 		"",
@@ -509,8 +504,6 @@ export function shapeRouteUsage(
 export type PlanKernelRouteArgs = {
 	images?: (string | HomeAttachmentPart)[];
 	content: string;
-	/** Original operator text, before attachment content is added to the prompt. */
-	operatorContent?: string;
 	context: KernelContext;
 	decisionMode?: "shadow" | "enforce";
 	decisionModel?: () => Promise<RouteDecisionObservation>;
@@ -575,9 +568,8 @@ export type PlanKernelRouteArgs = {
 
 /**
  * Plan the Home route, then apply the post-verdict guard
- * (`delegation-intent.ts`): stamps `explicitDelegationIntent` on every
- * decision and clears a Home answer that promises a delegation no route
- * dispatches. Applied to streamed and nonstreamed decisions from the selected model. `null` (no route) passes through untouched.
+ * (`delegation-intent.ts`): clears a Home answer that promises a delegation
+ * no route dispatches. Applied to streamed and nonstreamed decisions from the selected model. `null` (no route) passes through untouched.
  */
 export async function planKernelRoute(
 	args: PlanKernelRouteArgs,
@@ -868,10 +860,7 @@ async function planKernelRouteWithRecovery(
 		if (!planned) return null;
 		planned.usage.attempts = attempts;
 		planned.usage.attemptCount = attempts.length;
-		const guarded = guardKernelRouteDecision(
-			args.operatorContent ?? args.content,
-			planned,
-		);
+		const guarded = guardKernelRouteDecision(planned);
 		if (
 			(autoRouter || retried || args.routeChoice) &&
 			guarded.routeKind === "answer_in_home" &&
@@ -1320,8 +1309,6 @@ async function streamRoutePlan(args: {
 	routeChoice?: RouteChoice;
 	images?: (string | HomeAttachmentPart)[];
 	content: string;
-	/** Original operator text, before attachment content is added to the prompt. */
-	operatorContent?: string;
 	context: KernelContext;
 	model: SelectedKernelModel;
 	retry?: boolean;

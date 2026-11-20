@@ -1811,38 +1811,16 @@ const PENDING_PRIOR_RUNS = [
 	},
 ];
 
+/** The turn the Start button on the workflow offer sends. */
 function affirmativeInput(): KernelTurnWorkInput {
-	return { ...turnInput(), content: "yes go ahead" };
+	return {
+		...turnInput(),
+		content: "Start the customer-onboarding workflow",
+		startOfferedWorkflow: "customer-onboarding",
+	};
 }
 
 describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
-	it("retains the ingress denial after the turn is serialized for durable execution", async () => {
-		const dispatchWorkflowConfirm = vi.fn();
-		const kernel = vi.fn(async () => ({
-			route: route({
-				routeKind: "answer_in_home",
-				answer: "An authorized operator must confirm.",
-			}),
-			assistantContent: "An authorized operator must confirm.",
-			evidence: null,
-		}));
-		const input: KernelTurnWorkInput = JSON.parse(
-			JSON.stringify({
-				...affirmativeInput(),
-				allowWorkflowConfirmation: false,
-			}),
-		);
-		await runKernelTurnWork(
-			stubDeps({
-				db: dbWithPriorRuns(PENDING_PRIOR_RUNS),
-				kernel,
-				dispatchWorkflowConfirm,
-			}),
-			input,
-		);
-		expect(dispatchWorkflowConfirm).not.toHaveBeenCalled();
-		expect(kernel).toHaveBeenCalledTimes(1);
-	});
 	it("observe-only never confirms a prior workflow and records no actionable route", async () => {
 		const dispatchWorkflowConfirm = vi.fn();
 		const kernel = vi.fn(async () => ({
@@ -1871,7 +1849,7 @@ describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 			},
 		});
 	});
-	it("affirmative + pending run_workflow hint → dispatches and skips the LLM (kernel never called)", async () => {
+	it("Start button + pending run_workflow hint → dispatches and skips the LLM (kernel never called)", async () => {
 		let kernelCalled = false;
 		const dispatched: Array<{ workflowSlug: string }> = [];
 		const recorder = progressRecorder();
@@ -1955,7 +1933,7 @@ describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 		}
 	});
 
-	it("non-affirmative reply → no dispatch, normal kernel planning runs", async () => {
+	it("a typed yes never starts the offered workflow: normal kernel planning runs", async () => {
 		let kernelCalled = false;
 		let dispatchCalled = false;
 		const deps = stubDeps({
@@ -1974,10 +1952,10 @@ describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 			},
 		});
 
-		// "not yet" is not in the affirmative set → falls through to the LLM.
+		// Only the Start button carries `startOfferedWorkflow`; text never does.
 		const result = await runKernelTurnWork(deps, {
 			...turnInput(),
-			content: "not yet",
+			content: "yes go ahead",
 		});
 
 		expect(dispatchCalled).toBe(false);
@@ -1985,7 +1963,7 @@ describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 		expect(result.assistantMessage.content).toBe("ok");
 	});
 
-	it("affirmative but NO pending hint → no dispatch, normal kernel planning runs", async () => {
+	it("Start button but NO pending hint → no dispatch, normal kernel planning runs", async () => {
 		let kernelCalled = false;
 		let dispatchCalled = false;
 		const deps = stubDeps({
@@ -2012,7 +1990,7 @@ describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 		expect(result.assistantMessage.content).toBe("sure");
 	});
 
-	it("no dispatcher dep wired → affirmative is a normal turn (fall-through)", async () => {
+	it("no dispatcher dep wired → the Start turn is a normal turn (fall-through)", async () => {
 		let kernelCalled = false;
 		const deps = stubDeps({
 			db: dbWithPriorRuns(PENDING_PRIOR_RUNS),
@@ -3207,18 +3185,13 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 		targetTediLabel: "CTO",
 	};
 
-	function autoDelegateKernel(
-		options: { explicitDelegationIntent?: boolean } = {},
-	): KernelTurnWorkDeps["kernel"] {
+	function autoDelegateKernel(): KernelTurnWorkDeps["kernel"] {
 		return async () =>
 			({
 				route: route({
 					routeKind: "delegate_tedi",
 					targetTediId: "tedi-cto",
 					targetTediLabel: "CTO",
-					// Work-Item minting is gated on the operator's explicit ask; the
-					// dispatch-path tests below model an explicit "delegate to CTO".
-					explicitDelegationIntent: options.explicitDelegationIntent ?? true,
 				}),
 				assistantContent:
 					"On it — delegating to CTO now. I'll bring CTO's result back here when it's done.",
@@ -3542,7 +3515,7 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 		}));
 		const deps = stubDeps({
 			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
-			kernel: autoDelegateKernel({ explicitDelegationIntent: false }),
+			kernel: autoDelegateKernel(),
 			createDelegationWorkItem,
 			predictAutoDelegationChildRunId,
 			dispatchAutoDelegation: dispatch,
@@ -3563,7 +3536,7 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 		const dispatch = vi.fn();
 		const deps = stubDeps({
 			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
-			kernel: autoDelegateKernel({ explicitDelegationIntent: false }),
+			kernel: autoDelegateKernel(),
 			createDelegationWorkItem: undefined,
 			predictAutoDelegationChildRunId: undefined,
 			dispatchAutoDelegation: dispatch,
