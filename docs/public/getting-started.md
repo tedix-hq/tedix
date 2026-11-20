@@ -123,7 +123,9 @@ Copy the gateway URL from **Gateways** in Tedix OS. The demo token only works
 locally.
 
 Local mode covers onboarding, Tedix OS, workspaces and preferences, the API
-authentication boundary, migrations, and D1 reads and writes. It does not run
+authentication boundary, migrations, and D1 reads and writes. A workspace app
+with server code also runs: the launcher starts the runtime that hosts it, so
+the app opens and its calls answer locally. Local mode does not run
 remote tedis, connect outside providers, or deploy anything.
 
 ### Build configuration

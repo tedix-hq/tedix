@@ -360,10 +360,11 @@ export function waitForLocalDemo(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
  * the MCP gateway, Tedix OS and workspace storage start only once the API is
  * healthy, when those databases are already open and need no recovery.
  * Workspace storage holds each workspace's files; without it file lists fail.
+ * The tedi runtime hosts workspace app server code; without it app calls fail.
  */
 export const LOCAL_STACK_STAGES = [
 	["@tedix/api"],
-	["@tedix/mcp", "@tedix/os", "@tedix/workspace-do"],
+	["@tedix/mcp", "@tedix/os", "@tedix/workspace-do", "@tedix/tedi-runtime"],
 ] as const;
 
 export function localStackStageCommand(packages: readonly string[]): string[] {
