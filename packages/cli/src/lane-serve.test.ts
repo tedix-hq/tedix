@@ -1110,7 +1110,7 @@ describe("dispatcher log", () => {
 });
 
 describe("dispatcher admission", () => {
-	it("wakes a waiting dispatcher and admits only the Work Item in the machine call", async () => {
+	it("admits the Work Item in the machine call when its request arrives, without a pass", async () => {
 		const f = fixture();
 		const target = f.items[1]!;
 		const duty = runnerDutyFromServeOptions(f.config);
@@ -1140,7 +1140,7 @@ describe("dispatcher admission", () => {
 		const request = await waiting;
 		expect(request).toBe(target.id);
 
-		await lane.tick(request);
+		await lane.startRequested(request!);
 		await until(() => f.releases.length === 1);
 		expect(
 			f.events

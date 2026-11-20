@@ -527,10 +527,12 @@ export async function listWorkItemsPage(
 			: undefined,
 	];
 	const where = and(eq(workItems.orgId, options.orgId), ...filters);
-	// Runners take the most important ready task first: priority, then the
-	// nearest due date (undated last), then the oldest.
+	// Runners take a run a person started through a tedi in chat first, then
+	// the most important ready task: priority, then the nearest due date
+	// (undated last), then the oldest.
 	const listOrder = options.dispatchReadyOnly
 		? [
+				sql`json_extract(${workItems.metadata}, '$.source') IS NOT 'tedi.start_agent_run'`,
 				sql`CASE ${workItems.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
 				sql`${workItems.dueDate} IS NULL`,
 				asc(workItems.dueDate),
