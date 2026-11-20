@@ -982,6 +982,8 @@ interface RunRules {
 	rulesRevision?: number;
 }
 
+/** How often a runner with no Work to start re-reads its rules. */
+const RULES_CHECK_INTERVAL_MS = 86_400_000;
 /** How often the same rules problem is written to the supervisor log. */
 const RULES_WARNING_REPEAT_MS = 600_000;
 
@@ -2851,8 +2853,26 @@ export class LaneDispatcher {
 		}
 		return Boolean(next);
 	}
+	private rulesCheckedAt = 0;
 	private rulesWarnedAt = 0;
 	private rulesWarning?: string;
+	/**
+	 * In the first pass and then once a day, an idle runner still says which
+	 * rules skill it depends on and whether its rules can be read. Runs inside
+	 * the pass, after its guards, so it never reads during a dark wake or a
+	 * gateway cooldown.
+	 */
+	private async declareRules(): Promise<void> {
+		if (Date.now() - this.rulesCheckedAt < RULES_CHECK_INTERVAL_MS) return;
+		try {
+			await this.readRules(true);
+		} catch {
+			// Said in the log by the read. Look again soon, so the warning clears
+			// once the rules are back without waiting for Work to arrive.
+			this.rulesCheckedAt =
+				Date.now() - RULES_CHECK_INTERVAL_MS + RULES_WARNING_REPEAT_MS;
+		}
+	}
 	/** Says a rules problem in the supervisor log, and again when it changes or lasts. */
 	private warnRules(problem: string) {
 		const now = Date.now();
@@ -2872,7 +2892,8 @@ export class LaneDispatcher {
 	 * skill that is missing or not active is reported in the supervisor log and
 	 * the health report, and runs go on with the inherited rules alone.
 	 */
-	private async readRules(): Promise<RunRules> {
+	private async readRules(declareOnly = false): Promise<RunRules> {
+		this.rulesCheckedAt = Date.now();
 		let inherited: { content?: unknown; version?: unknown } | null | undefined;
 		let unread: string | undefined;
 		try {
@@ -2919,6 +2940,11 @@ export class LaneDispatcher {
 			const problem = `rules skill ${summary.slug ?? name} is ${summary.lifecycleState ?? "not readable"}: runs start with the shared runner rules only, without this organization's own rules, until it is restored`;
 			recordDispatcherRules(this.directory, { skillId: summary.id, problem });
 			this.warnRules(problem);
+			return rules;
+		}
+		if (declareOnly) {
+			recordDispatcherRules(this.directory, { skillId: summary.id });
+			this.rulesWarning = undefined;
 			return rules;
 		}
 		// `skill show` returns a bounded summary; the full SKILL.md comes from
@@ -3295,6 +3321,7 @@ export class LaneDispatcher {
 			);
 			return;
 		}
+		await this.declareRules();
 		this.idleItems.clear();
 		if (Date.now() - this.healthCheckedAt >= 60_000) {
 			this.health = this.deps.health(this.ownerEnv);

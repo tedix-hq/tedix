@@ -2685,7 +2685,11 @@ describe("dispatcher admission", () => {
 		try {
 			await dispatcher.tick();
 			await until(() => releases.length === 2);
-			expect(events[0]!.verb).toBe("dispatch-attempts");
+			// After the first pass declares its rules, the retained run is read.
+			expect(
+				events.find((event) => !["runner-rules", "show"].includes(event.verb))!
+					.verb,
+			).toBe("dispatch-attempts");
 			await dispatcher.tick();
 			// The retained item keeps its run; every other ready item started.
 			expect(releases).toHaveLength(2);
@@ -6062,7 +6066,11 @@ it("spends a few gateway requests per pass on a lane of waiting items", async ()
 	expect(count("dispatch-list")).toBe(20);
 	expect(count("dispatch-get")).toBe(20);
 	expect(count("interaction-create")).toBe(10);
-	expect(requests).toHaveLength(50);
+	// The rules are declared in the first pass only: one read of the inherited
+	// rules and one of the organization's skill, not one per pass.
+	expect(count("runner-rules")).toBe(1);
+	expect(count("show")).toBe(1);
+	expect(requests).toHaveLength(52);
 });
 
 it("reads a delegated item once while another reason keeps it waiting", async () => {
