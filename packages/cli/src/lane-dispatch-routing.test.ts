@@ -176,7 +176,7 @@ function fixture(configured = true) {
 	const receiptPath = join(dir, `${item.id}-1.json`);
 	const retry = () => {
 		const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
-		receipt.retryAt = 0;
+		receipt.recheckAt = 0;
 		writeFileSync(receiptPath, JSON.stringify(receipt));
 		return receipt;
 	};
@@ -308,9 +308,10 @@ it("reaps only canonically expired dead runs before resuming their retained work
 	await dispatcher.tick();
 	await dispatcher.drain();
 	expect(control.threads).toHaveLength(0);
-	expect(JSON.parse(readFileSync(receiptPath, "utf8")).retryAt).toBeGreaterThan(
-		Date.now(),
-	);
+	expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({
+		phase: "deferred",
+		outcome: "expired",
+	});
 	retry();
 	await dispatcher.tick();
 	await dispatcher.drain();
