@@ -50,30 +50,34 @@ export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
 			title="Monthly credit caps"
 			description="Set how many credits a tedi or member can use each month."
 			bodyClassName="p-0"
-			actions={
-				<div className="flex flex-wrap items-center gap-3">
-					<Select
-						items={GROUPS}
-						value={group}
-						onValueChange={(value) => value && setGroup(value)}
-					>
-						<SelectTrigger aria-label="Show caps for">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="tedis">Tedis</SelectItem>
-							<SelectItem value="members">Members</SelectItem>
-						</SelectContent>
-					</Select>
-					<Input
-						aria-label="Search by name"
-						placeholder="Search by name"
-						value={search}
-						onChange={(event) => setSearch(event.target.value)}
-					/>
-				</div>
-			}
 		>
+			<div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+				<Select
+					items={GROUPS}
+					value={group}
+					onValueChange={(value) => value && setGroup(value)}
+				>
+					<SelectTrigger
+						size="sm"
+						className="w-full sm:w-28 sm:shrink-0"
+						aria-label="Show caps for"
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="tedis">Tedis</SelectItem>
+						<SelectItem value="members">Members</SelectItem>
+					</SelectContent>
+				</Select>
+				<Input
+					size="sm"
+					className="sm:max-w-80 sm:flex-1"
+					aria-label="Search by name"
+					placeholder="Search by name"
+					value={search}
+					onChange={(event) => setSearch(event.target.value)}
+				/>
+			</div>
 			<BillingTable
 				key={JSON.stringify([group, searchTerm])}
 				data={rows}
