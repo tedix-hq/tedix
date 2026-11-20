@@ -101,6 +101,11 @@ export type KernelDelegateRunnerInput = {
 	 */
 	pickedByPerson?: boolean;
 	/**
+	 * The model the person's chat shows for this message, already checked
+	 * against what this tedi may use. Used only with `pickedByPerson`.
+	 */
+	chatModelRef?: string;
+	/**
 	 * A notice about a run that a picked tedi started from this chat. It goes
 	 * into the conversation's tedi session, so the tedi's history holds it, but
 	 * it is not the person's message and never sets `pickedByPerson`.
@@ -109,16 +114,23 @@ export type KernelDelegateRunnerInput = {
 };
 
 /**
- * Sets `pickedByPerson` on a delegation's metadata from the caller's own
- * argument and from nothing else. Metadata can carry values a request or a
- * stored run supplied, so a flag that arrived inside it is always dropped.
+ * Sets `pickedByPerson`, and the model that turn runs on, on a delegation's
+ * metadata from the caller's own arguments and from nothing else. Metadata
+ * can carry values a request or a stored run supplied, so a flag or a model
+ * that arrived inside it is always dropped.
  */
 export function delegationMetadataForPick(
 	metadata: Record<string, unknown>,
 	pickedByPerson: boolean | undefined,
+	chatModelRef?: string,
 ): Record<string, unknown> {
-	const { pickedByPerson: _supplied, ...rest } = metadata;
-	return pickedByPerson === true ? { ...rest, pickedByPerson: true } : rest;
+	const { pickedByPerson: _supplied, turnModel: _model, ...rest } = metadata;
+	if (pickedByPerson !== true) return rest;
+	return {
+		...rest,
+		pickedByPerson: true,
+		...(chatModelRef ? { turnModel: { modelRef: chatModelRef } } : {}),
+	};
 }
 
 /**
@@ -310,9 +322,14 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	attachments,
 	metadata: suppliedMetadata,
 	pickedByPerson,
+	chatModelRef,
 	conversationNotice,
 }) => {
-	let metadata = delegationMetadataForPick(suppliedMetadata, pickedByPerson);
+	let metadata = delegationMetadataForPick(
+		suppliedMetadata,
+		pickedByPerson,
+		chatModelRef,
+	);
 	const organizationId = requireOrgId(context);
 	// Keep delayed dispatches and same-owner follow-ups attached to the exact
 	// Home source run rather than exposing a private attachment reader.

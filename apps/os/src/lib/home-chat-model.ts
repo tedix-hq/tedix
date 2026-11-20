@@ -3,12 +3,21 @@ import type { ModelCatalogModel } from "@tedix/api-contract/schemas/model-catalo
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { initialModelRef } from "./model-selection";
 
+/**
+ * The model the composer shows and sends. A choice made here comes first,
+ * then the model that last answered in this conversation, then the person's
+ * remembered choice, then the chat default the server uses for a person who
+ * picked nothing. Until that default existed every unpicked turn ran on the
+ * routed model, so an earlier answer on the routed model is not a choice and
+ * does not hold a conversation back from the chat default.
+ */
 export function homeChatModelRef(input: {
 	models: readonly ModelCatalogModel[];
 	conversationId: string | null;
 	runs: readonly HomeRun[];
 	pickedHere: string | null;
 	remembered: string | null;
+	chatDefault?: string | null;
 	routedDefault?: string | null;
 }): string | null {
 	const latest = [...input.runs]
@@ -20,7 +29,9 @@ export function homeChatModelRef(input: {
 				typeof asRecord(run.metadata)?.modelRef === "string",
 		)
 		.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-	const lastAnswered = asRecord(latest?.metadata)?.modelRef;
+	const answered = asRecord(latest?.metadata)?.modelRef;
+	const lastAnswered =
+		input.chatDefault && answered === input.routedDefault ? null : answered;
 	for (const ref of [input.pickedHere, lastAnswered, input.remembered]) {
 		if (
 			typeof ref === "string" &&
@@ -28,7 +39,10 @@ export function homeChatModelRef(input: {
 		)
 			return ref;
 	}
-	return initialModelRef(input.models, input.routedDefault);
+	return initialModelRef(
+		input.models,
+		input.chatDefault ?? input.routedDefault,
+	);
 }
 
 /**

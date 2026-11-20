@@ -5,6 +5,7 @@ import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
 	ModelCatalogModelSchema,
+	ModelCatalogProjectionSchema,
 	ModelCatalogRoutingSchema,
 	ModelCatalogSelectionSchema,
 } from "../schemas/model-catalog-projection";
@@ -80,6 +81,8 @@ export const modelCatalogContract = oc
 					routing: ModelCatalogRoutingSchema.describe(
 						"The effective routing explanation for the interactive chat slot: which selection won, and whether its ref survives the filter chain",
 					),
+					personChatModelRef:
+						ModelCatalogProjectionSchema.shape.personChatModelRef,
 					wiredProviders: z
 						.array(ModelProviderIdSchema)
 						.describe(

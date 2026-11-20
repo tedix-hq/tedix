@@ -144,6 +144,21 @@ describe("kernel runtime router: delegation", () => {
 		expect(delegationMetadataForPick(supplied, undefined)).toEqual({
 			homeRunId: "home-1",
 		});
+		// The turn's model follows the same rule: a model that arrived in the
+		// metadata never reaches the tedi, checked or not.
+		const withModel = { turnModel: { modelRef: "azure-openai/unchecked" } };
+		expect(delegationMetadataForPick(withModel, true)).toEqual({
+			pickedByPerson: true,
+		});
+		expect(
+			delegationMetadataForPick(withModel, true, "azure-openai/gpt-6.1-sol"),
+		).toEqual({
+			pickedByPerson: true,
+			turnModel: { modelRef: "azure-openai/gpt-6.1-sol" },
+		});
+		expect(
+			delegationMetadataForPick(withModel, false, "azure-openai/gpt-6.1-sol"),
+		).toEqual({});
 	});
 
 	it("keeps one tedi session per chat for a picked tedi and a fresh one otherwise", async () => {

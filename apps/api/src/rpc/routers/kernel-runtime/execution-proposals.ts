@@ -1,4 +1,5 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
@@ -229,27 +230,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				`${unresolvedSkills.map((slug) => `"/skill ${slug}"`).join(", ")} did not resolve to a usable skill, so this message was NOT sent. A referenced skill must exist in this organization, be readable here (org-level and not private to one tedi), and be active, proven, or crystallized — a draft, stale, or archived skill cannot steer a turn. Remove the reference or correct the slug.`,
 			);
 		}
-		if (input.modelRef) {
-			const { buildModelCatalogProjection } =
-				await import("../../../services/model-catalog-projection");
-			const catalog = await buildModelCatalogProjection({
-				db: context.db,
-				env: context.env,
-				organizationId,
-				tedi: null,
-				includeDenied: true,
-			});
-			if (
-				!catalog.models.some(
-					(model) => model.ref === input.modelRef && model.allowed,
-				)
-			) {
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Selected model is not available for this organization",
-				);
-			}
-		}
 		const createdAt = nowIso();
 		const assistantAt = offsetIso(createdAt, 1);
 		const completedAt = offsetIso(createdAt, 2);
@@ -259,6 +239,57 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					organizationId,
 				})
 			: null;
+		// The model for this turn. A pick must be allowed here. A signed-in
+		// person who picked nothing gets the chat default where the catalog
+		// allows it; any other turn, or a catalog without it, keeps the model
+		// it had. A tedi the person picked runs the same model when that tedi
+		// may use it, and its own model otherwise or when the pick is Auto.
+		const personChat =
+			context.authType === "user" &&
+			resolveKernelConversationOrigin(context) === "human";
+		let chatModelRef = input.modelRef;
+		let tediChatModelRef: string | undefined;
+		if (input.modelRef || personChat) {
+			const { buildModelCatalogProjection, personChatDefaultModelRef } =
+				await import("../../../services/model-catalog-projection");
+			const project = (tedi: typeof delegateTarget) =>
+				buildModelCatalogProjection({
+					db: context.db,
+					env: context.env,
+					organizationId,
+					tedi,
+					includeDenied: true,
+				});
+			const reads = Promise.all([
+				project(null),
+				personChat && delegateTarget ? project(delegateTarget) : null,
+			]);
+			// A default the catalog cannot answer for never fails the turn.
+			const [catalog, tediCatalog] = await (input.modelRef
+				? reads
+				: reads.catch(() => [null, null] as const));
+			if (
+				input.modelRef &&
+				!catalog?.models.some(
+					(model) => model.ref === input.modelRef && model.allowed,
+				)
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Selected model is not available for this organization",
+				);
+			}
+			chatModelRef ??=
+				(catalog && personChatDefaultModelRef(catalog.models)) ?? undefined;
+			// Auto on a picked tedi means the tedi's own model, as before.
+			if (
+				chatModelRef !== CLOUDFLARE_AUTO_MODEL_REF &&
+				tediCatalog?.models.some(
+					(model) => model.ref === chatModelRef && model.allowed,
+				)
+			)
+				tediChatModelRef = chatModelRef;
+		}
 		// "Workstations over bodies" (decisions/workstations-over-bodies.md):
 		// the workstation-attach path is gated on CAPABILITY, not body kind.
 		// A target is workstation-capable when it carries a durable workstation
@@ -729,6 +760,10 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			childConversationId: isolateDelegation ? "agent:main:main" : null,
 			childRunId,
 			...(pickedByPerson ? { pickedByPerson } : {}),
+			// The model the picked tedi answers on; a retry reads it from here.
+			...(pickedByPerson && tediChatModelRef
+				? { modelRef: tediChatModelRef }
+				: {}),
 			...(delegationWorkItemId
 				? {
 						workItemId: delegationWorkItemId,
@@ -759,7 +794,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				userMessageId,
 				assistantMessageId,
 				content: turnContent,
-				...(input.modelRef ? { modelRef: input.modelRef } : {}),
+				...(chatModelRef ? { modelRef: chatModelRef } : {}),
 				descopeUserId: context.descopeUserId ?? context.user?.sub,
 				...(context.externalAgentPrincipalId
 					? { externalAgentPrincipalId: context.externalAgentPrincipalId }
@@ -1056,7 +1091,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				startOfferedWorkflow,
 				executionPolicy: input.executionPolicy,
 				attachments,
-				modelRef: input.modelRef,
+				modelRef: chatModelRef,
 				organizationId,
 				conversationId,
 				// The edge runs the latest deployed version; hand it to the DO so a
@@ -1320,6 +1355,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					// message. Agents, API keys and calls through the MCP gateway
 					// are not a person picking a tedi in the chat.
 					pickedByPerson,
+					chatModelRef: tediChatModelRef,
 					conversationNotice: isAgentRunEndedNotice,
 					metadata: {
 						...turnMetadata,

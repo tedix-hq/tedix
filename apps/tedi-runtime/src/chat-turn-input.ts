@@ -98,7 +98,8 @@ export interface ChatTurnParams {
 	noFunds?: boolean;
 	/**
 	 * This turn's model in place of the tedi's chat policy (`turnModelForInject`:
-	 * reply-draft turns only). Memory, persona and tools are unchanged.
+	 * reply-draft turns and a person's message to a tedi they picked in the
+	 * chat). Memory, persona and tools are unchanged.
 	 */
 	turnModel?: TurnModelSelection;
 	/**

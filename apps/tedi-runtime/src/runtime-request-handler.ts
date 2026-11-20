@@ -942,7 +942,10 @@ export async function handleRuntimeRequest(
 					}
 					const trustedInstructionOrigin =
 						trustedInstructionOriginForInject(metadata);
-					const turnModel = turnModelForInject(metadata);
+					const turnModel = turnModelForInject(
+						metadata,
+						Boolean(personChatConversationId),
+					);
 					// Operator-consent attestation: read from request
 					// HEADERS only — the edge strips/stamps them, so payload metadata (a
 					// tenant-reachable surface) can never author consent.

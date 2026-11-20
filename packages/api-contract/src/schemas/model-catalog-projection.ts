@@ -265,6 +265,13 @@ export const ModelCatalogProjectionSchema = z.object({
 	models: z.array(ModelCatalogModelSchema),
 	selections: z.array(ModelCatalogSelectionSchema),
 	routing: ModelCatalogRoutingSchema,
+	personChatModelRef: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"The model a signed-in person's chat turn runs on when they have not picked one. Null or absent when the catalog does not allow the chat default; the turn then uses `routing.modelRef`.",
+		),
 	wiredProviders: z
 		.array(ModelProviderIdSchema)
 		.describe(

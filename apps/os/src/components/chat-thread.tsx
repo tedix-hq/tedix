@@ -655,6 +655,7 @@ export function ChatThread({
 							? pickedModel.ref
 							: null,
 					remembered: modelPreference.modelRef,
+					chatDefault: modelCatalog.data?.personChatModelRef,
 					routedDefault: modelCatalog.data?.routing.modelRef,
 				})
 			: null;
