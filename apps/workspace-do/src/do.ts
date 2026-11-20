@@ -4913,6 +4913,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	listOpen(...args: unknown[]) {
 		return this.#call("listOpen", args);
 	}
+	listProjects(...args: unknown[]) {
+		return this.#call("listProjects", args);
+	}
 	startRun(...args: unknown[]) {
 		return this.#call("startRun", args);
 	}

@@ -3033,6 +3033,108 @@ describe("WorkspaceDO", () => {
 		}
 	});
 
+	test("a person starts a read-only run from a private workspace in a project it does not link", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		const projectId = crypto.randomUUID();
+		const now = new Date().toISOString();
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(
+				"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ?",
+			).bind(own.workspaceId),
+			testEnv.DB.prepare(
+				"UPDATE organization_members SET role = 'owner' WHERE organization_id = ? AND descope_user_id = 'u1'",
+			).bind(own.organizationId),
+			testEnv.DB.prepare(
+				"INSERT INTO projects (id, org_id, key, name, status, created_at, updated_at) VALUES (?, ?, ?, 'Unlinked', 'active', ?, ?)",
+			).bind(
+				projectId,
+				own.organizationId,
+				`U${projectId.slice(0, 6)}`,
+				now,
+				now,
+			),
+		]);
+		const ws = workspace(own);
+		const callId = crypto.randomUUID();
+		await ws.scriptMachine(own, [
+			{
+				status: "machines",
+				machines: [
+					{
+						machineName: "Studio",
+						executors: ["codex"],
+						lastSeenAt: now,
+						cliVersion: null,
+						machineTools: ["dispatch_work_item"],
+						online: true,
+					},
+				],
+			},
+			{ status: "queued", callId, callStatus: "pending" },
+			{
+				status: "call",
+				call: {
+					callId,
+					machine: "Studio",
+					tool: "dispatch_work_item",
+					status: "done",
+					createdAt: now,
+				},
+			},
+		]);
+		await ws.scriptModel(own, [
+			{
+				code: `export default async (env) => ({ projects: await env.work.listProjects(), run: await env.work.startRun({ title: "Explain paging", brief: "Say how paging works", doneWhen: "A short answer", executor: "codex", changesCode: false, projectId: ${JSON.stringify(projectId)} }) })`,
+			},
+			{ text: "Run requested." },
+		]);
+		const sent = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Explain paging in the unlinked project",
+		});
+		await ws.awaitTurn(own, sent.turnId, 20_000);
+		const steps = (
+			await ws.readEvents(own, { conversationId: sent.conversationId })
+		).flatMap((event) => (event.type === "step.finished" ? [event] : []));
+		expect(steps).toContainEqual(
+			expect.objectContaining({
+				result: expect.stringMatching(`"id":\\s*"${projectId}"`),
+			}),
+		);
+		const run = JSON.parse(
+			steps.find((step) => step.tool === "work.startRun")?.result ?? "{}",
+		) as { workItemId: string };
+		expect(
+			await testEnv.DB.prepare(
+				"SELECT project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source FROM work_items WHERE id = ?",
+			)
+				.bind(run.workItemId)
+				.first(),
+		).toEqual({
+			project_id: projectId,
+			work_kind: "research",
+			accountable_owner_id: "u1",
+			disposition: "accepted",
+			dispatch_state: "ready",
+			source: "os.workspace.start_run",
+		});
+		expect((await ws.readMachineCalls(own))[1]).toMatchObject({
+			userId: "u1",
+			op: "call",
+			call: {
+				machine: "Studio",
+				tool: "dispatch_work_item",
+				input: { workItemId: run.workItemId, projectId, executor: "codex" },
+			},
+		});
+		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
+			.bind(run.workItemId)
+			.run();
+	});
+
 	test("a stale edit fails inside the turn, the model is told and nothing is left waiting", async () => {
 		await seedCore();
 		const ws = workspace() as Stub & {

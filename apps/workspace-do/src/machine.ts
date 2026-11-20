@@ -12,6 +12,8 @@ export const MACHINE_UNAVAILABLE =
 /** How long a call waits for the machine before it hands back a call id. */
 const WAIT_MS = 20_000;
 const POLL_MS = 1_500;
+/** How long starting a run waits for a runner to take the wake. */
+const WAKE_WAIT_MS = 5_000;
 
 export interface MachineService {
 	useMachine(input: WorkspaceMachineInput): Promise<WorkspaceMachineResult>;
@@ -121,5 +123,49 @@ export function workspaceMachine(deps: {
 		},
 		read: async (input: { callId?: unknown }) =>
 			shown(await readCall(input?.callId)),
+		/**
+		 * Tells a connected runner about one accepted task so it starts at
+		 * once. Never throws: a machine that is refused, missing or slow
+		 * leaves the task for the runner's normal pickup.
+		 */
+		async wakeRunner(input: {
+			workItemId: string;
+			projectId: string;
+			executor: string;
+		}) {
+			const deadline = Date.now() + WAKE_WAIT_MS;
+			try {
+				const listed = await deps.api.useMachine({ ...acting, op: "list" });
+				if (listed.status !== "machines") return;
+				const eligible = listed.machines.filter(
+					(machine) =>
+						machine.online &&
+						machine.machineTools.includes("dispatch_work_item"),
+				);
+				const target =
+					eligible.find((machine) =>
+						machine.executors.includes(input.executor),
+					) ??
+					eligible.find((machine) => machine.executors.includes("any-local"));
+				if (!target) return;
+				const queued = await deps.api.useMachine({
+					...acting,
+					op: "call",
+					call: {
+						machine: target.machineName,
+						tool: "dispatch_work_item",
+						input,
+					},
+				});
+				if (queued.status !== "queued") return;
+				while (Date.now() < deadline) {
+					const { status } = await readCall(queued.callId);
+					if (status !== "pending" && status !== "claimed") return;
+					await wait(500);
+				}
+			} catch {
+				// The task was accepted even if the wake could not be delivered.
+			}
+		},
 	};
 }
