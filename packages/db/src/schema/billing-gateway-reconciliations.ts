@@ -9,10 +9,10 @@ import {
 
 /**
  * Per-row verdict of the daily ledger-vs-AI-Gateway comparison.
- * - `matched`: within tolerance.
- * - `drift`: both sides have cost and they disagree beyond tolerance.
- * - `ledger_only` / `gateway_only`: cost appears on one side only, above the
- *   one-sided floor.
+ * - `matched`: every billable Gateway call has a ledger charge.
+ * - `drift`: some Gateway calls have no ledger charge.
+ * - `gateway_only`: no Gateway calls have a ledger charge.
+ * - `ledger_only`: retained for historical cost comparisons.
  */
 export const BILLING_GATEWAY_RECONCILIATION_STATUSES = [
 	"matched",
@@ -23,11 +23,22 @@ export const BILLING_GATEWAY_RECONCILIATION_STATUSES = [
 export type BillingGatewayReconciliationStatus =
 	(typeof BILLING_GATEWAY_RECONCILIATION_STATUSES)[number];
 
+export interface GatewayReconciliationCoverage {
+	missingCallCount: number;
+	/** Gateway-reported cost estimate for missing calls, not a customer charge. */
+	missingCostMicros: number;
+	missingUnpricedCallCount: number;
+	tokenCheckedCallCount: number;
+	tokenMismatchCallCount: number;
+	tokenUnknownCallCount: number;
+	platformOverheadCallCount: number;
+	platformOverheadCostMicros: number;
+}
+
 /**
  * Daily comparison of our cost ledger (`billing_usage_charges`) with
- * Cloudflare AI Gateway analytics for one gateway. One row per closed UTC day,
- * provider and normalized model; `model = ''` is the provider-day total that
- * the drift threshold applies to.
+ * Cloudflare AI Gateway logs for one gateway. One row per closed UTC day,
+ * provider and normalized model; `model = ''` is the provider-day total.
  *
  * This is evidence only. It does not reconcile charges, change customer
  * billing, or feed `billing_provider_reconciliations` (which holds billed
@@ -49,6 +60,10 @@ export const billingGatewayReconciliations = sqliteTable(
 		differenceMicros: integer("difference_micros").notNull(),
 		ledgerRowCount: integer("ledger_row_count").notNull().default(0),
 		gatewayRequestCount: integer("gateway_request_count").notNull().default(0),
+		/** Null on historical rows that compared raw dollar totals. */
+		coverage: text("coverage", {
+			mode: "json",
+		}).$type<GatewayReconciliationCoverage>(),
 		status: text("status", {
 			enum: BILLING_GATEWAY_RECONCILIATION_STATUSES,
 		}).notNull(),

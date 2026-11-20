@@ -25,6 +25,16 @@ function row(
 		differenceMicros: ledger - gateway,
 		ledgerRowCount: 0,
 		gatewayRequestCount: 0,
+		coverage: {
+			missingCallCount: 0,
+			missingCostMicros: 0,
+			missingUnpricedCallCount: 0,
+			tokenCheckedCallCount: 1,
+			tokenMismatchCallCount: 0,
+			tokenUnknownCallCount: 0,
+			platformOverheadCallCount: 0,
+			platformOverheadCostMicros: 0,
+		},
 		status: "matched",
 		computedAt: "2026-11-19T02:00:00.000Z",
 		...patch,
@@ -32,99 +42,72 @@ function row(
 }
 
 describe("gateway reconciliation health conditions", () => {
-	it("is silent when every provider-day matches", () => {
+	it("ignores pricing differences, token mismatches, and historical cost-only drift", () => {
+		const matched = row({
+			ledgerCostMicros: 60300000,
+			gatewayCostMicros: 67160000,
+		});
 		expect(
 			gatewayReconciliationHealthConditions(
 				[
-					row({ ledgerCostMicros: 62_760_000, gatewayCostMicros: 62_760_000 }),
+					matched,
+					row({ status: "drift", coverage: null }),
 					row({
-						model: "@cf/moonshotai/kimi-k2.7-code",
-						ledgerCostMicros: 62_760_000,
-						gatewayCostMicros: 62_760_000,
+						coverage: { ...matched.coverage!, tokenMismatchCallCount: 1 },
 					}),
 				],
 				NOW_MS,
 			),
 		).toEqual([]);
-		expect(gatewayReconciliationHealthConditions([], NOW_MS)).toEqual([]);
 	});
-
-	it("raises provider drift from the total and one-sided models together", () => {
-		const conditions = gatewayReconciliationHealthConditions(
-			[
-				row({
-					provider: "azure-openai",
-					ledgerCostMicros: 34_490_000,
-					gatewayCostMicros: 104_030_000,
-					status: "drift",
-				}),
-				// Model-level drift does not alert on its own; the total does.
-				row({
-					provider: "azure-openai",
-					model: "openai/gpt-6.1-sol",
-					ledgerCostMicros: 34_490_000,
-					gatewayCostMicros: 60_790_000,
-					status: "drift",
-				}),
-				row({
-					provider: "azure-openai",
-					model: "openai/gpt-6-astra",
-					gatewayCostMicros: 43_240_000,
-					status: "gateway_only",
-				}),
-			],
-			NOW_MS,
-		);
-		expect(conditions.map((c) => c.key)).toEqual([
-			"billing-gateway-drift:azure-openai",
-			"billing-gateway-one-sided",
-		]);
-		expect(conditions[0]).toMatchObject({ severity: "P2", bucketRank: 2 });
-		expect(conditions[0]?.detail).toBe(
-			"azure-openai cost drift on 2026-11-18: ledger $34.49 vs AI Gateway $104.03 (difference -$69.54)",
-		);
-		expect(conditions[1]?.detail).toContain(
-			"azure-openai/openai/gpt-6-astra gateway $43.24",
-		);
-	});
-
-	it("reports a stale reconciliation instead of resolving open drift", () => {
-		const conditions = gatewayReconciliationHealthConditions(
-			[row({ day: "2026-11-15", status: "drift" })],
-			NOW_MS,
-		);
-		expect(conditions.map((c) => c.key)).toEqual([
-			"billing-gateway-reconciliation-stale",
-		]);
-	});
-
-	it("shows the latest provider totals in a sent digest", () => {
-		const rows = [
-			row({
-				provider: "azure-openai",
-				ledgerCostMicros: 34_490_000,
-				gatewayCostMicros: 104_030_000,
-				status: "drift",
-			}),
-			row({ ledgerCostMicros: 62_760_000, gatewayCostMicros: 62_760_000 }),
-			row({ model: "@cf/x", ledgerCostMicros: 1, gatewayCostMicros: 1 }),
-		];
-		expect(formatGatewayReconciliation(rows)).toBe(
-			"LEDGER VS AI GATEWAY (2026-11-18):\n" +
-				"  • azure-openai: ledger $34.49, gateway $104.03, difference -$69.54 — drift\n" +
-				"  • workers-ai: ledger $62.76, gateway $62.76, difference $0.00 — matched",
-		);
-		const result = reconcileHealthConditions(
-			gatewayReconciliationHealthConditions(rows, NOW_MS),
-			[],
-			"2026-11-19T08:00:00.000Z",
-		);
-		const digest = buildHealthDigest(result, {
-			isWeeklyHeartbeat: false,
-			nowIso: "2026-11-19T08:00:00.000Z",
-			gatewayReconciliation: rows,
+	it("alerts once per provider for real misses and includes overhead in the digest", () => {
+		const covered = row({});
+		const total = row({
+			provider: "azure-openai",
+			status: "drift",
+			coverage: {
+				...covered.coverage!,
+				missingCallCount: 69,
+				missingCostMicros: 1100000,
+			},
 		});
-		expect(digest?.text).toContain("LEDGER VS AI GATEWAY (2026-11-18)");
-		expect(digest?.subject).toContain("azure-openai cost drift");
+		const overhead = row({
+			coverage: {
+				...covered.coverage!,
+				platformOverheadCallCount: 1800,
+				platformOverheadCostMicros: 1070000,
+			},
+		});
+		const rows = [
+			total,
+			row({ ...total, model: "openai/gpt-6.1-sol" }),
+			overhead,
+		];
+		const conditions = gatewayReconciliationHealthConditions(rows, NOW_MS);
+		expect(conditions).toHaveLength(1);
+		expect(conditions[0]?.detail).toContain(
+			"69 Gateway calls without charges, gateway estimate $1.10",
+		);
+		const digest = buildHealthDigest(
+			reconcileHealthConditions(conditions, [], "2026-11-19T08:00:00.000Z"),
+			{
+				isWeeklyHeartbeat: false,
+				nowIso: "2026-11-19T08:00:00.000Z",
+				gatewayReconciliation: rows,
+			},
+		);
+		expect(digest?.subject).toContain("ledger misses");
+		expect(digest?.text).toContain("69 missing calls, gateway estimate $1.10");
+		expect(formatGatewayReconciliation(rows)).toContain(
+			"platform overhead 1800 calls, $1.07",
+		);
+	});
+	it("reports stale reconciliation instead of resolving open drift", () => {
+		expect(
+			gatewayReconciliationHealthConditions(
+				[row({ day: "2026-11-15" })],
+				NOW_MS,
+			).map((c) => c.key),
+		).toEqual(["billing-gateway-reconciliation-stale"]);
 	});
 });

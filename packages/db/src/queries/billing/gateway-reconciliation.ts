@@ -1,6 +1,6 @@
 /** Daily ledger-vs-AI-Gateway cost reconciliation rows. */
 
-import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { billingUsageCharges } from "../../schema/billing";
 import {
@@ -27,7 +27,7 @@ export interface LedgerCostByProviderModelResult {
 /**
  * Ledger provider cost for one gateway and window, grouped by provider and raw
  * model. Rows with no recorded `gatewayId` are included so cost that never
- * names a gateway still shows up as ledger-only instead of disappearing.
+ * names a gateway remains visible in the informational ledger totals.
  */
 export async function sumLedgerCostByProviderModel(
 	db: DbQueryClient,
@@ -60,8 +60,34 @@ export async function sumLedgerCostByProviderModel(
 	}));
 }
 
-/** D1 binds at most 100 parameters per statement; a row binds up to 12. */
-const INSERT_CHUNK_ROWS = 8;
+/** Match IDs across settlement days; delayed charges must not look missing. */
+export async function getGatewayLedgerCharges(
+	db: DbQueryClient,
+	params: { gatewayId: string; gatewayLogIds: string[] },
+) {
+	const rows = [];
+	for (const ids of chunkForBoundParams(params.gatewayLogIds, 50)) {
+		rows.push(
+			...(await db
+				.select({
+					gatewayLogId: billingUsageCharges.gatewayLogId,
+					inputTokens: billingUsageCharges.inputTokens,
+					outputTokens: billingUsageCharges.outputTokens,
+				})
+				.from(billingUsageCharges)
+				.where(
+					and(
+						inArray(billingUsageCharges.gatewayLogId, ids),
+						sql`COALESCE(json_extract(${billingUsageCharges.metadata}, '$.gatewayId'), ${params.gatewayId}) = ${params.gatewayId}`,
+					),
+				)),
+		);
+	}
+	return rows;
+}
+
+/** D1 binds at most 100 parameters per statement; a row binds up to 13. */
+const INSERT_CHUNK_ROWS = 7;
 
 export interface ReplaceGatewayReconciliationDayParams {
 	day: string;

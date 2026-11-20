@@ -9,6 +9,7 @@ import {
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
+	getGatewayLedgerCharges,
 	getLatestGatewayReconciliation,
 	replaceGatewayReconciliationDay,
 	sumLedgerCostByProviderModel,
@@ -63,6 +64,41 @@ function row(
 }
 
 describe("gateway reconciliation queries", () => {
+	it("matches zero-cost and delayed charges by log ID across chunks without crossing gateways", async () => {
+		const db = fixture();
+		const charges = Array.from({ length: 55 }, (_, i) =>
+			charge({
+				gatewayLogId: `matched-${i}`,
+				providerCostMicros: 0,
+				occurredAt: "2026-11-19T01:00:00Z",
+				inputTokens: 123,
+				outputTokens: 4,
+			}),
+		);
+		for (const value of [
+			...charges,
+			charge({ gatewayLogId: "other", metadata: { gatewayId: "other" } }),
+		])
+			await db.insert(billingUsageCharges).values(value);
+		const rows = await getGatewayLedgerCharges(db, {
+			gatewayId: "tedix-llm-production",
+			gatewayLogIds: [
+				...charges.map((c) => c.gatewayLogId!),
+				"missing",
+				"other",
+			],
+		});
+		expect(rows).toHaveLength(55);
+		expect(
+			rows.every((r) => r.inputTokens === 123 && r.outputTokens === 4),
+		).toBe(true);
+		expect(
+			await getGatewayLedgerCharges(db, {
+				gatewayId: "tedix-llm-production",
+				gatewayLogIds: [],
+			}),
+		).toEqual([]);
+	});
 	it("sums one day of ledger cost per provider and model for the gateway", async () => {
 		const db = fixture();
 		for (const value of [
@@ -125,14 +161,24 @@ describe("gateway reconciliation queries", () => {
 			gatewayId: "tedix-llm-production",
 			rows: [row({ model: "@cf/stale" }), ...models],
 		});
-		// A re-run drops models that no longer appear.
+		// A re-run drops models that no longer appear and stores call coverage.
+		const coverage = {
+			missingCallCount: 69,
+			missingCostMicros: 1100000,
+			missingUnpricedCallCount: 1,
+			tokenCheckedCallCount: 20,
+			tokenMismatchCallCount: 2,
+			tokenUnknownCallCount: 1,
+			platformOverheadCallCount: 1800,
+			platformOverheadCostMicros: 1070000,
+		};
 		await replaceGatewayReconciliationDay(db, {
 			day: "2026-11-18",
 			gatewayId: "tedix-llm-production",
-			rows: [row({}), ...models],
+			rows: [row({ coverage }), ...models],
 		});
-
 		const latest = await getLatestGatewayReconciliation(db);
+		expect(latest[0]?.coverage).toEqual(coverage);
 		expect(latest).toHaveLength(13);
 		expect(latest.every((r) => r.day === "2026-11-18")).toBe(true);
 		expect(latest[0]?.model).toBe("");
