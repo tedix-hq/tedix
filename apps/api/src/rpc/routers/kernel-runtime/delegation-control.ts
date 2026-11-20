@@ -386,7 +386,7 @@ export const cancelRunRoute = authed.cancelRun
 	});
 
 export const controlRunSteeringRoute = authed.controlRunSteering
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.homeUse)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
 		const run = await getKernelRuntimeRun(context.db, {
@@ -424,7 +424,7 @@ export const controlRunSteeringRoute = authed.controlRunSteering
 	});
 
 export const steerRunRoute = authed.steerRun
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.homeUse)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
 		const existingRun = await getKernelRuntimeRun(context.db, {

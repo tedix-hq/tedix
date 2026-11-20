@@ -49,6 +49,13 @@ export class RunSteering {
 		});
 	}
 
+	async latestPlacedOperation(runId: string): Promise<string | undefined> {
+		for (const { operationId } of (await this.host.load(runId)).reverse()) {
+			if ((await this.host.lookup(operationId))?.record.entry !== undefined)
+				return operationId;
+		}
+	}
+
 	async inspect(runId: string): Promise<RunSteeringMessage[]> {
 		return Promise.all(
 			(await this.host.load(runId)).map(async (receipt) => {

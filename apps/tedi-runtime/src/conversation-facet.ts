@@ -327,11 +327,7 @@ export class ConversationFacet extends PiAgent<
 			);
 			if (!pending || pending.configuration.runId !== runId)
 				throw new Error("Run has no active submission");
-			const session = await this.nativePiSession();
-			const root = (await this.piHarness.pending({ session: session.id })).find(
-				(item) => item.operationId === pending.submissionId,
-			);
-			if (!root || root.status !== "running")
+			if (!(await this.runningTurnOperation(pending.submissionId)))
 				throw new Error("Run is no longer running");
 			return pending.submissionId;
 		},
@@ -340,6 +336,7 @@ export class ConversationFacet extends PiAgent<
 				await this.nativePiSession()
 			).steer(wrapUntrustedInput(content, "operator_steering"), {
 				operationId,
+				whenIdle: "reject",
 			});
 		},
 		lookup: async (operationId) => {
@@ -1367,6 +1364,7 @@ export class ConversationFacet extends PiAgent<
 	}
 	protected piSettings() {
 		return {
+			steeringMode: "all" as const,
 			// 2s, 4s, 8s: spans a short D1 or service-binding outage.
 			retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 },
 			compaction: {
@@ -1463,6 +1461,40 @@ export class ConversationFacet extends PiAgent<
 		if (input.action === "withdraw")
 			return this.runSteering.withdraw(input.runId);
 		return this.runSteering.inspect(input.runId);
+	}
+	async stopConversationTurn(runId: string): Promise<void> {
+		const pending = await this.ctx.storage.get<PendingFacetSubmission>(
+			"pi-facet-pending-submission",
+		);
+		if (pending?.configuration.runId !== runId) return;
+		const operationId = await this.runningTurnOperation(pending.submissionId);
+		if (operationId) await (await this.nativePiSession()).abort(operationId);
+	}
+	private async runningTurnOperation(submissionId: string) {
+		const session = await this.nativePiSession();
+		return (await this.piHarness.pending({ session: session.id })).find(
+			(item) =>
+				item.status === "running" &&
+				(item.operationId === submissionId ||
+					item.operationId === `${submissionId}:final-report` ||
+					item.operationId.startsWith(`${submissionId}:steer:`)),
+		)?.operationId;
+	}
+	private async waitForSteeredSubmission(
+		runId: string,
+		submissionId: string,
+		previousSteering?: string,
+	) {
+		let result = await this.waitForSubmission(submissionId);
+		// If the model finished without tools, Pi places the queued input
+		// after its answer. Keep waiting for that input under this chat turn.
+		while (result.status === "completed") {
+			const next = await this.runSteering.latestPlacedOperation(runId);
+			if (!next || next === previousSteering || next === result.submissionId)
+				break;
+			result = await this.waitForSubmission(next);
+		}
+		return result;
 	}
 	private async configureConversationTurn(
 		input: ConversationTurnConfiguration,
@@ -1696,7 +1728,10 @@ export class ConversationFacet extends PiAgent<
 		if (pending.originalUiMessage)
 			await this.registerOriginalUiMessage(id, pending.originalUiMessage);
 		await this.submitMessages([message], { submissionId: id });
-		const terminal = await this.waitForSubmission(id);
+		const terminal = await this.waitForSteeredSubmission(
+			pending.configuration.runId,
+			id,
+		);
 		await this.checkDelegationBudget();
 		const delegatedStop = this.state.budgetStop?.kind === "delegation_budget";
 		// Pi already spent its own retries, and a re-drive reuses this submission
@@ -1782,7 +1817,11 @@ export class ConversationFacet extends PiAgent<
 				],
 				{ submissionId: reportId },
 			);
-			const settledReport = await this.waitForSubmission(reportId);
+			const settledReport = await this.waitForSteeredSubmission(
+				pending.configuration.runId,
+				reportId,
+				terminal.submissionId,
+			);
 			if (settledReport.status === "completed" && settledReport.messageId) {
 				const answer = await this.session.getMessage(settledReport.messageId);
 				report = assistantMessageText(answer?.parts ?? []);

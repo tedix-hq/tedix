@@ -280,6 +280,43 @@ describe("Production ConversationFacet on native Pi", () => {
 		await running;
 		expect((await inspect(agent)).stats.effects).toBe(0);
 	});
+	it("steers the next model request and stops that running turn", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.setup("tool");
+		const runId = "steered-turn";
+		const running = agent.turn(runId, { approval: true }).catch(String);
+		try {
+			const approval = await waitForApproval(agent);
+			for (const content of [
+				"Use the revised title.",
+				"Keep the original subtitle.",
+			]) {
+				const messages = await agent.controlRunSteering({
+					action: "enqueue",
+					runId,
+					sessionKey: "fixture-session",
+					id: crypto.randomUUID(),
+					content,
+				});
+				expect(messages.at(-1)?.status).toBe("queued");
+			}
+			await agent.setup("stall");
+			await agent.resolveToolApproval({
+				approvalId: approval.approvalId,
+				approved: true,
+			});
+			await agent.waitForStalledRequest();
+			const nextPrompt = JSON.stringify(
+				(await inspect(agent)).stats.prompts[1],
+			);
+			expect(nextPrompt).toContain("Use the revised title.");
+			expect(nextPrompt).toContain("Keep the original subtitle.");
+		} finally {
+			await agent.stopConversationTurn(runId);
+		}
+		expect(await running).toMatch(/aborted/);
+		expect((await inspect(agent)).stats.requests).toBe(2);
+	});
 	it("cancellation fences inference and cannot produce a successful answer", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.setup("stall");

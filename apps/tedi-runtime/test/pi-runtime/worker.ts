@@ -574,6 +574,10 @@ export class PiConversationFixture extends ProductionConversationFacet {
 				: { provider: "workers-ai" as const, model: "@cf/test" },
 		};
 	}
+	private readonly stalledRequest = Promise.withResolvers<void>();
+	async waitForStalledRequest() {
+		await this.stalledRequest.promise;
+	}
 	private conversationModel(): LanguageModelV3 {
 		return {
 			specificationVersion: "v3",
@@ -613,6 +617,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 								return;
 							}
 							if (stats.mode === "stall") {
+								this.stalledRequest.resolve();
 								controller.enqueue({ type: "text-start", id: "text" });
 								controller.enqueue({
 									type: "text-delta",

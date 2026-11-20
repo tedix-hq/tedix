@@ -940,6 +940,22 @@ async function cancelKernelRunCore(
 		},
 		createdAt: canceledAt,
 	});
+	if (
+		existingMetadata.pickedByPerson === true &&
+		childStop.outcome === "succeeded"
+	) {
+		await insertKernelRuntimeEvent(context, {
+			organizationId,
+			kind: "message.completed",
+			conversationId: existingRun.conversationId,
+			runId: input.homeRunId,
+			messageId: `${input.homeRunId}:stopped:assistant`,
+			delegatedTediId: existingRun.delegatedTediId ?? undefined,
+			childRunId: existingRun.childRunId ?? undefined,
+			payload: { role: "assistant", content: "Stopped.", channel: "home" },
+			createdAt: canceledAt,
+		});
+	}
 	// Carry the run's kernelRoute into the audit event so
 	// home-reflection-producer can mine the kernel's routing rationale into
 	// delegation-decision facts. Fail-soft: absent → null (producer skips the
@@ -976,20 +992,7 @@ async function cancelKernelRunCore(
 	};
 }
 
-// Steer an active Home run without closing it. Records the operator's
-// instruction on the parent run, emits a transcript-visible user event, AND
-// FORWARDS the instruction to a live delegated child via the same async
-// isolate-inject path the dispatcher uses — so the running worker consumes the
-// steer inline instead of treating it as an inert parent-only note. Fail-safe:
-// a child-side failure never blocks the parent steer.
-
-export // Steer an active Home run without closing it. Records the operator's
-// instruction on the parent run, emits a transcript-visible user event, AND
-// FORWARDS the instruction to a live delegated child via the same async
-// isolate-inject path the dispatcher uses — so the running worker consumes the
-// steer inline instead of treating it as an inert parent-only note. Fail-safe:
-// a child-side failure never blocks the parent steer.
-async function steerKernelRunCore(
+export async function steerKernelRunCore(
 	context: BaseContext,
 	input: {
 		organizationId: string;
@@ -1069,6 +1072,14 @@ async function steerKernelRunCore(
 					steeringId: steeringMessageId,
 				})
 			: childControlSkipped;
+	if (
+		existingMetadata.pickedByPerson === true &&
+		childSteer.outcome !== "succeeded"
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			childSteer.error ?? "The tedi is not ready for a follow-up.",
+		);
 	if (!existingRun.childRunId || !existingRun.delegatedTediId) {
 		await controlHomeRunSteering(context, existingRun, {
 			action: "enqueue",

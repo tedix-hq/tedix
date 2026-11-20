@@ -751,6 +751,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			approvalRequestId,
 			childConversationId: isolateDelegation ? "agent:main:main" : null,
 			childRunId,
+			...(pickedByPerson ? { pickedByPerson } : {}),
 			...(delegationWorkItemId
 				? {
 						workItemId: delegationWorkItemId,
