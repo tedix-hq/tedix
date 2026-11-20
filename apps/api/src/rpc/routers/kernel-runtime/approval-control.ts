@@ -104,7 +104,7 @@ import { internalDelegationContext } from "./delegation-context";
 import { runWorkstationWorkOrderDispatch } from "./workstation-dispatch";
 import {
 	admitWorkAttempt,
-	WORK_ATTEMPT_ADMISSION_TTL_MS,
+	WORK_ATTEMPT_LEASE_TTL_MS,
 } from "../work-items/attempt-admission";
 
 export async function respondKernelDelegationRecommendationApprovalCore(
@@ -1314,13 +1314,14 @@ async function approveHomePlanAssignmentsCore(
 			const admission = await admitWorkAttempt(context.db, {
 				workItem,
 				executor: { type: "tedi", id: assignment.ownerTediId },
-				leaseTtlMs: WORK_ATTEMPT_ADMISSION_TTL_MS,
+				leaseTtlMs: WORK_ATTEMPT_LEASE_TTL_MS,
 				now: approvedAt,
 			});
 			await startWorkItemAttempt(context.db, {
 				orgId: organizationId,
 				workItemId: workItem.id,
 				admissionId: admission.id,
+				admission,
 				executor: { type: "tedi", id: assignment.ownerTediId },
 				runId: predictedChildRunId ?? childClientRequestId,
 				startedAt: approvedAt,

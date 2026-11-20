@@ -31,7 +31,7 @@ vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => {
 		>();
 	return {
 		...original,
-		evaluateAndRecordWorkAdmission: vi.fn(async (_db, input) => ({
+		prepareWorkAdmission: vi.fn(async (_db, input) => ({
 			id: `admission:${input.workItemId}:${input.executorId}`,
 			expiresAt: new Date(
 				Date.parse(input.now) + input.leaseTtlMs,

@@ -15,6 +15,10 @@ import type { DbQueryClient } from "../../query-client";
 import { prepareLaneHandoff, laneHandoffStatements } from "./lane-handoffs";
 import { workAttemptFailureReason } from "./attempt-failure";
 import {
+	rethrowWorkAdmissionWriteError,
+	type PreparedWorkAdmission,
+} from "./admissions";
+import {
 	type WorkAttempt,
 	type WorkAttemptOutcome,
 	type WorkAttemptRuntimeState,
@@ -394,6 +398,7 @@ export async function startWorkItemAttempt(
 		orgId: string;
 		workItemId: string;
 		admissionId: string;
+		admission?: PreparedWorkAdmission;
 		executor: WorkExecutor;
 		sessionId?: string;
 		externalSessionKey?: string;
@@ -635,16 +640,34 @@ export async function startWorkItemAttempt(
 	// acquiring its unique active slot must either both commit or neither commit.
 	let attempt: WorkAttempt | undefined;
 	try {
-		const [, , , , inserted] = await db.batch([
+		const admissionStatements = params.admission?.statements ?? [];
+		// A missing Attempt must abort the batch, including all reservations.
+		const requiredStartEvent = params.admission
+			? db.insert(workEvents).values({
+					id: crypto.randomUUID(),
+					orgId: sql<string>`(SELECT org_id FROM work_attempts WHERE id=${attemptId})`,
+					workItemId: params.workItemId,
+					attemptId,
+					eventType: "attempt.started",
+					actorType: params.executor.type,
+					actorId: params.executor.id,
+					actorSessionId: params.sessionId,
+					payload: { runtimeState: "running" },
+					occurredAt: startedAt,
+				})
+			: startEvent;
+		const results = await db.batch([
 			expireTimedOut,
 			expireTimedOutResources,
 			consumeTimedOutBudgets,
 			expiryEvent,
+			...admissionStatements,
 			insertAttempt,
-			startEvent,
+			requiredStartEvent,
 		]);
-		attempt = inserted[0];
+		attempt = (results[4 + admissionStatements.length] as WorkAttempt[])[0];
 	} catch (error) {
+		if (params.admission) rethrowWorkAdmissionWriteError(error);
 		const winner = (
 			await db
 				.select({ id: workAttempts.id })
@@ -669,7 +692,10 @@ export async function startWorkItemAttempt(
 	}
 	if (!attempt) {
 		await releaseLosingReservations();
-		throw new WorkFactoryError("NOT_READY", "Attempt lost the admission race");
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Attempt does not match the current admission specification",
+		);
 	}
 	return {
 		workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),

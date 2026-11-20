@@ -10,6 +10,7 @@ import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	evaluateAndRecordWorkAdmission,
+	prepareWorkAdmission,
 	replaceWorkAdmissionSpecification,
 	WORK_ADMISSION_BUDGET_ENVELOPE_CAP,
 	WORK_ADMISSION_RESOURCE_REQUIREMENT_CAP,
@@ -85,8 +86,9 @@ function migratedLegacy() {
 		},
 	});
 }
-// The seeded-ledger template variant is built once, at collection: a cold
-// chain replay inside a timed test lets shared-machine load decide the verdict.
+// Build both templates at collection: a cold chain replay inside a timed
+// test lets shared-machine load decide the verdict.
+migrated().close();
 migratedLegacy().close();
 
 function expectAbort(run: () => unknown, pattern: RegExp) {
@@ -2306,4 +2308,126 @@ it("does not treat another organization's interaction ID as a replay or suppress
 	expect(
 		sqlite.prepare("SELECT id,org_id FROM work_interactions").all(),
 	).toEqual([{ id: "shared-id", org_id: "org" }]);
+});
+
+describe("atomic admission and Attempt start", () => {
+	async function prepared(id = "start") {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		seedTedi(sqlite);
+		sqlite.exec(`
+			UPDATE work_items SET disposition='accepted',max_attempts=1 WHERE id='work';
+			INSERT INTO work_resource_pools(id,org_id,resource_key,allocation_mode,capacity,created_at) VALUES('pool','org','browser','exclusive',1,'2026-08-20T00:00:00.000Z');
+			INSERT INTO work_resource_requirements(org_id,work_item_id,resource_key,quantity,created_at,updated_at) VALUES('org','work','browser',1,'2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,currency,created_at) VALUES('budget','org','work_item','work',100,60,'USD','2026-08-20T00:00:00.000Z');
+		`);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const batch = vi.spyOn(db, "batch");
+		const params = {
+			id,
+			orgId: "org",
+			workItemId: "work",
+			expectedWorkItemVersion: 1,
+			expectedAdmissionSpecRevision: "revision-1",
+			executorType: "tedi" as const,
+			executorId: "tedi",
+			leaseTtlMs: 60000,
+			now: "2026-08-20T01:00:00.000Z",
+		};
+		const admission = await prepareWorkAdmission(db, params);
+		const start = (plan = admission) =>
+			startWorkItemAttempt(db, {
+				orgId: "org",
+				workItemId: "work",
+				admissionId: plan.id,
+				admission: plan,
+				executor: { type: "tedi", id: "tedi" },
+				expiresAt: plan.expiresAt,
+				startedAt: params.now,
+			});
+		return { sqlite, db, batch, params, admission, start };
+	}
+
+	it("writes once with one expiry and refuses a competing start without orphan records", async () => {
+		const f = await prepared();
+		try {
+			const competitor = await prepareWorkAdmission(f.db, {
+				...f.params,
+				id: "competing",
+			});
+			expect(f.batch).not.toHaveBeenCalled();
+			expect(f.sqlite.prepare("SELECT id FROM work_admissions").all()).toEqual(
+				[],
+			);
+			const { attempt } = await f.start();
+			expect(f.batch).toHaveBeenCalledTimes(1);
+			expect(attempt.expiresAt).toBe(f.admission.expiresAt);
+			for (const table of [
+				"work_admissions",
+				"work_resource_reservations",
+				"work_budget_reservations",
+			])
+				expect(
+					f.sqlite.prepare(`SELECT expires_at FROM ${table}`).all(),
+				).toEqual([{ expires_at: attempt.expiresAt }]);
+			await expect(f.start(competitor)).rejects.toMatchObject({
+				rejectionCode: "already_running",
+			});
+			expect(f.sqlite.prepare("SELECT id FROM work_admissions").all()).toEqual([
+				{ id: "start" },
+			]);
+			expect(
+				f.sqlite
+					.prepare("SELECT admission_id FROM work_resource_reservations")
+					.all(),
+			).toEqual([{ admission_id: "start" }]);
+			expect(
+				f.sqlite
+					.prepare("SELECT admission_id FROM work_budget_reservations")
+					.all(),
+			).toEqual([{ admission_id: "start" }]);
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
+	it.each([
+		["specification", "stale_specification"],
+		["attempt cap", "stale_specification"],
+		["resource", "resource_blocked"],
+		["budget", "budget_blocked"],
+	])(
+		"rolls back the complete start after a changed %s",
+		async (gate, rejectionCode) => {
+			const f = await prepared();
+			try {
+				if (gate === "specification")
+					f.sqlite.exec("UPDATE work_items SET version=2 WHERE id='work'");
+				if (gate === "attempt cap")
+					f.sqlite.exec("UPDATE work_items SET max_attempts=0 WHERE id='work'");
+				if (gate === "resource")
+					f.sqlite.exec(
+						"UPDATE work_resource_pools SET enabled=0,version=version+1 WHERE id='pool'",
+					);
+				if (gate === "budget")
+					f.sqlite.exec(
+						"UPDATE work_budget_envelopes SET limit_micros=0,reservation_micros=0,version=version+1 WHERE id='budget'",
+					);
+				await expect(f.start()).rejects.toMatchObject({ rejectionCode });
+				for (const table of [
+					"work_admissions",
+					"work_attempts",
+					"work_resource_reservations",
+					"work_budget_reservations",
+					"work_events",
+				])
+					expect(
+						f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get(),
+					).toEqual({ n: 0 });
+				expect(f.batch).toHaveBeenCalledTimes(1);
+			} finally {
+				f.sqlite.close();
+			}
+		},
+	);
 });

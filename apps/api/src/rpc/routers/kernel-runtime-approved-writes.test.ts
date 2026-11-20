@@ -5,7 +5,7 @@ import {
 	resolveDelegationRecoveryBinding,
 } from "./kernel-runtime/control-proposals";
 import * as childEvidence from "./kernel/child-run-reads";
-import { evaluateAndRecordWorkAdmission } from "@tedix/db/queries/work-items/admissions";
+import { prepareWorkAdmission } from "@tedix/db/queries/work-items/admissions";
 import { getWorkAttemptRepositoryAdmission } from "@tedix/db/queries/work-items/attempts";
 import { predictAgentRunId } from "./kernel/runtime-shared";
 import { normalizeHomeRunRecord } from "./kernel/run-store-normalization";
@@ -46,7 +46,7 @@ vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => {
 		>();
 	return {
 		...original,
-		evaluateAndRecordWorkAdmission: vi.fn(async (_db, input) => {
+		prepareWorkAdmission: vi.fn(async (_db, input) => {
 			const receipt = {
 				id: `admission:${input.workItemId}:${input.executorId}`,
 				orgId: input.orgId,
@@ -2617,7 +2617,7 @@ it.each(["route", "core"] as const)(
 		};
 		const before = structuredClone(f.home);
 		const originalWork = structuredClone(f.work);
-		const admission = vi.mocked(evaluateAndRecordWorkAdmission);
+		const admission = vi.mocked(prepareWorkAdmission);
 		const admit = admission.getMockImplementation()!;
 		const checkedAdmission = vi.fn((...args: Parameters<typeof admit>) => {
 			expect(f.home.metadata).not.toHaveProperty("workItemId");
@@ -2686,8 +2686,7 @@ it.each(["route", "core"] as const)(
 			delete f.home.metadata!.workItemId;
 			Object.assign(f.home.metadata!, metadata);
 			f.home.runtimeMetadata = runtimeMetadata;
-			const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls
-				.length;
+			const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 			await expect(
 				surface === "route"
 					? createKernelRuntimeClient(f.context).retryDelegation({
@@ -2700,7 +2699,7 @@ it.each(["route", "core"] as const)(
 			).rejects.toThrow(
 				"Canonical delegation does not match this Work and Home child",
 			);
-			expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+			expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 			expect(f.runner).not.toHaveBeenCalled();
 			expect(f.db.workAttemptRows).toHaveLength(1);
 		}
@@ -2768,13 +2767,13 @@ it.each([
 		if (kind === "missing terminal") f.db.runtimeEvents.length = 0;
 		if (kind === "unavailable terminal")
 			f.db.controls.childRuntimeSelectError = new Error("D1 unavailable");
-		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 		await expect(
 			createKernelRuntimeClient(f.context).retryDelegation({
 				workItemId: f.work.id,
 			}),
 		).rejects.toThrow();
-		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 		expect(f.runner).not.toHaveBeenCalled();
 		expect(f.db.workAttemptRows).toHaveLength(1);
 	},
@@ -2788,13 +2787,13 @@ it.each(["foreign", "live"] as const)(
 		newer.startedAt = "2026-06-06T08:02:00.000Z";
 		if (kind === "foreign") newer.executorType = "external_agent";
 		f.db.workAttemptRows.unshift(newer);
-		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 		await expect(
 			createKernelRuntimeClient(f.context).retryDelegation({
 				workItemId: f.work.id,
 			}),
 		).rejects.toThrow(/canonical failed delegation/);
-		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 		expect(f.runner).not.toHaveBeenCalled();
 	},
 );
@@ -2811,7 +2810,7 @@ it.each(["route", "core"] as const)(
 			}),
 		);
 		const context = createContext(f.db, { userSub: "viewer" });
-		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 		const action =
 			surface === "route"
 				? createKernelRuntimeClient(context).retryDelegation({
@@ -2822,7 +2821,7 @@ it.each(["route", "core"] as const)(
 						workItemId: f.work.id,
 					});
 		await expect(action).rejects.toMatchObject({ code: "FORBIDDEN" });
-		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 		expect(f.runner).not.toHaveBeenCalled();
 	},
 );
@@ -2843,13 +2842,13 @@ it("never falls back from a denied nonnull creation conversation to an editable 
 			userId: "viewer",
 		}),
 	);
-	const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+	const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 	await expect(
 		createKernelRuntimeClient(
 			createContext(f.db, { userSub: "viewer" }),
 		).retryDelegation({ workItemId: f.work.id }),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
-	expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+	expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 	expect(f.runner).not.toHaveBeenCalled();
 });
 
@@ -2864,13 +2863,13 @@ it("refuses route-to-core conversation drift after authorization", async () => {
 		return receipt;
 	});
 	try {
-		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 		await expect(
 			createKernelRuntimeClient(f.context).retryDelegation({
 				workItemId: f.work.id,
 			}),
 		).rejects.toThrow(/changed after authorization/);
-		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 		expect(f.runner).not.toHaveBeenCalled();
 	} finally {
 		lookup.mockImplementation(original);
@@ -2907,14 +2906,13 @@ it.each([
 				return evidence;
 			});
 		try {
-			const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls
-				.length;
+			const before = vi.mocked(prepareWorkAdmission).mock.calls.length;
 			await expect(
 				createKernelRuntimeClient(f.context).retryDelegation({
 					workItemId: f.work.id,
 				}),
 			).rejects.toThrow();
-			expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+			expect(prepareWorkAdmission).toHaveBeenCalledTimes(before);
 			expect(f.runner).not.toHaveBeenCalled();
 		} finally {
 			spy.mockRestore();
