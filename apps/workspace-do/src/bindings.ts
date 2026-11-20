@@ -20,7 +20,10 @@ import {
 	type OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
-import type { RegisterAppScheduleInput } from "@tedix/api-contract/schemas/os-app-runtime";
+import type {
+	AllowAppReadInput,
+	RegisterAppScheduleInput,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 import type { BindingName } from "./declarations";
 import { buildMemoryBinding } from "./memory-binding";
 import {
@@ -222,18 +225,25 @@ export function buildWorkspaceBindings(
 		): UndoPlan | undefined =>
 			before ? { kind: "rollback_revision", toRevision: before } : undefined,
 	};
-	// Saving a new app always holds for the person's approval. The check
-	// below runs first, so a card is only ever shown for an app that loads.
+	// Saving a new app, or letting an app read a workspace file, always holds
+	// for the person's approval. The checks below run first, so a card is only
+	// ever shown for an app that loads and for files this workspace has.
 	const appCreateGate = wrapBinding(
 		{
 			create: (input: CreateAppInput) =>
 				data.createApp({ ...input, actorId: deps.actor.id }),
+			allowRead: (input: AllowAppReadInput) =>
+				data.allowAppRead({ ...input, actorId: deps.actor.id }),
 		},
 		{
 			...common,
 			resource: "app",
 			methods: {
 				create: { riskTier: "bounded_write", blastRadius: "single_resource" },
+				allowRead: {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
 			},
 		},
 	);
@@ -242,6 +252,11 @@ export function buildWorkspaceBindings(
 		create: async (input: CreateAppInput) => {
 			await data.checkNewApp(input);
 			return appCreateGate.create(input);
+		},
+		allowRead: async (input: AllowAppReadInput) => {
+			if (!(await data.readableFileTitles(input?.reads)).length)
+				throw new Error("Name the files in reads: { name: outputId }");
+			return appCreateGate.allowRead(input);
 		},
 		registerSchedule: async (input: RegisterAppScheduleInput) => {
 			const run = await data.registerAppSchedule({
@@ -510,6 +525,11 @@ export function buildWorkspaceBindings(
 				grep: { riskTier: "read", blastRadius: "none" },
 				// The name and source check; the save itself is the gate above.
 				create: {
+					resource: "app_check",
+					riskTier: "read",
+					blastRadius: "none",
+				},
+				allowRead: {
 					resource: "app_check",
 					riskTier: "read",
 					blastRadius: "none",

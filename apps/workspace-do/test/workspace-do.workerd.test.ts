@@ -1477,6 +1477,94 @@ describe("WorkspaceDO", () => {
 		expect(await appRows()).toHaveLength(1);
 	});
 
+	test("a new app may read a sheet of its workspace once the person approves the card that names it", async () => {
+		await seedCore();
+		await testEnv.DB.batch(
+			[osGadgetRevisions, osGadgetCode, osGadgetCodeBlobs].map((table) =>
+				testEnv.DB.prepare(ddl(table)),
+			),
+		);
+		await testEnv.DB.prepare(
+			"CREATE UNIQUE INDEX IF NOT EXISTS test_app_blob_key ON os_gadget_code_blobs (organization_id, sha256)",
+		).run();
+		// Its own workspace, so no other test's files or apps are in the way.
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		const ws = workspace(own);
+		await ws.outputQuery(own, { op: "initialize" });
+		const app = {
+			name: "Budget tracker",
+			files: {
+				"server.js": "export class App {}",
+				"client.js":
+					"const { settings } = await tedix.call('context'); const sheet = await tedix.call('outputs.read', { slot: settings.reads.budget }); document.getElementById('app').textContent = String(sheet.rows.length);",
+			},
+		};
+		await ws.scriptModel(own, [
+			{
+				code: `export default async env => {
+					const sheet = await env.outputs.create({ title: "Trip budget", content: { kind: "sheet", columns: ["Item", "Cost"], rows: [["Flight", 300]] } });
+					return env.apps.create({ ...${JSON.stringify(app)}, reads: { budget: sheet.id } }).catch(() => ({ sheetId: sheet.id }));
+				}`,
+			},
+			{ text: "Waiting." },
+		]);
+		const started = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Build an app that shows the Trip budget sheet",
+		});
+		await ws.awaitTurn(own, started.turnId, 20000);
+		const requested = (
+			await ws.readEvents(own, {
+				conversationId: started.conversationId,
+				after: 0,
+			})
+		).find(
+			(event) =>
+				event.type === "approval.requested" &&
+				event.title === "Creating a new app",
+		);
+		if (requested?.type !== "approval.requested")
+			throw new Error("Creating the app did not ask for approval");
+		expect(requested.input).toMatchObject({
+			name: "Budget tracker",
+			mayRead: ["Trip budget"],
+		});
+
+		await ws.scriptModel(own, [{ text: "Your app is ready." }]);
+		const applied = await ws.decideApproval(own, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(applied.applied).toBe(true);
+		if (applied.turnId) await ws.awaitTurn(own, applied.turnId, 20000);
+
+		// The sheet now has the connection apps read files through, and the
+		// app's only grant is to read that one slot.
+		const bound = await testEnv.DB.prepare(
+			"SELECT slot, provider_resource_id, status FROM os_workspace_resources WHERE workspace_id = ? AND provider_id = 'tedix' AND resource_type = 'output' AND name = 'Trip budget'",
+		)
+			.bind(own.workspaceId)
+			.first<{ slot: string; provider_resource_id: string; status: string }>();
+		expect(bound?.status).toBe("active");
+		const sheetId = /sheetId\W+([0-9a-f-]{36})/.exec(
+			JSON.stringify(await ws.readMessages(own, started.conversationId)),
+		)?.[1];
+		expect(sheetId).toBeDefined();
+		expect(bound?.provider_resource_id).toBe(sheetId);
+		const saved = await testEnv.DB.prepare(
+			"SELECT r.manifest FROM os_gadget_revisions r JOIN os_gadgets g ON g.current_revision_id = r.id WHERE g.workspace_id = ? AND g.name = 'Budget tracker'",
+		)
+			.bind(own.workspaceId)
+			.first<{ manifest: string }>();
+		expect(JSON.parse(saved!.manifest)).toMatchObject({
+			resourceGrants: [{ slot: bound!.slot, operations: ["outputs.read"] }],
+			config: { settings: { reads: { budget: bound!.slot } } },
+		});
+	});
+
 	test("typed Doc edits use the canonical document; one that removes a block cannot run before approval", async () => {
 		await seedCore();
 		const ws = workspace();

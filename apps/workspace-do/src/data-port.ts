@@ -5,7 +5,11 @@
  */
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import type { RegisterAppScheduleInput } from "@tedix/api-contract/schemas/os-app-runtime";
+import type {
+	AllowAppReadInput,
+	AppRuntimeReads,
+	RegisterAppScheduleInput,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 import type { WorkspaceFileText } from "@tedix/api-contract/utils/workspace-file-text";
 
 export interface OutputSummary {
@@ -54,6 +58,8 @@ export interface CreateAppInput {
 	description?: string;
 	/** `server.js` and `client.js` are required; see the app file rules. */
 	files: Record<string, string>;
+	/** Files of this workspace the app may read: a name, then the file's id. */
+	reads?: AppRuntimeReads;
 }
 
 /** A new app with its first saved revision. */
@@ -185,10 +191,21 @@ export interface WorkspaceDataPort {
 	editAppFiles(
 		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode>;
-	/** Checks a new app's name and files without saving anything. */
+	/** Checks a new app's name, files and the files it asks to read; saves nothing. */
 	checkNewApp(input: CreateAppInput): Promise<void>;
-	/** Creates an app in this workspace with revision 1. It has no grants. */
+	/** Creates an app in this workspace with revision 1. It may read only `reads`. */
 	createApp(input: CreateAppInput & { actorId: string }): Promise<CreatedApp>;
+	/** The titles of the files `reads` names, each active and in this workspace. */
+	readableFileTitles(reads: unknown): Promise<string[]>;
+	/** Lets an existing app read more files of this workspace, as a new revision. */
+	allowAppRead(
+		input: AllowAppReadInput & { actorId: string },
+	): Promise<{
+		id: string;
+		name: string;
+		revision: number;
+		revisionId: string;
+	}>;
 	registerAppSchedule(
 		input: RegisterAppScheduleInput & { actorId: string },
 	): Promise<{ gadgetId: string; triggerId: string; name: string }>;

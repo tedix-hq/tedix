@@ -1318,16 +1318,23 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 			.filter(Boolean)
 			.join("\n")
 			.slice(0, 2_000);
-	// A new app: what it is for, then the files it starts with.
+	// A new app: what it is for, the workspace files it may read, then the
+	// files it starts with. An existing app asking to read files names them.
+	const mayRead = Array.isArray(input.mayRead)
+		? input.mayRead.filter((title) => typeof title === "string")
+		: [];
+	const reads = mayRead.length ? `May read: ${mayRead.join(", ")}` : "";
 	const files = objectValue(input.files);
 	if (files)
 		return [
 			typeof input.description === "string" ? input.description : "",
+			reads,
 			`Files: ${Object.keys(files).join(", ")}`,
 		]
 			.filter(Boolean)
 			.join("\n\n")
 			.slice(0, 2_000);
+	if (reads) return reads.slice(0, 2_000);
 	if (typeof input.description === "string")
 		return input.description.slice(0, 2_000);
 	return "";

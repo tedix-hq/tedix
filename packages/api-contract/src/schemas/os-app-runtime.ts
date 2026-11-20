@@ -208,6 +208,29 @@ export type RegisterAppScheduleInput = z.infer<
 	typeof RegisterAppScheduleInputSchema
 >;
 
+/**
+ * Files of the app's own workspace it may read: the name its code uses, then
+ * the file's id. Each becomes a read-only resource grant on the manifest and
+ * `settings.reads[name]` holds the slot the app passes to `outputs.read`.
+ */
+export const AppRuntimeReadsSchema = z
+	.record(
+		z.string().regex(/^[a-z][a-z0-9_]{0,39}$/, "Use a lower snake_case name"),
+		z.string().uuid(),
+	)
+	.refine((reads) => Object.keys(reads).length <= 10, "At most 10 files");
+export type AppRuntimeReads = z.infer<typeof AppRuntimeReadsSchema>;
+
+export const AllowAppReadInputSchema = z.strictObject({
+	appId: z.string().uuid(),
+	expectedRevisionId: z.string().uuid(),
+	reads: AppRuntimeReadsSchema.refine(
+		(reads) => Object.keys(reads).length > 0,
+		"Name at least one file",
+	),
+});
+export type AllowAppReadInput = z.infer<typeof AllowAppReadInputSchema>;
+
 export const AppRuntimeTriggerStateSchema = z.object({
 	trigger: AppRuntimeTriggerSchema,
 	enabled: z.boolean(),
