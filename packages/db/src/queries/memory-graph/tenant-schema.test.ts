@@ -18,12 +18,12 @@ const databases: DatabaseSync[] = [];
 afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 });
-function tenant() {
+function tenant(beforeMigration?: string) {
 	const db = new DatabaseSync(":memory:");
 	databases.push(db);
 	db.exec("PRAGMA foreign_keys=ON");
-	for (const migration of Object.values(tenantStoreMigrations))
-		db.exec(migration);
+	for (const [name, migration] of Object.entries(tenantStoreMigrations))
+		if (!beforeMigration || name < beforeMigration) db.exec(migration);
 	return db;
 }
 const memoryTables = [
@@ -33,6 +33,8 @@ const memoryTables = [
 	"tedi_optimization_signals",
 	"memory_facts",
 	"memory_edges",
+	"memory_fact_org_counts",
+	"memory_edge_org_counts",
 	"memory_entities",
 	"memory_entity_mentions",
 	"memory_entity_aliases",
@@ -45,6 +47,34 @@ const memoryTables = [
 ];
 
 describe("workspace memory migration contract", () => {
+	it("backfills existing edge totals and maintains them through self-edge cascades", () => {
+		const migration = "20261120155410_memory_edge_org_totals";
+		const local = tenant(migration);
+		local.exec(`
+			INSERT INTO memory_store_identity VALUES (1,'fictional-org','organization','fictional-org','2026-11-20');
+			INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES
+				('a','fictional-org','First','technical'), ('b','fictional-org','Second','technical');
+			INSERT INTO memory_edges(id,source_fact_id,target_fact_id,relation_type) VALUES ('ab','a','b','related_to');
+		`);
+		local.exec(tenantStoreMigrations[migration]!);
+		const total = () =>
+			local
+				.prepare(
+					"SELECT total FROM memory_edge_org_counts WHERE organization_id='fictional-org'",
+				)
+				.get()?.total;
+		expect(total()).toBe(1);
+		local.exec(
+			"INSERT INTO memory_edges(id,source_fact_id,target_fact_id,relation_type) VALUES ('aa','a','a','related_to')",
+		);
+		expect(total()).toBe(2);
+		local.exec("DELETE FROM memory_facts WHERE id='a'");
+		expect(total()).toBe(0);
+		expect(
+			local.prepare("SELECT count(*) AS n FROM memory_edges").get()?.n,
+		).toBe(0);
+	});
+
 	it("binds immutable memory owners without permitting workspace reclassification or foreign rows", () => {
 		const local = tenant();
 		local.exec(

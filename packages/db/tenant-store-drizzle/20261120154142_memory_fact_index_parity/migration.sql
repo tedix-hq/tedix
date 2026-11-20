@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS `idx_memory_facts_org_domain`;--> statement-breakpoint
+CREATE INDEX `idx_memory_facts_org_domain_live` ON `memory_facts` (`organization_id`,`domain_id`,`archived_at`,`valid_to`,`created_at`);--> statement-breakpoint
+CREATE INDEX `idx_memory_facts_org_confirmed_lessons` ON `memory_facts` (`organization_id`,`topic_key`) WHERE review_status = 'confirmed' AND status = 'active' AND archived_at IS NULL AND valid_to IS NULL;

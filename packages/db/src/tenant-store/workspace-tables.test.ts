@@ -8,11 +8,9 @@ afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 });
 
-/** Tables the workspace migration copies into the store besides memory. */
+/** Tables mirrored from the core into the workspace store besides memory. */
 const workspaceTables = [
 	"os_workspaces",
-	"os_outputs",
-	"os_output_revisions",
 	"os_workspace_resources",
 	"kernel_conversations",
 	"kernel_runtime_runs",
