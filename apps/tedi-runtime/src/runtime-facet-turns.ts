@@ -3055,43 +3055,11 @@ export const runtimeFacetTurns = {
 		// (`takePendingToolSteps`), so reading after would always be empty.
 		const toolCallRefs = this.toolCallRefsForRun(input.runId);
 		const executionEvidence = this.toolExecutionEvidenceForRun(input.runId);
-		// Post-turn bridges. commitAssistantTurn runs as a ChatTurnWorkflow RPC
-		// callback, where Agent.queue()'s fire-and-forget flush does NOT drain
-		// before the callback returns — so queued ledger/bridge work was stranded
-		// and the kernel never saw a delegated turn's events (run.started/completed),
-		// orphan-failing the parent even though the workflow turn succeeded. Call the
-		// handlers DIRECTLY (awaited) so they run synchronously within the commit.
-		// Ledger mirror first — it carries the kernel-visible run lifecycle.
-
-		// A synthetic no-prose cron commit carries no genuine assistant
-		// cognition — the Code Mode tool work already wrote its own memory/skill
-		// effects during the facet turn. Fanning the identical placeholder note
-		// into the brain bridge, daily narrative log, and learning-conversion
-		// signal on every fire would seed those curation stores with hundreds of
-		// duplicate boilerplate turns (each fire has a distinct runId, so no
-		// dedup fires) — polluting the exact surfaces these cognitive crons tend,
-		// and inflating the learning-conversion metric with an artifact. The
-		// ledger mirror (above) still seals the kernel-visible run lifecycle.
-		if (!input.suppressMemoryEffects && !input.executionRestriction) {
-			await this.dispatchTurnMemoryEffects({
-				user: userTurn,
-				assistant: assistantTurn,
-				runId: input.runId,
-				origin,
-				sessionKey: input.sessionKey,
-				...(input.workItemId ? { workItemId: input.workItemId } : {}),
-				toolCallRefs,
-				executionEvidence,
-				learningMode:
-					input.learningMode ??
-					adaptiveLearningModeForTurn({
-						userText: input.userText,
-						assistantText: input.assistantText,
-					}),
-				awaitBridge: true,
-				dailyLog: inserted && input.dailyLog !== false,
-			});
-		}
+		// Publish first. The ledger mirror carries the kernel-visible run lifecycle
+		// (`run.completed` is what the chat page and a delegating parent read), so
+		// it runs before learning. It is called DIRECTLY (awaited): this commit is
+		// a ChatTurnWorkflow RPC callback, where Agent.queue()'s fire-and-forget
+		// flush does not drain before the callback returns.
 		try {
 			await this.onLedgerMirror({
 				sessionKey: input.sessionKey,
@@ -3111,6 +3079,47 @@ export const runtimeFacetTurns = {
 		if (inserted && !input.executionRestriction) {
 			// Stage 3: trigger best-effort compaction after a genuine commit.
 			await this.enqueueCompaction(input.sessionKey);
+		}
+
+		// Learning (observer model call + record writes, 5-20 s) follows the
+		// published result in the background: `keepAliveWhile` holds the object
+		// until it finishes, and a failure is logged without touching the settled
+		// run. It runs under its own `{runId}:memory` claim, and the trace bundle
+		// merges ids from whichever of mirror and bridge lands second.
+		//
+		// A synthetic no-prose cron commit carries no genuine assistant
+		// cognition — the Code Mode tool work already wrote its own memory/skill
+		// effects during the facet turn. Fanning the identical placeholder note
+		// into the brain bridge, daily narrative log, and learning-conversion
+		// signal on every fire would seed those curation stores with hundreds of
+		// duplicate boilerplate turns (each fire has a distinct runId, so no
+		// dedup fires) — polluting the exact surfaces these cognitive crons tend,
+		// and inflating the learning-conversion metric with an artifact.
+		if (!input.suppressMemoryEffects && !input.executionRestriction) {
+			this.ctx.waitUntil(
+				this.keepAliveWhile(() =>
+					this.dispatchTurnMemoryEffects({
+						user: userTurn,
+						assistant: assistantTurn,
+						runId: input.runId,
+						origin,
+						sessionKey: input.sessionKey,
+						...(input.workItemId ? { workItemId: input.workItemId } : {}),
+						toolCallRefs,
+						executionEvidence,
+						learningMode:
+							input.learningMode ??
+							adaptiveLearningModeForTurn({
+								userText: input.userText,
+								assistantText: input.assistantText,
+							}),
+						awaitBridge: true,
+						dailyLog: inserted && input.dailyLog !== false,
+					}),
+				).catch((e) =>
+					logTediRuntimeFailure("tedi.runtime.workflow_learning_failed", e),
+				),
+			);
 		}
 	},
 };

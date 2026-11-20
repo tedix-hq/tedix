@@ -70,7 +70,8 @@ async function runCronTurn(assistantText: string) {
 async function commit(suppressMemoryEffects: boolean) {
 	const calls: string[] = [];
 	const agent = tediDo({
-		ctx: { storage: memoryStorage() },
+		ctx: { storage: memoryStorage(), waitUntil() {} },
+		keepAliveWhile: (run: () => Promise<unknown>) => run(),
 		mcpRuntime: null,
 		async ensureIdentity() {},
 		sessionHarness: { appendTurn: async () => true },
@@ -82,6 +83,7 @@ async function commit(suppressMemoryEffects: boolean) {
 		},
 		async dispatchTurnMemoryEffects() {
 			calls.push("memory");
+			throw new Error("learning failed");
 		},
 		enqueueCompaction() {},
 	});
@@ -97,8 +99,8 @@ async function commit(suppressMemoryEffects: boolean) {
 assert.deepEqual(await commit(true), ["ledger"]);
 assert.deepEqual(
 	await commit(false),
-	["memory", "ledger"],
-	"enroll original memory work before the ledger seals its parent claim",
+	["ledger", "memory"],
+	"the result is published before learning, and failed learning cannot undo it",
 );
 
 console.log("cron-synthetic-note-no-pollution.test.ts: all assertions passed");

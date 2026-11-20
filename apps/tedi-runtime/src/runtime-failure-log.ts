@@ -21,6 +21,7 @@ type RuntimeFailureEvent =
 	| "tedi.runtime.mcp_ledger_mirror_queue_failed"
 	| "tedi.runtime.voice_ledger_mirror_queue_failed"
 	| "tedi.runtime.workflow_ledger_mirror_failed"
+	| "tedi.runtime.workflow_learning_failed"
 	| "tedi.runtime.workflow_dispatch_record_failed"
 	| "tedi.runtime.workflow_watchdog_schedule_failed"
 	| "tedi.runtime.compaction_failed"

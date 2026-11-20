@@ -134,7 +134,8 @@ for (const key of [
 async function commit(restricted: boolean) {
 	const calls: string[] = [];
 	const a = tediDo({
-		ctx: { storage: memoryStorage() },
+		ctx: { storage: memoryStorage(), waitUntil() {} },
+		keepAliveWhile: (run: () => Promise<unknown>) => run(),
 		mcpRuntime: null,
 		async ensureIdentity() {},
 		sessionHarness: {
@@ -172,9 +173,9 @@ async function commit(restricted: boolean) {
 assert.deepEqual(await commit(true), ["transcript", "ledger"]);
 assert.deepEqual(await commit(false), [
 	"transcript",
-	"memory",
 	"ledger",
 	"compaction",
+	"memory",
 ]);
 for (const asyncMode of [false, true]) {
 	const dispatched: Record<string, unknown>[] = [],

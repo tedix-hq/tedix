@@ -467,7 +467,8 @@ for (const stream of [false, true]) {
 	const memory: Array<Record<string, unknown>> = [];
 	const mirrors: Array<Record<string, unknown>> = [];
 	const agent = tediDo({
-		ctx: { storage: memoryStorage() },
+		ctx: { storage: memoryStorage(), waitUntil() {} },
+		keepAliveWhile: (run: () => Promise<unknown>) => run(),
 		mcpRuntime: null,
 		async ensureIdentity() {},
 		sessionHarness: { appendTurn: async () => true },
