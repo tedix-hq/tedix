@@ -8,10 +8,6 @@
 import { createRouterClient } from "@orpc/server";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import { AGENT_RUN_SOURCE } from "@tedix/db/queries/work-items/agent-runs";
-import {
-	claimWorkAttemptOutcomeLesson,
-	releaseWorkAttemptOutcomeLesson,
-} from "@tedix/db/queries/work-items/attempts";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
@@ -195,8 +191,8 @@ const reflectOnAgentRun: Reflect = async (context, orgId, lesson) => {
 };
 
 /**
- * Stores the lesson once per Attempt and never throws: the settle that calls
- * this has already been recorded.
+ * Stores the lesson and never throws: the settle that calls this has already
+ * been recorded. Call it only from the settle that ended the Attempt.
  */
 export async function recordAgentRunOutcomeLesson(
 	context: BaseContext,
@@ -207,14 +203,7 @@ export async function recordAgentRunOutcomeLesson(
 ): Promise<"stored" | "skipped" | "failed"> {
 	const lesson = agentRunOutcomeLesson(work, attempt);
 	if (!lesson) return "skipped";
-	const scope = {
-		orgId: work.orgId,
-		workItemId: work.id,
-		attemptId: attempt.id,
-	};
 	try {
-		if (!(await claimWorkAttemptOutcomeLesson(context.db, scope)))
-			return "skipped";
 		await learn(
 			buildInternalServiceBindingContext(context, work.orgId),
 			lesson,
@@ -232,8 +221,5 @@ export async function recordAgentRunOutcomeLesson(
 			exception: safeExceptionTopology(error),
 		});
 	}
-	await releaseWorkAttemptOutcomeLesson(context.db, scope).catch(
-		() => undefined,
-	);
 	return "failed";
 }

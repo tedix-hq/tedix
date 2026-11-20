@@ -1174,7 +1174,7 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 					? input.needsUser
 					: undefined;
 			const settledAt = new Date().toISOString();
-			const settled = await settleWorkItemAttempt(context.db, {
+			const { replayed, ...settled } = await settleWorkItemAttempt(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				attemptId: input.attemptId,
@@ -1193,27 +1193,31 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				costMicros: input.costMicros,
 				settledAt,
 			});
-			const { notifyAgentRunEnded } =
-				await import("../../../services/agent-run-ended-notice");
-			// The settle is recorded; reporting it to the chat must not delay or
-			// fail the runner's response.
-			const notice = notifyAgentRunEnded(
-				context,
-				settled.workItem,
-				settled.attempt,
-			);
-			if (context.waitUntil) context.waitUntil(notice);
-			else await notice;
-			const { recordAgentRunOutcomeLesson } =
-				await import("../../../services/agent-run-outcome-lesson");
-			// The tedi that started the run remembers how it ended.
-			const lesson = recordAgentRunOutcomeLesson(
-				context,
-				settled.workItem,
-				settled.attempt,
-			);
-			if (context.waitUntil) context.waitUntil(lesson);
-			else await lesson;
+			// Only the settle that ended the Attempt reports it; a replayed
+			// hand-off settle returns the same Attempt again.
+			if (!replayed) {
+				const { notifyAgentRunEnded } =
+					await import("../../../services/agent-run-ended-notice");
+				// The settle is recorded; reporting it to the chat must not delay or
+				// fail the runner's response.
+				const notice = notifyAgentRunEnded(
+					context,
+					settled.workItem,
+					settled.attempt,
+				);
+				if (context.waitUntil) context.waitUntil(notice);
+				else await notice;
+				const { recordAgentRunOutcomeLesson } =
+					await import("../../../services/agent-run-outcome-lesson");
+				// The tedi that started the run remembers how it ended.
+				const lesson = recordAgentRunOutcomeLesson(
+					context,
+					settled.workItem,
+					settled.attempt,
+				);
+				if (context.waitUntil) context.waitUntil(lesson);
+				else await lesson;
+			}
 			if (!agentNextStep) return settled;
 			const ask = await routeLaneNextStepToAgent(context.db, {
 				work: settled.workItem,

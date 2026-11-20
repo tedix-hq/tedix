@@ -73,7 +73,7 @@ async function fixture({
 }
 
 describe("agent run ended notice", () => {
-	it("appends a plain result to the workspace conversation once for this Attempt", async () => {
+	it("appends a plain result to the workspace conversation for this Attempt", async () => {
 		const workspaceId = "22222222-2222-4222-8222-222222222222";
 		const conversationId = "33333333-3333-4333-8333-333333333333";
 		const { work, attempt, context, enqueue } = await fixture({
@@ -89,9 +89,6 @@ describe("agent run ended notice", () => {
 		await expect(
 			notifyAgentRunEnded(workspaceContext, work, attempt, enqueue),
 		).resolves.toBe("sent");
-		await expect(
-			notifyAgentRunEnded(workspaceContext, work, attempt, enqueue),
-		).resolves.toBe("skipped");
 		expect(enqueue).not.toHaveBeenCalled();
 		expect(appendAgentRunNotice).toHaveBeenCalledExactlyOnceWith(
 			{ organizationId: "org", workspaceId },
@@ -134,15 +131,6 @@ describe("agent run ended notice", () => {
 		},
 	);
 
-	it("sends one message when the same Attempt is reported again", async () => {
-		const { work, attempt, context, enqueue } = await fixture();
-		await notifyAgentRunEnded(context, work, attempt, enqueue);
-		await expect(
-			notifyAgentRunEnded(context, work, attempt, enqueue),
-		).resolves.toBe("skipped");
-		expect(enqueue).toHaveBeenCalledTimes(1);
-	});
-
 	it.each([
 		["no source conversation", { sourceSessionKey: null }],
 		["a session that is not a tedi chat", { sourceSessionKey: "codex:abc" }],
@@ -180,17 +168,7 @@ describe("agent run ended notice", () => {
 		},
 	);
 
-	it("does not throw when the Attempt cannot be marked", async () => {
-		vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		const { work, attempt, context, enqueue } = await fixture();
-		databases.pop()!.close();
-		await expect(
-			notifyAgentRunEnded(context, work, attempt, enqueue),
-		).resolves.toBe("failed");
-		expect(enqueue).not.toHaveBeenCalled();
-	});
-
-	it("reports once to the tedi that started the run in the person's chat", async () => {
+	it("reports to the tedi that started the run in the person's chat", async () => {
 		const { db, work, attempt, context, enqueue } = await fixture({
 			sourceSessionKey: "home:os:chat-7",
 		});
@@ -198,9 +176,6 @@ describe("agent run ended notice", () => {
 		await expect(
 			notifyAgentRunEnded(context, work, attempt, enqueue, enqueueHome),
 		).resolves.toBe("sent");
-		await expect(
-			notifyAgentRunEnded(context, work, attempt, enqueue, enqueueHome),
-		).resolves.toBe("skipped");
 		expect(enqueue).not.toHaveBeenCalled();
 		expect(enqueueHome).toHaveBeenCalledTimes(1);
 		const [sentContext, message] = enqueueHome.mock.calls[0] as unknown as [
@@ -219,8 +194,6 @@ describe("agent run ended notice", () => {
 			organizationId: "org",
 		});
 		expect(sentContext.userId).toBeUndefined();
-		const [row] = await db.select().from(workAttempts);
-		expect(row!.metadata).not.toEqual({});
 	});
 
 	it.each([
