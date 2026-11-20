@@ -103,7 +103,7 @@ export function ConversationUsageRing({
 					aria-label="Share of this month's credits used in this conversation"
 					label=""
 					hideLabel
-					value={usage.percent}
+					value={visibleShare(usage.percent)}
 					getAriaValueText={() => usage.label}
 					className="mt-2 gap-0"
 					trackClassName="h-1.5"
@@ -119,11 +119,16 @@ export function ConversationUsageRing({
 	);
 }
 
-/** A 16 px doughnut; any use shows at least a sliver so it never reads as empty. */
+/** Any use shows at least a sliver, so "<1%" never looks empty. */
+function visibleShare(percent: number): number {
+	return percent > 0 ? Math.min(100, Math.max(percent, 4)) : 0;
+}
+
+/** A 16 px doughnut. */
 function UsageRing({ percent }: { percent: number }) {
 	const radius = 6;
 	const circumference = 2 * Math.PI * radius;
-	const shown = percent > 0 ? Math.min(100, Math.max(percent, 4)) : 0;
+	const shown = visibleShare(percent);
 	return (
 		<svg aria-hidden width={16} height={16} viewBox="0 0 16 16">
 			<circle
