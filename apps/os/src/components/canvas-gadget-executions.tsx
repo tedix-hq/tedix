@@ -958,11 +958,12 @@ function RunManuallyForm({
 			)}
 			<div className="flex justify-end">
 				<Button
+					loading={run.isPending}
 					type="submit"
 					size="sm"
 					disabled={run.isPending || activeTedis.length === 0}
 				>
-					<Play size={14} /> {run.isPending ? "Starting…" : "Run"}
+					<Play size={14} /> Run
 				</Button>
 			</div>
 		</form>

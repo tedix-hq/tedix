@@ -128,6 +128,7 @@ export function WorkspaceTemplateStarters({
 							</div>
 						</div>
 						<Button
+							loading={create.isPending && create.variables.id === item.id}
 							aria-label={`Start a workspace from ${item.name}`}
 							className="mt-auto w-full"
 							disabled={create.isPending || create.isSuccess}
@@ -135,9 +136,7 @@ export function WorkspaceTemplateStarters({
 							size="sm"
 							variant="outline"
 						>
-							{create.isPending && create.variables.id === item.id
-								? "Creating…"
-								: "Use this template"}
+							Use this template
 						</Button>
 					</Surface>
 				))}

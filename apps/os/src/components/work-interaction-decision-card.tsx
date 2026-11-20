@@ -360,10 +360,13 @@ export function WorkInteractionDecisionCard({
 		);
 	if (!detail && query.isPending)
 		return (
-			<Skeleton
-				className="h-60 w-full"
-				aria-label={decisionText("Loading request")}
-			/>
+			<div className="w-full shrink-0 p-4">
+				<Skeleton
+					className="h-60 w-full"
+					role="status"
+					aria-label={decisionText("Loading request")}
+				/>
+			</div>
 		);
 	if (!detail) return readNotice;
 	const { request, effectiveState, canRespond, canCancel, responses } = detail;

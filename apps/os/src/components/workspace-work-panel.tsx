@@ -200,8 +200,12 @@ function ScheduleDialog({
 						</div>
 					) : null}
 					<DialogFooter>
-						<Button type="submit" disabled={save.isPending || save.isError}>
-							{save.isPending ? "Saving…" : "Save dates"}
+						<Button
+							loading={save.isPending}
+							type="submit"
+							disabled={save.isPending || save.isError}
+						>
+							Save dates
 						</Button>
 					</DialogFooter>
 				</form>

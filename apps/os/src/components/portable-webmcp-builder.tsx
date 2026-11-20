@@ -519,15 +519,17 @@ function InstallationEditor({
 			</Surface>
 			<div className="flex flex-wrap gap-2">
 				<Button
+					loading={mutation.isPending}
 					disabled={
 						mutation.isPending ||
 						profile.routes.some((route) => route.tools.length === 0)
 					}
 					onClick={() => mutation.mutate(profile)}
 				>
-					{mutation.isPending ? "Publishing…" : "Publish route revision"}
+					Publish route revision
 				</Button>
 				<Button
+					loading={rollout.isPending}
 					variant="secondary"
 					disabled={
 						rollout.isPending ||
@@ -536,7 +538,7 @@ function InstallationEditor({
 					}
 					onClick={() => rollout.mutate()}
 				>
-					{rollout.isPending ? "Rolling out…" : "Publish to selected tenants"}
+					Publish to selected tenants
 				</Button>
 				{configuration.history
 					.slice()

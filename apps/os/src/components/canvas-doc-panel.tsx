@@ -735,16 +735,15 @@ export function CanvasDocPanel({
 			) : (
 				<>
 					<Button
+						loading={committing}
 						size="sm"
 						disabled={committing || commitDisabled}
 						onClick={() => void commitDraft()}
 					>
 						<FloppyDisk size={14} />{" "}
-						{committing
-							? "Saving…"
-							: keepingChanges && canonicalDoc
-								? `Save as v${canonicalDoc.revision + 1} now`
-								: "Save now"}
+						{keepingChanges && canonicalDoc
+							? `Save as v${canonicalDoc.revision + 1} now`
+							: "Save now"}
 					</Button>
 					<Button
 						variant="ghost"

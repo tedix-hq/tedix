@@ -44,8 +44,12 @@ export function WorkItemCommentComposer({ itemId }: { itemId: string }) {
 			{comment.error ? (
 				<p role="alert">{comment.error.message}. Your draft is saved here.</p>
 			) : null}
-			<Button type="submit" disabled={!body.trim() || comment.isPending}>
-				{comment.isPending ? "Posting…" : "Post comment"}
+			<Button
+				loading={comment.isPending}
+				type="submit"
+				disabled={!body.trim() || comment.isPending}
+			>
+				Post comment
 			</Button>
 		</form>
 	);

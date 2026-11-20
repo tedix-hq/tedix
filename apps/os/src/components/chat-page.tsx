@@ -77,6 +77,7 @@ function SaveAsWorkspaceButton({ conversationId }: { conversationId: string }) {
 				</Text>
 			) : null}
 			<Button
+				loading={save.isPending}
 				disabled={save.isPending}
 				onClick={() =>
 					save.mutate({
@@ -91,7 +92,7 @@ function SaveAsWorkspaceButton({ conversationId }: { conversationId: string }) {
 				variant="ghost"
 			>
 				<FolderPlus size={14} />
-				{save.isPending ? "Saving…" : "Save as workspace"}
+				Save as workspace
 			</Button>
 		</div>
 	);

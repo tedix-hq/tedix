@@ -17,6 +17,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { WorkspaceActivityItem } from "@tedix/api-contract/schemas/workspace-feed";
 import { type ComponentType, useEffect } from "react";
 import { WorkspaceAppTriggers } from "./workspace-app-connections";
+import { LoadingArea } from "@/components/loading-area";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
@@ -508,9 +509,7 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 					Workspace activity could not be loaded. Try again later.
 				</Text>
 			) : activity.isPending || lookingBack ? (
-				<Text role="label" tone="secondary">
-					Loading workspace activity…
-				</Text>
+				<LoadingArea label="Loading workspace activity…" />
 			) : entries.length === 0 ? (
 				<Text role="label" tone="secondary">
 					{activity.hasNextPage
@@ -544,10 +543,10 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 			{activity.hasNextPage && (
 				<Button
 					variant="secondary"
-					disabled={activity.isFetchingNextPage}
+					loading={activity.isFetchingNextPage}
 					onClick={() => void activity.fetchNextPage()}
 				>
-					{activity.isFetchingNextPage ? "Loading…" : "Load more"}
+					Load more
 				</Button>
 			)}
 			{activity.isSuccess ? (

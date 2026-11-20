@@ -234,10 +234,11 @@ export function ConversationCapabilityPalette({
 							Letters, numbers, and underscores only; start with a letter.
 						</Text>
 						<Button
+							loading={attach.isPending}
 							disabled={!selectedId || !replayNameValid || attach.isPending}
 							onClick={() => attach.mutate()}
 						>
-							{attach.isPending ? "Attaching…" : "Add context"}
+							Add context
 						</Button>
 					</Surface>
 
@@ -319,6 +320,7 @@ export function ConversationCapabilityPalette({
 								placeholder="approved_report"
 							/>
 							<Button
+								loading={pinArtifact.isPending}
 								disabled={
 									!artifactId.trim() ||
 									!REPLAY_NAME_PATTERN.test(artifactReplayName) ||
@@ -326,7 +328,7 @@ export function ConversationCapabilityPalette({
 								}
 								onClick={() => pinArtifact.mutate()}
 							>
-								{pinArtifact.isPending ? "Pinning…" : "Pin version"}
+								Pin version
 							</Button>
 						</Surface>
 						<div className="mt-3 grid gap-2" aria-label="Pinned files">

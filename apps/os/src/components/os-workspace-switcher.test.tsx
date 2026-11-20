@@ -65,15 +65,19 @@ vi.mock("@/shared/os-tenant", () => ({
 	resolveOsTenant: () => ({ kind: "tenant", slug: "tedix" }),
 }));
 
-vi.mock("@/lib/workspace-switcher", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/lib/workspace-switcher")>()),
-	useSurfaceSwitch: () => ({ switchingTo: null, switchTo }),
-	useWorkspaceDirectory: () => ({
-		activeWorkspace: workspace,
-		query: { isError: false, isLoading: directoryState.loading },
-		workspaces: directoryState.workspaces ?? [otherWorkspace, workspace],
-	}),
-}));
+vi.mock("@/lib/workspace-switcher", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("@/lib/workspace-switcher")>();
+	return {
+		...original,
+		useSurfaceSwitch: () => original.useSurfaceSwitch({ navigate: switchTo }),
+		useWorkspaceDirectory: () => ({
+			activeWorkspace: workspace,
+			query: { isError: false, isLoading: directoryState.loading },
+			workspaces: directoryState.workspaces ?? [otherWorkspace, workspace],
+		}),
+	};
+});
 
 vi.mock("@/lib/use-os-preferences", () => ({
 	useOsOperationalContext: () => ({
@@ -221,7 +225,25 @@ describe("OsWorkspaceSwitcher", () => {
 				[]),
 		];
 		await act(async () => again[1]?.click());
-		expect(switchTo).toHaveBeenLastCalledWith(otherWorkspace, "os");
+		expect(switchTo).toHaveBeenLastCalledWith(
+			otherWorkspace.surfaces[0]?.handoffUrl,
+		);
+		expect(document.querySelector('[role="menu"]')).not.toBeNull();
+		const picked = document.querySelector('[data-org-row="northwind-labs"]');
+		expect(picked?.getAttribute("aria-busy")).toBe("true");
+		expect(
+			picked?.querySelector('[aria-label="Switching organization"]'),
+		).not.toBeNull();
+		expect(
+			document.querySelector(
+				'[data-org-row="tedix"] [aria-label="Switching organization"]',
+			),
+		).toBeNull();
+		for (const row of document.querySelectorAll("[data-org-row]")) {
+			expect(row.getAttribute("aria-disabled")).toBe("true");
+		}
+		await act(async () => again[1]?.click());
+		expect(switchTo).toHaveBeenCalledTimes(1);
 	});
 
 	it("adds a search field once there are more than six organizations", async () => {

@@ -52,6 +52,7 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 			isError={directory.query.isError}
 			isLoading={directory.query.isLoading}
 			onSwitch={surfaceSwitch.switchTo}
+			switchingTo={surfaceSwitch.switchingTo}
 			settingsLink={
 				authority && canAccessAdminSection(authority) ? (
 					<OsRouterLink to="/admin/organization" />
@@ -78,6 +79,7 @@ export function OrganizationSwitcherMenu({
 	isLoading,
 	onSwitch,
 	settingsLink,
+	switchingTo,
 	workspaces,
 }: {
 	children?: ReactNode;
@@ -90,6 +92,7 @@ export function OrganizationSwitcherMenu({
 		surface: DirectorySurface,
 	) => unknown;
 	settingsLink?: ReactElement;
+	switchingTo?: string | null;
 	workspaces: readonly DirectoryWorkspaceRecord[];
 }) {
 	const ordered = [
@@ -131,6 +134,10 @@ export function OrganizationSwitcherMenu({
 						{ordered.map((workspace) => (
 							<OrganizationRow
 								isCurrent={workspace.org.slug === currentSlug}
+								isSwitching={
+									switchingTo === `${workspace.org.organizationId}:os`
+								}
+								disabled={Boolean(switchingTo)}
 								key={workspace.org.organizationId}
 								onSwitch={onSwitch}
 								workspace={workspace}
@@ -200,11 +207,15 @@ function SwitcherTrigger({ children }: { children?: ReactNode }) {
 }
 
 function OrganizationRow({
+	disabled,
 	isCurrent,
+	isSwitching,
 	onSwitch,
 	workspace,
 }: {
+	disabled: boolean;
 	isCurrent: boolean;
+	isSwitching: boolean;
 	onSwitch: (
 		workspace: DirectoryWorkspaceRecord,
 		surface: DirectorySurface,
@@ -218,7 +229,9 @@ function OrganizationRow({
 		<DropdownMenuItem
 			aria-current={isCurrent ? "true" : undefined}
 			data-org-row={org.slug}
-			disabled={!isCurrent && (settingUp || !os?.provisioned)}
+			closeOnClick={false}
+			aria-busy={isSwitching || undefined}
+			disabled={disabled || (!isCurrent && (settingUp || !os?.provisioned))}
 			label={org.name}
 			onClick={() => {
 				if (!isCurrent) onSwitch(workspace, "os");
@@ -235,6 +248,9 @@ function OrganizationRow({
 			<span className="min-w-0 flex-1 truncate" title={org.name}>
 				{org.name}
 			</span>
+			{isSwitching ? (
+				<Loader size="sm" aria-label="Switching organization" />
+			) : null}
 			{settingUp ? (
 				<span className="shrink-0 text-kumo-subtle type-tedix-caption">
 					Setting up
