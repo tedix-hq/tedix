@@ -94,7 +94,12 @@ import {
 	TEDIX_OAUTH_CLIENT_ID,
 	WorkspaceOAuthProvider,
 } from "./oauth-provider";
-import { CLI_VERSION, looksLikeUuid, type CliOptions } from "./shared";
+import {
+	CLI_VERSION,
+	looksLikeUuid,
+	managedByDesktopApp,
+	type CliOptions,
+} from "./shared";
 import { runSkillCommand } from "./skill";
 import { buildStatusReport, renderStatusReport } from "./status";
 import { resolveThreadOrganizationId } from "./thread-organization";
@@ -218,6 +223,17 @@ export async function main() {
 					headers: options.mcpHeader,
 				})
 			: undefined;
+	if (
+		(command === "update" || command === "rollback") &&
+		managedByDesktopApp()
+	) {
+		console.log(
+			options.json
+				? JSON.stringify({ managedBy: "tedix-app", version: CLI_VERSION })
+				: `The Tedix app keeps this command-line tool up to date (now ${CLI_VERSION}). Update the app from Tedix → Check for Updates…`,
+		);
+		return;
+	}
 	if (command === "update") {
 		process.exitCode = await runUpdateCommand({
 			check: options.updateCheck ?? false,

@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
 
 type AgentHost = "codex" | "claude";
@@ -11,14 +13,29 @@ export type HostCommandRunner = (
 ) => CommandResult;
 
 const HOSTS: readonly AgentHost[] = ["codex", "claude"];
-const MARKETPLACE_REPO = "tedix-hq/tedix";
-const PLUGIN_IDS: Record<AgentHost, string> = {
-	codex: "tedix@tedix-repo",
-	claude: "tedix@tedix",
+interface PluginSource {
+	repo: string;
+	id: string;
+	marketplace: string;
+}
+/** The published plugin repository; every new install comes from here. */
+const PUBLISHED: PluginSource = {
+	repo: "tedix-hq/tedix-plugins",
+	id: "tedix@tedix-plugins",
+	marketplace: "tedix-plugins",
 };
-const MARKETPLACE_NAMES: Record<AgentHost, string> = {
-	codex: "tedix-repo",
-	claude: "tedix",
+/**
+ * Installs made from the source repository before the plugin had its own.
+ * They count as installed and update from where they came; setup never adds
+ * a second copy beside one.
+ */
+const EARLIER: Record<AgentHost, PluginSource> = {
+	codex: {
+		repo: "tedix-hq/tedix",
+		id: "tedix@tedix-repo",
+		marketplace: "tedix-repo",
+	},
+	claude: { repo: "tedix-hq/tedix", id: "tedix@tedix", marketplace: "tedix" },
 };
 
 export function agentHostSetupUsage(): string {
@@ -31,6 +48,7 @@ Usage:
   tedix setup agents --devin --yes   Merge Devin hooks and MCP config (no login)
   tedix setup agents --all --yes     Require both hosts; skip Tedix's prompt
   tedix setup agents --status        Report installed, login, hook, and read steps
+  tedix setup agents --status --json Print the same facts as JSON, Devin included
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
 
@@ -81,7 +99,14 @@ export function runHostCommand(
 	const result = spawnSync(command, args, {
 		encoding: "utf8",
 		stdio: interactive ? "inherit" : "pipe",
-		timeout: interactive ? 180_000 : 20_000,
+		// A tool that refreshes its plugin sources first can take a minute to
+		// answer, and fetching the plugin source takes minutes on a slow line:
+		// Claude Code gives up after two minutes unless told otherwise.
+		timeout: interactive ? 900_000 : 120_000,
+		env: {
+			CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS: "840000",
+			...process.env,
+		},
 		maxBuffer: 2 * 1024 * 1024,
 	});
 	return {
@@ -121,18 +146,19 @@ function installedPlugin(
 	enabled: boolean;
 	installed: boolean;
 	version?: string;
+	source: PluginSource;
 } {
 	const entries = host === "codex" ? asRecord(value)?.installed : value;
 	if (!Array.isArray(entries))
 		throw new Error(`${host} plugin list had an unexpected shape`);
-	const plugin = entries
-		.map(asRecord)
-		.find((entry) =>
-			host === "codex"
-				? entry?.pluginId === PLUGIN_IDS[host]
-				: entry?.id === PLUGIN_IDS[host],
+	const records = entries.map(asRecord);
+	const from = (source: PluginSource) =>
+		records.find(
+			(entry) => (host === "codex" ? entry?.pluginId : entry?.id) === source.id,
 		);
+	const plugin = from(PUBLISHED) ?? from(EARLIER[host]);
 	return {
+		source: plugin && !from(PUBLISHED) ? EARLIER[host] : PUBLISHED,
 		installed: Boolean(plugin),
 		enabled: plugin?.enabled === true,
 		version: typeof plugin?.version === "string" ? plugin.version : undefined,
@@ -142,22 +168,23 @@ function installedPlugin(
 function marketplaceSource(
 	host: AgentHost,
 	value: unknown,
+	from: PluginSource,
 ): "absent" | "git" | "local" {
 	const entries = host === "codex" ? asRecord(value)?.marketplaces : value;
 	if (!Array.isArray(entries))
 		throw new Error(`${host} marketplace list had an unexpected shape`);
 	const marketplace = entries
 		.map(asRecord)
-		.find((entry) => entry?.name === MARKETPLACE_NAMES[host]);
+		.find((entry) => entry?.name === from.marketplace);
 	if (!marketplace) return "absent";
 	const source =
 		host === "codex"
 			? asRecord(marketplace.marketplaceSource)?.source
 			: marketplace.repo;
 	if (
-		source === MARKETPLACE_REPO ||
-		source === `https://github.com/${MARKETPLACE_REPO}` ||
-		source === `https://github.com/${MARKETPLACE_REPO}.git`
+		source === from.repo ||
+		source === `https://github.com/${from.repo}` ||
+		source === `https://github.com/${from.repo}.git`
 	)
 		return "git";
 	if (
@@ -173,7 +200,7 @@ function marketplaceSource(
 	)
 		return "local";
 	throw new Error(
-		`${host} has a ${MARKETPLACE_NAMES[host]} marketplace from an unknown source; inspect it in ${host} before continuing`,
+		`${host} has a ${from.marketplace} marketplace from an unknown source; inspect it in ${host} before continuing`,
 	);
 }
 
@@ -181,32 +208,108 @@ function setupCommands(
 	host: AgentHost,
 	source: "absent" | "git" | "local",
 	update: boolean,
+	from: PluginSource,
 ): string[][] {
 	if (update)
 		return host === "codex"
 			? [
 					...(source === "git"
-						? [["plugin", "marketplace", "upgrade", MARKETPLACE_NAMES[host]]]
+						? [["plugin", "marketplace", "upgrade", from.marketplace]]
 						: []),
-					["plugin", "add", PLUGIN_IDS[host]],
+					["plugin", "add", from.id],
 				]
 			: [
 					...(source === "git"
-						? [["plugin", "marketplace", "update", MARKETPLACE_NAMES[host]]]
+						? [["plugin", "marketplace", "update", from.marketplace]]
 						: []),
-					["plugin", "update", PLUGIN_IDS[host]],
+					["plugin", "update", from.id],
 				];
 	return [
 		...(source !== "absent"
 			? []
-			: [["plugin", "marketplace", "add", MARKETPLACE_REPO]]),
+			: [["plugin", "marketplace", "add", from.repo]]),
 		[
 			"plugin",
 			host === "codex" ? "add" : "install",
-			PLUGIN_IDS[host],
+			from.id,
 			...(host === "claude" ? ["--scope", "user"] : []),
 		],
 	];
+}
+
+/**
+ * What `--status --json` prints for one tool. `signedIn` is false only when
+ * the tool itself reports that its Tedix connection is not signed in;
+ * undefined means the tool gives no way to tell from outside.
+ */
+export interface AgentHostStatus {
+	host: AgentHost | "devin";
+	found: boolean;
+	installed: boolean;
+	enabled?: boolean;
+	version?: string;
+	signedIn?: boolean;
+	/** Codex only: whether the MCP protocol Tedix Connect needs is on. */
+	protocolEnabled?: boolean;
+	problem?: string;
+}
+
+function hostStatus(host: AgentHost, run: HostCommandRunner): AgentHostStatus {
+	if (run(host, ["--version"]).status !== 0)
+		return { host, found: false, installed: false };
+	try {
+		const plugin = installedPlugin(
+			host,
+			readJson(host, ["plugin", "list", "--json"], run),
+		);
+		const status: AgentHostStatus = { host, found: true, ...plugin };
+		if (host === "codex") {
+			const features = run(host, ["features", "list"]);
+			const enabled =
+				features.status === 0
+					? features.stdout.match(
+							/^mcp_2026_07_28\s+.*\s+(true|false)\s*$/m,
+						)?.[1]
+					: undefined;
+			if (enabled) status.protocolEnabled = enabled === "true";
+			const mcp = run(host, ["mcp", "list"]);
+			if (
+				mcp.status === 0 &&
+				mcp.stdout
+					.split("\n")
+					.some(
+						(line) => /^tedix\s/.test(line) && line.includes("Not logged in"),
+					)
+			)
+				status.signedIn = false;
+		}
+		return status;
+	} catch (error) {
+		return {
+			host,
+			found: true,
+			installed: false,
+			problem: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+function devinStatus(): AgentHostStatus {
+	const directory = devinConfigDirectory();
+	const found =
+		existsSync(directory) ||
+		spawnSync("devin", ["--version"], { stdio: "ignore", timeout: 20_000 })
+			.status === 0;
+	let installed = false;
+	try {
+		const config = JSON.parse(
+			readFileSync(join(directory, "mcp_config.json"), "utf8"),
+		) as { mcpServers?: Record<string, unknown> };
+		installed = Boolean(config.mcpServers?.tedix);
+	} catch {
+		/* No settings file yet, or one this command cannot read. */
+	}
+	return { host: "devin", found, installed };
 }
 
 export async function runAgentHostSetup(
@@ -214,6 +317,20 @@ export async function runAgentHostSetup(
 	run: HostCommandRunner = runHostCommand,
 	confirm?: (prompt: string) => Promise<boolean>,
 ): Promise<number> {
+	if (args.includes("--json")) {
+		if (args.length !== 2 || !args.includes("--status"))
+			throw new Error("Use --json only as: tedix setup agents --status --json");
+		console.log(
+			JSON.stringify(
+				{
+					hosts: [...HOSTS.map((host) => hostStatus(host, run)), devinStatus()],
+				},
+				null,
+				2,
+			),
+		);
+		return 0;
+	}
 	if (args.includes("--devin")) {
 		if (
 			new Set(args).size !== args.length ||
@@ -282,6 +399,7 @@ export async function runAgentHostSetup(
 			const source = marketplaceSource(
 				host,
 				readJson(host, ["plugin", "marketplace", "list", "--json"], run),
+				current.source,
 			);
 			console.log(
 				`${host}: plugin ${current.installed ? `${current.enabled ? "installed and enabled" : "installed but disabled"}${current.version ? ` (v${current.version})` : ""}` : "absent"}; marketplace ${source}; OAuth and read ${host === "codex" ? "checked below" : "unverified"}.`,
@@ -332,7 +450,7 @@ export async function runAgentHostSetup(
 				);
 			pending.push({
 				host,
-				commands: setupCommands(host, source, options.update),
+				commands: setupCommands(host, source, options.update, current.source),
 				previousVersion: current.version,
 			});
 		} catch (error) {
@@ -346,10 +464,9 @@ export async function runAgentHostSetup(
 		for (const { host, commands } of pending)
 			for (const command of commands)
 				console.log(`  ${host} ${command.join(" ")}`);
-		console.log(`The plugin includes skills, the https://connect.mcp.tedix.dev/mcp connection,
-and opt-in lifecycle hooks (tedix hooks <name>) that do nothing until you enable
-them and exit silently without the CLI. Review its source before installing:
-https://github.com/tedix-hq/tedix/tree/main/plugins/tedix`);
+		console.log(`The plugin includes skills and the https://connect.mcp.tedix.dev/mcp connection.
+Review its source before installing:
+https://github.com/tedix-hq/tedix-plugins`);
 		if (!options.dryRun) {
 			if (!options.yes) {
 				if (!confirm && !process.stdin.isTTY)

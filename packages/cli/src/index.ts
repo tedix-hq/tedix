@@ -229,7 +229,10 @@ async function main() {
 			localCommand ?? "",
 			flags.includes("--json"),
 			localCommand === "setup" &&
-				!(argv[1] === "agents" && argv[2] === "context"),
+				!(
+					argv[1] === "agents" &&
+					(argv[2] === "context" || flags.includes("--status"))
+				),
 		)
 	)
 		return;
