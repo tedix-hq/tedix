@@ -439,6 +439,30 @@ function createdThing(binding: string, input: unknown): string | null {
 }
 
 /**
+ * What a finished step found, shown under its label, for reads whose empty
+ * result would otherwise look like success: "Read 10 of your memories",
+ * "No memories matched 'harbor'".
+ */
+export function stepSummary(
+	binding: string,
+	method: string,
+	input: unknown,
+	value: unknown,
+): string | undefined {
+	if (binding !== "person" || method !== "memory" || !Array.isArray(value))
+		return undefined;
+	const query = (input as { query?: unknown } | null | undefined)?.query;
+	const words =
+		typeof query === "string" && query.trim()
+			? query.trim().slice(0, 60)
+			: null;
+	if (value.length === 0)
+		return words ? `No memories matched '${words}'` : "No memories found";
+	const count = `${value.length} of your memories`;
+	return words ? `Read ${count} about '${words}'` : `Read ${count}`;
+}
+
+/**
  * Plain labels for the steps a turn takes, by binding and method. With the
  * call's input, a create step names what it makes.
  */

@@ -4,7 +4,7 @@ import {
 } from "@tedix/api-contract/schemas/workspace-person-memory";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
 import { createDbClient } from "@tedix/db/client";
-import { getTopPlatformFacts } from "@tedix/db/queries/memory-graph/platform-facts";
+import { listPrivateFactsOfTedis } from "@tedix/db/queries/memory-graph/fact-search";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -12,10 +12,24 @@ import { listPersonalTediIdsOwnedBy } from "@tedix/db/queries/tedis";
 import { rankByQueryRelevance } from "../rpc/routers/kernel/context-relevance";
 import { isMemorySearchFactEligible } from "./memory-search-filter";
 
-/** Personal tedis whose memory is read, and candidates read per tedi. */
+/** Personal tedis whose memory is read. */
 const PERSONAL_TEDI_LIMIT = 5;
-const CANDIDATES_PER_TEDI = 50;
+/** Facts read per record returned, so ineligible ones do not empty a page. */
+const CANDIDATE_FACTOR = 4;
 const DEFAULT_RECORDS = 10;
+
+/**
+ * The words a query searches for, split as `rankByQueryRelevance` splits
+ * them; a query of only short words is searched as written.
+ */
+function searchTerms(query: string | undefined): string[] {
+	const text = query?.trim().toLowerCase() ?? "";
+	if (!text) return [];
+	const words = [
+		...new Set(text.split(/[^a-z0-9]+/).filter((word) => word.length > 2)),
+	].slice(0, 8);
+	return words.length > 0 ? words : [text];
+}
 
 const refused = (message: string): WorkspacePersonMemoryResult => ({
 	status: "refused",
@@ -71,37 +85,31 @@ export async function readWorkspacePersonMemory(
 			member.userId,
 			PERSONAL_TEDI_LIMIT,
 		);
-		const candidates = (
-			await Promise.all(
-				tediIds.map(async (tediId) =>
-					(
-						await getTopPlatformFacts(
-							db,
-							{ organizationId },
-							{ tediId, limit: CANDIDATES_PER_TEDI },
-						)
-					)
-						.map((row) => row.fact)
-						// Only what the tedi keeps privately: org-wide knowledge is
-						// not the person's own memory.
-						.filter(
-							(fact) =>
-								fact.visibility === "private" &&
-								fact.tediId === tediId &&
-								isMemorySearchFactEligible(fact, {
-									orgId: organizationId,
-									tediId,
-								}),
-						),
-				),
-			)
-		).flat();
+		const limit = request.limit ?? DEFAULT_RECORDS;
+		const facts = await listPrivateFactsOfTedis(db, {
+			organizationId,
+			tediIds,
+			terms: searchTerms(request.query),
+			limit: limit * CANDIDATE_FACTOR,
+		});
+		const tediIdSet = new Set(tediIds);
+		// Only what the person's tedis keep privately: org-wide knowledge is
+		// not the person's own memory.
+		const candidates = facts.filter(
+			(fact) =>
+				fact.tediId !== null &&
+				tediIdSet.has(fact.tediId) &&
+				isMemorySearchFactEligible(fact, {
+					orgId: organizationId,
+					tediId: fact.tediId,
+				}),
+		);
 		const records = rankByQueryRelevance(
 			candidates,
 			request.query,
-			(fact) => fact.content,
+			(fact) => `${fact.content} ${fact.summary ?? ""}`,
 		)
-			.slice(0, request.limit ?? DEFAULT_RECORDS)
+			.slice(0, limit)
 			.map((fact) => ({
 				id: fact.id,
 				content: fact.content,

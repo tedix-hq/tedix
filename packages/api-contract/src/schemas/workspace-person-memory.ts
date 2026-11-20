@@ -14,7 +14,7 @@ export const WorkspacePersonMemoryInputSchema = z.strictObject({
 	workspaceId: z.string().min(1),
 	/** The signed-in person who sent the turn. */
 	userId: z.string().min(1),
-	/** Words to rank the records by; without them the most important come first. */
+	/** Words to search the records for; without them the newest come first. */
 	query: z.string().max(500).optional(),
 	limit: z.number().int().min(1).max(PERSON_MEMORY_MAX_RECORDS).optional(),
 });
