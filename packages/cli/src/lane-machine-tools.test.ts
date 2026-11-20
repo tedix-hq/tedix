@@ -266,3 +266,69 @@ test("with the write tools on, a tedi edits files and runs commands in its own w
 	expect((await call("close_workspace", { workspace })).ok).toBe(true);
 	expect(existsSync(folder)).toBe(false);
 }, 60_000);
+
+test("a tedi reads the owner's folders but never credential locations or anything outside the home folder", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tedix-machine-home-"));
+	roots.push(root);
+	const home = join(root, "home");
+	const outside = join(root, "outside");
+	for (const folder of [
+		"Downloads",
+		".ssh",
+		".tedix",
+		"Library/Keychains",
+		"Projects/app",
+	])
+		mkdirSync(join(home, folder), { recursive: true });
+	mkdirSync(outside);
+	writeFileSync(join(home, "Downloads", "notes.txt"), "first\nsecond\n");
+	writeFileSync(join(home, ".ssh", "id_ed25519"), "private key\n");
+	writeFileSync(join(home, ".tedix", "auth.json"), "{}\n");
+	writeFileSync(join(home, "Projects", "app", ".env"), "TOKEN=1\n");
+	writeFileSync(join(home, "Projects", "app", "server.pem"), "key\n");
+	writeFileSync(join(outside, "secret.txt"), "outside\n");
+	symlinkSync(join(home, ".ssh"), join(home, "Downloads", "keys"));
+	symlinkSync(outside, join(home, "Downloads", "elsewhere"));
+	const options = { checkout: root, configDir: join(home, ".tedix"), home };
+	const on = machineToolHandlers({ ...options, write: true });
+	const call = (tool: string, input: Record<string, unknown>) =>
+		answerMachineToolCall(on, tool, input);
+
+	const listed = await call("list_folder", { path: "~/Downloads" });
+	expect(listed.ok && listed.result).toContain("notes.txt");
+	const read = await call("read_file", { path: "~/Downloads/notes.txt" });
+	expect(read.ok && read.result).toContain("1\tfirst");
+
+	for (const [tool, path] of [
+		["list_folder", "~/.ssh"],
+		["read_file", "~/.ssh/id_ed25519"],
+		["read_file", "~/.tedix/auth.json"],
+		["list_folder", "~/Library/Keychains"],
+		["read_file", "~/Projects/app/.env"],
+		["read_file", "~/Projects/app/server.pem"],
+		["read_file", "~/Downloads/keys/id_ed25519"],
+		["read_file", "~/Downloads/elsewhere/secret.txt"],
+		["read_file", "~/../outside/secret.txt"],
+		["list_folder", "/etc"],
+		["list_folder", "~/Projects/app/.git"],
+		["list_folder", "~/Downloads/../.ssh"],
+	] as const) {
+		const refused = await call(tool, { path });
+		expect([path, refused.ok]).toEqual([path, false]);
+		expect(JSON.stringify(refused)).not.toMatch(/private key|outside\\n|TOKEN/);
+	}
+
+	// A machine whose owner did not switch the tools on reads only its repository.
+	const off = machineToolHandlers(options);
+	expect(
+		(await answerMachineToolCall(off, "list_folder", { path: "~/Downloads" }))
+			.ok,
+	).toBe(false);
+	expect(
+		(
+			await answerMachineToolCall(off, "read_file", {
+				path: "~/Downloads/notes.txt",
+			})
+		).ok,
+	).toBe(false);
+});

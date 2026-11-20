@@ -1,4 +1,8 @@
-import type { MachineToolCall } from "@tedix/api-contract/schemas/machines";
+import {
+	MACHINE_TOOL_NAMES,
+	type MachineToolCall,
+	parseMachineToolInput,
+} from "@tedix/api-contract/schemas/machines";
 import type {
 	WorkspaceMachineInput,
 	WorkspaceMachineResult,
@@ -77,20 +81,53 @@ export function workspaceMachine(deps: {
 				: "The machine call could not be read.",
 		);
 	}
+	async function list() {
+		const result = await deps.api.useMachine({ ...acting, op: "list" });
+		if (result.status === "machines")
+			return result.machines.map(({ machineName, online, machineTools }) => ({
+				machine: machineName,
+				online,
+				tools: machineTools,
+			}));
+		throw new Error(
+			result.status === "refused"
+				? result.message
+				: "The machines could not be listed.",
+		);
+	}
 	return {
-		async list() {
-			const result = await deps.api.useMachine({ ...acting, op: "list" });
-			if (result.status === "machines")
-				return result.machines.map(({ machineName, online, machineTools }) => ({
-					machine: machineName,
-					online,
-					tools: machineTools,
-				}));
-			throw new Error(
-				result.status === "refused"
-					? result.message
-					: "The machines could not be listed.",
+		list,
+		/**
+		 * Throws the reason a call cannot run: an unknown tool, an input the
+		 * tool does not take, or a machine that is unknown, offline or does not
+		 * accept the tool. Run before a person is asked to approve the call, so
+		 * nobody approves one that would fail and the agent can correct it.
+		 */
+		async assertCanRun(input: {
+			machine?: unknown;
+			tool?: unknown;
+			input?: unknown;
+		}) {
+			if (typeof input?.machine !== "string" || typeof input.tool !== "string")
+				throw new Error("Supply a machine name, a tool name and its input.");
+			const tool = MACHINE_TOOL_NAMES.find((name) => name === input.tool);
+			if (!tool)
+				throw new Error(
+					`There is no machine tool ${input.tool}. The tools are ${MACHINE_TOOL_NAMES.join(", ")}.`,
+				);
+			const checked = parseMachineToolInput(tool, input.input);
+			if (!checked.ok) throw new Error(`${tool}: ${checked.message}`);
+			const wanted = input.machine.toLowerCase();
+			const machine = (await list()).find(
+				(candidate) => candidate.machine.toLowerCase() === wanted,
 			);
+			if (!machine)
+				throw new Error(
+					`No machine named "${input.machine}" reports to this organization.`,
+				);
+			if (!machine.tools.includes(tool))
+				throw new Error(`${machine.machine} does not accept ${tool}.`);
+			if (!machine.online) throw new Error(`${machine.machine} is offline.`);
 		},
 		async call(input: { machine?: unknown; tool?: unknown; input?: unknown }) {
 			if (typeof input?.machine !== "string" || typeof input.tool !== "string")

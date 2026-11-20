@@ -510,11 +510,13 @@ export function buildWorkspaceBindings(
 	);
 	const machine = {
 		list: () => machinePort().list(),
-		call: (input: MachineCall) => {
+		call: async (input: MachineCall) => {
 			const port = machinePort();
-			return typeof input?.tool === "string" && isMachineWriteTool(input.tool)
-				? machineWriteGate.call(input)
-				: port.call(input);
+			if (typeof input?.tool !== "string" || !isMachineWriteTool(input.tool))
+				return port.call(input);
+			// A call that cannot run is refused here, before anyone is asked.
+			await port.assertCanRun(input);
+			return machineWriteGate.call(input);
 		},
 		read: (input: { callId?: unknown }) => machinePort().read(input),
 	};

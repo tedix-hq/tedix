@@ -34,7 +34,9 @@ import {
  * These handlers exist only on a machine whose saved runner settings say
  * `machineWriteMode: "allow"`. File paths stay inside the workspace. A command
  * runs through the login shell with the runner's own environment, as an agent
- * run does; `lane-machine-refused.ts` lists what is refused all the same.
+ * run does; `lane-machine-refused.ts` lists what is refused all the same. A
+ * workspace gives a command its folder, not a boundary, so a command that
+ * names no workspace runs in the owner's home folder under the same rules.
  */
 
 type WriteToolName = (typeof MACHINE_WRITE_TOOL_NAMES)[number];
@@ -63,6 +65,8 @@ export function machineWorkspaces(options: {
 	configDir: string;
 	/** The commit a new workspace starts from when none is named. */
 	mainCommit: () => Promise<string>;
+	/** The owner's home folder, where a command without a workspace runs. */
+	home: string;
 	env?: NodeJS.ProcessEnv;
 }): MachineWorkspaces {
 	const root = join(options.configDir, "machine-workspaces");
@@ -242,7 +246,10 @@ export function machineWorkspaces(options: {
 				const command = String(input.command);
 				const refused = refusedMachineCommand(command);
 				if (refused) throw new Error(`Refused: ${refused}`);
-				const cwd = await folder(String(input.workspace));
+				const cwd =
+					input.workspace === undefined
+						? options.home
+						: await folder(String(input.workspace));
 				const seconds = Number(
 					input.timeoutSeconds ?? MACHINE_COMMAND_DEFAULT_TIMEOUT_SECONDS,
 				);

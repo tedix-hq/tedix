@@ -262,8 +262,13 @@ export function createWorkspaceChatClient(
 					});
 		if (!sent) return;
 		runs.set(run.runId, run);
-		if (approvalIds.length > 1) {
-			state = { ...state, approvalRun: run, approvalNotice: null };
+		// A new decision replaces what the last one reported.
+		if (approvalIds.length > 1 || state.approvalNotice) {
+			state = {
+				...state,
+				...(approvalIds.length > 1 ? { approvalRun: run } : {}),
+				approvalNotice: null,
+			};
 			publish();
 		}
 	}

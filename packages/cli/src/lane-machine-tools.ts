@@ -2,6 +2,8 @@ import { open, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import {
+	isMachineHomePath,
+	MACHINE_HOME_TOOL_NAMES,
 	MACHINE_READ_TOOL_NAMES,
 	MACHINE_TOOL_NAMES,
 	MACHINE_TOOL_RESULT_MAX_CHARS,
@@ -21,6 +23,7 @@ import { laneChildEnv } from "./lane-child-env";
 import { laneCommand } from "./lane-command";
 import { dispatchRequestsDirectory } from "./lane-dispatch-wake";
 import { runStepToolMissing } from "./lane-heartbeat";
+import { machineHome } from "./lane-machine-home";
 import { machineWorkspaces } from "./lane-machine-workspaces";
 import { beginFileLock } from "./local-file-lock";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
@@ -134,7 +137,7 @@ export function machineToolsIdentity(
 			? [
 					...MACHINE_READ_TOOL_NAMES,
 					...(duty.machineWriteMode === "allow"
-						? MACHINE_WRITE_TOOL_NAMES
+						? [...MACHINE_HOME_TOOL_NAMES, ...MACHINE_WRITE_TOOL_NAMES]
 						: []),
 				]
 			: [],
@@ -216,8 +219,13 @@ export function machineToolHandlers(options: {
 	configDir: string;
 	organization?: string;
 	env?: NodeJS.ProcessEnv;
-	/** Also answer the write tools; only for `machineWriteMode: "allow"`. */
+	/**
+	 * Also answer the write tools and read the owner's home folder; only for
+	 * `machineWriteMode: "allow"`.
+	 */
 	write?: boolean;
+	/** The owner's home folder. */
+	home?: string;
 }): Record<(typeof MACHINE_READ_TOOL_NAMES)[number], MachineToolHandler> &
 	Partial<Record<MachineToolName, MachineToolHandler>> {
 	const { checkout } = options;
@@ -383,10 +391,15 @@ export function machineToolHandlers(options: {
 		].join("\n");
 	}
 
+	const home = machineHome({
+		home: options.home ?? homedir(),
+		configDir: options.configDir,
+	});
 	const workspaces = machineWorkspaces({
 		checkout,
 		configDir: options.configDir,
 		mainCommit,
+		home: options.home ?? homedir(),
 		env: options.env,
 	});
 	const numbered = (lines: string[], input: MachineToolInput) => {
@@ -404,9 +417,22 @@ export function machineToolHandlers(options: {
 	};
 
 	return {
-		...(options.write ? workspaces.handlers : {}),
+		...(options.write
+			? {
+					...workspaces.handlers,
+					list_folder: (input: MachineToolInput) =>
+						home.listFolder(String(input.path)),
+				}
+			: {}),
 		async read_file(input) {
 			const path = String(input.path);
+			if (isMachineHomePath(path)) {
+				if (!options.write)
+					throw new Error(
+						"This machine reads only its repository; its owner has not switched on the tools that reach further",
+					);
+				return `${path}, ${numbered((await home.readText(path)).split("\n"), input)}`;
+			}
 			if (input.workspace !== undefined) {
 				// The file as the workspace has it now, committed or not.
 				const text = await readFile(

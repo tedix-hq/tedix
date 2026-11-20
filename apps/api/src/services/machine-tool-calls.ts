@@ -7,7 +7,7 @@
  */
 
 import {
-	isMachineWriteTool,
+	machineCallNeedsPerson,
 	type MachineToolCall,
 	parseMachineToolInput,
 	type RequestMachineToolCallInputSchema,
@@ -62,8 +62,8 @@ export async function listOrganizationMachines(deps: Deps, orgId: string) {
 }
 
 /**
- * Queue one call for a machine. Refused when a tedi asks for a write tool
- * outside a chat with a signed-in person, or when the machine is unknown,
+ * Queue one call for a machine. Refused when a tedi asks for a write tool or
+ * a read under the owner's home folder outside a chat with a signed-in person, or when the machine is unknown,
  * offline or does not accept the tool. Every refusal is recorded in the change
  * ledger; a failed record write is logged and the original error still thrown.
  */
@@ -97,14 +97,14 @@ export async function queueMachineToolCall(
 	};
 	if (
 		requester.type === "tedi" &&
-		isMachineWriteTool(input.tool) &&
+		machineCallNeedsPerson(input.tool, input.input) &&
 		!params.tediMayWrite
 	)
 		throw await refuse(
 			"write_scope_missing",
 			createError(
 				ErrorCodes.FORBIDDEN,
-				"A tedi can change files or run commands on a machine only from a chat with a signed-in person",
+				"A tedi can read a person's folders, change files or run commands on a machine only from a chat with a signed-in person",
 			),
 		);
 	const wanted = input.machine.toLowerCase();

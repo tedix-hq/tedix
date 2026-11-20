@@ -46,3 +46,37 @@ export function refusedMachinePath(path: string): string | undefined {
 		return "credential files are not written";
 	return undefined;
 }
+
+/** Folders at the top of a home folder that hold app data, keys and browser profiles. */
+const HOME_TOP_REFUSED = new Set(["library", "appdata"]);
+const HOME_NAME_RULES: Array<[RegExp, string]> = [
+	[/^\.git$/, "Git's own files are not read"],
+	[
+		/^(?:\.env(?!\.example$).*|\.dev\.vars|\.netrc|\.npmrc|credentials(?:\.json)?|keychains|id_(?:rsa|dsa|ecdsa|ed25519).*|.*\.(?:pem|key|p12|pfx|kdbx|keychain|keychain-db))$/,
+		"credential files and stores are not read",
+	],
+];
+
+/**
+ * The reason a folder or file under the home folder is not read, or undefined.
+ * `segments` is its path below the home folder. Hidden entries at the top of
+ * the home folder hold settings and sign-ins (`.ssh`, `.aws`, `.tedix`,
+ * `.config`, shell history), so none of them is read; neither is the folder
+ * with app data, keychains and browser profiles. Names are compared without
+ * case, as the file system on a Mac does.
+ */
+export function refusedMachineHomePath(segments: string[]): string | undefined {
+	const [top] = segments;
+	if (top?.startsWith("."))
+		return "hidden folders and files at the top of the home folder hold settings and sign-ins and are not read";
+	if (top && HOME_TOP_REFUSED.has(top.toLowerCase()))
+		return "app data, keychains and browser profiles are not read";
+	for (const segment of segments) {
+		const name = segment.toLowerCase();
+		if ([".ssh", ".aws", ".gnupg", ".tedix"].includes(name))
+			return "credential files and stores are not read";
+		for (const [rule, reason] of HOME_NAME_RULES)
+			if (rule.test(name)) return reason;
+	}
+	return undefined;
+}
