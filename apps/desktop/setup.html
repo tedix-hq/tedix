@@ -4,81 +4,28 @@
 		<meta charset="utf-8" />
 		<meta
 			http-equiv="Content-Security-Policy"
-			content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'"
 		/>
 		<title>Set up this Mac</title>
+		<link rel="stylesheet" href="ui.css" />
 		<style>
-			/* The colours, radius and font of Tedix OS (apps/os/src/styles.css). */
-			:root {
-				color-scheme: light dark;
-				--background: #fbfbfb;
-				--background-base: #f3f3f3;
-				--foreground: #171717;
-				--card: #ffffff;
-				--muted: #f5f5f5;
-				--muted-foreground: #606060;
-				--primary: #7c3aed;
-				--primary-foreground: #ffffff;
-				--secondary: #ffffff;
-				--border: #e9e9e9;
-				--input: #d4d4d4;
-				--destructive: #b42318;
-				--forest: #12815c;
-				--honey: #9a6a05;
-				--radius: 8px;
-			}
-			@media (prefers-color-scheme: dark) {
-				:root {
-					--background: #030303;
-					--background-base: #0b0b0b;
-					--foreground: #f5f5f5;
-					--card: #0f0f0f;
-					--muted: #262626;
-					--muted-foreground: #b0b0b0;
-					--primary: #a68bff;
-					--primary-foreground: #030303;
-					--secondary: #171717;
-					--border: #262626;
-					--input: #404040;
-					--destructive: #f2695c;
-					--forest: #42c366;
-					--honey: #ecb730;
-				}
-			}
-			* {
-				box-sizing: border-box;
-			}
-			html,
 			body {
-				height: 100%;
-			}
-			body {
-				margin: 0;
 				display: grid;
-				grid-template-columns: 208px 1fr;
-				background: var(--background);
-				color: var(--foreground);
-				font:
-					14px/1.45 ui-sans-serif,
-					system-ui,
-					-apple-system,
-					sans-serif;
-				user-select: none;
-				-webkit-font-smoothing: antialiased;
+				grid-template-columns: 224px 1fr;
 				overflow: hidden;
 			}
 			.drag {
 				position: fixed;
 				inset: 0 0 auto 0;
-				height: 40px;
+				height: 44px;
 				-webkit-app-region: drag;
 			}
 
 			/* The step rail. */
 			nav {
-				background: var(--background-base);
+				background: var(--rail);
 				border-right: 1px solid var(--border);
-				padding: 56px 16px 20px;
+				padding: 56px 12px 16px;
 				display: flex;
 				flex-direction: column;
 				gap: 2px;
@@ -86,50 +33,71 @@
 			.brand {
 				display: flex;
 				align-items: center;
-				gap: 10px;
+				gap: 8px;
 				font-weight: 600;
-				margin: 0 8px 20px;
+				margin: 0 8px 16px;
 			}
 			.brand img {
-				width: 28px;
-				height: 28px;
-				border-radius: 7px;
+				width: 24px;
+				height: 24px;
+				border-radius: 6px;
 			}
 			nav button {
 				all: unset;
-				display: flex;
+				display: grid;
+				grid-template-columns: 24px 1fr 16px;
 				align-items: center;
-				gap: 10px;
-				height: 32px;
+				gap: 8px;
+				height: 34px;
 				padding: 0 8px;
-				border-radius: 6px;
+				border-radius: var(--radius-small);
 				color: var(--muted-foreground);
 				font-size: 13px;
-				cursor: default;
+				transition:
+					background 120ms,
+					color 120ms;
+			}
+			nav button:hover {
+				background: color-mix(in srgb, var(--muted) 60%, transparent);
+				color: var(--foreground);
+			}
+			nav button:focus-visible {
+				outline: 2px solid var(--primary);
+				outline-offset: -2px;
 			}
 			nav button[aria-current="step"] {
-				background: var(--muted);
+				background: var(--card);
+				box-shadow:
+					var(--shadow),
+					0 0 0 1px var(--border);
 				color: var(--foreground);
-				font-weight: 500;
+				font-weight: 550;
 			}
-			.dot {
-				flex: none;
-				width: 16px;
-				height: 16px;
-				border-radius: 50%;
-				border: 1.5px solid var(--input);
+			nav button[aria-current="step"] .glyph {
+				color: var(--primary);
+			}
+			nav .glyph {
 				display: grid;
 				place-items: center;
-				font-size: 10px;
-				line-height: 1;
 			}
-			.dot.done {
-				border-color: var(--forest);
-				background: var(--forest);
-				color: var(--background);
+			nav .status {
+				display: grid;
+				place-items: center;
 			}
-			[aria-current="step"] .dot:not(.done) {
-				border-color: var(--primary);
+			nav .status.done {
+				color: var(--good);
+			}
+			nav .status.attention::after {
+				content: "";
+				width: 7px;
+				height: 7px;
+				border-radius: 50%;
+				background: var(--warn);
+			}
+			nav .foot {
+				margin: auto 8px 0;
+				font-size: 11.5px;
+				color: var(--faint);
 			}
 
 			/* One screen. */
@@ -137,19 +105,27 @@
 				display: grid;
 				grid-template-rows: auto 1fr auto;
 				min-height: 0;
-				padding: 56px 40px 20px;
+				padding: 52px 32px 16px;
+			}
+			.eyebrow {
+				font-size: 11.5px;
+				font-weight: 600;
+				letter-spacing: 0.04em;
+				text-transform: uppercase;
+				color: var(--faint);
+				margin-bottom: 4px;
 			}
 			h1 {
-				font-size: 24px;
+				font-size: 22px;
 				line-height: 1.2;
-				font-weight: 600;
-				letter-spacing: -0.01em;
+				font-weight: 650;
+				letter-spacing: -0.015em;
 				margin: 0 0 8px;
 			}
 			.lead {
 				color: var(--muted-foreground);
 				margin: 0 0 16px;
-				max-width: 56ch;
+				max-width: 60ch;
 			}
 			.content {
 				overflow-y: auto;
@@ -160,157 +136,88 @@
 			.enter {
 				animation: enter 180ms ease-out;
 			}
+			.enter.back {
+				animation-name: enter-back;
+			}
 			@keyframes enter {
 				from {
 					opacity: 0;
-					transform: translateY(4px);
+					transform: translateX(10px);
 				}
 			}
-			@keyframes spin {
-				to {
-					transform: rotate(360deg);
-				}
-			}
-			@media (prefers-reduced-motion: reduce) {
-				.enter,
-				.spinner {
-					animation: none !important;
+			@keyframes enter-back {
+				from {
+					opacity: 0;
+					transform: translateX(-10px);
 				}
 			}
 			footer {
 				display: flex;
 				align-items: center;
 				gap: 8px;
-				padding-top: 16px;
+				padding-top: 12px;
 				border-top: 1px solid var(--border);
 			}
 			footer .space {
 				flex: 1;
 			}
-			kbd {
-				font: inherit;
-				font-size: 11px;
-				opacity: 0.7;
-				margin-left: 6px;
-			}
 
-			/* Controls. */
-			button.btn {
-				font: inherit;
-				font-size: 13px;
-				font-weight: 500;
-				height: 32px;
-				padding: 0 14px;
-				border-radius: 6px;
-				border: 1px solid var(--border);
-				background: var(--secondary);
-				color: var(--foreground);
-				cursor: default;
-				white-space: nowrap;
-			}
-			button.btn.primary {
-				background: var(--primary);
-				border-color: var(--primary);
-				color: var(--primary-foreground);
-			}
-			button.btn.quiet {
-				background: none;
-				border-color: transparent;
-				color: var(--muted-foreground);
-			}
-			button.btn:hover:not(:disabled) {
-				filter: brightness(1.08);
-			}
-			button.btn:disabled {
-				opacity: 0.5;
-			}
-			:focus-visible {
-				outline: 2px solid var(--primary);
-				outline-offset: 2px;
-			}
-
-			/* Cards. */
-			.card {
+			/* Welcome. */
+			.hero {
 				display: grid;
-				grid-template-columns: 36px 1fr auto;
-				align-items: center;
-				gap: 4px 12px;
-				min-height: 60px;
-				padding: 10px 14px;
-				margin-bottom: 6px;
-				border: 1px solid var(--border);
-				border-radius: var(--radius);
-				background: var(--card);
-			}
-			.card.absent {
-				opacity: 0.55;
-			}
-			.badge {
-				width: 36px;
-				height: 36px;
-				border-radius: 8px;
-				background: var(--muted);
-				display: grid;
-				place-items: center;
-				font-weight: 600;
-				font-size: 15px;
-			}
-			.card .name {
-				font-weight: 500;
-			}
-			.card .state,
-			.note {
-				color: var(--muted-foreground);
-				font-size: 12.5px;
-			}
-			.state.ok {
-				color: var(--forest);
-			}
-			.card .actions {
-				display: flex;
-				gap: 6px;
-			}
-			.card .below {
-				grid-column: 2 / -1;
-				font-size: 12.5px;
-			}
-			.live {
-				display: flex;
-				align-items: center;
+				justify-items: center;
+				text-align: center;
 				gap: 8px;
+				padding: 8px 0 24px;
+			}
+			.hero img {
+				width: 88px;
+				height: 88px;
+				border-radius: 20px;
+				box-shadow: 0 10px 30px rgb(80 40 200 / 22%);
+				margin-bottom: 8px;
+			}
+			.hero.compact {
+				padding: 0 0 16px;
+				gap: 4px;
+			}
+			.hero.compact img {
+				width: 56px;
+				height: 56px;
+				border-radius: 13px;
+			}
+			.hero h1 {
+				font-size: 26px;
+				margin: 0;
+			}
+			.hero p {
+				margin: 0;
 				color: var(--muted-foreground);
-				font-size: 12.5px;
-				min-height: 20px;
-				overflow: hidden;
-				white-space: nowrap;
-				text-overflow: ellipsis;
+				max-width: 46ch;
 			}
-			.spinner {
-				flex: none;
-				width: 12px;
-				height: 12px;
-				border-radius: 50%;
-				border: 2px solid var(--input);
-				border-top-color: var(--primary);
-				animation: spin 0.8s linear infinite;
+			.chip {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				height: 24px;
+				padding: 0 10px;
+				border-radius: 12px;
+				background: var(--muted);
+				color: var(--muted-foreground);
+				font-size: 12px;
+				margin-top: 4px;
 			}
-			.error {
-				color: var(--destructive);
-				user-select: text;
-				margin: 2px 0 6px;
-				overflow-wrap: anywhere;
+			.chip.good {
+				background: var(--good-soft);
+				color: var(--good);
 			}
-			.done-line {
-				color: var(--forest);
-			}
-
-			/* Welcome and ready lists. */
 			ul.points {
 				list-style: none;
-				margin: 8px 0 0;
+				margin: 0 auto;
 				padding: 0;
 				display: grid;
-				gap: 14px;
+				gap: 12px;
+				max-width: 440px;
 			}
 			ul.points li {
 				display: grid;
@@ -318,95 +225,80 @@
 				gap: 12px;
 				align-items: center;
 			}
+			ul.points .tile {
+				background: var(--primary-soft);
+				color: var(--primary);
+			}
+			ul.points b {
+				font-weight: 550;
+			}
 			ul.points small {
 				display: block;
-				color: var(--muted-foreground);
-				font-size: 12.5px;
-			}
-			ul.summary {
-				list-style: none;
-				margin: 0;
-				padding: 0;
-			}
-			ul.summary li {
-				display: grid;
-				grid-template-columns: 20px 1fr;
-				gap: 8px;
-				padding: 7px 0;
-				border-bottom: 1px solid var(--border);
-			}
-			ul.summary .yes {
-				color: var(--forest);
-			}
-			ul.summary .no {
-				color: var(--muted-foreground);
 			}
 
-			/* Switches. */
-			label.switch {
-				display: grid;
-				grid-template-columns: 1fr auto;
-				align-items: center;
-				gap: 2px 12px;
-				min-height: 48px;
-				padding: 6px 14px;
-				margin-bottom: 6px;
-				border: 1px solid var(--border);
-				border-radius: var(--radius);
-				background: var(--card);
-			}
-			label.switch small {
+			/* The summary table. */
+			table.summary,
+			table.summary tbody {
 				display: block;
+			}
+			table.summary tr {
+				display: grid;
+				grid-template-columns: 148px 1fr auto;
+				align-items: center;
+				gap: 12px;
+				min-height: 40px;
+				padding: 6px 12px;
+				border-top: 1px solid var(--border);
+			}
+			table.summary tr:first-child {
+				border-top: 0;
+			}
+			table.summary td {
+				padding: 0;
+			}
+			table.summary td.what {
+				font-weight: 500;
+			}
+			table.summary td.detail {
 				color: var(--muted-foreground);
 				font-size: 12.5px;
 			}
-			label.switch input {
-				appearance: none;
-				width: 34px;
-				height: 20px;
-				border-radius: 10px;
-				background: var(--input);
-				position: relative;
-				margin: 0;
-				transition: background 150ms;
-			}
-			label.switch input::after {
-				content: "";
-				position: absolute;
-				top: 2px;
-				left: 2px;
-				width: 16px;
-				height: 16px;
-				border-radius: 50%;
-				background: #fff;
-				transition: transform 150ms;
-			}
-			label.switch input:checked {
-				background: var(--primary);
-			}
-			label.switch input:checked::after {
-				transform: translateX(14px);
-			}
-			label.switch input:disabled {
-				opacity: 0.5;
-			}
-			.row {
+			table.summary td.end {
 				display: flex;
 				align-items: center;
-				gap: 10px;
-				margin: 4px 0 12px;
-			}
-			.row .note {
-				flex: 1;
-				overflow: hidden;
-				text-overflow: ellipsis;
+				gap: 12px;
 				white-space: nowrap;
 			}
-			code {
-				font:
-					12px ui-monospace,
-					monospace;
-				user-select: text;
+			.pill {
+				display: inline-flex;
+				align-items: center;
+				gap: 4px;
+				height: 22px;
+				padding: 0 8px 0 6px;
+				border-radius: 11px;
+				font-size: 12px;
+				font-weight: 500;
+				background: var(--muted);
+				color: var(--muted-foreground);
+			}
+			.pill.done {
+				background: var(--good-soft);
+				color: var(--good);
+			}
+			.pill.attention {
+				background: var(--warn-soft);
+				color: var(--warn);
+			}
+			.section {
+				font-size: 11.5px;
+				font-weight: 600;
+				letter-spacing: 0.04em;
+				text-transform: uppercase;
+				color: var(--faint);
+				margin: 16px 4px 8px;
+			}
+			.section:first-child {
+				margin-top: 0;
 			}
 		</style>
 	</head>

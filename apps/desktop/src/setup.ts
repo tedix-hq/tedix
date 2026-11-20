@@ -21,12 +21,17 @@ import {
 	toolPath,
 } from "./shell";
 
+const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
+
+type Connection = "signed-in" | "signed-out" | "unknown";
+
 /**
  * One coding tool the checklist knows. Adding a tool is one entry here.
- * `status` is the name `tedix setup agents --status --json` reports it under;
- * `add` is the flag that adds Tedix to it; `signIn` is the tool's own command
- * that opens the browser to connect it to Tedix, or `signInSay` when that
- * only works on the tool's own screen.
+ * `status` is the name `tedix setup agents --status --json` reports it under
+ * and `add` the flag that adds Tedix to it. `connection` asks the tool itself
+ * whether its Tedix connection is signed in, `signIn` is the tool's own
+ * command that signs it in through the browser, and `signInSay` says what
+ * happens instead when that only works on the tool's own screen.
  */
 interface Tool {
 	id: string;
@@ -36,10 +41,22 @@ interface Tool {
 	executor: string;
 	status?: string;
 	add?: string;
+	/** Tedix can also be there from the tool's own plugin list; true when it is. */
+	hasTedix?: (command: string) => Promise<boolean>;
+	connection?: (command: string) => Promise<Connection>;
 	signIn?: string[];
+	/** True when this version of the tool has the `signIn` command. */
+	signInWorks?: (command: string) => Promise<boolean>;
 	signInSay?: string;
+	say?: string;
 }
 const home = homedir();
+/**
+ * Codex lists and signs in only the servers in its own settings, not the one
+ * the Tedix plugin brings. Naming the same server and address for one command
+ * makes both work on the sign-in the plugin uses, and changes no settings.
+ */
+const CODEX_TEDIX = ["-c", `mcp_servers.tedix.url="${CONNECT_URL}"`];
 const TOOLS: Tool[] = [
 	{
 		id: "claude",
@@ -49,8 +66,22 @@ const TOOLS: Tool[] = [
 		executor: "claude-code",
 		status: "claude",
 		add: "--claude",
+		// The plugin's server is called plugin:tedix:tedix; this checks only it.
+		connection: async (command) => {
+			const { output } = await run(
+				command,
+				["mcp", "get", "plugin:tedix:tedix"],
+				{ timeoutMs: 45_000 },
+			);
+			if (/Needs authentication/i.test(output)) return "signed-out";
+			return /Status:.*Connected/i.test(output) ? "signed-in" : "unknown";
+		},
+		signIn: ["mcp", "login", "plugin:tedix:tedix"],
+		signInWorks: async (command) =>
+			(await run(command, ["mcp", "login", "--help"], { timeoutMs: 20_000 }))
+				.ok,
 		signInSay:
-			"To connect it: open Claude Code, type /mcp, choose tedix, then Authenticate.",
+			"Claude Code asks you to sign in to Tedix the first time you use it: type /mcp, choose tedix, then Authenticate.",
 	},
 	{
 		id: "codex",
@@ -60,7 +91,26 @@ const TOOLS: Tool[] = [
 		executor: "codex",
 		status: "codex",
 		add: "--codex",
-		signIn: ["mcp", "login", "tedix"],
+		connection: async (command) => {
+			const { output } = await run(
+				command,
+				["mcp", "list", "--json", ...CODEX_TEDIX],
+				{ timeoutMs: 45_000 },
+			);
+			try {
+				const state = (
+					JSON.parse(output) as { name?: string; auth_status?: string }[]
+				).find((server) => server.name === "tedix")?.auth_status;
+				if (state === "not_logged_in") return "signed-out";
+				return state === "o_auth" || state === "bearer_token"
+					? "signed-in"
+					: "unknown";
+			} catch {
+				return "unknown";
+			}
+		},
+		signIn: ["mcp", "login", "tedix", ...CODEX_TEDIX],
+		signInSay: "Codex asks you to sign in to Tedix the first time you use it.",
 	},
 	{
 		id: "devin",
@@ -70,7 +120,20 @@ const TOOLS: Tool[] = [
 		executor: "devin",
 		status: "devin",
 		add: "--devin",
+		hasTedix: async (command) => {
+			const { output } = await run(command, ["mcp", "list", "--json"], {
+				timeoutMs: 45_000,
+			});
+			try {
+				return (JSON.parse(output) as { name?: string }[]).some(
+					(server) => server.name === "tedix",
+				);
+			} catch {
+				return false;
+			}
+		},
 		signIn: ["mcp", "login", "tedix"],
+		say: "Devin does not say whether it is signed in to Tedix. Sign in once; if Tedix already answers in Devin, you are done.",
 	},
 	{
 		id: "opencode",
@@ -78,7 +141,7 @@ const TOOLS: Tool[] = [
 		binary: "opencode",
 		folder: join(home, ".config", "opencode"),
 		executor: "opencode",
-		signInSay: "Adding Tedix here is not available yet; running tasks works.",
+		say: "Tedix can start OpenCode runs. Adding Tedix inside OpenCode is not available yet.",
 	},
 ];
 
@@ -88,12 +151,32 @@ export interface ToolRow {
 	executor: string;
 	/** `found`: its command works. `no-command`: only its settings folder is there. */
 	found: "found" | "no-command" | "absent";
-	/** Whether Tedix is added to it; `unknown` carries the reason in `note`. */
-	tedix: "added" | "missing" | "unknown" | "checking";
-	note: string;
+	/**
+	 * Whether Tedix is added to it. `unknown`: it could not be checked and
+	 * `note` says why. `unsupported`: Tedix cannot be added to this tool yet.
+	 */
+	tedix: "added" | "missing" | "unknown" | "unsupported" | "checking";
+	/** The version of Tedix in the tool, when the tool reports one. */
+	version: string;
+	/** False when Tedix is added but switched off in the tool. */
+	enabled: boolean;
+	/** Whether the tool's own connection to Tedix is signed in. */
+	connection: Connection | "checking";
+	/** Tedix can be added to this tool from here. */
 	canAdd: boolean;
+	/** The tool has a command that signs it in to Tedix through the browser. */
 	canSignIn: boolean;
-	signInSay: string;
+	/** One sentence on what is wrong or what happens next. */
+	note: string;
+}
+
+/** Who is signed in to Tedix in the app's own window. */
+export interface AppSignIn {
+	state: "in" | "out" | "unknown";
+	name: string;
+	email: string;
+	/** A browser sign-in was started and is not finished yet. */
+	waiting: boolean;
 }
 
 /** What a step is doing or how its last run ended. */
@@ -109,17 +192,24 @@ export interface StepRun {
 
 export interface SetupState {
 	cli: CliState;
+	/** Tedix in the app's window. */
+	app: AppSignIn;
+	/** The command-line tool on this Mac is signed in. */
 	signedIn: boolean;
-	who: string;
-	/** The result of the one live check that the tool reaches Tedix. */
-	reach: "unchecked" | "checking" | "ok" | string;
+	/**
+	 * The one live check that the command-line tool reaches Tedix with its
+	 * sign-in. `unavailable`: Tedix was slow or busy, which says nothing about
+	 * the sign-in.
+	 */
+	reach: Reach;
+	/** What the live check printed when it did not pass, for "Copy details". */
+	reachDetail: string;
 	organization: string;
 	tools: ToolRow[];
 	repo: string;
 	steps: Record<string, StepRun>;
 	/** True while the command-line tool or the sign-in is still to do. */
 	open: boolean;
-	summary: string;
 }
 
 interface Settings {
@@ -138,22 +228,48 @@ export function saveSettings(change: Settings): void {
 	writeFileSync(settingsFile(), JSON.stringify({ ...settings(), ...change }));
 }
 
+type Reach = "unchecked" | "checking" | "ok" | "signed-out" | "unavailable";
+
 let cli: CliState = { kind: "missing", version: "", canRestore: false };
+let appSignIn: AppSignIn = {
+	state: "unknown",
+	name: "",
+	email: "",
+	waiting: false,
+};
 let signedIn = false;
-let who = "";
 let organizations: string[] = [];
 let tenant = "";
-let reach: SetupState["reach"] = "unchecked";
+let reach: Reach = "unchecked";
+let reachDetail = "";
+/** A live check was asked for while a step was running; it runs afterwards. */
+let reachWanted = false;
 let agentStatus:
 	| { hosts: Record<string, Record<string, unknown>> }
 	| { problem: string }
 	| undefined;
+/** What each tool itself said, by tool id. Absent while it is being asked. */
+let toolFacts: Record<
+	string,
+	{ hasTedix: boolean; connection: Connection; signInWorks: boolean }
+> = {};
 const steps: Record<string, StepRun> = {};
 const stops: Record<string, () => void> = {};
+/** Steps the person stopped; they end without an error. */
+const cancelled = new Set<string>();
 let changed: () => void = () => {};
 export function onSetupChange(listener: () => void): void {
 	changed = listener;
 }
+
+/** The main window tells the checklist who is signed in to Tedix in the app. */
+export function setAppSignIn(next: AppSignIn): void {
+	if (JSON.stringify(next) === JSON.stringify(appSignIn)) return;
+	appSignIn = next;
+	changed();
+}
+
+const working = () => Object.values(steps).some((ran) => ran.working);
 
 /** Output lines with addresses removed, so the log and copied details hold no sign-in links. */
 const safe = (line: string) => line.replace(/https?:\/\/\S+/g, "(address)");
@@ -195,6 +311,12 @@ async function step(
 		steps[key] = { done };
 		log(`setup: ${key} done (${done})`);
 	} catch (error) {
+		if (cancelled.delete(key)) {
+			delete steps[key];
+			delete stops[key];
+			log(`setup: ${key} cancelled`);
+			return changed();
+		}
 		const reason = safe(error instanceof Error ? error.message : String(error));
 		steps[key] = {
 			error: reason,
@@ -204,6 +326,7 @@ async function step(
 	}
 	delete stops[key];
 	changed();
+	if (reachWanted && !working()) void checkReach();
 }
 
 /**
@@ -228,34 +351,31 @@ async function must(
 }
 
 async function readSignIn(): Promise<void> {
-	signedIn = false;
-	who = "";
-	organizations = [];
-	tenant = "";
 	const result = await tedix(["-w", "connect", "auth", "status", "--json"], {
 		timeoutMs: 20_000,
 	});
+	interface Login {
+		refreshExpiresAt?: string;
+		accessToken?: { dct?: string; selectedOrganizations?: string[] };
+	}
+	let now = false;
+	let login: Login | undefined;
 	try {
 		// Only these fields are read; the output holds no tokens.
 		const status = JSON.parse(result.output) as {
 			wouldUse?: string;
-			storedLogin?: {
-				loginId?: string;
-				refreshExpiresAt?: string;
-				accessToken?: { dct?: string; selectedOrganizations?: string[] };
-			} | null;
+			storedLogin?: Login | null;
 		};
-		const login = status.storedLogin;
-		const expired =
-			login?.refreshExpiresAt !== undefined &&
-			Date.parse(login.refreshExpiresAt) < Date.now();
-		signedIn = status.wouldUse === "stored-login" && !expired;
-		who = login?.loginId ?? "";
-		tenant = login?.accessToken?.dct ?? "";
-		organizations = login?.accessToken?.selectedOrganizations ?? [];
+		login = status.storedLogin ?? undefined;
+		const expires = login?.refreshExpiresAt;
+		const expired = expires !== undefined && Date.parse(expires) < Date.now();
+		now = status.wouldUse === "stored-login" && !expired;
 	} catch {
 		/* Not signed in, or no command-line tool. */
 	}
+	signedIn = now;
+	tenant = login?.accessToken?.dct ?? "";
+	organizations = login?.accessToken?.selectedOrganizations ?? [];
 }
 
 /**
@@ -271,9 +391,10 @@ function organization(): string {
 }
 
 async function readAgentStatus(): Promise<void> {
-	const result = await tedix(["setup", "agents", "--status", "--json"], {
-		timeoutMs: 150_000,
-	});
+	const [result] = await Promise.all([
+		tedix(["setup", "agents", "--status", "--json"], { timeoutMs: 150_000 }),
+		readToolFacts(),
+	]);
 	try {
 		const parsed = JSON.parse(result.output) as {
 			hosts?: Record<string, unknown>[];
@@ -294,6 +415,24 @@ async function readAgentStatus(): Promise<void> {
 	changed();
 }
 
+/** Asks each tool that is here what it knows about its own Tedix connection. */
+async function readToolFacts(): Promise<void> {
+	const facts: typeof toolFacts = {};
+	await Promise.all(
+		TOOLS.map(async (tool) => {
+			const command = findCommand(tool.binary);
+			if (!command) return;
+			const [hasTedix, connection, signInWorks] = await Promise.all([
+				tool.hasTedix?.(command) ?? false,
+				tool.connection?.(command) ?? ("unknown" as const),
+				tool.signInWorks?.(command) ?? true,
+			]);
+			facts[tool.id] = { hasTedix, connection, signInWorks };
+		}),
+	);
+	toolFacts = facts;
+}
+
 function toolRows(): ToolRow[] {
 	return TOOLS.map((tool) => {
 		const command = findCommand(tool.binary);
@@ -308,10 +447,12 @@ function toolRows(): ToolRow[] {
 			executor: tool.executor,
 			found,
 			tedix: "unknown",
-			note: "",
+			version: "",
+			enabled: true,
+			connection: "unknown",
 			canAdd: false,
 			canSignIn: false,
-			signInSay: "",
+			note: "",
 		};
 		if (found === "absent") return row;
 		if (found === "no-command") {
@@ -319,83 +460,122 @@ function toolRows(): ToolRow[] {
 			return row;
 		}
 		if (!tool.status) {
-			row.note = tool.signInSay ?? "";
+			row.tedix = "unsupported";
+			row.note = tool.say ?? "";
 			return row;
 		}
-		if (!agentStatus) row.tedix = "checking";
-		else if ("problem" in agentStatus) row.note = agentStatus.problem;
-		else {
-			const host = agentStatus.hosts[tool.status];
-			if (host?.problem) row.note = `Not responding: ${String(host.problem)}`;
-			else row.tedix = host?.installed === true ? "added" : "missing";
-			if (host?.installed === true && host.enabled === false)
-				row.note = `Tedix is added but switched off in ${tool.name}.`;
-			if (host?.signedIn === false) row.note = "Not connected to Tedix yet.";
+		const facts = toolFacts[tool.id];
+		if (!agentStatus || !facts) {
+			row.tedix = "checking";
+			row.connection = "checking";
+			return row;
 		}
-		row.canAdd = Boolean(tool.add) && row.tedix !== "added";
-		row.canSignIn = Boolean(tool.signIn) && row.tedix === "added";
-		row.signInSay = row.tedix === "added" ? (tool.signInSay ?? "") : "";
+		if ("problem" in agentStatus) {
+			row.note = agentStatus.problem;
+			return row;
+		}
+		const host = agentStatus.hosts[tool.status];
+		if (host?.problem && !facts.hasTedix) {
+			row.note = `${tool.name} did not answer: ${String(host.problem).split("\n")[0]!.slice(0, 200)}`;
+			return row;
+		}
+		row.tedix =
+			host?.installed === true || facts.hasTedix ? "added" : "missing";
+		row.canAdd = Boolean(tool.add) && row.tedix === "missing";
+		if (row.tedix !== "added") return row;
+		row.version = typeof host?.version === "string" ? host.version : "";
+		row.enabled = host?.enabled !== false;
+		row.connection = host?.signedIn === false ? "signed-out" : facts.connection;
+		if (!row.enabled) {
+			row.note = `Switch the Tedix plugin on in ${tool.name}, then choose Check again.`;
+			return row;
+		}
+		if (row.connection === "signed-in") return row;
+		row.canSignIn = Boolean(tool.signIn) && facts.signInWorks;
+		row.note = row.canSignIn ? (tool.say ?? "") : (tool.signInSay ?? "");
 		return row;
 	});
-}
-
-function summaryLine(rows: ToolRow[]): string {
-	if (cli.kind === "missing" || !signedIn) return "";
-	const ready = rows.filter((row) => row.tedix === "added");
-	const not = rows.filter((row) => row.tedix !== "added");
-	const why = (row: ToolRow) =>
-		row.found === "absent"
-			? "not found"
-			: row.found === "no-command"
-				? "command not found"
-				: row.tedix === "missing"
-					? "Tedix not added"
-					: row.tedix === "checking"
-						? "checking"
-						: "not checked";
-	return [
-		"This Mac is ready.",
-		ready.length
-			? `Tedix is in ${ready.map((row) => row.name).join(", ")}.`
-			: "",
-		not.length
-			? `Not set up: ${not.map((row) => `${row.name} (${why(row)})`).join(", ")}.`
-			: "",
-	]
-		.filter(Boolean)
-		.join(" ");
 }
 
 export function setupState(): SetupState {
 	const tools = toolRows();
 	return {
 		cli,
+		app: appSignIn,
 		signedIn,
-		who,
 		reach,
+		reachDetail,
 		organization: organization(),
 		tools,
 		repo: settings().repo ?? "",
 		steps,
 		open: cli.kind === "missing" || !signedIn,
-		summary: summaryLine(tools),
 	};
 }
 
-/** The one live check: the command-line tool reaches Tedix with this sign-in. */
-async function checkReach(): Promise<void> {
+/**
+ * The one live check: the command-line tool reaches Tedix with this sign-in.
+ * It asks Tedix to describe itself, which Tedix refuses without a sign-in
+ * and answers in about a second. A slow or busy Tedix is tried once more and
+ * then reported as "could not check", never as a failed sign-in. It waits
+ * while a step is running, because steps restart the background service.
+ */
+let checking: Promise<void> | undefined;
+function checkReach(): Promise<void> {
 	if (!signedIn) {
 		reach = "unchecked";
-		return;
+		return Promise.resolve();
 	}
-	reach = "checking";
-	changed();
-	const result = await tedix(["-w", "connect", "status"], {
-		timeoutMs: 60_000,
-	});
-	reach = result.ok ? "ok" : lastLine(safe(result.output)) || "no answer";
-	log(`setup: live check ${reach === "ok" ? "passed" : `failed (${reach})`}`);
-	changed();
+	if (working()) {
+		reachWanted = true;
+		return Promise.resolve();
+	}
+	checking ??= (async () => {
+		reachWanted = false;
+		reach = "checking";
+		changed();
+		let output = "";
+		for (let attempt = 0; attempt < 2 && reach === "checking"; attempt++) {
+			if (attempt) await new Promise((resolve) => setTimeout(resolve, 3000));
+			const result = await tedix(
+				["-w", "connect", "mcp", "call", "server/discover"],
+				{ timeoutMs: 20_000 },
+			);
+			output = safe(result.output);
+			let answered = false;
+			try {
+				answered =
+					result.ok &&
+					Array.isArray(
+						(JSON.parse(result.output) as { supportedVersions?: unknown })
+							.supportedVersions,
+					);
+			} catch {
+				/* Not the answer Tedix gives. */
+			}
+			if (answered) reach = "ok";
+			else if (
+				/\b401\b|not (logged|signed) in|tedix login|sign in again|invalid_grant|unauthori[sz]ed/i.test(
+					output,
+				)
+			)
+				reach = "signed-out";
+		}
+		if (reach === "checking") reach = "unavailable";
+		reachDetail = reach === "ok" ? "" : output.trim().slice(-2000);
+		log(
+			`setup: live check ${
+				reach === "ok"
+					? "passed"
+					: reach === "signed-out"
+						? "says the command-line tool is not signed in"
+						: `could not run (${lastLine(output) || "no answer"})`
+			}`,
+		);
+		checking = undefined;
+		changed();
+	})();
+	return checking;
 }
 
 /** Reads everything again. `deep` also asks the shell for its PATH and each tool for its state. */
@@ -427,6 +607,7 @@ const ACTIONS = [
 	"manage-cli",
 	"restore-cli",
 	"sign-in",
+	"app-sign-in",
 	"cancel",
 	"add",
 	"connect",
@@ -435,16 +616,26 @@ const ACTIONS = [
 ] as const;
 export type SetupAction = (typeof ACTIONS)[number];
 
-/** Carries out one button of the checklist. `chooseFolder` asks the person for the repository folder. */
+/** What the checklist needs from the window: a folder chooser and the app's own sign-in. */
+export interface SetupHost {
+	chooseFolder: () => Promise<string | undefined>;
+	appSignIn: () => Promise<void>;
+}
+
+/** Carries out one button of the checklist. */
 export async function setupAction(
 	action: SetupAction,
 	id: string,
-	chooseFolder: () => Promise<string | undefined>,
+	{ chooseFolder, appSignIn: signInToApp }: SetupHost,
 ): Promise<void> {
 	if (!ACTIONS.includes(action)) return;
 	const tool = TOOLS.find((item) => item.id === id);
 	if (action === "check") return refreshSetup(true);
-	if (action === "cancel") return stops[id]?.();
+	if (action === "app-sign-in") return signInToApp();
+	if (action === "cancel") {
+		if (stops[id]) cancelled.add(id);
+		return stops[id]?.();
+	}
 	if (action === "choose-folder") {
 		const repo = await chooseFolder();
 		if (repo) saveSettings({ repo });
@@ -467,7 +658,7 @@ export async function setupAction(
 				timeoutMs: 15 * 60_000,
 			});
 			if (!result.ok) throw new Error(classifySignIn(result.output));
-			return "Signed in.";
+			return "The command-line tool is signed in.";
 		});
 		return refreshSetup(false);
 	}
@@ -481,11 +672,16 @@ export async function setupAction(
 					timeoutMs: 20 * 60_000,
 				}),
 			);
-			return `Tedix was added to ${tool.name}. Start a new ${tool.name} session to see it.`;
+			return `Start a new ${tool.name} session to see Tedix.`;
 		});
 		return readAgentStatus();
 	}
-	if (action === "connect" && tool.signIn && command) {
+	if (
+		action === "connect" &&
+		tool.signIn &&
+		command &&
+		toolFacts[tool.id]?.signInWorks !== false
+	) {
 		await step(`connect:${tool.id}`, async (say) => {
 			const host =
 				agentStatus && "hosts" in agentStatus

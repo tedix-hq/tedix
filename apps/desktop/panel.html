@@ -4,57 +4,84 @@
 		<meta charset="utf-8" />
 		<meta
 			http-equiv="Content-Security-Policy"
-			content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
 		/>
-		<title>Tedix</title>
+		<title>This Mac</title>
+		<link rel="stylesheet" href="ui.css" />
 		<style>
-			:root {
-				color-scheme: light dark;
-				font:
-					13px system-ui,
-					sans-serif;
-			}
 			body {
-				margin: 0;
-				padding: 12px;
-				user-select: none;
+				padding: 16px;
+				overflow-y: auto;
 			}
-			h1 {
-				font-size: 13px;
-				margin: 0 0 6px;
+			.head {
+				display: grid;
+				grid-template-columns: 36px 1fr;
+				gap: 12px;
+				align-items: center;
+				margin-bottom: 16px;
 			}
-			p {
-				margin: 4px 0;
+			.head .name {
+				font-size: 15px;
 			}
-			hr {
-				border: 0;
-				border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-				margin: 10px 0;
-			}
-			label {
-				display: flex;
+			.facts {
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
 				gap: 8px;
-				align-items: flex-start;
-				margin: 6px 0;
+				margin-bottom: 16px;
 			}
-			small,
-			.quiet {
+			.fact {
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+				background: var(--card);
+				box-shadow: var(--shadow);
+				padding: 8px 12px;
+			}
+			.fact b {
 				display: block;
-				opacity: 0.65;
+				font-size: 18px;
+				font-weight: 650;
+				letter-spacing: -0.01em;
 			}
-			.warning {
-				color: #c2410c;
+			.fact small {
+				display: block;
+			}
+			.section {
+				font-size: 11.5px;
 				font-weight: 600;
+				letter-spacing: 0.04em;
+				text-transform: uppercase;
+				color: var(--faint);
+				margin: 16px 4px 8px;
 			}
 			input[type="text"] {
 				width: 100%;
-				box-sizing: border-box;
-				padding: 4px 6px;
+				height: 30px;
+				padding: 0 8px;
+				border-radius: var(--radius-small);
+				border: 1px solid var(--input);
+				background: var(--background);
+				color: var(--foreground);
 				font: inherit;
+				user-select: text;
 			}
-			button {
-				font: inherit;
-				margin: 0 4px 4px 0;
+			.field {
+				display: grid;
+				gap: 4px;
+				padding: 12px;
+				border-bottom: 1px solid var(--border);
+			}
+			.field span {
+				font-weight: 500;
+			}
+			.notes {
+				display: grid;
+				gap: 4px;
+				margin: 8px 4px 0;
+			}
+			.buttons {
+				display: flex;
+				gap: 8px;
+				margin-top: 16px;
 			}
 		</style>
 	</head>

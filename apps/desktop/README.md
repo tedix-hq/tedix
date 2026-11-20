@@ -25,16 +25,22 @@ The app is not signed or notarized yet and has been run on macOS only.
   window, so the app opens your normal browser, also from **Tedix → Sign In
   with Browser**. Sign in there, confirm, and choose **Open the Tedix app**.
   The app waits 30 minutes for this, also across a restart. If the sign-in
-  cannot finish, the app says why and offers to start again.
+  cannot finish, the app says why and offers to start again. Once you are
+  signed in, the menu shows who is signed in instead.
 - **Set up this Mac.** **Tedix → Set Up This Mac…** opens by itself until
   this Mac is signed in, and from a `tedix://setup` link. One step per
-  screen: sign in on this Mac (`tedix -w connect login`, started by the app),
-  the command-line tool, adding Tedix to the coding tools it finds (Claude
-  Code, Codex, Devin; OpenCode is only detected), the one manual step for the
-  Claude and ChatGPT apps, and which coding tools Tedix may start here. Every
-  action shows its latest output line, and on failure the reason, Retry and
-  Copy details. It changes other tools only through `tedix setup agents` and
-  the tool's own commands.
+  screen: the two sign-ins, shown apart (Tedix in this app, and this Mac's
+  command-line tool with `tedix -w connect login`, started by the app), the
+  command-line tool, adding Tedix to the coding tools it finds (Claude Code,
+  Codex, Devin; OpenCode is only detected), the one manual step for the
+  Claude and ChatGPT apps, and which coding tools Tedix may start here. Each
+  coding tool is asked whether its own Tedix connection is signed in, and
+  gets a **Sign in** button only when the tool has a command for it. The
+  last screen lists every item as done, skipped or needing attention, with
+  one live check that the command-line tool reaches Tedix. Every action
+  shows its latest output line, and on failure the reason, Retry and Copy
+  details. It changes other tools only through `tedix setup agents` and the
+  tool's own commands.
 - **The command-line tool.** With no `tedix` installed, the app links its own
   copy and adds `~/.local/bin` to your shell profile if it is missing. A
   separate install is left alone until you choose **Let the app manage it**:
@@ -162,6 +168,8 @@ to, such as Applications. The first install is still by hand.
 | `src/setup.ts`         | The setup steps: coding tools, sign-in, running tasks |
 | `src/cli.ts`           | Copies and links the command-line tool inside the app |
 | `setup.html`           | The Set up this Mac window (`src/onboarding.ts`)      |
+| `ui.css`               | Colours, buttons, switches and cards of both windows  |
+| `src/icons.ts`         | The small drawings both windows use                   |
 | `scripts/fetch-cli.ts` | Fetches the command-line tool for a build             |
 | `src/update.ts`        | Finds, checks and installs a newer app                |
 | `src/log.ts`           | Writes the log file                                   |
