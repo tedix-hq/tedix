@@ -202,7 +202,7 @@ const OS_SURFACES = [
 		get description() {
 			return navigationDescription(
 				"install",
-				"Connect Tedix to the apps you use.",
+				"Let Tedix work with the coding agents on this computer.",
 			);
 		},
 	},

@@ -23,7 +23,8 @@ fictional company's Decisions and Activity to click through.
 Just want to use the hosted service? [Use Tedix in ChatGPT, Codex and
 Claude](./learning-paths/first-plugin.md). To connect the CLI to an invited
 Cloud organization instead, [connect to Tedix
-Cloud](./learning-paths/first-connection.md).
+Cloud](./learning-paths/first-connection.md): on a Mac the Tedix
+app does it without a terminal.
 
 ## Run Tedix locally
 

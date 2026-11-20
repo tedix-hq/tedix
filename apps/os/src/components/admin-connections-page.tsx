@@ -1,3 +1,4 @@
+import { OsRouterLink } from "@/components/kumo/link-provider";
 import { CapabilityNavigation } from "@/components/capability-navigation";
 /**
  * Admin › Connections
@@ -41,6 +42,7 @@ import {
 } from "@/components/kumo/collapsible";
 import {
 	Empty,
+	EmptyContent,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyMedia,
@@ -719,6 +721,11 @@ export function AdminConnectionsPage({
 								: "When an app you use needs your own account, it appears here to connect."}
 						</EmptyDescription>
 					</EmptyHeader>
+					<EmptyContent>
+						<Button render={<OsRouterLink to="/explore/apps" />}>
+							Browse apps to add
+						</Button>
+					</EmptyContent>
 				</Empty>
 			) : (
 				<>

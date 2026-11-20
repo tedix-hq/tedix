@@ -1,3 +1,4 @@
+import { OsRouterLink } from "@/components/kumo/link-provider";
 import { SectionTitle } from "@/components/kumo/page";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/components/kumo/link";
@@ -112,8 +113,19 @@ export function DispatcherLaneHealth({
 			) : null}
 			{health.data?.data.length === 0 ? (
 				<WorkEmpty
-					title="No runner observations"
-					description="No computer has reported runners to this organization yet. Runners appear here once one reports in."
+					title="No computers set up yet"
+					description={
+						<>
+							No computer is set up to run tasks for this organization yet.{" "}
+							<OsRouterLink
+								className="text-kumo-brand underline-offset-2 hover:underline"
+								to="/install"
+							>
+								Set up this computer
+							</OsRouterLink>{" "}
+							and it appears here.
+						</>
+					}
 				/>
 			) : null}
 			{health.data &&

@@ -50,7 +50,7 @@ const ENGLISH_COPY = {
 		widget: "Website chat",
 		audit: "Activity log",
 		compute: "Usage & billing",
-		install: "Install apps",
+		install: "Set up this computer",
 		settings: "Settings",
 		usage: "Usage",
 		billing: "Billing",

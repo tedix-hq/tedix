@@ -10,8 +10,25 @@ const headings = [
 	"Your profile",
 	"Choose a model",
 	"Connect your tools",
+	"Set up this computer",
 	"Start with a question",
 ];
+const last = headings.length - 1;
+
+async function setUpComputer() {
+	if (busy) return;
+	busy = true;
+	error = "";
+	render();
+	try {
+		await tedix.call("welcome.computer");
+	} catch (failure) {
+		error = failure.message || "Could not open the setup. Please try again.";
+	} finally {
+		busy = false;
+		render();
+	}
+}
 
 async function next() {
 	if (busy) return;
@@ -27,7 +44,7 @@ async function next() {
 			await tedix.call("welcome.model", { ref: modelRef || null });
 			config.modelRef = modelRef;
 		}
-		if (step === 3) await tedix.call("welcome.complete");
+		if (step === last) await tedix.call("welcome.complete");
 		else step++;
 	} catch (failure) {
 		error = failure.message || "Could not save. Please try again.";
@@ -45,7 +62,7 @@ function render() {
 	const content = [
 		ui.el("p", {
 			class: "tx-muted",
-			text: `Step ${step + 1} of 4${config.organization ? ` · ${config.organization}` : ""}`,
+			text: `Step ${step + 1} of ${headings.length}${config.organization ? ` · ${config.organization}` : ""}`,
 		}),
 		heading,
 	];
@@ -107,10 +124,38 @@ function render() {
 	} else if (step === 2) {
 		content.push(
 			ui.el("p", {
-				text: "Connections let agents work with information in your other tools. Open Apps when you are ready to connect a service, then choose the account and review the access it requests.",
+				text: "Connections let agents work with information in your other tools. Open Connections when you are ready to connect a service, then choose the account and review the access it requests.",
 			}),
 			ui.el("p", {
 				text: "An agent is an AI assistant that can carry out tasks using tools. You control which accounts it can use. Sign-in and consent stay with you; you can start without a connection.",
+			}),
+		);
+	} else if (step === 3) {
+		const computer = config.computer;
+		content.push(
+			ui.el("p", {
+				text: "Tedix can work with the coding agents on your computer, such as Claude Code and Codex, so they see the same projects, tasks and results you see here.",
+			}),
+			ui.el("p", {
+				text:
+					computer === "desktop-app"
+						? `Choose Set up this Mac. ${config.macSetupSummary} A window shows each step before it runs.`
+						: computer === "mac"
+							? `The Tedix app for Mac does this for you, with no terminal. ${config.macFirstOpenNote}`
+							: "On this computer you set it up with a few commands in a terminal. The setup page lists them.",
+			}),
+			ui.button(
+				computer === "desktop-app"
+					? "Set up this Mac"
+					: computer === "mac"
+						? "Download the Tedix app for Mac"
+						: "Show the setup steps",
+				setUpComputer,
+				{ disabled: busy },
+			),
+			ui.el("p", {
+				class: "tx-muted",
+				text: "You can also do this later: Get started in the sidebar keeps your remaining steps.",
 			}),
 		);
 	} else {
@@ -139,7 +184,7 @@ function render() {
 		);
 	actions.append(
 		ui.button(
-			busy ? "Saving…" : step === 3 ? "Ask your first question" : "Next",
+			busy ? "Saving…" : step === last ? "Ask your first question" : "Next",
 			next,
 			{ variant: "primary", disabled: busy },
 		),

@@ -163,7 +163,7 @@ describe("navigation translations", () => {
 		expect(getOsSurface("gateways").label).toBe("Conexiones");
 		expect(getOsSurface("sites").label).toBe("Sitios web");
 		expect(getOsSurface("brain").label).toBe("Memoria");
-		expect(getOsSurface("install").label).toBe("Instalar apps");
+		expect(getOsSurface("install").label).toBe("Configurar este equipo");
 	});
 	it("keeps each settings destination reachable at its existing URL", () => {
 		for (const item of OS_SETTINGS_NAVIGATION)

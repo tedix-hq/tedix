@@ -7,11 +7,17 @@ import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
-	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
 import { osApi } from "@/lib/api";
+import {
+	DESKTOP_SETUP_LINK,
+	latestMacDownload,
+	MAC_FIRST_OPEN_NOTE,
+	MAC_SETUP_SUMMARY,
+	thisComputer,
+} from "@/lib/this-computer";
 import { buildAppRuntimeDocument } from "@/lib/app-runtime-host";
 import type { AppRuntimeHostResult } from "@/lib/app-runtime-protocol";
 import {
@@ -25,16 +31,24 @@ import client from "@/gadgets/welcome/client.js?raw";
 
 const html = buildAppRuntimeDocument({ "client.js": `${kit}\n${client}` });
 
-export function FirstRunWelcome() {
+/**
+ * The first-run steps: name, model, tools, this computer, first question.
+ * The shell mounts it, and it is the only Get started dialog open at a time.
+ */
+export function FirstRunWelcome({ onDone }: { onDone: () => void }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const complete = useMutation({
-		mutationFn: () => osApi.userProfile.completeWelcome({}),
-		onSuccess: async (next) => {
+		mutationFn: async (to: "/chat" | "/install") => {
+			await osApi.userProfile.completeWelcome({});
+			return to;
+		},
+		onSuccess: async (to) => {
 			queryClient.setQueryData(userProfileQueryOptions().queryKey, (profile) =>
-				profile ? { ...profile, welcomeCompleted: next.completed } : profile,
+				profile ? { ...profile, welcomeCompleted: true } : profile,
 			);
-			await navigate({ to: "/chat", search: {}, replace: true });
+			onDone();
+			await navigate({ to, search: {}, replace: true });
 		},
 	});
 
@@ -64,8 +78,27 @@ export function FirstRunWelcome() {
 							catalog?.models.filter((model) => model.allowed) ?? [],
 						).map((model) => ({ ref: model.ref, label: model.label })),
 						modelRef: preferences?.preferences.conversationModelRef,
+						computer: thisComputer(),
+						macSetupSummary: MAC_SETUP_SUMMARY,
+						macFirstOpenNote: MAC_FIRST_OPEN_NOTE,
 					},
 				};
+			}
+			if (method === "welcome.computer") {
+				const computer = thisComputer();
+				if (computer === "desktop-app") {
+					window.location.assign(DESKTOP_SETUP_LINK);
+					return { ok: true, value: null };
+				}
+				// The download starts here when the browser says which Mac this is;
+				// otherwise the setup page offers the choices.
+				const download =
+					computer === "mac"
+						? (await latestMacDownload().catch(() => null))?.forThisMac
+						: null;
+				if (download) window.location.assign(download);
+				else await complete.mutateAsync("/install");
+				return { ok: true, value: null };
 			}
 			if (method === "welcome.profile") {
 				if (
@@ -113,7 +146,7 @@ export function FirstRunWelcome() {
 				return { ok: true, value: null };
 			}
 			if (method === "welcome.complete") {
-				await complete.mutateAsync();
+				await complete.mutateAsync("/chat");
 				return { ok: true, value: null };
 			}
 			return { ok: false, error: "unknown_method" };
@@ -133,30 +166,31 @@ export function FirstRunWelcome() {
 		<Dialog
 			open
 			onOpenChange={(open) => {
-				if (!open && !complete.isPending) complete.mutate();
+				if (!open && !complete.isPending) complete.mutate("/chat");
 			}}
 		>
 			<DialogContent showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>Welcome to Tedix</DialogTitle>
 					<DialogDescription>
-						A platform for agents, apps, and work. Take a quick look, or start
-						with a question.
+						A platform for agents, apps, and work. Take a quick look now and
+						finish any step later from Get started.
 					</DialogDescription>
 				</DialogHeader>
 				<AppRuntimeFrame html={html} title="Tedix welcome" onCall={onCall} />
 				{complete.isError ? (
 					<p role="alert">Your welcome could not be saved. Please try again.</p>
 				) : null}
-				<DialogFooter>
+				{/* Not a pinned footer: on a phone it would cover the step's own buttons. */}
+				<div className="flex justify-end">
 					<Button
 						variant="ghost"
 						disabled={complete.isPending}
-						onClick={() => complete.mutate()}
+						onClick={() => complete.mutate("/chat")}
 					>
 						{complete.isPending ? "Saving…" : "Skip welcome"}
 					</Button>
-				</DialogFooter>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);

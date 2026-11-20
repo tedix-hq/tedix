@@ -1,5 +1,24 @@
-import { ArrowSquareOut, TerminalWindow } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import {
+	ArrowSquareOut,
+	Desktop,
+	DownloadSimple,
+	TerminalWindow,
+} from "@phosphor-icons/react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "@/components/kumo/collapsible";
+import {
+	DESKTOP_SETUP_LINK,
+	latestMacDownload,
+	MAC_FIRST_OPEN_NOTE,
+	MAC_SETUP_SUMMARY,
+	type MacDownload,
+	thisComputer,
+} from "@/lib/this-computer";
 import { Badge } from "@/components/kumo/badge";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
 import {
@@ -24,12 +43,13 @@ import {
 import { Text } from "@/components/kumo/text";
 
 const CLI_INSTALL = "curl -fsSL https://downloads.tedix.dev/install.sh | sh";
-const CODEX_MARKETPLACE = "codex plugin marketplace add tedix-hq/tedix";
-const CODEX_PLUGIN = "codex plugin add tedix@tedix-repo";
+const CODEX_MARKETPLACE = "codex plugin marketplace add tedix-hq/tedix-plugins";
+const CODEX_PLUGIN = "codex plugin add tedix@tedix-plugins";
 const CODEX_LOGIN =
 	"codex mcp login tedix --scopes mcp:work.read,mcp:skills.read,mcp:content.read,connections.execute";
-const CLAUDE_MARKETPLACE = "claude plugin marketplace add tedix-hq/tedix";
-const CLAUDE_PLUGIN = "claude plugin install tedix@tedix --scope user";
+const CLAUDE_MARKETPLACE =
+	"claude plugin marketplace add tedix-hq/tedix-plugins";
+const CLAUDE_PLUGIN = "claude plugin install tedix@tedix-plugins --scope user";
 
 function Step({
 	number,
@@ -79,27 +99,16 @@ function GuideLink({ href, children }: { href: string; children: ReactNode }) {
 	);
 }
 
-export function AgentInstallPage() {
+function TerminalSteps() {
 	return (
-		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Install Tedix</PageTitle>
-					<PageDescription>
-						Connect your terminal or coding agent to the same Tedix workspace
-						you use here. Choose one host, sign in, then make a read-only check
-						before doing work.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-
+		<>
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
 						<SectionTitle>Terminal CLI</SectionTitle>
 						<SectionDescription>
 							Install once on macOS or Linux, then choose your organization in
-							the browser login.
+							the browser sign-in.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -178,7 +187,7 @@ export function AgentInstallPage() {
 								title="Install in Codex"
 								command={CODEX_MARKETPLACE}
 							>
-								Adds the public Tedix repository as a plugin marketplace.
+								Adds the public Tedix plugin repository as a plugin marketplace.
 							</Step>
 							<Step number={2} title="Enable the plugin" command={CODEX_PLUGIN}>
 								In ChatGPT Work, choose the Tedix marketplace in the Plugins
@@ -219,7 +228,7 @@ export function AgentInstallPage() {
 								title="Add the marketplace"
 								command={CLAUDE_MARKETPLACE}
 							>
-								Adds the public Tedix repository as a plugin marketplace.
+								Adds the public Tedix plugin repository as a plugin marketplace.
 							</Step>
 							<Step
 								number={2}
@@ -314,6 +323,145 @@ export function AgentInstallPage() {
 					</CardContent>
 				</Card>
 			</PageSection>
+		</>
+	);
+}
+
+function MacDownloadCard() {
+	const [download, setDownload] = useState<MacDownload | null>(null);
+	const [failed, setFailed] = useState(false);
+	useEffect(() => {
+		let current = true;
+		latestMacDownload().then(
+			(found) => current && setDownload(found),
+			() => current && setFailed(true),
+		);
+		return () => {
+			current = false;
+		};
+	}, []);
+	return (
+		<Card>
+			<CardHeader>
+				<Desktop size={20} aria-hidden="true" />
+				<CardTitle>Tedix app for Mac</CardTitle>
+				<CardDescription>
+					The app sets up this Mac for you, with no terminal.{" "}
+					{MAC_SETUP_SUMMARY}
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				{failed ? (
+					<Text role="label" tone="secondary">
+						The download is not available right now. Try again in a moment, or
+						use a terminal instead.
+					</Text>
+				) : download === null ? (
+					<Text role="label" tone="secondary">
+						Finding the latest version…
+					</Text>
+				) : (
+					<div className="flex flex-wrap items-center gap-2">
+						{download.forThisMac ? (
+							<Button render={<a href={download.forThisMac} />}>
+								<DownloadSimple size={16} aria-hidden="true" />
+								Download the Tedix app for Mac
+							</Button>
+						) : (
+							<>
+								<Button render={<a href={download.appleSilicon} />}>
+									<DownloadSimple size={16} aria-hidden="true" />
+									Download for Mac with Apple silicon
+								</Button>
+								<Button render={<a href={download.intel} />} variant="outline">
+									Download for Mac with Intel
+								</Button>
+							</>
+						)}
+						<Text as="span" role="label" tone="secondary">
+							Version {download.version}
+						</Text>
+					</div>
+				)}
+				{download && !download.forThisMac ? (
+					<Text role="label" tone="secondary">
+						Not sure which Mac you have? Open the Apple menu and choose About
+						This Mac. "Chip: Apple" means Apple silicon.
+					</Text>
+				) : null}
+				<Text role="label" tone="secondary">
+					Open the downloaded file, move Tedix to Applications and open it.{" "}
+					{MAC_FIRST_OPEN_NOTE} Then sign in and choose Set up this Mac.
+				</Text>
+			</CardContent>
+		</Card>
+	);
+}
+
+function DesktopAppCard() {
+	return (
+		<Card>
+			<CardHeader>
+				<Desktop size={20} aria-hidden="true" />
+				<CardTitle>Set up this Mac</CardTitle>
+				<CardDescription>{MAC_SETUP_SUMMARY}</CardDescription>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				<div>
+					<Button render={<a href={DESKTOP_SETUP_LINK} />}>
+						Set up this Mac
+					</Button>
+				</div>
+				<Text role="label" tone="secondary">
+					A window opens and shows each step before it runs. If nothing opens,
+					update the Tedix app and try again.
+				</Text>
+			</CardContent>
+		</Card>
+	);
+}
+
+export function AgentInstallPage() {
+	const computer = thisComputer();
+	const [terminalOpen, setTerminalOpen] = useState(false);
+	return (
+		<Page width="lg">
+			<PageHeader>
+				<PageHeading>
+					<PageTitle>Set up this computer</PageTitle>
+					<PageDescription>
+						Let Tedix work with the coding agents on this computer, such as
+						Claude Code and Codex, so they see the same projects, tasks and
+						results you see here.
+					</PageDescription>
+				</PageHeading>
+			</PageHeader>
+
+			{computer === "other" ? (
+				<TerminalSteps />
+			) : (
+				<>
+					<PageSection>
+						{computer === "desktop-app" ? (
+							<DesktopAppCard />
+						) : (
+							<MacDownloadCard />
+						)}
+					</PageSection>
+					<PageSection>
+						<Collapsible open={terminalOpen} onOpenChange={setTerminalOpen}>
+							<CollapsibleDefaultTrigger className="-ms-2 w-fit">
+								Use a terminal instead
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
+								<div className="grid gap-8 pt-4">
+									<TerminalSteps />
+								</div>
+							</CollapsibleDefaultContent>
+						</Collapsible>
+					</PageSection>
+				</>
+			)}
 		</Page>
 	);
 }

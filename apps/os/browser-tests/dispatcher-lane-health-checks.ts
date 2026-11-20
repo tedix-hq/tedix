@@ -472,7 +472,7 @@ export async function runLaneStates() {
 			await page
 				.getByText(
 					mode === "empty"
-						? "No runner observations"
+						? "No computers set up yet"
 						: "Runner observations unavailable",
 					{ exact: true },
 				)

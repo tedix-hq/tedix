@@ -274,7 +274,7 @@ await runShellSpec(
 				"Billing",
 				"Settings",
 				"Personal settings",
-				"Install apps",
+				"Set up this computer",
 				"Sign out",
 			]);
 			await capture(page, `avatar-menu-${width}-${theme}`);

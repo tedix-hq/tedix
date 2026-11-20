@@ -25,14 +25,7 @@ import {
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/kumo/dialog";
+import { GetStartedEntry } from "@/components/get-started";
 import {
 	isOsShellNavigationItemActive,
 	OS_SHELL_NAVIGATION_SECTIONS,
@@ -76,6 +69,12 @@ import {
 const FirstRunWelcome = lazy(() =>
 	import("@/components/first-run-welcome").then((module) => ({
 		default: module.FirstRunWelcome,
+	})),
+);
+
+const GetStartedChecklist = lazy(() =>
+	import("@/components/get-started").then((module) => ({
+		default: module.GetStartedChecklist,
 	})),
 );
 
@@ -182,11 +181,13 @@ function SidebarUnreadItem({ pathname }: { pathname: string }) {
 
 function OsSidebar({
 	identity,
+	onOpenGetStarted,
 	onOpenPalette,
 	pathname,
 	tenantLabel,
 }: {
 	identity: OsIdentity;
+	onOpenGetStarted: () => void;
 	onOpenPalette: () => void;
 	pathname: string;
 	tenantLabel: string;
@@ -252,6 +253,7 @@ function OsSidebar({
 			</SidebarContent>
 
 			<SidebarFooter className="h-auto flex-col gap-1 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
+				<GetStartedEntry onOpen={onOpenGetStarted} />
 				<OsAccountMenu identity={identity} />
 			</SidebarFooter>
 		</Sidebar>
@@ -324,15 +326,16 @@ export function OsShell() {
 	const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(
 		null,
 	);
-	const [setupPromptOpen, setSetupPromptOpen] = useState(
-		() => new URLSearchParams(window.location.search).get("setup") === "1",
+	// One Get started dialog at a time. A newly created organization opens the
+	// welcome through `?setup=1`; a new account opens it until it is finished.
+	const [getStarted, setGetStarted] = useState<"welcome" | "checklist" | null>(
+		() =>
+			new URLSearchParams(window.location.search).get("setup") === "1"
+				? "welcome"
+				: null,
 	);
-	const closeSetupPrompt = () => {
-		setSetupPromptOpen(false);
-		const url = new URL(window.location.href);
-		url.searchParams.delete("setup");
-		window.history.replaceState(window.history.state, "", url);
-	};
+	const getStartedOpen =
+		profile.data?.welcomeCompleted === false ? "welcome" : getStarted;
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
 	});
@@ -366,7 +369,11 @@ export function OsShell() {
 		<SharedDeckInboxProvider>
 			<Suspense fallback={null}>
 				<WorkspaceToasts />
-				{profile.data?.welcomeCompleted === false ? <FirstRunWelcome /> : null}
+				{getStartedOpen === "welcome" ? (
+					<FirstRunWelcome onDone={() => setGetStarted(null)} />
+				) : getStartedOpen === "checklist" ? (
+					<GetStartedChecklist onClose={() => setGetStarted(null)} />
+				) : null}
 			</Suspense>
 			<OsTopbarMenuContext.Provider
 				value={
@@ -398,6 +405,7 @@ export function OsShell() {
 						{workspaceWorkbench ? null : (
 							<OsSidebar
 								identity={identity}
+								onOpenGetStarted={() => setGetStarted("checklist")}
 								onOpenPalette={() => setPaletteOpen(true)}
 								pathname={pathname}
 								tenantLabel={tenantLabel}
@@ -480,35 +488,6 @@ export function OsShell() {
 							</Suspense>
 						) : null}
 						<OsQuickChat />
-						<Dialog
-							open={setupPromptOpen}
-							onOpenChange={(open) => !open && closeSetupPrompt()}
-						>
-							<DialogContent>
-								<DialogHeader>
-									<DialogTitle>Set up Tedix on this device</DialogTitle>
-									<DialogDescription>
-										Install the Tedix CLI, then choose the Codex or Claude Code
-										plugin for its skills and optional session hook. Each host
-										will ask you to review its own connection and hook
-										permissions.
-									</DialogDescription>
-								</DialogHeader>
-								<p className="text-kumo-subtle type-tedix-label">
-									Your browser cannot run a local installer. The setup guide
-									gives you commands to copy into your terminal and the steps to
-									verify the connection.
-								</p>
-								<DialogFooter>
-									<Button onClick={closeSetupPrompt} variant="ghost">
-										Later
-									</Button>
-									<Button onClick={() => window.location.assign("/install")}>
-										Set up this device
-									</Button>
-								</DialogFooter>
-							</DialogContent>
-						</Dialog>
 					</SidebarProvider>
 				</DropdownMenu>
 			</OsTopbarMenuContext.Provider>
