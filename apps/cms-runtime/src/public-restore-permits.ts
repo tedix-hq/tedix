@@ -58,10 +58,10 @@ export class PublicRestorePermits {
 			const reservation = borrowed;
 			borrowed = undefined;
 			reservation.borrowers--;
-			// The final borrower is done. A pending delete still holds the
-			// durable fence, but its result cannot change the completed response.
+			// Finish the expired borrower's release before its request ends;
+			// waitUntil can be cancelled during a deployment or isolate shutdown.
 			if (reservation.borrowers === 0 && reservation.retired)
-				waitUntil(this.deleteReservation(db, reservation));
+				await this.deleteReservation(db, reservation);
 			return true;
 		};
 		return {

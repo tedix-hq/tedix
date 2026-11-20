@@ -58,7 +58,7 @@ import type {
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
-	deleteStaleCmsRestorePermits,
+	deleteExpiredCmsBundleRetentionPermits,
 	getCmsRestoreEpoch,
 } from "@tedix/db/queries/cms-restore-fences";
 import {
@@ -2363,23 +2363,27 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<void> {
 		const startedAt = Date.now();
-		// Once an hour, drop day-old orphan restore permits so a cancelled
-		// request can never block restores, pauses or deprovisions forever.
+		// Only retention runs have a platform-bounded lifetime.
 		if (new Date(controller.scheduledTime).getUTCMinutes() === 7) {
 			ctx.waitUntil(
-				deleteStaleCmsRestorePermits(createDbQueryClient(env.PLATFORM_DB), {
-					olderThanSeconds: 86_400,
-					limit: 1_000,
-				}).then(
+				deleteExpiredCmsBundleRetentionPermits(
+					createDbQueryClient(env.PLATFORM_DB),
+					{
+						limit: 1_000,
+					},
+				).then(
 					(removed) => {
 						if (removed > 0)
-							console.info("[cms-runtime] stale restore permits removed", {
-								removed,
-							});
+							console.info(
+								"[cms-runtime] expired bundle retention permits removed",
+								{
+									removed,
+								},
+							);
 					},
 					(error) =>
 						console.error(
-							"[cms-runtime] stale restore permit sweep failed:",
+							"[cms-runtime] bundle retention permit sweep failed:",
 							error,
 						),
 				),

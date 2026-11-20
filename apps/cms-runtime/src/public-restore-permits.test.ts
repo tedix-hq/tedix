@@ -308,7 +308,7 @@ describe("public restore reservations", () => {
 		expect(queries.leave).toHaveBeenCalledOnce();
 	});
 
-	it("returns a buffered page before an expired reservation's delete fails", async () => {
+	it("awaits an expired reservation's deletion and surfaces release failure", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const render = Promise.withResolvers<Response>();
 		const started = Promise.withResolvers<void>();
@@ -334,16 +334,27 @@ describe("public restore reservations", () => {
 		render.resolve(
 			new Response("page", { headers: { "Content-Type": "text/html" } }),
 		);
-		const result = await pending;
-		if (!result.admitted) throw new Error("expected admission");
-		expect(await result.value.text()).toBe("page");
+		let returned = false;
+		void pending.then(
+			() => {
+				returned = true;
+			},
+			() => {
+				returned = true;
+			},
+		);
+		await vi.waitFor(() => expect(queries.leave).toHaveBeenCalledOnce());
+		expect(returned).toBe(false);
 		expect(queries.leave).toHaveBeenCalledExactlyOnceWith(db, {
 			...queries.enter.mock.calls[0]?.[1],
 			kind: "nested",
 		});
-		const cleanup = expect(tasks[1]).rejects.toThrow("D1 unavailable");
+		const failure = expect(pending).rejects.toThrow(
+			"CMS restore fence unavailable",
+		);
 		deletion.reject(new Error("D1 unavailable"));
-		await cleanup;
+		await failure;
+		await Promise.all(tasks);
 	});
 
 	it("does not let expiry clear an active render or admit a new borrower", async () => {

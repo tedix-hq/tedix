@@ -1,5 +1,6 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
+	deleteExpiredCmsBundleRetentionPermits,
 	enterCmsRestorePermit,
 	leaveCmsRestorePermit,
 } from "@tedix/db/queries/cms-restore-fences";
@@ -13,6 +14,20 @@ export interface ExactCmsSite {
 
 export interface ExactCmsActiveSite extends ExactCmsSite {
 	restoreEpoch: number;
+}
+
+/** Recover only platform-expired retention holders for the captured site. */
+export async function reclaimCmsBundleRetentionPermits(
+	platformDb: D1Database,
+	site: ExactCmsActiveSite,
+): Promise<number> {
+	return deleteExpiredCmsBundleRetentionPermits(
+		createDbQueryClient(platformDb),
+		{
+			site,
+			limit: 1_000,
+		},
+	);
 }
 
 /** Only the paused canonical site with its running teardown receipt may be deleted. */

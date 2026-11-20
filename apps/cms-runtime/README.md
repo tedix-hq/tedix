@@ -59,7 +59,12 @@ epoch, restore fence and deprovision reservation. Reuse performs no D1 check.
 The durable reservation uses the nested kind, so restore reconciliation cannot
 reclaim it as an abandoned outer response. The reuse window expires even under
 continuous traffic; active renders retain the row until their last borrower
-finishes. Idle cleanup runs in `waitUntil`. Isolate loss can leave a durable row.
+finishes. The last borrower of an expired reservation awaits its deletion.
+Idle cleanup runs in `waitUntil`. Isolate loss can still leave a durable row;
+HTTP and DO operations have no platform wall-clock bound, so their permits
+cannot be reclaimed by age. Bundle retention runs directly inside a cron
+invocation (15-minute platform wall-clock limit). Only its scheduled permits
+are reclaimed after one hour, before publication and by the hourly cron sweep.
 
 Only admission is shared: authentication and the response handler still run for
 each request, including authenticated reads. Every body pull borrows a reservation
