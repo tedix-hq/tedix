@@ -168,6 +168,8 @@ export interface WorkspaceRunPort {
 		kind: "agent_run_message";
 		workItemId: string;
 		messageId: string;
+		delivery: "to_running_agent" | "when_run_starts";
+		note: string;
 	}>;
 	stopRun(input: { workItemId: string }): Promise<{
 		kind: "agent_run_stop";

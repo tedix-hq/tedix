@@ -109,7 +109,7 @@ export function turnPricingIdentity(
 			deploymentScope: JSON.stringify(["workers-ai", account]),
 		};
 	const resource = configured(env.AZURE_OPENAI_RESOURCE);
-	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT);
+	const deployment = azureDeploymentOf(modelId);
 	const gateway = configured(env.AI_GATEWAY_LLM_ID);
 	if (!resource || !deployment || !gateway) return null;
 	return {
@@ -123,6 +123,15 @@ export function turnPricingIdentity(
 			deployment,
 		]),
 	};
+}
+
+const AZURE_PREFIX = "azure-openai/";
+
+/** The Azure deployment a model id names, or undefined for another provider. */
+function azureDeploymentOf(modelId: string): string | undefined {
+	return modelId.startsWith(AZURE_PREFIX)
+		? modelId.slice(AZURE_PREFIX.length) || undefined
+		: undefined;
 }
 
 export interface WorkspaceModelChoice {
@@ -200,12 +209,15 @@ export function defaultWorkspaceModelId(
 /**
  * What the workspace chat offers: the administrator's published catalog, in
  * its order and with its names, limited to entries this deployment can run.
+ * Every Azure entry is offered when the Azure gateway is configured: an entry
+ * names its own deployment on the one configured resource.
  */
 export function catalogWorkspaceModels(
 	env: WorkspaceModelEnv,
 	entries: readonly ModelCatalogEntry[],
 ): WorkspaceModelChoice[] {
 	const runnable = new Set(configuredWorkspaceModels(env).map(({ id }) => id));
+	const azure = azureGatewayConfigured(env);
 	const models: WorkspaceModelChoice[] = [];
 	for (const entry of entries) {
 		if (!offeredInChat(entry)) continue;
@@ -215,7 +227,9 @@ export function catalogWorkspaceModels(
 				: entry.provider === "azure-openai"
 					? entry.ref
 					: null;
-		if (id && runnable.has(id)) models.push({ id, label: entry.label });
+		if (!id) continue;
+		if (entry.provider === "azure-openai" ? azure : runnable.has(id))
+			models.push({ id, label: entry.label });
 	}
 	return models;
 }
@@ -228,7 +242,15 @@ export function createWorkspaceModel(
 ): ModelPort {
 	const choices = configuredWorkspaceModels(env);
 	const modelId = requestedId ?? choices[0]?.id;
-	if (!modelId || !choices.some((model) => model.id === modelId))
+	// A catalog entry's Azure deployment runs on the configured resource.
+	const deployment =
+		modelId && azureGatewayConfigured(env)
+			? azureDeploymentOf(modelId)
+			: undefined;
+	if (
+		!modelId ||
+		(!deployment && !choices.some((model) => model.id === modelId))
+	)
 		throw new Error(
 			requestedId === undefined
 				? "No model is configured for workspace chat"
@@ -236,16 +258,18 @@ export function createWorkspaceModel(
 		);
 	return modelId.startsWith("@cf/")
 		? createWorkersAiGatewayModel(env, call, admission, modelId)
-		: createAzureGatewayModel(env, call, admission);
+		: createAzureGatewayModel(env, call, admission, deployment);
 }
 
 export function createAzureGatewayModel(
 	env: AzureGatewayEnv,
 	call: WorkspaceModelCall,
 	admission: InferenceAdmissionPort,
+	/** The deployment this call runs on; the configured one when not named. */
+	deploymentName?: string,
 ): ModelPort {
 	const resource = configured(env.AZURE_OPENAI_RESOURCE);
-	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT);
+	const deployment = deploymentName ?? configured(env.AZURE_CHAT_DEPLOYMENT);
 	const account = configured(env.AI_GATEWAY_ACCOUNT_ID);
 	const gateway = configured(env.AI_GATEWAY_LLM_ID);
 	const token = configured(env.CF_AI_GATEWAY_TOKEN);

@@ -2952,6 +2952,45 @@ describe("WorkspaceDO", () => {
 			),
 		});
 
+		// No runner has taken the task yet: the follow-up is saved for the
+		// run, and the answer says it is delivered when the run starts.
+		await ws.scriptModel(scope, [
+			{
+				code:
+					"export default async (env) => env.work.sendRunMessage({workItemId: " +
+					JSON.stringify(workItemId) +
+					', message: "Also cover page zero"})',
+			},
+			{ text: "Saved." },
+		]);
+		const early = await ws.sendTurn(scope, {
+			conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Also cover page zero",
+		});
+		await ws.awaitTurn(scope, early.turnId, 20_000);
+		expect(
+			(await ws.readEvents(scope, { conversationId })).find(
+				(event) =>
+					event.type === "step.finished" && event.turnId === early.turnId,
+			),
+		).toMatchObject({
+			status: "ok",
+			result: expect.stringContaining('"delivery":"when_run_starts"'),
+		});
+		expect(
+			await testEnv.DB.prepare(
+				"SELECT attempt_id, body, delivered_at FROM work_attempt_messages WHERE work_item_id = ?",
+			)
+				.bind(workItemId)
+				.first(),
+		).toEqual({
+			attempt_id: "",
+			body: "Also cover page zero",
+			delivered_at: null,
+		});
+
 		const attemptId = crypto.randomUUID();
 		const now = new Date().toISOString();
 		await testEnv.DB.batch([

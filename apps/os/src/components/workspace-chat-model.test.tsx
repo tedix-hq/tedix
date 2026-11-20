@@ -293,13 +293,20 @@ it("starts a chat with a tedi on the configured chat default, sends every messag
 		tediId: "tedi-1",
 	});
 	expect(tediChat.chosen()).toBe("Sol 6.1");
-	expect(tediChat.send("Hello")).toMatchObject({
+	// No model is named until the person picks one: the workspace applies
+	// the default, so a page that has not loaded it yet cannot override it.
+	expect(tediChat.send("Hello")).toEqual({
+		text: "Hello",
 		tediId: "tedi-1",
-		modelId: TEDI_DEFAULT.id,
 	});
 
-	await tediChat.choose("Sol");
-	expect(tediChat.chosen()).toBe("Sol");
+	const picking = await openBrowser("ws-1", {
+		conversationId: null,
+		tediId: "tedi-1",
+	});
+	await picking.choose("Sol");
+	expect(picking.chosen()).toBe("Sol");
+	expect(picking.send("Hello")).toMatchObject({ modelId: AZURE.id });
 	expect(server.rows.get("ana")?.preferences).toMatchObject({
 		conversationModelRef: `workers-ai/${WORKERS.id}`,
 	});

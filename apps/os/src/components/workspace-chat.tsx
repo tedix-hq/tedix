@@ -277,21 +277,43 @@ export function WorkspaceChat({
 		},
 		[conversationId, pinnedTediId, saveModelPreference],
 	);
+	const pickedHere =
+		pickedModel?.conversationId === conversationId ? pickedModel.id : null;
+	const lastAnswered =
+		state.turns.findLast((turn) => turn.model)?.model ?? null;
 	const modelId = workspaceChatModelId({
 		offered: state.models,
-		pickedHere:
-			pickedModel?.conversationId === conversationId ? pickedModel.id : null,
-		lastAnswered: state.turns.findLast((turn) => turn.model)?.model ?? null,
+		pickedHere,
+		lastAnswered,
 		remembered: workspaceModelIdForRef(
 			pinnedTediId
 				? (modelCatalog.data?.personChatModelRef ?? null)
 				: modelPreference.modelRef,
 		),
 	});
-	const selectedModel = state.models.find((model) => model.id === modelId);
+	// A chat with a tedi names a model only when the person picked one here or
+	// the conversation already has one. Otherwise the workspace applies the
+	// administrator's default, also when this page has not loaded it yet.
+	const sentModelId = pinnedTediId
+		? workspaceChatModelId({
+				offered: state.models.filter(
+					({ id }) => id === pickedHere || id === lastAnswered,
+				),
+				pickedHere,
+				lastAnswered,
+				remembered: null,
+			})
+		: modelId;
+	// Until the default is known, the picker of a chat with a tedi shows no
+	// model instead of the first offered one.
+	const shownModelId =
+		pinnedTediId && !sentModelId && modelCatalog.isPending
+			? undefined
+			: modelId;
+	const selectedModel = state.models.find((model) => model.id === shownModelId);
 	const modelControl = state.models.length ? (
 		<Select
-			value={modelId}
+			value={shownModelId ?? null}
 			onValueChange={(value) => {
 				if (value) selectModel(value);
 			}}
@@ -409,11 +431,11 @@ export function WorkspaceChat({
 			return client.sendTurn({
 				text: trimmed,
 				...(answering ? { tediId: answering } : {}),
-				...(modelId ? { modelId } : {}),
+				...(sentModelId ? { modelId: sentModelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
 			});
 		},
-		[client, modelId, notePost, pinnedTediId, viewOnly],
+		[client, sentModelId, notePost, pinnedTediId, viewOnly],
 	);
 	const viewOnlyNote = viewOnly ? (
 		<p
@@ -488,7 +510,7 @@ export function WorkspaceChat({
 							text,
 							newConversation: true,
 							...(answering ? { tediId: answering } : {}),
-							...(modelId ? { modelId } : {}),
+							...(sentModelId ? { modelId: sentModelId } : {}),
 							...(attachments?.length ? { attachments } : {}),
 						});
 					}}
