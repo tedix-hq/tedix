@@ -34,6 +34,8 @@ import {
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
+import { guestMayUseMemory } from "./guest-memory";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	getSkillEntryBySlug,
@@ -4083,6 +4085,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			!tedi.isolateAgentId
 		)
 			throw new Error("Guest tedi is not in this organization");
+		// A personal tedi's memory stays out of a workspace others can read.
+		const core = createDbClient(this.env.DB);
+		const [workspace, permissions] = await Promise.all([
+			getOsWorkspace(core, scope),
+			loadOsWorkspacePermissionRows(core, { ...scope, collaborators: false }),
+		]);
+		const withMemory =
+			!!workspace &&
+			guestMayUseMemory({
+				tedi,
+				workspace,
+				edges: permissions.edges,
+				links: permissions.links,
+			});
 		const stub = durableObjectStubByName(
 			this.env.TEDI_AGENT,
 			this.env,
@@ -4096,13 +4112,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				trust: "trusted" | "untrusted";
 			}): Promise<GuestProfile>;
 		};
-		return stub.guestProfile({
+		const profile = await stub.guestProfile({
 			tediId,
 			organizationId: scope.organizationId,
 			sessionKey: `workspace:${scope.workspaceId}`,
 			userText,
-			trust: actorKind === "user" ? "trusted" : "untrusted",
+			trust: actorKind === "user" && withMemory ? "trusted" : "untrusted",
 		});
+		// Without memory the tedi answers with its persona alone: its per-turn
+		// addenda carry memory recall, so they are left out too.
+		return withMemory ? profile : { ...profile, addenda: "" };
 	}
 
 	/**
