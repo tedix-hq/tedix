@@ -213,6 +213,44 @@ let updateRun: Promise<void> | undefined;
 /** When the background service was last reloaded from this app. */
 let reloadedAt = 0;
 
+/** What the main window's update button needs to follow a change it started. */
+export function cliProgress() {
+	return { updating, last: lastUpdate, reloadedAt };
+}
+
+/**
+ * The note the update button leaves before it restarts the app: "the person
+ * clicked, so put the newest command-line tool in place after this restart".
+ * It is good for five minutes and for one start.
+ */
+const CLICK_WAIT_MS = 5 * 60_000;
+const clickFile = () =>
+	join(app.getPath("userData"), "update-after-restart.json");
+export function noteUpdateClick(): void {
+	writeFileSync(
+		clickFile(),
+		JSON.stringify({ until: Date.now() + CLICK_WAIT_MS }),
+	);
+}
+/**
+ * True when this start follows that click. The note is deleted before it is
+ * read into anything, so no later start can use it again.
+ */
+export function takeUpdateClick(): boolean {
+	let until: unknown;
+	try {
+		until = (
+			JSON.parse(readFileSync(clickFile(), "utf8")) as { until?: unknown }
+		).until;
+	} catch {
+		return false;
+	} finally {
+		rmSync(clickFile(), { force: true });
+	}
+	const left = typeof until === "number" ? until - Date.now() : 0;
+	return left > 0 && left <= CLICK_WAIT_MS;
+}
+
 /** The newer of the copy inside the app and the published one, when newer than `have`. */
 async function offered(have: string): Promise<string | undefined> {
 	const source = bundled();
@@ -520,7 +558,7 @@ function track(
 
 /**
  * Reads which command-line tool is published and remembers it, so the
- * windows can offer it. Changes nothing on this Mac. `asked` is true when
+ * update button can offer it. Changes nothing on this Mac. `asked` is true when
  * the person chose it: then the answer is shown either way.
  */
 export async function lookForCliUpdate(asked: boolean): Promise<void> {
@@ -551,7 +589,7 @@ export async function lookForCliUpdate(asked: boolean): Promise<void> {
 }
 
 /**
- * "Update command-line tool to X", after the person's click: puts the newer
+ * The update button, after the person's click: puts the newer
  * of the copy inside the app and the published one in place, keeps the one
  * in use as `tedix.other-app`, and restarts the background service.
  */

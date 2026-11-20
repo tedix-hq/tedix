@@ -14,15 +14,12 @@ export interface PanelState {
 }
 
 /**
- * `cli-check` looks for a newer command-line tool and changes nothing.
- * `cli-update` and `cli-back` replace it and restart the background service,
- * after the person confirms. `setup-window` opens the Set up this Mac window; `close-setup` closes it
+ * `cli-back` puts the kept command-line tool back and restarts the
+ * background service. `setup-window` opens the Set up this Mac window; `close-setup` closes it
  * and shows Tedix; `done-setup` only closes it.
  */
 export type PanelAction =
 	| "restart"
-	| "cli-check"
-	| "cli-update"
 	| "cli-back"
 	| "setup-window"
 	| "close-setup"
@@ -46,6 +43,23 @@ export interface PanelApi {
 	open(link: PanelLink): Promise<void>;
 	openAtLogin(on: boolean): Promise<void>;
 	onState(listener: (state: PanelState) => void): void;
+	/** The next three are for the update button in the main window only. */
+	applyUpdate(): Promise<void>;
+	/** Tells the app how much room the button needs right now. */
+	updateSize(width: number, height: number): Promise<void>;
+	onUpdate(listener: (view: UpdateView) => void): void;
+}
+
+/**
+ * What the update button in the main window shows. `available`: something
+ * can be applied. `working`: `text` says what it is doing. `failed`: `text`
+ * is the reason. `done`: `text` says what is now in use.
+ */
+export interface UpdateView {
+	kind: "hidden" | "available" | "working" | "failed" | "done";
+	text: string;
+	/** The Tedix OS page behind the button is dark. */
+	dark: boolean;
 }
 
 /**

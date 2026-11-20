@@ -47,28 +47,43 @@ The app is not signed or notarized yet and has been run on macOS only.
   the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
   and restarts the background service. **Use the separate install again**
   reverses it.
-- **Update the command-line tool when you choose.** The command-line tool
-  has its own releases, more often than the app. The app looks for a newer
-  one when it starts and every four hours, and only tells you: **Tedix →
-  This Mac…** and the command-line tool step of **Set Up This Mac…** show
-  the version in use and offer **Update command-line tool to X**. Nothing
-  is replaced and the background service is never restarted until you
-  click, and the app first says what happens: tasks running on this Mac
-  stop, and macOS may ask whether Tedix may access your Documents folder
-  (choose Allow). The app asks first because macOS treats each replaced
-  copy as a new program and can ask again for folder access, and nobody
-  can answer that with the screen locked. This stays so until the tool is
-  signed with an identity that does not change between versions. The app
-  keeps the version before, shows both numbers, and offers **Go back to
-  version Y**, which swaps the two and restarts the background service
-  the same way. It never goes back by itself. If the background service
-  or every runner stays down after such a restart, the app says that this
-  Mac's runners are down, shows one notification, and offers **Restart
-  runners**. If some sessions could not be reopened because macOS has not
-  allowed a folder, the app says which folder and opens the right page of
-  System Settings; it does not treat that as runners being down.
-  `tedix update` and `tedix rollback` in a terminal work on the app's copy
-  too and restart the background service themselves.
+- **Update with one button.** The app and the command-line tool have their
+  own releases. The app looks for both when it starts, every four hours,
+  and from **Tedix → Check for Updates…**. By itself it only downloads and
+  checks a newer app and reads which command-line tool is published. When
+  there is something to apply, one **Update available** button (a download
+  arrow with a dot) appears at the top right of the Tedix window. One click
+  does everything, with no further question:
+  - With a newer app, the app restarts into it, and on that start puts the
+    newest command-line tool in place and reloads the background service.
+  - With only a newer command-line tool, it puts that in place and reloads
+    the background service without restarting the app.
+  - While it works the button shows what it is doing. Afterwards it goes
+    away and one line says what is in use, for example "Tedix 0.1.7 and
+    command-line tool 0.29.2 are in use. Runners restarted." If it fails,
+    the button turns into a warning; a click shows the reason and **Retry**.
+- **Nothing is replaced without that click.** Replacing the command-line
+  tool stops tasks running on this Mac, and macOS can ask again for folder
+  access, which nobody can answer with the screen locked. So the app never
+  replaces the tool and never reloads the background service by itself.
+  When the click has to restart the app first, it leaves a note in the
+  app's data folder (`update-after-restart.json`) that is good for five
+  minutes and for one start: the app deletes it as it starts, and only a
+  start that found a fresh note applies the command-line tool. Any other
+  start (at login, after installing the app by hand, after a crash) changes
+  nothing. This stays so until the tool is signed with an identity that
+  does not change between versions.
+- **Go back, and see what is wrong.** The app keeps the command-line tool
+  from before. **Tedix → This Mac…** shows both numbers and offers **Go
+  back to version Y**, which swaps the two and reloads the background
+  service. The app never goes back by itself. If the background service or
+  every runner stays down after a reload, the app says that this Mac's
+  runners are down, shows one notification, and offers **Restart runners**.
+  If some sessions could not be reopened because macOS has not allowed a
+  folder, the app says which folder and opens the right page of System
+  Settings; it does not treat that as runners being down. `tedix update`
+  and `tedix rollback` in a terminal work on the app's copy too and restart
+  the background service themselves.
 - **See and change this computer's status.** **Tedix → This Mac…**
   (`Cmd+Shift+M`) shows the runners, active runs, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. It
@@ -76,9 +91,6 @@ The app is not signed or notarized yet and has been run on macOS only.
   run commands on this Mac", and a button that restarts the runners. The
   switches edit `~/.tedix/supervisor-runners.json` and then restart the
   runners, which stops runs in progress.
-- **Update the app.** The app looks for a newer version when it starts and
-  every four hours, and from **Tedix → Check for Updates…**. It downloads the
-  new version, checks it, and asks before it restarts (**Restart to Update**).
 
 Closing the window quits the app; the runners keep running because the CLI's
 supervisor owns them.
@@ -168,14 +180,15 @@ the one in that release's `SHA256SUMS`; add a version to pin one
 needs first. A build without these two steps has no command-line tool inside.
 
 The copy inside the app is only the starting point. A CLI release reaches
-installed apps without an app release, as an offer the person accepts:
+installed apps without an app release, through the update button:
 
 - The app reads `https://downloads.tedix.dev/latest.json` and remembers the
-  version. That is all it does by itself. It offers the newer of that
-  version and the copy inside the app when it is newer than its copy in
-  `cli/tedix` in its data folder. A copy inside a new app is used without
+  version. That is all it does by itself. The update button appears for
+  the newer of that version and the copy inside the app when it is newer
+  than the app's copy in `cli/tedix` in its data folder and
+  `~/.local/bin/tedix` is that copy. A copy inside a new app is used without
   asking only on a first run, when the data folder has no copy yet.
-- After the click the app downloads
+- After the click (and, with a newer app, the restart) the app downloads
   `releases/<version>/tedix-<version>-darwin-<arm64|x64>` and refuses it
   unless its SHA-256 is the one in that release's `SHA256SUMS`. Same rules
   as the app's own update: https from that host only, no redirects.
@@ -218,6 +231,7 @@ to, such as Applications. The first install is still by hand.
 | `src/icons.ts`         | The small drawings both windows use                   |
 | `scripts/fetch-cli.ts` | Fetches the command-line tool for a build             |
 | `src/update.ts`        | Finds, checks and installs a newer app                |
+| `update.html`          | The update button (`src/update-button.ts`)            |
 | `src/log.ts`           | Writes the log file                                   |
 | `src/status.ts`        | Reads the status from the CLI and the files it keeps  |
 | `src/runners-file.ts`  | Edits `supervisor-runners.json`                       |

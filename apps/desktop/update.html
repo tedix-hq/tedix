@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+		/>
+		<title>Update available</title>
+		<link rel="stylesheet" href="ui.css" />
+		<style>
+			/*
+			 * The button sits over the Tedix OS page, which can be light while
+			 * the Mac is dark, so it takes that page's side with the same
+			 * colours as ui.css.
+			 */
+			:root[data-theme="light"] {
+				color-scheme: light;
+				--foreground: #18181a;
+				--card: #ffffff;
+				--muted: #ececee;
+				--muted-foreground: #5d5d63;
+				--primary: #6d2fe0;
+				--border: #e3e3e6;
+				--input: #c9c9ce;
+				--warn: #8f5d00;
+				--warn-soft: #fbefd3;
+				--shadow: 0 1px 2px rgb(0 0 0 / 5%);
+			}
+			:root[data-theme="dark"] {
+				color-scheme: dark;
+				--foreground: #f4f4f5;
+				--card: #151517;
+				--muted: #232326;
+				--muted-foreground: #a9a9b1;
+				--primary: #a78bfa;
+				--border: #26262a;
+				--input: #45454b;
+				--warn: #e8b23a;
+				--warn-soft: #2a2110;
+				--shadow: none;
+			}
+			html,
+			body {
+				height: auto;
+				background: transparent;
+				overflow: hidden;
+			}
+			#update {
+				position: absolute;
+				top: 0;
+				right: 0;
+				width: max-content;
+				max-width: 420px;
+				display: grid;
+				justify-items: end;
+				gap: 8px;
+			}
+			.chip {
+				position: relative;
+				height: 32px;
+				min-width: 32px;
+				padding: 0;
+				border-radius: var(--radius-small);
+				border: 1px solid var(--border);
+				background: var(--card);
+				color: var(--foreground);
+				font: inherit;
+				font-size: 12.5px;
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				gap: 8px;
+				white-space: nowrap;
+				transition: background 120ms;
+			}
+			.chip:focus-visible {
+				outline-offset: -2px;
+			}
+			button.chip:hover {
+				background: var(--muted);
+			}
+			.chip.working {
+				padding: 0 10px;
+				color: var(--muted-foreground);
+			}
+			.chip.warn {
+				color: var(--warn);
+				background: var(--warn-soft);
+				border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+			}
+			.chip .dot {
+				position: absolute;
+				top: 5px;
+				right: 5px;
+				width: 8px;
+				height: 8px;
+				border-radius: 50%;
+				background: var(--primary);
+				border: 1.5px solid var(--card);
+			}
+			.pop,
+			.done {
+				border: 1px solid var(--border);
+				border-radius: var(--radius-small);
+				background: var(--card);
+				color: var(--muted-foreground);
+				font-size: 12.5px;
+				padding: 8px 12px;
+			}
+			.pop {
+				width: 300px;
+				display: grid;
+				gap: 8px;
+				justify-items: start;
+				color: var(--foreground);
+			}
+			.pop p {
+				margin: 0;
+				user-select: text;
+				overflow-wrap: anywhere;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="update"></div>
+		<script src="out/update-button.js"></script>
+	</body>
+</html>
