@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
-import { MEMORY_FACT_ORG_COUNT_TRIGGERS } from "../schema/memory-graph";
+import {
+	MEMORY_EDGE_ORG_COUNT_TRIGGERS,
+	MEMORY_FACT_ORG_COUNT_TRIGGERS,
+} from "../schema/memory-graph";
 import { WORK_ITEM_ORG_COUNT_TRIGGERS } from "../schema/work-items";
 import { tenantStoreMigrations } from "../tenant-store/migrations";
 import { createD1Facade } from "../test/d1-facade";
@@ -213,6 +216,68 @@ describe("maintained memory fact totals", () => {
 	});
 });
 
+describe("maintained memory edge totals", () => {
+	const EDGE_MIGRATION = "_memory_edge_org_totals";
+	const edge = (id: string, source: string, target: string) =>
+		`INSERT INTO memory_edges (id, source_fact_id, target_fact_id, relation_type) VALUES ('${id}', '${source}', '${target}', 'related_to');`;
+	const countedEdges = (sqlite: DatabaseSync) =>
+		Object.fromEntries(
+			(
+				sqlite
+					.prepare(
+						`SELECT o.id AS org, (SELECT count(*) FROM memory_edges e JOIN memory_facts s ON s.id = e.source_fact_id JOIN memory_facts t ON t.id = e.target_fact_id WHERE s.organization_id = o.id AND t.organization_id = o.id) AS total FROM organizations o ORDER BY o.id`,
+					)
+					.all() as Array<{ org: string; total: number }>
+			).map((row) => [row.org, Number(row.total)]),
+		);
+
+	it("backfills, then follows inserts, deletes, cascades and moves", async () => {
+		const sqlite = createMigratedSqlite({
+			transformMigration: (sql, name) =>
+				name.endsWith(MIGRATION)
+					? `${BEFORE}\n${sql}`
+					: name.endsWith(EDGE_MIGRATION)
+						? `${edge("e1", "fa-1", "fa-2")}${edge("e2", "fb-1", "fb-2")}${edge("e3", "fb-2", "fb-3")}\n${sql}`
+						: sql,
+		});
+		const db = createDbClient(createD1Facade(sqlite));
+		const exact = async () => {
+			const counts = countedEdges(sqlite);
+			for (const [org, rows] of Object.entries(counts))
+				expect(
+					(await getGraphProjectionCanonicalManagedCounts(db, org)).edges,
+					org,
+				).toBe(rows);
+			return counts;
+		};
+		expect(await exact()).toEqual({ "org-a": 1, "org-b": 2, "org-empty": 0 });
+
+		sqlite.exec(fact("fa-3", "org-a"));
+		sqlite.exec(edge("e5", "fa-3", "fa-1") + edge("e6", "fa-3", "fa-3"));
+		expect(await exact()).toEqual({ "org-a": 3, "org-b": 2, "org-empty": 0 });
+
+		sqlite.exec("DELETE FROM memory_edges WHERE id = 'e1'");
+		expect(await exact()).toEqual({ "org-a": 2, "org-b": 2, "org-empty": 0 });
+
+		// Deleting a fact removes its edges by cascade, after the fact is gone.
+		sqlite.exec("DELETE FROM memory_facts WHERE id IN ('fa-3', 'fb-2')");
+		expect(await exact()).toEqual({ "org-a": 0, "org-b": 0, "org-empty": 0 });
+
+		// Re-pointing an edge into another organization moves it there.
+		sqlite.exec(edge("e8", "fa-1", "fa-2") + edge("e9", "fb-1", "fb-3"));
+		expect(await exact()).toEqual({ "org-a": 1, "org-b": 1, "org-empty": 0 });
+		sqlite.exec(
+			"UPDATE memory_edges SET source_fact_id = 'fb-3', target_fact_id = 'fb-1' WHERE id = 'e8'",
+		);
+		expect(await exact()).toEqual({ "org-a": 0, "org-b": 2, "org-empty": 0 });
+
+		sqlite.exec("DELETE FROM organizations WHERE id = 'org-b'");
+		expect(stored(sqlite, "memory_edge_org_counts", "organization_id")).toEqual(
+			{ "org-a": 0 },
+		);
+	});
+});
+
 describe("maintained memory fact totals in a workspace store", () => {
 	it("backfills the store's facts and follows inserts and deletes", () => {
 		const store = new DatabaseSync(":memory:");
@@ -269,6 +334,7 @@ describe("maintained total triggers", () => {
 		for (const [table, triggers] of [
 			["work_item_org_counts", WORK_ITEM_ORG_COUNT_TRIGGERS],
 			["memory_fact_org_counts", MEMORY_FACT_ORG_COUNT_TRIGGERS],
+			["memory_edge_org_counts", MEMORY_EDGE_ORG_COUNT_TRIGGERS],
 		] as const)
 			expect(migrated(table), table).toEqual(
 				triggers.map(normalize).toSorted(),

@@ -429,6 +429,71 @@ export const memoryEdges = sqliteTable(
 	],
 );
 
+/**
+ * How many memory edges an organization has in this database: edges whose
+ * source and target facts both belong to it. Database triggers
+ * (`MEMORY_EDGE_ORG_COUNT_TRIGGERS`) keep `total` current on every edge insert,
+ * delete and re-point, and on fact deletes (including cascades). A fact never
+ * changes organization (`graph_projection_memory_facts_org_immutable`).
+ * The graph projection check reads its edge count here instead of joining
+ * every edge to both facts (102k rows per call on 19 Nov 2026).
+ */
+export const memoryEdgeOrgCounts = sqliteTable("memory_edge_org_counts", {
+	organizationId: text("organization_id")
+		.primaryKey()
+		.references(() => organizations.id, { onDelete: "cascade" }),
+	total: integer("total").notNull().default(0),
+});
+
+const EDGE_ORG_OF = (row: "OLD" | "NEW", extra = "") =>
+	`SELECT source.organization_id${extra} FROM memory_facts source, memory_facts target
+    WHERE source.id = ${row}.source_fact_id AND target.id = ${row}.target_fact_id AND target.organization_id = source.organization_id`;
+
+/**
+ * Edges of fact `row.id` whose other end belongs to `org`; a self-edge counts
+ * once. No CASE: D1's remote migration parser rejects one inside a trigger.
+ */
+const FACT_EDGES_IN = (row: "OLD", org: string) =>
+	`(SELECT count(*) FROM memory_edges edge, memory_facts other
+    WHERE edge.source_fact_id = ${row}.id AND other.id = edge.target_fact_id AND other.organization_id = ${org})
+  + (SELECT count(*) FROM memory_edges edge, memory_facts other
+    WHERE edge.target_fact_id = ${row}.id AND edge.source_fact_id != ${row}.id
+    AND other.id = edge.source_fact_id AND other.organization_id = ${org})`;
+
+/**
+ * The triggers behind `memory_edge_org_counts`, as their migration created
+ * them. A cascaded edge delete runs after its fact is gone, so the edge delete
+ * trigger cannot see the organization then; the fact's BEFORE DELETE trigger
+ * subtracts those edges while both ends still exist.
+ */
+export const MEMORY_EDGE_ORG_COUNT_TRIGGERS = [
+	`CREATE TRIGGER memory_edge_org_counts_insert AFTER INSERT ON memory_edges
+BEGIN
+  INSERT INTO memory_edge_org_counts (organization_id, total)
+  ${EDGE_ORG_OF("NEW", ", 1")}
+  ON CONFLICT(organization_id) DO UPDATE SET total = total + 1;
+END;`,
+	`CREATE TRIGGER memory_edge_org_counts_delete AFTER DELETE ON memory_edges
+BEGIN
+  UPDATE memory_edge_org_counts SET total = total - 1
+  WHERE organization_id = (${EDGE_ORG_OF("OLD")});
+END;`,
+	`CREATE TRIGGER memory_edge_org_counts_repoint AFTER UPDATE OF source_fact_id, target_fact_id ON memory_edges
+WHEN OLD.source_fact_id != NEW.source_fact_id OR OLD.target_fact_id != NEW.target_fact_id
+BEGIN
+  UPDATE memory_edge_org_counts SET total = total - 1
+  WHERE organization_id = (${EDGE_ORG_OF("OLD")});
+  INSERT INTO memory_edge_org_counts (organization_id, total)
+  ${EDGE_ORG_OF("NEW", ", 1")}
+  ON CONFLICT(organization_id) DO UPDATE SET total = total + 1;
+END;`,
+	`CREATE TRIGGER memory_edge_org_counts_fact_delete BEFORE DELETE ON memory_facts
+BEGIN
+  UPDATE memory_edge_org_counts SET total = total - (${FACT_EDGES_IN("OLD", "OLD.organization_id")})
+  WHERE organization_id = OLD.organization_id;
+END;`,
+] as const;
+
 // ============================================================================
 // Tedi Expertise — Per-tedi knowledge profile per domain
 // ============================================================================
