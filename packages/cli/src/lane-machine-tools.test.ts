@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -331,4 +332,48 @@ test("a tedi reads the owner's folders but never credential locations or anythin
 			})
 		).ok,
 	).toBe(false);
+});
+
+test("the runner state lists only runs a running runner is starting or has a process for", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tedix-runner-state-"));
+	roots.push(root);
+	const receipt = (
+		runner: string,
+		id: string,
+		row: Record<string, unknown>,
+		ageMinutes = 0,
+	) => {
+		const path = join(root, "dispatchers", runner, `${id}-1.json`);
+		writeFileSync(path, JSON.stringify({ itemId: id, version: 1, ...row }));
+		const at = Date.now() / 1000 - ageMinutes * 60;
+		utimesSync(path, at, at);
+	};
+	for (const [runner, pid] of [
+		["on", process.pid],
+		["off", 2 ** 30],
+	] as const) {
+		mkdirSync(join(root, "dispatchers", runner), { recursive: true });
+		writeFileSync(
+			join(root, "dispatchers", runner, "health-source.json"),
+			JSON.stringify({ executor: runner, pid }),
+		);
+	}
+	const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+	receipt("on", id(1), { phase: "preparing", model: "m1" }, 2);
+	receipt("on", id(2), { phase: "preparing" }, 60);
+	receipt("on", id(3), { phase: "preparing", outcome: "failed" });
+	receipt("on", id(4), { phase: "running", pid: process.pid });
+	receipt("off", id(5), { phase: "preparing" });
+
+	const state = await machineToolHandlers({
+		checkout: root,
+		configDir: root,
+	}).read_runner_state({});
+
+	expect(state).toContain("Live runs: 2\n");
+	expect(state).toContain(`${id(1)} preparing, on m1, 2 min`);
+	expect(state).toContain(`${id(4)} running, on`);
+	expect(state).toContain(
+		"Runner off (CLI unknown, not running)\n  Live runs: 0",
+	);
 });
