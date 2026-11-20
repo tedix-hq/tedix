@@ -206,6 +206,28 @@ export const GatewayChangeRecordBodySchema = z.object({
 	argsHash: z.string(),
 	/** The task the call was about, when the gateway can tell. Absent on older records. */
 	subject: z.object({ kind: z.literal("work_item"), id: z.uuid() }).optional(),
+	/**
+	 * Layout version; absent on version 1 records. See `ChangeRecord` in
+	 * `@tedix/agent-governance/types` for `environment` and `parent`.
+	 */
+	schemaVersion: z.number().int().min(2).max(2).optional(),
+	environment: z
+		.object({
+			productSha: z.string().max(80).optional(),
+			workerVersionId: z.string().max(80).optional(),
+			harness: z.string().max(80).optional(),
+			harnessVersion: z.string().max(80).optional(),
+			model: z.string().max(200).optional(),
+			policyDigest: z.string().max(80).optional(),
+		})
+		.optional(),
+	parent: z
+		.object({
+			runId: z.string().max(200).optional(),
+			rootRunId: z.string().max(200).optional(),
+			recordId: z.string().max(200).optional(),
+		})
+		.optional(),
 });
 /**
  * A timestamp in the one form `recorded_at` is stored and compared in:
@@ -360,6 +382,13 @@ export const GatewayChangeRecordCheckpointSchema = z.object({
 		"The signed in-toto statement for this checkpoint; null when signing was off",
 	),
 	keyId: z.string().nullable(),
+	evidenceBundleKey: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"Where the checkpoint's evidence bundle (the checkpoint and its records, verified before writing) is kept in long-term storage; null until written",
+		),
 });
 
 export const GatewayChangeRecordCheckpointsExportSchema = z.object({

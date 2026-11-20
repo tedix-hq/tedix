@@ -51,6 +51,7 @@ import type {
 	ComplianceDecision,
 	LedgerQuery,
 } from "@tedix/agent-governance/types";
+import { CHANGE_RECORD_SCHEMA_VERSION } from "@tedix/agent-governance/types";
 import { hashValue } from "@tedix/agent-governance/hash";
 import {
 	CallRefusedError,
@@ -290,6 +291,63 @@ export interface GatewayLedgerOptions {
 	skipAppliedChangeRecord?: boolean;
 	/** The Work Item the call was about, stamped on every record it writes. */
 	subject?: ChangeRecord["subject"];
+	/** Digest of the policy inputs the gates judged the call by. */
+	policyDigest?: string;
+}
+
+/**
+ * What ran the call and which run made it, from the Worker's own release
+ * metadata and the verified caller identity. Never from client input.
+ */
+export function gatewayChangeContext(
+	agent: LedgerContext,
+	policyDigest: string | undefined,
+): Pick<ChangeRecord, "environment" | "parent"> {
+	const env = agent.env as
+		| { GIT_SHA?: string; WORKER_VERSION?: { id?: string } }
+		| undefined;
+	const identity = agent.callerIdentity;
+	const productSha =
+		env?.GIT_SHA && env.GIT_SHA !== "unknown" ? env.GIT_SHA : undefined;
+	const harness = identity?.ownerHostHarness ?? identity?.externalAgentHarness;
+	const model = identity?.ownerHostModel ?? identity?.externalAgentModel;
+	const environment = {
+		...(productSha ? { productSha } : {}),
+		...(env?.WORKER_VERSION?.id
+			? { workerVersionId: env.WORKER_VERSION.id }
+			: {}),
+		...(harness
+			? { harness }
+			: identity?.authType === "tedi"
+				? { harness: "tedi" }
+				: {}),
+		...(model ? { model } : {}),
+		...(policyDigest ? { policyDigest } : {}),
+	};
+	const runId = identity?.requestRunId ?? identity?.skillRunId;
+	const rootRunId =
+		identity?.requestRootRunId && identity.requestRootRunId !== runId
+			? identity.requestRootRunId
+			: undefined;
+	const parent = {
+		...(runId ? { runId } : {}),
+		...(rootRunId ? { rootRunId } : {}),
+	};
+	return {
+		...(Object.keys(environment).length ? { environment } : {}),
+		...(Object.keys(parent).length ? { parent } : {}),
+	};
+}
+
+/** `hashValue` of the policy inputs the gates read for this tool. */
+async function gatewayPolicyDigest(
+	gates: Pick<GatewayCallGates, "tool" | "annotations">,
+): Promise<string> {
+	return hashValue({
+		riskPolicy: resolveToolRiskPolicy({ meta: gates.tool.meta ?? null }),
+		annotations: gates.annotations ?? null,
+		writeCapability: gates.tool.writeCapability ?? null,
+	});
 }
 
 /** Same check as the stored record's `subject.id`, so a write never fails on it. */
@@ -340,6 +398,8 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 		// before the write lands and telemetry can cite the id either way.
 		const subject = input.subject ?? this.options.subject;
 		const unstored: ChangeRecord = {
+			schemaVersion: CHANGE_RECORD_SCHEMA_VERSION,
+			...gatewayChangeContext(this.agent, this.options.policyDigest),
 			...input,
 			...(subject ? { subject } : {}),
 			id: crypto.randomUUID(),
@@ -480,10 +540,10 @@ export async function recordGatewayRefusal(
 ): Promise<ChangeRecord> {
 	const call = describeGatewayCall(gates);
 	const subject = workItemSubject(gates.tool, gates.args);
-	return new GatewayAccountabilityAdapter(
-		gates.agent,
-		subject ? { subject } : {},
-	).append({
+	return new GatewayAccountabilityAdapter(gates.agent, {
+		...(subject ? { subject } : {}),
+		policyDigest: await gatewayPolicyDigest(gates),
+	}).append({
 		resource: call.resource,
 		operation: call.operation,
 		actor: call.actor,
@@ -500,12 +560,15 @@ export async function recordGatewayRefusal(
 	});
 }
 
-function ledgerOptions(gates: GatewayCallGates): GatewayLedgerOptions {
+async function ledgerOptions(
+	gates: GatewayCallGates,
+): Promise<GatewayLedgerOptions> {
 	return {
 		skipAppliedChangeRecord: declaresSkipAppliedChangeRecord(
 			gates.tool.meta as Record<string, unknown> | null | undefined,
 		),
 		subject: workItemSubject(gates.tool, gates.args),
+		policyDigest: await gatewayPolicyDigest(gates),
 	};
 }
 
@@ -534,7 +597,7 @@ export async function guardGatewayCall(
 	const compliance = new GatewayComplianceAdapter(gates);
 	const accountability = new GatewayAccountabilityAdapter(
 		gates.agent,
-		ledgerOptions(gates),
+		await ledgerOptions(gates),
 	);
 	const call = describeGatewayCall(gates);
 	const executionArgs = stripDestructiveApprovalArgs(gates.tool, gates.args);
@@ -592,7 +655,7 @@ export async function admitGatewayCall(
 	const compliance = new GatewayComplianceAdapter(gates);
 	const accountability = new GatewayAccountabilityAdapter(
 		gates.agent,
-		ledgerOptions(gates),
+		await ledgerOptions(gates),
 	);
 	const call = describeGatewayCall(gates);
 	const executionArgs = stripDestructiveApprovalArgs(gates.tool, gates.args);

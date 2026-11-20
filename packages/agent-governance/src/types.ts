@@ -234,8 +234,47 @@ export interface UndoPlan {
 	instructions?: string;
 }
 
+/**
+ * Layout version of a change record. Absent means 1. Version 2 added
+ * `environment` and `parent`. Every version hashes the same way
+ * (`recordDigest` in `./seal`): absent fields are dropped before hashing, so
+ * a sealed version 1 record keeps its digest and still verifies.
+ */
+export const CHANGE_RECORD_SCHEMA_VERSION = 2;
+
+/** What ran the call, as far as the recorder can tell. Every field is optional. */
+export interface ChangeEnvironment {
+	/** Git commit of the code that recorded the call. */
+	productSha?: string;
+	/** Deployed version id of the Worker or service that recorded it. */
+	workerVersionId?: string;
+	/** Agent harness that made the call, e.g. `claude-code`, `codex`, `tedi`. */
+	harness?: string;
+	harnessVersion?: string;
+	/** Model that decided to make the call, as `<provider>/<model>` when known. */
+	model?: string;
+	/**
+	 * `hashValue` of the policy inputs the compliance decision used for this
+	 * call (for the gateway: the tool's risk policy, annotations and write
+	 * capability), so two records with equal digests were judged by the same rules.
+	 */
+	policyDigest?: string;
+}
+
+/** Where the call sits in a run tree. */
+export interface ChangeParent {
+	/** The run (agent turn, skill run, kernel request) that made the call. */
+	runId?: string;
+	/** The run at the root of the tree, when it differs from `runId`. */
+	rootRunId?: string;
+	/** Another change record this call follows from. */
+	recordId?: string;
+}
+
 /** One row in the accountability ledger. Append-only; never edited. */
 export interface ChangeRecord {
+	/** `CHANGE_RECORD_SCHEMA_VERSION` when written; absent on version 1 records. */
+	schemaVersion?: number;
 	id: string;
 	/** Monotonic position in the ledger. */
 	sequence: number;
@@ -254,6 +293,8 @@ export interface ChangeRecord {
 	argsHash: string;
 	/** The task the call was about, when known. */
 	subject?: { kind: "work_item"; id: string };
+	environment?: ChangeEnvironment;
+	parent?: ChangeParent;
 }
 
 export type ChangeRecordInput = Omit<
