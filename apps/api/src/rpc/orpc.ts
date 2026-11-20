@@ -1824,6 +1824,11 @@ async function authenticateUserJwt(
 		context.organizationMembership = {
 			organizationId: result.session.organizationId,
 			subject: result.member.userId,
+			id: result.member.id,
+			userId: result.member.userId,
+			descopeUserId: result.member.descopeUserId ?? undefined,
+			kind: result.member.kind ?? undefined,
+			customPermissions: result.member.permissions,
 			status: "active",
 			role: result.member.role,
 		};

@@ -149,7 +149,7 @@ describe("OIDC Tedix sessions", () => {
 	});
 
 	it("authenticates the normal RPC profile path and enforces mapped API scopes", async () => {
-		const { context, sqlite } = await setup();
+		const { context, sqlite, statements } = await setup();
 		context.headers.set("Cookie", "__Host-tedix-oidc=secret");
 		const { createRouterClient } = await import("@orpc/server");
 		const { userProfileContractRouter } =
@@ -160,6 +160,25 @@ describe("OIDC Tedix sessions", () => {
 		expect(profile.id).toBe(USER);
 		expect(context.authType).toBe("user");
 		expect(context.oidcScopes).toEqual(["apps:read"]);
+		const { getRequestOrganizationMembership } =
+			await import("./rpc/org-membership");
+		statements.length = 0;
+		for (const lookup of [
+			{},
+			{ canonicalUserId: USER, fallbackToSubject: false },
+		]) {
+			await expect(
+				getRequestOrganizationMembership(context, ORG, USER, lookup),
+			).resolves.toMatchObject({
+				id: "00000000-0000-4000-8000-000000000003",
+				userId: USER,
+				descopeUserId: "unused-adapter-subject",
+				kind: "human",
+				customPermissions: null,
+				status: "active",
+			});
+		}
+		expect(statements).toHaveLength(0);
 		const { hasRequiredScope } = await import("./rpc/orpc");
 		expect(hasRequiredScope(context, "apps:read")).toBe(true);
 		expect(hasRequiredScope(context, "apps:write")).toBe(false);
