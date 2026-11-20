@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.2 — 2026-11-20
+
+### Patch Changes
+
+- f16534d: A runner now tells Tedix which rules skill it uses in its first pass and once a day after, so a runner with no tasks yet still appears under the skill's "Used by". It also reports a rules problem then, without waiting for a task.
+- d03b1de: Runners now take their basic rules from the Tedix installation, so a new organization's runners work without creating a rules skill first. `tedix lane serve --rules <skill>` is optional: when the skill is active its text is added to the shared rules, and when it is missing or archived the runner says so in its log and health report and keeps working with the shared rules. If the shared rules cannot be read, the runner admits nothing and reports why. `tedix work runner-rules` prints the shared rules.
+- 6e1dc47: A runner now starts waiting tasks sooner on a slow or rate-limited connection. A start request for a task whose earlier start failed before Tedix was asked for an Attempt (for example on a read timeout) starts it again at once instead of leaving it to the next pass. A pass first starts every task it may start and only then reads the tasks that wait for an owner's comment, so those reads no longer hold back tasks further down the list. Reads of the runner rules and the rules skill are tried again like other reads instead of failing the start on one slow answer.
+
 ## 0.29.1 — 2026-11-20
 
 ### Patch Changes
