@@ -1,7 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { tediCallCosts } from "@tedix/db/schema/tedis";
+import { tediCallCosts, tedis, tediUsageEvents } from "@tedix/db/schema/tedis";
+import { widgetEvents } from "@tedix/db/schema/analytics";
+import { workflowRunLedger } from "@tedix/db/schema/workflow-runs";
 import {
 	billingProviderCostEvidenceVersions,
 	billingProviderUsage,
@@ -110,6 +112,10 @@ function fixture(policies: string) {
 			externalAgentReviewEvidence,
 			kernelRequestEvents,
 			platformCronExecutions,
+			tedis,
+			tediUsageEvents,
+			widgetEvents,
+			workflowRunLedger,
 		),
 	);
 	sqlite.exec(
@@ -202,6 +208,9 @@ function logsFixture() {
 			externalAgentAttributions,
 			kernelRequestEvents,
 			platformCronExecutions,
+			tediUsageEvents,
+			widgetEvents,
+			workflowRunLedger,
 		]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),
@@ -1542,6 +1551,49 @@ describe("runD1Retention", () => {
 		expect(
 			[...bucket.objects.keys()].some((key) =>
 				key.startsWith("d1-archive/v1/platform_cron_executions/_platform/"),
+			),
+		).toBe(true);
+	});
+
+	it("archives usage events under their tedi's organization and keeps unfinished workflow runs", async () => {
+		const { db, sqlite, count } = fixture(
+			"('tedi_usage_events','move_to_logs_db',30,5000,'2026-10-21'), ('workflow_run_ledger','move_to_logs_db',90,5000,'2026-10-21')",
+		);
+		sqlite.exec(`INSERT INTO tedis(id, organization_id, name, slug) VALUES ('tedi-1','fictional-lighthouse','Tedi','tedi');
+			INSERT INTO tedi_usage_events(id, tedi_id, event_type, started_at, created_at) VALUES
+			('usage-old','tedi-1','invocation','2024-01-01T00:00:00Z','2024-01-01 00:00:00');
+			INSERT INTO workflow_run_ledger(id, workflow_type, workflow_id, trigger, status, started_at) VALUES
+			('run-done','sync','w1','cron','completed','2024-01-01T00:00:00Z'),
+			('run-open','sync','w2','cron','running','2024-01-01T00:00:00Z');`);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(
+			result.tables.map((table) => [
+				table.tableName,
+				table.movedRows,
+				table.error,
+			]),
+		).toEqual([
+			["tedi_usage_events", 1, undefined],
+			["workflow_run_ledger", 1, undefined],
+		]);
+		expect(count("workflow_run_ledger")).toBe(1);
+		expect(logs.count("tedi_usage_events")).toBe(1);
+		const keys = [...bucket.objects.keys()];
+		expect(
+			keys.some((key) =>
+				key.startsWith("d1-archive/v1/tedi_usage_events/fictional-lighthouse/"),
+			),
+		).toBe(true);
+		expect(
+			keys.some((key) =>
+				key.startsWith("d1-archive/v1/workflow_run_ledger/_platform/"),
 			),
 		).toBe(true);
 	});

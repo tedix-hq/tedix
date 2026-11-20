@@ -74,6 +74,10 @@ export const RETENTION_CLEANUP_CHECKPOINT_ID = "retention-cleanup:next-step";
  */
 export const RETENTION_STEPS_SWITCHED_OFF: ReadonlySet<string> = new Set([
 	"platform-cron-receipts-prune",
+	// Moved to the logs database by d1-retention instead.
+	"tedi-usage-events",
+	"workflow-runs",
+	"widget-events",
 ]);
 const CHECKPOINT_IO_TIMEOUT_MS = 10_000;
 

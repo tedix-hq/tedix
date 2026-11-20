@@ -46,9 +46,11 @@ import {
 import { kernelRequestEvents } from "../schema/kernel-requests";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { memoryFacts } from "../schema/memory-graph";
+import { widgetEvents } from "../schema/analytics";
 import { osGadgetExecutions } from "../schema/os-workspaces";
 import { platformCronExecutions } from "../schema/platform-cron-executions";
-import { tediCallCosts } from "../schema/tedis";
+import { tediCallCosts, tedis, tediUsageEvents } from "../schema/tedis";
+import { workflowRunLedger } from "../schema/workflow-runs";
 import { workEvidence } from "../schema/work-items";
 
 /** Rows the backlog estimate samples for the average row size. */
@@ -161,6 +163,29 @@ export const D1_RETENTION_TABLES: Readonly<
 		"platform_cron_executions",
 		platformCronExecutions,
 		platformCronExecutions.createdAt,
+		"text",
+		90,
+	),
+	// Formerly deleted by the nightly cleanup at these ages; readers never
+	// saw older rows, so none of them merges the logs store.
+	tedi_usage_events: spec(
+		"tedi_usage_events",
+		tediUsageEvents,
+		tediUsageEvents.createdAt,
+		"text",
+		30,
+	),
+	widget_events: spec(
+		"widget_events",
+		widgetEvents,
+		widgetEvents.createdAt,
+		"text",
+		30,
+	),
+	workflow_run_ledger: spec(
+		"workflow_run_ledger",
+		workflowRunLedger,
+		workflowRunLedger.startedAt,
 		"text",
 		90,
 	),
@@ -359,6 +384,17 @@ export async function groupD1RetentionArchiveRows(
 	rows: readonly D1RetentionRow[],
 ): Promise<Map<string, D1RetentionRow[]>> {
 	const runOrganizations = new Map<string, string>();
+	const tediOrganizations = new Map<string, string>();
+	if (tableSpec.tableName === "tedi_usage_events" && rows.length) {
+		const owners = await db
+			.select({ id: tedis.id, organizationId: tedis.organizationId })
+			.from(tedis)
+			.where(
+				sql`${tedis.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(rows.map((row) => row.tedi_id))])}))`,
+			);
+		for (const owner of owners)
+			tediOrganizations.set(owner.id, owner.organizationId);
+	}
 	if (tableSpec.tableName === "skill_run_artifacts" && rows.length) {
 		const runs = await db
 			.select({ id: skillRuns.id, organizationId: skillRuns.organizationId })
@@ -375,9 +411,12 @@ export async function groupD1RetentionArchiveRows(
 				? runOrganizations.get(String(row.run_id))
 				: tableSpec.tableName === "tedi_call_costs"
 					? (row.org_id ?? D1_RETENTION_PLATFORM_ARCHIVE_OWNER)
-					: tableSpec.tableName === "platform_cron_executions"
+					: tableSpec.tableName === "platform_cron_executions" ||
+						  tableSpec.tableName === "workflow_run_ledger"
 						? D1_RETENTION_PLATFORM_ARCHIVE_OWNER
-						: row.organization_id;
+						: tableSpec.tableName === "tedi_usage_events"
+							? tediOrganizations.get(String(row.tedi_id))
+							: row.organization_id;
 		if (typeof org !== "string" || !org)
 			throw new Error("Archive row has no valid organization");
 		const group = groups.get(org) ?? [];
@@ -679,6 +718,12 @@ export async function filterD1RetentionReferencedRows(
 		movable = new Set(
 			rows.filter((row) => row.status !== "running").map((row) => row.__rowid),
 		);
+	else if (tableSpec.tableName === "workflow_run_ledger")
+		movable = new Set(
+			rows
+				.filter((row) => row.status !== "queued" && row.status !== "running")
+				.map((row) => row.__rowid),
+		);
 	else return { rows, referencedRows: 0 };
 	const filtered = rows.filter((row) => movable.has(row.__rowid));
 	return { rows: filtered, referencedRows: rows.length - filtered.length };
@@ -694,6 +739,8 @@ function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
 	// A running row is still updated by its finish or the abandonment sweep.
 	if (tableSpec.tableName === "platform_cron_executions")
 		return sql`${platformCronExecutions.status} <> 'running'`;
+	if (tableSpec.tableName === "workflow_run_ledger")
+		return sql`${workflowRunLedger.status} NOT IN ('queued', 'running')`;
 	return sql`1 = 1`;
 }
 
