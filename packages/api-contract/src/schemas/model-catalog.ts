@@ -35,14 +35,6 @@ export const MODEL_REF_SEPARATOR = "/";
 /** Protocol identity for Cloudflare adaptive routing. */
 export const CLOUDFLARE_AUTO_MODEL_REF = "cloudflare/auto";
 
-/**
- * The model a signed-in person's chat turn runs on when they have not picked
- * one. It applies only where the organization's catalog allows it; otherwise
- * the turn keeps the model it would have used. Scheduled and other unattended
- * turns never use this default.
- */
-export const PERSON_CHAT_DEFAULT_MODEL_REF = "azure-openai/gpt-6.1-sol";
-
 export interface ParsedModelRef {
 	provider: ModelProviderId;
 	/** Opaque model id — for Azure this is the DEPLOYMENT name, not a v1 model id. */

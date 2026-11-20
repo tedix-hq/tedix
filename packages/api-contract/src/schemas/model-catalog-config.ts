@@ -3,6 +3,7 @@ import {
 	ModelCatalogEntriesSchema,
 	findCatalogEntry,
 	type ModelCatalogEntry,
+	offeredInChat,
 	ModelRefSchema,
 } from "./model-catalog";
 import {
@@ -40,6 +41,13 @@ export const ModelCatalogConfigSchema = z
 			.strictObject({
 				kernelRouteModelRef: ModelRefSchema.optional(),
 				workersAiModelRef: ModelRefSchema.optional(),
+				/**
+				 * The model a signed-in person's chat turn runs on when they
+				 * picked none. It applies only where the organization, and a
+				 * picked tedi, may use it. Absent means no chat default.
+				 * Scheduled and other unattended turns never use it.
+				 */
+				personChatModelRef: ModelRefSchema.optional(),
 			})
 			.optional(),
 	})
@@ -57,12 +65,16 @@ export const ModelCatalogConfigSchema = z
 			const entry = ref ? findCatalogEntry(ref, config.entries) : undefined;
 			if (
 				!entry ||
-				(key === "workersAiModelRef" && entry.provider !== "workers-ai")
+				(key === "workersAiModelRef" && entry.provider !== "workers-ai") ||
+				(key === "personChatModelRef" && !offeredInChat(entry))
 			)
 				ctx.addIssue({
 					code: "custom",
 					path: ["defaults", key],
-					message: "Default model must be configured for its provider",
+					message:
+						key === "personChatModelRef"
+							? "Chat default must be a model that chat offers"
+							: "Default model must be configured for its provider",
 				});
 		}
 	});

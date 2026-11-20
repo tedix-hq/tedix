@@ -25,7 +25,6 @@ import {
 	findCatalogEntry,
 	CLOUDFLARE_AUTO_MODEL_REF,
 	type ModelProviderId,
-	PERSON_CHAT_DEFAULT_MODEL_REF,
 } from "@tedix/api-contract/schemas/model-catalog";
 import {
 	evaluateModelCatalog,
@@ -225,25 +224,27 @@ export async function buildModelCatalogProjection(
 			: evaluated.filter((model) => model.allowed),
 		selections,
 		routing: buildRouting(selections, evaluated, input.env),
-		personChatModelRef: personChatDefaultModelRef(evaluated),
+		personChatModelRef: personChatDefaultModelRef(
+			evaluated,
+			catalog.defaults?.personChatModelRef,
+		),
 		wiredProviders: [...wired].sort(),
 	};
 }
 
 /**
- * The chat default for a person's turn, or null when this catalog does not
- * allow it or no longer offers it for new chats.
+ * The published chat default for a person's turn, or null when none is
+ * published, or this organization or tedi may not use it.
  */
-export function personChatDefaultModelRef(
+function personChatDefaultModelRef(
 	models: readonly ModelCatalogModel[],
+	configured: string | undefined,
 ): string | null {
-	return models.some(
-		(model) =>
-			model.ref === PERSON_CHAT_DEFAULT_MODEL_REF &&
-			model.allowed &&
-			model.selectable,
-	)
-		? PERSON_CHAT_DEFAULT_MODEL_REF
+	return configured &&
+		models.some(
+			(model) => model.ref === configured && model.allowed && model.selectable,
+		)
+		? configured
 		: null;
 }
 
