@@ -21,6 +21,13 @@
 	border-bottom: 1px solid var(--color-kumo-hairline, var(--border));
 }
 
+/* Embedded, the back button is gone on wide screens: keep the left edge. */
+@media (min-width: 768px) {
+	.workspace-chat-header[data-embedded] {
+		padding-left: 16px;
+	}
+}
+
 .workspace-chat-header strong {
 	min-width: 0;
 	flex: 1 1 auto;

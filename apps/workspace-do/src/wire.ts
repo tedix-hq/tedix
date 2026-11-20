@@ -202,6 +202,8 @@ export type WireEventBody =
 			conversationId: string;
 			title?: string;
 			archivedAt?: string | null;
+			/** The tedi that answered the latest turn; null when the workspace agent did. */
+			tediId?: string | null;
 	  };
 
 export type WireEvent = WireEventBase & WireEventBody;
@@ -365,6 +367,8 @@ export interface ConversationSummary {
 	 * the conversation stays that agent's run when a person writes in it later.
 	 */
 	startedBy?: { kind: "tedi" | "agent"; id: string };
+	/** The tedi that answered the latest turn; null when the workspace agent did. */
+	tediId: string | null;
 }
 
 /** What a create call is making, by name: "the sheet Trip budget". */

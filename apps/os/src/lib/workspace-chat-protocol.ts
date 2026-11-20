@@ -144,6 +144,8 @@ export type ConversationSummary = {
 	 * the conversation stays that agent's run when a person writes in it later.
 	 */
 	startedBy?: { kind: "tedi" | "agent"; id: string };
+	/** The tedi that answered the latest turn; null when the workspace agent did. */
+	tediId?: string | null;
 };
 
 /** What finished replies have used so far, summed from their `assistant.done` usage. */
@@ -346,6 +348,8 @@ export type WorkspaceChatLedgerEvent =
 			type: "conversation.updated";
 			title?: string | null;
 			archivedAt?: string | null;
+			/** The tedi that answered the latest turn; null when the workspace agent did. */
+			tediId?: string | null;
 	  });
 
 /** Control frames: not in the ledger, no `seq`. */

@@ -421,8 +421,16 @@ describe("applyWorkspaceChatEvent", () => {
 				updatedAt: at(20),
 				lastTurnAt: at(20),
 				running: true,
+				tediId: null,
 			},
 		]);
+	});
+
+	it("names the tedi that answers a conversation's latest turn", () => {
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState(null), [
+			{ ...turn[0]!, respondingTediId: "tedi-1" } as WorkspaceChatLedgerEvent,
+		]);
+		expect(state.conversations[0]?.tediId).toBe("tedi-1");
 	});
 
 	it("marks a conversation working until its turn finishes, even when history arrives later", () => {

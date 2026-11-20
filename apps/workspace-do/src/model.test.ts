@@ -13,6 +13,7 @@ import {
 	configuredWorkspaceModels,
 	createAzureGatewayModel,
 	createWorkspaceModel,
+	defaultWorkspaceModelId,
 	type WorkspaceModelEnv,
 } from "./model";
 
@@ -679,6 +680,17 @@ test.each([
 		expect(next.admissionRefusal?.()).toBeNull();
 	},
 );
+
+test("a turn with a picked tedi and no model named gets the tedi default when it is offered", () => {
+	const offered = [
+		{ id: "@cf/fixture/model-two", label: "Model Two" },
+		{ id: "azure-openai/gpt-6.1-sol", label: "Sol" },
+	];
+	expect(defaultWorkspaceModelId(offered, true)).toBe(
+		"azure-openai/gpt-6.1-sol",
+	);
+	expect(defaultWorkspaceModelId(offered, false)).toBe("@cf/fixture/model-two");
+});
 
 test("a call that never reaches the provider releases its hold", async () => {
 	spyOn(globalThis, "fetch").mockImplementation(async () => {

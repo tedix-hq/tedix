@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { tediNamesQueryOptions } from "@/lib/os-query-options";
+import {
+	tediNamesQueryOptions,
+	workspacePresenceQueryOptions,
+} from "@/lib/os-query-options";
+import { mayPickWorkspaceTedi } from "@/lib/workspace-guest-tedi";
 
 /**
  * Shared tedi display-name map (id → name), cached under the one generated
@@ -35,6 +39,34 @@ export function useActiveTedis(): { id: string; name: string }[] {
 				.filter((tedi) => tedi.status === "active")
 				.map((tedi) => ({ id: tedi.id, name: tedi.displayName ?? tedi.name })),
 		[tedis.data],
+	);
+}
+
+/**
+ * The tedis this person may pick to answer in a workspace chat: exactly the
+ * ones the workspace accepts. The person's id comes from the presence read
+ * of `workspaceId`; without it only the organization's tedis are offered.
+ */
+export function usePickableTedis(
+	workspaceId: string | null | undefined,
+): { id: string; name: string }[] {
+	const tedis = useQuery({
+		...tediNamesQueryOptions(),
+		staleTime: 60_000,
+	});
+	const presence = useQuery({
+		...workspacePresenceQueryOptions(workspaceId ?? ""),
+		enabled:
+			Boolean(workspaceId) &&
+			(tedis.data?.data ?? []).some((tedi) => tedi.scope === "personal"),
+	});
+	const userId = presence.data?.userId;
+	return useMemo(
+		() =>
+			(tedis.data?.data ?? [])
+				.filter((tedi) => mayPickWorkspaceTedi(tedi, userId))
+				.map((tedi) => ({ id: tedi.id, name: tedi.displayName ?? tedi.name })),
+		[tedis.data, userId],
 	);
 }
 

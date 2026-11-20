@@ -372,6 +372,7 @@ export function ChatPage() {
 							onPickTediForNewChat={(tediId, draft) =>
 								setNewTediChat({ tediId, draft })
 							}
+							personalWorkspaceId={personalWorkspace?.id}
 							conversationId={activeConversationId}
 							workspaceId={activeConversation?.workspaceId ?? undefined}
 							onConversationCreated={(conversationId, workspaceId) => {

@@ -363,6 +363,11 @@ export function applyWorkspaceChatEvent(
 				: {}),
 			...(previous?.archivedAt ? { archivedAt: previous.archivedAt } : {}),
 			...(previous?.usage ? { usage: previous.usage } : {}),
+			// Only the latest turn says who answers; an older page keeps it.
+			tediId:
+				previous?.lastTurnAt && previous.lastTurnAt > event.at
+					? (previous.tediId ?? null)
+					: (event.respondingTediId ?? null),
 		};
 		state = {
 			...state,
@@ -394,6 +399,8 @@ export function applyWorkspaceChatEvent(
 				: {}),
 			...(archivedAt ? { archivedAt } : {}),
 			...(previous?.usage ? { usage: previous.usage } : {}),
+			tediId:
+				event.tediId === undefined ? (previous?.tediId ?? null) : event.tediId,
 		};
 		return {
 			...state,
