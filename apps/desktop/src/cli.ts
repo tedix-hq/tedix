@@ -211,12 +211,27 @@ export async function supervisorLoaded(): Promise<boolean> {
 	).ok;
 }
 
-export function restartSupervisor() {
-	return run("/bin/launchctl", [
-		"kickstart",
-		"-k",
-		`gui/${process.getuid?.()}/${SUPERVISOR}`,
-	]);
+/**
+ * Reloads the background service. A plain restart is not enough after the
+ * command-line tool's file was replaced: macOS then refuses to start the
+ * loaded job, so it is unloaded and loaded again from its settings file.
+ */
+export async function restartSupervisor() {
+	const domain = `gui/${process.getuid?.()}`;
+	const plist = join(
+		homedir(),
+		"Library",
+		"LaunchAgents",
+		`${SUPERVISOR}.plist`,
+	);
+	await run("/bin/launchctl", ["bootout", `${domain}/${SUPERVISOR}`]);
+	let result = await run("/bin/launchctl", ["bootstrap", domain, plist]);
+	// Unloading finishes a moment after the command returns.
+	for (let tries = 0; !result.ok && tries < 5; tries++) {
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+		result = await run("/bin/launchctl", ["bootstrap", domain, plist]);
+	}
+	return result;
 }
 
 /** How many of the switched-on runners the background service has running. */

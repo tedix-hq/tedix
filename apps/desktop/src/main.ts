@@ -14,6 +14,7 @@ import {
 	WebContentsView,
 } from "electron";
 import type { PanelAction, PanelLink, PanelState, RunnerField } from "./api";
+import { restartSupervisor } from "./cli";
 import { log } from "./log";
 import { setRunnerField } from "./runners-file";
 import {
@@ -114,12 +115,17 @@ async function command(file: string, args: string[], done: string) {
 
 /** The CLI has no restart command, so this restarts the supervisor's login service. */
 async function restartRunners(): Promise<void> {
-	if (process.platform === "darwin")
-		return command(
-			"/bin/launchctl",
-			["kickstart", "-k", `gui/${process.getuid?.()}/dev.tedix.supervisor`],
-			"Runners restarted",
-		);
+	if (process.platform === "darwin") {
+		busy = true;
+		lastOutput = "Running…";
+		await publish();
+		const result = await restartSupervisor();
+		busy = false;
+		lastOutput = result.ok
+			? "Runners restarted"
+			: lastLine(result.output) || "The background service did not start";
+		return refresh();
+	}
 	lastOutput = "Restart `tedix supervise` yourself on this system";
 	await publish();
 }
