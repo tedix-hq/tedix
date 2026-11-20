@@ -274,13 +274,7 @@ describe("scheduled usage evidence retention", () => {
 				expect.anything(),
 				"2026-09-21T03:00:00.000Z",
 			);
-			expect(prunePlatformCronExecutions).toHaveBeenCalledWith(
-				expect.anything(),
-				"2026-06-23 03:00:00",
-			);
-			expect(terminalizeAbandonedPlatformCronExecutions).toHaveBeenCalledBefore(
-				prunePlatformCronExecutions,
-			);
+			expect(prunePlatformCronExecutions).not.toHaveBeenCalled();
 			expect(warn).not.toHaveBeenCalled();
 			expect(error).not.toHaveBeenCalled();
 			expect(
