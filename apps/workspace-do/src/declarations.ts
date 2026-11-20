@@ -22,6 +22,7 @@ export const BINDING_NAMES = [
 	"memory",
 	"person",
 	"tedi",
+	"chat",
 ] as const;
 export type BindingName = (typeof BINDING_NAMES)[number];
 
@@ -69,6 +70,19 @@ interface Tedi {
   list(input?: { query?: string }): Promise<{ skills: Array<{ slug: string; about: string }>; groups: Array<{ name: string; tools: number }>; tools: Array<{ tool: string; about: string; readOnly?: true; destructive?: true }>; refusal?: string }>;
   describe(input: { tool: string }): Promise<{ tool: string; about: string; inputSchema: unknown; readOnly?: true; destructive?: true }>;
   call(input: { tool: string; args?: Record<string, unknown> }): Promise<{ status: "ok"; result: string; truncated?: true } | { status: "needsApproval"; message: string }>;
+}`.trim(),
+	chat: `
+/**
+ * The running chat. handTo: when another tedi is better placed to answer, hand the conversation to it.
+ * After this reply the named tedi answers the person's message in the next turn, for the same person and with
+ * their rights; it sees the conversation and your message. tedi: its name or id; message: a short note to it.
+ * Works only in a turn a signed-in person sent themself, and once per message: a handed turn cannot hand over
+ * again, and a second call in one turn replaces the first. A tedi the person may not pick is refused.
+ * Example:
+ *   return env.chat.handTo({ tedi: "Builder", message: "They want a budget app; the sheet is Trip budget." });
+ */
+interface Chat {
+  handTo(input: { tedi: string; message: string }): Promise<{ handedTo: string; message: string }>;
 }`.trim(),
 	person: `
 /**
@@ -317,7 +331,7 @@ export function renderEnvDeclarations(): string {
 	return [
 		SHARED_TYPES,
 		...BINDING_NAMES.map((name) => BINDING_DECLARATIONS[name]),
-		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; accounts: Accounts; work: Work; views: Views; web: Web; machine: Machine; memory: Memory; person: Person; tedi: Tedi; }`,
+		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; accounts: Accounts; work: Work; views: Views; web: Web; machine: Machine; memory: Memory; person: Person; tedi: Tedi; chat: Chat; }`,
 	].join("\n\n");
 }
 

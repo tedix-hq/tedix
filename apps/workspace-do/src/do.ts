@@ -37,7 +37,7 @@ import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { guestMayUseMemory } from "./guest-memory";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
-import { getTediById } from "@tedix/db/queries/tedis";
+import { getTediById, getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { isWorkspaceGuestTediAllowed } from "@tedix/db/queries/os-workspace-access";
 import {
 	getSkillEntryBySlug,
@@ -89,6 +89,7 @@ import {
 } from "./accounts";
 import { type MachineService, workspaceMachine } from "./machine";
 import { type PersonService, workspacePerson } from "./person";
+import { workspaceChat } from "./chat";
 import {
 	renderTediCatalog,
 	type TediGuestService,
@@ -407,6 +408,15 @@ interface DecisionNote {
 	text: string;
 	/** What the chat shows, e.g. "Approved the requested action." */
 	displayText: string;
+}
+
+/** The tedi a turn handed the conversation to, kept until the turn ends. */
+interface HandOff {
+	tediId: string;
+	name: string;
+	/** Who handed it: the answering tedi's name or the workspace agent. */
+	from: string;
+	note: string;
 }
 
 /**
@@ -1486,6 +1496,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			respondingTediId:
 				input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
 			...(answererNote ? { answererNote } : {}),
+			...(input.handedFrom ? { handedFrom: input.handedFrom } : {}),
 		};
 		const started = this.#events.append(conversationId, startEvent);
 		this.#store.run(
@@ -3827,6 +3838,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							},
 						})
 					: undefined,
+			chat:
+				accountActor && this.#mayHandOff(turn.turnId)
+					? workspaceChat({
+							handTo: async (tedi, note) => {
+								const handOff = await this.#handOffTarget(
+									scope,
+									accountActor.id,
+									started?.tedi_id ?? null,
+									tedi,
+								);
+								// A second call in the same turn replaces the first.
+								this.#store.put(`hand-off:${turn.turnId}`, {
+									...handOff,
+									note,
+								});
+								return handOff;
+							},
+						})
+					: undefined,
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {
@@ -4330,6 +4360,88 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	/**
+	 * Whether this turn may hand the conversation on: a person sent it, not
+	 * from an app, and it was not itself handed over, so a message is handed
+	 * at most once.
+	 */
+	#mayHandOff(turnId: string): boolean {
+		const [started] = this.#events.ofTurn(turnId, "turn.started");
+		return (
+			started?.type === "turn.started" &&
+			!started.fromAppId &&
+			!started.handedFrom
+		);
+	}
+
+	/**
+	 * The tedi, named or by id, that answers next: one the sender may pick,
+	 * the same rule as a picked tedi. Throws a refusal otherwise.
+	 */
+	async #handOffTarget(
+		scope: WorkspaceScope,
+		senderId: string,
+		fromTediId: string | null,
+		tedi: string,
+	): Promise<Omit<HandOff, "note">> {
+		const roster = await getTedisByOrganization(
+			createDbClient(this.env.DB),
+			scope.organizationId,
+		);
+		const wanted = tedi.toLowerCase();
+		const matches = roster.filter(
+			(row) =>
+				row.id === tedi ||
+				[row.name, row.displayName, row.slug].some(
+					(name) => name?.toLowerCase() === wanted,
+				),
+		);
+		const [target] = matches;
+		const allowed =
+			matches.length === 1 &&
+			!!target?.isolateAgentId &&
+			(await isWorkspaceGuestTediAllowed(
+				createDbQueryClient(this.env.DB),
+				scope.organizationId,
+				{ actorKind: "user", actorId: senderId },
+				target.id,
+			));
+		if (!allowed || !target)
+			throw new Error(
+				`${tedi} is not a tedi the person who sent this message may pick, so the conversation stays with you.`,
+			);
+		const from = roster.find((row) => row.id === fromTediId);
+		return {
+			tediId: target.id,
+			name: target.displayName ?? target.name,
+			from: from ? (from.displayName ?? from.name) : "The workspace agent",
+		};
+	}
+
+	/** The handed tedi answers the person's message in a turn of its own. */
+	async #startHandOff(
+		scope: WorkspaceScope,
+		conversationId: string,
+		turnId: string,
+		input: TurnRequest,
+		handOff: HandOff,
+	) {
+		const [started] = this.#events.ofTurn(turnId, "turn.started");
+		const question = started?.type === "turn.started" ? started.text : "";
+		await this.sendTurn(
+			scope,
+			{
+				conversationId,
+				actorId: input.actorId,
+				actorKind: "user",
+				tediId: handOff.tediId,
+				handedFrom: { tediId: input.tediId ?? null },
+				text: `${handOff.from} handed this conversation to you with a note:\n${wrapUntrustedInput(handOff.note, "hand_off_note")}\n\nAnswer the person's message:\n${question}`,
+			},
+			`Handed to ${handOff.name}: ${handOff.note}`,
+		);
+	}
+
+	/**
 	 * Who a guest tedi's own skills and tools serve on this turn, read live,
 	 * or null when the turn may not use them: only a turn a signed-in person
 	 * sent to a tedi they may pick, not one an app, a tedi, a schedule or a
@@ -4752,6 +4864,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	) {
 		const startedAt = Date.now();
 		let answered = false;
+		let handOff: HandOff | undefined;
 		try {
 			const plan = await this.#plan(scope, turnId, conversationId, input);
 			const isolate =
@@ -4869,14 +4982,37 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#running.delete(turnId);
 			this.#codeRuns.delete(turnId);
 			this.#viewsShown.delete(turnId);
+			handOff = this.#store.get<HandOff>(`hand-off:${turnId}`);
+			if (handOff) this.#store.delete(`hand-off:${turnId}`);
 			for (const wake of this.#waiters.get(turnId) ?? []) wake();
 			this.#waiters.delete(turnId);
 		}
-		// What the person sent too late for this turn starts the next one. A
-		// stopped turn handed its unread messages back instead.
+		// A hand-off answers next; what the person sent too late for this turn
+		// starts the turn after. A stopped turn handed its unread messages back.
+		const handed =
+			answered &&
+			!!handOff &&
+			(await this.#startHandOff(
+				scope,
+				conversationId,
+				turnId,
+				input,
+				handOff,
+			).then(
+				() => true,
+				(error: unknown) => {
+					workspaceLog.warn("A hand-off did not start a turn", {
+						event: "workspace.hand_off_not_started",
+						error,
+						...this.#diagnostics(),
+					});
+					return false;
+				},
+			));
 		const next =
-			!controller.signal.aborted &&
-			(await this.#startQueuedMessage(scope, conversationId));
+			handed ||
+			(!controller.signal.aborted &&
+				(await this.#startQueuedMessage(scope, conversationId)));
 		if (answered && !next)
 			await this.#continueAfterDecisions(scope, conversationId).catch(
 				(error: unknown) =>
@@ -5435,5 +5571,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	/** `person.memory`. */
 	memory(...args: unknown[]) {
 		return this.#call("memory", args);
+	}
+	/** `chat.handTo`. */
+	handTo(...args: unknown[]) {
+		return this.#call("handTo", args);
 	}
 }

@@ -222,6 +222,8 @@ export type WorkspaceChatLedgerEvent =
 			respondingTediId?: string | null;
 			/** Why the workspace agent answers instead of the default tedi. */
 			answererNote?: string;
+			/** The previous answerer handed this turn over; null for the workspace agent. */
+			handedFrom?: { tediId: string | null };
 			authorId: string;
 			authorKind: "person" | "tedi";
 			/** The workspace app the person asked from. */
