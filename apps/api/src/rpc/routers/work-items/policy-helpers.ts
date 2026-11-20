@@ -11,7 +11,10 @@ import {
 	getProjectByIdForOrganization,
 } from "@tedix/db/queries/projects";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
-import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
+import {
+	getWorkAttemptRepositoryAdmission,
+	listWorkItemAttempts,
+} from "@tedix/db/queries/work-items/attempts";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructions";
 import { requireOrgId } from "../../org-scope";
@@ -144,12 +147,47 @@ export async function canCompleteOwnSucceededAttempt(
 		limit: 1,
 	});
 	const latest = data[0];
-	const settlement = latest?.metadata?.settlement;
+	if (
+		!latest ||
+		latest.executorType !== "external_agent" ||
+		latest.executorId !== actor.id ||
+		latest.executorSessionId !== actor.sessionId ||
+		latest.outcome !== "succeeded"
+	)
+		return false;
+
+	const metadata = latest.metadata;
+	const settlement = metadata?.settlement;
 	const commitSha =
 		settlement && typeof settlement === "object" && !Array.isArray(settlement)
 			? settlement.commitSha
 			: undefined;
-	const result = latest?.metadata?.laneResult;
+	if (
+		item.workKind === "coding" &&
+		(typeof commitSha !== "string" || !/^[a-f\d]{40}$/i.test(commitSha))
+	)
+		return false;
+
+	const result = metadata?.laneResult;
+	if (
+		metadata?.lane !== true &&
+		metadata?.dispatchVersion === undefined &&
+		result === undefined
+	) {
+		if (item.workKind !== "coding") return false;
+		const admission = await getWorkAttemptRepositoryAdmission(
+			context.db,
+			latest,
+		);
+		if (
+			!admission ||
+			admission.workItemVersion !== item.version ||
+			admission.admissionSpecRevision !== item.admissionSpecRevision
+		)
+			return false;
+		return hasRecoveredCommitCustody(context, latest);
+	}
+
 	const declaredCompletion =
 		result &&
 		typeof result === "object" &&
@@ -163,17 +201,8 @@ export async function canCompleteOwnSucceededAttempt(
 		result.outcomeText ===
 			(item.acceptanceContract?.doneLooksLike ?? item.title);
 	return (
-		!!latest &&
-		Boolean(
-			latest.executorType === "external_agent" &&
-			latest.executorId === actor.id &&
-			latest.executorSessionId === actor.sessionId &&
-			latest.outcome === "succeeded" &&
-			latest.metadata?.dispatchVersion === item.version &&
-			declaredCompletion &&
-			(item.workKind !== "coding" ||
-				(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
-		) &&
+		metadata?.dispatchVersion === item.version &&
+		Boolean(declaredCompletion) &&
 		(await hasRecoveredCommitCustody(context, latest))
 	);
 }
