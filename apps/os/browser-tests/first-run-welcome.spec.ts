@@ -128,22 +128,24 @@ try {
 		const guest = page
 			.frameLocator('iframe[title="Tedix welcome"]')
 			.frameLocator("iframe");
-		await guest.getByRole("heading", { name: "Your profile" }).waitFor();
-		await guest.getByRole("button", { name: "Next", exact: true }).click();
-		await guest.getByRole("heading", { name: "Choose a model" }).waitFor();
-		await guest.getByRole("button", { name: "Next", exact: true }).click();
+		const next = () =>
+			guest.getByRole("button", { name: "Continue", exact: true }).click();
+		await guest
+			.getByRole("heading", { name: "What should we call you?" })
+			.waitFor();
+		await next();
+		await guest.getByRole("heading", { name: "Pick a model" }).waitFor();
+		await next();
 		await guest.getByRole("heading", { name: "Connect your tools" }).waitFor();
 		await guest
 			.getByText("Sign-in and consent stay with you", { exact: false })
 			.waitFor();
-		await guest.getByRole("button", { name: "Next", exact: true }).click();
+		await next();
 		await guest
-			.getByRole("heading", { name: "Set up this computer" })
+			.getByRole("heading", { name: /^Set up this (computer|Mac)$/ })
 			.waitFor();
-		await guest.getByRole("button", { name: "Next", exact: true }).click();
-		await guest
-			.getByRole("heading", { name: "Start with a question" })
-			.waitFor();
+		await guest.getByRole("button", { name: "Skip for now" }).click();
+		await guest.getByRole("heading", { name: "You're ready" }).waitFor();
 		await guest
 			.getByRole("button", { name: "Ask your first question" })
 			.click();
@@ -178,7 +180,7 @@ try {
 		await page.reload();
 		await waitForWelcome("reset for skip");
 		failSave = true;
-		await page.getByRole("button", { name: "Skip welcome" }).click();
+		await page.getByRole("button", { name: "Close", exact: true }).click();
 		await dialog.getByRole("alert").waitFor();
 		assert.equal(
 			completed,
@@ -186,7 +188,7 @@ try {
 			"failed persistence cannot mark welcome done",
 		);
 		failSave = false;
-		await page.getByRole("button", { name: "Skip welcome" }).click();
+		await page.getByRole("button", { name: "Close", exact: true }).click();
 		await dialog.waitFor({ state: "hidden" });
 		await page
 			.getByRole("combobox", { name: "Message", exact: true })

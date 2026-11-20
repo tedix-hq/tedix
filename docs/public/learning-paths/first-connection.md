@@ -31,10 +31,11 @@ The Tedix app for Mac does the steps on this page for you.
    Tedix to Applications and open it. The app is not yet signed by Apple, so
    the first time macOS asks you to confirm: go to **System Settings → Privacy
    & Security** and choose **Open Anyway**.
-3. Sign in, then choose **Set up this Mac**. It installs the `tedix`
-   command-line tool, signs you in on this Mac, finds Claude Code, Codex, Devin
-   and OpenCode, adds the Tedix plugin to each, and lets Tedix run tasks on
-   this Mac. A window shows each step before it runs.
+3. Sign in, then choose **Set up this Mac**. The app includes the `tedix`
+   command-line tool, so there is nothing else to install. It signs you in on
+   this Mac, finds Claude Code, Codex, Devin and OpenCode, adds the Tedix
+   plugin to each, and lets Tedix run tasks on this Mac. A window shows each
+   step before it runs.
 
 **Expected result:** **Set up this computer** is ticked under **Get started**
 in Tedix. On Linux, or if you prefer a terminal, continue below.

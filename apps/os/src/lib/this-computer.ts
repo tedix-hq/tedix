@@ -3,9 +3,12 @@
 /** The link the Tedix desktop app answers by opening "Set up this Mac". */
 export const DESKTOP_SETUP_LINK = "tedix://setup";
 
-/** What the desktop app's "Set up this Mac" window does, in one sentence. */
-export const MAC_SETUP_SUMMARY =
-	"It installs the Tedix command-line tool, signs you in on this Mac, finds Claude Code, Codex, Devin and OpenCode, adds the Tedix plugin to each, and lets Tedix run tasks on this Mac.";
+/** What the desktop app's "Set up this Mac" window does, in three lines. */
+export const MAC_SETUP_LINES = [
+	"Signs you in on this Mac. The command-line tool is included.",
+	"Adds the Tedix plugin to Claude Code, Codex, Devin and OpenCode.",
+	"Lets Tedix run tasks on this Mac, and shows each step first.",
+];
 /** The app is not yet signed by Apple, so macOS asks once. */
 export const MAC_FIRST_OPEN_NOTE =
 	"The first time you open it, macOS asks you to confirm: go to System Settings → Privacy & Security and choose Open Anyway.";

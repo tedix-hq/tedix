@@ -1,5 +1,7 @@
 import {
 	ArrowSquareOut,
+	Check,
+	CheckCircle,
 	Desktop,
 	DownloadSimple,
 	TerminalWindow,
@@ -15,7 +17,7 @@ import {
 	DESKTOP_SETUP_LINK,
 	latestMacDownload,
 	MAC_FIRST_OPEN_NOTE,
-	MAC_SETUP_SUMMARY,
+	MAC_SETUP_LINES,
 	type MacDownload,
 	thisComputer,
 } from "@/lib/this-computer";
@@ -327,11 +329,67 @@ function TerminalSteps() {
 	);
 }
 
-function MacDownloadCard() {
+/** The one action for this person's computer, with what it does below it. */
+function SetupHero({
+	title,
+	lead,
+	children,
+}: {
+	title: string;
+	lead: string;
+	children: ReactNode;
+}) {
+	return (
+		<section
+			aria-label={title}
+			className="grid gap-5 rounded-xl border border-kumo-line bg-kumo-elevated p-6 sm:p-10"
+		>
+			<span className="grid size-11 place-items-center rounded-lg bg-kumo-tint text-kumo-default">
+				<Desktop size={22} aria-hidden="true" />
+			</span>
+			<div className="grid gap-2">
+				<h2 className="m-0 text-kumo-default type-tedix-title">{title}</h2>
+				<Text tone="secondary">{lead}</Text>
+			</div>
+			{children}
+			<ul className="m-0 grid list-none gap-2 border-t border-kumo-line p-0 pt-5">
+				{MAC_SETUP_LINES.map((line) => (
+					<li className="flex items-start gap-2" key={line}>
+						<Check
+							aria-hidden="true"
+							className="mt-0.5 shrink-0 text-kumo-success"
+							size={16}
+						/>
+						<Text as="span" role="label" tone="secondary">
+							{line}
+						</Text>
+					</li>
+				))}
+			</ul>
+		</section>
+	);
+}
+
+/** Working, done or failed in one fixed-height line, so nothing jumps. */
+function ActionState({ children }: { children: ReactNode }) {
+	return (
+		<div
+			className="flex min-h-10 items-start gap-2 text-kumo-subtle type-tedix-label"
+			role="status"
+		>
+			{children}
+		</div>
+	);
+}
+
+function MacDownloadHero() {
 	const [download, setDownload] = useState<MacDownload | null>(null);
+	const [attempt, setAttempt] = useState(0);
 	const [failed, setFailed] = useState(false);
+	const [started, setStarted] = useState(false);
 	useEffect(() => {
 		let current = true;
+		setFailed(false);
 		latestMacDownload().then(
 			(found) => current && setDownload(found),
 			() => current && setFailed(true),
@@ -339,85 +397,114 @@ function MacDownloadCard() {
 		return () => {
 			current = false;
 		};
-	}, []);
+	}, [attempt]);
+	const start = () => setStarted(true);
 	return (
-		<Card>
-			<CardHeader>
-				<Desktop size={20} aria-hidden="true" />
-				<CardTitle>Tedix app for Mac</CardTitle>
-				<CardDescription>
-					The app sets up this Mac for you, with no terminal.{" "}
-					{MAC_SETUP_SUMMARY}
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="grid gap-3">
+		<SetupHero
+			title="Get the Tedix app for Mac"
+			lead="The app sets up this Mac for you. You do not need a terminal."
+		>
+			<div className="flex flex-wrap items-center gap-2">
 				{failed ? (
-					<Text role="label" tone="secondary">
-						The download is not available right now. Try again in a moment, or
-						use a terminal instead.
-					</Text>
+					<Button onClick={() => setAttempt((count) => count + 1)} size="lg">
+						Retry
+					</Button>
 				) : download === null ? (
-					<Text role="label" tone="secondary">
-						Finding the latest version…
-					</Text>
+					<Button disabled loading size="lg">
+						Download the Tedix app for Mac
+					</Button>
+				) : download.forThisMac ? (
+					<Button
+						onClick={start}
+						render={<a href={download.forThisMac} />}
+						size="lg"
+					>
+						<DownloadSimple size={18} aria-hidden="true" />
+						Download the Tedix app for Mac
+					</Button>
 				) : (
-					<div className="flex flex-wrap items-center gap-2">
-						{download.forThisMac ? (
-							<Button render={<a href={download.forThisMac} />}>
-								<DownloadSimple size={16} aria-hidden="true" />
-								Download the Tedix app for Mac
-							</Button>
-						) : (
-							<>
-								<Button render={<a href={download.appleSilicon} />}>
-									<DownloadSimple size={16} aria-hidden="true" />
-									Download for Mac with Apple silicon
-								</Button>
-								<Button render={<a href={download.intel} />} variant="outline">
-									Download for Mac with Intel
-								</Button>
-							</>
-						)}
-						<Text as="span" role="label" tone="secondary">
-							Version {download.version}
-						</Text>
-					</div>
+					<>
+						<Button
+							onClick={start}
+							render={<a href={download.appleSilicon} />}
+							size="lg"
+						>
+							<DownloadSimple size={18} aria-hidden="true" />
+							Download for Apple silicon
+						</Button>
+						<Button
+							onClick={start}
+							render={<a href={download.intel} />}
+							size="lg"
+							variant="outline"
+						>
+							Download for Intel
+						</Button>
+					</>
 				)}
-				{download && !download.forThisMac ? (
-					<Text role="label" tone="secondary">
-						Not sure which Mac you have? Open the Apple menu and choose About
-						This Mac. "Chip: Apple" means Apple silicon.
-					</Text>
-				) : null}
-				<Text role="label" tone="secondary">
-					Open the downloaded file, move Tedix to Applications and open it.{" "}
-					{MAC_FIRST_OPEN_NOTE} Then sign in and choose Set up this Mac.
-				</Text>
-			</CardContent>
-		</Card>
+			</div>
+			<ActionState>
+				{failed ? (
+					"The download is not available right now. Check your connection and retry, or use a terminal instead."
+				) : started ? (
+					<>
+						<CheckCircle
+							aria-hidden="true"
+							className="mt-0.5 shrink-0 text-kumo-success"
+							size={16}
+							weight="fill"
+						/>
+						<span>
+							Download started. Open the file, move Tedix to Applications and
+							open it. {MAC_FIRST_OPEN_NOTE} Then sign in and choose Set up this
+							Mac.
+						</span>
+					</>
+				) : download === null ? (
+					"Finding the latest version…"
+				) : download.forThisMac ? (
+					`Version ${download.version}. ${MAC_FIRST_OPEN_NOTE}`
+				) : (
+					`Version ${download.version}. Not sure which Mac you have? Open the Apple menu and choose About This Mac. “Chip: Apple” means Apple silicon.`
+				)}
+			</ActionState>
+		</SetupHero>
 	);
 }
 
-function DesktopAppCard() {
+function DesktopAppHero() {
+	const [opened, setOpened] = useState(false);
 	return (
-		<Card>
-			<CardHeader>
-				<Desktop size={20} aria-hidden="true" />
-				<CardTitle>Set up this Mac</CardTitle>
-				<CardDescription>{MAC_SETUP_SUMMARY}</CardDescription>
-			</CardHeader>
-			<CardContent className="grid gap-3">
-				<div>
-					<Button render={<a href={DESKTOP_SETUP_LINK} />}>
-						Set up this Mac
-					</Button>
-				</div>
-				<Text role="label" tone="secondary">
-					A window opens and shows each step before it runs. If nothing opens,
-					update the Tedix app and try again.
-				</Text>
-			</CardContent>
-		</Card>
+		<SetupHero
+			title="Set up this Mac"
+			lead="One window sets up Tedix on this Mac and asks before each step."
+		>
+			<div>
+				<Button
+					onClick={() => setOpened(true)}
+					render={<a href={DESKTOP_SETUP_LINK} />}
+					size="lg"
+				>
+					Set up this Mac
+				</Button>
+			</div>
+			<ActionState>
+				{opened ? (
+					<>
+						<CheckCircle
+							aria-hidden="true"
+							className="mt-0.5 shrink-0 text-kumo-success"
+							size={16}
+							weight="fill"
+						/>
+						<span>
+							The setup window is open. If you do not see it, update the Tedix
+							app and choose Set up this Mac again.
+						</span>
+					</>
+				) : null}
+			</ActionState>
+		</SetupHero>
 	);
 }
 
@@ -431,7 +518,7 @@ export function AgentInstallPage() {
 					<PageTitle>Set up this computer</PageTitle>
 					<PageDescription>
 						Let Tedix work with the coding agents on this computer, such as
-						Claude Code and Codex, so they see the same projects, tasks and
+						Claude Code and Codex. They then see the same projects, tasks and
 						results you see here.
 					</PageDescription>
 				</PageHeading>
@@ -443,9 +530,9 @@ export function AgentInstallPage() {
 				<>
 					<PageSection>
 						{computer === "desktop-app" ? (
-							<DesktopAppCard />
+							<DesktopAppHero />
 						) : (
-							<MacDownloadCard />
+							<MacDownloadHero />
 						)}
 					</PageSection>
 					<PageSection>

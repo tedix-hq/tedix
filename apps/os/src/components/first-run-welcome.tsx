@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { modelsForNewSelection } from "@/lib/model-selection";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
-import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
 	DialogContent,
@@ -15,7 +14,7 @@ import {
 	DESKTOP_SETUP_LINK,
 	latestMacDownload,
 	MAC_FIRST_OPEN_NOTE,
-	MAC_SETUP_SUMMARY,
+	MAC_SETUP_LINES,
 	thisComputer,
 } from "@/lib/this-computer";
 import { buildAppRuntimeDocument } from "@/lib/app-runtime-host";
@@ -32,23 +31,20 @@ import client from "@/gadgets/welcome/client.js?raw";
 const html = buildAppRuntimeDocument({ "client.js": `${kit}\n${client}` });
 
 /**
- * The first-run steps: name, model, tools, this computer, first question.
+ * The first-run steps: name, model, tools, this computer, then "You're ready".
  * The shell mounts it, and it is the only Get started dialog open at a time.
  */
 export function FirstRunWelcome({ onDone }: { onDone: () => void }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const complete = useMutation({
-		mutationFn: async (to: "/chat" | "/install") => {
-			await osApi.userProfile.completeWelcome({});
-			return to;
-		},
-		onSuccess: async (to) => {
+		mutationFn: () => osApi.userProfile.completeWelcome({}),
+		onSuccess: async () => {
 			queryClient.setQueryData(userProfileQueryOptions().queryKey, (profile) =>
 				profile ? { ...profile, welcomeCompleted: true } : profile,
 			);
 			onDone();
-			await navigate({ to, search: {}, replace: true });
+			await navigate({ to: "/chat", search: {}, replace: true });
 		},
 	});
 
@@ -79,26 +75,32 @@ export function FirstRunWelcome({ onDone }: { onDone: () => void }) {
 						).map((model) => ({ ref: model.ref, label: model.label })),
 						modelRef: preferences?.preferences.conversationModelRef,
 						computer: thisComputer(),
-						macSetupSummary: MAC_SETUP_SUMMARY,
+						macSetupLines: MAC_SETUP_LINES,
 						macFirstOpenNote: MAC_FIRST_OPEN_NOTE,
 					},
 				};
 			}
 			if (method === "welcome.computer") {
-				const computer = thisComputer();
-				if (computer === "desktop-app") {
+				if (thisComputer() === "desktop-app") {
 					window.location.assign(DESKTOP_SETUP_LINK);
-					return { ok: true, value: null };
+					return { ok: true, value: { state: "opened" } };
 				}
-				// The download starts here when the browser says which Mac this is;
-				// otherwise the setup page offers the choices.
-				const download =
-					computer === "mac"
-						? (await latestMacDownload().catch(() => null))?.forThisMac
-						: null;
-				if (download) window.location.assign(download);
-				else await complete.mutateAsync("/install");
-				return { ok: true, value: null };
+				const download = await latestMacDownload();
+				const chip =
+					args && typeof args === "object" && "chip" in args ? args.chip : null;
+				const file =
+					chip === "appleSilicon"
+						? download.appleSilicon
+						: chip === "intel"
+							? download.intel
+							: download.forThisMac;
+				// The browser did not say which Mac this is: the step asks.
+				if (!file) return { ok: true, value: { state: "choose" } };
+				window.location.assign(file);
+				return {
+					ok: true,
+					value: { state: "downloading", version: download.version },
+				};
 			}
 			if (method === "welcome.profile") {
 				if (
@@ -146,7 +148,7 @@ export function FirstRunWelcome({ onDone }: { onDone: () => void }) {
 				return { ok: true, value: null };
 			}
 			if (method === "welcome.complete") {
-				await complete.mutateAsync("/chat");
+				await complete.mutateAsync();
 				return { ok: true, value: null };
 			}
 			return { ok: false, error: "unknown_method" };
@@ -166,31 +168,23 @@ export function FirstRunWelcome({ onDone }: { onDone: () => void }) {
 		<Dialog
 			open
 			onOpenChange={(open) => {
-				if (!open && !complete.isPending) complete.mutate("/chat");
+				if (!open && !complete.isPending) complete.mutate();
 			}}
 		>
-			<DialogContent showCloseButton={false}>
+			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Welcome to Tedix</DialogTitle>
 					<DialogDescription>
-						A platform for agents, apps, and work. Take a quick look now and
-						finish any step later from Get started.
+						A platform for agents, apps, and work. Four short steps; skip any
+						and finish later from Get started.
 					</DialogDescription>
 				</DialogHeader>
 				<AppRuntimeFrame html={html} title="Tedix welcome" onCall={onCall} />
 				{complete.isError ? (
-					<p role="alert">Your welcome could not be saved. Please try again.</p>
+					<p role="alert">
+						Your welcome was not saved. Check your connection and try again.
+					</p>
 				) : null}
-				{/* Not a pinned footer: on a phone it would cover the step's own buttons. */}
-				<div className="flex justify-end">
-					<Button
-						variant="ghost"
-						disabled={complete.isPending}
-						onClick={() => complete.mutate("/chat")}
-					>
-						{complete.isPending ? "Saving…" : "Skip welcome"}
-					</Button>
-				</div>
 			</DialogContent>
 		</Dialog>
 	);
