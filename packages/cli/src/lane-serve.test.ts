@@ -14,7 +14,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import * as retryTimers from "node:timers/promises";
 import { laneTurnOutputPaths } from "./lane-output";
 import { CodexLaneResultJsonSchema } from "./lane-result";
@@ -6816,6 +6816,25 @@ it("evicts a stale checkout that still holds work, saving it under a ref first",
 		"Evicted checkout snapshot\nrebased",
 	);
 	expect(git(["show", `${saved}:.commit-msg.tmp`])).toBe("scratch");
+}, 30_000);
+
+it("evicts a stale checkout whose only changes are ignored files", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const run = join(root, "item-4");
+	mkdirSync(run);
+	const destination = await provisionLaneWorktree(repo, join(run, "repo"));
+	const common = resolve(
+		destination,
+		git(["rev-parse", "--git-common-dir"], destination),
+	);
+	mkdirSync(join(common, "info"), { recursive: true });
+	writeFileSync(join(common, "info", "exclude"), "*.generated.json\n");
+	writeFileSync(join(destination, "wrangler.local.generated.json"), "{}");
+	utimesSync(destination, 1, 1);
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(destination)).toBe(false);
 }, 30_000);
 
 it("deletes a stale folder Git no longer knows only under eviction", async () => {

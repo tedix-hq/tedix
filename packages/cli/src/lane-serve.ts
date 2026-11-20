@@ -1995,17 +1995,21 @@ export async function cleanupLaneWorktree(
 		return false;
 	}
 	if (holdsWork) {
+		// Ignored files such as generated local config count as changes but
+		// `add` stages none of them; with nothing staged there is no commit to
+		// make, and `commit` failing on that had kept such checkouts forever.
 		if (
 			!emptied &&
 			(!(await run(destination, ["add", "--all"])) ||
-				!(await run(destination, [
-					...EVICTION_IDENTITY,
-					"commit",
-					"--no-verify",
-					"--quiet",
-					"--message",
-					"Evicted checkout snapshot",
-				])))
+				(!(await run(destination, ["diff", "--cached", "--quiet"])) &&
+					!(await run(destination, [
+						...EVICTION_IDENTITY,
+						"commit",
+						"--no-verify",
+						"--quiet",
+						"--message",
+						"Evicted checkout snapshot",
+					]))))
 		) {
 			refused("snapshot commit failed");
 			return false;
