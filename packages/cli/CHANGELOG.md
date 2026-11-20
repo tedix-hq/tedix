@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.28.1 — 2026-11-20
+
+### Patch Changes
+
+- A run that someone asked a tedi for in chat starts as soon as the machine is told. It no longer waits for the runner to finish its pass over the backlog or behind the calls of running tasks.
+- Run leases are renewed and checked in a separate process, so a busy runner keeps the tasks it is working on.
+
 ## 0.28.0 — 2026-11-20
 
 ### Minor Changes
