@@ -102,6 +102,7 @@ export async function upsertDispatcherHealthReport(
 				cliVersion: params.cliVersion ?? null,
 				machineTools: params.machineTools ?? null,
 				reportedBy: params.reportedBy ?? null,
+				rulesSkillId: params.rulesSkillId ?? null,
 			},
 		})
 		.returning();

@@ -1808,6 +1808,10 @@
 		{
 			"name": "20261120191649_skill_archived_from/migration.sql",
 			"sha256": "5d90bd629bfd550a014375f06dbbd20753feb0362e04de5c94767e4ec2263c42"
+		},
+		{
+			"name": "20261120193011_dispatcher_rules_skill/migration.sql",
+			"sha256": "4d5f5ed7acc9790da7d495e15fe734ad62e78e017740d529bc94a9c97922125c"
 		}
 	]
 }

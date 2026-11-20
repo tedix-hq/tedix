@@ -70,6 +70,7 @@ const reportProcedure = os.report
 			cliVersion: input.cliVersion ?? null,
 			machineTools: input.machineTools ?? null,
 			reportedBy,
+			rulesSkillId: input.rulesSkillId ?? null,
 		});
 		return toReport(row, now);
 	});

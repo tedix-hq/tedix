@@ -8,6 +8,12 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { dispatcherHealthReports } from "@tedix/db/schema/dispatcher-health";
+import {
+	osWorkspaceResources,
+	osWorkspaces,
+} from "@tedix/db/schema/os-workspaces";
+import { projects } from "@tedix/db/schema/projects";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { userContext, apiKeyContext } from "../test-context";
@@ -461,12 +467,20 @@ describe("archive persistence through skill actions", () => {
 			try {
 				h.sqlite.exec(schemaDdl(skillEntries));
 				h.sqlite.exec(schemaDdl(skillSchedules));
+				h.sqlite.exec(
+					schemaDdl(
+						dispatcherHealthReports,
+						projects,
+						osWorkspaces,
+						osWorkspaceResources,
+					),
+				);
 				h.sqlite.exec(`
-					CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT, policy_pack_id TEXT);
+					CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT, policy_pack_id TEXT, name TEXT, display_name TEXT);
 					CREATE TABLE policy_packs (id TEXT PRIMARY KEY, organization_id TEXT, definition TEXT);
 					CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
 					CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT, attempt INTEGER NOT NULL DEFAULT 1);
-					INSERT INTO tedis VALUES ('tedi-owner', 'org-1', 'policy-1');
+					INSERT INTO tedis VALUES ('tedi-owner', 'org-1', 'policy-1', 'owner', NULL);
 					INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false}}}');
 				`);
 				await h.context.db
@@ -497,6 +511,8 @@ describe("archive persistence through skill actions", () => {
 					await client.improve({
 						id: "skill-1",
 						lifecycleState: "archived",
+						// Its own schedule is a user; archiving names what will stop.
+						acknowledgeUsedBy: [`schedule:${STORED_SCHEDULE.id}`],
 						validate: "skip",
 					});
 				else

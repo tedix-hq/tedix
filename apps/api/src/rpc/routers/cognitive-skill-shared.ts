@@ -13,6 +13,10 @@ import {
 } from "@tedix/context-core/skill-adjacency";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { createSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
+import {
+	listSkillUsers,
+	skillUsersBlockingArchive,
+} from "@tedix/db/queries/cognitive/skill-users";
 import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { listSkillsForAdjacency } from "@tedix/db/queries/cognitive/skill-search";
 import { resolveToolSlugsForApp } from "@tedix/db/queries/cognitive/skill-tool-metadata";
@@ -679,4 +683,28 @@ export async function createSkillFromInput(
 				: []),
 		],
 	};
+}
+
+/**
+ * Refuse to archive a skill that something still depends on. Every user that
+ * would stop working must be named in `acknowledged` for the archive to go on.
+ */
+export async function assertSkillArchiveAllowed(
+	context: BaseContext,
+	skill: { id: string; organizationId: string },
+	acknowledged?: readonly string[],
+): Promise<void> {
+	const blocking = skillUsersBlockingArchive(
+		await listSkillUsers(context.db, {
+			orgId: skill.organizationId,
+			skillId: skill.id,
+		}),
+		acknowledged,
+	);
+	if (blocking.length === 0) return;
+	throw createError(
+		ErrorCodes.CONFLICT,
+		`This skill is still in use, so it was not archived. ${blocking.map((user) => user.label).join("; ")}. Stop these uses first, or archive again with acknowledgeUsedBy set to ${JSON.stringify(blocking.map((user) => user.key))} to confirm they will stop working.`,
+		{ code: "SKILL_IN_USE", usedBy: blocking },
+	);
 }

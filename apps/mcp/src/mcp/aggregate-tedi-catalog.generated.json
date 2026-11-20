@@ -1828,6 +1828,16 @@
 							}
 						}
 					},
+					"acknowledgeUsedBy": {
+						"description": "Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+						"maxItems": 50,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 300
+						}
+					},
 					"paceLayer": {
 						"description": "Manual pace-layer override. Auto-derived from lifecycle otherwise; requires force: true and human/operator authority, and is re-derived on the next lifecycle transition.",
 						"type": "string",
@@ -6402,6 +6412,18 @@
 									"minLength": 1,
 									"maxLength": 64
 								}
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"rulesSkillId": {
+						"anyOf": [
+							{
+								"type": "string",
+								"format": "uuid",
+								"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
 							},
 							{
 								"type": "null"
@@ -11383,6 +11405,16 @@
 							}
 						}
 					},
+					"acknowledgeUsedBy": {
+						"description": "Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+						"maxItems": 50,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 300
+						}
+					},
 					"paceLayer": {
 						"description": "Manual pace-layer override. Auto-derived from lifecycle otherwise; requires force: true and human/operator authority, and is re-derived on the next lifecycle transition.",
 						"type": "string",
@@ -15335,6 +15367,7 @@
 								"type": "number"
 							},
 							"lastUsedAt": {
+								"description": "When the skill last ran. Reading its text is not counted, so an old or empty value does not mean the skill is unused: read the skill and check usedBy before archiving it.",
 								"type": ["string", "null"]
 							},
 							"avgDurationMs": {
@@ -15508,6 +15541,35 @@
 											"stale",
 											"archived"
 										]
+									},
+									{
+										"type": "null"
+									}
+								]
+							},
+							"archivedFrom": {
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"lifecycleState": {
+												"type": "string",
+												"enum": [
+													"draft",
+													"active",
+													"proven",
+													"crystallized",
+													"stale"
+												]
+											},
+											"revision": {
+												"type": "integer",
+												"minimum": -9007199254740991,
+												"maximum": 9007199254740991
+											}
+										},
+										"required": ["lifecycleState", "revision"],
+										"additionalProperties": false
 									},
 									{
 										"type": "null"

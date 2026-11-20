@@ -178,6 +178,29 @@ export const SkillPreconditionsSchema = z.object({
 });
 export type SkillPreconditions = z.infer<typeof SkillPreconditionsSchema>;
 
+/** One declared use of a skill: who depends on it, in plain words. */
+export const SkillUserSchema = z.object({
+	key: z.string(),
+	kind: z.enum([
+		"local_runner",
+		"schedule",
+		"factory",
+		"workspace",
+		"owner_tedi",
+	]),
+	label: z.string(),
+	lastSeenAt: z.string().nullable(),
+	blocksArchive: z.boolean(),
+});
+export type SkillUser = z.infer<typeof SkillUserSchema>;
+
+const SKILL_USED_BY_NOTE =
+	"Who depends on this skill, declared by the users themselves. A skill read as plain rules leaves no run history, so check this list, not lastUsedAt or run counts, before calling a skill unused.";
+export const SkillUsedBySchema = z
+	.array(SkillUserSchema)
+	.optional()
+	.describe(SKILL_USED_BY_NOTE);
+
 export const SkillEntrySchema = z.object({
 	id: z.string(),
 	organizationId: z.string(),
@@ -201,7 +224,13 @@ export const SkillEntrySchema = z.object({
 	inputSchema: z.record(z.string(), JsonValueSchema).nullable().optional(),
 	successCount: z.number(),
 	failureCount: z.number(),
-	lastUsedAt: z.string().nullable().optional(),
+	lastUsedAt: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"When the skill last ran. Reading its text is not counted, so an old or empty value does not mean the skill is unused: read the skill and check usedBy before archiving it.",
+		),
 	avgDurationMs: z.number().nullable().optional(),
 	revision: z.number(),
 	revisionReasoning: z.string().nullable().optional(),

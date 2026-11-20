@@ -147,6 +147,8 @@ export const ReportDispatcherHealthInputSchema = z.object({
 	machineName: MachineNameSchema.nullable().optional(),
 	/** The read-only machine tools this machine accepts; empty switches them off. */
 	machineTools: ReportedMachineToolsSchema.nullable().optional(),
+	/** The skill this runner reads as its standing rules on every pass. */
+	rulesSkillId: z.uuid().nullable().optional(),
 });
 
 export const DispatcherHealthReportSchema = z.object({
