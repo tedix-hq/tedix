@@ -155,6 +155,20 @@ assert.deepEqual(Object.keys(build({}).tools), [
 	]);
 }
 
+// A run that only reports back is not a coding task, so it can end without
+// a commit.
+{
+	let kind: unknown;
+	const { run } = build({
+		createWorkItem: async (params) => {
+			kind = params.workKind;
+			throw new Error("stop after create");
+		},
+	});
+	await run("start_agent_run", { ...start, changesCode: false });
+	assert.equal(kind, "research");
+}
+
 // Without a project nothing is created and the tedi is told to ask.
 {
 	let created = false;

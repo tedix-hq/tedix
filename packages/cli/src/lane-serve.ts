@@ -6867,7 +6867,7 @@ ${firstBrief}`;
 						receipt.outcome = "failed";
 						receipt.note = localBranchReason
 							? `Local branch delivery is not proven: ${localBranchReason}. ${receipt.note}`
-							: `No landed commit SHA on origin/main, completed skill revision evidence or installed runtime app revision evidence for coding Work. ${receipt.note}`;
+							: `No landed commit SHA on origin/main, completed skill revision evidence or installed runtime app revision evidence for coding Work. A task that asks for no code change must not be of kind coding. ${receipt.note}`;
 					}
 				}
 			} catch (error) {

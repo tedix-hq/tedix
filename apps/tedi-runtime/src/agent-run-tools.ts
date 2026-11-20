@@ -126,7 +126,7 @@ export function agentRunTools(input: {
 	const all = {
 		start_agent_run: tool({
 			description:
-				"Start a coding task for an agent on one of the organization's machines. Creates the task with your brief, assigns it to the chosen agent and accepts it, so a connected machine picks it up and works in the project's repository. Give a brief the agent can act on without this chat, and say what done looks like. Needs the project the task belongs to; ask the person which project if you do not know it. A brief that asks for a sign-in, consent, a payment or sending a message for someone is not picked up until a person who owns the task allows it.",
+				"Start a task for an agent on one of the organization's machines. Creates the task with your brief, assigns it to the chosen agent and accepts it, so a connected machine picks it up and works in the project's repository. Give a brief the agent can act on without this chat, and say what done looks like. A run counts as done only when its change has landed in the repository, so set changesCode to false when the brief asks only for an answer, a report or a comment. Needs the project the task belongs to; ask the person which project if you do not know it. A brief that asks for a sign-in, consent, a payment or sending a message for someone is not picked up until a person who owns the task allows it.",
 			inputSchema: z.strictObject({
 				title: z.string().trim().min(1).max(500),
 				brief: z
@@ -142,13 +142,19 @@ export function agentRunTools(input: {
 					.max(2_000)
 					.describe("What done looks like, in plain words."),
 				executor: z.enum(AGENT_RUN_EXECUTORS),
+				changesCode: z
+					.boolean()
+					.optional()
+					.describe(
+						"false when the agent should change no files and only report back. Such a run can finish without a commit. Default true.",
+					),
 				projectId: z
 					.uuid()
 					.optional()
 					.describe("The project the task belongs to."),
 			}),
 			execute: async (
-				{ title, brief, doneWhen, executor, projectId },
+				{ title, brief, doneWhen, executor, changesCode, projectId },
 				{ toolCallId },
 			) => {
 				if (!projectId)
@@ -162,7 +168,9 @@ export function agentRunTools(input: {
 					).createWorkItem({
 						title,
 						description: brief,
-						workKind: "coding",
+						// A runner fails a coding run that ends without a landed
+						// commit; a research task is done when the agent says so.
+						workKind: changesCode === false ? "research" : "coding",
 						projectId,
 						executorReference: { type: "external_agent", id: executor },
 						sourceSessionKey:
