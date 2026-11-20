@@ -18,6 +18,28 @@ import {
 
 const workspaceId = "8a076b09-73c8-4c07-975a-258c65c36fed";
 
+it("links a successful schedule registration to its switch", () => {
+	const automaticRun = { gadgetId: "app", triggerId: "morning" };
+	const entries = workspaceActivityEntries(
+		[
+			item({
+				actor: { kind: "user", id: "person" },
+				kind: "run",
+				action: {
+					resource: "app_schedule",
+					operation: "schedule.registered",
+					outcome: "applied",
+					surface: "workspace_object",
+					automaticRun,
+				},
+			}),
+		],
+		workspaceId,
+	);
+	expect(entries[0]?.automaticRun).toEqual(automaticRun);
+	expect(entries[0]?.lead).toBe("The agent registered a scheduled run");
+});
+
 let seq = 0;
 function item(
 	overrides: Partial<WorkspaceActivityItem> & {

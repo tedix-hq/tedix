@@ -80,6 +80,9 @@ function fixture(ask = false) {
 		createApp: async () => {
 			throw new Error("unused");
 		},
+		registerAppSchedule: async () => {
+			throw new Error("unused");
+		},
 		listResources: async () => [],
 		listWork: async () => [],
 		createWork: async () => {

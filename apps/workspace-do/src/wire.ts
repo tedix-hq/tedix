@@ -152,6 +152,13 @@ export type WireEventBody =
 			app?: { appId: string; name: string };
 	  }
 	| {
+			type: "schedule.registered";
+			turnId: string;
+			gadgetId: string;
+			triggerId: string;
+			name: string;
+	  }
+	| {
 			/** A live view for the turn's answer, rendered in the widget frame. */
 			type: "view.shown";
 			turnId: string;
@@ -389,6 +396,7 @@ export function stepLabel(
 			readFile: "Reading an app file",
 			grep: "Searching app files",
 			create: "Creating a new app",
+			registerSchedule: "Registering a scheduled run",
 			editFile: "Editing an app draft",
 			writeFile: "Writing an app draft file",
 		},
@@ -414,7 +422,8 @@ export function stepLabel(
 		},
 	};
 	const write =
-		(binding === "apps" && ["editFile", "writeFile"].includes(method)) ||
+		(binding === "apps" &&
+			["editFile", "writeFile", "registerSchedule"].includes(method)) ||
 		(binding === "work" &&
 			["startRun", "sendRunMessage", "stopRun"].includes(method)) ||
 		method === "create" ||

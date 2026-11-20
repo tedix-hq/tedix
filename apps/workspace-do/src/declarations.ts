@@ -124,6 +124,8 @@ interface Outputs {
 /** Apps installed in this workspace. Code edits preserve the manifest and resource grants. */
 interface AppCode { id: string; name: string; revision: number; revisionId: string; manifest: Record<string, unknown>; files: Record<string, string>; proposalId?: string; sequence?: number }
 interface Apps {
+  /** Register a new scheduled run. It stays off until a person switches it on in chat, Activity or Connections. Tell the person it is off. */
+  registerSchedule(input: { appId: string; expectedRevisionId: string; schedule: { id: string; kind: "schedule"; cron: string; method: string; args?: unknown[] } }): Promise<{ gadgetId: string; triggerId: string; name: string; enabled: false; message: string }>;
   /** Read current source, or an earlier revision of this same app for restoration. */
   getCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
   /** Read one file from this chat's pending draft, or committed code when there is no draft. */

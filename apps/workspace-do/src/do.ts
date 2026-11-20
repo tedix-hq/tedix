@@ -3284,7 +3284,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						}
 					: {}),
 				action: {
-					resource: "conversation",
+					resource:
+						event.type === "schedule.registered"
+							? "app_schedule"
+							: "conversation",
+					...(event.type === "schedule.registered"
+						? {
+								automaticRun: {
+									gadgetId: event.gadgetId,
+									triggerId: event.triggerId,
+								},
+							}
+						: {}),
 					// A change that applies at once is not waiting for anyone, so
 					// it must not read as a request to the people here.
 					operation:
@@ -3899,6 +3910,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			},
 			actor,
 			source,
+			scheduleRegistered: (run) => {
+				this.#store.put("activity-scope", scope);
+				this.#events.append(turn.conversationId, {
+					type: "schedule.registered",
+					turnId: turn.turnId,
+					...run,
+				});
+			},
 			web: createWebPort(this.#store, turn.conversationId, this.webFetch()),
 			showView: (view) => {
 				const shown = this.#viewsShown.get(turn.turnId) ?? 0;
@@ -5120,6 +5139,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	grep(...args: unknown[]) {
 		return this.#call("grep", args);
+	}
+	registerSchedule(...args: unknown[]) {
+		return this.#call("registerSchedule", args);
 	}
 	getCode(...args: unknown[]) {
 		return this.#call("getCode", args);

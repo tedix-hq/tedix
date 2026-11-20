@@ -116,6 +116,7 @@ export type ChatTurn = {
 	added?: ChatQueuedMessage[];
 	/** Live views the agent put in its answer, in the order shown. */
 	views?: ChatView[];
+	schedules?: Array<{ gadgetId: string; triggerId: string; name: string }>;
 	/** Accounts the agent asked for in this turn, one per source. */
 	connectionRequests?: ChatConnectionRequest[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
@@ -572,6 +573,27 @@ export function applyWorkspaceChatEvent(
 				...(event.usage ? { usage: event.usage, usageSeq: event.seq } : {}),
 				...(event.model ? { model: event.model, modelSeq: event.seq } : {}),
 			}));
+			break;
+		case "schedule.registered":
+			turns = place(event.turnId)((turn) =>
+				turn.schedules?.some(
+					(run) =>
+						run.gadgetId === event.gadgetId &&
+						run.triggerId === event.triggerId,
+				)
+					? turn
+					: {
+							...turn,
+							schedules: [
+								...(turn.schedules ?? []),
+								{
+									gadgetId: event.gadgetId,
+									triggerId: event.triggerId,
+									name: event.name,
+								},
+							],
+						},
+			);
 			break;
 		case "view.shown":
 			turns = place(event.turnId)((turn) =>

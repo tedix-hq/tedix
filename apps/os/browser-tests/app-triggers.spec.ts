@@ -47,6 +47,39 @@ try {
 	const writes: unknown[] = [];
 	await page.route("**/*", async (route) => {
 		const url = new URL(route.request().url());
+		if (url.pathname.endsWith("/osWorkspaces/workspaces/activity"))
+			return route.fulfill({
+				json: {
+					json: {
+						items: [
+							{
+								id: "registered",
+								workspaceId: "11111111-1111-4111-8111-111111111111",
+								seq: 1,
+								kind: "run",
+								entityId: "turn",
+								revision: 1,
+								actor: { kind: "user", id: "person" },
+								changeRecordId: "event",
+								title: null,
+								summary: null,
+								occurredAt: new Date().toISOString(),
+								action: {
+									resource: "app_schedule",
+									operation: "schedule.registered",
+									outcome: "applied",
+									surface: "workspace_object",
+									automaticRun: {
+										gadgetId: "22222222-2222-4222-8222-222222222222",
+										triggerId: "morning",
+									},
+								},
+							},
+						],
+						next: null,
+					},
+				},
+			});
 		if (url.pathname.endsWith("/osAppRuntime/listTriggers"))
 			return route.fulfill({ json: { json: { items } } });
 		if (url.pathname.endsWith("/osAppRuntime/setTriggerEnabled")) {
@@ -85,6 +118,40 @@ try {
 			() => document.documentElement.scrollWidth <= innerWidth,
 		),
 	);
+	for (const surface of ["activity", "chat"]) {
+		await page.goto(`${server.origin}${path}?surface=${surface}`);
+		const control = page.getByRole("switch");
+		await control.waitFor();
+		assert.equal(await control.count(), 1);
+		assert.equal(await control.isChecked(), false);
+		if (surface === "chat")
+			assert(
+				await page.getByText(/It starts off until you turn it on/).isVisible(),
+			);
+		else
+			assert(
+				await page
+					.getByText("The agent registered a scheduled run", { exact: true })
+					.isVisible(),
+			);
+		await control.click();
+		await page.waitForFunction(
+			() =>
+				document
+					.querySelector('[role="switch"]')
+					?.getAttribute("aria-checked") === "true",
+		);
+		await control.click();
+		await page.getByText("Off until you turn it on.").waitFor();
+		await page.waitForFunction(
+			() =>
+				document
+					.querySelector('[role="switch"]')
+					?.getAttribute("aria-checked") === "false",
+		);
+		assert.equal(await control.isChecked(), false);
+	}
+	assert.equal(writes.length, 6);
 	console.log(
 		"Automatic runs: all kinds listed, last run shown, schedule off, both toggle directions persisted",
 	);

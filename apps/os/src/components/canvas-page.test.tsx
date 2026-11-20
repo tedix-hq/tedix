@@ -152,6 +152,7 @@ vi.mock("@/components/os-organization-identity", () => ({
 vi.mock("@/lib/api", () => ({
 	osAppRuntimeCall: vi.fn(),
 	osApi: {
+		osAppRuntime: { listTriggers: vi.fn(async () => ({ items: [] })) },
 		osWorkspaces: osWorkspacesApi,
 		osCompute: osComputeApi,
 		osShares: osSharesApi,

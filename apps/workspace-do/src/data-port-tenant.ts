@@ -21,6 +21,7 @@ import {
 	getOsGadget,
 	getOsGadgetRevision,
 	getOsGadgetCode,
+	setOsAppTriggerEnabled,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	OsAppDraftContentSchema,
@@ -29,6 +30,9 @@ import {
 import {
 	APP_RUNTIME_ENTRY,
 	AppRuntimeFilesSchema,
+	AppRuntimeConfigSchema,
+	RegisterAppScheduleInputSchema,
+	type RegisterAppScheduleInput,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import {
 	appRuntimeCodeLength,
@@ -685,6 +689,65 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			name: parsed.name,
 			revision: saved.revision.revision,
 			revisionId,
+		};
+	}
+
+	async registerAppSchedule(
+		input: RegisterAppScheduleInput & { actorId: string },
+	) {
+		await this.#runActor();
+		const parsed = RegisterAppScheduleInputSchema.parse({
+			appId: input.appId,
+			expectedRevisionId: input.expectedRevisionId,
+			schedule: input.schedule,
+		});
+		const current = await this.getAppCode({ appId: parsed.appId });
+		if (current.proposalId || current.revisionId !== parsed.expectedRevisionId)
+			throw new Error(
+				"The app changed. Finish its pending edits and read the current source first.",
+			);
+		const config = AppRuntimeConfigSchema.parse(current.manifest.config);
+		if (config.triggers?.some((trigger) => trigger.id === parsed.schedule.id))
+			throw new Error("This automatic run already exists. Choose a new name.");
+		const manifest = OsGadgetManifestSchema.parse({
+			...current.manifest,
+			config: {
+				...config,
+				triggers: [...(config.triggers ?? []), parsed.schedule],
+			},
+		});
+		const switched = await setOsAppTriggerEnabled(this.deps.core, {
+			...this.scope,
+			gadgetId: current.id,
+			revisionId: current.revisionId,
+			triggerId: parsed.schedule.id,
+			enabled: false,
+		});
+		if (!switched)
+			throw new Error(
+				"The app changed. Read the current source and try again.",
+			);
+		const saved = await createOsGadgetRevision(this.deps.core, {
+			id: crypto.randomUUID(),
+			organizationId: this.deps.organizationId,
+			gadgetId: current.id,
+			manifest: JSON.stringify(manifest),
+			expectedRevision: current.revision,
+			createdByKind: this.deps.actorKind,
+			createdById: input.actorId,
+			code: {
+				files: JSON.stringify(current.files),
+				codeLength: appRuntimeCodeLength(current.files),
+			},
+		});
+		if (!saved.ok)
+			throw new Error(
+				"The app changed. Read the current source and try again.",
+			);
+		return {
+			gadgetId: current.id,
+			triggerId: parsed.schedule.id,
+			name: current.name,
 		};
 	}
 

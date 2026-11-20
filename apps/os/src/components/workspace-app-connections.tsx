@@ -355,12 +355,40 @@ function automaticRunWhen(trigger: AppRuntimeTrigger): string {
 	}
 }
 
-export function WorkspaceAppTriggers({
+export function RegisteredAppSchedule({
 	workspaceId,
 	gadgetId,
+	triggerId,
+	name,
 }: {
 	workspaceId: string;
 	gadgetId: string;
+	triggerId: string;
+	name: string;
+}) {
+	return (
+		<div>
+			<Text role="label">
+				The agent registered a schedule for {name}. It starts off until you turn
+				it on.
+			</Text>
+			<WorkspaceAppTriggers
+				workspaceId={workspaceId}
+				gadgetId={gadgetId}
+				triggerId={triggerId}
+			/>
+		</div>
+	);
+}
+
+export function WorkspaceAppTriggers({
+	workspaceId,
+	gadgetId,
+	triggerId,
+}: {
+	workspaceId: string;
+	gadgetId: string;
+	triggerId?: string;
 }) {
 	const input = { workspaceId, gadgetId };
 	const query = useQuery({
@@ -376,12 +404,15 @@ export function WorkspaceAppTriggers({
 				queryKey: osQuery.osAppRuntime.listTriggers.key(),
 			}),
 	});
-	if (!query.data?.items.length) return null;
+	const items = query.data?.items.filter(
+		(item) => !triggerId || item.trigger.id === triggerId,
+	);
+	if (!items?.length) return null;
 	return (
 		<section aria-label="Automatic runs" className="grid gap-3">
-			<SectionEyebrow title="Automatic runs" count={query.data.items.length} />
+			<SectionEyebrow title="Automatic runs" count={items.length} />
 			<Collection aria-label="Automatic runs for this app">
-				{query.data.items.map(({ trigger, enabled, lastRunAt }, index) => (
+				{items.map(({ trigger, enabled, lastRunAt }, index) => (
 					<WorkspaceListRow
 						key={trigger.id}
 						className="items-center justify-between gap-3"

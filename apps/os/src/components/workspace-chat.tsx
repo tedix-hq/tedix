@@ -1,6 +1,7 @@
 import { LoadingArea } from "@/components/loading-area";
 import { ConversationUsageLine } from "@/components/chat-usage-line";
 import "./workspace-chat.css";
+import { RegisteredAppSchedule } from "./workspace-app-connections";
 import {
 	ArrowLeft,
 	CaretRight,
@@ -889,6 +890,13 @@ function TurnView({
 				) : null}
 				{turn.connectionRequests?.map((request) => (
 					<ConnectionRequestCard request={request} key={request.requestId} />
+				))}
+				{turn.schedules?.map((run) => (
+					<RegisteredAppSchedule
+						key={`${run.gadgetId}:${run.triggerId}`}
+						workspaceId={workspaceId}
+						{...run}
+					/>
 				))}
 				{turn.views?.map((view) => (
 					<div

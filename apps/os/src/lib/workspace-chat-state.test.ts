@@ -93,6 +93,26 @@ const turn: WorkspaceChatLedgerEvent[] = [
 ];
 
 describe("applyWorkspaceChatEvent", () => {
+	it("keeps a registered schedule once when its receipt is replayed", () => {
+		const event: WorkspaceChatLedgerEvent = {
+			seq: 8,
+			at: at(4),
+			conversationId: "c1",
+			turnId: "t1",
+			type: "schedule.registered",
+			gadgetId: "app",
+			triggerId: "morning",
+			name: "Planner",
+		};
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+			...turn,
+			event,
+			{ ...event, seq: 9 },
+		]);
+		expect(state.turns[0]?.schedules).toEqual([
+			{ gadgetId: "app", triggerId: "morning", name: "Planner" },
+		]);
+	});
 	it("folds a turn's events into one row with steps, prose and usage", () => {
 		const state = applyWorkspaceChatEvents(
 			initialWorkspaceChatState("c1"),

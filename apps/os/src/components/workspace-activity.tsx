@@ -16,6 +16,7 @@ import {
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { WorkspaceActivityItem } from "@tedix/api-contract/schemas/workspace-feed";
 import { type ComponentType, useEffect } from "react";
+import { WorkspaceAppTriggers } from "./workspace-app-connections";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
@@ -54,6 +55,12 @@ type Deed = {
 };
 
 const DEEDS = {
+	registeredSchedule: {
+		icon: SlidersHorizontal,
+		past: "registered a scheduled run",
+		base: "register a scheduled run",
+		file: false,
+	},
 	created: {
 		icon: FilePlus,
 		past: "created",
@@ -173,6 +180,8 @@ type DeedName = keyof typeof DEEDS;
  * name: a line that says only that something happened tells the reader nothing.
  */
 function actionDeed(resource: string, operation: string): DeedName | null {
+	if (resource === "app_schedule" && operation === "schedule.registered")
+		return "registeredSchedule";
 	if (resource === "conversation") return null;
 	if (resource === "output" || resource === "outputs") {
 		if (operation === "create") return "created";
@@ -209,6 +218,7 @@ export type WorkspaceActivityEntry = {
 	file: { title: string; href: string | null } | null;
 	/** The words after the file name. */
 	tail: string;
+	automaticRun?: { gadgetId: string; triggerId: string };
 };
 
 export type WorkspaceActivityNames = {
@@ -334,6 +344,9 @@ export function workspaceActivityEntries(
 		const title = outputId ? (item.title ?? titles[outputId] ?? null) : null;
 		drafts.push({
 			id: item.id,
+			...(outcome === "applied" && item.action?.automaticRun
+				? { automaticRun: item.action.automaticRun }
+				: {}),
 			at: item.occurredAt,
 			deed,
 			...sentence(actorName(item, names), spec, outcome),
@@ -517,7 +530,11 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 							</Text>
 							<ol className="m-0 grid list-none p-0">
 								{group.entries.map((entry) => (
-									<ActivityLine entry={entry} key={entry.id} />
+									<ActivityLine
+										entry={entry}
+										workspaceId={workspaceId}
+										key={entry.id}
+									/>
 								))}
 							</ol>
 						</section>
@@ -543,7 +560,13 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 	);
 }
 
-function ActivityLine({ entry }: { entry: WorkspaceActivityEntry }) {
+function ActivityLine({
+	entry,
+	workspaceId,
+}: {
+	entry: WorkspaceActivityEntry;
+	workspaceId: string;
+}) {
 	const Icon = DEEDS[entry.deed].icon;
 	const title = entry.file ? sanitizeUntrustedText(entry.file.title) : null;
 	return (
@@ -565,6 +588,13 @@ function ActivityLine({ entry }: { entry: WorkspaceActivityEntry }) {
 					)}
 					{entry.tail}
 				</Text>
+				{entry.automaticRun ? (
+					<WorkspaceAppTriggers
+						workspaceId={workspaceId}
+						gadgetId={entry.automaticRun.gadgetId}
+						triggerId={entry.automaticRun.triggerId}
+					/>
+				) : null}
 				<Text as="span" role="caption" tone="secondary">
 					<time dateTime={entry.at} title={absoluteTime(entry.at)}>
 						{relativeTime(entry.at)}

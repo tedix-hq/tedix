@@ -73,6 +73,9 @@ function fakeData(): WorkspaceDataPort {
 		createApp: async () => {
 			throw new Error("unused");
 		},
+		registerAppSchedule: async () => {
+			throw new Error("unused");
+		},
 		listResources: async () => [],
 		listWork: async () => work,
 		createWork: async (input) => ({
