@@ -1933,6 +1933,13 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		step: ModelFallbackStep;
 	}): Promise<void> {
 		await this.assertChatTurnActive(input.runId);
+		// Same rebuild as a tool call: after a parent reset, or when a later turn
+		// of the session re-drives this run's pending submission, the run is
+		// admitted but its conversation is no longer pinned in memory.
+		await runtimeFacetTurns.restoreFacetTurnTools.call(
+			this.facetTurnsHost(),
+			input.runId,
+		);
 		const step = ModelFallbackStepSchema.parse(input.step);
 		const conversationId = this.activeFacetTurnConversations.get(input.runId);
 		if (!conversationId || !this.state.tediId)
