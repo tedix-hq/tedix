@@ -156,9 +156,15 @@ export class PiStorageFixture extends ConversationFacet {
 			},
 		};
 	}
-	private configuredTurn(id: string, toolName = "receipt", restricted = false) {
+	private configuredTurn(
+		id: string,
+		toolName = "receipt",
+		restricted = false,
+		delegated = false,
+	) {
 		return {
 			configuration: {
+				delegated,
 				system: "Stable fixture persona\nDynamic instructions",
 				stableSystemPrefix: "Stable fixture persona",
 				promptCacheSurface: "conversation",
@@ -186,10 +192,15 @@ export class PiStorageFixture extends ConversationFacet {
 			durableSubmissionId: id,
 		} satisfies ConfiguredConversationTurn;
 	}
-	async turn(id: string, toolName = "receipt", restricted = false) {
+	async turn(
+		id: string,
+		toolName = "receipt",
+		restricted = false,
+		delegated = false,
+	) {
 		this.fixtureToolName = toolName;
 		const completed = await this.runConfiguredConversationTurn(
-			this.configuredTurn(id, toolName, restricted),
+			this.configuredTurn(id, toolName, restricted, delegated),
 		);
 		completed.result.assistantText = await this.actionReceipts.finish(
 			id,
@@ -205,13 +216,13 @@ export class PiStorageFixture extends ConversationFacet {
 		this.repeatedToolIds = true;
 		return this.turn(id);
 	}
-	async beginHeldTurn(id: string) {
+	async beginHeldTurn(id: string, delegated = false) {
 		await this.nativeConversation();
 		this.holdSteeringTool = true;
 		const ready = new Promise<void>((resolve) => {
 			this.steeringToolReady = resolve;
 		});
-		this.heldTurn = this.turn(id);
+		this.heldTurn = this.turn(id, "receipt", false, delegated);
 		this.ctx.waitUntil(this.heldTurn);
 		await Promise.race([
 			ready,

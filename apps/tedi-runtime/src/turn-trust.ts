@@ -11,6 +11,7 @@
  *
  * `email-turn-tools.ts` is the email-specific layer over this module.
  */
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { Tool, ToolSet } from "ai";
 import type { AdaptiveLearningMode } from "./adaptive-learning";
 
@@ -100,4 +101,20 @@ export function trustedTurnMemoryEffects(trust: SurfaceTrust): {
 	return trust === "trusted"
 		? {}
 		: { learningMode: "disabled", dailyLog: false };
+}
+
+/**
+ * A follow-up sent while a run is active carries the trust of the message that
+ * started the run. Home delegates a run for a signed-in person and hands the
+ * tedi their message as written, so their follow-up is an instruction too.
+ * Every other run (inbound email, the embedded widget, a plain MCP caller)
+ * keeps a follow-up fenced as outside text. Unknown counts as outside.
+ */
+export function steeringTextForRun(input: {
+	delegated: boolean;
+	content: string;
+}): string {
+	return input.delegated
+		? input.content
+		: wrapUntrustedInput(input.content, "operator_steering");
 }
