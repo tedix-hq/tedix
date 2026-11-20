@@ -23,6 +23,14 @@
 		"appId": "dev.tedix.desktop",
 		"productName": "Tedix",
 		"npmRebuild": false,
+		"protocols": [
+			{
+				"name": "Tedix",
+				"schemes": [
+					"tedix"
+				]
+			}
+		],
 		"icon": "../os/public/icon-512.png",
 		"files": [
 			"out/**",
