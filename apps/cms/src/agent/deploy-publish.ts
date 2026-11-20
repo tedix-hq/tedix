@@ -8,6 +8,7 @@ import {
 import type { AppBindings } from "../types";
 import {
 	type ExactCmsActiveSite,
+	reclaimCmsBundleRetentionPermits,
 	withExactCmsSiteRestorePermit,
 } from "./cms-restore-permit";
 import {
@@ -178,6 +179,14 @@ export async function publishStagedCmsBundle(
 				"Theme release manifest readback failed",
 			);
 		}
+
+		const reclaimed = await reclaimCmsBundleRetentionPermits(env.DB, site);
+		if (reclaimed > 0)
+			console.info("cms.deploy.retention-permits-reclaimed", {
+				jobId,
+				orgSlug,
+				reclaimed,
+			});
 
 		const result = await uploadTenantBundle(
 			{ bundlesBucket: env.BUNDLES_BUCKET, platformDb: env.DB },

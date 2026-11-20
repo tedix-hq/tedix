@@ -9,7 +9,7 @@ import {
 	checkCmsRestoreWriteAdmission,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
-	deleteStaleCmsRestorePermits,
+	deleteExpiredCmsBundleRetentionPermits,
 	confirmCmsCaptureCronPause,
 	enterCmsProvisioningPermit,
 	enterCmsRestorePermit,
@@ -90,21 +90,22 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
-	it("sweeps day-old orphan permits in bounded batches and keeps live ones", async () => {
+	it("reclaims only expired cron retention permits, bounded and scoped to the exact site", async () => {
 		const { db, sqlite } = fixture();
-		expect(await enterCmsRestorePermit(db, { ...one, permitId: "live" })).toBe(
-			true,
-		);
 		sqlite.exec(`
 			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
-				('orphan-1', 'site-1', 'one', 'outer', datetime('now', '-2 days')),
-				('orphan-2', 'site-1', 'one', 'nested', datetime('now', '-30 hours')),
-				('orphan-3', 'site-2', 'two', 'scheduled', datetime('now', '-3 days')),
-				('recent', 'site-2', 'two', 'nested', datetime('now', '-2 hours'));
+				('bundle-retention:old-1', 'site-1', 'one', 'scheduled', datetime('now', '-2 hours')),
+				('bundle-retention:old-2', 'site-1', 'one', 'scheduled', datetime('now', '-2 hours')),
+				('bundle-retention:other-site', 'site-2', 'one', 'scheduled', datetime('now', '-2 hours')),
+				('bundle-retention:other-slug', 'site-1', 'two', 'scheduled', datetime('now', '-2 hours')),
+				('bundle-retention:recent', 'site-1', 'one', 'scheduled', datetime('now', '-59 minutes')),
+				('bundle-retention:nested', 'site-1', 'one', 'nested', datetime('now', '-3 days')),
+				('unknown-scheduled', 'site-1', 'one', 'scheduled', datetime('now', '-3 days')),
+				('unknown-outer', 'site-1', 'one', 'outer', datetime('now', '-3 days'));
 		`);
 		const sweep = () =>
-			deleteStaleCmsRestorePermits(db, { olderThanSeconds: 86_400, limit: 2 });
-		expect(await sweep()).toBe(2);
+			deleteExpiredCmsBundleRetentionPermits(db, { site: one, limit: 1 });
+		expect(await sweep()).toBe(1);
 		expect(await sweep()).toBe(1);
 		expect(await sweep()).toBe(0);
 		expect(
@@ -112,7 +113,17 @@ describe("CMS restore fence", () => {
 				.prepare("SELECT id FROM cms_restore_permits ORDER BY id")
 				.all()
 				.map((row) => row.id),
-		).toEqual(["live", "recent"]);
+		).toEqual([
+			"bundle-retention:nested",
+			"bundle-retention:other-site",
+			"bundle-retention:other-slug",
+			"bundle-retention:recent",
+			"unknown-outer",
+			"unknown-scheduled",
+		]);
+		expect(
+			await deleteExpiredCmsBundleRetentionPermits(db, { limit: 100 }),
+		).toBe(2);
 	});
 
 	it("checks write admission independently of an existing permit and rejects stale epochs after release", async () => {

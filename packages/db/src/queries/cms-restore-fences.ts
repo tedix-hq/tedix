@@ -501,23 +501,28 @@ export async function reconcileCmsRestoreOuterPermits(
 	return rows.length;
 }
 
-/**
- * Remove permits whose holder can no longer be running. A request or a
- * scheduled tenant run that is cancelled before its release (a client
- * disconnect, an isolate eviction, a failed release write) leaves its row
- * behind, and every restore, pause and deprovision then waits on it forever.
- * No permit holder lives for a day, so a day-old row is an orphan. Bounded per
- * call so a backlog drains over several runs instead of one large delete.
+/** Bundle retention runs directly in the cron invocation, whose platform wall
+ * limit is 15 minutes. An hour allows for cancellation and outstanding I/O.
+ * HTTP, DO and tenant RPC permits have no such bound and are never swept here.
+ * https://developers.cloudflare.com/workers/platform/limits/#duration
  */
-export async function deleteStaleCmsRestorePermits(
+export async function deleteExpiredCmsBundleRetentionPermits(
 	db: DbQueryClient,
-	input: { olderThanSeconds: number; limit: number },
+	input: { site?: CmsRestoreSiteParams; limit: number },
 ): Promise<number> {
 	const stale = db
 		.select({ id: cmsRestorePermits.id })
 		.from(cmsRestorePermits)
 		.where(
-			sql`${cmsRestorePermits.enteredAt} < datetime('now', ${`-${Math.floor(input.olderThanSeconds)} seconds`})`,
+			and(
+				eq(cmsRestorePermits.kind, "scheduled"),
+				sql`${cmsRestorePermits.id} LIKE 'bundle-retention:%'`,
+				sql`${cmsRestorePermits.enteredAt} < datetime('now', '-1 hour')`,
+				input.site
+					? eq(cmsRestorePermits.siteId, input.site.siteId)
+					: undefined,
+				input.site ? eq(cmsRestorePermits.slug, input.site.slug) : undefined,
+			),
 		)
 		.limit(input.limit);
 	const rows = await db
@@ -528,7 +533,7 @@ export async function deleteStaleCmsRestorePermits(
 	return rows.length;
 }
 
-/** Administrative drain read; an orphan permit counts until the stale sweep removes it. */
+/** Administrative drain read; unknown permit owners continue to block the drain. */
 export async function getCmsRestoreFenceState(
 	db: DbQueryClient,
 	input: CmsRestoreSiteParams,

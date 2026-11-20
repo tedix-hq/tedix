@@ -2,7 +2,10 @@ import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { uploadTenantBundle } from "@tedix/provisioning/cms";
 import type { AppBindings } from "../types";
-import { withExactCmsSiteRestorePermit } from "./cms-restore-permit";
+import {
+	reclaimCmsBundleRetentionPermits,
+	withExactCmsSiteRestorePermit,
+} from "./cms-restore-permit";
 import { publishStagedCmsBundle } from "./deploy-publish";
 
 vi.mock("./theme-content-compatibility", () => ({
@@ -11,6 +14,7 @@ vi.mock("./theme-content-compatibility", () => ({
 
 vi.mock("@tedix/provisioning/cms", () => ({ uploadTenantBundle: vi.fn() }));
 vi.mock("./cms-restore-permit", () => ({
+	reclaimCmsBundleRetentionPermits: vi.fn(async () => 0),
 	withExactCmsSiteRestorePermit: vi.fn(),
 }));
 
@@ -212,6 +216,10 @@ describe("publishStagedCmsBundle restore fence", () => {
 			.mocked(uploadTenantBundle)
 			.getMockImplementation()!;
 		vi.mocked(uploadTenantBundle).mockImplementationOnce(async (...args) => {
+			expect(reclaimCmsBundleRetentionPermits).toHaveBeenCalledExactlyOnceWith(
+				input.env.DB,
+				input.site,
+			);
 			await uploadBlocked;
 			return originalUpload(...args);
 		});
