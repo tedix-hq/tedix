@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.28.2 — 2026-11-20
+
+### Patch Changes
+
+- Show how the last attempt ended and the reason it stored in `tedix work context`, so a failed run says why on the task. A coding run that ends without a commit now also says that a task asking for no code change must not be of kind coding.
+- Add `tedix work wait <id>` to block until a task has a new comment, run message, answer or lifecycle event. Returns a continuation cursor and an explicit timeout reason; use `--input` to set `timeoutMs` or pass the previous `cursor`.
+- A Claude Code runner takes Work again when one of your Claude plugins is offline or waits for sign-in; only a broken plugin or MCP configuration still pauses it. When a runner is over its checkout space limit, it now also frees checkouts that a held task no longer uses, and stops dev servers an ended run left running in its folder, saving any unpushed work first.
+- Let the server decide whether a dispatcher run can retry. Remove local failure caps and retry windows while preserving human waits and settlement recovery.
+- Preserve server refusal reasons for Work commands and print next commands, including structured reason, message and nextCommands fields in JSON errors.
+
 ## 0.28.1 — 2026-11-20
 
 ### Patch Changes
