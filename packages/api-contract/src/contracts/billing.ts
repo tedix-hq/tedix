@@ -221,7 +221,7 @@ export const billingContract = oc
 			.route({
 				method: "GET",
 				path: "/daily-usage",
-				summary: "Get daily shares of credits used",
+				summary: "Get daily shares of the monthly credit allowance",
 			})
 			.input(z.object({ window: BillingUsageWindowSchema }))
 			.output(BillingDailyUsageSchema),

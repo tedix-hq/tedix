@@ -1,3 +1,4 @@
+import { monthlyAllowanceCredits } from "@tedix/api-contract/utils/credit-pricing";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	allowanceShare,
@@ -9,7 +10,6 @@ import {
 	formatCredits,
 	formatUsagePercent,
 	latestCreditNotice,
-	monthlyAllowanceCredits,
 	parseCreditCap,
 	parseEuroCapMicros,
 	usagePercent,

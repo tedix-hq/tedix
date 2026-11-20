@@ -2,8 +2,32 @@ import { useState } from "react";
 import { DataTable, type DataTableProps } from "@/components/kumo/data-table";
 import { Pagination } from "@/components/kumo/pagination";
 import type { CreditUsage } from "@/lib/billing-credits";
+import { cn } from "@/lib/utils";
 
 export const BILLING_PAGE_SIZE = 25;
+
+export function BillingDataTable<T extends Record<string, unknown>>(
+	props: DataTableProps<T>,
+) {
+	return (
+		<DataTable
+			emptyMessage=""
+			{...props}
+			tableClassName={cn(
+				"[&_[data-slot=table-head]]:h-12 [&_[data-slot=table-header]]:border-b [&_[data-slot=table-header]]:border-kumo-hairline",
+				props.tableClassName,
+			)}
+			columns={props.columns.map((column) => ({
+				...column,
+				cellClassName: cn(
+					"h-11",
+					column.align === "right" && "tabular-nums",
+					column.cellClassName,
+				),
+			}))}
+		/>
+	);
+}
 
 export function BillingTable<T extends Record<string, unknown>>(
 	props: DataTableProps<T>,
@@ -16,7 +40,7 @@ export function BillingTable<T extends Record<string, unknown>>(
 	const start = (page - 1) * BILLING_PAGE_SIZE;
 	return (
 		<div className="grid gap-3">
-			<DataTable
+			<BillingDataTable
 				{...props}
 				data={props.data.slice(start, start + BILLING_PAGE_SIZE)}
 			/>
@@ -26,6 +50,7 @@ export function BillingTable<T extends Record<string, unknown>>(
 					perPage={BILLING_PAGE_SIZE}
 					totalCount={props.data.length}
 					setPage={setPage}
+					className="px-4 pb-3"
 				>
 					<Pagination.Info />
 					<Pagination.Controls controls="simple" />

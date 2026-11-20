@@ -140,6 +140,7 @@ describe("pay-as-you-go", () => {
 		const toggle = container.querySelector<HTMLElement>(
 			"#pay-as-you-go-enabled",
 		)!;
+		expect(container.querySelector("#pay-as-you-go-cap")).toBeNull();
 		await act(async () => toggle.click());
 		expect(container.textContent).toContain("Enter an amount above €0");
 		const cap =

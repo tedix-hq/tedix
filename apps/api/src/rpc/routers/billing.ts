@@ -20,7 +20,10 @@ import type {
 	BillingCredits,
 	CreditRefusalCode,
 } from "@tedix/api-contract/schemas/billing";
-import { TOP_UP_VALID_MONTHS } from "@tedix/api-contract/utils/credit-pricing";
+import {
+	monthlyAllowanceCredits,
+	TOP_UP_VALID_MONTHS,
+} from "@tedix/api-contract/utils/credit-pricing";
 import { assignInternalPlan } from "@tedix/db/queries/billing/internal-plan";
 import { getOrganizationFeatures } from "@tedix/db/queries/organizations";
 import {
@@ -611,28 +614,27 @@ const getDailyUsageContract = os.getDailyUsage
 			now.getUTCMonth(),
 			now.getUTCDate(),
 		);
-		const snapshot =
-			input.window === "month"
-				? await requireCreditPool(context, organizationId, now.toISOString())
-				: null;
+		const nowIso = now.toISOString();
+		const snapshot = await requireCreditPool(context, organizationId, nowIso);
 		const from =
-			snapshot?.periodStart ??
-			new Date(
-				midnight - (input.window === "30d" ? 29 : 6) * DAY_MS,
-			).toISOString();
-		const to =
-			snapshot && snapshot.periodEnd < now.toISOString()
-				? snapshot.periodEnd
-				: now.toISOString();
+			input.window === "month"
+				? snapshot.periodStart
+				: new Date(
+						Math.max(
+							Date.parse(snapshot.periodStart),
+							midnight - (input.window === "30d" ? 29 : 6) * DAY_MS,
+						),
+					).toISOString();
+		const to = snapshot.periodEnd < nowIso ? snapshot.periodEnd : nowIso;
 		if (from >= to) return [];
 
 		const rows = await listDailyCreditUsage(context.db, {
 			organizationId,
 			from,
 			to,
-			periodStart: snapshot?.periodStart,
+			periodStart: snapshot.periodStart,
 		});
-		const total = rows.reduce((sum, row) => sum + row.credits, 0);
+		const allowance = monthlyAllowanceCredits(snapshot);
 		const days = new Map<
 			string,
 			{
@@ -652,14 +654,14 @@ const getDailyUsageContract = os.getDailyUsage
 		}
 		for (const row of rows) {
 			const day = days.get(row.day);
-			if (!day || total === 0) continue;
+			if (!day || allowance === 0) continue;
 			const key =
 				row.kind === "ai"
 					? "aiPercent"
 					: row.kind === "code_run"
 						? "codeRunPercent"
 						: "toolPercent";
-			day[key] = (row.credits / total) * 100;
+			day[key] = (row.credits * 100) / allowance;
 		}
 		return [...days.values()];
 	});
@@ -783,14 +785,23 @@ const getOverviewContract = os.getOverview
 			now,
 			credits: NOMINAL_TURN_CREDITS,
 		});
+		const stripeEnvironment = resolveStripeEnvironment(env);
+		const usesStripe = snapshot.stripeEnvironment === stripeEnvironment;
 		return {
-			stripeEnvironment: resolveStripeEnvironment(env),
+			stripeEnvironment,
 			account: {
 				status: snapshot.status,
 				billingMode: snapshot.billingMode,
 				periodStart: snapshot.periodStart,
 				periodEnd: snapshot.periodEnd,
-				hasStripeCustomer: snapshot.stripeCustomerId !== null,
+				hasStripeCustomer: usesStripe && snapshot.stripeCustomerId !== null,
+				hasIncludedCreditsOverride: snapshot.includedCreditsOverride !== null,
+				hasPaidPlan:
+					(snapshot.status === "active" || snapshot.status === "past_due") &&
+					(snapshot.billingMode === "invoice" ||
+						(snapshot.billingMode === "stripe" &&
+							usesStripe &&
+							!!snapshot.stripeSubscriptionId)),
 			},
 			plan: {
 				key: snapshot.planKey,

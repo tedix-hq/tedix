@@ -1,7 +1,8 @@
+import { monthlyAllowanceCredits } from "@tedix/api-contract/utils/credit-pricing";
 import { Warning } from "@phosphor-icons/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import { Surface } from "@/components/kumo/surface";
+import { BillingCard } from "@/components/billing-card";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
@@ -11,7 +12,6 @@ import {
 	creditsPaused,
 	formatCredits,
 	latestCreditNotice,
-	monthlyAllowanceCredits,
 } from "@/lib/billing-credits";
 import { formatBillingAmount } from "@/lib/billing-price";
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
@@ -100,7 +100,7 @@ export function BillingCreditUsage({
 	const used = formatCount(credits.usedCredits);
 	const allowance = formatCredits(monthlyAllowanceCredits(credits));
 	return (
-		<Surface className="grid gap-2 p-tedix-card">
+		<BillingCard title="Monthly credit usage" bodyClassName="grid gap-2">
 			{status && (
 				<Badge
 					className="justify-self-start"
@@ -119,29 +119,38 @@ export function BillingCreditUsage({
 			/>
 			<Text tone="secondary">Renews {formatResetDate(credits.periodEnd)}</Text>
 			<CreditNoticeAlert credits={credits} />
-		</Surface>
+		</BillingCard>
 	);
 }
 
 export function BillingCreditBalance({ credits }: { credits: CreditUsage }) {
 	return (
-		<MetricGrid appearance="bounded" columns={4} aria-label="Billing overview">
-			<MetricItem
-				label="Left from plan"
-				value={formatCredits(credits.remainingIncludedCredits)}
-			/>
-			<MetricItem
-				label="Credit pack balance"
-				value={formatCredits(credits.topUpCredits)}
-			/>
-			<MetricItem
-				label="Pay-as-you-go this month"
-				value={formatBillingAmount(credits.payAsYouGo.spentMicros, "eur")}
-			/>
-			<MetricItem
-				label="Renews on"
-				value={formatResetDate(credits.periodEnd)}
-			/>
-		</MetricGrid>
+		<BillingCard title="Credit balance" bodyClassName="p-0">
+			<MetricGrid
+				columns={4}
+				className="rounded-b-lg border-y-0 [&>div>dt]:uppercase [&>div>dt]:tracking-wider"
+			>
+				<MetricItem
+					emphasis="dialog"
+					label="Left from plan"
+					value={formatCredits(credits.remainingIncludedCredits)}
+				/>
+				<MetricItem
+					emphasis="dialog"
+					label="Credit pack balance"
+					value={formatCredits(credits.topUpCredits)}
+				/>
+				<MetricItem
+					emphasis="dialog"
+					label="Pay-as-you-go this month"
+					value={formatBillingAmount(credits.payAsYouGo.spentMicros, "eur")}
+				/>
+				<MetricItem
+					emphasis="dialog"
+					label="Renews on"
+					value={formatResetDate(credits.periodEnd)}
+				/>
+			</MetricGrid>
+		</BillingCard>
 	);
 }

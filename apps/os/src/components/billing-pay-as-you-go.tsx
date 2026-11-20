@@ -4,27 +4,16 @@
  * cap; extra credits are then billed at €0.01 each until the cap.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Warning } from "@phosphor-icons/react";
 import { useState } from "react";
-import { LoadingArea } from "@/components/loading-area";
-import { BillingSectionHeader } from "@/components/billing-section-header";
+import { BillingCard } from "@/components/billing-card";
 import { SettingsRow } from "@/components/settings-row";
-import {
-	LoadError,
-	Alert,
-	AlertDescription,
-	AlertTitle,
-} from "@/components/kumo/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
-import {
-	SettingsSection,
-	SettingsSectionContent,
-} from "@/components/kumo/page";
-import { Surface } from "@/components/kumo/surface";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -43,25 +32,12 @@ function capEuros(micros: number | null): string {
 	return micros === null ? "" : String(micros / 1_000_000);
 }
 
-export function BillingPayAsYouGoSection() {
+export function BillingPayAsYouGoSection({
+	payAsYouGo,
+}: {
+	payAsYouGo: CreditPayAsYouGo;
+}) {
 	const queryClient = useQueryClient();
-	const overviewQuery = useQuery(billingOverviewQueryOptions());
-
-	if (overviewQuery.isPending)
-		return <LoadingArea className="h-32" label="Loading pay as you go" />;
-	if (overviewQuery.isError) {
-		return (
-			<LoadError
-				title="Pay-as-you-go settings are unavailable"
-				error={overviewQuery.error}
-				onRetry={() => {
-					void overviewQuery.refetch();
-				}}
-				retrying={overviewQuery.isFetching}
-			/>
-		);
-	}
-	const payAsYouGo = overviewQuery.data.credits.payAsYouGo;
 	return (
 		<PayAsYouGoForm
 			key={`${payAsYouGo.enabled}:${payAsYouGo.monthlyCapMicros}`}
@@ -103,93 +79,92 @@ export function PayAsYouGoForm({
 	});
 
 	return (
-		<SettingsSection>
-			<BillingSectionHeader
-				title="Pay-as-you-go"
-				description="Off by default. When your plan and top-up credits run out, new work stops. Turn this on to keep working: extra credits cost €0.01 each, up to the monthly cap you set."
-				actions={capReached && <Badge variant="destructive">Cap reached</Badge>}
-			/>
-			<SettingsSectionContent className="space-y-4">
-				{capReached && (
-					<Alert variant="destructive">
-						<Warning aria-hidden />
-						<AlertTitle>Monthly pay-as-you-go cap reached</AlertTitle>
-						<AlertDescription>
-							New work has stopped until next month. Raise the cap or buy a
-							credit pack to continue now.
-						</AlertDescription>
-					</Alert>
-				)}
-				<Surface className="space-y-4 p-4">
-					<SettingsRow
-						title={
-							<Label htmlFor="pay-as-you-go-enabled">
-								Keep working past my credits
-							</Label>
-						}
+		<BillingCard
+			title="Pay-as-you-go"
+			actions={capReached && <Badge variant="destructive">Cap reached</Badge>}
+			bodyClassName="grid gap-4"
+		>
+			{capReached && (
+				<Alert variant="destructive">
+					<Warning aria-hidden />
+					<AlertTitle>Monthly pay-as-you-go cap reached</AlertTitle>
+					<AlertDescription>
+						New work has stopped until next month. Raise the cap or buy a credit
+						pack to continue now.
+					</AlertDescription>
+				</Alert>
+			)}
+			<SettingsRow
+				className="grid-cols-[minmax(0,1fr)_auto] items-center border-b border-kumo-hairline px-0 pt-0"
+				description="Extra credits cost €0.01 each, up to your monthly cap."
+				title={
+					<Label htmlFor="pay-as-you-go-enabled">
+						Keep working past my credits
+					</Label>
+				}
+			>
+				<Switch
+					id="pay-as-you-go-enabled"
+					aria-label="Keep working past my credits"
+					checked={enabled}
+					disabled={mutation.isPending}
+					onCheckedChange={setEnabled}
+				/>
+			</SettingsRow>
+			{enabled && (
+				<div className="space-y-1">
+					<Label htmlFor="pay-as-you-go-cap">
+						<span id="pay-as-you-go-cap-label">Monthly cap (EUR)</span>
+					</Label>
+					<Input
+						id="pay-as-you-go-cap"
+						aria-labelledby="pay-as-you-go-cap-label"
+						type="number"
+						inputMode="decimal"
+						min={0}
+						step="1"
+						value={cap}
+						disabled={mutation.isPending}
+						aria-invalid={capInvalid}
+						aria-describedby="pay-as-you-go-cap-description"
+						onChange={(event) => setCap(event.target.value)}
+					/>
+					<Text
+						id="pay-as-you-go-cap-description"
+						tone={capInvalid ? "error" : "secondary"}
 					>
-						<Switch
-							id="pay-as-you-go-enabled"
-							aria-label="Keep working past my credits"
-							checked={enabled}
-							disabled={mutation.isPending}
-							onCheckedChange={setEnabled}
-						/>
-					</SettingsRow>
-					<div className="space-y-1">
-						<Label htmlFor="pay-as-you-go-cap">
-							<span id="pay-as-you-go-cap-label">Monthly cap (EUR)</span>
-						</Label>
-						<Input
-							id="pay-as-you-go-cap"
-							aria-labelledby="pay-as-you-go-cap-label"
-							type="number"
-							inputMode="decimal"
-							min={0}
-							step="1"
-							value={cap}
-							disabled={!enabled || mutation.isPending}
-							aria-invalid={capInvalid}
-							aria-describedby="pay-as-you-go-cap-description"
-							onChange={(event) => setCap(event.target.value)}
-						/>
-						<Text
-							id="pay-as-you-go-cap-description"
-							tone={capInvalid ? "error" : "secondary"}
-						>
-							{capInvalid
-								? `Enter an amount above €0 and at most €${formatCount(MAX_PAY_AS_YOU_GO_CAP_EUROS)}.`
-								: capMicros !== null
-									? `Up to ${formatCount(microsToCredits(capMicros))} extra credits a month. You are never billed more than the cap.`
-									: "You are never billed more than the cap."}
-						</Text>
-					</div>
-					<Text tone="secondary">
-						This month: {formatBillingAmount(settings.spentMicros, "eur")}{" "}
-						pay-as-you-go
-						{settings.enabled && settings.monthlyCapMicros !== null
-							? ` of ${formatBillingAmount(settings.monthlyCapMicros, "eur")} cap`
-							: ""}
-						.
+						{capInvalid
+							? `Enter an amount above €0 and at most €${formatCount(MAX_PAY_AS_YOU_GO_CAP_EUROS)}.`
+							: capMicros !== null
+								? `Up to ${formatCount(microsToCredits(capMicros))} extra credits a month. You are never billed more than the cap.`
+								: "You are never billed more than the cap."}
 					</Text>
-					<div className="flex items-center gap-3">
-						<Button
-							onClick={() => mutation.mutate()}
-							disabled={!dirty || capInvalid || mutation.isPending}
-						>
-							{mutation.isPending ? "Saving…" : "Save"}
-						</Button>
-						{mutation.isError && (
-							<Text tone="error">
-								{errorMessage(
-									mutation.error,
-									"Pay-as-you-go settings could not be saved",
-								)}
-							</Text>
+				</div>
+			)}
+			<Text tone="secondary">
+				This month: {formatBillingAmount(settings.spentMicros, "eur")}{" "}
+				pay-as-you-go
+				{settings.enabled && settings.monthlyCapMicros !== null
+					? ` of ${formatBillingAmount(settings.monthlyCapMicros, "eur")} cap`
+					: ""}
+				.
+			</Text>
+			<div className="flex items-center gap-3">
+				<Button
+					onClick={() => mutation.mutate()}
+					disabled={!dirty || capInvalid || mutation.isPending}
+				>
+					{mutation.isPending ? "Saving…" : "Save"}
+				</Button>
+				{mutation.isError && (
+					<Text tone="error">
+						{errorMessage(
+							mutation.error,
+							"Pay-as-you-go settings could not be saved",
 						)}
-					</div>
-				</Surface>
-			</SettingsSectionContent>
-		</SettingsSection>
+					</Text>
+				)}
+			</div>
+		</BillingCard>
 	);
 }

@@ -5,6 +5,7 @@ import {
 	type KumoChartOption,
 } from "@/components/kumo/event-chart";
 import { useTheme } from "@/hooks/use-theme";
+import { formatChartShare, USAGE_ACTIVITIES } from "@/lib/billing-credits";
 import { osLocale } from "@/lib/format";
 
 type UsageDay = {
@@ -13,12 +14,6 @@ type UsageDay = {
 	codeRunPercent: number;
 	toolPercent: number;
 };
-
-const USAGE_KINDS = [
-	{ name: "AI replies", key: "aiPercent" },
-	{ name: "Code runs", key: "codeRunPercent" },
-	{ name: "Tools", key: "toolPercent" },
-] as const;
 
 export function UsageChart({ days }: { days: readonly UsageDay[] }) {
 	const { theme } = useTheme();
@@ -33,32 +28,97 @@ export function UsageChart({ days }: { days: readonly UsageDay[] }) {
 		animation: false,
 		aria: {
 			enabled: true,
-			description:
-				"Daily share of credits used in the selected period, by activity",
+			description: "Daily share of monthly credits used, by activity",
 		},
-		grid: { left: 12, right: 12, top: 36, bottom: 16, containLabel: true },
-		legend: { top: 0, textStyle: { color: text } },
-		tooltip: { trigger: "axis", valueFormatter: (value) => `${value}%` },
+		grid: { left: 36, right: 12, top: 44, bottom: 42, containLabel: true },
+		legend: {
+			top: 0,
+			itemWidth: 10,
+			itemHeight: 10,
+			textStyle: { color: text },
+		},
+		tooltip: {
+			trigger: "axis",
+			renderMode: "richText",
+			confine: true,
+			dangerousHtmlFormatter: (params) =>
+				(Array.isArray(params) ? params : [params])
+					.filter(({ value }) => typeof value === "number" && value > 0)
+					.map(
+						({ name, seriesName, value }) =>
+							`${name} · ${seriesName} ${formatChartShare(Number(value))}`,
+					)
+					.join("\n"),
+		},
 		xAxis: {
 			type: "category",
+			name: "Day (UTC)",
+			nameLocation: "middle",
+			nameGap: 30,
+			nameTextStyle: { color: text },
 			data: days.map(({ day }) => date.format(new Date(day))),
 			axisLabel: { color: text, hideOverlap: true },
 		},
-		yAxis: { type: "value", axisLabel: { color: text, formatter: "{value}%" } },
-		series: USAGE_KINDS.map(({ name, key }, index) => ({
+		yAxis: {
+			type: "value",
+			name: "Share of monthly credits",
+			nameLocation: "middle",
+			nameGap: 48,
+			nameTextStyle: { color: text },
+			axisLabel: { color: text, formatter: "{value}%" },
+		},
+		series: USAGE_ACTIVITIES.map(({ name, dailyKey }, index) => ({
 			type: "bar",
 			name,
 			stack: "day",
 			itemStyle: { color: ChartPalette.categorical(index, isDarkMode) },
-			data: days.map((day) => Number(day[key].toFixed(2))),
+			data: days.map((day) => day[dailyKey]),
 		})),
 	};
 	return (
 		<Chart
 			echarts={echarts}
 			options={options}
-			height={260}
+			height={300}
 			isDarkMode={isDarkMode}
+		/>
+	);
+}
+
+export function UsageBreakdownChart({
+	series,
+}: {
+	series: { name: string; value: number; color: string }[];
+}) {
+	const { theme } = useTheme();
+	return (
+		<Chart
+			echarts={echarts}
+			isDarkMode={theme === "dark"}
+			height={208}
+			options={{
+				animation: false,
+				aria: {
+					enabled: true,
+					description: "Monthly credit usage by activity",
+				},
+				tooltip: {
+					trigger: "item",
+					valueFormatter: (value) => formatChartShare(Number(value)),
+				},
+				series: [
+					{
+						type: "pie",
+						radius: ["62%", "88%"],
+						label: { show: false },
+						data: series.map(({ name, value, color }) => ({
+							name,
+							value,
+							itemStyle: { color },
+						})),
+					},
+				],
+			}}
 		/>
 	);
 }

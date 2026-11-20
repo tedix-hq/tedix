@@ -466,6 +466,8 @@ const BillingOverviewFieldsSchema = z.object({
 	account: z.object({
 		status: z.enum(["trial", "active", "past_due", "cancelled", "suspended"]),
 		billingMode: z.enum(["trial", "stripe", "invoice", "internal"]),
+		hasIncludedCreditsOverride: z.boolean().optional(),
+		hasPaidPlan: z.boolean().optional(),
 		periodStart: z.string(),
 		periodEnd: z.string(),
 		hasStripeCustomer: z

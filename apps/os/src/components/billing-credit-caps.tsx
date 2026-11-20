@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
-import { BillingSectionHeader } from "@/components/billing-section-header";
+import { BillingCard } from "@/components/billing-card";
 import {
 	BillingTable,
 	billingSubjectRows,
@@ -18,10 +18,6 @@ import {
 	DialogTrigger,
 } from "@/components/kumo/dialog";
 import { Input } from "@/components/kumo/input";
-import {
-	SettingsSection,
-	SettingsSectionContent,
-} from "@/components/kumo/page";
 import {
 	Select,
 	SelectContent,
@@ -50,12 +46,11 @@ export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
 		.sort((a, b) => a.name.localeCompare(b.name));
 
 	return (
-		<SettingsSection>
-			<BillingSectionHeader
-				title="Monthly credit caps"
-				description="Set how many credits a tedi or member can use each month."
-			/>
-			<SettingsSectionContent className="grid gap-4">
+		<BillingCard
+			title="Monthly credit caps"
+			description="Set how many credits a tedi or member can use each month."
+			bodyClassName="p-0"
+			actions={
 				<div className="flex flex-wrap items-center gap-3">
 					<Select
 						items={GROUPS}
@@ -77,42 +72,42 @@ export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
 						onChange={(event) => setSearch(event.target.value)}
 					/>
 				</div>
-				<BillingTable
-					key={JSON.stringify([group, searchTerm])}
-					data={rows}
-					rowKey="id"
-					emptyTitle="No matching accounts"
-					emptyMessage="Try a different name or group."
-					columns={[
-						{ header: "Name", accessor: "name" },
-						{
-							header: "Credits used",
-							accessor: (row) => formatCredits(row.usedCredits),
-							align: "right",
-						},
-						{
-							header: "Monthly cap",
-							accessor: (row) =>
-								row.monthlyCapCredits === null
-									? "No cap"
-									: formatCredits(row.monthlyCapCredits),
-							align: "right",
-						},
-						{
-							header: "Actions",
-							accessor: (row) => (
-								<EditCap
-									row={row}
-									group={group}
-									maxCap={credits.includedCredits + credits.topUpCredits}
-								/>
-							),
-							align: "right",
-						},
-					]}
-				/>
-			</SettingsSectionContent>
-		</SettingsSection>
+			}
+		>
+			<BillingTable
+				key={JSON.stringify([group, searchTerm])}
+				data={rows}
+				rowKey="id"
+				emptyTitle="No accounts match your search."
+				columns={[
+					{ header: "Name", accessor: "name" },
+					{
+						header: "Credits used",
+						accessor: (row) => formatCredits(row.usedCredits),
+						align: "right",
+					},
+					{
+						header: "Monthly cap",
+						accessor: (row) =>
+							row.monthlyCapCredits === null
+								? "No cap"
+								: formatCredits(row.monthlyCapCredits),
+						align: "right",
+					},
+					{
+						header: "Actions",
+						accessor: (row) => (
+							<EditCap
+								row={row}
+								group={group}
+								maxCap={credits.includedCredits + credits.topUpCredits}
+							/>
+						),
+						align: "right",
+					},
+				]}
+			/>
+		</BillingCard>
 	);
 }
 

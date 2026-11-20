@@ -15,7 +15,8 @@ import type {
 	BillingTopUpPack,
 	SetPayAsYouGoInput,
 } from "@tedix/api-contract/schemas/billing";
-import { formatCount } from "@/lib/format";
+import { monthlyAllowanceCredits } from "@tedix/api-contract/utils/credit-pricing";
+import { formatCount, osLocale } from "@/lib/format";
 
 export const CREDIT_VALUE_MICROS = 10_000;
 
@@ -27,6 +28,20 @@ export type PayAsYouGoInput = SetPayAsYouGoInput;
 export type CreditNotice = BillingCredits["notices"][number];
 export type CreditNoticeThreshold = CreditNotice["threshold"];
 export type CreditPayAsYouGo = BillingCredits["payAsYouGo"];
+
+export const USAGE_ACTIVITIES = [
+	{ name: "AI replies", breakdownKey: "ai", dailyKey: "aiPercent" },
+	{ name: "Code runs", breakdownKey: "codeRuns", dailyKey: "codeRunPercent" },
+	{ name: "Tools", breakdownKey: "services", dailyKey: "toolPercent" },
+] as const;
+
+export function formatChartShare(percent: number): string {
+	if (percent > 0 && percent < 0.1) return "<0.1%";
+	return new Intl.NumberFormat(osLocale(), {
+		style: "percent",
+		maximumFractionDigits: 1,
+	}).format(percent / 100);
+}
 
 /** "1,234 credits"; "1 credit". Credits are whole numbers. */
 export function formatCredits(credits: number): string {
@@ -66,22 +81,6 @@ export function usagePercent(used: number, limit: number): number {
 export function formatUsagePercent(used: number, limit: number): string {
 	if (used > 0 && limit > 0 && used * 100 < limit) return "<1%";
 	return `${usagePercent(used, limit)}%`;
-}
-
-/**
- * This month's allowance: the plan's included credits plus the top-up
- * credits available this period. `topUpCredits` is what is still unused, so
- * the top-up credits this month already drew on are added back; otherwise
- * the share would jump as top-ups are spent. Pay-as-you-go is not part of
- * the allowance.
- */
-export function monthlyAllowanceCredits(credits: CreditUsage): number {
-	const payAsYouGoUsed = microsToCredits(credits.payAsYouGo.spentMicros);
-	const topUpUsedThisMonth = Math.max(
-		0,
-		credits.usedCredits - credits.includedCredits - payAsYouGoUsed,
-	);
-	return credits.includedCredits + credits.topUpCredits + topUpUsedThisMonth;
 }
 
 export type AllowanceUsage = {
