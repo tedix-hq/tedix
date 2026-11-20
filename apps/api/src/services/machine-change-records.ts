@@ -19,6 +19,7 @@
  * written here. Reads that were accepted write nothing, as in the gateway.
  */
 
+import { env as workerEnv } from "cloudflare:workers";
 import type {
 	GatewayChangeRecordBody,
 	GatewayChangeRecordInput,
@@ -28,7 +29,8 @@ import {
 	type MachineToolName,
 } from "@tedix/api-contract/schemas/machines";
 import { hashArguments, hashValue } from "@tedix/agent-governance/hash";
-import { appendGatewayChangeRecord } from "@tedix/db/queries/gateway-change-records";
+import { CHANGE_RECORD_SCHEMA_VERSION } from "@tedix/agent-governance/types";
+import { appendGatewayChangeRecord as appendRecord } from "@tedix/db/queries/gateway-change-records";
 import type { StoredMachineToolCallResult } from "@tedix/db/queries/machines";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { safeErrorMetadata } from "../lib/safe-log-metadata";
@@ -233,6 +235,40 @@ export async function buildRunSteeringRecord(params: {
 		}),
 		subject: { kind: "work_item", id: params.workItemId },
 	};
+}
+
+/**
+ * Every machine record names the layout version and the API release that
+ * wrote it. The run tree is not known here; `source.traceId` links a call's
+ * records instead.
+ */
+function appendGatewayChangeRecord(
+	db: DbQueryClient,
+	orgId: string,
+	record: GatewayChangeRecordInput,
+) {
+	const release = workerEnv as {
+		GIT_SHA?: string;
+		CF_VERSION_METADATA?: { id?: string };
+	};
+	const productSha =
+		release.GIT_SHA &&
+		!/^(unknown|configured-via-private-overlay)$/.test(release.GIT_SHA)
+			? release.GIT_SHA
+			: undefined;
+	const workerVersionId = release.CF_VERSION_METADATA?.id;
+	return appendRecord(db, orgId, {
+		schemaVersion: CHANGE_RECORD_SCHEMA_VERSION,
+		...(productSha || workerVersionId
+			? {
+					environment: {
+						...(productSha ? { productSha } : {}),
+						...(workerVersionId ? { workerVersionId } : {}),
+					},
+				}
+			: {}),
+		...record,
+	});
 }
 
 async function logFailure(what: string, error: unknown) {
