@@ -97,11 +97,6 @@ export const learningInteractionEvents = sqliteTable(
 			table.tediId,
 			table.occurredAt,
 		),
-		index("idx_learning_event_scope").on(
-			table.organizationId,
-			table.scopeKind,
-			table.scopeId,
-		),
 		// Evidence validation checks later corrections for one exact target.
 		index("idx_learning_event_target_occurred").on(
 			table.organizationId,

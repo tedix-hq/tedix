@@ -56,10 +56,6 @@ export const platformCronExecutions = sqliteTable(
 			table.scheduleId,
 			table.scheduledAt,
 		),
-		index("idx_platform_cron_executions_schedule_started").on(
-			table.scheduleId,
-			table.startedAt,
-		),
 		index("idx_platform_cron_executions_status_started").on(
 			table.status,
 			table.startedAt,

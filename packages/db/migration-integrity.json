@@ -1752,6 +1752,10 @@
 		{
 			"name": "20261120162614_drop-unused-tier1-indexes/migration.sql",
 			"sha256": "40549fb2555bddc3358470d36bc1a967aa2576d68cff38e4fc461d10f2302097"
+		},
+		{
+			"name": "20261120164457_drop-remaining-tier1-indexes/migration.sql",
+			"sha256": "542d9373ed28ad65eee3dc1e11d46d6f0ebf123efd34d0897222bfaac2b91c8c"
 		}
 	]
 }
