@@ -1,12 +1,18 @@
 const RELEASE_PREFIX = "releases/";
+const DESKTOP_LATEST = "desktop/latest.json";
+const DESKTOP_RELEASE_PREFIX = "desktop/releases/";
 const MUTABLE_KEYS = new Set(["install.sh", "latest.json", "beta.json"]);
+
+const isRelease = (key: string) =>
+	key.startsWith(RELEASE_PREFIX) || key.startsWith(DESKTOP_RELEASE_PREFIX);
 
 function objectKey(pathname: string): string | null {
 	const key = pathname.replace(/^\/+/, "");
 	if (!key || key.includes("..") || key.includes("\\") || key.includes("//")) {
 		return null;
 	}
-	if (MUTABLE_KEYS.has(key) || key.startsWith(RELEASE_PREFIX)) return key;
+	if (MUTABLE_KEYS.has(key) || key === DESKTOP_LATEST || isRelease(key))
+		return key;
 	return null;
 }
 
@@ -32,9 +38,11 @@ function responseHeaders(object: R2Object, key: string): Headers {
 	headers.set("X-Content-Type-Options", "nosniff");
 	headers.set(
 		"Cache-Control",
-		key.startsWith(RELEASE_PREFIX)
+		isRelease(key)
 			? "public, max-age=31536000, immutable"
-			: "public, max-age=300, must-revalidate",
+			: key === DESKTOP_LATEST
+				? "no-store"
+				: "public, max-age=300, must-revalidate",
 	);
 	return headers;
 }
