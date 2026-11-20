@@ -85,6 +85,27 @@ function claudeInitFailure(event: Record<string, unknown>) {
 		return "Claude init did not report MCP status";
 }
 
+/**
+ * The init probe talks to a loopback endpoint, so it cannot see an expired
+ * Claude sign-in; every admitted run then failed before its first turn.
+ */
+async function claudeSignedIn(cwd: string): Promise<string | undefined> {
+	const report = await laneCommand("claude", ["auth", "status"], {
+		cwd,
+		env: laneChildEnv(),
+		timeout: 10_000,
+		killSignal: "SIGKILL",
+	});
+	let data: unknown;
+	try {
+		data = JSON.parse(report.stdout);
+	} catch {
+		return;
+	}
+	if (isRecord(data) && data.loggedIn === false)
+		return "Claude Code is not signed in; run `claude` and sign in";
+}
+
 function claudePreflight(cwd: string): Promise<string | undefined> {
 	return new Promise((resolve) => {
 		// Claude emits system/init at the start of a turn. Use a loopback model
@@ -165,7 +186,11 @@ export function cachedExecutorPreflight(
 	cwd: string,
 	onFailure: (executor: PreflightExecutor, reason: string) => void,
 	probe: Probe = (executor, cwd) =>
-		executor === "codex" ? codexPreflight(cwd) : claudePreflight(cwd),
+		executor === "codex"
+			? codexPreflight(cwd)
+			: claudeSignedIn(cwd).then(
+					async (signedOut) => signedOut ?? (await claudePreflight(cwd)),
+				),
 ) {
 	const cache = new Map<
 		PreflightExecutor,
