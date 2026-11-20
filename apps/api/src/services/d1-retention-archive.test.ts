@@ -19,6 +19,8 @@ import {
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
+import { kernelRequestEvents } from "@tedix/db/schema/kernel-requests";
+import { platformCronExecutions } from "@tedix/db/schema/platform-cron-executions";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { osGadgetExecutions } from "@tedix/db/schema/os-workspaces";
 import { workEvidence } from "@tedix/db/schema/work-items";
@@ -106,6 +108,8 @@ function fixture(policies: string) {
 			billingUsageQuarantines,
 			externalAgentAttributions,
 			externalAgentReviewEvidence,
+			kernelRequestEvents,
+			platformCronExecutions,
 		),
 	);
 	sqlite.exec(
@@ -196,6 +200,8 @@ function logsFixture() {
 			skillRunArtifacts,
 			tediCallCosts,
 			externalAgentAttributions,
+			kernelRequestEvents,
+			platformCronExecutions,
 		]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),
@@ -1498,6 +1504,46 @@ describe("runD1Retention", () => {
 			"cost-old",
 			"cost-unattributed",
 		]);
+	});
+
+	it("moves finished cron runs and old request events, keeps running runs", async () => {
+		const { db, sqlite, count } = fixture(
+			"('platform_cron_executions','move_to_logs_db',90,5000,'2026-10-21'), ('kernel_request_events','move_to_logs_db',30,5000,'2026-10-21')",
+		);
+		sqlite.exec(`INSERT INTO platform_cron_executions(id, schedule_id, cron, scheduled_at, started_at, status, affected_row_counts, created_at) VALUES
+			('cron-done','sweep','* * * * *','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z','success','{}','2024-01-01 00:00:00'),
+			('cron-running','sweep','* * * * *','2024-01-02T00:00:00Z','2024-01-02T00:00:00Z','running','{}','2024-01-02 00:00:00'),
+			('cron-new','sweep','* * * * *','2026-10-20T00:00:00Z','2026-10-20T00:00:00Z','success','{}','2026-10-20 00:00:00');
+			INSERT INTO kernel_request_events(id, organization_id, owner_user_id, request_id, version, snapshot, created_at) VALUES
+			('event-old','fictional-lighthouse','user','request',1,'{}','2024-01-01T00:00:00Z'),
+			('event-new','fictional-lighthouse','user','request',2,'{}','2026-10-20T00:00:00Z');`);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(
+			result.tables.map((table) => [
+				table.tableName,
+				table.movedRows,
+				table.error,
+			]),
+		).toEqual([
+			["kernel_request_events", 1, undefined],
+			["platform_cron_executions", 1, undefined],
+		]);
+		expect(count("platform_cron_executions")).toBe(2);
+		expect(logs.count("platform_cron_executions")).toBe(1);
+		expect(count("kernel_request_events")).toBe(1);
+		expect(logs.count("kernel_request_events")).toBe(1);
+		expect(
+			[...bucket.objects.keys()].some((key) =>
+				key.startsWith("d1-archive/v1/platform_cron_executions/_platform/"),
+			),
+		).toBe(true);
 	});
 
 	it("reports a missing logs binding and changes nothing", async () => {

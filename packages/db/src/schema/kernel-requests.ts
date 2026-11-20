@@ -66,6 +66,8 @@ export const kernelRequestEvents = sqliteTable(
 			t.requestId,
 			t.version,
 		),
+		// Age probe for the retention move to the logs database.
+		index("kernel_request_events_created_idx").on(t.createdAt),
 	],
 );
 

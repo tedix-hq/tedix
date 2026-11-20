@@ -43,9 +43,11 @@ import {
 	externalAgentAttributions,
 	externalAgentReviewEvidence,
 } from "../schema/external-agent-identity";
+import { kernelRequestEvents } from "../schema/kernel-requests";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { memoryFacts } from "../schema/memory-graph";
 import { osGadgetExecutions } from "../schema/os-workspaces";
+import { platformCronExecutions } from "../schema/platform-cron-executions";
 import { tediCallCosts } from "../schema/tedis";
 import { workEvidence } from "../schema/work-items";
 
@@ -143,6 +145,23 @@ export const D1_RETENTION_TABLES: Readonly<
 		// Every main-only call-cost reader looks back at most 45 days
 		// (billable usage 45, rollup rebuilds 35, health and usage 30).
 		// Unsettled and reviewed rows stay pinned (`callCostIsMovable`).
+		90,
+	),
+	// A request's history; `listKernelRequestEvents` merges both stores.
+	kernel_request_events: spec(
+		"kernel_request_events",
+		kernelRequestEvents,
+		kernelRequestEvents.createdAt,
+		"text",
+		30,
+	),
+	// Finished runs only. The summary's last success/failure reads main, so
+	// keep the 90 days the old delete kept.
+	platform_cron_executions: spec(
+		"platform_cron_executions",
+		platformCronExecutions,
+		platformCronExecutions.createdAt,
+		"text",
 		90,
 	),
 	// Provenance: only verified-copy moves, and only `mcp_execution` rows that
@@ -330,7 +349,7 @@ export async function nextD1RetentionOldRowid(
 		: Number(row.nextRowid);
 }
 
-/** Archive owner for platform call costs, which no organization owns. */
+/** Archive owner for platform rows (call costs, cron runs) no organization owns. */
 export const D1_RETENTION_PLATFORM_ARCHIVE_OWNER = "_platform";
 
 /** Resolve indirect tenant ownership without changing the raw archive/copy rows. */
@@ -356,7 +375,9 @@ export async function groupD1RetentionArchiveRows(
 				? runOrganizations.get(String(row.run_id))
 				: tableSpec.tableName === "tedi_call_costs"
 					? (row.org_id ?? D1_RETENTION_PLATFORM_ARCHIVE_OWNER)
-					: row.organization_id;
+					: tableSpec.tableName === "platform_cron_executions"
+						? D1_RETENTION_PLATFORM_ARCHIVE_OWNER
+						: row.organization_id;
 		if (typeof org !== "string" || !org)
 			throw new Error("Archive row has no valid organization");
 		const group = groups.get(org) ?? [];
@@ -654,7 +675,11 @@ export async function filterD1RetentionReferencedRows(
 				(SELECT value FROM json_each(${JSON.stringify(rows.map((row) => row.__rowid))}))
 				AND ${callCostIsMovable()}`);
 		movable = new Set(candidates.map((row) => Number(row.rowid)));
-	} else return { rows, referencedRows: 0 };
+	} else if (tableSpec.tableName === "platform_cron_executions")
+		movable = new Set(
+			rows.filter((row) => row.status !== "running").map((row) => row.__rowid),
+		);
+	else return { rows, referencedRows: 0 };
 	const filtered = rows.filter((row) => movable.has(row.__rowid));
 	return { rows: filtered, referencedRows: rows.length - filtered.length };
 }
@@ -666,6 +691,9 @@ function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
 	if (tableSpec.tableName === "external_agent_attributions")
 		return attributionIsMovable();
 	if (tableSpec.tableName === "tedi_call_costs") return callCostIsMovable();
+	// A running row is still updated by its finish or the abandonment sweep.
+	if (tableSpec.tableName === "platform_cron_executions")
+		return sql`${platformCronExecutions.status} <> 'running'`;
 	return sql`1 = 1`;
 }
 
