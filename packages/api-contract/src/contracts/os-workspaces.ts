@@ -1359,6 +1359,16 @@ export const osWorkspacesContract = oc
 				})
 				.input(gadgetIdInput)
 				.output(z.object({ gadget: OsGadgetSchema })),
+			restore: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/restore",
+					summary: "Restore an archived Tedix OS app",
+					description:
+						"Returns an archived app to active, with its current revision, state, share links and grants as they were. Restoring an active app returns it unchanged.",
+				})
+				.input(gadgetIdInput)
+				.output(z.object({ gadget: OsGadgetSchema })),
 			rename: oc
 				.route({
 					method: "PATCH",

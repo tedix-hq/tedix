@@ -81,6 +81,7 @@ import {
 	listOsGadgetRevisions,
 	listOsGadgets,
 	listOsWorkApps,
+	restoreOsGadget,
 	updateOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import { osGadgetCodeSha256 } from "@tedix/db/queries/os-workspaces/gadget-code";
@@ -497,6 +498,24 @@ const gadgetsArchive = authorOs.gadgets.archive.handler(
 			{ organizationId: gadget.organizationId, gadgetId: gadget.id },
 			{ status: "archived" },
 		);
+		if (!row) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
+		}
+		return { gadget: mapGadget(row) };
+	},
+);
+
+const gadgetsRestore = authorOs.gadgets.restore.handler(
+	async ({ input, context }) => {
+		const gadget = await requireGadget(
+			context,
+			input.workspaceId,
+			input.gadgetId,
+		);
+		const row = await restoreOsGadget(queryDb(context), {
+			organizationId: gadget.organizationId,
+			gadgetId: gadget.id,
+		});
 		if (!row) {
 			throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 		}
@@ -2506,6 +2525,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		revise: gadgetsRevise,
 		getCode: gadgetsGetCode,
 		archive: gadgetsArchive,
+		restore: gadgetsRestore,
 		rename: gadgetsRename,
 		run: gadgetsRun,
 		...resourceLifecycle.osGadgetLifecycleProcedures,

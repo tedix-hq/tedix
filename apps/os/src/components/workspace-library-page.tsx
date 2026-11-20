@@ -48,6 +48,7 @@ import { SharedWorkspacesList } from "@/components/shared-workspaces-list";
 import { WorkspaceDeleteDialog } from "@/components/workspace-delete-dialog";
 import { WorkspaceRowMenu } from "@/components/workspace-row-menu";
 import { WorkspaceTemplateStarters } from "@/components/workspace-template-starters";
+import { ArchivedApps } from "@/components/archived-apps";
 import {
 	activeWorkspacesQueryOptions,
 	archivedWorkspacesQueryOptions,
@@ -185,12 +186,15 @@ export function WorkspaceLibraryPage({
 
 			{view === "active" ? <SharedWorkspacesList /> : null}
 			{view === "archived" ? (
-				<ArchivedWorkspaces
-					restoredAt={restoredAt}
-					onRestored={(id, updatedAt) =>
-						setRestoredAt((previous) => new Map(previous).set(id, updatedAt))
-					}
-				/>
+				<>
+					<ArchivedWorkspaces
+						restoredAt={restoredAt}
+						onRestored={(id, updatedAt) =>
+							setRestoredAt((previous) => new Map(previous).set(id, updatedAt))
+						}
+					/>
+					<ArchivedApps />
+				</>
 			) : null}
 			{view === "active" && workspaces.isPending ? (
 				<ListSkeleton rows={4} />

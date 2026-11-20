@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
 		activity: vi.fn(),
 	},
 	outputs: { list: vi.fn() },
+	gadgets: { list: vi.fn(), restore: vi.fn() },
 	collaboration: { list: vi.fn() },
 	workspacePreferences: {
 		list: vi.fn(),
@@ -207,6 +208,7 @@ async function chooseMute(label: string) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	api.gadgets.list.mockResolvedValue({ items: [], truncated: false });
 	api.blueprints.gallery.mockResolvedValue({ items: [] });
 	unread.summary.mockResolvedValue({ total: 0, workspaces: [] });
 	unread.markRead.mockImplementation(
