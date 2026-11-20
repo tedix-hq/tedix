@@ -255,6 +255,17 @@ export const memoryFacts = sqliteTable(
 			table.organizationId,
 			table.topicKey,
 		),
+		// Approved lesson list (listApprovedAgentLessons) on every agent prompt:
+		// a topic-key range over only the organization's confirmed live facts.
+		// Over idx_memory_facts_topic_key it walked every lesson, including
+		// pending, archived and superseded ones: ~640 rows per call for ~57
+		// returned on 19 Nov 2026. The query states these predicates as
+		// literals; a bound value would keep SQLite off a partial index.
+		index("idx_memory_facts_org_confirmed_lessons")
+			.on(table.organizationId, table.topicKey)
+			.where(
+				sql`review_status = 'confirmed' AND status = 'active' AND archived_at IS NULL AND valid_to IS NULL`,
+			),
 		// Content-hash dedup before every learned fact (findFactBySourceHash).
 		// Without it the lookup walked the organization's live facts: 30k rows
 		// and about 0.3 s per call on 16 Nov 2026. Partial on purpose: SQLite may
