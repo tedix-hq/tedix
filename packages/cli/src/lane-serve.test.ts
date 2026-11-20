@@ -28,7 +28,6 @@ import {
 	MIN_FREE_DISK_BYTES,
 	cleanupLaneWorktree,
 	installLaneDependencies,
-	laneFailureSignature,
 	laneLandingBrief,
 	provisionLaneWorktree,
 	landedLaneCommits,
@@ -1752,8 +1751,7 @@ describe("dispatcher admission", () => {
 					admissionState: "unknown",
 					session: "codex:lost-session",
 					executorKey: "local-acme",
-					retries: 1,
-					retryAt: Date.now() - 60_000,
+					recheckAt: Date.now() - 60_000,
 					note: "Database temporarily unavailable",
 				}),
 			);
@@ -1810,7 +1808,7 @@ describe("dispatcher admission", () => {
 			const receipt = JSON.parse(readFileSync(path, "utf8"));
 			expect(receipt.admissionState).toBe("unknown");
 			expect(receipt.admissionCheckFailures).toBe(1);
-			expect(receipt.retryAt).toBeGreaterThan(Date.now() + 30_000);
+			expect(receipt.recheckAt).toBeGreaterThan(Date.now() + 30_000);
 		});
 	});
 	it.each(["succeeded", "failed", "unknown admission"])(
@@ -2306,61 +2304,68 @@ describe("dispatcher admission", () => {
 			clock.mockRestore();
 		}
 	}, 15_000);
-	it("bounds failures with exponential backoff and opens a new retry window after its deadline", async () => {
-		let now = 1_800_000_000_000;
-		const clock = spyOn(Date, "now").mockImplementation(() => now);
-		const { dispatcher, items, control, dir, events } = fixture();
-		items.splice(1);
-		const path = join(dir, `${item().id}-2.json`);
-		const deadline = now + 30 * 60_000;
-		try {
-			// Distinct failures exercise retries without triggering the identical-failure hold.
-			for (const [index, reason] of [
-				"capacity",
-				"executor",
-				"policy",
-				"budget",
-				"dependency",
-			].entries()) {
-				control.startError = new CliReadError(
-					`Admission refused: ${reason}`,
+	it.each(["admission", "crash"])(
+		"leaves repeated %s failures to server admission across restarts",
+		async (stage) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.uniqueAttempts = true;
+			if (stage === "admission")
+				f.control.startError = new CliReadError(
+					"Admission refused: capacity",
 					"CONFLICT",
 				);
-				await dispatcher.tick();
-				await dispatcher.drain();
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				expect(saved.retries).toBe(index + 1);
-				expect(saved.held).toBe(false);
-				expect(saved.retryDeadlineAt).toBe(deadline);
-				expect(saved.retryAt).toBe(
-					index === 4 ? deadline : now + 60_000 * 2 ** index,
-				);
-				now = saved.retryAt - 1;
-				await dispatcher.tick();
-				await dispatcher.drain();
-				expect(
-					events.filter((e) => e.verb === "start" && e.input),
-				).toHaveLength(index + 1);
-				now++;
+			else {
+				f.control.exitCode = 1;
+				f.control.telemetryOutcome = "failed";
+				f.control.declareCompleted = false;
+				f.control.finalMessage = "stream disconnected before completion";
 			}
-			control.startError = new CliReadError(
-				"Admission refused: offline",
+			for (let n = 1; n <= 4; n++) {
+				const runner = f.restart();
+				await runner.tick();
+				if (stage === "crash") {
+					await until(() => f.releases.length === n);
+					f.releases[n - 1]!();
+				}
+				await runner.drain();
+				expect(
+					f.events.filter((e) => e.verb === "start" && e.input),
+				).toHaveLength(n);
+				const saved = JSON.parse(
+					readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+				);
+				expect(saved.held).not.toBe(true);
+				for (const field of [
+					"retries",
+					"retryAt",
+					"retryDeadlineAt",
+					"identicalFailures",
+					"runRetryAt",
+					"runFailureCounted",
+					"admissionFailure",
+					"admissionFailureSignature",
+					"runFailureSignature",
+				])
+					expect(saved[field]).toBeUndefined();
+			}
+			f.control.startError = new CliReadError(
+				"Lane retry budget exhausted",
 				"CONFLICT",
 			);
-			await dispatcher.tick();
-			await dispatcher.drain();
-			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
-				6,
-			);
-			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
-				retries: 1,
-				retryAt: deadline + 60_000,
-				retryDeadlineAt: deadline + 30 * 60_000,
-			});
-		} finally {
-			clock.mockRestore();
-		}
-	});
+			const runner = f.restart();
+			await runner.tick();
+			await runner.drain();
+			expect(f.releases).toHaveLength(stage === "crash" ? 4 : 0);
+			expect(
+				f.events.filter(
+					(e) =>
+						e.verb === "comment" &&
+						e.args.some((arg) => arg.includes("Three identical")),
+				),
+			).toHaveLength(0);
+		},
+	);
 	it.each([
 		[
 			"devin",
@@ -2816,7 +2821,7 @@ describe("dispatcher admission", () => {
 			const path = join(f.dir, `${item().id}-2.json`);
 			const saved = JSON.parse(readFileSync(path, "utf8"));
 			saved.phase = phase;
-			saved.retryAt = 0;
+			saved.recheckAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
 			f.control.history.data = [
 				{
@@ -2996,8 +3001,7 @@ describe("dispatcher admission", () => {
 					admissionState: "unknown",
 					session,
 					executorKey: "local-acme",
-					retries: 0,
-					retryAt: 0,
+					recheckAt: 0,
 					retryDeadlineAt: now + 30 * 60_000,
 					note: "Retained result",
 					telemetry: { finalMessage: "Retained result" },
@@ -3018,12 +3022,11 @@ describe("dispatcher admission", () => {
 				phase: "deferred",
 				outcome: "expired",
 				attemptId: "old-attempt",
-				retries: 1,
 			});
 			expect(
 				events.filter((e) => e.verb === "start" || e.verb === "settle"),
 			).toHaveLength(0);
-			now = saved.retryAt + 1;
+			now = Math.max(saved.recheckAt ?? 0, now) + 1;
 			const resumed = restart();
 			await resumed.tick();
 			await until(() => releases.length === 1);
@@ -3073,7 +3076,7 @@ describe("dispatcher admission", () => {
 					session,
 					executorKey: "local-acme",
 					laneResult: completedResult(),
-					retryAt: 0,
+					recheckAt: 0,
 					note: "Retained result",
 				}),
 			);
@@ -3092,7 +3095,6 @@ describe("dispatcher admission", () => {
 				phase: "deferred",
 				outcome: "expired",
 				attemptId: "old-attempt",
-				retries: 1,
 			});
 			// An elapsed lease is an interruption, not an identical execution
 			// failure: it never feeds the hold that waits for a human edit.
@@ -3132,7 +3134,7 @@ describe("dispatcher admission", () => {
 			];
 			// The retained commit is still in the checkout when the run ends.
 			control.unpushedCommits = [retainedSha];
-			now = expired.retryAt + 1;
+			now = Math.max(expired.recheckAt ?? 0, now) + 1;
 			const resumed = restart();
 			await resumed.tick();
 			await until(() => releases.length === 1);
@@ -3175,7 +3177,7 @@ describe("dispatcher admission", () => {
 				executorKey: "local-acme",
 				outcome: "failed",
 				retryable: true,
-				retryAt: 0,
+				recheckAt: 0,
 				retryDeadlineAt: Date.now() + 30 * 60_000,
 				repo,
 				baseCommit: "a".repeat(40),
@@ -3279,11 +3281,11 @@ describe("dispatcher admission", () => {
 				phase: "deferred",
 				outcome: "expired",
 			});
-			expect(recovered.retryAt).toBeGreaterThan(Date.now());
+			expect(recovered.recheckAt).toBeUndefined();
 			expect(recovered.note).toContain("exit code 143");
 			expect(recovered.note).toContain("provider rejected credentials");
 
-			recovered.retryAt = 0;
+			recovered.recheckAt = 0;
 			writeFileSync(path, JSON.stringify(recovered));
 			f.control.history.data = [];
 			await f.dispatcher.tick();
@@ -3378,7 +3380,7 @@ describe("dispatcher admission", () => {
 					),
 				).toBe(false);
 				deps.cli = cli;
-				now = saved.retryAt + 1;
+				now = Math.max(saved.recheckAt ?? 0, now) + 1;
 				const resumed = restart();
 				await resumed.tick();
 				await until(() => releases.length === 1);
@@ -4276,41 +4278,6 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
-	it("preserves rejection diagnostics once and retries only after backoff and fresh admission", async () => {
-		const { dispatcher, releases, events, dir, control, items } = fixture({
-			refuse: true,
-		});
-		items.splice(1);
-		await dispatcher.tick();
-		await dispatcher.drain();
-		const path = join(dir, `${item().id}-2.json`);
-		const saved = JSON.parse(readFileSync(path, "utf8"));
-		expect(saved).toMatchObject({
-			phase: "deferred",
-			retries: 1,
-			admissionFailure: "Error: Admission refused: resource capacity",
-			admissionState: "rejected",
-			identicalFailures: 1,
-		});
-		expect(saved.retryAt).toBeGreaterThan(Date.now() + 55_000);
-		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
-		await dispatcher.tick();
-		await dispatcher.drain();
-		expect(releases).toHaveLength(0);
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
-		saved.retryAt = 0;
-		writeFileSync(path, JSON.stringify(saved));
-		control.startError = undefined;
-		await dispatcher.tick();
-		await until(() => releases.length === 1);
-		releases[0]!();
-		await dispatcher.drain();
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
-		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
-		expect(events.filter((e) => e.verb === "dispatch-attempts")).toHaveLength(
-			2,
-		);
-	});
 	it.each(["quota", "backoff"])(
 		"waits through routing %s pauses without reads and resumes when capacity returns",
 		async (pause) => {
@@ -4485,49 +4452,6 @@ describe("dispatcher admission", () => {
 		expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
 	});
 
-	it("keeps unavailable-only routing failures held after three checks", async () => {
-		const { restart, deps, items, events, dir } = fixture();
-		writeDispatcherHealthSource(dir, {
-			scope: ["--workspace", "fixture", "--organization", "org_fixture"],
-			executor: "codex",
-		});
-		items.splice(1);
-		deps.available = () => ({
-			available: false,
-			reason: "fixture --version probe failed",
-		});
-		let now = Date.now();
-		const clock = spyOn(Date, "now").mockImplementation(() => now);
-		const dispatcher = restart();
-		const path = join(dir, `${item().id}-2.json`);
-		try {
-			for (let n = 1; n <= 3; n++) {
-				await dispatcher.tick();
-				await dispatcher.drain();
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				expect(saved.identicalFailures).toBe(n);
-				expect(saved.held).toBe(n === 3);
-				now = saved.retryAt + 1;
-			}
-			await restart().tick();
-			const health = JSON.parse(
-				readFileSync(join(dir, "health-source.json"), "utf8"),
-			);
-			expect(
-				health.reliability.events.filter(
-					(event: { kind: string }) => event.kind === "held",
-				),
-			).toHaveLength(1);
-			expect(
-				events.some((event) =>
-					["start", "heartbeat", "settle"].includes(event.verb),
-				),
-			).toBe(false);
-		} finally {
-			clock.mockRestore();
-		}
-	});
-
 	it.each(["research", "coding"] as const)(
 		"leaves a %s lane's rejected verdict to the server instead of holding it locally",
 		async (workKind) => {
@@ -4554,27 +4478,6 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
-	it("holds matching failures despite changing request diagnostics", async () => {
-		const { dispatcher, dir, items, events, control } = fixture();
-		items.splice(1);
-		const path = join(dir, `${item().id}-2.json`);
-		for (let n = 1; n <= 3; n++) {
-			control.startError = new CliReadError(
-				`Admission refused requestId=req-${n} traceId=${String(n).repeat(32)} at 2026-10-21T17:00:0${n}.123Z attempt ${n}`,
-				"CONFLICT",
-			);
-			await dispatcher.tick();
-			await dispatcher.drain();
-			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.identicalFailures).toBe(n);
-			expect(saved.note).toContain(`requestId=req-${n}`);
-			saved.retryAt = 0;
-			saved.retryDeadlineAt = 0;
-			writeFileSync(path, JSON.stringify(saved));
-		}
-		expect(JSON.parse(readFileSync(path, "utf8")).held).toBe(true);
-		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
-	});
 	it("retries native preparation timeouts after restart, including a legacy held receipt", async () => {
 		const { dispatcher, restart, dir, items, events, control, releases } =
 			fixture();
@@ -4588,10 +4491,11 @@ describe("dispatcher admission", () => {
 			await dispatcher.tick();
 			await dispatcher.drain();
 			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.held).toBe(false);
+			expect(saved.held).not.toBe(true);
 			expect(saved.attemptId).toBeUndefined();
-			expect(saved.retryAt).toBeGreaterThan(Date.now());
-			saved.retryAt = 0;
+			expect(saved.recheckAt).toBeUndefined();
+			saved.recheckAt = 0;
+			saved.identicalFailures = 3;
 			saved.held = n === 3;
 			writeFileSync(path, JSON.stringify(saved));
 		}
@@ -4617,11 +4521,11 @@ describe("dispatcher admission", () => {
 			const saved = JSON.parse(readFileSync(path, "utf8"));
 			// After its retry time, the next pass finds no canonical Attempt and
 			// re-admits instead of fencing the revision forever.
-			expect(saved.identicalFailures).toBe(Math.ceil(n / 2));
+
 			expect(saved.admissionState).toBe(n % 2 ? "unknown" : "not_sent");
-			expect(saved.held).toBe(false);
+			expect(saved.held).not.toBe(true);
 			expect(saved.phase).toBe("deferred");
-			saved.retryAt = 0;
+			saved.recheckAt = 0;
 			saved.retryDeadlineAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
 		}
@@ -4669,7 +4573,7 @@ describe("dispatcher admission", () => {
 				control.commits = ["b".repeat(40)];
 			}
 			for (let n = 0; n < (state === "offline" ? 6 : 1); n++) {
-				saved.retryAt = 0;
+				saved.recheckAt = 0;
 				writeFileSync(path, JSON.stringify(saved));
 				await restart().tick();
 				saved = JSON.parse(readFileSync(path, "utf8"));
@@ -4680,7 +4584,7 @@ describe("dispatcher admission", () => {
 					phase: "settling",
 					settlementCheckFailures: 1,
 				});
-				expect(saved.retryAt).toBeGreaterThan(Date.now());
+				expect(saved.recheckAt).toBeGreaterThan(Date.now());
 				expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
 					"Retained settlement fence is unavailable",
 				);
@@ -4698,85 +4602,9 @@ describe("dispatcher admission", () => {
 				expect(saved.pendingCommitProof).toBeUndefined();
 				expect(control.cleanups).toBe(1);
 			}
-			if (state === "offline") expect(saved.retries).toBe(0);
+			if (state === "offline") expect(saved.retries).toBeUndefined();
 		},
 	);
-	it.each(["admission", "provision"])(
-		"holds three identical %s failures across restarts within the retry window",
-		async (stage) => {
-			const { dispatcher, dir, items, events, control, releases } = fixture({
-				refuse: stage === "admission",
-			});
-			items.splice(1);
-			if (stage === "provision")
-				control.provisionError = new Error("Destination already exists");
-			const path = join(dir, `${item().id}-2.json`);
-			for (let n = 1; n <= 3; n++) {
-				await dispatcher.tick();
-				await dispatcher.drain();
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				expect(saved.identicalFailures).toBe(n);
-				expect(events.filter((e) => e.verb === "comment")).toHaveLength(
-					n === 3 ? 1 : 0,
-				);
-				saved.retryAt = 0;
-				saved.retryDeadlineAt = n === 3 ? Date.now() + 60_000 : 0;
-				writeFileSync(path, JSON.stringify(saved));
-			}
-			const count = events.length;
-			await dispatcher.tick();
-			await dispatcher.drain();
-			expect(events.slice(count).map((e) => e.verb)).toEqual(["dispatch-list"]);
-			// The held decision is durable, even without the original dispatcher object.
-			const restarted = new LaneDispatcher(options, dir, {
-				health: () => [],
-				darkWake: () => false,
-				available: () => ({ available: true }),
-				preflight: async () => undefined,
-				devinAvailability: () => ({ available: true }),
-				budgets: () => ({}),
-				cli: async <T>() =>
-					({ data: items, pagination: { hasMore: false } }) as T,
-			});
-			await restarted.tick();
-			await restarted.drain();
-			expect(JSON.parse(readFileSync(path, "utf8")).held).toBe(true);
-			items[0]!.version++;
-			control.startError = undefined;
-			control.provisionError = undefined;
-			await dispatcher.tick();
-			await until(() => releases.length === 1);
-			releases[0]!();
-			await dispatcher.drain();
-			expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
-		},
-	);
-	it("tries a held admission once per new retry window while it fails the same way", async () => {
-		const { dispatcher, dir, items, events } = fixture({ refuse: true });
-		items.splice(1);
-		const path = join(dir, `${item().id}-2.json`);
-		for (let n = 1; n <= 3; n++) {
-			await dispatcher.tick();
-			await dispatcher.drain();
-			const saved = JSON.parse(readFileSync(path, "utf8"));
-			saved.retryAt = 0;
-			saved.retryDeadlineAt = n === 3 ? Date.now() - 1 : 0;
-			writeFileSync(path, JSON.stringify(saved));
-		}
-		const tries = () =>
-			events.filter((e) => e.verb === "dispatch-attempts").length;
-		const before = tries();
-		await dispatcher.tick();
-		await dispatcher.drain();
-		expect(tries()).toBe(before + 1);
-		const saved = JSON.parse(readFileSync(path, "utf8"));
-		expect(saved.held).toBe(true);
-		expect(saved.retryDeadlineAt).toBeGreaterThan(Date.now());
-		await dispatcher.tick();
-		await dispatcher.drain();
-		expect(tries()).toBe(before + 1);
-		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
-	});
 	it("holds a revision with a recorded result until the Work changes", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);
@@ -4796,7 +4624,7 @@ describe("dispatcher admission", () => {
 		expect(saved.note).toContain(
 			"Attempt recorded-attempt already recorded a succeeded result",
 		);
-		saved.retryAt = 0;
+		saved.recheckAt = 0;
 		saved.retryDeadlineAt = Date.now() - 1;
 		writeFileSync(path, JSON.stringify(saved));
 		const reads = () =>
@@ -5051,7 +4879,7 @@ describe("dispatcher admission", () => {
 					expiresAt: new Date(Date.now() + 300_000).toISOString(),
 				},
 			];
-			writeFileSync(path, JSON.stringify({ ...saved, retryAt: 0 }));
+			writeFileSync(path, JSON.stringify({ ...saved, recheckAt: 0 }));
 			unavailableCode = false;
 			const resumed = restart();
 			await resumed.tick();
@@ -5371,7 +5199,7 @@ describe("dispatcher admission", () => {
 			const path = join(dir, `${item().id}-2.json`);
 			const retry = async () => {
 				const saved = JSON.parse(readFileSync(path, "utf8"));
-				saved.retryAt = 0;
+				saved.recheckAt = 0;
 				writeFileSync(path, JSON.stringify(saved));
 				await dispatcher.tick();
 				await dispatcher.drain();
@@ -5402,11 +5230,11 @@ describe("dispatcher admission", () => {
 			control.history.data[0]!.outcome = outcome;
 			const saved = JSON.parse(readFileSync(path, "utf8"));
 			control.history.data[0]!.externalSessionKey = saved.session;
-			saved.retryAt = 0;
+			saved.recheckAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
 			await dispatcher.tick();
 			const recovered = JSON.parse(readFileSync(path, "utf8"));
-			recovered.retryAt = 0;
+			recovered.recheckAt = 0;
 			writeFileSync(path, JSON.stringify(recovered));
 			await dispatcher.tick();
 			await until(() => releases.length === 1);
@@ -5418,7 +5246,7 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it.each([true, false])(
-		"rechecks expired admission holds with current readiness=%s",
+		"discards legacy retry windows and checks admission with current readiness=%s",
 		async (ready) => {
 			const { dispatcher, dir, items, control, releases, events } = fixture();
 			items.splice(1);
@@ -5436,8 +5264,8 @@ describe("dispatcher admission", () => {
 					held: true,
 					identicalFailures: 3,
 					retries: 3,
-					retryAt: Date.now() - 1,
-					retryDeadlineAt: Date.now() - 1,
+					retryAt: Date.now() + 30 * 60_000,
+					retryDeadlineAt: Date.now() + 30 * 60_000,
 				}),
 			);
 			control.readiness = {
@@ -5459,7 +5287,6 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it.each([
-		() => ({ retryDeadlineAt: Date.now() + 60_000 }),
 		() => ({ admissionState: "unknown" }),
 		() => ({
 			attemptId: "retained-attempt",
@@ -5467,7 +5294,7 @@ describe("dispatcher admission", () => {
 			executorKey: "retained",
 		}),
 	])(
-		"preserves admission holds with a live or unknown fence or unexpired window: %j",
+		"preserves admission holds with a live or unknown fence: %j",
 		async (createFence) => {
 			const fence = createFence();
 			const { dispatcher, dir, items, events, releases } = fixture();
@@ -5573,7 +5400,6 @@ describe("dispatcher admission", () => {
 			expect(receipt).toMatchObject({
 				phase: "deferred",
 				admissionState: "not_sent",
-				retries: 0,
 			});
 
 			now += 30_000;
@@ -5875,11 +5701,11 @@ describe("dispatcher admission", () => {
 				retryable: false,
 				interrupted: true,
 				note: "Error: Tedix CLI read deadline elapsed",
-				retries: 1,
+
 				runFailureCounted: true,
 				runRetryAt: 0,
 				settlementRetries: 1,
-				retryAt: 0,
+				recheckAt: 0,
 				retryDeadlineAt: Date.now() + 30 * 60_000,
 			}),
 		);
@@ -5893,7 +5719,7 @@ describe("dispatcher admission", () => {
 				phase: "settling",
 				settlementCheckFailures: 1,
 			});
-			expect(saved.retryAt).toBeGreaterThan(Date.now());
+			expect(saved.recheckAt).toBeGreaterThan(Date.now());
 			expect(admissions()).toHaveLength(0);
 
 			control.historyError = undefined;
@@ -5905,8 +5731,10 @@ describe("dispatcher admission", () => {
 					expiresAt: new Date(Date.now() - 60_000).toISOString(),
 				},
 			];
-			saved.retryAt = 0;
+			saved.recheckAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
+			await dispatcher.tick();
+			expect(admissions()).toHaveLength(0);
 			await dispatcher.tick();
 			await until(() => admissions().length === 1);
 			saved = JSON.parse(readFileSync(path, "utf8"));
@@ -5933,10 +5761,10 @@ describe("dispatcher admission", () => {
 			phase: "settling",
 			attemptId: "fictional-attempt",
 			outcome: "succeeded",
-			retries: 0,
+
 			settlementRetries: 1,
 		});
-		expect(saved.retryAt).toBeGreaterThan(Date.now());
+		expect(saved.recheckAt).toBeGreaterThan(Date.now());
 	});
 });
 
@@ -6213,11 +6041,9 @@ it("reads a delegated item once while another reason keeps it waiting", async ()
 			phase: "deferred",
 			outcome: "failed",
 			admissionState: "rejected",
-			admissionFailure: "Fictional admission failure",
+			note: "Stopped by fictional-owner",
 			held: true,
-			identicalFailures: 3,
-			retries: 3,
-			retryDeadlineAt: Date.now() + 30 * 60_000,
+			holdRecorded: true,
 		}),
 	);
 	const dispatcher = f.restart();
@@ -7336,31 +7162,6 @@ it("finishes repository reads before awaiting recovered commit custody", async (
 	).toEqual(commits);
 });
 
-it("normalizes only volatile diagnostics while preserving error identity", () => {
-	const first = new CliReadError(
-		"Denied 11111111-1111-4111-8111-111111111111 request_id=abc-123 traceparent=00-0123456789abcdef0123456789abcdef-0123456789abcdef-01 timestamp=1792601000 retry after 12 ms",
-		"FORBIDDEN",
-		403,
-	);
-	const second = new CliReadError(
-		"Denied 22222222-2222-4222-8222-222222222222 request_id=xyz-456 traceparent=00-abcdef0123456789abcdef0123456789-abcdef0123456789-01 timestamp=1792602000 retry after 43 ms",
-		"FORBIDDEN",
-		403,
-	);
-	expect(laneFailureSignature(first)).toBe(laneFailureSignature(second));
-	for (const different of [
-		new CliReadError(first.message, "CONFLICT", 403),
-		new CliReadError(first.message, "FORBIDDEN", 401),
-		new TypeError(first.message),
-		new CliReadError("Denied resource capacity", "FORBIDDEN", 403),
-	])
-		expect(laneFailureSignature(first)).not.toBe(
-			laneFailureSignature(different),
-		);
-	expect(laneFailureSignature(new Error("HTTP 403 limit 100"))).not.toBe(
-		laneFailureSignature(new Error("HTTP 429 limit 200")),
-	);
-});
 it.each([false, true])(
 	"retries commit fetch with backoff, exhausted=%s",
 	async (exhausted) => {
@@ -7542,7 +7343,7 @@ it.each(["succeeded", "failed"])(
 				phase: "settled",
 				outcome,
 				attemptId: "old-attempt",
-				retryAt: 0,
+				recheckAt: 0,
 			}),
 		);
 		control.history.data = [
@@ -8356,83 +8157,11 @@ it("parses a retained-checkout cap from the flag or environment", () => {
 });
 
 it.each([
-	[
-		'{"type":"error","message":"Reconnecting... 2/5 (stream disconnected before completion: invalid peer certificate: UnknownIssuer)"}',
-		true,
-	],
-	[
-		"Reconnecting... 2/5 (stream disconnected before completion: IO error: Broken pipe)",
-		true,
-	],
-	["IO error: Broken pipe", true],
-	["Codex authentication failed", false],
-] as const)(
-	"classifies Codex failure and bounds transport retries: %s",
-	async (message, retryable) => {
-		let now = 1_800_000_000_000;
-		const clock = spyOn(Date, "now").mockImplementation(() => now);
-		const f = fixture();
-		f.items.splice(1);
-		f.control.telemetryOutcome = "failed";
-		f.control.exitCode = 1;
-		f.control.declareCompleted = false;
-		f.control.finalMessage = message;
-		const path = join(f.dir, `${item().id}-2.json`);
-		try {
-			for (let n = 1; n <= (retryable ? 3 : 1); n++) {
-				const dispatcher = f.restart();
-				await dispatcher.tick();
-				await until(() => f.releases.length === n);
-				f.releases[n - 1]!();
-				await dispatcher.drain();
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				expect(saved).toMatchObject({
-					phase: retryable ? "deferred" : "settled",
-					outcome: "failed",
-					retryable,
-					retries: n,
-					identicalFailures: n,
-					held: n === 3,
-				});
-				expect(saved.retryAt).toBe(now + 60_000 * 2 ** (n - 1));
-				f.control.history.data = [
-					{
-						id: saved.attemptId,
-						externalSessionKey: saved.session,
-						outcome: saved.outcome,
-						metadata: { dispatchVersion: 2 },
-					},
-				];
-				now = saved.retryAt - 1;
-				await dispatcher.tick();
-				await dispatcher.drain();
-				expect(f.releases).toHaveLength(n);
-				now++;
-			}
-			if (retryable) {
-				const dispatcher = f.restart();
-				await dispatcher.tick();
-				await dispatcher.drain();
-				expect(f.releases).toHaveLength(3);
-				expect(
-					f.events.filter((event) => event.verb === "start" && event.input),
-				).toHaveLength(3);
-				expect(
-					f.events.filter((event) => event.verb === "comment"),
-				).toHaveLength(1);
-			}
-		} finally {
-			clock.mockRestore();
-		}
-	},
-);
-
-it.each([
 	["codex", "resume", "expired"],
 	["claude-code", "--resume", "failed"],
 	["opencode", "--session", "failed"],
 ] as const)(
-	"continues the %s thread under new Attempts and holds after two resumes",
+	"continues the %s thread under fresh server admission beyond two resumes",
 	async (executor, resumeArg, outcome) => {
 		const f = fixture({ executor });
 		f.deps.provision = (_source, destination) => {
@@ -8456,6 +8185,7 @@ it.each([
 				"stream disconnected before completion",
 				"socket hang up",
 				"connection reset by peer",
+				"broken pipe",
 			].entries()) {
 				if (index === 1 && executor !== "codex") {
 					f.control.startError =
@@ -8475,7 +8205,7 @@ it.each([
 					expect(pending.nativeResumeCount ?? 0).toBe(0);
 					expect(launch).toHaveBeenCalledTimes(1);
 					f.control.startError = undefined;
-					now = pending.retryAt + 1;
+					now++;
 					if (executor === "claude-code") {
 						await retry.tick();
 						await retry.drain();
@@ -8510,10 +8240,9 @@ it.each([
 				expect(saved).toMatchObject({
 					phase: "deferred",
 					outcome,
-					held: index === 2,
 				});
 				expect(existsSync(saved.repo)).toBe(true);
-				now = saved.retryDeadlineAt + 1;
+				now++;
 				f.control.history.data.unshift({
 					id: saved.attemptId,
 					externalSessionKey: saved.session,
@@ -8522,61 +8251,13 @@ it.each([
 					metadata: { dispatchVersion: 2 },
 				});
 			}
-			const dispatcher = f.restart();
-			await dispatcher.tick();
-			await dispatcher.drain();
-			expect(launch).toHaveBeenCalledTimes(3);
-			expect(
-				f.events
-					.filter((event) => event.verb === "comment")
-					.map((event) => event.args.at(-1)),
-			).toEqual([expect.stringContaining("Native resume limit (2) reached")]);
+			expect(launch).toHaveBeenCalledTimes(4);
+			expect(f.events.filter((event) => event.verb === "comment")).toHaveLength(
+				0,
+			);
 		} finally {
 			clock.mockRestore();
 		}
-	},
-);
-
-it.each(["failed", "stopped"] as const)(
-	"backs off and holds three identical admitted %s runs across restarts",
-	async (outcome) => {
-		const f = fixture();
-		f.items.splice(1);
-		f.control.telemetryOutcome = outcome;
-		f.control.exitCode = outcome === "failed" ? 1 : 0;
-		const path = join(f.dir, `${item().id}-2.json`);
-		for (let n = 1; n <= 3; n++) {
-			const dispatcher = f.restart();
-			await dispatcher.tick();
-			await until(() => f.releases.length === n);
-			f.releases[n - 1]!();
-			await dispatcher.drain();
-			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.outcome).toBe(outcome === "stopped" ? "expired" : "failed");
-			expect(saved.retries).toBe(n);
-			expect(saved.identicalFailures).toBe(n);
-			expect(saved.held).toBe(n === 3);
-			expect(saved.retryAt - Date.now()).toBeGreaterThan(
-				60_000 * 2 ** (n - 1) - 2000,
-			);
-			const count = f.releases.length;
-			await dispatcher.tick();
-			await dispatcher.drain();
-			expect(f.releases).toHaveLength(count);
-			f.control.history.data = [
-				{
-					id: saved.attemptId,
-					externalSessionKey: saved.session,
-					outcome: saved.outcome,
-					metadata: { dispatchVersion: 2 },
-				},
-			];
-			saved.retryAt = 0;
-			writeFileSync(path, JSON.stringify(saved));
-		}
-		await f.restart().tick();
-		expect(f.releases).toHaveLength(3);
-		expect(f.events.filter((e) => e.verb === "comment")).toHaveLength(1);
 	},
 );
 
@@ -8599,16 +8280,13 @@ it("does not charge settlement retries as additional execution failures", async 
 			expiresAt: new Date(Date.now() + 300000).toISOString(),
 		},
 	];
-	saved.retryAt = 0;
+	saved.recheckAt = 0;
 	writeFileSync(path, JSON.stringify(saved));
 	await f.restart().tick();
 	const retained = JSON.parse(readFileSync(path, "utf8"));
 	expect(retained).toMatchObject({
 		phase: "settling",
-		retries: 1,
-		identicalFailures: 1,
 		settlementRetries: 2,
-		held: false,
 	});
 	expect(f.releases).toHaveLength(1);
 });
@@ -8906,7 +8584,7 @@ describe("structured dispatcher outcomes", () => {
 				if (state === "peer") original.outcome = null;
 				if (state === "truncated") f.control.history.nextCursor = "more";
 				if (state === "offline") offline = true;
-				pending.retryAt = 0;
+				pending.recheckAt = 0;
 				writeFileSync(path, JSON.stringify(pending));
 				try {
 					await f.restart().tick();
@@ -9014,6 +8692,7 @@ describe("structured dispatcher outcomes", () => {
 		f.items.push(item(2));
 		f.control.history.data = [];
 		f.control.finalMessage = "Fresh result recorded";
+		f.control.commits = ["b".repeat(40)];
 		const restarted = f.restart();
 		await restarted.tick();
 		await until(() => f.releases.length === 3);
@@ -9365,12 +9044,12 @@ describe("structured dispatcher outcomes", () => {
 		async (wake) => {
 			const f = fixture();
 			f.items.splice(1);
-			const retryAt = new Date(Date.now() + 3_600_000).toISOString();
+			const recheckAt = new Date(Date.now() + 3_600_000).toISOString();
 			const deferred = () => ({
 				...common(),
 				outcome: "deferred",
 				reason: "Waiting on production access",
-				until: retryAt,
+				until: recheckAt,
 			});
 			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(deferred())}`;
 			await f.dispatcher.tick();
@@ -9394,13 +9073,13 @@ describe("structured dispatcher outcomes", () => {
 				outcome: "cancelled",
 				laneResult: deferred(),
 			});
-			expect(saved.retryAt).toBe(Date.parse(retryAt));
+			expect(saved.recheckAt).toBe(Date.parse(recheckAt));
 			expect(saved.held).toBeUndefined();
 			// The wait parks until its recheck time instead of retrying at once.
 			await f.restart().tick();
 			expect(f.releases).toHaveLength(1);
 			if (wake === "timer") {
-				saved.retryAt = 0;
+				saved.recheckAt = 0;
 				writeFileSync(path, JSON.stringify(saved));
 			} else {
 				f.items[0]!.metadata = {
@@ -9455,7 +9134,7 @@ describe("structured dispatcher outcomes", () => {
 		expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
 			phase: "deferred",
 			outcome: "cancelled",
-			retryAt: Date.parse(notBefore),
+			recheckAt: Date.parse(notBefore),
 		});
 		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
 		const records = f.events.filter((e) => e.verb === "dispatch-hold");
@@ -9506,7 +9185,7 @@ describe("structured dispatcher outcomes", () => {
 		const saved = JSON.parse(readFileSync(path, "utf8"));
 		expect(saved).toMatchObject({ phase: "deferred", outcome: "cancelled" });
 		expect(saved.held).toBeUndefined();
-		saved.retryAt = 0;
+		saved.recheckAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		f.control.history.data = [
 			first,
@@ -9547,7 +9226,7 @@ describe("structured dispatcher outcomes", () => {
 		const path = join(f.dir, `${item().id}-2.json`);
 		const saved = JSON.parse(readFileSync(path, "utf8"));
 		expect(saved).toMatchObject({ phase: "deferred", outcome: "cancelled" });
-		saved.retryAt = 0;
+		saved.recheckAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		// A different runner's stop-cancel of this revision is no verdict either.
 		f.control.history.data = [
@@ -9733,7 +9412,7 @@ it("asks again after a lost request reply without holding the Work twice, and dr
 		version: 2,
 		phase: "deferred",
 		held: true,
-		note: "Automatic execution held after 3 failed or expired Attempts on Work revision 2.",
+		note: "Stopped by fictional-owner",
 	});
 	const paths = [1, 2].map((n) => join(f.dir, `${item(n).id}-2.json`));
 	writeFileSync(paths[0]!, JSON.stringify(held(1)));
@@ -9789,10 +9468,10 @@ it("records a pre-agent failure distinctly and retries without feeding the hold"
 	const path = join(f.dir, `${item().id}-2.json`);
 	const saved = JSON.parse(readFileSync(path, "utf8"));
 	expect(saved.outcome).toBe("failed");
-	expect(saved.identicalFailures).toBe(0);
+	expect(saved.identicalFailures).toBeUndefined();
 	expect(saved.held).not.toBe(true);
 	// A dispatcher fault retries instead of holding the revision for a human.
-	saved.retryAt = 0;
+	saved.recheckAt = 0;
 	writeFileSync(path, JSON.stringify(saved));
 	const resumed = f.restart();
 	await resumed.tick();
@@ -9932,11 +9611,9 @@ describe("stale hold recovery", () => {
 		identicalFailures: 3,
 		admissionFailure:
 			"Canonical history has a live Attempt; admission remains held",
-		admissionFailureSignature: laneFailureSignature(
-			new Error("Canonical history has a live Attempt; admission remains held"),
-		),
+		admissionFailureSignature: "legacy-signature",
 		retries: 3,
-		retryAt: Date.now() - 1,
+		recheckAt: Date.now() - 1,
 		retryDeadlineAt: Date.now() - 1,
 		...extra,
 	});
@@ -9969,7 +9646,7 @@ describe("stale hold recovery", () => {
 		await dispatcher.drain();
 		expect(starts(events)).toHaveLength(0);
 		expect(releases).toHaveLength(0);
-		expect(receipt(dir).held).toBe(true);
+		expect(logText(dir)).toContain("Canonical history has a live Attempt");
 	});
 	it("dispatches a new Work revision without waiting on the old revision's hold", async () => {
 		const { dispatcher, dir, items, releases, events } = fixture();
@@ -10009,7 +9686,7 @@ describe("stale hold recovery", () => {
 		expect(logText(dir)).toContain('"orphan-released"');
 		// The same revision is dispatchable once the run-failure backoff elapses.
 		const saved = receipt(dir);
-		saved.retryAt = 0;
+		saved.recheckAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		await dispatcher.tick();
 		await until(() => releases.length === 1);
@@ -10084,7 +9761,7 @@ describe("stale hold recovery", () => {
 					executorKey: "key",
 					admissionState: "admitted",
 					settlementRetries: 2,
-					retryAt: 0,
+					recheckAt: 0,
 				}),
 			);
 			control.history = {
@@ -10113,7 +9790,7 @@ describe("stale hold recovery", () => {
 				session: "codex:other-session",
 				executorKey: "key",
 				admissionState: "admitted",
-				retryAt: 0,
+				recheckAt: 0,
 			}),
 		);
 		control.history = {
@@ -10133,7 +9810,7 @@ describe("stale hold recovery", () => {
 		});
 		expect(logText(dir)).toContain('"settlement-reconciled"');
 		const saved = receipt(dir);
-		saved.retryAt = 0;
+		saved.recheckAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		await dispatcher.tick();
 		await until(() => releases.length === 1);
@@ -10156,7 +9833,7 @@ describe("stale hold recovery", () => {
 				executorKey: "key",
 				admissionState: "admitted",
 				repo: join(dir, "runs", `${item().id}-2`, "repo"),
-				retryAt: 0,
+				recheckAt: 0,
 			}),
 		);
 		control.history = {
@@ -10194,7 +9871,7 @@ describe("stale hold recovery", () => {
 				executorKey: "key",
 				admissionState: "admitted",
 				repo,
-				retryAt: 0,
+				recheckAt: 0,
 			}),
 		);
 		control.history = {
@@ -10583,7 +10260,7 @@ describe("watching and steering a run", () => {
 			expect(saved.runMessages).toBeUndefined();
 			expect(f.briefs).toHaveLength(1);
 			expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([]);
-			now = saved.retryDeadlineAt + 1;
+			now++;
 			f.control.history.data.unshift({
 				id: saved.attemptId,
 				externalSessionKey: saved.session,
@@ -10793,7 +10470,7 @@ describe("watching and steering a run", () => {
 		// Even after the usual deferral timer, only an answer can wake this run.
 		const path = join(f.dir, `${item().id}-2.json`);
 		const waiting = JSON.parse(readFileSync(path, "utf8"));
-		waiting.retryAt = 0;
+		waiting.recheckAt = 0;
 		writeFileSync(path, JSON.stringify(waiting));
 		const restarted = f.restart();
 		await restarted.tick();
