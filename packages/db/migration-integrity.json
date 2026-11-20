@@ -1796,6 +1796,10 @@
 		{
 			"name": "20261120180225_workspace_default_tedi/migration.sql",
 			"sha256": "ee983d07b406bd6c7ecd4ccd0b441f461737374137da0ccb0cedb5e1da77f98a"
+		},
+		{
+			"name": "20261120183430_organization_log_cutover_allowlist/migration.sql",
+			"sha256": "b2b236ea5070d0990c59f8b050bab32b0f66d89fab279a7fb450d21a8c9c7e73"
 		}
 	]
 }

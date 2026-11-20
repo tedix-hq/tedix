@@ -172,6 +172,7 @@ export * from "./control-plane-history";
 export * from "./cron-executions";
 export * from "./platform-cron-executions";
 export * from "./d1-retention";
+export * from "./organization-log";
 export * from "./dispatcher-health";
 export * from "./machines";
 export * from "./earned-delegation";
