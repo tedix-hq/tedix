@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
 	app,
 	BrowserWindow,
+	clipboard,
 	ipcMain,
 	type IpcMainInvokeEvent,
 	Menu,
@@ -187,6 +188,13 @@ function navigate(action: "back" | "forward" | "reload"): void {
 	else contents?.reload();
 }
 
+// An emailed sign-in link only signs in the window that opens it, and a click
+// in the mail app opens the default browser. This opens a copied link here.
+async function pasteSignInLink(): Promise<void> {
+	const url = (await clipboard.readText()).trim();
+	if (isTedixPage(url)) void os?.webContents.loadURL(url);
+}
+
 function setMenu(): void {
 	const thisMac: MenuItemConstructorOptions = {
 		label: "This Mac…",
@@ -201,6 +209,11 @@ function setMenu(): void {
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
+					{
+						label: "Paste Sign-in Link",
+						accelerator: "CmdOrCtrl+Shift+V",
+						click: () => void pasteSignInLink(),
+					},
 					{ type: "separator" },
 					...(mac ? [{ role: "hide" as const }] : []),
 					{ role: "quit" },
