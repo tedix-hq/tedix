@@ -2154,6 +2154,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		telemetryBinding?: ActiveTurnBinding | null,
 		learningDisabled?: boolean,
 		homeWorkOrder?: boolean,
+		personChat?: boolean,
 	): Promise<string> {
 		return runtimeMemory.cognitiveAddenda.call(
 			this.memoryHost(),
@@ -2162,6 +2163,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			telemetryBinding,
 			learningDisabled,
 			homeWorkOrder,
+			personChat,
 		);
 	}
 	private async recordDirectiveUsage(

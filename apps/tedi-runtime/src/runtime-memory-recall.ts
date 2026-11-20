@@ -20,6 +20,7 @@ import {
 	recallLongTermMemoryBlock,
 } from "./memory-recall";
 import { TEDI_CONTEXT_WINDOW_TOKENS } from "./model-input-budget";
+import { personChatMemoryAddendum } from "./person-chat-recall";
 import {
 	DoSkillGuidanceStore,
 	selectGuidanceSkills,
@@ -482,6 +483,8 @@ export async function cognitiveAddenda(
 	learningDisabled?: boolean,
 	/** Set by the API on the turn; see `isHomeWorkOrderTurn`. */
 	homeWorkOrder = false,
+	/** A signed-in person sent this message in the chat; see `person-chat-recall.ts`. */
+	personChat = false,
 ): Promise<string> {
 	let memoryRecall: MemoryRecallReport | null = null;
 	let readOnlyCatalog: Promise<SkillSearchEntry[] | null> | undefined;
@@ -554,15 +557,24 @@ export async function cognitiveAddenda(
 					learningDisabled,
 				),
 			brainDigest: () =>
-				this.brainDigestAddendum(
-					userText,
-					(report) => {
-						memoryRecall = report;
-					},
-					sessionKey,
-					learningDisabled,
-					homeWorkOrder,
-				),
+				personChat
+					? personChatMemoryAddendum.call(this, {
+							userText,
+							sessionKey,
+							learningDisabled,
+							onRecall: (report) => {
+								memoryRecall = report;
+							},
+						})
+					: this.brainDigestAddendum(
+							userText,
+							(report) => {
+								memoryRecall = report;
+							},
+							sessionKey,
+							learningDisabled,
+							homeWorkOrder,
+						),
 			// Cached block into this turn, rebuild behind it (and one blocking
 			// build on a cold cache) — see {@link skillGuidanceAddendum}.
 			skillGuidance: () =>
