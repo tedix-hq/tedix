@@ -1,0 +1,2 @@
+CREATE INDEX `workspace_output_index_org_output_current_idx` ON `workspace_output_index` (`organization_id`,`output_id`,`is_current`,`revision`);--> statement-breakpoint
+CREATE INDEX `workspace_output_index_org_workspace_current_idx` ON `workspace_output_index` (`organization_id`,`workspace_id`,`is_current`,`updated_at`);

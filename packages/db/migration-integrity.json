@@ -1716,6 +1716,10 @@
 		{
 			"name": "20261120120159_gateway_reconciliation_coverage/migration.sql",
 			"sha256": "d097e038306f787122bd3841568f2570278a6cb0d85bdf667a1a7918c3dd9890"
+		},
+		{
+			"name": "20261120121043_workspace_output_index_lookups/migration.sql",
+			"sha256": "5022848e585f9ea50df960bea696519cf75501224ef87d0d5f500919b557b025"
 		}
 	]
 }
