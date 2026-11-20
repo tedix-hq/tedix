@@ -1781,6 +1781,32 @@ describe("parseOptions: --flag=value equals normalization (fix #2)", () => {
 		expect(argv).toEqual(["ask", "--", "--no-poll=false", "--json=true"]);
 	});
 
+	test("top-level Work errors always include a reason and next commands", () => {
+		for (const error of [
+			new Error("Invalid input"),
+			{ data: { rejectionCode: "not_accepted" } },
+		]) {
+			const args = [
+				"--organization",
+				"org_example",
+				"-w",
+				"test",
+				"work",
+				"start",
+				"11111111-1111-4111-8111-111111111111",
+			];
+			const reason = "data" in error ? "not_accepted" : "WORK_ERROR";
+			const human = formatCliError(args, "Refused", error);
+			expect(human).toContain(`[${reason}] Refused`);
+			expect(human).toContain("Next: tedix work readiness");
+			const json = JSON.parse(
+				formatCliError([...args, "--json"], "Refused", error),
+			);
+			expect(json).toMatchObject({ reason, message: "Refused" });
+			expect(json.nextCommands).toHaveLength(2);
+		}
+	});
+
 	test("CLI errors use JSON only when requested before the literal separator", () => {
 		for (const [args, json, message] of [
 			[["unknown-command", "--", "--json"], false, "Unknown command"],

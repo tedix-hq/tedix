@@ -167,6 +167,7 @@ export interface WorkOptions {
 }
 
 export interface WorkContext {
+	errorWorkItemId?: string;
 	recordScope?: (scope: {
 		projectId?: string;
 		workItemId: string;
@@ -495,5 +496,6 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 		throw new Error("--worktree-root requires --worktree");
 	}
 	const [id, text] = firstToken(rest);
+	ctx.errorWorkItemId = /^[0-9a-f-]{36}$/i.test(id) ? id : undefined;
 	return handler(ctx, id, text);
 }

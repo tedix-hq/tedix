@@ -2,6 +2,7 @@ import { cyan, dim, green, red, yellow } from "./format";
 import type { ColorMode } from "./terminal";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { WorkContext } from "./work";
+import { workErrorDetails } from "./work-error";
 import { WORK_EXIT_FAIL, type BoardError } from "./work-identity";
 
 // ─── Output ──────────────────────────────────────────────────────────────────
@@ -11,10 +12,19 @@ export function fail(
 	error: BoardError,
 	humanLine: string,
 ): number {
+	const details = workErrorDetails(error, ctx.errorWorkItemId);
 	if (ctx.json) {
-		console.log(JSON.stringify({ error }));
+		console.log(
+			JSON.stringify({ error: { ...error, ...details }, ...details }),
+		);
 	} else {
-		console.error(humanLine);
+		console.error(`[${details.reason}] ${humanLine}`);
+		if (
+			!humanLine.includes("`tedix ") &&
+			!humanLine.includes(" tedix work start ")
+		)
+			for (const command of details.nextCommands)
+				console.error(`Next: ${command}`);
 	}
 	return WORK_EXIT_FAIL;
 }

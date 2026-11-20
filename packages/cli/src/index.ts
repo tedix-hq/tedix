@@ -6,6 +6,7 @@ import {
 	LEASE_WORKER_ENV,
 } from "./shared";
 import type { TedixHomeClient } from "./home-client";
+import { workErrorDetails, workErrorReason } from "./work-error";
 
 /**
  * Split a one-shot prompt that is really a slash command into its name and
@@ -157,12 +158,29 @@ function improveCliErrorMessage(message: string): string {
 	return message;
 }
 
-export function formatCliError(argv: string[], message: string): string {
+export function formatCliError(
+	argv: string[],
+	message: string,
+	error?: unknown,
+): string {
 	const separator = argv.indexOf("--");
 	const flags = separator < 0 ? argv : argv.slice(0, separator);
-	return flags.includes("--json") || flags.includes("--json=true")
-		? JSON.stringify({ error: message })
-		: message;
+	const json = flags.includes("--json") || flags.includes("--json=true");
+	const commands = flags.filter(
+		(arg, index) =>
+			!arg.startsWith("-") &&
+			!["-w", "--workspace", "--organization"].includes(flags[index - 1] ?? ""),
+	);
+	if (commands[0] === "work") {
+		const details = workErrorDetails(
+			{ message, reason: workErrorReason(error) },
+			/^[0-9a-f-]{36}$/i.test(commands[2] ?? "") ? commands[2] : undefined,
+		);
+		return json
+			? JSON.stringify({ error: message, ...details })
+			: `[${details.reason}] ${message}\n${details.nextCommands.map((command) => `Next: ${command}`).join("\n")}`;
+	}
+	return json ? JSON.stringify({ error: message }) : message;
 }
 
 async function main() {
@@ -256,7 +274,7 @@ if (import.meta.main) {
 	main().catch(async (error) => {
 		const { errorText } = await import("./format");
 		const message = improveCliErrorMessage(errorText(error));
-		console.error(formatCliError(argv, message));
+		console.error(formatCliError(argv, message, error));
 		process.exit(1);
 	});
 }
