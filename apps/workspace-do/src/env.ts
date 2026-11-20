@@ -32,6 +32,8 @@ export interface TurnRequest {
 	 * when it can, otherwise the workspace agent with a line saying why.
 	 */
 	defaultTedi?: boolean;
+	/** The previous answerer handed this turn over; it cannot hand over again. */
+	handedFrom?: { tediId: string | null };
 	/** The workspace app the person asked from; shown under their message. */
 	fromAppId?: string;
 	/** Force the turn into its own facet (long or risky work). */

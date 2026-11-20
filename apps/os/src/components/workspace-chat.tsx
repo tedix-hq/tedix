@@ -958,7 +958,11 @@ function TurnView({
 			data-testid="workspace-chat-turn"
 		>
 			{turn.summarizedEarlier ? <SummarisedMarker /> : null}
-			{turn.text ? (
+			{turn.handedFrom ? (
+				<Text role="caption" tone="secondary">
+					{turn.text}
+				</Text>
+			) : turn.text ? (
 				<>
 					{turn.authorId ? (
 						<WorkspaceChatAuthor

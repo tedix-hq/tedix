@@ -72,6 +72,11 @@ export type WireEventBody =
 			respondingTediId?: string | null;
 			/** Why the workspace agent answers instead of the default tedi. */
 			answererNote?: string;
+			/**
+			 * Set when the previous answerer handed this turn over: that tedi, or
+			 * null for the workspace agent. `displayText` is the one-line note.
+			 */
+			handedFrom?: { tediId: string | null };
 	  }
 	| ({
 			/**
@@ -472,6 +477,7 @@ export function stepLabel(
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },
 		person: { memory: "Reading your personal memory" },
+		chat: { handTo: "Handing the conversation to a tedi" },
 		tedi: {
 			list: "Looking up the tedi's skills and tools",
 			describe: "Reading a tool's arguments",

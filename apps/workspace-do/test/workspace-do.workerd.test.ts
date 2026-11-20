@@ -3942,6 +3942,112 @@ describe("WorkspaceDO", () => {
 		);
 	});
 
+	describe("handing the conversation to a tedi", () => {
+		const handOff = async (tedi: string) => {
+			const now = "2026-11-20T10:00:00.000Z";
+			const own = {
+				organizationId: "org_hand_off",
+				workspaceId: crypto.randomUUID(),
+			};
+			await seedCore();
+			await seedWorkspaceRows([own]);
+			const row = (id: string, name: string, kind: string, owner: string) =>
+				testEnv.DB.prepare(
+					`INSERT OR REPLACE INTO tedis (id, organization_id, name, slug, scope, owner_user_id, status, isolate_agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+				).bind(
+					id,
+					own.organizationId,
+					name,
+					id,
+					kind,
+					owner,
+					`${id}-object`,
+					now,
+					now,
+				);
+			await testEnv.DB.batch([
+				row("builder", "Builder", "organization", ""),
+				row("u2-personal", "Sam's tedi", "personal", "u2"),
+			]);
+			const ws = workspace(own);
+			// The handed turn replays this script, so it tries to hand off too.
+			await ws.scriptModel(own, [
+				{
+					code: `export default async ({chat}) => chat.handTo({ tedi: ${JSON.stringify(tedi)}, message: "They want a budget app." })`,
+				},
+				{ text: "Over to Builder." },
+			]);
+			const first = await ws.sendTurn(own, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Build me a budget app",
+			});
+			await ws.awaitTurn(own, first.turnId, 20_000);
+			const read = () =>
+				ws.readEvents(own, { conversationId: first.conversationId });
+			return { own, ws, first, read };
+		};
+		const handedTurn = async ({
+			own,
+			ws,
+			read,
+		}: Awaited<ReturnType<typeof handOff>>) => {
+			const started = await vi.waitFor(
+				async () => {
+					const turns = (await read()).filter(
+						(event) => event.type === "turn.started",
+					);
+					expect(turns).toHaveLength(2);
+					return turns[1]!;
+				},
+				{ timeout: 20_000, interval: 100 },
+			);
+			await ws.awaitTurn(own, started.turnId!, 20_000);
+			return started;
+		};
+
+		test("the named tedi answers the next turn for the same sender", async () => {
+			const setup = await handOff("Builder");
+			const { own, ws } = setup;
+			expect(await handedTurn(setup)).toMatchObject({
+				authorId: "u1",
+				authorKind: "person",
+				respondingTediId: "builder",
+				handedFrom: { tediId: null },
+				displayText: "Handed to Builder: They want a budget app.",
+				text: expect.stringContaining("Build me a budget app"),
+			});
+			expect((await ws.readSystemPrompts(own)).at(-1)).toMatch(
+				/^You are tedi builder\./,
+			);
+		});
+
+		test("a tedi the sender may not pick is refused", async () => {
+			const { read } = await handOff("Sam's tedi");
+			const events = await read();
+			expect(JSON.stringify(events)).toContain(
+				"is not a tedi the person who sent this message may pick",
+			);
+			expect(
+				events.filter((event) => event.type === "turn.started"),
+			).toHaveLength(1);
+		});
+
+		test("a handed turn cannot hand off again", async () => {
+			const setup = await handOff("Builder");
+			const handed = await handedTurn(setup);
+			const events = await setup.read();
+			const handedSteps = events.filter(
+				(event) =>
+					event.type === "step.finished" && event.turnId === handed.turnId,
+			);
+			expect(JSON.stringify(handedSteps)).toContain("once per message");
+			expect(
+				events.filter((event) => event.type === "turn.started"),
+			).toHaveLength(2);
+		});
+	});
+
 	test("a retried socket send keeps one turn and conversation", async () => {
 		await seedCore();
 		const scope = {
