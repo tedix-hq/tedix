@@ -53,7 +53,7 @@ function cannotUpdate(): string | undefined {
 	return undefined;
 }
 
-function isNewer(candidate: string, current: string): boolean {
+export function isNewer(candidate: string, current: string): boolean {
 	const a = candidate.split(".").map(Number);
 	const b = current.split(".").map(Number);
 	for (let part = 0; part < 3; part++)

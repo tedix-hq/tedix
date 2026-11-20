@@ -1,3 +1,4 @@
+import type { CliState } from "./cli";
 import type { SetupAction, SetupState } from "./setup";
 import type { Status } from "./status";
 
@@ -13,11 +14,12 @@ export interface PanelState {
 }
 
 /**
- * `setup-window` opens the Set up this Mac window; `close-setup` closes it
+ * `cli-update` looks for a newer command-line tool now. `setup-window` opens the Set up this Mac window; `close-setup` closes it
  * and shows Tedix; `done-setup` only closes it.
  */
 export type PanelAction =
 	| "restart"
+	| "cli-update"
 	| "setup-window"
 	| "close-setup"
 	| "done-setup";
@@ -40,4 +42,21 @@ export interface PanelApi {
 	open(link: PanelLink): Promise<void>;
 	openAtLogin(on: boolean): Promise<void>;
 	onState(listener: (state: PanelState) => void): void;
+}
+
+/**
+ * The line both windows show about a newer command-line tool: what the app
+ * is doing now, or how its last look ended and how long ago.
+ */
+export function cliUpdateLine(cli: CliState, now = Date.now()): string {
+	if (cli.updating) return cli.updating;
+	if (!cli.update) return "";
+	const minutes = Math.floor((now - cli.update.at) / 60_000);
+	const ago =
+		minutes < 2
+			? "a moment ago"
+			: minutes < 90
+				? `${minutes} minutes ago`
+				: `${Math.round(minutes / 60)} hours ago`;
+	return `${cli.update.text} (${ago})`;
 }

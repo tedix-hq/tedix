@@ -1,4 +1,4 @@
-import type { PanelApi, PanelState } from "./api";
+import { cliUpdateLine, type PanelApi, type PanelState } from "./api";
 import { icon, type IconName } from "./icons";
 import type { StepRun, ToolRow } from "./setup";
 
@@ -761,9 +761,37 @@ function screenFor(id: StepId, now: PanelState): Screen {
 					: cli.kind === "own"
 						? `Installed on this Mac · version ${cli.version}`
 						: "Not found";
+		// What the app last did about a newer version, with the button to look now.
+		const failed = cli.update?.ok === false && !cli.updating;
+		const look = cli.updating
+			? el("span", "spinner")
+			: button(
+					failed ? "Retry" : "Check for command-line tool update",
+					"plain",
+					() => void tedixShell.action("cli-update"),
+				);
+		const updateLine =
+			cliUpdateLine(cli) ||
+			"The app looks for a newer version when it starts and every four hours. Putting one in place restarts the background service, so the app waits until no task is running, for up to 30 minutes.";
+		const updates =
+			cli.kind !== "missing" &&
+			cli.kind !== "own" &&
+			(failed
+				? el("div", "problem", el("p", "", updateLine), el("div", "row", look))
+				: el("div", "row", el("span", "", updateLine), look));
+		const about =
+			cli.kind === "missing"
+				? (cli.problem ??
+					"Install the Tedix app from its download, then open it again.")
+				: cli.kind === "separate"
+					? "The app can use its own copy instead. Your install is kept and can be put back. This restarts the background service, which stops tasks that are running, and macOS may ask again to allow access to your folders."
+					: serviceVersion(now).join(" ");
+		const note = el("div", "", about && el("div", "", about), updates);
+		note.style.display = "grid";
+		note.style.gap = "8px";
 		return {
 			title: "Command-line tool",
-			lead: "Your coding tools talk to Tedix through a small command called tedix. It comes with this app, and the app keeps it up to date.",
+			lead: "Your coding tools talk to Tedix through a small command called tedix. It comes with this app, and the app keeps it up to date between app updates.",
 			content: [
 				card({
 					key: "cli",
@@ -781,13 +809,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 								button("Use the separate install", "quiet", () =>
 									act("restore-cli"),
 								),
-					note:
-						cli.kind === "missing"
-							? (cli.problem ??
-								"Install the Tedix app from its download, then open it again.")
-							: cli.kind === "separate"
-								? "The app can use its own copy instead. Your install is kept and can be put back. This restarts the background service, which stops tasks that are running, and macOS may ask again to allow access to your folders."
-								: serviceVersion(now).join(" "),
+					note,
 					ran,
 					retry: () =>
 						act(cli.kind === "separate" ? "manage-cli" : "restore-cli"),
