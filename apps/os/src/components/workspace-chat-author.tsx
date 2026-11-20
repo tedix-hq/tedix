@@ -3,6 +3,25 @@ import { Text } from "@/components/kumo/text";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { EntityAvatar } from "@/shared/entity-avatar";
 
+/** The name and picture of a person or tedi who wrote in a workspace chat. */
+export function useWorkspaceChatAuthor(
+	id: string,
+	kind: "person" | "tedi",
+	tediNames: Record<string, string>,
+) {
+	const directory = useContext(WorkActorDirectoryContext);
+	const profile =
+		kind === "tedi"
+			? directory.get(`tedi:${id}`)
+			: (directory.get(`user:${id}`) ?? directory.get(`external_agent:${id}`));
+	return {
+		name:
+			profile?.name ??
+			(kind === "tedi" ? (tediNames[id] ?? "Tedi") : "Workspace member"),
+		image: profile?.image,
+	};
+}
+
 export function WorkspaceChatAuthor({
 	id,
 	kind,
@@ -12,21 +31,14 @@ export function WorkspaceChatAuthor({
 	kind: "person" | "tedi";
 	tediNames: Record<string, string>;
 }) {
-	const directory = useContext(WorkActorDirectoryContext);
-	const profile =
-		kind === "tedi"
-			? directory.get(`tedi:${id}`)
-			: (directory.get(`user:${id}`) ?? directory.get(`external_agent:${id}`));
-	const name =
-		profile?.name ??
-		(kind === "tedi" ? (tediNames[id] ?? "Tedi") : "Workspace member");
+	const { name, image } = useWorkspaceChatAuthor(id, kind, tediNames);
 	return (
 		<div className="workspace-chat-author">
 			<EntityAvatar
 				id={id}
 				kind={kind}
 				name={name}
-				image={profile?.image}
+				image={image}
 				className="size-6"
 			/>
 			<Text as="span" role="caption" tone="secondary">

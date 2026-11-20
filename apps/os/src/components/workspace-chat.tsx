@@ -226,6 +226,7 @@ export function WorkspaceChat({
 	useEffect(() => {
 		onConversations?.(state.conversations);
 	}, [onConversations, state.conversations]);
+	const tediNames = useTediNames();
 	const modelPreference = useChatModelPreference();
 	const [pickedModel, setPickedModel] = useState<{
 		conversationId: string | null;
@@ -546,6 +547,7 @@ export function WorkspaceChat({
 				conversationId={state.conversationId ?? conversationId}
 				run={state.approvalRun}
 				notice={state.approvalNotice}
+				tediNames={tediNames}
 				onDecide={(approvalId, decision) =>
 					client?.decideApproval(approvalId, decision)
 				}
@@ -841,6 +843,13 @@ function TurnView({
 			) : null}
 			<AddedMessages messages={turn.added} tediNames={tediNames} />
 			<div className="workspace-chat-reply" key={turn.replyKey}>
+				{turn.respondingTediId ? (
+					<WorkspaceChatAuthor
+						id={turn.respondingTediId}
+						kind="tedi"
+						tediNames={tediNames}
+					/>
+				) : null}
 				{turn.steps.length > 0 ? (
 					<Activity steps={turn.steps} approvals={turn.approvals} />
 				) : null}
