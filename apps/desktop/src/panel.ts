@@ -238,13 +238,6 @@ function draw(state: PanelState) {
 			"div",
 			"buttons",
 			restart(),
-			button(
-				cli.offer
-					? `Update command-line tool to ${cli.offer}`
-					: "Check for command-line tool update",
-				busy || !!cli.updating,
-				() => void tedixShell.action(cli.offer ? "cli-update" : "cli-check"),
-			),
 			cli.other &&
 				button(
 					`Go back to version ${cli.other}`,

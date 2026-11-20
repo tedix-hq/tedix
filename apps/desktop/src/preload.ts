@@ -12,5 +12,12 @@ const api: PanelApi = {
 	onState: (listener) => {
 		ipcRenderer.on("state", (_event, state) => listener(state));
 	},
+	applyUpdate: () => ipcRenderer.invoke("update-apply"),
+	updateSize: (width, height) =>
+		ipcRenderer.invoke("update-size", width, height),
+	onUpdate: (listener) => {
+		ipcRenderer.on("update", (_event, view) => listener(view));
+		ipcRenderer.send("update-ready");
+	},
 };
 contextBridge.exposeInMainWorld("tedixShell", api);

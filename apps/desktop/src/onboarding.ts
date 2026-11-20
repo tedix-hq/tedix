@@ -760,30 +760,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 					: cli.kind === "own"
 						? `Installed on this Mac · version ${cli.version}`
 						: "Not found";
-		// A newer version is offered and the kept one can be put back; both
-		// stop running tasks, so neither happens without the person's click.
+		// Versions and state only: the update button in the main window is the
+		// one place that replaces the command-line tool.
 		const failed = cli.update?.ok === false && !cli.updating;
-		const choices = cli.updating
-			? [el("span", "spinner")]
-			: [
-					button(
-						cli.offer
-							? `Update command-line tool to ${cli.offer}`
-							: "Check for command-line tool update",
-						"plain",
-						() =>
-							void tedixShell.action(cli.offer ? "cli-update" : "cli-check"),
-					),
-					cli.other &&
-						button(
-							`Go back to version ${cli.other}`,
-							"quiet",
-							() => void tedixShell.action("cli-back"),
-						),
-				];
 		const updateLine = [
 			cliUpdateLine(cli) ||
-				"The app looks for a newer version when it starts and every four hours, and offers it here. It replaces the command-line tool only when you choose to: tasks running on this Mac stop, and macOS may ask again for access to your folders.",
+				"The app looks for a newer version when it starts and every four hours. When there is one, an Update available button appears at the top right of the Tedix window. Nothing is replaced until you click it.",
 			cli.other && `Version ${cli.other} is kept.`,
 		]
 			.filter(Boolean)
@@ -793,9 +775,9 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			cli.kind !== "own" &&
 			el(
 				"div",
-				failed ? "problem" : "",
+				failed ? "problem" : "row",
+				cli.updating && el("span", "spinner"),
 				el(failed ? "p" : "div", "", updateLine),
-				el("div", "row", ...choices),
 			);
 		const access =
 			cli.access &&
