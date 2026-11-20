@@ -18,6 +18,17 @@ import {
 	type ModelFallbackStep,
 } from "@tedix/api-contract/schemas/model-fallback";
 import { nativeToolAutonomy } from "./native-tool-autonomy";
+import {
+	guestToolCatalog,
+	guestToolRun,
+	guestTurnLearn,
+	type GuestTurnHost,
+} from "./guest-turn";
+import type {
+	GuestToolCatalogInput,
+	GuestToolRunInput,
+	GuestTurnLearnInput,
+} from "@tedix/api-contract/schemas/tedi-guest-turn";
 import { createR2SqlTools } from "./r2-sql-tools";
 import {
 	type InboundEmailPayload,
@@ -2477,6 +2488,30 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			systemPrompt,
 			addenda: [addenda, coreMemory].filter(Boolean).join("\n\n"),
 		};
+	}
+
+	/**
+	 * Guest turns on the workspace chat loop: the tedi's own skills and
+	 * connected tools, and learning from the finished turn. See `guest-turn.ts`.
+	 */
+	private guestTurnHost(): GuestTurnHost {
+		const parent = this;
+		return {
+			ensureIdentity: (hints) => parent.ensureIdentity(hints),
+			getPlatformClient: () => parent.getPlatformClient(),
+			getMcpRuntime: () => parent.getMcpRuntime(),
+			dispatchTurnMemoryEffects: (input) =>
+				parent.dispatchTurnMemoryEffects(input),
+		};
+	}
+	async guestToolCatalog(input: GuestToolCatalogInput) {
+		return guestToolCatalog.call(this.guestTurnHost(), input);
+	}
+	async guestToolRun(input: GuestToolRunInput) {
+		return guestToolRun.call(this.guestTurnHost(), input);
+	}
+	async guestTurnLearn(input: GuestTurnLearnInput) {
+		return guestTurnLearn.call(this.guestTurnHost(), input);
 	}
 
 	// ===========================================================================
