@@ -141,9 +141,12 @@ export const memoryFacts = sqliteTable(
 			sql`datetime(${table.validTo})`,
 		),
 		index("idx_memory_facts_status").on(table.status),
-		index("idx_memory_facts_org_domain").on(
+		index("idx_memory_facts_org_domain_live").on(
 			table.organizationId,
 			table.domainId,
+			table.archivedAt,
+			table.validTo,
+			table.createdAt,
 		),
 		index("idx_memory_facts_visibility").on(table.visibility),
 		index("idx_memory_facts_priority").on(table.priority),
@@ -151,6 +154,11 @@ export const memoryFacts = sqliteTable(
 			table.organizationId,
 			table.topicKey,
 		),
+		index("idx_memory_facts_org_confirmed_lessons")
+			.on(table.organizationId, table.topicKey)
+			.where(
+				sql`review_status = 'confirmed' AND status = 'active' AND archived_at IS NULL AND valid_to IS NULL`,
+			),
 		index("idx_memory_facts_scope").on(table.organizationId, table.memoryScope),
 		index("idx_memory_facts_flywheel_created").on(
 			table.organizationId,
@@ -198,6 +206,11 @@ export const memoryFacts = sqliteTable(
  * (`MEMORY_FACT_ORG_COUNT_TRIGGERS`); a workspace store holds one organization.
  */
 export const memoryFactOrgCounts = sqliteTable("memory_fact_org_counts", {
+	organizationId: text("organization_id").primaryKey(),
+	total: integer("total").notNull().default(0),
+});
+
+export const memoryEdgeOrgCounts = sqliteTable("memory_edge_org_counts", {
 	organizationId: text("organization_id").primaryKey(),
 	total: integer("total").notNull().default(0),
 });
