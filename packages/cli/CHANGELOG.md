@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.27.0 — 2026-11-20
+
+### Minor Changes
+
+- A machine keeps one open connection to Tedix for machine tool calls where the server offers it, so a call arrives at once instead of at the next poll. The machine keeps polling when the server offers no connection or the connection drops.
+
+### Patch Changes
+
+- A run that asks a question no longer holds its place on the runner while it waits. When the answer arrives, the same agent session continues under a new attempt.
+- When the runner skips the same task on several passes in a row, it reports the reason for that task, so whoever supervises it can see why it is not starting.
+- The runner reports the CLI version it runs, so it shows in the machine list.
+
 ## 0.26.1 — 2026-11-19
 
 ### Patch Changes
