@@ -9,6 +9,10 @@ is kept, not deleted; storage is cheap. Two goals matter:
 - it can be exported as evidence for partners and audits, with EU data
   residency.
 
+The rotating logs databases plus the EU archive are the interim history
+tier; the target is one log store per organization
+([organization log store](organization-log-store.md), Work c5642d65).
+
 Fitting the main database under 10 GB is not the goal; moving older rows
 out of it keeps it fast. The note builds on
 [D1 log storage](d1-log-storage.md), which describes the current second
