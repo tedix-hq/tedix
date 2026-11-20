@@ -143,7 +143,14 @@ describe("run-local options", () => {
 	test("rejects an occupied MCP port before installing or writing local state", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "tedix-local-mcp-port-"));
 		const mcpServer = await listenOnEphemeralPort();
+		const [apiServer, osServer] = await Promise.all([
+			listenOnEphemeralPort(),
+			listenOnEphemeralPort(),
+		]);
 		const mcpPort = serverPort(mcpServer);
+		const apiPort = serverPort(apiServer);
+		const osPort = serverPort(osServer);
+		await Promise.all([closeServer(apiServer), closeServer(osServer)]);
 		const child = Bun.spawn(
 			[process.execPath, join(import.meta.dir, "run-local.ts")],
 			{
@@ -151,7 +158,9 @@ describe("run-local options", () => {
 				env: {
 					...process.env,
 					TEDIX_LOCAL_PERSIST_TO: cwd,
+					TEDIX_LOCAL_API_PORT: String(apiPort),
 					TEDIX_LOCAL_MCP_PORT: String(mcpPort),
+					TEDIX_LOCAL_OS_PORT: String(osPort),
 				},
 				stdout: "pipe",
 				stderr: "pipe",
