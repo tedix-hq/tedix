@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	formatWorkGraphStewardSummary,
 	runRetentionCleanupCron,
+	runRetentionSteps,
 } from "./retention-cleanup";
 
 describe("retention cleanup work-graph logging", () => {
@@ -67,6 +68,8 @@ vi.mock("@tedix/db/queries/platform-cron-executions", () => ({
 	PLATFORM_CRON_RECEIPT_RETENTION_DAYS: 90,
 	prunePlatformCronExecutions: vi.fn().mockResolvedValue(0),
 	terminalizeAbandonedPlatformCronExecutions: vi.fn().mockResolvedValue(2),
+	getPlatformCronCheckpoint: vi.fn().mockResolvedValue(null),
+	putPlatformCronCheckpoint: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@tedix/db/queries/catalog/create-base-app", () => ({
 	backfillCatalogBaseAppAutoSync: vi.fn().mockResolvedValue(0),
@@ -366,4 +369,65 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 	} finally {
 		sqlite.close();
 	}
+});
+
+describe("retention step runner", () => {
+	it("finishes on a hung step, records what did not run and resumes there next time", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		let clock = 0;
+		const ran: string[] = [];
+		const step = (
+			id: string,
+			run: () => Promise<Record<string, number> | void>,
+		) => ({
+			id,
+			run: async () => {
+				ran.push(id);
+				return run();
+			},
+		});
+		const steps = [
+			step("a", async () => ({ aDeleted: 1 })),
+			step("hangs", () => new Promise(() => {})),
+			step("throws", async () => {
+				throw new Error("boom");
+			}),
+			step("slow", async () => {
+				clock += 100;
+			}),
+			step("never", async () => ({ neverDeleted: 1 })),
+		];
+
+		const first = await runRetentionSteps(steps, {
+			deadlineMs: 100,
+			stepCapMs: 5,
+			minStepMs: 10,
+			now: () => clock,
+		});
+
+		expect(ran).toEqual(["a", "hangs", "throws", "slow"]);
+		expect(first.counts).toMatchObject({
+			stepsCompleted: 2,
+			stepsFailed: 1,
+			stepsTimedOut: 1,
+			stepsSkipped: 1,
+			"timedOut:hangs": 1,
+			"failed:throws": 1,
+			"skipped:never": 1,
+			aDeleted: 1,
+		});
+		expect(first.nextStepId).toBe("hangs");
+
+		ran.length = 0;
+		clock = 0;
+		const second = await runRetentionSteps(steps.slice(2), {
+			deadlineMs: 1_000,
+			firstStepId: "never",
+			stepCapMs: 5,
+			minStepMs: 10,
+			now: () => clock,
+		});
+		expect(ran).toEqual(["never", "throws", "slow"]);
+		expect(second.nextStepId).toBe("throws");
+	});
 });
