@@ -47,6 +47,7 @@ import {
 	stageConnectTicket,
 } from "./connections/connect-tickets";
 import { settleOutboundOAuth } from "./connections/outbound-oauth-settle";
+import { saveExportToDrive } from "./connections/drive-export";
 import { connectionsOs } from "./connections/policy-resolution";
 
 // =============================================================================
@@ -60,6 +61,7 @@ export const connectionsContractRouter = connectionsOs.router({
 	setConsumerGrants,
 	createConnectionInstance,
 	renameConnectionInstance,
+	saveExportToDrive,
 	setConnectionAccessCheck,
 	preparePersonalConnection,
 	stageConnectTicket,

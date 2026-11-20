@@ -24,6 +24,11 @@ import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
 import { subscribeOutputRevisionNotices } from "@/lib/output-revision-notices";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import { CanvasWorkpieceExportMenu } from "@/components/canvas-workpiece-tabs";
+import {
+	type DriveSaveTarget,
+	saveExportToDrive,
+	useDriveSaveTargets,
+} from "@/components/save-to-drive";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import {
 	AppRuntimeErrorBar,
@@ -772,9 +777,13 @@ function AppRuntimeExportActions({
 	const active = useRef<AbortController | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [failed, setFailed] = useState(false);
+	const driveTargets = useDriveSaveTargets();
 	useLayoutEffect(() => () => active.current?.abort(), []);
 
-	async function exportFile(format: AppRuntimeExportFormat) {
+	async function exportFile(
+		format: AppRuntimeExportFormat,
+		drive?: DriveSaveTarget,
+	) {
 		if (active.current) return;
 		const proxy = frameHolder.current?.querySelector<HTMLIFrameElement>(
 			':scope > [data-app-runtime-frame][data-state="ready"] iframe',
@@ -788,7 +797,19 @@ function AppRuntimeExportActions({
 		setBusy(true);
 		setFailed(false);
 		try {
-			await requestAppRuntimeExport(proxy, format, appName, request.signal);
+			await requestAppRuntimeExport(
+				proxy,
+				format,
+				appName,
+				request.signal,
+				drive
+					? ({ text, ...file }) =>
+							saveExportToDrive(drive, {
+								...file,
+								content: { encoding: "text", text },
+							})
+					: undefined,
+			);
 		} catch {
 			if (!request.signal.aborted) setFailed(true);
 		} finally {
@@ -808,6 +829,8 @@ function AppRuntimeExportActions({
 					formats={formats}
 					busy={busy}
 					onExport={exportFile}
+					driveTargets={driveTargets}
+					onSaveToDrive={exportFile}
 				/>
 			</div>
 			{children}

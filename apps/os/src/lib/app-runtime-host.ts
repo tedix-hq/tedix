@@ -268,12 +268,23 @@ function downloadAppText(
 	return safeFilename;
 }
 
-/** Request a download from the already running app, through its own sandbox proxy. */
+/** A file the running app exported, before it is downloaded or saved elsewhere. */
+export type AppRuntimeExportedFile = {
+	fileName: string;
+	mimeType: AppRuntimeExportFormat["mimeType"];
+	text: string;
+};
+
+/**
+ * Request an export from the already running app, through its own sandbox
+ * proxy. The file downloads unless the caller delivers it somewhere else.
+ */
 export async function requestAppRuntimeExport(
 	proxy: Window,
 	format: AppRuntimeExportFormat,
 	appName: string,
 	signal: AbortSignal,
+	deliver?: (file: AppRuntimeExportedFile) => Promise<void>,
 ): Promise<void> {
 	const text = await new Promise<string>((resolve, reject) => {
 		const id = crypto.randomUUID();
@@ -325,11 +336,9 @@ export async function requestAppRuntimeExport(
 	});
 	signal.throwIfAborted();
 	const extension = APP_RUNTIME_DOWNLOAD_EXTENSIONS[format.mimeType];
-	downloadAppText(
-		`${appName.slice(0, 190)}.${extension}`,
-		format.mimeType,
-		text,
-	);
+	const fileName = `${appName.slice(0, 190)}.${extension}`;
+	if (deliver) await deliver({ fileName, mimeType: format.mimeType, text });
+	else downloadAppText(fileName, format.mimeType, text);
 }
 
 /** Answer one call from the sandboxed client. Every branch is the matrix's decision, not the app's. */
