@@ -1946,6 +1946,12 @@ export function CanvasPage({
 	}, [attachOutputId, workspaceId]);
 
 	/* The file a selected app edits, when it is a Doc, Sheet or Slides editor. */
+	const selectedEditedOutputId = useMemo(() => {
+		if (selectedDoc?.type !== "gadget") return null;
+		for (const [outputId, gadgetId] of outputEditors)
+			if (gadgetId === selectedDoc.id) return outputId;
+		return null;
+	}, [outputEditors, selectedDoc]);
 	const selectedFileEditorKind = useMemo(() => {
 		if (selectedDoc?.type !== "gadget") return null;
 		for (const [outputId, gadgetId] of outputEditors) {
@@ -2652,13 +2658,16 @@ export function CanvasPage({
 						workspaceName={selectedWorkspace.name}
 						visibility={selectedWorkspace.visibility}
 						item={
-							selectedDoc && selectedDoc.type !== "repository"
-								? {
-										type: selectedDoc.type,
-										id: selectedDoc.id,
-										onOpenReview: () => selectWorkpieceMode("activity"),
-									}
-								: undefined
+							// A file open in its editor shares the file, not the editor app.
+							selectedEditedOutputId
+								? { type: "output", id: selectedEditedOutputId }
+								: selectedDoc && selectedDoc.type !== "repository"
+									? {
+											type: selectedDoc.type,
+											id: selectedDoc.id,
+											onOpenReview: () => selectWorkpieceMode("activity"),
+										}
+									: undefined
 						}
 						initialScope="item"
 						open
