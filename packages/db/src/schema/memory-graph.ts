@@ -236,9 +236,18 @@ export const memoryFacts = sqliteTable(
 			sql`datetime(${table.validTo})`,
 		),
 		index("idx_memory_facts_status").on(table.status),
-		index("idx_memory_facts_org_domain").on(
+		// Same-domain linkage lookup (countLinkableSameDomainFacts) on every
+		// learned fact: the newest live facts of one domain. All columns before
+		// `created_at` are equalities (`IS NULL` counts), so SQLite walks the
+		// index in ORDER BY order and stops at the LIMIT. Over
+		// (organization_id, domain_id) alone it read and sorted every fact of
+		// the domain: 87k rows per call on 19 Nov 2026.
+		index("idx_memory_facts_org_domain_live").on(
 			table.organizationId,
 			table.domainId,
+			table.archivedAt,
+			table.validTo,
+			table.createdAt,
 		),
 		index("idx_memory_facts_visibility").on(table.visibility),
 		index("idx_memory_facts_priority").on(table.priority),
