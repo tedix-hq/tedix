@@ -45,12 +45,13 @@ CREATE INDEX IF NOT EXISTS workspace_memory_review ON workspace_memory_revisions
 			snapshot.key,
 		);
 		const revision: MemoryRevision = {
+			...snapshot,
 			revisionId: crypto.randomUUID(),
 			key: snapshot.key,
 			revision: (head?.revision ?? 0) + 1,
 			value: snapshot.value,
 			hash,
-			writtenAt: new Date().toISOString(),
+			writtenAt: snapshot.writtenAt ?? new Date().toISOString(),
 			provenance: snapshot.provenance,
 			review: snapshot.review ?? "pending",
 			...(rolledBackFrom ? { rolledBackFrom } : {}),

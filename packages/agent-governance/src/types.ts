@@ -336,6 +336,8 @@ export interface MemoryProvenance {
 	source: Source;
 	/** Ledger row that recorded this write. */
 	changeRecordId?: string;
+	/** Prior stores and their local revision ids, oldest transfer first. */
+	importedFrom?: Array<{ store: string; revisionId: string }>;
 }
 
 export interface MemoryRevision {
@@ -363,7 +365,12 @@ export interface MemoryEntry {
 	approved?: MemoryRevision;
 }
 
-export interface MemoryWriteInput {
+export interface MemoryWriteInput extends Partial<
+	Pick<
+		MemoryRevision,
+		"writtenAt" | "reviewedBy" | "reviewedAt" | "reviewNote" | "rolledBackFrom"
+	>
+> {
 	key: string;
 	value: unknown;
 	provenance: MemoryProvenance;
@@ -372,6 +379,7 @@ export interface MemoryWriteInput {
 }
 
 export interface MemoryAdapter {
+	/** Preserve supplied history metadata; allocate a new local revision id and number. */
 	write(input: MemoryWriteInput): Promise<MemoryRevision>;
 	read(key: string): Promise<MemoryEntry | null>;
 	list(prefix?: string): Promise<MemoryEntry[]>;

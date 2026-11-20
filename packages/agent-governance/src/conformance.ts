@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { guardedCall, CallRefusedError } from "./wrap-binding";
+import { exportMemory, importMemory } from "./memory-transfer";
 import type {
 	ApprovalEvidence,
 	CallDescription,
@@ -79,6 +80,46 @@ export function describeGovernanceConformance(
 			expect((await memory.list("literal%_\\")).map((e) => e.key)).toEqual([
 				"literal%_\\",
 			]);
+		});
+		it("copies memory history with hashes, review metadata and local rollback links", async () => {
+			const source = build().memory;
+			const first = await source.write({
+				key: "key",
+				value: { mode: "careful" },
+				provenance,
+			});
+			await source.review(first.revisionId, "approve", actor, "Checked");
+			await source.rollback("key", first.revisionId, provenance);
+			const destination = build().memory;
+			expect(
+				await importMemory(
+					destination,
+					await exportMemory(source),
+					"source-store",
+				),
+			).toBe(2);
+			const history = await destination.history("key");
+			expect(history.map((row) => row.hash)).toEqual(
+				(await source.history("key")).map((row) => row.hash),
+			);
+			expect(history[0]).toMatchObject({
+				revision: 1,
+				review: "approved",
+				reviewedBy: actor.id,
+				reviewNote: "Checked",
+				writtenAt: first.writtenAt,
+				provenance: {
+					...provenance,
+					importedFrom: [
+						{ store: "source-store", revisionId: first.revisionId },
+					],
+				},
+			});
+			expect(history[1]).toMatchObject({
+				revision: 2,
+				review: "approved",
+				rolledBackFrom: history[0]!.revisionId,
+			});
 		});
 		it("records allowed, refused and uncertain calls in an immutable ordered ledger", async () => {
 			const adapters = build();
