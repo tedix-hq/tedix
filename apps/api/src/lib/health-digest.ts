@@ -315,10 +315,11 @@ export function formatGatewayReconciliation(
 	if (totals.length === 0) return null;
 	const day = totals[0]!.day;
 	return `LEDGER VS AI GATEWAY (${day}):\n${totals
-		.map(
-			(row) =>
-				`  • ${row.provider}: ledger ${usd(row.ledgerCostMicros)}, gateway ${usd(row.gatewayCostMicros)}, difference ${usd(row.differenceMicros)} — ${row.status}`,
-		)
+		.map((row) => {
+			const c = row.coverage;
+			if (!c) return `  • ${row.provider}: call coverage not yet checked`;
+			return `  • ${row.provider}: ${c.missingCallCount} missing calls, gateway estimate ${usd(c.missingCostMicros)} (${c.missingUnpricedCallCount} unpriced); tokens ${c.tokenMismatchCallCount} mismatches / ${c.tokenCheckedCallCount} checked (${c.tokenUnknownCallCount} unknown); platform overhead ${c.platformOverheadCallCount} calls, ${usd(c.platformOverheadCostMicros)}`;
+		})
 		.join("\n")}`;
 }
 
@@ -332,8 +333,8 @@ function driftBucketRank(differenceMicros: number): number {
 
 /**
  * Billing health conditions from the latest ledger-vs-Gateway reconciliation.
- * Drift is judged per provider-day total (`model = ''`); one-sided cost per
- * model. A reconciliation older than two closed days is itself a condition, so
+ * Only proven missing charges alert, once per provider-day total (`model = ''`).
+ * A reconciliation older than two closed days is itself a condition, so
  * a stopped job cannot silently resolve an open drift.
  */
 export function gatewayReconciliationHealthConditions(
@@ -357,36 +358,13 @@ export function gatewayReconciliationHealthConditions(
 	}
 	const conditions: HealthCondition[] = [];
 	for (const row of rows) {
-		if (row.model !== "" || row.status !== "drift") continue;
+		const c = row.coverage;
+		if (row.model !== "" || !c || c.missingCallCount === 0) continue;
 		conditions.push({
 			key: `${GATEWAY_RECONCILIATION_CONDITION_PREFIX}drift:${row.provider}`,
 			severity: "P2",
-			bucketRank: driftBucketRank(row.differenceMicros),
-			detail: `${row.provider} cost drift on ${day}: ledger ${usd(row.ledgerCostMicros)} vs AI Gateway ${usd(row.gatewayCostMicros)} (difference ${usd(row.differenceMicros)})`,
-		});
-	}
-	const oneSided = rows.filter(
-		(row) =>
-			row.model !== "" &&
-			(row.status === "ledger_only" || row.status === "gateway_only"),
-	);
-	if (oneSided.length > 0) {
-		const totalMicros = oneSided.reduce(
-			(sum, row) => sum + Math.abs(row.differenceMicros),
-			0,
-		);
-		const listed = oneSided
-			.slice(0, 5)
-			.map(
-				(row) =>
-					`${row.provider}/${row.model} ${row.status === "ledger_only" ? "ledger" : "gateway"} ${usd(Math.abs(row.differenceMicros))}`,
-			)
-			.join(", ");
-		conditions.push({
-			key: `${GATEWAY_RECONCILIATION_CONDITION_PREFIX}one-sided`,
-			severity: "P2",
-			bucketRank: driftBucketRank(totalMicros),
-			detail: `${oneSided.length} model${oneSided.length === 1 ? "" : "s"} with cost on one side only on ${day}: ${listed}${oneSided.length > 5 ? ", …" : ""}`,
+			bucketRank: driftBucketRank(c.missingCostMicros),
+			detail: `${row.provider} ledger misses on ${day}: ${c.missingCallCount} Gateway calls without charges, gateway estimate ${usd(c.missingCostMicros)} (${c.missingUnpricedCallCount} unpriced)`,
 		});
 	}
 	return conditions;

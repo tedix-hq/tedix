@@ -1712,6 +1712,10 @@
 		{
 			"name": "20261120093522_app-trigger-switches/migration.sql",
 			"sha256": "f669bb2ab931d56b1cbbbfefcc0d8ed0879fd3d8c5c009e5cd1b79676264495d"
+		},
+		{
+			"name": "20261120120159_gateway_reconciliation_coverage/migration.sql",
+			"sha256": "d097e038306f787122bd3841568f2570278a6cb0d85bdf667a1a7918c3dd9890"
 		}
 	]
 }

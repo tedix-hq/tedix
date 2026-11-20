@@ -1,9 +1,8 @@
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import type { AiGatewayLogRow } from "./gateway-cost-ingestion";
 import {
-	type GatewayAnalyticsGroup,
 	buildReconciliationRows,
-	classifyReconciliation,
 	normalizeReconciliationKey,
 	previousUtcDay,
 	reconcileGatewayCostDay,
@@ -11,54 +10,51 @@ import {
 } from "./gateway-cost-reconciliation";
 
 const sumLedgerCostByProviderModel = vi.hoisted(() => vi.fn());
-const replaceGatewayReconciliationDay = vi.hoisted(() =>
-	vi.fn(() => Promise.resolve()),
-);
+const getGatewayLedgerCharges = vi.hoisted(() => vi.fn());
+const replaceGatewayReconciliationDay = vi.hoisted(() => vi.fn());
 vi.mock("@tedix/db/queries/billing/gateway-reconciliation", () => ({
 	sumLedgerCostByProviderModel,
+	getGatewayLedgerCharges,
 	replaceGatewayReconciliationDay,
 }));
-
-const GATEWAY = "tedix-llm-production";
+const GATEWAY = "example-llm";
 const db = {} as DbQueryClient;
-const env = { CF_ACCOUNT_ID: "acct-1", CF_ANALYTICS_TOKEN: "tok-1" };
-
-function group(
-	provider: string,
-	model: string,
-	cost: number,
-	count = 10,
-	gateway = GATEWAY,
-): GatewayAnalyticsGroup {
+const env = { CF_ACCOUNT_ID: "acct-1", CF_AI_GATEWAY_TOKEN: "tok-1" };
+const params = {
+	day: "2026-11-18",
+	gatewayId: GATEWAY,
+	now: "2026-11-19T02:00:00.000Z",
+};
+function log(
+	id: string,
+	patch: Partial<AiGatewayLogRow> = {},
+): AiGatewayLogRow {
 	return {
-		count,
-		sum: { cost, uncachedTokensIn: 1, uncachedTokensOut: 1, cachedTokensIn: 0 },
-		dimensions: { provider, model, gateway },
+		id,
+		created_at: "2026-11-18T00:00:00.000Z",
+		provider: "azure-openai",
+		model: "gpt-6.1-sol",
+		success: true,
+		cached: false,
+		cost: 0.30823,
+		tokens_in: 151343,
+		tokens_out: 428,
+		usage_metadata: {
+			input_tokens: 151343,
+			input_cached_tokens: 12597,
+			output_tokens: 428,
+		},
+		...patch,
 	};
 }
-
-function graphqlResponse(groups: GatewayAnalyticsGroup[]) {
-	return vi.fn((_url: string, _init?: RequestInit) =>
-		Promise.resolve(
-			new Response(
-				JSON.stringify({
-					data: {
-						viewer: {
-							accounts: [{ aiGatewayRequestsAdaptiveGroups: groups }],
-						},
-					},
-					errors: null,
-				}),
-				{ status: 200, headers: { "content-type": "application/json" } },
-			),
-		),
+function response(result: AiGatewayLogRow[], info = {}) {
+	return new Response(
+		JSON.stringify({ success: true, result, result_info: info }),
 	);
 }
-
 afterEach(() => {
 	vi.unstubAllGlobals();
-	sumLedgerCostByProviderModel.mockReset();
-	replaceGatewayReconciliationDay.mockClear();
+	vi.clearAllMocks();
 });
 
 describe("normalizeReconciliationKey", () => {
@@ -86,185 +82,187 @@ describe("normalizeReconciliationKey", () => {
 	});
 });
 
-describe("classifyReconciliation", () => {
-	it("needs both more than 5% and more than $5 to drift", () => {
-		// $6 off a $200 day is 3%: matched.
-		expect(classifyReconciliation(206_000_000, 200_000_000)).toBe("matched");
-		// $4 off a $20 day is 20% but under $5: matched.
-		expect(classifyReconciliation(24_000_000, 20_000_000)).toBe("matched");
-		// $5 exactly is not more than $5.
-		expect(classifyReconciliation(15_000_000, 10_000_000)).toBe("matched");
-		// $11 off a $100 day is 11% and over $5: drift, in either direction.
-		expect(classifyReconciliation(111_000_000, 100_000_000)).toBe("drift");
-		expect(classifyReconciliation(89_000_000, 100_000_000)).toBe("drift");
-	});
-
-	it("flags cost on one side only above $1", () => {
-		expect(classifyReconciliation(1_500_000, 0)).toBe("ledger_only");
-		expect(classifyReconciliation(0, 1_500_000)).toBe("gateway_only");
-		expect(classifyReconciliation(1_000_000, 0)).toBe("matched");
-		expect(classifyReconciliation(0, 900_000)).toBe("matched");
-		expect(classifyReconciliation(0, 0)).toBe("matched");
-	});
-});
-
-describe("buildReconciliationRows", () => {
-	it("merges normalized models and adds provider-day totals", () => {
+describe("call coverage", () => {
+	it("matches cache-heavy Azure usage despite raw cost differences", () => {
 		const rows = buildReconciliationRows({
-			day: "2026-11-18",
-			gatewayId: GATEWAY,
-			computedAt: "2026-11-19T02:00:00.000Z",
+			...params,
+			computedAt: params.now,
 			ledger: [
 				{
 					provider: "azure-openai",
 					model: "openai/gpt-6.1-sol",
-					costMicros: 34_490_000,
-					rowCount: 750,
-				},
-				{
-					provider: "workers-ai",
-					model: "@cf/moonshotai/kimi-k2.7-code",
-					costMicros: 62_760_000,
-					rowCount: 3308,
+					costMicros: 283030,
+					rowCount: 1,
 				},
 			],
+			gateway: [log("charged")],
+			charges: [
+				{ gatewayLogId: "charged", inputTokens: 151343, outputTokens: 428 },
+			],
+		});
+		expect(rows).toHaveLength(2);
+		for (const row of rows)
+			expect(row).toMatchObject({
+				status: "matched",
+				ledgerCostMicros: 283030,
+				gatewayCostMicros: 308230,
+				coverage: {
+					missingCallCount: 0,
+					tokenCheckedCallCount: 1,
+					tokenMismatchCallCount: 0,
+				},
+			});
+	});
+	it("counts actual misses, unknown cost, and per-call token mismatches without cancellation", () => {
+		const rows = buildReconciliationRows({
+			...params,
+			computedAt: params.now,
+			ledger: [],
 			gateway: [
-				group("azure-openai", "gpt-6.1-sol", 60.79, 1793),
-				group("azure-openai", "gpt-6-astra", 43.24, 565),
-				group("workers-ai", "@cf/moonshotai/kimi-k2.7-code", 62.76, 3309),
-				// Another gateway on the account is ignored.
-				group("workers-ai", "@cf/baai/bge-m3", 9, 100, "default"),
+				log("missing", { cost: 1.1 }),
+				log("missing", { cost: 1.1 }),
+				log("unpriced", { cost: null }),
+				log("mismatch1"),
+				log("mismatch2"),
+				log("unknown", { tokens_in: null, usage_metadata: null }),
+				log("failed", { success: false }),
+				log("response-cache", { cached: true }),
+			],
+			charges: [
+				{ gatewayLogId: "mismatch1", inputTokens: 151342, outputTokens: 428 },
+				{ gatewayLogId: "mismatch2", inputTokens: 151344, outputTokens: 428 },
+				{ gatewayLogId: "unknown", inputTokens: 0, outputTokens: 428 },
 			],
 		});
-		const byKey = Object.fromEntries(
-			rows.map((row) => [`${row.provider}|${row.model}`, row]),
-		);
-		expect(Object.keys(byKey).sort()).toEqual([
-			"azure-openai|",
-			"azure-openai|openai/gpt-6-astra",
-			"azure-openai|openai/gpt-6.1-sol",
-			"workers-ai|",
-			"workers-ai|@cf/moonshotai/kimi-k2.7-code",
-		]);
-		expect(byKey["azure-openai|openai/gpt-6.1-sol"]).toMatchObject({
-			ledgerCostMicros: 34_490_000,
-			gatewayCostMicros: 60_790_000,
-			differenceMicros: -26_300_000,
-			ledgerRowCount: 750,
-			gatewayRequestCount: 1793,
+		expect(rows.find((r) => r.model === "")).toMatchObject({
 			status: "drift",
+			coverage: {
+				missingCallCount: 2,
+				missingCostMicros: 1100000,
+				missingUnpricedCallCount: 1,
+				tokenCheckedCallCount: 2,
+				tokenMismatchCallCount: 2,
+				tokenUnknownCallCount: 1,
+			},
 		});
-		expect(byKey["azure-openai|openai/gpt-6-astra"]?.status).toBe(
-			"gateway_only",
-		);
-		expect(byKey["azure-openai|"]).toMatchObject({
-			ledgerCostMicros: 34_490_000,
-			gatewayCostMicros: 104_030_000,
-			status: "drift",
+	});
+	it("separates lane-lesson overhead from uncharged customer calls on the same model", () => {
+		const rows = buildReconciliationRows({
+			...params,
+			computedAt: params.now,
+			ledger: [],
+			charges: [],
+			gateway: [
+				log("lesson", {
+					provider: "workers-ai",
+					model: "@cf/example",
+					cost: 1.07,
+					metadata: { surface: "lane-lesson" },
+				}),
+				log("customer", {
+					provider: "workers-ai",
+					model: "@cf/example",
+					cost: 0.02,
+				}),
+			],
 		});
-		expect(byKey["workers-ai|"]).toMatchObject({
-			ledgerCostMicros: 62_760_000,
-			gatewayCostMicros: 62_760_000,
-			differenceMicros: 0,
-			status: "matched",
+		expect(rows.find((r) => r.model === "")).toMatchObject({
+			coverage: {
+				missingCallCount: 1,
+				missingCostMicros: 20000,
+				platformOverheadCallCount: 1,
+				platformOverheadCostMicros: 1070000,
+			},
 		});
+		const overhead = buildReconciliationRows({
+			...params,
+			computedAt: params.now,
+			ledger: [],
+			charges: [],
+			gateway: [
+				log("lesson", {
+					provider: "workers-ai",
+					metadata: { surface: "lane-lesson" },
+				}),
+			],
+		});
+		expect(overhead.every((r) => r.status === "matched")).toBe(true);
 	});
 });
 
 describe("reconcileGatewayCostDay", () => {
-	it("queries one UTC day of analytics, sums the ledger and replaces the day", async () => {
-		const fetchMock = graphqlResponse([
-			group("azure-openai", "gpt-6-luna", 1.8),
-			group("workers-ai", "@cf/moonshotai/kimi-k2.7-code", 62.76),
-		]);
+	it("reads every page including midnight and matches charges before replacing the day", async () => {
+		const first = Array.from({ length: 50 }, (_, i) => log(`log-${i}`));
+		const last = log("last", { created_at: "2026-11-18T23:59:59.999Z" });
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(response(first, { total_count: 51 }))
+			.mockResolvedValueOnce(response([last], { total_count: 51 }));
 		vi.stubGlobal("fetch", fetchMock);
-		sumLedgerCostByProviderModel.mockResolvedValue([
+		sumLedgerCostByProviderModel.mockResolvedValue([]);
+		getGatewayLedgerCharges.mockResolvedValue([]);
+		const result = await reconcileGatewayCostDay(db, env, params);
+		expect(result.gatewayLogs).toBe(51);
+		const url = new URL(fetchMock.mock.calls[0]![0]);
+		expect(JSON.parse(url.searchParams.get("filters")!)).toEqual([
 			{
-				provider: "azure-openai",
-				model: "openai/gpt-6-luna",
-				costMicros: 1_800_000,
-				rowCount: 3114,
+				key: "created_at",
+				operator: "gt",
+				value: ["2026-11-17T23:59:59.999Z"],
 			},
 			{
-				provider: "workers-ai",
-				model: "@cf/moonshotai/kimi-k2.7-code",
-				costMicros: 62_760_000,
-				rowCount: 3308,
+				key: "created_at",
+				operator: "lt",
+				value: ["2026-11-19T00:00:00.000Z"],
 			},
 		]);
-
-		const result = await reconcileGatewayCostDay(db, env, {
-			day: "2026-11-18",
-			gatewayId: GATEWAY,
-			now: "2026-11-19T02:00:00.000Z",
-		});
-
-		const [url, init] = fetchMock.mock.calls[0]!;
-		expect(url).toBe("https://api.cloudflare.com/client/v4/graphql");
-		expect((init?.headers as Record<string, string>).Authorization).toBe(
-			"Bearer tok-1",
+		expect(new URL(fetchMock.mock.calls[1]![0]).searchParams.get("page")).toBe(
+			"2",
 		);
-		const body = JSON.parse(String(init?.body)) as {
-			query: string;
-			variables: Record<string, unknown>;
-		};
-		expect(body.query).toContain("aiGatewayRequestsAdaptiveGroups");
-		expect(body.variables).toMatchObject({
-			accountTag: "acct-1",
-			start: "2026-11-18T00:00:00Z",
-			end: "2026-11-18T23:00:00Z",
-		});
-		expect(sumLedgerCostByProviderModel).toHaveBeenCalledWith(db, {
+		expect(getGatewayLedgerCharges).toHaveBeenCalledWith(db, {
 			gatewayId: GATEWAY,
-			sinceInclusive: "2026-11-18T00:00:00.000Z",
-			untilExclusive: "2026-11-19T00:00:00.000Z",
+			gatewayLogIds: [...first, last].map((r) => r.id),
 		});
-		expect(result.rows.every((row) => row.status === "matched")).toBe(true);
 		expect(replaceGatewayReconciliationDay).toHaveBeenCalledWith(db, {
-			day: "2026-11-18",
+			day: params.day,
 			gatewayId: GATEWAY,
 			rows: result.rows,
 		});
 	});
-
-	it("fails loudly on GraphQL errors returned with HTTP 200", async () => {
+	it("preserves the previous row when a later page fails", async () => {
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(() =>
-				Promise.resolve(
-					new Response(
-						JSON.stringify({
-							data: null,
-							errors: [{ message: "not authorized for that account" }],
-						}),
-						{ status: 200 },
-					),
-				),
-			),
+			vi
+				.fn()
+				.mockResolvedValueOnce(
+					response(Array.from({ length: 50 }, (_, i) => log(String(i)))),
+				)
+				.mockResolvedValueOnce(new Response("denied", { status: 403 })),
 		);
-		await expect(
-			reconcileGatewayCostDay(db, env, {
-				day: "2026-11-18",
-				gatewayId: GATEWAY,
-				now: "2026-11-19T02:00:00.000Z",
-			}),
-		).rejects.toThrow("not authorized for that account");
+		await expect(reconcileGatewayCostDay(db, env, params)).rejects.toThrow(
+			"HTTP 403",
+		);
 		expect(replaceGatewayReconciliationDay).not.toHaveBeenCalled();
 	});
-
-	it("names the HTTP status when Cloudflare rejects the request", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(() => Promise.resolve(new Response("denied", { status: 403 }))),
-		);
-		await expect(
-			reconcileGatewayCostDay(db, env, {
-				day: "2026-11-18",
-				gatewayId: GATEWAY,
-				now: "2026-11-19T02:00:00.000Z",
-			}),
-		).rejects.toThrow("HTTP 403");
-	});
+	it.each([
+		{ success: false, result: [] },
+		{ success: true, result: [], result_info: { truncated: true } },
+		{ success: true, result: [log("one")], result_info: { total_count: 2 } },
+		{
+			success: true,
+			result: [log("tomorrow", { created_at: "2026-11-19T00:00:00Z" })],
+		},
+	])(
+		"does not persist incomplete or out-of-day responses: %j",
+		async (body) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(new Response(JSON.stringify(body))),
+			);
+			await expect(reconcileGatewayCostDay(db, env, params)).rejects.toThrow();
+			expect(replaceGatewayReconciliationDay).not.toHaveBeenCalled();
+		},
+	);
 });
 
 describe("runGatewayCostReconciliationTick", () => {
@@ -292,6 +290,6 @@ describe("runGatewayCostReconciliationTick", () => {
 				{ TEDIX_BILLING_SETTLEMENT_MODE: "managed", CF_ACCOUNT_ID: "acct-1" },
 				Date.parse("2026-11-19T02:00:00.000Z"),
 			),
-		).rejects.toThrow("CF_ANALYTICS_TOKEN, AI_GATEWAY_LLM_ID");
+		).rejects.toThrow("CF_AI_GATEWAY_TOKEN, AI_GATEWAY_LLM_ID");
 	});
 });

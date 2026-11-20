@@ -1,45 +1,29 @@
 /**
- * Daily ledger-vs-AI-Gateway cost reconciliation.
- *
- * At 02:00 UTC this compares, for the previous UTC day, the provider cost in
- * our ledger (`billing_usage_charges`) with the cost Cloudflare AI Gateway
- * analytics report for the production LLM gateway. It stores one row per
- * provider and normalized model plus a provider-day total in
- * `billing_gateway_reconciliations`; the 08:00 platform-health digest turns
- * non-matching rows into billing health alerts.
- *
- * Gateway analytics are a second opinion, not a bill: Azure OpenAI is billed by
- * Azure, and the Gateway's cost for it comes from Cloudflare's own price table.
- * A drift therefore means "look at this", never "rewrite the ledger". Nothing
- * here changes charges, credits, or Stripe.
+ * At 02:00 UTC, match the previous UTC day's Gateway logs to ledger charges.
+ * Raw Gateway prices are informational: Azure cached-input pricing can differ
+ * from the ledger even when every call is charged. Only missing charges alert
+ * in the 08:00 digest. This job never changes charges, credits, or Stripe.
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbQueryClient } from "@tedix/db/query-client";
-import type { NewBillingGatewayReconciliationRow } from "@tedix/db/schema/billing-gateway-reconciliations";
+import type { getGatewayLedgerCharges } from "@tedix/db/queries/billing/gateway-reconciliation";
+import type {
+	GatewayReconciliationCoverage,
+	NewBillingGatewayReconciliationRow,
+} from "@tedix/db/schema/billing-gateway-reconciliations";
 import type { BillingSettlementBindings } from "../lib/billing-settlement-mode";
 import type { FleetAuthorityEnv } from "../lib/fleet-authority";
-
-const CF_GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql";
-
-/** Drift alerts need both: more than 5% of the Gateway figure and more than $5. */
-export const DRIFT_RELATIVE_THRESHOLD = 0.05;
-export const DRIFT_ABSOLUTE_THRESHOLD_MICROS = 5_000_000;
-/** Cost on one side only alerts above $1. */
-export const ONE_SIDED_THRESHOLD_MICROS = 1_000_000;
-/** Analytics groups per query; one day of one gateway is far below this. */
-const GRAPHQL_GROUP_LIMIT = 10_000;
+import type { AiGatewayLogRow } from "./gateway-cost-ingestion";
 
 export type GatewayReconciliationEnv = BillingSettlementBindings &
 	FleetAuthorityEnv & {
 		CF_ACCOUNT_ID?: string;
-		/** Account Analytics Read; already used for Analytics Engine SQL. */
-		CF_ANALYTICS_TOKEN?: string;
+		/** Same AI Gateway Read credential used by log ingestion. */
+		CF_AI_GATEWAY_TOKEN?: string;
 		/** The production LLM gateway, e.g. `tedix-llm-production`. */
 		AI_GATEWAY_LLM_ID?: string;
 	};
-
-type ReconciliationStatus = NewBillingGatewayReconciliationRow["status"];
 
 /**
  * Put Gateway and ledger model names on one key.
@@ -60,111 +44,69 @@ export function normalizeReconciliationKey(
 	return { provider: p, model: m };
 }
 
-/**
- * Classify one comparison. One-sided cost is checked first; otherwise the row
- * drifts when the difference exceeds both 5% of the Gateway figure and $5.
- */
-export function classifyReconciliation(
-	ledgerCostMicros: number,
-	gatewayCostMicros: number,
-): ReconciliationStatus {
-	if (gatewayCostMicros === 0 && ledgerCostMicros > ONE_SIDED_THRESHOLD_MICROS)
-		return "ledger_only";
-	if (ledgerCostMicros === 0 && gatewayCostMicros > ONE_SIDED_THRESHOLD_MICROS)
-		return "gateway_only";
-	const difference = Math.abs(ledgerCostMicros - gatewayCostMicros);
-	if (
-		difference > DRIFT_ABSOLUTE_THRESHOLD_MICROS &&
-		difference > gatewayCostMicros * DRIFT_RELATIVE_THRESHOLD
-	)
-		return "drift";
-	return "matched";
-}
-
-export interface GatewayAnalyticsGroup {
-	count?: number | null;
-	sum?: {
-		cost?: number | null;
-		uncachedTokensIn?: number | null;
-		uncachedTokensOut?: number | null;
-		cachedTokensIn?: number | null;
-	} | null;
-	dimensions?: {
-		model?: string | null;
-		provider?: string | null;
-		gateway?: string | null;
-	} | null;
-}
-
-interface GraphqlResponse {
-	data?: {
-		viewer?: {
-			accounts?: Array<{
-				aiGatewayRequestsAdaptiveGroups?: GatewayAnalyticsGroup[] | null;
-			}> | null;
-		} | null;
-	} | null;
-	errors?: Array<{ message?: string }> | null;
-}
-
-const GATEWAY_COST_QUERY = `query GatewayCostByModel($accountTag: string!, $start: Time!, $end: Time!, $limit: uint64!) {
-  viewer {
-    accounts(filter: { accountTag: $accountTag }) {
-      aiGatewayRequestsAdaptiveGroups(
-        limit: $limit
-        filter: { datetimeHour_geq: $start, datetimeHour_leq: $end }
-      ) {
-        count
-        sum { cost uncachedTokensIn uncachedTokensOut cachedTokensIn }
-        dimensions { model provider gateway }
-      }
-    }
-  }
-}`;
-
-/** Hourly analytics groups for one UTC day (`00:00` through `23:00` buckets). */
-export async function fetchGatewayCostGroups(
-	env: { CF_ACCOUNT_ID: string; CF_ANALYTICS_TOKEN: string },
+/** Read the entire closed day, or fail without replacing the previous result. */
+async function fetchGatewayDayLogs(
+	env: { CF_ACCOUNT_ID: string; CF_AI_GATEWAY_TOKEN: string },
 	day: string,
-): Promise<GatewayAnalyticsGroup[]> {
-	const res = await fetch(CF_GRAPHQL_URL, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			query: GATEWAY_COST_QUERY,
-			variables: {
-				accountTag: env.CF_ACCOUNT_ID,
-				start: `${day}T00:00:00Z`,
-				end: `${day}T23:00:00Z`,
-				limit: GRAPHQL_GROUP_LIMIT,
-			},
-		}),
-	});
-	if (!res.ok) {
-		throw new Error(
-			`Cloudflare GraphQL returned HTTP ${res.status} for AI Gateway analytics`,
+	gatewayId: string,
+): Promise<AiGatewayLogRow[]> {
+	const logs = new Map<string, AiGatewayLogRow>();
+	const start = `${day}T00:00:00.000Z`;
+	const end = `${nextUtcDay(day)}T00:00:00.000Z`;
+	for (let page = 1; page <= 2_000; page++) {
+		const query = new URLSearchParams({
+			page: String(page),
+			per_page: "50",
+			order_by: "created_at",
+			order_by_direction: "asc",
+			filters: JSON.stringify([
+				{
+					key: "created_at",
+					operator: "gt",
+					value: [new Date(Date.parse(start) - 1).toISOString()],
+				},
+				{ key: "created_at", operator: "lt", value: [end] },
+			]),
+		});
+		const res = await fetch(
+			`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/logs?${query}`,
+			{ headers: { Authorization: `Bearer ${env.CF_AI_GATEWAY_TOKEN}` } },
 		);
+		if (!res.ok) throw new Error(`AI Gateway logs returned HTTP ${res.status}`);
+		const body = (await res.json()) as {
+			success: boolean;
+			result: AiGatewayLogRow[];
+			result_info?: { total_count?: number; truncated?: boolean };
+		};
+		if (
+			!body.success ||
+			!Array.isArray(body.result) ||
+			body.result_info?.truncated
+		)
+			throw new Error("AI Gateway logs returned an incomplete day");
+		for (const log of body.result) {
+			const time = Date.parse(log.created_at);
+			if (
+				!log.id ||
+				!Number.isFinite(time) ||
+				time < Date.parse(start) ||
+				time >= Date.parse(end)
+			)
+				throw new Error(
+					"AI Gateway logs returned a row outside the requested day",
+				);
+			logs.set(log.id, log);
+		}
+		const total = body.result_info?.total_count;
+		if (body.result.length < 50) {
+			if (total !== undefined && logs.size < total)
+				throw new Error("AI Gateway logs ended before the full day was read");
+			return [...logs.values()];
+		}
 	}
-	const body = (await res.json()) as GraphqlResponse;
-	// GraphQL reports auth and schema failures as HTTP 200 with `errors`.
-	if (body.errors && body.errors.length > 0) {
-		throw new Error(
-			`Cloudflare GraphQL AI Gateway analytics failed: ${body.errors
-				.map((error) => error.message ?? "unknown error")
-				.slice(0, 3)
-				.join("; ")}`,
-		);
-	}
-	const accounts = body.data?.viewer?.accounts;
-	if (!accounts || accounts.length === 0) {
-		throw new Error(
-			"Cloudflare GraphQL returned no account for AI Gateway analytics",
-		);
-	}
-	return accounts[0]?.aiGatewayRequestsAdaptiveGroups ?? [];
+	throw new Error(
+		"AI Gateway logs exceeded the daily reconciliation page limit",
+	);
 }
 
 function toMicros(usd: number | null | undefined): number {
@@ -173,11 +115,25 @@ function toMicros(usd: number | null | undefined): number {
 		: 0;
 }
 
+function emptyCoverage(): GatewayReconciliationCoverage {
+	return {
+		missingCallCount: 0,
+		missingCostMicros: 0,
+		missingUnpricedCallCount: 0,
+		tokenCheckedCallCount: 0,
+		tokenMismatchCallCount: 0,
+		tokenUnknownCallCount: 0,
+		platformOverheadCallCount: 0,
+		platformOverheadCostMicros: 0,
+	};
+}
+
 interface SideTotals {
 	ledgerCostMicros: number;
 	gatewayCostMicros: number;
 	ledgerRowCount: number;
 	gatewayRequestCount: number;
+	coverage: GatewayReconciliationCoverage;
 }
 
 /**
@@ -194,7 +150,8 @@ export function buildReconciliationRows(input: {
 		costMicros: number;
 		rowCount: number;
 	}>;
-	gateway: GatewayAnalyticsGroup[];
+	gateway: AiGatewayLogRow[];
+	charges: Awaited<ReturnType<typeof getGatewayLedgerCharges>>;
 }): NewBillingGatewayReconciliationRow[] {
 	const byModel = new Map<
 		string,
@@ -211,6 +168,7 @@ export function buildReconciliationRows(input: {
 				gatewayCostMicros: 0,
 				ledgerRowCount: 0,
 				gatewayRequestCount: 0,
+				coverage: emptyCoverage(),
 			};
 			byModel.set(id, totals);
 		}
@@ -221,14 +179,47 @@ export function buildReconciliationRows(input: {
 		totals.ledgerCostMicros += row.costMicros;
 		totals.ledgerRowCount += row.rowCount;
 	}
-	for (const group of input.gateway) {
-		if (group.dimensions?.gateway !== input.gatewayId) continue;
-		const totals = entry(
-			group.dimensions?.provider ?? "unknown",
-			group.dimensions?.model ?? "unknown",
-		);
-		totals.gatewayCostMicros += toMicros(group.sum?.cost);
-		totals.gatewayRequestCount += group.count ?? 0;
+	const charges = new Map(
+		input.charges.map((charge) => [charge.gatewayLogId, charge]),
+	);
+	for (const log of new Map(
+		input.gateway.map((log) => [log.id, log]),
+	).values()) {
+		const totals = entry(log.provider, log.model);
+		totals.gatewayCostMicros += toMicros(log.cost);
+		totals.gatewayRequestCount++;
+		const coverage = totals.coverage;
+		if (
+			log.provider === "workers-ai" &&
+			log.metadata?.surface === "lane-lesson"
+		) {
+			coverage.platformOverheadCallCount++;
+			coverage.platformOverheadCostMicros += toMicros(log.cost);
+			continue;
+		}
+		// Failed requests and Gateway response-cache hits incur no provider usage.
+		// Provider prompt-cache tokens (usage_metadata) still require a charge.
+		if (!log.success || log.cached) continue;
+		const charge = charges.get(log.id);
+		if (!charge) {
+			coverage.missingCallCount++;
+			coverage.missingCostMicros += toMicros(log.cost);
+			if (log.cost === null || !Number.isFinite(log.cost) || log.cost < 0)
+				coverage.missingUnpricedCallCount++;
+			continue;
+		}
+		const inputTokens = log.usage_metadata?.input_tokens ?? log.tokens_in;
+		const outputTokens = log.usage_metadata?.output_tokens ?? log.tokens_out;
+		if (inputTokens === null || outputTokens === null) {
+			coverage.tokenUnknownCallCount++;
+		} else {
+			coverage.tokenCheckedCallCount++;
+			if (
+				inputTokens !== charge.inputTokens ||
+				outputTokens !== charge.outputTokens
+			)
+				coverage.tokenMismatchCallCount++;
+		}
 	}
 
 	const byProvider = new Map<string, SideTotals>();
@@ -245,10 +236,15 @@ export function buildReconciliationRows(input: {
 			differenceMicros: totals.ledgerCostMicros - totals.gatewayCostMicros,
 			ledgerRowCount: totals.ledgerRowCount,
 			gatewayRequestCount: totals.gatewayRequestCount,
-			status: classifyReconciliation(
-				totals.ledgerCostMicros,
-				totals.gatewayCostMicros,
-			),
+			coverage: totals.coverage,
+			status:
+				totals.coverage.missingCallCount === 0
+					? "matched"
+					: totals.coverage.tokenCheckedCallCount +
+								totals.coverage.tokenUnknownCallCount ===
+						  0
+						? "gateway_only"
+						: "drift",
 			computedAt: input.computedAt,
 		});
 	for (const totals of byModel.values()) {
@@ -258,11 +254,16 @@ export function buildReconciliationRows(input: {
 			gatewayCostMicros: 0,
 			ledgerRowCount: 0,
 			gatewayRequestCount: 0,
+			coverage: emptyCoverage(),
 		};
 		sum.ledgerCostMicros += totals.ledgerCostMicros;
 		sum.gatewayCostMicros += totals.gatewayCostMicros;
 		sum.ledgerRowCount += totals.ledgerRowCount;
 		sum.gatewayRequestCount += totals.gatewayRequestCount;
+		for (const key of Object.keys(sum.coverage) as Array<
+			keyof GatewayReconciliationCoverage
+		>)
+			sum.coverage[key] += totals.coverage[key];
 		byProvider.set(totals.provider, sum);
 	}
 	for (const [provider, totals] of byProvider) push(provider, "", totals);
@@ -289,17 +290,24 @@ function nextUtcDay(day: string): string {
 export interface GatewayReconciliationResult {
 	day: string;
 	rows: NewBillingGatewayReconciliationRow[];
-	gatewayGroups: number;
+	gatewayLogs: number;
 }
 
 export async function reconcileGatewayCostDay(
 	db: DbQueryClient,
-	env: { CF_ACCOUNT_ID: string; CF_ANALYTICS_TOKEN: string },
+	env: { CF_ACCOUNT_ID: string; CF_AI_GATEWAY_TOKEN: string },
 	params: { day: string; gatewayId: string; now: string },
 ): Promise<GatewayReconciliationResult> {
-	const { sumLedgerCostByProviderModel, replaceGatewayReconciliationDay } =
-		await import("@tedix/db/queries/billing/gateway-reconciliation");
-	const gateway = await fetchGatewayCostGroups(env, params.day);
+	const {
+		sumLedgerCostByProviderModel,
+		replaceGatewayReconciliationDay,
+		getGatewayLedgerCharges,
+	} = await import("@tedix/db/queries/billing/gateway-reconciliation");
+	const gateway = await fetchGatewayDayLogs(env, params.day, params.gatewayId);
+	const charges = await getGatewayLedgerCharges(db, {
+		gatewayId: params.gatewayId,
+		gatewayLogIds: gateway.map((log) => log.id),
+	});
 	const ledger = await sumLedgerCostByProviderModel(db, {
 		gatewayId: params.gatewayId,
 		sinceInclusive: `${params.day}T00:00:00.000Z`,
@@ -311,13 +319,14 @@ export async function reconcileGatewayCostDay(
 		computedAt: params.now,
 		ledger,
 		gateway,
+		charges,
 	});
 	await replaceGatewayReconciliationDay(db, {
 		day: params.day,
 		gatewayId: params.gatewayId,
 		rows,
 	});
-	return { day: params.day, rows, gatewayGroups: gateway.length };
+	return { day: params.day, rows, gatewayLogs: gateway.length };
 }
 
 export async function runGatewayCostReconciliationTick(
@@ -328,7 +337,7 @@ export async function runGatewayCostReconciliationTick(
 		await import("../lib/billing-settlement-mode");
 	if (resolveBillingSettlementMode(env) !== "managed") return {};
 	const missing = (
-		["CF_ACCOUNT_ID", "CF_ANALYTICS_TOKEN", "AI_GATEWAY_LLM_ID"] as const
+		["CF_ACCOUNT_ID", "CF_AI_GATEWAY_TOKEN", "AI_GATEWAY_LLM_ID"] as const
 	).filter((name) => !env[name]);
 	if (missing.length > 0) {
 		throw new Error(
@@ -343,7 +352,7 @@ export async function runGatewayCostReconciliationTick(
 			db,
 			{
 				CF_ACCOUNT_ID: env.CF_ACCOUNT_ID as string,
-				CF_ANALYTICS_TOKEN: env.CF_ANALYTICS_TOKEN as string,
+				CF_AI_GATEWAY_TOKEN: env.CF_AI_GATEWAY_TOKEN as string,
 			},
 			{
 				day: previousUtcDay(scheduledTimeMs),
@@ -362,19 +371,20 @@ export async function runGatewayCostReconciliationTick(
 			JSON.stringify({
 				signal: "billing.gateway.reconciliation",
 				day: result.day,
-				gatewayGroups: result.gatewayGroups,
+				gatewayLogs: result.gatewayLogs,
 				providers: totals.map((row) => ({
 					provider: row.provider,
 					ledgerCostMicros: row.ledgerCostMicros,
 					gatewayCostMicros: row.gatewayCostMicros,
 					status: row.status,
+					coverage: row.coverage,
 				})),
 				oneSidedModels: oneSidedModels.length,
 			}),
 		);
 		return {
 			rowsWritten: result.rows.length,
-			gatewayGroups: result.gatewayGroups,
+			gatewayLogs: result.gatewayLogs,
 			driftProviders: driftProviders.length,
 			oneSidedModels: oneSidedModels.length,
 		};

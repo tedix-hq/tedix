@@ -1,0 +1,1 @@
+ALTER TABLE `billing_gateway_reconciliations` ADD `coverage` text;
