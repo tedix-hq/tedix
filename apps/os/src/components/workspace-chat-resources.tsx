@@ -73,7 +73,7 @@ export function WorkspaceChatResources({
 					<LoadingArea className="h-16" size="base" label="Loading files" />
 				) : (
 					<div
-						className="grid max-h-48 gap-1 overflow-y-auto"
+						className="grid max-h-48 grid-cols-[minmax(0,1fr)] gap-1 overflow-y-auto"
 						data-focus-ring="inset"
 						aria-label="Select message files"
 					>
@@ -82,7 +82,8 @@ export function WorkspaceChatResources({
 							.map((file) => (
 								<Button
 									key={file.id}
-									className="justify-start"
+									className="w-full min-w-0 justify-start"
+									title={file.title}
 									size="sm"
 									variant="ghost"
 									disabled={
@@ -93,8 +94,8 @@ export function WorkspaceChatResources({
 										setOpen(false);
 									}}
 								>
-									<FileText aria-hidden size={14} />
-									<span className="truncate">{file.title}</span>
+									<FileText aria-hidden size={14} className="shrink-0" />
+									<span className="min-w-0 truncate">{file.title}</span>
 								</Button>
 							))}
 						{outputs.data?.items.length === 0 ? (
