@@ -73,31 +73,77 @@ async function fixture({
 }
 
 describe("agent run ended notice", () => {
-	it("appends a plain result to the workspace conversation for this Attempt", async () => {
+	it("reports the end and a question of a run to the workspace conversation that started it", async () => {
 		const workspaceId = "22222222-2222-4222-8222-222222222222";
 		const conversationId = "33333333-3333-4333-8333-333333333333";
+		const sourceSessionKey = `workspace:${workspaceId}:${conversationId}`;
 		const { work, attempt, context, enqueue } = await fixture({
-			sourceSessionKey: `workspace:${workspaceId}:${conversationId}`,
+			sourceSessionKey,
 			steward: false,
-			outcome: "cancelled",
+			outcome: "rejected",
 		});
-		const appendAgentRunNotice = vi.fn(async () => {});
+		const reportAgentRun = vi.fn(async () => null);
 		const workspaceContext = {
 			...context,
-			env: { WORKSPACE_RUNTIME: { appendAgentRunNotice } },
+			env: { WORKSPACE_RUNTIME: { reportAgentRun } },
 		} as unknown as BaseContext;
+		const started = {
+			...work,
+			sourceIntentId: `${sourceSessionKey}:turn-1`,
+			executorId: "codex",
+		};
+		const sha = "c".repeat(40);
 		await expect(
-			notifyAgentRunEnded(workspaceContext, work, attempt, enqueue),
+			notifyAgentRunEnded(
+				workspaceContext,
+				started,
+				{
+					...attempt,
+					metadata: {
+						settlement: { commitShas: [sha, "not-a-sha"] },
+						laneResult: { unverified: "Not tried on a phone" },
+					},
+				},
+				enqueue,
+			),
+		).resolves.toBe("sent");
+		await expect(
+			notifyAgentRunQuestion(workspaceContext, started, {
+				attemptId: attempt.id,
+				seq: 4,
+				text: "Which colour?",
+			}),
 		).resolves.toBe("sent");
 		expect(enqueue).not.toHaveBeenCalled();
-		expect(appendAgentRunNotice).toHaveBeenCalledExactlyOnceWith(
-			{ organizationId: "org", workspaceId },
-			{
-				conversationId,
-				attemptId: attempt.id,
-				content: `The run for "Rename the button" ended: cancelled. Changed the label. Tests pass. Task: /work/items/${workItemId}`,
-			},
-		);
+		expect(reportAgentRun.mock.calls).toEqual([
+			[
+				{ organizationId: "org", workspaceId },
+				{
+					kind: "ended",
+					conversationId,
+					sourceTurnId: "turn-1",
+					workItemId,
+					attemptId: attempt.id,
+					title: "Rename the button",
+					outcome: "failed",
+					result: "Changed the label.\nTests pass.",
+					commits: [sha],
+					unverified: "Not tried on a phone",
+				},
+			],
+			[
+				{ organizationId: "org", workspaceId },
+				{
+					kind: "question",
+					conversationId,
+					workItemId,
+					attemptId: attempt.id,
+					seq: 4,
+					title: "Rename the button",
+					executor: "codex",
+				},
+			],
+		]);
 	});
 
 	it.each([

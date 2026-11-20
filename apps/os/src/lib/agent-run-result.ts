@@ -7,6 +7,8 @@ export type AgentRunRef = {
 	title: string;
 	/** The executor id the tedi chose, such as `codex`. Empty when not given. */
 	executor: string;
+	/** When the run was asked for, when the result says. */
+	requestedAt?: string;
 };
 
 const MAX_UNWRAP_DEPTH = 5;
@@ -70,6 +72,10 @@ export function agentRunFromToolResult(
 			workItemId,
 			title: text(candidate.title).slice(0, TITLE_MAX_CHARS),
 			executor: text(candidate.executor),
+			...(typeof candidate.requestedAt === "string" &&
+			!Number.isNaN(Date.parse(candidate.requestedAt))
+				? { requestedAt: candidate.requestedAt }
+				: {}),
 		};
 	}
 	for (const key of WRAPPER_KEYS) {

@@ -208,6 +208,8 @@ export interface WorkspaceRunPort {
 		title: string;
 		executor: StartRunInput["executor"];
 		url: string;
+		/** When the run was asked for; its card counts the wait from here. */
+		requestedAt: string;
 		/** For the runner wake; not shown to the agent. */
 		projectId: string;
 	}>;

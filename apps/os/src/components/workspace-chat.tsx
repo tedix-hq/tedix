@@ -967,7 +967,7 @@ function TurnView({
 			data-testid="workspace-chat-turn"
 		>
 			{turn.summarizedEarlier ? <SummarisedMarker /> : null}
-			{turn.handedFrom ? (
+			{turn.handedFrom || turn.runReport ? (
 				<Text role="caption" tone="secondary">
 					{turn.text}
 				</Text>
@@ -1058,6 +1058,14 @@ function TurnView({
 				) : null}
 				{turn.reply && turn.replyDone ? (
 					<ReplyCopy text={turn.reply} latest={latest} />
+				) : null}
+				{turn.agentRunAsk ? (
+					<ul
+						className="m-0 grid list-none gap-2 p-0"
+						aria-label="Run question"
+					>
+						<AgentRunCard agentRun={turn.agentRunAsk} />
+					</ul>
 				) : null}
 				{agentRuns.size > 0 ? (
 					<ul className="m-0 grid list-none gap-2 p-0" aria-label="Coding runs">

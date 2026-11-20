@@ -182,6 +182,12 @@ import {
 } from "./turn-loop";
 import { priceTurn } from "./pricing";
 import {
+	type AgentRunReport,
+	RUN_OUTCOME_LINE,
+	runEndedNotice,
+	runReportPrompt,
+} from "./run-report";
+import {
 	type ClientFrame,
 	type ConversationSummary,
 	type WaitingApproval,
@@ -709,7 +715,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (
 				event.type === "turn.started" ||
 				event.type === "turn.finished" ||
-				event.type === "approval.requested"
+				event.type === "approval.requested" ||
+				event.type === "agent_run.ended" ||
+				event.type === "agent_run.question"
 			)
 				this.ctx.waitUntil(this.#flushActivity());
 		});
@@ -1461,10 +1469,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		await this.refreshModelCatalog();
 		const models = this.configuredModels();
 		// A person's chat with a tedi, or in their own private workspace, starts
-		// on the administrator's default for a person's chat.
+		// on the administrator's default for a person's chat; so does a run's
+		// report to the person who started it.
 		const personChat =
 			!input.modelId &&
-			(Boolean(input.tediId) ||
+			(Boolean(input.tediId || input.runReport) ||
 				(input.actorKind === "user" &&
 					(await this.#privateTo(scope, input.actorId))));
 		const modelId =
@@ -1504,6 +1513,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			? this.#runningTurnIn(input.conversationId)
 			: undefined;
 		if (working) {
+			// A run's report never joins a working turn, which may run code.
+			if (input.runReport)
+				throw new Error("A turn is already working in this conversation");
 			const shown: QueuedRequest["shown"] = {
 				text,
 				...(displayText ? { displayText } : {}),
@@ -1577,6 +1589,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
 			...(answererNote ? { answererNote } : {}),
 			...(input.handedFrom ? { handedFrom: input.handedFrom } : {}),
+			...(input.runReport ? { runReport: input.runReport } : {}),
 		};
 		const started = this.#events.append(conversationId, startEvent);
 		this.#store.run(
@@ -1642,26 +1655,92 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#waiters.delete(turn.turn_id);
 	}
 
-	appendAgentRunNotice(
+	/**
+	 * The API reports on a run started from a conversation here. When the run
+	 * ended, whoever started it (that tedi, else the workspace agent) replies
+	 * in that conversation, in a turn of the person who started it; the turn
+	 * only writes the reply. A conversation that is working, or a run whose
+	 * starting turn is gone, gets a plain notice instead. A question shows the
+	 * run's card again at the end of the conversation, where the person
+	 * answers it. Each report is posted once.
+	 */
+	async reportAgentRun(
 		scope: WorkspaceScope,
-		input: { conversationId: string; attemptId: string; content: string },
-	): void {
+		report: AgentRunReport,
+	): Promise<{ turnId: string } | null> {
 		this.bindScope(scope);
-		const noticeId = "agent-run-ended:" + input.attemptId;
-		this.ctx.storage.transactionSync(() => {
-			if (this.#store.get(noticeId)) return;
-			this.#ensureConversation(
-				input.conversationId,
-				"",
-				new Date().toISOString(),
-			);
-			this.#events.append(input.conversationId, {
+		const noticeId =
+			report.kind === "question"
+				? `agent-run-question:${report.attemptId}:${report.seq}`
+				: `agent-run-ended:${report.attemptId}`;
+		if (this.#store.get(noticeId)) return null;
+		this.#store.put(noticeId, true);
+		this.#store.put("activity-scope", scope);
+		const notice = (event: WireEventBody) =>
+			this.ctx.storage.transactionSync(() => {
+				this.#ensureConversation(
+					report.conversationId,
+					"",
+					new Date().toISOString(),
+				);
+				this.#events.append(report.conversationId, event);
+			});
+		if (report.kind === "question") {
+			notice({
+				type: "agent_run.question",
+				turnId: noticeId,
+				workItemId: report.workItemId,
+				title: report.title,
+				executor: report.executor,
+			});
+			return null;
+		}
+		const source = report.sourceTurnId
+			? this.#turn(report.sourceTurnId)
+			: undefined;
+		const plain = () =>
+			notice({
 				type: "agent_run.ended",
 				turnId: noticeId,
-				text: input.content,
+				text: runEndedNotice(report),
 			});
-			this.#store.put(noticeId, true);
-		});
+		if (
+			source?.conversation_id !== report.conversationId ||
+			source.actor_kind !== "user" ||
+			this.#runningTurnIn(report.conversationId)
+		) {
+			plain();
+			return null;
+		}
+		try {
+			const started = await this.sendTurn(
+				scope,
+				{
+					conversationId: report.conversationId,
+					actorId: source.actor_id,
+					actorKind: "user",
+					...(source.tedi_id ? { tediId: source.tedi_id } : {}),
+					text: runReportPrompt(report),
+					runReport: { workItemId: report.workItemId, title: report.title },
+				},
+				`${RUN_OUTCOME_LINE[report.outcome]}: ${report.title}`,
+			);
+			return { turnId: started.turnId };
+		} catch (error) {
+			workspaceLog.warn("The run report did not start a turn", {
+				event: "workspace.run_report_failed",
+				error,
+				...this.#diagnostics(),
+			});
+			plain();
+			return null;
+		}
+	}
+
+	/** Whether a turn reports on a run: it writes a reply and runs no code. */
+	#reportsRun(turnId: string): boolean {
+		const [started] = this.#events.ofTurn(turnId, "turn.started");
+		return started?.type === "turn.started" && Boolean(started.runReport);
 	}
 
 	/** Live replay: events after a cursor, one conversation or the whole object. */
@@ -2696,6 +2775,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	 */
 	startCodeRun(scope: WorkspaceScope, turnId: string, runId: string): void {
 		this.bindScope(scope);
+		// A run's report carries the run's own words: it may not act on them.
+		if (this.#reportsRun(turnId))
+			throw new Error(
+				"This reply only reports on the run: it cannot run code. Write the report.",
+			);
 		if (this.#turn(turnId)?.status === "running")
 			this.#codeRuns.set(turnId, runId);
 	}
@@ -5151,8 +5235,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		let handOff: HandOff | undefined;
 		try {
 			const plan = await this.#plan(scope, turnId, conversationId, input);
+			// A run's report stays here, where its code is refused, and leaves
+			// what the person writes meanwhile to a turn of its own.
+			const report = Boolean(input.runReport);
 			const isolate =
-				input.isolate ?? plan.history.length > ISOLATE_AFTER_MESSAGES;
+				!report &&
+				(input.isolate ?? plan.history.length > ISOLATE_AFTER_MESSAGES);
 			// Written before the model call, so a reset mid-turn shows its size.
 			workspaceLog.info("Workspace turn running", {
 				event: "workspace.turn_running",
@@ -5186,7 +5274,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						emit: (event) => this.#emitLoopEvent(conversationId, turnId, event),
 						save: (progress) =>
 							this.#saveProgress(conversationId, turnId, progress),
-						takeAdded: () => this.takeQueuedMessages(scope, turnId),
+						takeAdded: () =>
+							report ? [] : this.takeQueuedMessages(scope, turnId),
 						signal: controller.signal,
 					});
 			if (this.#turn(turnId)?.status !== "running") return;
@@ -5221,7 +5310,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (result.stopReason !== "aborted") {
 				answered = true;
 				// Never delays the reply; a failure is logged and dropped.
-				if (input.tediId && input.actorKind === "user")
+				if (input.tediId && input.actorKind === "user" && !report)
 					this.ctx.waitUntil(
 						this.#learnFromTurn(scope, turnId, {
 							text: result.text,
@@ -5387,10 +5476,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc extends DocumentTransferRuntime {
-	appendAgentRunNotice(
+	reportAgentRun(
 		scope: WorkspaceScope,
-		input: { conversationId: string; attemptId: string; content: string },
-	): Promise<void>;
+		report: AgentRunReport,
+	): Promise<{ turnId: string } | null>;
 	transferOutput(
 		scope: WorkspaceScope,
 		outputId: string,

@@ -232,6 +232,8 @@ export type WorkspaceChatLedgerEvent =
 			answererNote?: string;
 			/** The previous answerer handed this turn over; null for the workspace agent. */
 			handedFrom?: { tediId: string | null };
+			/** The run this turn reports on; the run started it, not the person. */
+			runReport?: { workItemId: string; title: string };
 			authorId: string;
 			authorKind: "person" | "tedi";
 			/** The workspace app the person asked from. */
@@ -257,6 +259,14 @@ export type WorkspaceChatLedgerEvent =
 			type: "agent_run.ended";
 			turnId: string;
 			text: string;
+	  })
+	/** A run started here asks the person a question; its card takes the answer. */
+	| (Stamped & {
+			type: "agent_run.question";
+			turnId: string;
+			workItemId: string;
+			title: string;
+			executor: string;
 	  })
 	| (Stamped & {
 			type: "step.started";
@@ -477,6 +487,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"assistant.delta",
 	"assistant.done",
 	"agent_run.ended",
+	"agent_run.question",
 	"step.started",
 	"step.finished",
 	"conversation.summarized",

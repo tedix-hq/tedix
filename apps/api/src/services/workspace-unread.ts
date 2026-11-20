@@ -35,6 +35,9 @@ function chatKind(
 	if (operation === "turn.finished")
 		return outcome === "applied" ? "agent_reply" : "agent_stopped";
 	if (operation === "approval.requested") return "needs_decision";
+	// A run started in the chat reported back without anyone asking.
+	if (operation === "agent_run.ended" || operation === "agent_run.question")
+		return "agent_reply";
 	return null;
 }
 

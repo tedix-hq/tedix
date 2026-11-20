@@ -79,6 +79,8 @@ export type WireEventBody =
 			 * null for the workspace agent. `displayText` is the one-line note.
 			 */
 			handedFrom?: { tediId: string | null };
+			/** The run this turn reports on; the run started it, not the person. */
+			runReport?: { workItemId: string; title: string };
 	  }
 	| ({
 			/**
@@ -97,6 +99,14 @@ export type WireEventBody =
 			type: "message.returned";
 	  } & QueuedMessageBody)
 	| { type: "agent_run.ended"; turnId: string; text: string }
+	/** A run started here asks the person a question; its card takes the answer. */
+	| {
+			type: "agent_run.question";
+			turnId: string;
+			workItemId: string;
+			title: string;
+			executor: string;
+	  }
 	| { type: "turn.model"; turnId: string; model: string }
 	| { type: "turn.usage"; turnId: string; usage: TurnUsage }
 	| { type: "assistant.delta"; turnId: string; messageId: string; text: string }

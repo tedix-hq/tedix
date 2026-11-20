@@ -38,4 +38,15 @@ export interface TurnRequest {
 	fromAppId?: string;
 	/** Force the turn into its own facet (long or risky work). */
 	isolate?: boolean;
+	/**
+	 * An agent run started from this conversation ended: the turn reports it
+	 * to the person. It only writes a reply; it runs no code.
+	 */
+	runReport?: AgentRunRef;
+}
+
+/** A run started from a conversation, as its card names it. */
+export interface AgentRunRef {
+	workItemId: string;
+	title: string;
 }

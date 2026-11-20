@@ -404,7 +404,11 @@ export function useWorkItemRun(itemId: string, waitForStart = false) {
 		// the task page must be current when they look back, not a poll later.
 		refetchIntervalInBackground: true,
 	});
-	const attempts = useQuery(workItemAttemptsQueryOptions(itemId));
+	// Read again while the run is live, so a runner that stops reporting shows.
+	const attempts = useQuery({
+		...workItemAttemptsQueryOptions(itemId),
+		refetchInterval: run.data?.live ? 60_000 : false,
+	});
 	// Already loaded by the shell; this adds a reader, not a request.
 	const viewer = useQuery(userProfileQueryOptions());
 	const [ownMessageIds, setOwnMessageIds] = useState<ReadonlySet<string>>(
