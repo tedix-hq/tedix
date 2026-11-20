@@ -100,6 +100,12 @@ export interface UpdateRuntime {
 	now?: () => number;
 	spawnVersionProbe?: (path: string) => VersionProbe;
 	standalone?: boolean;
+	/**
+	 * Called with the installed path after the binary was replaced. Reloads the
+	 * background service when it runs that file and returns one sentence on
+	 * how it went, or undefined when there was nothing to reload.
+	 */
+	reloadService?: (target: string) => Promise<string | undefined>;
 	/** Runs `security`/`codesign` for optional local signing (`local-signing.ts`). */
 	signing?: SigningRun;
 	platform?: NodeJS.Platform;
@@ -967,11 +973,17 @@ export async function runRollbackCommand(
 		const version = await smokeVersion(previous, runtime);
 		durableCopy(previous, candidate);
 		activateAtomically(target, candidate);
-		const result = { changed: true, path: target, version };
+		const service = await runtime.reloadService?.(target);
+		const result = {
+			changed: true,
+			path: target,
+			version,
+			...(service ? { service } : {}),
+		};
 		console.log(
 			options.json
 				? JSON.stringify(result)
-				: `Rolled back Tedix CLI to ${version}`,
+				: `Rolled back Tedix CLI to ${version}${service ? `\n${service}` : ""}`,
 		);
 		return 0;
 	} finally {
@@ -1073,11 +1085,13 @@ export async function runUpdateCommand(
 				: `\nUpdating Tedix from ${CLI_VERSION} to ${version} via standalone download…\n`,
 		);
 	}
-	const result = await installVersion(manifest, runtime, !options.json);
+	const installed = await installVersion(manifest, runtime, !options.json);
+	const service = await runtime.reloadService?.(targetPath(runtime));
+	const result = { ...installed, ...(service ? { service } : {}) };
 	console.log(
 		options.json
 			? JSON.stringify(result)
-			: `\nSuccessfully ${comparison === 0 ? `reinstalled Tedix ${version}` : `updated Tedix from ${CLI_VERSION} to ${version}`}!\nRestart any running Tedix sessions to use the new version.`,
+			: `\nSuccessfully ${comparison === 0 ? `reinstalled Tedix ${version}` : `updated Tedix from ${CLI_VERSION} to ${version}`}!\n${service ? `${service}\n` : ""}Restart any running Tedix sessions to use the new version.`,
 	);
 	return 0;
 }
