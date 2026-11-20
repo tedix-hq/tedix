@@ -128,6 +128,10 @@ function draw(state: PanelState) {
 		),
 	];
 
+	const down = state.setup.cli.update;
+	if (down?.down && !state.setup.cli.updating)
+		nodes.push(el("div", "problem", el("p", "", down.text)));
+
 	nodes.push(el("div", "section", "Run tasks with"));
 	nodes.push(
 		status.runners.length
