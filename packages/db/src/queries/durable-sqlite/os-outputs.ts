@@ -20,7 +20,6 @@ import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envel
 import {
 	type OsWorkspaceViewer,
 	osWorkspaceChildVisibleToPredicate,
-	hasSharedWorkspaceOutputs,
 } from "../os-workspaces/workspaces";
 import {
 	OUTPUT_THINNING_MAX_LIMIT,
@@ -63,39 +62,6 @@ export function adoptWorkspaceDirectory(
 				.where(eq(osWorkspaceResources.id, row.id))
 				.run();
 	}
-}
-
-/** Pre-protocol ownership only. WorkspaceDO must consult durable staging state first.
- * Older imports owned their workspace; transfer destinations may have only output rows.
- */
-export async function hasWorkspaceOutputAuthority(
-	db: TenantStoreDb,
-	scope: { organizationId: string; workspaceId: string },
-	core: DbQueryClient,
-): Promise<boolean> {
-	const imported = db
-		.select({ id: osWorkspaces.id })
-		.from(osWorkspaces)
-		.where(
-			and(
-				eq(osWorkspaces.organizationId, scope.organizationId),
-				eq(osWorkspaces.id, scope.workspaceId),
-			),
-		)
-		.get();
-	if (imported) return true;
-	const local = db
-		.select({ id: osOutputs.id })
-		.from(osOutputs)
-		.where(
-			and(
-				eq(osOutputs.organizationId, scope.organizationId),
-				eq(osOutputs.workspaceId, scope.workspaceId),
-			),
-		)
-		.limit(1)
-		.get();
-	return Boolean(local) && !(await hasSharedWorkspaceOutputs(core, scope));
 }
 
 export interface OsOutputScopeParams {

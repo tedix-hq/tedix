@@ -2,7 +2,10 @@ import type { WorkspaceModelEnv } from "./model";
 
 /** Bindings this worker runs with; `worker-configuration.d.ts` is the generated truth. */
 export type WorkspaceEnv = Cloudflare.Env &
-	WorkspaceModelEnv & { MIGRATE_WORKSPACES_TOKEN?: string };
+	WorkspaceModelEnv & {
+		/** Set only by the local demo launcher. */
+		LOCAL_WORKSPACE_SEED_TOKEN?: string;
+	};
 
 export type ActorKind = "user" | "tedi" | "external_agent" | "service";
 

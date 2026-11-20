@@ -17,7 +17,7 @@ import {
 	publishWorkspaceChange,
 } from "./workspace-feed";
 
-it.each(["staged", "uninitialized", "no runtime", "initialized"])(
+it.each(["uninitialized", "no runtime", "initialized"])(
 	"publishing keeps every indexed revision for a %s workspace",
 	async (mode) => {
 		const sqlite = new DatabaseSync(":memory:");
@@ -38,7 +38,6 @@ it.each(["staged", "uninitialized", "no runtime", "initialized"])(
 		});
 		if (mode === "initialized")
 			await store.runtime.outputQuery(scope, { op: "initialize" });
-		if (mode === "staged") store.state.importGeneration = 1;
 		expect(await store.runtime.outputQuery(scope, { op: "authority" })).toBe(
 			mode === "initialized" ? "object" : "shared",
 		);

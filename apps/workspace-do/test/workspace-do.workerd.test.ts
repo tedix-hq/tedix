@@ -5,7 +5,7 @@ import {
 	osWorkspaceAccessEdges,
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
-import migrationWorker, { InternalEntrypoint } from "../src/index";
+import { InternalEntrypoint } from "../src/index";
 import {
 	createExecutionContext,
 	env,
@@ -310,6 +310,13 @@ async function seedCore() {
 	]);
 }
 
+/** A store moved in November 2026: it owns its files but has not yet taken its resources. */
+async function markMovedOwner(ws: Stub) {
+	await runInDurableObject(ws, (_instance, state) => {
+		state.storage.kv.put("output-authority", "object");
+	});
+}
+
 async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
 	const now = "2026-11-07T10:00:00.000Z";
 	await testEnv.DB.batch(
@@ -334,8 +341,14 @@ async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
 	);
 }
 
-async function seedOutputs(ws: Stub, outputScope = scope, activate = true) {
+async function seedOutputs(ws: Stub, outputScope = scope) {
 	const now = "2026-11-07T10:00:00.000Z";
+	await testEnv.DB.prepare(
+		"INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, status, created_by_kind, created_by_id, created_at, updated_at, visibility) VALUES (?, ?, 'Fixture workspace', '', 'active', 'user', 'u1', ?, ?, 'org')",
+	)
+		.bind(outputScope.workspaceId, outputScope.organizationId, now, now)
+		.run();
+	await ws.outputQuery(outputScope, { op: "initialize" });
 	const sheet = {
 		kind: "sheet",
 		columns: ["Challenge", "Owner"],
@@ -433,14 +446,6 @@ async function seedOutputs(ws: Stub, outputScope = scope, activate = true) {
 			},
 		],
 	});
-	if (
-		activate &&
-		(await ws.outputQuery(outputScope, { op: "authority" })) === "shared"
-	)
-		await ws.activateOutputAuthority(outputScope, {
-			importGeneration: (await ws.describe(outputScope)).importGeneration,
-			reconciliationRef: "fixture:reconciled-outputs",
-		});
 }
 
 const READ_ONLY_CODE = `export default async (env) => {
@@ -452,311 +457,6 @@ const READ_ONLY_CODE = `export default async (env) => {
 	const open = await env.work.listOpen();
 	return { challenges, priorities, openWork: open.length };
 }`;
-
-describe("staged output migration", () => {
-	test("a new workspace with no files anywhere is claimed by its object on its first file", async () => {
-		await seedCore();
-		const scope: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: crypto.randomUUID(),
-		};
-		await seedWorkspaceRows([scope]);
-		const ws = workspace(scope);
-		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("shared");
-		expect(await ws.outputQuery(scope, { op: "claim" })).toBe("object");
-		await evictDurableObject(ws);
-		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
-		expect((await ws.describe(scope)).outputAuthority).toBe("object");
-	});
-
-	test("a claimed workspace takes its workspace row and earlier resources before its first resource write", async () => {
-		await seedCore();
-		const scope: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: crypto.randomUUID(),
-		};
-		await seedWorkspaceRows([scope]);
-		// Linked while resources were still written to the shared database only.
-		await testEnv.DB.prepare(
-			"INSERT INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, required_scopes, resource_type, provider_resource_id, name, metadata, status, created_by_kind, created_by_id, created_at, updated_at) VALUES ('earlier', ?, ?, 'example', 'tenant', '[]', 'document', 'doc-1', 'Earlier', '{}', 'active', 'user', 'u1', ?, ?)",
-		)
-			.bind(
-				scope.organizationId,
-				scope.workspaceId,
-				"2026-11-14T10:00:00.000Z",
-				"2026-11-14T10:00:00.000Z",
-			)
-			.run();
-		const ws = workspace(scope);
-		expect(await ws.outputQuery(scope, { op: "claim" })).toBe("object");
-		expect(
-			await ws.outputQuery(scope, {
-				op: "resources",
-				query: {
-					operation: "get",
-					params: { ...scope, resourceId: "earlier" },
-				},
-			}),
-		).toMatchObject({ id: "earlier", name: "Earlier" });
-		expect(
-			await ws.outputQuery(scope, {
-				op: "resources",
-				query: {
-					operation: "create",
-					params: {
-						...scope,
-						id: "later",
-						providerId: "example",
-						connectionScope: "tenant",
-						resourceType: "document",
-						providerResourceId: "doc-2",
-						name: "Later",
-						createdByKind: "user",
-						createdById: "u1",
-					},
-				},
-			}),
-		).toMatchObject({ id: "later" });
-	});
-
-	test("the agent can read files in a new workspace before any file exists", async () => {
-		await seedCore();
-		const scope: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: crypto.randomUUID(),
-		};
-		await seedWorkspaceRows([scope]);
-		const ws = workspace(scope);
-		await ws.scriptModel(scope, [
-			{ code: `export default async env => env.outputs.list()` },
-			{ text: "No files yet." },
-		]);
-		const turn = await ws.sendTurn(scope, {
-			actorId: "u1",
-			actorKind: "user",
-			text: "What files are here?",
-		});
-		await ws.awaitTurn(scope, turn.turnId, 20_000);
-		const messages = JSON.stringify(
-			await ws.readMessages(scope, turn.conversationId),
-		);
-		expect(messages).not.toContain("activation is required");
-		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
-	});
-
-	test("a claim never takes over a workspace with files in the shared database or a staged import", async () => {
-		await seedCore();
-		const shared: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: crypto.randomUUID(),
-		};
-		await seedWorkspaceRows([shared]);
-		await testEnv.DB.prepare(
-			"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, ?, 'document', 'Shared plan', 'active', NULL, 'user', 'u1', ?, ?)",
-		)
-			.bind(
-				crypto.randomUUID(),
-				shared.organizationId,
-				shared.workspaceId,
-				"2026-11-18T10:00:00.000Z",
-				"2026-11-18T10:00:00.000Z",
-			)
-			.run();
-		expect(await workspace(shared).outputQuery(shared, { op: "claim" })).toBe(
-			"shared",
-		);
-		const staged: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: crypto.randomUUID(),
-		};
-		await seedWorkspaceRows([staged]);
-		const ws = workspace(staged);
-		await seedOutputs(ws, staged, false);
-		expect(await ws.outputQuery(staged, { op: "claim" })).toBe("shared");
-	});
-
-	test("directory-only and full staging refuse agent output reads and writes until activation", async () => {
-		await seedCore();
-		const scope: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: crypto.randomUUID(),
-		};
-		await seedWorkspaceRows([scope]);
-		const ws = workspace(scope);
-		const now = "2026-11-07T10:00:00.000Z";
-		const directory = {
-			batchId: "stage-directory",
-			table: "os_workspaces",
-			rows: [
-				{
-					id: scope.workspaceId,
-					organization_id: scope.organizationId,
-					name: "Staged",
-					status: "active",
-					created_by_kind: "user",
-					created_by_id: "u1",
-					created_at: now,
-					updated_at: now,
-				},
-			],
-		};
-		await expect(
-			async () =>
-				await ws.activateOutputAuthority(scope, {
-					importGeneration: 1,
-					reconciliationRef: "fixture:premature",
-				}),
-		).rejects.toThrow("Import changed");
-		await ws.importRows(scope, directory);
-		for (const phase of ["directory", "full"]) {
-			if (phase === "full") await seedOutputs(ws, scope, false);
-			await evictDurableObject(ws);
-			expect(await ws.outputQuery(scope, { op: "authority" })).toBe("shared");
-			// This is the same authority RPC the browser storage service uses.
-			expect(await ws.describe(scope)).toMatchObject({
-				outputAuthority: "shared",
-				importGeneration: phase === "full" ? 3 : 1,
-			});
-			const bodiesBefore = (await testEnv.R2_BUCKET.list()).objects.map(
-				(o) => o.key,
-			);
-			await ws.scriptModel(scope, [
-				{ code: `export default async env => env.outputs.list()` },
-				{
-					code: `export default async env => env.outputs.create({title: "agent-${phase}", content: {kind: "document", blocks: []}})`,
-				},
-			]);
-			const turn = await ws.sendTurn(scope, {
-				actorId: "u1",
-				actorKind: "user",
-				text: "List and create",
-			});
-			await ws.awaitTurn(scope, turn.turnId, 20_000);
-			const events = await ws.readEvents(scope, {
-				conversationId: turn.conversationId,
-			});
-			const approval = events.find(
-				(event) => event.type === "approval.requested",
-			);
-			if (approval?.type !== "approval.requested")
-				throw new Error("Missing staged write");
-			// A new file applies inside the turn, so the refusal lands there too.
-			expect(approval.automatic).toBe(true);
-			expect(events).toContainEqual(
-				expect.objectContaining({
-					type: "approval.executed",
-					approvalId: approval.approvalId,
-					status: "failed",
-					error: "Workspace output activation is required",
-				}),
-			);
-			const reads = await ws.readChangeRecords(scope, { resource: "output" });
-			expect(
-				reads
-					.filter((row) => row.operation === "list")
-					.map((row) => row.outcome),
-			).toEqual(phase === "full" ? ["unknown", "unknown"] : ["unknown"]);
-			const messages = JSON.stringify(
-				await ws.readMessages(scope, turn.conversationId),
-			);
-			expect(messages).not.toContain("out-sheet");
-			expect(messages).not.toContain("out-doc");
-			expect(messages).toContain("Workspace output activation is required");
-			// Nothing is left waiting, and a decision by hand cannot apply it.
-			expect(
-				await ws.decideApproval(scope, {
-					approvalId: approval.approvalId,
-					decision: "approve",
-					by: "u1",
-				}),
-			).toEqual({ applied: false, alreadyDecided: true });
-			expect(
-				await ws.readEvents(scope, { conversationId: turn.conversationId }),
-			).toEqual(events);
-			expect(
-				(await testEnv.R2_BUCKET.list()).objects.map((o) => o.key),
-			).toEqual(bodiesBefore);
-			const shared = await testEnv.DB.prepare(
-				"SELECT id FROM os_outputs WHERE workspace_id = ? AND title = ?",
-			)
-				.bind(scope.workspaceId, `agent-${phase}`)
-				.all<{ id: string }>();
-			expect(shared.results).toHaveLength(0);
-			expect(
-				(await ws.outputQuery(scope, { op: "list" }))
-					.map((row) => row.id)
-					.sort(),
-			).toEqual(phase === "full" ? ["out-doc", "out-sheet"] : []);
-		}
-		await expect(
-			async () =>
-				await ws.activateOutputAuthority(scope, {
-					importGeneration: 1,
-					reconciliationRef: "fixture:stale",
-				}),
-		).rejects.toThrow("reconcile again");
-		await expect(
-			async () =>
-				await ws.activateOutputAuthority(scope, {
-					importGeneration: 3,
-					reconciliationRef: "",
-				}),
-		).rejects.toThrow("reconciliation evidence");
-		await ws.importRows(scope, directory); // A retry does not invalidate reconciliation.
-		expect((await ws.describe(scope)).importGeneration).toBe(3);
-		const activation = {
-			importGeneration: 3,
-			reconciliationRef: "fixture:final-frozen-reconcile",
-		};
-		expect(await ws.activateOutputAuthority(scope, activation)).toEqual(
-			activation,
-		);
-		expect(await ws.activateOutputAuthority(scope, activation)).toEqual(
-			activation,
-		);
-		await evictDurableObject(ws);
-		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
-		expect(
-			(await ws.outputQuery(scope, { op: "list" })).map((row) => row.id).sort(),
-		).toEqual(["out-doc", "out-sheet"]);
-	});
-
-	test("retains pre-protocol directory owners and object-only transfer destinations across staging and eviction", async () => {
-		await seedCore();
-		for (const legacy of ["directory", "transfer", "persisted"]) {
-			const target = { ...scope, workspaceId: crypto.randomUUID() };
-			const ws = workspace(target);
-			await runInDurableObject(ws, async (_instance, state) => {
-				if (legacy === "directory")
-					state.storage.sql.exec(
-						"INSERT INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, 'Legacy', 'user', 'u1', 'now', 'now')",
-						target.workspaceId,
-						target.organizationId,
-					);
-				if (legacy === "transfer")
-					state.storage.sql.exec(
-						"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, created_by_kind, created_by_id, created_at, updated_at) VALUES ('legacy-transfer', ?, ?, 'document', 'Transferred', 'user', 'u1', 'now', 'now')",
-						target.organizationId,
-						target.workspaceId,
-					);
-				if (legacy === "persisted")
-					state.storage.kv.put("output-authority", "object");
-			});
-			await ws.importRows(target, {
-				batchId: "later-stage",
-				table: "os_outputs",
-				rows: [],
-			});
-			await evictDurableObject(ws);
-			// Even removing the old evidence cannot revoke a preserved owner.
-			await runInDurableObject(ws, async (_instance, state) => {
-				state.storage.sql.exec("DELETE FROM os_outputs");
-				state.storage.sql.exec("DELETE FROM os_workspaces");
-			});
-			expect(await ws.outputQuery(target, { op: "authority" })).toBe("object");
-		}
-	});
-});
 
 describe("WorkspaceDO", () => {
 	test("production keeps workspace objects and their bodies in the EU jurisdiction", () => {
@@ -935,29 +635,7 @@ describe("WorkspaceDO", () => {
 			core.insert(osOutputs).values(output),
 			core.insert(osOutputRevisions).values(revision),
 		]);
-		await ws.importRows(scope, {
-			batchId: "browser-workspace-owner",
-			table: "os_workspaces",
-			rows: [
-				{
-					id: scope.workspaceId,
-					organization_id: scope.organizationId,
-					name: "Programme workspace",
-					status: "active",
-					visibility: "org",
-					created_by_kind: "user",
-					created_by_id: "u1",
-					created_at: now,
-					updated_at: now,
-				},
-			],
-		});
-		if ((await ws.outputQuery(scope, { op: "authority" })) === "shared") {
-			await ws.activateOutputAuthority(scope, {
-				importGeneration: (await ws.describe(scope)).importGeneration,
-				reconciliationRef: "fixture:browser-owner",
-			});
-		}
+		await ws.outputQuery(scope, { op: "initialize" });
 		await ws.outputQuery(scope, { op: "create", output, revision });
 		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
 		await ws.failNextProjection(scope);
@@ -1212,6 +890,7 @@ describe("WorkspaceDO", () => {
 			const workspaceScope = { ...scope, workspaceId: crypto.randomUUID() };
 			await seedWorkspaceRows([workspaceScope]);
 			const ws = workspace(workspaceScope);
+			await ws.outputQuery(workspaceScope, { op: "initialize" });
 			const now = "2026-11-08T12:00:00.000Z";
 			const outputId = `typed-${binding}`,
 				revisionId = `${outputId}-r1`;
@@ -2530,7 +2209,7 @@ describe("WorkspaceDO", () => {
 			),
 		]);
 		const ws = workspace(sources);
-		expect(await ws.outputQuery(sources, { op: "claim" })).toBe("object");
+		await markMovedOwner(ws);
 		const id = (name: string) => `${sources.workspaceId}-${name}`;
 		// The object takes the workspace's earlier sources on its first source read.
 		await ws.outputQuery(sources, {
@@ -2713,7 +2392,7 @@ describe("WorkspaceDO", () => {
 		const ws = workspace(own);
 		const approvalId = crypto.randomUUID();
 		const denyId = crypto.randomUUID();
-		expect(await ws.outputQuery(own, { op: "claim" })).toBe("object");
+		await markMovedOwner(ws);
 		await ws.outputQuery(own, {
 			op: "resources",
 			query: { operation: "get", params: { ...own, resourceId: resource.id } },
@@ -4011,288 +3690,6 @@ describe("WorkspaceDO", () => {
 			events.filter((event) => event.type === "approval.requested"),
 		).toEqual([]);
 	});
-
-	test("already copied history converts on wake and survives removal of the copied rows", async () => {
-		const movedScope = {
-			...scope,
-			workspaceId: "11111111-1111-4111-8111-111111111118",
-		};
-		const ws = workspace(movedScope);
-		const stub = ws as unknown as DurableObjectStub;
-		await runInDurableObject(stub, (_instance, state) => {
-			state.storage.sql.exec(
-				"INSERT INTO kernel_conversations (id, organization_id, workspace_id, conversation_id, title, last_message_at, archived_at) VALUES (?, ?, ?, 'copied', 'Copied chat', '2026-11-03T10:00:00.000Z', '2026-11-04T10:00:00.000Z')",
-				"copied-index",
-				movedScope.organizationId,
-				movedScope.workspaceId,
-			);
-			state.storage.sql.exec(
-				"INSERT INTO conversations (id, title, created_at, updated_at, archived_at) VALUES ('copied', 'Copied chat', '2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00.000Z', '2026-11-04T10:00:00.000Z'), ('native-archive', 'Native archive', '2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00.000Z', '2026-11-04T10:00:00.000Z')",
-			);
-			state.storage.sql.exec(
-				"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('copied-input', ?, 'copied', 'copied-run', 'message.received', ?, '2026-11-03T10:00:00.000Z')",
-				movedScope.organizationId,
-				JSON.stringify({ role: "user", content: "Copied question" }),
-			);
-			state.storage.sql.exec(
-				"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('copied-failure', ?, 'copied', 'copied-run', 'run.failed', ?, '2026-11-03T10:00:02.000Z')",
-				movedScope.organizationId,
-				JSON.stringify({ error: "Earlier failure" }),
-			);
-		});
-		await evictDurableObject(stub);
-		expect(await ws.listConversations(movedScope)).toEqual([
-			expect.objectContaining({ id: "copied", title: "Copied chat" }),
-		]);
-		const events = await ws.readEvents(movedScope);
-		expect(events.map((e) => e.type)).toEqual([
-			"turn.started",
-			"turn.finished",
-		]);
-		expect(await ws.readTurn(movedScope, "copied-run")).toMatchObject({
-			status: "failed",
-			error: "Earlier failure",
-		});
-		await evictDurableObject(stub);
-		expect(await ws.readEvents(movedScope)).toEqual(events);
-		await runInDurableObject(stub, (_instance, state) => {
-			state.storage.sql.exec(
-				"UPDATE conversations SET archived_at = '2026-11-04T10:00:00.000Z' WHERE id = 'copied'",
-			);
-		});
-		await evictDurableObject(stub);
-		expect(await ws.listConversations(movedScope)).toEqual([]);
-		await runInDurableObject(stub, (_instance, state) => {
-			state.storage.sql.exec(
-				"UPDATE conversations SET archived_at = NULL WHERE id = 'copied'",
-			);
-			state.storage.sql.exec("DELETE FROM kernel_runtime_events");
-			state.storage.sql.exec("DELETE FROM kernel_conversations");
-		});
-		await evictDurableObject(stub);
-		expect(await ws.readEvents(movedScope)).toEqual(events);
-		expect(await ws.listConversations(movedScope)).toHaveLength(1);
-	});
-
-	test("moved kernel history shares the native socket list and replay ledger", async () => {
-		const scope: WorkspaceScope = {
-			organizationId: "org_test",
-			workspaceId: "11111111-1111-4111-8111-111111111117",
-		};
-		await seedWorkspaceRows([scope]);
-		const ws = workspace(scope);
-		await ws.scriptModel(scope, [{ text: "native answer" }]);
-		const native = await ws.sendTurn(scope, {
-			actorId: "u1",
-			actorKind: "user",
-			text: "Native chat",
-		});
-		await ws.awaitTurn(scope, native.turnId, 20_000);
-		for (let i = 0; i < 2; i++) {
-			await ws.scriptModel(scope, [{ text: "another native answer" }]);
-			const turn = await ws.sendTurn(scope, {
-				actorId: "u1",
-				actorKind: "user",
-				text: "Another native chat",
-			});
-			await ws.awaitTurn(scope, turn.turnId, 20_000);
-		}
-		const at = "2026-11-03T10:00:00.000Z";
-		await ws.importRows(scope, {
-			batchId: "moved-conversations",
-			table: "kernel_conversations",
-			rows: [
-				...Array.from({ length: 11 }, (_, i) => ({
-					id: `kc-${i}`,
-					organization_id: scope.organizationId,
-					workspace_id: scope.workspaceId,
-					conversation_id: `moved-${i}`,
-					title: `Moved ${i}`,
-					archived_at: i < 9 ? at : null,
-					created_at: at,
-					updated_at: at,
-					last_message_at: at,
-				})),
-				{
-					id: "kc-deleted",
-					organization_id: scope.organizationId,
-					workspace_id: scope.workspaceId,
-					conversation_id: "deleted",
-					last_message_at: at,
-					deleted_at: at,
-				},
-			],
-		});
-		await ws.importRows(scope, {
-			batchId: "moved-runs",
-			table: "kernel_runtime_runs",
-			rows: [
-				{
-					id: "moved-run",
-					organization_id: scope.organizationId,
-					conversation_id: "moved-0",
-					status: "completed",
-					input_message_id: "moved-question",
-					started_at: at,
-					completed_at: "2026-11-03T10:00:02.000Z",
-				},
-			],
-		});
-		const batch = {
-			batchId: "moved-events",
-			table: "kernel_runtime_events",
-			rows: [
-				{
-					id: "moved-received",
-					organization_id: scope.organizationId,
-					conversation_id: "moved-0",
-					run_id: null,
-					message_id: "moved-question",
-					kind: "message.received",
-					payload: JSON.stringify({
-						role: "user",
-						content: "Earlier question",
-					}),
-					created_at: at,
-				},
-				{
-					id: "moved-answer",
-					organization_id: scope.organizationId,
-					conversation_id: "moved-0",
-					run_id: "moved-run",
-					message_id: "moved-response",
-					kind: "message.completed",
-					payload: JSON.stringify({
-						role: "assistant",
-						content: "Earlier answer",
-					}),
-					created_at: "2026-11-03T10:00:01.000Z",
-				},
-				{
-					id: "moved-finished",
-					organization_id: scope.organizationId,
-					conversation_id: "moved-0",
-					run_id: "moved-run",
-					message_id: null,
-					kind: "run.completed",
-					payload: JSON.stringify({ status: "completed" }),
-					created_at: "2026-11-03T10:00:02.000Z",
-				},
-			],
-		};
-		await ws.importRows(scope, batch);
-		const before = await ws.readEvents(scope, { conversationId: "moved-0" });
-		await ws.importRows(scope, batch);
-		expect(await ws.readEvents(scope, { conversationId: "moved-0" })).toEqual(
-			before,
-		);
-		expect(await ws.readTurn(scope, "moved-run")).toMatchObject({
-			status: "finished",
-			text: "Earlier answer",
-			firstSeq: before[0]!.seq,
-		});
-		const response = await ws.fetch(
-			new Request(
-				"https://workspace.test/subscribe?conversation=moved-0&after=0",
-				{
-					headers: {
-						Upgrade: "websocket",
-						"X-Workspace-Org": scope.organizationId,
-						"X-Workspace-Id": scope.workspaceId,
-						"X-Workspace-Actor-Id": "u1",
-					},
-				},
-			),
-		);
-		const socket = response.webSocket!;
-		let frames: Record<string, unknown>[];
-		try {
-			frames = await socketFramesUntil(
-				socket,
-				(frame) => frame.type === "caught_up",
-			);
-		} finally {
-			socket.close(1000, "test complete");
-		}
-		const conversations = frames[0]!.conversations as Array<{ id: string }>;
-		expect(conversations).toHaveLength(14);
-		expect(conversations.map((c) => c.id)).toContain(native.conversationId);
-		for (let i = 0; i < 11; i++)
-			expect(conversations.map((c) => c.id)).toContain(`moved-${i}`);
-		expect(frames.filter((f) => typeof f.seq === "number")).toEqual(before);
-		expect(frames).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					type: "turn.started",
-					turnId: "moved-run",
-					text: "Earlier question",
-				}),
-				expect.objectContaining({
-					type: "assistant.done",
-					turnId: "moved-run",
-					text: "Earlier answer",
-				}),
-				expect.objectContaining({
-					type: "turn.finished",
-					turnId: "moved-run",
-					status: "done",
-				}),
-			]),
-		);
-		expect(frames.at(-1)!.cursor).toBe(before.at(-1)!.seq);
-		expect(
-			await ws.readLedger(scope, "moved-0", {
-				before: before.at(-1)!.seq,
-				limit: 1,
-			}),
-		).toEqual([before[1]]);
-	});
-
-	test.each(["completed", "running", "requires_approval"])(
-		"moved %s rows without a terminal receipt finish in replay",
-		async (status) => {
-			const movedScope = { ...scope, workspaceId: crypto.randomUUID() };
-			await seedWorkspaceRows([movedScope]);
-			const ws = workspace(movedScope);
-			await runInDurableObject(ws, (_instance, state) => {
-				state.storage.sql.exec(
-					"INSERT INTO kernel_conversations (id, organization_id, workspace_id, conversation_id, title, last_message_at) VALUES ('missing-terminal', ?, ?, 'missing-terminal', 'Old chat', '2026-10-22T10:00:00.000Z')",
-					movedScope.organizationId,
-					movedScope.workspaceId,
-				);
-				state.storage.sql.exec(
-					"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status, started_at) VALUES ('missing-terminal-run', ?, 'missing-terminal', ?, '2026-10-22T10:00:00.000Z')",
-					movedScope.organizationId,
-					status,
-				);
-				state.storage.sql.exec(
-					"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('missing-terminal-start', ?, 'missing-terminal', 'missing-terminal-run', 'message.received', ?, '2026-10-22T10:00:00.000Z')",
-					movedScope.organizationId,
-					JSON.stringify({ role: "user", content: "Old question" }),
-				);
-			});
-			await evictDurableObject(ws);
-			const events = await ws.readEvents(movedScope);
-			expect(events.map((event) => event.type)).toEqual([
-				"turn.started",
-				"turn.finished",
-			]);
-			expect(events.at(-1)).toMatchObject({
-				status:
-					status === "completed"
-						? "done"
-						: status === "requires_approval"
-							? "waiting"
-							: "error",
-				durationMs: 0,
-			});
-			expect(
-				await ws.readTurn(movedScope, "missing-terminal-run"),
-			).toMatchObject({ finishedAt: "2026-10-22T10:00:00.000Z" });
-			await evictDurableObject(ws);
-			expect(await ws.readEvents(movedScope)).toEqual(events);
-		},
-	);
 
 	test("the alarm keeps a live turn until its progress is 15 minutes old", async () => {
 		const localScope = { ...scope, workspaceId: crypto.randomUUID() };
@@ -7424,6 +6821,7 @@ describe("document transfer primitive", () => {
 		await seedWorkspaceRows([source, target]);
 		const from = workspace(source),
 			to = workspace(target);
+		await from.outputQuery(source, { op: "initialize" });
 		await seedOutputs(to, target);
 		const outputId = crypto.randomUUID();
 		const body = await storeOutputBody(
@@ -7675,265 +7073,10 @@ describe("document transfer primitive", () => {
 			).results,
 		).toEqual(before.results);
 	});
-
-	test("refuses staged source and destination objects", async () => {
-		const { source, from, transfer } = await fixture();
-		const staged = { ...scope, workspaceId: crypto.randomUUID() };
-		await seedWorkspaceRows([staged]);
-		const ws = workspace(staged);
-		await ws.importRows(staged, {
-			batchId: "stage-transfer",
-			table: "os_workspaces",
-			rows: [
-				{
-					id: staged.workspaceId,
-					organization_id: staged.organizationId,
-					name: "Staged",
-					created_by_kind: "user",
-					created_by_id: "u1",
-					created_at: "now",
-					updated_at: "now",
-				},
-			],
-		});
-		const payload = await from.prepareDocumentTransfer(source, {
-			...transfer,
-			targetWorkspaceId: staged.workspaceId,
-		});
-		await expect(() =>
-			ws.importDocumentTransfer(staged, payload),
-		).rejects.toThrow("requires activated");
-		await expect(() =>
-			ws.prepareDocumentTransfer(staged, {
-				...transfer,
-				sourceWorkspaceId: staged.workspaceId,
-			}),
-		).rejects.toThrow("requires activated");
-		expect(
-			await from.outputQuery(source, {
-				op: "get",
-				outputId: transfer.outputId,
-			}),
-		).toBeDefined();
-	});
-});
-
-describe("adopting shared files", () => {
-	async function fixture() {
-		await seedCore();
-		const target = { ...scope, workspaceId: crypto.randomUUID() };
-		const core = createDbQueryClient(testEnv.DB);
-		await core.insert(osWorkspaces).values({
-			id: target.workspaceId,
-			organizationId: target.organizationId,
-			name: "Home",
-			createdByKind: "user",
-			createdById: "u1",
-		});
-		const ws = workspace(target);
-		await ws.outputQuery(target, { op: "initialize" });
-		async function seedFile(
-			options: {
-				organizationId?: string;
-				workspaceId?: string;
-				kind?: "document" | "sheet";
-			} = {},
-		) {
-			const id = crypto.randomUUID();
-			const organizationId = options.organizationId ?? target.organizationId;
-			const createdAt = "2026-11-07T10:00:00.000Z";
-			const updatedAt = "2026-11-08T10:00:00.000Z";
-			const [output] = await core
-				.insert(osOutputs)
-				.values({
-					id,
-					organizationId,
-					workspaceId: options.workspaceId ?? null,
-					title: "Archived material",
-					kind: options.kind ?? "document",
-					status: "archived",
-					currentRevisionId: `${id}-r2`,
-					createdByKind: "tedi",
-					createdById: "tedi1",
-					createdAt,
-					updatedAt,
-				})
-				.returning();
-			const revisions = [];
-			for (const revision of [1, 2]) {
-				const body = await storeOutputBody(
-					testEnv.R2_BUCKET,
-					organizationId,
-					`fixture body ${revision}`,
-				);
-				const [saved] = await core
-					.insert(osOutputRevisions)
-					.values({
-						...body,
-						id: `${id}-r${revision}`,
-						organizationId,
-						outputId: id,
-						revision,
-						content: "",
-						note: "Imported note",
-						createdByKind: "tedi",
-						createdById: "tedi1",
-						createdAt: revision === 1 ? createdAt : updatedAt,
-					})
-					.returning();
-				revisions.push(saved!);
-			}
-			return { output: output!, revisions };
-		}
-		async function adopt(outputIds: string[], dryRun: boolean) {
-			const token = "test-migration-token";
-			return migrationWorker.fetch(
-				new Request(
-					`https://workspace.internal/migration/workspaces/${target.organizationId}/${target.workspaceId}/import`,
-					{
-						method: "POST",
-						headers: {
-							authorization: `Bearer ${token}`,
-							"content-type": "application/json",
-						},
-						body: JSON.stringify({ operation: "adopt", outputIds, dryRun }),
-					},
-				),
-				{
-					...testEnv,
-					DB: testEnv.DB,
-					WORKSPACE: testEnv.WORKSPACE,
-					MIGRATE_WORKSPACES_TOKEN: token,
-				},
-			);
-		}
-		return { target, core, ws, seedFile, adopt };
-	}
-
-	test("previews exact writes and adopts archived files and all revisions once", async () => {
-		const { target, core, ws, seedFile, adopt } = await fixture();
-		const files = [await seedFile({ kind: "sheet" }), await seedFile()];
-		const outputIds = files.map(({ output }) => output.id);
-		const writes = files.map(({ output, revisions }) => ({
-			output: { ...output, workspaceId: target.workspaceId },
-			revisions,
-		}));
-		const stored = () => ws.outputQuery(target, { op: "list" });
-		const activity = () =>
-			listWorkspaceActivity(
-				core,
-				{
-					organizationId: target.organizationId,
-					viewer: { userIds: [] },
-				},
-				{ workspaceId: target.workspaceId, kinds: ["output"] },
-			);
-		const generation = (await ws.describe(target)).importGeneration;
-		const preview = await adopt(outputIds, true);
-		expect(preview.status).toBe(200);
-		expect(await preview.json()).toEqual({
-			dryRun: true,
-			scope: target,
-			writes,
-			unchanged: [],
-		});
-		expect(await stored()).toEqual([]);
-		expect(await activity()).toEqual([]);
-		expect(
-			await getWorkspaceOutputIndexCurrent(core, {
-				...target,
-				outputId: outputIds[0]!,
-			}),
-		).toBeUndefined();
-
-		const applied = await adopt(outputIds, false);
-		expect(applied.status).toBe(200);
-		expect(await applied.json()).toEqual({
-			dryRun: false,
-			scope: target,
-			writes,
-			unchanged: [],
-		});
-		for (const { output, revisions } of writes) {
-			expect(
-				await ws.outputQuery(target, { op: "get", outputId: output.id }),
-			).toEqual(output);
-			for (const revision of revisions) {
-				const storedRevision = await ws.outputQuery(target, {
-					op: "revision",
-					revisionId: revision.id,
-				});
-				expect(storedRevision).toEqual(revision);
-				expect(await readOutputBody(testEnv.R2_BUCKET, storedRevision!)).toBe(
-					`fixture body ${revision.revision}`,
-				);
-				expect(
-					await getWorkspaceOutputIndexRevision(core, {
-						organizationId: target.organizationId,
-						revisionId: revision.id,
-					}),
-				).toMatchObject({
-					workspaceId: target.workspaceId,
-					status: "archived",
-					bodyR2Key: revision.bodyR2Key,
-				});
-			}
-			expect(
-				await getWorkspaceOutputIndexCurrent(core, {
-					...target,
-					outputId: output.id,
-				}),
-			).toMatchObject({
-				workspaceId: target.workspaceId,
-				status: "archived",
-				revision: 2,
-			});
-		}
-		const published = await activity();
-		expect(published.length).toBeGreaterThan(0);
-		const repeated = await adopt([...outputIds].reverse(), false);
-		expect(repeated.status).toBe(200);
-		expect(await repeated.json()).toEqual({
-			dryRun: false,
-			scope: target,
-			writes: [],
-			unchanged: [...outputIds].reverse(),
-		});
-		expect(await activity()).toEqual(published);
-		expect((await ws.describe(target)).importGeneration).toBe(generation);
-	});
-
-	test("rejects the entire request if a file is assigned or belongs to another organization", async () => {
-		const { target, ws, seedFile, adopt } = await fixture();
-		const valid = await seedFile();
-		const assigned = await seedFile({ workspaceId: scope.workspaceId });
-		const foreign = await seedFile({ organizationId: "other-org" });
-		for (const [file, error] of [
-			[assigned, "already has a workspace"],
-			[foreign, "missing from this organization"],
-		] as const) {
-			const response = await adopt([valid.output.id, file.output.id], false);
-			expect(response.status).toBe(400);
-			expect(await response.text()).toContain(error);
-			expect(await ws.outputQuery(target, { op: "list" })).toEqual([]);
-		}
-	});
-
-	test("refuses to adopt a file when an external body is missing", async () => {
-		const { target, ws, seedFile, adopt } = await fixture();
-		const { output, revisions } = await seedFile();
-		await testEnv.R2_BUCKET.delete(revisions[0]!.bodyR2Key!);
-		const response = await adopt([output.id], false);
-		expect(response.status).toBe(400);
-		expect(await response.text()).toContain(
-			"Output revision body object is missing",
-		);
-		expect(await ws.outputQuery(target, { op: "list" })).toEqual([]);
-	});
 });
 
 describe("empty document owners", () => {
-	test("initializes once, survives eviction, and refuses staged imports", async () => {
+	test("refuses files before initialization, then initializes once and survives eviction", async () => {
 		await seedCore();
 		const empty = { ...scope, workspaceId: "empty-owner" };
 		await createDbQueryClient(testEnv.DB).insert(osWorkspaces).values({
@@ -7944,37 +7087,15 @@ describe("empty document owners", () => {
 			createdById: "u1",
 		});
 		const ws = workspace(empty);
+		expect(await ws.outputQuery(empty, { op: "authority" })).toBe("shared");
+		await expect(() => ws.outputQuery(empty, { op: "purge" })).rejects.toThrow(
+			"does not own",
+		);
 		expect(await ws.outputQuery(empty, { op: "initialize" })).toBe("object");
 		await evictDurableObject(ws);
 		expect(await ws.outputQuery(empty, { op: "initialize" })).toBe("object");
 		expect(await ws.outputQuery(empty, { op: "authority" })).toBe("object");
 		expect(await ws.outputQuery(empty, { op: "list" })).toEqual([]);
-		expect((await ws.describe(empty)).importGeneration).toBe(0);
-		const staged = { ...scope, workspaceId: "staged-empty-owner" };
-		const stagedWs = workspace(staged);
-		await stagedWs.importRows(staged, {
-			batchId: "stage-empty",
-			table: "os_workspaces",
-			rows: [
-				{
-					id: staged.workspaceId,
-					organization_id: staged.organizationId,
-					name: "Staged",
-					created_by_kind: "user",
-					created_by_id: "u1",
-					created_at: "now",
-					updated_at: "now",
-					status: "active",
-				},
-			],
-		});
-		await expect(() =>
-			stagedWs.outputQuery(staged, { op: "initialize" }),
-		).rejects.toThrow("requires migration activation");
-		expect(await stagedWs.outputQuery(staged, { op: "authority" })).toBe(
-			"shared",
-		);
-		expect((await stagedWs.describe(staged)).importGeneration).toBe(1);
 	});
 });
 
@@ -8075,47 +7196,6 @@ test("requires EU placement and routes initialization through that namespace", a
 });
 
 describe("workspace index ownership", () => {
-	test("staged projection refresh leaves every index row intact", async () => {
-		await seedCore();
-		const staged = { ...scope, workspaceId: crypto.randomUUID() };
-		await seedWorkspaceRows([staged]);
-		const ws = workspace(staged);
-		await seedOutputs(ws, staged, false);
-		// Each object has local IDs; isolate the core projection from earlier fixtures.
-		await testEnv.DB.prepare(
-			"DELETE FROM workspace_output_index WHERE organization_id = ? AND output_id IN ('out-doc', 'out-sheet')",
-		)
-			.bind(staged.organizationId)
-			.run();
-		expect(await ws.outputQuery(staged, { op: "authority" })).toBe("shared");
-		expect((await ws.describe(staged)).importGeneration).toBeGreaterThan(0);
-		const core = createDbQueryClient(testEnv.DB);
-		const { publishOutputProjection } =
-			await import("@tedix/db/queries/workspace-feed/output-publication");
-		for (const outputId of ["out-doc", "out-sheet"]) {
-			const output = (await ws.outputQuery(staged, { op: "get", outputId }))!;
-			const revision = (await ws.outputQuery(staged, {
-				op: "revision",
-				revisionId: output.currentRevisionId!,
-			}))!;
-			await publishOutputProjection(core, output, revision);
-		}
-		const before = await testEnv.DB.prepare(
-			"SELECT * FROM workspace_output_index WHERE workspace_id = ? ORDER BY id",
-		)
-			.bind(staged.workspaceId)
-			.all();
-		expect(before.results).toHaveLength(2);
-		await ws.refreshOutputProjection(staged, "out-doc");
-		await ws.refreshOutputProjection(staged, "missing");
-		const after = await testEnv.DB.prepare(
-			"SELECT * FROM workspace_output_index WHERE workspace_id = ? ORDER BY id",
-		)
-			.bind(staged.workspaceId)
-			.all();
-		expect(after.results).toEqual(before.results);
-	});
-
 	test("an initialized empty owner writes and projects its first document", async () => {
 		await seedCore();
 		const fresh = { ...scope, workspaceId: crypto.randomUUID() };

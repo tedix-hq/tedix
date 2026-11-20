@@ -444,13 +444,6 @@ it("recognizes an idempotently initialized empty directory as document owner", a
 	};
 	tenant.initializeWorkspaceDirectory(local.db, row);
 	tenant.initializeWorkspaceDirectory(local.db, row);
-	expect(
-		await tenant.hasWorkspaceOutputAuthority(
-			local.db,
-			{ organizationId: row.organizationId, workspaceId: row.id },
-			core.db,
-		),
-	).toBe(true);
 	expect(local.db.select().from(osWorkspaces).all()).toHaveLength(1);
 	expect(local.db.select().from(osOutputs).all()).toEqual([]);
 	local.sqlite.close();

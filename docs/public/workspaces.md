@@ -154,10 +154,7 @@ installation that serves Tedix OS hosts them. An installation needs:
   (`DO_JURISDICTION`; Tedix Cloud uses `eu`);
 - a configured Azure OpenAI deployment and an authenticated AI Gateway for
   workspace chat. The model selector offers only the configured deployment;
-  reliable cost estimates are not available;
-- for the one-time move of existing workspaces, the runbook and the
-  migration token in
-  [Move workspaces into workspace objects](./workspace-migration.md).
+  reliable cost estimates are not available.
 
 Locally, `bun run-local` gives you workspaces with their data on your own
 machine and no account. Answers need model calls; add
