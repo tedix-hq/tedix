@@ -186,6 +186,7 @@ import {
 	type ConversationSummary,
 	type WaitingApproval,
 	stepLabel,
+	stepSummary,
 	type TurnUsage,
 	type UsageTotals,
 	type WireControlFrame,
@@ -4107,12 +4108,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			);
 			const json = value === undefined ? "null" : JSON.stringify(value);
 			const startedRun = binding === "work" && method === "startRun";
+			const summary = stepSummary(binding, method, args[0], value);
 			this.#events.append(turn.conversationId, {
 				type: "step.finished",
 				turnId: turn.turnId,
 				stepId,
 				status: "ok",
 				durationMs: Date.now() - started,
+				...(summary ? { summary } : {}),
 				...(value === undefined
 					? {}
 					: {

@@ -6,6 +6,7 @@ import {
 	eq,
 	getColumns,
 	gte,
+	inArray,
 	isNull,
 	not,
 	or,
@@ -150,6 +151,49 @@ export async function deleteFactsByRunId(
 		)
 		.returning({ id: memoryFacts.id });
 	return result.length;
+}
+
+/**
+ * The live private facts of the given tedis, newest first. With `terms`, only
+ * facts whose content or summary contains at least one of them (case
+ * insensitive), so a search reaches every fact of the tedi, not a top slice.
+ */
+export async function listPrivateFactsOfTedis(
+	db: DbClient,
+	params: TenantScope & {
+		tediIds: readonly string[];
+		terms?: readonly string[];
+		limit: number;
+	},
+): Promise<MemoryFact[]> {
+	if (params.tediIds.length === 0) return [];
+	const { organizationId } = normalizeTenantScope(params);
+	const conditions = [
+		eq(memoryFacts.organizationId, organizationId),
+		// bound-params: one person's tedis, cut to 20 here.
+		inArray(memoryFacts.tediId, params.tediIds.slice(0, 20)),
+		eq(memoryFacts.visibility, "private"),
+		isNull(memoryFacts.archivedAt),
+		isNull(memoryFacts.validTo),
+		sql`coalesce(${memoryFacts.memoryScope}, '') <> 'graph'`,
+		sql`coalesce(${memoryFacts.usePolicy}, '') <> 'do_not_inject_automatically'`,
+	];
+	const terms = (params.terms ?? []).filter((term) => term.length > 0);
+	if (terms.length > 0)
+		conditions.push(
+			or(
+				...terms.flatMap((term) => [
+					sql`instr(lower(${memoryFacts.content}), lower(${term})) > 0`,
+					sql`instr(lower(coalesce(${memoryFacts.summary}, '')), lower(${term})) > 0`,
+				]),
+			)!,
+		);
+	return db
+		.select()
+		.from(memoryFacts)
+		.where(and(...conditions))
+		.orderBy(desc(memoryFacts.updatedAt), desc(memoryFacts.id))
+		.limit(boundedLimit(params.limit));
 }
 
 // ============================================================================
