@@ -26,12 +26,6 @@ while read -r _localRef localSha remoteRef remoteSha; do
 		''|*[!0-9a-f]*) continue ;;
 		0000000000000000000000000000000000000000) continue ;;
 	esac
-	for check in "$root"/.githooks/pre-push.d/*; do
-		[[ -x "$check" ]] || continue
-		if ! "$check" "$remoteSha" "$localSha"; then
-			status=1
-		fi
-	done
 	# Give the gates the exact range Git is about to receive. Falling back to
 	# @{upstream} after a rebase can include unrelated commits and run DB gates
 	# for a widget-only push.

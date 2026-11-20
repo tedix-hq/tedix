@@ -1,13 +1,6 @@
 name: OSS Public CI
 
 on:
-  # Main pushes are certified by full-suite-hourly.yml. Contributor and
-  # release checks stay here; automatic jobs skip private repositories.
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
   pull_request:
   workflow_call:
     inputs:

@@ -36,22 +36,14 @@ The other checks stay in CI. `bun run verify` retains the complete profile;
 `--ci-policy --all` runs the repository checks in CI. Full workspace suites cover
 the consumer checks previously selected by `vitest related`.
 
-For the initial CI bootstrap, operations can pause new deployment plans while
-fast pushes install this workflow and its fixes. Restore planning only after
-certification passes and green-only selection is enforced.
+Ship runs from the private ops repository every four hours. It also runs on
+manual dispatch and on private main pushes that change the production overlay
+or deployment values. Ship selects the newest product main commit certified
+by the `Main CI` aggregate.
 
-Ops watches successful main certification every 15 seconds and wakes Ship
-using its existing workflow token. The watcher renews itself and has an hourly
-recovery schedule; Ship retains its hourly fallback. Ship independently
-resolves and verifies the newest certified main commit and its `Main CI`
-aggregate. No Actions secret is added to this repository, and pushing hosts
-need no completion daemon or authenticated `gh` session.
-
-The repository observer reports only failed runs that still match main's tip,
-using the exact workflow attempt's failed shards. One `ci_red` Work observation
-is deduplicated by repository, SHA and surface; it carries the pushing commit's
-Work trailer when present. The API must ship `ci_red` support before reporting
-can succeed. Older API deployments reject this event.
+The repository observer reports pushes and certification results for runs that
+still match main's tip. A failed result includes the exact workflow attempt's
+failed jobs. Results carry the commit's Work trailer when present.
 
 After runner setup, dispatch the workflow and record its exact SHA, aggregate,
 per-shard durations, total CI duration, and runner identities:
@@ -72,50 +64,3 @@ A green aggregate, a queued Ship, and a live revision are separate receipts.
 `label` that becomes the run title). It runs outside the `main-certification`
 group and certifies nothing. A repair agent can use it to reproduce a failed
 shard or check a focused fix.
-
-## Advisory high-risk review
-
-The independent `Advisory high-risk review` job runs only for push ranges
-matching `HIGH_RISK_PATHS` in `scripts/ci/high-risk-paths.mjs`. That explicit
-list is the complete policy; unknown paths and UI-only pushes skip review.
-It uses the push event's before/head range, including deleted paths, rather
-than the broader certification range. Scheduled/manual runs skip it. An
-unavailable push base is reported in the plan summary rather than represented
-as a reviewed range.
-
-The job has `continue-on-error: true`, runs alongside tests and is absent from
-`Main CI` dependencies. Its four-minute timeout and 150-second model budget
-bound advisory cost; neither findings nor reviewer failure grants approval or
-blocks certification. Measure actual job start/completion timestamps from
-Actions on a high-risk push; the receipt's elapsed seconds measure only the
-review command, excluding checkout/setup/upload. The target is at most four
-minutes, with no aggregate or commit-to-live dependency.
-
-It uses `claude -p` with the checked-in `.agents/skills/code-review/SKILL.md`
-instructions and a structured findings schema. Each finding requires severity,
-a changed file and a positive line number. Tools are disabled and the reviewer
-receives only Claude credentials. Existing `CLAUDE_CODE_OAUTH_TOKEN` or
-`ANTHROPIC_API_KEY` secrets may supply authentication; empty secrets or an
-absent skill produce a notice and an unavailable-review receipt. This change
-provisions no secret. At introduction neither repository nor organization
-exposed these secrets, and this checkout contained no code-review skill.
-
-Current incidents use repository-observer OIDC, not a reusable board credential
-for `tedix -w connect work comment`. Consequently findings and receipts are
-printed in the run summary and attached as `high-risk-review-<sha>-<attempt>`
-artifacts for 30 days. The receipt links every unique `Work-Item:` trailer in
-the pushed commits, not just the final commit. Board posting requires a later
-change once an existing CI board identity is available; do not repurpose the
-observer token or add a secret here.
-
-Each artifact records SHA, push base, run URL, review status, findings count,
-findings and elapsed seconds. Skipped/failed reviews have a null count, never a
-false zero. After 14 days from the first completed review, a human or agent
-adjudicates each finding by run URL and finding number on its linked Work:
-`precision: run=<url> finding=<n> wrong|correct; reason=<evidence>`. Post a cohort
-note with `wrong / adjudicated`, total findings and unadjudicated counts, plus
-job duration distribution and timeout/skip counts. Do not treat unadjudicated
-findings as correct or include unavailable runs in the denominator. No blocking
-mode is enabled; a separate brief follows measured precision. The source lane
-Work tracks the first high-risk run and UI-only skip proof; the two-week cohort
-cannot be measured before reviews actually run.
