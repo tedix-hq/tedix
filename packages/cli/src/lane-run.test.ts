@@ -47,13 +47,16 @@ function fixture() {
 	return { args, out };
 }
 describe("lane launcher", () => {
-	it("steers the active Codex turn and keeps its server for the next turn", async () => {
-		const { args, out } = fixture();
-		const codex = join(out, "..", "codex");
-		const threadId = "00000000-0000-4000-8000-000000000002";
-		writeFileSync(
-			codex,
-			`#!${process.execPath}
+	// Codex may announce a turn before or after it answers the start request.
+	it.each(["reply", "notice"])(
+		"steers the active Codex turn and keeps its server for the next turn (%s first)",
+		async (first) => {
+			const { args, out } = fixture();
+			const codex = join(out, "..", "codex");
+			const threadId = "00000000-0000-4000-8000-000000000002";
+			writeFileSync(
+				codex,
+				`#!${process.execPath}
 const send = (message) => console.log(JSON.stringify(message));
 let turns = 0;
 const reply = (id, result) => send({ id, result });
@@ -72,8 +75,10 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 	if (method === "turn/start") {
 		const turnId = String(++turns);
 		if (params.outputSchema.type !== "object") process.exit(2);
+		const started = () => send({ method: "turn/started", params: { threadId: params.threadId, turn: { id: turnId } } });
+		if (process.env.FIRST === "notice") started();
 		reply(id, { turn: { id: turnId } });
-		send({ method: "turn/started", params: { threadId: params.threadId, turn: { id: turnId } } });
+		if (process.env.FIRST !== "notice") started();
 		if (turns === 2) finish(params.threadId, turnId, '{"text":"next turn"}');
 	}
 	if (method === "turn/steer") {
@@ -83,55 +88,62 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 	}
 });
 `,
-			{ mode: 0o700 },
-		);
-		args[2] = "codex";
-		args.splice(-2, 2, codex, "exec");
-		const { codexServer } = await createCodexLaneThread(join(out, ".."), codex);
-		const steps: string[] = [];
-		const pids: number[] = [];
-		const outputSchema = {
-			type: "object",
-			properties: { text: { type: "string" } },
-			required: ["text"],
-			additionalProperties: false,
-		};
-		let delivery: Promise<boolean> | undefined;
-		const run = (outputPath: string, onTurnStarted: () => void) =>
-			runLaneProcess(args, {
-				sessionKey: threadId,
-				admitted: true,
-				report: async () => ({}),
-				onAgentStep: (step) => steps.push(step.text),
-				onSpawn: (pid) => pids.push(pid),
-				codex: {
-					server: codexServer,
-					outputPath,
-					outputSchema,
-					onUnavailable() {},
-					onTurnStarted,
-				},
-			});
-		try {
-			expect(
-				await run(out, () => {
-					delivery = codexServer.steer("Use the updated brief");
-				}),
-			).toBe(0);
-			expect(await delivery).toBe(true);
-			expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({
-				text: "Use the updated brief",
-			});
-			expect(await run(`${out}.second`, () => {})).toBe(0);
-			expect(pids).toEqual([pids[0]!, pids[0]!]);
-			expect(steps).toEqual([
-				'{"text":"Use the updated brief"}',
-				'{"text":"next turn"}',
-			]);
-		} finally {
-			codexServer.close();
-		}
-	});
+				{ mode: 0o700 },
+			);
+			args[2] = "codex";
+			args.splice(-2, 2, codex, "exec");
+			const { codexServer } = await createCodexLaneThread(
+				join(out, ".."),
+				codex,
+				undefined,
+				undefined,
+				{ FIRST: first },
+			);
+			const steps: string[] = [];
+			const pids: number[] = [];
+			const outputSchema = {
+				type: "object",
+				properties: { text: { type: "string" } },
+				required: ["text"],
+				additionalProperties: false,
+			};
+			let delivery: Promise<boolean> | undefined;
+			const run = (outputPath: string, onTurnStarted: () => void) =>
+				runLaneProcess(args, {
+					sessionKey: threadId,
+					admitted: true,
+					report: async () => ({}),
+					onAgentStep: (step) => steps.push(step.text),
+					onSpawn: (pid) => pids.push(pid),
+					codex: {
+						server: codexServer,
+						outputPath,
+						outputSchema,
+						onUnavailable() {},
+						onTurnStarted,
+					},
+				});
+			try {
+				expect(
+					await run(out, () => {
+						delivery = codexServer.steer("Use the updated brief");
+					}),
+				).toBe(0);
+				expect(await delivery).toBe(true);
+				expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({
+					text: "Use the updated brief",
+				});
+				expect(await run(`${out}.second`, () => {})).toBe(0);
+				expect(pids).toEqual([pids[0]!, pids[0]!]);
+				expect(steps).toEqual([
+					'{"text":"Use the updated brief"}',
+					'{"text":"next turn"}',
+				]);
+			} finally {
+				codexServer.close();
+			}
+		},
+	);
 	it("gives every launch into one Attempt's folder its own output files", async () => {
 		const { args, out } = fixture();
 		const output = join(out, "..", "attempt");
@@ -394,6 +406,13 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 	it("does not traverse for an untrusted native thread id", () => {
 		expect(
 			codexTranscript("../../other", { CODEX_HOME: "/not/read" }),
+		).toBeUndefined();
+	});
+	it("finds no Codex transcript before Codex has saved any thread", () => {
+		expect(
+			codexTranscript("00000000-0000-4000-8000-000000000002", {
+				CODEX_HOME: "/not/created",
+			}),
 		).toBeUndefined();
 	});
 });
