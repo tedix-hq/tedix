@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
+import { Meter } from "@/components/kumo/meter";
 import {
 	PopoverContent,
-	PopoverDescription,
 	PopoverRoot,
 	PopoverTitle,
 	PopoverTrigger,
@@ -90,15 +90,30 @@ export function ConversationUsageRing({
 					</Button>
 				}
 			/>
-			<PopoverContent side="top" align="end" className="w-64 p-3">
-				<PopoverTitle className="text-sm font-medium">Usage</PopoverTitle>
-				<PopoverDescription className="mt-1 text-sm">
-					{conversationUsageText(usage)}.
-				</PopoverDescription>
-				<Text as="p" role="label" tone="secondary" className="m-0 mt-2">
-					Counts settled replies; new ones appear within a few minutes.{" "}
-					<Link href="/admin/billing">See billing</Link>
-				</Text>
+			<PopoverContent side="top" align="end" className="w-56 p-3">
+				<div className="flex items-baseline justify-between gap-3">
+					<PopoverTitle className="text-sm font-medium">
+						This conversation
+					</PopoverTitle>
+					<Text as="span" role="label" className="tabular-nums">
+						{usage.label}
+					</Text>
+				</div>
+				<Meter
+					aria-label="Share of this month's credits used in this conversation"
+					label=""
+					hideLabel
+					value={usage.percent}
+					getAriaValueText={() => usage.label}
+					className="mt-2 gap-0"
+					trackClassName="h-1.5"
+				/>
+				<div className="mt-2 flex items-center justify-between gap-3">
+					<Text as="span" role="label" tone="secondary">
+						of this month's credits
+					</Text>
+					<Link href="/admin/billing">Billing</Link>
+				</div>
 			</PopoverContent>
 		</PopoverRoot>
 	);
