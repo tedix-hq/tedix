@@ -1804,6 +1804,10 @@
 		{
 			"name": "20261120184928_drop_organization_log_cutover_allowlist/migration.sql",
 			"sha256": "2748d0ba75b13f72040f888ba82bfe55f1b941dd49bfc276d029bcad37fb3923"
+		},
+		{
+			"name": "20261120191649_skill_archived_from/migration.sql",
+			"sha256": "5d90bd629bfd550a014375f06dbbd20753feb0362e04de5c94767e4ec2263c42"
 		}
 	]
 }

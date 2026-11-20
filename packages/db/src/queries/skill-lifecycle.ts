@@ -131,6 +131,27 @@ export function isSkillLifecyclePromotion(
 	return LIFECYCLE_RANK[target] > LIFECYCLE_RANK[current ?? "draft"];
 }
 
+/**
+ * A skill coming back out of the archive unchanged is a return, not a
+ * promotion: it needs no new certification when the archive recorded a state
+ * at least as high as the target. A row archived before that record was kept
+ * can only be returned by a signed-in person or operator key.
+ */
+export function isSkillReturnFromArchive(
+	current: Pick<SkillEntry, "lifecycleState" | "revision" | "archivedFrom">,
+	target: SkillLifecycleState,
+	operatorForce: boolean,
+): boolean {
+	if (current.lifecycleState !== "archived" || target === "archived")
+		return false;
+	const from = current.archivedFrom;
+	if (!from) return operatorForce;
+	return (
+		from.revision === current.revision &&
+		LIFECYCLE_RANK[target] <= LIFECYCLE_RANK[from.lifecycleState]
+	);
+}
+
 const certificationPassed = sql<boolean>`(
     json_extract(${skillRuns.result}, '$.certification.passed') = 1
     or json_extract(${skillRuns.result}, '$.certification.status') = 'passed'
@@ -818,6 +839,7 @@ export async function sweepExpiredDraftSkills(
 			.set({
 				lifecycleState: "archived",
 				paceLayer: paceLayerForLifecycle("archived"),
+				archivedFrom: sql`json_object('lifecycleState', 'draft', 'revision', ${skillEntries.revision} + 1)`,
 				revision: sql`${skillEntries.revision} + 1`,
 				revisionReasoning: sql`CASE WHEN ${skillEntries.revisionReasoning} IS NULL OR ${skillEntries.revisionReasoning} = '' THEN ${note} ELSE ${skillEntries.revisionReasoning} || char(10) || ${note} END`,
 				updatedAt: now.toISOString(),
