@@ -73,7 +73,7 @@ import {
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import {
 	dispatchRequestsDirectory,
-	waitForDispatchRequest,
+	serveDispatchRequests,
 } from "./lane-dispatch-wake";
 import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
 import { lanePermissionCopy } from "./lane-permission-copy";
@@ -703,6 +703,7 @@ export function parseServeOptions(
  * Until that item is admitted its calls skip the call queue, where they would
  * wait behind the calls of every running task.
  */
+const REQUEST_READ_ATTEMPTS = 3;
 const requestedRun = new AsyncLocalStorage<{ direct: boolean }>();
 
 export function serialCalls() {
@@ -3026,46 +3027,84 @@ export class LaneDispatcher {
 	 * Starts the Work Item a person asked for in chat when its request arrives,
 	 * also in the middle of a pass, and without waiting in the call queue. An
 	 * item this runner already knows, or may not take now, is left to the pass.
+	 * Every outcome writes a log line. Returns false only when this runner is
+	 * stopping or waiting to restart: the request then stays in the folder for
+	 * the runner that replaces it.
 	 */
-	async startRequested(workItemId: string) {
-		await requestedRun.run({ direct: true }, async () => {
+	async startRequested(workItemId: string): Promise<boolean> {
+		return requestedRun.run({ direct: true }, async () => {
+			const leaving = () => {
+				const reason = this.stopping
+					? "Runner is stopping"
+					: this.admissionsHeld;
+				if (!reason) return false;
+				this.log(
+					"request-held",
+					workItemId,
+					`${reason}; the request stays for the next runner`,
+				);
+				return true;
+			};
 			try {
-				if (this.stopping || this.admissionsHeld) return;
-				const page = await this.call<{ data: DispatchItem[] }>([
-					"work",
-					"dispatch-list",
-					"--input",
-					JSON.stringify({
-						disposition: "accepted",
-						...(this.options.executor === "any-local"
-							? { executor: [...localExecutors, "any-local"] }
-							: { executor: this.options.executor }),
-						dispatchReadyOnly: true,
-						...(this.options.project
-							? { projectId: this.options.project }
-							: {}),
-						idPrefix: workItemId,
-						limit: 1,
-						offset: 0,
-					}),
-				]);
+				if (leaving()) return false;
+				let page: { data: DispatchItem[] } | undefined;
+				// One failed read on a slow gateway must not cost the early start.
+				for (let attempt = 1; !page; attempt++) {
+					try {
+						page = await this.call<{ data: DispatchItem[] }>([
+							"work",
+							"dispatch-list",
+							"--input",
+							JSON.stringify({
+								disposition: "accepted",
+								...(this.options.executor === "any-local"
+									? { executor: [...localExecutors, "any-local"] }
+									: { executor: this.options.executor }),
+								dispatchReadyOnly: true,
+								...(this.options.project
+									? { projectId: this.options.project }
+									: {}),
+								idPrefix: workItemId,
+								limit: 1,
+								offset: 0,
+							}),
+						]);
+					} catch (error) {
+						if (attempt === REQUEST_READ_ATTEMPTS || this.stopping) throw error;
+						this.log(
+							"request-read-retried",
+							workItemId,
+							`Read ${attempt} of ${REQUEST_READ_ATTEMPTS} failed: ${String(error)}`,
+						);
+						await sleep(2_000);
+					}
+				}
+				if (leaving()) return false;
 				const item = page.data?.find((row) => row.id === workItemId);
-				if (
-					!item ||
-					this.stopping ||
-					this.admissionsHeld ||
-					this.running.has(item.id) ||
-					this.maintenance.has(item.id) ||
-					existsSync(this.path(item)) ||
-					this.deps.freeDiskBytes(this.directory) < MIN_FREE_DISK_BYTES ||
-					dispatchSkip(
-						item,
-						[],
-						this.options.executor,
-						this.options.coordinated,
-					)
-				)
-					return;
+				const skip = !item
+					? "Not in this runner's list of accepted Work that is ready to start"
+					: this.running.has(item.id)
+						? "Already running here"
+						: this.maintenance.has(item.id)
+							? "A maintenance task for it is running here"
+							: existsSync(this.path(item))
+								? "This runner already has a record of this revision"
+								: this.deps.freeDiskBytes(this.directory) < MIN_FREE_DISK_BYTES
+									? "Not enough free disk space"
+									: dispatchSkip(
+											item,
+											[],
+											this.options.executor,
+											this.options.coordinated,
+										);
+				if (!item || skip) {
+					this.log(
+						"request-skipped",
+						workItemId,
+						`${skip}; left to the next pass`,
+					);
+					return true;
+				}
 				this.route(item);
 				this.log("requested", item.id, "Started ahead of the pass");
 				const task = this.execute(item)
@@ -3073,8 +3112,14 @@ export class LaneDispatcher {
 					.finally(() => this.running.delete(item.id));
 				this.running.set(item.id, task);
 			} catch (error) {
-				this.log("request-deferred", workItemId, String(error));
+				this.log(
+					"request-deferred",
+					workItemId,
+					`${String(error)}; left to the next pass`,
+				);
+				return !(this.stopping || this.admissionsHeld);
 			}
+			return true;
 		});
 	}
 	private pendingDevinProbe?: Promise<
@@ -7626,16 +7671,9 @@ export async function runLaneServe(
 			mkdirSync(requests, { recursive: true, mode: 0o700 });
 			// Requests are read all the time, not between passes: a pass over a
 			// long backlog takes minutes.
-			void (async () => {
-				while (!stopping) {
-					const workItemId = await waitForDispatchRequest(
-						requests,
-						60_000,
-						stopWaiting.signal,
-					);
-					if (workItemId && !stopping) void lane.startRequested(workItemId);
-				}
-			})();
+			void serveDispatchRequests(requests, stopWaiting.signal, (workItemId) =>
+				lane.startRequested(workItemId),
+			);
 		}
 		do {
 			try {
