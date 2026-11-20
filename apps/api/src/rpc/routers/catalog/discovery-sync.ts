@@ -1,4 +1,5 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
+import { catalogSeoDescription } from "../../../lib/catalog-description";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { failRunningAppCatalogSyncLog } from "@tedix/db/queries/catalog/sync-logs";
 import { catalogSyncTerminalFailure } from "../../../lib/catalog-sync-recovery";
@@ -378,7 +379,7 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 			healthErrorMessage: result.healthData?.errorMessage ?? null,
 			// Listing content (from richContent blob)
 			screenshotUrl: result.richContent?.screenshotUrl ?? null,
-			seoDescription: sanitizePublicText(result.seoDescription),
+			seoDescription: catalogSeoDescription(result),
 			socialLinks: result.richContent?.socialLinks ?? null,
 			examplePrompts: result.richContent?.examplePrompts ?? null,
 			categories: publicCategories(result.categories),
