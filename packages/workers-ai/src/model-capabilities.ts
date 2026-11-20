@@ -43,3 +43,32 @@ export function claude55RequestCapabilities(
 		strictTools: family !== "haiku",
 	};
 }
+
+/**
+ * Strict function schemas must list every property as required and forbid
+ * extra properties at every level. A provider that enforces this rejects the
+ * whole request otherwise, so a tool with an optional parameter is sent
+ * without strict mode.
+ */
+export function meetsStrictSchemaRules(schema: unknown): boolean {
+	if (Array.isArray(schema)) return schema.every(meetsStrictSchemaRules);
+	if (!schema || typeof schema !== "object") return true;
+	const node = schema as Record<string, unknown>;
+	const properties =
+		node.properties && typeof node.properties === "object"
+			? (node.properties as Record<string, unknown>)
+			: null;
+	if (node.type === "object" || properties) {
+		if (node.additionalProperties !== false) return false;
+		const required = Array.isArray(node.required) ? node.required : [];
+		if (Object.keys(properties ?? {}).some((key) => !required.includes(key)))
+			return false;
+	}
+	return [
+		...Object.values(properties ?? {}),
+		...Object.values(node.$defs ?? {}),
+		...Object.values(node.definitions ?? {}),
+		node.items,
+		node.anyOf,
+	].every(meetsStrictSchemaRules);
+}

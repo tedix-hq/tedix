@@ -1,7 +1,10 @@
 import { estimateInferenceTokens } from "./inference-guardrails";
 import { repairToolCallInput } from "./repair-tool-call";
 import { repairJsonUnicode } from "@tedix/chat-transport/repair-json-unicode";
-import { claude55RequestCapabilities } from "@tedix/workers-ai/model-capabilities";
+import {
+	claude55RequestCapabilities,
+	meetsStrictSchemaRules,
+} from "@tedix/workers-ai/model-capabilities";
 import type {
 	LanguageModelV2,
 	LanguageModelV3,
@@ -599,7 +602,12 @@ export function createTedixPiProvider<R>(
 										throw new Error(
 											"Provider-defined tools require a governed adapter",
 										);
-									return { ...tool, ...(strictTools ? { strict: true } : {}) };
+									return {
+										...tool,
+										...(strictTools && meetsStrictSchemaRules(tool.inputSchema)
+											? { strict: true }
+											: {}),
+									};
 								}),
 							})
 						: actual.specificationVersion === "v3"
@@ -613,7 +621,10 @@ export function createTedixPiProvider<R>(
 											);
 										return {
 											...tool,
-											...(strictTools ? { strict: true } : {}),
+											...(strictTools &&
+											meetsStrictSchemaRules(tool.inputSchema)
+												? { strict: true }
+												: {}),
 										};
 									}),
 								})

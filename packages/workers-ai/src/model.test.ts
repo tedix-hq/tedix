@@ -38,7 +38,11 @@ const TOOL: NonNullable<CallOptions["tools"]>[number] = {
 	type: "function",
 	name: "list_skills",
 	description: "list them",
-	inputSchema: { type: "object", properties: {} },
+	inputSchema: {
+		type: "object",
+		properties: {},
+		additionalProperties: false,
+	},
 };
 
 describe("workersAiModel factory", () => {
@@ -164,7 +168,11 @@ describe("tool_choice guard", () => {
 				function: {
 					name: "list_skills",
 					description: "list them",
-					parameters: { type: "object", properties: {} },
+					parameters: {
+						type: "object",
+						properties: {},
+						additionalProperties: false,
+					},
 				},
 			},
 		]);
@@ -199,7 +207,11 @@ describe("tool_choice guard", () => {
 				function: {
 					name: "list_skills",
 					description: "list them",
-					parameters: { type: "object", properties: {} },
+					parameters: {
+						type: "object",
+						properties: {},
+						additionalProperties: false,
+					},
 					strict: true,
 				},
 			},

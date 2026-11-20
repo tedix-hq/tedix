@@ -21,7 +21,10 @@ import {
 	opensThinkingImplicitly,
 	splitInlineThinking,
 } from "./inline-thinking";
-import { claude55RequestCapabilities } from "./model-capabilities";
+import {
+	claude55RequestCapabilities,
+	meetsStrictSchemaRules,
+} from "./model-capabilities";
 import type { LanguageModel } from "ai";
 import {
 	callWorkersAi,
@@ -197,7 +200,9 @@ function toWorkersAiTools(
 				name: t.name,
 				description: t.description,
 				parameters: t.inputSchema,
-				...(strict ? { strict: true } : {}),
+				...(strict && meetsStrictSchemaRules(t.inputSchema)
+					? { strict: true }
+					: {}),
 			},
 		});
 	}
