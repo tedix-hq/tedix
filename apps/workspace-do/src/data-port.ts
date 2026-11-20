@@ -116,6 +116,44 @@ export interface WorkItemSummary {
 	updatedAt: string;
 }
 
+export interface WorkListOptions {
+	disposition?: string;
+	limit?: number;
+	projectId?: string;
+	/** Words the title contains, any case. */
+	query?: string;
+	open?: boolean;
+}
+
+/** A run in progress, from its live Attempt. */
+export interface LiveRunSummary {
+	workItemId: string;
+	title: string;
+	projectId: string | null;
+	project: string | null;
+	executor: string;
+	/** The Attempt's state: queued, running, waiting or retrying. */
+	state: string;
+	startedAt: string;
+	minutesRunning: number;
+	lastHeartbeatAt: string;
+	lastStep: { at: string; kind: string; text: string } | null;
+	startedInThisChat: boolean;
+	/** Whether the person who sent this message may send it a follow-up or stop it. */
+	canSteer: boolean;
+	url: string;
+}
+
+export interface WorkItemDetail extends WorkItemSummary {
+	description: string | null;
+	project: string | null;
+	executor: string | null;
+	accountableOwner: string | null;
+	latestRun: { state: string; outcome: string | null } | null;
+	comments: Array<{ author: string; createdAt: string; body: string }>;
+	url: string;
+}
+
 export interface CreateWorkInput {
 	title: string;
 	description?: string;
@@ -175,6 +213,17 @@ export interface WorkspaceRunPort {
 		kind: "agent_run_stop";
 		workItemId: string;
 	}>;
+	/** Runs in progress in the projects this turn's Work reaches. */
+	listRuns(): Promise<LiveRunSummary[]>;
+	getWork(workItemId: string): Promise<WorkItemDetail>;
+	commentOnWork(input: { workItemId: string; body: string }): Promise<{
+		id: string;
+		workItemId: string;
+	}>;
+	acceptWork(input: {
+		workItemId: string;
+		doneWhen: string;
+	}): Promise<WorkItemSummary>;
 }
 
 export interface WorkspaceDataPort {
@@ -228,10 +277,12 @@ export interface WorkspaceDataPort {
 		input: RegisterAppScheduleInput & { actorId: string },
 	): Promise<{ gadgetId: string; triggerId: string; name: string }>;
 	listResources(): Promise<ResourceSummary[]>;
-	listWork(options?: {
-		disposition?: string;
-		limit?: number;
-	}): Promise<WorkItemSummary[]>;
+	/**
+	 * Work this turn reaches: the linked projects, or every project of the
+	 * organization when the person who sent it is the only one who can open
+	 * the workspace. `open` lists proposed and accepted items only.
+	 */
+	listWork(options?: WorkListOptions): Promise<WorkItemSummary[]>;
 	/** Files a proposed Work Item in a project linked to this workspace. */
 	createWork(
 		input: CreateWorkInput & { actorId: string },

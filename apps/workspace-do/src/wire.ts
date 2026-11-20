@@ -534,6 +534,10 @@ export function stepLabel(
 		work: {
 			list: "Reading Work items",
 			listOpen: "Reading open Work items",
+			get: "Reading a Work item",
+			runs: "Reading what is running",
+			comment: "Commenting on a Work item",
+			accept: "Accepting a Work item",
 			create: "Filing a Work Item",
 			listProjects: "Listing projects",
 			startRun: "Starting a run",
@@ -552,7 +556,9 @@ export function stepLabel(
 				"allowRead",
 			].includes(method)) ||
 		(binding === "work" &&
-			["startRun", "sendRunMessage", "stopRun"].includes(method)) ||
+			["startRun", "sendRunMessage", "stopRun", "comment", "accept"].includes(
+				method,
+			)) ||
 		method === "create" ||
 		method === "revise" ||
 		(["documents", "sheets", "presentations"].includes(binding) &&

@@ -51,17 +51,10 @@ import type {
 	CreateWorkInput,
 	OutputDetail,
 	OutputSummary,
+	WorkListOptions,
 	WorkspaceDataPort,
 	WorkspaceRunPort,
 } from "./data-port";
-
-const OPEN_DISPOSITIONS = new Set([
-	"proposed",
-	"accepted",
-	"in_progress",
-	"blocked",
-	"review",
-]);
 
 export interface BindingDeps {
 	data: WorkspaceDataPort;
@@ -430,18 +423,34 @@ export function buildWorkspaceBindings(
 		return deps.runs;
 	};
 	const work = {
-		list: (options?: { disposition?: string; limit?: number }) =>
-			data.listWork(options),
-		listOpen: async () =>
-			(await data.listWork({ limit: 500 }))
-				.filter((item) => OPEN_DISPOSITIONS.has(item.disposition))
-				.map(({ id, title, disposition, workKind, priority }) => ({
-					id,
-					title,
-					disposition,
-					workKind,
-					priority,
-				})),
+		list: (options?: Omit<WorkListOptions, "open">) =>
+			data.listWork({
+				disposition: options?.disposition,
+				limit: options?.limit,
+				projectId: options?.projectId,
+				query: options?.query,
+			}),
+		listOpen: async (options?: { projectId?: string; query?: string }) =>
+			(
+				await data.listWork({
+					open: true,
+					projectId: options?.projectId,
+					query: options?.query,
+				})
+			).map(({ id, title, disposition, workKind, priority, projectId }) => ({
+				id,
+				title,
+				disposition,
+				workKind,
+				priority,
+				projectId,
+			})),
+		get: (workItemId: string) => runPort().getWork(workItemId),
+		comment: (input: { workItemId: string; body: string }) =>
+			runPort().commentOnWork(input),
+		accept: (input: { workItemId: string; doneWhen: string }) =>
+			runPort().acceptWork(input),
+		runs: () => runPort().listRuns(),
 		create: (input: CreateWorkInput) =>
 			data.createWork({ ...input, actorId: deps.actor.id }),
 		listProjects: () => runPort().listRunProjects(),
@@ -754,6 +763,10 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				listOpen: { riskTier: "read", blastRadius: "none" },
+				get: { riskTier: "read", blastRadius: "none" },
+				runs: { riskTier: "read", blastRadius: "none" },
+				comment: { riskTier: "bounded_write", blastRadius: "single_resource" },
+				accept: { riskTier: "bounded_write", blastRadius: "single_resource" },
 				listProjects: { riskTier: "read", blastRadius: "none" },
 				startRun: { riskTier: "bounded_write", blastRadius: "single_resource" },
 				readRun: { riskTier: "read", blastRadius: "none" },

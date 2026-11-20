@@ -522,3 +522,108 @@ export async function sendWorkAttemptMessage(
 	const [[message]] = await db.batch([insert, signal]);
 	return message ?? null;
 }
+
+/**
+ * Runs in progress in an organization, newest first: each Attempt that is
+ * live by {@link isWorkAttemptLive} with its Work Item and its newest step.
+ * An Attempt whose lease ran out without a settlement is left out, so a run
+ * whose runner went away does not show as running. Live Attempts are few;
+ * two reads after the first, with no join over Attempt history.
+ */
+export async function listLiveWorkRuns(
+	db: DbQueryClient,
+	params: { orgId: string; at?: string; limit?: number },
+) {
+	const at = params.at ?? new Date().toISOString();
+	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 50), 1), 50);
+	const attempts = await db
+		.select({
+			attemptId: workAttempts.id,
+			workItemId: workAttempts.workItemId,
+			runtimeState: workAttempts.runtimeState,
+			attemptExecutorType: workAttempts.executorType,
+			attemptExecutorId: workAttempts.executorId,
+			startedAt: workAttempts.startedAt,
+			heartbeatAt: workAttempts.heartbeatAt,
+		})
+		.from(workAttempts)
+		.where(
+			and(
+				eq(workAttempts.orgId, params.orgId),
+				inArray(workAttempts.runtimeState, [...ACTIVE_ATTEMPT_STATES]),
+				isNull(workAttempts.outcome),
+				gt(workAttempts.expiresAt, at),
+			),
+		)
+		// See listLiveWorkAttemptHolders: `+started_at` keeps the planner on
+		// the state index instead of walking every Attempt by start time.
+		.orderBy(sql`+${workAttempts.startedAt} desc`)
+		.limit(limit);
+	if (attempts.length === 0) return [];
+	const [items, steps] = await db.batch([
+		db
+			.select({
+				id: workItems.id,
+				title: workItems.title,
+				projectId: workItems.projectId,
+				itemExecutorId: workItems.executorId,
+				accountableOwnerType: workItems.accountableOwnerType,
+				accountableOwnerId: workItems.accountableOwnerId,
+				sourceSessionKey: workItems.sourceSessionKey,
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					// bound-params: at most 50 Attempts, the limit of the read above.
+					inArray(
+						workItems.id,
+						attempts.map((attempt) => attempt.workItemId),
+					),
+				),
+			),
+		db
+			.select({
+				stepAttemptId: workAttemptSteps.attemptId,
+				stepAt: workAttemptSteps.at,
+				stepKind: workAttemptSteps.kind,
+				stepText: workAttemptSteps.text,
+			})
+			.from(workAttemptSteps)
+			.where(
+				and(
+					eq(workAttemptSteps.orgId, params.orgId),
+					// bound-params: at most 50 Attempts, the limit of the read above.
+					inArray(
+						workAttemptSteps.attemptId,
+						attempts.map((attempt) => attempt.attemptId),
+					),
+					eq(
+						workAttemptSteps.seq,
+						sql`(SELECT max(newest.seq) FROM work_attempt_steps newest WHERE newest.attempt_id = ${workAttemptSteps.attemptId})`,
+					),
+				),
+			),
+	]);
+	const byId = new Map(items.map((item) => [item.id, item]));
+	const lastStep = new Map(steps.map((step) => [step.stepAttemptId, step]));
+	return attempts.flatMap((attempt) => {
+		const item = byId.get(attempt.workItemId);
+		if (!item) return [];
+		const step = lastStep.get(attempt.attemptId);
+		return [
+			{
+				...attempt,
+				title: item.title,
+				projectId: item.projectId,
+				itemExecutorId: item.itemExecutorId,
+				accountableOwnerType: item.accountableOwnerType,
+				accountableOwnerId: item.accountableOwnerId,
+				sourceSessionKey: item.sourceSessionKey,
+				lastStep: step
+					? { at: step.stepAt, kind: step.stepKind, text: step.stepText }
+					: null,
+			},
+		];
+	});
+}

@@ -77,10 +77,16 @@ import {
 } from "@tedix/api-contract/schemas/work-attempt-steps";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import {
+	listLiveWorkRuns,
 	listWorkAttemptSteps,
 	queueWorkItemFollowUp,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
+import { listLatestWorkAttemptSummaries } from "@tedix/db/queries/work-items/attempts";
+import {
+	addWorkItemComment,
+	listRecentWorkItemComments,
+} from "@tedix/db/queries/work-items/comments";
 import {
 	getProjectByIdForOrganization,
 	listActiveProjectsForOrganization,
@@ -94,13 +100,15 @@ import {
 	createWorkItem,
 	getWorkItemById,
 	getWorkItemBySourceIntentId,
-	listWorkItems,
+	listWorkItemsPage,
 } from "@tedix/db/queries/work-items/crud";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
 import {
+	WORK_ITEM_DISPOSITION_VALUES,
 	WORK_ITEM_KIND_VALUES,
 	WORK_ITEM_PRIORITY_VALUES,
 	type WorkItem,
+	type WorkItemDisposition,
 	type WorkItemKind,
 	type WorkItemPriority,
 } from "@tedix/db/schema/work-items";
@@ -126,7 +134,10 @@ import type {
 	OutputSummary,
 	ResourceSummary,
 	CreateWorkInput,
+	LiveRunSummary,
+	WorkItemDetail,
 	WorkItemSummary,
+	WorkListOptions,
 	WorkspaceDataPort,
 	WorkspaceSnapshot,
 	StartRunInput,
@@ -201,6 +212,14 @@ export interface TenantDataPortDeps {
 	 * personal accounts count as connected; never written anywhere.
 	 */
 	actingUserId?: string | null;
+	/**
+	 * The acting person sent the turn themself and nobody else can open the
+	 * workspace: its Work reaches every project that person may use, not
+	 * only the linked ones.
+	 */
+	personScope?: boolean;
+	/** The tedi answering the turn; its home project is the default for a run. */
+	answeringTediId?: string | null;
 	conversationId?: string;
 	/**
 	 * The agent turn writing through this port. Its saves stay attributed to
@@ -228,6 +247,9 @@ const StartRunInputSchema = z.strictObject({
 	changesCode: z.boolean().optional(),
 	projectId: z.uuid().optional(),
 });
+
+const OPERATOR_REFUSAL =
+	"Accepting a task in that project needs an organization owner or admin, or a member the project names as an operator";
 
 const APP_NAME_TAKEN = "An app with this name already exists in this workspace";
 
@@ -1128,26 +1150,224 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		return { providerResourceId: resource.providerResourceId, tools };
 	}
 
-	async listWork(options?: { disposition?: string; limit?: number }) {
+	/**
+	 * The projects this turn's Work reaches: null for every project of the
+	 * organization. That needs a turn the person sent in a workspace only
+	 * they can open, and an active membership: the API's rule for reading
+	 * the board. Otherwise only the workspace's linked projects.
+	 */
+	async #workProjectIds(): Promise<string[] | null> {
 		const { projectIds } = await this.workspace();
-		const limit = Math.min(Math.max(options?.limit ?? 200, 1), 500);
+		const userId = this.deps.personScope ? this.deps.actingUserId : null;
+		if (!userId) return projectIds;
+		const member = await getMemberAccessByUserId(
+			this.deps.core,
+			this.deps.organizationId,
+			userId,
+		);
+		return member?.status === "active" ? null : projectIds;
+	}
+
+	async listWork(options: WorkListOptions = {}) {
+		const projectIds = await this.#workProjectIds();
+		if (
+			options.projectId &&
+			projectIds &&
+			!projectIds.includes(options.projectId)
+		)
+			throw new Error("That project is not linked to this workspace");
+		const disposition = options.disposition;
+		if (
+			disposition &&
+			!(WORK_ITEM_DISPOSITION_VALUES as readonly string[]).includes(disposition)
+		)
+			throw new Error(
+				`disposition is one of ${WORK_ITEM_DISPOSITION_VALUES.join(", ")}`,
+			);
+		const query = options.query?.trim().toLowerCase() || undefined;
+		const dispositions = (
+			options.open ? ["proposed", "accepted"] : [disposition]
+		) as Array<WorkItemDisposition | undefined>;
+		const projects = options.projectId
+			? [options.projectId]
+			: (projectIds ?? [undefined]);
+		const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
 		const pages = await Promise.all(
-			projectIds.map((projectId) =>
-				listWorkItems(this.deps.core, {
-					orgId: this.deps.organizationId,
-					projectId,
-					...(options?.disposition
-						? { disposition: options.disposition as never }
-						: {}),
-					limit,
-				}),
+			projects.flatMap((projectId) =>
+				dispositions.map((value) =>
+					listWorkItemsPage(this.deps.core, {
+						orgId: this.deps.organizationId,
+						...(projectId ? { projectId } : {}),
+						...(value ? { disposition: value } : {}),
+						...(query ? { titleContains: query } : {}),
+						limit,
+					}),
+				),
 			),
 		);
 		return pages
-			.flat()
+			.flatMap((page) => page.data)
 			.map(workSummary)
 			.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-			.slice(0, limit);
+			.slice(0, options.open ? limit * 2 : limit);
+	}
+
+	/** A Work Item this turn's Work reaches; the same refusal when it is not. */
+	async #reachableWork(workItemId: string) {
+		const [item, projectIds] = await Promise.all([
+			getWorkItemById(this.deps.core, workItemId, this.deps.organizationId),
+			this.#workProjectIds(),
+		]);
+		if (
+			!item ||
+			(projectIds && (!item.projectId || !projectIds.includes(item.projectId)))
+		)
+			throw new Error("No Work Item with this id is reachable from this chat");
+		return item;
+	}
+
+	async getWork(workItemId: string): Promise<WorkItemDetail> {
+		await this.#runActor();
+		const item = await this.#reachableWork(workItemId);
+		const [project, comments, latest] = await Promise.all([
+			item.projectId
+				? getProjectByIdForOrganization(
+						this.deps.core,
+						item.orgId,
+						item.projectId,
+					)
+				: undefined,
+			listRecentWorkItemComments(this.deps.core, {
+				orgId: item.orgId,
+				workItemId: item.id,
+				limit: 10,
+			}),
+			listLatestWorkAttemptSummaries(this.deps.core, {
+				orgId: item.orgId,
+				workItemIds: [item.id],
+			}),
+		]);
+		const run = latest.get(item.id);
+		return {
+			...workSummary(item),
+			description: item.description
+				? wrapUntrustedInput(item.description.slice(0, 4000), "work_item")
+				: null,
+			project: project?.name ?? null,
+			executor: item.executorId ?? null,
+			accountableOwner: item.accountableOwnerId
+				? `${item.accountableOwnerType}:${item.accountableOwnerId}`
+				: null,
+			latestRun: run ? { state: run.runtimeState, outcome: run.outcome } : null,
+			comments: comments.map((comment) => ({
+				author: `${comment.authorType}:${comment.authorId}`,
+				createdAt: comment.createdAt,
+				body: wrapUntrustedInput(comment.body.slice(0, 2000), "work_comment"),
+			})),
+			url: "/work/items/" + item.id,
+		};
+	}
+
+	async commentOnWork(input: { workItemId: string; body: string }) {
+		const { actor } = await this.#runActor();
+		const body = z.string().trim().min(1).max(10_000).parse(input.body);
+		const item = await this.#reachableWork(input.workItemId);
+		const comment = await addWorkItemComment(this.deps.core, {
+			id: crypto.randomUUID(),
+			workItemId: item.id,
+			orgId: item.orgId,
+			authorType: actor.type,
+			authorId: actor.id,
+			recordActivity: true,
+			body,
+			metadata: {
+				source: "os.workspace.chat",
+				workspaceId: this.deps.workspaceId,
+			},
+			createdAt: new Date().toISOString(),
+		});
+		return { id: comment.id, workItemId: item.id };
+	}
+
+	async acceptWork(input: { workItemId: string; doneWhen: string }) {
+		const { actor } = await this.#runActor();
+		const doneWhen = z.string().trim().min(1).max(2_000).parse(input.doneWhen);
+		const item = await this.#reachableWork(input.workItemId);
+		if (item.disposition !== "proposed")
+			throw new Error(`This Work Item is ${item.disposition}, not proposed`);
+		const project = item.projectId
+			? await getProjectByIdForOrganization(
+					this.deps.core,
+					item.orgId,
+					item.projectId,
+				)
+			: null;
+		if (!project || !(await this.#operatesIn(actor.id, "acceptance"))(project))
+			throw new Error(OPERATOR_REFUSAL);
+		return workSummary(
+			await acceptWorkItem(this.deps.core, {
+				orgId: item.orgId,
+				workItemId: item.id,
+				acceptanceContract: { version: 1, doneLooksLike: doneWhen },
+				actor,
+			}),
+		);
+	}
+
+	async listRuns(): Promise<LiveRunSummary[]> {
+		const { actor, sourceSessionKey } = await this.#runActor();
+		const [projectIds, rows, projects, operates] = await Promise.all([
+			this.#workProjectIds(),
+			listLiveWorkRuns(this.deps.core, { orgId: this.deps.organizationId }),
+			listActiveProjectsForOrganization(
+				this.deps.core,
+				this.deps.organizationId,
+			),
+			this.#operatesIn(actor.id, "completion"),
+		]);
+		const byId = new Map(projects.map((project) => [project.id, project]));
+		const now = Date.now();
+		return rows
+			.filter(
+				(row) =>
+					!projectIds ||
+					(row.projectId !== null && projectIds.includes(row.projectId)),
+			)
+			.map((row) => {
+				const project = row.projectId ? byId.get(row.projectId) : undefined;
+				const startedInThisChat = row.sourceSessionKey === sourceSessionKey;
+				return {
+					workItemId: row.workItemId,
+					title: row.title,
+					projectId: row.projectId,
+					project: project?.name ?? null,
+					executor: row.itemExecutorId ?? row.attemptExecutorId,
+					state: row.runtimeState,
+					startedAt: row.startedAt,
+					minutesRunning: Math.max(
+						0,
+						Math.round((now - Date.parse(row.startedAt)) / 60_000),
+					),
+					lastHeartbeatAt: row.heartbeatAt,
+					lastStep: row.lastStep
+						? {
+								at: new Date(row.lastStep.at).toISOString(),
+								kind: row.lastStep.kind,
+								text: wrapUntrustedInput(
+									row.lastStep.text.slice(0, 300),
+									"agent_run",
+								),
+							}
+						: null,
+					startedInThisChat,
+					canSteer:
+						(startedInThisChat &&
+							row.accountableOwnerType === actor.type &&
+							row.accountableOwnerId === actor.id) ||
+						(!!project && operates(project)),
+					url: "/work/items/" + row.workItemId,
+				};
+			});
 	}
 
 	async createWork(
@@ -1242,12 +1462,13 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	}
 
 	/**
-	 * Whether this person may accept Work in the organization's projects: the
-	 * rule the API applies to a person who accepts a task. An owner or admin
-	 * may in every project; a member only where the project names them as an
-	 * operator for acceptance.
+	 * Whether this person may take a Work action in the organization's
+	 * projects: the rule the API applies to a person who accepts a task, or
+	 * who completes one or steers its run. An owner or admin may in every
+	 * project; a member only where the project names them as an operator for
+	 * that action.
 	 */
-	async #acceptsWorkIn(userId: string) {
+	async #operatesIn(userId: string, action: "acceptance" | "completion") {
 		const member = await getMemberAccessByUserId(
 			this.deps.core,
 			this.deps.organizationId,
@@ -1267,52 +1488,56 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				grant.success &&
 				!!member.userId &&
 				grant.data.userIds.includes(member.userId) &&
-				grant.data.actions.includes("acceptance")
+				grant.data.actions.includes(action)
 			);
 		};
 	}
 
-	async #isPrivate() {
-		return (
-			(await getOsWorkspace(this.deps.core, this.scope))?.visibility ===
-			"private"
-		);
-	}
-
 	/**
 	 * The project a run goes to. A shared workspace reaches only its linked
-	 * projects. A private workspace is one person's own chat and links none,
-	 * so there the person's own permission decides.
+	 * projects. In a workspace only the sender can open, the person's own
+	 * permission decides, and the answering tedi's home project (the one it
+	 * leads) is the default when the person names none.
 	 */
 	async #runProject(userId: string, requestedProjectId?: string) {
-		const { projectIds } = await this.workspace();
-		const linked = requestedProjectId
-			? projectIds.includes(requestedProjectId)
-			: projectIds.length === 1;
-		if (linked || !(await this.#isPrivate()))
-			return this.#workProject(requestedProjectId);
-		if (!requestedProjectId)
+		if (!this.deps.personScope) return this.#workProject(requestedProjectId);
+		const [{ projectIds }, projects] = await Promise.all([
+			this.workspace(),
+			listActiveProjectsForOrganization(
+				this.deps.core,
+				this.deps.organizationId,
+			),
+		]);
+		const home = this.deps.answeringTediId
+			? projects.filter(
+					(project) => project.leadTediId === this.deps.answeringTediId,
+				)
+			: [];
+		const projectId =
+			requestedProjectId ??
+			(home.length === 1
+				? home[0]!.id
+				: projectIds.length === 1
+					? projectIds[0]
+					: undefined);
+		if (!projectId)
 			throw new Error(
 				"Name the project this task belongs to. env.work.listProjects() lists the projects the person may use.",
 			);
-		const project = await getProjectByIdForOrganization(
-			this.deps.core,
-			this.deps.organizationId,
-			requestedProjectId,
-		);
+		// A linked project takes the same build access as in a shared workspace.
+		if (projectIds.includes(projectId)) return this.#workProject(projectId);
+		const project = projects.find((candidate) => candidate.id === projectId);
 		if (!project) throw new Error("Project not found");
-		if (!(await this.#acceptsWorkIn(userId))(project))
-			throw new Error(
-				"Accepting a task in that project needs an organization owner or admin, or a member the project names as an operator",
-			);
+		if (!(await this.#operatesIn(userId, "acceptance"))(project))
+			throw new Error(OPERATOR_REFUSAL);
 		return project;
 	}
 
 	async listRunProjects() {
 		const { actor } = await this.#runActor();
 		const { projectIds } = await this.workspace();
-		const accepts = (await this.#isPrivate())
-			? await this.#acceptsWorkIn(actor.id)
+		const accepts = this.deps.personScope
+			? await this.#operatesIn(actor.id, "acceptance")
 			: () => false;
 		return (
 			await listActiveProjectsForOrganization(
@@ -1409,20 +1634,25 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		};
 	}
 
-	async #runInConversation(workItemId: string) {
+	/**
+	 * A run this chat may read: one started in this conversation, or in a
+	 * workspace only the sender can open, any run in the organization.
+	 */
+	async #visibleRun(workItemId: string) {
 		const { actor, sourceSessionKey } = await this.#runActor();
 		const item = await getWorkItemById(
 			this.deps.core,
 			workItemId,
 			this.deps.organizationId,
 		);
+		const startedHere = item?.sourceSessionKey === sourceSessionKey;
 		if (
 			!item ||
 			item.executorType !== "external_agent" ||
-			item.sourceSessionKey !== sourceSessionKey
+			(!startedHere && (await this.#workProjectIds()) !== null)
 		)
 			throw new Error("This run was not started in this conversation");
-		return { item, actor };
+		return { item, actor, startedHere };
 	}
 
 	async readRun(input: { workItemId: string; afterSeq?: number }) {
@@ -1430,7 +1660,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			id: input.workItemId,
 			afterSeq: input.afterSeq,
 		});
-		const { item } = await this.#runInConversation(workItemId);
+		const { item } = await this.#visibleRun(workItemId);
 		const params = { orgId: item.orgId, workItemId, afterSeq, limit: 500 };
 		let page = await listWorkAttemptSteps(this.deps.core, params);
 		let steps = page.steps.slice(-40);
@@ -1488,12 +1718,30 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		kind: "follow_up" | "stop",
 		body: string,
 	) {
-		const { item, actor } = await this.#runInConversation(workItemId);
+		const { item, actor, startedHere } = await this.#visibleRun(workItemId);
+		// The owner of a task started here steers it; any other run follows
+		// the API's rule for steering: an owner or admin, or a project operator.
+		const owns =
+			startedHere &&
+			item.accountableOwnerType === actor.type &&
+			item.accountableOwnerId === actor.id;
+		const project =
+			!owns && item.projectId
+				? await getProjectByIdForOrganization(
+						this.deps.core,
+						item.orgId,
+						item.projectId,
+					)
+				: null;
 		if (
-			item.accountableOwnerType !== actor.type ||
-			item.accountableOwnerId !== actor.id
+			!owns &&
+			!(project && (await this.#operatesIn(actor.id, "completion"))(project))
 		)
-			throw new Error("The person who owns this task can steer its run");
+			throw new Error(
+				startedHere
+					? "The person who owns this task can steer its run"
+					: "Steering this run needs an organization owner or admin, or a member the project names as an operator",
+			);
 		const message = await sendWorkAttemptMessage(this.deps.core, {
 			orgId: item.orgId,
 			workItemId,

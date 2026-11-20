@@ -301,7 +301,7 @@ async function seedCore() {
 		).bind(scope.organizationId, scope.workspaceId, now),
 		...[
 			["w1", "Open one", "accepted"],
-			["w2", "Open two", "in_progress"],
+			["w2", "Open two", "accepted"],
 			["w3", "Open three", "proposed"],
 			["w4", "Done", "completed"],
 			["w5", "Dropped", "cancelled"],
@@ -3205,7 +3205,7 @@ describe("WorkspaceDO", () => {
 				code:
 					"export default async (env) => { const workItemId = " +
 					JSON.stringify(workItemId) +
-					'; await env.work.readRun({workItemId}); await env.work.sendRunMessage({workItemId, message: "Include empty pages"}); return env.work.stopRun({workItemId}) }',
+					'; await env.work.runs(); await env.work.readRun({workItemId}); await env.work.sendRunMessage({workItemId, message: "Include empty pages"}); return env.work.stopRun({workItemId}) }',
 			},
 			{ text: "Sent." },
 		]);
@@ -3222,6 +3222,11 @@ describe("WorkspaceDO", () => {
 		);
 		expect(runSteps).toEqual(
 			expect.arrayContaining([
+				expect.objectContaining({
+					result: expect.stringMatching(
+						/"title":"Fix paging".*"state":"running".*Reading the files.*"canSteer":true/,
+					),
+				}),
 				expect.objectContaining({
 					result: expect.stringContaining('"kind":"agent_run_steps"'),
 				}),
@@ -3400,6 +3405,76 @@ describe("WorkspaceDO", () => {
 		});
 		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
 			.bind(run.workItemId)
+			.run();
+	});
+
+	test("Work reaches the person's other projects only in a workspace nobody else can open, and accepting still needs their right", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		await privateTo(own, "u1");
+		const projectId = crypto.randomUUID();
+		const itemId = crypto.randomUUID();
+		const now = new Date().toISOString();
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(
+				"INSERT INTO projects (id, org_id, key, name, status, created_at, updated_at) VALUES (?, ?, ?, 'Elsewhere', 'active', ?, ?)",
+			).bind(
+				projectId,
+				scope.organizationId,
+				`E${projectId.slice(0, 6)}`,
+				now,
+				now,
+			),
+			testEnv.DB.prepare(
+				"INSERT INTO work_items (id, org_id, project_id, title, disposition, work_kind, created_at, updated_at) VALUES (?, ?, ?, 'Elsewhere task', 'proposed', 'coding', ?, ?)",
+			).bind(itemId, scope.organizationId, projectId, now, now),
+		]);
+		const code = `export default async (env) => ({
+			found: (await env.work.listOpen({ query: "elsewhere" })).map((item) => item.id),
+			accept: await env.work.accept({ workItemId: ${JSON.stringify(itemId)}, doneWhen: "Done" }).then(() => "accepted", (error) => error.message),
+		})`;
+		const ask = async (workspaceScope: WorkspaceScope) => {
+			const ws = workspace(workspaceScope);
+			await ws.setApprovalMode(workspaceScope, { userId: "u1", mode: "auto" });
+			await ws.scriptModel(workspaceScope, [{ code }, { text: "Done." }]);
+			const sent = await ws.sendTurn(workspaceScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "What is open elsewhere? Accept it.",
+			});
+			await ws.awaitTurn(workspaceScope, sent.turnId, 20_000);
+			const finished = (
+				await ws.readEvents(workspaceScope, {
+					conversationId: sent.conversationId,
+				})
+			).find(
+				(event) =>
+					event.type === "step.finished" && event.stepId.startsWith("tool:"),
+			);
+			return JSON.parse(
+				finished?.type === "step.finished"
+					? (finished.result ?? "").replace("return value:\n", "")
+					: "{}",
+			) as { found: string[]; accept: string };
+		};
+		// The shared workspace stays on its linked project.
+		expect((await ask(scope)).found).toEqual([]);
+		// The person's own workspace reaches the project, but a member the
+		// project does not name as an operator may not accept there.
+		expect(await ask(own)).toMatchObject({
+			found: [itemId],
+			accept: expect.stringContaining("needs an organization owner or admin"),
+		});
+		expect(
+			await testEnv.DB.prepare(
+				"SELECT disposition FROM work_items WHERE id = ?",
+			)
+				.bind(itemId)
+				.first(),
+		).toEqual({ disposition: "proposed" });
+		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
+			.bind(itemId)
 			.run();
 	});
 

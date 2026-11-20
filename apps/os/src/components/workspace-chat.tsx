@@ -2205,7 +2205,11 @@ function Composer({
 					) : null}
 					<div className="workspace-chat-model">
 						{slot}
-						{recipients.length > 0 && disabledReason === null ? (
+						{/* A pinned tedi answers every message; its own label is the slot.
+						The roster can still come from another screen's cache. */}
+						{!pinnedTediId &&
+						recipients.length > 0 &&
+						disabledReason === null ? (
 							<Select
 								value={pickedTedi?.id ?? ""}
 								onValueChange={(id) => setPickedTediId(id || WORKSPACE_AGENT)}
