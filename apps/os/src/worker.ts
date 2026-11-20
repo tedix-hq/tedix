@@ -1610,6 +1610,15 @@ export async function handleOsRequest(
 		// The guest document is the one page a signed-out person may open; it
 		// holds nothing itself and every call it makes carries the share session.
 		url.pathname !== GUEST_DOCUMENT_PATH &&
+		// The desktop app finishes a browser sign-in by loading `/login` with a
+		// one-time token after "#", which never reaches this server. Sending
+		// that load to the sign-in bounce drops the token and leaves the person
+		// on the sign-in form. The page holds no organization data; without a
+		// token it goes to "/" and so back through this gate.
+		!(
+			url.pathname === "/login" &&
+			request.headers.get("User-Agent")?.includes("TedixDesktop/")
+		) &&
 		// A permanent share address likewise mounts signed-out; its open call
 		// answers whether the link needs sign-in on this host. The page asks for
 		// that sign-in with `?sign-in`, which takes the ordinary gate below and
