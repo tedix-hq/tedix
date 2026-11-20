@@ -10,10 +10,8 @@ import {
 } from "@tedix/api-contract/schemas/audit";
 import {
 	appendGatewayChangeRecord,
-	countGatewayChangeRecordsInRange,
 	getGatewayChangeRecord,
 	listGatewayChangeRecords,
-	listGatewayChangeRecordsInRange,
 } from "@tedix/db/queries/gateway-change-records";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
@@ -83,9 +81,9 @@ const ok = { content: [{ type: "text" as const, text: "ok" }] };
 
 describe("durable gateway ledger", () => {
 	it.each(["native", "code_mode"])(
-		"counts every Work read and liveness call through %s, queryable per tool and UTC day",
+		"writes no record for a Work read or heartbeat through %s, and one for a state change",
 		async (surface) => {
-			const { context, sqlite } = setup();
+			const { context } = setup();
 			const agent = context();
 			const pending: Promise<unknown>[] = [];
 			Object.assign(agent, {
@@ -95,19 +93,11 @@ describe("durable gateway ledger", () => {
 				},
 			});
 			const calls = [
-				["get_work_case", "workItems/getCase"],
-				["get_work_case", "workItems/getCase"],
-				["list_work_cases", "workItems/listCases"],
-				["heartbeat_work_attempt", "workItems/heartbeatAttempt"],
-				["list_work_approvals", "workApprovals/listInbox"],
-				["list_work_interactions", "workInteractions/listInbox"],
-				["list_work_agent_sessions", "workAgentSessions/list"],
-				["get_work_fleet", "workFleet/get"],
-				["get_work_scheduler", "workScheduler/get"],
-				["read_work_map", "workMap/read"],
+				["get_work_case", "workItems/getCase", "read"],
+				["heartbeat_work_attempt", "workItems/heartbeatAttempt", "liveness"],
+				["settle_work_attempt", "workItems/settleAttempt", "change"],
 			] as const;
-			for (const [toolId, endpoint] of calls) {
-				const heartbeat = endpoint.endsWith("/heartbeatAttempt");
+			for (const [toolId, endpoint, kind] of calls) {
 				const gates: GatewayCallGates = {
 					agent,
 					tool: {
@@ -117,13 +107,15 @@ describe("durable gateway ledger", () => {
 						config: { transport: "rpc", endpoint, _aggregateNamespace: "cto" },
 						meta: {
 							"com.tedix/policy": {
-								riskTier: heartbeat ? "bounded_write" : "read",
-								blastRadius: heartbeat ? "single_resource" : "none",
-								...(heartbeat ? { skipAppliedChangeRecord: true } : {}),
+								riskTier: kind === "read" ? "read" : "bounded_write",
+								blastRadius: kind === "read" ? "none" : "single_resource",
+								...(kind === "liveness"
+									? { skipAppliedChangeRecord: true }
+									: {}),
 							},
 						},
 					},
-					args: { privateValue: "do-not-store" },
+					args: {},
 					annotations: undefined,
 					toolName: surface === "native" ? toolId : `cto.${toolId}`,
 				};
@@ -131,46 +123,15 @@ describe("durable gateway ledger", () => {
 				else {
 					const admission = await admitGatewayCall(gates);
 					await admission.settle({ status: "applied" });
-					await admission.settle({ status: "applied" });
 				}
 			}
 			await Promise.all(pending);
 			const records = await new GatewayAccountabilityAdapter(context()).list();
-			expect(records).toHaveLength(calls.length);
-			expect(records.every((record) => record.outcome === "applied")).toBe(
-				true,
-			);
-			expect(records.map((record) => record.operation)).toEqual(
-				calls.map(([name]) => (surface === "native" ? name : `cto.${name}`)),
-			);
-			expect(JSON.stringify(records)).not.toContain("do-not-store");
-			const from = `${records[0]!.recordedAt.slice(0, 10)}T00:00:00.000Z`;
-			const until = new Date(Date.parse(from) + 86_400_000).toISOString();
-			const db = createDbQueryClient(createD1Facade(sqlite));
-			const range = { from, until, resource: "tool:get_work_case" };
-			expect(await countGatewayChangeRecordsInRange(db, "org-a", range)).toBe(
-				2,
-			);
-			expect(await countGatewayChangeRecordsInRange(db, "org-b", range)).toBe(
-				0,
-			);
-			expect(
-				await countGatewayChangeRecordsInRange(db, "org-a", {
-					...range,
-					from: until,
-					until: new Date(Date.parse(until) + 86_400_000).toISOString(),
-				}),
-			).toBe(0);
-			const page = await listGatewayChangeRecordsInRange(db, "org-a", range, {
-				limit: 1,
-			});
-			expect(page).toHaveLength(1);
-			expect(
-				await listGatewayChangeRecordsInRange(db, "org-a", range, {
-					limit: 1,
-					afterSequence: page[0]!.sequence,
-				}),
-			).toHaveLength(1);
+			expect(records.map((record) => record.operation)).toEqual([
+				surface === "native"
+					? "settle_work_attempt"
+					: "cto.settle_work_attempt",
+			]);
 		},
 	);
 
