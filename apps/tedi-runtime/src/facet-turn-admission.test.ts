@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	FacetTurnAdmission,
+	PERSON_TURN_RETRY_SECONDS,
 	turnRetryDelaySeconds,
 } from "./facet-turn-admission";
 
@@ -54,4 +55,50 @@ assert.ok(
 	"burst retries are spread across time slots",
 );
 assert.equal(turnRetryDelaySeconds("stable"), turnRetryDelaySeconds("stable"));
+// A person's chat turn goes before a waiting scheduled turn when a slot frees.
+{
+	let nowMs = 0;
+	const gate = new FacetTurnAdmission(1, () => nowMs);
+	let finish!: () => void;
+	const holder = gate.run(
+		"scheduled-1",
+		() => new Promise<void>((resolve) => (finish = resolve)),
+	);
+	const deferredPerson = await gate.run("person", async () => "ran", {
+		person: true,
+	});
+	assert.deepEqual(
+		[
+			(deferredPerson as { stopReason: string }).stopReason,
+			(deferredPerson as { retryAfterSeconds: number }).retryAfterSeconds,
+		],
+		["turn_deferred", PERSON_TURN_RETRY_SECONDS],
+	);
+	finish();
+	await holder;
+	assert.equal(
+		(
+			(await gate.run("scheduled-2", async () => "ran")) as {
+				stopReason?: string;
+			}
+		).stopReason,
+		"turn_deferred",
+		"the freed slot is kept for the waiting person",
+	);
+	assert.equal(
+		await gate.run("person", async () => "ran", { person: true }),
+		"ran",
+	);
+	assert.equal(await gate.run("scheduled-2", async () => "ran"), "ran");
+	// A person's turn that stopped asking does not hold the slot back for good.
+	const again = gate.run(
+		"scheduled-3",
+		() => new Promise<void>((resolve) => (finish = resolve)),
+	);
+	await gate.run("gone", async () => "ran", { person: true });
+	finish();
+	await again;
+	nowMs += 60_000;
+	assert.equal(await gate.run("scheduled-4", async () => "ran"), "ran");
+}
 console.log("facet-turn-admission OK");

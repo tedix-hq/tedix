@@ -2419,24 +2419,41 @@ export const runtimeFacetTurns = {
 								"turn_deferred",
 					},
 					() =>
-						this.facetTurnAdmission.run(input.runId, async () => {
-							const prepared = await computer?.prepare(
-								input,
-								this.facetComputerReadDeps(input),
-							);
-							if (prepared?.cached)
-								return this.commitFacetWorkflowSegment(input, prepared.cached);
-							const run = () =>
-								this.runFacetWorkflowTurnImpl(input, prepared?.completionText);
-							return platform
-								? withWorkflowTurnLiveness(
+						this.facetTurnAdmission.run(
+							input.runId,
+							async () => {
+								const prepared = await computer?.prepare(
+									input,
+									this.facetComputerReadDeps(input),
+								);
+								if (prepared?.cached)
+									return this.commitFacetWorkflowSegment(
 										input,
-										platform,
-										this.state.tediId!,
-										run,
-									)
-								: run();
-						}),
+										prepared.cached,
+									);
+								const run = () =>
+									this.runFacetWorkflowTurnImpl(
+										input,
+										prepared?.completionText,
+									);
+								return platform
+									? withWorkflowTurnLiveness(
+											input,
+											platform,
+											this.state.tediId!,
+											run,
+										)
+									: run();
+							},
+							// A signed-in person's chat message, sent to this tedi directly
+							// or to a tedi they picked in the chat, goes before waiting
+							// scheduled turns.
+							{
+								person:
+									input.personalRequest === true ||
+									Boolean(input.personChatConversationId),
+							},
+						),
 				);
 			}),
 		);
