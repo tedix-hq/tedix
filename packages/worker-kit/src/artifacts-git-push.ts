@@ -252,17 +252,16 @@ export async function sendArtifactsCommit(input: {
 		const parts = line.replace(/\n$/, "").split("\0");
 		check(parts.length === (index === 2 ? 2 : 1), "advertisement");
 		if (index === 2) capabilities = parts[1]!.split(" ");
-		const match = /^([a-f0-9]{40}) (HEAD|refs\/[A-Za-z0-9._/-]+)$/.exec(
-			parts[0]!,
-		);
+		const match = /^([a-f0-9]{40}) ([^\s\0]+)$/.exec(parts[0]!);
+		check(match && index - 2 < limits.advertisedRefs, "advertisement_ref");
+		const name = match[2]!;
+		// Peeled tags, .have and capabilities^{} do not identify our update base.
+		if (name !== input.targetRef && name !== "HEAD") continue;
 		check(
-			match &&
-				(match[2] !== "HEAD" || index === 2) &&
-				!refs.has(match[2]!) &&
-				refs.size < limits.advertisedRefs,
+			(name !== "HEAD" || index === 2) && !refs.has(name),
 			"advertisement_ref",
 		);
-		refs.set(match[2]!, match[1]!);
+		refs.set(name, match[1]!);
 	}
 	check(capabilities.includes("report-status"), "report_status_required");
 	if (refs.get(input.targetRef) !== input.expectedOldOid)

@@ -232,7 +232,15 @@ it("commits an editable route without a sandbox and fences a concurrent push", a
 			return new Response(
 				packet("# service=git-receive-pack\n") +
 					"0000" +
-					packet(head + " " + ref + "\0report-status\n") +
+					// Captured Artifacts advertisement shape; repository names and OIDs replaced.
+					packet(
+						head +
+							" HEAD\0agent=gitty/1.0 object-format=sha1 report-status report-status-v2 delete-refs atomic ofs-delta side-band side-band-64k symref=HEAD:refs/heads/main\n",
+					) +
+					packet(competitor + " refs/heads/agent/draft\n") +
+					packet(head + " " + ref + "\n") +
+					packet(competitor + " refs/tags/bundle-v1\n") +
+					packet(head + " refs/tags/bundle-v1^{}\n") +
 					"0000",
 				{
 					headers: {
