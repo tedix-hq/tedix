@@ -180,9 +180,43 @@ const CancelReasonSchema: SafeParser<string | undefined> =
  * which passes exactly this class through by name.
  */
 export class CapnRequestError extends Error {
-	constructor(message: string) {
+	/** The API's refusal code; the browser reads it to say "not sent". */
+	readonly code?: string;
+
+	constructor(message: string, code?: string) {
 		super(message);
 		this.name = CAPN_REQUEST_ERROR_NAME;
+		if (code) this.code = code;
+	}
+}
+
+/**
+ * The API's own reason for refusing a message before anything ran (a 4xx it
+ * wrote for the caller, such as "requires a human approval"). The person needs
+ * that reason; without it the refusal reads as a broken connection. Anything
+ * else, including a 401 and every 5xx, stays redacted.
+ */
+function enqueueRefusal(error: unknown): CapnRequestError | null {
+	if (
+		!(error instanceof RpcCallError) ||
+		error.status < 400 ||
+		error.status >= 500 ||
+		error.status === 401
+	)
+		return null;
+	try {
+		const body = (
+			JSON.parse(error.detail) as {
+				json?: { defined?: unknown; code?: unknown; message?: unknown };
+			}
+		).json;
+		return body?.defined === true &&
+			typeof body.code === "string" &&
+			typeof body.message === "string"
+			? new CapnRequestError(body.message, body.code)
+			: null;
+	} catch {
+		return null;
 	}
 }
 
@@ -1000,8 +1034,9 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 
 	/**
 	 * Record one Home turn via `kernelRuntime/enqueueMessage`. NEVER retried
-	 * internally and never caught: an outcome-unknown failure surfaces to the
-	 * caller, who owns `idempotencyKey` and decides whether to re-send.
+	 * internally: an outcome-unknown failure surfaces to the caller, who owns
+	 * `idempotencyKey` and decides whether to re-send. A refusal the API wrote
+	 * for the caller crosses with its reason (see `enqueueRefusal`).
 	 */
 	async enqueue(
 		input: unknown,
@@ -1025,11 +1060,19 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 				`Message too large: ${size} bytes exceeds the ${MAX_MESSAGE_BYTES}-byte cap`,
 			);
 		}
-		return this.#core.call<EnqueueHomeMessageOutput>(
-			"kernelRuntime/enqueueMessage",
-			{ ...payload, conversationId: this.#conversationId, idempotencyKey: key },
-			{ timeoutMs: CAPN_CHAT_MUTATION_TIMEOUT_MS },
-		);
+		try {
+			return await this.#core.call<EnqueueHomeMessageOutput>(
+				"kernelRuntime/enqueueMessage",
+				{
+					...payload,
+					conversationId: this.#conversationId,
+					idempotencyKey: key,
+				},
+				{ timeoutMs: CAPN_CHAT_MUTATION_TIMEOUT_MS },
+			);
+		} catch (error) {
+			throw enqueueRefusal(error) ?? error;
+		}
 	}
 
 	async steer(

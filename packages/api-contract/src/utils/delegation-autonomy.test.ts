@@ -216,6 +216,8 @@ describe("critical-only autonomy v1", () => {
 		"Prepare the reply to the customer as a draft; do not send, post or publish it.",
 		"Ask the CTO tedi to do this READ ONLY check: read Work item 64a9c98b-f6c8-4c2c-b733-4a4891bd9f77 and list the Workspace Outputs in the project workspace, then reply with the Work item title and up to five Output titles. Do not create, edit, comment on, send or change anything.",
 		"Summarize the open Work items. Never edit or send them.",
+		"Send a follow-up to that run: also cover the empty list.",
+		"First send it this follow-up message: report your progress. Then read the run and tell me its latest step.",
 		"Create an invoice for the pilot; keep it as a draft.",
 		'Please ask the CFO tedi this memory check and return its answer verbatim. The CFO should answer ONLY from what it already remembers, without calling sevdesk, Gmail or other lookup tools, and mark each answer "remembered" or "don\'t know":\n1. Tedix GbR\'s VAT status and what it means for invoices and expenses.\n5. When billing in advance, how to set the Lieferdatum, and where a customer\'s PO number goes.\n7. Do we have to send e-invoices (E-Rechnung)?',
 		"Ask the CFO: how do we send a credit note?",

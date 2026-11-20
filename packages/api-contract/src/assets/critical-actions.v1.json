@@ -148,7 +148,10 @@
 	"neutralPhrases": [
 		"\\bpayment[_ -]+terms?\\b",
 		"\\bterms[_ -]+of[_ -]+payment\\b",
-		"\\b[a-z]{2,}-\\d{2,}\\b"
+		"\\b[a-z]{2,}-\\d{2,}\\b",
+		"\\bsend[_ -]+agent[_ -]+run[_ -]+message\\b",
+		"\\bsend(?:ing|s)?[_ -]+(?:(?:a|an|another|this|that|the)[_ -]+)follow-?up(?:[_ -]+message)?[_ -]+to[_ -]+(?:it|(?:the|that|this|my|your)[_ -]+(?:(?:agent|coding|codex|same|running|current)[_ -]+){0,2}run)\\b",
+		"\\bsend(?:ing|s)?[_ -]+(?:it|(?:the|that|this|my|your)[_ -]+(?:(?:agent|coding|codex|same|running|current)[_ -]+){0,2}run)[_ -]+(?:(?:a|an|another|this|that|the)[_ -]+)follow-?up(?:[_ -]+message)?\\b"
 	],
 	"negatedVerbs": [
 		"send",
