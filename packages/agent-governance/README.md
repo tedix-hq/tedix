@@ -111,6 +111,27 @@ read from the same place as the export proves nothing about who signed it.
 deniedRequestIds })` returns all three. Use them in tests and as a runtime's
 first storage.
 
+## Portable memory (`@tedix/agent-governance/memory-transfer`)
+
+`exportMemory(adapter)` returns a JSON-lines string: one complete revision per
+line, including key, revision number, value, hash, provenance, review and rollback
+link. `importMemory(destination, bundle, sourceStore)` returns the number copied.
+Both use only `MemoryAdapter`; each adapter represents one memory scope. Transfer
+workspace, agent and organization stores separately.
+
+Import checks every value hash, revision order and rollback link before writing,
+and refuses keys that already exist at the destination. It preserves hashes,
+revision numbers, timestamps and review metadata. Local revision IDs are new;
+rollback links point to the corresponding local revision. Provenance retains its
+actor and source and appends `{ store: sourceStore, revisionId }` to `importedFrom`
+for each transfer. The caller supplies a source store reference meaningful to
+the recipient. A matching hash checks content integrity, not trust or authority
+to transfer or approve it.
+
+Exclude concurrent writes while importing. Storage errors can leave a partial
+import; the contract has no transaction or deletion operation. Empty stores
+export as an empty string. No storage migration is needed.
+
 ## Consumers in this repository
 
 - `apps/mcp/src/mcp/gateway-adapters.ts`: the MCP gateway implements

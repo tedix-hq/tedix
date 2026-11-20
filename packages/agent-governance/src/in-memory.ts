@@ -161,36 +161,28 @@ export class InMemoryMemoryAdapter implements MemoryAdapter {
 	constructor(private readonly now: () => Date = () => new Date()) {}
 
 	private async push(
-		key: string,
-		value: unknown,
-		provenance: MemoryProvenance,
-		review: MemoryReviewState,
+		input: MemoryWriteInput,
 		rolledBackFrom?: string,
 	): Promise<MemoryRevision> {
-		const history = this.revisions.get(key) ?? [];
+		const snapshot = structuredClone(input);
+		const hash = await hashValue(snapshot.value);
+		const history = this.revisions.get(snapshot.key) ?? [];
 		const revision: MemoryRevision = {
+			...snapshot,
 			revisionId: `mem_${(++this.counter).toString().padStart(8, "0")}`,
-			key,
 			revision: history.length + 1,
-			value: structuredClone(value),
-			hash: await hashValue(value),
-			writtenAt: this.now().toISOString(),
-			provenance: structuredClone(provenance),
-			review,
+			hash,
+			writtenAt: snapshot.writtenAt ?? this.now().toISOString(),
+			review: snapshot.review ?? "pending",
 			...(rolledBackFrom ? { rolledBackFrom } : {}),
 		};
 		history.push(revision);
-		this.revisions.set(key, history);
+		this.revisions.set(snapshot.key, history);
 		return revision;
 	}
 
 	write(input: MemoryWriteInput): Promise<MemoryRevision> {
-		return this.push(
-			input.key,
-			input.value,
-			input.provenance,
-			input.review ?? "pending",
-		);
+		return this.push(input);
 	}
 	private entry(key: string): MemoryEntry | null {
 		const history = this.revisions.get(key);
@@ -249,16 +241,16 @@ export class InMemoryMemoryAdapter implements MemoryAdapter {
 		if (!target)
 			throw new Error(`Revision ${toRevisionId} is not a revision of ${key}`);
 		return this.push(
-			key,
-			target.value,
-			provenance,
-			target.review === "approved" ? "approved" : "pending",
+			{
+				key,
+				value: target.value,
+				provenance,
+				review: target.review === "approved" ? "approved" : "pending",
+			},
 			toRevisionId,
 		);
 	}
 }
-
-type MemoryReviewState = MemoryRevision["review"];
 
 export function createInMemoryAdapters(
 	options: InMemoryComplianceOptions = {},

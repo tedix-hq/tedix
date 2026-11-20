@@ -13,7 +13,8 @@
 		"./wrap-binding": "./src/wrap-binding.ts",
 		"./in-memory": "./src/in-memory.ts",
 		"./seal": "./src/seal.ts",
-		"./evidence": "./src/evidence.ts"
+		"./evidence": "./src/evidence.ts",
+		"./memory-transfer": "./src/memory-transfer.ts"
 	},
 	"scripts": {
 		"clean": "true",

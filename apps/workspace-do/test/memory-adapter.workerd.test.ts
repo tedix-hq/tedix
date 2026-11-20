@@ -1,6 +1,11 @@
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, test } from "vite-plus/test";
 import { hashValue } from "@tedix/agent-governance/hash";
+import { InMemoryMemoryAdapter } from "@tedix/agent-governance/in-memory";
+import {
+	exportMemory,
+	importMemory,
+} from "@tedix/agent-governance/memory-transfer";
 import type { MemoryProvenance } from "@tedix/agent-governance/types";
 import { SqlMemoryAdapter } from "../src/memory-adapter";
 import type { WorkspaceStorage } from "../src/runtime";
@@ -36,6 +41,79 @@ function stub() {
 }
 
 describe("SQL MemoryAdapter", () => {
+	test("moves JSON-lines history from memory to SQL and back", async () => {
+		await runInDurableObject(stub(), async (_instance, state) => {
+			const source = new InMemoryMemoryAdapter();
+			const first = await source.write({
+				key: "policy",
+				value: { mode: "careful" },
+				provenance,
+			});
+			await source.review(first.revisionId, "approve", reviewer, "Checked");
+			const second = await source.write({
+				key: "policy",
+				value: "wrong",
+				provenance,
+			});
+			await source.review(second.revisionId, "reject", reviewer);
+			await source.rollback("policy", first.revisionId, provenance);
+			await source.write({
+				key: "pending",
+				value: [null, true, "line\nbreak"],
+				provenance,
+			});
+			const bundle = await exportMemory(source);
+			const original = bundle
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			expect(original).toHaveLength(4);
+			const sql = new SqlMemoryAdapter(storageFor(state.storage));
+			expect(await importMemory(sql, bundle, "source-store")).toBe(4);
+			const restored = new InMemoryMemoryAdapter();
+			// Offset local ids so an unchanged rollback id cannot accidentally pass.
+			await restored.write({ key: "unrelated", value: false, provenance });
+			expect(
+				await importMemory(
+					restored,
+					await exportMemory(sql),
+					"workspace-store",
+				),
+			).toBe(4);
+			for (const memory of [sql, restored]) {
+				for (const key of ["policy", "pending"]) {
+					const before = await source.history(key);
+					const after = await memory.history(key);
+					expect(after).toHaveLength(before.length);
+					for (const [index, row] of after.entries()) {
+						const {
+							revisionId,
+							provenance: _origin,
+							rolledBackFrom: _rollback,
+							...content
+						} = before[index]!;
+						expect(row).toMatchObject(content);
+						expect(row.provenance).toMatchObject(provenance);
+						expect(row.provenance.importedFrom?.[0]).toEqual({
+							store: "source-store",
+							revisionId,
+						});
+					}
+				}
+				const history = await memory.history("policy");
+				expect(history[2]!.rolledBackFrom).toBe(history[0]!.revisionId);
+				expect((await memory.read("policy"))?.approved).toEqual(history[2]);
+			}
+			expect(
+				(await restored.history("policy"))[0]!.provenance.importedFrom?.[1],
+			).toEqual({
+				store: "workspace-store",
+				revisionId: (await sql.history("policy"))[0]!.revisionId,
+			});
+			expect((await restored.read("unrelated"))?.current.value).toBe(false);
+		});
+	});
+
 	test("persists provenance, immutable snapshots, hashes and history across eviction", async () => {
 		const object = stub();
 		const saved = await runInDurableObject(object, async (_instance, state) => {
