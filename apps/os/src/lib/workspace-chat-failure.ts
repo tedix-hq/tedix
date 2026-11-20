@@ -15,7 +15,9 @@ function reads(error: string): boolean {
 		/^[A-Z]/.test(text) &&
 		/[.!?]$/.test(text) &&
 		text.length <= 300 &&
-		!/[{}<>_]|^\d{3}\b|\b\w+Error\b|https?:\/\//.test(text)
+		!/[{}<>_]|^\d{3}\b|\b\w+Error\b|https?:\/\/|\bD1\b|\bDB\b|Connection error|Durable Object/.test(
+			text,
+		)
 	);
 }
 
@@ -28,19 +30,37 @@ export function turnFailure(error: string | undefined): {
 	if (reads(error) && !/no live executor/i.test(error))
 		return { message: error };
 	const text = error.toLowerCase();
-	const message =
-		error === "interrupted" || text.includes("no live executor")
-			? "This reply was cut off before it finished. Continue to pick up where it stopped."
-			: /deprecat|retired|decommission|no such model|model[^.]*not found|unavailable|\b(404|410|503)\b/.test(
-						text,
-				  )
-				? "This model is not available right now. Pick another model and try again."
-				: /\b(402|429)\b|rate.?limit|too many requests|quota|capacity|overloaded|credit|billing|insufficient/.test(
-							text,
-					  )
-					? "The model is busy or out of credits right now. Wait a moment and try again, or pick another model."
-					: /time.?out|timed out|deadline|\b(408|504)\b/.test(text)
-						? "The model took too long to answer. Try again."
-						: "The model could not answer. Try again, or pick another model.";
+	const says = (pattern: RegExp) => pattern.test(text);
+	let message: string;
+	if (error === "interrupted" || text.includes("no live executor"))
+		message =
+			"This reply was cut off before it finished. Continue to pick up where it stopped.";
+	// Tedix's own storage or services, not the model.
+	else if (
+		says(
+			/\bd1\b|database|durable object|could not determine|connection error|internal error/,
+		)
+	)
+		message =
+			"Tedix could not finish this reply because one of its own services was busy. Try again in a moment.";
+	else if (
+		says(
+			/deprecat|retired|decommission|no such model|model[^.]*not found|unavailable|\b(404|410|503)\b/,
+		)
+	)
+		message =
+			"This model is not available right now. Pick another model and try again.";
+	else if (
+		says(
+			/\b(402|429)\b|rate.?limit|too many requests|quota|capacity|overloaded|credit|billing|insufficient/,
+		)
+	)
+		message =
+			"The model is busy or out of credits right now. Wait a moment and try again, or pick another model.";
+	else if (says(/time.?out|timed out|deadline|\b(408|504)\b/))
+		message = "The model took too long to answer. Try again.";
+	else
+		message =
+			"This reply could not be finished. Try again, or pick another model.";
 	return { message, detail: error };
 }
