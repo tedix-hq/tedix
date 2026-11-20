@@ -376,4 +376,34 @@ describe("gateway adapters decide like wrapBinding", () => {
 		expect(gateway.result?.isError).toBe(true);
 		expect(gateway.record.outcome).toBe("not_applied");
 	});
+
+	it("names the Work Item of a work tool call, and no subject otherwise", async () => {
+		const workItemId = "3f2b8c1e-6d4a-4f7b-9a2e-5c1d8e7f6a90";
+		const call = (config: Record<string, unknown>) =>
+			guardGatewayCall(
+				{
+					agent: gatewayContext({}),
+					tool: {
+						...(gatewayTool(
+							"tool-1",
+							"bounded_write",
+							"single_resource",
+						) as object),
+						config,
+					} as never,
+					annotations: undefined,
+					args: { id: workItemId, workItemId },
+				},
+				async () => ({ content: [] }),
+			);
+		const work = await call({
+			transport: "rpc",
+			endpoint: "workItems/addComment",
+		});
+		expect(work.record.sequence).toBeGreaterThan(0);
+		expect(work.record.subject).toEqual({ kind: "work_item", id: workItemId });
+		const other = await call({ transport: "mcp", mcpToolName: "add_note" });
+		expect(other.record.sequence).toBeGreaterThan(0);
+		expect(other.record.subject).toBeUndefined();
+	});
 });

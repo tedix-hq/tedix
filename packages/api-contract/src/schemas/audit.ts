@@ -204,6 +204,8 @@ export const GatewayChangeRecordBodySchema = z.object({
 		})
 		.optional(),
 	argsHash: z.string(),
+	/** The task the call was about, when the gateway can tell. Absent on older records. */
+	subject: z.object({ kind: z.literal("work_item"), id: z.uuid() }).optional(),
 });
 /**
  * A timestamp in the one form `recorded_at` is stored and compared in:
@@ -257,6 +259,10 @@ export const GatewayChangeRecordsInputSchema = z
 			.min(1)
 			.optional()
 			.describe("Only records for calls made by this actor"),
+		subjectId: z
+			.uuid()
+			.optional()
+			.describe("Only records for calls about this Work Item"),
 	})
 	.refine((input) => input.from < input.until, {
 		message: "from must precede until",

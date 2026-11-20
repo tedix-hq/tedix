@@ -209,6 +209,44 @@ describe("DSSE checkpoint envelopes", () => {
 	});
 });
 
+describe("optional subject", () => {
+	const subject = {
+		kind: "work_item",
+		id: "3f2b8c1e-6d4a-4f7b-9a2e-5c1d8e7f6a90",
+	};
+
+	it("leaves the digest of a record without it unchanged", async () => {
+		const record = content(1);
+		const digest = await recordDigest(record);
+		expect(await recordDigest({ ...record, subject: undefined })).toBe(digest);
+		expect(await recordDigest({ ...record, subject })).not.toBe(digest);
+	});
+
+	it("verifies a chain mixing records with and without it", async () => {
+		const key = await throwawayKey();
+		const run = [1, 2, 3].map((sequence) => ({
+			...content(sequence),
+			...(sequence === 2 ? { subject } : {}),
+			sequence,
+		}));
+		const { seals, checkpoint } = await sealRun({
+			organizationId: ORG,
+			records: run,
+			previousChainHash: null,
+			previousCheckpointDigest: null,
+			sealedAt: new Date(Date.UTC(2026, 10, 18, 11)).toISOString(),
+			signer: { privateKey: key.privateKey, keyId: "key-1" },
+		});
+		const { digest: _digest, ...stored } = checkpoint;
+		const result = await verifyChain({
+			records: run.map((record, i) => ({ ...record, ...seals[i]! })),
+			checkpoints: [stored],
+			publicKey: key.publicKey,
+		});
+		expect(result).toMatchObject({ ok: true, recordsVerified: 3 });
+	});
+});
+
 describe("verifyChain", () => {
 	it("verifies a clean chain", async () => {
 		const key = await throwawayKey();

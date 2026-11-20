@@ -71,6 +71,7 @@ import {
 	resolveToolRiskPolicy,
 } from "./tool-risk-policy";
 import { emitMcpAuditEvent, type McpEvent } from "./utils/analytics";
+import { z } from "zod";
 
 /** What the ledger needs from a request: who called, for which app, and the API. */
 type LedgerContext = Partial<
@@ -285,6 +286,36 @@ const LEDGER_WRITE_TIMEOUT_MS = 3000;
 export interface GatewayLedgerOptions {
 	/** The called tool declares `skipAppliedChangeRecord` in its policy. */
 	skipAppliedChangeRecord?: boolean;
+	/** The Work Item the call was about, stamped on every record it writes. */
+	subject?: ChangeRecord["subject"];
+}
+
+/** Same check as the stored record's `subject.id`, so a write never fails on it. */
+const isUuid = (value: unknown): value is string =>
+	z.uuid().safeParse(value).success;
+
+/**
+ * The Work Item a call to one of Tedix's own API tools is about, so the
+ * ledger can be read by task. A `workItems/...` endpoint names the item in
+ * `id`; any other API tool names it in `workItemId`. Calls that name no
+ * item, or two different ones, or a list of them, get no subject.
+ */
+function workItemSubject(
+	tool: Pick<GateTool, "config">,
+	args: Record<string, unknown>,
+): ChangeRecord["subject"] {
+	const config = tool.config;
+	if (config?.transport !== "rpc") return undefined;
+	const ids = new Set<string>();
+	if (
+		typeof config.endpoint === "string" &&
+		config.endpoint.startsWith("workItems/") &&
+		isUuid(args.id)
+	)
+		ids.add(args.id.toLowerCase());
+	if (isUuid(args.workItemId)) ids.add(args.workItemId.toLowerCase());
+	const [id] = ids;
+	return ids.size === 1 && id ? { kind: "work_item", id } : undefined;
 }
 
 export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
@@ -305,8 +336,10 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 	async append(input: ChangeRecordInput): Promise<ChangeRecord> {
 		// The gateway names the record, so a call that ran can be answered
 		// before the write lands and telemetry can cite the id either way.
+		const subject = input.subject ?? this.options.subject;
 		const unstored: ChangeRecord = {
 			...input,
+			...(subject ? { subject } : {}),
 			id: crypto.randomUUID(),
 			sequence: UNSTORED_SEQUENCE,
 			recordedAt: new Date().toISOString(),
@@ -444,7 +477,11 @@ export async function recordGatewayRefusal(
 	reason: string,
 ): Promise<ChangeRecord> {
 	const call = describeGatewayCall(gates);
-	return new GatewayAccountabilityAdapter(gates.agent).append({
+	const subject = workItemSubject(gates.tool, gates.args);
+	return new GatewayAccountabilityAdapter(
+		gates.agent,
+		subject ? { subject } : {},
+	).append({
 		resource: call.resource,
 		operation: call.operation,
 		actor: call.actor,
@@ -466,6 +503,7 @@ function ledgerOptions(gates: GatewayCallGates): GatewayLedgerOptions {
 		skipAppliedChangeRecord: declaresSkipAppliedChangeRecord(
 			gates.tool.meta as Record<string, unknown> | null | undefined,
 		),
+		subject: workItemSubject(gates.tool, gates.args),
 	};
 }
 
