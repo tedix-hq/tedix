@@ -150,6 +150,7 @@ import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { requireOrgId } from "../org-scope";
 import { isActiveOwnerOrAdmin } from "../org-membership";
+import { mayDecideWorkspaceConnection } from "../../services/os-app-connection";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -1638,17 +1639,26 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						input.userId,
 					)
 				: undefined;
+			// A workspace agent or app call through a linked account. The gateway
+			// never sends these bindings, and they are part of the fingerprint.
+			const workspaceConnection =
+				typeof input.target.workspaceId === "string" &&
+				typeof input.target.resourceHash === "string" &&
+				typeof input.target.accountHash === "string";
 			if (
 				context.workspaceConnectionRead
 					? context.workspaceConnectionRead.actor.kind === "user" &&
 						(requester?.status !== "active" ||
 							context.workspaceConnectionRead.actor.id !== input.userId)
 					: requester?.status !== "active" ||
-						!["owner", "admin"].includes(requester.role)
+						(!workspaceConnection &&
+							!["owner", "admin"].includes(requester.role))
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
-					"Tool approval requests require an active organization owner or admin",
+					workspaceConnection
+						? "Tool approval requests require an active organization member"
+						: "Tool approval requests require an active organization owner or admin",
 				);
 			const organization = await getOrganizationById(
 				context.db,
@@ -1835,19 +1845,27 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							"Tool policy changed or was revoked; request a new approval",
 						);
 				}
-				const approver = approval.resolvedBy
+				const approverId = approval.resolvedBy?.replace(/^user:/, "");
+				const approver = approverId
 					? await getMemberByUserId(
 							context.db,
 							input.organizationId,
-							approval.resolvedBy.replace(/^user:/, ""),
+							approverId,
 						)
 					: undefined;
 				const approved =
 					approval.status === "approved" &&
 					approver?.status === "active" &&
-					["owner", "admin"].includes(approver.role) &&
-					(input.target.requiredRole !== "owner" ||
-						approver.role === "owner") &&
+					(workspaceConnection
+						? await mayDecideWorkspaceConnection(
+								context.db,
+								input.target,
+								input.userId,
+								approverId!,
+							)
+						: ["owner", "admin"].includes(approver.role) &&
+							(input.target.requiredRole !== "owner" ||
+								approver.role === "owner")) &&
 					(await consumeOwnerToolApproval(context.db, {
 						id: approval.id,
 						organizationId: input.organizationId,
