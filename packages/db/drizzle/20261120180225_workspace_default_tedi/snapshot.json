@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "95b41f95-4151-4459-8517-4590963b5cff",
+  "id": "a6fe86ce-d158-4abf-ac84-e665e1a5a67c",
   "prevIds": [
-    "a9336154-34da-44b1-a592-5f947cbdb8fb"
+    "e05dde4a-539b-4f3d-bc09-6f064d2e5f5d"
   ],
   "ddl": [
     {
@@ -1711,6 +1711,16 @@
     {
       "table": "gateway_change_record_checkpoints",
       "name": "key_id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "gateway_change_record_checkpoints",
+      "name": "evidence_bundle_key",
       "type": "text",
       "notNull": false,
       "autoincrement": false,
@@ -48359,6 +48369,20 @@
       ],
       "isUnique": true,
       "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "gateway_change_record_checkpoints",
+      "name": "idx_gateway_change_record_checkpoints_no_bundle",
+      "columns": [
+        {
+          "value": "sealed_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "evidence_bundle_key is null",
       "origin": "manual",
       "entityType": "indexes"
     },
