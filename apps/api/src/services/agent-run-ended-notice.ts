@@ -1,10 +1,6 @@
 import { createRouterClient } from "@orpc/server";
 import { z } from "zod";
 import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
-import {
-	claimWorkAttemptConversationNotice,
-	releaseWorkAttemptConversationNotice,
-} from "@tedix/db/queries/work-items/attempts";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { BaseContext } from "../rpc/orpc";
 import { buildInternalServiceBindingContext } from "../rpc/routers/kernel/runtime-shared";
@@ -197,8 +193,10 @@ function workspaceRunNotice(work: NoticeWork, attempt: NoticeAttempt) {
 }
 
 /**
- * Reports the end of a run in the chat that started it. Sends at most one
- * message per Attempt and never throws after settlement has been recorded.
+ * Reports the end of a run in the chat that started it and never throws after
+ * settlement has been recorded. Call it only from the settle that ended the
+ * Attempt: a settled Attempt cannot be updated, so it carries no "reported"
+ * mark, and the chats drop a repeat by its Attempt id.
  */
 export async function notifyAgentRunEnded(
 	context: BaseContext,
@@ -217,21 +215,6 @@ export async function notifyAgentRunEnded(
 			? (internal: BaseContext) => enqueueHome(internal, homeMessage)
 			: workspaceRunNotice(work, attempt);
 	if (!send) return "skipped";
-	const scope = {
-		orgId: work.orgId,
-		workItemId: work.id,
-		attemptId: attempt.id,
-	};
-	try {
-		if (!(await claimWorkAttemptConversationNotice(context.db, scope)))
-			return "skipped";
-	} catch (error) {
-		console.warn("[agent-run-ended] could not mark the Attempt as reported", {
-			attemptId: attempt.id,
-			exception: safeExceptionTopology(error),
-		});
-		return "failed";
-	}
 	try {
 		const result = await send(
 			buildInternalServiceBindingContext(context, work.orgId),
@@ -247,9 +230,6 @@ export async function notifyAgentRunEnded(
 			exception: safeExceptionTopology(error),
 		});
 	}
-	await releaseWorkAttemptConversationNotice(context.db, scope).catch(
-		() => undefined,
-	);
 	return "failed";
 }
 

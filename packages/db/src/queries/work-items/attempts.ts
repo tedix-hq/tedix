@@ -1106,6 +1106,8 @@ export async function settleWorkItemAttempt(
 	workItem: WorkItem;
 	attempt: WorkAttempt;
 	interactionId?: string;
+	/** The Attempt was already settled by an earlier call with this hand-off. */
+	replayed?: true;
 }> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
 	if (params.needsUser) {
@@ -1138,6 +1140,7 @@ export async function settleWorkItemAttempt(
 				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
 				attempt: settled,
 				interactionId: receipt.interactionId,
+				replayed: true,
 			};
 		}
 	}
@@ -1382,110 +1385,9 @@ export function workAttemptCallerMetadata(
 	const {
 		repositoryCandidate: _reservedCandidate,
 		repositoryCandidatePublication: _reservedPublication,
-		conversationNotice: _reservedConversationNotice,
-		outcomeLesson: _reservedOutcomeLesson,
 		...callerMetadata
 	} = metadata ?? {};
 	return callerMetadata;
-}
-
-type ConversationNoticeParams = {
-	orgId: string;
-	workItemId: string;
-	attemptId: string;
-};
-
-function conversationNoticeFence(params: ConversationNoticeParams) {
-	return [
-		eq(workAttempts.id, params.attemptId),
-		eq(workAttempts.orgId, params.orgId),
-		eq(workAttempts.workItemId, params.workItemId),
-		sql`${workAttempts.outcome} IS NOT NULL`,
-	];
-}
-
-/**
- * Marks a settled Attempt as reported to the conversation that started it.
- * Returns true only for the one caller that wins the mark, so a repeated
- * settle cannot report the same Attempt twice.
- */
-export async function claimWorkAttemptConversationNotice(
-	db: DbQueryClient,
-	params: ConversationNoticeParams & { at?: string },
-): Promise<boolean> {
-	const at = params.at ?? new Date().toISOString();
-	const rows = await db
-		.update(workAttempts)
-		.set({
-			metadata: sql<
-				Record<string, JsonValue>
-			>`json_set(COALESCE(${workAttempts.metadata}, '{}'), '$.conversationNotice', json(${JSON.stringify({ claimedAt: at })}))`,
-		})
-		.where(
-			and(
-				...conversationNoticeFence(params),
-				sql`json_extract(${workAttempts.metadata},'$.conversationNotice') IS NULL`,
-			),
-		)
-		.returning({ id: workAttempts.id });
-	return rows.length === 1;
-}
-
-/** Clears the mark after a failed delivery so a later settle can report. */
-export async function releaseWorkAttemptConversationNotice(
-	db: DbQueryClient,
-	params: ConversationNoticeParams,
-): Promise<void> {
-	await db
-		.update(workAttempts)
-		.set({
-			metadata: sql<
-				Record<string, JsonValue>
-			>`json_remove(${workAttempts.metadata}, '$.conversationNotice')`,
-		})
-		.where(and(...conversationNoticeFence(params)));
-}
-
-/**
- * Marks a settled Attempt as remembered by the tedi that started it. Returns
- * true only for the one caller that wins the mark, so a repeated settle
- * stores one lesson per Attempt.
- */
-export async function claimWorkAttemptOutcomeLesson(
-	db: DbQueryClient,
-	params: ConversationNoticeParams & { at?: string },
-): Promise<boolean> {
-	const at = params.at ?? new Date().toISOString();
-	const rows = await db
-		.update(workAttempts)
-		.set({
-			metadata: sql<
-				Record<string, JsonValue>
-			>`json_set(COALESCE(${workAttempts.metadata}, '{}'), '$.outcomeLesson', json(${JSON.stringify({ claimedAt: at })}))`,
-		})
-		.where(
-			and(
-				...conversationNoticeFence(params),
-				sql`json_extract(${workAttempts.metadata},'$.outcomeLesson') IS NULL`,
-			),
-		)
-		.returning({ id: workAttempts.id });
-	return rows.length === 1;
-}
-
-/** Clears the mark after a failed write so a later settle can store it. */
-export async function releaseWorkAttemptOutcomeLesson(
-	db: DbQueryClient,
-	params: ConversationNoticeParams,
-): Promise<void> {
-	await db
-		.update(workAttempts)
-		.set({
-			metadata: sql<
-				Record<string, JsonValue>
-			>`json_remove(${workAttempts.metadata}, '$.outcomeLesson')`,
-		})
-		.where(and(...conversationNoticeFence(params)));
 }
 
 /** Preserve admission provenance while accepting bounded settlement receipts. */

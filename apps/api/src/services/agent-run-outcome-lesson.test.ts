@@ -124,31 +124,14 @@ describe("recordAgentRunOutcomeLesson", () => {
 		return { sqlite, context };
 	}
 
-	it("stores one lesson per Attempt, and again only after a failed write", async () => {
+	it("stores the lesson for the Attempt's tedi", async () => {
 		const { context } = fixture();
 		const learn = vi.fn(async () => undefined);
 		expect(
 			await recordAgentRunOutcomeLesson(context, work, attempt, learn),
 		).toBe("stored");
-		expect(
-			await recordAgentRunOutcomeLesson(context, work, attempt, learn),
-		).toBe("skipped");
 		expect(learn).toHaveBeenCalledTimes(1);
 		expect(learn.mock.calls[0]![1]).toMatchObject({ tediId: TEDI });
-	});
-
-	it("releases the mark when the write fails, without throwing", async () => {
-		const { context } = fixture();
-		const failing = vi.fn(async () => {
-			throw new Error("memory is down");
-		});
-		expect(
-			await recordAgentRunOutcomeLesson(context, work, attempt, failing),
-		).toBe("failed");
-		const learn = vi.fn(async () => undefined);
-		expect(
-			await recordAgentRunOutcomeLesson(context, work, attempt, learn),
-		).toBe("stored");
 	});
 
 	it("writes through the memory learn path as the tedi's own private fact, then wakes the tedi once to update its memory", async () => {
@@ -162,9 +145,6 @@ describe("recordAgentRunOutcomeLesson", () => {
 		} as unknown as CloudflareEnv["TEDI_SERVICE"];
 		expect(await recordAgentRunOutcomeLesson(context, work, attempt)).toBe(
 			"stored",
-		);
-		expect(await recordAgentRunOutcomeLesson(context, work, attempt)).toBe(
-			"skipped",
 		);
 		expect(wakes).toHaveLength(1);
 		expect(wakes[0]).toMatchObject({
