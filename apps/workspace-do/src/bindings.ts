@@ -411,8 +411,16 @@ export function buildWorkspaceBindings(
 				})),
 		create: (input: CreateWorkInput) =>
 			data.createWork({ ...input, actorId: deps.actor.id }),
-		startRun: (input: Parameters<WorkspaceRunPort["startRun"]>[0]) =>
-			runPort().startRun(input),
+		listProjects: () => runPort().listRunProjects(),
+		startRun: async (input: Parameters<WorkspaceRunPort["startRun"]>[0]) => {
+			const { projectId, ...run } = await runPort().startRun(input);
+			await deps.machine?.wakeRunner({
+				workItemId: run.workItemId,
+				projectId,
+				executor: run.executor,
+			});
+			return run;
+		},
 		readRun: (input: Parameters<WorkspaceRunPort["readRun"]>[0]) =>
 			runPort().readRun(input),
 		sendRunMessage: (
@@ -628,6 +636,7 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				listOpen: { riskTier: "read", blastRadius: "none" },
+				listProjects: { riskTier: "read", blastRadius: "none" },
 				startRun: { riskTier: "bounded_write", blastRadius: "single_resource" },
 				readRun: { riskTier: "read", blastRadius: "none" },
 				sendRunMessage: {

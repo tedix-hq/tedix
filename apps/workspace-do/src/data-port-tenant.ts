@@ -78,7 +78,14 @@ import {
 	listWorkAttemptSteps,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
-import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
+import {
+	getProjectByIdForOrganization,
+	listActiveProjectsForOrganization,
+} from "@tedix/db/queries/projects";
+import type { Project } from "@tedix/db/schema/projects";
+import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
+import { WORKSPACE_RUN_SOURCE } from "@tedix/db/queries/work-items/agent-runs";
+import { WorkOperatorsSchema } from "@tedix/api-contract/schemas/work-specification-policy";
 import {
 	acceptWorkItem,
 	createWorkItem,
@@ -214,6 +221,7 @@ const StartRunInputSchema = z.strictObject({
 	brief: z.string().trim().min(1).max(10_000),
 	doneWhen: z.string().trim().min(1).max(2_000),
 	executor: z.enum(["codex", "claude-code"]),
+	changesCode: z.boolean().optional(),
 	projectId: z.uuid().optional(),
 });
 
@@ -1177,11 +1185,97 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		};
 	}
 
+	/**
+	 * Whether this person may accept Work in the organization's projects: the
+	 * rule the API applies to a person who accepts a task. An owner or admin
+	 * may in every project; a member only where the project names them as an
+	 * operator for acceptance.
+	 */
+	async #acceptsWorkIn(userId: string) {
+		const member = await getMemberAccessByUserId(
+			this.deps.core,
+			this.deps.organizationId,
+			userId,
+		);
+		const active = member?.status === "active";
+		const admin = active && ["owner", "admin"].includes(member.role);
+		return (project: Project) => {
+			if (admin) return true;
+			const grant = WorkOperatorsSchema.safeParse(
+				project.metadata?.workOperators,
+			);
+			return (
+				active &&
+				member.role === "member" &&
+				project.status === "active" &&
+				grant.success &&
+				!!member.userId &&
+				grant.data.userIds.includes(member.userId) &&
+				grant.data.actions.includes("acceptance")
+			);
+		};
+	}
+
+	async #isPrivate() {
+		return (
+			(await getOsWorkspace(this.deps.core, this.scope))?.visibility ===
+			"private"
+		);
+	}
+
+	/**
+	 * The project a run goes to. A shared workspace reaches only its linked
+	 * projects. A private workspace is one person's own chat and links none,
+	 * so there the person's own permission decides.
+	 */
+	async #runProject(userId: string, requestedProjectId?: string) {
+		const { projectIds } = await this.workspace();
+		const linked = requestedProjectId
+			? projectIds.includes(requestedProjectId)
+			: projectIds.length === 1;
+		if (linked || !(await this.#isPrivate()))
+			return this.#workProject(requestedProjectId);
+		if (!requestedProjectId)
+			throw new Error(
+				"Name the project this task belongs to. env.work.listProjects() lists the projects the person may use.",
+			);
+		const project = await getProjectByIdForOrganization(
+			this.deps.core,
+			this.deps.organizationId,
+			requestedProjectId,
+		);
+		if (!project) throw new Error("Project not found");
+		if (!(await this.#acceptsWorkIn(userId))(project))
+			throw new Error(
+				"Accepting a task in that project needs an organization owner or admin, or a member the project names as an operator",
+			);
+		return project;
+	}
+
+	async listRunProjects() {
+		const { actor } = await this.#runActor();
+		const { projectIds } = await this.workspace();
+		const accepts = (await this.#isPrivate())
+			? await this.#acceptsWorkIn(actor.id)
+			: () => false;
+		return (
+			await listActiveProjectsForOrganization(
+				this.deps.core,
+				this.deps.organizationId,
+			)
+		)
+			.filter((project) => projectIds.includes(project.id) || accepts(project))
+			.map(({ id, key, name }) => ({ id, key, name }));
+	}
+
 	async startRun(input: StartRunInput) {
 		const { actor, sourceSessionKey, agentTurnId } = await this.#runActor();
-		const { title, brief, doneWhen, executor, projectId } =
+		const { title, brief, doneWhen, executor, changesCode, projectId } =
 			StartRunInputSchema.parse(input);
-		const project = await this.#workProject(projectId);
+		const project = await this.#runProject(actor.id, projectId);
+		// A runner fails a coding run that ends without a landed commit; a
+		// research task is done when the agent says so.
+		const workKind = changesCode === false ? "research" : "coding";
 		const { core, organizationId: orgId, workspaceId } = this.deps;
 		const now = new Date();
 		const intent = {
@@ -1198,7 +1292,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			stewardId: actor.id,
 			title,
 			description: brief,
-			workKind: "coding",
+			workKind,
 			projectId: project.id,
 			...(project.objectiveId
 				? { objectiveId: project.objectiveId, workClass: "objective" as const }
@@ -1208,6 +1302,8 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			sourceSessionKey,
 			sourceIntentId: intent.sourceIntentId,
 			provenance: { source: "os.workspace.chat", workspaceId },
+			// The ready list puts a task with this marker first.
+			metadata: { source: WORKSPACE_RUN_SOURCE },
 			createdAt: now.toISOString(),
 		}).catch(async (error: unknown) => {
 			const existing = await getWorkItemBySourceIntentId(core, intent);
@@ -1217,6 +1313,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				existing.accountableOwnerId !== actor.id ||
 				existing.title !== title ||
 				existing.description !== brief ||
+				existing.workKind !== workKind ||
 				existing.executorId !== executor ||
 				existing.projectId !== project.id ||
 				(existing.acceptanceContract &&
@@ -1252,6 +1349,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			title,
 			executor,
 			url: "/work/items/" + item.id,
+			projectId: project.id,
 		};
 	}
 

@@ -577,6 +577,19 @@ export async function getProjectByIdForOrganization(
 	);
 }
 
+/** The organization's active projects by key, for choosing where work goes. */
+export async function listActiveProjectsForOrganization(
+	db: DbQueryClient,
+	orgId: string,
+): Promise<Project[]> {
+	return db
+		.select()
+		.from(projects)
+		.where(and(eq(projects.orgId, orgId), eq(projects.status, "active")))
+		.orderBy(asc(projects.key))
+		.limit(500);
+}
+
 /**
  * The project a request already points at, or null when it names none. Tried
  * in order: the one active project serving the request's objective, the one

@@ -35,6 +35,8 @@ import { isWorkAttemptLive } from "./attempt-steps";
 
 /** `metadata.source` of a Work Item that `start_agent_run` created. */
 export const AGENT_RUN_SOURCE = "tedi.start_agent_run";
+/** `metadata.source` of a run a person started in workspace chat. */
+export const WORKSPACE_RUN_SOURCE = "os.workspace.start_run";
 /** Runs started longer ago than this are not listed. */
 export const AGENT_RUN_LIST_WINDOW_DAYS = 30;
 /** Newest Work Items examined before the state filter is applied. */

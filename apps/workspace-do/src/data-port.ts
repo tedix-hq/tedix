@@ -122,6 +122,8 @@ export interface StartRunInput {
 	brief: string;
 	doneWhen: string;
 	executor: "codex" | "claude-code";
+	/** False when the run changes no files and only reports back. */
+	changesCode?: boolean;
 	projectId?: string;
 }
 
@@ -134,12 +136,16 @@ export interface WorkspaceSnapshot {
 }
 
 export interface WorkspaceRunPort {
+	/** The projects the person who sent the turn may start a run in. */
+	listRunProjects(): Promise<Array<{ id: string; key: string; name: string }>>;
 	startRun(input: StartRunInput): Promise<{
 		kind: "agent_run";
 		workItemId: string;
 		title: string;
 		executor: StartRunInput["executor"];
 		url: string;
+		/** For the runner wake; not shown to the agent. */
+		projectId: string;
 	}>;
 	readRun(input: { workItemId: string; afterSeq?: number }): Promise<{
 		kind: "agent_run_steps";

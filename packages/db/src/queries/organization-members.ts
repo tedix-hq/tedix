@@ -78,6 +78,7 @@ export async function getMemberAccessByUserId(
 		.select({
 			role: organizationMembers.role,
 			status: organizationMembers.status,
+			userId: organizationMembers.userId,
 		})
 		.from(organizationMembers)
 		.where(
