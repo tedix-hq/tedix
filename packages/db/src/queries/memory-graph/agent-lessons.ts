@@ -6,8 +6,10 @@
  * tedi, not a personal lesson) plus the viewer's own personal lessons,
  * `review_status = confirmed`, `status = active`, a use policy that allows
  * injection, not archived and not invalidated (superseded facts carry
- * `valid_to`). The prefix is a range on `idx_memory_facts_topic_key`
- * (organization, topic key), so the scan never leaves the lesson keys.
+ * `valid_to`). The prefix is a range on the partial
+ * `idx_memory_facts_org_confirmed_lessons` (organization, topic key over
+ * confirmed, active, live facts), so the scan never reads pending, archived
+ * or superseded lessons.
  *
  * A personal lesson carries `metadata.learningFeed.ownerUserId` and
  * `visibility = private`; it reaches only that user, also when it was routed
@@ -103,8 +105,11 @@ export async function listApprovedAgentLessons(
 					: options.viewerUserId
 						? or(orgWide, sql`${owner} = ${options.viewerUserId}`)
 						: orgWide,
-				eq(memoryFacts.reviewStatus, "confirmed"),
-				eq(memoryFacts.status, "active"),
+				// Literals, not bound values: SQLite may only plan the partial
+				// idx_memory_facts_org_confirmed_lessons when the query states
+				// its predicates itself.
+				sql`${memoryFacts.reviewStatus} = 'confirmed'`,
+				sql`${memoryFacts.status} = 'active'`,
 				// A confirmed lesson is delivered; one restricted to evidence or
 				// barred from injection is not.
 				inArray(memoryFacts.usePolicy, [

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_memory_facts_org_confirmed_lessons` ON `memory_facts` (`organization_id`,`topic_key`) WHERE review_status = 'confirmed' AND status = 'active' AND archived_at IS NULL AND valid_to IS NULL;

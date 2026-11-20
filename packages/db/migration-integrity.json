@@ -1740,6 +1740,10 @@
 		{
 			"name": "20261120122347_memory_edge_org_totals/migration.sql",
 			"sha256": "7819a407fa29b99168c13412e020d2b5dcd9a249d91e1315100093d77803acec"
+		},
+		{
+			"name": "20261120123126_memory_facts_confirmed_lessons_index/migration.sql",
+			"sha256": "a603846c56c304fa6eb990fe9e7fbea7e8284442232ddd60c8063ef984e761b7"
 		}
 	]
 }
