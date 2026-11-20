@@ -190,7 +190,7 @@ describe("agent run ended notice", () => {
 		expect(enqueue).not.toHaveBeenCalled();
 	});
 
-	it("reports once to Home in the person's chat when a tedi picked there started the run", async () => {
+	it("reports once to the tedi that started the run in the person's chat", async () => {
 		const { db, work, attempt, context, enqueue } = await fixture({
 			sourceSessionKey: "home:os:chat-7",
 		});
@@ -210,6 +210,7 @@ describe("agent run ended notice", () => {
 		expect(message).toEqual({
 			organizationId: "org",
 			conversationId: "home:os:chat-7",
+			delegateToTediId: "tedi-1",
 			idempotencyKey: "agent-run-ended-attempt-1",
 			content: `[System: an agent run that a tedi started from this chat has ended. Tell the person the result. Do not start new work.] The run for "Rename the button" ended: succeeded. Changed the label. Tests pass. Task: /work/items/${workItemId}`,
 		});

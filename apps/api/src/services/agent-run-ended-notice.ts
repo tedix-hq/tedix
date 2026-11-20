@@ -58,6 +58,7 @@ export type AgentRunEndedHomeMessage = {
 	conversationId: string;
 	idempotencyKey: string;
 	content: string;
+	delegateToTediId?: string;
 };
 
 type EnqueueHome = (
@@ -65,10 +66,6 @@ type EnqueueHome = (
 	message: AgentRunEndedHomeMessage,
 ) => Promise<{ status: string; error?: string }>;
 
-/**
- * Sends the notice as a message to Home in the person's chat, the same way
- * the person's own message arrives, so Home answers in that thread.
- */
 export const enqueueHomeMessage = async (
 	context: BaseContext,
 	message: AgentRunEndedHomeMessage,
@@ -77,7 +74,12 @@ export const enqueueHomeMessage = async (
 	const { kernelRuntimeContractRouter } =
 		await import("../rpc/routers/kernel-runtime");
 	const client = createRouterClient(kernelRuntimeContractRouter, { context });
-	return client.enqueueMessage({ ...message, metadata });
+	return client.enqueueMessage({
+		...message,
+		metadata: message.delegateToTediId
+			? { ...metadata, source: "platform" }
+			: metadata,
+	});
 };
 
 /** The sentence that reports a settled external agent run. */
@@ -140,6 +142,7 @@ export function agentRunEndedHomeMessage(
 	return {
 		organizationId: work.orgId,
 		conversationId,
+		delegateToTediId: work.stewardId,
 		idempotencyKey: `agent-run-ended-${attempt.id}`,
 		content: `[System: an agent run that a tedi started from this chat has ended. Tell the person the result. Do not start new work.] ${sentence}`,
 	};
