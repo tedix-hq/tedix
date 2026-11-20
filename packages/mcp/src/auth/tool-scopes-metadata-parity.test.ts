@@ -249,6 +249,12 @@ describe("required-scope parity between the API field and the edge", () => {
 		],
 		["osWorkspaces/workspaces/list", "list_os_workspaces", "apps", "read"],
 		[
+			"osWorkspaces/workspaces/conversationCharges",
+			"conversation_charges_os_workspace",
+			"settings",
+			"read",
+		],
+		[
 			"osWorkspaces/resources/create",
 			"create_os_workspace_resource",
 			"apps",
