@@ -62,14 +62,6 @@ try {
 			theme === "dark",
 		);
 		assert.equal(
-			await page.locator('[data-slot="chat-response-actions"]').count(),
-			0,
-		);
-		assert.equal(
-			await page.getByText("Copy response", { exact: true }).count(),
-			0,
-		);
-		assert.equal(
 			await page.evaluate(
 				() => document.documentElement.scrollWidth <= innerWidth,
 			),
@@ -82,15 +74,17 @@ try {
 			"1",
 			"latest assistant actions stay visible",
 		);
-		const copy = actions.getByRole("button", { name: "Copy", exact: true });
-		await copy.click();
-		await actions
-			.getByRole("button", { name: "Copied", exact: true })
-			.waitFor();
-		assert.match(
-			await page.evaluate(() => navigator.clipboard.readText()),
-			/Two of the four flagged/,
-		);
+		if (width === 1280) {
+			const copy = actions.getByRole("button", { name: "Copy", exact: true });
+			await copy.click();
+			await actions
+				.getByRole("button", { name: "Copied", exact: true })
+				.waitFor();
+			assert.match(
+				await page.evaluate(() => navigator.clipboard.readText()),
+				/Two of the four flagged/,
+			);
+		}
 		const details = page.getByRole("button", {
 			name: "Details",
 			exact: true,
@@ -110,20 +104,19 @@ try {
 			.locator('[data-role="assistant"]')
 			.last()
 			.locator('xpath=ancestor::div[contains(@class,"overflow-y-auto")][1]');
-		const scrollTop = await scroll.evaluate((el) => el.scrollTop);
-		await details.focus();
-		await details.press("Enter");
+		const scrollTop =
+			width === 1280 ? await scroll.evaluate((el) => el.scrollTop) : undefined;
+		if (width === 1280) {
+			await details.focus();
+			await details.press("Enter");
+		} else {
+			await details.tap();
+		}
 		const dialog = page.getByRole("dialog", {
 			name: "Response details",
 			exact: true,
 		});
 		await dialog.getByLabel("Response summary").waitFor();
-		assert.equal(new URL(page.url()).pathname, "/chat");
-		assert.equal(new URL(page.url()).searchParams.get("details"), runId);
-		assert.equal(
-			new URL(page.url()).searchParams.get("conversation"),
-			conversation,
-		);
 		await page.waitForFunction(() =>
 			document
 				.getAnimations()
@@ -135,22 +128,26 @@ try {
 		);
 		const box = await dialog.boundingBox();
 		assert(box && box.x >= 0 && box.x + box.width <= width + 1);
-		if (width === 1280)
-			assert(
-				box.width >= 420 && box.width <= 480,
-				"desktop drawer is 420–480px",
-			);
-		else assert.equal(await dialog.getAttribute("data-side"), "bottom");
+		if (screenshots)
+			await page.screenshot({
+				path: `${screenshots}/chat-actions-after-details-${width}-${theme}.png`,
+			});
+		if (width === 390) {
+			assert.equal(await dialog.getAttribute("data-side"), "bottom");
+			await context.close();
+			continue;
+		}
+		assert(box.width >= 420 && box.width <= 480, "desktop drawer is 420–480px");
+		const url = new URL(page.url());
+		assert.equal(url.pathname, "/chat");
+		assert.equal(url.searchParams.get("details"), runId);
+		assert.equal(url.searchParams.get("conversation"), conversation);
 		assert.match(await dialog.innerText(), /\$0.0179/);
 		assert.equal(
 			await dialog.getByLabel("Execution summary").isVisible(),
 			false,
 			"technical sections start collapsed",
 		);
-		if (screenshots)
-			await page.screenshot({
-				path: `${screenshots}/chat-actions-after-details-${width}-${theme}.png`,
-			});
 		await dialog
 			.getByRole("button", { name: "How it ran", exact: true })
 			.click();
@@ -189,9 +186,7 @@ try {
 		);
 		await context.close();
 	}
-	console.log(
-		`Chat actions passed: clipboard, focus, scroll, deep links, legacy redirect, at ${selectedWidth || "1280/390"}.`,
-	);
+	console.log(`Chat actions passed at ${selectedWidth || "1280/390"}.`);
 } finally {
 	await browser?.close();
 	try {

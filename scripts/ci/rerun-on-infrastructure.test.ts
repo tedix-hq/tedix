@@ -177,6 +177,12 @@ test("retries only failed specs from a direct OS browser command", () => {
 	expect(
 		browserFlakeCommand(command, [failing], { [command[4]!]: recipe }),
 	).toEqual(["bun", "run", "--cwd", "apps/os", runner, failing]);
+	const warm = "--warm=/chat,/browser-tests/workspace-chat.html";
+	expect(
+		browserFlakeCommand(command, [failing], {
+			[command[4]!]: `bun ${runner} ${warm} ${passing} ${failing}`,
+		}),
+	).toEqual(["bun", "run", "--cwd", "apps/os", runner, warm, failing]);
 	expect(
 		browserFlakeCommand(command, [failing], {
 			[command[4]!]: `${recipe} && bun other.ts`,
