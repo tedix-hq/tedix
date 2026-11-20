@@ -1,7 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
+import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
 import {
 	encodeBase64,
 	importSigningKey,
+	recordDigest,
 	type SigningKey,
 	verifyChain,
 } from "@tedix/agent-governance/seal";
@@ -373,5 +375,34 @@ describe("gateway change record sealer", () => {
 		expect(
 			await writeGatewayChangeRecordEvidenceBundles(db, bucket, writerKey, NOW),
 		).toEqual({ bundlesWritten: 0, bundlesFailed: 1 });
+	});
+
+	it("keeps the digest of a version 1 record as sealed before version 2", async () => {
+		// Digest computed by the sealer at ddf78f5e9, before version 2 existed.
+		const v1 = {
+			id: "00000000-0000-4000-8000-000000000001",
+			sequence: 1,
+			recordedAt: "2026-11-18T10:00:01.000Z",
+			resource: "tool:send_example",
+			operation: "send_example",
+			actor: { id: "user-1", kind: "user", organizationId: "org-1" },
+			source: { surface: "mcp_gateway", traceId: "trace-1" },
+			decision: {
+				verdict: "allow",
+				gate: "tool_scope",
+				reason: "allowed",
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+			outcome: "applied",
+			argsHash: "hash-1",
+			subject: {
+				kind: "work_item",
+				id: "3f2b8c1e-6d4a-4f7b-9a2e-5c1d8e7f6a90",
+			},
+		};
+		expect(await recordDigest(GatewayChangeRecordSchema.parse(v1))).toBe(
+			"4258b033369aade54e3d17fe3b22db93de47f5ebd77d4f020c4cbe84fdcb85f0",
+		);
 	});
 });
