@@ -13,6 +13,7 @@
 		"mcp/publish-migrated-tool-metadata.ts",
 		"mcp/publish-migrated-tool-metadata.test.ts",
 		"../packages/db/scripts/apply-production-migrations.ts",
+		"db/core-capacity-snapshot.ts",
 		"db/prepare-audit-index-rebuild.ts",
 		"db/prepare-audit-index-rebuild.test.ts",
 		"db/audit-provider-capabilities.ts",
