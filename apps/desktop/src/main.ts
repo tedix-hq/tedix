@@ -17,9 +17,6 @@ import { findTedix, lastLine, run } from "./shell";
 import { loadStatus, type Status, summary } from "./status";
 
 const OS_URL = "https://tedix.os.tedix.dev/chat";
-// Height of the empty bar at the top that holds the window buttons and lets
-// the window be dragged.
-const TITLE_HEIGHT = 28;
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
 const RUNNER_FIELDS: RunnerField[] = [
@@ -27,7 +24,7 @@ const RUNNER_FIELDS: RunnerField[] = [
 	"machineName",
 	"machineWriteMode",
 ];
-/** The two local pages get the preload; the Tedix OS page never does. */
+/** The This Mac page gets the preload; the Tedix OS page never does. */
 const localPage = {
 	preload: join(root, "out/preload.cjs"),
 	contextIsolation: true,
@@ -60,9 +57,7 @@ async function state(): Promise<PanelState> {
 
 async function publish(): Promise<void> {
 	const current = await state();
-	for (const window of [mainWindow, panel])
-		if (window && !window.isDestroyed())
-			window.webContents.send("state", current);
+	if (panel && !panel.isDestroyed()) panel.webContents.send("state", current);
 }
 
 async function refresh(): Promise<void> {
@@ -157,9 +152,11 @@ function finishSignIn(link: string): void {
 }
 
 /**
- * The main window: the Tedix OS chat under an empty, draggable title area.
- * The Tedix OS page gets no access to this app or the computer; its sign-in
- * lives in a session kept between launches.
+ * The main window: the Tedix OS chat fills it, with the macOS window buttons
+ * over the page's top-left corner. The page leaves room for them and marks
+ * its top bars as the areas that drag the window. The Tedix OS page gets no
+ * access to this app or the computer; its sign-in lives in a session kept
+ * between launches.
  */
 function createMainWindow(): void {
 	const window = new BrowserWindow({
@@ -167,13 +164,11 @@ function createMainWindow(): void {
 		height: 860,
 		title: "Tedix",
 		titleBarStyle: "hiddenInset",
+		// Centres the buttons in the page's 56 px top bar.
+		trafficLightPosition: { x: 20, y: 20 },
 		backgroundColor: "#0a0a0a",
-		webPreferences: localPage,
 	});
 	mainWindow = window;
-	window.webContents.on("will-navigate", (event) => event.preventDefault());
-	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-	void window.loadFile(join(root, "strip.html"));
 
 	const view = new WebContentsView({
 		webPreferences: {
@@ -187,12 +182,7 @@ function createMainWindow(): void {
 	window.contentView.addChildView(view);
 	const layout = () => {
 		const { width, height } = window.getContentBounds();
-		view.setBounds({
-			x: 0,
-			y: TITLE_HEIGHT,
-			width,
-			height: height - TITLE_HEIGHT,
-		});
+		view.setBounds({ x: 0, y: 0, width, height });
 	};
 	layout();
 	window.on("resize", layout);
@@ -205,8 +195,8 @@ function createMainWindow(): void {
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 		return { action: "deny" };
 	});
-	// The title area takes the page's own background colour so the window
-	// reads as one surface in light and dark.
+	// The window takes the page's own background colour, so resizing and
+	// loading do not flash another colour in light or dark.
 	view.webContents.on("did-finish-load", () => {
 		void view.webContents
 			.executeJavaScript("getComputedStyle(document.body).backgroundColor")
@@ -250,11 +240,8 @@ function openPanel(): void {
 }
 
 function fromLocalPage(event: IpcMainInvokeEvent): void {
-	const allowed = [mainWindow, panel].some(
-		(window) =>
-			window && !window.isDestroyed() && event.sender === window.webContents,
-	);
-	if (!allowed) throw new Error("Not allowed");
+	if (!panel || panel.isDestroyed() || event.sender !== panel.webContents)
+		throw new Error("Not allowed");
 }
 
 function navigate(action: "back" | "forward" | "reload"): void {
