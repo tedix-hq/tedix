@@ -213,6 +213,27 @@ describe("checkMcpRequestRateLimit", () => {
 		expect(principal.counts.get("app-1:agent:principal-lane")).toBe(1);
 	});
 
+	it("charges a signed-in user to the principal ceiling", async () => {
+		const request = countingLimiter(3);
+		const principal = countingLimiter(5);
+		const user = new Headers({ "x-tedix-auth-user-id": "user-owner" });
+
+		expect(
+			await admitted(
+				{
+					MCP_RATE_LIMITER: request.limiter,
+					MCP_PRINCIPAL_RATE_LIMITER: principal.limiter,
+				},
+				user,
+				7,
+			),
+		).toBe(5);
+		expect(request.counts.size).toBe(0);
+		expect(await admitted({ MCP_RATE_LIMITER: request.limiter }, user, 4)).toBe(
+			3,
+		);
+	});
+
 	it("charges sessions to the principal key until the ceiling is bound", async () => {
 		const request = countingLimiter(3);
 		const env = { MCP_RATE_LIMITER: request.limiter };
@@ -238,20 +259,6 @@ describe("checkMcpRequestRateLimit", () => {
 
 		expect(await admitted(env, claim("session-a"), 2)).toBe(2);
 		expect(await admitted(env, claim("session-b"), 2)).toBe(0);
-		expect(principal.counts.size).toBe(0);
-	});
-
-	it("keeps owner requests on the user key with no ceiling", async () => {
-		const request = countingLimiter(2);
-		const principal = countingLimiter(100);
-		const env = {
-			MCP_RATE_LIMITER: request.limiter,
-			MCP_PRINCIPAL_RATE_LIMITER: principal.limiter,
-		};
-		const owner = new Headers({ "x-tedix-auth-user-id": "user-owner" });
-
-		expect(await admitted(env, owner, 3)).toBe(2);
-		expect([...request.counts.keys()]).toEqual(["app-1:user:user-owner"]);
 		expect(principal.counts.size).toBe(0);
 	});
 });
