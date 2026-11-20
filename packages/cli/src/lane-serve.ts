@@ -34,6 +34,7 @@ import {
 	type LaneWait,
 	type LaneDeferral,
 } from "./lane-result";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
@@ -55,6 +56,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { homedir, hostname, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
@@ -696,6 +698,13 @@ export function parseServeOptions(
 	result.scope = [...selectors].sort(([a], [b]) => a.localeCompare(b)).flat();
 	return result;
 }
+
+/**
+ * Set while the dispatcher prepares a Work Item a person asked for in chat.
+ * Until that item is admitted its calls skip the call queue, where they would
+ * wait behind the calls of every running task.
+ */
+const requestedRun = new AsyncLocalStorage<{ direct: boolean }>();
 
 export function serialCalls() {
 	const pending: Array<{ critical: boolean; run: () => Promise<void> }> = [];
@@ -2833,6 +2842,8 @@ export class LaneDispatcher {
 	}
 	private finishPreparation(itemId: string) {
 		this.preparing.delete(itemId);
+		const requested = requestedRun.getStore();
+		if (requested) requested.direct = false;
 	}
 	private call<T = unknown>(
 		args: string[],
@@ -2880,10 +2891,12 @@ export class LaneDispatcher {
 							? readBudgetMs(READ_BUDGET_MS, this.running.size)
 							: undefined,
 					);
-		const result = this.queue(
-			operation,
-			args[0] === "work" && ["settle", "complete"].includes(args[1] ?? ""),
-		);
+		const result = requestedRun.getStore()?.direct
+			? operation()
+			: this.queue(
+					operation,
+					args[0] === "work" && ["settle", "complete"].includes(args[1] ?? ""),
+				);
 		return result.finally(() => this.notePassProgress());
 	}
 	/**
@@ -2915,25 +2928,78 @@ export class LaneDispatcher {
 			? remaining + Math.round(Math.random() * COOLDOWN_WAKE_JITTER_MS)
 			: 30_000;
 	}
-	async tick(workItemId?: string) {
+	async tick() {
 		this.ticking = true;
 		this.notePassProgress();
 		const skips = new Map<string, DispatcherSkipObservation>();
 		const observedAt = new Date().toISOString();
 		let sampled = false;
 		try {
-			sampled = (await this.runTick(skips, observedAt, workItemId)) === true;
+			sampled = (await this.runTick(skips, observedAt)) === true;
 		} finally {
 			this.ticking = false;
-			if (!workItemId) {
-				this.previousSkips = sampled ? skips : new Map();
-				recordDispatcherSkips(
-					this.directory,
-					observedAt,
-					this.previousSkips.values(),
-				);
-			}
+			this.previousSkips = sampled ? skips : new Map();
+			recordDispatcherSkips(
+				this.directory,
+				observedAt,
+				this.previousSkips.values(),
+			);
 		}
+	}
+	/**
+	 * Starts the Work Item a person asked for in chat when its request arrives,
+	 * also in the middle of a pass, and without waiting in the call queue. An
+	 * item this runner already knows, or may not take now, is left to the pass.
+	 */
+	async startRequested(workItemId: string) {
+		await requestedRun.run({ direct: true }, async () => {
+			try {
+				if (this.stopping || this.admissionsHeld) return;
+				const page = await this.call<{ data: DispatchItem[] }>([
+					"work",
+					"dispatch-list",
+					"--input",
+					JSON.stringify({
+						disposition: "accepted",
+						...(this.options.executor === "any-local"
+							? { executor: [...localExecutors, "any-local"] }
+							: { executor: this.options.executor }),
+						dispatchReadyOnly: true,
+						...(this.options.project
+							? { projectId: this.options.project }
+							: {}),
+						idPrefix: workItemId,
+						limit: 1,
+						offset: 0,
+					}),
+				]);
+				const item = page.data?.find((row) => row.id === workItemId);
+				if (
+					!item ||
+					this.stopping ||
+					this.admissionsHeld ||
+					this.running.has(item.id) ||
+					this.maintenance.has(item.id) ||
+					existsSync(this.path(item)) ||
+					this.deps.freeDiskBytes(this.directory) < MIN_FREE_DISK_BYTES ||
+					dispatchSkip(
+						item,
+						[],
+						this.options.executor,
+						this.options.coordinated,
+					)
+				)
+					return;
+				this.route(item);
+				this.log("requested", item.id, "Started ahead of the pass");
+				const task = this.execute(item)
+					.catch((error) => this.log("failed", item.id, String(error)))
+					.finally(() => this.running.delete(item.id));
+				this.running.set(item.id, task);
+			} catch (error) {
+				this.log("request-deferred", workItemId, String(error));
+			}
+		});
 	}
 	private pendingDevinProbe?: Promise<
 		Awaited<ReturnType<typeof devinAvailability>>
@@ -2966,7 +3032,6 @@ export class LaneDispatcher {
 	private async runTick(
 		skips: Map<string, DispatcherSkipObservation>,
 		observedAt: string,
-		workItemId?: string,
 	) {
 		const observeSkip = (item: DispatchItem, reason: string) => {
 			if (
@@ -3191,7 +3256,6 @@ export class LaneDispatcher {
 				: preflightFailed
 					? "The executor preflight check failed"
 					: undefined);
-		if (workItemId && admissionPause) return;
 		const healthSource = existsSync(join(this.directory, "health-source.json"));
 		while (
 			!this.stopping &&
@@ -3211,7 +3275,6 @@ export class LaneDispatcher {
 						: { executor: this.options.executor }),
 					dispatchReadyOnly: true,
 					...(this.options.project ? { projectId: this.options.project } : {}),
-					...(workItemId ? { idPrefix: workItemId } : {}),
 					limit: 25,
 					offset,
 				}),
@@ -3459,7 +3522,6 @@ export class LaneDispatcher {
 			if (!page.data.length)
 				throw new Error("Dispatch pagination made no progress");
 		}
-		if (workItemId) return;
 		// Historical delivery must not queue ahead of admission or lease renewal.
 		// Live orphan fences above remain synchronous even while Work is running.
 		if (!this.preparing.size) {
@@ -7579,17 +7641,28 @@ export async function runLaneServe(
 		writeDispatcherHealthSource(directory, options);
 		const lane = new LaneDispatcher(options, directory);
 		dispatcher = lane;
-		const requests = dispatchRequestsDirectory(directory);
-		if (!options.once) mkdirSync(requests, { recursive: true, mode: 0o700 });
-		const tick = async (workItemId?: string) => {
+		if (!options.once) {
+			const requests = dispatchRequestsDirectory(directory);
+			mkdirSync(requests, { recursive: true, mode: 0o700 });
+			// Requests are read all the time, not between passes: a pass over a
+			// long backlog takes minutes.
+			void (async () => {
+				while (!stopping) {
+					const workItemId = await waitForDispatchRequest(
+						requests,
+						60_000,
+						stopWaiting.signal,
+					);
+					if (workItemId && !stopping) void lane.startRequested(workItemId);
+				}
+			})();
+		}
+		do {
 			try {
-				await lane.tick(workItemId);
+				await lane.tick();
 			} catch (error) {
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
-		};
-		do {
-			await tick();
 			if (options.once || stopping) break;
 			// Only a runner the supervisor will start again leaves for an update.
 			const newer = await installedVersion();
@@ -7607,19 +7680,14 @@ export async function runLaneServe(
 					return RUNNER_UPDATE_EXIT_CODE;
 				}
 			}
-			const nextPass = Date.now() + dispatcher.nextTickDelayMs();
-			while (!stopping) {
-				recordDispatcherNextCheck(directory, new Date(nextPass).toISOString());
-				const delay = nextPass - Date.now();
-				if (delay <= 0) break;
-				const workItemId = await waitForDispatchRequest(
-					requests,
-					delay,
-					stopWaiting.signal,
-				);
-				if (!workItemId || stopping) break;
-				await tick(workItemId);
-			}
+			const delay = dispatcher.nextTickDelayMs();
+			recordDispatcherNextCheck(
+				directory,
+				new Date(Date.now() + delay).toISOString(),
+			);
+			await sleep(delay, undefined, { signal: stopWaiting.signal }).catch(
+				() => {},
+			);
 		} while (!stopping);
 		if (options.once) {
 			await dispatcher.drain();
