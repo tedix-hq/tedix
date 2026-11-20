@@ -263,6 +263,7 @@ describe("runD1Retention", () => {
 					logsDb: logsFixture().db,
 					bucket: new MemoryBucket() as unknown as R2Bucket,
 					now: NOW,
+					pagePauseMs: 0,
 				});
 				expect(result.tables[0]).toMatchObject({
 					stoppedBy: "done",
@@ -308,6 +309,7 @@ describe("runD1Retention", () => {
 				logsDb: logs.db,
 				bucket: new MemoryBucket() as unknown as R2Bucket,
 				now: NOW,
+				pagePauseMs: 0,
 				timeBudgetMs: 100,
 			});
 			const backlog = result.tables[1]!;
@@ -350,6 +352,7 @@ describe("runD1Retention", () => {
 				logsDb: logs.db,
 				bucket: new MemoryBucket() as unknown as R2Bucket,
 				now: NOW,
+				pagePauseMs: 0,
 				timeBudgetMs: 120,
 			});
 			expect(result.tables[0]).toMatchObject({
@@ -396,6 +399,7 @@ describe("runD1Retention", () => {
 					logsDb: logs.db,
 					bucket: bucket as unknown as R2Bucket,
 					now: NOW,
+					pagePauseMs: 0,
 					timeBudgetMs: 120,
 				});
 				for (const table of result.tables) {
@@ -458,6 +462,7 @@ describe("runD1Retention", () => {
 				logsDb: logs.db,
 				bucket: bucket as unknown as R2Bucket,
 				now: NOW,
+				pagePauseMs: 0,
 			});
 		const first = await tick();
 		const second = await tick();
@@ -505,6 +510,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(bucket.objects.get(key)).toEqual(body);
 		expect(result.tables[0]?.problem).toBeNull();
@@ -553,6 +559,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			referencedRows: 2,
@@ -592,6 +599,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			stoppedBy: "error",
@@ -629,6 +637,7 @@ describe("runD1Retention", () => {
 					logsDb: logs.db,
 					bucket: bucket as unknown as R2Bucket,
 					now: NOW,
+					pagePauseMs: 0,
 					timeBudgetMs: 3,
 				});
 			const first = await tick();
@@ -682,6 +691,7 @@ describe("runD1Retention", () => {
 				logsDb: logs.db,
 				bucket: bucket as unknown as R2Bucket,
 				now: NOW,
+				pagePauseMs: 0,
 				timeBudgetMs: 4,
 			});
 			expect(first.tables[0]).toMatchObject({
@@ -703,6 +713,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
 		const later = await runD1Retention({
@@ -748,6 +759,7 @@ describe("runD1Retention", () => {
 					logsDb: logs.db,
 					bucket: bucket as unknown as R2Bucket,
 					now: NOW,
+					pagePauseMs: 0,
 					skipsPerSweep,
 				});
 				expect(result.tables[0]?.error).toBeUndefined();
@@ -828,6 +840,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 			skipsPerSweep: 2,
 		});
 		d1.prepare = prepare;
@@ -861,6 +874,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			deletedRows: 100,
@@ -900,6 +914,7 @@ describe("runD1Retention", () => {
 				logsDb: logs.db,
 				bucket: new MemoryBucket() as unknown as R2Bucket,
 				now: NOW,
+				pagePauseMs: 0,
 				timeBudgetMs: 40,
 			});
 			const [audit, runtime] = result.tables;
@@ -943,6 +958,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			stoppedBy: "error",
@@ -970,6 +986,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			archivedRows: 1,
@@ -995,6 +1012,7 @@ describe("runD1Retention", () => {
 			db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(count()).toBe(122);
 		expect(bucket.objects.size).toBe(0);
@@ -1026,6 +1044,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			archivedRows: 4,
@@ -1056,6 +1075,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			archivedRows: 620,
@@ -1091,6 +1111,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(failed.tables[0]).toMatchObject({
 			stoppedBy: "error",
@@ -1104,6 +1125,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(count()).toBe(0);
 	});
@@ -1119,6 +1141,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			deletedRows: 120,
@@ -1139,6 +1162,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			mode: "move_to_logs_db",
@@ -1179,6 +1203,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			movedRows: 130,
@@ -1211,6 +1236,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			stoppedBy: "error",
@@ -1235,6 +1261,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(failed.tables[0]).toMatchObject({
 			stoppedBy: "error",
@@ -1249,6 +1276,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(resumed.tables[0]).toMatchObject({ movedRows: 60, deletedRows: 60 });
 		expect(count()).toBe(0);
@@ -1284,6 +1312,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			stoppedBy: "done",
@@ -1328,6 +1357,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			movedRows: 1200,
@@ -1368,6 +1398,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			stoppedBy: "error",
@@ -1394,6 +1425,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		// Head pages never move the sweep cursor; the next head pass starts at
 		// the oldest remaining row anyway.
@@ -1412,6 +1444,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(retry.tables[0]).toMatchObject({
 			stoppedBy: "done",
@@ -1470,6 +1503,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(
 			result.tables.map((table) => ({
@@ -1533,6 +1567,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(
 			result.tables.map((table) => [
@@ -1572,6 +1607,7 @@ describe("runD1Retention", () => {
 			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(
 			result.tables.map((table) => [
@@ -1607,6 +1643,7 @@ describe("runD1Retention", () => {
 			db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables.map((table) => table.problem)).toEqual([
 			"logs_db_missing",
@@ -1627,6 +1664,7 @@ describe("runD1Retention", () => {
 			db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
+			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			problem: null,
