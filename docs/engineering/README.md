@@ -26,6 +26,8 @@ a page and the code disagree, the code wins; fix or delete the page.
 - [Auth](platform/auth.md): identities, credentials, RBAC, and auth middleware.
 - [Data model](platform/data-model.md): where state lives, D1 traps, and
   migration gates.
+- [Shared core database](core-database-decision.md): why the core stays on
+  D1 for now, and the measured triggers that would move it to Postgres.
 
 ## MCP
 
