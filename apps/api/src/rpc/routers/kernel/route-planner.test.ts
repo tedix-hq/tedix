@@ -10,7 +10,6 @@ import {
 	resolveRouteHedgeAfterMs,
 	shapeRouteUsage as actualShapeRouteUsage,
 	SYSTEM_PROMPT,
-	guardPersonalRecallRoute,
 } from "./route-planner";
 import {
 	type KernelRouteDecision,
@@ -265,64 +264,6 @@ describe("planKernelRoute", () => {
 			effortClass: "single_read",
 			targetTediId: "tedi-cto",
 			targetTediLabel: "CTO",
-		});
-	});
-
-	it("applies an injected Jev delegation ranker after the typed route and clears stale authority", async () => {
-		const decision: KernelRouteDecision = {
-			routeKind: "delegate_tedi",
-			answer: null,
-			rationale: "Delegate a provider read.",
-			risk: "low",
-			confidence: 0.8,
-			effortClass: "single_read",
-			targetTediId: "first",
-			targetTediLabel: "First",
-			targetActivityId: "activity-first",
-			plannedToolIds: ["first.read"],
-			toolIntent: null,
-			workflowHint: null,
-			clarifyingQuestion: null,
-			evidenceExpectation: null,
-		};
-		const ranker = vi.fn().mockResolvedValue(["second", "first"]);
-		const capability = (id: string) =>
-			({
-				availability: "running",
-				embodied: false,
-				apps: [],
-				scopeGroups: [],
-				skills: [id],
-			}) as unknown as NonNullable<
-				KernelContext["tedis"][number]["capability"]
-			>;
-		const result = await planKernelRoute({
-			content: "Please investigate the issue",
-			context: {
-				...EMPTY_CONTEXT,
-				tedis: [
-					{
-						id: "first",
-						slug: "first",
-						name: "First",
-						capability: capability("first"),
-					},
-					{
-						id: "second",
-						slug: "second",
-						name: "Second",
-						capability: capability("second"),
-					},
-				],
-			},
-			model: objectModel(decision),
-			delegationCandidateRanker: ranker,
-		});
-		expect(ranker).toHaveBeenCalledOnce();
-		expect(result).toMatchObject({
-			targetTediId: "second",
-			targetActivityId: null,
-			plannedToolIds: [],
 		});
 	});
 
@@ -2484,7 +2425,7 @@ describe("prompt prefix order", () => {
 	});
 });
 
-describe("operator intent before delegation fit", () => {
+describe("operator intent before delegation", () => {
 	it("does not take attachment prohibitions as operator intent", async () => {
 		const output = {
 			routeKind: "delegate_tedi",
@@ -2832,74 +2773,5 @@ describe("planKernelRoute — bounded attempts replace route hedging", () => {
 		expect(
 			resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: " 2500 " }),
 		).toBe(2_500);
-	});
-});
-
-describe("personal recall routing", () => {
-	const decision = normalizeRouteDecisionCandidate({
-		routeKind: "delegate_tedi",
-		targetTediId: "other",
-		targetTediLabel: "Other",
-		targetActivityId: "other-activity",
-		plannedToolIds: ["web_search"],
-		risk: "low",
-		confidence: 0.9,
-		rationale: "Read missing commitments",
-		effortClass: "multi_hop_read",
-	}) as KernelRouteDecision;
-	const other = {
-		id: "other",
-		slug: "other",
-		name: "Other",
-		scope: "personal" as const,
-		ownerUserId: "user-2",
-	};
-	const own = {
-		id: "own",
-		slug: "own",
-		name: "Own",
-		scope: "personal" as const,
-		ownerUserId: "user-1",
-	};
-	it("rejects another member's personal tedi, including after a fit rerank", () => {
-		const result = guardPersonalRecallRoute(
-			{
-				...EMPTY_CONTEXT,
-				personalRecall: true,
-				operatorUserId: "user-1",
-				tedis: [other],
-			},
-			decision,
-		);
-		expect(result.routeKind).toBe("answer_in_home");
-		expect(result.targetTediId).toBeNull();
-	});
-	it("prefers the member's own tedi and drops another target's grant", () => {
-		const result = guardPersonalRecallRoute(
-			{
-				...EMPTY_CONTEXT,
-				personalRecall: true,
-				operatorUserId: "user-1",
-				tedis: [other, own],
-			},
-			decision,
-		);
-		expect(result.targetTediId).toBe("own");
-		expect(result.targetActivityId).toBeNull();
-		expect(result.plannedToolIds).toEqual([
-			"read_operator_records",
-			"read_home_messages",
-			"memory_search",
-			"read_operator_calendar",
-			"read_operator_mail",
-		]);
-	});
-	it("keeps non-personal routing unchanged", () => {
-		expect(
-			guardPersonalRecallRoute(
-				{ ...EMPTY_CONTEXT, tedis: [other, own] },
-				decision,
-			),
-		).toBe(decision);
 	});
 });

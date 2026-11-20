@@ -2047,3 +2047,24 @@ export function seedDependencyPlanRun(
 		}),
 	);
 }
+
+/** Seed a proposed two-owner Home plan (CPO and Echo) and return its assignments. */
+export function seedTwoOwnerPlanRun(
+	db: ReturnType<typeof createKernelRuntimeDb>,
+	runId: string,
+) {
+	const assignments = [
+		planAssignmentSeed({
+			id: `${runId}:assignment:1:tedi-cpo`,
+			ownerTediId: "tedi-cpo",
+			ownerLabel: "CPO",
+		}),
+		planAssignmentSeed({
+			id: `${runId}:assignment:2:tedi-echo`,
+			ownerTediId: "tedi-echo",
+			ownerLabel: "Echo (Isolate)",
+		}),
+	];
+	seedDependencyPlanRun(db, { runId, assignments, dependencies: [] });
+	return assignments;
+}

@@ -32,6 +32,7 @@ import {
 	createContext,
 	createKernelRuntimeClient,
 	grantRow,
+	seedTwoOwnerPlanRun,
 } from "./__tests__/kernel-runtime-db";
 
 const recoveryAdmissionRows = vi.hoisted(
@@ -1952,12 +1953,7 @@ describe("home approved-write layer (v1)", () => {
 			const db = createKernelRuntimeDb();
 			const client = createKernelRuntimeClient(createContext(db));
 
-			await client.enqueueMessage({
-				conversationId: "home:test",
-				content:
-					"Plan this across CPO and Echo: CPO owns the checklist while Echo validates evidence.",
-				idempotencyKey: "home-plan-respond-reject-1",
-			});
+			seedTwoOwnerPlanRun(db, "home-plan-respond-reject-1");
 			const result = await client.respondApproval({
 				runId: "home-plan-respond-reject-1",
 				decision: "reject",
@@ -1989,12 +1985,7 @@ describe("home approved-write layer (v1)", () => {
 			}));
 			kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
 
-			await client.enqueueMessage({
-				conversationId: "home:test",
-				content:
-					"Plan this across CPO and Echo: CPO owns the checklist while Echo validates evidence.",
-				idempotencyKey: "home-plan-respond-approve-1",
-			});
+			seedTwoOwnerPlanRun(db, "home-plan-respond-approve-1");
 			const result = await client.respondApproval({
 				runId: "home-plan-respond-approve-1",
 				decision: "approve",

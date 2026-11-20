@@ -2,12 +2,6 @@ import { kernelRuntimeEvents, kernelRuntimeRuns } from "@tedix/db/schema";
 import { policyPacks } from "@tedix/db/schema/control-plane";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
-import {
-	clampPlanObjective,
-	detectsHomePlanningRequest,
-	type HomePlanningTarget,
-	selectedHomePlanTargets,
-} from "./kernel/plan-dispatch";
 import { remainingKernelTurnBudgetMs } from "./kernel-runtime/policy-normalization";
 import { kernelRuntimeTestHooks } from "./kernel-runtime/policy-normalization";
 
@@ -21,6 +15,7 @@ import {
 	createKernelRuntimeDb,
 	createContext,
 	createKernelRuntimeClient,
+	seedTwoOwnerPlanRun,
 } from "./__tests__/kernel-runtime-db";
 
 vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => {
@@ -902,14 +897,7 @@ describe("governance policy: fan-out cap and approval TTL", () => {
 		const context = createContext(db);
 		const client = createKernelRuntimeClient(context);
 		// Seed a proposed run with 2-assignment Home plan.
-		const proposed = await client.enqueueMessage({
-			conversationId: "home:test",
-			content:
-				"Plan this across CPO and Echo: CPO owns the launch plan while Echo validates the data.",
-			idempotencyKey: "fan-out-plan-cap-1",
-		});
-
-		expect(proposed.homePlan?.assignments).toHaveLength(2);
+		seedTwoOwnerPlanRun(db, "fan-out-plan-cap-1");
 
 		// Attempting to dispatch both assignments (2) with cap=2 allows budget of 1
 		// child (cap - 1 approval action = 1). 2 > 1 → should throw.
@@ -943,14 +931,7 @@ describe("governance policy: fan-out cap and approval TTL", () => {
 		}));
 		kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
 
-		const proposed = await client.enqueueMessage({
-			conversationId: "home:test",
-			content:
-				"Plan this across CPO and Echo: CPO owns the launch plan while Echo validates the data.",
-			idempotencyKey: "fan-out-plan-ok-1",
-		});
-
-		expect(proposed.homePlan?.assignments).toHaveLength(2);
+		seedTwoOwnerPlanRun(db, "fan-out-plan-ok-1");
 
 		const approved = await client.approvePlanAssignments({
 			runId: "fan-out-plan-ok-1",
@@ -1053,151 +1034,6 @@ describe("governance policy: fan-out cap and approval TTL", () => {
 			// Configurable 48-hour window (not the default 24h).
 			expect(windowHours).toBeCloseTo(48, 0);
 		}
-	});
-});
-
-describe("home plan generalization (kernel-evals plan.multi_tedi_work_items)", () => {
-	const target = (slug: string, displayName: string): HomePlanningTarget =>
-		({
-			displayName,
-			id: `t-${slug}`,
-			name: displayName,
-			runtimeKind: "agent",
-			runtimeState: null,
-			slug,
-			status: "active",
-		}) as unknown as HomePlanningTarget;
-	const roster = [
-		target("cpo", "CPO"),
-		target("cmo", "CMO"),
-		target("ceo", "CEO"),
-		target("research", "Research"),
-	];
-
-	it("detects a plan request without the old hardcoded CPO+Echo names", () => {
-		// The original gate required both "cpo" and "echo"; now any plan-intent
-		// phrasing qualifies (the >=2-named-tedis gate lives in selection).
-		expect(
-			detectsHomePlanningRequest("Plan and split this across the teams"),
-		).toBe(true);
-		expect(
-			detectsHomePlanningRequest("Coordinate the rollout across two owners"),
-		).toBe(true);
-		expect(detectsHomePlanningRequest("What's the status of the launch?")).toBe(
-			false,
-		);
-	});
-
-	it("clamps a long LLM objective to the dispatch bound (plan v1)", () => {
-		const short = "Review the deploy pipeline and flag release risks.";
-		expect(clampPlanObjective(short)).toBe(short);
-		const clamped = clampPlanObjective("x".repeat(900));
-		expect(clamped.length).toBe(600);
-		expect(clamped.endsWith("…")).toBe(true);
-	});
-
-	it("selects EVERY named tedi, not just CPO/Echo", () => {
-		const picked = selectedHomePlanTargets({
-			content:
-				"Plan a launch brief: have CPO draft the product section and CMO draft go-to-market.",
-			targets: roster,
-		});
-		expect(picked.map((t) => t.slug)).toEqual(["cpo", "cmo"]);
-	});
-
-	it("works for an arbitrary pair (CEO + Research) the old hardcode could never plan", () => {
-		const picked = selectedHomePlanTargets({
-			content: "Coordinate this across CEO and Research — split the analysis.",
-			targets: roster,
-		});
-		expect(picked.map((t) => t.slug).sort()).toEqual(["ceo", "research"]);
-	});
-
-	it("declines (<2) when fewer than two tedis are named — no fabricated owners", () => {
-		expect(
-			selectedHomePlanTargets({
-				content: "Have CPO own the whole launch.",
-				targets: roster,
-			}).map((t) => t.slug),
-		).toEqual(["cpo"]);
-		expect(
-			selectedHomePlanTargets({
-				content: "Plan the launch carefully.",
-				targets: roster,
-			}),
-		).toEqual([]);
-	});
-
-	// Fix #15 — single explicitly-named target must not fan out.
-	// When a single strong (slug-token) match is present, all weak-only matches
-	// are suppressed so "ask the CTO to …" returns only the CTO tedi even when
-	// another tedi's display-name contains an incidental prose word match.
-	it("single strong target: does not fan out to weak-match tedis", () => {
-		// Extend the roster with a tedi whose display-name contains "bench" — a
-		// word that can appear in prose without the operator naming that tedi.
-		// With the stopword addition "bench" is now filtered, so this also covers
-		// the stopword fix. Add a tedi whose display-name contains "tedix" too.
-		const extendedRoster = [
-			...roster,
-			target("bench", "Tedix Bench"), // "bench" in display-name (stopworded)
-		];
-		const picked = selectedHomePlanTargets({
-			content: "Ask the CPO to review the deploy benchmark results.",
-			targets: extendedRoster,
-		});
-		// "benchmark" contains "bench" but bench tedi's slug "bench" is now
-		// stopworded. CPO (strong slug token "cpo") is the only match.
-		expect(picked.map((t) => t.slug)).toEqual(["cpo"]);
-	});
-
-	it("single strong target: collapses fan-out when exactly one slug matches strongly", () => {
-		// Build a roster where "cpo" strongly matches, but there's also a tedi
-		// whose display-name is "Product Operations" — "product" might weakly match
-		// the word "product" in the sentence without the operator naming that tedi.
-		const mixedRoster = [...roster, target("prodops", "Product Operations")];
-		const picked = selectedHomePlanTargets({
-			content: "Ask the CPO to review the product roadmap.",
-			targets: mixedRoster,
-		});
-		// "cpo" slug strongly names one target (CPO); "prodops" display-name
-		// "Product Operations" may weakly match "product" in the sentence.
-		// With dominance rule: only CPO is returned.
-		const slugs = picked.map((t) => t.slug);
-		expect(slugs).toContain("cpo");
-		expect(slugs.length).toBe(1);
-	});
-
-	it("does not mistake an interview pilot for the System 1 Pilot tedi", () => {
-		const extendedRoster = [
-			...roster,
-			target("system1-pilot", "System 1 Pilot (Workers AI 70B)"),
-		];
-		const picked = selectedHomePlanTargets({
-			content:
-				"Delegate this bounded GTM brief to CMO for a four-week interview pilot; no other tedi is needed.",
-			targets: extendedRoster,
-		});
-		expect(picked.map((t) => t.slug)).toEqual(["cmo"]);
-	});
-
-	it("still recognizes the System 1 Pilot tedi when explicitly named", () => {
-		const extendedRoster = [
-			...roster,
-			target("system1-pilot", "System 1 Pilot (Workers AI 70B)"),
-		];
-		const picked = selectedHomePlanTargets({
-			content: "Plan a CMO brief and ask System 1 Pilot to review it.",
-			targets: extendedRoster,
-		});
-		expect(picked.map((t) => t.slug)).toEqual(["cmo", "system1-pilot"]);
-	});
-
-	it("two strong targets: keeps both (no false collapse)", () => {
-		const picked = selectedHomePlanTargets({
-			content: "Have CPO draft the product brief and CEO review the budget.",
-			targets: roster,
-		});
-		expect(picked.map((t) => t.slug).sort()).toEqual(["ceo", "cpo"]);
 	});
 });
 

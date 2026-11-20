@@ -141,8 +141,8 @@ receive a conservative high-impact classification without deleting data;
 only a reviewed declaration can make a tool eligible for automatic approval.
 
 Home dispatches eligible work immediately, waking a standby tedi when needed.
-Coding work is spread across tedis that share the same repository, least busy
-first. Its Activity receipt identifies the task, tedi, and outcome. **This should
+The work goes to the tedi Home chose; Home does not move it to another tedi
+afterwards. Its Activity receipt identifies the task, tedi, and outcome. **This should
 have asked me** saves an owner/admin correction lesson that requires approval
 for that delegation class next time.
 
