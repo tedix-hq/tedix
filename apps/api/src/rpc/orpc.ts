@@ -64,7 +64,7 @@ import {
 	getPersonalOrganization,
 } from "@tedix/db/queries/organizations";
 import { resolvePrincipalIdentity } from "@tedix/db/queries/principal-identities";
-import { resolveCachedUserIdentity } from "./cached-user-identity";
+import { resolvePrimaryUserIdentity } from "./primary-user-identity";
 import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import {
 	extractBearerToken,
@@ -1904,7 +1904,7 @@ async function authenticateUserJwt(
 			const identity = await withTransientD1ReadRetry(
 				"auth.user_tenant_context",
 				() =>
-					resolveCachedUserIdentity(context, token, payload.exp * 1000, {
+					resolvePrimaryUserIdentity(context, {
 						organizationIdentity: descopeTenantIdentity(payload, tenantId),
 						userIdentity: descopeUserIdentityForContext(context, payload),
 						reviewProjectId: agentReviewProjectId(context.env),
