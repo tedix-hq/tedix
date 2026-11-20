@@ -3,6 +3,7 @@ import {
 	appendFileSync,
 	chmodSync,
 	copyFileSync,
+	linkSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -25,7 +26,6 @@ import {
 	run,
 	shellHasLocalBin,
 } from "./shell";
-import { activeRunCount } from "./status";
 import { isNewer } from "./update";
 
 /**
@@ -42,17 +42,14 @@ const MARKER = "managed-by-tedix-app";
 const SUPERVISOR = "dev.tedix.supervisor";
 /** Where published command-line tools come from; nothing else is accepted. */
 const DOWNLOADS = "https://downloads.tedix.dev";
-/** How long a newer tool waits for running tasks to end before it is put in place anyway. */
-const QUIET_WAIT_MS = 30 * 60_000;
-/** How long the background service is watched after the tool under it changed. */
-const WATCH_MS = 3 * 60_000;
-const ALLOW_ACCESS =
-	"Allow access in System Settings → Privacy & Security → Full Disk Access, then check again.";
 
 const stagedFolder = () => join(app.getPath("userData"), "cli");
 const staged = () => join(stagedFolder(), "tedix");
-/** The copy in use before the last change, for one step back by hand. */
-const previous = () => `${staged()}.previous-app`;
+/**
+ * The app's other copy: the one in use before the last update or go back.
+ * The person can swap the two with "Go back to version Y".
+ */
+const other = () => `${staged()}.other-app`;
 
 /** The copy inside the app, or the one `scripts/fetch-cli.ts` fetched for a run from source. */
 function bundled(): string | undefined {
@@ -79,18 +76,22 @@ export interface CliState {
 	/** A separate install is kept and can be put back. */
 	canRestore: boolean;
 	problem?: string;
-	/** What happened to the background service after the app brought a new version. */
-	service?: string;
-	/** How the last look for a newer command-line tool ended, and when. */
+	/** A newer version the person can choose to update to. */
+	offer?: string;
+	/** The version of the kept copy the person can go back to. */
+	other?: string;
+	/** How the last look, update or go back ended, and when. */
 	update?: {
 		ok: boolean;
 		text: string;
 		at: number;
-		/** The background service could not be brought back: runners are down. */
+		/** After a restart the person chose, the service or every runner stayed down. */
 		down?: boolean;
 	};
-	/** What the app is doing about a newer command-line tool right now. */
+	/** What the app is doing to the command-line tool right now. */
 	updating?: string;
+	/** macOS has not allowed a folder; information only. */
+	access?: string;
 }
 
 function linkedToApp(): boolean {
@@ -154,7 +155,7 @@ function linkToApp(): void {
  * Puts a command-line tool in the app's data folder in one step: writes it
  * beside the copy in use, signs it with the person's own local identity when
  * they made one, checks that it starts as version `want`, keeps the copy in
- * use as `tedix.previous-app`, and renames the new file over it.
+ * use as `tedix.other-app`, and renames the new file over it.
  */
 async function install(bytes: Buffer, want: string): Promise<void> {
 	mkdirSync(stagedFolder(), { recursive: true });
@@ -183,8 +184,8 @@ async function install(bytes: Buffer, want: string): Promise<void> {
 				`The new command-line tool did not start as version ${want}; the one in use was kept.`,
 			);
 		if (existsSync(staged())) {
-			copyFileSync(staged(), `${previous()}.new`);
-			renameSync(`${previous()}.new`, previous());
+			copyFileSync(staged(), `${other()}.new`);
+			renameSync(`${other()}.new`, other());
 		}
 		renameSync(fresh, staged());
 		writeFileSync(join(stagedFolder(), MARKER), "");
@@ -193,34 +194,69 @@ async function install(bytes: Buffer, want: string): Promise<void> {
 	}
 }
 
-/**
- * Copies the tool from inside the app to the app's data folder when the app
- * brought a newer version than the one there, and returns the version now
- * there. A copy that updated itself since the app was built is never
- * replaced by the older one inside the app.
- */
-async function stage(
-	source: string,
-): Promise<{ version: string; replaced: boolean; before: string }> {
-	const have = existsSync(staged()) ? await versionOf(staged()) : "";
-	const want = await versionOf(source);
-	if (have && (!want || !isNewer(want, have)))
-		return { version: have, replaced: false, before: have };
-	// Not under a running update, and not a version that did not work here.
-	if (have && (updateRun || remembered().held === want))
-		return { version: have, replaced: false, before: have };
-	if (!want)
-		throw new Error("The command-line tool inside the app did not start.");
-	await install(readFileSync(source), want);
-	log(`cli: copied version ${want} from the app${have ? ` over ${have}` : ""}`);
-	return { version: want, replaced: true, before: have };
+/** Removes what earlier versions of the app left in the data folder. Run once. */
+function tidy(): void {
+	for (const name of ["update-state.json", "update-state.json.before-clear"])
+		rmSync(join(stagedFolder(), name), { force: true });
+	const old = `${staged()}.previous-app`;
+	if (existsSync(old) && !existsSync(other())) renameSync(old, other());
+	rmSync(old, { force: true });
 }
 
-let service: string | undefined;
+let tidied = false;
+let insideVersion: Promise<string> | undefined;
+/** The newest published version the app has seen; it only reads the release list. */
+let published = "";
+let lastUpdate: CliState["update"];
+let updating: string | undefined;
+let updateRun: Promise<void> | undefined;
+/** When the background service was last reloaded from this app. */
+let reloadedAt = 0;
+
+/** The newer of the copy inside the app and the published one, when newer than `have`. */
+async function offered(have: string): Promise<string | undefined> {
+	const source = bundled();
+	insideVersion ??= source ? versionOf(source) : Promise.resolve("");
+	const inside = await insideVersion;
+	const best =
+		inside && (!published || isNewer(inside, published)) ? inside : published;
+	return have && best && isNewer(best, have) ? best : undefined;
+}
 
 /**
- * Run at start: brings the app's copy up to date and links it when nothing
- * else is installed. A separate install is left alone and reported.
+ * What the background service wrote since the last reload about a folder
+ * macOS does not let it read. Information for the person, never a failure.
+ */
+function accessNote(): string | undefined {
+	if (!reloadedAt) return;
+	const from = Math.floor(reloadedAt / 1000) * 1000;
+	let line: string | undefined;
+	try {
+		line = readFileSync(join(configDir(), "supervisor.log"), "utf8")
+			.slice(-400_000)
+			.split("\n")
+			.findLast(
+				(entry) =>
+					entry.includes("could not read") &&
+					Date.parse(entry.slice(0, 20)) >= from,
+			);
+	} catch {
+		/* No log yet. */
+	}
+	if (!line) return;
+	const path = /could not read (\/\S+)/.exec(line)?.[1] ?? "";
+	const home = `${homedir()}/`;
+	const folder = path.startsWith(home)
+		? `your ${path.slice(home.length).split("/")[0]} folder`
+		: path || "a folder";
+	return `Some earlier sessions could not be reopened because macOS has not allowed access to ${folder}. Open System Settings → Privacy & Security → Files and Folders (or Full Disk Access) and allow Tedix.`;
+}
+
+/**
+ * Run at start and on every refresh: reads which command-line tool is in
+ * use. It copies the one inside the app only when the app has no copy yet,
+ * and links it only when nothing else is installed. It never replaces a copy
+ * and never touches the background service.
  */
 export async function readCli(): Promise<CliState> {
 	const canRestore = existsSync(kept);
@@ -230,60 +266,34 @@ export async function readCli(): Promise<CliState> {
 		return { kind: version ? "own" : "missing", version, canRestore: false };
 	}
 	try {
-		const wasLinked = linkedToApp();
-		const { version, replaced, before } = await stage(source);
-		// An app update changed the tool under a running background service:
-		// restart it so it does not keep running the version before, and go
-		// back to that version when the new one does not work here.
-		if (replaced && wasLinked && !updateRun && (await supervisorLoaded())) {
-			track(async () => {
-				const say = (line: string) => {
-					updating = line;
-					log(`cli: ${line}`);
-					changed();
-				};
-				const result = await settle(
-					version,
-					before,
-					(await runnersUp()).running,
-					say,
-				);
-				lastUpdate = {
-					...result,
-					text: result.ok
-						? `The app brought version ${version}; ${result.text}`
-						: result.text,
-					at: Date.now(),
-				};
-			});
-		} else if (replaced && wasLinked && (await supervisorLoaded())) {
-			const restart = await restartSupervisor();
-			service = restart.ok
-				? `The background service was restarted to use version ${version}.`
-				: `The background service still runs the version before ${version} and could not be restarted: ${lastLine(restart.output)}. Choose Restart runners in Tedix → This Mac….`;
-			log(`cli: ${service}`);
+		if (!tidied) {
+			tidy();
+			tidied = true;
+		}
+		if (!existsSync(staged()) && !updateRun) {
+			const want = await versionOf(source);
+			if (!want)
+				throw new Error("The command-line tool inside the app did not start.");
+			await install(readFileSync(source), want);
+			log(`cli: copied version ${want} from the app`);
 		}
 		if (!linkExists()) {
 			linkToApp();
 			addPathLine();
 			log("cli: linked ~/.local/bin/tedix to the app's copy");
 		}
-		if (linkedToApp())
-			return {
-				kind: "included",
-				version,
-				canRestore,
-				service,
-				update: lastUpdate,
-				updating,
-			};
-		return {
-			kind: "separate",
-			version: await versionOf(link),
+		const version = await versionOf(staged());
+		const state = {
 			canRestore,
+			offer: await offered(version),
+			other: existsSync(other()) ? await versionOf(other()) : undefined,
 			update: lastUpdate,
 			updating,
+			access: accessNote(),
 		};
+		return linkedToApp()
+			? { kind: "included", version, ...state }
+			: { kind: "separate", version: await versionOf(link), ...state };
 	} catch (error) {
 		const problem = error instanceof Error ? error.message : String(error);
 		log(`cli: ${problem}`);
@@ -305,6 +315,7 @@ export async function supervisorLoaded(): Promise<boolean> {
  * Reloads the background service. A plain restart is not enough after the
  * command-line tool's file was replaced: macOS then refuses to start the
  * loaded job, so it is unloaded and loaded again from its settings file.
+ * Only ever called after a click.
  */
 export async function restartSupervisor() {
 	const domain = `gui/${process.getuid?.()}`;
@@ -315,6 +326,7 @@ export async function restartSupervisor() {
 		`${SUPERVISOR}.plist`,
 	);
 	const pause = () => new Promise((resolve) => setTimeout(resolve, 500));
+	reloadedAt = Date.now();
 	await run("/bin/launchctl", ["bootout", `${domain}/${SUPERVISOR}`]);
 	// Unloading finishes after the command returns: macOS gives the service
 	// up to 20 seconds to stop, and loading fails until it is gone.
@@ -322,15 +334,22 @@ export async function restartSupervisor() {
 		await pause();
 	let result = await run("/bin/launchctl", ["bootstrap", domain, plist]);
 	for (let tries = 0; !result.ok && tries < 10; tries++) {
-		if (await supervisorLoaded()) return { ok: true, output: result.output };
+		if (await supervisorLoaded()) {
+			result = { ...result, ok: true };
+			break;
+		}
 		await pause();
 		result = await run("/bin/launchctl", ["bootstrap", domain, plist]);
 	}
+	// The person's own restart worked: the runners are not down any more.
+	if (result.ok && lastUpdate?.down) lastUpdate = undefined;
 	return result;
 }
 
 /** How many of the switched-on runners the background service has running. */
-async function runnersUp(): Promise<{ running: number; enabled: number }> {
+async function runnersUp(): Promise<
+	{ running: number; enabled: number } | undefined
+> {
 	try {
 		const report = JSON.parse(
 			(await run(link, ["supervise", "runners"], { timeoutMs: 30_000 })).output,
@@ -343,50 +362,62 @@ async function runnersUp(): Promise<{ running: number; enabled: number }> {
 			enabled: enabled.length,
 		};
 	} catch {
-		return { running: 0, enabled: 0 };
+		return undefined;
 	}
 }
 
 /**
- * Restarts the background service when it is installed and waits until as
- * many runners are running as before. Returns one sentence on how it went.
+ * Reloads the background service after the person chose a change, when it
+ * is installed, and waits up to three minutes for the switched-on runners.
+ * The runners are down only when the service is not running afterwards or
+ * no runner came up; that is shown in red and as one notification.
  */
-async function restartAndConfirm(
-	before: number,
+async function reload(
 	say: (line: string) => void,
-	evenIfUnloaded = false,
-): Promise<string> {
-	if (!evenIfUnloaded && !(await supervisorLoaded())) return "";
+): Promise<{ down?: string; runners: string }> {
+	if (!lastUpdate?.down && !(await supervisorLoaded())) return { runners: "" };
 	say("Restarting the background service…");
 	const restart = await restartSupervisor();
-	if (!restart.ok)
-		throw new Error(
-			`The background service did not restart: ${lastLine(restart.output)}`,
-		);
-	let now = { running: 0, enabled: 0 };
-	for (let waited = 0; waited < 180; waited += 5) {
+	let now: Awaited<ReturnType<typeof runnersUp>>;
+	for (let waited = 0; restart.ok && waited < 180; waited += 5) {
 		await new Promise((resolve) => setTimeout(resolve, 5000));
 		now = await runnersUp();
-		say(`Waiting for runners: ${now.running} of ${now.enabled} running…`);
-		if (now.running >= before && now.running >= now.enabled) break;
-	}
-	if (now.running < before)
-		throw new Error(
-			`Only ${now.running} of ${before} runners came back after three minutes. Check ~/.tedix/supervisor.log; macOS may be asking to allow access to your folders again.`,
+		say(
+			`Waiting for runners: ${now?.running ?? 0} of ${now?.enabled ?? 0} running…`,
 		);
-	return ` ${now.running} of ${now.enabled} runners are running again.`;
+		if (now && now.running >= now.enabled) break;
+	}
+	const why = !restart.ok
+		? `The background service did not start: ${lastLine(restart.output) || "no reason given"}.`
+		: !(await supervisorLoaded())
+			? "The background service is not running."
+			: !now || (now.enabled > 0 && now.running === 0)
+				? "No runner started within three minutes."
+				: "";
+	if (!why)
+		return {
+			runners: ` ${now?.running} of ${now?.enabled} runners are running.`,
+		};
+	const down = `This Mac's runners are down. ${why} Choose Restart runners in Tedix → This Mac… to try again.`;
+	lastUpdate = { ok: false, down: true, text: down, at: Date.now() };
+	log(`cli: ${down}`);
+	if (Notification.isSupported())
+		new Notification({
+			title: "Tedix runners are down on this Mac",
+			body: down,
+		}).show();
+	return { down, runners: "" };
 }
 
 /**
  * "Let the app manage it": keeps the separate install as
  * `tedix.before-app`, links the app's copy and restarts the background
- * service. Any failure before the restart puts the separate install back,
- * and so does a background service that does not work with the app's copy.
+ * service. A copy that does not start puts the separate install back at
+ * once; after the restart, going back is the person's choice.
  */
 export async function manageCli(say: (line: string) => void): Promise<string> {
 	if (!existsSync(staged())) throw new Error("The app has no copy to use.");
 	if (linkedToApp()) return "The app already manages it.";
-	const before = (await runnersUp()).running;
 	rmSync(kept, { force: true });
 	renameSync(link, kept);
 	try {
@@ -400,190 +431,9 @@ export async function manageCli(say: (line: string) => void): Promise<string> {
 	}
 	addPathLine();
 	log("cli: the app now manages ~/.local/bin/tedix; separate install kept");
-	const first = await reloadAndWatch(before, say);
-	if (!first.problem) return `The app's copy is in use.${first.runners}`;
-	log(`cli: the app's copy did not work (${first.problem.detail})`);
-	say("The app's copy did not work here. Putting your separate install back…");
-	renameSync(kept, link);
-	const back = await reloadAndWatch(before, say, true);
-	const why = first.problem.access
-		? "could not read your project folder"
-		: "did not work with the background service";
-	if (back.problem) {
-		const text = `This Mac's runners are down. The app's copy ${why}, and going back to your separate install did not work either: ${back.problem.detail} Choose Restart runners in Tedix → This Mac….`;
-		notifyDown(text);
-		throw new Error(text);
-	}
-	throw new Error(
-		`The app's copy ${why}, so this Mac is back on your separate install. ${first.problem.access ? ALLOW_ACCESS : first.problem.detail}`,
-	);
-}
-
-/** What stays true across restarts of the app, in a file beside its copy. */
-interface Remembered {
-	/** A published version that did not work here; not tried again by itself. */
-	held?: string;
-	/** The background service still has to be loaded again. */
-	reloadOwed?: boolean;
-}
-const rememberedFile = () => join(stagedFolder(), "update-state.json");
-function remembered(): Remembered {
-	try {
-		return JSON.parse(readFileSync(rememberedFile(), "utf8")) as Remembered;
-	} catch {
-		return {};
-	}
-}
-function remember(change: Remembered): void {
-	try {
-		mkdirSync(stagedFolder(), { recursive: true });
-		writeFileSync(
-			rememberedFile(),
-			JSON.stringify({ ...remembered(), ...change }),
-		);
-	} catch (error) {
-		log(`cli: could not save update state (${(error as Error).message})`);
-	}
-}
-
-interface ServiceProblem {
-	/** macOS no longer lets the tool read the person's folders. */
-	access: boolean;
-	detail: string;
-}
-
-/**
- * Reads what the background service wrote to `supervisor.log` since `since`,
- * until three minutes after it (or `until`). Healthy means it wrote that it started and
- * nothing after that says it could not read a folder or could not start.
- */
-async function serviceProblem(
-	since: number,
-	until = since + WATCH_MS,
-): Promise<ServiceProblem | undefined> {
-	const from = Math.floor(since / 1000) * 1000;
-	for (;;) {
-		let lines: string[] = [];
-		try {
-			lines = readFileSync(join(configDir(), "supervisor.log"), "utf8")
-				.slice(-400_000)
-				.split("\n")
-				.filter((line) => Date.parse(line.slice(0, 20)) >= from);
-		} catch {
-			/* No log yet. */
-		}
-		const started = lines.findLastIndex((line) =>
-			line.includes("supervisor started"),
-		);
-		const after = started < 0 ? [] : lines.slice(started + 1);
-		if (after.some((line) => line.includes("could not read")))
-			return {
-				access: true,
-				detail: "The background service could not read a project folder.",
-			};
-		if (after.some((line) => line.includes("spawn failed")))
-			return {
-				access: false,
-				detail: "The background service could not start its work.",
-			};
-		if (Date.now() >= until)
-			return started < 0
-				? {
-						access: false,
-						detail:
-							"The background service did not write that it started. Check ~/.tedix/supervisor.log.",
-					}
-				: undefined;
-		await new Promise((resolve) => setTimeout(resolve, 5000));
-	}
-}
-
-/**
- * Reloads the background service, waits for the runners, and watches its log
- * for three minutes from the reload. Does nothing when the service is not
- * loaded, unless `evenIfUnloaded`.
- */
-async function reloadAndWatch(
-	before: number,
-	say: (line: string) => void,
-	evenIfUnloaded = false,
-): Promise<{ problem?: ServiceProblem; runners: string }> {
-	if (!evenIfUnloaded && !(await supervisorLoaded())) return { runners: "" };
-	const since = Date.now();
-	let runners = "";
-	try {
-		runners = await restartAndConfirm(before, say, true);
-	} catch (error) {
-		// The log says why more exactly, when it says anything.
-		const seen = await serviceProblem(since, 0);
-		return {
-			problem: seen?.access
-				? seen
-				: {
-						access: false,
-						detail: (error as Error).message.replace(/[^.…]$/, "$&."),
-					},
-			runners,
-		};
-	}
-	say("Checking that the background service can read your folders…");
-	return { problem: await serviceProblem(since), runners };
-}
-
-function notifyDown(body: string): void {
-	log(`cli: ${body}`);
-	if (Notification.isSupported())
-		new Notification({
-			title: "Tedix runners are down on this Mac",
-			body,
-		}).show();
-}
-
-/**
- * After `version` was put in place of `have` under the background service:
- * reloads and watches it, and when it does not work puts `have` back from
- * `tedix.previous-app`, reloads again and holds `version` back.
- */
-async function settle(
-	version: string,
-	have: string,
-	before: number,
-	say: (line: string) => void,
-): Promise<{ ok: boolean; text: string; down?: boolean }> {
-	const first = await reloadAndWatch(before, say, true);
-	if (!first.problem) {
-		remember({ reloadOwed: undefined });
-		return { ok: true, text: `runners restarted.${first.runners}` };
-	}
-	log(`cli: version ${version} did not work (${first.problem.detail})`);
-	remember({ held: version });
-	const why = first.problem.access
-		? "could not read your project folder"
-		: "did not work with the background service";
-	let back: ServiceProblem | undefined = {
-		access: false,
-		detail: "No copy from before was kept.",
-	};
-	if (have && existsSync(previous()))
-		try {
-			say(`Version ${version} did not work here. Putting ${have} back…`);
-			await install(readFileSync(previous()), have);
-			log(`cli: ${have} is back in place; ${version} is held back`);
-			back = (await reloadAndWatch(before, say, true)).problem;
-		} catch (error) {
-			back = { access: false, detail: (error as Error).message };
-		}
-	if (!back) {
-		remember({ reloadOwed: undefined });
-		return {
-			ok: false,
-			text: `Version ${version} ${why}, so this Mac is back on ${have}. ${first.problem.access ? ALLOW_ACCESS : `${first.problem.detail} Check again to retry.`}`,
-		};
-	}
-	remember({ reloadOwed: true });
-	const text = `This Mac's runners are down. Version ${version} ${why}, and going back${have ? ` to ${have}` : ""} did not work either: ${back.detail} ${first.problem.access || back.access ? ALLOW_ACCESS : "Choose Retry to load the background service again."}`;
-	notifyDown(text);
-	return { ok: false, down: true, text };
+	const { down, runners } = await reload(say);
+	if (down) throw new Error(down);
+	return `The app's copy is in use.${runners}`;
 }
 
 /** "Use the separate install again": the exact reverse of `manageCli`. */
@@ -591,15 +441,12 @@ export async function restoreCli(say: (line: string) => void): Promise<string> {
 	if (!existsSync(kept)) throw new Error("No separate install was kept.");
 	if (!linkedToApp())
 		throw new Error("~/.local/bin/tedix is not the app's copy any more.");
-	const before = (await runnersUp()).running;
 	renameSync(kept, link);
 	log("cli: separate install put back");
-	return `The separate install is in use again.${await restartAndConfirm(before, say)}`;
+	const { down, runners } = await reload(say);
+	if (down) throw new Error(down);
+	return `The separate install is in use again.${runners}`;
 }
-
-let lastUpdate: CliState["update"];
-let updating: string | undefined;
-let updateRun: Promise<void> | undefined;
 
 async function download(path: string, timeoutMs: number): Promise<Response> {
 	const response = await fetch(`${DOWNLOADS}/${path}`, {
@@ -635,129 +482,35 @@ async function fetchRelease(version: string): Promise<Buffer> {
 	return bytes;
 }
 
-const runs = (count: number) => `${count} ${count === 1 ? "task" : "tasks"}`;
-
-async function update(asked: boolean): Promise<void> {
-	if (process.platform !== "darwin" || !existsSync(staged())) {
-		if (asked)
-			lastUpdate = {
-				ok: true,
-				text: "This app has no command-line tool of its own to update.",
-				at: Date.now(),
-			};
-		return;
-	}
-	const say = (line: string) => {
-		updating = line;
-		log(`cli update: ${line}`);
-		changed();
-	};
-	const have = await versionOf(staged());
-	// A reload that failed earlier comes first: without it nothing runs.
-	if (remembered().reloadOwed) {
-		say("Loading the background service again…");
-		const again = await reloadAndWatch(0, say, true);
-		if (again.problem) {
-			lastUpdate = {
-				ok: false,
-				down: true,
-				text: `This Mac's runners are down. The background service did not come back: ${again.problem.detail} ${again.problem.access ? ALLOW_ACCESS : "Check ~/.tedix/supervisor.log, then choose Retry."}`,
-				at: Date.now(),
-			};
-			return;
-		}
-		remember({ reloadOwed: undefined });
-		lastUpdate = {
-			ok: true,
-			text: `The background service is running again on version ${have}.${again.runners}`,
-			at: Date.now(),
-		};
-		return;
-	}
-	if (asked) remember({ held: undefined });
-	const latest = (await (await download("latest.json", 30_000)).json()) as {
-		version?: unknown;
-	};
-	const version = latest.version;
-	if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version))
-		throw new Error("The release list is not valid");
-	if (have && !isNewer(version, have)) {
-		log(`cli update: ${have} in use, ${version} published, nothing to do`);
-		if (asked || lastUpdate?.ok === false)
-			lastUpdate = {
-				ok: true,
-				text: `Version ${have} is the newest command-line tool.`,
-				at: Date.now(),
-			};
-		return;
-	}
-	if (remembered().held === version) {
-		log(`cli update: ${version} is held back, it did not work here`);
-		lastUpdate ??= {
-			ok: false,
-			text: `Version ${version} did not work on this Mac last time, so it stays on ${have}. ${ALLOW_ACCESS}`,
-			at: Date.now(),
-		};
-		return;
-	}
-	say(`Downloading command-line tool ${version}…`);
-	const bytes = await fetchRelease(version);
-	log(`cli update: ${version} downloaded and matches its checksum`);
-
-	// Reloading the background service stops tasks that are running, so wait
-	// for a moment without any, but not for ever.
-	const inUse = linkedToApp() && (await supervisorLoaded());
-	let stopped = 0;
-	if (inUse) {
-		const giveUp = Date.now() + QUIET_WAIT_MS;
-		while ((stopped = await activeRunCount()) > 0 && Date.now() < giveUp) {
-			say(
-				`Version ${version} is ready. Waiting for ${runs(stopped)} to finish, for up to 30 minutes.`,
-			);
-			await new Promise((resolve) => setTimeout(resolve, 30_000));
-		}
-	}
-	const before = inUse ? (await runnersUp()).running : 0;
-	say(`Putting version ${version} in place…`);
-	await install(bytes, version);
-	log(
-		`cli update: ${version} is in place${have ? `, ${have} kept as tedix.previous-app` : ""}`,
-	);
-	const waited =
-		stopped > 0
-			? ` ${runs(stopped)} still ran after 30 minutes and ${stopped === 1 ? "was" : "were"} stopped.`
-			: "";
-	if (!inUse) {
-		lastUpdate = { ok: true, text: `Updated to ${version}.`, at: Date.now() };
-		return;
-	}
-	const result = await settle(version, have, before, say);
-	lastUpdate = {
-		...result,
-		text: `${result.ok ? `Updated to ${version}; ` : ""}${result.text}${waited}`,
-		at: Date.now(),
-	};
-}
-
 let changed: () => void = () => {};
 /** Sets what is called whenever there is something new to show about the tool. */
 export function onCliChange(listener: () => void): void {
 	changed = listener;
 }
 
-/** Runs one piece of update work at a time and shows how it ended. */
-function track(work: () => Promise<void>): Promise<void> {
-	updateRun ??= work()
+/** Runs one change the person chose at a time and shows how it ended. */
+function track(
+	work: (say: (line: string) => void) => Promise<string>,
+): Promise<void> {
+	updateRun ??= work((line) => {
+		updating = line;
+		log(`cli: ${line}`);
+		changed();
+	})
+		.then((text) => {
+			// A reload that left the runners down has already said so.
+			if (!lastUpdate?.down) lastUpdate = { ok: true, text, at: Date.now() };
+		})
 		.catch((error) => {
 			const reason = error instanceof Error ? error.message : String(error);
 			lastUpdate = {
 				ok: false,
-				text: `The command-line tool was not updated: ${reason}`,
+				text: `The command-line tool was not changed: ${reason}`,
 				at: Date.now(),
 			};
 		})
 		.finally(() => {
-			if (lastUpdate) log(`cli update: ${lastUpdate.text}`);
+			if (lastUpdate) log(`cli: ${lastUpdate.text}`);
 			updating = undefined;
 			updateRun = undefined;
 			changed();
@@ -766,10 +519,80 @@ function track(work: () => Promise<void>): Promise<void> {
 }
 
 /**
- * Looks for a newer published command-line tool and puts it in place of the
- * app's copy, without an app release. `asked` is true when the person chose
- * it: "nothing newer" is said too, and a version held back is tried again.
+ * Reads which command-line tool is published and remembers it, so the
+ * windows can offer it. Changes nothing on this Mac. `asked` is true when
+ * the person chose it: then the answer is shown either way.
  */
-export function updateCli(asked: boolean): Promise<void> {
-	return track(() => update(asked));
+export async function lookForCliUpdate(asked: boolean): Promise<void> {
+	if (process.platform !== "darwin" || !existsSync(staged())) return;
+	let text: string;
+	try {
+		const latest = (await (await download("latest.json", 30_000)).json()) as {
+			version?: unknown;
+		};
+		if (
+			typeof latest.version !== "string" ||
+			!/^\d+\.\d+\.\d+$/.test(latest.version)
+		)
+			throw new Error("The release list is not valid");
+		published = latest.version;
+		const have = await versionOf(staged());
+		const offer = await offered(have);
+		text = offer
+			? `Version ${offer} is available.`
+			: `Version ${have} is the newest command-line tool.`;
+	} catch (error) {
+		text = `Could not look for a newer command-line tool: ${(error as Error).message}`;
+	}
+	log(`cli: ${text}`);
+	if (asked && !updateRun && !lastUpdate?.down)
+		lastUpdate = { ok: true, text, at: Date.now() };
+	changed();
+}
+
+/**
+ * "Update command-line tool to X", after the person's click: puts the newer
+ * of the copy inside the app and the published one in place, keeps the one
+ * in use as `tedix.other-app`, and restarts the background service.
+ */
+export function updateCli(): Promise<void> {
+	return track(async (say) => {
+		const have = await versionOf(staged());
+		const version = await offered(have);
+		if (!version) return `Version ${have} is the newest command-line tool.`;
+		const source = bundled();
+		let bytes: Buffer;
+		if (source && (await insideVersion) === version)
+			bytes = readFileSync(source);
+		else {
+			say(`Downloading command-line tool ${version}…`);
+			bytes = await fetchRelease(version);
+		}
+		say(`Putting version ${version} in place…`);
+		await install(bytes, version);
+		const { runners } = linkedToApp() ? await reload(say) : { runners: "" };
+		return `Updated to ${version}; version ${have} is kept.${runners}`;
+	});
+}
+
+/**
+ * "Go back to version Y", after the person's click: swaps the copy in use
+ * with the kept one and restarts the background service.
+ */
+export function goBackCli(): Promise<void> {
+	return track(async (say) => {
+		if (!existsSync(other()) || !existsSync(staged()))
+			throw new Error("No other version is kept.");
+		const [have, back] = [await versionOf(staged()), await versionOf(other())];
+		if (!back) throw new Error("The kept version does not start.");
+		say(`Putting version ${back} back in place…`);
+		// A second name for the copy in use, so `cli/tedix` is never missing.
+		const aside = `${staged()}.swap-${process.pid}`;
+		rmSync(aside, { force: true });
+		linkSync(staged(), aside);
+		renameSync(other(), staged());
+		renameSync(aside, other());
+		const { runners } = linkedToApp() ? await reload(say) : { runners: "" };
+		return `Back on version ${back}; version ${have} is kept.${runners}`;
+	});
 }

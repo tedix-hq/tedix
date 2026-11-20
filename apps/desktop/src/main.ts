@@ -15,7 +15,13 @@ import {
 	WebContentsView,
 } from "electron";
 import type { PanelAction, PanelLink, PanelState, RunnerField } from "./api";
-import { onCliChange, restartSupervisor, updateCli } from "./cli";
+import {
+	goBackCli,
+	lookForCliUpdate,
+	onCliChange,
+	restartSupervisor,
+	updateCli,
+} from "./cli";
 import { log } from "./log";
 import { setRunnerField } from "./runners-file";
 import {
@@ -52,6 +58,8 @@ function osOrigin(): string {
 }
 const PANEL_LINKS: Record<PanelLink, string> = {
 	"claude-connectors": "https://claude.ai/settings/connectors",
+	"folder-access":
+		"x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
 };
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
@@ -133,9 +141,23 @@ async function restartRunners(): Promise<void> {
 	await publish();
 }
 
-/** Looks for a newer command-line tool and shows each step in both windows. */
-function updateCommandLineTool(asked: boolean): Promise<void> {
-	return updateCli(asked);
+/**
+ * Replaces the command-line tool only after the person agrees: the app's
+ * newer one (`cli-update`) or the kept one (`cli-back`).
+ */
+async function changeCommandLineTool(back: boolean): Promise<void> {
+	const { offer, other } = setupState().cli;
+	const version = back ? other : offer;
+	if (!version) return;
+	const title = back
+		? `Go back to version ${version}`
+		: `Update command-line tool to ${version}`;
+	const agreed = await tell(
+		`${title}?`,
+		"Tasks running on this Mac stop. macOS may ask whether Tedix may access your Documents folder: choose Allow.",
+		[title, "Cancel"],
+	);
+	if (agreed === 0) await (back ? goBackCli() : updateCli());
 }
 
 function isTedixPage(url: string): boolean {
@@ -773,7 +795,9 @@ else {
 		ipcMain.handle("action", (event, name: PanelAction) => {
 			fromLocalPage(event);
 			if (name === "restart") return restartRunners();
-			if (name === "cli-update") return void updateCommandLineTool(true);
+			if (name === "cli-check") return lookForCliUpdate(true);
+			if (name === "cli-update" || name === "cli-back")
+				return void changeCommandLineTool(name === "cli-back");
 			if (name === "setup-window") return openSetup();
 			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
@@ -837,9 +861,11 @@ else {
 		setTimeout(() => void checkForUpdates(false), 10_000);
 		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
 		// The command-line tool has its own releases, more often than the app.
+		// The app only reads which version is published; replacing its copy
+		// and restarting the background service always take a click.
 		onCliChange(() => void refreshSetup(false).then(refresh));
-		setTimeout(() => void updateCommandLineTool(false), 20_000);
-		setInterval(() => void updateCommandLineTool(false), 4 * 60 * 60_000);
+		setTimeout(() => void lookForCliUpdate(false), 20_000);
+		setInterval(() => void lookForCliUpdate(false), 4 * 60 * 60_000);
 		void refresh();
 	});
 }

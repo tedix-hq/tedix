@@ -313,7 +313,6 @@ function serviceVersion({ status, setup }: PanelState): string[] {
 		),
 	];
 	return [
-		setup.cli.service,
 		running.some((version) => version !== setup.cli.version) &&
 			`The background service still runs version ${running.join(", ")}. Choose Restart runners in Tedix → This Mac… to use the one above; that stops tasks that are running.`,
 	].filter((line): line is string => Boolean(line));
@@ -761,24 +760,55 @@ function screenFor(id: StepId, now: PanelState): Screen {
 					: cli.kind === "own"
 						? `Installed on this Mac · version ${cli.version}`
 						: "Not found";
-		// What the app last did about a newer version, with the button to look now.
+		// A newer version is offered and the kept one can be put back; both
+		// stop running tasks, so neither happens without the person's click.
 		const failed = cli.update?.ok === false && !cli.updating;
-		const look = cli.updating
-			? el("span", "spinner")
-			: button(
-					failed ? "Retry" : "Check for command-line tool update",
-					"plain",
-					() => void tedixShell.action("cli-update"),
-				);
-		const updateLine =
+		const choices = cli.updating
+			? [el("span", "spinner")]
+			: [
+					button(
+						cli.offer
+							? `Update command-line tool to ${cli.offer}`
+							: "Check for command-line tool update",
+						"plain",
+						() =>
+							void tedixShell.action(cli.offer ? "cli-update" : "cli-check"),
+					),
+					cli.other &&
+						button(
+							`Go back to version ${cli.other}`,
+							"quiet",
+							() => void tedixShell.action("cli-back"),
+						),
+				];
+		const updateLine = [
 			cliUpdateLine(cli) ||
-			"The app looks for a newer version when it starts and every four hours. Putting one in place restarts the background service, so the app waits until no task is running, for up to 30 minutes.";
+				"The app looks for a newer version when it starts and every four hours, and offers it here. It replaces the command-line tool only when you choose to: tasks running on this Mac stop, and macOS may ask again for access to your folders.",
+			cli.other && `Version ${cli.other} is kept.`,
+		]
+			.filter(Boolean)
+			.join(" ");
 		const updates =
 			cli.kind !== "missing" &&
 			cli.kind !== "own" &&
-			(failed
-				? el("div", "problem", el("p", "", updateLine), el("div", "row", look))
-				: el("div", "row", el("span", "", updateLine), look));
+			el(
+				"div",
+				failed ? "problem" : "",
+				el(failed ? "p" : "div", "", updateLine),
+				el("div", "row", ...choices),
+			);
+		const access =
+			cli.access &&
+			el(
+				"div",
+				"problem soft",
+				el("p", "", cli.access),
+				button(
+					"Open System Settings",
+					"plain",
+					() => void tedixShell.open("folder-access"),
+				),
+			);
 		const about =
 			cli.kind === "missing"
 				? (cli.problem ??
@@ -786,12 +816,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				: cli.kind === "separate"
 					? "The app can use its own copy instead. Your install is kept and can be put back. This restarts the background service, which stops tasks that are running, and macOS may ask again to allow access to your folders."
 					: serviceVersion(now).join(" ");
-		const note = el("div", "", about && el("div", "", about), updates);
+		const note = el("div", "", about && el("div", "", about), updates, access);
 		note.style.display = "grid";
 		note.style.gap = "8px";
 		return {
 			title: "Command-line tool",
-			lead: "Your coding tools talk to Tedix through a small command called tedix. It comes with this app, and the app keeps it up to date between app updates.",
+			lead: "Your coding tools talk to Tedix through a small command called tedix. It comes with this app, and the app offers you newer versions between app updates.",
 			content: [
 				card({
 					key: "cli",

@@ -14,18 +14,22 @@ export interface PanelState {
 }
 
 /**
- * `cli-update` looks for a newer command-line tool now. `setup-window` opens the Set up this Mac window; `close-setup` closes it
+ * `cli-check` looks for a newer command-line tool and changes nothing.
+ * `cli-update` and `cli-back` replace it and restart the background service,
+ * after the person confirms. `setup-window` opens the Set up this Mac window; `close-setup` closes it
  * and shows Tedix; `done-setup` only closes it.
  */
 export type PanelAction =
 	| "restart"
+	| "cli-check"
 	| "cli-update"
+	| "cli-back"
 	| "setup-window"
 	| "close-setup"
 	| "done-setup";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
-export type PanelLink = "claude-connectors";
+export type PanelLink = "claude-connectors" | "folder-access";
 
 /** The only functions the app's own two windows can call; the Tedix OS page gets none. */
 export interface PanelApi {
@@ -45,8 +49,8 @@ export interface PanelApi {
 }
 
 /**
- * The line both windows show about a newer command-line tool: what the app
- * is doing now, or how its last look ended and how long ago.
+ * The line both windows show about the command-line tool: what the app is
+ * doing now, or how the last look, update or go back ended and how long ago.
  */
 export function cliUpdateLine(cli: CliState, now = Date.now()): string {
 	if (cli.updating) return cli.updating;
