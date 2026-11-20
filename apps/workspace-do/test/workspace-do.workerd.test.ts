@@ -7,6 +7,7 @@ import {
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
 import { InternalEntrypoint } from "../src/index";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	createExecutionContext,
 	env,
@@ -2822,6 +2823,138 @@ describe("WorkspaceDO", () => {
 		expect(await ws.readPersonCalls(own)).toEqual([
 			{ ...own, userId: "u1", query: "summaries" },
 		]);
+	});
+
+	describe("a guest tedi's own skills and tools", () => {
+		type GuestCall = {
+			method: string;
+			input: Record<string, unknown>;
+			at: number;
+		};
+		const guestCalls = async (conversationId: string) =>
+			(
+				(await (
+					durableObjectStubByName(
+						testEnv.TEDI_AGENT,
+						testEnv,
+						"tedi-object-1",
+					) as unknown as { guestCalls(): Promise<GuestCall[]> }
+				).guestCalls()) as GuestCall[]
+			).filter((call) => call.input.conversationId === conversationId);
+		const ask = async (
+			ws: Stub,
+			own: WorkspaceScope,
+			code: string,
+			reply: string,
+			text: string,
+			tediId?: string,
+		) => {
+			await ws.scriptModel(own, [{ code }, { text: reply }]);
+			const { turnId, conversationId } = await ws.sendTurn(own, {
+				actorKind: "user",
+				actorId: "u1",
+				text,
+				...(tediId ? { tediId } : {}),
+			});
+			expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+				status: "finished",
+			});
+			return {
+				turnId,
+				conversationId,
+				events: await ws.readEvents(own, { conversationId }),
+			};
+		};
+		const setup = async () => {
+			await seedCore();
+			const own = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([own]);
+			await testEnv.DB.prepare(
+				"UPDATE tedis SET status = 'active' WHERE id = 'tedi1'",
+			).run();
+			return { own, ws: workspace(own) };
+		};
+
+		test("are offered only on a turn a person sent to the tedi, with who else can open the workspace", async () => {
+			const { own, ws } = await setup();
+			const LIST = `export default async ({tedi}) => tedi.list({ query: "mail" }).then(r => r.tools.map(t => t.tool)).catch(e => e.message)`;
+			const agent = await ask(ws, own, LIST, "Done.", "Which mail tools?");
+			expect(JSON.stringify(agent.events)).toContain("signed-in person picked");
+			expect(await guestCalls(agent.conversationId)).toEqual([]);
+
+			// The organization can open this workspace; the tedi's object decides.
+			const guest = await ask(ws, own, LIST, "Done.", "Which?", "tedi1");
+			expect(JSON.stringify(guest.events)).toContain("mail.send");
+			expect(await guestCalls(guest.conversationId)).toContainEqual(
+				expect.objectContaining({
+					method: "guestToolCatalog",
+					input: expect.objectContaining({
+						query: "mail",
+						tediId: "tedi1",
+						organizationId: own.organizationId,
+						workspaceId: own.workspaceId,
+						trust: "trusted",
+						senderUserId: "u1",
+						tediOwnerUserId: null,
+						othersCanOpen: true,
+					}),
+				}),
+			);
+			expect((await ws.readSystemPrompts(own)).at(-1)).toContain(
+				"- tools mail (2)",
+			);
+		});
+
+		test("a call that needs approval shows a card that links to Tedix's approvals", async () => {
+			const { own, ws } = await setup();
+			const { events } = await ask(
+				ws,
+				own,
+				`export default async ({tedi}) => tedi.call({ tool: "mail.send", args: { to: "sam@example.test" } })`,
+				"Waiting for approval.",
+				"Send Sam the notes.",
+				"tedi1",
+			);
+			expect(
+				events.filter((event) => event.type === "tedi_approval.requested"),
+			).toEqual([
+				expect.objectContaining({
+					approvalId: "11111111-2222-4333-8444-555555555555",
+					tediId: "tedi1",
+					tool: "mail.send",
+					description: "Run mail.send with this tedi's connected account.",
+					url: "https://os.example.test/work/approvals/11111111",
+				}),
+			]);
+		});
+
+		test("the finished turn goes to the tedi after the reply", async () => {
+			const { own, ws } = await setup();
+			const { turnId, conversationId, events } = await ask(
+				ws,
+				own,
+				`export default async ({tedi}) => tedi.call({ tool: "read_skill", args: { slug: "weekly-notes" } })`,
+				"Summed up.",
+				"Sum up my week.",
+				"tedi1",
+			);
+			const finished = events.find((event) => event.type === "turn.finished");
+			const learn = await vi.waitFor(async () => {
+				const call = (await guestCalls(conversationId)).find(
+					(entry) => entry.method === "guestTurnLearn",
+				);
+				if (!call) throw new Error("not sent yet");
+				return call;
+			});
+			expect(learn.input).toMatchObject({
+				turnId,
+				userText: "Sum up my week.",
+				replyText: "Summed up.",
+				steps: [{ tool: "read_skill", ok: true }],
+				trust: "trusted",
+			});
+			expect(learn.at).toBeGreaterThanOrEqual(Date.parse(finished?.at ?? ""));
+		});
 	});
 
 	test("reading a web page asks once per domain and returns the page as text", async () => {

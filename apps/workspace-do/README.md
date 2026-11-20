@@ -49,6 +49,15 @@ its code runs beside the data.
    fenced readable text. The first page from a domain in a conversation holds
    for the person's approval on the usual card; later pages on that domain in
    the same conversation load without asking.
+   `env.tedi` (`src/tedi.ts`) reaches the answering tedi's own skills and
+   connected tools through its own object. It works only on a turn a
+   signed-in person sent to a tedi they may pick, not from an app, a tedi
+   or a schedule. Each call sends who sent the turn and whether anyone else
+   can open the workspace, read live; the tedi's object decides from that.
+   Results come back fenced. A call that needs a decision becomes a
+   `tedi_approval.requested` card linking to Tedix's approvals; the chat
+   does not decide it and the result does not come back. After the reply,
+   the finished turn is handed to the tedi once so it can learn from it.
    A call that fails ends that call, not the turn (`src/call-failure.ts`).
    Refused arguments, a stale `expectedRevision`, an unknown file, a tool
    that throws anything at all, code that throws, does not load or runs out

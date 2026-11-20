@@ -89,6 +89,15 @@ import {
 } from "./accounts";
 import { type MachineService, workspaceMachine } from "./machine";
 import { type PersonService, workspacePerson } from "./person";
+import {
+	renderTediCatalog,
+	type TediGuestService,
+	workspaceTedi,
+} from "./tedi";
+import {
+	GUEST_TURN_MAX_STEPS,
+	type GuestTurnScope,
+} from "@tedix/api-contract/schemas/tedi-guest-turn";
 import { SqlMemoryAdapter } from "./memory-adapter";
 import { callFailureText, unsavableTextError } from "./call-failure";
 import type { WorkspaceSnapshot } from "./data-port";
@@ -136,6 +145,7 @@ import {
 	markOtherReplies,
 	type PendingApproval,
 	type ReferencedSkill,
+	RUN_CODE_TOOL,
 } from "./prompt";
 import { fileWriteAppliesAtOnce } from "./auto-approval";
 import type { WorkspaceStorage } from "./runtime";
@@ -482,6 +492,17 @@ export interface GuestProfile {
 function unavailableDefaultNote(name: string): string {
 	return `Answered by the workspace agent: ${name} is not available.`;
 }
+
+/** A tedi's own object as a guest turn calls it. */
+type TediObject = TediGuestService & {
+	guestProfile(input: {
+		tediId: string;
+		organizationId: string;
+		sessionKey: string;
+		userText: string;
+		trust: "trusted" | "untrusted";
+	}): Promise<GuestProfile>;
+};
 
 /** What one turn needs that does not change while it runs. */
 export interface TurnPlan {
@@ -3784,6 +3805,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						this.#onlyOpenableBy(scope, accountActor.id),
 					api: this.personService(),
 				}),
+			tedi:
+				accountActor && started?.tedi_id
+					? workspaceTedi({
+							guest: () => this.#guestTurn(scope, turn.turnId),
+							// One card per request, also when the agent asks again.
+							requestApproval: (request) => {
+								const shown = this.#events
+									.ofTurn(turn.turnId, "tedi_approval.requested")
+									.some(
+										(event) =>
+											event.type === "tedi_approval.requested" &&
+											event.approvalId === request.approvalId,
+									);
+								if (!shown)
+									this.#events.append(turn.conversationId, {
+										type: "tedi_approval.requested",
+										turnId: turn.turnId,
+										...request,
+									});
+							},
+						})
+					: undefined,
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {
@@ -4265,20 +4308,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				edges: permissions.edges,
 				links: permissions.links,
 			});
-		const stub = durableObjectStubByName(
-			this.env.TEDI_AGENT,
-			this.env,
-			tedi.isolateAgentId,
-		) as unknown as {
-			guestProfile(input: {
-				tediId: string;
-				organizationId: string;
-				sessionKey: string;
-				userText: string;
-				trust: "trusted" | "untrusted";
-			}): Promise<GuestProfile>;
-		};
-		const profile = await stub.guestProfile({
+		const profile = await this.#tediService(tedi.isolateAgentId).guestProfile({
 			tediId,
 			organizationId: scope.organizationId,
 			sessionKey: `workspace:${scope.workspaceId}`,
@@ -4288,6 +4318,171 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		// Without memory the tedi answers with its persona alone: its per-turn
 		// addenda carry memory recall, so they are left out too.
 		return withMemory ? profile : { ...profile, addenda: "" };
+	}
+
+	/** The guest calls on a tedi's own object. */
+	#tediService(isolateAgentId: string): TediObject {
+		return durableObjectStubByName(
+			this.env.TEDI_AGENT,
+			this.env,
+			isolateAgentId,
+		) as unknown as TediObject;
+	}
+
+	/**
+	 * Who a guest tedi's own skills and tools serve on this turn, read live,
+	 * or null when the turn may not use them: only a turn a signed-in person
+	 * sent to a tedi they may pick, not one an app, a tedi, a schedule or a
+	 * share link started. `othersCanOpen` is the memory rule's test, negated.
+	 */
+	async #guestTurn(
+		scope: WorkspaceScope,
+		turnId: string,
+	): Promise<{ scope: GuestTurnScope; service: TediGuestService } | null> {
+		const turn = this.#turn(turnId);
+		if (!turn?.tedi_id || turn.actor_kind !== "user") return null;
+		const [started] = this.#events.ofTurn(turnId, "turn.started");
+		if (started?.type !== "turn.started" || started.fromAppId) return null;
+		const senderUserId = turn.actor_id;
+		const core = createDbClient(this.env.DB);
+		const [tedi, allowed, workspace, permissions] = await Promise.all([
+			getTediById(core, turn.tedi_id),
+			isWorkspaceGuestTediAllowed(
+				createDbQueryClient(this.env.DB),
+				scope.organizationId,
+				{ actorKind: "user", actorId: senderUserId },
+				turn.tedi_id,
+			),
+			getOsWorkspace(core, scope),
+			loadOsWorkspacePermissionRows(core, { ...scope, collaborators: false }),
+		]);
+		if (
+			!allowed ||
+			!tedi?.isolateAgentId ||
+			tedi.retiredAt ||
+			tedi.organizationId !== scope.organizationId
+		)
+			return null;
+		const onlySender =
+			workspace?.status === "active" &&
+			workspaceOnlyOpenableBy({
+				userId: senderUserId,
+				workspace,
+				edges: permissions.edges,
+				links: permissions.links,
+				alsoAllowed: [tedi.id],
+			});
+		return {
+			scope: {
+				tediId: tedi.id,
+				organizationId: scope.organizationId,
+				trust: "trusted",
+				senderUserId,
+				tediOwnerUserId:
+					tedi.scope === "organization" ? null : (tedi.ownerUserId ?? null),
+				workspaceId: scope.workspaceId,
+				conversationId: turn.conversation_id,
+				othersCanOpen: !onlySender,
+			},
+			service: this.#tediService(tedi.isolateAgentId),
+		};
+	}
+
+	/** The guest tedi's skills and tool groups for its prompt, or null. */
+	async #guestCatalog(scope: WorkspaceScope, turnId: string) {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const guest = await this.#guestTurn(scope, turnId);
+			if (!guest) return null;
+			const catalog = await Promise.race([
+				guest.service.guestToolCatalog(guest.scope),
+				new Promise<null>((resolve) => {
+					timer = setTimeout(
+						() => resolve(null),
+						DEFAULT_TEDI_PROFILE_TIMEOUT_MS,
+					);
+				}),
+			]);
+			return catalog ? renderTediCatalog(catalog) : null;
+		} catch (error) {
+			workspaceLog.warn("The tedi's skills and tools did not load", {
+				event: "workspace.tedi_catalog_unavailable",
+				error,
+				...this.#diagnostics(),
+			});
+			return null;
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	/**
+	 * Hand a finished guest-tedi turn to the tedi so it learns from it. Runs
+	 * after the reply was sent; the tedi's object decides whether it learns.
+	 */
+	async #learnFromTurn(
+		scope: WorkspaceScope,
+		turnId: string,
+		reply: { text: string; model?: string },
+	) {
+		try {
+			const guest = await this.#guestTurn(scope, turnId);
+			if (!guest) return;
+			const [started] = this.#events.ofTurn(turnId, "turn.started");
+			if (started?.type !== "turn.started") return;
+			const finished = new Map<string, { ok: boolean; text?: string }>();
+			for (const event of this.#events.ofTurn(turnId, "step.finished"))
+				if (event.type === "step.finished")
+					finished.set(event.stepId, {
+						ok: event.status === "ok",
+						text: event.error ?? event.result ?? event.summary,
+					});
+			// The calls the code made; the code steps around them only repeat them.
+			const steps = this.#events
+				.ofTurn(turnId, "step.started")
+				.flatMap((event) => {
+					if (
+						event.type !== "step.started" ||
+						!event.tool ||
+						event.tool === RUN_CODE_TOOL
+					)
+						return [];
+					const outcome = finished.get(event.stepId);
+					if (!outcome) return [];
+					const input = event.input as { tool?: unknown } | undefined;
+					const tool =
+						event.tool === "tedi.call" && typeof input?.tool === "string"
+							? input.tool
+							: event.tool;
+					return [
+						{
+							tool: tool.slice(0, 200),
+							ok: outcome.ok,
+							...(outcome.text ? { result: outcome.text.slice(0, 500) } : {}),
+						},
+					];
+				})
+				.slice(-GUEST_TURN_MAX_STEPS);
+			const result = await guest.service.guestTurnLearn({
+				...guest.scope,
+				turnId,
+				userText: started.text,
+				replyText: reply.text,
+				steps,
+				...(reply.model ? { model: reply.model.slice(0, 200) } : {}),
+			});
+			if (!result.accepted)
+				workspaceLog.info("The tedi did not learn from the turn", {
+					event: "workspace.tedi_learn_declined",
+					...this.#diagnostics(),
+				});
+		} catch (error) {
+			workspaceLog.warn("The finished turn did not reach the tedi", {
+				event: "workspace.tedi_learn_failed",
+				error,
+				...this.#diagnostics(),
+			});
+		}
 	}
 
 	/**
@@ -4421,6 +4616,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			referencedSkills,
 			pendingApprovals,
 			linkedAccounts,
+			tediCatalog,
 		] = await Promise.all([
 			workspaceRead,
 			input.tediId
@@ -4433,6 +4629,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#pendingApprovals(scope, conversationId, input.actorKind),
 			input.actorKind === "user"
 				? listLinkedAccounts(data).catch(() => [])
+				: null,
+			input.tediId && input.actorKind === "user"
+				? this.#guestCatalog(scope, turnId)
 				: null,
 		]);
 		const { history, otherReplyAuthors } = await this.#attributedHistory(
@@ -4452,6 +4651,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			pendingApprovals,
 			linkedAccounts,
 			otherReplyAuthors,
+			tediCatalog,
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {
@@ -4621,7 +4821,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				status: result.stopReason === "aborted" ? "cancelled" : "done",
 				durationMs: Date.now() - startedAt,
 			});
-			if (result.stopReason !== "aborted") answered = true;
+			if (result.stopReason !== "aborted") {
+				answered = true;
+				// Never delays the reply; a failure is logged and dropped.
+				if (input.tediId && input.actorKind === "user")
+					this.ctx.waitUntil(
+						this.#learnFromTurn(scope, turnId, {
+							text: result.text,
+							model: result.model,
+						}),
+					);
+			}
 		} catch (error) {
 			if (this.#turn(turnId)?.status !== "running") return;
 			const cancelled = controller.signal.aborted;

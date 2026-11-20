@@ -81,6 +81,15 @@ export type ChatConnectionRequest = {
 	reason?: string;
 };
 
+/** A tedi's tool call waiting for a decision in Tedix's approvals. */
+export type ChatTediApproval = {
+	approvalId: string;
+	tediId: string;
+	tool: string;
+	description: string;
+	url: string | null;
+};
+
 /** A message sent while a turn was working. */
 export type ChatQueuedMessage = {
 	messageId: string;
@@ -129,6 +138,8 @@ export type ChatTurn = {
 	schedules?: Array<{ gadgetId: string; triggerId: string; name: string }>;
 	/** Accounts the agent asked for in this turn, one per source. */
 	connectionRequests?: ChatConnectionRequest[];
+	/** A tedi's tool calls this turn sent to Tedix's approvals. */
+	tediApprovals?: ChatTediApproval[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
 	summarizedEarlier?: boolean;
 	status: "running" | TurnStatus;
@@ -653,6 +664,27 @@ export function applyWorkspaceChatEvent(
 									service: event.service,
 									connectionScope: event.connectionScope,
 									...(event.reason ? { reason: event.reason } : {}),
+								},
+							],
+						},
+			);
+			break;
+		case "tedi_approval.requested":
+			turns = place(event.turnId)((turn) =>
+				turn.tediApprovals?.some(
+					(request) => request.approvalId === event.approvalId,
+				)
+					? turn
+					: {
+							...turn,
+							tediApprovals: [
+								...(turn.tediApprovals ?? []),
+								{
+									approvalId: event.approvalId,
+									tediId: event.tediId,
+									tool: event.tool,
+									description: event.description,
+									url: event.url,
 								},
 							],
 						},

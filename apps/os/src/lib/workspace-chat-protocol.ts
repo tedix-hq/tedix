@@ -345,6 +345,20 @@ export type WorkspaceChatLedgerEvent =
 			reason?: string;
 	  })
 	| (Stamped & {
+			/**
+			 * A tedi's tool call waits for a person's decision in Tedix's
+			 * approvals. Shown as a card that links there; the chat does not
+			 * decide it, and the result does not come back into the chat.
+			 */
+			type: "tedi_approval.requested";
+			turnId: string;
+			approvalId: string;
+			tediId: string;
+			tool: string;
+			description: string;
+			url: string | null;
+	  })
+	| (Stamped & {
 			type: "turn.finished";
 			turnId: string;
 			status: TurnStatus;
@@ -454,6 +468,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"view.shown",
 	"schedule.registered",
 	"connection.requested",
+	"tedi_approval.requested",
 	"turn.finished",
 	"conversation.updated",
 ]);

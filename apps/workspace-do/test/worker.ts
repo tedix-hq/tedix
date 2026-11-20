@@ -398,6 +398,49 @@ export class TediAgentFixture extends DurableObject<WorkspaceEnv> {
 			addenda: `Recall for: ${input.userText}`,
 		};
 	}
+
+	async #record(method: string, input: unknown) {
+		const calls = (await this.ctx.storage.get<unknown[]>("guest-calls")) ?? [];
+		calls.push({ method, input, at: Date.now() });
+		await this.ctx.storage.put("guest-calls", calls);
+	}
+
+	async guestToolCatalog(input: { query?: string }) {
+		await this.#record("guestToolCatalog", input);
+		return {
+			skills: [
+				{ slug: "weekly-notes", title: "Weekly notes", summary: "Sum up." },
+			],
+			namespaces: [{ name: "mail", tools: 2 }],
+			tools: input.query
+				? [{ name: "mail.send", description: "Send one message." }]
+				: [],
+		};
+	}
+
+	async guestToolRun(input: { tool: string }) {
+		await this.#record("guestToolRun", input);
+		return input.tool === "mail.send"
+			? {
+					status: "needsApproval",
+					approvalId: "11111111-2222-4333-8444-555555555555",
+					description: "Run mail.send with this tedi's connected account.",
+					url: "https://os.example.test/work/approvals/11111111",
+					decidedIn: "tedix_approvals",
+				}
+			: { status: "ok", result: "done" };
+	}
+
+	/** Records the turn, then answers slowly, like a busy tedi. */
+	async guestTurnLearn(input: unknown) {
+		await this.#record("guestTurnLearn", input);
+		await new Promise((resolve) => setTimeout(resolve, 1_000));
+		return { accepted: true };
+	}
+
+	async guestCalls() {
+		return (await this.ctx.storage.get<unknown[]>("guest-calls")) ?? [];
+	}
 }
 
 /** Stands in for the Tedix OS workspace room and keeps the notices it is sent. */

@@ -198,6 +198,20 @@ export type WireEventBody =
 			reason?: string;
 	  }
 	| {
+			/**
+			 * A guest tedi's tool call waits for a person's decision in Tedix's
+			 * approvals. The chat links there; approving runs that exact call
+			 * once and its result does not come back into the chat.
+			 */
+			type: "tedi_approval.requested";
+			turnId: string;
+			approvalId: string;
+			tediId: string;
+			tool: string;
+			description: string;
+			url: string | null;
+	  }
+	| {
 			type: "turn.finished";
 			turnId: string;
 			status: "done" | "error" | "cancelled" | "waiting";
@@ -458,6 +472,11 @@ export function stepLabel(
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },
 		person: { memory: "Reading your personal memory" },
+		tedi: {
+			list: "Looking up the tedi's skills and tools",
+			describe: "Reading a tool's arguments",
+			call: "Using the tedi's tool",
+		},
 		machine: {
 			list: "Listing machines",
 			call: "Using a machine",

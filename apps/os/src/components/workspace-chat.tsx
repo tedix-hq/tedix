@@ -80,6 +80,7 @@ import { agentRunFromToolResult } from "@/lib/agent-run-result";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
 import { ConnectionRequestCard } from "@/components/workspace-chat-connect-card";
+import { TediApprovalCard } from "@/components/workspace-chat-tedi-approval-card";
 import { ChatImagePreview } from "@/components/chat-image-preview";
 import {
 	CHAT_FILE_LIMIT,
@@ -1054,6 +1055,9 @@ function TurnView({
 				) : null}
 				{turn.connectionRequests?.map((request) => (
 					<ConnectionRequestCard request={request} key={request.requestId} />
+				))}
+				{turn.tediApprovals?.map((request) => (
+					<TediApprovalCard request={request} key={request.approvalId} />
 				))}
 				{turn.schedules?.map((run) => (
 					<RegisteredAppSchedule
