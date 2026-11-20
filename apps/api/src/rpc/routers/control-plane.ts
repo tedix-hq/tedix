@@ -22,6 +22,7 @@
  */
 
 import { implement } from "@orpc/server";
+import { ModelCatalogConfigSchema } from "@tedix/api-contract/schemas/model-catalog-config";
 import { controlPlaneContract } from "@tedix/api-contract/contracts/control-plane";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
@@ -632,12 +633,33 @@ const listPolicyPackRevisionsProcedure = authedOs.listPolicyPackRevisions
 		return { data: await listPolicyPackRevisions(context.db, input.id) };
 	});
 
+/**
+ * The model catalog fails closed: one invalid entry stops every model call
+ * (20 Nov 2026, a Workers AI entry with image input). Refuse it at publish.
+ */
+export function assertValidModelCatalog(
+	slug: string,
+	definition: unknown,
+): void {
+	if (slug !== "model-catalog" || definition === undefined) return;
+	const parsed = ModelCatalogConfigSchema.safeParse(
+		(definition as { modelCatalog?: unknown } | null)?.modelCatalog,
+	);
+	if (parsed.success) return;
+	const issue = parsed.error.issues[0];
+	throw createError(
+		ErrorCodes.BAD_REQUEST,
+		`Model catalog is invalid at modelCatalog.${issue?.path.join(".") ?? ""}: ${issue?.message ?? "invalid"}`,
+	);
+}
+
 const publishPolicyPackRevisionProcedure = authedOs.publishPolicyPackRevision
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const existing = await getPolicyPackById(context.db, input.id);
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
+		assertValidModelCatalog(existing?.slug ?? "", input.definition);
 		const revised = unwrapRevision(
 			await publishPolicyPackRevision(context.db, {
 				revisionId: input.id,
