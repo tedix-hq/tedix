@@ -169,6 +169,7 @@ import {
 	recordDispatcherReliability,
 	writeDispatcherHealthSource,
 	type LocalDispatcherHealth,
+	recordDispatcherRules,
 } from "./dispatcher-health";
 import {
 	observeUnavailableRunners,
@@ -966,10 +967,16 @@ function gatewayCooldownUntil(workspace: string | undefined): number {
 
 interface RulesAsset {
 	id: string;
+	slug?: string | null;
 	revision: number;
 	content: string;
 	lifecycleState: string;
 }
+
+/** How often a runner with nothing to admit re-reads its rules skill. */
+const RULES_CHECK_INTERVAL_MS = 86_400_000;
+/** How often the same rules problem is written to the supervisor log. */
+const RULES_WARNING_REPEAT_MS = 600_000;
 
 interface SkillRevisionProof {
 	evidenceId: string;
@@ -2836,6 +2843,45 @@ export class LaneDispatcher {
 			);
 		}
 		return Boolean(next);
+	}
+	private rulesCheckedAt = 0;
+	private rulesWarnedAt = 0;
+	/**
+	 * Reads the rules skill's state and declares this runner as its user. A
+	 * skill that is not active admits no Work, so that is said in the
+	 * supervisor log and the health report, not only on each Work Item.
+	 */
+	private async rulesSummary(): Promise<Partial<RulesAsset>> {
+		const skill = await this.call<{ entry?: RulesAsset } & Partial<RulesAsset>>(
+			["skill", "show", this.options.rules],
+		);
+		const summary = skill.entry ?? skill;
+		const now = Date.now();
+		this.rulesCheckedAt = now;
+		if (summary.lifecycleState === "active") {
+			recordDispatcherRules(this.directory, { skillId: summary.id });
+			return summary;
+		}
+		const problem = `rules skill ${summary.slug ?? this.options.rules} is ${summary.lifecycleState ?? "not readable"}: no work will be admitted until it is restored`;
+		recordDispatcherRules(this.directory, { skillId: summary.id, problem });
+		if (now - this.rulesWarnedAt >= RULES_WARNING_REPEAT_MS) {
+			this.rulesWarnedAt = now;
+			process.stderr.write(`Dispatcher: ${problem}\n`);
+			this.log("rules-inactive", undefined, problem);
+		}
+		throw new Error(problem);
+	}
+	/** At start, then once a day while no Work makes the runner read its rules. */
+	async declareRules(): Promise<void> {
+		if (Date.now() - this.rulesCheckedAt < RULES_CHECK_INTERVAL_MS) return;
+		try {
+			await this.rulesSummary();
+		} catch {
+			// Said in the log above. Look again soon, so a restored skill clears
+			// the warning without waiting for Work to arrive.
+			this.rulesCheckedAt =
+				Date.now() - RULES_CHECK_INTERVAL_MS + RULES_WARNING_REPEAT_MS;
+		}
 	}
 	private log(event: string, itemId?: string, reason?: string) {
 		const now = Date.now();
@@ -4779,10 +4825,7 @@ export class LaneDispatcher {
 			// verifier rejected and one whose crash budget is spent.
 			// `skill show` returns a bounded summary; the full SKILL.md comes
 			// from `--file`, so read the state first and the content second.
-			const skill = await this.call<
-				{ entry?: RulesAsset } & Partial<RulesAsset>
-			>(["skill", "show", this.options.rules]);
-			const summary = skill.entry ?? skill;
+			const summary = await this.rulesSummary();
 			const file = await this.call<{ content?: unknown }>([
 				"skill",
 				"show",
@@ -4792,7 +4835,6 @@ export class LaneDispatcher {
 			]);
 			const rules = { ...summary, content: file.content };
 			if (
-				rules.lifecycleState !== "active" ||
 				typeof rules.content !== "string" ||
 				!Number.isInteger(rules.revision)
 			)
@@ -7676,6 +7718,7 @@ export async function runLaneServe(
 			);
 		}
 		do {
+			await lane.declareRules();
 			try {
 				await lane.tick();
 			} catch (error) {

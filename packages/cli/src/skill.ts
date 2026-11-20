@@ -132,8 +132,8 @@ const FILE_CHUNK = 12_000;
  */
 function skillReadStatements(id: string): string {
 	const read = UUID_RE.test(id)
-		? `const g = await skills.get_skills(${codeModeLiteral({ id })}); let e = g?.entry ?? g;`
-		: `const m = await skills.get_skills_for_mcp(${codeModeLiteral({ slug: id })}); let e = m?.entry ?? null; if (!e) { const hit = (await skills.list_skills_by_org(${codeModeLiteral({ query: id, limit: 20, offset: 0, summary: true })})).entries?.find((x) => x.slug === ${codeModeLiteral(id)}); if (hit) { const g = await skills.get_skills({ id: hit.id }); e = g?.entry ?? g; } }`;
+		? `const g = await skills.get_skills(${codeModeLiteral({ id })}); let e = g?.entry ?? g; let usedBy = g?.usedBy ?? [];`
+		: `const m = await skills.get_skills_for_mcp(${codeModeLiteral({ slug: id })}); let e = m?.entry ?? null; let usedBy = m?.usedBy ?? []; if (!e) { const hit = (await skills.list_skills_by_org(${codeModeLiteral({ query: id, limit: 20, offset: 0, summary: true })})).entries?.find((x) => x.slug === ${codeModeLiteral(id)}); if (hit) { const g = await skills.get_skills({ id: hit.id }); e = g?.entry ?? g; usedBy = g?.usedBy ?? []; } }`;
 	return `${read} if (!e) return { missing: true }; const files = e.files ?? {};`;
 }
 
@@ -177,10 +177,21 @@ async function showSkill(ctx: SkillContext, id: string): Promise<number> {
 	}
 	const summary = await runSkillProjection(
 		ctx,
-		`async () => { ${read} return { id: e.id, slug: e.slug, title: e.title, description: e.description, lifecycleState: e.lifecycleState, revision: e.revision ?? e.version ?? null, tediId: e.tediId ?? null, contentChars: (e.content ?? "").length, contentPreview: (e.content ?? "").slice(0, 1500), files: Object.entries(files).map(([path, text]) => ({ path, chars: String(text).length })) }; }`,
+		`async () => { ${read} return { id: e.id, slug: e.slug, title: e.title, description: e.description, lifecycleState: e.lifecycleState, revision: e.revision ?? e.version ?? null, tediId: e.tediId ?? null, contentChars: (e.content ?? "").length, contentPreview: (e.content ?? "").slice(0, 1500), files: Object.entries(files).map(([path, text]) => ({ path, chars: String(text).length })), usedBy: usedBy.map((u) => ({ key: u.key, label: u.label, blocksArchive: u.blocksArchive })) }; }`,
 	);
 	if (summary.missing) throw notFound();
 	console.log(JSON.stringify(summary, null, ctx.json ? 0 : 2));
+	if (!ctx.json) {
+		const usedBy = (summary.usedBy ?? []) as { label: string }[];
+		console.log(
+			usedBy.length
+				? `\n  Used by:\n${usedBy.map((user) => `    ${user.label}`).join("\n")}`
+				: dim(
+						"\n  Used by: nothing has declared that it uses this skill",
+						ctx.color,
+					),
+		);
+	}
 	if (!ctx.json)
 		console.log(
 			dim(
