@@ -379,6 +379,23 @@ describe("ConversationRow", () => {
 		expect(html).not.toContain("data-pinned");
 	});
 
+	it("names the tedi of a chat with a picked tedi", () => {
+		const doc = new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<ConversationRow
+					conversation={conversation({ id: "ws:w:c1", title: "Plan" })}
+					tedi={{ id: "tedi-ada", name: "Ada", avatar: null }}
+					now={NOW}
+				/>,
+			),
+			"text/html",
+		);
+		expect(doc.querySelector('[data-entity-kind="tedi"]')).not.toBeNull();
+		expect(doc.querySelector('[data-row-tedi="tedi-ada"]')?.textContent).toBe(
+			"Ada",
+		);
+	});
+
 	it("marks pinned conversations with the pin indicator", () => {
 		const pinned = conversation({
 			id: "home:main",

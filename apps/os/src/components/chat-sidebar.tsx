@@ -67,6 +67,10 @@ import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import type {
+	TediChatListRow,
+	TediChatRowTedi,
+} from "@/lib/chat-tedi-conversations";
 import {
 	activeWorkspacesQueryOptions,
 	homeConversationsQueryKey,
@@ -351,6 +355,7 @@ export function rollbackOptimisticConversationPatch(
 export function ConversationRow({
 	conversation,
 	workspace,
+	tedi,
 	active = false,
 	optimistic = false,
 	now,
@@ -364,6 +369,8 @@ export function ConversationRow({
 		visibility: string;
 		iconUrl?: string | null;
 	};
+	/** The tedi a chat with a picked tedi is with; the row names it. */
+	tedi?: TediChatRowTedi;
 	active?: boolean;
 	/**
 	 * The row is showing a locally-applied value the server has not confirmed
@@ -419,6 +426,14 @@ export function ConversationRow({
 								kind="workspace"
 								className="size-6 rounded-md"
 							/>
+						) : tedi ? (
+							<EntityAvatar
+								id={tedi.id}
+								name={tedi.name}
+								image={tedi.avatar}
+								kind="tedi"
+								className="size-6"
+							/>
 						) : null}
 						{pinned ? (
 							<PushPin
@@ -449,13 +464,23 @@ export function ConversationRow({
 							</Text>
 						) : null}
 					</span>
-					<time
-						dateTime={conversationActivityAt(conversation)}
-						title={absoluteTime(conversationActivityAt(conversation))}
-						className="text-kumo-subtle type-tedix-label"
-					>
-						{relativeTime(conversationActivityAt(conversation), now)}
-					</time>
+					<span className="flex min-w-0 items-center gap-1 text-kumo-subtle type-tedix-label">
+						{tedi ? (
+							<>
+								<span className="truncate" data-row-tedi={tedi.id}>
+									{tedi.name}
+								</span>
+								<span aria-hidden="true">·</span>
+							</>
+						) : null}
+						<time
+							dateTime={conversationActivityAt(conversation)}
+							title={absoluteTime(conversationActivityAt(conversation))}
+							className="shrink-0"
+						>
+							{relativeTime(conversationActivityAt(conversation), now)}
+						</time>
+					</span>
 				</TooltipTrigger>
 				<TooltipContent role="tooltip" side="right">
 					{conversationTitle(conversation)}
@@ -580,7 +605,7 @@ export function ChatSidebar({
 	 * Conversations kept somewhere else (chats with a picked tedi), listed with
 	 * the Home ones by recency. They have no row menu here.
 	 */
-	extraConversations?: readonly HomeConversation[];
+	extraConversations?: readonly TediChatListRow[];
 }) {
 	const queryClient = useQueryClient();
 	const workspaces = useQuery({
@@ -612,7 +637,7 @@ export function ChatSidebar({
 				byId.set(conversation.id, conversation);
 			}
 		}
-		const extraIds = new Set<string>();
+		const extraTedis = new Map<string, TediChatRowTedi>();
 		const query = normalizedSearch?.toLowerCase();
 		for (const conversation of extraConversations ?? []) {
 			if (
@@ -620,12 +645,12 @@ export function ChatSidebar({
 				!conversationTitle(conversation).toLowerCase().includes(query)
 			)
 				continue;
-			extraIds.add(conversation.id);
+			extraTedis.set(conversation.id, conversation.tedi);
 			byId.set(conversation.id, conversation);
 		}
-		return { rows: sortConversations([...byId.values()]), extraIds };
+		return { rows: sortConversations([...byId.values()]), extraTedis };
 	}, [conversations.data, extraConversations, normalizedSearch]);
-	const { rows: sorted, extraIds } = merged;
+	const { rows: sorted, extraTedis } = merged;
 	const grouped = useMemo(() => groupConversationsByRecency(sorted), [sorted]);
 	const invalidate = () =>
 		Promise.all([
@@ -906,6 +931,7 @@ export function ChatSidebar({
 												(workspace) =>
 													workspace.id === conversation.workspaceId,
 											)}
+											tedi={extraTedis.get(conversation.id)}
 											active={conversation.id === activeConversationId}
 											optimistic={
 												(pin.isPending &&
@@ -915,7 +941,7 @@ export function ChatSidebar({
 											}
 											onSelect={(id) => onSelect(id)}
 											menu={
-												extraIds.has(conversation.id)
+												extraTedis.has(conversation.id)
 													? undefined
 													: renderMenu(conversation)
 											}

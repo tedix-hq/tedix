@@ -1,7 +1,7 @@
 /**
  * Whether this person may pick the tedi to answer in a workspace chat. The
  * workspace accepts the organization's tedis and the person's own personal
- * ones; `userId` is the person's id from the workspace presence read.
+ * ones; `userId` is the signed-in person's canonical user id.
  */
 export function mayPickWorkspaceTedi(
 	tedi: {

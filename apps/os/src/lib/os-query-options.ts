@@ -1257,12 +1257,11 @@ export const tediRosterQueryOptions = (
 	});
 
 /**
- * The id → name map only. `{}` is a DIFFERENT request from the roster above
- * (the handler defaults to 20 when limit/offset are omitted), so the two stay
- * separate cache entries — do not unify them.
+ * The tedi names and the chat pickers' roster: the API's maximum page, the
+ * same size the workspace composer reads, so every picker offers the same
+ * tedis. It is the same request as `tediRosterQueryOptions(100)`.
  */
-export const tediNamesQueryOptions = () =>
-	osQuery.tedis.list.queryOptions({ input: {} });
+export const tediNamesQueryOptions = () => tediRosterQueryOptions(100);
 
 /**
  * `listOperationsSummaries` declares an OPTIONAL input object: the no-input

@@ -231,6 +231,7 @@ export function CanvasDocPanel({
 	focusMode,
 	onFocusModeChange,
 	onShare,
+	sharesFile = false,
 	onShowResources,
 	onWidgetFollowUp,
 	actionsSlot,
@@ -257,6 +258,8 @@ export function CanvasDocPanel({
 	onFocusModeChange: (focused: boolean) => void;
 	/** Opens the Share dialog on this app or file. */
 	onShare?: () => void;
+	/** The app is open as a file's editor, so Share shares that file. */
+	sharesFile?: boolean;
 	onShowResources: () => void;
 	onWidgetFollowUp?: (message: string) => void;
 }) {
@@ -716,13 +719,7 @@ export function CanvasDocPanel({
 				{onShare && (
 					<ShareButton
 						compact
-						label={
-							doc.type === "gadget"
-								? "Share this app"
-								: doc.type === "output"
-									? "Share this file"
-									: "Share"
-						}
+						label={sharesFile ? "Share this file" : "Share this app"}
 						title="Share"
 						onClick={onShare}
 					/>
