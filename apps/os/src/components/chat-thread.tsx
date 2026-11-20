@@ -1,4 +1,8 @@
-import { homeChatModelRef, homeChatPickedTediId } from "@/lib/home-chat-model";
+import {
+	composerTediTarget,
+	homeChatModelRef,
+	rememberComposerTediPick,
+} from "@/lib/home-chat-model";
 import "./canvas-page.css";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import {
@@ -114,7 +118,11 @@ import { AgentRunCard } from "@/components/agent-run-card";
 import { MachineActivity } from "@/components/machine-activity";
 import { LiveDelegationCard } from "@/components/delegation-live-card";
 import { useChatAgentRuns } from "@/lib/use-chat-agent-runs";
-import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
+import {
+	useActiveTedis,
+	useTediNames,
+	useTediRosterPending,
+} from "@/lib/use-tedi-names";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import { useRealtimeStatus, useRealtimeSurface } from "@/lib/use-realtime";
 import {
@@ -341,14 +349,13 @@ export function ChatThread({
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
 	const activeTedis = useActiveTedis();
+	const tediRosterPending = useTediRosterPending();
 	// Null sends to Home, which routes the message itself. A picked tedi is
 	// sent as an explicit delegation, like the embedded widget's switcher.
-	// A pick made in this composer wins; otherwise the conversation keeps the
+	// A pick made in a composer wins and is remembered per conversation, so it
+	// survives the thread being rebuilt; otherwise the conversation keeps the
 	// tedi of the person's latest message (resolved below, once its runs load).
-	const [pickedTedi, setPickedTedi] = useState<{
-		conversationId: string | null;
-		tediId: string | null;
-	} | null>(null);
+	const [, redrawAfterTediPick] = useState(0);
 	const localAiUnavailable = isLocalAiUnavailable();
 	const localWorkersAi = isLocalWorkersAi();
 
@@ -499,7 +506,6 @@ export function ChatThread({
 			conversationId === null ? newHomeConversationId() : null;
 		sendTargetRef.current = conversationId ?? newConversationIdRef.current;
 		setPickedModel(null);
-		setPickedTedi(null);
 		cacheRef.current = new Map();
 		knownOutputIdsRef.current = null;
 		cursorInitializedRef.current = false;
@@ -574,10 +580,24 @@ export function ChatThread({
 		realtimeDegraded,
 		realtimeSurface.status === "open",
 	);
-	const selectedTediId =
-		pickedTedi?.conversationId === conversationId
-			? pickedTedi.tediId
-			: homeChatPickedTediId(conversationId, runSet?.runs ?? []);
+	const tediTarget = composerTediTarget(
+		conversationId,
+		newConversationIdRef.current,
+		runSet?.runs,
+	);
+	const selectedTediId = tediTarget.tediId;
+	// Sending waits while the answer could still turn out to be a tedi: the
+	// conversation's runs are loading, or its tedi's name is. With no active
+	// tedis there is nobody to pick, so Home is the answer.
+	const tediTargetKnown = tediRosterPending
+		? tediTarget.known && selectedTediId === null
+		: tediTarget.known || activeTedis.length === 0;
+	const pickTedi = (tediId: string | null) => {
+		const target = conversationId ?? newConversationIdRef.current;
+		if (target === null) return;
+		rememberComposerTediPick(target, tediId);
+		redrawAfterTediPick((count) => count + 1);
+	};
 	const selectedTediName = selectedTediId
 		? (activeTedis.find((tedi) => tedi.id === selectedTediId)?.name ?? null)
 		: null;
@@ -1574,7 +1594,9 @@ export function ChatThread({
 				cancelRun.isPending ||
 				directRead.isPending ||
 				// Enter bypasses the disabled submit button; the gate cannot.
-				blockedByAttachedImage
+				blockedByAttachedImage ||
+				// The conversation's tedi is not known yet; Home must not get this.
+				!tediTargetKnown
 			)
 				return;
 			const directCommand =
@@ -1635,6 +1657,15 @@ export function ChatThread({
 			} as const;
 			dispatchProvisional(provisionalAction);
 			setDraft("");
+			if (conversationId === null) {
+				// Every new chat reads the same saved draft. The bubble holds this
+				// text now; left saved, it would reappear in the next new chat.
+				try {
+					window.localStorage.removeItem(chatDraftKey(null));
+				} catch {
+					// Draft storage is optional.
+				}
+			}
 			onSendStarted?.();
 			stickToBottomRef.current = true;
 			send.mutate({
@@ -1669,6 +1700,7 @@ export function ChatThread({
 			selectedModelRef,
 			selectedTediId,
 			selectedTediName,
+			tediTargetKnown,
 			directRead,
 			onSendStarted,
 			startDirectRead,
@@ -2871,28 +2903,28 @@ export function ChatThread({
 												size="sm"
 												variant="ghost"
 												className="chat-composer-picker"
-												aria-label={`Send to ${selectedTediName ?? "Home"}`}
+												aria-label={
+													tediTargetKnown
+														? `Send to ${selectedTediName ?? "Home"}`
+														: "Loading who this conversation sends to"
+												}
 											>
 												<span className="truncate">
-													{selectedTediName ?? "Home"}
+													{tediTargetKnown
+														? (selectedTediName ?? "Home")
+														: "Loading…"}
 												</span>
 											</Button>
 										}
 									/>
 									<DropdownMenuContent>
-										<DropdownMenuItem
-											onClick={() =>
-												setPickedTedi({ conversationId, tediId: null })
-											}
-										>
+										<DropdownMenuItem onClick={() => pickTedi(null)}>
 											Home (picks for you)
 										</DropdownMenuItem>
 										{activeTedis.map((tedi) => (
 											<DropdownMenuItem
 												key={tedi.id}
-												onClick={() =>
-													setPickedTedi({ conversationId, tediId: tedi.id })
-												}
+												onClick={() => pickTedi(tedi.id)}
 											>
 												{tedi.name}
 											</DropdownMenuItem>
@@ -2962,6 +2994,7 @@ export function ChatThread({
 										startingWorkspace ||
 										directRead.isPending ||
 										blockedByAttachedImage ||
+										!tediTargetKnown ||
 										(localAiUnavailable && !parseDirectReadCommand(draft)) ||
 										(!draft.trim() && attachments.length === 0)
 									}

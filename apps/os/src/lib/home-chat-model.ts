@@ -52,3 +52,41 @@ export function homeChatPickedTediId(
 		? (latest?.delegatedTediId ?? null)
 		: null;
 }
+
+// Picks made in a composer, by the conversation they were made for. A new
+// conversation's thread is rebuilt after its first reply; the pick must still
+// apply while that conversation's runs load, or the next message goes to Home.
+const composerTediPicks = new Map<string, string | null>();
+
+/** Null is a pick too: the person chose Home. */
+export function rememberComposerTediPick(
+	conversationId: string,
+	tediId: string | null,
+): void {
+	composerTediPicks.delete(conversationId);
+	composerTediPicks.set(conversationId, tediId);
+	if (composerTediPicks.size > 50)
+		for (const oldest of composerTediPicks.keys()) {
+			composerTediPicks.delete(oldest);
+			break;
+		}
+}
+
+/**
+ * Who the composer sends to. `known` is false only while an existing
+ * conversation's runs are still loading and nobody picked in this page; the
+ * composer must not send then, because a pick may be about to appear.
+ */
+export function composerTediTarget(
+	conversationId: string | null,
+	sendTargetId: string | null,
+	runs: readonly HomeRun[] | undefined,
+): { tediId: string | null; known: boolean } {
+	const key = conversationId ?? sendTargetId;
+	if (key !== null && composerTediPicks.has(key))
+		return { tediId: composerTediPicks.get(key) ?? null, known: true };
+	return {
+		tediId: homeChatPickedTediId(conversationId, runs ?? []),
+		known: conversationId === null || runs !== undefined,
+	};
+}
