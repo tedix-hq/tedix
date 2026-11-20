@@ -146,50 +146,43 @@ export const BINDING_PARITY_EXCEPTIONS: readonly BindingParityException[] = [
 		file: "apps/tedi/cloudflare.config.ts",
 		envName: "development",
 		family: "artifacts",
-		reason:
-			"Artifacts has no local simulation; isolated `bun dev` omits it and `bun run dev:remote` binds the remote namespace",
+		reason: "Artifacts has no local simulation",
 	},
 	{
 		file: "apps/cms/cloudflare.config.ts",
 		envName: "development",
 		family: "artifacts",
-		reason:
-			"Artifacts has no local simulation; isolated `bun dev` omits it and `bun run dev:remote` binds the remote namespace",
+		reason: "Artifacts has no local simulation",
 	},
 	{
 		file: "apps/cms/cloudflare.config.ts",
 		envName: "development",
 		family: "service",
-		reason:
-			"isolated `bun dev` runs without apps/api or the CMS runtime; `bun run dev:remote` binds both services",
+		reason: "isolated `bun dev` runs without apps/api or the CMS runtime",
 	},
 	{
 		file: "apps/docs/cloudflare.config.ts",
 		envName: "development",
 		family: "artifacts",
-		reason:
-			"Artifacts has no local simulation; isolated `bun dev` omits it and `bun run dev:remote` binds the remote namespace",
+		reason: "Artifacts has no local simulation",
 	},
 	{
 		file: "apps/docs/cloudflare.config.ts",
 		envName: "development",
 		family: "ai_search",
-		reason:
-			"AI Search has no local simulation; isolated `bun dev` omits it and `bun run dev:remote` binds the remote namespace",
+		reason: "AI Search has no local simulation",
 	},
 	{
 		file: "apps/cms-runtime/cloudflare.config.ts",
 		envName: "development",
 		family: "ai_search",
-		reason:
-			"AI Search namespaces have no local simulation; isolated `bun dev` omits it and `bun run dev:remote` binds the remote namespace",
+		reason: "AI Search namespaces have no local simulation",
 	},
 	{
 		file: "apps/cms-runtime/cloudflare.config.ts",
 		envName: "development",
 		family: "service",
-		reason:
-			"isolated `bun dev` runs without apps/api or the session broker; `bun run dev:remote` binds both production services",
+		reason: "isolated `bun dev` runs without apps/api or the session broker",
 	},
 	{
 		file: "apps/cms-runtime/cloudflare.config.ts",

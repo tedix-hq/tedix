@@ -20,7 +20,6 @@ import {
 	assertNoPortConflicts,
 	collectDevPorts,
 	portsForApp,
-	toPortList,
 } from "./dev/ports";
 
 const repoRoot = resolve(import.meta.dir, "..");
@@ -194,30 +193,11 @@ describe("local Wrangler config", () => {
 		}
 	});
 
-	// The old shape of this test cross-checked two hand-kept copies of the port
-	// table (each package.json's `clear-port` args against cleanup-dev.sh's
-	// `PORTS=(...)` arrays). Both copies are gone: scripts/dev/ports.ts derives
-	// the inventory from the file that actually binds each port. The invariants
-	// they protected are unchanged, so they are asserted here against that one
-	// derived source instead.
-	test("every startup app reserves a unique port that the root sweep covers", () => {
+	test("the root sweep derives its ports from a conflict-free inventory", () => {
 		const inventory = collectDevPorts(repoRoot);
 		expect(inventory.length).toBeGreaterThan(0);
 		expect(() => assertNoPortConflicts(inventory)).not.toThrow();
 
-		const swept = new Set(toPortList(inventory));
-		for (const [app, scripts] of appScripts()) {
-			if (!scripts.dev) continue;
-			for (const port of portsForApp(inventory, app)) {
-				expect(
-					swept.has(port),
-					`${app} port ${port} missing from the root sweep`,
-				).toBe(true);
-			}
-		}
-
-		// The root sweep must keep DERIVING its list. A reintroduced literal
-		// `PORTS=(3000 3001 ...)` array is the hand-kept copy that used to drift.
 		const cleanup = readFileSync(
 			join(repoRoot, "scripts/cleanup-dev.sh"),
 			"utf8",
@@ -231,8 +211,9 @@ describe("local Wrangler config", () => {
 	// bad name only surfaces when someone runs that app standalone.
 	test("every app clear-port script names its own directory and resolves", () => {
 		const inventory = collectDevPorts(repoRoot);
+		const appsWithPorts = new Set(inventory.map(({ app }) => app));
 		for (const [app, scripts] of appScripts()) {
-			if (!scripts.dev) continue;
+			if (!appsWithPorts.has(app) && !scripts["clear-port"]) continue;
 			expect(scripts["clear-port"], `${app} clear-port`).toBe(
 				`../../scripts/clear-port.sh --app ${app}`,
 			);
@@ -245,10 +226,8 @@ describe("local Wrangler config", () => {
 	// `dev` put a full wrangler types run in front of every app's first boot.
 	test("no app dev script regenerates worker types on the startup path", () => {
 		for (const [app, scripts] of appScripts()) {
-			for (const name of ["dev", "dev:remote"]) {
-				const script = scripts[name];
-				if (!script) continue;
-				expect(script, `${app} ${name}`).not.toContain("bun run types");
+			if (scripts.dev) {
+				expect(scripts.dev, `${app} dev`).not.toContain("bun run types");
 			}
 			for (const name of ["types", "types:check"]) {
 				const script = scripts[name];
@@ -393,41 +372,16 @@ describe("local Wrangler config", () => {
 			if (!dev) continue;
 			expect(dev).not.toMatch(/secrets\/resolve|secrets:run/);
 			expect(dev).not.toMatch(/CLOUDFLARE_ENV=(staging|production)/);
-			const remote = packageJson.scripts?.["dev:remote"];
-			if (remote) expect(remote).toContain("scripts/dev-remote.sh");
 		}
 	});
 
-	test("dev-with-logs offers the remote mode only when the root defines dev:remote", () => {
-		const rootScripts = (
-			JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
-				scripts?: Record<string, string>;
-			}
-		).scripts;
-		const hasRemote = Boolean(rootScripts?.["dev:remote"]);
-		const env = { ...process.env };
-		delete env.TEDIX_DEV_REMOTE_TARGET;
-		delete env.TEDIX_DEV_WRAPPER_ACTIVE;
-		const run = (...args: string[]) =>
-			Bun.spawnSync(["./scripts/dev-with-logs.sh", ...args], {
-				cwd: repoRoot,
-				env,
-			});
-
-		// An invalid profile exits at the usage check, before any cleanup.
-		const usage = run("dev", "invalid-profile");
-		expect(usage.exitCode).toBe(2);
-		const usageText = usage.stderr.toString();
-		expect(usageText).toContain("[dev");
-		expect(usageText.includes("dev:remote")).toBe(hasRemote);
-
-		// Without the explicit remote target, the remote mode also stops early:
-		// on the target check where it exists, on the usage line where it does not.
-		const remote = run("dev:remote");
-		expect(remote.exitCode).toBe(2);
-		expect(remote.stderr.toString()).toContain(
-			hasRemote ? "TEDIX_DEV_REMOTE_TARGET" : "Usage:",
+	test("dev-with-logs rejects an invalid profile before starting", () => {
+		const usage = Bun.spawnSync(
+			["./scripts/dev-with-logs.sh", "dev", "invalid-profile"],
+			{ cwd: repoRoot },
 		);
+		expect(usage.exitCode).toBe(2);
+		expect(usage.stderr.toString()).toContain("Usage:");
 	});
 
 	test("isolates an explicitly selected launcher persistence root", () => {
