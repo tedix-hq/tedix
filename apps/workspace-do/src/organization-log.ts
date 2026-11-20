@@ -123,6 +123,15 @@ interface CheckpointRow {
 
 type Body = Omit<GatewayChangeRecordInput, "id" | "recordedAt">;
 
+interface LinkedRecord {
+	sequence: number;
+	id: string;
+	recordedAt: string;
+	body: Body;
+	digest: string;
+	link: string;
+}
+
 /** The record without seal fields, as a reader gets it and as it is digested. */
 function readerView(record: Record<string, unknown>) {
 	const parsed = GatewayChangeRecordSchema.safeParse(record);
@@ -327,31 +336,45 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 	}
 
 	/** Chain one record after the tail and store it. Call only inside `#serial`. */
-	async #chain(
-		id: string,
-		recordedAt: string,
-		body: Body,
-	): Promise<OrganizationLogRecord> {
-		const tail = this.#tail();
-		const sequence = (tail?.sequence ?? 0) + 1;
-		const view = { ...body, id, sequence, recordedAt };
-		const digest = await recordDigest(readerView(view));
-		const link = await chainHash(tail?.chainHash ?? null, sequence, digest);
-		this.#sql.exec(
-			"INSERT INTO change_records (sequence, id, recorded_at, resource, actor_id, subject_id, record, record_digest, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			sequence,
-			id,
-			recordedAt,
-			body.resource,
-			body.actor.id,
-			body.subject?.id ?? null,
-			JSON.stringify(body),
-			digest,
-			link,
-		);
-		this.#setMeta("tail_sequence", String(sequence));
-		this.#setMeta("tail_chain_hash", link);
-		return this.#recordById(id) as OrganizationLogRecord;
+	/** Digest and link records after `after`, in order; writes nothing. */
+	async #link(
+		after: { sequence: number; chainHash: string | null } | null,
+		records: Array<{ id: string; recordedAt: string; body: Body }>,
+	): Promise<LinkedRecord[]> {
+		const linked: LinkedRecord[] = [];
+		let sequence = after?.sequence ?? 0;
+		let previous = after?.chainHash ?? null;
+		for (const { id, recordedAt, body } of records) {
+			sequence += 1;
+			const digest = await recordDigest(
+				readerView({ ...body, id, sequence, recordedAt }),
+			);
+			const link = await chainHash(previous, sequence, digest);
+			linked.push({ sequence, id, recordedAt, body, digest, link });
+			previous = link;
+		}
+		return linked;
+	}
+
+	/** Insert linked records and move the tail. Synchronous: no await inside. */
+	#insertLinked(linked: LinkedRecord[]) {
+		for (const r of linked)
+			this.#sql.exec(
+				"INSERT INTO change_records (sequence, id, recorded_at, resource, actor_id, subject_id, record, record_digest, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				r.sequence,
+				r.id,
+				r.recordedAt,
+				r.body.resource,
+				r.body.actor.id,
+				r.body.subject?.id ?? null,
+				JSON.stringify(r.body),
+				r.digest,
+				r.link,
+			);
+		const last = linked.at(-1);
+		if (!last) return;
+		this.#setMeta("tail_sequence", String(last.sequence));
+		this.#setMeta("tail_chain_hash", last.link);
 	}
 
 	async organizationLogAppend(
@@ -386,7 +409,9 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		const record = await this.#serial(async () => {
 			const stored = this.#recordById(id);
 			if (stored) return stored;
-			return this.#chain(id, recordedAt, body);
+			const linked = await this.#link(this.#tail(), [{ id, recordedAt, body }]);
+			this.#insertLinked(linked);
+			return this.#recordById(id) as OrganizationLogRecord;
 		});
 		await this.#scheduleCheckpoint(organizationId);
 		return { status: "stored", record };
@@ -425,6 +450,18 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 	#closeCheckpoints(organizationId: string): Promise<void> {
 		return this.#serial(async () => {
 			const key = await this.#signingKey();
+			if (!key) {
+				// An unsigned checkpoint would be a permanent unsigned link in the
+				// chain. Records stay chained but unsealed until the key is set.
+				console.error(
+					JSON.stringify({
+						event: "organization_log.signing_key_missing",
+						organizationId,
+						uncheckpointedRecords: this.#uncheckpointed(),
+					}),
+				);
+				return;
+			}
 			for (;;) {
 				const last = this.#lastCheckpoint();
 				const rows = this.#sql
@@ -728,6 +765,10 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 			oldestPendingAt: pending?.oldest ?? null,
 			cutoverStartedAt:
 				this.#state() === "cutover" ? this.#meta("cutover_started_at") : null,
+			mainTailSequence:
+				this.#meta("main_tail_sequence") === null
+					? null
+					: Number(this.#meta("main_tail_sequence")),
 		};
 	}
 
@@ -780,41 +821,45 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 						? `Verified ${verified.recordsVerified} of ${expected} copied records`
 						: `Copied records do not verify: ${verified.message}`,
 				);
-			for (const record of page.records) {
-				const body = bodyOf(record);
-				this.#sql.exec(
-					"INSERT INTO change_records (sequence, id, recorded_at, resource, actor_id, subject_id, record, record_digest, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-					record.sequence,
-					record.id,
-					record.recordedAt,
-					body.resource,
-					body.actor.id,
-					body.subject?.id ?? null,
-					JSON.stringify(body),
-					record.recordDigest,
-					record.chainHash,
-				);
-			}
-			for (const c of checkpoints)
-				this.#sql.exec(
-					"INSERT INTO change_record_checkpoints (id, first_sequence, last_sequence, record_count, head_chain_hash, previous_checkpoint_digest, previous_chain_hash, checkpoint_digest, sealed_at, envelope, key_id, evidence_bundle_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-					c.id,
-					c.firstSequence,
-					c.lastSequence,
-					c.recordCount,
-					c.headChainHash,
-					c.previousCheckpointDigest,
-					c.previousChainHash,
-					c.checkpointDigest,
-					c.sealedAt,
-					c.envelope,
-					c.keyId,
-					c.evidenceBundleKey,
-				);
-			const head = checkpoints.at(-1)!;
-			this.#setMeta("tail_sequence", String(head.lastSequence));
-			this.#setMeta("tail_chain_hash", head.headChainHash);
+			// Manifest entries first: if the archive is unreachable nothing is
+			// copied, and the retry adds the same entries again (they dedupe).
 			await this.#addCopiedToManifests(organizationId, checkpoints);
+			this.ctx.storage.transactionSync(() => {
+				for (const record of page.records) {
+					const body = bodyOf(record);
+					this.#sql.exec(
+						"INSERT INTO change_records (sequence, id, recorded_at, resource, actor_id, subject_id, record, record_digest, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+						record.sequence,
+						record.id,
+						record.recordedAt,
+						body.resource,
+						body.actor.id,
+						body.subject?.id ?? null,
+						JSON.stringify(body),
+						record.recordDigest,
+						record.chainHash,
+					);
+				}
+				for (const c of checkpoints)
+					this.#sql.exec(
+						"INSERT INTO change_record_checkpoints (id, first_sequence, last_sequence, record_count, head_chain_hash, previous_checkpoint_digest, previous_chain_hash, checkpoint_digest, sealed_at, envelope, key_id, evidence_bundle_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+						c.id,
+						c.firstSequence,
+						c.lastSequence,
+						c.recordCount,
+						c.headChainHash,
+						c.previousCheckpointDigest,
+						c.previousChainHash,
+						c.checkpointDigest,
+						c.sealedAt,
+						c.envelope,
+						c.keyId,
+						c.evidenceBundleKey,
+					);
+				const head = checkpoints.at(-1)!;
+				this.#setMeta("tail_sequence", String(head.lastSequence));
+				this.#setMeta("tail_chain_hash", head.headChainHash);
+			});
 			return this.#tail()!;
 		});
 	}
@@ -844,6 +889,10 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 	async organizationLogBeginCutover(organizationId: string): Promise<void> {
 		this.#bind(organizationId);
 		if (this.#state() !== "passthrough") return;
+		if (!(await this.#signingKey()))
+			throw new Error(
+				"The organization log store has no signing key; a cutover would leave unsigned checkpoints",
+			);
 		this.#setMeta("state", "cutover");
 		this.#setMeta("cutover_started_at", new Date().toISOString());
 	}
@@ -873,23 +922,25 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 					"SELECT id, recorded_at, record FROM pending_change_records ORDER BY arrival",
 				)
 				.toArray();
-			let chained = 0;
-			let dropped = 0;
-			for (const row of pending) {
-				if (this.#recordById(row.id)) {
-					dropped++;
-					continue;
-				}
-				await this.#chain(
-					row.id,
-					row.recorded_at,
-					JSON.parse(row.record) as Body,
-				);
-				chained++;
-			}
-			this.#sql.exec("DELETE FROM pending_change_records");
-			this.#setMeta("state", "live");
-			return { chained, dropped };
+			const fresh = pending.filter((row) => !this.#recordById(row.id));
+			// Every digest and link is computed before anything is written, then
+			// the rows, the tail and the state change land in one transaction:
+			// a failure leaves the store exactly as it was, so a retry works.
+			const linked = await this.#link(
+				tail,
+				fresh.map((row) => ({
+					id: row.id,
+					recordedAt: row.recorded_at,
+					body: JSON.parse(row.record) as Body,
+				})),
+			);
+			this.ctx.storage.transactionSync(() => {
+				this.#insertLinked(linked);
+				this.#sql.exec("DELETE FROM pending_change_records");
+				this.#setMeta("main_tail_sequence", String(expected.sequence));
+				this.#setMeta("state", "live");
+			});
+			return { chained: linked.length, dropped: pending.length - fresh.length };
 		});
 		await this.#scheduleCheckpoint(organizationId);
 		return result;

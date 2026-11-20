@@ -57,6 +57,11 @@ export interface OrganizationLogStatus {
 	oldestPendingAt: string | null;
 	/** When the cutover began; null outside a cutover. */
 	cutoverStartedAt: string | null;
+	/**
+	 * Last main sequence copied before the store went live; null before.
+	 * A main row of the organization above it was written after the move.
+	 */
+	mainTailSequence: number | null;
 }
 
 /** Whole sealed checkpoints from main, with their records, in sequence order. */

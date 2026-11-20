@@ -10,7 +10,13 @@ import {
 	dayManifestKey,
 	evidenceBundleKey,
 } from "@tedix/agent-governance/evidence";
-import { sealRun, verifyChain } from "@tedix/agent-governance/seal";
+import {
+	importSigningKey,
+	recordDigest,
+	sealRun,
+	verifyChain,
+} from "@tedix/agent-governance/seal";
+import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
 import type {
 	OrganizationLogRecord,
 	OrganizationLogRuntime,
@@ -23,6 +29,7 @@ const SUBJECT = "3f2b8c1e-6d4a-4f7b-9a2e-5c1d8e7f6a90";
 const bindings = env as unknown as {
 	ORGANIZATION_LOG: DurableObjectNamespace;
 	R2_BUCKET: R2Bucket;
+	CHANGE_RECORD_SIGNING_KEY: string;
 };
 
 function store(organizationId = ORG) {
@@ -172,6 +179,20 @@ test("an organization moves from main into its store and keeps one verifiable ch
 		}),
 	).toEqual({ chained: 1, dropped: 1 });
 
+	// A copied record reads back exactly as main sealed it: its digest,
+	// recomputed from what the store returns, is the one main stored.
+	const copied = await log.organizationLogGet(ORG, id(5));
+	if (copied.status !== "live" || !copied.value) throw new Error("not copied");
+	const {
+		recordDigest: storedDigest,
+		chainHash: _chain,
+		...content
+	} = copied.value;
+	expect(storedDigest).toBe(history.records[1]!.recordDigest);
+	expect(await recordDigest(GatewayChangeRecordSchema.parse(content))).toBe(
+		storedDigest,
+	);
+
 	// Live: concurrent appends chain one after another.
 	const [a, b] = await Promise.all([append(102), append(103)]);
 	expect([a.status, b.status]).toEqual(["stored", "stored"]);
@@ -213,12 +234,35 @@ test("an organization moves from main into its store and keeps one verifiable ch
 	))!.json()) as DayManifest;
 	expect(manifest.checkpoints.map((c) => c.lastSequence)).toContain(17);
 
+	// The store's own checkpoint is signed with the configured key; the copied
+	// ones were unsigned in this fixture.
+	const key = await importSigningKey(bindings.CHANGE_RECORD_SIGNING_KEY);
+	expect(own.keyId).toBe(key.fingerprint);
 	expect(
 		await verifyChain({
 			records: range.value.records as never,
-			checkpoints: checkpoints.value.map((c) => ({ ...c, envelope: null })),
-			publicKey: null,
+			checkpoints: checkpoints.value.map((c) => ({
+				...c,
+				envelope: c.envelope ? JSON.parse(c.envelope) : null,
+			})),
+			publicKey: key.publicKey,
 			allowUnsigned: true,
 		}),
 	).toMatchObject({ ok: true, recordsVerified: 9, checkpointsVerified: 4 });
+});
+
+test("without a signing key the store writes no checkpoint and refuses a cutover", async () => {
+	const log = store("org_log_no_key");
+	await runInDurableObject(log, async (instance) => {
+		const unkeyed = instance as unknown as {
+			env: Record<string, unknown>;
+		} & OrganizationLogStore;
+		unkeyed.env = { ...unkeyed.env, CHANGE_RECORD_SIGNING_KEY: undefined };
+		await expect(
+			unkeyed.organizationLogBeginCutover("org_log_no_key"),
+		).rejects.toThrow(/no signing key/);
+		expect((await unkeyed.organizationLogStatus("org_log_no_key")).state).toBe(
+			"passthrough",
+		);
+	});
 });
