@@ -43,6 +43,7 @@ import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { cardReviewConfigFromManifest } from "@tedix/api-contract/utils/card-review";
 import { lazy, Suspense } from "react";
+import { AppLoading } from "@/components/app-loading";
 import { Skeleton } from "@/components/kumo/skeleton";
 
 const WorkDispatchApp = lazy(() =>
@@ -127,9 +128,7 @@ export function WorkspaceAppRenderer({
 	activityFeed?: ActivityFeedNavigation;
 }) {
 	return (
-		<Suspense
-			fallback={<Skeleton className="h-60 w-full" aria-label="Loading app" />}
-		>
+		<Suspense fallback={<AppLoading className="h-60" />}>
 			<InstalledApp
 				manifest={manifest}
 				workspaceId={workspaceId}

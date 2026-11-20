@@ -46,7 +46,7 @@ import { useAppRuntimeDrafts } from "@/components/app-runtime-draft-store";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { AppLoading } from "@/components/app-loading";
 import {
 	appRuntimeContextFromManifest,
 	buildAppRuntimeDocument,
@@ -147,8 +147,7 @@ export function AppRuntimePreview({
 			? callServer
 			: null;
 	useEffect(() => callsServer?.prime(), [callsServer]);
-	if (code.isPending)
-		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
+	if (code.isPending) return <AppLoading />;
 	if (!code.data?.code)
 		return (
 			<Alert variant="warning">
@@ -585,8 +584,7 @@ export function AppRuntimeSandbox({
 		sourceDenied,
 		gadget.id,
 	]);
-	if (resources.isPending || role === null)
-		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
+	if (resources.isPending || role === null) return <AppLoading />;
 	if (context.settings.editor === "document-v2") {
 		const resource = boundOutputs.find(
 			(row) => row.slot === context.settings.slot,
@@ -621,7 +619,7 @@ export function AppRuntimeSandbox({
 					gadgetId={gadget.id}
 					revisionId={revisionId}
 				/>
-				<Skeleton className="h-80" aria-label="Loading document" />
+				<AppLoading className="h-80" label="Loading document" />
 			</>
 		);
 	}
@@ -687,7 +685,7 @@ export function AppRuntimeSandbox({
 						<p className="px-4 py-2 text-kumo-subtle">
 							Opening editor… Showing the saved version.
 						</p>
-						<Suspense fallback={<Skeleton className="h-40 w-full" />}>
+						<Suspense fallback={<AppLoading />}>
 							<SavedOutputContentView
 								outputId={legacyResource.providerResourceId}
 								content={boundContent}
@@ -704,7 +702,7 @@ export function AppRuntimeSandbox({
 	return (
 		<>
 			{attachedFile && (
-				<Suspense fallback={<Skeleton className="h-40 w-full" />}>
+				<Suspense fallback={<AppLoading />}>
 					<FileOutputView {...attachedFile} />
 				</Suspense>
 			)}

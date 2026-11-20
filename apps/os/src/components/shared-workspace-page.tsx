@@ -5,7 +5,7 @@ import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { CanvasPresence } from "@/components/canvas-presence";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { AppLoading } from "@/components/app-loading";
 import {
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
@@ -123,8 +123,7 @@ function SharedRuntimeApp({
 		() => (data ? buildAppRuntimeDocument({ "client.js": data.client }) : ""),
 		[data?.client],
 	);
-	if (client.isPending)
-		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
+	if (client.isPending) return <AppLoading />;
 	if (client.isError || !data)
 		return (
 			<LoadError

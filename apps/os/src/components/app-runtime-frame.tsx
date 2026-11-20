@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { AppLoading } from "@/components/app-loading";
 import {
 	APP_RUNTIME_CALL_METHOD,
 	APP_RUNTIME_ERROR_METHOD,
@@ -434,14 +434,13 @@ export function AppRuntimeFrame({
 		>
 			{loadingContent && !contentReady && state !== "failed" && loadingContent}
 			{state === "loading" && !loadingContent && (
-				<Skeleton
-					className="w-full"
+				<AppLoading
+					className=""
 					style={{
 						height:
 							layout === "fill" ? "100%" : (lastHeights.get(title) ?? 240),
 						minHeight: 96,
 					}}
-					aria-label="Loading app"
 				/>
 			)}
 			{state === "failed" && (
