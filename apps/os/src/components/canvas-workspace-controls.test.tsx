@@ -17,6 +17,8 @@ const workspaces = vi.hoisted(() => ({
 	archive: vi.fn(),
 	setIcon: vi.fn(),
 	removeIcon: vi.fn(),
+	// The "answers by default" picker reads the person's private workspace.
+	personal: vi.fn(async () => null),
 }));
 
 const osSharesApi = vi.hoisted(() => ({
