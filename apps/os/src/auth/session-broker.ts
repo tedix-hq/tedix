@@ -180,14 +180,21 @@ export async function handleOsSessionBroker(
 	// authz: public — login-flow start: same-origin checked and redirects into the central broker.
 	if (url.pathname !== `${prefix}/start`) return null;
 	if (url.searchParams.get("operation") === "logout") {
+		const afterLogout = redirectPath(
+			url.searchParams.get("redirect_to"),
+			url.origin,
+		);
 		const response = await mounted.start({
 			operation: "logout",
 			// The CLI authorization page must retain its loopback callback params
 			// through an account switch, otherwise signing out abandons the pending
 			// terminal login. Product logout continues to land at the launcher.
-			redirectPath: cli
-				? redirectPath(url.searchParams.get("redirect_to"), url.origin)
-				: "/",
+			// The desktop app's sign-in page offers "Use a different account": it
+			// returns there with the app's key so the next person can confirm.
+			redirectPath:
+				cli || afterLogout.startsWith("/auth/desktop/sign-in?")
+					? afterLogout
+					: "/",
 			request,
 			tenantId: null,
 		});

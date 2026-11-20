@@ -10,6 +10,7 @@ import {
 	isDescopeFlowContinuation,
 } from "@/shared/session-status";
 import { BrokerLoginPage } from "@/account/account-login";
+import { postSessionTokenForm } from "@/account/identity-journey";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
 	AccountAuthProvider,
@@ -77,9 +78,14 @@ function FinishDesktopSignIn({ token }: { token: string }) {
 		window.history.replaceState(null, "", "/login");
 		void descope.magicLink.verify(token).then(
 			(result) => {
-				if (!result.ok || !result.data?.sessionJwt) return setFailed(true);
-				window.location.replace(
+				const sessionJwt = result.ok ? result.data?.sessionJwt : undefined;
+				if (!sessionJwt) return setFailed(true);
+				// Hand the new session to the broker the way every sign-in here
+				// does. Without it the broker picks from the cookies this window
+				// already holds, and an earlier account in the app can win.
+				postSessionTokenForm(
 					buildBrokerStartPath("/auth/session-broker", { redirectTo: "/" }),
+					sessionJwt,
 				);
 			},
 			() => setFailed(true),
@@ -91,9 +97,11 @@ function FinishDesktopSignIn({ token }: { token: string }) {
 			{failed ? (
 				<>
 					<p role="alert">
-						That sign-in could not be finished. It may have expired.
+						The Tedix app could not finish signing in. The step from your
+						browser works once and for two minutes. To try again, choose Sign In
+						with Browser in the Tedix menu.
 					</p>
-					<Link href="/">Sign in again</Link>
+					<Link href="/">Back to sign-in</Link>
 				</>
 			) : (
 				<>
@@ -139,11 +147,21 @@ export function ProductLoginPage() {
 	// session left on this device.
 	useEffect(() => void clearStoredAppFiles(), []);
 	const [continueHere, setContinueHere] = useState(false);
-	const [desktopToken] = useState(desktopSignInToken);
+	const [desktopToken, setDesktopToken] = useState(desktopSignInToken);
+	// When this page is already open at /login, the app's hand-over changes
+	// only the part after "#", which does not reload the page.
+	useEffect(() => {
+		const read = () => {
+			const token = desktopSignInToken();
+			if (token) setDesktopToken(token);
+		};
+		window.addEventListener("hashchange", read);
+		return () => window.removeEventListener("hashchange", read);
+	}, []);
 	if (desktopToken)
 		return (
 			<AccountAuthProvider>
-				<FinishDesktopSignIn token={desktopToken} />
+				<FinishDesktopSignIn key={desktopToken} token={desktopToken} />
 			</AccountAuthProvider>
 		);
 	if (!continueHere && isDesktopLinkInBrowser(window.location.href))
