@@ -27,6 +27,7 @@ import {
 } from "@tedix/api-contract/schemas/mcp-native-transport";
 import * as z from "zod";
 import { errorText } from "./format";
+import { workErrorReason } from "./work-error";
 import { retryRead } from "./read-retry";
 import { parseServerResponse } from "./server-response";
 import { NATIVE_DESCRIPTOR_CACHE_TTL_MS } from "./native-bootstrap-cache";
@@ -67,6 +68,7 @@ export function boardErrorFromValue(value: unknown): BoardError | undefined {
 			...(retryAfter !== undefined ? { retryAfter } : {}),
 			...(typeof value.status === "number" ? { status: value.status } : {}),
 			code: "GATEWAY_REJECTED",
+			reason: workErrorReason(value),
 			message: text ?? "gateway rejected the call",
 		};
 	}
@@ -80,6 +82,7 @@ export function boardErrorFromValue(value: unknown): BoardError | undefined {
 	return {
 		...(retryAfter !== undefined ? { retryAfter } : {}),
 		...(code ? { code } : {}),
+		reason: workErrorReason(value),
 		...(status !== undefined ? { status } : {}),
 		message: message ?? code ?? "board error",
 	};
@@ -650,6 +653,10 @@ export async function boardCall(
 			value: undefined,
 			error: {
 				message: errorText(error),
+				reason: workErrorReason(error),
+				...(isRecord(error) && typeof error.code === "string"
+					? { code: error.code }
+					: {}),
 				...(isRecord(error) &&
 				typeof error.retryAfter === "number" &&
 				Number.isFinite(error.retryAfter) &&

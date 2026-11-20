@@ -883,29 +883,93 @@ describe("canonical work lifecycle", () => {
 		expect(await runWork(`start ${ITEM}`, fixture.ctx)).toBe(2);
 	});
 
-	test("start reports the reason admission actually gave, not a live attempt", async () => {
-		// Admission answers CONFLICT for a reserved resource key, a stale
-		// specification revision and an exhausted budget as well as for a live
-		// attempt. Printing the live-attempt sentence for all of them sent the
-		// reader to `work context`, which shows a healthy item, instead of to the
-		// budget that refused.
-		const fixture = makeContext(
-			{},
-			undefined,
-			() => ({
-				defined: true,
+	test("start preserves admission codes in human and JSON failures", async () => {
+		for (const reason of [
+			"not_accepted",
+			"approval_blocked",
+			"budget_blocked",
+		]) {
+			for (const json of [false, true]) {
+				const fixture = makeContext(
+					{},
+					undefined,
+					() => ({
+						defined: true,
+						code: "CONFLICT",
+						status: 409,
+						message: "Admission refused",
+						data: { rejectionCode: reason },
+					}),
+					{ json },
+				);
+				const result = await capture(`start ${ITEM}`, fixture.ctx);
+				expect(result.code).toBe(WORK_EXIT_FAIL);
+				if (json) {
+					expect(JSON.parse(result.out[0]!)).toMatchObject({
+						reason,
+						message: "Admission refused",
+						nextCommands: [
+							`tedix work readiness ${ITEM}`,
+							`tedix work context ${ITEM}`,
+						],
+						error: { code: "CONFLICT", reason },
+					});
+				} else {
+					expect(result.err.join("\n")).toContain(`[${reason}]`);
+					expect(result.err.join("\n")).toContain(
+						`tedix work readiness ${ITEM}`,
+					);
+				}
+			}
+		}
+	});
+
+	test("thrown native errors retain their admission reason", async () => {
+		const { ctx } = makeContext({}, undefined, () => {
+			throw Object.assign(new Error("Refused"), {
 				code: "CONFLICT",
-				status: 409,
-				message: "Budget 9f2c lacks capacity",
-			}),
-			{ json: false },
-		);
-		const { code, err } = await capture(`start ${ITEM}`, fixture.ctx);
-		expect(code).toBe(WORK_EXIT_FAIL);
-		const line = err.join("\n");
-		expect(line).toContain("Budget 9f2c lacks capacity");
-		expect(line).not.toContain("already has a live attempt");
-		expect(line).toContain(`tedix work readiness ${ITEM}`);
+				data: { rejectionCode: "budget_blocked" },
+			});
+		});
+		const result = await capture(`start ${ITEM}`, ctx);
+		expect(result.code).toBe(WORK_EXIT_FAIL);
+		expect(JSON.parse(result.out[0]!)).toMatchObject({
+			reason: "budget_blocked",
+			message: "Refused",
+			error: { code: "CONFLICT" },
+		});
+	});
+
+	test("stale heartbeat prints its server code and recovery commands", async () => {
+		for (const json of [false, true]) {
+			const { ctx } = makeContext(
+				{},
+				ATTEMPT,
+				() => ({
+					code: "STALE_ATTEMPT",
+					status: 409,
+					message: "Lease expired",
+				}),
+				{ json },
+			);
+			const result = await capture(`heartbeat ${ITEM}`, ctx);
+			expect(result.code).toBe(WORK_EXIT_FAIL);
+			if (json)
+				expect(JSON.parse(result.out[0]!)).toMatchObject({
+					reason: "STALE_ATTEMPT",
+					message: "Lease expired",
+					nextCommands: [
+						`tedix work context ${ITEM}`,
+						`tedix work start ${ITEM}`,
+					],
+				});
+			else {
+				expect(result.err.join("\n")).toContain("[STALE_ATTEMPT]");
+				expect(result.err.join("\n")).toContain(
+					`Next: tedix work start ${ITEM}`,
+				);
+			}
+		}
 	});
 
 	test("start without an executor identity names the missing piece and the next command", async () => {
