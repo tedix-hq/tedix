@@ -264,8 +264,9 @@ experience. Their typed Outputs own content, revisions, source access and
 compare-and-swap writes; gadgets must not store another body. Every way of
 opening an output resolves to its gadget: `?workpiece=output:<id>` in a
 workspace, `/outputs/<id>`, Resources, chat links and receipts. An output with
-no gadget opens read-only with an action that attaches its editor
-(`installOutputEditor`); outputs outside a workspace stay readable at
+no gadget gets its editor attached (`installOutputEditor`) and opens in it
+when the person may attach one; otherwise it opens read-only with an action
+that attaches its editor. Outputs outside a workspace stay readable at
 `/outputs/<id>`. Read views (`OutputContentView`, share pages, exports) are
 not editors and stay.
 

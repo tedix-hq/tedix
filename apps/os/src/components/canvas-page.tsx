@@ -142,7 +142,12 @@ import {
 	workspaceResourcesQueryOptions,
 	workspaceOpenQueryOptions,
 } from "@/lib/os-query-options";
+import {
+	attachOutputEditor,
+	outputEditorKind,
+} from "@/lib/output-editor-attach";
 import { outputIdFromHref } from "@/lib/output-navigation";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
@@ -1856,6 +1861,90 @@ export function CanvasPage({
 		workspaceMissing,
 	});
 
+	/*
+	 * A file with no editor app yet opens straight in its editor for someone
+	 * who may attach one: the editor is attached first and takes the file's
+	 * tab. Everyone else, and a file whose editor could not be attached, gets
+	 * the read-only view.
+	 */
+	const operationalContext = useOsOperationalContext();
+	const canAttachEditor = (
+		operationalContext.data?.authority.permissions ?? []
+	).some(
+		(permission) =>
+			permission === "os:author" || permission === "settings:manage",
+	);
+	const [readOnlyOutputs, setReadOnlyOutputs] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
+	const attachingOutputsRef = useRef(new Set<string>());
+	const opensInEditor =
+		selectedDoc?.type === "output" &&
+		!readOnlyOutputs.has(selectedDoc.id) &&
+		(operationalContext.isPending || canAttachEditor);
+	const attachOutputId =
+		opensInEditor &&
+		canAttachEditor &&
+		outputEditorsReady &&
+		!outputEditors.has(selectedDoc.id)
+			? selectedDoc.id
+			: null;
+	useEffect(() => {
+		const attaching = attachingOutputsRef.current;
+		if (!workspaceId || !attachOutputId || attaching.has(attachOutputId))
+			return;
+		const outputId = attachOutputId;
+		attaching.add(outputId);
+		void (async () => {
+			const kind = outputEditorKind(
+				await queryClient.fetchQuery(outputDetailQueryOptions(outputId)),
+			);
+			if (!kind) throw new Error("This file has no editor.");
+			const gadgetId = await attachOutputEditor(
+				queryClient,
+				workspaceId,
+				outputId,
+				kind,
+			);
+			const outputKey = canvasDocKey({ type: "output", id: outputId });
+			const editor: CanvasWorkpieceSelection = { type: "gadget", id: gadgetId };
+			const tabs = openedDocsRef.current
+				.map((doc) => (canvasDocKey(doc) === outputKey ? editor : doc))
+				.filter(
+					(doc, at, all) =>
+						all.findIndex(
+							(other) => canvasDocKey(other) === canvasDocKey(doc),
+						) === at,
+				);
+			// The person closed the file or left while its editor was attached.
+			if (
+				!mountedRef.current ||
+				!tabs.some((doc) => canvasDocKey(doc) === canvasDocKey(editor))
+			)
+				return;
+			updateOpenedDocs(() => tabs);
+			setSelectedDoc((current) =>
+				current && canvasDocKey(current) === outputKey ? editor : current,
+			);
+			if (canvasSearch.workpiece === outputKey)
+				writeCanvasSearch(
+					{
+						...canvasSearch,
+						workpiece: canvasDocKey(editor),
+						workpieces: canvasDocsSearchValue(tabs),
+					},
+					true,
+				);
+		})()
+			.catch(() => {
+				setReadOnlyOutputs((current) => new Set(current).add(outputId));
+			})
+			.finally(() => {
+				attaching.delete(outputId);
+			});
+		// One attach per file: later renders must not restart it.
+	}, [attachOutputId, workspaceId]);
+
 	/* The file a selected app edits, when it is a Doc, Sheet or Slides editor. */
 	const selectedFileEditorKind = useMemo(() => {
 		if (selectedDoc?.type !== "gadget") return null;
@@ -2405,6 +2494,8 @@ export function CanvasPage({
 													<AppReviewRounds gadgetId={selectedDoc.id} />
 												)}
 											</div>
+										) : opensInEditor ? (
+											<CanvasStagePending />
 										) : selectedDoc.type === "output" ? (
 											<CanvasOutputView
 												key={canvasDocKey(selectedDoc)}
