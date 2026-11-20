@@ -133,6 +133,10 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"osWorkspaces/workspaces/create": createLocalWorkspace,
+	"osWorkspaces/workspaces/personal": () => ({
+		workspace: null,
+		created: false,
+	}),
 	"osWorkspaces/workspaces/createFromConversation": (input: {
 		conversationId: string;
 		name: string;

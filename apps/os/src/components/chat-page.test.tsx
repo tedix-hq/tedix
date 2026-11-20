@@ -23,12 +23,18 @@ const chatHarness = vi.hoisted(() => ({
 		| null
 		| ((content: string) => Promise<{ workspaceId: string }>),
 	onStartWorkspace: null as null | ((question: string) => Promise<void>),
+	onPickTedi: null as null | ((tediId: string, draft: string) => void),
+	onTediConversationCreated: null as null | ((conversationId: string) => void),
 }));
 
 const apiHarness = vi.hoisted(() => ({
 	createWorkspace: vi.fn(),
 	createFromConversation: vi.fn(),
 	readConversation: vi.fn(),
+	personal: { workspace: null, created: false } as {
+		workspace: { id: string; organizationId: string } | null;
+		created: boolean;
+	},
 	conversations: [] as Array<{
 		id: string;
 		title?: string;
@@ -104,7 +110,9 @@ vi.mock("@/components/chat-thread", () => ({
 		workspaceId,
 		detailsActions,
 		onStartWorkspace,
+		onPickTediForNewChat,
 	}: {
+		onPickTediForNewChat?: (tediId: string, draft: string) => void;
 		recoverPendingSend?: boolean;
 		workspaceId?: string;
 		detailsActions?: ReactNode;
@@ -123,6 +131,7 @@ vi.mock("@/components/chat-thread", () => ({
 		onStartWorkspace?: (question: string) => Promise<void>;
 	}) => {
 		chatHarness.onStartWorkspace = onStartWorkspace ?? null;
+		chatHarness.onPickTedi = onPickTediForNewChat ?? null;
 		chatHarness.onConversationCreated = onConversationCreated ?? null;
 		chatHarness.onConversationPrepared = onConversationPrepared ?? null;
 		chatHarness.prepareNewConversation = prepareNewConversation ?? null;
@@ -139,6 +148,33 @@ vi.mock("@/components/chat-thread", () => ({
 	},
 }));
 
+vi.mock("@/components/chat-tedi-thread", () => ({
+	ChatTediListFeed: () => null,
+	ChatTediThread: ({
+		workspaceId,
+		conversationId,
+		initialTediId,
+		initialDraft,
+		onConversationCreated,
+	}: {
+		workspaceId: string;
+		conversationId: string | null;
+		initialTediId: string | null;
+		initialDraft?: string;
+		onConversationCreated: (conversationId: string) => void;
+	}) => {
+		chatHarness.onTediConversationCreated = onConversationCreated;
+		return (
+			<div
+				data-tedi-thread={conversationId ?? "new"}
+				data-workspace-id={workspaceId}
+				data-tedi-id={initialTediId}
+				data-draft={initialDraft}
+			/>
+		);
+	},
+}));
+
 vi.mock("@/components/chat-webmcp-tools", () => ({
 	useChatWebMcpTools: () => undefined,
 }));
@@ -149,6 +185,7 @@ vi.mock("@/lib/api", () => ({
 			workspaces: {
 				create: apiHarness.createWorkspace,
 				createFromConversation: apiHarness.createFromConversation,
+				personal: async () => apiHarness.personal,
 			},
 		},
 	},
@@ -156,6 +193,18 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/lib/os-query-options", () => ({
 	osQuery: {
+		osWorkspaces: {
+			workspaces: {
+				personal: {
+					queryKey: () => ["personal-workspace"],
+					queryOptions: () => ({
+						queryKey: ["personal-workspace"],
+						queryFn: async () => apiHarness.personal,
+						enabled: true,
+					}),
+				},
+			},
+		},
 		kernelRuntime: {
 			listConversations: {
 				queryOptions: ({ input }: { input: { conversationId: string } }) => ({
@@ -211,6 +260,9 @@ afterEach(async () => {
 	apiHarness.createWorkspace.mockReset();
 	apiHarness.createFromConversation.mockReset();
 	apiHarness.conversations = [];
+	apiHarness.personal = { workspace: null, created: false };
+	chatHarness.onPickTedi = null;
+	chatHarness.onTediConversationCreated = null;
 });
 
 async function mountPage(): Promise<HTMLElement> {
@@ -586,5 +638,35 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 		).rejects.toThrow("Not allowed");
 		expect(routing.navigate).not.toHaveBeenCalled();
 		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBeNull();
+	});
+});
+
+describe("ChatPage chat with a picked tedi", () => {
+	it("runs it in the private workspace and links it as a ws: conversation", async () => {
+		apiHarness.personal = {
+			workspace: { id: WORKSPACE_ID, organizationId: "org-1" },
+			created: false,
+		};
+		const host = await mountPage();
+		await act(async () => chatHarness.onPickTedi?.("tedi-1", "Draft so far"));
+
+		const thread = host.querySelector("[data-tedi-thread]") as HTMLElement;
+		expect(thread.dataset.tediThread).toBe("new");
+		expect(thread.dataset.workspaceId).toBe(WORKSPACE_ID);
+		expect(thread.dataset.tediId).toBe("tedi-1");
+		expect(thread.dataset.draft).toBe("Draft so far");
+		expect(host.querySelector("[data-chat-thread]")).toBeNull();
+
+		await act(async () => chatHarness.onTediConversationCreated?.("c1"));
+		expect(routing.navigate).toHaveBeenCalledWith({
+			to: "/chat",
+			search: { conversation: `ws:${WORKSPACE_ID}:c1` },
+			replace: true,
+		});
+		expect(
+			host
+				.querySelector("[data-tedi-thread]")
+				?.getAttribute("data-tedi-thread"),
+		).toBe("c1");
 	});
 });

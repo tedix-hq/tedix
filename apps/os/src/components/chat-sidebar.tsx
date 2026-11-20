@@ -569,12 +569,18 @@ export function ChatSidebar({
 	activeConversationId,
 	onSelect,
 	workspaceId,
+	extraConversations,
 }: {
 	/** `null` means the synthetic "new conversation" state (no thread yet). */
 	activeConversationId: string | null;
 	onSelect: (conversationId: string | null) => void;
 	/** When present, list only conversations durably associated with this Workspace. */
 	workspaceId?: string;
+	/**
+	 * Conversations kept somewhere else (chats with a picked tedi), listed with
+	 * the Home ones by recency. They have no row menu here.
+	 */
+	extraConversations?: readonly HomeConversation[];
 }) {
 	const queryClient = useQueryClient();
 	const workspaces = useQuery({
@@ -599,15 +605,27 @@ export function ChatSidebar({
 	const conversations = useInfiniteQuery(
 		conversationListQueryOptions(workspaceId, showArchived, normalizedSearch),
 	);
-	const sorted = useMemo(() => {
+	const merged = useMemo(() => {
 		const byId = new Map<string, HomeConversation>();
 		for (const page of conversations.data?.pages ?? []) {
 			for (const conversation of page.conversations) {
 				byId.set(conversation.id, conversation);
 			}
 		}
-		return sortConversations([...byId.values()]);
-	}, [conversations.data]);
+		const extraIds = new Set<string>();
+		const query = normalizedSearch?.toLowerCase();
+		for (const conversation of extraConversations ?? []) {
+			if (
+				query &&
+				!conversationTitle(conversation).toLowerCase().includes(query)
+			)
+				continue;
+			extraIds.add(conversation.id);
+			byId.set(conversation.id, conversation);
+		}
+		return { rows: sortConversations([...byId.values()]), extraIds };
+	}, [conversations.data, extraConversations, normalizedSearch]);
+	const { rows: sorted, extraIds } = merged;
 	const grouped = useMemo(() => groupConversationsByRecency(sorted), [sorted]);
 	const invalidate = () =>
 		Promise.all([
@@ -896,7 +914,11 @@ export function ChatSidebar({
 													rename.variables?.conversationId === conversation.id)
 											}
 											onSelect={(id) => onSelect(id)}
-											menu={renderMenu(conversation)}
+											menu={
+												extraIds.has(conversation.id)
+													? undefined
+													: renderMenu(conversation)
+											}
 										/>
 									))}
 								</ul>
