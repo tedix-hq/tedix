@@ -9,6 +9,12 @@ import { chunkForBoundParams } from "../../utils/batch";
 
 export type RunCreditTotal = { credits: number; chargeCount: number };
 
+type RunCreditParams = {
+	organizationId: string;
+	runIds: readonly string[];
+	workspaceChat?: { workspaceId: string; periodStart: string };
+};
+
 /**
  * Tedix credits recorded for AI calls whose reservation belongs to one of
  * `runIds`, per run. An AI consumption's `source_ref` is its settled charge,
@@ -17,10 +23,11 @@ export type RunCreditTotal = { credits: number; chargeCount: number };
  */
 export async function sumRunCreditsByRun(
 	db: DbClient,
-	input: { organizationId: string; runIds: readonly string[] },
+	input: RunCreditParams,
 ): Promise<Map<string, RunCreditTotal>> {
 	const byRun = new Map<string, RunCreditTotal>();
-	// One bound parameter for the organization plus the run ids per statement.
+	const workspaceChat = input.workspaceChat;
+	// Leave room for the organization and any workspace and period filters.
 	for (const runIds of chunkForBoundParams([...new Set(input.runIds)], 90)) {
 		const rows = await db
 			.select({
@@ -54,6 +61,16 @@ export async function sumRunCreditsByRun(
 					eq(billingCreditConsumptions.organizationId, input.organizationId),
 					eq(billingCreditConsumptions.kind, "ai"),
 					inArray(billingUsageReservations.runId, runIds),
+					workspaceChat
+						? and(
+								eq(
+									billingCreditConsumptions.periodStart,
+									workspaceChat.periodStart,
+								),
+								sql`json_extract(${billingUsageReservations.metadata}, '$.source') = 'workspace_chat'`,
+								sql`json_extract(${billingUsageReservations.metadata}, '$.workspaceId') = ${workspaceChat.workspaceId}`,
+							)
+						: undefined,
 				),
 			)
 			.groupBy(billingUsageReservations.runId);
@@ -71,7 +88,7 @@ export async function sumRunCreditsByRun(
 /** Tedix credits recorded for AI calls of all `runIds`, summed. */
 export async function sumRunCredits(
 	db: DbClient,
-	input: { organizationId: string; runIds: readonly string[] },
+	input: RunCreditParams,
 ): Promise<RunCreditTotal> {
 	let credits = 0;
 	let chargeCount = 0;

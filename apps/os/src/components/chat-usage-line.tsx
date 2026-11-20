@@ -3,8 +3,11 @@ import { useEffect, useRef } from "react";
 import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
 import type { AllowanceUsage } from "@/lib/billing-credits";
-import { homeConversationChargesQueryOptions } from "@/lib/os-query-options";
-import { useCreditShare } from "@/lib/use-credit-share";
+import {
+	homeConversationChargesQueryOptions,
+	workspaceConversationChargesQueryOptions,
+} from "@/lib/os-query-options";
+import { useCanReadBilling, useCreditShare } from "@/lib/use-credit-share";
 
 /** The quiet line's words, exported for tests. */
 export function conversationUsageText(usage: AllowanceUsage): string {
@@ -21,25 +24,45 @@ export function conversationUsageText(usage: AllowanceUsage): string {
 export function ConversationUsageLine({
 	conversationId,
 	settledRunCount,
+	workspaceId,
 }: {
 	conversationId: string;
+	workspaceId?: string;
 	/** Runs that have finished; a change means new charges may have settled. */
 	settledRunCount: number;
 }) {
-	const charges = useQuery({
+	const canReadBilling = useCanReadBilling();
+	const homeCharges = useQuery({
 		...homeConversationChargesQueryOptions(conversationId),
+		enabled: canReadBilling && workspaceId === undefined,
 		staleTime: 30_000,
 	});
+	const workspaceCharges = useQuery({
+		...workspaceConversationChargesQueryOptions(
+			workspaceId ?? "",
+			conversationId,
+		),
+		enabled: canReadBilling && workspaceId !== undefined,
+		staleTime: 30_000,
+		// Workspace turns can finish before gateway reconciliation settles them.
+		refetchInterval: 30_000,
+	});
+	const charges = workspaceId === undefined ? homeCharges : workspaceCharges;
 	const lastCount = useRef(settledRunCount);
 	const { refetch } = charges;
 	useEffect(() => {
 		if (lastCount.current === settledRunCount) return;
 		lastCount.current = settledRunCount;
-		void refetch();
-	}, [settledRunCount, refetch]);
+		if (canReadBilling) void refetch();
+	}, [canReadBilling, settledRunCount, refetch]);
 	const settled =
-		charges.data && charges.data.chargeCount > 0 ? charges.data.credits : null;
-	const usage = useCreditShare(settled);
+		!charges.isError && charges.data && charges.data.chargeCount > 0
+			? charges.data.credits
+			: null;
+	const usage = useCreditShare(
+		settled,
+		workspaceId === undefined ? undefined : workspaceCharges.data?.periodStart,
+	);
 
 	if (!usage) return null;
 	return (

@@ -1082,66 +1082,9 @@ export function elapsedLabel(ms: number): string {
 	return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
 }
 
-/** A finished turn's cost, or nothing when none was recorded. Never a made-up zero. */
-export function formatTurnCost(usage: TurnUsage | undefined): string | null {
-	if (usage?.costUsd === undefined || !Number.isFinite(usage.costUsd))
-		return null;
-	return usage.costUsd > 0 && usage.costUsd < 0.0001
-		? "Cost <$0.0001"
-		: `Cost $${usage.costUsd.toFixed(4)}`;
-}
-
-function formatUsd(cost: number, digits: number): string {
-	if (cost >= 1) return `$${cost.toFixed(2)}`;
-	const floor = 10 ** -digits;
-	if (cost > 0 && cost < floor) return `<$${floor.toFixed(digits)}`;
-	return `$${cost.toFixed(digits)}`;
-}
-
-/**
- * The cost part of a running total, or nothing when no reply has a price.
- * A trailing "+" says some replies have no price, so the total is higher.
- */
-function formatTotalCost(totals: UsageTotals, digits: number): string | null {
-	if (totals.costUsd === undefined || !Number.isFinite(totals.costUsd))
-		return null;
-	return `${formatUsd(totals.costUsd, digits)}${totals.unpricedReplies ? "+" : ""}`;
-}
-
-/** Why a total carries a "+", for its tooltip. */
-export function usageTotalsNote(totals: UsageTotals): string | null {
-	return totals.costUsd !== undefined && totals.unpricedReplies
-		? "Some replies have no price, so the cost shown covers only the priced ones."
-		: null;
-}
-
-/** "24,399 tokens · $0.047" for a conversation; tokens only when unpriced. */
-export function formatConversationUsage(
-	totals: UsageTotals | null,
-): string | null {
-	if (!totals) return null;
-	const tokens = totals.inputTokens + totals.outputTokens;
-	const cost = formatTotalCost(totals, 3);
-	if (tokens === 0 && cost === null) return null;
-	return [`${tokens.toLocaleString()} tokens`, cost]
-		.filter(Boolean)
-		.join(" · ");
-}
-
-/** The workspace's spend so far ("$0.09"), or its tokens when unpriced. */
-export function formatWorkspaceUsage(
-	totals: UsageTotals | null,
-): string | null {
-	if (!totals) return null;
-	const cost = formatTotalCost(totals, 2);
-	if (cost) return cost;
-	const tokens = totals.inputTokens + totals.outputTokens;
-	return tokens > 0 ? `${tokens.toLocaleString()} tokens` : null;
-}
-
 /** What is known about a finished turn. Missing parts are left out. */
 export function turnDetails(
-	turn: Pick<ChatTurn, "durationMs" | "usage">,
+	turn: Pick<ChatTurn, "durationMs">,
 	modelLabel?: string | null,
 ): string[] {
 	return [
@@ -1149,25 +1092,5 @@ export function turnDetails(
 			? `Took ${elapsedLabel(turn.durationMs)}`
 			: null,
 		modelLabel || null,
-		turn.usage ? formatUsage(turn.usage) : null,
-		formatTurnCost(turn.usage),
 	].filter((part): part is string => Boolean(part));
-}
-
-/** Token counts, or nothing when the provider reported none. */
-export function formatUsage(usage: TurnUsage): string | null {
-	// Older runtimes wrote zeroes when no provider usage was available.
-	if (
-		usage.partial === undefined &&
-		usage.inputTokens === 0 &&
-		usage.outputTokens === 0
-	)
-		return null;
-	const parts = [
-		`${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output tokens`,
-	];
-	if (usage.cachedInputTokens !== undefined)
-		parts.push(`${usage.cachedInputTokens.toLocaleString()} cached input`);
-	if (usage.partial) parts.push("partial usage");
-	return parts.join(" · ");
 }

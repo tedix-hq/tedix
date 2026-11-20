@@ -5,6 +5,7 @@ import { allowanceShare, type CreditUsage } from "@/lib/billing-credits";
 import {
 	billingOverviewQueryOptions,
 	homeConversationChargesQueryOptions,
+	operationalContextQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	ConversationUsageLine,
@@ -31,6 +32,9 @@ function render(
 ) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { enabled: false, retry: false } },
+	});
+	client.setQueryData<unknown>(operationalContextQueryOptions().queryKey, {
+		authority: { permissions: withCredits ? ["billing:read"] : [] },
 	});
 	if (data)
 		client.setQueryData(

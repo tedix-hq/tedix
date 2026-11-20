@@ -236,6 +236,7 @@ CREATE TABLE IF NOT EXISTS turns (
 	error TEXT,
 	first_seq INTEGER
 );
+CREATE INDEX IF NOT EXISTS turns_conversation ON turns(conversation_id);
 CREATE TABLE IF NOT EXISTS approvals (
 	approval_id TEXT PRIMARY KEY,
 	turn_id TEXT NOT NULL,
@@ -1830,6 +1831,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				...(usage.has(row.id) ? { usage: usage.get(row.id) } : {}),
 				...(starters.has(row.id) ? { startedBy: starters.get(row.id) } : {}),
 			}));
+	}
+
+	listConversationTurnIds(scope: WorkspaceScope, conversationId: string) {
+		this.bindScope(scope);
+		return this.#store
+			.exec<{ turn_id: string }>(
+				"SELECT turn_id FROM turns WHERE conversation_id = ?",
+				conversationId,
+			)
+			.map((row) => row.turn_id);
 	}
 
 	readTurn(scope: WorkspaceScope, turnId: string) {
@@ -4736,6 +4747,10 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		input?: { before?: number | null; limit?: number },
 	): Promise<WireEvent[]>;
 	listConversations(scope: WorkspaceScope): Promise<ConversationSummary[]>;
+	listConversationTurnIds(
+		scope: WorkspaceScope,
+		conversationId: string,
+	): Promise<string[]>;
 	readTurn(
 		scope: WorkspaceScope,
 		turnId: string,

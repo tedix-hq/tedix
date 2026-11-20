@@ -3206,3 +3206,14 @@ export const OsArchivedPurgeResultSchema = z.object({
 	conversations: OsArchivedPurgeKindResultSchema.optional(),
 });
 export type OsArchivedPurgeResult = z.infer<typeof OsArchivedPurgeResultSchema>;
+
+export const WorkspaceConversationChargesInputSchema = z.object({
+	workspaceId: z.uuid(),
+	conversationId: z.string().min(1).max(256),
+});
+
+export const WorkspaceConversationChargesSchema = z.object({
+	periodStart: z.string().nullable(),
+	credits: z.number().int().nonnegative(),
+	chargeCount: z.number().int().nonnegative(),
+});

@@ -7,10 +7,6 @@ import {
 	applyWorkspaceChatEvents,
 	conversationUsage,
 	elapsedLabel,
-	formatConversationUsage,
-	formatTurnCost,
-	formatUsage,
-	formatWorkspaceUsage,
 	initialWorkspaceChatState,
 	markPendingSend,
 	messageAccepted,
@@ -18,7 +14,6 @@ import {
 	setConversations,
 	setWorkspaceUsage,
 	turnDetails,
-	usageTotalsNote,
 	waitingForDecision,
 } from "./workspace-chat-state";
 
@@ -464,36 +459,12 @@ describe("applyWorkspaceChatEvent", () => {
 });
 
 describe("labels", () => {
-	it("formats elapsed time and usage plainly", () => {
-		expect(elapsedLabel(4_200)).toBe("4s");
+	it("formats elapsed time and shows available turn details", () => {
 		expect(elapsedLabel(125_000)).toBe("2m 05s");
-		expect(formatUsage({ inputTokens: 2000, outputTokens: 500 })).toBe(
-			"2,000 input · 500 output tokens",
-		);
-	});
-
-	it("leaves out what a finished turn did not record", () => {
-		expect(formatTurnCost(undefined)).toBeNull();
-		expect(
-			formatTurnCost({ inputTokens: 1, outputTokens: 1, costUsd: 0.0123 }),
-		).toBe("Cost $0.0123");
 		expect(turnDetails({})).toEqual([]);
-		expect(
-			turnDetails({ usage: { inputTokens: 0, outputTokens: 0 } }, null),
-		).toEqual([]);
-		expect(
-			turnDetails(
-				{
-					durationMs: 4_200,
-					usage: { inputTokens: 2000, outputTokens: 500, costUsd: 0.0123 },
-				},
-				"mock",
-			),
-		).toEqual([
+		expect(turnDetails({ durationMs: 4_200 }, "mock")).toEqual([
 			"Took 4s",
 			"mock",
-			"2,000 input · 500 output tokens",
-			"Cost $0.0123",
 		]);
 	});
 });
@@ -540,14 +511,6 @@ it("model and cumulative usage converge when progress arrives after completion",
 			partial: true,
 		});
 	}
-	expect(
-		formatUsage({
-			inputTokens: 20,
-			outputTokens: 4,
-			cachedInputTokens: 10,
-			partial: true,
-		}),
-	).toBe("20 input · 4 output tokens · 10 cached input · partial usage");
 });
 
 it("keeps final receipts authoritative when facet progress gets a later ledger sequence", () => {
@@ -582,10 +545,6 @@ it("keeps final receipts authoritative when facet progress gets a later ledger s
 		});
 		expect(state.turns[0]?.model).toBe("provider-snapshot");
 	}
-	expect(formatUsage({ inputTokens: 0, outputTokens: 0 })).toBeNull();
-	expect(formatUsage({ inputTokens: 0, outputTokens: 0, partial: false })).toBe(
-		"0 input · 0 output tokens",
-	);
 });
 
 describe("usage totals", () => {
@@ -635,10 +594,12 @@ describe("usage totals", () => {
 		});
 		state = applyWorkspaceChatEvent(state, live);
 		state = applyWorkspaceChatEvents(state, [live]);
-		expect(formatConversationUsage(conversationUsage(state))).toBe(
-			"24,399 tokens · $0.047",
-		);
-		expect(formatWorkspaceUsage(state.usage)).toBe("$0.09");
+		expect(conversationUsage(state)).toEqual({
+			inputTokens: 20_000,
+			outputTokens: 4_399,
+			costUsd: 0.047,
+		});
+		expect(state.usage?.costUsd).toBeCloseTo(0.087);
 
 		// A reply in another conversation counts toward the workspace only.
 		state = applyWorkspaceChatEvent(
@@ -744,42 +705,8 @@ describe("usage totals", () => {
 		expect(conversationUsage(state)).toEqual(usage);
 	});
 
-	it("shows tokens only when no reply has a price, and marks a partial price", () => {
-		const unpriced = addUsage(null, {
-			inputTokens: 1_200,
-			outputTokens: 34,
-			costUnavailable: "no price for this model",
-		});
-		expect(unpriced).toEqual({
-			inputTokens: 1_200,
-			outputTokens: 34,
-			unpricedReplies: 1,
-		});
-		expect(formatConversationUsage(unpriced)).toBe("1,234 tokens");
-		expect(formatWorkspaceUsage(unpriced)).toBe("1,234 tokens");
-		expect(usageTotalsNote(unpriced!)).toBeNull();
-
-		const mixed = addUsage(unpriced, {
-			inputTokens: 100,
-			outputTokens: 0,
-			costUsd: 0.00002,
-		});
-		expect(formatConversationUsage(mixed)).toBe("1,334 tokens · <$0.001+");
-		expect(formatWorkspaceUsage(mixed)).toBe("<$0.01+");
-		expect(usageTotalsNote(mixed!)).toMatch(/no price/);
-		expect(
-			formatWorkspaceUsage({
-				inputTokens: 1,
-				outputTokens: 1,
-				costUsd: 12.345,
-			}),
-		).toBe("$12.35");
-	});
-
 	it("ignores old zero receipts and hides when nothing was used", () => {
 		expect(addUsage(null, { inputTokens: 0, outputTokens: 0 })).toBeNull();
-		expect(formatConversationUsage(null)).toBeNull();
-		expect(formatWorkspaceUsage(null)).toBeNull();
 		expect(conversationUsage(initialWorkspaceChatState(null))).toBeNull();
 	});
 });

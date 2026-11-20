@@ -416,6 +416,14 @@ export const homeConversationChargesQueryOptions = (conversationId: string) =>
 		input: { conversationId },
 	});
 
+export const workspaceConversationChargesQueryOptions = (
+	workspaceId: string,
+	conversationId: string,
+) =>
+	osQuery.osWorkspaces.workspaces.conversationCharges.queryOptions({
+		input: { workspaceId, conversationId },
+	});
+
 export const pendingHomeDelegationsQueryOptions = (workspaceId?: string) =>
 	osQuery.kernelRuntime.listPendingHomeDelegations.queryOptions({
 		input: workspaceId ? { workspaceId } : {},

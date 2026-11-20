@@ -137,6 +137,12 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 	listConversations(scope: WorkspaceScope) {
 		return stubFor(this.env, scope).listConversations(scope);
 	}
+	listConversationTurnIds(scope: WorkspaceScope, conversationId: string) {
+		return stubFor(this.env, scope).listConversationTurnIds(
+			scope,
+			conversationId,
+		);
+	}
 	readTurn(scope: WorkspaceScope, turnId: string) {
 		return stubFor(this.env, scope).readTurn(scope, turnId);
 	}

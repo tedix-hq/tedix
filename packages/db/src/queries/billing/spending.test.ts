@@ -52,6 +52,58 @@ function fixture() {
 }
 
 describe("credits per run", () => {
+	it("scopes workspace chat charges to its settled turns and billing period", async () => {
+		const f = fixture();
+		try {
+			const workspaceChat = { workspaceId: "own-workspace", periodStart: from };
+			const setMetadata = f.sqlite.prepare(
+				"UPDATE billing_usage_reservations SET metadata = ? WHERE id = ?",
+			);
+			setMetadata.run(
+				JSON.stringify({
+					source: "workspace_chat",
+					workspaceId: "own-workspace",
+				}),
+				"hold",
+			);
+			setMetadata.run(
+				JSON.stringify({
+					source: "workspace_chat",
+					workspaceId: "other-workspace",
+				}),
+				"second-hold",
+			);
+			f.charge("own-charge", 3);
+			f.charge("outside-period", 4);
+			f.charge("unsettled-charge", 20, { consumed: false });
+			f.charge("other-workspace", 100, { hold: "second-hold" });
+			f.sqlite
+				.prepare(
+					"UPDATE billing_credit_consumptions SET period_start = ? WHERE source_ref = ?",
+				)
+				.run("2026-09-01T00:00:00.000Z", "outside-period");
+			const input = {
+				organizationId: "own",
+				runIds: ["own-run", "second-run"],
+				workspaceChat,
+			};
+			expect(await sumRunCredits(f.db, input)).toEqual({
+				credits: 3,
+				chargeCount: 1,
+			});
+			setMetadata.run(
+				JSON.stringify({ source: "home_chat", workspaceId: "own-workspace" }),
+				"hold",
+			);
+			expect(await sumRunCredits(f.db, input)).toEqual({
+				credits: 0,
+				chargeCount: 0,
+			});
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
 	it("sums AI credit consumptions per run and leaves runs without any out", async () => {
 		const f = fixture();
 		try {
