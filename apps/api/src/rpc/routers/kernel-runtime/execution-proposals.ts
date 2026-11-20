@@ -432,6 +432,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					? createVoiceBilling({
 							env: context.env,
 							organizationId,
+							userId:
+								context.authType === "user" ? context.user?.sub : undefined,
 							source: "kernel",
 						})
 					: undefined,

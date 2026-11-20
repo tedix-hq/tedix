@@ -62,6 +62,8 @@ import {
 	withVoiceInput,
 } from "agents/voice";
 
+import { ACTING_USER_HEADER } from "./mcp-authorization";
+import { billStreamingTranscription } from "./voice-billing";
 import { recordVoiceProviderUsage } from "./voice-provider-usage-client";
 import {
 	logTediVoiceEvent,
@@ -73,6 +75,7 @@ interface VoiceInputContext {
 	slug: string;
 	tediId: string;
 	organizationId: string;
+	userId?: string;
 	callId: string;
 	connectedAt: number;
 	providerStartedAt?: number;
@@ -99,12 +102,6 @@ export class VoiceInputDO extends VoiceInputBase {
 	 */
 	static options = { hibernate: false, sendIdentityOnConnect: false };
 
-	// Flux is the currently proven Workers AI streaming provider. Nova-3
-	// returns stt_startup_failed before accepting PCM in production.
-	transcriber = ((): Transcriber => {
-		return new WorkersAIFluxSTT(this.rawAi(), { eotTimeoutMs: 3000 });
-	})();
-
 	/**
 	 * Instrumented transcriber wrapper (mirrors `VoiceCallDO.createTranscriber`):
 	 * proves whether PCM reaches the STT session (`stt.feed`) and whether the
@@ -112,13 +109,20 @@ export class VoiceInputDO extends VoiceInputBase {
 	 * silent-session failure mode is invisible without this.
 	 *
 	 * Composition (inner → outer):
-	 *   WorkersAINova3STT  (raw Workers AI session — manages the outbound WS)
+	 *   WorkersAIFluxSTT  (raw Workers AI session — manages the outbound WS)
 	 *     → SelfHealingSession  (watchdog + rolling buffer + reconnect on stall)
 	 *         → logging wrapper below  (stt.feed / stt.interim / stt.utterance)
 	 */
 	override createTranscriber(connection: Connection): Transcriber | null {
+		const actor = this.#ctxByConn.get(connection.id);
+		const ai = billStreamingTranscription(
+			this.rawAi(() => actor?.organizationId ?? ""),
+			this.env,
+			actor,
+			(work) => this.ctx.waitUntil(work),
+		);
 		return createInstrumentedVoiceTranscriber({
-			base: this.transcriber,
+			base: new WorkersAIFluxSTT(ai, { eotTimeoutMs: 3000 }),
 			fields: () => ({
 				conn: connection.id,
 				slug: this.#ctxByConn.get(connection.id)?.slug ?? "unknown",
@@ -136,7 +140,6 @@ export class VoiceInputDO extends VoiceInputBase {
 	 * drop without end_call) — a crashed tab never deadlocks the DO.
 	 */
 	#speakerGate = new SingleSpeakerGate();
-	#activeOrganizationId: string | null = null;
 
 	/**
 	 * Provider attribution captured from the authenticated WS upgrade.
@@ -193,6 +196,7 @@ export class VoiceInputDO extends VoiceInputBase {
 				slug,
 				tediId,
 				organizationId,
+				userId: ctx.request.headers.get(ACTING_USER_HEADER) ?? undefined,
 				callId: `voice-input-${this.name}-${connection.id}-${Date.now()}`,
 				connectedAt: Date.now(),
 			});
@@ -229,8 +233,6 @@ export class VoiceInputDO extends VoiceInputBase {
 			log: (event, fields) => this.#vlog(event, fields),
 		});
 		if (!claimed) return false;
-		this.#activeOrganizationId =
-			this.#ctxByConn.get(connection.id)?.organizationId ?? null;
 		this.#vlog("call.start", { conn: connection.id, slug });
 		return true;
 	}
@@ -271,7 +273,12 @@ export class VoiceInputDO extends VoiceInputBase {
 		ctx: VoiceInputContext,
 		endedAt: number,
 	): Promise<void> {
-		if (!ctx.providerStartedAt || ctx.sttRecorded) return;
+		if (
+			this.env.TEDIX_BILLING_SETTLEMENT_MODE === "managed" ||
+			!ctx.providerStartedAt ||
+			ctx.sttRecorded
+		)
+			return;
 		ctx.sttRecorded = true;
 		if (!ctx.organizationId) {
 			logTediVoiceEvent("voice-input", "voice.input_usage_org_missing");
@@ -298,8 +305,7 @@ export class VoiceInputDO extends VoiceInputBase {
 	 * Hook called on explicit `end_call`. Clear the speaker slot.
 	 */
 	override async onCallEnd(connection: Connection): Promise<void> {
-		if (this.#speakerGate.release(connection))
-			this.#activeOrganizationId = null;
+		this.#speakerGate.release(connection);
 		const context = this.#ctxByConn.get(connection.id);
 		if (context) await this.#recordSttUsage(context, Date.now());
 		const slug = context?.slug ?? "unknown";
@@ -318,7 +324,6 @@ export class VoiceInputDO extends VoiceInputBase {
 	override onClose(connection: Connection, ...rest: unknown[]): void {
 		const context = this.#ctxByConn.get(connection.id);
 		if (this.#speakerGate.release(connection)) {
-			this.#activeOrganizationId = null;
 			this.#vlog("call.speaker_slot_cleared", {
 				conn: connection.id,
 				reason: "socket_close",
@@ -338,18 +343,14 @@ export class VoiceInputDO extends VoiceInputBase {
 	}
 
 	/**
-	 * Raw AI binding — required for Nova 3's WebSocket STT session.
+	 * Raw AI binding — required for Flux's WebSocket STT session.
 	 * AI Gateway does not proxy WebSocket connections so we bypass it here.
 	 */
-	private rawAi(): AiRunner {
+	private rawAi(organizationId: () => string): AiRunner {
 		const ai = (this.env as { AI?: AiRunner }).AI;
 		if (!ai) {
 			throw new Error("[VoiceInputDO] AI binding unavailable");
 		}
-		return unrestrictedModelAi(
-			this.env,
-			ai,
-			() => this.#activeOrganizationId ?? "",
-		);
+		return unrestrictedModelAi(this.env, ai, organizationId);
 	}
 }

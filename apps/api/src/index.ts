@@ -112,6 +112,39 @@ async function serveFetch(
  * unreachable from a public request.
  */
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
+	async reserveRuntimeVoice(
+		input: import("@tedix/voice/billing").RuntimeVoiceAdmission,
+	): Promise<import("@tedix/voice/billing").RuntimeVoiceAdmissionResult> {
+		const { reserveVoiceUsage, VoiceCreditRefusal } =
+			await import("./services/voice-billing");
+		try {
+			const reservationId = await reserveVoiceUsage(
+				this.env,
+				{ ...input, source: "operator" },
+				input.attempt,
+				new Date().toISOString(),
+			);
+			return { reservationId };
+		} catch (error) {
+			if (!(error instanceof VoiceCreditRefusal)) throw error;
+			return {
+				refusal: {
+					code: error.code,
+					message: error.message,
+					scope: error.scope,
+				},
+			};
+		}
+	}
+
+	async finishRuntimeVoice(
+		input: import("@tedix/voice/billing").RuntimeVoiceCompletion,
+	) {
+		const { finishRuntimeVoiceUsage } =
+			await import("./services/voice-billing");
+		await finishRuntimeVoiceUsage(this.env, input);
+	}
+
 	override fetch(request: Request): Promise<Response> {
 		if (
 			new URL(request.url).pathname === "/__internal/identity-cache/invalidate"

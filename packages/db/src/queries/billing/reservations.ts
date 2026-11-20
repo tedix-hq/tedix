@@ -44,6 +44,27 @@ import {
 } from "./credit-pool";
 import { findProviderModelRates } from "./provider-model-rates";
 
+export async function getVoiceBillingReservation(
+	db: DbClient,
+	input: { organizationId: string; reservationId: string },
+) {
+	const [row] = await db
+		.select()
+		.from(billingUsageReservations)
+		.where(
+			and(
+				eq(billingUsageReservations.organizationId, input.organizationId),
+				eq(billingUsageReservations.id, input.reservationId),
+				eq(
+					billingUsageReservations.idempotencyKey,
+					`voice:${input.reservationId}`,
+				),
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
 export async function listBillingUsageReservations(
 	db: DbClient,
 	params: {

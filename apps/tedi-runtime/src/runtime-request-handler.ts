@@ -203,7 +203,7 @@ export interface RuntimeRequestHost {
 	resolveAttachmentTurn: (
 		userText: string,
 		attachments: AudioAttachment[] | undefined,
-		turn?: { runId: string; sessionKey: string },
+		turn?: { runId: string; sessionKey: string; actingUserId?: string },
 	) => Promise<{ content: string; images: TurnImagePart[] }>;
 	prepareWorkflowImages: (
 		runId: string,
@@ -969,6 +969,7 @@ export async function handleRuntimeRequest(
 							resolved = await host.resolveAttachmentTurn(text, attachments, {
 								runId,
 								sessionKey,
+								actingUserId,
 							});
 						} catch (e) {
 							const error =
@@ -1909,6 +1910,7 @@ export async function handleRuntimeRequest(
 				text,
 				clientRequestId,
 				origin: "voice",
+				actingUserId: actingMemberForRequest(request),
 			});
 		} catch (err) {
 			return Response.json(

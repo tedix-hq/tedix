@@ -89,6 +89,8 @@ export const voiceContractRouter = voiceOs.router({
 							env: context.env,
 							organizationId,
 							tediId,
+							userId:
+								context.authType === "user" ? context.user?.sub : undefined,
 							source: tediId ? "operator" : "kernel",
 						}),
 					},

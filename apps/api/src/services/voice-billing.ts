@@ -14,9 +14,10 @@
  * That refusal lets the next provider run; credit refusals end the call.
  */
 
-import { createDbClient } from "@tedix/db/client";
+import { createDbClient, type DbClient } from "@tedix/db/client";
 import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
 import {
+	getVoiceBillingReservation,
 	releaseBillingReservation,
 	reserveBillingUsage,
 } from "@tedix/db/queries/billing/reservations";
@@ -26,7 +27,7 @@ import type { RuntimeEntitlementDenialCode } from "@tedix/api-contract/schemas/r
 import {
 	type VoiceBilling,
 	type VoiceBillingAttempt,
-	type VoiceBillingHold,
+	type VoiceUsageMeasurement,
 	VoiceBillingRefusal,
 } from "@tedix/voice/billing";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
@@ -86,105 +87,175 @@ function assertQuantity(value: number, label: string): void {
 		throw new Error(`Invalid voice ${label}: ${value}`);
 }
 
-/**
- * Voice admission for one organization, or `undefined` when this deployment
- * does not settle credits (external or disabled settlement mode).
- */
-export function createVoiceBilling(input: {
-	env: VoiceBillingEnv;
+interface VoiceBillingSubject {
 	organizationId: string;
 	tediId?: string | null;
+	userId?: string;
 	source: BillingUsageSource;
-	nowMs?: () => number;
-}): VoiceBilling | undefined {
+}
+
+/** Reserve one provider attempt and retain the inputs needed to price it. */
+export async function reserveVoiceUsage(
+	env: VoiceBillingEnv,
+	subject: VoiceBillingSubject,
+	attempt: VoiceBillingAttempt,
+	admittedAt: string,
+) {
+	if (resolveBillingSettlementMode(env) !== "managed")
+		throw new Error("Voice credit admission requires managed settlement");
+	assertQuantity(attempt.estimatedQuantity, "estimate");
+	const quote = await priceUnits(
+		env.DB,
+		attempt,
+		attempt.estimatedQuantity,
+		admittedAt,
+	);
+	if (quote.costUsd === null || !quote.rateVersionId)
+		throw new VoiceCreditRefusal("pricing_unavailable");
+
+	const reservationId = crypto.randomUUID();
+	const decision = await reserveBillingUsage(createDbClient(env.DB), {
+		organizationId: subject.organizationId,
+		tediId: subject.tediId ?? null,
+		userId: subject.userId,
+		source: subject.source,
+		id: reservationId,
+		provider: attempt.provider,
+		model: attempt.model,
+		deploymentScope: attempt.deploymentScope,
+		estimatedInputTokens: attempt.estimatedQuantity,
+		estimatedOutputTokens: 0,
+		idempotencyKey: `voice:${reservationId}`,
+		expiresAt: new Date(Date.parse(admittedAt) + VOICE_HOLD_MS).toISOString(),
+		metadata: { ...attempt, rateVersionId: quote.rateVersionId },
+		now: admittedAt,
+	});
+	if (!decision.allowed) throw new VoiceCreditRefusal(decision.code);
+	return reservationId;
+}
+
+async function settleVoiceUsage(
+	env: VoiceBillingEnv,
+	db: DbClient,
+	subject: Omit<VoiceBillingSubject, "userId">,
+	reservationId: string,
+	attempt: VoiceBillingAttempt,
+	admittedAt: string,
+	usage: VoiceUsageMeasurement,
+	now: string,
+) {
+	assertQuantity(usage.quantity, "usage");
+	const priced = await priceUnits(env.DB, attempt, usage.quantity, admittedAt);
+	if (priced.costUsd === null)
+		throw new Error(
+			`Voice rate no longer resolves for ${attempt.provider}/${attempt.model}: ${priced.reason}`,
+		);
+	await settleBillingUsage(db, {
+		stripeEnvironment: resolveStripeEnvironment(env),
+		id: crypto.randomUUID(),
+		organizationId: subject.organizationId,
+		tediId: subject.tediId ?? null,
+		reservationId,
+		providerUsageId: `voice:${reservationId}`,
+		provider: attempt.provider,
+		model: attempt.model,
+		source: subject.source,
+		inputTokens: 0,
+		outputTokens: 0,
+		providerCostMicros: Math.round(priced.costUsd * 1_000_000),
+		usageQuality: usage.measured ? "provider_reported" : "estimated",
+		providerCostQuality: "estimated",
+		meteringReady: true,
+		rateCardVersion: priced.rateVersionId,
+		occurredAt: now,
+		metadata: {
+			usageKind: attempt.usageKind,
+			unit: attempt.unit,
+			quantity: usage.quantity,
+			measured: usage.measured,
+			deploymentScope: attempt.deploymentScope,
+		},
+		now,
+	});
+}
+
+export async function finishRuntimeVoiceUsage(
+	env: VoiceBillingEnv,
+	input: import("@tedix/voice/billing").RuntimeVoiceCompletion,
+): Promise<void> {
+	const db = createDbClient(env.DB);
+	const reservation = await getVoiceBillingReservation(db, input);
+	if (!reservation) throw new Error("Voice reservation not found");
+	const now = new Date().toISOString();
+	if ("reason" in input) {
+		await releaseBillingReservation(db, {
+			organizationId: input.organizationId,
+			reservationId: input.reservationId,
+			reason: input.reason,
+			now,
+		});
+		return;
+	}
+	const {
+		provider,
+		model,
+		deploymentScope,
+		usageKind,
+		unit,
+		estimatedQuantity,
+	} = reservation.metadata;
+	if (
+		(provider !== "azure-openai" && provider !== "workers-ai") ||
+		typeof model !== "string" ||
+		typeof deploymentScope !== "string" ||
+		typeof estimatedQuantity !== "number" ||
+		!(
+			(usageKind === "voice_stt" && unit === "seconds") ||
+			(usageKind === "voice_tts" && unit === "characters")
+		)
+	)
+		throw new Error("Invalid voice reservation metadata");
+	await settleVoiceUsage(
+		env,
+		db,
+		reservation,
+		reservation.id,
+		{ provider, model, deploymentScope, usageKind, unit, estimatedQuantity },
+		reservation.createdAt,
+		input.usage,
+		now,
+	);
+}
+
+/** Voice admission for deployments that settle managed credits. */
+export function createVoiceBilling(
+	input: VoiceBillingSubject & { env: VoiceBillingEnv; nowMs?: () => number },
+): VoiceBilling | undefined {
 	if (resolveBillingSettlementMode(input.env) !== "managed") return undefined;
-	const d1 = input.env.DB;
-	const db = createDbClient(d1);
-	const stripeEnvironment = resolveStripeEnvironment(input.env);
+	const db = createDbClient(input.env.DB);
 	const clock = input.nowMs ?? Date.now;
 	const iso = () => new Date(clock()).toISOString();
 	return {
-		async admit(attempt): Promise<VoiceBillingHold> {
-			assertQuantity(attempt.estimatedQuantity, "estimate");
+		async admit(attempt) {
 			const admittedAt = iso();
-			const quote = await priceUnits(
-				d1,
+			const reservationId = await reserveVoiceUsage(
+				input.env,
+				input,
 				attempt,
-				attempt.estimatedQuantity,
 				admittedAt,
 			);
-			if (quote.costUsd === null || !quote.rateVersionId)
-				throw new VoiceCreditRefusal("pricing_unavailable");
-			const reservationId = crypto.randomUUID();
-			const decision = await reserveBillingUsage(db, {
-				id: reservationId,
-				organizationId: input.organizationId,
-				tediId: input.tediId ?? null,
-				source: input.source,
-				provider: attempt.provider,
-				model: attempt.model,
-				deploymentScope: attempt.deploymentScope,
-				// Voice rates price units on the input side; see the module note.
-				estimatedInputTokens: attempt.estimatedQuantity,
-				estimatedOutputTokens: 0,
-				idempotencyKey: `voice:${reservationId}`,
-				expiresAt: new Date(
-					Date.parse(admittedAt) + VOICE_HOLD_MS,
-				).toISOString(),
-				metadata: {
-					usageKind: attempt.usageKind,
-					unit: attempt.unit,
-					estimatedQuantity: attempt.estimatedQuantity,
-					rateVersionId: quote.rateVersionId,
-				},
-				now: admittedAt,
-			});
-			if (!decision.allowed) throw new VoiceCreditRefusal(decision.code);
-
 			return {
-				async settle(usage) {
-					assertQuantity(usage.quantity, "usage");
-					// Settle at the rate the call was admitted under.
-					const priced = await priceUnits(
-						d1,
-						attempt,
-						usage.quantity,
-						admittedAt,
-					);
-					if (priced.costUsd === null)
-						throw new Error(
-							`Voice rate no longer resolves for ${attempt.provider}/${attempt.model}: ${priced.reason}`,
-						);
-					const now = iso();
-					await settleBillingUsage(db, {
-						stripeEnvironment,
-						id: crypto.randomUUID(),
-						organizationId: input.organizationId,
-						tediId: input.tediId ?? null,
+				settle: (usage) =>
+					settleVoiceUsage(
+						input.env,
+						db,
+						input,
 						reservationId,
-						providerUsageId: `voice:${reservationId}`,
-						provider: attempt.provider,
-						model: attempt.model,
-						source: input.source,
-						// Units are not tokens; the quantity rides the metadata.
-						inputTokens: 0,
-						outputTokens: 0,
-						providerCostMicros: Math.round(priced.costUsd * 1_000_000),
-						usageQuality: usage.measured ? "provider_reported" : "estimated",
-						providerCostQuality: "estimated",
-						meteringReady: true,
-						rateCardVersion: priced.rateVersionId,
-						occurredAt: now,
-						metadata: {
-							usageKind: attempt.usageKind,
-							unit: attempt.unit,
-							quantity: usage.quantity,
-							measured: usage.measured,
-							deploymentScope: attempt.deploymentScope,
-						},
-						now,
-					});
-				},
+						attempt,
+						admittedAt,
+						usage,
+						iso(),
+					),
 				async release(reason) {
 					await releaseBillingReservation(db, {
 						reservationId,
