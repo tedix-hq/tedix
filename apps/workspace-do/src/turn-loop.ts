@@ -108,7 +108,7 @@ export const TURN_TOOLS: Tool[] = [
 		parameters: obj({
 			name: str({
 				description:
-					"outputs | documents | sheets | presentations | apps | resources | accounts | work | views | web | memory",
+					"outputs | documents | sheets | presentations | apps | resources | accounts | work | views | web | machine | memory",
 			}),
 		}),
 	},

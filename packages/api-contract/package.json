@@ -7,6 +7,7 @@
 	"type": "module",
 	"exports": {
 		"./schemas/workspace-connection-read": "./src/schemas/workspace-connection-read.ts",
+		"./schemas/workspace-machine": "./src/schemas/workspace-machine.ts",
 		"./utils/os-collaborator-graph": "./src/utils/os-collaborator-graph.ts",
 		"./assets/sheet-blueprint": "./src/assets/sheet-blueprint.ts",
 		"./utils/sheet-csv": "./src/utils/sheet-csv.ts",

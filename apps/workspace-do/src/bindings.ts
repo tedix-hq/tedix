@@ -40,6 +40,8 @@ import { buildView, type ShownView } from "./views";
 import { approvalDomain, checkWebUrl, type WebPort } from "./web";
 import type { workspaceAccounts } from "./accounts";
 import { ACCOUNTS_UNAVAILABLE } from "./prompt";
+import { isMachineWriteTool } from "@tedix/api-contract/schemas/machines";
+import { MACHINE_UNAVAILABLE, type workspaceMachine } from "./machine";
 import type {
 	CreateAppInput,
 	CreateWorkInput,
@@ -79,6 +81,8 @@ export interface BindingDeps {
 	}) => void;
 	accounts?: ReturnType<typeof workspaceAccounts>;
 	accountActor?: Actor;
+	/** Absent unless a signed-in person sent the turn themself. */
+	machine?: ReturnType<typeof workspaceMachine>;
 }
 
 /** What the chat needs to show a "Connect" card. It names no person. */
@@ -450,6 +454,37 @@ export function buildWorkspaceBindings(
 		},
 	};
 
+	const machinePort = () => {
+		if (!deps.machine) throw new Error(MACHINE_UNAVAILABLE);
+		return deps.machine;
+	};
+	type MachineCall = Parameters<ReturnType<typeof workspaceMachine>["call"]>[0];
+	// Changing files or running a command on a machine always holds for the
+	// person's approval here. The API then applies the machine's own rules.
+	const machineWriteGate = wrapBinding(
+		{ call: (input: MachineCall) => machinePort().call(input) },
+		{
+			...common,
+			resource: "machine_write",
+			methods: {
+				call: {
+					riskTier: "external_side_effect",
+					blastRadius: "external_system",
+				},
+			},
+		},
+	);
+	const machine = {
+		list: () => machinePort().list(),
+		call: (input: MachineCall) => {
+			const port = machinePort();
+			return typeof input?.tool === "string" && isMachineWriteTool(input.tool)
+				? machineWriteGate.call(input)
+				: port.call(input);
+		},
+		read: (input: { callId?: unknown }) => machinePort().read(input),
+	};
+
 	const views = {
 		show: (input: unknown) => {
 			if (!deps.showView) throw new Error("Views need a running chat turn");
@@ -576,6 +611,16 @@ export function buildWorkspaceBindings(
 			...common,
 			resource: "web",
 			methods: { fetch: { riskTier: "read", blastRadius: "none" } },
+		}),
+		machine: wrapBinding(machine, {
+			...common,
+			resource: "machine",
+			methods: {
+				list: { riskTier: "read", blastRadius: "none" },
+				// A read tool, or the check before the gate above holds a write.
+				call: { riskTier: "read", blastRadius: "none" },
+				read: { riskTier: "read", blastRadius: "none" },
+			},
 		}),
 		work: wrapBinding(work, {
 			...common,

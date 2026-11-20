@@ -210,6 +210,20 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 			await import("./services/workspace-connection-read");
 		return decideLinkedWorkspaceAccountApproval(this.env, input);
 	}
+
+	/**
+	 * List the organization's machines, queue a tool call for one, or read a
+	 * call, for the person who sent a workspace chat turn.
+	 */
+	async useMachine(
+		input: import("@tedix/api-contract/schemas/workspace-machine").WorkspaceMachineInput,
+	): Promise<
+		import("@tedix/api-contract/schemas/workspace-machine").WorkspaceMachineResult
+	> {
+		const { useWorkspaceMachine } =
+			await import("./services/workspace-machine");
+		return useWorkspaceMachine(this.env, input);
+	}
 }
 
 /** Only the MCP Worker is configured to bind this service capability. */

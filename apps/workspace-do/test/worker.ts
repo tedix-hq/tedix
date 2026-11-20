@@ -25,6 +25,11 @@ import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { ModelPort } from "../src/model";
 import { RUN_CODE_TOOL } from "../src/prompt";
 import type { AccountService } from "../src/accounts";
+import type { MachineService } from "../src/machine";
+import type {
+	WorkspaceMachineInput,
+	WorkspaceMachineResult,
+} from "@tedix/api-contract/schemas/workspace-machine";
 import type {
 	WorkspaceConnectionDecisionInput,
 	WorkspaceConnectionReadInput,
@@ -196,6 +201,30 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 						message: "Only the approver can decide.",
 					};
 				return { status: input.decision === "approve" ? "approved" : "denied" };
+			},
+		};
+	}
+
+	#machineResponses: WorkspaceMachineResult[] = [];
+	#machineCalls: WorkspaceMachineInput[] = [];
+
+	scriptMachine(scope: WorkspaceScope, responses: WorkspaceMachineResult[]) {
+		this.bindScope(scope);
+		this.#machineResponses = responses;
+	}
+
+	readMachineCalls(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		return this.#machineCalls;
+	}
+
+	protected override machineService(): MachineService {
+		return {
+			useMachine: async (input) => {
+				this.#machineCalls.push(input);
+				const result = this.#machineResponses.shift();
+				if (!result) throw new Error("Unexpected machine request");
+				return result;
 			},
 		};
 	}
