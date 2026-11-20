@@ -158,13 +158,23 @@
 					box-sizing: border-box;
 					padding: 24px;
 					text-align: center;
-					font-family: var(--font-mono, monospace);
-					color: var(--foreground, CanvasText);
+					font-family: var(--font-sans, system-ui, sans-serif);
+					font-size: 14px;
+					line-height: 20px;
+					color: var(--muted-foreground, GrayText);
 					background: var(--background, Canvas);
 					min-height: 100dvh;
 				"
 			>
-				<strong>Tedix</strong>
+				<!-- Same mark, order and spacing as the app's own centered screens. -->
+				<img
+					src="/images/tedi-astronaut-waving.png"
+					alt=""
+					aria-hidden="true"
+					width="40"
+					height="40"
+					style="border-radius: 12px"
+				/>
 				<!-- Same geometry as Kumo's Loader, which is not loaded yet. -->
 				<svg
 					width="24"
