@@ -22,7 +22,6 @@ import {
 	listGatewayChangeRecords,
 	listGatewayChangeRecordsInRange,
 } from "@tedix/db/queries/gateway-change-records";
-import { getOrganizationLogCutoverAllowlist } from "@tedix/db/queries/organization-log";
 import type { DbQueryClient } from "@tedix/db/query-client";
 
 /** The workspace runtime's entrypoint, which fronts every organization's store. */
@@ -54,19 +53,6 @@ export async function callOrganizationLog<T>(
 			return undefined;
 		throw error;
 	}
-}
-
-const ALLOWLIST_CACHE_MS = 60_000;
-let allowlist: { at: number; value: "all" | ReadonlySet<string> } | undefined;
-
-/** Whether the organization is allowed to move; cached for a minute per isolate. */
-async function mayMove(db: DbQueryClient, organizationId: string) {
-	if (!allowlist || Date.now() - allowlist.at > ALLOWLIST_CACHE_MS)
-		allowlist = {
-			at: Date.now(),
-			value: await getOrganizationLogCutoverAllowlist(db),
-		};
-	return allowlist.value === "all" || allowlist.value.has(organizationId);
 }
 
 /** A stored record: the same shape the main database returns. */
@@ -102,15 +88,12 @@ export async function appendChangeRecord(
 	);
 	if (result && result.status !== "forward") return unsealed(result.record);
 	// Only a store that answered "forward" (not moved yet) sends a record to
-	// main. If the store cannot be reached for an organization that is
-	// allowed to move, writing to main could fork its chain: fail instead.
-	if (
-		!result &&
-		organizationLogRuntime() &&
-		(await mayMove(db, organizationId))
-	)
+	// main. A runtime that cannot answer (a workspace runtime release
+	// without the store, deployed out of order or rolled back) gets no
+	// fallback: writing to main could fork a moved organization's chain.
+	if (!result && organizationLogRuntime())
 		throw new Error(
-			"The organization log store is unreachable for an organization that moves to it; the record was not written to the main database",
+			"The organization log store is unreachable; the record was not written to the main database",
 		);
 	return appendGatewayChangeRecord(db, organizationId, record);
 }
