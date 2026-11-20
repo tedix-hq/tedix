@@ -497,6 +497,8 @@ describe("WorkspaceDO", () => {
 		expect(
 			steps.map((step) => (step.type === "step.started" ? step.label : "")),
 		).toEqual([
+			// One step: shown while the code is written, then while it runs.
+			"Writing the next step",
 			"Running code against the workspace",
 			"Listing documents and sheets",
 			"Reading a document or sheet",
@@ -511,7 +513,7 @@ describe("WorkspaceDO", () => {
 				),
 		).toBe(true);
 		// Each step carries what ran and the start of what came back.
-		const codeStep = steps[0];
+		const codeStep = steps[1];
 		if (codeStep?.type !== "step.started") throw new Error("no code step");
 		expect(codeStep.input).toEqual({ code: READ_ONLY_CODE });
 		const results = events.flatMap((event) =>

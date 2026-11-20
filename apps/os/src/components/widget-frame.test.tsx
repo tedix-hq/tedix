@@ -413,6 +413,17 @@ describe("WidgetFrame", () => {
 		expect(container.textContent).toContain(RESOURCE_URI);
 	});
 
+	it("says a view could not be loaded when the host answers with a page", async () => {
+		fetchMock.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => JSON.parse("<!doctype html>"),
+		} as Response);
+		await renderFrame({ title: "Trip budget" });
+		expect(container.textContent).toContain("This view could not be loaded.");
+		expect(container.textContent).not.toContain("Unexpected token");
+	});
+
 	it("advertises and delegates no permissions when the resource requests none", async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse(resourcePayload()));
 		await renderFrame();

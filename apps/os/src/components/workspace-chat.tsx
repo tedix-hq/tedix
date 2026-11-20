@@ -107,6 +107,7 @@ import {
 	workspaceModelIdForRef,
 } from "@/lib/use-chat-model-preference";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
+import { turnFailure } from "@/lib/workspace-chat-failure";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 import type {
@@ -921,18 +922,16 @@ function TurnView({
 								resourceUri={view.resourceUri}
 								title={view.title}
 								toolResult={view.toolResult}
+								unavailable={
+									<Text role="caption" tone="secondary">
+										This view could not be loaded.
+									</Text>
+								}
 							/>
 						</Suspense>
 					</div>
 				))}
-				{turn.status === "error" ? (
-					<div className="workspace-chat-error" role="alert">
-						<WarningCircle aria-hidden />
-						<Text role="caption" tone="error">
-							{turn.error ?? "The workspace could not finish this turn."}
-						</Text>
-					</div>
-				) : null}
+				{turn.status === "error" ? <TurnFailure error={turn.error} /> : null}
 				{turn.status === "cancelled" ? (
 					<Text role="caption" tone="secondary">
 						Stopped.
@@ -993,6 +992,31 @@ function TurnView({
 				)}
 			</div>
 		</article>
+	);
+}
+
+/** Why a reply failed, in one plain sentence; the recorded error on request. */
+function TurnFailure({ error }: { error: string | undefined }) {
+	const { message, detail } = turnFailure(error);
+	return (
+		<>
+			<div className="workspace-chat-error" role="alert">
+				<WarningCircle aria-hidden />
+				<Text role="caption" tone="error">
+					{message}
+				</Text>
+			</div>
+			{detail ? (
+				<Collapsible className="workspace-chat-approval-details">
+					<CollapsibleDefaultTrigger>
+						Technical details
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
+						<pre>{detail}</pre>
+					</CollapsibleDefaultContent>
+				</Collapsible>
+			) : null}
+		</>
 	);
 }
 

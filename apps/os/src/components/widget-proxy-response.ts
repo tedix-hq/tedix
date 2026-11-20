@@ -4,7 +4,9 @@ import { ProtocolError } from "@modelcontextprotocol/client";
 export async function readWidgetProxyResponse<T = unknown>(
 	response: Response,
 ): Promise<T> {
-	const payload = await response.json();
+	// A host that does not serve views answers with a page, not JSON.
+	const payload = await response.json().catch(() => null);
+	if (payload === null) throw new Error("This view could not be loaded.");
 	if (response.ok) return payload as T;
 	const error = payload?.error;
 	const rpc = error?.rpc;

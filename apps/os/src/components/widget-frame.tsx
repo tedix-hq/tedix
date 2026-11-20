@@ -70,6 +70,8 @@ export interface WidgetFrameProps {
 	onModelContextUpdate?: (params: WidgetModelContextUpdate) => void;
 	/** A user-initiated widget follow-up for the surrounding Workspace chat. */
 	onFollowUp?: (message: string) => void;
+	/** Shown in place of the warning card when the view cannot be loaded. */
+	unavailable?: ReactNode;
 }
 
 type MountState =
@@ -294,6 +296,7 @@ function WidgetFrameInner({
 	layout,
 	onModelContextUpdate,
 	onFollowUp,
+	unavailable,
 }: WidgetFrameProps) {
 	const [mount, setMount] = useState<MountState>({ status: "loading" });
 
@@ -436,6 +439,7 @@ function WidgetFrameInner({
 	}
 
 	if (mount.status === "unavailable") {
+		if (unavailable !== undefined) return unavailable;
 		return (
 			<WidgetFallback
 				reason={mount.reason}
@@ -479,11 +483,13 @@ export function WidgetFrame(props: WidgetFrameProps) {
 	return (
 		<WidgetErrorBoundary
 			fallback={
-				<WidgetFallback
-					reason="The widget renderer failed."
-					resourceUri={props.resourceUri}
-					title={props.title}
-				/>
+				props.unavailable ?? (
+					<WidgetFallback
+						reason="The widget renderer failed."
+						resourceUri={props.resourceUri}
+						title={props.title}
+					/>
+				)
 			}
 		>
 			<WidgetFrameInner

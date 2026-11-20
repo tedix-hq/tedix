@@ -129,6 +129,10 @@ describe("runTurn", () => {
 		expect(events).toContain("code_finished");
 		expect(events).toContain("text_delta");
 		// The chat can show what ran and what came back.
+		// The step shows from the first token of the code, under one id.
+		expect(details.tool_call_started?.toolCallId).toBe(
+			details.code_started?.toolCallId,
+		);
 		expect(details.code_started?.code).toBe(ran[0]);
 		expect(details.code_finished?.result).toBe("return value:\n3");
 	});
