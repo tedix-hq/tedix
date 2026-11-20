@@ -155,6 +155,13 @@ export function renderContextBrief(
 		}
 	}
 
+	const last = lastAttemptBrief(value.lastAttempt);
+	if (last) {
+		console.log(
+			`\n${dim("Last attempt:", color)} ${last.outcome}${last.summary ? ` — ${last.summary}` : ""}`,
+		);
+	}
+
 	const recent = comments.slice(-5);
 	if (recent.length > 0) {
 		console.log(
@@ -168,6 +175,23 @@ export function renderContextBrief(
 			);
 		}
 	}
+}
+
+/**
+ * How the newest Attempt ended and the reason it stored, so a failed run says
+ * why on the task. The runner writes its reason first in the summary.
+ */
+function lastAttemptBrief(
+	attempt: unknown,
+): { outcome: string; summary: string | null } | null {
+	if (!isRecord(attempt)) return null;
+	return {
+		outcome: String(attempt.outcome ?? attempt.runtimeState ?? "—"),
+		summary:
+			typeof attempt.summary === "string" && attempt.summary.trim()
+				? truncate(attempt.summary.trim().replace(/\s+/g, " "), 400)
+				: null,
+	};
 }
 
 /**
@@ -211,6 +235,7 @@ export function contextBriefJson(value: Record<string, unknown>): unknown {
 			provider: p.provider ?? null,
 			ref: p.externalUrl ?? p.externalId ?? null,
 		})),
+		lastAttempt: lastAttemptBrief(value.lastAttempt),
 		commentCount: comments.length,
 		recentComments: comments.slice(-5).map((c) => ({
 			eventType: c.eventType ?? "comment",

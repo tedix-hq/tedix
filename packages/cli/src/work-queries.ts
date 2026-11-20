@@ -661,6 +661,8 @@ export async function workContext(
 		);
 	}
 	// Parse-recover BEFORE branching so --json gets the compact brief too.
+	// A very large single item can arrive as a truncated JSON string; recover
+	// the object when it parses, else say so rather than rendering nothing.
 	let parsed = call.value;
 	if (typeof parsed === "string") {
 		try {
@@ -669,23 +671,26 @@ export async function workContext(
 			/* leave as string */
 		}
 	}
+	if (isRecord(parsed)) {
+		// The newest Attempt carries the reason a run failed; the brief still
+		// renders when this read fails.
+		const attempts = await listLedgerPage(
+			ctx,
+			"work.list_work_item_attempts",
+			{ id, limit: 1 },
+			"data",
+			"nextCursor",
+		);
+		parsed = { ...parsed, lastAttempt: itemsFromList(attempts.value)[0] };
+	}
+	const value = parsed;
 	if (ctx.json) {
 		console.log(
-			JSON.stringify(isRecord(parsed) ? contextBriefJson(parsed) : parsed),
+			JSON.stringify(isRecord(value) ? contextBriefJson(value) : value),
 		);
 		return 0;
 	}
 	return ok(ctx, call.value, () => {
-		// A very large single item can arrive as a truncated JSON string; recover
-		// the object when it parses, else say so rather than rendering nothing.
-		let value = call.value;
-		if (typeof value === "string") {
-			try {
-				value = JSON.parse(value);
-			} catch {
-				/* leave as string */
-			}
-		}
 		if (isRecord(value)) renderContextBrief(value, ctx.color);
 		else console.log(dim("No context available.", ctx.color));
 	});

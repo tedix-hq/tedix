@@ -2503,6 +2503,17 @@ describe("work context brief omits retired review leases", () => {
 		>;
 		expect(bare.projectBrief).toBeNull();
 	});
+
+	test("says how the last attempt ended and why", () => {
+		const brief = contextBriefJson({
+			workItem: { id: "x" },
+			lastAttempt: { outcome: "failed", summary: "Failed: no commit\n" },
+		}) as Record<string, unknown>;
+		expect(brief.lastAttempt).toEqual({
+			outcome: "failed",
+			summary: "Failed: no commit",
+		});
+	});
 });
 
 describe("work attempts distinguishes sessions sharing one principal", () => {
