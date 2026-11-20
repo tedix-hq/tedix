@@ -272,7 +272,7 @@ async function readExpiredChunk(
 		isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff),
 	);
 	const filtered = await withOverloadBackoff(
-		() => filterD1RetentionReferencedRows(db, tableSpec, expired),
+		() => filterD1RetentionReferencedRows(db, tableSpec, expired, cutoff),
 		deadline,
 	);
 	return {
