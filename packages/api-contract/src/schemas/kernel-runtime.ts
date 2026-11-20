@@ -1174,6 +1174,12 @@ export const RuntimeRunSteeringInputSchema = z.discriminatedUnion("action", [
 		sessionKey: z.string().min(1),
 		id: z.string().min(1).max(1000),
 		content: z.string().trim().min(1).max(4000),
+		/**
+		 * True when a signed-in person sent this follow-up from their own chat.
+		 * The API sets it from the authenticated session and never from request
+		 * input. Absent counts as not a person.
+		 */
+		sentByPerson: z.boolean().optional(),
 	}),
 	z.object({
 		action: z.literal("inspect"),

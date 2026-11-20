@@ -104,17 +104,19 @@ export function trustedTurnMemoryEffects(trust: SurfaceTrust): {
 }
 
 /**
- * A follow-up sent while a run is active carries the trust of the message that
- * started the run. Home delegates a run for a signed-in person and hands the
- * tedi their message as written, so their follow-up is an instruction too.
- * Every other run (inbound email, the embedded widget, a plain MCP caller)
- * keeps a follow-up fenced as outside text. Unknown counts as outside.
+ * A follow-up sent while a run is active is an instruction only when a
+ * signed-in person sent it from their own chat, on a run Home delegated for a
+ * person. The API states who sent it, from the authenticated session. A
+ * follow-up from a tedi, an API key, a job or any other caller is fenced as
+ * outside text, and so is one on any other run (inbound email, the embedded
+ * widget, a plain MCP caller). Unknown counts as outside.
  */
 export function steeringTextForRun(input: {
 	delegated: boolean;
+	sentByPerson: boolean;
 	content: string;
 }): string {
-	return input.delegated
+	return input.delegated && input.sentByPerson
 		? input.content
 		: wrapUntrustedInput(input.content, "operator_steering");
 }

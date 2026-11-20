@@ -3,7 +3,13 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { RunSteeringMessage } from "@tedix/api-contract/schemas/kernel-runtime";
 import { FacetTurnGate } from "./facet-turn-gate";
 
-type SteeringReceipt = { id: string; content: string; operationId: string };
+type SteeringReceipt = {
+	id: string;
+	content: string;
+	operationId: string;
+	/** Set once when the follow-up is first queued; a replay cannot change it. */
+	sentByPerson?: boolean;
+};
 
 /** Receipt index only: Pi owns queue placement, consumption, and withdrawal. */
 export class RunSteering {
@@ -13,7 +19,11 @@ export class RunSteering {
 			load(runId: string): Promise<SteeringReceipt[]>;
 			save(runId: string, receipts: SteeringReceipt[]): Promise<void>;
 			assertActive(runId: string): Promise<string>;
-			submit(operationId: string, content: string): Promise<void>;
+			submit(
+				operationId: string,
+				content: string,
+				sentByPerson: boolean,
+			): Promise<void>;
 			lookup(
 				operationId: string,
 			): Promise<
@@ -26,6 +36,7 @@ export class RunSteering {
 		runId: string,
 		id: string,
 		content: string,
+		sentByPerson = false,
 	): Promise<RunSteeringMessage[]> {
 		return this.gate.run(async () => {
 			const receipts = await this.host.load(runId);
@@ -41,10 +52,15 @@ export class RunSteering {
 				id,
 				content,
 				operationId: `${root}:steer:${id}`,
+				sentByPerson,
 			};
 			// Index first: a lost response can be reconciled by the same native operation id.
 			if (!prior) await this.host.save(runId, [...receipts, receipt]);
-			await this.host.submit(receipt.operationId, content);
+			await this.host.submit(
+				receipt.operationId,
+				content,
+				receipt.sentByPerson === true,
+			);
 			return this.inspect(runId);
 		});
 	}

@@ -86,9 +86,9 @@ describe("native Pi provider and durable storage", () => {
 		]);
 		expect((await inspect(reopened, input.runId)).requests).toHaveLength(2);
 	});
-	it("delivers a person's follow-up on a delegated run as written and fences it on any other run", async () => {
+	it("delivers a follow-up as written only when a signed-in person sent it on a delegated run", async () => {
 		const content = "Use the updated evidence.";
-		const steered = async (delegated: boolean) => {
+		const steered = async (delegated: boolean, sentByPerson?: boolean) => {
 			const agent = await fixture(crypto.randomUUID());
 			await agent.beginHeldTurn("steering-run", delegated);
 			try {
@@ -98,6 +98,7 @@ describe("native Pi provider and durable storage", () => {
 					sessionKey: "fixture",
 					id: "steer-1",
 					content,
+					...(sentByPerson === undefined ? {} : { sentByPerson }),
 				});
 			} finally {
 				await agent.releaseTool();
@@ -106,10 +107,15 @@ describe("native Pi provider and durable storage", () => {
 			return JSON.stringify((await inspect(agent, "steering-run")).requests[1]);
 		};
 		const fence = "<<<external_operator_steering>>>";
-		const delegated = await steered(true);
-		expect(delegated).toContain(content);
-		expect(delegated).not.toContain(fence);
-		expect(await steered(false)).toContain(fence);
+		const person = await steered(true, true);
+		expect(person).toContain(content);
+		expect(person).not.toContain(fence);
+		// A tedi, an API key or a job steering the same run stays outside text.
+		expect(await steered(true, false)).toContain(fence);
+		// A caller that does not say who sent it is not a person.
+		expect(await steered(true)).toContain(fence);
+		// A person's follow-up on a run that outside text started stays fenced.
+		expect(await steered(false, true)).toContain(fence);
 	});
 	it("withdraws queued steering without aborting or returning already consumed input", async () => {
 		const agent = await fixture(crypto.randomUUID());
