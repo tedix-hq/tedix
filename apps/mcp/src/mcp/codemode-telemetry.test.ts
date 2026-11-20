@@ -1577,6 +1577,44 @@ describe("Code Mode tail telemetry", () => {
 		});
 	});
 
+	it("marks a failed program as credential-missing only when no inner call reached the provider", async () => {
+		executeToolMock.mockResolvedValue({
+			content: [{ type: "text", text: "Connection credential not found." }],
+			structuredContent: null,
+			_meta: { "tedix/credentialMissing": true },
+			isError: true,
+		});
+		const registered = new Map<string, (args: unknown) => Promise<unknown>>();
+		await registerCodeModeTools(
+			{
+				registerTool: (
+					name: string,
+					_config: unknown,
+					handler: (args: unknown) => Promise<unknown>,
+				) => registered.set(name, handler),
+			} as never,
+			makeServerCtx(),
+		);
+		const run = async () =>
+			(await registered.get("code")?.({
+				code: "async () => await test.soft_fail({})",
+			})) as { isError?: boolean; _meta?: Record<string, unknown> };
+
+		const missing = await run();
+		expect(missing.isError).toBe(true);
+		expect(missing._meta?.["tedix/credentialMissing"]).toBe(true);
+
+		executeToolMock.mockResolvedValue({
+			content: [{ type: "text", text: "Customer is not connected" }],
+			structuredContent: null,
+			_meta: {},
+			isError: true,
+		});
+		const providerError = await run();
+		expect(providerError.isError).toBe(true);
+		expect(providerError._meta?.["tedix/credentialMissing"]).toBeUndefined();
+	});
+
 	it("reports a preflight secret-egress denial without dispatching the tool", async () => {
 		preflightSecretEgressMock.mockResolvedValue({
 			decision: undefined,

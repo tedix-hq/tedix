@@ -70,6 +70,7 @@ import { extractCodeModeExecutionNamespacesFromCode } from "./code-mode-namespac
 import { configuredAggregateNamespaces } from "./aggregate-namespaces";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { buildCompactTypes } from "@tedix/mcp-shared/compact-types";
+import { CREDENTIAL_MISSING_META_KEY } from "@tedix/mcp-shared/tool-result";
 import {
 	buildCodeModeDescription,
 	MAX_CODEMODE_DESCRIPTION_CHARS,
@@ -149,6 +150,7 @@ function createExecutionRefs(): CodeModeExecutionRefs {
 		paymentExtra: undefined,
 		paymentResponses: [],
 		rpcCallCount: 0,
+		credentialMissingCalls: 0,
 		rpcNamespaces: new Set(),
 		sideEffectQueue: Promise.resolve(),
 		failureBudget: new IdenticalFailureBudget(),
@@ -645,6 +647,14 @@ export async function registerCodeModeTools(
 					executionRefs.collectionReads,
 				);
 			};
+			// A failed program reached no provider when every inner call it
+			// made stopped for a missing credential.
+			const credentialMissingMeta = () =>
+				executionRefs.toolReceipts.length > 0 &&
+				executionRefs.credentialMissingCalls ===
+					executionRefs.toolReceipts.length
+					? { _meta: { [CREDENTIAL_MISSING_META_KEY]: true } }
+					: {};
 			const secretEgressFailure = () => {
 				const detail = executionRefs.secretEgressError;
 				if (!detail) return undefined;
@@ -713,6 +723,7 @@ export async function registerCodeModeTools(
 				executionRefs.paymentExtra = buildPaymentExtra(extra, payment);
 				executionRefs.paymentResponses = [];
 				executionRefs.rpcCallCount = 0;
+				executionRefs.credentialMissingCalls = 0;
 				executionRefs.rpcNamespaces.clear();
 				executionRefs.discoverCalls = 0;
 				executionRefs.discoverParameterRequests = 0;
@@ -899,6 +910,7 @@ export async function registerCodeModeTools(
 								executionId,
 								error: enrichedError,
 							},
+							...credentialMissingMeta(),
 						},
 						executionRefs.readObservations,
 						executionRefs.collectionReads,
@@ -1009,6 +1021,7 @@ export async function registerCodeModeTools(
 				delete projectedMeta[READ_OBSERVATIONS_META_KEY];
 				delete projectedMeta[READ_COLLECTION_META_KEY];
 				delete projectedMeta[READ_COLLECTIONS_META_KEY];
+				delete projectedMeta[CREDENTIAL_MISSING_META_KEY];
 				const resultMeta = {
 					...projectedMeta,
 					...codeModeReadObservationMeta(executionRefs.readObservations),
@@ -1067,6 +1080,7 @@ export async function registerCodeModeTools(
 							executionId,
 							error: enrichedError,
 						},
+						...credentialMissingMeta(),
 					},
 					executionRefs.readObservations,
 					executionRefs.collectionReads,
@@ -1085,6 +1099,7 @@ export async function registerCodeModeTools(
 					executionRefs.paymentExtra = undefined;
 					executionRefs.paymentResponses = [];
 					executionRefs.rpcCallCount = 0;
+					executionRefs.credentialMissingCalls = 0;
 					executionRefs.rpcNamespaces.clear();
 					executionRefs.discoverCalls = 0;
 					executionRefs.discoverParameterRequests = 0;

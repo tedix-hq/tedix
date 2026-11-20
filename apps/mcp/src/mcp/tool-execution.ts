@@ -16,6 +16,7 @@ import { CONNECT_PAYMENT_DENIED } from "./connect-payment-policy";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
+import { CREDENTIAL_MISSING_META_KEY } from "@tedix/mcp-shared/tool-result";
 import { resolveMultiOrgToolTarget } from "./multi-org-tool-target";
 import { getApiClient } from "../lib/api-client";
 import { contentFreeMcpException, createMcpLogger } from "../log";
@@ -1385,6 +1386,9 @@ async function executeWithHandler(
 					: {}),
 				...(isErrorResult && result.connectionRecovery
 					? { "tedix/connectionRecovery": result.connectionRecovery }
+					: {}),
+				...(isErrorResult && result.credentialMissing
+					? { [CREDENTIAL_MISSING_META_KEY]: true }
 					: {}),
 				...(result.readObservation
 					? { [READ_OBSERVATION_META_KEY]: result.readObservation }

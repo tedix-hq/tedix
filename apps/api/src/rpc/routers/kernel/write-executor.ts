@@ -59,7 +59,10 @@ import {
 	type KernelWriteTransport,
 	parseCodeModeCatalog,
 } from "./write-codemode";
-import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
+import {
+	CREDENTIAL_MISSING_META_KEY,
+	unwrapCallToolResult,
+} from "@tedix/mcp-shared/tool-result";
 import {
 	type BoundedMcpList,
 	collectBoundedMcpList,
@@ -410,16 +413,14 @@ async function listUpstreamTools(
 }
 
 /**
- * Whether a tool result signals a MISSING/unconnected provider credential (vs
- * a genuine tool error) — drives the user-first → tenant credential fallback.
+ * Whether the gateway stopped the call because no personal credential was on
+ * file, so the provider was never called — drives the user-first → tenant
+ * credential fallback. Provider error text never counts.
  */
 function isCredentialMissing(result: ToolCallResult | null): boolean {
-	if (!result?.isError) return false;
-	const text = JSON.stringify(result.content ?? result).toLowerCase();
 	return (
-		text.includes("credential not found") ||
-		text.includes("not connected") ||
-		text.includes("provider is connected")
+		result?.isError === true &&
+		result._meta?.[CREDENTIAL_MISSING_META_KEY] === true
 	);
 }
 
