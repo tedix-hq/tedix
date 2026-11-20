@@ -71,7 +71,7 @@ export interface AzureChatEnv {
 	 * public HTTPS. Listing `azure-openai` routes isolate chat over the binding.
 	 */
 	AI_GATEWAY_BINDING_PROVIDERS?: string;
-	/** Workers AI model id for the fallback; defaults to Llama 3.3 70B fp8-fast. */
+	/** Default model id for an explicit Workers AI selection. */
 	TEDI_WORKERS_AI_MODEL?: string;
 	/**
 	 * Optional exact `provider/model-id` pin for blind evidence-judge turns.
@@ -81,10 +81,9 @@ export interface AzureChatEnv {
 	 */
 	TEDI_JUDGE_MODEL_REF?: string;
 	/**
-	 * Workers-AI BYOK API token (CF token with Workers AI access). When present
-	 * alongside the AI Gateway vars, the Workers AI transport routes through the
-	 * authenticated AI Gateway (`…/workers-ai/v1/chat/completions`) for unified
-	 * billing/observability; absent → the token-free `env.AI` binding fallback.
+	 * Workers AI BYOK token for the HTTPS gateway transport. The in-account
+	 * binding transport authenticates without this token; transport selection
+	 * belongs to `@tedix/workers-ai/transport`.
 	 */
 	CF_WORKERS_AI_TOKEN?: string;
 	/** Maximum serialized Azure chat request body. Cost circuit breaker; defaults
