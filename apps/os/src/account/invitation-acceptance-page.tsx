@@ -172,7 +172,7 @@ function InvitationAcceptanceContent() {
 			) : (
 				<>
 					<Loader size="base" />
-					<p>Securely signing you in to your workspace…</p>
+					<p>Signing you in…</p>
 				</>
 			)}
 		</main>

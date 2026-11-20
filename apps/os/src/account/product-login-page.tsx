@@ -28,7 +28,7 @@ function IntentlessLoginRedirect() {
 		<main className="centered-state" aria-busy="true">
 			<TedixBrandMark />
 			<Loader size="base" />
-			<p>Taking you to the Tedix OS sign-in…</p>
+			<p>Taking you to sign-in…</p>
 			<Link href="/">Return to Tedix OS</Link>
 		</main>
 	);
@@ -98,7 +98,7 @@ function FinishDesktopSignIn({ token }: { token: string }) {
 			) : (
 				<>
 					<Loader size="base" />
-					<p>Finishing your Tedix sign-in…</p>
+					<p>Finishing sign-in…</p>
 				</>
 			)}
 		</main>

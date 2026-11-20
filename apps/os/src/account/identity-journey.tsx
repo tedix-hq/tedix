@@ -24,7 +24,7 @@ export function IdentityJourneyFrame({
 	error,
 	eyebrow,
 	loading = false,
-	loadingLabel = "Preparing your Tedix sign-in…",
+	loadingLabel = "Opening sign-in…",
 	kind = "login",
 	status,
 	title,

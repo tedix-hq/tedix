@@ -107,7 +107,7 @@ function BrokerSessionBoundary({
 			<main className="centered-state" aria-busy="true">
 				<TedixBrandMark />
 				<Loader size="base" />
-				<p>Restoring your Tedix session…</p>
+				<p>Opening Tedix…</p>
 			</main>
 		);
 	}

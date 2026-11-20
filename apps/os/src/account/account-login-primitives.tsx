@@ -38,7 +38,7 @@ export function AccountLoginFrame({
 			title={title}
 			description={description}
 			loading={!flowReady || continuing}
-			loadingLabel={continuing ? "Finishing your Tedix sign-in…" : undefined}
+			loadingLabel={continuing ? "Finishing sign-in…" : undefined}
 			status={status}
 			error={error}
 		>

@@ -119,7 +119,7 @@ describe("ProductLoginPage no-flash rendering", () => {
 		const panel = container.querySelector("main.product-login-page");
 		expect(panel?.getAttribute("aria-hidden")).toBe("true");
 		const loading = container.querySelector("main.centered-state");
-		expect(loading?.textContent).toContain("Preparing your Tedix sign-in…");
+		expect(loading?.textContent).toContain("Opening sign-in…");
 
 		const onReady = descope.flowProps?.onReady as (event: unknown) => void;
 		expect(onReady).toBeDefined();
@@ -162,7 +162,7 @@ describe("ProductLoginPage no-flash rendering", () => {
 		);
 
 		const loading = container.querySelector("main.centered-state");
-		expect(loading?.textContent).toContain("Finishing your Tedix sign-in…");
+		expect(loading?.textContent).toContain("Finishing sign-in…");
 		expect(
 			container
 				.querySelector("main.product-login-page")
