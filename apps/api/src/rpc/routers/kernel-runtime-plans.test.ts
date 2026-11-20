@@ -12,112 +12,10 @@ import {
 	childRuntimeEvent,
 	planAssignmentSeed,
 	seedDependencyPlanRun,
+	seedTwoOwnerPlanRun,
 } from "./__tests__/kernel-runtime-db";
 
 describe("kernel runtime router: plans", () => {
-	it("drafts a multi-assignment Home plan for CPO and Echo before dispatch", async () => {
-		const db = createKernelRuntimeDb();
-		const client = createKernelRuntimeClient(createContext(db));
-		const delegateRunner = vi.fn(async (input) => ({
-			childRunId: input.childRunId,
-			status: "queued" as const,
-		}));
-		kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
-
-		const result = await client.enqueueMessage({
-			conversationId: "home:test",
-			content:
-				"Plan this across CPO and Echo: CPO owns the product checklist while Echo validates evidence and gaps.",
-			idempotencyKey: "home-plan-1",
-		});
-
-		expect(delegateRunner).not.toHaveBeenCalled();
-		expect(result.status).toBe("needs_delegation");
-		expect(result.run.delegatedTediId).toBeNull();
-		expect(result.homePlan).toMatchObject({
-			id: "home-plan-1:plan",
-			status: "proposed",
-			assignments: [
-				{
-					ownerTediId: "tedi-cpo",
-					ownerLabel: "CPO",
-					routeKind: "agent",
-					status: "proposed",
-				},
-				{
-					ownerTediId: "tedi-echo",
-					ownerLabel: "Echo (Isolate)",
-					routeKind: "agent",
-					status: "proposed",
-				},
-			],
-		});
-		expect(result.assistantMessage?.content).toContain("I drafted a Home plan");
-		expect(result.assistantMessage?.metadata).toMatchObject({
-			metadata: {
-				homePlan: {
-					id: "home-plan-1:plan",
-					assignments: [
-						{ ownerTediId: "tedi-cpo" },
-						{ ownerTediId: "tedi-echo" },
-					],
-				},
-			},
-		});
-		expect(db.runs[0]?.metadata).toMatchObject({
-			homePlan: {
-				id: "home-plan-1:plan",
-				assignments: [
-					{ ownerTediId: "tedi-cpo" },
-					{ ownerTediId: "tedi-echo" },
-				],
-			},
-		});
-		expect(
-			db.events.some(
-				(event) =>
-					event.kind === "decision.recorded" &&
-					event.runId === "home-plan-1" &&
-					(event.payload as { homePlan?: { id?: string } } | null)?.homePlan
-						?.id === "home-plan-1:plan",
-			),
-		).toBe(true);
-		expect(db.events.every((event) => event.delegatedTediId === null)).toBe(
-			true,
-		);
-	});
-
-	it("plan-producing turn settles its kernel submission in-band", async () => {
-		// Regression test for the plan-path in-band settle gap: a turn that parks a
-		// homePlan (multi-tedi request) completes immediately with status="completed"
-		// but its kernel submission was admitted by insertKernelRuntimeRun and then
-		// never settled in turn-work (plan turns bypass kernelEligible). The fix adds
-		// settleKernelSubmission on the plan-park path; this test asserts the call is
-		// made in-band with outcome "settled" before returning.
-		const db = createKernelRuntimeDb();
-		const context = createContext(db);
-		const client = createKernelRuntimeClient(context);
-		kernelRuntimeTestHooks.setDelegateRunnerForTest(async (input) => ({
-			childRunId: input.childRunId,
-			status: "queued" as const,
-		}));
-
-		await client.enqueueMessage({
-			conversationId: "home:test",
-			content:
-				"Plan this across CPO and Echo: CPO takes the roadmap while Echo audits evidence.",
-			idempotencyKey: "home-plan-settle-1",
-		});
-		await Promise.all(context.waitUntilPromises);
-
-		// The submission id is deterministic: kernelSubmissionId("home-plan-settle-1") = "sub:home-plan-settle-1"
-		const settleCall = db.submissionSettleCalls.find(
-			(call) => call.submissionId === "sub:home-plan-settle-1",
-		);
-		expect(settleCall).toBeDefined();
-		expect(settleCall?.outcome).toBe("settled");
-	});
-
 	it("approves a Home plan into Work Items and dispatches isolate assignments", async () => {
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);
@@ -130,18 +28,16 @@ describe("kernel runtime router: plans", () => {
 		kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
 
 		const originalRequest = `Plan this across CPO and Echo: CPO owns the launch plan while Echo validates the data.\n${"Supporting detail. ".repeat(900)}\nMiddle acceptance: the independent oracle must remain unchanged.\n${"Further context. ".repeat(1000)}\nFinal acceptance: preserve both merge parents.`;
-		const proposed = await client.enqueueMessage({
-			conversationId: "home:test",
+		const assignments = seedTwoOwnerPlanRun(db, "home-plan-approve-1");
+		(db.runs[0]!.metadata as Record<string, unknown>).redriveInput = {
 			content: originalRequest,
-			idempotencyKey: "home-plan-approve-1",
-		});
+		};
 		const approved = await client.approvePlanAssignments({
 			runId: "home-plan-approve-1",
 			approvalNote: "Approved from Home validation test",
 		});
 		await Promise.all(context.waitUntilPromises);
 
-		expect(proposed.homePlan?.assignments).toHaveLength(2);
 		expect(approved.homePlan.status).toBe("dispatching");
 		expect(approved.assignments).toHaveLength(2);
 		expect(approved.assignments.map((assignment) => assignment.status)).toEqual(
@@ -157,7 +53,7 @@ describe("kernel runtime router: plans", () => {
 		expect(delegateRunner.mock.calls[0]?.[0]).toMatchObject({
 			delegateToTediId: "tedi-cpo",
 			metadata: {
-				homePlanAssignmentId: proposed.homePlan?.assignments[0]?.id,
+				homePlanAssignmentId: assignments[0]?.id,
 				workItemId: db.workItemRows[0]?.id,
 			},
 		});
@@ -172,8 +68,6 @@ describe("kernel runtime router: plans", () => {
 			expect(item.description).toContain(originalRequest);
 		for (const [dispatch] of delegateRunner.mock.calls)
 			expect(dispatch.content).toContain(originalRequest);
-		for (const assignment of proposed.homePlan?.assignments ?? [])
-			expect(assignment.objective.length).toBeLessThanOrEqual(600);
 		expect(delegateRunner.mock.calls[0]?.[0].content).toContain(
 			"Assignment scope is authoritative: execute and report only the objective above.",
 		);
@@ -802,18 +696,14 @@ describe("kernel runtime router: plans", () => {
 			status: "queued",
 		}));
 
-		const proposed = await client.enqueueMessage({
-			conversationId: "home:test",
-			content:
-				"Plan this across CPO and Echo: CPO owns launch criteria and Echo validates evidence.",
-			idempotencyKey: "home-plan-terminal-1",
-		});
+		const [cpoAssignment, echoAssignment] = seedTwoOwnerPlanRun(
+			db,
+			"home-plan-terminal-1",
+		);
 		await client.approvePlanAssignments({
 			runId: "home-plan-terminal-1",
 		});
 		await Promise.all(context.waitUntilPromises);
-		const cpoAssignment = proposed.homePlan?.assignments[0];
-		const echoAssignment = proposed.homePlan?.assignments[1];
 
 		db.runtimeEvents.push(
 			childRuntimeEvent({
@@ -849,7 +739,6 @@ describe("kernel runtime router: plans", () => {
 		expect(result.runSet.runs[0]).toMatchObject({
 			id: "home-plan-terminal-1",
 			status: "running",
-			outputMessageId: "home-plan-terminal-1:assistant",
 			progress: {
 				current: 100,
 				label: "Complete",

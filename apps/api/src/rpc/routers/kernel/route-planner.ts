@@ -1,6 +1,5 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { OS_SCREENS_PROMPT } from "@tedix/api-contract/utils/os-screens-prompt";
-import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import { ZodError } from "zod";
 import { NoObjectGeneratedError } from "ai";
 import type { SelectedKernelModel } from "./llm";
@@ -14,8 +13,6 @@ import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
 import { billingPolicyDenialCode } from "./billing-reservation";
 import { guardKernelRouteDecision } from "./delegation-intent";
-import type { ContextCandidateRanker } from "./jev-context-ranking";
-import { refineDelegationFit } from "./jev-delegation-fit";
 import type { KernelContext } from "./context-assembly";
 import {
 	renderHomeStableContext,
@@ -56,56 +53,6 @@ import {
 	routeWriterContext,
 	ROUTE_DETAILS_PROMPT_VERSION,
 } from "./route-decision-writer";
-
-/** A model or fit rerank cannot send a private recall to another member's tedi. */
-export function guardPersonalRecallRoute<T extends KernelRouteDecision>(
-	context: KernelContext,
-	decision: T,
-): T {
-	if (
-		!context.personalRecall ||
-		!["delegate_tedi", "suggest_handoff"].includes(decision.routeKind)
-	)
-		return decision;
-	const eligible = context.tedis.filter(
-		(tedi) =>
-			tedi.status !== "archived" &&
-			(tedi.scope !== "personal" ||
-				Boolean(
-					context.operatorUserId && tedi.ownerUserId === context.operatorUserId,
-				)),
-	);
-	const own = eligible.find(
-		(tedi) =>
-			tedi.scope === "personal" && tedi.ownerUserId === context.operatorUserId,
-	);
-	const selected = eligible.find((tedi) => tedi.id === decision.targetTediId);
-	const target = own ?? selected;
-	if (!target)
-		return {
-			...decision,
-			routeKind: "answer_in_home",
-			answer:
-				"I could not find an authorized assistant to read the missing personal records.",
-			targetTediId: null,
-			targetTediLabel: null,
-			targetActivityId: null,
-			plannedToolIds: [],
-		};
-	const sameTarget = target.id === decision.targetTediId;
-	return {
-		...decision,
-		targetTediId: target.id,
-		targetTediLabel: target.name,
-		targetActivityId: sameTarget ? decision.targetActivityId : null,
-		plannedToolIds:
-			decision.risk === "low"
-				? [...OPERATOR_RECORD_TOOLS]
-				: sameTarget
-					? decision.plannedToolIds
-					: [],
-	};
-}
 
 // Modest bounds — the planner emits a small typed object plus a short message.
 const MAX_OUTPUT_TOKENS = 3000;
@@ -569,8 +516,6 @@ export type PlanKernelRouteArgs = {
 	decisionModel?: () => Promise<RouteDecisionObservation>;
 	/** Server-selected choice; never sourced from writer output. */
 	routeChoice?: RouteChoice;
-	/** Jev fit over already visible, capable delegation targets. Advisory only. */
-	delegationCandidateRanker?: ContextCandidateRanker;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
 	onRouteAttempts?: (attempts: readonly KernelRouteAttempt[]) => void;
 	model: SelectedKernelModel | null;
@@ -654,7 +599,6 @@ export async function planKernelRoute(
 						...args,
 						routeChoice: choice,
 						context: routeWriterContext(args.context, choice),
-						delegationCandidateRanker: undefined,
 					}
 				: args,
 		);
@@ -924,17 +868,10 @@ async function planKernelRouteWithRecovery(
 		if (!planned) return null;
 		planned.usage.attempts = attempts;
 		planned.usage.attemptCount = attempts.length;
-		const fitted = await refineDelegationFit({
-			content: args.content,
-			context: args.context,
-			decision: guardKernelRouteDecision(
-				args.operatorContent ?? args.content,
-				planned,
-			),
-			ranker: args.delegationCandidateRanker,
-			signal: args.abortSignal,
-		});
-		const guarded = guardPersonalRecallRoute(args.context, fitted);
+		const guarded = guardKernelRouteDecision(
+			args.operatorContent ?? args.content,
+			planned,
+		);
 		if (
 			(autoRouter || retried || args.routeChoice) &&
 			guarded.routeKind === "answer_in_home" &&

@@ -8,7 +8,6 @@ import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { guardKernelRouteDecision } from "./delegation-intent";
 import { createJevContextRanker } from "./jev-context-ranking";
-import { createJevDelegationRanker } from "./jev-delegation-fit";
 import type { KernelExecutionAttempt } from "./gateway-attribution";
 /**
  * Kernel — orchestrator.
@@ -120,7 +119,6 @@ import { countActiveDelegatedRunsByTedi } from "@tedix/db/queries/kernel-runtime
 import {
 	DELEGATION_LOAD_WINDOW_MS,
 	delegationCapacity,
-	spreadDelegationLoad,
 } from "./delegation-load";
 import { rerouteEmbodiedMismatch } from "./embodied-reroute";
 import { readConversationSessionPolicyLayer } from "./session-policy";
@@ -651,14 +649,6 @@ export async function runKernel(args: {
 		"contextRanking",
 		contextCache,
 	);
-	const delegationCandidateRanker = createJevDelegationRanker(
-		db,
-		env,
-		gatewayContext,
-		abortSignal,
-		args.onExecutionAttempts,
-		contextCache,
-	);
 	// Size the selected provider without an outage-driven provider switch.
 	const laneBudget = (): number =>
 		kernelServesWorkersAiLane(model)
@@ -939,7 +929,6 @@ export async function runKernel(args: {
 				}
 			: {}),
 		onExecutionAttempts: args.onExecutionAttempts,
-		delegationCandidateRanker,
 		images,
 		content: roundContent,
 		operatorContent: inputContent,
@@ -1092,9 +1081,8 @@ export async function runKernel(args: {
 		decision: route,
 	});
 
-	// Live delegated load: spread coding work across the tedis that share the
-	// target's repository, and hold a target already at its concurrency limit.
-	// A failed read leaves the planner's target and applies no capacity hold.
+	// Live delegated load: hold a target already at its concurrency limit.
+	// A failed read applies no capacity hold.
 	let delegationLoad: Map<string, number> = new Map();
 	if (route.routeKind === "delegate_tedi" && route.targetTediId) {
 		try {
@@ -1104,15 +1092,9 @@ export async function runKernel(args: {
 					Date.now() - DELEGATION_LOAD_WINDOW_MS,
 				).toISOString(),
 			});
-			route = spreadDelegationLoad({
-				content: inputContent,
-				context,
-				decision: route,
-				load: delegationLoad,
-			});
 		} catch (error) {
 			console.warn(
-				"[kernel] delegated load read failed; keeping the planned target",
+				"[kernel] delegated load read failed; no capacity hold applied",
 				{ exception: safeExceptionTopology(error) },
 			);
 		}

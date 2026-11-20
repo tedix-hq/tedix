@@ -26,21 +26,13 @@ import {
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	HOME_PLAN_ASSIGNMENT_SCOPE_INSTRUCTIONS,
-	type HomePlanningTarget,
-	PLAN_DECOMPOSITION_TIMEOUT_MS,
-	buildHomePlanAssignment,
-	detectsHomePlanningRequest,
 	previewPlanContent,
-	selectedHomePlanTargets,
-	tediPlanningLabel,
 } from "../kernel/plan-dispatch";
 import type { KernelDO } from "../../../kernel/kernel-do";
-import { type KernelEnv, configuredKernelModel } from "../kernel/llm";
 import {
 	type KernelGovernancePolicy,
 	parseKernelGovernancePolicy,
 } from "@tedix/api-contract/utils/approval-policy";
-import type { KernelRouteUsage } from "../kernel/route-planner";
 import type {
 	KernelRuntimeEvent,
 	TediArtifactRow,
@@ -52,10 +44,6 @@ import {
 	getKernelRuntimeRun,
 	listKernelRuntimeRunMetadata,
 } from "@tedix/db/queries/kernel-runtime-runs";
-import {
-	type PlanDependencyEdge,
-	planTediAssignments,
-} from "../kernel/plan-planner";
 import type {
 	TediArtifact,
 	TediMessageRole,
@@ -72,7 +60,6 @@ import {
 	numberFromPayload,
 	shouldFailSoftHomeRunSetRead,
 	stringFromPayload,
-	withTimeout,
 } from "../kernel/runtime-shared";
 import {
 	childRunPreviewFromEvents,
@@ -80,11 +67,7 @@ import {
 } from "../kernel/child-run-events";
 import { cognitiveRuntimeContractRouter } from "../cognitive-runtime";
 import { createRouterClient, implement } from "@orpc/server";
-import {
-	getActivePolicyPackDefinition,
-	listOrganizationTedis,
-} from "@tedix/db/queries/kernel-runtime-support";
-import { healthForIsolateTedi } from "../cognitive-runtime/events-policy";
+import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
 import { kernelRuntimeContract } from "@tedix/api-contract/contracts/kernel-runtime";
 import { normalizeRuntime } from "../kernel/run-store";
 import { registerCanceledParentChildStopper } from "../kernel/run-store-reconciliation";
@@ -936,175 +919,6 @@ export async function buildKernelCorrectionSignal(
 		}
 		throw error;
 	}
-}
-
-export async function readHomePlanningTargets(
-	context: BaseContext,
-	organizationId: string,
-): Promise<HomePlanningTarget[]> {
-	try {
-		const rows = (await listOrganizationTedis(
-			context.db,
-			organizationId,
-			50,
-		)) as HomePlanningTarget[];
-		const skippedTedis: Array<{
-			id: string;
-			health: string;
-		}> = [];
-		const reachable = rows.filter((target) => {
-			const health = healthForIsolateTedi(target);
-			if (health === "unreachable" || health === "stopped") {
-				skippedTedis.push({
-					id: target.id,
-					health,
-				});
-				return false;
-			}
-			return true;
-		});
-		if (skippedTedis.length > 0) {
-			console.warn(
-				"[kernelRuntime] roster preflight: skipped unreachable/stopped isolate tedis",
-				{
-					skippedTedis,
-				},
-			);
-		}
-		return reachable;
-	} catch (error) {
-		console.warn(
-			"[kernelRuntime] planning target read failed",
-			errorMessage(error),
-		);
-		return [];
-	}
-}
-
-export async function maybeBuildHomePlan(input: {
-	content: string;
-	context: BaseContext;
-	createdAt: string;
-	objectiveId?: string;
-	organizationId: string;
-	runId: string;
-}): Promise<{
-	plan: HomePlan;
-	usage: KernelRouteUsage | null;
-} | null> {
-	if (!detectsHomePlanningRequest(input.content)) return null;
-	const targets = selectedHomePlanTargets({
-		content: input.content,
-		targets: await readHomePlanningTargets(input.context, input.organizationId),
-	});
-	if (targets.length < 2) return null;
-	// KERNEL_MAX_PLAN_OWNERS: configurable owner cap for the plan path (default 16).
-	// Fail-soft: bad value → default.
-	const maxPlanOwners = (() => {
-		const raw = (
-			input.context.env as unknown as {
-				KERNEL_MAX_PLAN_OWNERS?: string;
-			}
-		).KERNEL_MAX_PLAN_OWNERS;
-		if (raw !== undefined && raw !== "") {
-			const n = Number.parseInt(raw, 10);
-			if (Number.isFinite(n) && n >= 1) return n;
-		}
-		return 16;
-	})();
-	const planTargets = targets.slice(0, maxPlanOwners);
-	// Plan v1: decompose the request into a SPECIFIC per-owner objective via the
-	// router LLM (roster-grounded — keyed by owner id, re-validated inside
-	// planTediAssignments). Bounded + fail-soft: a timeout / generation failure /
-	// missing model leaves `objectives` null and every owner falls back to the v0
-	// template, so the plan path never regresses.
-	let objectives: Map<string, string> | null = null;
-	let planUsage: KernelRouteUsage | null = null;
-	// Inferred cross-owner blocking edges (blocker → dependent), roster-validated
-	// and cycle-pruned by the planner. Empty on fail-soft; wired into the plan
-	// literal below so approval can materialize them as work_item_relations.
-	let dependencies: PlanDependencyEdge[] = [];
-	try {
-		const planResult = await withTimeout(
-			planTediAssignments({
-				content: input.content,
-				targets: planTargets.map((target) => ({
-					id: target.id,
-					label: tediPlanningLabel(target),
-					slug: target.slug ?? null,
-				})),
-				model: await configuredKernelModel(
-					input.context.env as unknown as KernelEnv,
-					undefined,
-					input.organizationId,
-				),
-				maxOwners: maxPlanOwners,
-			}),
-			PLAN_DECOMPOSITION_TIMEOUT_MS,
-			"kernelRuntime.planDecomposition",
-		);
-		objectives = planResult.objectives;
-		planUsage = planResult.usage;
-		dependencies = planResult.dependencies;
-	} catch (error) {
-		console.warn(
-			"[kernelRuntime] plan decomposition bounded-out; using v0 template",
-			errorMessage(error),
-		);
-		objectives = null;
-		planUsage = null;
-		dependencies = [];
-	}
-	const assignments = planTargets.map((target, index) =>
-		buildHomePlanAssignment({
-			content: input.content,
-			index,
-			runId: input.runId,
-			target,
-			objective: objectives?.get(target.id) ?? null,
-		}),
-	);
-	const plan: HomePlan = {
-		id: `${input.runId}:plan`,
-		status: "proposed",
-		summary: `Drafted ${assignments.length} Agent-runtime assignments for operator approval.`,
-		// v1 when the LLM decomposed ≥1 owner objective; v0 when every owner fell
-		// back to the template (no model / timeout / failure) — an observability
-		// signal for which plan path produced the assignments.
-		source:
-			objectives && objectives.size > 0
-				? "kernelRuntime.plan.v1"
-				: "kernelRuntime.plan.v0",
-		createdAt: input.createdAt,
-		objectiveId: input.objectiveId ?? null,
-		assignments,
-		// Inferred cross-owner dependency edges (blocker → dependent). The planner
-		// keys them by owner id (== assignment.ownerTediId), so the map to the
-		// back-compat snapshot shape is a direct rename, no resolution. Persisted in
-		// the run snapshot so approval can materialize them into work_item_relations.
-		dependencies: dependencies.map((edge) => ({
-			fromOwnerTediId: edge.fromOwner,
-			toOwnerTediId: edge.toOwner,
-			reason: edge.reason,
-		})),
-		attentionRoutes: assignments.map((assignment) => ({
-			id: `${assignment.id}:attention-route`,
-			ownerTediId: assignment.ownerTediId,
-			ownerLabel: assignment.ownerLabel,
-			routeKind: assignment.routeKind,
-			confidence: assignment.confidence,
-			risk: assignment.risk,
-			novelty: "known",
-			rationale:
-				"Operator explicitly named this Agent-runtime tedi in a multi-owner Home request.",
-			policy: "home.attention-route.v0",
-			outcome: "proposed",
-		})),
-	};
-	return {
-		plan,
-		usage: planUsage,
-	};
 }
 
 export function kernelPlanAssistantContent(plan: HomePlan): string {

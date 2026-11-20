@@ -25,7 +25,10 @@ import {
 	type ExecutionRequirement,
 	ExecutionRequirementSchema,
 } from "@tedix/api-contract/schemas/execution-evidence";
-import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
+import type {
+	HomePlan,
+	HomeRun,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	KERNEL_DELEGATE_ENQUEUE_BUDGET_MS,
 	createDelegationWorkItem,
@@ -103,7 +106,6 @@ import {
 	kernelDelegateRunner,
 	kernelPlanAssistantContent,
 	kernelRuntimeOs,
-	maybeBuildHomePlan,
 	normalizeMessageAttachments,
 	operatorSlashCommandRefusal,
 	readOrgGovernancePolicy,
@@ -420,19 +422,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			metadata,
 			organizationId,
 		});
-		const planBuilt =
-			!input.delegateToTediId && input.executionPolicy !== "observe_only"
-				? await maybeBuildHomePlan({
-						content: turnContent,
-						context,
-						createdAt,
-						organizationId,
-						runId,
-						objectiveId: stringFromPayload(metadata.objectiveId),
-					})
-				: null;
-		const homePlan = planBuilt?.plan ?? null;
-		const kernelPlanUsage = planBuilt?.usage ?? null;
+		// A plan across several tedis is never built from the wording of the
+		// message. Every Home message goes to Home's model as written.
+		const homePlan = null as HomePlan | null;
 		// Governance policy: read once per turn for the org (fail-soft — null
 		// when no active policy pack exists). Used for approval TTL and fan-out
 		// cap; defaults apply when absent.
@@ -743,11 +735,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			delegatedTediId: input.delegateToTediId ?? null,
 			delegationWorkOrder,
 			homePlan,
-			...(kernelPlanUsage
-				? {
-						kernelPlanUsage,
-					}
-				: {}),
 			homeDispatchPolicy: dispatchPolicy,
 			...(kernelCorrection
 				? {
