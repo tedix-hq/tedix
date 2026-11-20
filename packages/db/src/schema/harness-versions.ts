@@ -215,7 +215,6 @@ export const traceBundles = sqliteTable(
 		index("idx_trace_bundles_tedi_run").on(table.tediId, table.runId),
 		index("idx_trace_bundles_tedi_created").on(table.tediId, table.createdAt),
 		// Before/after comparison: all bundles produced by one harness version.
-		index("idx_trace_bundles_version").on(table.harnessVersionId),
 		index("idx_trace_bundles_org").on(table.orgId),
 		// Standalone created_at for the retention sweep (WHERE created_at < cutoff).
 		index("idx_trace_bundles_created").on(table.createdAt),
