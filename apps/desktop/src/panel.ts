@@ -75,13 +75,13 @@ function serviceLines({ status, setup }: PanelState): string[] {
 				.map((runner) => runner.version!),
 		),
 	];
-	const lines = setup.cli.service ? [setup.cli.service] : [];
-	if (
-		setup.cli.version &&
-		running.some((version) => version !== setup.cli.version)
-	)
+	const { version, other } = setup.cli;
+	const lines = other
+		? [`Command-line tool ${version} is in use; version ${other} is kept.`]
+		: [];
+	if (version && running.some((runs) => runs !== version))
 		lines.push(
-			`The background service still runs version ${running.join(", ")}; the command-line tool is now ${setup.cli.version}. Choose Restart runners to use it; that stops runs in progress.`,
+			`The background service still runs version ${running.join(", ")}; the command-line tool is now ${version}. Choose Restart runners to use it; that stops runs in progress.`,
 		);
 	return lines;
 }
@@ -128,9 +128,24 @@ function draw(state: PanelState) {
 		),
 	];
 
+	const restart = () =>
+		button("Restart runners", busy, () => void tedixShell.action("restart"));
 	const down = state.setup.cli.update;
 	if (down?.down && !state.setup.cli.updating)
-		nodes.push(el("div", "problem", el("p", "", down.text)));
+		nodes.push(el("div", "problem", el("p", "", down.text), restart()));
+	if (state.setup.cli.access)
+		nodes.push(
+			el(
+				"div",
+				"problem soft",
+				el("p", "", state.setup.cli.access),
+				button(
+					"Open System Settings",
+					false,
+					() => void tedixShell.open("folder-access"),
+				),
+			),
+		);
 
 	nodes.push(el("div", "section", "Run tasks with"));
 	nodes.push(
@@ -222,14 +237,20 @@ function draw(state: PanelState) {
 		el(
 			"div",
 			"buttons",
-			button("Restart runners", busy, () => void tedixShell.action("restart")),
+			restart(),
 			button(
-				cli.update?.ok === false
-					? "Retry command-line tool update"
+				cli.offer
+					? `Update command-line tool to ${cli.offer}`
 					: "Check for command-line tool update",
 				busy || !!cli.updating,
-				() => void tedixShell.action("cli-update"),
+				() => void tedixShell.action(cli.offer ? "cli-update" : "cli-check"),
 			),
+			cli.other &&
+				button(
+					`Go back to version ${cli.other}`,
+					busy || !!cli.updating,
+					() => void tedixShell.action("cli-back"),
+				),
 			button(
 				"Set up this Mac…",
 				false,

@@ -47,24 +47,28 @@ The app is not signed or notarized yet and has been run on macOS only.
   the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
   and restarts the background service. **Use the separate install again**
   reverses it.
-- **Keep the command-line tool current.** The command-line tool has its own
-  releases, more often than the app. The app looks for a newer one when it
-  starts and every four hours, downloads it, checks it, puts it in place of
-  its copy and restarts the background service so the runners use it. That
-  restart stops tasks that are running, so the app first waits for a moment
-  without any, for up to 30 minutes. **Tedix → This Mac…** and the
-  command-line tool step of **Set Up This Mac…** show the version in use
-  and what the app last did, or why an update did not apply, and have
-  **Check for command-line tool update**. After every such change the app
-  watches the background service for three minutes. If the new version
-  cannot read your project folders (macOS can withdraw that permission when
-  the file changes) or the runners do not come back, the app puts the
-  version before back, restarts the service again, says so in both windows,
-  and leaves that version alone until you choose the button or a newer one
-  is published. If going back does not work either, the app says that this
-  Mac's runners are down and shows a notification. `tedix update` and
-  `tedix rollback` in a terminal work on the app's copy too and restart the
-  background service themselves.
+- **Update the command-line tool when you choose.** The command-line tool
+  has its own releases, more often than the app. The app looks for a newer
+  one when it starts and every four hours, and only tells you: **Tedix →
+  This Mac…** and the command-line tool step of **Set Up This Mac…** show
+  the version in use and offer **Update command-line tool to X**. Nothing
+  is replaced and the background service is never restarted until you
+  click, and the app first says what happens: tasks running on this Mac
+  stop, and macOS may ask whether Tedix may access your Documents folder
+  (choose Allow). The app asks first because macOS treats each replaced
+  copy as a new program and can ask again for folder access, and nobody
+  can answer that with the screen locked. This stays so until the tool is
+  signed with an identity that does not change between versions. The app
+  keeps the version before, shows both numbers, and offers **Go back to
+  version Y**, which swaps the two and restarts the background service
+  the same way. It never goes back by itself. If the background service
+  or every runner stays down after such a restart, the app says that this
+  Mac's runners are down, shows one notification, and offers **Restart
+  runners**. If some sessions could not be reopened because macOS has not
+  allowed a folder, the app says which folder and opens the right page of
+  System Settings; it does not treat that as runners being down.
+  `tedix update` and `tedix rollback` in a terminal work on the app's copy
+  too and restart the background service themselves.
 - **See and change this computer's status.** **Tedix → This Mac…**
   (`Cmd+Shift+M`) shows the runners, active runs, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. It
@@ -164,29 +168,29 @@ the one in that release's `SHA256SUMS`; add a version to pin one
 needs first. A build without these two steps has no command-line tool inside.
 
 The copy inside the app is only the starting point. A CLI release reaches
-installed apps without an app release:
+installed apps without an app release, as an offer the person accepts:
 
-- The app reads `https://downloads.tedix.dev/latest.json` and, when that
-  version is newer than its copy in `cli/tedix` in its data folder, downloads
+- The app reads `https://downloads.tedix.dev/latest.json` and remembers the
+  version. That is all it does by itself. It offers the newer of that
+  version and the copy inside the app when it is newer than its copy in
+  `cli/tedix` in its data folder. A copy inside a new app is used without
+  asking only on a first run, when the data folder has no copy yet.
+- After the click the app downloads
   `releases/<version>/tedix-<version>-darwin-<arm64|x64>` and refuses it
   unless its SHA-256 is the one in that release's `SHA256SUMS`. Same rules
   as the app's own update: https from that host only, no redirects.
 - The new file is written beside the copy, signed the same way, started once
   to check its version, and renamed over the copy. The copy before is kept
-  as `cli/tedix.previous-app`. `tedix update` keeps its own `cli/tedix.previous`,
-  which `tedix rollback` puts back.
-- After the swap the app reloads the background service and reads
-  `~/.tedix/supervisor.log` for three minutes: it wants "supervisor started"
-  and no "could not read" or "spawn failed" after it. Otherwise it puts
-  `cli/tedix.previous-app` back, reloads again and writes the version to
-  `cli/update-state.json` as held back. The same check follows a newer copy
-  from an app update and **Let the app manage it**.
-- The app never replaces its copy with an older one. After an app update, the
-  copy inside the new app is used only when it is newer than the copy in the
-  data folder. So an app release does not need the newest CLI inside; it
-  needs one that is new enough for a first install.
-- To hold installed apps on a CLI version, do not move `latest.json` past it;
-  the app follows `latest.json` and has no pin of its own.
+  as `cli/tedix.other-app`; **Go back to version Y** swaps the two files.
+  `tedix update` keeps its own `cli/tedix.previous`, which `tedix rollback`
+  puts back.
+- Then the app reloads the background service and waits up to three minutes
+  for the switched-on runners. It reports runners as down only when the
+  service is not running or no runner started. Lines with "could not read"
+  in `~/.tedix/supervisor.log` since the reload are shown as a note about
+  folder access, not as a failure, and nothing is put back by itself.
+- To keep installed apps from offering a CLI version, do not move
+  `latest.json` to it; the app has no pin of its own.
 
 ```sh
 bun install --frozen-lockfile
