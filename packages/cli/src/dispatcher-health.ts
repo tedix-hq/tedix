@@ -77,6 +77,10 @@ export interface DispatcherHealthSource {
 	reliability?: z.infer<typeof ReliabilityJournalSchema>;
 	idle?: DispatcherIdle;
 	skips?: DispatcherSkips;
+	/** The skill this runner reads as its standing rules, once it has read it. */
+	rulesSkillId?: string;
+	/** Why the rules skill admits no Work now; absent while it is active. */
+	rulesProblem?: string;
 }
 
 export interface LocalDispatcherHealth {
@@ -95,6 +99,8 @@ export interface LocalDispatcherHealth {
 	machineName?: string;
 	/** The machine tools this machine accepts for this organization. */
 	machineTools?: string[];
+	/** The skill this runner reads as its standing rules on every pass. */
+	rulesSkillId?: string;
 }
 
 function selector(scope: string[], name: string): string {
@@ -179,6 +185,26 @@ export function recordDispatcherSkips(
 		if (entries.length === 20) break;
 	}
 	updateSource(directory, { skips: { observedAt, entries } }, process.pid);
+}
+
+/**
+ * Declares which skill this runner depends on for its rules, and whether that
+ * skill lets it admit Work. The health report carries both to Tedix.
+ */
+export function recordDispatcherRules(
+	directory: string,
+	rules: { skillId?: string; problem?: string },
+) {
+	updateSource(
+		directory,
+		{
+			...(rules.skillId && UUID_RE.test(rules.skillId)
+				? { rulesSkillId: rules.skillId }
+				: {}),
+			rulesProblem: rules.problem,
+		},
+		process.pid,
+	);
 }
 
 export function recordDispatcherIdle(directory: string, idle: DispatcherIdle) {
@@ -655,7 +681,15 @@ export function collectDispatcherHealth(
 							Date.parse(log.lastAdmissionAt))
 						? (source.lastAdmissionAt ?? null)
 						: log.lastAdmissionAt,
-				topReason: log.topReason,
+				// A rules skill that admits nothing outranks any per-item reason.
+				topReason:
+					running && typeof source.rulesProblem === "string"
+						? { reason: source.rulesProblem.slice(0, 500), count: 1 }
+						: log.topReason,
+				...(typeof source.rulesSkillId === "string" &&
+				UUID_RE.test(source.rulesSkillId)
+					? { rulesSkillId: source.rulesSkillId }
+					: {}),
 			});
 		} catch {}
 	}
