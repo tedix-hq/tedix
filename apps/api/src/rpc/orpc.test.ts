@@ -802,6 +802,9 @@ describe("public user-session authentication", () => {
 			url: new URL("https://api/rpc/organizations/listMine"),
 			env: {
 				ENVIRONMENT: "production",
+				DB: {
+					withSession: () => ({ prepare: vi.fn(), batch: vi.fn() }),
+				},
 				DESCOPE_PROJECT_ID: "P2fictional",
 				AGENT_REVIEW_PROJECT_ID: reviewProject?.id,
 			},
