@@ -5,7 +5,6 @@ import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runti
 import { homeDelegationApprovalId } from "@tedix/api-contract/utils/home-delegation-approval";
 import { findApprovalRule } from "../approval-rule-matcher";
 import {
-	runChatApprovalReplyIntercept,
 	runWorkflowConfirmIntercept,
 	recordOrNull,
 } from "./turn-work-intercepts";
@@ -112,24 +111,8 @@ import {
 	renderWriteDeclined,
 	type WriteProposalEnv,
 } from "./write-proposal";
-import { correctWriteRoute, type DirectWriteIntent } from "./write-tool-intent";
+import { correctWriteRoute } from "./write-tool-intent";
 import { organizationGatewayApp } from "./organization-gateway-app";
-import {
-	directSkillMoveKernelResult,
-	resolveDirectSkillMove,
-} from "./direct-skill-move";
-import {
-	directSkillCertificationKernelResult,
-	resolveDirectSkillCertification,
-} from "./direct-skill-certify";
-import {
-	directSkillScheduleKernelResult,
-	resolveDirectSkillSchedule,
-} from "./direct-skill-schedule";
-import {
-	directSkillRunKernelResult,
-	resolveDirectSkillRun,
-} from "./direct-skill-run";
 
 /** Explicit or run-stamped parent tedi of a nested delegation. */
 function readParentTediId(...sources: Array<unknown>): string | null {
@@ -474,7 +457,6 @@ async function planAndParkKernelWriteProposal(
 	kernelResult: KernelResult | null,
 	executionAttempts: KernelExecutionAttempt[],
 	onStage?: (stage: KernelWriteProposalStage) => void,
-	directRename?: DirectWriteIntent | null,
 ): Promise<{
 	writeProposal: KernelWriteProposal | null;
 	writeProposalDeclined: KernelWriteProposalDeclined | null;
@@ -520,7 +502,6 @@ async function planAndParkKernelWriteProposal(
 				workWriteGateway: kernelResult.workWriteGateway,
 				actingUserId: input.descopeUserId,
 				content,
-				directRename,
 				gatewayContext: { organizationId, runId, sessionKey: conversationId },
 				onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
 				model: writeModel?.model ?? null,
@@ -744,11 +725,6 @@ export async function runKernelTurnWork(
 		: await runInboxWakeIntercept(deps, input);
 	if (wakeResult) return wakeResult;
 
-	const approvalReplyResult = observeOnly
-		? null
-		: await runChatApprovalReplyIntercept(deps, input);
-	if (approvalReplyResult) return approvalReplyResult;
-
 	const workflowConfirmResult = observeOnly
 		? null
 		: await runWorkflowConfirmIntercept(deps, input);
@@ -788,251 +764,144 @@ export async function runKernelTurnWork(
 	let residencyDenialMessage: string | null = null;
 	// The answer began but did not finish (output or step limit).
 	let answerIncomplete = false;
-	// "Move skill X to tedi Y" is one platform call, never a delegation to Y:
-	// a tedi has no tool that changes a skill's owner.
-	const directSkillMove = observeOnly
-		? null
-		: await resolveDirectSkillMove(deps.db, {
-				organizationId,
-				content,
-			}).catch((error: unknown) => {
+	let kernelResult = await deps
+		.kernel({
+			...(runtimeMetadata.stewardCloseoutTargets !== undefined
+				? {
+						stewardCloseoutTargets: StewardCloseoutTargetsSchema.parse(
+							runtimeMetadata.stewardCloseoutTargets,
+						),
+					}
+				: {}),
+			holdDecisionWork: deps.holdAfterSettle,
+			onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
+			onRouteAttempts: (attempts) => routeAttempts.push(...attempts),
+			attachments: input.attachments,
+			...(deps.relevanceCandidates
+				? { relevanceCandidates: deps.relevanceCandidates }
+				: {}),
+			...(deps.previousRelevanceRecall
+				? {
+						previousRelevanceRecall: deps.previousRelevanceRecall,
+					}
+				: {}),
+			...(deps.previousHistoryCheckpoint
+				? {
+						previousHistoryCheckpoint: deps.previousHistoryCheckpoint,
+					}
+				: {}),
+			...(deps.onHistoryCheckpoint
+				? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
+				: {}),
+			...(deps.previousInventorySnapshot
+				? {
+						previousInventorySnapshot: deps.previousInventorySnapshot,
+					}
+				: {}),
+			...(deps.onInventorySnapshot
+				? { onInventorySnapshot: deps.onInventorySnapshot }
+				: {}),
+			...(typeof input.runRowMetadata.promptTokenBudget === "number"
+				? {
+						promptTokenBudget: input.runRowMetadata.promptTokenBudget,
+					}
+				: {}),
+			...(typeof input.runRowMetadata.rankingBudgetMs === "number"
+				? {
+						rankingBudgetMs: input.runRowMetadata.rankingBudgetMs,
+					}
+				: {}),
+			...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
+			db: deps.db,
+			env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],
+			organizationId,
+			// Advisory mid-turn progress is re-wrapped through emitProgress so
+			// planner emissions inherit the same fail-soft guarantee as milestones.
+			// Stage marks piggyback on the same seam: the first planner emission
+			// (in practice the post-context-assembly "thinking" milestone) splits
+			// context assembly from the LLM call, and the first answerDelta is the
+			// turn's first streamed token. mark() is first-occurrence-only.
+			onProgress: (progress) => {
+				stageTimings.mark("plannerFirstProgress");
+				if (progress.answerDelta) stageTimings.mark("firstAnswerDelta");
+				emitProgressEvent(
+					deps,
+					observeOnly && progress.answerDelta
+						? { ...progress, answerDelta: undefined }
+						: progress,
+				);
+			},
+			// Acting user used for org context and authority assembly.
+			descopeUserId: input.descopeUserId,
+			externalAgentPrincipalId: input.externalAgentPrincipalId,
+			content,
+			modelRef,
+			runId,
+			workItemId:
+				typeof runtimeMetadata.workItemId === "string"
+					? runtimeMetadata.workItemId
+					: undefined,
+			inferenceSource:
+				typeof runtimeMetadata.source === "string"
+					? `kernel:${runtimeMetadata.source}`
+					: "kernel:route",
+			// Kernel conversational memory: the conversation id scopes the
+			// bounded history read; the user message id excludes this turn's
+			// already-persisted `message.received` row (persist-first ordering
+			// above) so it is not duplicated alongside `content`.
+			conversationId,
+			currentUserMessageId: userMessageId,
+			// Per-turn operator abort (docs/engineering/cognition/kernel-execution-model.md
+			// "Operator cancel"): absent on the inline turn-work path. When
+			// present (KernelDO), combined by planKernelRoute with its own
+			// internal timeout/idle signals so a cancel actually stops the
+			// in-flight LLM call.
+			abortSignal: deps.plannerAbortSignal,
+			readSteering: deps.readSteering,
+			// Read side: surface this run's chain depth (stamped on the run
+			// metadata by kernelDelegateRunner as parent+1) so the kernel's own
+			// delegate decision enforces MAX_DELEGATION_DEPTH end-to-end. Read from
+			// runRowMetadata first, then runtimeMetadata; absent ⇒ 0 (top-level).
+			delegationDepth: currentDelegationDepth,
+			parentTediId: readParentTediId(runRowMetadata, runtimeMetadata),
+			requesterTediId: deps.requesterTediId ?? null,
+		})
+		.catch((e) => {
+			answerIncomplete = isHomeAnswerIncompleteError(e);
+			billingDenialCode = billingPolicyDenialCode(e);
+			if (
+				billingDenialCode?.startsWith("eu_") ||
+				billingDenialCode === "residency_policy_unavailable"
+			) {
+				const message = e instanceof Error ? e.message : String(e);
+				residencyDenialMessage =
+					message
+						.split(" — ")
+						.slice(1)
+						.join(" — ")
+						.replace(
+							/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
+							"",
+						) ||
+					"An administrator must configure a verified EU model provider and its credential for this organization.";
+			}
+			if (billingDenialCode) {
 				console.warn({
 					component: "kernel.turn_work",
-					event: "direct_skill_move_resolve_failed",
-					error: safeExceptionTopology(error),
+					event: "billing_policy_denied",
+					code: billingDenialCode,
 				});
-				return null;
-			});
-	// "Run the certification for draft X" is one platform call too, never an
-	// embodied delegation to the skill's tedi.
-	const directSkillCertification =
-		observeOnly || directSkillMove
-			? null
-			: await resolveDirectSkillCertification(deps.db, {
+			} else {
+				console.warn({
+					component: "kernel.turn_work",
+					event: "kernel_planner_failed",
 					organizationId,
-					content,
-				}).catch((error: unknown) => {
-					console.warn({
-						component: "kernel.turn_work",
-						event: "direct_skill_certification_resolve_failed",
-						error: safeExceptionTopology(error),
-					});
-					return null;
-				});
-	// "Pause the schedule of skill X" is one platform call as well; the
-	// skill's tedi has no tool that edits its own schedule policy.
-	const directSkillSchedule =
-		observeOnly || directSkillMove || directSkillCertification
-			? null
-			: await resolveDirectSkillSchedule(deps.db, {
-					organizationId,
-					content,
-				}).catch((error: unknown) => {
-					console.warn({
-						component: "kernel.turn_work",
-						event: "direct_skill_schedule_resolve_failed",
-						error: safeExceptionTopology(error),
-					});
-					return null;
-				});
-	const directSkillRun =
-		observeOnly ||
-		directSkillMove ||
-		directSkillCertification ||
-		directSkillSchedule
-			? null
-			: await resolveDirectSkillRun(deps.db, {
-					organizationId,
-					content,
 					runId,
-				}).catch((error: unknown) => {
-					console.warn({
-						component: "kernel.turn_work",
-						event: "direct_skill_run_resolve_failed",
-						error: safeExceptionTopology(error),
-					});
-					return null;
+					error: safeExceptionTopology(e),
 				});
-	const directSkillMoveApp =
-		directSkillMove ||
-		directSkillCertification ||
-		directSkillSchedule ||
-		directSkillRun
-			? await organizationGatewayApp(deps.db, organizationId).catch(() => null)
-			: null;
-	const directWrite: DirectWriteIntent | undefined = directSkillMoveApp
-		? (directSkillMove?.intent ??
-			directSkillCertification?.intent ??
-			directSkillSchedule?.intent ??
-			directSkillRun?.intent)
-		: undefined;
-	let kernelResult =
-		directSkillRun && directSkillMoveApp
-			? directSkillRunKernelResult(directSkillRun, directSkillMoveApp)
-			: directSkillMove && directSkillMoveApp
-				? directSkillMoveKernelResult(directSkillMove, directSkillMoveApp)
-				: directSkillCertification && directSkillMoveApp
-					? directSkillCertificationKernelResult(
-							directSkillCertification,
-							directSkillMoveApp,
-						)
-					: directSkillSchedule && directSkillMoveApp
-						? directSkillScheduleKernelResult(
-								directSkillSchedule,
-								directSkillMoveApp,
-							)
-						: await deps
-								.kernel({
-									...(runtimeMetadata.stewardCloseoutTargets !== undefined
-										? {
-												stewardCloseoutTargets:
-													StewardCloseoutTargetsSchema.parse(
-														runtimeMetadata.stewardCloseoutTargets,
-													),
-											}
-										: {}),
-									holdDecisionWork: deps.holdAfterSettle,
-									onExecutionAttempts: (attempts) =>
-										executionAttempts.push(...attempts),
-									onRouteAttempts: (attempts) =>
-										routeAttempts.push(...attempts),
-									attachments: input.attachments,
-									...(deps.relevanceCandidates
-										? { relevanceCandidates: deps.relevanceCandidates }
-										: {}),
-									...(deps.previousRelevanceRecall
-										? {
-												previousRelevanceRecall: deps.previousRelevanceRecall,
-											}
-										: {}),
-									...(deps.previousHistoryCheckpoint
-										? {
-												previousHistoryCheckpoint:
-													deps.previousHistoryCheckpoint,
-											}
-										: {}),
-									...(deps.onHistoryCheckpoint
-										? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
-										: {}),
-									...(deps.previousInventorySnapshot
-										? {
-												previousInventorySnapshot:
-													deps.previousInventorySnapshot,
-											}
-										: {}),
-									...(deps.onInventorySnapshot
-										? { onInventorySnapshot: deps.onInventorySnapshot }
-										: {}),
-									...(typeof input.runRowMetadata.promptTokenBudget === "number"
-										? {
-												promptTokenBudget:
-													input.runRowMetadata.promptTokenBudget,
-											}
-										: {}),
-									...(typeof input.runRowMetadata.rankingBudgetMs === "number"
-										? {
-												rankingBudgetMs: input.runRowMetadata.rankingBudgetMs,
-											}
-										: {}),
-									...(deps.contextCache
-										? { contextCache: deps.contextCache }
-										: {}),
-									db: deps.db,
-									env: deps.env as unknown as Parameters<
-										typeof runKernel
-									>[0]["env"],
-									organizationId,
-									// Advisory mid-turn progress is re-wrapped through emitProgress so
-									// planner emissions inherit the same fail-soft guarantee as milestones.
-									// Stage marks piggyback on the same seam: the first planner emission
-									// (in practice the post-context-assembly "thinking" milestone) splits
-									// context assembly from the LLM call, and the first answerDelta is the
-									// turn's first streamed token. mark() is first-occurrence-only.
-									onProgress: (progress) => {
-										stageTimings.mark("plannerFirstProgress");
-										if (progress.answerDelta)
-											stageTimings.mark("firstAnswerDelta");
-										emitProgressEvent(
-											deps,
-											observeOnly && progress.answerDelta
-												? { ...progress, answerDelta: undefined }
-												: progress,
-										);
-									},
-									// Acting user used for org context and authority assembly.
-									descopeUserId: input.descopeUserId,
-									externalAgentPrincipalId: input.externalAgentPrincipalId,
-									content,
-									modelRef,
-									runId,
-									workItemId:
-										typeof runtimeMetadata.workItemId === "string"
-											? runtimeMetadata.workItemId
-											: undefined,
-									inferenceSource:
-										typeof runtimeMetadata.source === "string"
-											? `kernel:${runtimeMetadata.source}`
-											: "kernel:route",
-									// Kernel conversational memory: the conversation id scopes the
-									// bounded history read; the user message id excludes this turn's
-									// already-persisted `message.received` row (persist-first ordering
-									// above) so it is not duplicated alongside `content`.
-									conversationId,
-									currentUserMessageId: userMessageId,
-									// Per-turn operator abort (docs/engineering/cognition/kernel-execution-model.md
-									// "Operator cancel"): absent on the inline turn-work path. When
-									// present (KernelDO), combined by planKernelRoute with its own
-									// internal timeout/idle signals so a cancel actually stops the
-									// in-flight LLM call.
-									abortSignal: deps.plannerAbortSignal,
-									readSteering: deps.readSteering,
-									// Read side: surface this run's chain depth (stamped on the run
-									// metadata by kernelDelegateRunner as parent+1) so the kernel's own
-									// delegate decision enforces MAX_DELEGATION_DEPTH end-to-end. Read from
-									// runRowMetadata first, then runtimeMetadata; absent ⇒ 0 (top-level).
-									delegationDepth: currentDelegationDepth,
-									parentTediId: readParentTediId(
-										runRowMetadata,
-										runtimeMetadata,
-									),
-									requesterTediId: deps.requesterTediId ?? null,
-								})
-								.catch((e) => {
-									answerIncomplete = isHomeAnswerIncompleteError(e);
-									billingDenialCode = billingPolicyDenialCode(e);
-									if (
-										billingDenialCode?.startsWith("eu_") ||
-										billingDenialCode === "residency_policy_unavailable"
-									) {
-										const message = e instanceof Error ? e.message : String(e);
-										residencyDenialMessage =
-											message
-												.split(" — ")
-												.slice(1)
-												.join(" — ")
-												.replace(
-													/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
-													"",
-												) ||
-											"An administrator must configure a verified EU model provider and its credential for this organization.";
-									}
-									if (billingDenialCode) {
-										console.warn({
-											component: "kernel.turn_work",
-											event: "billing_policy_denied",
-											code: billingDenialCode,
-										});
-									} else {
-										console.warn({
-											component: "kernel.turn_work",
-											event: "kernel_planner_failed",
-											organizationId,
-											runId,
-											error: safeExceptionTopology(e),
-										});
-									}
-									return null;
-								});
+			}
+			return null;
+		});
 	// A follow-up must not bypass or multiply an unresolved decision. Keep the
 	// original payload immutable; changing it requires rejecting that card first.
 	const pendingDelegation =
@@ -1060,11 +929,7 @@ export async function runKernelTurnWork(
 	// Whatever capability the router guessed, a rename request keeps the
 	// capability of the kind it names on the persisted route.
 	if (kernelResult?.route) {
-		const correctedRoute = correctWriteRoute(
-			kernelResult.route,
-			content,
-			directWrite,
-		);
+		const correctedRoute = correctWriteRoute(kernelResult.route, content);
 		if (correctedRoute !== kernelResult.route)
 			kernelResult = { ...kernelResult, route: correctedRoute };
 	}
@@ -1164,7 +1029,6 @@ export async function runKernelTurnWork(
 				kernelResult,
 				executionAttempts,
 				(stage) => stageTimings.mark(stage),
-				directWrite,
 			);
 	stageTimings.mark("writeProposalPlanEnded");
 	const writeProposalActive = Boolean(writeProposal && writeApprovalRequestId);

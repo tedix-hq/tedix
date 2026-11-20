@@ -6,10 +6,7 @@ import {
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
-import {
-	guardKernelRouteDecision,
-	hasExplicitDelegationIntent,
-} from "./delegation-intent";
+import { guardKernelRouteDecision } from "./delegation-intent";
 import { createJevContextRanker } from "./jev-context-ranking";
 import { createJevDelegationRanker } from "./jev-delegation-fit";
 import type { KernelExecutionAttempt } from "./gateway-attribution";
@@ -66,11 +63,7 @@ import type {
 	CacheTrace,
 	KernelContextCache,
 } from "../../../kernel/context-cache";
-import {
-	assembleHomeContext,
-	readKernelContextApps,
-	type KernelContext,
-} from "./context-assembly";
+import { assembleHomeContext, type KernelContext } from "./context-assembly";
 import {
 	DEFAULT_MAX_PROMPT_TOKENS,
 	maxPromptTokensForWindow,
@@ -103,14 +96,8 @@ import {
 	approvalHeldDelegationIntent,
 	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
-import { factoryChatReader } from "./factory-chat-tools";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
-import type { WriteProposalEnv } from "./write-proposal";
-import { factoryChatDecision, factoryIntent } from "./factory-intent";
-import {
-	groundedRosterDecision,
-	isGroundedRosterRequest,
-} from "./grounded-roster";
+import { groundedRosterDecision } from "./grounded-roster";
 import { createKernelHistorySummarizer } from "./history-summarizer";
 import type { KernelEnv } from "./llm";
 import { configuredKernelModel } from "./llm";
@@ -120,15 +107,6 @@ import type {
 	KernelRouteTraceInput,
 	KernelRouteUsage,
 } from "./route-planner";
-import {
-	explicitOutputWriteDecision,
-	explicitOutputCreateKind,
-	explicitOutputEditKind,
-	cardVerdictFollowUp,
-	cardVerdictWriteDecision,
-	outputWriteApp,
-	routeExplicitOutputCreate,
-} from "./output-create-intent";
 import { workWriteGateway } from "./work-write-gateway";
 import { planKernelRoute } from "./route-planner";
 import {
@@ -825,84 +803,9 @@ export async function runKernel(args: {
 		};
 	}
 
-	// Quoted output titles (e.g. "Kickoff") are data, not delegation commands.
-	// The full operator message still goes through the normal authority guard.
-	const delegates = hasExplicitDelegationIntent(
-		inputContent.replace(
-			/\b(?:titled|named|called)\s+(?:"[^"]*"|“[^”]*”)/gi,
-			"",
-		),
-	);
-	const outputCreateKind = delegates
-		? null
-		: explicitOutputCreateKind(inputContent);
-	const outputEditKind = delegates
-		? null
-		: explicitOutputEditKind(inputContent);
-	// An explicit output create or edit is routed without a model and needs only
-	// the gateway app, so it skips context assembly (~2 s live); the write
-	// planner reads its own inputs. Factory and roster requests, which full
-	// assembly decides first, and turns with images keep the full path.
-	if (
-		(outputCreateKind || outputEditKind) &&
-		!images.length &&
-		!factoryIntent(inputContent) &&
-		!isGroundedRosterRequest(inputContent)
-	) {
-		const apps = await readKernelContextApps(
-			db,
-			organizationId,
-			contextCache,
-		).catch(() => []);
-		const decision = explicitOutputWriteDecision(
-			outputCreateKind ?? outputEditKind,
-			outputWriteApp(apps),
-			outputCreateKind ? "create" : "edit",
-		);
-		if (decision) {
-			const route = guardKernelRouteDecision(inputContent, decision);
-			return {
-				route,
-				assistantContent: renderRouteResponse(route),
-				delegation: null,
-				routeUsage: null,
-				contextManifest: {
-					version: 1,
-					budgetTokens: maxPromptTokens,
-					sources: [{ name: "apps", count: apps.length }],
-					historyCompaction: null,
-					recall: "static",
-					recallAgeMs: null,
-					recallCandidates: 0,
-					recallWaitedMs: 0,
-				},
-			};
-		}
-	}
-
 	let pass = await assemblePass({ maxPromptTokens });
 	let context = pass.context;
 	let contextManifest = buildManifest(context, maxPromptTokens);
-	const factoryDecision = await factoryChatDecision(
-		inputContent,
-		context,
-		factoryChatReader(
-			env as WriteProposalEnv,
-			organizationId,
-			outputWriteApp(context.apps)!,
-			descopeUserId,
-		),
-	);
-	if (factoryDecision) {
-		const route = guardKernelRouteDecision(inputContent, factoryDecision);
-		return {
-			route,
-			assistantContent: renderRouteResponse(route),
-			delegation: null,
-			routeUsage: null,
-			contextManifest,
-		};
-	}
 	const rosterDecision = groundedRosterDecision(inputContent, context);
 	const groundedRosterRoute = rosterDecision
 		? guardKernelRouteDecision(inputContent, rosterDecision)
@@ -997,40 +900,6 @@ export async function runKernel(args: {
 	// non-answer route) reaches the delivery block below with nothing streamed.
 	let plannerStreamedAnswer = false;
 
-	const outputAppSlug =
-		outputCreateKind || outputEditKind ? outputWriteApp(context.apps) : null;
-
-	// "mark it useful" after a card was shown edits that card's row. The newest
-	// of the last three answers that shows one card wins, so a failed or
-	// unrelated turn in between does not lose the reference.
-	const cardVerdict =
-		delegates || outputCreateKind || outputEditKind
-			? null
-			: (context.history
-					.filter((message) => message.role === "assistant")
-					.slice(-3)
-					.reverse()
-					.map((message) => cardVerdictFollowUp(inputContent, message.content))
-					.find(Boolean) ?? null);
-	const outputWriteDecision = images.length
-		? null
-		: cardVerdict
-			? cardVerdictWriteDecision(cardVerdict, outputWriteApp(context.apps))
-			: explicitOutputWriteDecision(
-					outputCreateKind ?? outputEditKind,
-					outputAppSlug,
-					outputCreateKind ? "create" : "edit",
-				);
-	if (outputWriteDecision) {
-		const route = guardKernelRouteDecision(inputContent, outputWriteDecision);
-		return {
-			route,
-			assistantContent: renderRouteResponse(route),
-			delegation: null,
-			routeUsage: null,
-			contextManifest,
-		};
-	}
 	const homeRoutePolicy = await readHomeRoutePolicy(
 		db,
 		organizationId,
@@ -1081,10 +950,7 @@ export async function runKernel(args: {
 		abortSignal,
 		// Forward answer deltas from the single streamObject pass directly into
 		// the onProgress channel — the streamed deltas are the delivered answer.
-		// An explicit output-create request keeps the same streamed pass but
-		// delivers none of its prose: the turn ends in a write proposal.
 		onAnswerDelta: (delta: string) => {
-			if (outputAppSlug) return;
 			try {
 				plannerStreamedAnswer = true;
 				onProgress?.({
@@ -1209,7 +1075,6 @@ export async function runKernel(args: {
 		context.tedis,
 		context.delegationAvailable,
 	);
-	route = routeExplicitOutputCreate(route, outputCreateKind, outputAppSlug);
 	const workGateway = workWriteGateway(route, context.apps);
 	if (workGateway && route.toolIntent) {
 		route = {

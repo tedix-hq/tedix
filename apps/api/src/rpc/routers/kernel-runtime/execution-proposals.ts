@@ -46,7 +46,6 @@ import {
 	runKernelTurnWork,
 } from "../kernel/turn-work";
 import { type KernelTurnWorkInput } from "../kernel/turn-work-context";
-import { parseSkillCertificationRequest } from "../kernel/direct-skill-certify";
 import { REPO_COMMIT_WRITE_KIND } from "@tedix/api-contract/schemas/repo-commit-write";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { type VoiceSttEnv, resolveVoiceMessageContent } from "@tedix/voice/stt";
@@ -117,10 +116,7 @@ import {
 	failedKernelRun,
 	resolveKernelDelegateTarget,
 } from "./run-reads-streams";
-import {
-	buildKernelTurnWorkDeps,
-	resolveApprovalByChatReply,
-} from "./turn-delegation";
+import { buildKernelTurnWorkDeps } from "./turn-delegation";
 import { runWorkstationWorkOrderDispatch } from "./workstation-dispatch";
 import {
 	proposeCodemodeExecuteImpl,
@@ -377,7 +373,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		const metadata: Record<string, unknown> = {
 			...nonNullRecord(input.metadata),
 		};
-		delete metadata.chatApprovalReply;
 		// Only this route decides whether a person picked the tedi; see the
 		// delegate dispatch below.
 		delete metadata.pickedByPerson;
@@ -448,20 +443,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// caller that disconnects mid-kernel (e.g. an MCP client's inner
 		// timeout) must not cancel the route decision or lose the turn.
 		const kernelEligible = !input.delegateToTediId && !homePlan;
-		// A bare "approve"/"reject" answering the parked write card resolves it
-		// here, as this operator, before the turn plans a duplicate write.
-		const chatApprovalReply =
-			kernelEligible &&
-			input.executionPolicy !== "observe_only" &&
-			!attachments?.length
-				? await resolveApprovalByChatReply(context, {
-						organizationId,
-						conversationId,
-						runId,
-						content: turnContent,
-					})
-				: null;
-		if (chatApprovalReply) metadata.chatApprovalReply = chatApprovalReply;
 		const requestedDelegationWorkItemId = input.delegateToTediId
 			? stringFromPayload(metadata.workItemId)
 			: undefined;
@@ -1075,7 +1056,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		//      the org-scoped Durable Object runs the turn in ITS OWN execution
 		//      context, so a caller that disconnects mid-kernel cannot cancel
 		//      the route decision or lose the turn — no waitUntil grace limit.
-		//   2. Inline (owner certification / DO-error fallback): the promise is BOTH awaited
+		//   2. Inline (DO-error fallback): the promise is BOTH awaited
 		//      (fast callers still get the synchronous answer) and registered
 		//      with `waitUntil` so a disconnecting caller doesn't cancel it.
 		//
@@ -1120,183 +1101,173 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				governancePolicy,
 				sessionWriteAllowlist,
 			};
-			// The DO deliberately has no signed-in request context. Keep owner
-			// certification on this request rather than recreating a human there.
-			const ownerCertification =
-				context.authType === "user" &&
-				context.user?.sub &&
-				!context.tediId &&
-				!context.externalAgentPrincipalId &&
-				parseSkillCertificationRequest(turnContent) !== null;
-			if (!ownerCertification) {
-				let doTurn: Promise<KernelTurnWorkResult> | null = null;
-				try {
-					const stub = durableObjectStubByName(
-						context.env.KERNEL,
-						context.env,
-						organizationId,
+			let doTurn: Promise<KernelTurnWorkResult> | null = null;
+			try {
+				const stub = durableObjectStubByName(
+					context.env.KERNEL,
+					context.env,
+					organizationId,
+				);
+				doTurn = Promise.resolve(stub.processTurn(turnInput)).then(
+					(result) => result as unknown as KernelTurnWorkResult,
+				);
+			} catch (error) {
+				// Synchronous DO failure (binding misconfig, idFromName/get throw)
+				// falls back to today's inline behavior below.
+				console.warn(
+					"[kernelRuntime] kernel DO turn failed — falling back to inline turn work",
+					errorMessage(error),
+				);
+			}
+			if (doTurn) {
+				// Hybrid soft-deadline response contract: race the DO turn against the soft deadline
+				// ONCE. The settled-union shape makes the pre/post-deadline error
+				// distinction structural:
+				//
+				//   - "result" before the deadline → return it verbatim (fast
+				//     turns unchanged).
+				//   - "error" before the deadline → fall through to the inline
+				//     path (today's fail-soft retry; the turn body is idempotent
+				//     across the seam: deterministic event ids +
+				//     onConflictDoNothing inserts + conditional running→terminal
+				//     completion patch).
+				//   - "deadline" → return the ack below and NEVER reach the
+				//     inline path again: the DO keeps running the turn in its own
+				//     execution context (live-proven detachment), so a LATE error
+				//     terminalizes a still-running run without an inline re-run:
+				//     the turn may have partially completed under the DO.
+				//     The caller already has the run id to poll.
+				type KernelTurnOutcome =
+					| {
+							kind: "result";
+							result: KernelTurnWorkResult;
+					  }
+					| {
+							kind: "error";
+							error: unknown;
+					  }
+					| {
+							kind: "deadline";
+					  };
+				const settled: Promise<KernelTurnOutcome> = doTurn.then(
+					(result) => ({
+						kind: "result" as const,
+						result,
+					}),
+					(error) => ({
+						kind: "error" as const,
+						error,
+					}),
+				);
+				let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+				const remainingBudgetMs = remainingKernelTurnBudgetMs(
+					enqueueStartedAtMs,
+					Date.now(),
+				);
+				const deadline = new Promise<KernelTurnOutcome>((resolve) => {
+					deadlineTimer = setTimeout(
+						() =>
+							resolve({
+								kind: "deadline",
+							}),
+						remainingBudgetMs,
 					);
-					doTurn = Promise.resolve(stub.processTurn(turnInput)).then(
-						(result) => result as unknown as KernelTurnWorkResult,
-					);
-				} catch (error) {
-					// Synchronous DO failure (binding misconfig, idFromName/get throw)
-					// falls back to today's inline behavior below.
-					console.warn(
-						"[kernelRuntime] kernel DO turn failed — falling back to inline turn work",
-						errorMessage(error),
+				});
+				const outcome = await Promise.race([settled, deadline]);
+				clearTimeout(deadlineTimer);
+				// Non-blocking planner (kernel-do.ts KERNEL_ASYNC_DISPATCH_MARKER,
+				// flag-gated default OFF): the async planner makes `processTurn` resolve
+				// FAST with a sentinel meaning it scheduled the planner off the DO thread
+				// instead of running it inline. Treat it exactly like the soft-deadline
+				// ack — the run row is durable persist-first and the answer is polled via
+				// task.id. The literal mirrors kernel-do's marker (kernel-do imports from
+				// this file, so a value import back would be a cycle).
+				const asyncDispatched =
+					outcome.kind === "result" &&
+					(outcome.result as Record<string, unknown>).kernelAsyncDispatched ===
+						true;
+				if (outcome.kind === "result" && !asyncDispatched) {
+					return await ensureKernelHarnessStampOnResult(
+						context,
+						outcome.result,
 					);
 				}
-				if (doTurn) {
-					// Hybrid soft-deadline response contract: race the DO turn against the soft deadline
-					// ONCE. The settled-union shape makes the pre/post-deadline error
-					// distinction structural:
-					//
-					//   - "result" before the deadline → return it verbatim (fast
-					//     turns unchanged).
-					//   - "error" before the deadline → fall through to the inline
-					//     path (today's fail-soft retry; the turn body is idempotent
-					//     across the seam: deterministic event ids +
-					//     onConflictDoNothing inserts + conditional running→terminal
-					//     completion patch).
-					//   - "deadline" → return the ack below and NEVER reach the
-					//     inline path again: the DO keeps running the turn in its own
-					//     execution context (live-proven detachment), so a LATE error
-					//     terminalizes a still-running run without an inline re-run:
-					//     the turn may have partially completed under the DO.
-					//     The caller already has the run id to poll.
-					type KernelTurnOutcome =
-						| {
-								kind: "result";
-								result: KernelTurnWorkResult;
-						  }
-						| {
-								kind: "error";
-								error: unknown;
-						  }
-						| {
-								kind: "deadline";
-						  };
-					const settled: Promise<KernelTurnOutcome> = doTurn.then(
-						(result) => ({
-							kind: "result" as const,
-							result,
-						}),
-						(error) => ({
-							kind: "error" as const,
-							error,
-						}),
-					);
-					let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-					const remainingBudgetMs = remainingKernelTurnBudgetMs(
-						enqueueStartedAtMs,
-						Date.now(),
-					);
-					const deadline = new Promise<KernelTurnOutcome>((resolve) => {
-						deadlineTimer = setTimeout(
-							() =>
-								resolve({
-									kind: "deadline",
-								}),
-							remainingBudgetMs,
+				if (outcome.kind === "deadline" || asyncDispatched) {
+					// Detach ONLY on the genuine soft-deadline: the async-dispatch sentinel
+					// means `doTurn` already resolved (the planner runs in the DO alarm, not
+					// in this promise), so there is nothing to dangle. On a real deadline a
+					// late rejection must never surface as unhandled, and `waitUntil` keeps
+					// the caller context from cancelling the in-flight RPC await.
+					if (outcome.kind === "deadline") {
+						const dangling = doTurn.then(
+							() => undefined,
+							() => recordDetachedKernelFailure(context, turnInput),
 						);
-					});
-					const outcome = await Promise.race([settled, deadline]);
-					clearTimeout(deadlineTimer);
-					// Non-blocking planner (kernel-do.ts KERNEL_ASYNC_DISPATCH_MARKER,
-					// flag-gated default OFF): the async planner makes `processTurn` resolve
-					// FAST with a sentinel meaning it scheduled the planner off the DO thread
-					// instead of running it inline. Treat it exactly like the soft-deadline
-					// ack — the run row is durable persist-first and the answer is polled via
-					// task.id. The literal mirrors kernel-do's marker (kernel-do imports from
-					// this file, so a value import back would be a cycle).
-					const asyncDispatched =
-						outcome.kind === "result" &&
-						(outcome.result as Record<string, unknown>)
-							.kernelAsyncDispatched === true;
-					if (outcome.kind === "result" && !asyncDispatched) {
-						return await ensureKernelHarnessStampOnResult(
-							context,
-							outcome.result,
-						);
-					}
-					if (outcome.kind === "deadline" || asyncDispatched) {
-						// Detach ONLY on the genuine soft-deadline: the async-dispatch sentinel
-						// means `doTurn` already resolved (the planner runs in the DO alarm, not
-						// in this promise), so there is nothing to dangle. On a real deadline a
-						// late rejection must never surface as unhandled, and `waitUntil` keeps
-						// the caller context from cancelling the in-flight RPC await.
-						if (outcome.kind === "deadline") {
-							const dangling = doTurn.then(
-								() => undefined,
-								() => recordDetachedKernelFailure(context, turnInput),
-							);
-							if (context.waitUntil) {
-								context.waitUntil(dangling);
-							}
+						if (context.waitUntil) {
+							context.waitUntil(dangling);
 						}
-						// Ack built from the persist-first data already durable above:
-						// the run row was inserted with status "running" and
-						// kernelRoute/kernelEvidence null — the DO patches both when the
-						// turn completes. The top-level contract status enum has no
-						// "running" (queued | failed | needs_delegation |
-						// requires_approval), so "queued" is the closest allowed value:
-						// the turn is accepted and still executing under the DO.
-						// `assistantMessage` is intentionally omitted (optional in
-						// EnqueueHomeMessageOutputSchema; the missing-table error paths
-						// already return without it) — the kernel's answer does not
-						// exist yet. Callers recover the outcome via the MCP tasks
-						// extension: the task linkage keys on `run.id` (apps/mcp
-						// handler.ts `_emitTaskLinkage`), so the ack MUST carry the
-						// real run id.
-						return {
-							idempotencyKey: runId,
+					}
+					// Ack built from the persist-first data already durable above:
+					// the run row was inserted with status "running" and
+					// kernelRoute/kernelEvidence null — the DO patches both when the
+					// turn completes. The top-level contract status enum has no
+					// "running" (queued | failed | needs_delegation |
+					// requires_approval), so "queued" is the closest allowed value:
+					// the turn is accepted and still executing under the DO.
+					// `assistantMessage` is intentionally omitted (optional in
+					// EnqueueHomeMessageOutputSchema; the missing-table error paths
+					// already return without it) — the kernel's answer does not
+					// exist yet. Callers recover the outcome via the MCP tasks
+					// extension: the task linkage keys on `run.id` (apps/mcp
+					// handler.ts `_emitTaskLinkage`), so the ack MUST carry the
+					// real run id.
+					return {
+						idempotencyKey: runId,
+						conversationId,
+						status: "queued" as const,
+						run: {
+							id: runId,
+							organizationId,
 							conversationId,
-							status: "queued" as const,
-							run: {
-								id: runId,
-								organizationId,
-								conversationId,
+							status: "running",
+							inputMessageId: userMessageId,
+							outputMessageId: assistantMessageId,
+							delegatedTediId: null,
+							childRunId: null,
+							runtime: {
+								backend: KERNEL_RUNTIME_BACKEND,
+								externalId: runId,
+								metadata: runtimeMetadata,
+							},
+							startedAt: createdAt,
+							completedAt: null,
+							createdAt,
+							updatedAt: createdAt,
+							metadata: {
+								...runRowMetadata,
+								kernelRoute: null,
+								kernelEvidence: null,
+							},
+							progress: homeRunProgress({
+								eventCount: 0,
 								status: "running",
-								inputMessageId: userMessageId,
-								outputMessageId: assistantMessageId,
-								delegatedTediId: null,
-								childRunId: null,
-								runtime: {
-									backend: KERNEL_RUNTIME_BACKEND,
-									externalId: runId,
-									metadata: runtimeMetadata,
-								},
-								startedAt: createdAt,
-								completedAt: null,
-								createdAt,
-								updatedAt: createdAt,
-								metadata: {
-									...runRowMetadata,
-									kernelRoute: null,
-									kernelEvidence: null,
-								},
-								progress: homeRunProgress({
-									eventCount: 0,
-									status: "running",
-								}),
-							} satisfies HomeRun,
-							homePlan: undefined,
-							assistantMessage: undefined,
-							error: undefined,
-						};
-					}
-					// Pre-deadline DO error → today's inline fail-soft path below.
-					// (Explicit `error` guard: the `result && !asyncDispatched` and
-					// `deadline || asyncDispatched` returns above leave only the error case,
-					// but the asyncDispatched correlation is opaque to the narrower, so guard
-					// the discriminant directly.)
-					if (outcome.kind === "error") {
-						console.warn(
-							"[kernelRuntime] kernel DO turn failed — falling back to inline turn work",
-							errorMessage(outcome.error),
-						);
-					}
+							}),
+						} satisfies HomeRun,
+						homePlan: undefined,
+						assistantMessage: undefined,
+						error: undefined,
+					};
+				}
+				// Pre-deadline DO error → today's inline fail-soft path below.
+				// (Explicit `error` guard: the `result && !asyncDispatched` and
+				// `deadline || asyncDispatched` returns above leave only the error case,
+				// but the asyncDispatched correlation is opaque to the narrower, so guard
+				// the discriminant directly.)
+				if (outcome.kind === "error") {
+					console.warn(
+						"[kernelRuntime] kernel DO turn failed — falling back to inline turn work",
+						errorMessage(outcome.error),
+					);
 				}
 			}
 			const turnWork = runKernelTurnWork(

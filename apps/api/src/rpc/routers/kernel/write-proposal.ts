@@ -42,7 +42,6 @@ import {
 	preferredToolForCapability,
 	renameThisConversationArgs,
 	correctWriteRoute,
-	type DirectWriteIntent,
 } from "./write-tool-intent";
 import {
 	isWriteCapable,
@@ -96,7 +95,6 @@ import {
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { flatAbortSignal } from "./llm-guard";
 import type { KernelRouteDecision } from "./route-schema";
-import { cardVerdictSheetArgs } from "./output-create-intent";
 import {
 	codeModeExecutionParams,
 	codeModeResultData,
@@ -419,23 +417,6 @@ export interface KernelWriteProposalDeclined {
 	};
 }
 
-const FACTORY_CONTROL_CAPABILITY_RE = /^factories\.(?:pause|resume|archive)$/;
-
-/**
- * Pause, resume and archive take only the factory slug, which factory chat
- * resolved from fresh health and wrote into the route rationale.
- */
-export function factoryControlArgs(
-	rationale: string,
-	inputSchema: { properties?: Record<string, unknown> } | undefined,
-): { factory: string } | null {
-	if (!inputSchema?.properties?.factory) return null;
-	const factory = rationale.match(
-		/\bExact factory slug: ([a-z0-9][a-z0-9-]*);/,
-	)?.[1];
-	return factory ? { factory } : null;
-}
-
 /**
  * The factory tool's refusal from a failed dry run, as one bounded sentence.
  * It is our own validation text (for example a missing Workspace), so the
@@ -531,11 +512,6 @@ export async function planKernelWriteProposal(args: {
 	actingUserId?: string;
 	/** The user's message — the source of the write's intent and arguments. */
 	content?: string;
-	/**
-	 * An exact write resolved by the turn: a rename (target app/output, or an
-	 * undo) or a skill move to a named tedi.
-	 */
-	directRename?: DirectWriteIntent | null;
 	/** Kernel LLM. Required for writes — there is no heuristic fallback. */
 	model?: LanguageModel | null;
 	/** Decline reporter — receives the fail-soft reason for run metadata. */
@@ -560,8 +536,7 @@ export async function planKernelWriteProposal(args: {
 		return null;
 	};
 	if (args.route.routeKind !== "propose_tool_write") return null;
-	const workpieceRename: DirectWriteIntent | null = args.directRename ?? null;
-	const route = correctWriteRoute(args.route, content ?? "", workpieceRename);
+	const route = correctWriteRoute(args.route, content ?? "");
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	if (!appSlug || !model || !content?.trim()) {
 		return decline({
@@ -606,8 +581,7 @@ export async function planKernelWriteProposal(args: {
 			texts: [content, route.rationale],
 		}).catch(() => null);
 		const capability = route.toolIntent?.capability ?? null;
-		const canonical =
-			workpieceRename?.toolName ?? canonicalWriteToolName(capability, content);
+		const canonical = canonicalWriteToolName(capability, content);
 		// A known primitive needs no catalog search and no selection pass: one
 		// Code Mode call resolves and describes it. A successful authorized call
 		// proves this transport works; it need not wait for a separate tools/list.
@@ -890,29 +864,6 @@ export async function planKernelWriteProposal(args: {
 			exactTool.inputSchema.properties?.conversationId &&
 			exactTool.inputSchema.properties?.title
 				? renameThisConversationArgs(content, args.gatewayContext?.sessionKey)
-				: workpieceRename &&
-					  matchesCanonicalWriteTool(
-							exactTool.name,
-							workpieceRename.toolName,
-					  ) &&
-					  Object.keys(workpieceRename.args).every(
-							(key) => exactTool?.inputSchema?.properties?.[key],
-					  )
-					? workpieceRename.args
-					: null;
-		// A card verdict names its row and columns exactly; compute them from
-		// the sheet instead of asking a model for coordinates.
-		const cardArgs =
-			capability === "sheets.set_range" &&
-			exactTool.inputSchema.properties?.startRow &&
-			exactTool.inputSchema.properties?.cells
-				? cardVerdictSheetArgs(editTarget, route.rationale)
-				: null;
-		// Chat resolved the factory from fresh health before routing; its slug
-		// is the whole argument, so no model can decline or misspell it.
-		const factoryControl =
-			capability && FACTORY_CONTROL_CAPABILITY_RE.test(capability)
-				? factoryControlArgs(route.rationale, exactTool.inputSchema)
 				: null;
 		const planned: {
 			toolName: string;
@@ -923,77 +874,49 @@ export async function planKernelWriteProposal(args: {
 			? {
 					toolName: exactTool.name,
 					args: renameArgs,
-					reasoning:
-						renameArgs !== workpieceRename?.args
-							? "Rename the current conversation as asked."
-							: workpieceRename.capability === "skills.move_to_tedi"
-								? "Move the skill and its schedule to the tedi the request names."
-								: workpieceRename.capability === "skills.certify"
-									? "Start a certification run of the draft the request names."
-									: workpieceRename.capability === "skills.run"
-										? "Run the existing skill once with the requested parameters after approval."
-										: workpieceRename.capability === "skills.pause_schedule"
-											? "Pause the schedule of the skill the request names; nothing else changes."
-											: workpieceRename.capability === "skills.resume_schedule"
-												? "Resume the schedule of the skill the request names with its existing cadence."
-												: "Rename the selected workspace item as asked.",
+					reasoning: "Rename the current conversation as asked.",
 				}
-			: cardArgs
-				? {
-						toolName: exactTool.name,
-						args: cardArgs,
-						reasoning:
-							"Record the verdict on the card the previous answer showed.",
-					}
-				: factoryControl
-					? {
-							toolName: exactTool.name,
-							args: factoryControl,
-							reasoning: `Factory ${capability!.split(".")[1]} as asked: ${factoryControl.factory}.`,
-						}
-					: await planWriteCall({
-							conversationId: args.gatewayContext?.sessionKey,
-							editTarget,
-							// An output edit names its part (a card's row, a block) in the
-							// router's rationale when the request itself only says "it".
-							editReference:
-								editTarget &&
-								capability &&
-								OUTPUT_EDIT_CAPABILITY_RE.test(capability)
-									? route.rationale
-									: null,
-							openWorkRequests,
-							workProjects,
-							earlierRequests: isWorkCreate
-								? await readEarlierRequests(
-										db,
-										organizationId,
-										args.gatewayContext?.sessionKey,
-										content,
-									)
-								: undefined,
-							content: capability?.startsWith("factories.")
-								? `${content}\n${route.rationale}`
-								: content,
-							capability: route.toolIntent?.capability ?? null,
-							tools: [exactTool],
-							model,
-							paramDefaults,
-							timeoutMs,
-							span: kernelSpanContext({
+			: await planWriteCall({
+					conversationId: args.gatewayContext?.sessionKey,
+					editTarget,
+					// An output edit names its part (a card's row, a block) in the
+					// router's rationale when the request itself only says "it".
+					editReference:
+						editTarget &&
+						capability &&
+						OUTPUT_EDIT_CAPABILITY_RE.test(capability)
+							? route.rationale
+							: null,
+					openWorkRequests,
+					workProjects,
+					earlierRequests: isWorkCreate
+						? await readEarlierRequests(
+								db,
 								organizationId,
-								source: "write_proposal",
-							}),
-							onFailure: (reason) => {
-								argumentFailure = reason;
-							},
-							onInvalidFields: (fields) => {
-								invalidFields = fields;
-							},
-							...(exactTool.name === CREATE_OUTPUT_TOOL
-								? { documentDraft }
-								: {}),
-						});
+								args.gatewayContext?.sessionKey,
+								content,
+							)
+						: undefined,
+					content: capability?.startsWith("factories.")
+						? `${content}\n${route.rationale}`
+						: content,
+					capability: route.toolIntent?.capability ?? null,
+					tools: [exactTool],
+					model,
+					paramDefaults,
+					timeoutMs,
+					span: kernelSpanContext({
+						organizationId,
+						source: "write_proposal",
+					}),
+					onFailure: (reason) => {
+						argumentFailure = reason;
+					},
+					onInvalidFields: (fields) => {
+						invalidFields = fields;
+					},
+					...(exactTool.name === CREATE_OUTPUT_TOOL ? { documentDraft } : {}),
+				});
 		if (!planned)
 			return decline({
 				stage: "planner_declined",
@@ -1134,13 +1057,11 @@ export async function planKernelWriteProposal(args: {
 				: {}),
 			...(destinationTitle ? { destinationTitle } : {}),
 			reasoning: planned.reasoning,
-			riskTier:
-				workpieceRename?.capability === "skills.run" ||
-				/^projects\.(?:create|pause|resume|archive)_factory$/.test(
-					validated.tool.name,
-				)
-					? "high"
-					: validated.riskTier,
+			riskTier: /^projects\.(?:create|pause|resume|archive)_factory$/.test(
+				validated.tool.name,
+			)
+				? "high"
+				: validated.riskTier,
 			...(declaredClass ? { declaredClass } : {}),
 			transport,
 			editableFields: deriveApprovalEditableFields({

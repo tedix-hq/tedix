@@ -19,18 +19,12 @@ import type {
 import {
 	type KernelRuntimeRun,
 	getKernelRuntimeRun,
-	readLatestRunAwaitingApproval,
-	readLatestRunAwaitingDelegationApproval,
 	updateKernelRuntimeRun,
 } from "@tedix/db/queries/kernel-runtime-runs";
-import type { ChatApprovalReply } from "../kernel/turn-work-intercepts";
 import type {
 	KernelTurnWorkDeps,
 	KernelTurnWorkInput,
 } from "../kernel/turn-work-context";
-import { getApprovalRequestById } from "@tedix/db/queries/approvals";
-import { parseHomeToolWritePayload } from "../kernel/write-executor";
-import { classifyApprovalReply } from "../kernel/workflow-confirm";
 import type { TediApprovalRequest } from "@tedix/db/schema/approvals";
 import type { WorkflowConfirmDispatcher } from "../kernel/workflow-confirm";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
@@ -55,7 +49,7 @@ import {
 	stringFromPayload,
 } from "../kernel/runtime-shared";
 import { createDelegationWorkItem } from "../kernel/delegation-work-item";
-import { createRouterClient, ORPCError } from "@orpc/server";
+import { createRouterClient } from "@orpc/server";
 import { ensureActiveKernelHarnessVersion } from "../../../services/harness-persistence";
 import { generateAndPersistHomeConversationTitle } from "../kernel/conversation-title";
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
@@ -887,120 +881,6 @@ async function respondKernelToolWriteApprovalCore(
 		run: normalizeHomeRunRecord(updatedRun ?? input.run),
 		assignments: [],
 	};
-}
-
-/**
- * A bare "approve"/"reject" reply to a parked write or delegation card.
- * Resolves it as the replying operator through the card's existing authority
- * and exactly-once latch, so chat-only surfaces can answer an approval. Returns
- * null when the reply is not a decision or nothing is parked; the turn then
- * plans normally.
- */
-export async function resolveApprovalByChatReply(
-	context: BaseContext,
-	input: {
-		organizationId: string;
-		conversationId: string;
-		runId: string;
-		content: string;
-	},
-): Promise<ChatApprovalReply | null> {
-	const decision = classifyApprovalReply(input.content);
-	if (!decision) return null;
-	const pending = await readLatestRunAwaitingApproval(context.db, {
-		organizationId: input.organizationId,
-		conversationId: input.conversationId,
-		excludeRunId: input.runId,
-	});
-	if (!pending) {
-		const run = await readLatestRunAwaitingDelegationApproval(context.db, {
-			organizationId: input.organizationId,
-			conversationId: input.conversationId,
-			excludeRunId: input.runId,
-		});
-		if (!run) return null;
-		const delegation = kernelDelegationRecommendationFromRun(run);
-		if (!delegation) return null;
-		const tool =
-			stringFromPayload(delegation.workOrder.targetTediLabel) ??
-			"the selected worker";
-		try {
-			const { respondApprovalRoute } = await import("./delegation-control");
-			const respond = createRouterClient(respondApprovalRoute, { context });
-			const result = await respond({
-				organizationId: input.organizationId,
-				runId: run.id,
-				decision,
-				note: `${decision === "approve" ? "Approved" : "Rejected"} by chat reply`,
-			});
-			return {
-				runId: run.id,
-				decision,
-				tool,
-				targetKind: "delegation",
-				runStatus: result.run.status,
-				error: null,
-			};
-		} catch (error) {
-			return {
-				runId: run.id,
-				decision,
-				tool,
-				targetKind: "delegation",
-				runStatus: null,
-				error:
-					error instanceof ORPCError && error.code === "FORBIDDEN"
-						? "An organization owner or admin must decide this delegation. Your account cannot approve or reject it."
-						: errorMessage(error).slice(0, 300),
-			};
-		}
-	}
-	const [approval, run] = await Promise.all([
-		getApprovalRequestById(context.db, pending.approvalRequestId),
-		getKernelRuntimeRun(context.db, {
-			id: pending.runId,
-			organizationId: input.organizationId,
-		}),
-	]);
-	const write = approval ? parseHomeToolWritePayload(approval.payload) : null;
-	if (
-		!approval ||
-		!write ||
-		!run ||
-		approval.status !== "pending" ||
-		write.conversationId !== input.conversationId ||
-		write.homeRunId !== run.id
-	) {
-		return null;
-	}
-	const tool = write.toolName;
-	try {
-		const resolved = await respondKernelToolWriteApprovalCore(context, {
-			approval,
-			decision,
-			note: `${decision === "approve" ? "Approved" : "Rejected"} by chat reply`,
-			organizationId: input.organizationId,
-			run,
-		});
-		const receipt = (resolved.run.metadata as Record<string, unknown> | null)
-			?.kernelWriteReceipt;
-		return {
-			runId: run.id,
-			decision,
-			tool,
-			runStatus: resolved.run.status,
-			error: null,
-			...(typeof receipt === "string" ? { receipt } : {}),
-		};
-	} catch (error) {
-		return {
-			runId: run.id,
-			decision,
-			tool,
-			runStatus: null,
-			error: errorMessage(error).slice(0, 300),
-		};
-	}
 }
 
 export async function resolveDurableCodemodeAtRuntime(

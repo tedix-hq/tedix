@@ -36,7 +36,6 @@ import {
 	respondKernelDelegationRecommendationApprovalCore,
 } from "./approval-control";
 import { respondApprovalRoute } from "./delegation-control";
-import { resolveApprovalByChatReply } from "./turn-delegation";
 
 describe("kernel metadata fixture SQL evaluation", () => {
 	async function metadataPatch(metadata: Record<string, unknown>) {
@@ -1116,45 +1115,6 @@ describe("write approval guards reached through respondApproval", () => {
 			).toEqual({ status: "pending" });
 		},
 	);
-
-	it.each(["approve", "reject"] as const)(
-		"denies an operational member's conversational %s before every effect",
-		async (content) => {
-			const f = await fixture(["tedis:update"], "member");
-			await pendingWrite(f);
-			const result = await resolveApprovalByChatReply(f.context, {
-				organizationId: ORG,
-				conversationId: f.run.conversationId,
-				runId: "reply-run",
-				content,
-			});
-			expect(result?.error).toContain("os:approve");
-			noEffects(f.writes);
-			expect(
-				f.sqlite.prepare("SELECT status FROM tedi_approval_requests").get(),
-			).toEqual({ status: "pending" });
-		},
-	);
-
-	it("does not let a tedi approve its own Home write through a chat reply", async () => {
-		const f = await fixture();
-		await pendingWrite(f);
-		const context = {
-			...f.context,
-			authType: "tedi" as const,
-			user: undefined,
-			tediId: "tedi-research",
-			tediScopes: ["tedis:write", "mcp:memory.admin"],
-		};
-		const result = await resolveApprovalByChatReply(context, {
-			organizationId: ORG,
-			conversationId: f.run.conversationId,
-			runId: "reply-run",
-			content: "approve",
-		});
-		expect(result?.error).toContain("Work approval plane");
-		noEffects(f.writes);
-	});
 
 	it("does not accept a machine's tedi-write scope as approval authority", async () => {
 		const f = await fixture();
