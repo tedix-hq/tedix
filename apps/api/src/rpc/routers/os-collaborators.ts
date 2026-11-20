@@ -8,7 +8,9 @@ import {
 	getLatestOsWorkspaceEventCursor,
 	listOsWorkspaceEventsAfter,
 } from "@tedix/db/queries/os-workspace-events";
+import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { operationAllowed } from "@tedix/api-contract/schemas/os-collaborators";
 import {
 	addWorkspaceCollaborator,
 	copyWorkspaceShareLink,
@@ -27,7 +29,13 @@ import {
 	workspaceLeaveStatus,
 } from "../../services/os-workspace-collaborators";
 import { requireOrgId } from "../org-scope";
-import { type BaseContext, withAuth, withAuthorization } from "../orpc";
+import {
+	type BaseContext,
+	createError,
+	ErrorCodes,
+	withAuth,
+	withAuthorization,
+} from "../orpc";
 
 const os = implement(osCollaboratorsContract).$context<BaseContext>();
 
@@ -72,13 +80,28 @@ const events = collaborator.events
 	)
 	.handler(async ({ input, context }) => {
 		const db = createDbQueryClient(context.env.DB);
-		const check = () =>
+		const full = () =>
 			requireWorkspaceCollaboratorAccess(
 				context,
 				input.workspaceId,
 				"metadata.read",
 			);
-		await check();
+		const { callerId } = await full();
+		// Rechecks every 1.5 s read the fenced role cache: one fence read per
+		// poll, and a revoke advances the fence, so the next poll ends the stream.
+		const check = async () => {
+			if (context.authType !== "user") return void (await full());
+			const role = await readWorkspaceSessionRole(
+				db,
+				input.workspaceId,
+				callerId,
+			);
+			if (!operationAllowed(role, "metadata.read"))
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"You don't have access to this workspace",
+				);
+		};
 		if (input.after === undefined) {
 			return {
 				cursor: await getLatestOsWorkspaceEventCursor(db, input.workspaceId),
