@@ -100,6 +100,7 @@ import {
 	createWorkItem,
 	getWorkItemById,
 	getWorkItemBySourceIntentId,
+	listOpenWorkItemsAcrossProjects,
 	listWorkItemsPage,
 } from "@tedix/db/queries/work-items/crud";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
@@ -135,6 +136,7 @@ import type {
 	ResourceSummary,
 	CreateWorkInput,
 	LiveRunSummary,
+	OpenWorkList,
 	WorkItemDetail,
 	WorkItemSummary,
 	WorkListOptions,
@@ -1185,31 +1187,103 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				`disposition is one of ${WORK_ITEM_DISPOSITION_VALUES.join(", ")}`,
 			);
 		const query = options.query?.trim().toLowerCase() || undefined;
-		const dispositions = (
-			options.open ? ["proposed", "accepted"] : [disposition]
-		) as Array<WorkItemDisposition | undefined>;
 		const projects = options.projectId
 			? [options.projectId]
 			: (projectIds ?? [undefined]);
 		const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
 		const pages = await Promise.all(
-			projects.flatMap((projectId) =>
-				dispositions.map((value) =>
-					listWorkItemsPage(this.deps.core, {
-						orgId: this.deps.organizationId,
-						...(projectId ? { projectId } : {}),
-						...(value ? { disposition: value } : {}),
-						...(query ? { titleContains: query } : {}),
-						limit,
-					}),
-				),
+			projects.map((projectId) =>
+				listWorkItemsPage(this.deps.core, {
+					orgId: this.deps.organizationId,
+					...(projectId ? { projectId } : {}),
+					...(disposition
+						? { disposition: disposition as WorkItemDisposition }
+						: {}),
+					...(query ? { titleContains: query } : {}),
+					limit,
+				}),
 			),
 		);
 		return pages
 			.flatMap((page) => page.data)
 			.map(workSummary)
 			.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-			.slice(0, options.open ? limit * 2 : limit);
+			.slice(0, limit);
+	}
+
+	/** Active projects the answering tedi leads; none when no tedi answers. */
+	#ledProjects(projects: Project[]) {
+		const tediId = this.deps.answeringTediId;
+		return tediId
+			? projects.filter((project) => project.leadTediId === tediId)
+			: [];
+	}
+
+	async listOpenWork(
+		options: { projectId?: string; query?: string } = {},
+	): Promise<OpenWorkList> {
+		const [projectIds, { projectIds: linked }, active] = await Promise.all([
+			this.#workProjectIds(),
+			this.workspace(),
+			listActiveProjectsForOrganization(
+				this.deps.core,
+				this.deps.organizationId,
+			),
+		]);
+		let covers: OpenWorkList["covers"];
+		let scope: string[];
+		if (options.projectId) {
+			if (projectIds && !projectIds.includes(options.projectId))
+				throw new Error("That project is not linked to this workspace");
+			covers = "project";
+			scope = [options.projectId];
+		} else if (projectIds) {
+			covers = "linked_projects";
+			scope = projectIds;
+		} else {
+			const led = this.#ledProjects(active);
+			[covers, scope] = led.length
+				? ["led_projects", led.map((project) => project.id)]
+				: linked.length
+					? ["linked_projects", linked]
+					: ["active_projects", active.map((project) => project.id)];
+		}
+		scope = scope.slice(0, 80);
+		const { items, counts } = await listOpenWorkItemsAcrossProjects(
+			this.deps.core,
+			{
+				orgId: this.deps.organizationId,
+				projectIds: scope,
+				titleContains: options.query?.trim().toLowerCase() || undefined,
+				limit: covers === "project" ? 100 : 30,
+			},
+		);
+		const byId = new Map(active.map((project) => [project.id, project]));
+		const open = new Map(counts.map((row) => [row.projectId, row.open]));
+		return {
+			covers,
+			items: items.map((item) => {
+				const project = item.projectId ? byId.get(item.projectId) : undefined;
+				return {
+					...workSummary(item),
+					projectKey: project?.key ?? null,
+					projectName: project?.name ?? null,
+				};
+			}),
+			projects: scope.flatMap((id) => {
+				const project = byId.get(id);
+				return project
+					? [
+							{
+								id,
+								key: project.key,
+								name: project.name,
+								open: open.get(id) ?? 0,
+							},
+						]
+					: [];
+			}),
+		};
 	}
 
 	/** A Work Item this turn's Work reaches; the same refusal when it is not. */
@@ -1302,7 +1376,11 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 					item.projectId,
 				)
 			: null;
-		if (!project || !(await this.#operatesIn(actor.id, "acceptance"))(project))
+		if (!project)
+			throw new Error(
+				"This Work Item has no project; it can be accepted once it has one",
+			);
+		if (!(await this.#operatesIn(actor.id, "acceptance"))(project))
 			throw new Error(OPERATOR_REFUSAL);
 		return workSummary(
 			await acceptWorkItem(this.deps.core, {
@@ -1423,7 +1501,14 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			throw new Error(
 				projectIds.length === 0
 					? "This workspace is not linked to a project, so it cannot file Work"
-					: `Choose a projectId: ${projectIds.join(", ")}`,
+					: whichProject(
+							(
+								await listActiveProjectsForOrganization(
+									this.deps.core,
+									this.deps.organizationId,
+								)
+							).filter((project) => projectIds.includes(project.id)),
+						),
 			);
 		if (!projectIds.includes(projectId))
 			throw new Error("That project is not linked to this workspace");
@@ -1496,8 +1581,9 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	/**
 	 * The project a run goes to. A shared workspace reaches only its linked
 	 * projects. In a workspace only the sender can open, the person's own
-	 * permission decides, and the answering tedi's home project (the one it
-	 * leads) is the default when the person names none.
+	 * permission decides. With no project named it is never guessed: it is
+	 * the one project linked or led by the answering tedi, else refused with
+	 * the candidates.
 	 */
 	async #runProject(userId: string, requestedProjectId?: string) {
 		if (!this.deps.personScope) return this.#workProject(requestedProjectId);
@@ -1508,22 +1594,23 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				this.deps.organizationId,
 			),
 		]);
-		const home = this.deps.answeringTediId
-			? projects.filter(
-					(project) => project.leadTediId === this.deps.answeringTediId,
-				)
-			: [];
+		const possible = new Set([
+			...projectIds,
+			...this.#ledProjects(projects).map((project) => project.id),
+		]);
 		const projectId =
 			requestedProjectId ??
-			(home.length === 1
-				? home[0]!.id
-				: projectIds.length === 1
-					? projectIds[0]
-					: undefined);
-		if (!projectId)
+			(possible.size === 1 ? [...possible][0] : undefined);
+		if (!projectId) {
+			const accepts = await this.#operatesIn(userId, "acceptance");
 			throw new Error(
-				"Name the project this task belongs to. env.work.listProjects() lists the projects the person may use.",
+				whichProject(
+					projects.filter((project) =>
+						possible.size ? possible.has(project.id) : accepts(project),
+					),
+				),
 			);
+		}
 		// A linked project takes the same build access as in a shared workspace.
 		if (projectIds.includes(projectId)) return this.#workProject(projectId);
 		const project = projects.find((candidate) => candidate.id === projectId);
@@ -1818,6 +1905,17 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		await this.#steerRun(workItemId, "stop", "");
 		return { kind: "agent_run_stop" as const, workItemId };
 	}
+}
+
+/** The refusal when a project must be named: up to 10 candidates. */
+function whichProject(candidates: Project[]) {
+	const listed = candidates
+		.slice(0, 10)
+		.map((project) => `${project.key} ${project.name} (${project.id})`)
+		.join("; ");
+	return candidates.length
+		? `Which project is this for? Ask the person and pass its projectId. Candidates${candidates.length > 10 ? ` (10 of ${candidates.length})` : ""}: ${listed}`
+		: "Which project is this for? Ask the person; env.work.listProjects() lists the projects they may use.";
 }
 
 function workSummary(item: WorkItem): WorkItemSummary {

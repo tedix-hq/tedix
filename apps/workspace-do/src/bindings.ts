@@ -423,28 +423,18 @@ export function buildWorkspaceBindings(
 		return deps.runs;
 	};
 	const work = {
-		list: (options?: Omit<WorkListOptions, "open">) =>
+		list: (options?: WorkListOptions) =>
 			data.listWork({
 				disposition: options?.disposition,
 				limit: options?.limit,
 				projectId: options?.projectId,
 				query: options?.query,
 			}),
-		listOpen: async (options?: { projectId?: string; query?: string }) =>
-			(
-				await data.listWork({
-					open: true,
-					projectId: options?.projectId,
-					query: options?.query,
-				})
-			).map(({ id, title, disposition, workKind, priority, projectId }) => ({
-				id,
-				title,
-				disposition,
-				workKind,
-				priority,
-				projectId,
-			})),
+		listOpen: (options?: { projectId?: string; query?: string }) =>
+			data.listOpenWork({
+				projectId: options?.projectId,
+				query: options?.query,
+			}),
 		get: (workItemId: string) => runPort().getWork(workItemId),
 		comment: (input: { workItemId: string; body: string }) =>
 			runPort().commentOnWork(input),

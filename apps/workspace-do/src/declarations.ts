@@ -253,8 +253,18 @@ interface Work {
   list(options?: { disposition?: string; limit?: number; projectId?: string; query?: string }): Promise<Array<{
     id: string; title: string; disposition: string; workKind: string; priority: string | null; projectId: string | null; updatedAt: string;
   }>>;
-  /** Proposed and accepted items, newest 100 of each; narrow with projectId or query. */
-  listOpen(options?: { projectId?: string; query?: string }): Promise<Array<{ id: string; title: string; disposition: string; workKind: string; priority: string | null; projectId: string | null }>>;
+  /**
+   * The work board: open (proposed and accepted) items, most recently updated first, each with its project's key
+   * and name, plus the open count of every project covered. Use this for "check the work board" or "what is open".
+   * With no projectId and a tedi answering in a workspace only the sender can open, it covers every active project
+   * that tedi leads (covers: "led_projects") and returns the newest 30; otherwise the linked projects. projectId: one
+   * project only, newest 100. query: words in the title.
+   */
+  listOpen(options?: { projectId?: string; query?: string }): Promise<{
+    covers: "project" | "led_projects" | "linked_projects" | "active_projects";
+    items: Array<{ id: string; title: string; disposition: string; workKind: string; priority: string | null; projectId: string | null; projectKey: string | null; projectName: string | null; updatedAt: string }>;
+    projects: Array<{ id: string; key: string; name: string; open: number }>;
+  }>;
   /** One item with its description, project, owner, latest run and newest 10 comments. */
   get(workItemId: string): Promise<{
     id: string; title: string; disposition: string; workKind: string; priority: string | null; projectId: string | null; updatedAt: string;
@@ -291,7 +301,7 @@ interface Work {
   listProjects(): Promise<Array<{ id: string; key: string; name: string }>>;
   /**
    * Start a task for an agent on the person's machine when a person with build access asks.
-   * projectId: the project the person names; find its id with listProjects(). Left out, it is the one project linked to this workspace or, in a workspace only the sender can open, the project the answering tedi leads. If you cannot tell which project is meant, ask the person.
+   * projectId: the project the person names; find its id with listProjects(). Left out, it is used only when exactly one project is possible (one linked project, or the one active project the answering tedi leads); otherwise the call is refused with candidates. If you cannot tell which project is meant, ask the person.
    * changesCode: false when the brief asks only for an answer, a report or a comment and no file changes. Such a run can finish without a commit. Default true: the run counts as done only when its change has landed in the repository.
    */
   startRun(input: { title: string; brief: string; doneWhen: string; executor: "codex" | "claude-code"; changesCode?: boolean; projectId?: string }): Promise<{

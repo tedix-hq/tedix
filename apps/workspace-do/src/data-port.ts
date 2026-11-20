@@ -122,7 +122,23 @@ export interface WorkListOptions {
 	projectId?: string;
 	/** Words the title contains, any case. */
 	query?: string;
-	open?: boolean;
+}
+
+/**
+ * Open Work (proposed or accepted), newest updated first, with an exact open
+ * count for every project the list covers.
+ */
+export interface OpenWorkList {
+	/**
+	 * project: the one named. led_projects: every active project the
+	 * answering tedi leads. linked_projects: the workspace's linked projects.
+	 * active_projects: the organization's active projects.
+	 */
+	covers: "project" | "led_projects" | "linked_projects" | "active_projects";
+	items: Array<
+		WorkItemSummary & { projectKey: string | null; projectName: string | null }
+	>;
+	projects: Array<{ id: string; key: string; name: string; open: number }>;
 }
 
 /** A run in progress, from its live Attempt. */
@@ -280,9 +296,18 @@ export interface WorkspaceDataPort {
 	/**
 	 * Work this turn reaches: the linked projects, or every project of the
 	 * organization when the person who sent it is the only one who can open
-	 * the workspace. `open` lists proposed and accepted items only.
+	 * the workspace.
 	 */
 	listWork(options?: WorkListOptions): Promise<WorkItemSummary[]>;
+	/**
+	 * The open board: one named project, or with none named every active
+	 * project the answering tedi leads (in a workspace only the sender can
+	 * open), else the linked projects.
+	 */
+	listOpenWork(options?: {
+		projectId?: string;
+		query?: string;
+	}): Promise<OpenWorkList>;
 	/** Files a proposed Work Item in a project linked to this workspace. */
 	createWork(
 		input: CreateWorkInput & { actorId: string },

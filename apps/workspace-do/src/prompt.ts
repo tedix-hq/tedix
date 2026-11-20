@@ -101,7 +101,7 @@ export function capabilitiesBlock(input: AnswererCapabilities): string {
 		'What you can do here. Answer "what can you do", "what tools do you have" or "which servers or connections do you have" from these lines and the list after them, without calling a tool:',
 		"- Files: read, create and edit this workspace's documents, sheets and presentations (env.outputs, env.documents, env.sheets, env.presentations); build and change its apps (env.apps); show tables and charts under an answer (env.views).",
 		"- Sources: this workspace's linked sources and the person's connected accounts (env.resources, env.accounts); public web pages by address (env.web).",
-		`- Work: list, find, read, comment on and accept Work items in ${input.organizationWork ? "every project of the organization" : "the projects linked to this workspace"} (env.work); env.work.runs() says what is running right now; start, follow up and stop agent runs on the person's machines (env.work.startRun, sendRunMessage, stopRun).`,
+		`- Work: list, find, read, comment on and accept Work items in ${input.organizationWork ? "every project of the organization" : "the projects linked to this workspace"} (env.work); ${input.organizationWork && input.tedi ? '"check the work board" means env.work.listOpen() with no project: open items across every active project you lead, with counts per project;' : '"check the work board" means env.work.listOpen();'} env.work.runs() says what is running right now; start, follow up and stop agent runs on the person's machines (env.work.startRun, sendRunMessage, stopRun).`,
 		input.computer
 			? "- Computer: read files and run commands on the person's connected computer (env.machine)."
 			: "- Computer: not available in this turn.",

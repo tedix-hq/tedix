@@ -1604,3 +1604,59 @@ export async function restoreWorkItemFiling(
 		);
 	return normalizeWorkItemRow(item);
 }
+
+/**
+ * Open Work (proposed or accepted) across a set of projects: the most
+ * recently updated items, and an exact open count per project. One batch;
+ * the project filter uses the org/project/disposition index.
+ */
+export async function listOpenWorkItemsAcrossProjects(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		projectIds: string[];
+		titleContains?: string;
+		limit?: number;
+	},
+) {
+	if (params.projectIds.length === 0) return { items: [], counts: [] };
+	if (params.projectIds.length > 80)
+		throw new Error("At most 80 projects at once");
+	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 30), 1), 100);
+	const titleContains = params.titleContains?.toLowerCase();
+	const where = and(
+		eq(workItems.orgId, params.orgId),
+		// bound-params: at most 80 projects, checked above.
+		inArray(workItems.projectId, params.projectIds),
+		inArray(workItems.disposition, ["proposed", "accepted"]),
+		titleContains
+			? sql`instr(lower(${workItems.title}), ${titleContains}) > 0`
+			: undefined,
+	);
+	const [rows, counts] = await db.batch([
+		db
+			.select(workItemStoredColumns)
+			.from(workItems)
+			.where(where)
+			.orderBy(
+				desc(sql`coalesce(${workItems.updatedAt}, ${workItems.createdAt})`),
+				desc(workItems.id),
+			)
+			.limit(limit),
+		db
+			.select({
+				countProjectId: workItems.projectId,
+				openCount: sql<number>`count(*)`,
+			})
+			.from(workItems)
+			.where(where)
+			.groupBy(workItems.projectId),
+	]);
+	return {
+		items: rows.map(normalizeWorkItemRow),
+		counts: counts.map((row) => ({
+			projectId: row.countProjectId as string,
+			open: Number(row.openCount),
+		})),
+	};
+}

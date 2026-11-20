@@ -82,10 +82,12 @@ function fakeData(): WorkspaceDataPort {
 			throw new Error("unused");
 		},
 		listResources: async () => [],
-		listWork: async (options) =>
-			options?.open
-				? work.filter((item) => item.disposition !== "completed")
-				: work,
+		listWork: async () => work,
+		listOpenWork: async () => ({
+			covers: "linked_projects",
+			items: [],
+			projects: [],
+		}),
 		createWork: async (input) => ({
 			id: "new",
 			title: input.title,
@@ -295,7 +297,7 @@ describe("workspace bindings", () => {
 		expect(writes).toBe(1);
 	});
 
-	test("reads pass and are recorded; listOpen filters closed items", async () => {
+	test("reads pass and are recorded", async () => {
 		const adapters = createInMemoryAdapters();
 		const env = buildWorkspaceBindings({
 			data: fakeData(),
@@ -304,10 +306,7 @@ describe("workspace bindings", () => {
 			actor: { id: "u1", kind: "user", organizationId: "o" },
 			source: { surface: "workspace_object", traceId: "t" },
 		});
-		const open = await (
-			env.work as { listOpen(): Promise<unknown[]> }
-		).listOpen();
-		expect(open).toHaveLength(1);
+		await (env.work as { listOpen(): Promise<unknown> }).listOpen();
 		const records = await adapters.accountability.list();
 		expect(records).toHaveLength(1);
 		expect(records[0]?.operation).toBe("listOpen");
