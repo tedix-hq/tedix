@@ -439,6 +439,7 @@
 		"./schemas/model-catalog-config": "./src/schemas/model-catalog-config.ts",
 		"./test/model-catalog": "./src/test/model-catalog.ts",
 		"./schemas/agent-turn-defaults": "./src/schemas/agent-turn-defaults.ts",
+		"./schemas/runner-rules": "./src/schemas/runner-rules.ts",
 		"./schemas/work-onboarding": "./src/schemas/work-onboarding.ts",
 		"./test/agent-turn-defaults": "./src/test/agent-turn-defaults.ts"
 	},

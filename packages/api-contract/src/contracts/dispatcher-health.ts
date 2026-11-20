@@ -6,6 +6,7 @@ import {
 	ListDispatcherHealthResultSchema,
 	ReportDispatcherHealthInputSchema,
 } from "../schemas/dispatcher-health";
+import { RunnerRulesResultSchema } from "../schemas/runner-rules";
 
 export const dispatcherHealthContract = oc
 	.route({ tags: ["dispatcher-health"], prefix: "/dispatcher-health" })
@@ -26,6 +27,14 @@ export const dispatcherHealthContract = oc
 				summary: "List current dispatcher lane health",
 			})
 			.output(ListDispatcherHealthResultSchema),
+		getRunnerRules: oc
+			.route({
+				method: "GET",
+				path: "/rules",
+				summary:
+					"Read the runner rules every organization inherits from the installation",
+			})
+			.output(RunnerRulesResultSchema),
 	});
 
 export type DispatcherHealthContract = typeof dispatcherHealthContract;

@@ -6463,6 +6463,21 @@
 			"includeTediIdParam": false
 		},
 		{
+			"name": "get_runner_rules",
+			"remoteName": "get_runner_rules",
+			"description": "Read the runner rules every organization inherits: the text each local runner briefs its runs with, and its published version. An organization's own rules skill adds to it.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {},
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "dispatcherHealth/getRunnerRules",
+			"includeTediIdParam": false
+		},
+		{
 			"name": "work_items_list",
 			"remoteName": "work_items_list",
 			"description": "List canonical Tedix Work Items for this tedi's organization.",

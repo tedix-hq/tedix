@@ -247,13 +247,22 @@ not deploy Workers or replace the remaining bootstrap and identity setup.
 
 ## Defaults stored in D1
 
-Before enabling agent-turn triage or setting up Work apps for new organizations,
-an installation administrator must publish these defaults in D1's `policy_packs`:
+Before enabling agent-turn triage, setting up Work apps for new organizations,
+or starting local runners, an installation administrator must publish these
+defaults in D1's `policy_packs`:
 
 | Slug                  | Definition field    | Public validator                                                                 |
 | --------------------- | ------------------- | -------------------------------------------------------------------------------- |
 | `agent-turn-defaults` | `agentTurnDefaults` | `AgentTurnDefaultsSchema` from `@tedix/api-contract/schemas/agent-turn-defaults` |
 | `work-onboarding`     | `workOnboarding`    | `WorkOnboardingSchema` from `@tedix/api-contract/schemas/work-onboarding`        |
+| `runner-rules`        | `runnerRules`       | `RunnerRulesSchema` from `@tedix/api-contract/schemas/runner-rules`              |
+
+`runner-rules` holds the rules every local runner in every organization gives a
+run before its first turn. Runners read it before each start and admit no Work
+while it is missing or invalid, so Tedix refuses to archive it; publish a new
+version to change the text. An organization adds its own rules in a skill and
+names it with `tedix lane serve --rules <skill>`; that skill is optional and is
+added after the shared rules.
 
 Each publication needs `scope: "system"`, `organizationId: null` (no tenant
 owner), `target: "shared"`, `status: "active"`, and valid `publishedAt` and

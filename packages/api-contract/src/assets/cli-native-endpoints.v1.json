@@ -13,6 +13,7 @@
 		"decisionGraph/recordAgentDecisionOutcome",
 		"dispatcherHealth/list",
 		"dispatcherHealth/report",
+		"dispatcherHealth/getRunnerRules",
 		"machines/claimToolCalls",
 		"workAgentSessions/evaluateLedgerModel",
 		"workAgentSessions/report",

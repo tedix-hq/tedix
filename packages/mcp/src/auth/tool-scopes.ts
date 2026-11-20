@@ -577,6 +577,7 @@ const TEDI_WORK_ITEM_TOOL_NAME_RE = /(^|_)work_items?(_|$)/;
 // have no shared token, and a looser pattern would sweep in unrelated tools.
 const TEDI_WORK_BOARD_TOOL_NAMES = new Set([
 	"complete_work_item",
+	"get_runner_rules",
 	"heartbeat_work_attempt",
 	"list_dispatcher_health",
 	"list_work_attempts",

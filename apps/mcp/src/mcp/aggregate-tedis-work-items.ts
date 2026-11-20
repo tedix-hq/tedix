@@ -112,6 +112,9 @@ const REPORT_DISPATCHER_HEALTH_SCHEMA = zodToToolInputJsonSchema(
 const LIST_DISPATCHER_HEALTH_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(dispatcherHealthContract.list),
 );
+const GET_RUNNER_RULES_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(dispatcherHealthContract.getRunnerRules),
+);
 
 const WORK_ITEM_RELATION_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
@@ -185,6 +188,16 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		inputSchema: LIST_DISPATCHER_HEALTH_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "dispatcherHealth/list",
+		includeTediIdParam: false,
+	},
+	{
+		name: "get_runner_rules",
+		remoteName: "get_runner_rules",
+		description:
+			"Read the runner rules every organization inherits: the text each local runner briefs its runs with, and its published version. An organization's own rules skill adds to it.",
+		inputSchema: GET_RUNNER_RULES_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "dispatcherHealth/getRunnerRules",
 		includeTediIdParam: false,
 	},
 	{

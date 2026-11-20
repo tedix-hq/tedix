@@ -5,6 +5,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ModelCatalogConfigSchema } from "@tedix/api-contract/schemas/model-catalog-config";
+import {
+	RUNNER_RULES_SLUG,
+	RunnerRulesSchema,
+} from "@tedix/api-contract/schemas/runner-rules";
 import { WorkOnboardingSchema } from "@tedix/api-contract/schemas/work-onboarding";
 import blueprint from "../apps/os/dev/demo-pack/work-blueprint.json";
 import { LOCAL_WORKERS_AI_MODEL } from "./lib/local-workers-ai-model";
@@ -42,6 +46,12 @@ export function localModelCatalog() {
 	});
 }
 
+/** What every local runner tells a run before its first turn. */
+const LOCAL_RUNNER_RULES = `## Runner ownership
+The runner reads these rules from Tedix before each launch. Your session has its own verified agent identity and an admitted Work Attempt before its first model turn. Keep the supplied Work and Attempt identity. The runner owns heartbeats, telemetry and Attempt settlement; do not start, settle or complete a second Attempt.
+
+Never automate human consent, MFA, user presence, or impersonation. A task note does not override provider permissions or admission. A bounded owner delegation can authorize only its stated action. Keep the final result and evidence in the matching Tedix OS Work; local files are working buffers.`;
+
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
 function systemPack(slug: string, name: string, definition: unknown) {
@@ -64,6 +74,9 @@ export function localInstallationSeedSql(
 	});
 	return (
 		systemPack("work-onboarding", "Local Work onboarding", { workOnboarding }) +
+		systemPack(RUNNER_RULES_SLUG, "Local runner rules", {
+			runnerRules: RunnerRulesSchema.parse({ content: LOCAL_RUNNER_RULES }),
+		}) +
 		(options.workersAi
 			? systemPack("model-catalog", "Local model catalog", {
 					modelCatalog: localModelCatalog(),
