@@ -15,9 +15,16 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { app } from "electron";
+import { app, Notification } from "electron";
 import { log } from "./log";
-import { lastLine, localBin, loginShell, run, shellHasLocalBin } from "./shell";
+import {
+	configDir,
+	lastLine,
+	localBin,
+	loginShell,
+	run,
+	shellHasLocalBin,
+} from "./shell";
 import { activeRunCount } from "./status";
 import { isNewer } from "./update";
 
@@ -37,6 +44,10 @@ const SUPERVISOR = "dev.tedix.supervisor";
 const DOWNLOADS = "https://downloads.tedix.dev";
 /** How long a newer tool waits for running tasks to end before it is put in place anyway. */
 const QUIET_WAIT_MS = 30 * 60_000;
+/** How long the background service is watched after the tool under it changed. */
+const WATCH_MS = 3 * 60_000;
+const ALLOW_ACCESS =
+	"Allow access in System Settings → Privacy & Security → Full Disk Access, then check again.";
 
 const stagedFolder = () => join(app.getPath("userData"), "cli");
 const staged = () => join(stagedFolder(), "tedix");
@@ -71,7 +82,13 @@ export interface CliState {
 	/** What happened to the background service after the app brought a new version. */
 	service?: string;
 	/** How the last look for a newer command-line tool ended, and when. */
-	update?: { ok: boolean; text: string; at: number };
+	update?: {
+		ok: boolean;
+		text: string;
+		at: number;
+		/** The background service could not be brought back: runners are down. */
+		down?: boolean;
+	};
 	/** What the app is doing about a newer command-line tool right now. */
 	updating?: string;
 }
@@ -184,16 +201,19 @@ async function install(bytes: Buffer, want: string): Promise<void> {
  */
 async function stage(
 	source: string,
-): Promise<{ version: string; replaced: boolean }> {
+): Promise<{ version: string; replaced: boolean; before: string }> {
 	const have = existsSync(staged()) ? await versionOf(staged()) : "";
 	const want = await versionOf(source);
 	if (have && (!want || !isNewer(want, have)))
-		return { version: have, replaced: false };
+		return { version: have, replaced: false, before: have };
+	// Not under a running update, and not a version that did not work here.
+	if (have && (updateRun || remembered().held === want))
+		return { version: have, replaced: false, before: have };
 	if (!want)
 		throw new Error("The command-line tool inside the app did not start.");
 	await install(readFileSync(source), want);
 	log(`cli: copied version ${want} from the app${have ? ` over ${have}` : ""}`);
-	return { version: want, replaced: true };
+	return { version: want, replaced: true, before: have };
 }
 
 let service: string | undefined;
@@ -211,10 +231,32 @@ export async function readCli(): Promise<CliState> {
 	}
 	try {
 		const wasLinked = linkedToApp();
-		const { version, replaced } = await stage(source);
+		const { version, replaced, before } = await stage(source);
 		// An app update changed the tool under a running background service:
-		// restart it so it does not keep running the version before.
-		if (replaced && wasLinked && (await supervisorLoaded())) {
+		// restart it so it does not keep running the version before, and go
+		// back to that version when the new one does not work here.
+		if (replaced && wasLinked && !updateRun && (await supervisorLoaded())) {
+			track(async () => {
+				const say = (line: string) => {
+					updating = line;
+					log(`cli: ${line}`);
+					changed();
+				};
+				const result = await settle(
+					version,
+					before,
+					(await runnersUp()).running,
+					say,
+				);
+				lastUpdate = {
+					...result,
+					text: result.ok
+						? `The app brought version ${version}; ${result.text}`
+						: result.text,
+					at: Date.now(),
+				};
+			});
+		} else if (replaced && wasLinked && (await supervisorLoaded())) {
 			const restart = await restartSupervisor();
 			service = restart.ok
 				? `The background service was restarted to use version ${version}.`
@@ -312,8 +354,9 @@ async function runnersUp(): Promise<{ running: number; enabled: number }> {
 async function restartAndConfirm(
 	before: number,
 	say: (line: string) => void,
+	evenIfUnloaded = false,
 ): Promise<string> {
-	if (!(await supervisorLoaded())) return "";
+	if (!evenIfUnloaded && !(await supervisorLoaded())) return "";
 	say("Restarting the background service…");
 	const restart = await restartSupervisor();
 	if (!restart.ok)
@@ -337,7 +380,8 @@ async function restartAndConfirm(
 /**
  * "Let the app manage it": keeps the separate install as
  * `tedix.before-app`, links the app's copy and restarts the background
- * service. Any failure before the restart puts the separate install back.
+ * service. Any failure before the restart puts the separate install back,
+ * and so does a background service that does not work with the app's copy.
  */
 export async function manageCli(say: (line: string) => void): Promise<string> {
 	if (!existsSync(staged())) throw new Error("The app has no copy to use.");
@@ -356,7 +400,190 @@ export async function manageCli(say: (line: string) => void): Promise<string> {
 	}
 	addPathLine();
 	log("cli: the app now manages ~/.local/bin/tedix; separate install kept");
-	return `The app's copy is in use.${await restartAndConfirm(before, say)}`;
+	const first = await reloadAndWatch(before, say);
+	if (!first.problem) return `The app's copy is in use.${first.runners}`;
+	log(`cli: the app's copy did not work (${first.problem.detail})`);
+	say("The app's copy did not work here. Putting your separate install back…");
+	renameSync(kept, link);
+	const back = await reloadAndWatch(before, say, true);
+	const why = first.problem.access
+		? "could not read your project folder"
+		: "did not work with the background service";
+	if (back.problem) {
+		const text = `This Mac's runners are down. The app's copy ${why}, and going back to your separate install did not work either: ${back.problem.detail} Choose Restart runners in Tedix → This Mac….`;
+		notifyDown(text);
+		throw new Error(text);
+	}
+	throw new Error(
+		`The app's copy ${why}, so this Mac is back on your separate install. ${first.problem.access ? ALLOW_ACCESS : first.problem.detail}`,
+	);
+}
+
+/** What stays true across restarts of the app, in a file beside its copy. */
+interface Remembered {
+	/** A published version that did not work here; not tried again by itself. */
+	held?: string;
+	/** The background service still has to be loaded again. */
+	reloadOwed?: boolean;
+}
+const rememberedFile = () => join(stagedFolder(), "update-state.json");
+function remembered(): Remembered {
+	try {
+		return JSON.parse(readFileSync(rememberedFile(), "utf8")) as Remembered;
+	} catch {
+		return {};
+	}
+}
+function remember(change: Remembered): void {
+	try {
+		mkdirSync(stagedFolder(), { recursive: true });
+		writeFileSync(
+			rememberedFile(),
+			JSON.stringify({ ...remembered(), ...change }),
+		);
+	} catch (error) {
+		log(`cli: could not save update state (${(error as Error).message})`);
+	}
+}
+
+interface ServiceProblem {
+	/** macOS no longer lets the tool read the person's folders. */
+	access: boolean;
+	detail: string;
+}
+
+/**
+ * Reads what the background service wrote to `supervisor.log` since `since`,
+ * until three minutes after it (or `until`). Healthy means it wrote that it started and
+ * nothing after that says it could not read a folder or could not start.
+ */
+async function serviceProblem(
+	since: number,
+	until = since + WATCH_MS,
+): Promise<ServiceProblem | undefined> {
+	const from = Math.floor(since / 1000) * 1000;
+	for (;;) {
+		let lines: string[] = [];
+		try {
+			lines = readFileSync(join(configDir(), "supervisor.log"), "utf8")
+				.slice(-400_000)
+				.split("\n")
+				.filter((line) => Date.parse(line.slice(0, 20)) >= from);
+		} catch {
+			/* No log yet. */
+		}
+		const started = lines.findLastIndex((line) =>
+			line.includes("supervisor started"),
+		);
+		const after = started < 0 ? [] : lines.slice(started + 1);
+		if (after.some((line) => line.includes("could not read")))
+			return {
+				access: true,
+				detail: "The background service could not read a project folder.",
+			};
+		if (after.some((line) => line.includes("spawn failed")))
+			return {
+				access: false,
+				detail: "The background service could not start its work.",
+			};
+		if (Date.now() >= until)
+			return started < 0
+				? {
+						access: false,
+						detail:
+							"The background service did not write that it started. Check ~/.tedix/supervisor.log.",
+					}
+				: undefined;
+		await new Promise((resolve) => setTimeout(resolve, 5000));
+	}
+}
+
+/**
+ * Reloads the background service, waits for the runners, and watches its log
+ * for three minutes from the reload. Does nothing when the service is not
+ * loaded, unless `evenIfUnloaded`.
+ */
+async function reloadAndWatch(
+	before: number,
+	say: (line: string) => void,
+	evenIfUnloaded = false,
+): Promise<{ problem?: ServiceProblem; runners: string }> {
+	if (!evenIfUnloaded && !(await supervisorLoaded())) return { runners: "" };
+	const since = Date.now();
+	let runners = "";
+	try {
+		runners = await restartAndConfirm(before, say, true);
+	} catch (error) {
+		// The log says why more exactly, when it says anything.
+		const seen = await serviceProblem(since, 0);
+		return {
+			problem: seen?.access
+				? seen
+				: {
+						access: false,
+						detail: (error as Error).message.replace(/[^.…]$/, "$&."),
+					},
+			runners,
+		};
+	}
+	say("Checking that the background service can read your folders…");
+	return { problem: await serviceProblem(since), runners };
+}
+
+function notifyDown(body: string): void {
+	log(`cli: ${body}`);
+	if (Notification.isSupported())
+		new Notification({
+			title: "Tedix runners are down on this Mac",
+			body,
+		}).show();
+}
+
+/**
+ * After `version` was put in place of `have` under the background service:
+ * reloads and watches it, and when it does not work puts `have` back from
+ * `tedix.previous-app`, reloads again and holds `version` back.
+ */
+async function settle(
+	version: string,
+	have: string,
+	before: number,
+	say: (line: string) => void,
+): Promise<{ ok: boolean; text: string; down?: boolean }> {
+	const first = await reloadAndWatch(before, say, true);
+	if (!first.problem) {
+		remember({ reloadOwed: undefined });
+		return { ok: true, text: `runners restarted.${first.runners}` };
+	}
+	log(`cli: version ${version} did not work (${first.problem.detail})`);
+	remember({ held: version });
+	const why = first.problem.access
+		? "could not read your project folder"
+		: "did not work with the background service";
+	let back: ServiceProblem | undefined = {
+		access: false,
+		detail: "No copy from before was kept.",
+	};
+	if (have && existsSync(previous()))
+		try {
+			say(`Version ${version} did not work here. Putting ${have} back…`);
+			await install(readFileSync(previous()), have);
+			log(`cli: ${have} is back in place; ${version} is held back`);
+			back = (await reloadAndWatch(before, say, true)).problem;
+		} catch (error) {
+			back = { access: false, detail: (error as Error).message };
+		}
+	if (!back) {
+		remember({ reloadOwed: undefined });
+		return {
+			ok: false,
+			text: `Version ${version} ${why}, so this Mac is back on ${have}. ${first.problem.access ? ALLOW_ACCESS : `${first.problem.detail} Check again to retry.`}`,
+		};
+	}
+	remember({ reloadOwed: true });
+	const text = `This Mac's runners are down. Version ${version} ${why}, and going back${have ? ` to ${have}` : ""} did not work either: ${back.detail} ${first.problem.access || back.access ? ALLOW_ACCESS : "Choose Retry to load the background service again."}`;
+	notifyDown(text);
+	return { ok: false, down: true, text };
 }
 
 /** "Use the separate install again": the exact reverse of `manageCli`. */
@@ -410,7 +637,7 @@ async function fetchRelease(version: string): Promise<Buffer> {
 
 const runs = (count: number) => `${count} ${count === 1 ? "task" : "tasks"}`;
 
-async function update(asked: boolean, changed: () => void): Promise<void> {
+async function update(asked: boolean): Promise<void> {
 	if (process.platform !== "darwin" || !existsSync(staged())) {
 		if (asked)
 			lastUpdate = {
@@ -426,6 +653,28 @@ async function update(asked: boolean, changed: () => void): Promise<void> {
 		changed();
 	};
 	const have = await versionOf(staged());
+	// A reload that failed earlier comes first: without it nothing runs.
+	if (remembered().reloadOwed) {
+		say("Loading the background service again…");
+		const again = await reloadAndWatch(0, say, true);
+		if (again.problem) {
+			lastUpdate = {
+				ok: false,
+				down: true,
+				text: `This Mac's runners are down. The background service did not come back: ${again.problem.detail} ${again.problem.access ? ALLOW_ACCESS : "Check ~/.tedix/supervisor.log, then choose Retry."}`,
+				at: Date.now(),
+			};
+			return;
+		}
+		remember({ reloadOwed: undefined });
+		lastUpdate = {
+			ok: true,
+			text: `The background service is running again on version ${have}.${again.runners}`,
+			at: Date.now(),
+		};
+		return;
+	}
+	if (asked) remember({ held: undefined });
 	const latest = (await (await download("latest.json", 30_000)).json()) as {
 		version?: unknown;
 	};
@@ -440,6 +689,15 @@ async function update(asked: boolean, changed: () => void): Promise<void> {
 				text: `Version ${have} is the newest command-line tool.`,
 				at: Date.now(),
 			};
+		return;
+	}
+	if (remembered().held === version) {
+		log(`cli update: ${version} is held back, it did not work here`);
+		lastUpdate ??= {
+			ok: false,
+			text: `Version ${version} did not work on this Mac last time, so it stays on ${have}. ${ALLOW_ACCESS}`,
+			at: Date.now(),
+		};
 		return;
 	}
 	say(`Downloading command-line tool ${version}…`);
@@ -473,30 +731,23 @@ async function update(asked: boolean, changed: () => void): Promise<void> {
 		lastUpdate = { ok: true, text: `Updated to ${version}.`, at: Date.now() };
 		return;
 	}
-	try {
-		const restarted = await restartAndConfirm(before, say);
-		lastUpdate = {
-			ok: true,
-			text: `Updated to ${version}; runners restarted.${restarted}${waited}`,
-			at: Date.now(),
-		};
-	} catch (error) {
-		lastUpdate = {
-			ok: false,
-			text: `Updated to ${version}. ${(error as Error).message} Choose Restart runners in Tedix → This Mac… to try again.${waited}`,
-			at: Date.now(),
-		};
-	}
+	const result = await settle(version, have, before, say);
+	lastUpdate = {
+		...result,
+		text: `${result.ok ? `Updated to ${version}; ` : ""}${result.text}${waited}`,
+		at: Date.now(),
+	};
 }
 
-/**
- * Looks for a newer published command-line tool and puts it in place of the
- * app's copy, without an app release. One look runs at a time. `asked` is
- * true when the person chose it, so "nothing newer" is said too; `changed`
- * is called whenever there is something new to show.
- */
-export function updateCli(asked: boolean, changed: () => void): Promise<void> {
-	updateRun ??= update(asked, changed)
+let changed: () => void = () => {};
+/** Sets what is called whenever there is something new to show about the tool. */
+export function onCliChange(listener: () => void): void {
+	changed = listener;
+}
+
+/** Runs one piece of update work at a time and shows how it ended. */
+function track(work: () => Promise<void>): Promise<void> {
+	updateRun ??= work()
 		.catch((error) => {
 			const reason = error instanceof Error ? error.message : String(error);
 			lastUpdate = {
@@ -512,4 +763,13 @@ export function updateCli(asked: boolean, changed: () => void): Promise<void> {
 			changed();
 		});
 	return updateRun;
+}
+
+/**
+ * Looks for a newer published command-line tool and puts it in place of the
+ * app's copy, without an app release. `asked` is true when the person chose
+ * it: "nothing newer" is said too, and a version held back is tried again.
+ */
+export function updateCli(asked: boolean): Promise<void> {
+	return track(() => update(asked));
 }

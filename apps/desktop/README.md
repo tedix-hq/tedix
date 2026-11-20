@@ -55,7 +55,14 @@ The app is not signed or notarized yet and has been run on macOS only.
   without any, for up to 30 minutes. **Tedix → This Mac…** and the
   command-line tool step of **Set Up This Mac…** show the version in use
   and what the app last did, or why an update did not apply, and have
-  **Check for command-line tool update**. `tedix update` and
+  **Check for command-line tool update**. After every such change the app
+  watches the background service for three minutes. If the new version
+  cannot read your project folders (macOS can withdraw that permission when
+  the file changes) or the runners do not come back, the app puts the
+  version before back, restarts the service again, says so in both windows,
+  and leaves that version alone until you choose the button or a newer one
+  is published. If going back does not work either, the app says that this
+  Mac's runners are down and shows a notification. `tedix update` and
   `tedix rollback` in a terminal work on the app's copy too and restart the
   background service themselves.
 - **See and change this computer's status.** **Tedix → This Mac…**
@@ -168,6 +175,12 @@ installed apps without an app release:
   to check its version, and renamed over the copy. The copy before is kept
   as `cli/tedix.previous-app`. `tedix update` keeps its own `cli/tedix.previous`,
   which `tedix rollback` puts back.
+- After the swap the app reloads the background service and reads
+  `~/.tedix/supervisor.log` for three minutes: it wants "supervisor started"
+  and no "could not read" or "spawn failed" after it. Otherwise it puts
+  `cli/tedix.previous-app` back, reloads again and writes the version to
+  `cli/update-state.json` as held back. The same check follows a newer copy
+  from an app update and **Let the app manage it**.
 - The app never replaces its copy with an older one. After an app update, the
   copy inside the new app is used only when it is newer than the copy in the
   data folder. So an app release does not need the newest CLI inside; it

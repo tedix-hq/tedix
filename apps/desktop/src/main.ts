@@ -15,7 +15,7 @@ import {
 	WebContentsView,
 } from "electron";
 import type { PanelAction, PanelLink, PanelState, RunnerField } from "./api";
-import { restartSupervisor, updateCli } from "./cli";
+import { onCliChange, restartSupervisor, updateCli } from "./cli";
 import { log } from "./log";
 import { setRunnerField } from "./runners-file";
 import {
@@ -135,7 +135,7 @@ async function restartRunners(): Promise<void> {
 
 /** Looks for a newer command-line tool and shows each step in both windows. */
 function updateCommandLineTool(asked: boolean): Promise<void> {
-	return updateCli(asked, () => void refreshSetup(false).then(refresh));
+	return updateCli(asked);
 }
 
 function isTedixPage(url: string): boolean {
@@ -837,6 +837,7 @@ else {
 		setTimeout(() => void checkForUpdates(false), 10_000);
 		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
 		// The command-line tool has its own releases, more often than the app.
+		onCliChange(() => void refreshSetup(false).then(refresh));
 		setTimeout(() => void updateCommandLineTool(false), 20_000);
 		setInterval(() => void updateCommandLineTool(false), 4 * 60 * 60_000);
 		void refresh();
