@@ -103,6 +103,12 @@ export async function updateOsWorkspaceResourceMetadata(
 }
 
 /** Upload confirmation is idempotent; bytes have already been verified by the caller. */
+/**
+ * Saves an uploaded file's row in the workspace store, then its shared copy
+ * for list screens. Once the store holds the file, a busy main database must
+ * not fail the upload: the person would retry and save a second copy. The
+ * shared copy is then left to `retryResourceProjection`.
+ */
 export async function confirmWorkspaceFileResource(
 	db: DbQueryClient,
 	resource: Parameters<typeof resources.createOsWorkspaceResource>[1],
@@ -110,9 +116,60 @@ export async function confirmWorkspaceFileResource(
 	const result = await objectQuery(
 		db,
 		{ operation: "ensure", params: resource },
-		true,
+		false,
 	);
-	if (!result.owned) await resources.ensureOsWorkspaceResource(db, resource);
+	if (!result.owned) {
+		await resources.ensureOsWorkspaceResource(db, resource);
+		return { pendingProjection: undefined };
+	}
+	if (!result.row) throw new Error("Workspace resource insert returned no row");
+	return {
+		pendingProjection: (await projectResource(db, result.row))
+			? undefined
+			: result.row,
+	};
+}
+
+type ResourceRow = Parameters<typeof resources.projectOsWorkspaceResource>[1];
+
+/** Writes the shared copy; false when the main database refused it. */
+async function projectResource(db: DbQueryClient, row: ResourceRow) {
+	try {
+		await resources.projectOsWorkspaceResource(db, row);
+		return true;
+	} catch (error) {
+		console.warn("workspace_resource_projection_pending", {
+			resourceId: row.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return false;
+	}
+}
+
+/** Retries a shared copy the main database refused, after the response. */
+export async function retryResourceProjection(
+	db: DbQueryClient,
+	row: ResourceRow,
+) {
+	for (const delayMs of [2_000, 8_000]) {
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
+		if (await projectResource(db, row)) return;
+	}
+}
+
+/** Repairs a missing shared copy when the same upload is confirmed again. */
+export async function ensureResourceProjection(
+	db: DbQueryClient,
+	row: ResourceRow,
+) {
+	const projected = await resources
+		.getOsWorkspaceResource(db, {
+			organizationId: row.organizationId,
+			workspaceId: row.workspaceId,
+			resourceId: row.id,
+		})
+		.catch(() => null);
+	if (!projected) await projectResource(db, row);
 }
 
 export async function findWorkspaceOutputResource(
