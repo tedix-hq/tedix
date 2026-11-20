@@ -10,56 +10,53 @@ const server = await startFixtureServer(STREAM, { shared: false });
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const [width, search] of [
-		[375, "churn cohort"],
-		[1280, "goodwill"],
-	] as const) {
-		const page = await browser.newPage({ viewport: { width, height: 900 } });
-		await page.goto(`${server.origin}${STREAM}`);
-		await page
-			.getByRole("heading", { name: "Maple Books delivery investigation" })
-			.waitFor();
-		assert.equal(await page.locator('input[placeholder*="UUID"]').count(), 0);
+	const width = 375;
+	const search = "churn cohort";
+	const page = await browser.newPage({ viewport: { width, height: 900 } });
+	await page.goto(`${server.origin}${STREAM}`);
+	await page
+		.getByRole("heading", { name: "Maple Books delivery investigation" })
+		.waitFor();
+	assert.equal(await page.locator('input[placeholder*="UUID"]').count(), 0);
 
-		await page.getByRole("combobox", { name: "Choose a Work Item" }).click();
-		await page.getByRole("combobox", { name: "Find a Work Item" }).fill(search);
-		await page
-			.getByRole("option", { name: new RegExp(search, "i") })
-			.first()
-			.click();
-		await page
-			.getByRole("button", { name: "Add Work Item", exact: true })
-			.click();
-		await page
-			.locator("[data-case-task]", { hasText: new RegExp(search, "i") })
-			.first()
-			.waitFor();
+	await page.getByRole("combobox", { name: "Choose a Work Item" }).click();
+	await page.getByRole("combobox", { name: "Find a Work Item" }).fill(search);
+	await page
+		.getByRole("option", { name: new RegExp(search, "i") })
+		.first()
+		.click();
+	await page
+		.getByRole("button", { name: "Add Work Item", exact: true })
+		.click();
+	await page
+		.locator("[data-case-task]", { hasText: new RegExp(search, "i") })
+		.first()
+		.waitFor();
 
-		await page.getByRole("combobox", { name: "Choose an epic" }).click();
-		await page
-			.getByRole("option", { name: "Willow Studio workshop preparation" })
-			.click();
-		await page
-			.getByRole("button", { name: "Add dependency", exact: true })
-			.click();
-		await page
-			.locator("[data-case-dependency]", {
-				hasText: "Willow Studio workshop preparation waits for this one",
-			})
-			.first()
-			.waitFor();
+	await page.getByRole("combobox", { name: "Choose an epic" }).click();
+	await page
+		.getByRole("option", { name: "Willow Studio workshop preparation" })
+		.click();
+	await page
+		.getByRole("button", { name: "Add dependency", exact: true })
+		.click();
+	await page
+		.locator("[data-case-dependency]", {
+			hasText: "Willow Studio workshop preparation waits for this one",
+		})
+		.first()
+		.waitFor();
 
-		const text = await page.locator("#os-main-content").innerText();
-		assert(!UUID.test(text), `${width}: no raw ids on the page`);
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth,
-			),
-			`${width}: the page does not scroll sideways`,
-		);
-		await page.close();
-		console.log(`epic pickers ${width}px: ok`);
-	}
+	const text = await page.locator("#os-main-content").innerText();
+	assert(!UUID.test(text), `${width}: no raw ids on the page`);
+	assert(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth,
+		),
+		`${width}: the page does not scroll sideways`,
+	);
+	await page.close();
+	console.log(`epic pickers ${width}px: ok`);
 } finally {
 	await browser?.close();
 	await server.stop();

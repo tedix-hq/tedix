@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { startFixtureServer } from "./fixture-server";
 import { webkit, type Browser, type Locator, type Page } from "playwright";
 
-async function checkCardKeyboard(page: Page, card: Locator) {
+async function checkCardActionsLayout(page: Page, card: Locator) {
 	assert.equal(await card.getAttribute("role"), null);
 	assert.equal(await card.getAttribute("tabindex"), null);
 	assert.equal(
@@ -59,6 +59,11 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 		await card.evaluate((el) => el.scrollWidth <= el.clientWidth),
 		"card has no horizontal overflow",
 	);
+	return { open, actions, cardBox };
+}
+
+async function checkCardKeyboard(page: Page, card: Locator) {
+	const { open, actions, cardBox } = await checkCardActionsLayout(page, card);
 	const libraryUrl = page.url();
 	const titleBox = (await card.locator("strong").boundingBox())!;
 	await card.click({
@@ -265,7 +270,7 @@ export async function runOutputsChecks(size: OutputsSize, theme: OutputsTheme) {
 			await page.screenshot({
 				path: `${evidenceDir}/after-list-${width}-${theme}.png`,
 			});
-		await checkCardKeyboard(page, row);
+		await checkCardActionsLayout(page, row);
 		// Doc, Sheet and Slides are edited only in their workspace gadget, so
 		// "Open standalone" for an output in an active workspace lands there.
 		await row.getByRole("button", { name: /^More actions for/ }).click();

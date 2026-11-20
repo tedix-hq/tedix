@@ -184,10 +184,10 @@ test("retries only failed specs from a direct OS browser command", () => {
 		}),
 	).toEqual(["bun", "run", "--cwd", "apps/os", runner, warm, failing]);
 	const entries = "/outputs,/workspace/demo?workpiece=output%3Ademo";
-	const pilot = (shard: string) => ({
-		[command[4]!]: `bun ${runner} --warm=${shard}:${entries} ${passing} ${failing}`,
-	});
-	expect(browserFlakeCommand(command, [failing], pilot("2/2"))).toEqual([
+	const pilot = {
+		[command[4]!]: `bun ${runner} --warm=1/2:/work --warm=2/2:${entries} ${passing} ${failing}`,
+	};
+	expect(browserFlakeCommand(command, [failing], pilot)).toEqual([
 		"bun",
 		"run",
 		"--cwd",
@@ -196,14 +196,20 @@ test("retries only failed specs from a direct OS browser command", () => {
 		`--warm=${entries}`,
 		failing,
 	]);
-	expect(browserFlakeCommand(command, [failing], pilot("1/2"))).toEqual([
+	expect(
+		browserFlakeCommand([...command.slice(0, -1), "1/2"], [failing], pilot),
+	).toEqual([
 		"bun",
 		"run",
 		"--cwd",
 		"apps/os",
 		runner,
+		"--warm=/work",
 		failing,
 	]);
+	expect(
+		browserFlakeCommand([...command.slice(0, -1), "1/3"], [failing], pilot),
+	).toEqual(["bun", "run", "--cwd", "apps/os", runner, failing]);
 	expect(
 		browserFlakeCommand(command, [failing], {
 			[command[4]!]: `${recipe} && bun other.ts`,

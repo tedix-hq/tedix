@@ -82,6 +82,11 @@ try {
 				row.elements.map((item) => item.text),
 		);
 
+	const waitForSaveWith = (value: string) =>
+		tabs.waitForSave(viewer.page, (content) =>
+			JSON.stringify(content).includes(JSON.stringify(value)),
+		);
+
 	// 1. Watching slide one, idle: the agent changes slide two.
 	await viewer.page.waitForTimeout(3_200);
 	await tabs.writeAsAgent(text("two", "c", "Changed by the agent"));
@@ -94,16 +99,18 @@ try {
 	const agentRevision = (await tabs.saved()).revision;
 
 	// 2. The undo shortcut takes it back as a new saved change.
+	const shortcutSaved = waitForSaveWith("Second slide");
 	await viewer.frame.locator(".slides-stage").press("ControlOrMeta+z");
 	await stage("c").getByText("Second slide").waitFor();
 	await offer.waitFor({ state: "detached" });
-	await viewer.page.waitForTimeout(2_000);
+	await shortcutSaved;
 	assert.deepEqual(await stored(), ["First slide", "Body", "Second slide"]);
 	assert((await tabs.saved()).revision > agentRevision);
 	// The watcher's own undo brings the agent's work back.
+	const redoSaved = waitForSaveWith("Changed by the agent");
 	await viewer.frame.locator("#undo").click();
 	await stage("c").getByText("Changed by the agent").waitFor();
-	await viewer.page.waitForTimeout(2_000);
+	await redoSaved;
 
 	// 3. Just after the watcher clicked, the view stays where they are; the
 	// button undoes the agent's change.
@@ -112,9 +119,10 @@ try {
 	await offer.waitFor();
 	assert.match((await thumb("one").getAttribute("class"))!, /current/);
 	assert(await isLit(thumb("two")), "the changed slide is lit in the list");
+	const buttonSaved = waitForSaveWith("Changed by the agent");
 	await offer.click();
 	await viewer.frame.getByText("Agent change undone.").waitFor();
-	await viewer.page.waitForTimeout(2_000);
+	await buttonSaved;
 	assert.deepEqual(await stored(), [
 		"First slide",
 		"Body",
@@ -128,8 +136,7 @@ try {
 	assert(await isLit(stage("b")));
 	assert(!(await isLit(stage("a"))), "an unchanged element is not lit");
 	assert.equal(await offer.count(), 0);
-	await viewer.page.waitForTimeout(4_300);
-	assert.equal(await viewer.frame.locator(".landed").count(), 0);
+	await viewer.frame.locator(".landed").first().waitFor({ state: "detached" });
 	console.log(
 		"Slides landed changes passed: lit on slide and list, shown when idle, undone by shortcut and button",
 	);

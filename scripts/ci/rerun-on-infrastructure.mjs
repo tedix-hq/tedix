@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { takeBrowserWarmup } from "./browser-warmup.mjs";
 import {
 	evidenceDirVariable,
 	shardEvidenceDir,
@@ -66,10 +67,9 @@ export function browserFlakeCommand(command, specs, scripts) {
 		return command;
 	const runner = "browser-tests/run-specs.ts";
 	const [program, path, ...listed] = (scripts[script] ?? "").split(/\s+/);
-	const warm = /^--warm=(?:(\d+\/\d+):)?(\/[a-z\d/.,?=%-]+)$/i.exec(
-		listed[0] ?? "",
-	);
-	if (warm) listed.shift();
+	const shardFlag = command.indexOf("--shard", 5);
+	const shard = shardFlag < 0 ? "1/1" : command[shardFlag + 1];
+	const warm = takeBrowserWarmup(listed, shard);
 	if (
 		program !== "bun" ||
 		path !== runner ||
@@ -79,12 +79,9 @@ export function browserFlakeCommand(command, specs, scripts) {
 		!specs.every((spec) => listed.includes(spec))
 	)
 		return command;
-	const shardFlag = command.indexOf("--shard", 5);
-	const shard = shardFlag < 0 ? "1/1" : command[shardFlag + 1];
 	// The retry already lists only the failed specs, so carry the matching
 	// warmup without reapplying the original shard selection.
-	const retryWarm =
-		warm && (!warm[1] || warm[1] === shard) ? [`--warm=${warm[2]}`] : [];
+	const retryWarm = warm ? [`--warm=${warm}`] : [];
 	return [bun, run, cwd, workspace, runner, ...retryWarm, ...specs];
 }
 

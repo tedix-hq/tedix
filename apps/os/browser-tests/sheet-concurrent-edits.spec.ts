@@ -77,9 +77,14 @@ try {
 			await route.fallback();
 		};
 		await page.route("**/api/rpc/osWorkspaces/outputs/patch", handler);
-		return () => {
-			open = true;
-			release();
+		return {
+			intercepted: fail
+				? undefined
+				: page.waitForRequest("**/api/rpc/osWorkspaces/outputs/patch"),
+			release() {
+				open = true;
+				release();
+			},
 		};
 	};
 	const settle = async (expected: string[][], message: string) => {
@@ -94,13 +99,13 @@ try {
 	const expected = rows.map((row) => row.map((item) => item.input));
 
 	// 1. A's save is still on its way when B's lands: the server merges.
-	let release = await hold(a.page);
+	let held = await hold(a.page);
 	await type(a, 0, 1, "100");
-	await a.page.waitForTimeout(1_500);
+	await held.intercepted;
 	await type(b, 3, 0, "Bolts");
 	expected[3]![0] = "Bolts";
 	await settle(expected, "B saved while A's save was held");
-	release();
+	held.release();
 	expected[0]![1] = "100";
 	await settle(expected, "the server kept both cells");
 	await shows(a, 3, 0, "Bolts");
@@ -111,14 +116,15 @@ try {
 
 	// 2. A cannot save for a moment and B's change arrives meanwhile: A's
 	// editor merges it into the unsaved sheet, then saves both.
-	release = await hold(a.page, true);
+	held = await hold(a.page, true);
 	await type(a, 1, 1, "200");
+	// A failed request can reach Playwright before the editor has entered its retry state.
 	await a.page.waitForTimeout(1_500);
 	await type(b, 4, 0, "Nuts");
 	await shows(a, 4, 0, "Nuts");
 	await shows(a, 1, 1, "200");
 	assert.equal(await question(a).count(), 0, "A was not asked");
-	release();
+	held.release();
 	expected[1]![1] = "200";
 	expected[4]![0] = "Nuts";
 	await settle(expected, "the editor merged and saved both cells");
@@ -127,7 +133,7 @@ try {
 	await a.page.unroute("**/api/rpc/osWorkspaces/outputs/patch");
 
 	// 3. Both change the same cell, and each another cell too.
-	release = await hold(a.page, true);
+	held = await hold(a.page, true);
 	await type(a, 2, 1, "300");
 	await type(a, 5, 0, "Washers");
 	await a.page.waitForTimeout(1_500);
@@ -136,7 +142,7 @@ try {
 	// A's unsaved value is the later one: it wins quietly, nobody is asked.
 	await shows(a, 2, 1, "300");
 	assert.equal(await question(a).count(), 0, "A was not asked");
-	release();
+	held.release();
 	expected[2]![1] = "300";
 	expected[5] = ["Washers", "66"];
 	await settle(expected, "A's value won the shared cell; the rest is kept");
@@ -152,10 +158,11 @@ try {
 		[true, 9],
 		[false, 14],
 	] as const) {
-		release = await hold(a.page, fail);
+		held = await hold(a.page, fail);
 		await type(a, at, 0, "Far A");
 		await type(a, 1, 3, `Wide A ${at}`);
-		await a.page.waitForTimeout(1_500);
+		if (fail) await a.page.waitForTimeout(1_500);
+		else await held.intercepted;
 		await type(b, at - 2, 1, "Far B");
 		await type(b, 2, 4, `Wide B ${at}`);
 		if (fail) await shows(a, at - 2, 1, "Far B");
@@ -168,7 +175,7 @@ try {
 			await settle(bSaved, "B saved before A's held save was released");
 		}
 		assert.equal(await question(a).count(), 0, "A was not asked");
-		release();
+		held.release();
 		const grown = Array.from({ length: at + 1 }, (_, row) =>
 			Array.from({ length: 5 }, (_, column) => expected[row]?.[column] ?? ""),
 		);
