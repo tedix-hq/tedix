@@ -893,14 +893,6 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 			preflight.decisions,
 		);
 	}
-	// This tedi runs in the Workspace now or once the run is approved; the
-	// approval resume has no caller to record the role for.
-	await ensureWorkspaceTediRole(context, {
-		organizationId: orgId,
-		workspaceId: workspace.id,
-		tediId: input.tediId,
-		note: "App run executor",
-	});
 	if (
 		preflight.status === "needs_approval" ||
 		input.approvalMode === "required"
@@ -941,6 +933,14 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 	if (!budget.allowed) {
 		return denyReceipt([`billing_denied: ${budget.code}`], preflight.decisions);
 	}
+	// The run is admitted, so this tedi works in the Workspace from now on. A
+	// parked run records no role, not even when its approval resumes it.
+	await ensureWorkspaceTediRole(context, {
+		organizationId: orgId,
+		workspaceId: workspace.id,
+		tediId: input.tediId,
+		note: "App run executor",
+	});
 
 	// Dispatch through skill-runtime — the receipt id IS the run id, so the
 	// runtime's own admission dedupes an idempotent retry onto the same run.

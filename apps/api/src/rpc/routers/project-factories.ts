@@ -69,6 +69,16 @@ const factoriesOs = implement(projectsContract)
 
 function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 	const db = context.db;
+	const workspaceVisible = async (workspaceId: string) => {
+		const row = await getOsWorkspace(db, {
+			organizationId: orgId,
+			workspaceId,
+		});
+		return Boolean(
+			row &&
+			isOsWorkspaceVisibleTo(row, await resolveOsWorkspaceViewer(context)),
+		);
+	};
 	return {
 		canActivate: isLifecycleOverrideAuthority(context),
 		load: (params) => loadFactoryBuildState(db, { orgId, ...params }),
@@ -87,16 +97,7 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 					tedi.mcpCapabilityProfile === "platform_admin",
 			}));
 		},
-		async workspaceExists(workspaceId) {
-			const row = await getOsWorkspace(db, {
-				organizationId: orgId,
-				workspaceId,
-			});
-			return Boolean(
-				row &&
-				isOsWorkspaceVisibleTo(row, await resolveOsWorkspaceViewer(context)),
-			);
-		},
+		workspaceExists: workspaceVisible,
 		async linkWorkspaceProject(params) {
 			const { created } = await ensureWorkspaceProjectLink(context, {
 				organizationId: orgId,
@@ -109,9 +110,10 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 				organizationId: orgId,
 				...params,
 			});
-			// The lane's tedi runs in this Workspace from now on.
+			// The lane's tedi runs in this Workspace from now on. The Workspace
+			// may come from an existing project's binding, so check it here.
 			const skill = await getSkillEntry(db, params.skillId, orgId);
-			if (skill?.tediId)
+			if (skill?.tediId && (await workspaceVisible(params.workspaceId)))
 				await ensureWorkspaceTediRole(context, {
 					organizationId: orgId,
 					workspaceId: params.workspaceId,

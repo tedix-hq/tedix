@@ -1,3 +1,4 @@
+import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import type { ORPCError } from "@orpc/server";
 import type { OsBlueprintWithVisibility } from "@tedix/api-contract/contracts/os-workspaces";
@@ -747,6 +748,14 @@ export async function ensureWorkspaceSkillDependencyLinks(
 			params.organizationId,
 		);
 		if (tedi) {
+			// A person who links a skill shares the Workspace with its tedi, so
+			// they need the right to share it. Other callers link without the role.
+			if (context.authType === "user")
+				await requireWorkspaceCollaboratorAccess(
+					context,
+					params.workspaceId,
+					"sharing.write",
+				);
 			await ensureWorkspaceTediRole(context, {
 				...scope,
 				tediId: tedi.id,

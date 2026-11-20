@@ -89,23 +89,23 @@ describe("ensureWorkspaceTediRole", () => {
 		expect(edge("ws-private")).toHaveLength(1);
 	});
 
-	it("uses the workspace's own root when no person is calling", async () => {
-		const { base, edge, role } = fixture();
-		const context = {
-			...base,
-			authType: "apikey",
-			apiKey: { id: "key-1" },
-		} as BaseContext;
-		for (const workspaceId of ["ws-private", "ws-org"])
-			await ensureWorkspaceTediRole(context, {
-				organizationId: "org-1",
-				workspaceId,
-				tediId: "tedi-research",
-				note: "test",
-			});
-		expect(edge("ws-private")).toMatchObject([{ sharer: "member-robin" }]);
-		expect(edge("ws-org")).toMatchObject([{ sharer: "member-kim" }]);
-		expect(await role("ws-org")).toBe("build");
+	it("records nothing when no person is calling", async () => {
+		const { base, edge } = fixture();
+		for (const context of [
+			{ ...base, authType: "apikey", apiKey: { id: "key-1" } },
+			{ ...base, authType: "tedi", tediId: "tedi-other" },
+		] as BaseContext[])
+			for (const workspaceId of ["ws-private", "ws-org"])
+				expect(
+					await ensureWorkspaceTediRole(context, {
+						organizationId: "org-1",
+						workspaceId,
+						tediId: "tedi-research",
+						note: "test",
+					}),
+				).toBe(false);
+		expect(edge("ws-private")).toEqual([]);
+		expect(edge("ws-org")).toEqual([]);
 	});
 
 	it("records nothing when the calling person cannot build there", async () => {
