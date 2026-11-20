@@ -22,7 +22,8 @@ export async function getRequestOrganizationMembership(
 		member.customPermissions !== undefined &&
 		(lookup.canonicalUserId
 			? member.userId === lookup.canonicalUserId
-			: member.descopeUserId === subject)
+			: member.descopeUserId === subject ||
+				(context.oidcScopes !== undefined && member.userId === subject))
 	) {
 		return {
 			id: member.id,

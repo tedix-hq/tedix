@@ -18,6 +18,9 @@ export async function resolveOidcSessionContext(
 			session: prefixedColumns(oidcSessions, "oidc_session"),
 			metadata: organizations.metadata,
 			member: {
+				id: sql<string>`${organizationMembers.id}`.as("oidc_member_id"),
+				descopeUserId: organizationMembers.descopeUserId,
+				kind: organizationMembers.kind,
 				userId: sql<string | null>`${organizationMembers.userId}`.as(
 					"oidc_member_user_id",
 				),
