@@ -484,6 +484,8 @@ separate actions. `--install` records the runner in
 `~/.tedix/supervisor-runners.json`; `tedix supervise` (`supervise-runners.ts`)
 starts it as a child, restarts it with a backoff and adopts a child that
 outlived a supervisor restart, so the supervisor is the one LaunchAgent.
+A tedi's machine tool calls are answered by `tedix lane serve --machine-tools-only`,
+which the supervisor starts. Its log is `~/.tedix/dev.tedix.machine-tools.log`.
 After `tedix update`, a listed runner that finds a newer installed binary stops
 admitting Work, lets Work in progress finish and exits with code 75. The
 supervisor restarts it on its next check without backoff and logs
