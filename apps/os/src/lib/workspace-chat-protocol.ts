@@ -65,6 +65,8 @@ export type WorkspaceChatClientMessage =
 			tediId?: string;
 			modelId?: string;
 			attachments?: Array<{ outputId: string }>;
+			/** The workspace app the person asked from; shown under their message. */
+			fromAppId?: string;
 	  }
 	| {
 			type: "decide_approval";
@@ -218,6 +220,8 @@ export type WorkspaceChatLedgerEvent =
 			respondingTediId?: string | null;
 			authorId: string;
 			authorKind: "person" | "tedi";
+			/** The workspace app the person asked from. */
+			fromAppId?: string;
 	  })
 	| (Stamped & { type: "turn.model"; turnId: string; model: string })
 	| (Stamped & { type: "turn.usage"; turnId: string; usage: TurnUsage })

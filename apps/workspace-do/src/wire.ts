@@ -48,6 +48,8 @@ export interface QueuedMessageBody {
 	}>;
 	authorId: string;
 	authorKind: AuthorKind;
+	/** The workspace app the person asked from. */
+	fromAppId?: string;
 }
 
 export type WireEventBody =
@@ -64,6 +66,8 @@ export type WireEventBody =
 			}>;
 			authorId: string;
 			authorKind: AuthorKind;
+			/** The workspace app the person asked from. */
+			fromAppId?: string;
 	  }
 	| ({
 			/**
@@ -294,6 +298,8 @@ export type ClientFrame =
 			tediId?: string;
 			modelId?: string;
 			attachments?: Array<{ outputId: string }>;
+			/** The workspace app the person asked from. */
+			fromAppId?: string;
 	  }
 	| {
 			type: "decide_approval";

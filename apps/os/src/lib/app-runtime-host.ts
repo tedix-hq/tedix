@@ -1,4 +1,6 @@
 import {
+	APP_RUNTIME_AGENT_ASK_CAPABILITY,
+	APP_RUNTIME_AGENT_ASK_MAX_TEXT_LENGTH,
 	APP_RUNTIME_CLIENT_MODULE,
 	APP_RUNTIME_DOWNLOAD_EXTENSIONS,
 	APP_RUNTIME_DOWNLOAD_MAX_TEXT_LENGTH,
@@ -83,6 +85,8 @@ export interface AppRuntimeContext {
 	settings: Record<string, JsonValue>;
 	/** Slots the app may read or write, with the operations each allows. */
 	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>;
+	/** Tedix capabilities the manifest declares, such as `agent.ask`. */
+	capabilities?: readonly string[];
 }
 
 export type AppRuntimeDraft = { revision: number; content: OsOutputContent };
@@ -177,7 +181,31 @@ export interface AppRuntimeHostDeps {
 		outputId: string;
 		dataUrl: string;
 	}) => Promise<string>;
+	/**
+	 * Send a message to the workspace agent as the signed-in person, shown in
+	 * the workspace chat as theirs. Resolves to the turn id, or null when no
+	 * chat can send it. Only a signed-in member's page supplies it.
+	 */
+	askAgent?: (input: {
+		text: string;
+		conversation: "new" | "current";
+	}) => Promise<string | null>;
+	/** How a turn this app asked for is going, or null when it is not one. */
+	agentStatus?: (turnId: string) => {
+		status: "running" | "waiting" | "done" | "error";
+		text: string;
+	} | null;
 }
+
+/**
+ * Roles that may ask the workspace agent from an app: signed-in people with
+ * at least `use` access. A share-link visitor (`edit`) and a viewer may not.
+ */
+const AGENT_ASK_ROLES: ReadonlySet<AppRuntimeRole> = new Set([
+	"owner",
+	"build",
+	"use",
+]);
 
 /** Whether content is more than one save may carry. */
 const tooLarge = (content: unknown) =>
@@ -744,6 +772,47 @@ export async function handleAppRuntimeCall(
 				},
 			};
 		}
+		case "agent.ask":
+		case "agent.status": {
+			if (
+				!AGENT_ASK_ROLES.has(context.role) ||
+				!context.capabilities?.includes(APP_RUNTIME_AGENT_ASK_CAPABILITY)
+			)
+				return { ok: false, error: "not_permitted" };
+			if (method === "agent.status") {
+				if (!isRecord(args) || typeof args.turnId !== "string")
+					return { ok: false, error: "bad_arguments", detail: "turnId" };
+				if (!deps.agentStatus) return { ok: false, error: "host_unavailable" };
+				const status = deps.agentStatus(args.turnId);
+				if (!status)
+					return { ok: false, error: "bad_arguments", detail: "unknown_turn" };
+				return { ok: true, value: status };
+			}
+			if (
+				!isRecord(args) ||
+				typeof args.text !== "string" ||
+				!args.text.trim() ||
+				args.text.length > APP_RUNTIME_AGENT_ASK_MAX_TEXT_LENGTH ||
+				(args.conversation !== undefined &&
+					args.conversation !== "new" &&
+					args.conversation !== "current")
+			)
+				return { ok: false, error: "bad_arguments" };
+			if (!deps.askAgent) return { ok: false, error: "host_unavailable" };
+			// Only the person's own click sends a message in their name.
+			if (!window.navigator.userActivation?.isActive)
+				return {
+					ok: false,
+					error: "not_permitted",
+					detail: "user_activation_required",
+				};
+			const turnId = await deps.askAgent({
+				text: args.text.trim(),
+				conversation: args.conversation ?? "new",
+			});
+			if (!turnId) return { ok: false, error: "host_unavailable" };
+			return { ok: true, value: { turnId } };
+		}
 		case "outputs.read": {
 			if (!isRecord(args) || typeof args.slot !== "string")
 				return { ok: false, error: "bad_arguments", detail: "slot" };
@@ -838,6 +907,7 @@ export function appRuntimeContextFromManifest(
 			slot: grant.slot,
 			operations: grant.operations,
 		})),
+		capabilities: manifest.capabilities ?? [],
 	};
 }
 

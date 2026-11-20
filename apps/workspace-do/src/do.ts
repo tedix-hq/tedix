@@ -371,7 +371,12 @@ interface QueuedRequest {
 	displayText?: string;
 	shown: Pick<
 		Extract<WireEventBody, { type: "message.queued" }>,
-		"text" | "displayText" | "attachments" | "authorId" | "authorKind"
+		| "text"
+		| "displayText"
+		| "attachments"
+		| "authorId"
+		| "authorKind"
+		| "fromAppId"
 	>;
 }
 
@@ -1347,6 +1352,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			authorId: input.actorId,
 			authorKind:
 				input.actorKind === "tedi" ? ("tedi" as const) : ("person" as const),
+			...(input.fromAppId ? { fromAppId: input.fromAppId } : {}),
 		};
 		const working = input.conversationId
 			? this.#runningTurnIn(input.conversationId)
@@ -2655,6 +2661,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						modelId: frame.modelId,
 						attachments: frame.attachments,
 						...(frame.tediId ? { tediId: frame.tediId } : {}),
+						...(typeof frame.fromAppId === "string" &&
+						/^[0-9a-f-]{36}$/i.test(frame.fromAppId)
+							? { fromAppId: frame.fromAppId }
+							: {}),
 					});
 					this.#control(ws, {
 						type: "turn.accepted",

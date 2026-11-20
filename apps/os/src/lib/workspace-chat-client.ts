@@ -105,6 +105,8 @@ export type WorkspaceChatClient = {
 		tediId?: string;
 		modelId?: string;
 		attachments?: Array<{ outputId: string }>;
+		/** The workspace app the person asked from. */
+		fromAppId?: string;
 	}): string;
 	decideApproval(approvalId: string, decision: ApprovalDecision): void;
 	/**
@@ -650,6 +652,7 @@ export function createWorkspaceChatClient(
 				tediId: input.tediId,
 				...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
 				attachments: input.attachments,
+				...(input.fromAppId ? { fromAppId: input.fromAppId } : {}),
 			};
 			outbox.set(clientTurnId, message);
 			if (!send(message)) {
