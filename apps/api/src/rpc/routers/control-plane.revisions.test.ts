@@ -13,7 +13,10 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi, beforeEach } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
-import { controlPlaneContractRouter } from "./control-plane";
+import {
+	assertValidModelCatalog,
+	controlPlaneContractRouter,
+} from "./control-plane";
 
 const runtime = vi.hoisted(() => ({
 	invalidateConfig: vi.fn(),
@@ -484,5 +487,38 @@ describe("control-plane list organization scope", () => {
 			organizationId: "org-2",
 		});
 		expect(operator.data.map((profile) => profile.id)).toContain(foreign.id);
+	});
+});
+
+describe("model catalog publication", () => {
+	// An invalid catalog stops every model call, so publish must refuse it.
+	it("refuses a Workers AI entry with image input and leaves other packs alone", () => {
+		const entry = {
+			ref: "workers-ai/@cf/qwen/qwen3.8-27b",
+			provider: "workers-ai",
+			modelId: "@cf/qwen/qwen3.8-27b",
+			label: "Qwen3.8 27B",
+			reasoning: true,
+			tier: "balanced",
+			imageInput: "supported",
+			governance: {
+				weightAccess: "open-weights",
+				residencyControl: "cloudflare-network",
+				routingMode: "fixed",
+			},
+			lifecycle: "active",
+			maxOutputTokens: 16000,
+		};
+		expect(() =>
+			assertValidModelCatalog("model-catalog", {
+				modelCatalog: { version: 1, entries: [entry] },
+			}),
+		).toThrow(/Model catalog is invalid/);
+		expect(() =>
+			assertValidModelCatalog("other-pack", { modelCatalog: {} }),
+		).not.toThrow();
+		expect(() =>
+			assertValidModelCatalog("model-catalog", undefined),
+		).not.toThrow();
 	});
 });
