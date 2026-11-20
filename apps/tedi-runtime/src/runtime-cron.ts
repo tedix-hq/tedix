@@ -63,7 +63,8 @@ export type CronFireOutcome =
 				| "empty_message"
 				| "expired"
 				| "orphaned_runtime"
-				| "conversation_unstable";
+				| "conversation_unstable"
+				| "previous_run_open";
 	  };
 
 export type PolicyCronReconcileReceipt = {
@@ -793,6 +794,35 @@ export async function cleanupOrphanSchedules(
 	};
 }
 
+/** An open run older than this no longer holds back the next fire. */
+export const CRON_OPEN_RUN_MAX_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * The still-open run of an earlier fire of the same schedule, if any. A run
+ * is open while its workflow dispatch record (`wfctx:`) exists; the record is
+ * removed when the run ends. `ownInstanceId` is this fire's own instance, so
+ * a re-fired alarm does not block itself.
+ */
+export async function openCronRun(
+	storage: Pick<DurableObjectStorage, "list">,
+	scheduleId: string,
+	ownInstanceId: string,
+	nowMs: number,
+): Promise<{ workflowInstanceId: string; openForMs: number } | null> {
+	const prefix = `wfctx:${buildWorkflowInstanceId(`cron:${scheduleId}:0`).slice(0, -1)}`;
+	const records = await storage.list<{ admittedAt?: number }>({ prefix });
+	for (const [key, record] of records) {
+		const workflowInstanceId = key.slice("wfctx:".length);
+		if (workflowInstanceId === ownInstanceId) continue;
+		// Only this schedule's fires: the rest of the id is the fire time.
+		if (!/^\d+$/.test(key.slice(prefix.length))) continue;
+		const openForMs = nowMs - (record?.admittedAt ?? nowMs);
+		if (openForMs <= CRON_OPEN_RUN_MAX_AGE_MS)
+			return { workflowInstanceId, openForMs };
+	}
+	return null;
+}
+
 /**
  * Cron callback — invoked by the SDK alarm when a scheduled job fires (with
  * the job payload and the schedule row). Dispatches onto `CHAT_TURN_WORKFLOW`
@@ -870,6 +900,29 @@ export async function onCronFire(
 	}
 	const sessionKey = payload?.sessionKey || DEFAULT_SESSION_KEY;
 	const fireKey = `cron:${row?.id ?? payload?.name ?? "job"}:${row?.time ?? Date.now()}`;
+	// A recurring task never stacks runs: while an earlier fire of the same
+	// schedule is still queued or running, this one is skipped. Fail-soft: a
+	// read error falls through to a normal fire.
+	if (row?.id) {
+		try {
+			const open = await openCronRun(
+				host.ctx.storage,
+				row.id,
+				buildWorkflowInstanceId(fireKey),
+				Date.now(),
+			);
+			if (open) {
+				console.warn(
+					`[isolate.cron] previous run still open; skipping fire name=${payload?.name ?? "?"} id=${row.id} open=${open.workflowInstanceId} openFor=${Math.round(open.openForMs / 1000)}s`,
+				);
+				return { status: "skipped", reason: "previous_run_open" };
+			}
+		} catch (err) {
+			console.warn("[isolate.cron] open-run check failed (firing normally)", {
+				exception: exceptionTopology(err),
+			});
+		}
+	}
 	const { tediId, slug } = host.state;
 	const runId = buildRunId(tediId, fireKey, "cron");
 	await host.acceptRuntimeTurn(runId, sessionKey, {
