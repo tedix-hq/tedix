@@ -105,6 +105,12 @@ export const osWorkspaces = sqliteTable(
 		 * Images), shown instead of its initials. Null when none is set.
 		 */
 		iconUrl: text("icon_url"),
+		/**
+		 * The tedi that answers a person's chat message when they pick nobody.
+		 * Plain text, no FK: a retired or deleted tedi leaves the workspace
+		 * agent answering instead. Null when the workspace agent is the default.
+		 */
+		defaultTediId: text("default_tedi_id"),
 	},
 	(table) => [
 		uniqueIndex("os_workspaces_org_id_unique").on(

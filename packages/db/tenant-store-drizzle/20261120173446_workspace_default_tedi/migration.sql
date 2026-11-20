@@ -1,0 +1,1 @@
+ALTER TABLE `os_workspaces` ADD `default_tedi_id` text;

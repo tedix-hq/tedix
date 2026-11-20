@@ -103,6 +103,8 @@ export type ChatTurn = {
 	authorKind: "person" | "tedi";
 	/** The tedi that answers this turn; null when the workspace agent does. */
 	respondingTediId?: string | null;
+	/** Why the workspace agent answers instead of the default tedi. */
+	answererNote?: string;
 	text: string;
 	/** The workspace app the person asked from. */
 	fromAppId?: string;
@@ -265,6 +267,7 @@ function newTurn(
 		authorId: event.authorId,
 		authorKind: event.authorKind,
 		respondingTediId: event.respondingTediId ?? null,
+		...(event.answererNote ? { answererNote: event.answererNote } : {}),
 		text: event.displayText ?? event.text,
 		...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 		attachments: event.attachments,

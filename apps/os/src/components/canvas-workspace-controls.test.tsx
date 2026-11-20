@@ -42,6 +42,8 @@ vi.mock("@/lib/api", () => ({
 		osWorkspaces: { workspaces, blueprints: { get: vi.fn() } },
 		osShares: osSharesApi,
 		webPush: webPushApi,
+		tedis: { list: vi.fn(async () => ({ data: [] })) },
+		userProfile: { getMine: vi.fn(async () => ({ id: "member-1" })) },
 	},
 }));
 

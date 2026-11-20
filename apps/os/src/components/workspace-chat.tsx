@@ -97,6 +97,7 @@ import {
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 	tediRosterQueryOptions,
+	workspaceDetailQueryOptions,
 	workspacePresenceQueryOptions,
 } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
@@ -222,6 +223,24 @@ export type WorkspaceChatProps = {
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
+
+/** The picker's value when the person chose the workspace agent itself. */
+const WORKSPACE_AGENT = "agent";
+
+/**
+ * Who a send names to answer: a tedi, the workspace agent, or nobody, when
+ * the workspace's default tedi answers.
+ */
+function answererFields(
+	pinnedTediId: string | null,
+	picked: string | undefined,
+): { tediId?: string; answerer?: "agent" } {
+	const answering = pinnedTediId ?? picked;
+	if (!answering) return {};
+	return answering === WORKSPACE_AGENT
+		? { answerer: "agent" }
+		: { tediId: answering };
+}
 
 export function WorkspaceChat({
 	workspaceId,
@@ -433,10 +452,9 @@ export function WorkspaceChat({
 			const trimmed = text.trim();
 			if (!trimmed || !client || viewOnly) return;
 			notePost(trimmed);
-			const answering = pinnedTediId ?? tediId;
 			return client.sendTurn({
 				text: trimmed,
-				...(answering ? { tediId: answering } : {}),
+				...answererFields(pinnedTediId, tediId),
 				...(sentModelId ? { modelId: sentModelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
 			});
@@ -553,11 +571,10 @@ export function WorkspaceChat({
 						if (viewOnly) return undefined;
 						onSelectConversation(null);
 						notePost(text);
-						const answering = pinnedTediId ?? tediId;
 						return client?.sendTurn({
 							text,
 							newConversation: true,
-							...(answering ? { tediId: answering } : {}),
+							...answererFields(pinnedTediId, tediId),
 							...(sentModelId ? { modelId: sentModelId } : {}),
 							...(attachments?.length ? { attachments } : {}),
 						});
@@ -982,6 +999,11 @@ function TurnView({
 						kind="tedi"
 						tediNames={tediNames}
 					/>
+				) : null}
+				{turn.answererNote ? (
+					<Text role="caption" tone="secondary">
+						{turn.answererNote}
+					</Text>
 				) : null}
 				{turn.steps.length > 0 ? (
 					<Activity steps={turn.steps} approvals={turn.approvals} />
@@ -1725,10 +1747,11 @@ function Composer({
 	usage?: ReactNode;
 	workspaceId: string;
 	onBrowseResources?: () => void;
+	/** `answerer` is a tedi id, the workspace agent, or absent for the default. */
 	onSend: (
 		text: string,
 		attachments?: Array<{ outputId: string }>,
-		tediId?: string,
+		answerer?: string,
 	) => string | undefined;
 	state: WorkspaceChatState;
 	client: WorkspaceChatClient | null;
@@ -1767,7 +1790,23 @@ function Composer({
 	const recipients = roster
 		.filter((tedi) => mayPickWorkspaceTedi(tedi, ownerId))
 		.map((tedi) => ({ id: tedi.id, name: tedi.displayName ?? tedi.name }));
-	const pickedTedi = recipients.find((tedi) => tedi.id === pickedTediId);
+	const workspaceDetail = useQuery({
+		...workspaceDetailQueryOptions(workspaceId),
+		enabled: disabledReason === null && !pinnedTediId,
+		staleTime: 60_000,
+	});
+	// Answers when nobody is picked; offered only when this person may pick it.
+	const defaultTedi = recipients.find(
+		(tedi) => tedi.id === workspaceDetail.data?.workspace.defaultTediId,
+	);
+	const pickedTedi =
+		pickedTediId === null
+			? defaultTedi
+			: recipients.find((tedi) => tedi.id === pickedTediId);
+	const tediLabel = (tedi: { id: string; name: string }) =>
+		tedi.id === defaultTedi?.id
+			? `${tedi.name} (workspace default)`
+			: tedi.name;
 	const mention = /(?:^|\s)@([^\s@]*)$/u.exec(draft)?.[1];
 	const mentionOptions =
 		mention !== undefined
@@ -1892,7 +1931,14 @@ function Composer({
 		const id = onSend(
 			draft,
 			selected.map(({ outputId }) => ({ outputId })),
-			mentioned.length === 1 ? mentioned[0] : pickedTedi?.id,
+			mentioned.length === 1
+				? mentioned[0]
+				: pickedTediId === WORKSPACE_AGENT
+					? WORKSPACE_AGENT
+					: // Nobody picked: the store applies the workspace default.
+						pickedTediId
+						? pickedTedi?.id
+						: undefined,
 		);
 		if (id) returnedMessages.sent(id);
 		if (id)
@@ -2108,7 +2154,7 @@ function Composer({
 						{recipients.length > 0 && disabledReason === null ? (
 							<Select
 								value={pickedTedi?.id ?? ""}
-								onValueChange={(id) => setPickedTediId(id || null)}
+								onValueChange={(id) => setPickedTediId(id || WORKSPACE_AGENT)}
 								disabled={client === null}
 							>
 								<SelectTrigger
@@ -2117,14 +2163,14 @@ function Composer({
 									size="sm"
 								>
 									<SelectValue>
-										{pickedTedi?.name ?? "Workspace agent"}
+										{pickedTedi ? tediLabel(pickedTedi) : "Workspace agent"}
 									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									<SelectItem value="">Workspace agent</SelectItem>
 									{recipients.map((tedi) => (
 										<SelectItem key={tedi.id} value={tedi.id}>
-											{tedi.name}
+											{tediLabel(tedi)}
 										</SelectItem>
 									))}
 								</SelectContent>

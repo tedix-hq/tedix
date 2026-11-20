@@ -68,6 +68,10 @@ export type WireEventBody =
 			authorKind: AuthorKind;
 			/** The workspace app the person asked from. */
 			fromAppId?: string;
+			/** The tedi answering; null or absent for the workspace agent. */
+			respondingTediId?: string | null;
+			/** Why the workspace agent answers instead of the default tedi. */
+			answererNote?: string;
 	  }
 	| ({
 			/**
@@ -296,6 +300,8 @@ export type ClientFrame =
 			conversationId: string | null;
 			text: string;
 			tediId?: string;
+			/** The person chose the workspace agent: no default tedi answers. */
+			answerer?: "agent";
 			modelId?: string;
 			attachments?: Array<{ outputId: string }>;
 			/** The workspace app the person asked from. */

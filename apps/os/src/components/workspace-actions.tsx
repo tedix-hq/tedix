@@ -21,6 +21,7 @@ import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Text } from "@/components/kumo/text";
 import { WorkspaceEffectList } from "@/components/workspace-delete-dialog";
 import { WorkspaceIconField } from "@/components/workspace-icon-field";
+import { WorkspaceDefaultTediField } from "@/components/workspace-default-tedi-field";
 import { useWorkspaceMuteState } from "@/components/workspace-muted-icon";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
@@ -154,7 +155,10 @@ export function WorkspaceFormDialog({
 						)}
 					</FormField>
 					{mode === "edit" && workspace ? (
-						<WorkspaceIconField workspace={workspace} />
+						<>
+							<WorkspaceIconField workspace={workspace} />
+							<WorkspaceDefaultTediField workspace={workspace} />
+						</>
 					) : null}
 					{mutation.isError && (
 						<Alert variant="destructive">

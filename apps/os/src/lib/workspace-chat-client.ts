@@ -103,6 +103,8 @@ export type WorkspaceChatClient = {
 		text: string;
 		newConversation?: boolean;
 		tediId?: string;
+		/** The person chose the workspace agent over the default tedi. */
+		answerer?: "agent";
 		modelId?: string;
 		attachments?: Array<{ outputId: string }>;
 		/** The workspace app the person asked from. */
@@ -650,6 +652,7 @@ export function createWorkspaceChatClient(
 				conversationId,
 				text: input.text,
 				tediId: input.tediId,
+				...(input.answerer ? { answerer: input.answerer } : {}),
 				...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
 				attachments: input.attachments,
 				...(input.fromAppId ? { fromAppId: input.fromAppId } : {}),

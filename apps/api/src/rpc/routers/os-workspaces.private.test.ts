@@ -928,6 +928,60 @@ describe("private OS workspaces", () => {
 	});
 });
 
+describe("a workspace's default tedi", () => {
+	it("is set only with build access, and only to an active tedi the setter may pick", async () => {
+		const env = createEnv();
+		const { workspace, team } = await seed(env);
+		await env.DB.prepare(
+			"INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status) VALUES ('m-vic','org-1','member-vic','vic@example.test','viewer','active')",
+		).run();
+		const owner = member(env, OWNER);
+		await expect(
+			owner.workspaces.setDefaultTedi({
+				workspaceId: team.id,
+				tediId: "shared-org-tedi",
+			}),
+		).resolves.toMatchObject({
+			workspace: { defaultTediId: "shared-org-tedi" },
+		});
+		await expect(
+			member(env, "member-vic").workspaces.setDefaultTedi({
+				workspaceId: team.id,
+				tediId: null,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		// Another member's personal tedi never answers for everyone.
+		await expect(
+			owner.workspaces.setDefaultTedi({
+				workspaceId: team.id,
+				tediId: "kai-primary",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await env.DB.prepare(
+			"UPDATE tedis SET status = 'paused' WHERE id = 'shared-org-tedi'",
+		).run();
+		await expect(
+			owner.workspaces.setDefaultTedi({
+				workspaceId: team.id,
+				tediId: "shared-org-tedi",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		// A private workspace's owner picks their own; nobody else reaches it.
+		await expect(
+			owner.workspaces.setDefaultTedi({
+				workspaceId: workspace.id,
+				tediId: "robin-primary",
+			}),
+		).resolves.toMatchObject({ workspace: { defaultTediId: "robin-primary" } });
+		await expect(
+			member(env, OTHER).workspaces.setDefaultTedi({
+				workspaceId: workspace.id,
+				tediId: null,
+			}),
+		).rejects.toMatchObject(notFound);
+	});
+});
+
 describe("giving a workspace to a member", () => {
 	const admin = (env: CloudflareEnv) =>
 		member(env, ADMIN, { permissions: ["settings:manage"], userRole: "admin" });

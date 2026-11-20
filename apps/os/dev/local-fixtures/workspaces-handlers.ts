@@ -301,6 +301,15 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 		workspace.updatedAt = now();
 		return { workspace };
 	},
+	"osWorkspaces/workspaces/setDefaultTedi": (input: {
+		workspaceId: string;
+		tediId: string | null;
+	}) => {
+		const workspace = findWorkspace(input.workspaceId);
+		workspace.defaultTediId = input.tediId;
+		workspace.updatedAt = now();
+		return { workspace };
+	},
 	"osWorkspaces/workspaces/archive": (input: { workspaceId: string }) => {
 		const workspace = findWorkspace(input.workspaceId);
 		workspace.status = "archived";
