@@ -3,6 +3,7 @@ import {
 	createFauxCore,
 	fauxAssistantMessage,
 	fauxText,
+	fauxThinking,
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import {
@@ -497,6 +498,37 @@ test("a refused credit admission ends the turn with the refusal, not the SDK err
 			{ turnId: "refused", systemPrompt: "sys", history: [], userText: "Hi" },
 		),
 	).rejects.toThrow(refusal);
+});
+
+test("a reply that spent its output budget reasoning fails the turn instead of finishing it empty", async () => {
+	const saved: TurnProgress[] = [];
+	const turn = runTurn(
+		{
+			model: measuredModel([
+				{
+					...measuredMessage(
+						[fauxThinking("Let me plan the app...")],
+						6_849,
+						16_000,
+						0,
+					),
+					stopReason: "length",
+				},
+			]),
+			runCode: async () => ({ ok: true, logs: [], durationMs: 0 }),
+			emit: () => {},
+			save: async (progress) => {
+				saved.push(progress);
+			},
+			summarize: async () => ({ summary: "", usage: null }),
+		},
+		{ turnId: "empty", systemPrompt: "sys", history: [], userText: "Hi" },
+	);
+	await expect(turn).rejects.toThrow(
+		/^model returned no answer: .* stopped with "length" after 16000 output tokens, all of them reasoning$/,
+	);
+	// Only the person's message is kept; the empty reply joins no later prompt.
+	expect(saved.flatMap((progress) => progress.messages)).toHaveLength(1);
 });
 
 test("model transparency preserves the tool-step and output-token limits", async () => {

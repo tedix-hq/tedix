@@ -156,6 +156,14 @@ function assistantText(message: AssistantMessage): string {
 		.join("");
 }
 
+/** The raw reason a model reply had nothing to show; the chat words it plainly. */
+const NO_ANSWER_PREFIX = "model returned no answer";
+
+function noAnswerReason(message: AssistantMessage): string {
+	const thinking = message.content.some((block) => block.type === "thinking");
+	return `${NO_ANSWER_PREFIX}: ${message.model} stopped with "${message.stopReason}" after ${message.usage.output} output tokens${thinking ? ", all of them reasoning" : ""}`;
+}
+
 function toolResult(
 	call: ToolCall,
 	text: string,
@@ -300,6 +308,7 @@ export async function runTurn(
 	let stopReason: TurnResult["stopReason"] = "answered";
 	let approvalsRequested = 0;
 	let addedMessages = 0;
+	let calledTools = false;
 
 	while (steps < MAX_STEPS) {
 		if (ports.signal?.aborted) {
@@ -346,11 +355,17 @@ export async function runTurn(
 					`model stopped with ${message.stopReason}`,
 			);
 		}
-		await keep(message);
 		const calls = message.content.filter(
 			(block): block is ToolCall => block.type === "toolCall",
 		);
 		const text = assistantText(message);
+		// A reply with no text and no call, before any step showed, would end the
+		// turn with nothing on the page. A reasoning model can spend its whole
+		// output budget thinking and stop with "length".
+		if (calls.length === 0 && !text.trim() && !calledTools)
+			throw new Error(noAnswerReason(message));
+		if (calls.length > 0) calledTools = true;
+		await keep(message);
 		if (text && !streamedText) {
 			ports.emit({ type: "text_delta", data: { text } });
 		}

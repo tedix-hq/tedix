@@ -8,6 +8,10 @@ describe("turnFailure", () => {
 		["Request timed out after 120000ms", "took too long"],
 		["TypeError: fetch failed", "could not be finished"],
 		[
+			'model returned no answer: @cf/zai-org/glm-5.3 stopped with "length" after 16000 output tokens, all of them reasoning',
+			"The model returned no answer.",
+		],
+		[
 			"Connection error.: D1 DB is overloaded. Too many resources consumed within a 10 second window.",
 			"one of its own services was busy",
 		],
