@@ -3083,19 +3083,30 @@ export class LaneDispatcher {
 				() => this.cooldownUntil(),
 				timeoutMs,
 			);
+		// Reads that change nothing are tried again within one shared budget.
 		const safe =
-			args[0] === "work" &&
-			["readiness", "dispatch-get", "dispatch-attempts"].includes(
-				args[1] ?? "",
-			);
+			(args[0] === "work" &&
+				[
+					"readiness",
+					"dispatch-get",
+					"dispatch-attempts",
+					"runner-rules",
+				].includes(args[1] ?? "")) ||
+			(args[0] === "skill" && args[1] === "show");
 		this.notePassProgress();
 		const operation = () =>
 			safe
 				? retryRead((timeoutMs) => invoke(args, timeoutMs), {
-						operation: `work.${args[1]}`,
+						operation: `${args[0]}.${args[1]}`,
 						budgetMs: readBudgetMs(READ_BUDGET_MS, this.running.size),
 						attemptMs: READ_BUDGET_MS / 3,
-						log: (line) => this.log("read-budget", args[2], line),
+						// A rules read names no Work Item; only its trouble is logged.
+						log: (line) => {
+							if (args[0] === "work" && args[1] !== "runner-rules")
+								this.log("read-budget", args[2], line);
+							else if (!/"event":"read-(budget|succeeded)"/.test(line))
+								this.log("read-budget", undefined, line);
+						},
 					})
 				: invoke(
 						args,
@@ -3216,13 +3227,28 @@ export class LaneDispatcher {
 				}
 				if (leaving()) return false;
 				const item = page.data?.find((row) => row.id === workItemId);
+				const record =
+					item && existsSync(this.path(item))
+						? readReceipt(this.path(item))
+						: undefined;
+				// A record of a start that failed before any Attempt was asked for
+				// protects nothing, so the request starts it again now, as the pass
+				// would on reaching it.
+				const neverSent =
+					record?.phase === "deferred" &&
+					record.admissionState === "not_sent" &&
+					!record.attemptId &&
+					!record.retainedAttemptId &&
+					!record.held &&
+					!(record.pid && alive(record.pid)) &&
+					Date.now() >= (record.recheckAt ?? 0);
 				const skip = !item
 					? "Not in this runner's list of accepted Work that is ready to start"
 					: this.running.has(item.id)
 						? "Already running here"
 						: this.maintenance.has(item.id)
 							? "A maintenance task for it is running here"
-							: existsSync(this.path(item))
+							: record && !neverSent
 								? "This runner already has a record of this revision"
 								: this.deps.freeDiskBytes(this.directory) < MIN_FREE_DISK_BYTES
 									? "Not enough free disk space"
@@ -3242,7 +3268,7 @@ export class LaneDispatcher {
 				}
 				this.route(item);
 				this.log("requested", item.id, "Started ahead of the pass");
-				const task = this.execute(item)
+				const task = this.execute(item, record)
 					.catch((error) => this.log("failed", item.id, String(error)))
 					.finally(() => this.running.delete(item.id));
 				this.running.set(item.id, task);
@@ -3514,31 +3540,41 @@ export class LaneDispatcher {
 					? "The executor preflight check failed"
 					: undefined);
 		const healthSource = existsSync(join(this.directory, "health-source.json"));
+		// Items waiting on an owner's comment cost one Work read each. The pass
+		// waits for that read behind every running preparation, so reading them
+		// in list order kept startable Work further down from starting: they are
+		// read after the whole list has been walked.
+		const awaitingOwner: DispatchItem[] = [];
+		let ownerRound = false;
 		while (
 			!this.stopping &&
 			(admissionPause ? healthSource : !this.admissionsHeld)
 		) {
-			const page = await this.call<{
-				data: DispatchItem[];
-				pagination: { hasMore: boolean };
-			}>([
-				"work",
-				admissionPause ? "dispatch-idle-list" : "dispatch-list",
-				"--input",
-				JSON.stringify({
-					disposition: "accepted",
-					...(this.options.executor === "any-local"
-						? { executor: [...localExecutors, "any-local"] }
-						: { executor: this.options.executor }),
-					dispatchReadyOnly: true,
-					...(this.options.project ? { projectId: this.options.project } : {}),
-					limit: 25,
-					offset,
-				}),
-			]).catch((error: unknown) => {
-				if (!admissionPause) throw error;
-				this.log("idle-observation-unavailable", undefined, String(error));
-			});
+			const page = ownerRound
+				? { data: awaitingOwner.splice(0), pagination: { hasMore: false } }
+				: await this.call<{
+						data: DispatchItem[];
+						pagination: { hasMore: boolean };
+					}>([
+						"work",
+						admissionPause ? "dispatch-idle-list" : "dispatch-list",
+						"--input",
+						JSON.stringify({
+							disposition: "accepted",
+							...(this.options.executor === "any-local"
+								? { executor: [...localExecutors, "any-local"] }
+								: { executor: this.options.executor }),
+							dispatchReadyOnly: true,
+							...(this.options.project
+								? { projectId: this.options.project }
+								: {}),
+							limit: 25,
+							offset,
+						}),
+					]).catch((error: unknown) => {
+						if (!admissionPause) throw error;
+						this.log("idle-observation-unavailable", undefined, String(error));
+					});
 			if (!page) break;
 			if (
 				!Array.isArray(page.data) ||
@@ -3576,6 +3612,10 @@ export class LaneDispatcher {
 					reason?.startsWith("Possible human-reserved") &&
 					Date.now() >= (this.recheckAfter.get(heldKey) ?? 0)
 				) {
+					if (!ownerRound) {
+						awaitingOwner.push(item);
+						continue;
+					}
 					const detail = await this.call<{
 						workItem: DispatchItem;
 						comments: WorkItemComment[];
@@ -3754,6 +3794,10 @@ export class LaneDispatcher {
 					.catch((error) => this.log("failed", item.id, String(error)))
 					.finally(() => this.running.delete(item.id));
 				this.running.set(item.id, task);
+			}
+			if (!admissionPause && !page.pagination.hasMore && awaitingOwner.length) {
+				ownerRound = true;
+				continue;
 			}
 			// A paused runner only needs a bounded sample for health telemetry.
 			if (admissionPause || !page.pagination.hasMore) break;
