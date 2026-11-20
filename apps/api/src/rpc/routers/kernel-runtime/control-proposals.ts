@@ -92,6 +92,7 @@ import {
 	childControlSkipped,
 	kernelChildSteerForwarder,
 	kernelChildStopper,
+	delegationSessionKeyForDispatch,
 	kernelDelegateRunner,
 	kernelDoTurnCanceler,
 	readOrgGovernancePolicy,
@@ -503,7 +504,24 @@ async function retryDelegationWorkItem(
 		"progress",
 	])
 		delete recoveryMetadata[key];
-	const recoveryConversationId = delegationSessionKey(childClientRequestId);
+	// A run a person started with a tedi they picked is retried inside that
+	// conversation's tedi session, with the person's message as written.
+	const personMessage =
+		homeRunMetadata.pickedByPerson === true
+			? ((await readKernelUserMessageContent(context, {
+					conversationId: homeRun.conversationId,
+					organizationId,
+					runId: homeRunId,
+				})) ??
+				stringFromPayload(delegationWorkOrder?.sourceContent) ??
+				null)
+			: null;
+	const pickedByPerson = personMessage !== null;
+	const recoveryConversationId = await delegationSessionKeyForDispatch({
+		childRunId: childClientRequestId,
+		pickedByPerson,
+		homeConversationId: homeRun.conversationId,
+	});
 	const recoveryDispatch = {
 		previousChildRunId: homeRun.childRunId,
 		previousChildConversationId: homeRun.childConversationId,
@@ -554,15 +572,24 @@ async function retryDelegationWorkItem(
 		kernelDelegateRunner({
 			context: internalContext,
 			childRunId: childClientRequestId,
-			content: renderDelegationWorkOrderMessage({
-				fallbackContent: workItem.description ?? "",
-				fallbackWorkOrderId: `work-order:${workItemId}`,
-				label: "RECOVERY",
-				workOrder: delegationWorkOrder,
-			}),
+			content:
+				personMessage ??
+				renderDelegationWorkOrderMessage({
+					fallbackContent: workItem.description ?? "",
+					fallbackWorkOrderId: `work-order:${workItemId}`,
+					label: "RECOVERY",
+					workOrder: delegationWorkOrder,
+				}),
 			delegateToTediId: delegatedTediId,
+			pickedByPerson,
 			metadata: {
 				source: "kernelRuntime.retryDelegation",
+				...(pickedByPerson
+					? {
+							homeConversationId: homeRun.conversationId,
+							homeMessageId: homeRun.inputMessageId ?? `${homeRunId}:input`,
+						}
+					: {}),
 				homeRunId,
 				workItemId,
 				retryCount: nextRetryCount,

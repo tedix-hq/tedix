@@ -1318,6 +1318,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					// message. Agents, API keys and calls through the MCP gateway
 					// are not a person picking a tedi in the chat.
 					pickedByPerson,
+					conversationNotice: isAgentRunEndedNotice,
 					metadata: {
 						...turnMetadata,
 						source: "kernelRuntime.delegate",

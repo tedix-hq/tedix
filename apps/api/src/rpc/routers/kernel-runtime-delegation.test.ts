@@ -163,6 +163,17 @@ describe("kernel runtime router: delegation", () => {
 		expect(
 			await key("run-3:delegate:tedi-cpo", true, "home:os:chat-8"),
 		).not.toBe(first);
+		// A retry of the picked turn and a notice about a run the tedi started
+		// there continue the same session.
+		expect(await key("work-1:retry:1", true)).toBe(first);
+		expect(
+			await delegationSessionKeyForDispatch({
+				childRunId: "agent-run-ended-attempt-1:delegate:tedi-cpo",
+				pickedByPerson: false,
+				conversationNotice: true,
+				homeConversationId: "home:os:chat-7",
+			}),
+		).toBe(first);
 		// A delegation Home decided itself keeps a session per run.
 		expect(await key("run-4:delegate:tedi-cpo", false)).toBe(
 			"agent:main:delegation-run-4_delegate_tedi-cpo",
