@@ -97,6 +97,38 @@ describe("governed model fallback", () => {
 		expect(f.second).toHaveBeenCalledTimes(2);
 		expect(f.record).toHaveBeenCalledTimes(1);
 	});
+	it("moves an Auto Router request rejection to the next model without retrying, and only for Auto", async () => {
+		const auto = "cloudflare/auto";
+		const primary = vi.fn(async () => {
+			throw { statusCode: 400 };
+		});
+		const second = vi.fn(async () => ({ text: "fallback" }));
+		const record = vi.fn(async (_step: unknown) => {});
+		const model = withModelFallback(
+			{ doGenerate: primary, doStream: primary },
+			{
+				primaryRef: auto,
+				load: async () => ({
+					version: 1,
+					maxTransitions: 1,
+					ladder: { [auto]: [b] },
+				}),
+				resolve: async () => ({ doGenerate: second, doStream: second }),
+				record,
+			},
+		);
+		expect(await model.doGenerate()).toEqual({ text: "fallback" });
+		expect(primary).toHaveBeenCalledTimes(1);
+		expect(record).toHaveBeenCalledWith(
+			expect.objectContaining({ from: auto, to: b }),
+		);
+
+		const fixed = fixture(async () => {
+			throw { statusCode: 400 };
+		});
+		await expect(fixed.model.doGenerate()).rejects.toEqual({ statusCode: 400 });
+		expect(fixed.second).not.toHaveBeenCalled();
+	});
 });
 
 describe("stream fallback boundaries", () => {

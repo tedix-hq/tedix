@@ -4,6 +4,25 @@ import {
 	type ModelFallbackPolicy,
 	type ModelFallbackStep,
 } from "@tedix/api-contract/schemas/model-fallback";
+import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
+
+/**
+ * Auto Router answers with these when it rejects the request or a model in
+ * its pool (for example an allowed model it does not serve). Repeating the
+ * call cannot help, but the next model in the ladder can still answer.
+ */
+const AUTO_ROUTER_REJECTED_STATUSES = new Set([400, 404, 410, 422]);
+
+function autoRouterRejected(ref: string, error: unknown): boolean {
+	if (ref !== CLOUDFLARE_AUTO_MODEL_REF) return false;
+	if (!error || typeof error !== "object") return false;
+	const { statusCode, status } = error as {
+		statusCode?: unknown;
+		status?: unknown;
+	};
+	const code = statusCode ?? status;
+	return typeof code === "number" && AUTO_ROUTER_REJECTED_STATUSES.has(code);
+}
 
 export interface ModelFallbackOptions<T> {
 	primaryRef: string;
@@ -47,9 +66,13 @@ export function withModelFallback<T extends object>(
 						return key === "doStream" ? await readyStream(result) : result;
 					} catch (error) {
 						signal?.throwIfAborted();
-						const reason = fallbackFailureReason(error);
+						const rejected = autoRouterRejected(ref, error);
+						const reason =
+							fallbackFailureReason(error) ??
+							(rejected ? "provider_unavailable" : null);
 						if (!reason) throw error;
-						if (reason === "provider_unavailable" && retries++ < 2) continue;
+						if (!rejected && reason === "provider_unavailable" && retries++ < 2)
+							continue;
 						policy ??= ModelFallbackPolicySchema.parse(await options.load());
 						if (transitions >= policy.maxTransitions) throw error;
 						candidates = [...(policy.ladder[ref] ?? []), ...candidates];
