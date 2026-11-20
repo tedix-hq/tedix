@@ -62,9 +62,37 @@ export interface OsWorkspacePermissionRows {
 /** Every row the permission graph of one workspace is computed from. */
 export async function loadOsWorkspacePermissionRows(
 	db: DbQueryClient,
-	params: OsWorkspaceGraphScopeParams,
+	params: OsWorkspaceGraphScopeParams & {
+		/** False leaves `collaborators` empty; the role graph never reads it. */
+		collaborators?: boolean;
+	},
 ): Promise<OsWorkspacePermissionRows> {
-	const [collaborators, edges, links] = await db.batch([
+	const edgeRows = db
+		.select()
+		.from(osWorkspaceAccessEdges)
+		.where(
+			and(
+				eq(osWorkspaceAccessEdges.organizationId, params.organizationId),
+				eq(osWorkspaceAccessEdges.workspaceId, params.workspaceId),
+			),
+		);
+	const linkRows = db
+		.select()
+		.from(osWorkspaceShareLinks)
+		.where(
+			and(
+				eq(osWorkspaceShareLinks.organizationId, params.organizationId),
+				eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
+			),
+		)
+		.orderBy(desc(osWorkspaceShareLinks.createdAt));
+	if (params.collaborators === false) {
+		const [edges, links] = await db.batch([edgeRows, linkRows]);
+		return { collaborators: [], edges, links };
+	}
+	const [edges, links, collaborators] = await db.batch([
+		edgeRows,
+		linkRows,
 		db
 			.select()
 			.from(osWorkspaceCollaborators)
@@ -74,25 +102,6 @@ export async function loadOsWorkspacePermissionRows(
 					eq(osWorkspaceCollaborators.workspaceId, params.workspaceId),
 				),
 			),
-		db
-			.select()
-			.from(osWorkspaceAccessEdges)
-			.where(
-				and(
-					eq(osWorkspaceAccessEdges.organizationId, params.organizationId),
-					eq(osWorkspaceAccessEdges.workspaceId, params.workspaceId),
-				),
-			),
-		db
-			.select()
-			.from(osWorkspaceShareLinks)
-			.where(
-				and(
-					eq(osWorkspaceShareLinks.organizationId, params.organizationId),
-					eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
-				),
-			)
-			.orderBy(desc(osWorkspaceShareLinks.createdAt)),
 	]);
 	return { collaborators, edges, links };
 }

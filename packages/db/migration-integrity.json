@@ -1728,6 +1728,10 @@
 		{
 			"name": "20261120121137_os_gadgets_org_status_created/migration.sql",
 			"sha256": "693f4a6bfe0b3b6f90f25a8118dcf2a2190272bdedd82849dbb5bd7598bc08f9"
+		},
+		{
+			"name": "20261120121558_workspace_access_role_fence/migration.sql",
+			"sha256": "b603d746bd60d9cc2bfe15ba14ff3fde57a47d5dd74fbb89611b115161510053"
 		}
 	]
 }

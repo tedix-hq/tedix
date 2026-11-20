@@ -19,7 +19,11 @@ export interface WorkspaceSession {
 	scopes: string[] | null;
 }
 
-/** No role cache: both frames and outbound events consult the current graph. */
+/**
+ * Frames and outbound events consult the current graph on every call. The
+ * role reader reuses a role only while the database's authorization fence is
+ * unchanged, so a revoke is seen by the next check.
+ */
 export async function workspaceSessionAllowed(
 	database: D1Database,
 	session: WorkspaceSession | null | undefined,
