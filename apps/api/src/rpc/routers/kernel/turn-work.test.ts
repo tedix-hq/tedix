@@ -65,33 +65,8 @@ vi.mock("./organization-gateway-app", () => ({
 	organizationGatewayApp: vi.fn(async () => "org-1-unified"),
 }));
 
-const directSkillMoveMocks = vi.hoisted(() => ({
-	resolveDirectSkillMove: vi.fn(),
-}));
-vi.mock("./direct-skill-move", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("./direct-skill-move")>();
-	directSkillMoveMocks.resolveDirectSkillMove.mockImplementation(
-		actual.resolveDirectSkillMove,
-	);
-	return {
-		...actual,
-		resolveDirectSkillMove: directSkillMoveMocks.resolveDirectSkillMove,
-	};
-});
-
-const directSkillRunMocks = vi.hoisted(() => ({ resolve: vi.fn() }));
-vi.mock("./direct-skill-run", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("./direct-skill-run")>();
-	directSkillRunMocks.resolve.mockImplementation(actual.resolveDirectSkillRun);
-	return { ...actual, resolveDirectSkillRun: directSkillRunMocks.resolve };
-});
-
 import { HomeAnswerIncompleteError } from "./route-planner";
 import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
-import {
-	chatApprovalReplyContent,
-	readChatApprovalReply,
-} from "./turn-work-intercepts";
 import {
 	type HomeTurnRuntimeEventInput,
 	KERNEL_TURN_PHASES,
@@ -276,54 +251,6 @@ describe("turn metadata boundaries", () => {
 			"delegating",
 			"finalizing",
 		]);
-	});
-
-	it.each([
-		undefined,
-		null,
-		[],
-		"approve",
-		{},
-		{ runId: 1, decision: "approve", tool: "os.x" },
-		{ runId: "r", decision: "yes", tool: "os.x" },
-		{ runId: "r", decision: "approve", tool: null },
-	])("ignores malformed approval replies: %j", (chatApprovalReply) => {
-		expect(readChatApprovalReply({ chatApprovalReply })).toBeNull();
-	});
-
-	it("normalizes optional approval fields and preserves a valid receipt", () => {
-		const reply = { runId: "r", decision: "approve", tool: "os.x" };
-		expect(
-			readChatApprovalReply({
-				chatApprovalReply: {
-					...reply,
-					runStatus: 1,
-					error: {},
-					receipt: false,
-				},
-			}),
-		).toEqual({ ...reply, runStatus: null, error: null, receipt: null });
-		expect(
-			readChatApprovalReply({
-				chatApprovalReply: {
-					...reply,
-					receipt: "Saved document.",
-				},
-			})?.receipt,
-		).toBe("Saved document.");
-	});
-
-	it("falls through to planning for an invalid approval reply", async () => {
-		const kernel = vi.fn(async () => ({
-			route: route({ answer: "A normal answer." }),
-			assistantContent: "A normal answer.",
-			evidence: null,
-		}));
-		const input = turnInput();
-		input.runtimeMetadata.chatApprovalReply = { decision: "approve" };
-		const result = await runKernelTurnWork(stubDeps({ kernel }), input);
-		expect(kernel).toHaveBeenCalledOnce();
-		expect(result.assistantMessage.content).toBe("A normal answer.");
 	});
 });
 
@@ -1299,58 +1226,6 @@ describe("runKernelTurnWork progress seam", () => {
 		});
 	});
 
-	it("plans a skill move as the move tool, never a delegation to the target tedi", async () => {
-		const planned: Array<Record<string, unknown>> = [];
-		const kernel = vi.fn(async () => null);
-		const deps = stubDeps({
-			kernel,
-			writeProposalPlanner: async (args) => {
-				planned.push(args as unknown as Record<string, unknown>);
-				return null;
-			},
-		});
-		directSkillMoveMocks.resolveDirectSkillMove.mockResolvedValueOnce({
-			intent: {
-				capability: "skills.move_to_tedi",
-				toolName: "skills.move_skill_to_tedi",
-				args: {
-					skillId: "skill-1",
-					targetTediId: "tedi-ops",
-					dryRun: false,
-					mode: "transfer",
-				},
-			},
-			skillTitle: "Account watcher",
-			tediName: "Ops",
-		});
-		await runKernelTurnWork(deps, {
-			...turnInput(),
-			content: "Copy the account watcher skill to Ops",
-		});
-		expect(directSkillMoveMocks.resolveDirectSkillMove).toHaveBeenCalledWith(
-			deps.db,
-			expect.objectContaining({
-				content: "Copy the account watcher skill to Ops",
-			}),
-		);
-		expect(kernel).not.toHaveBeenCalled();
-		expect(planned).toHaveLength(1);
-		expect(planned[0]).toMatchObject({
-			route: {
-				routeKind: "propose_tool_write",
-				targetTediId: null,
-				toolIntent: {
-					appSlug: "org-1-unified",
-					capability: "skills.move_to_tedi",
-				},
-			},
-			directRename: {
-				toolName: "skills.move_skill_to_tedi",
-				args: { skillId: "skill-1", targetTediId: "tedi-ops", dryRun: false },
-			},
-		});
-	});
-
 	it("a billing-policy denial settles failed with the honest billing notice — never the provider-outage message", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const capturedEvents: Array<{
@@ -1939,94 +1814,6 @@ const PENDING_PRIOR_RUNS = [
 function affirmativeInput(): KernelTurnWorkInput {
 	return { ...turnInput(), content: "yes go ahead" };
 }
-
-describe("runKernelTurnWork chat approval reply intercept", () => {
-	const replyInput = (
-		chatApprovalReply: Record<string, unknown>,
-	): KernelTurnWorkInput => {
-		const input = turnInput();
-		return {
-			...input,
-			content: "approve it",
-			runtimeMetadata: { ...input.runtimeMetadata, chatApprovalReply },
-		};
-	};
-
-	it("settles with the resolved outcome and never plans a second write", async () => {
-		const kernel = vi.fn();
-		const result = await runKernelTurnWork(
-			stubDeps({ kernel }),
-			replyInput({
-				runId: "run-parked",
-				decision: "approve",
-				tool: "os.update_os_workspace",
-				runStatus: "completed",
-				error: null,
-			}),
-		);
-
-		expect(kernel).not.toHaveBeenCalled();
-		expect(result.run.status).toBe("completed");
-		expect(result.assistantMessage.content).toBe(
-			"Approved and ran `os.update_os_workspace`.",
-		);
-		expect(result.run.metadata).toMatchObject({
-			chatApprovalReply: { runId: "run-parked", decision: "approve" },
-		});
-	});
-
-	it("reports a resolution error as a failed turn", async () => {
-		const result = await runKernelTurnWork(
-			stubDeps({ kernel: vi.fn() }),
-			replyInput({
-				runId: "run-parked",
-				decision: "reject",
-				tool: "os.update_os_workspace",
-				runStatus: null,
-				error: "approval expired",
-			}),
-		);
-
-		expect(result.run.status).toBe("failed");
-		expect(result.assistantMessage.content).toBe(
-			"Couldn't reject `os.update_os_workspace`: approval expired",
-		);
-	});
-});
-
-describe("chatApprovalReplyContent", () => {
-	const reply = {
-		runId: "r",
-		tool: "os.x",
-		runStatus: "completed",
-		error: null,
-	} as const;
-	it("names the rejected tool and that nothing ran", () => {
-		expect(chatApprovalReplyContent({ ...reply, decision: "reject" })).toBe(
-			"Rejected `os.x`. Nothing ran.",
-		);
-	});
-	it("says when the approved write failed", () => {
-		expect(
-			chatApprovalReplyContent({
-				...reply,
-				decision: "approve",
-				runStatus: "failed",
-			}),
-		).toContain("but the write failed");
-	});
-	it("repeats the settled write's receipt", () => {
-		expect(
-			chatApprovalReplyContent({
-				...reply,
-				decision: "approve",
-				receipt: "Updated “Plan”. [Open document](/outputs/o1).",
-			}),
-		).toBe(
-			"Approved and ran `os.x`. Updated “Plan”. [Open document](/outputs/o1).",
-		);
-	});
-});
 
 describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 	it("retains the ingress denial after the turn is serialized for durable execution", async () => {
@@ -4631,81 +4418,4 @@ it("passes the admitted external agent identity to the dispatch gate", async () 
 	expect(kernel).toHaveBeenCalledWith(
 		expect.objectContaining({ externalAgentPrincipalId: "agent-1" }),
 	);
-});
-
-it("parks a bounded direct skill run for human approval instead of a text-only no-delegation answer", async () => {
-	const args = {
-		skillId: "00000000-0000-4000-8000-000000000011",
-		tediId: "existing-owner",
-		workItemId: "00000000-0000-4000-8000-000000000012",
-		expectedSkillRevision: 2,
-		idempotencyKey: "home:run-1",
-		confirmDestructive: true as const,
-		reason: "Run after approval",
-		params: {
-			startDate: "2026-10-12",
-			endDate: "2026-10-18",
-			cycleKey: "2026-W42",
-		},
-	};
-	directSkillRunMocks.resolve.mockResolvedValueOnce({
-		skillTitle: "Weekly visibility",
-		intent: { capability: "skills.run", toolName: "skills.run_workflow", args },
-	});
-	const kernel = vi.fn(async () => ({
-		route: route({
-			routeKind: "answer_in_home",
-			answer: "I’ll respond here without delegating.",
-		}),
-		assistantContent: "I’ll respond here without delegating.",
-	}));
-	const planner = vi.fn(async () => ({
-		appSlug: "org-1-unified",
-		toolName: "skills.run_workflow",
-		args,
-		reasoning: "Run after approval",
-		riskTier: "high" as const,
-		transport: "codemode" as const,
-	}));
-	const execute = vi.fn();
-	const events: string[] = [];
-	const deps = stubDeps({
-		kernel: kernel as KernelTurnWorkDeps["kernel"],
-		writeProposalPlanner: planner,
-		executeDirectWrite: execute,
-		autoResolveKernelWrite: execute,
-	});
-	const insertEvent = deps.insertKernelRuntimeEvent;
-	deps.insertKernelRuntimeEvent = async (event) => {
-		events.push(event.kind);
-		return insertEvent(event);
-	};
-	const result = await runKernelTurnWork(deps, {
-		...turnInput(),
-		descopeUserId: undefined,
-		externalAgentPrincipalId: "agent-1",
-		content: `For Work Item ${args.workItemId}, directly run existing skill ${args.skillId} once with exactly these params: startDate=2026-10-12, endDate=2026-10-18, cycleKey=2026-W42. Pin the run to that Work Item and use the skill's existing CTO owner. Do not delegate. If human approval is required, create the approval request and stop for the owner; do not bypass it or perform any other write.`,
-	});
-	expect(kernel).not.toHaveBeenCalled();
-	expect(planner).toHaveBeenCalledWith(
-		expect.objectContaining({
-			route: expect.objectContaining({
-				routeKind: "propose_tool_write",
-				targetTediId: null,
-			}),
-			directRename: {
-				capability: "skills.run",
-				toolName: "skills.run_workflow",
-				args,
-			},
-		}),
-	);
-	expect(result.status).toBe("requires_approval");
-	expect(result.run.metadata).toMatchObject({
-		approvalRequestId: "approval:run-1",
-	});
-	expect(result.run.completedAt).toBeNull();
-	expect(events).toContain("approval.requested");
-	expect(events).not.toContain("run.completed");
-	expect(execute).not.toHaveBeenCalled();
 });

@@ -76,69 +76,10 @@ export const RENAME_OUTPUT_TOOL = "os.rename_os_output";
 
 export const MOVE_SKILL_TO_TEDI_TOOL = "skills.move_skill_to_tedi";
 
-/** "Move skill X to tedi Y", resolved to exact ids. */
-export interface SkillMoveIntent {
-	capability: "skills.move_to_tedi";
-	toolName: typeof MOVE_SKILL_TO_TEDI_TOOL;
-	args: {
-		skillId: string;
-		targetTediId: string;
-		dryRun: false;
-		mode: "transfer";
-	};
-}
-
 export const RUN_SKILL_WORKFLOW_TOOL = "skills.run_workflow";
-
-/** "Run the certification for draft X", resolved to the draft and its tedi. */
-export interface SkillCertificationIntent {
-	capability: "skills.certify";
-	toolName: typeof RUN_SKILL_WORKFLOW_TOOL;
-	args: {
-		skillId: string;
-		tediId: string;
-		certification: true;
-		expectedSkillRevision: number;
-		idempotencyKey: string;
-		confirmDestructive: true;
-		reason: string;
-		params?: Record<string, unknown>;
-	};
-}
 
 export const PAUSE_SKILL_SCHEDULE_TOOL = "skills.pause_skill_schedule";
 export const RESUME_SKILL_SCHEDULE_TOOL = "skills.resume_skill_schedule";
-
-export interface SkillRunIntent {
-	capability: "skills.run";
-	toolName: typeof RUN_SKILL_WORKFLOW_TOOL;
-	args: {
-		skillId: string;
-		tediId: string;
-		workItemId?: string;
-		expectedSkillRevision: number;
-		idempotencyKey: string;
-		confirmDestructive: true;
-		reason: string;
-		params: Record<string, unknown>;
-	};
-}
-
-/** "Pause/resume the schedule of skill X", resolved to the skill id. */
-export interface SkillScheduleIntent {
-	capability: "skills.pause_schedule" | "skills.resume_schedule";
-	toolName:
-		| typeof PAUSE_SKILL_SCHEDULE_TOOL
-		| typeof RESUME_SKILL_SCHEDULE_TOOL;
-	args: { id: string };
-}
-
-/** An exact write a Home turn resolved without the model. */
-export type DirectWriteIntent =
-	| SkillMoveIntent
-	| SkillCertificationIntent
-	| SkillRunIntent
-	| SkillScheduleIntent;
 
 /** What a "rename X to Y" request names: an app, an output, or "it". */
 export interface RenameRequest {
@@ -197,26 +138,25 @@ export function parseRenameRequest(content: string): RenameRequest | null {
  * app gadget" as `work_items.create` (forcing the Work-creation tool) and, with
  * a sheet attached, as `outputs.update` (renaming the sheet). A rename request
  * takes the capability of the kind it names, so an app request can never reach
- * the output rename tool. A resolved target, when known, decides outright.
+ * the output rename tool.
  */
 export function correctWriteRoute<
 	T extends {
 		routeKind: string;
 		toolIntent?: { capability?: string | null } | null;
 	},
->(route: T, content: string, resolved?: DirectWriteIntent | null): T {
+>(route: T, content: string): T {
 	if (route.routeKind !== "propose_tool_write" || !route.toolIntent)
 		return route;
 	const request = parseRenameRequest(content);
 	// "Rename it" names no kind without a selected workpiece.
 	const kind = request?.kind === "selected" ? null : request?.kind;
 	const capability =
-		resolved?.capability ??
-		(kind === "gadget"
+		kind === "gadget"
 			? "gadgets.rename"
 			: kind === "output"
 				? "outputs.rename"
-				: null);
+				: null;
 	if (!capability || route.toolIntent.capability === capability) return route;
 	return {
 		...route,

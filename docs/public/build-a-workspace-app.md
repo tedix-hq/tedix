@@ -1217,11 +1217,9 @@ as described above.
   and copy the current values of any column between the ones you change.
 - Write verdicts with `expectedRevision` and retry once on a conflict; a
   factory may add a sheet or row at the same time.
-- In chat, a bare follow-up such as "mark it useful: great angle" right
-  after Home showed a card writes that card's row directly, without a
-  delegation: Home takes the card named at the top of its previous answer
-  and the sheet that answer cites by output id or `Sheet:` title line. When
-  the answer names neither, name the sheet in the request.
+- In chat, Home reads a verdict such as "mark it useful: great angle" like
+  any other message and proposes the sheet write itself. Name the card and
+  the sheet in the request when the conversation does not make them clear.
 - Never claim an action happened because the done column says `yes`. It
   records a decision; the provider's own record is the proof.
 
