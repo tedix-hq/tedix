@@ -119,6 +119,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	list_work_interaction_outbox: "workInteractions/listOutbox",
 	list_work_item_attempts: "workItems/listAttempts",
 	list_work_item_events: "workItems/listEvents",
+	wait_work_item: "workItems/wait",
 	list_work_item_evidence: "workItems/listEvidence",
 	list_work_items: "workItems/list",
 	list_work_resource_pools: "workItems/listResourcePools",
@@ -4498,7 +4499,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(69);
+		expect(covered).toHaveLength(70);
 	});
 });
 
@@ -5378,4 +5379,42 @@ test("claim discovery and mutation retain the parent subprocess deadline", async
 		if (previous === undefined) delete process.env.TEDIX_CLI_READ_DEADLINE_AT;
 		else process.env.TEDIX_CLI_READ_DEADLINE_AT = previous;
 	}
+});
+
+describe("work wait", () => {
+	test("makes one read call with defaults and preserves the continuation", async () => {
+		const value = {
+			reason: "timeout",
+			cursor: { workItemId: ITEM, event: 3, message: 2, response: 1 },
+			changes: [],
+		};
+		const { ctx, sources } = makeContext({}, undefined, () => value);
+		const result = await capture(`wait ${ITEM}`, ctx);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.out[0]!)).toEqual(value);
+		expect(sources).toHaveLength(1);
+		expect(sources[0]).toContain("wait_work_item");
+		expect(sources[0]).toContain(ITEM);
+	});
+	test("passes a previous cursor and reports a refused wait as failure", async () => {
+		const input = {
+			timeoutMs: 5000,
+			cursor: { workItemId: ITEM, event: 3, message: 2, response: 1 },
+		};
+		const { ctx, sources } = makeContext(
+			{ input: JSON.stringify(input) },
+			undefined,
+			() => ({
+				defined: true,
+				code: "FORBIDDEN",
+				status: 403,
+				message: "Read access required",
+			}),
+		);
+		const result = await capture(`wait ${ITEM}`, ctx);
+		expect(result.code).toBe(2);
+		expect(sources).toHaveLength(1);
+		expect(sources[0]).toContain('"timeoutMs":5000');
+		expect(sources[0]).toContain('"response":1');
+	});
 });

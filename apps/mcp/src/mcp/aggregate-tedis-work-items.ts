@@ -100,6 +100,9 @@ const COMPLETE_WORK_ITEM_SCHEMA = zodToToolInputJsonSchema(
 const LIST_EVIDENCE_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.listEvidence),
 );
+const WAIT_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(workItemsContract.wait),
+);
 const LIST_EVENTS_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.listEvents),
 );
@@ -398,6 +401,16 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		inputSchema: LIST_EVIDENCE_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "workItems/listEvidence",
+		includeTediIdParam: false,
+	},
+	{
+		name: "wait_work_item",
+		remoteName: "wait_work_item",
+		description:
+			"Wait up to 25 seconds for new Work events, run messages or answers. Omit cursor to start from now; preserve the returned cursor for the next call. Returns changed record IDs or reason timeout. Read those records for their canonical content.",
+		inputSchema: WAIT_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "workItems/wait",
 		includeTediIdParam: false,
 	},
 	{

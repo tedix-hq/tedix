@@ -356,6 +356,7 @@
 		"./schemas/widget-theme": "./src/schemas/widget-theme.ts",
 		"./schemas/factory-blueprints": "./src/schemas/factory-blueprints.ts",
 		"./schemas/factories": "./src/schemas/factories.ts",
+		"./schemas/work-wait": "./src/schemas/work-wait.ts",
 		"./schemas/work-items": "./src/schemas/work-items.ts",
 		"./schemas/work-agent-runs": "./src/schemas/work-agent-runs.ts",
 		"./schemas/work-attempt-steps": "./src/schemas/work-attempt-steps.ts",

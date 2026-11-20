@@ -123,6 +123,52 @@ describe("catalog snapshot import timeout", () => {
 	});
 });
 
+it("returns a Work wait timeout through the gateway after the full wait", async () => {
+	vi.useFakeTimers();
+	try {
+		const receipt = {
+			reason: "timeout",
+			changes: [],
+			cursor: { workItemId: "task", event: 0, message: 0, response: 0 },
+		};
+		const apiFetch = vi.fn(
+			(request: string | URL | Request, init?: RequestInit) =>
+				new Promise<Response>((resolve, reject) => {
+					const timer = setTimeout(
+						() => resolve(Response.json({ json: receipt })),
+						25_000,
+					);
+					const signal =
+						request instanceof Request ? request.signal : init?.signal;
+					signal?.addEventListener(
+						"abort",
+						() => {
+							clearTimeout(timer);
+							reject(signal.reason);
+						},
+						{ once: true },
+					);
+				}),
+		);
+		const pending = new ToolHandler().execute(
+			{ id: "task", timeoutMs: 25_000 },
+			{
+				...ctx({ transport: "rpc", endpoint: "workItems/wait" }),
+				env: {
+					ENVIRONMENT: "test",
+					API_URL: "https://api.example.test",
+					API_SERVICE: { fetch: apiFetch },
+				} as unknown as CloudflareEnv,
+			},
+		);
+		await vi.advanceTimersByTimeAsync(25_000);
+		expect(await pending).toMatchObject({ status: 200, data: receipt });
+		expect(apiFetch).toHaveBeenCalledOnce();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 it("returns a slow filing receipt rather than timing out after enabling filing", async () => {
 	vi.useFakeTimers();
 	try {

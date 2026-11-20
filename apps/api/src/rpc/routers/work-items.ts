@@ -104,6 +104,7 @@ import {
 } from "./work-items/repository-candidate-publication";
 import { reviewAttemptRepositoryProcedure } from "./work-items/repository-review";
 import { recordDelegationAutonomyFeedbackProcedure } from "./work-items/delegation-autonomy";
+import { waitProcedure } from "./work-items/wait";
 
 export const workItemsContractRouter = workItemsOs.router({
 	recordDelegationAutonomyFeedback: recordDelegationAutonomyFeedbackProcedure,
@@ -182,5 +183,6 @@ export const workItemsContractRouter = workItemsOs.router({
 	listEvidence: listEvidenceProcedure,
 	previewEvidence: previewEvidenceProcedure,
 	listEvents: listEventsProcedure,
+	wait: waitProcedure,
 	upsertProjection: upsertProjectionProcedure,
 });

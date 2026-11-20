@@ -172,6 +172,7 @@ export function isDelegatedWorkTool(
 			"list_work_item_evidence",
 			"list_work_evidence",
 		]),
+		"workitems/wait": new Set(["wait_work_item"]),
 		"workitems/listevents": new Set([
 			"list_work_item_events",
 			"list_work_events",

@@ -1,3 +1,7 @@
+import {
+	WorkWaitInputSchema,
+	WorkWaitResultSchema,
+} from "../schemas/work-wait";
 import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import {
 	LaneAttemptGrantInputSchema,
@@ -1625,6 +1629,15 @@ export const workItemsContract = oc
 			})
 			.input(z.object({ id: z.uuid(), evidenceId: z.uuid() }))
 			.output(WorkEvidencePreviewSchema),
+
+		wait: oc
+			.route({
+				method: "POST",
+				path: "/{id}/wait",
+				summary: "Wait for Work changes",
+			})
+			.input(WorkWaitInputSchema)
+			.output(WorkWaitResultSchema),
 
 		listEvents: oc
 			.route({

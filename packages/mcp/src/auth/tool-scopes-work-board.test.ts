@@ -422,3 +422,29 @@ it("admits Work approval requests with Work write without granting decision auth
 	}
 	expect(resolve("decide_work_approval")).toEqual(["mcp:work.admin"]);
 });
+
+it("requires Work read access for wait even through an unrelated alias", () => {
+	const tool = {
+		toolId: "example__wait_alias",
+		toolTypeId: "rpc",
+		authRequired: true,
+		config: { endpoint: "workItems/wait" },
+		annotations: { readOnlyHint: true },
+	};
+	expect(
+		resolveMcpToolRequiredScopes(tool, "example", tenantAggregateConfig),
+	).toEqual(["mcp:work.read"]);
+	for (const scopes of [[], ["mcp:work.write"], ["mcp:messaging.read"]])
+		expect(
+			isMcpToolVisibleToCaller(tool, "example", tenantAggregateConfig, {
+				authType: "oauth",
+				scopes,
+			}),
+		).toBe(false);
+	expect(
+		isMcpToolVisibleToCaller(tool, "example", tenantAggregateConfig, {
+			authType: "oauth",
+			scopes: ["mcp:work.read"],
+		}),
+	).toBe(true);
+});

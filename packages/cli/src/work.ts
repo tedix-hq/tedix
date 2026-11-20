@@ -268,6 +268,9 @@ Discovery: list [--disposition <value>] [--kind <kind>] [--class <class>]
                 [--project <id>] [--objective <id>] [--executor <exec>] [--offset <n>]
            · find <query> · readiness <id> · context <id>
 Ledgers: evidence <id> · attempts <id> · events <id>  (one bounded page; --limit 1–100, default 25)
+Wait: wait <id> [--input '{"timeoutMs":20000,"cursor":{…}}'] [--json]
+      Starts from now without a cursor; returns changed record IDs or reason timeout.
+      Preserve the cursor for the next wait. Maximum timeout: 25000 ms.
 Checkpoint: checkpoint (read selected chat Work and bounded open requests addressed to you; no writes)
 Collaboration: comment <id> [text] [--body|--message|--text <text>]
                confirm <id> --evidence <ref> [--contradicts]
