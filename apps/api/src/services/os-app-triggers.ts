@@ -528,6 +528,9 @@ export async function handleAppTriggerWebhook(
 			},
 			executionId,
 		);
+		// Tell the sender plainly that nothing ran, rather than a 200.
+		if (outcome === "disabled")
+			return c.text("This trigger is switched off.", 409);
 		return c.json({ runId: executionId, status: outcome });
 	} catch {
 		return c.json({ runId: executionId, status: "failed" }, 502);

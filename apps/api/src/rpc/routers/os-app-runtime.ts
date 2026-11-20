@@ -8,6 +8,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import {
 	AppRuntimeConfigSchema,
+	appTriggerDefinition,
 	appTriggerEnabled,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import { implement, call as callProcedure, ORPCError } from "@orpc/server";
@@ -405,7 +406,10 @@ export function createOsAppRuntimeRouter() {
 			input.content.files,
 			input.content.manifest.config?.compatibilityDate,
 		);
-		const content = JSON.stringify(input.content);
+		// A saved edit never sets the blueprint release pin; a rebased
+		// blueprint draft keeps the one the server recorded.
+		const { sourceBlueprintRevisionId: _clientPin, ...draft } = input.content;
+		const content = JSON.stringify(draft);
 		if (input.proposalId) {
 			await requireDraft(
 				context,
@@ -722,14 +726,16 @@ export function createOsAppRuntimeRouter() {
 					"Only a person can switch automatic runs on or off",
 				);
 			const code = await load(context, scope);
-			if (
-				!code.config.triggers?.some((trigger) => trigger.id === input.triggerId)
-			)
+			const trigger = code.config.triggers?.find(
+				(candidate) => candidate.id === input.triggerId,
+			);
+			if (!trigger)
 				throw createError(ErrorCodes.NOT_FOUND, "Automatic run not found");
 			const updated = await setOsAppTriggerEnabled(queryDb(context), {
 				...scope,
 				triggerId: input.triggerId,
 				enabled: input.enabled,
+				definition: appTriggerDefinition(trigger),
 			});
 			if (!updated)
 				throw createError(

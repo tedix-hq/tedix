@@ -796,6 +796,77 @@ describe("OS collaboration proposals", () => {
 		});
 	});
 
+	it("keeps a blueprint pin server-set and moves it only forward", async () => {
+		const { db, sqlite } = fixture();
+		const [older, pinned] = [crypto.randomUUID(), crypto.randomUUID()];
+		sqlite.exec(`
+			ALTER TABLE os_gadgets ADD COLUMN source_blueprint_revision_id TEXT;
+			CREATE TABLE os_blueprint_revisions (
+				id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL,
+				blueprint_id TEXT NOT NULL, revision INTEGER NOT NULL,
+				published_at TEXT
+			);
+			INSERT INTO os_blueprint_revisions VALUES
+				('${older}', 'org-1', 'bp-1', 1, '2026-11-01'),
+				('${pinned}', 'org-1', 'bp-1', 2, '2026-11-02');
+			UPDATE os_workspaces SET source_blueprint_id = 'bp-1',
+				source_blueprint_revision_id = '${older}';
+			UPDATE os_gadgets SET source_blueprint_revision_id = '${pinned}';
+		`);
+		const manifest = { entry: "tedix:runtime/v1", capabilities: [] };
+		const files = { "server.js": "export class App {}", "client.js": "" };
+		await seedProposal(db, {
+			documentType: "gadget",
+			documentId: "gadget-1",
+			baseRevisionId: "gadget-rev-1",
+			content: JSON.stringify({ manifest, files }),
+		});
+		// An ordinary draft edit cannot add a pin.
+		const edited = await updateOsCollaborationProposalPreview(db, {
+			organizationId: "org-1",
+			proposalId: "proposal-1",
+			expectedSequence: 0,
+			sourceKind: "agent_session",
+			sourceId: "codex:session-1",
+			content: JSON.stringify({
+				manifest,
+				files,
+				sourceBlueprintRevisionId: older,
+			}),
+		});
+		expect(JSON.parse(edited!.content)).toEqual({ manifest, files });
+		// A draft prepared from an older release applies but keeps the newer pin.
+		sqlite
+			.prepare("UPDATE os_collaboration_proposals SET content = ?")
+			.run(
+				JSON.stringify({ manifest, files, sourceBlueprintRevisionId: older }),
+			);
+		await decideOsCollaborationProposal(db, {
+			...decision,
+			expectedSequence: 1,
+			decision: "accepted",
+		});
+		expect(
+			await mergeOsCollaborationProposal(db, {
+				organizationId: "org-1",
+				proposalId: "proposal-1",
+				expectedSequence: 1,
+				revisionId: "gadget-rev-2",
+				rationale: "Old release reviewed",
+				evidenceRefs: "[]",
+				mergedByKind: "user",
+				mergedById: "u-1",
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT current_revision_id, source_blueprint_revision_id AS pin FROM os_gadgets",
+				)
+				.get(),
+		).toEqual({ current_revision_id: "gadget-rev-2", pin: pinned });
+	});
+
 	it("splits a draft from a bare manifest without trusting either", () => {
 		expect(splitGadgetProposalContent('{"entry":"main.tsx"}')).toEqual({
 			manifest: '{"entry":"main.tsx"}',

@@ -38,6 +38,10 @@ import {
 	runInteractiveAppCall,
 } from "./os-app-triggers";
 import { loadAppRuntimeRevision } from "./os-app-runtime-code";
+import {
+	AppRuntimeTriggerSchema,
+	appTriggerDefinition,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 import { splitOsGadgetCodeRow } from "@tedix/db/queries/os-workspaces/gadget-code";
 
 /** Store an app revision's files the way the product does: a shared blob and a pointer row. */
@@ -121,7 +125,21 @@ async function fixture(
 		organizationId: "org-1",
 		workspaceId,
 		name: "Inbox",
-		triggerEnabled: options.choices ?? { morning: true },
+		triggerEnabled: Object.fromEntries(
+			(options.triggers ?? triggers).flatMap((raw) => {
+				const trigger = AppRuntimeTriggerSchema.parse(raw);
+				const choices = options.choices ?? { morning: true };
+				const enabled = choices[trigger.id];
+				return !Object.hasOwn(choices, trigger.id) || enabled === undefined
+					? []
+					: [
+							[
+								trigger.id,
+								{ enabled, definition: appTriggerDefinition(trigger) },
+							],
+						];
+			}),
+		),
 		currentRevisionId: revisionId,
 		createdByKind: "user",
 		createdById: "user-1",
@@ -483,6 +501,27 @@ describe("workspace app triggers", () => {
 		});
 	});
 
+	it("turns a switched-on schedule off when a revision changes what it does", async () => {
+		const f = await fixture();
+		await f.db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					config: {
+						version: 1,
+						triggers: [{ ...triggers[0], args: ["everything"] }],
+					},
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+		expect(await dispatchDueAppTriggers(f.env, nineUtc)).toMatchObject({
+			ran: 0,
+		});
+		expect(f.fetch).not.toHaveBeenCalled();
+	});
+
 	it.each(["role", "workspace"])(
 		"denies app-local trigger authority after the author's %s access changes",
 		async (change) => {
@@ -721,6 +760,20 @@ describe("workspace app triggers", () => {
 				{ trigger: "inbound", kind: "webhook", body: { subject: "New lead" } },
 			],
 		});
+		await f.db.update(osGadgets).set({
+			triggerEnabled: {
+				inbound: {
+					enabled: false,
+					definition: appTriggerDefinition(
+						AppRuntimeTriggerSchema.parse(triggers[1]),
+					),
+				},
+			},
+		});
+		const off = await deliver(body, now + 1, await sign(body, now + 1));
+		expect(off.status).toBe(409);
+		expect(await off.text()).toBe("This trigger is switched off.");
+		expect(f.fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows builders the webhook address and secret, and nobody an unknown trigger", async () => {

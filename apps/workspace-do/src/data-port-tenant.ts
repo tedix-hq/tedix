@@ -34,6 +34,7 @@ import {
 	AppRuntimeFilesSchema,
 	AppRuntimeConfigSchema,
 	AppRuntimeReadsSchema,
+	appTriggerDefinition,
 	type AllowAppReadInput,
 	type AppRuntimeReads,
 	RegisterAppScheduleInputSchema,
@@ -961,6 +962,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			revisionId: current.revisionId,
 			triggerId: parsed.schedule.id,
 			enabled: false,
+			definition: appTriggerDefinition(parsed.schedule),
 		});
 		if (!switched)
 			throw new Error(

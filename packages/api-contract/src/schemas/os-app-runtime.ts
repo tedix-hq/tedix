@@ -2,6 +2,7 @@ import * as z from "zod";
 import { JsonValueSchema } from "./common";
 import { ToolJsonSchemaSchema } from "./tools";
 import { nextSkillScheduleFireAt } from "../utils/cron-schedule";
+import { stableStringify } from "../utils/stable-json";
 
 /**
  * A workspace app that runs its own code. The manifest entry
@@ -240,12 +241,31 @@ export type AppRuntimeTriggerState = z.infer<
 	typeof AppRuntimeTriggerStateSchema
 >;
 
+/**
+ * A person's on/off choice for one trigger, tied to what the trigger did when
+ * they chose. Stored per trigger id on the app.
+ */
+export type AppTriggerChoice = { enabled: boolean; definition: string };
+
+/** What a trigger does (kind, method, args, cron, ...), as stable text. */
+export function appTriggerDefinition(trigger: AppRuntimeTrigger): string {
+	return stableStringify(trigger);
+}
+
+/**
+ * A choice applies only while the trigger still does what it did when the
+ * person chose. A changed cron, method or args, or an id reused for something
+ * else, falls back to the default for its kind: schedules off, others on.
+ */
 export function appTriggerEnabled(
 	trigger: AppRuntimeTrigger,
-	choices: Record<string, boolean>,
+	choices: Record<string, AppTriggerChoice>,
 ): boolean {
-	return Object.hasOwn(choices, trigger.id)
-		? choices[trigger.id]!
+	const choice = Object.hasOwn(choices, trigger.id)
+		? choices[trigger.id]
+		: undefined;
+	return choice?.definition === appTriggerDefinition(trigger)
+		? choice.enabled
 		: trigger.kind !== "schedule";
 }
 
