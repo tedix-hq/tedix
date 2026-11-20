@@ -19,8 +19,6 @@ import {
 	applyWorkspaceChatEvents,
 	waitingForDecision,
 	initialWorkspaceChatState,
-	setConversations,
-	setWorkspaceUsage,
 } from "@/lib/workspace-chat-state";
 const notifyChatPosted = vi.hoisted(() => vi.fn());
 const uploadWorkspaceFile = vi.hoisted(() => vi.fn());
@@ -45,7 +43,10 @@ import { WorkspaceChat } from "./workspace-chat";
 import {
 	osQuery,
 	osQueryKeys,
+	billingOverviewQueryOptions,
 	canvasOutputsQueryOptions,
+	operationalContextQueryOptions,
+	workspaceConversationChargesQueryOptions,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
@@ -214,6 +215,9 @@ beforeEach(() => {
 	root = createRoot(host);
 	queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	queryClient.setQueryData<unknown>(operationalContextQueryOptions().queryKey, {
+		authority: { permissions: [] },
 	});
 });
 
@@ -1386,88 +1390,44 @@ describe("WorkspaceChat", () => {
 			[...(tip?.querySelectorAll("span") ?? [])].map(
 				(part) => part.textContent,
 			),
-		).toEqual(["Took 4s", "mock", "2,000 input · 500 output tokens"]);
+		).toEqual(["Took 4s", "mock"]);
 	});
 
-	it("shows what the conversation and the workspace used, updated after each reply", () => {
-		const fake = fakeClient("c1");
-		mount(fake);
-		const conversationSpend = () =>
-			host.querySelector('[data-testid="workspace-chat-conversation-spend"]');
-		const workspaceSpend = () =>
-			host.querySelector('[data-testid="workspace-chat-workspace-spend"]');
-		expect(conversationSpend()).toBeNull();
-		expect(workspaceSpend()).toBeNull();
-
-		act(() =>
-			fake.set({
-				state: setWorkspaceUsage(
-					setConversations(initialWorkspaceChatState("c1"), [
-						{
-							id: "c1",
-							title: "Open challenges",
-							updatedAt: at,
-							lastTurnAt: at,
-						},
-					]),
-					{ inputTokens: 40_000, outputTokens: 6_000, costUsd: 0.063 },
-					0,
-				),
-			}),
-		);
-		// A workspace total alone; this conversation has used nothing yet.
-		expect(conversationSpend()).toBeNull();
-		expect(workspaceSpend()?.textContent).toContain("$0.06");
-
-		act(() =>
-			fake.feed([
-				started,
+	it.each([true, false])(
+		"shows the conversation credit share only with billing read (%s)",
+		(canRead) => {
+			const periodStart = "2026-11-01T00:00:00.000Z";
+			queryClient.setQueryData<unknown>(
+				operationalContextQueryOptions().queryKey,
 				{
-					seq: 2,
-					at,
-					conversationId: "c1",
-					type: "assistant.done",
-					turnId: "t1",
-					messageId: "m1",
-					text: "Twelve.",
-					usage: { inputTokens: 22_000, outputTokens: 2_399, costUsd: 0.047 },
+					authority: { permissions: canRead ? ["billing:read"] : ["os:read"] },
 				},
-			]),
-		);
-		expect(conversationSpend()?.textContent).toBe("24,399 tokens · $0.047");
-		expect(workspaceSpend()?.textContent).toContain("$0.11");
-	});
-
-	it("shows tokens only when the model has no price", () => {
-		const fake = fakeClient("c1");
-		mount(fake);
-		act(() =>
-			fake.set({
-				state: setWorkspaceUsage(
-					setConversations(initialWorkspaceChatState("c1"), [
-						{
-							id: "c1",
-							title: "Open challenges",
-							updatedAt: at,
-							lastTurnAt: at,
-							usage: {
-								inputTokens: 900,
-								outputTokens: 100,
-								unpricedReplies: 1,
-							},
-						},
-					]),
-					{ inputTokens: 900, outputTokens: 100, unpricedReplies: 1 },
-					5,
-				),
-			}),
-		);
-		expect(
-			host.querySelector('[data-testid="workspace-chat-conversation-spend"]')
-				?.textContent,
-		).toBe("1,000 tokens");
-		expect(host.textContent).not.toContain("$");
-	});
+			);
+			queryClient.setQueryData<unknown>(
+				billingOverviewQueryOptions().queryKey,
+				{
+					credits: {
+						periodStart,
+						includedCredits: 1_000,
+						topUpCredits: 0,
+						usedCredits: 400,
+						payAsYouGo: { spentMicros: 0 },
+					},
+				},
+			);
+			queryClient.setQueryData(
+				workspaceConversationChargesQueryOptions("ws-1", "c1").queryKey,
+				{ periodStart, credits: 125, chargeCount: 2 },
+			);
+			mount(fakeClient("c1"));
+			const line = host.querySelector(".chat-usage-line");
+			if (canRead)
+				expect(line?.querySelector("p")?.textContent).toBe(
+					"12% of this month's credits used in this conversation",
+				);
+			else expect(line).toBeNull();
+		},
+	);
 
 	it("sends the composer's text to the object", () => {
 		const fake = fakeClient("c1");

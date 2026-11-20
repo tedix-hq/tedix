@@ -277,9 +277,9 @@ return focusClipAudit();
 			);
 			assert.match(
 				await footer.innerText(),
-				/Took 2s\s+provider-model-snapshot\s+120 input · 20 output tokens · 40 cached input · partial usage/,
+				/Took 2s\s+provider-model-snapshot/,
 			);
-			assert(!/[€$]/.test(await footer.innerText()));
+			assert(!/tokens|[€$]/.test(await footer.innerText()));
 			assert(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth,

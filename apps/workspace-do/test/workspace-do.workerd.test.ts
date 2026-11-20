@@ -874,6 +874,12 @@ describe("WorkspaceDO", () => {
 			expect(record.outcome).toBe("applied");
 			expect(record.source.surface).toBe("workspace_object");
 		}
+		expect(await ws.listConversationTurnIds(scope, conversationId)).toEqual([
+			turnId,
+		]);
+		expect(
+			await ws.listConversationTurnIds(scope, "another-conversation"),
+		).toEqual([]);
 		const [listed] = await ws.listConversations(scope);
 		expect(listed?.id).toBe(conversationId);
 		// A person started it, so it is not an agent's run.

@@ -1,4 +1,7 @@
 import { env } from "cloudflare:workers";
+import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
+import { sumRunCredits } from "@tedix/db/queries/billing/spending";
+import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import { getRequestOrganizationMembership } from "../org-membership";
 import type {
 	OsWorkspaceChangeRecordsQuery,
@@ -165,6 +168,67 @@ const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 const runOs = authed.use(AUTHZ.osRun);
 const publishOs = authed.use(AUTHZ.osPublish);
+
+const workspaceConversationCharges = authed.workspaces.conversationCharges
+	.use(AUTHZ.billingRead)
+	.handler(async ({ context, input }) => {
+		const organizationId = requireOrgId(context);
+		const { workspace, callerId } = await requireWorkspaceCollaboratorAccess(
+			context,
+			input.workspaceId,
+			"app.chat",
+		);
+		const membership =
+			context.authType === "user" && workspace.organizationId === organizationId
+				? await getRequestOrganizationMembership(
+						context,
+						organizationId,
+						callerId,
+					)
+				: null;
+		if (membership?.status !== "active")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Active workspace membership required",
+			);
+
+		const now = new Date().toISOString();
+		const pool = await getCreditPoolSnapshot(context.db, {
+			organizationId,
+			now,
+		});
+		if (!pool || now < pool.periodStart || now >= pool.periodEnd)
+			return { periodStart: null, credits: 0, chargeCount: 0 };
+
+		const runtime = (
+			env as unknown as {
+				WORKSPACE_RUNTIME?: {
+					listConversationTurnIds(
+						scope: { organizationId: string; workspaceId: string },
+						conversationId: string,
+					): Promise<string[]>;
+				};
+			}
+		).WORKSPACE_RUNTIME;
+		if (!runtime)
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Workspace runtime unavailable",
+			);
+		const runIds = await runtime.listConversationTurnIds(
+			{ organizationId, workspaceId: workspace.id },
+			input.conversationId,
+		);
+		const charges = await sumRunCredits(context.db, {
+			organizationId,
+			runIds,
+			workspaceChat: {
+				workspaceId: workspace.id,
+				periodStart: pool.periodStart,
+			},
+		});
+		return { periodStart: pool.periodStart, ...charges };
+	});
 
 const workspacesChangeRecords = readOs.workspaces.changeRecords.handler(
 	async ({ input, context }) => {
@@ -2408,6 +2472,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		...workspaceLibrary.osWorkspaceProcedures,
 		...workspaceActivity.osWorkspaceActivityProcedures,
 		changeRecords: workspacesChangeRecords,
+		conversationCharges: workspaceConversationCharges,
 		previewBlueprintUpgrade: workspacesPreviewBlueprintUpgrade,
 		decideBlueprintUpgrade: workspacesDecideBlueprintUpgrade,
 	},

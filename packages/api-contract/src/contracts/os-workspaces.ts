@@ -40,6 +40,8 @@ import {
 	OsBlueprintStatusSchema,
 	OsBlueprintUpgradeReportSchema,
 	OsWorkspaceBlueprintDecisionSchema,
+	WorkspaceConversationChargesInputSchema,
+	WorkspaceConversationChargesSchema,
 	OsGadgetExecutionSchema,
 	OsGadgetExecutionStatusSchema,
 	OsGadgetExportDescriptorSchema,
@@ -358,6 +360,15 @@ export const osWorkspacesContract = oc
 	.errors(baseErrors)
 	.router({
 		workspaces: oc.router({
+			conversationCharges: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/conversation-charges",
+					summary:
+						"Read a workspace conversation's settled credits for the current billing period",
+				})
+				.input(WorkspaceConversationChargesInputSchema)
+				.output(WorkspaceConversationChargesSchema),
 			changeRecords: oc
 				.route({
 					method: "GET",

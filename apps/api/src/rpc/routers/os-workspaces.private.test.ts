@@ -1310,6 +1310,32 @@ it("continues beyond an empty filtered page without skipping recorded activity",
 	expect(second.coverage).toBe("recorded_only");
 });
 
+it("requires billing read and active workspace chat access before reading charges", async () => {
+	const env = createEnv();
+	const { team, workspace } = await seed(env);
+	const billingReader = (subject: string) =>
+		member(env, subject, { permissions: ["billing:read"] });
+
+	await expect(
+		member(env, OWNER).workspaces.conversationCharges({
+			workspaceId: team.id,
+			conversationId: "fictional",
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	await expect(
+		billingReader("member-gone").workspaces.conversationCharges({
+			workspaceId: team.id,
+			conversationId: "fictional",
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	await expect(
+		billingReader(OTHER).workspaces.conversationCharges({
+			workspaceId: workspace.id,
+			conversationId: "fictional",
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
 describe("workspace change record export", () => {
 	const range = {
 		from: "2026-10-01T00:00:00Z",
