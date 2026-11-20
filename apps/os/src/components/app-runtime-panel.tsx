@@ -472,6 +472,13 @@ export function AppRuntimeSandbox({
 						}, LIST_REFRESH_AFTER_SAVE_MS);
 					},
 					resources: resourceRows ?? [],
+					refreshResources: async () =>
+						(
+							await queryClient.fetchQuery({
+								...workspaceResourcesQueryOptions(workspaceId),
+								staleTime: 0,
+							})
+						).items,
 					readOutput: async (outputId) => {
 						const detail = await queryClient.fetchQuery({
 							...outputDetailQueryOptions(outputId),

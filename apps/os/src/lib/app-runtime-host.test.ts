@@ -1006,6 +1006,19 @@ describe("app runtime host", () => {
 				slot: "opportunities",
 			}),
 		).toEqual({ ok: false, error: "slot_unbound" });
+		// A file connected after the rows were loaded, as when an app was just
+		// approved to read it, is found by reading the rows again.
+		const reads: string[] = [];
+		const refreshResources = vi.fn(async () => [resource]);
+		expect(
+			await handleAppRuntimeCall(
+				{ ...deps("build", reads), resources: [], refreshResources },
+				"outputs.read",
+				{ slot: "opportunities" },
+			),
+		).toMatchObject({ ok: true });
+		expect(reads).toEqual([outputId]);
+		expect(refreshResources).toHaveBeenCalledOnce();
 		expect(
 			await handleAppRuntimeCall(deps("use"), "app.call", {
 				method: "ratings",

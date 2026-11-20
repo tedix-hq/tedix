@@ -94,6 +94,12 @@ export type AppRuntimeDraft = { revision: number; content: OsOutputContent };
 export interface AppRuntimeHostDeps {
 	context: AppRuntimeContext;
 	resources: readonly OsWorkspaceResource[];
+	/**
+	 * The workspace's resource rows read again, for a slot the rows above do
+	 * not name yet: a file connected after they were loaded, such as one an
+	 * app was approved to read moments ago.
+	 */
+	refreshResources?: () => Promise<readonly OsWorkspaceResource[]>;
 	readOutput: (outputId: string) => Promise<OsOutputContent>;
 	/**
 	 * Read a granted slot where the host cannot see the workspace's resource
@@ -231,14 +237,27 @@ export function outputIdForSlot(
  * The file a slot names for this host: its id from the workspace's resource
  * rows, or an empty id where the server resolves the slot itself.
  */
-function slotOutputId(deps: AppRuntimeHostDeps, slot: string): string | null {
+async function slotOutputId(
+	deps: AppRuntimeHostDeps,
+	slot: string,
+): Promise<string | null> {
 	if (deps.serverResolvesSlots) return "";
-	return outputIdForSlot(
-		deps.resources.filter(
-			(row) => row.workspaceId === deps.context.workspaceId,
-		),
-		slot,
-	);
+	return boundOutputId(deps, slot);
+}
+
+/** The file a slot names in this workspace's resource rows, read again once if they do not name it. */
+async function boundOutputId(
+	deps: AppRuntimeHostDeps,
+	slot: string,
+): Promise<string | null> {
+	const find = (rows: readonly OsWorkspaceResource[]) =>
+		outputIdForSlot(
+			rows.filter((row) => row.workspaceId === deps.context.workspaceId),
+			slot,
+		);
+	const found = find(deps.resources);
+	if (found || !deps.refreshResources) return found;
+	return find(await deps.refreshResources());
 }
 
 function isAppDownloadText(text: unknown): text is string {
@@ -364,12 +383,7 @@ export async function handleAppRuntimeCall(
 			// resolves slots, the id the app read with the file names them.
 			const outputId = deps.serverResolvesSlots
 				? args.outputId
-				: outputIdForSlot(
-						deps.resources.filter(
-							(resource) => resource.workspaceId === context.workspaceId,
-						),
-						args.slot,
-					);
+				: await boundOutputId(deps, args.slot);
 			if (!outputId || outputId !== args.outputId)
 				return { ok: false, error: "slot_unbound" };
 			const key = `${context.workspaceId}:${context.gadget.id}:${deps.appRevisionId ?? context.gadget.revision}:${outputId}`;
@@ -457,10 +471,7 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				args.slot,
-			);
+			const outputId = await boundOutputId(deps, args.slot);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			if (!deps.replaceOutput) return { ok: false, error: "host_unavailable" };
 			let value: unknown;
@@ -522,7 +533,7 @@ export async function handleAppRuntimeCall(
 				.sort((a, b) => Number(b.allowed) - Number(a.allowed))[0]!;
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = slotOutputId(deps, slot);
+			const outputId = await slotOutputId(deps, slot);
 			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (!deps.patchOutput) return { ok: false, error: "host_unavailable" };
 			let value: unknown;
@@ -579,7 +590,7 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = slotOutputId(deps, args.slot);
+			const outputId = await slotOutputId(deps, args.slot);
 			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (!deps.readOutputChanges)
 				return { ok: false, error: "host_unavailable" };
@@ -619,10 +630,7 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				args.slot,
-			);
+			const outputId = await boundOutputId(deps, args.slot);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			if (!deps.exportOutput) return { ok: false, error: "host_unavailable" };
 			return {
@@ -656,7 +664,7 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = slotOutputId(deps, args.slot);
+			const outputId = await slotOutputId(deps, args.slot);
 			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (!deps.readOutputImage)
 				return { ok: false, error: "host_unavailable" };
@@ -691,10 +699,7 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				args.slot,
-			);
+			const outputId = await boundOutputId(deps, args.slot);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			if (!deps.uploadOutputImage)
 				return { ok: false, error: "host_unavailable" };
@@ -835,7 +840,7 @@ export async function handleAppRuntimeCall(
 				return { ok: false, error: "not_permitted", detail: permission.reason };
 			if (deps.readSlot)
 				return { ok: true, value: await deps.readSlot(args.slot) };
-			const outputId = outputIdForSlot(deps.resources, args.slot);
+			const outputId = await boundOutputId(deps, args.slot);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			return { ok: true, value: await deps.readOutput(outputId) };
 		}
@@ -852,7 +857,7 @@ export async function handleAppRuntimeCall(
 				return { ok: false, error: "not_permitted", detail: permission.reason };
 			if (!deps.readOutputRevision)
 				return { ok: false, error: "host_unavailable" };
-			const outputId = slotOutputId(deps, args.slot);
+			const outputId = await slotOutputId(deps, args.slot);
 			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (
 				args.revision !== undefined &&
