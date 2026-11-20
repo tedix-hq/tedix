@@ -540,6 +540,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osAppRuntime/restoreRevision": "mcp:apps.write",
 	// Builder-only: reveals a webhook trigger's signing secret.
 	"osAppRuntime/triggerWebhook": "mcp:apps.write",
+	"osAppRuntime/listTriggers": "mcp:apps.read",
+	"osAppRuntime/setTriggerEnabled": "mcp:apps.write",
 	"osAppRuntime/revisions": "mcp:apps.read",
 	"osAppRuntime/saveDraft": "mcp:apps.write",
 	"osAppRuntime/readDraftRoom": "mcp:apps.write",

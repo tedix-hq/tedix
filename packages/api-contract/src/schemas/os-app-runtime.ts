@@ -199,6 +199,24 @@ export const AppRuntimeTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type AppRuntimeTrigger = z.infer<typeof AppRuntimeTriggerSchema>;
 
+export const AppRuntimeTriggerStateSchema = z.object({
+	trigger: AppRuntimeTriggerSchema,
+	enabled: z.boolean(),
+	lastRunAt: z.string().nullable(),
+});
+export type AppRuntimeTriggerState = z.infer<
+	typeof AppRuntimeTriggerStateSchema
+>;
+
+export function appTriggerEnabled(
+	trigger: AppRuntimeTrigger,
+	choices: Record<string, boolean>,
+): boolean {
+	return Object.hasOwn(choices, trigger.id)
+		? choices[trigger.id]!
+		: trigger.kind !== "schedule";
+}
+
 export const APP_RUNTIME_DOWNLOAD_EXTENSIONS = {
 	"text/plain": "txt",
 	"text/markdown": "md",
