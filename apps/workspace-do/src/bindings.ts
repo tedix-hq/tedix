@@ -43,6 +43,7 @@ import { ACCOUNTS_UNAVAILABLE } from "./prompt";
 import { isMachineWriteTool } from "@tedix/api-contract/schemas/machines";
 import { MACHINE_UNAVAILABLE, type workspaceMachine } from "./machine";
 import { PERSON_UNAVAILABLE, type workspacePerson } from "./person";
+import { TEDI_UNAVAILABLE, type workspaceTedi } from "./tedi";
 import type {
 	CreateAppInput,
 	CreateWorkInput,
@@ -86,6 +87,8 @@ export interface BindingDeps {
 	machine?: ReturnType<typeof workspaceMachine>;
 	/** Absent unless a signed-in person sent the turn themself. */
 	person?: ReturnType<typeof workspacePerson>;
+	/** Absent unless a signed-in person sent the turn to a guest tedi. */
+	tedi?: ReturnType<typeof workspaceTedi>;
 }
 
 /** What the chat needs to show a "Connect" card. It names no person. */
@@ -520,6 +523,16 @@ export function buildWorkspaceBindings(
 		},
 	};
 
+	const tediPort = () => {
+		if (!deps.tedi) throw new Error(TEDI_UNAVAILABLE);
+		return deps.tedi;
+	};
+	const tedi = {
+		list: (input?: { query?: unknown }) => tediPort().list(input),
+		describe: (input: { tool?: unknown }) => tediPort().describe(input),
+		call: (input: { tool?: unknown; args?: unknown }) => tediPort().call(input),
+	};
+
 	const views = {
 		show: (input: unknown) => {
 			if (!deps.showView) throw new Error("Views need a running chat turn");
@@ -667,6 +680,17 @@ export function buildWorkspaceBindings(
 			...common,
 			resource: "person",
 			methods: { memory: { riskTier: "read", blastRadius: "none" } },
+		}),
+		// The tedi's own object and the gateway decide each call under the
+		// tedi's identity; an approval they ask for is decided in Tedix.
+		tedi: wrapBinding(tedi, {
+			...common,
+			resource: "tedi_tool",
+			methods: {
+				list: { riskTier: "read", blastRadius: "none" },
+				describe: { riskTier: "read", blastRadius: "none" },
+				call: { riskTier: "read", blastRadius: "none" },
+			},
 		}),
 		work: wrapBinding(work, {
 			...common,

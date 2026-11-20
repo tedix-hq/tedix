@@ -59,6 +59,8 @@ export interface DynamicPromptInput {
 	linkedAccounts?: Array<{ name: string; service: string }> | null;
 	/** Who else answered earlier in this conversation; see `markOtherReplies`. */
 	otherReplyAuthors?: string[];
+	/** The answering tedi's own skills and tool groups, already rendered. */
+	tediCatalog?: string | null;
 }
 
 export interface PendingApproval {
@@ -103,6 +105,7 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 					"linked_accounts",
 				),
 		);
+	if (input.tediCatalog) parts.push(input.tediCatalog);
 	for (const skill of input.referencedSkills ?? [])
 		parts.push(
 			`<referenced_skill slug="${skill.slug}" title="${skill.title.replace(/["<>]/g, "")}" note="The person asked you to follow this organization skill for this message.">\n${skill.content.slice(0, REFERENCED_SKILL_MAX_CHARS)}\n</referenced_skill>`,
