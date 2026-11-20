@@ -335,6 +335,7 @@ export function mapWorkspace(
 		visibility: row.visibility,
 		ownerUserId: row.ownerUserId,
 		iconUrl: row.iconUrl,
+		defaultTediId: row.defaultTediId,
 		summary: summary ? mapWorkspaceSummary(summary) : null,
 	};
 }

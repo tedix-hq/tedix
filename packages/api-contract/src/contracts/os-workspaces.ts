@@ -564,6 +564,25 @@ export const osWorkspacesContract = oc
 				})
 				.input(workspaceIdInput)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
+			setDefaultTedi: oc
+				.route({
+					method: "PUT",
+					path: "/workspaces/{workspaceId}/default-tedi",
+					summary: "Set the tedi that answers when nobody is picked",
+					description:
+						"Names the tedi that answers a person's chat message in this workspace when they pick nobody, or clears it so the workspace agent answers. Needs build access to the workspace. The tedi must be active and one the caller may pick: an organization tedi or the caller's own personal tedi.",
+				})
+				.input(
+					workspaceIdInput.extend({
+						tediId: z
+							.string()
+							.min(1)
+							.max(200)
+							.nullable()
+							.describe("The tedi to answer by default; null clears it"),
+					}),
+				)
+				.output(z.object({ workspace: OsWorkspaceSchema })),
 			archive: oc
 				.route({
 					method: "POST",

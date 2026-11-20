@@ -441,6 +441,7 @@ it("recognizes an idempotently initialized empty directory as document owner", a
 		previousInstantiationPreflight: null,
 		blueprintDecision: null,
 		iconUrl: null,
+		defaultTediId: null,
 	};
 	tenant.initializeWorkspaceDirectory(local.db, row);
 	tenant.initializeWorkspaceDirectory(local.db, row);

@@ -257,6 +257,12 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_workspace",
 		resourceId: ({ input }) => text(input.workspaceId),
 	},
+	"workspaces.setDefaultTedi": {
+		action: "os.workspace.default_tedi_set",
+		resourceType: "os_workspace",
+		resourceId: ({ input }) => text(input.workspaceId),
+		metadata: ({ input }) => ({ tediId: text(input.tediId) }),
+	},
 	"workspaces.archive": {
 		action: "os.workspace.archived",
 		resourceType: "os_workspace",

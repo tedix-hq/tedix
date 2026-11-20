@@ -63,6 +63,8 @@ export type WorkspaceChatClientMessage =
 			conversationId: string | null;
 			text: string;
 			tediId?: string;
+			/** The person chose the workspace agent: no default tedi answers. */
+			answerer?: "agent";
 			modelId?: string;
 			attachments?: Array<{ outputId: string }>;
 			/** The workspace app the person asked from; shown under their message. */
@@ -218,6 +220,8 @@ export type WorkspaceChatLedgerEvent =
 			}>;
 			text: string;
 			respondingTediId?: string | null;
+			/** Why the workspace agent answers instead of the default tedi. */
+			answererNote?: string;
 			authorId: string;
 			authorKind: "person" | "tedi";
 			/** The workspace app the person asked from. */

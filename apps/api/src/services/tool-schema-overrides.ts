@@ -179,6 +179,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/workspaces/restore": "restore_os_workspace",
 	"osWorkspaces/workspaces/setIcon": "set_os_workspace_icon",
 	"osWorkspaces/workspaces/removeIcon": "remove_os_workspace_icon",
+	"osWorkspaces/workspaces/setDefaultTedi": "set_os_workspace_default_tedi",
 	"osWorkspaces/workspaces/delete": "delete_os_workspace",
 	"osWorkspaces/workspaces/purgeArchived": "purge_archived_os_items",
 	"osWorkspaces/workspaces/previewArchivedCleanup":
@@ -334,6 +335,7 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/workspaces/restore": "write",
 	"osWorkspaces/workspaces/setIcon": "write",
 	"osWorkspaces/workspaces/removeIcon": "write",
+	"osWorkspaces/workspaces/setDefaultTedi": "write",
 	"osWorkspaces/workspaces/delete": "destructive",
 	"osWorkspaces/workspaces/purgeArchived": "destructive",
 	"osWorkspaces/workspaces/previewArchivedCleanup": "read",

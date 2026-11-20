@@ -27,6 +27,11 @@ export interface TurnRequest {
 	attachments?: Array<{ outputId: string }>;
 	/** Run as this tedi: its persona and recall come from its own object. */
 	tediId?: string;
+	/**
+	 * A signed-in person picked nobody: the workspace's default tedi answers
+	 * when it can, otherwise the workspace agent with a line saying why.
+	 */
+	defaultTedi?: boolean;
 	/** The workspace app the person asked from; shown under their message. */
 	fromAppId?: string;
 	/** Force the turn into its own facet (long or risky work). */

@@ -126,6 +126,7 @@ export interface UpdateOsWorkspacePatch {
 	visibility?: OsWorkspaceRow["visibility"];
 	ownerUserId?: string | null;
 	iconUrl?: string | null;
+	defaultTediId?: string | null;
 }
 
 export async function createOsWorkspace(

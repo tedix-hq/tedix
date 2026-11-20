@@ -50,6 +50,7 @@ export const tenantOsWorkspaces = sqliteTable(
 			.default("org"),
 		ownerUserId: text("owner_user_id"),
 		iconUrl: text("icon_url"),
+		defaultTediId: text("default_tedi_id"),
 	},
 	(table) => [
 		uniqueIndex("os_workspaces_org_id_unique").on(

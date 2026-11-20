@@ -500,6 +500,13 @@ export const OsWorkspaceSchema = z.object({
 		.describe(
 			"Public URL of the workspace's uploaded icon, shown instead of its initials; null or absent when none is set",
 		),
+	defaultTediId: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"The tedi that answers a person's chat message when they pick nobody; null or absent when the workspace agent answers",
+		),
 	summary: OsWorkspaceSummarySchema.nullable()
 		.optional()
 		.describe(

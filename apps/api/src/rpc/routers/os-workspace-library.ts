@@ -27,6 +27,10 @@ import {
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import {
+	isWorkspaceGuestTediAllowed,
+	readWorkspaceSessionRole,
+} from "@tedix/db/queries/os-workspace-access";
+import {
 	getOsWorkspaceSummary,
 	listOsWorkspaceSummaries,
 } from "@tedix/db/queries/os-workspaces/summaries";
@@ -565,6 +569,57 @@ const removeIcon = authorOs.workspaces.removeIcon.handler(
 	},
 );
 
+/**
+ * Only a member with build access names the default, and only a tedi they
+ * could pick themselves, so nobody makes another member's personal tedi
+ * answer for everyone.
+ */
+const setDefaultTedi = authorOs.workspaces.setDefaultTedi.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const callerId = context.authType === "user" ? context.user?.sub : null;
+		if (!callerId) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a member can choose the workspace's default tedi",
+			);
+		}
+		const database = queryDb(context);
+		if (
+			(await readWorkspaceSessionRole(database, workspace.id, callerId)) !==
+			"build"
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"You need build access to this workspace to choose its default tedi",
+			);
+		}
+		if (
+			input.tediId &&
+			!(await isWorkspaceGuestTediAllowed(
+				database,
+				workspace.organizationId,
+				{ actorKind: "user", actorId: callerId },
+				input.tediId,
+			))
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Choose an active organization tedi or one of your own",
+			);
+		}
+		const row = await updateOsWorkspace(
+			database,
+			{ organizationId: workspace.organizationId, workspaceId: workspace.id },
+			{ defaultTediId: input.tediId },
+		);
+		if (!row) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
+		}
+		return { workspace: mapWorkspace(row) };
+	},
+);
+
 const archive = authorOs.workspaces.archive.handler(
 	async ({ input, context }) => {
 		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
@@ -813,6 +868,7 @@ export const osWorkspaceProcedures = {
 	update,
 	setIcon,
 	removeIcon,
+	setDefaultTedi,
 	archive,
 	restore,
 	delete: deleteWorkspace,

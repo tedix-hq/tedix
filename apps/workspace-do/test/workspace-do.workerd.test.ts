@@ -3700,6 +3700,81 @@ describe("WorkspaceDO", () => {
 		);
 	});
 
+	test("a message with no pick goes to the default tedi only when the sender may pick it", async () => {
+		const now = "2026-11-20T10:00:00.000Z";
+		const organizationId = "org_default_tedi";
+		const shared = { organizationId, workspaceId: crypto.randomUUID() };
+		const other = { organizationId, workspaceId: crypto.randomUUID() };
+		await seedCore();
+		await seedWorkspaceRows([shared, other]);
+		const tedi = (id: string, name: string, scopeKind: string, owner: string) =>
+			testEnv.DB.prepare(
+				`INSERT OR REPLACE INTO tedis (id, organization_id, name, slug, scope, owner_user_id, status, isolate_agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+			).bind(
+				id,
+				organizationId,
+				name,
+				id,
+				scopeKind,
+				owner,
+				`${id}-object`,
+				now,
+				now,
+			);
+		const setDefault = (workspaceId: string, tediId: string) =>
+			testEnv.DB.prepare(
+				"UPDATE os_workspaces SET default_tedi_id = ? WHERE id = ?",
+			).bind(tediId, workspaceId);
+		await testEnv.DB.batch([
+			tedi("org-helper", "Helper", "organization", ""),
+			tedi("u2-personal", "Sam's tedi", "personal", "u2"),
+			setDefault(shared.workspaceId, "org-helper"),
+			setDefault(other.workspaceId, "u2-personal"),
+		]);
+
+		const ws = workspace(shared);
+		await ws.scriptModel(shared, [{ text: "Helper here." }]);
+		const answered = await ws.sendTurn(shared, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Who answers?",
+			defaultTedi: true,
+		});
+		await ws.awaitTurn(shared, answered.turnId, 20_000);
+		const started = (
+			await ws.readEvents(shared, { conversationId: answered.conversationId })
+		).find((event) => event.type === "turn.started");
+		expect(started).toMatchObject({ respondingTediId: "org-helper" });
+		expect(started).not.toHaveProperty("answererNote");
+		expect((await ws.readSystemPrompts(shared)).at(-1)).toMatch(
+			/^You are tedi org-helper\./,
+		);
+
+		// Another member's personal tedi never answers for this sender.
+		const fallback = workspace(other);
+		await fallback.scriptModel(other, [{ text: "Agent here." }]);
+		const refused = await fallback.sendTurn(other, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Who answers?",
+			defaultTedi: true,
+		});
+		await fallback.awaitTurn(other, refused.turnId, 20_000);
+		const agentStart = (
+			await fallback.readEvents(other, {
+				conversationId: refused.conversationId,
+			})
+		).find((event) => event.type === "turn.started");
+		expect(agentStart).toMatchObject({
+			respondingTediId: null,
+			answererNote:
+				"Answered by the workspace agent: Sam's tedi is not available.",
+		});
+		expect((await fallback.readSystemPrompts(other)).at(-1)).not.toMatch(
+			/You are tedi/,
+		);
+	});
+
 	test("a retried socket send keeps one turn and conversation", async () => {
 		await seedCore();
 		const scope = {

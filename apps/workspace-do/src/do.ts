@@ -37,6 +37,7 @@ import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { guestMayUseMemory } from "./guest-memory";
 import { getTediById } from "@tedix/db/queries/tedis";
+import { isWorkspaceGuestTediAllowed } from "@tedix/db/queries/os-workspace-access";
 import {
 	getSkillEntryBySlug,
 	isSkillReadableByTedi,
@@ -187,6 +188,10 @@ const FRAME_TYPES = new Set([
 const TURN_IDLE_TIMEOUT_MS = 15 * 60_000;
 /** How long an object reuses the published model catalog before rereading it. */
 const MODEL_CATALOG_TTL_MS = 60_000;
+/** How long an object reuses the workspace's default tedi before rereading it. */
+const DEFAULT_TEDI_TTL_MS = 60_000;
+/** How long the default tedi's profile may take before the agent answers. */
+const DEFAULT_TEDI_PROFILE_TIMEOUT_MS = 4_000;
 
 interface ActivityPageInput {
 	afterSequence?: number;
@@ -471,6 +476,11 @@ export interface GuestProfile {
 	addenda: string;
 }
 
+/** The one line a reply shows when the workspace agent stands in. */
+function unavailableDefaultNote(name: string): string {
+	return `Answered by the workspace agent: ${name} is not available.`;
+}
+
 /** What one turn needs that does not change while it runs. */
 export interface TurnPlan {
 	scope: WorkspaceScope;
@@ -566,6 +576,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		personChatModelRef: string | undefined;
 		readAt: number;
 	} | null = null;
+	#defaultTediSetting: { tediId: string | null; readAt: number } | null = null;
+	/** The default tedi's profile, fetched before its turn started. */
+	readonly #guestProfiles = new Map<string, GuestProfile>();
 	readonly #running = new Map<string, AbortController>();
 	/** The code run each running turn is waiting for; no entry between runs. */
 	readonly #codeRuns = new Map<string, string>();
@@ -1328,6 +1341,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 		const waiting = this.#queuedMessage(turnId);
 		if (waiting) return queuedReceipt(waiting);
+		// Resolved again when a queued message starts: the setting or the
+		// sender's right to the tedi may have changed meanwhile.
+		let defaultTedi: { tediId: string; name: string } | null = null;
+		let answererNote: string | undefined;
+		if (input.defaultTedi) {
+			const resolved = await this.#defaultAnswerer(scope, input.actorId);
+			if (resolved && "note" in resolved) answererNote = resolved.note;
+			else defaultTedi = resolved;
+			const { tediId: _picked, ...rest } = input;
+			input = defaultTedi ? { ...rest, tediId: defaultTedi.tediId } : rest;
+		}
 		await this.refreshModelCatalog();
 		const models = this.configuredModels();
 		const modelId =
@@ -1389,6 +1413,29 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				}),
 			);
 		}
+		if (defaultTedi) {
+			const profile = await this.#defaultTediProfile(
+				scope,
+				defaultTedi.tediId,
+				text,
+			);
+			if (profile) this.#guestProfiles.set(turnId, profile);
+			else {
+				const { tediId: _default, ...rest } = input;
+				input = rest;
+				answererNote = unavailableDefaultNote(defaultTedi.name);
+			}
+			// The profile call yields; a retried frame may have started this id.
+			const raced = this.#turn(turnId);
+			if (raced) {
+				this.#guestProfiles.delete(turnId);
+				return {
+					turnId,
+					conversationId: raced.conversation_id,
+					seq: raced.first_seq ?? this.#events.latestSeq(),
+				};
+			}
+		}
 		const conversationId = this.#ensureConversation(
 			input.conversationId ?? null,
 			text,
@@ -1415,6 +1462,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...author,
 			respondingTediId:
 				input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
+			...(answererNote ? { answererNote } : {}),
 		};
 		const started = this.#events.append(conversationId, startEvent);
 		this.#store.run(
@@ -2670,6 +2718,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						modelId: frame.modelId,
 						attachments: frame.attachments,
 						...(frame.tediId ? { tediId: frame.tediId } : {}),
+						// Nobody picked: the workspace's default tedi answers, unless
+						// the person chose the agent or an app asked for them.
+						...(!frame.tediId &&
+						frame.answerer !== "agent" &&
+						typeof frame.fromAppId !== "string"
+							? { defaultTedi: true }
+							: {}),
 						...(typeof frame.fromAppId === "string" &&
 						/^[0-9a-f-]{36}$/i.test(frame.fromAppId)
 							? { fromAppId: frame.fromAppId }
@@ -4079,6 +4134,99 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return SANDBOX_TIMEOUT_MS;
 	}
 
+	/** Reread the workspace's default tedi at most once a minute. */
+	async #defaultTediId(scope: WorkspaceScope): Promise<string | null> {
+		const held = this.#defaultTediSetting;
+		if (held && Date.now() - held.readAt < DEFAULT_TEDI_TTL_MS)
+			return held.tediId;
+		const workspace = await getOsWorkspace(
+			createDbQueryClient(this.env.DB),
+			scope,
+		);
+		const tediId = workspace?.defaultTediId ?? null;
+		this.#defaultTediSetting = { tediId, readAt: Date.now() };
+		return tediId;
+	}
+
+	/**
+	 * Who answers a person who picked nobody: the workspace's default tedi
+	 * when the sender may pick it, the same rule as a picked tedi. Null when
+	 * no default is set; a note when the workspace agent answers instead.
+	 */
+	async #defaultAnswerer(
+		scope: WorkspaceScope,
+		actorId: string,
+	): Promise<{ tediId: string; name: string } | { note: string } | null> {
+		// Unreadable, the setting counts as unset: no line, the agent answers.
+		const tediId = await this.#defaultTediId(scope).catch((error) => {
+			workspaceLog.warn("The workspace's default tedi could not be read", {
+				event: "workspace.default_tedi_unreadable",
+				error,
+				...this.#diagnostics(),
+			});
+			return null;
+		});
+		if (!tediId) return null;
+		try {
+			const db = createDbClient(this.env.DB);
+			const [tedi, allowed] = await Promise.all([
+				getTediById(db, tediId),
+				isWorkspaceGuestTediAllowed(
+					createDbQueryClient(this.env.DB),
+					scope.organizationId,
+					{ actorKind: "user", actorId },
+					tediId,
+				),
+			]);
+			const name = tedi?.displayName ?? tedi?.name ?? "The default tedi";
+			return allowed && tedi?.isolateAgentId && !tedi.retiredAt
+				? { tediId, name }
+				: { note: unavailableDefaultNote(name) };
+		} catch (error) {
+			workspaceLog.warn("The workspace's default tedi could not be checked", {
+				event: "workspace.default_tedi_unavailable",
+				error,
+				...this.#diagnostics(),
+			});
+			return { note: unavailableDefaultNote("The default tedi") };
+		}
+	}
+
+	/** The default tedi's profile, or null when it fails or is slow. */
+	async #defaultTediProfile(
+		scope: WorkspaceScope,
+		tediId: string,
+		text: string,
+	): Promise<GuestProfile | null> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await Promise.race([
+				this.#guestProfile(scope, tediId, text, "user"),
+				new Promise<null>((resolve) => {
+					timer = setTimeout(
+						() => resolve(null),
+						DEFAULT_TEDI_PROFILE_TIMEOUT_MS,
+					);
+				}),
+			]);
+		} catch (error) {
+			workspaceLog.warn("The default tedi's profile did not load", {
+				event: "workspace.default_tedi_unavailable",
+				error,
+				...this.#diagnostics(),
+			});
+			return null;
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	#takeGuestProfile(turnId: string): GuestProfile | undefined {
+		const profile = this.#guestProfiles.get(turnId);
+		this.#guestProfiles.delete(turnId);
+		return profile;
+	}
+
 	async #guestProfile(
 		scope: WorkspaceScope,
 		tediId: string,
@@ -4265,7 +4413,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		] = await Promise.all([
 			workspaceRead,
 			input.tediId
-				? this.#guestProfile(scope, input.tediId, input.text, input.actorKind)
+				? (this.#takeGuestProfile(turnId) ??
+					this.#guestProfile(scope, input.tediId, input.text, input.actorKind))
 				: null,
 			input.actorKind === "user"
 				? this.#referencedSkills(scope, input.text)
