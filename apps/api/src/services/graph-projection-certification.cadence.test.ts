@@ -104,7 +104,7 @@ async function fixture() {
 	const db = createDbClient(
 		createD1Facade({
 			prepare(query) {
-				if (query.includes("projection_count_source_fact")) inventories++;
+				if (query.includes("memory_edge_org_counts")) inventories++;
 				return sqlite.prepare(query);
 			},
 			exec: (query) => sqlite.exec(query),
