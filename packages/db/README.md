@@ -35,8 +35,6 @@ Key principles:
 
 - `apps/api` is the primary consumer. Application code calls direct query leaf
   modules and does not build shared-D1 statements inline.
-- The additive `src/pg` surface owns the transactional Postgres core schema and
-  query variants while D1 remains active during migration.
 - Split domains use `@tedix/db/queries/<domain>/<capability>`; there are no
   query barrels or aggregation facades.
 - Query modules return persistence rows or computed database results. The
@@ -98,25 +96,6 @@ const site = await getDocsSiteBySlug(db, "handbook");
 
 Applications use these package factories; they do not call `drizzle()`
 directly.
-
-Organization, membership/invitation, principal-identity and OIDC-session queries
-also accept an explicit core-store binding. Callers provide their existing
-platform and Postgres clients to the resolver:
-
-```typescript
-import { resolveCoreStore } from "@tedix/db/queries/postgres/core-store";
-import { getOrganizationById } from "@tedix/db/queries/organizations";
-
-const store = resolveCoreStore({}, { platform: db, postgres: pg });
-const organization = await getOrganizationById(store, organizationId);
-```
-
-An omitted `plane` selects D1. `{ plane: "postgres" }` selects the supplied
-Postgres client and throws if it is missing; existing calls with a D1 client
-continue to use D1. Project bindings, organization retirement, app count
-reconciliation, tedi-backed membership lists and aggregator gateway lookups
-use the same explicit binding. Postgres retirement runs in a transaction.
-The resolver does not perform a cutover or copy data.
 
 ### Querying Data
 
@@ -329,17 +308,6 @@ ledger with no unreviewed schema drift. See the
 [live drift checker](scripts/check-live-drift.ts)
 for the accepted schema differences and verdicts.
 
-Postgres core migrations use their own Drizzle config and append-only chain so
-they cannot alter the D1 ledger:
-
-```bash
-bun run db:pg:migrate:generate -- --name <change>
-```
-
-Review and commit both files generated under `drizzle-pg/`. The cross-dialect
-test applies that chain to PGlite and compares the Postgres query variants with
-the migrated SQLite implementation.
-
 ## Environment Variables
 
 Required for live D1 inspection, Studio, and authorized migration operations.
@@ -361,8 +329,7 @@ supply the values from whichever store your installation uses.
 
 ## Architecture
 
-This package keeps the Cloudflare D1 (SQLite) data plane working while adding a
-Postgres transactional core. It provides:
+This package owns the Cloudflare D1 (SQLite) data plane. It provides:
 
 - **Type-safe schema** using Drizzle ORM with `snake_case` column naming
 - **JSON fields** for flexible metadata (app capabilities, product attributes)

@@ -35,8 +35,7 @@ that edit closely.
 
 All four scripts run in `bun run lint:repo`. The transaction ban covers D1
 code only: `.transaction()` is correct in Durable Object SQLite
-(`durable-sqlite`) and on the Postgres plane (`packages/db/src/pg/`). For
-duplicate columns, the fix is `prefixedColumns()` or an explicit alias.
+(`durable-sqlite`). For duplicate columns, the fix is `prefixedColumns()` or an explicit alias.
 
 Not covered by any check: a Zod schema written inline in a router, or a
 contract-shaped helper outside `packages/api-contract/src/`. Flag those by

@@ -1,7 +1,4 @@
 import { normalizeStoredJsonText } from "../utils/json";
-import * as pg from "../pg/queries/organization-members";
-import type { PgQueryClient } from "../pg/query-client";
-import type { CoreStoreBinding } from "./postgres/core-store";
 /**
  * Organization Member Query Helpers
  * Database queries for team membership and RBAC
@@ -38,27 +35,16 @@ import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-se
  * @param id - Member ID
  */
 export async function getMemberById(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	id: string,
 ): Promise<OrganizationMember | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres") return pg.getMemberById(db.db, id);
-		db = db.db;
-	}
-
 	return db.query.organizationMembers.findFirst({ where: { id } });
 }
 
 export async function getMemberByIdForOrganization(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: { organizationId: string; memberId: string },
 ): Promise<OrganizationMember | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getMemberByIdForOrganization(db.db, input);
-		db = db.db;
-	}
-
 	return db.query.organizationMembers.findFirst({
 		where: { id: input.memberId, organizationId: input.organizationId },
 	});
@@ -73,16 +59,10 @@ export async function getMemberByIdForOrganization(
  * @param descopeUserId - Descope user ID
  */
 export async function getMemberByUserId(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	descopeUserId: string,
 ): Promise<OrganizationMember | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getMemberByUserId(db.db, organizationId, descopeUserId);
-		db = db.db;
-	}
-
 	return db.query.organizationMembers.findFirst({
 		where: { organizationId, descopeUserId },
 	});
@@ -90,16 +70,10 @@ export async function getMemberByUserId(
 
 /** Minimal live membership check for resource-bound app actions. */
 export async function getMemberAccessByUserId(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	organizationId: string,
 	descopeUserId: string,
 ) {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getMemberAccessByUserId(db.db, organizationId, descopeUserId);
-		db = db.db;
-	}
-
 	const rows = await db
 		.select({
 			role: organizationMembers.role,
@@ -121,16 +95,10 @@ export async function getMemberAccessByUserId(
  * sender trust: a verified member address is a trusted correspondent.
  */
 export async function getActiveMemberByEmail(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	email: string,
 ): Promise<OrganizationMember | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getActiveMemberByEmail(db.db, organizationId, email);
-		db = db.db;
-	}
-
 	return db.query.organizationMembers.findFirst({
 		where: {
 			organizationId,
@@ -148,7 +116,7 @@ export async function getActiveMemberByEmail(
  * stored inbound OAuth client policy as JSON text with sorted keys, unvalidated.
  */
 export async function getMembershipsByDescopeTenants(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	descopeTenantIds: string[],
 	descopeUserId: string,
 ): Promise<
@@ -159,16 +127,6 @@ export async function getMembershipsByDescopeTenants(
 		inboundClientPolicyJson: string | null;
 	}>
 > {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getMembershipsByDescopeTenants(
-				db.db,
-				descopeTenantIds,
-				descopeUserId,
-			);
-		db = db.db;
-	}
-
 	const tenantIds = [...new Set(descopeTenantIds)];
 	if (tenantIds.length === 0) return [];
 	const rows: Array<{
@@ -222,16 +180,10 @@ export async function getMembershipsByDescopeTenants(
 
 /** Resolve membership by the stable Tedix user id, independent of provider. */
 export async function getMemberByCanonicalUserId(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	userId: string,
 ): Promise<OrganizationMember | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getMemberByCanonicalUserId(db.db, organizationId, userId);
-		db = db.db;
-	}
-
 	return db.query.organizationMembers.findFirst({
 		where: { organizationId, userId },
 	});
@@ -239,16 +191,10 @@ export async function getMemberByCanonicalUserId(
 
 /** Names are resolved inside the same organization, including off-page people. */
 export async function listMemberRepresentatives(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	userIds: string[],
 ) {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.listMemberRepresentatives(db.db, organizationId, userIds);
-		db = db.db;
-	}
-
 	const rows: { userId: string | null; name: string | null; email: string }[] =
 		[];
 	for (const ids of chunkForBoundParams([...new Set(userIds)], 50)) {
@@ -279,22 +225,12 @@ export async function listMemberRepresentatives(
  * its tedi row carry the same subject; that link is data, never a name match.
  */
 export async function listTedisByMemberDescopeUserIds(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	descopeUserIds: string[],
 ): Promise<
 	Array<{ descopeUserId: string | null; tediId: string; avatar: string | null }>
 > {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.listTedisByMemberDescopeUserIds(
-				db.db,
-				organizationId,
-				descopeUserIds,
-			);
-		db = db.db;
-	}
-
 	const rows: Array<{
 		descopeUserId: string | null;
 		tediId: string;
@@ -323,7 +259,7 @@ export async function listTedisByMemberDescopeUserIds(
 
 /** Conditional tenant-scoped identity write; never grants the represented user's access. */
 export async function setMemberIdentity(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	memberId: string,
 	identity:
@@ -336,12 +272,6 @@ export async function setMemberIdentity(
 				avatarUrl?: string | null;
 		  },
 ) {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.setMemberIdentity(db.db, organizationId, memberId, identity);
-		db = db.db;
-	}
-
 	const representedUserId =
 		identity.kind !== "human" ? identity.representedUserId : null;
 	return (
@@ -382,15 +312,9 @@ export async function setMemberIdentity(
 
 /** Retain the seat as inactive so a still-valid browser JWT cannot regain access. */
 export async function suspendBrowserAgentSeat(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	input: { organizationId: string; memberId: string; actorUserId: string },
 ) {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.suspendBrowserAgentSeat(db.db, input);
-		db = db.db;
-	}
-
 	const [seat] = await db
 		.update(organizationMembers)
 		.set({ status: "deactivated", updatedAt: new Date().toISOString() })
@@ -415,15 +339,9 @@ export async function suspendBrowserAgentSeat(
  * rejected.
  */
 export async function countActiveOwners(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 ): Promise<number> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.countActiveOwners(db.db, organizationId);
-		db = db.db;
-	}
-
 	return db.$count(
 		organizationMembers,
 		and(
@@ -442,7 +360,7 @@ export async function countActiveOwners(
  * @param opts - Filter options
  */
 export async function getMembersByOrganization(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	opts?: {
 		status?: MemberStatus;
@@ -451,12 +369,6 @@ export async function getMembersByOrganization(
 		offset?: number;
 	},
 ): Promise<OrganizationMember[]> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getMembersByOrganization(db.db, organizationId, opts);
-		db = db.db;
-	}
-
 	const conditions = [eq(organizationMembers.organizationId, organizationId)];
 
 	if (opts?.status) {
@@ -485,7 +397,7 @@ export async function getMembersByOrganization(
  * @param opts - Filter options
  */
 export async function getUserOrganizationMemberships(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	descopeUserId: string,
 	opts?: { activeOnly?: boolean },
 ): Promise<
@@ -501,12 +413,6 @@ export async function getUserOrganizationMemberships(
 		tediCount: number;
 	}>
 > {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getUserOrganizationMemberships(db.db, descopeUserId, opts);
-		db = db.db;
-	}
-
 	const rows = await db.query.organizationMembers.findMany({
 		where: opts?.activeOnly
 			? { descopeUserId, status: "active" }
@@ -578,7 +484,7 @@ export async function getUserOrganizationMemberships(
  * The launcher needs identity plus a canonical hostname slug and nothing else.
  */
 export async function getUserOsMemberships(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	descopeUserId: string,
 ): Promise<
 	Array<{
@@ -588,12 +494,6 @@ export async function getUserOsMemberships(
 		organizationLogoUrl: string | null;
 	}>
 > {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getUserOsMemberships(db.db, descopeUserId);
-		db = db.db;
-	}
-
 	const rows = await db.query.organizationMembers.findMany({
 		where: { descopeUserId, status: "active" },
 		with: { organization: true },
@@ -632,15 +532,9 @@ export async function getUserOsMemberships(
  * the environment's MCP domain) can build the full gateway URL.
  */
 export async function getOrganizationAggregatorGateways(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationIds: string[],
 ): Promise<Map<string, { slug: string; customMcpDomain: string | null }>> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.getOrganizationAggregatorGateways(db.db, organizationIds);
-		db = db.db;
-	}
-
 	const result = new Map<
 		string,
 		{ slug: string; customMcpDomain: string | null }
@@ -705,14 +599,9 @@ export async function getOrganizationAggregatorGateways(
  * @param data - Member data
  */
 export async function addMember(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	data: Omit<NewOrganizationMember, "id" | "createdAt" | "updatedAt">,
 ): Promise<OrganizationMember> {
-	if ("plane" in db) {
-		if (db.plane === "postgres") return pg.addMember(db.db, data);
-		db = db.db;
-	}
-
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -743,26 +632,13 @@ export async function addMember(
  * @param invitedBy - Initiating principal id (legacy callers may use a provider subject)
  */
 export async function inviteMember(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	email: string,
 	role: MemberRole = "member",
 	descopeUserId?: string,
 	invitedBy?: string,
 ): Promise<OrganizationMember> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.inviteMember(
-				db.db,
-				organizationId,
-				email,
-				role,
-				descopeUserId,
-				invitedBy,
-			);
-		db = db.db;
-	}
-
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -829,17 +705,11 @@ export async function inviteMember(
  * @param userInfo - Additional user info to denormalize
  */
 export async function acceptInvite(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	memberId: string,
 	descopeUserId: string,
 	userInfo?: { name?: string; avatarUrl?: string },
 ): Promise<OrganizationMember> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.acceptInvite(db.db, memberId, descopeUserId, userInfo);
-		db = db.db;
-	}
-
 	const now = new Date().toISOString();
 
 	await db
@@ -870,15 +740,10 @@ export async function acceptInvite(
  * @param data - Fields to update
  */
 export async function updateMember(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	id: string,
 	data: Partial<Omit<NewOrganizationMember, "id" | "createdAt">>,
 ): Promise<OrganizationMember> {
-	if ("plane" in db) {
-		if (db.plane === "postgres") return pg.updateMember(db.db, id, data);
-		db = db.db;
-	}
-
 	const now = new Date().toISOString();
 
 	await db
@@ -905,15 +770,10 @@ export async function updateMember(
  * @param role - New role
  */
 export async function updateMemberRole(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	id: string,
 	role: MemberRole,
 ): Promise<OrganizationMember> {
-	if ("plane" in db) {
-		if (db.plane === "postgres") return pg.updateMemberRole(db.db, id, role);
-		db = db.db;
-	}
-
 	return updateMember(db, id, { role });
 }
 
@@ -931,16 +791,10 @@ export async function updateMemberRole(
  * @param permissions - Complete desired override list; empty clears them
  */
 export async function setMemberPermissions(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	id: string,
 	permissions: OrganizationPermission[],
 ): Promise<OrganizationMember> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.setMemberPermissions(db.db, id, permissions);
-		db = db.db;
-	}
-
 	return updateMember(db, id, {
 		customPermissions: permissions.length > 0 ? permissions : null,
 	});
@@ -953,14 +807,6 @@ export async function setMemberPermissions(
  * @param db - Database client
  * @param id - Member ID
  */
-export async function removeMember(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
-	id: string,
-): Promise<void> {
-	if ("plane" in db) {
-		if (db.plane === "postgres") return pg.removeMember(db.db, id);
-		db = db.db;
-	}
-
+export async function removeMember(db: DbClient, id: string): Promise<void> {
 	await db.delete(organizationMembers).where(eq(organizationMembers.id, id));
 }

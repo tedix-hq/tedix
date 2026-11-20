@@ -2,9 +2,6 @@ import { PrincipalIdentityConflictError as IdentityConflictError } from "../util
 
 export const PrincipalIdentityConflictError = IdentityConflictError;
 export type PrincipalIdentityConflictError = IdentityConflictError;
-import * as pg from "../pg/queries/principal-identities";
-import type { PgQueryClient } from "../pg/query-client";
-import type { CoreStoreBinding } from "./postgres/core-store";
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
@@ -72,19 +69,13 @@ export interface UserTenantIdentityContext {
  * have not yet passed through the provider-neutral bootstrap.
  */
 export async function resolveUserTenantIdentityContext(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	input: {
 		organizationIdentity: ExternalIdentity;
 		userIdentity: ExternalIdentity;
 		reviewProjectId?: string;
 	},
 ): Promise<UserTenantIdentityContext | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.resolveUserTenantIdentityContext(db.db, input);
-		db = db.db;
-	}
-
 	const organizationIdentity = normalizeExternalIdentity(
 		input.organizationIdentity,
 	);
@@ -231,7 +222,7 @@ export async function resolveUserTenantIdentityContext(
 }
 
 export async function resolvePrincipalIdentity(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	identity: ExternalIdentity,
 	options?: {
 		principalType?: PrincipalType;
@@ -239,12 +230,6 @@ export async function resolvePrincipalIdentity(
 		includeRevoked?: boolean;
 	},
 ): Promise<PrincipalIdentity | undefined> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.resolvePrincipalIdentity(db.db, identity, options);
-		db = db.db;
-	}
-
 	const external = normalizeExternalIdentity(identity);
 	const conditions = [
 		eq(principalIdentities.provider, external.provider),
@@ -275,7 +260,7 @@ export async function resolvePrincipalIdentity(
 }
 
 export async function bindPrincipalIdentity(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	input: CanonicalPrincipal &
 		ExternalIdentity & {
 			id?: string;
@@ -283,11 +268,6 @@ export async function bindPrincipalIdentity(
 			verifiedAt?: string;
 		},
 ): Promise<PrincipalIdentity> {
-	if ("plane" in db) {
-		if (db.plane === "postgres") return pg.bindPrincipalIdentity(db.db, input);
-		db = db.db;
-	}
-
 	const external = normalizeExternalIdentity(input);
 	const existing = await resolvePrincipalIdentity(db, external, {
 		includeRevoked: true,
@@ -354,15 +334,9 @@ export async function bindPrincipalIdentity(
 }
 
 export async function listPrincipalIdentities(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	principal: CanonicalPrincipal,
 ): Promise<PrincipalIdentity[]> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.listPrincipalIdentities(db.db, principal);
-		db = db.db;
-	}
-
 	const conditions = [
 		eq(principalIdentities.principalType, principal.principalType),
 		eq(principalIdentities.principalId, principal.principalId),
@@ -381,16 +355,10 @@ export async function listPrincipalIdentities(
 }
 
 export async function revokePrincipalIdentity(
-	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	db: DbQueryClient,
 	identity: ExternalIdentity,
 	revokedAt = new Date().toISOString(),
 ): Promise<boolean> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return pg.revokePrincipalIdentity(db.db, identity, revokedAt);
-		db = db.db;
-	}
-
 	const external = normalizeExternalIdentity(identity);
 	const result = await db
 		.update(principalIdentities)

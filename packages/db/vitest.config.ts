@@ -12,7 +12,7 @@ export default defineConfig({
 				test: {
 					name: "node",
 					include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
-					exclude: ["src/**/*.postgres.test.ts", "src/**/*.workerd.test.ts"],
+					exclude: ["src/**/*.workerd.test.ts"],
 					globalSetup: "./src/test/migrated-sqlite-global-setup.ts",
 				},
 			},
