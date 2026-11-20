@@ -1717,6 +1717,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			title,
 			executor,
 			url: "/work/items/" + item.id,
+			requestedAt: item.createdAt,
 			projectId: project.id,
 		};
 	}

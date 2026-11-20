@@ -23,6 +23,40 @@ import { OS_COPY } from "@/shared/os-copy";
 
 /** Steps shown before "Show all": the newest ones. */
 const COMPACT_STEPS = 8;
+/** A runner usually picks a run up within a minute or two. */
+const PICK_UP_MS = 5 * 60_000;
+/** A runner reports every two minutes; two missed reports mean it stopped. */
+const SILENT_MS = 4 * 60_000;
+
+function forHowLong(ms: number): string {
+	const minutes = Math.max(1, Math.floor(ms / 60_000));
+	if (minutes < 120) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+	const hours = Math.floor(minutes / 60);
+	return hours < 48 ? `${hours} hours` : `${Math.floor(hours / 24)} days`;
+}
+
+/** No runner has taken the run: how long it has waited, once that is long. */
+function notPickedUp(requestedAt: string | undefined, now: number): string {
+	const waited = requestedAt ? now - Date.parse(requestedAt) : Number.NaN;
+	return waited > PICK_UP_MS
+		? `No runner has picked this up for ${forHowLong(waited)}`
+		: "Waiting for an agent to pick it up";
+}
+
+/** A run with no outcome whose runner has not reported for too long. */
+function stoppedResponding(
+	attempt: WorkRunAttempt | undefined,
+	lastStepAt: number | undefined,
+	now: number,
+): string | null {
+	const heard = Math.max(
+		Date.parse(attempt?.heartbeatAt ?? attempt?.startedAt ?? "") || 0,
+		lastStepAt ?? 0,
+	);
+	if (!attempt || attempt.outcome || !heard || now - heard <= SILENT_MS)
+		return null;
+	return `The runner stopped responding ${forHowLong(now - heard)} ago`;
+}
 
 export type AgentRunTaskLinkProps = {
 	to: "/work/items/$workItemId";
@@ -91,8 +125,9 @@ export function AgentRunCardView({
 		: !run
 			? "Loading the run…"
 			: waiting && !attempt
-				? "Waiting for an agent to pick it up"
-				: workRunStatus(run, attempt, undefined, new Date(now));
+				? notPickedUp(agentRun.requestedAt, now)
+				: (stoppedResponding(attempt, run.steps.at(-1)?.at, now) ??
+					workRunStatus(run, attempt, undefined, new Date(now)));
 	const stopRequested = Boolean(
 		messages?.some((message) => message.kind === "stop"),
 	);

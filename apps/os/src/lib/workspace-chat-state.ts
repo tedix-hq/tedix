@@ -119,6 +119,8 @@ export type ChatTurn = {
 	answererNote?: string;
 	/** The previous answerer handed this turn over; `text` is the one-line note. */
 	handedFrom?: { tediId: string | null };
+	/** The run this turn reports on; `text` is the one-line note. */
+	runReport?: { workItemId: string; title: string };
 	text: string;
 	/** The workspace app the person asked from. */
 	fromAppId?: string;
@@ -133,6 +135,8 @@ export type ChatTurn = {
 	replyDeltas?: Array<{ seq: number; text: string }>;
 	replyMessageId: string | null;
 	plainNotice?: true;
+	/** A run started here asks a question: its card, to answer it here. */
+	agentRunAsk?: { workItemId: string; title: string; executor: string };
 	replyDone: boolean;
 	steps: ChatStep[];
 	approvals: ChatApproval[];
@@ -288,6 +292,7 @@ function newTurn(
 		respondingTediId: event.respondingTediId ?? null,
 		...(event.answererNote ? { answererNote: event.answererNote } : {}),
 		...(event.handedFrom ? { handedFrom: event.handedFrom } : {}),
+		...(event.runReport ? { runReport: event.runReport } : {}),
 		text: event.displayText ?? event.text,
 		...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 		attachments: event.attachments,
@@ -519,6 +524,7 @@ export function applyWorkspaceChatEvent(
 					startedAt: event.at,
 					text: event.displayText ?? event.text,
 					...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
+					...(event.runReport ? { runReport: event.runReport } : {}),
 					attachments: event.attachments,
 					authorId: event.authorId,
 					authorKind: event.authorKind,
@@ -600,6 +606,19 @@ export function applyWorkspaceChatEvent(
 				replyMessageId: event.turnId,
 				replyDone: true,
 				plainNotice: true,
+				status: "done",
+				finishedAt: at,
+			}));
+			break;
+		case "agent_run.question":
+			turns = place(event.turnId)((turn) => ({
+				...turn,
+				agentRunAsk: {
+					workItemId: event.workItemId,
+					title: event.title,
+					executor: event.executor,
+				},
+				replyDone: true,
 				status: "done",
 				finishedAt: at,
 			}));

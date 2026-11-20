@@ -41,6 +41,7 @@ import {
 	type MemoryQueryResult,
 } from "@tedix/db/queries/memory-graph/tenant-rpc";
 import type { WorkspaceRpc } from "./do";
+import type { AgentRunReport } from "./run-report";
 import type { TurnRequest, WorkspaceEnv, WorkspaceScope } from "./env";
 
 export { TurnFacet, WorkspaceBindingLoopback, WorkspaceDO } from "./do";
@@ -228,11 +229,8 @@ export class InternalEntrypoint
 	sendTurn(scope: WorkspaceScope, input: TurnRequest) {
 		return stubFor(this.env, scope).sendTurn(scope, input);
 	}
-	appendAgentRunNotice(
-		scope: WorkspaceScope,
-		input: { conversationId: string; attemptId: string; content: string },
-	) {
-		return stubFor(this.env, scope).appendAgentRunNotice(scope, input);
+	reportAgentRun(scope: WorkspaceScope, report: AgentRunReport) {
+		return stubFor(this.env, scope).reportAgentRun(scope, report);
 	}
 	cancelTurn(scope: WorkspaceScope, turnId: string) {
 		return stubFor(this.env, scope).cancelTurn(scope, turnId);

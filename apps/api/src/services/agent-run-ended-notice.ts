@@ -1,5 +1,6 @@
 import { createRouterClient } from "@orpc/server";
 import { z } from "zod";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { BaseContext } from "../rpc/orpc";
@@ -9,11 +10,18 @@ const NOTE_LIMIT = 500;
 
 type NoticeWork = Pick<
 	WorkItem,
-	"id" | "orgId" | "title" | "sourceSessionKey" | "stewardType" | "stewardId"
+	| "id"
+	| "orgId"
+	| "title"
+	| "sourceSessionKey"
+	| "sourceIntentId"
+	| "stewardType"
+	| "stewardId"
+	| "executorId"
 >;
 type NoticeAttempt = Pick<
 	WorkAttempt,
-	"id" | "executorType" | "outcome" | "summary"
+	"id" | "executorType" | "outcome" | "summary" | "metadata"
 >;
 
 export type AgentRunEndedMessage = {
@@ -144,51 +152,126 @@ export function agentRunEndedHomeMessage(
 	};
 }
 
-async function enqueueWorkspaceRunNotice(
-	context: BaseContext,
-	work: NoticeWork,
-	attempt: NoticeAttempt,
-	content: string,
-	workspaceId: string,
-	conversationId: string,
-): Promise<{ status: string; error?: string }> {
-	const runtime = context.env.WORKSPACE_RUNTIME as unknown as {
-		appendAgentRunNotice(
-			scope: { organizationId: string; workspaceId: string },
-			input: { conversationId: string; attemptId: string; content: string },
-		): Promise<void>;
-	};
-	await runtime.appendAgentRunNotice(
-		{ organizationId: work.orgId, workspaceId },
-		{ conversationId, attemptId: attempt.id, content },
-	);
-	return { status: "sent" };
-}
+/** What the workspace store takes; `apps/workspace-do/src/run-report.ts`. */
+export type WorkspaceRunReport =
+	| {
+			kind: "ended";
+			conversationId: string;
+			sourceTurnId: string | null;
+			workItemId: string;
+			attemptId: string;
+			title: string;
+			outcome: "succeeded" | "failed" | "cancelled";
+			result: string;
+			commits: string[];
+			unverified: string | null;
+	  }
+	| {
+			kind: "question";
+			conversationId: string;
+			workItemId: string;
+			attemptId: string;
+			seq: number;
+			title: string;
+			executor: string;
+	  };
 
-function workspaceRunNotice(work: NoticeWork, attempt: NoticeAttempt) {
-	const [prefix, workspaceId, conversationId, ...extra] =
-		work.sourceSessionKey?.split(":") ?? [];
+/**
+ * The workspace conversation a run was started from: `startRun` records it
+ * as the source session `workspace:<workspace>:<conversation>`, and the turn
+ * that started it as the source intent `<session>:<turn>`.
+ */
+function workspaceOrigin(work: NoticeWork) {
+	const key = work.sourceSessionKey ?? "";
+	const [prefix, workspaceId, conversationId, ...extra] = key.split(":");
 	const uuid = z.uuid();
 	if (
 		prefix !== "workspace" ||
 		extra.length ||
-		!workspaceId ||
-		!conversationId ||
 		!uuid.safeParse(workspaceId).success ||
 		!uuid.safeParse(conversationId).success
 	)
 		return null;
-	const content = runEndedSentence(work, attempt);
-	return content
-		? (context: BaseContext) =>
-				enqueueWorkspaceRunNotice(
-					context,
-					work,
-					attempt,
-					content,
-					workspaceId,
-					conversationId,
+	const intent = work.sourceIntentId ?? "";
+	return {
+		workspaceId: workspaceId!,
+		conversationId: conversationId!,
+		sourceTurnId: intent.startsWith(`${key}:`)
+			? intent.slice(key.length + 1) || null
+			: null,
+	};
+}
+
+async function sendWorkspaceReport(
+	context: BaseContext,
+	work: NoticeWork,
+	workspaceId: string,
+	report: WorkspaceRunReport,
+): Promise<{ status: string; error?: string }> {
+	const runtime = context.env.WORKSPACE_RUNTIME as unknown as {
+		reportAgentRun(
+			scope: { organizationId: string; workspaceId: string },
+			report: WorkspaceRunReport,
+		): Promise<unknown>;
+	};
+	await runtime.reportAgentRun(
+		{ organizationId: work.orgId, workspaceId },
+		report,
+	);
+	return { status: "sent" };
+}
+
+const FULL_SHA = /^[a-f0-9]{40}$/;
+
+/** The report of a settled run started from a workspace conversation. */
+export function workspaceRunEndedReport(
+	work: NoticeWork,
+	attempt: NoticeAttempt,
+): { workspaceId: string; report: WorkspaceRunReport } | null {
+	const origin = workspaceOrigin(work);
+	if (!origin || attempt.executorType !== "external_agent" || !attempt.outcome)
+		return null;
+	const metadata = isRecord(attempt.metadata) ? attempt.metadata : {};
+	const settlement = isRecord(metadata.settlement) ? metadata.settlement : {};
+	const shas = Array.isArray(settlement.commitShas)
+		? settlement.commitShas
+		: [settlement.commitSha];
+	const lane = isRecord(metadata.laneResult) ? metadata.laneResult : {};
+	const unverified =
+		typeof lane.unverified === "string"
+			? lane.unverified
+			: typeof lane.remaining === "string"
+				? lane.remaining
+				: null;
+	return {
+		workspaceId: origin.workspaceId,
+		report: {
+			kind: "ended",
+			conversationId: origin.conversationId,
+			sourceTurnId: origin.sourceTurnId,
+			workItemId: work.id,
+			attemptId: attempt.id,
+			title: work.title,
+			outcome:
+				attempt.outcome === "succeeded" || attempt.outcome === "cancelled"
+					? attempt.outcome
+					: "failed",
+			result: (attempt.summary ?? "").slice(0, 4_000),
+			commits: shas
+				.filter(
+					(sha): sha is string => typeof sha === "string" && FULL_SHA.test(sha),
 				)
+				.slice(0, 10),
+			unverified: unverified?.slice(0, 1_800) ?? null,
+		},
+	};
+}
+
+function workspaceRunNotice(work: NoticeWork, attempt: NoticeAttempt) {
+	const ended = workspaceRunEndedReport(work, attempt);
+	return ended
+		? (context: BaseContext) =>
+				sendWorkspaceReport(context, work, ended.workspaceId, ended.report)
 		: null;
 }
 
@@ -271,29 +354,45 @@ export async function notifyAgentRunQuestion(
 	enqueue: Enqueue = enqueueTediMessage,
 	enqueueHome: EnqueueHome = enqueueHomeMessage,
 ): Promise<"sent" | "skipped" | "failed"> {
+	const origin = workspaceOrigin(work);
 	const sentence = runQuestionSentence(work, question);
 	const conversationId = work.sourceSessionKey?.trim();
-	if (!sentence || !conversationId || !work.stewardId) return "skipped";
+	if (!origin && (!sentence || !conversationId || !work.stewardId))
+		return "skipped";
 	const key = `${question.attemptId}:${question.seq}`;
 	const internal = () =>
 		buildInternalServiceBindingContext(context, work.orgId);
 	try {
-		const result = conversationId.toLowerCase().startsWith("agent:")
-			? await enqueue(internal(), {
-					tediId: work.stewardId,
-					conversationId,
-					idempotencyKey: `agent-run-question:${key}`,
-					content: `${sentence} Ask the person, then pass their own answer on with send_agent_run_message. Do not answer for them, and never pass on a password, a key, a sign-in, a consent or an MFA code.`,
+		// A workspace conversation shows the run's card again, where the
+		// person answers; the question itself is read from the run.
+		const result = origin
+			? await sendWorkspaceReport(internal(), work, origin.workspaceId, {
+					kind: "question",
+					conversationId: origin.conversationId,
+					workItemId: work.id,
+					attemptId: question.attemptId,
+					seq: question.seq,
+					title: work.title,
+					executor: work.executorId ?? "",
 				})
-			: conversationId.startsWith("home:")
-				? await enqueueHome(internal(), {
-						organizationId: work.orgId,
-						conversationId,
-						delegateToTediId: work.stewardId,
-						idempotencyKey: `agent-run-question-${key}`,
-						content: `[System: an agent run that a tedi started from this chat is waiting for the person's answer. Show the person the question; they can answer on the run card or here. Do not answer for them and do not start new work.] ${sentence}`,
-					})
-				: null;
+			: !sentence || !conversationId || !work.stewardId
+				? null
+				: conversationId.toLowerCase().startsWith("agent:")
+					? await enqueue(internal(), {
+							tediId: work.stewardId,
+							conversationId,
+							idempotencyKey: `agent-run-question:${key}`,
+							content: `${sentence} Ask the person, then pass their own answer on with send_agent_run_message. Do not answer for them, and never pass on a password, a key, a sign-in, a consent or an MFA code.`,
+						})
+					: conversationId.startsWith("home:")
+						? await enqueueHome(internal(), {
+								organizationId: work.orgId,
+								conversationId,
+								delegateToTediId: work.stewardId,
+								idempotencyKey: `agent-run-question-${key}`,
+								content: `[System: an agent run that a tedi started from this chat is waiting for the person's answer. Show the person the question; they can answer on the run card or here. Do not answer for them and do not start new work.] ${sentence}`,
+							})
+						: null;
 		if (!result) return "skipped";
 		if (result.status !== "failed") return "sent";
 		console.warn("[agent-run-question] the chat did not accept the message", {
