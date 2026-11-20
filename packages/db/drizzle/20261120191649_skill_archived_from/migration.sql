@@ -1,0 +1,1 @@
+ALTER TABLE `skill_entries` ADD `archived_from` text;

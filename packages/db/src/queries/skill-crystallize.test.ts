@@ -54,7 +54,7 @@ function fixture() {
 			tags TEXT,
 			audience TEXT,
 			preconditions TEXT,
-			lifecycle_state TEXT DEFAULT 'draft',
+			lifecycle_state TEXT DEFAULT 'draft', archived_from TEXT,
 			review_flagged_at TEXT,
 			review_flag_reason TEXT,
 			pace_layer TEXT NOT NULL DEFAULT 'innovation',

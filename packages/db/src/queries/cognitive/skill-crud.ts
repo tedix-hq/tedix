@@ -15,6 +15,7 @@ import {
 	assertSkillPaceLayerEval,
 	type ForcedSkillPromotionAuthority,
 	isSkillLifecyclePromotion,
+	isSkillReturnFromArchive,
 	paceLayerForLifecycle,
 	skillEvalGateCondition,
 	SkillLifecycleTransitionError,
@@ -308,6 +309,7 @@ export async function updateSkillEntry(
 				files: skillEntries.files,
 				inputSchema: skillEntries.inputSchema,
 				agentSkillsFormat: skillEntries.agentSkillsFormat,
+				archivedFrom: skillEntries.archivedFrom,
 			})
 			.from(skillEntries)
 			.where(scopedWhere)
@@ -336,13 +338,23 @@ export async function updateSkillEntry(
 						updates[key] !== undefined &&
 						JSON.stringify(updates[key]) !== JSON.stringify(current[key]),
 				);
-				await assertSkillPaceLayerEval(
-					db,
-					current,
-					layer,
-					!substantiveEdit,
-					updates.lifecycleState ?? undefined,
-				);
+				const returning =
+					!substantiveEdit &&
+					updates.lifecycleState != null &&
+					isSkillReturnFromArchive(
+						current,
+						updates.lifecycleState,
+						options?.force === true &&
+							options.forceAuthority?.kind === "operator",
+					);
+				if (!returning)
+					await assertSkillPaceLayerEval(
+						db,
+						current,
+						layer,
+						!substantiveEdit,
+						updates.lifecycleState ?? undefined,
+					);
 				writeWhere = and(
 					scopedWhere,
 					eq(skillEntries.revision, current.revision),
@@ -353,7 +365,9 @@ export async function updateSkillEntry(
 					current.updatedAt === null
 						? isNull(skillEntries.updatedAt)
 						: eq(skillEntries.updatedAt, current.updatedAt),
-					skillEvalGateCondition(layer, !substantiveEdit),
+					returning
+						? undefined
+						: skillEvalGateCondition(layer, !substantiveEdit),
 				)!;
 			}
 		}
@@ -387,15 +401,27 @@ export async function updateSkillEntry(
 		}
 	}
 	const now = new Date().toISOString();
+	if (updates.lifecycleState != null && updates.lifecycleState !== "archived")
+		patch = { ...patch, archivedFrom: null };
 	if (updates.lifecycleState === "archived") {
 		const current = await getSkillEntry(db, id, options?.organizationId);
 		if (!current) return;
+		const revision = updates.revision ?? current.revision + 1;
 		patch = {
 			...patch,
 			content: disableSkillScheduleInContent(
 				updates.content ?? current.content,
 			),
-			revision: updates.revision ?? current.revision + 1,
+			revision,
+			// Archiving an archived skill again keeps the first record.
+			...(current.lifecycleState === "archived"
+				? {}
+				: {
+						archivedFrom: {
+							lifecycleState: current.lifecycleState ?? "draft",
+							revision,
+						},
+					}),
 		};
 		writeWhere = and(writeWhere, eq(skillEntries.revision, current.revision))!;
 	}

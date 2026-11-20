@@ -58,6 +58,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			audience TEXT,
 			preconditions TEXT,
 			lifecycle_state TEXT DEFAULT 'draft',
+			archived_from TEXT,
 			review_flagged_at TEXT,
 			review_flag_reason TEXT,
 			pace_layer TEXT NOT NULL DEFAULT 'innovation',
@@ -1214,6 +1215,30 @@ describe("pace-layer eval and TTL policy", () => {
 			{ force: true, forceAuthority: { kind: "operator" } },
 		);
 		await updateSkillEntry(db, "candidate", { tediId: null, revision: 2 });
+	});
+
+	it("returns an unchanged archived skill to its earlier state without a new certification", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "rules", lifecycleState: "active", files: null });
+		insertSkill({ id: "old-draft", lifecycleState: "draft", files: null });
+		sqlite.exec(
+			`UPDATE policy_packs SET definition = '{"paceLayerPolicy":{"differentiation":{"evalRequired":true}}}'`,
+		);
+		for (const id of ["rules", "old-draft"])
+			await updateSkillEntry(db, id, { lifecycleState: "archived" });
+		// A draft does not come back as active through the archive.
+		await expect(
+			updateSkillEntry(db, "old-draft", { lifecycleState: "active" }),
+		).rejects.toMatchObject({ details: { rule: "pace_layer_requires_eval" } });
+		// Nor does an edit ride along with the return.
+		await expect(
+			updateSkillEntry(db, "rules", {
+				lifecycleState: "active",
+				content: "different rules",
+			}),
+		).rejects.toMatchObject({ details: { rule: "pace_layer_requires_eval" } });
+		await updateSkillEntry(db, "rules", { lifecycleState: "active" });
+		expect(skillRow("rules").lifecycleState).toBe("active");
 	});
 
 	it.each(["failed", "foreign", "failed-artifact"])(

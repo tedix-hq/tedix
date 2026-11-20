@@ -262,6 +262,16 @@ export const skillEntries = sqliteTable(
 		}).default("draft"),
 
 		/**
+		 * What the skill was when it was archived, and the revision the archive
+		 * wrote. Returning an unchanged skill to that state is not a promotion.
+		 * Null outside the archive, and on rows archived before this was kept.
+		 */
+		archivedFrom: text("archived_from", { mode: "json" }).$type<{
+			lifecycleState: "draft" | "active" | "proven" | "crystallized" | "stale";
+			revision: number;
+		}>(),
+
+		/**
 		 * Record-layer safety valve: crystallized skills never auto-demote on
 		 * failures — instead they get flagged here for human review.
 		 * Set by recordSkillUsageEvent(); cleared manually after review.
