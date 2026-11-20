@@ -1184,7 +1184,7 @@ function BrokerReadyConsentScreen({
 			title="Authorize access"
 			description={
 				brokerState !== "unavailable"
-					? "Preparing your Tedix workspace authorization…"
+					? "Getting the access request ready…"
 					: recoveryUrl
 						? "Your Tedix sign-in could not be prepared. Nothing was approved. Retry to sign in to Tedix and load the original request again."
 						: "Your Tedix sign-in could not be prepared. Nothing was approved. Start the connection again from the application that requested access."
@@ -1461,7 +1461,7 @@ function SessionReadyInboundConsent() {
 			<main className="centered-state" aria-busy="true">
 				<TedixBrandMark />
 				<Loader size="base" />
-				<p>Preparing your Tedix workspace authorization…</p>
+				<p>Getting the access request ready…</p>
 			</main>
 		);
 	}

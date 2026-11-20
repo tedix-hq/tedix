@@ -94,7 +94,7 @@ export function buildOsAuthReturnUrl(href: string): string {
  * consider `authenticated`. The broker emits renewal as a 401 carrying
  * `{ authenticated: false, renewalRequired: true }` (auth/session-broker.ts),
  * so gating on `authenticated` rejected the exact shape that asks for a resume:
- * the surface rendered its "Restoring your Tedix session…" spinner on
+ * the surface rendered its "Opening Tedix…" spinner on
  * `renewalRequired`, this predicate declined to resume, and the pre-expiry timer
  * also required `authenticated` — leaving a permanent spinner with no login and
  * no error for anyone who loaded a page inside the renewal window.

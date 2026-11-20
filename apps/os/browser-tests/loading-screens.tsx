@@ -23,9 +23,7 @@ createRoot(document.getElementById("root")!).render(
 			title="Sign in"
 			description="Continue to your workspace."
 			loading
-			loadingLabel={
-				state === "finishing" ? "Finishing your Tedix sign-in…" : undefined
-			}
+			loadingLabel={state === "finishing" ? "Finishing sign-in…" : undefined}
 		>
 			<button type="button">Sign in</button>
 		</IdentityJourneyFrame>

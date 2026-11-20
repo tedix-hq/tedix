@@ -92,7 +92,7 @@ describe("SessionBoundary silent session resume", () => {
 		await renderBoundary();
 
 		// The user never sees a form: the restoring state fronts the navigation.
-		expect(container.textContent).toContain("Restoring your Tedix session…");
+		expect(container.textContent).toContain("Opening Tedix…");
 		expect(container.querySelector("[data-descope-flow]")).toBeNull();
 
 		expect(replaceSpy).toHaveBeenCalledTimes(1);
@@ -197,7 +197,7 @@ describe("SessionBoundary silent session resume", () => {
 		stubBrokerStatus({ authenticated: false, renewalRequired: true });
 		await renderBoundary();
 
-		expect(container.textContent).toContain("Restoring your Tedix session…");
+		expect(container.textContent).toContain("Opening Tedix…");
 		expect(window.sessionStorage.getItem(OS_SILENT_RESUME_GUARD_KEY)).toBe(
 			null,
 		);
