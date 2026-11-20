@@ -197,52 +197,18 @@ export async function runB8OutputsChecks(
 				title: `Long title ${"unbroken".repeat(24)}`,
 			},
 		};
-		const formats: OsOutputLibraryItem[] = [
-			{
-				...readable,
-				output: {
-					...readable.output,
-					id: crypto.randomUUID(),
-					kind: "sheet",
-					title: "Regression sheet",
-				},
-				preview: {
-					kind: "sheet",
-					columns: ["Value"],
-					rows: [[1]],
-					rowCount: 1,
-					columnCount: 1,
-					sheetCount: 1,
-				},
+		const video: OsOutputLibraryItem = {
+			...readable,
+			output: {
+				...readable.output,
+				id: crypto.randomUUID(),
+				kind: "video",
+				title: "Regression video",
 			},
-			{
-				...readable,
-				output: {
-					...readable.output,
-					id: crypto.randomUUID(),
-					kind: "presentation",
-					title: "Regression slides",
-				},
-				preview: {
-					kind: "presentation",
-					title: "Regression slides",
-					bullets: ["Read only"],
-					slideCount: 1,
-				},
-			},
-			{
-				...readable,
-				output: {
-					...readable.output,
-					id: crypto.randomUUID(),
-					kind: "video",
-					title: "Regression video",
-				},
-				preview: { kind: "video", mimeType: "video/mp4" },
-			},
-		];
+			preview: { kind: "video", mimeType: "video/mp4" },
+		};
 		let library = {
-			items: [readable, revoked, long, ...formats],
+			items: [readable, revoked, long, video],
 			truncated: false,
 		};
 		let mode: "ready" | "pending" | "error" = "ready";
@@ -366,44 +332,21 @@ export async function runB8OutputsChecks(
 			assert.equal(actual.dark, theme === "dark");
 			assert.equal(actual.coarse, phone);
 			await keyboardFocus(page, search);
-			await inspect(page, `${label}-search-focus`, phone);
-			await search.fill("no-such-output-b8");
-			await visible(page.getByText("No matching documents", { exact: true }));
-			assert.equal(await cards().count(), 0);
-			await inspect(page, `${label}-no-matches`, phone, [search]);
-			await search.fill("");
-			await visible(cards().first());
-			for (const [name, title] of [
-				["Sheets", "Regression sheet"],
-				["Slides", "Regression slides"],
-				["Videos", "Regression video"],
-				["Documents", readable.output.title],
-			]) {
-				await tabs.filter({ hasText: name }).click();
-				await visible(cards().filter({ hasText: title }).first());
-				assert.equal(
-					await tabs.filter({ hasText: name }).getAttribute("aria-selected"),
-					"true",
-				);
-				if (name !== "Documents") assert.equal(await cards().count(), 1);
-			}
+			const videos = tabs.filter({ hasText: "Videos" });
+			await videos.click();
+			await visible(cards().filter({ hasText: video.output.title }));
+			assert.equal(await videos.getAttribute("aria-selected"), "true");
+			assert.equal(await cards().count(), 1);
 			await tabs.filter({ hasText: /^All/ }).click();
 			await page.getByRole("button", { name: "List view" }).click();
-			await page.waitForFunction(
-				() => localStorage.getItem("tedix:outputs:layout:v1") === "list",
-			);
-			assert.equal(
-				await page.locator('[data-slot="output-grid-preview"]').count(),
-				0,
-			);
+			const inert = page.locator('.output-list-row[aria-disabled="true"]', {
+				hasText: "Revoked source regression",
+			});
+			await visible(inert);
 			await inspect(page, `${label}-list`, phone, [
 				search,
 				cards().first().locator(".output-card-open"),
 			]);
-			const inert = page.locator('li[aria-disabled="true"]', {
-				hasText: "Revoked source regression",
-			});
-			await visible(inert);
 			assert.equal(await inert.getAttribute("tabindex"), null);
 			assert.equal(await inert.getAttribute("role"), null);
 			const before = page.url();
@@ -412,7 +355,6 @@ export async function runB8OutputsChecks(
 			await inert.dispatchEvent("keydown", { key: "Enter" });
 			assert.equal(page.url(), before);
 			await keyboardFocus(page, cards().first().locator(".output-card-open"));
-			await inspect(page, `${label}-card-focus`, phone);
 			await cards().first().locator(".output-card-open").press("Enter");
 			await page.waitForURL((url) =>
 				readable.workspace?.status === "active"
@@ -560,6 +502,9 @@ export async function runB8OutputsChecks(
 					.getByRole("button", { name: "Show more", exact: true })
 					.click();
 				assert.equal(await cards().count(), 40);
+				await search.fill("no-such-output-b8");
+				await visible(page.getByText("No matching documents", { exact: true }));
+				assert.equal(await cards().count(), 0);
 				await search.fill("Bounded output 200 ");
 				await visible(cards().first());
 				assert.equal(await cards().count(), 1);

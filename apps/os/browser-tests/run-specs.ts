@@ -11,21 +11,25 @@ import { shardSpecs } from "./spec-shards";
  * any failed.
  * `--shard i/n` runs only every n-th spec, as assigned by the CI matrix.
  * A leading `--warm=/path,/other` limits warmup to the suite's fixture pages.
+ * Use `--warm=i/n:/path,/other` to apply the list to one shard.
  *
  *   bun browser-tests/run-specs.ts browser-tests/deck.spec.ts ...
  */
 const args = process.argv.slice(2);
-const warmEntries = args[0]?.startsWith("--warm=")
-	? args.shift()!.slice("--warm=".length).split(",")
-	: undefined;
+const warm = /^--warm=(?:(\d+\/\d+):)?(\/[a-z\d/.,?=%-]+)$/i.exec(
+	args[0] ?? "",
+);
+if (warm) args.shift();
 const shardFlag = args.indexOf("--shard");
 const shard = shardFlag < 0 ? "1/1" : (args[shardFlag + 1] ?? "");
 if (shardFlag >= 0) args.splice(shardFlag, 2);
+const warmEntries =
+	warm && (!warm[1] || warm[1] === shard) ? warm[2]!.split(",") : undefined;
 const specs = shardSpecs(args, shard);
 if (specs.length === 0) {
 	console.error(
 		args.length === 0
-			? "Usage: bun browser-tests/run-specs.ts [--warm=/path,...] <spec>... [--shard i/n]"
+			? "Usage: bun browser-tests/run-specs.ts [--warm=[i/n:]/path,...] <spec>... [--shard i/n]"
 			: `[run-specs] shard ${shard} selects none of ${args.length} specs`,
 	);
 	process.exit(2);

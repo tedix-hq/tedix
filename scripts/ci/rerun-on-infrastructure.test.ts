@@ -183,6 +183,27 @@ test("retries only failed specs from a direct OS browser command", () => {
 			[command[4]!]: `bun ${runner} ${warm} ${passing} ${failing}`,
 		}),
 	).toEqual(["bun", "run", "--cwd", "apps/os", runner, warm, failing]);
+	const entries = "/outputs,/workspace/demo?workpiece=output%3Ademo";
+	const pilot = (shard: string) => ({
+		[command[4]!]: `bun ${runner} --warm=${shard}:${entries} ${passing} ${failing}`,
+	});
+	expect(browserFlakeCommand(command, [failing], pilot("2/2"))).toEqual([
+		"bun",
+		"run",
+		"--cwd",
+		"apps/os",
+		runner,
+		`--warm=${entries}`,
+		failing,
+	]);
+	expect(browserFlakeCommand(command, [failing], pilot("1/2"))).toEqual([
+		"bun",
+		"run",
+		"--cwd",
+		"apps/os",
+		runner,
+		failing,
+	]);
 	expect(
 		browserFlakeCommand(command, [failing], {
 			[command[4]!]: `${recipe} && bun other.ts`,
