@@ -277,62 +277,53 @@ async function measureTables(databaseId: string, pause: number) {
 			stats.get(t.name)!.rows = Number(rows[0]?.n ?? 0);
 		},
 	);
-	// Byte widths from the newest 200 rows; D1 caps result columns, so wide
-	// tables are sampled in chunks of 40 columns.
-	const samples = tables
-		.filter((t) => stats.get(t.name)!.rows > 0)
-		.flatMap((t) => {
-			const all = cols.get(t.name)!;
-			return Array.from({ length: Math.ceil(all.length / 40) }, (_, k) => ({
-				t,
-				chunk: all.slice(k * 40, k * 40 + 40),
-			}));
-		});
-	const average = new Map<string, Map<string, number>>();
+	// One statement per table over its newest 200 rows: the mean row width
+	// and the mean key width of each index (expressions count 16 bytes).
+	const len = (c: string) => `coalesce(length(CAST(${ident(c)} AS BLOB)), 0)`;
+	const indexesOf = (table: string) =>
+		schema.filter((o) => o.type === "index" && o.tbl === table);
+	const width = new Map<string, { row: number; indexes: number[] }>();
 	console.error("byte samples");
 	await inBatches(
 		databaseId,
-		samples,
-		6,
+		tables.filter((t) => stats.get(t.name)!.rows > 0),
+		1,
 		pause,
-		({ t, chunk }) => {
+		(t) => {
 			const order = /WITHOUT\s+ROWID/i.test(t.sql) ? "" : "ORDER BY rowid DESC";
-			return `SELECT count(*) AS sampled, ${chunk
-				.map(
-					(c, i) =>
-						`avg(coalesce(length(CAST(${ident(c)} AS BLOB)), 0)) AS a${i}`,
-				)
-				.join(", ")} FROM (SELECT * FROM ${ident(t.name)} ${order} LIMIT 200)`;
+			const keys = indexesOf(t.name).map((index, i) => {
+				const terms = indexColumns.filter((c) => c.i === index.name);
+				const sum = terms
+					.map((term) => (term.c ? len(term.c) : "16"))
+					.join(" + ");
+				return `, avg(${sum || "0"}) AS k${i}`;
+			});
+			return `SELECT count(*) AS sampled, avg(${cols.get(t.name)!.map(len).join(" + ")}) AS w${keys.join("")} FROM (SELECT * FROM ${ident(t.name)} ${order} LIMIT 200)`;
 		},
-		({ t, chunk }, rows) => {
-			const map = average.get(t.name) ?? new Map<string, number>();
-			chunk.forEach((c, i) => map.set(c, Number(rows[0]?.[`a${i}`] ?? 0)));
-			average.set(t.name, map);
-			stats.get(t.name)!.sampledRows = Number(rows[0]?.sampled ?? 0);
+		(t, rows) => {
+			const row = rows[0] ?? {};
+			stats.get(t.name)!.sampledRows = Number(row.sampled ?? 0);
+			width.set(t.name, {
+				row: Number(row.w ?? 0),
+				indexes: indexesOf(t.name).map((_, i) => Number(row[`k${i}`] ?? 0)),
+			});
 		},
 	);
 	for (const table of tables) {
 		const entry = stats.get(table.name)!;
-		const avg = average.get(table.name) ?? new Map<string, number>();
+		const w = width.get(table.name) ?? { row: 0, indexes: [] };
 		// Payload plus a 1-byte header per column and ~9 bytes of cell framing.
-		const perRow =
-			[...avg.values()].reduce((sum, v) => sum + v, 0) +
-			cols.get(table.name)!.length +
-			9;
-		entry.tableBytes = Math.round(entry.rows * perRow);
-		for (const index of schema.filter(
-			(o) => o.type === "index" && o.tbl === table.name,
-		)) {
-			const terms = indexColumns.filter((c) => c.i === index.name);
-			// Indexed columns (expressions count 16 bytes) plus the 8-byte rowid.
+		entry.tableBytes = Math.round(
+			entry.rows * (w.row + cols.get(table.name)!.length + 9),
+		);
+		indexesOf(table.name).forEach((index, i) => {
+			const terms = indexColumns.filter((c) => c.i === index.name).length;
+			// Key bytes, a header byte per term and the 8-byte rowid with framing.
 			// Partial indexes are counted as full: an upper bound.
-			const width =
-				terms.reduce(
-					(sum, term) => sum + (term.c ? (avg.get(term.c) ?? 8) : 16) + 1,
-					0,
-				) + 17;
-			entry.indexBytes += Math.round(entry.rows * width);
-		}
+			entry.indexBytes += Math.round(
+				entry.rows * ((w.indexes[i] ?? 0) + terms + 17),
+			);
+		});
 	}
 	return {
 		stats: [...stats.values()],
@@ -661,7 +652,8 @@ async function main() {
 	if (!databaseId)
 		throw new Error("Pass --database-id <uuid> of the shared main D1");
 	const outDir = arg("out-dir") ?? join(homedir(), ".tedix", "core-capacity");
-	const pause = Number(arg("pause-ms") ?? 1_500);
+	// 12 s between statements keeps the snapshot a small share of D1 time.
+	const pause = Number(arg("pause-ms") ?? 12_000);
 	// The window is the 24 h ending at the last full UTC hour.
 	const until = new Date();
 	until.setUTCMinutes(0, 0, 0);
