@@ -114,6 +114,35 @@ describe("tenant page cache key", () => {
 		expect(urls.size).toBe(variants.length + 1);
 		expect(new URL(base.url).host).toBe("acme.example");
 	});
+	it("uses the same allowlisted search params for keying and rendering", async () => {
+		const key = (search: string) =>
+			pageCacheKey(
+				new Request(`https://acme.example/blog${search}`),
+				new URL(`https://acme.cms.example/blog${search}`),
+				identity,
+				"tedix",
+			);
+		const tracked = "?utm_source=x&page=2&cb=42&q=cache";
+		expect((await key(tracked)).url).toBe((await key("?q=cache&page=2")).url);
+		expect((await key(tracked)).url).not.toBe(
+			(await key("?page=3&q=cache")).url,
+		);
+		expect((await key(tracked)).url).not.toBe(
+			(await key("?page=2&q=other")).url,
+		);
+		const request = new Request(`https://acme.example/blog${tracked}`, {
+			headers: { cookie: "theme=dark" },
+		});
+		const anonymous = anonymousPageRequest(request, "tedix");
+		expect(new URL(anonymous.url).search).toBe("?page=2&q=cache");
+		expect(anonymous.headers.has("cookie")).toBe(false);
+		expect(
+			pageCacheEligible(
+				new Request("https://acme.example/blog?_preview=secret"),
+				"/blog",
+			),
+		).toBe(false);
+	});
 });
 
 describe("tenant page cache eligibility and policy", () => {
@@ -183,7 +212,7 @@ describe("tenant page cache eligibility and policy", () => {
 			),
 		).toEqual({ freshSeconds: 300, staleSeconds: 86400 });
 		expect(pageCachePolicy(html("x"), "marketing")).toEqual({
-			freshSeconds: 300,
+			freshSeconds: 1800,
 			staleSeconds: 86400,
 		});
 		for (const template of [
@@ -194,7 +223,7 @@ describe("tenant page cache eligibility and policy", () => {
 			"starter",
 		])
 			expect(pageCachePolicy(html("x"), template)).toEqual({
-				freshSeconds: 300,
+				freshSeconds: 1800,
 				staleSeconds: 86400,
 			});
 		expect(pageCachePolicy(html("x"), "unknown")).toBeNull();
@@ -333,12 +362,12 @@ describe("cachedTenantPage", () => {
 		const render = async () => html(`v${++renders}`);
 		await (await serve(cache, key, render, 0)).response.text();
 
-		const stale = await serve(cache, key, render, 301_000);
+		const stale = await serve(cache, key, render, 1_801_000);
 		expect(stale.response.headers.get(PAGE_CACHE_STATUS_HEADER)).toBe("STALE");
 		expect(await stale.response.text()).toBe("v1");
 		expect(renders).toBe(2);
 
-		const refreshed = await serve(cache, key, render, 302_000);
+		const refreshed = await serve(cache, key, render, 1_802_000);
 		expect(refreshed.response.headers.get(PAGE_CACHE_STATUS_HEADER)).toBe(
 			"HIT",
 		);
@@ -404,7 +433,7 @@ function startRefresh(
 	cache: MemoryCache,
 	key: Request,
 	render: () => Promise<Response>,
-	now = 301_000,
+	now = 1_801_000,
 ) {
 	const background: Promise<unknown>[] = [];
 	const response = cachedTenantPage({
@@ -450,7 +479,7 @@ describe("request-owned stale refresh reservations", () => {
 		rendered.resolve(html("fresh"));
 		await first.finish();
 		expect(
-			await (await serve(cache, key, render, 302_000)).response.text(),
+			await (await serve(cache, key, render, 1_802_000)).response.text(),
 		).toBe("fresh");
 	});
 
@@ -514,11 +543,11 @@ describe("request-owned stale refresh reservations", () => {
 			expect.any(Error),
 		);
 		await (
-			await serve(cache, key, async () => html("recovered"), 302_000)
+			await serve(cache, key, async () => html("recovered"), 1_802_000)
 		).response.text();
 		expect(
 			await (
-				await serve(cache, key, async () => html("unexpected"), 303_000)
+				await serve(cache, key, async () => html("unexpected"), 1_803_000)
 			).response.text(),
 		).toBe("recovered");
 	});
@@ -533,7 +562,7 @@ describe("request-owned stale refresh reservations", () => {
 			cache,
 			key,
 			() => secondRender.promise,
-			361_001,
+			1_861_001,
 		);
 		await (await second.response).text();
 		expect(second.background).toHaveLength(1);
@@ -543,7 +572,7 @@ describe("request-owned stale refresh reservations", () => {
 			cache,
 			key,
 			async () => html("unexpected"),
-			361_002,
+			1_861_002,
 		);
 		await (await third.response).text();
 		expect(third.background).toHaveLength(0);
@@ -584,12 +613,12 @@ it("bounds reservation state without evicting active owners at capacity", async 
 	const render = () => gate.promise.then(() => html("fresh"));
 	try {
 		for (const { cache, key } of fixtures) {
-			const owner = startRefresh(cache, key, render, 1_000_000);
+			const owner = startRefresh(cache, key, render, 1_900_000);
 			owners.push(owner);
 			await (await owner.response).text();
 		}
 		const first = fixtures[0]!;
-		const stillOwned = startRefresh(first.cache, first.key, render, 1_000_001);
+		const stillOwned = startRefresh(first.cache, first.key, render, 1_900_001);
 		await (await stillOwned.response).text();
 		expect(stillOwned.background).toHaveLength(0);
 		const overflow = fixtures[256]!;
@@ -597,7 +626,7 @@ it("bounds reservation state without evicting active owners at capacity", async 
 			overflow.cache,
 			overflow.key,
 			render,
-			1_000_001,
+			1_900_001,
 		);
 		owners.push(fallback);
 		await (await fallback.response).text();

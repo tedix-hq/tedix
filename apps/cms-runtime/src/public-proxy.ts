@@ -428,17 +428,63 @@ export function patchReverseProxyHtml(html: string, org: OrgInfo): string {
 	return patched;
 }
 
-export function ensureHotThemeLink(html: string): string {
-	if (
-		html.includes("data-tedix-hot-theme") ||
-		html.includes(HOT_THEME_PUBLIC_PATH)
-	) {
-		return html;
-	}
-	return html.replace(
-		/<\/head>/i,
-		`\n\t\t<link rel="stylesheet" href="${HOT_THEME_PUBLIC_PATH}" data-tedix-hot-theme />\n$&`,
+export function ensureHotThemeLink(html: string, version?: string): string {
+	const href = version
+		? `${HOT_THEME_PUBLIC_PATH}?v=${encodeURIComponent(version)}`
+		: HOT_THEME_PUBLIC_PATH;
+	const unversioned = /\bhref=(["'])\/_tedix\/theme\.css\1/g;
+	const withVersion = html.replace(
+		unversioned,
+		(_match, quote: string) => `href=${quote}${href}${quote}`,
 	);
+	if (
+		withVersion.includes("data-tedix-hot-theme") ||
+		withVersion.includes(HOT_THEME_PUBLIC_PATH)
+	) {
+		return withVersion;
+	}
+	return withVersion.replace(
+		/<\/head>/i,
+		`\n\t\t<link rel="stylesheet" href="${href}" data-tedix-hot-theme />\n$&`,
+	);
+}
+
+export async function withLeadAttribution(
+	html: string,
+	requestUrl: URL,
+	pathname: string,
+): Promise<Uint8Array<ArrayBuffer>> {
+	const attribution: Record<string, string> = {};
+	for (const key of [
+		"utm_source",
+		"utm_medium",
+		"utm_campaign",
+		"utm_term",
+		"utm_content",
+		"gclid",
+		"fbclid",
+	]) {
+		const value = requestUrl.searchParams.get(key);
+		if (value) attribution[key] = value.slice(0, 200);
+	}
+	if (
+		!Object.keys(attribution).length ||
+		!html.includes("data-native-lead-attribution")
+	)
+		return new TextEncoder().encode(html);
+	const escaped = JSON.stringify({ source: pathname, ...attribution })
+		.replaceAll("&", "&amp;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+	const response = new HTMLRewriter()
+		.on("[data-native-lead-attribution]", {
+			element(element) {
+				element.setAttribute("data-native-lead-attribution", escaped);
+			},
+		})
+		.transform(new Response(html));
+	return new Uint8Array(await response.arrayBuffer());
 }
 
 export function patchReverseProxyLocation(
