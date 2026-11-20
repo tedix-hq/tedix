@@ -336,6 +336,14 @@ export const AppRuntimeRoleSchema = z.enum([
 export type AppRuntimeRole = z.infer<typeof AppRuntimeRoleSchema>;
 
 /**
+ * Manifest capability that lets an app's browser code hand the workspace
+ * agent a task for the signed-in person using it (`agent.ask`, then
+ * `agent.status`). The turn is that person's own chat message.
+ */
+export const APP_RUNTIME_AGENT_ASK_CAPABILITY = "agent.ask";
+export const APP_RUNTIME_AGENT_ASK_MAX_TEXT_LENGTH = 8_000;
+
+/**
  * Every operation an app may ask the host for. Anything else does not exist.
  * `outputs.patch` edits a granted Output in place (document blocks, slides or
  * a sheet range) against an expected revision, so an app that does not render

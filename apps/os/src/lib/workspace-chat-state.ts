@@ -104,6 +104,8 @@ export type ChatTurn = {
 	/** The tedi that answers this turn; null when the workspace agent does. */
 	respondingTediId?: string | null;
 	text: string;
+	/** The workspace app the person asked from. */
+	fromAppId?: string;
 	attachments?: Array<{
 		outputId: string;
 		title: string;
@@ -264,6 +266,7 @@ function newTurn(
 		authorKind: event.authorKind,
 		respondingTediId: event.respondingTediId ?? null,
 		text: event.displayText ?? event.text,
+		...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 		attachments: event.attachments,
 		reply: "",
 		replyMessageId: null,
@@ -492,6 +495,7 @@ export function applyWorkspaceChatEvent(
 					...turn,
 					startedAt: event.at,
 					text: event.displayText ?? event.text,
+					...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 					attachments: event.attachments,
 					authorId: event.authorId,
 					authorKind: event.authorKind,

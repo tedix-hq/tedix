@@ -744,6 +744,55 @@ describe("app runtime host", () => {
 		}
 	});
 
+	it("asks the workspace agent only for a signed-in person, from a declared app, on a click", async () => {
+		const activation = { isActive: true };
+		vi.stubGlobal("window", { navigator: { userActivation: activation } });
+		try {
+			const askAgent = vi.fn(async () => "turn-1");
+			const agentStatus = vi.fn(() => ({
+				status: "done" as const,
+				text: "Three rows.",
+			}));
+			const declared = (role: AppRuntimeContext["role"]) => ({
+				...deps(role),
+				context: { ...context(role), capabilities: ["agent.ask"] },
+				askAgent,
+				agentStatus,
+			});
+			const ask = { text: " Summarise these rows ", conversation: "current" };
+			expect(
+				await handleAppRuntimeCall(declared("use"), "agent.ask", ask),
+			).toEqual({ ok: true, value: { turnId: "turn-1" } });
+			expect(askAgent).toHaveBeenCalledExactlyOnceWith({
+				text: "Summarise these rows",
+				conversation: "current",
+			});
+			expect(
+				await handleAppRuntimeCall(declared("use"), "agent.status", {
+					turnId: "turn-1",
+				}),
+			).toEqual({ ok: true, value: { status: "done", text: "Three rows." } });
+			// Not declared, a share-link visitor, or no click: nothing is sent.
+			expect(
+				await handleAppRuntimeCall(
+					{ ...deps("use"), askAgent },
+					"agent.ask",
+					ask,
+				),
+			).toMatchObject({ ok: false, error: "not_permitted" });
+			expect(
+				await handleAppRuntimeCall(declared("edit"), "agent.ask", ask),
+			).toMatchObject({ ok: false, error: "not_permitted" });
+			activation.isActive = false;
+			expect(
+				await handleAppRuntimeCall(declared("owner"), "agent.ask", ask),
+			).toMatchObject({ ok: false, detail: "user_activation_required" });
+			expect(askAgent).toHaveBeenCalledOnce();
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
 	describe("app.openLink", () => {
 		const assign = vi.fn();
 		const open = vi.fn();

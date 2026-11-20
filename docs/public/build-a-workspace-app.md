@@ -851,6 +851,25 @@ with the file appears in the content as `tedix-asset:<id>`. To show one, call
 `await tedix.call("outputs.image", { slot: settings.slot, url })` with that
 value; it returns `{ dataUrl }` for display. Do not save the `dataUrl` back.
 
+To hand the workspace agent a task for the person using the app, add
+`"agent.ask"` to the manifest's `capabilities` and call `agent.ask` from a
+click. The message is sent as that person's own, shows in workspace chat
+with "Asked from" and the app's name, and follows their usual access and
+approvals. It works only for signed-in people with at least `use` access,
+never for share-link visitors or scheduled app code. `agent.status` reports
+what the chat in the same page has seen of that turn.
+
+```js
+button.addEventListener("click", async () => {
+	const { turnId } = await tedix.call("agent.ask", {
+		text: "Summarise the open rows of the Opportunities sheet",
+		conversation: "new", // or "current"
+	});
+	// Later: { status: "running" | "waiting" | "done" | "error", text }
+	const { status, text } = await tedix.call("agent.status", { turnId });
+});
+```
+
 Export `class App` from `server.js`. An invocation creates a new instance with
 `(ctx, env)` and calls an own public method on `App.prototype`. Use synchronous
 `ctx.storage.kv.get/put/delete/list` for durable state, rather than instance

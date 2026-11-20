@@ -489,6 +489,8 @@ describe("WorkspaceDO", () => {
 			actorId: "u1",
 			actorKind: "user",
 			text: "Read-only check: how many challenges excluding the problem-statement row, the three tied priorities, open Work items",
+			// Asked from a workspace app: the chat names the app under the message.
+			fromAppId: "dddddddd-0000-4000-8000-000000000001",
 		});
 		const outcome = await ws.awaitTurn(scope, turnId, 20_000);
 		const elapsed = Date.now() - started;
@@ -500,6 +502,9 @@ describe("WorkspaceDO", () => {
 		const types = events.map((event) => event.type);
 		expect(types[0]).toBe("conversation.updated");
 		expect(types[1]).toBe("turn.started");
+		expect(events[1]).toMatchObject({
+			fromAppId: "dddddddd-0000-4000-8000-000000000001",
+		});
 		expect(types.at(-1)).toBe("turn.finished");
 		expect(types.at(-2)).toBe("assistant.done");
 		const steps = events.filter((event) => event.type === "step.started");

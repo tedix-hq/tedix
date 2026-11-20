@@ -35,6 +35,8 @@ import {
 	type AppRuntimeError,
 } from "@/lib/app-runtime-protocol";
 import {
+	askedTurnStatus,
+	askWorkspaceChat,
 	offerWorkspaceChatDraft,
 	useWorkspaceChatDraftHost,
 } from "@/lib/workspace-chat-draft-handoff";
@@ -429,6 +431,9 @@ export function AppRuntimeSandbox({
 						});
 						return changes;
 					},
+					askAgent: (input) =>
+						askWorkspaceChat(workspaceId, { ...input, fromAppId: gadget.id }),
+					agentStatus: (turnId) => askedTurnStatus(gadget.id, turnId),
 					uploadOutputImage: async (input) =>
 						(await osApi.osWorkspaces.outputs.uploadImage(input)).reference,
 					readOutputImage: async (input) =>
@@ -518,6 +523,7 @@ export function AppRuntimeSandbox({
 			appDrafts,
 			workspaceId,
 			notice,
+			gadget.id,
 		],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);

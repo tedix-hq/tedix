@@ -91,6 +91,7 @@ import {
 } from "@/components/workspace-chat-attach";
 import { isImeComposing } from "@/lib/keyboard";
 import {
+	canvasGadgetsQueryOptions,
 	modelCatalogQueryOptions,
 	osQueryKeys,
 	SKILL_CATALOG_LIMIT,
@@ -143,7 +144,12 @@ import {
 	approvalSubject,
 } from "@/components/workspace-chat-approval-tray";
 import { approvalTarget } from "@/lib/workspace-chat-approval-groups";
-import { receiveWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
+import {
+	noteAskedTurn,
+	receiveWorkspaceChatAsks,
+	receiveWorkspaceChatDrafts,
+	type WorkspaceChatAsk,
+} from "@/lib/workspace-chat-draft-handoff";
 import {
 	approvalTitle,
 	webPageRequest,
@@ -437,6 +443,48 @@ export function WorkspaceChat({
 		},
 		[client, sentModelId, notePost, pinnedTediId, viewOnly],
 	);
+	// A workspace app asks the agent for the person using it: sent at once as
+	// their own message, in a new conversation or the one shown here. Only the
+	// workspace's own chat takes asks, never a chat with a pinned tedi.
+	const takeAsk = useRef<((ask: WorkspaceChatAsk) => string) | null>(null);
+	takeAsk.current =
+		client && !viewOnly && !pinnedTediId && !embedded
+			? (ask) => {
+					const fresh = ask.conversation === "new" || conversationId === null;
+					if (fresh) onSelectConversation(null);
+					notePost(ask.text);
+					return client.sendTurn({
+						text: ask.text,
+						...(fresh ? { newConversation: true } : {}),
+						...(sentModelId ? { modelId: sentModelId } : {}),
+						fromAppId: ask.fromAppId,
+					});
+				}
+			: null;
+	const takesAsks = takeAsk.current !== null;
+	useEffect(() => {
+		if (!takesAsks) return;
+		return receiveWorkspaceChatAsks(workspaceId, (ask) =>
+			takeAsk.current!(ask),
+		);
+	}, [takesAsks, workspaceId]);
+	// An ask sent while a turn worked is answered by that turn.
+	useEffect(() => {
+		for (const turn of state.turns) {
+			const status = {
+				status:
+					turn.status === "cancelled"
+						? ("error" as const)
+						: turn.status === "running"
+							? ("running" as const)
+							: turn.status,
+				text: turn.reply,
+			};
+			noteAskedTurn(turn.turnId, status);
+			for (const added of turn.added ?? [])
+				noteAskedTurn(added.messageId, status);
+		}
+	}, [state.turns]);
 	const viewOnlyNote = viewOnly ? (
 		<p
 			className="workspace-chat-view-only"
@@ -898,6 +946,9 @@ function TurnView({
 						/>
 					) : null}
 					<UserBubble text={turn.text} />
+					{turn.fromAppId ? (
+						<AskedFromApp workspaceId={workspaceId} appId={turn.fromAppId} />
+					) : null}
 				</>
 			) : null}
 			{turn.attachments?.length ? (
@@ -1132,6 +1183,28 @@ function TurnTime({
 				))}
 			</TooltipContent>
 		</Tooltip>
+	);
+}
+
+/** Under a message an app sent for the person: which app it came from. */
+function AskedFromApp({
+	workspaceId,
+	appId,
+}: {
+	workspaceId: string;
+	appId: string;
+}) {
+	const apps = useQuery(canvasGadgetsQueryOptions(workspaceId));
+	const name = apps.data?.items.find((app) => app.id === appId)?.name;
+	return (
+		<div
+			className="workspace-chat-user"
+			data-testid="workspace-chat-asked-from"
+		>
+			<Text role="caption" tone="secondary">
+				Asked from {name ?? "a workspace app"}
+			</Text>
+		</div>
 	);
 }
 

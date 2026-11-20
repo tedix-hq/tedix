@@ -81,6 +81,25 @@ link.addEventListener("click", async (event) => {
 document.getElementById("app").append(link, status);
 ```
 
+To hand the workspace agent a task for the person using the app, add
+`"agent.ask"` to the manifest's `capabilities` and call `agent.ask` from a
+click. The message is sent as that person's own, shows in workspace chat
+with "Asked from" and the app's name, and follows their usual access and
+approvals. It works only for signed-in people with at least `use` access,
+never for share-link visitors or scheduled app code. `agent.status` reports
+what the chat in the same page has seen of that turn.
+
+```js
+button.addEventListener("click", async () => {
+	const { turnId } = await tedix.call("agent.ask", {
+		text: "Summarise the open rows of the Opportunities sheet",
+		conversation: "new", // or "current"
+	});
+	// Later: { status: "running" | "waiting" | "done" | "error", text }
+	const { status, text } = await tedix.call("agent.status", { turnId });
+});
+```
+
 Export `class App` from `server.js`; its constructor receives `(ctx, env)`.
 Use synchronous `ctx.storage.kv.get/put/delete/list` for durable app state.
 An App instance is created per call; instance fields are not persistence.

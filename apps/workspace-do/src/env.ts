@@ -27,6 +27,8 @@ export interface TurnRequest {
 	attachments?: Array<{ outputId: string }>;
 	/** Run as this tedi: its persona and recall come from its own object. */
 	tediId?: string;
+	/** The workspace app the person asked from; shown under their message. */
+	fromAppId?: string;
 	/** Force the turn into its own facet (long or risky work). */
 	isolate?: boolean;
 }
