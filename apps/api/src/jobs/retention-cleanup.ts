@@ -78,6 +78,9 @@ export const RETENTION_STEPS_SWITCHED_OFF: ReadonlySet<string> = new Set([
 	"tedi-usage-events",
 	"workflow-runs",
 	"widget-events",
+	// Change records are evidence and are kept; they leave main only for the
+	// per-organization log store (Work c5642d65), never by deletion.
+	"gateway-change-records",
 ]);
 const CHECKPOINT_IO_TIMEOUT_MS = 10_000;
 
