@@ -66,6 +66,9 @@ export function browserFlakeCommand(command, specs, scripts) {
 		return command;
 	const runner = "browser-tests/run-specs.ts";
 	const [program, path, ...listed] = (scripts[script] ?? "").split(/\s+/);
+	const warm = /^--warm=\/[a-z\d/.,-]+$/.test(listed[0] ?? "")
+		? listed.splice(0, 1)
+		: [];
 	if (
 		program !== "bun" ||
 		path !== runner ||
@@ -75,7 +78,7 @@ export function browserFlakeCommand(command, specs, scripts) {
 		!specs.every((spec) => listed.includes(spec))
 	)
 		return command;
-	return [bun, run, cwd, workspace, runner, ...specs];
+	return [bun, run, cwd, workspace, runner, ...warm, ...specs];
 }
 
 function run(command) {
