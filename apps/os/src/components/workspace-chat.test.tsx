@@ -49,6 +49,7 @@ import {
 	workspaceConversationChargesQueryOptions,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
+	tediNamesQueryOptions,
 } from "@/lib/os-query-options";
 
 (
@@ -1060,6 +1061,30 @@ describe("WorkspaceChat", () => {
 		expect(
 			host.querySelector('[data-testid="workspace-chat-tray"]'),
 		).toBeNull();
+	});
+
+	it("names the tedi that answers and who asked for a change", () => {
+		queryClient.setQueryData<unknown>(tediNamesQueryOptions().queryKey, {
+			data: [{ id: "tedi-support", name: "support", displayName: "Support" }],
+		});
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed(
+				heldChange({}).map((event) =>
+					event.type === "turn.started"
+						? { ...event, respondingTediId: "tedi-support" }
+						: event.type === "approval.requested"
+							? { ...event, requester: { id: "tedi-support", kind: "tedi" } }
+							: event,
+				),
+			),
+		);
+		expect(
+			host.querySelector(".workspace-chat-reply .workspace-chat-author")
+				?.textContent,
+		).toBe("Support");
+		expect(host.textContent).toContain("Asked by Support");
 	});
 
 	it("labels a paged approval hold plainly before its request arrives", () => {

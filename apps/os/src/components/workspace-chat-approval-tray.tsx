@@ -23,6 +23,7 @@ import {
 	approvalTitle,
 	webPageRequest,
 } from "@/lib/workspace-chat-web-approval";
+import { useWorkspaceChatAuthor } from "./workspace-chat-author";
 
 /**
  * What the proposal does to which item, for button names: "creating Budget",
@@ -50,6 +51,23 @@ type DecideAll = (approvalIds: string[], decision: ApprovalDecision) => void;
  * the answer whichever chat asked. One request can be decided on its own, a
  * group or the whole tray together.
  */
+function Requester({
+	id,
+	kind,
+	tediNames,
+}: {
+	id: string;
+	kind: "person" | "tedi";
+	tediNames: Record<string, string>;
+}) {
+	const { name } = useWorkspaceChatAuthor(id, kind, tediNames);
+	return (
+		<Text as="span" role="caption" tone="secondary">
+			Asked by {name}
+		</Text>
+	);
+}
+
 export function ApprovalTray({
 	approvals,
 	conversationId,
@@ -59,6 +77,7 @@ export function ApprovalTray({
 	onDecideAll,
 	onDismissNotice,
 	onOpenConversation,
+	tediNames = {},
 }: {
 	/** The workspace's waiting requests, oldest first. */
 	approvals: readonly WaitingApproval[];
@@ -74,6 +93,8 @@ export function ApprovalTray({
 	onDismissNotice: () => void;
 	/** Opens the chat that raised a request. */
 	onOpenConversation?: (conversationId: string) => void;
+	/** Names of tedis, for who asked. */
+	tediNames?: Record<string, string>;
 }) {
 	const [sent, setSent] = useState<ReadonlyMap<string, ApprovalDecision>>(
 		new Map(),
@@ -163,6 +184,9 @@ export function ApprovalTray({
 					>
 						{page.url}
 					</Text>
+				) : null}
+				{request.requester ? (
+					<Requester {...request.requester} tediNames={tediNames} />
 				) : null}
 				{alone && !here ? (
 					<Text as="span" role="caption" tone="secondary">
