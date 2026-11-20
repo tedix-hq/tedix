@@ -16,6 +16,7 @@
  * is caught as well.
  */
 
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { nextBackoffDelayMs } from "./conversation-stream";
 import {
 	type ApprovalDecision,
@@ -110,7 +111,14 @@ export type WorkspaceChatClient = {
 		/** The workspace app the person asked from. */
 		fromAppId?: string;
 	}): string;
-	decideApproval(approvalId: string, decision: ApprovalDecision): void;
+	/** `likeThis` also approves the same kind of action for the rest of that turn. */
+	decideApproval(
+		approvalId: string,
+		decision: ApprovalDecision,
+		options?: { likeThis?: boolean },
+	): void;
+	/** Remember this person's approval mode for the workspace's chat. */
+	setApprovalMode(mode: ApprovalMode): void;
 	/**
 	 * Decide several approvals one after another, in the order given. The
 	 * object stops at the first that fails; the snapshot's `approvalRun` shows
@@ -237,7 +245,11 @@ export function createWorkspaceChatClient(
 	}
 
 	/** Send a decision and remember what it was for until the object answers. */
-	function decide(approvalIds: string[], decision: ApprovalDecision): void {
+	function decide(
+		approvalIds: string[],
+		decision: ApprovalDecision,
+		likeThis = false,
+	): void {
 		const run: ApprovalRun = {
 			runId: newId(),
 			decision,
@@ -253,6 +265,7 @@ export function createWorkspaceChatClient(
 						approvalId: only,
 						decision,
 						runId: run.runId,
+						...(likeThis ? { likeThis: true as const } : {}),
 					})
 				: send({
 						type: "decide_approvals",
@@ -503,6 +516,7 @@ export function createWorkspaceChatClient(
 						message.waiting,
 					),
 					models: message.models ?? [],
+					approvalMode: message.approvalMode ?? null,
 				};
 				if (state.lastError?.code === "not_connected")
 					state = { ...state, lastError: null };
@@ -510,6 +524,13 @@ export function createWorkspaceChatClient(
 				for (const queued of outbox.values()) send(queued);
 				return;
 			}
+			case "approval_mode":
+				state = {
+					...state,
+					approvalMode: { mode: message.mode, highest: message.highest },
+				};
+				publish();
+				return;
 			case "conversation.deleted":
 				state = setWorkspaceUsage(
 					removeConversation(state, message.conversationId),
@@ -676,8 +697,11 @@ export function createWorkspaceChatClient(
 			}
 			return clientTurnId;
 		},
-		decideApproval(approvalId, decision) {
-			decide([approvalId], decision);
+		decideApproval(approvalId, decision, options) {
+			decide([approvalId], decision, options?.likeThis === true);
+		},
+		setApprovalMode(mode) {
+			send({ type: "set_approval_mode", mode });
 		},
 		decideApprovals(approvalIds, decision) {
 			if (approvalIds.length === 0) return;

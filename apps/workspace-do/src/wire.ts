@@ -3,6 +3,8 @@
  * chat UI item (cc93f558): one reducer builds both history and live view.
  */
 
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
+
 export type AuthorKind = "person" | "tedi";
 
 export interface WireEventBase {
@@ -148,6 +150,8 @@ export type WireEventBody =
 			target?: { id: string; title: string };
 			/** The change applies at once; it is not waiting for anyone. */
 			automatic?: true;
+			/** The card may offer "Approve all like this in this turn". */
+			approveAllInTurn?: true;
 	  }
 	| {
 			type: "approval.decided";
@@ -235,6 +239,12 @@ export type WireEventBody =
 
 export type WireEvent = WireEventBase & WireEventBody;
 
+/** A person's approval mode in this workspace and the loosest they may pick. */
+export interface ApprovalModeState {
+	mode: ApprovalMode;
+	highest: ApprovalMode;
+}
+
 /** Frames without a seq: not in the ledger. */
 export type WireControlFrame =
 	| {
@@ -252,7 +262,13 @@ export type WireControlFrame =
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
+			/** The person's approval mode here; absent for anyone but a person. */
+			approvalMode?: ApprovalModeState;
 	  }
+	| ({
+			/** The answer to `set_approval_mode`, sent to the socket that set it. */
+			type: "approval_mode";
+	  } & ApprovalModeState)
 	| {
 			/**
 			 * A conversation and everything in it is gone. Its events left the
@@ -333,6 +349,8 @@ export type ClientFrame =
 			note?: string;
 			/** Echoed in the `approvals.decided` answer. */
 			runId?: string;
+			/** Also approve what the same turn asks for of the same kind. */
+			likeThis?: true;
 	  }
 	| {
 			/**
@@ -360,6 +378,7 @@ export type ClientFrame =
 			before: number | null;
 			limit?: number;
 	  }
+	| { type: "set_approval_mode"; mode: ApprovalMode }
 	| { type: "ping" };
 
 /** A request waiting for a person, as its `approval.requested` event told it. */

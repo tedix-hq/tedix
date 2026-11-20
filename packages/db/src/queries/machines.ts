@@ -130,6 +130,40 @@ export async function listMachines(
 }
 
 /**
+ * Whose computer each machine is, by its lowercase name: the account its
+ * runners sign in with, such as `user:<id>`. Null when no report names an
+ * account or when reports for that name come from more than one account.
+ */
+export async function listMachineOwners(
+	db: DbQueryClient,
+	params: { orgId: string },
+): Promise<Map<string, string | null>> {
+	const rows = await db
+		.selectDistinct({
+			machineName: dispatcherHealthReports.machineName,
+			reportedBy: dispatcherHealthReports.reportedBy,
+		})
+		.from(dispatcherHealthReports)
+		.where(
+			and(
+				eq(dispatcherHealthReports.orgId, params.orgId),
+				isNotNull(dispatcherHealthReports.machineName),
+			),
+		);
+	const owners = new Map<string, string | null>();
+	for (const row of rows) {
+		if (!row.machineName) continue;
+		const key = row.machineName.toLowerCase();
+		const account = row.reportedBy ?? null;
+		owners.set(
+			key,
+			owners.has(key) && owners.get(key) !== account ? null : account,
+		);
+	}
+	return owners;
+}
+
+/**
  * True when `reportedBy` sent a health report for this machine under this
  * reporter id. Only then may the caller claim the machine's tool calls.
  */

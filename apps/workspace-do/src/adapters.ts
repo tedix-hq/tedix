@@ -21,6 +21,13 @@ import {
 	type ComplianceDecision,
 	type LedgerQuery,
 } from "@tedix/agent-governance/types";
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
+import {
+	type ActionClass,
+	actionClass,
+	type Hold,
+	HOLDS,
+} from "./approval-modes";
 import type { WorkspaceStorage } from "./runtime";
 
 export const LEDGER_SCHEMA = `
@@ -225,6 +232,32 @@ export class SqlAccountabilityAdapter implements AccountabilityAdapter {
 	}
 }
 
+/** The decision reason of a call the Read only mode refused. */
+export const READ_ONLY_REASON = "read_only_mode";
+
+/** What one turn's approval mode needs to decide a call. */
+export interface TurnHolds {
+	mode: ApprovalMode;
+	/** Other people can open the workspace, so reading a computer asks. */
+	computerReadsHeld: boolean;
+	/** "Approve all like this" covers this gate and class in this turn. */
+	approvedAll: (resource: string, cls: ActionClass) => boolean;
+}
+
+function holdFor(call: CallDescription, holds: TurnHolds): Hold | "granted" {
+	const cls = actionClass({
+		...call,
+		args: Array.isArray(call.args) ? call.args : [call.args],
+	});
+	// A plain read never waits; only a gate that holds one does.
+	const plainRead = !call.riskTier || call.riskTier === "read";
+	if (cls === "read" && plainRead) return "run";
+	if (cls === "computer_read" && !holds.computerReadsHeld) return "run";
+	const hold = HOLDS[cls][holds.mode];
+	if (hold !== "ask") return hold;
+	return holds.approvedAll(call.resource, cls) ? "granted" : "ask";
+}
+
 export interface WorkspacePolicy {
 	/** Writes by this actor kind need a human approval receipt. */
 	writesNeedApproval: boolean;
@@ -259,40 +292,73 @@ export class SqlComplianceAdapter implements ComplianceAdapter {
 		return row;
 	}
 
-	private async approvalState(call: CallDescription): Promise<ApprovalState> {
-		// File tools only stage a proposal. Publishing still requires the draft decision.
-		if (
-			call.resource === "app_draft" &&
-			["editFile", "writeFile", "restoreVersion"].includes(call.operation) &&
-			call.riskTier === "bounded_write" &&
-			!call.destructive
-		)
-			return "not_required";
-		// These chat methods check the initiating person's current build access.
-		// Steering also checks ownership of the run before sending anything.
-		if (
-			call.resource === "work" &&
-			["startRun", "sendRunMessage", "stopRun"].includes(call.operation) &&
-			call.riskTier === "bounded_write" &&
-			call.blastRadius === "single_resource" &&
-			!call.destructive
-		)
-			return "not_required";
-		if (!call.riskTier || call.riskTier === "read") return "not_required";
-		if (!this.policy.writesNeedApproval && !call.destructive)
-			return "not_required";
+	private async approvalState(
+		call: CallDescription,
+		holds?: TurnHolds,
+	): Promise<{ state: ApprovalState; reason?: string }> {
+		const hold = holds ? holdFor(call, holds) : null;
+		if (hold === "run") return { state: "not_required" };
+		if (hold === "granted")
+			return { state: "granted", reason: "approved_for_this_turn" };
+		if (hold === "refuse") {
+			// A decision the person made on a card before still counts.
+			const receipt = await this.receiptFor(call);
+			return receipt?.state === "approved"
+				? { state: "granted" }
+				: { state: "denied", reason: READ_ONLY_REASON };
+		}
+		// A read the mode asks for goes straight to the person's receipt.
+		const askedRead =
+			hold === "ask" && (!call.riskTier || call.riskTier === "read");
+		if (!askedRead) {
+			// File tools only stage a proposal. Publishing still requires the draft decision.
+			if (
+				call.resource === "app_draft" &&
+				["editFile", "writeFile", "restoreVersion"].includes(call.operation) &&
+				call.riskTier === "bounded_write" &&
+				!call.destructive
+			)
+				return { state: "not_required" };
+			// These chat methods check the initiating person's current build access.
+			// Steering also checks ownership of the run before sending anything.
+			if (
+				call.resource === "work" &&
+				["startRun", "sendRunMessage", "stopRun"].includes(call.operation) &&
+				call.riskTier === "bounded_write" &&
+				call.blastRadius === "single_resource" &&
+				!call.destructive
+			)
+				return { state: "not_required" };
+			if (!call.riskTier || call.riskTier === "read")
+				return { state: "not_required" };
+			if (!this.policy.writesNeedApproval && !call.destructive)
+				return { state: "not_required" };
+		}
 		const receipt = await this.receiptFor(call);
-		if (receipt?.state === "approved") return "granted";
-		if (receipt?.state === "denied") return "denied";
-		return "pending";
+		if (receipt?.state === "approved") return { state: "granted" };
+		if (receipt?.state === "denied") return { state: "denied" };
+		return { state: "pending" };
 	}
 
-	async check(call: CallDescription): Promise<ComplianceDecision> {
+	/** The same gate, with one turn's approval mode applied to every call. */
+	under(holds: TurnHolds): ComplianceAdapter {
+		return {
+			check: (call) => this.check(call, holds),
+			record: (call, decision, outcome) => this.record(call, decision, outcome),
+		};
+	}
+
+	async check(
+		call: CallDescription,
+		holds?: TurnHolds,
+	): Promise<ComplianceDecision> {
+		const approval = await this.approvalState(call, holds);
 		return evaluateCall({
 			riskTier: call.riskTier,
 			blastRadius: call.blastRadius,
 			destructive: call.destructive,
-			approval: await this.approvalState(call),
+			approval: approval.state,
+			...(approval.reason ? { approvalReason: approval.reason } : {}),
 		});
 	}
 

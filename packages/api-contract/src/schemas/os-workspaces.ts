@@ -18,6 +18,7 @@
 import * as z from "zod";
 import { BlueprintProvisioningSchema } from "./blueprint-provisioning";
 import { OsLocaleSchema } from "./user-settings";
+import { ApprovalModeSchema } from "./workspace-agent-access";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
@@ -506,6 +507,18 @@ export const OsWorkspaceSchema = z.object({
 		.optional()
 		.describe(
 			"The tedi that answers a person's chat message when they pick nobody; null or absent when the workspace agent answers",
+		),
+	machineAccess: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"Whether the agent and tedis may use the computer of the person who sent a chat message; null or absent means the default: on in a private workspace, off in one other people can open",
+		),
+	highestApprovalMode: ApprovalModeSchema.nullable()
+		.optional()
+		.describe(
+			"The loosest approval mode members may pick in this workspace's chat; null or absent means the default: auto in a private workspace, ask_for_changes in one other people can open",
 		),
 	summary: OsWorkspaceSummarySchema.nullable()
 		.optional()

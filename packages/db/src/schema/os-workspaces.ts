@@ -8,6 +8,7 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { APPROVAL_MODES } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { organizations } from "./organizations";
 import { projects } from "./projects";
 
@@ -111,6 +112,20 @@ export const osWorkspaces = sqliteTable(
 		 * agent answering instead. Null when the workspace agent is the default.
 		 */
 		defaultTediId: text("default_tedi_id"),
+		/**
+		 * Whether the agent and tedis may use the computer of the person who
+		 * sent a chat message. Null means the default: on in a private
+		 * workspace, off in one other people can open.
+		 */
+		machineAccess: integer("machine_access", { mode: "boolean" }),
+		/**
+		 * The loosest approval mode members may pick in the workspace's chat.
+		 * Null means the default: auto in a private workspace, ask_for_changes
+		 * in one other people can open.
+		 */
+		highestApprovalMode: text("highest_approval_mode", {
+			enum: APPROVAL_MODES,
+		}),
 	},
 	(table) => [
 		uniqueIndex("os_workspaces_org_id_unique").on(

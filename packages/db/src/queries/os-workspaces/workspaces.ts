@@ -129,6 +129,8 @@ export interface UpdateOsWorkspacePatch {
 	ownerUserId?: string | null;
 	iconUrl?: string | null;
 	defaultTediId?: string | null;
+	machineAccess?: boolean | null;
+	highestApprovalMode?: OsWorkspaceRow["highestApprovalMode"];
 }
 
 export async function createOsWorkspace(

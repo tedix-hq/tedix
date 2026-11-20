@@ -620,6 +620,41 @@ const setDefaultTedi = authorOs.workspaces.setDefaultTedi.handler(
 	},
 );
 
+/** Only a member with build access decides what the agent and tedis may do. */
+const setAgentAccess = authorOs.workspaces.setAgentAccess.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const callerId = context.authType === "user" ? context.user?.sub : null;
+		const database = queryDb(context);
+		if (
+			!callerId ||
+			(await readWorkspaceSessionRole(database, workspace.id, callerId)) !==
+				"build"
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"You need build access to this workspace to change what the agent and tedis may do in it",
+			);
+		}
+		const row = await updateOsWorkspace(
+			database,
+			{ organizationId: workspace.organizationId, workspaceId: workspace.id },
+			{
+				...(input.machineAccess !== undefined
+					? { machineAccess: input.machineAccess }
+					: {}),
+				...(input.highestApprovalMode !== undefined
+					? { highestApprovalMode: input.highestApprovalMode }
+					: {}),
+			},
+		);
+		if (!row) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
+		}
+		return { workspace: mapWorkspace(row) };
+	},
+);
+
 const archive = authorOs.workspaces.archive.handler(
 	async ({ input, context }) => {
 		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
@@ -869,6 +904,7 @@ export const osWorkspaceProcedures = {
 	setIcon,
 	removeIcon,
 	setDefaultTedi,
+	setAgentAccess,
 	archive,
 	restore,
 	delete: deleteWorkspace,

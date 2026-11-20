@@ -1816,6 +1816,10 @@
 		{
 			"name": "20261120220607_canonical_tedi_owner/migration.sql",
 			"sha256": "a68c485d8b0156c7aecdfa261ac39ba7a0090d7a47ad8d3531d1f25a73c6fce3"
+		},
+		{
+			"name": "20261120222504_workspace_agent_access/migration.sql",
+			"sha256": "b82c8b6622330fcecef31c64ee36de9c732f55fabb866e8c057a4d06d4dd5271"
 		}
 	]
 }

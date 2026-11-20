@@ -934,6 +934,37 @@ describe("private OS workspaces", () => {
 	});
 });
 
+describe("what the agent and tedis may do in a workspace", () => {
+	it("is changed only with build access", async () => {
+		const env = createEnv();
+		const { team } = await seed(env);
+		await env.DB.prepare(
+			"INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status) VALUES ('m-vic','org-1','member-vic','vic@example.test','viewer','active')",
+		).run();
+		await expect(
+			member(env, OWNER).workspaces.setAgentAccess({
+				workspaceId: team.id,
+				machineAccess: true,
+				highestApprovalMode: "auto",
+			}),
+		).resolves.toMatchObject({
+			workspace: { machineAccess: true, highestApprovalMode: "auto" },
+		});
+		await expect(
+			member(env, "member-vic").workspaces.setAgentAccess({
+				workspaceId: team.id,
+				machineAccess: false,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			member(env, "member-vic").workspaces.setAgentAccess({
+				workspaceId: team.id,
+				highestApprovalMode: "read_only",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});
+
 describe("a workspace's default tedi", () => {
 	it("is set only with build access, and only to an active tedi the setter may pick", async () => {
 		const env = createEnv();

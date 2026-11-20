@@ -14,9 +14,10 @@ import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { expect, it, onTestFinished } from "vite-plus/test";
+import { COMPUTER_ACCESS_OFF } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { useWorkspaceMachine } from "./workspace-machine";
 
-it("queues a read on a machine under the tedi the person addressed, and reads it back", async () => {
+function setup() {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
@@ -43,10 +44,19 @@ it("queues a read on a machine under the tedi the person addressed, and reads it
 		VALUES ('tedi-research', 'org-1', 'research', 'research', 'Research Tedi', 'active', 'organization');
 		INSERT INTO os_workspaces (id, organization_id, name, visibility, owner_user_id, created_by_kind, created_by_id, created_at, updated_at)
 		VALUES ('ws-private', 'org-1', 'Private', 'private', 'member-robin', 'user', 'member-robin', '2026-11-01', '2026-11-01');
-		INSERT INTO dispatcher_health_reports (org_id, reporter_id, executor, lane, running, observed_at, reported_at, machine_name, machine_tools)
-		VALUES ('org-1', 'reporter-1', 'codex', 'codex', 1, '${now}', '${now}', 'Studio', '["read_file"]');
+		INSERT INTO os_workspaces (id, organization_id, name, visibility, owner_user_id, created_by_kind, created_by_id, created_at, updated_at)
+		VALUES ('ws-team', 'org-1', 'Team', 'org', NULL, 'user', 'member-robin', '2026-11-01', '2026-11-01');
+		INSERT INTO dispatcher_health_reports (org_id, reporter_id, executor, lane, running, observed_at, reported_at, machine_name, machine_tools, reported_by)
+		VALUES
+			('org-1', 'reporter-1', 'codex', 'codex', 1, '${now}', '${now}', 'Studio', '["read_file"]', 'user:robin'),
+			('org-1', 'reporter-2', 'codex', 'codex', 1, '${now}', '${now}', 'Desk', '["read_file"]', 'user:kai'),
+			('org-1', 'reporter-3', 'codex', 'codex', 1, '${now}', '${now}', 'Lab', '["read_file"]', NULL);
 	`);
-	const env = { DB: createD1Facade(sqlite) } as CloudflareEnv;
+	return { sqlite, env: { DB: createD1Facade(sqlite) } as CloudflareEnv };
+}
+
+it("queues a read on a machine under the tedi the person addressed, and reads it back", async () => {
+	const { sqlite, env } = setup();
 	const acting = {
 		organizationId: "org-1",
 		workspaceId: "ws-private",
@@ -90,4 +100,40 @@ it("queues a read on a machine under the tedi the person addressed, and reads it
 			op: "list",
 		}),
 	).toMatchObject({ status: "refused" });
+});
+
+it("uses only the sender's own computer where other people can open the workspace", async () => {
+	const { sqlite, env } = setup();
+	const acting = {
+		organizationId: "org-1",
+		workspaceId: "ws-team",
+		userId: "member-robin",
+	};
+	const call = (machine: string) =>
+		useWorkspaceMachine(env, {
+			...acting,
+			op: "call",
+			call: { machine, tool: "read_file", input: { path: "README.md" } },
+		});
+	// Off until someone who can edit the workspace switches it on.
+	expect(await call("Studio")).toEqual({
+		status: "refused",
+		message: COMPUTER_ACCESS_OFF,
+	});
+	sqlite.exec(
+		"UPDATE os_workspaces SET machine_access = 1 WHERE id = 'ws-team'",
+	);
+	const listed = await useWorkspaceMachine(env, { ...acting, op: "list" });
+	expect(
+		listed.status === "machines" && listed.machines.map((m) => m.machineName),
+	).toEqual(["Studio"]);
+	expect(await call("Desk")).toMatchObject({
+		status: "refused",
+		message: expect.stringContaining("another person's computer"),
+	});
+	expect(await call("Lab")).toMatchObject({
+		status: "refused",
+		message: expect.stringContaining("does not know whose computer"),
+	});
+	expect(await call("Studio")).toMatchObject({ status: "queued" });
 });

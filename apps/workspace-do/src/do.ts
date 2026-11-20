@@ -79,7 +79,25 @@ import type {
 } from "@tedix/agent-governance/types";
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { hashArguments } from "@tedix/agent-governance/hash";
-import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
+import {
+	READ_ONLY_REASON,
+	SqlAccountabilityAdapter,
+	SqlComplianceAdapter,
+} from "./adapters";
+import {
+	type ApprovalMode,
+	ApprovalModeSchema,
+	capApprovalMode,
+	DEFAULT_APPROVAL_MODE,
+	COMPUTER_ACCESS_OFF,
+	workspaceHighestApprovalMode,
+	workspaceMachineAccess,
+} from "@tedix/api-contract/schemas/workspace-agent-access";
+import {
+	type ActionClass,
+	actionClass,
+	READ_ONLY_REFUSAL,
+} from "./approval-modes";
 import { buildWorkspaceBindings, type ConnectionRequest } from "./bindings";
 import {
 	AccountReadHeld,
@@ -196,13 +214,55 @@ const FRAME_TYPES = new Set([
 	"archive_conversation",
 	"delete_conversation",
 	"read_ledger",
+	"set_approval_mode",
 	"ping",
 ]);
 const TURN_IDLE_TIMEOUT_MS = 15 * 60_000;
 /** How long an object reuses the published model catalog before rereading it. */
 const MODEL_CATALOG_TTL_MS = 60_000;
-/** How long an object reuses the workspace's default tedi before rereading it. */
-const DEFAULT_TEDI_TTL_MS = 60_000;
+/** How long an object reuses the workspace's chat settings before rereading them. */
+const SETTINGS_TTL_MS = 60_000;
+
+/** What a refused chat frame did not do and why, in one sentence. */
+function refusedFrameText(type: string | undefined, mayView: boolean) {
+	const what =
+		type === "send_turn"
+			? "Your message was not sent"
+			: type === "decide_approval" || type === "decide_approvals"
+				? "Your decision was not recorded"
+				: type === "cancel_turn"
+					? "The reply was not stopped"
+					: type === "set_approval_mode"
+						? "Your approval mode was not saved"
+						: type === "rename_conversation" ||
+							  type === "archive_conversation" ||
+							  type === "delete_conversation"
+							? "The conversation was not changed"
+							: "This chat could not be opened";
+	return mayView
+		? `${what}: you can view this workspace but not change it. Someone who can edit it can give you edit access.`
+		: `${what}: you no longer have access to this workspace.`;
+}
+
+/** Gates that run something on the sender's computer. */
+const MACHINE_RESOURCES = new Set(["machine_read", "machine_write"]);
+
+/** The workspace row's chat settings, defaults applied. */
+interface WorkspaceChatSettings {
+	defaultTediId: string | null;
+	machineAccess: boolean;
+	highestApprovalMode: ApprovalMode;
+	readAt: number;
+}
+
+interface TurnPolicy {
+	/** A signed-in person sent it themself, not from an app. */
+	personSent: boolean;
+	machineAccess: boolean;
+	mode: ApprovalMode;
+	/** Someone other than the sender can open the workspace. */
+	shared: boolean;
+}
 /** How long the default tedi's profile may take before the agent answers. */
 const DEFAULT_TEDI_PROFILE_TIMEOUT_MS = 4_000;
 
@@ -258,7 +318,8 @@ CREATE TABLE IF NOT EXISTS approvals (
 	tedi_id TEXT,
 	status TEXT NOT NULL,
 	decided_by TEXT,
-	decided_at TEXT
+	decided_at TEXT,
+	action_class TEXT
 );
 CREATE TABLE IF NOT EXISTS queued_messages (
 	message_id TEXT PRIMARY KEY,
@@ -362,6 +423,8 @@ interface ApprovalRow {
 	actor_kind: ActorKind;
 	tedi_id: string | null;
 	status: "pending" | "approved" | "denied" | "applied" | "failed";
+	/** Set when the gate held it; see `approval-modes.ts`. */
+	action_class: ActionClass | null;
 }
 
 /**
@@ -609,7 +672,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		personChatModelRef: string | undefined;
 		readAt: number;
 	} | null = null;
-	#defaultTediSetting: { tediId: string | null; readAt: number } | null = null;
+	#chatSettings: WorkspaceChatSettings | null = null;
+	/** What each running turn may do; see `#turnPolicy`. */
+	readonly #turnPolicies = new Map<string, TurnPolicy>();
 	/** The default tedi's profile, fetched before its turn started. */
 	readonly #guestProfiles = new Map<string, GuestProfile>();
 	readonly #running = new Map<string, AbortController>();
@@ -625,6 +690,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#store.delete("auto-approval-rules");
 		this.#memory = new SqlMemoryAdapter(this.#store);
 		this.#store.run(CHAT_SCHEMA);
+		// Stores made before approval modes keep their approvals table.
+		if (
+			!this.#store
+				.exec<{ name: string }>("PRAGMA table_info(approvals)")
+				.some((column) => column.name === "action_class")
+		)
+			this.#store.run("ALTER TABLE approvals ADD COLUMN action_class TEXT");
 		this.#activityRecords = new SqlActivityRecords(this.#store);
 		this.#events = new SqlEventLedger(this.#store, (event) => {
 			this.#recordConversationActivity(event);
@@ -1563,6 +1635,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 		this.#running.delete(turn.turn_id);
 		this.#codeRuns.delete(turn.turn_id);
+		this.#turnPolicies.delete(turn.turn_id);
+		this.#store.delete(`approve-all:${turn.turn_id}`);
 		for (const wake of this.#waiters.get(turn.turn_id) ?? []) wake();
 		this.#waiters.delete(turn.turn_id);
 	}
@@ -1798,16 +1872,65 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			decision: "approve" | "deny";
 			by: string;
 			note?: string;
+			/** Also approve what this turn asks for of the same kind, now and later. */
+			likeThis?: boolean;
 		},
 	): Promise<ApprovalResult> {
+		this.bindScope(scope);
+		const alike =
+			input.likeThis && input.decision === "approve"
+				? this.#approveAllLike(input.approvalId, input.by)
+				: [];
 		return (
 			await this.decideApprovals(scope, {
-				approvalIds: [input.approvalId],
+				approvalIds: [input.approvalId, ...alike],
 				decision: input.decision,
 				by: input.by,
 				...(input.note ? { note: input.note } : {}),
 			})
 		)[0]!;
+	}
+
+	/** Only the person whose computer it is decides what runs on it. */
+	#mayDecide(approval: ApprovalRow, by: string) {
+		return (
+			!MACHINE_RESOURCES.has(approval.resource) ||
+			this.#turn(approval.turn_id)?.actor_id === by
+		);
+	}
+
+	/**
+	 * "Approve all like this": the same gate and kind of action in the same
+	 * turn. Records it for the rest of that turn while it runs and returns the
+	 * other requests of that kind still waiting in it. Never across turns, and
+	 * never for what Tedix always asks for.
+	 */
+	#approveAllLike(approvalId: string, by: string): string[] {
+		const [approval] = this.#store.exec<ApprovalRow>(
+			"SELECT * FROM approvals WHERE approval_id = ?",
+			approvalId,
+		);
+		if (
+			!approval?.action_class ||
+			approval.action_class === "always" ||
+			!this.#mayDecide(approval, by)
+		)
+			return [];
+		if (this.#turn(approval.turn_id)?.status === "running") {
+			const key = `approve-all:${approval.turn_id}`;
+			const kinds = this.#store.get<string[]>(key) ?? [];
+			const kind = `${approval.resource}:${approval.action_class}`;
+			if (!kinds.includes(kind)) this.#store.put(key, [...kinds, kind]);
+		}
+		return this.#store
+			.exec<{ approval_id: string }>(
+				"SELECT approval_id FROM approvals WHERE turn_id = ? AND resource = ? AND action_class = ? AND status = 'pending' AND approval_id != ? ORDER BY rowid ASC",
+				approval.turn_id,
+				approval.resource,
+				approval.action_class,
+				approvalId,
+			)
+			.map((row) => row.approval_id);
 	}
 
 	/**
@@ -1837,6 +1960,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				approvalId,
 			);
 			if (!approval) throw new Error("Unknown approval");
+			if (!this.#mayDecide(approval, input.by))
+				throw new Error(
+					"Not decided: only the person who sent the message can approve using their computer.",
+				);
 			return approval;
 		});
 		/** What this run decided, by conversation, in the order it happened. */
@@ -2709,19 +2836,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const attachment = ws.deserializeAttachment() as WorkspaceSession & {
 			conversationId: string | null;
 		};
-		if (
-			!(await workspaceSessionAllowed(
-				this.env.DB,
-				attachment,
-				frame?.type !== "subscribe" &&
-					frame?.type !== "read_ledger" &&
-					frame?.type !== "ping",
-			))
-		) {
+		const write =
+			frame?.type !== "subscribe" &&
+			frame?.type !== "read_ledger" &&
+			frame?.type !== "ping";
+		if (!(await workspaceSessionAllowed(this.env.DB, attachment, write))) {
+			const mayView =
+				write && (await workspaceSessionAllowed(this.env.DB, attachment));
 			this.#control(ws, {
 				type: "error",
 				code: "access_denied",
-				message: "Workspace access denied",
+				message: refusedFrameText(frame?.type, mayView),
 			});
 			this.#closeDenied(ws, "frame");
 			return;
@@ -2783,7 +2908,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				case "decide_approvals": {
 					const approvalIds =
 						frame.type === "decide_approval"
-							? [frame.approvalId]
+							? [
+									frame.approvalId,
+									...(frame.likeThis && frame.decision === "approve"
+										? this.#approveAllLike(frame.approvalId, attachment.actorId)
+										: []),
+								]
 							: frame.approvalIds;
 					const results = await this.decideApprovals(scope, {
 						approvalIds,
@@ -2847,6 +2977,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					});
 					return;
 				}
+				case "set_approval_mode":
+					this.#control(ws, {
+						type: "approval_mode",
+						...(await this.setApprovalMode(scope, {
+							userId: attachment.actorId,
+							mode: frame.mode,
+						})),
+					});
+					return;
 				case "ping":
 					this.#control(ws, { type: "pong" });
 					return;
@@ -3494,6 +3633,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.bindScope(scope);
 		const current = ws.deserializeAttachment() as Record<string, unknown>;
 		ws.serializeAttachment({ ...current, scope, conversationId });
+		// Read before the cursor below, so nothing lands in between.
+		const approvalMode =
+			current.actorKind === "user" && typeof current.actorId === "string"
+				? await this.#approvalMode(scope, current.actorId).catch(() => null)
+				: null;
 		const latest = this.#events.latestSeq();
 		const usage = this.#events.usageByConversation();
 		const workspaceUsage = sumUsageTotals(usage.values());
@@ -3506,6 +3650,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			waiting: this.#waitingApprovals(),
 			models: this.configuredModels(),
 			...(workspaceUsage ? { usage: workspaceUsage } : {}),
+			...(approvalMode ? { approvalMode } : {}),
 		});
 		const page =
 			cursor !== null
@@ -3761,6 +3906,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			conversationId: string;
 			actor: { id: string; kind: ActorKind };
 		},
+		policy: TurnPolicy,
 		approvalRequestId?: string,
 	) {
 		const source: Source = {
@@ -3807,13 +3953,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					approvalRequestId,
 				}),
 			machine:
-				accountActor &&
-				workspaceMachine({
-					scope,
-					userId: accountActor.id,
-					tediId: started?.tedi_id,
-					api: this.machineService(),
-				}),
+				accountActor && policy.personSent && policy.machineAccess
+					? workspaceMachine({
+							scope,
+							userId: accountActor.id,
+							tediId: started?.tedi_id,
+							api: this.machineService(),
+						})
+					: undefined,
+			...(policy.personSent && !policy.machineAccess
+				? { machineUnavailable: COMPUTER_ACCESS_OFF }
+				: {}),
+			computerReadsAsk: policy.shared,
+			readOnly: policy.mode === "read_only",
 			person:
 				accountActor &&
 				workspacePerson({
@@ -3864,7 +4016,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							},
 						})
 					: undefined,
-			compliance: this.#compliance,
+			compliance: this.#compliance.under({
+				mode: policy.mode,
+				computerReadsHeld: policy.shared,
+				approvedAll: (resource, cls) =>
+					(
+						this.#store.get<string[]>(`approve-all:${turn.turnId}`) ?? []
+					).includes(`${resource}:${cls}`),
+			}),
 			accountability: {
 				append: async (input) => {
 					this.#store.put("activity-scope", scope);
@@ -3918,7 +4077,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
 		if (!(BINDING_NAMES as readonly string[]).includes(binding))
 			return { ok: false, error: `Unknown binding ${binding}` };
-		const target = this.#bindings(scope, turn, approvalRequestId)[
+		const policy = await this.#turnPolicy(scope, turn.turnId);
+		const target = this.#bindings(scope, turn, policy, approvalRequestId)[
 			binding as BindingName
 		] as Record<string, unknown>;
 		const fn = target[method];
@@ -3964,7 +4124,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 			return { ok: true, value: JSON.parse(json) };
 		} catch (error: unknown) {
-			let message = callFailureText(error);
+			let message =
+				error instanceof CallRefusedError &&
+				error.decision.reason === READ_ONLY_REASON
+					? READ_ONLY_REFUSAL
+					: callFailureText(error);
 			if (error instanceof AccountReadHeld) {
 				const requestArgs = args.slice(0, 3);
 				const [inserted] = this.#store.exec<{ approval_id: string }>(
@@ -4033,8 +4197,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						error.decision.blastRadius !== "single_resource",
 				});
 				const approvalId = error.record.id;
+				const cls = actionClass({
+					resource: error.record.resource,
+					operation: method,
+					riskTier:
+						error.decision.riskTier === "unclassified"
+							? undefined
+							: error.decision.riskTier,
+					destructive: error.decision.reason === "destructive_unapproved",
+					args,
+				});
 				this.#store.run(
-					"INSERT OR IGNORE INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, tedi_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+					"INSERT OR IGNORE INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, tedi_id, status, action_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
 					approvalId,
 					turn.turnId,
 					turn.conversationId,
@@ -4047,6 +4221,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					turn.actor.id,
 					turn.actor.kind,
 					turn.tediId ?? null,
+					cls,
 				);
 				const request = args[0];
 				const outputId =
@@ -4092,6 +4267,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
 					...(appliesNow ? { automatic: true as const } : {}),
+					// What Tedix always asks for is decided one at a time.
+					...(!appliesNow && cls !== "always"
+						? { approveAllInTurn: true as const }
+						: {}),
 				};
 				this.#events.append(turn.conversationId, approvalEvent);
 				const [held] = appliesNow
@@ -4225,18 +4404,85 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return SANDBOX_TIMEOUT_MS;
 	}
 
-	/** Reread the workspace's default tedi at most once a minute. */
-	async #defaultTediId(scope: WorkspaceScope): Promise<string | null> {
-		const held = this.#defaultTediSetting;
-		if (held && Date.now() - held.readAt < DEFAULT_TEDI_TTL_MS)
-			return held.tediId;
+	/** Reread the workspace's chat settings at most once a minute. */
+	async #settings(scope: WorkspaceScope): Promise<WorkspaceChatSettings> {
+		const held = this.#chatSettings;
+		if (held && Date.now() - held.readAt < SETTINGS_TTL_MS) return held;
 		const workspace = await getOsWorkspace(
 			createDbQueryClient(this.env.DB),
 			scope,
 		);
-		const tediId = workspace?.defaultTediId ?? null;
-		this.#defaultTediSetting = { tediId, readAt: Date.now() };
-		return tediId;
+		const settings = {
+			defaultTediId: workspace?.defaultTediId ?? null,
+			machineAccess: workspace ? workspaceMachineAccess(workspace) : false,
+			highestApprovalMode: workspace
+				? workspaceHighestApprovalMode(workspace)
+				: DEFAULT_APPROVAL_MODE,
+			readAt: Date.now(),
+		};
+		this.#chatSettings = settings;
+		return settings;
+	}
+
+	async #defaultTediId(scope: WorkspaceScope): Promise<string | null> {
+		return (await this.#settings(scope)).defaultTediId;
+	}
+
+	/** The approval mode a person picked here, capped by the workspace's highest. */
+	async #approvalMode(scope: WorkspaceScope, userId: string) {
+		const { highestApprovalMode: highest } = await this.#settings(scope);
+		const picked =
+			this.#store.get<ApprovalMode>(`approval-mode:${userId}`) ??
+			DEFAULT_APPROVAL_MODE;
+		return { mode: capApprovalMode(picked, highest), highest };
+	}
+
+	/** Remembers a person's approval mode for this workspace's chat. */
+	async setApprovalMode(
+		scope: WorkspaceScope,
+		input: { userId: string; mode: ApprovalMode },
+	) {
+		this.bindScope(scope);
+		const mode = ApprovalModeSchema.parse(input.mode);
+		this.#store.put(`approval-mode:${input.userId}`, mode);
+		return this.#approvalMode(scope, input.userId);
+	}
+
+	/**
+	 * What one turn may do, read once per turn. Only a signed-in person's own
+	 * message uses their mode and their computer; a turn an app, a tedi, a
+	 * schedule or anyone else started asks every time and reaches no computer.
+	 */
+	async #turnPolicy(scope: WorkspaceScope, turnId: string) {
+		const known = this.#turnPolicies.get(turnId);
+		if (known) return known;
+		const turn = this.#turn(turnId);
+		const [started] = this.#events.ofTurn(turnId, "turn.started");
+		const personSent =
+			turn?.actor_kind === "user" &&
+			!(started?.type === "turn.started" && started.fromAppId);
+		// Unreadable settings leave the chat asking as it always has.
+		const settings = await this.#settings(scope).catch(() => null);
+		const picked =
+			personSent && turn
+				? this.#store.get<ApprovalMode>(`approval-mode:${turn.actor_id}`)
+				: undefined;
+		const policy = {
+			personSent,
+			machineAccess: settings?.machineAccess ?? false,
+			mode: capApprovalMode(
+				picked ?? DEFAULT_APPROVAL_MODE,
+				settings?.highestApprovalMode ?? DEFAULT_APPROVAL_MODE,
+			),
+			// Unreadable, the workspace counts as open to others.
+			shared:
+				!personSent ||
+				!turn ||
+				!(await this.#onlyOpenableBy(scope, turn.actor_id).catch(() => false)),
+		};
+		// Kept while the turn runs; a decision after it ended reads afresh.
+		if (turn?.status === "running") this.#turnPolicies.set(turnId, policy);
+		return policy;
 	}
 
 	/**
@@ -4757,6 +5003,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			conversationId,
 			input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
 		);
+		const policy = await this.#turnPolicy(scope, turnId);
 		const systemPrompt = buildSystemPrompt({
 			workspaceName: workspace.name,
 			workspaceDescription: workspace.description,
@@ -4771,6 +5018,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			linkedAccounts,
 			otherReplyAuthors,
 			tediCatalog,
+			// Said up front, so the agent does not first claim it has no computer.
+			machineUnavailable:
+				policy.personSent && !policy.machineAccess ? COMPUTER_ACCESS_OFF : null,
+			readOnly: policy.mode === "read_only",
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {
@@ -5002,6 +5253,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#running.delete(turnId);
 			this.#codeRuns.delete(turnId);
 			this.#viewsShown.delete(turnId);
+			this.#turnPolicies.delete(turnId);
+			this.#store.delete(`approve-all:${turnId}`);
 			handOff = this.#store.get<HandOff>(`hand-off:${turnId}`);
 			if (handOff) this.#store.delete(`hand-off:${turnId}`);
 			for (const wake of this.#waiters.get(turnId) ?? []) wake();
@@ -5220,8 +5473,13 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 			decision: "approve" | "deny";
 			by: string;
 			note?: string;
+			likeThis?: boolean;
 		},
 	): Promise<ApprovalResult>;
+	setApprovalMode(
+		scope: WorkspaceScope,
+		input: { userId: string; mode: ApprovalMode },
+	): Promise<{ mode: ApprovalMode; highest: ApprovalMode }>;
 	decideApprovals(
 		scope: WorkspaceScope,
 		input: {

@@ -336,6 +336,8 @@ export function mapWorkspace(
 		ownerUserId: row.ownerUserId,
 		iconUrl: row.iconUrl,
 		defaultTediId: row.defaultTediId,
+		machineAccess: row.machineAccess,
+		highestApprovalMode: row.highestApprovalMode,
 		summary: summary ? mapWorkspaceSummary(summary) : null,
 	};
 }

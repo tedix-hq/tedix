@@ -61,6 +61,7 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import { ApprovalModePicker } from "@/components/workspace-chat-approval-mode";
 import {
 	Tooltip,
 	TooltipContent,
@@ -649,8 +650,8 @@ export function WorkspaceChat({
 				}
 				hasEarlier={state.hasEarlier}
 				onLoadEarlier={() => client?.loadEarlier()}
-				onDecide={(approvalId, decision) => {
-					if (!viewOnly) client?.decideApproval(approvalId, decision);
+				onDecide={(approvalId, decision, options) => {
+					if (!viewOnly) client?.decideApproval(approvalId, decision, options);
 				}}
 				onApproveAll={(approvalIds) => {
 					if (!viewOnly) client?.decideApprovals(approvalIds, "approve");
@@ -822,7 +823,7 @@ function Thread({
 	catchingUp: boolean;
 	hasEarlier: boolean;
 	onLoadEarlier: () => void;
-	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	onDecide: DecideApproval;
 	onApproveAll: ApproveAll;
 	/** Resumes after the last turn; `null` while another turn is busy. */
 	onContinue: (() => void) | null;
@@ -940,7 +941,7 @@ function TurnView({
 	modelLabel: string | undefined;
 	/** The newest turn of the thread. */
 	latest: boolean;
-	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	onDecide: DecideApproval;
 	onApproveAll: ApproveAll;
 	onContinue: (() => void) | null;
 	onRetry: RetryTurn | null;
@@ -1556,6 +1557,13 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 	return "";
 }
 
+/** `likeThis` also approves the same kind of action for the rest of that turn. */
+type DecideApproval = (
+	approvalId: string,
+	decision: "approve" | "deny",
+	options?: { likeThis?: boolean },
+) => void;
+
 /** The decision and the action's recorded result remain separate. */
 function ApprovalCard({
 	approval,
@@ -1565,7 +1573,7 @@ function ApprovalCard({
 }: {
 	approval: ChatApproval;
 	workspaceId: string;
-	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	onDecide: DecideApproval;
 	/** Approved together with the rest of its reply; the decision is on its way. */
 	approving: boolean;
 }) {
@@ -1733,6 +1741,21 @@ function ApprovalCard({
 								? "Accept"
 								: "Approve"}
 					</Button>
+					{approval.approveAllInTurn ? (
+						<Button
+							aria-label={`Approve ${subject} and all like it in this turn`}
+							disabled={decided !== null}
+							onClick={() => {
+								setSent("approve");
+								onDecide(approval.approvalId, "approve", { likeThis: true });
+							}}
+							size="sm"
+							title="Also approves the same kind of action for the rest of this reply. The next message asks again."
+							variant="outline"
+						>
+							Approve all like this in this turn
+						</Button>
+					) : null}
 				</div>
 			) : null}
 		</div>
@@ -2206,6 +2229,13 @@ function Composer({
 									))}
 								</SelectContent>
 							</Select>
+						) : null}
+						{state.approvalMode && disabledReason === null ? (
+							<ApprovalModePicker
+								state={state.approvalMode}
+								onChange={(mode) => client?.setApprovalMode(mode)}
+								disabled={client === null}
+							/>
 						) : null}
 						{modelControl}
 						{usage}

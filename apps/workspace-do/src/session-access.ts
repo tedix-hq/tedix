@@ -77,5 +77,7 @@ export async function assertWorkspaceGuestTedi(
 			tediId,
 		))
 	)
-		throw new Error("Tedi access denied");
+		throw new Error(
+			"Your message was not sent: you cannot pick that tedi here. Pick an organization tedi or one of your own.",
+		);
 }

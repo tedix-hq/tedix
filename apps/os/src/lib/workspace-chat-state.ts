@@ -9,6 +9,7 @@
 
 import type {
 	ApprovalDecision,
+	ApprovalModeState,
 	ConversationSummary,
 	StepKind,
 	TurnStatus,
@@ -52,6 +53,8 @@ export type ChatApproval = {
 	decidedAt?: string;
 	/** The change applied at once; it never waited for a person. */
 	automatic?: boolean;
+	/** "Approve all like this in this turn" may be offered. */
+	approveAllInTurn?: boolean;
 	execution?: {
 		status: "applied" | "failed";
 		error?: string;
@@ -211,6 +214,8 @@ export type WorkspaceChatState = {
 	approvalNotice: ApprovalNotice | null;
 	conversations: ConversationSummary[];
 	models: Array<{ id: string; label: string }>;
+	/** This person's approval mode here; null until the object says. */
+	approvalMode: ApprovalModeState | null;
 	/** Older events exist before the first turn shown. */
 	hasEarlier: boolean;
 	/** Messages sent to a working turn that the agent has not read yet. */
@@ -257,6 +262,7 @@ export function initialWorkspaceChatState(
 		approvalNotice: null,
 		conversations: [],
 		models: [],
+		approvalMode: null,
 		hasEarlier: false,
 		queued: [],
 		returned: [],
@@ -793,6 +799,7 @@ export function applyWorkspaceChatEvent(
 									target: event.target,
 									requester: event.requester,
 									actingTediId: event.actingTediId,
+									...(event.approveAllInTurn ? { approveAllInTurn: true } : {}),
 									// A change that applies at once never waits for a person,
 									// even before its decision arrives.
 									...(event.automatic
