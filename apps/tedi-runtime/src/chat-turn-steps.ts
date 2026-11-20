@@ -42,6 +42,15 @@ export const DELEGATED_FACET_STEP_RETRY = {
 } satisfies WorkflowStepConfig;
 
 /**
+ * Ceiling on admission tries for one segment: 15–30 minutes in the queue.
+ * Every deferral opens a new checkpoint with a fresh retry budget, so without
+ * a ceiling a turn that fails each time it is admitted never ends. On 20 Nov
+ * about 30 such scheduled runs kept both turn slots of one tedi busy and its
+ * chat turns waited for minutes.
+ */
+export const MAX_TURN_ADMISSION_ATTEMPTS = 60;
+
+/**
  * The subset of the SDK's `AgentWorkflowStep` this orchestration uses: durable
  * step execution plus the durable completion report (an idempotent
  * `__agent_reportComplete_*` step that RPCs `onWorkflowComplete` on the Agent).
@@ -132,6 +141,10 @@ export async function driveChatTurnSteps(
 		: facetConfig;
 	const runSegment = async (name: string, continuation?: number) => {
 		for (let attempt = 0; ; attempt++) {
+			if (attempt >= MAX_TURN_ADMISSION_ATTEMPTS)
+				throw new Error(
+					`Turn was not admitted after ${MAX_TURN_ADMISSION_ATTEMPTS} tries`,
+				);
 			const checkpoint = attempt === 0 ? name : `${name}-admission-${attempt}`;
 			const raw = await step.do(checkpoint, retryConfig, () =>
 				ops.runFacetTurn(continuation),
