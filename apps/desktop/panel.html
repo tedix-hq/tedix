@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
+		/>
+		<title>Tedix</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				font:
+					13px system-ui,
+					sans-serif;
+			}
+			body {
+				margin: 0;
+				padding: 12px;
+				user-select: none;
+			}
+			h1 {
+				font-size: 13px;
+				margin: 0 0 6px;
+			}
+			p {
+				margin: 4px 0;
+			}
+			hr {
+				border: 0;
+				border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+				margin: 10px 0;
+			}
+			label {
+				display: flex;
+				gap: 8px;
+				align-items: flex-start;
+				margin: 6px 0;
+			}
+			small,
+			.quiet {
+				display: block;
+				opacity: 0.65;
+			}
+			.warning {
+				color: #c2410c;
+				font-weight: 600;
+			}
+			input[type="text"] {
+				width: 100%;
+				box-sizing: border-box;
+				padding: 4px 6px;
+				font: inherit;
+			}
+			button {
+				font: inherit;
+				margin: 0 4px 4px 0;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="panel"></div>
+		<script src="out/panel.js"></script>
+	</body>
+</html>

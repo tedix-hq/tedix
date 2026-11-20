@@ -1,0 +1,39 @@
+{
+	"name": "@tedix/desktop",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Tedix desktop shell: the Tedix OS chat in a window, with this computer's runner status and switches from the Tedix CLI.",
+	"license": "AGPL-3.0-only",
+	"main": "out/main.cjs",
+	"scripts": {
+		"clean": "rm -rf out dist",
+		"compile": "bun build src/main.ts src/preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/panel.ts src/strip.ts --outdir out --target browser",
+		"dev": "bun run compile && node node_modules/electron/install.js && electron .",
+		"build": "bun run compile && electron-builder --dir --publish never",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"electron": "45.2.0",
+		"electron-builder": "26.18.0",
+		"typescript": "catalog:"
+	},
+	"build": {
+		"appId": "dev.tedix.desktop",
+		"productName": "Tedix",
+		"npmRebuild": false,
+		"icon": "../os/public/icon-512.png",
+		"files": [
+			"out/**",
+			"panel.html",
+			"strip.html",
+			"package.json"
+		],
+		"mac": {
+			"target": "dir",
+			"identity": "-",
+			"hardenedRuntime": false
+		}
+	}
+}
