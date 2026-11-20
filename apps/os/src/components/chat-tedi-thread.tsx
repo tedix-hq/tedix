@@ -8,59 +8,41 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { chatDraftKey } from "@/components/chat-transcript";
 import { WorkspaceChat } from "@/components/workspace-chat";
 import { usePickableTedis, useTediNames } from "@/lib/use-tedi-names";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
-import {
-	readWorkspaceChatDraft,
-	writeWorkspaceChatDraft,
-} from "@/lib/workspace-chat-draft";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
 /**
- * A chat with a picked tedi, in /chat. It is the workspace chat of the
- * person's private workspace with that tedi answering every message, so the
- * reply streams over one open connection with its steps, approvals, queued
- * messages, stop and run cards, instead of waiting in the Home queue.
+ * A /chat conversation on the workspace path: the workspace chat of the
+ * person's private workspace, so the reply streams over one open connection
+ * with its steps, approvals, queued messages, stop and run cards. A picked
+ * tedi answers every message; with none picked the workspace's own answerer
+ * replies.
  */
 export function ChatTediThread({
 	workspaceId,
 	conversationId,
-	initialTediId,
-	initialDraft,
 	onOpenList,
 	onSelectConversation,
 	onConversationCreated,
 	onConversations,
-	onPickHome,
 }: {
 	workspaceId: string;
 	/** The workspace's own conversation id; null before the first message. */
 	conversationId: string | null;
-	/** The tedi picked for a new chat. An opened chat keeps its last one. */
-	initialTediId: string | null;
-	/** What was typed before the tedi was picked. */
-	initialDraft?: string;
 	onOpenList: () => void;
 	onSelectConversation: (conversationId: string | null) => void;
 	onConversationCreated: (conversationId: string) => void;
 	onConversations: (conversations: readonly ConversationSummary[]) => void;
-	/** Home was picked before the first message. */
-	onPickHome: () => void;
 }) {
 	const tedis = usePickableTedis();
 	const tediNames = useTediNames();
-	// What was typed for Home becomes this chat's unsent message, before the
-	// message box first reads it.
-	useState(() => {
-		if (conversationId === null && initialDraft)
-			writeWorkspaceChatDraft(workspaceId, null, initialDraft);
-	});
-	const [picked, setPicked] = useState(initialTediId);
-	// The tedi that answered this conversation last, as its list row says.
+	// What the person picked here; until then an opened chat keeps the tedi
+	// that answered it last, as its list row says.
+	const [picked, setPicked] = useState<{ tediId: string | null } | null>(null);
 	const [answeredLast, setAnsweredLast] = useState<string | null>(null);
-	const tediId = picked ?? answeredLast;
+	const tediId = picked ? picked.tediId : answeredLast;
 	const reportConversations = useCallback(
 		(conversations: readonly ConversationSummary[]) => {
 			setAnsweredLast(
@@ -86,51 +68,41 @@ export function ChatTediThread({
 				tediId={tediId}
 				placeholder={chatComposerPlaceholder(conversationId !== null)}
 				emptyText="Ask a question, or ask for a doc, sheet or deck."
+				// With no tedi pinned, the workspace chat offers its own choice of
+				// who replies to each message.
 				composerSlot={
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									type="button"
-									size="sm"
-									variant="ghost"
-									className="chat-composer-picker"
-									aria-label={`Send to ${name ?? "the workspace agent"}`}
-								>
-									<span className="truncate">{name ?? "Workspace agent"}</span>
-								</Button>
-							}
-						/>
-						<DropdownMenuContent>
-							{conversationId === null ? (
-								<DropdownMenuItem
-									onClick={() => {
-										// What is typed goes back to the Home composer.
-										const draft = readWorkspaceChatDraft(workspaceId, null);
-										try {
-											if (draft)
-												window.localStorage.setItem(chatDraftKey(null), draft);
-											else window.localStorage.removeItem(chatDraftKey(null));
-										} catch {
-											// Storage can be unavailable; only the draft is lost.
-										}
-										writeWorkspaceChatDraft(workspaceId, null, "");
-										onPickHome();
-									}}
-								>
-									Home (picks for you)
+					tediId ? (
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										type="button"
+										size="sm"
+										variant="ghost"
+										className="chat-composer-picker"
+										aria-label={`Send to ${name ?? "the workspace agent"}`}
+									>
+										<span className="truncate">
+											{name ?? "Workspace agent"}
+										</span>
+									</Button>
+								}
+							/>
+							<DropdownMenuContent>
+								<DropdownMenuItem onClick={() => setPicked({ tediId: null })}>
+									Workspace agent
 								</DropdownMenuItem>
-							) : null}
-							{tedis.map((tedi) => (
-								<DropdownMenuItem
-									key={tedi.id}
-									onClick={() => setPicked(tedi.id)}
-								>
-									{tedi.name}
-								</DropdownMenuItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
+								{tedis.map((tedi) => (
+									<DropdownMenuItem
+										key={tedi.id}
+										onClick={() => setPicked({ tediId: tedi.id })}
+									>
+										{tedi.name}
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					) : undefined
 				}
 			/>
 		</div>

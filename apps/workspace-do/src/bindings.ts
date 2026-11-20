@@ -42,6 +42,7 @@ import type { workspaceAccounts } from "./accounts";
 import { ACCOUNTS_UNAVAILABLE } from "./prompt";
 import { isMachineWriteTool } from "@tedix/api-contract/schemas/machines";
 import { MACHINE_UNAVAILABLE, type workspaceMachine } from "./machine";
+import { PERSON_UNAVAILABLE, type workspacePerson } from "./person";
 import type {
 	CreateAppInput,
 	CreateWorkInput,
@@ -83,6 +84,8 @@ export interface BindingDeps {
 	accountActor?: Actor;
 	/** Absent unless a signed-in person sent the turn themself. */
 	machine?: ReturnType<typeof workspaceMachine>;
+	/** Absent unless a signed-in person sent the turn themself. */
+	person?: ReturnType<typeof workspacePerson>;
 }
 
 /** What the chat needs to show a "Connect" card. It names no person. */
@@ -510,6 +513,13 @@ export function buildWorkspaceBindings(
 		read: (input: { callId?: unknown }) => machinePort().read(input),
 	};
 
+	const person = {
+		memory: (input?: { query?: unknown; limit?: unknown }) => {
+			if (!deps.person) throw new Error(PERSON_UNAVAILABLE);
+			return deps.person.memory(input);
+		},
+	};
+
 	const views = {
 		show: (input: unknown) => {
 			if (!deps.showView) throw new Error("Views need a running chat turn");
@@ -652,6 +662,11 @@ export function buildWorkspaceBindings(
 				call: { riskTier: "read", blastRadius: "none" },
 				read: { riskTier: "read", blastRadius: "none" },
 			},
+		}),
+		person: wrapBinding(person, {
+			...common,
+			resource: "person",
+			methods: { memory: { riskTier: "read", blastRadius: "none" } },
 		}),
 		work: wrapBinding(work, {
 			...common,

@@ -1,3 +1,5 @@
+import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
+
 /**
  * Whether a guest tedi may bring its private context (core memory and its
  * per-turn memory recall) into a workspace conversation. A personal tedi's
@@ -12,16 +14,14 @@ export function guestMayUseMemory(input: {
 	edges: ReadonlyArray<{ targetUserId: string }>;
 	links: ReadonlyArray<{ revokedAt: string | null }>;
 }): boolean {
-	const { tedi, workspace } = input;
+	const { tedi } = input;
 	if (tedi.scope === "organization") return true;
-	const owner = tedi.ownerUserId;
 	return (
-		!!owner &&
-		workspace.visibility === "private" &&
-		workspace.ownerUserId === owner &&
-		input.edges.every(
-			(edge) => edge.targetUserId === owner || edge.targetUserId === tedi.id,
-		) &&
-		input.links.every((link) => link.revokedAt !== null)
+		!!tedi.ownerUserId &&
+		workspaceOnlyOpenableBy({
+			...input,
+			userId: tedi.ownerUserId,
+			alsoAllowed: [tedi.id],
+		})
 	);
 }
