@@ -490,4 +490,36 @@ for (const pending of [
 	);
 }
 
+// A turn that fails whenever it is admitted and is deferred in between gets a
+// fresh retry budget per checkpoint; the admission ceiling is what ends it.
+{
+	let tries = 0;
+	const step: ChatTurnStepRunner = {
+		async do(_name, _config, run) {
+			try {
+				return await run();
+			} catch {
+				return await run();
+			}
+		},
+		async sleep() {},
+		async reportComplete() {},
+	};
+	const ops = {
+		markStarted: async () => {},
+		runFacetTurn: async () => {
+			if (++tries % 2) throw new Error("fails once admitted");
+			return JSON.stringify({
+				stopReason: "turn_deferred",
+				retryAfterSeconds: 17,
+			});
+		},
+	};
+	await assert.rejects(
+		driveChatTurnSteps(step, ops),
+		/not admitted after 60 tries/,
+	);
+	assert.equal(tries, 120);
+}
+
 console.log("chat-turn-steps.test.ts: all assertions passed");
