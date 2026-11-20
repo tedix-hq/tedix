@@ -10,6 +10,7 @@ import {
 	type OsWorkspacePermissionRows,
 } from "./os-collaborators";
 import { getMemberAccessByUserId } from "./organization-members";
+import { readAuthContextCacheVersion } from "./auth-context-cache";
 import {
 	computeEffectiveRoles,
 	type PermissionGraph,
@@ -107,10 +108,13 @@ export async function loadWorkspaceAccess(
 	workspace: OsWorkspaceRow,
 	callerId: string,
 	actorKind: "user" | "tedi" = "user",
+	/** Role checks skip the collaborator list; roles never read it. */
+	options: { collaborators?: boolean } = {},
 ): Promise<WorkspaceAccess> {
 	const rows = await loadOsWorkspacePermissionRows(database, {
 		organizationId: workspace.organizationId,
 		workspaceId: workspace.id,
+		collaborators: options.collaborators,
 	});
 	const { roots, administrators } = await loadRoots(
 		database,
@@ -130,9 +134,9 @@ export async function loadWorkspaceAccess(
 			tedi.ownerUserId &&
 			!rows.edges.some((edge) => edge.targetUserId === callerId)
 		) {
-			const ownerRole = await readWorkspaceSessionRole(
+			const ownerRole = await loadSessionRole(
 				database,
-				workspace.id,
+				workspace,
 				tedi.ownerUserId,
 			);
 			if (ownerRole) roots.set(callerId, ownerRole);
@@ -163,15 +167,59 @@ export async function loadWorkspaceAccess(
 	};
 }
 
-/** Revalidate a previously verified socket identity without storing its credentials. */
-export async function readWorkspaceSessionRole(
+const ROLE_CACHE_TTL_MS = 15_000;
+const ROLE_CACHE_LIMIT = 2_000;
+const roleCache = new Map<
+	string,
+	{ version: string; role: OsCollaboratorRole | null; expiresAt: number }
+>();
+
+async function readRoleFence(database: DbQueryClient) {
+	try {
+		return await readAuthContextCacheVersion(database);
+	} catch {
+		// Without a readable fence nothing is reused.
+		return undefined;
+	}
+}
+
+/**
+ * Workspace objects check every socket on every pushed event, and the collab
+ * room rechecks every few seconds. A role is reused for 15 seconds only while
+ * `auth_context_cache_state` keeps its version: triggers advance it on any
+ * change to members, workspaces, access edges, share links or tedis, so a
+ * revoke is seen by the next check.
+ */
+async function cachedRole(
 	database: DbQueryClient,
-	workspaceId: string,
+	key: string,
+	load: () => Promise<OsCollaboratorRole | null>,
+): Promise<OsCollaboratorRole | null> {
+	const version = await readRoleFence(database);
+	if (!version) return load();
+	const hit = roleCache.get(key);
+	if (hit && hit.version === version && hit.expiresAt > Date.now())
+		return hit.role;
+	const role = await load();
+	// A change during the load must never stamp the old role with a new version.
+	if ((await readRoleFence(database)) === version) {
+		roleCache.delete(key);
+		roleCache.set(key, {
+			version,
+			role,
+			expiresAt: Date.now() + ROLE_CACHE_TTL_MS,
+		});
+		if (roleCache.size > ROLE_CACHE_LIMIT)
+			roleCache.delete(roleCache.keys().next().value!);
+	}
+	return role;
+}
+
+async function loadSessionRole(
+	database: DbQueryClient,
+	workspace: OsWorkspaceRow | undefined,
 	userId: string,
 ): Promise<OsCollaboratorRole | null> {
-	const workspace = await getOsWorkspaceForCollaboration(database, {
-		workspaceId,
-	});
 	if (!workspace || workspace.status !== "active") return null;
 	const member = await getMemberAccessByUserId(
 		database,
@@ -180,7 +228,29 @@ export async function readWorkspaceSessionRole(
 	);
 	// Explicit shares cannot keep a suspended organization seat connected.
 	if (member && member.status !== "active") return null;
-	return (await loadWorkspaceAccess(database, workspace, userId)).role;
+	return (
+		await loadWorkspaceAccess(database, workspace, userId, "user", {
+			collaborators: false,
+		})
+	).role;
+}
+
+/** Revalidate a previously verified socket identity without storing its credentials. */
+export async function readWorkspaceSessionRole(
+	database: DbQueryClient,
+	workspaceId: string,
+	userId: string,
+): Promise<OsCollaboratorRole | null> {
+	return cachedRole(
+		database,
+		JSON.stringify(["session", workspaceId, userId]),
+		async () =>
+			loadSessionRole(
+				database,
+				await getOsWorkspaceForCollaboration(database, { workspaceId }),
+				userId,
+			),
+	);
 }
 
 /** Current role for a principal authenticated by a trusted workspace ingress.
@@ -192,15 +262,33 @@ export async function readWorkspaceRuntimeRole(
 	scope: { organizationId: string; workspaceId: string },
 	principal: { actorId: string; actorKind: string },
 ): Promise<OsCollaboratorRole | null> {
-	const workspace = await getOsWorkspace(database, scope);
-	if (!workspace || workspace.status !== "active") return null;
-	if (principal.actorKind === "tedi") {
-		return (
-			await loadWorkspaceAccess(database, workspace, principal.actorId, "tedi")
-		).role;
-	}
-	if (principal.actorKind !== "user") return null;
-	return readWorkspaceSessionRole(database, workspace.id, principal.actorId);
+	if (principal.actorKind !== "tedi" && principal.actorKind !== "user")
+		return null;
+	return cachedRole(
+		database,
+		JSON.stringify([
+			"runtime",
+			scope.organizationId,
+			scope.workspaceId,
+			principal.actorKind,
+			principal.actorId,
+		]),
+		async () => {
+			const workspace = await getOsWorkspace(database, scope);
+			if (!workspace || workspace.status !== "active") return null;
+			if (principal.actorKind === "tedi")
+				return (
+					await loadWorkspaceAccess(
+						database,
+						workspace,
+						principal.actorId,
+						"tedi",
+						{ collaborators: false },
+					)
+				).role;
+			return loadSessionRole(database, workspace, principal.actorId);
+		},
+	);
 }
 
 async function readWorkspaceTedi(

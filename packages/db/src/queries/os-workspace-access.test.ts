@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { skillEntries } from "../schema/cognitive";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
+import { oidcSessions } from "../schema/oidc-sessions";
 import { organizationMembers } from "../schema/organization-members";
+import { organizations } from "../schema/organizations";
+import { principalIdentities } from "../schema/principal-identities";
+import { users } from "../schema/users";
 import { osWorkspaceEvents } from "../schema/os-collaborators";
 import { osWorkspaceResources, osWorkspaces } from "../schema/os-workspaces";
 import { tedis } from "../schema/tedis";
@@ -14,7 +18,16 @@ import {
 	searchOrganizationPeople,
 	severOsWorkspaceUserAccess,
 } from "./os-collaborators";
-import { readWorkspaceRuntimeRole } from "./os-workspace-access";
+import {
+	readWorkspaceRuntimeRole,
+	readWorkspaceSessionRole,
+} from "./os-workspace-access";
+
+const migration = (name: string) =>
+	readFileSync(
+		new URL(`../../drizzle/${name}/migration.sql`, import.meta.url),
+		"utf8",
+	);
 
 function fixture(visibility: "private" | "org" = "private") {
 	const sqlite = new DatabaseSync(":memory:");
@@ -29,6 +42,10 @@ function fixture(visibility: "private" | "org" = "private") {
 			tedis,
 			skillEntries,
 			osWorkspaceResources,
+			organizations,
+			principalIdentities,
+			oidcSessions,
+			users,
 		),
 	);
 	sqlite.exec(
@@ -49,6 +66,11 @@ function fixture(visibility: "private" | "org" = "private") {
 			"utf8",
 		),
 	);
+	// Every check below runs through the role cache and its fence, so each
+	// raw UPDATE in a test must be seen by the very next check.
+	sqlite.exec(migration("20261119100738_auth_context_cache"));
+	sqlite.exec(migration("20261119182503_auth_cache_organization_fields"));
+	sqlite.exec(migration("20261120121558_workspace_access_role_fence"));
 	sqlite.exec(`
   INSERT INTO os_workspaces (id, organization_id, name, visibility, owner_user_id, created_by_kind, created_by_id, created_at, updated_at) VALUES ('workspace', 'org', 'Planning', '${visibility}', 'owner', 'user', 'owner', '2026-01-01', '2026-01-01');
   INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status) VALUES ('member', 'org', 'owner', 'owner@example.test', 'Robin', 'owner', 'active');
@@ -57,7 +79,16 @@ function fixture(visibility: "private" | "org" = "private") {
    ('personal', 'org', 'Personal helper', 'personal', 'active', 'personal', 'owner'),
    ('foreign', 'other', 'Research helper', 'research-foreign', 'active', 'organization', NULL);
  `);
-	const db = createDbQueryClient(createD1Facade(sqlite));
+	const queries: string[] = [];
+	const db = createDbQueryClient(
+		createD1Facade({
+			prepare: (sql) => {
+				queries.push(sql);
+				return sqlite.prepare(sql);
+			},
+			exec: (sql) => sqlite.exec(sql),
+		}),
+	);
 	const scope = { organizationId: "org", workspaceId: "workspace" };
 	const role = (actorId: string, actorKind = "tedi") =>
 		readWorkspaceRuntimeRole(db, scope, { actorId, actorKind });
@@ -76,7 +107,7 @@ function fixture(visibility: "private" | "org" = "private") {
 				},
 			],
 		});
-	return { sqlite, db, scope, role, grant };
+	return { sqlite, db, scope, role, grant, queries };
 }
 
 describe("tedi workspace principals", () => {
@@ -153,6 +184,49 @@ describe("tedi workspace principals", () => {
 		f.sqlite.exec("UPDATE tedis SET status = 'paused' WHERE id = 'team'");
 		expect(await f.role("team")).toBeNull();
 		expect(await f.role("team", "service")).toBeNull();
+	});
+	it("reuses a role only until a workspace, link or member change", async () => {
+		const f = fixture("org");
+		f.sqlite.exec(
+			"INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status) VALUES ('m2', 'org', 'guest', 'guest@example.test', 'Sam', 'member', 'active')",
+		);
+		const session = () => readWorkspaceSessionRole(f.db, "workspace", "guest");
+		expect(await session()).toBe("build");
+		const fenceOnly = [expect.stringContaining("auth_context_cache_state")];
+		let seen = f.queries.length;
+		expect(await session()).toBe("build");
+		expect(f.queries.slice(seen)).toEqual(fenceOnly);
+		expect(await f.role("guest", "user")).toBe("build");
+		seen = f.queries.length;
+		expect(await f.role("guest", "user")).toBe("build");
+		expect(f.queries.slice(seen)).toEqual(fenceOnly);
+		expect(
+			f.queries.some((sql) => sql.includes("os_workspace_collaborators")),
+		).toBe(false);
+
+		f.sqlite.exec("UPDATE os_workspaces SET visibility = 'private'");
+		expect(await session()).toBeNull();
+		expect(await f.role("guest", "user")).toBeNull();
+
+		f.sqlite.exec(`
+   INSERT INTO os_workspace_share_links (id, organization_id, workspace_id, creator_user_id, role, created_at) VALUES ('link', 'org', 'workspace', 'owner', 'use', '2026-01-01');
+   INSERT INTO os_workspace_access_edges (id, organization_id, workspace_id, target_user_id, kind, edge_key, link_id, created_at) VALUES ('edge', 'org', 'workspace', 'guest', 'link', 'link:link', 'link', '2026-01-01');
+  `);
+		expect(await session()).toBe("use");
+		expect(await session()).toBe("use");
+		f.sqlite.exec(
+			"UPDATE os_workspace_share_links SET revoked_at = '2026-01-02' WHERE id = 'link'",
+		);
+		expect(await session()).toBeNull();
+
+		f.sqlite.exec(
+			"UPDATE os_workspace_share_links SET revoked_at = NULL WHERE id = 'link'",
+		);
+		expect(await session()).toBe("use");
+		f.sqlite.exec(
+			"UPDATE organization_members SET status = 'deactivated' WHERE descope_user_id = 'guest'",
+		);
+		expect(await session()).toBeNull();
 	});
 	it("suggests active tedis only in the selected organization", async () => {
 		const f = fixture();
