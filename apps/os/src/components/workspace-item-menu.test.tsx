@@ -13,6 +13,10 @@ const api = vi.hoisted(() => ({
 	},
 	gadgets: { rename: vi.fn(), archive: vi.fn() },
 	workspaces: { list: vi.fn() },
+	collaboration: {
+		previewBlueprintAppUpdate: vi.fn(),
+		createBlueprintAppUpdate: vi.fn(),
+	},
 }));
 const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("@/components/kumo/toast", () => ({ toast: toasts }));
@@ -59,7 +63,10 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-function setup(item: { outputId?: string; gadgetId?: string }) {
+function setup(
+	item: { outputId?: string; gadgetId?: string },
+	blueprint = false,
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
@@ -67,10 +74,17 @@ function setup(item: { outputId?: string; gadgetId?: string }) {
 		items: [{ id: outputId, title: "Plan" }],
 	});
 	client.setQueryData<unknown>(gadgetsKey, {
-		items: [{ id: gadgetId, name: "Tracker" }],
+		items: [
+			{
+				id: gadgetId,
+				name: "Tracker",
+				sourceBlueprintRevisionId: blueprint ? "base" : null,
+			},
+		],
 	});
 	vi.spyOn(client, "invalidateQueries").mockResolvedValue(undefined);
 	const onArchived = vi.fn();
+	const onDraftCreated = vi.fn();
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
@@ -86,6 +100,7 @@ function setup(item: { outputId?: string; gadgetId?: string }) {
 					}}
 					onOpen={() => undefined}
 					onArchived={onArchived}
+					onDraftCreated={onDraftCreated}
 				>
 					<button type="button">row</button>
 				</WorkspaceItemMenu>
@@ -124,7 +139,7 @@ function setup(item: { outputId?: string; gadgetId?: string }) {
 			(node) => node.textContent?.trim(),
 		);
 	};
-	return { host, open, labels, rows, onArchived, client };
+	return { host, open, labels, rows, onArchived, onDraftCreated, client };
 }
 const settle = () =>
 	act(async () => {
@@ -137,6 +152,40 @@ async function until(ready: () => boolean) {
 }
 
 describe("WorkspaceItemMenu", () => {
+	it("marks an app update, prepares its draft and opens it for review", async () => {
+		api.collaboration.previewBlueprintAppUpdate.mockResolvedValue({
+			status: "ready",
+			releaseId: outputId,
+			appRevisionId: gadgetId,
+			conflicts: [],
+		});
+		api.collaboration.createBlueprintAppUpdate.mockResolvedValue({
+			status: "created",
+			proposal: { id: "draft", documentId: gadgetId },
+		});
+		const view = setup({ gadgetId }, true);
+		await until(
+			() => view.host.textContent?.includes("Update available") ?? false,
+		);
+		expect(view.host.textContent).toContain("Update available");
+		await view.open("Update from blueprint");
+		const review = [
+			...document.querySelectorAll<HTMLButtonElement>("button"),
+		].find((node) => node.textContent === "Review update");
+		expect(review).toBeDefined();
+		await act(async () => review!.click());
+		await until(() => view.onDraftCreated.mock.calls.length > 0);
+		expect(api.collaboration.createBlueprintAppUpdate).toHaveBeenCalledWith({
+			workspaceId,
+			gadgetId,
+			appRevisionId: gadgetId,
+			releaseId: outputId,
+			mode: "merge",
+			resolution: undefined,
+		});
+		expect(view.onDraftCreated).toHaveBeenCalledWith(gadgetId);
+	});
+
 	it("renames a file in place at once and keeps the name when the server accepts", async () => {
 		api.outputs.rename.mockResolvedValue({});
 		const view = setup({ outputId });

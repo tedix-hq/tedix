@@ -45,7 +45,7 @@ describe("mergeBlueprintApp", () => {
 	});
 });
 
-it("opens a single-app update for review and discards it without changing any app", async () => {
+it("reviews, discards and accepts a single-app update without changing other apps", async () => {
 	const { org1: os } = clients();
 	const { blueprint } = await os.blueprints.create({ name: "Planning" });
 	const installed = app("const label = 'original';\nconst count = 1;\n");
@@ -113,4 +113,34 @@ it("opens a single-app update for review and discards it without changing any ap
 		revisionId: notes.revision.id,
 		files: installed.files,
 	});
+	const next = await os.collaboration.createBlueprintAppUpdate({
+		...scope,
+		releaseId: preview.releaseId,
+		appRevisionId: preview.appRevisionId,
+		mode: "merge",
+	});
+	if (next.status !== "created") throw new Error("Expected a draft");
+	const decision = {
+		proposalId: next.proposal.id,
+		expectedSequence: next.proposal.sequence,
+		rationale: "Reviewed the update",
+	};
+	await os.collaboration.accept(decision);
+	await os.collaboration.merge(decision);
+	expect((await os.gadgets.getCode(scope)).code?.files).toEqual(
+		app("const label = 'mine';\nconst count = 2;\n").files,
+	);
+	expect((await os.gadgets.get(scope)).gadget.sourceBlueprintRevisionId).toBe(
+		preview.releaseId,
+	);
+	expect(await os.collaboration.previewBlueprintAppUpdate(scope)).toEqual({
+		status: "no_change",
+	});
+	expect(
+		(await os.gadgets.get(notesScope)).gadget.sourceBlueprintRevisionId,
+	).toBe(notes.gadget.sourceBlueprintRevisionId);
+	expect(
+		(await os.workspaces.get({ workspaceId: workspace.id })).workspace
+			.sourceBlueprintRevisionId,
+	).toBe(workspace.sourceBlueprintRevisionId);
 });

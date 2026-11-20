@@ -1424,7 +1424,10 @@ export function CanvasPage({
 	const openedDocsSearch = (docs: readonly CanvasWorkpieceSelection[]) =>
 		canvasDocsSearchValue(docs);
 
-	const openCanvasDoc = (doc: CanvasWorkpieceSelection) => {
+	const openCanvasDoc = (
+		doc: CanvasWorkpieceSelection,
+		mode: CanvasWorkpieceMode = "workpiece",
+	) => {
 		if (pendingCloseRef.current?.key === canvasDocKey(doc))
 			cancelPendingClose();
 		paneRequestKeyRef.current = canvasDocKey(doc);
@@ -1438,7 +1441,7 @@ export function CanvasPage({
 		);
 		setMissingWorkpiece(null);
 		setSelectedDoc(doc);
-		setWorkpieceMode("workpiece");
+		setWorkpieceMode(mode);
 		updateOpenedDocs((current) =>
 			current.some((candidate) => canvasDocKey(candidate) === canvasDocKey(doc))
 				? current
@@ -1452,6 +1455,7 @@ export function CanvasPage({
 		);
 		writeCanvasSearch({
 			workpiece: canvasDocKey(doc),
+			view: mode === "workpiece" ? undefined : mode,
 			workpieces: openedDocsSearch(
 				alreadyOpen ? openedDocsRef.current : [...openedDocsRef.current, doc],
 			),
@@ -2514,6 +2518,9 @@ export function CanvasPage({
 							onOpenAgents={() => showPane("agents")}
 							onOpenActivity={openWorkspaceActivity}
 							onSelect={openOutputsPanelItem}
+							onOpenAppDraft={(gadgetId) =>
+								openCanvasDoc({ type: "gadget", id: gadgetId }, "edit")
+							}
 							onArchived={(item) => {
 								// Close every tab that was showing the archived item.
 								for (const doc of openedDocsRef.current)

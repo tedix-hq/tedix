@@ -15,6 +15,8 @@ import {
 	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osGadgets,
+	osBlueprintRevisions,
+	osWorkspaces,
 } from "../../schema/os-workspaces";
 import { normalizeStoredJsonText } from "../../utils/json";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
@@ -172,6 +174,16 @@ export async function listOsIdsWithCollaborationProposals(
 	return found;
 }
 
+// Editing or rebasing a blueprint draft must retain its server-recorded release.
+function appDraftPreviewContent(content: string) {
+	return sql<string>`case
+		when json_valid(${osCollaborationProposals.content}) and
+			json_type(${osCollaborationProposals.content}, '$.sourceBlueprintRevisionId') = 'text'
+		then json_set(${content}, '$.sourceBlueprintRevisionId',
+			json_extract(${osCollaborationProposals.content}, '$.sourceBlueprintRevisionId'))
+		else ${content} end`;
+}
+
 async function updateOsCollaborationProposalPreviewUnannounced(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
@@ -184,7 +196,7 @@ async function updateOsCollaborationProposalPreviewUnannounced(
 	const [row] = await db
 		.update(osCollaborationProposals)
 		.set({
-			content: params.content,
+			content: appDraftPreviewContent(params.content),
 			sequence: sql`${osCollaborationProposals.sequence} + 1`,
 			updatedAt: new Date().toISOString(),
 		})
@@ -238,7 +250,7 @@ async function rebaseOsAppDraftUnannounced(
 	const [row] = await db
 		.update(osCollaborationProposals)
 		.set({
-			content: params.content,
+			content: appDraftPreviewContent(params.content),
 			baseRevisionId: params.baseRevisionId,
 			baseRevision: params.baseRevision,
 			status: "open",
@@ -386,6 +398,7 @@ async function rebaseStaleAppProposal(
 		baseRevisionId: current.id,
 		baseRevision: current.revision,
 		content: JSON.stringify({
+			...draft.data,
 			manifest: proposedManifestChanged ? draft.data.manifest : latest.manifest,
 			files,
 		}),
@@ -615,6 +628,12 @@ async function mergeOsCollaborationProposalUnannounced(
 
 	if (proposal.documentType === "gadget") {
 		const { manifest, code } = splitGadgetProposalContent(proposal.content);
+		const draft = code
+			? OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content))
+			: null;
+		const sourceBlueprintRevisionId = draft?.success
+			? draft.data.sourceBlueprintRevisionId
+			: undefined;
 		const insertRevision = db
 			.insert(osGadgetRevisions)
 			.select(
@@ -658,7 +677,23 @@ async function mergeOsCollaborationProposalUnannounced(
 			.returning();
 		const advancePointer = db
 			.update(osGadgets)
-			.set({ currentRevisionId: params.revisionId, updatedAt: now })
+			.set({
+				currentRevisionId: params.revisionId,
+				updatedAt: now,
+				...(sourceBlueprintRevisionId
+					? {
+							sourceBlueprintRevisionId: sql`coalesce((
+					select ${osBlueprintRevisions.id} from ${osBlueprintRevisions}
+					inner join ${osWorkspaces} on ${osWorkspaces.sourceBlueprintId} = ${osBlueprintRevisions.blueprintId}
+					where ${osBlueprintRevisions.id} = ${sourceBlueprintRevisionId}
+					and ${osBlueprintRevisions.organizationId} = ${params.organizationId}
+					and ${osWorkspaces.id} = ${proposal.workspaceId}
+					and ${osWorkspaces.organizationId} = ${params.organizationId}
+					and ${osBlueprintRevisions.publishedAt} is not null
+				), ${osGadgets.sourceBlueprintRevisionId})`,
+						}
+					: {}),
+			})
 			.where(
 				and(
 					eq(osGadgets.id, proposal.documentId),

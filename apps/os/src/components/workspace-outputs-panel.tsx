@@ -218,6 +218,7 @@ type WorkspaceOutputsListProps = {
 	error: boolean;
 	selectedDoc: CanvasDocSelection | null;
 	onSelect: (doc: CanvasDocSelection) => void;
+	onOpenAppDraft?: (gadgetId: string) => void;
 	onOpenActivity: () => void;
 	/** Opens the whole library (search, sources, schedules) in the canvas. */
 	onBrowseLibrary: () => void;
@@ -281,6 +282,7 @@ export function WorkspaceOutputsList({
 	error,
 	selectedDoc,
 	onSelect,
+	onOpenAppDraft,
 	onOpenActivity,
 	onBrowseLibrary,
 	onOpenWork,
@@ -361,6 +363,7 @@ export function WorkspaceOutputsList({
 											gadgetId,
 										}}
 										onOpen={() => onSelect(item.doc)}
+										onDraftCreated={onOpenAppDraft}
 										onArchived={() => onArchived?.(item)}
 									>
 										{row}

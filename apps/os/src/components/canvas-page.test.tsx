@@ -64,6 +64,8 @@ const osWorkspacesApi = vi.hoisted(() => ({
 	resources: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
 	schedules: { list: vi.fn() },
 	collaboration: {
+		previewBlueprintAppUpdate: vi.fn(),
+		createBlueprintAppUpdate: vi.fn(),
 		list: vi.fn(),
 		accept: vi.fn(),
 		reject: vi.fn(),
@@ -148,6 +150,7 @@ vi.mock("@/components/os-organization-identity", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+	osAppRuntimeCall: vi.fn(),
 	osApi: {
 		osWorkspaces: osWorkspacesApi,
 		osCompute: osComputeApi,
@@ -343,6 +346,9 @@ vi.mock("@/components/output-export-buttons", () => ({
 		</div>
 	),
 }));
+
+// Keep lazy module loading outside the draft-navigation assertions.
+import "@/components/canvas-doc-panel";
 
 import {
 	CANVAS_CHAT_WIDTH_DEFAULT,
@@ -2475,6 +2481,83 @@ describe("CanvasPage listing", () => {
 				search: expect.objectContaining({ pane: "resources" }),
 			}),
 		);
+	});
+
+	it("opens the prepared blueprint app update in Edit with its draft", async () => {
+		mockLists();
+		const gadget = gadgetFixture({
+			sourceBlueprintRevisionId: OUTPUT_REVISION_ID,
+		});
+		const currentRevision = gadgetRevisionFixture({
+			manifest: { entry: "tedix:runtime/v1", capabilities: [] },
+		});
+		const proposal = proposalFixture({
+			documentType: "gadget",
+			documentId: GADGET_ID,
+			content: {
+				manifest: currentRevision.manifest,
+				files: { "client.js": "updated", "server.js": "export default {};" },
+			},
+		});
+		osWorkspacesApi.gadgets.list.mockResolvedValue({
+			items: [gadget],
+			truncated: false,
+		});
+		osWorkspacesApi.gadgets.get.mockResolvedValue({ gadget, currentRevision });
+		osWorkspacesApi.collaboration.previewBlueprintAppUpdate.mockResolvedValue({
+			status: "ready",
+			releaseId: OUTPUT_ID,
+			appRevisionId: GADGET_REVISION_ID,
+			conflicts: [],
+		});
+		osWorkspacesApi.collaboration.createBlueprintAppUpdate.mockImplementation(
+			async () => {
+				osWorkspacesApi.collaboration.list.mockResolvedValue({
+					items: [proposal],
+					truncated: false,
+				});
+				return { status: "created", proposal };
+			},
+		);
+		mockCollab({ initial: docJson(currentRevision.manifest) });
+		routing.search = { workpiece: `gadget:${GADGET_ID}`, pane: "workpiece" };
+		routing.navigate.mockImplementation(({ search }) => {
+			routing.search = search;
+		});
+		const page = createPageHarness();
+		const { container } = page;
+		await flush();
+		click(container.querySelector('[aria-label="Show files"]')!);
+		await flush();
+		const row = filesPanelRow(container, gadget.name).closest(
+			"[data-workspace-item-menu]",
+		)!;
+		await act(async () => {
+			row.dispatchEvent(
+				new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+			);
+		});
+		await flush();
+		click(findMenuItem("Update from blueprint"));
+		await flush();
+		click(findButton(document.body, "Review update"));
+		await flush();
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({
+					workpiece: `gadget:${GADGET_ID}`,
+					view: "edit",
+				}),
+			}),
+		);
+		routing.search = {
+			workpiece: `gadget:${GADGET_ID}`,
+			view: "edit",
+			pane: "workpiece",
+		};
+		page.rerender();
+		await flush();
+		expect(container.querySelector("[data-app-drafts]")).not.toBeNull();
 	});
 
 	it("keeps the code room's connection out of a runtime app's App view", async () => {

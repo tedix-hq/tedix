@@ -3097,6 +3097,7 @@ export type OsGadgetManifest = z.infer<typeof OsGadgetManifestSchema>;
 export const OsAppDraftContentSchema = z.strictObject({
 	manifest: OsGadgetManifestSchema,
 	files: AppRuntimeFilesSchema,
+	sourceBlueprintRevisionId: z.string().uuid().optional(),
 });
 export type OsAppDraftContent = z.infer<typeof OsAppDraftContentSchema>;
 export const OsBlueprintAppUpdateDraftInputSchema = z.object({

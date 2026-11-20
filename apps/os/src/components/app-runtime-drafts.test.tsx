@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 const collaboration = vi.hoisted(() => ({
 	accept: vi.fn(),
 	list: vi.fn(),
+	previewBlueprintAppUpdate: vi.fn(),
 	merge: vi.fn(),
 }));
 
