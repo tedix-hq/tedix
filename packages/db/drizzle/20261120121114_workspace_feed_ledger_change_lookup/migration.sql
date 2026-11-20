@@ -1,0 +1,1 @@
+CREATE INDEX `workspace_feed_ledger_workspace_change_idx` ON `workspace_feed_ledger` (`workspace_id`,`change_record_id`);
