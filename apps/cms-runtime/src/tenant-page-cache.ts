@@ -22,7 +22,7 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
  * in-flight renders can only fill their old revision's key.
  */
 export const MARKETING_PAGE_CACHE_CONTROL =
-	"public, s-maxage=300, stale-while-revalidate=86400";
+	"public, s-maxage=1800, stale-while-revalidate=86400";
 
 const PUBLIC_TEMPLATES = new Set([
 	"marketing",
@@ -90,17 +90,41 @@ export function pageCacheEligible(request: Request, pathname: string): boolean {
 	return (
 		request.method === "GET" &&
 		publicAssetCacheEligible(request) &&
+		![
+			"x-tedix-cms-forwarded-user-auth",
+			"x-tedix-cms-human-identity",
+			"x-tedix-cms-human-assertion",
+		].some((name) => request.headers.has(name)) &&
 		!EDGE_CACHE_EXCLUDED_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 	);
 }
 
-/**
- * The render behind a shared page is cookie-free, so a client-only cookie the
- * visitor happened to carry can never shape what other visitors receive.
- */
-export function anonymousPageRequest(request: Request): Request {
-	if (!request.headers.has("cookie")) return request;
-	const anonymous = new Request(request);
+// The marketing templates render pagination and search on the server.
+const PUBLIC_PAGE_QUERY_PARAMS = new Set(["page", "q"]);
+
+export function usesPublicPageQueryAllowlist(templateSlug: string): boolean {
+	return templateSlug === "tedix" || templateSlug === "marketing";
+}
+
+function publicPageUrl(url: URL, templateSlug: string): URL {
+	if (!usesPublicPageQueryAllowlist(templateSlug) || !url.search) return url;
+	const canonical = new URL(url);
+	for (const key of url.searchParams.keys()) {
+		if (!PUBLIC_PAGE_QUERY_PARAMS.has(key)) canonical.searchParams.delete(key);
+	}
+	canonical.searchParams.sort();
+	return canonical;
+}
+
+/** Render from exactly the query and cookie inputs represented in the shared key. */
+export function anonymousPageRequest(
+	request: Request,
+	templateSlug = "",
+): Request {
+	const canonical = publicPageUrl(new URL(request.url), templateSlug);
+	if (canonical.href === request.url && !request.headers.has("cookie"))
+		return request;
+	const anonymous = new Request(canonical, request);
 	anonymous.headers.delete("cookie");
 	return anonymous;
 }
@@ -112,17 +136,28 @@ const HOST_HEADERS = [
 	"X-Original-Host",
 ];
 
+export function publicPageRequestKey(
+	request: Request,
+	templateSlug: string,
+): string {
+	return JSON.stringify([
+		publicPageUrl(new URL(request.url), templateSlug).href,
+		HOST_HEADERS.map((name) => request.headers.get(name)),
+	]);
+}
+
 export async function pageCacheKey(
 	request: Request,
 	tenantUrl: URL,
 	identity: PageCacheIdentity,
+	templateSlug = "",
 ): Promise<Request> {
-	const url = new URL(request.url);
+	const url = publicPageUrl(new URL(request.url), templateSlug);
 	const material = JSON.stringify([
 		url.host,
 		url.pathname,
 		url.search,
-		tenantUrl.href,
+		publicPageUrl(tenantUrl, templateSlug).href,
 		HOST_HEADERS.map((name) => request.headers.get(name)),
 		identity.siteId,
 		identity.slug,
@@ -130,6 +165,9 @@ export async function pageCacheKey(
 		identity.bundleVersion,
 		identity.bundleEtag,
 		identity.contentRevision,
+		...(usesPublicPageQueryAllowlist(templateSlug)
+			? ["marketing-query-v1"]
+			: []),
 	]);
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
@@ -249,6 +287,17 @@ export function pageCacheHit(
 	};
 }
 
+export async function matchTenantPage(
+	cache: Cache,
+	key: Request,
+): Promise<Response | undefined> {
+	try {
+		return await cache.match(key);
+	} catch (error) {
+		console.error("[cms-runtime] page cache lookup failed", error);
+	}
+}
+
 /**
  * Serve a tenant page through the cache. A stale copy is answered at once and
  * refreshed after the response; a miss renders inline and stores the result
@@ -307,12 +356,7 @@ export async function cachedTenantPage(args: {
 		};
 	};
 
-	let cached: Response | undefined;
-	try {
-		cached = await args.cache.match(args.key);
-	} catch (error) {
-		console.error("[cms-runtime] page cache lookup failed", error);
-	}
+	const cached = await matchTenantPage(args.cache, args.key);
 	if (cached) {
 		const hit = pageCacheHit(cached, now());
 		if (!hit.fresh) {

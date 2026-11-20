@@ -10,6 +10,11 @@ import {
 import {
 	anonymousPageRequest,
 	cachedTenantPage,
+	matchTenantPage,
+	pageCacheHit,
+	publicPageRequestKey,
+	usesPublicPageQueryAllowlist,
+	type PageCacheIdentity,
 	pageCacheEligible,
 	pageCacheKey,
 } from "./tenant-page-cache";
@@ -120,6 +125,7 @@ import {
 	sitemapUsesTrailingSlash,
 	patchReverseProxyHtml,
 	ensureHotThemeLink,
+	withLeadAttribution,
 	patchReverseProxyLocation,
 	normalizePublicProxyRequest,
 	canonicalPublicUrl,
@@ -1155,18 +1161,85 @@ export function getTenantEntrypoint(
 	return handle.getEntrypoint();
 }
 
+const HOT_THEME_HASH = /^[a-f0-9]{64}$/;
+const EMPTY_HOT_THEME = "/* no Tedix hot theme published */\n";
+const hotThemeVersions = new Map<
+	string,
+	{ version: string | undefined; expiresAt: number }
+>();
+
+async function publicHotThemeVersion(
+	env: Env,
+	slug: string,
+	restoreEpoch: number,
+): Promise<string | undefined> {
+	const key = JSON.stringify([slug, restoreEpoch]);
+	const now = Date.now();
+	const cached = hotThemeVersions.get(key);
+	if (cached && cached.expiresAt > now) return cached.version;
+	try {
+		const css = await env.TENANT_BUNDLES.head(hotThemeCssKey(slug));
+		const hash = css?.customMetadata?.sha256;
+		const version = !css
+			? "none"
+			: hash && HOT_THEME_HASH.test(hash)
+				? hash
+				: undefined;
+		if (hotThemeVersions.size >= 128 && !hotThemeVersions.has(key)) {
+			const first = hotThemeVersions.keys().next();
+			if (!first.done) hotThemeVersions.delete(first.value);
+		}
+		if ((hotThemeVersions.get(key)?.expiresAt ?? 0) <= now + 10_000)
+			hotThemeVersions.set(key, { version, expiresAt: now + 10_000 });
+		return version;
+	} catch (error) {
+		console.warn("[cms-runtime] hot theme metadata unavailable", {
+			slug,
+			error,
+		});
+	}
+}
+
 async function hotThemeResponse(
 	env: Env,
 	slug: string,
-	pathname: string,
-	method: string,
+	url: URL,
+	request: Request,
 ): Promise<Response | null> {
 	// authz: public — public tenant-site theme CSS for the resolved site.
-	if (pathname !== HOT_THEME_PUBLIC_PATH) return null;
+	if (url.pathname !== HOT_THEME_PUBLIC_PATH) return null;
+	const method = request.method;
 	if (method !== "GET" && method !== "HEAD") {
 		return new Response("Method Not Allowed", {
 			status: 405,
 			headers: { Allow: "GET, HEAD" },
+		});
+	}
+
+	const version = url.searchParams.get("v");
+	if (version !== null) {
+		const headers = new Headers({
+			"Content-Type": "text/css; charset=utf-8",
+			"Cache-Control": "public, max-age=31536000, immutable",
+		});
+		if (version === "none")
+			return new Response(method === "HEAD" ? null : EMPTY_HOT_THEME, {
+				headers,
+			});
+		if (HOT_THEME_HASH.test(version)) {
+			const short = version.slice(0, 12);
+			const key = `hot-themes/${slug}/revisions/${short}.css`;
+			const body = method === "GET" ? await env.TENANT_BUNDLES.get(key) : null;
+			const css = method === "HEAD" ? await env.TENANT_BUNDLES.head(key) : body;
+			if (css?.customMetadata?.sha256 === version) {
+				headers.set("X-Tedix-Hot-Theme-Revision", short);
+				headers.set("ETag", css.httpEtag);
+				return new Response(body ? await body.text() : null, { headers });
+			}
+		}
+		return new Response(method === "HEAD" ? null : "Theme revision not found", {
+			status: 404,
+			headers: { "Cache-Control": "no-store" },
 		});
 	}
 
@@ -1194,20 +1267,20 @@ async function hotThemeResponse(
 
 	const headers = new Headers({
 		"Content-Type": "text/css; charset=utf-8",
-		"Cache-Control": "no-store",
+		"Cache-Control":
+			!url.search && publicAssetCacheEligible(request)
+				? "public, max-age=0, must-revalidate"
+				: "no-store",
 		"X-Tedix-Hot-Theme-Revision": revision,
 	});
 	if (updatedAt) headers.set("X-Tedix-Hot-Theme-Updated-At", updatedAt);
 	if (cssObject?.httpEtag) headers.set("ETag", cssObject.httpEtag);
 
 	if (!cssObject) {
-		return new Response(
-			method === "HEAD" ? null : "/* no Tedix hot theme published */\n",
-			{
-				status: 200,
-				headers,
-			},
-		);
+		return new Response(method === "HEAD" ? null : EMPTY_HOT_THEME, {
+			status: 200,
+			headers,
+		});
 	}
 
 	return new Response(method === "HEAD" ? null : await cssObject.text(), {
@@ -1303,6 +1376,7 @@ async function fetchCmsSite(
 	knownRestoreEpoch?: number,
 	knownPageCacheRevision?: string,
 	knownBundle?: TenantBundle | null,
+	onPage?: (page: WarmMarketingPage) => void,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	// authz: public — liveness + deployed-sha probe; serves no tenant data.
@@ -1510,12 +1584,7 @@ async function fetchCmsSite(
 		env.CMS_INTERNAL_AUTH_TOKEN,
 	);
 
-	const hotTheme = await hotThemeResponse(
-		env,
-		slug,
-		tenantUrl.pathname,
-		request.method,
-	);
+	const hotTheme = await hotThemeResponse(env, slug, tenantUrl, request);
 	if (hotTheme) return hotTheme;
 
 	// ── WebMCP bridge + JSON-RPC endpoint (/_tedix/webmcp/*) ──────────────
@@ -1749,28 +1818,36 @@ async function fetchCmsSite(
 		};
 
 		let loaderResponse: Response;
+		let pageKey: Request | null = null;
+		const queryTemplate =
+			slug === env.MARKETING_SITE_SLUG ? org.templateSlug : undefined;
 		try {
 			spans["tenant.preDispatch"] = Date.now() - preDispatchStarted;
-			const pageKey = publicPageEligible
-				? await pageCacheKey(request, tenantUrl, {
-						siteId: org.siteId,
-						slug,
-						restoreEpoch,
-						bundleEtag: bundle.etag,
-						bundleVersion: bundle.version,
-						contentRevision: pageRevision,
-					})
+			pageKey = publicPageEligible
+				? await pageCacheKey(
+						request,
+						tenantUrl,
+						{
+							siteId: org.siteId,
+							slug,
+							restoreEpoch,
+							bundleEtag: bundle.etag,
+							bundleVersion: bundle.version,
+							contentRevision: pageRevision,
+						},
+						queryTemplate,
+					)
 				: null;
 			loaderResponse = await span(spans, "loader.fetch", () =>
 				pageKey
 					? cachedTenantPage({
-							// Emdash's types pull in lib.dom, whose CacheStorage lacks `default`.
-							cache: (caches as unknown as { default: Cache }).default,
+							cache: tenantPageCache(),
 							key: pageKey,
 							templateSlug: org.templateSlug,
 							pathname: tenantUrl.pathname,
 							waitUntil: (promise) => ctx.waitUntil(promise),
-							render: () => renderTenant(anonymousPageRequest),
+							render: () =>
+								renderTenant((r) => anonymousPageRequest(r, queryTemplate)),
 						})
 					: renderTenant(),
 			);
@@ -1836,121 +1913,251 @@ async function fetchCmsSite(
 			);
 		}
 
-		// Buffer the response body from the Worker Loader boundary.
-		// The LOADER binding returns responses as ReadableStream regardless of
-		// how the inner worker serialised them (even ArrayBuffer). HTML, JSON,
-		// and error responses all need to be drained here — the "content-length
-		// set, unaffected" assumption was wrong: the boundary re-streams
-		// everything, so JSON API error bodies arrive as empty streams without
-		// this buffering step.
-		let response = loaderResponse;
-		const ct = loaderResponse.headers.get("content-type") ?? "";
-		const shouldBuffer =
-			loaderResponse.body &&
-			(ct.startsWith("text/html") ||
-				ct.startsWith("application/xml") ||
-				ct.startsWith("text/xml") ||
-				ct.startsWith("application/json") ||
-				loaderResponse.status >= 400);
-		if (shouldBuffer) {
-			try {
-				const headers = new Headers(loaderResponse.headers);
-				const body = await span(spans, "loader.buffer", () =>
-					loaderResponse.arrayBuffer(),
-				);
-				const shouldPatchReverseProxyText =
-					ct.startsWith("text/html") ||
-					ct.startsWith("application/xml") ||
-					ct.startsWith("text/xml") ||
-					ct.startsWith("text/plain");
-				// `Uint8Array<ArrayBuffer>`, not bare `Uint8Array`: Emdash 0.34's
-				// `db/do-sql` types side-effect import `emdash`, whose type chain
-				// references `astro/client` and so pulls `lib.dom` into this
-				// Worker's program. DOM's `BufferSource` accepts only an
-				// `ArrayBuffer`-backed view, so the default `ArrayBufferLike`
-				// type argument no longer satisfies `BodyInit`.
-				let responseBody: ArrayBuffer | Uint8Array<ArrayBuffer> = body;
-				if (shouldPatchReverseProxyText) {
-					const decodedBody = new TextDecoder().decode(body);
-					const textBody = ct.startsWith("text/html")
-						? ensureWebMcpBridge(ensureHotThemeLink(decodedBody), org)
-						: canonicalizeSitemapUrls(
-								decodedBody,
-								sitemapUsesTrailingSlash(org, env),
-								loaderResponse.headers.get("X-EmDash-Sitemap-Canonical") ===
-									"1",
-							);
-					responseBody = new TextEncoder().encode(
-						patchReverseProxyHtml(textBody, org),
-					);
-				}
-				headers.set("content-length", String(responseBody.byteLength));
-				headers.delete("transfer-encoding");
-				response = new Response(responseBody, {
-					status: loaderResponse.status,
-					statusText: loaderResponse.statusText,
-					headers,
-				});
-			} catch (bufErr) {
-				console.error(`[cms-runtime] html buffer failed for ${slug}:`, bufErr);
-				response = new Response(
-					`Buffer error: ${bufErr instanceof Error ? bufErr.message : String(bufErr)}`,
-					{ status: 502 },
-				);
-			}
-		}
-		const location = patchReverseProxyLocation(
-			response.headers.get("location"),
-			org,
-		);
-		if (location && location !== response.headers.get("location")) {
-			const headers = new Headers(response.headers);
-			headers.set("location", location);
-			response = new Response(response.body, {
-				status: response.status,
-				statusText: response.statusText,
-				headers,
-			});
-		}
 		const requestHost = effectiveRequestHost(tenantRequest, tenantUrl.host);
-		response = applyEdgeResponseHeaders(
-			response,
-			requestHost,
+		const response = await finishTenantResponse(
+			loaderResponse,
+			request,
+			env,
 			org,
-			tenantUrl.pathname,
+			tenantUrl,
+			requestHost,
+			spans,
+			restoreEpoch,
 		);
-		response = applyContentSignal(response);
-		response = applyEdgeCacheHeaders(
-			response,
-			request.method,
-			tenantUrl.pathname,
-			pageCacheEligible(request, tenantUrl.pathname) &&
-				["HIT", "MISS", "STALE"].includes(
-					response.headers.get("X-Tedix-Page-Cache") ?? "",
-				),
-		);
-
-		// Emit the parent-side spans. Without this the tenant isolate's own
-		// Server-Timing is all you see, and a parent-side regression (a cold
-		// bundle read costing 15s) is invisible — which is exactly how the
-		// packed-bundle path was dropped and went unnoticed in production.
-		const parentTiming = parentServerTiming(spans);
-		if (parentTiming) {
-			const timed = new Headers(response.headers);
-			timed.append("Server-Timing", parentTiming);
-			response = new Response(response.body, {
-				status: response.status,
-				statusText: response.statusText,
-				headers: timed,
+		if (
+			onPage &&
+			pageKey &&
+			response.status === 200 &&
+			response.headers.get("Content-Type")?.startsWith("text/html") &&
+			["HIT", "MISS", "STALE"].includes(
+				response.headers.get("X-Tedix-Page-Cache") ?? "",
+			)
+		) {
+			onPage({
+				key: pageKey.url,
+				tenantUrl: tenantUrl.href,
+				requestHost,
+				org,
+				identity: { siteId: org.siteId, slug, restoreEpoch },
 			});
 		}
-
-		return withCmsAgentDiscoveryLinks(response, org);
+		return response;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.error(`[cms-runtime] ${slug} ${url.pathname}:`, msg);
 		return new Response("Internal Server Error", { status: 500 });
 	}
+}
+
+async function finishTenantResponse(
+	loaderResponse: Response,
+	request: Request,
+	env: Env,
+	org: OrgInfo,
+	tenantUrl: URL,
+	requestHost: string,
+	spans: ParentSpans,
+	restoreEpoch: number,
+): Promise<Response> {
+	// Buffer the response body from the Worker Loader boundary.
+	// The LOADER binding returns responses as ReadableStream regardless of
+	// how the inner worker serialised them (even ArrayBuffer). HTML, JSON,
+	// and error responses all need to be drained here — the "content-length
+	// set, unaffected" assumption was wrong: the boundary re-streams
+	// everything, so JSON API error bodies arrive as empty streams without
+	// this buffering step.
+	let response = loaderResponse;
+	const ct = loaderResponse.headers.get("content-type") ?? "";
+	const shouldBuffer =
+		loaderResponse.body &&
+		(ct.startsWith("text/html") ||
+			ct.startsWith("application/xml") ||
+			ct.startsWith("text/xml") ||
+			ct.startsWith("application/json") ||
+			loaderResponse.status >= 400);
+	if (shouldBuffer) {
+		try {
+			const headers = new Headers(loaderResponse.headers);
+			const body = await span(spans, "loader.buffer", () =>
+				loaderResponse.arrayBuffer(),
+			);
+			const shouldPatchReverseProxyText =
+				ct.startsWith("text/html") ||
+				ct.startsWith("application/xml") ||
+				ct.startsWith("text/xml") ||
+				ct.startsWith("text/plain");
+			// `Uint8Array<ArrayBuffer>`, not bare `Uint8Array`: Emdash 0.34's
+			// `db/do-sql` types side-effect import `emdash`, whose type chain
+			// references `astro/client` and so pulls `lib.dom` into this
+			// Worker's program. DOM's `BufferSource` accepts only an
+			// `ArrayBuffer`-backed view, so the default `ArrayBufferLike`
+			// type argument no longer satisfies `BodyInit`.
+			let responseBody: ArrayBuffer | Uint8Array<ArrayBuffer> = body;
+			if (shouldPatchReverseProxyText) {
+				const decodedBody = new TextDecoder().decode(body);
+				const textBody = ct.startsWith("text/html")
+					? ensureWebMcpBridge(
+							ensureHotThemeLink(
+								decodedBody,
+								publicAssetCacheEligible(request)
+									? await publicHotThemeVersion(env, org.slug, restoreEpoch)
+									: undefined,
+							),
+							org,
+						)
+					: canonicalizeSitemapUrls(
+							decodedBody,
+							sitemapUsesTrailingSlash(org, env),
+							loaderResponse.headers.get("X-EmDash-Sitemap-Canonical") === "1",
+						);
+				const patched = patchReverseProxyHtml(textBody, org);
+				responseBody =
+					ct.startsWith("text/html") &&
+					org.slug === env.MARKETING_SITE_SLUG &&
+					usesPublicPageQueryAllowlist(org.templateSlug) &&
+					pageCacheEligible(request, tenantUrl.pathname)
+						? await withLeadAttribution(
+								patched,
+								new URL(request.url),
+								tenantUrl.pathname,
+							)
+						: new TextEncoder().encode(patched);
+			}
+			headers.set("content-length", String(responseBody.byteLength));
+			headers.delete("transfer-encoding");
+			response = new Response(responseBody, {
+				status: loaderResponse.status,
+				statusText: loaderResponse.statusText,
+				headers,
+			});
+		} catch (bufErr) {
+			console.error(
+				`[cms-runtime] html buffer failed for ${org.slug}:`,
+				bufErr,
+			);
+			response = new Response(
+				`Buffer error: ${bufErr instanceof Error ? bufErr.message : String(bufErr)}`,
+				{ status: 502 },
+			);
+		}
+	}
+	const location = patchReverseProxyLocation(
+		response.headers.get("location"),
+		org,
+	);
+	if (location && location !== response.headers.get("location")) {
+		const headers = new Headers(response.headers);
+		headers.set("location", location);
+		response = new Response(response.body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers,
+		});
+	}
+	response = applyEdgeResponseHeaders(
+		response,
+		requestHost,
+		org,
+		tenantUrl.pathname,
+	);
+	response = applyContentSignal(response);
+	response = applyEdgeCacheHeaders(
+		response,
+		request.method,
+		tenantUrl.pathname,
+		pageCacheEligible(request, tenantUrl.pathname) &&
+			["HIT", "MISS", "STALE"].includes(
+				response.headers.get("X-Tedix-Page-Cache") ?? "",
+			),
+	);
+
+	// Emit the parent-side spans. Without this the tenant isolate's own
+	// Server-Timing is all you see, and a parent-side regression (a cold
+	// bundle read costing 15s) is invisible — which is exactly how the
+	// packed-bundle path was dropped and went unnoticed in production.
+	const parentTiming = parentServerTiming(spans);
+	if (parentTiming) {
+		const timed = new Headers(response.headers);
+		timed.append("Server-Timing", parentTiming);
+		response = new Response(response.body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: timed,
+		});
+	}
+
+	return withCmsAgentDiscoveryLinks(response, org);
+}
+
+interface WarmMarketingPage {
+	key: string;
+	tenantUrl: string;
+	requestHost: string;
+	org: OrgInfo;
+	identity: Pick<PageCacheIdentity, "siteId" | "slug" | "restoreEpoch">;
+}
+
+// The short routing snapshot is usable only while the existing durable
+// restore reservation admits a borrower in the same epoch.
+const MARKETING_ROUTE_TTL_MS = 5_000;
+const MAX_WARM_MARKETING_PAGES = 256;
+const warmMarketingPages = new Map<
+	string,
+	{
+		page: WarmMarketingPage;
+		expiresAt: number;
+	}
+>();
+// Emdash's types pull in lib.dom, whose CacheStorage lacks `default`.
+function tenantPageCache(): Cache {
+	return (caches as unknown as { default: Cache }).default;
+}
+
+async function serveWarmMarketingPage(
+	request: Request,
+	env: Env,
+	ctx: ExecutionContext,
+	routeKey: string,
+): Promise<Response | undefined> {
+	const snapshot = warmMarketingPages.get(routeKey);
+	if (!snapshot || snapshot.expiresAt <= Date.now()) return;
+	const { page } = snapshot;
+	const cached = await matchTenantPage(
+		tenantPageCache(),
+		new Request(page.key),
+	);
+	if (!cached) return;
+	const hit = pageCacheHit(cached, Date.now());
+	if (
+		!hit.fresh ||
+		!hit.response.headers.get("Content-Type")?.startsWith("text/html") ||
+		snapshot.expiresAt <= Date.now()
+	) {
+		void hit.response.body?.cancel();
+		return;
+	}
+	const queries = publicRestorePermitQueries(
+		(task) => ctx.waitUntil(task),
+		true,
+	);
+	const permitted = await withCmsRestoreResponsePermit(
+		createDbQueryClient(env.PLATFORM_DB),
+		page.identity,
+		() =>
+			finishTenantResponse(
+				hit.response,
+				request,
+				env,
+				page.org,
+				new URL(page.tenantUrl),
+				page.requestHost,
+				{},
+				page.identity.restoreEpoch,
+			),
+		queries,
+	);
+	if (permitted.admitted) return permitted.value;
+	void hit.response.body?.cancel();
 }
 
 /** Pauses between failed routing and admission checks for GET and HEAD. */
@@ -2008,9 +2215,25 @@ export default {
 		if (!env.MARKETING_SITE_SLUG && isMarketingHost(url.hostname, env))
 			return cmsRestoreFenceResponse();
 
+		const marketingSlug = isMarketingHost(url.hostname, env)
+			? env.MARKETING_SITE_SLUG
+			: undefined;
+		const routeKey =
+			marketingSlug && pageCacheEligible(request, url.pathname)
+				? JSON.stringify([
+						marketingSlug,
+						publicPageRequestKey(request, "tedix"),
+					])
+				: undefined;
+		if (routeKey) {
+			const hit = await serveWarmMarketingPage(request, env, ctx, routeKey);
+			if (hit) return hit;
+		}
+
 		// D1 routing and admission can be retried until the request is dispatched.
 		let dispatched = false;
 		const serve = async (): Promise<Response> => {
+			const expiresAt = Date.now() + MARKETING_ROUTE_TTL_MS;
 			const db = createDbQueryClient(env.PLATFORM_DB);
 			const isPublicAlias =
 				(request.method === "GET" || request.method === "HEAD") &&
@@ -2018,10 +2241,6 @@ export default {
 			const alias = isPublicAlias
 				? await getCmsSiteByActiveWwwAlias(db, url.hostname)
 				: null;
-			const marketingSlug =
-				env.MARKETING_SITE_SLUG && isMarketingHost(url.hostname, env)
-					? env.MARKETING_SITE_SLUG
-					: null;
 			const resolved = alias
 				? null
 				: marketingSlug
@@ -2065,6 +2284,25 @@ export default {
 					site.restoreEpoch,
 					site.config?.pageCacheRevision ?? "0",
 					bundle,
+					routeKey && !alias
+						? (page) => {
+								if (
+									!usesPublicPageQueryAllowlist(page.org.templateSlug) ||
+									page.identity.siteId !== identity.siteId ||
+									expiresAt <= Date.now() ||
+									(warmMarketingPages.get(routeKey)?.expiresAt ?? 0) > expiresAt
+								)
+									return;
+								if (
+									warmMarketingPages.size >= MAX_WARM_MARKETING_PAGES &&
+									!warmMarketingPages.has(routeKey)
+								) {
+									const first = warmMarketingPages.keys().next();
+									if (!first.done) warmMarketingPages.delete(first.value);
+								}
+								warmMarketingPages.set(routeKey, { page, expiresAt });
+							}
+						: undefined,
 				);
 			const restoreQueries = publicRestorePermitEligible(request)
 				? () => publicRestorePermitQueries((task) => ctx.waitUntil(task))

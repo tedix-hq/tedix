@@ -48,7 +48,10 @@ export class PublicRestorePermits {
 			throw new Error("CMS restore reservation release failed");
 	}
 
-	forRequest(waitUntil: (task: Promise<unknown>) => void) {
+	forRequest(
+		waitUntil: (task: Promise<unknown>) => void,
+		existingOnly = false,
+	) {
 		let borrowed: Reservation | undefined;
 		const release = async (db: DbQueryClient): Promise<boolean> => {
 			if (!borrowed) return true;
@@ -78,6 +81,7 @@ export class PublicRestorePermits {
 					return true;
 				};
 				if (borrow()) return true;
+				if (existingOnly) return false;
 				// Do not share another request's pending D1 I/O. Concurrent cold
 				// requests can each reserve a row, then share the last completed one.
 				// A pooled outer claim must not be reclaimed as an abandoned response;
@@ -132,6 +136,7 @@ const pool = new PublicRestorePermits();
 
 export function publicRestorePermitQueries(
 	waitUntil: (task: Promise<unknown>) => void,
+	existingOnly = false,
 ) {
-	return pool.forRequest(waitUntil);
+	return pool.forRequest(waitUntil, existingOnly);
 }

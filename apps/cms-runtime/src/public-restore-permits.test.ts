@@ -29,7 +29,8 @@ function fixture(
 	};
 	const pool = new PublicRestorePermits(queries, clock);
 	const tasks: Promise<unknown>[] = [];
-	const forRequest = () => pool.forRequest((task) => tasks.push(task));
+	const forRequest = (existingOnly = false) =>
+		pool.forRequest((task) => tasks.push(task), existingOnly);
 	return { queries, forRequest, tasks };
 }
 
@@ -37,6 +38,30 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("public restore reservations", () => {
+	it("only borrows confirmed admission for the same epoch on the cache path", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const cacheRead = () => forRequest(true);
+		expect(await cacheRead().enter(db, permit)).toBe(false);
+		expect(queries.enter).not.toHaveBeenCalled();
+
+		const admitted = forRequest();
+		expect(await admitted.enter(db, permit)).toBe(true);
+		await admitted.leave(db, permit);
+
+		const hit = cacheRead();
+		expect(await hit.enter(db, permit)).toBe(true);
+		expect(await cacheRead().enter(db, { ...permit, restoreEpoch: 8 })).toBe(
+			false,
+		);
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(await cacheRead().enter(db, permit)).toBe(false);
+		expect(queries.leave).not.toHaveBeenCalled();
+		await hit.leave(db, permit);
+		await Promise.all(tasks);
+		expect(queries.enter).toHaveBeenCalledOnce();
+		expect(queries.leave).toHaveBeenCalledOnce();
+	});
+
 	it("never shares an outer response reservation with a nested read", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const outer = forRequest();
