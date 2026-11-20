@@ -160,6 +160,15 @@ export const calendarCoordinatorContractRouter = {
 				ownershipSeed: crypto.randomUUID(),
 				updatedAt: new Date().toISOString(),
 			});
+		const { ensureWorkspaceTediRole } =
+			await import("../../services/os-workspace-tedi-role");
+		// The configured tedi reconciles calendars in this Workspace.
+		await ensureWorkspaceTediRole(context, {
+			organizationId,
+			workspaceId: input.workspaceId,
+			tediId: configuration.tediId,
+			note: "Calendar coordinator",
+		});
 		return configuration;
 	}),
 	activate: author.activate.handler(async ({ context, input }) => {

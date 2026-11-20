@@ -9,6 +9,7 @@ import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprin
 import { getBlueprintApplyReceipt } from "@tedix/db/queries/os-workspaces/provisioning";
 import { instantiateOsBlueprint } from "../../services/os-workspace-outputs";
 import { attachOutputEditor } from "../../services/os-output-editor";
+import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -263,6 +264,14 @@ const apply = authed
 				);
 			throw error;
 		}
+		// Each scheduled skill's tedi runs in the new Workspace.
+		for (const tediId of new Set(bindings.map(({ skill }) => skill.tediId!)))
+			await ensureWorkspaceTediRole(context, {
+				organizationId: blueprint.organizationId,
+				workspaceId: plan.receipt.workspaceId,
+				tediId,
+				note: "Blueprint schedule executor",
+			});
 		// Template documents get editors; app-bound outputs keep their app.
 		for (const output of [
 			...(params.outputs ?? []),

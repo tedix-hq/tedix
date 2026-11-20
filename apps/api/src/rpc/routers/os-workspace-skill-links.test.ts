@@ -311,8 +311,16 @@ describe("Workspace skill links", () => {
 	});
 
 	it("links the skill's tedi and connections as their own resources", async () => {
-		const { client, workspaceId } = await seed();
+		const { client, sqlite, workspaceId } = await seed();
 		await client.schedules.link({ workspaceId, skillId: RESEARCH });
+		// The tedi that runs the skill gets its own role in the Workspace.
+		expect(
+			sqlite
+				.prepare(
+					"SELECT kind, role, sharer_user_id AS sharer FROM os_workspace_access_edges WHERE target_user_id = ?",
+				)
+				.all(TEDI),
+		).toEqual([{ kind: "tedi", role: "build", sharer: "member-robin" }]);
 		const { items } = await client.resources.list({
 			workspaceId,
 			status: "active",

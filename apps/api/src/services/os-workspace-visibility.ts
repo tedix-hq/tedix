@@ -125,10 +125,11 @@ export async function assertOsWorkspaceVisible(
 	options: { ownerOnly?: boolean } = {},
 ): Promise<void> {
 	// A tedi with its own build role sees the workspace, private ones included.
-	// A tedi without one is judged as before this rule existed: people who reach
-	// Tedix through a connected client act as the organization's tedi, and
-	// scheduled tedis write to organization workspaces, so refusing a role-less
-	// tedi here would lock them out.
+	// A tedi without one is judged as before this rule existed: scheduled and
+	// Home-delegated tedis write to organization workspaces that never recorded
+	// a role for them, so refusing a role-less tedi here would lock them out.
+	// (A person calling through a connected client arrives as that person on
+	// their own token, not as a tedi, and never reaches this branch.)
 	if (
 		!options.ownerOnly &&
 		(context.authType === "tedi" || context.authType === "service-binding") &&
