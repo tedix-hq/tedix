@@ -395,15 +395,19 @@ describe("durable gateway ledger", () => {
 		expect(row!.sequence).toBeGreaterThan(UNSTORED_SEQUENCE);
 		expect(await reader.get(guarded.record.id)).toEqual(row);
 	});
-	it("logs a failed background write without failing the call", async () => {
+	it("retries a failed background write with the same record until it is stored", async () => {
+		vi.useFakeTimers();
 		const { context } = setup();
 		const agent = context();
 		const background: Promise<unknown>[] = [];
 		(agent as { ctx: unknown }).ctx = {
 			waitUntil: (work: Promise<unknown>) => background.push(work),
 		};
-		agent.apiClient.audit.appendChangeRecord = vi.fn(async () => {
-			throw new Error("storage unavailable");
+		const append = agent.apiClient.audit.appendChangeRecord;
+		let failures = 2;
+		agent.apiClient.audit.appendChangeRecord = vi.fn(async (input) => {
+			if (failures-- > 0) throw new Error("storage unavailable");
+			return append(input);
 		});
 		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 		const guarded = await guardGatewayCall(
@@ -411,11 +415,19 @@ describe("durable gateway ledger", () => {
 			async () => ok,
 		);
 		expect(guarded.result).toBe(ok);
+		await vi.runAllTimersAsync();
 		await Promise.all(background);
-		expect(logged).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+		expect(logged).toHaveBeenCalledTimes(2);
 		expect(JSON.parse(String(logged.mock.calls[0]?.[0]))).toMatchObject({
 			event: "gateway_change_record_write_failed",
 			changeRecordId: guarded.record.id,
+		});
+		expect(
+			await new GatewayAccountabilityAdapter(context()).get(guarded.record.id),
+		).toMatchObject({
+			id: guarded.record.id,
+			recordedAt: guarded.record.recordedAt,
 		});
 	});
 	it("waits for a refusal's record even when it could run in the background", async () => {

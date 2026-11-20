@@ -285,6 +285,12 @@ function readRetryAfter(result: CallToolResult): number | undefined {
 /** `sequence` of a record not (yet) confirmed stored; stored rows start at 1. */
 export const UNSTORED_SEQUENCE = 0;
 const LEDGER_WRITE_TIMEOUT_MS = 3000;
+/**
+ * Waits before each retry of a failed record write, in the background. The
+ * record keeps its id, and an append of a stored id stores nothing new, so a
+ * retry never duplicates. Sized to finish inside a Worker's waitUntil time.
+ */
+export const LEDGER_WRITE_RETRY_MS = [1000, 3000, 10_000] as const;
 
 export interface GatewayLedgerOptions {
 	/** The called tool declares `skipAppliedChangeRecord` in its policy. */
@@ -419,10 +425,15 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 		) {
 			record = Object.freeze(unstored);
 		} else if (!refused && context) {
-			context.waitUntil(this.store(unstored).catch(() => undefined));
+			context.waitUntil(this.storeWithRetry(unstored, 0));
 			record = Object.freeze(unstored);
 		} else {
-			record = Object.freeze(await this.store(unstored).catch(() => unstored));
+			record = Object.freeze(
+				await this.store(unstored).catch(() => {
+					context?.waitUntil(this.storeWithRetry(unstored, 1));
+					return unstored;
+				}),
+			);
 		}
 		const { agent } = this;
 		if (
@@ -464,6 +475,45 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 	 * One insert through the API, bounded so a stalled ledger holds nothing
 	 * up for long. A failure is logged here and rethrown.
 	 */
+	/**
+	 * Write the record, retrying after each failure with the waits in
+	 * `LEDGER_WRITE_RETRY_MS`, starting at try `attempt`. A record still not
+	 * stored after the last try is logged as lost.
+	 */
+	private async storeWithRetry(
+		record: ChangeRecord,
+		attempt: number,
+	): Promise<void> {
+		for (let next = attempt; ; next++) {
+			if (next > 0) {
+				const wait = LEDGER_WRITE_RETRY_MS[next - 1];
+				if (wait === undefined) break;
+				await new Promise((resolve) => setTimeout(resolve, wait));
+			}
+			try {
+				await this.store(record);
+				return;
+			} catch {
+				// Logged by `store`; try again.
+			}
+		}
+		console.error(
+			JSON.stringify({
+				level: "error",
+				event: "gateway_change_record_lost",
+				message:
+					"A gateway tool call has no stored change record after every retry.",
+				changeRecordId: record.id,
+				recordedAt: record.recordedAt,
+				organizationId: this.agent.app?.organizationId,
+				traceId: record.source.traceId,
+				resource: record.resource,
+				operation: record.operation,
+				outcome: record.outcome,
+			}),
+		);
+	}
+
 	private async store(record: ChangeRecord): Promise<ChangeRecord> {
 		const { sequence: _unstored, ...input } = record;
 		let timer: ReturnType<typeof setTimeout> | undefined;
