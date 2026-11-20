@@ -1101,7 +1101,11 @@ describe("WorkspaceChat", () => {
 					event.type === "turn.started"
 						? { ...event, respondingTediId: "tedi-support" }
 						: event.type === "approval.requested"
-							? { ...event, requester: { id: "tedi-support", kind: "tedi" } }
+							? {
+									...event,
+									requester: { id: "aaron", kind: "person" },
+									actingTediId: "tedi-support",
+								}
 							: event,
 				),
 			),
@@ -1110,7 +1114,9 @@ describe("WorkspaceChat", () => {
 			host.querySelector(".workspace-chat-reply .workspace-chat-author")
 				?.textContent,
 		).toBe("Support");
-		expect(host.textContent).toContain("Asked by Support");
+		expect(host.textContent).toContain(
+			"Asked by Workspace member. Support will apply it.",
+		);
 	});
 
 	it("labels a paged approval hold plainly before its request arrives", () => {

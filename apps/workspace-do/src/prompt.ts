@@ -1,8 +1,10 @@
 /**
  * System prompt in two slots. The static slot (rules + binding
  * declarations) is byte-identical across turns of a workspace so the
- * provider caches it; everything that changes per turn goes last.
+ * provider caches it; everything that changes per turn goes last. A guest
+ * tedi's own prompt goes before both.
  */
+import type { Message } from "@earendil-works/pi-ai";
 import { OS_SCREENS_PROMPT } from "@tedix/api-contract/utils/os-screens-prompt";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { renderEnvDeclarations } from "./declarations";
@@ -12,9 +14,14 @@ export const DESCRIBE_BINDING_TOOL = "describe_binding";
 export const ACCOUNTS_UNAVAILABLE =
 	"Connected accounts are not available to tedi-started or scheduled turns yet.";
 
-export const STATIC_RULES = `You are the agent of one Tedix workspace. You answer questions about this workspace's documents, sheets, presentations, apps, resources and Work items, and you change them when asked.
+const WORKSPACE_AGENT_INTRO =
+	"You are the agent of one Tedix workspace. You answer questions about this workspace's documents, sheets, presentations, apps, resources and Work items, and you change them when asked.";
 
-How to act:
+/** Opens the workspace rules for a tedi; who it is comes from its own prompt. */
+const GUEST_TEDI_INTRO =
+	"You are answering in the chat of one Tedix workspace. You can read this workspace's documents, sheets, presentations, apps, resources and Work items, and you change them when asked.";
+
+const WORKSPACE_RULES = `How to act:
 - To read or change anything, call ${RUN_CODE_TOOL} with a JavaScript module: \`export default async (env) => { ... return value }\`. The returned value (JSON) and console output come back to you. Prefer one ${RUN_CODE_TOOL} call that gathers everything you need over many small calls.
 - \`env\` is typed by the declarations below. If a declaration is unclear, call ${DESCRIBE_BINDING_TOOL} with the binding name; do not guess an API.
 - Workspace file reads run at once. A new document, sheet or presentation and an edit to one apply at once: the call returns the saved file, and the person can undo it from your reply or from version history, so say what you changed. Removing content from a file, deleting, sharing, a new app, a web page and filing a proposed Work Item wait for the person: the call comes back with "Approval required", it is not applied yet, and the person approves or denies it on its card while the chat goes on. Do not retry it or work around it. Carry on with any part of the task that does not depend on it, then say in one sentence what is waiting for approval. Steps that need the held change wait until a later message tells you it was applied.
@@ -31,8 +38,10 @@ How to act:
 
 ${OS_SCREENS_PROMPT}`;
 
-export function staticPromptPrefix(): string {
-	return `${STATIC_RULES}\n\nSandbox env declarations:\n\`\`\`ts\n${renderEnvDeclarations()}\n\`\`\``;
+export const STATIC_RULES = `${WORKSPACE_AGENT_INTRO}\n\n${WORKSPACE_RULES}`;
+
+export function staticPromptPrefix(guestTedi = false): string {
+	return `${guestTedi ? GUEST_TEDI_INTRO : WORKSPACE_AGENT_INTRO}\n\n${WORKSPACE_RULES}\n\nSandbox env declarations:\n\`\`\`ts\n${renderEnvDeclarations()}\n\`\`\``;
 }
 
 export interface DynamicPromptInput {
@@ -48,6 +57,8 @@ export interface DynamicPromptInput {
 	/** Changes this conversation proposed that still wait for a decision. */
 	pendingApprovals?: PendingApproval[];
 	linkedAccounts?: Array<{ name: string; service: string }> | null;
+	/** Who else answered earlier in this conversation; see `markOtherReplies`. */
+	otherReplyAuthors?: string[];
 }
 
 export interface PendingApproval {
@@ -74,8 +85,10 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 		`Workspace: ${input.workspaceName}${input.workspaceDescription ? ` — ${input.workspaceDescription}` : ""}`,
 		`Current time: ${input.nowIso}`,
 	];
-	if (input.tediPrompt)
-		parts.push(`You are running as this tedi:\n${input.tediPrompt}`);
+	if (input.otherReplyAuthors?.length)
+		parts.push(
+			`Earlier replies in this conversation that start with a "[Reply from ...]" line were written by ${input.otherReplyAuthors.join(", ")}, not by you. Never start a reply of your own with such a line.`,
+		);
 	if (input.linkedAccounts === null) parts.push(ACCOUNTS_UNAVAILABLE);
 	else if (input.linkedAccounts?.length)
 		parts.push(
@@ -115,6 +128,38 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 	return parts.join("\n\n");
 }
 
+/**
+ * A guest tedi's own persona and memory lead, so it answers as itself; the
+ * workspace rules follow.
+ */
 export function buildSystemPrompt(input: DynamicPromptInput): string {
-	return `${staticPromptPrefix()}\n\n${dynamicPromptSuffix(input)}`;
+	const workspace = `${staticPromptPrefix(Boolean(input.tediPrompt))}\n\n${dynamicPromptSuffix(input)}`;
+	return input.tediPrompt ? `${input.tediPrompt}\n\n${workspace}` : workspace;
+}
+
+/**
+ * History for the one answering now: a reply someone else wrote opens with a
+ * line naming its author, so a tedi does not take the workspace agent's or
+ * another tedi's reply for its own. `author` gets a message's turn and
+ * returns a name, or null when the one answering now wrote it. A person's
+ * message is never changed.
+ */
+export function markOtherReplies(
+	history: ReadonlyArray<{ turnId: string; message: Message }>,
+	author: (turnId: string) => string | null,
+): Message[] {
+	return history.map(({ turnId, message }) => {
+		if (message.role !== "assistant") return message;
+		const name = author(turnId);
+		const first = message.content.findIndex((block) => block.type === "text");
+		if (!name || first < 0) return message;
+		return {
+			...message,
+			content: message.content.map((block, index) =>
+				index === first && block.type === "text"
+					? { ...block, text: `[Reply from ${name}]\n${block.text}` }
+					: block,
+			),
+		};
+	});
 }

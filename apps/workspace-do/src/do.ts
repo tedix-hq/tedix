@@ -126,6 +126,7 @@ import {
 } from "./model";
 import {
 	buildSystemPrompt,
+	markOtherReplies,
 	type PendingApproval,
 	type ReferencedSkill,
 } from "./prompt";
@@ -280,6 +281,27 @@ interface TurnRow {
 	first_seq: number | null;
 	started_at: string;
 	finished_at: string | null;
+}
+
+/** The tedi that answers a turn: a picked guest or the tedi that started it. */
+function respondingTediId(turn: TurnRow): string | null {
+	return turn.tedi_id ?? (turn.actor_kind === "tedi" ? turn.actor_id : null);
+}
+
+/**
+ * Who an approval card names: the one who sent the turn and, when a person
+ * addressed a tedi, the tedi that will apply the change.
+ */
+function approvalParties(turn: TurnRow | undefined) {
+	if (!turn) return {};
+	return {
+		requester: {
+			id: turn.actor_id,
+			kind:
+				turn.actor_kind === "tedi" ? ("tedi" as const) : ("person" as const),
+		},
+		...(turn.tedi_id ? { actingTediId: turn.tedi_id } : {}),
+	};
 }
 
 /** The most waiting requests one hello carries. */
@@ -1488,8 +1510,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			authorId: turn.actor_id,
 			authorKind:
 				turn.actor_kind === "tedi" ? ("tedi" as const) : ("person" as const),
-			respondingTediId:
-				turn.tedi_id ?? (turn.actor_kind === "tedi" ? turn.actor_id : null),
+			respondingTediId: respondingTediId(turn),
 		};
 		return { ...event, ...authors };
 	}
@@ -1920,8 +1941,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const taken: AddedMessage[] = [];
 		for (const message of this.#queuedMessages(turn.conversation_id)) {
 			const request = JSON.parse(message.request) as QueuedRequest;
-			// A message addressed to another tedi needs that tedi's own turn.
-			if (request.input.tediId && request.input.tediId !== turn.tedi_id) break;
+			// A message addressed to someone else needs their own turn: another
+			// tedi, or the workspace agent while a picked tedi answers.
+			const addressed = request.input.tediId ?? null;
+			if (
+				addressed
+					? addressed !== turn.tedi_id
+					: request.input.actorKind === "user" && turn.tedi_id
+			)
+				break;
 			const now = new Date().toISOString();
 			this.#store.run(
 				"UPDATE queued_messages SET status = 'read', turn_id = ? WHERE message_id = ?",
@@ -2952,8 +2980,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					? { kind: turn.actor_kind, id: turn.actor_id }
 					: event.type === "message.queued" && sender
 						? { kind: sender.actor_kind, id: sender.actor_id }
-						: turn?.tedi_id
-							? { kind: "tedi" as const, id: turn.tedi_id }
+						: turn && respondingTediId(turn)
+							? { kind: "tedi" as const, id: respondingTediId(turn)! }
 							: { kind: "service" as const, id: "workspace_object" };
 		this.#activityRecords.append({
 			...scope,
@@ -3485,13 +3513,59 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	#history(conversationId: string, limit: number): Message[] {
+		return this.#turnMessages(conversationId, limit).map((row) => row.message);
+	}
+
+	/** A conversation's latest messages, oldest first, each with its turn. */
+	#turnMessages(conversationId: string, limit: number) {
 		return this.#store
-			.exec<{ message: string }>(
-				"SELECT message FROM (SELECT seq, message FROM messages WHERE conversation_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq ASC",
+			.exec<{ turn_id: string; message: string }>(
+				"SELECT turn_id, message FROM (SELECT seq, turn_id, message FROM messages WHERE conversation_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq ASC",
 				conversationId,
 				limit,
 			)
-			.map((row) => JSON.parse(row.message) as Message);
+			.map((row) => ({
+				turnId: row.turn_id,
+				message: JSON.parse(row.message) as Message,
+			}));
+	}
+
+	/**
+	 * History for the one answering this turn (`responder`: a tedi's id, or
+	 * null for the workspace agent). Replies anyone else wrote are marked with
+	 * their author's name.
+	 */
+	async #attributedHistory(conversationId: string, responder: string | null) {
+		const rows = this.#turnMessages(conversationId, 200);
+		// The responder of each turn; absent when the turn is unknown.
+		const responders = new Map<string, string | null | undefined>();
+		for (const { turnId } of rows) {
+			if (responders.has(turnId)) continue;
+			const turn = this.#turn(turnId);
+			responders.set(turnId, turn && respondingTediId(turn));
+		}
+		const names = new Map<string | null, string>();
+		for (const other of new Set(responders.values())) {
+			if (other === undefined || other === responder) continue;
+			const tedi = other
+				? await getTediById(createDbClient(this.env.DB), other).catch(
+						() => null,
+					)
+				: null;
+			names.set(
+				other,
+				other
+					? (tedi?.displayName ?? tedi?.name ?? "another tedi")
+					: "the workspace agent",
+			);
+		}
+		return {
+			history: markOtherReplies(rows, (turnId) => {
+				const other = responders.get(turnId);
+				return other === undefined ? null : (names.get(other) ?? null);
+			}),
+			otherReplyAuthors: [...names.values()],
+		};
 	}
 
 	#dataPort(
@@ -3706,6 +3780,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (inserted)
 					this.#events.append(turn.conversationId, {
 						type: "approval.requested",
+						...approvalParties(this.#turn(turn.turnId)),
 						turnId: turn.turnId,
 						stepId,
 						approvalId: error.approvalId,
@@ -3792,10 +3867,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						: [];
 				const approvalEvent = {
 					type: "approval.requested" as const,
-					requester: {
-						id: turn.actor.id,
-						kind: turn.actor.kind === "tedi" ? "tedi" : "person",
-					},
+					...approvalParties(this.#turn(turn.turnId)),
 					turnId: turn.turnId,
 					stepId,
 					approvalId,
@@ -4044,15 +4116,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return rows.flatMap((row) => {
 			const request = announced.get(row.approval_id);
 			if (!request) return [];
-			return [
-				{
-					...request,
-					requester: {
-						id: row.tedi_id ?? row.actor_id,
-						kind: row.tedi_id || row.actor_kind === "tedi" ? "tedi" : "person",
-					},
-				},
-			];
+			return [{ ...request, ...approvalParties(this.#turn(row.turn_id)) }];
 		});
 	}
 
@@ -4135,7 +4199,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? listLinkedAccounts(data).catch(() => [])
 				: null,
 		]);
-		const history = this.#history(conversationId, 200);
+		const { history, otherReplyAuthors } = await this.#attributedHistory(
+			conversationId,
+			input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
+		);
 		const systemPrompt = buildSystemPrompt({
 			workspaceName: workspace.name,
 			workspaceDescription: workspace.description,
@@ -4148,6 +4215,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			referencedSkills,
 			pendingApprovals,
 			linkedAccounts,
+			otherReplyAuthors,
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {

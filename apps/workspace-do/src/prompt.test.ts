@@ -8,6 +8,7 @@ import {
 import {
 	buildSystemPrompt,
 	dynamicPromptSuffix,
+	markOtherReplies,
 	STATIC_RULES,
 	staticPromptPrefix,
 } from "./prompt";
@@ -78,7 +79,6 @@ describe("prompt", () => {
 		const prompt = buildSystemPrompt({
 			workspaceName: "Programme workspace",
 			nowIso: "2026-11-07T17:00:00.000Z",
-			tediPrompt: "You are Pat Example, a tedi.",
 		});
 		expect(prompt.startsWith(staticPromptPrefix())).toBe(true);
 		expect(prompt.indexOf("Workspace: Programme workspace")).toBeGreaterThan(
@@ -87,6 +87,38 @@ describe("prompt", () => {
 		expect(
 			dynamicPromptSuffix({ workspaceName: "x", nowIso: "t" }),
 		).not.toContain("tedi");
+	});
+
+	test("a guest tedi's own prompt leads and the workspace rules follow", () => {
+		const prompt = buildSystemPrompt({
+			workspaceName: "Programme workspace",
+			nowIso: "2026-11-07T17:00:00.000Z",
+			tediPrompt: "You are Pat Example, a tedi.",
+		});
+		expect(prompt.startsWith("You are Pat Example, a tedi.\n\n")).toBe(true);
+		expect(prompt).not.toContain("You are the agent of one Tedix workspace");
+		expect(prompt.indexOf("How to act:")).toBeGreaterThan(0);
+		expect(prompt).toContain("interface Env");
+	});
+
+	test("a reply someone else wrote is marked with its author; the rest is untouched", () => {
+		const person = { role: "user", content: "Hello", timestamp: 1 } as const;
+		const reply = (text: string) =>
+			({ role: "assistant", content: [{ type: "text", text }] }) as never;
+		const history = markOtherReplies(
+			[
+				{ turnId: "t1", message: person },
+				{ turnId: "t1", message: reply("From the agent") },
+				{ turnId: "t2", message: person },
+				{ turnId: "t2", message: reply("My own") },
+			],
+			(turnId) => (turnId === "t1" ? "the workspace agent" : null),
+		);
+		expect(history[0]).toBe(person);
+		expect(history[1]).toMatchObject({
+			content: [{ text: "[Reply from the workspace agent]\nFrom the agent" }],
+		});
+		expect(history[3]).toMatchObject({ content: [{ text: "My own" }] });
 	});
 
 	test("describeBinding returns one binding whole, unknown names null", () => {

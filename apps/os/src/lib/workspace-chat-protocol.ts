@@ -111,6 +111,7 @@ type WorkspaceChatAuthorIdentity = {
 /** A request waiting for a person, as its `approval.requested` event told it. */
 export type WaitingApprovalSummary = {
 	requester?: WorkspaceChatAuthorIdentity;
+	actingTediId?: string;
 	approvalId: string;
 	conversationId: string;
 	turnId: string;
@@ -265,7 +266,10 @@ export type WorkspaceChatLedgerEvent =
 	  })
 	| (Stamped & {
 			type: "approval.requested";
+			/** Who sent the turn that asked. */
 			requester?: WorkspaceChatAuthorIdentity;
+			/** The tedi that applies the change, when a person addressed one. */
+			actingTediId?: string;
 			turnId: string;
 			stepId: string;
 			approvalId: string;
