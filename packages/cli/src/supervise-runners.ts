@@ -77,7 +77,7 @@ const runnerSchema = z.object({
 	workspace: text,
 	organization: text,
 	executor: z.enum(["codex", "claude-code", "opencode", "devin", "any-local"]),
-	rules: text,
+	rules: text.optional(),
 	repo: text.refine(isAbsolute, "repo must be an absolute path"),
 	project: text.optional(),
 	routingConfig: text.optional(),
@@ -113,7 +113,7 @@ export interface ServeLike {
 	routingConfig?: string;
 	idleTakeoverMinutes?: number;
 	checkoutCapBytes?: number;
-	rules: string;
+	rules?: string;
 	repo: string;
 	scope: string[];
 }
@@ -195,8 +195,7 @@ export function runnerServeArgs(runner: RunnerDuty): string[] {
 		"serve",
 		"--executor",
 		runner.executor,
-		"--rules",
-		runner.rules,
+		...(runner.rules ? ["--rules", runner.rules] : []),
 		"--repo",
 		runner.repo,
 		...(runner.project ? ["--project", runner.project] : []),
@@ -223,7 +222,7 @@ export function runnerDutyFromServeOptions(options: ServeLike): RunnerDuty {
 		workspace: selector("--workspace"),
 		organization: selector("--organization"),
 		executor: options.executor,
-		rules: options.rules,
+		...(options.rules ? { rules: options.rules } : {}),
 		repo: options.repo,
 		...(options.project ? { project: options.project } : {}),
 		...(options.routingConfig ? { routingConfig: options.routingConfig } : {}),

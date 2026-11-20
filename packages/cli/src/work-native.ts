@@ -156,6 +156,7 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	report_work_agent_session_status: "workAgentSessions/report",
 	report_dispatcher_health: "dispatcherHealth/report",
 	list_dispatcher_health: "dispatcherHealth/list",
+	get_runner_rules: "dispatcherHealth/getRunnerRules",
 	claim_machine_tool_calls: "machines/claimToolCalls",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",

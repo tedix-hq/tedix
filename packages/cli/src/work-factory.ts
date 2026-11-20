@@ -71,6 +71,11 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		namespace: "dispatcher",
 		write: false,
 	},
+	"runner-rules": {
+		tool: "get_runner_rules",
+		namespace: "dispatcher",
+		write: false,
+	},
 	"dispatcher-health-record": {
 		tool: "report_dispatcher_health",
 		namespace: "dispatcher",

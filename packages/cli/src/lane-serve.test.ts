@@ -233,6 +233,7 @@ function fixture({
 		},
 		skillRun: {} as Record<string, unknown>,
 		skillRunError: undefined as Error | undefined,
+		rulesState: "active",
 		skill: {} as Record<string, unknown>,
 		appRead: undefined as ((source: string) => unknown) | undefined,
 		startError: refuse
@@ -440,6 +441,10 @@ function fixture({
 				if (control.skillRunError) throw control.skillRunError;
 				response = control.skillRun;
 			} else if (verb === "readiness") response = control.readiness;
+			else if (verb === "runner-rules")
+				response = {
+					rules: { content: "The dispatcher owns the Attempt.", version: 3 },
+				};
 			else if (verb === "show" && args.includes("--file"))
 				response = { path: "SKILL.md", content: "Keep all evidence in OS." };
 			else if (verb === "show" && args[6] !== options.rules)
@@ -449,7 +454,7 @@ function fixture({
 					id: options.rules,
 					revision: 7,
 					contentPreview: "Keep all evidence in OS.",
-					lifecycleState: "active",
+					lifecycleState: control.rulesState,
 				};
 			else if (verb === "start" && args[4] === "agent")
 				response = { principalKey: "local-acme" };
@@ -593,8 +598,14 @@ function fixture({
 								],
 			);
 			if (!followUp) {
-				expect(brief).toContain("revision 7");
-				expect(brief).toContain("Keep all evidence in OS.");
+				expect(brief).toContain("runner rules version 3");
+				// The organization's own rules are added only while its skill is active.
+				expect(brief.includes("revision 7")).toBe(
+					control.rulesState === "active",
+				);
+				expect(brief.includes("Keep all evidence in OS.")).toBe(
+					control.rulesState === "active",
+				);
 				expect(brief).toContain("already holds Attempt");
 			}
 			if (
@@ -2693,6 +2704,24 @@ describe("dispatcher admission", () => {
 			await exited;
 		}
 	});
+	it("still starts Work on the inherited rules when the organization's rules skill is archived", async () => {
+		const { dispatcher, events, releases, control, dir } = fixture();
+		control.rulesState = "archived";
+		await dispatcher.tick();
+		await until(() => releases.length === 3);
+		const start = events.find(
+			(event) => event.verb === "start" && event.input,
+		)!;
+		expect(start.input?.metadata).toEqual({
+			dispatchVersion: 2,
+			runnerRulesVersion: 3,
+		});
+		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+			"is archived: runs start with the shared runner rules only",
+		);
+		for (const release of releases) release();
+		await dispatcher.drain();
+	});
 	it("starts every ready item, claims the native child before launch and persists settlement", async () => {
 		const { dispatcher, events, releases, dir } = fixture();
 		await dispatcher.tick();
@@ -2706,7 +2735,11 @@ describe("dispatcher admission", () => {
 		expect(starts[0]!.env.TEDIX_AGENT_SESSION).toMatch(/^codex:33333333/);
 		expect(starts[0]!.env.TEDIX_EXTERNAL_AGENT).toBe("local-acme");
 		expect(starts[0]!.input).toMatchObject({
-			metadata: { dispatchVersion: 2, rulesRevision: 7 },
+			metadata: {
+				dispatchVersion: 2,
+				runnerRulesVersion: 3,
+				rulesRevision: 7,
+			},
 		});
 		for (const release of releases) release();
 		await dispatcher.drain();
@@ -6133,9 +6166,8 @@ it("takes no slot count and pins selectors without persisting inherited identity
 	expect(parseServeOptions([...args, "--coordinated"], env).coordinated).toBe(
 		true,
 	);
-	expect(parseServeOptions(["--executor", "codex"], env).rules).toBe(
-		"lane-rules",
-	);
+	// No organization skill is assumed: the inherited runner rules are enough.
+	expect(parseServeOptions(["--executor", "codex"], env).rules).toBeUndefined();
 	expect(() =>
 		parseServeOptions(
 			[...args, "--organization", "org_acme", "--organization", "org_other"],

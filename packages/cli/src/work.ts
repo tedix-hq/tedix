@@ -304,7 +304,7 @@ Factory controls (--input accepts inline JSON or @path):
   case-dependency-add (epics; the API calls them cases)
     case-create kind: delivery (a feature or other result due by a date) · investigation · incident
     · customer · opportunity · legal · operations · other
-  dispatcher-health-list · dispatcher-health-record
+  dispatcher-health-list · dispatcher-health-record · runner-rules
   approval-list · approval-audit-list · approval-propose · approval-decide (admission authority)
   interaction-list · interaction-outbox-list · interaction-audit-list · interaction-get
   interaction-create · interaction-respond · interaction-cancel (requests; the API calls them interactions)

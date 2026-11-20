@@ -120,6 +120,8 @@ function fixture(configured = true) {
 						lifecycleState: "active",
 					};
 				if (verb === "readiness") response = { ready: true };
+				if (verb === "runner-rules")
+					response = { rules: { content: "Own the Attempt", version: 1 } };
 				if (verb === "start" && args[4] !== "agent" && control.workError)
 					throw control.workError;
 				if (verb === "start")
