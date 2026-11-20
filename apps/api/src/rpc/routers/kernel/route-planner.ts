@@ -13,11 +13,7 @@ import { objectSpanTelemetry, tracedAi } from "../../../lib/traced-ai";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
 import { billingPolicyDenialCode } from "./billing-reservation";
-import {
-	guardKernelRouteDecision,
-	requestsAcknowledgmentOnly,
-	prohibitsDelegation,
-} from "./delegation-intent";
+import { guardKernelRouteDecision } from "./delegation-intent";
 import type { ContextCandidateRanker } from "./jev-context-ranking";
 import { refineDelegationFit } from "./jev-delegation-fit";
 import type { KernelContext } from "./context-assembly";
@@ -633,11 +629,10 @@ export type PlanKernelRouteArgs = {
 };
 
 /**
- * Plan the Home route, then apply the deterministic post-verdict guard
+ * Plan the Home route, then apply the post-verdict guard
  * (`delegation-intent.ts`): stamps `explicitDelegationIntent` on every
- * decision and downgrades a low-risk single-read `delegate_tedi` over
- * Tedix-internal state with no explicit delegation intent to `answer_in_home`
- * (preserving `answer`). Applied to streamed and nonstreamed decisions from the selected model. `null` (no route) passes through untouched.
+ * decision and clears a Home answer that promises a delegation no route
+ * dispatches. Applied to streamed and nonstreamed decisions from the selected model. `null` (no route) passes through untouched.
  */
 export async function planKernelRoute(
 	args: PlanKernelRouteArgs,
@@ -692,10 +687,6 @@ async function planKernelRouteWithRecovery(
 	const model =
 		args.model?.forRouteOperation?.() ?? args.model?.forOperation() ?? null;
 	const attempts = model?.attempts ?? [];
-	const operatorContent = args.operatorContent ?? args.content;
-	const responseOnly =
-		requestsAcknowledgmentOnly(operatorContent) ||
-		prohibitsDelegation(operatorContent);
 	const autoRouter = Boolean(
 		model &&
 		typeof model.model !== "string" &&
@@ -703,13 +694,12 @@ async function planKernelRouteWithRecovery(
 	);
 	// Recovered answers are delivered only after the route guard.
 	let streamedAnswer = false;
-	const onAnswerDelta =
-		responseOnly || !args.onAnswerDelta
-			? undefined
-			: (delta: string) => {
-					streamedAnswer = true;
-					args.onAnswerDelta?.(delta);
-				};
+	const onAnswerDelta = !args.onAnswerDelta
+		? undefined
+		: (delta: string) => {
+				streamedAnswer = true;
+				args.onAnswerDelta?.(delta);
+			};
 	const startedAt = Date.now();
 	const deadlineMs = args.generationTimeoutMs ?? KERNEL_LLM_FLAT_TIMEOUT_MS;
 	const routeAttempts: KernelRouteAttempt[] = [];
@@ -747,7 +737,7 @@ async function planKernelRouteWithRecovery(
 				Math.max(1, Math.floor(deadlineMs / 2)),
 				args.abortSignal,
 			),
-			onRationaleDelta: responseOnly ? undefined : args.onRationaleDelta,
+			onRationaleDelta: args.onRationaleDelta,
 			model,
 			gatewayContext: {
 				...args.gatewayContext,
