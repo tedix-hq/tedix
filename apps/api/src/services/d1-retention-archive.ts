@@ -79,9 +79,24 @@ const D1_RETENTION_CONFLICT_SAMPLE = 20;
 /** Waits before each retry of a statement D1 refused as overloaded. */
 const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
 
+/**
+ * The error's message followed by its causes. Drizzle reports "Failed query:
+ * <sql>" and keeps D1's own reason (overloaded, timeout) in `cause`.
+ */
+function errorText(error: unknown): string {
+	const parts: string[] = [];
+	let current: unknown = error;
+	for (let depth = 0; current !== undefined && depth < 4; depth++) {
+		parts.push(current instanceof Error ? current.message : String(current));
+		current = current instanceof Error ? current.cause : undefined;
+	}
+	return parts.join(" <- ");
+}
+
 function isD1Overloaded(error: unknown): boolean {
-	const message = error instanceof Error ? error.message : String(error);
-	return /overloaded|too many requests|temporarily unavailable/i.test(message);
+	return /overloaded|too many requests|temporarily unavailable/i.test(
+		errorText(error),
+	);
 }
 
 /** Retry `run` with increasing waits while D1 reports itself overloaded. */
@@ -360,8 +375,7 @@ async function estimateBacklog(
 			return;
 		}
 		if (result.mode === "dry_run") result.stoppedBy = "error";
-		const message = error instanceof Error ? error.message : String(error);
-		result.error ??= `estimate: ${message}`;
+		result.error ??= `estimate: ${errorText(error)}`;
 	}
 }
 
@@ -594,7 +608,7 @@ async function movePages(
 		}
 	} catch (error) {
 		result.stoppedBy = "error";
-		result.error = error instanceof Error ? error.message : String(error);
+		result.error = errorText(error);
 		turn.sweepFrom = null;
 	} finally {
 		if (next) await next.then(noop, noop);
@@ -681,7 +695,7 @@ export async function runD1Retention(params: {
 				result: {
 					...emptyResult(policy),
 					stoppedBy: "error",
-					error: error instanceof Error ? error.message : String(error),
+					error: errorText(error),
 				},
 			});
 		}
