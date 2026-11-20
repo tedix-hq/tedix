@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -150,6 +156,49 @@ export async function loadLaunchAgent(
 	}
 	if (loaded()) return undefined;
 	return `launchctl bootstrap ${domain} failed (exit ${last.status}${last.output ? `: ${last.output}` : ""}).`;
+}
+
+const realPath = (path: string) => {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+};
+
+/**
+ * After `tedix update` or `tedix rollback` replaced the file at `target`:
+ * when the loaded supervisor runs that file, unload it and load it again.
+ * A plain restart is not enough: macOS refuses to start the loaded job once
+ * its program file was replaced ("Code Signature Invalid"), so the service
+ * would stay down after its next exit. Returns one sentence on what
+ * happened, or undefined when no loaded supervisor runs this file.
+ */
+export async function reloadSupervisorAfterUpdate(
+	target: string,
+	run: Launchctl = systemLaunchctl(),
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<string | undefined> {
+	if (process.platform !== "darwin") return undefined;
+	const domain = `gui/${process.getuid!()}`;
+	const service = `${domain}/${LAUNCH_AGENT_LABEL}`;
+	const running = () =>
+		/^\s*state = running$/m.test(run(["print", service]).output);
+	const loaded = run(["print", service]);
+	const program = /^\s*program = (.+)$/m.exec(loaded.output)?.[1];
+	if (loaded.status !== 0 || !program) return undefined;
+	if (realPath(program) !== realPath(target)) return undefined;
+	const byHand = `launchctl bootout ${service}; launchctl bootstrap ${domain} ${launchAgentPath()}`;
+	// Unloading the service stops everything it started, this command included.
+	if (env.XPC_SERVICE_NAME === LAUNCH_AGENT_LABEL)
+		return `The background service started this command, so it was not reloaded and keeps running the version before. Reload it from a terminal: ${byHand}`;
+	const error = await loadLaunchAgent(launchAgentPath(), domain, run);
+	if (error)
+		return `The background service was not reloaded: ${error} Reload it yourself: ${byHand}`;
+	for (let waited = 0; waited < 40 && !running(); waited++) await pause(250);
+	return running()
+		? "Reloaded the background service; it now runs this version. Runs that were in progress were stopped."
+		: `The background service was reloaded but is not running. Check ~/.tedix/supervisor.launchd.log, or reload it yourself: ${byHand}`;
 }
 
 export async function install(env: NodeJS.ProcessEnv): Promise<number> {

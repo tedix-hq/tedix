@@ -94,18 +94,14 @@ import {
 	TEDIX_OAUTH_CLIENT_ID,
 	WorkspaceOAuthProvider,
 } from "./oauth-provider";
-import {
-	CLI_VERSION,
-	looksLikeUuid,
-	managedByDesktopApp,
-	type CliOptions,
-} from "./shared";
+import { CLI_VERSION, looksLikeUuid, type CliOptions } from "./shared";
 import { runSkillCommand } from "./skill";
 import { buildStatusReport, renderStatusReport } from "./status";
 import { resolveThreadOrganizationId } from "./thread-organization";
 import { runTediCommand } from "./tedi";
 import { listThreads, resolveThread, setThread } from "./thread-store";
 import { buildContext, buildOps } from "./turn";
+import { reloadSupervisorAfterUpdate } from "./supervise-launch-agent";
 import { runRollbackCommand, runUpdateCommand } from "./update";
 import { runWork } from "./work";
 import { createFileWorkAttemptStore } from "./work-attempt-store";
@@ -223,24 +219,16 @@ export async function main() {
 					headers: options.mcpHeader,
 				})
 			: undefined;
-	if (
-		(command === "update" || command === "rollback") &&
-		managedByDesktopApp()
-	) {
-		console.log(
-			options.json
-				? JSON.stringify({ managedBy: "tedix-app", version: CLI_VERSION })
-				: `The Tedix app keeps this command-line tool up to date (now ${CLI_VERSION}). Update the app from Tedix → Check for Updates…`,
-		);
-		return;
-	}
 	if (command === "update") {
-		process.exitCode = await runUpdateCommand({
-			check: options.updateCheck ?? false,
-			force: options.updateForce ?? false,
-			json: options.json,
-			version: options.prompt?.trim() || undefined,
-		});
+		process.exitCode = await runUpdateCommand(
+			{
+				check: options.updateCheck ?? false,
+				force: options.updateForce ?? false,
+				json: options.json,
+				version: options.prompt?.trim() || undefined,
+			},
+			{ reloadService: reloadSupervisorAfterUpdate },
+		);
 		return;
 	}
 	if (command === "rollback") {
@@ -249,7 +237,10 @@ export async function main() {
 				"rollback does not accept a version; use `tedix update <version> --force` for an exact downgrade",
 			);
 		}
-		process.exitCode = await runRollbackCommand({ json: options.json });
+		process.exitCode = await runRollbackCommand(
+			{ json: options.json },
+			{ reloadService: reloadSupervisorAfterUpdate },
+		);
 		return;
 	}
 	// `auth`, `agent`, `logout`, `login`, `workspaces`, and `use` run BEFORE resolveAuth:
