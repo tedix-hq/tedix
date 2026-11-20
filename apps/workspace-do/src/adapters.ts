@@ -8,15 +8,18 @@ import {
 	evaluateCall,
 } from "@tedix/agent-governance/compliance";
 import { hashValue } from "@tedix/agent-governance/hash";
-import type {
-	AccountabilityAdapter,
-	CallDescription,
-	CallOutcome,
-	ChangeRecord,
-	ChangeRecordInput,
-	ComplianceAdapter,
-	ComplianceDecision,
-	LedgerQuery,
+import { chainHash, recordDigest } from "@tedix/agent-governance/seal";
+import {
+	type AccountabilityAdapter,
+	type CallDescription,
+	type CallOutcome,
+	CHANGE_RECORD_SCHEMA_VERSION,
+	type ChangeEnvironment,
+	type ChangeRecord,
+	type ChangeRecordInput,
+	type ComplianceAdapter,
+	type ComplianceDecision,
+	type LedgerQuery,
 } from "@tedix/agent-governance/types";
 import type { WorkspaceStorage } from "./runtime";
 
@@ -55,17 +58,94 @@ interface LedgerRow {
 	id: string;
 	recorded_at: string;
 	record: string;
+	record_digest: string | null;
+	chain_hash: string | null;
 }
 
+/** A record as `list` returns it: content plus the seal fields. */
+export type SealedChangeRecord = ChangeRecord & {
+	recordDigest: string | null;
+	chainHash: string | null;
+};
+
+function sealedRecord(row: LedgerRow): SealedChangeRecord {
+	return {
+		...(JSON.parse(row.record) as ChangeRecord),
+		recordDigest: row.record_digest,
+		chainHash: row.chain_hash,
+	};
+}
+
+/**
+ * The workspace's change ledger. Records use the same contract and the same
+ * digest and chain hash as the gateway ledger (`@tedix/agent-governance/seal`),
+ * so an export verifies with `verifyChain`. A workspace object has one
+ * writer, so each record is chained as it is appended; there are no
+ * checkpoints here (`verifyChain` reports the records as uncheckpointed).
+ * Records written before chaining existed are chained, oldest first, by the
+ * next append.
+ */
 export class SqlAccountabilityAdapter implements AccountabilityAdapter {
-	constructor(private readonly storage: WorkspaceStorage) {
+	#tail: Promise<unknown> = Promise.resolve();
+
+	constructor(
+		private readonly storage: WorkspaceStorage,
+		private readonly environment: ChangeEnvironment = {},
+	) {
 		storage.run(LEDGER_SCHEMA);
+		const columns = new Set(
+			storage
+				.exec<{ name: string }>("PRAGMA table_info(change_records)")
+				.map((column) => column.name),
+		);
+		if (!columns.has("record_digest"))
+			storage.run("ALTER TABLE change_records ADD COLUMN record_digest TEXT");
+		if (!columns.has("chain_hash"))
+			storage.run("ALTER TABLE change_records ADD COLUMN chain_hash TEXT");
 	}
 
-	async append(input: ChangeRecordInput): Promise<ChangeRecord> {
+	/** Appends run one at a time: each record chains to the one before it. */
+	append(input: ChangeRecordInput): Promise<ChangeRecord> {
+		const next = this.#tail.then(() => this.#append(input));
+		this.#tail = next.catch(() => undefined);
+		return next;
+	}
+
+	/** Chain every record not chained yet, in sequence order. */
+	async #sealBacklog(): Promise<void> {
+		const [last] = this.storage.exec<{ chain_hash: string }>(
+			"SELECT chain_hash FROM change_records WHERE chain_hash IS NOT NULL ORDER BY sequence DESC LIMIT 1",
+		);
+		let previous = last?.chain_hash ?? null;
+		const rows = this.storage.exec<LedgerRow>(
+			"SELECT sequence, id, recorded_at, record, record_digest, chain_hash FROM change_records WHERE chain_hash IS NULL ORDER BY sequence ASC",
+		);
+		for (const row of rows) {
+			const digest = await recordDigest(
+				JSON.parse(row.record) as Record<string, unknown>,
+			);
+			const link = await chainHash(previous, row.sequence, digest);
+			this.storage.run(
+				"UPDATE change_records SET record_digest = ?, chain_hash = ? WHERE sequence = ? AND chain_hash IS NULL",
+				digest,
+				link,
+				row.sequence,
+			);
+			previous = link;
+		}
+	}
+
+	async #append(input: ChangeRecordInput): Promise<ChangeRecord> {
 		const id = crypto.randomUUID();
 		const recordedAt = new Date().toISOString();
-		const partial = { ...input, id, recordedAt };
+		const environment = { ...this.environment, ...input.environment };
+		const partial = {
+			schemaVersion: CHANGE_RECORD_SCHEMA_VERSION,
+			...input,
+			...(Object.keys(environment).length ? { environment } : {}),
+			id,
+			recordedAt,
+		};
 		const [row] = this.storage.exec<LedgerRow>(
 			"INSERT INTO change_records (id, recorded_at, resource, operation, actor_id, outcome, record) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING sequence, id, recorded_at, record",
 			id,
@@ -83,10 +163,11 @@ export class SqlAccountabilityAdapter implements AccountabilityAdapter {
 			JSON.stringify(record),
 			row.sequence,
 		);
+		await this.#sealBacklog();
 		return record;
 	}
 
-	async list(query: ChangeRecordQuery = {}): Promise<ChangeRecord[]> {
+	async list(query: ChangeRecordQuery = {}): Promise<SealedChangeRecord[]> {
 		const conditions: string[] = [];
 		const params: unknown[] = [];
 		if (query.from !== undefined) {
@@ -113,11 +194,11 @@ export class SqlAccountabilityAdapter implements AccountabilityAdapter {
 		const limit = Math.min(Math.max(query.limit ?? 100, 1), 1_000);
 		return this.storage
 			.exec<LedgerRow>(
-				`SELECT sequence, id, recorded_at, record FROM change_records ${where} ORDER BY sequence ASC LIMIT ?`,
+				`SELECT sequence, id, recorded_at, record, record_digest, chain_hash FROM change_records ${where} ORDER BY sequence ASC LIMIT ?`,
 				...params,
 				limit,
 			)
-			.map((row) => JSON.parse(row.record) as ChangeRecord);
+			.map(sealedRecord);
 	}
 
 	countRange(from: string, until: string): number {
@@ -128,12 +209,12 @@ export class SqlAccountabilityAdapter implements AccountabilityAdapter {
 		)[0]!.count;
 	}
 
-	async get(id: string): Promise<ChangeRecord | null> {
+	async get(id: string): Promise<SealedChangeRecord | null> {
 		const [row] = this.storage.exec<LedgerRow>(
-			"SELECT sequence, id, recorded_at, record FROM change_records WHERE id = ?",
+			"SELECT sequence, id, recorded_at, record, record_digest, chain_hash FROM change_records WHERE id = ?",
 			id,
 		);
-		return row ? (JSON.parse(row.record) as ChangeRecord) : null;
+		return row ? sealedRecord(row) : null;
 	}
 
 	async export() {

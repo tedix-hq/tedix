@@ -594,7 +594,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			)
 				this.ctx.waitUntil(this.#flushActivity());
 		});
-		this.#ledger = new SqlAccountabilityAdapter(this.#store);
+		const productSha = this.env.GIT_SHA;
+		this.#ledger = new SqlAccountabilityAdapter(
+			this.#store,
+			productSha &&
+				!/^(unknown|configured-via-private-overlay)$/.test(productSha)
+				? { productSha }
+				: {},
+		);
 		this.#compliance = new SqlComplianceAdapter(this.#store, {
 			writesNeedApproval: true,
 		});
