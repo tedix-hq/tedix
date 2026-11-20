@@ -195,15 +195,7 @@ it.each([
 		{ mcp_server_errors: [{ name: "search", type: "invalid_config" }] },
 		"Claude reported an MCP configuration error (search: invalid_config)",
 	],
-	[
-		{ mcp_servers: [{ name: "search", status: "failed" }] },
-		"Claude MCP server search: failed",
-	],
-	[
-		{ mcp_servers: [{ name: "search", status: "needs-auth" }] },
-		"Claude MCP server search: needs-auth",
-	],
-	[{ mcp_servers: [{ name: "search", status: "pending" }] }, undefined],
+	[{ mcp_servers: [{ name: "search", status: "needs-auth" }] }, undefined],
 ])(
 	"uses Claude's init event to report plugin and MCP failures for %p",
 	async (fields, reason) => {

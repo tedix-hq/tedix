@@ -78,15 +78,11 @@ function claudeInitFailure(event: Record<string, unknown>) {
 			return `Claude reported ${kind}${detail ? ` (${detail})` : ""}`;
 		}
 	}
+	// A server that is offline or waits for sign-in is not a broken executor:
+	// lane runs reach Tedix through the CLI, and the person's own plugins
+	// (data connectors, a Tedix plugin awaiting sign-in) paused every run.
 	if (!Array.isArray(event.mcp_servers))
 		return "Claude init did not report MCP status";
-	for (const server of event.mcp_servers) {
-		if (
-			isRecord(server) &&
-			["failed", "needs-auth"].includes(String(server.status))
-		)
-			return `Claude MCP server ${diagnostic(server.name) || "(unnamed)"}: ${server.status}`;
-	}
 }
 
 function claudePreflight(cwd: string): Promise<string | undefined> {
