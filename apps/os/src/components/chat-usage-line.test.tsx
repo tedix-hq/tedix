@@ -8,7 +8,7 @@ import {
 	operationalContextQueryOptions,
 } from "@/lib/os-query-options";
 import {
-	ConversationUsageLine,
+	ConversationUsageRing,
 	conversationUsageText,
 } from "./chat-usage-line";
 
@@ -47,7 +47,7 @@ function render(
 		} as never);
 	return renderToStaticMarkup(
 		<QueryClientProvider client={client}>
-			<ConversationUsageLine
+			<ConversationUsageRing
 				conversationId="home:fictional"
 				settledRunCount={3}
 			/>
@@ -55,7 +55,7 @@ function render(
 	);
 }
 
-describe("ConversationUsageLine", () => {
+describe("ConversationUsageRing", () => {
 	it("states the conversation's share of this month's credits, not a count", () => {
 		const usage = allowanceShare(credits, 125);
 		expect(usage).toEqual({ percent: 12, label: "12%" });
@@ -66,8 +66,8 @@ describe("ConversationUsageLine", () => {
 		expect(html).toContain(
 			"12% of this month&#x27;s credits used in this conversation",
 		);
-		expect(html).toContain('role="meter"');
-		expect(html).toContain("pending usage appears once settled");
+		expect(html).toContain("chat-usage-ring");
+		expect(html).toContain('data-credit-percent="12"');
 		expect(html).not.toMatch(/\d credits?\b/);
 	});
 

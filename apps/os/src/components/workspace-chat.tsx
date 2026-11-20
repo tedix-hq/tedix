@@ -1,5 +1,5 @@
 import { LoadingArea } from "@/components/loading-area";
-import { ConversationUsageLine } from "@/components/chat-usage-line";
+import { ConversationUsageRing } from "@/components/chat-usage-line";
 import "./workspace-chat.css";
 import { RegisteredAppSchedule } from "./workspace-app-connections";
 import {
@@ -702,9 +702,9 @@ export function WorkspaceChat({
 				onStop={
 					running && client ? () => client.cancelTurn(running.turnId) : null
 				}
-				footer={
+				usage={
 					state.conversationId && (
-						<ConversationUsageLine
+						<ConversationUsageRing
 							key={state.conversationId}
 							workspaceId={workspaceId}
 							conversationId={state.conversationId}
@@ -1711,14 +1711,14 @@ function Composer({
 	busy,
 	onStop,
 	modelControl,
-	footer,
+	usage,
 }: {
 	/** The tedi that answers every message; the composer then offers no choice. */
 	pinnedTediId: string | null;
 	slot?: ReactNode;
 	placeholder?: string;
-	/** A quiet line under the composer card. */
-	footer?: ReactNode;
+	/** This conversation's usage ring, beside the model control. */
+	usage?: ReactNode;
 	workspaceId: string;
 	onBrowseResources?: () => void;
 	onSend: (
@@ -2127,6 +2127,7 @@ function Composer({
 							</Select>
 						) : null}
 						{modelControl}
+						{usage}
 					</div>
 					{onStop ? (
 						<Button
@@ -2163,7 +2164,6 @@ function Composer({
 					</Button>
 				</div>
 			</div>
-			{footer}
 		</form>
 	);
 }

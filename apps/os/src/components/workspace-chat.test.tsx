@@ -1479,12 +1479,12 @@ describe("WorkspaceChat", () => {
 				{ periodStart, credits: 125, chargeCount: 2 },
 			);
 			mount(fakeClient("c1"));
-			const line = host.querySelector(".chat-usage-line");
+			const ring = host.querySelector(".chat-usage-ring");
 			if (canRead)
-				expect(line?.querySelector("p")?.textContent).toBe(
-					"12% of this month's credits used in this conversation",
+				expect(ring?.getAttribute("aria-label")).toBe(
+					"Usage: 12% of this month's credits used in this conversation",
 				);
-			else expect(line).toBeNull();
+			else expect(ring).toBeNull();
 		},
 	);
 

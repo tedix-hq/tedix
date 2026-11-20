@@ -175,7 +175,7 @@ import {
 import { ContextUsedInspector } from "@/components/chat-context-used";
 import { ChatModelPicker } from "@/components/chat-model-picker";
 import { DirectReadPanel } from "@/components/chat-direct-read-composer";
-import { ConversationUsageLine } from "@/components/chat-usage-line";
+import { ConversationUsageRing } from "@/components/chat-usage-line";
 import {
 	type DirectReadCommand,
 	type DirectReadRequest,
@@ -3018,6 +3018,15 @@ export function ChatThread({
 									}}
 								/>
 							)}
+							{conversationId && !composerOnly ? (
+								<ConversationUsageRing
+									conversationId={conversationId}
+									settledRunCount={
+										(runSet?.runs.length ?? 0) -
+										(runSet?.activeRunIds.length ?? 0)
+									}
+								/>
+							) : null}
 							{/* While a run can be stopped and nothing is typed, the send
 							    slot IS Stop. Typing turns it back into the submit control,
 							    which queues steering text or answers an approval. */}
@@ -3067,14 +3076,6 @@ export function ChatThread({
 					</div>
 				) : null}
 			</form>
-			{conversationId && !composerOnly ? (
-				<ConversationUsageLine
-					conversationId={conversationId}
-					settledRunCount={
-						(runSet?.runs.length ?? 0) - (runSet?.activeRunIds.length ?? 0)
-					}
-				/>
-			) : null}
 		</div>
 	);
 }
