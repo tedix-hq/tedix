@@ -252,3 +252,23 @@ it.each([true, false])(
 		expect(local).toEqual(owned ? shared : undefined);
 	},
 );
+
+it("keeps a confirmed file when the list index write fails, and repairs it on the next confirm", async () => {
+	const f = await fixture(true);
+	f.sqlite.exec(
+		"CREATE TRIGGER busy BEFORE INSERT ON os_workspace_resources BEGIN SELECT RAISE(ABORT, 'D1_ERROR: overloaded'); END",
+	);
+	const { pendingProjection } = await storage.confirmWorkspaceFileResource(
+		f.db,
+		resource,
+	);
+	expect(pendingProjection).toMatchObject({ id: resource.id });
+	expect(await storage.getOsWorkspaceResource(f.db, identity)).toMatchObject({
+		id: resource.id,
+	});
+	f.sqlite.exec("DROP TRIGGER busy");
+	await storage.ensureResourceProjection(f.db, pendingProjection!);
+	expect(
+		f.sqlite.prepare("SELECT count(*) n FROM os_workspace_resources").get()?.n,
+	).toBe(1);
+});

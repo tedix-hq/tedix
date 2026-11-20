@@ -16,7 +16,7 @@ export async function uploadWorkspaceFile(
 		mimeType,
 		size: file.size,
 	});
-	const parts = [];
+	const parts: { partNumber: number; etag: string }[] = [];
 	for (const part of upload.parts) {
 		const offset = (part.partNumber - 1) * upload.partSize;
 		const response = await fetch(part.url, {
@@ -32,10 +32,26 @@ export async function uploadWorkspaceFile(
 		parts.push((await response.json()) as { partNumber: number; etag: string });
 		onProgress?.(Math.round(((offset + part.size) / file.size) * 100));
 	}
-	return osApi.osWorkspaces.resources.confirmFileUpload({
-		workspaceId,
-		resourceId: upload.resourceId,
-		parts,
-		...(options?.document === undefined ? {} : { document: options.document }),
-	});
+	const confirm = () =>
+		osApi.osWorkspaces.resources.confirmFileUpload({
+			workspaceId,
+			resourceId: upload.resourceId,
+			parts,
+			...(options?.document === undefined
+				? {}
+				: { document: options.document }),
+		});
+	// Confirming the same upload again returns the file already saved, so a
+	// busy server is retried here instead of the person uploading a copy.
+	for (const delayMs of [1_000, 3_000]) {
+		try {
+			return await confirm();
+		} catch (error) {
+			const failure = error as { status?: unknown; code?: unknown } | null;
+			if (failure?.status !== 503 && failure?.code !== "SERVICE_UNAVAILABLE")
+				throw error;
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+	return confirm();
 }

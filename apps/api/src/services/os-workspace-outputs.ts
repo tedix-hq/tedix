@@ -128,9 +128,9 @@ export async function confirmOsWorkspaceFile(
 			content: INLINE_BODY_OFFLOADED,
 		});
 	}
-	if (resource) await confirmWorkspaceFileResource(db, resource);
-	else if (!output)
-		throw new Error("confirmOsWorkspaceFile needs a row to write");
+	if (resource) return confirmWorkspaceFileResource(db, resource);
+	if (!output) throw new Error("confirmOsWorkspaceFile needs a row to write");
+	return { pendingProjection: undefined };
 }
 
 /** Object documents commit before shared provisioning and its replay receipt. */

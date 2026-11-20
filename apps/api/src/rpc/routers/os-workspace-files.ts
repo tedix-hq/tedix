@@ -5,7 +5,12 @@ import { confirmOsWorkspaceFile } from "../../services/os-workspace-outputs";
 import { attachOutputEditor } from "../../services/os-output-editor";
 import { getOsOutput } from "../../services/workspace-output-storage";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
-import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import {
+	ensureResourceProjection,
+	getOsWorkspaceResource,
+	retryResourceProjection,
+} from "../../services/workspace-resource-storage";
+import { getOsWorkspaceResource as getResourceListCopy } from "@tedix/db/queries/os-workspaces/resources";
 import type { OsDocumentBlock } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	AUTHZ,
@@ -296,6 +301,7 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 				existing.resourceType !== "file"
 			)
 				missing();
+			await ensureResourceProjection(queryDb(context), existing);
 			return {
 				resource: mapWorkspaceResource(existing),
 				...(input.document
@@ -363,48 +369,55 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 			`${key}.json`,
 			JSON.stringify(manifest),
 		);
-		await confirmOsWorkspaceFile(queryDb(context), {
-			resource: {
-				...creator,
-				id: input.resourceId,
-				workspaceId: workspace.id,
-				providerId: "tedix",
-				connectionScope: "tenant",
-				requiredScopes: "[]",
-				resourceType: "file",
-				providerResourceId: input.resourceId,
-				name: manifest.filename,
-				metadata: JSON.stringify({
-					mimeType: manifest.mimeType,
-					size: manifest.size,
-				}),
-				status: "active",
-				updatedAt: manifest.createdAt,
+		const { pendingProjection } = await confirmOsWorkspaceFile(
+			queryDb(context),
+			{
+				resource: {
+					...creator,
+					id: input.resourceId,
+					workspaceId: workspace.id,
+					providerId: "tedix",
+					connectionScope: "tenant",
+					requiredScopes: "[]",
+					resourceType: "file",
+					providerResourceId: input.resourceId,
+					name: manifest.filename,
+					metadata: JSON.stringify({
+						mimeType: manifest.mimeType,
+						size: manifest.size,
+					}),
+					status: "active",
+					updatedAt: manifest.createdAt,
+				},
+				...(input.document
+					? fileDocumentRows(
+							creator,
+							workspace.id,
+							input.resourceId,
+							manifest.filename,
+							await readAndKeepFileText(
+								context,
+								{
+									organizationId,
+									workspaceId: workspace.id,
+									resourceId: input.resourceId,
+								},
+								manifest,
+							),
+						)
+					: {}),
 			},
-			...(input.document
-				? fileDocumentRows(
-						creator,
-						workspace.id,
-						input.resourceId,
-						manifest.filename,
-						await readAndKeepFileText(
-							context,
-							{
-								organizationId,
-								workspaceId: workspace.id,
-								resourceId: input.resourceId,
-							},
-							manifest,
-						),
-					)
-				: {}),
-		});
+		);
 		const resource = await getOsWorkspaceResource(queryDb(context), {
 			organizationId: organizationId,
 			workspaceId: workspace.id,
 			resourceId: input.resourceId,
 		});
 		if (!resource) missing();
+		if (pendingProjection)
+			context.waitUntil?.(
+				retryResourceProjection(queryDb(context), pendingProjection),
+			);
 		if (input.document)
 			await attachFileDocumentEditor(
 				context,
@@ -424,7 +437,7 @@ export const getFile = read.resources.getFile
 	.handler(async ({ input, context }) => {
 		const organizationId = context.organizationId;
 		await requireWorkspace(context, input.workspaceId);
-		const resource = await getOsWorkspaceResource(queryDb(context), {
+		const resource = await getResourceListCopy(queryDb(context), {
 			organizationId: organizationId,
 			...input,
 		});
