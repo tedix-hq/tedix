@@ -116,6 +116,10 @@ async function validateProposalContent(
 		const draft = isDraft
 			? OsAppDraftContentSchema.parse(content)
 			: { manifest: OsGadgetManifestSchema.parse(content), files: undefined };
+		// The blueprint release pin is set only by createBlueprintAppUpdate,
+		// never taken from client content.
+		if ("sourceBlueprintRevisionId" in draft)
+			delete draft.sourceBlueprintRevisionId;
 		if (isAppRuntimeManifest(draft.manifest) !== Boolean(draft.files)) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,

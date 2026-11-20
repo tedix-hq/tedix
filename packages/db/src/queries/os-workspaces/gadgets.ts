@@ -36,12 +36,15 @@ export async function setOsAppTriggerEnabled(
 		revisionId: string;
 		triggerId: string;
 		enabled: boolean;
+		/** What the trigger does now (`appTriggerDefinition`); the choice lapses when it changes. */
+		definition: string;
 	},
 ) {
+	const choice = { enabled: params.enabled, definition: params.definition };
 	const [row] = await db
 		.update(osGadgets)
 		.set({
-			triggerEnabled: sql`json_set(${osGadgets.triggerEnabled}, ${`$."${params.triggerId}"`}, json(${JSON.stringify(params.enabled)}))`,
+			triggerEnabled: sql`json_set(${osGadgets.triggerEnabled}, ${`$."${params.triggerId}"`}, json(${JSON.stringify(choice)}))`,
 			updatedAt: new Date().toISOString(),
 		})
 		.where(

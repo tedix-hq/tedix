@@ -174,13 +174,16 @@ export async function listOsIdsWithCollaborationProposals(
 	return found;
 }
 
-// Editing or rebasing a blueprint draft must retain its server-recorded release.
+// Editing or rebasing a blueprint draft must retain its server-recorded release,
+// and an edit can never add one.
 function appDraftPreviewContent(content: string) {
 	return sql<string>`case
 		when json_valid(${osCollaborationProposals.content}) and
 			json_type(${osCollaborationProposals.content}, '$.sourceBlueprintRevisionId') = 'text'
 		then json_set(${content}, '$.sourceBlueprintRevisionId',
 			json_extract(${osCollaborationProposals.content}, '$.sourceBlueprintRevisionId'))
+		when json_valid(${content})
+		then json_remove(${content}, '$.sourceBlueprintRevisionId')
 		else ${content} end`;
 }
 
@@ -634,6 +637,9 @@ async function mergeOsCollaborationProposalUnannounced(
 		const sourceBlueprintRevisionId = draft?.success
 			? draft.data.sourceBlueprintRevisionId
 			: undefined;
+		// The pin only moves forward: accepting an older release's draft still
+		// applies its files (the merge is fenced on the app's current revision)
+		// but leaves the app on the newer release it already follows.
 		const insertRevision = db
 			.insert(osGadgetRevisions)
 			.select(
@@ -690,6 +696,11 @@ async function mergeOsCollaborationProposalUnannounced(
 					and ${osWorkspaces.id} = ${proposal.workspaceId}
 					and ${osWorkspaces.organizationId} = ${params.organizationId}
 					and ${osBlueprintRevisions.publishedAt} is not null
+					and ${osBlueprintRevisions.revision} > coalesce((
+						select "pinned_release"."revision"
+						from ${osBlueprintRevisions} as "pinned_release"
+						where "pinned_release"."id" = ${osGadgets.sourceBlueprintRevisionId}
+					), -1)
 				), ${osGadgets.sourceBlueprintRevisionId})`,
 						}
 					: {}),

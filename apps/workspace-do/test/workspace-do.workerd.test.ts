@@ -1523,7 +1523,9 @@ describe("WorkspaceDO", () => {
 		)
 			.bind(row!.id)
 			.first<{ trigger_enabled: string }>();
-		expect(JSON.parse(switched!.trigger_enabled)).toEqual({ morning: false });
+		expect(JSON.parse(switched!.trigger_enabled)).toMatchObject({
+			morning: { enabled: false },
+		});
 
 		// A name in use is refused by the check, again without a card.
 		const taken = await ask({ name: "Visit counter", files });

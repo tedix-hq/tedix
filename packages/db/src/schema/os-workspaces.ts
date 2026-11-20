@@ -248,9 +248,9 @@ export const osGadgets = sqliteTable(
 			.default("active"),
 		/** Pointer to the serving `os_gadget_revisions.id`; no FK (circular), queries maintain it. */
 		currentRevisionId: text("current_revision_id"),
-		/** Human choices survive app revisions; new schedules await a person's switch. */
+		/** A person's switch per trigger id, with the trigger definition it was made for: it survives revisions that leave the trigger unchanged; a changed or reused id falls back to its default (schedules off). */
 		triggerEnabled: text("trigger_enabled", { mode: "json" })
-			.$type<Record<string, boolean>>()
+			.$type<Record<string, { enabled: boolean; definition: string }>>()
 			.notNull()
 			.default({}),
 		/** Per-gadget instantiation lineage: the blueprint revision that declared it. Plain text, no FK — must survive blueprint deletion. */
