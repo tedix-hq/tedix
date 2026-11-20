@@ -4,6 +4,7 @@ import * as eventQueries from "@tedix/db/queries/kernel-runtime-events";
 import type { BaseContext } from "../orpc";
 import {
 	delegationMetadataForPick,
+	delegationSessionKeyForDispatch,
 	kernelRuntimeTestHooks,
 } from "./kernel-runtime/policy-normalization";
 import {
@@ -143,6 +144,29 @@ describe("kernel runtime router: delegation", () => {
 		expect(delegationMetadataForPick(supplied, undefined)).toEqual({
 			homeRunId: "home-1",
 		});
+	});
+
+	it("keeps one tedi session per chat for a picked tedi and a fresh one otherwise", async () => {
+		const key = (
+			childRunId: string,
+			pickedByPerson: boolean,
+			homeConversationId = "home:os:chat-7",
+		) =>
+			delegationSessionKeyForDispatch({
+				childRunId,
+				pickedByPerson,
+				homeConversationId,
+			});
+		const first = await key("run-1:delegate:tedi-cpo", true);
+		expect(first).toMatch(/^agent:main:chat-[0-9a-f]{32}$/);
+		expect(await key("run-2:delegate:tedi-cpo", true)).toBe(first);
+		expect(
+			await key("run-3:delegate:tedi-cpo", true, "home:os:chat-8"),
+		).not.toBe(first);
+		// A delegation Home decided itself keeps a session per run.
+		expect(await key("run-4:delegate:tedi-cpo", false)).toBe(
+			"agent:main:delegation-run-4_delegate_tedi-cpo",
+		);
 	});
 
 	it("returns the picked tedi's run-ended reply to the original chat", async () => {
