@@ -28,6 +28,11 @@ import {
 	HistoricalFreshDecisionInputSchema,
 	HistoricalFreshRevocationInputSchema,
 	HistoricalFreshDecisionSchema,
+	BillingDailyUsageSchema,
+	BillingInvoicePageSchema,
+	BillingPaymentDetailsSchema,
+	BillingTopUpPurchaseSchema,
+	BillingUsageWindowSchema,
 	BillingCreditsSchema,
 	BillingOverviewSchema,
 	BillingPlanSchema,
@@ -211,6 +216,40 @@ export const billingContract = oc
 					"Return the organization's plan, Tedix credits used and remaining this month, top-up credits, pay-as-you-go state, usage by tedi and member, and the 80% and 100% notices.",
 			})
 			.output(BillingOverviewSchema),
+
+		getDailyUsage: oc
+			.route({
+				method: "GET",
+				path: "/daily-usage",
+				summary: "Get daily shares of credits used",
+			})
+			.input(z.object({ window: BillingUsageWindowSchema }))
+			.output(BillingDailyUsageSchema),
+
+		listTopUpPurchases: oc
+			.route({
+				method: "GET",
+				path: "/top-up-purchases",
+				summary: "List purchased credit packs",
+			})
+			.output(z.array(BillingTopUpPurchaseSchema)),
+
+		getPaymentDetails: oc
+			.route({
+				method: "GET",
+				path: "/payment-details",
+				summary: "Get billing email and payment method",
+			})
+			.output(BillingPaymentDetailsSchema),
+
+		listInvoices: oc
+			.route({
+				method: "GET",
+				path: "/invoices",
+				summary: "List finalized invoices",
+			})
+			.input(z.strictObject({ cursor: z.string().min(1).max(255).optional() }))
+			.output(BillingInvoicePageSchema),
 
 		setCreditCaps: oc
 			.route({

@@ -90,6 +90,23 @@ describe("own-organization billing authorization", () => {
 			);
 		});
 	}
+	it("keeps payment details, invoices and pack purchases off the billing-read grant", async () => {
+		for (const human of [false, true]) {
+			const client = createRouterClient(billingContractRouter, {
+				context: { ...context(["billing:read"], human), userRole: "admin" },
+			});
+			await expect(client.getPaymentDetails()).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			await expect(client.listInvoices({})).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			await expect(client.listTopUpPurchases()).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+		}
+		expect(resolveEnvironment).not.toHaveBeenCalled();
+	});
 	it("does not let a tenant owner mint credits", async () => {
 		const client = createRouterClient(billingContractRouter, {
 			context: context(["billing:read", "billing:manage"], true),

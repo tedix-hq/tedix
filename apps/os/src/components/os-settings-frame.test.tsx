@@ -39,7 +39,7 @@ const current = (doc: Document) =>
 
 describe("Settings sidebar", () => {
 	it("preserves member reads without exposing admin or billing links", () => {
-		const doc = render("/compute");
+		const doc = render("/usage");
 		expect(doc.querySelector('a[href="/admin"]')).toBeNull();
 		expect(doc.querySelector('a[href="/admin/api-keys"]')).toBeNull();
 		expect(doc.querySelector('a[href="/admin/billing"]')).toBeNull();
@@ -48,7 +48,7 @@ describe("Settings sidebar", () => {
 				(label) => label.textContent,
 			),
 		).toEqual(["Organization", "Connections", "Billing", "History"]);
-		expect(nav(doc).textContent).toContain("Usage & billing");
+		expect(nav(doc).textContent).toContain("Usage");
 		expect(doc.querySelector('a[href="/audit"]')?.textContent).toBe(
 			"Activity log",
 		);
@@ -70,7 +70,8 @@ describe("Settings sidebar", () => {
 				["Settings", "Organization", "Website chat", "Templates"],
 			],
 			["Connections", ["Connected accounts", "My accounts", "API keys"]],
-			["Billing", ["Usage & billing", "Payments"]],
+			["Billing", ["Usage", "Billing"]],
+			["Agents", ["Agent payments"]],
 			["History", ["Activity log"]],
 		]);
 		for (const link of nav(doc).querySelectorAll("a"))
@@ -85,19 +86,19 @@ describe("Settings sidebar", () => {
 		expect(active?.hasAttribute("data-settings-active")).toBe(true);
 		expect(nav(doc).querySelectorAll("[data-active]")).toHaveLength(1);
 	});
-	it("nests usage and billing and marks their shared section active", () => {
+	it("marks Billing as the current page without marking Usage", () => {
 		state.viewer.role = "owner";
 		state.viewer.permissions = ["billing:manage"];
 		const doc = render("/admin/billing");
 		expect(
-			[...doc.querySelectorAll('a[href="/compute"]')].map(
+			[...doc.querySelectorAll('a[href="/usage"]')].map(
 				(link) => link.textContent,
 			),
-		).toEqual(["Usage & billing", "Usage"]);
+		).toEqual(["Usage"]);
 		expect(doc.querySelector('a[href="/admin/billing"]')?.textContent).toBe(
 			"Billing",
 		);
-		expect(current(doc)).toEqual(["Usage & billing", "Billing"]);
+		expect(current(doc)).toEqual(["Billing"]);
 		expect(
 			doc.querySelector('a[href="/admin/billing"]')?.closest("ul")?.textContent,
 		).toBe("UsageBilling");

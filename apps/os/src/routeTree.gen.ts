@@ -38,6 +38,7 @@ import { Route as SessionTenantOutputsRouteImport } from './routes/_session/_ten
 import { Route as SessionTenantSitesRouteImport } from './routes/_session/_tenant/sites'
 import { Route as SessionTenantSkillsRouteImport } from './routes/_session/_tenant/skills'
 import { Route as SessionTenantTeamRouteImport } from './routes/_session/_tenant/team'
+import { Route as SessionTenantUsageRouteImport } from './routes/_session/_tenant/usage'
 import { Route as SessionTenantWidgetRouteImport } from './routes/_session/_tenant/widget'
 import { Route as SessionTenantWorkRouteImport } from './routes/_session/_tenant/work'
 import { Route as SessionTenantWorkspacesRouteImport } from './routes/_session/_tenant/workspaces'
@@ -60,6 +61,7 @@ import { Route as SessionTenantAdminWorkspacesRouteImport } from './routes/_sess
 import { Route as SessionTenantAppsAppIdRouteImport } from './routes/_session/_tenant/apps_.$appId'
 import { Route as SessionTenantExploreAppsRouteImport } from './routes/_session/_tenant/explore.apps'
 import { Route as SessionTenantOutputsOutputIdRouteImport } from './routes/_session/_tenant/outputs_.$outputId'
+import { Route as SessionTenantSettingsBillingRouteImport } from './routes/_session/_tenant/settings.billing'
 import { Route as SessionTenantSkillsIndexRouteImport } from './routes/_session/_tenant/skills.index'
 import { Route as SessionTenantSkillsSkillIdRouteImport } from './routes/_session/_tenant/skills.$skillId'
 import { Route as SessionTenantTeamTediIdRouteImport } from './routes/_session/_tenant/team_.$tediId'
@@ -238,6 +240,11 @@ const SessionTenantTeamRoute = SessionTenantTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => SessionTenantRoute,
 } as any)
+const SessionTenantUsageRoute = SessionTenantUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => SessionTenantRoute,
+} as any)
 const SessionTenantWidgetRoute = SessionTenantWidgetRouteImport.update({
   id: '/widget',
   path: '/widget',
@@ -361,6 +368,12 @@ const SessionTenantOutputsOutputIdRoute =
   SessionTenantOutputsOutputIdRouteImport.update({
     id: '/outputs_/$outputId',
     path: '/outputs/$outputId',
+    getParentRoute: () => SessionTenantRoute,
+  } as any)
+const SessionTenantSettingsBillingRoute =
+  SessionTenantSettingsBillingRouteImport.update({
+    id: '/settings/billing',
+    path: '/settings/billing',
     getParentRoute: () => SessionTenantRoute,
   } as any)
 const SessionTenantSkillsIndexRoute =
@@ -601,6 +614,7 @@ export interface FileRoutesByFullPath {
   '/sites': typeof SessionTenantSitesRoute
   '/skills': typeof SessionTenantSkillsRouteWithChildren
   '/team': typeof SessionTenantTeamRoute
+  '/usage': typeof SessionTenantUsageRoute
   '/widget': typeof SessionTenantWidgetRoute
   '/work': typeof SessionTenantWorkRouteWithChildren
   '/workspaces': typeof SessionTenantWorkspacesRoute
@@ -622,6 +636,7 @@ export interface FileRoutesByFullPath {
   '/apps/$appId': typeof SessionTenantAppsAppIdRouteWithChildren
   '/explore/apps': typeof SessionTenantExploreAppsRoute
   '/outputs/$outputId': typeof SessionTenantOutputsOutputIdRoute
+  '/settings/billing': typeof SessionTenantSettingsBillingRoute
   '/skills/$skillId': typeof SessionTenantSkillsSkillIdRouteWithChildren
   '/team/$tediId': typeof SessionTenantTeamTediIdRouteWithChildren
   '/team/new': typeof SessionTenantTeamNewRoute
@@ -683,6 +698,7 @@ export interface FileRoutesByTo {
   '/outputs': typeof SessionTenantOutputsRoute
   '/sites': typeof SessionTenantSitesRoute
   '/team': typeof SessionTenantTeamRoute
+  '/usage': typeof SessionTenantUsageRoute
   '/widget': typeof SessionTenantWidgetRoute
   '/workspaces': typeof SessionTenantWorkspacesRoute
   '/account/authorizations': typeof SessionAccountAuthorizationsRoute
@@ -702,6 +718,7 @@ export interface FileRoutesByTo {
   '/admin/workspaces': typeof SessionTenantAdminWorkspacesRoute
   '/explore/apps': typeof SessionTenantExploreAppsRoute
   '/outputs/$outputId': typeof SessionTenantOutputsOutputIdRoute
+  '/settings/billing': typeof SessionTenantSettingsBillingRoute
   '/team/new': typeof SessionTenantTeamNewRoute
   '/work/admission': typeof SessionTenantWorkAdmissionRoute
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
@@ -768,6 +785,7 @@ export interface FileRoutesById {
   '/_session/_tenant/sites': typeof SessionTenantSitesRoute
   '/_session/_tenant/skills': typeof SessionTenantSkillsRouteWithChildren
   '/_session/_tenant/team': typeof SessionTenantTeamRoute
+  '/_session/_tenant/usage': typeof SessionTenantUsageRoute
   '/_session/_tenant/widget': typeof SessionTenantWidgetRoute
   '/_session/_tenant/work': typeof SessionTenantWorkRouteWithChildren
   '/_session/_tenant/workspaces': typeof SessionTenantWorkspacesRoute
@@ -790,6 +808,7 @@ export interface FileRoutesById {
   '/_session/_tenant/apps_/$appId': typeof SessionTenantAppsAppIdRouteWithChildren
   '/_session/_tenant/explore/apps': typeof SessionTenantExploreAppsRoute
   '/_session/_tenant/outputs_/$outputId': typeof SessionTenantOutputsOutputIdRoute
+  '/_session/_tenant/settings/billing': typeof SessionTenantSettingsBillingRoute
   '/_session/_tenant/skills/$skillId': typeof SessionTenantSkillsSkillIdRouteWithChildren
   '/_session/_tenant/team_/$tediId': typeof SessionTenantTeamTediIdRouteWithChildren
   '/_session/_tenant/team_/new': typeof SessionTenantTeamNewRoute
@@ -855,6 +874,7 @@ export interface FileRouteTypes {
     | '/sites'
     | '/skills'
     | '/team'
+    | '/usage'
     | '/widget'
     | '/work'
     | '/workspaces'
@@ -876,6 +896,7 @@ export interface FileRouteTypes {
     | '/apps/$appId'
     | '/explore/apps'
     | '/outputs/$outputId'
+    | '/settings/billing'
     | '/skills/$skillId'
     | '/team/$tediId'
     | '/team/new'
@@ -937,6 +958,7 @@ export interface FileRouteTypes {
     | '/outputs'
     | '/sites'
     | '/team'
+    | '/usage'
     | '/widget'
     | '/workspaces'
     | '/account/authorizations'
@@ -956,6 +978,7 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/explore/apps'
     | '/outputs/$outputId'
+    | '/settings/billing'
     | '/team/new'
     | '/work/admission'
     | '/work/approvals'
@@ -1021,6 +1044,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/sites'
     | '/_session/_tenant/skills'
     | '/_session/_tenant/team'
+    | '/_session/_tenant/usage'
     | '/_session/_tenant/widget'
     | '/_session/_tenant/work'
     | '/_session/_tenant/workspaces'
@@ -1043,6 +1067,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/apps_/$appId'
     | '/_session/_tenant/explore/apps'
     | '/_session/_tenant/outputs_/$outputId'
+    | '/_session/_tenant/settings/billing'
     | '/_session/_tenant/skills/$skillId'
     | '/_session/_tenant/team_/$tediId'
     | '/_session/_tenant/team_/new'
@@ -1296,6 +1321,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantTeamRouteImport
       parentRoute: typeof SessionTenantRoute
     }
+    '/_session/_tenant/usage': {
+      id: '/_session/_tenant/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof SessionTenantUsageRouteImport
+      parentRoute: typeof SessionTenantRoute
+    }
     '/_session/_tenant/widget': {
       id: '/_session/_tenant/widget'
       path: '/widget'
@@ -1448,6 +1480,13 @@ declare module '@tanstack/react-router' {
       path: '/outputs/$outputId'
       fullPath: '/outputs/$outputId'
       preLoaderRoute: typeof SessionTenantOutputsOutputIdRouteImport
+      parentRoute: typeof SessionTenantRoute
+    }
+    '/_session/_tenant/settings/billing': {
+      id: '/_session/_tenant/settings/billing'
+      path: '/settings/billing'
+      fullPath: '/settings/billing'
+      preLoaderRoute: typeof SessionTenantSettingsBillingRouteImport
       parentRoute: typeof SessionTenantRoute
     }
     '/_session/_tenant/skills/': {
@@ -1940,6 +1979,7 @@ interface SessionTenantRouteChildren {
   SessionTenantSitesRoute: typeof SessionTenantSitesRoute
   SessionTenantSkillsRoute: typeof SessionTenantSkillsRouteWithChildren
   SessionTenantTeamRoute: typeof SessionTenantTeamRoute
+  SessionTenantUsageRoute: typeof SessionTenantUsageRoute
   SessionTenantWidgetRoute: typeof SessionTenantWidgetRoute
   SessionTenantWorkRoute: typeof SessionTenantWorkRouteWithChildren
   SessionTenantWorkspacesRoute: typeof SessionTenantWorkspacesRoute
@@ -1949,6 +1989,7 @@ interface SessionTenantRouteChildren {
   SessionTenantAppsAppIdRoute: typeof SessionTenantAppsAppIdRouteWithChildren
   SessionTenantExploreAppsRoute: typeof SessionTenantExploreAppsRoute
   SessionTenantOutputsOutputIdRoute: typeof SessionTenantOutputsOutputIdRoute
+  SessionTenantSettingsBillingRoute: typeof SessionTenantSettingsBillingRoute
   SessionTenantTeamTediIdRoute: typeof SessionTenantTeamTediIdRouteWithChildren
   SessionTenantTeamNewRoute: typeof SessionTenantTeamNewRoute
   SessionTenantExploreAppsSlugRoute: typeof SessionTenantExploreAppsSlugRoute
@@ -1968,6 +2009,7 @@ const SessionTenantRouteChildren: SessionTenantRouteChildren = {
   SessionTenantSitesRoute: SessionTenantSitesRoute,
   SessionTenantSkillsRoute: SessionTenantSkillsRouteWithChildren,
   SessionTenantTeamRoute: SessionTenantTeamRoute,
+  SessionTenantUsageRoute: SessionTenantUsageRoute,
   SessionTenantWidgetRoute: SessionTenantWidgetRoute,
   SessionTenantWorkRoute: SessionTenantWorkRouteWithChildren,
   SessionTenantWorkspacesRoute: SessionTenantWorkspacesRoute,
@@ -1977,6 +2019,7 @@ const SessionTenantRouteChildren: SessionTenantRouteChildren = {
   SessionTenantAppsAppIdRoute: SessionTenantAppsAppIdRouteWithChildren,
   SessionTenantExploreAppsRoute: SessionTenantExploreAppsRoute,
   SessionTenantOutputsOutputIdRoute: SessionTenantOutputsOutputIdRoute,
+  SessionTenantSettingsBillingRoute: SessionTenantSettingsBillingRoute,
   SessionTenantTeamTediIdRoute: SessionTenantTeamTediIdRouteWithChildren,
   SessionTenantTeamNewRoute: SessionTenantTeamNewRoute,
   SessionTenantExploreAppsSlugRoute: SessionTenantExploreAppsSlugRoute,

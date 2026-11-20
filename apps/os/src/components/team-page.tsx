@@ -772,7 +772,7 @@ function RuntimeGateNotice() {
 				help={
 					<>
 						Inference access could not be checked.{" "}
-						<OsRouterLink to="/compute">View Compute</OsRouterLink>
+						<OsRouterLink to="/usage">View usage</OsRouterLink>
 					</>
 				}
 			/>

@@ -13,10 +13,8 @@ import type {
 	BillingCredits,
 	BillingPlan,
 	BillingTopUpPack,
-	SetCreditCapsInput,
 	SetPayAsYouGoInput,
 } from "@tedix/api-contract/schemas/billing";
-import { formatBillingAmount } from "@/lib/billing-price";
 import { formatCount } from "@/lib/format";
 
 export const CREDIT_VALUE_MICROS = 10_000;
@@ -25,24 +23,15 @@ export type CreditUsage = BillingCredits;
 export type CreditPlan = BillingPlan;
 export type CreditPlanKey = BillingPlan["key"];
 export type CreditTopUpPack = BillingTopUpPack;
-export type CreditCapInput = SetCreditCapsInput;
 export type PayAsYouGoInput = SetPayAsYouGoInput;
-export type CreditBreakdown = BillingCredits["breakdown"];
 export type CreditNotice = BillingCredits["notices"][number];
 export type CreditNoticeThreshold = CreditNotice["threshold"];
 export type CreditPayAsYouGo = BillingCredits["payAsYouGo"];
-export type CreditTediUsage = BillingCredits["tedis"][number];
-export type CreditMemberUsage = BillingCredits["members"][number];
 
 /** "1,234 credits"; "1 credit". Credits are whole numbers. */
 export function formatCredits(credits: number): string {
 	const whole = Math.round(credits);
 	return `${formatCount(whole)} ${whole === 1 ? "credit" : "credits"}`;
-}
-
-/** What a number of credits costs in euros: 1,000 → "€10". */
-export function creditsInEuros(credits: number): string {
-	return formatBillingAmount(credits * CREDIT_VALUE_MICROS, "eur");
 }
 
 /** Credits a euro amount buys, rounded down: €0.50 in micros → 50. */

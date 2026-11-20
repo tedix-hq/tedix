@@ -70,7 +70,7 @@ describe("OS shell navigation", () => {
 				crumbs: [{ label: "Settings" }],
 			});
 		}
-		expect(resolveOsShellRouteContext("/compute")).toEqual({
+		expect(resolveOsShellRouteContext("/usage")).toEqual({
 			crumbs: [{ label: "Settings", href: "/admin" }, { label: "Usage" }],
 		});
 	});
@@ -135,7 +135,7 @@ describe("navigation translations", () => {
 		"keeps usage and billing titles distinct in %s",
 		(locale, usage, billing) => {
 			setOsLocale(locale);
-			const pages = ["/compute", "/admin/billing"].map((path) =>
+			const pages = ["/usage", "/admin/billing"].map((path) =>
 				OS_PAGES.find((page) => page.path === path),
 			);
 			expect(pages.map((page) => page?.label)).toEqual([usage, billing]);

@@ -4,11 +4,9 @@ import { runShellSpec } from "./shell-harness";
 await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 	// Let Vite finish first-use module optimization before holding API responses.
 	const warm = await newPage();
-	await warm.goto(`${origin}/admin/billing`);
-	await warm.getByText("Credits this month", { exact: true }).first().waitFor();
-	await warm
-		.getByRole("heading", { name: "Buy credit packs", exact: true })
-		.waitFor();
+	await warm.goto(`${origin}/admin/billing?tab=plan`);
+	await warm.getByText("Current plan", { exact: true }).waitFor();
+	await warm.getByRole("button", { name: "Test checkout" }).first().waitFor();
 	await warm.close();
 	for (const width of [390, 1280]) {
 		for (const stalled of ["getOverview", "listPlans"]) {
@@ -17,12 +15,10 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 			const held = new Promise<void>((resolve) => {
 				release = resolve;
 			});
-			let requests = 0;
 			let releasedResponses = 0;
 			await page.route("**/api/rpc/billing/**", async (route) => {
 				const response = await route.fetch();
 				if (route.request().url().includes(stalled)) {
-					requests++;
 					await held;
 					releasedResponses++;
 				}
@@ -44,11 +40,16 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 				}
 			});
 			try {
-				await page.goto(`${origin}/admin/billing`);
+				await Promise.all([
+					page.waitForRequest(
+						(request) =>
+							new URL(request.url()).pathname === `/api/rpc/billing/${stalled}`,
+					),
+					page.goto(`${origin}/admin/billing?tab=plan`),
+				]);
 				await page
 					.getByRole("heading", { name: "Billing", exact: true })
 					.waitFor({ timeout: 12_000 });
-				assert.ok(requests > 0, "billing read started");
 				assert.equal(
 					releasedResponses,
 					0,

@@ -249,6 +249,43 @@ export const BillingPlanSchema = z.object({
 });
 export type BillingPlan = z.infer<typeof BillingPlanSchema>;
 
+export const BillingUsageWindowSchema = z.enum(["month", "30d", "7d"]);
+
+export const BillingDailyUsageSchema = z.array(
+	z.object({
+		day: z.string(),
+		aiPercent: z.number().nonnegative(),
+		codeRunPercent: z.number().nonnegative(),
+		toolPercent: z.number().nonnegative(),
+	}),
+);
+
+export const BillingTopUpPurchaseSchema = z.object({
+	id: z.string(),
+	credits: CreditCountSchema,
+	purchasedAt: z.string(),
+	expiresAt: z.string(),
+});
+
+export const BillingPaymentDetailsSchema = z.object({
+	email: z.string().nullable(),
+	method: z.string().nullable(),
+});
+
+export const BillingInvoicePageSchema = z.object({
+	invoices: z.array(
+		z.object({
+			id: z.string(),
+			number: z.string().nullable(),
+			issuedAt: z.string(),
+			amountMinor: z.number().int(),
+			currency: z.string(),
+			url: z.string().url().nullable(),
+		}),
+	),
+	nextCursor: z.string().nullable(),
+});
+
 export const BillingTopUpPackSchema = z.object({
 	packKey: z.string().min(1).max(100),
 	credits: z.number().int().positive(),

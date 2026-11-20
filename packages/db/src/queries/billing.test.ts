@@ -34,6 +34,7 @@ import {
 	setCreditCaps,
 	setPayAsYouGo,
 } from "./billing/credit-pool";
+import { listDailyCreditUsage } from "./billing/dashboard";
 import { recordBillingProviderReconciliation } from "./billing/health";
 import {
 	claimStripeMeterOutbox,
@@ -271,6 +272,56 @@ function settle(
 		now: input.now,
 	});
 }
+
+it("groups recorded credits by UTC day and kind within the tenant and the requested window", async () => {
+	const { db, sqlite } = setup();
+	try {
+		sqlite
+			.prepare("INSERT INTO organizations (id) VALUES (?)")
+			.run("other-org");
+		const insert = sqlite.prepare(`
+			INSERT INTO billing_credit_consumptions
+				(id, organization_id, kind, source_ref, period_start, period_end, credits,
+				 included_credits, top_up_credits, payg_credits, payg_charge_micros, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)
+		`);
+		const rows = [
+			["org-1", "ai", 2, "2026-07-27T00:00:00.000Z"],
+			["org-1", "ai", 3, "2026-07-27T23:59:59.999Z"],
+			["org-1", "service", 1, "2026-07-27T14:00:00.000Z"],
+			["org-1", "code_run", 1, "2026-07-28T08:00:00.000Z"],
+			["org-1", "ai", 7, "2026-07-26T23:59:59.999Z"],
+			["org-1", "ai", 7, "2026-07-29T00:00:00.000Z"],
+			["other-org", "ai", 7, "2026-07-27T12:00:00.000Z"],
+		] as const;
+		for (const [index, [org, kind, credits, createdAt]] of rows.entries()) {
+			insert.run(
+				String(index),
+				org,
+				kind,
+				String(index),
+				PERIOD_START,
+				PERIOD_END,
+				credits,
+				credits,
+				createdAt,
+			);
+		}
+		expect(
+			await listDailyCreditUsage(db, {
+				organizationId: "org-1",
+				from: "2026-07-27T00:00:00.000Z",
+				to: "2026-07-29T00:00:00.000Z",
+			}),
+		).toEqual([
+			{ day: "2026-07-27", kind: "ai", credits: 5 },
+			{ day: "2026-07-27", kind: "service", credits: 1 },
+			{ day: "2026-07-28", kind: "code_run", credits: 1 },
+		]);
+	} finally {
+		sqlite.close();
+	}
+});
 
 describe("organization credit pool", () => {
 	it("reserves ceil(cost in EUR x 2 / EUR 0.01) credits and settles on the actual cost", async () => {

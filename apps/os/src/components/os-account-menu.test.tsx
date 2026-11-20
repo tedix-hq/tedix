@@ -130,7 +130,7 @@ describe("sidebar account menu", () => {
 				item.getAttribute("href"),
 			]),
 		).toEqual([
-			["Usage", "/compute"],
+			["Usage", "/usage"],
 			["Personal settings", "/account/settings"],
 			["Install apps", "/install"],
 			["Sign out", OS_LOGOUT_PATH],
@@ -147,7 +147,7 @@ describe("sidebar account menu", () => {
 
 	it("closes when a navigation item is selected", async () => {
 		const menu = await openMenu();
-		const usage = menu.querySelector<HTMLAnchorElement>('[href="/compute"]')!;
+		const usage = menu.querySelector<HTMLAnchorElement>('[href="/usage"]')!;
 		usage.addEventListener("click", (event) => event.preventDefault());
 		await act(async () => usage.click());
 		expect(document.querySelector('[role="menu"]')).toBeNull();
@@ -159,7 +159,7 @@ describe("sidebar account menu", () => {
 		expect(menu.querySelector('[href="/admin/billing"]')?.textContent).toBe(
 			"Billing",
 		);
-		const usage = menu.querySelector('[href="/compute"]')!;
+		const usage = menu.querySelector('[href="/usage"]')!;
 		// 70 of 100 included plus 20 top-up credits, rounded down.
 		expect(usage.textContent).toMatch(/^Usage58% used this month/);
 		expect(usage.textContent).not.toContain("credits");
@@ -174,7 +174,7 @@ describe("sidebar account menu", () => {
 		viewer.local = true;
 		const menu = await openMenu();
 		expect(menu.querySelector('[href="/admin/billing"]')).toBeNull();
-		expect(menu.querySelector('[href="/compute"]')?.textContent).toBe("Usage");
+		expect(menu.querySelector('[href="/usage"]')?.textContent).toBe("Usage");
 		expect(billing.query).not.toHaveBeenCalled();
 	});
 });

@@ -79,12 +79,12 @@ try {
 		const state = await navState(page);
 		assert.deepEqual(
 			state.groups,
-			["Organization", "Connections", "Billing", "History"],
+			["Organization", "Connections", "Billing", "Agents", "History"],
 			JSON.stringify(state),
 		);
 		assert(state.links.length >= 10, JSON.stringify(state));
 		for (const link of state.links) {
-			assert(link.icon || link.text === "Usage", JSON.stringify(link));
+			assert(link.icon, JSON.stringify(link));
 			assert(
 				link.left >= -1 && link.right <= state.innerWidth + 1,
 				`destination off screen: ${JSON.stringify(link)}`,
@@ -145,14 +145,14 @@ try {
 			await navigation.locator('a[href="/audit"]').getAttribute("aria-current"),
 			"page",
 		);
-		// Billing nests under Usage & billing; both rows mark the page current.
+		// Only the Billing link marks the page current.
 		await page.goto(`${server.origin}/admin/billing`);
 		await navigation.locator('a[href="/admin/billing"]').waitFor({
 			state: "attached",
 		});
 		assert.deepEqual(
 			await navigation.locator('a[aria-current="page"]').allTextContents(),
-			["Usage & billing", "Billing"],
+			["Billing"],
 		);
 		if (shots && !phone)
 			await page.screenshot({

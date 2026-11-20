@@ -63,7 +63,7 @@ const ADMIN_DESTINATIONS: AdminDestination[] = [
 	},
 	{
 		to: "/admin/payments",
-		title: "Payments",
+		title: "Agent payments",
 		description: "Paid tool spend, budget policies, and receipts",
 		icon: Wallet,
 	},

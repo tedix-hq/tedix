@@ -310,7 +310,6 @@ await runShellSpec(
 				"Templates",
 				"Website chat",
 				"Activity log",
-				"Usage & billing",
 				"Usage",
 				"Billing",
 			])
@@ -323,7 +322,7 @@ await runShellSpec(
 			await capture(page, `settings-rail-${width}-${theme}`);
 			await capture(page, `breadcrumb-${width}-${theme}`);
 			for (const [label, path, heading] of [
-				["Usage", "/compute", "Usage"],
+				["Usage", "/usage", "Usage"],
 				["Billing", "/admin/billing", "Billing"],
 				["Templates", "/blueprints", "Templates"],
 				["Website chat", "/widget", "Website chat"],

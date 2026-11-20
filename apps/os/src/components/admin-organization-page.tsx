@@ -21,6 +21,7 @@ import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { useQuery } from "@tanstack/react-query";
 import type { OrganizationFeatures } from "@tedix/api-contract/schemas/organization";
 import { lazy, Suspense } from "react";
+import { Link } from "@/components/kumo/link";
 import { LoadError } from "@/components/kumo/alert";
 import {
 	Page,
@@ -58,12 +59,6 @@ const OrganizationAppearanceForm = lazy(() =>
 const OrganizationModelFallbackForm = lazy(() =>
 	import("@/components/organization-model-fallback-form").then((mod) => ({
 		default: mod.OrganizationModelFallbackForm,
-	})),
-);
-
-const SubscriptionSection = lazy(() =>
-	import("@/components/billing-subscription-section").then((mod) => ({
-		default: mod.SubscriptionSection,
 	})),
 );
 
@@ -137,6 +132,9 @@ export function AdminOrganizationPage() {
 				<AdminOrganizationBody
 					organizationId={context.data.organization.id}
 					isOwner={context.data.authority.role === "owner"}
+					canManageBilling={context.data.authority.permissions.includes(
+						"billing:manage",
+					)}
 				/>
 			)}
 		</Page>
@@ -146,9 +144,11 @@ export function AdminOrganizationPage() {
 function AdminOrganizationBody({
 	organizationId,
 	isOwner,
+	canManageBilling,
 }: {
 	organizationId: string;
 	isOwner: boolean;
+	canManageBilling: boolean;
 }) {
 	const detailQuery = useQuery(organizationDetailQueryOptions(organizationId));
 	const featuresQuery = useQuery(
@@ -219,9 +219,11 @@ function AdminOrganizationBody({
 			</div>
 
 			<div id="organization-billing" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<LoadingArea className="h-24" />}>
-					<SubscriptionSection />
-				</Suspense>
+				{canManageBilling && (
+					<Link href="/admin/billing?tab=plan">
+						Manage your plan in Billing
+					</Link>
+				)}
 
 				{featuresQuery.isError ? (
 					<LoadError
