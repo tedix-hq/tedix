@@ -1,5 +1,10 @@
 #!/usr/bin/env bun
-import { type CliOptions, firstWord, INTERACTIVE_COMMANDS } from "./shared";
+import {
+	type CliOptions,
+	firstWord,
+	INTERACTIVE_COMMANDS,
+	LEASE_WORKER_ENV,
+} from "./shared";
 import type { TedixHomeClient } from "./home-client";
 
 /**
@@ -161,6 +166,12 @@ export function formatCliError(argv: string[], message: string): string {
 }
 
 async function main() {
+	if (process.send && process.env[LEASE_WORKER_ENV] === "1") {
+		delete process.env[LEASE_WORKER_ENV];
+		const { runLaneLeaseWorker } = await import("./lane-serve");
+		runLaneLeaseWorker(process.argv.slice(2));
+		return;
+	}
 	let commandIndex = 2;
 	while (
 		["-w", "--workspace", "--organization"].includes(
