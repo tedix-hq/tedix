@@ -30,3 +30,25 @@ export function homeChatModelRef(input: {
 	}
 	return initialModelRef(input.models, input.routedDefault);
 }
+
+/**
+ * The tedi this conversation's messages go to: the one the person picked for
+ * their latest message, or null for Home. Read from the conversation's stored
+ * runs, so the pick outlives the composer and a reload. A message Home handed
+ * to a tedi by itself does not count as a pick.
+ */
+export function homeChatPickedTediId(
+	conversationId: string | null,
+	runs: readonly HomeRun[],
+): string | null {
+	const latest = [...runs]
+		.filter(
+			(run) =>
+				run.conversationId === conversationId &&
+				asRecord(asRecord(run.metadata)?.pushRecipient)?.personStarted === true,
+		)
+		.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+	return asRecord(latest?.metadata)?.pickedByPerson === true
+		? (latest?.delegatedTediId ?? null)
+		: null;
+}
