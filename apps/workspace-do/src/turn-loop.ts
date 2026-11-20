@@ -319,7 +319,20 @@ export async function runTurn(
 				streamedText += event.delta;
 				ports.emit({ type: "text_delta", data: { text: event.delta } });
 			} else if (event.type === "toolcall_start") {
-				ports.emit({ type: "tool_call_started", data: { step: steps } });
+				// Writing the code can take minutes; the chat shows the step
+				// from its first token instead of when the code is complete.
+				const call = event.partial.content[event.contentIndex];
+				ports.emit({
+					type: "tool_call_started",
+					data: {
+						step: steps,
+						...(call?.type === "toolCall" &&
+						call.name === RUN_CODE_TOOL &&
+						call.id
+							? { toolCallId: call.id }
+							: {}),
+					},
+				});
 			}
 		}
 		const message = await stream.result();

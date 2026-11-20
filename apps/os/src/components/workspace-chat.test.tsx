@@ -709,6 +709,32 @@ describe("WorkspaceChat", () => {
 		},
 	);
 
+	it("says in plain words that the model could not answer", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		const raw =
+			'410: {"name":"AiError","internalCode":3028,"httpCode":410,"message":"AiError: Model has been deprecated"}';
+		act(() =>
+			fake.feed([
+				started,
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "error",
+					error: raw,
+					durationMs: 1000,
+				},
+			]),
+		);
+		expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+			"This model is not available right now. Pick another model and try again.",
+		);
+		expect(host.textContent).toContain("Technical details");
+	});
+
 	it("retries a failed turn by sending its own message again", () => {
 		const fake = fakeClient("c1");
 		mount(fake);

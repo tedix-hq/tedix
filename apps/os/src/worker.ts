@@ -1422,7 +1422,14 @@ export async function handleOsRequest(
 	// Governed widget bridge (docs/engineering/mcp/apps.md): the SPA fetches ui://
 	// resources and relays widget-originated MCP calls through these
 	// same-origin endpoints; the caller's own session rides through and
-	// iframes never see a token. Tenant hosts only.
+	// iframes never see a token. Tenant hosts only: any other host, a local
+	// run included, says so instead of answering with the page shell.
+	if (
+		tenant.kind !== "tenant" &&
+		(url.pathname === "/widgets/resource" || url.pathname === "/widgets/mcp")
+	) {
+		return refuse(404, "Views are not served at this address.");
+	}
 	if (tenant.kind === "tenant") {
 		const authenticated: {
 			request: Request;

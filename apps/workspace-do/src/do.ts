@@ -3652,7 +3652,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			type: "step.started",
 			turnId: turn.turnId,
 			stepId,
-			label,
+			// The chat's step names what is being made; a card keeps `label`.
+			label: stepLabel(binding, method, args[0]).label,
 			kind,
 			tool: `${binding}.${method}`,
 			...(args[0] === undefined ? {} : { input: boundedEventInput(args[0]) }),
@@ -3873,6 +3874,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					messageId: turnId,
 					text: String(data.text ?? ""),
 				};
+				break;
+			case "tool_call_started":
+				// The same step the finished code then fills in and runs.
+				if (typeof data.toolCallId === "string")
+					body = {
+						type: "step.started",
+						turnId,
+						stepId: data.toolCallId,
+						label: "Writing the next step",
+						kind: "code",
+						tool: "run_code",
+					};
 				break;
 			case "code_started":
 				body = {

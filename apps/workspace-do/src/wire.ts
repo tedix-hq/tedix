@@ -361,10 +361,31 @@ export interface ConversationSummary {
 	startedBy?: { kind: "tedi" | "agent"; id: string };
 }
 
-/** Plain labels for the steps a turn takes, by binding and method. */
+/** What a create call is making, by name: "the sheet Trip budget". */
+function createdThing(binding: string, input: unknown): string | null {
+	if (binding !== "apps" && binding !== "outputs") return null;
+	if (typeof input !== "object" || input === null) return null;
+	const { title, name, content } = input as Record<string, unknown>;
+	const named = binding === "apps" ? name : title;
+	if (typeof named !== "string" || !named.trim()) return null;
+	const kind =
+		binding === "apps" ? "app" : (content as { kind?: unknown } | null)?.kind;
+	const noun =
+		typeof kind === "string" &&
+		["app", "document", "sheet", "presentation"].includes(kind)
+			? kind
+			: "file";
+	return `the ${noun} ${named.trim().slice(0, 80)}`;
+}
+
+/**
+ * Plain labels for the steps a turn takes, by binding and method. With the
+ * call's input, a create step names what it makes.
+ */
 export function stepLabel(
 	binding: string,
 	method: string,
+	input?: unknown,
 ): { label: string; kind: "read" | "write" } {
 	const table: Record<string, Record<string, string>> = {
 		outputs: {
@@ -433,8 +454,11 @@ export function stepLabel(
 		method === "revise" ||
 		(["documents", "sheets", "presentations"].includes(binding) &&
 			(method === "replace" || method === "edit"));
+	const created = method === "create" ? createdThing(binding, input) : null;
 	return {
-		label: table[binding]?.[method] ?? `${binding}.${method}`,
+		label: created
+			? `Creating ${created}`
+			: (table[binding]?.[method] ?? `${binding}.${method}`),
 		kind: write ? "write" : "read",
 	};
 }

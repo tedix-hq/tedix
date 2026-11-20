@@ -31,6 +31,12 @@ describe("prompt", () => {
 			label: "Creating a new app",
 			kind: "write",
 		});
+		expect(
+			stepLabel("outputs", "create", {
+				title: "Trip budget",
+				content: { kind: "sheet" },
+			}).label,
+		).toBe("Creating the sheet Trip budget");
 		expect(describeBinding("apps")).toContain("create(input: { name: string");
 		expect(STATIC_RULES).toContain("env.apps.create({ name, files })");
 		expect(STATIC_RULES).toContain("server.js");
