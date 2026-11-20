@@ -23,9 +23,9 @@ import {
 	runGatewayChangeRecordSealer,
 	SETTLING_WINDOW_MS,
 	sealGatewayChangeRecordRuns,
-	type EvidenceBundle,
 	writeGatewayChangeRecordEvidenceBundles,
 } from "./gateway-change-record-sealer";
+import type { EvidenceBundle } from "@tedix/agent-governance/evidence";
 
 /** The two R2 calls the bundle writer makes, over a Map. */
 function memoryBucket() {

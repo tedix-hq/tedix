@@ -18,7 +18,19 @@ import type {
 	WorkspaceOutputRuntime,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
-import { readDurableObjectJurisdiction } from "@tedix/worker-kit/durable-objects";
+import {
+	durableObjectStubByName,
+	readDurableObjectJurisdiction,
+} from "@tedix/worker-kit/durable-objects";
+import type {
+	OrganizationLogAppendInput,
+	OrganizationLogImportPage,
+	OrganizationLogRuntime,
+} from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
+import type {
+	GatewayChangeRecordCheckpointQuery,
+	GatewayChangeRecordRangeParams,
+} from "@tedix/db/queries/gateway-change-records";
 import { secureEqual } from "@tedix/worker-kit/request-auth";
 import type { MemoryOwnerScope } from "@tedix/api-contract/schemas/memory-graph";
 import type { MemoryOwnerAccess } from "@tedix/db/tenant-store/memory-owner";
@@ -32,12 +44,117 @@ import type { WorkspaceRpc } from "./do";
 import type { TurnRequest, WorkspaceEnv, WorkspaceScope } from "./env";
 
 export { TurnFacet, WorkspaceBindingLoopback, WorkspaceDO } from "./do";
+export { OrganizationLogStore } from "./organization-log";
 
 function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 	return tenantStoreStub(env.WORKSPACE, env, scope) as unknown as WorkspaceRpc;
 }
 
-export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
+/**
+ * The organization's log store, or undefined while this Worker has no
+ * `ORGANIZATION_LOG` binding (the store is then off: appends are forwarded
+ * to the main database and reads are served there).
+ */
+function organizationLog(
+	env: WorkspaceEnv,
+	organizationId: string,
+): OrganizationLogRuntime | undefined {
+	const namespace = (env as { ORGANIZATION_LOG?: DurableObjectNamespace })
+		.ORGANIZATION_LOG;
+	if (!namespace) return undefined;
+	return durableObjectStubByName(
+		namespace,
+		env,
+		`org:${organizationId}`,
+	) as unknown as OrganizationLogRuntime;
+}
+
+export class InternalEntrypoint
+	extends WorkerEntrypoint<WorkspaceEnv>
+	implements OrganizationLogRuntime
+{
+	async organizationLogAvailable() {
+		return Boolean(
+			(this.env as { ORGANIZATION_LOG?: unknown }).ORGANIZATION_LOG,
+		);
+	}
+	async organizationLogAppend(
+		organizationId: string,
+		input: OrganizationLogAppendInput,
+	) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationLogAppend(organizationId, input)
+			: { status: "forward" as const };
+	}
+	async organizationLogList(
+		organizationId: string,
+		query: Parameters<OrganizationLogRuntime["organizationLogList"]>[1],
+	) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationLogList(organizationId, query)
+			: { status: "not_live" as const };
+	}
+	async organizationLogGet(organizationId: string, id: string) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationLogGet(organizationId, id)
+			: { status: "not_live" as const };
+	}
+	async organizationLogRange(
+		organizationId: string,
+		range: GatewayChangeRecordRangeParams,
+		page: { afterSequence?: number; limit: number },
+	) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationLogRange(organizationId, range, page)
+			: { status: "not_live" as const };
+	}
+	async organizationLogCheckpoints(
+		organizationId: string,
+		query: GatewayChangeRecordCheckpointQuery,
+	) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationLogCheckpoints(organizationId, query)
+			: { status: "not_live" as const };
+	}
+	async organizationLogStatus(organizationId: string) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationLogStatus(organizationId)
+			: {
+					available: false,
+					state: "passthrough" as const,
+					tail: null,
+					pending: 0,
+					oldestPendingAt: null,
+					cutoverStartedAt: null,
+				};
+	}
+	async organizationLogImport(
+		organizationId: string,
+		page: OrganizationLogImportPage,
+	) {
+		const log = organizationLog(this.env, organizationId);
+		if (!log) throw new Error("The organization log store is not bound");
+		return log.organizationLogImport(organizationId, page);
+	}
+	async organizationLogBeginCutover(organizationId: string) {
+		const log = organizationLog(this.env, organizationId);
+		if (!log) throw new Error("The organization log store is not bound");
+		return log.organizationLogBeginCutover(organizationId);
+	}
+	async organizationLogFinishCutover(
+		organizationId: string,
+		expected: { sequence: number; chainHash: string | null },
+	) {
+		const log = organizationLog(this.env, organizationId);
+		if (!log) throw new Error("The organization log store is not bound");
+		return log.organizationLogFinishCutover(organizationId, expected);
+	}
 	prepareDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
 		return stubFor(this.env, scope).prepareDocumentTransfer(scope, transfer);
 	}

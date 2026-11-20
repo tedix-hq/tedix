@@ -12,7 +12,8 @@
 		"./hash": "./src/hash.ts",
 		"./wrap-binding": "./src/wrap-binding.ts",
 		"./in-memory": "./src/in-memory.ts",
-		"./seal": "./src/seal.ts"
+		"./seal": "./src/seal.ts",
+		"./evidence": "./src/evidence.ts"
 	},
 	"scripts": {
 		"clean": "true",
