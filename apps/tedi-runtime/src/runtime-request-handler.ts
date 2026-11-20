@@ -1339,16 +1339,26 @@ export async function handleRuntimeRequest(
 			});
 		}
 		try {
-			const result = await terminateWorkflow(
-				host.env.CHAT_TURN_WORKFLOW,
-				cancelWorkflowInstanceId,
-			);
-			// A long workflow sleep may outlive the terminal watchdog. Do not
-			// depend on a later SDK callback to cancel this run's native jobs.
 			const canceledContext =
 				await host.ctx.storage.get<WorkflowDispatchContext>(
 					`wfctx:${cancelWorkflowInstanceId}`,
 				);
+			const abortFacet = async () => {
+				if (canceledContext?.runId !== cancelRunId) return;
+				const facet = await host.subAgent(
+					ConversationFacet,
+					canceledContext.sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_"),
+				);
+				await facet.stopConversationTurn(cancelRunId);
+			};
+			const [result] = await Promise.all([
+				terminateWorkflow(
+					host.env.CHAT_TURN_WORKFLOW,
+					cancelWorkflowInstanceId,
+				),
+				abortFacet(),
+			]);
+			// A long workflow sleep may outlive the terminal watchdog.
 			if (canceledContext?.runId === cancelRunId)
 				await host.clearWorkflowDispatch(cancelWorkflowInstanceId, "cancelled");
 			return Response.json({

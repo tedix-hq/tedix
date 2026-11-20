@@ -177,11 +177,10 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 			// First durable callback: proves the Workflow instance progressed beyond
 			// admission/queueing and reached user code. The Agent-side watchdog
 			// restarts the same instance id only when this checkpoint never lands.
-			markStarted: async () => {
-				await this.withRecoverableFreshAgent(params, (agent) =>
+			markStarted: () =>
+				this.withRecoverableFreshAgent(params, (agent) =>
 					agent.markChatWorkflowStarted(event.instanceId, params.runId),
-				);
-			},
+				),
 			// The whole turn — context assembly, the facet `chat()` loop (tools
 			// served parent-side via the per-runId proxy registry), and settlement
 			// (`commitAssistantTurn`: keyed assistant append, awaited ledger mirror,

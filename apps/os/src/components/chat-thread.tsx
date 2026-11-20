@@ -7,6 +7,7 @@ import {
 	chatSlashCommands,
 	chatComposerPlaceholder,
 } from "@/components/chat-composer-options";
+import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import {
 	isLocalAiUnavailable,
@@ -717,7 +718,7 @@ export function ChatThread({
 						!steering.data?.messages.some(
 							(queued) =>
 								queued.status !== "read" &&
-								queued.id === message.metadata?.steeringId,
+								queued.id === asRecord(message.metadata?.metadata)?.steeringId,
 						),
 				),
 				runSet?.runs ?? [],
@@ -1010,7 +1011,8 @@ export function ChatThread({
 	});
 	const cancelRun = useMutation({
 		mutationFn: async (input: { runId: string }) => {
-			await withdrawSteering.mutateAsync(input);
+			// Stop must still reach the runtime if draft restoration fails.
+			await withdrawSteering.mutateAsync(input).catch(() => undefined);
 			return transportActions.cancelRun(input);
 		},
 		onError: (error) =>
@@ -1018,7 +1020,10 @@ export function ChatThread({
 				errorMessage(error, "Could not stop this run. Try again."),
 			),
 		onSuccess: () => {
-			queryClient.invalidateQueries({
+			setSteeringError(null);
+			void steering.refetch();
+			void transcript.refetch();
+			void queryClient.invalidateQueries({
 				queryKey: homeRunSetQueryKey(conversationId),
 			});
 		},
