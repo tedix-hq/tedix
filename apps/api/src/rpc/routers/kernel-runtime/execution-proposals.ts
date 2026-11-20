@@ -472,13 +472,15 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					organizationId,
 				)
 			: null;
-		// A delegation named by an operator is rated by its linked Work. Without
-		// one it is an ordinary request: standing consent up to medium risk lets
-		// it run, while human-reserved actions (payments, deletions, publishing,
-		// customer messages) and classes the organization asks for still stop
-		// here. Each tool call the tedi then makes keeps its own approval gates.
+		// A message a signed-in person types to a tedi they picked is dispatched
+		// as written: its wording is never rated here. Each tool call the tedi
+		// then makes keeps its own approval gates. A delegation named by another
+		// caller (an agent, a job) is rated by its linked Work; without one,
+		// standing consent up to medium risk lets it run, while human-reserved
+		// actions and classes the organization asks for still stop here.
 		if (
 			input.delegateToTediId &&
+			!pickedByPerson &&
 			!workstationAttach &&
 			governancePolicy?.autonomy &&
 			!decideAutonomousAction({
@@ -493,9 +495,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
-				pickedByPerson
-					? "This message asks for something that needs approval first, such as a message to someone outside, a payment or a deletion. Pick Home in the composer and send it again so Home can prepare the approval. Nothing was started."
-					: "This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
+				"This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
 			);
 		}
 		// Org standing consent can replace the human click for non-critical work.
