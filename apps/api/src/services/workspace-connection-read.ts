@@ -25,6 +25,7 @@ import { findWorkspaceConnectionTool } from "@tedix/db/queries/tools";
 import { createContext } from "../rpc/context";
 import {
 	callWorkspaceResourceConnection,
+	mayDecideWorkspaceConnection,
 	WorkspaceConnectionNotConnected,
 } from "./os-app-connection";
 import { workspaceDocumentRuntime } from "./workspace-document-owner";
@@ -226,17 +227,10 @@ export async function decideLinkedWorkspaceAccountApproval(
 		if (workspace?.status !== "active")
 			return { status: "refused", message: "This workspace is unavailable." };
 		const member = await getMemberAccessByUserId(db, organizationId, by);
-		const role = await readWorkspaceSessionRole(db, workspaceId, by);
-		// Match the live owner/admin requirement that governance applies on replay.
-		if (
-			member?.status !== "active" ||
-			!["owner", "admin"].includes(member.role) ||
-			role !== "build"
-		)
+		if (member?.status !== "active")
 			return {
 				status: "refused",
-				message:
-					"An active organization owner or admin with workspace build access must decide this read.",
+				message: "An active organization membership is required.",
 			};
 
 		const approval = await getApprovalRequestById(
@@ -265,6 +259,23 @@ export async function decideLinkedWorkspaceAccountApproval(
 				status: "refused",
 				message:
 					"No pending connection read matches this workspace and conversation.",
+			};
+		// Governance applies the same live rule again when the call is replayed.
+		const requester = approval.payload.initiatedByUserId;
+		if (
+			!(await mayDecideWorkspaceConnection(
+				db,
+				target,
+				typeof requester === "string" ? requester : undefined,
+				by,
+			))
+		)
+			return {
+				status: "refused",
+				message:
+					target.connectionScope !== "tenant" && requester !== by
+						? "Only the person whose own account this uses can decide this."
+						: "Someone with build access to this workspace must decide this.",
 			};
 
 		const status = decision === "approve" ? "approved" : "rejected";

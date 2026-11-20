@@ -3826,7 +3826,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						approvalId: error.approvalId,
 						title: label,
 						reason:
-							"An active organization owner or admin with workspace build access must decide this read.",
+							"Someone with build access to this workspace must decide this. A personal account is decided only by its own person.",
 						input: boundedEventInput({
 							resourceId: args[0],
 							toolName: args[1],

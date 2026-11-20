@@ -203,6 +203,7 @@ beforeEach(() => {
 	});
 	mocks.ownAccounts.mockResolvedValue([]);
 	mocks.member.mockResolvedValue({ status: "active", role: "owner" });
+	mocks.role.mockResolvedValue("build");
 	mocks.organization.mockResolvedValue({ slug: "fictional" });
 	mocks.anchor.mockResolvedValue({ id: "anchor-1" });
 	mocks.create.mockImplementation(async (_db, row) => row);
@@ -221,11 +222,12 @@ async function retry(
 		context: context(),
 		session,
 	},
+	slot = resource,
 ) {
 	const first = (await callWorkspaceAppConnection(
 		actor.context,
 		actor.session,
-		resource,
+		slot,
 		input,
 	)) as { approval: { approvalRequestId: string } };
 	const row = mocks.create.mock.calls[0]![1];
@@ -483,11 +485,60 @@ describe("runtime connection OS approval adapter", () => {
 			expect(mocks.create).not.toHaveBeenCalled();
 		},
 	);
-	it("refuses build access without existing owner/admin approval authority", async () => {
+	it("lets a plain member with build access approve a shared-account call", async () => {
 		mocks.member.mockResolvedValue({ status: "active", role: "member" });
-		await expect(
-			callWorkspaceAppConnection(context(), session, resource, input),
-		).rejects.toThrow(/owner or admin/);
+		const shared = {
+			...resource,
+			connectionScope: "tenant",
+			personalOwnerUserId: null,
+		} as OsWorkspaceResourceRow;
+		const changed = surface();
+		changed.app.metadata.mcpConfig.connectionScope = "tenant";
+		mocks.surface.mockResolvedValue(changed);
+		const approved = await retry("approved", collaborator, shared);
+		mocks.get.mockResolvedValue({
+			...mocks.create.mock.calls[0]![1],
+			status: "approved",
+			resolvedBy: "user:user-3",
+		});
+		expect(
+			await callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				shared,
+				approved,
+			),
+		).toEqual({ content: [{ type: "text", text: "events" }] });
+		expect(mocks.role).toHaveBeenCalledWith(
+			expect.anything(),
+			"workspace-1",
+			"user-3",
+		);
+	});
+	it("refuses anyone else's approval of a personal-account call", async () => {
+		mocks.ownAccounts.mockResolvedValue([
+			{
+				id: "account-2",
+				providerId: resource.providerId,
+				tokenIds: ["grant-2"],
+				tokenSub: "subject-2",
+			},
+		]);
+		const approved = await retry("approved", collaborator);
+		mocks.get.mockResolvedValue({
+			...mocks.create.mock.calls[0]![1],
+			status: "approved",
+			resolvedBy: "user:user-1",
+		});
+		expect(
+			await callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				resource,
+				approved,
+			),
+		).toMatchObject({ approval: { approved: false } });
+		expect(mocks.consume).not.toHaveBeenCalled();
 		expect(mocks.gateway).not.toHaveBeenCalled();
 	});
 	it("binds approval to the account's current grant and app revision", async () => {
@@ -1138,7 +1189,9 @@ describe("workspace agent linked account reads", () => {
 		expect(mocks.gateway).not.toHaveBeenCalled();
 	});
 
-	async function pendingRead() {
+	/** Holds a person's read of the organization account unless `personal` is set. */
+	async function pendingRead({ personal = false } = {}) {
+		if (!personal) tenant();
 		mocks.approvalTool.mockResolvedValue({
 			...surface().tools[0],
 			config: { ...surface().tools[0]!.config, approvalPolicy: "always" },
@@ -1163,17 +1216,9 @@ describe("workspace agent linked account reads", () => {
 				workspaceId: request.workspaceId,
 				conversationId: request.conversationId,
 				approvalRequestId: row.id as string,
-				by: "admin-1",
+				by: "builder-1",
 			},
 		};
-	}
-
-	function allowTrayApprover() {
-		const member = { status: "active", role: "admin" };
-		mocks.membership.mockResolvedValue(member);
-		mocks.member.mockImplementation(async (_db, _org, id) =>
-			id === "admin-1" ? member : { status: "active", role: "member" },
-		);
 	}
 
 	it("returns a bound owner approval when the tool has an approval rule", async () => {
@@ -1193,7 +1238,6 @@ describe("workspace agent linked account reads", () => {
 	});
 	it("records an authorized tray approval and replays as the original actor", async () => {
 		const { tray, replay } = await pendingRead();
-		allowTrayApprover();
 		expect(await read(replay)).toEqual({
 			status: "approval_required",
 			approvalId: replay.approvalRequestId,
@@ -1207,12 +1251,12 @@ describe("workspace agent linked account reads", () => {
 		expect(mocks.resolveApproval).toHaveBeenCalledWith(
 			expect.anything(),
 			tray.approvalRequestId,
-			{ status: "approved", resolvedBy: "user:admin-1" },
+			{ status: "approved", resolvedBy: "user:builder-1" },
 		);
 		expect(mocks.audit).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
-				actorId: "user:admin-1",
+				actorId: "user:builder-1",
 				action: "approval.approved",
 			}),
 		);
@@ -1224,9 +1268,30 @@ describe("workspace agent linked account reads", () => {
 		expect(mocks.consume).toHaveBeenCalledTimes(1);
 	});
 
+	it("lets only the account's own person decide a personal read", async () => {
+		const { tray, replay } = await pendingRead({ personal: true });
+		expect(
+			await decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				decision: "approve",
+			}),
+		).toEqual({
+			status: "refused",
+			message: "Only the person whose own account this uses can decide this.",
+		});
+		expect(mocks.resolveApproval).not.toHaveBeenCalled();
+		expect(
+			await decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				by: "user-2",
+				decision: "approve",
+			}),
+		).toEqual({ status: "approved" });
+		expect(await read(replay)).toMatchObject({ status: "ok" });
+	});
+
 	it("records a denial and refuses replay even if the rule is later removed", async () => {
 		const { tray, replay } = await pendingRead();
-		allowTrayApprover();
 		await expect(
 			decideLinkedWorkspaceAccountApproval(env(), {
 				...tray,
@@ -1250,8 +1315,9 @@ describe("workspace agent linked account reads", () => {
 				decision: "approve",
 				...overrides,
 			});
+		mocks.membership.mockResolvedValue({ status: "suspended" });
 		expect(await decide()).toMatchObject({ status: "refused" });
-		allowTrayApprover();
+		mocks.membership.mockResolvedValue({ status: "active", role: "member" });
 		mocks.role.mockResolvedValue("use");
 		expect(await decide()).toMatchObject({ status: "refused" });
 		mocks.role.mockResolvedValue("build");
@@ -1270,27 +1336,29 @@ describe("workspace agent linked account reads", () => {
 		["account", {}],
 	])("refuses replay with a changed %s", async (binding, overrides) => {
 		const { tray, replay } = await pendingRead();
-		allowTrayApprover();
 		expect(
 			await decideLinkedWorkspaceAccountApproval(env(), {
 				...tray,
 				decision: "approve",
 			}),
 		).toEqual({ status: "approved" });
+		const shared = await mocks.outputQuery();
 		if (binding === "workspace")
 			mocks.outputQuery.mockResolvedValue({
-				...resource,
+				...shared,
 				workspaceId: "other-workspace",
 			});
 		if (binding === "resource")
 			mocks.outputQuery.mockResolvedValue({
-				...resource,
+				...shared,
 				id: "other-resource",
 			});
 		if (binding === "account")
-			mocks.ownAccounts.mockResolvedValue([
-				{ ...ownAccount, id: "replacement-account" },
-			]);
+			mocks.account.mockResolvedValue({
+				id: "replacement-account",
+				tokenIds: ["grant-1"],
+				tokenSub: "subject-1",
+			});
 		expect(await read({ ...replay, ...overrides })).toMatchObject({
 			status: "refused",
 			message: expect.stringContaining("different call"),

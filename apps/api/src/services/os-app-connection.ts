@@ -13,6 +13,7 @@ import {
 	getConnectionInstance,
 	listConnectionInstances,
 } from "@tedix/db/queries/connection-instances";
+import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
 import {
 	createOsGadgetExecution,
 	settleOsAppCallExecution,
@@ -51,6 +52,25 @@ type ConnectionCaller =
 
 /** Keeps the app's refusal text while allowing the agent to offer the right connect link. */
 export class WorkspaceConnectionNotConnected extends Error {}
+
+/**
+ * Anyone with build access to the workspace decides a call through a shared
+ * account; a call through a personal account is decided only by its own person.
+ * Callers check active organization membership; access is read live here.
+ */
+export async function mayDecideWorkspaceConnection(
+	db: BaseContext["db"],
+	target: Record<string, unknown>,
+	requesterId: string | undefined,
+	approverId: string,
+): Promise<boolean> {
+	return (
+		typeof target.workspaceId === "string" &&
+		(target.connectionScope === "tenant" || approverId === requesterId) &&
+		(await readWorkspaceSessionRole(db, target.workspaceId, approverId)) ===
+			"build"
+	);
+}
 
 function refuse(): never {
 	throw createError(
@@ -388,6 +408,7 @@ export async function callWorkspaceResourceConnection(
 				transport: config.transport ?? "",
 				configHash,
 				workspaceId: resource.workspaceId,
+				connectionScope: resource.connectionScope,
 				...(caller.kind === "app"
 					? {
 							gadgetId: caller.session.gadgetId,
