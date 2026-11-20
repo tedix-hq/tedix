@@ -122,6 +122,7 @@ import { LiveDelegationCard } from "@/components/delegation-live-card";
 import { useChatAgentRuns } from "@/lib/use-chat-agent-runs";
 import {
 	useActiveTedis,
+	usePickableTedis,
 	useTediNames,
 	useTediRosterPending,
 } from "@/lib/use-tedi-names";
@@ -301,6 +302,7 @@ export function ChatThread({
 	detailsOpen = false,
 	onStartWorkspace,
 	onPickTediForNewChat,
+	personalWorkspaceId,
 }: {
 	/** `null` = fresh conversation not yet created; the first send creates it. */
 	conversationId: string | null;
@@ -351,6 +353,11 @@ export function ChatThread({
 	 * replaced; the host gets what was typed so far to carry it over.
 	 */
 	onPickTediForNewChat?: (tediId: string, draft: string) => void;
+	/**
+	 * The person's private workspace, where a chat with a picked tedi runs.
+	 * The picker offers what that workspace accepts.
+	 */
+	personalWorkspaceId?: string;
 }) {
 	const pushVisibilityRef = usePushConversation(
 		composerOnly ? null : conversationId,
@@ -358,6 +365,7 @@ export function ChatThread({
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
 	const activeTedis = useActiveTedis();
+	const pickableTedis = usePickableTedis(workspaceId ?? personalWorkspaceId);
 	const tediRosterPending = useTediRosterPending();
 	// Null sends to Home, which routes the message itself. A picked tedi is
 	// sent as an explicit delegation, like the embedded widget's switcher.
@@ -2974,7 +2982,7 @@ export function ChatThread({
 										<DropdownMenuItem onClick={() => pickTedi(null)}>
 											Home (picks for you)
 										</DropdownMenuItem>
-										{activeTedis.map((tedi) => (
+										{pickableTedis.map((tedi) => (
 											<DropdownMenuItem
 												key={tedi.id}
 												onClick={() => pickTedi(tedi.id)}

@@ -103,10 +103,16 @@ import { WorkspaceChatAuthor } from "./workspace-chat-author";
 import {
 	refForWorkspaceModelId,
 	useChatModelPreference,
+	tediChatDefaultModelId,
 	workspaceChatModelId,
 	workspaceModelIdForRef,
 } from "@/lib/use-chat-model-preference";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
+import {
+	readWorkspaceChatDraft,
+	writeWorkspaceChatDraft,
+} from "@/lib/workspace-chat-draft";
+import { mayPickWorkspaceTedi } from "@/lib/workspace-guest-tedi";
 import { turnFailure } from "@/lib/workspace-chat-failure";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
@@ -190,6 +196,23 @@ export type WorkspaceChatProps = {
 	 * the conversations people started; the runs agents started are listed there.
 	 */
 	onOpenAgents?: () => void;
+	/**
+	 * The tedi that answers every message of this chat. The composer then
+	 * offers no choice of its own, and a new chat starts on the tedi default
+	 * model.
+	 */
+	tediId?: string | null;
+	/** Shown in the composer row, where the choice of who replies sits. */
+	composerSlot?: ReactNode;
+	/**
+	 * The host lists the conversations beside the thread on wide screens, so
+	 * the header's back button shows on narrow ones only.
+	 */
+	embedded?: boolean;
+	/** The message box's hint; "Ask this workspace…" when absent. */
+	placeholder?: string;
+	/** The line an empty thread shows. */
+	emptyText?: string;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
@@ -210,6 +233,11 @@ export function WorkspaceChat({
 	viewOnly = false,
 	onConversations,
 	onOpenAgents,
+	tediId: pinnedTediId = null,
+	composerSlot,
+	embedded = false,
+	placeholder,
+	emptyText,
 	createClient,
 }: WorkspaceChatProps) {
 	const queryClient = useQueryClient();
@@ -237,16 +265,20 @@ export function WorkspaceChat({
 	const selectModel = useCallback(
 		(value: string) => {
 			setPickedModel({ conversationId, id: value });
-			saveModelPreference(refForWorkspaceModelId(value));
+			// A pick in a chat with a tedi stays in that chat: the remembered
+			// model belongs to the ordinary workspace chats.
+			if (!pinnedTediId) saveModelPreference(refForWorkspaceModelId(value));
 		},
-		[conversationId, saveModelPreference],
+		[conversationId, pinnedTediId, saveModelPreference],
 	);
 	const modelId = workspaceChatModelId({
 		offered: state.models,
 		pickedHere:
 			pickedModel?.conversationId === conversationId ? pickedModel.id : null,
 		lastAnswered: state.turns.findLast((turn) => turn.model)?.model ?? null,
-		remembered: workspaceModelIdForRef(modelPreference.modelRef),
+		remembered: pinnedTediId
+			? tediChatDefaultModelId(state.models)
+			: workspaceModelIdForRef(modelPreference.modelRef),
 	});
 	const selectedModel = state.models.find((model) => model.id === modelId);
 	const modelControl = state.models.length ? (
@@ -365,14 +397,15 @@ export function WorkspaceChat({
 			const trimmed = text.trim();
 			if (!trimmed || !client || viewOnly) return;
 			notePost(trimmed);
+			const answering = pinnedTediId ?? tediId;
 			return client.sendTurn({
 				text: trimmed,
-				...(tediId ? { tediId } : {}),
+				...(answering ? { tediId: answering } : {}),
 				...(modelId ? { modelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
 			});
 		},
-		[client, modelId, notePost, viewOnly],
+		[client, modelId, notePost, pinnedTediId, viewOnly],
 	);
 	const viewOnlyNote = viewOnly ? (
 		<p
@@ -435,14 +468,18 @@ export function WorkspaceChat({
 					modelControl={modelControl}
 					workspaceId={workspaceId}
 					onBrowseResources={onBrowseResources}
+					pinnedTediId={pinnedTediId}
+					slot={composerSlot}
+					placeholder={placeholder}
 					onSend={(text, attachments, tediId) => {
 						if (viewOnly) return undefined;
 						onSelectConversation(null);
 						notePost(text);
+						const answering = pinnedTediId ?? tediId;
 						return client?.sendTurn({
 							text,
 							newConversation: true,
-							...(tediId ? { tediId } : {}),
+							...(answering ? { tediId: answering } : {}),
 							...(modelId ? { modelId } : {}),
 							...(attachments?.length ? { attachments } : {}),
 						});
@@ -461,9 +498,13 @@ export function WorkspaceChat({
 			className="workspace-chat"
 			data-testid="workspace-chat"
 		>
-			<div className="workspace-chat-header">
+			<div
+				className="workspace-chat-header"
+				data-embedded={embedded || undefined}
+			>
 				<Button
 					aria-label="All conversations"
+					className={embedded ? "md:hidden" : undefined}
 					onClick={onOpenList}
 					size="icon-sm"
 					variant="ghost"
@@ -494,6 +535,7 @@ export function WorkspaceChat({
 			<Thread
 				workspaceId={workspaceId}
 				conversationId={conversationId}
+				emptyText={emptyText}
 				turns={state.turns}
 				models={state.models}
 				queued={state.queued}
@@ -566,6 +608,9 @@ export function WorkspaceChat({
 				modelControl={modelControl}
 				workspaceId={workspaceId}
 				onBrowseResources={onBrowseResources}
+				pinnedTediId={pinnedTediId}
+				slot={composerSlot}
+				placeholder={placeholder}
 				onSend={send}
 				disabledReason={
 					viewOnly
@@ -645,6 +690,7 @@ function ConnectionChip({
 function Thread({
 	workspaceId,
 	conversationId,
+	emptyText = "Ask about this workspace. The answer streams straight from it.",
 	turns,
 	models,
 	queued,
@@ -659,6 +705,7 @@ function Thread({
 }: {
 	workspaceId: string;
 	conversationId: string | null;
+	emptyText?: string;
 	turns: ChatTurn[];
 	models: ReadonlyArray<{ id: string; label: string }>;
 	/** Sent while the agent works; it has not read them yet. */
@@ -714,7 +761,7 @@ function Thread({
 			{turns.length === 0 && !pendingSend && !catchingUp ? (
 				<div className="workspace-chat-empty">
 					<Text role="body" tone="secondary">
-						Ask about this workspace. The answer streams straight from it.
+						{emptyText}
 					</Text>
 				</div>
 			) : null}
@@ -1552,6 +1599,9 @@ function Composer({
 	state,
 	workspaceId,
 	onBrowseResources,
+	pinnedTediId,
+	slot,
+	placeholder = "Ask this workspace…",
 	onSend,
 	disabledReason,
 	autoFocus,
@@ -1560,6 +1610,10 @@ function Composer({
 	modelControl,
 	footer,
 }: {
+	/** The tedi that answers every message; the composer then offers no choice. */
+	pinnedTediId: string | null;
+	slot?: ReactNode;
+	placeholder?: string;
 	/** A quiet line under the composer card. */
 	footer?: ReactNode;
 	workspaceId: string;
@@ -1582,15 +1636,17 @@ function Composer({
 		id: string;
 		text: string;
 		files: string[];
-		draftKey: string;
+		conversationId: string | null;
 	} | null>(null);
 	// An unsent message survives a reload and a switch to another conversation.
-	const draftKey = `tedix.workspace-chat.draft.${workspaceId}.${client?.getConversationId() ?? "new"}`;
-	const [draft, setDraftText] = useState(() => readDraft(draftKey));
+	const draftConversationId = client?.getConversationId() ?? null;
+	const [draft, setDraftText] = useState(() =>
+		readWorkspaceChatDraft(workspaceId, draftConversationId),
+	);
 	const [pickedTediId, setPickedTediId] = useState<string | null>(null);
 	const tedis = useQuery({
 		...tediRosterQueryOptions(100, { status: "active" }),
-		enabled: disabledReason === null,
+		enabled: disabledReason === null && !pinnedTediId,
 		staleTime: 60_000,
 	});
 	const roster = tedis.data?.data ?? [];
@@ -1602,12 +1658,7 @@ function Composer({
 	});
 	const ownerId = presence.data?.userId;
 	const recipients = roster
-		.filter(
-			(tedi) =>
-				tedi.status === "active" &&
-				(tedi.scope === "organization" ||
-					(ownerId && tedi.ownerUserId === ownerId)),
-		)
+		.filter((tedi) => mayPickWorkspaceTedi(tedi, ownerId))
 		.map((tedi) => ({ id: tedi.id, name: tedi.displayName ?? tedi.name }));
 	const pickedTedi = recipients.find((tedi) => tedi.id === pickedTediId);
 	const mention = /(?:^|\s)@([^\s@]*)$/u.exec(draft)?.[1];
@@ -1623,7 +1674,7 @@ function Composer({
 	const setDraft = (next: string | ((text: string) => string)) =>
 		setDraftText((text) => {
 			const value = typeof next === "function" ? next(text) : next;
-			writeDraft(draftKey, value);
+			writeWorkspaceChatDraft(workspaceId, draftConversationId, value);
 			return value;
 		});
 	const [selected, setSelected] = useState<
@@ -1647,16 +1698,23 @@ function Composer({
 			? { onFiles: uploads.addFiles, full: uploads.full }
 			: null,
 	);
-	const previousDraftKey = useRef(draftKey);
+	const previousDraft = useRef({ workspaceId, draftConversationId });
 	useEffect(() => {
-		const previous = previousDraftKey.current;
-		previousDraftKey.current = draftKey;
-		if (previous === draftKey) return;
+		const previous = previousDraft.current;
+		previousDraft.current = { workspaceId, draftConversationId };
+		if (
+			previous.workspaceId === workspaceId &&
+			previous.draftConversationId === draftConversationId
+		)
+			return;
 		// A new conversation gets its id with the first message. That is the
 		// same conversation, so what is typed and attached stays.
-		if (previous === `tedix.workspace-chat.draft.${workspaceId}.new`) {
+		if (
+			previous.workspaceId === workspaceId &&
+			previous.draftConversationId === null
+		) {
 			setDraftText((text) => {
-				writeDraft(draftKey, text);
+				writeWorkspaceChatDraft(workspaceId, draftConversationId, text);
 				return text;
 			});
 			return;
@@ -1664,9 +1722,9 @@ function Composer({
 		setSelected([]);
 		setPickedTediId(null);
 		uploads.clear();
-		setDraftText(readDraft(draftKey));
+		setDraftText(readWorkspaceChatDraft(workspaceId, draftConversationId));
 		setSubmitted(null);
-	}, [draftKey, workspaceId]);
+	}, [draftConversationId, workspaceId]);
 	useEffect(() => setSubmitted(null), [client]);
 	// Stop hands back what the agent had not read: it goes ahead of the draft.
 	const returnedMessages = useReturnedMessages(state.returned, (messages) => {
@@ -1688,8 +1746,8 @@ function Composer({
 	useEffect(() => {
 		if (!submitted) return;
 		if (messageAccepted(state, submitted.id)) {
-			// The first message names the conversation, which moves the draft key.
-			writeDraft(submitted.draftKey, "");
+			// The first message names the conversation, which moves the draft.
+			writeWorkspaceChatDraft(workspaceId, submitted.conversationId, "");
 			setDraft((text) => (text === submitted.text ? "" : text));
 			setSelected((files) =>
 				files.filter((file) => !submitted.files.includes(file.outputId)),
@@ -1710,12 +1768,12 @@ function Composer({
 			receiveWorkspaceChatDrafts(workspaceId, (text) => {
 				setDraftText((current) => {
 					const value = current.trim() ? `${current}\n\n${text}` : text;
-					writeDraft(draftKey, value);
+					writeWorkspaceChatDraft(workspaceId, draftConversationId, value);
 					return value;
 				});
 				textarea.current?.focus();
 			}),
-		[workspaceId, draftKey],
+		[workspaceId, draftConversationId],
 	);
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
@@ -1735,7 +1793,7 @@ function Composer({
 				id,
 				text: draft,
 				files: selected.map((file) => file.outputId),
-				draftKey,
+				conversationId: draftConversationId,
 			});
 	};
 	// A bare `/` token opens the same bounded skill picker Home chat has. A
@@ -1914,9 +1972,7 @@ function Composer({
 					}}
 					placeholder={
 						disabledReason ??
-						(busy
-							? "Add to what the agent is working on…"
-							: "Ask this workspace…")
+						(busy ? "Add to what the agent is working on…" : placeholder)
 					}
 					ref={textarea}
 					rows={2}
@@ -1941,6 +1997,7 @@ function Composer({
 						/>
 					) : null}
 					<div className="workspace-chat-model">
+						{slot}
 						{recipients.length > 0 && disabledReason === null ? (
 							<Select
 								value={pickedTedi?.id ?? ""}
@@ -2006,21 +2063,4 @@ function Composer({
 			{footer}
 		</form>
 	);
-}
-
-function readDraft(key: string): string {
-	try {
-		return window.sessionStorage.getItem(key) ?? "";
-	} catch {
-		return "";
-	}
-}
-
-function writeDraft(key: string, text: string) {
-	try {
-		if (text) window.sessionStorage.setItem(key, text);
-		else window.sessionStorage.removeItem(key);
-	} catch {
-		// Storage can be unavailable; the draft still lives on this page.
-	}
 }

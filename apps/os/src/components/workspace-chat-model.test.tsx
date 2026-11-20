@@ -67,6 +67,8 @@ import { WorkspaceChat } from "./workspace-chat";
 const AZURE = { id: "azure-openai/gpt-5.6-sol", label: "Sol" };
 const WORKERS = { id: "@cf/meta/llama-3.2-3b-instruct", label: "Llama" };
 
+const TEDI_DEFAULT = { id: "azure-openai/gpt-6.1-sol", label: "Sol 6.1" };
+
 const cleanups: Array<() => void> = [];
 const storage = new Map<string, string>();
 beforeEach(() => {
@@ -90,7 +92,11 @@ afterEach(() => {
 /** One browser: its own page, query cache and chat connection. */
 async function openBrowser(
 	workspaceId = "ws-1",
-	chat: { conversationId: string | null; answeredBy?: string } = {
+	chat: {
+		conversationId: string | null;
+		answeredBy?: string;
+		tediId?: string;
+	} = {
 		conversationId: "c1",
 	},
 ) {
@@ -105,7 +111,7 @@ async function openBrowser(
 	const snapshot = {
 		state: {
 			...initialWorkspaceChatState("c1"),
-			models: [AZURE, WORKERS],
+			models: [AZURE, WORKERS, TEDI_DEFAULT],
 			turns: chat.answeredBy
 				? [
 						{
@@ -153,6 +159,7 @@ async function openBrowser(
 					listOpen={false}
 					onOpenList={() => {}}
 					onSelectConversation={() => {}}
+					tediId={chat.tediId}
 					workspaceId={workspaceId}
 				/>
 			</QueryClientProvider>,
@@ -260,6 +267,31 @@ it("keeps a chat on the model that last answered in it, and starts a new chat on
 	// A pick in the earlier chat applies there and becomes the remembered one.
 	await earlierChat.choose("Llama");
 	expect(earlierChat.chosen()).toBe("Llama");
+});
+
+it("starts a chat with a tedi on the tedi default, sends every message to the tedi, and leaves the remembered model alone", async () => {
+	server.rows.set("ana", {
+		preferences: {
+			...DEFAULT_OS_USER_PREFERENCES,
+			conversationModelRef: `workers-ai/${WORKERS.id}`,
+		},
+		revision: 1,
+	});
+	const tediChat = await openBrowser("ws-1", {
+		conversationId: null,
+		tediId: "tedi-1",
+	});
+	expect(tediChat.chosen()).toBe("Sol 6.1");
+	expect(tediChat.send("Hello")).toMatchObject({
+		tediId: "tedi-1",
+		modelId: TEDI_DEFAULT.id,
+	});
+
+	await tediChat.choose("Sol");
+	expect(tediChat.chosen()).toBe("Sol");
+	expect(server.rows.get("ana")?.preferences).toMatchObject({
+		conversationModelRef: `workers-ai/${WORKERS.id}`,
+	});
 });
 
 it("falls back to the remembered model when the one that answered is no longer offered", async () => {

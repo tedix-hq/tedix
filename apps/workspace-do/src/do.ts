@@ -122,6 +122,7 @@ import { apiInferenceAdmission } from "./admission";
 import { handleMcpRequest } from "./mcp";
 import {
 	catalogWorkspaceModels,
+	defaultWorkspaceModelId,
 	createWorkspaceModel,
 	type ModelPort,
 } from "./model";
@@ -1313,7 +1314,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (waiting) return queuedReceipt(waiting);
 		await this.refreshModelCatalog();
 		const models = this.configuredModels();
-		const modelId = input.modelId ?? models[0]?.id;
+		const modelId =
+			input.modelId ?? defaultWorkspaceModelId(models, Boolean(input.tediId));
 		if (!modelId) throw new Error("No model is configured for workspace chat");
 		if (!models.some((model) => model.id === modelId))
 			throw new Error("This model is not configured for workspace chat");
@@ -1370,6 +1372,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			input.conversationId ?? null,
 			text,
 			now,
+			input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
 		);
 		this.#store.run(
 			"INSERT INTO turns (turn_id, conversation_id, started_at, status, actor_id, actor_kind, tedi_id) VALUES (?, ?, ?, 'running', ?, ?, ?)",
@@ -1549,6 +1552,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					},
 				]),
 		);
+		// The tedi of each conversation's latest turn, the same way with MAX().
+		const tedis = new Map(
+			this.#store
+				.exec<TurnRow>(
+					"SELECT conversation_id, tedi_id, actor_kind, actor_id, MAX(started_at) AS last_at FROM turns GROUP BY conversation_id",
+				)
+				.map((turn) => [turn.conversation_id, respondingTediId(turn)]),
+		);
 		return this.#store
 			.exec<{
 				id: string;
@@ -1573,6 +1584,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				...(row.archived_at ? { archivedAt: row.archived_at } : {}),
 				...(usage.has(row.id) ? { usage: usage.get(row.id) } : {}),
 				...(starters.has(row.id) ? { startedBy: starters.get(row.id) } : {}),
+				tediId: tedis.get(row.id) ?? null,
 			}));
 	}
 
@@ -2116,6 +2128,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				type: "conversation.updated",
 				conversationId: input.conversationId,
 				title,
+				tediId: this.#conversationTediId(input.conversationId),
 			}),
 		);
 	}
@@ -2144,6 +2157,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				type: "conversation.updated",
 				conversationId: input.conversationId,
 				archivedAt,
+				tediId: this.#conversationTediId(input.conversationId),
 			}),
 		);
 	}
@@ -3460,10 +3474,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return scope;
 	}
 
+	/** The tedi that answered the conversation's latest turn, or null. */
+	#conversationTediId(conversationId: string): string | null {
+		const [turn] = this.#store.exec<TurnRow>(
+			"SELECT * FROM turns WHERE conversation_id = ? ORDER BY started_at DESC LIMIT 1",
+			conversationId,
+		);
+		return turn ? respondingTediId(turn) : null;
+	}
+
 	#ensureConversation(
 		conversationId: string | null,
 		firstText: string,
 		now: string,
+		tediId: string | null = null,
 	): string {
 		if (conversationId) {
 			const [row] = this.#store.exec<{ id: string }>(
@@ -3493,6 +3517,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			type: "conversation.updated",
 			conversationId: id,
 			title,
+			tediId,
 		});
 		return id;
 	}

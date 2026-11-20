@@ -26,8 +26,8 @@ export function parseTediChatConversationId(
 }
 
 /**
- * The private workspace's conversations as rows of the /chat list. Runs an
- * agent started are left out: they are not the person's chats.
+ * The private workspace's conversations with a tedi as rows of the /chat
+ * list. Runs an agent started are left out: they are not the person's chats.
  */
 export function tediChatListRows(
 	workspaceId: string,
@@ -36,7 +36,10 @@ export function tediChatListRows(
 ): HomeConversation[] {
 	return conversations
 		.filter(
-			(conversation) => !conversation.startedBy && !conversation.archivedAt,
+			(conversation) =>
+				conversation.tediId &&
+				!conversation.startedBy &&
+				!conversation.archivedAt,
 		)
 		.map((conversation) => ({
 			id: tediChatConversationId(workspaceId, conversation.id),

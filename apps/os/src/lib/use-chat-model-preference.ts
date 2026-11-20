@@ -25,6 +25,18 @@ export function refForWorkspaceModelId(id: string): string {
 	return id.startsWith("@cf/") ? `${WORKERS_AI_PREFIX}${id}` : id;
 }
 
+/** The product default model for a chat with a tedi. */
+const TEDI_CHAT_DEFAULT_MODEL = "gpt-6.1-sol";
+
+/** The offered model a new chat with a tedi starts on, when it is offered. */
+export function tediChatDefaultModelId(
+	offered: ReadonlyArray<{ id: string }>,
+): string | null {
+	return (
+		offered.find(({ id }) => id.endsWith(TEDI_CHAT_DEFAULT_MODEL))?.id ?? null
+	);
+}
+
 /**
  * The model a workspace chat's picker shows. A choice made in this chat comes
  * first. A chat with answers stays on the model that last answered in it; a
