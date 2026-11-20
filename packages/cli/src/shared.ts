@@ -5,7 +5,9 @@
  * index → verb modules → shared.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { InspectViewOptions } from "./format";
@@ -33,7 +35,28 @@ export const CLI_VERSION = ((): string => {
 })();
 
 /** This CLI as an executable plus leading arguments (source checkouts run through Bun). */
+/** The marker the Tedix desktop app writes beside each copy of the CLI it ships. */
+export const APP_MANAGED_MARKER = "managed-by-tedix-app";
+
+/**
+ * True when this binary is the copy the Tedix desktop app ships and links
+ * from `~/.local/bin/tedix`. The app replaces it with its own updates.
+ */
+export function managedByDesktopApp(execPath = process.execPath): boolean {
+	try {
+		return existsSync(
+			join(dirname(realpathSync(execPath)), APP_MANAGED_MARKER),
+		);
+	} catch {
+		return false;
+	}
+}
+
 export function selfCommand(): [string, string[]] {
+	// The app's copy lives in a folder named for its version; the link stays
+	// the same across app updates, so services must start the link.
+	if (IS_STANDALONE_BUILD && managedByDesktopApp())
+		return [join(homedir(), ".local", "bin", "tedix"), []];
 	if (IS_STANDALONE_BUILD) return [process.execPath, []];
 	return [
 		process.execPath,

@@ -202,6 +202,8 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 }
 
 export function openBrowser(url: string): void {
+	// The desktop app shows the address to copy in case no browser opens.
+	if (process.env.TEDIX_DESKTOP_APP === "1") console.error(url);
 	try {
 		let result: ReturnType<typeof spawnSync>;
 		if (process.platform === "darwin") {
@@ -251,7 +253,10 @@ export function requireHumanLogin(
 		"CLAUDE_CODE_SESSION_ID",
 		"TEDIX_AGENT_SESSION",
 	].some((key) => Boolean(env[key]?.trim()));
-	if (agent || !canPromptForConsent(env, tty)) {
+	// The desktop app starts the login for the person who clicked Sign in. It
+	// has no terminal; the login only opens the browser and waits for it.
+	const fromDesktopApp = env.TEDIX_DESKTOP_APP === "1" && !env.CI;
+	if (agent || !(fromDesktopApp || canPromptForConsent(env, tty))) {
 		throw new Error(
 			"Tedix login requires a human terminal outside an agent harness. Ask the owner to run the login command there; another consent can replace their shared CLI grant.",
 		);

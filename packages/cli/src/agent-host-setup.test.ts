@@ -75,7 +75,10 @@ function fakeRunner(input: {
 								marketplaces: input.marketplaceSource
 									? [
 											{
-												name: "tedix-repo",
+												// An earlier install keeps its own marketplace name.
+												name: input.codexInstalled
+													? "tedix-repo"
+													: "tedix-plugins",
 												marketplaceSource: {
 													sourceType: input.marketplaceSource.startsWith("/")
 														? "local"
@@ -171,10 +174,10 @@ describe("agent host setup", () => {
 				.filter(({ interactive }) => interactive)
 				.map(({ command, args }) => `${command} ${args.join(" ")}`),
 		).toEqual([
-			"codex plugin marketplace add tedix-hq/tedix",
-			"codex plugin add tedix@tedix-repo",
-			"claude plugin marketplace add tedix-hq/tedix",
-			"claude plugin install tedix@tedix --scope user",
+			"codex plugin marketplace add tedix-hq/tedix-plugins",
+			"codex plugin add tedix@tedix-plugins",
+			"claude plugin marketplace add tedix-hq/tedix-plugins",
+			"claude plugin install tedix@tedix-plugins --scope user",
 		]);
 	});
 
