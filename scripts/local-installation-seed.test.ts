@@ -32,8 +32,9 @@ test("a fresh local installation has a published Work definition without creatin
 		).definition.gadgets,
 	).toHaveLength(2);
 	db.exec(localInstallationSeedSql());
+	// Work onboarding and the runner rules, each published once.
 	expect(db.query("SELECT count(*) AS n FROM policy_packs").get()).toEqual({
-		n: 1,
+		n: 2,
 	});
 	db.exec("UPDATE policy_packs SET status='archived',definition='{}'");
 	db.exec(localInstallationSeedSql());
@@ -51,7 +52,7 @@ test("with Workers AI on, local chat gets a one-model catalog it can route throu
 	);
 	db.exec(localInstallationSeedSql());
 	expect(db.query("SELECT slug FROM policy_packs ORDER BY slug").all()).toEqual(
-		[{ slug: "work-onboarding" }],
+		[{ slug: "runner-rules" }, { slug: "work-onboarding" }],
 	);
 	db.exec(localInstallationSeedSql({ workersAi: true }));
 	db.exec(localInstallationSeedSql({ workersAi: true }));

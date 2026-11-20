@@ -7,6 +7,11 @@ export async function getActiveSystemPolicyDefinition(
 	db: DbQueryClient,
 	slug: string,
 ) {
+	return (await getActiveSystemPolicy(db, slug))?.definition ?? null;
+}
+
+/** The same publication with the version that was read. */
+export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
 	const rows = await db
 		.select({
 			version: policyPacks.version,
@@ -37,5 +42,5 @@ export async function getActiveSystemPolicyDefinition(
 		!head.publishedBy?.trim()
 	)
 		return null;
-	return head.definition;
+	return { version: head.version, definition: head.definition };
 }

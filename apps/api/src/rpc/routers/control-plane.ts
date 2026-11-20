@@ -21,6 +21,10 @@
  * GET    /control-plane/apps/{appId}/effective-config  - Get effective app config
  */
 
+import {
+	RUNNER_RULES_SLUG,
+	RunnerRulesSchema,
+} from "@tedix/api-contract/schemas/runner-rules";
 import { implement } from "@orpc/server";
 import { ModelCatalogConfigSchema } from "@tedix/api-contract/schemas/model-catalog-config";
 import { controlPlaneContract } from "@tedix/api-contract/contracts/control-plane";
@@ -653,6 +657,33 @@ export function assertValidModelCatalog(
 	);
 }
 
+/**
+ * Every local runner in every organization reads the runner rules before it
+ * starts Work, and that read leaves no usage trace. Without a valid published
+ * pack no runner admits anything, so it cannot be archived or emptied.
+ */
+export function assertRunnerRulesStayPublished(
+	pack: { scope: string; slug: string } | null | undefined,
+	change: { definition?: unknown; status?: string | null },
+): void {
+	if (pack?.scope !== "system" || pack.slug !== RUNNER_RULES_SLUG) return;
+	if (change.status != null && change.status !== "active")
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"The runner rules are read by every local runner in every organization before it starts Work, so they cannot be archived or switched off. Publish a new version with the text you want instead.",
+			{ code: "RUNNER_RULES_IN_USE" },
+		);
+	if (change.definition === undefined) return;
+	const parsed = RunnerRulesSchema.safeParse(
+		(change.definition as { runnerRules?: unknown } | null)?.runnerRules,
+	);
+	if (!parsed.success)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`Runner rules are invalid at runnerRules.${parsed.error.issues[0]?.path.join(".") ?? ""}: ${parsed.error.issues[0]?.message ?? "invalid"}. Every runner stops admitting Work without them.`,
+		);
+}
+
 const publishPolicyPackRevisionProcedure = authedOs.publishPolicyPackRevision
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
@@ -660,6 +691,7 @@ const publishPolicyPackRevisionProcedure = authedOs.publishPolicyPackRevision
 		const existing = await getPolicyPackById(context.db, input.id);
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
 		assertValidModelCatalog(existing?.slug ?? "", input.definition);
+		assertRunnerRulesStayPublished(existing, input);
 		const revised = unwrapRevision(
 			await publishPolicyPackRevision(context.db, {
 				revisionId: input.id,
@@ -744,6 +776,7 @@ const deletePolicyPackProcedure = authedOs.deletePolicyPack
 		const orgId = requireOrgId(context);
 		const existing = await getPolicyPackById(context.db, input.id);
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
+		assertRunnerRulesStayPublished(existing, { status: "archived" });
 		unwrapRevision(
 			await publishPolicyPackRevision(context.db, {
 				revisionId: input.id,

@@ -530,6 +530,7 @@
 		"./queries/decision-learning": "./src/queries/decision-learning.ts",
 		"./queries/model-catalog": "./src/queries/model-catalog.ts",
 		"./queries/agent-turn-defaults": "./src/queries/agent-turn-defaults.ts",
+		"./queries/runner-rules": "./src/queries/runner-rules.ts",
 		"./queries/work-onboarding": "./src/queries/work-onboarding.ts"
 	},
 	"scripts": {

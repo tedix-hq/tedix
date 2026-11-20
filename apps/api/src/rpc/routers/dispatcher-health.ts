@@ -1,3 +1,4 @@
+import { getRunnerRules } from "@tedix/db/queries/runner-rules";
 import { implement } from "@orpc/server";
 import { dispatcherHealthContract } from "@tedix/api-contract/contracts/dispatcher-health";
 import { SupervisorActivitySchema } from "@tedix/api-contract/schemas/dispatcher-health";
@@ -73,6 +74,13 @@ const reportProcedure = os.report
 			rulesSkillId: input.rulesSkillId ?? null,
 		});
 		return toReport(row, now);
+	});
+
+const rulesProcedure = os.getRunnerRules
+	.use(withAuthorization("tedis:read", "work:read"))
+	.handler(async ({ context }) => {
+		requireOrgId(context);
+		return { rules: await getRunnerRules(context.db) };
 	});
 
 const listProcedure = os.list
@@ -171,4 +179,5 @@ const listProcedure = os.list
 export const dispatcherHealthContractRouter = os.router({
 	report: reportProcedure,
 	list: listProcedure,
+	getRunnerRules: rulesProcedure,
 });
