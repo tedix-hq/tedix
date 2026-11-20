@@ -17,7 +17,9 @@ import { findTedix, lastLine, run } from "./shell";
 import { loadStatus, type Status, summary } from "./status";
 
 const OS_URL = "https://tedix.os.tedix.dev/chat";
-const STRIP_HEIGHT = 28;
+// Height of the empty bar at the top that holds the window buttons and lets
+// the window be dragged.
+const TITLE_HEIGHT = 28;
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
 const RUNNER_FIELDS: RunnerField[] = [
@@ -155,7 +157,7 @@ function finishSignIn(link: string): void {
 }
 
 /**
- * The main window: the Tedix OS chat with a thin local status strip under it.
+ * The main window: the Tedix OS chat under an empty, draggable title area.
  * The Tedix OS page gets no access to this app or the computer; its sign-in
  * lives in a session kept between launches.
  */
@@ -164,6 +166,8 @@ function createMainWindow(): void {
 		width: 1280,
 		height: 860,
 		title: "Tedix",
+		titleBarStyle: "hiddenInset",
+		backgroundColor: "#0a0a0a",
 		webPreferences: localPage,
 	});
 	mainWindow = window;
@@ -183,7 +187,12 @@ function createMainWindow(): void {
 	window.contentView.addChildView(view);
 	const layout = () => {
 		const { width, height } = window.getContentBounds();
-		view.setBounds({ x: 0, y: 0, width, height: height - STRIP_HEIGHT });
+		view.setBounds({
+			x: 0,
+			y: TITLE_HEIGHT,
+			width,
+			height: height - TITLE_HEIGHT,
+		});
 	};
 	layout();
 	window.on("resize", layout);
@@ -195,6 +204,20 @@ function createMainWindow(): void {
 		if (isTedixPage(url)) void view.webContents.loadURL(url);
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 		return { action: "deny" };
+	});
+	// The title area takes the page's own background colour so the window
+	// reads as one surface in light and dark.
+	view.webContents.on("did-finish-load", () => {
+		void view.webContents
+			.executeJavaScript("getComputedStyle(document.body).backgroundColor")
+			.then((colour: unknown) => {
+				const rgb = String(colour).match(/\d+/g)?.slice(0, 3).map(Number);
+				if (rgb?.length === 3 && !window.isDestroyed())
+					window.setBackgroundColor(
+						`#${rgb.map((part) => part.toString(16).padStart(2, "0")).join("")}`,
+					);
+			})
+			.catch(() => {});
 	});
 	view.webContents.on("did-navigate", () => void publish());
 	view.webContents.on("did-navigate-in-page", () => void publish());

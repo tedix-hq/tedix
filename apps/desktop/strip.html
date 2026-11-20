@@ -4,64 +4,19 @@
 		<meta charset="utf-8" />
 		<meta
 			http-equiv="Content-Security-Policy"
-			content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
+			content="default-src 'none'; style-src 'unsafe-inline'"
 		/>
 		<title>Tedix</title>
 		<style>
-			:root {
-				color-scheme: light dark;
-				font:
-					12px system-ui,
-					sans-serif;
-			}
+			/* Empty on purpose: the area above the Tedix OS page drags the window. */
+			html,
 			body {
 				margin: 0;
-				user-select: none;
-			}
-			/* The Tedix OS page covers the window above this strip. */
-			footer {
-				position: fixed;
-				inset: auto 0 0 0;
-				height: 28px;
-				box-sizing: border-box;
-				padding: 0 8px;
-				display: flex;
-				align-items: center;
-				gap: 6px;
-				white-space: nowrap;
-			}
-			button {
-				font: inherit;
-				border: 0;
-				background: none;
-				color: inherit;
-				padding: 2px 6px;
-				cursor: pointer;
-			}
-			#host {
-				opacity: 0.65;
-			}
-			#status {
-				margin-left: auto;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				cursor: pointer;
-			}
-			.warning {
-				color: #c2410c;
-				font-weight: 600;
+				height: 100%;
+				background: transparent;
+				-webkit-app-region: drag;
 			}
 		</style>
 	</head>
-	<body>
-		<footer>
-			<button id="back" title="Back">←</button>
-			<button id="forward" title="Forward">→</button>
-			<button id="reload" title="Reload">↻</button>
-			<span id="host"></span>
-			<span id="status"></span>
-			<button id="open-panel">This Mac…</button>
-		</footer>
-		<script src="out/strip.js"></script>
-	</body>
+	<body></body>
 </html>

@@ -20,13 +20,12 @@ macOS only.
   emailed link as usual. The page that opens in your browser offers to open
   the Tedix app, and the app window finishes the sign-in. If that does not
   happen, copy the link and choose **Tedix → Paste Sign-in Link**.
-- **See this computer's status.** The strip under the page shows one line: how
-  many runners are running, how many runs are active, whether the process that
-  answers a tedi's requests on this computer is up, and the CLI version. On
-  battery it warns that closing the lid stops runs. The strip also has back,
-  forward and reload, and shows the address of the current page.
-- **Change this computer's settings.** Click the strip, or choose
-  **Tedix → This Mac…** (`Cmd+Shift+M`), to open a small window with:
+- **See this computer's status.** Choose **Tedix → This Mac…** (`Cmd+Shift+M`).
+  The small window shows how many runners are running, how many runs are
+  active, whether the process that answers a tedi's requests on this computer
+  is up, and the CLI version. On battery it warns that closing the lid stops
+  runs. Back, forward and reload are in the **View** menu.
+- **Change this computer's settings.** The same window has:
   - a switch for each runner (`enabled`)
   - the machine name (`machineName`)
   - "Let tedis edit files and run commands on this Mac" (`machineWriteMode`)
@@ -65,7 +64,7 @@ The build has no signing identity, no notarization and no automatic updates.
 | `src/status.ts`       | Reads the status from the CLI and the files it keeps     |
 | `src/runners-file.ts` | Edits `supervisor-runners.json`                          |
 | `src/shell.ts`        | Finds and runs `tedix`                                   |
-| `strip.html`          | The status strip (`src/strip.ts`)                        |
+| `strip.html`          | The empty area at the top that drags the window          |
 | `panel.html`          | The This Mac window (`src/panel.ts`)                     |
 | `src/preload.ts`      | The few functions the two local pages may call           |
 
