@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+	existsSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -145,6 +146,8 @@ export function codexTranscript(
 	// Only native thread ids may influence traversal.
 	if (!/^[a-f0-9-]{36}$/.test(sessionKey)) return;
 	const days: string[] = [];
+	// Codex creates this folder with its first saved thread.
+	if (!existsSync(root)) return;
 	for (const year of readdirSync(root)) {
 		if (!/^\d{4}$/.test(year)) continue;
 		for (const month of readdirSync(join(root, year))) {
