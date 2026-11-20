@@ -254,9 +254,12 @@ export interface ChangeEnvironment {
 	/** Model that decided to make the call, as `<provider>/<model>` when known. */
 	model?: string;
 	/**
-	 * `hashValue` of the policy inputs the compliance decision used for this
-	 * call (for the gateway: the tool's risk policy, annotations and write
-	 * capability), so two records with equal digests were judged by the same rules.
+	 * Digest of the rules no tenant policy revision covers. A tenant policy
+	 * revision that decided is named in `approval.policy.revisionId` instead.
+	 * The gateway writes `hashValue({ riskPolicy, annotations, writeCapability })`:
+	 * the tool's resolved risk policy (or null), its MCP annotations (or null)
+	 * and its declared write capability (or null). Equal digests mean the
+	 * gates read the same tool rules.
 	 */
 	policyDigest?: string;
 }

@@ -210,7 +210,7 @@ export const GatewayChangeRecordBodySchema = z.object({
 	 * Layout version; absent on version 1 records. See `ChangeRecord` in
 	 * `@tedix/agent-governance/types` for `environment` and `parent`.
 	 */
-	schemaVersion: z.number().int().min(2).max(2).optional(),
+	schemaVersion: z.number().int().min(2).optional(),
 	environment: z
 		.object({
 			productSha: z.string().max(80).optional(),
