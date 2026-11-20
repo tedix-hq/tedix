@@ -14,6 +14,7 @@
  */
 
 import { errorMessage } from "@/lib/orpc-error";
+import { LoadingArea } from "@/components/loading-area";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, FileText, Info, Sparkle } from "@phosphor-icons/react";
@@ -29,7 +30,6 @@ import {
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -104,7 +104,7 @@ export function SubscriptionSection() {
 			<SettingsSection>
 				<BillingSectionHeader title="Plan &amp; billing" />
 				<SettingsSectionContent>
-					<Skeleton className="h-24 w-full" />
+					<LoadingArea className="h-24" label="Loading plan" />
 				</SettingsSectionContent>
 			</SettingsSection>
 		);
@@ -281,7 +281,7 @@ export function BillingDocumentsSection() {
 	});
 
 	if (overviewQuery.isPending) {
-		return <Skeleton className="h-32 w-full" />;
+		return <LoadingArea className="h-32" label="Loading invoices" />;
 	}
 	if (overviewQuery.isError || !overviewQuery.data) {
 		return (

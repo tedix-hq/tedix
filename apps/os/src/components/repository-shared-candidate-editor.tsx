@@ -11,6 +11,7 @@ import { Textarea } from "@/components/kumo/textarea";
 import { repositoryCandidateQueryOptions } from "@/lib/os-query-options";
 import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { useCollabDoc } from "@/lib/use-collab-doc";
+import { LoadingArea } from "@/components/loading-area";
 
 /** Opening a candidate reads the current executor's frozen selection; it never starts another writer. */
 export function RepositorySharedCandidate({
@@ -74,7 +75,10 @@ export function RepositorySharedCandidate({
 					}
 				/>
 			) : candidate.isPending && active ? (
-				<Text>Loading the executor's shared candidate…</Text>
+				<LoadingArea
+					className="h-24"
+					label="Loading the executor's shared candidate"
+				/>
 			) : null}
 		</section>
 	);

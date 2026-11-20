@@ -44,7 +44,6 @@ import { Text } from "@/components/kumo/text";
 import { cardReviewConfigFromManifest } from "@tedix/api-contract/utils/card-review";
 import { lazy, Suspense } from "react";
 import { AppLoading } from "@/components/app-loading";
-import { Skeleton } from "@/components/kumo/skeleton";
 
 const WorkDispatchApp = lazy(() =>
 	import("./work-dispatch-app").then((m) => ({ default: m.WorkDispatchApp })),
@@ -169,7 +168,7 @@ function InstalledApp({
 		entry === "tedix:app/portfolio-settings"
 	)
 		return (
-			<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+			<Suspense fallback={<AppLoading />}>
 				{entry === "tedix:app/portfolio" ? (
 					<Portfolio />
 				) : (

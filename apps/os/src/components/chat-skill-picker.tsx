@@ -6,6 +6,7 @@ import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
 import { Text } from "@/components/kumo/text";
 import type { ComposerSkill } from "@/lib/chat-skill-picker";
+import { LoadingArea } from "@/components/loading-area";
 
 /**
  * The composer skill picker's presentation.
@@ -97,9 +98,7 @@ export function ChatSkillPicker({
 							</Button>
 						</div>
 					) : loading ? (
-						<Text role="label" tone="secondary" className="block px-2 py-2">
-							Loading skills…
-						</Text>
+						<LoadingArea className="h-16" size="base" label="Loading skills" />
 					) : skills.length === 0 ? (
 						<Text role="label" tone="secondary" className="block px-2 py-2">
 							No matching skills.

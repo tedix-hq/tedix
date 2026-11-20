@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
 import type { PortfolioBucket } from "@tedix/api-contract/schemas/organization";
 import { factoryHref } from "@/lib/work-display";
@@ -43,7 +44,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	WorkActorAvatar,
@@ -485,7 +485,7 @@ function FactoryScoreboard() {
 				) : null}
 			</SectionHeader>
 			{scoreboard.isPending ? (
-				<Skeleton className="h-24" />
+				<LoadingArea className="h-24" label="Loading skills" />
 			) : scoreboard.isError ? (
 				<LoadError
 					title="Skills unavailable"
@@ -787,7 +787,7 @@ export function GoalsOverview({
 					retrying={retrying}
 				/>
 			) : pending ? (
-				<Skeleton className="h-40 w-full" />
+				<LoadingArea label="Loading goals" />
 			) : goals.length === 0 ? (
 				<WorkEmpty
 					title="No goals yet"
@@ -978,10 +978,7 @@ export function PortfolioApp({
 				</SectionHeader>
 			)}
 			{portfolio.isPending ? (
-				<div className="grid gap-2">
-					<Skeleton className="h-9 w-full max-w-md" />
-					<Skeleton className="h-64 w-full" />
-				</div>
+				<LoadingArea className="h-64" label="Loading projects" />
 			) : portfolio.isError ? (
 				<LoadError
 					title="Projects unavailable"

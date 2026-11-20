@@ -41,6 +41,7 @@ import {
 	conversationArtifactPinsQueryOptions,
 	conversationCapabilitiesQueryOptions,
 } from "@/lib/os-query-options";
+import { LoadingArea } from "@/components/loading-area";
 
 const REPLAY_NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 
@@ -242,7 +243,11 @@ export function ConversationCapabilityPalette({
 
 					<div className="grid gap-2" aria-label="Added context">
 						{attachedQuery.isPending ? (
-							<Text tone="secondary">Loading context…</Text>
+							<LoadingArea
+								className="h-16"
+								size="base"
+								label="Loading context"
+							/>
 						) : attached.length === 0 ? (
 							<Empty>
 								<EmptyHeader>

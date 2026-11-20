@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useQuery } from "@tanstack/react-query";
 import type { SkillWorkflowStepTediActivitySchema } from "@tedix/api-contract/schemas/cognitive";
 import type { z } from "zod";
@@ -46,11 +47,7 @@ export function LinkedTediActivity({
 			</Text>
 		);
 	if (activity.isPending || activity.isFetching)
-		return (
-			<Text as="p" tone="secondary">
-				Loading assistant activity…
-			</Text>
-		);
+		return <LoadingArea className="h-20" label="Loading assistant activity" />;
 	if (activity.isError)
 		return (
 			<LoadError

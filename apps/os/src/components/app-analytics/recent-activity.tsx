@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ActivityItem } from "@tedix/api-contract/schemas/analytics";
 import { Info, Users } from "@phosphor-icons/react";
 import { useId, useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -17,7 +18,6 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { Collection } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { traceActivityQueryOptions } from "@/lib/os-query-options";
 import { PrincipalName } from "./activity-review";
@@ -167,9 +167,11 @@ function TraceActivityPanel({ traceId }: { traceId: string }) {
 
 	if (isPending) {
 		return (
-			<div className="px-6 py-2">
-				<Skeleton className="h-12" />
-			</div>
+			<LoadingArea
+				className="h-16"
+				label="Loading trace activity"
+				size="base"
+			/>
 		);
 	}
 

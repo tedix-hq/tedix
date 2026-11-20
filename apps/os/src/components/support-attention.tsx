@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { osQuery } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
+import { LoadingArea } from "@/components/loading-area";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -113,12 +114,10 @@ export function SupportAttention() {
 						</article>
 					);
 				})}
-				{!mine.isError && !items.length ? (
-					<Text tone="secondary">
-						{mine.isPending
-							? "Loading tickets…"
-							: "No support tickets to review."}
-					</Text>
+				{mine.isPending ? (
+					<LoadingArea className="h-24" label="Loading tickets" />
+				) : !mine.isError && !items.length ? (
+					<Text tone="secondary">No support tickets to review.</Text>
 				) : null}
 				{items.length === (staff ? 100 : 50) ? (
 					<Text tone="secondary">

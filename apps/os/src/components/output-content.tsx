@@ -30,6 +30,7 @@ import {
 } from "@/lib/output-models";
 import { normalizeDocumentContent } from "@tedix/api-contract/utils/os-document";
 import { WorkbookView } from "@/components/sheet-read-view";
+import { LoadingArea } from "@/components/loading-area";
 
 const FilePreview = lazy(() =>
 	import("./workspace-file-preview").then((module) => ({
@@ -41,13 +42,7 @@ export function FileOutputView(props: {
 	resourceId: string;
 }) {
 	return (
-		<Suspense
-			fallback={
-				<Text as="p" role="body">
-					Loading file…
-				</Text>
-			}
-		>
+		<Suspense fallback={<LoadingArea label="Loading file" />}>
 			<FilePreview {...props} />
 		</Suspense>
 	);

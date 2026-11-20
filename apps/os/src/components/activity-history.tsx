@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	ArrowCounterClockwise,
 	ClockCounterClockwise,
@@ -359,9 +360,7 @@ export function ActivityHistory({
 					History could not be loaded. Reload and try again.
 				</Text>
 			) : loading ? (
-				<Text className="m-0 px-4 py-6" role="label" tone="secondary">
-					Loading history…
-				</Text>
+				<LoadingArea label="Loading history" />
 			) : entries.length === 0 ? (
 				<Empty
 					appearance="inline"

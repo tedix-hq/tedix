@@ -349,8 +349,11 @@ export function ProfilePage() {
 								</Alert>
 							) : null}
 							<div className="flex justify-end">
-								<Button type="submit" disabled={!canSaveName}>
-									{updateName.isPending ? <Loader size="sm" /> : null}
+								<Button
+									type="submit"
+									disabled={!canSaveName}
+									loading={updateName.isPending}
+								>
 									Save name
 								</Button>
 							</div>

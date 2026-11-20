@@ -41,7 +41,6 @@ import { Card, CardContent } from "@/components/kumo/card";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
 import { Surface } from "@/components/kumo/surface";
-import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	OutputWorkshopActions,
 	OutputWorkshopCommandBar,
@@ -84,6 +83,7 @@ import {
 	useCollabDoc,
 } from "@/lib/use-collab-doc";
 import { workspaceAppReadme } from "@/lib/workspace-apps";
+import { LoadingArea } from "@/components/loading-area";
 
 /**
  * The Canvas document panel: the gadget-detail domain owner, the app editor
@@ -802,7 +802,7 @@ export function CanvasDocPanel({
 					{documentStatusActions}
 				</OutputWorkshopCommandBar>
 			)}
-			{detail.isPending && <ListSkeleton rows={2} />}
+			{detail.isPending && <LoadingArea label="Loading document" />}
 			{detail.isError && (
 				<LoadError
 					title="The document is unavailable"
@@ -1135,7 +1135,7 @@ export function CanvasDocPanel({
 					)}
 				</div>
 			) : (
-				<ListSkeleton rows={1} rowClassName="h-64" />
+				<LoadingArea className="h-64" label="Loading document" />
 			)}
 			{draftError && (
 				<Alert variant="destructive">

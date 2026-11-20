@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -208,7 +209,10 @@ export function WorkRepositoryReview({
 								) : null}
 							</div>
 							{tree.isPending ? (
-								<Text>Loading repository result…</Text>
+								<LoadingArea
+									className="h-20"
+									label="Loading repository result"
+								/>
 							) : tree.isError ? (
 								<Text tone="secondary">
 									Repository result unavailable. Access or retained content may
@@ -308,7 +312,7 @@ export function WorkRepositoryReview({
 								>
 									<Text weight="medium">{file}</Text>
 									{comparison.isPending ? (
-										<Text>Loading comparison…</Text>
+										<LoadingArea className="h-20" label="Loading comparison" />
 									) : comparison.isError ? (
 										<Text tone="secondary">File comparison unavailable.</Text>
 									) : comparison.data ? (

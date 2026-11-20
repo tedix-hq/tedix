@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 import { osQuery } from "@/lib/os-query-options";
@@ -7,7 +8,6 @@ import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Page, PageTitle } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { useWorkApps } from "@/lib/use-work-apps";
 import {
 	selectedWorkApp,
@@ -96,7 +96,7 @@ export function WorkHome({
 	if (portfolioLead)
 		return (
 			<Page width="full" className="fd-work-home">
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<LoadingArea />}>
 					<Portfolio lead={portfolioLead} />
 				</Suspense>
 			</Page>

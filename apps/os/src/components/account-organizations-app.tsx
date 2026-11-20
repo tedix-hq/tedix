@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { OrganizationLogoUpload } from "@/components/organization-profile-form";
@@ -38,7 +39,7 @@ export function AccountOrganizationsApp() {
 					no Tedix OS.
 				</SectionDescription>
 			</SectionHeader>
-			{organizations.isPending && <p>Loading organizations…</p>}
+			{organizations.isPending && <LoadingArea label="Loading organizations" />}
 			{organizations.isError && (
 				<p role="alert">
 					Could not load your organizations.{" "}

@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	BookOpen,
 	Lightning,
@@ -267,9 +268,7 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 		<div className="grid min-w-0">
 			<h3 className={sectionHeading}>Saved approvals</h3>
 			{rules.isPending ? (
-				<Text className="m-0 px-4 py-3" role="label" tone="secondary">
-					Loading saved rules…
-				</Text>
+				<LoadingArea className="h-20" label="Loading saved rules" />
 			) : rules.isError ? (
 				<Text className="m-0 px-4 py-3" role="label" tone="error">
 					Saved rules could not be loaded.

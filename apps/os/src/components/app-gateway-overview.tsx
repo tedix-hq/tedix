@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
 import type { App, AppListItem } from "@tedix/api-contract/schemas/app";
 import { type ReactNode, useMemo, useState } from "react";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
@@ -35,7 +36,6 @@ import {
 	SectionTitle,
 } from "@/components/kumo/page";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
@@ -462,10 +462,7 @@ function AppsSection({ gatewayId }: { gatewayId: string }) {
 				) : null}
 			</SectionHeader>
 			{pending ? (
-				<div aria-hidden="true" className="grid gap-2">
-					<Skeleton className="h-14 rounded-lg" />
-					<Skeleton className="h-14 rounded-lg" />
-				</div>
+				<ListSkeleton rows={2} />
 			) : error ? (
 				<LoadError
 					onRetry={() => {

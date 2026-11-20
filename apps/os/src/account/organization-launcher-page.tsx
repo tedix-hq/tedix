@@ -638,6 +638,7 @@ function EnableOrganizationOs({ workspace }: { workspace: LauncherWorkspace }) {
 				<Button
 					size="sm"
 					disabled={enable.isPending}
+					loading={enable.isPending}
 					onClick={() => enable.mutate()}
 				>
 					{enable.isPending ? "Opening…" : "Open in Tedix OS"}

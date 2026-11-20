@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type * as z from "zod";
@@ -56,7 +57,7 @@ export function AgentWorkManagementApp({
 			{(principals.error || projects.error) && (
 				<p role="alert">{(principals.error || projects.error)?.message}</p>
 			)}
-			{principals.isPending && <p role="status">Loading agents…</p>}
+			{principals.isPending && <LoadingArea label="Loading agents" />}
 			{principals.data?.length === 0 && <p>No connected agents.</p>}
 			{principals.data?.map((principal) => (
 				<GrantControl

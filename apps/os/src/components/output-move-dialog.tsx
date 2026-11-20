@@ -17,7 +17,6 @@ import {
 	DialogTitle,
 } from "@/components/kumo/dialog";
 import { SearchInput } from "@/components/kumo/search-input";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { fileActionRefusal } from "@/lib/file-action-refusal";
@@ -25,6 +24,7 @@ import {
 	activeWorkspacesQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
+import { LoadingArea } from "@/components/loading-area";
 
 /**
  * Pick the workspace a file moves to. The list is the active workspaces the
@@ -86,7 +86,7 @@ export function MoveOutputDialog({
 					onChange={(event) => setSearch(event.target.value)}
 				/>
 				{workspaces.isPending ? (
-					<Skeleton className="h-24 rounded-lg" aria-busy="true" />
+					<LoadingArea className="h-24" label="Loading workspaces" />
 				) : workspaces.isError ? (
 					<Alert variant="destructive">
 						<AlertDescription>

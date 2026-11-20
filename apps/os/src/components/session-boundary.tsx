@@ -1,3 +1,4 @@
+import { Loader } from "@/components/kumo/loader";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { Button } from "@/components/kumo/button";
 import type { ReactNode } from "react";
@@ -105,6 +106,7 @@ function BrokerSessionBoundary({
 		return (
 			<main className="centered-state" aria-busy="true">
 				<TedixBrandMark />
+				<Loader size="base" />
 				<p>Restoring your Tedix session…</p>
 			</main>
 		);

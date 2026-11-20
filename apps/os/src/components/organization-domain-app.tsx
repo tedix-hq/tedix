@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { SectionTitle } from "@/components/kumo/page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -57,7 +58,7 @@ export function OrganizationDomainApp({
 				</Alert>
 			)}
 			{domain.isPending ? (
-				<p role="status">Loading domain…</p>
+				<LoadingArea className="h-16" label="Loading domain" size="base" />
 			) : domain.isError ? (
 				<Button variant="outline" onClick={() => void domain.refetch()}>
 					Retry

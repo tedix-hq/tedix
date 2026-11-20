@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	WorkPageHeader,
 	WorkListSkeleton,
@@ -71,7 +72,6 @@ import {
 	SectionCollection,
 } from "@/components/kumo/page";
 import { Surface } from "@/components/kumo/surface";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { SelectItem } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import {
@@ -1465,7 +1465,7 @@ export function WorkRecordedOutcome({
 						retrying={retrying}
 					/>
 				) : pending ? (
-					<Skeleton className="h-16 w-full" />
+					<LoadingArea className="h-16" label="Loading recorded outcome" />
 				) : attempt ? (
 					<>
 						<Text weight="medium">

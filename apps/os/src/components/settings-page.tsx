@@ -791,6 +791,7 @@ export function SettingsPage({
 							)}
 							<Button
 								disabled={!dirty || save.isPending}
+								loading={save.isPending}
 								onClick={() => save.mutate(draft)}
 								size="sm"
 							>

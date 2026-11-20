@@ -16,6 +16,7 @@ import { Text } from "@/components/kumo/text";
 import { sentenceCase } from "@/lib/format";
 import { osQuery } from "@/lib/os-query-options";
 import { errorMessage } from "@/lib/orpc-error";
+import { LoadingArea } from "@/components/loading-area";
 
 export function OutboundReviewApp({
 	config,
@@ -73,7 +74,7 @@ export function OutboundReviewApp({
 			{query.isError ? (
 				<Text role="body">{errorMessage(query.error)}</Text>
 			) : query.isPending ? (
-				<Text role="body">Loading drafts…</Text>
+				<LoadingArea label="Loading drafts" />
 			) : (
 				<>
 					{records?.length === 0 && (

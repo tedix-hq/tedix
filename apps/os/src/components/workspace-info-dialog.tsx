@@ -10,6 +10,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
+import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
 import {
 	canvasOutputsQueryOptions,
@@ -19,6 +20,7 @@ import {
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 const UNAVAILABLE = "Not available";
+const LOADING = <Loader size="sm" aria-label="Loading" />;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
 	return (
@@ -74,7 +76,7 @@ export function WorkspaceInfoDialog({
 				<dl aria-label="Workspace information" className="m-0 grid gap-3">
 					<Fact label="Owner">
 						{access.isPending
-							? "Loading…"
+							? LOADING
 							: (access.data?.ownerName ?? UNAVAILABLE)}
 					</Fact>
 					<Fact label="Who can see it">
@@ -89,12 +91,12 @@ export function WorkspaceInfoDialog({
 								{relativeTime(lastActive)}
 							</span>
 						) : (
-							"Loading…"
+							LOADING
 						)}
 					</Fact>
 					<Fact label="Files">
 						{files.isPending
-							? "Loading…"
+							? LOADING
 							: files.data
 								? files.data.truncated
 									? `More than ${count(files.data.items.length, "file", "files")}`

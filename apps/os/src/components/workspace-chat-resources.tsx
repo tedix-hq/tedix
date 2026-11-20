@@ -2,6 +2,7 @@ import { FileText, Plus } from "@phosphor-icons/react";
 import { useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { canvasOutputsQueryOptions } from "@/lib/os-query-options";
+import { LoadingArea } from "@/components/loading-area";
 import { Text } from "@/components/kumo/text";
 import { Button } from "@/components/kumo/button";
 import {
@@ -65,7 +66,7 @@ export function WorkspaceChatResources({
 						Files could not be loaded.
 					</Text>
 				) : outputs.isPending ? (
-					<Text role="caption">Loading files…</Text>
+					<LoadingArea className="h-16" size="base" label="Loading files" />
 				) : (
 					<div
 						className="grid max-h-48 gap-1 overflow-y-auto"

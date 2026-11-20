@@ -15,6 +15,7 @@ import {
 	type WorkFactoryCursor,
 } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
+import { LoadingArea } from "@/components/loading-area";
 
 /** Canvas displays the existing Work's repository; it creates no execution authority. */
 export function CanvasRepositoryWorkpiece({
@@ -73,7 +74,7 @@ export function CanvasRepositoryWorkpiece({
 				permission.
 			</Text>
 		);
-	if (work.isPending) return <Text>Loading coding work…</Text>;
+	if (work.isPending) return <LoadingArea label="Loading coding work" />;
 	if (
 		!work.data ||
 		denied ||
@@ -117,7 +118,11 @@ export function CanvasRepositoryWorkpiece({
 					) : attempts.isError ? (
 						<Text>Repository session unavailable.</Text>
 					) : attempts.isPending ? (
-						<Text>Loading repository session…</Text>
+						<LoadingArea
+							className="h-16"
+							size="base"
+							label="Loading repository session"
+						/>
 					) : attempts.hasNextPage ? (
 						<Button
 							disabled={attempts.isFetchingNextPage}

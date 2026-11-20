@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	ArrowCounterClockwise,
 	Check,
@@ -45,7 +46,6 @@ import {
 	PageMeta,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { partitionEventGates } from "@/components/run-trace";
 import {
@@ -284,11 +284,7 @@ export function RunDetailPage() {
 			)}
 
 			{inspect.isPending && (
-				<div className="grid gap-2" aria-hidden>
-					<Skeleton className="h-24" />
-					<Skeleton className="h-14" />
-					<Skeleton className="h-14" />
-				</div>
+				<LoadingArea className="h-64" label="Loading run" />
 			)}
 			{/* The not-found verdict for this route lives here, not in a loader:
 			    only a settled NOT_FOUND says the run is gone. */}

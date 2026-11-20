@@ -18,6 +18,7 @@
  * with a replace navigation so refresh/back does not replay it.
  */
 
+import { LoadingArea } from "@/components/loading-area";
 import { RestrictedNotice } from "@/components/restricted-notice";
 import { OS_COPY } from "@/shared/os-copy";
 import { useQueryClient } from "@tanstack/react-query";
@@ -36,7 +37,6 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
-import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	Tabs,
 	TabsContent,
@@ -78,11 +78,7 @@ const BillingPayAsYouGoSection = lazy(() =>
 );
 
 function BillingPagePending() {
-	return (
-		<div aria-busy="true" aria-label="Loading billing" className="space-y-3">
-			<ListSkeleton rows={3} rowClassName="h-32" />
-		</div>
-	);
+	return <LoadingArea label="Loading billing" />;
 }
 
 function BillingRestricted() {
@@ -222,23 +218,23 @@ function AdminBillingBody({
 				</TabsList>
 
 				<TabsContent value="usage" className="space-y-8 pt-4">
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
+					<Suspense fallback={<LoadingArea className="h-32" />}>
 						<BillingUsageOverview />
 					</Suspense>
 				</TabsContent>
 
 				<TabsContent value="subscription" className="space-y-8 pt-4">
 					{/* Checkout CONFLICTs render inside the section's mutation error. */}
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
+					<Suspense fallback={<LoadingArea className="h-32" />}>
 						<SubscriptionSection />
 					</Suspense>
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
+					<Suspense fallback={<LoadingArea className="h-32" />}>
 						<BillingPayAsYouGoSection />
 					</Suspense>
 				</TabsContent>
 
 				<TabsContent value="invoices" className="pt-4">
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
+					<Suspense fallback={<LoadingArea className="h-32" />}>
 						<BillingDocumentsSection />
 					</Suspense>
 				</TabsContent>

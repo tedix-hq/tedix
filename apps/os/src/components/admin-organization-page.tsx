@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 /**
  * Admin › Organization
@@ -28,7 +29,6 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
-import { ListSkeleton } from "@/components/list-skeleton";
 import { SettingsSectionNavigation } from "@/components/settings-section-navigation";
 import {
 	organizationDetailQueryOptions,
@@ -105,15 +105,7 @@ const DangerZone = lazy(() =>
 );
 
 function OrganizationPagePending() {
-	return (
-		<div
-			aria-busy="true"
-			aria-label="Loading organization settings"
-			className="space-y-3"
-		>
-			<ListSkeleton rows={3} rowClassName="h-24" />
-		</div>
-	);
+	return <LoadingArea label="Loading organization settings" />;
 }
 
 export function AdminOrganizationPage() {
@@ -195,7 +187,7 @@ function AdminOrganizationBody({
 			/>
 
 			<div id="organization-profile" className="scroll-mt-24">
-				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<OrganizationProfileForm
 						organizationId={organization.id}
 						defaultValues={{
@@ -210,7 +202,7 @@ function AdminOrganizationBody({
 				</Suspense>
 			</div>
 
-			<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+			<Suspense fallback={<LoadingArea className="h-24" />}>
 				<OrganizationModelFallbackForm
 					organizationId={organization.id}
 					initialPolicy={organization.metadata?.modelFallback}
@@ -218,7 +210,7 @@ function AdminOrganizationBody({
 			</Suspense>
 
 			<div id="organization-appearance" className="scroll-mt-24">
-				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<OrganizationAppearanceForm
 						organizationId={organization.id}
 						initialTheme={organization.metadata?.osTheme}
@@ -227,7 +219,7 @@ function AdminOrganizationBody({
 			</div>
 
 			<div id="organization-billing" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<SubscriptionSection />
 				</Suspense>
 
@@ -241,16 +233,16 @@ function AdminOrganizationBody({
 						retrying={featuresQuery.isFetching}
 					/>
 				) : featuresQuery.data ? (
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+					<Suspense fallback={<LoadingArea className="h-24" />}>
 						<FeaturesSection features={features} />
 					</Suspense>
 				) : (
-					<ListSkeleton rows={1} rowClassName="h-24" />
+					<LoadingArea className="h-24" label="Loading plan features" />
 				)}
 			</div>
 
 			<div id="organization-authentication" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<AdminPortalSection
 						descopeTenantId={organization.descopeTenantId}
 						ssoEnabled={ssoEnabled}
@@ -258,7 +250,7 @@ function AdminOrganizationBody({
 				</Suspense>
 
 				{ssoEnabled && (
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+					<Suspense fallback={<LoadingArea className="h-24" />}>
 						<SsoSection
 							organizationId={organization.id}
 							descopeTenantId={organization.descopeTenantId}
@@ -266,7 +258,7 @@ function AdminOrganizationBody({
 					</Suspense>
 				)}
 
-				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<OrganizationInboundClientsSection organizationId={organization.id} />
 				</Suspense>
 			</div>
@@ -283,7 +275,7 @@ function AdminOrganizationBody({
 			)}
 
 			{isOwner && (
-				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<div id="organization-danger" className="scroll-mt-24">
 						<DangerZone
 							organizationId={organization.id}

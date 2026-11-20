@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useQuery } from "@tanstack/react-query";
 import type { GetAgentReplyDraftLeaderboardResultSchema } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { TEDI_CAREER_STAGES } from "@tedix/api-contract/schemas/earned-delegation";
@@ -15,7 +16,6 @@ import {
 import { OfficeReadError } from "@/components/office-read-error";
 import { Progress } from "@/components/kumo/progress";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
-import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	Table,
 	TableBody,
@@ -154,7 +154,7 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 				/>
 			</SectionHeader>
 			{board.isPending ? (
-				<Skeleton className="h-32 w-full" aria-label="Loading leaderboard" />
+				<LoadingArea className="h-32" label="Loading leaderboard" />
 			) : board.isError ? (
 				<OfficeReadError resource="leaderboard" error={board.error} />
 			) : (

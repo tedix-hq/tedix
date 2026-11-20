@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { formatBytes } from "@/components/run-detail-sections";
 import { useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
@@ -53,11 +54,7 @@ export function WorkspaceFilePreview({
 	});
 	if (query.isPending) {
 		playback.current = { fileKey, time: 0, playing: false };
-		return (
-			<Text as="p" role="body">
-				Loading file…
-			</Text>
-		);
+		return <LoadingArea className="h-60" label="Loading file" />;
 	}
 	if (query.isError) {
 		playback.current = { fileKey, time: 0, playing: false };

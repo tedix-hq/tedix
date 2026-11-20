@@ -212,7 +212,7 @@ function MachineActionDetail({
 						type="button"
 						variant="ghost"
 						size="xs"
-						disabled={loading}
+						loading={loading}
 						onClick={() => {
 							if (!action.callId) return;
 							setLoading(true);

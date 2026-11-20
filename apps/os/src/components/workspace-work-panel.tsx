@@ -6,6 +6,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { type CSSProperties, useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
 import { ConfirmDialog } from "./confirm-dialog";
 import { Empty } from "@/components/kumo/empty";
@@ -451,7 +452,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				) : null}
 				{links.isError ? null : links.isPending ||
 				  itemQueries.some((query) => query.isPending) ? (
-					<Text tone="secondary">Loading work…</Text>
+					<LoadingArea className="h-24" label="Loading work" />
 				) : !linked.length ? (
 					<Empty
 						appearance="inline"
@@ -702,7 +703,11 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 						<Text tone="error">{attach.error?.message}</Text>
 					) : null}
 					{projects.isPending ? (
-						<Text tone="secondary">Loading projects…</Text>
+						<LoadingArea
+							className="h-16"
+							size="base"
+							label="Loading projects"
+						/>
 					) : !managerProjects.length ? (
 						<Text tone="secondary">No projects match your search.</Text>
 					) : null}

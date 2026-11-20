@@ -46,6 +46,7 @@ import {
 	useWorkspaceEventStreamOpen,
 	workspacePollMs,
 } from "@/lib/workspace-event-stream";
+import { LoadingArea } from "@/components/loading-area";
 
 const PROPOSAL_LIST_LIMIT = 20;
 
@@ -359,11 +360,17 @@ export function CanvasProposals({
 		: (proposals.data?.items ?? []);
 	if (items.length === 0) {
 		if (showHeading) return null;
+		if (proposals.isPending)
+			return (
+				<LoadingArea
+					className="h-16"
+					size="base"
+					label="Loading suggested changes"
+				/>
+			);
 		return (
 			<Text as="p" role="body" tone="secondary" className="m-0">
-				{proposals.isPending
-					? "Loading suggested changes…"
-					: "No suggested changes to review."}
+				No suggested changes to review.
 			</Text>
 		);
 	}

@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	Collapsible,
 	CollapsibleDefaultTrigger,
@@ -43,7 +44,6 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	delegatedResult,
@@ -763,13 +763,7 @@ export function HomeExecutionDetailView({
 						/>
 					) : null}
 					{selectedBranch && !evidence && !evidenceError ? (
-						<div
-							className="grid gap-2"
-							aria-label="Loading delegation evidence"
-						>
-							<Skeleton className="h-20" />
-							<Skeleton className="h-32" />
-						</div>
+						<LoadingArea label="Loading delegation evidence" />
 					) : null}
 				</div>
 			</Disclosure>
@@ -779,7 +773,7 @@ export function HomeExecutionDetailView({
 				{eventsError ? (
 					<DetailUnavailable resource="Execution events" error={eventsError} />
 				) : !events ? (
-					<Skeleton className="h-20" />
+					<LoadingArea className="h-20" label="Loading execution events" />
 				) : null}
 				{events?.length === 100 ? (
 					<Text role="label" tone="secondary">
@@ -931,11 +925,7 @@ export function HomeExecutionDetailPage({
 		return (
 			<Page width="lg">
 				{identity}
-				<div className="grid gap-2" aria-label="Loading Home execution">
-					<Skeleton className="h-24" />
-					<Skeleton className="h-32" />
-					<Skeleton className="h-32" />
-				</div>
+				<LoadingArea className="h-64" label="Loading Home execution" />
 			</Page>
 		);
 	}

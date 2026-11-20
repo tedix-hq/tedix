@@ -150,7 +150,14 @@
 				role="status"
 				aria-busy="true"
 				style="
-					padding: clamp(1.5rem, 6vw, 5rem);
+					display: flex;
+					flex-direction: column;
+					align-items: center;
+					justify-content: center;
+					gap: 12px;
+					box-sizing: border-box;
+					padding: 24px;
+					text-align: center;
 					font-family: var(--font-mono, monospace);
 					color: var(--foreground, CanvasText);
 					background: var(--background, Canvas);
@@ -158,7 +165,34 @@
 				"
 			>
 				<strong>Tedix</strong>
-				<p>Opening your workspace…</p>
+				<!-- Same geometry as Kumo's Loader, which is not loaded yet. -->
+				<svg
+					width="24"
+					height="24"
+					viewBox="0 0 24 24"
+					stroke="currentColor"
+					aria-hidden="true"
+				>
+					<circle
+						cx="12"
+						cy="12"
+						r="9.5"
+						fill="none"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-dasharray="42 150"
+					>
+						<animateTransform
+							attributeName="transform"
+							type="rotate"
+							from="0 12 12"
+							to="360 12 12"
+							dur="1.5s"
+							repeatCount="indefinite"
+						/>
+					</circle>
+				</svg>
+				<p style="margin: 0">Opening your workspace…</p>
 			</div>
 		</div>
 		<script>

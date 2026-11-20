@@ -1,3 +1,4 @@
+import { Loader } from "@/components/kumo/loader";
 import { PageTitle } from "@/components/kumo/page";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Surface } from "@/components/kumo/surface";
@@ -77,6 +78,7 @@ export function IdentityJourneyFrame({
 			{loading ? (
 				<main className="centered-state" aria-busy="true">
 					<TedixBrandLogo />
+					<Loader size="base" />
 					<p>{loadingLabel}</p>
 				</main>
 			) : null}

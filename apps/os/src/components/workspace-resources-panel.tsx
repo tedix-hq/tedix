@@ -18,6 +18,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { useState } from "react";
 import * as z from "zod";
+import { LoadingArea } from "@/components/loading-area";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { Badge } from "@/components/kumo/badge";
@@ -404,9 +405,7 @@ export function WorkspaceResourcesPanel({
 				resources={(query.data?.items ?? []).filter(isWorkspaceSkillResource)}
 			/>
 			{query.isPending ? (
-				<Text as="p" role="body" tone="secondary" className="m-0">
-					Loading resources…
-				</Text>
+				<LoadingArea className="h-24" label="Loading resources" />
 			) : null}
 			{query.isError ? (
 				<LoadError

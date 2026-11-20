@@ -4,6 +4,7 @@ import { LoadError } from "@/components/kumo/alert";
 import { buttonVariants } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
+import { LoadingArea } from "@/components/loading-area";
 
 const IMAGE_MIME_TYPES = [
 	"image/png",
@@ -132,12 +133,7 @@ export function SharedFileView({
 			alive = false;
 		};
 	}, [sessionToken, outputId, attempt]);
-	if (state.status === "loading")
-		return (
-			<Text as="p" role="body">
-				Loading file…
-			</Text>
-		);
+	if (state.status === "loading") return <LoadingArea label="Loading file" />;
 	if (state.status === "unavailable")
 		return (
 			<LoadError

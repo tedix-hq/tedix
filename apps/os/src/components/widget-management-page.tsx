@@ -39,7 +39,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { LoadingArea } from "@/components/loading-area";
 import { Switch } from "@/components/kumo/switch";
 import {
 	Tabs,
@@ -85,7 +85,7 @@ export function WidgetManagementPage() {
 	if (context.isPending)
 		return (
 			<Page width="xl">
-				<Skeleton className="h-64 w-full" />
+				<LoadingArea className="h-64" />
 			</Page>
 		);
 	if (context.isError)
@@ -135,7 +135,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 	if (organizationQuery.isPending)
 		return (
 			<Page width="xl">
-				<Skeleton className="h-64 w-full" />
+				<LoadingArea className="h-64" />
 			</Page>
 		);
 	if (organizationQuery.isError)
@@ -331,7 +331,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						description="Response speed and reliability in your customers’ apps over the last 30 days. Updates every 30 seconds; new measurements can take a few minutes to appear. Console chat is excluded."
 					>
 						{lifecycleHealth.isPending ? (
-							<Skeleton className="h-16 w-full" />
+							<LoadingArea className="h-16" size="base" />
 						) : lifecycleHealth.isError ? (
 							<Badge variant="warning">Health unavailable</Badge>
 						) : (

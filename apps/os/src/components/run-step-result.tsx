@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useQuery } from "@tanstack/react-query";
 import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
 import { useState } from "react";
@@ -167,7 +168,9 @@ export function RunStepConversation({
 					<Text as="p" tone="secondary">
 						Conversation history · may include other turns
 					</Text>
-					{conversation.isPending && <Text as="p">Loading conversation…</Text>}
+					{conversation.isPending && (
+						<LoadingArea className="h-20" label="Loading conversation" />
+					)}
 					{conversation.isError && (
 						<LoadError
 							title="Conversation unavailable"

@@ -19,10 +19,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { osApi } from "@/lib/api";
 import { portableWebMcpConfigurationsQueryOptions } from "@/lib/os-query-options";
+import { LoadingArea } from "@/components/loading-area";
 
 type Configuration = Awaited<
 	ReturnType<typeof osApi.tedis.listPortableWebMcpConfigurations>
@@ -143,7 +143,7 @@ export function PortableWebMcpBuilder({
 					Each tenant publishes and rolls back independently.
 				</p>
 			</div>
-			{query.isPending && <Skeleton className="h-36 w-full" />}
+			{query.isPending && <LoadingArea className="h-36" />}
 			{query.isError && (
 				<LoadError
 					title="Route configuration unavailable"

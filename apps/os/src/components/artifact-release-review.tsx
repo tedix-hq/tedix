@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { toast } from "@/components/kumo/toast";
 import {
 	LoadError,
@@ -189,7 +190,9 @@ export function ArtifactReleaseReview({
 				<CardTitle>Owner-reviewed redacted release</CardTitle>
 			</CardHeader>
 			<CardContent className="space-y-3">
-				{query.isLoading ? <p>Loading bounded inert preview…</p> : null}
+				{query.isLoading ? (
+					<LoadingArea className="h-24" label="Loading preview" />
+				) : null}
 				{query.error ? (
 					<LoadError
 						title="Preview unavailable"

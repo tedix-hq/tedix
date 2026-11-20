@@ -30,6 +30,7 @@ import {
 	WORKSPACE_NAME_MAX_CHARS,
 	workspaceNameFromQuestion,
 } from "@/lib/workspace-first-message";
+import { LoadingArea } from "@/components/loading-area";
 
 /**
  * "Save as workspace" for a chat that has none: the conversation and the
@@ -226,9 +227,7 @@ export function ChatPage() {
 						/>
 					</div>
 					{activeConversationId && conversationLookup.isPending ? (
-						<Text as="p" role="caption" aria-live="polite">
-							Loading conversation…
-						</Text>
+						<LoadingArea className="flex-1" label="Loading conversation" />
 					) : activeConversationId &&
 					  (conversationLookup.isError || !activeConversation) ? (
 						<LoadError

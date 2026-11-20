@@ -25,7 +25,6 @@ import {
 	PageMeta,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { SavedOutputContentView } from "@/components/output-content";
 import { OutputExportButtons } from "@/components/output-export-buttons";
 import {
@@ -41,6 +40,7 @@ import {
 } from "@/lib/os-query-options";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { relativeTime } from "@/lib/time";
+import { LoadingArea } from "@/components/loading-area";
 
 export function OutputDetailPage() {
 	useOsFormattingPreferences();
@@ -84,12 +84,7 @@ function OutputDetail({ outputId }: { outputId: string }) {
 	return (
 		<Page width="md" className="output-detail-reading">
 			<PageBack render={<Link to="/outputs" />}>All documents</PageBack>
-			{detail.isPending && (
-				<div className="grid gap-3" aria-busy="true">
-					<Skeleton className="h-8 w-64 rounded-lg" />
-					<Skeleton className="h-40 rounded-xl" />
-				</div>
-			)}
+			{detail.isPending && <LoadingArea label="Loading document" />}
 			{/* The route loader no longer gates on this read (see
 			    `prefetchOutputRoute`), so the not-found verdict is owned here: only
 			    a settled NOT_FOUND says the output is gone. */}

@@ -716,10 +716,6 @@ a {
    interstitial the placeholders read as broken rather than loading. Lift a
    static, theme-adaptive fill under the sweep so the bars are clearly present
    without pulsing on their own — motion stays functional-feedback only. */
-.centered-state-skeleton {
-	width: min(280px, 80vw);
-}
-
 .centered-state .skeleton {
 	background-color: color-mix(in srgb, var(--foreground) 12%, transparent);
 }

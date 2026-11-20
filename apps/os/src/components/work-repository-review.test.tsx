@@ -133,7 +133,9 @@ describe("retained repository result", () => {
 		await mount();
 		expect(mocks.read).not.toHaveBeenCalled();
 		await click("Review repository result");
-		expect(host.textContent).toContain("Loading repository result");
+		expect(
+			host.querySelector('[aria-label="Loading repository result"]'),
+		).not.toBeNull();
 		let clicked = false;
 		const selected = click("file.ts").then(
 			() => {
@@ -162,7 +164,9 @@ describe("retained repository result", () => {
 				path: "file.ts",
 			}),
 		);
-		expect(host.textContent).toContain("Loading comparison");
+		expect(
+			host.querySelector('[aria-label="Loading comparison"]'),
+		).not.toBeNull();
 		await act(async () =>
 			comparison.resolve({
 				base: { status: "text", text: "deferred before", bytes: 15 },

@@ -3,6 +3,7 @@ import type { RecentExecutionsSchema } from "@tedix/api-contract/contracts/analy
 import { CaretRight, Code } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import type { z } from "zod";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -12,7 +13,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	Table,
@@ -168,9 +168,7 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 
 	if (isPending) {
 		return (
-			<div className="px-4 py-3">
-				<Skeleton className="h-16" />
-			</div>
+			<LoadingArea className="h-20" label="Loading execution" size="base" />
 		);
 	}
 

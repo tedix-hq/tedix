@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Warning } from "@phosphor-icons/react";
 import { useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { SettingsRow } from "@/components/settings-row";
 import {
@@ -23,7 +24,6 @@ import {
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
@@ -47,7 +47,8 @@ export function BillingPayAsYouGoSection() {
 	const queryClient = useQueryClient();
 	const overviewQuery = useQuery(billingOverviewQueryOptions());
 
-	if (overviewQuery.isPending) return <Skeleton className="h-32 w-full" />;
+	if (overviewQuery.isPending)
+		return <LoadingArea className="h-32" label="Loading pay as you go" />;
 	if (overviewQuery.isError) {
 		return (
 			<LoadError
