@@ -436,6 +436,8 @@ describe("save a conversation as a workspace", () => {
 		sqlite.exec(
 			schemaDdl(
 				osWorkspaces,
+				osWorkspaceAccessEdges,
+				osWorkspaceShareLinks,
 				osOutputs,
 				osOutputRevisions,
 				kernelRuntimeRuns,

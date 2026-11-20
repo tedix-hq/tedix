@@ -103,6 +103,8 @@ vi.mock("@/lib/api", () => ({
 					credits: 0,
 					chargeCount: 0,
 				})),
+				// The picker reads whose personal tedis to offer.
+				personal: vi.fn(async () => ({ workspace: null, created: false })),
 			},
 		},
 		capabilities: capabilitiesApi,

@@ -49,7 +49,10 @@ import {
 	workspaceConversationChargesQueryOptions,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
+	tediDetailQueryOptions,
 	tediNamesQueryOptions,
+	tediRosterQueryOptions,
+	workspaceDetailQueryOptions,
 } from "@/lib/os-query-options";
 
 (
@@ -1117,6 +1120,41 @@ describe("WorkspaceChat", () => {
 		expect(host.textContent).toContain(
 			"Asked by Workspace member. Support will apply it.",
 		);
+	});
+
+	it("names the workspace's default tedi in the picker also when it is not on the roster page", () => {
+		queryClient.setQueryData<unknown>(
+			tediRosterQueryOptions(100, { status: "active" }).queryKey,
+			{
+				data: [
+					{
+						id: "tedi-support",
+						name: "support",
+						displayName: "Support",
+						scope: "organization",
+						status: "active",
+					},
+				],
+			},
+		);
+		queryClient.setQueryData<unknown>(
+			workspaceDetailQueryOptions("ws-1").queryKey,
+			{ workspace: { id: "ws-1", defaultTediId: "tedi-ceo" } },
+		);
+		queryClient.setQueryData<unknown>(
+			tediDetailQueryOptions("tedi-ceo").queryKey,
+			{
+				id: "tedi-ceo",
+				name: "ceo",
+				displayName: "CEO",
+				scope: "organization",
+				status: "active",
+			},
+		);
+		mount(fakeClient("c1"));
+		expect(
+			host.querySelector('[aria-label="Replying agent"]')?.textContent,
+		).toBe("CEO (workspace default)");
 	});
 
 	it("labels a paged approval hold plainly before its request arrives", () => {

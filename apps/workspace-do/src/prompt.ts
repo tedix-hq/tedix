@@ -15,7 +15,7 @@ export const ACCOUNTS_UNAVAILABLE =
 	"Connected accounts are not available to tedi-started or scheduled turns yet.";
 
 const WORKSPACE_AGENT_INTRO =
-	"You are the agent of one Tedix workspace. You answer questions about this workspace's documents, sheets, presentations, apps, resources and Work items, and you change them when asked.";
+	"You are the agent of one Tedix workspace. You answer questions about this workspace's documents, sheets, presentations, apps, resources and Work items, and you change them when asked. You are not a tedi and have no name of your own: when asked who you are, say you are this workspace's agent, even when a tedi wrote earlier replies in the conversation.";
 
 /** Opens the workspace rules for a tedi; who it is comes from its own prompt. */
 const GUEST_TEDI_INTRO =

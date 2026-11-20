@@ -60,7 +60,13 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { tedis } from "@tedix/db/schema/tedis";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
-import { isOsWorkspaceVisibleTo } from "@tedix/db/queries/os-workspaces/workspaces";
+import {
+	getOsWorkspace,
+	isOsWorkspaceVisibleTo,
+} from "@tedix/db/queries/os-workspaces/workspaces";
+import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
+import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
+import { getWorkspacePresenceIdentity } from "../../services/os-workspace-collaborators";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import type { BaseContext } from "../orpc";
 import { OS_WORKSPACE_INSPECTION_HEADER } from "@tedix/api-contract/schemas/os-workspace-inspections";
@@ -1594,5 +1600,50 @@ describe("workspace change record export", () => {
 				}),
 			).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		expect(read).not.toHaveBeenCalled();
+	});
+});
+
+describe("a member's personal workspace", () => {
+	it("is one nobody else can open, so the owner's own chat turn may read personal memory there", async () => {
+		const env = createEnv();
+		const owner = member(env, OWNER);
+		// An older private workspace the owner shared is not their personal space.
+		const { workspace: shared } = await owner.workspaces.create({
+			name: "Shared with Kai",
+			visibility: "private",
+		});
+		await env.DB.prepare(
+			"INSERT INTO os_workspace_access_edges (id, organization_id, workspace_id, target_user_id, kind, edge_key, sharer_user_id, role, created_at) VALUES ('e-kai', 'org-1', ?, ?, 'user', 'direct', ?, 'build', '2026-11-01')",
+		)
+			.bind(shared.id, OTHER, OWNER)
+			.run();
+		const { workspace, created } = await owner.workspaces.personal({
+			create: true,
+		});
+		expect(created).toBe(true);
+		expect(workspace?.id).not.toBe(shared.id);
+		// The chat socket records the turn under the id the presence read returns.
+		const { userId: sender } = await getWorkspacePresenceIdentity(
+			context(env, OWNER),
+			workspace!.id,
+		);
+		const db = createDbQueryClient(env.DB);
+		const scope = { organizationId: "org-1", workspaceId: workspace!.id };
+		const [row, rows] = await Promise.all([
+			getOsWorkspace(db, scope),
+			loadOsWorkspacePermissionRows(db, { ...scope, collaborators: false }),
+		]);
+		const onlyOpenableBy = (userId: string) =>
+			workspaceOnlyOpenableBy({
+				userId,
+				workspace: row!,
+				edges: rows.edges,
+				links: rows.links,
+			});
+		expect(onlyOpenableBy(sender)).toBe(true);
+		expect(onlyOpenableBy(OTHER)).toBe(false);
+		await expect(
+			owner.workspaces.personal({ create: false }),
+		).resolves.toMatchObject({ workspace: { id: workspace!.id } });
 	});
 });
