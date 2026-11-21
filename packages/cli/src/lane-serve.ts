@@ -2689,6 +2689,7 @@ export class LaneDispatcher {
 	private passRules?: { pass: number; rules: Promise<RunRules> };
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private terminalRetainedAttempts = new WeakMap<Receipt, string>();
+	private releasedAttempts = new Map<string, Receipt>();
 	private cleanupCursor = 0;
 	private orphanCursor = 0;
 	private reconciliationCursor = 0;
@@ -3075,6 +3076,12 @@ export class LaneDispatcher {
 		return join(this.directory, `${item.id}-${item.version}.json`);
 	}
 	private save(path: string, receipt: Receipt) {
+		if (
+			receipt.attemptId &&
+			this.releasedAttempts.has(receipt.attemptId) &&
+			this.releasedAttempts.get(receipt.attemptId) !== receipt
+		)
+			return;
 		let previouslyHeld = false;
 		if (receipt.held && existsSync(path)) {
 			try {
@@ -3428,7 +3435,10 @@ export class LaneDispatcher {
 				this.log("requested", item.id, "Started ahead of the pass");
 				const task = this.execute(item, record)
 					.catch((error) => this.log("failed", item.id, String(error)))
-					.finally(() => this.running.delete(item.id));
+					.finally(() => {
+						if (this.running.get(item.id) === task)
+							this.running.delete(item.id);
+					});
 				this.running.set(item.id, task);
 			} catch (error) {
 				this.log(
@@ -3606,9 +3616,8 @@ export class LaneDispatcher {
 			}
 			const orphanKey = `orphan:${row.itemId}:${row.attemptId}`;
 			if (
-				!this.running.has(row.itemId) &&
+				row.phase !== "deferred" &&
 				row.pid &&
-				alive(row.pid) &&
 				row.session &&
 				row.attemptId &&
 				Date.now() >= (this.recheckAfter.get(orphanKey) ?? 0)
@@ -3626,6 +3635,29 @@ export class LaneDispatcher {
 				const attempt = history.data.find(
 					(attempt) => attempt.id === row.attemptId,
 				);
+				if (
+					attempt?.externalSessionKey === row.session &&
+					!attempt.outcome &&
+					attempt.expiresAt &&
+					Date.parse(attempt.expiresAt) > Date.now() &&
+					!alive(row.pid)
+				) {
+					await this.call(
+						[
+							"work",
+							"settle",
+							row.itemId,
+							"--outcome",
+							"failed",
+							"--note",
+							"Recorded agent process is dead; local work retained",
+						],
+						row.session,
+						row.executorKey,
+						row.attemptId,
+					);
+					attempt.outcome = "failed";
+				}
 				// A live lease is read again when it runs out; a process that
 				// cannot be verified stays as it is until the window passes.
 				const leaseEnds =
@@ -3645,22 +3677,20 @@ export class LaneDispatcher {
 						(attempt.expiresAt && Date.parse(attempt.expiresAt) <= Date.now()))
 				) {
 					if (
-						row.processIdentity &&
-						(await reapLaneProcess(
-							row.pid,
-							row.session,
-							row.processIdentity,
-							row.repo,
-						))
+						!alive(row.pid) ||
+						(row.processIdentity &&
+							(await reapLaneProcess(
+								row.pid,
+								row.session,
+								row.processIdentity,
+								row.repo,
+							)))
 					) {
 						row.note = orphanStopNote(row);
 						this.recheckAfter.delete(orphanKey);
 						await this.recoverOrphan(row, history);
-						this.log(
-							"orphan-stopped",
-							row.itemId,
-							"Exact expired process identity verified",
-						);
+						this.releasedAttempts.set(row.attemptId, row);
+						this.running.delete(row.itemId);
 					} else {
 						// Never stop a process we cannot prove is this run's, but say so:
 						// a silent skip leaves an expired run alive with no trace.
@@ -3958,7 +3988,10 @@ export class LaneDispatcher {
 				}
 				const task = this.execute(item, previous)
 					.catch((error) => this.log("failed", item.id, String(error)))
-					.finally(() => this.running.delete(item.id));
+					.finally(() => {
+						if (this.running.get(item.id) === task)
+							this.running.delete(item.id);
+					});
 				this.running.set(item.id, task);
 			}
 			if (!admissionPause && !page.pagination.hasMore && awaitingOwner.length) {
@@ -5895,6 +5928,8 @@ ${firstBrief}`;
 				);
 			// A stop that arrived during preparation starts no turn at all.
 			let exit = run.stop ? 1 : await runTurn(brief, resumed);
+			if (receipt.attemptId && this.releasedAttempts.has(receipt.attemptId))
+				return;
 			let turnStopped = await turnEnded(exit);
 			await steps.endTurn();
 			// Follow-ups run as further turns on this thread. A question in
@@ -6114,6 +6149,10 @@ ${firstBrief}`;
 			if (killTimer) clearTimeout(killTimer);
 			if (stepTimer) clearInterval(stepTimer);
 			if (stopKillTimer) clearTimeout(stopKillTimer);
+			if (receipt.attemptId && this.releasedAttempts.has(receipt.attemptId)) {
+				lease?.stop();
+				return;
+			}
 			const stop =
 				lease?.stop ??
 				(admitted && !receipt.interrupted

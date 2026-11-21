@@ -3374,6 +3374,63 @@ describe("dispatcher admission", () => {
 			),
 		).toHaveLength(1);
 	});
+	it.each(["expired", "terminal"])(
+		"releases a tracked dead process with a %s Attempt and routes the latest revision",
+		async (state) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.version = 3;
+			const path = join(f.dir, `${item().id}-2.json`);
+			const repo = join(f.dir, "runs", `${item().id}-3`, "repo");
+			mkdirSync(repo, { recursive: true });
+			const checkpoint = join(repo, "unfinished.txt");
+			writeFileSync(checkpoint, "unfinished diff");
+			const session = "codex:33333333-3333-4333-8333-000000000099";
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "running",
+					admissionState: "admitted",
+					attemptId: "old-attempt",
+					session,
+					executorKey: "local-acme",
+					pid: 2_000_000_000,
+					repo,
+				}),
+			);
+			f.control.history.data = [
+				{
+					id: "old-attempt",
+					externalSessionKey: session,
+					outcome: state === "terminal" ? "expired" : null,
+					expiresAt: new Date(Date.now() - 1000).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			const running = Reflect.get(f.dispatcher, "running") as Map<
+				string,
+				Promise<void>
+			>;
+			running.set(item().id, new Promise(() => {}));
+			await f.dispatcher.tick();
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				phase: "deferred",
+				outcome: "expired",
+			});
+			expect(readFileSync(checkpoint, "utf8")).toBe("unfinished diff");
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			expect(
+				readFileSync(join(f.dir, "dispatcher.log"), "utf8").match(
+					/"event":"interruption-recovered"/g,
+				),
+			).toHaveLength(1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+		},
+	);
 	it("defers an expired orphan with diagnostics and re-admits it on the next eligible pass", async () => {
 		const f = fixture();
 		f.items.splice(1);
