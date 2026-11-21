@@ -1,5 +1,9 @@
 import * as z from "zod";
 import { WorkItemSchema } from "./work-items";
+import {
+	TaskContractTermsSchema,
+	TaskReturnedValueSchema,
+} from "./task-contract-terms";
 
 const Id = z.string().min(1).max(300);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -18,45 +22,48 @@ export const TaskContractWorkSchema = WorkItemSchema.pick({
 	requiredAuthorities: true,
 });
 
-export const TaskContractSchema = z.strictObject({
-	format: z.literal("tedix.task-contract/v1"),
-	contractId: z.uuid(),
-	nonce: z.uuid(),
-	workItemId: z.uuid(),
-	workVersion: z.number().int().positive(),
-	orgId: z.uuid(),
-	title: z.string().min(1),
-	acceptedOutcome: z.string().min(1),
-	acceptanceChecks: z
-		.array(Check)
-		.min(1)
-		.refine(
-			(checks) =>
-				new Set(checks.map((check) => check.id)).size === checks.length,
-			"Acceptance check IDs must be unique",
-		),
-	scope: z.strictObject({
-		capabilities: z.array(Id),
-		resources: z.array(Id),
-	}),
-	budget: z.strictObject({
-		maxTokens: z.number().int().nonnegative(),
-		maxCostUsd: z.number().finite().nonnegative(),
-	}),
-	requiredAuthorities: z.array(Id),
-	humanGates: z
-		.array(Gate)
-		.refine(
-			(gates) => new Set(gates.map((gate) => gate.id)).size === gates.length,
-			"Human gate IDs must be unique",
-		),
-	expiresAt: z.iso.datetime(),
-	execution: z.strictObject({
-		runtimeId: Id,
-		spiffeId: z.string().regex(/^spiffe:\/\/[^/]+\/.+/),
-		modelCalls: z.literal("external_gateway"),
-	}),
-});
+export const TaskContractSchema = z
+	.strictObject({
+		...TaskContractTermsSchema.shape,
+		format: z.literal("tedix.task-contract/v2"),
+		contractId: z.uuid(),
+		nonce: z.uuid(),
+		workItemId: z.uuid(),
+		workVersion: z.number().int().positive(),
+		orgId: z.uuid(),
+		title: z.string().min(1),
+		acceptedOutcome: z.string().min(1),
+		acceptanceChecks: z
+			.array(Check)
+			.min(1)
+			.refine(
+				(checks) =>
+					new Set(checks.map((check) => check.id)).size === checks.length,
+				"Acceptance check IDs must be unique",
+			),
+		scope: z.strictObject({
+			capabilities: z.array(Id),
+			resources: z.array(Id),
+		}),
+		requiredAuthorities: z.array(Id),
+		humanGates: z
+			.array(Gate)
+			.refine(
+				(gates) => new Set(gates.map((gate) => gate.id)).size === gates.length,
+				"Human gate IDs must be unique",
+			),
+		expiresAt: z.iso.datetime(),
+		execution: z.strictObject({
+			runtimeId: Id,
+			spiffeId: z.string().regex(/^spiffe:\/\/[^/]+\/.+/),
+			modelCalls: z.literal("external_gateway"),
+		}),
+	})
+	.refine(
+		(contract) =>
+			Date.parse(contract.expiresAt) <= Date.parse(contract.deadline),
+		"Task expiry must not exceed its deadline",
+	);
 
 export const TaskApprovalSchema = z.strictObject({
 	orgId: z.uuid(),
@@ -70,6 +77,7 @@ export const TaskApprovalSchema = z.strictObject({
 });
 
 export const TaskResultSchema = z.strictObject({
+	returnedValue: TaskReturnedValueSchema,
 	orgId: z.uuid(),
 	contractId: z.uuid(),
 	contractDigest: Digest,

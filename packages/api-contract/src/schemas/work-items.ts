@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { TaskContractTermsSchema } from "./task-contract-terms";
 import { JsonValueSchema } from "./common";
 import { PersonalAgentContributionSchema } from "./personal-agent-inbound";
 import {
@@ -89,12 +90,13 @@ export const WorkItemRiskLevelSchema = z.enum([
 export const WorkItemAcceptanceContractSchema = z
 	.object({
 		version: z.literal(1),
+		taskContract: TaskContractTermsSchema.optional(),
 		doneLooksLike: z
 			.string()
 			.max(2_000)
 			.optional()
 			.describe(
-				"Plain-language statement of the accepted outcome. Replaces the mechanical claim/evidence shape.",
+				"Plain-language statement of the accepted outcome. Delegated Work also requires taskContract terms.",
 			),
 	})
 	.strict();
@@ -1951,6 +1953,7 @@ export type LaneDispatchPlan = z.infer<typeof LaneDispatchPlanSchema>;
 
 export const CreateWorkItemInputSchema = z
 	.object({
+		taskContract: TaskContractTermsSchema.optional(),
 		executor: WorkExecutorSchema.optional(),
 		executorReference: WorkExecutorReferenceSchema.optional(),
 		delegationDepth: z.number().int().min(0).max(10).optional(),

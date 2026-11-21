@@ -6,6 +6,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { TaskContractTerms } from "@tedix/api-contract/schemas/task-contract-terms";
 import { getColumns, sql } from "drizzle-orm";
 import {
 	check,
@@ -101,6 +102,7 @@ export type WorkItemAccountabilityPrincipalType =
 
 export interface WorkItemAcceptanceContract {
 	version: 1;
+	taskContract?: TaskContractTerms;
 	/** Plain-language statement of the accepted outcome; the current shape. */
 	doneLooksLike?: string;
 }

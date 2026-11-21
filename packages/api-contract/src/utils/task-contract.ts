@@ -1,5 +1,10 @@
 import type * as z from "zod";
 import {
+	TaskContractTermsSchema,
+	type TaskContractTerms,
+} from "../schemas/task-contract-terms";
+import { validateTaskReturnedValue } from "./task-contract-terms";
+import {
 	SignedTaskApprovalSchema,
 	SignedTaskResultSchema,
 	TaskContractSchema,
@@ -51,7 +56,7 @@ export function exportWorkTaskContract(input: {
 	contractId: string;
 	nonce: string;
 	resources: string[];
-	budget: TaskContract["budget"];
+	terms: TaskContractTerms;
 	humanGates: TaskContract["humanGates"];
 	execution: TaskContract["execution"];
 	expiresAt: string;
@@ -63,8 +68,10 @@ export function exportWorkTaskContract(input: {
 	const checks = [
 		...(work.description ?? "").matchAll(/^\s*- \[[ xX]\] (.+)$/gm),
 	];
+	const terms = TaskContractTermsSchema.parse(input.terms);
 	return TaskContractSchema.parse({
-		format: "tedix.task-contract/v1",
+		...terms,
+		format: "tedix.task-contract/v2",
 		contractId: input.contractId,
 		nonce: input.nonce,
 		workItemId: work.id,
@@ -80,11 +87,12 @@ export function exportWorkTaskContract(input: {
 			capabilities: work.requiredCapabilities,
 			resources: input.resources,
 		},
-		budget: input.budget,
 		requiredAuthorities: work.requiredAuthorities,
 		humanGates: input.humanGates,
 		execution: input.execution,
-		expiresAt: input.expiresAt,
+		expiresAt: new Date(
+			Math.min(Date.parse(input.expiresAt), Date.parse(terms.deadline)),
+		).toISOString(),
 	});
 }
 
@@ -218,6 +226,7 @@ export async function importTaskResult(input: {
 	)
 		throw new Error("Task result binding mismatch");
 	await verifySignature(result, services.runtime.keys);
+	validateTaskReturnedValue(contract, result.payload.returnedValue);
 	const resultDigest = await digestTaskPayload(result.payload);
 	function checkStored(raw: TaskReceipt): TaskReceipt {
 		const stored = TaskReceiptSchema.parse(raw);

@@ -175,9 +175,35 @@ Import schemas from `@tedix/api-contract/schemas/task-contract` and adapter
 functions from `@tedix/api-contract/utils/task-contract`. `exportWorkTaskContract`
 exports an accepted Work snapshot, its version, accepted outcome, description
 checkboxes (checked boxes still require verification), capabilities and required
-authorities. The caller supplies the admitted resource scope, budget, human gates,
-external runtime registration, expiry and fresh contract ID/nonce. Missing checks
+authorities. The caller supplies the admitted resource scope, version-2 terms,
+human gates, external runtime registration, expiry and fresh contract ID/nonce. Missing checks
 or an accepted outcome fail export. Do not derive human approval from a checked box.
+
+`tedix.task-contract/v2` adds a goal, machine-checkable success criterion, token
+and cost budget, remaining delegation depth, error allowance, return format and
+deadline (UTC with millisecond precision). The success criterion is a list of paths and expected JSON values;
+every comparison must pass. Return format is a strict JSON Schema subset:
+an object with typed properties, required keys and `additionalProperties: false`.
+Unsupported schema keywords are rejected. For example, a criterion
+`{ path: ["reconciled"], equals: true }` requires that boolean in the returned
+object. This checks the returned data; independent evidence verification still
+establishes whether its claims are true.
+
+Accept root Work with these terms in `acceptanceContract.taskContract` before
+starting an Attempt that will delegate. Agent child creation requires the terms
+in `CreateWorkItemInput.taskContract`; prose alone is refused. Child depth must
+be lower, budgets must fit the parent (including sibling allocations), and error
+allowance and deadline cannot increase. Admission rechecks these limits and
+pins the terms in an `admission.task_contract` Work event in the admission batch.
+The Attempt carries that snapshot in server-owned metadata. The same lease and
+heartbeat remain in use, with expiry capped at the pinned deadline.
+
+Successful settlement of such an Attempt requires `metadata.taskResult`:
+`{ output: { reconciled: true }, usage: { tokens: 100, costUsd: 0.01 }, errors: 0 }`.
+The server validates the output, success comparisons, budget and error allowance
+against admission evidence before changing the outcome. Replacing current Work
+terms or sending a different snapshot cannot weaken the admitted checks. Existing
+nondelegating Work can continue to use its plain accepted outcome.
 
 `executeTaskContract` passes that contract and signed approvals to an injected
 external gateway with the contract digest as its idempotency key. The external
@@ -185,7 +211,8 @@ runtime owns its hierarchy and model calls through its own gateway/LiteLLM.
 This package has no model client. The mock gateway test is the local adapter
 proof; it does not establish compatibility with an external runtime's wire protocol.
 
-`importTaskResult` verifies Ed25519 signatures, tenant, contract digest, nonce and
+`importTaskResult` validates the signed `returnedValue` against the same terms
+and verifies Ed25519 signatures, tenant, contract digest, nonce and
 the registered runtime/SPIFFE identity. Approval signatures bind the complete
 contract digest, gate, human approver, canonical reference and expiry. Trust keys
 come from the host's registration, never from the result. A SPIFFE string and

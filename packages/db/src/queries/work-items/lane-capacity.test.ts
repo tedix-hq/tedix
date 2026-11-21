@@ -1,4 +1,5 @@
 import { CreateWorkItemInputSchema } from "@tedix/api-contract/schemas/work-items";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { createChildWorkItem } from "./child-delegation";
 import { getWorkItemById } from "./crud";
 import { listReadyWork } from "./scheduler";
@@ -14,6 +15,7 @@ import {
 } from "./admissions";
 import {
 	startWorkItemAttempt,
+	heartbeatWorkItemAttempt,
 	settleWorkItemAttempt,
 	sweepElapsedWorkAttempts,
 } from "./attempts";
@@ -21,6 +23,26 @@ import type { LaneExecutionPolicy } from "@tedix/api-contract/schemas/lane-execu
 import { grantLaneAttempt } from "./lane-attempt-grants";
 
 const now = "2026-08-20T01:00:00.000Z";
+const taskContract = {
+	version: 2 as const,
+	goal: "Verify the result",
+	successCriterion: [{ path: ["valid"], equals: true }],
+	budget: { maxTokens: 1000, maxCostUsd: 1 },
+	remainingDepth: 1,
+	errorAllowance: 1,
+	returnFormat: {
+		type: "object" as const,
+		properties: { valid: { type: "boolean" as const } },
+		required: ["valid"],
+		additionalProperties: false as const,
+	},
+	deadline: "2026-08-20T01:02:00.000Z",
+};
+const taskResult = {
+	output: { valid: true },
+	usage: { tokens: 1, costUsd: 0.00001 },
+	errors: 0,
+};
 // Build the full migrated template before timing admission, then clone it per test.
 createMigratedSqlite().close();
 function fixture() {
@@ -508,7 +530,7 @@ describe("shared lane admission on migrated D1", () => {
 		const failed = (await f.start("one", "-second")).attempt.id;
 		await settle(failed, "failed");
 		expect((await f.admit("one", "-exhausted")).rejectionReason).toBe(
-			"Lane retry budget exhausted",
+			"Attempt retry limit (1) exhausted; the owner must grant one extra Attempt with work attempt-grant one.",
 		);
 		const recorded = await grant(failed, "grant-1");
 		expect(recorded).toMatchObject({ attemptId: failed, workItemId: "one" });
@@ -639,10 +661,24 @@ it("admits a child on its running parent's grant, shares root limits and reports
 		const predecessor = "22222222-2222-4222-8222-222222222222";
 		f.seed(predecessor);
 		await f.start(predecessor);
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id='root'")
+			.run(
+				JSON.stringify({
+					version: 1,
+					doneLooksLike: taskContract.goal,
+					taskContract,
+				}),
+			);
 		const rootRun = await f.start("root");
 		const root = (await getWorkItemById(f.db, "root", "org"))!;
 		const input = CreateWorkItemInputSchema.parse({
 			title: "Verify the result",
+			taskContract: {
+				...taskContract,
+				remainingDepth: 0,
+				budget: { maxTokens: 100, maxCostUsd: 0.1 },
+			},
 			workKind: "coding",
 			blockedByWorkItemIds: [predecessor],
 			parentWorkItemId: "11111111-1111-4111-8111-111111111111",
@@ -716,6 +752,7 @@ it("admits a child on its running parent's grant, shares root limits and reports
 			executor: { type: "tedi", id: "tedi" },
 			outcome: "succeeded",
 			summary: "The result matches the contract",
+			metadata: { taskResult },
 			settledAt: now,
 			costMicros: 10,
 		});
@@ -752,6 +789,204 @@ it("admits a child on its running parent's grant, shares root limits and reports
 			decision: "rejected",
 			rejectionCode: "budget_blocked",
 		});
+	} finally {
+		f.sqlite.close();
+	}
+});
+
+it("pins task terms, rejects excess child limits and invalid results, and caps heartbeat expiry", async () => {
+	const f = fixture();
+	try {
+		f.seed("root");
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id='root'")
+			.run(
+				JSON.stringify({
+					version: 1,
+					doneLooksLike: taskContract.goal,
+					taskContract,
+				}),
+			);
+		const admission = await evaluateAndRecordWorkAdmission(f.db, {
+			id: "root-admission",
+			orgId: "org",
+			workItemId: "root",
+			expectedWorkItemVersion: 1,
+			expectedAdmissionSpecRevision: "revision",
+			executorType: "tedi",
+			executorId: "tedi",
+			leaseTtlMs: 300_000,
+			now,
+		});
+		expect(admission.expiresAt).toBe(taskContract.deadline);
+		const run = await startWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: "root",
+			admissionId: admission.id,
+			executor: { type: "tedi", id: "tedi" },
+			expiresAt: admission.expiresAt,
+			startedAt: now,
+		});
+		expect(run.attempt.metadata.taskContract).toEqual(taskContract);
+		const root = (await getWorkItemById(f.db, "root", "org"))!;
+		const childTerms = {
+			...taskContract,
+			remainingDepth: 0,
+			budget: { maxTokens: 600, maxCostUsd: 0.6 },
+		};
+		const input = CreateWorkItemInputSchema.parse({
+			title: "Check result",
+			taskContract: childTerms,
+		});
+		for (const invalid of [
+			{ ...childTerms, remainingDepth: 1 },
+			{ ...childTerms, budget: { maxTokens: 1001, maxCostUsd: 0.6 } },
+			{ ...childTerms, budget: { maxTokens: 600, maxCostUsd: 1.01 } },
+			{ ...childTerms, errorAllowance: 2 },
+			{ ...childTerms, deadline: "2026-08-20T01:03:00.000Z" },
+		]) {
+			await expect(
+				createChildWorkItem(f.db, {
+					input: { ...input, taskContract: invalid },
+					parent: root,
+					actor: { type: "tedi", id: "tedi" },
+					now,
+				}),
+			).rejects.toThrow();
+		}
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_items WHERE parent_work_item_id='root'",
+				)
+				.get(),
+		).toEqual({ n: 0 });
+		const child = (await createChildWorkItem(f.db, {
+			input,
+			parent: root,
+			actor: { type: "tedi", id: "tedi" },
+			now,
+		}))!;
+		expect(child.acceptanceContract?.taskContract).toEqual(childTerms);
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id=?")
+			.run(
+				JSON.stringify({
+					version: 1,
+					taskContract: {
+						...childTerms,
+						budget: { maxTokens: 0, maxCostUsd: 0 },
+					},
+				}),
+				child.id,
+			);
+		await expect(
+			createChildWorkItem(f.db, {
+				input,
+				parent: root,
+				actor: { type: "tedi", id: "tedi" },
+				now,
+			}),
+		).rejects.toThrow();
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_items WHERE parent_work_item_id='root'",
+				)
+				.get(),
+		).toEqual({ n: 1 });
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id=?")
+			.run(
+				JSON.stringify({
+					version: 1,
+					taskContract: {
+						...childTerms,
+						budget: { maxTokens: 700, maxCostUsd: 0.7 },
+					},
+				}),
+				child.id,
+			);
+		const changed = (await getWorkItemById(f.db, child.id, "org"))!;
+		expect(
+			await evaluateAndRecordWorkAdmission(f.db, {
+				id: "changed-child",
+				orgId: "org",
+				workItemId: child.id,
+				expectedWorkItemVersion: changed.version,
+				expectedAdmissionSpecRevision: changed.admissionSpecRevision,
+				executorType: "tedi",
+				executorId: "tedi",
+				leaseTtlMs: 60_000,
+				now,
+			}),
+		).toMatchObject({
+			decision: "rejected",
+			rejectionReason: "Child task budget exceeds its delegation allocation",
+		});
+		// Editing current Work or supplying a replacement snapshot cannot weaken the admitted result check.
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id='root'")
+			.run(
+				JSON.stringify({
+					version: 1,
+					taskContract: {
+						...taskContract,
+						successCriterion: [{ path: ["valid"], equals: false }],
+					},
+				}),
+			);
+		const invalidResults: JsonValue[] = [
+			{ ...taskResult, output: { valid: false } },
+			{ ...taskResult, output: { valid: "true" } },
+			{ ...taskResult, output: { valid: true, extra: true } },
+			{ ...taskResult, errors: 2 },
+			{ ...taskResult, usage: { tokens: 1001, costUsd: 0 } },
+		];
+		for (const invalid of invalidResults) {
+			await expect(
+				settleWorkItemAttempt(f.db, {
+					orgId: "org",
+					workItemId: "root",
+					attemptId: run.attempt.id,
+					executor: { type: "tedi", id: "tedi" },
+					outcome: "succeeded",
+					metadata: {
+						taskResult: invalid,
+						taskContract: {
+							...taskContract,
+							successCriterion: [{ path: ["valid"], equals: false }],
+						},
+					},
+					settledAt: now,
+				}),
+			).rejects.toThrow();
+		}
+		expect(
+			f.sqlite
+				.prepare("SELECT outcome,runtime_state FROM work_attempts WHERE id=?")
+				.get(run.attempt.id),
+		).toEqual({ outcome: null, runtime_state: "running" });
+		const heartbeat = await heartbeatWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: "root",
+			attemptId: run.attempt.id,
+			executor: { type: "tedi", id: "tedi" },
+			heartbeatAt: "2026-08-20T01:00:30.000Z",
+			leaseTtlMs: 300_000,
+		});
+		expect(heartbeat.expiresAt).toBe(taskContract.deadline);
+		const settled = await settleWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: "root",
+			attemptId: run.attempt.id,
+			executor: { type: "tedi", id: "tedi" },
+			outcome: "succeeded",
+			metadata: { taskResult, taskContract: null },
+			settledAt: "2026-08-20T01:00:31.000Z",
+		});
+		expect(settled.attempt.outcome).toBe("succeeded");
+		expect(settled.attempt.metadata.taskContract).toEqual(taskContract);
 	} finally {
 		f.sqlite.close();
 	}

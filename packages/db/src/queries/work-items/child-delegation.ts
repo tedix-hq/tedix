@@ -1,4 +1,7 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { TaskContractTermsSchema } from "@tedix/api-contract/schemas/task-contract-terms";
+import { assertChildTaskContract } from "@tedix/api-contract/utils/task-contract-terms";
+import { getAdmittedTaskContract } from "./task-contract";
 import {
 	LaneExecutionPolicySchema,
 	WORK_DELEGATION_DEFAULTS,
@@ -144,6 +147,23 @@ export async function createChildWorkItem(
 				"Child predecessor is outside this organization",
 			);
 	const ancestors = await workDelegationAncestors(db, parent);
+	const parentContract = await getAdmittedTaskContract(db, attempt);
+	if (!parentContract)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Parent has no admitted task contract",
+		);
+	const childContract = TaskContractTermsSchema.parse(p.input.taskContract);
+	try {
+		assertChildTaskContract(parentContract, childContract);
+	} catch (error) {
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			error instanceof Error ? error.message : "Invalid child task contract",
+		);
+	}
+	if (Date.parse(childContract.deadline) <= Date.parse(p.now))
+		throw new WorkControlError("NOT_ELIGIBLE", "Task deadline elapsed");
 	const root = ancestors.at(-1)!;
 	const lane =
 		parent.metadata?.laneExecution === undefined
@@ -257,6 +277,8 @@ export async function createChildWorkItem(
 				title: sql`CASE WHEN EXISTS (SELECT 1 FROM work_attempts a JOIN work_items p ON p.id=a.work_item_id AND p.org_id=a.org_id JOIN work_admissions grant_receipt ON grant_receipt.id=a.admission_id AND grant_receipt.admission_spec_revision=p.admission_spec_revision
 				WHERE a.id=${attempt.id} AND a.expires_at>${p.now} AND a.runtime_state IN ('running','waiting','retrying') AND p.version=${parent.version} AND p.disposition='accepted')
 				AND (SELECT count(*) FROM work_items WHERE ${workTreeContains(parent.orgId, root.id, sql`id`)}) <= ${maxDescendants}
+				AND (SELECT coalesce(sum(json_extract(allocation.payload,'$.taskContract.budget.maxTokens')),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxTokens} <= ${parentContract.budget.maxTokens}
+				AND (SELECT coalesce(sum(json_extract(allocation.payload,'$.taskContract.budget.maxCostUsd')),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxCostUsd} <= ${parentContract.budget.maxCostUsd}
 				THEN ${input.title} ELSE NULL END`,
 				description: input.description,
 				workKind: input.workKind,
@@ -280,12 +302,11 @@ export async function createChildWorkItem(
 				maxAttempts: parent.maxAttempts ?? WORK_DELEGATION_DEFAULTS.maxAttempts,
 				priority: input.priority,
 				disposition: accepted ? "accepted" : "proposed",
-				acceptanceContract: accepted
-					? {
-							version: 1,
-							doneLooksLike: input.description?.trim() || input.title,
-						}
-					: null,
+				acceptanceContract: {
+					version: 1,
+					doneLooksLike: childContract.goal,
+					taskContract: childContract,
+				},
 				acceptedAt: accepted ? p.now : null,
 				metadata,
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
@@ -344,14 +365,18 @@ export async function createChildWorkItem(
 				]
 			: []),
 		db.insert(workEvents).values({
-			id: crypto.randomUUID(),
+			id,
 			orgId: parent.orgId,
 			workItemId: id,
 			eventType: accepted ? "work.accepted" : "work.created",
 			actorType: p.actor.type,
 			actorId: p.actor.id,
 			actorSessionId: p.actor.sessionId,
-			payload: { parentAttemptId: attempt.id, rootId: root.id },
+			payload: {
+				parentAttemptId: attempt.id,
+				rootId: root.id,
+				taskContract: childContract,
+			},
 			occurredAt: p.now,
 		}),
 	]);

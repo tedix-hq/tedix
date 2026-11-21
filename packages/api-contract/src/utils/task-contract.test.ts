@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { TaskContractTermsSchema } from "../schemas/task-contract-terms";
 import type {
 	SignedTaskApproval,
 	TaskApproval,
@@ -51,7 +52,21 @@ async function fixture() {
 		contractId: "00000000-0000-4000-8000-000000000003",
 		nonce: "00000000-0000-4000-8000-000000000004",
 		resources: ["reports/inbox"],
-		budget: { maxTokens: 1000, maxCostUsd: 0.5 },
+		terms: {
+			version: 2,
+			goal: "A sourced, reconciled report",
+			successCriterion: [{ path: ["reconciled"], equals: true }],
+			budget: { maxTokens: 1000, maxCostUsd: 0.5 },
+			remainingDepth: 2,
+			errorAllowance: 1,
+			returnFormat: {
+				type: "object",
+				properties: { reconciled: { type: "boolean" } },
+				required: ["reconciled"],
+				additionalProperties: false,
+			},
+			deadline: "2026-12-01T01:00:00.000Z",
+		},
 		humanGates: [{ id: "report_release", approverId: "report-owner" }],
 		execution: {
 			runtimeId: "external-hierarchy",
@@ -84,6 +99,11 @@ async function fixture() {
 		approvalKeys.privateKey,
 	);
 	const payload: TaskResult = {
+		returnedValue: {
+			output: { reconciled: true },
+			usage: { tokens: 100, costUsd: 0.1 },
+			errors: 0,
+		},
 		orgId,
 		contractDigest,
 		contractId: contract.contractId,
@@ -135,6 +155,30 @@ async function fixture() {
 }
 
 describe("Work Task Contract adapter", () => {
+	it.each(["criterion", "format", "budget", "errors"])(
+		"rejects a signed result failing its %s contract before storing evidence",
+		async (failure) => {
+			const { input, result, runtimeKeys } = await fixture();
+			if (failure === "criterion")
+				result.payload.returnedValue.output = { reconciled: false };
+			if (failure === "format")
+				result.payload.returnedValue.output = { reconciled: "true" };
+			if (failure === "budget")
+				result.payload.returnedValue.usage.tokens = 1001;
+			if (failure === "errors") result.payload.returnedValue.errors = 2;
+			await expect(
+				importTaskResult({
+					...input,
+					result: await sign(
+						result.payload,
+						"runtime-key",
+						runtimeKeys.privateKey,
+					),
+				}),
+			).rejects.toThrow();
+			expect(input.services.store.insertOnce).not.toHaveBeenCalled();
+		},
+	);
 	it("imports a successful verified mock gateway receipt", async () => {
 		const { input, receipts } = await fixture();
 		input.services.verify = async (contract) =>
@@ -376,6 +420,7 @@ describe("Work Task Contract adapter", () => {
 		const { input, work } = await fixture();
 		const exportInput = {
 			...input.contract,
+			terms: TaskContractTermsSchema.strip().parse(input.contract),
 			work,
 			resources: input.contract.scope.resources,
 		};

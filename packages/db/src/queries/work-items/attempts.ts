@@ -1,4 +1,6 @@
 import { workAttemptLimitAvailable } from "./attempt-limit";
+import { getAdmittedTaskContract } from "./task-contract";
+import { validateTaskReturnedValue } from "@tedix/api-contract/utils/task-contract-terms";
 import {
 	workDelegationAncestors,
 	rootAttemptBudgetAvailable,
@@ -567,7 +569,7 @@ export async function startWorkItemAttempt(
 					version: sql<number>`1`.as("version"),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify(workAttemptCallerMetadata(params.metadata))}`.as(
+					>`json_patch(${JSON.stringify(workAttemptCallerMetadata(params.metadata))}, json_object('taskContract', json_extract((SELECT payload FROM work_events WHERE id=${workAdmissions.id} AND org_id=${workAdmissions.orgId} AND work_item_id=${workAdmissions.workItemId} AND event_type='admission.task_contract'), '$.taskContract')))`.as(
 						"metadata",
 					),
 				})
@@ -976,9 +978,10 @@ export async function heartbeatWorkItemAttempt(
 			"leaseTtlMs must be between 1000 and 3600000",
 		);
 	}
-	const expiresAt = new Date(
+	const requestedExpiry = new Date(
 		Date.parse(heartbeatAt) + params.leaseTtlMs,
 	).toISOString();
+	const expiresAt = sql<string>`min(${requestedExpiry}, coalesce(json_extract(${workAttempts.metadata}, '$.taskContract.deadline'), ${requestedExpiry}))`;
 	const heartbeatMutation = db
 		.update(workAttempts)
 		.set({
@@ -1032,7 +1035,10 @@ export async function heartbeatWorkItemAttempt(
 		);
 	const extendResources = db
 		.update(workResourceReservations)
-		.set({ expiresAt, version: sql`${workResourceReservations.version} + 1` })
+		.set({
+			expiresAt: sql`(SELECT expires_at FROM work_attempts WHERE id=${params.attemptId})`,
+			version: sql`${workResourceReservations.version} + 1`,
+		})
 		.where(
 			and(
 				eq(workResourceReservations.state, "active"),
@@ -1042,7 +1048,7 @@ export async function heartbeatWorkItemAttempt(
 	const extendBudgets = db
 		.update(workBudgetReservations)
 		.set({
-			expiresAt,
+			expiresAt: sql`(SELECT expires_at FROM work_attempts WHERE id=${params.attemptId})`,
 			...(params.costMicros === undefined
 				? {}
 				: {
@@ -1159,6 +1165,27 @@ export async function settleWorkItemAttempt(
 			externalSessionKey: params.externalSessionKey,
 			at: settledAt,
 		});
+		if (params.outcome === "succeeded" && prior.metadata.taskContract) {
+			const contract = await getAdmittedTaskContract(db, prior);
+			if (!contract)
+				throw new WorkFactoryError(
+					"NOT_READY",
+					"Admitted task contract is missing",
+				);
+			try {
+				validateTaskReturnedValue(contract, params.metadata?.taskResult);
+			} catch (error) {
+				throw new WorkFactoryError(
+					"NOT_READY",
+					error instanceof Error ? error.message : "Invalid task result",
+				);
+			}
+			if ((params.costMicros ?? 0) > contract.budget.maxCostUsd * 1_000_000)
+				throw new WorkFactoryError(
+					"NOT_READY",
+					"Task settlement exceeds budget",
+				);
+		}
 		const runtimeState: WorkAttemptRuntimeState =
 			params.outcome === "succeeded"
 				? "finished"
@@ -1418,6 +1445,7 @@ export function workAttemptCallerMetadata(
 	metadata?: Record<string, JsonValue>,
 ): Record<string, JsonValue> {
 	const {
+		taskContract: _reservedTaskContract,
 		repositoryCandidate: _reservedCandidate,
 		repositoryCandidatePublication: _reservedPublication,
 		...callerMetadata

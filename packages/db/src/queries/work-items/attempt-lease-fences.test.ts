@@ -9,6 +9,7 @@ import {
 	workItems,
 	workAttemptSteps,
 	workAttemptMessages,
+	workItemComments,
 } from "../../schema/work-items";
 import {
 	workBudgetReservations,
@@ -47,6 +48,7 @@ async function fixture() {
 			workAttempts,
 			workAttemptSteps,
 			workAttemptMessages,
+			workItemComments,
 			workEvents,
 			workBudgetReservations,
 			workResourceReservations,
