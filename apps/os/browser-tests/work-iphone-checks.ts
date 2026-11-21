@@ -325,8 +325,8 @@ export async function runWorkHeadings(colorScheme: ColorScheme) {
 						await headings.evaluate((heading) => {
 							const box = heading.getBoundingClientRect();
 							return (
-								box.width <= 1 &&
-								box.height <= 1 &&
+								box.width > 1 &&
+								box.height > 1 &&
 								[...document.querySelectorAll("h2, h3, h4, h5, h6")].every(
 									(other) =>
 										Boolean(
@@ -336,7 +336,7 @@ export async function runWorkHeadings(colorScheme: ColorScheme) {
 								)
 							);
 						}),
-						`${width} ${colorScheme} ${view}: hidden page heading precedes content headings`,
+						`${width} ${colorScheme} ${view}: visible page heading precedes content headings`,
 					);
 					if (shots)
 						await page.screenshot({
