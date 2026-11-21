@@ -2,6 +2,7 @@ import { createGatewayLedgerApi } from "../../test/gateway-ledger";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import { registerDynamicTool } from "./widget-tool-registration";
+import { wrapToolCallTelemetry } from "./middleware/telemetry";
 import {
 	beforeEach,
 	describe,
@@ -342,6 +343,60 @@ describe("secret-egress preflight", () => {
 		).toBeNull();
 		expect(agent.toolHandler.execute).not.toHaveBeenCalled();
 	});
+});
+
+it("counts native and inner attempts once, including failures, across UTC midnight", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(new Date("2026-01-01T23:59:59Z"));
+		const agent = makeAgent({ status: 200, data: { ok: true } });
+		const pending: Promise<unknown>[] = [];
+		const fetch = vi.fn<
+			(url: string, init: { body: string }) => Promise<Response>
+		>(async () => Response.json({ ok: true }));
+		const getByName = vi.fn<(name: string) => { fetch: typeof fetch }>(() => ({
+			fetch,
+		}));
+		Object.assign(agent.env, { MCP_SUBSCRIPTIONS: { getByName } });
+		agent.ctx.waitUntil = (promise) => {
+			pending.push(promise);
+		};
+		const tool = makeTool();
+		const options = {
+			adapterScope: "primary",
+			resultStrategy: "merge",
+		} as const;
+		const native = wrapToolCallTelemetry(
+			tool.toolId,
+			agent,
+			(args) => executeTool(agent, tool, args, options),
+			tool,
+		);
+		await native({}, {} as never);
+		await executeTool(agent, tool, {}, { ...options, executionId: "inner" });
+		await expect(
+			executeTool(
+				agent,
+				{ ...tool, toolTypeId: "" },
+				{},
+				{ ...options, executionId: "failed-inner" },
+			),
+		).rejects.toThrow("no registered handler");
+		vi.setSystemTime(new Date("2026-01-02T00:00:00Z"));
+		await native({}, {} as never);
+		await Promise.all(pending);
+		expect(getByName.mock.calls.map(([name]) => name)).toEqual([
+			"tool-call-counts:v1:2026-01-01",
+			"tool-call-counts:v1:2026-01-01",
+			"tool-call-counts:v1:2026-01-01",
+			"tool-call-counts:v1:2026-01-02",
+		]);
+		expect(fetch).toHaveBeenCalledTimes(4);
+		for (const [, init] of fetch.mock.calls)
+			expect(JSON.parse(init.body)).toEqual({ toolName: "fetch_report" });
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 it("traces native and Code Mode tool calls without recording tenant input", async () => {

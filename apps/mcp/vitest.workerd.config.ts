@@ -32,6 +32,12 @@ export default defineConfig({
 				compatibilityDate,
 				compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
 				workerLoaders: { LOADER: {} },
+				durableObjects: {
+					MCP_SUBSCRIPTIONS: {
+						className: "McpSubscriptionDurableObject",
+						useSQLite: true,
+					},
+				},
 				bindings: {
 					ENVIRONMENT: "test",
 					MCP_URL: "https://mcp.tedix.dev",

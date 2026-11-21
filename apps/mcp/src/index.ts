@@ -1,4 +1,5 @@
 import { requestPhaseTimings } from "./mcp/phase-timings";
+import { toolCallCountStub } from "./tool-call-counts";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
 import { handlePersonalAgentInterfaces } from "./personal-agent-interfaces";
 import { handlePersonalAgentConversations } from "./personal-agent-conversations";
@@ -13,8 +14,8 @@ import { purgeAggregateSurfaceCaches } from "./aggregate-surface-cache";
  * Customer-facing stateless MCP server for Apps SDK integration
  *
  * Architecture: Stateless per-request McpServer built from cached D1 data.
- * No Durable Objects for MCP — tool data cached in Worker memory (60s TTL),
- * new McpServer + transport created per request via mountMcp() from
+ * Durable Objects retain subscriptions and daily counters, never MCP servers.
+ * A new McpServer + transport is created per request via mountMcp() from
  * @tedix/mcp-shared/transport (server.connect() to a single-exchange
  * stateless transport).
  *
@@ -468,8 +469,29 @@ const worker = {
 			}
 		}
 
-		// Internal service-binding-only route: best-effort scope cache invalidation.
-		// Called by apps/api after syncTediAihClientForAssignment succeeds.
+		// Installation-wide usage reports are available only over service bindings.
+		if (
+			request.method === "POST" &&
+			url.pathname === "/__internal/tool-counts"
+		) {
+			if (!isServiceBinding(request.headers))
+				return Response.json({ error: "Forbidden" }, { status: 403 });
+			const { day } = (await request.json()) as { day?: unknown };
+			if (
+				typeof day !== "string" ||
+				!/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+				!Number.isFinite(Date.parse(day)) ||
+				new Date(day).toISOString().slice(0, 10) !== day
+			)
+				return Response.json({ error: "Invalid UTC day" }, { status: 400 });
+			const report = await toolCallCountStub(env, day).fetch(
+				"https://tool-counts.internal/tool-counts/report",
+				{ method: "POST" },
+			);
+			return Response.json({ day, ...((await report.json()) as object) });
+		}
+
+		// Internal scope cache invalidation after syncTediAihClientForAssignment.
 		if (
 			request.method === "POST" &&
 			url.pathname === "/__internal/invalidate-scope-cache"

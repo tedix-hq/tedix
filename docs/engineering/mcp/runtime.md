@@ -46,11 +46,43 @@ Non-obvious choices:
 - `resultType: "task"` goes only to callers advertising the Tasks extension;
   generic async tools use the `mcp_tasks` table plus a workflow.
 - On `-32020`, clients refresh `tools/list` and retry the un-executed call once.
-- `subscriptions/listen` is the one stateful path:
+- `subscriptions/listen` is the stateful protocol path:
   `McpSubscriptionDurableObject` (`apps/mcp/src/subscriptions.ts`) streams
   task and list-change notifications over SSE.
 - Elicitation is form mode only; autonomous tedis cannot satisfy URL mode's
   human-consent requirements.
+
+### Daily tool counts
+
+`tool-call-counts.ts` counts protocol tool attempts at registration and Code
+Mode inner attempts at dispatch, including failures. These paths do not overlap.
+Names are the gateway's `toolId` (including aggregate prefixes); aliases remain
+separate until an inventory review reconciles them. Counts contain no arguments,
+results, caller identities or signed records.
+
+Each UTC day uses a separate SQLite-backed Durable Object named
+`tool-call-counts:v1:YYYY-MM-DD` in the existing `MCP_SUBSCRIPTIONS` namespace.
+These instances share a class with subscriptions but have separate storage and
+never open streams. Synchronous KV increments update one integer per tool name;
+neither `DB` nor `LOGS_DB` is accessed. At 900 distinct names per day, 30 days
+needs at most 27,000 counters. Counters are retained without automatic deletion.
+Distinct provider tools and aliases can increase that estimate.
+
+From a trusted service binding, POST `{"day":"YYYY-MM-DD"}` to
+`/__internal/tool-counts`. The response includes sorted `rows` with `toolName`
+and `calls`, `counterCount`, and `databaseBytes` from SQLite's `databaseSize`
+(allocated storage for that day's object, including SQLite overhead).
+Public requests are refused. The Lead can also fetch `/tool-counts/report`
+directly through the named Durable Object binding. Reports do not add counters.
+
+After deployment, record its UTC start, check known tool calls against the
+report, and monitor `mcp.tool_counts.failed` logs. Counting runs in `waitUntil`
+and fails open so an observation failure does not cause provider actions to be
+retried. Any failed increments or outage invalidate a zero-use conclusion for
+that window. Export a full UTC day after deployment, then 30 complete UTC days;
+join observed names to the tool inventory to include tools with zero calls.
+An empty report alone does not prove a tool is unused. Keep approval,
+acceptance, budget and change-ledger tools regardless of usage.
 
 ### Dual-era upstream proxy
 
