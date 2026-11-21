@@ -5,6 +5,7 @@ import {
 	type ModelFallbackStep,
 } from "@tedix/api-contract/schemas/model-fallback";
 import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
+import { IncompleteAutoRouterStreamError } from "./auto-router-stream";
 
 /**
  * Auto Router answers with these when it rejects the request or a model in
@@ -15,6 +16,8 @@ const AUTO_ROUTER_REJECTED_STATUSES = new Set([400, 404, 410, 422]);
 
 function autoRouterRejected(ref: string, error: unknown): boolean {
 	if (ref !== CLOUDFLARE_AUTO_MODEL_REF) return false;
+	// readyStream only exposes this failure to fallback before model output.
+	if (error instanceof IncompleteAutoRouterStreamError) return true;
 	if (!error || typeof error !== "object") return false;
 	const { statusCode, status } = error as {
 		statusCode?: unknown;
