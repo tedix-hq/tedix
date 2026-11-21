@@ -146,6 +146,34 @@ describe("workspace chat organization routing", () => {
 		).toBe(false);
 	});
 
+	it("addresses the newly onboarded organization on its loopback hostname", async () => {
+		const { env, objectRequests } = chatEnv("owner");
+		const response = await handleOsRequest(
+			new Request(
+				`http://local-studio.localhost:3042/workspace/${workspaceId}/chat`,
+				{
+					headers: { Upgrade: "websocket", "X-Workspace-Org": "spoofed-org" },
+				},
+			),
+			{
+				...env,
+				TEDIX_LOCAL_DEMO_ENABLED: "true",
+				DESCOPE_PROJECT_ID: LOCAL_DEMO_PROJECT_ID,
+			},
+			async (_env, slug) => {
+				expect(slug).toBe("local-studio");
+				return { provisioned: true, organizationId };
+			},
+		);
+		await expect(response.text()).resolves.toBe("object-upgrade");
+		expect(objectRequests[0]?.headers.get("X-Workspace-Org")).toBe(
+			organizationId,
+		);
+		expect(objectRequests[0]?.headers.get("X-Workspace-Actor-Id")).toBe(
+			"fictional-member",
+		);
+	});
+
 	it("addresses the local demo organization on a loopback local run", async () => {
 		const chat = chatEnv("owner");
 		const env: OsRouterEnv = {

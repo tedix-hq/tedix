@@ -1,5 +1,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { openLocalTedix, startLocalDesktop } from "./local-mode";
+import { localOrigin } from "./local-origin";
 import {
 	app,
 	BrowserWindow,
@@ -1215,6 +1217,7 @@ function setMenu(): void {
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
 					setUp,
+					{ label: "Open Local Tedix", click: openLocalTedix },
 					// Offered only while it is needed: signing in again when already
 					// signed in opens a browser page that leads nowhere.
 					appSignIn.state === "in"
@@ -1321,6 +1324,7 @@ let tray: Tray | undefined;
 function trayMenu(): Menu {
 	return Menu.buildFromTemplate([
 		{ label: "Open Tedix", click: showMain },
+		{ label: "Open Local Tedix", click: openLocalTedix },
 		{ label: "New Chat…", click: () => openInputBar() },
 		{ type: "separator" },
 		// A line on the runners only when something is off: paused, stopped or failing.
@@ -1558,7 +1562,9 @@ async function openedAtLogin(): Promise<boolean> {
 const appLink = (args: string[]) =>
 	args.find((arg) => arg.startsWith("tedix://"));
 
-if (!app.requestSingleInstanceLock()) app.quit();
+const local = localOrigin(process.argv);
+if (local !== undefined) startLocalDesktop(local);
+else if (!app.requestSingleInstanceLock()) app.quit();
 else {
 	if (app.isPackaged) app.setAsDefaultProtocolClient("tedix");
 	// macOS hands a clicked link over here; other systems pass it as an argument.

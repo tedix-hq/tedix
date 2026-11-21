@@ -149,6 +149,38 @@ The app writes one line per sign-in, setup and update step to
 copy run from source). It holds page addresses without anything after `?` or
 `#`, and no tokens, codes or keys.
 
+## Use Local Tedix without a Cloud account
+
+Run `bun run-local` from the Tedix source checkout. In the Mac app's **Tedix**
+menu or the menu bar icon's right-click menu, choose **Open Local Tedix**.
+It opens `http://localhost:3030` in a separate app profile and lets you set up
+your local organization. Local Tedix skips Cloud sign-in and runs independently
+of the installed app's Cloud session and runners. Keep the local stack running
+while using the window.
+
+To open the installed app directly in local mode:
+
+```sh
+open -na /Applications/Tedix.app --args --local
+```
+
+If you set `TEDIX_LOCAL_OS_PORT` on the launcher, pass the same port to the app
+with `--local=3048` in place of `--local`.
+
+For AI replies, authenticate Wrangler to your Cloudflare account and start the
+stack with Workers AI enabled:
+
+```sh
+bunx wrangler login
+bunx wrangler whoami
+bun run-local --inference --workers-ai-account=YOUR_ACCOUNT_ID --ai-gateway=YOUR_GATEWAY_ID
+```
+
+The stack stores work on this Mac and sends model requests to Cloudflare. Omit
+`--ai-gateway` to use your account's default gateway. See
+[Getting started](../../docs/public/getting-started.md) for the local stack's
+requirements and options.
+
 ## Run it from source
 
 From the repository root, after `bun install`:
