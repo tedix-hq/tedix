@@ -90,48 +90,48 @@ export function WorkHome({
 				</Suspense>
 			</Page>
 		);
+	const content = manifest ? (
+		<WorkspaceAppRenderer
+			key={selected?.gadget.id ?? role}
+			manifest={
+				search.project && role === "deck"
+					? {
+							...manifest,
+							config: {
+								...manifest.config,
+								projectId: search.project,
+							},
+						}
+					: manifest
+			}
+			workspaceId={selected?.gadget.workspaceId}
+			activityFeed={{
+				filter: search.filter ?? "all",
+				projectId: search.project,
+				day: search.day,
+				onFilterChange,
+				apps: appLinks,
+				showRunningNow: !overview,
+			}}
+		/>
+	) : pending ? (
+		<Text>{copy.loading}</Text>
+	) : (
+		<div className="grid gap-3">
+			<Text>{failed || truncated ? copy.unavailable : copy.missing}</Text>
+			{(failed || truncated) && (
+				<Button variant="outline" onClick={retry}>
+					{copy.retry}
+				</Button>
+			)}
+			{failed && <Link href="/workspaces">{copy.workspaces}</Link>}
+		</div>
+	);
 	return (
 		<Page width="full" className="fd-work-home">
 			{/* The page heading comes first, so overview sections sit under it. */}
 			{(!selected || selected.role) && <PageTitle>{title}</PageTitle>}
-			{overview && <WorkHomeOverview />}
-			{manifest ? (
-				<WorkspaceAppRenderer
-					key={selected?.gadget.id ?? role}
-					manifest={
-						search.project && role === "deck"
-							? {
-									...manifest,
-									config: {
-										...manifest.config,
-										projectId: search.project,
-									},
-								}
-							: manifest
-					}
-					workspaceId={selected?.gadget.workspaceId}
-					activityFeed={{
-						filter: search.filter ?? "all",
-						projectId: search.project,
-						day: search.day,
-						onFilterChange,
-						apps: appLinks,
-						showRunningNow: !overview,
-					}}
-				/>
-			) : pending ? (
-				<Text>{copy.loading}</Text>
-			) : (
-				<div className="grid gap-3">
-					<Text>{failed || truncated ? copy.unavailable : copy.missing}</Text>
-					{(failed || truncated) && (
-						<Button variant="outline" onClick={retry}>
-							{copy.retry}
-						</Button>
-					)}
-					{failed && <Link href="/workspaces">{copy.workspaces}</Link>}
-				</div>
-			)}
+			{overview ? <WorkHomeOverview>{content}</WorkHomeOverview> : content}
 			{selected && failed && (
 				<Text aria-live="polite" tone="secondary">
 					{copy.partial}

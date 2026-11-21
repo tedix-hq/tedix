@@ -105,7 +105,9 @@ async function mount(selected?: string) {
 	await act(async () =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<ActivityRunningNow config={config} projectId={selected} />
+				<ActivityRunningNow config={config} projectId={selected}>
+					<div>Activity history</div>
+				</ActivityRunningNow>
 			</QueryClientProvider>,
 		),
 	);
@@ -125,6 +127,7 @@ it("shows the canonical attempt fields and polls away completed attempts without
 		{
 			projectId,
 			limit: 100,
+			includeLaneState: false,
 			runtimeStates: ["queued", "running", "waiting", "retrying"],
 		},
 		expect.anything(),
@@ -197,9 +200,11 @@ it("keeps the first load pending while a transient failure recovers", async () =
 	api.attempts.mockRejectedValueOnce(new Error("Timed out"));
 	await mount();
 	expect(host.textContent).toContain("Checking running work");
+	expect(host.textContent).not.toContain("Activity history");
 	expect(host.textContent).not.toContain("Could not load running work");
 	expect(api.health).not.toHaveBeenCalled();
 	await flush(2010);
+	expect(host.textContent).toContain("Activity history");
 	expect(host.textContent).toContain("Prepare Cedar brief");
 });
 
@@ -209,6 +214,7 @@ it("keeps failures distinct from a quiet fleet and exposes retry controls", asyn
 	api.health.mockRejectedValue(failure);
 	await mount();
 	expect(host.textContent).toContain("Could not load running work");
+	expect(host.textContent).toContain("Activity history");
 	await openScorecard();
 	expect(host.textContent).toContain("Runner health unavailable");
 	expect(host.textContent).toContain("Current activity is unknown.");

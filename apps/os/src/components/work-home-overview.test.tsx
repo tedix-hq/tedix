@@ -6,9 +6,10 @@ import { WorkHomeOverview } from "./work-home-overview";
 import { workHomeMattersThrough } from "@/lib/work-home-overview";
 
 vi.mock("./activity-running-now", () => ({
-	ActivityRunningNow: () => (
+	ActivityRunningNow: ({ children }: { children: React.ReactNode }) => (
 		<section aria-label="Running now">
 			<a href="/work/items/running-work">Running task</a>
+			{children}
 		</section>
 	),
 }));

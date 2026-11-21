@@ -34,6 +34,16 @@ function render(
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	client.setQueryData(
+		osQuery.workItems.listAttemptProjection.queryOptions({
+			input: {
+				includeLaneState: false,
+				runtimeStates: ["queued", "running", "waiting", "retrying"],
+				limit: 100,
+			},
+		}).queryKey,
+		{ data: [], hasMore: false, nextCursor: null },
+	);
+	client.setQueryData(
 		osQuery.workInteractions.listInbox.queryOptions({
 			input: {
 				projectId: undefined,

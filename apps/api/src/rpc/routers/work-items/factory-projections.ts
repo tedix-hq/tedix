@@ -78,14 +78,16 @@ export const listAttemptProjectionProcedure =
 						summary: boundAttemptProjectionSummary(row.attempt.summary),
 					},
 					laneState:
-						row.attempt.metadata.lane === true
-							? await readLaneState(
-									context.db,
-									requireOrgId(context),
-									row.attempt.id,
-									now,
-								)
-							: null,
+						input.includeLaneState === false
+							? undefined
+							: row.attempt.metadata.lane === true
+								? await readLaneState(
+										context.db,
+										requireOrgId(context),
+										row.attempt.id,
+										now,
+									)
+								: null,
 				})),
 			),
 		};

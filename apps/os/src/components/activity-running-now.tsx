@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
 import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
@@ -22,9 +22,11 @@ import { ActivityHarnessScorecard } from "./activity-harness-scorecard";
 export function ActivityRunningNow({
 	config,
 	projectId,
+	children,
 }: {
 	config: ActivityFeedConfig;
 	projectId?: string;
+	children?: ReactNode;
 }) {
 	const scopes = projectId
 		? [projectId]
@@ -36,6 +38,7 @@ export function ActivityRunningNow({
 			...osQuery.workItems.listAttemptProjection.queryOptions({
 				input: {
 					projectId: id,
+					includeLaneState: false,
 					runtimeStates: ["queued", "running", "waiting", "retrying"],
 					limit: 100,
 				},
@@ -85,130 +88,139 @@ export function ActivityRunningNow({
 		.at(-1);
 	const healthFailed = health.isError || health.failureCount > 0;
 	return (
-		<Card aria-label="Running now" className="my-4 min-w-0">
-			<CardHeader>
-				<CardTitle>Running now</CardTitle>
-			</CardHeader>
-			<CardContent className="grid min-w-0 gap-3">
-				{failed && (
-					<WorkReadFailure
-						title="Could not load running work"
-						error={
-							queries.find((query) => query.error || query.failureReason)
-								?.error ??
-							queries.find((query) => query.failureReason)?.failureReason
-						}
-						onRetry={() => Promise.all(queries.map((query) => query.refetch()))}
-						retrying={queries.some((query) => query.isFetching)}
-					/>
-				)}
-				{rows.length > 0 ? (
-					<ul aria-label="Active attempts" className="grid min-w-0 gap-3">
-						{rows.map(({ attempt, workItem }) => {
-							const expired =
-								!!attempt.expiresAt &&
-								Date.parse(attempt.expiresAt) <= now.getTime();
-							return (
-								<li
-									key={attempt.id}
-									className="grid min-w-0 gap-1 border-t border-kumo-line pt-3"
-								>
-									<Link variant="record" href={`/work/items/${workItem.id}`}>
-										{/* "Copy skill <id> (Forum Scout)" reads as "Copy skill Forum Scout". */}
-										{plainFeedText(workItem.title) || workItem.title}
-									</Link>
-									<Text>
-										{workPrincipalTooltip(
-											attempt.executorType,
-											attempt.executorId,
-											names,
-										)}{" "}
-										·{" "}
-										{expired
-											? "No recent update"
-											: attempt.runtimeState === "running"
-												? "Working"
-												: attempt.runtimeState}
-									</Text>
-									<Text role="caption" tone="secondary">
-										Started{" "}
-										<time
-											dateTime={attempt.startedAt}
-											title={absoluteTime(attempt.startedAt)}
-										>
-											{relativeTime(attempt.startedAt, now)}
-										</time>
-									</Text>
-								</li>
-							);
-						})}
-					</ul>
-				) : (
-					<Text tone="secondary">
-						{failed
-							? "Current activity is unknown."
-							: pending
-								? "Checking running work…"
-								: "No work is running here."}
-					</Text>
-				)}
-				{failed && rows.length > 0 && (
-					<Text tone="secondary">
-						Showing the last update. Current activity may have changed.
-					</Text>
-				)}
-				{queries.some((query) => query.data?.hasMore) && (
-					<Link href="/work?view=feed&filter=queue">More running work</Link>
-				)}
-				{/* Runner statistics are for whoever operates the runners; they load on request. */}
-				<Collapsible open={scorecard} onOpenChange={setScorecard}>
-					<CollapsibleDefaultTrigger>
-						Runner scorecard · Last 24 h
-					</CollapsibleDefaultTrigger>
-					<CollapsibleDefaultContent>
-						<Text role="caption" aria-label="Runner health">
-							{healthFailed || !runners.length
-								? "Runners up: unknown"
-								: `Runners up: ${up.length} / ${runners.length}`}
-							{reports.length > fresh.length
-								? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
-								: ""}
-							{!healthFailed &&
-							fresh.some(
-								(lane) =>
-									lane.lane === "supervisor-lead" || lane.duty?.kind === "task",
-							)
-								? " · Supervisor reporting"
-								: " · Supervisor: unknown"}
-							{lastReport && (
-								<>
-									{" "}
-									· Last report{" "}
-									<time dateTime={lastReport} title={absoluteTime(lastReport)}>
-										{relativeTime(lastReport, now)}
-									</time>
-								</>
-							)}
+		<>
+			<Card aria-label="Running now" className="my-4 min-w-0">
+				<CardHeader>
+					<CardTitle>Running now</CardTitle>
+				</CardHeader>
+				<CardContent className="grid min-w-0 gap-3">
+					{failed && (
+						<WorkReadFailure
+							title="Could not load running work"
+							error={
+								queries.find((query) => query.error || query.failureReason)
+									?.error ??
+								queries.find((query) => query.failureReason)?.failureReason
+							}
+							onRetry={() =>
+								Promise.all(queries.map((query) => query.refetch()))
+							}
+							retrying={queries.some((query) => query.isFetching)}
+						/>
+					)}
+					{rows.length > 0 ? (
+						<ul aria-label="Active attempts" className="grid min-w-0 gap-3">
+							{rows.map(({ attempt, workItem }) => {
+								const expired =
+									!!attempt.expiresAt &&
+									Date.parse(attempt.expiresAt) <= now.getTime();
+								return (
+									<li
+										key={attempt.id}
+										className="grid min-w-0 gap-1 border-t border-kumo-line pt-3"
+									>
+										<Link variant="record" href={`/work/items/${workItem.id}`}>
+											{/* "Copy skill <id> (Forum Scout)" reads as "Copy skill Forum Scout". */}
+											{plainFeedText(workItem.title) || workItem.title}
+										</Link>
+										<Text>
+											{workPrincipalTooltip(
+												attempt.executorType,
+												attempt.executorId,
+												names,
+											)}{" "}
+											·{" "}
+											{expired
+												? "No recent update"
+												: attempt.runtimeState === "running"
+													? "Working"
+													: attempt.runtimeState}
+										</Text>
+										<Text role="caption" tone="secondary">
+											Started{" "}
+											<time
+												dateTime={attempt.startedAt}
+												title={absoluteTime(attempt.startedAt)}
+											>
+												{relativeTime(attempt.startedAt, now)}
+											</time>
+										</Text>
+									</li>
+								);
+							})}
+						</ul>
+					) : (
+						<Text tone="secondary">
+							{failed
+								? "Current activity is unknown."
+								: pending
+									? "Checking running work…"
+									: "No work is running here."}
 						</Text>
-						{healthFailed && (
-							<WorkReadFailure
-								title="Runner health unavailable"
-								error={health.error ?? health.failureReason}
-								onRetry={() => health.refetch()}
-								retrying={health.isFetching}
-							/>
-						)}
+					)}
+					{failed && rows.length > 0 && (
+						<Text tone="secondary">
+							Showing the last update. Current activity may have changed.
+						</Text>
+					)}
+					{queries.some((query) => query.data?.hasMore) && (
+						<Link href="/work?view=feed&filter=queue">More running work</Link>
+					)}
+					{/* Runner statistics are for whoever operates the runners; they load on request. */}
+					<Collapsible open={scorecard} onOpenChange={setScorecard}>
+						<CollapsibleDefaultTrigger>
+							Runner scorecard · Last 24 h
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
+							<Text role="caption" aria-label="Runner health">
+								{healthFailed || !runners.length
+									? "Runners up: unknown"
+									: `Runners up: ${up.length} / ${runners.length}`}
+								{reports.length > fresh.length
+									? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
+									: ""}
+								{!healthFailed &&
+								fresh.some(
+									(lane) =>
+										lane.lane === "supervisor-lead" ||
+										lane.duty?.kind === "task",
+								)
+									? " · Supervisor reporting"
+									: " · Supervisor: unknown"}
+								{lastReport && (
+									<>
+										{" "}
+										· Last report{" "}
+										<time
+											dateTime={lastReport}
+											title={absoluteTime(lastReport)}
+										>
+											{relativeTime(lastReport, now)}
+										</time>
+									</>
+								)}
+							</Text>
+							{healthFailed && (
+								<WorkReadFailure
+									title="Runner health unavailable"
+									error={health.error ?? health.failureReason}
+									onRetry={() => health.refetch()}
+									retrying={health.isFetching}
+								/>
+							)}
 
-						{scorecard && (
-							<ActivityHarnessScorecard
-								scopes={scopes}
-								reports={healthFailed ? [] : reports}
-								now={now.getTime()}
-							/>
-						)}
-					</CollapsibleDefaultContent>
-				</Collapsible>
-			</CardContent>
-		</Card>
+							{scorecard && (
+								<ActivityHarnessScorecard
+									scopes={scopes}
+									reports={healthFailed ? [] : reports}
+									now={now.getTime()}
+								/>
+							)}
+						</CollapsibleDefaultContent>
+					</Collapsible>
+				</CardContent>
+			</Card>
+			{(!pending || queries.some((query) => query.isPaused)) && children}
+		</>
 	);
 }

@@ -71,7 +71,21 @@ const recoveryReason: Record<string, string> = {
 	attempt_lease_elapsed: "The run stopped reporting",
 };
 
-export function WorkHomeOverview() {
+export function WorkHomeOverview({ children }: { children?: ReactNode }) {
+	return (
+		<section
+			aria-label="Work overview"
+			className="mx-auto grid w-full max-w-6xl gap-4 pb-6"
+		>
+			<ActivityRunningNow config={ORGANIZATION_ACTIVITY_CONFIG}>
+				<OverviewSections />
+				{children}
+			</ActivityRunningNow>
+		</section>
+	);
+}
+
+function OverviewSections() {
 	const [now] = useState(() => new Date());
 	const mattersThrough = workHomeMattersThrough(now);
 	const readiness = useQuery({
@@ -181,126 +195,118 @@ export function WorkHomeOverview() {
 		interactions.isError || workApprovals.isError || runtimeApprovals.isError;
 
 	return (
-		<section
-			aria-label="Work overview"
-			className="mx-auto grid w-full max-w-6xl gap-4 pb-6"
-		>
-			<ActivityRunningNow config={ORGANIZATION_ACTIVITY_CONFIG} />
-			<div className="grid gap-4 lg:grid-cols-3">
-				<Section title="Stuck">
-					{stuckFailed && (
-						<WorkReadFailure
-							title="Stuck Work unavailable"
-							error={readiness.error ?? recovery.error}
-						/>
-					)}
-					{stuck.size ? (
-						<Rows label="Stuck Work">
-							{[...stuck.values()].slice(0, SECTION_ROWS).map((row) => (
+		<div className="grid gap-4 lg:grid-cols-3">
+			<Section title="Stuck">
+				{stuckFailed && (
+					<WorkReadFailure
+						title="Stuck Work unavailable"
+						error={readiness.error ?? recovery.error}
+					/>
+				)}
+				{stuck.size ? (
+					<Rows label="Stuck Work">
+						{[...stuck.values()].slice(0, SECTION_ROWS).map((row) => (
+							<Row
+								key={row.id}
+								href={`/work/items/${encodeURIComponent(row.id)}`}
+								label={row.title}
+								detail={row.reason}
+							/>
+						))}
+					</Rows>
+				) : readiness.isPending || recovery.isPending ? (
+					<WorkListSkeleton label="Checking stuck Work" />
+				) : stuckFailed ? null : (
+					<Text tone="secondary">Nothing is blocked.</Text>
+				)}
+				{(stuck.size > SECTION_ROWS ||
+					readiness.data?.hasMore ||
+					recovery.data?.hasMore) && (
+					<Link href="/work?view=feed&filter=stalled">More stuck Work</Link>
+				)}
+			</Section>
+
+			<Section title="Needs you">
+				{needsFailed && (
+					<WorkReadFailure
+						title="Requests and approvals unavailable"
+						error={
+							interactions.error ??
+							workApprovals.error ??
+							runtimeApprovals.error
+						}
+					/>
+				)}
+				{needsYou.length ? (
+					<Rows label="Requests and approvals">
+						{needsYou.slice(0, SECTION_ROWS).map((item) => (
+							<Row
+								key={item.key}
+								href={item.href}
+								label={item.label}
+								detail={`${item.kind}${item.askedBy ? ` · ${item.askedBy}` : ""}`}
+							/>
+						))}
+					</Rows>
+				) : interactions.isPending ||
+				  workApprovals.isPending ||
+				  runtimeApprovals.isPending ? (
+					<WorkListSkeleton label="Checking Requests and approvals" />
+				) : needsFailed ? null : (
+					<Text tone="secondary">Nothing needs your answer.</Text>
+				)}
+				{(needsYou.length > 0 ||
+					interactions.data?.hasMore ||
+					workApprovals.data?.hasMore) && (
+					<Link href="/work?view=deck">All Decisions</Link>
+				)}
+			</Section>
+
+			<Section title="This week">
+				<Text tone="secondary">Due soon or high priority.</Text>
+				{matters.isError && (
+					<WorkReadFailure
+						title="This week's Work unavailable"
+						error={matters.error}
+					/>
+				)}
+				{matters.data?.data.length ? (
+					<Rows label="This week's Work">
+						{matters.data.data.slice(0, SECTION_ROWS).map((row) => {
+							const dueAt = row.deadline ?? row.dueDate;
+							const reason = [
+								row.priority === "critical"
+									? "Critical priority"
+									: row.priority === "high"
+										? "High priority"
+										: null,
+								dueAt ? `Due ${absoluteDate(dueAt)}` : null,
+							]
+								.filter(Boolean)
+								.join(" · ");
+							return (
 								<Row
 									key={row.id}
 									href={`/work/items/${encodeURIComponent(row.id)}`}
 									label={row.title}
-									detail={row.reason}
+									detail={reason}
 								/>
-							))}
-						</Rows>
-					) : readiness.isPending || recovery.isPending ? (
-						<WorkListSkeleton label="Checking stuck Work" />
-					) : stuckFailed ? null : (
-						<Text tone="secondary">Nothing is blocked.</Text>
-					)}
-					{(stuck.size > SECTION_ROWS ||
-						readiness.data?.hasMore ||
-						recovery.data?.hasMore) && (
-						<Link href="/work?view=feed&filter=stalled">More stuck Work</Link>
-					)}
-				</Section>
-
-				<Section title="Needs you">
-					{needsFailed && (
-						<WorkReadFailure
-							title="Requests and approvals unavailable"
-							error={
-								interactions.error ??
-								workApprovals.error ??
-								runtimeApprovals.error
-							}
-						/>
-					)}
-					{needsYou.length ? (
-						<Rows label="Requests and approvals">
-							{needsYou.slice(0, SECTION_ROWS).map((item) => (
-								<Row
-									key={item.key}
-									href={item.href}
-									label={item.label}
-									detail={`${item.kind}${item.askedBy ? ` · ${item.askedBy}` : ""}`}
-								/>
-							))}
-						</Rows>
-					) : interactions.isPending ||
-					  workApprovals.isPending ||
-					  runtimeApprovals.isPending ? (
-						<WorkListSkeleton label="Checking Requests and approvals" />
-					) : needsFailed ? null : (
-						<Text tone="secondary">Nothing needs your answer.</Text>
-					)}
-					{(needsYou.length > 0 ||
-						interactions.data?.hasMore ||
-						workApprovals.data?.hasMore) && (
-						<Link href="/work?view=deck">All Decisions</Link>
-					)}
-				</Section>
-
-				<Section title="This week">
-					<Text tone="secondary">Due soon or high priority.</Text>
-					{matters.isError && (
-						<WorkReadFailure
-							title="This week's Work unavailable"
-							error={matters.error}
-						/>
-					)}
-					{matters.data?.data.length ? (
-						<Rows label="This week's Work">
-							{matters.data.data.slice(0, SECTION_ROWS).map((row) => {
-								const dueAt = row.deadline ?? row.dueDate;
-								const reason = [
-									row.priority === "critical"
-										? "Critical priority"
-										: row.priority === "high"
-											? "High priority"
-											: null,
-									dueAt ? `Due ${absoluteDate(dueAt)}` : null,
-								]
-									.filter(Boolean)
-									.join(" · ");
-								return (
-									<Row
-										key={row.id}
-										href={`/work/items/${encodeURIComponent(row.id)}`}
-										label={row.title}
-										detail={reason}
-									/>
-								);
-							})}
-						</Rows>
-					) : matters.isPending ? (
-						<WorkListSkeleton label="Checking this week's Work" />
-					) : matters.isError ? null : (
-						<Text tone="secondary">
-							Nothing is due within seven days or marked high or critical
-							priority.
-						</Text>
-					)}
-					{((matters.data?.data.length ?? 0) > SECTION_ROWS ||
-						matters.data?.pagination.hasMore) && (
-						<Link href="/work?view=items&status=accepted">
-							All accepted Work
-						</Link>
-					)}
-				</Section>
-			</div>
-		</section>
+							);
+						})}
+					</Rows>
+				) : matters.isPending ? (
+					<WorkListSkeleton label="Checking this week's Work" />
+				) : matters.isError ? null : (
+					<Text tone="secondary">
+						Nothing is due within seven days or marked high or critical
+						priority.
+					</Text>
+				)}
+				{((matters.data?.data.length ?? 0) > SECTION_ROWS ||
+					matters.data?.pagination.hasMore) && (
+					<Link href="/work?view=items&status=accepted">All accepted Work</Link>
+				)}
+			</Section>
+		</div>
 	);
 }

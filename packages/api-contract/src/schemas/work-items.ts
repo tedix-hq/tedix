@@ -1044,6 +1044,10 @@ const WorkFactoryPageInputSchema = z
 
 export const ListWorkAttemptProjectionInputSchema =
 	WorkFactoryPageInputSchema.extend({
+		includeLaneState: z
+			.boolean()
+			.optional()
+			.describe("Include runner details for each attempt. Defaults to true."),
 		projectId: z
 			.uuid()
 			.optional()
