@@ -1661,13 +1661,12 @@ describe("dispatcher admission", () => {
 	it("runs settlement and completion before queued background reads", async () => {
 		const f = fixture();
 		const cli = f.deps.cli!;
-		let release!: () => void;
-		let blocked = false;
+		const releases: Array<() => void> = [];
+
 		f.deps.cli = async (args, ...rest) => {
-			if (!blocked) {
-				blocked = true;
+			if (releases.length < 3) {
 				await new Promise<void>((resolve) => {
-					release = resolve;
+					releases.push(resolve);
 				});
 			}
 			return cli(args, ...rest);
@@ -1679,14 +1678,18 @@ describe("dispatcher admission", () => {
 			"--input",
 			'{"dispatchReadyOnly":true}',
 		];
-		const current = dispatcher["call"](read);
-		await until(() => Boolean(release));
+		const current = Promise.all(
+			Array.from({ length: 3 }, () => dispatcher["call"](read)),
+		);
+		await until(() => releases.length === 3);
 		const background = dispatcher["call"](read);
 		const settle = dispatcher["call"](["work", "settle", item().id]);
 		const complete = dispatcher["call"](["work", "complete", item().id]);
-		release();
+		for (const release of releases) release();
 		await Promise.all([current, background, settle, complete]);
 		expect(f.events.map((event) => event.verb)).toEqual([
+			"dispatch-list",
+			"dispatch-list",
 			"dispatch-list",
 			"settle",
 			"complete",
@@ -1707,14 +1710,14 @@ describe("dispatcher admission", () => {
 			report = deps?.report;
 			return launch(args, deps);
 		};
-		let release!: () => void;
-		let block = false;
+		const releases: Array<() => void> = [];
+		let block = 0;
 		const cli = f.deps.cli!;
 		f.deps.cli = async (args, ...rest) => {
 			if (block) {
-				block = false;
+				block--;
 				await new Promise<void>((resolve) => {
-					release = resolve;
+					releases.push(resolve);
 				});
 			}
 			order.push(args[5]!);
@@ -1725,22 +1728,30 @@ describe("dispatcher admission", () => {
 			await dispatcher.tick();
 			await until(() => f.releases.length === 1);
 			order.length = 0;
-			block = true;
+			block = 3;
 			const read = [
 				"work",
 				"dispatch-list",
 				"--input",
 				'{"dispatchReadyOnly":true}',
 			];
-			const current = dispatcher["call"](read);
-			await until(() => Boolean(release));
+			const current = Promise.all(
+				Array.from({ length: 3 }, () => dispatcher["call"](read)),
+			);
+			await until(() => releases.length === 3);
 			const background = dispatcher["call"](read);
 			const finished = report!({ state: "done" }, options.scope);
-			release();
+			for (const release of releases) release();
 			await Promise.all([current, background, finished]);
-			expect(order).toEqual(["dispatch-list", "final-report", "dispatch-list"]);
+			expect(order).toEqual([
+				"dispatch-list",
+				"dispatch-list",
+				"dispatch-list",
+				"final-report",
+				"dispatch-list",
+			]);
 		} finally {
-			release?.();
+			for (const release of releases) release();
 			for (const done of f.releases) done();
 			await dispatcher.drain();
 		}
