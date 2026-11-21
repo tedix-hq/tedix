@@ -5,6 +5,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { getGovernedLearningScheduleStates } from "./flywheel/cron-executions";
 import {
+	listSkillSchedules,
 	listSkillSchedulesPage,
 	listDueSkillSchedules,
 	getSkillSchedule,
@@ -153,6 +154,60 @@ describe("skill schedule budget state", () => {
 				(row) => row.id,
 			),
 		).toEqual(["live-timer"]);
+	});
+
+	it("hides archived timers before pagination and restores their paused rows", async () => {
+		sqlite.exec(`
+			UPDATE skill_entries SET lifecycle_state = 'archived';
+			UPDATE skill_schedules SET enabled = 0;
+			INSERT INTO skill_entries (id, organization_id, lifecycle_state) VALUES
+				('live', 'org-1', NULL), ('foreign', 'org-2', 'archived');
+			INSERT INTO skill_schedules (id, organization_id, skill_id, tedi_id, cron, params, enabled, next_fire_at) VALUES
+				('live-timer', 'org-1', 'live', 'tedi-1', '0 8 * * *', '{}', 0, '2026-07-25T05:00:00.000Z'),
+				('foreign-timer', 'org-1', 'foreign', 'tedi-1', '0 8 * * *', '{}', 0, '2026-07-25T06:00:00.000Z');
+		`);
+		const filters = { enabled: false, tediId: "tedi-1", limit: 1 };
+		expect(
+			(await listSkillSchedules(db, "org-1", filters)).map((row) => row.id),
+		).toEqual(["live-timer"]);
+		const page = await listSkillSchedulesPage(db, "org-1", {
+			...filters,
+			query: "0",
+		});
+		expect(page.total).toBe(2);
+		expect(page.schedules.map((row) => row.id)).toEqual(["live-timer"]);
+		expect(
+			(
+				await listSkillSchedulesPage(db, "org-1", { ...filters, offset: 1 })
+			).schedules.map((row) => row.id),
+		).toEqual(["foreign-timer"]);
+		expect(
+			await listSkillSchedules(db, "org-1", { skillId: "skill-1" }),
+		).toEqual([]);
+		expect(
+			await listSkillSchedulesPage(db, "org-1", { skillId: "skill-1" }),
+		).toEqual({ schedules: [], total: 0 });
+		expect(await getSkillSchedule(db, "skill-1", "org-1")).toMatchObject({
+			id: "schedule-1",
+			enabled: false,
+			cron: "0 * * * *",
+		});
+		sqlite.exec(
+			"UPDATE skill_entries SET lifecycle_state = 'active' WHERE id = 'skill-1'",
+		);
+		for (const rows of [
+			await listSkillSchedules(db, "org-1", { skillId: "skill-1" }),
+			(await listSkillSchedulesPage(db, "org-1", { skillId: "skill-1" }))
+				.schedules,
+		]) {
+			expect(rows).toEqual([
+				expect.objectContaining({
+					id: "schedule-1",
+					enabled: false,
+					cron: "0 * * * *",
+				}),
+			]);
+		}
 	});
 
 	it("fixes archived enabled timers across organizations and reports an idempotent count", () => {
