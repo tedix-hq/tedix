@@ -46,6 +46,10 @@ const chunkSchema = jsonSchema<Chunk>(
 	},
 );
 
+export class IncompleteAutoRouterStreamError extends Error {
+	readonly name = "IncompleteAutoRouterStreamError";
+}
+
 /**
  * Convert parsed provider deltas immediately; complete tools only after a
  * terminal receipt. Thinking a model writes inline in content becomes
@@ -197,7 +201,7 @@ export function autoRouterSdkStream(
 			},
 			flush(controller) {
 				if (!finishReason || !usage)
-					throw new Error(
+					throw new IncompleteAutoRouterStreamError(
 						"Incomplete Auto Router stream: missing finish or usage receipt",
 					);
 				emit(controller, splitter.end());

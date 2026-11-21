@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { withModelFallback } from "./model-fallback";
+import { autoRouterSdkStream } from "./auto-router-stream";
 import type { ModelFallbackPolicy } from "@tedix/api-contract/schemas/model-fallback";
 const a = "azure-openai/gpt-6.1-sol",
 	b = "azure-openai/gpt-6-luna";
@@ -132,6 +133,112 @@ describe("governed model fallback", () => {
 });
 
 describe("stream fallback boundaries", () => {
+	it.each([
+		{ choices: [{ delta: {} }] },
+		{ choices: [{ delta: {}, finish_reason: "stop" }] },
+		{ choices: [], usage: { prompt_tokens: 1, completion_tokens: 0 } },
+	])(
+		"moves an incomplete empty Auto stream down the governed ladder: %j",
+		async (frame) => {
+			const primary = vi.fn(async () => ({
+				stream: autoRouterSdkStream(
+					new ReadableStream({
+						start(c) {
+							c.enqueue(
+								new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`),
+							);
+							c.close();
+						},
+					}),
+					undefined,
+				),
+			}));
+			const second = vi.fn(async () => ({
+				stream: new ReadableStream({
+					start(c) {
+						c.enqueue({ type: "text-delta", delta: "judgment" });
+						c.close();
+					},
+				}),
+			}));
+			const record = vi.fn(async (_step: unknown) => {});
+			const model = withModelFallback(
+				{ doStream: primary },
+				{
+					primaryRef: "cloudflare/auto",
+					load: async () => ({
+						version: 1,
+						maxTransitions: 1,
+						ladder: { "cloudflare/auto": [b] },
+					}),
+					resolve: () => ({ doStream: second }),
+					record,
+				},
+			);
+			const result = await model.doStream();
+			expect((await result.stream.getReader().read()).value).toEqual({
+				type: "text-delta",
+				delta: "judgment",
+			});
+			expect(primary).toHaveBeenCalledTimes(1);
+			expect(second).toHaveBeenCalledTimes(1);
+			expect(record).toHaveBeenCalledWith({
+				from: "cloudflare/auto",
+				to: b,
+				reason: "provider_unavailable",
+				ordinal: 1,
+				policyVersion: 1,
+			});
+			expect(record.mock.invocationCallOrder[0]).toBeLessThan(
+				second.mock.invocationCallOrder[0]!,
+			);
+		},
+	);
+	it.each([
+		{ content: "partial judgment" },
+		{
+			tool_calls: [
+				{ index: 0, id: "call", function: { name: "save", arguments: "{}" } },
+			],
+		},
+	])(
+		"never replays an incomplete Auto stream after output: %j",
+		async (delta) => {
+			const first = {
+				doStream: async () => ({
+					stream: autoRouterSdkStream(
+						new ReadableStream({
+							start(c) {
+								c.enqueue(
+									new TextEncoder().encode(
+										`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`,
+									),
+								);
+								c.close();
+							},
+						}),
+						undefined,
+					),
+				}),
+			};
+			const load = vi.fn(async () => policy);
+			const model = withModelFallback(first, {
+				primaryRef: "cloudflare/auto",
+				load,
+				resolve: () => first,
+				record: async () => {},
+			});
+			const result = await model.doStream();
+			await expect(
+				(async () => {
+					for await (const _part of result.stream) {
+						/* consume until terminal error */
+					}
+				})(),
+			).rejects.toThrow("Incomplete Auto Router stream");
+			expect(load).not.toHaveBeenCalled();
+		},
+	);
 	it("falls back for an error frame before output and cancels the failed reader", async () => {
 		let cancelled = false;
 		const first = {
