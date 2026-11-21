@@ -112,7 +112,7 @@ describe("canonical hybrid recall D1 queries", () => {
 			).map((f) => f.factId),
 		).toEqual(["decision"]);
 	});
-	it("searches a long message by its least common words", async () => {
+	it("searches by the least common words of a long or short message", async () => {
 		const prepared: string[] = [];
 		const { db, add } = fixture((query) => prepared.push(query));
 		const common =
@@ -130,9 +130,11 @@ describe("canonical hybrid recall D1 queries", () => {
 		expect(prepared.some((query) => query.includes("_recall_vocab"))).toBe(
 			true,
 		);
-		// A short query keeps every term.
+		// A short query drops a word most facts contain.
 		expect(
-			(await lexicalRecall(db, live, "cobalt")).map((fact) => fact.factId),
+			(await lexicalRecall(db, live, "the cobalt vessel")).map(
+				(fact) => fact.factId,
+			),
 		).toEqual(["target"]);
 	});
 	it("records bounded tenant-fenced recall access without increasing confidence", async () => {

@@ -95,22 +95,24 @@ function eligible(scope: RecallScope): SQL {
 	)!;
 }
 
-/** Short queries search every term; longer ones keep their least common terms. */
+/** A search keeps at most this many of its least common terms. */
 export const LEXICAL_RECALL_MAX_TERMS = 8;
 
 /**
- * A long message (a whole chat turn) becomes an OR of up to 24 words, and one
- * common word makes FTS5 score most of the shared index before the tenant
- * filter applies. Keep the least common terms by index document count, the
- * way long prompts are searched elsewhere. Terms the index does not hold
- * match nothing and are dropped; terms the tokenizer splits or folds
- * (hyphens, accents) cannot be looked up and are kept.
+ * A search is an OR of its words, and one common word ("the", "check") makes
+ * FTS5 score most of the shared index before the tenant filter applies:
+ * about 20,000 rows per call on 21 Nov 2026, for long and short queries
+ * alike. Keep the least common terms by index document count and drop terms
+ * far more common than the rarest one; BM25 gives those little weight.
+ * Terms the index does not hold match nothing and are dropped; terms the
+ * tokenizer splits or folds (hyphens, accents) cannot be looked up and are
+ * kept.
  */
 async function selectLexicalTerms(
 	db: DbQueryClient,
 	terms: string[],
 ): Promise<string[]> {
-	if (terms.length <= LEXICAL_RECALL_MAX_TERMS) return terms;
+	if (terms.length <= 1) return terms;
 	let rows: { term: string; doc: number }[];
 	try {
 		rows = await db
