@@ -39,6 +39,12 @@ export function observeWorkspaceEvent(state, event, elapsedMs) {
 		return;
 	}
 	if (state.turnId === null || event.turnId !== state.turnId) return;
+	if (event.type === "turn.model" && event.model) state.model = event.model;
+	if (event.type === "step.finished") {
+		state.steps = (state.steps ?? 0) + 1;
+		if (event.status === "error")
+			state.toolErrors = (state.toolErrors ?? 0) + 1;
+	}
 	if (
 		state.firstTokenMs === null &&
 		event.type === "assistant.delta" &&
@@ -50,6 +56,7 @@ export function observeWorkspaceEvent(state, event, elapsedMs) {
 	if (event.type === "turn.finished") {
 		state.finished = true;
 		state.status = event.status;
+		if (typeof event.error === "string") state.error = event.error;
 	}
 }
 
@@ -59,8 +66,11 @@ export function tableRows(results) {
 		transport: result.transport,
 		"first token": formatMs(result.firstTokenMs),
 		"final answer": formatMs(result.finalMs),
+		steps: result.steps ?? 0,
+		"tool errors": result.toolErrors ?? 0,
+		empty: result.answer?.trim() ? "" : "EMPTY",
 		correct: result.ok ? "PASS" : "FAIL",
-		missing: result.missing.join(", "),
+		missing: result.error ?? result.missing.join(", "),
 	}));
 }
 
@@ -247,11 +257,13 @@ async function runHomeFixture(fixture, options) {
 async function runWorkspaceFixture(fixture, options) {
 	const authorization = process.env.TEDIX_OS_AUTHORIZATION;
 	const cookie = process.env.TEDIX_OS_COOKIE;
-	if (!authorization && !cookie)
-		throw new Error("Set TEDIX_OS_AUTHORIZATION or TEDIX_OS_COOKIE");
 	if (!process.env.TEDIX_OS_URL)
 		throw new Error("Set TEDIX_OS_URL to the tenant OS origin");
 	const base = new URL(process.env.TEDIX_OS_URL);
+	// `bun run-local` signs in a local owner itself; only remote OS needs auth.
+	const local = ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
+	if (!authorization && !cookie && !local)
+		throw new Error("Set TEDIX_OS_AUTHORIZATION or TEDIX_OS_COOKIE");
 	base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
 	base.pathname = `/workspace/${encodeURIComponent(options.workspaceId)}/chat`;
 	const started = performance.now();
@@ -261,7 +273,10 @@ async function runWorkspaceFixture(fixture, options) {
 		conversationId: null,
 		finished: false,
 		firstTokenMs: null,
+		model: null,
 		status: "running",
+		steps: 0,
+		toolErrors: 0,
 		turnId: null,
 	};
 	const headers = {
@@ -300,6 +315,7 @@ async function runWorkspaceFixture(fixture, options) {
 						clientTurnId: state.clientTurnId,
 						conversationId: null,
 						text: fixture.question,
+						...(options.model ? { modelId: options.model } : {}),
 					}),
 				);
 				return;
@@ -310,7 +326,11 @@ async function runWorkspaceFixture(fixture, options) {
 			if (!state.finished) return;
 			state.status === "done"
 				? finish()
-				: finish(new Error(`Workspace turn ended ${state.status}`));
+				: finish(
+						new Error(
+							`Workspace turn ended ${state.status}${state.error ? `: ${state.error}` : ""}`,
+						),
+					);
 		});
 		socket.addEventListener("error", () =>
 			finish(new Error("Workspace WebSocket failed")),
@@ -320,33 +340,56 @@ async function runWorkspaceFixture(fixture, options) {
 		answer: state.answer,
 		finalMs: performance.now() - started,
 		firstTokenMs: state.firstTokenMs,
+		model: state.model,
 		runId: state.turnId,
+		steps: state.steps,
+		toolErrors: state.toolErrors,
 	};
 }
 
 export async function runBenchmark(fixtures, options) {
 	const results = [];
-	for (const fixture of fixtures) {
-		const measured =
-			options.transport === "home"
-				? await runHomeFixture(fixture, options)
-				: await runWorkspaceFixture(fixture, options);
-		results.push({
-			id: fixture.id,
-			transport: options.transport,
-			...measured,
-			...scoreAnswer(fixture, measured.answer),
-		});
-	}
+	for (let round = 0; round < (options.repeat ?? 1); round++)
+		for (const fixture of fixtures) {
+			const started = performance.now();
+			try {
+				const measured =
+					options.transport === "home"
+						? await runHomeFixture(fixture, options)
+						: await runWorkspaceFixture(fixture, options);
+				results.push({
+					id: fixture.id,
+					transport: options.transport,
+					...measured,
+					...scoreAnswer(fixture, measured.answer),
+				});
+			} catch (error) {
+				// One failed turn is a measured result, not the end of the run.
+				results.push({
+					id: fixture.id,
+					transport: options.transport,
+					answer: "",
+					error: error instanceof Error ? error.message : String(error),
+					finalMs: performance.now() - started,
+					firstTokenMs: null,
+					missing: [],
+					ok: false,
+					runId: null,
+				});
+			}
+		}
 	return results;
 }
 
 async function main() {
 	const { values } = parseArgs({
 		options: {
+			fixtures: { type: "string" },
 			help: { type: "boolean", short: "h" },
+			model: { type: "string" },
 			organization: { type: "string", default: process.env.TEDIX_ORGANIZATION },
 			profile: { type: "string", default: "connect" },
+			repeat: { type: "string", default: "1" },
 			"timeout-ms": { type: "string", default: String(DEFAULT_TIMEOUT_MS) },
 			transport: { type: "string", default: "home" },
 			"workspace-id": {
@@ -357,7 +400,13 @@ async function main() {
 	});
 	if (values.help) {
 		console.log(
-			"Usage: bun scripts/bench-workspace-chat/run.mjs --transport home|workspace --workspace-id <uuid> --organization <slug>",
+			[
+				"Usage: bun scripts/bench-workspace-chat/run.mjs --transport home|workspace --workspace-id <uuid> --organization <slug>",
+				"  [--fixtures <path>] [--model <id>] [--repeat <n>] [--timeout-ms <ms>]",
+				"--model picks a configured workspace chat model (workspace transport only).",
+				"Local stack: TEDIX_OS_URL=http://localhost:3030 needs no auth; use",
+				"--fixtures scripts/bench-workspace-chat/local-demo-fixtures.json with `bun run-local --demo`.",
+			].join("\n"),
 		);
 		return;
 	}
@@ -370,12 +419,20 @@ async function main() {
 	const timeoutMs = Number(values["timeout-ms"]);
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
 		throw new Error("--timeout-ms must be a positive number");
+	const repeat = Number(values.repeat);
+	if (!Number.isInteger(repeat) || repeat < 1)
+		throw new Error("--repeat must be a positive integer");
 	const fixtures = JSON.parse(
-		await readFile(new URL("./fixtures.json", import.meta.url), "utf8"),
+		await readFile(
+			values.fixtures ?? new URL("./fixtures.json", import.meta.url),
+			"utf8",
+		),
 	);
 	const results = await runBenchmark(fixtures, {
 		organization: values.organization,
+		model: values.model,
 		profile: values.profile,
+		repeat,
 		timeoutMs,
 		transport: values.transport,
 		workspaceId: values["workspace-id"],
@@ -383,7 +440,7 @@ async function main() {
 	console.table(tableRows(results));
 	for (const result of results) {
 		console.log(`\n${result.id} answer:\n${result.answer.trim() || "(empty)"}`);
-		console.log(`run: ${result.runId}`);
+		console.log(`run: ${result.runId} model: ${result.model ?? "n/a"}`);
 	}
 	if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
