@@ -1434,7 +1434,7 @@ const STEP_COUNT: Record<ChatStep["kind"], ((count: number) => string) | null> =
 		think: () => "summarised the conversation",
 	};
 
-/** A finished turn's steps in one line: "Read 3 items, ran 1 script". */
+/** Summarize the work done; the expanded list keeps the individual calls. */
 function stepsSummary(steps: readonly ChatStep[]): string {
 	const counts = new Map<ChatStep["kind"], number>();
 	for (const step of steps) {
@@ -1442,6 +1442,7 @@ function stepsSummary(steps: readonly ChatStep[]): string {
 		if (step.kind === "code" && step.tool !== "run_code") continue;
 		counts.set(step.kind, (counts.get(step.kind) ?? 0) + 1);
 	}
+	if (counts.has("read") || counts.has("write")) counts.delete("code");
 	const line = [...counts]
 		.map(([kind, count]) => STEP_COUNT[kind]?.(count))
 		.filter(Boolean)

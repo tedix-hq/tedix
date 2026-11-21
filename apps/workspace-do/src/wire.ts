@@ -542,7 +542,8 @@ export function stepLabel(
 		},
 		apps: {
 			list: "Listing apps",
-			getCode: "Reading app source",
+			access: "Checking gadget access",
+			getCode: "Reading gadget code",
 			versions: "Listing app versions",
 			readFile: "Reading an app file",
 			grep: "Searching app files",
@@ -554,12 +555,12 @@ export function stepLabel(
 			restoreVersion: "Staging an earlier app version",
 		},
 		resources: {
-			list: "Listing connected sources",
+			list: "Checking connections",
 			requestConnection: "Asking for a connected account",
 		},
 		accounts: {
-			list: "Listing linked accounts",
-			describe: "Looking up connected account read tools",
+			list: "Checking connected accounts",
+			describe: "Checking what the account can read",
 			read: "Reading from a connected account",
 		},
 		views: { show: "Showing a view" },
@@ -572,7 +573,7 @@ export function stepLabel(
 			call: "Using the tedi's tool",
 		},
 		machine: {
-			list: "Listing machines",
+			list: "Finding computers",
 			call: "Using a machine",
 			read: "Reading a machine's answer",
 		},
