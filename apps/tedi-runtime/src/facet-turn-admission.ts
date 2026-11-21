@@ -23,6 +23,8 @@ const PERSON_WAIT_FRESH_MS = 45_000;
 /** Never queue a promise in the DO: the caller must release its Workflow step. */
 export class FacetTurnAdmission {
 	private readonly active = new Set<string>();
+	/** Admitted turns no person is waiting on. */
+	private readonly background = new Set<string>();
 	/** Deferred turns a signed-in person started, by the time they last asked. */
 	private readonly waitingPeople = new Map<string, number>();
 
@@ -38,6 +40,10 @@ export class FacetTurnAdmission {
 	 * `person` marks a turn a signed-in person started from the chat. While one
 	 * waits, a freed slot is kept for it: scheduled and other background turns
 	 * stay deferred until it has been admitted or has stopped asking.
+	 *
+	 * With more than one slot, background turns never fill them all: one is
+	 * left for a person, so a long scheduled turn cannot keep someone waiting
+	 * until it ends.
 	 */
 	async run<T>(
 		runId: string,
@@ -48,7 +54,9 @@ export class FacetTurnAdmission {
 		if (
 			this.active.has(runId) ||
 			this.active.size >= this.limit ||
-			(!person && this.personWaiting())
+			(!person &&
+				(this.personWaiting() ||
+					this.background.size >= Math.max(1, this.limit - 1)))
 		) {
 			if (person && !this.active.has(runId))
 				this.waitingPeople.set(runId, this.now());
@@ -64,11 +72,13 @@ export class FacetTurnAdmission {
 		// Claim synchronously before context, tool or facet allocation. Work lease
 		// renewal is outside this gate so queued delegated turns retain authority.
 		this.active.add(runId);
+		if (!person) this.background.add(runId);
 		this.waitingPeople.delete(runId);
 		try {
 			return await turn();
 		} finally {
 			this.active.delete(runId);
+			this.background.delete(runId);
 		}
 	}
 

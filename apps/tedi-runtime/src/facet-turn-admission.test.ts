@@ -101,4 +101,28 @@ assert.equal(turnRetryDelaySeconds("stable"), turnRetryDelaySeconds("stable"));
 	nowMs += 60_000;
 	assert.equal(await gate.run("scheduled-4", async () => "ran"), "ran");
 }
+// Long background turns leave a slot free for a person's turn.
+{
+	const gate = new FacetTurnAdmission(2);
+	let finish!: () => void;
+	const holder = gate.run(
+		"observer-1",
+		() => new Promise<void>((resolve) => (finish = resolve)),
+	);
+	assert.equal(
+		(
+			(await gate.run("observer-2", async () => "ran")) as {
+				stopReason?: string;
+			}
+		).stopReason,
+		"turn_deferred",
+		"a second background turn cannot take the last slot",
+	);
+	assert.equal(
+		await gate.run("home-delegation", async () => "ran", { person: true }),
+		"ran",
+	);
+	finish();
+	await holder;
+}
 console.log("facet-turn-admission OK");

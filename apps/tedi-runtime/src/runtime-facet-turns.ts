@@ -2469,12 +2469,14 @@ export const runtimeFacetTurns = {
 									: run();
 							},
 							// A signed-in person's chat message, sent to this tedi directly
-							// or to a tedi they picked in the chat, goes before waiting
+							// or to a tedi they picked in the chat, and a task Home handed
+							// over while someone waits in the Home chat, go before waiting
 							// scheduled turns.
 							{
 								person:
 									input.personalRequest === true ||
-									Boolean(input.personChatConversationId),
+									Boolean(input.personChatConversationId) ||
+									Boolean(input.workItemId && input.homeRunId),
 							},
 						),
 				);
