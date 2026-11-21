@@ -8,17 +8,27 @@ import {
 } from "./local-origin";
 
 export function openLocalTedix(): void {
+	const executable = app.getPath("exe");
 	const args = app.isPackaged ? ["--local"] : [app.getAppPath(), "--local"];
-	const child = spawn(app.getPath("exe"), args, {
+	const mac = process.platform === "darwin";
+	// Launch Services registers a separate, foreground Mac app instance.
+	const launchArgs = mac
+		? ["-na", join(executable, "../../.."), "--args", ...args]
+		: args;
+	const child = spawn(mac ? "/usr/bin/open" : executable, launchArgs, {
 		detached: true,
 		stdio: "ignore",
 	});
-	child.once("error", () =>
+	const showError = () =>
 		dialog.showErrorBox(
 			"Could not open Local Tedix",
 			"Try opening it again from the Tedix menu.",
-		),
-	);
+		);
+	child.once("error", showError);
+	if (mac)
+		child.once("exit", (code) => {
+			if (code !== 0) showError();
+		});
 	child.unref();
 }
 
