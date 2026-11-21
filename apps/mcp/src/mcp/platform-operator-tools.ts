@@ -1507,13 +1507,6 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "read",
 	},
 	{
-		toolId: "audit_tedi_backups",
-		endpoint: "tedis/auditBackups",
-		kind: "read",
-		description:
-			"Read-only fleet backup audit for the current organization. Checks backup handles, R2 object presence, freshness, and restore readiness without waking containers.",
-	},
-	{
 		toolId: "wake_tedi",
 		endpoint: "tedis/wake",
 		kind: "write",

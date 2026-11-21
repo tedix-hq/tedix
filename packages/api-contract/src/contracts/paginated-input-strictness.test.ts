@@ -105,11 +105,6 @@ const cases = [
 		input: { search: "example", includeRetired: true },
 	},
 	{ name: "templates", procedure: templatesContract.list, input: {} },
-	{
-		name: "backup audit",
-		procedure: tedisContract.auditBackups,
-		input: { maxBackupAgeHours: 24, includeR2: true },
-	},
 ];
 
 describe.each(cases)("$name pagination input", ({ procedure, input }) => {
@@ -160,7 +155,6 @@ test("optional collection inputs still accept omission", () => {
 		tediObjectivesContract.list,
 		tediObjectivesContract.listTasks,
 		tedisContract.list,
-		tedisContract.auditBackups,
 	]) {
 		expect(
 			procedure["~orpc"].inputSchemas[0]!.parse(undefined),
