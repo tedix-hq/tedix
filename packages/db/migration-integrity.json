@@ -1844,6 +1844,10 @@
 		{
 			"name": "20261121165230_direct_workers_ai_execution/migration.sql",
 			"sha256": "33e47f5b55333e96538da7e182e68d0e9455bf44a39926c0e5cbd3ec49f0a207"
+		},
+		{
+			"name": "20261121181929_memory-recall-term-vocabulary/migration.sql",
+			"sha256": "8351eac80084ca9baa7d19f31501f94ab181a2399ca116bb38768350a42b4beb"
 		}
 	]
 }

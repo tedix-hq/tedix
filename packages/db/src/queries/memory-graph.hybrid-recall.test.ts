@@ -66,6 +66,15 @@ function fixture(onPrepare?: (query: string) => void) {
 			"utf8",
 		),
 	);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../drizzle/20261121181929_memory-recall-term-vocabulary/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const db = createDbClient(createD1Facade(sqlite, { onPrepare }));
 	const add = (
 		id: string,
@@ -86,6 +95,30 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("searches a long message by its least common words", async () => {
+		const prepared: string[] = [];
+		const { db, add } = fixture((query) => prepared.push(query));
+		const common =
+			"please could you check what we decided about the work today and tell me";
+		for (let i = 0; i < 12; i++) add(`common-${i}`, `${common} filler ${i}`);
+		add("target", "The cobalt vessel ships from Rotterdam");
+		add("foreign", "cobalt vessel rotterdam", "fictional-b");
+		const live = { ...scope, now: undefined };
+		const recalled = await lexicalRecall(
+			db,
+			live,
+			`${common} about the cobalt vessel from rotterdam`,
+		);
+		expect(recalled[0]?.factId).toBe("target");
+		expect(recalled.map((fact) => fact.factId)).not.toContain("foreign");
+		expect(prepared.some((query) => query.includes("_recall_vocab"))).toBe(
+			true,
+		);
+		// A short query keeps every term.
+		expect(
+			(await lexicalRecall(db, live, "cobalt")).map((fact) => fact.factId),
+		).toEqual(["target"]);
+	});
 	it("records bounded tenant-fenced recall access without increasing confidence", async () => {
 		const prepared: string[] = [];
 		const { db, add, sqlite } = fixture((query) => prepared.push(query));
