@@ -302,6 +302,10 @@ export interface TediWorkspaceFs {
 	readFile(path: string): Promise<string | null>;
 	readFileBytes(path: string): Promise<Uint8Array | null>;
 	writeFile(path: string, content: string): Promise<void>;
+	writeFileStream(
+		path: string,
+		content: ReadableStream<Uint8Array>,
+	): Promise<void>;
 	writeFileBytes(path: string, data: Uint8Array | ArrayBuffer): Promise<void>;
 	appendFile(path: string, content: string | Uint8Array): Promise<void>;
 	exists(path: string): Promise<boolean>;
@@ -575,6 +579,13 @@ export function adaptVfsToWorkspaceFs(
 			}
 		},
 		async writeFile(path: string, content: string): Promise<void> {
+			await ensureParentDir(fs, toVfsPath(path));
+			await fs.writeFile(toVfsPath(path), content);
+		},
+		async writeFileStream(
+			path: string,
+			content: ReadableStream<Uint8Array>,
+		): Promise<void> {
 			await ensureParentDir(fs, toVfsPath(path));
 			await fs.writeFile(toVfsPath(path), content);
 		},
