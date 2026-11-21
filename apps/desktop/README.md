@@ -149,6 +149,26 @@ The app writes one line per sign-in, setup and update step to
 copy run from source). It holds page addresses without anything after `?` or
 `#`, and no tokens, codes or keys.
 
+## Chat with a local model
+
+Choose **Open Local Model Chat** from the Mac app’s **Tedix** menu or the menu
+bar icon. This window needs no Tedix account or Local Tedix workspace stack.
+You can also open it directly:
+
+```sh
+open -na /Applications/Tedix.app --args --local-model
+```
+
+Start [Ollama](https://docs.ollama.com/api/openai-compatibility) with a downloaded
+model, or start the [LM Studio local server](https://lmstudio.ai/docs/developer/core/server)
+with a model available on this Mac. Choose the server, refresh the model list,
+and select a model. The default ports are 11434 for Ollama and 1234 for LM
+Studio. The composer shows the active model, and replies appear as text arrives.
+
+Tedix connects to the local server at `127.0.0.1` without API credentials.
+Choose a model on this Mac for on-device inference. Chats last until you close
+the window or start a new chat.
+
 ## Use Local Tedix without a Cloud account
 
 Run `bun run-local` from the Tedix source checkout. In the Mac app's **Tedix**

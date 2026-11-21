@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"
+		/>
+		<title>Local Model Chat</title>
+		<link rel="stylesheet" href="ui.css" />
+		<style>
+			body {
+				display: grid;
+				grid-template-rows: auto minmax(0, 1fr) auto;
+			}
+			header,
+			footer {
+				padding: 16px clamp(16px, 4vw, 36px);
+			}
+			header {
+				border-bottom: 1px solid var(--border);
+			}
+			h1 {
+				margin: 0 0 12px;
+				font-size: 20px;
+			}
+			.controls,
+			.actions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 8px;
+				align-items: end;
+			}
+			.controls label {
+				display: grid;
+				gap: 4px;
+			}
+			#port {
+				width: 82px;
+			}
+			.model-control {
+				flex: 1 1 168px;
+				min-width: 0;
+			}
+			select,
+			input,
+			textarea {
+				background: var(--card);
+				color: var(--foreground);
+				border: 1px solid var(--input);
+				border-radius: var(--radius-small);
+				font: inherit;
+				padding: 7px 10px;
+			}
+			#model {
+				min-width: 0;
+			}
+			button {
+				min-height: 34px;
+				border: 1px solid var(--input);
+				border-radius: var(--radius-small);
+				background: var(--card);
+				color: var(--foreground);
+				padding: 4px 12px;
+				font: inherit;
+			}
+			button:disabled {
+				opacity: 0.55;
+			}
+			#send {
+				background: var(--primary);
+				color: var(--primary-foreground);
+				border-color: var(--primary);
+			}
+			#connection {
+				margin: 8px 0 0;
+				min-height: 1.45em;
+				color: var(--muted-foreground);
+			}
+			main {
+				overflow-y: auto;
+				padding: 16px clamp(16px, 4vw, 36px);
+			}
+			#messages {
+				display: grid;
+				gap: 16px;
+				max-width: 680px;
+				margin-inline: auto;
+			}
+			#empty {
+				color: var(--muted-foreground);
+				text-align: center;
+				margin: 16vh 0 0;
+			}
+			.turn {
+				display: grid;
+				gap: 4px;
+				overflow-wrap: anywhere;
+			}
+			.turn.user {
+				justify-self: end;
+				max-width: 85%;
+			}
+			.turn.user div {
+				background: var(--muted);
+				border-radius: var(--radius);
+				padding: 8px 12px;
+			}
+			.turn span {
+				color: var(--muted-foreground);
+				font-size: 12px;
+			}
+			.turn div {
+				white-space: pre-wrap;
+			}
+			footer {
+				border-top: 1px solid var(--border);
+			}
+			textarea {
+				display: block;
+				width: 100%;
+				resize: vertical;
+				min-height: 65px;
+				max-height: 180px;
+			}
+			.actions {
+				margin-top: 8px;
+				justify-content: space-between;
+				align-items: center;
+			}
+			#active-model {
+				color: var(--muted-foreground);
+				overflow-wrap: anywhere;
+			}
+			#notice {
+				color: var(--muted-foreground);
+				margin: 8px 0 0;
+				min-height: 1.45em;
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>Local Model Chat</h1>
+			<div class="controls">
+				<label
+					>Server
+					<select id="provider">
+						<option value="ollama">Ollama</option>
+						<option value="lmstudio">LM Studio</option>
+					</select>
+				</label>
+				<label
+					>Port
+					<input id="port" type="number" min="1" max="65535" value="11434"
+				/></label>
+				<label class="model-control"
+					>Model
+					<select id="model" disabled></select
+				></label>
+				<button id="refresh" type="button">Refresh models</button>
+			</div>
+			<p id="connection" role="status"></p>
+		</header>
+		<main aria-label="Conversation" id="conversation">
+			<div id="messages"></div>
+			<p id="empty">Choose a model on this Mac to start chatting.</p>
+		</main>
+		<footer>
+			<form id="composer">
+				<textarea
+					id="prompt"
+					aria-label="Message"
+					maxlength="48000"
+					placeholder="Message the local model…"
+				></textarea>
+				<div class="actions">
+					<span id="active-model"></span>
+					<div>
+						<button id="new-chat" type="button">New chat</button>
+						<button id="stop" type="button" hidden>Stop</button>
+						<button id="send" type="submit" disabled>Send</button>
+					</div>
+				</div>
+				<p id="notice" role="status"></p>
+			</form>
+		</footer>
+		<script src="out/local-model-chat.js"></script>
+	</body>
+</html>

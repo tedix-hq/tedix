@@ -1,6 +1,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openLocalTedix, reloadLocalTedix } from "./local-mode";
+import { openLocalModelChat } from "./local-model-window";
 import {
 	app,
 	BrowserWindow,
@@ -1278,6 +1279,7 @@ function setMenu(): void {
 					setUp,
 					runnersItem(),
 					{ label: "Open Local Tedix", click: () => openLocalTedix() },
+					{ label: "Open Local Model Chat", click: openLocalModelChat },
 					// Offered only while it is needed: signing in again when already
 					// signed in opens a browser page that leads nowhere.
 					appSignIn.state === "in"
@@ -1437,6 +1439,7 @@ function trayMenu(): Menu {
 	return Menu.buildFromTemplate([
 		{ label: "Open Tedix", click: showMain },
 		{ label: "Open Local Tedix", click: () => openLocalTedix() },
+		{ label: "Open Local Model Chat", click: openLocalModelChat },
 		{ label: "New Chat…", click: () => openInputBar() },
 		{ type: "separator" },
 		// A line on the runners only when something is off: paused, stopped or failing.
@@ -1676,7 +1679,21 @@ const appLink = (args: string[]) =>
 	args.find((arg) => arg.startsWith("tedix://"));
 
 if (!app.requestSingleInstanceLock()) app.quit();
-else {
+else if (process.argv.includes("--local-model")) {
+	void app.whenReady().then(() => {
+		Menu.setApplicationMenu(
+			Menu.buildFromTemplate([
+				{ role: "appMenu" },
+				{ role: "editMenu" },
+				{ role: "windowMenu" },
+			]),
+		);
+		app.on("activate", openLocalModelChat);
+		app.on("second-instance", openLocalModelChat);
+		app.on("window-all-closed", () => app.quit());
+		openLocalModelChat();
+	});
+} else {
 	if (app.isPackaged) app.setAsDefaultProtocolClient("tedix");
 	// macOS hands a clicked link over here; other systems pass it as an argument.
 	app.on("open-url", (event, url) => {
@@ -1826,6 +1843,7 @@ else {
 		});
 
 		app.on("second-instance", (_event, args) => {
+			if (args.includes("--local-model")) return openLocalModelChat();
 			// `open -na Tedix.app --args --local`: the Local Tedix window of this app.
 			if (args.some((arg) => arg.startsWith("--local")))
 				return openLocalTedix(args);
