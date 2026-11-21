@@ -36,8 +36,10 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import type { ChatSearch } from "@/lib/canvas-search";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
-import { WORKSPACE_NAME_MAX_CHARS } from "@/lib/workspace-first-message";
 import { LoadingArea } from "@/components/loading-area";
+
+/** Workspace names are capped at 120 characters by the contract. */
+const WORKSPACE_NAME_MAX_CHARS = 120;
 
 /**
  * "Save as workspace" for a chat that has none: the conversation and the

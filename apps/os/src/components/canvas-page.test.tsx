@@ -375,7 +375,6 @@ import {
 	restoreCanvasChatWidth,
 	workspaceConnectionContext,
 } from "./canvas-page";
-import { holdWorkspaceFirstMessage } from "@/lib/workspace-first-message";
 import { canvasWorkpieceModeOptions } from "./canvas-workpiece-tabs";
 import { parseOutputDraft } from "@/lib/canvas-draft";
 import {
@@ -1206,18 +1205,6 @@ describe("groupWorkspaceLibrary", () => {
 // ---------------------------------------------------------------------------
 
 describe("CanvasPage listing", () => {
-	it("sends a question held by Home chat as the workspace's first message, once", async () => {
-		mockLists();
-		holdWorkspaceFirstMessage(WORKSPACE_ID, "Plan the spring offsite");
-		renderPage();
-		await flush();
-		const send = vi.fn();
-		act(() => chatHarness.onSendMessageReady?.(send));
-		act(() => chatHarness.onSendMessageReady?.(send));
-		expect(send).toHaveBeenCalledOnce();
-		expect(send).toHaveBeenCalledWith("Plan the spring offsite");
-	});
-
 	it("opens a repository session without querying Output content or creating Work", async () => {
 		mockLists();
 		const workId = "11111111-1111-4111-8111-111111111111";
