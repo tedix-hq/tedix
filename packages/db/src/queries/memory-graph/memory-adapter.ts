@@ -1,3 +1,5 @@
+import { recordOwnerInstructionEdges } from "../decision-graph-writers";
+import { refreshConsolidatedForFact } from "./observations";
 import { hashValue } from "@tedix/agent-governance/hash";
 import type {
 	Actor,
@@ -33,6 +35,21 @@ export function factReviewState(
 			return "pending";
 	}
 }
+export type FactReviewUpdates = Partial<
+	Pick<
+		MemoryFact,
+		| "reviewStatus"
+		| "usePolicy"
+		| "priority"
+		| "visibility"
+		| "topicKey"
+		| "archivedAt"
+		| "status"
+		| "lastVerifiedAt"
+		| "metadata"
+	>
+>;
+
 const factStatus = {
 	pending: "pending",
 	approved: "confirmed",
@@ -127,7 +144,7 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 			.set({
 				...updates,
 				metadata: {
-					...fact.metadata,
+					...(updates.metadata ?? fact.metadata),
 					memoryAdapterRevisions: JSON.parse(
 						JSON.stringify(revisions),
 					) as JsonValue,
@@ -149,12 +166,13 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 	private async append(
 		input: MemoryWriteInput,
 		rolledBackFrom?: string,
+		factReview?: { fact: MemoryFact; updates: FactReviewUpdates },
 	): Promise<MemoryRevision> {
 		if (!input.key.trim()) throw new Error("Memory key must be nonempty");
 		const snapshot = JSON.parse(JSON.stringify(input)) as MemoryWriteInput;
 		if (!("value" in snapshot)) throw new Error("Memory value must be JSON");
 		const hash = await hashValue(snapshot.value);
-		const fact = await this.fact(snapshot.key);
+		const fact = factReview?.fact ?? (await this.fact(snapshot.key));
 		const revisions = fact ? await this.revisions(fact) : [];
 		const revision: MemoryRevision = {
 			...snapshot,
@@ -168,7 +186,10 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		revisions.push(revision);
 		const updates = {
 			content: contentFor(snapshot.value),
-			reviewStatus: factStatus[revision.review],
+			...factReview?.updates,
+			reviewStatus: factReview
+				? (factReview.updates.reviewStatus ?? factReview.fact.reviewStatus)
+				: factStatus[revision.review],
 			updatedAt: revision.writtenAt,
 		};
 		if (fact) await this.save(fact, revisions, updates);
@@ -189,8 +210,30 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 			});
 		return revision;
 	}
-	write(input: MemoryWriteInput): Promise<MemoryRevision> {
-		return this.append(input);
+	/** Fact reviews keep lifecycle fields and the revision in the same CAS write. */
+	async write(
+		input: MemoryWriteInput,
+		factReview?: { fact: MemoryFact; updates: FactReviewUpdates },
+	): Promise<MemoryRevision> {
+		if (
+			factReview &&
+			(factReview.fact.organizationId !== this.organizationId ||
+				factReview.fact.id !== input.key)
+		)
+			throw new Error("Memory review does not match the organization and key");
+		const revision = await this.append(input, undefined, factReview);
+		if (factReview) {
+			const updated = await this.fact(input.key);
+			if (updated) {
+				await recordOwnerInstructionEdges(this.db, updated);
+				await refreshConsolidatedForFact(
+					this.db,
+					{ organizationId: this.organizationId },
+					input.key,
+				);
+			}
+		}
+		return revision;
 	}
 	async read(key: string): Promise<MemoryEntry | null> {
 		const fact = await this.fact(key);
