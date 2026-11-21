@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.15 — 2026-11-21
+
+### Patch Changes
+
+- 59146f0: Free runner capacity while a task waits for tool approval, then resume the same task and agent session after approval.
+- e8ecb07: Add `--task-contract <json|@path>` to Work create, delegate and accept so admitted agents can allocate complete child task contracts.
+- c615cef: Show the short build commit after the package version in locally built standalone binaries. Official release builds continue to report the plain version.
+- 1d5b8f3: Wait before retrying task starts refused by admission, including refusals returned through the gateway.
+- 06b8961: Keep successful runner results through temporary server or connection errors, then retry evidence checks and recording the result with increasing delays.
+
 ## 0.29.14 — 2026-11-21
 
 ### Patch Changes
