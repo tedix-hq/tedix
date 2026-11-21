@@ -474,7 +474,11 @@ export async function fallbackRecall(
 	return filterEvidenceBackedLessons(db, scope, rows);
 }
 
-/** Record retrieval frequency without changing fact confidence. */
+/**
+ * Count at most one retrieval per fact every five minutes. Expertise uses this
+ * approximate frequency; lifecycle readers retain freshness within five minutes.
+ * The SQL fence also throttles concurrent searches across Worker isolates.
+ */
 export async function recordRecallAccess(
 	db: DbQueryClient,
 	tenantScope: TenantScope,
@@ -483,10 +487,12 @@ export async function recordRecallAccess(
 ): Promise<void> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!recordAccess || !ids.length) return;
+	const now = new Date();
+	const cutoff = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
 	await db
 		.update(memoryFacts)
 		.set({
-			lastAccessedAt: new Date().toISOString(),
+			lastAccessedAt: now.toISOString(),
 			accessCount: sql`${memoryFacts.accessCount} + 1`,
 		})
 		// `+organization_id` keeps the tenant fence without letting the planner
@@ -496,6 +502,10 @@ export async function recordRecallAccess(
 			and(
 				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(ids)].slice(0, 100))}))`,
 				sql`+${memoryFacts.organizationId} = ${orgId}`,
+				or(
+					isNull(memoryFacts.lastAccessedAt),
+					sql`${memoryFacts.lastAccessedAt} <= ${cutoff}`,
+				),
 			),
 		);
 }
