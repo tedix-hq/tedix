@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import {
 	DecisionEnvelopeSchema,
 	DecisionSourcesSchema,
@@ -10,7 +10,7 @@ import { auditEvents } from "../../schema/audit-events";
 import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
 import { getWorkItemById } from "./crud";
 import { decisionRelevantWorkComment } from "./comments";
-import { workItemComments } from "../../schema/work-items";
+import { workItemComments, workItems } from "../../schema/work-items";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { workInteractions } from "../../schema/work-factory";
 
@@ -50,11 +50,104 @@ type SourceReview =
 			reviewable?: { through: string; note: string };
 	  };
 
+/**
+ * Cited Work and their comment counts, read once for a page of cards. A card
+ * whose cited Work and comment count still match needs no further read; the
+ * inbox otherwise ran two or three reads per cited Work for every card
+ * (72 D1 queries for one inbox page on 21 Nov 2026).
+ */
+export type DecisionSourcePrefetch = {
+	works: Map<
+		string,
+		{ disposition: string; version: number; executorId: string | null }
+	>;
+	commentCounts: Map<string, number>;
+};
+
+function citedWorkIds(request: Request): string[] {
+	const ids: string[] = [];
+	const lane = laneBlockerAsk(request);
+	if (lane) ids.push(lane.workItemId);
+	const envelope = DecisionEnvelopeSchema.safeParse(
+		request.metadata.decisionDeck,
+	);
+	for (const raw of [
+		request.metadata.decisionSources,
+		envelope.success ? envelope.data.sources : undefined,
+	]) {
+		if (raw === undefined) continue;
+		const sources = DecisionSourcesSchema.safeParse(raw);
+		if (!sources.success) continue;
+		for (const source of sources.data)
+			if (source.kind === "work") ids.push(source.id);
+	}
+	return ids;
+}
+
+export async function prefetchDecisionSources(
+	db: DbQueryClient,
+	orgId: string,
+	requests: Request[],
+): Promise<DecisionSourcePrefetch> {
+	const ids = [...new Set(requests.flatMap(citedWorkIds))];
+	const prefetch: DecisionSourcePrefetch = {
+		works: new Map(),
+		commentCounts: new Map(),
+	};
+	if (!ids.length) return prefetch;
+	const [works, comments] = await db.batch([
+		db
+			.select({
+				id: workItems.id,
+				disposition: workItems.disposition,
+				version: workItems.version,
+				executorId: workItems.executorId,
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, orgId),
+					sql`${workItems.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+				),
+			),
+		db
+			.select({
+				workItemId: workItemComments.workItemId,
+				comments: count(),
+			})
+			.from(workItemComments)
+			.where(
+				and(
+					eq(workItemComments.orgId, orgId),
+					sql`${workItemComments.workItemId} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+				),
+			)
+			.groupBy(workItemComments.workItemId),
+	]);
+	for (const work of works) prefetch.works.set(work.id, work);
+	for (const id of ids)
+		prefetch.commentCounts.set(
+			id,
+			Number(comments.find((row) => row.workItemId === id)?.comments ?? 0),
+		);
+	return prefetch;
+}
+
+async function citedWork(
+	db: DbQueryClient,
+	orgId: string,
+	id: string,
+	prefetch?: DecisionSourcePrefetch,
+) {
+	if (prefetch?.commentCounts.has(id)) return prefetch.works.get(id) ?? null;
+	return (await getWorkItemById(db, id, orgId)) ?? null;
+}
+
 export async function decisionSourcesReview(
 	db: DbQueryClient,
 	orgId: string,
 	request: Request,
-	options: { reviewedThrough?: string } = {},
+	options: { reviewedThrough?: string; prefetch?: DecisionSourcePrefetch } = {},
 ): Promise<SourceReview> {
 	const current = { current: true } as const;
 	const changed = { current: false } as const;
@@ -74,7 +167,7 @@ export async function decisionSourcesReview(
 		// A runner's permission card cites one Work version. Its Allow is fenced
 		// on that version, executor and owner, so comments such as the runner's
 		// own notes leave the ask unchanged; a new version gets a new card.
-		const work = await getWorkItemById(db, lane.workItemId, orgId);
+		const work = await citedWork(db, orgId, lane.workItemId, options.prefetch);
 		return work?.disposition === "accepted" &&
 			work.version === lane.workVersion &&
 			String(work.executorId ?? "") === lane.executor
@@ -143,6 +236,7 @@ export async function decisionSourcesReview(
 				source,
 				request,
 				options.reviewedThrough,
+				options.prefetch,
 			);
 			if (match === false) return changed;
 			if (match !== true && (!reviewable || match.through > reviewable.through))
@@ -243,11 +337,18 @@ async function decisionSourceMatches(
 	source: DecisionSource,
 	request: Request,
 	reviewedThrough?: string,
+	prefetch?: DecisionSourcePrefetch,
 ): Promise<boolean | { through: string; note: string }> {
 	switch (source.kind) {
 		case "work": {
-			const work = await getWorkItemById(db, source.id, orgId);
+			const work = await citedWork(db, orgId, source.id, prefetch);
 			if (!work || work.version !== source.version) return false;
+			// Same answer as the full count below, without reading again.
+			const prefetched = prefetch?.commentCounts.get(source.id);
+			if (prefetched !== undefined) {
+				if (prefetched === source.commentCount) return true;
+				if (prefetched < source.commentCount) return false;
+			}
 			const relevant = decisionRelevantWorkComment(request);
 			const [comments] = await db
 				.select({

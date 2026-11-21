@@ -1,5 +1,6 @@
 import {
 	decisionSourcesReview,
+	prefetchDecisionSources,
 	retireDecisionSourceCard,
 } from "@tedix/db/queries/work-items/decision-sources";
 import { listWorkInteractionInbox } from "@tedix/db/queries/work-items/interactions";
@@ -28,12 +29,17 @@ export async function refreshDecisionSourceCards(
 			observedAt: now,
 			cursor,
 		});
+		const prefetch = await prefetchDecisionSources(
+			db,
+			orgId,
+			page.data.map((row) => row.request),
+		);
 		for (const { request, workItem } of page.data) {
 			scanned++;
 			const handled = deckCardHandled({ request, workItem });
 			const review = handled
 				? { current: false, reviewable: undefined }
-				: await decisionSourcesReview(db, orgId, request);
+				: await decisionSourcesReview(db, orgId, request, { prefetch });
 			// New comments can be reviewed in the answer flow. Retiring the card
 			// here would remove that opportunity before the person can read them.
 			if (review.current || review.reviewable) continue;

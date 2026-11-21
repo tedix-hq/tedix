@@ -21,6 +21,7 @@ import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
 import { bindCardPresentationSource } from "../../services/card-presentation-source";
 import {
 	decisionSourcesReview,
+	prefetchDecisionSources,
 	DECISION_SOURCE_CHANGED,
 } from "@tedix/db/queries/work-items/decision-sources";
 import { refreshDecisionSourceCards } from "../../services/decision-sources";
@@ -1368,11 +1369,16 @@ const listInboxProcedure = readOs.listInbox.handler(
 			observedAt,
 		});
 		// Keep the database cursor even when every card in this page is withheld.
+		const prefetch = await prefetchDecisionSources(
+			context.db,
+			orgId,
+			page.data.map((row) => row.request),
+		);
 		const current = await Promise.all(
 			page.data.map((row) =>
-				decisionSourcesReview(context.db, orgId, row.request).then(
-					(review) => review.current || Boolean(review.reviewable),
-				),
+				decisionSourcesReview(context.db, orgId, row.request, {
+					prefetch,
+				}).then((review) => review.current || Boolean(review.reviewable)),
 			),
 		);
 		page.data = page.data.filter((_, index) => current[index]);
