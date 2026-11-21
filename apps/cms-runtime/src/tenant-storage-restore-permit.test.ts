@@ -18,13 +18,20 @@ import {
 	reconcileCmsRestoreOuterPermits,
 } from "@tedix/db/queries/cms-restore-fences";
 
-import { EmDashDB } from "./emdash-db";
+import { EmDashDB, type EmDashDBStub } from "./emdash-db";
 import { TenantEmDashDB, TenantR2, TenantSession } from "./index";
 import {
 	CmsRestoreFenceUnavailableError,
 	withCmsRestoreResponsePermit,
 } from "./tenant-restore-fence";
 import { PublicRestorePermits } from "./public-restore-permits";
+import { cachedTenantPage, pageCacheEntry } from "./tenant-page-cache";
+import {
+	NATIVE_PAGE_HEADER,
+	PAGE_REVISION_HEADER,
+	nativePageBucket,
+	type PageCacheRevisions,
+} from "./native-page-cache";
 
 const platformD1 = (env as unknown as { PLATFORM_DB: D1Database }).PLATFORM_DB;
 const db = createDbQueryClient(platformD1);
@@ -737,6 +744,114 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 	// One guard for each DELETE; the ten SELECTs and response borrows add no queries.
 	expect(counts.writeChecks).toBe(10);
 	expect(counts.queries).toBe(12);
+}, 20_000);
+
+test("native body publication preserves a sibling cache entry and shared changes invalidate it", async () => {
+	const identity = await site();
+	const namespace = (
+		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+	).DB_DO;
+	const stub = namespace.get(
+		namespace.idFromName(identity.slug),
+	) as unknown as EmDashDBStub;
+	await stub.query(
+		"CREATE TABLE ec_pages (id TEXT PRIMARY KEY, status TEXT, content TEXT, title TEXT, version INTEGER, updated_at TEXT)",
+	);
+	await stub.query(
+		"INSERT INTO ec_pages VALUES ('entry-a', 'published', 'before', 'A', 1, 'before'), ('entry-b', 'published', 'before', 'B', 1, 'before')",
+	);
+	const config = async (): Promise<PageCacheRevisions> =>
+		JSON.parse(
+			(
+				await platformD1
+					.prepare("SELECT config FROM cms_sites WHERE id = ?")
+					.bind(identity.siteId)
+					.first<{ config: string | null }>()
+			)?.config ?? "{}",
+		);
+	const bodies = new Map<string, string>();
+	const serve = async (id: string, declared = true) => {
+		const tasks: Promise<unknown>[] = [];
+		const response = await cachedTenantPage({
+			cache: (caches as unknown as { default: Cache }).default,
+			key: new Request(
+				`https://cache.example/${identity.slug}/${id}/${declared}`,
+			),
+			templateSlug: "tedix",
+			pathname: "/page",
+			revisions: await config(),
+			waitUntil: (task) => tasks.push(task),
+			render: async () => {
+				const result = await stub.queryWithRestorePermit(
+					identity,
+					"SELECT * FROM ec_pages WHERE id = ?",
+					[id],
+				);
+				const response = new Response(String(result.rows[0]?.content), {
+					headers: { "Content-Type": "text/html", [NATIVE_PAGE_HEADER]: id },
+				});
+				if (!declared) response.headers.delete(NATIVE_PAGE_HEADER);
+				return response;
+			},
+		});
+		bodies.set(id, await response.text());
+		await Promise.all(tasks);
+		expect(response.headers.has(NATIVE_PAGE_HEADER)).toBe(false);
+		expect(response.headers.has(PAGE_REVISION_HEADER)).toBe(false);
+		return response.headers.get("X-Tedix-Page-Cache");
+	};
+	expect(nativePageBucket("entry-a")).not.toBe(nativePageBucket("entry-b"));
+	await (caches as unknown as { default: Cache }).default.put(
+		new Request(`https://cache.example/${identity.slug}/entry-a/true`),
+		pageCacheEntry(
+			new Response("legacy", { headers: { "Content-Type": "text/html" } }),
+			{ freshSeconds: 1800, staleSeconds: 0 },
+			Date.now(),
+		),
+	);
+	expect(await serve("entry-a")).toBe("MISS");
+	expect(await serve("entry-b")).toBe("MISS");
+	expect(await serve("entry-b", false)).toBe("MISS");
+	const shared = (await config()).pageCacheSharedRevision;
+	await stub.query(
+		"CREATE TABLE revisions (id TEXT PRIMARY KEY, collection TEXT, entry_id TEXT, data TEXT)",
+	);
+	await stub.queryWithRestorePermit(
+		identity,
+		'insert into "revisions" ("id", "collection", "entry_id", "data") values (?, ?, ?, ?)',
+		["rev-a", "pages", "entry-a", "{}"],
+	);
+	expect((await config()).pageCacheSharedRevision).toBe(shared);
+	expect(await serve("entry-b")).toBe("HIT");
+	expect(await serve("entry-a")).toBe("MISS");
+	await stub.queryWithRestorePermit(
+		identity,
+		'UPDATE "ec_pages" SET "content" = ?, "version" = version + 1 WHERE "id" = ?',
+		["after", "entry-a"],
+	);
+	expect((await config()).pageCacheSharedRevision).toBe(shared);
+	expect(await serve("entry-b")).toBe("HIT");
+	expect(await serve("entry-a")).toBe("MISS");
+	expect(await serve("entry-b", false)).toBe("MISS");
+	expect(bodies.get("entry-a")).toBe("after");
+	await stub.queryWithRestorePermit(
+		identity,
+		'UPDATE "ec_pages" SET "title" = ? WHERE "id" = ?',
+		["New title", "entry-a"],
+	);
+	expect((await config()).pageCacheSharedRevision).not.toBe(shared);
+	expect(await serve("entry-b")).toBe("MISS");
+	await stub.query(
+		"CREATE TRIGGER update_sibling AFTER UPDATE ON ec_pages BEGIN UPDATE ec_pages SET content = 'triggered' WHERE id = 'entry-b'; END",
+	);
+	await stub.queryWithRestorePermit(
+		identity,
+		"UPDATE ec_pages SET content = ? WHERE id = ?",
+		["trigger", "entry-a"],
+	);
+	expect(await serve("entry-b")).toBe("MISS");
+	expect(bodies.get("entry-b")).toBe("triggered");
+	await reservationExpiry();
 }, 20_000);
 
 test("page-cache revision changes on tenant writes but not reads", async () => {

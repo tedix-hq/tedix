@@ -85,6 +85,8 @@ describe("CMS site create on D1", () => {
 			.prepare(`EXPLAIN QUERY PLAN ${query}`)
 			.all(
 				input.revision,
+				"$.pageCacheSharedRevision",
+				input.revision,
 				input.siteId,
 				input.slug,
 				input.restoreEpoch,
@@ -125,6 +127,7 @@ describe("CMS site create on D1", () => {
 		expect((await getCmsSiteBySlug(db, "first"))?.config).toEqual({
 			seo: { title: "Retained" },
 			pageCacheRevision: "revision-one",
+			pageCacheSharedRevision: "revision-one",
 		});
 		for (const other of [
 			{ ...input, siteId: "another" },
@@ -135,6 +138,17 @@ describe("CMS site create on D1", () => {
 		expect(
 			(await getCmsSiteBySlug(db, "first"))?.config?.pageCacheRevision,
 		).toBe("revision-one");
+		await rotateCmsSitePageCacheRevision(db, {
+			...input,
+			revision: "entry-change",
+			entryBucket: 7,
+		});
+		expect((await getCmsSiteBySlug(db, "first"))?.config).toEqual({
+			seo: { title: "Retained" },
+			pageCacheRevision: "entry-change",
+			pageCacheSharedRevision: "revision-one",
+			pageCacheEntryRevisions: { "7": "entry-change" },
+		});
 	});
 	it("resolves a provider-bound www alias only while its owner retains the apex", async () => {
 		const { db, sqlite } = fixture();

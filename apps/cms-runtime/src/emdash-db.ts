@@ -38,6 +38,12 @@ import {
 } from "@tedix/db/queries/cms-restore-fences";
 import { rotateCmsSitePageCacheRevision } from "@tedix/db/queries/cms-sites";
 import {
+	nativePageBodyChange,
+	nativePageBucket,
+	nativePageUpdateId,
+	nativePageRevisionInsertId,
+} from "./native-page-cache";
+import {
 	CMS_RECOVERY_DIGEST_ALGORITHM,
 	cmsRecoveryPrefix,
 	isCmsRecoveryControl,
@@ -206,6 +212,7 @@ export class EmDashDB extends EmdashSqlDB {
 	 * hold content older than the next write, so that write needs no rotation. */
 	private pageCacheRotated = false;
 	private pageCacheReadSinceRotation = false;
+	private pageCacheLastTarget: number | undefined;
 
 	private pageCacheEffect(
 		{ sql, params }: DoQueryStatement,
@@ -263,6 +270,33 @@ export class EmDashDB extends EmdashSqlDB {
 		statements: DoQueryStatement[],
 		run: () => Promise<T>,
 	): Promise<T> {
+		const statement = statements.length === 1 ? statements[0] : undefined;
+		const entryId =
+			statement && nativePageUpdateId(statement.sql, statement.params);
+		const revisionEntryId =
+			statement && nativePageRevisionInsertId(statement.sql, statement.params);
+		const revisionInsert =
+			revisionEntryId &&
+			this.ctx.storage.sql
+				.exec(
+					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'revisions' AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND lower(tbl_name) = 'revisions')",
+				)
+				.toArray().length === 1;
+		const nativeTable =
+			entryId &&
+			this.ctx.storage.sql
+				.exec(
+					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ec_pages' AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND lower(tbl_name) = 'ec_pages')",
+				)
+				.toArray().length === 1;
+		const readEntry = () =>
+			this.ctx.storage.sql
+				.exec<Record<string, SqlStorageValue>>(
+					"SELECT * FROM ec_pages WHERE id = ?",
+					entryId!,
+				)
+				.toArray()[0];
+		const before = nativeTable ? readEntry() : undefined;
 		let results: DoQueryResult[] | undefined;
 		try {
 			const result = await run();
@@ -273,16 +307,25 @@ export class EmDashDB extends EmdashSqlDB {
 				this.pageCacheEffect(statement, results?.[index]),
 			);
 			if (effects.includes("read")) this.pageCacheReadSinceRotation = true;
+			const entryBucket =
+				results && revisionInsert
+					? nativePageBucket(revisionEntryId!)
+					: results && nativeTable && nativePageBodyChange(before, readEntry())
+						? nativePageBucket(entryId!)
+						: undefined;
 			if (
 				effects.includes("content") &&
-				(!this.pageCacheRotated || this.pageCacheReadSinceRotation)
+				(!this.pageCacheRotated ||
+					this.pageCacheReadSinceRotation ||
+					this.pageCacheLastTarget !== entryBucket)
 			) {
 				this.pageCacheRotated = true;
 				this.pageCacheReadSinceRotation = false;
+				this.pageCacheLastTarget = entryBucket;
 				try {
 					await rotateCmsSitePageCacheRevision(
 						createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
-						{ ...identity, revision: crypto.randomUUID() },
+						{ ...identity, revision: crypto.randomUUID(), entryBucket },
 					);
 				} catch (error) {
 					this.pageCacheRotated = false;

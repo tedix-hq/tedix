@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
 	getBundle: vi.fn(),
 	permit: vi.fn(),
 	lookupOrg: vi.fn(),
+	sweep: vi.fn(async () => 0),
+}));
+
+vi.mock("./cms-restore-permit-leases", () => ({
+	sweepCmsRestorePermitLeases: mocks.sweep,
 }));
 
 vi.mock("@tedix/db/queries/cms-sites", () => ({
@@ -33,6 +38,10 @@ vi.mock("./public-proxy", async (importOriginal) => ({
 import cmsRuntime from "./index";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { pageCacheEntry, pageCacheKey } from "./tenant-page-cache";
+import {
+	PAGE_REVISION_HEADER,
+	pageRevisionFingerprint,
+} from "./native-page-cache";
 import { publicRestorePermitEligible } from "./public-restore-permits";
 
 beforeEach(() => {
@@ -296,7 +305,15 @@ describe("early public restore gate", () => {
 				pageCacheEntry(
 					new Response(
 						'<html><head></head><body><section data-native-lead-attribution="{}">cached page</section></body></html>',
-						{ headers: { "Content-Type": "text/html" } },
+						{
+							headers: {
+								"Content-Type": "text/html",
+								[PAGE_REVISION_HEADER]: pageRevisionFingerprint(
+									new Headers(),
+									{},
+								),
+							},
+						},
 					),
 					{ freshSeconds: 1800, staleSeconds: 0 },
 					Date.now(),
@@ -315,6 +332,7 @@ describe("early public restore gate", () => {
 				expect(await warm.text()).toContain(String.raw`test\&quot;&amp;`);
 				expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
 				expect(mocks.getBundle).toHaveBeenCalledOnce();
+				expect(mocks.sweep).toHaveBeenCalledOnce();
 
 				currentTheme = "body { color: blue; }";
 				for (const method of ["GET", "HEAD"]) {

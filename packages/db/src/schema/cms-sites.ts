@@ -14,6 +14,8 @@ export interface CmsSiteConfig {
 	/** Workflow receipt holding exclusive deploy admission until terminal. */
 	deployAdmission?: string;
 	pageCacheRevision?: string;
+	pageCacheSharedRevision?: string;
+	pageCacheEntryRevisions?: Record<string, string>;
 	branding?: Record<string, JsonValue>;
 	socialLinks?: Record<string, JsonValue>;
 	seo?: Record<string, JsonValue>;
