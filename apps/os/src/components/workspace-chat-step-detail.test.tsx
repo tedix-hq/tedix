@@ -204,7 +204,7 @@ describe("what the agent did", () => {
 		const fake = fakeWorkspaceChatClient("c1");
 		mount(fake);
 		act(() => fake.feed(turn(...codeStep)));
-		await click(button("Ran 1 script, read 1 item"));
+		await click(button("Read 1 item"));
 		expect(details()).toEqual([]);
 
 		await click(button("Running code against the workspace"));

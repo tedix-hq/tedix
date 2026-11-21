@@ -69,6 +69,7 @@ function fixture(ask = false) {
 		},
 		listApps: async () => [],
 		listAppVersions: async () => [],
+		getAppAccess: async () => [],
 		getAppCode: async () => {
 			throw new Error("unused");
 		},

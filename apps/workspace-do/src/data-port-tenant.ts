@@ -524,11 +524,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		}));
 	}
 
-	async listAppVersions(input: { appId: string }): Promise<AppVersion[]> {
-		const { appId } = z
-			.object({ appId: z.string().min(1) })
-			.strict()
-			.parse(input);
+	private async activeGadget(appId: string) {
 		const app = await getOsGadget(this.deps.core, {
 			organizationId: this.deps.organizationId,
 			gadgetId: appId,
@@ -539,6 +535,34 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			app.status !== "active"
 		)
 			throw new Error("App not found in this workspace");
+		return app;
+	}
+
+	async getAppAccess(input: { appId: string }) {
+		const { appId } = z
+			.object({ appId: z.string().min(1) })
+			.strict()
+			.parse(input);
+		const app = await this.activeGadget(appId);
+		if (!app.currentRevisionId) throw new Error("App has no saved version");
+		const revision = await getOsGadgetRevision(this.deps.core, {
+			organizationId: this.deps.organizationId,
+			revisionId: app.currentRevisionId,
+		});
+		if (!revision || revision.gadgetId !== app.id)
+			throw new Error("App version not found");
+		const manifest = OsGadgetManifestSchema.parse(
+			JSON.parse(revision.manifest),
+		);
+		return manifest.resourceGrants ?? [];
+	}
+
+	async listAppVersions(input: { appId: string }): Promise<AppVersion[]> {
+		const { appId } = z
+			.object({ appId: z.string().min(1) })
+			.strict()
+			.parse(input);
+		const app = await this.activeGadget(appId);
 		const rows = await listOsGadgetRevisions(
 			this.deps.core,
 			{ organizationId: this.deps.organizationId, gadgetId: app.id },
@@ -569,16 +593,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			})
 			.strict()
 			.parse(input);
-		const app = await getOsGadget(this.deps.core, {
-			organizationId: this.deps.organizationId,
-			gadgetId: parsed.appId,
-		});
-		if (
-			!app ||
-			app.workspaceId !== this.deps.workspaceId ||
-			app.status !== "active"
-		)
-			throw new Error("App not found in this workspace");
+		const app = await this.activeGadget(parsed.appId);
 
 		const pending =
 			!parsed.revisionId && this.deps.conversationId

@@ -296,6 +296,7 @@ export function buildWorkspaceBindings(
 				message: "The schedule is off until a person turns it on.",
 			};
 		},
+		access: (input: { appId: string }) => data.getAppAccess(input),
 		getCode: (input: { appId: string; revisionId?: string }) =>
 			data.getAppCode(input),
 		versions: (input: { appId: string }) => data.listAppVersions(input),
@@ -699,6 +700,7 @@ export function buildWorkspaceBindings(
 					blastRadius: "single_resource",
 				},
 				list: { riskTier: "read", blastRadius: "none" },
+				access: { riskTier: "read", blastRadius: "none" },
 				getCode: { riskTier: "read", blastRadius: "none" },
 				versions: { riskTier: "read", blastRadius: "none" },
 				readFile: { riskTier: "read", blastRadius: "none" },

@@ -172,6 +172,8 @@ interface AppCode { id: string; name: string; revision: number; revisionId: stri
 interface Apps {
   /** Register a new scheduled run. It stays off until a person switches it on in chat, Activity or Connections. Tell the person it is off. */
   registerSchedule(input: { appId: string; expectedRevisionId: string; schedule: { id: string; kind: "schedule"; cron: string; method: string; args?: unknown[] } }): Promise<{ gadgetId: string; triggerId: string; name: string; enabled: false; message: string }>;
+  /** Workspace resources the saved gadget may use. Match each slot to resources.list(). */
+  access(input: { appId: string }): Promise<Array<{ slot: string; operations: string[] }>>;
   /** Read current source, or an earlier revision of this same app. */
   getCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
   /** Saved versions of this app, newest first. Read-only. */

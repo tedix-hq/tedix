@@ -276,6 +276,9 @@ export interface WorkspaceDataPort {
 		note?: string;
 	}): Promise<OutputDetail>;
 	listApps(): Promise<AppSummary[]>;
+	getAppAccess(input: {
+		appId: string;
+	}): Promise<NonNullable<OsGadgetManifest["resourceGrants"]>>;
 	getAppCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
 	/** Saved versions of an app, newest first. */
 	listAppVersions(input: { appId: string }): Promise<AppVersion[]>;
