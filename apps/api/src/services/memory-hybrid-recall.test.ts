@@ -34,6 +34,7 @@ import {
 	recallMemoryFacts,
 	type RecallEnvironment,
 } from "./memory-hybrid-recall";
+import { recallContextMemoryFacts } from "./memory-context-recall";
 const db = {} as DbClient;
 const fact = (id: string) =>
 	({
@@ -59,6 +60,46 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("hybrid memory orchestration", () => {
+	it("coalesces normalized context searches, rechecks eligibility and expires recall", async () => {
+		vi.useFakeTimers({
+			toFake: ["Date"],
+			now: new Date("2026-11-21T12:00:00Z"),
+		});
+		const params = { ...scope, query: "cached cobalt" };
+		const results = await Promise.all([
+			recallContextMemoryFacts(db, params),
+			recallContextMemoryFacts(db, { ...params, query: "  CACHED   cobalt  " }),
+		]);
+		expect(results.map((rows) => rows.map((row) => row.factId))).toEqual([
+			["a"],
+			["a"],
+		]);
+		expect(mocks.lexical).toHaveBeenCalledTimes(1);
+		// A fact restricted or removed since search must not enter the prompt.
+		mocks.hydrate.mockResolvedValue([]);
+		expect(await recallContextMemoryFacts(db, params)).toEqual([]);
+		expect(mocks.lexical).toHaveBeenCalledTimes(1);
+		vi.setSystemTime(Date.now() + 180_001);
+		await recallContextMemoryFacts(db, params);
+		expect(mocks.lexical).toHaveBeenCalledTimes(2);
+		// Empty searches are retryable rather than cached for three minutes.
+		await recallContextMemoryFacts(db, params);
+		expect(mocks.lexical).toHaveBeenCalledTimes(3);
+	});
+	it("isolates context recall by organization, private owner and eligibility filters", async () => {
+		const params = { ...scope, query: "isolated cobalt" };
+		for (const change of [
+			{},
+			{ organizationId: "fictional-b" },
+			{ tediId: "tedi-b" },
+			{ domainIds: ["domain-b"] },
+			{ factTypes: ["business"] },
+			{ minConfidence: 0.9 },
+			{ includeGraphAnchors: true },
+		])
+			await recallContextMemoryFacts(db, { ...params, ...change });
+		expect(mocks.lexical).toHaveBeenCalledTimes(7);
+	});
 	it("keeps confidence-ordered graph expansion from overruling query-ranked matches", () => {
 		const results = fuseRecall({
 			lexical: [

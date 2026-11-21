@@ -73,7 +73,7 @@ import {
 } from "../../../integrations/cloudflare/agent-memory";
 import type { HomeInventorySnapshot } from "../../../kernel/inventory-snapshot";
 import { isMemorySearchFactEligible } from "../../../services/memory-search-filter";
-import { recallMemoryFacts } from "../../../services/memory-hybrid-recall";
+import { recallContextMemoryFacts } from "../../../services/memory-context-recall";
 import type {
 	RelevanceRecallOutcome,
 	StoredRelevanceRecall,
@@ -898,7 +898,7 @@ export async function assembleHomeContext(
 		? safeRead(
 				async () =>
 					(
-						await recallMemoryFacts(db, {
+						await recallContextMemoryFacts(db, {
 							organizationId: organizationId,
 							query: operatorMessage,
 							topK: RELEVANCE_RECALL_TOP_K,

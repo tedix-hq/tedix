@@ -7,10 +7,10 @@ import type { GraphClient } from "../integrations/graph-db/neo4j";
 import {
 	boundRecall,
 	HYBRID_RECALL_BUDGET_MS,
-	recallMemoryFacts,
 	type RecallEnvironment,
 	type RecallProvenance,
 } from "./memory-hybrid-recall";
+import { recallContextMemoryFacts } from "./memory-context-recall";
 export interface AssembleParams {
 	query: string;
 	orgId: string;
@@ -75,7 +75,7 @@ export async function assembleContext(
 	);
 	if (params.domains?.length && domainIds.size === 0)
 		return { context: "", factCount: 0, sources: [] };
-	const ranked = await recallMemoryFacts(db, {
+	const ranked = await recallContextMemoryFacts(db, {
 		organizationId: params.orgId,
 		tediId: params.tediId,
 		query: params.query,

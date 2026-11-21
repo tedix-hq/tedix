@@ -123,11 +123,15 @@ async function selectLexicalTerms(
 		return terms;
 	}
 	const docs = new Map(rows.map((row) => [row.term, Number(row.doc)]));
+	// Do not fill unused slots with corpus-wide words: even one broad OR arm
+	// makes BM25 read docsize for every match before the candidate LIMIT.
+	const maxDocs = Math.min(...docs.values()) * 16;
 	const plain = (term: string) =>
 		/^[\p{L}\p{N}]+$/u.test(term) && term === term.normalize("NFD");
 	return terms
 		.filter((term) => docs.has(term) || !plain(term))
 		.map((term, order) => ({ term, order, doc: docs.get(term) ?? 0 }))
+		.filter(({ doc }) => doc <= maxDocs)
 		.sort((a, b) => a.doc - b.doc || a.order - b.order)
 		.slice(0, LEXICAL_RECALL_MAX_TERMS)
 		.map(({ term }) => term);
@@ -149,6 +153,36 @@ export async function lexicalRecall(
 	const index = sql.identifier(
 		fullIndex ? "memory_fact_fts" : "memory_fact_fts_recall",
 	);
+	if (!fullIndex) {
+		// The live projection excludes inactive facts. Bound the remaining rowid
+		// lookups and eligibility checks even when common terms match the corpus.
+		const matches = db
+			.select({
+				rowid: sql<number>`${index}.rowid`.as("match_rowid"),
+				rank: sql<number>`${index}.rank`.as("match_rank"),
+			})
+			.from(sql`${index}`)
+			.where(
+				and(
+					sql`${index} MATCH ${match}`,
+					sql`${index}.organization_id = ${scope.organizationId}`,
+					sql`${index}.rank MATCH 'bm25(0,0,1,2)'`,
+				),
+			)
+			.orderBy(sql`${index}.rank`)
+			.limit(200)
+			.as("lexical_matches");
+		return db
+			.select({
+				factId: sql<string>`${memoryFacts.id}`.as("fact_id"),
+				score: sql<number>`-${matches.rank}`.as("lexical_score"),
+			})
+			.from(matches)
+			.crossJoin(sql`${memoryFacts} NOT INDEXED`)
+			.where(and(sql`${memoryFacts}.rowid = ${matches.rowid}`, eligible(scope)))
+			.orderBy(matches.rank)
+			.limit(40);
+	}
 	return (
 		db
 			.select({

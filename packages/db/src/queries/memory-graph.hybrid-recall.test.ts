@@ -95,12 +95,46 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("bounds live eligibility work after tenant-filtered FTS candidates", async () => {
+		const { db, sqlite, add } = fixture();
+		for (let i = 0; i < 250; i++) {
+			add(`foreign-${i}`, "cobalt", "fictional-b");
+			add(`private-${i}`, "cobalt", undefined, {
+				visibility: "private",
+				tedi_id: "other",
+			});
+		}
+		add("usable", "cobalt vessel instructions");
+		const live = { ...scope, now: undefined };
+		// Even an all-private candidate window cannot trigger an unbounded scan.
+		let visited = 0;
+		sqlite.function("recall_probe", (value) => {
+			visited++;
+			return value;
+		});
+		const prepare = sqlite.prepare.bind(sqlite);
+		sqlite.prepare = ((query: string) =>
+			prepare(
+				query.replaceAll(
+					'"memory_facts".rowid = "lexical_matches"."match_rowid"',
+					'"memory_facts".rowid = recall_probe("lexical_matches"."match_rowid")',
+				),
+			)) as typeof sqlite.prepare;
+		expect(await lexicalRecall(db, live, "cobalt")).toEqual([]);
+		expect(visited).toBe(200);
+		// Foreign candidates cannot consume this organization's window.
+		expect(
+			(await lexicalRecall(db, live, "vessel instructions")).map(
+				(row) => row.factId,
+			),
+		).toEqual(["usable"]);
+	});
 	it("searches a long message by its least common words", async () => {
 		const prepared: string[] = [];
 		const { db, add } = fixture((query) => prepared.push(query));
 		const common =
 			"please could you check what we decided about the work today and tell me";
-		for (let i = 0; i < 12; i++) add(`common-${i}`, `${common} filler ${i}`);
+		for (let i = 0; i < 200; i++) add(`common-${i}`, `${common} filler ${i}`);
 		add("target", "The cobalt vessel ships from Rotterdam");
 		add("foreign", "cobalt vessel rotterdam", "fictional-b");
 		const live = { ...scope, now: undefined };
@@ -109,8 +143,7 @@ describe("canonical hybrid recall D1 queries", () => {
 			live,
 			`${common} about the cobalt vessel from rotterdam`,
 		);
-		expect(recalled[0]?.factId).toBe("target");
-		expect(recalled.map((fact) => fact.factId)).not.toContain("foreign");
+		expect(recalled.map((fact) => fact.factId)).toEqual(["target"]);
 		expect(prepared.some((query) => query.includes("_recall_vocab"))).toBe(
 			true,
 		);
