@@ -4,14 +4,12 @@ import { createHash } from "node:crypto";
 import {
 	osGadgetCode,
 	osGadgetCodeBlobs,
+	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
 import { WORKSPACE_TEDI_RESOURCE } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import opportunityCardsApp from "../apps/os/dev/demo-pack/opportunity-cards-app.json";
-import {
-	demoPackSeedSql,
-	demoPackWorkspaceFiles,
-} from "./local-demo-pack-seed";
+import { demoPackSeedSql } from "./local-demo-pack-seed";
 
 test("demo app code seeds an idempotent blob and a readable revision pointer", () => {
 	const db = new Database(":memory:");
@@ -58,17 +56,33 @@ test("demo app code seeds an idempotent blob and a readable revision pointer", (
 });
 
 test("the sample tedi is linked to the sample workspace once", () => {
-	const tedis = demoPackWorkspaceFiles()
-		.flatMap(({ tables }) => tables.os_workspace_resources ?? [])
-		.filter(
-			(row) => row.resource_type === WORKSPACE_TEDI_RESOURCE.resourceType,
-		);
-	expect(tedis).toMatchObject([
-		{
-			provider_id: WORKSPACE_TEDI_RESOURCE.providerId,
-			connection_scope: "tenant",
-			provider_resource_id: "00000000-0000-4000-8000-000000000004",
-			name: "Local Tedi",
-		},
-	]);
+	const db = new Database(":memory:");
+	try {
+		db.exec("PRAGMA foreign_keys = OFF");
+		db.exec(schemaDdl(osWorkspaceResources));
+		const statements = demoPackSeedSql()
+			.split("\n")
+			.filter((line) =>
+				line.startsWith("INSERT OR IGNORE INTO os_workspace_resources "),
+			)
+			.join("\n");
+		db.exec(statements);
+		db.exec(statements);
+		expect(
+			db
+				.query(
+					"SELECT provider_id, connection_scope, provider_resource_id, name FROM os_workspace_resources WHERE resource_type = ?",
+				)
+				.all(WORKSPACE_TEDI_RESOURCE.resourceType),
+		).toEqual([
+			{
+				provider_id: WORKSPACE_TEDI_RESOURCE.providerId,
+				connection_scope: "tenant",
+				provider_resource_id: "00000000-0000-4000-8000-000000000004",
+				name: "Local Tedi",
+			},
+		]);
+	} finally {
+		db.close();
+	}
 });
