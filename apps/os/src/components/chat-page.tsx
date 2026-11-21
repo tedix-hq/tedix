@@ -1,5 +1,5 @@
 import { ChatExecutionDetailsProvider } from "@/components/chat-execution-sheet";
-import { FolderPlus } from "@phosphor-icons/react";
+import { ArrowLeft, FolderPlus } from "@phosphor-icons/react";
 import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	useInfiniteQuery,
@@ -262,7 +262,22 @@ export function ChatPage() {
 				>
 					{/* On desktop the list is beside the thread, so the header only
 					    carries the open conversation's actions. */}
-					{showTediChat ? null : (
+					{showTediChat ? (
+						// The chat brings its own way back once it opens; until then,
+						// a phone still needs one to reach the list.
+						tediWorkspaceId ? null : (
+							<div className="flex h-12 shrink-0 items-center border-kumo-line border-b md:hidden">
+								<Button
+									aria-label="All conversations"
+									onClick={() => setMobileListOpen(true)}
+									size="icon-sm"
+									variant="ghost"
+								>
+									<ArrowLeft aria-hidden />
+								</Button>
+							</div>
+						)
+					) : (
 						<div
 							className={`flex h-12 shrink-0 items-center border-kumo-line border-b ${activeConversationId ? "" : "md:hidden"}`}
 						>

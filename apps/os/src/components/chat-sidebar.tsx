@@ -5,7 +5,6 @@ import {
 	Archive,
 	ArrowCounterClockwise,
 	CaretLeft,
-	ChatCircle,
 	Check,
 	DotsThree,
 	Info,
@@ -27,19 +26,15 @@ import {
 	useMutation,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as z from "zod";
-import { FormInput } from "@/components/forms/form-input";
+import {
+	type ConversationAction,
+	type ConversationListRow,
+	ConversationListView,
+} from "@/components/conversation-list";
 import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/kumo/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -47,30 +42,12 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { Text } from "@/components/kumo/text";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/kumo/tooltip";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
-import { SearchInput } from "@/components/kumo/search-input";
-import { FormField } from "@/components/kumo/forms/form-field";
-import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
-import { useOsFormattingPreferences } from "@/lib/format";
-import { absoluteTime, relativeTime } from "@/lib/time";
 import {
 	tediChatConversationId,
 	type TediChatListRow,
-	type TediChatRowTedi,
 } from "@/lib/chat-tedi-conversations";
 import {
 	activeWorkspacesQueryOptions,
@@ -89,10 +66,6 @@ export const CHAT_CONVERSATIONS_QUERY_KEY = homeConversationsQueryKey();
 export const MAIN_HOME_CONVERSATION_ID = "home:main";
 
 export const CONVERSATION_TITLE_FALLBACK = "New conversation";
-
-const renameConversationSchema = z.object({
-	title: z.string().trim().min(1, "Enter a conversation title.").max(200),
-});
 
 /**
  * Untitled conversations surface their own id as `title` (contract:
@@ -116,108 +89,6 @@ export function conversationActivityAt(conversation: HomeConversation): string {
 		conversation.lastMessageAt ??
 		conversation.createdAt
 	);
-}
-
-/**
- * Pinned-first ordering is client-side by contract (the server never sorts by
- * `pinnedAt`); each group orders by most recent activity, newest first.
- */
-export function sortConversations(
-	conversations: readonly HomeConversation[],
-): HomeConversation[] {
-	return [...conversations].sort((a, b) => {
-		const pinDelta = Number(isPinned(b)) - Number(isPinned(a));
-		if (pinDelta !== 0) return pinDelta;
-		return (
-			Date.parse(conversationActivityAt(b)) -
-			Date.parse(conversationActivityAt(a))
-		);
-	});
-}
-
-type ConversationGroupKey =
-	| "pinned"
-	| "today"
-	| "yesterday"
-	| "thisWeek"
-	| "earlier";
-
-type ConversationGroup = {
-	key: ConversationGroupKey;
-	label: string;
-	conversations: HomeConversation[];
-};
-
-const CONVERSATION_GROUP_LABELS: Record<ConversationGroupKey, string> = {
-	pinned: "Pinned",
-	today: "Today",
-	yesterday: "Yesterday",
-	thisWeek: "Earlier this week",
-	earlier: "Earlier",
-};
-
-const CONVERSATION_GROUP_ORDER: ConversationGroupKey[] = [
-	"pinned",
-	"today",
-	"yesterday",
-	"thisWeek",
-	"earlier",
-];
-
-function startOfLocalDay(value: Date): Date {
-	const result = new Date(value);
-	result.setHours(0, 0, 0, 0);
-	return result;
-}
-
-/**
- * Group an already-sorted conversation list without weakening pinned-first
- * ordering. Calendar-day buckets make a long history scannable while each row
- * retains its precise relative/absolute timestamp.
- */
-export function groupConversationsByRecency(
-	conversations: readonly HomeConversation[],
-	now = new Date(),
-): ConversationGroup[] {
-	const groups = new Map<ConversationGroupKey, HomeConversation[]>();
-	const today = startOfLocalDay(now).getTime();
-
-	for (const conversation of conversations) {
-		let key: ConversationGroupKey;
-		if (isPinned(conversation)) {
-			key = "pinned";
-		} else {
-			const activity = new Date(conversationActivityAt(conversation));
-			const activityDay = startOfLocalDay(activity).getTime();
-			const dayDelta = Number.isFinite(activityDay)
-				? Math.round((today - activityDay) / 86_400_000)
-				: Number.POSITIVE_INFINITY;
-			key =
-				dayDelta <= 0
-					? "today"
-					: dayDelta === 1
-						? "yesterday"
-						: dayDelta < 7
-							? "thisWeek"
-							: "earlier";
-		}
-		const group = groups.get(key) ?? [];
-		group.push(conversation);
-		groups.set(key, group);
-	}
-
-	return CONVERSATION_GROUP_ORDER.flatMap((key) => {
-		const groupedConversations = groups.get(key);
-		return groupedConversations
-			? [
-					{
-						key,
-						label: CONVERSATION_GROUP_LABELS[key],
-						conversations: groupedConversations,
-					},
-				]
-			: [];
-	});
 }
 
 /**
@@ -351,194 +222,6 @@ export function rollbackOptimisticConversationPatch(
 }
 
 // ---------------------------------------------------------------------------
-// Pure presentational subcomponents (exported for tests)
-// ---------------------------------------------------------------------------
-
-export function ConversationRow({
-	conversation,
-	workspace,
-	tedi,
-	active = false,
-	optimistic = false,
-	now,
-	menu,
-	onSelect,
-}: {
-	conversation: HomeConversation;
-	workspace?: {
-		id: string;
-		name: string;
-		visibility: string;
-		iconUrl?: string | null;
-	};
-	/** Who answers a chat kept in the private workspace; the row names it. */
-	tedi?: TediChatRowTedi;
-	active?: boolean;
-	/**
-	 * The row is showing a locally-applied value the server has not confirmed
-	 * (a rename or a pin in flight). Rendered as `aria-busy` so assistive tech
-	 * hears "this is not settled yet" rather than reading the optimistic value
-	 * as fact, and as `data-optimistic` so the state is assertable.
-	 */
-	optimistic?: boolean;
-	/** Injectable clock so static-markup tests are deterministic. */
-	now?: Date;
-	/** Overflow-menu slot; the pure row stays free of popup machinery. */
-	menu?: ReactNode;
-	onSelect?: (conversationId: string) => void;
-}) {
-	useOsFormattingPreferences();
-	const pinned = isPinned(conversation);
-	const archived = conversation.status === "archived";
-	const privateWorkspace = workspace?.visibility === "private";
-	return (
-		<li
-			data-conversation-id={conversation.id}
-			data-active={active || undefined}
-			data-pinned={pinned || undefined}
-			data-optimistic={optimistic || undefined}
-			aria-busy={optimistic || undefined}
-			className="group/row relative min-w-0 rounded-lg transition-colors hover:bg-kumo-tint data-[active=true]:bg-kumo-control motion-reduce:transition-none"
-		>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<Button
-							aria-current={active ? "true" : undefined}
-							className="w-full min-w-0 flex-col items-stretch gap-1 rounded-lg bg-transparent px-4 py-3 pr-16 text-left hover:bg-transparent focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
-							multiline
-							onClick={() => onSelect?.(conversation.id)}
-							variant="ghost"
-						/>
-					}
-				>
-					<span className="flex min-w-0 items-center gap-1.5">
-						{workspace ? (
-							<EntityAvatar
-								id={workspace.id}
-								name={workspace.name}
-								role={privateWorkspace ? "private" : undefined}
-								alt={
-									privateWorkspace
-										? `${workspace.name} (private workspace, only you)`
-										: undefined
-								}
-								image={workspace.iconUrl}
-								imageFit="contain"
-								kind="workspace"
-								className="size-6 rounded-md"
-							/>
-						) : tedi ? (
-							<EntityAvatar
-								id={tedi.id ?? conversation.id}
-								name={tedi.name}
-								image={tedi.avatar}
-								kind="tedi"
-								className="size-6"
-							/>
-						) : null}
-						{pinned ? (
-							<PushPin
-								size={12}
-								weight="fill"
-								aria-label="Pinned"
-								data-pin-indicator="true"
-								className="shrink-0 text-kumo-subtle"
-							/>
-						) : null}
-						<Text
-							as="span"
-							role="body"
-							tone={active ? "strong" : "default"}
-							weight={active ? "medium" : "normal"}
-							truncate
-						>
-							{conversationTitle(conversation)}
-						</Text>
-						{archived ? (
-							<Text
-								as="span"
-								role="label"
-								tone="secondary"
-								className="shrink-0"
-							>
-								Archived
-							</Text>
-						) : null}
-					</span>
-					{conversation.match && (
-						<span className="line-clamp-3 whitespace-normal text-kumo-subtle">
-							{conversation.match}
-						</span>
-					)}
-					<span className="flex min-w-0 items-center gap-1 text-kumo-subtle type-tedix-label">
-						{tedi ? (
-							<>
-								<span className="truncate" data-row-tedi={tedi.id ?? undefined}>
-									{tedi.name}
-								</span>
-								<span aria-hidden="true">·</span>
-							</>
-						) : null}
-						<time
-							dateTime={conversationActivityAt(conversation)}
-							title={absoluteTime(conversationActivityAt(conversation))}
-							className="shrink-0"
-						>
-							{relativeTime(conversationActivityAt(conversation), now)}
-						</time>
-					</span>
-				</TooltipTrigger>
-				<TooltipContent role="tooltip" side="right">
-					{conversationTitle(conversation)}
-				</TooltipContent>
-			</Tooltip>
-			{menu}
-		</li>
-	);
-}
-
-export function ConversationsEmpty() {
-	return (
-		<Empty appearance="quiet">
-			<EmptyHeader>
-				<EmptyMedia variant="icon">
-					<ChatCircle size={20} />
-				</EmptyMedia>
-				<EmptyTitle>No conversations yet</EmptyTitle>
-				<EmptyDescription>
-					Send your first message to start a conversation.
-				</EmptyDescription>
-			</EmptyHeader>
-		</Empty>
-	);
-}
-
-export function ConversationSearchEmpty({
-	query,
-	onClear,
-}: {
-	query: string;
-	onClear?: () => void;
-}) {
-	return (
-		<Empty appearance="quiet">
-			<EmptyHeader>
-				<EmptyMedia variant="icon">
-					<ChatCircle size={20} />
-				</EmptyMedia>
-				<EmptyTitle>No conversations found</EmptyTitle>
-				<EmptyDescription>No conversations match “{query}”.</EmptyDescription>
-			</EmptyHeader>
-			{onClear ? (
-				<Button size="sm" variant="secondary" onClick={onClear}>
-					Clear search
-				</Button>
-			) : null}
-		</Empty>
-	);
-}
-// ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
 const CONVERSATIONS_PAGE_LIMIT = 50;
@@ -604,6 +287,7 @@ export function ChatSidebar({
 	extraConversations,
 	personalWorkspace,
 }: {
+	/** Where new chats run; a search also finds its replies by their words. */
 	personalWorkspace?: { id: string; organizationId: string };
 	/** `null` means the synthetic "new conversation" state (no thread yet). */
 	activeConversationId: string | null;
@@ -621,9 +305,6 @@ export function ChatSidebar({
 		...activeWorkspacesQueryOptions(),
 		enabled: false,
 	});
-	const [renameTarget, setRenameTarget] = useState<HomeConversation | null>(
-		null,
-	);
 	const [deleteTarget, setDeleteTarget] = useState<HomeConversation | null>(
 		null,
 	);
@@ -631,7 +312,6 @@ export function ChatSidebar({
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const normalizedSearch = debouncedSearch.trim() || undefined;
-	const groupHeadingPrefix = useId();
 	useEffect(() => {
 		const timeout = window.setTimeout(() => setDebouncedSearch(search), 250);
 		return () => window.clearTimeout(timeout);
@@ -671,7 +351,7 @@ export function ChatSidebar({
 				byId.set(conversation.id, conversation);
 			}
 		}
-		const extraTedis = new Map<string, TediChatRowTedi>();
+		const extras = new Map<string, TediChatListRow>();
 		const query = normalizedSearch?.toLowerCase();
 		for (const conversation of extraConversations ?? []) {
 			if (
@@ -679,14 +359,14 @@ export function ChatSidebar({
 				!conversationTitle(conversation).toLowerCase().includes(query)
 			)
 				continue;
-			extraTedis.set(conversation.id, conversation.tedi);
+			extras.set(conversation.id, conversation);
 			byId.set(conversation.id, conversation);
 		}
 		for (const hit of messageSearch.data ?? []) {
 			if (!personalWorkspace || !hit.match) continue;
 			const id = tediChatConversationId(personalWorkspace.id, hit.id);
 			const row = extraConversations?.find((c) => c.id === id);
-			byId.set(id, {
+			const found: TediChatListRow = {
 				...row,
 				id,
 				title: row?.title ?? hit.title,
@@ -695,13 +375,12 @@ export function ChatSidebar({
 				createdAt: hit.updatedAt,
 				updatedAt: hit.updatedAt,
 				match: hit.match,
-			});
-			extraTedis.set(
-				id,
-				row?.tedi ?? { id: null, name: "Workspace agent", avatar: null },
-			);
+				tedi: row?.tedi ?? { id: null, name: "Workspace agent", avatar: null },
+			};
+			extras.set(id, found);
+			byId.set(id, found);
 		}
-		return { rows: sortConversations([...byId.values()]), extraTedis };
+		return { rows: [...byId.values()], extras };
 	}, [
 		conversations.data,
 		extraConversations,
@@ -709,8 +388,6 @@ export function ChatSidebar({
 		messageSearch.data,
 		personalWorkspace,
 	]);
-	const { rows: sorted, extraTedis } = merged;
-	const grouped = useMemo(() => groupConversationsByRecency(sorted), [sorted]);
 	const invalidate = () =>
 		Promise.all([
 			queryClient.invalidateQueries({
@@ -760,18 +437,9 @@ export function ChatSidebar({
 		onError: (_error, _input, context) => {
 			if (context) rollbackOptimistic(context);
 		},
-		onSuccess: () => setRenameTarget(null),
 		// The server's echo is synthetic, so the refetch — not the response — is
 		// what confirms the optimistic value.
 		onSettled: invalidate,
-	});
-	const renameForm = useZodForm({
-		schema: renameConversationSchema,
-		defaultValues: { title: "" },
-		onSubmit: ({ value }) => {
-			if (renameTarget)
-				rename.mutate({ conversationId: renameTarget.id, title: value.title });
-		},
 	});
 	const pin = useMutation({
 		mutationFn: (input: { conversationId: string; pinned: boolean }) =>
@@ -808,93 +476,125 @@ export function ChatSidebar({
 		},
 		onSettled: invalidate,
 	});
-	const renderMenu = (conversation: HomeConversation) => {
+	const menuActions = (
+		conversation: HomeConversation,
+	): ConversationAction[] => {
 		const actions = conversationMenuActions(conversation);
-		return (
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button
-							aria-label={`Conversation actions for ${conversationTitle(conversation)}`}
-							title={`Conversation actions for ${conversationTitle(conversation)}`}
-							size="icon-sm"
-							variant="ghost"
-							onClick={(event) => event.stopPropagation()}
-							className="absolute top-1/2 right-3 -translate-y-1/2 bg-transparent text-kumo-subtle opacity-0 transition-opacity hover:bg-kumo-tint group-focus-within/row:opacity-100 group-hover/row:opacity-100 group-data-[active=true]/row:opacity-100 data-[popup-open]:opacity-100 max-sm:opacity-100 coarse:opacity-100"
-						/>
-					}
-				>
-					<DotsThree size={16} weight="bold" />
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
-					<DropdownMenuItem
-						onClick={() => {
-							setRenameTarget(conversation);
-							renameForm.reset({
-								title:
-									conversationTitle(conversation) ===
-									CONVERSATION_TITLE_FALLBACK
-										? ""
-										: conversationTitle(conversation),
-							});
-						}}
-					>
-						<PencilSimple size={14} />
-						Rename
-					</DropdownMenuItem>
-					{actions.archive ? (
-						<DropdownMenuItem
-							onClick={() =>
+		return [
+			...(actions.archive
+				? [
+						{
+							label: actions.archive === "archive" ? "Archive" : "Restore",
+							icon:
+								actions.archive === "archive" ? (
+									<Archive size={14} />
+								) : (
+									<ArrowCounterClockwise size={14} />
+								),
+							onSelect: () =>
 								archive.mutate({
 									conversationId: conversation.id,
 									archived: actions.archive === "archive",
-								})
-							}
-						>
-							{actions.archive === "archive" ? (
-								<Archive size={14} />
-							) : (
-								<ArrowCounterClockwise size={14} />
-							)}
-							{actions.archive === "archive" ? "Archive" : "Restore"}
-						</DropdownMenuItem>
-					) : null}
-					<DropdownMenuItem
-						onClick={() =>
-							pin.mutate({
-								conversationId: conversation.id,
-								pinned: actions.pin === "pin",
-							})
-						}
-					>
-						{actions.pin === "pin" ? (
-							<PushPin size={14} />
-						) : (
-							<PushPinSlash size={14} />
-						)}
-						{actions.pin === "pin" ? "Pin" : "Unpin"}
-					</DropdownMenuItem>
-					{actions.delete ? (
-						<DropdownMenuItem
-							variant="destructive"
-							onClick={() => setDeleteTarget(conversation)}
-						>
-							<Trash size={14} />
-							Delete
-						</DropdownMenuItem>
-					) : null}
-				</DropdownMenuContent>
-			</DropdownMenu>
-		);
+								}),
+						},
+					]
+				: []),
+			{
+				label: actions.pin === "pin" ? "Pin" : "Unpin",
+				icon:
+					actions.pin === "pin" ? (
+						<PushPin size={14} />
+					) : (
+						<PushPinSlash size={14} />
+					),
+				onSelect: () =>
+					pin.mutate({
+						conversationId: conversation.id,
+						pinned: actions.pin === "pin",
+					}),
+			},
+			...(actions.delete
+				? [
+						{
+							label: "Delete",
+							icon: <Trash size={14} />,
+							destructive: true,
+							onSelect: () => setDeleteTarget(conversation),
+						},
+					]
+				: []),
+		];
 	};
+	const rows = merged.rows.map((conversation): ConversationListRow => {
+		const extra = merged.extras.get(conversation.id);
+		const workspace = workspaces.data?.items.find(
+			(item) => item.id === conversation.workspaceId,
+		);
+		const privateWorkspace = workspace?.visibility === "private";
+		return {
+			id: conversation.id,
+			title: conversationTitle(conversation),
+			at: conversationActivityAt(conversation),
+			pinned: isPinned(conversation),
+			archived: conversation.status === "archived",
+			leading: workspace ? (
+				<EntityAvatar
+					id={workspace.id}
+					name={workspace.name}
+					role={privateWorkspace ? "private" : undefined}
+					alt={
+						privateWorkspace
+							? `${workspace.name} (private workspace, only you)`
+							: undefined
+					}
+					image={workspace.iconUrl}
+					imageFit="contain"
+					kind="workspace"
+					className="size-5 shrink-0 rounded-md"
+				/>
+			) : extra?.tedi.id ? (
+				<EntityAvatar
+					id={extra.tedi.id}
+					name={extra.tedi.name}
+					image={extra.tedi.avatar}
+					kind="tedi"
+					className="size-5 shrink-0"
+				/>
+			) : undefined,
+			answeredBy: extra?.tedi.id ? extra.tedi.name : null,
+			match: conversation.match,
+			working: extra?.running === true,
+			needsYou: (extra?.pendingApprovals ?? 0) > 0,
+			pending:
+				(pin.isPending && pin.variables?.conversationId === conversation.id) ||
+				(rename.isPending &&
+					rename.variables?.conversationId === conversation.id),
+			renamable: !extra,
+			actions: extra ? [] : menuActions(conversation),
+		};
+	});
 
 	return (
-		<nav
-			aria-label="Conversations"
-			className="flex min-w-0 flex-col gap-4"
-			data-active-conversation={activeConversationId ?? "new"}
-		>
-			<div className="grid gap-4">
+		<ConversationListView
+			activeId={activeConversationId}
+			maxTitleLength={200}
+			onQueryChange={setSearch}
+			onRename={(conversationId, title) =>
+				rename.mutate({ conversationId, title })
+			}
+			onSelect={onSelect}
+			placeholder={
+				conversations.isPending || messageSearch.isFetching ? (
+					<ListSkeleton rows={5} rowClassName="h-10" />
+				) : undefined
+			}
+			query={search}
+			rows={rows}
+			searching={
+				search !== debouncedSearch ||
+				(conversations.isFetching && !conversations.isFetchingNextPage)
+			}
+			toolbar={
 				<div className="flex items-center justify-between gap-2">
 					<SectionTitle className="m-0 min-w-0 truncate">
 						Conversations
@@ -932,226 +632,98 @@ export function ChatSidebar({
 						</Button>
 					</div>
 				</div>
-				<SearchInput
-					aria-busy={
-						search !== debouncedSearch ||
-						(conversations.isFetching && !conversations.isFetchingNextPage)
-					}
-					aria-label="Search conversations"
-					onChange={(event) => setSearch(event.target.value)}
-					placeholder="Search conversations…"
-					maxLength={200}
-					value={search}
-				/>
-			</div>
-
-			{conversations.isPending && <ListSkeleton rows={5} rowClassName="h-12" />}
-			{conversations.isError && (
-				<LoadError
-					title="Conversations are unavailable"
-					error={conversations.error}
-					onRetry={() => {
-						void conversations.refetch();
-					}}
-					retrying={conversations.isFetching}
-				/>
-			)}
-			{messageSearch.isError && (
-				<LoadError
-					title="Messages could not be searched"
-					error={messageSearch.error}
-					onRetry={() => void messageSearch.refetch()}
-					retrying={messageSearch.isFetching}
-				/>
-			)}
-			{conversations.data &&
-				!messageSearch.isFetching &&
-				!messageSearch.isError &&
-				sorted.length === 0 &&
-				(normalizedSearch ? (
-					<ConversationSearchEmpty
-						query={normalizedSearch}
-						onClear={() => setSearch("")}
-					/>
-				) : (
-					<ConversationsEmpty />
-				))}
-			{sorted.length > 0 && (
-				<div className="grid gap-4">
-					{grouped.map((group) => {
-						const headingId = `${groupHeadingPrefix}-${group.key}`;
-						return (
-							<section key={group.key} aria-labelledby={headingId}>
-								<Text
-									as="h3"
-									role="label"
-									tone="secondary"
-									weight="medium"
-									id={headingId}
-									className="m-0 mb-3 px-4"
-								>
-									{group.label}
-								</Text>
-								<ul className="m-0 grid list-none gap-0.5 p-0">
-									{group.conversations.map((conversation) => (
-										<ConversationRow
-											key={conversation.id}
-											conversation={conversation}
-											workspace={workspaces.data?.items.find(
-												(workspace) =>
-													workspace.id === conversation.workspaceId,
-											)}
-											tedi={extraTedis.get(conversation.id)}
-											active={conversation.id === activeConversationId}
-											optimistic={
-												(pin.isPending &&
-													pin.variables?.conversationId === conversation.id) ||
-												(rename.isPending &&
-													rename.variables?.conversationId === conversation.id)
-											}
-											onSelect={(id) => onSelect(id)}
-											menu={
-												extraTedis.has(conversation.id)
-													? undefined
-													: renderMenu(conversation)
-											}
-										/>
-									))}
-								</ul>
-							</section>
-						);
-					})}
-				</div>
-			)}
-			{conversations.hasNextPage && (
-				<Button
-					size="sm"
-					variant="ghost"
-					className="w-fit text-kumo-subtle"
-					loading={conversations.isFetchingNextPage}
-					onClick={() => conversations.fetchNextPage()}
-				>
-					{normalizedSearch
-						? "Search older conversations"
-						: "Show older conversations"}
-				</Button>
-			)}
-			{pin.isError && (
-				<div role="alert">
-					<Text role="label" tone="error">
-						Could not update the pin: {(pin.error as Error).message}
-					</Text>
-				</div>
-			)}
-
-			<Dialog
-				open={renameTarget !== null}
-				onOpenChange={(open) => {
-					if (!open) {
-						setRenameTarget(null);
-						rename.reset();
-					}
-				}}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Rename conversation</DialogTitle>
-						<DialogDescription>
-							A rename overrides the auto-generated title permanently.
-						</DialogDescription>
-					</DialogHeader>
-					<form
-						className="grid gap-4"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void renameForm.handleSubmit();
+			}
+			footer={
+				<>
+					{messageSearch.isError && (
+						<LoadError
+							title="Messages could not be searched"
+							error={messageSearch.error}
+							onRetry={() => void messageSearch.refetch()}
+							retrying={messageSearch.isFetching}
+						/>
+					)}
+					{conversations.isError && (
+						<LoadError
+							title="Conversations are unavailable"
+							error={conversations.error}
+							onRetry={() => {
+								void conversations.refetch();
+							}}
+							retrying={conversations.isFetching}
+						/>
+					)}
+					{conversations.hasNextPage && (
+						<Button
+							size="sm"
+							variant="ghost"
+							className="w-fit text-kumo-subtle"
+							loading={conversations.isFetchingNextPage}
+							onClick={() => conversations.fetchNextPage()}
+						>
+							{normalizedSearch
+								? "Search older conversations"
+								: "Show older conversations"}
+						</Button>
+					)}
+					{pin.isError && (
+						<div role="alert">
+							<Text role="label" tone="error">
+								Could not update the pin: {(pin.error as Error).message}
+							</Text>
+						</div>
+					)}
+					{rename.isError && (
+						<div role="alert">
+							<Text role="label" tone="error">
+								Could not rename: {(rename.error as Error).message}
+							</Text>
+						</div>
+					)}
+					<ConfirmDialog
+						open={deleteTarget !== null}
+						onOpenChange={(open) => {
+							if (!open) {
+								setDeleteTarget(null);
+								remove.reset();
+							}
+						}}
+						title="Delete conversation"
+						description={
+							deleteTarget
+								? `“${conversationTitle(deleteTarget)}” and its messages are permanently deleted. Anything still working is stopped first. Accepted Work stays on the board. You can’t undo this.`
+								: null
+						}
+						confirmLabel="Delete"
+						pendingLabel="Deleting…"
+						destructive
+						isPending={remove.isPending}
+						onConfirm={() => {
+							if (deleteTarget)
+								remove.mutate({ conversationId: deleteTarget.id });
 						}}
 					>
-						<FormField
-							form={renameForm}
-							name="title"
-							label="Conversation title"
-						>
-							{(field, meta) => (
-								<FormInput
-									field={field}
-									{...meta}
-									autoFocus
-									disabled={rename.isPending}
-									maxLength={200}
-									placeholder="Conversation title"
-								/>
-							)}
-						</FormField>
-						{rename.isError && (
+						{/* Delete remains authoritative: keep the row until the server confirms. */}
+						{remove.isPending && (
+							<p
+								className="m-0 text-kumo-subtle text-sm"
+								role="status"
+								data-slot="delete-pending"
+							>
+								Waiting for the server to confirm the delete…
+							</p>
+						)}
+						{remove.isError && (
 							<div role="alert">
 								<Text role="label" tone="error">
-									Could not rename: {(rename.error as Error).message}
+									Could not delete: {(remove.error as Error).message}
 								</Text>
 							</div>
 						)}
-						<DialogFooter>
-							<Button
-								type="button"
-								variant="outline"
-								disabled={rename.isPending}
-								onClick={() => setRenameTarget(null)}
-							>
-								Cancel
-							</Button>
-							<Button
-								type="submit"
-								loading={rename.isPending}
-								disabled={rename.isPending}
-							>
-								Rename
-							</Button>
-						</DialogFooter>
-					</form>
-				</DialogContent>
-			</Dialog>
-
-			<ConfirmDialog
-				open={deleteTarget !== null}
-				onOpenChange={(open) => {
-					if (!open) {
-						setDeleteTarget(null);
-						remove.reset();
-					}
-				}}
-				title="Delete conversation"
-				description={
-					deleteTarget
-						? `“${conversationTitle(deleteTarget)}” and its messages are permanently deleted. Anything still working is stopped first. Accepted Work stays on the board. You can’t undo this.`
-						: null
-				}
-				confirmLabel="Delete"
-				pendingLabel="Deleting…"
-				destructive
-				isPending={remove.isPending}
-				onConfirm={() => {
-					if (deleteTarget) remove.mutate({ conversationId: deleteTarget.id });
-				}}
-			>
-				{/* Delete remains authoritative: keep the row until the server confirms. */}
-				{remove.isPending && (
-					<p
-						className="m-0 text-kumo-subtle text-sm"
-						role="status"
-						data-slot="delete-pending"
-					>
-						Waiting for the server to confirm the delete…
-					</p>
-				)}
-				{remove.isError && (
-					<div role="alert">
-						<Text role="label" tone="error">
-							Could not delete: {(remove.error as Error).message}
-						</Text>
-					</div>
-				)}
-			</ConfirmDialog>
-		</nav>
+					</ConfirmDialog>
+				</>
+			}
+		/>
 	);
 }
 

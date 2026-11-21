@@ -32,7 +32,13 @@ export interface TediChatRowTedi {
 	avatar: string | null;
 }
 
-export type TediChatListRow = HomeConversation & { tedi: TediChatRowTedi };
+export type TediChatListRow = HomeConversation & {
+	tedi: TediChatRowTedi;
+	/** A turn in it is still working. */
+	running?: boolean;
+	/** Requests in it that wait for the person. */
+	pendingApprovals?: number;
+};
 
 /**
  * The private workspace's conversations as rows of the /chat list, each
@@ -56,6 +62,8 @@ export function tediChatListRows(
 						createdAt: conversation.updatedAt,
 						updatedAt: conversation.lastTurnAt ?? conversation.updatedAt,
 						lastMessageAt: conversation.lastTurnAt,
+						running: conversation.running,
+						pendingApprovals: conversation.pendingApprovals,
 						tedi: conversation.tediId
 							? {
 									id: conversation.tediId,

@@ -153,17 +153,17 @@ async function runCase(browser: Browser, c: Case) {
 		);
 		await page.goto(`${origin}/chat`);
 		if (phone)
-			await page.getByRole("button", { name: "Back to conversations" }).click();
+			await page.getByRole("button", { name: "All conversations" }).click();
 		const row = page.locator("[data-conversation-id]").first();
 		await row.waitFor();
 		const open = row.getByRole("button").first();
 		const actions = row.getByRole("button", {
-			name: /^Conversation actions for /,
+			name: /^Actions for /,
 		});
 		const title = (await open.locator("span.truncate").textContent())!;
 		assert.equal(
 			await actions.getAttribute("aria-label"),
-			`Conversation actions for ${title}`,
+			`Actions for ${title}`,
 		);
 		const rowBox = (await row.boundingBox())!;
 		const openBox = (await open.boundingBox())!;

@@ -137,6 +137,7 @@ type Stub = DurableObjectStub &
 		retryProjections(scope: WorkspaceScope): Promise<void>;
 		scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
 		failNextModelCall(scope: WorkspaceScope, message: string): Promise<void>;
+		scriptTitle(scope: WorkspaceScope, answer: string): Promise<void>;
 		limitCodeRuns(scope: WorkspaceScope, ms: number): Promise<void>;
 		webFetchCount(scope: WorkspaceScope): Promise<number>;
 		scriptAccountReads(
@@ -6442,6 +6443,45 @@ describe("stopped, failed and interrupted turns", () => {
 			"toolResult",
 		]);
 		expect(JSON.stringify(messages[2])).toContain("42");
+	});
+
+	test("the first reply names the conversation in at most six words; later replies keep the name", async () => {
+		await seedCore();
+		const titled = {
+			organizationId: "org_conversation_title",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([titled]);
+		const ws = workspace(titled);
+		await ws.scriptModel(titled, [{ text: "Here are three plans." }]);
+		await ws.scriptTitle(
+			titled,
+			'"Family weekend in Lisbon: three easy plans."',
+		);
+		const first = await ws.sendTurn(titled, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Can you help me plan a weekend in Lisbon with my family?",
+		});
+		await ws.awaitTurn(titled, first.turnId, 20_000);
+		const title = async () =>
+			(await ws.listConversations(titled)).find(
+				(row) => row.id === first.conversationId,
+			)?.title;
+		for (let i = 0; i < 100 && (await title())?.startsWith("Can"); i += 1)
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(await title()).toBe("Family weekend in Lisbon: three easy");
+
+		await ws.scriptTitle(titled, "Something else entirely");
+		const second = await ws.sendTurn(titled, {
+			conversationId: first.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "And for one day?",
+		});
+		await ws.awaitTurn(titled, second.turnId, 20_000);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(await title()).toBe("Family weekend in Lisbon: three easy");
 	});
 
 	test("an interrupted turn keeps its steps and the next turn continues from them", async () => {

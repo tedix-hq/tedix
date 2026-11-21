@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { relativeTime } from "@/lib/time";
 import { homeConversationsQueryKey } from "@/lib/os-query-options";
 import {
 	ChatConversationHeader,
@@ -16,7 +15,6 @@ import {
 	CHAT_CONVERSATIONS_QUERY_KEY,
 	conversationListInput,
 	conversationListQueryOptions,
-	ConversationSearchEmpty,
 	type ConversationPages,
 	patchConversationPages,
 	pinnedConversationPatch,
@@ -24,13 +22,9 @@ import {
 	CONVERSATION_TITLE_FALLBACK,
 	conversationActivityAt,
 	conversationMenuActions,
-	ConversationRow,
-	ConversationsEmpty,
 	conversationTitle,
-	groupConversationsByRecency,
 	isPinned,
 	MAIN_HOME_CONVERSATION_ID,
-	sortConversations,
 } from "./chat-sidebar";
 
 const NOW = new Date("2026-08-13T12:00:00.000Z");
@@ -83,29 +77,7 @@ describe("conversationTitle", () => {
 	});
 });
 
-describe("sortConversations", () => {
-	it("orders pinned first, then by most recent activity", () => {
-		const stale = conversation({
-			id: "home:os:stale",
-			updatedAt: "2026-08-01T00:00:00.000Z",
-		});
-		const fresh = conversation({
-			id: "home:os:fresh",
-			updatedAt: "2026-08-13T00:00:00.000Z",
-		});
-		const pinnedOld = conversation({
-			id: "home:os:pinned-old",
-			updatedAt: "2026-07-01T00:00:00.000Z",
-			pinnedAt: "2026-07-02T00:00:00.000Z",
-		});
-		const sorted = sortConversations([stale, fresh, pinnedOld]);
-		expect(sorted.map((c) => c.id)).toEqual([
-			"home:os:pinned-old",
-			"home:os:fresh",
-			"home:os:stale",
-		]);
-	});
-
+describe("conversationActivityAt", () => {
 	it("falls back to lastMessageAt then createdAt for activity", () => {
 		const c = conversation({
 			id: "home:os:x",
@@ -118,61 +90,6 @@ describe("sortConversations", () => {
 				conversation({ id: "home:os:y", updatedAt: null }),
 			),
 		).toBe("2026-08-10T09:00:00.000Z");
-	});
-
-	it("does not mutate its input", () => {
-		const input = [
-			conversation({ id: "a", updatedAt: "2026-08-01T00:00:00.000Z" }),
-			conversation({
-				id: "b",
-				pinnedAt: "2026-08-01T00:00:00.000Z",
-			}),
-		];
-		sortConversations(input);
-		expect(input.map((c) => c.id)).toEqual(["a", "b"]);
-	});
-});
-
-describe("groupConversationsByRecency", () => {
-	const localDate = (daysBefore: number) => {
-		const value = new Date(2026, 7, 13 - daysBefore, 12, 0, 0, 0);
-		return value.toISOString();
-	};
-
-	it("keeps pinned conversations first and buckets the remaining history", () => {
-		const now = new Date(2026, 7, 13, 15, 0, 0, 0);
-		const grouped = groupConversationsByRecency(
-			sortConversations([
-				conversation({ id: "earlier", updatedAt: localDate(10) }),
-				conversation({ id: "today", updatedAt: localDate(0) }),
-				conversation({ id: "week", updatedAt: localDate(3) }),
-				conversation({ id: "yesterday", updatedAt: localDate(1) }),
-				conversation({
-					id: "pinned",
-					updatedAt: localDate(20),
-					pinnedAt: localDate(2),
-				}),
-			]),
-			now,
-		);
-
-		expect(grouped.map((group) => group.label)).toEqual([
-			"Pinned",
-			"Today",
-			"Yesterday",
-			"Earlier this week",
-			"Earlier",
-		]);
-		expect(grouped[0]?.conversations.map((row) => row.id)).toEqual(["pinned"]);
-	});
-
-	it("puts invalid activity timestamps in Earlier instead of dropping rows", () => {
-		const grouped = groupConversationsByRecency(
-			[conversation({ id: "invalid", updatedAt: "not-a-date" })],
-			new Date(2026, 7, 13, 15, 0, 0, 0),
-		);
-		expect(grouped).toHaveLength(1);
-		expect(grouped[0]?.key).toBe("earlier");
 	});
 });
 
@@ -251,7 +168,7 @@ describe("live conversation list reconciliation", () => {
 			rows = [{ ...rows[1]!, pinnedAt: NOW.toISOString() }, rows[0]!];
 			await vi.advanceTimersByTimeAsync(15_000);
 			expect(currentRows()).toEqual(rows);
-			expect(sortConversations(currentRows() ?? [])[0]?.id).toBe("second");
+			expect(isPinned(currentRows()![0]!)).toBe(true);
 			rows = [rows[1]!];
 			await vi.advanceTimersByTimeAsync(15_000);
 			expect(currentRows()).toEqual(rows);
@@ -313,146 +230,6 @@ describe("conversationMenuActions", () => {
 			conversationMenuActions(conversation({ id: MAIN_HOME_CONVERSATION_ID }))
 				.archive,
 		).toBeNull();
-	});
-});
-
-describe("relativeTime", () => {
-	it("buckets by recency", () => {
-		expect(relativeTime("2026-08-13T11:59:50.000Z", NOW)).toBe("just now");
-		expect(relativeTime("2026-08-13T11:55:00.000Z", NOW)).toBe("5m ago");
-		expect(relativeTime("2026-08-13T09:00:00.000Z", NOW)).toBe("3h ago");
-		expect(relativeTime("2026-08-11T12:00:00.000Z", NOW)).toBe("2d ago");
-	});
-
-	it("falls back to a month-day date past a week, and to empty on garbage", () => {
-		// Midday UTC keeps the rendered local date stable across timezones.
-		expect(relativeTime("2026-07-01T12:00:00.000Z", NOW)).toBe("Jul 1");
-		expect(relativeTime("not-a-date", NOW)).toBe("");
-	});
-});
-
-describe("ConversationRow", () => {
-	it.each(["private", "org"])(
-		"uses valid avatar semantics for a %s workspace",
-		(visibility) => {
-			const doc = new DOMParser().parseFromString(
-				renderToStaticMarkup(
-					<ConversationRow
-						conversation={conversation({
-							id: "home:os:notes",
-							title: "Planning",
-						})}
-						workspace={{ id: "workspace-notes", name: "Notes", visibility }}
-						now={NOW}
-					/>,
-				),
-				"text/html",
-			);
-			const avatar = doc.querySelector('[data-entity-kind="workspace"]');
-			expect(avatar).not.toBeNull();
-			expect(doc.querySelector('[role="private"]')).toBeNull();
-			if (visibility === "private") {
-				expect(avatar?.getAttribute("role")).toBe("img");
-				expect(avatar?.getAttribute("aria-label")).toBe(
-					"Notes (private workspace, only you)",
-				);
-				expect(avatar?.hasAttribute("aria-hidden")).toBe(false);
-				expect(avatar?.querySelector("svg")).not.toBeNull();
-			} else {
-				expect(avatar?.getAttribute("role")).toBeNull();
-				expect(avatar?.getAttribute("aria-hidden")).toBe("true");
-				expect(avatar?.hasAttribute("aria-label")).toBe(false);
-			}
-		},
-	);
-
-	it("renders the title fallback and the relative time", () => {
-		const html = renderToStaticMarkup(
-			<ConversationRow
-				conversation={conversation({ id: "home:os:abc" })}
-				now={NOW}
-			/>,
-		);
-		expect(html).toContain(CONVERSATION_TITLE_FALLBACK);
-		expect(html).toContain("1d ago");
-		expect(html).toContain('data-conversation-id="home:os:abc"');
-		expect(html).not.toContain("data-pinned");
-	});
-
-	it("names the tedi of a chat with a picked tedi", () => {
-		const doc = new DOMParser().parseFromString(
-			renderToStaticMarkup(
-				<ConversationRow
-					conversation={conversation({ id: "ws:w:c1", title: "Plan" })}
-					tedi={{ id: "tedi-ada", name: "Ada", avatar: null }}
-					now={NOW}
-				/>,
-			),
-			"text/html",
-		);
-		expect(doc.querySelector('[data-entity-kind="tedi"]')).not.toBeNull();
-		expect(doc.querySelector('[data-row-tedi="tedi-ada"]')?.textContent).toBe(
-			"Ada",
-		);
-	});
-
-	it("marks pinned conversations with the pin indicator", () => {
-		const pinned = conversation({
-			id: "home:main",
-			title: "Main",
-			pinnedAt: "2026-08-12T00:00:00.000Z",
-		});
-		expect(isPinned(pinned)).toBe(true);
-		const html = renderToStaticMarkup(
-			<ConversationRow conversation={pinned} now={NOW} />,
-		);
-		expect(html).toContain('data-pinned="true"');
-		expect(html).toContain('data-pin-indicator="true"');
-		expect(html).toContain('aria-label="Pinned"');
-	});
-
-	it("marks the active row", () => {
-		const html = renderToStaticMarkup(
-			<ConversationRow
-				conversation={conversation({ id: "home:main", title: "Main" })}
-				active
-				now={NOW}
-			/>,
-		);
-		expect(html).toContain('data-active="true"');
-		expect(html).toContain('aria-current="true"');
-	});
-
-	it("renders the injected overflow-menu slot", () => {
-		const html = renderToStaticMarkup(
-			<ConversationRow
-				conversation={conversation({ id: "home:os:abc" })}
-				now={NOW}
-				menu={<span data-testid="menu-slot">menu</span>}
-			/>,
-		);
-		expect(html).toContain('data-testid="menu-slot"');
-	});
-});
-
-describe("ConversationsEmpty", () => {
-	it("offers a simple first-message action", () => {
-		const html = renderToStaticMarkup(<ConversationsEmpty />);
-		expect(html).toContain('data-appearance="quiet"');
-		expect(html).toContain("No conversations yet");
-		expect(html).toContain("first message");
-		expect(html).not.toContain("Home thread");
-	});
-});
-
-describe("ConversationSearchEmpty", () => {
-	it("names the query and offers a clear action", () => {
-		const html = renderToStaticMarkup(
-			<ConversationSearchEmpty query="launch prep" onClear={() => {}} />,
-		);
-		expect(html).toContain("No conversations found");
-		expect(html).toContain("launch prep");
-		expect(html).toContain("Clear search");
 	});
 });
 
@@ -566,31 +343,6 @@ describe("optimistic patch + rollback", () => {
 		expect(
 			queryClient.getQueryData(CHAT_CONVERSATIONS_QUERY_KEY),
 		).toBeUndefined();
-	});
-});
-
-describe("ConversationRow pending state", () => {
-	it("marks an unconfirmed row busy so it is not read as settled", () => {
-		const html = renderToStaticMarkup(
-			<ConversationRow
-				conversation={conversation({ id: "home:os:abc", title: "Renamed" })}
-				optimistic
-				now={NOW}
-			/>,
-		);
-		expect(html).toContain('aria-busy="true"');
-		expect(html).toContain('data-optimistic="true"');
-	});
-
-	it("carries neither attribute once the value is confirmed", () => {
-		const html = renderToStaticMarkup(
-			<ConversationRow
-				conversation={conversation({ id: "home:os:abc", title: "Renamed" })}
-				now={NOW}
-			/>,
-		);
-		expect(html).not.toContain("aria-busy");
-		expect(html).not.toContain("data-optimistic");
 	});
 });
 
