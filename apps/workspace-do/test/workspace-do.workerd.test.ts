@@ -8632,6 +8632,29 @@ describe("approval modes and computer access", () => {
 		).toBe("applied");
 	});
 
+	test("the organization's default mode applies until a person picks one, capped by the workspace's highest", async () => {
+		await seedCore();
+		const organizationId = "org_default_mode";
+		await testEnv.DB.prepare(
+			"INSERT OR REPLACE INTO organizations (id, name, slug, metadata) VALUES (?, 'Blue Harbor', 'blue-harbor-modes', ?)",
+		)
+			.bind(organizationId, JSON.stringify({ defaultApprovalMode: "auto" }))
+			.run();
+		const open = { organizationId, workspaceId: crypto.randomUUID() };
+		const capped = { organizationId, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([open, capped]);
+		await privateTo(open, "u1");
+		await privateTo(capped, "u1");
+		await testEnv.DB.prepare(
+			"UPDATE os_workspaces SET highest_approval_mode = 'ask_for_changes' WHERE id = ?",
+		)
+			.bind(capped.workspaceId)
+			.run();
+		const code = `export default async (env) => ${WRITE}.catch(e => e.message)`;
+		expect((await run(workspace(open), open, code)).held).toHaveLength(0);
+		expect((await run(workspace(capped), capped, code)).held).toHaveLength(1);
+	});
+
 	test("app-started and scheduled turns ask whatever mode the person picked", async () => {
 		const { own, ws } = await setup("private");
 		await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });

@@ -110,19 +110,23 @@ export async function getOrganizationPersonalDataRedaction(
 }
 
 /**
- * The organization's own list of read-only command shapes, unchecked;
- * undefined when it keeps none.
+ * The organization's workspace chat settings, unchecked: its own list of
+ * read-only command shapes and its default approval mode; each undefined
+ * when it keeps none.
  */
-export async function getOrganizationReadOnlyCommands(
+export async function getOrganizationAgentDefaults(
 	db: DbQueryClient,
 	id: string,
-): Promise<unknown> {
+): Promise<{ readOnlyCommands: unknown; defaultApprovalMode: unknown }> {
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
 		.where(eq(organizations.id, id))
 		.limit(1);
-	return row?.metadata?.readOnlyCommands;
+	return {
+		readOnlyCommands: row?.metadata?.readOnlyCommands,
+		defaultApprovalMode: row?.metadata?.defaultApprovalMode,
+	};
 }
 
 export async function getOrganizationSessionProjectBindings(

@@ -1233,7 +1233,7 @@ describe("WorkspaceChat", () => {
 		mount(fakeClient("c1"));
 		expect(
 			host.querySelector('[aria-label="Replying agent"]')?.textContent,
-		).toBe("CEO (workspace default)");
+		).toBe("CEO");
 	});
 
 	it("labels a paged approval hold plainly before its request arrives", () => {

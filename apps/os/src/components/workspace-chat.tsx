@@ -356,11 +356,13 @@ export function WorkspaceChat({
 		>
 			<SelectTrigger
 				aria-label="Model"
-				className="workspace-chat-model-trigger"
+				className="workspace-chat-meta-button"
 				size="sm"
 				title={selectedModel?.label}
 			>
-				<SelectValue>{selectedModel?.label ?? null}</SelectValue>
+				<SelectValue>
+					{selectedModel ? shortModelName(selectedModel.label) : null}
+				</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
 				{state.models.map((model) => (
@@ -748,6 +750,15 @@ export function WorkspaceChat({
 			/>
 		</WorkspaceChatDropZone>
 	);
+}
+
+/**
+ * A model's name without its provider or path, so the line under the message
+ * box stays short: "Workers AI: @cf/meta/llama-4" reads "llama-4".
+ */
+function shortModelName(label: string): string {
+	const name = label.slice(label.lastIndexOf(": ") + 1).trim();
+	return name.slice(name.lastIndexOf("/") + 1) || label;
 }
 
 /** How long a dropped connection stays silent, so a blip shows nothing. */
@@ -2236,81 +2247,84 @@ function Composer({
 							}
 						/>
 					) : null}
-					<div className="workspace-chat-model">
-						{slot}
-						{/* A pinned tedi answers every message; its own label is the slot.
-						The roster can still come from another screen's cache. */}
-						{!pinnedTediId &&
-						recipients.length > 0 &&
-						disabledReason === null ? (
-							<Select
-								value={pickedTedi?.id ?? ""}
-								onValueChange={(id) => setPickedTediId(id || WORKSPACE_AGENT)}
-								disabled={client === null}
+					<div className="workspace-chat-composer-actions">
+						{onStop ? (
+							// The turning ring is the sign that the agent is working.
+							<Button
+								aria-label="Stop"
+								className="workspace-chat-stop"
+								title="Stop. Messages the agent has not read come back here."
+								onClick={() => {
+									if (workingTurnId) returnedMessages.stopped(workingTurnId);
+									onStop();
+								}}
+								size="icon-sm"
+								type="button"
+								variant="outline"
 							>
-								<SelectTrigger
-									aria-label="Replying agent"
-									className="workspace-chat-model-trigger"
-									size="sm"
-								>
-									<SelectValue>
-										{pickedTedi ? tediLabel(pickedTedi) : "Workspace agent"}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="">Workspace agent</SelectItem>
-									{recipients.map((tedi) => (
-										<SelectItem key={tedi.id} value={tedi.id}>
-											{tediLabel(tedi)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+								<Stop aria-hidden weight="fill" />
+							</Button>
 						) : null}
-						{state.approvalMode && disabledReason === null ? (
-							<ApprovalModePicker
-								state={state.approvalMode}
-								onChange={(mode) => client?.setApprovalMode(mode)}
-								disabled={client === null}
-							/>
-						) : null}
-						{modelControl}
-						{usage}
-					</div>
-					{onStop ? (
 						<Button
-							aria-label="Stop"
-							title="Stop. Messages the agent has not read come back here."
-							onClick={() => {
-								if (workingTurnId) returnedMessages.stopped(workingTurnId);
-								onStop();
-							}}
+							aria-label="Send"
+							title={
+								onStop
+									? "Send to the agent while it works (Enter). It reads this at its next step."
+									: "Send (Enter). Shift+Enter adds a line."
+							}
+							disabled={
+								disabledReason !== null ||
+								submitted !== null ||
+								uploads.busy ||
+								!draft.trim()
+							}
 							size="icon-sm"
-							type="button"
-							variant="outline"
+							type="submit"
 						>
-							<Stop aria-hidden weight="fill" />
+							<PaperPlaneRight aria-hidden />
 						</Button>
-					) : null}
-					<Button
-						aria-label="Send"
-						title={
-							onStop
-								? "Send to the agent while it works (Enter). It reads this at its next step."
-								: "Send (Enter). Shift+Enter adds a line."
-						}
-						disabled={
-							disabledReason !== null ||
-							submitted !== null ||
-							uploads.busy ||
-							!draft.trim()
-						}
-						size="icon-sm"
-						type="submit"
-					>
-						<PaperPlaneRight aria-hidden />
-					</Button>
+					</div>
 				</div>
+			</div>
+			{/* Who answers, how often it asks and which model: quiet, under the box. */}
+			<div className="workspace-chat-meta">
+				{slot}
+				{/* A pinned tedi answers every message; its own label is the slot.
+				The roster can still come from another screen's cache. */}
+				{!pinnedTediId && recipients.length > 0 && disabledReason === null ? (
+					<Select
+						value={pickedTedi?.id ?? ""}
+						onValueChange={(id) => setPickedTediId(id || WORKSPACE_AGENT)}
+						disabled={client === null}
+					>
+						<SelectTrigger
+							aria-label="Replying agent"
+							className="workspace-chat-meta-button"
+							size="sm"
+						>
+							<SelectValue>
+								{pickedTedi ? pickedTedi.name : "Workspace agent"}
+							</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="">Workspace agent</SelectItem>
+							{recipients.map((tedi) => (
+								<SelectItem key={tedi.id} value={tedi.id}>
+									{tediLabel(tedi)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				) : null}
+				{state.approvalMode && disabledReason === null ? (
+					<ApprovalModePicker
+						state={state.approvalMode}
+						onChange={(mode) => client?.setApprovalMode(mode)}
+						disabled={client === null}
+					/>
+				) : null}
+				{modelControl}
+				{usage}
 			</div>
 		</form>
 	);
