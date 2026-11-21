@@ -2,10 +2,10 @@
  * Workspace chat, run and artifact tables as they exist inside one
  * TenantStore object.
  *
- * Same table and column names as `../schema/cognitive-runtime.ts`, so the
- * migration copy pipeline (`importRows`) writes rows unchanged. References to
- * organizations and tedis are dropped: those rows stay in the core database,
- * so a per-workspace SQLite file cannot reference them.
+ * The November workspace move copied rows into these tables unchanged from
+ * `../schema/cognitive-runtime.ts`; the workspace chat now keeps its own
+ * tables, and no code reads these. They stay defined so the generated
+ * migration chain keeps them until a reviewed migration drops them.
  */
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { SensitiveDataLatch } from "@tedix/api-contract/schemas/sensitive-data-latch";

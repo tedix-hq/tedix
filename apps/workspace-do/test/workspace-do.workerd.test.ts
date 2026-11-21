@@ -157,15 +157,23 @@ type Stub = DurableObjectStub &
 		readPersonCalls(scope: WorkspaceScope): Promise<unknown[]>;
 		readSystemPrompts(scope: WorkspaceScope): Promise<string[]>;
 		readModelCalls(scope: WorkspaceScope): Promise<string[][]>;
-		importRows(
-			scope: WorkspaceScope,
-			batch: {
-				batchId: string;
-				table: string;
-				rows: Record<string, string | number | null>[];
-			},
-		): Promise<unknown>;
 	};
+/** Write raw store rows once for a test; the store has no RPC that accepts them. */
+async function insertRows(
+	ws: Stub,
+	batch: { table: string; rows: Record<string, string | number | null>[] },
+) {
+	await runInDurableObject(ws, (_instance, state) => {
+		for (const row of batch.rows) {
+			const columns = Object.keys(row);
+			state.storage.sql.exec(
+				`INSERT OR IGNORE INTO "${batch.table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+				...columns.map((column) => row[column] ?? null),
+			);
+		}
+	});
+}
+
 function workspace(workspaceScope = scope): Stub {
 	return tenantStoreStub(
 		testEnv.WORKSPACE,
@@ -402,8 +410,7 @@ async function seedOutputs(ws: Stub, outputScope = scope) {
 		outputScope.organizationId,
 		JSON.stringify(doc),
 	);
-	await ws.importRows(outputScope, {
-		batchId: "b-outputs",
+	await insertRows(ws, {
 		table: "os_outputs",
 		rows: [
 			{
@@ -434,8 +441,7 @@ async function seedOutputs(ws: Stub, outputScope = scope) {
 			},
 		],
 	});
-	await ws.importRows(outputScope, {
-		batchId: "b-revisions",
+	await insertRows(ws, {
 		table: "os_output_revisions",
 		rows: [
 			{
@@ -8443,8 +8449,7 @@ test("purges object documents, revisions and resources in one retryable RPC", as
 	};
 	await seedWorkspaceRows([purgeScope]);
 	const ws = workspace(purgeScope);
-	await ws.importRows(purgeScope, {
-		batchId: "purge-directory",
+	await insertRows(ws, {
 		table: "os_workspaces",
 		rows: [
 			{

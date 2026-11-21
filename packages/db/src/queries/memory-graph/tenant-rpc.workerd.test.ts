@@ -555,60 +555,6 @@ describe("memory TenantStore RPC in workerd", () => {
 		]);
 	});
 
-	it("imports memory rows atomically with scope checks and searchable projections", async () => {
-		const { scope, query } = fixture("import");
-		const store = tenantStoreStub(namespace, env, scope);
-		const row = {
-			id: "imported",
-			organization_id: scope.organizationId,
-			content: "Imported cobalt",
-			fact_type: "technical",
-			visibility: "org",
-			review_status: "confirmed",
-			valid_from: "2026-11-05T10:00:00.000Z",
-		};
-		const batch = { batchId: "facts-1", table: "memory_facts", rows: [row] };
-		expect(await store.importRows(scope, batch)).toMatchObject({
-			status: "imported",
-			rowCount: 1,
-		});
-		expect(await store.importRows(scope, batch)).toMatchObject({
-			status: "duplicate",
-			rowCount: 1,
-		});
-		expect(
-			(
-				await query({
-					operation: "lexicalRecall",
-					input: { query: "cobalt", now },
-				})
-			).map((row) => row.factId),
-		).toEqual(["imported"]);
-		expect(
-			await failure(() =>
-				store.importRows(scope, {
-					batchId: "bad-foreign",
-					table: "memory_facts",
-					rows: [
-						{ ...row, id: "foreign", organization_id: "fictional-foreign" },
-					],
-				}),
-			),
-		).toContain("outside this workspace");
-		expect(
-			await failure(() =>
-				store.importRows(scope, {
-					batchId: "bad-duplicate",
-					table: "memory_facts",
-					rows: [{ ...row, id: "fresh" }, row],
-				}),
-			),
-		).toContain("UNIQUE constraint failed");
-		expect(
-			await query({ operation: "getFact", input: { factId: "fresh" } }),
-		).toBeUndefined();
-	});
-
 	it("serves health, expertise, curiosity and optimization state without platform tables", async () => {
 		const { query } = fixture("state");
 		const domain = await query({
