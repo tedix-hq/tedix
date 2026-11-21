@@ -6486,6 +6486,31 @@ it("serializes calls and releases the queue after an error", async () => {
 	expect(events).toEqual(["a", "b"]);
 });
 
+it("keeps three calls in flight while a slow preparation is blocked", async () => {
+	const queue = serialCalls(3);
+	const releases: Array<() => void> = [];
+	let active = 0;
+	let peak = 0;
+	const calls = Array.from({ length: 15 }, () =>
+		queue(async () => {
+			peak = Math.max(peak, ++active);
+			await new Promise<void>((resolve) => releases.push(resolve));
+			active--;
+		}),
+	);
+	await until(() => releases.length === 3);
+	expect(active).toBe(3);
+	// Leave the first preparation blocked while the other slots drain.
+	for (let i = 1; i < 15; i++) {
+		await until(() => releases.length > i);
+		releases[i]!();
+	}
+	expect(peak).toBe(3);
+	releases[0]!();
+	await Promise.all(calls);
+	expect(active).toBe(0);
+});
+
 it("defers a future planned start and reuses only a canonically failed Work's retained tree", () => {
 	expect(
 		dispatchSkip({
