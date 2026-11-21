@@ -3762,19 +3762,17 @@ export class LaneDispatcher {
 					? "The executor preflight check failed"
 					: undefined);
 		const healthSource = existsSync(join(this.directory, "health-source.json"));
-		// Items waiting on an owner's comment cost one Work read each. The pass
-		// waits for that read behind every running preparation, so reading them
-		// in list order kept startable Work further down from starting: they are
-		// read after the whole list has been walked.
-		const awaitingOwner: DispatchItem[] = [];
-		let ownerRound = false;
+		// Owner-answer reads and previously unready starts must wait until the
+		// whole list is walked, so they cannot delay fresh starts on later pages.
+		const rechecks: DispatchItem[] = [];
+		let recheckRound = false;
 		const listed = new Set<string>();
 		while (
 			!this.stopping &&
 			(admissionPause ? healthSource : !this.admissionsHeld)
 		) {
-			const page = ownerRound
-				? { data: awaitingOwner.splice(0), pagination: { hasMore: false } }
+			const page = recheckRound
+				? { data: rechecks.splice(0), pagination: { hasMore: false } }
 				: await this.call<{
 						data: DispatchItem[];
 						pagination: { hasMore: boolean };
@@ -3836,8 +3834,8 @@ export class LaneDispatcher {
 					reason?.startsWith("Possible human-reserved") &&
 					Date.now() >= (this.recheckAfter.get(heldKey) ?? 0)
 				) {
-					if (!ownerRound) {
-						awaitingOwner.push(item);
+					if (!recheckRound) {
+						rechecks.push(item);
 						continue;
 					}
 					const detail = await this.call<{
@@ -4002,6 +4000,13 @@ export class LaneDispatcher {
 					);
 					continue;
 				}
+				if (
+					!recheckRound &&
+					previous?.note?.startsWith("Error: Admission not ready:")
+				) {
+					rechecks.push(item);
+					continue;
+				}
 				// A capacity pause is never held, so it would cost a Work read on
 				// every retry; routing is local and preparation routes again.
 				const paused = (() => {
@@ -4028,8 +4033,8 @@ export class LaneDispatcher {
 					});
 				this.running.set(item.id, task);
 			}
-			if (!admissionPause && !page.pagination.hasMore && awaitingOwner.length) {
-				ownerRound = true;
+			if (!admissionPause && !page.pagination.hasMore && rechecks.length) {
+				recheckRound = true;
 				continue;
 			}
 			// The whole list was walked: a waiting start whose Work left it (done,
