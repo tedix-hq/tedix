@@ -409,3 +409,33 @@ describe("CMS deploy workflow admission", () => {
 		}
 	});
 });
+
+it.each([true, false])(
+	"does not coalesce staging and direct activation for the same source (stage first: %s)",
+	async (stageFirst) => {
+		const { sqlite, db } = fixture();
+		try {
+			const flow = workflow("running");
+			const input = {
+				workflow: flow,
+				db,
+				orgSlug: "acme",
+				sourceCommit: "a".repeat(40),
+			};
+			const results = await Promise.allSettled([
+				startCmsDeployWorkflow({ ...input, stageOnly: stageFirst }),
+				startCmsDeployWorkflow({ ...input, stageOnly: !stageFirst }),
+			]);
+			expect(results.map((result) => result.status)).toEqual([
+				"fulfilled",
+				"rejected",
+			]);
+			expect(flow.create).toHaveBeenCalledTimes(1);
+			expect(flow.create.mock.calls[0]?.[0].params).toMatchObject({
+				stageOnly: stageFirst,
+			});
+		} finally {
+			sqlite.close();
+		}
+	},
+);

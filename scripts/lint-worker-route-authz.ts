@@ -293,6 +293,8 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 		app: "apps/cms-runtime",
 		pathnameFiles: ["apps/cms-runtime/src/index.ts"],
 		guards: {
+			"\\bserveThemePreview\\s*\\(":
+				"Self-guarding candidate preview verifies the HMAC, token/candidate expiry, tenant, immutable site ID and current restore epoch before loading any candidate modules or assets.",
 			"\\bverifyInternalCmsRequest\\s*\\(":
 				"Database, storage, and media admin paths require the CMS_INTERNAL_AUTH_TOKEN bearer before touching tenant storage.",
 		},

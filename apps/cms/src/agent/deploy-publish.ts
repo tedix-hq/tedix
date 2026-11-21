@@ -1,3 +1,4 @@
+import { themeCandidateEtag } from "@tedix/provisioning/cms-theme-candidate";
 import { themeReleaseSchema, type ThemeRelease } from "./theme-release";
 import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { CmsDeployFailure } from "./deploy-failure";
@@ -31,6 +32,8 @@ function staticAssetKey(orgSlug: string, filename: string): string {
 
 interface PublishStagedCmsBundleInput {
 	env: AppBindings;
+	stagingBucket?: R2Bucket;
+	expectedCandidateEtag?: string;
 	site: ExactCmsActiveSite;
 	orgSlug: string;
 	stagingAttemptId: string;
@@ -52,6 +55,7 @@ export async function publishStagedCmsBundle(
 ) {
 	const {
 		env,
+		stagingBucket = env.SITE_BUILDER_STORAGE,
 		site,
 		orgSlug,
 		stagingAttemptId,
@@ -67,7 +71,7 @@ export async function publishStagedCmsBundle(
 		);
 	}
 	return withExactCmsSiteRestorePermit(env.DB, site, async () => {
-		const manifestObj = await env.SITE_BUILDER_STORAGE.get(
+		const manifestObj = await stagingBucket.get(
 			stagingManifestKey(orgSlug, stagingAttemptId),
 		);
 		if (!manifestObj) throw new Error("Staging manifest missing");
@@ -80,17 +84,28 @@ export async function publishStagedCmsBundle(
 
 		const files: Record<string, Uint8Array> = {};
 		for (const path of manifest.files) {
-			const obj = await env.SITE_BUILDER_STORAGE.get(
+			const obj = await stagingBucket.get(
 				stagingFileKey(orgSlug, stagingAttemptId, path),
 			);
 			if (!obj) throw new Error(`Staging file missing: ${path}`);
 			files[path] = new Uint8Array(await obj.arrayBuffer());
 		}
 
+		if (input.expectedCandidateEtag) {
+			const modules = Object.fromEntries(
+				Object.entries(files).map(([path, bytes]) => [
+					path,
+					{ js: new TextDecoder().decode(bytes) },
+				]),
+			);
+			if ((await themeCandidateEtag(modules)) !== input.expectedCandidateEtag)
+				throw new Error("Candidate bundle digest changed");
+		}
+
 		// Upload content-hashed static assets (fonts, CSS, JS chunks) to
 		// BUNDLES_BUCKET under static/{orgSlug}/{filename}. These are never
 		// versioned — content hashes guarantee uniqueness and immutability.
-		const staticManifestObj = await env.SITE_BUILDER_STORAGE.get(
+		const staticManifestObj = await stagingBucket.get(
 			`${stagingPrefix(orgSlug, stagingAttemptId)}/static-manifest.json`,
 		);
 		if (!staticManifestObj)
@@ -117,7 +132,7 @@ export async function publishStagedCmsBundle(
 		for (let i = 0; i < staticFilenames.length; i += 10) {
 			const writes = await Promise.allSettled(
 				staticFilenames.slice(i, i + 10).map(async (filename) => {
-					const obj = await env.SITE_BUILDER_STORAGE.get(
+					const obj = await stagingBucket.get(
 						stagingStaticKey(orgSlug, stagingAttemptId, filename),
 					);
 					if (!obj)

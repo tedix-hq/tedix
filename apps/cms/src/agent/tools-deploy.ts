@@ -1,3 +1,12 @@
+import { readThemeCandidate } from "./theme-candidate";
+import {
+	signThemePreview,
+	THEME_PREVIEW_PATH,
+} from "@tedix/provisioning/cms-theme-candidate";
+import {
+	buildSurfaceUrl,
+	platformDomainForEnvironment,
+} from "@tedix/tenant-directory";
 import { themeReleaseSchema } from "./theme-release";
 import type { McpServer } from "@tedix/mcp-shared/server";
 import * as z from "zod";
@@ -248,11 +257,98 @@ export function registerDeployTools(
 	);
 
 	server.registerTool(
+		"stage_theme",
+		{
+			title: "Stage Theme Candidate",
+			description:
+				"Build a pinned theme commit and retain its exact bundle for private preview without activating it. Poll theme_deploy_status, then get_theme_candidate. Activation is a separate human-approved theme_deploy call with candidateId.",
+			inputSchema: schema(
+				z.object({
+					sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+					summary: z.string().optional(),
+				}),
+			),
+			annotations: { destructiveHint: false },
+		},
+		async (args: { sourceCommit: string; summary?: string }) => {
+			const result = await ctx.startDeploy(
+				ctx.orgSlug,
+				args.summary,
+				args.sourceCommit,
+				{ stageOnly: true },
+			);
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: JSON.stringify({
+							...result,
+							candidateId: result.jobId,
+							status: "queued",
+						}),
+					},
+				],
+			};
+		},
+	);
+	server.registerTool(
+		"get_theme_candidate",
+		{
+			title: "Get Theme Candidate Preview",
+			description:
+				"Read a staged candidate and return a signed private preview URL valid for up to one hour. Candidates expire after 24 hours. Preview uses published content read-only. To activate, request the exact human-approved theme_deploy({candidateId}) call.",
+			inputSchema: schema(
+				z.object({ candidateId: z.string().regex(CMS_DEPLOY_JOB_ID_RE) }),
+			),
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		},
+		async (args: { candidateId: string }) => {
+			const candidate = await readThemeCandidate(
+				ctx.bundlesBucket,
+				ctx.orgSlug,
+				args.candidateId,
+			);
+			const site = await getActiveCmsSiteForPermit(ctx.db, ctx.orgSlug);
+			if (
+				site.siteId !== candidate.siteId ||
+				site.restoreEpoch !== candidate.restoreEpoch
+			)
+				throw new Error("Candidate site identity changed");
+			const token = await signThemePreview(ctx.internalAuthToken, candidate);
+			const origin = buildSurfaceUrl("cms", ctx.orgSlug, {
+				platformDomain: platformDomainForEnvironment(
+					ctx.environment || "production",
+				),
+			});
+			if (!origin) throw new Error("CMS preview origin unavailable");
+			const versions = await ctx.listVersions(ctx.orgSlug);
+			const activeVersion = versions.find((v) => v.active)?.version ?? null;
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: JSON.stringify({
+							...candidate,
+							status: activeVersion === candidate.version ? "active" : "staged",
+							predecessorMatches:
+								activeVersion === candidate.expectedActiveVersion,
+							previewUrl: `${origin}${THEME_PREVIEW_PATH}${candidate.id}/${token}/`,
+							previewExpiresAt: new Date(
+								Number(token.split(".")[0]),
+							).toISOString(),
+						}),
+					},
+				],
+			};
+		},
+	);
+
+	server.registerTool(
 		"theme_deploy",
 		{
 			title: "Deploy Theme to Live CMS",
 			description:
-				"Kick off an async deploy of the current theme to {slug}.cms.tedix.dev. " +
+				"Activate candidateId without rebuilding its staged bundle, or kick off an async deploy of the current theme to {slug}.cms.tedix.dev. Activation requires the existing human-approved exact call. " +
 				"Returns immediately with a jobId. The deploy runs in a Cloudflare Workflow: " +
 				"build → snapshot → dispatch upload → version finalize, with per-step retries. " +
 				"Poll theme_deploy_status with the jobId to see progress and the final URL. " +
@@ -261,6 +357,13 @@ export function registerDeployTools(
 				"without it the builder's current workspace is built only when no prior Artifacts-backed bundle exists.",
 			inputSchema: schema(
 				z.object({
+					candidateId: z
+						.string()
+						.regex(CMS_DEPLOY_JOB_ID_RE)
+						.optional()
+						.describe(
+							"Exact staged candidate to activate; omit sourceCommit. Keeps the candidate\'s original predecessor check.",
+						),
 					summary: z
 						.string()
 						.optional()
@@ -283,6 +386,7 @@ export function registerDeployTools(
 				ctx.orgSlug,
 				args.summary,
 				args.sourceCommit,
+				{ candidateId: args.candidateId },
 			);
 			return {
 				content: [

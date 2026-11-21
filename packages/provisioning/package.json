@@ -8,7 +8,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./cms": "./src/cms.ts",
-		"./cms-bundle": "./src/cms-bundle.ts"
+		"./cms-bundle": "./src/cms-bundle.ts",
+		"./cms-theme-candidate": "./src/cms-theme-candidate.ts"
 	},
 	"scripts": {
 		"type-check": "tsc --noEmit"

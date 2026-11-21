@@ -1,3 +1,4 @@
+import { readThemeCandidate, stageThemeCandidate } from "./theme-candidate";
 import { identifyThemeRelease } from "./theme-release";
 import { probeCmsDeploy } from "./deploy-health";
 import { CmsDeployFailure, type DeployRollback } from "./deploy-failure";
@@ -300,15 +301,22 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 	async run(
 		event: WorkflowEvent<DeployWorkflowParams>,
 		step: WorkflowStep,
-	): Promise<{ version: number; etag: string; url: string }> {
+	): Promise<{
+		version: number;
+		etag: string;
+		url: string;
+		candidateId?: string;
+	}> {
 		const {
 			siteId,
 			restoreEpoch,
 			orgSlug,
 			summary,
 			sourceCommit,
-			nextBundleVersion,
-			expectedActiveVersion,
+			nextBundleVersion: admittedNextBundleVersion,
+			expectedActiveVersion: admittedExpectedActiveVersion,
+			stageOnly,
+			candidateId,
 		} = event.payload;
 		const jobId = event.instanceId;
 		const env = this.env;
@@ -455,579 +463,658 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 		};
 
 		try {
-			// Resolve the tenant's Site Builder starter slug. Absent/"tedix" => the
-			// historical default path (no template overlay; locked resync uses the
-			// tedix snapshot). Unknown slugs fail before a workspace is changed.
-			const templateSlug = await resolveTemplateSlug(env.DB, orgSlug);
-			const createSourceWorkspace = async (
-				sandbox: ReturnType<typeof getSiteBuilderSandbox>,
-			) => {
-				const sourceRoot = sourceCommit
-					? (`/workspace-templates/${normalizeCmsTemplateSlug(templateSlug)}` as const)
-					: ("/workspace" as const);
-				const attempt = await createDeployAttemptWorkspace(
-					sandbox,
-					jobId,
-					sourceRoot,
-				);
-				try {
-					// Sandbox-only themes retain their editable files from /workspace.
-					// Add any absent marketing starter assets to the private copy.
-					if (!sourceCommit && templateSlug !== DEFAULT_TEMPLATE_SLUG) {
-						const overlay = await (
-							await sandbox.exec([
-								"bash",
-								"-lc",
-								`cp -an ${shellQuote(`${WORKSPACE_TEMPLATES}/${templateSlug}/.`)} ${shellQuote(`${attempt.path}/`)}`,
-							])
-						).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
-						if (overlay.timedOut) {
-							throw new CmsUnknownProcessOutcomeError(
-								"CMS template overlay outcome is unknown",
+			const candidate = candidateId
+				? await guardedStep(
+						"load-candidate",
+						{ retries: { limit: 0, delay: "1 second" }, timeout: "1 minute" },
+						async () => {
+							const stored = await readThemeCandidate(
+								env.BUNDLES_BUCKET,
+								orgSlug,
+								candidateId,
 							);
-						}
-						if (
-							overlay.exitCode !== 0 ||
-							overlay.signal !== undefined ||
-							overlay.truncated
-						) {
-							throw new Error(
-								`Template overlay failed for "${templateSlug}": ${overlay.stderr || overlay.stdout}`,
-							);
-						}
-					}
-					await restoreSourceCommit(sandbox, templateSlug, attempt.path);
-					const resync = await resyncTemplate(sandbox, {
-						scope: "locked",
-						templateSlug,
-						workspace: attempt.path,
-					});
-					return { ...attempt, resync };
-				} catch (error) {
-					if (!(error instanceof CmsUnknownProcessOutcomeError)) {
-						await removeDeployAttemptWorkspace(sandbox, attempt.path).catch(
-							() => undefined,
-						);
-					}
-					throw error;
-				}
+							if (
+								stored.siteId !== siteId ||
+								stored.restoreEpoch !== restoreEpoch
+							)
+								throw new NonRetryableError("Candidate site identity changed");
+							return stored;
+						},
+					)
+				: null;
+			const nextBundleVersion = candidate?.version ?? admittedNextBundleVersion;
+			const expectedActiveVersion = candidate
+				? candidate.expectedActiveVersion
+				: admittedExpectedActiveVersion;
+			let snapshot: {
+				stagingAttemptId: string;
+				fileCount: number;
+				staticCount: number;
 			};
-
-			// ------------------------------------------------------------------
-			// Step 0 — preflight (pin editable source in a private workspace)
-			// A source-backed deploy copies the immutable starter and materializes
-			// the named Artifacts commit there. A sandbox-only deploy copies the
-			// current authoring workspace. Both resync locked platform files in the
-			// private copy and return one durable editable-source digest.
-			// ------------------------------------------------------------------
-			await record("preflight", "running", "Preparing workspace", {
-				templateSlug,
-			});
-			const pinnedSource = await guardedStep(
-				"preflight",
-				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "2 minutes" },
-				async () => {
-					const sandbox = getExecutionSandbox();
-					const prepared = await createSourceWorkspace(sandbox);
+			if (candidate) {
+				snapshot = {
+					stagingAttemptId: candidate.stagingAttemptId,
+					fileCount: 0,
+					staticCount: 0,
+				};
+			} else {
+				// Resolve the tenant's Site Builder starter slug. Absent/"tedix" => the
+				// historical default path (no template overlay; locked resync uses the
+				// tedix snapshot). Unknown slugs fail before a workspace is changed.
+				const templateSlug = await resolveTemplateSlug(env.DB, orgSlug);
+				const createSourceWorkspace = async (
+					sandbox: ReturnType<typeof getSiteBuilderSandbox>,
+				) => {
+					const sourceRoot = sourceCommit
+						? (`/workspace-templates/${normalizeCmsTemplateSlug(templateSlug)}` as const)
+						: ("/workspace" as const);
+					const attempt = await createDeployAttemptWorkspace(
+						sandbox,
+						jobId,
+						sourceRoot,
+					);
 					try {
-						const editableSource = await digestEditableThemeSource(
+						// Sandbox-only themes retain their editable files from /workspace.
+						// Add any absent marketing starter assets to the private copy.
+						if (!sourceCommit && templateSlug !== DEFAULT_TEMPLATE_SLUG) {
+							const overlay = await (
+								await sandbox.exec([
+									"bash",
+									"-lc",
+									`cp -an ${shellQuote(`${WORKSPACE_TEMPLATES}/${templateSlug}/.`)} ${shellQuote(`${attempt.path}/`)}`,
+								])
+							).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
+							if (overlay.timedOut) {
+								throw new CmsUnknownProcessOutcomeError(
+									"CMS template overlay outcome is unknown",
+								);
+							}
+							if (
+								overlay.exitCode !== 0 ||
+								overlay.signal !== undefined ||
+								overlay.truncated
+							) {
+								throw new Error(
+									`Template overlay failed for "${templateSlug}": ${overlay.stderr || overlay.stdout}`,
+								);
+							}
+						}
+						await restoreSourceCommit(sandbox, templateSlug, attempt.path);
+						const resync = await resyncTemplate(sandbox, {
+							scope: "locked",
+							templateSlug,
+							workspace: attempt.path,
+						});
+						return { ...attempt, resync };
+					} catch (error) {
+						if (!(error instanceof CmsUnknownProcessOutcomeError)) {
+							await removeDeployAttemptWorkspace(sandbox, attempt.path).catch(
+								() => undefined,
+							);
+						}
+						throw error;
+					}
+				};
+
+				// ------------------------------------------------------------------
+				// Step 0 — preflight (pin editable source in a private workspace)
+				// A source-backed deploy copies the immutable starter and materializes
+				// the named Artifacts commit there. A sandbox-only deploy copies the
+				// current authoring workspace. Both resync locked platform files in the
+				// private copy and return one durable editable-source digest.
+				// ------------------------------------------------------------------
+				await record("preflight", "running", "Preparing workspace", {
+					templateSlug,
+				});
+				const pinnedSource = await guardedStep(
+					"preflight",
+					{
+						retries: { limit: 1, delay: "5 seconds" },
+						timeout: "2 minutes",
+					},
+					async () => {
+						const sandbox = getExecutionSandbox();
+						const prepared = await createSourceWorkspace(sandbox);
+						try {
+							const editableSource = await digestEditableThemeSource(
+								sandbox,
+								templateSlug,
+								prepared.path,
+							);
+							await record(
+								"preflight",
+								"complete",
+								"Editable theme source identified",
+								{
+									copied: prepared.resync.copied.length,
+									skipped: prepared.resync.skipped.length,
+									sourceRevision: sourceRevision ?? {
+										kind: "editable_source_digest",
+										value: editableSource.digest,
+									},
+									sourceFileCount: editableSource.fileCount,
+								},
+							);
+							return editableSource;
+						} finally {
+							await removeDeployAttemptWorkspace(sandbox, prepared.path);
+						}
+					},
+					{ retainPermitOnUnknownProcessOutcome: true },
+				);
+				// ------------------------------------------------------------------
+				// Step 1 — build in a private workspace. Snapshotting hundreds of
+				// modules used to share this step with Astro and made retries rebuild
+				// the theme. The build step keeps its workspace until the snapshot is
+				// durable, so a snapshot retry can reuse completed output.
+				// ------------------------------------------------------------------
+				await record("build-and-snapshot", "running", "Building Astro bundle");
+				const buildAttempt = async () => {
+					const preparationStartedAt = Date.now();
+					const sandbox = getExecutionSandbox();
+					const attempt = await createSourceWorkspace(sandbox);
+					const attemptWorkspace = attempt.path;
+					try {
+						await clearDeployAttemptBuildOutput(sandbox, attemptWorkspace);
+						const editableSource = await requirePinnedEditableThemeSource(
 							sandbox,
 							templateSlug,
-							prepared.path,
+							pinnedSource,
+							(message) => new NonRetryableError(message),
+							attemptWorkspace,
 						);
 						await record(
-							"preflight",
-							"complete",
-							"Editable theme source identified",
-							{
-								copied: prepared.resync.copied.length,
-								skipped: prepared.resync.skipped.length,
-								sourceRevision: sourceRevision ?? {
-									kind: "editable_source_digest",
-									value: editableSource.digest,
-								},
-								sourceFileCount: editableSource.fileCount,
-							},
+							"build-and-snapshot",
+							"running",
+							"Locked files resynced; editable theme source verified",
+							{ templateSlug, sourceFileCount: editableSource.fileCount },
 						);
-						return editableSource;
-					} finally {
-						await removeDeployAttemptWorkspace(sandbox, prepared.path);
-					}
-				},
-				{ retainPermitOnUnknownProcessOutcome: true },
-			);
-			// ------------------------------------------------------------------
-			// Step 1 — build in a private workspace. Snapshotting hundreds of
-			// modules used to share this step with Astro and made retries rebuild
-			// the theme. The build step keeps its workspace until the snapshot is
-			// durable, so a snapshot retry can reuse completed output.
-			// ------------------------------------------------------------------
-			await record("build-and-snapshot", "running", "Building Astro bundle");
-			const buildAttempt = async () => {
-				const preparationStartedAt = Date.now();
-				const sandbox = getExecutionSandbox();
-				const attempt = await createSourceWorkspace(sandbox);
-				const attemptWorkspace = attempt.path;
-				try {
-					await clearDeployAttemptBuildOutput(sandbox, attemptWorkspace);
-					const editableSource = await requirePinnedEditableThemeSource(
-						sandbox,
-						templateSlug,
-						pinnedSource,
-						(message) => new NonRetryableError(message),
-						attemptWorkspace,
-					);
-					await record(
-						"build-and-snapshot",
-						"running",
-						"Locked files resynced; editable theme source verified",
-						{ templateSlug, sourceFileCount: editableSource.fileCount },
-					);
-					// Patch the org locale in this attempt's config only.
-					const localePatch = await patchLocaleConfig(
-						sandbox,
-						env.DB,
-						orgSlug,
-						attemptWorkspace,
-					);
-					await record(
-						"build-and-snapshot",
-						"running",
-						"Locale config prepared",
-						localePatch,
-					);
-					const privacyBannerEnabled = await resolveCmsPrivacyBannerEnabled(
-						env.DB,
-						orgSlug,
-					);
-					await record(
-						"build-and-snapshot",
-						"running",
-						"Privacy banner config prepared",
-						{ privacyBannerEnabled },
-					);
-					// Best-effort: restore a prior node_modules backup for this exact
-					// template + dependency fingerprint so the install below becomes a
-					// fast verification pass instead of a from-scratch resolve+download.
-					// A miss (or any error) falls through to today's unmodified install
-					// path — this can only speed a build up, never break one.
-					const backupRestore = await restoreNodeModulesBackup(
-						sandbox,
-						env.SITE_BUILDER_STORAGE,
-						templateSlug,
-						attemptWorkspace,
-					);
-					await record(
-						"build-and-snapshot",
-						"running",
-						backupRestore.hit
-							? "node_modules restored from backup"
-							: "no node_modules backup available",
-						backupRestore,
-					);
-
-					const installExec = await (
-						await sandbox.exec([
-							"bash",
-							"-lc",
-							`cd '${attemptWorkspace}' && bun install --no-progress`,
-						])
-					).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
-					if (installExec.timedOut) {
-						throw new CmsUnknownProcessOutcomeError(
-							"CMS dependency install outcome is unknown",
+						// Patch the org locale in this attempt's config only.
+						const localePatch = await patchLocaleConfig(
+							sandbox,
+							env.DB,
+							orgSlug,
+							attemptWorkspace,
 						);
-					}
-					if (
-						installExec.exitCode !== 0 ||
-						installExec.signal !== undefined ||
-						installExec.truncated
-					) {
-						throw new Error(
-							`Dependency install failed: ${installExec.stderr || installExec.stdout}`,
+						await record(
+							"build-and-snapshot",
+							"running",
+							"Locale config prepared",
+							localePatch,
 						);
-					}
-					await record(
-						"build-and-snapshot",
-						"running",
-						"Dependencies refreshed",
-					);
-
-					// Only populate the cache on a miss — a hit means an equivalent
-					// backup already exists for this fingerprint, so re-snapshotting
-					// would just burn a createBackup() call for no benefit.
-					if (!backupRestore.hit && backupRestore.fingerprint) {
-						const saved = await saveNodeModulesBackup(
+						const privacyBannerEnabled = await resolveCmsPrivacyBannerEnabled(
+							env.DB,
+							orgSlug,
+						);
+						await record(
+							"build-and-snapshot",
+							"running",
+							"Privacy banner config prepared",
+							{ privacyBannerEnabled },
+						);
+						// Best-effort: restore a prior node_modules backup for this exact
+						// template + dependency fingerprint so the install below becomes a
+						// fast verification pass instead of a from-scratch resolve+download.
+						// A miss (or any error) falls through to today's unmodified install
+						// path — this can only speed a build up, never break one.
+						const backupRestore = await restoreNodeModulesBackup(
 							sandbox,
 							env.SITE_BUILDER_STORAGE,
 							templateSlug,
-							backupRestore.fingerprint,
 							attemptWorkspace,
 						);
 						await record(
 							"build-and-snapshot",
 							"running",
-							saved
-								? "node_modules backed up for future builds"
-								: "node_modules backup skipped (best-effort save failed)",
+							backupRestore.hit
+								? "node_modules restored from backup"
+								: "no node_modules backup available",
+							backupRestore,
 						);
-					}
 
-					// Patch emprivacy: its metadata/fragment hooks resolve root-relative
-					// policy URLs through ctx.url(). Some non-page native routes (notably
-					// /robots.txt during deploy health checks) may not expose that helper.
-					// Treat that as "no policy metadata for this route" instead of
-					// throwing and taking the whole tenant bundle down.
-					const emprivacyPatchExec = await (
-						await sandbox.exec([
-							"bash",
-							"-lc",
-							"node -e " +
-								JSON.stringify(
-									"const fs=require('fs');" +
-										"const p=" +
-										JSON.stringify(
-											`${attemptWorkspace}/node_modules/emprivacy/dist/sandbox-entry.mjs`,
-										) +
-										";" +
-										"let c=fs.readFileSync(p,'utf8');" +
-										"if(c.includes('/* tedix ctx.url guard */')){process.stdout.write('[cms] emprivacy ctx.url patch already applied\\n');process.exit(0);}" +
-										"const needle='function absolutePolicyHref(stored, ctx) {\\n\\tconst r = resolvePolicyHref(stored, ctx).trim();';" +
-										'const replacement=\'function absolutePolicyHref(stored, ctx) {\\n\\t/* tedix ctx.url guard */\\n\\tlet r = "";\\n\\ttry {\\n\\t\\tr = resolvePolicyHref(stored, ctx).trim();\\n\\t} catch {\\n\\t\\tr = typeof stored === "string" ? stored.trim() : "";\\n\\t}\';' +
-										"if(!c.includes(needle)){process.stderr.write('emprivacy patch: target not found\\n');process.exit(1);}" +
-										"c=c.replace(needle,replacement);" +
-										"fs.writeFileSync(p,c,'utf8');" +
-										"process.stdout.write('[cms] emprivacy ctx.url patch applied\\n');",
-								),
-						])
-					).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
-					if (emprivacyPatchExec.timedOut) {
-						throw new CmsUnknownProcessOutcomeError(
-							"CMS dependency patch outcome is unknown",
+						const installExec = await (
+							await sandbox.exec([
+								"bash",
+								"-lc",
+								`cd '${attemptWorkspace}' && bun install --no-progress`,
+							])
+						).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
+						if (installExec.timedOut) {
+							throw new CmsUnknownProcessOutcomeError(
+								"CMS dependency install outcome is unknown",
+							);
+						}
+						if (
+							installExec.exitCode !== 0 ||
+							installExec.signal !== undefined ||
+							installExec.truncated
+						) {
+							throw new Error(
+								`Dependency install failed: ${installExec.stderr || installExec.stdout}`,
+							);
+						}
+						await record(
+							"build-and-snapshot",
+							"running",
+							"Dependencies refreshed",
 						);
-					}
-					if (
-						emprivacyPatchExec.exitCode !== 0 ||
-						emprivacyPatchExec.signal !== undefined ||
-						emprivacyPatchExec.truncated
-					) {
-						throw new Error(
-							`emprivacy patch failed: ${emprivacyPatchExec.stderr || emprivacyPatchExec.stdout}`,
-						);
-					}
-					await record(
-						"build-and-snapshot",
-						"running",
-						"emprivacy route-context patch verified",
-					);
 
-					const workflowJobId = jobId.replace(/[^a-zA-Z0-9._-]/g, "-");
-					const buildJobId =
-						`${workflowJobId}-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`.slice(
-							0,
-							128,
-						);
-					const publicBuildRoute = await getCmsPublicBuildRoute(
-						env.DB,
-						orgSlug,
-					);
-					if (!publicBuildRoute)
-						throw new Error(
-							`CMS site ${orgSlug} has no active public build route`,
-						);
-					await record(
-						"build-and-snapshot",
-						"running",
-						`Astro build job allocated: ${buildJobId}`,
-					);
-					// Every preparation operation, including the last status write,
-					// must finish before the native process receives its full lifetime.
-					// Cloudflare may interrupt an individual Sandbox RPC; this check
-					// bounds the elapsed preparation between those calls.
-					if (
-						Date.now() - preparationStartedAt >=
-						CMS_BUILD_PREPARATION_BUDGET_MS
-					) {
-						throw new Error(
-							"CMS build preparation exceeded its budget; native build was not launched",
-						);
-					}
-					const build = await runCmsSandboxBuildToCompletion(sandbox, {
-						jobId: buildJobId,
-						orgSlug,
-						workspace: attemptWorkspace,
-						...publicBuildRoute,
-						privacyBannerEnabled,
-						onProgress: (message) =>
-							record(
+						// Only populate the cache on a miss — a hit means an equivalent
+						// backup already exists for this fingerprint, so re-snapshotting
+						// would just burn a createBackup() call for no benefit.
+						if (!backupRestore.hit && backupRestore.fingerprint) {
+							const saved = await saveNodeModulesBackup(
+								sandbox,
+								env.SITE_BUILDER_STORAGE,
+								templateSlug,
+								backupRestore.fingerprint,
+								attemptWorkspace,
+							);
+							await record(
 								"build-and-snapshot",
 								"running",
-								`${message}: ${buildJobId}`,
-							).catch(() => undefined),
-					});
-					if (build.status === "timeout") {
-						throw new Error(
-							`Build timed out: ${build.logTail.trim() || build.message}`,
-						);
-					}
-					if (build.status !== "complete") {
-						throw new Error(
-							`Build failed${
-								build.exitCode !== null ? ` (exit ${build.exitCode})` : ""
-							}: ${build.logTail.trim() || build.launchLog.trim() || build.message}`,
-						);
-					}
-					if (build.successMarkerDetected) {
-						await record("build-and-snapshot", "running", build.message);
-					}
-					await record(
-						"build-and-snapshot",
-						"running",
-						"Astro build completed",
-					);
-					return {
-						workspace: attemptWorkspace,
-						stagingAttemptId: attempt.stagingAttemptId,
-						sourceDigest: editableSource.digest,
-						release: await identifyThemeRelease(
-							sandbox,
-							templateSlug,
-							attemptWorkspace,
-						),
-					};
-				} catch (error) {
-					if (error instanceof CmsUnknownProcessOutcomeError) throw error;
-					await removeDeployAttemptWorkspace(sandbox, attemptWorkspace).catch(
-						() => undefined,
-					);
-					throw error;
-				}
-			};
-			const built = await guardedStep(
-				"build-theme",
-				{
-					retries: { limit: 2, delay: "10 seconds" },
-					timeout: `${BUILD_WORKFLOW_TIMEOUT_MINUTES} minutes`,
-				},
-				buildAttempt,
-				{ retainPermitOnUnknownProcessOutcome: true },
-			);
+								saved
+									? "node_modules backed up for future builds"
+									: "node_modules backup skipped (best-effort save failed)",
+							);
+						}
 
-			// Step 2 — stage the completed build in R2. Every retry gets a
-			// distinct staging prefix: a callback abandoned by Workflows can keep
-			// writing without corrupting the winning attempt's manifest.
-			const snapshot = await guardedStep(
-				"snapshot-theme",
-				{
-					retries: { limit: 2, delay: "10 seconds" },
-					timeout: `${SNAPSHOT_WORKFLOW_TIMEOUT_MINUTES} minutes`,
-				},
-				async () => {
-					const sandbox = getExecutionSandbox();
-					let currentBuild = built;
-					if (
-						!(await sandbox.pathExists(
-							`${built.workspace}/dist/server/${MAIN_MODULE}`,
-						))
-					) {
+						// Patch emprivacy: its metadata/fragment hooks resolve root-relative
+						// policy URLs through ctx.url(). Some non-page native routes (notably
+						// /robots.txt during deploy health checks) may not expose that helper.
+						// Treat that as "no policy metadata for this route" instead of
+						// throwing and taking the whole tenant bundle down.
+						const emprivacyPatchExec = await (
+							await sandbox.exec([
+								"bash",
+								"-lc",
+								"node -e " +
+									JSON.stringify(
+										"const fs=require('fs');" +
+											"const p=" +
+											JSON.stringify(
+												`${attemptWorkspace}/node_modules/emprivacy/dist/sandbox-entry.mjs`,
+											) +
+											";" +
+											"let c=fs.readFileSync(p,'utf8');" +
+											"if(c.includes('/* tedix ctx.url guard */')){process.stdout.write('[cms] emprivacy ctx.url patch already applied\\n');process.exit(0);}" +
+											"const needle='function absolutePolicyHref(stored, ctx) {\\n\\tconst r = resolvePolicyHref(stored, ctx).trim();';" +
+											'const replacement=\'function absolutePolicyHref(stored, ctx) {\\n\\t/* tedix ctx.url guard */\\n\\tlet r = "";\\n\\ttry {\\n\\t\\tr = resolvePolicyHref(stored, ctx).trim();\\n\\t} catch {\\n\\t\\tr = typeof stored === "string" ? stored.trim() : "";\\n\\t}\';' +
+											"if(!c.includes(needle)){process.stderr.write('emprivacy patch: target not found\\n');process.exit(1);}" +
+											"c=c.replace(needle,replacement);" +
+											"fs.writeFileSync(p,c,'utf8');" +
+											"process.stdout.write('[cms] emprivacy ctx.url patch applied\\n');",
+									),
+							])
+						).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
+						if (emprivacyPatchExec.timedOut) {
+							throw new CmsUnknownProcessOutcomeError(
+								"CMS dependency patch outcome is unknown",
+							);
+						}
+						if (
+							emprivacyPatchExec.exitCode !== 0 ||
+							emprivacyPatchExec.signal !== undefined ||
+							emprivacyPatchExec.truncated
+						) {
+							throw new Error(
+								`emprivacy patch failed: ${emprivacyPatchExec.stderr || emprivacyPatchExec.stdout}`,
+							);
+						}
 						await record(
 							"build-and-snapshot",
 							"running",
-							"Build output disappeared; rebuilding pinned source",
+							"emprivacy route-context patch verified",
 						);
-						currentBuild = await buildAttempt();
+
+						const workflowJobId = jobId.replace(/[^a-zA-Z0-9._-]/g, "-");
+						const buildJobId =
+							`${workflowJobId}-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`.slice(
+								0,
+								128,
+							);
+						const publicBuildRoute = await getCmsPublicBuildRoute(
+							env.DB,
+							orgSlug,
+						);
+						if (!publicBuildRoute)
+							throw new Error(
+								`CMS site ${orgSlug} has no active public build route`,
+							);
+						await record(
+							"build-and-snapshot",
+							"running",
+							`Astro build job allocated: ${buildJobId}`,
+						);
+						// Every preparation operation, including the last status write,
+						// must finish before the native process receives its full lifetime.
+						// Cloudflare may interrupt an individual Sandbox RPC; this check
+						// bounds the elapsed preparation between those calls.
+						if (
+							Date.now() - preparationStartedAt >=
+							CMS_BUILD_PREPARATION_BUDGET_MS
+						) {
+							throw new Error(
+								"CMS build preparation exceeded its budget; native build was not launched",
+							);
+						}
+						const build = await runCmsSandboxBuildToCompletion(sandbox, {
+							jobId: buildJobId,
+							orgSlug,
+							workspace: attemptWorkspace,
+							...publicBuildRoute,
+							privacyBannerEnabled,
+							onProgress: (message) =>
+								record(
+									"build-and-snapshot",
+									"running",
+									`${message}: ${buildJobId}`,
+								).catch(() => undefined),
+						});
+						if (build.status === "timeout") {
+							throw new Error(
+								`Build timed out: ${build.logTail.trim() || build.message}`,
+							);
+						}
+						if (build.status !== "complete") {
+							throw new Error(
+								`Build failed${
+									build.exitCode !== null ? ` (exit ${build.exitCode})` : ""
+								}: ${build.logTail.trim() || build.launchLog.trim() || build.message}`,
+							);
+						}
+						if (build.successMarkerDetected) {
+							await record("build-and-snapshot", "running", build.message);
+						}
+						await record(
+							"build-and-snapshot",
+							"running",
+							"Astro build completed",
+						);
+						return {
+							workspace: attemptWorkspace,
+							stagingAttemptId: attempt.stagingAttemptId,
+							sourceDigest: editableSource.digest,
+							release: await identifyThemeRelease(
+								sandbox,
+								templateSlug,
+								attemptWorkspace,
+							),
+						};
+					} catch (error) {
+						if (error instanceof CmsUnknownProcessOutcomeError) throw error;
+						await removeDeployAttemptWorkspace(sandbox, attemptWorkspace).catch(
+							() => undefined,
+						);
+						throw error;
 					}
-					const bundleDir = `${currentBuild.workspace}/dist/server`;
-					const staticDir = `${currentBuild.workspace}/dist/client/_astro`;
-					const stagingAttemptId = `${currentBuild.stagingAttemptId}-s${crypto.randomUUID()}`;
+				};
+				const built = await guardedStep(
+					"build-theme",
+					{
+						retries: { limit: 2, delay: "10 seconds" },
+						timeout: `${BUILD_WORKFLOW_TIMEOUT_MINUTES} minutes`,
+					},
+					buildAttempt,
+					{ retainPermitOnUnknownProcessOutcome: true },
+				);
 
-					// List all .mjs files under dist/server.
-					const listExec = await (
-						await sandbox.exec([
-							"bash",
-							"-lc",
-							`cd '${bundleDir}' && find . -name '*.mjs' -type f | sed 's|^\\./||' | sort`,
-						])
-					).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
-					if (listExec.timedOut) {
-						throw new CmsUnknownProcessOutcomeError(
-							"CMS bundle listing outcome is unknown",
+				// Step 2 — stage the completed build in R2. Every retry gets a
+				// distinct staging prefix: a callback abandoned by Workflows can keep
+				// writing without corrupting the winning attempt's manifest.
+				const builtSnapshot = await guardedStep(
+					"snapshot-theme",
+					{
+						retries: { limit: 2, delay: "10 seconds" },
+						timeout: `${SNAPSHOT_WORKFLOW_TIMEOUT_MINUTES} minutes`,
+					},
+					async () => {
+						const sandbox = getExecutionSandbox();
+						let currentBuild = built;
+						if (
+							!(await sandbox.pathExists(
+								`${built.workspace}/dist/server/${MAIN_MODULE}`,
+							))
+						) {
+							await record(
+								"build-and-snapshot",
+								"running",
+								"Build output disappeared; rebuilding pinned source",
+							);
+							currentBuild = await buildAttempt();
+						}
+						const bundleDir = `${currentBuild.workspace}/dist/server`;
+						const staticDir = `${currentBuild.workspace}/dist/client/_astro`;
+						const stagingAttemptId = `${currentBuild.stagingAttemptId}-s${crypto.randomUUID()}`;
+
+						// List all .mjs files under dist/server.
+						const listExec = await (
+							await sandbox.exec([
+								"bash",
+								"-lc",
+								`cd '${bundleDir}' && find . -name '*.mjs' -type f | sed 's|^\\./||' | sort`,
+							])
+						).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
+						if (listExec.timedOut) {
+							throw new CmsUnknownProcessOutcomeError(
+								"CMS bundle listing outcome is unknown",
+							);
+						}
+						if (
+							listExec.exitCode !== 0 ||
+							listExec.signal !== undefined ||
+							listExec.truncated
+						) {
+							throw new Error(
+								`File listing failed: ${listExec.stderr || listExec.stdout}`,
+							);
+						}
+						const filePaths = listExec.stdout
+							.split("\n")
+							.map((p) => p.trim())
+							.filter((p) => p.length > 0 && p.endsWith(".mjs"));
+
+						if (!filePaths.includes(MAIN_MODULE)) {
+							throw new Error(
+								`Bundle entry "${MAIN_MODULE}" missing — did build succeed?`,
+							);
+						}
+						await record(
+							"build-and-snapshot",
+							"running",
+							"Bundle module files discovered",
+							{ fileCount: filePaths.length },
 						);
-					}
-					if (
-						listExec.exitCode !== 0 ||
-						listExec.signal !== undefined ||
-						listExec.truncated
-					) {
-						throw new Error(
-							`File listing failed: ${listExec.stderr || listExec.stdout}`,
+
+						// Read + stage each file with low concurrency. Sandbox RPC file reads
+						// can transiently drop the connection after long builds, so every read
+						// is retried before the workflow spends another full build attempt.
+						let totalSize = 0;
+						for (let i = 0; i < filePaths.length; i += SNAPSHOT_IO_BATCH) {
+							const outcomes = await Promise.allSettled(
+								filePaths
+									.slice(i, i + SNAPSHOT_IO_BATCH)
+									.map(async (filePath) => {
+										const content = await readSandboxTextFile(
+											sandbox,
+											`${bundleDir}/${filePath}`,
+										);
+										const bytes = new TextEncoder().encode(content);
+										await env.SITE_BUILDER_STORAGE.put(
+											stagingFileKey(orgSlug, stagingAttemptId, filePath),
+											bytes,
+										);
+										totalSize += bytes.byteLength;
+									}),
+							);
+							const failed = outcomes.find(
+								(outcome): outcome is PromiseRejectedResult =>
+									outcome.status === "rejected",
+							);
+							if (failed) throw failed.reason;
+						}
+
+						const manifest = {
+							release: currentBuild.release,
+							mainModule: MAIN_MODULE,
+							files: filePaths,
+							sourceRevision: sourceRevision ?? {
+								kind: "editable_source_digest" as const,
+								value: currentBuild.sourceDigest,
+							},
+						};
+						await env.SITE_BUILDER_STORAGE.put(
+							stagingManifestKey(orgSlug, stagingAttemptId),
+							JSON.stringify(manifest),
 						);
-					}
-					const filePaths = listExec.stdout
-						.split("\n")
-						.map((p) => p.trim())
-						.filter((p) => p.length > 0 && p.endsWith(".mjs"));
 
-					if (!filePaths.includes(MAIN_MODULE)) {
-						throw new Error(
-							`Bundle entry "${MAIN_MODULE}" missing — did build succeed?`,
+						// List + stage static assets from dist/client/_astro/.
+						// Preserve relative paths from _astro/ root (e.g. "fonts/abc.woff2")
+						// so readFile gets the correct full path and R2 keys stay meaningful.
+						const staticExists = await sandbox.pathExists(staticDir);
+						const staticListing = staticExists
+							? await sandbox.listFiles(staticDir, { recursive: true })
+							: null;
+						const staticRelPaths = (staticListing ?? [])
+							.filter((file) => file.type === "file")
+							.map((file) => file.relativePath)
+							.sort();
+						// Pipe binary assets to R2 without buffering them in the Worker.
+
+						let staticSize = 0;
+						for (let i = 0; i < staticRelPaths.length; i += SNAPSHOT_IO_BATCH) {
+							const outcomes = await Promise.allSettled(
+								staticRelPaths
+									.slice(i, i + SNAPSHOT_IO_BATCH)
+									.map(async (relPath) => {
+										const filename = relPath.split("/").pop()!;
+										staticSize += await stageSandboxBinaryFile(
+											sandbox,
+											env.SITE_BUILDER_STORAGE,
+											`${staticDir}/${relPath}`,
+											stagingStaticKey(orgSlug, stagingAttemptId, filename),
+										);
+									}),
+							);
+							const failed = outcomes.find(
+								(outcome): outcome is PromiseRejectedResult =>
+									outcome.status === "rejected",
+							);
+							if (failed) throw failed.reason;
+						}
+
+						// Manifest uses basenames (content-hashed, globally unique per Astro).
+						const staticFilenames = staticRelPaths.map((p) =>
+							p.split("/").pop()!,
 						);
-					}
-					await record(
-						"build-and-snapshot",
-						"running",
-						"Bundle module files discovered",
-						{ fileCount: filePaths.length },
-					);
-
-					// Read + stage each file with low concurrency. Sandbox RPC file reads
-					// can transiently drop the connection after long builds, so every read
-					// is retried before the workflow spends another full build attempt.
-					let totalSize = 0;
-					for (let i = 0; i < filePaths.length; i += SNAPSHOT_IO_BATCH) {
-						const outcomes = await Promise.allSettled(
-							filePaths
-								.slice(i, i + SNAPSHOT_IO_BATCH)
-								.map(async (filePath) => {
-									const content = await readSandboxTextFile(
-										sandbox,
-										`${bundleDir}/${filePath}`,
-									);
-									const bytes = new TextEncoder().encode(content);
-									await env.SITE_BUILDER_STORAGE.put(
-										stagingFileKey(orgSlug, stagingAttemptId, filePath),
-										bytes,
-									);
-									totalSize += bytes.byteLength;
-								}),
+						const staticManifest = { filenames: staticFilenames };
+						await env.SITE_BUILDER_STORAGE.put(
+							`${stagingPrefix(orgSlug, stagingAttemptId)}/static-manifest.json`,
+							JSON.stringify(staticManifest),
 						);
-						const failed = outcomes.find(
-							(outcome): outcome is PromiseRejectedResult =>
-								outcome.status === "rejected",
+
+						await record(
+							"build-and-snapshot",
+							"complete",
+							"Bundle staged in R2",
+							{
+								fileCount: filePaths.length,
+								totalSize,
+								staticCount: staticFilenames.length,
+								staticSize,
+							},
 						);
-						if (failed) throw failed.reason;
-					}
 
-					const manifest = {
-						release: currentBuild.release,
-						mainModule: MAIN_MODULE,
-						files: filePaths,
-						sourceRevision: sourceRevision ?? {
-							kind: "editable_source_digest" as const,
-							value: currentBuild.sourceDigest,
-						},
-					};
-					await env.SITE_BUILDER_STORAGE.put(
-						stagingManifestKey(orgSlug, stagingAttemptId),
-						JSON.stringify(manifest),
-					);
-
-					// List + stage static assets from dist/client/_astro/.
-					// Preserve relative paths from _astro/ root (e.g. "fonts/abc.woff2")
-					// so readFile gets the correct full path and R2 keys stay meaningful.
-					const staticExists = await sandbox.pathExists(staticDir);
-					const staticListing = staticExists
-						? await sandbox.listFiles(staticDir, { recursive: true })
-						: null;
-					const staticRelPaths = (staticListing ?? [])
-						.filter((file) => file.type === "file")
-						.map((file) => file.relativePath)
-						.sort();
-					// Pipe binary assets to R2 without buffering them in the Worker.
-
-					let staticSize = 0;
-					for (let i = 0; i < staticRelPaths.length; i += SNAPSHOT_IO_BATCH) {
-						const outcomes = await Promise.allSettled(
-							staticRelPaths
-								.slice(i, i + SNAPSHOT_IO_BATCH)
-								.map(async (relPath) => {
-									const filename = relPath.split("/").pop()!;
-									staticSize += await stageSandboxBinaryFile(
-										sandbox,
-										env.SITE_BUILDER_STORAGE,
-										`${staticDir}/${relPath}`,
-										stagingStaticKey(orgSlug, stagingAttemptId, filename),
-									);
-								}),
-						);
-						const failed = outcomes.find(
-							(outcome): outcome is PromiseRejectedResult =>
-								outcome.status === "rejected",
-						);
-						if (failed) throw failed.reason;
-					}
-
-					// Manifest uses basenames (content-hashed, globally unique per Astro).
-					const staticFilenames = staticRelPaths.map((p) =>
-						p.split("/").pop()!,
-					);
-					const staticManifest = { filenames: staticFilenames };
-					await env.SITE_BUILDER_STORAGE.put(
-						`${stagingPrefix(orgSlug, stagingAttemptId)}/static-manifest.json`,
-						JSON.stringify(staticManifest),
-					);
-
-					await record(
-						"build-and-snapshot",
-						"complete",
-						"Bundle staged in R2",
-						{
+						return {
+							workspace: currentBuild.workspace,
+							stagingAttemptId,
 							fileCount: filePaths.length,
 							totalSize,
 							staticCount: staticFilenames.length,
 							staticSize,
-						},
-					);
-
-					return {
-						workspace: currentBuild.workspace,
-						stagingAttemptId,
-						fileCount: filePaths.length,
-						totalSize,
-						staticCount: staticFilenames.length,
-						staticSize,
-					};
-				},
-				{ retainPermitOnUnknownProcessOutcome: true },
-			);
-			await guardedStep(
-				"cleanup-build-workspace",
-				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
-				async () => {
-					try {
-						const sandbox = getExecutionSandbox();
-						const paths = new Set([built.workspace, snapshot.workspace]);
-						const outcomes = await Promise.allSettled(
-							[...paths].map((path) =>
-								removeDeployAttemptWorkspace(sandbox, path),
-							),
-						);
-						const unknownOutcome = outcomes.find(
-							(outcome): outcome is PromiseRejectedResult =>
-								outcome.status === "rejected" &&
-								outcome.reason instanceof CmsUnknownProcessOutcomeError,
-						);
-						if (unknownOutcome) throw unknownOutcome.reason;
-						const cleaned = outcomes.every(
-							(outcome) => outcome.status === "fulfilled",
-						);
-						if (!cleaned) {
-							console.warn(
-								`[deploy-workflow] attempt workspace cleanup deferred for ${orgSlug}/${jobId}`,
+						};
+					},
+					{ retainPermitOnUnknownProcessOutcome: true },
+				);
+				await guardedStep(
+					"cleanup-build-workspace",
+					{
+						retries: { limit: 1, delay: "5 seconds" },
+						timeout: "1 minute",
+					},
+					async () => {
+						try {
+							const sandbox = getExecutionSandbox();
+							const paths = new Set([built.workspace, builtSnapshot.workspace]);
+							const outcomes = await Promise.allSettled(
+								[...paths].map((path) =>
+									removeDeployAttemptWorkspace(sandbox, path),
+								),
 							);
+							const unknownOutcome = outcomes.find(
+								(outcome): outcome is PromiseRejectedResult =>
+									outcome.status === "rejected" &&
+									outcome.reason instanceof CmsUnknownProcessOutcomeError,
+							);
+							if (unknownOutcome) throw unknownOutcome.reason;
+							const cleaned = outcomes.every(
+								(outcome) => outcome.status === "fulfilled",
+							);
+							if (!cleaned) {
+								console.warn(
+									`[deploy-workflow] attempt workspace cleanup deferred for ${orgSlug}/${jobId}`,
+								);
+							}
+							return { cleaned };
+						} catch (error) {
+							if (error instanceof CmsUnknownProcessOutcomeError) throw error;
+							console.warn(
+								`[deploy-workflow] attempt workspace cleanup deferred for ${orgSlug}/${jobId}:`,
+								error,
+							);
+							return { cleaned: false };
 						}
-						return { cleaned };
-					} catch (error) {
-						if (error instanceof CmsUnknownProcessOutcomeError) throw error;
-						console.warn(
-							`[deploy-workflow] attempt workspace cleanup deferred for ${orgSlug}/${jobId}:`,
-							error,
-						);
-						return { cleaned: false };
-					}
-				},
-				{ retainPermitOnUnknownProcessOutcome: true },
-			);
+					},
+					{ retainPermitOnUnknownProcessOutcome: true },
+				);
+
+				snapshot = builtSnapshot;
+			}
+
+			if (stageOnly) {
+				const staged = await guardedStep(
+					"stage-candidate",
+					{ retries: { limit: 2, delay: "10 seconds" }, timeout: "10 minutes" },
+					() =>
+						stageThemeCandidate(
+							env,
+							event.payload,
+							jobId,
+							snapshot.stagingAttemptId,
+						),
+				);
+				await record(
+					"staged",
+					"complete",
+					"Theme candidate staged without activation",
+				);
+				await guardedStep(
+					"cleanup-staging",
+					{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
+					() =>
+						cleanupStagedBundle(
+							env.SITE_BUILDER_STORAGE,
+							orgSlug,
+							snapshot.stagingAttemptId,
+						),
+				);
+				return {
+					version: staged.version,
+					etag: staged.etag,
+					url: "",
+					candidateId: staged.id,
+				};
+			}
 
 			// ------------------------------------------------------------------
 			// Step 3 — publish bundle to R2 + register tenant_bundles row
@@ -1046,9 +1133,13 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					retries: { limit: 2, delay: "10 seconds" },
 					timeout: "10 minutes",
 				},
-				async () =>
-					publishStagedCmsBundle({
+				async () => {
+					if (candidate && Date.parse(candidate.expiresAt) <= Date.now())
+						throw new NonRetryableError("Theme candidate expired");
+					return publishStagedCmsBundle({
 						env,
+						stagingBucket: candidate ? env.BUNDLES_BUCKET : undefined,
+						expectedCandidateEtag: candidate?.etag,
 						site: { siteId, slug: orgSlug, restoreEpoch },
 						orgSlug,
 						stagingAttemptId: snapshot.stagingAttemptId,
@@ -1057,7 +1148,8 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 						nextBundleVersion,
 						expectedActiveVersion,
 						record,
-					}),
+					});
+				},
 			);
 
 			const url = cmsUrlFor(orgSlug, env.ENVIRONMENT || "production");
@@ -1261,11 +1353,13 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 				async () => {
 					try {
 						return {
-							deleted: await cleanupStagedBundle(
-								env.SITE_BUILDER_STORAGE,
-								orgSlug,
-								snapshot.stagingAttemptId,
-							),
+							deleted: candidate
+								? 0
+								: await cleanupStagedBundle(
+										env.SITE_BUILDER_STORAGE,
+										orgSlug,
+										snapshot.stagingAttemptId,
+									),
 						};
 					} catch (error) {
 						console.warn(

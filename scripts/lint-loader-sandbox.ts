@@ -123,6 +123,12 @@ const ALLOWLIST_ENTRIES: readonly AllowlistEntry[] = [
 			"The CMS runtime loads a per-tenant Astro bundle from R2 with tenant-scoped EmDashDB/R2/session entrypoint stubs built from ctx.exports, which no shared constructor signature covers.",
 		runsModelAuthoredCode: false,
 	},
+	{
+		file: "apps/cms-runtime/src/theme-preview-entrypoint.ts",
+		reason:
+			"A staged Astro bundle needs a separate Loader identity with read-only database/media, isolated sessions and no outbound network; the live tenant manifest grants write capabilities and cannot serve a private candidate.",
+		runsModelAuthoredCode: false,
+	},
 ];
 
 const ALLOWLIST = new Map(
