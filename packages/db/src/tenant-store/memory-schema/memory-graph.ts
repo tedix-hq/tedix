@@ -108,7 +108,6 @@ export const memoryFacts = sqliteTable(
 		),
 		index("idx_memory_facts_domain").on(table.domainId),
 		index("idx_memory_facts_type").on(table.factType),
-		index("idx_memory_facts_confidence").on(table.confidence),
 		index("idx_memory_facts_source").on(table.source),
 		index("idx_memory_facts_org_source_id").on(
 			table.organizationId,
@@ -148,8 +147,6 @@ export const memoryFacts = sqliteTable(
 			table.validTo,
 			table.createdAt,
 		),
-		index("idx_memory_facts_visibility").on(table.visibility),
-		index("idx_memory_facts_priority").on(table.priority),
 		index("idx_memory_facts_topic_key").on(
 			table.organizationId,
 			table.topicKey,
@@ -159,7 +156,6 @@ export const memoryFacts = sqliteTable(
 			.where(
 				sql`review_status = 'confirmed' AND status = 'active' AND archived_at IS NULL AND valid_to IS NULL`,
 			),
-		index("idx_memory_facts_scope").on(table.organizationId, table.memoryScope),
 		index("idx_memory_facts_flywheel_created").on(
 			table.organizationId,
 			table.tediId,
@@ -180,8 +176,6 @@ export const memoryFacts = sqliteTable(
 			table.usePolicy,
 			table.updatedAt,
 		),
-		index("idx_memory_facts_use_policy").on(table.usePolicy),
-		index("idx_memory_facts_review_status").on(table.reviewStatus),
 		index("memory_facts_tedi_domain_idx").on(table.tediId, table.domainId),
 		index("idx_memory_facts_expertise_live")
 			.on(table.organizationId, table.tediId, table.domainId, table.confidence)

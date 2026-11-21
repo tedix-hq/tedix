@@ -190,7 +190,6 @@ export const memoryFacts = sqliteTable(
 		// write amplification on the platform's hottest table.
 		index("idx_memory_facts_domain").on(table.domainId),
 		index("idx_memory_facts_type").on(table.factType),
-		index("idx_memory_facts_confidence").on(table.confidence),
 		index("idx_memory_facts_source").on(table.source),
 		// Citation backfill and legacy recall page one org's consolidation facts by
 		// id; the source-only index read every org's rows and sorted them.
@@ -249,8 +248,6 @@ export const memoryFacts = sqliteTable(
 			table.validTo,
 			table.createdAt,
 		),
-		index("idx_memory_facts_visibility").on(table.visibility),
-		index("idx_memory_facts_priority").on(table.priority),
 		index("idx_memory_facts_topic_key").on(
 			table.organizationId,
 			table.topicKey,
@@ -274,7 +271,6 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_org_source_hash")
 			.on(table.organizationId, table.sourceHash)
 			.where(sql`source_hash IS NOT NULL`),
-		index("idx_memory_facts_scope").on(table.organizationId, table.memoryScope),
 		index("idx_memory_facts_flywheel_created").on(
 			table.organizationId,
 			table.tediId,
@@ -298,8 +294,6 @@ export const memoryFacts = sqliteTable(
 			table.usePolicy,
 			table.updatedAt,
 		),
-		index("idx_memory_facts_use_policy").on(table.usePolicy),
-		index("idx_memory_facts_review_status").on(table.reviewStatus),
 		index("memory_facts_tedi_domain_idx").on(table.tediId, table.domainId),
 		// Expertise recount: count and average confidence of one tedi's live
 		// facts in one domain from the index alone (through the org+domain

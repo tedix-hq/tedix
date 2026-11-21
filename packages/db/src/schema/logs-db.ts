@@ -112,6 +112,14 @@ export const LOGS_DB_INDEXES: readonly {
 		table: "audit_events",
 		ddl: `CREATE INDEX "idx_audit_events_org_actor_timestamp" ON "audit_events" ("organization_id", "actor_id", "timestamp");`,
 	},
+	{
+		table: "kernel_runtime_events",
+		ddl: `CREATE INDEX "idx_kernel_runtime_events_child_created" ON "kernel_runtime_events" ("organization_id", "child_run_id", "created_at", "id");`,
+	},
+	{
+		table: "kernel_runtime_events",
+		ddl: `CREATE INDEX "idx_kernel_runtime_events_trace" ON "kernel_runtime_events" ("organization_id", "trace_id", "created_at") WHERE trace_id is not null;`,
+	},
 	// Dropped from main on 20 Nov 2026 to free space; the logs databases
 	// keep them, so their applied migrations stay unchanged.
 	{

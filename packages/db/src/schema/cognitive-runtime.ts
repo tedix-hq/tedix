@@ -284,17 +284,7 @@ export const kernelRuntimeEvents = sqliteTable(
 			table.createdAt,
 			table.id,
 		),
-		// Delegated child resume uses child_run_id instead of the parent run id.
-		index("idx_kernel_runtime_events_child_created").on(
-			table.organizationId,
-			table.childRunId,
-			table.createdAt,
-			table.id,
-		),
 		index("idx_kernel_runtime_events_delegated_tedi").on(table.delegatedTediId),
-		index("idx_kernel_runtime_events_trace")
-			.on(table.organizationId, table.traceId, table.createdAt)
-			.where(sql`trace_id is not null`),
 	],
 );
 
