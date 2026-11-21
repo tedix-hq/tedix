@@ -339,7 +339,8 @@ export async function getOsOutputRevision(
 	bucket?: OutputBodyBucket,
 	lap?: (stage: string) => void,
 ) {
-	const row = await readStoredOutputRevision(db, params, bucket, lap);
+	const row = await outputs.getOsOutputRevision(db, params);
+	lap?.("baseLookupMs");
 	return row ? hydrateOutputRevision(row, bucket, lap) : undefined;
 }
 
@@ -349,17 +350,7 @@ export async function getOsOutputRevisionByNumber(
 	bucket?: OutputBodyBucket,
 ) {
 	const row = await outputs.getOsOutputRevisionByNumber(db, params);
-	return row
-		? hydrateOutputRevision(
-				await migrateSheetRevision(
-					db,
-					row,
-					params.workspaceId ?? undefined,
-					bucket,
-				),
-				bucket,
-			)
-		: undefined;
+	return row ? hydrateOutputRevision(row, bucket) : undefined;
 }
 
 export async function getActiveSheetByTitle(
@@ -371,15 +362,7 @@ export async function getActiveSheetByTitle(
 	return row
 		? {
 				...row,
-				revision: await hydrateOutputRevision(
-					await migrateSheetRevision(
-						db,
-						row.revision,
-						params.workspaceId,
-						bucket,
-					),
-					bucket,
-				),
+				revision: await hydrateOutputRevision(row.revision, bucket),
 			}
 		: undefined;
 }

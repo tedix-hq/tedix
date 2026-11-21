@@ -1918,7 +1918,7 @@ describe("output patch verbs", () => {
 			title: "Migrated sheet",
 			content,
 		});
-		// Install the old body representation to exercise forward migration on read.
+		// Reads serve the old body directly; the first edit converts it to blocks.
 		const bytes = new TextEncoder().encode(JSON.stringify(content));
 		const contentSha256 = await sha256Hex(bytes);
 		const bodyR2Key = outputRevisionBodyKey("org-1", contentSha256);
@@ -1944,12 +1944,16 @@ describe("output patch verbs", () => {
 				},
 			),
 		).toBe(true);
+		const get = vi.spyOn(workerEnv.R2_BUCKET, "get");
+		const put = vi.spyOn(workerEnv.R2_BUCKET, "put");
 		expect(
 			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
 				.content,
 		).toEqual(content);
-		const get = vi.spyOn(workerEnv.R2_BUCKET, "get");
-		const put = vi.spyOn(workerEnv.R2_BUCKET, "put");
+		expect(put).not.toHaveBeenCalled();
+		expect(
+			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
+		).toHaveLength(0);
 		const saved = await c.org1.outputs.patch({
 			outputId: output.id,
 			baseRevision: 1,
@@ -1963,7 +1967,7 @@ describe("output patch verbs", () => {
 		).toHaveLength(1);
 		expect(
 			put.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
-		).toHaveLength(1);
+		).toHaveLength(content.rows.length + 1);
 		expect(saved).toMatchObject({ revision: { revision: 2 }, catchUp: null });
 		const indexed = await createDbQueryClient(c.env.DB)
 			.select({ searchText: workspaceOutputIndex.searchText })

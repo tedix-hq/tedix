@@ -66,6 +66,12 @@ describe("sheet row blocks", () => {
 			"Edited",
 		);
 		expect(await readSheetBlocks(store, "org", original)).toEqual(sheet);
+		expect(store.get).toHaveBeenCalledTimes(1);
+		const read = await readSheetBlocks(store, "org", changed);
+		read.rows[0]![0] = "Caller mutation";
+		expect((await readSheetBlocks(store, "org", changed)).rows[0]![0]).toBe(
+			"Row 0",
+		);
 		await expect(readSheetBlocks(store, "other-org", original)).rejects.toThrow(
 			"missing",
 		);
@@ -164,8 +170,38 @@ describe("sheet row blocks", () => {
 		});
 		const keys = [...store.objects.keys()];
 		store.objects.set(keys[0]!, store.objects.get(keys[1]!)!);
-		await expect(readSheetBlocks(store, "org", manifest)).rejects.toThrow(
+		// A fresh bucket identity exercises cold reads rather than verified cached bytes.
+		const cold = { get: store.get, put: store.put };
+		await expect(readSheetBlocks(cold, "org", manifest)).rejects.toThrow(
 			"integrity",
 		);
+		await expect(
+			readSheetBlocks(
+				store,
+				"org",
+				manifest,
+				new Map([["flat", new Set([0])]]),
+			),
+		).rejects.toThrow("integrity");
+	});
+
+	it("assembles a cold revision once and evicts older bodies within its memory bound", async () => {
+		const store = bucket();
+		const first = await storeSheetBlocks(store, "org", {
+			kind: "sheet",
+			columns: ["A"],
+			rows: [["a".repeat(1_500_000)]],
+		});
+		const cold = { get: store.get, put: store.put };
+		await readSheetBlocks(cold, "org", first);
+		await readSheetBlocks(cold, "org", first);
+		expect(store.get).toHaveBeenCalledTimes(1);
+		await storeSheetBlocks(store, "org", {
+			kind: "sheet",
+			columns: ["A"],
+			rows: [["b".repeat(3_000_000)]],
+		});
+		await readSheetBlocks(cold, "org", first);
+		expect(store.get).toHaveBeenCalledTimes(2);
 	});
 });

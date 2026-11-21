@@ -29,6 +29,47 @@ export interface SheetBlockManifest {
 	tables: SheetBlockTable[];
 }
 
+// Cache immutable content only; callers still resolve revision metadata and access.
+const assembled = new Map<string, { bucket: SheetBlockBucket; json: string }>();
+const ASSEMBLED_MAX_BYTES = 8 * 1024 * 1024;
+const ASSEMBLED_MAX_ENTRIES = 16;
+let assembledBytes = 0;
+
+function assemblyKey(organizationId: string, manifest: SheetBlockManifest) {
+	return JSON.stringify([organizationId, manifest]);
+}
+
+function cachedSheet(bucket: SheetBlockBucket, key: string): Sheet | undefined {
+	const cached = assembled.get(key);
+	if (cached?.bucket !== bucket) return undefined;
+	assembled.delete(key);
+	assembled.set(key, cached);
+	// Never let a caller's patch mutate the cached revision or its history.
+	return JSON.parse(cached.json) as Sheet;
+}
+
+function rememberSheet(bucket: SheetBlockBucket, key: string, content: Sheet) {
+	const json = JSON.stringify(content);
+	const size = (key.length + json.length) * 2;
+	if (size > ASSEMBLED_MAX_BYTES) return;
+	const previous = assembled.get(key);
+	if (previous) {
+		assembledBytes -= (key.length + previous.json.length) * 2;
+		assembled.delete(key);
+	}
+	while (
+		assembled.size &&
+		(assembledBytes + size > ASSEMBLED_MAX_BYTES ||
+			assembled.size >= ASSEMBLED_MAX_ENTRIES)
+	) {
+		const oldest = assembled.keys().next().value!;
+		assembledBytes -= (oldest.length + assembled.get(oldest)!.json.length) * 2;
+		assembled.delete(oldest);
+	}
+	assembled.set(key, { bucket, json });
+	assembledBytes += size;
+}
+
 /** Each row is an immutable block; order and column identity live in the manifest. */
 export function sheetBlockManifest(content: string): SheetBlockManifest | null {
 	let value;
@@ -206,6 +247,7 @@ export async function storeSheetBlocks(
 			);
 		result.tables.push({ id: table.id, columns, rows });
 	}
+	rememberSheet(bucket, assemblyKey(organizationId, result), content);
 	return result;
 }
 
@@ -216,6 +258,11 @@ export async function readSheetBlocks(
 	manifest: SheetBlockManifest,
 	selection?: ReadonlyMap<string, ReadonlySet<number>>,
 ): Promise<Sheet> {
+	const key = assemblyKey(organizationId, manifest);
+	if (!selection) {
+		const cached = cachedSheet(bucket, key);
+		if (cached) return cached;
+	}
 	const content = structuredClone(manifest.content);
 	for (const table of manifest.tables) {
 		const target = tables(content).find((value) => value.id === table.id);
@@ -262,6 +309,7 @@ export async function readSheetBlocks(
 		else content.rows = rows as Sheet["rows"];
 	}
 	if (content.workbook) Object.assign(content, projectSheet(content.workbook));
+	if (!selection) rememberSheet(bucket, key, content);
 	return content;
 }
 
@@ -293,6 +341,16 @@ export async function updateSheetBlocks(
 				...(projectionBytes === undefined ? {} : { projectionBytes }),
 			};
 		}
+	}
+	const full = cachedSheet(bucket, assemblyKey(organizationId, previous));
+	if (full) {
+		for (const table of tables(full)) {
+			const changed = tables(content).find((value) => value.id === table.id)!;
+			for (const index of selection.get(table.id) ?? [])
+				table.rows[index] = changed.rows[index]!;
+		}
+		if (full.workbook) Object.assign(full, projectSheet(full.workbook));
+		rememberSheet(bucket, assemblyKey(organizationId, result), full);
 	}
 	return result;
 }
