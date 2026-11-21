@@ -809,8 +809,8 @@ describe("restarting onto an updated CLI", () => {
 	}
 	it("a supervised runner takes no new Work, waits until none is in progress, then exits for the supervisor to restart it", async () => {
 		const f = serve(true);
-		f.quiet.mockReturnValueOnce(false).mockReturnValueOnce(false);
-		f.quiet.mockReturnValue(true);
+		f.quiet.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+		f.quiet.mockResolvedValue(true);
 		try {
 			expect(await f.running).toBe(75);
 			expect(f.tick).toHaveBeenCalledTimes(3);
@@ -825,7 +825,7 @@ describe("restarting onto an updated CLI", () => {
 	});
 	it("a runner the supervisor does not list keeps serving", async () => {
 		const f = serve(false);
-		f.quiet.mockReturnValue(true);
+		f.quiet.mockResolvedValue(true);
 		try {
 			await until(() => f.tick.mock.calls.length >= 3);
 			expect(f.hold).not.toHaveBeenCalled();
@@ -3905,10 +3905,10 @@ describe("dispatcher admission", () => {
 				},
 			];
 			f.dispatcher.holdAdmissions();
-			expect(f.dispatcher.quiet()).toBe(false);
+			expect(await f.dispatcher.quiet()).toBe(false);
 			await f.dispatcher.tick();
 			await f.dispatcher.drain();
-			expect(f.dispatcher.quiet()).toBe(true);
+			expect(await f.dispatcher.quiet()).toBe(true);
 			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
 				`No process identity was recorded for process ${child.pid} at launch; not stopped`,
 			);
@@ -5753,10 +5753,10 @@ describe("dispatcher admission", () => {
 					}),
 				);
 				f.dispatcher.holdAdmissions("0.23.0");
-				expect(f.dispatcher.quiet()).toBe(mismatch);
+				expect(await f.dispatcher.quiet()).toBe(mismatch);
 				await f.dispatcher.tick();
 				await f.dispatcher.drain();
-				expect(f.dispatcher.quiet()).toBe(mismatch);
+				expect(await f.dispatcher.quiet()).toBe(mismatch);
 				expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
 					false,
 				);
@@ -5789,10 +5789,10 @@ describe("dispatcher admission", () => {
 			return recall(...args);
 		};
 		runner = f.restart();
-		expect(runner.quiet()).toBe(true);
+		expect(await runner.quiet()).toBe(true);
 		await runner.tick();
 		await until(() => f.releases.length === 1);
-		expect(runner.quiet()).toBe(false);
+		expect(await runner.quiet()).toBe(false);
 		f.items.push(...waiting);
 		f.releases[0]!();
 		await runner.drain();
@@ -5804,9 +5804,9 @@ describe("dispatcher admission", () => {
 		const settle = f.events.filter((e) => e.verb === "settle");
 		expect(settle).toHaveLength(1);
 		expect(settle[0]!.args).toContain("succeeded");
-		expect(runner.quiet()).toBe(true);
+		expect(await runner.quiet()).toBe(true);
 	});
-	it("is not quiet while a retained run's agent process is alive or its Attempt is unsettled", () => {
+	it("is not quiet while a retained run's agent process is alive or its Attempt is unsettled", async () => {
 		const { dispatcher, dir } = fixture();
 		const receipt = {
 			itemId: item(1).id,
@@ -5817,7 +5817,7 @@ describe("dispatcher admission", () => {
 		};
 		const path = join(dir, `${item(1).id}-2.json`);
 		writeFileSync(path, JSON.stringify(receipt));
-		expect(dispatcher.quiet()).toBe(false);
+		expect(await dispatcher.quiet()).toBe(false);
 		// Lane processes lead their own process group, like this one.
 		const agent = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
 		try {
@@ -5825,7 +5825,7 @@ describe("dispatcher admission", () => {
 				path,
 				JSON.stringify({ ...receipt, phase: "deferred", pid: agent.pid }),
 			);
-			expect(dispatcher.quiet()).toBe(false);
+			expect(await dispatcher.quiet()).toBe(false);
 		} finally {
 			agent.kill("SIGKILL");
 		}
@@ -5833,7 +5833,7 @@ describe("dispatcher admission", () => {
 			path,
 			JSON.stringify({ ...receipt, phase: "settled", outcome: "succeeded" }),
 		);
-		expect(dispatcher.quiet()).toBe(true);
+		expect(await dispatcher.quiet()).toBe(true);
 	});
 	it("cancels, not fails, an Attempt admitted on a revision that landed during start, then admits it", async () => {
 		const { restart, deps, items, events, releases } = fixture();

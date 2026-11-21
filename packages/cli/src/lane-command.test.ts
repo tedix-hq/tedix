@@ -43,7 +43,9 @@ it.each([
 		new URL(`./${module}.ts`, import.meta.url),
 		"utf8",
 	);
-	expect(source).not.toMatch(/\b(?:execFileSync|execSync|spawnSync)\b/);
+	expect(source).not.toMatch(
+		/\b(?:execFileSync|execSync|spawnSync|laneProcessIdentity)\b/,
+	);
 });
 
 it("keeps signal exits and buffer failures distinct from timeouts", async () => {
