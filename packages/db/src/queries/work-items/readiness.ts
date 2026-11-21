@@ -1,4 +1,8 @@
-import { matchesWorkApprovalVersion } from "./planning-approval";
+import {
+	hasOwnerWorkDelegation,
+	matchesWorkApprovalVersion,
+	ownerWorkDelegation,
+} from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
 import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -84,6 +88,7 @@ export interface WorkItemReadinessProjectionRow {
 
 interface ReadinessFacts {
 	item: WorkItem;
+	ownerDelegated: boolean;
 	derivedAt: string;
 	activeAttemptId?: string;
 	blockingDependencyId?: string;
@@ -146,7 +151,11 @@ function evaluateWorkItemReadiness(
 		? approvalEvaluation?.missingAuthorities.includes(`risk:${item.riskLevel}`)
 		: false;
 	const eligibility = evaluateWorkAdmissionEligibility(item, {
-		purposeActive: hasActivePurposeContext(item, derivedAt),
+		purposeActive: hasActivePurposeContext(
+			item,
+			derivedAt,
+			facts.ownerDelegated,
+		),
 		activeAttemptId: activeAttemptId ?? null,
 		blockingDependencyId: blockingDependencyId ?? null,
 		missingCapability:
@@ -178,12 +187,14 @@ function evaluateWorkItemReadiness(
 		},
 		{
 			gate: "purpose",
-			evaluation: hasActivePurposeContext(item, derivedAt)
+			evaluation: hasActivePurposeContext(item, derivedAt, facts.ownerDelegated)
 				? "passed"
 				: "failed",
-			detail: hasActivePurposeContext(item, derivedAt)
-				? "Work Item purpose context is active"
-				: "Work Item purpose context is missing or expired",
+			detail: facts.ownerDelegated
+				? "The owner delegated this Work specification"
+				: hasActivePurposeContext(item, derivedAt)
+					? "Work Item purpose context is active"
+					: "Work Item purpose context is missing or expired",
 		},
 		{
 			gate: "dependencies",
@@ -334,6 +345,7 @@ export async function deriveWorkItemReadiness(
 ): Promise<WorkItemReadinessResult> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const ownerDelegated = await hasOwnerWorkDelegation(db, item);
 	await ensureWorkRiskApproval(db, item, derivedAt);
 	const [
 		activeAttempt,
@@ -454,6 +466,7 @@ export async function deriveWorkItemReadiness(
 	]);
 	return evaluateWorkItemReadiness({
 		item,
+		ownerDelegated,
 		derivedAt,
 		activeAttemptId: activeAttempt[0]?.id,
 		blockingDependencyId: dependency[0]?.id,
@@ -485,7 +498,10 @@ export async function listWorkItemReadinessProjection(
 	const observedAt = params.observedAt ?? new Date().toISOString();
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit ?? 25)), 50);
 	const rows = await db
-		.select(workItemStoredColumns)
+		.select({
+			...workItemStoredColumns,
+			ownerDelegated: ownerWorkDelegation(workItems).as("owner_delegated"),
+		})
 		.from(workItems)
 		.where(
 			and(
@@ -635,7 +651,7 @@ export async function listWorkItemReadinessProjection(
 	const requirements = new Set(requirementRows.map((row) => row.workItemId));
 	const budgets = new Set(budgetRows.map((row) => row.workItemId));
 	const boundedApprovalRows = approvalRows.length > 5000 ? [] : approvalRows;
-	const data = items.map((item): WorkItemReadinessProjectionRow => ({
+	const data = items.map((item, index): WorkItemReadinessProjectionRow => ({
 		workItem: {
 			id: item.id,
 			title: item.title,
@@ -651,6 +667,7 @@ export async function listWorkItemReadinessProjection(
 		},
 		readiness: evaluateWorkItemReadiness({
 			item,
+			ownerDelegated: Boolean(rows[index]?.ownerDelegated),
 			derivedAt: observedAt,
 			activeAttemptId: activeAttempts.get(item.id),
 			blockingDependencyId: blockers.get(item.id),

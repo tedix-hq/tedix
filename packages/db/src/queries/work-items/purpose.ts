@@ -156,7 +156,9 @@ export function hasActivePurposeContext(
 		"workClass" | "objectiveId" | "purposeExceptionExpiresAt"
 	>,
 	at: string,
+	ownerDelegated = false,
 ): boolean {
+	if (ownerDelegated) return true;
 	// Undeclared purpose is not an active purpose context. See
 	// `activePurposeContext` for why the legacy null grace period ended.
 	if (item.workClass === null) return false;
