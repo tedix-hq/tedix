@@ -10,21 +10,26 @@ workspace object.
 ## Sheet bodies
 
 `@tedix/workspace-feed/sheet-blocks` is the shared sheet format used by the API
-and workspace agent. A revision body holds a small manifest in R2. Each row is
-an immutable, digest-checked block under `os-sheet-blocks/v1/<organization>/`.
-The manifest holds row order and stable row and column identifiers. Moving
-rows or columns reuses cell blocks; a cell edit replaces one row reference.
-History, restore and workspace transfers retain references to unchanged blocks.
+and workspace agent. A revision body holds a manifest in R2. Up to 1,000 rows
+share an immutable, digest-checked chunk under
+`os-sheet-blocks/v2/<organization>/`. The manifest holds chunk references, row
+order and stable row and column identifiers. History, restore and workspace
+transfers share unchanged chunks. A cold 20,000-row sheet needs 20 chunk gets,
+plus its revision manifest; full reads can also use the bounded memory cache.
 
-Existing sheet bodies are converted on access and their revision pointers are
-replaced behind a digest fence before editing. Reads and exports assemble the
-public sheet shape. Saves write a stored assembly before publishing the revision,
-including cell saves, so the next reader can load it in one R2 get. Editor
-patches fetch selected rows and replace only changed row blocks. Range
-writes keep their full response for existing callers, so their response assembly
-is measured separately from the save. Open tabs use the existing workspace
-revision notices and fetch changes under their own source-access checks.
-Body collection remains paused: a block may be referenced by another revision.
+The API and workspace agent migrate existing row-block revisions on access,
+verify their stored bytes, and replace revision pointers behind a digest fence.
+The one-way decoder in `sheet-block-migration` reads old assemblies or row
+objects only during conversion. Inline sheet bodies are converted before edits.
+Active reads and writes use chunks only. Old objects remain while unmigrated
+historical revisions can reference them; body collection remains paused.
+
+A cell save reads the affected chunk and writes one replacement chunk before
+publishing its manifest. It never writes a full stored assembly. Row metadata
+keeps change detection and public content sizing independent of storage size.
+Range writes retain their full response for existing callers, so their response
+assembly is measured separately from the save. Open tabs use the existing
+workspace revision notices and fetch changes under their own access checks.
 
 ## The event
 

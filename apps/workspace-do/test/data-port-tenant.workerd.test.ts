@@ -11,7 +11,8 @@ import { connectionInstances } from "@tedix/db/schema/connection-instances";
 import { connectionProviders } from "@tedix/db/schema/connection-providers";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { TenantDataPort } from "../src/data-port-tenant";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { storeOutputBody, TenantDataPort } from "../src/data-port-tenant";
 import type { WorkspaceEnv } from "../src/env";
 
 const scope = {
@@ -33,7 +34,11 @@ function ddl(table: SQLiteTable): string {
 	return `CREATE TABLE IF NOT EXISTS "${getTableName(table)}" (${columns.join(", ")})`;
 }
 
-function port(tenant: TenantStoreDb, activated: boolean) {
+function port(
+	tenant: TenantStoreDb,
+	activated: boolean,
+	overrides: Partial<ConstructorParameters<typeof TenantDataPort>[0]> = {},
+) {
 	return new TenantDataPort({
 		...scope,
 		tenant,
@@ -46,6 +51,7 @@ function port(tenant: TenantStoreDb, activated: boolean) {
 		},
 		commitOutput: unused,
 		notifyOutputRevision: unused,
+		...overrides,
 	});
 }
 
@@ -93,6 +99,75 @@ describe("workspace agent data storage", () => {
 				revision: 1,
 				content,
 			});
+		});
+	});
+
+	test("migrates old row objects to chunks under the workspace revision digest fence", async () => {
+		const bindings = env as unknown as WorkspaceEnv;
+		const ws = tenantStoreStub(bindings.WORKSPACE, bindings, scope);
+		await runInDurableObject(ws, async (_instance, state) => {
+			const raw = JSON.stringify({ cells: { "column:0": 1 }, overflow: [] });
+			const digest = await sha256Hex(raw);
+			const rowKey = `os-sheet-blocks/v1/${scope.organizationId}/${digest}.gz`;
+			await bindings.R2_BUCKET.put(
+				rowKey,
+				await new Response(
+					new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip")),
+				).arrayBuffer(),
+			);
+			const legacy = {
+				sheetBlocks: 1,
+				content: { kind: "sheet", columns: ["A"], rows: [] },
+				tables: [
+					{
+						id: "flat",
+						columns: ["column:0"],
+						rows: [
+							{
+								id: "row:0",
+								digest,
+								bytes: new TextEncoder().encode(raw).byteLength,
+								contentBytes: 3,
+							},
+						],
+					},
+				],
+			};
+			const stored = await storeOutputBody(
+				bindings.R2_BUCKET,
+				scope.organizationId,
+				JSON.stringify(legacy),
+			);
+			state.storage.sql.exec(
+				"INSERT INTO os_outputs (id,organization_id,workspace_id,kind,title,current_revision_id,created_by_kind,created_by_id) VALUES ('v1-sheet',?,?,'sheet','V1','v1-revision','user','fixture')",
+				scope.organizationId,
+				scope.workspaceId,
+			);
+			state.storage.sql.exec(
+				"INSERT INTO os_output_revisions (id,organization_id,output_id,revision,content,access_envelope,created_by_kind,created_by_id,content_sha256,content_bytes,body_r2_key) VALUES ('v1-revision',?,'v1-sheet',1,'',?,'user','fixture',?,?,?)",
+				scope.organizationId,
+				JSON.stringify({ version: 1, sources: [] }),
+				stored.contentSha256,
+				stored.contentBytes,
+				stored.bodyR2Key,
+			);
+			const data = port(createTenantStoreDb(state.storage), true, {
+				bucket: bindings.R2_BUCKET,
+				commitOutput: async (_id, write) => write(),
+			});
+			const expected = {
+				revision: 1,
+				content: { kind: "sheet", columns: ["A"], rows: [[1]] },
+			};
+			expect(await data.getOutput("v1-sheet")).toMatchObject(expected);
+			const updated = state.storage.sql
+				.exec<{ content_sha256: string }>(
+					"SELECT content_sha256 FROM os_output_revisions WHERE id='v1-revision'",
+				)
+				.one();
+			expect(updated.content_sha256).not.toBe(stored.contentSha256);
+			await bindings.R2_BUCKET.delete(rowKey);
+			expect(await data.getOutput("v1-sheet")).toMatchObject(expected);
 		});
 	});
 

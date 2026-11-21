@@ -104,8 +104,7 @@ export async function saveSheetCellPatch(
 				message: "Output source access unavailable",
 			});
 		const manifest = sheetBlockManifest(current.content);
-		if (!manifest)
-			throw new Error("Sheet revision was not migrated to row blocks");
+		if (!manifest) throw new Error("Sheet revision was not migrated to chunks");
 		let selection = cellSelection(input, manifest);
 		if (range) {
 			const table = manifest.tables.find(

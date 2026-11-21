@@ -31,6 +31,7 @@ import {
 	type OutputAssetBucket,
 } from "./os-output-assets";
 import { excerptFromValue } from "./workspace-feed";
+import { migrateSheetBlocks } from "@tedix/workspace-feed/sheet-block-migration";
 import { sheetBlockManifest } from "@tedix/workspace-feed/sheet-blocks";
 
 /**
@@ -285,6 +286,7 @@ async function migrateSheetRevision(
 	row: OsOutputRevisionRow,
 	workspaceId: string | undefined,
 	bucket: OutputBodyBucket = env.R2_BUCKET,
+	migrateInline = true,
 ) {
 	const stored = await readOutputRevisionStorage(row, bucket);
 	let content;
@@ -293,11 +295,20 @@ async function migrateSheetRevision(
 	} catch {
 		return stored;
 	}
-	if (content?.kind !== "sheet") return stored;
-	const body = await storeOutputRevisionBody(
+	if (
+		!(migrateInline && content?.kind === "sheet") &&
+		content?.sheetBlocks !== 1
+	)
+		return stored;
+	const migrated = await migrateSheetBlocks(
 		bucket,
 		row.organizationId,
 		stored.content,
+	);
+	const body = await storeOutputRevisionBody(
+		bucket,
+		row.organizationId,
+		migrated ? JSON.stringify(migrated) : stored.content,
 	);
 	const output = workspaceId
 		? undefined
@@ -341,7 +352,13 @@ export async function getOsOutputRevision(
 ) {
 	const row = await outputs.getOsOutputRevision(db, params);
 	lap?.("baseLookupMs");
-	return row ? hydrateOutputRevision(row, bucket, lap) : undefined;
+	return row
+		? hydrateOutputRevision(
+				await migrateSheetRevision(db, row, params.workspaceId, bucket, false),
+				bucket,
+				lap,
+			)
+		: undefined;
 }
 
 export async function getOsOutputRevisionByNumber(
@@ -350,7 +367,12 @@ export async function getOsOutputRevisionByNumber(
 	bucket?: OutputBodyBucket,
 ) {
 	const row = await outputs.getOsOutputRevisionByNumber(db, params);
-	return row ? hydrateOutputRevision(row, bucket) : undefined;
+	return row
+		? hydrateOutputRevision(
+				await migrateSheetRevision(db, row, params.workspaceId, bucket, false),
+				bucket,
+			)
+		: undefined;
 }
 
 export async function getActiveSheetByTitle(
@@ -362,7 +384,16 @@ export async function getActiveSheetByTitle(
 	return row
 		? {
 				...row,
-				revision: await hydrateOutputRevision(row.revision, bucket),
+				revision: await hydrateOutputRevision(
+					await migrateSheetRevision(
+						db,
+						row.revision,
+						params.workspaceId,
+						bucket,
+						false,
+					),
+					bucket,
+				),
 			}
 		: undefined;
 }

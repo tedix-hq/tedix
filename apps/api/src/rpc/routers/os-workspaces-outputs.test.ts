@@ -18,7 +18,10 @@ import { osCollaborationProposals } from "@tedix/db/schema/os-workspaces";
 import { osOutputRevisions } from "@tedix/db/tenant-store/outputs-schema";
 import { env as workerEnv } from "cloudflare:workers";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
-import { outputRevisionBodyKey } from "../../services/os-output-revision-body-store";
+import {
+	storeOutputRevisionBody,
+	outputRevisionBodyKey,
+} from "../../services/os-output-revision-body-store";
 import {
 	workspaceActivity,
 	workspaceFeedLedger,
@@ -1902,7 +1905,7 @@ describe("output patch verbs", () => {
 		expect(Math.max(...timings)).toBeLessThan(1_500);
 	});
 
-	it("migrates a large sheet, reads and writes one block per cell save, and keeps history, restore and CSV export", async () => {
+	it("migrates a large sheet, writes one chunk per cell save, and keeps history, restore and CSV export", async () => {
 		const workspaceId = await homeWorkspaceId(c.env);
 		const content = {
 			kind: "sheet" as const,
@@ -1964,10 +1967,10 @@ describe("output patch verbs", () => {
 		});
 		expect(
 			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
-		).toHaveLength(1);
+		).toHaveLength(2);
 		expect(
 			put.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
-		).toHaveLength(content.rows.length + 1);
+		).toHaveLength(2);
 		expect(saved).toMatchObject({ revision: { revision: 2 }, catchUp: null });
 		const indexed = await createDbQueryClient(c.env.DB)
 			.select({ searchText: workspaceOutputIndex.searchText })
@@ -2025,6 +2028,111 @@ describe("output patch verbs", () => {
 		);
 		expect(csv).toContain(`Row 74,${content.rows[74]![1]}`);
 		expect(csv).not.toContain("Edited");
+	});
+
+	it("migrates a v1 revision once and merges disjoint stale edits in the same chunk", async () => {
+		const workspaceId = await homeWorkspaceId(c.env);
+		const content = {
+			kind: "sheet" as const,
+			columns: ["A"],
+			rows: [[1], [2]],
+		};
+		const { output, revision } = await c.org1.outputs.create({
+			workspaceId,
+			kind: "sheet",
+			title: "Old block fixture",
+			content,
+		});
+		const raws = [1, 2].map((value) =>
+			JSON.stringify({ cells: { "column:0": value }, overflow: [] }),
+		);
+		const rows = await Promise.all(
+			raws.map(async (raw, i) => ({
+				id: `row:${i}`,
+				digest: await sha256Hex(raw),
+				bytes: new TextEncoder().encode(raw).byteLength,
+				contentBytes: 3,
+			})),
+		);
+		const legacy = {
+			sheetBlocks: 1,
+			content: { ...content, rows: [] },
+			tables: [{ id: "flat", columns: ["column:0"], rows }],
+		};
+		const assemblyKey = `os-sheet-assemblies/v1/org-1/${await sha256Hex(JSON.stringify(["org-1", legacy]))}.gz`;
+		await workerEnv.R2_BUCKET.put(
+			assemblyKey,
+			await new Response(
+				new Blob([
+					JSON.stringify(
+						Object.fromEntries(rows.map((row, i) => [row.digest, raws[i]])),
+					),
+				])
+					.stream()
+					.pipeThrough(new CompressionStream("gzip")),
+			).arrayBuffer(),
+		);
+		const body = await storeOutputRevisionBody(
+			workerEnv.R2_BUCKET,
+			"org-1",
+			JSON.stringify(legacy),
+		);
+		const prior = await c.env.WORKSPACE_RUNTIME.outputQuery(
+			{ organizationId: "org-1", workspaceId },
+			{ op: "revision", revisionId: revision.id },
+		);
+		expect(
+			await c.env.WORKSPACE_RUNTIME.outputQuery(
+				{ organizationId: "org-1", workspaceId },
+				{
+					op: "rebody",
+					revisionId: revision.id,
+					previousSha256: prior!.contentSha256!,
+					...body,
+				},
+			),
+		).toBe(true);
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.content,
+		).toEqual(content);
+		const migrated = await c.env.WORKSPACE_RUNTIME.outputQuery(
+			{ organizationId: "org-1", workspaceId },
+			{ op: "revision", revisionId: revision.id },
+		);
+		expect(migrated!.contentSha256).not.toBe(body.contentSha256);
+		await workerEnv.R2_BUCKET.delete(assemblyKey);
+		const put = vi.spyOn(workerEnv.R2_BUCKET, "put");
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.content,
+		).toEqual(content);
+		expect(put).not.toHaveBeenCalled();
+		put.mockRestore();
+		const patch = (row: number, value: number) =>
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: {
+					kind: "sheet",
+					ops: [{ op: "set", path: ["rows", row, 0], value }],
+				},
+			});
+		await patch(0, 10);
+		expect(await patch(1, 20)).toMatchObject({
+			revision: { revision: 3 },
+			mergedWith: 2,
+		});
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.content,
+		).toEqual({ ...content, rows: [[10], [20]] });
+		await expect(patch(0, 30)).rejects.toMatchObject({ code: "CONFLICT" });
+		const history = await c.org1.outputs.history({
+			outputId: output.id,
+			revision: 1,
+		});
+		expect(history.revisions[0]).toMatchObject({ content });
 	});
 
 	it("writes a sheet rectangle, null-filling extended rows and short rows", async () => {
