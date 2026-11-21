@@ -24,6 +24,7 @@
 
 import type { DbClient } from "@tedix/db/client";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import { withOverloadBackoff } from "../services/d1-retention-archive";
 
 export interface WorkGraphStewardSummary {
 	orgs: number;
@@ -59,6 +60,12 @@ export const RETENTION_CLEANUP_BUDGET_MS = 9 * 60_000;
 export const RETENTION_CLEANUP_LATEST_FINISH_AFTER_SCHEDULE_MS = 13 * 60_000;
 export const RETENTION_CLEANUP_STEP_CAP_MS = 3 * 60_000;
 export const RETENTION_CLEANUP_MIN_STEP_MS = 15_000;
+/**
+ * Pause between steps. Back to back, the steps refused each other and the
+ * receipt write as "D1 overloaded" (21 Nov 2026: 8 of 29 steps failed in
+ * 11 s and the run never recorded its finish).
+ */
+export const RETENTION_CLEANUP_STEP_PAUSE_MS = 1_000;
 /** platform_cron_checkpoints row naming the step to start with next time. */
 export const RETENTION_CLEANUP_CHECKPOINT_ID = "retention-cleanup:next-step";
 
@@ -134,12 +141,14 @@ export async function runRetentionSteps(
 		firstStepId?: string | null;
 		stepCapMs?: number;
 		minStepMs?: number;
+		pauseMs?: number;
 		now?: () => number;
 	},
 ): Promise<RetentionStepRunResult> {
 	const now = options.now ?? Date.now;
 	const stepCapMs = options.stepCapMs ?? RETENTION_CLEANUP_STEP_CAP_MS;
 	const minStepMs = options.minStepMs ?? RETENTION_CLEANUP_MIN_STEP_MS;
+	const pauseMs = options.pauseMs ?? RETENTION_CLEANUP_STEP_PAUSE_MS;
 	const start = Math.max(
 		0,
 		steps.findIndex((step) => step.id === options.firstStepId),
@@ -148,7 +157,9 @@ export async function runRetentionSteps(
 	const outcomes: Array<[string, Outcome]> = [];
 	const stepCounts: Record<string, number> = {};
 
-	for (const step of ordered) {
+	for (const [index, step] of ordered.entries()) {
+		if (index > 0 && pauseMs > 0)
+			await new Promise((resolve) => setTimeout(resolve, pauseMs));
 		const remaining = options.deadlineMs - now();
 		if (remaining < minStepMs) {
 			outcomes.push([step.id, "skipped"]);
@@ -157,7 +168,10 @@ export async function runRetentionSteps(
 		const stepDeadline = now() + Math.min(stepCapMs, remaining);
 		try {
 			const result = await withTimeout(
-				Promise.resolve().then(() => step.run({ deadlineMs: stepDeadline })),
+				withOverloadBackoff(
+					() => step.run({ deadlineMs: stepDeadline }),
+					stepDeadline,
+				),
 				stepDeadline - now(),
 			);
 			if (result === "timeout") {
@@ -210,6 +224,7 @@ export async function runRetentionCleanupCron(
 	env: CloudflareEnv,
 	event: ScheduledController,
 	runId: string,
+	pauseMs = RETENTION_CLEANUP_STEP_PAUSE_MS,
 ): Promise<Record<string, number>> {
 	const startedMs = Date.now();
 	const latestFinishMs =
@@ -253,6 +268,7 @@ export async function runRetentionCleanupCron(
 	const { counts, nextStepId } = await runRetentionSteps(steps, {
 		deadlineMs,
 		firstStepId,
+		pauseMs,
 	});
 
 	if (nextStepId !== firstStepId) {

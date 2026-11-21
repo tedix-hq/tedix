@@ -7,7 +7,12 @@ import {
 } from "../lib/safe-log-metadata";
 
 const MAX_COUNT_KEYS = 32;
-const RECEIPT_FINISH_BACKOFF_MS = [500, 1000, 2000];
+/**
+ * A lost finish leaves the receipt "running" until it is abandoned six hours
+ * later. Three and a half seconds of retries did not outlast an overloaded
+ * database at 03:00 on 21 Nov 2026; this waits up to half a minute.
+ */
+const RECEIPT_FINISH_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 
 export type PlatformCronAffectedRows = Record<string, number>;
 

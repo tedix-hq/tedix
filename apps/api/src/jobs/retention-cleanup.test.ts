@@ -231,6 +231,7 @@ describe("scheduled usage evidence retention", () => {
 					scheduledTime: Date.parse("2026-09-21T03:00:00Z"),
 				} as ScheduledController,
 				"retention-test",
+				0,
 			);
 			expect(
 				sqlite
@@ -327,6 +328,7 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 				scheduledTime: Date.parse("2026-09-21T03:00:00Z"),
 			} as ScheduledController,
 			"retention-redaction-test",
+			0,
 		);
 
 		const emitted = JSON.stringify([
@@ -384,6 +386,7 @@ describe("retention step runner", () => {
 			deadlineMs: 100,
 			stepCapMs: 5,
 			minStepMs: 10,
+			pauseMs: 0,
 			now: () => clock,
 		});
 
@@ -407,6 +410,7 @@ describe("retention step runner", () => {
 			firstStepId: "never",
 			stepCapMs: 5,
 			minStepMs: 10,
+			pauseMs: 0,
 			now: () => clock,
 		});
 		expect(ran).toEqual(["never", "throws", "slow"]);
