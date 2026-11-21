@@ -1,3 +1,4 @@
+import { sourceFileResult } from "./source-file-result";
 import type { ArtifactsBinding } from "../types";
 import { isPathEditable } from "./constraints";
 import { themeArtifactRepoName } from "./hot-theme";
@@ -67,6 +68,8 @@ export async function readThemeArtifactFile(input: {
 	sourceCommit: string;
 	path: string;
 	content: string;
+	contentBase64: string;
+	sha256: string;
 	sizeBytes: number;
 }> {
 	const { sourceCommit, path } = input;
@@ -85,7 +88,7 @@ export async function readThemeArtifactFile(input: {
 		const root = await readThemeArtifactTree(repo, sourceCommit);
 		const hash = await resolveThemeArtifactFile(repo, root, path);
 		const file = await readThemeArtifactBlob(repo, hash, 256_000);
-		return { sourceCommit, path, content: file.content, sizeBytes: file.size };
+		return { sourceCommit, path, ...sourceFileResult(file.content) };
 	} catch {
 		throw new Error("Unable to read the requested Artifacts source file");
 	}

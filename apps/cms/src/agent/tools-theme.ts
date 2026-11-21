@@ -1,3 +1,4 @@
+import { sourceFileResult } from "./source-file-result";
 import type { McpServer } from "@tedix/mcp-shared/server";
 import * as z from "zod";
 import { isPathEditable, isPathLocked } from "./constraints";
@@ -266,7 +267,7 @@ export function registerThemeTools(
 			title: "Read Theme File",
 			description:
 				"Read the contents of a theme file. You can read both locked and editable files " +
-				"to understand the current theme structure before making changes.",
+				"to understand the current theme structure before making changes. Decode contentBase64 for exact UTF-8 source bytes and verify sizeBytes and sha256; content may be sanitized by the gateway.",
 			inputSchema: schema(
 				z.object({
 					path: z
@@ -280,6 +281,9 @@ export function registerThemeTools(
 				z
 					.object({
 						content: z.string().describe("Raw file contents"),
+						contentBase64: z.string(),
+						sizeBytes: z.number(),
+						sha256: z.string(),
 					})
 					.passthrough(),
 			),
@@ -291,9 +295,9 @@ export function registerThemeTools(
 				`theme_read_file ${args.path}`,
 				ctx.sandbox.readFile(`${WORKSPACE}/${args.path}`),
 			);
-			const output = { content: result.content };
+			const output = sourceFileResult(result.content);
 			return {
-				content: [{ type: "text" as const, text: output.content }],
+				content: [{ type: "text" as const, text: JSON.stringify(output) }],
 				structuredContent: output,
 			};
 		},
