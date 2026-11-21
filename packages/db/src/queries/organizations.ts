@@ -20,6 +20,7 @@ import {
  */
 
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
 	buildInsertAuditEventStatement,
 	type InsertAuditEventParams,
@@ -687,9 +688,27 @@ export async function applyOrganizationPlanFeatures(
 	id: string,
 	tier: OrganizationFeaturePlanKey,
 ): Promise<Organization> {
-	const now = new Date().toISOString();
+	await buildApplyOrganizationPlanFeaturesStatement(
+		db,
+		id,
+		tier,
+		new Date().toISOString(),
+	);
+	const updated = await getOrganizationById(db, id);
+	if (!updated) {
+		throw new Error(`Organization not found: ${id}`);
+	}
+	return updated;
+}
 
-	await db
+export function buildApplyOrganizationPlanFeaturesStatement(
+	db: DbClient,
+	id: string,
+	tier: OrganizationFeaturePlanKey,
+	now: string,
+	guard?: SQL,
+) {
+	return db
 		.update(organizations)
 		.set({
 			// OS provisioning is an explicit lifecycle setting, not a plan
@@ -698,13 +717,7 @@ export async function applyOrganizationPlanFeatures(
 			features: sql`json_patch(${JSON.stringify(DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[tier])}, CASE json_type(${organizations.features}, '$.os') WHEN 'true' THEN '{"os":true}' WHEN 'false' THEN '{"os":false}' ELSE '{}' END)`,
 			updatedAt: now,
 		})
-		.where(eq(organizations.id, id));
-
-	const updated = await getOrganizationById(db, id);
-	if (!updated) {
-		throw new Error(`Organization not found: ${id}`);
-	}
-	return updated;
+		.where(and(eq(organizations.id, id), guard));
 }
 
 // ============================================================================

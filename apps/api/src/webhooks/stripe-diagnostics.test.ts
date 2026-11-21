@@ -19,6 +19,7 @@ import { handleStripeWebhook } from "./stripe";
 
 vi.mock("@tedix/db/client", () => ({ createDbClient: vi.fn(() => ({})) }));
 vi.mock("@tedix/db/queries/billing/stripe-webhooks", () => ({
+	applyStripeBillingWebhook: vi.fn(),
 	claimStripeWebhookEvent: vi.fn(),
 	hasNewerProcessedStripeWebhookEvent: vi.fn(),
 	markStripeWebhookEventFailed: vi.fn(),
@@ -74,9 +75,11 @@ beforeEach(() => {
 			eventId: "test:evt_synthetic",
 			entityKey: "test:evt_synthetic",
 			status: "processing",
+			attemptCount: 1,
 		},
 	} as never);
 	vi.mocked(hasNewerProcessedStripeWebhookEvent).mockResolvedValue(false);
+	vi.mocked(markStripeWebhookEventProcessed).mockResolvedValue(true);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -111,7 +114,10 @@ describe("Stripe webhook diagnostics", () => {
 		expect(markStripeWebhookEventFailed).toHaveBeenCalledOnce();
 		expect(markStripeWebhookEventProcessed).not.toHaveBeenCalled();
 		const failure = vi.mocked(markStripeWebhookEventFailed).mock.calls[0]?.[1];
-		expect(failure?.eventId).toBe("test:evt_synthetic");
+		expect(failure).toMatchObject({
+			eventId: "test:evt_synthetic",
+			attemptCount: 1,
+		});
 		expect(failure?.error).not.toContain(marker);
 		expect(JSON.parse(failure?.error ?? "{}")).toMatchObject({
 			name: "Error",
