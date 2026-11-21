@@ -134,6 +134,12 @@ export const LOGS_DB_INDEXES: readonly {
 		table: "external_agent_attributions",
 		ddl: `CREATE INDEX "idx_external_agent_attribution_session" ON "external_agent_attributions" ("organization_id", "session_id", "occurred_at");`,
 	},
+	// Dropped from main on 21 Nov 2026 as a prefix of
+	// idx_tedi_runtime_events_org_unfinished; the logs databases keep it.
+	{
+		table: "tedi_runtime_events",
+		ddl: `CREATE INDEX "idx_tedi_runtime_events_org" ON "tedi_runtime_events" ("organization_id");`,
+	},
 ];
 
 /** Movable log tables for retention policy checks; excludes directory metadata. */

@@ -12,7 +12,6 @@ import {
 	type HarnessEvalResultRow,
 	type HarnessEvalRunRow,
 	type HarnessSubjectEvalResultRow,
-	type HarnessSubjectEvalRunRow,
 	harnessEvalResults,
 	harnessEvalRuns,
 	harnessVersions,
@@ -432,46 +431,7 @@ export async function listSubjectEvalResults(
 		: rows;
 }
 
-/**
- * Aggregate eval results for one subject key into a summary. Mirrors
- * `summarizeEvalResults` but operates over `harnessSubjectEvalResults`.
- */
-export async function summarizeSubjectEvalResults(
-	db: DbClient,
-	options: ListSubjectEvalResultsOptions,
-): Promise<HarnessEvalSummary> {
-	const harnessVersionId = options.harnessVersionId ?? "";
-	const results = await listSubjectEvalResults(db, {
-		...options,
-		limit: options.limit ?? 200,
-	});
-	return summarizeEvalResults(harnessVersionId, results);
-}
-
 export interface ListSubjectEvalRunsOptions extends HarnessSubjectRef {
 	harnessVersionId?: string;
 	limit?: number;
-}
-
-/** Subject eval runs newest first. */
-export async function listSubjectEvalRuns(
-	db: DbClient,
-	options: ListSubjectEvalRunsOptions,
-): Promise<HarnessSubjectEvalRunRow[]> {
-	const conditions = [
-		eq(harnessSubjectEvalRuns.subjectKind, options.subjectKind),
-		eq(harnessSubjectEvalRuns.subjectId, options.subjectId),
-	];
-	if (options.harnessVersionId) {
-		conditions.push(
-			eq(harnessSubjectEvalRuns.harnessVersionId, options.harnessVersionId),
-		);
-	}
-	const rows = await db
-		.select()
-		.from(harnessSubjectEvalRuns)
-		.where(and(...conditions))
-		.orderBy(desc(harnessSubjectEvalRuns.createdAt))
-		.limit(options.limit ?? 50);
-	return rows;
 }

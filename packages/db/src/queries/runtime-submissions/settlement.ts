@@ -280,17 +280,3 @@ async function finalizeReservedSubmission(
 
 	return { settled: true, submission };
 }
-
-export function failSubmission(
-	db: DbClient,
-	args: Omit<SettleSubmissionArgs, "outcome">,
-): Promise<SettleSubmissionResult> {
-	return settleSubmission(db, { ...args, outcome: "failed" });
-}
-
-export function cancelSubmission(
-	db: DbClient,
-	args: Omit<SettleSubmissionArgs, "outcome">,
-): Promise<SettleSubmissionResult> {
-	return settleSubmission(db, { ...args, outcome: "canceled" });
-}

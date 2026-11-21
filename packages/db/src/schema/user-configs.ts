@@ -42,7 +42,6 @@ export const userConfigs = sqliteTable(
 			table.namespace,
 			table.key,
 		),
-		index("idx_user_configs_user").on(table.userId),
 		index("idx_user_configs_namespace").on(table.namespace),
 	],
 );

@@ -239,29 +239,6 @@ export async function getPolicyPackDefinitionsByIds(
 	return map;
 }
 
-export async function getActiveOrganizationPolicyPackDefinition(
-	db: DbClient,
-	organizationId: string,
-): Promise<Record<string, unknown> | null> {
-	const [row] = await db
-		.select({ definition: policyPacks.definition })
-		.from(policyPacks)
-		.where(
-			and(
-				eq(policyPacks.organizationId, organizationId),
-				eq(policyPacks.status, "active"),
-				sql`${policyPacks.version} = (
-					select max(candidate.version)
-					from policy_packs candidate
-					where candidate.scope = ${policyPacks.scope}
-						and candidate.slug = ${policyPacks.slug}
-				)`,
-			),
-		)
-		.limit(1);
-	return (row?.definition as Record<string, unknown> | null) ?? null;
-}
-
 export async function createPolicyPack(
 	db: DbClient,
 	input: Omit<NewPolicyPack, "id" | "createdAt" | "updatedAt">,

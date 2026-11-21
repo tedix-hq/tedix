@@ -6,7 +6,6 @@
  * Each tedi belongs to an organization for multi-tenant isolation.
  */
 
-import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	and,
 	asc,
@@ -24,7 +23,6 @@ import type { DbClient } from "../client";
 import { runtimeProfiles } from "../schema/control-plane";
 import { tediRoleAssignments } from "../schema/earned-delegation";
 import {
-	type BackupHandles,
 	type NewTedi,
 	type NewTediCustomDomain,
 	type NewTediRuntimeSnapshot,
@@ -365,22 +363,6 @@ export async function getTediByIdForOrganization(
 }
 
 /**
- * Resolve the live tedi behind a Descope user ID.
- *
- * Retirement purges the Descope identity but leaves `descope_user_id` on the
- * retired row as evidence of who the worker was. Excluding retired rows keeps a
- * recycled Descope subject from ever authenticating as the retired worker.
- */
-export async function getTediByDescopeUserId(
-	db: DbClient,
-	descopeUserId: string,
-): Promise<Tedi | undefined> {
-	return db.query.tedis.findFirst({
-		where: { descopeUserId, retiredAt: { isNull: true } },
-	});
-}
-
-/**
  * Get only the organizationId for a tedi (lightweight ownership check)
  */
 export async function getTediOrganizationId(
@@ -585,38 +567,6 @@ export async function updateTediHeartbeat(
 					: sql`1 = 1`,
 			),
 		);
-}
-
-/**
- * Store backup handles directly on the tedis table (apps/tedi writes this).
- */
-export async function updateTediBackupHandles(
-	db: DbClient,
-	tediId: string,
-	backupHandles: BackupHandles,
-): Promise<void> {
-	await db
-		.update(tedis)
-		.set({
-			lastBackupHandles: backupHandles,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
-		})
-		.where(eq(tedis.id, tediId));
-}
-
-/**
- * Load backup handles from the tedis table (for cold start restore).
- */
-export async function getTediBackupHandles(
-	db: DbClient,
-	tediId: string,
-): Promise<BackupHandles | null> {
-	const results = await db
-		.select({ lastBackupHandles: tedis.lastBackupHandles })
-		.from(tedis)
-		.where(eq(tedis.id, tediId))
-		.limit(1);
-	return results[0]?.lastBackupHandles ?? null;
 }
 
 // ============================================================================
@@ -996,132 +946,6 @@ export async function updateTediRuntimeActivity(
 			...(opts.heartbeat
 				? { lastHeartbeatAt: newestHeartbeat }
 				: { lastActivityAt: newestActivity }),
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
-		})
-		.where(eq(tedis.id, tediId));
-}
-
-/**
- * Update last_sync_result JSON (lightweight sync diagnostics for operator UIs).
- */
-export async function updateTediSyncResult(
-	db: DbClient,
-	tediId: string,
-	syncResult: Record<string, JsonValue>,
-): Promise<void> {
-	await db
-		.update(tedis)
-		.set({
-			lastSyncResult: syncResult,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
-		})
-		.where(eq(tedis.id, tediId));
-}
-
-/**
- * Flexible cron sync update — sets last_sync_result plus optional runtime_status
- * in a single D1 write. The observed runtime version flows into
- * tedi_runtime_snapshots via ingestRuntimeProjection (not stored on tedis).
- */
-export async function updateTediCronSync(
-	db: DbClient,
-	tediId: string,
-	opts: {
-		syncResult: Record<string, JsonValue>;
-		runtimeStatus?: string;
-	},
-): Promise<void> {
-	await db
-		.update(tedis)
-		.set({
-			lastSyncResult: opts.syncResult,
-			lastSyncAt: new Date().toISOString(),
-			...(opts.runtimeStatus !== undefined
-				? {
-						runtimeStatus: opts.runtimeStatus as
-							| "running"
-							| "sleeping"
-							| "starting"
-							| "error"
-							| "unknown",
-					}
-				: {}),
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
-		})
-		.where(eq(tedis.id, tediId));
-}
-
-/**
- * Update runtime_status (e.g. after successful gateway startup).
- */
-export async function updateTediRuntimeStatus(
-	db: DbClient,
-	tediId: string,
-	status: string,
-): Promise<void> {
-	const now = new Date().toISOString();
-	const marksLive = status === "running" || status === "starting";
-	await db
-		.update(tedis)
-		.set({
-			runtimeStatus: status as
-				| "running"
-				| "sleeping"
-				| "starting"
-				| "error"
-				| "unknown",
-			...(marksLive ? { lastSeenAt: now } : {}),
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
-		})
-		.where(eq(tedis.id, tediId));
-}
-
-/**
- * Read the persisted container placement ID (used to detect silent
- * container replacements across Worker isolate recycles).
- */
-export async function getTediPlacementId(
-	db: DbClient,
-	tediId: string,
-): Promise<string | null> {
-	const results = await db
-		.select({ placementId: tedis.placementId })
-		.from(tedis)
-		.where(eq(tedis.id, tediId))
-		.limit(1);
-	return results[0]?.placementId ?? null;
-}
-
-/**
- * Persist the current container placement ID for replacement detection.
- */
-export async function updateTediPlacementId(
-	db: DbClient,
-	tediId: string,
-	placementId: string,
-): Promise<void> {
-	await db
-		.update(tedis)
-		.set({
-			placementId,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
-		})
-		.where(eq(tedis.id, tediId));
-}
-
-/**
- * Update a tedi's billing state based on runtime activity.
- * States: cold (no activity) → warm (recent cron) → active (container running)
- */
-export async function updateTediBillingState(
-	db: DbClient,
-	tediId: string,
-	billingState: "cold" | "warm" | "active",
-): Promise<void> {
-	await db
-		.update(tedis)
-		.set({
-			billingState,
 			updatedAt: sql`(CURRENT_TIMESTAMP)`,
 		})
 		.where(eq(tedis.id, tediId));

@@ -13,7 +13,6 @@ import {
 } from "./connection-instances";
 import type { InstallationTrustPolicy } from "@tedix/api-contract/schemas/installation-trust";
 import { getInstallationTrustPolicy } from "./installation-trust";
-import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
 import type { WidgetConfig } from "@tedix/api-contract/schemas/widget";
 import {
 	and,
@@ -1262,20 +1261,6 @@ export function getAppMetadataJson(app: {
 }
 
 /**
- * Get app capabilities from metadata
- */
-export async function getAppCapabilities(
-	db: DbClient,
-	appId: string,
-): Promise<AppCapabilities | null> {
-	const app = await getAppById(db, appId);
-	if (!app) return null;
-
-	const metadata = getAppMetadataJson(app);
-	return metadata?.capabilities || null;
-}
-
-/**
  * Get widget config from app metadata
  */
 export async function getWidgetConfig(
@@ -1309,20 +1294,6 @@ export async function updateAppMetadata(
 	return updateApp(db, appId, {
 		metadata: mergedMetadata as AppMetadata,
 	});
-}
-
-/**
- * Update widget config in app metadata
- */
-export async function updateWidgetConfig(
-	db: DbClient,
-	appId: string,
-	config: Partial<WidgetConfig>,
-) {
-	const existing = await getWidgetConfig(db, appId);
-	const merged = { ...existing, ...config } as WidgetConfig;
-
-	return updateAppMetadata(db, appId, { widgetConfig: merged });
 }
 
 /**

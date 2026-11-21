@@ -166,7 +166,6 @@ export const apps = sqliteTable(
 		// Unique constraint: slug must be unique within an organization
 		unique("uniq_app_org_slug").on(table.organizationId, table.slug),
 		// Index for organization lookup
-		index("idx_app_org").on(table.organizationId),
 		// Index for slug lookup (MCP routing)
 		index("idx_app_slug").on(table.slug),
 		// Index for custom domain routing

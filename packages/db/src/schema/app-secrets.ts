@@ -57,7 +57,6 @@ export const appSecrets = sqliteTable(
 		// Unique constraint: one secret name per app
 		unique("app_secret_unique").on(t.appId, t.name),
 		// Index for fast lookups by app
-		index("app_secrets_app_idx").on(t.appId),
 	],
 );
 

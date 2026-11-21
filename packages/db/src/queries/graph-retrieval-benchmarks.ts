@@ -1128,9 +1128,3 @@ export async function recordGraphRetrievalGraduationEvaluation(
 		"Paired run already has a different immutable graduation evaluation",
 	);
 }
-
-export function graphRetrievalRunAggregate(
-	run: GraphRetrievalBenchmarkRun,
-): GraphBenchmarkAggregateMetrics | null {
-	return run.aggregateMetrics;
-}

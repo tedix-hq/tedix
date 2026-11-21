@@ -5,27 +5,6 @@ import type { SkillLifecycleState } from "../skill-lifecycle";
 import { chunkForBoundParams } from "../../utils/batch";
 import { applySupersedes, readableSkillCondition } from "./skill-crud";
 
-export async function listSkillsByDomain(
-	db: DbClient,
-	orgId: string,
-	domainId: string,
-	options?: { lifecycleState?: SkillLifecycleState; limit?: number },
-): Promise<SkillEntry[]> {
-	const conditions = [
-		eq(skillEntries.organizationId, orgId),
-		eq(skillEntries.domainId, domainId),
-	];
-	if (options?.lifecycleState) {
-		conditions.push(eq(skillEntries.lifecycleState, options.lifecycleState));
-	}
-	return db
-		.select()
-		.from(skillEntries)
-		.where(and(...conditions))
-		.orderBy(desc(skillEntries.successCount), desc(skillEntries.createdAt))
-		.limit(options?.limit ?? 50);
-}
-
 export async function listSkillsByTedi(
 	db: DbClient,
 	orgId: string,

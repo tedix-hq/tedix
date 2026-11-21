@@ -1836,6 +1836,10 @@
 		{
 			"name": "20261121143030_drop_main_gateway_change_records/migration.sql",
 			"sha256": "15dbc77e07fdd0d80050f90b5c0f9eef289bd6ae0736e8f30d3b0f7fb6c94bb7"
+		},
+		{
+			"name": "20261121153227_drop_prefix_redundant_indexes/migration.sql",
+			"sha256": "1895054d333b80b9fb4c3da3e93c8468c6dbee2653a78b58f05ca12686db887d"
 		}
 	]
 }

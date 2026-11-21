@@ -39,11 +39,6 @@ export const tenantToolPolicies = sqliteTable(
 		revokedAt: text("revoked_at"),
 	},
 	(table) => [
-		index("tenant_tool_policies_tool_idx").on(
-			table.organizationId,
-			table.appId,
-			table.toolRowId,
-		),
 		uniqueIndex("tenant_tool_policies_revision_order_idx").on(
 			table.organizationId,
 			table.appId,

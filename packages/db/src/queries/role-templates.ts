@@ -121,17 +121,6 @@ export async function createRoleTemplate(
 	return rows[0]!;
 }
 
-export async function getRoleTemplateById(
-	db: DbClient,
-	id: string,
-): Promise<RoleTemplate | undefined> {
-	const rows = await db
-		.select()
-		.from(roleTemplates)
-		.where(eq(roleTemplates.id, id));
-	return rows[0];
-}
-
 /** Copy one current platform blueprint into an organization without overwriting
  * an existing (including archived) organization template. The single statement
  * copies the same source revision across all fields, even for large personas. */

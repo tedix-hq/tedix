@@ -604,7 +604,6 @@ export const osGadgetExecutions = sqliteTable(
 				table.createdAt,
 			)
 			.where(anyOsGadgetExecution),
-		index("os_gadget_executions_org_idx").on(table.organizationId),
 		index("os_gadget_executions_gadget_idx").on(
 			table.gadgetId,
 			table.createdAt,

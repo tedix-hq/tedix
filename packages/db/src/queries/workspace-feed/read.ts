@@ -285,24 +285,6 @@ export async function listWorkspaceWorkLinksForWorkItem(
 		.orderBy(desc(workspaceWorkLinks.linkedAt));
 }
 
-/** Active links from an output to Work Items. */
-export async function listWorkspaceWorkLinksForOutput(
-	db: DbQueryClient,
-	params: { organizationId: string; outputId: string },
-): Promise<WorkspaceWorkLinkRow[]> {
-	return db
-		.select()
-		.from(workspaceWorkLinks)
-		.where(
-			and(
-				eq(workspaceWorkLinks.organizationId, params.organizationId),
-				eq(workspaceWorkLinks.outputId, params.outputId),
-				sql`${workspaceWorkLinks.unlinkedAt} IS NULL`,
-			),
-		)
-		.orderBy(desc(workspaceWorkLinks.linkedAt));
-}
-
 /** Exact immutable source metadata; no event body leaves the query owner. */
 export async function getWorkspaceActivitySource(
 	db: DbQueryClient,
