@@ -313,7 +313,9 @@ async function generateOnce(
 			: {}),
 		...(typeof options.providerOptions?.workersAi?.reasoningEffort === "string"
 			? { reasoning_effort: options.providerOptions.workersAi.reasoningEffort }
-			: {}),
+			: modelId === "@cf/qwen/qwen3.8-27b"
+				? { reasoning_effort: "low" }
+				: {}),
 		...(!capabilities?.dropSampling && options.temperature !== undefined
 			? { temperature: options.temperature }
 			: {}),

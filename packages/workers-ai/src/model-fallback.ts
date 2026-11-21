@@ -6,6 +6,12 @@ import {
 } from "@tedix/api-contract/schemas/model-fallback";
 import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import { IncompleteAutoRouterStreamError } from "./auto-router-stream";
+import {
+	ModelStreamDeadlineError,
+	StreamDeadline,
+	untilAborted,
+	type ModelStreamDeadlines,
+} from "./stream-deadlines";
 
 /**
  * Auto Router answers with these when it rejects the request or a model in
@@ -29,10 +35,26 @@ function autoRouterRejected(ref: string, error: unknown): boolean {
 
 export interface ModelFallbackOptions<T> {
 	primaryRef: string;
+	deadlines?: ModelStreamDeadlines;
 	load(): Promise<ModelFallbackPolicy>;
 	resolve(ref: string): T | null | Promise<T | null>;
 	/** Must durably record the transition before another provider can execute. */
 	record(step: ModelFallbackStep): Promise<void>;
+}
+
+/** Apply deadlines to a pinned model without granting any fallback. */
+export function withModelStreamDeadlines<T extends object>(
+	primary: T,
+	primaryRef: string,
+	deadlines: ModelStreamDeadlines,
+): T {
+	return withModelFallback(primary, {
+		primaryRef,
+		deadlines,
+		load: async () => ({ version: 1, maxTransitions: 0, ladder: {} }),
+		resolve: () => null,
+		record: async () => {},
+	});
 }
 
 /** Availability fallback is per operation; streamed output is never replayed. */
@@ -59,47 +81,102 @@ export function withModelFallback<T extends object>(
 				let policy: ModelFallbackPolicy | undefined;
 				const signal = (args[0] as { abortSignal?: AbortSignal } | undefined)
 					?.abortSignal;
-				for (;;) {
-					signal?.throwIfAborted();
-					try {
-						const dispatch = Reflect.get(model, key);
-						if (typeof dispatch !== "function")
-							throw new Error("Fallback adapter has no dispatch method");
-						const result = await Reflect.apply(dispatch, model, args);
-						return key === "doStream" ? await readyStream(result) : result;
-					} catch (error) {
-						signal?.throwIfAborted();
-						const rejected = autoRouterRejected(ref, error);
-						const reason =
-							fallbackFailureReason(error) ??
-							(rejected ? "provider_unavailable" : null);
-						if (!reason) throw error;
-						if (!rejected && reason === "provider_unavailable" && retries++ < 2)
-							continue;
-						policy ??= ModelFallbackPolicySchema.parse(await options.load());
-						if (transitions >= policy.maxTransitions) throw error;
-						candidates = [...(policy.ladder[ref] ?? []), ...candidates];
-						const next = candidates.find(
-							(candidate) => !visited.has(candidate),
-						);
-						if (!next) throw error;
-						candidates = candidates.filter((candidate) => candidate !== next);
-						const resolved = await options.resolve(next);
-						if (!resolved) throw error;
-						await options.record({
-							from: ref,
-							to: next,
-							reason,
-							ordinal: transitions + 1,
-							policyVersion: policy.version,
-						});
-						transitions++;
-						visited.add(next);
-						model = resolved;
-						ref = next;
-						current = { model, ref };
-						retries = 0;
+				const endAt = Date.now() + (options.deadlines?.totalMs ?? Infinity);
+				const budget = options.deadlines
+					? new StreamDeadline(
+							{ ...options.deadlines, firstOutputMs: Infinity },
+							endAt,
+							signal,
+						)
+					: undefined;
+				const callSignal = budget?.signal ?? signal;
+				const bounded = <R>(work: PromiseLike<R>): Promise<R> =>
+					callSignal ? untilAborted(work, callSignal) : Promise.resolve(work);
+				try {
+					for (;;) {
+						callSignal?.throwIfAborted();
+						const deadline = options.deadlines
+							? new StreamDeadline(options.deadlines, endAt, callSignal)
+							: undefined;
+						try {
+							const dispatch = Reflect.get(model, key);
+							if (typeof dispatch !== "function")
+								throw new Error("Fallback adapter has no dispatch method");
+							const dispatchArgs = deadline
+								? [
+										{ ...(args[0] as object), abortSignal: deadline.signal },
+										...args.slice(1),
+									]
+								: args;
+							deadline?.signal.throwIfAborted();
+							const pending = Promise.resolve(
+								Reflect.apply(dispatch, model, dispatchArgs),
+							);
+							const result = deadline
+								? await untilAborted(pending, deadline.signal)
+								: await pending;
+							if (key === "doStream")
+								return await readyStream(result, deadline, budget?.dispose);
+							deadline?.dispose();
+							budget?.dispose();
+							return result;
+						} catch (caught) {
+							const error = deadline?.signal.aborted
+								? deadline.signal.reason
+								: caught;
+							deadline?.dispose();
+							callSignal?.throwIfAborted();
+							const stalled = error instanceof ModelStreamDeadlineError;
+							const rejected = autoRouterRejected(ref, error);
+							const reason =
+								fallbackFailureReason(error) ??
+								(rejected || stalled ? "provider_unavailable" : null);
+							if (!reason) throw error;
+							if (
+								!options.deadlines &&
+								!rejected &&
+								reason === "provider_unavailable" &&
+								retries++ < 2
+							)
+								continue;
+							policy ??= ModelFallbackPolicySchema.parse(
+								await bounded(options.load()),
+							);
+							if (
+								transitions >=
+								Math.min(policy.maxTransitions, options.deadlines ? 1 : 5)
+							)
+								throw error;
+							candidates = [...(policy.ladder[ref] ?? []), ...candidates];
+							const next = candidates.find(
+								(candidate) => !visited.has(candidate),
+							);
+							if (!next) throw error;
+							candidates = candidates.filter((candidate) => candidate !== next);
+							const resolved = await bounded(
+								Promise.resolve(options.resolve(next)),
+							);
+							if (!resolved) throw error;
+							await bounded(
+								options.record({
+									from: ref,
+									to: next,
+									reason,
+									ordinal: transitions + 1,
+									policyVersion: policy.version,
+								}),
+							);
+							transitions++;
+							visited.add(next);
+							model = resolved;
+							ref = next;
+							current = { model, ref };
+							retries = 0;
+						}
 					}
+				} catch (error) {
+					budget?.dispose();
+					throw error;
 				}
 			};
 		},
@@ -107,28 +184,53 @@ export function withModelFallback<T extends object>(
 }
 
 /** Buffer metadata only, so an error before any output can still move down the ladder. */
-async function readyStream(result: unknown): Promise<unknown> {
+async function readyStream(
+	result: unknown,
+	deadline?: StreamDeadline,
+	onDone?: () => void,
+): Promise<unknown> {
+	const dispose = () => {
+		deadline?.dispose();
+		onDone?.();
+	};
 	if (
 		!result ||
 		typeof result !== "object" ||
 		!("stream" in result) ||
 		!(result.stream instanceof ReadableStream)
-	)
+	) {
+		dispose();
 		return result;
+	}
 	const reader = result.stream.getReader();
 	const buffered: unknown[] = [];
+	let hasProgress = false;
+	const read = async () => {
+		const pending = reader.read();
+		const part = deadline
+			? await untilAborted(pending, deadline.signal)
+			: await pending;
+		if (!part.done) hasProgress = deadline?.progress(part.value) || hasProgress;
+		else dispose();
+		return part;
+	};
 	try {
 		for (;;) {
-			const part = await reader.read();
+			const part = await read();
 			if (part.done) break;
 			const chunk = part.value as { type?: string; error?: unknown };
 			if (chunk.type === "error") throw chunk.error;
 			buffered.push(part.value);
-			if (chunk.type !== "stream-start" && chunk.type !== "response-metadata")
+			if (
+				deadline
+					? hasProgress || chunk.type === "finish"
+					: chunk.type !== "stream-start" && chunk.type !== "response-metadata"
+			)
 				break;
 		}
 	} catch (error) {
-		await reader.cancel().catch(() => {});
+		deadline?.dispose();
+		void reader.cancel(error).catch(() => {});
 		reader.releaseLock();
 		throw error;
 	}
@@ -141,17 +243,20 @@ async function readyStream(result: unknown): Promise<unknown> {
 					return;
 				}
 				try {
-					const part = await reader.read();
+					const part = await read();
 					if (part.done) {
 						reader.releaseLock();
 						controller.close();
 					} else controller.enqueue(part.value);
 				} catch (error) {
+					dispose();
+					void reader.cancel(error).catch(() => {});
 					reader.releaseLock();
 					controller.error(error);
 				}
 			},
 			async cancel(reason) {
+				dispose();
 				try {
 					await reader.cancel(reason);
 				} finally {

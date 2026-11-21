@@ -309,3 +309,200 @@ describe("stream fallback boundaries", () => {
 		expect(load).not.toHaveBeenCalled();
 	});
 });
+
+describe("Tedix stream deadlines", () => {
+	const limits = { firstOutputMs: 30, idleMs: 20, totalMs: 100 };
+	function timed(
+		primary: (options?: { abortSignal?: AbortSignal }) => Promise<unknown>,
+		backup = primary,
+		record = vi.fn(async (_step: unknown) => {}),
+	) {
+		const second = vi.fn(backup);
+		const model = withModelFallback(
+			{ doStream: vi.fn(primary) },
+			{
+				primaryRef: a,
+				deadlines: limits,
+				load: async () => ({ ...policy, maxTransitions: 5 }),
+				resolve: () => ({ doStream: second }),
+				record,
+			},
+		);
+		return { model, second, record };
+	}
+	const silent = () => new Promise<never>(() => {});
+	it("aborts a silent dispatch and records exactly one backup before it executes", async () => {
+		vi.useFakeTimers();
+		try {
+			let primarySignal: AbortSignal | undefined;
+			const f = timed(
+				async (options) => {
+					primarySignal = options?.abortSignal;
+					return silent();
+				},
+				async () => ({
+					stream: new ReadableStream({
+						start(c) {
+							c.enqueue({ type: "text-delta", delta: "backup" });
+							c.close();
+						},
+					}),
+				}),
+			);
+			const result = f.model.doStream({});
+			await vi.advanceTimersByTimeAsync(30);
+			const stream = ((await result) as { stream: ReadableStream }).stream;
+			for await (const _part of stream) {
+				/* consume */
+			}
+			expect(primarySignal?.aborted).toBe(true);
+			expect(f.second).toHaveBeenCalledTimes(1);
+			expect(f.record).toHaveBeenCalledTimes(1);
+			expect(f.record.mock.invocationCallOrder[0]).toBeLessThan(
+				f.second.mock.invocationCallOrder[0]!,
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("stops a second silent provider without a third dispatch", async () => {
+		vi.useFakeTimers();
+		try {
+			const f = timed(silent);
+			const rejected = expect(f.model.doStream()).rejects.toThrow(
+				"first_output",
+			);
+			await vi.advanceTimersByTimeAsync(60);
+			await rejected;
+			expect(f.second).toHaveBeenCalledTimes(1);
+			expect(f.record).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it.each(["text-delta", "reasoning-delta", "tool-input-delta"])(
+		"ends an idle %s stream visibly without replay",
+		async (type) => {
+			vi.useFakeTimers();
+			try {
+				const cancel = vi.fn();
+				const f = timed(async () => ({
+					stream: new ReadableStream({
+						start(c) {
+							c.enqueue({ type, delta: "started" });
+						},
+						cancel,
+					}),
+				}));
+				const result = (await f.model.doStream()) as { stream: ReadableStream };
+				const reader = result.stream.getReader();
+				expect((await reader.read()).value).toEqual({ type, delta: "started" });
+				const rejected = expect(reader.read()).rejects.toThrow("idle");
+				await vi.advanceTimersByTimeAsync(20);
+				await rejected;
+				expect(f.second).not.toHaveBeenCalled();
+				expect(f.record).not.toHaveBeenCalled();
+				expect(cancel).toHaveBeenCalledTimes(1);
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
+	it("keeps transition recording inside the original absolute budget", async () => {
+		vi.useFakeTimers();
+		try {
+			const f = timed(silent, silent, vi.fn(silent));
+			const rejected = expect(f.model.doStream()).rejects.toThrow("total");
+			await vi.advanceTimersByTimeAsync(100);
+			await rejected;
+			expect(f.record).toHaveBeenCalledTimes(1);
+			expect(f.second).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+it("does not treat text-start or an empty delta as first output", async () => {
+	vi.useFakeTimers();
+	try {
+		const first = {
+			doStream: async () => ({
+				stream: new ReadableStream({
+					start(c) {
+						c.enqueue({ type: "text-start", id: "silent" });
+						c.enqueue({ type: "text-delta", delta: "" });
+					},
+				}),
+			}),
+		};
+		const second = vi.fn(async () => ({
+			stream: new ReadableStream({
+				start(c) {
+					c.enqueue({ type: "text-delta", delta: "backup" });
+					c.close();
+				},
+			}),
+		}));
+		const model = withModelFallback(first, {
+			primaryRef: a,
+			deadlines: { firstOutputMs: 30, idleMs: 20, totalMs: 100 },
+			load: async () => policy,
+			resolve: () => ({ doStream: second }),
+			record: async () => {},
+		});
+		const pending = model.doStream();
+		await vi.advanceTimersByTimeAsync(30);
+		const reader = (await pending).stream.getReader();
+		expect((await reader.read()).value).toEqual({
+			type: "text-delta",
+			delta: "backup",
+		});
+		await reader.read();
+		expect(second).toHaveBeenCalledTimes(1);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("continuous reasoning progress cannot extend the absolute budget", async () => {
+	vi.useFakeTimers();
+	let emit!: () => void;
+	try {
+		const first = {
+			doStream: async () => ({
+				stream: new ReadableStream({
+					start(c) {
+						emit = () =>
+							c.enqueue({ type: "reasoning-delta", delta: "thinking" });
+						emit();
+					},
+				}),
+			}),
+		};
+		const record = vi.fn(async () => {});
+		const model = withModelFallback(first, {
+			primaryRef: a,
+			deadlines: { firstOutputMs: 30, idleMs: 20, totalMs: 100 },
+			load: async () => policy,
+			resolve: () => first,
+			record,
+		});
+		const result = await model.doStream();
+		const consumption = (async () => {
+			for await (const _part of result.stream) {
+				/* consume */
+			}
+		})();
+		const rejected = expect(consumption).rejects.toThrow("total");
+		for (let n = 0; n < 6; n++) {
+			await vi.advanceTimersByTimeAsync(15);
+			emit();
+		}
+		await vi.advanceTimersByTimeAsync(10);
+		await rejected;
+		expect(record).not.toHaveBeenCalled();
+	} finally {
+		vi.useRealTimers();
+	}
+});

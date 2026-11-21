@@ -384,6 +384,23 @@ describe("reasoning results", () => {
 		);
 	}
 
+	it("bounds direct Qwen reasoning by default while preserving an explicit effort", async () => {
+		const modelId = "@cf/qwen/qwen3.8-27b";
+		expect(
+			await bindingInputs({ prompt: HELLO }, undefined, modelId),
+		).toMatchObject({ reasoning_effort: "low" });
+		expect(
+			await bindingInputs(
+				{
+					prompt: HELLO,
+					providerOptions: { workersAi: { reasoningEffort: "high" } },
+				},
+				undefined,
+				modelId,
+			),
+		).toMatchObject({ reasoning_effort: "high" });
+	});
+
 	it("reports a reply cut off while thinking as length and forwards the effort", async () => {
 		// Production: GLM 5.3 spent max_tokens on reasoning, so the Home route
 		// came back empty and read as a finished but invalid decision.
