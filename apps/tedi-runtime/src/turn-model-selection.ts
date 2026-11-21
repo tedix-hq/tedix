@@ -19,11 +19,13 @@ import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catal
  * final-step policy; provider dispatch owns usage accounting.
  */
 
+import { resolveModelRoute, modelForRoute } from "./model-route";
 import type { ModelRequestTelemetry } from "./model-request-telemetry";
 import { wrapLanguageModel, type LanguageModel } from "ai";
 import type { SelectedConversationModelIdentity } from "./turn-model-attribution";
 import {
 	withModelFallback,
+	withModelStreamDeadlines,
 	type ModelFallbackOptions,
 } from "@tedix/workers-ai/model-fallback";
 import type { ProviderBeforeDispatch } from "@tedix/workers-ai/gateway-transport";
@@ -37,16 +39,14 @@ import {
 import {
 	CLOUDFLARE_AUTO_MODEL_REF,
 	cloudflareAutoRouterEligible,
-	cloudflareAutoRouterModel,
 	selectWorkersAiModel,
 } from "@tedix/workers-ai/model-select";
-import { azureModel, selectAzureDeployment } from "./ai-sdk-adapter";
-import { type AigMetadata, aigMetadataRecord, type AzureChatEnv } from "./llm";
 import {
-	type WorkersAiEnv,
-	workersAiClient,
-	workersAiRuntimeModel,
-} from "./workers-ai-client";
+	selectAzureDeployment,
+	resolveAiStreamDeadlines,
+} from "./ai-sdk-adapter";
+import { type AigMetadata, type AzureChatEnv } from "./llm";
+import { type WorkersAiEnv } from "./workers-ai-client";
 
 /**
  * Token for the final-step stop rule the turn loop applies (`toolChoice:
@@ -112,34 +112,19 @@ export function selectChatModelForTurn(
 		typeof overrideRef === "string" ? overrideRef : null,
 		catalog?.entries,
 	);
-	const model = useAuto
-		? cloudflareAutoRouterModel(
-				workersAiClient(
-					env as unknown as WorkersAiEnv,
-					beforeDispatch,
-					metadata?.actingUserId,
-				),
-				{
-					gatewayId: env.AI_GATEWAY_LLM_ID?.trim() ?? "",
-					...(metadata
-						? { attribution: aigMetadataRecord(metadata) ?? undefined }
-						: {}),
-					...(metadata?.sessionKeyHash
-						? { sessionId: metadata.sessionKeyHash }
-						: {}),
-					...(promptCacheKey ? { affinityKey: promptCacheKey } : {}),
-				},
-			)
+	const primaryRef = useAuto
+		? CLOUDFLARE_AUTO_MODEL_REF
 		: useWorkersAI
-			? workersAiRuntimeModel(
-					env as unknown as WorkersAiEnv,
-					workersAiId,
-					metadata,
-					beforeDispatch,
-				)
-			: azureModel(env, metadata, onRequest, beforeDispatch).responses(
-					deployment,
-				);
+			? `workers-ai/${workersAiId}`
+			: `azure-openai/${deployment}`;
+	const route = resolveModelRoute(env, primaryRef);
+	const model = modelForRoute(
+		route,
+		metadata,
+		onRequest,
+		beforeDispatch,
+		promptCacheKey,
+	);
 	const identity = useAuto
 		? ({
 				provider: "workers-ai",
@@ -149,37 +134,38 @@ export function selectChatModelForTurn(
 			? ({ provider: "workers-ai", model: workersAiId } as const)
 			: ({ provider: "azure-openai", model: deployment } as const);
 	if (
-		typeof model === "string" ||
 		!fallback ||
 		adaptiveRouting?.reproducibility === "fixed-model-required" ||
 		adaptiveRouting?.sovereignty === "residency-bound"
 	)
-		return { model, identity };
-	const primaryRef = useAuto
-		? CLOUDFLARE_AUTO_MODEL_REF
-		: useWorkersAI
-			? `workers-ai/${workersAiId}`
-			: `azure-openai/${deployment}`;
+		return {
+			model: withModelStreamDeadlines(
+				model,
+				primaryRef,
+				resolveAiStreamDeadlines(env.TEDI_AI_REQUEST_TIMEOUT_MS),
+			),
+			identity,
+		};
 	return {
 		model: withModelFallback(wrapLanguageModel({ model, middleware: [] }), {
 			primaryRef,
+			deadlines: resolveAiStreamDeadlines(env.TEDI_AI_REQUEST_TIMEOUT_MS),
 			load: fallback.load,
 			resolve: (modelRef) => {
 				if (!findCatalogEntry(modelRef, catalog?.entries)) return null;
-				const candidate = selectChatModelForTurn(
-					env,
-					{ modelRef },
+				if (
+					modelRef === CLOUDFLARE_AUTO_MODEL_REF &&
+					!cloudflareAutoRouterEligible(modelRef, adaptiveRouting)
+				)
+					return null;
+				const candidate = modelForRoute(
+					resolveModelRoute(env, modelRef),
 					metadata,
 					onRequest,
-					adaptiveRouting,
 					beforeDispatch,
 					promptCacheKey,
-					undefined,
-					catalog,
-				).model;
-				return typeof candidate === "string"
-					? null
-					: wrapLanguageModel({ model: candidate, middleware: [] });
+				);
+				return wrapLanguageModel({ model: candidate, middleware: [] });
 			},
 			record: async (step) => {
 				await fallback.record(step);
@@ -228,8 +214,15 @@ export function selectJudgeModelForTurn(
 	}
 	if (pinned.provider === "azure-openai") {
 		return {
-			model: azureModel(env, metadata, undefined, beforeDispatch).responses(
-				pinned.modelId,
+			model: withModelStreamDeadlines(
+				modelForRoute(
+					resolveModelRoute(env, pinnedRef),
+					metadata,
+					undefined,
+					beforeDispatch,
+				),
+				pinnedRef,
+				resolveAiStreamDeadlines(env.TEDI_AI_REQUEST_TIMEOUT_MS),
 			),
 			identity: {
 				provider: "azure-openai" as const,
@@ -244,11 +237,15 @@ export function selectJudgeModelForTurn(
 			);
 		}
 		return {
-			model: workersAiRuntimeModel(
-				env as unknown as WorkersAiEnv,
-				pinned.modelId,
-				metadata,
-				beforeDispatch,
+			model: withModelStreamDeadlines(
+				modelForRoute(
+					resolveModelRoute(env, pinnedRef),
+					metadata,
+					undefined,
+					beforeDispatch,
+				),
+				pinnedRef,
+				resolveAiStreamDeadlines(env.TEDI_AI_REQUEST_TIMEOUT_MS),
 			),
 			identity: {
 				provider: "workers-ai" as const,

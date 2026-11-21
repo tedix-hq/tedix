@@ -4,6 +4,8 @@ import {
 } from "@tedix/api-contract/test/model-catalog";
 const fixtureCatalog = modelCatalogConfig([
 	modelCatalogEntry("azure-openai/gpt-5.6-terra", {}),
+	modelCatalogEntry("azure-openai/gpt-6.1-terra", {}),
+	modelCatalogEntry("workers-ai/@cf/qwen/qwen3.8-27b", {}),
 	modelCatalogEntry("azure-openai/gpt-6-luna", {}),
 	modelCatalogEntry("azure-openai/gpt-6.1-sol", {
 		reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
@@ -390,19 +392,32 @@ function fixtureOriginGuard(orgId = "org", recheck: () => void = () => {}) {
 }
 
 // Both adapter versions must re-enter billing/dispatch admission for the fallback.
-for (const { primaryRef, fixed } of [
+for (const { primaryRef, fixed, backupRef = "azure-openai/gpt-6-luna" } of [
 	{ primaryRef: "azure-openai/gpt-6.1-sol", fixed: false },
 	{ primaryRef: "azure-openai/gpt-6.1-sol", fixed: true },
 	{ primaryRef: "cloudflare/auto", fixed: false },
+	{
+		primaryRef: "azure-openai/gpt-6.1-terra",
+		fixed: false,
+		backupRef: "workers-ai/@cf/qwen/qwen3.8-27b",
+	},
 ]) {
 	const primaryWire = primaryRef.replace(/^azure-openai\//, "");
+	const backupWire = backupRef.slice(backupRef.indexOf("/") + 1);
 	const saved = globalThis.fetch;
 	const requests: string[] = [];
 	const receipts: unknown[] = [];
 	let admissions = 0;
 	globalThis.fetch = async (_input, init) => {
-		const body = JSON.parse(String(init?.body)) as { model: string };
+		const body = JSON.parse(String(init?.body)) as {
+			model: string;
+			reasoning_effort?: string;
+		};
 		requests.push(body.model);
+		if (body.model === "@cf/qwen/qwen3.8-27b") {
+			assert.equal(body.reasoning_effort, "low");
+			assert.equal(receipts.length, 1);
+		}
 		if (body.model === primaryWire)
 			return new Response(
 				JSON.stringify({
@@ -420,6 +435,7 @@ for (const { primaryRef, fixed } of [
 		const chosen = selectChatModelForTurn(
 			{
 				...azureEnv,
+				CF_WORKERS_AI_TOKEN: "fixture-token",
 				API_SERVICE: {
 					fetch: async () => {
 						admissions++;
@@ -444,7 +460,7 @@ for (const { primaryRef, fixed } of [
 				load: async () => ({
 					version: 1,
 					maxTransitions: 2,
-					ladder: { [primaryRef]: ["azure-openai/gpt-6-luna"] },
+					ladder: { [primaryRef]: [backupRef] },
 				}),
 				record: async (step) => {
 					receipts.push(step);
@@ -461,11 +477,11 @@ for (const { primaryRef, fixed } of [
 		);
 		assert.deepEqual(
 			requests,
-			fixed ? [primaryWire] : [primaryWire, "gpt-6-luna"],
+			fixed ? [primaryWire] : [primaryWire, backupWire],
 		);
 		assert.equal(receipts.length, fixed ? 0 : 1);
 		assert.equal(admissions, fixed ? 1 : 2);
-		assert.equal(chosen.identity.model, fixed ? primaryWire : "gpt-6-luna");
+		assert.equal(chosen.identity.model, fixed ? primaryWire : backupWire);
 	} finally {
 		globalThis.fetch = saved;
 	}

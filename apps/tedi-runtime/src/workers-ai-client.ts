@@ -28,7 +28,6 @@ import type {
 	WorkersAiClient,
 	WorkersAiTransportEnv,
 } from "@tedix/workers-ai/transport";
-import type { LanguageModel } from "ai";
 import type { ProviderBeforeDispatch } from "@tedix/workers-ai/gateway-transport";
 import {
 	authorizeInferenceEntitlement,
@@ -95,7 +94,7 @@ export function workersAiRuntimeModel(
 	modelId: string,
 	metadata?: AigMetadata,
 	beforeDispatch?: ProviderBeforeDispatch,
-): LanguageModel {
+): ReturnType<typeof workersAiModel> {
 	return workersAiModel(
 		workersAiClient(env, beforeDispatch, metadata?.actingUserId),
 		modelId,

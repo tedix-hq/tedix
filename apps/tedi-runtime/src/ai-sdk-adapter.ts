@@ -63,6 +63,16 @@ export function resolveAiRequestTimeoutMs(value: string | undefined): number {
 		: DEFAULT_AI_REQUEST_TIMEOUT_MS;
 }
 
+/** Stream timers share the existing absolute request ceiling across providers. */
+export function resolveAiStreamDeadlines(value: string | undefined) {
+	const totalMs = resolveAiRequestTimeoutMs(value);
+	return {
+		totalMs,
+		firstOutputMs: Math.min(30_000, totalMs),
+		idleMs: Math.min(30_000, totalMs),
+	};
+}
+
 /** Preserve caller cancellation and add an independent upstream deadline. */
 export function aiGatewayRequestSignal(
 	signals: ReadonlyArray<AbortSignal | null | undefined>,
