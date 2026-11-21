@@ -855,6 +855,11 @@ async function finishBrowserSignIn(code: string): Promise<void> {
 	const view = os;
 	if (!view) return;
 	const pending = pendingBrowserSignIn();
+	if (!pending) await readAppSignIn();
+	// A code from an older browser tab while this app is already signed in:
+	// nothing is missing, so there is nothing to say.
+	if (!pending && appSignIn.state === "in")
+		return log("sign-in: code ignored, already signed in");
 	if (!pending)
 		return signInFailed(
 			"no request waiting",
