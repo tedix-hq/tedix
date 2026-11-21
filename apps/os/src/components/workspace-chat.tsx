@@ -845,6 +845,17 @@ function Thread({
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
 	const shownConversation = useRef(conversationId);
+	const launches = new Set(
+		turns.flatMap((turn) => [...launchedRuns(turn).keys()]),
+	);
+	const reports = new Map<string, ChatTurn[]>();
+	const visibleTurns = turns.filter((turn) => {
+		const id = turn.runReport?.workItemId;
+		if (!id || !launches.has(id) || !turn.reply || turn.status !== "done")
+			return true;
+		reports.set(id, [...(reports.get(id) ?? []), turn]);
+		return false;
+	});
 	// Before paint, so a thread never shows its top and then jumps down.
 	useLayoutEffect(() => {
 		if (shownConversation.current !== conversationId) {
@@ -885,8 +896,9 @@ function Thread({
 					</Text>
 				</div>
 			) : null}
-			{turns.map((turn, index) => (
+			{visibleTurns.map((turn, index) => (
 				<TurnView
+					reports={reports}
 					key={turn.turnId}
 					workspaceId={workspaceId}
 					modelLabel={
@@ -894,15 +906,15 @@ function Thread({
 					}
 					onDecide={onDecide}
 					onApproveAll={onApproveAll}
-					latest={index === turns.length - 1}
+					latest={index === visibleTurns.length - 1}
 					onContinue={
-						index === turns.length - 1 &&
+						index === visibleTurns.length - 1 &&
 						(turn.status === "cancelled" || turn.status === "error")
 							? onContinue
 							: null
 					}
 					onRetry={
-						index === turns.length - 1 &&
+						index === visibleTurns.length - 1 &&
 						(turn.status === "cancelled" || turn.status === "error")
 							? onRetry
 							: null
@@ -934,7 +946,18 @@ type RetryTurn = (
 const CONTINUE_TEXT =
 	"Continue where you stopped. Check what already happened before repeating any change.";
 
+function launchedRuns(turn: ChatTurn) {
+	return new Map(
+		turn.steps.flatMap((step) => {
+			if (step.tool !== "work.startRun" || step.status !== "ok") return [];
+			const run = agentRunFromToolResult(step.result);
+			return run ? [[run.workItemId, run] as const] : [];
+		}),
+	);
+}
+
 function TurnView({
+	reports,
 	workspaceId,
 	turn,
 	tediNames,
@@ -945,6 +968,7 @@ function TurnView({
 	onContinue,
 	onRetry,
 }: {
+	reports: ReadonlyMap<string, ChatTurn[]>;
 	workspaceId: string;
 	turn: ChatTurn;
 	tediNames: Record<string, string>;
@@ -960,13 +984,24 @@ function TurnView({
 	const running = turn.status === "running";
 	const startedAt = Date.parse(turn.startedAt);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
-	const agentRuns = new Map(
-		turn.steps.flatMap((step) => {
-			if (step.tool !== "work.startRun" || step.status !== "ok") return [];
-			const run = agentRunFromToolResult(step.result);
-			return run ? [[run.workItemId, run] as const] : [];
-		}),
+	const agentRuns = launchedRuns(turn);
+	const machineStep = turn.steps.findLast(
+		(step) => step.tool === "machine.call",
 	);
+	const machineInput = machineStep?.input;
+	const machineName =
+		machineInput &&
+		typeof machineInput === "object" &&
+		"machine" in machineInput &&
+		typeof machineInput.machine === "string"
+			? machineInput.machine
+			: null;
+	const taskLocation =
+		agentRuns.size || !turn.steps.some((step) => step.tool === "run_code")
+			? null
+			: machineStep
+				? (machineName ?? "Connected computer")
+				: "Tedix Cloud";
 	const now = useNow(running && !waiting);
 	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
 	const quiet =
@@ -1017,7 +1052,16 @@ function TurnView({
 				</ul>
 			) : null}
 			<AddedMessages messages={turn.added} tediNames={tediNames} />
-			<div className="workspace-chat-reply" key={turn.replyKey}>
+			<div
+				className="workspace-chat-reply"
+				data-task-card={taskLocation ? true : undefined}
+				key={turn.replyKey}
+			>
+				{taskLocation ? (
+					<Text role="caption" tone="secondary">
+						{taskLocation}
+					</Text>
+				) : null}
 				{turn.respondingTediId ? (
 					<WorkspaceChatAuthor
 						id={turn.respondingTediId}
@@ -1081,7 +1125,17 @@ function TurnView({
 				{agentRuns.size > 0 ? (
 					<ul className="m-0 grid list-none gap-2 p-0" aria-label="Coding runs">
 						{[...agentRuns.values()].map((run) => (
-							<AgentRunCard key={run.workItemId} agentRun={run} />
+							<AgentRunCard key={run.workItemId} agentRun={run}>
+								{reports.get(run.workItemId)?.map((report) => (
+									<div className="workspace-chat-prose" key={report.turnId}>
+										{report.plainNotice ? (
+											<p>{report.reply}</p>
+										) : (
+											<ChatMarkdown content={report.reply} />
+										)}
+									</div>
+								))}
+							</AgentRunCard>
 						))}
 					</ul>
 				) : null}

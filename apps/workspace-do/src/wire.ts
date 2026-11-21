@@ -98,7 +98,13 @@ export type WireEventBody =
 			/** The turn was stopped first: no turn read the message. */
 			type: "message.returned";
 	  } & QueuedMessageBody)
-	| { type: "agent_run.ended"; turnId: string; text: string }
+	| {
+			type: "agent_run.ended";
+			turnId: string;
+			text: string;
+			workItemId?: string;
+			title?: string;
+	  }
 	/** A run started here asks the person a question; its card takes the answer. */
 	| {
 			type: "agent_run.question";

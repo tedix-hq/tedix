@@ -101,6 +101,7 @@ export function AgentRunCardView({
 	stopping = false,
 	stopError,
 	permissionHold,
+	children,
 	LinkComponent = DefaultTaskLink,
 }: {
 	agentRun: AgentRunRef;
@@ -123,6 +124,7 @@ export function AgentRunCardView({
 	stopping?: boolean;
 	stopError?: unknown;
 	permissionHold?: string;
+	children?: ReactNode;
 	LinkComponent?: ComponentType<AgentRunTaskLinkProps>;
 }) {
 	useOsFormattingPreferences();
@@ -228,6 +230,7 @@ export function AgentRunCardView({
 						) : null}
 					</div>
 				</div>
+				{children}
 				{waiting && !attempt && permissionHold ? (
 					<Text as="p" className="whitespace-pre-wrap [overflow-wrap:anywhere]">
 						{permissionHold}
@@ -386,7 +389,13 @@ export function AgentRunCardView({
 }
 
 /** The run card with its own data: reads the run and keeps it current. */
-export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
+export function AgentRunCard({
+	agentRun,
+	children,
+}: {
+	agentRun: AgentRunRef;
+	children?: ReactNode;
+}) {
 	const { run, failed, attempt, viewerId, ownMessageIds, send, stop } =
 		useWorkItemRun(agentRun.workItemId, true);
 	const waiting = run?.attemptId === null && !attempt;
@@ -404,6 +413,7 @@ export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
 	return (
 		<AgentRunCardView
 			agentRun={agentRun}
+			children={children}
 			run={run}
 			failed={failed}
 			attempt={attempt}

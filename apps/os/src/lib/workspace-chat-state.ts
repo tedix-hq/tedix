@@ -608,6 +608,9 @@ export function applyWorkspaceChatEvent(
 		case "agent_run.ended":
 			turns = place(event.turnId)((turn) => ({
 				...turn,
+				...(event.workItemId && event.title
+					? { runReport: { workItemId: event.workItemId, title: event.title } }
+					: {}),
 				reply: event.text,
 				replyMessageId: event.turnId,
 				replyDone: true,

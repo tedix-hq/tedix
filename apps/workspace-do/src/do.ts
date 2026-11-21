@@ -1762,6 +1762,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				type: "agent_run.ended",
 				turnId: noticeId,
 				text: runEndedNotice(report),
+				workItemId: report.workItemId,
+				title: report.title,
 			});
 		if (
 			source?.conversation_id !== report.conversationId ||

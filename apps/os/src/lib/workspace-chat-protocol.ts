@@ -257,6 +257,8 @@ export type WorkspaceChatLedgerEvent =
 	  })
 	| (Stamped & {
 			type: "agent_run.ended";
+			workItemId?: string;
+			title?: string;
 			turnId: string;
 			text: string;
 	  })
