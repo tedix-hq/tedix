@@ -211,8 +211,10 @@ import {
 	type ClientFrame,
 	type ConversationSummary,
 	type WaitingApproval,
+	stepFailure,
 	stepLabel,
 	stepSummary,
+	turnFailure,
 	type TurnUsage,
 	type UsageTotals,
 	type WireControlFrame,
@@ -841,7 +843,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				type: "turn.finished",
 				turnId: row.turn_id,
 				status: "error",
-				error: "interrupted",
+				...turnFailure("interrupted"),
 				durationMs: Date.parse(now) - Date.parse(row.started_at),
 			});
 		}
@@ -1755,7 +1757,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			type: "turn.finished",
 			turnId: turn.turn_id,
 			status: status === "failed" ? "error" : "cancelled",
-			error: reason,
+			...(status === "failed" ? turnFailure(reason) : { error: reason }),
 			durationMs: Math.max(0, Date.parse(now) - Date.parse(turn.started_at)),
 		});
 		this.#running.delete(turn.turn_id);
@@ -4521,7 +4523,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				stepId,
 				status: "error",
 				durationMs: Date.now() - startedAt,
-				error: message,
+				...stepFailure(message),
 			});
 			return message;
 		}
@@ -4822,7 +4824,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						stepId,
 						status: outcome.ok ? "ok" : "error",
 						durationMs: Date.now() - started,
-						...(outcome.error ? { error: outcome.error } : {}),
+						...(outcome.error ? stepFailure(outcome.error) : {}),
 					});
 				// The same change asked for again gets no second card.
 				const [waiting] = this.#store.exec<{ approval_id: string }>(
@@ -4951,7 +4953,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				stepId,
 				status: "error",
 				durationMs: Date.now() - started,
-				error: message,
+				...stepFailure(message),
 			});
 			return { ok: false, error: message };
 		}
@@ -4987,7 +4989,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						type: "step.started",
 						turnId,
 						stepId: data.toolCallId,
-						label: "Writing the next step",
+						label: "Planning the next step",
 						kind: "code",
 						tool: "run_code",
 					};
@@ -4997,7 +4999,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					type: "step.started",
 					turnId,
 					stepId: String(data.toolCallId),
-					label: "Running code against the workspace",
+					label: "Running a script",
 					kind: "code",
 					tool: "run_code",
 					...(typeof data.code === "string"
@@ -5013,7 +5015,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					stepId: String(data.toolCallId),
 					status: data.ok ? "ok" : "error",
 					durationMs: Number(data.durationMs ?? 0),
-					...(data.error ? { error: String(data.error) } : {}),
+					...(data.error ? stepFailure(String(data.error)) : {}),
 					...(typeof data.result === "string"
 						? { result: boundedEventText(data.result) }
 						: {}),
@@ -5474,7 +5476,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (event.type === "step.finished")
 					finished.set(event.stepId, {
 						ok: event.status === "ok",
-						text: event.error ?? event.result ?? event.summary,
+						text: event.detail ?? event.error ?? event.result ?? event.summary,
 					});
 			// The calls the code made; the code steps around them only repeat them.
 			const steps = this.#events
@@ -5995,7 +5997,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					type: "turn.finished",
 					turnId,
 					status: cancelled ? "cancelled" : "error",
-					error: message,
+					...(cancelled ? { error: message } : turnFailure(message)),
 					durationMs: Date.now() - startedAt,
 				});
 		} finally {

@@ -51,6 +51,15 @@ export function parseWorkspaceChatPath(pathname: string): string | null {
 export type ApprovalDecision = "approve" | "deny";
 export type StepKind = "read" | "write" | "code" | "tool" | "think";
 export type TurnStatus = "done" | "error" | "cancelled" | "waiting";
+/** What kind of failure stopped a reply, as the workspace object sorted it. */
+export type TurnErrorKind =
+	| "interrupted"
+	| "no_answer"
+	| "service"
+	| "model_unavailable"
+	| "model_busy"
+	| "timeout"
+	| "other";
 
 export type WorkspaceChatClientMessage =
 	| {
@@ -287,7 +296,10 @@ export type WorkspaceChatLedgerEvent =
 			status: "ok" | "error";
 			summary?: string;
 			durationMs: number;
+			/** What went wrong in plain words. */
 			error?: string;
+			/** The error as recorded; shown only behind the step's raw output. */
+			detail?: string;
 			/** The start of what the step returned, as text; a few KB at most. */
 			result?: string;
 	  })
@@ -391,7 +403,9 @@ export type WorkspaceChatLedgerEvent =
 			turnId: string;
 			status: TurnStatus;
 			approvalUrl?: string;
+			/** Why the reply stopped, in one plain sentence when `errorKind` is set. */
 			error?: string;
+			errorKind?: TurnErrorKind;
 			durationMs: number;
 	  })
 	| (Stamped & {

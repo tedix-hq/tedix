@@ -135,9 +135,12 @@ import {
 	writeWorkspaceChatDraft,
 } from "@/lib/workspace-chat-draft";
 import { mayPickWorkspaceTedi } from "@/lib/workspace-guest-tedi";
-import { turnFailure } from "@/lib/workspace-chat-failure";
+import { ClipboardText } from "@/components/kumo/clipboard-text";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
-import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
+import type {
+	ConversationSummary,
+	TurnErrorKind,
+} from "@/lib/workspace-chat-protocol";
 import type {
 	ConversationChange,
 	WorkspaceChatClient,
@@ -1301,25 +1304,12 @@ function TurnView({
 						</Suspense>
 					</div>
 				))}
-				{turn.status === "error" ? <TurnFailure error={turn.error} /> : null}
-				{turn.status === "cancelled" ? (
-					<Text role="caption" tone="secondary">
-						Stopped.
-					</Text>
-				) : null}
-				{onContinue || (stopped && sendAgain) ? (
-					<div className="flex gap-2">
-						{onContinue ? (
-							<Button onClick={onContinue} size="xs" variant="outline">
-								Continue
-							</Button>
-						) : null}
-						{stopped && sendAgain ? (
-							<Button onClick={sendAgain} size="xs" variant="ghost">
-								Retry
-							</Button>
-						) : null}
-					</div>
+				{stopped ? (
+					<TurnStopped
+						turn={turn}
+						onContinue={partialReply(turn) ? onContinue : null}
+						onRetry={sendAgain}
+					/>
 				) : null}
 				{turn.status === "retrying" ? (
 					<div role="status">
@@ -1387,26 +1377,90 @@ function thoughtMs(turn: ChatTurn): number | null {
 	return thought >= 1_000 ? thought : null;
 }
 
-/** Why a reply failed, in one plain sentence; the recorded error on request. */
-function TurnFailure({ error }: { error: string | undefined }) {
-	const { message, detail } = turnFailure(error);
+/** Something of the reply happened before it stopped, so Continue can pick it up. */
+function partialReply(turn: ChatTurn): boolean {
 	return (
-		<>
-			<Alert variant="destructive">
-				<WarningCircle aria-hidden />
-				<AlertDescription>{message}</AlertDescription>
-			</Alert>
-			{detail ? (
-				<Collapsible className="workspace-chat-approval-details">
-					<CollapsibleDefaultTrigger>
-						Technical details
-					</CollapsibleDefaultTrigger>
-					<CollapsibleDefaultContent>
-						<pre>{detail}</pre>
-					</CollapsibleDefaultContent>
+		turn.reply.trim() !== "" ||
+		turn.steps.some((step) => step.status === "ok") ||
+		turn.approvals.some((approval) => approval.execution?.status === "applied")
+	);
+}
+
+/** What went wrong, in plain words, by the kind the workspace sorted it into. */
+const FAILURE_KIND: Record<TurnErrorKind, string> = {
+	interrupted: "The reply was cut off",
+	no_answer: "The model gave no answer",
+	service: "A Tedix service was busy",
+	model_unavailable: "The model is not available",
+	model_busy: "The model is busy or out of credits",
+	timeout: "The model took too long",
+	other: "Something else went wrong",
+};
+
+/**
+ * A reply that stopped: one plain line with Continue or Retry. A failed reply
+ * keeps a reference to quote to support behind "Details"; the recorded error
+ * stays with the workspace.
+ */
+function TurnStopped({
+	turn,
+	onContinue,
+	onRetry,
+}: {
+	turn: ChatTurn;
+	onContinue: (() => void) | null;
+	onRetry: (() => void) | null;
+}) {
+	const failed = turn.status === "error";
+	// Only the workspace's own sorting makes the text safe to show as it is.
+	const line = !failed
+		? "Stopped."
+		: turn.errorKind && turn.error
+			? turn.error
+			: "Something went wrong, so this reply stopped. Try again.";
+	return (
+		<div
+			className="workspace-chat-stopped"
+			data-testid="workspace-chat-turn-stopped"
+		>
+			<div className="workspace-chat-stopped-line">
+				<Text as="span" role="caption" tone="secondary">
+					{line}
+				</Text>
+				{onContinue ? (
+					<Button onClick={onContinue} size="xs" variant="outline">
+						Continue
+					</Button>
+				) : null}
+				{onRetry ? (
+					<Button onClick={onRetry} size="xs" variant="ghost">
+						Retry
+					</Button>
+				) : null}
+			</div>
+			{failed ? (
+				<Collapsible>
+					<CollapsibleTrigger className="workspace-chat-stopped-toggle">
+						Details
+						<CaretRight aria-hidden className="workspace-chat-caret" />
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<dl className="workspace-chat-stopped-details">
+							<dt>What happened</dt>
+							<dd>{FAILURE_KIND[turn.errorKind ?? "other"]}</dd>
+							<dt>Reference</dt>
+							<dd>
+								<ClipboardText
+									size="sm"
+									text={turn.turnId}
+									textToCopy={turn.turnId}
+								/>
+							</dd>
+						</dl>
+					</CollapsibleContent>
 				</Collapsible>
 			) : null}
-		</>
+		</div>
 	);
 }
 
@@ -1512,8 +1566,9 @@ function stepsSummary(steps: readonly ChatStep[]): string {
 }
 
 /**
- * The steps of one turn folded into one line; it opens on the full list.
- * While the turn works, the line names the current step.
+ * The steps of one turn folded into one line. Only the person's click opens
+ * the list, never a running, failed or waiting step. While the turn works,
+ * the line names the current step.
  */
 function Activity({
 	steps,
@@ -1525,9 +1580,13 @@ function Activity({
 	/** The connected computer the code ran on, said inside the folded line. */
 	ranOn: string | null;
 }) {
-	const refused = (step: ChatStep) =>
-		step.error?.startsWith("Approval required") ||
-		step.error?.includes("approval_pending");
+	const refused = (step: ChatStep) => {
+		const recorded = step.detail ?? step.error;
+		return (
+			recorded?.startsWith("Approval required") ||
+			recorded?.includes("approval_pending")
+		);
+	};
 	const held = (step: ChatStep) =>
 		approvals.find((approval) => approval.stepId === step.stepId) ??
 		(refused(step) ? approvals.at(-1) : undefined);
@@ -1550,9 +1609,7 @@ function Activity({
 				<span className="truncate">{summary}</span>
 				<CaretRight aria-hidden className="workspace-chat-caret" />
 				{failed ? (
-					<Badge variant="destructive">
-						<WarningCircle aria-hidden /> Failed
-					</Badge>
+					<Badge variant="secondary">Failed</Badge>
 				) : approval ? (
 					<Badge variant={approvalBadge(approval)}>
 						{approvalStatus(approval)}
@@ -1607,8 +1664,8 @@ function Activity({
 									</Text>
 								) : null}
 								{!approvalLabel && step.status === "error" ? (
-									<Text as="span" role="caption" tone="error">
-										{step.error ?? "failed"}
+									<Text as="span" role="caption" tone="secondary">
+										Didn't work
 									</Text>
 								) : null}
 								{approval?.execution?.status === "applied" ||
