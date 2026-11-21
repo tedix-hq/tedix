@@ -188,7 +188,7 @@ export async function cmsRecoveryAdminResponse(args: {
 			const db = createDbQueryClient(env.PLATFORM_DB);
 			const site = await getCmsSiteBySlug(db, slug);
 			if (site?.id === siteId) {
-				const permitId = crypto.randomUUID();
+				const permitId = `admin:recovery-purge:${crypto.randomUUID()}`;
 				if (
 					!(await enterCmsRecoveryPurgePermit(db, {
 						siteId,

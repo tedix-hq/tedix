@@ -58,7 +58,7 @@ beforeAll(async () => {
 CREATE TABLE IF NOT EXISTS cms_sites (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL, restore_epoch INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS cms_restore_permits (id TEXT PRIMARY KEY, site_id TEXT NOT NULL, slug TEXT NOT NULL, restore_epoch INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL, entered_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP));
 CREATE TABLE IF NOT EXISTS cms_restore_fences (site_id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS cms_deprovision_operations (id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS cms_deprovision_operations (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'queued');
 CREATE TABLE IF NOT EXISTS cms_capture_cron_pauses (site_id TEXT PRIMARY KEY, slug TEXT NOT NULL, capture_id TEXT NOT NULL, expires_at_unix INTEGER NOT NULL, drained_at_unix INTEGER);
 `);
 });
