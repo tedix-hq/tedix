@@ -1251,7 +1251,11 @@ function setMenu(): void {
 					},
 					{ type: "separator" },
 					...(mac ? [{ role: "hide" as const }] : []),
-					{ role: "quit" },
+					{
+						label: mac ? `Quit ${app.name}` : "Quit",
+						accelerator: "CmdOrCtrl+Q",
+						click: () => quitFrom("the app menu or Cmd+Q"),
+					},
 				],
 			},
 			{ role: "editMenu" },
@@ -1348,6 +1352,16 @@ function runnersItem(): MenuItemConstructorOptions {
 			};
 }
 
+/**
+ * Who asked the app to quit, for the log. Without one of the app's own Quit
+ * items or a TERM signal, it was the Dock, an update, or macOS itself.
+ */
+let quitSource = "the Dock, an update or macOS";
+function quitFrom(source: string): void {
+	quitSource = source;
+	app.quit();
+}
+
 let tray: Tray | undefined;
 
 /** Right click on the menu bar icon. */
@@ -1379,7 +1393,10 @@ function trayMenu(): Menu {
 				]
 			: []),
 		{ type: "separator" },
-		{ label: "Quit Tedix and Stop Runners", click: () => app.quit() },
+		{
+			label: "Quit Tedix and Stop Runners",
+			click: () => quitFrom("the menu bar icon"),
+		},
 	]);
 }
 
@@ -1767,8 +1784,10 @@ else {
 		// Tedix stays in the menu bar with no window open; only Quit ends it.
 		app.on("window-all-closed", () => {});
 		app.on("activate", showMain);
+		process.on("SIGTERM", () => quitFrom("a TERM signal"));
 		// Quitting stops this Mac's runners first: they are this app's child.
 		app.on("before-quit", (event) => {
+			if (!quitting) log(`quit: asked by ${quitSource}`);
 			quitting = true;
 			if (!runnersRunning()) return void stopRunners();
 			event.preventDefault();
