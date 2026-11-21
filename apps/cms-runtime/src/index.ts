@@ -30,6 +30,7 @@ import {
 	redirectLegacyMarketingBlog,
 } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	recordDynamicWorkerLoaderFactory,
@@ -1186,11 +1187,26 @@ async function publicHotThemeVersion(
 	try {
 		const css = await env.TENANT_BUNDLES.head(hotThemeCssKey(slug));
 		const hash = css?.customMetadata?.sha256;
-		const version = !css
-			? "none"
-			: hash && HOT_THEME_HASH.test(hash)
-				? hash
-				: undefined;
+		let version = css ? hash : "none";
+		// Themes published before hash metadata was added still need immutable URLs.
+		if (css && !(hash && HOT_THEME_HASH.test(hash))) {
+			const legacyCss = await env.TENANT_BUNDLES.get(hotThemeCssKey(slug));
+			if (!legacyCss) return;
+			const legacyText = await legacyCss.text();
+			version = await sha256Hex(legacyText);
+			// Keep emitted URLs available after the current theme changes.
+			const revisionKey = `hot-themes/${slug}/revisions/${version.slice(0, 12)}.css`;
+			const existing = await env.TENANT_BUNDLES.head(revisionKey);
+			if (existing?.customMetadata?.sha256 !== version) {
+				await env.TENANT_BUNDLES.put(revisionKey, legacyText, {
+					httpMetadata: {
+						contentType: "text/css; charset=utf-8",
+						cacheControl: "public, max-age=31536000, immutable",
+					},
+					customMetadata: { sha256: version },
+				});
+			}
+		}
 		if (hotThemeVersions.size >= 128 && !hotThemeVersions.has(key)) {
 			const first = hotThemeVersions.keys().next();
 			if (!first.done) hotThemeVersions.delete(first.value);
@@ -1234,13 +1250,20 @@ async function hotThemeResponse(
 			});
 		if (HOT_THEME_HASH.test(version)) {
 			const short = version.slice(0, 12);
-			const key = `hot-themes/${slug}/revisions/${short}.css`;
-			const body = method === "GET" ? await env.TENANT_BUNDLES.get(key) : null;
-			const css = method === "HEAD" ? await env.TENANT_BUNDLES.head(key) : body;
-			if (css?.customMetadata?.sha256 === version) {
-				headers.set("X-Tedix-Hot-Theme-Revision", short);
-				headers.set("ETag", css.httpEtag);
-				return new Response(body ? await body.text() : null, { headers });
+			for (const key of [
+				`hot-themes/${slug}/revisions/${short}.css`,
+				hotThemeCssKey(slug),
+			]) {
+				const css = await env.TENANT_BUNDLES.get(key);
+				if (!css) continue;
+				const text = await css.text();
+				// Historical objects may lack hash metadata or a revision copy.
+				// Verify the bytes before giving any object an immutable response.
+				if ((await sha256Hex(text)) === version) {
+					headers.set("X-Tedix-Hot-Theme-Revision", short);
+					headers.set("ETag", css.httpEtag);
+					return new Response(method === "HEAD" ? null : text, { headers });
+				}
 			}
 		}
 		return new Response(method === "HEAD" ? null : "Theme revision not found", {
