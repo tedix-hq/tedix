@@ -1,11 +1,5 @@
-import {
-	DirectoryBackup,
-	type DirectoryBackupGatewayBinding,
-	type DirectoryBackupRecord,
-} from "@cloudflare/sandbox";
 import { NativeContainerSandbox } from "@tedix/container-runtime/sandbox";
 import { WorkerEntrypoint } from "cloudflare:workers";
-export { DirectoryBackupGateway } from "@cloudflare/sandbox";
 import { outboundEgressHandler } from "./egress";
 import { WORKSTATION_RUNTIME_EVENT_SHAPE_VERSION } from "./event-shape";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
@@ -42,7 +36,6 @@ update-ca-certificates --fresh >/dev/null
 
 export interface TediRuntimeEnv {
 	API_SERVICE?: Fetcher;
-	BACKUP_BUCKET: R2Bucket;
 	CF_ACCOUNT_ID?: string;
 	CLOUDFLARE_API_TOKEN?: string;
 	CLOUDFLARE_ZONE_ID?: string;
@@ -91,7 +84,6 @@ interface TediWorkstationState extends DurableObjectState {
 		readonly WorkstationOutbound: (options: {
 			props: WorkstationOutboundProps;
 		}) => Fetcher;
-		readonly DirectoryBackupGateway: DirectoryBackupGatewayBinding;
 	};
 }
 
@@ -106,18 +98,12 @@ export class WorkstationOutbound extends WorkerEntrypoint<
 
 export class TediWorkstationRuntimeSandbox extends NativeContainerSandbox<TediRuntimeEnv> {
 	readonly #exports: TediWorkstationState["exports"];
-	readonly #backups: DirectoryBackup;
 	#outboundParams: unknown;
 	#snapshotFence: WorkstationSnapshotFence | null | undefined;
 
 	constructor(ctx: TediWorkstationState, env: TediRuntimeEnv) {
 		super(ctx, env);
 		this.#exports = ctx.exports;
-		this.#backups = new DirectoryBackup(
-			this.container,
-			ctx.exports.DirectoryBackupGateway,
-			{ binding: "BACKUP_BUCKET", prefix: "directory-backups/" },
-		);
 	}
 
 	protected get containerTelemetrySurface(): string {
@@ -233,7 +219,6 @@ export class TediWorkstationRuntimeSandbox extends NativeContainerSandbox<TediRu
 
 	protected override async configureContainer(): Promise<void> {
 		this.#outboundParams ??= await this.ctx.storage.get("outbound-params");
-		await this.#backups.intercept();
 		const outbound = this.#exports.WorkstationOutbound({
 			props: {
 				className: "TediWorkstationRuntimeSandbox",
@@ -506,24 +491,6 @@ export class TediWorkstationRuntimeSandbox extends NativeContainerSandbox<TediRu
 	getWorkstationIdentity() {
 		return this.ctx.id.toString();
 	}
-	async createBackup(input: {
-		dir: string;
-		name?: string;
-		excludes?: string[];
-	}): Promise<DirectoryBackupRecord> {
-		await this.ensureContainer();
-		return this.#backups.backup({
-			dir: input.dir,
-			name: input.name,
-			exclude: input.excludes,
-		});
-	}
-
-	async restoreBackup(input: DirectoryBackupRecord & { dir?: string }) {
-		await this.ensureContainer();
-		await this.#backups.restore(input, { dir: input.dir });
-		return { success: true as const };
-	}
 }
 
 export default {
@@ -537,7 +504,6 @@ export default {
 		}
 
 		return Response.json({
-			backupBucketConfigured: Boolean(env.BACKUP_BUCKET),
 			eventShapeVersion: WORKSTATION_RUNTIME_EVENT_SHAPE_VERSION,
 			status: "ok",
 			service: "tedi-workstation-runtime",

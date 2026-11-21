@@ -323,7 +323,6 @@ export async function wakeWorkstation(c: Context<AppEnv>) {
 		state,
 		body,
 		selectedSession,
-		body.cacheBackupMode === "synchronous" ? "synchronous" : "deferred",
 	);
 	const transientProvisioningError = isTransientWorkstationProvisioningError(
 		state.setupError,

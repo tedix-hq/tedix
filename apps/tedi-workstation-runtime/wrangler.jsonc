@@ -42,13 +42,6 @@
 			"service": "public-installation-tedi-workstation-egress-broker",
 		},
 	],
-	"r2_buckets": [
-		{
-			"binding": "BACKUP_BUCKET",
-			"bucket_name": "public-installation-bucket",
-			"remote": false,
-		},
-	],
 	"analytics_engine_datasets": [
 		{
 			"binding": "RUNTIME_ANALYTICS",
@@ -108,14 +101,6 @@
 				{
 					"binding": "WORKSTATION_EGRESS_PROXY",
 					"service": "public-installation-tedi-workstation-egress-broker",
-				},
-			],
-			"r2_buckets": [
-				{
-					"binding": "BACKUP_BUCKET",
-					"bucket_name": "public-installation-bucket",
-					"jurisdiction": "eu",
-					"remote": false,
 				},
 			],
 			"analytics_engine_datasets": [

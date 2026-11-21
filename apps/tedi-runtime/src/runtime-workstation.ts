@@ -316,7 +316,6 @@ export const runtimeWorkstation = {
 								...request,
 								refreshId,
 								attempt: 0,
-								phase: "provision",
 								startedAt: Date.now(),
 							},
 							null,

@@ -30,8 +30,9 @@ publication policy and preservation-aware cleanup. Native processes provide
 status, output, timeout and cancellation; native file streams carry bytes.
 There is no workstation computerd backend or stable SDK transport selection.
 
-The `BACKUP_BUCKET` binding is required for recovery. `/health` reports its
-presence and the exact deployed Git SHA. Worker and image versions must advance
+An idle workstation saves a native container snapshot and resumes from it,
+so installed dependencies survive without a separate backup. `/health`
+reports the exact deployed Git SHA. Worker and image versions must advance
 together: guarded deployments request immediate container rollout with zero
 active grace after current work has been preserved and drained.
 

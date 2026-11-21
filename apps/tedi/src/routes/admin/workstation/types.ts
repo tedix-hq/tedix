@@ -3,8 +3,6 @@ import {
 	type WorkstationSessionKind,
 	type WorkstationOperationLock,
 	type WorkstationSeatRole,
-	type WorkstationPackageManager,
-	type WorkstationCacheBackupStatus,
 } from "@tedix/api-contract/schemas/workstation";
 import { hydrateGitHubCliCredentials } from "../../../workstation/github-credentials";
 import { type RepoSyncResult } from "../../../workstation/repo-sync";
@@ -12,11 +10,6 @@ import { workstationExec } from "../../../workstation/computer-body";
 import type { AppEnv } from "../../../types";
 import { type PushPublicationProof } from "../../../workstation/push-publication";
 import { type WorkstationLeaseBundle } from "../../../workstation/persistence";
-import type { DirectoryBackupRecord } from "@cloudflare/sandbox";
-import {
-	WORKSTATION_BOOTSTRAP_CACHE_RECORD_VERSION,
-	WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION,
-} from "./constants";
 
 export type ToolProbe = {
 	ok: boolean;
@@ -180,38 +173,6 @@ export type WorkstationSessionSelection = {
 	sessionId: string;
 	sessionKind: WorkstationSessionKind;
 	workstationId: string;
-};
-
-export type WorkstationBootstrapCacheBackup = DirectoryBackupRecord;
-
-export type WorkstationBootstrapCacheBackupEntry = {
-	backup: WorkstationBootstrapCacheBackup;
-	dir: string;
-	kind: "node_modules" | "package_manager_cache";
-};
-
-export type WorkstationBootstrapCacheRecord = {
-	version: typeof WORKSTATION_BOOTSTRAP_CACHE_RECORD_VERSION;
-	cacheKey: string;
-	profileId: WorkstationProfileId;
-	profileVersion: typeof WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION;
-	packageManager: WorkstationPackageManager;
-	tediId: string;
-	lockfile: string | null;
-	lockfileHash: string;
-	workdir: string;
-	nodeModulesDir: string;
-	backups: WorkstationBootstrapCacheBackupEntry[];
-	createdAt: string;
-};
-
-export type WorkstationBootstrapCacheResult = {
-	error?: string;
-	executionId?: string;
-	observation?: "unknown";
-	ref: string | null;
-	restoredAt?: string;
-	status: WorkstationCacheBackupStatus;
 };
 
 /**

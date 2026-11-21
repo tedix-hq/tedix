@@ -169,8 +169,6 @@ export type WorkstationReleaseInput = {
 };
 
 export type WorkstationStatusInput = {
-	/** Internal durable-provisioning phase; not exposed by the MCP tool schema. */
-	cacheBackupMode?: "synchronous";
 	kernelRunId?: string;
 	leaseId: string;
 	traceBundleId?: string;
@@ -221,11 +219,6 @@ function wakeTimeoutPayload(error: string): Record<string, unknown> {
 		installProcessId: "bootstrap-install",
 		lockfileHash: null,
 		packageManager: null,
-		cacheKey: null,
-		cacheRestoredAt: null,
-		cacheBackupRef: null,
-		cacheBackupStatus: "skipped",
-		cacheBackupError: null,
 		lastInstallExitCode: null,
 		lastInstallArtifactRef: null,
 		lastBootstrapError: error,
@@ -465,10 +458,9 @@ export async function reconcileWorkstation(
 	env: WorkstationEnv,
 	identity: WorkstationIdentity,
 	input: WorkstationStatusInput,
-	options: { timeoutMs?: number } = {},
 ): Promise<unknown> {
 	return callWorkstation(env, identity, "wake", input, {
-		timeoutMs: options.timeoutMs ?? DEFAULT_WAKE_TIMEOUT_MS,
+		timeoutMs: DEFAULT_WAKE_TIMEOUT_MS,
 	});
 }
 

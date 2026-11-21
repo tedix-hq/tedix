@@ -9,7 +9,6 @@ const input: WorkstationProvisioningCheckpoint = {
 	leaseId: "lease-1",
 	refreshId: "generation:refresh",
 	attempt: 0,
-	phase: "provision",
 	startedAt: Date.now(),
 };
 let calls = 0;
@@ -31,7 +30,6 @@ const result = await reconcileWorkstationUntilSettled(
 							executionState: "terminal",
 							treePreflight: { startSha: "a".repeat(40) },
 						},
-						bootstrap: { cacheBackupStatus: "pending" },
 						workstationPersistence: { status: "persisted" },
 						workstationLease: { id: "lease-1", status: "active" },
 					});
@@ -42,7 +40,7 @@ const result = await reconcileWorkstationUntilSettled(
 	input,
 	{ checkpoint: (value) => snapshots.push(structuredClone(value)) },
 );
-assert.equal(calls, 1, "refresh must not block readiness behind cache backup");
+assert.equal(calls, 1, "a ready refresh settles after one reconcile");
 assert.equal(result.refreshReceipt?.ready, true);
 assert.equal(JSON.stringify(result).includes("never-retained"), false);
 assert.ok(snapshots.some((s) => s.refreshReceipt?.ready));

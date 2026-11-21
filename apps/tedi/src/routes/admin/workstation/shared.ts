@@ -29,7 +29,6 @@ import {
 	ACTIVE_WORKSTATION_PROFILE,
 	WORKSTATION_JOBS_DIR,
 	WORKSTATION_BOOTSTRAP_PACKAGE_CACHE_DIR,
-	WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION,
 	WORKSTATION_PATHS,
 	WORKSTATION_EGRESS_GUARD_MARKER,
 	WORKSTATION_EGRESS_GUARD_BOOT_TIMEOUT_MS,
@@ -383,13 +382,6 @@ export function packageManagerCacheDir(
 	packageManager: WorkstationPackageManager,
 ): string {
 	return `${WORKSTATION_BOOTSTRAP_PACKAGE_CACHE_DIR}/${packageManager}`;
-}
-
-export function bootstrapCacheKey(
-	packageManager: WorkstationPackageManager,
-	lockfileHash: string,
-): string {
-	return `${ACTIVE_WORKSTATION_PROFILE_ID}:${WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION}:${packageManager}:${lockfileHash}`;
 }
 
 export function jobPaths(processId: string) {

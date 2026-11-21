@@ -6,7 +6,6 @@ import {
 	type SandboxCommand,
 	type SandboxExecOptions,
 } from "@tedix/container-runtime/sandbox";
-import type { DirectoryBackupRecord } from "@cloudflare/sandbox";
 
 export type WorkstationRepositoryInspectionRequest = {
 	operation: "status" | "diff" | "read";
@@ -75,14 +74,6 @@ export type WorkstationRuntimeBody = {
 	pathExists(path: string): Promise<boolean>;
 	renamePath(from: string, to: string): Promise<void>;
 	destroy(): Promise<void>;
-	createBackup(input: {
-		dir: string;
-		name?: string;
-		excludes?: string[];
-	}): Promise<DirectoryBackupRecord>;
-	restoreBackup(
-		input: DirectoryBackupRecord & { dir?: string },
-	): Promise<{ success: true }>;
 	launchExecution(
 		request: WorkstationLaunchRequest,
 	): Promise<WorkstationLaunchResult>;

@@ -32,11 +32,6 @@ const fixture = vi.hoisted(() => {
 });
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {} }));
-vi.mock("@cloudflare/sandbox", () => ({
-	DirectoryBackup: class {
-		intercept = vi.fn(async () => undefined);
-	},
-}));
 vi.mock("@tedix/container-runtime/sandbox", () => ({
 	NativeContainerSandbox: class {
 		env = { ENVIRONMENT: "test" };
@@ -88,7 +83,6 @@ const host = () =>
 	new TediWorkstationRuntimeSandbox(
 		{
 			exports: {
-				DirectoryBackupGateway: {},
 				WorkstationOutbound: () => ({}),
 			},
 		} as never,

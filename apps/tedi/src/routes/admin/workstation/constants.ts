@@ -67,25 +67,10 @@ export const WORKSTATION_BOOTSTRAP_INSTALL_TIMEOUT_MS = 25 * 60 * 1000;
 // readiness poll. See scheduleBootstrapInstall.
 export const WORKSTATION_BOOTSTRAP_INSTALL_LAUNCH_BACKOFF_MS = 2 * 60 * 1000;
 
-export const WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH = `${WORKSTATION_DIR}/cache/restored_at`;
-
 export const WORKSTATION_BOOTSTRAP_PACKAGE_CACHE_DIR = `${WORKSTATION_DIR}/cache/package-managers`;
 
 export const WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER =
 	"node_modules/.tedix-dependency-fingerprint";
-
-export const WORKSTATION_BOOTSTRAP_CACHE_RECORD_VERSION = 3;
-
-export const WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION = `${ACTIVE_WORKSTATION_BINDING.adapterKind}:${WORKSTATION_EGRESS_GUARD_VERSION}:dependency-cache-v6`;
-
-export const WORKSTATION_BOOTSTRAP_CACHE_MAX_RECORDS = 4;
-
-// Sandbox directory snapshots traverse the full dependency tree inside the DO.
-// A live 3,116-package Tedix install exceeded the DO memory limit and replaced
-// the Computer generation immediately after readiness. Existing cache records
-// remain readable, but writes stay disabled until backup is streamed outside
-// the DO rather than materialized through Sandbox.
-export const WORKSTATION_BOOTSTRAP_CACHE_BACKUP_ENABLED = false;
 
 export const WORKSTATION_OPERATION_LOCK_TIMEOUT_SECONDS = 600;
 

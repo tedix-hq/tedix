@@ -245,22 +245,6 @@ export type WorkstationInstallStatus = z.infer<
 	typeof WorkstationInstallStatusSchema
 >;
 
-export const WORKSTATION_CACHE_BACKUP_STATUS_VALUES = [
-	"failed",
-	"missing",
-	"pending",
-	"persisted",
-	"restored",
-	"skipped",
-	"unavailable",
-] as const;
-export const WorkstationCacheBackupStatusSchema = z.enum(
-	WORKSTATION_CACHE_BACKUP_STATUS_VALUES,
-);
-export type WorkstationCacheBackupStatus = z.infer<
-	typeof WorkstationCacheBackupStatusSchema
->;
-
 export const WorkstationPackageManagerSchema = z.enum([
 	"bun",
 	"npm",
@@ -284,11 +268,6 @@ export const WorkstationBootstrapReadinessSchema = z.object({
 	installProcessId: z.string().min(1),
 	lockfileHash: z.string().nullable(),
 	packageManager: WorkstationPackageManagerSchema.nullable(),
-	cacheKey: z.string().nullable(),
-	cacheRestoredAt: z.string().nullable(),
-	cacheBackupRef: z.string().nullable(),
-	cacheBackupStatus: WorkstationCacheBackupStatusSchema,
-	cacheBackupError: z.string().nullable(),
 	lastInstallExitCode: z.number().int().nullable(),
 	lastInstallArtifactRef: z.string().nullable(),
 	lastBootstrapError: z.string().nullable(),

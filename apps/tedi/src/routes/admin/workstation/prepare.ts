@@ -305,13 +305,10 @@ export function scheduleRepoSync(c: Context<AppEnv>): void {
 /**
  * Background self-bootstrap of workstation dependencies.
  *
- * The workstation previously never installed its own deps; it only
- * reported `nextAction:"start_install_process"` and waited for an external
- * caller to start a durable workstation job. Nobody reliably did, so the
- * dependency-cache chicken-and-egg never resolved (install never completes,
- * `ensureBootstrapDependencyCacheBackup` never seeds R2, every cold start is
- * `depsReady:false`). This launches the install itself, in the background,
- * deduped per tedi (mirrors {@link scheduleRepoSync}).
+ * Rather than reporting `nextAction:"start_install_process"` and waiting for
+ * an external caller to start a durable workstation job, the workstation
+ * launches the install itself, in the background, deduped per tedi (mirrors
+ * {@link scheduleRepoSync}).
  *
  * Three layers keep it idempotent and safe:
  *  1. {@link bootstrapInstallInFlight} guards the same-isolate launch window.

@@ -7,8 +7,8 @@
  * owns the fiber identity/retry-key coordination). The DO keeps the fiber
  * wiring — `startFiber`, `onFiberRecovered`, fiber inspection — plus a thin
  * wrapper that resolves tedi identity; this module owns the checkpoint
- * shapes, the receipt/recovery parsers, the poll loop with its cache-backup
- * phase and repo-sync stall settlement, and the liveness probe. Deps are
+ * shapes, the receipt/recovery parsers, the poll loop with its repo-sync
+ * stall settlement, and the liveness probe. Deps are
  * injected (env + resolved identity) in the same ports-injected idiom as the
  * other DO-extracted siblings (`repo-commit-drain.ts`, `chat-turn-steps.ts`).
  */
@@ -25,7 +25,6 @@ import {
 
 export const WORKSTATION_PROVISION_RECONCILE_INTERVAL_MS = 5_000;
 export const WORKSTATION_PROVISION_RECONCILE_TIMEOUT_MS = 30 * 60_000;
-export const WORKSTATION_CACHE_BACKUP_TIMEOUT_MS = 15 * 60_000;
 /** Consecutive polls allowed before a clone has a retained Computer exec. */
 export const WORKSTATION_REPO_SYNC_ADMISSION_POLLS = 3;
 /**
@@ -52,7 +51,6 @@ export type WorkstationProvisionSettleReason =
 
 export type WorkstationProvisioningCheckpoint = WorkstationStatusInput & {
 	attempt: number;
-	phase: "cache-backup" | "provision";
 	startedAt: number;
 	refreshId?: string;
 	refreshReceipt?: Record<string, unknown>;
@@ -123,7 +121,6 @@ export function workstationProvisioningRecoveryInput(
 				? snapshot.kernelRunId
 				: undefined,
 		leaseId,
-		phase: snapshot?.phase === "cache-backup" ? "cache-backup" : "provision",
 		startedAt:
 			typeof snapshot.startedAt === "number" &&
 			Number.isFinite(snapshot.startedAt)
@@ -174,7 +171,6 @@ export async function reconcileWorkstationUntilSettled(
 ): Promise<WorkstationProvisioningCheckpoint> {
 	const startedAt = "startedAt" in input ? input.startedAt : Date.now();
 	let attempt = "attempt" in input ? input.attempt : 0;
-	let phase = "phase" in input ? input.phase : "provision";
 	let consecutiveMissingRepoExecutions = 0;
 	let consecutiveTerminalInstallPolls = 0;
 
@@ -182,32 +178,16 @@ export async function reconcileWorkstationUntilSettled(
 		const checkpoint: WorkstationProvisioningCheckpoint = {
 			...input,
 			attempt,
-			phase,
 			startedAt,
 		};
 		options.checkpoint(checkpoint);
 		const result = await reconcileWorkstation(
 			deps.env,
 			deps.identity,
-			{
-				...checkpoint,
-				cacheBackupMode: phase === "cache-backup" ? "synchronous" : undefined,
-			},
-			phase === "cache-backup"
-				? { timeoutMs: WORKSTATION_CACHE_BACKUP_TIMEOUT_MS }
-				: undefined,
+			checkpoint,
 		);
 		const record = unknownRecord(result);
 		if (record?.ok === false) {
-			if (phase === "cache-backup") {
-				console.warn(
-					"[workstation] fail-soft dependency cache phase did not complete",
-					typeof record.error === "string" ? record.error : "unknown error",
-				);
-				const settled = { ...checkpoint, attempt: attempt + 1 };
-				options.checkpoint(settled);
-				return settled;
-			}
 			// `/wake` reports a body that refused to start in `setupError`, not
 			// `error`; this message is all a failed refresh fiber retains.
 			throw new Error(
@@ -220,17 +200,6 @@ export async function reconcileWorkstationUntilSettled(
 		}
 		const persistence = unknownRecord(record?.workstationPersistence);
 		if (persistence?.status !== "persisted") {
-			if (phase === "cache-backup") {
-				console.warn(
-					"[workstation] fail-soft dependency cache persistence did not complete",
-					typeof persistence?.error === "string"
-						? persistence.error
-						: "unknown error",
-				);
-				const settled = { ...checkpoint, attempt: attempt + 1 };
-				options.checkpoint(settled);
-				return settled;
-			}
 			throw new Error(
 				typeof persistence?.error === "string"
 					? `Workstation provisioning persistence failed: ${persistence.error}`
@@ -244,16 +213,6 @@ export async function reconcileWorkstationUntilSettled(
 		const workstation = unknownRecord(record?.workstation);
 		const bootstrap = unknownRecord(record?.bootstrap);
 		const status = workstation?.status;
-		if (
-			!checkpoint.refreshId &&
-			phase === "provision" &&
-			(record?.ready === true || status === "ready") &&
-			bootstrap?.cacheBackupStatus === "pending"
-		) {
-			phase = "cache-backup";
-			attempt += 1;
-			continue;
-		}
 		if (
 			record?.ready === true ||
 			status === "ready" ||
@@ -273,10 +232,9 @@ export async function reconcileWorkstationUntilSettled(
 		// the lease sat `degraded`/`starting` forever with no legible outcome.
 		const installStatus = bootstrap?.installStatus;
 		if (
-			phase === "provision" &&
-			(installStatus === "failed" ||
-				installStatus === "timed_out" ||
-				installStatus === "canceled")
+			installStatus === "failed" ||
+			installStatus === "timed_out" ||
+			installStatus === "canceled"
 		) {
 			consecutiveTerminalInstallPolls += 1;
 			if (

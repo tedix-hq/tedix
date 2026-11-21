@@ -74,10 +74,6 @@ export default defineConfig(({ mode }) => {
 					...live.r2("tedi", { name: "public-installation-bucket" }),
 					dev: { remote: remoteDev },
 				}),
-				BACKUP_BUCKET: bindings.r2({
-					...live.r2("tedi", { name: "public-installation-bucket" }),
-					dev: { remote: remoteDev },
-				}),
 				// One Git repository per tedi for operating text state. Remote-only.
 				...(!local
 					? {
@@ -136,8 +132,7 @@ export default defineConfig(({ mode }) => {
 							? "http://localhost:3030"
 							: PLACEHOLDER,
 				),
-				// Read by @cloudflare/sandbox with the R2_ACCESS_KEY_ID and
-				// R2_SECRET_ACCESS_KEY secrets to reach the backup bucket over S3.
+				// Names the bucket in the r2:// refs of workstation process evidence.
 				BACKUP_BUCKET_NAME: bindings.text(
 					live.r2("tedi", { name: PLACEHOLDER }).name,
 				),
@@ -181,8 +176,6 @@ export default defineConfig(({ mode }) => {
 							TWILIO_ACCOUNT_SID: bindings.secret(),
 							TWILIO_AUTH_TOKEN: bindings.secret(),
 							GEMINI_API_KEY: bindings.secret(),
-							R2_ACCESS_KEY_ID: bindings.secret(),
-							R2_SECRET_ACCESS_KEY: bindings.secret(),
 						}),
 			},
 		}),

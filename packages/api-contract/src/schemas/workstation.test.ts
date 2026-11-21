@@ -279,11 +279,6 @@ describe("workstation schemas", () => {
 			installProcessId: "bootstrap-install",
 			lockfileHash: "abc123",
 			packageManager: "bun",
-			cacheKey: "general:profile-version:bun:abc123",
-			cacheRestoredAt: null,
-			cacheBackupRef: null,
-			cacheBackupStatus: "missing",
-			cacheBackupError: null,
 			lastInstallExitCode: null,
 			lastInstallArtifactRef: null,
 			lastBootstrapError: null,
@@ -300,12 +295,6 @@ describe("workstation schemas", () => {
 		expect(WorkstationBootstrapReadinessSchema.parse(readiness)).toEqual(
 			readiness,
 		);
-		expect(
-			WorkstationBootstrapReadinessSchema.parse({
-				...readiness,
-				cacheBackupStatus: "pending",
-			}),
-		).toMatchObject({ cacheBackupStatus: "pending" });
 		expect(
 			WorkstationBootstrapReadinessSchema.safeParse({
 				...readiness,

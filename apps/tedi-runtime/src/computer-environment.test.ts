@@ -1867,7 +1867,6 @@ for (const operation of ["file", "exec"] as const) {
 						env,
 						{ tediId: "tedi", slug: "cto" },
 						selected,
-						{ timeoutMs },
 					);
 				passiveReads++;
 				return actions.status(); // Historical D1 readiness remains true.

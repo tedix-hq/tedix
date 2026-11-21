@@ -6,9 +6,6 @@ const fixture = vi.hoisted(() => ({
 	failStarted: false,
 }));
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {} }));
-vi.mock("@cloudflare/sandbox", () => ({
-	DirectoryBackup: class {},
-}));
 vi.mock("@tedix/container-runtime/sandbox", () => ({
 	NativeContainerSandbox: class {
 		env = {};
@@ -37,10 +34,7 @@ const request = {
 	argv: ["echo", "hello"] as [string, ...string[]],
 };
 const host = () =>
-	new TediWorkstationRuntimeSandbox(
-		{ exports: { DirectoryBackupGateway: {} } } as never,
-		{} as never,
-	);
+	new TediWorkstationRuntimeSandbox({ exports: {} } as never, {} as never);
 beforeEach(() => {
 	fixture.rows.clear();
 	fixture.exec.mockReset();

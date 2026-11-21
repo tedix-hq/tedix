@@ -13,7 +13,6 @@ import {
 	WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER,
 	WORKSTATION_BOOTSTRAP_INSTALL_STUCK_MS,
 	WORKSTATION_JOBS_DIR,
-	WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH,
 } from "./constants";
 
 /** Marker echoed because workstation bootstrap deliberately skips lifecycle scripts. */
@@ -209,7 +208,6 @@ export function bootstrapProbeCommand(installProcessId: string): string {
 		"printf 'installProcessId=%s\\n' \"$active_install_id\"",
 		`dependency_fingerprint=""; if [ -n "$lockfile_hash" ]; then dependency_fingerprint=$(${dependencyFingerprintCommand('"$lockfile"', '"$lockfile_hash"')}) || exit 1; fi`,
 		`printf 'depsReady='; if [ -n "$dependency_fingerprint" ] && [ -f ${shellSingleQuote(WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER)} ] && [ "$(cat ${shellSingleQuote(WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER)})" = "$dependency_fingerprint" ]; then printf '1\\n'; else printf '0\\n'; fi`,
-		`if [ -f ${shellSingleQuote(WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH)} ]; then printf 'cacheRestoredAt='; cat ${shellSingleQuote(WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH)}; printf '\\n'; fi`,
 	].join(" && ");
 }
 

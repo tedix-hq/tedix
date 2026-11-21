@@ -5,16 +5,12 @@ import {
 import { isWorkstationPath, WORKSTATION_DIR } from "../../../workstation/paths";
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types";
-import {
-	workstationExecutionStatus,
-	WorkstationDispatchUnknownError,
-} from "../../../workstation/computer-body";
+import { workstationExecutionStatus } from "../../../workstation/computer-body";
 import { errorMessage } from "@tedix/worker-kit/error-message";
 import { type RepoSyncResult } from "../../../workstation/repo-sync";
 import {
 	type WorkstationState,
 	type WorkstationSessionSelection,
-	type WorkstationBootstrapCacheResult,
 } from "./types";
 import {
 	repoReady,
@@ -22,11 +18,9 @@ import {
 	repoWorkdir,
 	execInRuntimeBody,
 	packageManagerForLockfile,
-	bootstrapCacheKey,
 } from "./shared";
 import {
 	WORKSTATION_BOOTSTRAP_INSTALL_PROCESS_ID,
-	WORKSTATION_BOOTSTRAP_CACHE_BACKUP_ENABLED,
 	WORKSTATION_BOOTSTRAP_INSTALL_STUCK_MS,
 } from "./constants";
 import {
@@ -37,11 +31,6 @@ import {
 	verifiedInstallCommandForLockfile,
 	installCommandForLockfile,
 } from "./bootstrap-install";
-import {
-	restoreBootstrapDependencyCache,
-	ensureBootstrapDependencyCacheBackup,
-	readBootstrapDependencyCacheStatus,
-} from "./bootstrap-cache";
 import { readJobStatus } from "./process-runtime";
 import { promoteWorkstationJobEvidence } from "./process-evidence";
 import { scheduleBootstrapInstall } from "./prepare";
@@ -74,11 +63,6 @@ export function bootstrapReadiness(
 			values.installProcessId ?? WORKSTATION_BOOTSTRAP_INSTALL_PROCESS_ID,
 		lockfileHash: values.lockfileHash ?? null,
 		packageManager: values.packageManager ?? null,
-		cacheKey: values.cacheKey ?? null,
-		cacheRestoredAt: values.cacheRestoredAt ?? null,
-		cacheBackupRef: values.cacheBackupRef ?? null,
-		cacheBackupStatus: values.cacheBackupStatus ?? "skipped",
-		cacheBackupError: values.cacheBackupError ?? null,
 		lastInstallExitCode: values.lastInstallExitCode ?? null,
 		lastInstallArtifactRef: values.lastInstallArtifactRef ?? null,
 		lastBootstrapError:
@@ -122,7 +106,6 @@ export async function readBootstrapReadiness(
 	state: WorkstationState,
 	body: Record<string, unknown> | null = null,
 	session?: WorkstationSessionSelection,
-	cacheBackupMode: "deferred" | "synchronous" = "deferred",
 ): Promise<WorkstationBootstrapReadiness> {
 	const base = bootstrapReadiness(state);
 	if (state.preparation === "shell" && !state.setupError) {
@@ -197,7 +180,7 @@ export async function readBootstrapReadiness(
 				nextAction: "open_computer",
 			});
 		}
-		let probe = parseBootstrapProbeOutput(result.stdout ?? "");
+		const probe = parseBootstrapProbeOutput(result.stdout ?? "");
 		let installProcessId =
 			parseProcessId(probe.installProcessId, fallbackInstallProcessId) ??
 			fallbackInstallProcessId;
@@ -205,10 +188,6 @@ export async function readBootstrapReadiness(
 		const packageJson = () => probe.packageJson === "1";
 		const lockfileHash = () => probe.lockfileHash || null;
 		const packageManager = () => packageManagerForLockfile(lockfile());
-		const cacheKey = () => {
-			const hash = lockfileHash();
-			return hash ? bootstrapCacheKey(packageManager(), hash) : null;
-		};
 		const installExecution = await workstationExecutionStatus(
 			c.get("sandbox"),
 			installProcessId,
@@ -233,38 +212,12 @@ export async function readBootstrapReadiness(
 				installExecution.exitCode === 0 &&
 				installExecution.timedOut !== true &&
 				!installExecution.error);
-		const currentDepsReady = (cacheRestored = false) =>
+		const depsReady =
 			!packageJson() ||
 			(markerReady() &&
-				(cacheRestored ||
-					(installProvesReady() && !installRunning && !installUnsettled)));
-		let cacheBackup: WorkstationBootstrapCacheResult = {
-			ref: null,
-			status: "skipped",
-		};
-		if (packageJson() && !currentDepsReady() && !installRunning) {
-			cacheBackup = await restoreBootstrapDependencyCache(c, {
-				lockfile: lockfile(),
-				lockfileHash: lockfileHash(),
-				workdir: probeWorkdir,
-			});
-			if (cacheBackup.observation === "unknown")
-				throw new WorkstationDispatchUnknownError(cacheBackup.executionId!);
-			if (cacheBackup.status === "restored") {
-				const restoredProbe = await execInRuntimeBody(
-					c,
-					bootstrapProbeCommand(installProcessId),
-					{
-						cwd: probeWorkdir,
-						timeout: 10_000,
-					},
-				);
-				if (restoredProbe.exitCode === 0) {
-					probe = parseBootstrapProbeOutput(restoredProbe.stdout ?? "");
-				}
-			}
-		}
-		const depsReady = currentDepsReady(cacheBackup.status === "restored");
+				installProvesReady() &&
+				!installRunning &&
+				!installUnsettled);
 		const installExitCode = probe.installExitCode
 			? Number(probe.installExitCode)
 			: null;
@@ -298,37 +251,16 @@ export async function readBootstrapReadiness(
 		if (depsReady && installStatus === "completed") {
 			installStatus = "ready";
 		}
-		if (
-			depsReady &&
-			packageJson() &&
-			cacheBackup.status !== "restored" &&
-			probe.installJob === "1"
-		) {
-			const cacheInput = {
-				lockfile: lockfile(),
-				lockfileHash: lockfileHash(),
-				workdir: probeWorkdir,
-			};
-			cacheBackup = !WORKSTATION_BOOTSTRAP_CACHE_BACKUP_ENABLED
-				? { ref: null, status: "skipped" }
-				: cacheBackupMode === "synchronous"
-					? await ensureBootstrapDependencyCacheBackup(c, cacheInput)
-					: await readBootstrapDependencyCacheStatus(c, cacheInput);
-		}
 		// Self-bootstrap: when deps are missing and there is NO install job yet
 		// (status "missing", not running), launch the install ourselves in the
-		// background instead of merely telling a caller to. This breaks the
-		// dependency-cache chicken-and-egg (install completes, cache backup seeds
-		// R2, future cold starts restore). Scoped to "missing" only, so a
-		// failed/timed_out/stuck/canceled install keeps its explicit operator
-		// nextAction and is never auto-retried into a hot loop. A cache-restored
-		// node_modules already satisfies depsReady and never reaches here.
+		// background instead of merely telling a caller to. Scoped to "missing"
+		// only, so a failed/timed_out/stuck/canceled install keeps its explicit
+		// operator nextAction and is never auto-retried into a hot loop.
 		const autoStartedInstall =
 			!depsReady &&
 			packageJson() &&
 			!installRunning &&
-			installStatus === "missing" &&
-			cacheBackup.status !== "restored";
+			installStatus === "missing";
 		if (autoStartedInstall) {
 			const hash = lockfileHash();
 			if (!hash) {
@@ -380,11 +312,6 @@ export async function readBootstrapReadiness(
 							: null;
 		return bootstrapReadiness(state, {
 			...base,
-			cacheKey: cacheKey(),
-			cacheBackupError: cacheBackup.error ?? null,
-			cacheBackupRef: cacheBackup.ref,
-			cacheBackupStatus: cacheBackup.status,
-			cacheRestoredAt: probe.cacheRestoredAt || cacheBackup.restoredAt || null,
 			depsReady,
 			installProcessId,
 			installStatus,

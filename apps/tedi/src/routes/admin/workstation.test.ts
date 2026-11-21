@@ -306,7 +306,6 @@ function nativeFixture(
 		})),
 		destroy: vi.fn(async () => undefined),
 		containerFetch: vi.fn(async () => new Response("", { status: 200 })),
-		restoreBackup: vi.fn(async () => ({ success: true })),
 	};
 	const body = raw as unknown as WorkstationRuntimeBody;
 	const storage = {
@@ -2638,127 +2637,6 @@ describe("bootstrap and native preview policy", () => {
 		await f.request("wake", {});
 		await Promise.all(bootstrapInstallInFlight.values());
 		expect(installs).toBe(1);
-	});
-	it("refuses stale cache profiles and keeps failed native restoration outside the checkout", async () => {
-		for (const stale of [true, false]) {
-			const f = nativeFixture();
-			f.setReadiness(missing);
-			const profile = stale
-				? "obsolete"
-				: "cloudflare-sandbox-workstation:2026-06-28-v2-run-context:dependency-cache-v6";
-			const record = {
-				version: 3,
-				cacheKey: `general:${profile}:bun:${"a".repeat(64)}`,
-				profileId: "general",
-				profileVersion: profile,
-				packageManager: "bun",
-				tediId: "tedi-1",
-				lockfile: "bun.lock",
-				lockfileHash: "a".repeat(64),
-				workdir,
-				nodeModulesDir: `${workdir}/node_modules`,
-				backups: [
-					{
-						kind: "node_modules",
-						dir: `${workdir}/node_modules`,
-						backup: {
-							id: "snapshot",
-							dir: `${workdir}/node_modules`,
-							localBucket: true,
-						},
-					},
-				],
-				createdAt: "2026-09-20T00:00:00Z",
-			};
-			f.storage.get.mockImplementation(async (key) =>
-				key.includes("bootstrap-cache")
-					? { text: async () => JSON.stringify(record) }
-					: null,
-			);
-			f.raw.restoreBackup.mockRejectedValue(new Error("partial extraction"));
-			await f.request("wake", {});
-			await Promise.all(bootstrapInstallInFlight.values());
-			if (stale) expect(f.raw.restoreBackup).not.toHaveBeenCalled();
-			else {
-				expect(f.raw.restoreBackup).toHaveBeenCalledTimes(1);
-				expect(f.raw.restoreBackup).toHaveBeenCalledWith(
-					expect.objectContaining({
-						dir: expect.stringMatching(/cache-restore-[a-f0-9-]+\/0$/),
-					}),
-				);
-				expect(
-					f.raw.launchExecution.mock.calls.some(([r]) =>
-						r.argv?.join(" ").includes(`rm -rf -- '${workdir}/node_modules'`),
-					),
-				).toBe(false);
-			}
-		}
-	});
-	it("observes an unknown cache publication by its original identity without restore replay or install fallback", async () => {
-		const f = nativeFixture();
-		f.setReadiness(missing);
-		const profile =
-			"cloudflare-sandbox-workstation:2026-06-28-v2-run-context:dependency-cache-v6";
-		const record = {
-			version: 3,
-			cacheKey: `general:${profile}:bun:${"a".repeat(64)}`,
-			profileId: "general",
-			profileVersion: profile,
-			packageManager: "bun",
-			tediId: "tedi-1",
-			lockfile: "bun.lock",
-			lockfileHash: "a".repeat(64),
-			workdir,
-			nodeModulesDir: `${workdir}/node_modules`,
-			backups: [
-				{
-					kind: "node_modules",
-					dir: `${workdir}/node_modules`,
-					backup: {
-						id: "snapshot",
-						dir: `${workdir}/node_modules`,
-						localBucket: true,
-					},
-				},
-			],
-			createdAt: "2026-09-20T00:00:00Z",
-		};
-		f.storage.get.mockImplementation(async (key) =>
-			key.includes("bootstrap-cache")
-				? { text: async () => JSON.stringify(record) }
-				: null,
-		);
-		const original = f.raw.exec.getMockImplementation()!;
-		f.raw.exec.mockImplementation(async (argv) =>
-			argv.join(" ").includes("Cache publication requires")
-				? {
-						...f.handle,
-						output: vi.fn(async () => {
-							throw new Error("lost publication response");
-						}),
-					}
-				: original(argv),
-		);
-		const first = await f.request("wake", {});
-		await Promise.all(bootstrapInstallInFlight.values());
-		const publication = f.raw.launchExecution.mock.calls.find(
-			([request]) => request.metadata?.command === "restore dependency cache",
-		)?.[0];
-		expect(publication?.executionId).toMatch(/^cache-restore-/);
-		expect(JSON.stringify(first.body)).toContain(publication!.executionId);
-		await f.request("wake", {});
-		await Promise.all(bootstrapInstallInFlight.values());
-		expect(f.raw.restoreBackup).toHaveBeenCalledTimes(1);
-		expect(
-			f.raw.launchExecution.mock.calls.filter(
-				([request]) => request.metadata?.command === "restore dependency cache",
-			),
-		).toHaveLength(1);
-		expect(
-			f.raw.launchExecution.mock.calls.some(([request]) =>
-				request.metadata?.command.includes("bun install"),
-			),
-		).toBe(false);
 	});
 	it("reports port readiness failure without replaying the native server", async () => {
 		const f = nativeFixture();

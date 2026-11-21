@@ -36,7 +36,6 @@ describe("tedi edge Worker boundary", () => {
 		const bindings = env as unknown as Record<string, unknown>;
 		expect(bindings.DB).toBeDefined();
 		expect(bindings.TEDI_STORAGE).toBeDefined();
-		expect(bindings.BACKUP_BUCKET).toBeDefined();
 		expect(bindings.ARTIFACTS).toBeUndefined();
 	});
 });

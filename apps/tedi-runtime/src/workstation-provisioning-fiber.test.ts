@@ -17,17 +17,14 @@ import {
 } from "./mcp-authorization";
 import {
 	reconcileWorkstationUntilSettled,
-	WORKSTATION_CACHE_BACKUP_TIMEOUT_MS,
 	WORKSTATION_PROVISION_RECONCILE_INTERVAL_MS,
 	type WorkstationProvisioningCheckpoint,
 } from "./workstation-provisioning";
 
 // --- the reconcile-until-settled engine, against a scripted edge ---
 const realSetTimeout = globalThis.setTimeout;
-const timerDelays: number[] = [];
 // Poll intervals elapse at once; every other timer keeps its real delay.
 globalThis.setTimeout = ((callback: () => void, ms?: number) => {
-	timerDelays.push(ms ?? 0);
 	return realSetTimeout(
 		callback,
 		ms === WORKSTATION_PROVISION_RECONCILE_INTERVAL_MS ? 0 : ms,
@@ -120,28 +117,6 @@ const repoSync = (executionState?: string) =>
 	await assert.rejects(
 		unpersisted.run,
 		/Workstation provisioning did not persist/,
-	);
-}
-// Ready dependencies advance into a distinct, bounded, synchronous cache-backup
-// phase whose failure never fails a ready workstation.
-for (const backup of [
-	status("ready"),
-	{ ok: false, error: "backup failed" },
-	{ ...status("ready"), workstationPersistence: { status: "failed" } },
-]) {
-	timerDelays.length = 0;
-	const ready = await reconcile([
-		status("ready", { cacheBackupStatus: "pending" }),
-		backup,
-	]);
-	const settled = await ready.run;
-	assert.equal(settled.phase, "cache-backup");
-	const [first, second] = ready.reconciles();
-	assert.equal(first!.body.cacheBackupMode, undefined);
-	assert.equal(second!.body.cacheBackupMode, "synchronous");
-	assert.ok(timerDelays.includes(WORKSTATION_CACHE_BACKUP_TIMEOUT_MS));
-	assert.ok(
-		ready.checkpoints.some((checkpoint) => checkpoint.phase === "cache-backup"),
 	);
 }
 // A clone that never reaches Computer's retained registry settles early with
@@ -460,7 +435,6 @@ function fiberProbe(options: { base?: Fiber | null; scoped?: Fiber[] } = {}) {
 			snapshot: {
 				leaseId: "lease-1",
 				attempt: 1,
-				phase: "provision",
 				startedAt: 5,
 			},
 		});
@@ -517,7 +491,6 @@ function fiberProbe(options: { base?: Fiber | null; scoped?: Fiber[] } = {}) {
 		{
 			leaseId: "lease-1",
 			attempt: 0,
-			phase: "provision",
 			startedAt: Date.now(),
 		},
 		{ checkpoint: () => undefined },
@@ -560,7 +533,6 @@ console.log("workstation-provisioning-fiber OK");
 			leaseId: "lease-original",
 			refreshId: "refresh-original",
 			attempt: 0,
-			phase: "provision",
 			startedAt: Date.now(),
 		},
 		{ checkpoint: (value) => checkpoints.push(value) },
