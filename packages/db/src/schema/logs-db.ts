@@ -33,6 +33,10 @@
  * - `tedi_usage_events`, `widget_events`, `workflow_run_ledger`: rows the
  *   nightly cleanup used to delete (30, 30 and 90 days); unfinished workflow
  *   runs stay in main.
+ * - `provider_execution_attempts`, `billing_usage_quarantines`: past 90 days
+ *   only after no main call cost references the execution or gateway log.
+ * - `site_reconciliation_runs`: past 7 days, retaining each organization's
+ *   newest run and every run with findings. Reservations stay in main.
  *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this
@@ -47,6 +51,9 @@ import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
 import { externalAgentAttributions } from "./external-agent-identity";
 import { kernelRequestEvents } from "./kernel-requests";
 import { platformCronExecutions } from "./platform-cron-executions";
+import { providerExecutionAttempts } from "./provider-executions";
+import { billingUsageQuarantines } from "./billing";
+import { siteReconciliationRuns } from "./site-reconciliation";
 import { tediCallCosts, tediUsageEvents } from "./tedis";
 import { widgetEvents } from "./analytics";
 import { workflowRunLedger } from "./workflow-runs";
@@ -80,6 +87,9 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	tediUsageEvents,
 	workflowRunLedger,
 	widgetEvents,
+	providerExecutionAttempts,
+	billingUsageQuarantines,
+	siteReconciliationRuns,
 	logPartition,
 ];
 
@@ -151,4 +161,7 @@ export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"tedi_usage_events",
 	"workflow_run_ledger",
 	"widget_events",
+	"provider_execution_attempts",
+	"billing_usage_quarantines",
+	"site_reconciliation_runs",
 ]);

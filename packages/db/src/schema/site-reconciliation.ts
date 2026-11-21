@@ -29,6 +29,7 @@ export const siteReconciliationRuns = sqliteTable(
 			table.organizationId,
 			table.completedAt,
 		),
+		index("idx_site_reconciliation_runs_completed").on(table.completedAt),
 	],
 );
 

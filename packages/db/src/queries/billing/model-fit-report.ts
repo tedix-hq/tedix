@@ -11,6 +11,7 @@ import { providerExecutionAttempts } from "../../schema/provider-executions";
 import { tediCallCosts } from "../../schema/tedis";
 import { workAdmissions } from "../../schema/work-factory";
 import { workAttempts, workItems } from "../../schema/work-items";
+import { getProviderExecutionsByIds } from "../provider-executions";
 import {
 	effectiveCallCostsRelation,
 	effectiveCostKnown,
@@ -257,6 +258,31 @@ export async function getModelFitReport(
 				),
 		]);
 
+	// Reviewed source snapshots may outlive both the original call and its
+	// admission in main. Resolve missing admissions from the history stores.
+	const executions = new Map(
+		(
+			await getProviderExecutionsByIds(
+				db,
+				callRows.flatMap((row) =>
+					row.executionId && !row.requestedModel ? [row.executionId] : [],
+				),
+			)
+		)
+			.filter((row) => row.organizationId === params.organizationId)
+			.map((row) => [row.id, row]),
+	);
+	for (const row of callRows) {
+		const execution = row.executionId
+			? executions.get(row.executionId)
+			: undefined;
+		if (execution) {
+			row.requestedProvider = execution.provider;
+			row.requestedModel = execution.requestModel;
+			row.origin = execution.origin;
+			row.policy = execution.policy;
+		}
+	}
 	const versionByRun = new Map(
 		attemptRows.flatMap((row) =>
 			row.runId ? [[row.runId, row.taskVersion] as const] : [],

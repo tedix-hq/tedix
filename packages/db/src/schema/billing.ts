@@ -525,6 +525,7 @@ export const billingUsageQuarantines = sqliteTable(
 			table.reason,
 			table.createdAt,
 		),
+		index("idx_billing_usage_quarantine_created").on(table.createdAt),
 	],
 );
 

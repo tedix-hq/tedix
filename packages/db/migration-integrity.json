@@ -1856,6 +1856,10 @@
 		{
 			"name": "20261121194707_external_agent_session_principal_started/migration.sql",
 			"sha256": "382831201ec456a45d2843d5dc358241c7535513e7f9dd8486d9ffa5e3850d78"
+		},
+		{
+			"name": "20261121213238_billing_history_retention/migration.sql",
+			"sha256": "6509e5e408b0659074bc594fbca3ee023d1b413f074d08ac5fd22025b418796b"
 		}
 	]
 }

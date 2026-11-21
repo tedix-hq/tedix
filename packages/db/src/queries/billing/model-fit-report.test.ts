@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../../query-client";
+import { createDbClient, configureLogStore } from "../../client";
 import { billingProviderCostEvidenceVersions } from "../../schema/billing";
 import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
 import {
@@ -33,7 +33,7 @@ function fixture() {
 			decisionOutcomeLabels,
 		),
 	);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 
 describe("model fit report", () => {
@@ -478,6 +478,24 @@ describe("model fit report", () => {
 			});
 			expect(report?.calls[2]?.runFallbackTransitions).toBeNull();
 			expect(report?.calls[3]?.runFallbackTransitions).toBeNull();
+			const logs = new DatabaseSync(":memory:");
+			try {
+				logs.exec(schemaDdl(providerExecutionAttempts));
+				const binding = createD1Facade(logs);
+				await createDbClient(binding)
+					.insert(providerExecutionAttempts)
+					.values(execution);
+				sqlite.exec("DELETE FROM provider_execution_attempts");
+				configureLogStore(db, { LOGS_DB: binding });
+				expect(
+					await getModelFitReport(db, {
+						organizationId: "org",
+						workItemId: "work",
+					}),
+				).toEqual(report);
+			} finally {
+				logs.close();
+			}
 		} finally {
 			sqlite.close();
 		}

@@ -5,6 +5,8 @@ import {
 	type ProviderCostEvidenceProjection,
 } from "@tedix/api-contract/schemas/provider-cost-evidence";
 import type { DbClient } from "../../client";
+import { readLogStores, mergeLogStoreRows } from "../../utils/log-store";
+import { getProviderExecutionsByIds } from "../provider-executions";
 import {
 	billingProviderCostEvidenceVersions as evidence,
 	billingUsageReservations,
@@ -292,11 +294,7 @@ export async function getProviderCostEvidenceRelationships(
 ) {
 	const [execution, reservation, quarantine] = await Promise.all([
 		source.executionId
-			? db
-					.select()
-					.from(providerExecutionAttempts)
-					.where(eq(providerExecutionAttempts.id, source.executionId))
-					.limit(1)
+			? getProviderExecutionsByIds(db, [source.executionId])
 			: [],
 		source.billingReservationId
 			? db
@@ -305,11 +303,16 @@ export async function getProviderCostEvidenceRelationships(
 					.where(eq(billingUsageReservations.id, source.billingReservationId))
 					.limit(1)
 			: [],
-		db
-			.select()
-			.from(billingUsageQuarantines)
-			.where(eq(billingUsageQuarantines.gatewayLogId, source.gatewayLogId))
-			.limit(1),
+		(async () => {
+			const read = (store: DbClient) =>
+				store
+					.select()
+					.from(billingUsageQuarantines)
+					.where(eq(billingUsageQuarantines.gatewayLogId, source.gatewayLogId))
+					.limit(1);
+			const pages = await readLogStores(db, read);
+			return pages ? mergeLogStoreRows(pages) : read(db);
+		})(),
 	]);
 	return {
 		executionSnapshot: execution[0] ?? null,

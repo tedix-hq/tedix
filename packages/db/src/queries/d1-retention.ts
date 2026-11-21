@@ -50,6 +50,11 @@ import { memoryFacts } from "../schema/memory-graph";
 import { widgetEvents } from "../schema/analytics";
 import { osGadgetExecutions } from "../schema/os-workspaces";
 import { platformCronExecutions } from "../schema/platform-cron-executions";
+import { providerExecutionAttempts } from "../schema/provider-executions";
+import {
+	siteReconciliationFindings,
+	siteReconciliationRuns,
+} from "../schema/site-reconciliation";
 import { tediCallCosts, tedis, tediUsageEvents } from "../schema/tedis";
 import { workflowRunLedger } from "../schema/workflow-runs";
 import { workEvidence } from "../schema/work-items";
@@ -104,9 +109,8 @@ function spec(
 export const EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS = 7;
 
 /**
- * Tables the engine may touch. A table belongs here only when nothing
- * references its rows with a foreign key (a delete could otherwise fail or
- * cascade) and readers tolerate old rows disappearing.
+ * Tables the engine may touch. Reference guards must prevent foreign-key
+ * failures or cascades; historical readers must tolerate or merge moved rows.
  */
 export const D1_RETENTION_TABLES: Readonly<
 	Record<string, D1RetentionTableSpec>
@@ -198,6 +202,27 @@ export const D1_RETENTION_TABLES: Readonly<
 		externalAgentAttributions.occurredAt,
 		"text",
 		EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS,
+	),
+	provider_execution_attempts: spec(
+		"provider_execution_attempts",
+		providerExecutionAttempts,
+		providerExecutionAttempts.authorizedAt,
+		"text",
+		90,
+	),
+	billing_usage_quarantines: spec(
+		"billing_usage_quarantines",
+		billingUsageQuarantines,
+		billingUsageQuarantines.createdAt,
+		"text",
+		90,
+	),
+	site_reconciliation_runs: spec(
+		"site_reconciliation_runs",
+		siteReconciliationRuns,
+		siteReconciliationRuns.completedAt,
+		"text",
+		7,
 	),
 });
 
@@ -783,6 +808,21 @@ export async function filterD1RetentionReferencedRows(
 				(SELECT value FROM json_each(${JSON.stringify(rows.map((row) => row.__rowid))}))
 				AND ${callCostIsMovable()}`);
 		movable = new Set(candidates.map((row) => Number(row.rowid)));
+	} else if (
+		[
+			"provider_execution_attempts",
+			"billing_usage_quarantines",
+			"site_reconciliation_runs",
+		].includes(tableSpec.tableName)
+	) {
+		const candidates = await db
+			.select({
+				rowid: sql<number>`${tableSpec.table}.rowid`.as("candidate_rowid"),
+			})
+			.from(tableSpec.table).where(sql`${tableSpec.table}.rowid IN
+				(SELECT value FROM json_each(${JSON.stringify(rows.map((row) => row.__rowid))}))
+				AND ${retentionDeleteGuard(tableSpec)}`);
+		movable = new Set(candidates.map((row) => Number(row.rowid)));
 	} else if (tableSpec.tableName === "platform_cron_executions")
 		movable = new Set(
 			rows.filter((row) => row.status !== "running").map((row) => row.__rowid),
@@ -800,6 +840,15 @@ export async function filterD1RetentionReferencedRows(
 
 /** Table-specific condition every retention delete repeats. */
 function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
+	if (tableSpec.tableName === "provider_execution_attempts")
+		return sql`NOT EXISTS (SELECT 1 FROM ${tediCallCosts} WHERE ${tediCallCosts.executionId} = ${providerExecutionAttempts.id})`;
+	if (tableSpec.tableName === "billing_usage_quarantines")
+		return sql`NOT EXISTS (SELECT 1 FROM ${tediCallCosts} WHERE ${tediCallCosts.gatewayLogId} = ${billingUsageQuarantines.gatewayLogId})`;
+	if (tableSpec.tableName === "site_reconciliation_runs")
+		return sql`NOT EXISTS (SELECT 1 FROM ${siteReconciliationFindings} WHERE ${siteReconciliationFindings.runId} = ${siteReconciliationRuns.id})
+			AND EXISTS (SELECT 1 FROM site_reconciliation_runs newer
+				WHERE newer.organization_id = ${siteReconciliationRuns.organizationId}
+				AND newer.completed_at > ${siteReconciliationRuns.completedAt})`;
 	if (tableSpec.tableName === "skill_run_artifacts")
 		return artifactRunIsTerminal();
 	if (tableSpec.tableName === "external_agent_attributions")

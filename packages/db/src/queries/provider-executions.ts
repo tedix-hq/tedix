@@ -12,6 +12,7 @@ import {
 import { nativeExecutionEligibilityPredicate } from "./billing/historical-exposure";
 import { and, eq, inArray, sql, SQL, Param } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import {
 	providerExecutionAttempts,
 	type NewProviderExecutionAttemptRow,
@@ -117,6 +118,11 @@ export async function getProviderExecutionsByIds(
 	db: DbQueryClient,
 	ids: string[],
 ): Promise<ProviderExecutionAttemptRow[]> {
+	if (!ids.length) return [];
+	const pages = await readLogStores(db, (store) =>
+		getProviderExecutionsByIds(store, ids),
+	);
+	if (pages) return mergeLogStoreRows(pages);
 	const rows: ProviderExecutionAttemptRow[] = [];
 	const unique = [...new Set(ids)];
 	for (let i = 0; i < unique.length; i += 50)

@@ -1,6 +1,20 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
+import { configureLogStore, createDbClient } from "../client";
+import {
+	billingUsageQuarantines,
+	billingUsageReservations,
+} from "../schema/billing";
+import { providerExecutionAttempts } from "../schema/provider-executions";
+import {
+	siteReconciliationRuns,
+	siteReconciliationFindings,
+} from "../schema/site-reconciliation";
+import { tediCallCosts } from "../schema/tedis";
+import { getProviderExecutionsByIds } from "./provider-executions";
+import { getProviderCostEvidenceRelationships } from "./billing/provider-cost-evidence";
+import { getLatestSiteReconciliation } from "./site-reconciliation";
 import { auditEvents } from "../schema/audit-events";
 import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
 import { tediArtifacts, tediRuntimeEvents } from "../schema/cognitive-runtime";
@@ -818,5 +832,243 @@ describe("artifact retention references", () => {
 			),
 		).toBe(true);
 		sqlite.close();
+	});
+});
+
+describe("billing and site history retention", () => {
+	function historyStore() {
+		const sqlite = new DatabaseSync(":memory:", {
+			enableForeignKeyConstraints: false,
+		});
+		sqlite.exec(
+			schemaDdl(
+				providerExecutionAttempts,
+				billingUsageQuarantines,
+				billingUsageReservations,
+				tediCallCosts,
+				siteReconciliationRuns,
+				siteReconciliationFindings,
+			),
+		);
+		const binding = createD1Facade(sqlite);
+		return { sqlite, binding, db: createDbClient(binding) };
+	}
+	async function seed(
+		db: ReturnType<typeof createDbClient>,
+		id: string,
+		date: string,
+		org = "org",
+	) {
+		await db.insert(providerExecutionAttempts).values({
+			id,
+			organizationId: org,
+			source: "kernel",
+			idempotencyKey: id,
+			settlementMode: "external",
+			provider: "workers-ai",
+			requestModel: "@cf/example/model",
+			gatewayAccountId: "account",
+			gatewayId: "gateway",
+			transportKind: "gateway-https",
+			apiKind: "workers-ai-chat",
+			deploymentScope: "scope",
+			authorizedAt: date,
+			sendBefore: `${date.slice(0, 10)}T00:10:00Z`,
+		});
+		await db.insert(billingUsageQuarantines).values({
+			id,
+			gatewayLogId: id,
+			organizationId: org,
+			reason: "unpriced_usage",
+			sourceSnapshotAt: date,
+			createdAt: date,
+		});
+		await db.insert(siteReconciliationRuns).values({
+			id,
+			organizationId: org,
+			source: "scheduled",
+			startedAt: date,
+			completedAt: date,
+			sitesChecked: 1,
+			issueCount: 0,
+		});
+	}
+	async function call(db: ReturnType<typeof createDbClient>, id: string) {
+		await db.insert(tediCallCosts).values({
+			id,
+			gatewayLogId: id,
+			gatewayId: "gateway",
+			model: "@cf/example/model",
+			snapshotAt: "2026-01-01",
+			executionId: id,
+		});
+	}
+	async function finding(
+		db: ReturnType<typeof createDbClient>,
+		runId: string,
+		resolvedAt: string | null,
+	) {
+		await db.insert(siteReconciliationFindings).values({
+			id: runId,
+			runId,
+			organizationId: "org",
+			siteId: runId,
+			siteSlug: "example",
+			siteType: "cms",
+			code: "missing",
+			severity: "error",
+			detail: "missing",
+			firstDetectedAt: "2026-01-01",
+			lastDetectedAt: "2026-01-01",
+			resolvedAt,
+		});
+	}
+
+	it("selects by each age column and preserves references, resolved findings and newest runs per organization", async () => {
+		const main = historyStore();
+		const logs = historyStore();
+		try {
+			for (const [id, date, org] of [
+				["old", "2026-01-01T00:00:00Z", "org"],
+				["pinned", "2026-01-01T00:00:00Z", "org"],
+				["resolved", "2026-01-01T00:00:00Z", "org"],
+				["sole", "2026-01-01T00:00:00Z", "other"],
+				["recent", "2026-10-21T00:00:00Z", "org"],
+				["boundary", "2026-10-21T00:00:00Z", "org"],
+			])
+				await seed(main.db, id!, date!, org!);
+			await call(main.db, "pinned");
+			await finding(main.db, "pinned", null);
+			await finding(main.db, "resolved", "2026-02-01");
+			configureLogStore(main.db, { LOGS_DB: logs.binding });
+			for (const name of [
+				"provider_execution_attempts",
+				"billing_usage_quarantines",
+				"site_reconciliation_runs",
+			]) {
+				const spec = getD1RetentionTableSpec(name)!;
+				const cutoff = d1RetentionPolicyCutoff(spec, NOW, { keepDays: 1 });
+				main.sqlite
+					.prepare(
+						`UPDATE ${name} SET ${spec.timestamp.name}=? WHERE id='boundary'`,
+					)
+					.run(String(cutoff));
+				const page = await readD1RetentionPage(main.db, spec, 0);
+				const expired = page.filter((row) =>
+					isD1RetentionExpired(spec, row[spec.timestamp.name], cutoff),
+				);
+				const selected = await filterD1RetentionReferencedRows(
+					main.db,
+					spec,
+					expired,
+					cutoff,
+				);
+				expect(selected.rows.map((row) => row.id)).toEqual(
+					name === "site_reconciliation_runs"
+						? ["old"]
+						: ["old", "resolved", "sole"],
+				);
+				const copied = await copyD1RetentionRowsToLogs(
+					logs.db,
+					spec,
+					selected.rows,
+				);
+				expect(verifyD1LogsCopy(spec, selected.rows, copied)).toMatchObject({
+					missing: [],
+					mismatched: [],
+				});
+				expect(
+					await deleteD1RetentionRows(main.db, spec, selected.rows, cutoff),
+				).toBe(selected.rows.length);
+			}
+			expect(
+				(await getProviderExecutionsByIds(main.db, ["old", "pinned", "old"]))
+					.map((row) => row.id)
+					.sort(),
+			).toEqual(["old", "pinned"]);
+			const source = {
+				executionId: "old",
+				gatewayLogId: "old",
+				billingReservationId: null,
+			} as typeof tediCallCosts.$inferSelect;
+			expect(
+				await getProviderCostEvidenceRelationships(main.db, source),
+			).toMatchObject({
+				executionSnapshot: { id: "old" },
+				quarantineSnapshot: { id: "old" },
+			});
+			expect(await getLatestSiteReconciliation(main.db, "org")).toMatchObject({
+				run: { id: "recent" },
+			});
+			expect(await getLatestSiteReconciliation(main.db, "other")).toMatchObject(
+				{ run: { id: "sole" } },
+			);
+			expect(getD1RetentionTableSpec("billing_usage_reservations")).toBeNull();
+		} finally {
+			main.sqlite.close();
+			logs.sqlite.close();
+		}
+	});
+
+	it("rechecks newly added references and changed source rows after copying", async () => {
+		const main = historyStore();
+		const logs = historyStore();
+		try {
+			await seed(main.db, "race", "2026-01-01T00:00:00Z");
+			await seed(main.db, "changed", "2026-01-01T00:00:00Z");
+			await seed(main.db, "newest", "2026-02-01T00:00:00Z");
+			for (const name of [
+				"provider_execution_attempts",
+				"billing_usage_quarantines",
+				"site_reconciliation_runs",
+			]) {
+				const spec = getD1RetentionTableSpec(name)!;
+				const cutoff = d1RetentionPolicyCutoff(spec, NOW, { keepDays: 1 });
+				const page = (await readD1RetentionPage(main.db, spec, 0)).filter(
+					(row) => row.id === "race" || row.id === "changed",
+				);
+				const selected = await filterD1RetentionReferencedRows(
+					main.db,
+					spec,
+					page,
+					cutoff,
+				);
+				expect(selected.rows).toHaveLength(2);
+				await copyD1RetentionRowsToLogs(logs.db, spec, selected.rows);
+				if (name === "provider_execution_attempts") {
+					await call(main.db, "race");
+					main.sqlite.exec(
+						"UPDATE tedi_call_costs SET gateway_log_id='different'",
+					);
+				}
+				if (name === "billing_usage_quarantines")
+					main.sqlite.exec(
+						"UPDATE tedi_call_costs SET gateway_log_id='race', provider_execution_id=NULL",
+					);
+				if (name === "site_reconciliation_runs")
+					await finding(main.db, "race", "2026-03-01");
+				const column =
+					name === "provider_execution_attempts"
+						? "source"
+						: name === "billing_usage_quarantines"
+							? "metadata"
+							: "sites_checked";
+				const value =
+					name === "provider_execution_attempts"
+						? "changed"
+						: name === "billing_usage_quarantines"
+							? '{"changed":true}'
+							: 2;
+				main.sqlite
+					.prepare(`UPDATE ${name} SET ${column}=? WHERE id='changed'`)
+					.run(value);
+				expect(
+					await deleteD1RetentionRows(main.db, spec, selected.rows, cutoff),
+				).toBe(0);
+			}
+		} finally {
+			main.sqlite.close();
+			logs.sqlite.close();
+		}
 	});
 });
