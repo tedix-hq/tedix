@@ -114,8 +114,8 @@ limits and logging.
 Add `--ai-gateway=<gateway-id>` to require a specific gateway in that account,
 or use `--ai-routing=direct` to skip the check. Tedix shows the active route
 in chat. If a request fails, Tedix keeps that route. To change it, restart the
-local stack with different options and reopen your Local Tedix window. Send a
-small test prompt to confirm replies come back.
+local stack with different options, then choose **View → Reload** in the Local
+Tedix window. Send a small test prompt to confirm replies come back.
 
 With inference on, Home can propose local tool actions for your approval, such
 as saving a document. The launcher also starts the MCP gateway on port 3000, so
