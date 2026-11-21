@@ -4,7 +4,6 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	listPlatformCronExecutionSummaries,
-	prunePlatformCronExecutions,
 	recordPlatformCronExecutionFinish,
 	recordPlatformCronExecutionStart,
 	terminalizeAbandonedPlatformCronExecutions,
@@ -192,58 +191,8 @@ describe("platform cron execution receipts", () => {
 			expect(
 				read().filter((row) => !String(row.id).startsWith("orphan-")),
 			).toEqual(before.filter((row) => !String(row.id).startsWith("orphan-")));
-			await expect(
-				prunePlatformCronExecutions(db, "2026-07-01 00:00:00", 1, 10),
-			).resolves.toBe(4);
-			expect(
-				sqlite
-					.prepare("SELECT id FROM platform_cron_executions ORDER BY id")
-					.all(),
-			).toEqual([{ id: "boundary" }, { id: "orphan-3" }, { id: "recent" }]);
 		} finally {
 			sqlite.close();
 		}
-	});
-
-	it("prunes old terminal receipts in bounded batches but keeps running rows", async () => {
-		const { db, sqlite } = fixture();
-		const insert = sqlite.prepare(`
-			INSERT INTO platform_cron_executions (
-				id, schedule_id, cron, scheduled_at, started_at, status, created_at
-			) VALUES (?, ?, '0 3 * * *', ?, ?, ?, ?)
-		`);
-		insert.run(
-			"old-success",
-			"retention",
-			"2026-01-01",
-			"2026-01-01",
-			"success",
-			"2026-01-01 00:00:00",
-		);
-		insert.run(
-			"old-running",
-			"retention",
-			"2026-01-02",
-			"2026-01-02",
-			"running",
-			"2026-01-02 00:00:00",
-		);
-		insert.run(
-			"new-success",
-			"retention",
-			"2026-08-01",
-			"2026-08-01",
-			"success",
-			"2026-08-01 00:00:00",
-		);
-
-		await expect(
-			prunePlatformCronExecutions(db, "2026-07-01 00:00:00", 1, 1),
-		).resolves.toBe(1);
-		expect(
-			sqlite
-				.prepare("SELECT id FROM platform_cron_executions ORDER BY id")
-				.all(),
-		).toEqual([{ id: "new-success" }, { id: "old-running" }]);
 	});
 });

@@ -888,22 +888,6 @@ export async function cleanupOldSnapshots(
 }
 
 /**
- * Delete usage events older than the given number of days.
- * Prevents unbounded growth of the billing ledger table.
- */
-export async function cleanupOldUsageEvents(
-	db: DbClient,
-	olderThanDays: number = 30,
-): Promise<number> {
-	const result = await db
-		.delete(tediUsageEvents)
-		.where(
-			sql`${tediUsageEvents.createdAt} < datetime('now', '-' || ${olderThanDays} || ' days')`,
-		);
-	return getAffectedRows(result);
-}
-
-/**
  * Update last_heartbeat_at to now (debounced user-activity signal).
  * Called by the tedi Worker middleware on external (non-service-binding) requests.
  */
