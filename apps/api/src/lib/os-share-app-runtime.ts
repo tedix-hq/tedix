@@ -14,6 +14,7 @@
  */
 import {
 	AppRuntimeArgumentsSchema,
+	AppRuntimeConfigSchema,
 	AppRuntimeGuestNameSchema,
 	AppRuntimeMethodSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
@@ -61,7 +62,10 @@ import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output
 import { outputAssetDigest } from "@tedix/api-contract/utils/os-output-assets";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { loadAppRuntimeRevision } from "../services/os-app-runtime-code";
+import {
+	loadAppRuntimeManifest,
+	loadAppRuntimeRevision,
+} from "../services/os-app-runtime-code";
 import { runInteractiveAppCall } from "../services/os-app-triggers";
 import {
 	effectiveRole,
@@ -306,6 +310,7 @@ export async function handleGuestAppOpen(
 	db: DbQueryClient,
 	body: unknown,
 ): Promise<Response> {
+	const started = Date.now();
 	const scope = await resolveGuestAppScope(
 		db,
 		field(body, "sessionToken"),
@@ -317,13 +322,16 @@ export async function handleGuestAppOpen(
 	);
 	if (field(body, "guestName") !== undefined && !guestName.success)
 		return notFound();
+	const resolveMs = Date.now() - started;
 	let code;
 	try {
 		code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
 	} catch {
 		return notFound();
 	}
+	const codeMs = Date.now() - started - resolveMs;
 	if (await guestAppRefusal(db, scope, code.grants)) return notFound();
+	const grantMs = Date.now() - started - resolveMs - codeMs;
 	const session = await mintWorkspaceAppSession(env.SECRETS_MASTER_KEY, {
 		organizationId: scope.organizationId,
 		workspaceId: scope.workspaceId,
@@ -339,6 +347,13 @@ export async function handleGuestAppOpen(
 		shareLinkId: scope.shareLinkId,
 		guestName:
 			scope.verifiedEmail ?? (guestName.success ? guestName.data : "Guest"),
+	});
+	console.info({
+		event: "os_guest_app_open",
+		resolveMs,
+		codeMs,
+		grantMs,
+		totalMs: Date.now() - started,
 	});
 	return noStoreJson({
 		session: session.token,
@@ -368,6 +383,8 @@ export async function handleGuestAppCall(
 	body: unknown,
 	waitUntil?: (work: Promise<unknown>) => void,
 ): Promise<Response> {
+	const started = Date.now();
+	const timing: string[] = [];
 	const scope = await resolveGuestAppScope(
 		db,
 		field(body, "sessionToken"),
@@ -409,12 +426,19 @@ export async function handleGuestAppCall(
 	)
 		return notFound();
 	try {
-		const code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
-		if (
-			code.digest !== session.codeDigest ||
-			(await guestAppRefusal(db, scope, code.grants))
-		)
-			return notFound();
+		// Published code is immutable; the host verifies its digest on load.
+		const { revision, manifest, grants } = await loadAppRuntimeManifest(
+			db,
+			scope,
+			scope.revisionId,
+		);
+		const code = {
+			revision: revision.revision,
+			grants,
+			config: AppRuntimeConfigSchema.parse(manifest.config ?? { version: 1 }),
+		};
+		if (await guestAppRefusal(db, scope, code.grants)) return notFound();
+		const resolveMs = Date.now() - started;
 		const result = await runInteractiveAppCall(
 			env,
 			db,
@@ -428,6 +452,7 @@ export async function handleGuestAppCall(
 				session: input.data.session,
 				method: input.data.method,
 				args: input.data.args,
+				timing,
 				createdBy: {
 					kind: "service",
 					id: `${SHARE_SESSION_PRINCIPAL_KIND}:${scope.shareSessionId}`,
@@ -441,6 +466,12 @@ export async function handleGuestAppCall(
 			},
 			waitUntil,
 		);
+		console.info({
+			event: "os_guest_app_call",
+			resolveMs,
+			totalMs: Date.now() - started,
+			message: timing.join(", "),
+		});
 		return noStoreJson({ result });
 	} catch {
 		return notFound();

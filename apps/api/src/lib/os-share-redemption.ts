@@ -40,6 +40,7 @@ import {
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	getOsOutput,
+	getOsOutputRevision as getOutputRevisionMetadata,
 	listOsOutputs,
 } from "../services/workspace-output-storage";
 import {
@@ -301,7 +302,7 @@ async function currentOutputSources(
 	db: DbQueryClient,
 	scope: WorkspaceScope,
 	outputId: string,
-	readBody = false,
+	readBody: boolean | "metadata" = "metadata",
 ) {
 	const output = await getOsOutput(db, {
 		organizationId: scope.organizationId,
@@ -314,15 +315,19 @@ async function currentOutputSources(
 		!output.currentRevisionId
 	)
 		return null;
+	// Access envelopes live on the row; checking access must not read or migrate bodies.
 	const revision = await (
-		readBody || output.kind !== "sheet"
-			? getOsOutputRevision
-			: readStoredOutputRevision
+		readBody === "metadata"
+			? getOutputRevisionMetadata
+			: readBody || output.kind !== "sheet"
+				? getOsOutputRevision
+				: readStoredOutputRevision
 	)(db, {
 		organizationId: scope.organizationId,
+		workspaceId: scope.workspaceId,
 		revisionId: output.currentRevisionId,
 	});
-	if (!revision) return null;
+	if (!revision || revision.outputId !== output.id) return null;
 	let envelope: unknown = null;
 	try {
 		envelope = JSON.parse(revision.accessEnvelope ?? "null");
@@ -340,7 +345,7 @@ export async function shareableOutputRevision(
 	db: DbQueryClient,
 	scope: WorkspaceScope,
 	outputId: string,
-	readBody = true,
+	readBody: boolean | "metadata" = true,
 ) {
 	const current = await currentOutputSources(db, scope, outputId, readBody);
 	if (current?.sources?.length !== 0) return null;
@@ -408,7 +413,7 @@ export async function guestAppRefusal(
 								db,
 								scope,
 								resource.providerResourceId,
-								false,
+								"metadata",
 							),
 						),
 					}

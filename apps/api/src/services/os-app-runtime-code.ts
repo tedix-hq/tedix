@@ -37,7 +37,7 @@ import { createError, ErrorCodes } from "../rpc/orpc";
  * once per revision and never updated, so a signed session's revision id
  * already pins its code; callers that only need grants skip the code read.
  */
-async function loadAppRuntimeManifest(
+export async function loadAppRuntimeManifest(
 	db: DbQueryClient,
 	scope: { organizationId: string; gadgetId: string },
 	revisionId: string,

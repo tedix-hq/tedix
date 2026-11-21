@@ -73,6 +73,7 @@ import {
 	requireWorkspaceCollaboratorAccess,
 } from "../../services/os-workspace-collaborators";
 import {
+	loadAppRuntimeManifest,
 	loadAppRuntimeRevision,
 	loadAppRuntimeDraft,
 	runAppRuntimeCall,
@@ -1001,9 +1002,11 @@ export function createOsAppRuntimeRouter() {
 		const scope = await resolveGuestAppCapabilityScope(db, session);
 		if (!scope)
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		const code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
-		if (code.digest !== session.codeDigest)
-			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		const { grants } = await loadAppRuntimeManifest(
+			db,
+			scope,
+			scope.revisionId,
+		);
 		if (input.operation === "skills.read") {
 			const { approvedGuestSkillRead } =
 				await import("../../services/os-share-skill-read-grants");
@@ -1012,7 +1015,7 @@ export function createOsAppRuntimeRouter() {
 				!approved ||
 				!appRuntimePermission({
 					role: "use",
-					grants: code.grants,
+					grants,
 					operation: "skills.read",
 					slot: input.slot,
 				}).allowed
@@ -1046,7 +1049,7 @@ export function createOsAppRuntimeRouter() {
 		}
 		if (input.operation !== "outputs.read")
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		const read = await readGuestAppSlot(db, scope, code.grants, input.slot);
+		const read = await readGuestAppSlot(db, scope, grants, input.slot);
 		if (!read) throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
 		return JsonValueSchema.parse(read);
 	}

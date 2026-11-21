@@ -1,6 +1,7 @@
 import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import { createOsOutput } from "../services/os-workspace-outputs";
 import { DatabaseSync } from "node:sqlite";
+import { env as workerEnv } from "cloudflare:workers";
 import { createRouterClient } from "@orpc/server";
 import {
 	mintWorkspaceAppSession,
@@ -426,7 +427,6 @@ describe("share-link guests on a runtime app", () => {
 		expect(Object.keys(body).sort()).toEqual([
 			"args",
 			"callId",
-			"files",
 			"method",
 			"session",
 		]);
@@ -577,6 +577,37 @@ describe("share-link guests on a runtime app", () => {
 			).toBe(404);
 		}
 		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it("checks guest grants without reading or migrating sheet bodies", async () => {
+		const { db, outputDb, env } = await fixture();
+		const link = await seedLink(db);
+		const sessionToken = await redeem(db, link.token);
+		const get = vi.spyOn(workerEnv.R2_BUCKET, "get");
+		const put = vi.spyOn(workerEnv.R2_BUCKET, "put");
+		onTestFinished(() => {
+			get.mockRestore();
+			put.mockRestore();
+		});
+		const response = await handleGuestAppOpen(env, db, { sessionToken });
+		expect(response.status).toBe(200);
+		const opened = (await response.json()) as { session: string };
+		expect(
+			(
+				await handleGuestAppCall(env, db, {
+					sessionToken,
+					session: opened.session,
+					method: "verdicts",
+				})
+			).status,
+		).toBe(200);
+		expect(get).not.toHaveBeenCalled();
+		expect(put).not.toHaveBeenCalled();
+		// Access metadata remains live even though the body is not needed.
+		await outputDb.update(osOutputRevisions).set({ accessEnvelope: null });
+		expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
+			404,
+		);
 	});
 
 	it("reads only granted, sourceless Outputs for the guest", async () => {
