@@ -21,6 +21,7 @@
 import { readFieldSelectionMetrics } from "../field-selection";
 import type { ServerContext as McpCtx } from "@modelcontextprotocol/server";
 import { tracing } from "cloudflare:workers";
+import { countToolCall } from "../../tool-call-counts";
 import { runWithTelemetrySpan } from "@tedix/worker-kit/telemetry";
 import type { ServerContext } from "../server-context";
 import { toolRiskAuditMetadata } from "../tool-risk-policy";
@@ -71,6 +72,7 @@ export function wrapToolCallTelemetry(
 		Partial<Pick<import("../server-context").AppTool, "config" | "toolId">>,
 ): ToolCallback {
 	return async (args, extra) => {
+		countToolCall(serverCtx.env, serverCtx.ctx, tool?.toolId ?? toolName);
 		const startTime = Date.now();
 		const callerFields = buildCallerTelemetryFields(serverCtx.callerIdentity);
 		const riskMetadata = tool ? toolRiskAuditMetadata(tool) : undefined;

@@ -22,8 +22,8 @@ A **new McpServer + transport is created per request** via `mountMcp()` from
 `@tedix/mcp-shared/transport` (`src/index.ts` header, `src/mcp/server-factory.ts`).
 Server instances are never cached — the MCP SDK enforces
 one-transport-per-server via `isConnected()`. The existing subscription Durable
-Object owns subscription delivery state; it never retains an MCP server or
-transport. Other state that must survive a request lives in D1 or the
+Object owns subscription delivery state; separate daily instances own tool-call
+counters. Neither retains an MCP server or transport. Other state lives in D1 or the
 module-level caches below, and tool
 handler closures capture per-request `ServerContext` (fresh caller identity).
 

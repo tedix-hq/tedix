@@ -1,4 +1,5 @@
 import { requestPhaseTimings } from "./phase-timings";
+import { countToolCall } from "../tool-call-counts";
 import {
 	readFieldSelectionMetrics,
 	readResponseFields,
@@ -285,6 +286,8 @@ export async function executeTool(
 	/** MCP convention — set on handler-thrown errors and upstream status >= 400. */
 	isError?: boolean;
 }> {
+	// Protocol calls are counted by the registration wrapper; inner calls bypass it.
+	if (options.executionId) countToolCall(agent.env, agent.ctx, tool.toolId);
 	if (isDiscoveryShardTool(tool.config)) {
 		if (!agent.loadDiscoveryTool)
 			throw new Error("Discovery schema loader is unavailable");

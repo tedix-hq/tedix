@@ -1,4 +1,5 @@
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { handleToolCallCounts } from "./tool-call-counts";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 import {
 	InteractionEventSubscriptions,
@@ -308,6 +309,9 @@ export class McpSubscriptionDurableObject {
 		}
 
 		const url = new URL(request.url);
+		if (url.pathname.startsWith("/tool-counts/")) {
+			return handleToolCallCounts(request, this.state.storage);
+		}
 		if (url.pathname.startsWith("/events/")) {
 			try {
 				const input = await request.json();
