@@ -229,18 +229,6 @@ describe("checkMcpRequestRateLimit", () => {
 			),
 		).toBe(5);
 		expect(request.counts.size).toBe(0);
-		expect(await admitted({ MCP_RATE_LIMITER: request.limiter }, user, 4)).toBe(
-			3,
-		);
-	});
-
-	it("charges sessions to the principal key until the ceiling is bound", async () => {
-		const request = countingLimiter(3);
-		const env = { MCP_RATE_LIMITER: request.limiter };
-
-		expect(await admitted(env, sessionHeaders("session-a"), 2)).toBe(2);
-		expect(await admitted(env, sessionHeaders("session-b"), 2)).toBe(1);
-		expect([...request.counts.keys()]).toEqual(["app-1:agent:principal-lane"]);
 	});
 
 	it("keys an unverified session claim by principal only", async () => {
@@ -302,9 +290,12 @@ describe("gateway 429 body", () => {
 
 	it("states the limit, window, scope and that Code Mode inner calls are not counted", async () => {
 		const denial = await checkMcpRequestRateLimit(
-			{ MCP_RATE_LIMITER: countingLimiter(0).limiter },
+			{
+				MCP_RATE_LIMITER: countingLimiter(0).limiter,
+				MCP_PRINCIPAL_RATE_LIMITER: countingLimiter(100).limiter,
+			},
 			"app-1",
-			new Headers({ "x-tedix-auth-user-id": "user-owner" }),
+			new Headers(),
 			"203.0.113.7",
 		);
 		if (denial.allowed) throw new Error("expected a refusal");
@@ -319,7 +310,7 @@ describe("gateway 429 body", () => {
 			retryAfter: 60,
 			requestsPerMinute: 100,
 			windowSeconds: 60,
-			scope: "user",
+			scope: "client_ip",
 			codeModeInnerCallsCounted: false,
 		});
 		expect(body.message).toContain("100 requests per 60 seconds");

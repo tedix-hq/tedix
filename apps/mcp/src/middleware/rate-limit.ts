@@ -114,14 +114,12 @@ function bucketScope(key: string): McpRateLimitScope {
  * verified external-agent session, the principal ceiling.
  *
  * The ceiling is `MCP_PRINCIPAL_RATE_LIMITER`, which allows more than one
- * session's budget. Until that binding is deployed, a session request is
- * charged to its principal key on `MCP_RATE_LIMITER`, exactly as before.
- * A refusal names the budget that ran out.
+ * session's budget. A refusal names the budget that ran out.
  */
 export async function checkMcpRequestRateLimit(
 	env: {
 		MCP_RATE_LIMITER?: RateLimiter;
-		MCP_PRINCIPAL_RATE_LIMITER?: RateLimiter;
+		MCP_PRINCIPAL_RATE_LIMITER: RateLimiter;
 	},
 	appId: string,
 	headers: Headers,
@@ -141,16 +139,9 @@ export async function checkMcpRequestRateLimit(
 	// refused about every four minutes (20 Nov 2026); each refusal pauses every
 	// process on that login for the Retry-After. A user gets the same ceiling
 	// as one external-agent principal across its sessions.
-	if (
-		!ceiling &&
-		bucketScope(request) === "user" &&
-		env.MCP_PRINCIPAL_RATE_LIMITER
-	)
+	if (!ceiling && bucketScope(request) === "user")
 		return charge(env.MCP_PRINCIPAL_RATE_LIMITER, request, MCP_PRINCIPAL_LIMIT);
 	if (!ceiling) return charge(env.MCP_RATE_LIMITER, request, MCP_REQUEST_LIMIT);
-	if (!env.MCP_PRINCIPAL_RATE_LIMITER) {
-		return charge(env.MCP_RATE_LIMITER, ceiling, MCP_REQUEST_LIMIT);
-	}
 	const session = await charge(
 		env.MCP_RATE_LIMITER,
 		request,
