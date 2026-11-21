@@ -5,10 +5,8 @@ import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
 import { dispatcherHealthQueryOptions, osQuery } from "@/lib/os-query-options";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import {
-	namedWorkPrincipal,
-	useWorkPrincipalNames,
-} from "./work-operations-shared";
+import { useWorkPrincipalNames } from "./work-operations-shared";
+import { workPrincipalTooltip } from "@/lib/work-display";
 import { WorkReadFailure } from "./work-surface-primitives";
 import { Card, CardContent, CardHeader, CardTitle } from "./kumo/card";
 import {
@@ -93,44 +91,9 @@ export function ActivityRunningNow({
 				<CardTitle>Running now</CardTitle>
 			</CardHeader>
 			<CardContent className="grid min-w-0 gap-3">
-				<Text tone="secondary">
-					Updates every 30 seconds while Activity is open.
-				</Text>
-				<Text role="caption" aria-label="Runner health">
-					{healthFailed || !runners.length
-						? "Runners up: unknown"
-						: `Runners up: ${up.length} / ${runners.length}`}
-					{reports.length > fresh.length
-						? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
-						: ""}
-					{!healthFailed &&
-					fresh.some(
-						(lane) =>
-							lane.lane === "supervisor-lead" || lane.duty?.kind === "task",
-					)
-						? " · Supervisor reporting"
-						: " · Supervisor: unknown"}
-					{lastReport && (
-						<>
-							{" "}
-							· Last report{" "}
-							<time dateTime={lastReport} title={absoluteTime(lastReport)}>
-								{relativeTime(lastReport, now)}
-							</time>
-						</>
-					)}
-				</Text>
-				{healthFailed && (
-					<WorkReadFailure
-						title="Runner health unavailable"
-						error={health.error ?? health.failureReason}
-						onRetry={() => health.refetch()}
-						retrying={health.isFetching}
-					/>
-				)}
 				{failed && (
 					<WorkReadFailure
-						title="Active attempts unavailable"
+						title="Could not load running work"
 						error={
 							queries.find((query) => query.error || query.failureReason)
 								?.error ??
@@ -146,11 +109,6 @@ export function ActivityRunningNow({
 							const expired =
 								!!attempt.expiresAt &&
 								Date.parse(attempt.expiresAt) <= now.getTime();
-							const lane = fresh.find((report) =>
-								report.duty?.activity?.current.some(
-									(work) => work.id === workItem.id,
-								),
-							);
 							return (
 								<li
 									key={attempt.id}
@@ -160,19 +118,18 @@ export function ActivityRunningNow({
 										{/* "Copy skill <id> (Forum Scout)" reads as "Copy skill Forum Scout". */}
 										{plainFeedText(workItem.title) || workItem.title}
 									</Link>
-									<Text role="caption" className="break-all">
-										Attempt {attempt.attemptNumber} · {attempt.id}
-									</Text>
 									<Text>
-										{namedWorkPrincipal(
+										{workPrincipalTooltip(
 											attempt.executorType,
 											attempt.executorId,
 											names,
 										)}{" "}
 										·{" "}
 										{expired
-											? "Lease elapsed · current activity unknown"
-											: attempt.runtimeState}
+											? "No recent update"
+											: attempt.runtimeState === "running"
+												? "Working"
+												: attempt.runtimeState}
 									</Text>
 									<Text role="caption" tone="secondary">
 										Started{" "}
@@ -180,20 +137,8 @@ export function ActivityRunningNow({
 											dateTime={attempt.startedAt}
 											title={absoluteTime(attempt.startedAt)}
 										>
-											{absoluteTime(attempt.startedAt)}
+											{relativeTime(attempt.startedAt, now)}
 										</time>
-										{` · ${Math.max(0, Math.floor((now.getTime() - Date.parse(attempt.startedAt)) / 60_000))} min elapsed · Last heartbeat `}
-										{attempt.heartbeatAt ? (
-											<time
-												dateTime={attempt.heartbeatAt}
-												title={absoluteTime(attempt.heartbeatAt)}
-											>
-												{relativeTime(attempt.heartbeatAt, now)}
-											</time>
-										) : (
-											"unknown"
-										)}
-										{` · Runner: ${lane ? `${lane.executor} / ${lane.lane}` : "not reported"}`}
 									</Text>
 								</li>
 							);
@@ -204,19 +149,17 @@ export function ActivityRunningNow({
 						{failed
 							? "Current activity is unknown."
 							: pending
-								? "Checking active attempts…"
-								: "No active attempts in this scope."}
+								? "Checking running work…"
+								: "No work is running here."}
 					</Text>
 				)}
 				{failed && rows.length > 0 && (
 					<Text tone="secondary">
-						Showing saved attempts. Current activity may have changed.
+						Showing the last update. Current activity may have changed.
 					</Text>
 				)}
 				{queries.some((query) => query.data?.hasMore) && (
-					<Link href="/work?view=feed&filter=queue">
-						More active attempts in Work
-					</Link>
+					<Link href="/work?view=feed&filter=queue">More running work</Link>
 				)}
 				{/* Runner statistics are for whoever operates the runners; they load on request. */}
 				<Collapsible open={scorecard} onOpenChange={setScorecard}>
@@ -224,6 +167,39 @@ export function ActivityRunningNow({
 						Runner scorecard · Last 24 h
 					</CollapsibleDefaultTrigger>
 					<CollapsibleDefaultContent>
+						<Text role="caption" aria-label="Runner health">
+							{healthFailed || !runners.length
+								? "Runners up: unknown"
+								: `Runners up: ${up.length} / ${runners.length}`}
+							{reports.length > fresh.length
+								? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
+								: ""}
+							{!healthFailed &&
+							fresh.some(
+								(lane) =>
+									lane.lane === "supervisor-lead" || lane.duty?.kind === "task",
+							)
+								? " · Supervisor reporting"
+								: " · Supervisor: unknown"}
+							{lastReport && (
+								<>
+									{" "}
+									· Last report{" "}
+									<time dateTime={lastReport} title={absoluteTime(lastReport)}>
+										{relativeTime(lastReport, now)}
+									</time>
+								</>
+							)}
+						</Text>
+						{healthFailed && (
+							<WorkReadFailure
+								title="Runner health unavailable"
+								error={health.error ?? health.failureReason}
+								onRetry={() => health.refetch()}
+								retrying={health.isFetching}
+							/>
+						)}
+
 						{scorecard && (
 							<ActivityHarnessScorecard
 								scopes={scopes}

@@ -66,9 +66,9 @@ const SECTION_ROWS = 5;
 
 const recoveryReason: Record<string, string> = {
 	dependencies_blocked: "A dependency is not finished",
-	latest_attempt_failed: "The latest Attempt failed",
-	latest_attempt_expired: "The latest Attempt expired",
-	attempt_lease_elapsed: "The running Attempt stopped reporting",
+	latest_attempt_failed: "The last run failed",
+	latest_attempt_expired: "The last run timed out",
+	attempt_lease_elapsed: "The run stopped reporting",
 };
 
 export function WorkHomeOverview() {
@@ -188,9 +188,6 @@ export function WorkHomeOverview() {
 			<ActivityRunningNow config={ORGANIZATION_ACTIVITY_CONFIG} />
 			<div className="grid gap-4 lg:grid-cols-3">
 				<Section title="Stuck">
-					<Text tone="secondary">
-						Accepted Work that cannot start or is held, and why.
-					</Text>
 					{stuckFailed && (
 						<WorkReadFailure
 							title="Stuck Work unavailable"
@@ -211,7 +208,7 @@ export function WorkHomeOverview() {
 					) : readiness.isPending || recovery.isPending ? (
 						<WorkListSkeleton label="Checking stuck Work" />
 					) : stuckFailed ? null : (
-						<Text tone="secondary">No accepted Work is currently stuck.</Text>
+						<Text tone="secondary">Nothing is blocked.</Text>
 					)}
 					{(stuck.size > SECTION_ROWS ||
 						readiness.data?.hasMore ||
@@ -221,9 +218,6 @@ export function WorkHomeOverview() {
 				</Section>
 
 				<Section title="Needs you">
-					<Text tone="secondary">
-						Open Requests and approvals waiting for you.
-					</Text>
 					{needsFailed && (
 						<WorkReadFailure
 							title="Requests and approvals unavailable"
@@ -250,9 +244,9 @@ export function WorkHomeOverview() {
 					  runtimeApprovals.isPending ? (
 						<WorkListSkeleton label="Checking Requests and approvals" />
 					) : needsFailed ? null : (
-						<Text tone="secondary">No open Requests or approvals.</Text>
+						<Text tone="secondary">Nothing needs your answer.</Text>
 					)}
-					{(needsYou.length > SECTION_ROWS ||
+					{(needsYou.length > 0 ||
 						interactions.data?.hasMore ||
 						workApprovals.data?.hasMore) && (
 						<Link href="/work?view=deck">All Decisions</Link>
@@ -260,10 +254,7 @@ export function WorkHomeOverview() {
 				</Section>
 
 				<Section title="This week">
-					<Text tone="secondary">
-						Accepted Work due within seven days, or marked high or critical
-						priority.
-					</Text>
+					<Text tone="secondary">Due soon or high priority.</Text>
 					{matters.isError && (
 						<WorkReadFailure
 							title="This week's Work unavailable"

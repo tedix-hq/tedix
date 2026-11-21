@@ -1,14 +1,11 @@
 import { LoadingArea } from "@/components/loading-area";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
-import { osQuery } from "@/lib/os-query-options";
-import { osApi } from "@/lib/api";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Page, PageTitle } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
-import { useWorkApps } from "@/lib/use-work-apps";
+import { defaultWorkApps, useWorkApps } from "@/lib/use-work-apps";
 import {
 	selectedWorkApp,
 	showsWorkOverview,
@@ -28,11 +25,6 @@ const Portfolio = lazy(() =>
 	})),
 );
 
-/**
- * Work opens installed apps with the same renderer as their workspace. The
- * overview and the Goals and Projects pages read the organization's own Work
- * records, so they show without any app being installed.
- */
 export function WorkHome({
 	search = {},
 	onFilterChange,
@@ -50,13 +42,12 @@ export function WorkHome({
 		: search.view
 			? apps.find((app) => app.role === search.view)
 			: defaultApp;
-	const client = useQueryClient();
-	const install = useMutation({
-		mutationFn: () => osApi.osWorkspaces.gadgets.installWorkDefaults({}),
-		onSuccess: async () => {
-			await client.invalidateQueries({ queryKey: osQuery.osWorkspaces.key() });
-		},
-	});
+	const role = selected?.role ?? (search.view === "deck" ? "deck" : "feed");
+	const manifest =
+		selected?.manifest ??
+		(!search.app && !pending && !failed && !truncated
+			? defaultWorkApps[role]
+			: undefined);
 	const copy = OS_COPY.workHome;
 	const portfolioLead = workPortfolioLead(search);
 	const overview = showsWorkOverview(search, {
@@ -67,13 +58,11 @@ export function WorkHome({
 		? portfolioLead === "projects"
 			? "Projects"
 			: OS_COPY.work.objectives
-		: selected?.role === "feed"
-			? copy.feed
-			: selected?.role === "deck"
-				? copy.deck
-				: (selected?.gadget.name ?? copy.feed);
+		: selected && !selected.role
+			? selected.gadget.name
+			: copy[role];
 	useDocumentTitle(`${title} · Work`);
-	const appLinks = (
+	const appLinks = (apps.some((app) => !app.role) || failed || truncated) && (
 		<nav
 			aria-label={copy.apps}
 			className="flex flex-wrap items-center gap-x-4 gap-y-2"
@@ -104,25 +93,23 @@ export function WorkHome({
 	return (
 		<Page width="full" className="fd-work-home">
 			{/* The page heading comes first, so overview sections sit under it. */}
-			{(!selected || selected.role) && (
-				<PageTitle className="sr-only">{title}</PageTitle>
-			)}
-			{overview && (selected || pending) && <WorkHomeOverview />}
-			{selected ? (
+			{(!selected || selected.role) && <PageTitle>{title}</PageTitle>}
+			{overview && <WorkHomeOverview />}
+			{manifest ? (
 				<WorkspaceAppRenderer
-					key={selected.gadget.id}
+					key={selected?.gadget.id ?? role}
 					manifest={
-						search.project && selected.role === "deck"
+						search.project && role === "deck"
 							? {
-									...selected.manifest,
+									...manifest,
 									config: {
-										...selected.manifest.config,
+										...manifest.config,
 										projectId: search.project,
 									},
 								}
-							: selected.manifest
+							: manifest
 					}
-					workspaceId={selected.gadget.workspaceId}
+					workspaceId={selected?.gadget.workspaceId}
 					activityFeed={{
 						filter: search.filter ?? "all",
 						projectId: search.project,
@@ -136,37 +123,15 @@ export function WorkHome({
 				<Text>{copy.loading}</Text>
 			) : (
 				<div className="grid gap-3">
-					<Text>
-						{failed
-							? copy.unavailable
-							: search.app
-								? copy.missing
-								: copy.install}
-					</Text>
-					{failed && (
+					<Text>{failed || truncated ? copy.unavailable : copy.missing}</Text>
+					{(failed || truncated) && (
 						<Button variant="outline" onClick={retry}>
 							{copy.retry}
 						</Button>
 					)}
-					{!failed && !search.app && (
-						<Button
-							onClick={() => install.mutate()}
-							disabled={install.isPending}
-							loading={install.isPending}
-						>
-							{install.isPending ? copy.installing : copy.installDefaults}
-						</Button>
-					)}
-					{install.isError && (
-						<div role="alert">
-							<Text>{copy.installFailed}</Text>
-						</div>
-					)}
 					{failed && <Link href="/workspaces">{copy.workspaces}</Link>}
 				</div>
 			)}
-			{/* With no Activity app the failure or setup line keeps the top. */}
-			{overview && !selected && !pending && <WorkHomeOverview />}
 			{selected && failed && (
 				<Text aria-live="polite" tone="secondary">
 					{copy.partial}

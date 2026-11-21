@@ -81,12 +81,6 @@ export const SPANISH_FEED_DECK_COPY = {
 		back: "Volver a la actividad",
 		loading: "Cargando tus apps de trabajo…",
 		unavailable: "No se pudieron cargar tus apps de trabajo.",
-		install:
-			"Configura las apps de actividad y decisiones para ver tu trabajo aquí.",
-		installDefaults: "Configurar actividad y decisiones",
-		installing: "Configurando actividad y decisiones…",
-		installFailed:
-			"No se pudieron configurar las apps. Reintenta o consulta al administrador de tu espacio.",
 		missing: "Esta app no está disponible en tus espacios.",
 		workspaces: "Abrir espacios",
 		retry: "Reintentar",

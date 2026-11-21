@@ -220,14 +220,15 @@ it("opens Feed with the configured apps, then opens the same Deck renderer", () 
 });
 it("does not recover apps from another fictional organization's cached details", () => {
 	const pine = render({}, false);
-	expect(pine.querySelector("article")).toBeNull();
+	expect(pine.querySelector("article")?.getAttribute("data-entry")).toBe(
+		"tedix:app/activity-feed",
+	);
 	expect(pine.body.textContent).not.toContain("Cedar");
-	expect(pine.body.textContent).toContain("Set up Activity and Decisions");
 	expect(
-		[...pine.querySelectorAll("button")].some(
-			(button) => button.textContent === "Set up Activity and Decisions",
-		),
-	).toBe(true);
+		render({ view: "deck" }, false)
+			.querySelector("article")
+			?.getAttribute("data-entry"),
+	).toBe("tedix:app/decision-deck");
 });
 
 it("opens the configured Work start app while explicit views and apps still win", () => {
@@ -240,8 +241,10 @@ it("opens the configured Work start app while explicit views and apps still win"
 	expect(entry({ app: "office" })).toBe("tedix:app/office");
 	expect(entry({}, "office")).toBe("tedix:app/activity-feed");
 	expect(
-		render({}, false, "decision-deck").querySelector("article"),
-	).toBeNull();
+		render({}, false, "decision-deck")
+			.querySelector("article")
+			?.getAttribute("data-entry"),
+	).toBe("tedix:app/activity-feed");
 });
 
 it("waits for the configured default instead of flashing the Feed during discovery", () => {
@@ -264,7 +267,7 @@ it("opens the Deck without a New Work item form above it", () => {
 	}
 });
 
-it("names Feed and Deck with one hidden page heading before app content", () => {
+it("names Feed and Deck with one visible page heading before app content", () => {
 	for (const view of ["feed", "deck"] as const) {
 		for (const search of [{ view }, {}]) {
 			const page = render(
@@ -277,7 +280,7 @@ it("names Feed and Deck with one hidden page heading before app content", () => 
 			expect(headings[0]?.textContent).toBe(
 				view === "feed" ? "Activity" : "Decisions",
 			);
-			expect(headings[0]?.classList.contains("sr-only")).toBe(true);
+			expect(headings[0]?.classList.contains("sr-only")).toBe(false);
 			const article = page.querySelector("article");
 			expect(article).not.toBeNull();
 			// Overview sections and the app both come after the page heading.
@@ -327,7 +330,9 @@ it("shows the Activity overview before any Work app is installed", () => {
 	const overview = page.querySelector('section[aria-label="Work overview"]')!;
 	for (const title of ["Stuck", "Needs you", "This week"])
 		expect(overview.querySelector(`[aria-label="${title}"]`)).not.toBeNull();
-	expect(page.body.textContent).toContain("Set up Activity and Decisions");
+	expect(page.querySelector("article")?.getAttribute("data-entry")).toBe(
+		"tedix:app/activity-feed",
+	);
 });
 
 it("opens Projects and Goals without an installed app", () => {

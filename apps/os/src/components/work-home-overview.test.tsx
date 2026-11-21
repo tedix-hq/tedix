@@ -140,9 +140,9 @@ it("shows running, stuck reasons, requests and approvals, and this week's Work w
 	for (const name of ["Running now", "Stuck", "Needs you", "This week"])
 		expect(page.querySelector(`[aria-label="${name}"]`)).not.toBeNull();
 	expect(page.body.textContent).toContain("Blocked by prerequisite task");
-	expect(page.body.textContent).toContain("The latest Attempt failed");
+	expect(page.body.textContent).toContain("The last run failed");
 	expect(page.body.textContent).toContain(
-		"The latest Attempt failed · The runner stopped: 3 runs failed on this version of the task.",
+		"The last run failed · The runner stopped: 3 runs failed on this version of the task.",
 	);
 	expect(page.body.textContent).toContain("High priority");
 	expect(page.body.textContent).toMatch(/Due .*18/);

@@ -120,11 +120,6 @@ const ENGLISH_COPY = {
 		back: "Back to Activity",
 		loading: "Loading your Work apps…",
 		unavailable: "Your Work apps could not be loaded.",
-		install: "Set up Activity and Decisions to see your work here.",
-		installDefaults: "Set up Activity and Decisions",
-		installing: "Setting up Activity and Decisions…",
-		installFailed:
-			"Activity and Decisions could not be set up. Try again or ask your workspace admin.",
 		missing: "This app is not available in your workspaces.",
 		workspaces: "Open workspaces",
 		retry: "Retry",

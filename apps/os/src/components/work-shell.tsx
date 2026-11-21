@@ -9,7 +9,7 @@ import { useDeckCount } from "@/lib/use-deck-count";
 import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { Link } from "@/components/kumo/link";
 import { OS_COPY } from "@/shared/os-copy";
-import { useWorkApps } from "@/lib/use-work-apps";
+import { defaultWorkApps, useWorkApps } from "@/lib/use-work-apps";
 import { todayShortcut } from "@/lib/today-digest";
 import { WorkMoreViewsMenu } from "@/components/work-more-views-menu";
 import { WorkAgentNavigation } from "@/components/work-agent-navigation";
@@ -26,7 +26,7 @@ const WorkWebMcpTools = lazy(() =>
 );
 
 export function WorkShell() {
-	const { apps } = useWorkApps();
+	const { apps, pending, failed, truncated } = useWorkApps();
 	const navigate = useNavigate();
 	const location = useRouterState({ select: ({ location }) => location });
 	const agentNavigation = workAgentNavigation(
@@ -38,13 +38,21 @@ export function WorkShell() {
 		null,
 	);
 	const [remaining, setRemaining] = useState<number | null>(null);
+	const catalogReady = !pending && !failed && !truncated;
 	const deckApp = apps.find((app) => app.role === "deck");
-	const config = DecisionDeckConfigSchema.safeParse(deckApp?.manifest.config);
+	const config = DecisionDeckConfigSchema.safeParse(
+		deckApp
+			? deckApp.manifest.config
+			: catalogReady
+				? defaultWorkApps.deck.config
+				: undefined,
+	);
 	const decisions = useDeckCount(config.success ? config.data : undefined);
-	const defaultView = (
-		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
-		apps.find((app) => app.role === "feed")
-	)?.role;
+	const defaultView =
+		(
+			apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
+			apps.find((app) => app.role === "feed")
+		)?.role ?? (catalogReady ? "feed" : undefined);
 	const view = useRouterState({
 		select: (state) => {
 			const search = state.location.search as {
