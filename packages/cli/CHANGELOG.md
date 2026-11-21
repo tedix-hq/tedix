@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.12 — 2026-11-21
+
+### Patch Changes
+
+- f2bdd9d: Runners record each task's title, so the Tedix app can list what runs on this Mac.
+
 ## 0.29.11 — 2026-11-21
 
 ### Patch Changes
