@@ -1271,6 +1271,11 @@ describe("dispatcher admission", () => {
 				readFileSync(join(f.dir, `${row.id}-${row.version}.json`), "utf8"),
 			);
 			expect(receipt.note).toStartWith("Error: Admission not ready:");
+			receipt.admissionRetryAt = 0;
+			writeFileSync(
+				join(f.dir, `${row.id}-${row.version}.json`),
+				JSON.stringify(receipt),
+			);
 		}
 		expect(f.releases).toHaveLength(0);
 		for (let n = 4; n <= 7; n++) f.items.push(item(n));
@@ -5628,6 +5633,75 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
+	it("backs off admission refusals across restarts and resets on a Work version change", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.readiness = {
+			ready: false,
+			reasons: [
+				"purpose",
+				"approval",
+				"dependencies",
+				"budget",
+				"capability",
+			].map((gate) => ({ detail: `${gate}_blocked` })),
+		};
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const read = () =>
+			JSON.parse(
+				readFileSync(
+					join(f.dir, `${f.items[0]!.id}-${f.items[0]!.version}.json`),
+					"utf8",
+				),
+			);
+		const blockedLines = () =>
+			readFileSync(join(f.dir, "dispatcher.log"), "utf8")
+				.split("\n")
+				.filter((line) =>
+					/Admission not ready:|Complete Attempt history is unavailable/.test(
+						line,
+					),
+				);
+		try {
+			for (const [index, minutes] of [10, 20, 40, 60, 60].entries()) {
+				const runner = f.restart();
+				await runner.tick();
+				await runner.drain();
+				expect(read().admissionRefusals).toBe(index + 1);
+				expect(read().admissionRetryAt).toBe(now + minutes * 60_000);
+				expect(blockedLines()).toHaveLength(index + 1);
+				f.events.length = 0;
+				now += minutes * 60_000 - 1;
+				const restarted = f.restart();
+				for (let pass = 0; pass < 3; pass++) {
+					await restarted.tick();
+					await restarted.drain();
+				}
+				expect(
+					f.events.filter((event) =>
+						["dispatch-get", "dispatch-attempts", "readiness"].includes(
+							event.verb,
+						),
+					),
+				).toEqual([]);
+				expect(blockedLines()).toHaveLength(index + 1);
+				now++;
+				f.control.history.nextCursor = "incomplete";
+			}
+			now--;
+			expect(read().admissionRetryAt).toBeGreaterThan(now);
+			f.items[0]!.version++;
+			await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(read().admissionRefusals).toBe(1);
+			expect(read().admissionRetryAt).toBe(now + 10 * 60_000);
+			expect(blockedLines()).toHaveLength(6);
+			expect(f.releases).toHaveLength(0);
+		} finally {
+			clock.mockRestore();
+		}
+	});
 	it("allows a changed Work revision without waiting for the old revision's retry deadline", async () => {
 		const { dispatcher, items, control, releases } = fixture({ refuse: true });
 		items.splice(1);

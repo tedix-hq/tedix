@@ -1093,6 +1093,8 @@ interface Receipt {
 	settlementRetries?: number;
 	settlementCheckFailures?: number;
 	admissionCheckFailures?: number;
+	admissionRefusals?: number;
+	admissionRetryAt?: number;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	baseCommit?: string;
@@ -3930,6 +3932,10 @@ export class LaneDispatcher {
 				const previous = existsSync(this.path(item))
 					? readReceipt(this.path(item))
 					: undefined;
+				if (Date.now() < (previous?.admissionRetryAt ?? 0)) {
+					observeSkip(item, previous?.note ?? "Admission retry is deferred");
+					continue;
+				}
 				if (
 					previous?.phase === "settling" &&
 					!this.running.has(item.id) &&
@@ -6207,6 +6213,22 @@ ${firstBrief}`;
 			)
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
+			if (
+				!admitted &&
+				!admissionSent &&
+				error instanceof Error &&
+				/^(Admission not ready:|Complete Attempt history is unavailable)/.test(
+					error.message,
+				)
+			) {
+				receipt.admissionRefusals = (previous?.admissionRefusals ?? 0) + 1;
+				receipt.admissionRetryAt =
+					Date.now() +
+					Math.min(
+						60 * 60_000,
+						10 * 60_000 * 2 ** Math.min(receipt.admissionRefusals - 1, 3),
+					);
+			}
 			this.log(
 				error instanceof WorkRevisedDuringPreparationError ||
 					error instanceof DispatcherStoppingError
