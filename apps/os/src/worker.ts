@@ -1398,6 +1398,7 @@ export async function handleOsRequest(
 			hostTenantId,
 			hostOrganizationId,
 			url.searchParams.get("after"),
+			resolver,
 			url.searchParams.get("inspect") === "1",
 		);
 	}
@@ -1762,6 +1763,7 @@ async function handleWorkspaceChatUpgrade(
 	hostTenantId: string | null,
 	organizationId: string | null,
 	after: string | null,
+	resolver: TenantResolver,
 	/** An organization admin's read-only inspection; the API decides whether it holds. */
 	inspect = false,
 ): Promise<Response> {
@@ -1805,9 +1807,16 @@ async function handleWorkspaceChatUpgrade(
 	if (!upstream || !env.API_SERVICE) {
 		return refuse(503, "Workspace chat is unavailable on this origin.");
 	}
-	// A loopback local run has no host to name the organization; its one
-	// organization is the local demo's.
-	if (!organizationId && localDemo) organizationId = LOCAL_DEMO_ORGANIZATION_ID;
+	if (!organizationId && localDemo) {
+		if (tenant.kind === "local" && tenant.slug) {
+			const resolution = await resolveWithCache(env, tenant.slug, resolver);
+			if (resolution === "unavailable")
+				return tenantResolutionUnavailable(request);
+			organizationId = resolution.organizationId ?? null;
+		} else {
+			organizationId = LOCAL_DEMO_ORGANIZATION_ID;
+		}
+	}
 	if (!organizationId) {
 		return refuse(503, "Workspace organization is unavailable.");
 	}
