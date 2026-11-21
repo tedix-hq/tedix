@@ -247,8 +247,8 @@ try {
 		await page.getByRole("button", { name: "Show files" }).click();
 		await page.getByRole("button", { name: "Hide files" }).waitFor();
 
-		// The footer opens the library and Work in the canvas; the open file
-		// stays beside the chat on the way back.
+		// The footer opens the library and Work in the side panel; the open
+		// file stays in its tab on the way back.
 		await panel.getByRole("button", { name: "Overview" }).click();
 		await page.getByRole("heading", { name: "Overview" }).waitFor();
 		await panel.getByRole("button", { name: "Work", exact: true }).click();
@@ -271,8 +271,18 @@ try {
 			`${label}: the Agents view is in the address`,
 		);
 
-		// The Approvals row opens the workspace's activity control.
-		await panel.getByRole("button", { name: "Approvals" }).click();
+		// Esc closes the side panel and the chat takes the room.
+		await page
+			.getByRole("region", { name: "Workspace agents" })
+			.getByText("No agents work in this workspace yet")
+			.click();
+		await page.keyboard.press("Escape");
+		await page.locator('.canvas-surface[data-stage-open="false"]').waitFor();
+
+		// Activity and approvals open from the header, their one entry point.
+		await page
+			.getByRole("button", { name: /^Activity and approvals:/ })
+			.click();
 		await page.locator("[data-approvals-popover]").waitFor();
 		await page.screenshot({
 			animations: "disabled",
@@ -330,8 +340,8 @@ try {
 			.waitFor();
 		if (width < 640)
 			await page
-				.getByRole("group", { name: "Canvas pane" })
-				.getByRole("button", { name: "Agents" })
+				.getByRole("group", { name: "Workspace pane" })
+				.getByRole("button", { name: "Files", pressed: true })
 				.waitFor();
 		await page.evaluate(() => document.fonts.ready);
 		await noOverflow(page, label);
@@ -359,17 +369,17 @@ try {
 		await routeFixture(page, theme);
 		await routeSources(page, sources);
 		await page.goto(`${server.origin}${workspacePath}`);
-		if (width < 640) {
+		// A phone opens the Overview from its Files list, as a wide screen
+		// does from the Files rail.
+		if (width < 640)
 			await page
-				.getByRole("group", { name: "Canvas pane" })
+				.getByRole("group", { name: "Workspace pane" })
 				.getByRole("button", { name: "Files" })
 				.click();
-		} else {
-			await page
-				.getByRole("complementary", { name: "Workspace files" })
-				.getByRole("button", { name: "Overview" })
-				.click();
-		}
+		await page
+			.getByRole("complementary", { name: "Workspace files" })
+			.getByRole("button", { name: "Overview" })
+			.click();
 		await page.evaluate(() => document.fonts.ready);
 		await checkSources(page, label, columns);
 		await context.close();
@@ -377,7 +387,7 @@ try {
 	}
 
 	// Phone: no side panel and no toggle; the bottom switcher shows one pane
-	// at a time and Files is the whole library.
+	// at a time, and Files is the workspace's list.
 	{
 		const theme = "dark";
 		const label = `375/${theme}`;
@@ -391,13 +401,13 @@ try {
 		const page = await context.newPage();
 		await routeFixture(page, theme);
 		await page.goto(`${server.origin}${workspacePath}`);
-		const switcher = page.getByRole("group", { name: "Canvas pane" });
+		const switcher = page.getByRole("group", { name: "Workspace pane" });
 		await switcher.waitFor();
 		assert(
 			!(await page
 				.getByRole("complementary", { name: "Workspace files" })
 				.isVisible()),
-			`${label}: side panel is hidden on a phone`,
+			`${label}: the Files list waits for its tab on a phone`,
 		);
 		assert.equal(
 			await page.getByRole("button", { name: /^(Hide|Show) files$/ }).count(),
@@ -411,12 +421,12 @@ try {
 		);
 		assert.deepEqual(
 			await switcher.getByRole("button").allInnerTexts(),
-			["Chat", "Canvas", "Files"],
-			`${label}: Chat · Canvas · Files`,
+			["Chat", "Files"],
+			`${label}: Chat · Files`,
 		);
 		await switcher.getByRole("button", { name: "Files" }).click();
 		const library = page.getByRole("complementary", {
-			name: "Workspace library",
+			name: "Workspace files",
 		});
 		await library.waitFor();
 		assert(

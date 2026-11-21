@@ -206,8 +206,8 @@
 }
 
 /*
- * The panel belongs to the chat + canvas workbench. Focus mode and phones
- * (whose bottom switcher opens the library pane) do without it.
+ * The rail belongs to the chat + side panel workbench; Focus mode does
+ * without it. A phone shows it full width as its Files tab, and only there.
  */
 .canvas-surface[data-canvas-focus] .workspace-outputs-panel {
 	display: none;
@@ -216,6 +216,14 @@
 @media (max-width: 959px) {
 	.workspace-outputs-panel {
 		display: none;
+		width: 100%;
+		height: 100%;
+		border-left: 0;
+		transition: none;
+	}
+
+	.canvas-surface[data-mobile-pane="files"] .workspace-outputs-panel {
+		display: flex;
 	}
 }
 

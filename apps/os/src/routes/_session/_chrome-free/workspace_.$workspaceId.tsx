@@ -72,6 +72,11 @@ function WorkspaceRoute() {
 									search: (previous) => ({ ...previous, pane: "agents" }),
 								})
 							}
+							onOpenFiles={() =>
+								void navigate({
+									search: (previous) => ({ ...previous, pane: "files" }),
+								})
+							}
 							onOpenWorkspace={() =>
 								void navigate({
 									search: (previous) => ({

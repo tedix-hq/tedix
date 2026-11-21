@@ -109,9 +109,17 @@ try {
 		"a conversation an agent started is not in the person's list",
 	);
 	assert.equal(
-		await page.getByRole("group", { name: "Canvas pane" }).count(),
+		await page.locator(".canvas-surface").count(),
 		0,
 		"this is the phone chat page, not the workspace with its panes",
+	);
+	// The same two tabs as the workspace, so nothing moves between pages.
+	assert.deepEqual(
+		await page
+			.getByRole("group", { name: "Workspace pane" })
+			.getByRole("button")
+			.allInnerTexts(),
+		["Chat", "Files"],
 	);
 	await noSidewaysScroll(page, "conversation list");
 	const agentsEntry = await thumbSized(
@@ -134,9 +142,10 @@ try {
 	await agent
 		.locator(`[data-agent-run="${RUN}"][data-agent-run-state="needs_you"]`)
 		.waitFor();
+	// Agents opens under Files; the tabs stay Chat and Files.
 	await page
-		.getByRole("group", { name: "Canvas pane" })
-		.getByRole("button", { name: "Agents" })
+		.getByRole("group", { name: "Workspace pane" })
+		.getByRole("button", { name: "Files", pressed: true })
 		.waitFor();
 	await noSidewaysScroll(page, "agents");
 	await (await thumbSized(page, "Review Nightly import", "agents")).tap();

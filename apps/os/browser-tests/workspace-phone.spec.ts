@@ -6,7 +6,7 @@ import { startFixtureServer } from "./fixture-server";
  * A workspace on a phone (375 x 812):
  * - a menu opens as a sheet across the bottom edge with thumb-sized actions,
  *   not as a small box beside its button;
- * - the workspace reopens on the tab (Chat, Canvas, Files) it was left on;
+ * - the workspace reopens on the tab (Chat or Files) it was left on;
  * - the browser's install prompt becomes one "Add to Home Screen" notice that
  *   is not shown a second time;
  * - nothing scrolls sideways.
@@ -39,7 +39,7 @@ try {
 		);
 
 	// Files, then its menu as a bottom sheet.
-	await page.goto(`${server.origin}${workspace}?pane=resources`, {
+	await page.goto(`${server.origin}${workspace}?pane=files`, {
 		waitUntil: "domcontentloaded",
 	});
 	await page.getByRole("button", { name: "Workspace actions" }).click();
@@ -70,13 +70,13 @@ try {
 	await page.waitForFunction(
 		() =>
 			document.querySelector<HTMLElement>(".canvas-surface")?.dataset
-				.mobilePane === "resources",
+				.mobilePane === "files",
 	);
-	assert.match(page.url(), /pane=resources/);
+	assert.match(page.url(), /pane=files/);
 
 	// Left on Chat: a plain workspace link stays on Chat and opens no file.
 	await page
-		.getByRole("group", { name: "Canvas pane" })
+		.getByRole("group", { name: "Workspace pane" })
 		.getByRole("button", { name: "Chat" })
 		.click();
 	await page.waitForURL(/pane=chat/);
@@ -115,7 +115,7 @@ try {
 	// It was shown once; a later offer on a later visit says nothing.
 	await page.clock.install();
 	await page.reload({ waitUntil: "domcontentloaded" });
-	await page.getByRole("group", { name: "Canvas pane" }).waitFor();
+	await page.getByRole("group", { name: "Workspace pane" }).waitFor();
 	assert(await offerInstall(), "the app captures the later install offer");
 	await page.clock.fastForward(4_001);
 	assert.equal(await notice.count(), 0, "the notice is not shown again");

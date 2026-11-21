@@ -102,7 +102,7 @@ const routing = vi.hoisted(() => ({
 		conversation?: string;
 		workpiece?: string;
 		view?: "workpiece" | "edit" | "history" | "connections" | "activity";
-		pane?: "resources" | "work" | "agents" | "chat" | "workpiece";
+		pane?: "files" | "resources" | "work" | "agents" | "chat" | "workpiece";
 		focus?: true;
 	},
 }));
@@ -355,24 +355,21 @@ vi.mock("@/components/output-export-buttons", () => ({
 import "@/components/canvas-doc-panel";
 
 import {
-	CANVAS_CHAT_WIDTH_DEFAULT,
+	CANVAS_PANEL_WIDTH_DEFAULT,
 	CANVAS_STAGE_CLOSE_SETTLE_MS,
 	persistCanvasStageClosed,
 	restoreCanvasStageClosed,
-	CANVAS_CHAT_COLLAPSED_KEY,
-	CANVAS_CHAT_WIDTH_KEY,
-	persistCanvasChatCollapsed,
-	restoreCanvasChatCollapsed,
-	CANVAS_CHAT_WIDTH_MAX,
-	CANVAS_CHAT_WIDTH_MIN,
-	CANVAS_STAGE_MIN_WIDTH,
+	CANVAS_PANEL_WIDTH_KEY,
+	CANVAS_PANEL_WIDTH_MAX,
+	CANVAS_PANEL_WIDTH_MIN,
+	CANVAS_CHAT_MIN_WIDTH,
 	CanvasPage,
 	isCanvasSimpleMode,
-	clampCanvasChatWidth,
+	clampCanvasPanelWidth,
 	linkedOutputIdFromManifest,
 	nextCanvasDocAfterClose,
 	primaryCanvasDoc,
-	restoreCanvasChatWidth,
+	restoreCanvasPanelWidth,
 	workspaceConnectionContext,
 } from "./canvas-page";
 import { canvasWorkpieceModeOptions } from "./canvas-workpiece-tabs";
@@ -1026,36 +1023,18 @@ describe("Canvas workbench state", () => {
 		).toBe("Doc");
 	});
 
-	it("clamps and restores the persisted chat width", () => {
-		expect(clampCanvasChatWidth(100)).toBe(CANVAS_CHAT_WIDTH_MIN);
-		expect(clampCanvasChatWidth(1000, 3_000)).toBe(CANVAS_CHAT_WIDTH_MAX);
+	it("clamps and restores the persisted side panel width", () => {
+		expect(clampCanvasPanelWidth(100)).toBe(CANVAS_PANEL_WIDTH_MIN);
+		expect(clampCanvasPanelWidth(9_000, 3_000)).toBe(CANVAS_PANEL_WIDTH_MAX);
 		expect(
-			restoreCanvasChatWidth({
-				getItem: (key) => (key === CANVAS_CHAT_WIDTH_KEY ? "428" : null),
+			restoreCanvasPanelWidth({
+				getItem: (key: string) =>
+					key === CANVAS_PANEL_WIDTH_KEY ? "500" : null,
 			}),
-		).toBe(428);
-		expect(restoreCanvasChatWidth({ getItem: () => "invalid" })).toBe(
-			CANVAS_CHAT_WIDTH_DEFAULT,
+		).toBe(500);
+		expect(restoreCanvasPanelWidth({ getItem: () => "invalid" })).toBe(
+			CANVAS_PANEL_WIDTH_DEFAULT,
 		);
-	});
-
-	it("remembers whether the chat was hidden beside an open item", () => {
-		const store = new Map<string, string>();
-		const storage = {
-			getItem: (key: string) => store.get(key) ?? null,
-			setItem: (key: string, value: string) => void store.set(key, value),
-		};
-		expect(restoreCanvasChatCollapsed(storage)).toBe(false);
-		persistCanvasChatCollapsed(storage, true);
-		expect(store.get(CANVAS_CHAT_COLLAPSED_KEY)).toBe("true");
-		expect(restoreCanvasChatCollapsed(storage)).toBe(true);
-		expect(
-			restoreCanvasChatCollapsed({
-				getItem: () => {
-					throw new Error("blocked");
-				},
-			}),
-		).toBe(false);
 	});
 
 	it("selects the neighboring workpiece when the active tab closes", () => {
@@ -1907,7 +1886,7 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).not.toContain("Workspace conversations");
 	});
 
-	it("opens a populated workspace on its Overview when no app is the default", async () => {
+	it("keeps a populated workspace on its chat when no app is the default", async () => {
 		mockLists();
 		const container = renderPage();
 		await flush();
@@ -1941,15 +1920,13 @@ describe("CanvasPage listing", () => {
 		expect(osWorkspacesApi.gadgets.get).toHaveBeenCalled();
 		expect(container.textContent).toContain("Ops room");
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0);
-		expect(
-			container
-				.querySelector(".canvas-surface")
-				?.getAttribute("data-resource-rail-open"),
-		).toBe("true");
-		expect(routing.navigate).toHaveBeenCalledWith(
+		const surface = container.querySelector(".canvas-surface");
+		expect(surface?.getAttribute("data-resource-rail-open")).toBe("false");
+		// Nothing is open, so the side panel stays closed and the chat leads.
+		expect(surface?.getAttribute("data-stage-open")).toBe("false");
+		expect(routing.navigate).not.toHaveBeenCalledWith(
 			expect.objectContaining({
 				search: expect.objectContaining({ pane: "resources" }),
-				replace: true,
 			}),
 		);
 		expect(routing.navigate).not.toHaveBeenCalledWith(
@@ -2047,8 +2024,13 @@ describe("CanvasPage listing", () => {
 		const container = renderPage();
 		await flush();
 
-		// Nothing opens by itself; the canvas offers the library instead.
-		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
+		// Nothing opens by itself, and the side panel stays closed.
+		expect(container.querySelector(".canvas-resource-library")).toBeNull();
+		expect(
+			container
+				.querySelector(".canvas-surface")
+				?.getAttribute("data-stage-open"),
+		).toBe("false");
 		expect(
 			container.querySelector("[data-canvas-workpiece-missing]"),
 		).toBeNull();
@@ -2204,7 +2186,7 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector("[data-canvas-workpiece-missing]"),
 		).toBeNull();
-		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
+		expect(container.querySelector(".canvas-resource-library")).toBeNull();
 		expect(routing.navigate).not.toHaveBeenCalled();
 	});
 
@@ -2230,7 +2212,11 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector("[data-canvas-workpiece-missing]"),
 		).toBeNull();
-		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
+		expect(
+			container
+				.querySelector(".canvas-surface")
+				?.getAttribute("data-stage-open"),
+		).toBe("false");
 	});
 
 	it("replays back-forward search snapshots without stale local selection", async () => {
@@ -2258,8 +2244,11 @@ describe("CanvasPage listing", () => {
 				.querySelector(".canvas-surface")
 				?.getAttribute("data-mobile-pane"),
 		).toBe("chat");
+		// Nothing is selected, so the side panel closes around its tabs.
 		expect(
-			container.querySelector('[role="tab"]')?.getAttribute("aria-selected"),
+			container
+				.querySelector(".canvas-surface")
+				?.getAttribute("data-stage-open"),
 		).toBe("false");
 
 		routing.search = {
@@ -3273,19 +3262,15 @@ describe("isCanvasSimpleMode", () => {
 	});
 });
 
-describe("clampCanvasChatWidth viewport floor", () => {
-	it("never lets the chat squeeze the stage below its floor", () => {
-		expect(clampCanvasChatWidth(480, 700)).toBe(700 - CANVAS_STAGE_MIN_WIDTH);
-		// The floor never pushes below the chat minimum on a tiny viewport.
-		expect(clampCanvasChatWidth(480, 500)).toBe(CANVAS_CHAT_WIDTH_MIN);
-		// A wide viewport keeps the ordinary cap.
-		expect(clampCanvasChatWidth(9_999, 3_000)).toBe(CANVAS_CHAT_WIDTH_MAX);
-		expect(CANVAS_CHAT_WIDTH_MAX).toBe(720);
-		expect(clampCanvasChatWidth(720, 1_000)).toBe(
-			1_000 - CANVAS_STAGE_MIN_WIDTH,
+describe("clampCanvasPanelWidth viewport floor", () => {
+	it("never lets the side panel squeeze the chat below its floor", () => {
+		expect(clampCanvasPanelWidth(900, 1_000)).toBe(
+			1_000 - CANVAS_CHAT_MIN_WIDTH,
 		);
-		expect(clampCanvasChatWidth(CANVAS_CHAT_WIDTH_DEFAULT, 1_024)).toBe(
-			CANVAS_CHAT_WIDTH_DEFAULT,
+		// The floor never pushes below the panel minimum on a tiny viewport.
+		expect(clampCanvasPanelWidth(480, 500)).toBe(CANVAS_PANEL_WIDTH_MIN);
+		expect(clampCanvasPanelWidth(CANVAS_PANEL_WIDTH_DEFAULT, 1_024)).toBe(
+			CANVAS_PANEL_WIDTH_DEFAULT,
 		);
 	});
 });
@@ -3298,7 +3283,9 @@ describe("CanvasPage chat-first workspace", () => {
 		await flush();
 
 		const overview = container.querySelector(".canvas-resource-library-header");
-		expect(overview?.textContent).toContain("Choose New to create a document");
+		expect(overview?.textContent).toContain(
+			"Choose New in Files to create a document",
+		);
 		expect(overview?.textContent).toContain("upload a file, or add a source");
 		expect(overview?.textContent).toContain("ask this workspace to help");
 	});
@@ -3330,7 +3317,6 @@ describe("CanvasPage chat-first workspace", () => {
 		const stage = container.querySelector(".canvas-stage") as HTMLElement;
 		expect(stage.getAttribute("aria-hidden")).toBe("true");
 		expect(stage.hasAttribute("inert")).toBe(true);
-		expect(stage.getAttribute("style")).toBeNull();
 		// A fresh workspace has nothing to pick, so it never says so.
 		expect(container.textContent).not.toContain("Pick a document");
 		// The URL-carried conversation lands in the thread, not the list.
@@ -3343,18 +3329,19 @@ describe("CanvasPage chat-first workspace", () => {
 		expect(routing.navigate).not.toHaveBeenCalled();
 	});
 
-	it("keeps the split layout, and the resizer, once the workspace has a document", async () => {
+	it("opens the side panel, and its resizer, beside the chat when something opens", async () => {
 		mockLists();
+		routing.search = { pane: "resources" };
 		const container = renderPage();
 		await flush();
 
 		const surface = container.querySelector(".canvas-surface");
 		expect(surface?.getAttribute("data-simple-mode")).toBe("false");
 		expect(surface?.getAttribute("data-canvas-transition")).toBe("true");
-		const chat = container.querySelector(".canvas-chat-pane") as HTMLElement;
+		const stage = container.querySelector(".canvas-stage") as HTMLElement;
 		expect(surface?.getAttribute("data-stage-open")).toBe("true");
-		expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
-			`${CANVAS_CHAT_WIDTH_DEFAULT}px`,
+		expect(stage.style.getPropertyValue("--canvas-panel-width")).toBe(
+			`${CANVAS_PANEL_WIDTH_DEFAULT}px`,
 		);
 		expect(
 			container.querySelector(".canvas-chat-resizer")?.getAttribute("tabindex"),
@@ -3372,10 +3359,11 @@ describe("CanvasPage chat-first workspace", () => {
 		});
 		try {
 			mockLists();
+			routing.search = { pane: "resources" };
 			const container = renderPage();
 			await flush();
 			const surface = container.querySelector(".canvas-surface")!;
-			const chat = container.querySelector(".canvas-chat-pane") as HTMLElement;
+			const stage = container.querySelector(".canvas-stage") as HTMLElement;
 			const handle = () =>
 				container.querySelector(".canvas-chat-resizer") as HTMLElement;
 			const pointer = (type: string, clientX: number) =>
@@ -3386,37 +3374,37 @@ describe("CanvasPage chat-first workspace", () => {
 				});
 
 			pointer("pointerdown", 500);
-			expect(surface.hasAttribute("data-resizing-chat")).toBe(true);
+			expect(surface.hasAttribute("data-resizing-panel")).toBe(true);
 			// Far wider than the old limit, and only the handle hears the move.
-			pointer("pointermove", 500 + 1_000);
-			expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
-				`${CANVAS_CHAT_WIDTH_MAX}px`,
+			pointer("pointermove", 500 - 1_000);
+			expect(stage.style.getPropertyValue("--canvas-panel-width")).toBe(
+				`${CANVAS_PANEL_WIDTH_MAX}px`,
 			);
-			pointer("pointerup", 500 + 1_000);
-			expect(surface.hasAttribute("data-resizing-chat")).toBe(false);
-			expect(window.localStorage.getItem(CANVAS_CHAT_WIDTH_KEY)).toBe(
-				String(CANVAS_CHAT_WIDTH_MAX),
+			pointer("pointerup", 500 - 1_000);
+			expect(surface.hasAttribute("data-resizing-panel")).toBe(false);
+			expect(window.localStorage.getItem(CANVAS_PANEL_WIDTH_KEY)).toBe(
+				String(CANVAS_PANEL_WIDTH_MAX),
 			);
 			// A move after the release changes nothing.
-			pointer("pointermove", 100);
-			expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
-				`${CANVAS_CHAT_WIDTH_MAX}px`,
+			pointer("pointermove", 1_200);
+			expect(stage.style.getPropertyValue("--canvas-panel-width")).toBe(
+				`${CANVAS_PANEL_WIDTH_MAX}px`,
 			);
 
 			pointer("pointerdown", 500);
 			pointer("pointercancel", 500);
-			expect(surface.hasAttribute("data-resizing-chat")).toBe(false);
+			expect(surface.hasAttribute("data-resizing-panel")).toBe(false);
 
 			pointer("dblclick", 500);
-			expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
-				`${CANVAS_CHAT_WIDTH_DEFAULT}px`,
+			expect(stage.style.getPropertyValue("--canvas-panel-width")).toBe(
+				`${CANVAS_PANEL_WIDTH_DEFAULT}px`,
 			);
 		} finally {
 			Object.defineProperty(window, "innerWidth", {
 				configurable: true,
 				value: innerWidth,
 			});
-			window.localStorage.removeItem(CANVAS_CHAT_WIDTH_KEY);
+			window.localStorage.removeItem(CANVAS_PANEL_WIDTH_KEY);
 		}
 	});
 
@@ -3427,7 +3415,7 @@ describe("CanvasPage chat-first workspace", () => {
 		const stage = container.querySelector(".canvas-stage") as HTMLElement;
 		expect(stage.hasAttribute("inert")).toBe(true);
 
-		routing.search = { pane: "workpiece" };
+		routing.search = { pane: "resources" };
 		rerender();
 		await flush();
 		expect(container.querySelector(".canvas-stage")).toBe(stage);
@@ -3457,7 +3445,7 @@ describe("CanvasPage chat-first workspace", () => {
 			container
 				.querySelector(".canvas-surface")
 				?.getAttribute("data-stage-open"),
-		).toBe("true");
+		).toBe("false");
 		expect(container.textContent).not.toContain("Pick a document");
 	});
 
