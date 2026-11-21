@@ -20,6 +20,8 @@
 		"db/audit-provider-capabilities.test.ts",
 		"db/d1-size-report.ts",
 		"db/d1-size-report.test.ts",
+		"db/history-export.ts",
+		"db/history-export.test.ts",
 		"agent-bootstrap.test.ts",
 		"bump.ts",
 		"bump.test.ts",
