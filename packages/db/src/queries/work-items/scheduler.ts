@@ -1,6 +1,9 @@
-import { matchesWorkApprovalVersion } from "./planning-approval";
+import {
+	matchesWorkApprovalVersion,
+	ownerWorkDelegation,
+} from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { chunkForBoundParams } from "../../utils/batch";
 import { capabilityLinks, orgCapabilities } from "../../schema/capabilities";
@@ -256,7 +259,7 @@ export async function listReadyWork(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.disposition, "accepted"),
 				p.projectId ? eq(workItems.projectId, p.projectId) : undefined,
-				activePurposeContext(p.now),
+				or(activePurposeContext(p.now), ownerWorkDelegation(workItems)),
 				sql`NOT EXISTS (SELECT 1 FROM work_attempts active_attempt WHERE active_attempt.org_id=${p.orgId} AND active_attempt.work_item_id=${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND active_attempt.expires_at>${p.now})`,
 			),
 		)

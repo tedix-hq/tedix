@@ -56,7 +56,11 @@ import {
 	workItemStoredColumns,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
-import { planningApprovalVersion } from "./planning-approval";
+import {
+	hasOwnerWorkDelegation,
+	ownerWorkApprovalStatements,
+	planningApprovalVersion,
+} from "./planning-approval";
 import { acceptanceRenewedPurposeExpiry } from "./purpose";
 import { resolveWorkItemSteward } from "./stewardship";
 import { retireDecisionReviews } from "./decision-review-retirement";
@@ -133,7 +137,9 @@ export function lifecycleEventInsert(
 				>`${params.actor.sessionId ?? null}`.as("actor_session_id"),
 				payload: sql<
 					Record<string, JsonValue>
-				>`${JSON.stringify(params.payload ?? {})}`.as("payload"),
+				>`${JSON.stringify({ ...params.payload, workItemVersion: params.expectedVersion })}`.as(
+					"payload",
+				),
 				occurredAt: sql<string>`${params.occurredAt}`.as("occurred_at"),
 			})
 			.from(workItems)
@@ -217,7 +223,7 @@ export async function createWorkItem(
 						actorType: createdBy.type,
 						actorId: createdBy.id,
 						actorSessionId: createdBy.sessionId,
-						payload: {},
+						payload: { workItemVersion: 1 },
 						occurredAt: params.createdAt,
 					}),
 				])
@@ -819,6 +825,7 @@ export async function acceptWorkItem(
 ): Promise<WorkItem> {
 	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const createdOwnerDelegation = await hasOwnerWorkDelegation(db, prior);
 	// Acceptance is the exit from triage: it fixes where the work lives, what
 	// done looks like and who answers for it.
 	const missing =
@@ -886,10 +893,18 @@ export async function acceptWorkItem(
 		eventType: "work.accepted",
 		actor: params.actor,
 		occurredAt: acceptedAt,
+		payload: createdOwnerDelegation
+			? { createdOwnerDelegation: prior.accountableOwnerId }
+			: {},
 	});
 	const [acceptedRows] = await db.batch([
 		acceptMutation,
 		acceptEvent,
+		...ownerWorkApprovalStatements(
+			db,
+			{ ...prior, version: prior.version + 1 },
+			acceptedAt,
+		),
 		...(dispatch
 			? [
 					dispatchReceiptInsert(
@@ -1485,6 +1500,8 @@ export async function updateWorkItemSpecification(
 		actor: params.actor,
 		occurredAt: updatedAt,
 		payload: {
+			ownerStarted:
+				dispatch && Boolean(requestedExecutor || params.laneDispatch),
 			...(projectMove ? { projectMove } : {}),
 			...(planningOnly
 				? {
@@ -1501,6 +1518,15 @@ export async function updateWorkItemSpecification(
 	const [updatedRows] = await db.batch([
 		updateMutation,
 		updateEvent,
+		...ownerWorkApprovalStatements(
+			db,
+			{
+				...prior,
+				version: prior.version + 1,
+				riskLevel: params.riskLevel ?? prior.riskLevel,
+			},
+			updatedAt,
+		),
 		...(dispatch
 			? [
 					dispatchReceiptInsert(

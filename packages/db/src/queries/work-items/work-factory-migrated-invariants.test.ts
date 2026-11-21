@@ -9,6 +9,15 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
+	createWorkItem,
+	acceptWorkItem,
+	updateWorkItemSpecification,
+} from "./crud";
+import {
+	deriveWorkItemReadiness,
+	listWorkItemReadinessProjection,
+} from "./readiness";
+import {
 	evaluateAndRecordWorkAdmission,
 	prepareWorkAdmission,
 	replaceWorkAdmissionSpecification,
@@ -167,6 +176,147 @@ function seedAdmissionFacts(
 }
 
 describe("migrated Work factory raw-D1 invariants", () => {
+	it("admits version-bound owner delegation while keeping agent Work and reserved authorities strict", async () => {
+		const sqlite = migrated();
+		try {
+			seedCore(sqlite);
+			seedTedi(sqlite);
+			const db = createDbQueryClient(createD1Facade(sqlite));
+			const owner = { type: "user" as const, id: "user" };
+			const agent = { type: "tedi" as const, id: "tedi" };
+			const now = "2026-08-20T01:00:00.000Z";
+			for (const source of [
+				"created",
+				"accepted",
+				"started",
+				"agent",
+			] as const) {
+				await createWorkItem(db, {
+					id: source,
+					orgId: "org",
+					title: "Review the local implementation",
+					projectId: "project",
+					accountableOwnerType: "user",
+					accountableOwnerId: "user",
+					riskLevel: "high",
+					createdBy: source === "created" ? owner : agent,
+					createdAt: "2026-08-20T00:00:00.000Z",
+					metadata: { ownerStarted: true, createdOwnerDelegation: "user" },
+				});
+				let item = await acceptWorkItem(db, {
+					orgId: "org",
+					workItemId: source,
+					actor: source === "accepted" ? owner : agent,
+					acceptanceContract: {
+						version: 1,
+						doneLooksLike: "The implementation is reviewed",
+					},
+					acceptedAt: now,
+				});
+				if (source === "started")
+					item = await updateWorkItemSpecification(db, {
+						orgId: "org",
+						workItemId: source,
+						actor: owner,
+						executor: "codex",
+						updatedAt: now,
+					});
+				const readiness = await deriveWorkItemReadiness(db, {
+					orgId: "org",
+					workItemId: source,
+					derivedAt: now,
+				});
+				expect(readiness.state, source).toBe(
+					source === "agent" ? "purpose_blocked" : "ready",
+				);
+				const admission = await evaluateAndRecordWorkAdmission(db, {
+					id: `owner-${source}`,
+					orgId: "org",
+					workItemId: source,
+					expectedWorkItemVersion: item.version,
+					expectedAdmissionSpecRevision: item.admissionSpecRevision,
+					executorType: "tedi",
+					executorId: "tedi",
+					leaseTtlMs: 60_000,
+					now,
+				});
+				expect(admission.decision).toBe(
+					source === "agent" ? "rejected" : "admitted",
+				);
+				if (source === "agent")
+					expect(admission.rejectionCode).toBe("approval_blocked");
+			}
+			const queued = await listReadyWork(db, {
+				orgId: "org",
+				now,
+				executorType: "tedi",
+				executorId: "tedi",
+			});
+			expect(queued.data.map((row) => row.workItem.id).sort()).toEqual([
+				"accepted",
+				"created",
+				"started",
+			]);
+			const projection = await listWorkItemReadinessProjection(db, {
+				orgId: "org",
+				observedAt: now,
+			});
+			expect(
+				projection.data.find((row) => row.workItem.id === "created")?.readiness
+					.state,
+			).toBe("ready");
+			await updateWorkItemSpecification(db, {
+				orgId: "org",
+				workItemId: "started",
+				actor: agent,
+				executor: "codex",
+				laneDispatch: { state: "ready" },
+				updatedAt: now,
+			});
+			expect(
+				(
+					await deriveWorkItemReadiness(db, {
+						orgId: "org",
+						workItemId: "started",
+						derivedAt: now,
+					})
+				).state,
+			).toBe("ready");
+			for (const [id, patch, blocker] of [
+				["created", { title: "A different task" }, "approval_blocked"],
+				["accepted", { riskLevel: "critical" as const }, "approval_blocked"],
+				[
+					"started",
+					{ requiredAuthorities: ["human:consent"] as string[] },
+					"approval_blocked",
+				],
+			] as const) {
+				const item = await updateWorkItemSpecification(db, {
+					orgId: "org",
+					workItemId: id,
+					actor: id === "created" ? agent : owner,
+					...(id === "created" ? {} : { executor: "codex" }),
+					...patch,
+					updatedAt: now,
+				});
+				const admission = await evaluateAndRecordWorkAdmission(db, {
+					id: `changed-${id}`,
+					orgId: "org",
+					workItemId: id,
+					expectedWorkItemVersion: item.version,
+					expectedAdmissionSpecRevision: item.admissionSpecRevision,
+					executorType: "tedi",
+					executorId: "tedi",
+					leaseTtlMs: 60_000,
+					now,
+				});
+				expect(admission.rejectionCode).toBe(blocker);
+			}
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("derives canonical admission authorities without duplicates", () => {
 		expect(
 			requiredWorkAdmissionAuthorities({

@@ -1,4 +1,7 @@
-import { matchesWorkApprovalVersion } from "./planning-approval";
+import {
+	hasOwnerWorkDelegation,
+	matchesWorkApprovalVersion,
+} from "./planning-approval";
 import {
 	LaneExecutionPolicySchema,
 	laneResourceKeys,
@@ -442,19 +445,24 @@ async function evaluate(
 				})
 			: new Map<string, string>();
 	const ownerHostExecutor = parties.has(workPartyKey(executor));
+	const ownerDelegated = await hasOwnerWorkDelegation(db, item);
 	const independentApprovals = approvals.filter(
 		(approval) =>
-			!(
+			(ownerDelegated &&
+				approval.authorityKey === "risk:high" &&
+				approval.deciderType === "user" &&
+				approval.deciderId === item.accountableOwnerId) ||
+			(!(
 				approval.deciderType === executor.type &&
 				approval.deciderId === executor.id
 			) &&
-			!(
-				ownerHostExecutor &&
-				isSameCanonicalParty(parties, executor, {
-					type: approval.deciderType,
-					id: approval.deciderId,
-				})
-			),
+				!(
+					ownerHostExecutor &&
+					isSameCanonicalParty(parties, executor, {
+						type: approval.deciderType,
+						id: approval.deciderId,
+					})
+				)),
 	);
 	const missingApproval = evaluateWorkAdmissionApprovals(
 		item,
@@ -635,11 +643,11 @@ async function evaluate(
 			},
 		};
 	const eligibility = evaluateWorkAdmissionEligibility(item, {
-		purposeActive: hasActivePurposeContext(item, p.now),
+		purposeActive: hasActivePurposeContext(item, p.now, ownerDelegated),
 		activeAttemptId: null,
 		blockingDependencyId: null,
 		missingCapability: null,
-		approval: evaluateWorkAdmissionApprovals(item, approvals),
+		approval: evaluateWorkAdmissionApprovals(item, independentApprovals),
 		blockedResourceKey: null,
 		budgetBlocked: false,
 	});

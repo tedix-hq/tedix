@@ -1,4 +1,7 @@
-import { matchesWorkApprovalVersion } from "./planning-approval";
+import {
+	hasOwnerWorkDelegation,
+	matchesWorkApprovalVersion,
+} from "./planning-approval";
 import {
 	AgentRequestActionSchema,
 	AgentRequestProposalSchema,
@@ -981,6 +984,8 @@ export async function ensureWorkRiskApproval(
 	)
 		return;
 	const authorityKey = `risk:${item.riskLevel}`;
+	if (item.riskLevel === "high" && (await hasOwnerWorkDelegation(db, item)))
+		return;
 	const existing = await db
 		.select({
 			approverType: workApprovalProposals.approverType,
