@@ -73,6 +73,7 @@ function seedAttempt(
 		state?: string;
 		outcome?: string;
 		expiresAt?: string;
+		attemptNumber?: number;
 	},
 ) {
 	sqlite
@@ -80,7 +81,7 @@ function seedAttempt(
 			`INSERT INTO work_attempts
 			(id,work_item_id,org_id,executor_type,executor_id,runtime_state,outcome,
 			attempt_number,started_at,heartbeat_at,expires_at,finished_at,metadata)
-			VALUES (?,?,?,'external_agent','agent',?,?,1,?,?,?,?, '{}')`,
+			VALUES (?,?,?,'external_agent','agent',?,?,?,?,?,?,?, '{}')`,
 		)
 		.run(
 			params.id,
@@ -88,6 +89,7 @@ function seedAttempt(
 			params.orgId ?? "org-a",
 			params.state ?? "finished",
 			params.outcome ?? (params.state === "running" ? null : "succeeded"),
+			params.attemptNumber ?? 1,
 			params.startedAt,
 			params.startedAt,
 			params.expiresAt ?? null,
@@ -222,5 +224,44 @@ describe("org-wide Work factory projections", () => {
 			signal: "latest_attempt_failed",
 		});
 		expect(failed.data).toEqual([]);
+	});
+
+	it("judges each item by its highest-numbered attempt only", async () => {
+		const { sqlite, db } = fixture();
+		seedItem(sqlite, { id: "recovered", createdAt: "2026-08-20T10:00:00Z" });
+		seedItem(sqlite, { id: "refailed", createdAt: "2026-08-20T11:00:00Z" });
+		seedAttempt(sqlite, {
+			id: "recovered-1",
+			itemId: "recovered",
+			startedAt: "2026-08-20T12:00:00Z",
+			state: "failed",
+			outcome: "failed",
+		});
+		seedAttempt(sqlite, {
+			id: "recovered-2",
+			itemId: "recovered",
+			startedAt: "2026-08-20T11:00:00Z",
+			attemptNumber: 2,
+		});
+		seedAttempt(sqlite, {
+			id: "refailed-1",
+			itemId: "refailed",
+			startedAt: "2026-08-20T12:00:00Z",
+		});
+		seedAttempt(sqlite, {
+			id: "refailed-2",
+			itemId: "refailed",
+			startedAt: "2026-08-20T12:30:00Z",
+			state: "failed",
+			outcome: "failed",
+			attemptNumber: 2,
+		});
+		const page = await listOrgWorkRecovery(db, {
+			orgId: "org-a",
+			observedAt: "2026-08-20T14:00:00Z",
+		});
+		expect(page.data.map((row) => [row.id, row.latestAttemptId])).toEqual([
+			["refailed", "refailed-2"],
+		]);
 	});
 });

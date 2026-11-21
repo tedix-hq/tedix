@@ -228,36 +228,23 @@ export async function listOrgWorkRecovery(
 	},
 ): Promise<ProjectionPage<WorkRecoveryProjectionRow>> {
 	const limit = pageLimit(params.limit);
-	const rankedAttempts = db.$with("ranked_attempts").as(
-		db
-			.select({
-				id: workAttempts.id,
-				workItemId: workAttempts.workItemId,
-				runtimeState: workAttempts.runtimeState,
-				outcome: workAttempts.outcome,
-				finishedAt: workAttempts.finishedAt,
-				expiresAt: workAttempts.expiresAt,
-				rank: sql<number>`ROW_NUMBER() OVER (
-					PARTITION BY ${workAttempts.orgId}, ${workAttempts.workItemId}
-					ORDER BY ${workAttempts.attemptNumber} DESC
-				)`.as("rank"),
-			})
-			.from(workAttempts)
-			.where(eq(workAttempts.orgId, params.orgId)),
-	);
-	const latest = db.$with("latest").as(
-		db
-			.select({
-				id: rankedAttempts.id,
-				workItemId: rankedAttempts.workItemId,
-				runtimeState: rankedAttempts.runtimeState,
-				outcome: rankedAttempts.outcome,
-				finishedAt: rankedAttempts.finishedAt,
-				expiresAt: rankedAttempts.expiresAt,
-			})
-			.from(rankedAttempts)
-			.where(eq(rankedAttempts.rank, 1)),
-	);
+	// The latest attempt per item is one seek on uniq_work_attempt_number for
+	// each candidate item. Ranking every attempt of the organization with
+	// ROW_NUMBER read ~11.9M rows (~1 s) per call on 21 Nov 2026 and drove
+	// main D1 into overload.
+	const latest = alias(workAttempts, "latest");
+	const newest = alias(workAttempts, "newest");
+	const latestAttemptId = db
+		.select({ id: newest.id })
+		.from(newest)
+		.where(
+			and(
+				eq(newest.orgId, workItems.orgId),
+				eq(newest.workItemId, workItems.id),
+			),
+		)
+		.orderBy(desc(newest.attemptNumber))
+		.limit(1);
 	const blocker = alias(workItems, "blocker");
 	const blockers = db.$with("blockers").as(
 		db
@@ -286,7 +273,7 @@ export async function listOrgWorkRecovery(
 	);
 	const sortAt = sql<string>`COALESCE(${workItems.updatedAt}, ${workItems.createdAt})`;
 	const rows = await db
-		.with(rankedAttempts, latest, blockers)
+		.with(blockers)
 		.select({
 			id: workItems.id,
 			title: workItems.title,
@@ -320,7 +307,13 @@ export async function listOrgWorkRecovery(
 			),
 		})
 		.from(workItems)
-		.leftJoin(latest, eq(latest.workItemId, workItems.id))
+		.leftJoin(
+			latest,
+			and(
+				eq(latest.orgId, workItems.orgId),
+				eq(latest.id, sql`(${latestAttemptId})`),
+			),
+		)
 		.leftJoin(blockers, eq(blockers.workItemId, workItems.id))
 		.where(
 			and(
