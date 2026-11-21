@@ -73,9 +73,14 @@ import {
 // The copy run from source keeps its own name and data folder and leaves the
 // `tedix://` link type to the installed app, so the two never share a session
 // or take each other's sign-in links.
+// The installed app's menus say Tedix, not the package name; its data stays
+// in the folder named after the package, where existing sign-ins live.
 if (!app.isPackaged) {
 	app.setName("Tedix Dev");
 	app.setPath("userData", join(app.getPath("appData"), "Tedix Dev"));
+} else {
+	app.setPath("userData", join(app.getPath("appData"), "@tedix", "desktop"));
+	app.setName("Tedix");
 }
 
 /**
