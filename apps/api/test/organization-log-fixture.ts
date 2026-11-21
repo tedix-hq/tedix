@@ -40,7 +40,6 @@ export function createOrganizationLogFixture() {
 	});
 
 	const runtime: OrganizationLogRuntime = {
-		organizationLogAvailable: async () => true,
 		async organizationLogAppend(organizationId, input) {
 			const log = chain(organizationId);
 			const stored = log.records.find((record) => record.id === input.id);
@@ -117,17 +116,6 @@ export function createOrganizationLogFixture() {
 					)
 					.slice(0, query.limit),
 			);
-		},
-		async organizationLogStatus() {
-			return {
-				available: true,
-				state: "live",
-				tail: null,
-				pending: 0,
-				oldestPendingAt: null,
-				cutoverStartedAt: null,
-				mainTailSequence: null,
-			};
 		},
 	};
 

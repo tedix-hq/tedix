@@ -43,9 +43,6 @@ import type {
 	OrganizationLogAppendResult,
 	OrganizationLogRead,
 	OrganizationLogRecord,
-	OrganizationLogState,
-	OrganizationLogStatus,
-	OrganizationLogTail,
 } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import type { WorkspaceEnv } from "./env";
 
@@ -85,12 +82,8 @@ CREATE TABLE IF NOT EXISTS change_record_checkpoints (
 	evidence_bundle_key TEXT
 );
 CREATE INDEX IF NOT EXISTS change_record_checkpoints_sealed_at ON change_record_checkpoints(sealed_at);
-CREATE TABLE IF NOT EXISTS pending_change_records (
-	arrival INTEGER PRIMARY KEY AUTOINCREMENT,
-	id TEXT NOT NULL UNIQUE,
-	recorded_at TEXT NOT NULL,
-	record TEXT NOT NULL
-);
+-- Held appends of the finished cutover from main; emptied when a store went live.
+DROP TABLE IF EXISTS pending_change_records;
 `;
 
 interface RecordRow {
@@ -286,27 +279,12 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 			);
 	}
 
-	/**
-	 * A store with no state and no history belongs to a new organization: it
-	 * is live from the start, and the state is written so it stays live once
-	 * records exist. A store with copied history but no state was left
-	 * mid-move and stays `passthrough`, which callers treat as a failure.
-	 */
-	#state(): OrganizationLogState {
-		const state = this.#meta("state") as OrganizationLogState | null;
-		if (state) return state;
-		if (this.#tail() !== null) return "passthrough";
-		this.#setMeta("state", "live");
-		return "live";
-	}
-
-	#tail(): OrganizationLogTail | null {
+	#tail(): { sequence: number; chainHash: string | null } | null {
 		const sequence = this.#meta("tail_sequence");
 		if (sequence === null) return null;
 		return {
 			sequence: Number(sequence),
 			chainHash: this.#meta("tail_chain_hash"),
-			checkpointDigest: this.#lastCheckpoint()?.checkpoint_digest ?? null,
 		};
 	}
 
@@ -341,7 +319,6 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		return row ? toRecord(row) : null;
 	}
 
-	/** Chain one record after the tail and store it. Call only inside `#serial`. */
 	/** Digest and link records after `after`, in order; writes nothing. */
 	async #link(
 		after: { sequence: number; chainHash: string | null } | null,
@@ -388,7 +365,6 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		input: OrganizationLogAppendInput,
 	): Promise<OrganizationLogAppendResult> {
 		this.#bind(organizationId);
-		if (this.#state() !== "live") return { status: "forward" };
 		const { id, recordedAt, ...body } = input;
 		const record = await this.#serial(async () => {
 			const stored = this.#recordById(id);
@@ -609,9 +585,7 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 
 	#live<T>(organizationId: string, read: () => T): OrganizationLogRead<T> {
 		this.#bind(organizationId);
-		return this.#state() === "live"
-			? { status: "live", value: read() }
-			: { status: "not_live" };
+		return { status: "live", value: read() };
 	}
 
 	async organizationLogList(
@@ -730,29 +704,5 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 				.toArray()
 				.map((row) => toCheckpoint(row, organizationId));
 		});
-	}
-
-	async organizationLogStatus(
-		organizationId: string,
-	): Promise<OrganizationLogStatus> {
-		this.#bind(organizationId);
-		const [pending] = this.#sql
-			.exec<{ n: number; oldest: string | null }>(
-				"SELECT COUNT(*) AS n, MIN(recorded_at) AS oldest FROM pending_change_records",
-			)
-			.toArray();
-		return {
-			available: true,
-			state: this.#state(),
-			tail: this.#tail(),
-			pending: pending?.n ?? 0,
-			oldestPendingAt: pending?.oldest ?? null,
-			cutoverStartedAt:
-				this.#state() === "cutover" ? this.#meta("cutover_started_at") : null,
-			mainTailSequence:
-				this.#meta("main_tail_sequence") === null
-					? null
-					: Number(this.#meta("main_tail_sequence")),
-		};
 	}
 }
