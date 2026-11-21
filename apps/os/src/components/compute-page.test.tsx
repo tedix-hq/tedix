@@ -63,7 +63,7 @@ describe("Usage and Billing access", () => {
 		];
 		const body = render(["billing:read"], value);
 		expect(body.textContent).toContain("Agent identity · abcdef01");
-		expect(body.textContent).toContain("Cap: 38% left");
+		expect(body.textContent).toContain("38% of cap left");
 		expect(body.textContent).not.toContain(userId);
 		expect(body.textContent).not.toContain("1,234");
 		expect(body.textContent).not.toContain("Unused member");

@@ -8,7 +8,6 @@ import {
 	matchOsPage,
 } from "./os-navigation";
 import { resolveOsTenant } from "@/shared/os-tenant";
-import { LEGACY_WORK_SEARCH } from "@/shared/work-redirects";
 
 describe("Tedix OS navigation", () => {
 	test("keeps Activity as the default surface", () => {
@@ -64,6 +63,12 @@ const routePaths = [
 	),
 ];
 
+/** Old addresses kept as route files that only redirect to their new page. */
+const REDIRECT_ONLY_ROUTES = new Set([
+	"/compute", // → /usage
+	"/settings/billing", // → /admin/billing
+]);
+
 describe("OS page table integrity", () => {
 	test("uses unique ids and paths with valid, acyclic parents", () => {
 		expect(new Set(OS_PAGES.map((page) => page.id)).size).toBe(OS_PAGES.length);
@@ -88,7 +93,7 @@ describe("OS page table integrity", () => {
 			expect(routePaths, page.id).toContain(page.path);
 		for (const path of routePaths) {
 			// A route that only redirects is never shown, so it has no page entry.
-			if (Object.hasOwn(LEGACY_WORK_SEARCH, path)) {
+			if (REDIRECT_ONLY_ROUTES.has(path)) {
 				expect(matchOsPage(path), path).toBeUndefined();
 				continue;
 			}
