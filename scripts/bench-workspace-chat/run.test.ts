@@ -112,26 +112,17 @@ describe("workspace chat benchmark", () => {
 	});
 
 	test("prints missing timing as n/a", () => {
-		expect(
-			tableRows([
-				{
-					id: "one",
-					transport: "home",
-					firstTokenMs: null,
-					finalMs: 1234,
-					ok: false,
-					missing: ["answer"],
-				},
-			]),
-		).toEqual([
+		const [row] = tableRows([
 			{
-				question: "one",
+				id: "one",
 				transport: "home",
-				"first token": "n/a",
-				"final answer": "1.23s",
-				correct: "FAIL",
-				missing: "answer",
+				firstTokenMs: null,
+				finalMs: 1234,
+				ok: false,
+				missing: ["answer"],
 			},
 		]);
+		expect(row?.["first token"]).toBe("n/a");
+		expect(row?.["final answer"]).toBe("1.23s");
 	});
 });

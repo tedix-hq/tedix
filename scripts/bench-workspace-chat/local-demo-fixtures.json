@@ -1,0 +1,11 @@
+[
+	{
+		"id": "demo-opportunities",
+		"question": "Using only the Opportunities sheet in this workspace, answer briefly: (1) how many rows does it have; (2) which row number is about a broken price alert; (3) what delivery fee in euros changes the cheapest seller in the blender deal thread?",
+		"checks": [
+			{ "label": "8 rows", "pattern": "\\b(?:8|eight)\\b" },
+			{ "label": "row 4", "pattern": "\\b(?:row\\s*)?(?:4|four)\\b" },
+			{ "label": "€12", "pattern": "(?:€\\s*12|12\\s*(?:€|eur))" }
+		]
+	}
+]
