@@ -75,9 +75,25 @@ do not depend on an operator writing an R2 retirement receipt. Each sweep
 removes at most 1,000 rows. The build owner remains diagnostic metadata;
 `/health/` reports it as `runtimePermitOwnerId`.
 
-Unleased administrative claims and pre-upgrade rows retain their explicit
-completion contract. Their old timestamps are not evidence of an expiring
-lease. The runtime does not accept an operator-authored retirement file.
+Legacy runtime rows entered before 21 November 2026 at 04:31:17 UTC become
+eligible for the same sweep on 22 November at 04:31:17 UTC. This is a one-time
+rollout retirement assumption accepted by the installation owner, not a
+platform limit on HTTP or Durable Object calls. Sites with an unfinished
+deprovision operation (including failed operations), restore fence or capture
+pause are skipped until those records are reconciled. The sweep logs counts
+by kind and up to 1,000 skipped site IDs; cron reports skips even when nothing
+is removed.
+
+Database media-bucket operations, recovery purges and CMS agent operations use
+`admin:media-bucket:`, `admin:recovery-purge:` and `admin:cms-agent:` IDs. These
+claims retain their explicit completion contract, including uncertain provider
+or process outcomes; neither expiry nor legacy retirement reclaims them.
+The runtime does not accept an operator-authored retirement file.
+
+An idle request sweep costs one DELETE with a bounded SELECT subquery per
+serving isolate at most every ten seconds, and zero statements between sweeps
+or without traffic. A sweep that removes rows, or a forced cron sweep, also
+issues one SELECT for skipped sites. Errors reset the request throttle.
 An uncertain INSERT is released before tenant work begins. Scheduled handlers
 acknowledge completion after their handler and tracked background work drain,
 before returning the final RPC response. A transport failure aborts the owning

@@ -33,7 +33,7 @@ function fixture(slug = "acme") {
 			site_id TEXT PRIMARY KEY, slug TEXT NOT NULL, capture_id TEXT NOT NULL,
 			expires_at_unix INTEGER NOT NULL, drained_at_unix INTEGER
 		);
-		CREATE TABLE cms_deprovision_operations (id TEXT PRIMARY KEY);
+		CREATE TABLE cms_deprovision_operations (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'queued');
 		CREATE TABLE tenant_bundles (
 			slug TEXT NOT NULL, version INTEGER NOT NULL, is_active INTEGER NOT NULL,
 			source_revision TEXT

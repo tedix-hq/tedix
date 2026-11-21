@@ -124,7 +124,7 @@ function createD1Fixture(withRestorePermitSite = false) {
 				site_id TEXT PRIMARY KEY, slug TEXT NOT NULL, generation TEXT NOT NULL,
 				capture_id TEXT NOT NULL, restore_epoch INTEGER, closed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 			);
-			CREATE TABLE cms_deprovision_operations (id TEXT PRIMARY KEY);
+			CREATE TABLE cms_deprovision_operations (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'queued');
 			CREATE TABLE cms_capture_cron_pauses (
 				site_id TEXT PRIMARY KEY, slug TEXT NOT NULL, capture_id TEXT NOT NULL,
 				expires_at_unix INTEGER NOT NULL, drained_at_unix INTEGER

@@ -538,10 +538,69 @@ export async function renewCmsRestorePermitLease(
 export interface DeleteExpiredCmsRestorePermitLeasesParams {
 	siteId?: string;
 	limit: number;
+	/** Override the sweep clock for deterministic cutoff verification. */
+	now?: string;
 }
 
-/** Only protocol holders that abort before expiry may use this ID domain.
- * Administrative and pre-lease claims remain fenced, regardless of age. */
+// One-time retirement boundary accepted for the pre-lease runtime rollout.
+const CMS_LEGACY_PERMIT_CUTOFF = "2026-11-21 04:31:17";
+
+function legacyPermitCandidate(now: string) {
+	return and(
+		sql`datetime(${now}) >= datetime(${CMS_LEGACY_PERMIT_CUTOFF}, '+24 hours')`,
+		sql`${cmsRestorePermits.enteredAt} < ${CMS_LEGACY_PERMIT_CUTOFF}`,
+		sql`${cmsRestorePermits.id} NOT LIKE 'lease:v1:%'`,
+		sql`${cmsRestorePermits.id} NOT LIKE 'admin:%'`,
+		inArray(cmsRestorePermits.kind, ["outer", "nested", "scheduled"]),
+	);
+}
+
+/** Failed teardown remains unfinished until reconciliation succeeds. Recovery
+ * writes are protected by their durable fence or capture pause. */
+function siteHasUnfinishedPermitOperation(db: DbQueryClient) {
+	return or(
+		exists(
+			db
+				.select({ one: sql`1` })
+				.from(cmsDeprovisionOperations)
+				.where(
+					and(
+						eq(cmsDeprovisionOperations.id, cmsRestorePermits.siteId),
+						sql`${cmsDeprovisionOperations.status} != 'succeeded'`,
+					),
+				),
+		),
+		exists(
+			db
+				.select({ one: sql`1` })
+				.from(cmsRestoreFences)
+				.where(eq(cmsRestoreFences.siteId, cmsRestorePermits.siteId)),
+		),
+		exists(
+			db
+				.select({ one: sql`1` })
+				.from(cmsCaptureCronPauses)
+				.where(eq(cmsCaptureCronPauses.siteId, cmsRestorePermits.siteId)),
+		),
+	)!;
+}
+
+export async function listCmsLegacyPermitSkippedSites(
+	db: DbQueryClient,
+	now = "now",
+) {
+	return db
+		.selectDistinct({ siteId: cmsRestorePermits.siteId })
+		.from(cmsRestorePermits)
+		.where(
+			and(legacyPermitCandidate(now), siteHasUnfinishedPermitOperation(db)),
+		)
+		.orderBy(cmsRestorePermits.siteId)
+		.limit(1_000);
+}
+
+/** Leased holders abort before expiry. Legacy holders use the accepted
+ * one-time retirement boundary; administrative claims never expire by age. */
 export async function deleteExpiredCmsRestorePermitLeases(
 	db: DbQueryClient,
 	input: DeleteExpiredCmsRestorePermitLeasesParams,
@@ -557,8 +616,16 @@ export async function deleteExpiredCmsRestorePermitLeases(
 		.from(cmsRestorePermits)
 		.where(
 			and(
-				sql`${cmsRestorePermits.id} LIKE 'lease:v1:%'`,
-				sql`${cmsRestorePermits.enteredAt} <= datetime('now', ${`-${CMS_RESTORE_LEASE_SECONDS} seconds`})`,
+				or(
+					and(
+						sql`${cmsRestorePermits.id} LIKE 'lease:v1:%'`,
+						sql`${cmsRestorePermits.enteredAt} <= datetime(${input.now ?? "now"}, ${`-${CMS_RESTORE_LEASE_SECONDS} seconds`})`,
+					),
+					and(
+						legacyPermitCandidate(input.now ?? "now"),
+						sql`NOT (${siteHasUnfinishedPermitOperation(db)})`,
+					),
+				),
 				input.siteId ? eq(cmsRestorePermits.siteId, input.siteId) : undefined,
 			),
 		)

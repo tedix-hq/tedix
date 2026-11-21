@@ -65,7 +65,7 @@ beforeAll(async () => {
 		.run();
 	await platformD1
 		.prepare(
-			"CREATE TABLE IF NOT EXISTS cms_deprovision_operations (id TEXT PRIMARY KEY)",
+			"CREATE TABLE IF NOT EXISTS cms_deprovision_operations (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'queued')",
 		)
 		.run();
 	await platformD1

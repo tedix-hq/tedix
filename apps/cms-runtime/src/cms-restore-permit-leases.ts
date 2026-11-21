@@ -1,5 +1,8 @@
 import type { DbQueryClient } from "@tedix/db/query-client";
-import { deleteExpiredCmsRestorePermitLeases } from "@tedix/db/queries/cms-restore-fences";
+import {
+	deleteExpiredCmsRestorePermitLeases,
+	listCmsLegacyPermitSkippedSites,
+} from "@tedix/db/queries/cms-restore-fences";
 
 let nextSweepAt = 0;
 
@@ -14,9 +17,13 @@ export async function sweepCmsRestorePermitLeases(
 		const removed = await deleteExpiredCmsRestorePermitLeases(db, {
 			limit: 1_000,
 		});
-		if (removed.length)
-			console.info("[cms-runtime] expired restore leases reclaimed", {
+		const skipped =
+			force || removed.length ? await listCmsLegacyPermitSkippedSites(db) : [];
+		if (removed.length || skipped.length)
+			console.info("[cms-runtime] restore permits reclaimed", {
 				removed: removed.length,
+				skippedSiteIds: skipped.map((row) => row.siteId),
+				skippedSitesLimit: 1_000,
 				byKind: removed.reduce<Record<string, number>>((counts, row) => {
 					counts[row.kind] = (counts[row.kind] ?? 0) + 1;
 					return counts;

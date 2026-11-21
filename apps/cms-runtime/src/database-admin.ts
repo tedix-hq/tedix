@@ -477,7 +477,7 @@ async function withCmsMediaBucketPermit<T>(
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
 	const permit = {
 		...identity,
-		permitId: crypto.randomUUID(),
+		permitId: `admin:media-bucket:${crypto.randomUUID()}`,
 		kind: "nested" as const,
 	};
 	let admitted: boolean;

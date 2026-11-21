@@ -99,7 +99,7 @@ export async function withExactCmsSiteRestorePermit<T>(
 	const permit = {
 		siteId: site.siteId,
 		slug: site.slug,
-		permitId: crypto.randomUUID(),
+		permitId: `admin:cms-agent:${crypto.randomUUID()}`,
 		restoreEpoch: site.restoreEpoch,
 		kind: "nested" as const,
 	};

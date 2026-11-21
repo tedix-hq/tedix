@@ -20,6 +20,7 @@ import {
 	getCmsRestoreEpoch,
 	leaveCompletedCmsScheduledPermit,
 	leaveCmsRestorePermit,
+	listCmsLegacyPermitSkippedSites,
 	reconcileCmsRestoreOuterPermits,
 	releaseCmsCaptureCronPause,
 	releaseCmsRestoreFence,
@@ -93,6 +94,94 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("reclaims legacy rows at the retirement boundary while preserving administrative and live leased holders", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(`
+			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
+				('old-nested', 'site-1', 'one', 'nested', '2026-11-21 04:31:16'),
+				('old-outer', 'site-1', 'one', 'outer', '2026-11-21 04:31:16'),
+				('old-scheduled', 'site-1', 'one', 'scheduled', '2026-11-21 04:31:16'),
+				('at-cutoff', 'site-1', 'one', 'nested', '2026-11-21 04:31:17'),
+				('admin:cms-agent:unknown', 'site-1', 'one', 'nested', '2000-01-01'),
+				('lease:v1:live', 'site-1', 'one', 'nested', '2026-11-22 04:31:16');
+		`);
+		expect(
+			await deleteExpiredCmsRestorePermitLeases(db, {
+				limit: 1_000,
+				now: "2026-11-22 04:31:16",
+			}),
+		).toEqual([]);
+		const removed = await deleteExpiredCmsRestorePermitLeases(db, {
+			limit: 1_000,
+			now: "2026-11-22 04:31:17",
+		});
+		expect(removed.map((row) => row.id).sort()).toEqual([
+			"old-nested",
+			"old-outer",
+			"old-scheduled",
+		]);
+		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
+		for (const permitId of ["at-cutoff", "admin:cms-agent:unknown"])
+			expect(
+				await leaveCmsRestorePermit(db, { ...one, kind: "nested", permitId }),
+			).toBe(true);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(false);
+		expect(
+			await leaveCmsRestorePermit(db, {
+				...one,
+				kind: "nested",
+				permitId: "lease:v1:live",
+			}),
+		).toBe(true);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(true);
+	});
+
+	it("skips legacy claims for unfinished teardown and recovery records, then reclaims after completion", async () => {
+		const { db, sqlite } = fixture();
+		const now = "2026-11-22 04:31:17";
+		sqlite.exec(`
+			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
+				('old-one', 'site-1', 'one', 'nested', '2000-01-01'),
+				('old-two', 'site-2', 'two', 'scheduled', '2000-01-01'),
+				('old-three', 'site-3', 'three', 'outer', '2000-01-01');
+			INSERT INTO cms_deprovision_operations (id, organization_id, slug, status)
+				VALUES ('site-1', 'org', 'one', 'running');
+			INSERT INTO cms_restore_fences (site_id, slug, generation, capture_id)
+				VALUES ('site-2', 'two', 'generation', 'capture');
+			INSERT INTO cms_capture_cron_pauses (site_id, slug, capture_id, expires_at_unix)
+				VALUES ('site-3', 'three', 'capture', 1);
+		`);
+		for (const status of ["queued", "running", "failed"]) {
+			sqlite
+				.prepare("UPDATE cms_deprovision_operations SET status = ?")
+				.run(status);
+			expect(
+				await deleteExpiredCmsRestorePermitLeases(db, { limit: 1_000, now }),
+			).toEqual([]);
+		}
+		expect(await listCmsLegacyPermitSkippedSites(db, now)).toEqual([
+			{ siteId: "site-1" },
+			{ siteId: "site-2" },
+			{ siteId: "site-3" },
+		]);
+		sqlite.exec(`
+			UPDATE cms_deprovision_operations SET status = 'succeeded';
+			DELETE FROM cms_restore_fences;
+			DELETE FROM cms_capture_cron_pauses;
+		`);
+		expect(
+			await deleteExpiredCmsRestorePermitLeases(db, {
+				limit: 1,
+				siteId: "site-1",
+				now,
+			}),
+		).toEqual([{ id: "old-one", siteId: "site-1", kind: "nested" }]);
+		expect(
+			await deleteExpiredCmsRestorePermitLeases(db, { limit: 1_000, now }),
+		).toHaveLength(2);
+		expect(await listCmsLegacyPermitSkippedSites(db, now)).toEqual([]);
+	});
+
 	it("sweeps lost leases without passing a renewed holder or reviving an expired generation", async () => {
 		const { db, sqlite } = fixture();
 		const active = cmsRestoreLeasePermit({
