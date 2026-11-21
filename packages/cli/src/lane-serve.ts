@@ -3667,7 +3667,12 @@ export class LaneDispatcher {
 					!attempt.outcome &&
 					attempt.expiresAt &&
 					Date.parse(attempt.expiresAt) > Date.now() &&
-					!alive(row.pid)
+					!alive(row.pid) &&
+					// A run that ended and waits for its settlement, commit proof or
+					// completion has no process by design; its own settlement follows.
+					row.phase !== "settling" &&
+					row.pendingCommitProof === undefined &&
+					!row.completionPending
 				) {
 					await this.call(
 						[
