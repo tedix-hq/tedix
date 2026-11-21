@@ -4,6 +4,11 @@
  * `TEDI_RUNTIME_SERVICE_BINDING_SCOPES`) and the way a signed-in person does.
  */
 
+import { env } from "cloudflare:workers";
+import type {
+	OrganizationLogRecord,
+	OrganizationLogRuntime,
+} from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import { createRouterClient } from "@orpc/server";
 import {
 	TEDI_CORE_MEMORY_LIMIT,
@@ -16,8 +21,18 @@ import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import {
+	afterEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+} from "vite-plus/test";
 import { TEDI_RUNTIME_SERVICE_BINDING_SCOPES } from "../../../../tedi-runtime/src/platform-client-factory";
+import {
+	getChangeRecord,
+	listChangeRecords,
+} from "../../services/organization-log";
 import type { BaseContext } from "../orpc";
 import { tediMemoryContractRouter } from "./tedi-memory";
 
@@ -245,6 +260,75 @@ describe("tedi core memory", () => {
 		await expect(
 			person("owner").restoreCoreVersion({ tediId: "mine", version: 9 }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("writes a note's provenance record to the organization's live log store", async () => {
+		const { sqlite, runtime } = fixture();
+		const records: OrganizationLogRecord[] = [];
+		const log = {
+			organizationLogAppend: async (organizationId, input) => {
+				expect(organizationId).toBe(ORG);
+				const record = {
+					...input,
+					sequence: records.length + 1,
+					recordDigest: null,
+					chainHash: null,
+				};
+				records.push(record);
+				return { status: "stored", record };
+			},
+			organizationLogList: async (organizationId, query) => ({
+				status: "live",
+				value:
+					organizationId === ORG
+						? records.filter((record) => record.resource === query.resource)
+						: [],
+			}),
+			organizationLogGet: async (organizationId, id) => ({
+				status: "live",
+				value:
+					organizationId === ORG
+						? (records.find((record) => record.id === id) ?? null)
+						: null,
+			}),
+		} satisfies Pick<
+			OrganizationLogRuntime,
+			"organizationLogAppend" | "organizationLogList" | "organizationLogGet"
+		>;
+		Object.assign(env, { WORKSPACE_RUNTIME: log });
+		onTestFinished(() => {
+			Reflect.deleteProperty(env, "WORKSPACE_RUNTIME");
+		});
+
+		await expect(
+			runtime("mine").writeNote({
+				tediId: "mine",
+				name: "release",
+				description: "Release checks",
+				content: "Release after checks pass.",
+			}),
+		).resolves.toEqual({ status: "saved" });
+		const row = sqlite
+			.prepare("SELECT revision FROM tedi_memory_documents")
+			.get() as { revision: string };
+		const revision = JSON.parse(row.revision);
+		const db = createDbClient(createD1Facade(sqlite));
+		const listed = await listChangeRecords(db, ORG, {
+			resource: "memory:tedi:mine:note:release",
+		});
+		expect(listed).toHaveLength(1);
+		expect(listed[0]).toMatchObject({
+			id: revision.provenance.changeRecordId,
+			operation: "write",
+			outcome: "applied",
+			after: { revisionId: revision.revisionId, hash: revision.hash },
+		});
+		expect(
+			await getChangeRecord(db, ORG, revision.provenance.changeRecordId),
+		).toEqual(listed[0]);
+		expect(
+			sqlite.prepare("SELECT COUNT(*) AS n FROM gateway_change_records").get(),
+		).toEqual({ n: 0 });
 	});
 
 	it("lets a tedi write, open and remove its notes and shows only their names in the read", async () => {

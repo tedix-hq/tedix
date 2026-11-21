@@ -2,16 +2,16 @@ import { evaluateCall } from "@tedix/agent-governance/compliance";
 import type { AccountabilityAdapter } from "@tedix/agent-governance/types";
 import { guardedCall } from "@tedix/agent-governance/wrap-binding";
 import {
-	appendGatewayChangeRecord,
-	getGatewayChangeRecord,
-	listGatewayChangeRecords,
-} from "@tedix/db/queries/gateway-change-records";
-import {
 	TediMemoryAdapter,
 	tediMemoryKey,
 } from "@tedix/db/queries/tedi-memory-adapter";
 import type { AppendTediMemoryVersionParams } from "@tedix/db/queries/tedi-memory";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import {
+	appendChangeRecord,
+	getChangeRecord,
+	listChangeRecords,
+} from "./organization-log";
 
 /** Called after the existing memory authorization and content checks. */
 export async function storeTediMemoryRevision(
@@ -33,17 +33,16 @@ export async function storeTediMemoryRevision(
 	const accountability: AccountabilityAdapter = {
 		append: async (record) =>
 			Object.freeze(
-				await appendGatewayChangeRecord(db, params.organizationId, {
+				await appendChangeRecord(db, params.organizationId, {
 					...record,
 					id: changeRecordId,
 				}),
 			),
-		get: (id) => getGatewayChangeRecord(db, params.organizationId, id),
-		list: (query) =>
-			listGatewayChangeRecords(db, params.organizationId, query ?? {}),
+		get: (id) => getChangeRecord(db, params.organizationId, id),
+		list: (query) => listChangeRecords(db, params.organizationId, query ?? {}),
 		export: async () => ({
 			exportedAt: new Date().toISOString(),
-			records: await listGatewayChangeRecords(db, params.organizationId, {}),
+			records: await listChangeRecords(db, params.organizationId, {}),
 		}),
 	};
 	const adapter = new TediMemoryAdapter(db, params);
