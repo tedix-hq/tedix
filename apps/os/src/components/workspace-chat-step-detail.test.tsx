@@ -11,6 +11,12 @@ import {
 } from "vite-plus/test";
 import { ChatOutputLinkContext } from "@/components/chat-markdown";
 import type { WorkspaceChatLedgerEvent } from "@/lib/workspace-chat-protocol";
+vi.mock("@/components/kumo/link-provider", async (original) => ({
+	...(await original<typeof import("@/components/kumo/link-provider")>()),
+	OsRouterLink: ({ children }: { children?: React.ReactNode }) => (
+		<a href="/task">{children}</a>
+	),
+}));
 vi.mock("@/lib/use-chat-model-preference", async (original) => ({
 	...(await original<typeof import("@/lib/use-chat-model-preference")>()),
 	useChatModelPreference: () => ({
@@ -155,6 +161,45 @@ const details = () =>
 	);
 
 describe("what the agent did", () => {
+	it("keeps a run's report with its progress when replaying a conversation", () => {
+		const fake = fakeWorkspaceChatClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed(
+				turn(
+					...codeStep.map((event) =>
+						event.type === "step.started" && event.stepId === "read"
+							? { ...event, tool: "work.startRun" }
+							: event.type === "step.finished" && event.stepId === "read"
+								? {
+										...event,
+										result: JSON.stringify({
+											kind: "agent_run",
+											workItemId: "w1",
+											title: "Read the heading",
+										}),
+									}
+								: event,
+					),
+					{
+						...base,
+						turnId: "notice",
+						seq: 8,
+						type: "agent_run.ended",
+						workItemId: "w1",
+						title: "Read the heading",
+						text: "The heading is Getting started.",
+					},
+				),
+			),
+		);
+		const report = "The heading is Getting started.";
+		expect(
+			host.querySelector('[data-slot="agent-run-card"]')?.textContent,
+		).toContain(report);
+		expect(host.textContent?.split(report)).toHaveLength(2);
+	});
+
 	it("opens a step to show the code it ran and what came back", async () => {
 		const fake = fakeWorkspaceChatClient("c1");
 		mount(fake);

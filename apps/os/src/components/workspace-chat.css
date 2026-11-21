@@ -138,6 +138,12 @@
 	gap: 8px;
 }
 
+.workspace-chat-reply[data-task-card] {
+	border: 1px solid var(--color-kumo-hairline, var(--border));
+	border-radius: 12px;
+	padding: 12px 14px;
+}
+
 .workspace-chat-prose[data-streaming="true"] > .chat-markdown::after {
 	content: "";
 	display: inline-block;
