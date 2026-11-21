@@ -1573,7 +1573,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				);
 				if (
 					!active ||
-					input.target.transport !== "rpc" ||
+					(input.target.transport !== "rpc" &&
+						input.target.transport !== "mcp") ||
 					input.target.sensitiveDataEgress !== undefined
 				)
 					throw createError(
@@ -1914,7 +1915,9 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					approval.status === "approved" &&
 					(!stored.requestingAgent ||
 						(typeof stored.requestingAttemptId === "string" &&
-							approverId === stored.approverUserId)) &&
+							approverId === stored.approverUserId &&
+							(input.target.transport !== "mcp" ||
+								input.replayUserId === approverId))) &&
 					approver?.status === "active" &&
 					(workspaceConnection
 						? await mayDecideWorkspaceConnection(

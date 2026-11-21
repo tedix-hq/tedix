@@ -71,6 +71,7 @@ export interface OwnerToolCallPayload {
 	target: Record<string, unknown>;
 	args: Record<string, unknown>;
 	fingerprint: string;
+	requestingAgent?: Record<string, unknown>;
 	workItemId?: string;
 	execution?: OwnerToolApprovalExecution;
 }
@@ -113,6 +114,9 @@ export function parseOwnerToolCallPayload(
 		target,
 		args,
 		fingerprint,
+		...(isRecord(value.requestingAgent)
+			? { requestingAgent: value.requestingAgent }
+			: {}),
 		...(typeof value.workItemId === "string"
 			? { workItemId: value.workItemId }
 			: {}),
@@ -348,19 +352,16 @@ async function activeOwnerOrAdmin(
 
 type OwnerToolRunOutcome = "succeeded" | "failed" | "queued";
 
-/**
- * A connection-transport call runs only under the requester's own verified
- * `connections.execute` grant. An owner's session in Tedix OS does not carry
- * it, so such a call can only be sent again by the requester.
- */
+/** Connection replay needs the executing human's verified grant, never an agent grant. */
 function hasVerifiedRequesterGrant(
 	context: BaseContext,
 	payload: OwnerToolCallPayload,
+	actingUserId: string,
 ): boolean {
 	return (
 		payload.target.transport === "mcp" &&
 		context.authType === "user" &&
-		context.user?.sub === payload.initiatedByUserId &&
+		context.user?.sub === actingUserId &&
 		Array.isArray(context.user.scopes) &&
 		context.user.scopes.includes("connections.execute")
 	);
@@ -599,9 +600,15 @@ async function runOwnerToolCall(
 			return fail("The approver is no longer an active owner or admin");
 		const organization = await getOrganizationById(context.db, organizationId);
 		if (!organization) return fail("Organization not found");
+		const agentConnectionCall =
+			payload.target.transport === "mcp" && Boolean(payload.requestingAgent);
+		const actingUserId = agentConnectionCall
+			? approvedBy
+			: payload.initiatedByUserId;
 		const verifiedConnectionExecute = hasVerifiedRequesterGrant(
 			context,
 			payload,
+			actingUserId,
 		);
 		const verifiedConnectionAdmin =
 			verifiedConnectionExecute &&
@@ -609,9 +616,11 @@ async function runOwnerToolCall(
 			context.user.scopes.includes("connections.admin");
 		if (payload.target.transport === "mcp" && !verifiedConnectionExecute)
 			return fail(
-				"The requester must retry with a verified connections.execute grant; no provider call was made",
+				agentConnectionCall
+					? "The approving owner must execute with their own verified connections.execute grant; no provider call was made"
+					: "The requester must retry with a verified connections.execute grant; no provider call was made",
 				false,
-				"requester",
+				agentConnectionCall ? undefined : "requester",
 			);
 		const timings: KernelWriteExecutorTimings = {};
 		const result = await activeOwnerToolExecutor({
@@ -626,7 +635,10 @@ async function runOwnerToolCall(
 				target: payload.target,
 				args: payload.args,
 				organizationId,
-				initiatedByUserId: payload.initiatedByUserId,
+				initiatedByUserId: actingUserId,
+				...(agentConnectionCall
+					? { approvalRequesterUserId: payload.initiatedByUserId }
+					: {}),
 			},
 			approvalRequestId: approval.id,
 			verifiedConnectionExecute,
@@ -769,7 +781,10 @@ export async function retryOwnerToolCallExecution(
 	// may already have changed, so the call is never run a second time.
 	if (typeof recorded.consumedAt === "string") return "outcome_unknown";
 	const requesterOnly = isRequesterOnlyOwnerToolFailure(execution);
-	if (requesterOnly && !hasVerifiedRequesterGrant(context, payload))
+	if (
+		requesterOnly &&
+		!hasVerifiedRequesterGrant(context, payload, payload.initiatedByUserId)
+	)
 		return "requester_must_retry";
 	if (!requesterOnly && !isRetryableOwnerToolExecution(execution, now))
 		return "not_retryable";

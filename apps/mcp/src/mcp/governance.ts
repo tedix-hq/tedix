@@ -921,7 +921,7 @@ async function ownerToolApproval(
 		identity.externalAgentPrincipalId &&
 		identity.externalAgentSessionId &&
 		identity.externalAgentClientRecordId &&
-		tool.config?.transport === "rpc" &&
+		(tool.config?.transport === "rpc" || tool.config?.transport === "mcp") &&
 		!options?.sensitiveDataEgress
 			? {
 					principalId: identity.externalAgentPrincipalId,
@@ -951,11 +951,17 @@ async function ownerToolApproval(
 	try {
 		const approvalRequestId =
 			options?.extra?._meta?.["com.tedix/approvalRequestId"];
+		const approvalRequesterUserId =
+			options?.extra?._meta?.["com.tedix/approvalRequesterUserId"];
 		const configHash = await sha256Hex(JSON.stringify(tool.config ?? {}));
 		const approval =
 			await agent.apiClient.mcpGovernance.requestOwnerToolApproval({
 				organizationId: agent.app.organizationId,
-				userId: agent.callerIdentity.userId,
+				userId:
+					replay && typeof approvalRequesterUserId === "string"
+						? approvalRequesterUserId
+						: agent.callerIdentity.userId,
+				...(replay ? { replayUserId: agent.callerIdentity.userId } : {}),
 				...(requestingAgent ? { requestingAgent } : {}),
 				directUserCall:
 					callerIsUserPrincipalPath(agent) &&
@@ -975,6 +981,9 @@ async function ownerToolApproval(
 					transport: tool.config?.transport ?? "rpc",
 					endpoint: tool.config?.endpoint ?? null,
 					mcpToolName: tool.config?.mcpToolName ?? null,
+					...(tool.config?.transport === "mcp"
+						? { mcpServerUrl: tool.config.mcpServerUrl ?? null }
+						: {}),
 					providerId: connectedProviderId(tool),
 					configHash,
 					...(options?.tenantPolicyCandidate

@@ -860,6 +860,91 @@ describe("agent exact native approvals", () => {
 			expect(mocks.consume).not.toHaveBeenCalled();
 		},
 	);
+	it("parks and reuses an MCP agent call, allows polling only and requires the replay's approver", async () => {
+		const connected = {
+			...call,
+			target: {
+				transport: "mcp",
+				mcpToolName: "menu_set_items",
+				mcpServerUrl: "https://builder.example.test/mcp",
+				configHash: "config-1",
+			},
+		};
+		const first = await client().requestOwnerToolApproval(connected);
+		const row = mocks.create.mock.calls[0]![1];
+		expect(row.payload).toMatchObject({
+			requestingAgent,
+			requestingAttemptId: "attempt-1",
+			workItemId,
+			target: connected.target,
+			args: call.args,
+			approverUserId: "owner-1",
+		});
+		mocks.pending.mockResolvedValue({ id: first.approvalRequestId });
+		expect(await client().requestOwnerToolApproval(connected)).toMatchObject({
+			approvalRequestId: first.approvalRequestId,
+			status: "pending",
+			approved: false,
+		});
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "user:owner-1",
+		});
+		const retry = { ...connected, approvalRequestId: first.approvalRequestId };
+		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
+			approved: false,
+		});
+		expect(mocks.consume).not.toHaveBeenCalled();
+		const replay = { ...retry, requestingAgent: undefined, userId: "owner-1" };
+		for (const patch of [
+			{ args: { items: [] } },
+			{
+				target: {
+					...connected.target,
+					mcpServerUrl: "https://other.example.test/mcp",
+				},
+			},
+		]) {
+			await expect(
+				client().requestOwnerToolApproval({
+					...replay,
+					...patch,
+					replayUserId: "owner-1",
+				}),
+			).rejects.toThrow(/different call/);
+		}
+		for (const replayUserId of [undefined, "other-owner"]) {
+			expect(
+				await client().requestOwnerToolApproval({ ...replay, replayUserId }),
+			).toMatchObject({ approved: false });
+		}
+		expect(mocks.consume).not.toHaveBeenCalled();
+		expect(
+			await client().requestOwnerToolApproval({
+				...replay,
+				replayUserId: "owner-1",
+			}),
+		).toMatchObject({ approved: true });
+		mocks.consume.mockResolvedValue(false);
+		expect(
+			await client().requestOwnerToolApproval({
+				...replay,
+				replayUserId: "owner-1",
+			}),
+		).toMatchObject({ approved: false });
+	});
+	it("creates no MCP approval without a qualifying live Attempt", async () => {
+		mocks.agentWork.mockResolvedValue(undefined);
+		await expect(
+			client().requestOwnerToolApproval({
+				...call,
+				target: { transport: "mcp" },
+			}),
+		).rejects.toThrow(/live Work Attempt/);
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
 	it("routes to the Work's designated human reviewer", async () => {
 		mocks.agentWork.mockResolvedValue({
 			...admittedWork,

@@ -150,65 +150,133 @@ it.each([undefined, "host-agent-session"])(
 	},
 );
 
-it("parks a dispatcher's gated native write and returns its approval id without authorizing execution", async () => {
-	const request = vi.fn(async () => ({
-		approved: false,
-		status: "pending",
-		approvalRequestId: "approval-1",
-		url: "https://example.test/work/approvals#approval-1",
-	}));
-	const agent = {
-		server: { server: { elicitInput: vi.fn() } },
-		appSlug: "connect",
-		app: { organizationId: "org-1" },
-		callerIdentity: {
-			authType: "external_agent",
-			organizationId: "org-1",
-			externalAgentPrincipalId: "machine",
-			externalAgentSessionId: "session",
-			externalAgentClientRecordId: "client",
-			requestWorkItemId: "work",
-		},
-		apiClient: { mcpGovernance: { requestOwnerToolApproval: request } },
-	} as unknown as ServerContext;
-	const args = { items: [{ label: "Home", url: "/" }] };
-	const admission = await admitGatewayCall({
-		agent,
-		tool: {
-			...tool,
-			toolId: "cms_landing__menu_set_items",
-			config: { transport: "rpc", endpoint: "cmsLanding/menuSetItems" },
-		},
-		args,
-		annotations: { destructiveHint: true },
-		approval: { args, autoConfirmAgent: true, allowSyncMrtr: false },
-	});
-	expect(request).toHaveBeenCalledWith(
-		expect.objectContaining({
-			requestingAgent: {
-				principalId: "machine",
-				sessionId: "session",
-				clientRecordId: "client",
+it.each(["rpc", "mcp"] as const)(
+	"parks a dispatcher's gated %s write without authorizing execution",
+	async (transport) => {
+		const request = vi.fn(async () => ({
+			approved: false,
+			status: "pending",
+			approvalRequestId: "approval-1",
+			url: "https://example.test/work/approvals#approval-1",
+		}));
+		const agent = {
+			server: { server: { elicitInput: vi.fn() } },
+			appSlug: "connect",
+			app: { organizationId: "org-1" },
+			callerIdentity: {
+				authType: "external_agent",
+				organizationId: "org-1",
+				externalAgentPrincipalId: "machine",
+				externalAgentSessionId: "session",
+				externalAgentClientRecordId: "client",
+				requestWorkItemId: "work",
 			},
-			workItemId: "work",
+			apiClient: { mcpGovernance: { requestOwnerToolApproval: request } },
+		} as unknown as ServerContext;
+		const args = { items: [{ label: "Home", url: "/" }] };
+		const admission = await admitGatewayCall({
+			agent,
+			tool: {
+				...tool,
+				toolId: "cms_landing__menu_set_items",
+				config:
+					transport === "rpc"
+						? { transport, endpoint: "cmsLanding/menuSetItems" }
+						: {
+								transport,
+								mcpServerUrl: "https://builder.example.test/mcp",
+								mcpToolName: "menu_set_items",
+							},
+			},
 			args,
-			directUserCall: false,
-		}),
-	);
-	expect(admission.failure).toMatchObject({
-		isError: true,
-		_meta: {
-			"com.tedix/approval": {
-				approvalRequestId: "approval-1",
-				status: "pending",
+			annotations: { destructiveHint: true },
+			approval: { args, autoConfirmAgent: true, allowSyncMrtr: false },
+		});
+		expect(request).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestingAgent: {
+					principalId: "machine",
+					sessionId: "session",
+					clientRecordId: "client",
+				},
+				workItemId: "work",
+				target: expect.objectContaining({
+					transport,
+					...(transport === "mcp"
+						? {
+								mcpServerUrl: "https://builder.example.test/mcp",
+								mcpToolName: "menu_set_items",
+							}
+						: { endpoint: "cmsLanding/menuSetItems" }),
+				}),
+				args,
+				directUserCall: false,
+			}),
+		);
+		expect(admission.failure).toMatchObject({
+			isError: true,
+			_meta: {
+				"com.tedix/approval": {
+					approvalRequestId: "approval-1",
+					status: "pending",
+				},
 			},
-		},
-	});
-	expect(admission.verifiedOwnerToolUserId).toBeUndefined();
-	expect(
-		await admission.settle({
-			status: "not_applied",
-			error: "Human approval required",
-		}),
-	).toBeNull();
-});
+		});
+		expect(admission.verifiedOwnerToolUserId).toBeUndefined();
+		expect(
+			await admission.settle({
+				status: "not_applied",
+				error: "Human approval required",
+			}),
+		).toBeNull();
+	},
+);
+
+it.each([true, false])(
+	"trusts the original requester metadata only on a kernel replay: %s",
+	async (kernel) => {
+		const request = vi.fn(async () => ({
+			approved: false,
+			status: "pending",
+			approvalRequestId: "approval-1",
+			url: "https://example.test",
+		}));
+		const agent = {
+			server: { server: { elicitInput: vi.fn() } },
+			appSlug: "example",
+			app: { organizationId: "org-1" },
+			callerIdentity: {
+				authType: kernel ? "service" : "oauth",
+				kernel,
+				userId: "reviewer",
+				organizationId: "org-1",
+			},
+			apiClient: { mcpGovernance: { requestOwnerToolApproval: request } },
+		} as unknown as ServerContext;
+		await admitGatewayCall({
+			agent,
+			tool,
+			args: {},
+			annotations: { destructiveHint: true },
+			approval: {
+				args: {},
+				extra: {
+					_meta: {
+						"com.tedix/approvalRequestId": "approval-1",
+						"com.tedix/approvalRequesterUserId": "owner",
+					},
+				},
+			},
+		});
+		expect(request).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: kernel ? "owner" : "reviewer",
+				...(kernel ? { replayUserId: "reviewer" } : {}),
+			}),
+		);
+		if (!kernel)
+			expect(request).toHaveBeenCalledWith(
+				expect.not.objectContaining({ replayUserId: expect.anything() }),
+			);
+	},
+);
