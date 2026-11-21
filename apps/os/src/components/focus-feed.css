@@ -322,3 +322,52 @@
 	> :is(.ft-post-link, .ft-sentence) {
 	grid-row: 2;
 }
+
+.activity-post-list .fd-preview:has(img) {
+	height: auto;
+}
+@media (max-width: 639px) {
+	.activity-posts .focus-feed,
+	.activity-post-list .focus-row {
+		padding: 0;
+	}
+	.activity-post-list {
+		gap: 0;
+	}
+	.activity-post-list .fd-story {
+		display: block;
+		padding: 1rem 0;
+		border: 0;
+		border-top: 1px solid var(--color-kumo-line);
+		border-radius: 0;
+		background: transparent;
+	}
+	.activity-post-list .ft-avatar {
+		position: absolute;
+		inset-inline-start: 0;
+		top: 1rem;
+	}
+	.activity-post-list .fd-story-body {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.activity-post-list .ft-byline {
+		min-height: 2.25rem;
+		padding-inline-start: 3rem;
+		align-items: center;
+	}
+	.activity-post-list .ft-post-link::after {
+		content: none;
+	}
+	.activity-post-list .ft-post-link:focus-visible {
+		outline: 2px solid var(--color-kumo-focus);
+	}
+	.activity-post-list textarea {
+		font-size: 1rem;
+	}
+	.activity-posts summary {
+		min-height: 44px;
+		align-content: center;
+	}
+}

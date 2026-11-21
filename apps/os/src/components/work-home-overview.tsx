@@ -1,3 +1,4 @@
+import { PencilSimple, SlidersHorizontal } from "@phosphor-icons/react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { ActivityRunningNow } from "./activity-running-now";
@@ -141,6 +142,7 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 	const [sharing, setSharing] = useState(false);
 	const [posted, setPosted] = useState(false);
 	const [pick, setPick] = useState(false);
+	const [running, setRunning] = useState(false);
 	const [details, setDetails] = useState(false);
 	const [offset, setOffset] = useState(0);
 	const available = useQuery({
@@ -191,22 +193,28 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 				<Button
 					size="sm"
 					variant="ghost"
+					aria-label="Choose projects"
+					title="Choose projects"
 					aria-expanded={pick}
 					onClick={() => setPick(!pick)}
 				>
-					Choose projects
+					<SlidersHorizontal aria-hidden className="sm:hidden" />
+					<span className="max-sm:sr-only">Choose projects</span>
 				</Button>
 				<Button
 					size="sm"
 					variant="secondary"
 					className="ms-auto"
+					aria-label="Share an update"
+					title="Share an update"
 					aria-expanded={sharing}
 					onClick={() => {
 						setPosted(false);
 						setSharing(!sharing);
 					}}
 				>
-					Share an update
+					<PencilSimple aria-hidden className="sm:hidden" />
+					<span className="max-sm:sr-only">Share an update</span>
 				</Button>
 			</div>
 			{sharing && (
@@ -274,16 +282,25 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 					Could not save your Activity preference. Try again.
 				</Text>
 			)}
-			<ActivityRunningNow
-				config={ORGANIZATION_ACTIVITY_CONFIG}
-				followedProjects={following ? projects : undefined}
-			/>
-			<Collapsible open={details} onOpenChange={setDetails}>
-				<CollapsibleDefaultTrigger>
-					Stuck and upcoming work
-				</CollapsibleDefaultTrigger>
+			<Collapsible open={running} onOpenChange={setRunning}>
+				<CollapsibleDefaultTrigger>Running now</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent>
-					{details && <OverviewSections />}
+					{running && (
+						<>
+							<ActivityRunningNow
+								config={ORGANIZATION_ACTIVITY_CONFIG}
+								followedProjects={following ? projects : undefined}
+							/>
+							<Collapsible open={details} onOpenChange={setDetails}>
+								<CollapsibleDefaultTrigger>
+									Stuck and upcoming work
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent>
+									{details && <OverviewSections />}
+								</CollapsibleDefaultContent>
+							</Collapsible>
+						</>
+					)}
 				</CollapsibleDefaultContent>
 			</Collapsible>
 			<div aria-label="Recent activity" className="activity-posts min-w-0">
