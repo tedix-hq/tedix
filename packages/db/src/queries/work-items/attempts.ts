@@ -1694,8 +1694,22 @@ export async function findAgentApprovalWork(
 	},
 ) {
 	const rows = await db
-		.select({ workItemId: workAttempts.workItemId })
+		.select({
+			workItemId: workAttempts.workItemId,
+			attemptId: workAttempts.id,
+			accountableOwnerType: workItems.accountableOwnerType,
+			accountableOwnerId: workItems.accountableOwnerId,
+			reviewerType: workItems.reviewerType,
+			reviewerId: workItems.reviewerId,
+		})
 		.from(workAttempts)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.id, workAttempts.workItemId),
+				eq(workItems.orgId, workAttempts.orgId),
+			),
+		)
 		.where(
 			and(
 				eq(workAttempts.orgId, p.orgId),
@@ -1703,9 +1717,11 @@ export async function findAgentApprovalWork(
 				eq(workAttempts.executorId, p.principalId),
 				eq(workAttempts.externalSessionKey, p.externalSessionKey),
 				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+				isNull(workAttempts.outcome),
+				sql`${workAttempts.admissionId} IS NOT NULL`,
 				sql`${workAttempts.expiresAt} > ${p.now}`,
 			),
 		)
 		.limit(2);
-	return rows.length === 1 ? rows[0]!.workItemId : undefined;
+	return rows.length === 1 ? rows[0] : undefined;
 }

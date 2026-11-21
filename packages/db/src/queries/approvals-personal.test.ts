@@ -4,19 +4,19 @@ import { createDbClient } from "../client";
 import { tediApprovalRequests } from "../schema/approvals";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listApprovalRequests } from "./approvals";
+import { getApprovalAnchor, listApprovalRequests } from "./approvals";
 
 it("keeps another person's runtime approvals out of the personal Deck, even for an administrator", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(schemaDdl(tediApprovalRequests));
 	sqlite.exec(`
-		CREATE TABLE tedis(id TEXT, organization_id TEXT, scope TEXT, owner_user_id TEXT);
+		CREATE TABLE tedis(id TEXT, organization_id TEXT, scope TEXT, owner_user_id TEXT, retired_at TEXT);
 		CREATE TABLE kernel_conversations(organization_id TEXT, conversation_id TEXT, workspace_id TEXT);
 		CREATE TABLE kernel_conversation_grants(organization_id TEXT, conversation_id TEXT, grantee_descope_user_id TEXT);
 		CREATE TABLE kernel_runtime_runs(id TEXT, organization_id TEXT, conversation_id TEXT);
 		CREATE TABLE os_workspaces(id TEXT, organization_id TEXT, visibility TEXT, owner_user_id TEXT);
-		INSERT INTO tedis VALUES('luz-tedi','org','personal','luz'),('river-tedi','org','personal','river'),('shared-tedi','org','organization',NULL);
+		INSERT INTO tedis VALUES('luz-tedi','org','personal','luz',NULL),('river-tedi','org','personal','river',NULL),('shared-tedi','org','organization',NULL,NULL);
 		INSERT INTO kernel_conversations VALUES('org','private-chat','river-space'),('org','luz-chat','luz-space');
 		INSERT INTO kernel_conversation_grants VALUES('org','private-chat','river'),('org','luz-chat','luz');
 		INSERT INTO kernel_runtime_runs VALUES('private-run','org','private-chat');
@@ -33,6 +33,8 @@ it("keeps another person's runtime approvals out of the personal Deck, even for 
 		["private-run", "shared-tedi", { homeRunId: "private-run" }],
 		["private-workspace", "shared-tedi", { workspaceId: "river-space" }],
 		["own-home", "shared-tedi", { homeConversationId: "luz-chat" }],
+		["owner-approval", "shared-tedi", { approverUserId: "luz" }],
+		["reviewer-approval", "shared-tedi", { approverUserId: "river" }],
 	] as const)
 		insert.run(
 			id,
@@ -44,6 +46,9 @@ it("keeps another person's runtime approvals out of the personal Deck, even for 
 		);
 	const db = createDbClient(createD1Facade(sqlite));
 	try {
+		expect(await getApprovalAnchor(db, "org", "reviewer")).toEqual({
+			id: "shared-tedi",
+		});
 		const first = await listApprovalRequests(db, {
 			orgId: "org",
 			viewerUserId: "luz",
@@ -57,9 +62,9 @@ it("keeps another person's runtime approvals out of the personal Deck, even for 
 			limit: 2,
 			offset: 2,
 		});
-		expect(first.total).toBe(3);
+		expect(first.total).toBe(4);
 		expect([...first.data, ...second.data].map((row) => row.id).sort()).toEqual(
-			["own", "own-home", "shared"],
+			["own", "own-home", "owner-approval", "shared"],
 		);
 		expect(
 			(

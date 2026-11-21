@@ -785,86 +785,213 @@ describe("owner gateway approvals", () => {
 	});
 });
 
-describe("owner-bound agent exact native approvals", () => {
+describe("agent exact native approvals", () => {
 	const requestingAgent = {
 		principalId: "11111111-1111-4111-8111-111111111111",
 		sessionId: "22222222-2222-4222-8222-222222222222",
 		clientRecordId: "client-1",
 	};
 	const workItemId = "33333333-3333-4333-8333-333333333333";
-	const archive = {
+	const admittedWork = {
+		workItemId,
+		attemptId: "attempt-1",
+		accountableOwnerType: "user",
+		accountableOwnerId: "owner-1",
+		reviewerType: null,
+		reviewerId: null,
+	};
+	const call = {
 		...input,
 		userId: undefined,
 		requestingAgent,
-		toolId: "archive_project",
-		target: { transport: "rpc", endpoint: "projects/archive" },
-		args: { id: "44444444-4444-4444-8444-444444444444" },
+		toolId: "cms_landing__menu_set_items",
+		target: {
+			transport: "rpc",
+			endpoint: "cmsLanding/menuSetItems",
+			configHash: "config-1",
+		},
+		args: { items: [{ label: "Home", url: "/" }] },
 	};
 	beforeEach(() => {
 		mocks.agent.mockResolvedValue({
 			principal: {
-				credentialBindingType: "owner_user",
-				credentialBindingId: "owner-1",
+				credentialBindingType: "api_key",
+				credentialBindingId: "machine-client",
 			},
 			session: { externalSessionKey: "codex:example" },
 		});
-		mocks.agentWork.mockResolvedValue(workItemId);
+		mocks.agentWork.mockResolvedValue(admittedWork);
 	});
-	it("parks the exact call on its admitted Work with machine attribution and reuses its pending card", async () => {
-		const first = await client().requestOwnerToolApproval(archive);
-		expect(first.approved).toBe(false);
-		expect(mocks.create.mock.calls[0]![1].payload).toMatchObject({
-			requestingAgent,
-			workItemId,
-			args: archive.args,
-			target: archive.target,
+	it.each(["api_key", "aih_m2m", "owner_user"])(
+		"parks a %s agent's exact call for its Work owner and reuses its pending card",
+		async (credentialBindingType) => {
+			mocks.agent.mockResolvedValue({
+				principal: {
+					credentialBindingType,
+					credentialBindingId:
+						credentialBindingType === "owner_user"
+							? "owner-1"
+							: "machine-client",
+				},
+				session: { externalSessionKey: "codex:example" },
+			});
+			const first = await client().requestOwnerToolApproval(call);
+			expect(first.approved).toBe(false);
+			expect(mocks.create.mock.calls[0]![1].payload).toMatchObject({
+				requestingAgent,
+				workItemId,
+				requestingAttemptId: "attempt-1",
+				initiatedByUserId: "owner-1",
+				approverUserId: "owner-1",
+				args: call.args,
+				target: call.target,
+			});
+			expect(mocks.create.mock.calls[0]![2]).toMatchObject({
+				actorType: "external_agent",
+				actorId: requestingAgent.principalId,
+			});
+			mocks.pending.mockResolvedValue({ id: first.approvalRequestId });
+			expect(await client().requestOwnerToolApproval(call)).toMatchObject({
+				approvalRequestId: first.approvalRequestId,
+				status: "pending",
+				approved: false,
+			});
+			expect(mocks.create).toHaveBeenCalledTimes(1);
+			expect(mocks.consume).not.toHaveBeenCalled();
+		},
+	);
+	it("routes to the Work's designated human reviewer", async () => {
+		mocks.agentWork.mockResolvedValue({
+			...admittedWork,
+			reviewerType: "user",
+			reviewerId: "reviewer",
 		});
-		expect(mocks.create.mock.calls[0]![2]).toMatchObject({
-			actorType: "external_agent",
-			actorId: requestingAgent.principalId,
-		});
-		mocks.pending.mockResolvedValue({ id: first.approvalRequestId });
-		expect(await client().requestOwnerToolApproval(archive)).toMatchObject({
-			approvalRequestId: first.approvalRequestId,
-			status: "pending",
-			approved: false,
-		});
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-		expect(mocks.consume).not.toHaveBeenCalled();
+		await client().requestOwnerToolApproval(call);
+		expect(mocks.create.mock.calls[0]![1].payload.approverUserId).toBe(
+			"reviewer",
+		);
 	});
 	it.each([
 		"revoked",
 		"foreign owner",
-		"api key",
+		"owner-bound foreign Work",
+		"non-user owner",
 		"no Attempt",
 		"foreign Work",
-		"consume",
 		"external",
+		"self approval",
 	])("refuses %s without a new card or execution", async (mode) => {
 		if (mode === "revoked") mocks.agent.mockResolvedValue(null);
-		if (mode === "api key")
+		if (mode === "owner-bound foreign Work")
 			mocks.agent.mockResolvedValue({
 				principal: {
-					credentialBindingType: "api_key",
+					credentialBindingType: "owner_user",
 					credentialBindingId: "other",
 				},
+				session: { externalSessionKey: "codex:example" },
+			});
+		if (mode === "non-user owner")
+			mocks.agentWork.mockResolvedValue({
+				...admittedWork,
+				accountableOwnerType: "tedi",
 			});
 		if (mode === "no Attempt") mocks.agentWork.mockResolvedValue(undefined);
+		if (mode === "self approval")
+			mocks.agentWork.mockResolvedValue({
+				...admittedWork,
+				reviewerType: "user",
+				reviewerId: requestingAgent.principalId,
+			});
 		await expect(
 			client().requestOwnerToolApproval({
-				...archive,
+				...call,
 				...(mode === "foreign owner" ? { userId: "other" } : {}),
 				...(mode === "foreign Work"
 					? { workItemId: "55555555-5555-4555-8555-555555555555" }
-					: {}),
-				...(mode === "consume"
-					? { approvalRequestId: "66666666-6666-4666-8666-666666666666" }
 					: {}),
 				...(mode === "external" ? { target: { transport: "external" } } : {}),
 			}),
 		).rejects.toThrow();
 		expect(mocks.create).not.toHaveBeenCalled();
 		expect(mocks.consume).not.toHaveBeenCalled();
+	});
+	it("polls the stored outcome on a successor Attempt without consuming it", async () => {
+		const first = await client().requestOwnerToolApproval(call);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "user:owner-1",
+			payload: { ...row.payload, execution: { status: "executed" } },
+		});
+		mocks.agentWork.mockResolvedValue({
+			...admittedWork,
+			attemptId: "attempt-2",
+		});
+		expect(
+			await client().requestOwnerToolApproval({
+				...call,
+				approvalRequestId: first.approvalRequestId,
+			}),
+		).toMatchObject({ approved: false, status: "executed" });
+		expect(mocks.consume).not.toHaveBeenCalled();
+	});
+	it("binds requests to the original Attempt, tool, arguments and target", async () => {
+		const first = await client().requestOwnerToolApproval(call);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "user:owner-1",
+		});
+		for (const patch of [
+			{ toolId: "different_tool" },
+			{ args: { items: [] } },
+			{ target: { ...call.target, configHash: "changed" } },
+		]) {
+			await expect(
+				client().requestOwnerToolApproval({
+					...call,
+					...patch,
+					approvalRequestId: first.approvalRequestId,
+				}),
+			).rejects.toThrow(/different call/);
+		}
+		mocks.agentWork.mockResolvedValue({
+			...admittedWork,
+			attemptId: "attempt-2",
+		});
+		await client().requestOwnerToolApproval(call);
+		expect(mocks.create.mock.calls[1]![1].payload.fingerprint).not.toBe(
+			row.payload.fingerprint,
+		);
+		expect(mocks.consume).not.toHaveBeenCalled();
+	});
+	it("permits only the exact approved stored call to consume once on human replay", async () => {
+		const first = await client().requestOwnerToolApproval(call);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "user:owner-1",
+		});
+		const replay = {
+			...call,
+			requestingAgent: undefined,
+			userId: "owner-1",
+			approvalRequestId: first.approvalRequestId,
+		};
+		await expect(
+			client().requestOwnerToolApproval({ ...replay, args: { items: [] } }),
+		).rejects.toThrow(/different call/);
+		expect(mocks.consume).not.toHaveBeenCalled();
+		expect(await client().requestOwnerToolApproval(replay)).toMatchObject({
+			approved: true,
+		});
+		mocks.consume.mockResolvedValue(false);
+		expect(await client().requestOwnerToolApproval(replay)).toMatchObject({
+			approved: false,
+		});
 	});
 });
 

@@ -1560,6 +1560,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);
 			let workItemId = input.workItemId;
+			let requestingAttemptId: string | undefined;
+			let approverUserId: string | undefined;
 			if (input.requestingAgent) {
 				const active = await resolveAuthorizedExternalAgentMcpSession(
 					context.db,
@@ -1571,21 +1573,12 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				);
 				if (
 					!active ||
-					active.principal.credentialBindingType !== "owner_user" ||
-					(input.userId !== undefined &&
-						active.principal.credentialBindingId !== input.userId) ||
 					input.target.transport !== "rpc" ||
 					input.target.sensitiveDataEgress !== undefined
 				)
 					throw createError(
 						ErrorCodes.FORBIDDEN,
-						"Only a verified owner-bound agent may request this exact native call approval",
-					);
-				// A machine can ask, never consume a human's approval as itself.
-				if (input.approvalRequestId)
-					throw createError(
-						ErrorCodes.FORBIDDEN,
-						"Approve in Tedix OS to run the stored call",
+						"Only a verified agent may request this exact native call approval",
 					);
 				const admittedWork = await findAgentApprovalWork(context.db, {
 					orgId: input.organizationId,
@@ -1593,13 +1586,38 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					externalSessionKey: active.session.externalSessionKey,
 					now: new Date().toISOString(),
 				});
-				if (!admittedWork || (workItemId && workItemId !== admittedWork))
+				if (
+					!admittedWork ||
+					(workItemId && workItemId !== admittedWork.workItemId)
+				)
 					throw createError(
 						ErrorCodes.FORBIDDEN,
 						"An exact native approval request requires this agent's one live Work Attempt",
 					);
-				workItemId = admittedWork;
-				input.userId = active.principal.credentialBindingId;
+				if (
+					admittedWork.accountableOwnerType !== "user" ||
+					!admittedWork.accountableOwnerId ||
+					(input.userId !== undefined &&
+						input.userId !== admittedWork.accountableOwnerId) ||
+					(active.principal.credentialBindingType === "owner_user" &&
+						active.principal.credentialBindingId !==
+							admittedWork.accountableOwnerId) ||
+					(admittedWork.reviewerId && admittedWork.reviewerType !== "user")
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Exact native approval requires user-accountable Work owned by the requesting owner",
+					);
+				workItemId = admittedWork.workItemId;
+				requestingAttemptId = admittedWork.attemptId;
+				input.userId = admittedWork.accountableOwnerId;
+				approverUserId =
+					admittedWork.reviewerId ?? admittedWork.accountableOwnerId;
+				if (approverUserId === input.requestingAgent.principalId)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"An agent cannot approve its own call",
+					);
 			}
 			if (!input.userId && !context.workspaceConnectionRead)
 				throw createError(
@@ -1745,7 +1763,12 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				target: input.target,
 				args: input.args,
 				...(input.requestingAgent
-					? { workItemId, principalId: input.requestingAgent.principalId }
+					? {
+							workItemId,
+							requestingAttemptId,
+							approverUserId,
+							principalId: input.requestingAgent.principalId,
+						}
 					: {}),
 			});
 			const callIdentity = ownerToolCallIdentity({
@@ -1789,9 +1812,14 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							: {},
 				});
 				if (
-					approval.payload.fingerprint !== fingerprint &&
-					(workspaceRead ||
-						(await canonicalDigest(storedIdentity)) !== callFingerprint)
+					(input.requestingAgent &&
+						(stored.toolId !== input.toolId ||
+							stored.appSlug !== input.appSlug ||
+							(await canonicalDigest(stored.target)) !==
+								(await canonicalDigest(input.target)))) ||
+					(approval.payload.fingerprint !== fingerprint &&
+						(workspaceRead ||
+							(await canonicalDigest(storedIdentity)) !== callFingerprint))
 				) {
 					const differences = ownerToolCallDifferences(
 						storedIdentity,
@@ -1801,6 +1829,35 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						ErrorCodes.FORBIDDEN,
 						`Approval ${approval.id} is for a different call (${differences.join(", ") || "bindings"} differ); request a new approval`,
 					);
+				}
+				if (input.requestingAgent) {
+					const requester = stored.requestingAgent as
+						| Record<string, unknown>
+						| undefined;
+					if (
+						requester?.principalId !== input.requestingAgent.principalId ||
+						stored.workItemId !== workItemId ||
+						typeof stored.requestingAttemptId !== "string"
+					)
+						throw createError(
+							ErrorCodes.FORBIDDEN,
+							"Approval belongs to a different Work or requesting agent",
+						);
+					const execution = stored.execution as
+						| Record<string, unknown>
+						| undefined;
+					// Polling never grants execution authority, including on a successor Attempt.
+					return {
+						approved: false,
+						approvalRequestId: approval.id,
+						status:
+							approval.expiresAt <= now
+								? "expired"
+								: typeof execution?.status === "string"
+									? execution.status
+									: approval.status,
+						url: `${origin.replace(/\/+$/, "")}/work/approvals#${approval.id}`,
+					};
 				}
 				// A policy-bound approval can be consumed only while the exact
 				// owner-reviewed rule still matches. The gateway must independently
@@ -1855,6 +1912,9 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					: undefined;
 				const approved =
 					approval.status === "approved" &&
+					(!stored.requestingAgent ||
+						(typeof stored.requestingAttemptId === "string" &&
+							approverId === stored.approverUserId)) &&
 					approver?.status === "active" &&
 					(workspaceConnection
 						? await mayDecideWorkspaceConnection(
@@ -1950,7 +2010,11 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					? "a scheduled workspace read"
 					: requester?.name || "the requesting organization member";
 			// The anchor supplies the existing approval queue's FK, never tedi authority.
-			const anchor = await getApprovalAnchor(context.db, input.organizationId);
+			const anchor = await getApprovalAnchor(
+				context.db,
+				input.organizationId,
+				approverUserId,
+			);
 			if (!anchor)
 				throw createError(
 					ErrorCodes.NOT_FOUND,
@@ -1978,7 +2042,11 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						args: input.args,
 						fingerprint,
 						...(input.requestingAgent
-							? { requestingAgent: input.requestingAgent }
+							? {
+									requestingAgent: input.requestingAgent,
+									requestingAttemptId,
+									approverUserId,
+								}
 							: {}),
 						...(workItemId ? { workItemId } : {}),
 					},

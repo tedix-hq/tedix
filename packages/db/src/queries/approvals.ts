@@ -20,6 +20,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	or,
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
@@ -169,6 +170,7 @@ export async function listApprovalRequests(
 		if (!orgId) return { data: [], total: 0 };
 		const personId = options.viewerUserId;
 		conditions.push(
+			sql`(json_extract(${tediApprovalRequests.payload}, '$.approverUserId') IS NULL OR json_extract(${tediApprovalRequests.payload}, '$.approverUserId') = ${personId})`,
 			sql`NOT EXISTS (SELECT 1 FROM tedis AS personal WHERE personal.id = ${tediApprovalRequests.tediId} AND personal.organization_id = ${tediApprovalRequests.orgId} AND personal.scope = 'personal' AND (personal.owner_user_id IS NULL OR personal.owner_user_id <> ${personId}))`,
 			sql`(NOT EXISTS (SELECT 1 FROM kernel_conversation_grants AS grants WHERE grants.organization_id = ${tediApprovalRequests.orgId} AND grants.conversation_id = ${conversationId}) OR EXISTS (SELECT 1 FROM kernel_conversation_grants AS mine WHERE mine.organization_id = ${tediApprovalRequests.orgId} AND mine.conversation_id = ${conversationId} AND mine.grantee_descope_user_id = ${personId}))`,
 			osWorkspaceChildVisibleToPredicate(db, orgId, workspaceId, {
@@ -1269,12 +1271,25 @@ export async function consumeHomeToolApprovalCall(
 export async function getApprovalAnchor(
 	db: DbClient,
 	organizationId: string,
+	approverUserId?: string,
 ): Promise<{ id: string } | undefined> {
 	const [row] = await db
 		.select({ id: tedis.id })
 		.from(tedis)
 		.where(
-			and(eq(tedis.organizationId, organizationId), isNull(tedis.retiredAt)),
+			and(
+				eq(tedis.organizationId, organizationId),
+				isNull(tedis.retiredAt),
+				approverUserId
+					? or(
+							eq(tedis.scope, "organization"),
+							and(
+								eq(tedis.scope, "personal"),
+								eq(tedis.ownerUserId, approverUserId),
+							),
+						)
+					: undefined,
+			),
 		)
 		.limit(1);
 	return row;
