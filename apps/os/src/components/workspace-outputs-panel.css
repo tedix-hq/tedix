@@ -50,12 +50,6 @@
 	white-space: nowrap;
 }
 
-.workspace-outputs-count {
-	color: var(--text-color-kumo-subtle);
-	font-variant-numeric: tabular-nums;
-	font-weight: 400;
-}
-
 .workspace-outputs-body {
 	display: flex;
 	min-height: 0;
@@ -168,22 +162,14 @@
 }
 
 .workspace-outputs-empty {
-	display: grid;
-	justify-items: start;
-	gap: 8px;
-	padding: 12px 10px;
-	color: var(--text-color-kumo-subtle);
+	margin: 8px;
 }
 
-.workspace-outputs-empty p,
 .workspace-outputs-note {
 	margin: 0;
 	color: var(--text-color-kumo-subtle);
 	font-size: var(--text-tedix-label);
 	line-height: var(--text-tedix-label--line-height);
-}
-
-.workspace-outputs-note {
 	padding: 12px 10px;
 }
 

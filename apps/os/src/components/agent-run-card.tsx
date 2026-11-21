@@ -261,14 +261,19 @@ export function AgentRunCardView({
 					/>
 				) : null}
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<LinkComponent
-						to="/work/items/$workItemId"
-						params={{ workItemId: agentRun.workItemId }}
-						className="inline-flex min-h-8 items-center gap-0.5 rounded-md text-kumo-link text-sm no-underline hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus coarse:min-h-11 max-sm:min-h-11"
+					<Button
+						variant="link"
+						size="sm"
+						render={
+							<LinkComponent
+								to="/work/items/$workItemId"
+								params={{ workItemId: agentRun.workItemId }}
+							/>
+						}
 					>
 						Open task
 						<CaretRight size={11} aria-hidden />
-					</LinkComponent>
+					</Button>
 					{canInterrupt && onInterrupt && !composingInterrupt ? (
 						<Button
 							type="button"

@@ -403,7 +403,7 @@ describe("WorkspaceOutputsPanel", () => {
 		const doc = renderPanel({ items: [] });
 		expect(
 			doc.querySelector("[data-workspace-outputs-empty]")?.textContent,
-		).toBe(WORKSPACE_OUTPUTS_EMPTY_COPY);
+		).toContain(WORKSPACE_OUTPUTS_EMPTY_COPY);
 		expect(doc.querySelector('ul[aria-label="Files"]')).toBeNull();
 	});
 

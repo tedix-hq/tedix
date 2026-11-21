@@ -66,7 +66,7 @@
 	width: 24px;
 	height: 24px;
 	flex-basis: 24px;
-	font-size: 12px;
+	font-size: var(--text-tedix-label);
 }
 
 .canvas-workspace-title {
@@ -76,10 +76,10 @@
 .canvas-workspace-title h1 {
 	overflow: hidden;
 	margin: 0;
-	font-size: 14px;
+	font-size: var(--text-tedix-body);
 	font-weight: 500;
 	letter-spacing: -0.25px;
-	line-height: 20px;
+	line-height: var(--text-tedix-body--line-height);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -207,23 +207,9 @@
 }
 
 .canvas-resource-search {
-	position: relative;
-	display: flex;
 	width: min(100%, 20rem);
 	flex: none;
-	align-items: center;
 	grid-column: 1 / -1;
-}
-
-.canvas-resource-search > svg {
-	position: absolute;
-	left: 10px;
-	z-index: 1;
-	color: var(--text-color-kumo-subtle);
-}
-
-.canvas-resource-search input {
-	padding-left: 32px;
 }
 
 .canvas-resource-library-sections {
@@ -251,7 +237,7 @@
 .canvas-resource-group-label {
 	padding-top: 4px;
 	color: var(--text-color-kumo-subtle);
-	font-size: 11px;
+	font-size: var(--text-tedix-caption);
 	font-weight: 600;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
@@ -497,7 +483,7 @@
 	width: 3px;
 	height: 4px;
 	flex: 0 1 3px;
-	border-radius: 999px;
+	border-radius: var(--radius-full, 9999px);
 	background: currentColor;
 	opacity: 0.78;
 	transition:
@@ -783,8 +769,8 @@
 
 .canvas-document-header > span,
 .canvas-document-header [data-kumo-component="Badge"] {
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-tedix-label);
+	line-height: var(--text-tedix-label--line-height);
 }
 
 /* The pane toggles belong to wide screens; phones use the switcher. */
@@ -824,10 +810,11 @@
 	bottom: 100%;
 	left: -2px;
 	padding: 1px 5px;
-	border-radius: 4px 4px 4px 0;
+	border-radius: var(--radius-sm) var(--radius-sm) var(--radius-sm) 0;
 	background: var(--collab-color);
 	color: var(--text-color-kumo-inverse);
-	font: 600 11px/1.4 var(--font-sans, system-ui, sans-serif);
+	font: 600 var(--text-tedix-caption)/1.4
+		var(--font-sans, system-ui, sans-serif);
 	white-space: nowrap;
 	user-select: none;
 	animation: collab-caret-label-idle 400ms ease 3s forwards;
@@ -875,7 +862,7 @@
 	height: 10px;
 	width: 10px;
 	border: 2px solid var(--card);
-	border-radius: 999px;
+	border-radius: var(--radius-full, 9999px);
 	background: var(--color-kumo-success);
 }
 
@@ -1244,7 +1231,7 @@
 	padding-inline: 8px;
 	color: var(--text-color-kumo-subtle);
 	font-family: var(--font-mono);
-	font-size: 13px;
+	font-size: var(--text-tedix-control);
 	font-weight: 400;
 }
 .canvas-code-file-button[aria-current="page"] {
@@ -1291,7 +1278,7 @@
 	min-width: 0;
 	overflow: hidden;
 	font-family: var(--font-mono);
-	font-size: 13px;
+	font-size: var(--text-tedix-control);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -1307,8 +1294,8 @@
 .canvas-code-file-actions > p {
 	max-width: 28rem;
 	color: var(--text-color-kumo-subtle);
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-tedix-label);
+	line-height: var(--text-tedix-label--line-height);
 }
 /* The file editor fills the column and scrolls inside itself. */
 .app-code-editor {
@@ -1324,8 +1311,8 @@
 	padding: 12px 16px 12px 62px;
 	color: var(--text-color-kumo-default);
 	font-family: var(--font-mono);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-tedix-control);
+	line-height: var(--text-tedix-body--line-height);
 	tab-size: 2;
 }
 .canvas-code-file > :last-child {

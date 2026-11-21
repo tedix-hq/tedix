@@ -1520,6 +1520,8 @@ export function CanvasPage({
 			workspaceId !== null &&
 			(outputs.isPending || gadgets.isPending || resources.isPending),
 		error: outputs.isError,
+		onRetry: () => void outputs.refetch(),
+		retrying: outputs.isFetching,
 		selectedDoc: selectedDoc?.type === "repository" ? null : selectedDoc,
 	};
 	const openOutputsPanelItem = (doc: CanvasDocSelection) => {
