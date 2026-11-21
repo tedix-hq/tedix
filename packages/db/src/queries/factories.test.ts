@@ -85,6 +85,31 @@ function seed() {
 }
 
 describe("listFactoryHealth", () => {
+	it.each(["off_slot", "skipped"])(
+		"reports %s results as skipped rather than completed",
+		async (status) => {
+			const db = seed();
+			await db.run(
+				sql`UPDATE skill_runs SET result = ${JSON.stringify({ status, summary: "Outside the local slot window" })} WHERE id = 'r-radar-1'`,
+			);
+			const radar = (
+				await listFactoryHealth(db, { orgId: ORG, now: NOW, runLimit: 2 })
+			).find((entry) => entry.slug === "radar")!;
+			expect(radar.runs[0]).toMatchObject({ status: "skipped", delivered: 0 });
+			expect(radar.verdict).toBe("idle");
+			expect(radar.reason).toBe(
+				"Run r-radar-1 skipped: Outside the local slot window",
+			);
+			await db.run(
+				sql`UPDATE skill_runs SET status = 'failed' WHERE id = 'r-radar-1'`,
+			);
+			const failed = (
+				await listFactoryHealth(db, { orgId: ORG, now: NOW, runLimit: 2 })
+			).find((entry) => entry.slug === "radar")!;
+			expect(failed.runs[0]!.status).toBe("failed");
+			expect(failed.verdict).toBe("failing");
+		},
+	);
 	it.each([
 		{
 			backgroundOutcome: {

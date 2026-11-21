@@ -27,8 +27,10 @@ tuning, and keeps the current trap list in one place.
 For an overnight coordinator, use a tedi-owned scheduled automation to
 run the participating tedis, save their replies in a dated Workspace sheet,
 file deduplicated blocker Work and write a morning brief. Cover both UTC
-offsets for a local-time schedule and return `off_slot` before any mutation
-outside its local slots. Prove a guarded run and a full manual cycle before
+offsets for a local-time schedule and return `status: "skipped"` with
+`reason: "off_slot"` before any mutation outside its local slots. Allow delayed
+starts: generated report lanes keep the first 30 minutes after each slot,
+using that slot's cycle key. Prove a guarded run and a full manual cycle before
 activation. A running `tedix channel codex <thread-id>` listener can queue Work
 events into that local thread or resume it headlessly; the cloud schedule
 survives the local session ending, while local execution still needs that
@@ -360,7 +362,7 @@ Workspace once you add it as a Workspace resource:
 `connectionScope: "tenant"`, `resourceType: "skill"`, the skill ID as
 `providerResourceId` and a plain `name`. Add `metadata.purpose` for the
 one-line purpose and `metadata.runsAt` when the automation keeps only some
-local times of a daylight-saving cron and returns `status: "off_slot"` for
+local times of a daylight-saving cron and returns `status: "skipped"` for
 the rest. Return `cards` or a one-line `summary` in the run result so the
 Workspace can say what the last run did. `list_os_workspace_schedules`
 reads the same rows the Workspace shows.
