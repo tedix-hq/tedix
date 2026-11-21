@@ -1434,7 +1434,10 @@ function trayMenu(): Menu {
 		{ label: "Open Tedix", click: showMain },
 		{ label: "New Chat…", click: openInputBar },
 		{ type: "separator" },
-		{ label: runnersLine(), enabled: false },
+		// A line on the runners only when something is off: paused, stopped or failing.
+		...(runnersPaused() || !runnersRunning()
+			? [{ label: runnersLine(), enabled: false }]
+			: []),
 		{ label: "This Mac…", click: openPanel },
 		runnersPaused() || !runnersRunning()
 			? { label: "Resume Runners", click: () => void restartRunners() }
