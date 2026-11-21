@@ -1824,6 +1824,10 @@
 		{
 			"name": "20261121093934_tedi-memory-revisions/migration.sql",
 			"sha256": "ae1d31258beef570872bd16d0b321997e2da9473a4b9ab0a73de67a0a8aba79b"
+		},
+		{
+			"name": "20261121103616_drop_unused_memory_runtime_indexes/migration.sql",
+			"sha256": "36935f5486d70c7808ea93513ff69176c6650879489229191364f97b18d4db56"
 		}
 	]
 }

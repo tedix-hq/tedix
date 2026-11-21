@@ -39,4 +39,6 @@ export const tenantStoreMigrations: Record<string, string> = {
 		"ALTER TABLE `os_workspaces` ADD `default_tedi_id` text;",
 	"20261120201535_workspace_agent_access":
 		"ALTER TABLE `os_workspaces` ADD `machine_access` integer;--> statement-breakpoint\nALTER TABLE `os_workspaces` ADD `highest_approval_mode` text;",
+	"20261121103432_drop_unused_memory_runtime_indexes":
+		"DROP INDEX IF EXISTS `idx_memory_facts_confidence`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_visibility`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_priority`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_scope`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_use_policy`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_review_status`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_kernel_runtime_events_child_created`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_kernel_runtime_events_trace`;",
 };
