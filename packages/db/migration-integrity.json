@@ -1840,6 +1840,10 @@
 		{
 			"name": "20261121153227_drop_prefix_redundant_indexes/migration.sql",
 			"sha256": "1895054d333b80b9fb4c3da3e93c8468c6dbee2653a78b58f05ca12686db887d"
+		},
+		{
+			"name": "20261121165230_direct_workers_ai_execution/migration.sql",
+			"sha256": "33e47f5b55333e96538da7e182e68d0e9455bf44a39926c0e5cbd3ec49f0a207"
 		}
 	]
 }

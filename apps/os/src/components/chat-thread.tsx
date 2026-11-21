@@ -16,6 +16,7 @@ import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry
 import {
 	isLocalAiUnavailable,
 	isLocalWorkersAi,
+	localWorkersAiRouteLabel,
 	LOCAL_AI_UNAVAILABLE,
 } from "@/lib/local-inference";
 import {
@@ -2856,9 +2857,9 @@ export function ChatThread({
 									as="span"
 									role="label"
 									tone="secondary"
-									title="Model configured by the local launcher; inference billed to your inference account"
+									title="Model requests are billed to your Cloudflare account"
 								>
-									Auto
+									{localWorkersAiRouteLabel() ?? "Workers AI"}
 								</Text>
 							) : (
 								<ChatModelPicker

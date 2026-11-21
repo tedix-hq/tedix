@@ -1,6 +1,6 @@
 /**
- * The model port streams configured Azure or Workers AI deployments through
- * the authenticated AI Gateway; tests can substitute a scripted provider.
+ * The model port uses AI Gateway for hosted deployments and can use the
+ * Workers AI binding directly in Local Tedix.
  */
 import type {
 	AssistantMessageEventStream,
@@ -14,6 +14,10 @@ import {
 	resolveAiGatewayTransport,
 	type AiGatewayTransportEnv,
 } from "@tedix/workers-ai/gateway-transport";
+import {
+	callWorkersAi,
+	type WorkersAiTransportRequest,
+} from "@tedix/workers-ai/transport";
 import {
 	azureExecutionIdentity,
 	ProviderExecutionIdentitySchema,
@@ -140,7 +144,21 @@ export interface WorkspaceModelChoice {
 }
 
 export type WorkspaceModelEnv = AzureGatewayEnv &
-	AiGatewayTransportEnv & { DB?: D1Database };
+	AiGatewayTransportEnv & {
+		DB?: D1Database;
+		ENVIRONMENT?: string;
+		TEDIX_LOCAL_WORKERS_AI_ROUTE?: string;
+	};
+
+function directWorkersAiConfigured(env: WorkspaceModelEnv): boolean {
+	return (
+		env.ENVIRONMENT === "development" &&
+		env.TEDIX_LOCAL_WORKERS_AI_ROUTE === "direct" &&
+		!!env.AI &&
+		!!configured(env.AI_GATEWAY_ACCOUNT_ID) &&
+		!configured(env.AI_GATEWAY_LLM_ID)
+	);
+}
 
 function workersAiTransport(env: WorkspaceModelEnv) {
 	const gateway = configured(env.AI_GATEWAY_LLM_ID);
@@ -159,7 +177,12 @@ function workersAiTransport(env: WorkspaceModelEnv) {
 
 function workersAiModels(env: WorkspaceModelEnv): string[] {
 	const raw = env.AI_GATEWAY_AUTO_ALLOWED_MODELS;
-	if (!raw || !configured(raw) || !workersAiTransport(env)) return [];
+	if (
+		!raw ||
+		!configured(raw) ||
+		(!directWorkersAiConfigured(env) && !workersAiTransport(env))
+	)
+		return [];
 	const ids = raw.split(",").map((id) => id.trim());
 	if (
 		/[\r\n]/.test(raw) ||
@@ -257,7 +280,7 @@ export function createWorkspaceModel(
 				: "This model is not configured for workspace chat",
 		);
 	return modelId.startsWith("@cf/")
-		? createWorkersAiGatewayModel(env, call, admission, modelId)
+		? createWorkersAiModel(env, call, admission, modelId)
 		: createAzureGatewayModel(env, call, admission, deployment);
 }
 
@@ -374,22 +397,83 @@ export function createAzureGatewayModel(
 	};
 }
 
-function createWorkersAiGatewayModel(
+// Adapt the binding's buffered result to the workspace model port's stream.
+async function directWorkersAiResponse(
+	env: WorkspaceModelEnv,
+	model: string,
+	request: Request,
+): Promise<Response> {
+	const input = (await request.json()) as WorkersAiTransportRequest & {
+		max_completion_tokens?: number;
+	};
+	const result = await callWorkersAi(
+		{
+			env,
+			// admittedProviderFetch already authorized this exact request.
+			authorize: async () => ({}),
+		},
+		model,
+		{
+			...input,
+			max_tokens: input.max_tokens ?? input.max_completion_tokens,
+			signal: request.signal,
+		},
+	);
+	const toolCalls = result.toolCalls.map((tool, index) => ({
+		index,
+		id: `call_${crypto.randomUUID().replaceAll("-", "")}`,
+		type: "function",
+		function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
+	}));
+	const chunk = {
+		id: crypto.randomUUID(),
+		model,
+		choices: [
+			{
+				index: 0,
+				delta: {
+					role: "assistant",
+					content: result.text,
+					reasoning_content: result.reasoning,
+					tool_calls: toolCalls,
+				},
+				finish_reason: toolCalls.length ? "tool_calls" : "stop",
+			},
+		],
+		usage: {
+			prompt_tokens: result.usage.promptTokens,
+			completion_tokens: result.usage.completionTokens,
+		},
+	};
+	return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
+function createWorkersAiModel(
 	env: WorkspaceModelEnv,
 	call: WorkspaceModelCall,
 	admission: InferenceAdmissionPort,
 	modelId: string,
 ): ModelPort {
 	const transport = workersAiTransport(env);
-	if (!transport)
-		throw new Error("Workers AI gateway transport is not configured");
+	if (!transport && !directWorkersAiConfigured(env))
+		throw new Error("Workers AI transport is not configured");
+	const send = transport
+		? (request: Request) => transport.fetch(request)
+		: (request: Request) => directWorkersAiResponse(env, modelId, request);
+	const local =
+		env.ENVIRONMENT === "development" && !!env.TEDIX_LOCAL_WORKERS_AI_ROUTE;
 	const execution = ProviderExecutionIdentitySchema.parse({
 		provider: "workers-ai",
 		requestModel: modelId,
 		gatewayAccountId: configured(env.AI_GATEWAY_ACCOUNT_ID) ?? null,
 		gatewayId: configured(env.AI_GATEWAY_LLM_ID) ?? null,
-		transportKind:
-			transport.kind === "binding" ? "gateway-binding" : "gateway-https",
+		transportKind: transport
+			? transport.kind === "binding"
+				? "gateway-binding"
+				: "gateway-https"
+			: "workers-ai-binding",
 		apiKind: "workers-ai-chat",
 		providerResource: null,
 		providerOrigin: null,
@@ -400,7 +484,7 @@ function createWorkersAiGatewayModel(
 		name: modelId,
 		api: "openai-completions",
 		provider: "cloudflare-workers-ai",
-		baseUrl: `${transport.providerRoot}/v1`,
+		baseUrl: `${transport?.providerRoot ?? "https://workers-binding.ai"}/v1`,
 		input: ["text"],
 		reasoning: false,
 		contextWindow: 128_000,
@@ -411,10 +495,12 @@ function createWorkersAiGatewayModel(
 			supportsDeveloperRole: false,
 			supportsLongCacheRetention: false,
 		},
-		headers: {
-			"cf-aig-authorization": `Bearer ${transport.authorization}`,
-			"cf-aig-no-wholesale": "true",
-		},
+		headers: transport
+			? {
+					"cf-aig-authorization": `Bearer ${transport.authorization}`,
+					"cf-aig-no-wholesale": "true",
+				}
+			: undefined,
 	};
 	let responseMetadata: { model?: string; usageReported: boolean } = {
 		usageReported: false,
@@ -432,6 +518,7 @@ function createWorkersAiGatewayModel(
 			const maxTokens = options?.maxTokens ?? model.maxTokens;
 			return streamCompletions(model, requestContext(context), {
 				apiKey: "cloudflare-ai-gateway-byok",
+				maxRetries: local ? 0 : undefined,
 				signal: options?.signal,
 				maxTokens,
 				onProviderStreamEvent(data) {
@@ -473,7 +560,7 @@ function createWorkersAiGatewayModel(
 						execution,
 						request,
 						maxOutputTokens: maxTokens,
-						send: (admitted) => transport.fetch(admitted),
+						send,
 						onRefused: (error) => {
 							refusal = error;
 						},

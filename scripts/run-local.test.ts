@@ -53,14 +53,44 @@ describe("run-local options", () => {
 			{
 				TEDIX_LOCAL_AI_GATEWAY_ID: "beta-gateway",
 				TEDIX_LOCAL_INFERENCE_BACKEND: "workers-ai",
+				TEDIX_LOCAL_WORKERS_AI_ROUTE: "gateway",
 			},
 		);
 		for (const invalid of [
 			["--ai-gateway=beta"],
 			[...args, "--ai-gateway=other"],
+			[...args, "--ai-routing=direct"],
+			[...args, "--ai-routing=auto"],
 			[...args.slice(0, 2), "--ai-gateway=../other"],
+			[...args.slice(0, 2), "--ai-routing=gateway"],
 		])
 			expect(() => parseRunLocalOptions(invalid)).toThrow();
+	});
+	test("Auto checks only the chosen account; explicit modes skip discovery", () => {
+		const account = "a".repeat(32);
+		const args = ["--inference", `--workers-ai-account=${account}`];
+		const auto = parseRunLocalOptions(args);
+		expect(
+			localInferenceEnvironment(auto, (id) => id === account),
+		).toMatchObject({
+			TEDIX_LOCAL_AI_GATEWAY_ID: "default",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "gateway",
+		});
+		expect(localInferenceEnvironment(auto, () => false)).toMatchObject({
+			TEDIX_LOCAL_AI_GATEWAY_ID: "",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "direct",
+		});
+		for (const [flags, route] of [
+			[[], ""],
+			[[...args, "--ai-routing=direct"], "direct"],
+			[[...args, "--ai-gateway=other"], "gateway"],
+		] as const) {
+			expect(
+				localInferenceEnvironment(parseRunLocalOptions([...flags]), () => {
+					throw new Error("unexpected discovery");
+				}).TEDIX_LOCAL_WORKERS_AI_ROUTE,
+			).toBe(route);
+		}
 	});
 	test("requires genuine Node within the supported cf, Astro, and Vite+ ranges", () => {
 		for (const runtime of [
@@ -354,6 +384,7 @@ describe("run-local options", () => {
 			inference: null,
 			workersAiAccountId: null,
 			aiGatewayId: null,
+			aiRouting: null,
 			restartSmoke: false,
 			demo: false,
 			verbose: false,
@@ -393,6 +424,7 @@ describe("run-local options", () => {
 			inference: null,
 			workersAiAccountId: null,
 			aiGatewayId: null,
+			aiRouting: null,
 			restartSmoke: false,
 			demo: false,
 			verbose: false,
@@ -402,6 +434,7 @@ describe("run-local options", () => {
 			TEDIX_LOCAL_INFERENCE_BACKEND: "",
 			TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID: "",
 			TEDIX_LOCAL_AI_GATEWAY_ID: "",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "",
 		});
 	});
 
@@ -411,6 +444,7 @@ describe("run-local options", () => {
 			TEDIX_LOCAL_INFERENCE_BACKEND: "workers-ai",
 			TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID: "00000000000000000000000000000000",
 			TEDIX_LOCAL_AI_GATEWAY_ID: "",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "gateway",
 		};
 		const childEnvironment = {
 			...staleAmbient,
@@ -421,6 +455,7 @@ describe("run-local options", () => {
 			TEDIX_LOCAL_INFERENCE_BACKEND: "",
 			TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID: "",
 			TEDIX_LOCAL_AI_GATEWAY_ID: "",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "",
 		});
 	});
 
@@ -438,6 +473,7 @@ describe("run-local options", () => {
 			inference: "workers-ai",
 			workersAiAccountId: accountId,
 			aiGatewayId: null,
+			aiRouting: "auto",
 			restartSmoke: false,
 			demo: false,
 			verbose: false,
@@ -455,11 +491,12 @@ describe("run-local options", () => {
 			workersAiAccountId: accountId,
 			aiGatewayId: null,
 		});
-		expect(localInferenceEnvironment(options)).toEqual({
+		expect(localInferenceEnvironment(options, () => false)).toEqual({
 			TEDIX_LOCAL_INFERENCE_ENABLED: "true",
 			TEDIX_LOCAL_INFERENCE_BACKEND: "workers-ai",
 			TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID: accountId,
 			TEDIX_LOCAL_AI_GATEWAY_ID: "",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "direct",
 		});
 		expect(() => parseRunLocalOptions(["--inference=workers-ai"])).toThrow(
 			"requires --workers-ai-account",
@@ -485,6 +522,7 @@ describe("run-local options", () => {
 			inference: null,
 			workersAiAccountId: null,
 			aiGatewayId: null,
+			aiRouting: null,
 			restartSmoke: true,
 			demo: false,
 			verbose: false,
@@ -494,6 +532,7 @@ describe("run-local options", () => {
 			TEDIX_LOCAL_INFERENCE_BACKEND: "",
 			TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID: "",
 			TEDIX_LOCAL_AI_GATEWAY_ID: "",
+			TEDIX_LOCAL_WORKERS_AI_ROUTE: "",
 		});
 		expect(() => parseRunLocalOptions(["--restart-smoke", "--smoke"])).toThrow(
 			"runs its own two boots",
@@ -517,6 +556,7 @@ describe("run-local options", () => {
 			inference: null,
 			workersAiAccountId: null,
 			aiGatewayId: null,
+			aiRouting: null,
 			restartSmoke: false,
 			demo: true,
 			verbose: false,

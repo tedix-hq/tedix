@@ -295,7 +295,17 @@ interface BindingResponse extends ReasoningContent {
 	/** Some models/proxied binding paths return the OpenAI chat shape instead of
 	 * `{response}` (observed live: llama-3.1-8b-fast via the local remote-AI
 	 * binding — completion_tokens > 0 but `response` absent). */
-	choices?: Array<{ message?: ReasoningContent & { content?: string | null } }>;
+	choices?: OpenAiChatResponse["choices"];
+}
+
+function openAiToolCalls(
+	message: NonNullable<OpenAiChatResponse["choices"]>[number]["message"],
+): WorkersAiTransportToolCall[] {
+	return (message?.tool_calls ?? []).map((tc, i) => ({
+		id: tc.id ?? `call_${i}_${tc.function?.name ?? "tool"}`,
+		name: tc.function?.name ?? "",
+		arguments: toArgsObject(tc.function?.arguments),
+	}));
 }
 
 /** Both transports share fields; only their model/stream envelope differs. */
@@ -358,17 +368,10 @@ async function callViaGateway(
 	const data = (await response.json()) as OpenAiChatResponse;
 	const message = data.choices?.[0]?.message;
 	const reasoning = reasoningContent(message);
-	const toolCalls: WorkersAiTransportToolCall[] = (
-		message?.tool_calls ?? []
-	).map((tc, i) => ({
-		id: tc.id ?? `call_${i}_${tc.function?.name ?? "tool"}`,
-		name: tc.function?.name ?? "",
-		arguments: toArgsObject(tc.function?.arguments),
-	}));
 	return {
 		text: typeof message?.content === "string" ? message.content : "",
 		...(reasoning ? { reasoning } : {}),
-		toolCalls,
+		toolCalls: openAiToolCalls(message),
 		usage: normalizedUsage(data.usage),
 	};
 }
@@ -470,7 +473,9 @@ async function callViaBinding(
 					? result.choices[0].message.content
 					: "",
 		...(reasoning ? { reasoning } : {}),
-		toolCalls,
+		toolCalls: toolCalls.length
+			? toolCalls
+			: openAiToolCalls(result.choices?.[0]?.message),
 		usage: normalizedUsage(result.usage),
 	};
 }
@@ -661,7 +666,7 @@ export async function callWorkersAi(
 			provider: "workers-ai",
 			requestModel: modelId,
 			gatewayAccountId: env.AI_GATEWAY_ACCOUNT_ID?.trim(),
-			gatewayId: gatewayId(env),
+			gatewayId: gatewayId(env) ?? null,
 			transportKind: transport
 				? transport.kind === "binding"
 					? "gateway-binding"

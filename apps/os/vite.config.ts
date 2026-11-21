@@ -144,6 +144,9 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			__LOCAL_INFERENCE_BACKEND__: JSON.stringify(
 				process.env.TEDIX_LOCAL_INFERENCE_BACKEND ?? "",
 			),
+			__LOCAL_WORKERS_AI_ROUTE__: JSON.stringify(
+				process.env.TEDIX_LOCAL_WORKERS_AI_ROUTE ?? "",
+			),
 			__LOCAL_INFERENCE_ENABLED__: JSON.stringify(
 				process.env.TEDIX_BUILD_LOCAL_INFERENCE_ENABLED === "true",
 			),

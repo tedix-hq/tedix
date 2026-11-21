@@ -616,42 +616,56 @@ describe("local Wrangler config", () => {
 			}
 		},
 	);
-	test("gives workspace chat the local Workers AI model through the gateway binding", async () => {
-		const keys = [
-			"TEDIX_LOCAL_INFERENCE_ENABLED",
-			"TEDIX_LOCAL_INFERENCE_BACKEND",
-			"TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID",
-			"TEDIX_LOCAL_AI_GATEWAY_ID",
-		] as const;
-		const previous = keys.map((key) => process.env[key]);
-		process.env.TEDIX_LOCAL_INFERENCE_ENABLED = "true";
-		process.env.TEDIX_LOCAL_INFERENCE_BACKEND = "workers-ai";
-		process.env.TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID =
-			"00000000000000000000000000000000";
-		process.env.TEDIX_LOCAL_AI_GATEWAY_ID = "local-gateway";
-		try {
-			const module = await import(
-				`./dev-local?workspace-ai=${crypto.randomUUID()}`
-			);
-			const config = module.createLocalWranglerConfig(
-				join(repoRoot, "apps/workspace-do/wrangler.jsonc"),
-			);
-			expect(config.account_id).toBe("00000000000000000000000000000000");
-			expect(config.ai).toEqual({ binding: "AI", remote: true });
-			expect(config.vars).toMatchObject({
-				AI_GATEWAY_ACCOUNT_ID: "00000000000000000000000000000000",
-				AI_GATEWAY_LLM_ID: "local-gateway",
-				AI_GATEWAY_BINDING_PROVIDERS: "workers-ai",
-				AI_GATEWAY_AUTO_ALLOWED_MODELS: LOCAL_WORKERS_AI_BOOTSTRAP_MODEL,
-			});
-		} finally {
-			keys.forEach((key, index) => {
-				const value = previous[index];
-				if (value === undefined) delete process.env[key];
-				else process.env[key] = value;
-			});
-		}
-	});
+	test.each(["gateway", "direct"])(
+		"wires %s Workers AI to Home and workspace chat",
+		async (route) => {
+			const keys = [
+				"TEDIX_LOCAL_INFERENCE_ENABLED",
+				"TEDIX_LOCAL_INFERENCE_BACKEND",
+				"TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID",
+				"TEDIX_LOCAL_AI_GATEWAY_ID",
+				"TEDIX_LOCAL_WORKERS_AI_ROUTE",
+			] as const;
+			const previous = keys.map((key) => process.env[key]);
+			process.env.TEDIX_LOCAL_INFERENCE_ENABLED = "true";
+			process.env.TEDIX_LOCAL_INFERENCE_BACKEND = "workers-ai";
+			process.env.TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID =
+				"00000000000000000000000000000000";
+			const gateway = route === "gateway" ? "local-gateway" : "";
+			process.env.TEDIX_LOCAL_AI_GATEWAY_ID = gateway;
+			process.env.TEDIX_LOCAL_WORKERS_AI_ROUTE = route;
+			try {
+				const module = await import(
+					`./dev-local?workspace-ai=${crypto.randomUUID()}`
+				);
+				const config = module.createLocalWranglerConfig(
+					join(repoRoot, "apps/workspace-do/wrangler.jsonc"),
+				);
+				expect(config.account_id).toBe("00000000000000000000000000000000");
+				expect(config.ai).toEqual({ binding: "AI", remote: true });
+				expect(config.vars).toMatchObject({
+					AI_GATEWAY_ACCOUNT_ID: "00000000000000000000000000000000",
+					AI_GATEWAY_LLM_ID: gateway,
+					AI_GATEWAY_BINDING_PROVIDERS: gateway ? "workers-ai" : "",
+					AI_GATEWAY_AUTO_ALLOWED_MODELS: LOCAL_WORKERS_AI_BOOTSTRAP_MODEL,
+					TEDIX_LOCAL_WORKERS_AI_ROUTE: route,
+				});
+				const api = module.createLocalWranglerConfig(
+					join(repoRoot, "apps/api/wrangler.jsonc"),
+				);
+				expect(api.vars).toMatchObject({
+					AI_GATEWAY_LLM_ID: gateway,
+					KERNEL_ROUTE_HEDGE_AFTER_MS: "0",
+				});
+			} finally {
+				keys.forEach((key, index) => {
+					const value = previous[index];
+					if (value === undefined) delete process.env[key];
+					else process.env[key] = value;
+				});
+			}
+		},
+	);
 });
 
 /**

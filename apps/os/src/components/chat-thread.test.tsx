@@ -2162,19 +2162,21 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
-	it("keeps local model chrome provider-neutral without sending an ignored model selection", async () => {
+	it("shows the resolved local route without sending an ignored model selection", async () => {
 		const mode = vi
 			.spyOn(localInference, "isLocalWorkersAi")
 			.mockReturnValue(true);
+		const route = vi
+			.spyOn(localInference, "localWorkersAiRouteLabel")
+			.mockReturnValue("Direct Workers AI");
 		try {
 			const { container } = mountThread();
 			await flush();
 			expect(
 				container.querySelector(
-					'[title^="Model configured by the local launcher"]',
+					'[title="Model requests are billed to your Cloudflare account"]',
 				)?.textContent,
-			).toBe("Auto");
-			expect(container.innerHTML).not.toMatch(/Cloudflare|Workers AI/i);
+			).toBe("Direct Workers AI");
 			const cost = renderToStaticMarkup(<ConversationCostChip runs={[]} />);
 			expect(cost).toContain("billed to your inference account");
 			expect(cost).not.toMatch(/Cloudflare|Workers AI/i);
@@ -2191,6 +2193,7 @@ describe("<ChatThread> attachment dropzone", () => {
 				expect.objectContaining({ modelRef: undefined }),
 			);
 		} finally {
+			route.mockRestore();
 			mode.mockRestore();
 		}
 	});
@@ -2207,7 +2210,7 @@ describe("<ChatThread> attachment dropzone", () => {
 			typeDraft(container, "Draft an agenda");
 			await flush();
 			expect(container.textContent).toContain("AI replies are off");
-			expect(container.innerHTML).not.toMatch(/Cloudflare|Workers AI/i);
+			expect(container.textContent).toContain("AI Gateway is optional");
 			expect(sendButton(container).disabled).toBe(true);
 			pressKey(container, "Enter");
 			await flush();

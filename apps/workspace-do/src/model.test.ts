@@ -435,6 +435,95 @@ test.each([
 	).toThrow("allowlist");
 });
 
+test("local direct workspace chat admits once and preserves native tool calls", async () => {
+	const admitted = admission();
+	let calls = 0;
+	const run = async (model: string, input: unknown, options: unknown) => {
+		calls++;
+		expect(admitted.authorized).toHaveLength(calls);
+		expect(model).toBe(fixtureModelId);
+		expect(input).toMatchObject({ stream: false, max_tokens: 99 });
+		expect(options).toBeUndefined();
+		if (calls === 2) throw new Error("provider connection closed");
+		return {
+			choices: [
+				{
+					message: {
+						content: "42",
+						tool_calls: [
+							{
+								id: "provider-tool",
+								function: { name: "lookup", arguments: '{"number":42}' },
+							},
+						],
+					},
+				},
+			],
+			usage: { prompt_tokens: 17, completion_tokens: 5 },
+		};
+	};
+	const env = {
+		...workersEnv,
+		AI: { run } as unknown as WorkspaceModelEnv["AI"],
+		AI_GATEWAY_LLM_ID: "",
+		TEDIX_LOCAL_WORKERS_AI_ROUTE: "direct",
+		ENVIRONMENT: "development",
+	};
+	expect(
+		configuredWorkspaceModels({ ...env, ENVIRONMENT: "production" }),
+	).toEqual([]);
+	const model = createWorkspaceModel(env, attribution, admitted.port);
+	const result = await model.stream(context, { maxTokens: 99 }).result();
+	expect(result.stopReason).toBe("toolUse");
+	expect(result.content).toContainEqual({
+		type: "toolCall",
+		id: expect.stringMatching(/^call_/),
+		name: "lookup",
+		arguments: { number: 42 },
+	});
+	expect(admitted.authorized[0]?.execution).toMatchObject({
+		gatewayAccountId: env.AI_GATEWAY_ACCOUNT_ID,
+		gatewayId: null,
+		transportKind: "workers-ai-binding",
+	});
+	expect(model.responseMetadata?.().usageReported).toBe(true);
+	expect(
+		(await model.stream(context, { maxTokens: 99 }).result()).stopReason,
+	).toBe("error");
+	expect(calls).toBe(2);
+	expect(admitted.authorized).toHaveLength(2);
+});
+
+test("local gateway failure never dispatches directly or retries the request", async () => {
+	const admitted = admission();
+	let gatewayCalls = 0;
+	let directCalls = 0;
+	const env = {
+		...workersEnv,
+		AI: {
+			async fetch() {
+				gatewayCalls++;
+				return new Response("Gateway unavailable", { status: 503 });
+			},
+			async run() {
+				directCalls++;
+				throw new Error("unexpected direct invocation");
+			},
+		} as unknown as WorkspaceModelEnv["AI"],
+		AI_GATEWAY_BINDING_PROVIDERS: "workers-ai",
+		TEDIX_LOCAL_WORKERS_AI_ROUTE: "gateway",
+		ENVIRONMENT: "development",
+	};
+	const model = createWorkspaceModel(env, attribution, admitted.port);
+	expect((await model.stream(context).result()).stopReason).toBe("error");
+	expect(gatewayCalls).toBe(1);
+	expect(directCalls).toBe(0);
+	expect(admitted.authorized).toHaveLength(1);
+	expect(admitted.authorized[0]?.execution.gatewayId).toBe(
+		env.AI_GATEWAY_LLM_ID,
+	);
+});
+
 test.each(["https", "binding"] as const)(
 	"real Completions SDK routes %s transport with gateway-only authentication",
 	async (kind) => {

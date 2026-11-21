@@ -50,9 +50,7 @@ export const ProviderExecutionIdentitySchema = z
 			),
 		gatewayId: identifier
 			.nullable()
-			.describe(
-				"Null for direct TypeSafe requests, which do not pass through an AI Gateway.",
-			),
+			.describe("Null for direct TypeSafe or Workers AI requests."),
 		transportKind: z.enum([
 			"gateway-https",
 			"gateway-binding",
@@ -96,11 +94,13 @@ export const ProviderExecutionIdentitySchema = z
 			});
 		if (
 			value.transportKind !== "direct-https" &&
-			(!value.gatewayAccountId || !value.gatewayId)
+			(!value.gatewayAccountId ||
+				(!value.gatewayId && value.transportKind !== "workers-ai-binding"))
 		)
 			ctx.addIssue({
 				code: "custom",
-				message: "Cloudflare execution requires account and gateway",
+				message:
+					"Cloudflare execution requires an account and, for gateway routes, a gateway",
 			});
 		if (value.provider === "azure-openai") {
 			if (

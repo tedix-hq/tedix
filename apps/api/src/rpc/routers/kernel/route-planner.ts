@@ -690,7 +690,13 @@ async function planKernelRouteWithRecovery(
 			})
 			.catch(async (error) => {
 				if (model) record(model, startedAt, error);
-				if (!model || args.abortSignal?.aborted || !routeRetryable(error))
+				if (
+					!model ||
+					args.abortSignal?.aborted ||
+					!routeRetryable(error) ||
+					(args.env?.TEDIX_LOCAL_DEMO_ENABLED === "true" &&
+						!NoObjectGeneratedError.isInstance(error))
+				)
 					throw error;
 				retried = true;
 				const remainingMs = () =>
