@@ -100,6 +100,7 @@ import {
 	readChildRunStatuses,
 	readKernelRunRecordsForConversation,
 	RUN_EVENT_STREAM_PAGE,
+	longPollDelayMs,
 	buildSelectedRunEventStreamPage,
 	kernelStreamRow,
 } from "./run-reads-streams";
@@ -699,6 +700,7 @@ export const readConversationEventsRoute = authed.readConversationEvents
 			RUN_EVENT_STREAM_PAGE,
 		);
 		const deadline = Date.now() + waitMs;
+		let polls = 0;
 		const start = input.offset ?? 0;
 		while (true) {
 			await ensureHomeConversationAccess(context, {
@@ -792,7 +794,7 @@ export const readConversationEventsRoute = authed.readConversationEvents
 				return page;
 			}
 			await new Promise((resolve) =>
-				setTimeout(resolve, Math.min(1000, deadline - Date.now())),
+				setTimeout(resolve, longPollDelayMs(polls++, deadline - Date.now())),
 			);
 		}
 	});

@@ -62,6 +62,7 @@ import {
 	RUN_EVENT_RECEIPT_KINDS,
 	RUN_EVENT_RECEIPT_ROWS,
 	RUN_EVENT_STREAM_PAGE,
+	longPollDelayMs,
 	RunEventStreamRow,
 	buildRunEventStreamPage,
 	buildSelectedRunEventStreamPage,
@@ -164,6 +165,7 @@ export const readRunEventsRoute = authed.readRunEvents
 			RUN_EVENT_STREAM_PAGE,
 		);
 		const deadline = Date.now() + waitMs;
+		let polls = 0;
 		// `rowStatus` freshness must match the poll cadence below: the row can
 		// transition to a real terminal status WHILE this loop is waiting. Re-read
 		// it on every iteration. The active offset path selects only one bounded
@@ -343,7 +345,7 @@ export const readRunEventsRoute = authed.readRunEvents
 				return page;
 			}
 			await new Promise((resolve) =>
-				setTimeout(resolve, Math.min(1000, deadline - Date.now())),
+				setTimeout(resolve, longPollDelayMs(polls++, deadline - Date.now())),
 			);
 		}
 	});

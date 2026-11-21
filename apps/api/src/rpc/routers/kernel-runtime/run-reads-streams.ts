@@ -889,6 +889,16 @@ export function failedKernelRun(input: {
 
 export const RUN_EVENT_STREAM_PAGE = 200;
 
+/**
+ * Wait before the next re-read of a long-poll: 1 s, then 1.5 s, 2.25 s, and
+ * at most 3 s. Each re-read checks access and reads the event page again;
+ * at one per second a 30 s poll made ~45 D1 queries (21 Nov 2026), and many
+ * open viewers together overloaded main D1.
+ */
+export function longPollDelayMs(polls: number, remainingMs: number) {
+	return Math.max(0, Math.min(1000 * 1.5 ** polls, 3000, remainingMs));
+}
+
 export const TERMINAL_RUN_EVENT_KINDS = [
 	"run.completed",
 	"run.failed",
