@@ -11,8 +11,7 @@
 .chat-tedi-thread .workspace-chat-composer,
 .chat-tedi-thread .workspace-chat-tray,
 .chat-tedi-thread .workspace-chat-tray-notice,
-.chat-tedi-thread .workspace-chat-error,
-.chat-tedi-thread .workspace-chat-unavailable {
+.chat-tedi-thread .workspace-chat-notice {
 	width: 100%;
 	max-width: 48rem;
 	box-sizing: border-box;

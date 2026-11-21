@@ -12,6 +12,11 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/kumo/popover";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 
 /** Workspace resources remain subject to their existing access rules. */
 export function WorkspaceChatResources({
@@ -39,18 +44,20 @@ export function WorkspaceChatResources({
 	});
 	return (
 		<PopoverRoot open={open} onOpenChange={setOpen}>
-			<PopoverTrigger
-				render={
-					<Button
-						aria-label="Add files"
-						title="Add files"
-						size="icon-sm"
-						variant="ghost"
-					/>
-				}
-			>
-				<Plus aria-hidden />
-			</PopoverTrigger>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<PopoverTrigger
+							render={
+								<Button aria-label="Add files" size="icon-sm" variant="ghost" />
+							}
+						/>
+					}
+				>
+					<Plus aria-hidden />
+				</TooltipTrigger>
+				<TooltipContent>Add files</TooltipContent>
+			</Tooltip>
 			<PopoverContent
 				align="start"
 				side="top"

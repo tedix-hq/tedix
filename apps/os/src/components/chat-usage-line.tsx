@@ -10,6 +10,11 @@ import {
 	PopoverTrigger,
 } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import type { AllowanceUsage } from "@/lib/billing-credits";
 import {
 	homeConversationChargesQueryOptions,
@@ -26,15 +31,19 @@ export function conversationUsageText(usage: AllowanceUsage): string {
  * A small ring in the composer toolbar: what this conversation's settled runs
  * used, as a share of the organization's credits this month. The popover says
  * it in words; exact credit counts stay on Billing. It needs billing read
- * access for the monthly total, stays hidden until something has settled, and
- * never shows a guess while a read is pending or failed.
+ * access for the monthly total, stays hidden until something has settled (or
+ * below `minPercent`), and never shows a guess while a read is pending or
+ * failed.
  */
 export function ConversationUsageRing({
 	conversationId,
+	minPercent = 0,
 	settledRunCount,
 	workspaceId,
 }: {
 	conversationId: string;
+	/** Below this share the ring stays hidden, so a sliver never reads as a spinner. */
+	minPercent?: number;
 	workspaceId?: string;
 	/** Runs that have finished; a change means new charges may have settled. */
 	settledRunCount: number;
@@ -72,24 +81,30 @@ export function ConversationUsageRing({
 		workspaceId === undefined ? undefined : workspaceCharges.data?.periodStart,
 	);
 
-	if (!usage) return null;
+	if (!usage || usage.percent < minPercent) return null;
 	return (
 		<PopoverRoot>
-			<PopoverTrigger
-				render={
-					<Button
-						aria-label={`Usage: ${conversationUsageText(usage)}`}
-						className="chat-usage-ring"
-						data-credit-percent={usage.percent}
-						size="icon-sm"
-						title={conversationUsageText(usage)}
-						type="button"
-						variant="ghost"
-					>
-						<UsageRing percent={usage.percent} />
-					</Button>
-				}
-			/>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<PopoverTrigger
+							render={
+								<Button
+									aria-label={`Usage: ${conversationUsageText(usage)}`}
+									className="chat-usage-ring"
+									data-credit-percent={usage.percent}
+									size="icon-sm"
+									type="button"
+									variant="ghost"
+								/>
+							}
+						/>
+					}
+				>
+					<UsageRing percent={usage.percent} />
+				</TooltipTrigger>
+				<TooltipContent>{conversationUsageText(usage)}</TooltipContent>
+			</Tooltip>
 			<PopoverContent side="top" align="end" className="w-56 p-3">
 				<div className="flex items-baseline justify-between gap-3">
 					<PopoverTitle className="text-sm font-medium">

@@ -10,6 +10,7 @@ import {
 	Code,
 	Eye,
 	Lightbulb,
+	Microphone,
 	PaperPlaneRight,
 	PencilSimple,
 	GearSix,
@@ -48,6 +49,7 @@ import {
 	removeSkillReference,
 } from "@/lib/chat-skill-picker";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { Alert, AlertAction, AlertDescription } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -57,6 +59,7 @@ import {
 	CollapsibleDefaultTrigger,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
+import { Empty } from "@/components/kumo/empty";
 import { Loader } from "@/components/kumo/loader";
 import { ChatCard } from "@/components/workspace-chat-card";
 import {
@@ -68,6 +71,17 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
+import { DictationCapture } from "@/components/composer-dictation";
+import {
+	appendVoiceTranscript,
+	dictationSupported,
+	useComposerDictation,
+} from "@/lib/use-composer-dictation";
 import { ApprovalModePicker } from "@/components/workspace-chat-approval-mode";
 import { Link } from "@/components/kumo/link";
 import { UnreadBadge } from "@/components/unread-badge";
@@ -289,6 +303,8 @@ export function WorkspaceChat({
 		onOutputChanged,
 	);
 	const { state, connection, catchingUp } = snapshot;
+	// A starter prompt puts its text in the message box; it is not sent.
+	const fillComposer = useRef<((text: string) => void) | null>(null);
 	useEffect(() => {
 		onConversations?.(state.conversations);
 	}, [onConversations, state.conversations]);
@@ -670,27 +686,34 @@ export function WorkspaceChat({
 						? null
 						: (text, attachments) => void send(text, attachments)
 				}
+				onStarter={
+					viewOnly || connection.phase === "unavailable"
+						? null
+						: (text) => fillComposer.current?.(text)
+				}
 			/>
 			{connection.phase === "unavailable" ? (
-				<div
-					className="workspace-chat-unavailable"
+				<Alert
+					className="workspace-chat-notice"
 					data-testid="workspace-chat-unavailable"
 					role="status"
+					variant="warning"
 				>
-					<Text role="body">
-						Workspace chat is unavailable on this origin. Home chat still works.
-					</Text>
-					<Button onClick={() => client?.retry()} size="sm" variant="outline">
-						Retry
-					</Button>
-				</div>
-			) : state.lastError && !viewOnly ? (
-				<div className="workspace-chat-error" role="alert">
 					<WarningCircle aria-hidden />
-					<Text role="caption" tone="error">
-						{state.lastError.message}
-					</Text>
-				</div>
+					<AlertDescription>
+						Workspace chat is unavailable on this origin. Home chat still works.
+					</AlertDescription>
+					<AlertAction className="p-2">
+						<Button onClick={() => client?.retry()} size="sm" variant="outline">
+							Retry
+						</Button>
+					</AlertAction>
+				</Alert>
+			) : state.lastError && !viewOnly ? (
+				<Alert className="workspace-chat-notice" variant="destructive">
+					<WarningCircle aria-hidden />
+					<AlertDescription>{state.lastError.message}</AlertDescription>
+				</Alert>
 			) : null}
 			{viewOnly ? null : (
 				<ApprovalTray
@@ -723,6 +746,7 @@ export function WorkspaceChat({
 				slot={composerSlot}
 				placeholder={placeholder}
 				onSend={send}
+				fillRef={fillComposer}
 				disabledReason={
 					viewOnly
 						? VIEW_ONLY_CHAT_REASON
@@ -743,6 +767,7 @@ export function WorkspaceChat({
 							key={state.conversationId}
 							workspaceId={workspaceId}
 							conversationId={state.conversationId}
+							minPercent={USAGE_RING_MIN_PERCENT}
 							settledRunCount={
 								state.turns.filter((turn) => turn.status !== "running").length
 							}
@@ -809,6 +834,22 @@ function ConnectionChip({
 	);
 }
 
+/** Below this share of the month's credits the usage ring stays hidden. */
+const USAGE_RING_MIN_PERCENT = 10;
+
+/** Starter prompts an empty conversation offers; a pick fills the message box. */
+const STARTER_PROMPTS = [
+	{
+		label: "Summarise the files in this workspace",
+		text: "Summarise the files in this workspace.",
+	},
+	{ label: "Make a sheet to track…", text: "Make a sheet to track " },
+	{
+		label: "What changed here this week?",
+		text: "What changed here this week?",
+	},
+] as const;
+
 function Thread({
 	workspaceId,
 	conversationId,
@@ -824,6 +865,7 @@ function Thread({
 	onApproveAll,
 	onContinue,
 	onRetry,
+	onStarter,
 }: {
 	workspaceId: string;
 	conversationId: string | null;
@@ -842,6 +884,8 @@ function Thread({
 	onContinue: (() => void) | null;
 	/** Sends a failed or stopped turn's own message again; `null` while busy. */
 	onRetry: RetryTurn | null;
+	/** Puts a starter prompt in the message box; `null` when nobody can type. */
+	onStarter: ((text: string) => void) | null;
 }) {
 	const tediNames = useTediNames();
 	// The person's own messages carry no name; other people's and tedis' do.
@@ -907,11 +951,27 @@ function Thread({
 					/>
 				) : null}
 				{turns.length === 0 && !pendingSend && !catchingUp ? (
-					<div className="workspace-chat-empty">
-						<Text role="body" tone="secondary">
-							{emptyText}
-						</Text>
-					</div>
+					<Empty
+						appearance="quiet"
+						className="workspace-chat-empty"
+						title={emptyText}
+					>
+						{onStarter ? (
+							<div className="flex flex-wrap justify-center gap-2">
+								{STARTER_PROMPTS.map((starter) => (
+									<Button
+										key={starter.label}
+										onClick={() => onStarter(starter.text)}
+										size="sm"
+										type="button"
+										variant="outline"
+									>
+										{starter.label}
+									</Button>
+								))}
+							</div>
+						) : null}
+					</Empty>
 				) : null}
 				{visibleTurns.map((turn, index) => {
 					const last = index === visibleTurns.length - 1;
@@ -1331,12 +1391,10 @@ function TurnFailure({ error }: { error: string | undefined }) {
 	const { message, detail } = turnFailure(error);
 	return (
 		<>
-			<div className="workspace-chat-error" role="alert">
+			<Alert variant="destructive">
 				<WarningCircle aria-hidden />
-				<Text role="caption" tone="error">
-					{message}
-				</Text>
-			</div>
+				<AlertDescription>{message}</AlertDescription>
+			</Alert>
 			{detail ? (
 				<Collapsible className="workspace-chat-approval-details">
 					<CollapsibleDefaultTrigger>
@@ -1901,7 +1959,10 @@ function Composer({
 	onStop,
 	modelControl,
 	usage,
+	fillRef,
 }: {
+	/** Takes a starter prompt's text into the message box. */
+	fillRef?: { current: ((text: string) => void) | null };
 	/** The tedi that answers every message; the composer then offers no choice. */
 	pinnedTediId: string | null;
 	slot?: ReactNode;
@@ -2095,6 +2156,21 @@ function Composer({
 	useEffect(() => {
 		if (autoFocus) textarea.current?.focus();
 	}, [autoFocus]);
+	useEffect(() => {
+		if (!fillRef) return;
+		fillRef.current = (text) => {
+			setDraft(text);
+			textarea.current?.focus();
+		};
+		return () => {
+			fillRef.current = null;
+		};
+	});
+	const [canDictate] = useState(dictationSupported);
+	const dictation = useComposerDictation((transcript) => {
+		setDraft((text) => appendVoiceTranscript(text, transcript));
+		textarea.current?.focus();
+	});
 	// Text another pane hands over (an app's errors) goes after what is
 	// typed. It is not sent: the person reads it, changes it and sends it.
 	useEffect(
@@ -2111,6 +2187,10 @@ function Composer({
 	);
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
+		if (dictation.phase !== "idle") {
+			if (dictation.phase === "recording") dictation.stop();
+			return;
+		}
 		if (disabledReason || submitted || uploads.busy || !draft.trim()) return;
 		const mentioned = mentionedPeople(
 			draft,
@@ -2311,6 +2391,15 @@ function Composer({
 						))}
 					</div>
 				) : null}
+				{dictation.error ? (
+					<Alert variant="destructive">
+						<WarningCircle aria-hidden />
+						<AlertDescription>{dictation.error}</AlertDescription>
+					</Alert>
+				) : null}
+				{dictation.phase !== "idle" ? (
+					<DictationCapture dictation={dictation} className="px-0" />
+				) : null}
 				<Textarea
 					aria-label="Message the workspace"
 					className="workspace-chat-composer-input"
@@ -2333,6 +2422,7 @@ function Composer({
 					ref={textarea}
 					rows={2}
 					value={draft}
+					hidden={dictation.phase !== "idle"}
 				/>
 				<div className="workspace-chat-composer-row">
 					{onBrowseResources ? (
@@ -2355,39 +2445,76 @@ function Composer({
 					<div className="workspace-chat-composer-actions">
 						{onStop ? (
 							// The turning ring is the sign that the agent is working.
-							<Button
-								aria-label="Stop"
-								className="workspace-chat-stop"
-								title="Stop. Messages the agent has not read come back here."
-								onClick={() => {
-									if (workingTurnId) returnedMessages.stopped(workingTurnId);
-									onStop();
-								}}
-								size="icon-sm"
-								type="button"
-								variant="outline"
-							>
-								<Stop aria-hidden weight="fill" />
-							</Button>
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button
+											aria-label="Stop"
+											className="workspace-chat-stop"
+											onClick={() => {
+												if (workingTurnId)
+													returnedMessages.stopped(workingTurnId);
+												onStop();
+											}}
+											size="icon-sm"
+											type="button"
+											variant="outline"
+										/>
+									}
+								>
+									<Stop aria-hidden weight="fill" />
+								</TooltipTrigger>
+								<TooltipContent>
+									Stop. Messages the agent has not read come back here.
+								</TooltipContent>
+							</Tooltip>
 						) : null}
-						<Button
-							aria-label="Send"
-							title={
-								onStop
+						{canDictate &&
+						dictation.phase === "idle" &&
+						disabledReason === null ? (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button
+											aria-label="Start dictation"
+											onClick={() =>
+												void dictation.start().catch(() => undefined)
+											}
+											size="icon-sm"
+											type="button"
+											variant="ghost"
+										/>
+									}
+								>
+									<Microphone aria-hidden />
+								</TooltipTrigger>
+								<TooltipContent>Dictate a message</TooltipContent>
+							</Tooltip>
+						) : null}
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										aria-label="Send"
+										disabled={
+											disabledReason !== null ||
+											submitted !== null ||
+											uploads.busy ||
+											!draft.trim()
+										}
+										size="icon-sm"
+										type="submit"
+									/>
+								}
+							>
+								<PaperPlaneRight aria-hidden />
+							</TooltipTrigger>
+							<TooltipContent>
+								{onStop
 									? "Send to the agent while it works (Enter). It reads this at its next step."
-									: "Send (Enter). Shift+Enter adds a line."
-							}
-							disabled={
-								disabledReason !== null ||
-								submitted !== null ||
-								uploads.busy ||
-								!draft.trim()
-							}
-							size="icon-sm"
-							type="submit"
-						>
-							<PaperPlaneRight aria-hidden />
-						</Button>
+									: "Send (Enter). Shift+Enter adds a line."}
+							</TooltipContent>
+						</Tooltip>
 					</div>
 				</div>
 			</div>
@@ -2398,13 +2525,19 @@ function Composer({
 				(disabledReason === null &&
 					(state.approvalMode || (!pinnedTediId && recipients.length > 0))) ? (
 					<details className="relative">
-						<summary
-							aria-label="Chat settings"
-							title="Chat settings"
-							className="flex size-8 cursor-pointer list-none items-center justify-center rounded text-kumo-subtle hover:bg-kumo-tint"
-						>
-							<GearSix aria-hidden size={16} />
-						</summary>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<summary
+										aria-label="Chat settings"
+										className="flex size-8 cursor-pointer list-none items-center justify-center rounded text-kumo-subtle hover:bg-kumo-tint"
+									/>
+								}
+							>
+								<GearSix aria-hidden size={16} />
+							</TooltipTrigger>
+							<TooltipContent>Chat settings</TooltipContent>
+						</Tooltip>
 						<div className="absolute bottom-full right-0 z-10 mb-1 grid min-w-48 gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-md">
 							{!pinnedTediId &&
 							recipients.length > 0 &&

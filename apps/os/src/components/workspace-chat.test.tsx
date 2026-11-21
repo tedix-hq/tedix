@@ -1644,6 +1644,19 @@ describe("WorkspaceChat", () => {
 		});
 	});
 
+	it("puts a starter prompt in the message box without sending it", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		const starter = Array.from(host.querySelectorAll("button")).find(
+			(button) => button.textContent === "What changed here this week?",
+		);
+		act(() => starter?.click());
+		expect(host.querySelector("textarea")?.value).toBe(
+			"What changed here this week?",
+		);
+		expect(fake.calls).toEqual([]);
+	});
+
 	it("does not ask to notify anyone for activity this tab did not post", () => {
 		notifyChatPosted.mockClear();
 		const fake = fakeClient("c1");
