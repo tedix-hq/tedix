@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CACHE_TTLS_MS } from "./context-cache";
 import {
 	existsSync,
 	mkdirSync,
@@ -1255,12 +1256,12 @@ describe("tedix hooks prompt-context", () => {
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				// Live lessons are checked even when the previous set was empty.
+				// The empty catalog from the first turn is shared, not read again.
 				expect([
 					JSON.parse(out).hookSpecificOutput.additionalContext.split("\n")
 						.length,
 					calls.length,
-				]).toEqual([1, 4]);
+				]).toEqual([1, 3]);
 				({ out } = await run(
 					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1277,7 +1278,7 @@ describe("tedix hooks prompt-context", () => {
 					JSON.parse(out).hookSpecificOutput.additionalContext.split("\n")
 						.length,
 					calls.length,
-				]).toEqual([1, 4]);
+				]).toEqual([1, 3]);
 			}));
 
 		test("an OS answer follows the selected shared context", () =>
@@ -1654,7 +1655,8 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			expect(first.text).toContain("Handle authorized routine choices");
 			expect(first.text).toContain("Pushes race on main");
 			const second = await turn({ config, now });
-			expect(second.steps).toEqual(["gateway", "catalog", "validation"]);
+			// The lesson catalog is shared across turns for its cache window.
+			expect(second.steps).toEqual(["gateway", "validation"]);
 			expect(second.text).not.toContain("unchanged");
 			expect(second.text).not.toContain("Handle authorized routine choices");
 			expect(second.text).not.toContain("Pushes race on main");
@@ -1672,7 +1674,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			const newLesson = { ...lesson, text: "Verify the pushed commit." };
 			const lessons = await turn({
 				config,
-				now,
+				now: new Date(+now + CACHE_TTLS_MS.lessons + 1),
 				gateway: () => ({ preferences: changed, ...lessonsData([newLesson]) }),
 			});
 			expect(lessons.text).toContain(newLesson.text);
@@ -1907,7 +1909,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 	});
 });
 
-test("reranks a shared scope catalog per prompt without caching or sending the prompt", async () => {
+test("reranks a shared catalog per prompt without storing or sending the prompt", async () => {
 	const config = mkdtempSync(join(tmpdir(), "tedix-local-ranking-"));
 	const { osWorkspaceId: _w, contextOutputId: _o, ...binding } = BINDING;
 	const catalog = lessonsData([
@@ -1937,16 +1939,19 @@ test("reranks a shared scope catalog per prompt without caching or sending the p
 		expect(second.out.indexOf("[deploy00]")).toBeLessThan(
 			second.out.indexOf("[database]"),
 		);
+		// The second prompt reuses the shared catalog; only its delivery receipt is sent.
 		expect(
 			second.calls.filter((c) =>
 				c.some((a) => a.includes("agent.get_agent_session_lessons")),
 			),
-		).toHaveLength(2);
+		).toHaveLength(1);
 		expect(JSON.stringify([...first.calls, ...second.calls])).not.toMatch(
 			/PRIVATE_ALPHA|PRIVATE_BETA/,
 		);
 		for (const file of existsSync(join(config, "hook-cache"))
-			? readdirSync(join(config, "hook-cache"))
+			? readdirSync(join(config, "hook-cache")).filter((name) =>
+					name.endsWith(".json"),
+				)
 			: [])
 			expect(
 				readFileSync(join(config, "hook-cache", file), "utf8"),

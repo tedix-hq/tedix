@@ -88,6 +88,8 @@ export const AUTO_CONTINUED_SUFFIX = ".auto-continued";
 
 /** A session without a status update for this long has ended without saying so. */
 export const STATUS_ENDED_AFTER_MS = 12 * 60 * 60 * 1000;
+/** Unchanged tool activity reports at most this often per session. */
+export const STATUS_HEARTBEAT_MS = 2 * 60_000;
 /** Session files untouched this long are removed. */
 export const STATUS_PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -878,8 +880,12 @@ function recordStatus(
 		previous.projectId !== binding.projectId ||
 		previous.workItemId !== binding.workItemId;
 	const now = (deps.now ?? (() => new Date()))();
-	// Tool activity renews liveness even when the state and label do not change.
-	if (!changed && now.getTime() - Date.parse(previous.updatedAt) < 60_000) {
+	// Tool activity renews liveness even when the state and label do not change,
+	// well inside the board's default five-minute inactivity window.
+	if (
+		!changed &&
+		now.getTime() - Date.parse(previous.updatedAt) < STATUS_HEARTBEAT_MS
+	) {
 		writeState(path, {
 			...previous,
 			coalescedCount: Math.min(

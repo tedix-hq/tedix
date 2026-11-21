@@ -12,6 +12,7 @@ import { claudeConfigDirectory } from "../claude-lane-thread";
 import { unpinnedModelVersion } from "../external-agent";
 import { fileGatewayCooldown } from "../gateway-cooldown";
 import { harnessOf } from "./agent-status";
+import { readCache, writeCache } from "./context-cache";
 import {
 	clearDelivery,
 	contextHash,
@@ -243,26 +244,45 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 				return;
 			}
 			command.push("--organization", binding.organization);
+			// Same key as prompt-context: one live probe per login and gateway
+			// serves every turn and session for the cache window.
+			const organizationKey = `${binding.workspace}|${binding.org}|${
+				typeof auth.storedLogin?.loginId === "string"
+					? auth.storedLogin.loginId
+					: source
+			}|${binding.mcpUrl}`;
+			const known = binding.scopeRoutingHint
+				? undefined
+				: readCache(env, "organization", organizationKey, now());
 			// Every CLI child waits out the shared gateway cooldown before it
 			// sends (see gateway-retry), which would outlast this read's deadline.
 			const cooldownUntil = fileGatewayCooldown(
 				env.TEDIX_CONFIG_DIR ? { configDir: env.TEDIX_CONFIG_DIR } : undefined,
 			).read(auth.mcpUrl);
-			if (cooldownUntil > now().getTime()) {
+			if (known && UUID.test(String(known.value.organizationId ?? ""))) {
+				binding.credentialOrganizationId = known.value.organizationId;
+			} else if (cooldownUntil > now().getTime()) {
 				send(
 					`Tedix preflight: gateway is rate-limited until ${isoSeconds(new Date(cooldownUntil), true)}; organization check skipped; no Work was read.`,
 				);
 				return;
-			}
-			try {
-				const runtime = await readOrganizationContext(read, command, 8000);
-				binding.credentialOrganizationId = runtime.organizationId;
-			} catch {
-				send(
-					"Tedix preflight: organization could not be verified; no Work was read.",
-				);
-				return;
-			}
+			} else
+				try {
+					const runtime = await readOrganizationContext(read, command, 8000);
+					binding.credentialOrganizationId = runtime.organizationId;
+					writeCache(
+						env,
+						"organization",
+						organizationKey,
+						{ organizationId: runtime.organizationId },
+						now(),
+					);
+				} catch {
+					send(
+						"Tedix preflight: organization could not be verified; no Work was read.",
+					);
+					return;
+				}
 		}
 		if (source.startsWith("external-agent:") || source === "external-agent") {
 			const external = isObject(auth.externalAgent) ? auth.externalAgent : {};

@@ -23,6 +23,7 @@ import {
 	reportInput,
 	runAgentStatus,
 	STATUS_ENDED_AFTER_MS,
+	STATUS_HEARTBEAT_MS,
 	type StatusDeps,
 	SUPERVISOR_CONTINUED_SUFFIX,
 	sessionName,
@@ -303,16 +304,16 @@ describe("tedix hooks status", () => {
 		).toBe("ended");
 	});
 
-	test("unchanged tool activity renews the remote heartbeat once a minute", async () => {
+	test("unchanged tool activity renews the remote heartbeat every two minutes", async () => {
 		enable();
 		const now = new Date("2026-10-23T12:00:00Z");
 		await fire("PostToolUse", {}, {}, undefined, false, { now: () => now });
 		await fire("PostToolUse", {}, {}, undefined, false, {
-			now: () => new Date(now.getTime() + 30_000),
+			now: () => new Date(now.getTime() + STATUS_HEARTBEAT_MS - 1),
 		});
 		expect(reports()).toHaveLength(1);
 		await fire("PostToolUse", {}, {}, undefined, false, {
-			now: () => new Date(now.getTime() + 60_000),
+			now: () => new Date(now.getTime() + STATUS_HEARTBEAT_MS),
 		});
 		expect(reports()).toHaveLength(2);
 		expect(latestObservation()).toMatchObject({

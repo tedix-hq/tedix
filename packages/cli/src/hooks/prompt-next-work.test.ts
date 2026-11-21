@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readCache, writeCache } from "./context-cache";
+import { CACHE_TTLS_MS, readCache, writeCache } from "./context-cache";
 import { gatewayCode, render, runPromptContext } from "./prompt-context";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -86,16 +86,26 @@ test("board priorities exclude other harnesses, projects, selected and running W
 	).not.toContain("Next for you:");
 });
 
-test("priority cache expires after 30 seconds and never returns expired data", () => {
+test("priority cache expires after its window and never returns expired data", () => {
 	const config = mkdtempSync(join(tmpdir(), "tedix-next-work-"));
 	try {
 		const env = { TEDIX_CONFIG_DIR: config };
 		writeCache(env, "next-work", "scope", { data: [] }, now);
 		expect(
-			readCache(env, "next-work", "scope", new Date(+now + 30_000))?.fresh,
+			readCache(
+				env,
+				"next-work",
+				"scope",
+				new Date(+now + CACHE_TTLS_MS["next-work"]),
+			)?.fresh,
 		).toBe(true);
 		expect(
-			readCache(env, "next-work", "scope", new Date(+now + 30_001)),
+			readCache(
+				env,
+				"next-work",
+				"scope",
+				new Date(+now + CACHE_TTLS_MS["next-work"] + 1),
+			),
 		).toBeUndefined();
 		expect(readCache(env, "next-work", "other-project", now)).toBeUndefined();
 	} finally {
@@ -151,7 +161,7 @@ test("fresh chat receives cached priorities; unavailable refresh omits them", as
 		expect(
 			outputs.slice(0, 2).every((output) => output.includes("Next for you:")),
 		).toBe(true);
-		clock = new Date(+now + 30_001);
+		clock = new Date(+now + CACHE_TTLS_MS["next-work"] + 1);
 		await run();
 		expect(boardReads).toBe(2);
 		expect(outputs[2]).not.toContain("Next for you:");

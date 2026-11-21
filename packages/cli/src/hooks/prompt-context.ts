@@ -38,6 +38,7 @@ import {
 	forgetDelegations,
 	readDelegations,
 } from "../delegation-ledger";
+import { fileGatewayCooldown } from "../gateway-cooldown";
 import { harnessOf } from "./agent-status";
 import {
 	answersMessage,
@@ -54,7 +55,7 @@ import {
 } from "./decision-capture";
 import { selectPromptLessons, type LessonSelection } from "./lesson-selection";
 import type { AgentSessionLesson } from "@tedix/api-contract/schemas/agent-session-lessons";
-import { readCache, writeCache } from "./context-cache";
+import { readCache, readRecallCache, writeCache } from "./context-cache";
 import {
 	contextHash,
 	deliveryHashes,
@@ -978,7 +979,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			topics: [],
 			catalog: true,
 		};
-		// Refresh the catalog each turn so feedback from another harness arrives next turn.
+		// The lesson catalog is shared for CACHE_TTLS_MS.lessons, so feedback from another harness arrives within it.
 		const nextWorkKey = `${principal}|${binding.mcpUrl}|${binding.projectId}|${harness}|${session ?? ""}|${binding.workItemId ?? ""}`;
 		const cached = {
 			nextWork: readCache(env, "next-work", nextWorkKey, now),
@@ -1052,17 +1053,38 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				return undefined;
 			}
 		};
+		// Every local session on this repository, harness and login shares one
+		// catalog copy for a short window instead of reading it each turn.
 		const catalog = async (): Promise<JsonObject> => {
+			let empty = false;
 			try {
-				const result = await trace(
-					"lesson-catalog",
-					read([...command, "code", gatewayCode({}, lessons)], 9000),
+				return await readRecallCache(
+					env,
+					JSON.stringify([principal, binding.mcpUrl, command, lessons]),
+					async () => {
+						const result = await trace(
+							"lesson-catalog",
+							read([...command, "code", gatewayCode({}, lessons)], 9000),
+						);
+						if (isObject(result.lessons)) return result.lessons;
+						empty = true;
+						throw new Error("No lesson catalog");
+					},
+					() => now,
+					{
+						kind: "lessons",
+						cacheOnly:
+							fileGatewayCooldown(
+								env.TEDIX_CONFIG_DIR
+									? { configDir: env.TEDIX_CONFIG_DIR }
+									: undefined,
+							).read(String(binding.mcpUrl)) > now.getTime(),
+					},
 				);
-				return isObject(result.lessons)
-					? result.lessons
-					: { unavailable: true };
 			} catch {
-				return { unavailable: true, readFailed: true };
+				return empty
+					? { unavailable: true }
+					: { unavailable: true, readFailed: true };
 			}
 		};
 		// Slow documents or request history must not suppress lessons or priorities.
