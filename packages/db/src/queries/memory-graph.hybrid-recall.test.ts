@@ -95,39 +95,22 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
-	it("bounds live eligibility work after tenant-filtered FTS candidates", async () => {
-		const { db, sqlite, add } = fixture();
-		for (let i = 0; i < 250; i++) {
-			add(`foreign-${i}`, "cobalt", "fictional-b");
-			add(`private-${i}`, "cobalt", undefined, {
-				visibility: "private",
-				tedi_id: "other",
-			});
-		}
-		add("usable", "cobalt vessel instructions");
+	it("finds a filtered fact ranked below many unfiltered matches", async () => {
+		const { db, add } = fixture();
+		for (let i = 0; i < 230; i++)
+			add(`noise-${i}`, `cobalt cobalt cobalt note ${i}`);
+		add(
+			"decision",
+			"We chose the cobalt supplier after a long review",
+			"fictional-a",
+			{ fact_type: "decision" },
+		);
 		const live = { ...scope, now: undefined };
-		// Even an all-private candidate window cannot trigger an unbounded scan.
-		let visited = 0;
-		sqlite.function("recall_probe", (value) => {
-			visited++;
-			return value;
-		});
-		const prepare = sqlite.prepare.bind(sqlite);
-		sqlite.prepare = ((query: string) =>
-			prepare(
-				query.replaceAll(
-					'"memory_facts".rowid = "lexical_matches"."match_rowid"',
-					'"memory_facts".rowid = recall_probe("lexical_matches"."match_rowid")',
-				),
-			)) as typeof sqlite.prepare;
-		expect(await lexicalRecall(db, live, "cobalt")).toEqual([]);
-		expect(visited).toBe(200);
-		// Foreign candidates cannot consume this organization's window.
 		expect(
-			(await lexicalRecall(db, live, "vessel instructions")).map(
-				(row) => row.factId,
-			),
-		).toEqual(["usable"]);
+			(
+				await lexicalRecall(db, { ...live, factTypes: ["decision"] }, "cobalt")
+			).map((f) => f.factId),
+		).toEqual(["decision"]);
 	});
 	it("searches a long message by its least common words", async () => {
 		const prepared: string[] = [];

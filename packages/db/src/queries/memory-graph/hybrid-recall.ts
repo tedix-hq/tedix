@@ -153,36 +153,6 @@ export async function lexicalRecall(
 	const index = sql.identifier(
 		fullIndex ? "memory_fact_fts" : "memory_fact_fts_recall",
 	);
-	if (!fullIndex) {
-		// The live projection excludes inactive facts. Bound the remaining rowid
-		// lookups and eligibility checks even when common terms match the corpus.
-		const matches = db
-			.select({
-				rowid: sql<number>`${index}.rowid`.as("match_rowid"),
-				rank: sql<number>`${index}.rank`.as("match_rank"),
-			})
-			.from(sql`${index}`)
-			.where(
-				and(
-					sql`${index} MATCH ${match}`,
-					sql`${index}.organization_id = ${scope.organizationId}`,
-					sql`${index}.rank MATCH 'bm25(0,0,1,2)'`,
-				),
-			)
-			.orderBy(sql`${index}.rank`)
-			.limit(200)
-			.as("lexical_matches");
-		return db
-			.select({
-				factId: sql<string>`${memoryFacts.id}`.as("fact_id"),
-				score: sql<number>`-${matches.rank}`.as("lexical_score"),
-			})
-			.from(matches)
-			.crossJoin(sql`${memoryFacts} NOT INDEXED`)
-			.where(and(sql`${memoryFacts}.rowid = ${matches.rowid}`, eligible(scope)))
-			.orderBy(matches.rank)
-			.limit(40);
-	}
 	return (
 		db
 			.select({
