@@ -4,6 +4,12 @@ import {
 	isSitemapXml,
 } from "./edge-cache-headers";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
+import {
+	NATIVE_PAGE_HEADER,
+	PAGE_REVISION_HEADER,
+	pageRevisionFingerprint,
+	type PageCacheRevisions,
+} from "./native-page-cache";
 
 /**
  * Parent-side cache for anonymous tenant HTML pages.
@@ -14,12 +20,13 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
  * Cache API, under a key built from the resolved tenant, never from the bare
  * URL. Workers Cache keys omit the hostname, which is how responses once
  * crossed tenant boundaries; this key names the host, site, slug, restore
- * epoch, bundle and current database revision explicitly.
+ * epoch, bundle and shared-content revision explicitly.
  *
  * A page is stored only when the tenant declares a public policy or, for
  * canonical-template HTML without any policy, under the public page default.
- * Database writes rotate the revision before acknowledging publication;
- * in-flight renders can only fill their old revision's key.
+ * Stored copies carry a revision fingerprint checked before every hit.
+ * Native pages can survive body edits to other entries; undeclared content
+ * dependencies and shared-field changes retain site-wide invalidation.
  */
 export const MARKETING_PAGE_CACHE_CONTROL =
 	"public, s-maxage=1800, stale-while-revalidate=86400";
@@ -274,6 +281,8 @@ export function pageCacheHit(
 	const headers = new Headers(cached.headers);
 	headers.delete(CACHED_AT_HEADER);
 	headers.delete(FRESH_FOR_HEADER);
+	headers.delete(NATIVE_PAGE_HEADER);
+	headers.delete(PAGE_REVISION_HEADER);
 	headers.delete("Cache-Control");
 	const declared = headers.get(ORIGINAL_POLICY_HEADER);
 	headers.delete(ORIGINAL_POLICY_HEADER);
@@ -290,9 +299,20 @@ export function pageCacheHit(
 export async function matchTenantPage(
 	cache: Cache,
 	key: Request,
+	revisions?: PageCacheRevisions,
 ): Promise<Response | undefined> {
 	try {
-		return await cache.match(key);
+		const cached = await cache.match(key);
+		if (
+			cached &&
+			revisions &&
+			cached.headers.get(PAGE_REVISION_HEADER) !==
+				pageRevisionFingerprint(cached.headers, revisions)
+		) {
+			await cached.body?.cancel();
+			return;
+		}
+		return cached;
 	} catch (error) {
 		console.error("[cms-runtime] page cache lookup failed", error);
 	}
@@ -311,11 +331,14 @@ export async function cachedTenantPage(args: {
 	waitUntil: (promise: Promise<unknown>) => void;
 	render: () => Promise<Response>;
 	now?: () => number;
+	revisions?: PageCacheRevisions;
 }): Promise<Response> {
 	const now = args.now ?? Date.now;
 	const store = async (rendered: Response) => {
 		const policy = pageCachePolicy(rendered, args.templateSlug, args.pathname);
 		const headers = new Headers(rendered.headers);
+		headers.delete(NATIVE_PAGE_HEADER);
+		headers.delete(PAGE_REVISION_HEADER);
 		headers.delete(ORIGINAL_POLICY_HEADER);
 		headers.set(PAGE_CACHE_STATUS_HEADER, policy ? "MISS" : "BYPASS");
 		headers.set(
@@ -332,11 +355,18 @@ export async function cachedTenantPage(args: {
 				stored: undefined,
 			};
 		const [client, stored] = rendered.body.tee();
+		const storedHeaders = new Headers(rendered.headers);
+		if (args.templateSlug !== "tedix") storedHeaders.delete(NATIVE_PAGE_HEADER);
+		if (args.revisions)
+			storedHeaders.set(
+				PAGE_REVISION_HEADER,
+				pageRevisionFingerprint(storedHeaders, args.revisions),
+			);
 		const pending = args.cache
 			.put(
 				args.key,
 				pageCacheEntry(
-					new Response(stored, { status: 200, headers: rendered.headers }),
+					new Response(stored, { status: 200, headers: storedHeaders }),
 					policy,
 					now(),
 					args.pathname,
@@ -356,7 +386,7 @@ export async function cachedTenantPage(args: {
 		};
 	};
 
-	const cached = await matchTenantPage(args.cache, args.key);
+	const cached = await matchTenantPage(args.cache, args.key, args.revisions);
 	if (cached) {
 		const hit = pageCacheHit(cached, now());
 		if (!hit.fresh) {

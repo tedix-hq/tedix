@@ -23,16 +23,29 @@ export interface RotateCmsSitePageCacheRevisionParams {
 	slug: string;
 	restoreEpoch: number;
 	revision: string;
+	/** Fixed-size entry bucket; absent means dependencies could not be narrowed. */
+	entryBucket?: number;
 }
 
 export async function rotateCmsSitePageCacheRevision(
 	db: DbQueryClient,
 	input: RotateCmsSitePageCacheRevisionParams,
 ): Promise<void> {
+	if (
+		input.entryBucket !== undefined &&
+		(!Number.isInteger(input.entryBucket) ||
+			input.entryBucket < 0 ||
+			input.entryBucket >= 64)
+	)
+		throw new Error("Invalid CMS page cache entry bucket");
+	const revisionPath =
+		input.entryBucket === undefined
+			? "$.pageCacheSharedRevision"
+			: `$.pageCacheEntryRevisions."${input.entryBucket}"`;
 	await db
 		.update(cmsSites)
 		.set({
-			config: sql`json_set(coalesce(${cmsSites.config}, '{}'), '$.pageCacheRevision', ${input.revision})`,
+			config: sql`json_set(coalesce(${cmsSites.config}, '{}'), '$.pageCacheRevision', ${input.revision}, ${revisionPath}, ${input.revision})`,
 		})
 		.where(
 			and(

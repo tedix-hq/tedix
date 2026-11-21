@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { applyEdgeCacheHeaders } from "./edge-cache-headers";
 import {
+	nativePageBodyChange,
+	nativePageUpdateId,
+	nativePageRevisionInsertId,
+} from "./native-page-cache";
+import {
 	anonymousPageRequest,
 	cachedTenantPage,
 	MARKETING_PAGE_CACHE_CONTROL,
@@ -12,6 +17,46 @@ import {
 } from "./tenant-page-cache";
 
 afterEach(() => vi.restoreAllMocks());
+
+it("narrows only single-row native writes with unchanged shared fields", () => {
+	expect(
+		nativePageUpdateId(
+			'update "ec_pages" set "content" = ?, "version" = version + 1 where "id" = ? and "deleted_at" is null',
+			["body", "entry-a"],
+		),
+	).toBe("entry-a");
+	for (const sql of [
+		"update ec_pages set content = ? where id = ? or id = ?",
+		"update ec_pages set content = (select content from ec_pages where id = ?) where id = ?",
+		"update ec_pages set content = '?' where id = ?",
+		"update ec_pages set content = ? where id = ?; update options set value = ?",
+	])
+		expect(nativePageUpdateId(sql, ["body", "entry-a"])).toBeUndefined();
+	const before = {
+		status: "published",
+		content: "before",
+		title: "Page",
+		slug: "page",
+		version: 1,
+	};
+	expect(
+		nativePageBodyChange(before, { ...before, content: "after", version: 2 }),
+	).toBe(true);
+	for (const change of [
+		{ title: "Changed" },
+		{ slug: "new" },
+		{ status: "draft" },
+		{ locale: "de" },
+	]) {
+		expect(nativePageBodyChange(before, { ...before, ...change })).toBe(false);
+	}
+	expect(
+		nativePageRevisionInsertId(
+			'insert into "revisions" ("id", "collection", "entry_id", "data") values (?, ?, ?, ?)',
+			["rev-a", "pages", "entry-a", "{}"],
+		),
+	).toBe("entry-a");
+});
 
 const identity: PageCacheIdentity = {
 	siteId: "site-a",

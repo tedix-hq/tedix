@@ -66,6 +66,8 @@ if (!isPost && !page) return Astro.redirect("/404");
 if (cacheHint) { try { Astro.cache.set(cacheHint); } catch {} }
 
 const data = (page?.data ?? {}) as Record<string, unknown>;
+// Only this route renders this page's body; shared fields still invalidate globally.
+if (!isPost && typeof data.id === "string") Astro.response.headers.set("X-Tedix-Native-Page", data.id);
 type NativeBlocks = NonNullable<ComponentProps<typeof NativePage>["value"]>;
 const blocks = Array.isArray(data.content) ? data.content as NativeBlocks : [];
 const publicBase = (workerEnv as Record<string, string | undefined>).PUBLIC_SITE_URL?.replace(/\/+$/, "") ?? Astro.url.origin;

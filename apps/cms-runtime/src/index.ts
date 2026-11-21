@@ -18,6 +18,7 @@ import {
 	pageCacheEligible,
 	pageCacheKey,
 } from "./tenant-page-cache";
+import { type PageCacheRevisions } from "./native-page-cache";
 import { staticAssetResponse } from "./static-assets";
 import {
 	publicRestorePermitEligible,
@@ -1403,7 +1404,7 @@ async function fetchCmsSite(
 	knownHost?: { slug: string; customDomain: boolean } | null,
 	knownAlias?: Awaited<ReturnType<typeof getCmsSiteByActiveWwwAlias>>,
 	knownRestoreEpoch?: number,
-	knownPageCacheRevision?: string,
+	knownPageCacheConfig?: PageCacheRevisions,
 	knownBundle?: TenantBundle | null,
 	onPage?: (page: WarmMarketingPage) => void,
 ): Promise<Response> {
@@ -1746,11 +1747,11 @@ async function fetchCmsSite(
 
 	try {
 		const site =
-			knownPageCacheRevision === undefined
+			knownPageCacheConfig === undefined
 				? await getCmsSiteBySlug(createDbQueryClient(env.PLATFORM_DB), slug)
 				: null;
-		const pageRevision =
-			knownPageCacheRevision ?? site?.config?.pageCacheRevision ?? "0";
+		const pageCacheConfig = knownPageCacheConfig ?? site?.config ?? {};
+		const pageRevision = pageCacheConfig.pageCacheRevision ?? "0";
 		const restoreEpoch =
 			knownRestoreEpoch ??
 			(await getCmsRestoreEpoch(createDbQueryClient(env.PLATFORM_DB), {
@@ -1862,7 +1863,7 @@ async function fetchCmsSite(
 							restoreEpoch,
 							bundleEtag: bundle.etag,
 							bundleVersion: bundle.version,
-							contentRevision: pageRevision,
+							contentRevision: pageCacheConfig.pageCacheSharedRevision ?? "0",
 						},
 						queryTemplate,
 					)
@@ -1874,6 +1875,7 @@ async function fetchCmsSite(
 							key: pageKey,
 							templateSlug: org.templateSlug,
 							pathname: tenantUrl.pathname,
+							revisions: pageCacheConfig,
 							waitUntil: (promise) => ctx.waitUntil(promise),
 							render: () =>
 								renderTenant((r) => anonymousPageRequest(r, queryTemplate)),
@@ -1968,6 +1970,7 @@ async function fetchCmsSite(
 				requestHost,
 				org,
 				identity: { siteId: org.siteId, slug, restoreEpoch },
+				revisions: pageCacheConfig,
 			});
 		}
 		return response;
@@ -2120,6 +2123,7 @@ async function finishTenantResponse(
 
 interface WarmMarketingPage {
 	key: string;
+	revisions: PageCacheRevisions;
 	tenantUrl: string;
 	requestHost: string;
 	org: OrgInfo;
@@ -2154,6 +2158,7 @@ async function serveWarmMarketingPage(
 	const cached = await matchTenantPage(
 		tenantPageCache(),
 		new Request(page.key),
+		page.revisions,
 	);
 	if (!cached) return;
 	const hit = pageCacheHit(cached, Date.now());
@@ -2216,16 +2221,30 @@ export default {
 		env: Env,
 		ctx: ExecutionContext,
 	): Promise<Response> {
-		try {
-			await sweepCmsRestorePermitLeases(createDbQueryClient(env.PLATFORM_DB));
-		} catch (error) {
-			console.error("[cms-runtime] restore lease sweep failed:", error);
-		}
 		const url = new URL(request.url);
 		const { healthHostname, marketingBlogHostname } =
 			cmsRuntimePlatformHosts(env);
 		if (url.hostname === marketingBlogHostname)
 			return redirectLegacyMarketingBlog(request, url);
+		const marketingSlug = isMarketingHost(url.hostname, env)
+			? env.MARKETING_SITE_SLUG
+			: undefined;
+		const routeKey =
+			marketingSlug && pageCacheEligible(request, url.pathname)
+				? JSON.stringify([
+						marketingSlug,
+						publicPageRequestKey(request, "tedix"),
+					])
+				: undefined;
+		if (routeKey) {
+			const hit = await serveWarmMarketingPage(request, env, ctx, routeKey);
+			if (hit) return hit;
+		}
+		try {
+			await sweepCmsRestorePermitLeases(createDbQueryClient(env.PLATFORM_DB));
+		} catch (error) {
+			console.error("[cms-runtime] restore lease sweep failed:", error);
+		}
 
 		// Health is installation-scoped. Service-only routes must remain reachable
 		// while the public site is closed for a restore; each handler checks auth.
@@ -2249,21 +2268,6 @@ export default {
 			return fetchCmsSite(request, env, ctx);
 		if (!env.MARKETING_SITE_SLUG && isMarketingHost(url.hostname, env))
 			return cmsRestoreFenceResponse();
-
-		const marketingSlug = isMarketingHost(url.hostname, env)
-			? env.MARKETING_SITE_SLUG
-			: undefined;
-		const routeKey =
-			marketingSlug && pageCacheEligible(request, url.pathname)
-				? JSON.stringify([
-						marketingSlug,
-						publicPageRequestKey(request, "tedix"),
-					])
-				: undefined;
-		if (routeKey) {
-			const hit = await serveWarmMarketingPage(request, env, ctx, routeKey);
-			if (hit) return hit;
-		}
 
 		// D1 routing and admission can be retried until the request is dispatched.
 		let dispatched = false;
@@ -2317,7 +2321,7 @@ export default {
 					resolved,
 					alias,
 					site.restoreEpoch,
-					site.config?.pageCacheRevision ?? "0",
+					site.config ?? {},
 					bundle,
 					routeKey && !alias
 						? (page) => {
