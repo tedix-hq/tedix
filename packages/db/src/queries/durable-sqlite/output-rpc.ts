@@ -8,6 +8,8 @@ import type { OsWorkspaceScopeParams } from "../os-workspaces/workspaces";
 import type {
 	NewOsOutputRow,
 	NewOsOutputRevisionRow,
+	OsOutputRow,
+	OsOutputRevisionRow,
 } from "../../tenant-store/outputs-schema";
 import type { TenantStoreImportBatch } from "../../tenant-store/store";
 import type { TenantStoreDb } from "./tenant-store";
@@ -106,7 +108,15 @@ export interface OutputQueryResults {
 	>;
 	history: Awaited<ReturnType<typeof outputs.listOsOutputRevisions>>;
 	create: Awaited<ReturnType<typeof outputs.createOsOutput>>;
-	revise: Awaited<ReturnType<typeof outputs.createOsOutputRevision>>;
+	// Older workspace Workers return only the revision on success.
+	revise:
+		| {
+				ok: true;
+				output?: OsOutputRow;
+				revision: OsOutputRevisionRow;
+				projectionQueued?: true;
+		  }
+		| Extract<outputs.CreateOsOutputRevisionResult, { ok: false }>;
 	mergeProposal: ReturnType<typeof outputs.mergeOsOutputProposal>;
 	thin: string[];
 	rebody: boolean;

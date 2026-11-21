@@ -928,14 +928,21 @@ async function mergeStaleSave(
 async function requireCurrentOutputRevision(
 	context: BaseContext,
 	output: OsOutputRow,
+	lap?: (stage: string) => void,
 ): Promise<OsOutputRevisionRow> {
 	const revision = output.currentRevisionId
-		? await getOsOutputRevision(queryDb(context), {
-				organizationId: output.organizationId,
-				workspaceId: output.workspaceId ?? undefined,
-				revisionId: output.currentRevisionId,
-			})
+		? await getOsOutputRevision(
+				queryDb(context),
+				{
+					organizationId: output.organizationId,
+					workspaceId: output.workspaceId ?? undefined,
+					revisionId: output.currentRevisionId,
+				},
+				undefined,
+				lap,
+			)
 		: undefined;
+	lap?.("loadBodyMs");
 	if (!revision) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
@@ -943,6 +950,7 @@ async function requireCurrentOutputRevision(
 		);
 	}
 	await requireDerivedRevisionAccess(context, revision);
+	lap?.("readAccessMs");
 	return revision;
 }
 
@@ -958,9 +966,11 @@ async function persistEditedOutputRevision(
 	baseRevision: OsOutputRevisionRow,
 	content: OsOutputContent,
 	note: string | undefined,
+	lap?: (stage: string) => void,
 ): Promise<{ output: OsOutput; revision: OsOutputRevision }> {
 	const creator = resolveCreator(context);
 	const accessEnvelope = await resolveAccessEnvelope(context);
+	lap?.("writeAccessMs");
 	const db = queryDb(context);
 	const result = await createOsOutputRevision(
 		db,
@@ -978,6 +988,7 @@ async function persistEditedOutputRevision(
 		},
 		context.env.R2_BUCKET,
 		baseRevision,
+		lap && { lap, waitUntil: context.waitUntil },
 	);
 	if (!result.ok) {
 		if (result.reason === "output_not_found") {
@@ -994,12 +1005,8 @@ async function persistEditedOutputRevision(
 			latest?.revision ?? null,
 		);
 	}
-	const advanced = await getOsOutput(db, {
-		organizationId: output.organizationId,
-		outputId: output.id,
-	});
 	return {
-		output: mapOsOutputRow(advanced ?? output),
+		output: mapOsOutputRow(result.output ?? output),
 		revision: mapOsOutputRevisionRow(result.revision),
 	};
 }
@@ -1126,15 +1133,24 @@ const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 
 const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 	async ({ input, context }) => {
+		const start = performance.now();
+		let mark = start;
+		const durations: Record<string, number> = {};
+		const lap = (stage: string) => {
+			const now = performance.now();
+			durations[stage] = Math.round(now - mark);
+			mark = now;
+		};
 		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
+		lap("outputLookupMs");
 		if (output.kind !== "sheet") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				`outputs.setSheetRange edits sheets; this output is a ${output.kind}`,
 			);
 		}
-		const base = await requireCurrentOutputRevision(context, output);
+		const base = await requireCurrentOutputRevision(context, output, lap);
 		if (
 			input.expectedRevision !== undefined &&
 			input.expectedRevision !== base.revision
@@ -1172,13 +1188,21 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 				`The written sheet violates the content schema: ${next.error.issues[0]?.message ?? "invalid"}`,
 			);
 		}
-		return persistEditedOutputRevision(
+		lap("editMs");
+		const saved = await persistEditedOutputRevision(
 			context,
 			output,
 			base,
 			next.data,
 			input.note,
+			lap,
 		);
+		console.info({
+			event: "os_output_sheet_range_saved",
+			...durations,
+			handlerMs: Math.round(performance.now() - start),
+		});
+		return saved;
 	},
 );
 

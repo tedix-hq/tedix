@@ -5404,6 +5404,7 @@ test.each(["before", "after"] as const)(
 test("a slow workspace feed does not hold a file save", async () => {
 	await seedCore();
 	const ws = workspace();
+	await ws.outputQuery(scope, { op: "initialize" });
 	const id = "slow-feed-file";
 	const now = new Date().toISOString();
 	const body = await storeOutputBody(
@@ -5498,6 +5499,7 @@ test("a slow workspace feed does not hold a file save", async () => {
 test("a one-cell 150-row sheet save stays under 1.5 seconds with a slow feed", async () => {
 	await seedCore();
 	const ws = workspace();
+	await ws.outputQuery(scope, { op: "initialize" });
 	const id = "sheet-save-budget";
 	const now = new Date().toISOString();
 	const content = {
@@ -5556,7 +5558,12 @@ test("a one-cell 150-row sheet save stays under 1.5 seconds with a slow feed", a
 		});
 		const elapsed = Date.now() - started;
 		console.info("150-row slow-feed revision milliseconds", elapsed);
-		expect(result).toMatchObject({ ok: true, revision: { revision: 2 } });
+		expect(result).toMatchObject({
+			ok: true,
+			projectionQueued: true,
+			output: { currentRevisionId: `${id}-2` },
+			revision: { id: `${id}-2`, revision: 2 },
+		});
 		expect(elapsed).toBeLessThan(1_500);
 	} finally {
 		await ws.delayProjections(scope, 0);
@@ -5573,6 +5580,7 @@ test("a one-cell 150-row sheet save stays under 1.5 seconds with a slow feed", a
 test("recovers intermediate file revisions when output notifications coalesce", async () => {
 	await seedCore();
 	const ws = workspace();
+	await ws.outputQuery(scope, { op: "initialize" });
 	const id = "coalesced-file";
 	const now = new Date().toISOString();
 	const body = await storeOutputBody(

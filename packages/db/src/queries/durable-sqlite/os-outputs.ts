@@ -125,7 +125,7 @@ export interface CreateOsOutputRevisionParams {
 }
 
 export type CreateOsOutputRevisionResult =
-	| { ok: true; revision: OsOutputRevisionRow }
+	| { ok: true; output: OsOutputRow; revision: OsOutputRevisionRow }
 	| { ok: false; reason: "output_not_found" | "revision_conflict" };
 
 /**
@@ -527,7 +527,20 @@ export async function createOsOutputRevision(
 				)
 				.limit(1)
 				.all();
-			if (current) return { ok: true, revision: current };
+			if (current) {
+				const [output] = tx
+					.select()
+					.from(osOutputs)
+					.where(
+						and(
+							eq(osOutputs.organizationId, params.organizationId),
+							eq(osOutputs.id, params.outputId),
+						),
+					)
+					.limit(1)
+					.all();
+				if (output) return { ok: true, output, revision: current };
+			}
 		}
 		const currentMaxRevision = sql<number>`coalesce((select max(${osOutputRevisions.revision}) from ${osOutputRevisions} where ${osOutputRevisions.outputId} = ${params.outputId}), 0)`;
 		const sourceConditions = [
@@ -599,7 +612,8 @@ export async function createOsOutputRevision(
 				reason: output ? "revision_conflict" : "output_not_found",
 			};
 		}
-		tx.update(osOutputs)
+		const [output] = tx
+			.update(osOutputs)
 			.set({ currentRevisionId: params.id, updatedAt: now })
 			.where(
 				and(
@@ -608,8 +622,11 @@ export async function createOsOutputRevision(
 					sql`changes() = 1`,
 				),
 			)
-			.run();
-		return { ok: true, revision };
+			.returning()
+			.all();
+		if (!output)
+			throw new Error("Could not advance the workspace output revision");
+		return { ok: true, output, revision };
 	});
 }
 
