@@ -18,7 +18,7 @@ const COMMAND_RULES: Array<[RegExp, string]> = [
 		"signing in or out stays with the person",
 	],
 	[
-		/\.tedix\b|supervisor-runners\.json/,
+		/supervisor-runners\.json/,
 		"the runner's own settings and credentials are not touched",
 	],
 	[
@@ -27,10 +27,42 @@ const COMMAND_RULES: Array<[RegExp, string]> = [
 	],
 ];
 
+/** A path inside the runner's own folder: `~/.tedix/...` or `/.tedix/...`, not a host such as api.tedix.dev. */
+const TEDIX_FOLDER =
+	/(?:^|[\s'"=:/~])\.tedix(?:\/[^\s'";&|]*)?(?=$|[\s'";&|])/g;
+/** Commands that only show a file or a folder listing. */
+const LOOK_COMMANDS = new Set(["tail", "head", "cat", "grep", "wc", "ls"]);
+
+/**
+ * The runner's folder holds its sign-ins, sessions and settings, so it is
+ * not touched, except that its logs may be read and its folders listed:
+ * every part of the command naming that folder must be one of the look-only
+ * commands, and every such path a .log or .txt file (any path for `ls`).
+ */
+function touchesRunnerFolder(command: string): boolean {
+	for (const part of command.split(/[;&|\n]+/)) {
+		const paths = [...part.matchAll(TEDIX_FOLDER)].map((match) =>
+			match[0].replace(/^[\s'"=:]/, ""),
+		);
+		if (!paths.length) continue;
+		const verb = part.trim().split(/\s+/)[0] ?? "";
+		if (!LOOK_COMMANDS.has(verb) || part.includes(">")) return true;
+		for (const path of paths)
+			if (
+				path.split("/").includes("..") ||
+				(verb !== "ls" && !/\.(?:log|txt)$/i.test(path))
+			)
+				return true;
+	}
+	return false;
+}
+
 /** The reason a command is refused, or undefined when it may run. */
 export function refusedMachineCommand(command: string): string | undefined {
 	for (const [rule, reason] of COMMAND_RULES)
 		if (rule.test(command)) return reason;
+	if (touchesRunnerFolder(command))
+		return "the runner's own settings and credentials are not touched";
 	const reserved = laneReservedActions(command);
 	return reserved.length
 		? `this stays with the person (${reserved.join(", ")})`

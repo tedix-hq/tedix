@@ -255,6 +255,22 @@ test("with the write tools on, a tedi edits files and runs commands in its own w
 		(await call("run_command", { workspace, command: "sudo ls" })).ok,
 	).toBe(false);
 	expect(refusedMachineCommand("git push --force origin main")).toBeDefined();
+	// The runner's folder: its logs may be read, nothing else; a host name is not the folder.
+	for (const allowed of [
+		"curl -s https://api.tedix.dev/health",
+		"tail -n 50 ~/.tedix/dispatchers/a/dispatcher.log",
+		"grep -n error ~/.tedix/supervisor.log && ls -la ~/.tedix/",
+	])
+		expect(refusedMachineCommand(allowed)).toBeUndefined();
+	for (const refused of [
+		"cat ~/.tedix/credentials.json",
+		"cat ~/.tedix/decision-capture/a.session.json",
+		"rm ~/.tedix/a.log",
+		"cat ~/.tedix/a.log > ~/.tedix/b.log",
+		"tail -n 5 ~/.tedix/../.ssh/id.log",
+		"cp ~/.tedix/a.log /tmp/x",
+	])
+		expect(refusedMachineCommand(refused)).toBeDefined();
 
 	// A command past its timeout is stopped with everything it started.
 	const stopped = await runShellCommand("sleep 30 & sleep 30", {

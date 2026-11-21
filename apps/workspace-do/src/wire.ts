@@ -476,13 +476,25 @@ export function stepSummary(
 
 /** A command that ran without asking because it only reads. */
 function readOnlyCommandSummary(input: unknown, value: unknown) {
-	if ((value as { ranAs?: unknown } | null)?.ranAs !== "read") return undefined;
+	const result = value as { ranAs?: unknown; status?: unknown } | null;
+	if (result?.ranAs !== "read") return undefined;
 	const call = input as { machine?: unknown; input?: unknown } | null;
 	const command = (call?.input as { command?: unknown } | null)?.command;
 	if (typeof command !== "string") return undefined;
 	const where =
 		typeof call?.machine === "string" ? call.machine.slice(0, 80) : "this Mac";
-	return `Ran a read-only command on ${where}: ${command.slice(0, 200)}`;
+	const shown = command.slice(0, 200);
+	// The machine answers on its own: it may refuse, fail or not answer yet.
+	switch (result.status) {
+		case "done":
+			return `Ran a read-only command on ${where}: ${shown}`;
+		case "failed":
+			return `${where} refused or failed a read-only command: ${shown}`;
+		case "expired":
+			return `${where} did not pick up a read-only command: ${shown}`;
+		default:
+			return `Sent a read-only command to ${where}: ${shown}`;
+	}
 }
 
 /**
