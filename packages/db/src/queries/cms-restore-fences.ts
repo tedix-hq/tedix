@@ -543,7 +543,7 @@ export interface DeleteExpiredCmsRestorePermitLeasesParams {
 }
 
 // One-time retirement boundary accepted for the pre-lease runtime rollout.
-const CMS_LEGACY_PERMIT_CUTOFF = "2026-11-21 04:31:17";
+const CMS_LEGACY_PERMIT_CUTOFF = "2026-11-21 06:00:00";
 
 function legacyPermitCandidate(now: string) {
 	return and(

@@ -75,8 +75,8 @@ do not depend on an operator writing an R2 retirement receipt. Each sweep
 removes at most 1,000 rows. The build owner remains diagnostic metadata;
 `/health/` reports it as `runtimePermitOwnerId`.
 
-Legacy runtime rows entered before 21 November 2026 at 04:31:17 UTC become
-eligible for the same sweep on 22 November at 04:31:17 UTC. This is a one-time
+Legacy runtime rows entered before 21 November 2026 at 06:00:00 UTC become
+eligible for the same sweep on 22 November at 06:00:00 UTC. This is a one-time
 rollout retirement assumption accepted by the installation owner, not a
 platform limit on HTTP or Durable Object calls. Sites with an unfinished
 deprovision operation (including failed operations), restore fence or capture
