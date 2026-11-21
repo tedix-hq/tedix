@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import {
+	MACHINE_REQUEST_BUSY,
 	WorkspaceMachineInputSchema,
 	type WorkspaceMachineResult,
 } from "@tedix/api-contract/schemas/workspace-machine";
@@ -162,6 +163,6 @@ export async function useWorkspaceMachine(
 		// The machine rules refuse in words meant for the caller; anything else exposes no internals.
 		if (error instanceof ORPCError && typeof error.message === "string")
 			return refused(error.message);
-		return refused("The machine request could not be completed. Try again.");
+		return refused(MACHINE_REQUEST_BUSY);
 	}
 }

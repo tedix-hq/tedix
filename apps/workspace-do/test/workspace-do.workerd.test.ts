@@ -2747,64 +2747,86 @@ describe("WorkspaceDO", () => {
 		},
 	);
 
-	test("a person's turn reads a file on a machine, as the tedi they addressed", async () => {
-		await seedCore();
-		const own = { ...scope, workspaceId: crypto.randomUUID() };
-		await seedWorkspaceRows([own]);
-		await privateTo(own, "u1");
-		const ws = workspace(own);
-		const callId = crypto.randomUUID();
-		await ws.scriptMachine(own, [
-			{ status: "queued", callId, callStatus: "pending" },
-			{
-				status: "call",
-				call: {
-					callId,
-					machine: "Studio",
-					tool: "read_file",
-					status: "done",
-					result: "# Example",
-					createdAt: "2026-11-20T10:00:00.000Z",
+	test.each([false, true])(
+		"a machine file read reaches the original turn as its addressed tedi, including recovery: %s",
+		async (busy) => {
+			await seedCore();
+			const own = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([own]);
+			await privateTo(own, "u1");
+			const ws = workspace(own);
+			const callId = crypto.randomUUID();
+			await ws.scriptMachine(own, [
+				{ status: "queued", callId, callStatus: "pending" },
+				...(busy
+					? [
+							{
+								status: "refused" as const,
+								message:
+									"The machine request could not be completed. Try again.",
+							},
+						]
+					: []),
+				{
+					status: "call",
+					call: {
+						callId,
+						machine: "Studio",
+						tool: "read_file",
+						status: "done",
+						result: "# Example",
+						createdAt: "2026-11-20T10:00:00.000Z",
+					},
 				},
-			},
-		]);
-		await ws.scriptModel(own, [
-			{
-				code: `export default async ({machine}) => machine.call({ machine: "Studio", tool: "read_file", input: { path: "README.md" } })`,
-			},
-			{ text: "Read it." },
-		]);
-		const { turnId, conversationId } = await ws.sendTurn(own, {
-			actorKind: "user",
-			actorId: "u1",
-			tediId: "tedi1",
-			text: "Read the README on Studio.",
-		});
-		expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
-			status: "finished",
-			text: "Read it.",
-		});
-		const events = await ws.readEvents(own, { conversationId });
-		expect(
-			events.find(
-				(event) => event.type === "step.finished" && event.tool === undefined,
-			),
-		).toMatchObject({ result: expect.stringContaining("# Example") });
-		expect(await ws.readMachineCalls(own)).toEqual([
-			{
-				...own,
-				userId: "u1",
+			]);
+			await ws.scriptModel(own, [
+				{
+					code: `export default async ({machine}) => machine.call({ machine: "Studio", tool: "read_file", input: { path: "README.md" } })`,
+				},
+				{ text: "Read it." },
+			]);
+			const { turnId, conversationId } = await ws.sendTurn(own, {
+				actorKind: "user",
+				actorId: "u1",
 				tediId: "tedi1",
-				op: "call",
-				call: {
-					machine: "Studio",
-					tool: "read_file",
-					input: { path: "README.md" },
+				text: "Read the README on Studio.",
+			});
+			expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+				status: "finished",
+				text: "Read it.",
+			});
+			const events = await ws.readEvents(own, { conversationId });
+			expect(
+				events.filter(
+					(event) => event.type === "step.finished" && event.turnId === turnId,
+				),
+			).toContainEqual(
+				expect.objectContaining({
+					result: expect.stringContaining("# Example"),
+				}),
+			);
+			expect(
+				events.filter((event) => event.type === "turn.started"),
+			).toHaveLength(1);
+			expect(await ws.readMachineCalls(own)).toEqual([
+				{
+					...own,
+					userId: "u1",
+					tediId: "tedi1",
+					op: "call",
+					call: {
+						machine: "Studio",
+						tool: "read_file",
+						input: { path: "README.md" },
+					},
 				},
-			},
-			{ ...own, userId: "u1", tediId: "tedi1", op: "read", callId },
-		]);
-	});
+				{ ...own, userId: "u1", tediId: "tedi1", op: "read", callId },
+				...(busy
+					? [{ ...own, userId: "u1", tediId: "tedi1", op: "read", callId }]
+					: []),
+			]);
+		},
+	);
 
 	test("personal memory is read only in a workspace nobody but the sender can open", async () => {
 		await seedCore();

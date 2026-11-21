@@ -13,6 +13,9 @@ import {
 	RequestMachineToolCallInputSchema,
 } from "./machines";
 
+export const MACHINE_REQUEST_BUSY =
+	"The machine request could not be completed. Try again.";
+
 const WorkspaceMachineRequestBase = {
 	organizationId: z.string().min(1),
 	workspaceId: z.string().min(1),

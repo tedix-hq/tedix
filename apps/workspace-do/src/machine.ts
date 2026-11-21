@@ -1,11 +1,14 @@
 import {
+	MACHINE_FILE_ANSWER_WINDOW_MS,
+	MACHINE_TOOL_CALL_CLAIM_WINDOW_MS,
 	MACHINE_TOOL_NAMES,
 	type MachineToolCall,
 	parseMachineToolInput,
 } from "@tedix/api-contract/schemas/machines";
-import type {
-	WorkspaceMachineInput,
-	WorkspaceMachineResult,
+import {
+	MACHINE_REQUEST_BUSY,
+	type WorkspaceMachineInput,
+	type WorkspaceMachineResult,
 } from "@tedix/api-contract/schemas/workspace-machine";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { WorkspaceScope } from "./env";
@@ -37,6 +40,11 @@ export function workspaceMachine(deps: {
 	tediId?: string | null;
 	api: MachineService;
 	wait?: (ms: number) => Promise<void>;
+	/** Keep a slow read attached to the turn after its sandbox code finishes. */
+	followFile?: (
+		machine: string,
+		read: (active: () => boolean) => Promise<string>,
+	) => void;
 }) {
 	const wait =
 		deps.wait ??
@@ -161,6 +169,55 @@ export function workspaceMachine(deps: {
 						? queued.message
 						: "The machine call could not be queued.",
 				);
+			const readFile = input.tool === "read_file" && deps.followFile;
+			if (readFile) {
+				const pending = async () => {
+					try {
+						return await readCall(queued.callId);
+					} catch (error) {
+						if (
+							error instanceof Error &&
+							error.message === MACHINE_REQUEST_BUSY
+						)
+							return null;
+						throw error;
+					}
+				};
+				const deadline =
+					Date.now() +
+					MACHINE_TOOL_CALL_CLAIM_WINDOW_MS +
+					MACHINE_FILE_ANSWER_WINDOW_MS;
+				await wait(POLL_MS);
+				const first = await pending();
+				if (first && first.status !== "pending" && first.status !== "claimed")
+					return shown(first);
+				readFile(input.machine, async (active) => {
+					while (active() && Date.now() < deadline) {
+						const answer = await pending();
+						if (
+							answer &&
+							answer.status !== "pending" &&
+							answer.status !== "claimed"
+						) {
+							const result = shown(answer);
+							if ("error" in result && result.error)
+								throw new Error(result.error);
+							return JSON.stringify(result);
+						}
+						await wait(5_000);
+					}
+					throw new Error(
+						"The computer has not returned the file. Check for a folder access request on the Mac.",
+					);
+				});
+				return {
+					callId: queued.callId,
+					machine: input.machine,
+					tool: input.tool,
+					status: first?.status ?? queued.callStatus,
+					next: "The file result will follow in this turn.",
+				};
+			}
 			const deadline = Date.now() + WAIT_MS;
 			for (;;) {
 				await wait(POLL_MS);
