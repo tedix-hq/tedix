@@ -313,6 +313,47 @@ async function findSidebar(): Promise<void> {
 	publishUpdate();
 }
 
+/**
+ * The entry hides from the moment the sidebar opens or closes until it has
+ * settled, so it never sits over the page at its old place.
+ */
+let sidebarMoving = false;
+let watchingSidebar = false;
+/** The page's sidebar takes 200 ms to open or close. */
+const SIDEBAR_MOVE_MS = 300;
+const SIDEBAR_CHANGE = `new Promise((resolve) => {
+	const sidebar = document.querySelector('[data-sidebar="sidebar"]:not([data-mobile])');
+	if (!sidebar) return resolve(false);
+	const observer = new MutationObserver(() => {
+		observer.disconnect();
+		resolve(true);
+	});
+	observer.observe(sidebar, { attributes: true, attributeFilter: ["data-state"] });
+	// A new page replaces the sidebar; the next watch finds the new one.
+	setTimeout(() => {
+		observer.disconnect();
+		resolve(false);
+	}, 10000);
+})`;
+async function watchSidebar(): Promise<void> {
+	const contents = os?.webContents;
+	if (watchingSidebar || !contents || contents.isDestroyed()) return;
+	if (updateView().kind === "hidden") return;
+	watchingSidebar = true;
+	try {
+		if (!(await contents.executeJavaScript(SIDEBAR_CHANGE).catch(() => false)))
+			return;
+		sidebarMoving = true;
+		layoutMain();
+		await new Promise((resolve) => setTimeout(resolve, SIDEBAR_MOVE_MS));
+		sidebarMoving = false;
+		await findSidebar();
+		layoutMain();
+	} finally {
+		watchingSidebar = false;
+	}
+}
+
 function publishUpdate(): void {
 	const contents = updateButton?.webContents;
 	if (contents && !contents.isDestroyed())
@@ -1019,7 +1060,7 @@ function createMainWindow(show: boolean): void {
 		const { width, height } = window.getContentBounds();
 		view.setBounds({ x: 0, y: 0, width, height });
 		const { kind, place } = updateView();
-		const shown = kind !== "hidden" && updateSize.width > 0;
+		const shown = kind !== "hidden" && updateSize.width > 0 && !sidebarMoving;
 		button.setVisible(shown);
 		if (!shown) return;
 		const entry = 32;
@@ -1046,7 +1087,10 @@ function createMainWindow(show: boolean): void {
 	layout();
 	window.on("resize", layout);
 	// The page's sidebar can open, close or move; the entry follows it.
-	setInterval(() => void findSidebar(), 1000);
+	setInterval(() => {
+		void findSidebar();
+		void watchSidebar();
+	}, 1000);
 
 	// A link that asks for a new window: Tedix pages load here, anything else
 	// opens in the default browser. Redirects inside the page are left alone
