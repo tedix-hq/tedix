@@ -54,7 +54,6 @@ export async function getOsShareSkillReadGrant(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams & {
 		gadgetId: string;
-		revisionId: string;
 		slot: string;
 	},
 ) {
@@ -66,7 +65,6 @@ export async function getOsShareSkillReadGrant(
 				eq(osShareSkillReadGrants.organizationId, params.organizationId),
 				eq(osShareSkillReadGrants.shareLinkId, params.shareLinkId),
 				eq(osShareSkillReadGrants.gadgetId, params.gadgetId),
-				eq(osShareSkillReadGrants.revisionId, params.revisionId),
 				eq(osShareSkillReadGrants.slot, params.slot),
 				isNull(osShareSkillReadGrants.revokedAt),
 			),
