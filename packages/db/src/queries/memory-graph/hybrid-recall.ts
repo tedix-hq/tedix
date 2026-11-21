@@ -95,21 +95,59 @@ function eligible(scope: RecallScope): SQL {
 	)!;
 }
 
+/** Short queries search every term; longer ones keep their least common terms. */
+export const LEXICAL_RECALL_MAX_TERMS = 8;
+
+/**
+ * A long message (a whole chat turn) becomes an OR of up to 24 words, and one
+ * common word makes FTS5 score most of the shared index before the tenant
+ * filter applies. Keep the least common terms by index document count, the
+ * way long prompts are searched elsewhere. Terms the index does not hold
+ * match nothing and are dropped; terms the tokenizer splits or folds
+ * (hyphens, accents) cannot be looked up and are kept.
+ */
+async function selectLexicalTerms(
+	db: DbQueryClient,
+	terms: string[],
+): Promise<string[]> {
+	if (terms.length <= LEXICAL_RECALL_MAX_TERMS) return terms;
+	let rows: { term: string; doc: number }[];
+	try {
+		rows = await db
+			.select({ term: sql<string>`term`, doc: sql<number>`doc` })
+			.from(sql`memory_fact_fts_recall_vocab`)
+			.where(
+				sql`term IN (SELECT value FROM json_each(${JSON.stringify(terms)}))`,
+			);
+	} catch {
+		return terms;
+	}
+	const docs = new Map(rows.map((row) => [row.term, Number(row.doc)]));
+	const plain = (term: string) =>
+		/^[\p{L}\p{N}]+$/u.test(term) && term === term.normalize("NFD");
+	return terms
+		.filter((term) => docs.has(term) || !plain(term))
+		.map((term, order) => ({ term, order, doc: docs.get(term) ?? 0 }))
+		.sort((a, b) => a.doc - b.doc || a.order - b.order)
+		.slice(0, LEXICAL_RECALL_MAX_TERMS)
+		.map(({ term }) => term);
+}
+
 export async function lexicalRecall(
 	db: DbQueryClient,
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
 	scope = { ...scope, ...normalizeTenantScope(scope) };
-	const terms = recallTerms(query);
-	if (!terms.length) return [];
-	const match = terms.map((term) => `"${term}"`).join(" OR ");
 	// Explicit historical clocks need the full index: recall projection expiry
 	// follows wall time. Graph-anchor searches also keep their complete corpus.
+	const fullIndex = Boolean(scope.includeGraphAnchors || scope.now);
+	const parsed = recallTerms(query);
+	const terms = fullIndex ? parsed : await selectLexicalTerms(db, parsed);
+	if (!terms.length) return [];
+	const match = terms.map((term) => `"${term}"`).join(" OR ");
 	const index = sql.identifier(
-		scope.includeGraphAnchors || scope.now
-			? "memory_fact_fts"
-			: "memory_fact_fts_recall",
+		fullIndex ? "memory_fact_fts" : "memory_fact_fts_recall",
 	);
 	return (
 		db
