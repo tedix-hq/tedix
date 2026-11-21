@@ -4230,6 +4230,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			models: this.configuredModels(),
 			...(workspaceUsage ? { usage: workspaceUsage } : {}),
 			...(approvalMode ? { approvalMode } : {}),
+			...(current.actorKind === "user" &&
+			typeof current.actorId === "string" &&
+			current.actorId
+				? { viewerId: current.actorId }
+				: {}),
 		});
 		const page =
 			cursor !== null

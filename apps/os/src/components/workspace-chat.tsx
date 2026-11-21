@@ -666,6 +666,7 @@ export function WorkspaceChat({
 				conversationId={conversationId}
 				emptyText={emptyText}
 				turns={state.turns}
+				viewerId={state.viewerId}
 				models={state.models}
 				queued={state.queued}
 				pendingSend={state.pendingSend}
@@ -859,6 +860,7 @@ function Thread({
 	conversationId,
 	emptyText = "Ask about this workspace. The answer streams straight from it.",
 	turns,
+	viewerId,
 	models,
 	queued,
 	pendingSend,
@@ -875,6 +877,11 @@ function Thread({
 	conversationId: string | null;
 	emptyText?: string;
 	turns: ChatTurn[];
+	/**
+	 * The id the object writes this person's turns under, from its hello. The
+	 * person's own messages carry no name; other people's and tedis' do.
+	 */
+	viewerId: string | null;
 	models: ReadonlyArray<{ id: string; label: string }>;
 	/** Sent while the agent works; it has not read them yet. */
 	queued: WorkspaceChatState["queued"];
@@ -892,13 +899,6 @@ function Thread({
 	onStarter: ((text: string) => void) | null;
 }) {
 	const tediNames = useTediNames();
-	// The person's own messages carry no name; other people's and tedis' do.
-	const viewer = useQuery({
-		...workspacePresenceQueryOptions(workspaceId),
-		staleTime: 60_000,
-		retry: false,
-	});
-	const viewerId = viewer.data?.userId ?? null;
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
 	const [atLatest, setAtLatest] = useState(true);

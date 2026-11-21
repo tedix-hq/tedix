@@ -397,6 +397,11 @@ export type WireControlFrame =
 			usage?: UsageTotals;
 			/** The person's approval mode here; absent for anyone but a person. */
 			approvalMode?: ApprovalModeState;
+			/**
+			 * The id this connection's turns are written under; a turn whose
+			 * `authorId` matches is the reader's own. Absent for anyone but a person.
+			 */
+			viewerId?: string;
 	  }
 	| ({
 			/** The answer to `set_approval_mode`, sent to the socket that set it. */

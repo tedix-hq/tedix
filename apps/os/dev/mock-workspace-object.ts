@@ -392,6 +392,7 @@ function handle(socket: Socket, raw: string | Buffer): void {
 			socket.data.conversationId = message.conversationId;
 			sendTo(socket, {
 				type: "hello",
+				viewerId: "person:local",
 				cursor: ws.seq,
 				serverTime: new Date().toISOString(),
 				conversations: [...ws.conversations.values()].sort((a, b) =>

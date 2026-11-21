@@ -228,6 +228,8 @@ export type WorkspaceChatState = {
 	models: Array<{ id: string; label: string }>;
 	/** This person's approval mode here; null until the object says. */
 	approvalMode: ApprovalModeState | null;
+	/** The id the object writes this person's turns under; null until hello. */
+	viewerId: string | null;
 	/** Older events exist before the first turn shown. */
 	hasEarlier: boolean;
 	/** Messages sent to a working turn that the agent has not read yet. */
@@ -275,6 +277,7 @@ export function initialWorkspaceChatState(
 		conversations: [],
 		models: [],
 		approvalMode: null,
+		viewerId: null,
 		hasEarlier: false,
 		queued: [],
 		returned: [],

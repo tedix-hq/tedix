@@ -517,6 +517,7 @@ export function createWorkspaceChatClient(
 					),
 					models: message.models ?? [],
 					approvalMode: message.approvalMode ?? null,
+					viewerId: message.viewerId ?? null,
 				};
 				if (state.lastError?.code === "not_connected")
 					state = { ...state, lastError: null };

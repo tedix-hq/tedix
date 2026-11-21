@@ -4936,6 +4936,45 @@ describe("WorkspaceDO", () => {
 		).toBe(true);
 	});
 
+	test("hello names the reader by the id their replayed turns carry", async () => {
+		const ws = workspace();
+		await ws.scriptModel(scope, [{ text: "own answer" }]);
+		const started = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "my own message",
+		});
+		await ws.awaitTurn(scope, started.turnId, 20_000);
+		const socket = (
+			await ws.fetch(
+				new Request(
+					`https://workspace.test/subscribe?conversation=${started.conversationId}&after=0`,
+					{
+						headers: {
+							Upgrade: "websocket",
+							"X-Workspace-Org": scope.organizationId,
+							"X-Workspace-Id": scope.workspaceId,
+							"X-Workspace-Actor-Id": "u1",
+						},
+					},
+				),
+			)
+		).webSocket;
+		if (!socket) throw new Error("upgrade did not return a WebSocket");
+		const frames = await socketFramesUntil(
+			socket,
+			(frame) => frame.type === "caught_up",
+		);
+		socket.close(1000, "test complete");
+		const hello = frames.find((frame) => frame.type === "hello");
+		const own = frames.find(
+			(frame) =>
+				frame.type === "turn.started" && frame.turnId === started.turnId,
+		);
+		expect(hello?.viewerId).toBe("u1");
+		expect(own?.authorId).toBe(hello?.viewerId);
+	});
+
 	test("a chat whose history is tens of megabytes replays in bounded pages", async () => {
 		await seedCore();
 		const scope = {
