@@ -62,9 +62,14 @@ resource and budget references, and limits at least as strict as their parent.
 Maker, verification and closure roles may differ. Missing, cyclic,
 cross-organization or oversized ancestry is held for evaluation.
 
-For one budget shared by a delivery task, attach its Work Items to an existing
-case and reference that case's budget envelope in each policy. A parent Work's
-own budget is not inherited. Reservations bound admission allowance; they do
+Children filed by an admitted Attempt inherit the parent's Work budget
+envelopes and share its root attempt allowance. Organization metadata
+`workDelegation` sets the approval mode. The inherited lane policy sets depth,
+descendant and attempt limits; without a policy the platform defaults are
+depth 3, 12 descendants and 20 attempts. Auto mode accepts these children on creation; other modes
+leave them proposed. Creation-time predecessors keep children queued until
+the dependencies finish, and settlement reports back to the parent's Work
+and Attempt. Reservations bound admission allowance; they do
 not establish actual provider billing or independent verification.
 
 ## Usage

@@ -1,4 +1,16 @@
 import { z } from "zod";
+import { ApprovalModeSchema } from "./workspace-agent-access";
+
+export const WORK_DELEGATION_DEFAULTS = {
+	approvalMode: "auto",
+	maxDelegationDepth: 3,
+	maxDescendants: 12,
+	maxAttempts: 20,
+} as const;
+
+export const WorkDelegationSettingsSchema = z.strictObject({
+	approvalMode: ApprovalModeSchema.optional(),
+});
 
 const key = z.string().trim().min(1).max(300);
 const micros = z.number().int().safe().positive();
@@ -40,6 +52,8 @@ export const LaneExecutionPolicySchema = z
 		executors: z.array(LaneExecutorSchema).min(1).max(20),
 		maxAttempts: z.number().int().min(1).max(20),
 		maxDelegationDepth: z.number().int().min(0).max(10),
+		maxDescendants: z.number().int().min(0).max(100).optional(),
+		approvalMode: ApprovalModeSchema.optional(),
 		/** Checked against parent links, starting at the first ancestor with a lane policy. */
 		delegationDepth: z.number().int().min(0).max(10),
 	})

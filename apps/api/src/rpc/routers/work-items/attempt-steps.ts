@@ -9,6 +9,8 @@ import {
 	listWorkAttemptSteps,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
+import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
+import { verifiedActiveWorkActor } from "../work-items-principal";
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { WorkAttemptMessageRow } from "@tedix/db/schema/work-items";
 import { writeRunSteeringRecord } from "../../../services/machine-change-records";
@@ -49,7 +51,7 @@ const steeringOs = authOs.use(
 	withAuthorization(
 		{
 			handlerOwnedUserAuthorization:
-				"The handler checks organization scope and requires the Work Item's owner or steward",
+				"The handler checks organization scope and requires the owner, steward or live delegating parent Attempt",
 		},
 		"mcp:work.write",
 		WORK_RUN_STEER_SCOPE,
@@ -182,9 +184,34 @@ async function steerRun(
 	},
 ) {
 	const workItem = await assertWorkItemAccess(context, params.id);
-	// The same rule as completing the Work Item: its owner or steward. An
-	// agent can never qualify here while its own run is still in progress.
-	const actor = await workItemStewardActor(context, workItem, "completion");
+	let actor;
+	const delegation = workItem.metadata?.childDelegation as
+		| { parentAttemptId?: string }
+		| undefined;
+	if (
+		delegation?.parentAttemptId &&
+		workItem.parentWorkItemId &&
+		(context.externalAgentPrincipalId ||
+			context.ownerHostSessionId ||
+			context.tediId)
+	) {
+		const parent = await verifiedActiveWorkActor(context, workItem.orgId);
+		if (parent.type !== "user") {
+			await getAuthoritativeWorkItemAttempt(context.db, {
+				orgId: workItem.orgId,
+				workItemId: workItem.parentWorkItemId,
+				attemptId: delegation.parentAttemptId,
+				executor: parent,
+				sessionId: parent.sessionId,
+				externalSessionKey:
+					parent.type === "external_agent"
+						? parent.externalSessionKey
+						: undefined,
+			});
+			actor = parent;
+		}
+	}
+	actor ??= await workItemStewardActor(context, workItem, "completion");
 	const message = await sendWorkAttemptMessage(context.db, {
 		orgId: workItem.orgId,
 		workItemId: workItem.id,

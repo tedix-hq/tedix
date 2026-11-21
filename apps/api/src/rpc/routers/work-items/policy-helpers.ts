@@ -85,6 +85,11 @@ export async function assertOwnerSetLaneExecution(
 		budgetShareMicros?: number | null;
 	},
 ): Promise<void> {
+	if (metadata?.childDelegation !== undefined)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Child delegation authority is set by the server",
+		);
 	if (
 		metadata?.laneExecution === undefined &&
 		controls?.delegationDepth === undefined &&

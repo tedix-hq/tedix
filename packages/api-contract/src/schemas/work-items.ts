@@ -2023,6 +2023,13 @@ export const CreateWorkItemInputSchema = z
 			),
 		projectId: z.uuid().optional(),
 		parentWorkItemId: z.uuid().optional(),
+		blockedByWorkItemIds: z
+			.array(z.uuid())
+			.max(20)
+			.optional()
+			.describe(
+				"For child Work, queue it until these predecessors finish; dependencies are stored before dispatch.",
+			),
 		sourceSessionKey: z.string().max(500).optional(),
 		sourceIntentId: z.string().max(500).optional(),
 		dueDate: WorkItemTimestampSchema.optional(),

@@ -1,3 +1,8 @@
+import { CreateWorkItemInputSchema } from "@tedix/api-contract/schemas/work-items";
+import { createChildWorkItem } from "./child-delegation";
+import { getWorkItemById } from "./crud";
+import { listReadyWork } from "./scheduler";
+import { deriveWorkItemReadiness } from "./readiness";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
@@ -33,8 +38,8 @@ function fixture() {
 		createD1Facade(sqlite, { maxBoundParams: 100 }),
 	);
 	const insertWork =
-		sqlite.prepare(`INSERT INTO work_items(id,org_id,title,disposition,work_class,purpose_exception_expires_at,admission_spec_revision,metadata,delegation_depth,max_attempts,created_at)
-		VALUES(?,'org',?,'accepted','hygiene','2026-09-01T00:00:00.000Z','revision',?,?,?,'2026-08-20T00:00:00.000Z')`);
+		sqlite.prepare(`INSERT INTO work_items(id,org_id,title,disposition,work_class,purpose_exception_expires_at,admission_spec_revision,metadata,delegation_depth,max_attempts,created_at,risk_level)
+		VALUES(?,'org',?,'accepted','hygiene','2026-09-01T00:00:00.000Z','revision',?,?,?,'2026-08-20T00:00:00.000Z',?)`);
 	const insertRequirement = sqlite.prepare(
 		`INSERT INTO work_resource_requirements(org_id,work_item_id,resource_key,quantity,created_at,updated_at) VALUES('org',?,?,1,?,?)`,
 	);
@@ -45,6 +50,7 @@ function fixture() {
 		id: string,
 		role: LaneExecutionPolicy["role"] = "maker",
 		change: Partial<LaneExecutionPolicy> = {},
+		riskLevel = "low",
 	) {
 		const policy: LaneExecutionPolicy = {
 			version: 1,
@@ -76,6 +82,7 @@ function fixture() {
 			JSON.stringify({ laneExecution: persistedPolicy }),
 			delegationDepth,
 			maxAttempts,
+			riskLevel,
 		);
 		for (const resource of [
 			"lanes",
@@ -615,4 +622,137 @@ describe("shared lane admission on migrated D1", () => {
 				.get(),
 		).toEqual({ count: 0 });
 	});
+});
+
+it("admits a child on its running parent's grant, shares root limits and reports back", async () => {
+	const f = fixture();
+	try {
+		f.seed("root", "maker", { maxDelegationDepth: 1 }, "high");
+		f.sqlite.exec(
+			`UPDATE work_items SET acceptance_contract='{"version":1,"doneLooksLike":"Finish the bounded task"}', accountable_owner_type='user', accountable_owner_id='owner' WHERE id='root';
+			INSERT INTO tedis(id,organization_id,name,slug) VALUES('reviewer','org','Reviewer','reviewer');
+			INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,status,rationale,expires_at,created_at)
+			VALUES('root-approval','org','root',1,'risk:high','admission','{}','tedi','tedi','tedi','reviewer','pending','Review bounded scope','2026-09-01T00:00:00.000Z','${now}');
+			INSERT INTO work_approval_decisions(id,proposal_id,resolved_proposal_version,decision,decider_type,decider_id,rationale,decided_at)
+			VALUES('root-decision','root-approval',2,'approved','tedi','reviewer','Reviewed bounded scope','${now}');`,
+		);
+		const predecessor = "22222222-2222-4222-8222-222222222222";
+		f.seed(predecessor);
+		await f.start(predecessor);
+		const rootRun = await f.start("root");
+		const root = (await getWorkItemById(f.db, "root", "org"))!;
+		const input = CreateWorkItemInputSchema.parse({
+			title: "Verify the result",
+			workKind: "coding",
+			blockedByWorkItemIds: [predecessor],
+			parentWorkItemId: "11111111-1111-4111-8111-111111111111",
+		});
+		const child = (await createChildWorkItem(f.db, {
+			input,
+			parent: root,
+			actor: { type: "tedi", id: "tedi" },
+			now,
+		}))!;
+		expect(child.disposition).toBe("accepted");
+		expect(child.parentWorkItemId).toBe(root.id);
+		const admit = (item: typeof child, suffix: string) =>
+			evaluateAndRecordWorkAdmission(f.db, {
+				id: suffix,
+				orgId: "org",
+				workItemId: item.id,
+				expectedWorkItemVersion: item.version,
+				expectedAdmissionSpecRevision: item.admissionSpecRevision,
+				executorType: "tedi",
+				executorId: "tedi",
+				leaseTtlMs: 60_000,
+				now,
+			});
+		expect(await admit(child, "blocked-child")).toMatchObject({
+			decision: "rejected",
+			rejectionCode: "dependencies_blocked",
+		});
+		f.sqlite
+			.prepare("UPDATE work_items SET disposition='completed' WHERE id=?")
+			.run(predecessor);
+		const queued = await listReadyWork(f.db, {
+			orgId: "org",
+			executorType: "tedi",
+			executorId: "tedi",
+			now,
+		});
+		expect(queued.data.map((row) => row.workItem.id)).toContain(child.id);
+		expect(
+			await deriveWorkItemReadiness(f.db, {
+				orgId: "org",
+				workItemId: child.id,
+				derivedAt: now,
+				availableCapabilities: [],
+				budgetAdmissible: true,
+				resourcesAvailable: true,
+			}),
+		).toMatchObject({ state: "ready" });
+		const admission = await admit(child, "child-admission");
+		expect(admission.decision).toBe("admitted");
+		const run = await startWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: child.id,
+			admissionId: admission.id,
+			executor: { type: "tedi", id: "tedi" },
+			expiresAt: admission.expiresAt,
+			startedAt: now,
+		});
+		await expect(
+			createChildWorkItem(f.db, {
+				input,
+				parent: child,
+				actor: { type: "tedi", id: "tedi" },
+				now,
+			}),
+		).rejects.toThrow(/depth exhausted/);
+		await settleWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: child.id,
+			attemptId: run.attempt.id,
+			executor: { type: "tedi", id: "tedi" },
+			outcome: "succeeded",
+			summary: "The result matches the contract",
+			settledAt: now,
+			costMicros: 10,
+		});
+		expect(
+			f.sqlite
+				.prepare("SELECT body FROM work_attempt_messages WHERE attempt_id=?")
+				.get(rootRun.attempt.id),
+		).toMatchObject({
+			body: expect.stringContaining("The result matches the contract"),
+		});
+		const sibling = (await createChildWorkItem(f.db, {
+			input,
+			parent: root,
+			actor: { type: "tedi", id: "tedi" },
+			now,
+		}))!;
+		const siblingAdmission = await admit(sibling, "sibling-admission");
+		expect(siblingAdmission.decision).toBe("admitted");
+		await startWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: sibling.id,
+			admissionId: siblingAdmission.id,
+			executor: { type: "tedi", id: "tedi" },
+			expiresAt: siblingAdmission.expiresAt,
+			startedAt: now,
+		});
+		const last = (await createChildWorkItem(f.db, {
+			input,
+			parent: root,
+			actor: { type: "tedi", id: "tedi" },
+			now,
+		}))!;
+		expect(await admit(last, "exhausted-root")).toMatchObject({
+			decision: "rejected",
+			rejectionCode: "budget_blocked",
+		});
+	} finally {
+		f.sqlite.close();
+	}
 });

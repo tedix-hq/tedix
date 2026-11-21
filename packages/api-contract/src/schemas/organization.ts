@@ -4,6 +4,7 @@
  */
 
 import * as z from "zod";
+import { WorkDelegationSettingsSchema } from "./lane-execution";
 import { ModelFallbackPolicySchema } from "./model-fallback";
 import { DecisionLearningConfigSchema } from "./decision-learning";
 import { WorkStewardshipPolicySchema } from "./work-stewardship";
@@ -546,6 +547,7 @@ export const OrganizationMetadataSchema = z.object({
 			"Case-insensitive session-name prefixes mapped to projects. Longest prefix wins; linked Work takes precedence.",
 		),
 	modelFallback: ModelFallbackPolicySchema.nullable().optional(),
+	workDelegation: WorkDelegationSettingsSchema.optional(),
 	workStewardship: WorkStewardshipPolicySchema.optional().describe(
 		"Creation-time stewardship defaults; explicit ownership and human execution are preserved.",
 	),

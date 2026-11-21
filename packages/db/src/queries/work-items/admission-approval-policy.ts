@@ -65,6 +65,7 @@ export function requiredWorkAdmissionAuthorities(
 export function evaluateWorkAdmissionApprovals(
 	item: Pick<WorkItem, "id" | "version" | "requiredAuthorities" | "riskLevel">,
 	receipts: readonly WorkAdmissionApprovalReceipt[],
+	inheritedAuthority = false,
 ): WorkAdmissionApprovalEvaluation {
 	const requiredAuthorities = requiredWorkAdmissionAuthorities(item);
 	const satisfied = new Set(
@@ -77,11 +78,11 @@ export function evaluateWorkAdmissionApprovals(
 			)
 			.map((receipt) => receipt.authorityKey),
 	);
-	const satisfiedAuthorities = requiredAuthorities.filter((authority) =>
-		satisfied.has(authority),
+	const satisfiedAuthorities = requiredAuthorities.filter(
+		(authority) => inheritedAuthority || satisfied.has(authority),
 	);
 	const missingAuthorities = requiredAuthorities.filter(
-		(authority) => !satisfied.has(authority),
+		(authority) => !inheritedAuthority && !satisfied.has(authority),
 	);
 	return {
 		requiredAuthorities,

@@ -1,4 +1,11 @@
 import {
+	workDelegationAncestors,
+	inheritedChildAuthority,
+	rootAttemptBudgetAvailable,
+} from "./child-delegation";
+import { capApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
+import { WORK_DELEGATION_DEFAULTS } from "@tedix/api-contract/schemas/lane-execution";
+import {
 	hasOwnerWorkDelegation,
 	matchesWorkApprovalVersion,
 } from "./planning-approval";
@@ -157,6 +164,7 @@ async function loadApplicableEnvelopes(
 	p: {
 		orgId: string;
 		workItemId: string;
+		ancestorIds?: string[];
 		projectId: string | null;
 		at: string;
 	},
@@ -186,7 +194,10 @@ async function loadApplicableEnvelopes(
 					),
 					and(
 						eq(workBudgetEnvelopes.scopeType, "work_item"),
-						eq(workBudgetEnvelopes.scopeId, p.workItemId),
+						inArray(workBudgetEnvelopes.scopeId, [
+							p.workItemId,
+							...(p.ancestorIds ?? []),
+						]),
 					),
 					p.projectId
 						? and(
@@ -272,6 +283,24 @@ async function loadLanePolicy(
 			inherited &&
 			(policy.maxDelegationDepth > inherited.maxDelegationDepth ||
 				policy.maxAttempts > inherited.maxAttempts ||
+				(policy.maxDescendants ?? WORK_DELEGATION_DEFAULTS.maxDescendants) >
+					(inherited.maxDescendants ??
+						WORK_DELEGATION_DEFAULTS.maxDescendants) ||
+				capApprovalMode(
+					policy.approvalMode ?? "auto",
+					inherited.approvalMode ?? "auto",
+				) !== (policy.approvalMode ?? "auto") ||
+				policy.executors.some(
+					(e) =>
+						!inherited!.executors.some(
+							(allowed) =>
+								allowed.principalType === e.principalType &&
+								allowed.principalId === e.principalId &&
+								allowed.resourceKey === e.resourceKey &&
+								allowed.costMicros === e.costMicros &&
+								e.capabilities.every((c) => allowed.capabilities.includes(c)),
+						),
+				) ||
 				policy.makerResourceKey !== inherited.makerResourceKey ||
 				policy.reservedSlots < inherited.reservedSlots ||
 				inherited.sharedResourceKeys.some(
@@ -315,6 +344,38 @@ async function evaluate(
 			...empty,
 			rejection: { code: "evaluation_required", reason: lane.rejection },
 		};
+	const ancestors = await workDelegationAncestors(db, item);
+	const root = ancestors.at(-1)!;
+	let inheritedAuthority = false;
+	try {
+		inheritedAuthority = await inheritedChildAuthority(db, item, {
+			type: p.executorType,
+			id: p.executorId,
+		});
+	} catch (error) {
+		if (!(error instanceof WorkControlError)) throw error;
+		return {
+			...empty,
+			rejection: { code: "evaluation_required", reason: error.message },
+		};
+	}
+	{
+		const [budget] = await db
+			.select({
+				available: sql<boolean>`${rootAttemptBudgetAvailable(p.orgId, root.id)}`,
+			})
+			.from(workItems)
+			.where(eq(workItems.id, root.id))
+			.limit(1);
+		if (!budget?.available)
+			return {
+				...empty,
+				rejection: {
+					code: "budget_blocked",
+					reason: "Root Work attempt budget exhausted",
+				},
+			};
+	}
 	const running = (
 		await db
 			.select({ id: workAttempts.id })
@@ -468,7 +529,7 @@ async function evaluate(
 		item,
 		independentApprovals,
 	).missingAuthorities[0];
-	if (missingApproval)
+	if (missingApproval && !inheritedAuthority)
 		return {
 			...empty,
 			rejection: {
@@ -508,6 +569,9 @@ async function evaluate(
 		orgId: p.orgId,
 		workItemId: p.workItemId,
 		projectId: item.projectId,
+		ancestorIds: item.metadata?.childDelegation
+			? ancestors.slice(1).map((node) => node.id)
+			: [],
 		at: p.now,
 	});
 	if (envelopeFacts.truncated)
@@ -647,7 +711,11 @@ async function evaluate(
 		activeAttemptId: null,
 		blockingDependencyId: null,
 		missingCapability: null,
-		approval: evaluateWorkAdmissionApprovals(item, independentApprovals),
+		approval: evaluateWorkAdmissionApprovals(
+			item,
+			independentApprovals,
+			inheritedAuthority,
+		),
 		blockedResourceKey: null,
 		budgetBlocked: false,
 	});

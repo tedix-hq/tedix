@@ -127,6 +127,7 @@ export interface OrganizationMetadata {
 	sessionProjectBindings?: OrganizationContractMetadata["sessionProjectBindings"];
 	modelFallback?: OrganizationContractMetadata["modelFallback"];
 	workStewardship?: OrganizationContractMetadata["workStewardship"];
+	workDelegation?: OrganizationContractMetadata["workDelegation"];
 	decisionLearning?: DecisionLearningConfig;
 	connectionConsumerGrants?: Record<string, ConnectionConsumerGrants>;
 	connectionResourceLimits?: Record<string, ConnectionAllowedResources | null>;

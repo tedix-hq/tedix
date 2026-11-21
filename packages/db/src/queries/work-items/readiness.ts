@@ -1,3 +1,5 @@
+import { inheritedChildAuthority } from "./child-delegation";
+import { WorkControlError } from "./factory-validation";
 import {
 	hasOwnerWorkDelegation,
 	matchesWorkApprovalVersion,
@@ -89,6 +91,7 @@ export interface WorkItemReadinessProjectionRow {
 interface ReadinessFacts {
 	item: WorkItem;
 	ownerDelegated: boolean;
+	inheritedAuthority?: boolean;
 	derivedAt: string;
 	activeAttemptId?: string;
 	blockingDependencyId?: string;
@@ -139,9 +142,13 @@ function evaluateWorkItemReadiness(
 					(value) => !facts.availableCapabilities!.includes(value),
 				);
 	const approvalEvaluation =
-		facts.approvalReceipts === undefined
+		facts.approvalReceipts === undefined && !facts.inheritedAuthority
 			? undefined
-			: evaluateWorkAdmissionApprovals(item, facts.approvalReceipts);
+			: evaluateWorkAdmissionApprovals(
+					item,
+					facts.approvalReceipts ?? [],
+					facts.inheritedAuthority,
+				);
 	const missingAuthority = approvalEvaluation?.missingAuthorities.find(
 		(value) => item.requiredAuthorities.includes(value),
 	);
@@ -332,6 +339,15 @@ function evaluateWorkItemReadiness(
 	};
 }
 
+async function readinessInheritedAuthority(db: DbQueryClient, item: WorkItem) {
+	try {
+		return await inheritedChildAuthority(db, item);
+	} catch (error) {
+		if (!(error instanceof WorkControlError)) throw error;
+		return false;
+	}
+}
+
 export async function deriveWorkItemReadiness(
 	db: DbQueryClient,
 	params: {
@@ -467,6 +483,7 @@ export async function deriveWorkItemReadiness(
 	return evaluateWorkItemReadiness({
 		item,
 		ownerDelegated,
+		inheritedAuthority: await readinessInheritedAuthority(db, item),
 		derivedAt,
 		activeAttemptId: activeAttempt[0]?.id,
 		blockingDependencyId: dependency[0]?.id,
@@ -651,31 +668,34 @@ export async function listWorkItemReadinessProjection(
 	const requirements = new Set(requirementRows.map((row) => row.workItemId));
 	const budgets = new Set(budgetRows.map((row) => row.workItemId));
 	const boundedApprovalRows = approvalRows.length > 5000 ? [] : approvalRows;
-	const data = items.map((item, index): WorkItemReadinessProjectionRow => ({
-		workItem: {
-			id: item.id,
-			title: item.title,
-			disposition: item.disposition,
-			workKind: item.workKind,
-			riskLevel: item.riskLevel,
-			priority: item.priority,
-			projectId: item.projectId,
-			accountableOwnerType: item.accountableOwnerType,
-			accountableOwnerId: item.accountableOwnerId,
-			createdAt: item.createdAt,
-			updatedAt: item.updatedAt,
-		},
-		readiness: evaluateWorkItemReadiness({
-			item,
-			ownerDelegated: Boolean(rows[index]?.ownerDelegated),
-			derivedAt: observedAt,
-			activeAttemptId: activeAttempts.get(item.id),
-			blockingDependencyId: blockers.get(item.id),
-			hasResourceRequirement: requirements.has(item.id),
-			hasBudgetEnvelope: budgets.has(item.id),
-			approvalReceipts: boundedApprovalRows,
-		}),
-	}));
+	const data = await Promise.all(
+		items.map(async (item, index): Promise<WorkItemReadinessProjectionRow> => ({
+			workItem: {
+				id: item.id,
+				title: item.title,
+				disposition: item.disposition,
+				workKind: item.workKind,
+				riskLevel: item.riskLevel,
+				priority: item.priority,
+				projectId: item.projectId,
+				accountableOwnerType: item.accountableOwnerType,
+				accountableOwnerId: item.accountableOwnerId,
+				createdAt: item.createdAt,
+				updatedAt: item.updatedAt,
+			},
+			readiness: evaluateWorkItemReadiness({
+				item,
+				ownerDelegated: Boolean(rows[index]?.ownerDelegated),
+				inheritedAuthority: await readinessInheritedAuthority(db, item),
+				derivedAt: observedAt,
+				activeAttemptId: activeAttempts.get(item.id),
+				blockingDependencyId: blockers.get(item.id),
+				hasResourceRequirement: requirements.has(item.id),
+				hasBudgetEnvelope: budgets.has(item.id),
+				approvalReceipts: boundedApprovalRows,
+			}),
+		})),
+	);
 	const last = data.at(-1)?.workItem;
 	return {
 		data,

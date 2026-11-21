@@ -1,3 +1,8 @@
+import {
+	workDelegationAncestors,
+	rootAttemptBudgetAvailable,
+	childReportStatements,
+} from "./child-delegation";
 import { WorkAttemptStepSchema } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type {
@@ -480,6 +485,12 @@ export async function startWorkItemAttempt(
 			resumed: true,
 		};
 	}
+	const currentWork = await getScopedWorkItem(
+		db,
+		params.orgId,
+		params.workItemId,
+	);
+	const rootWork = (await workDelegationAncestors(db, currentWork)).at(-1)!;
 	const attemptId = crypto.randomUUID();
 	// The lease this admission reaps, resolved before the batch so the retirement
 	// is fenced to an exact row and version. `expiresAt` is immutable for the
@@ -589,6 +600,7 @@ export async function startWorkItemAttempt(
 							workAdmissions.admissionSpecRevision,
 						),
 						eq(workItems.disposition, "accepted"),
+						rootAttemptBudgetAvailable(params.orgId, rootWork.id),
 						// Recheck the Work contract's attempt cap in the INSERT itself.
 						// An admitted receipt may predate another completed attempt.
 						sql`(
@@ -1382,6 +1394,15 @@ export async function settleWorkItemAttempt(
 			releaseResources,
 			consumeBudgets,
 			settleEvent,
+			...childReportStatements(db, {
+				orgId: params.orgId,
+				workItemId: params.workItemId,
+				attemptId: params.attemptId,
+				settledVersion: prior.version + 1,
+				outcome: params.outcome,
+				summary,
+				now: settledAt,
+			}),
 			...(persistQuestion ? [persistQuestion] : []),
 			...(refuseLateFollowUps ? [refuseLateFollowUps] : []),
 			...(handoff && work

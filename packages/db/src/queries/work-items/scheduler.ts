@@ -1,4 +1,8 @@
 import {
+	inheritedChildAuthority,
+	workDelegationAncestors,
+} from "./child-delegation";
+import {
 	matchesWorkApprovalVersion,
 	ownerWorkDelegation,
 } from "./planning-approval";
@@ -574,6 +578,19 @@ export async function listReadyWork(
 	};
 	const ready: ReadyWorkCandidate[] = [];
 	for (const item of candidates) {
+		let inheritedAuthority: boolean;
+		let ancestors: WorkItem[];
+		try {
+			inheritedAuthority = await inheritedChildAuthority(db, item, {
+				type: p.executorType,
+				id: p.executorId,
+			});
+			ancestors = await workDelegationAncestors(db, item);
+		} catch (error) {
+			if (!(error instanceof WorkControlError)) throw error;
+			reject("evaluation_required");
+			continue;
+		}
 		const itemReqs = requirements.filter((x) => x.workItemId === item.id);
 		const cases = new Set(
 			caseLinks.filter((x) => x.workItemId === item.id).map((x) => x.caseId),
@@ -581,7 +598,8 @@ export async function listReadyWork(
 		const applicable = envelopes.filter(
 			(x) =>
 				(x.scopeType === "organization" && x.scopeId === p.orgId) ||
-				(x.scopeType === "work_item" && x.scopeId === item.id) ||
+				(x.scopeType === "work_item" &&
+					ancestors.some((node) => node.id === x.scopeId)) ||
 				(x.scopeType === "project" && x.scopeId === item.projectId) ||
 				(x.scopeType === "case" && cases.has(x.scopeId)),
 		);
@@ -598,7 +616,11 @@ export async function listReadyWork(
 				blockerRows.find((x) => x.dependentId === item.id)?.blockerId ?? null,
 			missingCapability:
 				item.requiredCapabilities.find((x) => !capSet.has(x)) ?? null,
-			approval: evaluateWorkAdmissionApprovals(item, approvalRows),
+			approval: evaluateWorkAdmissionApprovals(
+				item,
+				approvalRows,
+				inheritedAuthority,
+			),
 			blockedResourceKey: blockedResource?.resourceKey ?? null,
 			budgetBlocked: applicable.some(
 				(x) => x.committed + x.reservationMicros > x.limitMicros,

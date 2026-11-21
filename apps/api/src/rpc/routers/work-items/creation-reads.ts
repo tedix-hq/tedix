@@ -1,3 +1,5 @@
+import { createChildWorkItem } from "@tedix/db/queries/work-items/child-delegation";
+import { verifiedActiveWorkActor } from "../work-items-principal";
 import {
 	assertNativeStewardCloseout,
 	normalizeNativeStewardCloseoutInput,
@@ -157,6 +159,30 @@ export const createProcedure = authOs.create.handler(
 					"executor and executorReference must name the same executor",
 				);
 			const executorReference = input.executorReference ?? legacyReference;
+			if (
+				parent &&
+				(context.externalAgentPrincipalId ||
+					context.ownerHostSessionId ||
+					context.tediId)
+			) {
+				const actor = await verifiedActiveWorkActor(context, orgId);
+				const child = await createChildWorkItem(context.db, {
+					input: { ...input, executorReference },
+					parent,
+					actor,
+					externalSessionKey:
+						actor.type === "external_agent"
+							? actor.externalSessionKey
+							: undefined,
+					now: new Date().toISOString(),
+				});
+				if (child) return child;
+			}
+			if (input.blockedByWorkItemIds?.length)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Creation-time predecessors require a child of your running Attempt",
+				);
 			const executor = executorReference?.id;
 			const laneExecution = input.metadata?.laneExecution as
 				| { delegationDepth?: number; maxAttempts?: number }
