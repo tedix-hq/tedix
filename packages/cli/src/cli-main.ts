@@ -1357,6 +1357,7 @@ export async function main() {
 						? { disposition: options.workDisposition }
 						: {}),
 					...(options.workMine ? { mine: true } : {}),
+					...(options.all ? { all: true } : {}),
 					...(options.workReason ? { reason: options.workReason } : {}),
 					...(options.workNote ? { note: options.workNote } : {}),
 					...(options.workEvent ? { event: options.workEvent } : {}),

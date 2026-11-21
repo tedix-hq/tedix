@@ -2,8 +2,13 @@ import { claimFiles, fileResourceKeys } from "./work-claim-files";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { mutationCallable, withSession } from "./work-identity";
 import { boardCall } from "./work-native";
-import { fail, ok } from "./work-render";
-import { resolveWorkItemId, parseObjectArgument } from "./work-queries";
+import { fail, ok, itemsFromList } from "./work-render";
+import {
+	resolveWorkItemId,
+	parseObjectArgument,
+	projectArg,
+	getWorkItem,
+} from "./work-queries";
 import type { WorkContext } from "./work";
 
 interface StructuredFactoryVerb {
@@ -11,6 +16,7 @@ interface StructuredFactoryVerb {
 	namespace?: "projects" | "work" | "agent" | "dispatcher";
 	write: boolean;
 	pathField?: string;
+	example?: string;
 	defaultInput?: (ctx: WorkContext) => Record<string, unknown>;
 	transform?: (
 		input: Record<string, unknown>,
@@ -31,6 +37,7 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		pathField: "id",
 	},
 	"dispatch-hold": {
+		example: `tedix work dispatch-hold <id> --input '{"expectedWorkItemVersion":1,"laneDispatch":{"state":"held","reason":"Needs review"}}'`,
 		tool: "update_work_item_specification",
 		write: true,
 		pathField: "id",
@@ -86,7 +93,12 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		write: false,
 		defaultInput: (ctx) => ({ limit: ctx.work.limit ?? 50 }),
 	},
-	"case-get": { tool: "get_work_case", write: false, pathField: "caseId" },
+	"case-get": {
+		tool: "get_work_case",
+		write: false,
+		pathField: "caseId",
+		defaultInput: () => ({}),
+	},
 	"case-create": { tool: "create_work_case", write: true },
 	"case-stage": { tool: "update_work_case", write: true, pathField: "caseId" },
 	"case-close": {
@@ -233,6 +245,11 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 	},
 };
 
+for (const [verb, spec] of Object.entries(STRUCTURED_FACTORY_VERBS)) {
+	if (verb.startsWith("case-") && verb !== "case-list")
+		STRUCTURED_FACTORY_VERBS[verb.replace("case-", "epic-")] = spec;
+}
+
 function structuredFactoryInput(
 	ctx: WorkContext,
 	verb: string,
@@ -249,7 +266,9 @@ function structuredFactoryInput(
 					: defaults;
 			return spec.transform?.(withPath, ctx) ?? withPath;
 		}
-		throw new Error(`work ${verb} requires --input <json|@path>`);
+		throw new Error(
+			`work ${verb} requires --input <json|@path>. ${spec.example ? `Example: ${spec.example}` : `Inspect the input with: tedix code 'async () => await discover.search({query:"${spec.tool}",limit:1,includeParameters:true})'`}`,
+		);
 	}
 	const parsed = parseObjectArgument(raw, "--input");
 	const input =
@@ -331,4 +350,65 @@ export async function workClaimFiles(
 			`${result.value.changed ? "Declared" : "Already declared"} ${keys.length} file requirement(s) for ${id}. Resources are reserved only at work start.`,
 		),
 	);
+}
+
+export async function workEpics(ctx: WorkContext): Promise<number> {
+	if (ctx.work.as)
+		throw new Error(
+			"work epics uses the credential-scoped canonical read; remove --as",
+		);
+	const input = {
+		limit: ctx.work.limit ?? 50,
+		...projectArg(ctx.work.project),
+		...(ctx.work.input ? parseObjectArgument(ctx.work.input, "--input") : {}),
+		...(!ctx.work.all
+			? { stages: ["investigating", "planning", "executing", "monitoring"] }
+			: {}),
+	};
+	const call = await boardCall(ctx, "work.list_work_cases", input);
+	if (call.error) return fail(ctx, call.error, call.error.message);
+	const rows: (Record<string, unknown> & { openItemCount: number })[] = [];
+	for (const epic of itemsFromList(call.value)) {
+		let openItemCount = 0;
+		let cursor: string | undefined;
+		do {
+			const detail = await boardCall(ctx, "work.get_work_case", {
+				caseId: epic.id,
+				itemLimit: 100,
+				...(cursor ? { itemCursor: cursor } : {}),
+			});
+			if (detail.error) return fail(ctx, detail.error, detail.error.message);
+			if (!isRecord(detail.value) || !isRecord(detail.value.items))
+				throw new Error("Malformed epic item page");
+			for (const link of itemsFromList(detail.value.items)) {
+				const item = await getWorkItem(ctx, String(link.workItemId));
+				if (item.error) return fail(ctx, item.error, item.error.message);
+				if (!isRecord(item.value) || !isRecord(item.value.workItem))
+					throw new Error("Malformed epic Work Item");
+				if (
+					!["completed", "cancelled"].includes(
+						String(item.value.workItem.disposition),
+					)
+				)
+					openItemCount++;
+			}
+			cursor =
+				typeof detail.value.items.nextCursor === "string"
+					? detail.value.items.nextCursor
+					: undefined;
+		} while (cursor);
+		rows.push({ ...epic, openItemCount });
+	}
+	const nextCursor = isRecord(call.value) ? call.value.nextCursor : null;
+	return ok(ctx, { data: rows, nextCursor }, () => {
+		console.log("ID\tTITLE\tKIND\tSTAGE\tOPEN ITEMS");
+		for (const epic of rows)
+			console.log(
+				`${epic.id}\t${epic.title}\t${epic.kind}\t${epic.stage}\t${epic.openItemCount}`,
+			);
+		if (nextCursor)
+			console.log(
+				`More epics: tedix work epics${ctx.work.all ? " --all" : ""}${ctx.work.project ? ` --project ${ctx.work.project}` : ""} --input '${JSON.stringify({ cursor: nextCursor })}'`,
+			);
+	});
 }

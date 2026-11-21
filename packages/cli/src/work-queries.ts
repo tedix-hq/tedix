@@ -360,6 +360,8 @@ function listEnumArg(
 
 export async function workList(ctx: WorkContext, _id: string): Promise<number> {
 	const { as, project, disposition, mine, limit } = ctx.work;
+	if (["epic", "case"].includes(ctx.work.kind?.trim() ?? ""))
+		throw new Error("Epics are listed with: tedix work epics");
 	const base: Record<string, unknown> = {
 		limit: limit ?? DEFAULT_LIST_LIMIT,
 		...(disposition ? { disposition } : {}),

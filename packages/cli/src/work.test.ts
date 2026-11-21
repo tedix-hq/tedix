@@ -1323,6 +1323,78 @@ describe("canonical work lifecycle", () => {
 });
 
 describe("factory control verbs", () => {
+	test("guides show and missing structured input before provider calls", async () => {
+		const { ctx, sources } = makeContext();
+		await expect(runWork(`show ${ITEM}`, ctx)).rejects.toThrow(
+			`tedix work context ${ITEM} or tedix work readiness ${ITEM}`,
+		);
+		await expect(runWork(`dispatch-hold ${ITEM}`, ctx)).rejects.toThrow(
+			'"laneDispatch":{"state":"held","reason":"Needs review"}',
+		);
+		await expect(runWork("epic-attach", ctx)).rejects.toThrow(
+			"includeParameters:true",
+		);
+		expect(sources).toEqual([]);
+	});
+
+	test("lists epics with open counts across attachment pages and preserves legacy reads", async () => {
+		for (const all of [false, true]) {
+			const { ctx, sources } = makeContext({ all }, undefined, (source) => {
+				if (source.includes("list_work_cases"))
+					return {
+						data: [
+							{
+								id: ITEM,
+								title: "Release",
+								kind: "delivery",
+								stage: "executing",
+							},
+						],
+						nextCursor: null,
+					};
+				if (source.includes("get_work_case"))
+					return {
+						items: source.includes("itemCursor")
+							? {
+									data: [{ workItemId: "closed" }, { workItemId: "cancelled" }],
+									nextCursor: null,
+								}
+							: { data: [{ workItemId: "open" }], nextCursor: ATTEMPT },
+					};
+				return {
+					workItem: {
+						disposition: source.includes('"open"')
+							? "accepted"
+							: source.includes('"cancelled"')
+								? "cancelled"
+								: "completed",
+					},
+				};
+			});
+			const result = await capture("epics", ctx);
+			expect(result.code).toBe(0);
+			expect(JSON.parse(result.out[0]!)).toMatchObject({
+				data: [
+					{
+						title: "Release",
+						kind: "delivery",
+						stage: "executing",
+						openItemCount: 1,
+					},
+				],
+			});
+			expect(sources[0]!.includes('"stages"')).toBe(!all);
+			expect(
+				sources.filter((source) => source.includes("get_work_case")),
+			).toHaveLength(2);
+		}
+		for (const verb of ["epic-get", "case-get"]) {
+			const { ctx, sources } = makeContext();
+			expect((await capture(`${verb} ${ITEM}`, ctx)).code).toBe(0);
+			expect(sources[0]).toContain(`work.get_work_case({"caseId":"${ITEM}"})`);
+		}
+	});
+
 	test("rejects removed milestone commands without provider calls", async () => {
 		for (const verb of [
 			"milestone-list",
@@ -1744,6 +1816,8 @@ describe("canonical list pagination and output", () => {
 	test("rejects unknown filter values before the gateway call", async () => {
 		for (const [work, message] of [
 			[{ kind: "bogus" }, "work list --kind must be one of"],
+			[{ kind: "epic" }, "Epics are listed with: tedix work epics"],
+			[{ kind: "case" }, "Epics are listed with: tedix work epics"],
 			[{ workClass: "bogus" }, "work list --class must be one of"],
 			[{ executor: "bogus" }, "work list --executor must be one of"],
 			[{ objective: "not-a-uuid" }, "work list --objective requires"],
@@ -4500,7 +4574,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(71);
+		expect(covered).toHaveLength(78);
 	});
 });
 
