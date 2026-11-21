@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.14 — 2026-11-21
+
+### Patch Changes
+
+- e4c1b99: Add work epics with open item counts, epic command aliases, and actionable hints for wrong kinds, show, and missing structured input.
+- e03145c: Back off runner admission refusals from ten minutes to one hour, retry immediately when Work changes, and avoid repeating blocked-task logs on every pass.
+- b70e2df: Recover Attempts after a failed runner start response and settle runs without an agent process so Work can retry before the lease expires.
+
 ## 0.29.13 — 2026-11-21
 
 ### Patch Changes
