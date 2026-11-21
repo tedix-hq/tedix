@@ -157,13 +157,11 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		const fact = await this.fact(snapshot.key);
 		const revisions = fact ? await this.revisions(fact) : [];
 		const revision: MemoryRevision = {
-			key: snapshot.key,
+			...snapshot,
 			revisionId: JSON.stringify([snapshot.key, crypto.randomUUID()]),
 			revision: revisions.length + 1,
-			value: snapshot.value,
 			hash,
-			writtenAt: new Date().toISOString(),
-			provenance: snapshot.provenance,
+			writtenAt: snapshot.writtenAt ?? new Date().toISOString(),
 			review: snapshot.review ?? "pending",
 			...(rolledBackFrom ? { rolledBackFrom } : {}),
 		};
