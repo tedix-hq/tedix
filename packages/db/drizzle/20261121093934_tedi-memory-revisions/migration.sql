@@ -1,0 +1,1 @@
+ALTER TABLE `tedi_memory_documents` ADD `revision` text;

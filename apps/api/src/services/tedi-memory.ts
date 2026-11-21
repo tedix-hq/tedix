@@ -17,9 +17,9 @@ import {
 	type TediCoreMemory,
 	type TediCoreMemorySectionKey,
 } from "@tedix/api-contract/schemas/tedi-memory";
+import { storeTediMemoryRevision } from "./tedi-memory-binding";
 import { scrubText } from "@tedix/context-core/trace-safety";
 import {
-	appendTediMemoryDocumentVersion,
 	getCurrentTediMemoryDocument,
 	getTediMemoryDocumentVersion,
 	listCurrentTediMemoryNotes,
@@ -161,7 +161,7 @@ export async function writeTediMemoryNote(
 			status: "refused",
 			reason: `You already keep ${TEDI_MEMORY_NOTE_COUNT_LIMIT} notes, the most allowed. Remove or merge one first.`,
 		};
-	const stored = await appendTediMemoryDocumentVersion(db, {
+	const stored = await storeTediMemoryRevision(db, {
 		...document,
 		id: crypto.randomUUID(),
 		baseVersion: current?.version ?? 0,
@@ -217,7 +217,7 @@ async function storeCoreVersion(
 				reason: `Core memory holds at most ${TEDI_CORE_MEMORY_LIMIT} characters across all sections and this edit would make it ${total}. Nothing was changed. Shorten or replace a section first, or move detail into a note.`,
 				memory,
 			};
-		const stored = await appendTediMemoryDocumentVersion(db, {
+		const stored = await storeTediMemoryRevision(db, {
 			...coreDocument(scope),
 			id: crypto.randomUUID(),
 			baseVersion: current?.version ?? 0,

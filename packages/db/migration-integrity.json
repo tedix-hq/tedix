@@ -1820,6 +1820,10 @@
 		{
 			"name": "20261120222504_workspace_agent_access/migration.sql",
 			"sha256": "b82c8b6622330fcecef31c64ee36de9c732f55fabb866e8c057a4d06d4dd5271"
+		},
+		{
+			"name": "20261121093934_tedi-memory-revisions/migration.sql",
+			"sha256": "ae1d31258beef570872bd16d0b321997e2da9473a4b9ab0a73de67a0a8aba79b"
 		}
 	]
 }

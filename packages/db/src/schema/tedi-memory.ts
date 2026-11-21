@@ -8,6 +8,7 @@
  * made it, so a person can read the history and bring an earlier version back.
  */
 
+import type { MemoryRevision } from "@tedix/agent-governance/types";
 import { sql } from "drizzle-orm";
 import {
 	index,
@@ -41,6 +42,7 @@ export const tediMemoryDocuments = sqliteTable(
 		/** `core` for the core document, otherwise the note's name. */
 		name: text("name").notNull(),
 		version: integer("version").notNull(),
+		revision: text("revision", { mode: "json" }).$type<MemoryRevision>(),
 		/** Core document only: section key to text. */
 		sections: text("sections", { mode: "json" }).$type<
 			Record<string, string>

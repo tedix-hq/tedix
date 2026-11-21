@@ -78,6 +78,7 @@ export async function listTediMemoryDocumentVersions(
 
 export interface AppendTediMemoryVersionParams extends TediMemoryDocumentParams {
 	id: string;
+	revision?: TediMemoryDocumentRow["revision"];
 	/** The version this change was made from; 0 for a document's first version. */
 	baseVersion: number;
 	sections?: Record<string, string> | null;
@@ -113,6 +114,7 @@ export async function appendTediMemoryDocumentVersion(
 				kind: params.kind,
 				name: params.name,
 				version,
+				revision: params.revision ?? null,
 				sections: params.sections ?? null,
 				description: params.description ?? null,
 				content: params.content ?? null,
