@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.11 — 2026-11-21
+
+### Patch Changes
+
+- 40dacbc: While the Tedix app waits to update, a task that was already being prepared is handed back instead of starting.
+
 ## 0.29.10 — 2026-11-21
 
 ### Patch Changes
