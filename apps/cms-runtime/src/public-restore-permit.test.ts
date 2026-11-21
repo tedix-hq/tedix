@@ -177,7 +177,10 @@ describe("early public restore gate", () => {
 			expect.anything(),
 			{ siteId: "site-1", slug: "tedix-landing", restoreEpoch: 7 },
 			expect.any(Function),
-			undefined,
+			expect.objectContaining({
+				enter: expect.any(Function),
+				leave: expect.any(Function),
+			}),
 			publicRestorePermitEligible(new Request(`https://tedix.dev${path}`))
 				? expect.objectContaining({
 						enter: expect.any(Function),

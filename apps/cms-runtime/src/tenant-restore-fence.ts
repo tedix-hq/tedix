@@ -3,10 +3,16 @@ import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	enterCmsRestorePermit,
 	leaveCmsRestorePermit,
+	cmsRestoreLeasePermit,
+	renewCmsRestorePermitLease,
 	type CmsRestorePermitParams,
 } from "@tedix/db/queries/cms-restore-fences";
 import type { EmDashDBStub } from "./emdash-db";
 import { runtimePermitId } from "./runtime-permit-owner";
+import {
+	startRestorePermitLease,
+	type RestoreLeaseContext,
+} from "./restore-permit-lease";
 
 export class CmsRestoreFenceUnavailableError extends Error {
 	constructor() {
@@ -26,10 +32,38 @@ interface CmsRestorePermitQueries {
 	leave: typeof leaveCmsRestorePermit;
 }
 
-const defaultQueries: CmsRestorePermitQueries = {
-	enter: enterCmsRestorePermit,
-	leave: leaveCmsRestorePermit,
-};
+/** Exact holders must stop executing before the durable lease can be swept. */
+export function leasedCmsRestorePermitQueries(
+	context: RestoreLeaseContext,
+): CmsRestorePermitQueries {
+	const leases = new Map<string, ReturnType<typeof startRestorePermitLease>>();
+	return {
+		async enter(db, input) {
+			const permit = cmsRestoreLeasePermit(input);
+			const startedAt = Date.now();
+			if (!(await enterCmsRestorePermit(db, permit))) return false;
+			const lease = startRestorePermitLease(
+				context,
+				() => renewCmsRestorePermitLease(db, permit),
+				startedAt,
+			);
+			leases.set(input.permitId, lease);
+			lease.assertActive();
+			return true;
+		},
+		async leave(db, input) {
+			const lease = leases.get(input.permitId);
+			leases.delete(input.permitId);
+			lease?.stop();
+			const removed = await leaveCmsRestorePermit(
+				db,
+				cmsRestoreLeasePermit(input),
+			);
+			lease?.assertActive();
+			return removed;
+		},
+	};
+}
 
 async function enterPermit(
 	db: DbQueryClient,
@@ -63,7 +97,7 @@ export async function withCmsRestorePermit<T>(
 	db: DbQueryClient,
 	identity: CmsRestoreFenceIdentity,
 	run: () => Promise<T>,
-	queries: CmsRestorePermitQueries = defaultQueries,
+	queries: CmsRestorePermitQueries,
 	kind: CmsRestorePermitParams["kind"] = "nested",
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
 	const permit = {
@@ -126,7 +160,7 @@ export async function withCmsRestoreResponsePermit(
 	db: DbQueryClient,
 	identity: CmsRestoreFenceIdentity,
 	run: () => Promise<Response>,
-	queries: CmsRestorePermitQueries = defaultQueries,
+	queries: CmsRestorePermitQueries,
 	initialQueries: CmsRestorePermitQueries = queries,
 	createPullQueries?: () => CmsRestorePermitQueries,
 ): Promise<{ admitted: false } | { admitted: true; value: Response }> {

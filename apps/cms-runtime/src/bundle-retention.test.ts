@@ -16,7 +16,10 @@ vi.mock("@tedix/db/queries/tenant-bundles", () => ({
 	listPrunableTenantBundles: vi.fn(),
 	listTenantBundles: vi.fn(),
 }));
-vi.mock("@tedix/db/queries/cms-restore-fences", () => ({
+vi.mock("@tedix/db/queries/cms-restore-fences", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/cms-restore-fences")
+	>()),
 	enterCmsRestorePermit: vi.fn(),
 	leaveCompletedCmsScheduledPermit: vi.fn(),
 	leaveCmsRestorePermit: vi.fn(),
@@ -174,6 +177,7 @@ function fixture(slug = "tedix-landing") {
 				{ TENANT_BUNDLES: bucket(false), RECOVERY_STORAGE: bucket(true) },
 				{} as never,
 				identity,
+				{ waitUntil() {}, abort: vi.fn() },
 			),
 		report: () =>
 			JSON.parse(objects.get(`bundle-retention/v1/${identity.siteId}.json`)!),

@@ -993,7 +993,7 @@ export async function uploadTenantBundle(
 						     SELECT 1 FROM cms_restore_permits maintenance
 						     WHERE maintenance.slug = tenant_bundles.slug
 						       AND maintenance.kind = 'scheduled'
-						       AND maintenance.id LIKE 'bundle-retention:%'
+						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
 						   )
 						   AND NOT EXISTS (
 						     SELECT 1 FROM tenant_bundles active
@@ -1009,7 +1009,7 @@ export async function uploadTenantBundle(
 						     SELECT 1 FROM cms_restore_permits maintenance
 						     WHERE maintenance.slug = tenant_bundles.slug
 						       AND maintenance.kind = 'scheduled'
-						       AND maintenance.id LIKE 'bundle-retention:%'
+						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
 						   )
 						   AND EXISTS (
 						     SELECT 1 FROM tenant_bundles target
@@ -1114,7 +1114,7 @@ export async function activateTenantBundleVersion(
 						     SELECT 1 FROM cms_restore_permits maintenance
 						     WHERE maintenance.slug = tenant_bundles.slug
 						       AND maintenance.kind = 'scheduled'
-						       AND maintenance.id LIKE 'bundle-retention:%'
+						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
 						   )
 						   AND NOT EXISTS (
 						     SELECT 1 FROM tenant_bundles active
@@ -1130,7 +1130,7 @@ export async function activateTenantBundleVersion(
 						     SELECT 1 FROM cms_restore_permits maintenance
 						     WHERE maintenance.slug = tenant_bundles.slug
 						       AND maintenance.kind = 'scheduled'
-						       AND maintenance.id LIKE 'bundle-retention:%'
+						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
 						   )
 						   AND EXISTS (
 						     SELECT 1 FROM tenant_bundles target

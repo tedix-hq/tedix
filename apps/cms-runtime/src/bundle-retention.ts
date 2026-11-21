@@ -6,6 +6,7 @@ import {
 } from "@tedix/db/queries/tenant-bundles";
 import { withScheduledCmsRestorePermit } from "./scheduled-restore-permits";
 import type { CmsRestoreFenceIdentity } from "./tenant-restore-fence";
+import type { RestoreLeaseContext } from "./restore-permit-lease";
 
 // Pruning is authorized for this site only; additions need explicit owner approval.
 const RETENTION_SITES = new Set(["tedix-landing"]);
@@ -70,6 +71,7 @@ export async function retainTenantBundles(
 	env: RetentionEnv,
 	db: DbQueryClient,
 	identity: CmsRestoreFenceIdentity,
+	context: RestoreLeaseContext,
 ): Promise<void> {
 	if (!RETENTION_SITES.has(identity.slug)) return;
 	const result = await withScheduledCmsRestorePermit(
@@ -160,6 +162,7 @@ export async function retainTenantBundles(
 			}
 		},
 		`bundle-retention:${crypto.randomUUID()}`,
+		context,
 	);
 	if (result.admitted && "error" in result.value) throw result.value.error;
 }

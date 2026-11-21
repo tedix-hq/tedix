@@ -479,6 +479,8 @@ export async function reconcileCmsRestoreOuterPermits(
 				eq(cmsRestorePermits.siteId, input.siteId),
 				eq(cmsRestorePermits.slug, input.slug),
 				eq(cmsRestorePermits.kind, "outer"),
+				// Leased holders may still be executing; only the expiry sweep owns them.
+				sql`${cmsRestorePermits.id} NOT LIKE 'lease:v1:%'`,
 				exists(
 					db
 						.select({ one: sql`1` })
