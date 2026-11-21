@@ -9,7 +9,6 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	AUDIT_DAILY_EXPORT_PAGE_ROWS,
-	auditDailyExportKeepFrom,
 	auditDailyExportKey,
 	runAuditDailyExport,
 } from "./audit-daily-export";
@@ -29,18 +28,7 @@ class MemoryBucket {
 		this.objects.set(key, value);
 		return { key, size: value.byteLength };
 	}
-	async list(options: { prefix: string; cursor?: string; limit?: number }) {
-		const keys = [...this.objects.keys()]
-			.filter((key) => key.startsWith(options.prefix))
-			.sort();
-		const start = options.cursor ? Number(options.cursor) : 0;
-		const end = start + (options.limit ?? 1000);
-		return {
-			objects: keys.slice(start, end).map((key) => ({ key })),
-			truncated: end < keys.length,
-			cursor: String(end),
-		};
-	}
+
 	async delete(keys: string[]) {
 		for (const key of keys) this.objects.delete(key);
 	}
@@ -183,9 +171,8 @@ describe("audit daily export", () => {
 		expect(new Set(rows.map((row) => row.id)).size).toBe(total);
 	});
 
-	it("deletes objects older than 13 months and keeps the rest", async () => {
+	it("preserves existing objects and their bytes beyond 13 months", async () => {
 		const { db, bucket, r2 } = fixture();
-		expect(auditDailyExportKeepFrom(NOW)).toBe("2025-09-26");
 		const old = "audit-exports/v1/org-lighthouse/2025-09-25/23.jsonl.gz";
 		const kept = "audit-exports/v1/org-lighthouse/2025-09-26/00.jsonl.gz";
 		const otherOrg = "audit-exports/v1/org-other/2024-01-01/00.jsonl.gz";
@@ -199,10 +186,9 @@ describe("audit daily export", () => {
 			budgetMs: 60_000,
 		});
 
-		expect(result.objectsDeleted).toBe(1);
-		expect(bucket.objects.has(old)).toBe(false);
+		expect(result.objectsDeleted).toBe(0);
+		expect(bucket.objects.get(old)).toEqual(new Uint8Array([1]));
 		expect(bucket.objects.has(kept)).toBe(true);
-		// Only listed organizations are swept; nothing outside them is touched.
 		expect(bucket.objects.has(otherOrg)).toBe(true);
 	});
 

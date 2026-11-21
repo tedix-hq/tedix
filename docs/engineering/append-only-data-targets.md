@@ -94,9 +94,9 @@ What exists today:
   by column before the main row is deleted. Platform call costs use the
   owner `_platform`. Nothing deletes these objects.
 - Each organization's audit trail is exported daily to R2 under
-  `audit-exports/v1/<org>/<day>/<hour>.jsonl.gz`. **That export deletes
-  objects older than 13 months** (`apps/api/src/services/audit-daily-export.ts`).
-  Under "keep history" this deletion should go (Work 41949610). The full rows
+  `audit-exports/v1/<org>/<day>/<hour>.jsonl.gz`. The export keeps existing
+  objects indefinitely (`apps/api/src/services/audit-daily-export.ts`,
+  Work 41949610). The full rows
   are still in the `d1-archive` copy once they leave main.
 
 - Every gateway change record checkpoint gets an evidence bundle in the EU
