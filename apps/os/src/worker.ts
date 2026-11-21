@@ -1787,7 +1787,11 @@ async function handleWorkspaceChatUpgrade(
 	// A plain GET is the browser's probe: a socket that fails before it opens
 	// cannot tell "the object is away" from "this origin has no object lane",
 	// and the pane says something different for each.
-	if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+	const search = new URL(request.url).searchParams.get("search");
+	if (
+		search === null &&
+		request.headers.get("Upgrade")?.toLowerCase() !== "websocket"
+	) {
 		return withSecurityHeaders(
 			new Response(JSON.stringify({ available }), {
 				status: 200,
@@ -1856,6 +1860,14 @@ async function handleWorkspaceChatUpgrade(
 	// The object writes turns under this actor; it never sees a credential.
 	if (presence.userId) headers.set(WORKSPACE_ACTOR_HEADER, presence.userId);
 	if (organizationId) headers.set(WORKSPACE_ORG_HEADER, organizationId);
+	if (search !== null) {
+		if (!search.trim() || search.length > 200)
+			return refuse(400, "Search for up to 200 characters.");
+		return upstream.fetch(
+			`${upstream.base}/workspaces/${encodeURIComponent(workspaceId)}/search?search=${encodeURIComponent(search)}`,
+			{ headers, method: "GET" },
+		);
+	}
 	// The object replays every event after this cursor, then streams live.
 	const query = after && /^\d+$/.test(after) ? `?after=${after}` : "";
 	return upstream.fetch(

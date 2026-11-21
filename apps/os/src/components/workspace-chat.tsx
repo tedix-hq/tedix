@@ -11,6 +11,7 @@ import {
 	Lightbulb,
 	PaperPlaneRight,
 	PencilSimple,
+	GearSix,
 	ShieldCheck,
 	Stop,
 	WarningCircle,
@@ -2350,44 +2351,71 @@ function Composer({
 					</div>
 				</div>
 			</div>
-			{/* Who answers, how often it asks and which model: quiet, under the box. */}
+
 			<div className="workspace-chat-meta">
 				{slot}
-				{/* A pinned tedi answers every message; its own label is the slot.
-				The roster can still come from another screen's cache. */}
-				{!pinnedTediId && recipients.length > 0 && disabledReason === null ? (
-					<Select
-						value={pickedTedi?.id ?? ""}
-						onValueChange={(id) => setPickedTediId(id || WORKSPACE_AGENT)}
-						disabled={client === null}
-					>
-						<SelectTrigger
-							aria-label="Replying agent"
-							className="workspace-chat-meta-button"
-							size="sm"
-						>
-							<SelectValue>
-								{pickedTedi ? pickedTedi.name : "Workspace agent"}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="">Workspace agent</SelectItem>
-							{recipients.map((tedi) => (
-								<SelectItem key={tedi.id} value={tedi.id}>
-									{tediLabel(tedi)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+				{modelControl ||
+				(disabledReason === null &&
+					(state.approvalMode || (!pinnedTediId && recipients.length > 0))) ? (
+					<details className="relative">
+						<summary className="flex cursor-pointer list-none items-center gap-1 rounded px-2 py-1 text-kumo-subtle hover:bg-kumo-tint">
+							<GearSix aria-hidden size={16} />
+							Chat settings
+						</summary>
+						<div className="absolute bottom-full left-0 z-10 mb-1 grid min-w-48 gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-md">
+							{!pinnedTediId &&
+							recipients.length > 0 &&
+							disabledReason === null ? (
+								<>
+									<span className="text-xs text-kumo-subtle">Agent</span>
+									<Select
+										value={pickedTedi?.id ?? ""}
+										onValueChange={(id) =>
+											setPickedTediId(id || WORKSPACE_AGENT)
+										}
+										disabled={client === null}
+									>
+										<SelectTrigger
+											aria-label="Replying agent"
+											className="workspace-chat-meta-button"
+											size="sm"
+										>
+											<SelectValue>
+												{pickedTedi ? pickedTedi.name : "Workspace agent"}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="">Workspace agent</SelectItem>
+											{recipients.map((tedi) => (
+												<SelectItem key={tedi.id} value={tedi.id}>
+													{tediLabel(tedi)}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</>
+							) : null}
+							{state.approvalMode && disabledReason === null ? (
+								<>
+									<span className="text-xs text-kumo-subtle">
+										Approval mode
+									</span>
+									<ApprovalModePicker
+										state={state.approvalMode}
+										onChange={(mode) => client?.setApprovalMode(mode)}
+										disabled={client === null}
+									/>
+								</>
+							) : null}
+							{modelControl && (
+								<>
+									<span className="text-xs text-kumo-subtle">Model</span>
+									{modelControl}
+								</>
+							)}
+						</div>
+					</details>
 				) : null}
-				{state.approvalMode && disabledReason === null ? (
-					<ApprovalModePicker
-						state={state.approvalMode}
-						onChange={(mode) => client?.setApprovalMode(mode)}
-						disabled={client === null}
-					/>
-				) : null}
-				{modelControl}
 				{usage}
 			</div>
 		</form>

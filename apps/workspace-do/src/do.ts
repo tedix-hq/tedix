@@ -1,3 +1,4 @@
+import { matchingChatSentence } from "@tedix/api-contract/utils/markdown-plain-text";
 import type {
 	OsWorkspaceChangeRecordsQuery,
 	OsWorkspaceChangeRecordsExport,
@@ -2961,7 +2962,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	override async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const scope = this.#scopeFromHeaders(request);
-		if (url.pathname.endsWith("/subscribe")) {
+		if (
+			url.pathname.endsWith("/subscribe") ||
+			url.pathname.endsWith("/search")
+		) {
 			const session: WorkspaceSession = {
 				scope,
 				actorId: request.headers.get("X-Workspace-Actor-Id") ?? "",
@@ -2970,6 +2974,40 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			};
 			if (!(await workspaceSessionAllowed(this.env.DB, session)))
 				return new Response("Workspace access denied", { status: 403 });
+			if (url.pathname.endsWith("/search")) {
+				this.bindScope(scope);
+				const search = url.searchParams.get("search")?.trim();
+				if (!search || search.length > 200)
+					return new Response("Invalid search", { status: 400 });
+				const matches = this.#store.exec<{
+					id: string;
+					title: string | null;
+					updatedAt: string;
+					body: string;
+				}>(
+					`
+                    WITH visible AS (
+                      SELECT e.conversation_id, e.seq, coalesce(json_extract(e.body,'$.displayText'),json_extract(e.body,'$.text')) AS body
+                      FROM events e WHERE e.type IN ('turn.started','message.read','assistant.done')
+                    )
+                    SELECT c.id,c.title,c.updated_at AS updatedAt, v.body, max(v.seq) AS latest
+                    FROM visible v JOIN conversations c ON c.id=v.conversation_id
+                    WHERE c.archived_at IS NULL AND instr(lower(v.body),lower(?)) > 0
+                      AND (SELECT actor_kind FROM turns WHERE conversation_id=c.id ORDER BY started_at LIMIT 1)='user'
+                    GROUP BY c.id ORDER BY c.updated_at DESC LIMIT 100
+                `,
+					search,
+				);
+				return Response.json(
+					matches.map(({ id, title, updatedAt, body }) => ({
+						id,
+						title,
+						updatedAt,
+						match: matchingChatSentence(body, search),
+					})),
+					{ headers: { "Cache-Control": "private, no-store" } },
+				);
+			}
 			await this.refreshModelCatalog();
 			if (request.headers.get("Upgrade") !== "websocket")
 				return new Response("Expected WebSocket", { status: 426 });

@@ -99,3 +99,26 @@ function stripAutolinks(text: string): string {
 	}
 	return out + text.slice(from);
 }
+
+/** A readable excerpt around the literal match, even in a long paragraph. */
+export function matchingChatSentence(
+	text: string,
+	query: string,
+): string | undefined {
+	const needle = query.trim().toLowerCase();
+	if (!needle) return;
+	for (const line of text.split(/\r?\n/)) {
+		const plain = markdownLineToPlainText(line);
+		for (const sentence of plain.split(/(?<=[.!?])\s+/u)) {
+			const index = sentence.toLowerCase().indexOf(needle);
+			if (index < 0) continue;
+			if (sentence.length <= 420) return sentence;
+			const start = Math.max(0, index - 90);
+			return (
+				(start ? "…" : "") +
+				sentence.slice(start, start + 420) +
+				(sentence.length > start + 420 ? "…" : "")
+			);
+		}
+	}
+}
