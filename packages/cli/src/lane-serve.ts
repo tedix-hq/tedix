@@ -2825,6 +2825,19 @@ export class LaneDispatcher {
 		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
 		this.dropAllWaiting();
 	}
+	/**
+	 * The Tedix app chose to update once this Mac's tasks end: no new Work
+	 * meanwhile, so the wait ends. Work in progress runs on; removing the
+	 * app's marker lets admissions resume.
+	 */
+	setAppUpdateHold(on: boolean) {
+		const reason = "Waiting for the Tedix app to update";
+		if (on && !this.admissionsHeld) {
+			this.admissionsHeld = reason;
+			this.dropAllWaiting();
+		} else if (!on && this.admissionsHeld === reason)
+			this.admissionsHeld = undefined;
+	}
 	private async holdsRestart(row: Receipt): Promise<boolean> {
 		if (hasSettledOutcome(row)) return false;
 		const terminal =
@@ -8060,6 +8073,9 @@ ${firstBrief}`;
  */
 export const LANE_STOP_DRAIN_MS = RUNNER_STOP_DRAIN_MS;
 
+/** Under the config directory while the Tedix app waits to update. */
+const APP_UPDATE_WAITING_FILE = "app-update-waiting";
+
 /** True when the supervisor's runner list has this runner enabled, so it is started again after it exits. */
 function supervised(key: string): boolean {
 	try {
@@ -8101,11 +8117,9 @@ export async function runLaneServe(
 		project: options.project,
 		repo: scoped ? options.repo : undefined,
 	});
-	const directory = join(
-		process.env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
-		"dispatchers",
-		key,
-	);
+	const configDirectory =
+		process.env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix");
+	const directory = join(configDirectory, "dispatchers", key);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	const locks: ReturnType<typeof beginFileLock>[] = [];
 	let dispatcher: LaneDispatcher | undefined;
@@ -8191,6 +8205,10 @@ export async function runLaneServe(
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
 			if (options.once || stopping) break;
+			// The Tedix app writes this marker while it waits to update.
+			lane.setAppUpdateHold(
+				existsSync(join(configDirectory, APP_UPDATE_WAITING_FILE)),
+			);
 			// Only a runner the supervisor will start again leaves for an update.
 			const newer = await installedVersion();
 			if (newer && supervised(key)) {

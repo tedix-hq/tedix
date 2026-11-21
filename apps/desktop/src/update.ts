@@ -217,18 +217,6 @@ export function downloadUpdate(
 	return done;
 }
 
-/** The download in progress, if any. */
-export function downloadProgress(): DownloadProgress | undefined {
-	return downloading?.progress;
-}
-
-/** Stops the download in progress; nothing it fetched is kept. */
-export function cancelDownload(): void {
-	if (!downloading) return;
-	log(`update: download of ${downloading.progress.version} cancelled`);
-	downloading.stop.abort();
-}
-
 /** The version waiting for a restart, if any. */
 export function readyVersion(): string | undefined {
 	return ready?.version;

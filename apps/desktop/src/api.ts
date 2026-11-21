@@ -48,9 +48,6 @@ export interface PanelApi {
 	/** Tells the app how much room the entry needs right now. */
 	updateSize(width: number, height: number): Promise<void>;
 	onUpdate(listener: (view: UpdateView) => void): void;
-	/** The next two are for the downloading window only. */
-	onDownload(listener: (view: DownloadView) => void): void;
-	cancelDownload(): Promise<void>;
 	/** The next three are for the question window only. */
 	onQuestion(listener: (view: QuestionView) => void): void;
 	answerQuestion(response: number, checked: boolean): Promise<void>;
@@ -93,16 +90,6 @@ export interface QuestionView {
 	cancelId: number;
 	checkboxLabel?: string;
 	checkboxChecked?: boolean;
-}
-
-/** What the downloading window shows. */
-export interface DownloadView {
-	version: string;
-	received: number;
-	/** 0 while the size is not known yet. */
-	total: number;
-	/** Set once the download has stopped: why, or empty when it finished. */
-	ended?: string;
 }
 
 /**

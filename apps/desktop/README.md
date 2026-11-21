@@ -88,39 +88,29 @@ The app is not signed or notarized yet and has been run on macOS only.
   the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
   and restarts the runners. **Use the separate install again**
   reverses it.
-- **Update from one place.** The app and the command-line tool have their
-  own releases. The app looks for both when it starts, every four hours,
+- **Updates.** The app and the command-line tool update together as one
+  thing, "Tedix". The app looks for updates when it starts, every four hours,
   and from **Tedix → Check for Updates…**:
-  - With a newer app, a small question shows both version numbers with
-    **Install Update**, **Remind Me Later** (no question by itself for a
-    day) and **Skip This Version** (not offered again by itself; Check for
-    Updates… still offers it), and **Download updates automatically**. With
-    that on, the app downloads newer versions in the background without
-    asking, but still never installs one or relaunches by itself. With
-    nothing new, it says "You're up to date (version X)".
-  - **Install Update** opens a small window with a progress bar, how much is
-    downloaded of how much, and **Cancel**. The app refuses a download whose
-    SHA-256 differs from the manifest.
-  - Once a newer app is downloaded and checked, or a newer command-line tool
-    is published, **Relaunch to update** (or **Update command-line tool**)
-    appears at the bottom of the Tedix OS sidebar, above the account row,
-    and stays until it is used. The app draws it over the page itself: the
-    page has no place for it, so the app moves the account row up while it
-    is there. Without a sidebar it sits in the bottom-left corner.
-  - A click on it, or on Install Update, applies what is ready. When that
-    restarts this Mac's runners while tasks run there, one dialog says how
-    many tasks are running and how many runners restart, and offers **Not
-    Now**, **Update When Work Is Done** (the app checks every 15 seconds and
-    updates by itself once no task runs) and **Update Now**. A task counts
-    only while its agent process is alive, the same rule as the
-    command-line tool's own Mac status.
-  - With a newer app, the app restarts into it, and on that start puts the
-    newest command-line tool in place before it starts the runners.
-    With only a newer command-line tool, it does that without a restart. A
-    notification says what is in use afterwards. If it fails, the entry
-    turns into a warning; a click shows the reason and **Try Again**.
-  - Every question is a native macOS dialog, so its buttons and the
-    checkbox can be reached with the keyboard and with accessibility tools.
+  - It downloads a newer app in the background and refuses one whose
+    SHA-256 differs from the manifest. Nothing appears by itself until it is
+    ready.
+  - Then **Update ready** appears at the bottom of the Tedix OS sidebar,
+    above the account row (in the bottom-left corner without a sidebar). The
+    app draws it over the page and moves the account row up while it is
+    there.
+  - One click updates. With no task running on this Mac, the app restarts
+    into the new version at once and puts the newest command-line tool in
+    place before it starts the runners; with only a newer command-line tool,
+    it does that without a restart.
+  - With tasks running, it asks once: "2 tasks are running. Update when they
+    finish?" with **Update when done** and **Update now**; Escape means not
+    now. While it waits, the runners finish their tasks and take no new
+    ones (the app writes `~/.tedix/app-update-waiting`), so the wait ends.
+    A task counts only while its agent process is alive.
+  - If an update fails, the entry says so; a click shows why and offers to
+    try again.
+  - **Check for Updates…** updates like a click on the entry, or says
+    "Tedix is up to date" with the version.
 - **Nothing is replaced without a click.** Replacing the command-line
   tool stops tasks running on this Mac. So the app never
   replaces the tool and never restarts the runners by itself.
