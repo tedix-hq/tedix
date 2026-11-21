@@ -109,3 +109,21 @@ export const WorkspaceChatNotificationsInputSchema = z.object({
 	/** True to get notifications for this conversation, false to stop them. */
 	on: z.boolean(),
 });
+
+/**
+ * A workspace chat the person took part in, for Home's recent list. Only
+ * chats in workspaces the person can still open are listed.
+ */
+export const WorkspaceRecentChatSchema = z.object({
+	workspaceId: z.string(),
+	workspaceName: z.string(),
+	conversationId: z.string(),
+	title: z.string().nullable(),
+	lastMessageAt: z.string(),
+});
+export type WorkspaceRecentChat = z.infer<typeof WorkspaceRecentChatSchema>;
+
+export const WorkspaceRecentChatsSchema = z.object({
+	chats: z.array(WorkspaceRecentChatSchema),
+});
+export type WorkspaceRecentChats = z.infer<typeof WorkspaceRecentChatsSchema>;
