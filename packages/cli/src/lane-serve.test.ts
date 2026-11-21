@@ -5839,6 +5839,22 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+	it("admits nothing while the Tedix app waits to update, and admits again once it stops waiting", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.dispatcher.setAppUpdateHold(true);
+		await f.dispatcher.tick();
+		await f.dispatcher.drain();
+		const starts = () =>
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work");
+		expect(starts()).toHaveLength(0);
+		f.dispatcher.setAppUpdateHold(false);
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		expect(starts()).toHaveLength(1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+	});
 	it("holding admissions for an update launches Work already admitted, cancels nothing and admits nothing new", async () => {
 		const f = fixture();
 		const waiting = f.items.splice(1);

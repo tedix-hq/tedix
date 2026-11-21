@@ -19,11 +19,6 @@ const api: PanelApi = {
 		ipcRenderer.on("update", (_event, view) => listener(view));
 		ipcRenderer.send("update-ready");
 	},
-	onDownload: (listener) => {
-		ipcRenderer.on("download", (_event, view) => listener(view));
-		ipcRenderer.send("download-ready");
-	},
-	cancelDownload: () => ipcRenderer.invoke("download-cancel"),
 	onQuestion: (listener) => {
 		ipcRenderer.on("question", (_event, view) => listener(view));
 		ipcRenderer.send("question-ready");
