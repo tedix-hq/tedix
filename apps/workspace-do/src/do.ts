@@ -34,7 +34,7 @@ import {
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { getOrganizationReadOnlyCommands } from "@tedix/db/queries/organizations";
+import { getOrganizationAgentDefaults } from "@tedix/db/queries/organizations";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { guestMayUseMemory } from "./guest-memory";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
@@ -268,6 +268,8 @@ interface WorkspaceChatSettings {
 	highestApprovalMode: ApprovalMode;
 	/** Command shapes that only read, from the organization or the platform. */
 	readOnlyCommands: ReadOnlyCommandPattern[];
+	/** The organization's mode for a person who picked none; null if unset. */
+	defaultApprovalMode: ApprovalMode | null;
 	readAt: number;
 }
 
@@ -282,10 +284,15 @@ interface TurnPolicy {
 }
 
 /**
- * A person's mode before they pick one: "Ask for changes" where only they can
- * open the workspace, else how the chat has always asked.
+ * A person's mode before they pick one: the organization's default when it
+ * set one, else "Ask for changes" where only they can open the workspace and
+ * how the chat has always asked elsewhere.
  */
-function defaultApprovalMode(onlyOwner: boolean): ApprovalMode {
+function defaultApprovalMode(
+	onlyOwner: boolean,
+	organizationDefault: ApprovalMode | null | undefined,
+): ApprovalMode {
+	if (organizationDefault) return organizationDefault;
 	return onlyOwner ? "ask_for_changes" : DEFAULT_APPROVAL_MODE;
 }
 /** How long the default tedi's profile may take before the agent answers. */
@@ -4521,18 +4528,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const held = this.#chatSettings;
 		if (held && Date.now() - held.readAt < SETTINGS_TTL_MS) return held;
 		const db = createDbQueryClient(this.env.DB);
-		const [workspace, readOnlyCommands] = await Promise.all([
+		const [workspace, organization] = await Promise.all([
 			getOsWorkspace(db, scope),
-			// Unreadable, no command runs without asking.
-			getOrganizationReadOnlyCommands(db, scope.organizationId).catch(() => []),
+			// Unreadable, no command runs without asking and the platform default applies.
+			getOrganizationAgentDefaults(db, scope.organizationId).catch(() => ({
+				readOnlyCommands: [],
+				defaultApprovalMode: undefined,
+			})),
 		]);
+		const organizationMode = ApprovalModeSchema.safeParse(
+			organization.defaultApprovalMode,
+		);
 		const settings = {
 			defaultTediId: workspace?.defaultTediId ?? null,
 			machineAccess: workspace ? workspaceMachineAccess(workspace) : false,
 			highestApprovalMode: workspace
 				? workspaceHighestApprovalMode(workspace)
 				: DEFAULT_APPROVAL_MODE,
-			readOnlyCommands: readOnlyCommandList(readOnlyCommands),
+			readOnlyCommands: readOnlyCommandList(organization.readOnlyCommands),
+			// An invalid value counts as unset.
+			defaultApprovalMode: organizationMode.success
+				? organizationMode.data
+				: null,
 			readAt: Date.now(),
 		};
 		this.#chatSettings = settings;
@@ -4545,11 +4562,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	/** The approval mode a person picked here, capped by the workspace's highest. */
 	async #approvalMode(scope: WorkspaceScope, userId: string) {
-		const { highestApprovalMode: highest } = await this.#settings(scope);
+		const { highestApprovalMode: highest, defaultApprovalMode: orgDefault } =
+			await this.#settings(scope);
 		const picked =
 			this.#store.get<ApprovalMode>(`approval-mode:${userId}`) ??
 			defaultApprovalMode(
 				await this.#onlyOpenableBy(scope, userId).catch(() => false),
+				orgDefault,
 			);
 		return { mode: capApprovalMode(picked, highest), highest };
 	}
@@ -4593,7 +4612,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			personSent,
 			machineAccess: settings?.machineAccess ?? false,
 			mode: capApprovalMode(
-				picked ?? defaultApprovalMode(!shared),
+				picked ??
+					(personSent
+						? defaultApprovalMode(!shared, settings?.defaultApprovalMode)
+						: DEFAULT_APPROVAL_MODE),
 				settings?.highestApprovalMode ?? DEFAULT_APPROVAL_MODE,
 			),
 			shared,

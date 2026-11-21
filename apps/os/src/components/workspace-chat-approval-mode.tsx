@@ -64,7 +64,7 @@ export function ApprovalModePicker({
 		>
 			<SelectTrigger
 				aria-label="Approval mode"
-				className="workspace-chat-model-trigger"
+				className="workspace-chat-meta-button"
 				size="sm"
 				title={APPROVAL_MODE_TEXT[state.mode].description}
 			>

@@ -16,7 +16,10 @@ import type { DecisionLearningConfig } from "@tedix/api-contract/schemas/decisio
 import type { OutboundPolicy } from "@tedix/api-contract/schemas/outbound";
 import type { McpNetworkControlConfig } from "@tedix/api-contract/schemas/mcp-network-security";
 import type { OrganizationOsTheme } from "@tedix/api-contract/schemas/os-theme";
-import type { ReadOnlyCommandPattern } from "@tedix/api-contract/schemas/workspace-agent-access";
+import type {
+	ApprovalMode,
+	ReadOnlyCommandPattern,
+} from "@tedix/api-contract/schemas/workspace-agent-access";
 import type { OrganizationMetadata as OrganizationContractMetadata } from "@tedix/api-contract/schemas/organization";
 import {
 	index,
@@ -154,7 +157,12 @@ export interface OrganizationMetadata {
 	 * Command lines a person's own computer runs without asking in their
 	 * private workspace chat; absent uses the platform's list, [] allows none.
 	 */
-	readOnlyCommands?: ReadOnlyCommandPattern[];
+	readOnlyCommands?: ReadOnlyCommandPattern[] | null;
+	/**
+	 * Workspace chat approval mode for a person who has not picked one; the
+	 * workspace's highest mode caps it. Absent uses the platform default.
+	 */
+	defaultApprovalMode?: ApprovalMode | null;
 	/** Industry vertical (for analytics/recommendations) */
 	industryVertical?: string;
 	/** Primary country */

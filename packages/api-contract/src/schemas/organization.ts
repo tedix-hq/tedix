@@ -18,6 +18,10 @@ import { OrganizationPermissionSchema } from "./user-settings";
 import { PortableWebMcpProfileSchema } from "./portable-webmcp";
 import { WebSearchPolicySchema } from "./web-search";
 import { McpInboundClientPolicySchema } from "./mcp-grant";
+import {
+	ApprovalModeSchema,
+	ReadOnlyCommandListSchema,
+} from "./workspace-agent-access";
 
 // =============================================================================
 // ENUMS
@@ -573,6 +577,16 @@ export const OrganizationMetadataSchema = z.object({
 	webSearch: WebSearchPolicySchema.optional().describe(
 		"Public web search for tedis through the configured provider; off unless enabled.",
 	),
+	defaultApprovalMode: ApprovalModeSchema.nullable()
+		.optional()
+		.describe(
+			"Approval mode in workspace chat for a person who has not picked one; each workspace's highest mode still caps it. Null or absent uses the platform default.",
+		),
+	readOnlyCommands: ReadOnlyCommandListSchema.nullable()
+		.optional()
+		.describe(
+			"Command lines a person's own computer runs without asking in their private workspace chat; null or absent uses the platform's list, [] allows none.",
+		),
 	connectionAccessChecks: z
 		.array(
 			z.strictObject({

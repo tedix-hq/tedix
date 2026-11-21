@@ -82,7 +82,7 @@ export function ChatTediThread({
 										type="button"
 										size="sm"
 										variant="ghost"
-										className="chat-composer-picker"
+										className="workspace-chat-meta-button"
 										aria-label={`Send to ${name ?? "the workspace agent"}`}
 									>
 										<span className="truncate">

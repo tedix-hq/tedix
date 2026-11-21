@@ -670,36 +670,85 @@ button.workspace-chat-tray-item {
 	gap: 4px;
 }
 
-/* The model name sits quietly beside Send, pushed to the right. */
-.workspace-chat-model {
+/* Add files on the left, Stop and Send on the right. */
+.workspace-chat-composer-actions {
 	display: flex;
-	flex-wrap: wrap;
-	justify-content: flex-end;
-	min-width: 0;
+	align-items: center;
+	gap: 4px;
 	margin-left: auto;
 }
 
-.workspace-chat-model-trigger.workspace-chat-model-trigger {
-	max-width: 100%;
+/* While a turn runs, a ring turns around Stop. */
+.workspace-chat-stop {
+	position: relative;
+}
+
+.workspace-chat-stop::after {
+	position: absolute;
+	inset: -3px;
+	border: 2px solid transparent;
+	border-top-color: var(--color-kumo-brand, var(--primary));
+	border-radius: inherit;
+	animation: workspace-chat-stop-turn 1s linear infinite;
+	content: "";
+	pointer-events: none;
+}
+
+@keyframes workspace-chat-stop-turn {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-chat-stop::after {
+		animation: none;
+		border-color: var(--color-kumo-brand, var(--primary));
+	}
+}
+
+/* Who answers, the approval mode and the model: one quiet line under the box. */
+.workspace-chat-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	min-width: 0;
+	padding-top: 4px;
+}
+
+.workspace-chat-meta:empty {
+	display: none;
+}
+
+.workspace-chat-meta-button.workspace-chat-meta-button {
+	max-width: 12rem;
+	height: 24px;
+	padding-inline: 6px;
 	border-color: transparent;
 	background: transparent;
-	color: var(--text-color-kumo-subtle);
-}
-
-/* No border until it is focused: the card already frames the row. */
-.workspace-chat-model-trigger.workspace-chat-model-trigger:not(:focus-visible) {
 	box-shadow: none;
+	color: var(--text-color-kumo-subtle);
+	font-size: var(--text-tedix-label);
+	font-weight: 400;
+	line-height: var(--text-tedix-label--line-height);
 }
 
-/* Keyboard focus stays visible on the quiet trigger. */
-.workspace-chat-model-trigger.workspace-chat-model-trigger:focus-visible {
-	outline: 2px solid var(--color-kumo-brand, var(--primary));
-	outline-offset: 1px;
+/* Plain text: no chevron after the name. */
+.workspace-chat-meta-button.workspace-chat-meta-button svg {
+	display: none;
 }
 
-.workspace-chat-model-trigger.workspace-chat-model-trigger:hover {
+.workspace-chat-meta-button.workspace-chat-meta-button:hover:not(:disabled) {
 	background: var(--color-kumo-tint, var(--muted));
 	color: var(--text-color-kumo-default);
+}
+
+/* Keyboard focus stays visible on the quiet button. */
+.workspace-chat-meta-button.workspace-chat-meta-button:focus-visible {
+	outline: 2px solid var(--color-kumo-brand, var(--primary));
+	outline-offset: 1px;
 }
 
 .workspace-chat-list {
