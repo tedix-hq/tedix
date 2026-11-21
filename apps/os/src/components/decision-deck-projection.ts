@@ -115,7 +115,10 @@ export function projectDecisionDeck({
 						id: row.request.id,
 						requestedAt: row.request.requestedAt,
 						kind: cardKind,
-						label: taskTitle ?? row.request.subject,
+						label:
+							decision?.classId === "lane-delegation"
+								? decision.proposal
+								: (taskTitle ?? row.request.subject),
 						project:
 							row.workItem?.projectId ?? row.request.projectId ?? "Unfiled",
 						urgency: decisionCaptureSummary(metadata)?.urgency ?? "later",
@@ -123,7 +126,10 @@ export function projectDecisionDeck({
 							decision && presentation
 								? {
 										...decision,
-										proposal: presentation.title,
+										proposal:
+											decision.classId === "lane-delegation"
+												? decision.proposal
+												: presentation.title,
 										preview: decision.preview ?? { body: presentation.body },
 										recommendation: presentation.recommendation,
 									}

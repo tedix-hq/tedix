@@ -14,6 +14,7 @@ import type { DeckBandFilter } from "@/components/deck-priority-bands";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { useOsPreferences } from "@/lib/use-os-preferences";
+import { removeOptimisticDeckCard } from "@/lib/optimistic-deck-decision";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import {
 	DECK_DETAIL_WINDOW,
@@ -37,6 +38,7 @@ import {
 	projectListQueryOptions,
 	userProfileQueryOptions,
 	workItemListQueryOptions,
+	workInteractionDetailQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	decisionDeadlinePassed,
@@ -290,6 +292,28 @@ export function useDecisionDeck(
 	const railOpenedBeforeDecision = selected
 		? (rail?.openedBefore(selected.id) ?? false)
 		: false;
+	const openRequestId =
+		mode === "decide" ? selected?.row?.request.id : undefined;
+	const currentRequest = useQuery({
+		...workInteractionDetailQueryOptions(openRequestId ?? ""),
+		...workRefreshOptions,
+		enabled: !!openRequestId,
+		refetchInterval: 5_000,
+	});
+	const checkedRequest = currentRequest.data;
+	useEffect(() => {
+		if (
+			!openRequestId ||
+			checkedRequest?.request.id !== openRequestId ||
+			checkedRequest.effectiveState === "open"
+		)
+			return;
+		removeOptimisticDeckCard(
+			client,
+			[osQuery.workInteractions.listInbox.key({ input: { states: ["open"] } })],
+			openRequestId,
+		);
+	}, [openRequestId, checkedRequest, client]);
 	const preparedCard = useQuery({
 		...workRefreshOptions,
 		...osQuery.attention.getDeckCard.queryOptions({
@@ -588,14 +612,18 @@ export function useDecisionDeck(
 		DecisionCardPresentationSchema.safeParse(
 			selected?.row?.request.metadata.cardPresentation,
 		).data ?? null;
+	const presentation =
+		(preparedSourceMatches ? preparedCard.data?.presentation : null) ??
+		listPresentation;
 	const storedPreferences = cardPreferences.query.data?.preferences;
 	const cardType = classId ?? "decision";
 	const faceState =
 		mode === "decide"
 			? {
 					presentation:
-						(preparedSourceMatches ? preparedCard.data?.presentation : null) ??
-						listPresentation,
+						presentation && selected?.decision?.classId === "lane-delegation"
+							? { ...presentation, title: selected.decision.proposal }
+							: presentation,
 					confidence: selected?.decision?.confidence ?? null,
 					lastRelatedDecision: selected?.row?.lastRelatedDecision,
 					now,
