@@ -381,6 +381,10 @@ export type WorkspaceChatLedgerEvent =
 			url: string | null;
 	  })
 	| (Stamped & {
+			type: "turn.retrying";
+			turnId: string;
+	  })
+	| (Stamped & {
 			type: "turn.finished";
 			turnId: string;
 			status: TurnStatus;
@@ -498,6 +502,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"schedule.registered",
 	"connection.requested",
 	"tedi_approval.requested",
+	"turn.retrying",
 	"turn.finished",
 	"conversation.updated",
 ]);

@@ -1808,17 +1808,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 	}
 
-	async #queueRunReportRetry(turnId: string) {
+	async #queueRunReportRetry(turn: TurnRow): Promise<boolean> {
+		const turnId = turn.turn_id;
 		const pending = this.#runReportRetries();
 		if (
 			pending[turnId] !== undefined ||
 			this.#store.get(`run-report-retried:${turnId}`)
 		)
-			return;
+			return false;
 		const due = Date.now() + RUN_REPORT_RETRY_MS;
-		this.#store.put(RUN_REPORT_RETRIES_KEY, { ...pending, [turnId]: due });
+		this.ctx.storage.transactionSync(() => {
+			this.#store.put(RUN_REPORT_RETRIES_KEY, { ...pending, [turnId]: due });
+			this.#events.append(turn.conversation_id, {
+				type: "turn.retrying",
+				turnId,
+			});
+		});
 		const alarm = await this.ctx.storage.getAlarm();
 		if (alarm === null || alarm > due) await this.ctx.storage.setAlarm(due);
+		return true;
 	}
 
 	#retryRunReports(scope: WorkspaceScope) {
@@ -3463,8 +3471,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	#recordConversationActivity(event: WireEvent): void {
-		// Token deltas and model/usage receipts remain in the chat ledger only.
-		if (["assistant.delta", "turn.model", "turn.usage"].includes(event.type))
+		// Reply progress and model/usage receipts remain in the chat ledger only.
+		if (
+			["assistant.delta", "turn.model", "turn.usage", "turn.retrying"].includes(
+				event.type,
+			)
+		)
 			return;
 		const scope = this.#store.get<WorkspaceScope>("activity-scope");
 		if (!scope) return;
@@ -3883,7 +3895,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				current.actorId,
 			)) {
 				if (this.#reportsRun(turn.turn_id))
-					await this.#queueRunReportRetry(turn.turn_id);
+					await this.#queueRunReportRetry(turn);
 			}
 		}
 		// Read before the cursor below, so nothing lands in between.
@@ -5548,7 +5560,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					);
 			}
 		} catch (error) {
-			if (this.#turn(turnId)?.status !== "running") return;
+			const turn = this.#turn(turnId);
+			if (turn?.status !== "running") return;
 			const cancelled = controller.signal.aborted;
 			// The message stays on the turn; a model error can quote the chat.
 			workspaceLog.warn("Workspace turn did not finish", {
@@ -5573,15 +5586,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				new Date().toISOString(),
 				turnId,
 			);
-			this.#events.append(conversationId, {
-				type: "turn.finished",
-				turnId,
-				status: cancelled ? "cancelled" : "error",
-				error: message,
-				durationMs: Date.now() - startedAt,
-			});
-			if (report && !cancelled && isRunReportOverload(message))
-				await this.#queueRunReportRetry(turnId);
+			const retrying =
+				report &&
+				!cancelled &&
+				isRunReportOverload(message) &&
+				(await this.#queueRunReportRetry(turn));
+			if (!retrying)
+				this.#events.append(conversationId, {
+					type: "turn.finished",
+					turnId,
+					status: cancelled ? "cancelled" : "error",
+					error: message,
+					durationMs: Date.now() - startedAt,
+				});
 		} finally {
 			this.#running.delete(turnId);
 			this.#codeRuns.delete(turnId);
