@@ -6290,6 +6290,18 @@ ${firstBrief}`;
 					});
 				}
 			}
+			if (receipt.admissionState === "unknown") {
+				try {
+					await this.resolveUnknownAdmission(receipt);
+				} catch (error) {
+					// Retain the recovered fence so the next pass retries settlement.
+					this.log(
+						"admission-recovery-deferred",
+						receipt.itemId,
+						String(error),
+					);
+				}
+			}
 			if (!preflightPaused) this.scheduleCleanup(receipt, true);
 			// A pre-flight pause before preparation has no receipt to update.
 			if (!preflightPaused || receipt.session) this.save(path, receipt);
@@ -7902,11 +7914,30 @@ ${firstBrief}`;
 			);
 		}
 		if (!attempt.outcome) {
-			if (!attempt.expiresAt || Date.parse(attempt.expiresAt) > Date.now())
-				return;
-			receipt.outcome = "expired";
-			receipt.note ??=
-				"Dispatcher process interrupted; resume retained native state after fresh admission";
+			if (!attempt.expiresAt || Date.parse(attempt.expiresAt) > Date.now()) {
+				if ((receipt.pid && alive(receipt.pid)) || !receipt.executorKey) return;
+				const note = `Attempt recovered without an agent process; retry after failed or interrupted start. ${receipt.note ?? ""}`;
+				await this.call(
+					[
+						"work",
+						"settle",
+						receipt.itemId,
+						"--outcome",
+						"failed",
+						"--note",
+						note,
+					],
+					receipt.session,
+					receipt.executorKey,
+					attempt.id,
+				);
+				attempt.outcome = "failed";
+				receipt.note = note;
+			} else {
+				receipt.outcome = "expired";
+				receipt.note ??=
+					"Dispatcher process interrupted; resume retained native state after fresh admission";
+			}
 		} else if (!["failed", "expired"].includes(attempt.outcome)) {
 			receipt.outcome = attempt.outcome;
 			receipt.phase = "settled";
