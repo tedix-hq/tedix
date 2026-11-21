@@ -435,6 +435,11 @@ export type WorkspaceChatControlMessage =
 			usage?: UsageTotals;
 			/** The person's approval mode here. */
 			approvalMode?: ApprovalModeState;
+			/**
+			 * The id this connection's turns are written under; a turn whose
+			 * `authorId` matches is the reader's own.
+			 */
+			viewerId?: string;
 	  }
 	| ({
 			/** The answer to `set_approval_mode`. */
