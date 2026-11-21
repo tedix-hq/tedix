@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.10 — 2026-11-21
+
+### Patch Changes
+
+- 5513a6a: Runners take no new tasks while the Tedix app waits to update, so "Update when done" no longer waits forever on a busy Mac.
+
 ## 0.29.9 — 2026-11-21
 
 ### Patch Changes
