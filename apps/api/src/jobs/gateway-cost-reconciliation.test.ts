@@ -146,12 +146,51 @@ describe("call coverage", () => {
 			},
 		});
 	});
-	it("separates lane-lesson overhead from uncharged customer calls on the same model", () => {
+	it.each([
+		{ count: 20, missingCost: 0.012, chargedCost: 1, status: "matched" },
+		{ count: 20, missingCost: 1, chargedCost: 0.5, status: "matched" },
+		{ count: 20, missingCost: 2, chargedCost: 2, status: "matched" },
+		{ count: 20, missingCost: 2, chargedCost: 1, status: "drift" },
+		{ count: 19, missingCost: null, chargedCost: 1, status: "drift" },
+	])(
+		"applies thresholds to $count calls with $missingCost missing and $chargedCost per charged call",
+		({ count, missingCost, chargedCost, status }) => {
+			const charged = Array.from({ length: count - 1 }, (_, i) =>
+				log(`charged-${i}`, { cost: chargedCost }),
+			);
+			const rows = buildReconciliationRows({
+				...params,
+				computedAt: params.now,
+				ledger: [],
+				gateway: [log("missing", { cost: missingCost }), ...charged],
+				charges: charged.map(({ id }) => ({
+					gatewayLogId: id,
+					inputTokens: 151343,
+					outputTokens: 428,
+				})),
+			});
+			for (const row of rows)
+				expect(row).toMatchObject({
+					status,
+					coverage: {
+						missingCallCount: 1,
+						missingCostMicros: (missingCost ?? 0) * 1_000_000,
+					},
+				});
+		},
+	);
+	it("separates platform overhead from uncharged and charged calls on the same model", () => {
 		const rows = buildReconciliationRows({
 			...params,
 			computedAt: params.now,
 			ledger: [],
-			charges: [],
+			charges: [
+				{
+					gatewayLogId: "charged-clef",
+					inputTokens: 151343,
+					outputTokens: 428,
+				},
+			],
 			gateway: [
 				log("lesson", {
 					provider: "workers-ai",
@@ -161,8 +200,19 @@ describe("call coverage", () => {
 				}),
 				log("customer", {
 					provider: "workers-ai",
-					model: "@cf/example",
+					model: "@cf/cloudflare/clef-flash",
 					cost: 0.02,
+				}),
+				log("triage", {
+					provider: "workers-ai",
+					model: "@cf/cloudflare/clef-flash",
+					cost: 0.01,
+					metadata: { surface: "agent-turn-triage" },
+				}),
+				log("charged-clef", {
+					provider: "workers-ai",
+					model: "@cf/cloudflare/clef-flash",
+					metadata: { surface: "agent-turn-triage" },
 				}),
 			],
 		});
@@ -170,8 +220,9 @@ describe("call coverage", () => {
 			coverage: {
 				missingCallCount: 1,
 				missingCostMicros: 20000,
-				platformOverheadCallCount: 1,
-				platformOverheadCostMicros: 1070000,
+				platformOverheadCallCount: 2,
+				platformOverheadCostMicros: 1080000,
+				tokenCheckedCallCount: 1,
 			},
 		});
 		const overhead = buildReconciliationRows({

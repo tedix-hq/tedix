@@ -266,6 +266,7 @@ export async function runDistillModel(
 		nonThinking?: boolean;
 	} = {},
 ): Promise<string | null> {
+	const controller = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		if (!env.AI?.run) {
@@ -289,15 +290,21 @@ export async function runDistillModel(
 				temperature: 0,
 				...(jsonObject ? { response_format: { type: "json_object" } } : {}),
 			} as never,
-			env.AI_GATEWAY_LLM_ID
-				? { gateway: { id: env.AI_GATEWAY_LLM_ID, metadata: { surface } } }
-				: undefined,
+			{
+				signal: controller.signal,
+				...(env.AI_GATEWAY_LLM_ID
+					? { gateway: { id: env.AI_GATEWAY_LLM_ID, metadata: { surface } } }
+					: {}),
+			},
 		) as Promise<unknown>;
 		call.catch(() => undefined);
 		const outcome = await Promise.race([
 			call,
 			new Promise<"timeout">((resolve) => {
-				timer = setTimeout(() => resolve("timeout"), timeoutMs);
+				timer = setTimeout(() => {
+					resolve("timeout");
+					controller.abort();
+				}, timeoutMs);
 			}),
 		]);
 		if (outcome === "timeout") {

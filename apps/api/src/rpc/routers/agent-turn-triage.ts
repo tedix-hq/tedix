@@ -477,7 +477,9 @@ export async function annotateAgentTurnAttention(
 					decidedAt: new Date().toISOString(),
 				}
 			: await decideAgentTurnAttention(
-					organizationModelEnv(context.env, context.db, row.orgId),
+					organizationModelEnv(context.env, context.db, row.orgId, {
+						billWorkersAiSurface: "agent-turn-need",
+					}),
 					row,
 					defaults,
 				);
@@ -1920,7 +1922,9 @@ const retriageQuestions = retriageOs.retriageQuestions.handler(
 					batch.map(async (request) => {
 						// Re-judged with the current ask question, not the recorded one.
 						const attention = await decideAgentTurnAttention(
-							organizationModelEnv(context.env, context.db, orgId),
+							organizationModelEnv(context.env, context.db, orgId, {
+								billWorkersAiSurface: "agent-turn-need",
+							}),
 							request,
 							defaults,
 							{ rejudge: true },

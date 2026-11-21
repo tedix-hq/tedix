@@ -15,7 +15,9 @@ export async function summarizeFeedOutcome(
 ): Promise<string | null> {
 	if (!input.summary?.trim()) return null;
 	const text = await runDistillModel(
-		organizationModelEnv(context.env, context.db, input.organizationId),
+		organizationModelEnv(context.env, context.db, input.organizationId, {
+			billWorkersAiSurface: "activity-feed-outcome",
+		}),
 		JSON.stringify({
 			title: input.title,
 			outcome: input.outcome,

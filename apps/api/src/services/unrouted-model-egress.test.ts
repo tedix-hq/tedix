@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 const policy = vi.hoisted(() => vi.fn());
+const reserve = vi.hoisted(() => vi.fn());
 const primaryDb = vi.hoisted(() => ({}));
+vi.mock("../rpc/routers/kernel/billing-reservation", () => ({
+	reserveKernelBilling: reserve,
+	kernelRegionalExecution: () => undefined,
+}));
 vi.mock("@tedix/db/query-client", () => ({
 	createDbQueryClient: () => primaryDb,
 }));
@@ -20,6 +25,7 @@ import { runDistillModel } from "./lesson-distiller";
 import { runClef } from "../lib/clef";
 import { createVoiceGatewayAi } from "../kernel/voice-gateway-ai";
 import { indexContentDocument } from "../integrations/ai-search/content-index";
+import { decodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 beforeEach(() => {
 	vi.resetAllMocks();
 	policy.mockResolvedValue({ mode: "eu", revision: 1 });
@@ -132,7 +138,7 @@ describe("auxiliary model egress under organization residency", () => {
 			{ AI: { run: send } },
 			{} as never,
 			"org_lark",
-			onDispatch,
+			{ onDispatch },
 		);
 		await expect(scoped.AI.run()).rejects.toThrow("EU_PROVIDER_ROUTE_REQUIRED");
 		expect(onDispatch).not.toHaveBeenCalled();
@@ -140,5 +146,49 @@ describe("auxiliary model egress under organization residency", () => {
 		await scoped.AI.run();
 		expect(onDispatch).toHaveBeenCalledOnce();
 		expect(send).toHaveBeenCalledOnce();
+	});
+	it("sends the reservation and execution receipt only after managed credit admission", async () => {
+		policy.mockResolvedValue(null);
+		const send = vi.fn(
+			async (_model: string, _body: unknown, _options: AiOptions) => ({
+				response: "summary",
+			}),
+		);
+		const scoped = organizationModelEnv(
+			{
+				AI: { run: send },
+				AI_GATEWAY_ACCOUNT_ID: "example-account",
+				AI_GATEWAY_LLM_ID: "example-gateway",
+				TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+			},
+			{} as never,
+			"org_lark",
+			{ billWorkersAiSurface: "activity-feed-outcome" },
+		);
+		const summarize = () =>
+			runDistillModel(scoped as never, "fixture", {
+				surface: "activity-feed-outcome",
+			});
+		reserve.mockRejectedValueOnce(new Error("billing denied"));
+		expect(await summarize()).toBeNull();
+		expect(send).not.toHaveBeenCalled();
+		reserve.mockResolvedValueOnce({
+			organizationId: "org_lark",
+			source: "activity-feed-outcome",
+			billingReservationId: "reservation-1",
+			executionId: "execution-1",
+		});
+		expect(await summarize()).toBe("summary");
+		const gateway = send.mock.calls[0]?.[2].gateway;
+		expect(gateway?.metadata).toMatchObject({
+			orgId: "org_lark",
+			source: "activity-feed-outcome",
+		});
+		expect(
+			decodeAiGatewayAttribution(gateway?.metadata?.attribution),
+		).toMatchObject({
+			billingReservationId: "reservation-1",
+			executionId: "execution-1",
+		});
 	});
 });
