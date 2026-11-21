@@ -45,6 +45,9 @@ import { MACHINE_UNAVAILABLE, type workspaceMachine } from "./machine";
 import {
 	COMMAND_READ_RESOURCE,
 	COMPUTER_READ_RESOURCE,
+	MACHINE_WRITE_RESOURCE,
+	TEDI_TOOL_RESOURCE,
+	toolAlwaysAsks,
 } from "./approval-modes";
 import { isReadOnlyCommand } from "./read-only-commands";
 import type { ReadOnlyCommandPattern } from "@tedix/api-contract/schemas/workspace-agent-access";
@@ -520,7 +523,7 @@ export function buildWorkspaceBindings(
 		{ call: (input: MachineCall) => machinePort().call(input) },
 		{
 			...common,
-			resource: "machine_write",
+			resource: MACHINE_WRITE_RESOURCE,
 			methods: {
 				call: {
 					riskTier: "external_side_effect",
@@ -593,12 +596,14 @@ export function buildWorkspaceBindings(
 	};
 	type TediCall = { tool?: unknown; args?: unknown };
 	// The tedi's own object asks for what it holds. In Read only, a tool not
-	// marked read-only goes through this gate, which the mode refuses.
+	// marked read-only goes through this gate, which the mode refuses; in
+	// every mode, so does a tool that sends, publishes or moves money, which
+	// then asks the person here first.
 	const tediWriteGate = wrapBinding(
 		{ call: (input: TediCall) => tediPort().call(input) },
 		{
 			...common,
-			resource: "tedi_tool",
+			resource: TEDI_TOOL_RESOURCE,
 			methods: {
 				call: { riskTier: "bounded_write", blastRadius: "external_system" },
 			},
@@ -608,6 +613,8 @@ export function buildWorkspaceBindings(
 		list: (input?: { query?: unknown }) => tediPort().list(input),
 		describe: (input: { tool?: unknown }) => tediPort().describe(input),
 		call: async (input: TediCall) => {
+			if (typeof input?.tool === "string" && toolAlwaysAsks(input.tool.trim()))
+				return tediWriteGate.call(input);
 			if (!deps.readOnly) return tediPort().call(input);
 			const tool = await tediPort()
 				.describe(input)

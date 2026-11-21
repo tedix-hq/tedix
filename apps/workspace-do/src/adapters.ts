@@ -248,6 +248,7 @@ function holdFor(call: CallDescription, holds: TurnHolds): Hold | "granted" {
 	const cls = actionClass({
 		...call,
 		args: Array.isArray(call.args) ? call.args : [call.args],
+		organizationId: call.actor.organizationId,
 	});
 	// A plain read never waits; only a gate that holds one does.
 	const plainRead = !call.riskTier || call.riskTier === "read";

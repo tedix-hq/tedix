@@ -4464,6 +4464,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			actingUserId: started?.actor_kind === "user" ? started.actor_id : null,
 			// The person sent it and nobody else can open the workspace.
 			personScope: policy ? !policy.shared : false,
+			approvalMode: policy?.mode,
 			answeringTediId: started?.tedi_id ?? null,
 			conversationId: turn?.conversationId,
 			agentTurnId: turn?.turnId,
@@ -4862,6 +4863,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							: error.decision.riskTier,
 					destructive: error.decision.reason === "destructive_unapproved",
 					args,
+					organizationId: scope.organizationId,
 				});
 				this.#store.run(
 					"INSERT OR IGNORE INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, tedi_id, status, action_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
