@@ -25,6 +25,7 @@
 		"db:migrate:generate": "cd packages/db && bun run db:migrate:generate",
 		"db:migrate:list": "cd packages/db && bun run db:migrate:list",
 		"db:schema:check": "cd packages/db && bun run db:schema:check",
+		"logs": "bun scripts/dev/logs.ts",
 		"dev": "./scripts/dev-with-logs.sh",
 		"dev:health": "./scripts/dev-health.sh",
 		"dev:health:full": "./scripts/dev-health.sh --full",
