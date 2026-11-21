@@ -1270,11 +1270,11 @@ function setMenu(): void {
 /**
  * The menu bar icon: the astronaut of the app icon, from the helmet to the
  * waving hand, cut out of its dark tile. Its light parts become one colour
- * that macOS tints for light and dark menu bars. It is 22 points high, as
- * tall as a menu bar icon gets.
+ * that macOS tints for light and dark menu bars. It is 18 points high, the
+ * size of the other icons in the menu bar.
  */
 function trayImage(): Electron.NativeImage {
-	const points = 22;
+	const points = 18;
 	const scale = 2;
 	const size = points * scale;
 	const icon = nativeImage.createFromPath(join(root, "assets/icon.png"));
