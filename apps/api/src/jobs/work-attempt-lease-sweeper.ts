@@ -24,6 +24,14 @@ export function staleDelegationSweepDue(scheduledTime: number): boolean {
 	return new Date(scheduledTime).getUTCMinutes() < 2;
 }
 const MAX_INTERACTION_WRITES_PER_TICK = 100;
+/**
+ * The obsolete-request sweep re-reads every open request of up to ten
+ * organizations (~5.5k rows a call on 21 Nov 2026). Every fifth minute is
+ * soon enough for requests that are already obsolete.
+ */
+export function interactionExpirySweepDue(scheduledTime: number): boolean {
+	return new Date(scheduledTime).getUTCMinutes() % 5 === 0;
+}
 
 /**
  * Retire Attempt leases that have elapsed, independently of admission.
@@ -92,13 +100,12 @@ export async function runWorkAttemptLeaseSweeperTick(
 		now: new Date(scheduledTime).toISOString(),
 		limit: 25,
 	});
-	const interactions = await sweepObsoleteWorkInteractions(
-		createDbQueryClient(env.DB),
-		{
-			now: new Date(scheduledTime).toISOString(),
-			limit: MAX_INTERACTION_WRITES_PER_TICK,
-		},
-	);
+	const interactions = interactionExpirySweepDue(scheduledTime)
+		? await sweepObsoleteWorkInteractions(createDbQueryClient(env.DB), {
+				now: new Date(scheduledTime).toISOString(),
+				limit: MAX_INTERACTION_WRITES_PER_TICK,
+			})
+		: { observed: 0, expired: 0, candidates: 0, writes: 0, dryRun: 0 };
 	return {
 		...result,
 		...(await sweepStuckOutboundReviews(createDbQueryClient(env.DB), {
