@@ -985,9 +985,9 @@ function TurnView({
 	const startedAt = Date.parse(turn.startedAt);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
 	const agentRuns = launchedRuns(turn);
-	const machineStep = turn.steps.findLast(
-		(step) => step.tool === "machine.call",
-	);
+	const machineStep =
+		turn.steps.findLast((step) => step.tool === "machine.call") ??
+		turn.steps.findLast((step) => step.tool === "machine.read");
 	const machineInput = machineStep?.input;
 	const machineName =
 		machineInput &&
@@ -1001,7 +1001,11 @@ function TurnView({
 			? null
 			: machineStep
 				? (machineName ?? "Connected computer")
-				: "Tedix Cloud";
+				: running && turn.steps.some((step) => step.tool === "machine.list")
+					? "Finding a computer"
+					: running && turn.steps.every((step) => step.tool === "run_code")
+						? "Working"
+						: "Tedix Cloud";
 	const now = useNow(running && !waiting);
 	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
 	const quiet =
