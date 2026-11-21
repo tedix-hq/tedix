@@ -7,7 +7,7 @@
 	"main": "out/main.cjs",
 	"scripts": {
 		"clean": "rm -rf out dist",
-		"compile": "bun build src/main.ts src/preload.ts src/local-model-preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/panel.ts src/onboarding.ts src/update-button.ts src/question-window.ts src/input-bar.ts src/local-model-chat.ts --outdir out --target browser",
+		"compile": "bun build src/main.ts src/preload.ts src/local-model-preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/panel.ts src/onboarding.ts src/update-button.ts src/question-window.ts src/input-bar.ts --outdir out --target browser && bun build src/local-model-chat.ts --outdir out --target browser --format iife",
 		"dev": "bun run compile && node node_modules/electron/install.js && electron .",
 		"build": "bun run compile && electron-builder --dir --publish never",
 		"type-check": "tsc --noEmit"
