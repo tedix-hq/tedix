@@ -2362,11 +2362,14 @@ function Composer({
 				(disabledReason === null &&
 					(state.approvalMode || (!pinnedTediId && recipients.length > 0))) ? (
 					<details className="relative">
-						<summary className="flex cursor-pointer list-none items-center gap-1 rounded px-2 py-1 text-kumo-subtle hover:bg-kumo-tint">
+						<summary
+							aria-label="Chat settings"
+							title="Chat settings"
+							className="flex size-8 cursor-pointer list-none items-center justify-center rounded text-kumo-subtle hover:bg-kumo-tint"
+						>
 							<GearSix aria-hidden size={16} />
-							Chat settings
 						</summary>
-						<div className="absolute bottom-full left-0 z-10 mb-1 grid min-w-48 gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-md">
+						<div className="absolute bottom-full right-0 z-10 mb-1 grid min-w-48 gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-md">
 							{!pinnedTediId &&
 							recipients.length > 0 &&
 							disabledReason === null ? (
