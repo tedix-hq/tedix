@@ -647,7 +647,7 @@ describe("local Wrangler config", () => {
 					AI_GATEWAY_ACCOUNT_ID: "00000000000000000000000000000000",
 					AI_GATEWAY_LLM_ID: gateway,
 					AI_GATEWAY_BINDING_PROVIDERS: gateway ? "workers-ai" : "",
-					AI_GATEWAY_AUTO_ALLOWED_MODELS: LOCAL_WORKERS_AI_BOOTSTRAP_MODEL,
+					AI_GATEWAY_AUTO_ALLOWED_MODELS: `${LOCAL_WORKERS_AI_BOOTSTRAP_MODEL},@cf/openai/gpt-oss-120b`,
 					TEDIX_LOCAL_WORKERS_AI_ROUTE: route,
 				});
 				const api = module.createLocalWranglerConfig(

@@ -13,7 +13,10 @@ import {
 import { connect } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 import { parse, type ParseError } from "jsonc-parser";
-import { LOCAL_WORKERS_AI_MODEL } from "./lib/local-workers-ai-model";
+import {
+	LOCAL_WORKERS_AI_MODEL,
+	LOCAL_WORKSPACE_WORKERS_AI_MODELS,
+} from "./lib/local-workers-ai-model";
 
 type JsonObject = Record<string, unknown>;
 
@@ -433,7 +436,8 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 			: localAiGatewayId || "default";
 		vars.AI_GATEWAY_BINDING_PROVIDERS = directWorkersAi ? "" : "workers-ai";
 		vars.TEDIX_LOCAL_WORKERS_AI_ROUTE = directWorkersAi ? "direct" : "gateway";
-		vars.AI_GATEWAY_AUTO_ALLOWED_MODELS = LOCAL_WORKERS_AI_MODEL;
+		vars.AI_GATEWAY_AUTO_ALLOWED_MODELS =
+			LOCAL_WORKSPACE_WORKERS_AI_MODELS.join(",");
 	}
 	applyShellVarOverrides(config);
 	if (

@@ -494,6 +494,68 @@ test("local direct workspace chat admits once and preserves native tool calls", 
 	expect(admitted.authorized).toHaveLength(2);
 });
 
+test("Workers AI receives string content for text parts and tool-call turns", async () => {
+	const sent: Array<{ role: string; content: unknown }>[] = [];
+	const network = spyOn(globalThis, "fetch").mockImplementation(
+		async (input, init) => {
+			const body = await new Request(input, init).json();
+			sent.push(body.messages);
+			return completion();
+		},
+	);
+	const model = createWorkspaceModel(workersEnv, attribution, admission().port);
+	const toolTurn: AssistantMessage = {
+		role: "assistant",
+		content: [
+			{ type: "toolCall", id: "call_1", name: "lookup", arguments: {} },
+		],
+		api: "openai-completions",
+		provider: "cloudflare-workers-ai",
+		model: fixtureModelId,
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "toolUse",
+		timestamp: 0,
+	};
+	await model
+		.stream({
+			systemPrompt: "Answer the question",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "17 plus 25?" },
+						{ type: "text", text: "Use the tool." },
+					],
+					timestamp: 0,
+				},
+				toolTurn,
+				{
+					role: "toolResult",
+					toolCallId: "call_1",
+					toolName: "lookup",
+					content: [{ type: "text", text: "42" }],
+					isError: false,
+					timestamp: 0,
+				},
+			],
+		})
+		.result();
+	network.mockRestore();
+	expect(sent[0]?.map((message) => message.content)).toEqual([
+		"Answer the question",
+		"17 plus 25?\nUse the tool.",
+		"",
+		"42",
+	]);
+});
+
 test("local gateway failure never dispatches directly or retries the request", async () => {
 	const admitted = admission();
 	let gatewayCalls = 0;

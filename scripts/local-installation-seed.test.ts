@@ -66,6 +66,7 @@ test("with Workers AI on, local chat gets a one-model catalog it can route throu
 	);
 	expect(catalog.entries.map((entry) => entry.ref)).toEqual([
 		LOCAL_WORKERS_AI_MODEL_REF,
+		"workers-ai/@cf/openai/gpt-oss-120b",
 	]);
 	expect(catalog.defaults).toEqual({
 		kernelRouteModelRef: LOCAL_WORKERS_AI_MODEL_REF,

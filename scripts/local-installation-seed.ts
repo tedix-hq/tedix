@@ -15,7 +15,10 @@ import { LOCAL_WORKERS_AI_MODEL } from "./lib/local-workers-ai-model";
 
 export const LOCAL_WORKERS_AI_MODEL_REF = `workers-ai/${LOCAL_WORKERS_AI_MODEL}`;
 
-/** A one-model catalog, so local chat can route and answer through Workers AI. */
+/**
+ * A small catalog, so local chat can route and answer through Workers AI and
+ * workspace chat can compare a second model.
+ */
 export function localModelCatalog() {
 	return ModelCatalogConfigSchema.parse({
 		version: 1,
@@ -36,6 +39,22 @@ export function localModelCatalog() {
 				lifecycle: "active",
 				maxOutputTokens: 128_000,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+			},
+			{
+				ref: "workers-ai/@cf/openai/gpt-oss-120b",
+				provider: "workers-ai",
+				modelId: "@cf/openai/gpt-oss-120b",
+				label: "GPT OSS 120B",
+				reasoning: true,
+				tier: "balanced",
+				imageInput: "unsupported",
+				governance: {
+					weightAccess: "open-weights",
+					residencyControl: "cloudflare-network",
+					routingMode: "fixed",
+				},
+				lifecycle: "active",
+				reasoningEfforts: ["low", "medium", "high"],
 			},
 		],
 		fallback: { version: 1, maxTransitions: 0, ladder: {} },

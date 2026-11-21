@@ -450,6 +450,27 @@ async function directWorkersAiResponse(
 	});
 }
 
+/**
+ * Workers AI chat models take `content` as a string: gpt-oss answers
+ * `400 Bad input` for a list of text parts or a null assistant content.
+ * https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
+ */
+async function withStringContent(request: Request): Promise<Request> {
+	const body = (await request.json()) as {
+		messages?: Array<{ content?: unknown }>;
+	};
+	for (const message of body.messages ?? []) {
+		const { content } = message;
+		if (content === null || content === undefined) message.content = "";
+		else if (
+			Array.isArray(content) &&
+			content.every((part) => part?.type === "text")
+		)
+			message.content = content.map((part) => part.text).join("\n");
+	}
+	return new Request(request, { body: JSON.stringify(body) });
+}
+
 function createWorkersAiModel(
 	env: WorkspaceModelEnv,
 	call: WorkspaceModelCall,
@@ -550,7 +571,7 @@ function createWorkersAiModel(
 				async fetch(input, init) {
 					// The SDK retries a failed fetch; a refusal stands for the stream.
 					if (refusal) throw refusal;
-					const request = new Request(input, init);
+					const request = await withStringContent(new Request(input, init));
 					request.headers.delete("authorization");
 					request.headers.delete("api-key");
 					request.headers.delete("x-api-key");
