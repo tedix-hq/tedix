@@ -56,6 +56,7 @@ export async function publishOutputProjection(
 		current.updatedAt >= output.updatedAt
 	)
 		return;
+	const excerpt = options.excerpt ?? current?.searchText;
 	const event = await appendWorkspaceFeedLedger(db, {
 		organizationId: output.organizationId,
 		workspaceId: output.workspaceId,
@@ -79,7 +80,7 @@ export async function publishOutputProjection(
 			contentSha256: revision.contentSha256,
 			contentBytes: revision.contentBytes,
 			bodyR2Key: revision.bodyR2Key,
-			...(options.excerpt ? { excerpt: options.excerpt } : {}),
+			...(excerpt ? { excerpt } : {}),
 		},
 	});
 	let cursor = await getWorkspaceFeedCursor(db, output.workspaceId);

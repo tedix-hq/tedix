@@ -22,6 +22,7 @@ import {
 } from "@tedix/db/queries/os-workspaces/collaboration";
 import {
 	hydrateOutputRevision,
+	readOutputRevisionStorage,
 	storeOutputRevisionBody,
 	type OutputBodyBucket,
 } from "./os-output-revision-body-store";
@@ -30,6 +31,7 @@ import {
 	type OutputAssetBucket,
 } from "./os-output-assets";
 import { excerptFromValue } from "./workspace-feed";
+import { sheetBlockManifest } from "@tedix/workspace-feed/sheet-blocks";
 
 /**
  * Every writer stores the body in R2 first and leaves this sentinel in the
@@ -61,6 +63,7 @@ async function storeRevisionBody(
 	bucket: OutputStorageBucket,
 	revision: { organizationId: string; outputId: string; content: string },
 	previous?: OsOutputRevisionRow,
+	db?: Parameters<typeof outputs.getOsOutput>[0],
 ) {
 	let decoded: unknown = revision.content;
 	let isJson = false;
@@ -69,6 +72,23 @@ async function storeRevisionBody(
 		isJson = true;
 	} catch {
 		// Existing callers also store plain text bodies.
+	}
+	const sheet =
+		typeof decoded === "object" &&
+		decoded !== null &&
+		"kind" in decoded &&
+		decoded.kind === "sheet";
+	if (sheet && !previous && db) {
+		const output = await outputs.getOsOutput(db, {
+			organizationId: revision.organizationId,
+			outputId: revision.outputId,
+		});
+		if (output?.currentRevisionId)
+			previous = await outputs.getOsOutputRevision(db, {
+				organizationId: revision.organizationId,
+				workspaceId: output.workspaceId ?? undefined,
+				revisionId: output.currentRevisionId,
+			});
 	}
 	// Verified bytes already belong to this file; CAS still checks the revision
 	// and merges source requirements in the workspace object.
@@ -113,13 +133,28 @@ async function storeRevisionBody(
 				? decoded
 				: JSON.parse(content)
 			: undefined,
-		body: reusable
-			? {
-					bodyR2Key: previous.bodyR2Key!,
-					contentSha256: previous.contentSha256!,
-					contentBytes: previous.contentBytes!,
-				}
-			: await storeOutputRevisionBody(bucket, revision.organizationId, bytes),
+		body:
+			reusable && previous
+				? {
+						bodyR2Key: previous.bodyR2Key!,
+						contentSha256: previous.contentSha256!,
+						contentBytes: previous.contentBytes!,
+					}
+				: await storeOutputRevisionBody(
+						bucket,
+						revision.organizationId,
+						bytes,
+						sheet && previous?.bodyR2Key
+							? (sheetBlockManifest(
+									(
+										await readOutputRevisionStorage(
+											{ ...previous, content: "" },
+											bucket,
+										)
+									).content,
+								) ?? undefined)
+							: undefined,
+					),
 	};
 }
 
@@ -232,7 +267,8 @@ export async function instantiateOsBlueprint(
 	);
 }
 
-export async function getOsOutputRevision(
+/** Legacy sheet bodies are converted before they can enter any edit path. */
+export async function readStoredOutputRevision(
 	db: Parameters<typeof outputs.getOsOutputRevision>[0],
 	params: Parameters<typeof outputs.getOsOutputRevision>[1],
 	bucket?: OutputBodyBucket,
@@ -240,6 +276,70 @@ export async function getOsOutputRevision(
 ) {
 	const row = await outputs.getOsOutputRevision(db, params);
 	lap?.("baseLookupMs");
+	if (!row) return undefined;
+	return migrateSheetRevision(db, row, params.workspaceId, bucket);
+}
+
+async function migrateSheetRevision(
+	db: Parameters<typeof outputs.getOsOutput>[0],
+	row: OsOutputRevisionRow,
+	workspaceId: string | undefined,
+	bucket: OutputBodyBucket = env.R2_BUCKET,
+) {
+	const stored = await readOutputRevisionStorage(row, bucket);
+	let content;
+	try {
+		content = JSON.parse(stored.content);
+	} catch {
+		return stored;
+	}
+	if (content?.kind !== "sheet") return stored;
+	const body = await storeOutputRevisionBody(
+		bucket,
+		row.organizationId,
+		stored.content,
+	);
+	const output = workspaceId
+		? undefined
+		: await outputs.getOsOutput(db, {
+				organizationId: row.organizationId,
+				outputId: row.outputId,
+			});
+	const bound = workspaceId ?? output?.workspaceId;
+	if (!bound || !row.contentSha256)
+		throw new Error(
+			"Sheet migration requires a workspace and a verified revision body",
+		);
+	const changed = await workspaceDocumentRuntime().outputQuery(
+		{ organizationId: row.organizationId, workspaceId: bound },
+		{
+			op: "rebody",
+			revisionId: row.id,
+			previousSha256: row.contentSha256,
+			...body,
+		},
+	);
+	if (!changed) {
+		const current = await outputs.getOsOutputRevision(db, {
+			organizationId: row.organizationId,
+			workspaceId: bound,
+			revisionId: row.id,
+		});
+		if (!current || current.contentSha256 !== body.contentSha256)
+			throw new Error(
+				"Sheet revision changed during migration; reopen the file",
+			);
+	}
+	return readOutputRevisionStorage({ ...row, ...body, content: "" }, bucket);
+}
+
+export async function getOsOutputRevision(
+	db: Parameters<typeof outputs.getOsOutputRevision>[0],
+	params: Parameters<typeof outputs.getOsOutputRevision>[1],
+	bucket?: OutputBodyBucket,
+	lap?: (stage: string) => void,
+) {
+	const row = await readStoredOutputRevision(db, params, bucket, lap);
 	return row ? hydrateOutputRevision(row, bucket, lap) : undefined;
 }
 
@@ -249,7 +349,17 @@ export async function getOsOutputRevisionByNumber(
 	bucket?: OutputBodyBucket,
 ) {
 	const row = await outputs.getOsOutputRevisionByNumber(db, params);
-	return row ? hydrateOutputRevision(row, bucket) : undefined;
+	return row
+		? hydrateOutputRevision(
+				await migrateSheetRevision(
+					db,
+					row,
+					params.workspaceId ?? undefined,
+					bucket,
+				),
+				bucket,
+			)
+		: undefined;
 }
 
 export async function getActiveSheetByTitle(
@@ -259,7 +369,18 @@ export async function getActiveSheetByTitle(
 ) {
 	const row = await outputs.getActiveSheetByTitle(db, params);
 	return row
-		? { ...row, revision: await hydrateOutputRevision(row.revision, bucket) }
+		? {
+				...row,
+				revision: await hydrateOutputRevision(
+					await migrateSheetRevision(
+						db,
+						row.revision,
+						params.workspaceId,
+						bucket,
+					),
+					bucket,
+				),
+			}
 		: undefined;
 }
 
@@ -310,6 +431,7 @@ export async function createOsOutputRevision(
 		bucket,
 		params,
 		previous,
+		db,
 	);
 	timing?.lap("storeBodyMs");
 	// The workspace publishes the save to its feed once, and decides itself

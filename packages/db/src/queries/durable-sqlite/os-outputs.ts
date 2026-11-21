@@ -404,9 +404,8 @@ export async function getOsOutputRevisionByNumber(
 }
 
 /**
- * Point one revision at a rewritten copy of its body. Only the migration that
- * moves embedded images out of stored bodies calls this; the fence is the
- * digest of the body the revision had.
+ * Replace a revision's storage representation during image or sheet migration.
+ * The fence is the digest of the body the revision had.
  */
 export async function replaceOsOutputRevisionBody(
 	db: TenantStoreDb,
@@ -425,6 +424,7 @@ export async function replaceOsOutputRevisionBody(
 			bodyR2Key: params.bodyR2Key,
 			contentSha256: params.contentSha256,
 			contentBytes: params.contentBytes,
+			content: "",
 		})
 		.where(
 			and(

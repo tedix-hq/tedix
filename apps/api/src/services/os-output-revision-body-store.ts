@@ -1,6 +1,12 @@
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { env } from "cloudflare:workers";
 import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
+import {
+	readSheetBlocks,
+	sheetBlockManifest,
+	storeSheetBlocks,
+	type SheetBlockManifest,
+} from "@tedix/workspace-feed/sheet-blocks";
 
 export interface OutputBodyBucket {
 	get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
@@ -55,9 +61,25 @@ export async function storeOutputRevisionBody(
 	bucket: OutputBodyBucket,
 	organizationId: string,
 	content: string | Uint8Array,
+	previous?: SheetBlockManifest,
 ) {
-	const bytes =
+	let bytes =
 		typeof content === "string" ? new TextEncoder().encode(content) : content;
+	let parsed;
+	try {
+		parsed = JSON.parse(new TextDecoder().decode(bytes));
+	} catch {
+		/* Plain text outputs are also supported. */
+	}
+	if (parsed?.kind === "sheet") {
+		const manifest = await storeSheetBlocks(
+			bucket,
+			organizationId,
+			parsed,
+			previous,
+		);
+		bytes = new TextEncoder().encode(JSON.stringify(manifest));
+	}
 	const contentSha256 = await sha256Hex(bytes);
 	const bodyR2Key = outputRevisionBodyKey(organizationId, contentSha256);
 	const compressed = await new Response(
@@ -73,7 +95,7 @@ export async function storeOutputRevisionBody(
  * body is read from R2. A legacy row still carrying its inline body (until the
  * scheduled offload clears it) is served from that body without an R2 read.
  */
-export async function hydrateOutputRevision(
+export async function readOutputRevisionStorage(
 	row: OsOutputRevisionRow,
 	bucket: OutputBodyBucket | undefined = env.R2_BUCKET,
 	lap?: (stage: string) => void,
@@ -122,4 +144,21 @@ export async function hydrateOutputRevision(
 	if (offloaded && row.bodyR2Key && bucket)
 		rememberBody(row.bodyR2Key, bucket, content, bytes.byteLength);
 	return { ...row, content };
+}
+
+export async function hydrateOutputRevision(
+	row: OsOutputRevisionRow,
+	bucket: OutputBodyBucket | undefined = env.R2_BUCKET,
+	lap?: (stage: string) => void,
+): Promise<OsOutputRevisionRow> {
+	const stored = await readOutputRevisionStorage(row, bucket, lap);
+	const manifest = sheetBlockManifest(stored.content);
+	if (!manifest) return stored;
+	if (!bucket) throw new Error("Sheet block storage is unavailable");
+	return {
+		...stored,
+		content: JSON.stringify(
+			await readSheetBlocks(bucket, row.organizationId, manifest),
+		),
+	};
 }

@@ -12,7 +12,14 @@ import {
 	getOsOutput,
 	getOsOutputRevision,
 	listOsOutputs,
+	replaceOsOutputRevisionBody,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
+import {
+	readSheetBlocks,
+	sheetBlockManifest,
+	storeSheetBlocks,
+	type SheetBlockManifest,
+} from "@tedix/workspace-feed/sheet-blocks";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import {
 	createOsGadget,
@@ -171,7 +178,18 @@ export async function storeOutputBody(
 	bucket: OutputBodyBucket,
 	organizationId: string,
 	content: string,
+	previous?: SheetBlockManifest,
 ) {
+	let parsed;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		/* Plain text bodies remain valid. */
+	}
+	if (parsed?.kind === "sheet")
+		content = JSON.stringify(
+			await storeSheetBlocks(bucket, organizationId, parsed, previous),
+		);
 	const bytes = new TextEncoder().encode(content);
 	const contentSha256 = await sha256Hex(bytes);
 	const bodyR2Key = outputRevisionBodyKey(organizationId, contentSha256);
@@ -182,13 +200,20 @@ export async function storeOutputBody(
 	return { contentSha256, contentBytes: bytes.byteLength, bodyR2Key };
 }
 
-export async function readOutputBody(
+async function readStoredBody(
 	bucket: OutputBodyBucket,
 	row: OsOutputRevisionRow,
 ): Promise<string> {
 	if (row.content) return row.content;
 	if (!row.bodyR2Key || !row.contentSha256)
 		throw new Error("Output revision body is unavailable");
+	if (
+		row.bodyR2Key !==
+		outputRevisionBodyKey(row.organizationId, row.contentSha256)
+	)
+		throw new Error(
+			"Output revision body key does not match its organization and digest",
+		);
 	const object = await bucket.get(row.bodyR2Key);
 	if (!object) throw new Error("Output revision body object is missing");
 	const bytes = await new Response(
@@ -198,9 +223,25 @@ export async function readOutputBody(
 	).arrayBuffer();
 	if ((await sha256Hex(bytes)) !== row.contentSha256)
 		throw new Error("Output revision body digest mismatch");
+	if (row.contentBytes != null && bytes.byteLength !== row.contentBytes)
+		throw new Error("Output revision body length mismatch");
 	return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
 		bytes,
 	);
+}
+
+export async function readOutputBody(
+	bucket: OutputBodyBucket,
+	row: OsOutputRevisionRow,
+	storedContent?: string,
+): Promise<string> {
+	const content = storedContent ?? (await readStoredBody(bucket, row));
+	const manifest = sheetBlockManifest(content);
+	return manifest
+		? JSON.stringify(
+				await readSheetBlocks(bucket, row.organizationId, manifest),
+			)
+		: content;
 }
 
 export interface TenantDataPortDeps {
@@ -402,7 +443,37 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		const { row, revision } = located;
 		if (!revision || !this.canRead(revision)) return null;
 		const summary = this.summary(row, revision);
-		const body = await readOutputBody(this.deps.bucket, revision);
+		let storedBody = await readStoredBody(this.deps.bucket, revision);
+		if (row.kind === "sheet" && !sheetBlockManifest(storedBody)) {
+			const body = await storeOutputBody(
+				this.deps.bucket,
+				row.organizationId,
+				storedBody,
+			);
+			if (!revision.contentSha256)
+				throw new Error("Sheet migration requires a verified body");
+			const changed = await this.deps.commitOutput(row.id, () =>
+				replaceOsOutputRevisionBody(this.deps.tenant, {
+					organizationId: row.organizationId,
+					revisionId: revision.id,
+					previousSha256: revision.contentSha256!,
+					...body,
+				}),
+			);
+			if (!changed) {
+				const current = await getOsOutputRevision(this.deps.tenant, {
+					organizationId: row.organizationId,
+					revisionId: revision.id,
+				});
+				if (!current || current.contentSha256 !== body.contentSha256)
+					throw new Error(
+						"Sheet revision changed during migration; reopen the file",
+					);
+			}
+			Object.assign(revision, body, { content: "" });
+			storedBody = await readStoredBody(this.deps.bucket, revision);
+		}
+		const body = await readOutputBody(this.deps.bucket, revision, storedBody);
 		return {
 			...summary,
 			content: OsOutputContentSchema.parse(JSON.parse(body)),
@@ -473,10 +544,20 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			throw new Error(
 				`Output is a ${existing.kind}; a ${content.kind} body cannot revise it`,
 			);
+		let previous: SheetBlockManifest | undefined;
+		if (content.kind === "sheet") {
+			const located = await this.locate(input.outputId);
+			if (located?.revision)
+				previous =
+					sheetBlockManifest(
+						await readStoredBody(this.deps.bucket, located.revision),
+					) ?? undefined;
+		}
 		const stored = await storeOutputBody(
 			this.deps.bucket,
 			this.deps.organizationId,
 			JSON.stringify(content),
+			previous,
 		);
 		const params = {
 			id: crypto.randomUUID(),

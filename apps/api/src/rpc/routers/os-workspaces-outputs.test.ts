@@ -16,6 +16,9 @@ import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { osCollaborationProposals } from "@tedix/db/schema/os-workspaces";
 import { osOutputRevisions } from "@tedix/db/tenant-store/outputs-schema";
+import { env as workerEnv } from "cloudflare:workers";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { outputRevisionBodyKey } from "../../services/os-output-revision-body-store";
 import {
 	workspaceActivity,
 	workspaceFeedLedger,
@@ -1899,6 +1902,127 @@ describe("output patch verbs", () => {
 		expect(Math.max(...timings)).toBeLessThan(1_500);
 	});
 
+	it("migrates a large sheet, reads and writes one block per cell save, and keeps history, restore and CSV export", async () => {
+		const workspaceId = await homeWorkspaceId(c.env);
+		const content = {
+			kind: "sheet" as const,
+			columns: ["Name", "Description"],
+			rows: Array.from({ length: 180 }, (_, row) => [
+				`Row ${row}`,
+				"Description ".repeat(650),
+			]),
+		};
+		const { output, revision } = await c.org1.outputs.create({
+			workspaceId,
+			kind: "sheet",
+			title: "Migrated sheet",
+			content,
+		});
+		// Install the old body representation to exercise forward migration on read.
+		const bytes = new TextEncoder().encode(JSON.stringify(content));
+		const contentSha256 = await sha256Hex(bytes);
+		const bodyR2Key = outputRevisionBodyKey("org-1", contentSha256);
+		await workerEnv.R2_BUCKET.put(
+			bodyR2Key,
+			await new Response(
+				new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip")),
+			).arrayBuffer(),
+		);
+		expect(
+			await c.env.WORKSPACE_RUNTIME.outputQuery(
+				{ organizationId: "org-1", workspaceId },
+				{
+					op: "rebody",
+					revisionId: revision.id,
+					previousSha256: (await c.env.WORKSPACE_RUNTIME.outputQuery(
+						{ organizationId: "org-1", workspaceId },
+						{ op: "revision", revisionId: revision.id },
+					))!.contentSha256!,
+					bodyR2Key,
+					contentSha256,
+					contentBytes: bytes.byteLength,
+				},
+			),
+		).toBe(true);
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.content,
+		).toEqual(content);
+		const get = vi.spyOn(workerEnv.R2_BUCKET, "get");
+		const put = vi.spyOn(workerEnv.R2_BUCKET, "put");
+		const saved = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: {
+				kind: "sheet",
+				ops: [{ op: "set", path: ["rows", 74, 0], value: "Edited" }],
+			},
+		});
+		expect(
+			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
+		).toHaveLength(1);
+		expect(
+			put.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
+		).toHaveLength(1);
+		expect(saved).toMatchObject({ revision: { revision: 2 }, catchUp: null });
+		const indexed = await createDbQueryClient(c.env.DB)
+			.select({ searchText: workspaceOutputIndex.searchText })
+			.from(workspaceOutputIndex)
+			.where(eq(workspaceOutputIndex.revisionId, saved.revision.id));
+		expect(indexed[0]?.searchText).toContain("description");
+		get.mockClear();
+		const changes = await c.org1.outputs.changes({
+			outputId: output.id,
+			sinceRevision: 1,
+		});
+		expect(changes.patch).toEqual({
+			kind: "sheet",
+			ops: [{ op: "set", path: ["rows", 74, 0], value: "Edited" }],
+		});
+		expect(
+			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
+		).toHaveLength(2);
+		get.mockClear();
+		expect(
+			(await c.org1.outputs.changes({ outputId: output.id, sinceRevision: 2 }))
+				.patch,
+		).toBeNull();
+		expect(
+			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
+		).toHaveLength(0);
+		get.mockRestore();
+		put.mockRestore();
+		const old = (
+			await c.org1.outputs.history({ outputId: output.id, revision: 1 })
+		).revisions[0]!;
+		expect("content" in old && old.content).toEqual(content);
+		await c.org1.outputs.revise({
+			outputId: output.id,
+			expectedRevision: 2,
+			content,
+		});
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.content,
+		).toEqual(content);
+		const edited = (
+			await c.org1.outputs.history({ outputId: output.id, revision: 2 })
+		).revisions[0]!;
+		expect("content" in edited && edited.content).toMatchObject({
+			rows: expect.arrayContaining([["Edited", content.rows[74]![1]]]),
+		});
+		c.env.R2_BUCKET = workerEnv.R2_BUCKET;
+		const exported = await c.org1.outputs.export({
+			outputId: output.id,
+			format: "csv",
+		});
+		const csv = new TextDecoder().decode(
+			await (await workerEnv.R2_BUCKET.get(exported.key))!.arrayBuffer(),
+		);
+		expect(csv).toContain(`Row 74,${content.rows[74]![1]}`);
+		expect(csv).not.toContain("Edited");
+	});
+
 	it("writes a sheet rectangle, null-filling extended rows and short rows", async () => {
 		const { output } = await c.org1.outputs.create({
 			workspaceId: await homeWorkspaceId(c.env),
@@ -3544,6 +3668,21 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		).toMatchObject({
 			rows: [
 				[1, 20],
+				[30, 4],
+			],
+		});
+		// A different cell in the already-edited row also merges from the old base.
+		await c.org1.outputs.patch({
+			outputId: sheet.output.id,
+			baseRevision: 1,
+			patch: cell(0, 0, 10),
+		});
+		expect(
+			(await c.org1.outputs.get({ outputId: sheet.output.id })).currentRevision
+				.content,
+		).toMatchObject({
+			rows: [
+				[10, 20],
 				[30, 4],
 			],
 		});

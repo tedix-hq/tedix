@@ -36,8 +36,20 @@ import { mapOsOutputRow } from "./os-output-library";
 import {
 	createOsOutputRevision,
 	getOsOutputRevisionByNumber,
+	readStoredOutputRevision,
 } from "./os-workspace-outputs";
-import { getOsOutput } from "./workspace-output-storage";
+import { env } from "cloudflare:workers";
+import { hydrateOutputRevision } from "./os-output-revision-body-store";
+import {
+	changedSheetRows,
+	readSheetBlocks,
+	sheetBlockManifest,
+} from "@tedix/workspace-feed/sheet-blocks";
+import {
+	getOsOutputRevisionByNumber as readRevisionMetadata,
+	getOsOutput,
+} from "./workspace-output-storage";
+import { saveSheetCellPatch } from "./os-sheet-cell-patch";
 
 /** The access record of a file that carries no data from connected accounts. */
 export const EMPTY_OUTPUT_ACCESS_ENVELOPE = JSON.stringify({
@@ -92,6 +104,10 @@ export async function saveOsOutputPatch(
 	input: OsOutputPatchSave,
 ) {
 	requireSavableText({ patch: input.patch, note: input.note });
+	if (input.patch.kind === "sheet") {
+		const saved = await saveSheetCellPatch(db, input);
+		if (saved) return saved;
+	}
 	let output = input.output;
 	const { creator, producer, accessEnvelope } = input;
 	const conflict = (currentRevision: number | null, parts?: string[]) =>
@@ -234,7 +250,38 @@ export async function osOutputChangesSince(
 	};
 	if (input.sinceRevision >= current.revision)
 		return { ...answer, patch: null };
-	const content = editableStoredContent(current);
+	const manifest = sheetBlockManifest(current.content);
+	if (manifest) {
+		const started = await readRevisionMetadata(db, {
+			organizationId: output.organizationId,
+			outputId: output.id,
+			revision: input.sinceRevision,
+		});
+		if (started && (await input.canReadRevision(started))) {
+			const stored = await readStoredOutputRevision(db, {
+				organizationId: output.organizationId,
+				workspaceId: output.workspaceId ?? undefined,
+				revisionId: started.id,
+			});
+			const base = stored && sheetBlockManifest(stored.content);
+			const changed = base && changedSheetRows(base, manifest);
+			if (base && changed) {
+				const [before, after] = await Promise.all([
+					readSheetBlocks(env.R2_BUCKET, output.organizationId, base, changed),
+					readSheetBlocks(
+						env.R2_BUCKET,
+						output.organizationId,
+						manifest,
+						changed,
+					),
+				]);
+				return { ...answer, patch: diffOutputContent(before, after) };
+			}
+		}
+	}
+	const content = editableStoredContent(
+		manifest ? await hydrateOutputRevision(current) : current,
+	);
 	const started = await getOsOutputRevisionByNumber(db, {
 		organizationId: output.organizationId,
 		outputId: output.id,

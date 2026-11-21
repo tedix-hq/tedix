@@ -56,6 +56,7 @@ import { getOsOutput } from "../../services/workspace-output-storage";
 import { parseOutputContentWithImages } from "../../services/os-output-assets";
 import {
 	getOsOutputRevision,
+	readStoredOutputRevision,
 	createOsOutputRevision,
 } from "../../services/os-workspace-outputs";
 import {
@@ -1184,7 +1185,11 @@ export function createOsAppRuntimeRouter() {
 				!output.currentRevisionId
 			)
 				throw createError(ErrorCodes.NOT_FOUND, "Granted Output unavailable");
-			const revision = await getOsOutputRevision(queryDb(acting), {
+			const revision = await (
+				input.operation === "outputs.read" || output.kind !== "sheet"
+					? getOsOutputRevision
+					: readStoredOutputRevision
+			)(queryDb(acting), {
 				organizationId: scope.organizationId,
 				revisionId: output.currentRevisionId,
 			});

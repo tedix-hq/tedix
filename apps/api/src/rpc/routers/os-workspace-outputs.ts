@@ -57,6 +57,7 @@ import {
 	createOsOutputRevision,
 	getOsOutputRevision,
 	getOsOutputRevisionByNumber,
+	readStoredOutputRevision,
 } from "../../services/os-workspace-outputs";
 import type {
 	OsOutputRevisionRow,
@@ -95,6 +96,7 @@ import {
 	parseDerivedAccessEnvelope,
 } from "../../services/os-derived-resource-access";
 import { attachOutputEditor } from "../../services/os-output-editor";
+import { saveSheetCellPatch } from "../../services/os-sheet-cell-patch";
 import {
 	editableStoredContent,
 	EMPTY_OUTPUT_ACCESS_ENVELOPE,
@@ -929,9 +931,10 @@ async function requireCurrentOutputRevision(
 	context: BaseContext,
 	output: OsOutputRow,
 	lap?: (stage: string) => void,
+	readBody = true,
 ): Promise<OsOutputRevisionRow> {
 	const revision = output.currentRevisionId
-		? await getOsOutputRevision(
+		? await (readBody ? getOsOutputRevision : readStoredOutputRevision)(
 				queryDb(context),
 				{
 					organizationId: output.organizationId,
@@ -1050,7 +1053,12 @@ const outputsChanges = readOs.outputs.changes.handler(
 		const output = await requireOutput(context, input.outputId);
 		return osOutputChangesSince(queryDb(context), {
 			output,
-			current: await requireCurrentOutputRevision(context, output),
+			current: await requireCurrentOutputRevision(
+				context,
+				output,
+				undefined,
+				output.kind !== "sheet",
+			),
 			sinceRevision: input.sinceRevision,
 			canReadRevision: (revision) => canReadDerivedRevision(context, revision),
 		});
@@ -1149,6 +1157,43 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 				ErrorCodes.BAD_REQUEST,
 				`outputs.setSheetRange edits sheets; this output is a ${output.kind}`,
 			);
+		}
+		const blockSave = await saveSheetCellPatch(
+			queryDb(context),
+			{
+				output,
+				reloadOutput: () => requireOutput(context, input.outputId),
+				currentRevision: (row) => requireCurrentOutputRevision(context, row),
+				canReadRevision: (revision) =>
+					canReadDerivedRevision(context, revision),
+				baseRevision: input.expectedRevision ?? 0,
+				patch: { kind: "sheet", ops: [] },
+				note: input.note,
+				creator: resolveCreator(context),
+				producer: resolveProducer(context),
+				accessEnvelope: await resolveAccessEnvelope(context),
+			},
+			input,
+		);
+		if (blockSave) {
+			lap("saveMs");
+			// Range callers retain the full response; editor patch saves return only a receipt.
+			const revision = await getOsOutputRevision(queryDb(context), {
+				organizationId: output.organizationId,
+				workspaceId: output.workspaceId ?? undefined,
+				revisionId: blockSave.revision.id,
+			});
+			if (!revision) throw new Error("Saved sheet revision is missing");
+			lap("replyBodyMs");
+			console.info({
+				event: "os_output_sheet_range_saved",
+				...durations,
+				handlerMs: Math.round(performance.now() - start),
+			});
+			return {
+				output: blockSave.output,
+				revision: mapOsOutputRevisionRow(revision),
+			};
 		}
 		const base = await requireCurrentOutputRevision(context, output, lap);
 		if (
