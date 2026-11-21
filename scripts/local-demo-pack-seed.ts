@@ -126,6 +126,16 @@ type Row = Record<string, string | number | null>;
 const ENVELOPE = JSON.stringify({ version: 1, sources: [] });
 const owner = { created_by_kind: "user", created_by_id: "local-demo-owner" };
 
+/** An inline body with its digest, so a sheet read can upgrade it to blocks. */
+function body(content: unknown) {
+	const text = JSON.stringify(content);
+	return {
+		content: text,
+		content_sha256: createHash("sha256").update(text).digest("hex"),
+		content_bytes: Buffer.byteLength(text),
+	};
+}
+
 /** The sample company's files, written into each workspace's own store. */
 export function demoPackWorkspaceFiles(
 	nowMs: number = Date.now(),
@@ -169,7 +179,7 @@ export function demoPackWorkspaceFiles(
 						organization_id: ORG,
 						output_id: sheetId,
 						revision: 1,
-						content: JSON.stringify(sheet),
+						...body(sheet),
 						access_envelope: ENVELOPE,
 						...owner,
 					},
@@ -199,7 +209,7 @@ export function demoPackWorkspaceFiles(
 						organization_id: ORG,
 						output_id: demoTodayId,
 						revision: 1,
-						content: JSON.stringify(demoTodayContent(nowMs)),
+						...body(demoTodayContent(nowMs)),
 						access_envelope: ENVELOPE,
 						...owner,
 						created_at: now,
