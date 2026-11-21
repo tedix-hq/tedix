@@ -1805,6 +1805,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		workItemId: string,
 		kind: "follow_up" | "stop",
 		body: string,
+		interrupt = false,
 	) {
 		const { item, actor, startedHere } = await this.#visibleRun(workItemId);
 		// The owner of a task started here steers it; any other run follows
@@ -1836,6 +1837,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			kind,
 			body,
 			sender: actor,
+			interrupt,
 		});
 		if (message) return message;
 		// No run took it: say whether the run has not started or how it ended.
@@ -1850,7 +1852,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			throw new Error("This run was cancelled");
 		if (!attemptId) {
 			const waiting =
-				kind === "follow_up"
+				kind === "follow_up" && !interrupt
 					? await queueWorkItemFollowUp(this.deps.core, {
 							orgId: item.orgId,
 							workItemId,
@@ -1862,7 +1864,9 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			throw new Error(
 				kind === "stop"
 					? "This run has not started yet, so there is nothing to stop"
-					: "This run is just starting. Send the follow-up again in a moment",
+					: interrupt
+						? "This run has not started yet, so there is nothing to interrupt"
+						: "This run is just starting. Send the follow-up again in a moment",
 			);
 		}
 		throw new Error(
@@ -1880,12 +1884,26 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		);
 	}
 
-	async sendRunMessage(input: { workItemId: string; message: string }) {
-		const { id: workItemId, body } = SendWorkAttemptMessageInputSchema.parse({
+	async sendRunMessage(input: {
+		workItemId: string;
+		message: string;
+		interrupt?: boolean;
+	}) {
+		const {
+			id: workItemId,
+			body,
+			interrupt,
+		} = SendWorkAttemptMessageInputSchema.parse({
 			id: input.workItemId,
 			body: input.message,
+			interrupt: input.interrupt,
 		});
-		const message = await this.#steerRun(workItemId, "follow_up", body);
+		const message = await this.#steerRun(
+			workItemId,
+			"follow_up",
+			body,
+			interrupt,
+		);
 		return {
 			kind: "agent_run_message" as const,
 			workItemId,
@@ -1893,9 +1911,11 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			delivery: message.attemptId
 				? ("to_running_agent" as const)
 				: ("when_run_starts" as const),
-			note: message.attemptId
-				? "Saved for the run. The agent gets it after its current step."
-				: "Saved. The run has not started yet; the agent gets this follow-up when it starts.",
+			note: message.interrupt
+				? "Interrupt requested. The runner will try to stop its current step to apply the follow-up."
+				: message.attemptId
+					? "Saved for the run. The agent gets it after its current step."
+					: "Saved. The run has not started yet; the agent gets this follow-up when it starts.",
 		};
 	}
 

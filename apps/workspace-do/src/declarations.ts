@@ -317,9 +317,11 @@ interface Work {
    * Pass the person's follow-up to the run when they ask: the owner of a task started here, or anyone runs() marks canSteer. delivery says
    * whether a running agent gets it after its current step, or the run has
    * not started yet and the agent gets it when it starts. Either way it is
-   * saved; tell the person which. A run that has ended refuses and says how.
+   * saved; tell the person which. Set interrupt: true when the person asks to
+   * interrupt the current step and apply this follow-up. That requires an active run.
+   * Use stopRun when the person asks to cancel the whole run.
    */
-  sendRunMessage(input: { workItemId: string; message: string }): Promise<{
+  sendRunMessage(input: { workItemId: string; message: string; interrupt?: boolean }): Promise<{
     kind: "agent_run_message"; workItemId: string; messageId: string;
     delivery: "to_running_agent" | "when_run_starts"; note: string;
   }>;

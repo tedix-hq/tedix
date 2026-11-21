@@ -413,6 +413,7 @@ export async function sendWorkAttemptMessage(
 ): Promise<WorkAttemptMessageRow | null> {
 	const at = params.at ?? new Date().toISOString();
 	const id = crypto.randomUUID();
+	const interrupt = params.kind === "follow_up" && params.interrupt === true;
 	const live = sql`${workAttempts.outcome} IS NULL
 		AND ${inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES)}
 		AND ${workAttempts.expiresAt} > ${at}`;
@@ -449,10 +450,7 @@ export async function sendWorkAttemptMessage(
 							"sender_type",
 						),
 					senderId: sql<string>`${params.sender.id}`.as("sender_id"),
-					interrupt:
-						sql<boolean>`(${params.kind === "follow_up" && params.interrupt === true} AND ${live})`.as(
-							"interrupt",
-						),
+					interrupt: sql<boolean>`${interrupt}`.as("interrupt"),
 					createdAt: sql<string>`${at}`.as("message_created_at"),
 					deliveredAt: sql<null>`NULL`.as("delivered_at"),
 					appliedAt: sql<null>`NULL`.as("applied_at"),
@@ -478,9 +476,15 @@ export async function sendWorkAttemptMessage(
 					AND successor.org_id = ${workAttempts.orgId}
 					AND successor.attempt_number > ${workAttempts.attemptNumber}
 				)`,
-						params.kind === "stop"
-							? sql`(${live} AND ${lastQuestionSeq} IS NULL)`
-							: sql`(
+						interrupt
+							? sql`(${live} AND ${lastQuestionSeq} IS NULL AND NOT EXISTS (
+								SELECT 1 FROM ${workAttemptMessages}
+								WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id}
+								AND ${workAttemptMessages.kind} = 'stop'
+							))`
+							: params.kind === "stop"
+								? sql`(${live} AND ${lastQuestionSeq} IS NULL)`
+								: sql`(
 					(${live} AND ${lastQuestionSeq} IS NULL) OR (
 						${unanswered} AND ${workItems.disposition} = 'accepted'
 						AND (${live} OR (
@@ -495,7 +499,7 @@ export async function sendWorkAttemptMessage(
 		)
 		.returning();
 
-	if (params.kind === "stop") return (await insert)[0] ?? null;
+	if (params.kind === "stop" || interrupt) return (await insert)[0] ?? null;
 
 	// Only an answer to the last step wakes the runner. Store the signal in
 	// the same batch as the message, without changing the Work revision.

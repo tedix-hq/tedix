@@ -68,7 +68,7 @@ describe("AgentRunCardView", () => {
 		expect(host.querySelector("a")?.getAttribute("href")).toBe(
 			`/work/items/${agentRun.workItemId}`,
 		);
-		// The person writes to the tedi, not to the run.
+		// Ordinary follow-ups go through the tedi.
 		expect(host.querySelector("textarea")).toBeNull();
 		const buttons = () =>
 			[...host.querySelectorAll("button")].map((button) => button.textContent);
@@ -77,6 +77,48 @@ describe("AgentRunCardView", () => {
 		await act(async () => host.querySelector("button")?.click());
 		expect(steps()).toHaveLength(11);
 		expect(buttons()).toEqual(["Stop run"]);
+		unmount();
+	});
+
+	it("sends an interrupt to the active attempt without stopping the run", async () => {
+		const active = run(1);
+		const onInterrupt = vi.fn(async () => ({}));
+		const onStop = vi.fn(async () => ({}));
+		const { host, unmount } = await mount(
+			<AgentRunCardView
+				agentRun={agentRun}
+				run={active}
+				onInterrupt={onInterrupt}
+				onStop={onStop}
+				LinkComponent={TaskLink}
+			/>,
+		);
+		const trigger = [...host.querySelectorAll("button")].find(
+			(button) => button.textContent === "Interrupt",
+		);
+		await act(async () => trigger?.click());
+		const field = host.querySelector("textarea")!;
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)!.set!.call(field, " Switch to cursor pagination ");
+			field.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		await act(async () => {
+			host
+				.querySelector("form")!
+				.dispatchEvent(
+					new Event("submit", { bubbles: true, cancelable: true }),
+				);
+		});
+		expect(onInterrupt).toHaveBeenCalledExactlyOnceWith({
+			attemptId: active.attemptId,
+			body: "Switch to cursor pagination",
+			interrupt: true,
+		});
+		expect(onStop).not.toHaveBeenCalled();
+		expect(host.querySelector("textarea")).toBeNull();
 		unmount();
 	});
 
@@ -124,11 +166,12 @@ describe("AgentRunCardView", () => {
 		}
 	});
 
-	it("offers no stop once the run has ended, and says so when it cannot load", async () => {
+	it("offers neither interrupt nor stop once the run has ended, and says so when it cannot load", async () => {
 		const ended = await mount(
 			<AgentRunCardView
 				agentRun={agentRun}
 				run={run(2, { live: false })}
+				onInterrupt={vi.fn(async () => ({}))}
 				attempt={{
 					id: "44444444-4444-4444-8444-444444444444",
 					executorType: "external_agent",
