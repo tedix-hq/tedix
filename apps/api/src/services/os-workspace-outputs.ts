@@ -216,8 +216,10 @@ export async function getOsOutputRevision(
 	db: Parameters<typeof outputs.getOsOutputRevision>[0],
 	params: Parameters<typeof outputs.getOsOutputRevision>[1],
 	bucket?: OutputBodyBucket,
+	lap?: (stage: string) => void,
 ) {
 	const row = await outputs.getOsOutputRevision(db, params);
+	lap?.("baseLookupMs");
 	return row ? hydrateOutputRevision(row, bucket) : undefined;
 }
 
@@ -279,48 +281,53 @@ export async function createOsOutputRevision(
 	params: Parameters<typeof outputs.createOsOutputRevision>[1],
 	bucket: OutputStorageBucket = env.R2_BUCKET,
 	previous?: OsOutputRevisionRow,
+	timing?: {
+		lap: (stage: string) => void;
+		waitUntil?: (promise: Promise<unknown>) => void;
+	},
 ) {
 	const { content, body, parsedContent } = await storeRevisionBody(
 		bucket,
 		params,
 		previous,
 	);
+	timing?.lap("storeBodyMs");
 	// The workspace publishes the save to its feed once, and decides itself
 	// whether it continues a burst of auto-saves.
 	const result = await outputs.createOsOutputRevision(
 		db,
 		{ ...params, ...body, content: INLINE_BODY_OFFLOADED },
 		excerptFromValue(parsedContent),
+		timing?.lap,
 	);
-	if (result.ok) {
-		const output = await outputs.getOsOutput(db, {
+	if (!result.ok) return result;
+	const output =
+		result.output ??
+		(await outputs.getOsOutput(db, {
 			organizationId: params.organizationId,
 			outputId: params.outputId,
-		});
-		if (output) {
-			// Everyone with the file open learns of the new revision at once and
-			// fetches only what changed.
-			await notifyOutputRevision(
-				{
-					db,
-					rooms: env.APP_DRAFT_ROOM,
-					env,
-					development: env.ENVIRONMENT === "development",
-				},
-				output,
-				{
-					outputId: output.id,
-					revisionId: result.revision.id,
-					revision: result.revision.revision,
-				},
-			);
-		}
+		}));
+	if (output) {
+		const notice = notifyOutputRevision(
+			{
+				db,
+				rooms: env.APP_DRAFT_ROOM,
+				env,
+				development: env.ENVIRONMENT === "development",
+			},
+			output,
+			{
+				outputId: output.id,
+				revisionId: result.revision.id,
+				revision: result.revision.revision,
+			},
+		);
+		if (timing?.waitUntil) timing.waitUntil(notice);
+		else await notice;
 	}
-	// An unchanged save returns the current revision; its digest equals this
-	// stored body's, so these bytes are the row's bytes either way.
-	return result.ok
-		? { ...result, revision: { ...result.revision, content } }
-		: result;
+	timing?.lap("finishMs");
+	// A no-op save returns the existing revision with the same body bytes.
+	return { ...result, output, revision: { ...result.revision, content } };
 }
 
 /** Commit the object revision before the shared collaboration receipt. */

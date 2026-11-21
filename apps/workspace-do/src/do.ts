@@ -1033,6 +1033,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				scope,
 				authorizedQuery,
 			);
+			if (operation.op === "revise" && this.#ownsOutputs()) {
+				const revised = result as OutputQueryResult<"revise">;
+				if (revised.ok)
+					return { ...revised, projectionQueued: true } as OutputQueryResult<K>;
+			}
 			if (operation.op === "update" && result) {
 				const row = result as OutputQueryResult<"update">;
 				if (row?.currentRevisionId) {

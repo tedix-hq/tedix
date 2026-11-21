@@ -172,6 +172,11 @@ describe("workspace object outputs", () => {
 		};
 		expect(await tenant.createOsOutputRevision(t.db, params)).toEqual({
 			ok: true,
+			output: {
+				...first.output,
+				currentRevisionId: params.id,
+				updatedAt: expect.any(String),
+			},
 			revision: {
 				...first.revision,
 				id: params.id,
@@ -212,6 +217,7 @@ describe("workspace object outputs", () => {
 		});
 		expect(same).toMatchObject({
 			ok: true,
+			output: { currentRevisionId: "rev-1" },
 			revision: { id: "rev-1", revision: 1 },
 		});
 		expect(

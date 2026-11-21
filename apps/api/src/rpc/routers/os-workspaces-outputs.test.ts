@@ -1864,6 +1864,7 @@ describe("output patch verbs", () => {
 			});
 			timings.push(performance.now() - started);
 			expect(saved.revision.revision).toBe(revision + 1);
+			expect(saved.output.currentRevisionId).toBe(saved.revision.id);
 			if (saved.revision.content.kind !== "sheet")
 				throw new Error("Expected sheet");
 			expect(saved.revision.content.rows).toHaveLength(150);

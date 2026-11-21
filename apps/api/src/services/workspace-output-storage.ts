@@ -325,15 +325,19 @@ export async function ensureOsOutput(...args: CreateOutputArgs) {
 }
 
 export async function createOsOutputRevision(
-	...args: [db: DbQueryClient, params: RevisionParams, excerpt?: string]
+	db: DbQueryClient,
+	params: RevisionParams,
+	excerpt?: string,
+	lap?: (stage: string) => void,
 ) {
-	const [db, params, excerpt] = args;
 	const store = readRuntime();
-	const scope = await location(db, params.organizationId, params.outputId);
-	if (!scope)
+	const scope = await readLocation(db, params.organizationId, params.outputId);
+	lap?.("commitLocationMs");
+	if (!scope || !(await workspaceOwnsDocuments(scope, store)))
 		throw new Error(
 			"Workspace output writes require an activated workspace object",
 		);
+	lap?.("commitAuthorityMs");
 	if (!params.bodyR2Key || !params.contentSha256 || params.contentBytes == null)
 		throw new Error("Workspace output revision requires its stored R2 body");
 	const result = await store.outputQuery(scope, {
@@ -346,7 +350,11 @@ export async function createOsOutputRevision(
 		},
 		...(excerpt ? { excerpt } : {}),
 	});
-	if (result.ok) await refreshCommittedOutput(store, scope, params.outputId);
+	lap?.("commitMs");
+	if (result.ok && !result.projectionQueued) {
+		await refreshCommittedOutput(store, scope, params.outputId);
+		lap?.("refreshMs");
+	}
 	return result;
 }
 
