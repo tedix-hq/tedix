@@ -255,6 +255,84 @@ function mount(
 }
 
 describe("WorkspaceChat", () => {
+	it.each(["Enter", "Tab"])(
+		"picks a highlighted tedi with %s without sending",
+		async (key) => {
+			queryClient.setQueryData<unknown>(
+				tediRosterQueryOptions(100, { status: "active" }).queryKey,
+				{
+					data: ["CEO", "CFO"].map((name) => ({
+						id: `tedi-${name.toLowerCase()}`,
+						name,
+						scope: "organization",
+						status: "active",
+					})),
+				},
+			);
+			const fake = fakeClient("c1");
+			mount(fake);
+			const textarea = host.querySelector("textarea")!;
+			const type = async (value: string) =>
+				act(async () => {
+					Object.getOwnPropertyDescriptor(
+						HTMLTextAreaElement.prototype,
+						"value",
+					)!.set!.call(textarea, value);
+					textarea.dispatchEvent(new Event("input", { bubbles: true }));
+				});
+			const press = async (key: string, extra: KeyboardEventInit = {}) => {
+				const event = new KeyboardEvent("keydown", {
+					key,
+					bubbles: true,
+					cancelable: true,
+					...extra,
+				});
+				await act(async () => {
+					textarea.dispatchEvent(event);
+				});
+				return event;
+			};
+			const highlighted = () =>
+				host.querySelector(
+					'[aria-label="Mention a tedi"] [aria-pressed="true"]',
+				)?.textContent;
+			await type("Ask @C");
+			expect(highlighted()).toBe("CEO");
+			await press("ArrowUp");
+			expect(highlighted()).toBe("CFO");
+			await press("ArrowDown");
+			expect(highlighted()).toBe("CEO");
+			await press("ArrowRight");
+			expect(highlighted()).toBe("CFO");
+			await press("ArrowLeft");
+			expect(highlighted()).toBe("CEO");
+			await press("ArrowDown");
+			expect((await press(key)).defaultPrevented).toBe(true);
+			expect(textarea.value).toBe("Ask @CFO ");
+			expect(fake.calls).not.toContainEqual(["sendTurn", expect.anything()]);
+			await type("Ask @CF");
+			expect(highlighted()).toBe("CFO");
+			expect(
+				(await press("Enter", { isComposing: true })).defaultPrevented,
+			).toBe(false);
+			expect((await press("Enter", { shiftKey: true })).defaultPrevented).toBe(
+				false,
+			);
+			expect(textarea.value).toBe("Ask @CF");
+			expect((await press(key)).defaultPrevented).toBe(true);
+			expect(textarea.value).toBe("Ask @CFO ");
+			expect(
+				host.querySelector('[aria-label="Replying agent"]')?.textContent,
+			).toBe("CFO");
+			expect(fake.calls).not.toContainEqual(["sendTurn", expect.anything()]);
+			await press("Enter");
+			expect(fake.calls).toContainEqual([
+				"sendTurn",
+				{ text: "Ask @CFO", tediId: "tedi-cfo" },
+			]);
+		},
+	);
+
 	it("offers organization skills for a slash and sends the picked reference", async () => {
 		queryClient.setQueryData<unknown>(
 			skillCatalogQueryOptions({

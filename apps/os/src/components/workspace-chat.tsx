@@ -1879,6 +1879,16 @@ function Composer({
 					.slice(0, 6)
 			: [];
 	const [mentionDismissed, setMentionDismissed] = useState(false);
+	const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+	const activeMentionIndex = Math.min(
+		mentionActiveIndex,
+		mentionOptions.length - 1,
+	);
+	const mentionPickerOpen =
+		!mentionDismissed && disabledReason === null && mentionOptions.length > 0;
+	useEffect(() => {
+		setMentionActiveIndex(0);
+	}, [mention]);
 	const setDraft = (next: string | ((text: string) => string)) =>
 		setDraftText((text) => {
 			const value = typeof next === "function" ? next(text) : next;
@@ -2065,16 +2075,37 @@ function Composer({
 		setSkillActiveIndex(-1);
 		textarea.current?.focus();
 	};
+	const confirmMention = (tedi: { id: string; name: string }) => {
+		setDraft(
+			`${draft.slice(0, draft.length - (mention?.length ?? 0))}${tedi.name} `,
+		);
+		setPickedTediId(tedi.id);
+		textarea.current?.focus();
+	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (
-			event.key === "Escape" &&
-			!mentionDismissed &&
-			mentionOptions.length &&
-			!isImeComposing(event)
-		) {
-			event.preventDefault();
-			setMentionDismissed(true);
-			return;
+		if (mentionPickerOpen && !isImeComposing(event)) {
+			if (
+				["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"].includes(event.key)
+			) {
+				event.preventDefault();
+				const step =
+					event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
+				setMentionActiveIndex(
+					(activeMentionIndex + step + mentionOptions.length) %
+						mentionOptions.length,
+				);
+				return;
+			}
+			if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+				event.preventDefault();
+				confirmMention(mentionOptions[activeMentionIndex]!);
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setMentionDismissed(true);
+				return;
+			}
 		}
 		if (skillPickerOpen && !isImeComposing(event)) {
 			if (
@@ -2142,28 +2173,22 @@ function Composer({
 					}
 					onRemoveUpload={uploads.remove}
 				/>
-				{mention !== undefined &&
-				!mentionDismissed &&
-				disabledReason === null &&
-				mentionOptions.length > 0 ? (
+				{mentionPickerOpen ? (
 					<div
 						className="flex flex-wrap gap-1"
 						aria-label="Mention a tedi"
 						role="group"
 					>
-						{mentionOptions.map((tedi) => (
+						{mentionOptions.map((tedi, index) => (
 							<Button
 								key={tedi.id}
 								type="button"
 								size="xs"
 								variant="ghost"
-								onClick={() => {
-									setDraft(
-										`${draft.slice(0, draft.length - mention.length)}${tedi.name} `,
-									);
-									setPickedTediId(tedi.id);
-									textarea.current?.focus();
-								}}
+								aria-pressed={index === activeMentionIndex}
+								className={index === activeMentionIndex ? "bg-kumo-tint" : ""}
+								onMouseEnter={() => setMentionActiveIndex(index)}
+								onClick={() => confirmMention(tedi)}
 							>
 								{tedi.name}
 							</Button>
