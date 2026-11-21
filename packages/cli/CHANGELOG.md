@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.6 — 2026-11-21
+
+### Patch Changes
+
+- bc4fbce: Report the machine, harness version and model when a local Work run starts, and include the runner's launch context in the agent brief.
+- 2800016: A tedi may read your runner's log files under ~/.tedix/ and list its folders on your Mac; its sign-ins, sessions and settings stay refused. A web address such as api.tedix.dev is no longer mistaken for that folder.
+- 87d7b69: Read process identities asynchronously while the runner drains for an update, keeping lease heartbeats responsive.
+
 ## 0.29.5 — 2026-11-21
 
 ### Patch Changes
