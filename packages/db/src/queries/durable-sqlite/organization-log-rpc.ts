@@ -10,14 +10,6 @@ import type { GatewayChangeRecordInput } from "@tedix/api-contract/schemas/audit
  * answers `forward` to appends and `not_live` to reads, and callers fail.
  */
 
-/**
- * - `live`: appends are chained and stored here; reads are served here. A
- *   new organization starts live with its first append.
- * - `passthrough`, `cutover`: states of the finished move from the main
- *   database. A store left in either answers `forward` / `not_live`.
- */
-export type OrganizationLogState = "passthrough" | "cutover" | "live";
-
 export interface GatewayChangeRecordRangeParams {
 	/** Inclusive start, as `Date.prototype.toISOString()` writes it. */
 	from: string;
@@ -84,36 +76,12 @@ export type OrganizationLogRead<T> =
 	| { status: "not_live" }
 	| { status: "live"; value: T };
 
-export interface OrganizationLogTail {
-	sequence: number;
-	chainHash: string | null;
-	checkpointDigest: string | null;
-}
-
-export interface OrganizationLogStatus {
-	available: boolean;
-	state: OrganizationLogState;
-	/** Last record copied or chained here; null before anything arrived. */
-	tail: OrganizationLogTail | null;
-	pending: number;
-	oldestPendingAt: string | null;
-	/** When the cutover began; null outside a cutover. */
-	cutoverStartedAt: string | null;
-	/**
-	 * Last main sequence copied before the store went live; null before.
-	 * A main row of the organization above it was written after the move.
-	 */
-	mainTailSequence: number | null;
-}
-
 export type OrganizationLogAppendInput = GatewayChangeRecordInput & {
 	id: string;
 	recordedAt: string;
 };
 
 export interface OrganizationLogRuntime {
-	/** True when the runtime has the store binding; touches no store. */
-	organizationLogAvailable(): Promise<boolean>;
 	organizationLogAppend(
 		organizationId: string,
 		input: OrganizationLogAppendInput,
@@ -142,5 +110,4 @@ export interface OrganizationLogRuntime {
 		organizationId: string,
 		query: GatewayChangeRecordCheckpointQuery,
 	): Promise<OrganizationLogRead<GatewayChangeRecordCheckpointRow[]>>;
-	organizationLogStatus(organizationId: string): Promise<OrganizationLogStatus>;
 }

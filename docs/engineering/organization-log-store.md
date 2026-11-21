@@ -14,10 +14,12 @@ writes, explicit append queue, archive check before delete, cadence).
   and the store's copy and cutover methods are removed. The api reads and
   writes only the store; a store that cannot answer, or is not `live`, fails
   the call. Nothing falls back to main.
-- A new organization starts live: a store with no state and no history sets
-  itself `live` on its first call, and its first append is sequence 1 with a
-  genesis checkpoint. A store with copied history but no state stays
-  `passthrough` (a move that never finished) and fails closed.
+- A store has no states any more: every production store with history was
+  `live` when the cutover job last ran (21 Nov 2026, 14:15 UTC: three
+  organizations live). The store's status method, the held-append table
+  `pending_change_records` (empty once a store went live) and the
+  `passthrough`/`cutover` handling are removed. A new organization's first
+  append is sequence 1 with a genesis checkpoint.
 - The day manifests in the EU bucket are authoritative for each
   organization's history.
 - Five records written before the fix, sequences 78832-78836 of

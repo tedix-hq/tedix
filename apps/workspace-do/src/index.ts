@@ -71,11 +71,6 @@ export class InternalEntrypoint
 	extends WorkerEntrypoint<WorkspaceEnv>
 	implements OrganizationLogRuntime
 {
-	async organizationLogAvailable() {
-		return Boolean(
-			(this.env as { ORGANIZATION_LOG?: unknown }).ORGANIZATION_LOG,
-		);
-	}
 	async organizationLogAppend(
 		organizationId: string,
 		input: OrganizationLogAppendInput,
@@ -118,20 +113,6 @@ export class InternalEntrypoint
 		return log
 			? log.organizationLogCheckpoints(organizationId, query)
 			: { status: "not_live" as const };
-	}
-	async organizationLogStatus(organizationId: string) {
-		const log = organizationLog(this.env, organizationId);
-		return log
-			? log.organizationLogStatus(organizationId)
-			: {
-					available: false,
-					state: "passthrough" as const,
-					tail: null,
-					pending: 0,
-					oldestPendingAt: null,
-					cutoverStartedAt: null,
-					mainTailSequence: null,
-				};
 	}
 	prepareDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
 		return stubFor(this.env, scope).prepareDocumentTransfer(scope, transfer);

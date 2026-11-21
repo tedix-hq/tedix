@@ -72,7 +72,6 @@ test("a new organization's store is live from its first append and seals it", as
 	const first = await append(1);
 	if (first.status !== "stored") throw new Error("not stored");
 	expect(first.record.sequence).toBe(1);
-	expect((await log.organizationLogStatus(ORG)).state).toBe("live");
 	// A retry of the same id returns the stored record.
 	expect(await append(1)).toEqual(first);
 
