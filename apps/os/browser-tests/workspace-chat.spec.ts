@@ -454,11 +454,16 @@ return focusClipAudit();
 	}
 	const runPage = await browser.newPage();
 	try {
+		let finishReport: (() => void) | undefined;
+		const sends: string[] = [];
 		await runPage.routeWebSocket(
 			"**/workspace/fictional-workspace/chat",
 			(socket) => {
 				socket.onMessage((raw) => {
-					if (JSON.parse(String(raw)).type !== "subscribe") return;
+					const request = JSON.parse(String(raw));
+					if (request.type === "send_turn" || request.type === "add_turn")
+						sends.push(request.type);
+					if (request.type !== "subscribe") return;
 					const send = (value: unknown) => socket.send(JSON.stringify(value));
 					const at = new Date().toISOString();
 					const turn = { at, conversationId: "c1", turnId: "coding-turn" };
@@ -494,15 +499,68 @@ return focusClipAudit();
 						}),
 					});
 					send({ ...turn, type: "turn.finished", seq: 3, status: "done" });
+					const report = { ...turn, turnId: "report-turn" };
+					send({
+						...report,
+						type: "turn.started",
+						seq: 4,
+						text: "Saved worker result",
+						displayText: "Run finished: Fix the paging",
+						runReport: {
+							workItemId: "fixture-run-task",
+							title: "Fix the paging",
+						},
+						authorId: "person-subject",
+						authorKind: "person",
+						respondingTediId: "tedi-ops",
+					});
+					send({ ...report, type: "turn.retrying", seq: 5 });
 					send({ type: "caught_up", conversationId: "c1" });
+					finishReport = () => {
+						send({
+							...report,
+							type: "assistant.done",
+							seq: 6,
+							messageId: report.turnId,
+							text: "The saved heading is # Tedix desktop app.",
+						});
+						send({
+							...report,
+							type: "turn.finished",
+							seq: 7,
+							status: "done",
+							durationMs: 120,
+						});
+					};
 				});
 			},
 		);
 		await runPage.goto(server.origin + "/browser-tests/workspace-chat.html");
 		const card = runPage.locator('[data-slot="agent-run-card"]');
 		await card.getByText("Reading the project files").waitFor();
+		const status = card.locator('[data-slot="agent-run-status"]');
+		const report = runPage
+			.getByTestId("workspace-chat-turn")
+			.filter({ hasText: "Run finished: Fix the paging" });
+		const retrying = report.getByRole("status").getByText("Retrying reply…");
+		await retrying.waitFor();
+		assert.match(await status.innerText(), /^Finished.*: succeeded$/);
+		assert.equal(await report.getByRole("alert").count(), 0);
+		assert.equal(
+			await report.getByRole("button", { name: /^Retry$|^Continue$/ }).count(),
+			0,
+		);
 		await runPage.reload();
-		await card.getByText("Reading the project files").waitFor();
+		await retrying.waitFor();
+		assert.match(await status.innerText(), /^Finished.*: succeeded$/);
+		assert.ok(finishReport);
+		finishReport();
+		await report
+			.getByText("The saved heading is # Tedix desktop app.")
+			.waitFor();
+		await retrying.waitFor({ state: "detached" });
+		assert.match(await status.innerText(), /^Finished.*: succeeded$/);
+		assert.deepEqual(sends, []);
 		assert.equal(await card.count(), 1);
 		assert.equal(
 			await card.getByRole("link", { name: "Open task" }).getAttribute("href"),

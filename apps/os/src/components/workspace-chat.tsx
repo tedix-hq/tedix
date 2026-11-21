@@ -505,7 +505,7 @@ export function WorkspaceChat({
 				status:
 					turn.status === "cancelled"
 						? ("error" as const)
-						: turn.status === "running"
+						: turn.status === "running" || turn.status === "retrying"
 							? ("running" as const)
 							: turn.status,
 				text: turn.reply,
@@ -1152,7 +1152,13 @@ function TurnView({
 						) : null}
 					</div>
 				) : null}
-				{waiting || running || turn.status === "waiting" ? (
+				{turn.status === "retrying" ? (
+					<div role="status">
+						<Text role="caption" tone="secondary">
+							Retrying reply…
+						</Text>
+					</div>
+				) : waiting || running || turn.status === "waiting" ? (
 					<footer className="workspace-chat-turn-footer">
 						<Text
 							role="caption"

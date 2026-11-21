@@ -151,7 +151,7 @@ export type ChatTurn = {
 	tediApprovals?: ChatTediApproval[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
 	summarizedEarlier?: boolean;
-	status: "running" | TurnStatus;
+	status: "running" | "retrying" | TurnStatus;
 	approvalUrl?: string;
 	error?: string;
 	finishedAt: string | null;
@@ -444,7 +444,13 @@ export function applyWorkspaceChatEvent(
 			].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
 		};
 	}
-	if (event.type === "turn.finished") {
+	if (
+		event.type === "turn.finished" ||
+		(event.type === "turn.retrying" &&
+			state.turns.some(
+				(turn) => turn.turnId === event.turnId && turn.status === "running",
+			))
+	) {
 		const finished = state.conversations.find(
 			(row) => row.id === event.conversationId && row.running,
 		);
@@ -877,6 +883,17 @@ export function applyWorkspaceChatEvent(
 			}));
 			break;
 		}
+		case "turn.retrying":
+			turns = place(event.turnId)((turn) => ({
+				...turn,
+				status: "retrying",
+				error: undefined,
+				finishedAt: null,
+				reply: "",
+				replyDeltas: undefined,
+				replyDone: false,
+			}));
+			break;
 		case "turn.finished":
 			turns = place(event.turnId)((turn) => ({
 				...turn,

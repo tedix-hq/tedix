@@ -231,6 +231,10 @@ export type WireEventBody =
 			url: string | null;
 	  }
 	| {
+			type: "turn.retrying";
+			turnId: string;
+	  }
+	| {
 			type: "turn.finished";
 			turnId: string;
 			status: "done" | "error" | "cancelled" | "waiting";

@@ -16,6 +16,7 @@ import {
 	tediNamesQueryOptions,
 	tediRosterQueryOptions,
 	workspacePresenceQueryOptions,
+	workItemAttemptsQueryOptions,
 	workItemRunStepsQueryOptions,
 } from "../src/lib/os-query-options";
 import "../src/styles.css";
@@ -72,9 +73,20 @@ client.setQueryData<unknown>(
 	},
 );
 const directory = new Map([["user:person-subject", { name: "Ada Member" }]]);
+client.setQueryData(workItemAttemptsQueryOptions("fixture-run-task").queryKey, {
+	data: [
+		{
+			id: "fixture-attempt",
+			executorType: "external_agent",
+			executorId: "codex",
+			outcome: "succeeded",
+			finishedAt: new Date().toISOString(),
+		},
+	],
+});
 client.setQueryData(workItemRunStepsQueryOptions("fixture-run-task").queryKey, {
 	attemptId: "fixture-attempt",
-	live: true,
+	live: false,
 	steps: [
 		{
 			seq: 1,
