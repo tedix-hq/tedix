@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
@@ -41,15 +42,39 @@ const DAY = 86_400;
 
 class MemoryBucket {
 	readonly objects = new Map<string, Uint8Array>();
+	readonly metadata = new Map<string, Record<string, string>>();
 	failPuts = false;
 	/** Simulates a write R2 acknowledged with the wrong size. */
 	shortPuts = false;
 	puts = 0;
-	async put(key: string, value: Uint8Array) {
+	async put(key: string, value: Uint8Array, options: R2PutOptions) {
 		this.puts += 1;
 		if (this.failPuts) throw new Error("r2 unavailable");
+		if (
+			this.objects.has(key) &&
+			!(options.onlyIf instanceof Headers) &&
+			options.onlyIf?.etagDoesNotMatch === "*"
+		)
+			return null;
+		if (options.sha256 !== createHash("sha256").update(value).digest("hex"))
+			throw new Error("R2 checksum mismatch");
 		this.objects.set(key, value);
-		return { key, size: value.byteLength - (this.shortPuts ? 1 : 0) };
+		this.metadata.set(key, options.customMetadata ?? {});
+		return this.head(key);
+	}
+	head(key: string) {
+		const value = this.objects.get(key);
+		if (!value) return null;
+		return {
+			key,
+			size: value.byteLength - (this.shortPuts ? 1 : 0),
+			checksums: {
+				toJSON: () => ({
+					sha256: createHash("sha256").update(value).digest("hex"),
+				}),
+			},
+			customMetadata: this.metadata.get(key),
+		};
 	}
 }
 
@@ -590,10 +615,10 @@ describe("runD1Retention", () => {
 			VALUES ('late', 'late', 'result.json', '2026-07-01')`);
 		const bucket = new MemoryBucket();
 		const put = bucket.put.bind(bucket);
-		bucket.put = async (key, value) => {
+		bucket.put = async (key, value, options) => {
 			sqlite.exec(`INSERT INTO memory_facts (id, organization_id, content, fact_type, source)
 				VALUES ('late-fact', 'fictional-lighthouse', 'provenance', 'observation', 'skill://runs/late')`);
-			return put(key, value);
+			return put(key, value, options);
 		};
 		const logs = logsFixture();
 		const result = await runD1Retention({
@@ -1229,14 +1254,14 @@ describe("runD1Retention", () => {
 		const logs = logsFixture();
 		const bucket = new MemoryBucket();
 		const put = bucket.put.bind(bucket);
-		bucket.put = async (key, value) => {
+		bucket.put = async (key, value, options) => {
 			sqlite.exec(
 				"UPDATE audit_events SET action = 'payment.captured' WHERE id = 'audit-0'",
 			);
 			sqlite
 				.prepare("UPDATE audit_events SET timestamp = ? WHERE id = 'audit-1'")
 				.run(Math.floor(NOW.getTime() / 1000) - 14 * DAY);
-			return put(key, value);
+			return put(key, value, options);
 		};
 		const result = await runD1Retention({
 			db,
@@ -1486,6 +1511,75 @@ describe("runD1Retention", () => {
 		const report = JSON.parse(policy("audit_events").report);
 		expect(report.timings).toMatchObject({ pages: 3 });
 		expect(report.eligibleRows).toBe(0);
+	});
+
+	it("preserves both archived payloads when a concurrent update and a lost PUT response are replayed", async () => {
+		const { db, sqlite, seedRuntime, count } = fixture(
+			"('tedi_runtime_events','move_to_logs_db',14,10,'2026-10-21')",
+		);
+		seedRuntime([120]);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const put = bucket.put.bind(bucket);
+		const update = JSON.stringify({ edited: true });
+		vi.spyOn(bucket, "put")
+			.mockImplementationOnce(async (...args) => {
+				const receipt = await put(...args);
+				sqlite
+					.prepare(
+						"UPDATE tedi_runtime_events SET payload = ? WHERE id = 'runtime-0'",
+					)
+					.run(update);
+				return receipt;
+			})
+			.mockImplementationOnce(async (...args) => {
+				await put(...args);
+				throw new Error("lost PUT response");
+			});
+		const run = () =>
+			runD1Retention({
+				db,
+				logsDb: logs.db,
+				bucket: bucket as unknown as R2Bucket,
+				now: NOW,
+				pagePauseMs: 0,
+			});
+		const first = await run();
+		expect(first.tables[0]).toMatchObject({ deletedRows: 0, skippedRows: 1 });
+		expect(
+			sqlite.prepare("SELECT payload FROM tedi_runtime_events").get(),
+		).toEqual({ payload: update });
+
+		const interrupted = await run();
+		expect(interrupted.tables[0]).toMatchObject({
+			stoppedBy: "error",
+			deletedRows: 0,
+		});
+		expect(count("tedi_runtime_events")).toBe(1);
+		expect(bucket.objects.size).toBe(2);
+		const archivedPayloads = [];
+		for (const [key, bytes] of bucket.objects) {
+			const digest = createHash("sha256").update(bytes).digest("hex");
+			expect(key).toMatch(new RegExp(digest + "\\.ndjson\\.gz$"));
+			expect(bucket.metadata.get(key)).toMatchObject({
+				organizationId: "fictional-lighthouse",
+				rows: "1",
+			});
+			const [line] = await gunzipLines(bytes);
+			archivedPayloads.push(JSON.parse(line!).payload);
+		}
+		expect(archivedPayloads).toEqual([
+			JSON.stringify({ n: 0, body: "x".repeat(64) }),
+			update,
+		]);
+
+		const replay = await run();
+		expect(replay.tables[0]).toMatchObject({
+			conflictedRows: 1,
+			deletedRows: 1,
+		});
+		expect(count("tedi_runtime_events")).toBe(0);
+		expect(bucket.objects.size).toBe(2);
 	});
 
 	it("keeps rows when R2 acknowledges a different size than was written", async () => {

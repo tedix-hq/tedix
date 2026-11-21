@@ -94,12 +94,14 @@ move. Each page then:
    (`updateKernelRuntimeEventMetadata`, `updateTediRuntimeEventPayload`) and
    their deterministic ids can be re-inserted, so a divergence is an earlier
    copy of the same id, not a broken copy;
-3. writes the page as gzip NDJSON to the private tedi bucket under
-   `d1-archive/v1/<table>/<day>/<first>-<last>.ndjson.gz` and confirms the
-   object R2 returns for the write (same key, same size);
-4. only then deletes exactly those rowids from the main database in one
-   statement (rowids as one JSON parameter), rechecking the cutoff, with
-   0.5 s, 1 s and 2 s back-off when D1 reports `overloaded`.
+3. writes each organization's gzip NDJSON under
+   `d1-archive/v1/<table>/<organization>/<day>/<first>-<last>-<sha256>.ndjson.gz`.
+   The SHA-256 covers the compressed bytes. A replay with identical bytes
+   reuses the existing object. The mover checks the object's key, length,
+   SHA-256, organization and row count before purging;
+4. deletes rows that still match their copied contents, cutoff and pins.
+   A changed row stays in main for a later pass. Its new bytes get a new
+   archive key. Deletes back off for 0.5 s, 1 s and 2 s on D1 overload.
 
 The next page is read while the current one goes through steps 1 to 4, so a
 page costs about three round trips (logs batch, R2 write, delete). The

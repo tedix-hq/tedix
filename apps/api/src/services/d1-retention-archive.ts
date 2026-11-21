@@ -20,8 +20,8 @@
  * not read its way through rows that are all inside the keep window: after a
  * page without one old row it asks the timestamp index where the next old row
  * is and continues there, or ends if there is none. If a run stops
- * between the R2 write and the delete, the next tick rewrites the same rows
- * to the same deterministic key before deleting them.
+ * between the R2 write and the delete, the next tick verifies the existing object
+ * for identical bytes or archives a new version before deleting the row.
  *
  * `move_to_logs_db` adds a step in front of the archive: the page is copied
  * into the logs database with insert-or-ignore, read back in the same batch
@@ -64,6 +64,7 @@ import {
 } from "@tedix/db/queries/d1-retention";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { D1RetentionPolicyRow } from "@tedix/db/schema/d1-retention";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 export const D1_ARCHIVE_PREFIX = "d1-archive/v1/";
 /** Rows per R2 object, per logs copy and per delete statement. */
@@ -228,20 +229,21 @@ function archiveDay(
 		: "unknown-day";
 }
 
-export function d1ArchiveObjectKey(
+function d1ArchiveObjectKey(
 	tableSpec: D1RetentionTableSpec,
 	organizationId: string,
 	rows: readonly D1RetentionRow[],
+	digest: string,
 ): string {
 	const first = rows[0];
 	const last = rows[rows.length - 1];
 	if (!first || !last) throw new Error("cannot key an empty archive chunk");
-	return `${D1_ARCHIVE_PREFIX}${tableSpec.tableName}/${encodeURIComponent(organizationId)}/${archiveDay(tableSpec, first)}/${first.__rowid}-${last.__rowid}.ndjson.gz`;
+	return `${D1_ARCHIVE_PREFIX}${tableSpec.tableName}/${encodeURIComponent(organizationId)}/${archiveDay(tableSpec, first)}/${first.__rowid}-${last.__rowid}-${digest}.ndjson.gz`;
 }
 
 export async function gzipNdjson(
 	rows: readonly D1RetentionRow[],
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
 	// The fingerprint is the delete's guard, not part of the stored row.
 	const text = `${rows.map(({ __fingerprint: _, ...row }) => JSON.stringify(row)).join("\n")}\n`;
 	const stream = new Blob([text])
@@ -334,11 +336,7 @@ async function copyChunkToLogs(
 	return check;
 }
 
-/**
- * Write the chunk to R2 and confirm the stored object. R2 resolves a put only
- * once the object is durably stored (reads after it are strongly consistent),
- * and the object it returns must carry this key and the body's exact size.
- */
+/** A conditional PUT preserves the original receipt when a page is replayed. */
 async function archiveChunk(
 	bucket: R2Bucket,
 	organizationId: string,
@@ -346,14 +344,18 @@ async function archiveChunk(
 	rows: readonly D1RetentionRow[],
 	cutoff: D1RetentionPolicyCutoff,
 ): Promise<void> {
-	const key = d1ArchiveObjectKey(tableSpec, organizationId, rows);
 	const body = await gzipNdjson(rows);
-	const stored = await bucket.put(key, body, {
+	const digest = await sha256Hex(body);
+	const key = d1ArchiveObjectKey(tableSpec, organizationId, rows, digest);
+	const written = await bucket.put(key, body, {
+		sha256: digest,
+		onlyIf: { etagDoesNotMatch: "*" },
 		httpMetadata: {
 			contentType: "application/x-ndjson",
 			contentEncoding: "gzip",
 		},
 		customMetadata: {
+			organizationId,
 			table: tableSpec.tableName,
 			rows: String(rows.length),
 			firstRowid: String(rows[0]?.__rowid),
@@ -362,7 +364,15 @@ async function archiveChunk(
 				typeof cutoff === "object" ? JSON.stringify(cutoff) : String(cutoff),
 		},
 	});
-	if (!stored || stored.key !== key || stored.size !== body.byteLength) {
+	const stored = written ?? (await bucket.head(key));
+	if (
+		!stored ||
+		stored.key !== key ||
+		stored.size !== body.byteLength ||
+		stored.checksums.toJSON().sha256 !== digest ||
+		stored.customMetadata?.organizationId !== organizationId ||
+		stored.customMetadata.rows !== String(rows.length)
+	) {
 		throw new Error(`archive object not confirmed: ${key}`);
 	}
 }
