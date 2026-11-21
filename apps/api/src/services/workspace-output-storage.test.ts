@@ -721,6 +721,19 @@ describe("workspace output storage authority", () => {
 			expectedRevision: 1,
 		};
 		expect((await storage.createOsOutputRevision(core, next)).ok).toBe(true);
+		const refresh = vi.spyOn(
+			config.env.WORKSPACE_RUNTIME!,
+			"refreshOutputProjection",
+		);
+		expect(
+			await storage.createOsOutputRevision(core, {
+				...next,
+				id: "revision-unchanged",
+				expectedRevision: 2,
+			}),
+		).toMatchObject({ ok: true, revision: { id: next.id } });
+		expect(refresh).not.toHaveBeenCalled();
+		refresh.mockRestore();
 		expect(
 			await storage.createOsOutputRevision(core, {
 				...next,

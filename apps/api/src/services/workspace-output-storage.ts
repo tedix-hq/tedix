@@ -351,7 +351,11 @@ export async function createOsOutputRevision(
 		...(excerpt ? { excerpt } : {}),
 	});
 	lap?.("commitMs");
-	if (result.ok && !result.projectionQueued) {
+	if (
+		result.ok &&
+		result.revision.id === params.id &&
+		!result.projectionQueued
+	) {
 		await refreshCommittedOutput(store, scope, params.outputId);
 		lap?.("refreshMs");
 	}
