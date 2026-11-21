@@ -1,3 +1,4 @@
+import { readThemeCandidate } from "./theme-candidate";
 import {
 	getActiveCmsSiteForPermit,
 	withExactCmsSiteRestorePermit,
@@ -24,6 +25,8 @@ interface CmsDeployWorkflowStatus {
 }
 
 export interface CmsDeployWorkflowParams {
+	stageOnly?: boolean;
+	candidateId?: string;
 	siteId: string;
 	restoreEpoch: number;
 	orgSlug: string;
@@ -94,8 +97,34 @@ export async function startCmsDeployWorkflow(input: {
 	orgSlug: string;
 	summary?: string;
 	sourceCommit?: string;
+	stageOnly?: boolean;
+	candidateId?: string;
+	bundlesBucket?: R2Bucket;
 }): Promise<{ jobId: string; reused: boolean }> {
 	const site = await getActiveCmsSiteForPermit(input.db, input.orgSlug);
+	if (input.stageOnly && (!input.sourceCommit || input.candidateId))
+		throw new Error(
+			"Staging requires sourceCommit and cannot activate a candidate",
+		);
+	if (input.candidateId) {
+		if (!input.bundlesBucket || input.sourceCommit)
+			throw new Error("Candidate activation requires candidateId only");
+		const candidate = await readThemeCandidate(
+			input.bundlesBucket,
+			input.orgSlug,
+			input.candidateId,
+		);
+		if (
+			candidate.siteId !== site.siteId ||
+			candidate.restoreEpoch !== site.restoreEpoch
+		)
+			throw new Error("Candidate belongs to a different site or restore epoch");
+	}
+	const mode = input.candidateId
+		? `activate-${input.candidateId}`
+		: input.stageOnly
+			? "stage"
+			: "direct";
 	return withExactCmsSiteRestorePermit(input.db, site, async () => {
 		const previous = await getCmsDeployAdmission(input.db, site);
 
@@ -103,7 +132,11 @@ export async function startCmsDeployWorkflow(input: {
 			input.db,
 			input.orgSlug,
 		);
-		if (generation.hasArtifactsHistory && !input.sourceCommit) {
+		if (
+			generation.hasArtifactsHistory &&
+			!input.sourceCommit &&
+			!input.candidateId
+		) {
 			throw new Error(
 				`CMS theme deploy for ${input.orgSlug} requires sourceCommit because an Artifacts-backed bundle exists. Commit the complete editable theme to its cms-theme-${input.orgSlug} Artifacts repository, then retry theme_deploy with the full 40-character sourceCommit.`,
 			);
@@ -114,9 +147,17 @@ export async function startCmsDeployWorkflow(input: {
 			previousJobId?.startsWith(`cms-${site.siteId}-e${site.restoreEpoch}-`)
 		) {
 			const previousVersion = Number(previousJobId.match(/-v([0-9]+)/)?.[1]);
-			const sameSource = input.sourceCommit
-				? previousJobId.endsWith(`-s${input.sourceCommit}`)
-				: !/-s[a-f0-9]{40}$/.test(previousJobId);
+			const previousMode = previous?.split(":")[1];
+			const sameMode =
+				previousMode === mode ||
+				(mode === "direct" &&
+					!previousMode?.startsWith("stage") &&
+					!previousMode?.startsWith("activate-"));
+			const sameSource =
+				sameMode &&
+				(input.sourceCommit
+					? previousJobId.endsWith(`-s${input.sourceCommit}`)
+					: !/-s[a-f0-9]{40}$/.test(previousJobId));
 			let status: CmsDeployWorkflowStatus;
 			let recoverCreation = false;
 			try {
@@ -153,15 +194,17 @@ export async function startCmsDeployWorkflow(input: {
 			orgSlug: input.orgSlug,
 			summary: input.summary,
 			sourceCommit: input.sourceCommit,
+			stageOnly: input.stageOnly,
+			candidateId: input.candidateId,
 			nextBundleVersion: nextVersion,
 			expectedActiveVersion: generation.activeVersion,
 		};
-		const reservation = `${jobId}:${crypto.randomUUID()}`;
+		const reservation = `${jobId}:${mode}:${crypto.randomUUID()}`;
 		if (
 			!(await reserveCmsDeployAdmission(input.db, site, previous, reservation))
 		) {
 			const winner = await getCmsDeployAdmission(input.db, site);
-			if (winner?.split(":", 1)[0] !== jobId)
+			if (winner?.split(":", 1)[0] !== jobId || winner?.split(":")[1] !== mode)
 				throw new Error(`CMS deploy already in progress: ${winner}`);
 			// The winner may still be creating the provider instance. Creating the
 			// identical ID below coalesces safely without releasing its reservation.

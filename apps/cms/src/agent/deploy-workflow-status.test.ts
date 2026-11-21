@@ -95,3 +95,18 @@ describe("deployment status reflects activation", () => {
 		);
 	});
 });
+
+it("reports a staged candidate complete without claiming it is active", async () => {
+	const env = fixture(2);
+	env.DEPLOY_WORKFLOW.get = async () => ({
+		status: async () => ({
+			status: "complete",
+			output: { version: 3, candidateId: "cms-candidate", url: "" },
+		}),
+	});
+	bundles.mockClear();
+	const status = await mapWorkflowStatus(env, "job", "acme");
+	expect(status.status).toBe("complete");
+	expect(status.output).toBeUndefined();
+	expect(bundles).not.toHaveBeenCalled();
+});

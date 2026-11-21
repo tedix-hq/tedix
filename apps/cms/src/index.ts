@@ -468,6 +468,11 @@ export async function mapWorkflowStatus(
 				// Best-effort observability only. Workflow status remains authoritative.
 			}
 		}
+		if (
+			mapped === "complete" &&
+			(raw.output as { candidateId?: string } | undefined)?.candidateId
+		)
+			return result;
 		if (mapped === "complete" && raw.output) {
 			const output = raw.output as {
 				version: number;
@@ -713,7 +718,7 @@ async function buildSiteBuilderContext(
 			assertOrgOperationAllowed(slug, "open sandbox for");
 			return getSiteBuilderSandbox(env, slug);
 		},
-		startDeploy: async (slug, summary, sourceCommit) => {
+		startDeploy: async (slug, summary, sourceCommit, options) => {
 			assertOrgOperationAllowed(slug, "deploy");
 			const admission = await startCmsDeployWorkflow({
 				workflow: env.DEPLOY_WORKFLOW,
@@ -721,6 +726,8 @@ async function buildSiteBuilderContext(
 				orgSlug: slug,
 				summary,
 				sourceCommit,
+				...options,
+				bundlesBucket: env.BUNDLES_BUCKET,
 			});
 			return { jobId: admission.jobId };
 		},

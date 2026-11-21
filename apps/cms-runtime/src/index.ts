@@ -1,3 +1,11 @@
+import { THEME_PREVIEW_PATH } from "@tedix/provisioning/cms-theme-candidate";
+import { serveThemePreview, cleanupThemeCandidates } from "./theme-preview";
+import { themePreviewEntrypoint } from "./theme-preview-entrypoint";
+export {
+	ThemePreviewDatabase,
+	ThemePreviewMedia,
+	ThemePreviewSession,
+} from "./theme-preview-bindings";
 import { readCmsBundle, type CmsBundle } from "@tedix/provisioning/cms-bundle";
 import { isCmsDeployProbe, serveCmsDeployProbe } from "./deploy-probe";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
@@ -2223,6 +2231,10 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<Response> {
 		const url = new URL(request.url);
+		if (url.pathname.startsWith(THEME_PREVIEW_PATH))
+			return serveThemePreview(request, env, (candidate, org, tenantRequest) =>
+				themePreviewEntrypoint(env, ctx, candidate, org).fetch(tenantRequest),
+			);
 		const { healthHostname, marketingBlogHostname } =
 			cmsRuntimePlatformHosts(env);
 		if (url.hostname === marketingBlogHostname)
@@ -2411,6 +2423,11 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<void> {
 		const startedAt = Date.now();
+		ctx.waitUntil(
+			cleanupThemeCandidates(env.TENANT_BUNDLES).catch((error) =>
+				console.error("cms.theme-candidate.cleanup-failed", error),
+			),
+		);
 		try {
 			await sweepCmsRestorePermitLeases(
 				createDbQueryClient(env.PLATFORM_DB),

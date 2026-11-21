@@ -368,6 +368,7 @@ export interface SiteBuilderToolContext {
 		orgSlug: string,
 		summary?: string,
 		sourceCommit?: string,
+		options?: { stageOnly?: boolean; candidateId?: string },
 	): Promise<{ jobId: string }>;
 	getDeployStatus(jobId: string): Promise<DeployStatus>;
 	startImageGeneration(

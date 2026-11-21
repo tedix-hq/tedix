@@ -44,6 +44,29 @@ CMS Worker locally does not provision its tenant, content collections, theme
 bundle, or authenticated authoring connection. Own-account CMS installation
 remains experimental [operator work](./self-hosted-boundary.md).
 
+## Preview a theme before activation
+
+Use `stage_theme` on the site's CMS connection with the full `sourceCommit`
+from its theme Artifacts repository. It builds and retains the candidate
+without changing the live theme. Poll `theme_deploy_status` with the returned
+`jobId`, then call `get_theme_candidate` with its `candidateId`.
+
+The returned private URL renders that exact built bundle against the site's
+published content. Preview requests cannot write to the site's database or
+media, use editor sessions, or populate the live page cache. They send
+`noindex` headers. Keep the link private: anyone holding it can open the
+preview until its signature expires, at most one hour later. Read the candidate
+again to obtain a fresh link. Candidates and their retained inputs expire
+after 24 hours and are removed by scheduled cleanup. A site restore also
+invalidates its older candidates.
+
+After reviewing the preview, request the existing human-approved
+`theme_deploy` call with that exact `candidateId` and no `sourceCommit`.
+Activation publishes the retained inputs without rebuilding. It refuses to
+replace a live theme that changed after staging; stage a new candidate in that
+case. The existing live health check and rollback still run. Calling
+`theme_deploy` with `sourceCommit` continues to build and activate directly.
+
 ## Connect a custom hostname
 
 An organization admin with `settings:manage` can open an active CMS site in

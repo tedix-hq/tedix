@@ -1,3 +1,5 @@
+import * as candidates from "./theme-candidate";
+import * as publishing from "./deploy-publish";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { NonRetryableError } from "cloudflare:workflows";
 import { getSiteBuilderSandbox } from "../sandbox";
@@ -1309,4 +1311,102 @@ describe("deployment health activation fence", () => {
 			}
 		},
 	);
+});
+
+describe("staged candidate workflow", () => {
+	it("stops before publishing or checking live health", async () => {
+		const { workflow, event } = workflowFixture("site-original");
+		Object.assign(event.payload, {
+			stageOnly: true,
+			sourceCommit: "a".repeat(40),
+		});
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementation(
+			async (_db, _site, run) => run(),
+		);
+		const stage = vi
+			.spyOn(candidates, "stageThemeCandidate")
+			.mockResolvedValue({
+				version: 2,
+				etag: "candidate",
+				id: event.instanceId,
+			} as never);
+		const publish = vi.spyOn(publishing, "publishStagedCmsBundle");
+		const step = {
+			do: vi.fn(
+				async (
+					name: string,
+					_options: unknown,
+					run: () => Promise<unknown>,
+				) => {
+					if (name === "stage-candidate") return run();
+					return {
+						workspace: "/attempt",
+						stagingAttemptId: "snapshot",
+						fileCount: 1,
+						staticCount: 0,
+					};
+				},
+			),
+		};
+		try {
+			expect(await workflow.run(event as never, step as never)).toMatchObject({
+				candidateId: event.instanceId,
+			});
+			expect(stage).toHaveBeenCalledOnce();
+			expect(publish).not.toHaveBeenCalled();
+			expect(step.do.mock.calls.map((call) => call[0])).not.toContain(
+				"health-check",
+			);
+		} finally {
+			stage.mockRestore();
+			publish.mockRestore();
+		}
+	});
+
+	it("activates the original candidate inputs and propagates a lost predecessor race without rebuilding", async () => {
+		const { workflow, event } = workflowFixture("site-original");
+		Object.assign(event.payload, {
+			candidateId: "cms-candidate",
+			nextBundleVersion: 9,
+			expectedActiveVersion: 8,
+		});
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementation(
+			async (_db, _site, run) => run(),
+		);
+		const read = vi.spyOn(candidates, "readThemeCandidate").mockResolvedValue({
+			siteId: "site-original",
+			restoreEpoch: 0,
+			version: 2,
+			expectedActiveVersion: 1,
+			stagingAttemptId: "original-snapshot",
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
+		} as never);
+		const publish = vi
+			.spyOn(publishing, "publishStagedCmsBundle")
+			.mockRejectedValue(new Error("lost the active-version compare-and-swap"));
+		const step = {
+			do: vi.fn(
+				async (_name: string, _options: unknown, run: () => Promise<unknown>) =>
+					run(),
+			),
+		};
+		try {
+			await expect(workflow.run(event as never, step as never)).rejects.toThrow(
+				"compare-and-swap",
+			);
+			expect(publish).toHaveBeenCalledWith(
+				expect.objectContaining({
+					nextBundleVersion: 2,
+					expectedActiveVersion: 1,
+					stagingAttemptId: "original-snapshot",
+				}),
+			);
+			expect(step.do.mock.calls.map((call) => call[0])).not.toContain(
+				"build-theme",
+			);
+		} finally {
+			read.mockRestore();
+			publish.mockRestore();
+		}
+	});
 });
