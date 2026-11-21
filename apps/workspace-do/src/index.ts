@@ -38,6 +38,7 @@ import {
 	type MemoryQueryResult,
 } from "@tedix/db/queries/memory-graph/tenant-rpc";
 import type { WorkspaceRpc } from "./do";
+import { personChatsName, type PersonChatsOwner } from "./person-chats";
 import type { AgentRunReport } from "./run-report";
 import type { TurnRequest, WorkspaceEnv, WorkspaceScope } from "./env";
 
@@ -46,6 +47,17 @@ export { OrganizationLogStore } from "./organization-log";
 
 function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 	return tenantStoreStub(env.WORKSPACE, env, scope) as unknown as WorkspaceRpc;
+}
+
+function personChatsStub(
+	env: WorkspaceEnv,
+	owner: PersonChatsOwner,
+): WorkspaceRpc {
+	return durableObjectStubByName(
+		env.WORKSPACE,
+		env,
+		personChatsName(owner),
+	) as unknown as WorkspaceRpc;
 }
 
 /**
@@ -207,6 +219,16 @@ export class InternalEntrypoint
 	}
 	listConversations(scope: WorkspaceScope) {
 		return stubFor(this.env, scope).listConversations(scope);
+	}
+	/** One person's workspace chats for Home; the api checks access per workspace. */
+	listPersonChats(owner: PersonChatsOwner, limit?: number) {
+		return personChatsStub(this.env, owner).listPersonChats(owner, limit);
+	}
+	forgetPersonChatWorkspace(owner: PersonChatsOwner, workspaceId: string) {
+		return personChatsStub(this.env, owner).forgetPersonChatWorkspace(
+			owner,
+			workspaceId,
+		);
 	}
 	hasConversation(scope: WorkspaceScope, conversationId: string) {
 		return stubFor(this.env, scope).hasConversation(scope, conversationId);
