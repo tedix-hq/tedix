@@ -380,45 +380,60 @@ export async function guestAppRefusal(
 	const bound = resources ?? (await activeWorkspaceResources(db, scope));
 	const slots = new Map<string, AppRuntimeGuestSlot>();
 	const remaining = [];
-	for (const grant of grants) {
-		if (
-			scope.gadgetId &&
-			scope.revisionId &&
-			scope.shareLinkId &&
-			grant.operations.length === 1 &&
-			grant.operations[0] === "skills.read" &&
-			(await approvedGuestSkillRead(
-				db,
-				{
-					...scope,
-					gadgetId: scope.gadgetId,
-					revisionId: scope.revisionId,
-					shareLinkId: scope.shareLinkId,
-				},
-				grant.slot,
-				bound,
-			))
-		)
-			continue;
-		remaining.push(grant);
-		const resource = bound.find((row) => row.slot === grant.slot);
-		if (!resource) continue;
-		slots.set(
-			grant.slot,
-			resource.providerId === "tedix" && resource.resourceType === "output"
-				? {
-						kind: "output",
-						shareable: Boolean(
-							await shareableOutputRevision(
-								db,
-								scope,
-								resource.providerResourceId,
-								"metadata",
-							),
-						),
-					}
-				: { kind: "other" },
-		);
+	const checked = await Promise.all(
+		grants.map(
+			async (
+				grant,
+			): Promise<{
+				grant: (typeof grants)[number];
+				slot?: AppRuntimeGuestSlot;
+			} | null> => {
+				if (
+					scope.gadgetId &&
+					scope.revisionId &&
+					scope.shareLinkId &&
+					grant.operations.length === 1 &&
+					grant.operations[0] === "skills.read" &&
+					(await approvedGuestSkillRead(
+						db,
+						{
+							...scope,
+							gadgetId: scope.gadgetId,
+							revisionId: scope.revisionId,
+							shareLinkId: scope.shareLinkId,
+						},
+						grant.slot,
+						bound,
+					))
+				)
+					return null;
+				const resource = bound.find((row) => row.slot === grant.slot);
+				if (!resource) return { grant };
+				return {
+					grant,
+					slot:
+						resource.providerId === "tedix" &&
+						resource.resourceType === "output"
+							? {
+									kind: "output",
+									shareable: Boolean(
+										await shareableOutputRevision(
+											db,
+											scope,
+											resource.providerResourceId,
+											"metadata",
+										),
+									),
+								}
+							: { kind: "other" },
+				};
+			},
+		),
+	);
+	for (const result of checked) {
+		if (!result) continue;
+		remaining.push(result.grant);
+		if (result.slot) slots.set(result.grant.slot, result.slot);
 	}
 	return appRuntimeGuestRefusal(remaining, slots);
 }

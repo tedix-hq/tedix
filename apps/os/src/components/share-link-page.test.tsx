@@ -152,7 +152,10 @@ describe("ShareLinkPage", () => {
 			expect.objectContaining({ body: JSON.stringify({ id: ID }) }),
 		);
 		expect(window.sessionStorage.getItem(`tedix.os.share.${ID}`)).toBe(SESSION);
-		expect(container.querySelector("h1")?.textContent).toBe("Launch room");
+		await vi.waitFor(async () => {
+			await act(async () => {});
+			expect(container.querySelector("h1")?.textContent).toBe("Launch room");
+		});
 		expect(container.textContent).toContain("no sign-in needed");
 	});
 
@@ -272,7 +275,10 @@ describe("ShareLinkPage", () => {
 			"/api/os-shared/open",
 		]);
 		expect(window.sessionStorage.getItem(`tedix.os.share.${ID}`)).toBe(SESSION);
-		expect(container.textContent).toContain("Launch room");
+		await vi.waitFor(async () => {
+			await act(async () => {});
+			expect(container.textContent).toContain("Launch room");
+		});
 	});
 
 	it("sends a signed-out visitor to sign in and back to the same link", async () => {
@@ -372,5 +378,8 @@ it("opens an invited link with an email code and keeps the verified share sessio
 		}),
 	);
 	expect(window.sessionStorage.getItem(`tedix.os.share.${ID}`)).toBe(SESSION);
-	expect(container.textContent).toContain("Launch room");
+	await vi.waitFor(async () => {
+		await act(async () => {});
+		expect(container.textContent).toContain("Launch room");
+	});
 });

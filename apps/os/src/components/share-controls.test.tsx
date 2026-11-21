@@ -1120,7 +1120,10 @@ describe("ShareControls", () => {
 				"/api/os-shared/open",
 				expect.objectContaining({ body: JSON.stringify({ id: PUBLIC_ID }) }),
 			]);
-			expect(preview?.textContent).toContain("Launch room");
+			await vi.waitFor(async () => {
+				await flush();
+				expect(preview?.textContent).toContain("Launch room");
+			});
 			expect(preview?.textContent).toContain("You can use apps and read files");
 			expect(preview?.querySelector("[data-share-button]")).toBeNull();
 			expect(window.location.href).toBe(before);

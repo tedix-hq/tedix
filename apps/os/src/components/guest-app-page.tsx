@@ -11,7 +11,15 @@ import {
 	WIDGET_CATALOGS,
 	WIDGET_SOURCE_LOCALE,
 } from "@tedix/widget-i18n/catalogs";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { AppTranslateButton } from "@/components/app-translate-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -27,7 +35,6 @@ import {
 } from "@/lib/app-runtime-host";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
-import { ShareControls } from "@/components/share-controls";
 import { followDeviceTheme } from "@/lib/theme";
 import { adoptShareLinkAddress } from "@/lib/share-link-session";
 import { OrganizationMark } from "@/shared/organization-mark";
@@ -40,6 +47,12 @@ import { OrganizationMark } from "@/shared/organization-mark";
  * link. Nothing here is a member view: no navigation, no cookies, no data
  * beyond what the app itself shows.
  */
+
+const ShareControls = lazy(() =>
+	import("@/components/share-controls").then((module) => ({
+		default: module.ShareControls,
+	})),
+);
 
 type GuestOpen = {
 	verifiedEmail?: string | null;
@@ -657,11 +670,13 @@ function GuestApp({
 							data-guest-bar-tools
 						>
 							{share.canManage && !appId ? (
-								<ShareControls
-									resourceType="gadget"
-									resourceId={app.app.id}
-									currentRevisionId={app.revisionId}
-								/>
+								<Suspense fallback={null}>
+									<ShareControls
+										resourceType="gadget"
+										resourceId={app.app.id}
+										currentRevisionId={app.revisionId}
+									/>
+								</Suspense>
 							) : null}
 							<Badge variant="success" title={t("share_no_sign_in")}>
 								<ShieldCheck size={13} aria-hidden />{" "}

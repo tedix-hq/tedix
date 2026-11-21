@@ -1,6 +1,6 @@
 import type { OsShareAccess } from "@tedix/api-contract/contracts/os-shares";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
 	GuestAppScreen,
 	type GuestPageState,
@@ -14,16 +14,20 @@ import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import { LoadingArea } from "@/components/loading-area";
 import { followDeviceTheme } from "@/lib/theme";
-import {
-	type SharePayload,
-	SharedResourceView,
-} from "@/components/shared-resource-page";
+import type { SharePayload } from "@/components/shared-resource-page";
 import {
 	isShareLinkId,
 	readShareLinkSession,
 	shareLinkPath,
 	storeShareLinkSession,
 } from "@/lib/share-link-session";
+
+// App links do not need the file viewers or workspace sharing controls.
+const SharedResourceView = lazy(() =>
+	import("@/components/shared-resource-page").then((module) => ({
+		default: module.SharedResourceView,
+	})),
+);
 
 type OpenedShare = SharePayload &
 	GuestShare & {
@@ -398,28 +402,32 @@ export function ShareLinkPage({
 		const ready = lastReady.current;
 		if (state.from && ready)
 			return (
-				<SharedResourceView
-					payload={ready.payload}
-					sessionToken={ready.sessionToken}
-					subtitle={subtitle(
-						ready.payload.access ?? ready.payload.share.access,
-					)}
-					onOpenApp={(appId) => void openWorkspaceApp(appId)}
-					appView={appView}
-					embedded={preview}
-				/>
+				<Suspense fallback={<LoadingArea label="Opening shared workspace" />}>
+					<SharedResourceView
+						payload={ready.payload}
+						sessionToken={ready.sessionToken}
+						subtitle={subtitle(
+							ready.payload.access ?? ready.payload.share.access,
+						)}
+						onOpenApp={(appId) => void openWorkspaceApp(appId)}
+						appView={appView}
+						embedded={preview}
+					/>
+				</Suspense>
 			);
 		return appView;
 	}
 
 	return (
-		<SharedResourceView
-			payload={state.payload}
-			sessionToken={state.sessionToken}
-			subtitle={subtitle(state.payload.access ?? state.payload.share.access)}
-			onOpenApp={(appId) => void openWorkspaceApp(appId)}
-			embedded={preview}
-		/>
+		<Suspense fallback={<LoadingArea label="Opening shared content" />}>
+			<SharedResourceView
+				payload={state.payload}
+				sessionToken={state.sessionToken}
+				subtitle={subtitle(state.payload.access ?? state.payload.share.access)}
+				onOpenApp={(appId) => void openWorkspaceApp(appId)}
+				embedded={preview}
+			/>
+		</Suspense>
 	);
 }
 

@@ -46,14 +46,23 @@ export async function approvedGuestSkillRead(
 	// The stored revision records what the owner approved. Code edits may keep
 	// that approval only when both revisions grant exactly the same skill read.
 	const revisionIds = [...new Set([grant.revisionId, scope.revisionId])];
-	const revisions = await Promise.all(
-		revisionIds.map((revisionId) =>
-			getOsGadgetRevision(db, {
-				organizationId: scope.organizationId,
-				revisionId,
-			}),
+	const [revisions, member, bound] = await Promise.all([
+		Promise.all(
+			revisionIds.map((revisionId) =>
+				getOsGadgetRevision(db, {
+					organizationId: scope.organizationId,
+					revisionId,
+				}),
+			),
 		),
-	);
+		getOsShareGrantApprover(db, scope.organizationId, grant.approvedByUserId),
+		resources ??
+			listOsWorkspaceResources(db, {
+				...scope,
+				status: "active",
+				limit: 200,
+			}),
+	]);
 	for (const revision of revisions) {
 		if (!revision || revision.gadgetId !== scope.gadgetId) return null;
 		try {
@@ -72,11 +81,6 @@ export async function approvedGuestSkillRead(
 			return null;
 		}
 	}
-	const member = await getOsShareGrantApprover(
-		db,
-		scope.organizationId,
-		grant.approvedByUserId,
-	);
 	if (
 		!member ||
 		member.kind !== "human" ||
@@ -84,13 +88,6 @@ export async function approvedGuestSkillRead(
 		!["owner", "admin"].includes(member.role)
 	)
 		return null;
-	const bound =
-		resources ??
-		(await listOsWorkspaceResources(db, {
-			...scope,
-			status: "active",
-			limit: 200,
-		}));
 	const resource = bound.find(
 		(row) => row.id === grant.resourceId && row.slot === slot,
 	);
