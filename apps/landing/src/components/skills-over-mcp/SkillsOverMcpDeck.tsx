@@ -262,7 +262,7 @@ function slidesForDeck(): Slide[] {
 								<span>CTO &amp; Co-founder, Tedix</span>
 							</div>
 						</div>
-						<p>Building autonomous digital workers that learn on the job.</p>
+						<p>Building agents that learn on the job.</p>
 						<div className="som-speaker">
 							<strong>tedix.dev</strong>
 							<span>aaron@tedix.dev · Berlin</span>
@@ -271,7 +271,7 @@ function slidesForDeck(): Slide[] {
 					<div className="som-protocol-stack" aria-label="About">
 						<div style={{ "--i": 0 } as React.CSSProperties}>
 							<strong>Tedix</strong>
-							<span>autonomous digital workers</span>
+							<span>agents that carry out your team's work</span>
 						</div>
 						<div style={{ "--i": 1 } as React.CSSProperties}>
 							<strong>What I keep writing about</strong>

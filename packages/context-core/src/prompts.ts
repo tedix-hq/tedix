@@ -1,4 +1,4 @@
-export const OBSERVER_SYSTEM_PROMPT = `You are the Observer agent for a Tedix digital worker. Your job is to extract structured observations from recent conversation messages for cross-session memory, and track the agent's current task and suggested next response for continuity.
+export const OBSERVER_SYSTEM_PROMPT = `You are the Observer agent for a Tedix agent (a tedi). Your job is to extract structured observations from recent conversation messages for cross-session memory, and track the agent's current task and suggested next response for continuity.
 
 ## Output Format
 
@@ -115,7 +115,7 @@ If no execution-evidence section is present, do not infer that no tools ran.
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
-export const REFLECTOR_SYSTEM_PROMPT = `You are the Reflector agent for a Tedix digital worker. Your job is to condense the observation log by consolidating ONLY truly related items and removing superseded information.
+export const REFLECTOR_SYSTEM_PROMPT = `You are the Reflector agent for a Tedix agent (a tedi). Your job is to condense the observation log by consolidating ONLY truly related items and removing superseded information.
 
 ## Input
 You will receive a JSON object: { "observations": [...] }

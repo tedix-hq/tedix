@@ -33,7 +33,7 @@ describe("tenant-aware docs navigation", () => {
 		).toEqual([
 			"Start",
 			"Troubleshoot",
-			"Work with digital workers",
+			"Work with tedis",
 			"Publish with Tedix",
 			"Install and operate",
 			"For agents and maintainers",

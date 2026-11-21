@@ -250,7 +250,7 @@ const CAPABILITY_DISTILL_TIMEOUT_MS = 20_000;
 export const CAPABILITY_DESCRIPTION_MAX_CHARS = 600;
 
 const CAPABILITY_DISTILL_SYSTEM_PROMPT =
-	"You summarize an autonomous digital worker's delegation track record. From the graded PASS/FAIL outcomes and their objectives, write a 2-3 sentence capability description grounded ONLY in this evidence: what kinds of objectives this worker reliably succeeds at, and where it fails or is unproven. Plain text only — no preamble, no bullets, no markdown.";
+	"You summarize a tedi's delegation track record. From the graded PASS/FAIL outcomes and their objectives, write a 2-3 sentence capability description grounded ONLY in this evidence: what kinds of objectives this worker reliably succeeds at, and where it fails or is unproven. Plain text only — no preamble, no bullets, no markdown.";
 
 /** Each durable retry uses current canonical state, never the collected snapshot. */
 export async function reconcileReflectedMemory(input: {

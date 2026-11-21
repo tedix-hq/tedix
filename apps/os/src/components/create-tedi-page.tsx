@@ -1,4 +1,4 @@
-/** Launch Tedi — Tedix OS fast-path creation flow for new digital workers. */
+/** Launch Tedi — Tedix OS fast-path creation flow for new tedis. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@tanstack/react-form";

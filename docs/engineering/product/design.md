@@ -33,7 +33,7 @@ never receive raw bearer tokens; their MCP calls go through the host bridge.
 
 ## Tedix OS Product Character
 
-Tedix OS is a quiet command center for digital workers: calm enough for daily
+Tedix OS is a quiet command center for agents: calm enough for daily
 business work, precise enough to trust with permissions, budgets, and live
 systems. It is not an analytics dashboard, a developer console with chat added,
 or a wall of interchangeable cards. Every primary view answers, in order: what

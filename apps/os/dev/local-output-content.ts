@@ -130,7 +130,7 @@ export const deckContent: OsOutputContent = {
 			notes: "Open with the wholesale story; it explains the whole delta.",
 		},
 		{
-			title: "Digital worker operations",
+			title: "Agent operations",
 			bullets: [
 				"Nova: ops coordination, 6 decisions/day",
 				"Miles: revenue reporting on a weekly workflow",

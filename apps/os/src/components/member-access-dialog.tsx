@@ -45,7 +45,7 @@ import { Text } from "@/components/kumo/text";
 
 const GROUP_LABELS: Record<PermissionGroup, string> = {
 	apps: "Apps",
-	tedis: "Digital workers",
+	tedis: "Tedis",
 	os: "OS",
 	team: "Organization",
 	billing: "Billing",

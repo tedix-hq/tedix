@@ -29,10 +29,10 @@ try {
 		await row.waitFor();
 		await row.getByText("Setup · not needed", { exact: true }).waitFor();
 		const search = page.getByRole("searchbox", {
-			name: "Search digital workers",
+			name: "Search tedis",
 		});
 		const filter = page.getByRole("combobox", {
-			name: "Filter digital worker status",
+			name: "Filter tedi status",
 		});
 		assert.equal(await filter.innerText(), "All statuses");
 		assert(await search.isVisible());

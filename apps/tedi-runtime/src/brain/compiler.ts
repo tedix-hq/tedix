@@ -194,7 +194,7 @@ async function llmCompile(
 		})
 		.join("\n\n");
 
-	const systemPrompt = `You compile action patterns from a digital worker's decision history into concise operational directives.
+	const systemPrompt = `You compile action patterns from a tedi's decision history into concise operational directives.
 
 ## Output Format
 Return a JSON object: { "directives": [...] }

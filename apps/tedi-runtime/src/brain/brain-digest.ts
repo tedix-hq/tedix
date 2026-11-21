@@ -285,7 +285,7 @@ function coverageToken(summary: string): string {
 	return summary.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 40);
 }
 
-const DIGEST_SYSTEM_PROMPT = `You compile a digital worker's knowledge base into a concise reference digest.
+const DIGEST_SYSTEM_PROMPT = `You compile a tedi's knowledge base into a concise reference digest.
 
 ## Output Format
 Return a structured markdown summary organized by domain. Use bullet points. Be specific — include names, versions, thresholds, URLs, config values.

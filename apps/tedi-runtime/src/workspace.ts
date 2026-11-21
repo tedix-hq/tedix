@@ -372,10 +372,10 @@ export function composeSystemPrompt(
 	identityFiles: WorkspaceFile[],
 ): string {
 	if (identityFiles.length === 0) {
-		return `You are ${slug}, a Tedix digital worker. Respond concisely. (Identity files not yet provisioned.)`;
+		return `You are ${slug}, a Tedix agent (a tedi). Respond concisely. (Identity files not yet provisioned.)`;
 	}
 	const blocks = identityFiles
 		.map((f) => `## ${f.key}\n\n${f.text.trim()}`)
 		.join("\n\n");
-	return `You are ${slug}, a Tedix digital worker.\n\n${blocks}`;
+	return `You are ${slug}, a Tedix agent (a tedi).\n\n${blocks}`;
 }

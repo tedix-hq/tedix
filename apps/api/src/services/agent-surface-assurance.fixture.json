@@ -5,7 +5,7 @@
 		"version": 1,
 		"key": "agent-surface-assurance",
 		"purpose": "Verify that a real caller reaches the first correct authorized result through the declared agent surface.",
-		"beneficiary": "Developers and digital workers using Tedix gateways and browser tools",
+		"beneficiary": "Developers and agents using Tedix gateways and browser tools",
 		"exclusions": [
 			"No permission escalation to make a test pass",
 			"No production fixture mutation without exact approval"

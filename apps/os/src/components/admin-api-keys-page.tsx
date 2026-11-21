@@ -886,7 +886,7 @@ function AdminApiKeysBody({
 
 const SCOPE_GROUP_LABELS: Record<ApiKeyScopeGroup, string> = {
 	apps: "Apps",
-	tedis: "Digital workers",
+	tedis: "Tedis",
 	organization: "Organization",
 	automation: "Automation",
 };

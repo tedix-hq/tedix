@@ -238,23 +238,22 @@ export const PERMISSION_METADATA: Record<Permission, PermissionMetadata> = {
 	},
 	"tedis:create": {
 		label: "Create tedis",
-		description: "Provision new digital workers.",
+		description: "Provision new tedis.",
 		group: "tedis",
 	},
 	"tedis:read": {
 		label: "View tedis",
-		description: "View digital workers, their memory, and their activity.",
+		description: "View tedis, their memory, and their activity.",
 		group: "tedis",
 	},
 	"tedis:update": {
 		label: "Edit tedis",
-		description:
-			"Change a digital worker's configuration, skills, and budgets.",
+		description: "Change a tedi's configuration, skills, and budgets.",
 		group: "tedis",
 	},
 	"tedis:delete": {
 		label: "Delete tedis",
-		description: "Decommission a digital worker.",
+		description: "Decommission a tedi.",
 		group: "tedis",
 	},
 	"secrets:manage": {
@@ -336,7 +335,7 @@ export const PERMISSION_METADATA: Record<Permission, PermissionMetadata> = {
 	},
 	"os:approve": {
 		label: "Approve in OS",
-		description: "Resolve approvals a digital worker has escalated.",
+		description: "Resolve approvals a tedi has escalated.",
 		group: "os",
 	},
 	"os:admin": {
@@ -359,7 +358,7 @@ export interface RoleMetadata {
 	 *
 	 * The non-assignable roles are platform or machine identities:
 	 * `platform-admin` and `catalog-operator` are Tedix-internal,
-	 * `tedi` is a digital worker, which is authorized by capability scopes and FGA rather
+	 * `tedi` is an agent, which is authorized by capability scopes and FGA rather
 	 * than by this permission model at all.
 	 */
 	assignable: boolean;
@@ -407,8 +406,8 @@ export const ROLE_METADATA: Record<Role, RoleMetadata> = {
 	tedi: {
 		label: "Tedi",
 		description:
-			"A digital worker. Authorized by capability scopes and FGA, never by tenant permissions.",
-		responsibility: "Digital worker",
+			"An agent. Authorized by capability scopes and FGA, never by tenant permissions.",
+		responsibility: "Agent",
 		assignable: false,
 	},
 };

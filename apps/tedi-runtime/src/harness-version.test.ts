@@ -35,7 +35,7 @@ async function main() {
 
 	// ── Same inputs → identical component map (no spurious bump) ───────────────
 	const baseInputs = {
-		systemPrompt: "You are a Tedix digital worker.",
+		systemPrompt: "You are a Tedix agent (a tedi).",
 		model: "gpt-5.6-terra",
 		directiveProvenanceHashes: ["aaa", "bbb"],
 		mcpAppSlug: "cto",

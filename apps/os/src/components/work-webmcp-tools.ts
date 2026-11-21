@@ -154,7 +154,7 @@ export function buildWorkWebMcpTools(deps: WorkWebMcpDeps): WebMcpToolDef[] {
 		name: "list_work_items",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List Tedix work items — bounded tasks executed by the organization's digital workers — as the compact rows the human sees on the Work queue.",
+			"List Tedix work items — bounded tasks executed by the organization's tedis — as the compact rows the human sees on the Work queue.",
 		inputSchema: LIST_WORK_ITEMS_SCHEMA,
 		execute: async (args, executeOptions): Promise<WebMcpToolResult> => {
 			try {

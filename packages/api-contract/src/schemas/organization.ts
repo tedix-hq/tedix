@@ -211,13 +211,13 @@ export const API_KEY_SCOPE_METADATA: Record<ApiKeyScope, ApiKeyScopeMetadata> =
 		},
 		"tedis:read": {
 			label: "Read tedis",
-			description: "Read digital workers and their activity.",
+			description: "Read tedis and their activity.",
 			group: "tedis",
 			write: false,
 		},
 		"tedis:write": {
 			label: "Write tedis",
-			description: "Create and update digital workers.",
+			description: "Create and update tedis.",
 			group: "tedis",
 			write: true,
 		},

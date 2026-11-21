@@ -168,7 +168,7 @@ function runSkillWorkflowSchema(
 			tediSlug: {
 				type: "string",
 				description:
-					"Slug of the tedi (digital worker) that owns and executes this run.",
+					"Slug of the tedi (agent) that owns and executes this run.",
 			},
 			confirm: {
 				type: "boolean",
@@ -239,7 +239,7 @@ export function buildSkillsWebMcpTools(
 			name: "list_skills",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			description:
-				"List the organization's skills — its saved automations executed by a chosen tedi (digital worker) — with per-skill deep links the human can open in the Skills page.",
+				"List the organization's skills — its saved automations executed by a chosen tedi (agent) — with per-skill deep links the human can open in the Skills page.",
 			inputSchema: {
 				type: "object",
 				properties: {

@@ -270,7 +270,7 @@ interface PendingFacetSubmission {
 }
 
 const FALLBACK_SYSTEM =
-	"You are a Tedix digital worker. Answer the message directly and concisely.";
+	"You are a Tedix agent (a tedi). Answer the message directly and concisely.";
 const EMPTY_STATE: ConversationFacetState = {
 	system: null,
 	modelRef: null,

@@ -1,4 +1,4 @@
-/** Tedix OS ownership of the governed digital-worker settings seam. */
+/** Tedix OS ownership of the governed tedi settings seam. */
 
 import { LoadError, Alert } from "@/components/kumo/alert";
 import { Empty } from "@/components/kumo/empty";

@@ -56,7 +56,7 @@ const SEND_CHAT_MESSAGE_SCHEMA = deriveToolSchema(
 			},
 			delegateToTediId: {
 				description:
-					"Optional tedi id (see list_tedis) to route this turn to that digital worker.",
+					"Optional tedi id (see list_tedis) to route this turn to that tedi.",
 			},
 			idempotencyKey: {
 				description:
@@ -336,7 +336,7 @@ export function buildChatWebMcpTools(
 				consequentialHint: true,
 			},
 			description:
-				"Send a message into a Tedix Home chat conversation — the org's kernel routes it, and the human sees the conversation update live in the Chat page. Omit conversationId to start a new conversation; tedis (the org's durable AI digital workers) can be targeted via delegateToTediId.",
+				"Send a message into a Tedix Home chat conversation — the org's kernel routes it, and the human sees the conversation update live in the Chat page. Omit conversationId to start a new conversation; tedis (the org's durable agents) can be targeted via delegateToTediId.",
 			inputSchema: SEND_CHAT_MESSAGE_SCHEMA,
 			execute: async (args, executeOptions) => {
 				try {
@@ -375,7 +375,7 @@ export function buildChatWebMcpTools(
 			name: "delegate_task_to_tedi",
 			annotations: { readOnlyHint: false, consequentialHint: true },
 			description:
-				"Delegate a task to one of the org's tedis (durable AI digital workers) by slug — the task is sent as a chat turn routed to that worker, and the human sees the conversation update live in the Chat page.",
+				"Delegate a task to one of the org's tedis (durable agents) by slug — the task is sent as a chat turn routed to that worker, and the human sees the conversation update live in the Chat page.",
 			inputSchema: {
 				type: "object",
 				properties: {
@@ -494,7 +494,7 @@ export function buildChatWebMcpTools(
 			name: "list_tedis",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			description:
-				"List the organization's live tedis — its durable AI digital workers — with the slug and id used to delegate chat turns to them.",
+				"List the organization's live tedis — its durable agents — with the slug and id used to delegate chat turns to them.",
 			inputSchema: {
 				type: "object",
 				properties: {},
