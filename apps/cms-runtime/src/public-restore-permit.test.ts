@@ -31,6 +31,7 @@ vi.mock("./public-proxy", async (importOriginal) => ({
 }));
 
 import cmsRuntime from "./index";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { pageCacheEntry, pageCacheKey } from "./tenant-page-cache";
 import { publicRestorePermitEligible } from "./public-restore-permits";
 
@@ -225,91 +226,134 @@ describe("early public restore gate", () => {
 		}
 	});
 
-	it("serves warm campaign requests without metadata reads and falls through if admission closes", async () => {
-		const url = new URL("https://marketing.example/warm-cache-proof/");
-		const request = new Request(url);
-		const slug = "marketing-site";
-		const identity = { siteId: "site-cache-proof", slug, restoreEpoch: 7 };
-		const env = {
-			PLATFORM_DB: {},
-			MARKETING_DOMAINS: url.hostname,
-			MARKETING_SITE_SLUG: slug,
-			CF_ACCOUNT_ID: "test-account",
-			CLOUDFLARE_R2_API_TOKEN: "test-token",
-			TENANT_BUNDLES: { head: vi.fn(async () => null) },
-		} as never;
-		const ctx = { waitUntil: vi.fn() } as never;
-		mocks.getSiteBySlug.mockResolvedValue({ id: identity.siteId, ...identity });
-		mocks.getBundle.mockResolvedValue({ version: 1, etag: "bundle-1" });
-		mocks.lookupOrg.mockResolvedValue({
-			siteId: identity.siteId,
-			slug,
-			templateSlug: "marketing",
-			publicSiteUrl: url.origin,
-			publicPathPrefix: null,
-			webMcpToolPacks: [],
-		});
-		mocks.permit.mockImplementation(async (_db, _identity, run) => ({
-			admitted: true,
-			value: await run(),
-		}));
-		const key = await pageCacheKey(
-			request,
-			url,
-			{
+	it.each([null, "body { color: red; }"])(
+		"serves warm campaign requests with theme %s and falls through if admission closes",
+		async (theme) => {
+			const version = theme === null ? "none" : await sha256Hex(theme);
+			const url = new URL(
+				`https://marketing-${version}.example/warm-cache-proof/`,
+			);
+			const request = new Request(url);
+			const slug = `marketing-${version}`;
+			const identity = { siteId: "site-cache-proof", slug, restoreEpoch: 7 };
+			let currentTheme = theme;
+			const revisions = new Map<string, string>();
+			const env = {
+				PLATFORM_DB: {},
+				MARKETING_DOMAINS: url.hostname,
+				MARKETING_SITE_SLUG: slug,
+				CF_ACCOUNT_ID: "test-account",
+				CLOUDFLARE_R2_API_TOKEN: "test-token",
+				TENANT_BUNDLES: {
+					head: vi.fn(async () => (theme === null ? null : {})),
+					get: vi.fn(async (key: string) =>
+						key.endsWith("current.css") && currentTheme !== null
+							? { text: async () => currentTheme, httpEtag: '"legacy-theme"' }
+							: revisions.has(key)
+								? {
+										text: async () => revisions.get(key)!,
+										httpEtag: '"revision"',
+									}
+								: null,
+					),
+					put: vi.fn(async (key: string, text: string) => {
+						revisions.set(key, text);
+					}),
+				},
+			} as never;
+			const ctx = { waitUntil: vi.fn() } as never;
+			mocks.getSiteBySlug.mockResolvedValue({
+				id: identity.siteId,
 				...identity,
-				bundleVersion: 1,
-				bundleEtag: "bundle-1",
-				contentRevision: "0",
-			},
-			"marketing",
-		);
-		const cache = (caches as unknown as { default: Cache }).default;
-		await cache.put(
-			key,
-			pageCacheEntry(
-				new Response(
-					'<html><head></head><body><section data-native-lead-attribution="{}">cached page</section></body></html>',
-					{ headers: { "Content-Type": "text/html" } },
+			});
+			mocks.getBundle.mockResolvedValue({ version: 1, etag: "bundle-1" });
+			mocks.lookupOrg.mockResolvedValue({
+				siteId: identity.siteId,
+				slug,
+				templateSlug: "marketing",
+				publicSiteUrl: url.origin,
+				publicPathPrefix: null,
+				webMcpToolPacks: [],
+			});
+			mocks.permit.mockImplementation(async (_db, _identity, run) => ({
+				admitted: true,
+				value: await run(),
+			}));
+			const key = await pageCacheKey(
+				request,
+				url,
+				{
+					...identity,
+					bundleVersion: 1,
+					bundleEtag: "bundle-1",
+					contentRevision: "0",
+				},
+				"marketing",
+			);
+			const cache = (caches as unknown as { default: Cache }).default;
+			await cache.put(
+				key,
+				pageCacheEntry(
+					new Response(
+						'<html><head></head><body><section data-native-lead-attribution="{}">cached page</section></body></html>',
+						{ headers: { "Content-Type": "text/html" } },
+					),
+					{ freshSeconds: 1800, staleSeconds: 0 },
+					Date.now(),
 				),
-				{ freshSeconds: 1800, staleSeconds: 0 },
-				Date.now(),
-			),
-		);
-
-		try {
-			const first = await cmsRuntime.fetch(request, env, ctx);
-			expect(first.headers.get("X-Tedix-Page-Cache")).toBe("HIT");
-			expect(await first.text()).toContain("/_tedix/theme.css?v=none");
-			expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
-
-			const tracked = new Request(`${url}?utm_source=test%22%26`);
-			const warm = await cmsRuntime.fetch(tracked, env, ctx);
-			expect(warm.headers.get("X-Tedix-Page-Cache")).toBe("HIT");
-			expect(await warm.text()).toContain(String.raw`test\&quot;&amp;`);
-			expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
-			expect(mocks.getBundle).toHaveBeenCalledOnce();
-
-			const css = await cmsRuntime.fetch(
-				new Request(new URL("/_tedix/theme.css?v=none", url)),
-				env,
-				ctx,
 			);
-			expect(css.headers.get("Cache-Control")).toBe(
-				"public, max-age=31536000, immutable",
-			);
-			expect(await css.text()).toContain("no Tedix hot theme published");
 
-			mocks.getSiteBySlug.mockClear();
-			mocks.permit.mockResolvedValue({ admitted: false });
-			const closed = await cmsRuntime.fetch(tracked, env, ctx);
-			expect(closed.status).toBe(503);
-			expect(await closed.text()).not.toContain("cached page");
-			expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
-		} finally {
-			await cache.delete(key);
-		}
-	});
+			try {
+				const first = await cmsRuntime.fetch(request, env, ctx);
+				expect(first.headers.get("X-Tedix-Page-Cache")).toBe("HIT");
+				expect(await first.text()).toContain(`/_tedix/theme.css?v=${version}`);
+				expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
+
+				const tracked = new Request(`${url}?utm_source=test%22%26`);
+				const warm = await cmsRuntime.fetch(tracked, env, ctx);
+				expect(warm.headers.get("X-Tedix-Page-Cache")).toBe("HIT");
+				expect(await warm.text()).toContain(String.raw`test\&quot;&amp;`);
+				expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
+				expect(mocks.getBundle).toHaveBeenCalledOnce();
+
+				currentTheme = "body { color: blue; }";
+				for (const method of ["GET", "HEAD"]) {
+					const css = await cmsRuntime.fetch(
+						new Request(new URL(`/_tedix/theme.css?v=${version}`, url), {
+							method,
+						}),
+						env,
+						ctx,
+					);
+					expect(css.status).toBe(200);
+					expect(css.headers.get("Cache-Control")).toBe(
+						"public, max-age=31536000, immutable",
+					);
+					expect(await css.text()).toBe(
+						method === "HEAD"
+							? ""
+							: (theme ?? "/* no Tedix hot theme published */\n"),
+					);
+				}
+				const wrongRevision = await cmsRuntime.fetch(
+					new Request(new URL(`/_tedix/theme.css?v=${"0".repeat(64)}`, url)),
+					env,
+					ctx,
+				);
+				expect(wrongRevision.status).toBe(404);
+				expect(wrongRevision.headers.get("Cache-Control")).toBe("no-store");
+
+				mocks.getSiteBySlug.mockClear();
+				mocks.permit.mockResolvedValue({ admitted: false });
+				const closed = await cmsRuntime.fetch(tracked, env, ctx);
+				expect(closed.status).toBe(503);
+				expect(await closed.text()).not.toContain("cached page");
+				expect(mocks.getSiteBySlug).toHaveBeenCalledOnce();
+			} finally {
+				await cache.delete(key);
+			}
+		},
+	);
 
 	it("fails closed if the marketing site identity is unavailable", async () => {
 		mocks.getSiteBySlug.mockResolvedValue(null);
