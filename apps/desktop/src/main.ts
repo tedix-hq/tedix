@@ -1438,7 +1438,7 @@ let tray: Tray | undefined;
 function trayMenu(): Menu {
 	return Menu.buildFromTemplate([
 		{ label: "Open Tedix", click: showMain },
-		{ label: "New Chat…", click: openInputBar },
+		{ label: "New Chat…", click: () => openInputBar() },
 		{ type: "separator" },
 		// A line on the runners only when something is off: paused, stopped or failing.
 		...(runnersPaused() || !runnersRunning()
@@ -1483,6 +1483,7 @@ function createTray(): void {
 		openInputBar();
 	});
 	tray.on("right-click", () => tray?.popUpContextMenu(trayMenu()));
+	openInputBar(true);
 }
 
 /**
@@ -1506,8 +1507,14 @@ function placeInputBar(window: BrowserWindow): void {
 	);
 }
 
-function openInputBar(): void {
+/**
+ * Shows the input bar, or hides it when it is showing. `prepare` only
+ * creates it, hidden, as the app starts, so the first click shows it at
+ * once instead of after its page has loaded.
+ */
+function openInputBar(prepare = false): void {
 	const existing = inputBar && !inputBar.isDestroyed() ? inputBar : undefined;
+	if (prepare && existing) return;
 	if (existing?.isVisible()) return existing.hide();
 	if (existing && Date.now() - inputBarBlurredAt < 300) return;
 	const show = (window: BrowserWindow) => {
@@ -1559,8 +1566,10 @@ function openInputBar(): void {
 		shown = true;
 		show(window);
 	};
-	window.once("ready-to-show", first);
-	window.webContents.once("did-finish-load", first);
+	if (!prepare) {
+		window.once("ready-to-show", first);
+		window.webContents.once("did-finish-load", first);
+	}
 	void window.loadFile(join(root, "input.html"));
 }
 
