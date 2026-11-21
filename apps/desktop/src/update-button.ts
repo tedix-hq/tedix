@@ -2,65 +2,63 @@ import type { PanelApi, UpdateView } from "./api";
 import { icon } from "./icons";
 
 /**
- * The update button over the top-right corner of the main window. One click
- * applies everything there is; the app decides what that is.
+ * The update entry at the bottom left of the main window. A click hands
+ * over to the app, which asks what it must ask in a native dialog.
  */
 declare const tedixShell: PanelApi;
 const root = document.getElementById("update")!;
-/** The reason and Retry are showing under a failed button. */
-let open = false;
 let drawn = "";
 
 function draw(view: UpdateView): void {
-	if (view.kind !== "failed") open = false;
-	const key = JSON.stringify([view, open]);
+	const key = JSON.stringify(view);
 	if (key === drawn) return;
 	drawn = key;
 	document.documentElement.dataset.theme = view.dark ? "dark" : "light";
+	root.dataset.place = view.place;
 	const nodes: Node[] = [];
-	if (view.kind === "available" || view.kind === "failed") {
-		const failed = view.kind === "failed";
-		const label = failed ? "Update did not finish" : "Update available";
-		const chip = document.createElement("button");
-		chip.type = "button";
-		chip.className = failed ? "chip warn" : "chip";
-		chip.title = label;
-		chip.setAttribute("aria-label", label);
-		chip.append(icon(failed ? "warning" : "download", 18));
-		if (failed) chip.setAttribute("aria-expanded", String(open));
-		else
-			chip.append(
-				Object.assign(document.createElement("span"), { className: "dot" }),
-			);
-		chip.onclick = () => {
-			if (!failed) return void tedixShell.applyUpdate();
-			open = !open;
-			draw(view);
-		};
-		nodes.push(chip);
-		if (failed && open) {
-			const reason = document.createElement("p");
-			reason.textContent = view.text;
-			const retry = document.createElement("button");
-			retry.type = "button";
-			retry.className = "btn";
-			retry.textContent = "Retry";
-			retry.onclick = () => void tedixShell.applyUpdate();
-			const pop = document.createElement("div");
-			pop.className = "pop";
-			pop.append(reason, retry);
-			nodes.push(pop);
-		}
-	} else if (view.kind !== "hidden") {
+	if (view.kind === "working") {
 		const line = document.createElement("div");
-		line.className = view.kind === "working" ? "chip working" : "done";
+		line.className = "entry working";
 		line.setAttribute("role", "status");
-		if (view.kind === "working")
+		line.title = view.label;
+		line.append(
+			Object.assign(document.createElement("span"), { className: "spinner" }),
+		);
+		if (view.place !== "rail")
 			line.append(
-				Object.assign(document.createElement("span"), { className: "spinner" }),
+				Object.assign(document.createElement("span"), {
+					className: "text",
+					textContent: view.text,
+				}),
 			);
-		line.append(view.text);
+		else line.setAttribute("aria-label", view.label);
 		nodes.push(line);
+	} else if (view.kind !== "hidden") {
+		const entry = document.createElement("button");
+		entry.type = "button";
+		entry.className = view.kind === "failed" ? "entry warn" : "entry";
+		entry.title = view.label;
+		entry.setAttribute("aria-label", view.label);
+		entry.append(
+			icon(
+				view.kind === "failed"
+					? "warning"
+					: view.kind === "waiting"
+						? "clock"
+						: "refresh",
+				16,
+			),
+		);
+		if (view.place !== "rail")
+			entry.append(
+				Object.assign(document.createElement("span"), {
+					className: "text",
+					textContent: view.text,
+				}),
+				icon("arrow", 14),
+			);
+		entry.onclick = () => void tedixShell.applyUpdate();
+		nodes.push(entry);
 	}
 	root.replaceChildren(...nodes);
 	const box = root.getBoundingClientRect();

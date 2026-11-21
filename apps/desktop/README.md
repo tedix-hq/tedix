@@ -16,7 +16,9 @@ The app is not signed or notarized yet and has been run on macOS only.
 - **Chat in Tedix OS.** The window opens the organization you used last
   (`https://<organization>.os.tedix.dev/chat`), or `https://os.tedix.dev`,
   where the sign-in picks the organization. You stay signed in between
-  launches. Links to other sites open in your default
+  launches. The window first opens at most of the screen, centred, and
+  then keeps its last size and place (in `window.json` in the app's data
+  folder) as long as that is on a connected screen. Links to other sites open in your default
   browser. Back, forward and reload are in the **View** menu.
 - **Sign in with an emailed link.** Start the sign-in in the app and click the
   emailed link as usual. The page that opens in your browser offers to open
@@ -54,22 +56,40 @@ The app is not signed or notarized yet and has been run on macOS only.
   the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
   and restarts the background service. **Use the separate install again**
   reverses it.
-- **Update with one button.** The app and the command-line tool have their
+- **Update from one place.** The app and the command-line tool have their
   own releases. The app looks for both when it starts, every four hours,
-  and from **Tedix → Check for Updates…**. By itself it only downloads and
-  checks a newer app and reads which command-line tool is published. When
-  there is something to apply, one **Update available** button (a download
-  arrow with a dot) appears at the top right of the Tedix window. One click
-  does everything, with no further question:
+  and from **Tedix → Check for Updates…**:
+  - With a newer app, a small question shows both version numbers with
+    **Install Update**, **Remind Me Later** (no question by itself for a
+    day) and **Skip This Version** (not offered again by itself; Check for
+    Updates… still offers it), and **Download updates automatically**. With
+    that on, the app downloads newer versions in the background without
+    asking, but still never installs one or relaunches by itself. With
+    nothing new, it says "You're up to date (version X)".
+  - **Install Update** opens a small window with a progress bar, how much is
+    downloaded of how much, and **Cancel**. The app refuses a download whose
+    SHA-256 differs from the manifest.
+  - Once a newer app is downloaded and checked, or a newer command-line tool
+    is published, **Relaunch to update** (or **Update command-line tool**)
+    appears at the bottom of the Tedix OS sidebar, above the account row,
+    and stays until it is used. The app draws it over the page itself: the
+    page has no place for it, so the app moves the account row up while it
+    is there. Without a sidebar it sits in the bottom-left corner.
+  - A click on it, or on Install Update, applies what is ready. When that
+    restarts this Mac's runners while tasks run there, one dialog says how
+    many tasks are running and how many runners restart, and offers **Not
+    Now**, **Update When Work Is Done** (the app checks every 15 seconds and
+    updates by itself once no task runs) and **Update Now**. A task counts
+    only while its agent process is alive, the same rule as the
+    command-line tool's own Mac status.
   - With a newer app, the app restarts into it, and on that start puts the
     newest command-line tool in place and reloads the background service.
-  - With only a newer command-line tool, it puts that in place and reloads
-    the background service without restarting the app.
-  - While it works the button shows what it is doing. Afterwards it goes
-    away and one line says what is in use, for example "Tedix 0.1.7 and
-    command-line tool 0.29.2 are in use. Runners restarted." If it fails,
-    the button turns into a warning; a click shows the reason and **Retry**.
-- **Nothing is replaced without that click.** Replacing the command-line
+    With only a newer command-line tool, it does that without a restart. A
+    notification says what is in use afterwards. If it fails, the entry
+    turns into a warning; a click shows the reason and **Try Again**.
+  - Every question is a native macOS dialog, so its buttons and the
+    checkbox can be reached with the keyboard and with accessibility tools.
+- **Nothing is replaced without a click.** Replacing the command-line
   tool stops tasks running on this Mac, and macOS can ask again for folder
   access, which nobody can answer with the screen locked. So the app never
   replaces the tool and never reloads the background service by itself.
@@ -187,10 +207,10 @@ the one in that release's `SHA256SUMS`; add a version to pin one
 needs first. A build without these two steps has no command-line tool inside.
 
 The copy inside the app is only the starting point. A CLI release reaches
-installed apps without an app release, through the update button:
+installed apps without an app release, through the update entry:
 
 - The app reads `https://downloads.tedix.dev/latest.json` and remembers the
-  version. That is all it does by itself. The update button appears for
+  version. That is all it does by itself. The update entry appears for
   the newer of that version and the copy inside the app when it is newer
   than the app's copy in `cli/tedix` in its data folder and
   `~/.local/bin/tedix` is that copy. A copy inside a new app is used without
@@ -238,7 +258,8 @@ to, such as Applications. The first install is still by hand.
 | `src/icons.ts`         | The small drawings both windows use                   |
 | `scripts/fetch-cli.ts` | Fetches the command-line tool for a build             |
 | `src/update.ts`        | Finds, checks and installs a newer app                |
-| `update.html`          | The update button (`src/update-button.ts`)            |
+| `update.html`          | The update entry (`src/update-button.ts`)             |
+| `download.html`        | The downloading window (`src/download-window.ts`)     |
 | `src/log.ts`           | Writes the log file                                   |
 | `src/status.ts`        | Reads the status from the CLI and the files it keeps  |
 | `src/runners-file.ts`  | Edits `supervisor-runners.json`                       |

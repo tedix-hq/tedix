@@ -6,11 +6,11 @@
 			http-equiv="Content-Security-Policy"
 			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
 		/>
-		<title>Update available</title>
+		<title>Update</title>
 		<link rel="stylesheet" href="ui.css" />
 		<style>
 			/*
-			 * The button sits over the Tedix OS page, which can be light while
+			 * The entry sits over the Tedix OS page, which can be light while
 			 * the Mac is dark, so it takes that page's side with the same
 			 * colours as ui.css.
 			 */
@@ -42,83 +42,66 @@
 			}
 			html,
 			body {
-				height: auto;
+				height: 100%;
 				background: transparent;
 				overflow: hidden;
 			}
 			#update {
 				position: absolute;
-				top: 0;
-				right: 0;
+				left: 0;
+				bottom: 0;
 				width: max-content;
-				max-width: 420px;
-				display: grid;
-				justify-items: end;
-				gap: 8px;
 			}
-			.chip {
-				position: relative;
+			#update:is([data-place="sidebar"], [data-place="rail"]) {
+				width: 100%;
+			}
+			.entry {
 				height: 32px;
-				min-width: 32px;
-				padding: 0;
+				width: 100%;
+				padding: 0 10px;
 				border-radius: var(--radius-small);
 				border: 1px solid var(--border);
 				background: var(--card);
 				color: var(--foreground);
 				font: inherit;
-				font-size: 12.5px;
-				display: inline-flex;
+				font-size: 13px;
+				display: flex;
 				align-items: center;
-				justify-content: center;
 				gap: 8px;
 				white-space: nowrap;
+				text-align: left;
 				transition: background 120ms;
 			}
-			.chip:focus-visible {
-				outline-offset: -2px;
+			#update[data-place="rail"] .entry {
+				padding: 0;
+				justify-content: center;
 			}
-			button.chip:hover {
-				background: var(--muted);
+			.entry .text {
+				flex: 1;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
 			}
-			.chip.working {
-				padding: 0 10px;
+			.entry .icon-refresh,
+			.entry .icon-clock {
+				color: var(--primary);
+			}
+			.entry .icon-arrow {
 				color: var(--muted-foreground);
 			}
-			.chip.warn {
+			.entry:focus-visible {
+				outline-offset: -2px;
+			}
+			button.entry:hover {
+				background: var(--muted);
+			}
+			.entry.working {
+				color: var(--muted-foreground);
+			}
+			.entry.warn {
 				color: var(--warn);
 				background: var(--warn-soft);
 				border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
-			}
-			.chip .dot {
-				position: absolute;
-				top: 5px;
-				right: 5px;
-				width: 8px;
-				height: 8px;
-				border-radius: 50%;
-				background: var(--primary);
-				border: 1.5px solid var(--card);
-			}
-			.pop,
-			.done {
-				border: 1px solid var(--border);
-				border-radius: var(--radius-small);
-				background: var(--card);
-				color: var(--muted-foreground);
-				font-size: 12.5px;
-				padding: 8px 12px;
-			}
-			.pop {
-				width: 300px;
-				display: grid;
-				gap: 8px;
-				justify-items: start;
-				color: var(--foreground);
-			}
-			.pop p {
-				margin: 0;
-				user-select: text;
-				overflow-wrap: anywhere;
 			}
 		</style>
 	</head>
