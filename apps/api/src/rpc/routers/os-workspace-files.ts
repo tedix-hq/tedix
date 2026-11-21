@@ -63,7 +63,7 @@ function pdfConverter(
 			blob: new Blob([bytes], { type: "application/pdf" }),
 		});
 		if (converted.format === "error")
-			throw new Error("PDF text conversion failed");
+			throw createError(ErrorCodes.BAD_GATEWAY, "PDF text conversion failed");
 		return converted.data;
 	};
 }

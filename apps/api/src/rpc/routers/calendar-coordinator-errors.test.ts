@@ -5,6 +5,7 @@ import { calendarCoordinatorContractRouter } from "./calendar-coordinator";
 
 const mocks = vi.hoisted(() => ({
 	load: vi.fn(),
+	configuration: vi.fn(),
 	routes: vi.fn(),
 	plan: vi.fn(),
 	install: vi.fn(),
@@ -14,9 +15,14 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@tedix/db/queries/calendar-coordinator", () => ({
 	getCalendarCoordinatorPlan: mocks.plan,
+	getCalendarCoordinator: mocks.configuration,
+}));
+vi.mock("@tedix/db/query-client", () => ({
+	createDbQueryClient: () => ({}),
 }));
 vi.mock("../../services/calendar-coordinator/state", () => ({
 	loadCalendarConfig: mocks.load,
+	calendarMonitoringStatus: vi.fn(),
 	resolveCalendarRoutes: mocks.routes,
 	installCalendarMonitoring: mocks.install,
 	disableCalendarMonitoring: mocks.disable,
@@ -121,6 +127,23 @@ describe("calendar router HTTP errors", () => {
 				message: "Every selected calendar requires verified write permission",
 			},
 		});
+	});
+
+	it("returns 404 for a missing organization-scoped configuration through the real loader", async () => {
+		const { loadCalendarConfig } = await vi.importActual<
+			typeof import("../../services/calendar-coordinator/state")
+		>("../../services/calendar-coordinator/state");
+		mocks.load.mockImplementation(loadCalendarConfig);
+		mocks.configuration.mockResolvedValue(null);
+		const response = await invoke("status", { id });
+		expect(response.status).toBe(404);
+		await expect(response.json()).resolves.toMatchObject({
+			json: { code: "NOT_FOUND", message: "Calendar configuration not found" },
+		});
+		expect(mocks.configuration).toHaveBeenCalledWith(
+			{},
+			{ organizationId: id, configurationId: id },
+		);
 	});
 
 	it("returns 404 for a missing immutable plan", async () => {
