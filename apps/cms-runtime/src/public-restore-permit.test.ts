@@ -180,6 +180,51 @@ describe("early public restore gate", () => {
 		);
 	});
 
+	it("caches the unversioned public theme while editor requests stay fresh", async () => {
+		const cssText = "body { color: red; }";
+		const env = {
+			PLATFORM_DB: {},
+			MARKETING_DOMAINS: "theme.example",
+			MARKETING_SITE_SLUG: "theme-site",
+			CF_ACCOUNT_ID: "test-account",
+			CLOUDFLARE_R2_API_TOKEN: "test-token",
+			TENANT_BUNDLES: {
+				get: vi.fn(async (key: string) =>
+					key.endsWith("current.css")
+						? { text: async () => cssText, httpEtag: '"theme-1"' }
+						: null,
+				),
+			},
+		} as never;
+		mocks.lookupOrg.mockResolvedValue({ slug: "theme-site" });
+		mocks.permit.mockImplementation(async (_db, _identity, run) => ({
+			admitted: true,
+			value: await run(),
+		}));
+		for (const method of ["GET", "HEAD"]) {
+			for (const [query, headers, policy] of [
+				["", {}, "public, max-age=60, stale-while-revalidate=300"],
+				["?_edit=1", {}, "no-store"],
+				["?cb=123", {}, "no-store"],
+				["", { Cookie: "session=editor" }, "no-store"],
+				["", { Authorization: "Bearer editor" }, "no-store"],
+			] as const) {
+				const response = await cmsRuntime.fetch(
+					new Request(`https://theme.example/_tedix/theme.css${query}`, {
+						method,
+						headers,
+					}),
+					env,
+					{} as never,
+				);
+				expect(response.status).toBe(200);
+				expect(response.headers.get("Cache-Control")).toBe(policy);
+				expect(response.headers.get("ETag")).toBe('"theme-1"');
+				expect(await response.text()).toBe(method === "GET" ? cssText : "");
+			}
+		}
+	});
+
 	it("serves warm campaign requests without metadata reads and falls through if admission closes", async () => {
 		const url = new URL("https://marketing.example/warm-cache-proof/");
 		const request = new Request(url);
