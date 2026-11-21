@@ -9,16 +9,14 @@
  * Active functions:
  * - Widget event tracking (trackWidgetEvent, trackWidgetEvents)
  * - Org ID resolution helpers (getOrganizationIdForApp, getOrganizationIdsForApps)
- * - Retention cleanup (deleteOldWidgetEvents)
  */
 
-import { and, desc, eq, getColumns, inArray, lt, max, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, inArray, max, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { type NewWidgetEvent, widgetEvents } from "../schema/analytics";
 import { apps } from "../schema/apps";
 import { providerInstallations } from "../schema/provider-installations";
 import { chunkForBoundParams } from "../utils/batch";
-import { getAffectedRows } from "../utils/d1-result";
 
 // Re-export types for consumers
 export type {
@@ -286,16 +284,3 @@ export async function listEmbeddedAttentionReviews(
 // =============================================================================
 // Retention Cleanup
 // =============================================================================
-
-/**
- * Delete widget_events older than N days.
- * Returns number of deleted records.
- */
-export async function deleteOldWidgetEvents(db: DbClient, days = 30) {
-	const result = await db
-		.delete(widgetEvents)
-		.where(
-			lt(widgetEvents.createdAt, sql`datetime('now', ${`-${days} days`})`),
-		);
-	return getAffectedRows(result);
-}

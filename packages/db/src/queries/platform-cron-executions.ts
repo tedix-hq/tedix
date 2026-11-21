@@ -7,7 +7,6 @@ import {
 } from "../schema/platform-cron-executions";
 import { getAffectedRows } from "../utils/d1-result";
 
-export const PLATFORM_CRON_RECEIPT_RETENTION_DAYS = 90;
 // Leave a generous margin for slow cron jobs before treating a lost finish as abandoned.
 export const PLATFORM_CRON_RUNNING_ABANDONED_HOURS = 6;
 
@@ -194,30 +193,6 @@ export async function terminalizeAbandonedPlatformCronExecutions(
 		if (rows < batchSize) break;
 	}
 	return terminalized;
-}
-
-export async function prunePlatformCronExecutions(
-	db: DbClient,
-	createdBefore: string,
-	batchSize = 5_000,
-	maxBatches = 10,
-): Promise<number> {
-	let deleted = 0;
-	for (let i = 0; i < maxBatches; i++) {
-		const result = await db.delete(platformCronExecutions).where(
-			sql`${platformCronExecutions.id} in (
-				select ${platformCronExecutions.id}
-				from ${platformCronExecutions}
-				where ${platformCronExecutions.createdAt} < ${createdBefore}
-					and ${platformCronExecutions.status} <> 'running'
-				limit ${batchSize}
-			)`,
-		);
-		const rows = getAffectedRows(result);
-		deleted += rows;
-		if (rows < batchSize) break;
-	}
-	return deleted;
 }
 
 /** Read a named progress marker kept apart from the receipts and their retention. */

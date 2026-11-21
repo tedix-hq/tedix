@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type NewWorkflowRunLedger,
@@ -148,17 +148,4 @@ export async function getLatestWorkflowRunRecordsByTypes(
 		seen.add(row.workflowType);
 		return true;
 	});
-}
-
-export async function deleteOldWorkflowRunRecords(
-	db: DbClient,
-	olderThanDays = 90,
-): Promise<number> {
-	const cutoff = new Date(
-		Date.now() - olderThanDays * 24 * 60 * 60 * 1000,
-	).toISOString();
-	const result = await db
-		.delete(workflowRunLedger)
-		.where(lt(workflowRunLedger.startedAt, cutoff));
-	return result.meta?.changes ?? 0;
 }
