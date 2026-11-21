@@ -43,6 +43,7 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 	// Sample data has one signed-in person, so nothing is ever unread.
 	"workspaceUnread/summary": () => ({ total: 0, workspaces: [] }),
 	"workspaceUnread/list": () => ({ total: 0, groups: [] }),
+	"workspaceUnread/recentChats": () => ({ chats: [] }),
 	"workspaceUnread/workspace": (input: { workspaceId: string }) =>
 		emptyUnreadState(input.workspaceId),
 	"workspaceUnread/markRead": (input: { workspaceId: string }) =>

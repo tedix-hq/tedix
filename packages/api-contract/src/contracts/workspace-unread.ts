@@ -5,6 +5,7 @@ import { baseErrors } from "../errors";
 import {
 	WorkspaceChatNotificationsInputSchema,
 	WorkspaceMarkReadInputSchema,
+	WorkspaceRecentChatsSchema,
 	WorkspaceUnreadListSchema,
 	WorkspaceUnreadStateSchema,
 	WorkspaceUnreadSummarySchema,
@@ -53,6 +54,15 @@ export const workspaceUnreadContract = oc
 		setChatNotifications: oc
 			.input(WorkspaceChatNotificationsInputSchema)
 			.output(WorkspaceUnreadStateSchema),
+		/**
+		 * The caller's recent workspace chats, newest first, from every
+		 * workspace they can still open. Home lists them next to its own.
+		 */
+		recentChats: oc
+			.input(
+				z.strictObject({ limit: z.number().int().min(1).max(100).optional() }),
+			)
+			.output(WorkspaceRecentChatsSchema),
 		markAllRead: oc
 			.input(z.object({}))
 			.output(z.object({ ok: z.literal(true) })),

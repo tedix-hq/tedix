@@ -1,4 +1,5 @@
 import { implement } from "@orpc/server";
+import { env } from "cloudflare:workers";
 import { workspaceUnreadContract } from "@tedix/api-contract/contracts/workspace-unread";
 import type {
 	WorkspaceUnreadItem,
@@ -34,6 +35,10 @@ import {
 	recordChatsTakenPartIn,
 } from "../../services/workspace-chat-follow";
 import { notifyWorkspaceChat } from "../../services/workspace-chat-push";
+import {
+	listRecentWorkspaceChats,
+	type PersonChatsRuntime,
+} from "../../services/workspace-recent-chats";
 import {
 	advanceReadMarker,
 	chatNotificationsOn,
@@ -362,6 +367,24 @@ export const workspaceUnreadRouter = os.router({
 			conversationId: input.conversationId,
 			mentionedUserIds: input.mentionedUserIds,
 		});
+	}),
+	recentChats: os.recentChats.handler(async ({ context, input }) => {
+		const { scope } = reader(context);
+		// Workspaces record a person's turns under their sign-in id.
+		const userId = context.user?.sub;
+		const runtime = (
+			env as unknown as { WORKSPACE_RUNTIME?: PersonChatsRuntime }
+		).WORKSPACE_RUNTIME;
+		if (!userId || !runtime) return { chats: [] };
+		return {
+			chats: await listRecentWorkspaceChats(
+				queryDb(context),
+				runtime,
+				{ organizationId: scope.organizationId, userId },
+				input.limit ?? 50,
+				(work) => context.waitUntil?.(work),
+			),
+		};
 	}),
 	markAllRead: os.markAllRead.handler(async ({ context }) => {
 		const { scope } = reader(context);
