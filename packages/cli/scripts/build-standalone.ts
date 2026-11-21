@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
 	mkdirSync,
@@ -11,7 +12,15 @@ const root = join(import.meta.dir, "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
 	version: string;
 };
-const target = process.argv[2];
+const args = process.argv.slice(2);
+const release = args.includes("--release");
+const target = args.filter((arg) => arg !== "--release")[0];
+const version = release
+	? pkg.version
+	: `${pkg.version}+${execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
+			cwd: root,
+			encoding: "utf8",
+		}).trim()}`;
 const hostOs = process.platform === "darwin" ? "darwin" : process.platform;
 const hostArch = process.arch === "arm64" ? "arm64" : "x64";
 const resolvedTarget = target ?? `bun-${hostOs}-${hostArch}`;
@@ -50,7 +59,7 @@ const result = await Bun.build({
 		target: resolvedTarget as Bun.Build.CompileTarget,
 	},
 	define: {
-		__TEDIX_CLI_VERSION__: JSON.stringify(pkg.version),
+		__TEDIX_CLI_VERSION__: JSON.stringify(version),
 	},
 	minify: true,
 });
