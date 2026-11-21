@@ -26,6 +26,7 @@ import {
 	run,
 	shellHasLocalBin,
 } from "./shell";
+import { restartRunners, runnersRunning } from "./runners";
 import { isNewer } from "./update";
 
 /**
@@ -39,7 +40,6 @@ const link = join(localBin, "tedix");
 const kept = `${link}.before-app`;
 /** Tells the CLI that the file beside it is the app's copy. */
 const MARKER = "managed-by-tedix-app";
-const SUPERVISOR = "dev.tedix.supervisor";
 /** Where published command-line tools come from; nothing else is accepted. */
 const DOWNLOADS = "https://downloads.tedix.dev";
 
@@ -210,7 +210,7 @@ let published = "";
 let lastUpdate: CliState["update"];
 let updating: string | undefined;
 let updateRun: Promise<void> | undefined;
-/** When the background service was last reloaded from this app. */
+/** When the runners were last restarted from this app. */
 let reloadedAt = 0;
 
 /** What the main window's update button needs to follow a change it started. */
@@ -262,7 +262,7 @@ async function offered(have: string): Promise<string | undefined> {
 }
 
 /**
- * What the background service wrote since the last reload about a folder
+ * What this Mac's runners wrote since the last reload about a folder
  * macOS does not let it read. Information for the person, never a failure.
  */
 function accessNote(): string | undefined {
@@ -294,7 +294,7 @@ function accessNote(): string | undefined {
  * Run at start and on every refresh: reads which command-line tool is in
  * use. It copies the one inside the app only when the app has no copy yet,
  * and links it only when nothing else is installed. It never replaces a copy
- * and never touches the background service.
+ * and never touches this Mac's runners.
  */
 export async function readCli(): Promise<CliState> {
 	const canRestore = existsSync(kept);
@@ -339,52 +339,24 @@ export async function readCli(): Promise<CliState> {
 	}
 }
 
+/** This Mac's runners run as the app's own child process (`src/runners.ts`). */
 export async function supervisorLoaded(): Promise<boolean> {
-	if (process.platform !== "darwin") return false;
-	return (
-		await run("/bin/launchctl", [
-			"print",
-			`gui/${process.getuid?.()}/${SUPERVISOR}`,
-		])
-	).ok;
+	return runnersRunning();
 }
 
 /**
- * Reloads the background service. A plain restart is not enough after the
- * command-line tool's file was replaced: macOS then refuses to start the
- * loaded job, so it is unloaded and loaded again from its settings file.
- * Only ever called after a click.
+ * Stops this Mac's runners and starts them again with the command-line tool
+ * in use now. Only ever called after a click.
  */
 export async function restartSupervisor() {
-	const domain = `gui/${process.getuid?.()}`;
-	const plist = join(
-		homedir(),
-		"Library",
-		"LaunchAgents",
-		`${SUPERVISOR}.plist`,
-	);
-	const pause = () => new Promise((resolve) => setTimeout(resolve, 500));
 	reloadedAt = Date.now();
-	await run("/bin/launchctl", ["bootout", `${domain}/${SUPERVISOR}`]);
-	// Unloading finishes after the command returns: macOS gives the service
-	// up to 20 seconds to stop, and loading fails until it is gone.
-	for (let waited = 0; waited < 60 && (await supervisorLoaded()); waited++)
-		await pause();
-	let result = await run("/bin/launchctl", ["bootstrap", domain, plist]);
-	for (let tries = 0; !result.ok && tries < 10; tries++) {
-		if (await supervisorLoaded()) {
-			result = { ...result, ok: true };
-			break;
-		}
-		await pause();
-		result = await run("/bin/launchctl", ["bootstrap", domain, plist]);
-	}
+	const result = await restartRunners();
 	// The person's own restart worked: the runners are not down any more.
 	if (result.ok && lastUpdate?.down) lastUpdate = undefined;
 	return result;
 }
 
-/** How many of the switched-on runners the background service has running. */
+/** How many of the switched-on runners are running. */
 async function runnersUp(): Promise<
 	{ running: number; enabled: number } | undefined
 > {
@@ -405,7 +377,7 @@ async function runnersUp(): Promise<
 }
 
 /**
- * Reloads the background service after the person chose a change, when it
+ * Reloads this Mac's runners after the person chose a change, when it
  * is installed, and waits up to three minutes for the switched-on runners.
  * The runners are down only when the service is not running afterwards or
  * no runner came up; that is shown in red and as one notification.
@@ -414,7 +386,7 @@ async function reload(
 	say: (line: string) => void,
 ): Promise<{ down?: string; runners: string }> {
 	if (!lastUpdate?.down && !(await supervisorLoaded())) return { runners: "" };
-	say("Restarting the background service…");
+	say("Restarting this Mac's runners…");
 	const restart = await restartSupervisor();
 	let now: Awaited<ReturnType<typeof runnersUp>>;
 	for (let waited = 0; restart.ok && waited < 180; waited += 5) {
@@ -426,9 +398,9 @@ async function reload(
 		if (now && now.running >= now.enabled) break;
 	}
 	const why = !restart.ok
-		? `The background service did not start: ${lastLine(restart.output) || "no reason given"}.`
+		? `The runners did not start: ${lastLine(restart.output) || "no reason given"}.`
 		: !(await supervisorLoaded())
-			? "The background service is not running."
+			? "tedix supervise is not running."
 			: !now || (now.enabled > 0 && now.running === 0)
 				? "No runner started within three minutes."
 				: "";
@@ -591,7 +563,7 @@ export async function lookForCliUpdate(asked: boolean): Promise<void> {
 /**
  * The update button, after the person's click: puts the newer
  * of the copy inside the app and the published one in place, keeps the one
- * in use as `tedix.other-app`, and restarts the background service.
+ * in use as `tedix.other-app`, and restarts this Mac's runners.
  */
 export function updateCli(): Promise<void> {
 	return track(async (say) => {
@@ -615,7 +587,7 @@ export function updateCli(): Promise<void> {
 
 /**
  * "Go back to version Y", after the person's click: swaps the copy in use
- * with the kept one and restarts the background service.
+ * with the kept one and restarts this Mac's runners.
  */
 export function goBackCli(): Promise<void> {
 	return track(async (say) => {

@@ -428,11 +428,11 @@ function screenFor(id: StepId, now: PanelState): Screen {
 						: undefined,
 			details: [
 				cli.kind === "separate" &&
-					"Installed separately. The app can use its own copy instead; yours is kept. That restarts the background service, which stops tasks that are running.",
+					"Installed separately. The app can use its own copy instead; yours is kept. That restarts this Mac's runners, which stops tasks that are running.",
 				cli.update?.ok !== false && cliUpdateLine(cli),
 				cli.other && `Version ${cli.other} is kept.`,
 				running.some((version) => version !== cli.version) &&
-					`The background service still runs version ${running.join(", ")}. Restart runners in Tedix → This Mac… to use this one.`,
+					`The runners still run version ${running.join(", ")}. Restart runners in Tedix → This Mac… to use this one.`,
 				cli.access,
 				cli.access &&
 					button(

@@ -8,7 +8,6 @@ import {
 	readCli,
 	restartSupervisor,
 	restoreCli,
-	supervisorLoaded,
 } from "./cli";
 import { log } from "./log";
 import { runnersPath } from "./runners-file";
@@ -18,7 +17,6 @@ import {
 	lastLine,
 	refreshShellPath,
 	run,
-	toolPath,
 } from "./shell";
 
 const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
@@ -524,7 +522,7 @@ export function setupState(): SetupState {
  * It asks Tedix to describe itself, which Tedix refuses without a sign-in
  * and answers in about a second. A slow or busy Tedix is tried once more and
  * then reported as "could not check", never as a failed sign-in. It waits
- * while a step is running, because steps restart the background service.
+ * while a step is running, because steps restart this Mac's runners.
  */
 let checking: Promise<void> | undefined;
 function checkReach(): Promise<void> {
@@ -763,21 +761,8 @@ export async function setupAction(
 					{ onLine: say, timeoutMs: 60_000 },
 				),
 			);
-			if (await supervisorLoaded()) {
-				say("Restarting the background service…");
-				await must(restartSupervisor());
-			} else {
-				say("Installing the background service…");
-				// The service keeps the PATH it is installed with, so it gets the
-				// person's shell PATH and finds their coding tools.
-				await must(
-					tedix(["supervise", "install"], {
-						env: { PATH: toolPath() },
-						onLine: say,
-						timeoutMs: 120_000,
-					}),
-				);
-			}
+			say("Restarting this Mac's runners…");
+			await must(restartSupervisor());
 			return `Tedix can start ${tool.name} runs on this Mac for ${org}, in ${repo}. The first run starts within a minute of being assigned.`;
 		});
 	}

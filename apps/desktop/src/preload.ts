@@ -24,5 +24,7 @@ const api: PanelApi = {
 		ipcRenderer.send("download-ready");
 	},
 	cancelDownload: () => ipcRenderer.invoke("download-cancel"),
+	newChat: (text) => ipcRenderer.invoke("new-chat", text),
+	closeInputBar: () => ipcRenderer.invoke("input-close"),
 };
 contextBridge.exposeInMainWorld("tedixShell", api);

@@ -1,8 +1,8 @@
 # Tedix desktop app
 
-A small desktop app that opens the Tedix OS chat in its own window, sets up
-this Mac for Tedix without a terminal, and shows what the Tedix CLI is doing
-on this computer.
+A small desktop app that opens the Tedix OS chat in its own window, stays in
+the menu bar, sets up this Mac for Tedix without a terminal, and runs this
+Mac's runners while it is open.
 
 The app includes the `tedix` command-line tool. It copies it to
 `cli/tedix` in its own data folder and links `~/.local/bin/tedix` to that
@@ -13,6 +13,35 @@ The app is not signed or notarized yet and has been run on macOS only.
 
 ## What you can do
 
+- **Keep Tedix in the menu bar.** Closing the window leaves Tedix running
+  with its icon in the menu bar; it leaves the Dock until a window opens
+  again. A click on the icon opens a small input bar near the top of the
+  screen: type a message and press Return to start a new chat in the Tedix
+  window (Escape closes the bar). A right click (or Control-click) opens a
+  menu with **Open Tedix**, **New Chat…**, a line on the runners, **This
+  Mac…**, **Restart Runners**, **Check for Updates…**, **Open at Login** and
+  **Quit Tedix and Stop Runners**. Opened at login, Tedix starts in the menu
+  bar without a window.
+- **Run this Mac's runners.** The app starts `tedix supervise`, which runs
+  the runners in `~/.tedix/supervisor-runners.json`, as its own child
+  process, and stops it when you quit (it waits up to 30 seconds before it
+  stops the runners by force). If it ends by itself, the app starts it
+  again after 5 seconds, waiting longer after each quick end. Its output
+  goes to `~/.tedix/supervisor.app.log`; its log stays
+  `~/.tedix/supervisor.log`.
+  - The first start on a Mac that ran the runners with the command-line
+    tool's login service (`dev.tedix.supervisor`, from
+    `tedix supervise install`) unloads that service, deletes its file in
+    `~/Library/LaunchAgents`, and turns on **Open at Login**, so the runners
+    still start when you log in. The app does this on every start, so a
+    later `tedix supervise install` is undone too. Macs without the app keep
+    using the login service.
+  - A supervisor left behind by an app that crashed is stopped; the
+    command-line tool also stops by itself when the app that started it is
+    gone. One started from a terminal is left alone, and the menu says so.
+  - A Mac with no runners starts them from **Set up this Mac**.
+  - The copy run from source leaves the runners to the installed app; start
+    it with `TEDIX_DEV_RUNNERS=1` to run them from there.
 - **Chat in Tedix OS.** The window opens the organization you used last
   (`https://<organization>.os.tedix.dev/chat`), or `https://os.tedix.dev`,
   where the sign-in picks the organization. You stay signed in between
@@ -54,7 +83,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   copy and adds `~/.local/bin` to your shell profile if it is missing. A
   separate install is left alone until you choose **Let the app manage it**:
   the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
-  and restarts the background service. **Use the separate install again**
+  and restarts the runners. **Use the separate install again**
   reverses it.
 - **Update from one place.** The app and the command-line tool have their
   own releases. The app looks for both when it starts, every four hours,
@@ -83,7 +112,7 @@ The app is not signed or notarized yet and has been run on macOS only.
     only while its agent process is alive, the same rule as the
     command-line tool's own Mac status.
   - With a newer app, the app restarts into it, and on that start puts the
-    newest command-line tool in place and reloads the background service.
+    newest command-line tool in place before it starts the runners.
     With only a newer command-line tool, it does that without a restart. A
     notification says what is in use afterwards. If it fails, the entry
     turns into a warning; a click shows the reason and **Try Again**.
@@ -92,7 +121,7 @@ The app is not signed or notarized yet and has been run on macOS only.
 - **Nothing is replaced without a click.** Replacing the command-line
   tool stops tasks running on this Mac, and macOS can ask again for folder
   access, which nobody can answer with the screen locked. So the app never
-  replaces the tool and never reloads the background service by itself.
+  replaces the tool and never restarts the runners by itself.
   When the click has to restart the app first, it leaves a note in the
   app's data folder (`update-after-restart.json`) that is good for five
   minutes and for one start: the app deletes it as it starts, and only a
@@ -102,15 +131,16 @@ The app is not signed or notarized yet and has been run on macOS only.
   does not change between versions.
 - **Go back, and see what is wrong.** The app keeps the command-line tool
   from before. **Tedix → This Mac…** shows both numbers and offers **Go
-  back to version Y**, which swaps the two and reloads the background
-  service. The app never goes back by itself. If the background service or
-  every runner stays down after a reload, the app says that this Mac's
+  back to version Y**, which swaps the two and restarts the runners. The
+  app never goes back by itself. If `tedix supervise` or every runner stays
+  down after a restart, the app says that this Mac's
   runners are down, shows one notification, and offers **Restart runners**.
   If some sessions could not be reopened because macOS has not allowed a
   folder, the app says which folder and opens the right page of System
   Settings; it does not treat that as runners being down. `tedix update`
-  and `tedix rollback` in a terminal work on the app's copy too and restart
-  the background service themselves.
+  and `tedix rollback` in a terminal work on the app's copy too; the runners
+  use the new version after **Restart Runners** or the next start of the
+  app.
 - **See and change this computer's status.** **Tedix → This Mac…**
   (`Cmd+Shift+M`) shows the runners, active runs, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. It
@@ -118,9 +148,6 @@ The app is not signed or notarized yet and has been run on macOS only.
   run commands on this Mac", and a button that restarts the runners. The
   switches edit `~/.tedix/supervisor-runners.json` and then restart the
   runners, which stops runs in progress.
-
-Closing the window quits the app; the runners keep running because the CLI's
-supervisor owns them.
 
 ## When something goes wrong
 
@@ -224,9 +251,10 @@ installed apps without an app release, through the update entry:
   as `cli/tedix.other-app`; **Go back to version Y** swaps the two files.
   `tedix update` keeps its own `cli/tedix.previous`, which `tedix rollback`
   puts back.
-- Then the app reloads the background service and waits up to three minutes
-  for the switched-on runners. It reports runners as down only when the
-  service is not running or no runner started. Lines with "could not read"
+- Then the app stops its `tedix supervise`, starts it again on the new file,
+  and waits up to three minutes for the switched-on runners. It reports
+  runners as down only when `tedix supervise` is not running or no runner
+  started. Lines with "could not read"
   in `~/.tedix/supervisor.log` since the reload are shown as a note about
   folder access, not as a failure, and nothing is put back by itself.
 - To keep installed apps from offering a CLI version, do not move
@@ -263,6 +291,8 @@ to, such as Applications. The first install is still by hand.
 | `src/log.ts`           | Writes the log file                                   |
 | `src/status.ts`        | Reads the status from the CLI and the files it keeps  |
 | `src/runners-file.ts`  | Edits `supervisor-runners.json`                       |
+| `src/runners.ts`       | Starts and stops `tedix supervise` as a child process |
+| `input.html`           | The menu bar's input bar (`src/input-bar.ts`)         |
 | `src/shell.ts`         | Finds and runs `tedix`                                |
 | `panel.html`           | The This Mac window (`src/panel.ts`)                  |
 | `src/preload.ts`       | The few functions the app's own two windows may call  |

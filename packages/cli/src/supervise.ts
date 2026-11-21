@@ -1155,6 +1155,9 @@ export const superviseUsage = `Deliver late tedi auto replies and your undeliver
   tedix supervise --once      Run one check and exit
   tedix supervise install     Run it at login as a user LaunchAgent (macOS)
   tedix supervise uninstall   Stop it and remove the LaunchAgent
+
+On a Mac with the Tedix app, the app runs tedix supervise itself while it is
+open and removes the LaunchAgent; install is for Macs without the app.
   tedix supervise runners     List the runners it keeps running
 
 A Codex session's await-draft hook waits 5 minutes for a tedi auto reply. When
@@ -1229,11 +1232,6 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		supervisorLog(env, `supervisor started (pid ${process.pid})`);
 		const releaseAwake = holdAwake((message) => supervisorLog(env, message));
 		let stopped = false;
-		const stop = () => {
-			stopped = true;
-		};
-		process.once("SIGTERM", stop);
-		process.once("SIGINT", stop);
 		// Runners are checked on their own clock: a slow question or lead pass
 		// must not delay restarting a hung runner.
 		const checkRunners = () => {
@@ -1254,14 +1252,39 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 			SUPERVISOR_BEAT_INTERVAL_MS,
 		);
 		void supervisor.beat();
+		// The runners stop at once, not after a slow question pass ends: the
+		// Tedix app waits for this process when it quits.
+		const stop = () => {
+			if (stopped) return;
+			stopped = true;
+			clearInterval(runnerTimer);
+			runners?.stop();
+			machineTools?.stop();
+		};
+		process.once("SIGTERM", stop);
+		process.once("SIGINT", stop);
+		// Started by the Tedix app: stop when the app is gone, also after a crash.
+		const parent = Number(env.TEDIX_SUPERVISOR_PARENT);
+		delete env.TEDIX_SUPERVISOR_PARENT;
+		const orphaned = () =>
+			Number.isSafeInteger(parent) && parent > 1 && process.ppid !== parent;
 		while (!stopped) {
 			await supervisor.tick();
 			for (
 				let waited = 0;
 				waited < SUPERVISE_INTERVAL_MS && !stopped;
 				waited += 1000
-			)
+			) {
+				if (orphaned()) {
+					supervisorLog(
+						env,
+						"the Tedix app that started this supervisor is gone",
+					);
+					stop();
+					break;
+				}
 				await pause(1000);
+			}
 		}
 		clearInterval(runnerTimer);
 		clearInterval(beatTimer);

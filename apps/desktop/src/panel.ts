@@ -63,7 +63,7 @@ function button(title: string, disabled: boolean, click: () => void) {
 const fact = (label: string, value: string) =>
 	el("div", "line", el("span", "", label), el("b", "", value));
 
-/** One line when the background service runs another version than the one in use. */
+/** One line when the runners run another version than the one in use. */
 function serviceLine({ status, setup }: PanelState): string {
 	const running = [
 		...new Set(
@@ -74,7 +74,7 @@ function serviceLine({ status, setup }: PanelState): string {
 	];
 	const { version } = setup.cli;
 	return version && running.some((runs) => runs !== version)
-		? `The background service still runs ${running.join(", ")}. Restart runners to use ${version}.`
+		? `The runners still run ${running.join(", ")}. Restart runners to use ${version}.`
 		: "";
 }
 
