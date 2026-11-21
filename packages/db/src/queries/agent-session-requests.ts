@@ -403,7 +403,15 @@ export async function recordAgentSessionInferenceReflection(
 		);
 }
 
-/** Retries never rewind a session past later completed or leased work. */
+/**
+ * Retries never rewind a session past later completed or leased work.
+ *
+ * Only a claim sets claimed_at, only on a pending row, and every settle
+ * clears it, so "leased" means pending with claimed_at. Naming both statuses
+ * and the source_at lower bound lets the per-session index seek instead of
+ * reading the whole session for every failed candidate (about 90k rows a call
+ * in production on 21 Nov 2026).
+ */
 function noLaterSettledEvent(db: DbQueryClient) {
 	const later = alias(agentSessionEvents, "later_session_event");
 	return notExists(
@@ -416,13 +424,12 @@ function noLaterSettledEvent(db: DbQueryClient) {
 					eq(later.userId, agentSessionEvents.userId),
 					eq(later.harness, agentSessionEvents.harness),
 					eq(later.sessionKey, agentSessionEvents.sessionKey),
+					inArray(later.status, ["processed", "pending"]),
+					gte(later.sourceAt, agentSessionEvents.sourceAt),
 					or(eq(later.status, "processed"), isNotNull(later.claimedAt)),
 					or(
 						gt(later.sourceAt, agentSessionEvents.sourceAt),
-						and(
-							eq(later.sourceAt, agentSessionEvents.sourceAt),
-							gt(later.id, agentSessionEvents.id),
-						),
+						gt(later.id, agentSessionEvents.id),
 					),
 				),
 			),
