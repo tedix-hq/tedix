@@ -7,6 +7,7 @@ import {
 	verifyWorkspaceAppSession,
 } from "@tedix/auth/workspace-app-session";
 import { createDbClient } from "@tedix/db/client";
+import { createOsGadgetRevision } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	createOsShareLink,
 	getScopedOsShareLink,
@@ -1386,7 +1387,7 @@ describe("owner-approved guest skill reads", () => {
 		return { ...f, link, row, context, scope };
 	}
 
-	it("refuses without approval, opens only the approved share and delegates the existing skill read", async () => {
+	it("keeps an approved share readable after a code revision and withdraws access on revocation", async () => {
 		const f = await researchFixture();
 		const sessionToken = await redeem(f.db, f.link.token);
 		expect(
@@ -1401,8 +1402,31 @@ describe("owner-approved guest skill reads", () => {
 			"research",
 		]);
 		await setOsShareSkillReadGrants(f.db, f.scope, grants);
+		expect(
+			(await handleGuestAppOpen(f.env, f.db, { sessionToken })).status,
+		).toBe(200);
+		const revised = await createOsGadgetRevision(f.db, {
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			gadgetId,
+			manifest: JSON.stringify({
+				entry: "tedix:runtime/v1",
+				capabilities: [],
+				resourceGrants: [{ slot: "research", operations: ["skills.read"] }],
+			}),
+			createdByKind: "user",
+			createdById: "user-1",
+			code: {
+				files: JSON.stringify({
+					...files,
+					"client.js": "export default function mount() { return 'Updated'; }",
+				}),
+				codeLength: files["server.js"].length,
+			},
+		});
+		expect(revised.ok).toBe(true);
 		const opened = await handleGuestAppOpen(f.env, f.db, {
-			sessionToken,
+			sessionToken: await redeem(f.db, f.link.token),
 			guestName: "Maya",
 		});
 		expect(opened.status).toBe(200);
@@ -1478,6 +1502,45 @@ describe("owner-approved guest skill reads", () => {
 			).status,
 		).toBe(404);
 	});
+
+	it.each([
+		{ operations: [] },
+		{ operations: ["skills.run"] },
+		{ operations: ["skills.read", "skills.run"] },
+	])(
+		"refuses a new revision whose research operations changed to $operations",
+		async ({ operations }) => {
+			const f = await researchFixture();
+			await setOsShareSkillReadGrants(
+				f.db,
+				f.scope,
+				await prepareGuestSkillReadGrants(f.context, f.row, ["research"]),
+			);
+			const id = crypto.randomUUID();
+			await f.db.insert(osGadgetRevisions).values({
+				id,
+				organizationId: "org-1",
+				gadgetId,
+				revision: 2,
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					resourceGrants: operations.length
+						? [{ slot: "research", operations }]
+						: [],
+				}),
+				createdByKind: "user",
+				createdById: "user-1",
+			});
+			expect(
+				await approvedGuestSkillRead(
+					f.db,
+					{ ...f.scope, revisionId: id },
+					"research",
+				),
+			).toBeNull();
+		},
+	);
 
 	it.each([
 		"other organization",

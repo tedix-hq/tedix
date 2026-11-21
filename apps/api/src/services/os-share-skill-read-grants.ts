@@ -43,6 +43,35 @@ export async function approvedGuestSkillRead(
 ) {
 	const grant = await getOsShareSkillReadGrant(db, { ...scope, slot });
 	if (!grant || grant.workspaceId !== scope.workspaceId) return null;
+	// The stored revision records what the owner approved. Code edits may keep
+	// that approval only when both revisions grant exactly the same skill read.
+	const revisionIds = [...new Set([grant.revisionId, scope.revisionId])];
+	const revisions = await Promise.all(
+		revisionIds.map((revisionId) =>
+			getOsGadgetRevision(db, {
+				organizationId: scope.organizationId,
+				revisionId,
+			}),
+		),
+	);
+	for (const revision of revisions) {
+		if (!revision || revision.gadgetId !== scope.gadgetId) return null;
+		try {
+			const manifest = OsGadgetManifestSchema.parse(
+				JSON.parse(revision.manifest),
+			);
+			const slotGrant = manifest.resourceGrants?.find((g) => g.slot === slot);
+			if (
+				!isAppRuntimeManifest(manifest) ||
+				!slotGrant ||
+				slotGrant.operations.length !== 1 ||
+				slotGrant.operations[0] !== "skills.read"
+			)
+				return null;
+		} catch {
+			return null;
+		}
+	}
 	const member = await getOsShareGrantApprover(
 		db,
 		scope.organizationId,
