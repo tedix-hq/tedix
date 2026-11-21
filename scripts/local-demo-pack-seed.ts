@@ -35,6 +35,7 @@ const USER = "00000000-0000-4000-8000-000000000002";
 const TEDI = "00000000-0000-4000-8000-000000000004";
 const WORKSPACE = "00000000-0000-4000-8000-0000000000a0";
 const APP_WORKSPACE = uid(48, 1);
+const OPPORTUNITIES_SHEET = uid(64, 20);
 const PROJECT_KEYS = ["REDDIT", "FINANCE", "ONCALL"];
 const DAY_MS = 86_400_000;
 
@@ -74,6 +75,9 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, 1, ${json(opportunityCardsManifest)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_gadget_code_blobs (organization_id, sha256, files, code_length, created_at) VALUES (${q(ORG)}, ${q(appHash)}, ${q(appFiles)}, ${q(codeLength)}, ${q(now)});`,
 		`INSERT OR IGNORE INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, files_sha256, created_at) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, '', ${q(codeLength)}, ${q(appHash)}, ${q(now)});`,
+		// The Opportunities sheet's slot, and the sample tedi so its Agents view has a row.
+		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, slot, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(uid(70, 1))}, ${q(ORG)}, ${q(APP_WORKSPACE)}, 'opportunities', 'tedix', 'tenant', 'output', ${q(OPPORTUNITIES_SHEET)}, 'Opportunities sheet', 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
+		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(uid(70, 2))}, ${q(ORG)}, ${q(APP_WORKSPACE)}, 'tedix', 'tenant', 'tedi', ${q(TEDI)}, 'Local Tedi', 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
 	);
 	blueprint.gadgets.forEach((gadget, i) => {
 		const id = uid(49, 10 + i);
@@ -122,12 +126,12 @@ type Row = Record<string, string | number | null>;
 const ENVELOPE = JSON.stringify({ version: 1, sources: [] });
 const owner = { created_by_kind: "user", created_by_id: "local-demo-owner" };
 
-/** The sample company's files and resources, written into each workspace's own store. */
+/** The sample company's files, written into each workspace's own store. */
 export function demoPackWorkspaceFiles(
 	nowMs: number = Date.now(),
 ): Array<{ workspaceId: string; tables: Record<string, Row[]> }> {
 	const now = new Date(nowMs).toISOString();
-	const sheetId = uid(64, 20);
+	const sheetId = OPPORTUNITIES_SHEET;
 	const sheetRevision = uid(65, 20);
 	const sheet = {
 		kind: "sheet",
@@ -167,32 +171,6 @@ export function demoPackWorkspaceFiles(
 						revision: 1,
 						content: JSON.stringify(sheet),
 						access_envelope: ENVELOPE,
-						...owner,
-					},
-				],
-				os_workspace_resources: [
-					{
-						id: uid(70, 1),
-						organization_id: ORG,
-						workspace_id: APP_WORKSPACE,
-						slot: "opportunities",
-						provider_id: "tedix",
-						connection_scope: "tenant",
-						resource_type: "output",
-						provider_resource_id: sheetId,
-						name: "Opportunities sheet",
-						...owner,
-					},
-					// The sample tedi works in this workspace, so its Agents view has a row.
-					{
-						id: uid(70, 2),
-						organization_id: ORG,
-						workspace_id: APP_WORKSPACE,
-						provider_id: "tedix",
-						connection_scope: "tenant",
-						resource_type: "tedi",
-						provider_resource_id: TEDI,
-						name: "Local Tedi",
 						...owner,
 					},
 				],
