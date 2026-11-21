@@ -1828,6 +1828,10 @@
 		{
 			"name": "20261121103616_drop_unused_memory_runtime_indexes/migration.sql",
 			"sha256": "36935f5486d70c7808ea93513ff69176c6650879489229191364f97b18d4db56"
+		},
+		{
+			"name": "20261121114518_stripe_webhook_customer_order/migration.sql",
+			"sha256": "99be964f9cbe49a98e9241adca8d6d84bbf224e5e9d069c6acf5387cabaf807a"
 		}
 	]
 }

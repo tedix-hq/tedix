@@ -1,7 +1,17 @@
 /** Canonical billing plans queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	lte,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type BillingAccount,
@@ -104,6 +114,44 @@ export async function linkBillingAccountStripeCustomerIfUnbound(
 	return Boolean(account);
 }
 
+type ProvisionBillingAccountValues = {
+	organizationId: string;
+	planVersionId: string;
+	status: BillingAccountStatus;
+	billingMode: BillingAccount["billingMode"];
+	stripeEnvironment?: "test" | "live" | null;
+	stripeCustomerId?: string | null;
+	stripeSubscriptionId?: string | null;
+	stripeCancelAtPeriodEnd?: boolean | null;
+	periodStart: string;
+	periodEnd: string;
+	now: string;
+	metadata?: Record<string, JsonValue>;
+};
+
+function billingAccountUpdateValues(input: ProvisionBillingAccountValues) {
+	return {
+		planVersionId: input.planVersionId,
+		status: input.status,
+		billingMode: input.billingMode,
+		stripeEnvironment: input.stripeEnvironment ?? null,
+		...(input.stripeCustomerId !== undefined && {
+			stripeCustomerId: input.stripeCustomerId,
+		}),
+		...(input.stripeSubscriptionId !== undefined && {
+			stripeSubscriptionId: input.stripeSubscriptionId,
+		}),
+		...(input.stripeCancelAtPeriodEnd !== undefined && {
+			stripeCancelAtPeriodEnd: input.stripeCancelAtPeriodEnd,
+		}),
+		periodStart: input.periodStart,
+		periodEnd: input.periodEnd,
+		entitlementVersion: sql`${billingAccounts.entitlementVersion} + 1`,
+		metadata: input.metadata ?? {},
+		updatedAt: input.now,
+	};
+}
+
 /**
  * Build the billing-account upsert as an unexecuted statement.
  *
@@ -117,20 +165,7 @@ export async function linkBillingAccountStripeCustomerIfUnbound(
  */
 export function buildProvisionBillingAccountStatement(
 	db: DbClient,
-	input: {
-		organizationId: string;
-		planVersionId: string;
-		status: BillingAccountStatus;
-		billingMode: BillingAccount["billingMode"];
-		stripeEnvironment?: "test" | "live" | null;
-		stripeCustomerId?: string | null;
-		stripeSubscriptionId?: string | null;
-		stripeCancelAtPeriodEnd?: boolean | null;
-		periodStart: string;
-		periodEnd: string;
-		now: string;
-		metadata?: Record<string, JsonValue>;
-	},
+	input: ProvisionBillingAccountValues,
 ) {
 	return db
 		.insert(billingAccounts)
@@ -151,28 +186,29 @@ export function buildProvisionBillingAccountStatement(
 		})
 		.onConflictDoUpdate({
 			target: billingAccounts.organizationId,
-			set: {
-				planVersionId: input.planVersionId,
-				status: input.status,
-				billingMode: input.billingMode,
-				stripeEnvironment: input.stripeEnvironment ?? null,
-				...(input.stripeCustomerId !== undefined && {
-					stripeCustomerId: input.stripeCustomerId,
-				}),
-				...(input.stripeSubscriptionId !== undefined && {
-					stripeSubscriptionId: input.stripeSubscriptionId,
-				}),
-				...(input.stripeCancelAtPeriodEnd !== undefined && {
-					stripeCancelAtPeriodEnd: input.stripeCancelAtPeriodEnd,
-				}),
-				periodStart: input.periodStart,
-				periodEnd: input.periodEnd,
-				entitlementVersion: sql`${billingAccounts.entitlementVersion} + 1`,
-				metadata: input.metadata ?? {},
-				updatedAt: input.now,
-			},
+			set: billingAccountUpdateValues(input),
 		})
 		.returning();
+}
+
+export function buildUpdateStripeBillingAccountStatement(
+	db: DbClient,
+	input: ProvisionBillingAccountValues & {
+		stripeWebhookCustomerKey: string;
+		stripeWebhookEventCreatedAt: number;
+	},
+	guard: SQL,
+) {
+	return db
+		.update(billingAccounts)
+		.set({
+			...billingAccountUpdateValues(input),
+			stripeWebhookCustomerKey: input.stripeWebhookCustomerKey,
+			stripeWebhookEventCreatedAt: input.stripeWebhookEventCreatedAt,
+		})
+		.where(
+			and(eq(billingAccounts.organizationId, input.organizationId), guard),
+		);
 }
 
 /** Resolve the active plan for `planKey` or throw with the key that missed. */

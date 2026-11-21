@@ -56,6 +56,7 @@ import {
 } from "./billing/reservations";
 import { settleBillingUsage } from "./billing/settlement";
 import {
+	applyStripeBillingWebhook,
 	claimStripeWebhookEvent,
 	hasNewerProcessedStripeWebhookEvent,
 	markStripeWebhookEventFailed,
@@ -78,7 +79,9 @@ function setup(onPrepare?: (query: string) => void) {
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE organizations (
 			id TEXT PRIMARY KEY,
-			metadata TEXT NOT NULL DEFAULT '{}'
+			metadata TEXT NOT NULL DEFAULT '{}',
+			features TEXT NOT NULL DEFAULT '{"os":false}',
+			updated_at TEXT
 		);
 		CREATE TABLE tedis (
 			id TEXT PRIMARY KEY,
@@ -1102,7 +1105,7 @@ describe("billing admission and settlement", () => {
 
 	it("leases, retries, deduplicates, and orders Stripe webhook receipts", async () => {
 		const { db, now } = setup();
-		const lease = "2026-07-27T12:05:00.000Z";
+		const lease = new Date(Date.now() + 60_000).toISOString();
 		const first = await claimStripeWebhookEvent(db, {
 			eventId: "evt-old",
 			eventType: "customer.subscription.updated",
@@ -1123,7 +1126,7 @@ describe("billing admission and settlement", () => {
 		expect(duplicate.claimed).toBe(false);
 
 		await markStripeWebhookEventFailed(db, {
-			eventId: "evt-old",
+			...first.event,
 			error: "temporary Stripe read failure",
 			now,
 		});
@@ -1139,13 +1142,22 @@ describe("billing admission and settlement", () => {
 			claimed: true,
 			event: { attemptCount: 2, status: "processing" },
 		});
-		await markStripeWebhookEventProcessed(db, {
-			eventId: "evt-old",
-			outcome: "applied",
-			now,
-		});
+		expect(
+			await markStripeWebhookEventProcessed(db, {
+				...first.event,
+				outcome: "applied",
+				now,
+			}),
+		).toBe(false);
+		expect(
+			await markStripeWebhookEventProcessed(db, {
+				...retry.event,
+				outcome: "applied",
+				now,
+			}),
+		).toBe(true);
 
-		await claimStripeWebhookEvent(db, {
+		const newer = await claimStripeWebhookEvent(db, {
 			eventId: "evt-new",
 			eventType: "customer.subscription.deleted",
 			entityKey: "sub-1",
@@ -1154,7 +1166,7 @@ describe("billing admission and settlement", () => {
 			leaseExpiresAt: lease,
 		});
 		await markStripeWebhookEventProcessed(db, {
-			eventId: "evt-new",
+			...newer.event,
 			outcome: "applied",
 			now,
 		});
@@ -1165,6 +1177,113 @@ describe("billing admission and settlement", () => {
 				eventId: "evt-old",
 			}),
 		).toBe(true);
+	});
+
+	it("fences customer billing and feature writes against newer events and expired leases", async () => {
+		const { db, now, sqlite } = setup();
+		const entitlement = await getBillingEntitlement(db, "org-1");
+		if (!entitlement) throw new Error("Missing billing fixture");
+		const input = {
+			account: entitlement.account,
+			applyPlanFeatures: true,
+			planKey: "growth",
+			status: "cancelled",
+			stripeEnvironment: "live",
+			stripeCustomerId: "cus_1",
+			periodStart: PERIOD_START,
+			periodEnd: PERIOD_END,
+			now,
+		} as const;
+		const leaseExpiresAt = new Date(Date.now() + 60_000).toISOString();
+		const older = await claimStripeWebhookEvent(db, {
+			eventId: "evt-old",
+			eventType: "invoice.paid",
+			entityKey: "invoice:in_1",
+			eventCreatedAt: 100,
+			now,
+			leaseExpiresAt,
+		});
+		const newer = await claimStripeWebhookEvent(db, {
+			eventId: "evt-new",
+			eventType: "customer.subscription.deleted",
+			entityKey: "sub:sub_1",
+			eventCreatedAt: 200,
+			now,
+			leaseExpiresAt,
+		});
+		expect(await applyStripeBillingWebhook(db, newer.event, input)).toBe(
+			"applied",
+		);
+		const features = () =>
+			sqlite
+				.prepare(
+					"SELECT features, updated_at FROM organizations WHERE id = 'org-1'",
+				)
+				.get();
+		const appliedFeatures = features();
+		expect(appliedFeatures).toMatchObject({ updated_at: now });
+		expect(JSON.parse(String(appliedFeatures?.features))).toMatchObject({
+			os: false,
+		});
+		const outdatedInput = {
+			...input,
+			status: "active",
+			now: "2026-07-28T00:00:00.000Z",
+		} as const;
+		expect(
+			await applyStripeBillingWebhook(db, older.event, outdatedInput),
+		).toBe("skipped_stale");
+
+		const expired = await claimStripeWebhookEvent(db, {
+			eventId: "evt-expired",
+			eventType: "customer.subscription.updated",
+			entityKey: "sub:sub_1",
+			eventCreatedAt: 300,
+			now,
+			leaseExpiresAt: "2000-01-01T00:00:00.000Z",
+		});
+		const current = await getBillingEntitlement(db, "org-1");
+		if (!current) throw new Error("Missing billing fixture");
+		expect(
+			await markStripeWebhookEventProcessed(db, {
+				...expired.event,
+				outcome: "applied",
+				now,
+			}),
+		).toBe(false);
+		await expect(
+			applyStripeBillingWebhook(db, expired.event, {
+				...outdatedInput,
+				account: current.account,
+			}),
+		).rejects.toThrow("Stripe webhook lease or billing account changed");
+		const retry = await claimStripeWebhookEvent(db, {
+			...expired.event,
+			now,
+			leaseExpiresAt,
+		});
+		sqlite.exec(`CREATE TRIGGER reject_billing_projection BEFORE UPDATE ON billing_accounts
+			BEGIN SELECT RAISE(ABORT, 'billing projection failed'); END`);
+		await expect(
+			applyStripeBillingWebhook(db, retry.event, {
+				...outdatedInput,
+				account: current.account,
+			}),
+		).rejects.toThrow("billing projection failed");
+		expect(
+			sqlite
+				.prepare(
+					"SELECT status, outcome FROM stripe_webhook_events WHERE event_id = ?",
+				)
+				.get(retry.event.eventId),
+		).toMatchObject({ status: "processing", outcome: null });
+		expect(await getBillingEntitlement(db, "org-1")).toEqual(current);
+		expect(current.account).toMatchObject({
+			status: "cancelled",
+			entitlementVersion: entitlement.account.entitlementVersion + 1,
+			stripeWebhookEventCreatedAt: 200,
+		});
+		expect(features()).toEqual(appliedFeatures);
 	});
 });
 

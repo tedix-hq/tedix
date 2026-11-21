@@ -1,11 +1,18 @@
 /** Canonical billing stripe-webhooks queries. */
 
-import { and, eq, gt, lte, or, sql } from "drizzle-orm";
+import { and, eq, exists, gt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
+	type BillingAccount,
+	billingAccounts,
 	type StripeWebhookEvent,
 	stripeWebhookEvents,
 } from "../../schema/billing";
+import { buildApplyOrganizationPlanFeaturesStatement } from "../organizations";
+import {
+	buildUpdateStripeBillingAccountStatement,
+	requireActiveBillingPlan,
+} from "./plans";
 
 export async function claimStripeWebhookEvent(
 	db: DbClient,
@@ -82,15 +89,30 @@ export async function hasNewerProcessedStripeWebhookEvent(
 	return Boolean(newer);
 }
 
-export async function markStripeWebhookEventProcessed(
+type StripeWebhookLease = Pick<StripeWebhookEvent, "eventId" | "attemptCount">;
+export type StripeBillingWebhookOutcome = "applied" | "skipped_stale";
+
+function ownsStripeWebhookLease(lease: StripeWebhookLease) {
+	return and(
+		eq(stripeWebhookEvents.eventId, lease.eventId),
+		eq(stripeWebhookEvents.status, "processing"),
+		eq(stripeWebhookEvents.attemptCount, lease.attemptCount),
+		gt(
+			stripeWebhookEvents.leaseExpiresAt,
+			sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+		),
+	);
+}
+
+function buildMarkStripeWebhookEventProcessedStatement(
 	db: DbClient,
-	input: {
-		eventId: string;
-		outcome: string;
+	input: StripeWebhookLease & {
+		outcome: string | SQL;
 		now: string;
 	},
-): Promise<void> {
-	await db
+	guard?: SQL,
+) {
+	return db
 		.update(stripeWebhookEvents)
 		.set({
 			status: "processed",
@@ -100,18 +122,136 @@ export async function markStripeWebhookEventProcessed(
 			processedAt: input.now,
 			updatedAt: input.now,
 		})
-		.where(
+		.where(and(ownsStripeWebhookLease(input), guard));
+}
+
+export async function markStripeWebhookEventProcessed(
+	db: DbClient,
+	input: StripeWebhookLease & { outcome: string; now: string },
+): Promise<boolean> {
+	const [processed] = await buildMarkStripeWebhookEventProcessedStatement(
+		db,
+		input,
+	).returning({ eventId: stripeWebhookEvents.eventId });
+	return Boolean(processed);
+}
+
+type StripeBillingWebhookProjection = Omit<
+	Parameters<typeof buildUpdateStripeBillingAccountStatement>[1],
+	| "organizationId"
+	| "planVersionId"
+	| "billingMode"
+	| "stripeWebhookCustomerKey"
+	| "stripeWebhookEventCreatedAt"
+> & {
+	account: Pick<
+		BillingAccount,
+		| "organizationId"
+		| "entitlementVersion"
+		| "stripeCustomerId"
+		| "stripeEnvironment"
+	>;
+	planKey: Parameters<typeof requireActiveBillingPlan>[1];
+	stripeEnvironment: "live" | "test";
+	stripeCustomerId: string;
+	applyPlanFeatures: boolean;
+};
+
+export async function applyStripeBillingWebhook(
+	db: DbClient,
+	receipt: StripeWebhookLease & Pick<StripeWebhookEvent, "eventCreatedAt">,
+	input: StripeBillingWebhookProjection,
+): Promise<StripeBillingWebhookOutcome> {
+	const { organizationId } = input.account;
+	const customerKey = `${input.stripeEnvironment}:${input.stripeCustomerId}`;
+	const plan = await requireActiveBillingPlan(db, input.planKey, input.now);
+	const account = () =>
+		db
+			.select({ organizationId: billingAccounts.organizationId })
+			.from(billingAccounts);
+	const stale = exists(
+		account().where(
 			and(
-				eq(stripeWebhookEvents.eventId, input.eventId),
-				eq(stripeWebhookEvents.status, "processing"),
+				eq(billingAccounts.organizationId, organizationId),
+				eq(billingAccounts.stripeWebhookCustomerKey, customerKey),
+				gt(billingAccounts.stripeWebhookEventCreatedAt, receipt.eventCreatedAt),
 			),
-		);
+		),
+	);
+	const snapshotMatches = exists(
+		account().where(
+			and(
+				eq(billingAccounts.organizationId, organizationId),
+				eq(
+					billingAccounts.entitlementVersion,
+					input.account.entitlementVersion,
+				),
+				sql`${billingAccounts.stripeCustomerId} IS ${input.account.stripeCustomerId}`,
+				sql`${billingAccounts.stripeEnvironment} IS ${input.account.stripeEnvironment}`,
+			),
+		),
+	);
+	// Only this transaction can see "applying". The first statement checks the
+	// live lease; the remaining statements use that decision for every write.
+	const applying = and(
+		eq(stripeWebhookEvents.eventId, receipt.eventId),
+		eq(stripeWebhookEvents.attemptCount, receipt.attemptCount),
+		eq(stripeWebhookEvents.status, "processed"),
+		eq(stripeWebhookEvents.outcome, "applying"),
+	);
+	const admitted = exists(
+		db
+			.select({ eventId: stripeWebhookEvents.eventId })
+			.from(stripeWebhookEvents)
+			.where(applying),
+	);
+	const begin = buildMarkStripeWebhookEventProcessedStatement(
+		db,
+		{
+			...receipt,
+			now: input.now,
+			outcome: sql`CASE WHEN ${stale} THEN 'skipped_stale' ELSE 'applying' END`,
+		},
+		or(stale, snapshotMatches),
+	).returning({ outcome: stripeWebhookEvents.outcome });
+	const updateAccount = buildUpdateStripeBillingAccountStatement(
+		db,
+		{
+			...input,
+			organizationId,
+			planVersionId: plan.id,
+			billingMode: "stripe",
+			stripeWebhookCustomerKey: customerKey,
+			stripeWebhookEventCreatedAt: receipt.eventCreatedAt,
+		},
+		admitted,
+	);
+	const finish = db
+		.update(stripeWebhookEvents)
+		.set({ outcome: "applied" })
+		.where(applying);
+	const [processed] = await (input.applyPlanFeatures
+		? db.batch([
+				begin,
+				buildApplyOrganizationPlanFeaturesStatement(
+					db,
+					organizationId,
+					input.planKey,
+					input.now,
+					admitted,
+				),
+				updateAccount,
+				finish,
+			])
+		: db.batch([begin, updateAccount, finish]));
+	if (!processed[0])
+		throw new Error("Stripe webhook lease or billing account changed");
+	return processed[0].outcome === "skipped_stale" ? "skipped_stale" : "applied";
 }
 
 export async function markStripeWebhookEventFailed(
 	db: DbClient,
-	input: {
-		eventId: string;
+	input: StripeWebhookLease & {
 		error: string;
 		now: string;
 	},
@@ -124,10 +264,5 @@ export async function markStripeWebhookEventFailed(
 			lastError: input.error.slice(0, 2_000),
 			updatedAt: input.now,
 		})
-		.where(
-			and(
-				eq(stripeWebhookEvents.eventId, input.eventId),
-				eq(stripeWebhookEvents.status, "processing"),
-			),
-		);
+		.where(ownsStripeWebhookLease(input));
 }

@@ -125,6 +125,8 @@ export const billingAccounts = sqliteTable(
 		stripeCancelAtPeriodEnd: integer("stripe_cancel_at_period_end", {
 			mode: "boolean",
 		}),
+		stripeWebhookCustomerKey: text("stripe_webhook_customer_key"),
+		stripeWebhookEventCreatedAt: integer("stripe_webhook_event_created_at"),
 		periodStart: text("period_start").notNull(),
 		periodEnd: text("period_end").notNull(),
 		/**

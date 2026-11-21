@@ -22,15 +22,15 @@ import {
 	getBillingEntitlement,
 	getBillingEntitlementByStripeCustomerId,
 	linkBillingAccountStripeCustomerIfUnbound,
-	provisionBillingAccount,
 } from "@tedix/db/queries/billing/plans";
 import {
+	applyStripeBillingWebhook,
 	claimStripeWebhookEvent,
 	hasNewerProcessedStripeWebhookEvent,
 	markStripeWebhookEventFailed,
 	markStripeWebhookEventProcessed,
+	type StripeBillingWebhookOutcome,
 } from "@tedix/db/queries/billing/stripe-webhooks";
-import { applyOrganizationPlanFeatures } from "@tedix/db/queries/organizations";
 import type { Context } from "hono";
 import type Stripe from "stripe";
 import {
@@ -51,6 +51,8 @@ import {
 	stripeInvoiceSubscriptionId,
 	stripeSubscriptionPeriod,
 } from "../lib/stripe-billing";
+
+type StripeBillingReceipt = Parameters<typeof applyStripeBillingWebhook>[1];
 
 const STRIPE_WEBHOOK_LEASE_MS = 5 * 60 * 1_000;
 
@@ -215,15 +217,18 @@ export async function handleStripeWebhook(
 				eventId: receipt.event.eventId,
 			})
 		) {
-			await markStripeWebhookEventProcessed(db, {
+			const processed = await markStripeWebhookEventProcessed(db, {
 				eventId: receipt.event.eventId,
+				attemptCount: receipt.event.attemptCount,
 				outcome: "skipped_stale",
 				now: new Date().toISOString(),
 			});
+			if (!processed) throw new Error("Stripe webhook lease expired");
 			return c.json({ received: true, stale: true });
 		}
 
 		let outcome = "applied";
+		let billingOutcome: StripeBillingWebhookOutcome | null | undefined;
 		switch (event.type) {
 			case "checkout.session.completed": {
 				const session = event.data.object as Stripe.Checkout.Session;
@@ -235,7 +240,13 @@ export async function handleStripeWebhook(
 						stripeEnvironment,
 					);
 				} else {
-					await handleCheckoutCompleted(db, stripe, session, stripeEnvironment);
+					billingOutcome = await handleCheckoutCompleted(
+						db,
+						receipt.event,
+						stripe,
+						session,
+						stripeEnvironment,
+					);
 				}
 				break;
 			}
@@ -260,8 +271,9 @@ export async function handleStripeWebhook(
 			case "customer.subscription.created":
 			case "customer.subscription.updated": {
 				const subscription = event.data.object as Stripe.Subscription;
-				await handleSubscriptionUpdated(
+				billingOutcome = await handleSubscriptionUpdated(
 					db,
+					receipt.event,
 					stripe,
 					subscription,
 					stripeEnvironment,
@@ -270,17 +282,34 @@ export async function handleStripeWebhook(
 			}
 			case "customer.subscription.deleted": {
 				const subscription = event.data.object as Stripe.Subscription;
-				await handleSubscriptionDeleted(db, subscription, stripeEnvironment);
+				billingOutcome = await handleSubscriptionDeleted(
+					db,
+					receipt.event,
+					subscription,
+					stripeEnvironment,
+				);
 				break;
 			}
 			case "invoice.payment_failed": {
 				const invoice = event.data.object as Stripe.Invoice;
-				await handlePaymentFailed(db, stripe, invoice, stripeEnvironment);
+				billingOutcome = await handlePaymentFailed(
+					db,
+					receipt.event,
+					stripe,
+					invoice,
+					stripeEnvironment,
+				);
 				break;
 			}
 			case "invoice.paid": {
 				const invoice = event.data.object as Stripe.Invoice;
-				await handleInvoicePaid(db, stripe, invoice, stripeEnvironment);
+				billingOutcome = await handleInvoicePaid(
+					db,
+					receipt.event,
+					stripe,
+					invoice,
+					stripeEnvironment,
+				);
 				break;
 			}
 			default:
@@ -300,11 +329,20 @@ export async function handleStripeWebhook(
 					console.log(`Unhandled Stripe event: ${event.type}`);
 				}
 		}
-		await markStripeWebhookEventProcessed(db, {
+		if (billingOutcome) {
+			return c.json(
+				billingOutcome === "skipped_stale"
+					? { received: true, stale: true }
+					: { received: true },
+			);
+		}
+		const processed = await markStripeWebhookEventProcessed(db, {
 			eventId: receipt.event.eventId,
+			attemptCount: receipt.event.attemptCount,
 			outcome,
 			now: new Date().toISOString(),
 		});
+		if (!processed) throw new Error("Stripe webhook lease expired");
 	} catch (err) {
 		const exception = await safeWebhookException(err);
 		console.error(
@@ -317,6 +355,7 @@ export async function handleStripeWebhook(
 		);
 		await markStripeWebhookEventFailed(db, {
 			eventId: receipt.event.eventId,
+			attemptCount: receipt.event.attemptCount,
 			error: stripeFailureReceipt(exception),
 			now: new Date().toISOString(),
 		});
@@ -450,6 +489,7 @@ async function handleCreditTopUpCheckoutCompleted(
 
 async function handleCheckoutCompleted(
 	db: ReturnType<typeof createDbClient>,
+	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	session: Stripe.Checkout.Session,
 	stripeEnvironment: StripeEnvironment,
@@ -484,19 +524,22 @@ async function handleCheckoutCompleted(
 	if (!resolved) {
 		throw new Error(`Checkout session ${session.id} has no Tedix plan price`);
 	}
-	const syncedOrganizationId = await syncSubscriptionState(
+	const outcome = await syncSubscriptionState(
 		db,
+		receipt,
 		subscription,
 		resolved.plan.planKey,
 		resolved.item,
 		stripeEnvironment,
 		orgId,
+		true,
 	);
-	if (syncedOrganizationId !== orgId) {
+	if (!outcome) {
 		throw new Error(
 			`Checkout session ${session.id} could not bind its intended billing account`,
 		);
 	}
+	return outcome;
 }
 
 function billingSubscriptionStatus(
@@ -519,12 +562,14 @@ export function stripeSubscriptionHasActiveEntitlement(
 
 async function syncSubscriptionState(
 	db: ReturnType<typeof createDbClient>,
+	receipt: StripeBillingReceipt,
 	subscription: Stripe.Subscription,
 	tier: "starter" | "growth" | "business" | "enterprise",
-	planItem?: Stripe.SubscriptionItem,
-	stripeEnvironment: StripeEnvironment = "live",
-	metadataOrganizationId?: string,
-): Promise<string | null> {
+	planItem: Stripe.SubscriptionItem | undefined,
+	stripeEnvironment: StripeEnvironment,
+	metadataOrganizationId: string | undefined,
+	requireMetadataOrganization = false,
+) {
 	const customerId =
 		typeof subscription.customer === "string"
 			? subscription.customer
@@ -554,7 +599,11 @@ async function syncSubscriptionState(
 	) {
 		return null;
 	}
-	const organizationId = entitlement.account.organizationId;
+	if (
+		requireMetadataOrganization &&
+		entitlement.account.organizationId !== metadataOrganizationId
+	)
+		return null;
 	const period = stripeSubscriptionPeriod(planItem);
 	// An annual provider subscription still has monthly included-credit windows.
 	if (
@@ -574,12 +623,11 @@ async function syncSubscriptionState(
 		}
 	}
 
-	await applyOrganizationPlanFeatures(db, organizationId, tier);
-	await provisionBillingAccount(db, {
-		organizationId,
+	return applyStripeBillingWebhook(db, receipt, {
+		account: entitlement.account,
+		applyPlanFeatures: true,
 		planKey: tier,
 		status: billingSubscriptionStatus(subscription.status),
-		billingMode: "stripe",
 		stripeEnvironment,
 		stripeCustomerId: customerId,
 		stripeSubscriptionId: subscription.id,
@@ -592,11 +640,11 @@ async function syncSubscriptionState(
 			stripeEnvironment,
 		},
 	});
-	return organizationId;
 }
 
 async function handleSubscriptionUpdated(
 	db: ReturnType<typeof createDbClient>,
+	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	eventSubscription: Stripe.Subscription,
 	stripeEnvironment: StripeEnvironment,
@@ -618,8 +666,9 @@ async function handleSubscriptionUpdated(
 		}
 		return;
 	}
-	await syncSubscriptionState(
+	return syncSubscriptionState(
 		db,
+		receipt,
 		subscription,
 		resolved.plan.planKey,
 		resolved.item,
@@ -630,6 +679,7 @@ async function handleSubscriptionUpdated(
 
 async function handleSubscriptionDeleted(
 	db: ReturnType<typeof createDbClient>,
+	receipt: StripeBillingReceipt,
 	subscription: Stripe.Subscription,
 	stripeEnvironment: StripeEnvironment,
 ) {
@@ -652,30 +702,25 @@ async function handleSubscriptionDeleted(
 		return;
 	}
 
-	await applyOrganizationPlanFeatures(
-		db,
-		entitlement.account.organizationId,
-		"starter",
-	);
-	const now = new Date();
-	await provisionBillingAccount(db, {
-		organizationId: entitlement.account.organizationId,
+	return applyStripeBillingWebhook(db, receipt, {
+		account: entitlement.account,
+		applyPlanFeatures: true,
 		planKey: "starter",
 		status: "cancelled",
-		billingMode: "stripe",
 		stripeEnvironment,
 		stripeCustomerId: customerId,
 		stripeSubscriptionId: subscription.id,
 		stripeCancelAtPeriodEnd: false,
 		periodStart: entitlement.account.periodStart,
 		periodEnd: entitlement.account.periodEnd,
-		now: now.toISOString(),
+		now: new Date().toISOString(),
 		metadata: { stripeStatus: subscription.status, stripeEnvironment },
 	});
 }
 
 async function handlePaymentFailed(
 	db: ReturnType<typeof createDbClient>,
+	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	eventInvoice: Stripe.Invoice,
 	stripeEnvironment: StripeEnvironment,
@@ -709,11 +754,11 @@ async function handlePaymentFailed(
 				return;
 			}
 		}
-		await provisionBillingAccount(db, {
-			organizationId: entitlement.account.organizationId,
+		return applyStripeBillingWebhook(db, receipt, {
+			account: entitlement.account,
+			applyPlanFeatures: false,
 			planKey: entitlement.plan.planKey,
 			status: "past_due",
-			billingMode: "stripe",
 			stripeEnvironment,
 			stripeCustomerId: customerId,
 			stripeSubscriptionId: subscriptionId,
@@ -731,6 +776,7 @@ async function handlePaymentFailed(
 
 async function handleInvoicePaid(
 	db: ReturnType<typeof createDbClient>,
+	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	invoice: Stripe.Invoice,
 	stripeEnvironment: StripeEnvironment,
@@ -770,8 +816,9 @@ async function handleInvoicePaid(
 	const tier = resolved.plan.planKey;
 	// Included credits come with the active period itself; a paid invoice
 	// only keeps the subscription state current.
-	await syncSubscriptionState(
+	return syncSubscriptionState(
 		db,
+		receipt,
 		subscription,
 		tier,
 		resolved.item,
