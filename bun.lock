@@ -706,7 +706,7 @@
     },
     "packages/cli": {
       "name": "@tedix/cli",
-      "version": "0.29.15",
+      "version": "0.29.16",
       "bin": {
         "tedix": "./src/index.ts",
       },

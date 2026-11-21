@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.16 — 2026-11-21
+
+### Patch Changes
+
+- ec91307: Settle inaccessible verification as landed, not verified, without retrying. Send one check with its deployment locations to the owner's lead agent or own tedi, falling back to the owner, and count it separately in the runner scorecard.
+
 ## 0.29.15 — 2026-11-21
 
 ### Patch Changes
