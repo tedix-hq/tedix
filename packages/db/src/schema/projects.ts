@@ -47,7 +47,7 @@ export const projects = sqliteTable(
 			.notNull()
 			.default("active"),
 
-		/** Accountable digital worker for the project — null when unassigned. */
+		/** Accountable tedi for the project — null when unassigned. */
 		leadTediId: text("lead_tedi_id").references(() => tedis.id, {
 			onDelete: "set null",
 		}),

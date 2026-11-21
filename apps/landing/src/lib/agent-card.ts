@@ -42,7 +42,7 @@ export const tedixAgentCard = {
 	defaultOutputModes: ["text/plain", "application/json"],
 	skills: [
 		{
-			id: "coordinate-digital-workers",
+			id: "coordinate-agents",
 			name: "Coordinate People and AI Agents",
 			description:
 				"Ask Home to coordinate a task, see who is doing what, and find the results.",

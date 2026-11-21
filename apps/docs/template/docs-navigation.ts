@@ -44,7 +44,7 @@ export const tedixDocsSidebarItems = [
 		items: ["troubleshooting"],
 	},
 	{
-		label: "Work with digital workers",
+		label: "Work with tedis",
 		collapsed: true,
 		items: [
 			"workers-and-governance",

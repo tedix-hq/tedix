@@ -47,8 +47,7 @@ export const tediAppAssignmentsContract = oc
 				method: "GET",
 				path: "/by-app/{appId}",
 				summary: "List tedi assignments for an app",
-				description:
-					"List digital workers assigned to an organization-owned app.",
+				description: "List tedis assigned to an organization-owned app.",
 			})
 			.input(ListAssignmentsByAppInputSchema)
 			.output(z.object({ data: z.array(TediAppAssignmentSchema) })),
@@ -62,8 +61,7 @@ export const tediAppAssignmentsContract = oc
 				method: "GET",
 				path: "/by-tedi/{tediId}",
 				summary: "List app assignments for a tedi",
-				description:
-					"List app assignments for an organization-owned digital worker.",
+				description: "List app assignments for an organization-owned tedi.",
 			})
 			.input(ListAssignmentsByTediInputSchema)
 			.output(z.object({ data: z.array(TediAppAssignmentSchema) })),
@@ -219,7 +217,7 @@ export const tediAppAssignmentsContract = oc
 				path: "" as `/${string}`,
 				summary: "Assign a tedi to an app",
 				description:
-					"Assign an organization-owned digital worker to an organization-owned app. The response carries `aihClientSync`: the FGA grant always succeeds, but the Descope AIH client sync can be `skipped` when the app has no MCP resource, and the caller must read that field rather than assume MCP access now works.",
+					"Assign an organization-owned tedi to an organization-owned app. The response carries `aihClientSync`: the FGA grant always succeeds, but the Descope AIH client sync can be `skipped` when the app has no MCP resource, and the caller must read that field rather than assume MCP access now works.",
 				successStatus: 201,
 			})
 			.input(CreateTediAppAssignmentInputSchema)

@@ -56,7 +56,7 @@ import { Surface } from "@/components/kumo/surface";
 
 const GROUP_LABELS: Record<PermissionGroup, string> = {
 	apps: "Apps",
-	tedis: "Digital workers",
+	tedis: "Tedis",
 	os: "OS",
 	team: "Organization",
 	billing: "Billing",
@@ -333,7 +333,7 @@ export function TeamRolesPanel() {
 					</CardTitle>
 					<CardDescription>
 						What each scope permits when it is granted to an API key, an OAuth
-						client, or a digital worker. Enforced on every MCP request.
+						client, or a tedi. Enforced on every MCP request.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>

@@ -95,7 +95,7 @@ describe("Nimbus documentation navigation", () => {
 		expect(docsSidebarItems.map((group) => group.label)).toEqual([
 			"Start",
 			"Troubleshoot",
-			"Work with digital workers",
+			"Work with tedis",
 			"Publish with Tedix",
 			"Install and operate",
 			"For agents and maintainers",

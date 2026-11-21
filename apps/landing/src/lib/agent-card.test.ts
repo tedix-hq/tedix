@@ -33,7 +33,7 @@ describe("Tedix public Agent Card", () => {
 
 	it("advertises only deliberately public platform skills", () => {
 		expect(tedixAgentCard.skills.map(({ id }) => id)).toEqual([
-			"coordinate-digital-workers",
+			"coordinate-agents",
 			"discover-mcp-apps",
 		]);
 		expect(JSON.stringify(tedixAgentCard)).not.toMatch(

@@ -602,7 +602,7 @@ export function TediAuthority({ tediId }: { tediId: string }) {
 				<SectionHeading>
 					<SectionTitle>Earned authority</SectionTitle>
 					<SectionDescription>
-						Delegation evidence and the limits this digital worker has earned.
+						Delegation evidence and the limits this tedi has earned.
 					</SectionDescription>
 				</SectionHeading>
 				{currentProfile ? (

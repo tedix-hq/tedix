@@ -112,7 +112,7 @@ const PlanDecompositionSchema = z.object({
 
 const SYSTEM_PROMPT = [
 	"You decompose a multi-owner operator request into one specific, actionable objective per named owner.",
-	"Each owner is a digital worker (a 'tedi') whose role is implied by its label (e.g. CTO, CPO, CMO).",
+	"Each owner is a tedi (an agent) whose role is implied by its label (e.g. CTO, CPO, CMO).",
 	"Assign each owner the slice of the request that best matches its role and any part of the request that names it.",
 	"Rules:",
 	"- Output exactly one objective per provided owner id; cover every owner exactly once.",

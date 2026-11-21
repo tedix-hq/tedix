@@ -39,11 +39,11 @@ export function useCanDeleteTedis(): boolean {
 }
 
 export const TEDIS_CREATE_DENIED_REASON =
-	"Launching a digital worker requires the Create tedis permission.";
+	"Launching a tedi requires the Create tedis permission.";
 export const TEDIS_MANAGE_DENIED_REASON =
-	"Changing digital-worker settings requires the Update tedis permission.";
+	"Changing tedi settings requires the Update tedis permission.";
 export const TEDIS_DELETE_DENIED_REASON =
-	"Retiring a digital worker requires the Delete tedis permission.";
+	"Retiring a tedi requires the Delete tedis permission.";
 export const TEDI_SECRETS_UNKNOWN_REASON =
 	"Credential presence is unknown for this identity; reading secrets requires Manage secrets or Read tools permission.";
 export const TEDI_SECRETS_MANAGE_DENIED_REASON =

@@ -32,7 +32,7 @@ export const DOCS_SEARCH_SCORECARD: readonly SearchScorecardCase[] = [
 	},
 	{
 		task: "create or run a worker",
-		query: "run a digital worker",
+		query: "run a tedi",
 		expectedRoute: "/learning-paths/first-worker/",
 	},
 	{

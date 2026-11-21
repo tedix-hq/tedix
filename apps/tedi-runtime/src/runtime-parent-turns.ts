@@ -881,7 +881,7 @@ export const runtimeParentTurns = {
 		}
 	},
 	getSystemPrompt(this: RuntimeParentTurnsHost): string {
-		return this.state.systemPrompt || "You are a Tedix digital worker.";
+		return this.state.systemPrompt || "You are a Tedix agent (a tedi).";
 	},
 	/** Public facet gate; cancellation reads must fail closed before inference. */
 	async assertChatTurnActive(

@@ -563,7 +563,7 @@ export const OWNER_BRIEF = {
 		version: 3,
 		status: "active" as const,
 		purpose:
-			"Give this organization digital workers it truly owns: durable, governed operators that execute, learn from outcomes, and stay steerable without constant supervision.",
+			"Give this organization tedis it truly owns: durable, governed operators that execute, learn from outcomes, and stay steerable without constant supervision.",
 		principles: [
 			"Evidence over assertion — every decision cites what it was based on.",
 			"Reversible first: prefer the change that can be undone cheaply.",

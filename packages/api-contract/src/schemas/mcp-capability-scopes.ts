@@ -87,7 +87,7 @@ import { DOCS_TOOL_SCOPES } from "../contracts/docs-tool-scopes";
  * These are registered in Descope and assigned to Descope policies.
  */
 export const MCP_CAPABILITY_SCOPES = {
-	"mcp:tedis": "Manage your digital workers",
+	"mcp:tedis": "Manage your tedis",
 	"mcp:apps": "Manage MCP apps",
 	"mcp:memory": "Access tedi memory & knowledge",
 	"mcp:skills": "Manage org skills and executable skill workflows",
@@ -102,9 +102,9 @@ export const MCP_CAPABILITY_SCOPES = {
 export type McpCapabilityScopeName = keyof typeof MCP_CAPABILITY_SCOPES;
 
 export const MCP_GRANULAR_CAPABILITY_SCOPES = {
-	"mcp:tedis.read": "View digital workers",
-	"mcp:tedis.write": "Operate digital workers",
-	"mcp:tedis.admin": "Administer digital workers",
+	"mcp:tedis.read": "View tedis",
+	"mcp:tedis.write": "Operate tedis",
+	"mcp:tedis.admin": "Administer tedis",
 	"mcp:apps.read": "View MCP apps and tool configuration",
 	"mcp:apps.write": "Create and update MCP apps and tools",
 	"mcp:apps.admin": "Delete apps, rotate credentials, and change app security",
@@ -315,7 +315,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	theme_artifact_seed_status: "mcp:content",
 	theme_artifact_seed_cancel: "mcp:content",
 	// A tedi's durable workspace and repository projection are part of operating
-	// that digital worker. These direct MCP tools do not share the `tedi_`
+	// that tedi. These direct MCP tools do not share the `tedi_`
 	// prefix, so the aggregate Code Mode gate otherwise fails closed before the
 	// credential-bound tedi runtime can enforce its narrower per-tool scopes.
 	repo_load: "mcp:tedis",

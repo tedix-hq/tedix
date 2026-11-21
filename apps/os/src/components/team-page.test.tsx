@@ -537,11 +537,11 @@ describe("TeamPage", () => {
 		const container = renderPage();
 		await flush();
 		const input = container.querySelector<HTMLInputElement>(
-			'input[aria-label="Search digital workers"]',
+			'input[aria-label="Search tedis"]',
 		);
 		expect(input?.closest('[data-slot="page-toolbar"]')).not.toBeNull();
 		expect(
-			container.querySelector('[aria-label="Filter digital worker status"]'),
+			container.querySelector('[aria-label="Filter tedi status"]'),
 		).not.toBeNull();
 		expect(container.textContent).not.toContain("51 results");
 		expect(container.textContent).toContain("Showing 1–50 of 51 tedis");
@@ -565,7 +565,7 @@ describe("TeamPage", () => {
 			expect.anything(),
 		);
 		const activeInput = container.querySelector<HTMLInputElement>(
-			'input[aria-label="Search digital workers"]',
+			'input[aria-label="Search tedis"]',
 		);
 		await act(async () => {
 			const setValue = Object.getOwnPropertyDescriptor(

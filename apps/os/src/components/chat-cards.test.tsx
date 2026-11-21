@@ -458,7 +458,7 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 					LinkComponent={StubLink}
 				/>,
 			);
-			expect(html).toContain("a digital worker");
+			expect(html).toContain("a tedi");
 			expect(html).not.toContain(TEDI_ID.slice(0, 8));
 			expect(html).toContain(`href="/work/executions/${RUN_ID}"`);
 		},
@@ -1715,7 +1715,7 @@ describe("live delegation card", () => {
 		const html = renderToStaticMarkup(
 			<DelegationSummaryRow work={work} LinkComponent={StubLink} />,
 		);
-		expect(html).toContain("A digital worker finished in 8m 03s<");
+		expect(html).toContain("A tedi finished in 8m 03s<");
 		expect(html).not.toContain("$0.0042");
 	});
 
@@ -1767,7 +1767,7 @@ describe("live delegation card", () => {
 		const html = renderToStaticMarkup(
 			<DelegationSummaryRow work={work} LinkComponent={StubLink} />,
 		);
-		expect(html).toContain("A digital worker was blocked in 2m 07s");
+		expect(html).toContain("A tedi was blocked in 2m 07s");
 	});
 
 	it("shows a small settled charge as <1% rather than zero", () => {

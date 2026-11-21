@@ -728,8 +728,7 @@ export function DelegationWorkCard({
 	pending?: boolean;
 }) {
 	const active = work.status === "queued" || work.status === "running";
-	const who =
-		sanitizeUntrustedText(tediName ?? "").trim() || "a digital worker";
+	const who = sanitizeUntrustedText(tediName ?? "").trim() || "a tedi";
 	const stalled = live?.phase === "stalled";
 	const step = work.failure
 		? plainFailure({ ...work.failure, who })
@@ -980,8 +979,7 @@ export function DelegationSummaryRow({
 	tediName?: string | null;
 	LinkComponent?: ComponentType<CardRunLinkProps>;
 }) {
-	const who =
-		sanitizeUntrustedText(tediName ?? "").trim() || "A digital worker";
+	const who = sanitizeUntrustedText(tediName ?? "").trim() || "A tedi";
 	const timing = work.timing;
 	const duration = timing
 		? formatDurationBetween(

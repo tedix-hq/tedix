@@ -12,7 +12,7 @@
 
 ## Brand Identity
 
-**Company**: Tedix — AI digital workers for business
+**Company**: Tedix — agents for business
 **Tone**: Professional but human. Enterprise-grade without being corporate stiff. Warm, confident, approachable.
 **Audience**: Corporate decision-makers, enterprise teams, founders who need AI that works.
 

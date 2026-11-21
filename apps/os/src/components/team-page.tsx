@@ -637,7 +637,7 @@ function TediRosterPanel({
 					className="grid grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-2 lg:flex"
 				>
 					<SearchInput
-						aria-label="Search digital workers"
+						aria-label="Search tedis"
 						placeholder="Search tedis"
 						maxLength={200}
 						containerClassName="w-full lg:max-w-md"
@@ -657,7 +657,7 @@ function TediRosterPanel({
 						}}
 					>
 						<SelectTrigger
-							aria-label="Filter digital worker status"
+							aria-label="Filter tedi status"
 							className="w-full lg:w-44"
 						>
 							<SelectValue>
@@ -683,7 +683,7 @@ function TediRosterPanel({
 					<Empty
 						appearance="quiet"
 						icon={<MagnifyingGlass size={20} />}
-						title="No digital workers match"
+						title="No tedis match"
 						description="Try another name, slug, role, or status."
 						contents={
 							<Button

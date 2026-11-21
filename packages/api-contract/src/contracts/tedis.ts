@@ -398,7 +398,7 @@ export const tedisContract = oc
 				method: "GET",
 				path: "/{tediId}",
 				summary: "Get tedi",
-				description: "Get one digital worker in the caller's organization.",
+				description: "Get one tedi in the caller's organization.",
 			})
 			.input(TediIdParamSchema)
 			.output(TediSchema),
@@ -422,7 +422,7 @@ export const tedisContract = oc
 				path: "" as `/${string}`,
 				summary: "Create tedi",
 				description:
-					"Create and provision a digital worker in the caller's organization.",
+					"Create and provision a tedi in the caller's organization.",
 				successStatus: 201,
 			})
 			.input(CreateTediInputSchema)
@@ -435,7 +435,7 @@ export const tedisContract = oc
 				path: "/{tediId}",
 				summary: "Update tedi",
 				description:
-					"Update the identity and governed configuration of an organization-owned digital worker.",
+					"Update the identity and governed configuration of an organization-owned tedi.",
 			})
 			.input(TediIdParamSchema.extend(UpdateTediInputSchema.shape))
 			.output(TediSchema),
@@ -447,7 +447,7 @@ export const tedisContract = oc
 				path: "/{tediId}",
 				summary: "Delete (retire) tedi",
 				description:
-					"Retire an organization-owned digital worker through the supported lifecycle path. The worker stops immediately — its Descope identity, FGA grants and AIH MCP server are purged, its runtime is archived, and its slug is freed for a replacement — but its row is retained, so its memory, rationale, skills, artifacts, growth history and audit trail are NOT destroyed. List them again with tedis.list?includeRetired=true. Destroying that cognitive state requires the platform-admin tedis.decommission hardPurge path.",
+					"Retire an organization-owned tedi through the supported lifecycle path. The worker stops immediately — its Descope identity, FGA grants and AIH MCP server are purged, its runtime is archived, and its slug is freed for a replacement — but its row is retained, so its memory, rationale, skills, artifacts, growth history and audit trail are NOT destroyed. List them again with tedis.list?includeRetired=true. Destroying that cognitive state requires the platform-admin tedis.decommission hardPurge path.",
 			})
 			.input(TediIdParamSchema)
 			.output(SuccessResponseSchema),
@@ -508,7 +508,7 @@ export const tedisContract = oc
 				path: "/{tediId}/status",
 				summary: "Get tedi runtime status",
 				description:
-					"Read the current runtime status of an organization-owned digital worker.",
+					"Read the current runtime status of an organization-owned tedi.",
 			})
 			.input(TediIdParamSchema)
 			.output(TediRuntimeStatusSchema),

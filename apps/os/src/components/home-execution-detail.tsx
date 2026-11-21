@@ -75,7 +75,7 @@ import {
 import { useCreditShare } from "@/lib/use-credit-share";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
-const DIGITAL_WORKER = "Digital worker";
+const UNNAMED_TEDI = "Tedi";
 
 function safeText(value: unknown): string | null {
 	return typeof value === "string" && value.trim()
@@ -470,7 +470,7 @@ export function HomeExecutionDetailView({
 	const delegation = asRecord(metadata?.homeDelegation);
 	const workOrder = asRecord(delegation?.workOrder);
 	const proof = asRecord(metadata?.delegationProof);
-	const nameOfTedi = (tediId: string) => tediNames[tediId] ?? DIGITAL_WORKER;
+	const nameOfTedi = (tediId: string) => tediNames[tediId] ?? UNNAMED_TEDI;
 	const nameOfBranch = (childRunId: string) => {
 		const branch = trace.branches.find(
 			(candidate) => candidate.childRunId === childRunId,
@@ -753,7 +753,7 @@ export function HomeExecutionDetailView({
 							run={run}
 							now={now}
 							evidence={evidence}
-							tediName={selectedTedi ?? DIGITAL_WORKER}
+							tediName={selectedTedi ?? UNNAMED_TEDI}
 						/>
 					) : null}
 					{selectedBranch && evidenceError ? (
