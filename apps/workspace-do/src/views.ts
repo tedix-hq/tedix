@@ -6,10 +6,8 @@
  * already uses; nothing here runs code or writes workspace data.
  */
 
-/** App whose generic `/r/<layout>` renderer serves generated views. */
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
-export const VIEW_APP_SLUG = "tedix-unified";
 export const MAX_VIEWS_PER_TURN = 3;
 export const MAX_VIEW_BYTES = 64 * 1024;
 
@@ -170,8 +168,17 @@ function usableLayoutSpec(spec: unknown): Record<string, unknown> | null {
 	return isRecord(elements) && isRecord(elements[spec.root]) ? spec : null;
 }
 
-/** Validate the model's input and shape the result the chat frame renders. */
-export function buildView(input: unknown, viewId: string): ShownView {
+/**
+ * Validate the model's input and shape the result the chat frame renders.
+ * `appSlug` is the workspace organization's own gateway app: the MCP host
+ * serves a person's session only for apps of the organization it was issued
+ * for, so a view addressed to another organization's app cannot load.
+ */
+export function buildView(
+	input: unknown,
+	viewId: string,
+	appSlug: string,
+): ShownView {
 	if (!isRecord(input)) throw new Error("views.show needs an input object");
 	const title =
 		typeof input.title === "string" && input.title.trim()
@@ -213,8 +220,8 @@ export function buildView(input: unknown, viewId: string): ShownView {
 		);
 	return {
 		viewId,
-		appSlug: VIEW_APP_SLUG,
-		resourceUri: `ui://widgets/mcp-app/${VIEW_APP_SLUG}/r/${slug(title)}.html`,
+		appSlug,
+		resourceUri: `ui://widgets/mcp-app/${appSlug}/r/${slug(title)}.html`,
 		title,
 		toolResult,
 	};

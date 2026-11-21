@@ -36,6 +36,7 @@ import {
 import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getOrganizationAgentDefaults } from "@tedix/db/queries/organizations";
+import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { guestMayUseMemory } from "./guest-memory";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
@@ -757,6 +758,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	>();
 	/** Views each running turn has put in its answer. */
 	readonly #viewsShown = new Map<string, number>();
+	/** The organization's gateway app slug, looked up on its first view. */
+	#viewApp: { organizationId: string; slug: string } | null = null;
 	readonly #waiters = new Map<string, Array<() => void>>();
 
 	constructor(ctx: DurableObjectState, env: WorkspaceEnv) {
@@ -4540,6 +4543,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					...view,
 				});
 			},
+			viewAppSlug: () => this.#viewAppSlug(scope.organizationId),
 			requestConnection,
 		});
 	}
@@ -5357,6 +5361,26 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				...this.#diagnostics(),
 			});
 		}
+	}
+
+	/**
+	 * Views load through the organization's own gateway app: the MCP host
+	 * refuses a person's session for an app of another organization.
+	 */
+	async #viewAppSlug(organizationId: string): Promise<string> {
+		if (this.#viewApp?.organizationId === organizationId)
+			return this.#viewApp.slug;
+		const gateway = (
+			await getOrganizationAggregatorGateways(createDbClient(this.env.DB), [
+				organizationId,
+			])
+		).get(organizationId);
+		if (!gateway)
+			throw new Error(
+				"This organization has no app gateway to show views; answer in text instead",
+			);
+		this.#viewApp = { organizationId, slug: gateway.slug };
+		return gateway.slug;
 	}
 
 	/**

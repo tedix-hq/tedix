@@ -15,9 +15,10 @@ describe("workspace views", () => {
 				],
 			},
 			"v1",
+			"acme-unified",
 		);
 		expect(view.resourceUri).toBe(
-			"ui://widgets/mcp-app/tedix-unified/r/open-work.html",
+			"ui://widgets/mcp-app/acme-unified/r/open-work.html",
 		);
 		const spec = view.toolResult.layoutSpec as {
 			root: string;
@@ -46,6 +47,7 @@ describe("workspace views", () => {
 		const facts = buildView(
 			{ title: "Totals", data: { open: 4, done: 9 } },
 			"v",
+			"acme-unified",
 		);
 		const spec = facts.toolResult.layoutSpec as {
 			elements: Record<string, { type: string }>;
@@ -56,21 +58,28 @@ describe("workspace views", () => {
 			elements: { r: { type: "Text", props: { text: "Hi" }, children: [] } },
 		};
 		expect(
-			buildView({ title: "Custom", data: {}, layoutSpec }, "v").toolResult
-				.layoutSpec,
+			buildView({ title: "Custom", data: {}, layoutSpec }, "v", "acme-unified")
+				.toolResult.layoutSpec,
 		).toEqual(layoutSpec);
 	});
 
 	test("bad input is refused with a reason the model can act on", () => {
-		expect(() => buildView({ data: {} }, "v")).toThrow("title");
-		expect(() => buildView({ title: "x", data: "text" }, "v")).toThrow("data");
+		expect(() => buildView({ data: {} }, "v", "acme-unified")).toThrow("title");
 		expect(() =>
-			buildView({ title: "x", data: {}, layoutSpec: { root: "a" } }, "v"),
+			buildView({ title: "x", data: "text" }, "v", "acme-unified"),
+		).toThrow("data");
+		expect(() =>
+			buildView(
+				{ title: "x", data: {}, layoutSpec: { root: "a" } },
+				"v",
+				"acme-unified",
+			),
 		).toThrow("layoutSpec");
 		expect(() =>
 			buildView(
 				{ title: "x", data: { blob: "a".repeat(MAX_VIEW_BYTES) } },
 				"v",
+				"acme-unified",
 			),
 		).toThrow("bytes");
 	});
@@ -84,6 +93,7 @@ describe("workspace views", () => {
 			actor: { id: "agent", kind: "tedi", organizationId: "o" },
 			source: { surface: "workspace_object", traceId: "t" },
 			showView: (view) => shown.push(view),
+			viewAppSlug: async () => "acme-unified",
 		});
 		const views = env.views as { show(input: unknown): Promise<unknown> };
 		const result = (await views.show({ title: "T", data: { a: 1 } })) as {
