@@ -151,6 +151,7 @@ beforeEach(() => {
 			"risk",
 			"budget",
 			"resources",
+			"task_contract",
 			"attempt",
 		].map((gate) => ({
 			gate,
@@ -241,7 +242,12 @@ describe("verified executor readiness", () => {
 		await expect(readiness()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 		expect(mocks.preview).not.toHaveBeenCalled();
 	});
-	it.each(["budget_blocked", "resource_blocked", "evaluation_required"])(
+	it.each([
+		"budget_blocked",
+		"resource_blocked",
+		"evaluation_required",
+		"task_contract_blocked",
+	])(
 		"retains %s and represents unevaluated actor gates honestly",
 		async (code) => {
 			mocks.preview.mockResolvedValue({
@@ -249,7 +255,12 @@ describe("verified executor readiness", () => {
 			});
 			const result = await readiness({ tediId: "tedi-1" });
 			expect(result).toMatchObject({ ready: false, state: code });
-			const gate = code === "budget_blocked" ? "budget" : "resources";
+			const gate =
+				code === "task_contract_blocked"
+					? "task_contract"
+					: code === "budget_blocked"
+						? "budget"
+						: "resources";
 			expect(result.gates.find((g) => g.gate === gate)).toMatchObject({
 				evaluation: code === "evaluation_required" ? "unknown" : "failed",
 				detail: "Canonical evaluator withheld execution",

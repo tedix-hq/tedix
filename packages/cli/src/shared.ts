@@ -155,6 +155,7 @@ export interface CliOptions {
 	workEvidence?: string;
 	/** `work accept`: plain-language --done-when text. */
 	workDoneWhen?: string;
+	workTaskContract?: string;
 	/** Structured Work factory procedure input: inline JSON or @path. */
 	workInput?: string;
 	workOutcome?: string;

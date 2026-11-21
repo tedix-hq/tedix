@@ -1,3 +1,4 @@
+import { getAdmittedTaskContract } from "./task-contract";
 import { CreateWorkItemInputSchema } from "@tedix/api-contract/schemas/work-items";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { createChildWorkItem } from "./child-delegation";
@@ -987,6 +988,131 @@ it("pins task terms, rejects excess child limits and invalid results, and caps h
 		});
 		expect(settled.attempt.outcome).toBe("succeeded");
 		expect(settled.attempt.metadata.taskContract).toEqual(taskContract);
+	} finally {
+		f.sqlite.close();
+	}
+});
+
+it("pins a default contract on ordinary parent admission without changing ordinary settlement", async () => {
+	const f = fixture();
+	try {
+		f.seed("root");
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id='root'")
+			.run(
+				JSON.stringify({
+					version: 1,
+					doneLooksLike: "Finish the ordinary task",
+				}),
+			);
+		const run = await f.start("root");
+		const terms = await getAdmittedTaskContract(f.db, run.attempt);
+		expect(terms).toMatchObject({
+			version: 2,
+			goal: "Finish the ordinary task",
+			budget: { maxTokens: 0, maxCostUsd: 0 },
+			remainingDepth: 3,
+		});
+		expect(run.attempt.metadata.taskContract).toBeUndefined();
+		const root = (await getWorkItemById(f.db, "root", "org"))!;
+		const input = CreateWorkItemInputSchema.parse({
+			title: "Child",
+			taskContract: { ...terms!, remainingDepth: 0 },
+		});
+		const child = await createChildWorkItem(f.db, {
+			parent: root,
+			input,
+			actor: { type: "tedi", id: "tedi" },
+			now,
+		});
+		expect(child?.acceptanceContract?.taskContract).toEqual(input.taskContract);
+		await expect(
+			createChildWorkItem(f.db, {
+				parent: root,
+				input: CreateWorkItemInputSchema.parse({ title: "Missing terms" }),
+				actor: { type: "tedi", id: "tedi" },
+				now,
+			}),
+		).rejects.toThrow("NOT_ELIGIBLE: task_contract_required:");
+		await settleWorkItemAttempt(f.db, {
+			orgId: "org",
+			workItemId: "root",
+			attemptId: run.attempt.id,
+			executor: { type: "tedi", id: "tedi" },
+			outcome: "succeeded",
+			summary: "Ordinary settlement",
+			settledAt: now,
+		});
+	} finally {
+		f.sqlite.close();
+	}
+});
+
+it("reports contract refusals in readiness and scheduling without spending child attempts", async () => {
+	const f = fixture();
+	try {
+		f.seed("legacy");
+		f.sqlite
+			.prepare(
+				"UPDATE work_items SET parent_work_item_id='root', metadata=? WHERE id='legacy'",
+			)
+			.run(
+				JSON.stringify({
+					childDelegation: {
+						parentAttemptId: "old-parent",
+						parentRevision: "revision",
+						approvalMode: "auto",
+					},
+				}),
+			);
+		const readiness = await deriveWorkItemReadiness(f.db, {
+			orgId: "org",
+			workItemId: "legacy",
+			derivedAt: now,
+		});
+		expect(readiness).toMatchObject({
+			ready: false,
+			state: "task_contract_blocked",
+			reasons: [
+				{
+					code: "task_contract_blocked",
+					detail: "Delegated Work requires a complete task contract",
+				},
+			],
+		});
+		expect(
+			readiness.gates.find((g) => g.gate === "task_contract"),
+		).toMatchObject({ evaluation: "failed" });
+		const queue = await listReadyWork(f.db, {
+			orgId: "org",
+			executorType: "tedi",
+			executorId: "tedi",
+			now,
+		});
+		expect(queue.data).toHaveLength(0);
+		expect(queue.ineligibleByReason.task_contract_blocked).toBe(1);
+		for (let i = 0; i < 3; i++) {
+			expect(await f.admit("legacy", String(i))).toMatchObject({
+				decision: "rejected",
+				rejectionCode: "task_contract_blocked",
+			});
+			await expect(f.start("legacy", `start-${i}`)).rejects.toThrow();
+		}
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS count FROM work_attempts WHERE work_item_id='legacy'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		// Adding terms cannot manufacture the historical parent grant.
+		f.sqlite
+			.prepare("UPDATE work_items SET acceptance_contract=? WHERE id='legacy'")
+			.run(JSON.stringify({ version: 1, taskContract }));
+		expect((await f.preview("legacy")).rejection).toEqual({
+			code: "task_contract_blocked",
+			reason: "Parent has no admitted task contract",
+		});
 	} finally {
 		f.sqlite.close();
 	}

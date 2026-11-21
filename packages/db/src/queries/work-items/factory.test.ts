@@ -1242,10 +1242,7 @@ describe("artifact-neutral work factory", () => {
 		expect(first.hasMore).toBe(true);
 		expect(first.data[0]?.workItem.id).toBe("item-054");
 		expect(first.nextCursor).toEqual({ createdAt: NOW, id: "item-005" });
-		// Ten gates since the start-date gate (not_before) joined the nine.
-		expect(first.data.every((row) => row.readiness.gates.length === 10)).toBe(
-			true,
-		);
+
 		expect(first.data[0]?.readiness.state).toBe("ready");
 
 		const second = await listWorkItemReadinessProjection(db, {

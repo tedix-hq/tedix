@@ -9,7 +9,10 @@ import {
 	recordStaleLanes,
 	notifyStoppedLanes,
 } from "@tedix/db/queries/work-items/lane-lifecycle";
-import { sweepStaleFailedDelegationWorkItems } from "@tedix/db/queries/work-items/stale-delegation-sweep";
+import {
+	sweepStaleFailedDelegationWorkItems,
+	sweepUncontractedChildWorkItems,
+} from "@tedix/db/queries/work-items/stale-delegation-sweep";
 import { sweepStuckOutboundReviews } from "@tedix/db/queries/work-items/outbound";
 
 /**
@@ -96,6 +99,12 @@ export async function runWorkAttemptLeaseSweeperTick(
 			`[WorkAttemptLeaseSweeper] cancelled ${stale.cancelled} stale failed delegation(s)`,
 		);
 	}
+	const uncontracted = staleDelegationSweepDue(scheduledTime)
+		? await sweepUncontractedChildWorkItems(createDbQueryClient(env.DB), {
+				now: new Date(scheduledTime).toISOString(),
+				limit: MAX_ATTEMPTS_PER_TICK,
+			})
+		: { observed: 0, cancelled: 0, skipped: 0 };
 	await reconcileWorkInteractionConditions(createDbQueryClient(env.DB), {
 		now: new Date(scheduledTime).toISOString(),
 		limit: 25,
@@ -129,6 +138,7 @@ export async function runWorkAttemptLeaseSweeperTick(
 		interactionExpiryCandidates: interactions.candidates,
 		interactionExpiryWrites: interactions.writes,
 		interactionExpiryDryRuns: interactions.dryRun,
+		uncontractedChildrenCancelled: uncontracted.cancelled,
 		staleDelegationsObserved: stale.observed,
 		staleDelegationsCancelled: stale.cancelled,
 		staleDelegationsSkipped: stale.skipped,

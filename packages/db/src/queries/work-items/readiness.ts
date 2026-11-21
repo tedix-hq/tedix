@@ -1,3 +1,4 @@
+import { taskContractRefusal } from "./task-contract";
 import {
 	workAttemptLimitAvailable,
 	workAttemptLimitReason,
@@ -51,6 +52,7 @@ export type WorkItemReadinessGateName =
 	| "approvals"
 	| "risk"
 	| "budget"
+	| "task_contract"
 	| "resources"
 	| "attempt"
 	| "not_before";
@@ -94,6 +96,7 @@ export interface WorkItemReadinessProjectionRow {
 }
 
 interface ReadinessFacts {
+	contractRefusal?: string;
 	item: WorkItem;
 	ownerDelegated: boolean;
 	attemptLimitAvailable: boolean;
@@ -191,6 +194,11 @@ function evaluateWorkItemReadiness(
 				: !facts.budgetAdmissible,
 	});
 	const gates: WorkItemReadinessGate[] = [
+		{
+			gate: "task_contract",
+			evaluation: facts.contractRefusal ? "failed" : "passed",
+			detail: facts.contractRefusal ?? "Task contract permits admission",
+		},
 		{
 			gate: "disposition",
 			evaluation: accepted ? "passed" : "failed",
@@ -331,6 +339,9 @@ function evaluateWorkItemReadiness(
 	} else if (!accepted) {
 		state = "not_accepted";
 		detail = "WorkSpec has not been accepted";
+	} else if (facts.contractRefusal) {
+		state = "task_contract_blocked";
+		detail = facts.contractRefusal;
 	} else if (!facts.attemptLimitAvailable) {
 		state = "evaluation_required";
 		detail = workAttemptLimitReason(item);
@@ -505,6 +516,7 @@ export async function deriveWorkItemReadiness(
 		ownerDelegated,
 		attemptLimitAvailable: Boolean(attemptLimit?.available),
 		inheritedAuthority: await readinessInheritedAuthority(db, item),
+		contractRefusal: await taskContractRefusal(db, item, derivedAt),
 		derivedAt,
 		activeAttemptId: activeAttempt[0]?.id,
 		blockingDependencyId: dependency[0]?.id,
@@ -715,6 +727,7 @@ export async function listWorkItemReadinessProjection(
 				ownerDelegated: Boolean(rows[index]?.ownerDelegated),
 				attemptLimitAvailable: Boolean(rows[index]?.attemptLimitAvailable),
 				inheritedAuthority: await readinessInheritedAuthority(db, item),
+				contractRefusal: await taskContractRefusal(db, item, observedAt),
 				derivedAt: observedAt,
 				activeAttemptId: activeAttempts.get(item.id),
 				blockingDependencyId: blockers.get(item.id),

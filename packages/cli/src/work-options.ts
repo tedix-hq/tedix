@@ -15,6 +15,7 @@ const valueOptions = {
 	"--valid-until": "workValidUntil",
 	"--evidence": "workEvidence",
 	"--done-when": "workDoneWhen",
+	"--task-contract": "workTaskContract",
 	"--input": "workInput",
 	"--outcome": "workOutcome",
 	"--needs-user": "workNeedsUser",

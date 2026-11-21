@@ -14,6 +14,7 @@ import { workInteractions } from "../../schema/work-factory";
 import {
 	STALE_FAILED_DELEGATION_REASON,
 	sweepStaleFailedDelegationWorkItems,
+	sweepUncontractedChildWorkItems,
 } from "./stale-delegation-sweep";
 
 const NOW = "2026-10-09T12:00:00.000Z";
@@ -142,6 +143,7 @@ describe("sweepStaleFailedDelegationWorkItems", () => {
 		expect(event.actor_type).toBe("system");
 		expect(JSON.parse(event.payload)).toEqual({
 			reason: STALE_FAILED_DELEGATION_REASON,
+			workItemVersion: 2,
 		});
 	});
 
@@ -235,4 +237,37 @@ describe("sweepStaleFailedDelegationWorkItems", () => {
 			{ org_id: "org-2", work_item_id: "c" },
 		]);
 	});
+});
+
+it("cancels legacy children with a reason, preserving allocated children, ordinary Work and active runs", async () => {
+	for (const id of ["legacy", "allocated", "active", "ordinary"])
+		seedItem({ id });
+	sqlite.exec(
+		`UPDATE work_items SET metadata='{"childDelegation":{"parentAttemptId":"parent"}}' WHERE id <> 'ordinary';`,
+	);
+	sqlite
+		.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES('allocated','org-1','allocated','work.accepted','system','test',?,?)",
+		)
+		.run(JSON.stringify({ taskContract: { version: 2 } }), NOW);
+	seedAttempt({ workItemId: "active", state: "running", finishedAt: null });
+	expect(await sweepUncontractedChildWorkItems(db, { now: NOW })).toEqual({
+		observed: 1,
+		cancelled: 1,
+		skipped: 0,
+	});
+	expect(disposition("legacy")).toBe("cancelled");
+	for (const id of ["allocated", "active", "ordinary"])
+		expect(disposition(id)).toBe("accepted");
+	const event = sqlite
+		.prepare("SELECT payload FROM work_events WHERE work_item_id='legacy'")
+		.get() as { payload: string };
+	expect(JSON.parse(event.payload)).toEqual({
+		reason:
+			"task_contract_missing: Legacy child has no original task contract allocation; recreate it under an admitted parent.",
+		workItemVersion: 2,
+	});
+	expect(
+		(await sweepUncontractedChildWorkItems(db, { now: NOW })).cancelled,
+	).toBe(0);
 });

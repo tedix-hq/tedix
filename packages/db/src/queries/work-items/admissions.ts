@@ -2,9 +2,8 @@ import {
 	workAttemptLimitAvailable,
 	workAttemptLimitReason,
 } from "./attempt-limit";
-import { TaskContractTermsSchema } from "@tedix/api-contract/schemas/task-contract-terms";
-import { assertChildTaskContract } from "@tedix/api-contract/utils/task-contract-terms";
-import { getAdmittedTaskContract } from "./task-contract";
+import type { TaskContractTerms } from "@tedix/api-contract/schemas/task-contract-terms";
+import { taskContractRefusal } from "./task-contract";
 import {
 	workDelegationAncestors,
 	inheritedChildAuthority,
@@ -68,6 +67,7 @@ export type WorkAdmissionRejectionCode =
 	| "dependencies_blocked"
 	| "capability_blocked"
 	| "approval_blocked"
+	| "task_contract_blocked"
 	| "resource_blocked"
 	| "budget_blocked"
 	| "already_running"
@@ -331,67 +331,13 @@ async function evaluate(
 ): Promise<Eligibility> {
 	const item = await requireWorkItem(db, p.orgId, p.workItemId);
 	const empty = { item, requirements: [], envelopes: [] };
-	const terms = TaskContractTermsSchema.safeParse(
-		item.acceptanceContract?.taskContract,
-	);
-	if (item.metadata?.childDelegation || item.acceptanceContract?.taskContract) {
-		try {
-			if (!terms.success)
-				throw new Error("Delegated Work requires a complete task contract");
-			if (Date.parse(terms.data.deadline) <= Date.parse(p.now))
-				throw new Error("Task deadline elapsed");
-			if (item.metadata?.childDelegation) {
-				const parentAttemptId = (
-					item.metadata.childDelegation as { parentAttemptId?: string }
-				).parentAttemptId;
-				const [parentAttempt] = await db
-					.select()
-					.from(workAttempts)
-					.where(
-						and(
-							eq(workAttempts.id, parentAttemptId ?? ""),
-							eq(workAttempts.orgId, p.orgId),
-							eq(workAttempts.workItemId, item.parentWorkItemId ?? ""),
-						),
-					)
-					.limit(1);
-				const parent =
-					parentAttempt && (await getAdmittedTaskContract(db, parentAttempt));
-				if (!parent) throw new Error("Parent has no admitted task contract");
-				assertChildTaskContract(parent, terms.data);
-				const [allocation] = await db
-					.select({ payload: workEvents.payload })
-					.from(workEvents)
-					.where(
-						and(
-							eq(workEvents.id, item.id),
-							eq(workEvents.orgId, p.orgId),
-							eq(workEvents.workItemId, item.id),
-						),
-					)
-					.limit(1);
-				const allocated = TaskContractTermsSchema.parse(
-					allocation?.payload.taskContract,
-				);
-				if (
-					terms.data.budget.maxTokens > allocated.budget.maxTokens ||
-					terms.data.budget.maxCostUsd > allocated.budget.maxCostUsd
-				)
-					throw new Error(
-						"Child task budget exceeds its delegation allocation",
-					);
-			}
-		} catch (error) {
-			return {
-				...empty,
-				rejection: {
-					code: "evaluation_required",
-					reason:
-						error instanceof Error ? error.message : "Invalid task contract",
-				},
-			};
-		}
-	}
+	const contractRefusal = await taskContractRefusal(db, item, p.now);
+	if (contractRefusal)
+		return {
+			...empty,
+			rejection: { code: "task_contract_blocked", reason: contractRefusal },
+		};
+
 	if (
 		item.version !== p.expectedWorkItemVersion ||
 		item.admissionSpecRevision !== p.expectedAdmissionSpecRevision
@@ -992,11 +938,45 @@ function buildWorkAdmissionStatements(
 	p: EvaluateWorkAdmissionParams,
 	eligibility: Eligibility,
 ): PreparedWorkAdmission {
-	const terms = eligibility.item.acceptanceContract?.taskContract;
+	const item = eligibility.item;
+	const explicitTerms = item.acceptanceContract?.taskContract;
+	// Default terms authorize no additional model usage. Owners can allocate it explicitly.
+	const terms: TaskContractTerms = explicitTerms ?? {
+		version: 2,
+		goal: item.acceptanceContract?.doneLooksLike || item.title,
+		successCriterion: [{ path: ["completed"], equals: true }],
+		budget: { maxTokens: 0, maxCostUsd: 0 },
+		remainingDepth: Math.max(
+			0,
+			WORK_DELEGATION_DEFAULTS.maxDelegationDepth - (item.delegationDepth ?? 0),
+		),
+		errorAllowance: Math.min(
+			19,
+			Math.max(
+				0,
+				(item.maxAttempts ?? WORK_DELEGATION_DEFAULTS.maxAttempts) - 1,
+			),
+		),
+		returnFormat: {
+			type: "object",
+			properties: { completed: { type: "boolean" } },
+			required: ["completed"],
+			additionalProperties: false,
+		},
+		deadline: new Date(
+			Math.min(
+				Date.parse(p.now) + 24 * 60 * 60 * 1000,
+				item.deadline ? Date.parse(item.deadline) : Infinity,
+				item.purposeExceptionExpiresAt
+					? Date.parse(item.purposeExceptionExpiresAt)
+					: Infinity,
+			),
+		).toISOString(),
+	};
 	const expiresAt = new Date(
 		Math.min(
 			Date.parse(p.now) + p.leaseTtlMs,
-			terms ? Date.parse(terms.deadline) : Infinity,
+			explicitTerms ? Date.parse(explicitTerms.deadline) : Infinity,
 		),
 	).toISOString();
 	const admissionInsert = db
@@ -1071,24 +1051,21 @@ function buildWorkAdmissionStatements(
 		expiresAt,
 		statements: [
 			admissionInsert,
-			...(terms
-				? [
-						db.insert(workEvents).values({
-							id: p.id,
-							orgId: p.orgId,
-							workItemId: p.workItemId,
-							eventType: "admission.task_contract",
-							actorType: p.executorType,
-							actorId: p.executorId,
-							payload: {
-								taskContract: terms,
-								workVersion: p.expectedWorkItemVersion,
-								admissionSpecRevision: p.expectedAdmissionSpecRevision,
-							},
-							occurredAt: p.now,
-						}),
-					]
-				: []),
+			db.insert(workEvents).values({
+				id: p.id,
+				orgId: p.orgId,
+				workItemId: p.workItemId,
+				eventType: "admission.task_contract",
+				actorType: p.executorType,
+				actorId: p.executorId,
+				payload: {
+					taskContract: terms,
+					defaulted: !explicitTerms,
+					workVersion: p.expectedWorkItemVersion,
+					admissionSpecRevision: p.expectedAdmissionSpecRevision,
+				},
+				occurredAt: p.now,
+			}),
 			...resourceInserts,
 			...budgetInserts,
 		] as const,

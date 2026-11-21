@@ -25,6 +25,7 @@ import {
 	listWorkItems,
 	getWorkItem,
 	workParentArgs,
+	workTaskContract,
 	resolveWorkItemId,
 	CREATE_EXCEPTION_CLASSES,
 	expiresToIso,
@@ -548,6 +549,7 @@ export async function workDelegate(
 			"work.create_work_items",
 			withSession(ctx, {
 				title: t,
+				...workTaskContract(ctx.work.taskContract),
 				description: `Delegated by lead session ${lead.session} via ${via}${to ? ` to ${to}` : ""}.\n\nDone when: ${doneWhen}`,
 				...(ctx.work.kind ? { workKind: ctx.work.kind } : {}),
 				// A project carries its own purpose; an unparented delegation is a
@@ -589,7 +591,10 @@ export async function workDelegate(
 	if (disposition === "proposed") {
 		const accepted = await boardCall(ctx, "work.accept_work_item", {
 			id,
-			acceptanceContract: buildAcceptanceContract(doneWhen),
+			acceptanceContract: {
+				...buildAcceptanceContract(doneWhen),
+				...workTaskContract(ctx.work.taskContract),
+			},
 		});
 		if (accepted.error)
 			return fail(

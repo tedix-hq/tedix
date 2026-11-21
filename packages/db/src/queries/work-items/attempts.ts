@@ -569,7 +569,7 @@ export async function startWorkItemAttempt(
 					version: sql<number>`1`.as("version"),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`json_patch(${JSON.stringify(workAttemptCallerMetadata(params.metadata))}, json_object('taskContract', json_extract((SELECT payload FROM work_events WHERE id=${workAdmissions.id} AND org_id=${workAdmissions.orgId} AND work_item_id=${workAdmissions.workItemId} AND event_type='admission.task_contract'), '$.taskContract')))`.as(
+					>`json_patch(${JSON.stringify(workAttemptCallerMetadata(params.metadata))}, json_object('taskContract', json_extract((SELECT payload FROM work_events WHERE id=${workAdmissions.id} AND org_id=${workAdmissions.orgId} AND work_item_id=${workAdmissions.workItemId} AND event_type='admission.task_contract' AND coalesce(json_extract(payload, '$.defaulted'),0)=0), '$.taskContract')))`.as(
 						"metadata",
 					),
 				})

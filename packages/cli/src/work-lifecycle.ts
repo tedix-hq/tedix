@@ -27,6 +27,7 @@ import { fail, ok } from "./work-render";
 import {
 	resolveWorkItemId,
 	parseObjectArgument,
+	workTaskContract,
 	workExecutorArg,
 } from "./work-queries";
 import type { WorkContext } from "./work";
@@ -368,16 +369,7 @@ export async function workHeartbeat(
 	}
 }
 
-/**
- * Build the acceptance contract an `accept` will write.
- *
- * One `doneLooksLike` sentence is the whole contract. The previous
- * `--acceptance <json>` escape hatch is gone: it existed to submit a full
- * stored contract, and every field that made a full contract meaningful —
- * claims, evidence kinds, review requirements — stopped being consulted by any
- * gate. Keeping a flag that wrote unread fields and silently overrode
- * `--done-when` only offered a way to get acceptance wrong.
- */
+/** Build the plain-language acceptance; optional task terms are supplied separately. */
 export function buildAcceptanceContract(
 	doneWhen: string | undefined,
 ): Record<string, unknown> {
@@ -396,7 +388,10 @@ export async function workAccept(
 	if (!id) throw new Error("work accept requires a work item id");
 	mutationCallable(ctx.work.as?.trim(), "work.accept_work_item");
 	const executor = workExecutorArg(ctx.work.executor);
-	const acceptanceContract = buildAcceptanceContract(ctx.work.doneWhen);
+	const acceptanceContract = {
+		...buildAcceptanceContract(ctx.work.doneWhen),
+		...workTaskContract(ctx.work.taskContract),
+	};
 	id = await resolveWorkItemId(ctx, id);
 	// Acceptance has no assignment field; persist it through the specification API.
 	if (executor) {

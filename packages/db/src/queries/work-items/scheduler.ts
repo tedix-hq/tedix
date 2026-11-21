@@ -1,3 +1,4 @@
+import { taskContractRefusal } from "./task-contract";
 import {
 	inheritedChildAuthority,
 	workDelegationAncestors,
@@ -252,6 +253,7 @@ export async function listReadyWork(
 		approval_blocked: 0,
 		budget_blocked: 0,
 		resource_blocked: 0,
+		task_contract_blocked: 0,
 		evaluation_required: 0,
 		coordination_parent: 0,
 		cost_blocked: 0,
@@ -580,6 +582,10 @@ export async function listReadyWork(
 	};
 	const ready: ReadyWorkCandidate[] = [];
 	for (const item of candidates) {
+		if (await taskContractRefusal(db, item, p.now)) {
+			reject("task_contract_blocked");
+			continue;
+		}
 		let inheritedAuthority: boolean;
 		let ancestors: WorkItem[];
 		try {

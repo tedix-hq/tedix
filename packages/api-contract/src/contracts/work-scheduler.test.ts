@@ -55,6 +55,7 @@ describe("Work scheduler contract", () => {
 				approval_blocked: 0,
 				budget_blocked: 0,
 				resource_blocked: 0,
+				task_contract_blocked: 0,
 				evaluation_required: 1,
 				coordination_parent: 0,
 				cost_blocked: 0,

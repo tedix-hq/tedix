@@ -71,6 +71,21 @@ afterAll(() => {
 const ITEM = "11111111-1111-4111-8111-111111111111";
 const ATTEMPT = "22222222-2222-4222-8222-222222222222";
 
+const CLI_TASK_CONTRACT = {
+	version: 2,
+	goal: "Ship the child",
+	successCriterion: [{ path: ["done"], equals: true }],
+	budget: { maxTokens: 100, maxCostUsd: 0.01 },
+	remainingDepth: 0,
+	errorAllowance: 0,
+	returnFormat: {
+		type: "object",
+		properties: { done: { type: "boolean" } },
+		required: ["done"],
+		additionalProperties: false,
+	},
+	deadline: "2027-01-01T00:00:00.000Z",
+};
 const TEST_ORG = "99999999-9999-4999-8999-999999999999";
 const TEST_ENDPOINTS: Record<string, string> = {
 	triage_agent_turn: "agentTurnTriage/triage",
@@ -4959,10 +4974,15 @@ describe("delegation ledger", () => {
 	});
 
 	test.each(["create", "delegate"])(
-		"%s forwards --parent and inherits its project",
+		"%s forwards --parent and a complete task contract and inherits its project",
 		async (verb) => {
 			const { ctx, sources } = makeContext(
-				{ parent: ATTEMPT, via: "session", doneWhen: "Shipped" },
+				{
+					parent: ATTEMPT,
+					via: "session",
+					doneWhen: "Shipped",
+					taskContract: JSON.stringify(CLI_TASK_CONTRACT),
+				},
 				undefined,
 				(source) =>
 					source.includes("get_work_items_by_id")
@@ -4974,6 +4994,9 @@ describe("delegation ledger", () => {
 			expect((await capture(`${verb} Child`, ctx)).code).toBe(0);
 			const create = sources.find((s) => s.includes("create_work_items"));
 			expect(create).toContain(`"parentWorkItemId":"${ATTEMPT}"`);
+			expect(create).toContain(
+				`"taskContract":${JSON.stringify(CLI_TASK_CONTRACT)}`,
+			);
 			expect(create).toContain(`"projectId":"${LEAD}"`);
 			expect(create).not.toContain('"workClass":"maintenance"');
 		},
@@ -5491,4 +5514,35 @@ describe("work wait", () => {
 		expect(sources[0]).toContain('"timeoutMs":5000');
 		expect(sources[0]).toContain('"response":1');
 	});
+});
+
+test("accept forwards task terms from a file, while malformed terms fail before writes", async () => {
+	const path = join(testConfigDir, "task-contract.json");
+	writeFileSync(path, JSON.stringify(CLI_TASK_CONTRACT));
+	const parsed = parseOptions([
+		"work",
+		"accept",
+		ITEM,
+		"--done-when",
+		"Shipped",
+		"--task-contract",
+		`@${path}`,
+	]);
+	expect(parsed.options.workTaskContract).toBe(`@${path}`);
+	const valid = makeContext({
+		doneWhen: "Shipped",
+		taskContract: parsed.options.workTaskContract,
+	});
+	expect((await capture(`accept ${ITEM}`, valid.ctx)).code).toBe(0);
+	expect(valid.sources[0]).toContain(
+		`"taskContract":${JSON.stringify(CLI_TASK_CONTRACT)}`,
+	);
+	const invalid = makeContext({
+		doneWhen: "Shipped",
+		taskContract: '{"version":2}',
+	});
+	await expect(runWork(`accept ${ITEM}`, invalid.ctx)).rejects.toThrow(
+		"--task-contract requires complete task contract terms",
+	);
+	expect(invalid.sources).toHaveLength(0);
 });

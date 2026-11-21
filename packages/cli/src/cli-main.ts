@@ -1371,6 +1371,9 @@ export async function main() {
 					...(options.workEvidence ? { evidence: options.workEvidence } : {}),
 					...(options.workDoneWhen ? { doneWhen: options.workDoneWhen } : {}),
 					...(options.workInput ? { input: options.workInput } : {}),
+					...(options.workTaskContract
+						? { taskContract: options.workTaskContract }
+						: {}),
 					...(options.workOutcome ? { outcome: options.workOutcome } : {}),
 					...(options.workNeedsUser
 						? { needsUser: options.workNeedsUser }

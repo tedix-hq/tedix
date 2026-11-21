@@ -702,6 +702,7 @@ function executorReadiness(
 		capability_blocked: "capabilities",
 		approval_blocked: "approvals",
 		resource_blocked: "resources",
+		task_contract_blocked: "task_contract",
 		budget_blocked: "budget",
 		already_running: "attempt",
 		evaluation_required: "resources",

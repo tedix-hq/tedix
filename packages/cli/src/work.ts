@@ -80,6 +80,7 @@ export interface WorkOptions {
 	lane?: boolean;
 	/** Structured factory procedure input: inline JSON or @path. */
 	input?: string;
+	taskContract?: string;
 	as?: string;
 	project?: string;
 	/** `create`/`delegate`: existing parent Work UUID. */
@@ -288,7 +289,12 @@ Without --owner, the person who creates the Work answers for it; for an agent
 session that is the person it acts for or who registered it. Name someone else
 with --owner <user|tedi|team|system>:<id>.
 
-Accept states the outcome in plain language: --done-when writes the whole contract.
+Accept states the outcome in plain language with --done-when.
+Create/delegate --parent and accept also support --task-contract <json|@path>:
+version 2 terms with goal, successCriterion, budget (maxTokens, maxCostUsd),
+remainingDepth, errorAllowance, returnFormat and deadline. A child of your running
+Attempt requires these terms. Accept a parent with terms to allocate model usage;
+the default admitted parent contract allocates zero additional tokens or cost.
 
 Settle is the completion for coding work. --commit repeats, and every value is
 resolved against this checkout first: a short sha expands, a fabricated one is

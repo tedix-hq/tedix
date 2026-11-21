@@ -39,6 +39,7 @@ export const WORK_ITEM_READINESS_VALUES = [
 	"evaluation_required",
 	"budget_blocked",
 	"resource_blocked",
+	"task_contract_blocked",
 	"already_running",
 	"not_before",
 	"terminal",

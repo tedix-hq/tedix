@@ -153,7 +153,15 @@ export async function createChildWorkItem(
 			"NOT_ELIGIBLE",
 			"Parent has no admitted task contract",
 		);
-	const childContract = TaskContractTermsSchema.parse(p.input.taskContract);
+	const parsedContract = TaskContractTermsSchema.safeParse(
+		p.input.taskContract,
+	);
+	if (!parsedContract.success)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"task_contract_required: Child Work requires complete taskContract terms",
+		);
+	const childContract = parsedContract.data;
 	try {
 		assertChildTaskContract(parentContract, childContract);
 	} catch (error) {

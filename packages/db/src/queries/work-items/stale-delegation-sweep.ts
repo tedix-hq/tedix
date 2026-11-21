@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workItems } from "../../schema/work-items";
 import { cancelWorkItem } from "./crud";
@@ -77,6 +77,50 @@ export async function sweepStaleFailedDelegationWorkItems(
 		} catch (error) {
 			if (!(error instanceof WorkFactoryError)) throw error;
 			result.skipped += 1;
+		}
+	}
+	return result;
+}
+
+/** Pre-contract children cannot be assigned a historical budget or grant retroactively. */
+export async function sweepUncontractedChildWorkItems(
+	db: DbQueryClient,
+	options: { now?: string; limit?: number } = {},
+): Promise<SweepStaleFailedDelegationsResult> {
+	const at = options.now ?? new Date().toISOString();
+	const candidates = await db
+		.select({
+			id: workItems.id,
+			orgId: workItems.orgId,
+			version: workItems.version,
+		})
+		.from(workItems)
+		.where(
+			and(
+				inArray(workItems.disposition, ["accepted", "proposed"]),
+				sql`json_type(${workItems.metadata}, '$.childDelegation')='object'`,
+				sql`NOT EXISTS (SELECT 1 FROM work_events allocation WHERE allocation.org_id=${workItems.orgId} AND allocation.work_item_id=${workItems.id} AND allocation.id=${workItems.id} AND json_type(allocation.payload, '$.taskContract')='object')`,
+				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id=${workItems.orgId} AND active_attempt.work_item_id=${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying'))`,
+			),
+		)
+		.orderBy(asc(workItems.orgId), asc(workItems.id))
+		.limit(Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 100));
+	const result = { observed: candidates.length, cancelled: 0, skipped: 0 };
+	for (const item of candidates) {
+		try {
+			await cancelWorkItem(db, {
+				orgId: item.orgId,
+				workItemId: item.id,
+				expectedWorkItemVersion: item.version,
+				actor: { type: "system", id: "sweeper" },
+				reason:
+					"task_contract_missing: Legacy child has no original task contract allocation; recreate it under an admitted parent.",
+				cancelledAt: at,
+			});
+			result.cancelled++;
+		} catch (error) {
+			if (!(error instanceof WorkFactoryError)) throw error;
+			result.skipped++;
 		}
 	}
 	return result;
