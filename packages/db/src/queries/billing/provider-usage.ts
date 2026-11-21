@@ -499,24 +499,60 @@ export async function getWorkstationCostCoverage(
 			.from(p),
 	);
 	const c = classified;
-	const rows = await db
+	// Group once by category instead of one SUM(CASE category ...) per output:
+	// SQLite inlines the CTEs, so every reference to the category re-ran the
+	// whole JSON classification for each row (about 290 ms a call in
+	// production on 21 Nov 2026, enough to tip main D1 into overload).
+	const groups = await db
 		.with(scoped, fields, periods, classified)
 		.select({
-			total_rows: sql<number>`COUNT(*)`,
-			total_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
-			invalid_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.numericOk} = 0 THEN 1 ELSE 0 END), 0)`,
-			reconciled_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'reconciled' THEN 1 ELSE 0 END), 0)`,
-			reconciled_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'reconciled' AND ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
-			reconciled_cost: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'reconciled' AND ${c.numericOk} = 1 THEN ${c.cost} ELSE 0 END), 0)`,
-			pending_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'pending' THEN 1 ELSE 0 END), 0)`,
-			pending_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'pending' AND ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
-			unproven_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'unproven' THEN 1 ELSE 0 END), 0)`,
-			unproven_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'unproven' AND ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
+			category: c.category,
+			numericOk: c.numericOk,
+			rows: sql<number>`COUNT(*)`,
+			seconds: sql<number>`COALESCE(SUM(${c.quantity}), 0)`,
+			cost: sql<number>`COALESCE(SUM(${c.cost}), 0)`,
 		})
-		.from(c);
-	const row = rows[0] as Record<string, unknown> | undefined;
+		.from(c)
+		.groupBy(c.category, c.numericOk);
+	const totals: Record<string, number> = {
+		total_rows: 0,
+		total_seconds: 0,
+		invalid_rows: 0,
+		reconciled_rows: 0,
+		reconciled_seconds: 0,
+		reconciled_cost: 0,
+		pending_rows: 0,
+		pending_seconds: 0,
+		unproven_rows: 0,
+		unproven_seconds: 0,
+	};
+	const add = (key: string, value: unknown) => {
+		totals[key] = (totals[key] ?? 0) + (value as number);
+	};
+	for (const group of groups) {
+		const { category, numericOk, rows, seconds, cost } = group as Record<
+			string,
+			unknown
+		>;
+		if (
+			typeof rows !== "number" ||
+			!Number.isSafeInteger(rows) ||
+			rows < 0 ||
+			!["reconciled", "pending", "unproven"].includes(category as string)
+		)
+			throw new Error("Unsafe workstation usage numeric evidence");
+		add("total_rows", rows);
+		add(`${category}_rows`, rows);
+		if (numericOk !== 1) {
+			add("invalid_rows", rows);
+			continue;
+		}
+		add("total_seconds", seconds);
+		add(`${category}_seconds`, seconds);
+		if (category === "reconciled") add("reconciled_cost", cost);
+	}
+	const row = totals as Record<string, unknown>;
 	if (
-		!row ||
 		Object.values(row).some(
 			(value) =>
 				typeof value !== "number" || !Number.isSafeInteger(value) || value < 0,
