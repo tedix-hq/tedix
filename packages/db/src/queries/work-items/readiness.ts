@@ -3,6 +3,7 @@ import { WorkControlError } from "./factory-validation";
 import {
 	hasOwnerWorkDelegation,
 	matchesWorkApprovalVersion,
+	ownerWorkApprovalIsCurrent,
 	ownerWorkDelegation,
 } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
@@ -361,7 +362,7 @@ export async function deriveWorkItemReadiness(
 ): Promise<WorkItemReadinessResult> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	const ownerDelegated = await hasOwnerWorkDelegation(db, item);
+	const ownerDelegated = await hasOwnerWorkDelegation(db, item, derivedAt);
 	await ensureWorkRiskApproval(db, item, derivedAt);
 	const [
 		activeAttempt,
@@ -456,6 +457,7 @@ export async function deriveWorkItemReadiness(
 					eq(workItems.orgId, workApprovalProposals.orgId),
 					eq(workItems.id, workApprovalProposals.workItemId),
 					matchesWorkApprovalVersion(workItems),
+					ownerWorkApprovalIsCurrent(workItems, derivedAt),
 				),
 			)
 			.innerJoin(
@@ -517,7 +519,9 @@ export async function listWorkItemReadinessProjection(
 	const rows = await db
 		.select({
 			...workItemStoredColumns,
-			ownerDelegated: ownerWorkDelegation(workItems).as("owner_delegated"),
+			ownerDelegated: ownerWorkDelegation(workItems, observedAt).as(
+				"owner_delegated",
+			),
 		})
 		.from(workItems)
 		.where(
@@ -634,6 +638,7 @@ export async function listWorkItemReadinessProjection(
 						eq(workItems.orgId, workApprovalProposals.orgId),
 						eq(workItems.id, workApprovalProposals.workItemId),
 						matchesWorkApprovalVersion(workItems),
+						ownerWorkApprovalIsCurrent(workItems, observedAt),
 					),
 				)
 				.innerJoin(

@@ -38,11 +38,14 @@ export function ownerWorkDelegation(
 		| (ApprovalWork &
 				Pick<WorkItem, "accountableOwnerType" | "accountableOwnerId">)
 		| typeof workItems,
+	now: string,
 ) {
 	// Nest the correlated expression so Drizzle preserves outer-table qualifiers in SELECTs.
 	return sql<boolean>`${sql`(${item.accountableOwnerType}='user' AND EXISTS (
 		SELECT 1 FROM work_events delegation
 		WHERE delegation.org_id=${item.orgId} AND delegation.work_item_id=${item.id}
+		AND julianday(delegation.occurred_at)>julianday(${now})-1
+		AND julianday(delegation.occurred_at)<=julianday(${now})
 		AND json_extract(delegation.payload, '$.workItemVersion')
 			BETWEEN ${planningApprovalVersion(item)} AND ${item.version}
 		AND (
@@ -51,9 +54,7 @@ export function ownerWorkDelegation(
 				delegation.event_type IN ('work.created','work.accepted') OR
 				(delegation.event_type='work.specification_updated'
 				 AND json_extract(delegation.payload, '$.ownerStarted')=1)
-			 )) OR
-			(delegation.event_type='work.accepted'
-			 AND json_extract(delegation.payload, '$.createdOwnerDelegation')=${item.accountableOwnerId})
+			 ))
 		)
 	))`}`;
 }
@@ -61,9 +62,12 @@ export function ownerWorkDelegation(
 export async function hasOwnerWorkDelegation(
 	db: DbQueryClient,
 	item: WorkItem,
+	now: string,
 ) {
 	const [row] = await db
-		.select({ delegated: ownerWorkDelegation(workItems).as("owner_delegated") })
+		.select({
+			delegated: ownerWorkDelegation(workItems, now).as("owner_delegated"),
+		})
 		.from(workItems)
 		.where(
 			and(
@@ -74,6 +78,14 @@ export async function hasOwnerWorkDelegation(
 		)
 		.limit(1);
 	return Boolean(row?.delegated);
+}
+
+/** Legacy owner receipts also require a current owner action, regardless of stored expiry. */
+export function ownerWorkApprovalIsCurrent(
+	item: Parameters<typeof ownerWorkDelegation>[0],
+	now: string,
+) {
+	return sql`(COALESCE(json_extract(${workApprovalProposals.proposal}, '$.source'), '')!='owner_delegation' OR ${ownerWorkDelegation(item, now)})`;
 }
 
 /** Persist the owner's start approval in the same batch as its versioned lifecycle event. */
@@ -104,8 +116,10 @@ export function ownerWorkApprovalStatements(
 					sql<string>`'The owner delegated this Work specification.'`.as(
 						"rationale",
 					),
-				// Delegation expires when the specification changes, not on a second approval timer.
-				expiresAt: sql<string>`'9999-12-31T23:59:59.999Z'`.as("expires_at"),
+				expiresAt:
+					sql<string>`${new Date(Date.parse(now) + 24 * 60 * 60 * 1000).toISOString()}`.as(
+						"expires_at",
+					),
 				createdAt: sql<string>`${now}`.as("created_at"),
 			})
 			.from(workItems)
@@ -114,7 +128,7 @@ export function ownerWorkApprovalStatements(
 					eq(workItems.orgId, item.orgId),
 					eq(workItems.id, item.id),
 					eq(workItems.version, item.version),
-					ownerWorkDelegation(workItems),
+					ownerWorkDelegation(workItems, now),
 				),
 			),
 	);

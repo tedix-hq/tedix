@@ -213,6 +213,14 @@ describe("migrated Work factory raw-D1 invariants", () => {
 					},
 					acceptedAt: now,
 				});
+				if (source === "created")
+					expect(
+						sqlite
+							.prepare(
+								"SELECT COUNT(*) AS total FROM work_approval_proposals WHERE work_item_id='created' AND status='approved'",
+							)
+							.get(),
+					).toMatchObject({ total: 0 });
 				if (source === "started")
 					item = await updateWorkItemSpecification(db, {
 						orgId: "org",
@@ -227,7 +235,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 					derivedAt: now,
 				});
 				expect(readiness.state, source).toBe(
-					source === "agent" ? "purpose_blocked" : "ready",
+					["agent", "created"].includes(source) ? "purpose_blocked" : "ready",
 				);
 				const admission = await evaluateAndRecordWorkAdmission(db, {
 					id: `owner-${source}`,
@@ -241,9 +249,9 @@ describe("migrated Work factory raw-D1 invariants", () => {
 					now,
 				});
 				expect(admission.decision).toBe(
-					source === "agent" ? "rejected" : "admitted",
+					["agent", "created"].includes(source) ? "rejected" : "admitted",
 				);
-				if (source === "agent")
+				if (["agent", "created"].includes(source))
 					expect(admission.rejectionCode).toBe("approval_blocked");
 			}
 			const queued = await listReadyWork(db, {
@@ -254,7 +262,6 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			});
 			expect(queued.data.map((row) => row.workItem.id).sort()).toEqual([
 				"accepted",
-				"created",
 				"started",
 			]);
 			const projection = await listWorkItemReadinessProjection(db, {
@@ -262,7 +269,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				observedAt: now,
 			});
 			expect(
-				projection.data.find((row) => row.workItem.id === "created")?.readiness
+				projection.data.find((row) => row.workItem.id === "accepted")?.readiness
 					.state,
 			).toBe("ready");
 			await updateWorkItemSpecification(db, {
@@ -316,6 +323,99 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			sqlite.close();
 		}
 	});
+
+	it.each([false, true])(
+		"expires owner start approval across readiness, scheduling and admission (legacy receipt: %s)",
+		async (legacy) => {
+			const sqlite = migrated();
+			try {
+				seedCore(sqlite);
+				seedTedi(sqlite);
+				const db = createDbQueryClient(createD1Facade(sqlite));
+				const now = "2026-08-20T01:00:00.000Z";
+				await createWorkItem(db, {
+					id: "expiry",
+					orgId: "org",
+					title: "Bounded delegation",
+					projectId: "project",
+					accountableOwnerType: "user",
+					accountableOwnerId: "user",
+					riskLevel: "high",
+					createdBy: { type: "tedi", id: "tedi" },
+					createdAt: now,
+				});
+				const item = await acceptWorkItem(db, {
+					orgId: "org",
+					workItemId: "expiry",
+					actor: { type: "user", id: "user" },
+					acceptanceContract: { version: 1, doneLooksLike: "Review complete" },
+					acceptedAt: now,
+				});
+				expect(
+					sqlite
+						.prepare(
+							"SELECT expires_at FROM work_approval_proposals WHERE work_item_id='expiry'",
+						)
+						.get(),
+				).toMatchObject({ expires_at: "2026-08-21T01:00:00.000Z" });
+				if (legacy)
+					sqlite.exec(
+						"INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,rationale,expires_at,created_at) SELECT 'legacy',org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,rationale,'9999-12-31T23:59:59.999Z',created_at FROM work_approval_proposals WHERE work_item_id='expiry'; INSERT INTO work_approval_decisions(id,proposal_id,resolved_proposal_version,decision,decider_type,decider_id,rationale,decided_at) VALUES('legacy-decision','legacy',2,'approved','user','user','Owner delegated','2026-08-20T01:00:00.000Z'); UPDATE work_items SET work_class='hygiene',purpose_exception_expires_at='2026-08-25T01:00:00.000Z' WHERE id='expiry'",
+					);
+				for (const [at, ready] of [
+					["2026-08-21T00:59:59.000Z", true],
+					["2026-08-21T01:00:00.000Z", false],
+					["2026-08-21T01:00:01.000Z", false],
+				] as const) {
+					expect(
+						(
+							await deriveWorkItemReadiness(db, {
+								orgId: "org",
+								workItemId: item.id,
+								derivedAt: at,
+							})
+						).state,
+					).toBe(
+						ready ? "ready" : legacy ? "approval_blocked" : "purpose_blocked",
+					);
+					expect(
+						(
+							await listReadyWork(db, {
+								orgId: "org",
+								now: at,
+								executorType: "tedi",
+								executorId: "tedi",
+							})
+						).data.map((row) => row.workItem.id),
+					).toEqual(ready ? [item.id] : []);
+					expect(
+						(
+							await listWorkItemReadinessProjection(db, {
+								orgId: "org",
+								observedAt: at,
+							})
+						).data.find((row) => row.workItem.id === item.id)?.readiness.state,
+					).toBe(
+						ready ? "ready" : legacy ? "approval_blocked" : "purpose_blocked",
+					);
+					const admission = await evaluateAndRecordWorkAdmission(db, {
+						id: `expiry-${at}`,
+						orgId: "org",
+						workItemId: item.id,
+						expectedWorkItemVersion: item.version,
+						expectedAdmissionSpecRevision: item.admissionSpecRevision,
+						executorType: "tedi",
+						executorId: "tedi",
+						leaseTtlMs: 60_000,
+						now: at,
+					});
+					expect(admission.decision).toBe(ready ? "admitted" : "rejected");
+				}
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
 
 	it("derives canonical admission authorities without duplicates", () => {
 		expect(

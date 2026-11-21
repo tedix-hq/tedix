@@ -17,6 +17,8 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workItemsContractRouter } from "./work-items";
+import { workItemCreationActor } from "./work-items/creation-actor";
+import { verifiedActiveWorkActor } from "./work-items-principal";
 
 vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
@@ -419,6 +421,35 @@ describe("Work Item router canonical specification reads and writes", () => {
 			});
 		},
 	);
+
+	it("keeps Home creation attributed to its tedi rather than the requesting owner", async () => {
+		const home = context("tedi");
+		home.authType = "service-binding";
+		home.serviceBindingPrincipal = "mcp-edge";
+		home.headers.set("X-Tedix-Kernel", "true");
+		home.headers.set("X-Tedix-Acting-User", "owner-1");
+		expect(await workItemCreationActor(home, ORG_ID)).toEqual({
+			type: "tedi",
+			id: "tedi-nova",
+		});
+		expect(await workItemCreationActor(context("owner"), ORG_ID)).toEqual({
+			type: "user",
+			id: "owner-1",
+		});
+	});
+
+	it.each(["external_agent", "browser_agent"])(
+		"does not treat a %s seat as a human Work owner",
+		async (kind) => {
+			sqlite
+				.prepare("UPDATE organization_members SET kind=? WHERE id='m1'")
+				.run(kind);
+			await expect(
+				verifiedActiveWorkActor(context("owner"), ORG_ID),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+
 	it("creates a proposed artifact-neutral Work Item and reads it back", async () => {
 		const created = await client().create({
 			...PURPOSE,

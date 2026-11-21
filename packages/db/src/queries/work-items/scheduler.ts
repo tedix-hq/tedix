@@ -4,6 +4,7 @@ import {
 } from "./child-delegation";
 import {
 	matchesWorkApprovalVersion,
+	ownerWorkApprovalIsCurrent,
 	ownerWorkDelegation,
 } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
@@ -263,7 +264,7 @@ export async function listReadyWork(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.disposition, "accepted"),
 				p.projectId ? eq(workItems.projectId, p.projectId) : undefined,
-				or(activePurposeContext(p.now), ownerWorkDelegation(workItems)),
+				or(activePurposeContext(p.now), ownerWorkDelegation(workItems, p.now)),
 				sql`NOT EXISTS (SELECT 1 FROM work_attempts active_attempt WHERE active_attempt.org_id=${p.orgId} AND active_attempt.work_item_id=${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND active_attempt.expires_at>${p.now})`,
 			),
 		)
@@ -390,6 +391,7 @@ export async function listReadyWork(
 							eq(workItems.orgId, workApprovalProposals.orgId),
 							eq(workItems.id, workApprovalProposals.workItemId),
 							matchesWorkApprovalVersion(workItems),
+							ownerWorkApprovalIsCurrent(workItems, p.now),
 						),
 					)
 					.innerJoin(

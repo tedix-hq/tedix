@@ -1,6 +1,7 @@
 import {
 	hasOwnerWorkDelegation,
 	matchesWorkApprovalVersion,
+	ownerWorkApprovalIsCurrent,
 } from "./planning-approval";
 import {
 	AgentRequestActionSchema,
@@ -984,7 +985,10 @@ export async function ensureWorkRiskApproval(
 	)
 		return;
 	const authorityKey = `risk:${item.riskLevel}`;
-	if (item.riskLevel === "high" && (await hasOwnerWorkDelegation(db, item)))
+	if (
+		item.riskLevel === "high" &&
+		(await hasOwnerWorkDelegation(db, item, now))
+	)
 		return;
 	const existing = await db
 		.select({
@@ -1006,6 +1010,7 @@ export async function ensureWorkRiskApproval(
 						matchesWorkApprovalVersion(item),
 					),
 				),
+				ownerWorkApprovalIsCurrent(item, now),
 				eq(workApprovalProposals.authorityKey, authorityKey),
 				eq(workApprovalProposals.action, "admission"),
 			),

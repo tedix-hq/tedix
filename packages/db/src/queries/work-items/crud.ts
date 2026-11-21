@@ -57,7 +57,6 @@ import {
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
 import {
-	hasOwnerWorkDelegation,
 	ownerWorkApprovalStatements,
 	planningApprovalVersion,
 } from "./planning-approval";
@@ -825,7 +824,6 @@ export async function acceptWorkItem(
 ): Promise<WorkItem> {
 	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	const createdOwnerDelegation = await hasOwnerWorkDelegation(db, prior);
 	// Acceptance is the exit from triage: it fixes where the work lives, what
 	// done looks like and who answers for it.
 	const missing =
@@ -893,9 +891,7 @@ export async function acceptWorkItem(
 		eventType: "work.accepted",
 		actor: params.actor,
 		occurredAt: acceptedAt,
-		payload: createdOwnerDelegation
-			? { createdOwnerDelegation: prior.accountableOwnerId }
-			: {},
+		payload: {},
 	});
 	const [acceptedRows] = await db.batch([
 		acceptMutation,

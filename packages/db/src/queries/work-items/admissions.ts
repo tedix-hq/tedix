@@ -8,6 +8,7 @@ import { WORK_DELEGATION_DEFAULTS } from "@tedix/api-contract/schemas/lane-execu
 import {
 	hasOwnerWorkDelegation,
 	matchesWorkApprovalVersion,
+	ownerWorkApprovalIsCurrent,
 } from "./planning-approval";
 import {
 	LaneExecutionPolicySchema,
@@ -472,6 +473,7 @@ async function evaluate(
 				eq(workItems.orgId, workApprovalProposals.orgId),
 				eq(workItems.id, workApprovalProposals.workItemId),
 				matchesWorkApprovalVersion(workItems),
+				ownerWorkApprovalIsCurrent(workItems, p.now),
 			),
 		)
 		.innerJoin(
@@ -506,7 +508,7 @@ async function evaluate(
 				})
 			: new Map<string, string>();
 	const ownerHostExecutor = parties.has(workPartyKey(executor));
-	const ownerDelegated = await hasOwnerWorkDelegation(db, item);
+	const ownerDelegated = await hasOwnerWorkDelegation(db, item, p.now);
 	const independentApprovals = approvals.filter(
 		(approval) =>
 			(ownerDelegated &&

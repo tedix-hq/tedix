@@ -202,7 +202,11 @@ export async function verifiedActiveUserMembership(
 		subject,
 		{ canonicalUserId: context.userId },
 	);
-	if (membership?.status !== "active" || !membership.userId)
+	if (
+		membership?.status !== "active" ||
+		membership.kind !== "human" ||
+		!membership.userId
+	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"Work mutation requires a canonical active organization user identity",
@@ -322,8 +326,19 @@ export async function verifiedWorkItemCommentAuthor(
 	metadata: Record<string, unknown> | undefined,
 ): Promise<VerifiedWorkItemCommentAuthor> {
 	if (context.browserAgentSeat) {
-		const membership = await verifiedActiveUserMembership(context, orgId);
+		if (context.authType !== "user" || !context.user?.sub?.trim())
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Browser agent comments require user authentication",
+			);
+		const membership = await getRequestOrganizationMembership(
+			context,
+			orgId,
+			context.user.sub.trim(),
+			{ canonicalUserId: context.userId },
+		);
 		if (
+			membership?.status !== "active" ||
 			membership.userId !== context.browserAgentSeat.userId ||
 			membership.kind !== "browser_agent"
 		)

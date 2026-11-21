@@ -68,6 +68,7 @@ export async function defaultAccountableOwner(
 		(await getMemberByCanonicalUserId(context.db, orgId, userId)) ??
 		(await getMemberByUserId(context.db, orgId, userId));
 	return member?.status === "active" &&
+		member.kind === "human" &&
 		member.userId &&
 		["owner", "admin", "member"].includes(member.role)
 		? { type: "user", id: member.userId }
@@ -100,12 +101,14 @@ export async function workItemCreationActor(
 		);
 	// Home uses the primary worker's scopes but keeps the requesting member
 	// distinct. Check the bound worker without promoting it to user auth.
-	if (context.tediId) await assertTediAccess(context, context.tediId, orgId);
+	if (!context.tediId) return undefined;
+	await assertTediAccess(context, context.tediId, orgId);
 	const member =
 		(await getMemberByCanonicalUserId(context.db, orgId, subject)) ??
 		(await getMemberByUserId(context.db, orgId, subject));
 	if (
 		member?.status !== "active" ||
+		member.kind !== "human" ||
 		!member.userId ||
 		!["owner", "admin", "member"].includes(member.role)
 	)
@@ -113,5 +116,5 @@ export async function workItemCreationActor(
 			ErrorCodes.FORBIDDEN,
 			"Home Work creation requires an active contributing member",
 		);
-	return { type: "user" as const, id: member.userId };
+	return { type: "tedi" as const, id: context.tediId };
 }
