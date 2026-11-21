@@ -10,8 +10,9 @@ import {
 	renderRecall,
 	type RecallSituation,
 } from "@tedix/context-core/situational-recall";
+import { fileGatewayCooldown } from "../gateway-cooldown";
 import { harnessOf } from "./agent-status";
-import { readRecallCache } from "./context-cache";
+import { readCache, readRecallCache, writeCache } from "./context-cache";
 import { hostEvent, insideRoot, PROFILE, type HookDeps } from "./hook-io";
 import { repoSlug } from "./prompt-context";
 
@@ -23,6 +24,8 @@ export async function recallForSituation(
 		harness?: string;
 		scope?: string[];
 		expectedOrganizationId?: string;
+		/** Never read the catalog live; recall from a fresh shared copy or not at all. */
+		cacheOnly?: boolean;
 	} = {},
 ): Promise<string> {
 	const { event, session } = hostEvent(deps.stdin, deps.env, 1_048_576);
@@ -117,6 +120,14 @@ export async function recallForSituation(
 		harness,
 		repo,
 	]);
+	const now = deps.now ?? (() => new Date());
+	// A live read now would only queue behind the machine-wide gateway cooldown.
+	const coolingDown =
+		fileGatewayCooldown(
+			deps.env.TEDIX_CONFIG_DIR
+				? { configDir: deps.env.TEDIX_CONFIG_DIR }
+				: undefined,
+		).read(String(binding.mcpUrl)) > now().getTime();
 	const catalog = await readRecallCache(
 		deps.env,
 		key,
@@ -140,7 +151,8 @@ export async function recallForSituation(
 				throw new Error("Recall organization differs from dispatch");
 			return result;
 		},
-		deps.now,
+		now,
+		{ cacheOnly: options.cacheOnly || coolingDown },
 	);
 	const parsed = GetAgentSessionLessonsResultSchema.parse(catalog);
 	if (
@@ -165,10 +177,25 @@ export async function recallForSituation(
 	);
 	return renderRecall(lessons);
 }
+/**
+ * Shell commands that only look around (`ls`, `git status`, `grep … | head`).
+ * They still get lessons from the shared catalog copy, but never cause a live
+ * catalog read of their own.
+ */
+const LOOK_ONLY =
+	/^(?:cd|ls|pwd|cat|head|tail|wc|grep|rg|echo|which|tree|stat|file|du|sort|uniq|cut|tr|jq|sed -n|git (?:status|log|diff|show|branch|rev-parse|ls-files|grep|blame))(?:\s|$)/;
+export function lookOnlyCommand(command: string | undefined): boolean {
+	if (!command?.trim() || /[`$<>]|\n/.test(command)) return false;
+	return command
+		.split(/\|\|?|&&|;/)
+		.map((part) => part.trim())
+		.every((part) => LOOK_ONLY.test(part));
+}
+
 /** PreToolUse is advisory: stdout contains context only; no permission decision. */
 export async function runSituationalRecall(deps: HookDeps): Promise<void> {
 	try {
-		const { event } = hostEvent(deps.stdin, deps.env, 1_048_576);
+		const { event, session } = hostEvent(deps.stdin, deps.env, 1_048_576);
 		const input = event.tool_input ?? {};
 		const tool = String(event.tool_name ?? "");
 		if (
@@ -198,7 +225,38 @@ export async function runSituationalRecall(deps: HookDeps): Promise<void> {
 				: typeof input.cmd === "string"
 					? input.cmd
 					: undefined;
-		const context = await recallForSituation(deps, { paths, command });
+		const now = deps.now ?? (() => new Date());
+		// The same session repeating the same situation (a re-run test, a second
+		// edit to one file) reuses its answer without any CLI or gateway read.
+		const last = session
+			? JSON.stringify([
+					session,
+					deps.cwd,
+					[...new Set(paths)].sort(),
+					command?.trim().replace(/\s+/g, " "),
+				])
+			: undefined;
+		const previous = last
+			? readCache(deps.env, "recall-last", `session:${session}`, now())
+			: undefined;
+		let context: string;
+		if (last && previous && previous.value.situation === last)
+			context = String(previous.value.context ?? "");
+		else {
+			context = await recallForSituation(
+				deps,
+				{ paths, command },
+				{ cacheOnly: !paths.length && lookOnlyCommand(command) },
+			);
+			if (last)
+				writeCache(
+					deps.env,
+					"recall-last",
+					`session:${session}`,
+					{ situation: last, context },
+					now(),
+				);
+		}
 		if (context)
 			deps.write(
 				JSON.stringify({

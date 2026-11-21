@@ -9,7 +9,27 @@ import type { JsonObject } from "./hook-io";
 
 /** How long a cached read stands in for the live one. */
 export const CACHE_TTL_MS = 10 * 60_000;
-export type CacheKind = "organization" | "lessons" | "next-work" | "recall";
+export type CacheKind =
+	| "organization"
+	| "lessons"
+	| "next-work"
+	| "recall"
+	| "recall-last";
+
+/**
+ * Per-kind freshness. Every local agent session shares these entries, so a
+ * longer window directly cuts gateway and database reads: about twenty
+ * concurrent sessions overloaded the shared database on 21 Nov 2026.
+ * Approved lessons change rarely; a new or revoked one arrives within the window.
+ */
+export const CACHE_TTLS_MS: Record<CacheKind, number> = {
+	organization: CACHE_TTL_MS,
+	lessons: 2 * 60_000,
+	"next-work": 2 * 60_000,
+	recall: 5 * 60_000,
+	/** One session repeating the same tool situation reuses its last answer. */
+	"recall-last": 60_000,
+};
 
 export interface CacheEntry {
 	value: JsonObject;
@@ -31,7 +51,7 @@ function entryPath(
 	return join(cacheDir(env), `${kind}-${digest}.json`);
 }
 
-/** The cached value for `key`, with its age, or undefined past CACHE_TTL_MS. */
+/** The cached value for `key`, with its age, or undefined past its kind's TTL. */
 export function readCache(
 	env: NodeJS.ProcessEnv,
 	kind: CacheKind,
@@ -49,35 +69,43 @@ export function readCache(
 			0,
 			now.getTime() - Date.parse(String(parsed.writtenAt)),
 		);
-		const ttl =
-			kind === "next-work" || kind === "recall" ? 30_000 : CACHE_TTL_MS;
-		if (!Number.isFinite(ageMs) || ageMs > ttl) return undefined;
+		if (!Number.isFinite(ageMs) || ageMs > CACHE_TTLS_MS[kind])
+			return undefined;
 		return { value: parsed.value, ageMs, fresh: true };
 	} catch {
 		return undefined;
 	}
 }
 
-/** Coalesce catalog reads across hook processes, including simultaneous cold starts. */
+/**
+ * Coalesce catalog reads across hook processes, including simultaneous cold
+ * starts. With `cacheOnly` (a trivial command, or the shared gateway cooldown)
+ * a miss throws instead of reading live.
+ */
 export async function readRecallCache(
 	env: NodeJS.ProcessEnv,
 	key: string,
 	load: () => Promise<JsonObject>,
 	now: () => Date = () => new Date(),
+	{
+		kind = "recall",
+		cacheOnly = false,
+	}: { kind?: CacheKind; cacheOnly?: boolean } = {},
 ): Promise<JsonObject> {
-	const cached = readCache(env, "recall", key, now());
+	const cached = readCache(env, kind, key, now());
 	if (cached) return cached.value;
-	const lock = beginFileLock(`${entryPath(env, "recall", key)}.lock`);
+	if (cacheOnly) throw new Error("Live catalog read skipped");
+	const lock = beginFileLock(`${entryPath(env, kind, key)}.lock`);
 	const deadline = Date.now() + 5000;
 	try {
 		while (!lock.ready()) {
 			if (Date.now() >= deadline) throw new Error("Recall cache busy");
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
-		const shared = readCache(env, "recall", key, now());
+		const shared = readCache(env, kind, key, now());
 		if (shared) return shared.value;
 		const value = await load();
-		writeCache(env, "recall", key, value, now());
+		writeCache(env, kind, key, value, now());
 		return value;
 	} finally {
 		lock.release();

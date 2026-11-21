@@ -194,21 +194,30 @@ describe("tedix hooks session-start", () => {
 					successCriteria: "Finish",
 				},
 			);
+			// The first turn probes the organization; the next reuses that answer.
+			const probed = actual === org;
 			const { output, calls } = await run([
 				binding,
 				auth,
-				organizationInfo(org),
+				...(probed ? [organizationInfo(org)] : []),
 				item,
 				{ data: [] },
 			]);
-			expect(calls[2]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
-			expect(calls[2]).toContain("tools/call");
-			expect(calls[2]).not.toContain("code");
-			expect(calls[3]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
-			if (actual === org) expect(output).toContain("Scoped task");
+			const work = probed ? 3 : 2;
+			if (probed) {
+				expect(calls[2]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
+				expect(calls[2]).toContain("tools/call");
+				expect(calls[2]).not.toContain("code");
+			}
+			expect(calls[work]!.slice(2, 4)).toEqual([
+				"--organization",
+				"org_target",
+			]);
+			expect(calls[work]).toContain("code");
+			if (probed) expect(output).toContain("Scoped task");
 			else {
 				expect(output).not.toContain("Scoped task");
-				expect(calls).toHaveLength(4);
+				expect(calls).toHaveLength(3);
 			}
 		}
 		const { output, calls } = await run([

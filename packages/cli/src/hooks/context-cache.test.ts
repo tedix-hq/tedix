@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	CACHE_TTL_MS,
+	CACHE_TTLS_MS,
 	cacheDir,
 	readCache,
 	writeCache,
@@ -24,7 +24,13 @@ const keys: [string, string] = [
 	"organization:fictional-alpha/workspace:one",
 	"organization:fictional-beta/workspace:two",
 ];
-const kinds = ["organization", "lessons", "next-work", "recall"] as const;
+const kinds = [
+	"organization",
+	"lessons",
+	"next-work",
+	"recall",
+	"recall-last",
+] as const;
 
 function withConfig(run: (env: NodeJS.ProcessEnv) => void): void {
 	const config = mkdtempSync(join(tmpdir(), "tedix-context-cache-"));
@@ -63,7 +69,7 @@ test("round trips every cache kind and keeps organization/workspace scopes isola
 			expect(name).not.toContain(keys[0]);
 			expect(name).not.toContain(keys[1]);
 			expect(name).toMatch(
-				/^(organization|lessons|next-work|recall)-[0-9a-f]{32}\.json$/,
+				/^(organization|lessons|next-work|recall|recall-last)-[0-9a-f]{32}\.json$/,
 			);
 		}
 	});
@@ -72,8 +78,7 @@ test("round trips every cache kind and keeps organization/workspace scopes isola
 test("enforces the exact TTL boundary, expiry and clock skew for each kind", () => {
 	withConfig((env) => {
 		for (const kind of kinds) {
-			const ttl =
-				kind === "next-work" || kind === "recall" ? 30_000 : CACHE_TTL_MS;
+			const ttl = CACHE_TTLS_MS[kind];
 			writeCache(env, kind, keys[0], { kind }, writtenAt);
 
 			expect(readCache(env, kind, keys[0], new Date(+writtenAt + ttl))).toEqual(
@@ -213,7 +218,7 @@ test("parallel hook processes share one cold catalog fetch", async () => {
 	}
 });
 
-test("four sessions share two catalog reads per minute and retry failures", async () => {
+test("four sessions share one catalog read per window and retry failures", async () => {
 	const config = mkdtempSync(join(tmpdir(), "tedix-recall-load-"));
 	const env = { TEDIX_CONFIG_DIR: config };
 	let now = +writtenAt;
@@ -223,8 +228,8 @@ test("four sessions share two catalog reads per minute and retry failures", asyn
 		return { lessons: [] };
 	};
 	try {
-		// Four sessions, each making 24 tool calls over a minute.
-		for (let turn = 0; turn < 24; turn++) {
+		// Four sessions, each making a tool call every 2.5 s for ten minutes.
+		for (let turn = 0; turn < 240; turn++) {
 			now = +writtenAt + turn * 2500;
 			await Promise.all(
 				Array.from({ length: 4 }, () =>
@@ -233,11 +238,22 @@ test("four sessions share two catalog reads per minute and retry failures", asyn
 			);
 		}
 		expect(requests).toBe(2);
-		// Replay the incident's 78 other CLI calls and 17 prompt reads as background load.
-		expect(78 + 17 + requests).toBeLessThan(100);
 		await readRecallCache(env, keys[1], load, () => new Date(now));
 		expect(requests).toBe(3);
-		now += 30_001;
+		// A trivial command or the gateway cooldown never reads live on a miss.
+		await expect(
+			readRecallCache(
+				env,
+				"organization:fictional-gamma",
+				load,
+				() => new Date(now),
+				{
+					cacheOnly: true,
+				},
+			),
+		).rejects.toThrow("skipped");
+		expect(requests).toBe(3);
+		now += CACHE_TTLS_MS.recall + 1;
 		await expect(
 			readRecallCache(
 				env,
