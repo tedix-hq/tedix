@@ -1,5 +1,18 @@
 import { createRouterClient } from "@orpc/server";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import { workItems } from "@tedix/db/schema/work-items";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import {
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vite-plus/test";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import type { BaseContext } from "../orpc";
 const mocks = vi.hoisted(() => ({
@@ -20,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 	latch: vi.fn(),
 	agent: vi.fn(),
 	agentWork: vi.fn(),
+	work: vi.fn(),
 }));
 vi.mock(
 	"@tedix/db/queries/external-agent-identity/mcp-credentials",
@@ -31,6 +45,10 @@ vi.mock(
 vi.mock("@tedix/db/queries/work-items/attempts", async (load) => ({
 	...(await load<object>()),
 	findAgentApprovalWork: mocks.agentWork,
+}));
+vi.mock("@tedix/db/queries/work-items/factory-state", async (load) => ({
+	...(await load<object>()),
+	getScopedWorkItem: mocks.work,
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -821,6 +839,11 @@ describe("agent exact native approvals", () => {
 			session: { externalSessionKey: "codex:example" },
 		});
 		mocks.agentWork.mockResolvedValue(admittedWork);
+		mocks.work.mockResolvedValue({
+			id: workItemId,
+			version: 4,
+			disposition: "accepted",
+		});
 	});
 	it.each(["api_key", "aih_m2m", "owner_user"])(
 		"parks a %s agent's exact call for its Work owner and reuses its pending card",
@@ -860,7 +883,7 @@ describe("agent exact native approvals", () => {
 			expect(mocks.consume).not.toHaveBeenCalled();
 		},
 	);
-	it("parks and reuses an MCP agent call, allows polling only and requires the replay's approver", async () => {
+	it("parks one exact MCP call, allows polling only, and fences human replay to its approver and Work revision", async () => {
 		const connected = {
 			...call,
 			target: {
@@ -876,6 +899,7 @@ describe("agent exact native approvals", () => {
 			requestingAgent,
 			requestingAttemptId: "attempt-1",
 			workItemId,
+			requestingWorkVersion: 4,
 			target: connected.target,
 			args: call.args,
 			approverUserId: "owner-1",
@@ -921,19 +945,69 @@ describe("agent exact native approvals", () => {
 			).toMatchObject({ approved: false });
 		}
 		expect(mocks.consume).not.toHaveBeenCalled();
-		expect(
-			await client().requestOwnerToolApproval({
-				...replay,
-				replayUserId: "owner-1",
-			}),
-		).toMatchObject({ approved: true });
-		mocks.consume.mockResolvedValue(false);
+		const sqlite = new DatabaseSync(":memory:");
+		onTestFinished(() => sqlite.close());
+		sqlite.exec("PRAGMA foreign_keys=OFF");
+		sqlite.exec(schemaDdl(workItems, tediApprovalRequests));
+		sqlite
+			.prepare(
+				"INSERT INTO work_items(id,org_id,title,disposition,accountable_owner_type,accountable_owner_id,created_at,version) VALUES(?,'org-1','Approval','accepted','user','owner-1','2026-11-21',5)",
+			)
+			.run(workItemId);
+		sqlite
+			.prepare(
+				"INSERT INTO tedi_approval_requests(id,org_id,tedi_id,action_type,description,payload,status,created_at,expires_at) VALUES(?,'org-1','anchor','mcp.tool_call','Exact call',?,'approved',?,?)",
+			)
+			.run(row.id, JSON.stringify(row.payload), row.createdAt, row.expiresAt);
+		const db = createDbClient(createD1Facade(sqlite));
+		const { consumeOwnerToolApproval } = await vi.importActual<
+			typeof import("@tedix/db/queries/approvals")
+		>("@tedix/db/queries/approvals");
+		mocks.consume.mockImplementation((_db, input) =>
+			consumeOwnerToolApproval(db, input),
+		);
+		// The read saw version 4, but an edit won before the atomic claim.
 		expect(
 			await client().requestOwnerToolApproval({
 				...replay,
 				replayUserId: "owner-1",
 			}),
 		).toMatchObject({ approved: false });
+		sqlite.exec("UPDATE work_items SET version=4");
+		expect(
+			await client().requestOwnerToolApproval({
+				...replay,
+				replayUserId: "owner-1",
+			}),
+		).toMatchObject({ approved: true });
+		expect(
+			await client().requestOwnerToolApproval({
+				...replay,
+				replayUserId: "owner-1",
+			}),
+		).toMatchObject({ approved: false });
+		mocks.consume.mockClear();
+		mocks.work.mockResolvedValue({
+			id: workItemId,
+			version: 5,
+			disposition: "accepted",
+		});
+		await expect(client().requestOwnerToolApproval(retry)).rejects.toThrow(
+			/Work changed/,
+		);
+		await expect(
+			client().requestOwnerToolApproval({ ...replay, replayUserId: "owner-1" }),
+		).rejects.toThrow(/Work changed/);
+		expect(mocks.consume).not.toHaveBeenCalled();
+		mocks.pending.mockResolvedValue(undefined);
+		const next = await client().requestOwnerToolApproval(connected);
+		expect(next.approvalRequestId).not.toBe(first.approvalRequestId);
+		expect(mocks.create.mock.calls[1]![1].payload.requestingWorkVersion).toBe(
+			5,
+		);
+		expect(mocks.create.mock.calls[1]![1].payload.fingerprint).not.toBe(
+			row.payload.fingerprint,
+		);
 	});
 	it("creates no MCP approval without a qualifying live Attempt", async () => {
 		mocks.agentWork.mockResolvedValue(undefined);
