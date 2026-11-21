@@ -25,6 +25,7 @@ import {
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { findAgentApprovalWork } from "@tedix/db/queries/work-items/attempts";
+import { getScopedWorkItem } from "@tedix/db/queries/work-items/factory-state";
 import {
 	getOrganizationById,
 	getOrganizationPersonalDataRedaction,
@@ -1578,6 +1579,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			await assertGatewayOrganization(context, input.organizationId);
 			let workItemId = input.workItemId;
 			let requestingAttemptId: string | undefined;
+			let requestingWorkVersion: number | undefined;
 			let approverUserId: string | undefined;
 			if (input.requestingAgent) {
 				const active = await resolveAuthorizedExternalAgentMcpSession(
@@ -1628,6 +1630,14 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					);
 				workItemId = admittedWork.workItemId;
 				requestingAttemptId = admittedWork.attemptId;
+				const work = await getScopedWorkItem(
+					context.db,
+					input.organizationId,
+					workItemId,
+				);
+				if (work.disposition !== "accepted")
+					throw createError(ErrorCodes.FORBIDDEN, "Work is no longer accepted");
+				requestingWorkVersion = work.version;
 				input.userId = admittedWork.accountableOwnerId;
 				approverUserId =
 					admittedWork.reviewerId ?? admittedWork.accountableOwnerId;
@@ -1784,6 +1794,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					? {
 							workItemId,
 							requestingAttemptId,
+							requestingWorkVersion,
 							approverUserId,
 							principalId: input.requestingAgent.principalId,
 						}
@@ -1847,6 +1858,27 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						ErrorCodes.FORBIDDEN,
 						`Approval ${approval.id} is for a different call (${differences.join(", ") || "bindings"} differ); request a new approval`,
 					);
+				}
+				let approvalWork: { id: string; version: number } | undefined;
+				if (stored.requestingAgent) {
+					const work =
+						typeof stored.workItemId === "string"
+							? await getScopedWorkItem(
+									context.db,
+									input.organizationId,
+									stored.workItemId,
+								)
+							: undefined;
+					if (
+						!work ||
+						work.disposition !== "accepted" ||
+						work.version !== stored.requestingWorkVersion
+					)
+						throw createError(
+							ErrorCodes.FORBIDDEN,
+							"Work changed since this call was requested; request a new approval",
+						);
+					approvalWork = { id: work.id, version: work.version };
 				}
 				if (input.requestingAgent) {
 					const requester = stored.requestingAgent as
@@ -1951,6 +1983,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						organizationId: input.organizationId,
 						fingerprint: approval.payload.fingerprint,
 						now,
+						work: approvalWork,
 					}));
 				const execution = stored.execution as { status?: unknown } | undefined;
 				return {
@@ -2065,6 +2098,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							? {
 									requestingAgent: input.requestingAgent,
 									requestingAttemptId,
+									requestingWorkVersion,
 									approverUserId,
 								}
 							: {}),

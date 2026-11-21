@@ -26,6 +26,7 @@ import {
 import type { DbClient } from "../client";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { apps } from "../schema/apps";
+import { workItems } from "../schema/work-items";
 import { appTools } from "../schema/tools";
 import type { KernelRuntimeRunUpdate } from "./kernel-runtime-runs";
 import { osWorkspaceChildVisibleToPredicate } from "./os-workspaces/workspaces";
@@ -889,6 +890,7 @@ export async function consumeOwnerToolApproval(
 		organizationId: string;
 		fingerprint: string;
 		now: string;
+		work?: { id: string; version: number };
 	},
 ): Promise<boolean> {
 	const rows = await db
@@ -905,6 +907,9 @@ export async function consumeOwnerToolApproval(
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') = ${input.fingerprint}`,
 				sql`${tediApprovalRequests.consumedAt} IS NULL`,
+				input.work
+					? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${input.organizationId} AND ${workItems.id}=${input.work.id} AND ${workItems.version}=${input.work.version} AND ${workItems.disposition}='accepted')`
+					: undefined,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
