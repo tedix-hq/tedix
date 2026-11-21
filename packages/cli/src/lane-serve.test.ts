@@ -1236,6 +1236,67 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 
+	it("retries unready starts after fresh starts across pages following a restart", async () => {
+		const f = fixture();
+		const blocked = f.items.slice();
+		const reasons = [
+			"Missing approval risk:high",
+			"Missing purpose context",
+			"Blocking dependency",
+		];
+		const cli = f.deps.cli!;
+		f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+			if (args[5] === "readiness") {
+				const index = blocked.findIndex((row) => row.id === args[6]);
+				f.control.readiness = {
+					ready: index < 0,
+					reasons: index < 0 ? [] : [{ detail: reasons[index]! }],
+				};
+			}
+			const result = await cli<T>(args, env);
+			if (args[5] === "dispatch-list") {
+				const input = JSON.parse(args[args.indexOf("--input") + 1]!);
+				return {
+					data: f.items.slice(input.offset, input.offset + 3),
+					pagination: { hasMore: input.offset + 3 < f.items.length },
+				} as T;
+			}
+			return result;
+		};
+		const first = f.restart();
+		await first.tick();
+		await first.drain();
+		for (const row of blocked) {
+			const receipt = JSON.parse(
+				readFileSync(join(f.dir, `${row.id}-${row.version}.json`), "utf8"),
+			);
+			expect(receipt.note).toStartWith("Error: Admission not ready:");
+		}
+		expect(f.releases).toHaveLength(0);
+		for (let n = 4; n <= 7; n++) f.items.push(item(n));
+		f.events.length = 0;
+		const restarted = f.restart();
+		await restarted.tick();
+		await until(() => f.releases.length === 4, 1000);
+		for (const release of f.releases) release();
+		await restarted.drain();
+		const prepared = [
+			...new Set(
+				f.events
+					.filter((event) => event.verb === "dispatch-get")
+					.map((event) => event.args[6]),
+			),
+		];
+		expect(prepared).toEqual(
+			[...f.items.slice(3), ...blocked].map((row) => row.id),
+		);
+		expect(
+			f.events
+				.filter((event) => event.verb === "start" && event.args[4] === "work")
+				.map((event) => event.args[6]),
+		).toEqual(f.items.slice(3).map((row) => row.id));
+	});
+
 	it("keeps the oldest waiting start first when a requested start makes a fourth, and a request starts a waiting item once", async () => {
 		const f = fixture();
 		for (let n = 4; n <= 6; n++) f.items.push(item(n));
