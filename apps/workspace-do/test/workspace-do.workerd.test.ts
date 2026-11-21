@@ -12,6 +12,7 @@ import {
 	createExecutionContext,
 	env,
 	evictDurableObject,
+	runDurableObjectAlarm,
 	runInDurableObject,
 } from "cloudflare:test";
 import { getTableColumns, getTableName } from "drizzle-orm";
@@ -135,6 +136,7 @@ type Stub = DurableObjectStub &
 		): Promise<void>;
 		retryProjections(scope: WorkspaceScope): Promise<void>;
 		scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
+		failNextModelCall(scope: WorkspaceScope, message: string): Promise<void>;
 		limitCodeRuns(scope: WorkspaceScope, ms: number): Promise<void>;
 		webFetchCount(scope: WorkspaceScope): Promise<number>;
 		scriptAccountReads(
@@ -3295,10 +3297,28 @@ describe("WorkspaceDO", () => {
 			commits: [],
 			unverified: null,
 		};
+		const overload =
+			"D1 DB is overloaded. Too many resources consumed within a 10 second window.";
+		await ws.failNextModelCall(scope, overload);
 		const report = await ws.reportAgentRun(scope, ended);
 		expect(await ws.reportAgentRun(scope, ended)).toBeNull();
 		expect(report).toMatchObject({ turnId: expect.any(String) });
-		await ws.awaitTurn(scope, report!.turnId, 20_000);
+		expect(await ws.awaitTurn(scope, report!.turnId, 20_000)).toMatchObject({
+			status: "failed",
+			error: overload,
+		});
+		await runInDurableObject(ws, (_instance, state) => {
+			expect(state.storage.kv.get("run-report-retries")).toEqual({
+				[report!.turnId]: expect.any(Number),
+			});
+			state.storage.kv.put("run-report-retries", {
+				[report!.turnId]: Date.now(),
+			});
+		});
+		expect(await runDurableObjectAlarm(ws)).toBe(true);
+		expect(await ws.awaitTurn(scope, report!.turnId, 20_000)).toMatchObject({
+			status: "finished",
+		});
 		const reportEvents = (
 			await ws.readEvents(scope, { conversationId })
 		).filter((event) => event.turnId === report!.turnId);
@@ -3330,6 +3350,22 @@ describe("WorkspaceDO", () => {
 					.first()
 			)?.n,
 		).toBe(1);
+
+		expect(
+			reportEvents.filter((event) => event.type === "turn.started"),
+		).toHaveLength(1);
+		expect(
+			reportEvents.filter((event) => event.type === "assistant.done"),
+		).toHaveLength(1);
+		expect(
+			(
+				await testEnv.DB.prepare(
+					"SELECT id FROM work_attempts WHERE work_item_id = ?",
+				)
+					.bind(workItemId)
+					.all()
+			).results,
+		).toEqual([{ id: attemptId }]);
 
 		// A question shows the run's card again in the conversation, once.
 		const question = {

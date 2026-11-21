@@ -47,6 +47,7 @@ export type ScriptStep =
 
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
+	#nextModelError: string | undefined;
 	#projectionFailures = 0;
 	#loseTransferReply = false;
 	failTransferReply(scope: WorkspaceScope) {
@@ -144,6 +145,11 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 	scriptModel(scope: WorkspaceScope, steps: ScriptStep[]) {
 		this.bindScope(scope);
 		this.#script = steps;
+	}
+
+	failNextModelCall(scope: WorkspaceScope, message: string) {
+		this.bindScope(scope);
+		this.#nextModelError = message;
 	}
 
 	readScript(scope: WorkspaceScope): ScriptStep[] {
@@ -310,6 +316,11 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 			stream: (context, options) => {
 				this.#systemPrompts.push(context.systemPrompt ?? "");
 				this.#modelCalls.push(userTexts(context.messages));
+				if (this.#nextModelError) {
+					const error = this.#nextModelError;
+					this.#nextModelError = undefined;
+					throw new Error(error);
+				}
 				return model.stream(context, options);
 			},
 		};
