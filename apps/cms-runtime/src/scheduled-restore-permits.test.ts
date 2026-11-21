@@ -9,11 +9,12 @@ import {
 } from "@tedix/db/queries/cms-restore-fences";
 import {
 	reconcileScheduledCmsRestorePermits,
-	runScheduledTenantWithPermit,
-	withScheduledCmsRestorePermit,
+	runScheduledTenantWithPermit as runScheduledTenant,
+	withScheduledCmsRestorePermit as withScheduledPermit,
 } from "./scheduled-restore-permits";
 import { tenantRuntimeEntrypointModule } from "./index";
-import { sweepRetiredCmsRuntimePermits } from "./cms-permit-retirement";
+import { sweepCmsRestorePermitLeases } from "./cms-restore-permit-leases";
+import { PublicRestorePermits } from "./public-restore-permits";
 
 const bindings = env as unknown as {
 	PLATFORM_DB: D1Database;
@@ -22,6 +23,35 @@ const bindings = env as unknown as {
 };
 const db = createDbQueryClient(bindings.PLATFORM_DB);
 const storage = bindings.RECOVERY_STORAGE;
+
+const leaseContext = { waitUntil(_task: Promise<unknown>) {}, abort: vi.fn() };
+function withScheduledCmsRestorePermit<T>(
+	db: Parameters<typeof withScheduledPermit>[0],
+	storage: R2Bucket,
+	identity: Parameters<typeof withScheduledPermit>[2],
+	run: (completed: () => Promise<void>) => Promise<T>,
+	permitId?: string,
+) {
+	return withScheduledPermit(
+		db,
+		storage,
+		identity,
+		run,
+		permitId,
+		leaseContext,
+	);
+}
+function runScheduledTenantWithPermit<T>(
+	db: Parameters<typeof runScheduledTenant>[0],
+	storage: R2Bucket,
+	identity: Parameters<typeof runScheduledTenant>[2],
+	tenant: {
+		ready: () => Promise<unknown>;
+		scheduled: (completed: () => Promise<void>) => Promise<T>;
+	},
+) {
+	return runScheduledTenant(db, storage, identity, tenant, leaseContext);
+}
 
 beforeAll(async () => {
 	await bindings.PLATFORM_DB.exec(`
@@ -59,41 +89,28 @@ function loseCompletionResponse() {
 }
 
 describe("scheduled restore permit ownership", () => {
-	test("reclaims retired scheduled owners only with a release custody receipt", async () => {
+	test("reclaims a lost idle cleanup through the next automatic lease sweep", async () => {
 		const identity = await site();
-		const currentRuntimeOwnerId = "c".repeat(40);
-		const retiredOwnerId = "d".repeat(40);
-		await enterCmsRestorePermit(db, {
-			...identity,
-			kind: "scheduled",
-			permitId: `runtime:${retiredOwnerId}:${crypto.randomUUID()}`,
+		const pool = new PublicRestorePermits(undefined, {
+			now: () => Date.now(),
+			schedule: () => new Promise<void>(() => {}),
 		});
-		const receiptKey = `runtime-permit-retirements/v1/${currentRuntimeOwnerId}.json`;
-		expect(
-			await sweepRetiredCmsRuntimePermits(db, storage, currentRuntimeOwnerId),
-		).toBe(0);
-		const receipt = {
-			version: 1,
-			currentRuntimeOwnerId,
-			retiredRuntimeOwnerIds: [retiredOwnerId],
-			legacyPermits: [],
-			invocationsDrained: false,
-			evidenceRef: "https://example.test/release-proof",
+		const request = pool.forRequest(() => {}, false, leaseContext.abort);
+		const permit = {
+			...identity,
+			permitId: crypto.randomUUID(),
+			kind: "outer" as const,
 		};
-		await storage.put(receiptKey, JSON.stringify(receipt));
-		await expect(
-			sweepRetiredCmsRuntimePermits(db, storage, currentRuntimeOwnerId),
-		).rejects.toThrow("receipt invalid");
+		expect(await request.enter(db, permit)).toBe(true);
+		await request.leave(db, permit);
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
-		await storage.put(
-			receiptKey,
-			JSON.stringify({ ...receipt, invocationsDrained: true }),
-		);
-		expect(
-			await sweepRetiredCmsRuntimePermits(db, storage, currentRuntimeOwnerId),
-		).toBe(1);
+		await bindings.PLATFORM_DB.prepare(
+			"UPDATE cms_restore_permits SET entered_at = '2000-01-01' WHERE site_id = ?",
+		)
+			.bind(identity.siteId)
+			.run();
+		expect(await sweepCmsRestorePermitLeases(db, true)).toBe(1);
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
-		await storage.delete(receiptKey);
 	});
 
 	test("releases owner-confirmed completion even when the final RPC response is lost", async () => {
@@ -232,13 +249,17 @@ describe("scheduled restore permit ownership", () => {
 		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 	});
 
-	test("retains uncertain transport failures and refuses paused admission", async () => {
+	test("aborts uncertain transport failures and reclaims their expired lease", async () => {
 		const identity = await site();
+		leaseContext.abort.mockClear();
 		await expect(
 			withScheduledCmsRestorePermit(db, storage, identity, async () => {
 				throw new Error("RPC disconnected");
 			}),
 		).rejects.toThrow("RPC disconnected");
+		expect(leaseContext.abort).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "RPC disconnected" }),
+		);
 		expect(
 			await reconcileScheduledCmsRestorePermits(db, storage, identity),
 		).toBe(0);
@@ -249,6 +270,12 @@ describe("scheduled restore permit ownership", () => {
 		).toEqual({ admitted: false });
 		expect(run).not.toHaveBeenCalled();
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
+		await bindings.PLATFORM_DB.prepare(
+			"UPDATE cms_restore_permits SET entered_at = '2000-01-01' WHERE site_id = ?",
+		)
+			.bind(identity.siteId)
+			.run();
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
 	});
 
 	test("never releases another kind, epoch, slug or site's permit", async () => {

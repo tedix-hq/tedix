@@ -60,48 +60,28 @@ The durable reservation uses the nested kind, so restore reconciliation cannot
 reclaim it as an abandoned outer response. The reuse window expires even under
 continuous traffic; active renders retain the row until their last borrower
 finishes. The last borrower of an expired reservation awaits its deletion.
-Idle cleanup runs in `waitUntil`. Isolate loss can still leave a durable row;
-HTTP and DO operations have no platform wall-clock bound, so their permits
-cannot be reclaimed by age. New public, database-object and tenant scheduled
-claims carry a build owner in `runtime:<owner-id>:<uuid>` IDs. The build creates
-a fresh 40-character hexadecimal owner ID even when the Git SHA is unchanged;
-`/health/` reports it as `runtimePermitOwnerId`. An uncertain
-INSERT is released before the request returns, since no tenant work began.
-The scheduled tenant entrypoint acknowledges completion after its handler and
-tracked background work drain, before returning its final RPC response.
+Idle cleanup normally runs in `waitUntil`, backed by a durable renewable lease.
+Leased claims use `lease:v1:runtime:<owner-id>:<uuid>` IDs. Their `entered_at`
+value records the most recent successful lease grant, not the first admission.
+A live borrower renews every twenty seconds. If renewal fails or stalls, its
+Worker execution (or database object) is aborted after sixty seconds of local
+authority, before D1 permits reclamation after 120 seconds. A delayed renewal
+cannot revive an expired or deleted claim. Ending a borrower stops its renewal;
+other borrowers keep their own execution contexts and renewal tasks.
 
-The cron handler awaits a bounded retirement sweep before tenant fanout. The
-private release operator supplies
-`runtime-permit-retirements/v1/<current-owner-id>.json` in recovery storage:
+Public requests, cron and restore/deprovision drain reads sweep expired leases
+through the same bounded D1 query. Lost idle cleanup and isolate loss therefore
+do not depend on an operator writing an R2 retirement receipt. Each sweep
+removes at most 1,000 rows. The build owner remains diagnostic metadata;
+`/health/` reports it as `runtimePermitOwnerId`.
 
-```json
-{
-	"version": 1,
-	"currentRuntimeOwnerId": "<current-build-owner-id>",
-	"retiredRuntimeOwnerIds": ["<retired-build-owner-id>"],
-	"legacyPermits": [],
-	"invocationsDrained": true,
-	"evidenceRef": "<durable-release-and-drain-evidence>"
-}
-```
-
-This receipt is release authority: publish it only after verifying that every
-listed release no longer serves and its outstanding invocations have drained.
-A new SHA, elapsed time, or an absent heartbeat does not prove that. Retirement
-is terminal: never route a retired build again. To roll back its source, rebuild
-it with a fresh owner ID. Removing a receipt cannot revoke a sweep that already
-read it. The current build is always excluded. Missing or invalid evidence
-leaves claims intact.
-No new Worker binding or database migration is required.
-
-Legacy rows have no runtime owner. Include only individually attributed claims
-whose owners are proven stopped in `legacyPermits`, with each exact `permitId`,
-`siteId`, `slug`, `restoreEpoch`, and `kind`. Do not include uncertain provider
-creates: runtime termination does not prove a provider operation finished.
-The same sweep removes at most 1,000 matching rows per tick and logs counts by
-kind with the evidence reference. The release operator must inventory legacy
-rows, supply this evidence, and verify the counts after Ship; deployment alone
-does not create a retirement receipt or prove that cleanup ran.
+Unleased administrative claims and pre-upgrade rows retain their explicit
+completion contract. Their old timestamps are not evidence of an expiring
+lease. The runtime does not accept an operator-authored retirement file.
+An uncertain INSERT is released before tenant work begins. Scheduled handlers
+acknowledge completion after their handler and tracked background work drain,
+before returning the final RPC response. A transport failure aborts the owning
+execution before its lease can expire.
 
 Bundle retention runs directly inside a cron
 invocation (15-minute platform wall-clock limit). Only its scheduled permits

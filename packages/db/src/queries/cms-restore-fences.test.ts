@@ -10,7 +10,9 @@ import {
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
 	deleteExpiredCmsBundleRetentionPermits,
-	deleteRetiredCmsRuntimePermits,
+	deleteExpiredCmsRestorePermitLeases,
+	cmsRestoreLeasePermit,
+	renewCmsRestorePermitLease,
 	confirmCmsCaptureCronPause,
 	enterCmsProvisioningPermit,
 	enterCmsRestorePermit,
@@ -91,33 +93,37 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
-	it("reclaims only proven retired owners and exact legacy claims while retaining the drain fence", async () => {
+	it("sweeps lost leases without passing a renewed holder or reviving an expired generation", async () => {
 		const { db, sqlite } = fixture();
-		const currentRuntimeOwnerId = "a".repeat(40);
-		const retiredOwnerId = "b".repeat(40);
-		const retired = `runtime:${retiredOwnerId}:${crypto.randomUUID()}`;
-		const current = `runtime:${currentRuntimeOwnerId}:${crypto.randomUUID()}`;
-		for (const permitId of [
-			retired,
-			current,
-			"legacy",
-			"unknown-provider-create",
-		])
-			expect(
-				await enterCmsRestorePermit(db, { ...one, kind: "nested", permitId }),
-			).toBe(true);
-		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
-		const scope = {
-			currentRuntimeOwnerId,
-			retiredRuntimeOwnerIds: [retiredOwnerId],
-			legacyPermits: [],
-			limit: 1,
+		const active = cmsRestoreLeasePermit({
+			...one,
+			kind: "nested",
+			permitId: "active",
+		});
+		const expired = cmsRestoreLeasePermit({
+			...one,
+			kind: "nested",
+			permitId: "expired",
+		});
+		const other = cmsRestoreLeasePermit({
+			...two,
+			kind: "scheduled",
+			permitId: "other",
+		});
+		const legacy = {
+			...one,
+			kind: "nested" as const,
+			permitId: crypto.randomUUID(),
 		};
-		expect(await deleteRetiredCmsRuntimePermits(db, scope)).toEqual([
-			{ id: retired, siteId: one.siteId, kind: "nested" },
-		]);
-		expect(await releaseCmsRestoreFence(db, closed)).toBe(false);
-		const legacy = { ...one, kind: "nested" as const, permitId: "legacy" };
+		for (const permit of [active, expired, other, legacy])
+			expect(await enterCmsRestorePermit(db, permit)).toBe(true);
+		sqlite.exec("UPDATE cms_restore_permits SET entered_at = '2000-01-01'");
+		sqlite
+			.prepare(
+				"UPDATE cms_restore_permits SET entered_at = datetime('now', '-60 seconds') WHERE id = ?",
+			)
+			.run(active.permitId);
+		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
 		for (const mismatch of [
 			{ siteId: "site-2" },
 			{ slug: "two" },
@@ -125,30 +131,34 @@ describe("CMS restore fence", () => {
 			{ kind: "scheduled" as const },
 		])
 			expect(
-				await deleteRetiredCmsRuntimePermits(db, {
-					...scope,
-					legacyPermits: [{ ...legacy, ...mismatch }],
-				}),
-			).toEqual([]);
+				await renewCmsRestorePermitLease(db, { ...active, ...mismatch }),
+			).toBe(false);
+		expect(await renewCmsRestorePermitLease(db, active)).toBe(true);
+		expect(await renewCmsRestorePermitLease(db, expired)).toBe(false);
 		expect(
-			await deleteRetiredCmsRuntimePermits(db, {
-				...scope,
-				legacyPermits: [legacy],
+			await deleteExpiredCmsRestorePermitLeases(db, {
+				siteId: one.siteId,
+				limit: 1,
 			}),
-		).toHaveLength(1);
-		await expect(
-			deleteRetiredCmsRuntimePermits(db, {
-				...scope,
-				retiredRuntimeOwnerIds: [currentRuntimeOwnerId],
+		).toEqual([{ id: expired.permitId, siteId: one.siteId, kind: "nested" }]);
+		expect(await renewCmsRestorePermitLease(db, expired)).toBe(false);
+		expect(
+			await deleteExpiredCmsRestorePermitLeases(db, {
+				siteId: one.siteId,
+				limit: 1,
 			}),
-		).rejects.toThrow("retirement scope invalid");
+		).toEqual([]);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(false);
 		expect(
 			sqlite
 				.prepare("SELECT id FROM cms_restore_permits ORDER BY id")
 				.all()
 				.map((row) => row.id),
-		).toEqual([current, "unknown-provider-create"].sort());
+		).toEqual([active.permitId, other.permitId, legacy.permitId].sort());
+		expect(await leaveCmsRestorePermit(db, legacy)).toBe(true);
 		expect(await releaseCmsRestoreFence(db, closed)).toBe(false);
+		expect(await leaveCmsRestorePermit(db, active)).toBe(true);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(true);
 	});
 
 	it("reclaims only expired cron retention permits, bounded and scoped to the exact site", async () => {

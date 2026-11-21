@@ -314,8 +314,10 @@ export class EmDashDB extends EmdashSqlDB {
 		)
 			throw new CmsRestoreFenceUnavailableError();
 		const db = createDbQueryClient(env.PLATFORM_DB);
-		const queries = this.databasePermits.forRequest((task) =>
-			this.ctx.waitUntil(task),
+		const queries = this.databasePermits.forRequest(
+			(task) => this.ctx.waitUntil(task),
+			false,
+			(error) => this.ctx.abort(error.message),
 		);
 		const result = await withCmsRestorePermit(
 			db,

@@ -49,8 +49,7 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
-import { sweepRetiredCmsRuntimePermits } from "./cms-permit-retirement";
-import { runtimePermitOwnerId } from "./runtime-permit-owner";
+import { sweepCmsRestorePermitLeases } from "./cms-restore-permit-leases";
 import { retainTenantBundles } from "./bundle-retention";
 import { r2RestHeaders } from "./r2-rest";
 import type {
@@ -2146,6 +2145,7 @@ async function serveWarmMarketingPage(
 	const queries = publicRestorePermitQueries(
 		(task) => ctx.waitUntil(task),
 		true,
+		(error) => ctx.abort(error),
 	);
 	const permitted = await withCmsRestoreResponsePermit(
 		createDbQueryClient(env.PLATFORM_DB),
@@ -2193,6 +2193,11 @@ export default {
 		env: Env,
 		ctx: ExecutionContext,
 	): Promise<Response> {
+		try {
+			await sweepCmsRestorePermitLeases(createDbQueryClient(env.PLATFORM_DB));
+		} catch (error) {
+			console.error("[cms-runtime] restore lease sweep failed:", error);
+		}
 		const url = new URL(request.url);
 		const { healthHostname, marketingBlogHostname } =
 			cmsRuntimePlatformHosts(env);
@@ -2312,7 +2317,12 @@ export default {
 						: undefined,
 				);
 			const restoreQueries = publicRestorePermitEligible(request)
-				? () => publicRestorePermitQueries((task) => ctx.waitUntil(task))
+				? () =>
+						publicRestorePermitQueries(
+							(task) => ctx.waitUntil(task),
+							false,
+							(error) => ctx.abort(error),
+						)
 				: undefined;
 			const permitted = await withCmsRestoreResponsePermit(
 				db,
@@ -2371,13 +2381,12 @@ export default {
 	): Promise<void> {
 		const startedAt = Date.now();
 		try {
-			await sweepRetiredCmsRuntimePermits(
+			await sweepCmsRestorePermitLeases(
 				createDbQueryClient(env.PLATFORM_DB),
-				env.RECOVERY_STORAGE,
-				runtimePermitOwnerId(),
+				true,
 			);
 		} catch (error) {
-			console.error("[cms-runtime] runtime permit retirement failed:", error);
+			console.error("[cms-runtime] restore lease sweep failed:", error);
 		}
 		// Only retention runs have a platform-bounded lifetime.
 		if (new Date(controller.scheduledTime).getUTCMinutes() === 7) {
@@ -2538,6 +2547,7 @@ export default {
 							);
 						},
 					},
+					ctx,
 				);
 				if (!permitted.admitted) {
 					counters.skipped += 1;

@@ -2,8 +2,11 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	enterCmsRestorePermit,
 	leaveCmsRestorePermit,
+	cmsRestoreLeasePermit,
+	renewCmsRestorePermitLease,
 	type CmsRestorePermitParams,
 } from "@tedix/db/queries/cms-restore-fences";
+import { startRestorePermitLease } from "./restore-permit-lease";
 /** Share admission only; authentication and response creation still run per request. */
 export function publicRestorePermitEligible(request: Request): boolean {
 	return request.method === "GET" || request.method === "HEAD";
@@ -19,19 +22,27 @@ interface Reservation {
 	expiresAt: number;
 	borrowers: number;
 	retired: boolean;
+	leaseStartedAt: number;
 }
 
-/** The TTL limits reuse, never the lifetime of an active operation. D1 retains the
- * claim through every borrower; nested claims remain protected from outer reclaim.
- * The durable row is the admission check: a borrow inside the TTL performs no
- * D1 I/O, and a close, pause or deprovision waits for the row to drain. */
+/** The reuse window does not bound an active operation: borrowers renew the
+ * durable lease while they run. Nested claims remain protected from outer
+ * reclaim, so a close, pause or deprovision waits for release or lease expiry. */
 export class PublicRestorePermits {
 	private reservations = new Map<string, Reservation>();
 
 	constructor(
-		private queries = {
-			enter: enterCmsRestorePermit,
-			leave: leaveCmsRestorePermit,
+		private queries: {
+			enter: typeof enterCmsRestorePermit;
+			leave: typeof leaveCmsRestorePermit;
+			renew?: typeof renewCmsRestorePermitLease;
+		} = {
+			enter: (db, permit) =>
+				enterCmsRestorePermit(db, cmsRestoreLeasePermit(permit)),
+			leave: (db, permit) =>
+				leaveCmsRestorePermit(db, cmsRestoreLeasePermit(permit)),
+			renew: (db, permit) =>
+				renewCmsRestorePermitLease(db, cmsRestoreLeasePermit(permit)),
 		},
 		private clock = {
 			now: () => Date.now(),
@@ -51,10 +62,36 @@ export class PublicRestorePermits {
 	forRequest(
 		waitUntil: (task: Promise<unknown>) => void,
 		existingOnly = false,
+		abort?: (error: Error) => void,
 	) {
 		let borrowed: Reservation | undefined;
+		let lease: ReturnType<typeof startRestorePermitLease> | undefined;
+		let borrowedKey: string;
+		const guard = (db: DbQueryClient, reservation: Reservation) => {
+			if (!this.queries.renew) return;
+			const renew = this.queries.renew;
+			lease = startRestorePermitLease(
+				{
+					waitUntil,
+					abort: (error) => {
+						reservation.retired = true;
+						if (this.reservations.get(borrowedKey) === reservation)
+							this.reservations.delete(borrowedKey);
+						if (abort) abort(error);
+						else throw error;
+					},
+				},
+				() => renew(db, reservation.permit),
+				reservation.leaseStartedAt,
+				this.clock.now,
+			);
+			lease.assertActive();
+		};
 		const release = async (db: DbQueryClient): Promise<boolean> => {
 			if (!borrowed) return true;
+			const heldLease = lease;
+			lease = undefined;
+			heldLease?.stop();
 			const reservation = borrowed;
 			borrowed = undefined;
 			reservation.borrowers--;
@@ -62,6 +99,7 @@ export class PublicRestorePermits {
 			// waitUntil can be cancelled during a deployment or isolate shutdown.
 			if (reservation.borrowers === 0 && reservation.retired)
 				await this.deleteReservation(db, reservation);
+			heldLease?.assertActive();
 			return true;
 		};
 		return {
@@ -72,12 +110,14 @@ export class PublicRestorePermits {
 					permit.restoreEpoch,
 					permit.kind,
 				]);
+				borrowedKey = key;
 				const borrow = (): boolean => {
 					const reservation = this.reservations.get(key);
 					if (!reservation || this.clock.now() >= reservation.expiresAt)
 						return false;
 					borrowed = reservation;
 					reservation.borrowers++;
+					guard(db, reservation);
 					return true;
 				};
 				if (borrow()) return true;
@@ -90,6 +130,7 @@ export class PublicRestorePermits {
 					permit.kind === "outer"
 						? { ...permit, kind: "nested" as const }
 						: permit;
+				const leaseStartedAt = this.clock.now();
 				try {
 					if (!(await this.queries.enter(db, durablePermit))) return false;
 				} catch (error) {
@@ -107,8 +148,10 @@ export class PublicRestorePermits {
 					expiresAt: this.clock.now() + REUSE_MS,
 					borrowers: 1,
 					retired: false,
+					leaseStartedAt,
 				};
 				const created = borrowed;
+				guard(db, created);
 				if (
 					this.reservations.size < MAX_RESERVATIONS ||
 					this.reservations.has(key)
@@ -138,6 +181,7 @@ const pool = new PublicRestorePermits();
 export function publicRestorePermitQueries(
 	waitUntil: (task: Promise<unknown>) => void,
 	existingOnly = false,
+	abort?: (error: Error) => void,
 ) {
-	return pool.forRequest(waitUntil, existingOnly);
+	return pool.forRequest(waitUntil, existingOnly, abort);
 }
