@@ -1276,7 +1276,7 @@ async function hotThemeResponse(
 		"Content-Type": "text/css; charset=utf-8",
 		"Cache-Control":
 			!url.search && publicAssetCacheEligible(request)
-				? "public, max-age=0, must-revalidate"
+				? "public, max-age=60, stale-while-revalidate=300"
 				: "no-store",
 		"X-Tedix-Hot-Theme-Revision": revision,
 	});
