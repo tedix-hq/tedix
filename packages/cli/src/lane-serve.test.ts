@@ -240,6 +240,7 @@ function fixture({
 		startError: refuse
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
+		startResponseError: undefined as Error | undefined,
 		readiness: { ready: true, reasons: [] as Array<{ detail: string }> },
 		completeError: undefined as Error | undefined,
 		cooldownUntil: 0,
@@ -485,6 +486,10 @@ function fixture({
 					expiresAt: new Date(Date.now() + 300000).toISOString(),
 				};
 				if (isDevin) devinAttempts.set(args[6]!, attempt);
+				if (control.startResponseError) {
+					control.history.data.unshift(attempt);
+					throw control.startResponseError;
+				}
 				response = { workItem, attempt };
 			} else if (
 				verb === "comment" &&
@@ -1905,7 +1910,7 @@ describe("dispatcher admission", () => {
 			false,
 		);
 	});
-	it("revisits one historical receipt per idle pass without starving later receipts", async () => {
+	it("settles historical receipts without starving later receipts or rereading settled Attempts", async () => {
 		const f = fixture();
 		f.items.splice(0);
 		for (let n = 1; n <= 3; n++) {
@@ -1921,7 +1926,7 @@ describe("dispatcher admission", () => {
 				}),
 			);
 		}
-		// Each retained session holds a live Attempt, so every pass re-reads it.
+		// Each retained session has a live Attempt but no agent process.
 		f.control.history.data = [1, 2, 3].map((n) => ({
 			id: `retained-attempt-${n}`,
 			externalSessionKey: `codex:retained-${n}`,
@@ -1933,13 +1938,9 @@ describe("dispatcher admission", () => {
 		const reads = f.events
 			.filter((event) => event.verb === "dispatch-attempts")
 			.map((event) => event.args[6]);
-		expect(reads).toHaveLength(4);
-		expect(reads.slice(0, 3).sort()).toEqual([
-			item(1).id,
-			item(2).id,
-			item(3).id,
-		]);
-		expect(reads[3]).toBe(reads[0]);
+		expect(reads).toHaveLength(3);
+		expect(reads.sort()).toEqual([item(1).id, item(2).id, item(3).id]);
+		expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(3);
 		expect(
 			f.events.filter((event) => event.verb === "start" && event.input),
 		).toHaveLength(0);
@@ -1979,7 +1980,7 @@ describe("dispatcher admission", () => {
 			for (const release of f.releases) release();
 			await f.dispatcher.drain();
 		});
-		it("adopts this session's live Attempt instead of admitting another", async () => {
+		it("settles this session's live Attempt when no process exists", async () => {
 			const f = fixture();
 			f.items.splice(1);
 			const path = stuck(f);
@@ -1992,12 +1993,55 @@ describe("dispatcher admission", () => {
 					expiresAt: new Date(Date.now() + 300_000).toISOString(),
 				},
 			];
-			for (let n = 0; n < 3; n++) await f.dispatcher.tick();
+			await f.dispatcher.tick();
 			await f.dispatcher.drain();
 			expect(admissions(f)).toHaveLength(0);
 			const receipt = JSON.parse(readFileSync(path, "utf8"));
 			expect(receipt.attemptId).toBe("lost-attempt");
 			expect(receipt.admissionState).toBe("admitted");
+			expect(receipt.phase).toBe("deferred");
+			expect(receipt.outcome).toBe("failed");
+			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
+				1,
+			);
+		});
+		it("settles a failed start response after admission and retries without lease expiry", async () => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.startResponseError = new CliReadError(
+				"Database temporarily unavailable",
+				"SERVICE_UNAVAILABLE",
+				503,
+			);
+			await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(f.releases).toHaveLength(0);
+			const attempt = f.control.history.data[0]!;
+			expect(Date.parse(attempt.expiresAt as string)).toBeGreaterThan(
+				Date.now(),
+			);
+			const settlement = f.events.find((event) => event.verb === "settle")!;
+			expect(attempt.externalSessionKey).toBe(
+				settlement.env.TEDIX_AGENT_SESSION,
+			);
+			expect(settlement.args[settlement.args.indexOf("--outcome") + 1]).toBe(
+				"failed",
+			);
+			expect(settlement.args[settlement.args.indexOf("--note") + 1]).toContain(
+				"Database temporarily unavailable",
+			);
+			const receipt = JSON.parse(
+				readFileSync(join(f.dir, `${item(1).id}-2.json`), "utf8"),
+			);
+			expect(receipt.attemptId).toBe(attempt.id);
+			expect(receipt.phase).toBe("deferred");
+			expect(receipt.outcome).toBe("failed");
+			f.control.startResponseError = undefined;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			expect(admissions(f)).toHaveLength(2);
+			f.releases[0]!();
+			await f.dispatcher.drain();
 		});
 		it("backs off when re-resolution cannot read Attempts", async () => {
 			const f = fixture();
@@ -3749,7 +3793,7 @@ describe("dispatcher admission", () => {
 			if (sent) {
 				expect(saved.session).not.toBe(previous.session);
 				expect(saved.admissionState).toBe(
-					state === "sent-unknown" ? "unknown" : "rejected",
+					state === "sent-unknown" ? "not_sent" : "rejected",
 				);
 			} else {
 				expect(saved.session).toBeUndefined();
@@ -4821,7 +4865,7 @@ describe("dispatcher admission", () => {
 		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
 		expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
 	});
-	it("keeps an uncertain bootstrap admission fenced without holding while owner approval is pending", async () => {
+	it("reconciles bootstrap admission without holding while owner approval is pending", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);
 		const path = join(dir, `${item().id}-2.json`);
@@ -4832,17 +4876,14 @@ describe("dispatcher admission", () => {
 			await dispatcher.tick();
 			await dispatcher.drain();
 			const saved = JSON.parse(readFileSync(path, "utf8"));
-			// After its retry time, the next pass finds no canonical Attempt and
-			// re-admits instead of fencing the revision forever.
-
-			expect(saved.admissionState).toBe(n % 2 ? "unknown" : "not_sent");
+			expect(saved.admissionState).toBe("not_sent");
 			expect(saved.held).not.toBe(true);
 			expect(saved.phase).toBe("deferred");
 			saved.recheckAt = 0;
 			saved.retryDeadlineAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
 		}
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(4);
 		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
 	});
 	it.each(["recovered", "offline", "expired", "foreign", "settled"])(
@@ -5504,11 +5545,18 @@ describe("dispatcher admission", () => {
 	it.each(["failed", "expired"])(
 		"holds lost admission responses until canonical history retires the Attempt as %s",
 		async (outcome) => {
-			const { dispatcher, dir, items, events, control, releases } = fixture({
+			const { restart, deps, dir, items, events, control, releases } = fixture({
 				refuse: true,
 			});
 			items.splice(1);
 			control.startError = new Error("Tedix CLI read deadline elapsed");
+			const cli = deps.cli!;
+			deps.cli = async (args, env) => {
+				if (args[4] === "work" && args[5] === "start")
+					control.history.nextCursor = "older-page";
+				return cli(args, env);
+			};
+			const dispatcher = restart();
 			const path = join(dir, `${item().id}-2.json`);
 			const retry = async () => {
 				const saved = JSON.parse(readFileSync(path, "utf8"));
@@ -8689,11 +8737,8 @@ it.each([
 					f.control.startError = undefined;
 					now++;
 					if (executor === "claude-code") {
-						await retry.tick();
-						await retry.drain();
-						const reconciled = JSON.parse(readFileSync(path, "utf8"));
-						expect(reconciled.admissionState).toBe("not_sent");
-						expect(reconciled.attemptId).toBeUndefined();
+						expect(pending.admissionState).toBe("not_sent");
+						expect(pending.attemptId).toBeUndefined();
 					}
 				}
 				f.control.finalMessage =
