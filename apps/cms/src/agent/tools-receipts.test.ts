@@ -1,7 +1,9 @@
 import git from "isomorphic-git";
 import { GitMemoryFs } from "@tedix/worker-kit/git-memory-fs";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { ZodType } from "zod";
 const mocks = vi.hoisted(() => ({
+	outputSchemas: new Map<string, ZodType>(),
 	handlers: new Map<
 		string,
 		(args: Record<string, unknown>) => Promise<{
@@ -14,8 +16,14 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@tedix/mcp-shared/server", () => ({
 	createMcpServer: () => ({
-		registerTool: (name: string, _config: unknown, handler: never) =>
-			mocks.handlers.set(name, handler),
+		registerTool: (
+			name: string,
+			config: { outputSchema: ZodType },
+			handler: never,
+		) => {
+			mocks.outputSchemas.set(name, config.outputSchema);
+			mocks.handlers.set(name, handler);
+		},
 	}),
 }));
 vi.mock("./preview-exec-runner", async (original) => ({
@@ -129,6 +137,49 @@ function setup(
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.handlers.clear();
+	mocks.outputSchemas.clear();
+});
+
+it("returns schema-valid JSON preview output when process properties are RPC stubs", async () => {
+	const status = vi.fn(async () => ({
+		state: "running",
+		command: ["bunx", "astro", "dev"],
+		startedAt: terminal.startedAt,
+	}));
+	const process = {
+		id: vi.fn(() => {
+			throw new Error("Do not read the RPC id property");
+		}),
+		status,
+		logSnapshot: vi.fn(async () => ({
+			stdout: "ready",
+			stderr: "",
+			truncated: false,
+		})),
+		waitForPort: vi.fn(),
+	};
+	const getCmsJobId = vi
+		.fn()
+		.mockResolvedValueOnce(null)
+		.mockResolvedValue("native-preview");
+	setup(null, {
+		previewHostname: "preview.example.com",
+		sandbox: {
+			getCmsJobId,
+			launchCmsJob: vi.fn(async () => "native-preview"),
+			getProcess: vi.fn(async () => process),
+		} as unknown as SiteBuilderToolContext["sandbox"],
+	});
+	for (const tool of ["theme_preview_start", "theme_preview_status"]) {
+		const { structuredContent } = await mocks.handlers.get(tool)!({});
+		expect(structuredContent.processId).toBe("native-preview");
+		expect(mocks.outputSchemas.get(tool)!.parse(structuredContent)).toEqual(
+			structuredContent,
+		);
+		expect(JSON.parse(JSON.stringify(structuredContent))).toEqual(
+			structuredContent,
+		);
+	}
 });
 
 it("commits an editable route without a sandbox and fences a concurrent push", async () => {

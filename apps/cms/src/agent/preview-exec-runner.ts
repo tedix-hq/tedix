@@ -149,7 +149,7 @@ export async function startCmsJob(
 	replaceExited = false,
 ): Promise<NativeProcess> {
 	const id = await sandbox.launchCmsJob(key, command, options, replaceExited);
-	const process = await sandbox.getProcess(id);
+	const process = await getCmsProcess(sandbox, id);
 	if (!process)
 		throw new Error(
 			`CMS process ${id} is unavailable; launch will not be repeated`,
@@ -161,7 +161,26 @@ export async function getCmsJob(
 	key: string,
 ): Promise<NativeProcess | null> {
 	const id = await sandbox.getCmsJobId(key);
-	return id ? sandbox.getProcess(id) : null;
+	return id ? getCmsProcess(sandbox, id) : null;
+}
+
+async function getCmsProcess(
+	sandbox: CmsJobClient,
+	id: string,
+): Promise<NativeProcess | null> {
+	const process = await sandbox.getProcess(id);
+	if (!process) return null;
+	// RPC stub properties are remote handles, not local values. Keep the known
+	// job id locally and delegate only method calls to the process stub.
+	return {
+		id,
+		status: () => process.status(),
+		output: (options) => process.output(options),
+		logSnapshot: () => process.logSnapshot(),
+		kill: (signal) => process.kill(signal),
+		waitForExit: (options) => process.waitForExit(options),
+		waitForPort: (port, options) => process.waitForPort(port, options),
+	};
 }
 export function cmsProcessStartedAt(
 	status: NativeProcessStatus,
