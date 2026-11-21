@@ -1701,7 +1701,19 @@ it("uses the verified email for invited guest apps and cuts app access after rem
 	expect((await verifyWorkspaceAppSession(key, body.session))?.guestName).toBe(
 		email,
 	);
+	const internal = createRouterClient(createOsAppRuntimeRouter(), {
+		context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+	});
+	const read = () =>
+		internal.capability({
+			session: body.session,
+			operation: "outputs.read",
+			slot: "opportunities",
+			args: null,
+		});
+	expect(await read()).toMatchObject({ output: { id: outputId } });
 	await db.delete(osShareLinkInvitees);
+	await expect(read()).rejects.toMatchObject({ code: "FORBIDDEN" });
 	expect(
 		(
 			await handleGuestAppOpen(env, db, {

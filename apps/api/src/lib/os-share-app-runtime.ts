@@ -31,6 +31,7 @@ import {
 import {
 	getLiveOsShareSession,
 	getOsShareLinkById,
+	isOsShareEmailInvited,
 	touchOsShareSession,
 } from "@tedix/db/queries/os-shares";
 import {
@@ -73,8 +74,6 @@ import {
 	guestAppRevisionId,
 	hashOsShareToken,
 	isActive,
-	linkAdmitsGuest,
-	recipientMayOpen,
 	shareableOutputRevision,
 	stoppedByPrivateWorkspace,
 	TOKEN_SHAPE,
@@ -188,33 +187,27 @@ async function guestLinkApp(
 	link: OsShareLinkRow,
 	appId: string | undefined,
 ) {
-	if (link.resourceType === "gadget") {
+	const appLink = link.resourceType === "gadget";
+	const role = effectiveRole(link);
+	if (appLink) {
 		if (appId !== undefined && appId !== link.resourceId) return null;
-		if (!(await linkAdmitsGuest(db, link))) return null;
-		const gadget = await getOsGadget(db, {
-			organizationId: link.organizationId,
-			gadgetId: link.resourceId,
-		});
-		const revisionId = gadget ? guestAppRevisionId(link, gadget) : null;
-		return gadget && revisionId ? { gadget, revisionId } : null;
-	}
-	if (
-		!appId ||
-		!workspaceLinkAdmitsGuest(link) ||
-		effectiveRole(link) !== GUEST_ROLE
-	)
+		if (!(role === GUEST_ROLE || (role === "edit" && link.role === "edit")))
+			return null;
+	} else if (!appId || !workspaceLinkAdmitsGuest(link) || role !== GUEST_ROLE)
 		return null;
 	const gadget = await getOsGadget(db, {
 		organizationId: link.organizationId,
-		gadgetId: appId,
+		gadgetId: appLink ? link.resourceId : appId!,
 	});
 	if (
 		!gadget ||
 		gadget.status !== "active" ||
-		gadget.workspaceId !== link.resourceId
+		(!appLink && gadget.workspaceId !== link.resourceId)
 	)
 		return null;
-	const revisionId = workspaceLinkAppRevisionId(link, gadget);
+	const revisionId = appLink
+		? guestAppRevisionId(link, gadget)
+		: workspaceLinkAppRevisionId(link, gadget);
 	const revision = revisionId
 		? await getOsGadgetRevision(db, {
 				organizationId: link.organizationId,
@@ -245,13 +238,10 @@ async function resolveGuestAppLinkScope(
 	if (
 		!link ||
 		!isActive(link, now) ||
-		!(await recipientMayOpen(
-			db,
-			link,
-			undefined,
-			undefined,
-			session.verifiedEmail,
-		))
+		(link.access !== "anyone_with_link" &&
+			(link.access !== "invited" ||
+				!session.verifiedEmail ||
+				!(await isOsShareEmailInvited(db, link.id, session.verifiedEmail))))
 	)
 		return null;
 	const opened = await guestLinkApp(db, link, appId);

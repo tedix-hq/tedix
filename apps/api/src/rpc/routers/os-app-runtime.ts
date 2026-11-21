@@ -73,7 +73,6 @@ import {
 	requireWorkspaceCollaboratorAccess,
 } from "../../services/os-workspace-collaborators";
 import {
-	loadAppRuntimeManifest,
 	loadAppRuntimeRevision,
 	loadAppRuntimeDraft,
 	runAppRuntimeCall,
@@ -1002,11 +1001,8 @@ export function createOsAppRuntimeRouter() {
 		const scope = await resolveGuestAppCapabilityScope(db, session);
 		if (!scope)
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		const { grants } = await loadAppRuntimeManifest(
-			db,
-			scope,
-			scope.revisionId,
-		);
+		// Scope resolution checked the live revision; its signed grants are immutable.
+		const grants = session.grants;
 		if (input.operation === "skills.read") {
 			const { approvedGuestSkillRead } =
 				await import("../../services/os-share-skill-read-grants");
