@@ -256,6 +256,17 @@ TEDIX_PROTOCOL_CERT_RESOURCE_URI=skill://known-skill \
 bun run certify:protocol:live
 ```
 
+## Local builds
+
+`bun run --cwd packages/cli build:standalone` embeds the package version plus
+its short build commit, such as `0.29.13+1d03a702d`, in `tedix --version`.
+Git and a source checkout are required at build time. The compiled binary keeps
+that version when run outside the checkout.
+
+Official release builds use `build:standalone [target] --release` to report the
+plain package version. `bun run --cwd packages/cli test:standalone` builds and
+checks both paths on the current platform.
+
 ## Usage
 
 Install the versioned standalone binary (no checkout or Bun runtime required):

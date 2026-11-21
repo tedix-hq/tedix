@@ -94,7 +94,7 @@ jobs:
         run: |
           VERSION=$(bun -e 'console.log(require("./packages/cli/package.json").version)')
           test "${GITHUB_REF_NAME}" = "cli-v${VERSION}"
-      - run: bun run --cwd packages/cli build:standalone ${{ matrix.target }}
+      - run: bun run --cwd packages/cli build:standalone ${{ matrix.target }} --release
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tedix-${{ matrix.target }}
