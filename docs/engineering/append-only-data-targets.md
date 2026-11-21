@@ -107,13 +107,16 @@ What exists today:
   `verifyChain`. Retention removes a checkpoint's records from main only
   after its bundle is stored (`evidence_bundle_key`).
 
-Gaps for evidence use:
+Organization evidence packs:
 
-- No single export command gives one organization's history across main,
-  `LOGS_DB`, older `LOGS_DB_<n>` partitions and R2 for a time range.
-- R2 objects carry their row count and rowid range in custom metadata but
-  no content hash index; evidence packs need a manifest with hashes
-  (Work 9967af3a covers both gaps).
+- `bun scripts/db/history-export.ts` collects a time range across main,
+  `LOGS_DB`, supplied `LOGS_DB_<n>` partitions and the R2 archive into the EU
+  bucket. Its manifest records each file's table, row count, observed time
+  bounds and SHA-256, with source keys and input hashes for archived rows.
+- A standalone Python verifier checks the pack offline against a trusted
+  manifest digest. See [history export](history-export.md) for installation
+  targets, scope, collection consistency and verification limits. Production
+  export acceptance remains a separate operator check (Work 9967af3a).
 
 ## For the Postgres or D1 decision
 

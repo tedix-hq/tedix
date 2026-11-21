@@ -141,6 +141,7 @@
 		"./queries/deck-curator-budget": "./src/queries/deck-curator-budget.ts",
 		"./queries/d1-retention": "./src/queries/d1-retention.ts",
 		"./queries/d1-size": "./src/queries/d1-size.ts",
+		"./queries/history-export": "./src/queries/history-export.ts",
 		"./queries/decision-graph": "./src/queries/decision-graph.ts",
 		"./queries/agent-decisions": "./src/queries/agent-decisions.ts",
 		"./queries/decision-graph-backfill": "./src/queries/decision-graph-backfill.ts",
