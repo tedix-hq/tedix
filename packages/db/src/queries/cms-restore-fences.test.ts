@@ -98,22 +98,22 @@ describe("CMS restore fence", () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`
 			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
-				('old-nested', 'site-1', 'one', 'nested', '2026-11-21 04:31:16'),
-				('old-outer', 'site-1', 'one', 'outer', '2026-11-21 04:31:16'),
-				('old-scheduled', 'site-1', 'one', 'scheduled', '2026-11-21 04:31:16'),
-				('at-cutoff', 'site-1', 'one', 'nested', '2026-11-21 04:31:17'),
+				('old-nested', 'site-1', 'one', 'nested', '2026-11-21 05:59:59'),
+				('old-outer', 'site-1', 'one', 'outer', '2026-11-21 05:59:59'),
+				('old-scheduled', 'site-1', 'one', 'scheduled', '2026-11-21 05:59:59'),
+				('at-cutoff', 'site-1', 'one', 'nested', '2026-11-21 06:00:00'),
 				('admin:cms-agent:unknown', 'site-1', 'one', 'nested', '2000-01-01'),
-				('lease:v1:live', 'site-1', 'one', 'nested', '2026-11-22 04:31:16');
+				('lease:v1:live', 'site-1', 'one', 'nested', '2026-11-22 05:59:59');
 		`);
 		expect(
 			await deleteExpiredCmsRestorePermitLeases(db, {
 				limit: 1_000,
-				now: "2026-11-22 04:31:16",
+				now: "2026-11-22 05:59:59",
 			}),
 		).toEqual([]);
 		const removed = await deleteExpiredCmsRestorePermitLeases(db, {
 			limit: 1_000,
-			now: "2026-11-22 04:31:17",
+			now: "2026-11-22 06:00:00",
 		});
 		expect(removed.map((row) => row.id).sort()).toEqual([
 			"old-nested",
@@ -138,7 +138,7 @@ describe("CMS restore fence", () => {
 
 	it("skips legacy claims for unfinished teardown and recovery records, then reclaims after completion", async () => {
 		const { db, sqlite } = fixture();
-		const now = "2026-11-22 04:31:17";
+		const now = "2026-11-22 06:00:00";
 		sqlite.exec(`
 			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
 				('old-one', 'site-1', 'one', 'nested', '2000-01-01'),
