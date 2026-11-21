@@ -23,7 +23,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { auditActor, emitAuditEvent } from "./audit-helpers";
 import { bindBrowserAgentSeat } from "./browser-agent-seat";
 import {
@@ -108,6 +108,50 @@ async function fixture() {
 }
 
 describe("browser agent seats", () => {
+	it.each([
+		"matching",
+		"organization",
+		"subject",
+		"canonical-user",
+		"inactive",
+	])(
+		"reuses only the same active non-browser membership (%s)",
+		async (binding) => {
+			const { db, context } = await fixture();
+			const owner = await db.query.organizationMembers.findFirst({
+				where: { id: "owner" },
+			});
+			context.userId = "river";
+			context.user!.sub = "river-provider";
+			context.organizationMembership = { ...owner!, subject: "river-provider" };
+			if (binding === "organization")
+				context.organizationMembership.organizationId = "other-team";
+			if (binding === "subject")
+				context.organizationMembership.subject = "another-provider";
+			if (binding === "canonical-user")
+				context.organizationMembership.userId = "another-user";
+			if (binding === "inactive") {
+				context.organizationMembership.status = "inactive";
+				await db
+					.update(organizationMembers)
+					.set({ status: "deactivated" })
+					.where(eq(organizationMembers.id, "owner"));
+			}
+			const reads = vi.spyOn(db.query.organizationMembers, "findFirst");
+			try {
+				if (binding === "inactive")
+					await expect(bindBrowserAgentSeat(context)).rejects.toMatchObject({
+						code: "FORBIDDEN",
+					});
+				else await bindBrowserAgentSeat(context);
+				expect(reads).toHaveBeenCalledTimes(binding === "matching" ? 0 : 1);
+				expect(context.browserAgentSeat).toBeUndefined();
+			} finally {
+				reads.mockRestore();
+			}
+		},
+	);
+
 	it.each([null, "different-user"])(
 		"rejects a conflicting or missing canonical login binding: %s",
 		async (userId) => {

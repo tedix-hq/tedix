@@ -24,6 +24,16 @@ export async function bindBrowserAgentSeat(
 		context.userMembershipKind === "external_agent"
 	)
 		return;
+	const checkedMember = context.organizationMembership;
+	if (
+		checkedMember?.organizationId === context.organizationId &&
+		checkedMember.subject === context.user.sub &&
+		checkedMember.descopeUserId === context.user.sub &&
+		(!context.userId || checkedMember.userId === context.userId) &&
+		checkedMember.status === "active" &&
+		(checkedMember.kind === "human" || checkedMember.kind === "external_agent")
+	)
+		return;
 	const canonicalMember = context.userId
 		? await getMemberByCanonicalUserId(
 				context.db,
