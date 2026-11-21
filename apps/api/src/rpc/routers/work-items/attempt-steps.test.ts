@@ -1,7 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { settleWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
@@ -15,6 +14,7 @@ import {
 } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
+import { installOrganizationLogFixture } from "../../../../test/organization-log-fixture";
 import type { BaseContext } from "../../orpc";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
@@ -47,7 +47,6 @@ function fixture() {
 				workResourceReservations,
 				workBudgetReservations,
 				workEvents,
-				gatewayChangeRecords,
 			),
 	);
 	const expiresAt = new Date(Date.now() + 300_000).toISOString();
@@ -259,7 +258,8 @@ describe("run log and steering", () => {
 	});
 
 	it("records a tedi's steering in the change ledger, without the message", async () => {
-		const { sqlite, person, tedi } = fixture();
+		const { person, tedi } = fixture();
+		const store = installOrganizationLogFixture();
 		const secret = "sentinel-7f3a-do-not-store";
 		const followUp = await call(sendAttemptMessageProcedure, tedi("steward"), {
 			id: work,
@@ -274,20 +274,11 @@ describe("run log and steering", () => {
 			id: work,
 			body: "Hi",
 		});
-		const rows = sqlite
-			.prepare(
-				"SELECT organization_id, record FROM gateway_change_records ORDER BY sequence",
-			)
-			.all() as { organization_id: string; record: string }[];
-		for (const row of rows) expect(row.record).not.toContain(secret);
-		expect(
-			rows.map((row) => ({
-				org: row.organization_id,
-				...JSON.parse(row.record),
-			})),
-		).toMatchObject([
+		const rows = store.records(org);
+		expect(JSON.stringify(rows)).not.toContain(secret);
+		expect(store.records(otherOrg)).toEqual([]);
+		expect(rows).toMatchObject([
 			{
-				org,
 				resource: `work_item:${work}`,
 				operation: "steer_run",
 				actor: { id: "steward", kind: "tedi", organizationId: org },

@@ -19,7 +19,7 @@ export async function runMachineClaimRound(
 	params: ClaimMachineToolCallsParams,
 ): Promise<PushedMachineToolCall[]> {
 	const { calls, storedCalls } = await claimMachineToolCalls(db, params);
-	await writeMachineToolResultRecords(db, {
+	await writeMachineToolResultRecords({
 		orgId: params.orgId,
 		reporterId: params.reporterId,
 		calls: storedCalls,

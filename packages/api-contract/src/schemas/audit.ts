@@ -255,9 +255,9 @@ export const GatewayChangeRecordSchema = GatewayChangeRecordBodySchema.extend({
 	recordedAt: z.string().datetime(),
 });
 /**
- * What an append returns: the stored record, or with `sequence` 0 while the
- * organization's log store holds it unchained during its cutover (minutes).
- * It is chained and gets its sequence when the cutover finishes.
+ * What an append returns: the stored record. `sequence` 0 was used while an
+ * organization's log store held appends during its move from the main
+ * database; the move is finished and the store no longer returns it.
  */
 export const GatewayChangeRecordAppendedSchema =
 	GatewayChangeRecordSchema.extend({

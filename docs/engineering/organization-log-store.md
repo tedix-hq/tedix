@@ -4,6 +4,28 @@ Design note, 20 November 2026, for Work c5642d65 (epic c4272c01). Status:
 revised after the ledger owner's review (hot window, cutover states, late
 writes, explicit append queue, archive check before delete, cadence).
 
+## Status, 21 November 2026: the cutover is complete
+
+- Every organization's gateway change records are in its log store. The
+  main tables `gateway_change_records` and `gateway_change_record_checkpoints`
+  were emptied after their rows were verified from the EU archive, and main
+  migration `20261121143030_drop_main_gateway_change_records` drops them.
+- The main sealer job, the cutover job, the main retention step and policy,
+  and the store's copy and cutover methods are removed. The api reads and
+  writes only the store; a store that cannot answer, or is not `live`, fails
+  the call. Nothing falls back to main.
+- A new organization starts live: a store with no state and no history sets
+  itself `live` on its first call, and its first append is sequence 1 with a
+  genesis checkpoint. A store with copied history but no state stays
+  `passthrough` (a move that never finished) and fails closed.
+- The day manifests in the EU bucket are authoritative for each
+  organization's history.
+- Five records written before the fix, sequences 78832-78836 of
+  organization aff1a566, remain standalone signed evidence bundles outside
+  the store chain.
+
+The sections below are the original design, kept for the record.
+
 Each organization gets one log store: a SQLite Durable Object in the EU
 jurisdiction that holds the organization's history. Gateway change records go
 there first, then MCP telemetry audit events. Writers append to it directly;
@@ -195,7 +217,8 @@ dual-running, and only one organization is in `cutover` at a time.
    the organization; and the late-write query from step 4 still returns
    nothing. Then a job deletes the organization's rows and checkpoints from
    main. When every organization is live, the main tables, the main sealer
-   and the old readers are removed. No fallback path remains.
+   and the old readers are removed. No fallback path remains (done 21 Nov
+   2026, see Status).
 
 `recorded_at` does not always rise with `sequence` across the cutover (a
 late write chained after pending appends keeps its own time). Verifiers

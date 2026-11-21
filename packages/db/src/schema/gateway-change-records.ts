@@ -9,14 +9,14 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 /**
- * One row per MCP gateway tool call that changed something or was refused.
- * Append-only: rows are inserted and read. The one update is sealing: the
- * sealer job fills `record_digest` and `chain_hash` once, in sequence order
- * (null = not sealed yet). The daily retention job deletes old rows only when
- * a checkpoint covers them.
+ * The `LOGS_DB` copy of the gateway change ledger table (logs migration 0017).
+ * It is not part of the main database: each organization's change records
+ * live in its log store (`docs/engineering/organization-log-store.md`), and
+ * the main tables were dropped on 21 Nov 2026. Kept so the logs databases'
+ * checked-in DDL stays in step (`scripts/logs-db-schema.test.ts`) and history
+ * export can read any rows they hold.
  * `sequence` orders the ledger; readers always filter by organization.
- * `recorded_at` is always `Date.prototype.toISOString()`, so text order is
- * time order and range reads use the indexes below.
+ * `recorded_at` is always `Date.prototype.toISOString()`.
  */
 export const gatewayChangeRecords = sqliteTable(
 	"gateway_change_records",
@@ -57,53 +57,5 @@ export const gatewayChangeRecords = sqliteTable(
 		index("idx_gateway_change_records_sealed")
 			.on(t.organizationId, t.sequence)
 			.where(sql`chain_hash is not null`),
-	],
-);
-
-/**
- * One signed (or, without a signing key, unsigned) checkpoint per sealed run
- * of an organization's records. Never deleted, also not by retention: it
- * keeps `previous_chain_hash`, so the records after a deleted run can still
- * be verified. `envelope` is the DSSE envelope JSON, null when unsigned.
- */
-export const gatewayChangeRecordCheckpoints = sqliteTable(
-	"gateway_change_record_checkpoints",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id").notNull(),
-		firstSequence: integer("first_sequence").notNull(),
-		lastSequence: integer("last_sequence").notNull(),
-		recordCount: integer("record_count").notNull(),
-		headChainHash: text("head_chain_hash").notNull(),
-		previousCheckpointDigest: text("previous_checkpoint_digest"),
-		/** Chain hash of the record before `first_sequence`; null at genesis. */
-		previousChainHash: text("previous_chain_hash"),
-		/** Payload digest; the next checkpoint's `previous_checkpoint_digest`. */
-		checkpointDigest: text("checkpoint_digest").notNull(),
-		sealedAt: text("sealed_at").notNull(),
-		envelope: text("envelope"),
-		keyId: text("key_id"),
-		/**
-		 * R2 key of the checkpoint's evidence bundle (the checkpoint and every
-		 * record it covers, verified before it was written); null until written.
-		 * Retention deletes a checkpoint's records only once this is set.
-		 */
-		evidenceBundleKey: text("evidence_bundle_key"),
-	},
-	(t) => [
-		// The bundle writer's queue: only checkpoints without a bundle.
-		index("idx_gateway_change_record_checkpoints_no_bundle")
-			.on(t.sealedAt)
-			.where(sql`evidence_bundle_key is null`),
-		index("idx_gateway_change_record_checkpoints_org_last_sequence").on(
-			t.organizationId,
-			t.lastSequence,
-		),
-		// Two sealer runs that start from the same checkpoint collide here, so
-		// the later batch fails as a whole and the chain cannot fork.
-		uniqueIndex("idx_gateway_change_record_checkpoints_org_first_sequence").on(
-			t.organizationId,
-			t.firstSequence,
-		),
 	],
 );

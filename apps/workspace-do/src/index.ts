@@ -23,14 +23,11 @@ import {
 	readDurableObjectJurisdiction,
 } from "@tedix/worker-kit/durable-objects";
 import type {
-	OrganizationLogAppendInput,
-	OrganizationLogImportPage,
-	OrganizationLogRuntime,
-} from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
-import type {
 	GatewayChangeRecordCheckpointQuery,
 	GatewayChangeRecordRangeParams,
-} from "@tedix/db/queries/gateway-change-records";
+	OrganizationLogAppendInput,
+	OrganizationLogRuntime,
+} from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import { secureEqual } from "@tedix/worker-kit/request-auth";
 import type { MemoryOwnerScope } from "@tedix/api-contract/schemas/memory-graph";
 import type { MemoryOwnerAccess } from "@tedix/db/tenant-store/memory-owner";
@@ -53,8 +50,8 @@ function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 
 /**
  * The organization's log store, or undefined while this Worker has no
- * `ORGANIZATION_LOG` binding (the store is then off: appends are forwarded
- * to the main database and reads are served there).
+ * `ORGANIZATION_LOG` binding (appends then answer `forward` and reads
+ * `not_live`, and the api fails the call).
  */
 function organizationLog(
 	env: WorkspaceEnv,
@@ -135,27 +132,6 @@ export class InternalEntrypoint
 					cutoverStartedAt: null,
 					mainTailSequence: null,
 				};
-	}
-	async organizationLogImport(
-		organizationId: string,
-		page: OrganizationLogImportPage,
-	) {
-		const log = organizationLog(this.env, organizationId);
-		if (!log) throw new Error("The organization log store is not bound");
-		return log.organizationLogImport(organizationId, page);
-	}
-	async organizationLogBeginCutover(organizationId: string) {
-		const log = organizationLog(this.env, organizationId);
-		if (!log) throw new Error("The organization log store is not bound");
-		return log.organizationLogBeginCutover(organizationId);
-	}
-	async organizationLogFinishCutover(
-		organizationId: string,
-		expected: { sequence: number; chainHash: string | null },
-	) {
-		const log = organizationLog(this.env, organizationId);
-		if (!log) throw new Error("The organization log store is not bound");
-		return log.organizationLogFinishCutover(organizationId, expected);
 	}
 	prepareDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
 		return stubFor(this.env, scope).prepareDocumentTransfer(scope, transfer);

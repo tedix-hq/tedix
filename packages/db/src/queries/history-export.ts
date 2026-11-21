@@ -12,6 +12,8 @@ export interface HistoryTable {
 	indirect?: "skill_runs" | "tedis";
 	epoch?: boolean;
 	logs: boolean;
+	/** False for a table the main database no longer has. */
+	main?: false;
 }
 
 /** Tenant history plus the dictionaries/checkpoints needed to interpret it. */
@@ -74,17 +76,14 @@ export const HISTORY_TABLES: readonly HistoryTable[] = [
 		owner: "organization_id",
 		logs: true,
 	},
+	// Change records live in each organization's log store; only rows the
+	// logs databases may hold are read here.
 	{
 		table: "gateway_change_records",
 		time: "recorded_at",
 		owner: "organization_id",
 		logs: true,
-	},
-	{
-		table: "gateway_change_record_checkpoints",
-		time: "sealed_at",
-		owner: "organization_id",
-		logs: false,
+		main: false,
 	},
 	{ table: "work_events", time: "occurred_at", owner: "org_id", logs: false },
 ];

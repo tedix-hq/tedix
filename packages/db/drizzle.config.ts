@@ -29,7 +29,6 @@ export default defineConfig({
 	schema: [
 		"./src/schema/auth-context-cache.ts",
 		"./src/schema/data-residency.ts",
-		"./src/schema/gateway-change-records.ts",
 		"./src/schema/kernel-requests.ts",
 		"./src/schema/index.ts",
 		"./src/schema/graph-retrieval-benchmarks.ts",

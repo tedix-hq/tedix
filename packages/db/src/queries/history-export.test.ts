@@ -1,7 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { skillRuns } from "../schema/cognitive";
-import { gatewayChangeRecordCheckpoints } from "../schema/gateway-change-records";
 import { LOGS_DB_TABLES } from "../schema/logs-db";
 import { tedis } from "../schema/tedis";
 import { workEvents } from "../schema/work-items";
@@ -17,15 +16,7 @@ it("can page raw history against the actual main and logs schemas", async () => 
 		enableForeignKeyConstraints: false,
 	});
 	try {
-		sqlite.exec(
-			schemaDdl(
-				...LOGS_DB_TABLES,
-				gatewayChangeRecordCheckpoints,
-				workEvents,
-				skillRuns,
-				tedis,
-			),
-		);
+		sqlite.exec(schemaDdl(...LOGS_DB_TABLES, workEvents, skillRuns, tedis));
 		const reader = createHistoryReader(
 			async (query, params) =>
 				sqlite.prepare(query).all(...params) as HistoryRow[],

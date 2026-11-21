@@ -39,16 +39,16 @@ async function recordOrganizationMemoryChange<
 	const accountability: AccountabilityAdapter = {
 		append: async (record) =>
 			Object.freeze(
-				await appendChangeRecord(db, fact.organizationId, {
+				await appendChangeRecord(fact.organizationId, {
 					...record,
 					id: changeRecordId,
 				}),
 			),
-		get: (id) => getChangeRecord(db, fact.organizationId, id),
-		list: (query) => listChangeRecords(db, fact.organizationId, query ?? {}),
+		get: (id) => getChangeRecord(fact.organizationId, id),
+		list: (query) => listChangeRecords(fact.organizationId, query ?? {}),
 		export: async () => ({
 			exportedAt: new Date().toISOString(),
-			records: await listChangeRecords(db, fact.organizationId, {}),
+			records: await listChangeRecords(fact.organizationId, {}),
 		}),
 	};
 	const { result } = await guardedCall(

@@ -8,16 +8,6 @@ import {
 	GatewayChangeRecordInputSchema,
 	GatewayLedgerQuerySchema,
 } from "@tedix/api-contract/schemas/audit";
-import {
-	appendGatewayChangeRecord,
-	getGatewayChangeRecord,
-	listGatewayChangeRecords,
-} from "@tedix/db/queries/gateway-change-records";
-import { createDbQueryClient } from "@tedix/db/query-client";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
-import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	type GatewayCallGates,
@@ -29,48 +19,76 @@ import {
 } from "./gateway-adapters";
 import type { ServerContext } from "./server-context";
 
-const databases: DatabaseSync[] = [];
 afterEach(() => {
-	for (const db of databases.splice(0)) db.close();
 	vi.restoreAllMocks();
 });
 
+type StoredRecord = Record<string, unknown> & {
+	id: string;
+	sequence: number;
+	resource: string;
+	actor: { id: string };
+};
+
 /**
- * The gateway adapter over the real ledger table and queries. The API
- * procedures between them are stood in for by their contract schemas and the
- * organization the gateway's client is bound to.
+ * The gateway adapter over a stand-in for the organization's log store: one
+ * chain per organization, each id stored once. The API procedures between
+ * them are stood in for by their contract schemas and the organization the
+ * gateway's client is bound to.
  */
 function setup() {
-	const sqlite = new DatabaseSync(":memory:");
-	databases.push(sqlite);
-	sqlite.exec(schemaDdl(gatewayChangeRecords));
+	const stores = new Map<string, StoredRecord[]>();
+	const storeOf = (orgId: string) => {
+		const records = stores.get(orgId) ?? [];
+		stores.set(orgId, records);
+		return records;
+	};
 	const context = (orgId = "org-a") => {
-		const db = createDbQueryClient(createD1Facade(sqlite));
+		const records = storeOf(orgId);
 		return {
 			app: { organizationId: orgId },
 			apiClient: {
 				audit: {
-					appendChangeRecord: (input: ChangeRecordInput) => {
-						const record = GatewayChangeRecordInputSchema.parse(input);
-						return appendGatewayChangeRecord(db, orgId, {
-							...record,
-							actor: { ...record.actor, organizationId: orgId },
-						});
+					appendChangeRecord: async (input: ChangeRecordInput) => {
+						const parsed = GatewayChangeRecordInputSchema.parse(input);
+						const id = parsed.id ?? crypto.randomUUID();
+						const existing = records.find((record) => record.id === id);
+						if (existing) return structuredClone(existing);
+						const record = {
+							...parsed,
+							actor: { ...parsed.actor, organizationId: orgId },
+							id,
+							sequence: records.length + 1,
+							recordedAt: parsed.recordedAt ?? new Date().toISOString(),
+						};
+						records.push(record);
+						return structuredClone(record);
 					},
-					listChangeRecords: (query: LedgerQuery) =>
-						listGatewayChangeRecords(
-							db,
-							orgId,
-							GatewayLedgerQuerySchema.parse(query),
-						),
-					getChangeRecord: ({ id }: { id: string }) =>
-						getGatewayChangeRecord(db, orgId, id),
+					listChangeRecords: async (query: LedgerQuery) => {
+						const q = GatewayLedgerQuerySchema.parse(query);
+						return structuredClone(
+							records
+								.filter(
+									(record) =>
+										(q.resource === undefined ||
+											record.resource === q.resource) &&
+										(q.actorId === undefined ||
+											record.actor.id === q.actorId) &&
+										(q.afterSequence === undefined ||
+											record.sequence > q.afterSequence),
+								)
+								.slice(0, q.limit),
+						);
+					},
+					getChangeRecord: async ({ id }: { id: string }) =>
+						structuredClone(records.find((record) => record.id === id) ?? null),
 				},
 			},
 			callerIdentity: { authType: "user", userId: "user-a" },
 		} as unknown as ServerContext;
 	};
-	return { context, sqlite };
+	const stored = () => [...stores.values()].flat();
+	return { context, stored };
 }
 const tool = {
 	toolId: "get_example",
@@ -224,7 +242,7 @@ describe("durable gateway ledger", () => {
 		expect(JSON.stringify(refusal)).not.toContain("do-not-store");
 	});
 	it("stores only the argument hash", async () => {
-		const { context, sqlite } = setup();
+		const { context, stored } = setup();
 		await guardGatewayCall(
 			{
 				agent: context(),
@@ -234,13 +252,13 @@ describe("durable gateway ledger", () => {
 			},
 			async () => ok,
 		);
-		const rows = sqlite.prepare("SELECT * FROM gateway_change_records").all();
+		const rows = stored();
 		expect(rows).toHaveLength(1);
 		expect(JSON.stringify(rows)).not.toContain("do-not-store");
-		expect(JSON.parse(String(rows[0]!.record)).argsHash).toMatch(/\S/);
+		expect(rows[0]!.argsHash).toMatch(/\S/);
 	});
 	it("stores the approval evidence of a confirmed call, never its arguments", async () => {
-		const { context, sqlite } = setup();
+		const { context, stored } = setup();
 		const args = {
 			secret: "do-not-store",
 			confirmDestructive: true,
@@ -256,13 +274,13 @@ describe("durable gateway ledger", () => {
 			},
 			async () => ok,
 		);
-		const rows = sqlite.prepare("SELECT * FROM gateway_change_records").all();
+		const rows = stored();
 		expect(rows).toHaveLength(1);
 		expect(JSON.stringify(rows)).not.toContain("do-not-store");
-		const stored = await new GatewayAccountabilityAdapter(context()).get(
+		const read = await new GatewayAccountabilityAdapter(context()).get(
 			confirmed.record.id,
 		);
-		expect(stored?.approval).toEqual({
+		expect(read?.approval).toEqual({
 			kind: "self_confirmation",
 			approverId: "user-a",
 			approvedAt: confirmed.record.approval!.approvedAt,
@@ -470,13 +488,14 @@ describe("durable gateway ledger", () => {
 		expect(await new GatewayAccountabilityAdapter(agent).list()).toEqual([
 			first.record,
 		]);
-		// The same id from another organization is neither stored nor revealed.
-		await expect(
-			context("org-b").apiClient.audit.appendChangeRecord(again),
-		).rejects.toThrow("was not stored");
-		expect(
-			await new GatewayAccountabilityAdapter(context("org-b")).list(),
-		).toEqual([]);
+		// Each organization has its own store: the same id from another
+		// organization is that organization's record and reveals nothing.
+		const other =
+			await context("org-b").apiClient.audit.appendChangeRecord(again);
+		expect(other.actor.organizationId).toBe("org-b");
+		expect(await new GatewayAccountabilityAdapter(agent).list()).toEqual([
+			first.record,
+		]);
 	});
 	it("pages every record on export", async () => {
 		const { context } = setup();
@@ -499,7 +518,7 @@ describe("durable gateway ledger", () => {
 		expect(agent.apiClient.audit.listChangeRecords).toHaveBeenCalledTimes(2);
 	});
 	it("stores no record for an applied read or liveness report, but keeps their failures and refusals", async () => {
-		const { context, sqlite } = setup();
+		const { context, stored } = setup();
 		const agent = context();
 		const waitUntil = vi.fn();
 		(agent as { ctx: unknown }).ctx = { waitUntil };
@@ -542,9 +561,7 @@ describe("durable gateway ledger", () => {
 		});
 		expect(appliedLiveness.record.sequence).toBe(UNSTORED_SEQUENCE);
 		expect(waitUntil).not.toHaveBeenCalled();
-		expect(
-			sqlite.prepare("SELECT count(*) AS n FROM gateway_change_records").get(),
-		).toEqual({ n: 0 });
+		expect(stored()).toEqual([]);
 
 		await guardGatewayCall(
 			{ agent, tool: read, args: {}, annotations: undefined },
@@ -565,8 +582,8 @@ describe("durable gateway ledger", () => {
 		);
 		const background = waitUntil.mock.calls.map(([work]) => work);
 		await Promise.all(background);
-		const stored = await new GatewayAccountabilityAdapter(context()).list();
-		expect(stored.map((r) => [r.operation, r.outcome])).toEqual([
+		const listed = await new GatewayAccountabilityAdapter(context()).list();
+		expect(listed.map((r) => [r.operation, r.outcome])).toEqual([
 			["list_example", "not_applied"],
 			["heartbeat_example", "not_applied"],
 			["list_example", "denied"],
@@ -576,7 +593,7 @@ describe("durable gateway ledger", () => {
 });
 
 // The shared contract suite, with the gateway ledger as the accountability
-// adapter over the real table. The gateway has no memory adapter and its
+// adapter over a stand-in for the organization log store. The gateway has no memory adapter and its
 // compliance adapter needs a live request, so those two come from the
 // reference adapters: only the ledger case exercises gateway code.
 describeGovernanceConformance("gateway ledger conformance", () => ({

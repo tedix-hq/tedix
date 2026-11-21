@@ -40,8 +40,6 @@ const HISTORY = new Set([
 	"audit_metadata_refs",
 	"external_agent_attributions",
 	"external_agent_workload_token_uses",
-	"gateway_change_record_checkpoints",
-	"gateway_change_records",
 	"kernel_request_events",
 	"kernel_runtime_events",
 	"learning_interaction_events",

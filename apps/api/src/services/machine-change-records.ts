@@ -2,8 +2,8 @@
  * Change records for machine tool calls and run steering that reach the API
  * without passing the MCP gateway: a tedi's calls arrive over the tedi
  * runtime's service binding, so the gateway never sees them. They go into the
- * same ledger the gateway writes (`gateway_change_records`), built the same
- * way, so one reader and the same sealing job cover both.
+ * same ledger the gateway writes (the organization's log store), built the
+ * same way, so one reader and the same checkpoints cover both.
  *
  * What a record holds, and where (the ledger has no free-form metadata):
  * - `resource`: `machine:<machine name>` or `work_item:<id>`;
@@ -32,7 +32,6 @@ import { hashArguments, hashValue } from "@tedix/agent-governance/hash";
 import { CHANGE_RECORD_SCHEMA_VERSION } from "@tedix/agent-governance/types";
 import { appendChangeRecord as appendRecord } from "./organization-log";
 import type { StoredMachineToolCallResult } from "@tedix/db/queries/machines";
-import type { DbQueryClient } from "@tedix/db/query-client";
 import { safeErrorMetadata } from "../lib/safe-log-metadata";
 
 type Decision = GatewayChangeRecordBody["decision"];
@@ -243,7 +242,6 @@ export async function buildRunSteeringRecord(params: {
  * records instead.
  */
 function appendGatewayChangeRecord(
-	db: DbQueryClient,
 	orgId: string,
 	record: GatewayChangeRecordInput,
 ) {
@@ -257,7 +255,7 @@ function appendGatewayChangeRecord(
 			? release.GIT_SHA
 			: undefined;
 	const workerVersionId = release.CF_VERSION_METADATA?.id;
-	return appendRecord(db, orgId, {
+	return appendRecord(orgId, {
 		schemaVersion: CHANGE_RECORD_SCHEMA_VERSION,
 		...(productSha || workerVersionId
 			? {
@@ -283,12 +281,10 @@ async function logFailure(what: string, error: unknown) {
  * refuse the call before it is ever queued.
  */
 export async function writeMachineToolQueuedRecord(
-	db: DbQueryClient,
 	params: Parameters<typeof buildMachineToolQueuedRecord>[0],
 ): Promise<void> {
 	if (!isMachineWriteTool(params.tool)) return;
 	await appendGatewayChangeRecord(
-		db,
 		params.orgId,
 		await buildMachineToolQueuedRecord(params),
 	);
@@ -296,12 +292,10 @@ export async function writeMachineToolQueuedRecord(
 
 /** Write a refusal record; a failure is logged and never thrown. */
 export async function writeMachineToolRefusedRecord(
-	db: DbQueryClient,
 	params: Parameters<typeof buildMachineToolRefusedRecord>[0],
 ): Promise<void> {
 	try {
 		await appendGatewayChangeRecord(
-			db,
 			params.orgId,
 			await buildMachineToolRefusedRecord(params),
 		);
@@ -311,21 +305,17 @@ export async function writeMachineToolRefusedRecord(
 }
 
 /** Write one record per stored write tool result; failures are logged only. */
-export async function writeMachineToolResultRecords(
-	db: DbQueryClient,
-	params: {
-		orgId: string;
-		reporterId: string;
-		calls: StoredMachineToolCallResult[];
-	},
-): Promise<void> {
+export async function writeMachineToolResultRecords(params: {
+	orgId: string;
+	reporterId: string;
+	calls: StoredMachineToolCallResult[];
+}): Promise<void> {
 	await Promise.all(
 		params.calls
 			.filter((call) => isMachineWriteTool(call.tool))
 			.map(async (call) => {
 				try {
 					await appendGatewayChangeRecord(
-						db,
 						params.orgId,
 						await buildMachineToolResultRecord({
 							orgId: params.orgId,
@@ -342,12 +332,10 @@ export async function writeMachineToolResultRecords(
 
 /** Write the steering record; a failure is logged and never thrown. */
 export async function writeRunSteeringRecord(
-	db: DbQueryClient,
 	params: Parameters<typeof buildRunSteeringRecord>[0],
 ): Promise<void> {
 	try {
 		await appendGatewayChangeRecord(
-			db,
 			params.orgId,
 			await buildRunSteeringRecord(params),
 		);

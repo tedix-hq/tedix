@@ -3,6 +3,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { installOrganizationLogFixture } from "../../test/organization-log-fixture";
 import type { BaseContext } from "../rpc/orpc";
 import {
 	agentRunOutcomeLesson,
@@ -136,6 +137,7 @@ describe("recordAgentRunOutcomeLesson", () => {
 
 	it("writes through the memory learn path as the tedi's own private fact, then wakes the tedi once to update its memory", async () => {
 		const { sqlite, context } = fixture();
+		installOrganizationLogFixture();
 		const wakes: Record<string, unknown>[] = [];
 		context.env.TEDI_SERVICE = {
 			fetch: async (request: Request) => {
