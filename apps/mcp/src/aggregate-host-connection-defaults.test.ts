@@ -1027,6 +1027,63 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		},
 	);
 
+	it.each([
+		{
+			authType: "service",
+			kernel: "true",
+			scopes: "connections.execute",
+			forwarded: "Bearer human-token",
+			expected: "human-token",
+		},
+		{
+			authType: "service",
+			kernel: "true",
+			scopes: "connections.execute",
+			forwarded: "",
+			expected: undefined,
+		},
+		{
+			authType: "service",
+			kernel: "true",
+			scopes: "",
+			forwarded: "Bearer spoofed",
+			expected: "platform-token",
+		},
+		{
+			authType: "oauth",
+			kernel: "",
+			scopes: "connections.execute",
+			forwarded: "Bearer spoofed",
+			expected: "platform-token",
+		},
+	])(
+		"forwards only the authenticated kernel's verified human bearer: $authType $scopes $forwarded",
+		async ({ authType, kernel, scopes, forwarded, expected }) => {
+			const host = { slug: "cms-replay-bearer" };
+			const response = await handleMcpRequest(
+				new Request("https://cms-replay-bearer.mcp.example/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer platform-token",
+						"x-tedix-auth-type": authType,
+						"x-tedix-auth-kernel": kernel,
+						"x-tedix-auth-scopes": scopes,
+						"X-Forwarded-Authorization": forwarded,
+					},
+					body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+				}),
+				{ ...appResponse(host), metadata: null } as unknown as Parameters<
+					typeof handleMcpRequest
+				>[1],
+				createEnv(),
+				createExecutionContext(),
+			);
+			expect(response.status).toBe(200);
+			expect((buildMcpServer.mock.calls[0] as unknown[])[7]).toBe(expected);
+		},
+	);
+
 	it("lists Connect's built-in tools without hydrating any organization graph", async () => {
 		const host = {
 			slug: "connect-bootstrap",

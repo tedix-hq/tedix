@@ -445,17 +445,21 @@ describe("generic native tenant MCP dispatch", () => {
 					return Response.json({
 						jsonrpc: "2.0",
 						id: body.id,
-						result: { content: [{ type: "text", text: "ok" }] },
+						result: {
+							content: [{ type: "text", text: "ok" }],
+							_meta: { credentialFailureBeforeDispatch: true },
+						},
 					});
 				},
 			} as Fetcher,
 		};
 
-		expect((await callTenantMcpTool(ctx, "content_get", {})).isError).toBe(
-			undefined,
-		);
+		const first = await callTenantMcpTool(ctx, "content_get", {});
+		expect(first.isError).toBeUndefined();
+		expect(first._meta?.credentialFailureBeforeDispatch).toBeUndefined();
 		rejectInitialize = true;
 		const failed = await callTenantMcpTool(ctx, "content_get", {});
+		expect(failed._meta?.credentialFailureBeforeDispatch).toBe(true);
 		expect(failed.content[0]?.text).toMatch(
 			/^\[CMS_MCP_DISCOVERY_FAILED\] Tenant MCP discovery failed \(401\)/,
 		);

@@ -222,6 +222,7 @@ export type KernelWriteExecutionResult =
 			 * changed; an owner may try the same approved call once more.
 			 */
 			retryable?: boolean;
+			credentialFailureBeforeDispatch?: boolean;
 			rateLimitRetryAfterSeconds?: number;
 	  };
 
@@ -269,6 +270,7 @@ async function mcpCall(
 	approvedHomeUserId?: string,
 	verifiedConnectionExecute?: boolean,
 	verifiedConnectionAdmin?: boolean,
+	verifiedHumanBearerToken?: string,
 ): Promise<unknown | null> {
 	if (!env.MCP_SERVICE || !env.MCP_URL) return null;
 	const service = env.MCP_SERVICE;
@@ -284,6 +286,11 @@ async function mcpCall(
 					"X-Tedix-Host": host,
 					// Tenant control-plane audit marker → "kernel" actor in apps/mcp.
 					"X-Tedix-Kernel": "true",
+					...(verifiedConnectionExecute && verifiedHumanBearerToken
+						? {
+								"X-Forwarded-Authorization": `Bearer ${verifiedHumanBearerToken}`,
+							}
+						: {}),
 					...(verifiedConnectionExecute
 						? {
 								"X-Tedix-Tedi-Scopes": verifiedConnectionAdmin
@@ -507,6 +514,7 @@ export async function executeApprovedOwnerToolCall(args: {
 	approvalRequestId: string;
 	verifiedConnectionExecute?: boolean;
 	verifiedConnectionAdmin?: boolean;
+	verifiedHumanBearerToken?: string;
 	timings?: KernelWriteExecutorTimings;
 }): Promise<KernelWriteExecutionResult> {
 	const { env, payload } = args;
@@ -600,6 +608,7 @@ export async function executeApprovedOwnerToolCall(args: {
 			undefined,
 			args.verifiedConnectionExecute,
 			args.verifiedConnectionAdmin,
+			args.verifiedHumanBearerToken,
 		)) as ToolCallResult | null;
 		timings.callMs = since(callStartedAt);
 		if (!result) {
@@ -621,6 +630,9 @@ export async function executeApprovedOwnerToolCall(args: {
 			return {
 				ok: false,
 				error: boundedError(text ?? result.content ?? result),
+				...(result._meta?.["tedix/cmsCredentialFailureBeforeDispatch"] === true
+					? { retryable: true, credentialFailureBeforeDispatch: true }
+					: {}),
 				...(typeof wait === "number" && Number.isFinite(wait) && wait > 0
 					? { rateLimitRetryAfterSeconds: wait }
 					: {}),

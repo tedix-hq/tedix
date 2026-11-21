@@ -1686,6 +1686,56 @@ describe("approved owner tool call replay", () => {
 		},
 	);
 
+	it("replays an approved CMS menu call with the approving human bearer", async () => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result:
+					body.method === "tools/list"
+						? {
+								tools: [
+									{
+										name: "cms_landing__menu_set_items",
+										annotations: { readOnlyHint: false },
+									},
+								],
+							}
+						: { structuredContent: { success: true } },
+			},
+		}));
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			approvalRequestId: "approved-menu",
+			verifiedConnectionExecute: true,
+			verifiedHumanBearerToken: "human.jwt.token",
+			payload: {
+				appSlug: "example-unified",
+				toolId: "cms_landing__menu_set_items",
+				target: {
+					transport: "mcp",
+					mcpServerUrl: "https://builder.tedix.dev/mcp",
+					mcpToolName: "menu_set_items",
+				},
+				args: { name: "main", items: [] },
+				organizationId: "org-1",
+				initiatedByUserId: "approver-1",
+				approvalRequesterUserId: "requester-1",
+			},
+		});
+		expect(result).toMatchObject({ ok: true });
+		const call = service.calls.at(-1)!;
+		expect(call.headers.get("X-Forwarded-Authorization")).toBe(
+			"Bearer human.jwt.token",
+		);
+		expect(call.headers.get("X-Tedix-Acting-User")).toBe("approver-1");
+		expect(call.params).toMatchObject({
+			name: "cms_landing__menu_set_items",
+			arguments: { name: "main", items: [] },
+			_meta: { "com.tedix/approvalRequestId": "approved-menu" },
+		});
+	});
+
 	it("refuses ambiguous connected tool bindings", () => {
 		const entry = {
 			wire: { name: "notion-tedix__notion-update-page", endpoint: null },

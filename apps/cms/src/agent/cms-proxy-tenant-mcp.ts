@@ -199,6 +199,8 @@ async function withTenantMcpSession(
 				"Tenant MCP returned no tool result",
 			);
 		}
+		// Tenant tool output cannot attest that no call was dispatched.
+		if (result._meta) delete result._meta.credentialFailureBeforeDispatch;
 		return result as ToolResult;
 	} catch (error) {
 		// A JSON-RPC error answering tools/call says nothing about the era.
@@ -275,6 +277,14 @@ function tenantMcpFailure(
 	if (error instanceof SdkHttpError) {
 		const text = error.data.text;
 		const detail = typeof text === "string" ? text.slice(0, 400) : "";
+		if (stage === "connect" && error.status === 401) {
+			const result = tenantMcpError(
+				"CMS_MCP_DISCOVERY_FAILED",
+				`Tenant MCP discovery failed (401)${detail ? `: ${detail}` : ""}`,
+			);
+			result._meta = { ...result._meta, credentialFailureBeforeDispatch: true };
+			return result;
+		}
 		return stage === "connect"
 			? tenantMcpError(
 					"CMS_MCP_DISCOVERY_FAILED",

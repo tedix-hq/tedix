@@ -1190,6 +1190,56 @@ describe("exact owner tool approval consumption", () => {
 		expect(
 			(await getApprovalRequestById(db, "pre-send"))?.payload,
 		).toMatchObject({ execution: { retryable: false } });
+		await seed("cms-auth");
+		await resolveApprovalRequest(db, "cms-auth", {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		const cmsClaim = { id: "cms-auth", organizationId: "org-1", now };
+		expect(await claimOwnerToolApprovalExecution(db, cmsClaim)).toBe(true);
+		expect(
+			await consumeOwnerToolApproval(db, {
+				...cmsClaim,
+				fingerprint: "exact-input",
+			}),
+		).toBe(true);
+		expect(
+			await recordOwnerToolApprovalExecution(db, {
+				...cmsClaim,
+				execution: failure,
+				credentialFailureBeforeDispatch: true,
+			}),
+		).toMatchObject({ retryable: true });
+		expect(
+			(await getApprovalRequestById(db, "cms-auth"))?.payload.consumedAt,
+		).toBeUndefined();
+		const retryAt = "2026-01-01T01:00:02.000Z";
+		expect(
+			await reclaimOwnerToolApprovalExecution(db, {
+				...cmsClaim,
+				now: retryAt,
+				retriedBy: "owner-1",
+				attempt: 2,
+				staleBefore: now,
+			}),
+		).toBe(true);
+		expect(
+			await consumeOwnerToolApproval(db, {
+				...cmsClaim,
+				now: retryAt,
+				fingerprint: "exact-input",
+			}),
+		).toBe(true);
+		expect(
+			await recordOwnerToolApprovalExecution(db, {
+				...cmsClaim,
+				execution: { ...failure, startedAt: retryAt, attempt: 2 },
+				credentialFailureBeforeDispatch: true,
+			}),
+		).toMatchObject({ retryable: false });
+		expect(
+			(await getApprovalRequestById(db, "cms-auth"))?.payload.consumedAt,
+		).toBe(retryAt);
 		// A rejected request is never claimable.
 		await seed("rejected-1");
 		await resolveApprovalRequest(db, "rejected-1", {

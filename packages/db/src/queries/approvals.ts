@@ -1211,12 +1211,20 @@ export async function recordOwnerToolApprovalExecution(
 		id: string;
 		organizationId: string;
 		execution: OwnerToolApprovalExecution;
+		/** Trusted gateway attestation that Site Builder never dispatched the tenant call. */
+		credentialFailureBeforeDispatch?: boolean;
 	},
 ): Promise<OwnerToolApprovalExecution | null> {
+	const releaseCredentialFailure =
+		input.credentialFailureBeforeDispatch === true &&
+		input.execution.status === "failed" &&
+		(input.execution.attempt ?? 1) < 2;
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN ${tediApprovalRequests.consumedAt} IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
+			payload: releaseCredentialFailure
+				? sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify({ ...input.execution, retryable: true })}))`
+				: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN ${tediApprovalRequests.consumedAt} IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
 		})
 		.where(
 			and(
@@ -1224,6 +1232,9 @@ export async function recordOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') = ${input.execution.startedAt}`,
+				...(releaseCredentialFailure
+					? [eq(tediApprovalRequests.executionStatus, "running")]
+					: []),
 			),
 		)
 		.returning({ payload: tediApprovalRequests.payload });

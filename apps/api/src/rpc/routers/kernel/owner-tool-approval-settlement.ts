@@ -1,3 +1,4 @@
+import { extractTokenFromCookie } from "@tedix/auth/utils";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Owner tool approval settlement.
@@ -398,7 +399,11 @@ async function runOwnerToolCall(
 		>,
 		observed:
 			| { outcome: "succeeded"; data: unknown }
-			| { outcome: "failed"; error: string },
+			| {
+					outcome: "failed";
+					error: string;
+					credentialFailureBeforeDispatch?: boolean;
+			  },
 	): Promise<OwnerToolRunOutcome> => {
 		const finishedAt = nowIso();
 		let record: OwnerToolApprovalExecution = {
@@ -456,6 +461,9 @@ async function runOwnerToolCall(
 				id: approval.id,
 				organizationId,
 				execution: record,
+				credentialFailureBeforeDispatch:
+					observed.outcome === "failed" &&
+					observed.credentialFailureBeforeDispatch === true,
 			});
 			if (!recorded)
 				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
@@ -570,10 +578,11 @@ async function runOwnerToolCall(
 		error: string,
 		retryable = false,
 		actionBy?: OwnerToolApprovalExecution["actionBy"],
+		credentialFailureBeforeDispatch = false,
 	) =>
 		finish(
 			{ status: "failed", error, retryable, ...(actionBy ? { actionBy } : {}) },
-			{ outcome: "failed", error },
+			{ outcome: "failed", error, credentialFailureBeforeDispatch },
 		);
 
 	try {
@@ -643,6 +652,18 @@ async function runOwnerToolCall(
 			approvalRequestId: approval.id,
 			verifiedConnectionExecute,
 			verifiedConnectionAdmin,
+			...(verifiedConnectionExecute
+				? {
+						verifiedHumanBearerToken:
+							(context.serviceBindingPrincipal === "mcp-edge" &&
+							context.headers.get("X-Tedix-Caller-Type") === "mcp-edge-user"
+								? context.headers.get("X-Forwarded-Authorization")
+								: context.headers.get("Authorization")
+							)?.match(/^Bearer\s+(.+)$/i)?.[1] ??
+							extractTokenFromCookie(context.headers.get("Cookie"), "DS") ??
+							undefined,
+					}
+				: {}),
 			timings,
 		});
 		if (result.ok)
@@ -674,7 +695,12 @@ async function runOwnerToolCall(
 				});
 			return "queued";
 		}
-		return fail(result.error.slice(0, 500), result.retryable === true);
+		return fail(
+			result.error.slice(0, 500),
+			result.retryable === true,
+			undefined,
+			result.credentialFailureBeforeDispatch === true,
+		);
 	} catch (error) {
 		const message = errorMessage(error);
 		console.warn("[approvals] owner tool call settle failed", {
