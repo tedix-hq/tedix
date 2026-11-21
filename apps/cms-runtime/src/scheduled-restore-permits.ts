@@ -39,20 +39,16 @@ export async function withScheduledCmsRestorePermit<T>(
 	storage: R2Bucket,
 	identity: CmsRestoreFenceIdentity,
 	run: (completed: () => Promise<void>) => Promise<T>,
-	// Retention's bundle-retention: prefix also fences bundle activation in D1.
+	// The leased bundle-retention: ID also fences bundle activation in D1.
 	permitId: string = runtimePermitId(),
-	context?: RestoreLeaseContext,
+	context: RestoreLeaseContext,
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
-	if (!context && !permitId.startsWith("bundle-retention:"))
-		throw new Error("CMS scheduled lease requires its execution context");
 	const identityPermit: CmsRestorePermitParams = {
 		...identity,
 		permitId,
 		kind: "scheduled",
 	};
-	const permit = context
-		? cmsRestoreLeasePermit(identityPermit)
-		: identityPermit;
+	const permit = cmsRestoreLeasePermit(identityPermit);
 	const startedAt = Date.now();
 	try {
 		if (!(await enterCmsRestorePermit(db, permit))) return { admitted: false };
@@ -61,13 +57,11 @@ export async function withScheduledCmsRestorePermit<T>(
 		await leaveCmsRestorePermit(db, permit).catch(() => false);
 		throw error;
 	}
-	const lease = context
-		? startRestorePermitLease(
-				context,
-				() => renewCmsRestorePermitLease(db, permit),
-				startedAt,
-			)
-		: undefined;
+	const lease = startRestorePermitLease(
+		context,
+		() => renewCmsRestorePermitLease(db, permit),
+		startedAt,
+	);
 	let ownerCompleted = false;
 	const receipt: ScheduledPermitCompletion = {
 		...permit,
@@ -78,9 +72,9 @@ export async function withScheduledCmsRestorePermit<T>(
 	let completion: Promise<void> | undefined;
 	const completed = () =>
 		(completion ??= (async () => {
-			lease?.assertActive();
+			lease.assertActive();
 			ownerCompleted = true;
-			lease?.stop();
+			lease.stop();
 			// The tenant calls back after its handler and waitUntil work drain, so
 			// losing the final RPC response does not lose the completion proof.
 			await storage.put(key(permit), JSON.stringify(receipt));
@@ -89,17 +83,17 @@ export async function withScheduledCmsRestorePermit<T>(
 			await storage.delete(key(permit));
 		})());
 	try {
-		lease?.assertActive();
+		lease.assertActive();
 		const value = await run(completed);
 		await completed();
 		return { admitted: true, value };
 	} catch (error) {
 		// An uncertain remote handler must stop before its lease can expire.
-		if (context && !ownerCompleted)
+		if (!ownerCompleted)
 			context.abort(error instanceof Error ? error : new Error(String(error)));
 		throw error;
 	} finally {
-		lease?.stop();
+		lease.stop();
 	}
 }
 

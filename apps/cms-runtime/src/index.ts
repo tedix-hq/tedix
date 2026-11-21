@@ -46,6 +46,7 @@ import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
 	cmsTemporarilyUnavailableResponse,
+	leasedCmsRestorePermitQueries,
 	type CmsRestoreFenceIdentity,
 	withCmsRestoreResponsePermit,
 	withSharedCmsRestorePermit,
@@ -2370,7 +2371,10 @@ export default {
 							: run();
 					return withSharedCmsRestorePermit(env, identity, run);
 				},
-				undefined,
+				leasedCmsRestorePermitQueries({
+					waitUntil: (task) => ctx.waitUntil(task),
+					abort: (error) => ctx.abort(error),
+				}),
 				restoreQueries?.(),
 				restoreQueries,
 			);
@@ -2513,11 +2517,16 @@ export default {
 					continue;
 				}
 
-				await retainTenantBundles(env, createDbQueryClient(env.PLATFORM_DB), {
-					siteId: org.siteId,
-					slug,
-					restoreEpoch,
-				});
+				await retainTenantBundles(
+					env,
+					createDbQueryClient(env.PLATFORM_DB),
+					{
+						siteId: org.siteId,
+						slug,
+						restoreEpoch,
+					},
+					ctx,
+				);
 
 				const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
 					invocation: "scheduled",

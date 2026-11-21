@@ -22,9 +22,11 @@ import { EmDashDB, type EmDashDBStub } from "./emdash-db";
 import { TenantEmDashDB, TenantR2, TenantSession } from "./index";
 import {
 	CmsRestoreFenceUnavailableError,
+	leasedCmsRestorePermitQueries,
 	withCmsRestoreResponsePermit,
 } from "./tenant-restore-fence";
 import { PublicRestorePermits } from "./public-restore-permits";
+import { sweepCmsRestorePermitLeases } from "./cms-restore-permit-leases";
 import { cachedTenantPage, pageCacheEntry } from "./tenant-page-cache";
 import {
 	NATIVE_PAGE_HEADER,
@@ -198,6 +200,83 @@ function tenantSession(
 		env: { DB_DO: coordinators(), SESSION: storage },
 	}) as TenantSession;
 }
+
+test("renews a live outer stream, then sweeps its abandoned pull without opening a live fence", async () => {
+	const identity = await site();
+	const abort = vi.fn();
+	let source!: ReadableStreamDefaultController<Uint8Array>;
+	const tasks: Promise<unknown>[] = [];
+	vi.useFakeTimers();
+	try {
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							source = controller;
+						},
+					}),
+					{
+						headers: { "Content-Type": "text/event-stream" },
+					},
+				),
+			leasedCmsRestorePermitQueries({
+				waitUntil: (task) => tasks.push(task),
+				abort,
+			}),
+		);
+		if (!result.admitted) throw new Error("expected admission");
+		expect(await permitIds(identity.siteId)).toEqual([]);
+		const reader = result.value.body!.getReader();
+		const pending = reader.read();
+		await vi.waitFor(async () =>
+			expect(await permitIds(identity.siteId)).toHaveLength(1),
+		);
+		expect((await permitIds(identity.siteId))[0]).toMatch(/^lease:v1:runtime:/);
+		await platformD1
+			.prepare(
+				"UPDATE cms_restore_permits SET entered_at = datetime('now', '-110 seconds') WHERE site_id = ?",
+			)
+			.bind(identity.siteId)
+			.run();
+		await vi.advanceTimersByTimeAsync(20_000);
+		const row = await platformD1
+			.prepare(
+				"SELECT entered_at > datetime('now', '-10 seconds') AS renewed FROM cms_restore_permits WHERE site_id = ?",
+			)
+			.bind(identity.siteId)
+			.first<{ renewed: number }>();
+		expect(row?.renewed).toBe(1);
+		expect(abort).not.toHaveBeenCalled();
+		const fence = { ...identity, generation: "g1", captureId: "c1" };
+		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
+		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
+		expect(await sweepCmsRestorePermitLeases(db, true)).toBe(0);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+
+		// Simulate losing the isolate: neither renewal nor finally can run.
+		vi.clearAllTimers();
+		await platformD1
+			.prepare(
+				"UPDATE cms_restore_permits SET entered_at = datetime('now', '-121 seconds') WHERE site_id = ?",
+			)
+			.bind(identity.siteId)
+			.run();
+		expect(await sweepCmsRestorePermitLeases(db, true)).toBe(1);
+		expect(await permitIds(identity.siteId)).toEqual([]);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
+		const rejected = expect(pending).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		source.enqueue(new Uint8Array([1]));
+		await rejected;
+		await Promise.all(tasks);
+	} finally {
+		vi.useRealTimers();
+	}
+});
 
 describe("nested tenant storage restore permits", () => {
 	test("shares SQL reads as nested claims that restore reconciliation cannot reclaim", async () => {
@@ -714,7 +793,6 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 								headers: { "Content-Type": "text/html" },
 							});
 						},
-						undefined,
 						outer.forRequest((task) => tasks.push(task)),
 					);
 					if (!response.admitted) throw new Error("expected page admission");
