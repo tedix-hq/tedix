@@ -568,13 +568,24 @@ async function authenticateForwardedMcpUserJwt(
 		context.user.scp = scopes.join(" ");
 	}
 	context.authType = "user";
-	const [userId, targetOrg] = await Promise.all([
+	const serviceOrgId = getServiceBindingOrganizationHeader(context.headers);
+	const forwardedSubject = payload.sub;
+	// Canonical gateway targets already identify the membership partition. Read
+	// it alongside organization validation; both must succeed before dispatch.
+	const memberRead =
+		serviceOrgId && !isDescopeTenantId(serviceOrgId) && forwardedSubject
+			? measureMiningPhase(context, "auth.membership", () =>
+					getMemberByUserId(context.db, serviceOrgId, forwardedSubject),
+				)
+			: undefined;
+	const [userId, targetOrg, earlyMember] = await Promise.all([
 		measureMiningPhase(context, "auth.user", () =>
 			resolveCanonicalUserId(context, payload),
 		),
 		measureMiningPhase(context, "auth.organization", () =>
 			resolveForwardedMcpUserOrganization(context),
 		),
+		memberRead,
 	]);
 	context.userId = userId;
 	if (!targetOrg) {
@@ -594,9 +605,11 @@ async function authenticateForwardedMcpUserJwt(
 	}
 
 	const userSubject = context.user.sub;
-	const member = await measureMiningPhase(context, "auth.membership", () =>
-		getMemberByUserId(context.db, targetOrg.id, userSubject),
-	);
+	const member = memberRead
+		? earlyMember
+		: await measureMiningPhase(context, "auth.membership", () =>
+				getMemberByUserId(context.db, targetOrg.id, userSubject),
+			);
 	const forwardedContext = resolveForwardedMcpUserTenantContext({
 		targetOrg,
 		memberRole: member?.role,

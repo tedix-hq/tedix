@@ -646,6 +646,64 @@ describe("forwarded MCP agentic-app user identity", () => {
 		return { context: seen, identity };
 	}
 
+	it.each([true, false])(
+		"overlaps canonical membership reads without bypassing organization validation (%s)",
+		async (exists) => {
+			const organizationId = "00000000-0000-4000-8000-000000000001";
+			const subject = "U2fictionaluser";
+			shareAuthMocks.resolvePrincipalIdentity.mockResolvedValue({
+				principalId: "canonical-user",
+			});
+			personalAuthMocks.getMemberByUserId.mockReset().mockResolvedValue({
+				organizationId,
+				descopeUserId: subject,
+				userId: "canonical-user",
+				kind: "human",
+				status: "active",
+				role: "owner",
+			});
+			const organizationRead = vi.fn(async () => {
+				expect(personalAuthMocks.getMemberByUserId).toHaveBeenCalledWith(
+					expect.anything(),
+					organizationId,
+					subject,
+				);
+				return exists
+					? { id: organizationId, descopeTenantId: "org_fictional" }
+					: undefined;
+			});
+			const token = `e30.${btoa(JSON.stringify({ iss: projectIssuer, sub: subject, email: "ada@example.test", exp: 4_000_000_000 }))}.signature`;
+			const context = {
+				url: new URL("https://api/rpc/osWorkspaces/outputs/setSheetRange"),
+				env: { ENVIRONMENT: "production", DESCOPE_PROJECT_ID: "P2fictional" },
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Caller-Type": "mcp-edge-user",
+					"X-Forwarded-Authorization": `Bearer ${token}`,
+					"X-Tedix-Org-Id": organizationId,
+				}),
+				serviceBindingPrincipal: "mcp-edge",
+				db: { query: { organizations: { findFirst: organizationRead } } },
+			} as unknown as BaseContext;
+			const handler = vi.fn(() => "ok");
+			const guarded = os.$context<BaseContext>().use(withAuth).handler(handler);
+			try {
+				const pending = call(guarded, undefined, { context });
+				if (exists) await expect(pending).resolves.toBe("ok");
+				else
+					await expect(pending).rejects.toMatchObject({
+						code: "FORBIDDEN",
+						message: "Forwarded MCP user organization not found",
+					});
+				expect(organizationRead).toHaveBeenCalledTimes(1);
+				expect(personalAuthMocks.getMemberByUserId).toHaveBeenCalledTimes(1);
+				expect(handler).toHaveBeenCalledTimes(exists ? 1 : 0);
+			} finally {
+				personalAuthMocks.getMemberByUserId.mockReset();
+			}
+		},
+	);
+
 	it("resolves a same-project agentic user token to the canonical user", async () => {
 		const { context, identity } = await resolve({});
 		expect(identity).toMatchObject({

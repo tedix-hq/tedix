@@ -887,7 +887,16 @@ async function executeWithHandler(
 		}
 
 		const responseFields = readResponseFields(effectiveArgs);
+		const saveTimings: Record<string, number> = {};
+		let saveMark = performance.now();
+		const saveLap = (stage: string) => {
+			if (toolConfig.endpoint !== "osWorkspaces/outputs/setSheetRange") return;
+			const now = performance.now();
+			saveTimings[stage] = Math.round(now - saveMark);
+			saveMark = now;
+		};
 		const result = await handler.execute(effectiveArgs, ctx);
+		saveLap("upstreamMs");
 		// Third-party content: remove invisible/bidirectional Unicode and
 		// unsafe HTML before shaping so the client and the Code Mode sandbox
 		// (which receives this same result) only ever see clean text.
@@ -909,6 +918,7 @@ async function executeWithHandler(
 			ctx,
 		);
 		let textContent = handler.buildTextContent(result, ctx);
+		saveLap("shapeMs");
 
 		let tediLayoutSpec: Record<string, unknown> | undefined;
 		if (tediPolicy?.enabled && tediPolicy.tediId && result != null) {
@@ -1007,6 +1017,7 @@ async function executeWithHandler(
 			writeCapability: tool.writeCapability ?? null,
 			meta: tool.meta,
 		});
+		saveLap("enrichmentMs");
 		const outcome = buildCompletionEvidence({
 			operation: tool.toolId,
 			result: structuredContent,
@@ -1081,6 +1092,7 @@ async function executeWithHandler(
 						},
 					})
 				: null;
+		saveLap("readbackMs");
 		if (actionReceipt)
 			textContent += `\n\n${renderActionReceipt(actionReceipt)}`;
 		const collectionRead = isErrorResult
@@ -1132,6 +1144,7 @@ async function executeWithHandler(
 				structuredContent,
 				tool.toolId,
 			);
+			saveLap("validationMs");
 
 			// ── Inventory list_changed nudges ──
 			// A successful dispatch of a tool whose endpoint mutates an app's
@@ -1347,6 +1360,13 @@ async function executeWithHandler(
 		) {
 			fieldSelectionSources.set(selectedContent, fullStructuredContent);
 			textContent = JSON.stringify(selectedContent);
+		}
+		if (toolConfig.endpoint === "osWorkspaces/outputs/setSheetRange") {
+			saveLap("finishMs");
+			console.info({
+				event: "sheet_save_gateway_timing",
+				...saveTimings,
+			});
 		}
 		return {
 			content: [
