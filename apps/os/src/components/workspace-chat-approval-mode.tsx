@@ -40,8 +40,8 @@ export const APPROVAL_MODE_TEXT: Record<
 
 /**
  * How often the agent asks this person before acting in this workspace.
- * Modes looser than the workspace allows are not offered; the store
- * remembers the pick for this person and applies the same cap.
+ * Modes looser than the workspace allows are shown disabled with the reason;
+ * the store remembers the pick for this person and applies the same cap.
  */
 export function ApprovalModePicker({
 	state,
@@ -52,10 +52,7 @@ export function ApprovalModePicker({
 	onChange: (mode: ApprovalMode) => void;
 	disabled?: boolean;
 }) {
-	const offered = APPROVAL_MODES.slice(
-		0,
-		APPROVAL_MODES.indexOf(state.highest) + 1,
-	);
+	const highest = APPROVAL_MODES.indexOf(state.highest);
 	return (
 		<Select
 			value={state.mode}
@@ -71,15 +68,27 @@ export function ApprovalModePicker({
 				<SelectValue>{APPROVAL_MODE_TEXT[state.mode].label}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
-				{offered.map((mode) => (
-					<SelectItem
-						key={mode}
-						value={mode}
-						title={APPROVAL_MODE_TEXT[mode].description}
-					>
-						{APPROVAL_MODE_TEXT[mode].label}
-					</SelectItem>
-				))}
+				{APPROVAL_MODES.map((mode, index) => {
+					const capped = index > highest;
+					return (
+						<SelectItem
+							key={mode}
+							value={mode}
+							disabled={capped}
+							title={APPROVAL_MODE_TEXT[mode].description}
+						>
+							<span className="grid">
+								<span>{APPROVAL_MODE_TEXT[mode].label}</span>
+								{capped ? (
+									<span className="text-kumo-subtle type-tedix-caption">
+										This workspace allows up to{" "}
+										{APPROVAL_MODE_TEXT[state.highest].label}
+									</span>
+								) : null}
+							</span>
+						</SelectItem>
+					);
+				})}
 			</SelectContent>
 		</Select>
 	);

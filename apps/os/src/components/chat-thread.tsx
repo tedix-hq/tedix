@@ -49,10 +49,7 @@ import {
 	appendVoiceTranscript,
 	useComposerDictation,
 } from "@/lib/use-composer-dictation";
-import {
-	VOICE_WAVE_BAR_COUNT,
-	voiceWaveBarHeight,
-} from "@tedix/chat-transport/voice-composer";
+import { DictationCapture } from "@/components/composer-dictation";
 import {
 	LoadError,
 	Alert,
@@ -61,7 +58,6 @@ import {
 } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Collapsible, CollapsibleContent } from "@/components/kumo/collapsible";
-import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
 import { ConversationCapabilityPalette } from "@/components/conversation-capability-palette";
 import {
@@ -2659,53 +2655,7 @@ export function ChatThread({
 						className="min-h-14 resize-none rounded-2xl border-0 bg-transparent px-4 pt-3 pb-1 shadow-none ring-0 focus:ring-0 focus-visible:ring-0"
 					/>
 				) : (
-					<div
-						className="chat-voice-capture flex min-h-14 items-center gap-3 px-3"
-						role="status"
-						aria-label={
-							dictation.phase === "connecting"
-								? "Connecting microphone"
-								: dictation.phase === "recording"
-									? "Listening"
-									: "Transcribing"
-						}
-					>
-						<Button
-							type="button"
-							size="icon-sm"
-							variant="ghost"
-							aria-label="Cancel dictation"
-							onClick={dictation.cancel}
-							icon={<X size={16} />}
-						/>
-						{dictation.phase === "recording" ? (
-							<div className="chat-voice-wave" aria-hidden="true">
-								{Array.from({ length: VOICE_WAVE_BAR_COUNT }, (_, index) => {
-									return (
-										<i
-											key={index}
-											style={{
-												height: `${voiceWaveBarHeight(dictation.audioHistory[index] ?? 0)}px`,
-											}}
-										/>
-									);
-								})}
-							</div>
-						) : (
-							<div className="flex flex-1 justify-center">
-								<Loader size="sm" />
-							</div>
-						)}
-						{dictation.phase === "recording" ? (
-							<Button
-								type="button"
-								size="icon-sm"
-								aria-label="Stop and transcribe"
-								onClick={dictation.stop}
-								icon={<Square size={14} weight="fill" />}
-							/>
-						) : null}
-					</div>
+					<DictationCapture dictation={dictation} />
 				)}
 				{dictation.phase === "idle" ? (
 					<div className="chat-composer-actions">

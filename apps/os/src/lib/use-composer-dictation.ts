@@ -65,6 +65,15 @@ const INITIAL_STATE: VoiceComposerSnapshot = {
 	phase: "idle",
 };
 
+/** Whether this browser can record a voice message for dictation. */
+export function dictationSupported(): boolean {
+	return (
+		typeof window !== "undefined" &&
+		typeof MediaRecorder !== "undefined" &&
+		typeof navigator.mediaDevices?.getUserMedia === "function"
+	);
+}
+
 export function dispatchVoiceComposerEvent(event: VoiceComposerEvent): void {
 	if (typeof window === "undefined") return;
 	window.dispatchEvent(new CustomEvent("tedix:voice", { detail: event }));
