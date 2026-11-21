@@ -172,7 +172,7 @@ import {
 	RUN_CODE_TOOL,
 } from "./prompt";
 import { fileWriteAppliesAtOnce } from "./auto-approval";
-import type { WorkspaceStorage } from "./runtime";
+import type { SandboxRunResult, WorkspaceStorage } from "./runtime";
 import {
 	createLoaderSandbox,
 	SANDBOX_TIMEOUT_MS,
@@ -725,7 +725,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #guestProfiles = new Map<string, GuestProfile>();
 	readonly #running = new Map<string, AbortController>();
 	/** The code run each running turn is waiting for; no entry between runs. */
-	readonly #codeRuns = new Map<string, string>();
+	readonly #codeRuns = new Map<
+		string,
+		{ id: string; files: Array<() => Promise<string>> }
+	>();
 	/** Views each running turn has put in its answer. */
 	readonly #viewsShown = new Map<string, number>();
 	readonly #waiters = new Map<string, Array<() => void>>();
@@ -2877,7 +2880,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const turn = this.#turn(input.turnId);
 		if (!turn || turn.status !== "running")
 			return { ok: false, error: "This turn is no longer running" };
-		if (this.#codeRuns.get(input.turnId) !== input.runId)
+		if (this.#codeRuns.get(input.turnId)?.id !== input.runId)
 			return { ok: false, error: ENDED_CODE_RUN_ERROR };
 		return this.#invokeBinding(
 			scope,
@@ -2920,13 +2923,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				"This reply only reports on the run: it cannot run code. Write the report.",
 			);
 		if (this.#turn(turnId)?.status === "running")
-			this.#codeRuns.set(turnId, runId);
+			this.#codeRuns.set(turnId, { id: runId, files: [] });
 	}
 
 	/** The turn stopped waiting for this run: its later calls are refused. */
-	endCodeRun(scope: WorkspaceScope, turnId: string, runId: string): void {
+	async endCodeRun(
+		scope: WorkspaceScope,
+		turnId: string,
+		runId: string,
+	): Promise<string[]> {
 		this.bindScope(scope);
-		if (this.#codeRuns.get(turnId) === runId) this.#codeRuns.delete(turnId);
+		const run = this.#codeRuns.get(turnId);
+		if (run?.id !== runId) return [];
+		this.#codeRuns.delete(turnId);
+		return Promise.all(run.files.map((read) => read()));
 	}
 
 	/** Facet callback: an event produced while the turn ran elsewhere. */
@@ -4173,6 +4183,50 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 	}
 
+	async #followFile(
+		turnId: string,
+		conversationId: string,
+		machine: string,
+		read: (active: () => boolean) => Promise<string>,
+	): Promise<string> {
+		const stepId = crypto.randomUUID();
+		const startedAt = Date.now();
+
+		this.#events.append(conversationId, {
+			type: "step.started",
+			turnId,
+			stepId,
+			tool: "machine.read",
+			kind: "read",
+			label: `Waiting for ${machine} to return the file. Check the computer for a folder access request.`,
+		});
+		try {
+			const result = await read(
+				() => this.#running.get(turnId)?.signal.aborted === false,
+			);
+			this.#events.append(conversationId, {
+				type: "step.finished",
+				turnId,
+				stepId,
+				status: "ok",
+				durationMs: Date.now() - startedAt,
+				result: boundedEventText(result, EVENT_INPUT_CHARS),
+			});
+			return result;
+		} catch (error) {
+			const message = callFailureText(error);
+			this.#events.append(conversationId, {
+				type: "step.finished",
+				turnId,
+				stepId,
+				status: "error",
+				durationMs: Date.now() - startedAt,
+				error: message,
+			});
+			return message;
+		}
+	}
+
 	#bindings(
 		scope: WorkspaceScope,
 		turn: {
@@ -4202,6 +4256,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						organizationId: scope.organizationId,
 					}
 				: undefined;
+		const codeRun = approvalRequestId
+			? undefined
+			: this.#codeRuns.get(turn.turnId);
 		// One id per source and turn, so a repeated ask shows one card.
 		const requestConnection = (request: ConnectionRequest) =>
 			void this.#events.append(turn.conversationId, {
@@ -4233,6 +4290,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							userId: accountActor.id,
 							tediId: started?.tedi_id,
 							api: this.machineService(),
+							followFile: codeRun
+								? (machine, read) => {
+										codeRun.files.push(() =>
+											this.#followFile(
+												turn.turnId,
+												turn.conversationId,
+												machine,
+												read,
+											),
+										);
+									}
+								: undefined,
 						})
 					: undefined,
 			...(policy.personSent && !policy.machineAccess
@@ -5882,7 +5951,7 @@ export interface CodeRuns {
 	/** Sandbox `env` for one run: one loopback stub per binding. */
 	env(runId: string): Record<string, unknown>;
 	start(runId: string): void | Promise<void>;
-	end(runId: string): void | Promise<void>;
+	end(runId: string): Promise<string[]>;
 	timeoutMs: number;
 }
 
@@ -5920,15 +5989,18 @@ export async function executeTurn(
 				// However the run ends, its id stops being accepted before the
 				// model reads the result: code still executing after a timeout
 				// cannot change anything behind the model's back.
+				let result: SandboxRunResult | undefined;
 				try {
-					return await sandbox.run({
+					result = await sandbox.run({
 						code,
 						env: host.codeRuns.env(runId),
 						timeoutMs: host.codeRuns.timeoutMs,
 					});
 				} finally {
-					await host.codeRuns.end(runId);
+					const files = await host.codeRuns.end(runId);
+					if (result && files.length) result.logs.push(...files);
 				}
+				return result;
 			},
 			emit: host.emit,
 			save: host.save,
@@ -6024,7 +6096,7 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 				scope: WorkspaceScope,
 				turnId: string,
 				runId: string,
-			): Promise<void>;
+			): Promise<string[]>;
 		};
 		return executeTurn(plan, {
 			env: this.env,

@@ -21,6 +21,7 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import {
 	MACHINE_COMMAND_ANSWER_WINDOW_MS,
+	MACHINE_FILE_ANSWER_WINDOW_MS,
 	MACHINE_ONLINE_WINDOW_MS,
 	MACHINE_TOOL_CALL_ANSWER_WINDOW_MS,
 	MACHINE_TOOL_CALL_CLAIM_WINDOW_MS,
@@ -283,8 +284,11 @@ function buildSettleOverdueStatement(
 	const commandDeadline = new Date(
 		Date.parse(params.at) - MACHINE_COMMAND_ANSWER_WINDOW_MS,
 	).toISOString();
+	const fileDeadline = new Date(
+		Date.parse(params.at) - MACHINE_FILE_ANSWER_WINDOW_MS,
+	).toISOString();
 	const unclaimed = sql`${machineToolCalls.status} = 'pending' AND ${machineToolCalls.expiresAt} <= ${params.at}`;
-	const unanswered = sql`${machineToolCalls.status} = 'claimed' AND ${machineToolCalls.claimedAt} <= CASE WHEN ${machineToolCalls.tool} = 'run_command' THEN ${commandDeadline} ELSE ${answerDeadline} END`;
+	const unanswered = sql`${machineToolCalls.status} = 'claimed' AND ${machineToolCalls.claimedAt} <= CASE WHEN ${machineToolCalls.tool} = 'run_command' THEN ${commandDeadline} WHEN ${machineToolCalls.tool} = 'read_file' THEN ${fileDeadline} ELSE ${answerDeadline} END`;
 	return db
 		.update(machineToolCalls)
 		.set({

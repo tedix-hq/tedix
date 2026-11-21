@@ -330,6 +330,36 @@ describe("machine tool calls", () => {
 		});
 	});
 
+	it("accepts a claimed file read when the folder permission prompt outlasts the normal answer window", async () => {
+		const db = fixture();
+		const call = await queue(db, { tool: "read_file" });
+		const runner = {
+			orgId: "org",
+			machineName: "studio",
+			reporterId: "reporter-1",
+			limit: 1,
+		};
+		await claimMachineToolCalls(db, { ...runner, at: after(1) });
+		expect(
+			(
+				await readMachineToolCall(db, {
+					orgId: "org",
+					id: call!.id,
+					at: after(300),
+				})
+			)?.status,
+		).toBe("claimed");
+		expect(
+			(
+				await claimMachineToolCalls(db, {
+					...runner,
+					at: after(301),
+					results: [{ callId: call!.id, ok: true, result: "README" }],
+				})
+			).stored,
+		).toBe(1);
+	});
+
 	it("does not read another organization's call", async () => {
 		const db = fixture();
 		const call = await queue(db);

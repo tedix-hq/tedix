@@ -30,6 +30,8 @@ export const MACHINE_ONLINE_WINDOW_MS = 10 * 60_000;
 export const MACHINE_TOOL_CALL_CLAIM_WINDOW_MS = 60_000;
 /** A claimed call that has no result after this time fails. */
 export const MACHINE_TOOL_CALL_ANSWER_WINDOW_MS = 120_000;
+/** A file open can wait for the person to answer a macOS folder access prompt. */
+export const MACHINE_FILE_ANSWER_WINDOW_MS = 10 * 60_000;
 export const MACHINE_COMMAND_DEFAULT_TIMEOUT_SECONDS = 120;
 export const MACHINE_COMMAND_MAX_TIMEOUT_SECONDS = 1_800;
 /** A claimed command may take its longest timeout before it counts as unanswered. */
