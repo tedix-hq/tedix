@@ -30,7 +30,7 @@ export function useCreditShare(
 	const overview = useQuery({
 		...billingOverviewQueryOptions(),
 		enabled: canReadBilling && credits != null,
-		staleTime: 30_000,
+		staleTime: 300_000,
 	});
 	const monthly = overview.data?.credits;
 	if (

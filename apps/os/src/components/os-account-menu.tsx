@@ -49,8 +49,10 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 	const overview = useQuery({
 		...billingOverviewQueryOptions(),
 		enabled: canManageBilling,
-		staleTime: 30_000,
-		refetchInterval: canManageBilling ? 60_000 : false,
+		// Every open tab polls this; at one minute it was ~46 billing reads a
+		// minute on 21 Nov 2026. The balance shown here moves slowly.
+		staleTime: 300_000,
+		refetchInterval: canManageBilling ? 300_000 : false,
 	});
 	const balance = canManageBilling ? overview.data : undefined;
 	const usage = balance ? allowanceUsage(balance.credits) : null;
