@@ -905,6 +905,30 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 		expect(plainDelegationFailureContent(answer)).toBe(answer);
 	});
 
+	it("keeps dispatch and orphan-sweep reasons out of a failed reply, new and stored", () => {
+		const swept =
+			"Delegated child dispatch failed: Runtime dropped before emitting a terminal event. Auto-failed by orphan sweep.";
+		const plain =
+			"I couldn't finish this request. The worker stopped before it started on this request. Send the request again to retry.";
+		expect(
+			homeDelegationCompletionContent({ preview: swept, status: "failed" }),
+		).toBe(plain);
+		expect(
+			plainDelegationFailureContent(
+				`The delegated tedi reported that the assignment failed. Latest evidence: ${swept}`,
+			),
+		).toBe(plain);
+		expect(
+			homeDelegationCompletionContent({
+				preview:
+					"Delegated child dispatch failed: Delegated child dispatch timed out before the child runtime published events",
+				status: "failed",
+			}),
+		).toBe(
+			"I couldn't finish this request. The worker never confirmed that it picked up this request. Check the run details before sending it again, in case it is still running.",
+		);
+	});
+
 	it("leaves a partial result alone even when its prose names a budget", () => {
 		expect(
 			homeDelegationCompletionContent({

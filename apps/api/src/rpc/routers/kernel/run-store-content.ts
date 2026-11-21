@@ -187,6 +187,17 @@ const FAILURE_READINGS: ReadonlyArray<{
 		nextStep: "Ask again with a narrower task.",
 	},
 	{
+		match: /Runtime dropped before emitting a terminal event|orphan sweep/i,
+		reason: () => "The worker stopped before it started on this request.",
+		nextStep: "Send the request again to retry.",
+	},
+	{
+		match: /^Delegated child dispatch timed out\b/i,
+		reason: () => "The worker never confirmed that it picked up this request.",
+		nextStep:
+			"Check the run details before sending it again, in case it is still running.",
+	},
+	{
 		match: /^Model turn failed:.*\b(?:idle timeout|timed? ?out|deadline)\b/i,
 		reason: () => "The model stopped responding before it finished.",
 		nextStep: "Send the request again to retry.",
@@ -227,10 +238,27 @@ export function delegationFailureNotice(finalMessage: string): string | null {
 	return noticeMatch ? UNREAD_FAILURE_NOTICE : null;
 }
 
+/**
+ * The reply for a failed delegation with no message of its own, such as a
+ * dispatch failure or an orphan sweep. The preview stays in run details.
+ */
+function failedPreviewNotice(preview: string | null | undefined): string {
+	const reason = (preview ?? "")
+		.replace(/^Delegated child dispatch failed:\s*/i, "")
+		.trim();
+	return (
+		delegationFailureNotice(
+			`This turn ended without a reply. Reason: ${reason || "unknown error"}`,
+		) ?? UNREAD_FAILURE_NOTICE
+	);
+}
+
 // Replies stored before failure readings stopped echoing the raw reason.
 const LEGACY_ECHOED_FAILURE =
 	/^I couldn't finish this request\. (?:The worker's turn failed before it produced anything: ([^]*)|Nothing was produced)\. Please try again\.$/;
 const LEGACY_RELAYED_FAILURE = /^I couldn't finish this request\.\s+/;
+const LEGACY_FAILED_EVIDENCE =
+	/^The delegated tedi reported that the assignment failed\.(?: Latest evidence: ([^]*))?$/;
 
 /**
  * Display text for a stored delegation completion: a failure reply written
@@ -246,6 +274,8 @@ export function plainDelegationFailureContent(content: string): string {
 				`This turn ended without a reply. Reason: ${echoed[1] ?? "unknown error"}`,
 			) ?? content
 		);
+	const evidence = LEGACY_FAILED_EVIDENCE.exec(trimmed);
+	if (evidence) return failedPreviewNotice(evidence[1]);
 	const relayed = trimmed.replace(LEGACY_RELAYED_FAILURE, "");
 	if (TURN_FAILURE_NOTICE_PREFIX.test(relayed))
 		return delegationFailureNotice(relayed) ?? content;
@@ -316,12 +346,11 @@ export function homeDelegationCompletionContent(input: {
 				return finalMessage;
 		}
 	}
+	if (input.status === "failed") return failedPreviewNotice(input.preview);
 	const evidence = input.preview ? ` Latest evidence: ${input.preview}` : "";
 	switch (input.status) {
 		case "completed":
 			return `The delegated tedi finished the assignment.${evidence}`;
-		case "failed":
-			return `The delegated tedi reported that the assignment failed.${evidence}`;
 		case "canceled":
 			return `The delegated tedi assignment was canceled.${evidence}`;
 		default:

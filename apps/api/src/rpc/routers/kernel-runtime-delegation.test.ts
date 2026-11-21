@@ -463,9 +463,10 @@ describe("kernel runtime router: delegation", () => {
 		const ledgerRow = db.events.find((event) =>
 			event.id.includes("delegation-dispatch-failed"),
 		);
-		expect(
-			(ledgerRow?.payload as { content?: string } | null)?.content,
-		).toContain("assignment failed");
+		const ledgerContent = (ledgerRow?.payload as { content?: string } | null)
+			?.content;
+		expect(ledgerContent).toContain("I couldn't finish this request.");
+		expect(ledgerContent).not.toContain("isolate dispatch unavailable");
 		expect(
 			(
 				(ledgerRow?.payload as { metadata?: Record<string, unknown> } | null)
