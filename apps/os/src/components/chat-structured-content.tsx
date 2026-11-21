@@ -1,7 +1,14 @@
-import { Check, Copy, WarningCircle } from "@phosphor-icons/react";
+import {
+	ArrowCounterClockwise,
+	Check,
+	Copy,
+	WarningCircle,
+} from "@phosphor-icons/react";
+import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { useEffect, useRef, useState } from "react";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { Button } from "@/components/kumo/button";
+import { ClipboardText } from "@/components/kumo/clipboard-text";
 import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
@@ -22,6 +29,7 @@ import {
 	type WriteApprovalRequest,
 	type WriteFailure,
 } from "@/lib/chat-structured-content";
+import { orpcErrorCode } from "@/lib/orpc-error";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
 // UNTRUSTED TEXT. Tool names, app slugs, arguments and error text are
@@ -122,33 +130,97 @@ export function JsonDetails({
 	);
 }
 
-/** Tool, app and request id: kept, but quieter than the summary. */
-function ToolCallMeta({
-	toolName,
-	appSlug,
-	requestId,
+const ERROR_CATEGORIES: Record<string, string> = {
+	UNAUTHORIZED: "Sign-in or access",
+	FORBIDDEN: "Sign-in or access",
+	NOT_FOUND: "Not found",
+	TIMEOUT: "Took too long",
+	TOO_MANY_REQUESTS: "Too many requests",
+	BAD_REQUEST: "Request not accepted",
+	CONFLICT: "Changed elsewhere",
+};
+
+/** A plain category for a failed call; never the server's own words. */
+export function chatErrorCategory(error: unknown): string {
+	const code = orpcErrorCode(error);
+	return (code && ERROR_CATEGORIES[code]) || "Connection or service";
+}
+
+/** The reference id a failed call carries, for support; never its message. */
+export function chatErrorReference(error: unknown): string | null {
+	if (!error || typeof error !== "object") return null;
+	const record = error as { traceId?: unknown; data?: unknown };
+	const data = asRecord(record.data);
+	const id = [record.traceId, data?.traceId, data?.requestId].find(
+		(value): value is string => typeof value === "string" && value !== "",
+	);
+	return id ?? null;
+}
+
+/**
+ * One calm error line in the chat: a plain sentence, Retry when it applies,
+ * and a closed "Details" holding only a plain category and a copyable
+ * reference id. Raw provider or database text never shows here.
+ */
+export function ChatErrorLine({
+	message,
+	category,
+	referenceId,
+	onRetry,
+	retrying = false,
 }: {
-	toolName: string;
-	appSlug: string | null;
-	requestId?: string | null;
+	message: string;
+	category?: string | null;
+	referenceId?: string | null;
+	onRetry?: () => void;
+	retrying?: boolean;
 }) {
 	return (
-		<Text
-			as="p"
-			role="label"
-			tone="secondary"
-			className="m-0 flex min-w-0 flex-wrap items-center gap-x-1.5 break-all"
-			data-slot="chat-tool-meta"
+		<div
+			data-slot="chat-error-line"
+			role="alert"
+			className="flex min-w-0 flex-col gap-0.5"
 		>
-			<span className="font-mono">{sanitizeUntrustedText(toolName)}</span>
-			{appSlug ? <span>· {sanitizeUntrustedText(appSlug)}</span> : null}
-			{requestId ? (
-				<span title={`Request ${requestId}`}>
-					· Request{" "}
-					<span className="font-mono">{sanitizeUntrustedText(requestId)}</span>
-				</span>
+			<p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-kumo-default type-tedix-body">
+				<WarningCircle
+					size={16}
+					aria-hidden
+					className="shrink-0 text-kumo-danger"
+				/>
+				<span className="min-w-0 [overflow-wrap:anywhere]">{message}</span>
+				{onRetry ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="ghost"
+						icon={<ArrowCounterClockwise size={14} />}
+						disabled={retrying}
+						onClick={() => onRetry()}
+					>
+						Retry
+					</Button>
+				) : null}
+			</p>
+			{category || referenceId ? (
+				<Collapsible className="pl-6">
+					<CollapsibleDefaultTrigger className="-ml-2 min-h-6 py-0 text-kumo-subtle type-tedix-caption">
+						Details
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
+						<div className="flex min-w-0 flex-col gap-1 text-kumo-subtle type-tedix-caption">
+							{category ? <span>Kind: {category}</span> : null}
+							{referenceId ? (
+								<ClipboardText
+									size="sm"
+									text={referenceId}
+									textToCopy={referenceId}
+								/>
+							) : null}
+						</div>
+					</CollapsibleDefaultContent>
+				</Collapsible>
 			) : null}
-		</Text>
+		</div>
 	);
 }
 
@@ -175,31 +247,18 @@ export function WriteApprovalRequestMessage({
 			{request.args ? (
 				<JsonDetails label="Arguments" payload={request.args} />
 			) : null}
-			<ToolCallMeta
-				toolName={request.toolName}
-				appSlug={request.appSlug}
-				requestId={request.requestId}
-			/>
 		</div>
 	);
 }
 
-/** One clear error line for a write that failed after approval. */
+/** One calm line for a write that failed after approval. */
 export function WriteFailureMessage({ failure }: { failure: WriteFailure }) {
 	return (
-		<div className="flex min-w-0 flex-col gap-1" data-slot="chat-write-failure">
-			<p className="m-0 flex min-w-0 items-start gap-2 text-kumo-danger type-tedix-body">
-				<WarningCircle size={16} aria-hidden className="mt-0.5 shrink-0" />
-				<span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
-					<span className="font-medium">
-						{describeToolFailure(sanitizeUntrustedText(failure.toolName))}:
-					</span>{" "}
-					{sanitizeUntrustedText(failure.error)}
-				</span>
-			</p>
-			<span className="pl-6">
-				<ToolCallMeta toolName={failure.toolName} appSlug={failure.appSlug} />
-			</span>
+		<div data-slot="chat-write-failure">
+			<ChatErrorLine
+				message={`${describeToolFailure(sanitizeUntrustedText(failure.toolName))}.`}
+				category="Connected app change"
+			/>
 		</div>
 	);
 }

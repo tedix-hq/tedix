@@ -51,12 +51,7 @@ import {
 	useComposerDictation,
 } from "@/lib/use-composer-dictation";
 import { DictationCapture } from "@/components/composer-dictation";
-import {
-	LoadError,
-	Alert,
-	AlertDescription,
-	AlertTitle,
-} from "@/components/kumo/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Collapsible, CollapsibleContent } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
@@ -116,6 +111,7 @@ import { AgentRunCard } from "@/components/agent-run-card";
 import { MachineActivity } from "@/components/machine-activity";
 import { LiveDelegationCard } from "@/components/delegation-live-card";
 import { useChatAgentRuns } from "@/lib/use-chat-agent-runs";
+import { plainRuntimeLabel } from "@/lib/delegation-activity";
 import {
 	useActiveTedis,
 	usePickableTedis,
@@ -189,6 +185,11 @@ import {
 	RunningIndicator,
 	SendFailureBanner,
 } from "@/components/chat-message-parts";
+import {
+	ChatErrorLine,
+	chatErrorCategory,
+	chatErrorReference,
+} from "@/components/chat-structured-content";
 import {
 	type FirstSendInFlight,
 	MESSAGES_PAGE_LIMIT,
@@ -396,7 +397,7 @@ export function ChatThread({
 	const [olderCursor, setOlderCursor] = useState<string | null>(null);
 	const cursorInitializedRef = useRef(false);
 	const [loadingEarlier, setLoadingEarlier] = useState(false);
-	const [loadEarlierError, setLoadEarlierError] = useState<string | null>(null);
+	const [loadEarlierError, setLoadEarlierError] = useState<unknown>(null);
 
 	const [pendingRunId, setPendingRunId] = useState<string | null>(null);
 	// A brand-new thread's first send, while its enqueue is in flight. See
@@ -406,7 +407,8 @@ export function ChatThread({
 		useState<FirstSendInFlight | null>(recoveredSend);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [steeringError, setSteeringError] = useState<string | null>(null);
-	const [sendError, setSendError] = useState<string | null>(
+	// The send failure's cause: shown only as a plain category and reference.
+	const [sendError, setSendError] = useState<unknown>(
 		recoveredSend ? RECOVERED_SEND_NOTICE : null,
 	);
 	const [sendErrorUnknown, setSendErrorUnknown] = useState(
@@ -934,7 +936,7 @@ export function ChatThread({
 		return () => window.removeEventListener("focus", onFocus);
 	}, [queryClient, conversationId]);
 
-	const [approvalError, setApprovalError] = useState<string | null>(null);
+	const [approvalError, setApprovalError] = useState<unknown>(null);
 	const respondApproval = useMutation({
 		mutationFn: (input: {
 			runId: string;
@@ -956,12 +958,7 @@ export function ChatThread({
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
 		},
 		onError: (error) => {
-			setApprovalError(
-				errorMessage(
-					error,
-					"The approval could not be recorded. The card is still pending; try again.",
-				),
-			);
+			setApprovalError(error);
 			void queryClient.invalidateQueries({
 				queryKey: homeRunSetQueryKey(conversationId),
 			});
@@ -1245,7 +1242,7 @@ export function ChatThread({
 			setOlderCursor(page.nextCursor ?? null);
 		} catch (error) {
 			prependAnchorRef.current = null;
-			setLoadEarlierError((error as Error).message);
+			setLoadEarlierError(error);
 		} finally {
 			setLoadingEarlier(false);
 		}
@@ -1443,7 +1440,7 @@ export function ChatThread({
 			// The key is always kept: Retry re-sends it, and a same-key resend is
 			// exactly-once server-side.
 			const message = errorMessage(error, "The send failed.");
-			setSendError(message);
+			setSendError(error);
 			// Recorded separately from the overlay because the overlay may already
 			// be gone: a durable row can land before the promise rejects.
 			const outcomeUnknown =
@@ -1541,9 +1538,7 @@ export function ChatThread({
 			}
 		},
 		onError: (error) => {
-			setSendError(
-				errorMessage(error, "The direct read could not be started."),
-			);
+			setSendError(error);
 			setSendErrorUnknown(isUnknownSendOutcome(error));
 		},
 		onSettled: () => composerRef.current?.focus(),
@@ -2079,9 +2074,10 @@ export function ChatThread({
 							{conversationId !== null &&
 							transcript.isError &&
 							messages.length === 0 ? (
-								<LoadError
-									title="The transcript is unavailable"
-									error={transcript.error}
+								<ChatErrorLine
+									message="Couldn't load this conversation."
+									category={chatErrorCategory(transcript.error)}
+									referenceId={chatErrorReference(transcript.error)}
 									onRetry={() => {
 										void transcript.refetch();
 									}}
@@ -2118,11 +2114,14 @@ export function ChatThread({
 										</li>
 									) : null}
 									{loadEarlierError ? (
-										<li
-											className="text-center text-kumo-danger text-xs"
-											role="alert"
-										>
-											Could not load earlier messages: {loadEarlierError}
+										<li className="flex justify-center">
+											<ChatErrorLine
+												message="Couldn't load earlier messages."
+												category={chatErrorCategory(loadEarlierError)}
+												referenceId={chatErrorReference(loadEarlierError)}
+												onRetry={() => void loadEarlier()}
+												retrying={loadingEarlier}
+											/>
 										</li>
 									) : null}
 									{displayMessages.map((message) => (
@@ -2203,7 +2202,10 @@ export function ChatThread({
 										    the whole in-flight window, so nothing shifts when the
 										    rationale arrives or when the answer supersedes it. */}
 											{overlay.phase && !overlay.finalized ? (
-												<StreamedRationaleRow rationale={overlay.rationale} />
+												<StreamedRationaleRow
+													rationale={overlay.rationale}
+													done={overlay.text !== ""}
+												/>
 											) : null}
 											{overlay.text ? (
 												<StreamedAssistantBubble
@@ -2228,7 +2230,6 @@ export function ChatThread({
 									})()}
 									<MachineActivity
 										actions={agentRuns.machineActions.fromStream}
-										defaultOpen
 									/>
 									{agentRuns.fromStream.map((agentRun) => (
 										<AgentRunCard
@@ -2257,7 +2258,6 @@ export function ChatThread({
 												actions={agentRuns.machineActions.forActive(
 													work.childRunId,
 												)}
-												defaultOpen
 											/>
 											{agentRuns.forActive(work.childRunId).map((agentRun) => (
 												<AgentRunCard
@@ -2269,12 +2269,13 @@ export function ChatThread({
 									))}
 									{restartDelegation.error ? (
 										<li>
-											<Text role="label" tone="error" className="m-0">
-												{errorMessage(
+											<ChatErrorLine
+												message="Couldn't restart the delegation."
+												category={chatErrorCategory(restartDelegation.error)}
+												referenceId={chatErrorReference(
 													restartDelegation.error,
-													"The delegation could not be restarted. Please try again.",
 												)}
-											</Text>
+											/>
 										</li>
 									) : null}
 									{approvalCards.map((card) => (
@@ -2297,9 +2298,11 @@ export function ChatThread({
 									))}
 									{approvalError ? (
 										<li>
-											<Text role="label" tone="error" className="m-0">
-												{approvalError}
-											</Text>
+											<ChatErrorLine
+												message="Couldn't record your decision. The request is still waiting; try again."
+												category={chatErrorCategory(approvalError)}
+												referenceId={chatErrorReference(approvalError)}
+											/>
 										</li>
 									) : null}
 									{offeredWorkflow && !showRunning ? (
@@ -2326,9 +2329,8 @@ export function ChatThread({
 									}) ? (
 										<RunningIndicator
 											label={
-												pendingRun?.progress?.label ??
-												pendingRun?.progress?.detail ??
-												null
+												plainRuntimeLabel(pendingRun?.progress?.label) ??
+												plainRuntimeLabel(pendingRun?.progress?.detail)
 											}
 										/>
 									) : null}
@@ -2377,12 +2379,11 @@ export function ChatThread({
 									) : null}
 									{retryRun.error ? (
 										<li>
-											<Text role="label" tone="error" className="m-0">
-												{errorMessage(
-													retryRun.error,
-													"The retry could not be started. Please try again.",
-												)}
-											</Text>
+											<ChatErrorLine
+												message="Couldn't start the retry."
+												category={chatErrorCategory(retryRun.error)}
+												referenceId={chatErrorReference(retryRun.error)}
+											/>
 										</li>
 									) : null}
 								</ul>
@@ -2421,7 +2422,7 @@ export function ChatThread({
 			) : null}
 			{sendError ? (
 				<SendFailureBanner
-					message={sendError}
+					error={sendError}
 					// The banner's claim is read off the same overlay the transcript
 					// renders, so the two can never disagree about whether the outcome
 					// is unknown.

@@ -104,7 +104,7 @@ describe("StreamedPhaseRow", () => {
 				{ phase: "using_tool", detail: "gmail_send\u202e", since, sequence: 2 },
 				since + 999,
 			),
-		).toBe("Using a tool: gmail_send · 0s");
+		).toBe("Using a tool: Gmail send · 0s");
 		// A clock skewed before the phase start never renders negative time.
 		expect(
 			phaseRowLabel(
@@ -129,44 +129,25 @@ describe("StreamedPhaseRow", () => {
 });
 
 describe("StreamedRationaleRow", () => {
-	it("renders the provisional rationale, visually distinct from the answer", () => {
+	it("folds the reasoning behind a quiet 'Thought for Ns' line", () => {
 		const html = renderToStaticMarkup(
-			<StreamedRationaleRow rationale="Delegating to the GitHub-owning tedi" />,
+			<StreamedRationaleRow
+				rationale="Delegating to the GitHub-owning tedi"
+				now={1_000}
+			/>,
 		);
 		expect(html).toContain('data-slot="streaming-rationale"');
 		expect(html).toContain('data-empty="false"');
-		expect(html).toContain("Delegating to the GitHub-owning tedi");
-		// Not the assistant treatment: muted + italic, one clamped line, and no
-		// streaming caret that would read as "this is the answer".
-		expect(html).toContain("italic");
-		expect(html).toContain("text-kumo-subtle");
-		expect(html).toContain("truncate");
+		expect(html).toContain("Thought for 1s");
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain("Delegating to the GitHub-owning tedi");
 		expect(html).not.toContain('data-slot="streaming-caret"');
-	});
-
-	it("truncates inside the thread instead of widening it", () => {
-		// A grid item's automatic minimum is its nowrap text width: without
-		// min-w-0 a long rationale widened the whole thread column, pushing the
-		// operator's own message out of the narrow chat pane.
-		const html = renderToStaticMarkup(
-			<StreamedRationaleRow rationale={"x ".repeat(400)} />,
-		);
-		expect(html).toMatch(/<li class="[^"]*\bmin-w-0\b[^"]*"/);
 	});
 
 	it("is pre-spaced: the empty row still reserves its line", () => {
 		const html = renderToStaticMarkup(<StreamedRationaleRow rationale="" />);
 		expect(html).toContain('data-empty="true"');
-		// The reserved line height is what keeps the thread from shifting when
-		// the first rationale chunk lands.
 		expect(html).toContain("min-h-5");
-	});
-
-	it("sanitizes untrusted runtime text", () => {
-		const html = renderToStaticMarkup(
-			<StreamedRationaleRow rationale="  routing‮  " />,
-		);
-		expect(html).not.toContain("‮");
-		expect(html).toContain("routing");
+		expect(html).not.toContain("Thought for");
 	});
 });

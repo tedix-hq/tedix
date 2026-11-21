@@ -1082,7 +1082,7 @@ describe("SendFailureBanner", () => {
 		// screen — and promised a held draft next to an empty composer.
 		const html = renderToStaticMarkup(
 			<SendFailureBanner
-				message="Connection lost."
+				error={new Error("Connection lost.")}
 				outcomeUnknown={true}
 				draftHeld={false}
 			/>,
@@ -1094,17 +1094,17 @@ describe("SendFailureBanner", () => {
 
 	it("renders the failure with an intact-draft hint and a Retry action", () => {
 		const html = renderToStaticMarkup(
-			<SendFailureBanner message="Network unreachable." />,
+			<SendFailureBanner error={new Error("Network unreachable.")} />,
 		);
 		expect(html).toContain("Message not sent");
-		expect(html).toContain("Network unreachable.");
+		expect(html).not.toContain("Network unreachable.");
 		expect(html).toContain("draft is intact");
 		expect(html).toContain("Retry");
 	});
 
 	it("states an unknown outcome as unknown, never as failure", () => {
 		const html = renderToStaticMarkup(
-			<SendFailureBanner message="The socket died." outcomeUnknown draftHeld />,
+			<SendFailureBanner outcomeUnknown draftHeld />,
 		);
 		expect(html).toContain("Message may not have been sent");
 		expect(html).not.toContain("Message not sent");
@@ -1115,9 +1115,7 @@ describe("SendFailureBanner", () => {
 	});
 
 	it("disables Retry while a retry is in flight", () => {
-		const html = renderToStaticMarkup(
-			<SendFailureBanner message="Timeout." retrying />,
-		);
+		const html = renderToStaticMarkup(<SendFailureBanner retrying />);
 		expect(html).toContain('disabled=""');
 	});
 });
@@ -3849,7 +3847,7 @@ describe("<ChatThread> first-send reveal", () => {
 			}
 			await flush();
 			expect(first.container.textContent).toContain(
-				"Confirmation is taking longer than expected",
+				"Message may not have been sent",
 			);
 			const original = transport.actions.enqueueMessage.mock.calls[0]![0];
 			cleanups.pop()?.();
@@ -4161,7 +4159,8 @@ describe("<ChatThread> first-send reveal", () => {
 		expect(transport.actions.enqueueMessage).toHaveBeenCalledOnce();
 		act(() => resolveSend({ status: "failed", error: "Unavailable" }));
 		await flush();
-		expect(container.textContent).toContain("Unavailable");
+		expect(container.textContent).toContain("Message not sent");
+		expect(container.textContent).not.toContain("Unavailable");
 		expect(
 			container.querySelector<HTMLTextAreaElement>(
 				'textarea[aria-label="Message"]',

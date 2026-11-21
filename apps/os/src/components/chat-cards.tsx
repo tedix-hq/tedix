@@ -192,13 +192,6 @@ export function ExecutionLinkChip({
 	);
 }
 
-/** Human label for a protocol tool id; the exact id remains available as title text. */
-export function toolCallLabel(name: string): string {
-	const safe = sanitizeUntrustedText(name).trim();
-	if (!safe) return "Tool action";
-	return sentenceCase(safe.replace(/[._:/-]+/g, " ").replace(/\s+/g, " "));
-}
-
 // ---------------------------------------------------------------------------
 // Tool-call state reducer
 // ---------------------------------------------------------------------------
@@ -351,12 +344,6 @@ export function pruneDepartedRunFrames(
 // Status chips
 // ---------------------------------------------------------------------------
 
-const TOOL_STATUS_VARIANTS: Record<ToolCallStatus, BadgeVariant> = {
-	running: "info",
-	completed: "success",
-	failed: "error",
-};
-
 const RUN_STATUS_VARIANTS: Record<TediRunStatus, BadgeVariant> = {
 	queued: "info",
 	running: "info",
@@ -378,129 +365,183 @@ export function RunStatusChip({ status }: { status: TediRunStatus }) {
 }
 
 // ---------------------------------------------------------------------------
-// <ToolCallCard/>
+// <ToolCallCard/> and <WorkTraceCard/>
 // ---------------------------------------------------------------------------
 
+/** Raw text longer than this folds behind "Show raw output". */
+const RAW_FOLD_LENGTH = 80;
+
+const TOOL_STATUS_LABEL: Record<ToolCallStatus, string> = {
+	running: "Running",
+	completed: "Done",
+	failed: "Didn't finish",
+};
+
+/** One raw value inside a tool row's details, long text folded. */
+function RawValue({ label, value }: { label: string; value: string }) {
+	const [full, setFull] = useState(false);
+	const text = sanitizeUntrustedText(value);
+	const folded = !full && text.length > RAW_FOLD_LENGTH;
+	return (
+		<div className="grid min-w-0 gap-0.5">
+			<Text as="span" role="caption" tone="secondary">
+				{label}
+			</Text>
+			<Text
+				as="span"
+				role="caption"
+				tone="mono-secondary"
+				className="break-all"
+			>
+				{folded ? `${text.slice(0, RAW_FOLD_LENGTH - 1)}…` : text}
+			</Text>
+			{folded ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="xs"
+					className="w-fit"
+					onClick={() => setFull(true)}
+				>
+					Show raw output
+				</Button>
+			) : null}
+		</div>
+	);
+}
+
 /**
- * Live card for one tool call. Pure: takes the merged state from
- * `mergeToolEvents` and re-renders in place as the entry's status flips —
- * identity is `toolCallId`, so key the list on it.
+ * One tool call as a plain-English row. The protocol name, app, input,
+ * output and error stay behind the row's own "Details", closed by default.
+ * Identity is `toolCallId`, so key the list on it.
  */
 export function ToolCallCard({ tool }: { tool: ToolCallState }) {
-	const running = tool.status === "running";
+	const name = sanitizeUntrustedText(tool.name).trim();
+	const raw = [
+		{ label: "Tool", value: name },
+		tool.appSlug ? { label: "App", value: tool.appSlug } : null,
+		tool.argsPreview ? { label: "Input", value: tool.argsPreview } : null,
+		tool.status === "completed" && tool.resultPreview
+			? { label: "Output", value: tool.resultPreview }
+			: null,
+		tool.status === "failed" && tool.errorPreview
+			? { label: "Error", value: tool.errorPreview }
+			: null,
+	].filter((entry): entry is { label: string; value: string } => !!entry);
 	return (
 		<li
 			data-slot="tool-call-card"
 			data-tool-status={tool.status}
-			className="flex w-full justify-start"
+			className="flex w-full min-w-0 justify-start"
 		>
-			<div className="flex min-w-0 max-w-full flex-1 flex-col gap-1 rounded-xl px-1.5 py-1 text-kumo-subtle">
-				<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-					{/*
-					 * Decorative: the adjacent status Badge already names the state,
-					 * and Kumo's `Loader` carries its own `role="status"` — hiding the
-					 * wrapper keeps the transcript from announcing it twice.
-					 */}
+			<Collapsible className="flex min-w-0 max-w-full flex-1 flex-col px-1.5 py-0.5 text-kumo-subtle">
+				<span className="flex min-w-0 items-center gap-2">
+					{/* Decorative: the status text beside it names the state. */}
 					<span
 						aria-hidden="true"
 						className="flex size-5 shrink-0 items-center justify-center"
 					>
-						{running ? (
-							<Loader aria-label="Tool call running" size={15} />
+						{tool.status === "running" ? (
+							<Loader size={13} />
+						) : tool.status === "failed" ? (
+							<Warning size={13} />
 						) : (
-							<Wrench size={15} />
+							<Check size={13} />
 						)}
 					</span>
+					<Text as="span" truncate className="min-w-0 flex-1">
+						{name ? describeToolCall(name) : "Tool action"}
+					</Text>
 					<Text
 						as="span"
-						truncate
-						className="flex-1"
-						title={sanitizeUntrustedText(tool.name)}
+						role="label"
+						tone="secondary"
+						className="shrink-0 tabular-nums"
 					>
-						{toolCallLabel(tool.name)}
+						{TOOL_STATUS_LABEL[tool.status]}
+						{tool.durationMs !== null
+							? ` · ${formatDurationMs(tool.durationMs)}`
+							: ""}
 					</Text>
-					{tool.appSlug ? (
-						<Badge variant="outline">
-							{sanitizeUntrustedText(tool.appSlug)}
-						</Badge>
-					) : null}
-					<Badge variant={TOOL_STATUS_VARIANTS[tool.status]}>
-						{sentenceCase(tool.status)}
-					</Badge>
-					{tool.durationMs !== null ? (
-						<Text
-							as="span"
-							role="label"
-							tone="secondary"
-							className="tabular-nums"
-						>
-							{formatDurationMs(tool.durationMs)}
+					<CollapsibleTrigger
+						data-slot="tool-call-details-toggle"
+						className="min-h-6 shrink-0 px-1 py-0"
+					>
+						<Text as="span" role="caption" tone="secondary">
+							Details
 						</Text>
-					) : null}
+					</CollapsibleTrigger>
 				</span>
-				{tool.argsPreview ? (
-					<Text
-						as="span"
-						role="label"
-						tone="mono-secondary"
-						className="break-all pl-7"
-					>
-						{sanitizeUntrustedText(tool.argsPreview)}
-					</Text>
-				) : null}
-				{tool.status === "completed" && tool.resultPreview ? (
-					<Text
-						as="span"
-						role="label"
-						tone="mono-secondary"
-						className="break-all pl-7"
-					>
-						{sanitizeUntrustedText(tool.resultPreview)}
-					</Text>
-				) : null}
-				{tool.status === "failed" ? (
-					<Text as="span" role="label" tone="error" className="break-all pl-7">
-						{tool.errorPreview
-							? sanitizeUntrustedText(tool.errorPreview)
-							: "The tool call failed."}
-					</Text>
-				) : null}
-			</div>
+				<CollapsibleContent>
+					<div className="grid min-w-0 gap-1.5 py-1 pl-7">
+						{raw.map((entry) => (
+							<RawValue
+								key={entry.label}
+								label={entry.label}
+								value={entry.value}
+							/>
+						))}
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 		</li>
 	);
 }
 
-/** Compact trace summary; detailed tool evidence is disclosed on demand. */
+/** "Used 3 tools · 1 didn't finish" — never a protocol name or an error. */
+export function workTraceLabel(tools: readonly ToolCallState[]): string {
+	const count = tools.length;
+	const noun = `tool${count === 1 ? "" : "s"}`;
+	const running = tools.some((tool) => tool.status === "running");
+	const failed = tools.filter((tool) => tool.status === "failed").length;
+	const head = running ? `Using ${count} ${noun}…` : `Used ${count} ${noun}`;
+	return failed ? `${head} · ${failed} didn't finish` : head;
+}
+
+/**
+ * All of a reply's tool calls behind one quiet line. Only the person opens
+ * it: not a running call, not a failure.
+ */
 export function WorkTraceCard({ tools }: { tools: readonly ToolCallState[] }) {
 	const [open, setOpen] = useState(false);
-	const running = tools.filter((tool) => tool.status === "running").length;
-	const failed = tools.filter((tool) => tool.status === "failed").length;
-	const label = running
-		? `Working — ${running} action${running === 1 ? "" : "s"} in progress`
-		: failed
-			? `${failed} action${failed === 1 ? "" : "s"} need attention`
-			: `${tools.length} action${tools.length === 1 ? "" : "s"} completed`;
+	const running = tools.some((tool) => tool.status === "running");
 	return (
-		<li data-slot="work-trace-card" className="flex w-full justify-start">
-			<Collapsible open={open} onOpenChange={setOpen}>
-				<CollapsibleTrigger className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default">
-					<Wrench size={15} aria-hidden />
-					<Text as="span" truncate className="flex-1">
-						{label}
+		<li
+			data-slot="work-trace-card"
+			className="flex w-full min-w-0 justify-start"
+		>
+			<Collapsible
+				open={open}
+				onOpenChange={setOpen}
+				className="min-w-0 max-w-full"
+			>
+				<CollapsibleTrigger className="min-h-7 gap-1.5 px-1.5 py-0.5">
+					{running ? (
+						<Loader size={13} aria-hidden />
+					) : (
+						<Wrench size={13} aria-hidden />
+					)}
+					<Text as="span" role="label" tone="secondary" truncate>
+						{workTraceLabel(tools)}
 					</Text>
-					<Badge variant={failed ? "error" : running ? "info" : "success"}>
-						{tools.length}
-					</Badge>
 					<CaretRight
-						size={14}
-						className={cn("transition-transform", open && "rotate-90")}
+						size={12}
+						className={cn(
+							"shrink-0 transition-transform motion-reduce:transition-none",
+							open && "rotate-90",
+						)}
 						aria-hidden
 					/>
 				</CollapsibleTrigger>
-				<CollapsibleContent className="mt-1 grid gap-1 rounded-xl border border-kumo-hairline bg-kumo-tint p-2">
-					{tools.map((tool) => (
-						<ToolCallCard key={tool.toolCallId} tool={tool} />
-					))}
+				<CollapsibleContent>
+					<ul
+						aria-label="Tools used"
+						className="m-0 ml-3 grid list-none gap-0.5 border-kumo-hairline border-l p-0 pl-1.5"
+					>
+						{tools.map((tool) => (
+							<ToolCallCard key={tool.toolCallId} tool={tool} />
+						))}
+					</ul>
 				</CollapsibleContent>
 			</Collapsible>
 		</li>
@@ -1573,16 +1614,6 @@ export function ApprovalCard({
 								raw: approval.detail ?? "",
 							}}
 						/>
-					) : null}
-					{approval.toolName && approval.args !== undefined ? (
-						<Text as="span" role="label" tone="secondary" className="break-all">
-							<span className="font-mono">
-								{sanitizeUntrustedText(approval.toolName)}
-							</span>
-							{approval.appSlug
-								? ` · ${sanitizeUntrustedText(approval.appSlug)}`
-								: ""}
-						</Text>
 					) : null}
 					{approval.detail && approval.args === undefined ? (
 						approval.detailDisclosure ? (

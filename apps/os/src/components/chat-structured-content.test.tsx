@@ -46,10 +46,8 @@ describe("StructuredChatContent", () => {
 		expect(code?.textContent).toContain('"kind": "sheet"');
 		expect(code?.textContent).toContain("(280 more characters)");
 		expect(container.textContent).toContain("Show full values");
-		const meta = container.querySelector('[data-slot="chat-tool-meta"]');
-		expect(meta?.textContent).toContain("os.create_os_output");
-		expect(meta?.textContent).toContain("fern-labs");
-		expect(meta?.textContent).toContain(REQUEST_ID);
+		expect(container.textContent).not.toContain("os.create_os_output");
+		expect(container.textContent).not.toContain(REQUEST_ID);
 	});
 
 	it("expands full values on request", async () => {
@@ -77,15 +75,14 @@ describe("StructuredChatContent", () => {
 		host.remove();
 	});
 
-	it("renders a failed write as one error line", () => {
+	it("renders a failed write as one calm line without the raw error", () => {
 		const container = render(
 			'Approved write os.create_os_output on fern-labs failed: [{"type":"text","text":"Action \\"tedix__create_os_output\\" requires approval. No side effect was executed."}]',
 		);
 		const line = container.querySelector('[data-slot="chat-write-failure"] p');
-		expect(line?.className).toContain("text-kumo-danger");
-		expect(line?.textContent).toBe(
-			'Couldn\'t create the output: Action "tedix__create_os_output" requires approval. No side effect was executed.',
-		);
+		expect(line?.textContent).toBe("Couldn't create the output.");
+		expect(container.textContent).toContain("Details");
+		expect(container.textContent).not.toContain("tedix__create_os_output");
 		expect(container.textContent).not.toContain('"type"');
 	});
 

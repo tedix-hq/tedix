@@ -41,9 +41,10 @@ import {
 	RunControls,
 	RunLinkChip,
 	sortToolStates,
-	toolCallLabel,
 	type ToolCallState,
 	ToolCallCard,
+	WorkTraceCard,
+	workTraceLabel,
 } from "./chat-cards";
 import { delegationLiveState } from "@/lib/delegation-activity";
 
@@ -198,15 +199,6 @@ describe("RunLinkChip", () => {
 	});
 });
 
-describe("toolCallLabel", () => {
-	it("turns protocol identifiers into human action labels", () => {
-		expect(toolCallLabel("google_gmail.search_threads")).toBe(
-			"Google gmail search threads",
-		);
-		expect(toolCallLabel(" ")).toBe("Tool action");
-	});
-});
-
 describe("sortToolStates", () => {
 	it("orders the live-card block chronologically by first activity", () => {
 		const early: ToolCallState = {
@@ -294,25 +286,11 @@ function toolState(overrides: Partial<ToolCallState> = {}): ToolCallState {
 }
 
 describe("ToolCallCard", () => {
-	it("renders a running call with a spinner and no duration", () => {
-		const html = renderToStaticMarkup(<ToolCallCard tool={toolState()} />);
-		expect(html).toContain('data-tool-status="running"');
-		// The running affordance is the shared Kumo `Loader` (an SVG carrying
-		// `role="status"`), not a hand-rolled `animate-spin` icon.
-		expect(html).toContain('role="status"');
-		expect(html).toContain('aria-label="Tool call running"');
-		expect(html).not.toContain("animate-spin");
-		expect(html).toContain("list_skills");
-		expect(html).toContain("skills");
-		expect(html).not.toContain("ms<");
-		expect(html).toContain("max-w-full");
-		expect(html).not.toContain("border-kumo-hairline bg-kumo-base");
-	});
-
-	it("renders a completed call with duration and result preview", () => {
+	it("shows a plain summary and keeps the protocol name and raw output closed", () => {
 		const html = renderToStaticMarkup(
 			<ToolCallCard
 				tool={toolState({
+					name: "google_gmail.search_threads",
 					status: "completed",
 					durationMs: 2500,
 					resultPreview: '{"count":3}',
@@ -320,24 +298,40 @@ describe("ToolCallCard", () => {
 			/>,
 		);
 		expect(html).toContain('data-tool-status="completed"');
-		expect(html).toContain("2.5s");
-		expect(html).toContain("count");
-		expect(html).not.toContain('aria-label="Tool call running"');
-		expect(html).not.toContain("animate-spin");
+		expect(html).toContain("Search threads");
+		expect(html).toContain("Done · 2.5s");
+		expect(html).toContain("Details");
+		expect(html).not.toContain("search_threads");
+		expect(html).not.toContain("count");
+		expect(html).not.toContain("skills");
 	});
+});
 
-	it("renders a failed call with the error (or a fallback line)", () => {
-		const withError = renderToStaticMarkup(
-			<ToolCallCard
-				tool={toolState({ status: "failed", errorPreview: "boom" })}
+describe("WorkTraceCard", () => {
+	it("keeps a failed tool call folded and shows no raw error text", () => {
+		const html = renderToStaticMarkup(
+			<WorkTraceCard
+				tools={[
+					toolState({
+						toolCallId: "call-ok",
+						status: "completed",
+					}),
+					toolState({
+						status: "failed",
+						errorPreview: "D1_ERROR: no such table: tool_calls",
+					}),
+				]}
 			/>,
 		);
-		expect(withError).toContain('data-tool-status="failed"');
-		expect(withError).toContain("boom");
-		const withoutError = renderToStaticMarkup(
-			<ToolCallCard tool={toolState({ status: "failed" })} />,
-		);
-		expect(withoutError).toContain("The tool call failed.");
+		expect(html).toContain("Used 2 tools · 1 didn&#x27;t finish");
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain('data-slot="tool-call-card"');
+		expect(html).not.toContain("D1_ERROR");
+		expect(html).not.toContain("list_skills");
+	});
+
+	it("says what is running without opening", () => {
+		expect(workTraceLabel([toolState()])).toBe("Using 1 tool…");
 	});
 });
 
@@ -1031,7 +1025,7 @@ describe("approval builders", () => {
 		expect(
 			container.querySelector('[data-slot="chat-json-code"]')?.textContent,
 		).toContain('"title": "Orion plan"');
-		expect(container.textContent).toContain("os.create_os_output · tedix");
+		expect(container.textContent).not.toContain("os.create_os_output");
 		expect(
 			approvalsFromRunSet({
 				runs: [{ ...write, status: "completed" }],
@@ -1365,18 +1359,32 @@ const RLI = "\u2067";
 const PDI = "\u2069";
 
 describe("untrusted text is sanitized at every card render site", () => {
-	it("strips a bidi override from a tool name, app slug, and previews", () => {
-		const html = renderToStaticMarkup(
-			<ToolCallCard
-				tool={toolState({
-					name: `record${RLO}yreve_etirw`,
-					appSlug: `sk${RLI}ills${PDI}`,
-					status: "failed",
-					argsPreview: `args${RLO}reversed`,
-					errorPreview: `boom${RLO}reversed`,
-				})}
-			/>,
+	it("strips a bidi override from a tool name, app slug, and previews", async () => {
+		const host = document.body.appendChild(document.createElement("div"));
+		const root = createRoot(host);
+		await act(async () =>
+			root.render(
+				<ul>
+					<ToolCallCard
+						tool={toolState({
+							name: `record${RLO}yreve_etirw`,
+							appSlug: `sk${RLI}ills${PDI}`,
+							status: "failed",
+							argsPreview: `args${RLO}reversed`,
+							errorPreview: `boom${RLO}reversed`,
+						})}
+					/>
+				</ul>,
+			),
 		);
+		await act(async () =>
+			host
+				.querySelector<HTMLButtonElement>(
+					'[data-slot="tool-call-details-toggle"]',
+				)
+				?.click(),
+		);
+		const html = host.innerHTML;
 		for (const control of [RLO, RLI, PDI]) {
 			expect(html).not.toContain(control);
 		}
@@ -1384,6 +1392,8 @@ describe("untrusted text is sanitized at every card render site", () => {
 		expect(html).toContain("skills");
 		expect(html).toContain("argsreversed");
 		expect(html).toContain("boomreversed");
+		act(() => root.unmount());
+		host.remove();
 	});
 
 	it("never DECODES an encoded control on the plain-text path", () => {
@@ -1393,18 +1403,18 @@ describe("untrusted text is sanitized at every card render site", () => {
 		// materialize. Asserted rather than assumed — the same decode-then-render
 		// gap would be silent here too.
 		const html = renderToStaticMarkup(
-			<ToolCallCard tool={toolState({ name: "report&#x202E;txt.exe" })} />,
+			<ToolCallCard tool={toolState({ name: "report&#x202E;txt" })} />,
 		);
 		expect(html).not.toContain(RLO);
-		expect(html).toContain("report&amp;#x202E;txt.exe");
+		expect(html).toContain("&amp;#x202e;txt");
 	});
 
 	it("renders markdown emphasis in a tool name as literal characters", () => {
 		const html = renderToStaticMarkup(
 			<ToolCallCard tool={toolState({ name: "**delete_everything**" })} />,
 		);
-		expect(html).toContain("**delete_everything**");
-		expect(html).not.toContain("<strong>delete_everything</strong>");
+		expect(html).toContain("**delete everything**");
+		expect(html).not.toContain("<strong>");
 		expect(html).not.toContain("<em>");
 	});
 
