@@ -127,7 +127,7 @@ it("sidebar and Decisions count the same routed queue, including factory cards",
 		},
 	});
 	const inboxKey = osQuery.workInteractions.listInbox.queryOptions({
-		input: { limit: 50, states: ["open"] },
+		input: { limit: 5, states: ["open"] },
 	}).queryKey;
 	client.setQueryData(inboxKey, {
 		data: [

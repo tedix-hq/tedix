@@ -175,7 +175,7 @@ function render(
 		});
 	client.setQueryData(
 		osQuery.workInteractions.listInbox.queryOptions({
-			input: { projectId: undefined, limit: 50, states: ["open"] },
+			input: { projectId: undefined, limit: 5, states: ["open"] },
 		}).queryKey,
 		{
 			data: [],

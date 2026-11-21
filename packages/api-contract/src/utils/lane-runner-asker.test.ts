@@ -1,5 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import { laneRunnerAsker } from "./lane-runner-asker";
+import { laneApprovalTitle, laneRunnerAsker } from "./lane-runner-asker";
 
 it.each([
 	undefined,
@@ -15,3 +15,20 @@ it.each([
 		expect(laneRunnerAsker(metadata)).toBeUndefined();
 	},
 );
+
+it("names each requested action before the task, including when several sentences mention the same action", () => {
+	const title = laneApprovalTitle(
+		{
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				matchedActions: ["delete_data", "public_publish", "delete_data"].map(
+					(action) => ({ action }),
+				),
+			},
+		},
+		"Retire the sample catalog",
+	);
+	expect(title).toBe(
+		"Delete live data and publish something publicly for “Retire the sample catalog”?",
+	);
+});

@@ -995,6 +995,12 @@ export const workInteractionsQueryOptions = (
 	return osQuery.workInteractions.listInbox.queryOptions({ input });
 };
 
+/** Start Decisions with a small page; the remaining requests use the returned cursor. */
+export const firstDecisionPageOptions = (projectId?: string, limit = 50) =>
+	osQuery.workInteractions.listInbox.queryOptions({
+		input: { projectId, limit: Math.min(limit, 5), states: ["open"] },
+	});
+
 export const WORK_URGENT_INTERACTIONS_LIMIT = 20;
 
 /** Open requests addressed to the caller that triage marked as needing them now. */

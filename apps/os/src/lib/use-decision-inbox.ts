@@ -8,7 +8,11 @@ import {
 } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
-import { osQuery, pendingApprovalsQueryOptions } from "@/lib/os-query-options";
+import {
+	firstDecisionPageOptions,
+	osQuery,
+	pendingApprovalsQueryOptions,
+} from "@/lib/os-query-options";
 import {
 	projectDeckCards,
 	type DeckRoutingReceipt,
@@ -42,13 +46,7 @@ export function useDecisionInbox(
 		config?.classPolicies,
 	);
 	const inbox = useQuery({
-		...osQuery.workInteractions.listInbox.queryOptions({
-			input: {
-				projectId: config?.projectId,
-				limit: config?.limit ?? 50,
-				states: ["open"],
-			},
-		}),
+		...firstDecisionPageOptions(config?.projectId, config?.limit),
 		enabled: Boolean(config),
 		...workRefreshOptions,
 	});

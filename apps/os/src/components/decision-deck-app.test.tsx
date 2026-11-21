@@ -218,7 +218,11 @@ async function mount(
 	for (const state of ["open", "resolved"] as const)
 		client.setQueryData(
 			osQuery.workInteractions.listInbox.queryOptions({
-				input: { projectId: undefined, limit: 50, states: [state] },
+				input: {
+					projectId: undefined,
+					limit: state === "open" ? 5 : 50,
+					states: [state],
+				},
 			}).queryKey,
 			{
 				data: state === "open" ? (input.rows ?? []) : [],

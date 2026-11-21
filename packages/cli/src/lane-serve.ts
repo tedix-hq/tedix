@@ -1,3 +1,4 @@
+import { laneActionLabel } from "@tedix/api-contract/utils/lane-runner-asker";
 import {
 	AppendWorkAttemptStepsResultSchema,
 	WorkAttemptStepSchema,
@@ -316,17 +317,6 @@ const AGENT_NAMES: Record<string, string> = {
 	devin: "Devin",
 };
 
-/** What the person is asked to allow, in plain words. */
-const RESERVED_STEPS: Record<string, string> = {
-	credentials: "handle keys or account access",
-	money: "spend money",
-	external_message: "message people outside the team",
-	public_publish: "publish something publicly",
-	delete_data: "delete live data",
-	legal: "make a legal commitment",
-	customer_config: "change a customer's live setup",
-};
-
 function shortTitle(title: string, room: number) {
 	const text = title.replace(/\s+/g, " ").trim();
 	return text.length > room ? `${text.slice(0, room - 1)}…` : text;
@@ -373,11 +363,8 @@ export function laneDelegationRequest(
 	);
 	const steps = laneReservedActions(`${item.title}\n${item.description ?? ""}`);
 	const step =
-		[
-			...new Set(
-				steps.map((id) => RESERVED_STEPS[id] ?? id.replace(/_/g, " ")),
-			),
-		].join(" and ") || "take a step only a person can allow";
+		[...new Set(steps.map(laneActionLabel))].join(" and ") ||
+		"take a step only a person can allow";
 	const owner =
 		item.accountableOwnerType === "user" && item.accountableOwnerId
 			? item.accountableOwnerId

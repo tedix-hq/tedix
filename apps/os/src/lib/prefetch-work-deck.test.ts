@@ -61,7 +61,7 @@ const viewerOptions = () => [
 		input: { limit: 50, statuses: ["pending"] },
 	}),
 	osQuery.workInteractions.listInbox.queryOptions({
-		input: { limit: 50, states: ["open"] },
+		input: { limit: 5, states: ["open"] },
 	}),
 	userProfileQueryOptions(),
 	projectListQueryOptions(100),
@@ -127,7 +127,7 @@ describe("prefetchWorkDeck", () => {
 				input: { projectId, limit: 12, statuses: ["pending"] },
 			}),
 			osQuery.workInteractions.listInbox.queryOptions({
-				input: { projectId, limit: 12, states: ["open"] },
+				input: { projectId, limit: 5, states: ["open"] },
 			}),
 		])
 			expect(client.getQueryState(options.queryKey)?.status).toBe("success");

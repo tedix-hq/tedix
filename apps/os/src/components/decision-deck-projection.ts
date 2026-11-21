@@ -1,3 +1,4 @@
+import { laneApprovalTitle } from "@tedix/api-contract/utils/lane-runner-asker";
 import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
 import { notUsefulAnswer } from "@/lib/decision-outcome";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
@@ -99,7 +100,18 @@ export function projectDecisionDeck({
 						)
 					: decisions.requests
 				).map((row) => {
-					const decision = decisionEnvelope(row.request.metadata);
+					const original = decisionEnvelope(row.request.metadata);
+					const decision =
+						original?.classId === "lane-delegation"
+							? {
+									...original,
+									proposal:
+										laneApprovalTitle(
+											row.request.metadata,
+											row.workItem?.title,
+										) ?? original.proposal,
+								}
+							: original;
 					const presentation = DecisionCardPresentationSchema.safeParse(
 						row.request.metadata.cardPresentation,
 					).data;

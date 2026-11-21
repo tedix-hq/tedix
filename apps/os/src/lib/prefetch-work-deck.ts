@@ -7,6 +7,7 @@ import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decisio
 import { FOCUS_HISTORY_SURFACES } from "@tedix/api-contract/utils/focus-feed";
 import {
 	osQuery,
+	firstDecisionPageOptions,
 	userPreferencesQueryOptions,
 	workAppsQueryOptions,
 	pendingApprovalsQueryOptions,
@@ -16,6 +17,12 @@ import {
 
 /** Warm canonical per-viewer queries while the Work route chunk is loading. */
 export function prefetchWorkDeck(client: QueryClient, view?: "feed" | "deck") {
+	if (view === "deck") {
+		void import("@/components/decision-deck-app").catch(() => {});
+		void client.prefetchQuery(firstDecisionPageOptions());
+		void client.prefetchQuery(workAppsQueryOptions());
+		return;
+	}
 	void import("@/components/decision-deck-app").catch(() => {});
 	void import("@/components/activity-feed-app").catch(() => {});
 	void client.prefetchQuery(pendingApprovalsQueryOptions());
@@ -24,11 +31,7 @@ export function prefetchWorkDeck(client: QueryClient, view?: "feed" | "deck") {
 			input: { limit: 50, statuses: ["pending"] },
 		}),
 	);
-	void client.prefetchQuery(
-		osQuery.workInteractions.listInbox.queryOptions({
-			input: { limit: 50, states: ["open"] },
-		}),
-	);
+	void client.prefetchQuery(firstDecisionPageOptions());
 	void client.prefetchQuery(userProfileQueryOptions());
 	void client.prefetchQuery(projectListQueryOptions(100));
 	void client.prefetchQuery(
@@ -84,13 +87,7 @@ export function prefetchWorkDeck(client: QueryClient, view?: "feed" | "deck") {
 					.catch(() => {});
 			await client
 				.ensureQueryData(
-					osQuery.workInteractions.listInbox.queryOptions({
-						input: {
-							projectId: config.projectId,
-							limit: config.limit,
-							states: ["open"],
-						},
-					}),
+					firstDecisionPageOptions(config.projectId, config.limit),
 				)
 				.catch(() => {});
 		})
