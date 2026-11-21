@@ -13,6 +13,7 @@ import {
 	withScheduledCmsRestorePermit,
 } from "./scheduled-restore-permits";
 import { tenantRuntimeEntrypointModule } from "./index";
+import { sweepRetiredCmsRuntimePermits } from "./cms-permit-retirement";
 
 const bindings = env as unknown as {
 	PLATFORM_DB: D1Database;
@@ -58,6 +59,59 @@ function loseCompletionResponse() {
 }
 
 describe("scheduled restore permit ownership", () => {
+	test("reclaims retired scheduled owners only with a release custody receipt", async () => {
+		const identity = await site();
+		const currentRuntimeOwnerId = "c".repeat(40);
+		const retiredOwnerId = "d".repeat(40);
+		await enterCmsRestorePermit(db, {
+			...identity,
+			kind: "scheduled",
+			permitId: `runtime:${retiredOwnerId}:${crypto.randomUUID()}`,
+		});
+		const receiptKey = `runtime-permit-retirements/v1/${currentRuntimeOwnerId}.json`;
+		expect(
+			await sweepRetiredCmsRuntimePermits(db, storage, currentRuntimeOwnerId),
+		).toBe(0);
+		const receipt = {
+			version: 1,
+			currentRuntimeOwnerId,
+			retiredRuntimeOwnerIds: [retiredOwnerId],
+			legacyPermits: [],
+			invocationsDrained: false,
+			evidenceRef: "https://example.test/release-proof",
+		};
+		await storage.put(receiptKey, JSON.stringify(receipt));
+		await expect(
+			sweepRetiredCmsRuntimePermits(db, storage, currentRuntimeOwnerId),
+		).rejects.toThrow("receipt invalid");
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
+		await storage.put(
+			receiptKey,
+			JSON.stringify({ ...receipt, invocationsDrained: true }),
+		);
+		expect(
+			await sweepRetiredCmsRuntimePermits(db, storage, currentRuntimeOwnerId),
+		).toBe(1);
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+		await storage.delete(receiptKey);
+	});
+
+	test("releases owner-confirmed completion even when the final RPC response is lost", async () => {
+		const identity = await site();
+		await expect(
+			withScheduledCmsRestorePermit(
+				db,
+				storage,
+				identity,
+				async (completed) => {
+					await completed();
+					throw new Error("final RPC response lost");
+				},
+			),
+		).rejects.toThrow("final RPC response lost");
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+	});
+
 	test("allows capture before reconciling its completed orphan", async () => {
 		const identity = await site();
 		await expect(
@@ -253,15 +307,19 @@ function tenant(source: string) {
 		ready(): Promise<true>;
 		scheduled(
 			controller: ScheduledController,
+			completed: () => Promise<void>,
 		): Promise<{ ok: true } | { ok: false; error: string }>;
 	};
 	return {
 		ready: () => entrypoint.ready(),
-		scheduled: () =>
-			entrypoint.scheduled({
-				cron: "* * * * *",
-				scheduledTime: Date.now(),
-			} as ScheduledController),
+		scheduled: (completed: () => Promise<void>) =>
+			entrypoint.scheduled(
+				{
+					cron: "* * * * *",
+					scheduledTime: Date.now(),
+				} as ScheduledController,
+				completed,
+			),
 	};
 }
 

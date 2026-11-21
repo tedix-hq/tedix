@@ -7,6 +7,7 @@ import {
 	type CmsRestoreSiteParams,
 } from "@tedix/db/queries/cms-restore-fences";
 import type { CmsRestoreFenceIdentity } from "./tenant-restore-fence";
+import { runtimePermitId } from "./runtime-permit-owner";
 
 interface ScheduledPermitCompletion extends CmsRestorePermitParams {
 	version: 1;
@@ -22,37 +23,49 @@ function key(permit: CmsRestorePermitParams): string {
 	return `${prefix(permit.siteId)}${permit.permitId}.json`;
 }
 
-/** Only a successful RPC return proves that the tenant handler and its tracked
- * waitUntil callbacks ended. A rejection or process loss remains unknown; no
- * duration limit, permit age, or missing receipt can authorize reclamation.
+/** An owner completion callback or successful RPC return proves that the handler
+ * and its tracked waitUntil callbacks ended. Without either, rejection stays
+ * unknown; duration, permit age and missing receipts are not completion proof.
  * https://developers.cloudflare.com/workers/runtime-apis/rpc/lifecycle/
  */
 export async function withScheduledCmsRestorePermit<T>(
 	db: DbQueryClient,
 	storage: R2Bucket,
 	identity: CmsRestoreFenceIdentity,
-	run: () => Promise<T>,
+	run: (completed: () => Promise<void>) => Promise<T>,
 	// Retention's bundle-retention: prefix also fences bundle activation in D1.
-	permitId: string = crypto.randomUUID(),
+	permitId: string = runtimePermitId(),
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
 	const permit: CmsRestorePermitParams = {
 		...identity,
 		permitId,
 		kind: "scheduled",
 	};
-	if (!(await enterCmsRestorePermit(db, permit))) return { admitted: false };
-	const value = await run();
+	try {
+		if (!(await enterCmsRestorePermit(db, permit))) return { admitted: false };
+	} catch (error) {
+		// Admission never reached the handler; an unknown INSERT can be released.
+		await leaveCmsRestorePermit(db, permit).catch(() => false);
+		throw error;
+	}
 	const receipt: ScheduledPermitCompletion = {
 		...permit,
 		kind: "scheduled",
 		version: 1,
 		state: "completed",
 	};
-	// Persist proof before release: a lost D1 response must not lose ownership.
-	await storage.put(key(permit), JSON.stringify(receipt));
-	if (!(await leaveCompletedCmsScheduledPermit(db, permit)))
-		throw new Error("CMS scheduled restore permit release failed");
-	await storage.delete(key(permit));
+	let completion: Promise<void> | undefined;
+	const completed = () =>
+		(completion ??= (async () => {
+			// The tenant calls back after its handler and waitUntil work drain, so
+			// losing the final RPC response does not lose the completion proof.
+			await storage.put(key(permit), JSON.stringify(receipt));
+			if (!(await leaveCompletedCmsScheduledPermit(db, permit)))
+				throw new Error("CMS scheduled restore permit release failed");
+			await storage.delete(key(permit));
+		})());
+	const value = await run(completed);
+	await completed();
 	return { admitted: true, value };
 }
 
@@ -60,13 +73,16 @@ export async function withScheduledCmsRestorePermit<T>(
  * through `ready` run no tenant handler: module scope cannot perform I/O. A
  * failure there (bundle load, module evaluation, loader factory) therefore
  * proves no scheduled write began and must not leave a permit behind. Only
- * the handler RPC itself runs under the permit, and its rejection stays
- * unknown. */
+ * the handler RPC itself runs under the permit. Its rejection stays unknown
+ * unless the owner already acknowledged completion. */
 export async function runScheduledTenantWithPermit<T>(
 	db: DbQueryClient,
 	storage: R2Bucket,
 	identity: CmsRestoreFenceIdentity,
-	tenant: { ready: () => Promise<unknown>; scheduled: () => Promise<T> },
+	tenant: {
+		ready: () => Promise<unknown>;
+		scheduled: (completed: () => Promise<void>) => Promise<T>;
+	},
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
 	await tenant.ready();
 	return withScheduledCmsRestorePermit(db, storage, identity, tenant.scheduled);

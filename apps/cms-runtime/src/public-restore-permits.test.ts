@@ -38,6 +38,23 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("public restore reservations", () => {
+	it("awaits cleanup of an uncertain cold INSERT without a replacement borrower", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		queries.enter.mockRejectedValueOnce(new Error("INSERT response lost"));
+		const deleted = Promise.withResolvers<boolean>();
+		queries.leave.mockReturnValueOnce(deleted.promise);
+		const pending = forRequest().enter(db, permit);
+		const rejected = expect(pending).rejects.toThrow("INSERT response lost");
+		await vi.waitFor(() => expect(queries.leave).toHaveBeenCalledOnce());
+		expect(tasks).toHaveLength(0);
+		deleted.resolve(true);
+		await rejected;
+		expect(queries.leave).toHaveBeenCalledWith(db, {
+			...permit,
+			kind: "nested",
+		});
+	});
+
 	it("only borrows confirmed admission for the same epoch on the cache path", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const cacheRead = () => forRequest(true);

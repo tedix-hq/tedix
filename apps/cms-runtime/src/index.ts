@@ -49,6 +49,8 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
+import { sweepRetiredCmsRuntimePermits } from "./cms-permit-retirement";
+import { runtimePermitOwnerId } from "./runtime-permit-owner";
 import { retainTenantBundles } from "./bundle-retention";
 import { r2RestHeaders } from "./r2-rest";
 import type {
@@ -214,6 +216,7 @@ interface TenantScheduledFetcher extends Fetcher {
 	ready(): Promise<true>;
 	scheduled?: (
 		controller: ScheduledController,
+		completed: () => Promise<void>,
 	) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
@@ -815,8 +818,11 @@ export default class TenantRuntimeEntrypoint extends WorkerEntrypoint {
 		return true;
 	}
 
-	async scheduled(controller) {
-		if (typeof tenantHandler.scheduled !== "function") return { ok: true };
+	async scheduled(controller, completed) {
+		if (typeof tenantHandler.scheduled !== "function") {
+			await completed?.();
+			return { ok: true };
+		}
 		const pending = new Set();
 		let waitUntilFailed = false;
 		let waitUntilError;
@@ -851,6 +857,7 @@ export default class TenantRuntimeEntrypoint extends WorkerEntrypoint {
 			handlerError = error;
 		}
 		while (pending.size > 0) await Promise.all(pending);
+		await completed?.();
 		if (handlerFailed) return { ok: false, error: String(handlerError) };
 		if (waitUntilFailed) return { ok: false, error: String(waitUntilError) };
 		return { ok: true };
@@ -2363,6 +2370,15 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<void> {
 		const startedAt = Date.now();
+		try {
+			await sweepRetiredCmsRuntimePermits(
+				createDbQueryClient(env.PLATFORM_DB),
+				env.RECOVERY_STORAGE,
+				runtimePermitOwnerId(),
+			);
+		} catch (error) {
+			console.error("[cms-runtime] runtime permit retirement failed:", error);
+		}
 		// Only retention runs have a platform-bounded lifetime.
 		if (new Date(controller.scheduledTime).getUTCMinutes() === 7) {
 			ctx.waitUntil(
@@ -2511,12 +2527,15 @@ export default {
 					{ siteId: org.siteId, slug, restoreEpoch },
 					{
 						ready: () => tenantEntrypoint.ready(),
-						scheduled: () => {
+						scheduled: (completed) => {
 							counters.attempted += 1;
-							return tenantEntrypoint.scheduled!({
-								cron: controller.cron,
-								scheduledTime: controller.scheduledTime,
-							} as ScheduledController);
+							return tenantEntrypoint.scheduled!(
+								{
+									cron: controller.cron,
+									scheduledTime: controller.scheduledTime,
+								} as ScheduledController,
+								completed,
+							);
 						},
 					},
 				);

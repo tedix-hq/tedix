@@ -127,6 +127,7 @@ describe("public marketing adapters", () => {
 		expect(await tenantHealth?.json()).toEqual({
 			status: "ok",
 			deployedSha: "abc123",
+			runtimePermitOwnerId: expect.stringMatching(/^[0-9a-f]{40}$/),
 		});
 		const staged = await marketingResponse(
 			new Request("https://example-marketing.cms.tedix.dev/health?probe=1", {

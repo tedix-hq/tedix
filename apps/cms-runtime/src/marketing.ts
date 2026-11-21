@@ -1,4 +1,5 @@
 import type { SiteRoutingPolicy } from "@tedix/api-contract/schemas/site-routing";
+import { runtimePermitOwnerId } from "./runtime-permit-owner";
 import { createDbClient } from "@tedix/db/client";
 import { listPublicCatalogSitemapSlugs } from "@tedix/db/queries/catalog/list-apps";
 import { getSiteRoutingPolicy } from "@tedix/db/queries/site-routing";
@@ -455,6 +456,7 @@ export async function marketingResponse(
 		return Response.json({
 			status: "ok",
 			deployedSha: String(env.GIT_SHA || "unknown"),
+			runtimePermitOwnerId: runtimePermitOwnerId(),
 		});
 	if (path === "/waitlist") return redirect("https://os.tedix.dev/", 308);
 	if (path === "/tedixpay-demo") return redirect("/tedixpay/");
