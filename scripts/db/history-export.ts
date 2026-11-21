@@ -332,7 +332,9 @@ async function main() {
 		.map(([binding, databaseId]) => ({
 			binding,
 			read: async (sql: string, params: (string | number | null)[]) => {
-				const response = await remoteD1QueryRest({
+				// The D1 REST API answers bursts with 429; the export's back-to-back
+				// scans hit it after a few pages (21 Nov 2026). Wait and resend.
+				let response = await remoteD1QueryRest({
 					accountId,
 					apiToken,
 					databaseId,
@@ -340,6 +342,18 @@ async function main() {
 					params,
 					caller: "scripts/db/history-export.ts",
 				});
+				for (const waitMs of [1_000, 2_000, 5_000, 10_000, 20_000, 30_000]) {
+					if (response.status !== 429 && response.status !== 503) break;
+					await Bun.sleep(waitMs);
+					response = await remoteD1QueryRest({
+						accountId,
+						apiToken,
+						databaseId,
+						sql,
+						params,
+						caller: "scripts/db/history-export.ts",
+					});
+				}
 				const result = response.result as {
 					success: boolean;
 					results: HistoryRow[];
