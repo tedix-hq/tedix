@@ -11022,6 +11022,104 @@ describe("watching and steering a run", () => {
 		return { send: () => sendNow(), restore: () => timer.mockRestore() };
 	};
 
+	it("parks an approval ask, releases its Attempt and slot, then resumes the same Work and checkout", async () => {
+		const flush = flushNow();
+		const f = fixture();
+		f.items.splice(1);
+		f.control.uniqueAttempts = true;
+		const approvalWait = {
+			id: "77777777-7777-4777-8777-777777777777",
+			expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+		};
+		let pending = true;
+		f.deps.createStepSender = () => async (_receipt, steps) => ({
+			accepted: steps.length,
+			pending: [],
+			...(pending ? { approvalWait } : {}),
+		});
+		const dispatcher = f.restart();
+		const kill = spyOn(process, "kill").mockImplementation((_pid, signal) => {
+			if (signal === 0)
+				throw Object.assign(new Error("Gone"), { code: "ESRCH" });
+			f.control.exitCode = 1;
+			f.control.telemetryOutcome = "stopped";
+			f.releases[0]!();
+			return true;
+		});
+		try {
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			const path = join(f.dir, `${item().id}-2.json`);
+			const before = JSON.parse(readFileSync(path, "utf8"));
+			mkdirSync(before.repo, { recursive: true });
+			writeFileSync(join(before.repo, "unfinished.txt"), "Keep this change");
+			f.control.history.data = [
+				{
+					id: before.attemptId,
+					externalSessionKey: before.session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			flush.send();
+			await dispatcher.drain();
+			expect(kill).toHaveBeenCalledWith(-2_000_000_000, "SIGTERM");
+			const settled = f.events.find((event) => event.verb === "settle")!;
+			expect(settled.args[settled.args.indexOf("--outcome") + 1]).toBe(
+				"cancelled",
+			);
+			expect(settled.input?.metadata).toMatchObject({
+				approvalWait,
+				laneResult: { outcome: "deferred" },
+			});
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				phase: "deferred",
+				outcome: "cancelled",
+				approvalWait,
+			});
+			expect(await dispatcher.drain(20)).toBe(true);
+			expect(f.control.cleanups).toBe(0);
+			f.control.history.data[0]!.outcome = "cancelled";
+			f.control.history.data[0]!.metadata = settled.input?.metadata;
+			await dispatcher.tick();
+			expect(f.releases).toHaveLength(1);
+
+			pending = false;
+			f.control.exitCode = 0;
+			f.control.telemetryOutcome = "succeeded";
+			f.items[0]!.metadata = {
+				...f.items[0]!.metadata,
+				decisionContinuation: {
+					kind: "approval",
+					requestId: approvalWait.id,
+					responseId: approvalWait.id,
+				},
+			};
+			const restarted = f.restart();
+			await restarted.tick();
+			await until(() => f.releases.length === 2);
+			const resumed = JSON.parse(readFileSync(path, "utf8"));
+			expect(resumed).toMatchObject({
+				repo: before.repo,
+				session: before.session,
+			});
+			expect(resumed.attemptId).not.toBe(before.attemptId);
+			expect(readFileSync(join(resumed.repo, "unfinished.txt"), "utf8")).toBe(
+				"Keep this change",
+			);
+			expect(f.briefs[1]).toContain(approvalWait.id);
+			f.releases[1]!();
+			await restarted.drain();
+			expect(
+				f.events.filter((event) => event.verb === "complete"),
+			).toHaveLength(1);
+		} finally {
+			kill.mockRestore();
+			flush.restore();
+		}
+	});
+
 	it("logs a live-steered follow-up and applies it without another turn", async () => {
 		const flush = flushNow();
 		const f = fixture();

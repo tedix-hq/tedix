@@ -47,6 +47,7 @@ import {
 	evaluateWorkAdmissionEligibility,
 } from "./admission-approval-policy";
 import { hasActivePurposeContext } from "./purpose";
+import { findWorkToolApprovalWait } from "./tool-approval-wait";
 import { chunkForBoundParams } from "../../utils/batch";
 import {
 	isSameCanonicalParty,
@@ -402,6 +403,20 @@ async function evaluate(
 			rejection: {
 				code: "already_running",
 				reason: "An active attempt already owns this Work Item",
+			},
+		};
+	const approvalWait = await findWorkToolApprovalWait(db, {
+		orgId: p.orgId,
+		workItemId: item.id,
+		workVersion: item.version,
+		now: p.now,
+	});
+	if (approvalWait)
+		return {
+			...empty,
+			rejection: {
+				code: "approval_blocked",
+				reason: `Waiting for exact-call approval ${approvalWait.id}`,
 			},
 		};
 	const blocker = (

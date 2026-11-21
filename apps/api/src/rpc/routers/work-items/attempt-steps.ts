@@ -10,6 +10,7 @@ import {
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
+import { findWorkToolApprovalWait } from "@tedix/db/queries/work-items/tool-approval-wait";
 import { verifiedActiveWorkActor } from "../work-items-principal";
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { WorkAttemptMessageRow } from "@tedix/db/schema/work-items";
@@ -121,6 +122,16 @@ export const appendAttemptStepsProcedure = runnerOs.appendAttemptSteps.handler(
 				else await notices;
 			}
 			return {
+				approvalWait:
+					executor.type === "external_agent"
+						? await findWorkToolApprovalWait(context.db, {
+								orgId: workItem.orgId,
+								workItemId: workItem.id,
+								workVersion: workItem.version,
+								attemptId: input.attemptId,
+								now: new Date().toISOString(),
+							})
+						: undefined,
 				accepted: result.accepted,
 				pending: result.pending.map(pendingMessage),
 			};

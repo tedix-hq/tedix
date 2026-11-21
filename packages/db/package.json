@@ -469,6 +469,7 @@
 		"./queries/work-items/attempts": "./src/queries/work-items/attempts.ts",
 		"./queries/work-items/agent-runs": "./src/queries/work-items/agent-runs.ts",
 		"./queries/work-items/attempt-steps": "./src/queries/work-items/attempt-steps.ts",
+		"./queries/work-items/tool-approval-wait": "./src/queries/work-items/tool-approval-wait.ts",
 		"./queries/work-items/lane-attempt-grants": "./src/queries/work-items/lane-attempt-grants.ts",
 		"./queries/work-items/lane-lifecycle": "./src/queries/work-items/lane-lifecycle.ts",
 		"./queries/work-items/stale-delegation-sweep": "./src/queries/work-items/stale-delegation-sweep.ts",

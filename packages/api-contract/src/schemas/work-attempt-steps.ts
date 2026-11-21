@@ -115,6 +115,9 @@ export const AppendWorkAttemptStepsInputSchema = z.strictObject({
 });
 
 export const AppendWorkAttemptStepsResultSchema = z.object({
+	approvalWait: z
+		.object({ id: z.uuid(), expiresAt: z.iso.datetime() })
+		.optional(),
 	accepted: z
 		.number()
 		.int()

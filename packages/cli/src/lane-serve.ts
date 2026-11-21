@@ -1,4 +1,5 @@
 import {
+	AppendWorkAttemptStepsResultSchema,
 	WorkAttemptStepSchema,
 	type WorkAttemptStep,
 } from "@tedix/api-contract/schemas/work-attempt-steps";
@@ -1080,6 +1081,7 @@ interface Receipt {
 	model?: string;
 	interrupted?: boolean;
 	transportInterrupted?: boolean;
+	approvalWait?: { id: string; expiresAt: string };
 	nativeResumeCount?: number;
 	/** The next step number of this run's log. */
 	stepSeq?: number;
@@ -1357,6 +1359,10 @@ function readLaneReceipts(
 						))) ||
 				(row.outcome !== undefined &&
 					!WorkAttemptOutcomeSchema.safeParse(row.outcome).success) ||
+				(row.approvalWait !== undefined &&
+					!AppendWorkAttemptStepsResultSchema.shape.approvalWait.safeParse(
+						row.approvalWait,
+					).success) ||
 				(row.laneResult !== undefined &&
 					(!LaneResultSchema.safeParse(row.laneResult).success ||
 						!isRecord(row.laneResult) ||
@@ -1402,6 +1408,7 @@ function retainsInterruptedWork(receipt: Receipt): boolean {
 		(receipt.attemptId
 			? receipt.admissionState === "admitted" &&
 				(receipt.outcome === "expired" ||
+					(receipt.outcome === "cancelled" && !!receipt.approvalWait) ||
 					(receipt.outcome === "failed" &&
 						receipt.transportInterrupted === true))
 			: !!receipt.retainedAttemptId && receipt.admissionState !== "unknown")
@@ -1579,7 +1586,9 @@ export function retainedLaneWorktree(
 				(row) =>
 					row.outcome === "failed" ||
 					row.outcome === "expired" ||
-					(row.outcome === "cancelled" && isRecord(row.metadata?.runQuestion)),
+					(row.outcome === "cancelled" &&
+						(isRecord(row.metadata?.runQuestion) ||
+							isRecord(row.metadata?.approvalWait))),
 			)
 			.map((row) => row.id),
 	);
@@ -3972,6 +3981,30 @@ export class LaneDispatcher {
 				)
 					previous.held = false;
 				const decision = item.metadata?.decisionContinuation;
+				if (
+					previous?.approvalWait &&
+					previous.phase === "deferred" &&
+					previous.version === item.version
+				) {
+					const approved =
+						isRecord(decision) &&
+						decision.kind === "approval" &&
+						decision.requestId === previous.approvalWait.id;
+					if (!approved) {
+						if (Date.now() < (previous.recheckAt ?? 0)) continue;
+						const readiness = await this.call<{ ready: boolean }>(
+							["work", "readiness", item.id],
+							previous.session,
+							previous.executorKey,
+						);
+						if (!readiness.ready) {
+							previous.recheckAt = Date.now() + 60_000;
+							this.save(this.path(item), previous);
+							continue;
+						}
+					}
+					previous.recheckAt = 0;
+				}
 				if (previous && waitsForRunAnswer(previous)) {
 					if (!runQuestionAnswer(item.metadata, previous.attemptId)) {
 						observeSkip(item, "Waiting for an answer to the run's question");
@@ -5694,6 +5727,21 @@ ${message.body}`,
 				send: async (batch, applied) => {
 					const result = await this.sendSteps(receipt, batch, applied);
 					readPending = isRecord(result) && Array.isArray(result.pending);
+					const wait =
+						AppendWorkAttemptStepsResultSchema.shape.approvalWait.safeParse(
+							isRecord(result) ? result.approvalWait : undefined,
+						);
+					if (
+						wait.success &&
+						wait.data &&
+						!childFinished &&
+						!run.stop &&
+						!receipt.approvalWait
+					) {
+						receipt.approvalWait = wait.data;
+						this.save(path, receipt);
+						stopAgent();
+					}
 					return result;
 				},
 				onSeq: (seq) => {
@@ -5904,7 +5952,11 @@ ${firstBrief}`;
 						detachedOutputDirectory: outputDirectory,
 						forwardSignals: false,
 						admitted: true,
-						canStart: () => !run.stop && !receipt.interrupted && !this.stopping,
+						canStart: () =>
+							!run.stop &&
+							!receipt.approvalWait &&
+							!receipt.interrupted &&
+							!this.stopping,
 						devinWorkBridge:
 							executor === "devin"
 								? createDevinWorkBridge(
@@ -5982,7 +6034,7 @@ ${firstBrief}`;
 							run.turnRunning = true;
 							this.save(path, receipt);
 							if (!awaitingTurn) onTurnStarted();
-							if (run.stop) stopAgent();
+							if (run.stop || receipt.approvalWait) stopAgent();
 						},
 						onAgentStep: (step) => steps.add(step.kind, step.text),
 						onTelemetry: (telemetry) => {
@@ -6017,6 +6069,7 @@ ${firstBrief}`;
 			while (
 				(exit === 0 || turnStopped) &&
 				!run.stop &&
+				!receipt.approvalWait &&
 				!receipt.interrupted &&
 				!this.stopping &&
 				executor !== "devin" &&
@@ -6113,6 +6166,19 @@ ${firstBrief}`;
 				receipt.note = `Stopped by ${sentBy(run.stop)}`;
 				delete receipt.pendingCommitProof;
 				this.log("execution-held", item.id, receipt.note);
+			} else if (receipt.approvalWait) {
+				receipt.outcome = "cancelled";
+				delete receipt.interrupted;
+				delete receipt.pendingCommitProof;
+				receipt.laneResult = {
+					workItemId: item.id,
+					workVersion: item.version,
+					contractVersion: item.acceptanceContract!.version,
+					outcomeText: item.acceptanceContract?.doneLooksLike ?? item.title,
+					outcome: "deferred",
+					reason: `Waiting for exact-call approval ${receipt.approvalWait.id}`,
+				};
+				receipt.note = receipt.laneResult.reason;
 			} else if (exit === 0 && receipt.outcome === "succeeded") {
 				let result: LaneResult | undefined;
 				if (executor === "codex") {
@@ -7550,6 +7616,9 @@ ${firstBrief}`;
 								? { agentTurnStarted: false }
 								: {}),
 							...(receipt.laneResult ? { laneResult: receipt.laneResult } : {}),
+							...(receipt.approvalWait
+								? { approvalWait: receipt.approvalWait }
+								: {}),
 							...(receipt.runQuestion
 								? { runQuestion: receipt.runQuestion }
 								: {}),
@@ -7621,7 +7690,9 @@ ${firstBrief}`;
 					? "deferred"
 					: "settled";
 			if (!receipt.verification && receipt.laneResult?.outcome === "deferred")
-				receipt.recheckAt = laneDeferralAt(receipt.laneResult);
+				receipt.recheckAt = receipt.approvalWait
+					? Date.now() + 60_000
+					: laneDeferralAt(receipt.laneResult);
 			else delete receipt.recheckAt;
 			this.log("settled", receipt.itemId, receipt.outcome);
 			if (receipt.outcome === "succeeded") {

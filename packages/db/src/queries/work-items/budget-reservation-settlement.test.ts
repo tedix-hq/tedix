@@ -18,7 +18,13 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { organizations } from "../../schema/organizations";
-import { workAttemptSteps, workAttemptMessages } from "../../schema/work-items";
+import { tediApprovalRequests } from "../../schema/approvals";
+import { findWorkToolApprovalWait } from "./tool-approval-wait";
+import {
+	workAttemptSteps,
+	workAttemptMessages,
+	workItemComments,
+} from "../../schema/work-items";
 import {
 	replaceWorkAdmissionSpecification,
 	WorkAdmissionSpecificationError,
@@ -187,7 +193,14 @@ async function envelope() {
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
-	sqlite.exec(schemaDdl(organizations, workAttemptSteps, workAttemptMessages));
+	sqlite.exec(
+		schemaDdl(
+			organizations,
+			workAttemptSteps,
+			workAttemptMessages,
+			workItemComments,
+		),
+	);
 	db = createDbQueryClient(createD1Facade(sqlite));
 	seedItemWithEnvelope();
 });
@@ -246,18 +259,76 @@ describe("budget reservation settlement", () => {
 	it("releases on cancel with no spend and consumes exactly the settled cost otherwise", async () => {
 		seedAdmission("adm-1", "2026-09-29T13:00:00.000Z");
 		const { attempt } = await startAttempt("adm-1", PAST);
+		sqlite.exec(
+			"CREATE TABLE tedis (id TEXT PRIMARY KEY); INSERT INTO tedis VALUES ('anchor')",
+		);
+		sqlite
+			.prepare(
+				"INSERT INTO organizations(id,name,slug) VALUES (?,'Example','example')",
+			)
+			.run(ORG);
+		sqlite.exec(schemaDdl(tediApprovalRequests));
+		const wait = { id: "approval", expiresAt: "2026-09-30T12:00:00.000Z" };
+		sqlite
+			.prepare(`INSERT INTO tedi_approval_requests
+			(id,tedi_id,org_id,action_type,description,payload,created_at,expires_at)
+			VALUES (?,'anchor',?,'mcp.tool_call','Exact call',?,?,?)`)
+			.run(
+				wait.id,
+				ORG,
+				JSON.stringify({
+					workItemId: ITEM,
+					requestingWorkVersion: 1,
+					requestingAttemptId: attempt.id,
+					requestingAgent: { principalId: "agent" },
+				}),
+				PAST,
+				wait.expiresAt,
+			);
+		const scope = { orgId: ORG, workItemId: ITEM, workVersion: 1, now: NOW };
+		expect(
+			await findWorkToolApprovalWait(db, { ...scope, attemptId: attempt.id }),
+		).toEqual(wait);
+		for (const patch of [
+			{ orgId: "other" },
+			{ workItemId: "other" },
+			{ workVersion: 2 },
+			{ attemptId: "other" },
+		])
+			expect(
+				await findWorkToolApprovalWait(db, {
+					...scope,
+					attemptId: attempt.id,
+					...patch,
+				}),
+			).toBeUndefined();
 		await settleWorkItemAttempt(db, {
 			orgId: ORG,
 			workItemId: ITEM,
 			attemptId: attempt.id,
 			executor: { type: "tedi", id: "worker" },
 			outcome: "cancelled",
+			metadata: { dispatchVersion: 1, approvalWait: wait },
 			settledAt: NOW,
 		});
 		expect(budgetRow("adm-1")).toMatchObject({
 			state: "released",
 			consumed_micros: null,
 		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT state FROM work_resource_reservations WHERE admission_id='adm-1'",
+				)
+				.get(),
+		).toEqual({ state: "released" });
+		expect(await findWorkToolApprovalWait(db, scope)).toEqual(wait);
+		sqlite.exec("UPDATE tedi_approval_requests SET status='approved'");
+		expect(await findWorkToolApprovalWait(db, scope)).toEqual(wait);
+		sqlite.exec(
+			"UPDATE tedi_approval_requests SET payload=json_set(payload,'$.execution.status','executed')",
+		);
+		expect(await findWorkToolApprovalWait(db, scope)).toBeUndefined();
 
 		seedAdmission("adm-2", "2026-09-29T14:00:00.000Z");
 		const next = await startAttempt("adm-2", "2026-09-29T12:30:00.000Z");
