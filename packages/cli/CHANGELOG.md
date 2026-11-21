@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.8 — 2026-11-21
+
+### Patch Changes
+
+- 2793066: Prepare fresh starts before retrying Work that previously failed readiness, including after a runner restart. Approval, purpose and dependency blocks no longer take preparation places ahead of fresh starts later in the list.
+- ec6ec32: `tedix supervise` ends at once when it is asked to stop. A stop that arrived during its check of waiting questions was only obeyed after that check, which can take minutes, so the Tedix app had to stop it by force after 30 seconds on quit and on updates.
+
 ## 0.29.7 — 2026-11-21
 
 ### Patch Changes
