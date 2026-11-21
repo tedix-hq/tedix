@@ -1063,6 +1063,8 @@ function permanentSkillProofFailure(error: unknown): boolean {
 
 interface Receipt {
 	itemId: string;
+	/** The task's title, so the Tedix app can name what runs on this Mac. */
+	title?: string;
 	version: number;
 	phase:
 		| "preparing"
@@ -5100,6 +5102,7 @@ export class LaneDispatcher {
 				: undefined;
 		const receipt: Receipt = {
 			itemId: candidate.id,
+			title: candidate.title,
 			version: candidate.version,
 			phase: "preparing",
 			verification: verificationPlan(candidate),

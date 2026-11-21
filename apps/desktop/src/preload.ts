@@ -8,6 +8,7 @@ const api: PanelApi = {
 	setup: (action, id) => ipcRenderer.invoke("setup", action, id),
 	copy: (text) => ipcRenderer.invoke("copy", text),
 	open: (link) => ipcRenderer.invoke("open", link),
+	openWork: (itemId) => ipcRenderer.invoke("open-work", itemId),
 	openAtLogin: (on) => ipcRenderer.invoke("open-at-login", on),
 	onState: (listener) => {
 		ipcRenderer.on("state", (_event, state) => listener(state));

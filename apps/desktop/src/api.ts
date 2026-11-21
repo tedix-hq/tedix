@@ -41,6 +41,8 @@ export interface PanelApi {
 	setup(action: SetupAction, id?: string): Promise<void>;
 	copy(text: string): Promise<void>;
 	open(link: PanelLink): Promise<void>;
+	/** Shows a Work Item in the Tedix window. */
+	openWork(itemId: string): Promise<void>;
 	openAtLogin(on: boolean): Promise<void>;
 	onState(listener: (state: PanelState) => void): void;
 	/** The next three are for the update entry in the main window only. */

@@ -38,6 +38,35 @@
 			.line b {
 				font-weight: 500;
 			}
+			.line.task {
+				all: unset;
+				display: flex;
+				justify-content: space-between;
+				gap: 12px;
+				padding: 10px 12px;
+				width: 100%;
+				box-sizing: border-box;
+				cursor: pointer;
+			}
+			.line.task + .line.task {
+				border-top: 1px solid var(--border);
+			}
+			.line.task b {
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.line.task span {
+				flex: none;
+			}
+			.line.task:hover b {
+				text-decoration: underline;
+			}
+			.line.task:focus-visible {
+				outline: 2px solid var(--ring, currentColor);
+				outline-offset: -2px;
+			}
 			.section {
 				font-size: 11.5px;
 				font-weight: 600;

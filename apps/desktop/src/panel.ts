@@ -118,6 +118,32 @@ function draw(state: PanelState) {
 		),
 	];
 
+	if (status.activeTasks.length) {
+		nodes.push(el("div", "section", "Running now"));
+		nodes.push(
+			el(
+				"div",
+				"card",
+				...status.activeTasks.map((task) => {
+					const row = el(
+						"button",
+						"line task",
+						el("b", "", task.title ?? `Task ${task.itemId.slice(0, 8)}`),
+						el(
+							"span",
+							"",
+							EXECUTOR_NAMES[task.executor ?? ""] ?? task.executor ?? "",
+						),
+					);
+					row.type = "button";
+					row.title = "Open in Tedix";
+					row.onclick = () => void tedixShell.openWork(task.itemId);
+					return row;
+				}),
+			),
+		);
+	}
+
 	const restart = () =>
 		button("Restart runners", busy, () => void tedixShell.action("restart"));
 	const down = state.setup.cli.update;
