@@ -9,7 +9,6 @@ import type {
 	Actor,
 	ChangeRecord,
 	ComplianceAdapter,
-	MemoryAdapter,
 	RevisionRef,
 	Source,
 	UndoPlan,
@@ -26,6 +25,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { BindingName } from "./declarations";
 import { buildMemoryBinding } from "./memory-binding";
+import type { SqlMemoryAdapter } from "./memory-adapter";
 import {
 	FILE_TEXT_PART_CHARS,
 	encodedLength,
@@ -61,7 +61,7 @@ export interface BindingDeps {
 	runs?: WorkspaceRunPort;
 	compliance: ComplianceAdapter;
 	accountability: AccountabilityAdapter;
-	memory?: MemoryAdapter;
+	memory?: SqlMemoryAdapter;
 	actor: Actor;
 	source: Source;
 	onRecorded?: (record: ChangeRecord) => void;

@@ -1,8 +1,21 @@
-import type { MemoryRevision } from "@tedix/agent-governance/types";
+import type {
+	ChangeRecord,
+	MemoryRevision,
+} from "@tedix/agent-governance/types";
 import { wrapBinding } from "@tedix/agent-governance/wrap-binding";
 import type { BindingDeps } from "./bindings";
 
-export function buildMemoryBinding(deps: BindingDeps) {
+export function buildMemoryBinding(
+	deps: Pick<
+		BindingDeps,
+		| "memory"
+		| "actor"
+		| "source"
+		| "compliance"
+		| "accountability"
+		| "onRecorded"
+	>,
+) {
 	const adapter = () => {
 		if (!deps.memory) throw new Error("Workspace memory is unavailable");
 		return deps.memory;
@@ -14,6 +27,9 @@ export function buildMemoryBinding(deps: BindingDeps) {
 		after: async (_args: unknown[], result: unknown) => ({
 			revisionId: (result as MemoryRevision).revisionId,
 		}),
+		afterRecorded: async (result: unknown, record: ChangeRecord) => {
+			adapter().recordChange(result as MemoryRevision, record.id);
+		},
 	};
 	return wrapBinding(
 		{
