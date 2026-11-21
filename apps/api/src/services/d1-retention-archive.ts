@@ -166,6 +166,8 @@ export interface D1RetentionTableResult {
 	 */
 	conflictedRows: number;
 	deletedRows: number;
+	/** Rows read and copied but not deleted: changed or pinned since the read. */
+	skippedRows: number;
 	objects: number;
 	/** Last successfully processed rowid; -1 restarts a completed sweep. */
 	scanAfterRowid: number;
@@ -197,6 +199,7 @@ function emptyResult(policy: D1RetentionPolicyRow): D1RetentionTableResult {
 		movedRows: 0,
 		conflictedRows: 0,
 		deletedRows: 0,
+		skippedRows: 0,
 		objects: 0,
 		scanAfterRowid: -1,
 		stoppedBy: "skipped",
@@ -239,7 +242,8 @@ export function d1ArchiveObjectKey(
 export async function gzipNdjson(
 	rows: readonly D1RetentionRow[],
 ): Promise<Uint8Array> {
-	const text = `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+	// The fingerprint is the delete's guard, not part of the stored row.
+	const text = `${rows.map(({ __fingerprint: _, ...row }) => JSON.stringify(row)).join("\n")}\n`;
 	const stream = new Blob([text])
 		.stream()
 		.pipeThrough(new CompressionStream("gzip"));
@@ -601,26 +605,16 @@ async function movePages(
 			// (confirmed) reaches this delete.
 			const deleted = await timed(timings, "deleteMs", () =>
 				withOverloadBackoff(
-					() =>
-						deleteD1RetentionRows(
-							db,
-							tableSpec,
-							rows.map((row) => row.__rowid),
-							cutoff,
-						),
+					() => deleteD1RetentionRows(db, tableSpec, rows, cutoff),
 					deadline,
 				),
 			);
 			if (policy.mode === "move_to_logs_db")
 				result.movedRows += deleted - Math.min(deleted, conflicted);
 			result.deletedRows += deleted;
-			// Fewer deletions than rows read means something else changed these
-			// rows; stop instead of re-reading the same chunk forever.
-			if (deleted < rows.length) {
-				throw new Error(
-					`deleted ${deleted} of ${rows.length} rows read; stopping`,
-				);
-			}
+			// A row changed or pinned since the read stays in main; a later run
+			// copies and archives its current version before removing it.
+			result.skippedRows += rows.length - deleted;
 			// A head page never moves the parked sweep cursor; the head is
 			// re-read every tick anyway.
 			if (phase === "sweep" || reachedEnd)
@@ -666,6 +660,7 @@ function reportFor(
 		conflictedRows: result.conflictedRows,
 		...(result.conflicts.length > 0 ? { conflicts: result.conflicts } : {}),
 		deletedRows: result.deletedRows,
+		skippedRows: result.skippedRows,
 		objects: result.objects,
 		scanAfterRowid: result.scanAfterRowid,
 		stoppedBy: result.stoppedBy,

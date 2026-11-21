@@ -127,6 +127,7 @@ function logRetentionRun(
 					movedRows: table.movedRows,
 					conflictedRows: table.conflictedRows,
 					deletedRows: table.deletedRows,
+					skippedRows: table.skippedRows,
 					stoppedBy: table.stoppedBy,
 					error: table.error ?? null,
 					timings: table.timings,

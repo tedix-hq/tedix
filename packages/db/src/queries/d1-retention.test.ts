@@ -214,7 +214,7 @@ describe("d1 retention statements", () => {
 		);
 	});
 
-	it("deletes one page of rowids per statement with two bound parameters and never inside the keep window", async () => {
+	it("deletes one page of rows per statement with three bound parameters and never inside the keep window", async () => {
 		const { db, seedAudit, count } = fixture();
 		// 610 expired rows, then 10 inside a 30-day window.
 		seedAudit([
@@ -222,22 +222,48 @@ describe("d1 retention statements", () => {
 			...Array.from({ length: 10 }, () => 1),
 		]);
 		const cutoff = d1RetentionCutoff(audit(), NOW, 30);
-		const rowids = Array.from({ length: 620 }, (_, i) => i + 1);
+		const rows = [
+			...(await readD1RetentionPage(db, audit(), -1)),
+			...(await readD1RetentionPage(db, audit(), D1_RETENTION_PAGE_ROWS)),
+		];
+		expect(rows).toHaveLength(620);
 		const statements = buildD1RetentionDeleteStatements(
 			db,
 			audit(),
-			rowids,
+			rows,
 			cutoff,
 		);
 		expect(statements).toHaveLength(2);
 		for (const statement of statements) {
-			expect(statement.toSQL().params).toHaveLength(2);
+			expect(statement.toSQL().params).toHaveLength(3);
 		}
 		// Asking to delete all 620 removes only the 610 expired rows.
 		await expect(
-			deleteD1RetentionRows(db, audit(), rowids, cutoff),
+			deleteD1RetentionRows(db, audit(), rows, cutoff),
 		).resolves.toBe(610);
 		expect(count("audit_events")).toBe(10);
+	});
+
+	it("keeps a row that changed after it was read and copied", async () => {
+		const { db, sqlite, seedAudit, count } = fixture();
+		seedAudit([100, 100]);
+		const cutoff = d1RetentionCutoff(audit(), NOW, 30);
+		const rows = await readD1RetentionPage(db, audit(), -1);
+		sqlite
+			.prepare("UPDATE audit_events SET metadata = ? WHERE rowid = 2")
+			.run('{"changed":true}');
+		await expect(
+			deleteD1RetentionRows(db, audit(), rows, cutoff),
+		).resolves.toBe(1);
+		expect(count("audit_events")).toBe(1);
+		await expect(
+			deleteD1RetentionRows(
+				db,
+				audit(),
+				[{ ...rows[1]!, __fingerprint: undefined } as never],
+				cutoff,
+			),
+		).rejects.toThrow("fingerprint");
 	});
 
 	it("stops backlog probes at the deadline and starts none when it already expired", async () => {
@@ -319,7 +345,12 @@ describe("d1 retention statements", () => {
 		const estimate = await estimateD1RetentionBacklog(db, runtime, cutoff);
 		expect(estimate.eligibleRows).toBe(3);
 		await expect(
-			deleteD1RetentionRows(db, runtime, [1, 2, 3, 4, 5], cutoff),
+			deleteD1RetentionRows(
+				db,
+				runtime,
+				await readD1RetentionPage(db, runtime, -1),
+				cutoff,
+			),
 		).resolves.toBe(3);
 	});
 });
@@ -525,12 +556,7 @@ describe("external agent attribution retention", () => {
 		]);
 		expect(filtered.referencedRows).toBe(3);
 		review("review-3", "late-review");
-		const deleted = await deleteD1RetentionRows(
-			db,
-			spec,
-			page.map((row) => row.__rowid),
-			"2026-09-01",
-		);
+		const deleted = await deleteD1RetentionRows(db, spec, page, "2026-09-01");
 		expect(deleted).toBe(2);
 		expect(
 			(await readD1RetentionPage(db, spec, -1)).map((row) => row.id),
@@ -626,12 +652,7 @@ describe("artifact retention references", () => {
 		]);
 		expect(filtered.referencedRows).toBe(9);
 		expect(page).toHaveLength(12);
-		const deleted = await deleteD1RetentionRows(
-			db,
-			spec,
-			page.map((row) => row.__rowid),
-			"2026-10-01",
-		);
+		const deleted = await deleteD1RetentionRows(db, spec, page, "2026-10-01");
 		expect(deleted).toBe(3);
 		expect(
 			(await readD1RetentionPage(db, spec, -1)).map(
@@ -650,7 +671,7 @@ describe("artifact retention references", () => {
 		).toBe(0);
 		fact("late-fact", "skill://runs/late-fact");
 		expect(
-			await deleteD1RetentionRows(db, spec, [page[0]!.__rowid], "2026-10-01"),
+			await deleteD1RetentionRows(db, spec, [page[0]!], "2026-10-01"),
 		).toBe(0);
 		expect(await readD1RetentionPage(db, spec, -1)).toHaveLength(1);
 	});
@@ -694,14 +715,7 @@ describe("artifact retention references", () => {
 			"other-org",
 		]);
 		expect(filtered.referencedRows).toBe(2);
-		expect(
-			await deleteD1RetentionRows(
-				db,
-				spec,
-				page.map((row) => row.__rowid),
-				"2026-10-01",
-			),
-		).toBe(2);
+		expect(await deleteD1RetentionRows(db, spec, page, "2026-10-01")).toBe(2);
 	});
 
 	it("pins registry evidence through its governed producer execution", async () => {
@@ -730,14 +744,7 @@ describe("artifact retention references", () => {
 				await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31")
 			).rows.map((row) => row.id),
 		).toEqual(["foreign-producer"]);
-		expect(
-			await deleteD1RetentionRows(
-				db,
-				spec,
-				page.map((row) => row.__rowid),
-				"2026-10-01",
-			),
-		).toBe(1);
+		expect(await deleteD1RetentionRows(db, spec, page, "2026-10-01")).toBe(1);
 	});
 
 	it("uses the resolver's stored artifact ID for encoded registry URIs", async () => {
@@ -756,14 +763,7 @@ describe("artifact retention references", () => {
 			rows: [],
 			referencedRows: 1,
 		});
-		expect(
-			await deleteD1RetentionRows(
-				db,
-				spec,
-				page.map((row) => row.__rowid),
-				"2026-10-01",
-			),
-		).toBe(0);
+		expect(await deleteD1RetentionRows(db, spec, page, "2026-10-01")).toBe(0);
 	});
 
 	it("keeps the raw cursor through a fully pinned page", async () => {

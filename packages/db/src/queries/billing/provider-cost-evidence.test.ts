@@ -243,14 +243,7 @@ describe("generated immutable evidence constraints", () => {
 			(await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31"))
 				.referencedRows,
 		).toBe(1);
-		expect(
-			await deleteD1RetentionRows(
-				db,
-				spec,
-				page.map((item) => item.__rowid),
-				"2025-01-01",
-			),
-		).toBe(0);
+		expect(await deleteD1RetentionRows(db, spec, page, "2025-01-01")).toBe(0);
 		expect(
 			await getProviderCostEvidenceSource(db, "org", "call"),
 		).not.toBeNull();

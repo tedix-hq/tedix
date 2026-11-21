@@ -340,8 +340,20 @@ export async function listActiveD1RetentionPolicies(
 	return rows.filter((row) => row.mode !== "off");
 }
 
-/** One raw row as stored, plus its rowid, for archiving. */
+/**
+ * One raw row as stored, plus its rowid and `__fingerprint`: every column as
+ * SQLite's own `json_array(...)` text when the page was read. The delete
+ * compares the same expression, so a row changed after its copy stays.
+ */
 export type D1RetentionRow = Record<string, JsonValue> & { __rowid: number };
+
+/** Every stored column as one JSON text, computed by SQLite on read and delete. */
+function rowFingerprint(tableSpec: D1RetentionTableSpec): SQL {
+	return sql`json_array(${sql.join(
+		tableColumnNames(tableSpec).map((name) => sql.identifier(name)),
+		sql`, `,
+	)})`;
+}
 
 /**
  * One indexed age probe; audit telemetry also checks the action. A negative result
@@ -379,7 +391,7 @@ export async function readD1RetentionPage(
 		Math.min(D1_RETENTION_PAGE_ROWS, Math.floor(limit)),
 	);
 	return (await db.all(
-		sql`SELECT rowid AS __rowid, * FROM ${tableSpec.table} WHERE rowid > ${afterRowid} ORDER BY rowid LIMIT ${bounded}`,
+		sql`SELECT rowid AS __rowid, ${rowFingerprint(tableSpec)} AS __fingerprint, * FROM ${tableSpec.table} WHERE rowid > ${afterRowid} ORDER BY rowid LIMIT ${bounded}`,
 	)) as D1RetentionRow[];
 }
 
@@ -809,21 +821,33 @@ function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
  * non-restarting run; `deleteD1RetentionRows` re-applies the reference pins
  * before building these. Attribution rows are re-tested against
  * `attributionIsMovable`, so a review recorded since the copy keeps its row.
+ * Every row must still match the fingerprint read with it: a row updated
+ * after its copy is left in place, and a later run copies and archives the
+ * new version before removing it.
  */
 export function buildD1RetentionDeleteStatements(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
-	rowids: readonly number[],
+	rows: readonly D1RetentionRow[],
 	cutoff: D1RetentionPolicyCutoff,
 ) {
 	const statements = [];
-	for (let start = 0; start < rowids.length; start += D1_RETENTION_PAGE_ROWS) {
-		const chunk = rowids.slice(start, start + D1_RETENTION_PAGE_ROWS);
+	for (let start = 0; start < rows.length; start += D1_RETENTION_PAGE_ROWS) {
+		const chunk = rows.slice(start, start + D1_RETENTION_PAGE_ROWS);
+		const fingerprints: Record<string, string> = {};
+		for (const row of chunk) {
+			if (typeof row.__fingerprint !== "string")
+				throw new Error(
+					`retention delete needs the fingerprint read with row ${row.__rowid}`,
+				);
+			fingerprints[String(row.__rowid)] = row.__fingerprint;
+		}
 		statements.push(
 			db
 				.delete(tableSpec.table)
 				.where(
-					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${retentionExpiredPredicate(tableSpec, cutoff)}
+					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk.map((row) => row.__rowid))})) AND ${retentionExpiredPredicate(tableSpec, cutoff)}
+					AND ${rowFingerprint(tableSpec)} = json_extract(${JSON.stringify(fingerprints)}, '$."' || rowid || '"')
 					AND ${retentionDeleteGuard(tableSpec)}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
@@ -841,10 +865,11 @@ export function buildD1RetentionDeleteStatements(
 export async function deleteD1RetentionRows(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
-	rowids: readonly number[],
+	rows: readonly D1RetentionRow[],
 	cutoff: D1RetentionPolicyCutoff,
 ): Promise<number> {
-	let deletable = rowids;
+	let deletable = rows;
+	const rowids = rows.map((row) => row.__rowid);
 	if (tableSpec.tableName === "skill_run_artifacts" && rowids.length > 0) {
 		const candidates: D1ArtifactCandidate[] = [];
 		for (
@@ -860,7 +885,7 @@ export async function deleteD1RetentionRows(
 			);
 		}
 		const movable = await movableArtifactRowids(db, candidates);
-		deletable = rowids.filter((rowid) => movable.has(rowid));
+		deletable = rows.filter((row) => movable.has(row.__rowid));
 	}
 	const statements = buildD1RetentionDeleteStatements(
 		db,

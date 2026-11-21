@@ -112,14 +112,9 @@ describe("optional audit log store", () => {
 		const verification = verifyD1LogsCopy(table, expired, copied);
 		expect(verification.missing).toEqual([]);
 		expect(verification.mismatched).toEqual([]);
-		expect(
-			await deleteD1RetentionRows(
-				main.db,
-				table,
-				expired.map((row) => row.__rowid),
-				cutoff,
-			),
-		).toBe(8);
+		expect(await deleteD1RetentionRows(main.db, table, expired, cutoff)).toBe(
+			8,
+		);
 		expect(
 			main.sqlite
 				.prepare("SELECT id FROM audit_events WHERE id LIKE 'legacy:%'")

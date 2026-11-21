@@ -579,7 +579,7 @@ describe("runD1Retention", () => {
 		expect(bucket.puts).toBe(1);
 	});
 
-	it("retains an artifact repinned during archiving and reports the interrupted move", async () => {
+	it("retains an artifact repinned during archiving and reports it as skipped", async () => {
 		const { db, sqlite, count } = fixture(
 			"('skill_run_artifacts','move_to_logs_db',14,1,'2026-10-21')",
 		);
@@ -604,11 +604,11 @@ describe("runD1Retention", () => {
 			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
-			stoppedBy: "error",
 			deletedRows: 0,
 			movedRows: 0,
-			error: "deleted 0 of 1 rows read; stopping",
+			skippedRows: 1,
 		});
+		expect(result.tables[0]?.error).toBeUndefined();
 		expect(count("skill_run_artifacts")).toBe(1);
 	});
 
