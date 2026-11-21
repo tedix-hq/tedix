@@ -122,8 +122,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   - Every question is a native macOS dialog, so its buttons and the
     checkbox can be reached with the keyboard and with accessibility tools.
 - **Nothing is replaced without a click.** Replacing the command-line
-  tool stops tasks running on this Mac, and macOS can ask again for folder
-  access, which nobody can answer with the screen locked. So the app never
+  tool stops tasks running on this Mac. So the app never
   replaces the tool and never restarts the runners by itself.
   When the click has to restart the app first, it leaves a note in the
   app's data folder (`update-after-restart.json`) that is good for five
@@ -138,9 +137,10 @@ The app is not signed or notarized yet and has been run on macOS only.
   app never goes back by itself. If `tedix supervise` or every runner stays
   down after a restart, the app says that this Mac's
   runners are down, shows one notification, and offers **Restart runners**.
-  If some sessions could not be reopened because macOS has not allowed a
-  folder, the app says which folder and opens the right page of System
-  Settings; it does not treat that as runners being down. `tedix update`
+  If some sessions could not be reopened because macOS does not let Tedix
+  read their folder, the app says which folder; it does not treat that as
+  runners being down. Keep checkouts outside Documents, Desktop and
+  Downloads. `tedix update`
   and `tedix rollback` in a terminal work on the app's copy too; the runners
   use the new version after **Restart runners** in This Mac or the next
   start of the app.

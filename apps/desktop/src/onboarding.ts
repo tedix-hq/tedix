@@ -434,12 +434,6 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				running.some((version) => version !== cli.version) &&
 					`The runners still run version ${running.join(", ")}. Restart runners in Tedix → This Mac… to use this one.`,
 				cli.access,
-				cli.access &&
-					button(
-						"Open System Settings",
-						"link",
-						() => void tedixShell.open("folder-access"),
-					),
 				cli.kind === "included" &&
 					cli.canRestore &&
 					button("Use the separate install", "link", () => act("restore-cli")),

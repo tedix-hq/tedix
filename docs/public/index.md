@@ -82,7 +82,6 @@ what is available today.
 | Understand goals, projects, epics, Work Items and Attempts | [How work is organized](./how-work-is-organized.md)                         |
 | Organize initiatives into projects and factories           | [Factories, Workspaces and Projects](./factories-workspaces-projects.md)    |
 | See which sessions work on which project                   | [Track sessions per project](./sessions-per-project.md)                     |
-| Let the supervisor resume sessions in Documents            | [Give the supervisor Full Disk Access](./supervisor-full-disk-access.md)    |
 | Understand what a tedi may do and who approves             | [What an AI assistant may do and who says yes](./workers-and-governance.md) |
 | Choose between skills, automations, flows, and runs        | [Skills, automations, flows, and runs](./skills-flows-workflows.md)         |
 | Check what is available today                              | [Release status](./release-status.md)                                       |

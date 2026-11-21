@@ -8,13 +8,6 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-	hasLocalSigningIdentity,
-	LOCAL_SIGNING_GUIDE,
-	LOCAL_SIGNING_IDENTITY,
-	type SigningRun,
-	signedLocally,
-} from "./local-signing";
 import { selfCommand } from "./shared";
 import { parseServeOptions } from "./lane-serve";
 import {
@@ -239,26 +232,7 @@ export async function install(env: NodeJS.ProcessEnv): Promise<number> {
 		);
 	for (const reason of runners.skipped)
 		console.log(`Left a LaunchAgent alone (${reason}).`);
-	const hint = localSigningHint(command);
-	if (hint) console.log(hint);
 	return 0;
-}
-
-/**
- * One line on the optional local signing that lets a Full Disk Access grant
- * survive updates, or undefined when the binary already carries it.
- */
-export function localSigningHint(
-	binary: string,
-	run?: SigningRun,
-	platform: NodeJS.Platform = process.platform,
-): string | undefined {
-	if (platform !== "darwin") return undefined;
-	if (!hasLocalSigningIdentity(run, platform))
-		return `To let the supervisor resume sessions checked out in Documents, Desktop or Downloads, see ${LOCAL_SIGNING_GUIDE}.`;
-	if (!signedLocally(binary, run))
-		return `Run tedix update to sign ${binary} with "${LOCAL_SIGNING_IDENTITY}", then add it under Full Disk Access (${LOCAL_SIGNING_GUIDE}).`;
-	return undefined;
 }
 
 export function uninstall(): number {

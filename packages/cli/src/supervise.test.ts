@@ -43,7 +43,6 @@ import {
 } from "./supervise-drivers";
 import {
 	launchAgentPlist,
-	localSigningHint,
 	loadLaunchAgent,
 	systemLaunchctl,
 } from "./supervise-launch-agent";
@@ -982,7 +981,7 @@ describe("tedix supervise", () => {
 			const run = drain([answer(SESSION, "codex", 60_000)]);
 			expect(await run.runner.tick()).toBe(0);
 			expect(run.cwds).toEqual([]);
-			expect(run.lines.join("\n")).toContain("Full Disk Access");
+			expect(run.lines.join("\n")).toContain("could not read");
 			expect(run.lines.join("\n")).not.toContain("deadline elapsed");
 		});
 
@@ -1659,7 +1658,7 @@ describe("protectedResumeReason", () => {
 		const env = { HOME: "/Users/ada" };
 		expect(
 			protectedResumeReason("/Users/ada/Documents/acme", env, "darwin"),
-		).toContain("Privacy & Security > Full Disk Access");
+		).toContain("outside Documents, Desktop and Downloads");
 		expect(
 			protectedResumeReason("/Users/ada/code/acme", env, "darwin"),
 		).toBeUndefined();
@@ -1691,34 +1690,6 @@ describe("protectedResumeReason", () => {
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
-	});
-});
-
-describe("localSigningHint", () => {
-	test("points at the guide until the binary carries the local signature", () => {
-		const none = () => ({ status: 0, output: "0 valid identities found" });
-		expect(localSigningHint("/bin/tedix", none, "darwin")).toContain(
-			"supervisor-full-disk-access",
-		);
-		const unsigned = (command: string) => ({
-			status: 0,
-			output:
-				command === "security"
-					? '  1) AB "Tedix CLI (local)"'
-					: 'designated => cdhash H"x"',
-		});
-		expect(localSigningHint("/bin/tedix", unsigned, "darwin")).toContain(
-			"Run tedix update to sign /bin/tedix",
-		);
-		const signed = (command: string) => ({
-			status: 0,
-			output:
-				command === "security"
-					? '  1) AB "Tedix CLI (local)"'
-					: 'designated => identifier "dev.tedix.cli" and certificate leaf = H"x"',
-		});
-		expect(localSigningHint("/bin/tedix", signed, "darwin")).toBeUndefined();
-		expect(localSigningHint("/bin/tedix", none, "linux")).toBeUndefined();
 	});
 });
 

@@ -19,7 +19,6 @@ import { Database } from "bun:sqlite";
 import { codexThreadPath } from "./codex-thread";
 import { peek, type DeliveryVia } from "./hooks/decision-capture";
 import { isoSeconds, type JsonObject } from "./hooks/hook-io";
-import { LOCAL_SIGNING_GUIDE } from "./local-signing";
 import { laneChildEnv } from "./lane-child-env";
 
 /**
@@ -58,7 +57,7 @@ export function protectedResumeReason(
 		killSignal: "SIGKILL",
 	});
 	if (access.status === 0) return undefined;
-	return `not resumed headless: could not read ${cwd}; check that the checkout exists and macOS permits access in System Settings > Privacy & Security > Full Disk Access (add ${process.execPath}; ${LOCAL_SIGNING_GUIDE}), or keep the checkout outside Documents, Desktop and Downloads`;
+	return `not resumed headless: could not read ${cwd}; keep checkouts outside Documents, Desktop and Downloads`;
 }
 
 const RESUME_CONFIRM_MS = 60_000;

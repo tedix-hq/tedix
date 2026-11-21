@@ -64,7 +64,6 @@
 		"packages/auth/src/workload-identity.ts\tconfig-hardcoded-product-host",
 		"packages/cli/src/browser-workspace-selection.ts\tconfig-hardcoded-product-host",
 		"packages/cli/src/learn-profile-document.ts\tconfig-hardcoded-product-host",
-		"packages/cli/src/local-signing.ts\tconfig-hardcoded-product-host",
 		"packages/cli/src/oauth-provider.ts\tconfig-hardcoded-product-host",
 		"packages/cli/src/portable-tedi.ts\tconfig-hardcoded-email",
 		"packages/cli/src/workspace-resolver.ts\tconfig-hardcoded-product-host",

@@ -829,8 +829,8 @@ permissions and atomic Work admission still apply.
 
 On macOS, add `--install` to write and load a user LaunchAgent. It starts now
 and at login, survives the launching session, and defers during dark wake.
-Use a repository accessible to background processes, outside macOS protected
-folders unless the executable already has Full Disk Access. The command prints
+Use a repository outside Documents, Desktop and Downloads, where macOS lets
+background processes read it. The command prints
 the plist and service name; stop it with `launchctl bootout <service>` before
 reinstalling. No credentials or launcher identity are written into the plist.
 
