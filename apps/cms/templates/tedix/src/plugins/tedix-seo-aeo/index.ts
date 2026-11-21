@@ -528,6 +528,15 @@ export default {
 				"posts",
 				localePrefix,
 			);
+			// External catalogs have no Emdash entry from which to resolve translations.
+			if (page.kind === "custom" && !page.seo?.robots?.includes("noindex")) {
+				contributions.push({
+					kind: "link",
+					rel: "alternate",
+					hreflang: pageLocale,
+					href: canonicalUrl,
+				});
+			}
 
 			// ── Explicit site owner identity ────────────────────────
 			const orgSchema: Record<string, unknown> = {
