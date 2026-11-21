@@ -134,6 +134,8 @@ export interface WorkersAiTransportRequest {
 	temperature?: number;
 	/** e.g. `{ type: "json_object" }` to constrain the model to JSON. */
 	response_format?: unknown;
+	/** Provider reasoning level, e.g. `low`; omitted means the model default. */
+	reasoning_effort?: string;
 	/** Bounds a stalled call: gateway fetch aborts natively; binding path races. */
 	signal?: AbortSignal;
 	/**
@@ -155,6 +157,8 @@ export interface WorkersAiTransportResult {
 	/** Model reasoning remains separate from assistant prose. */
 	reasoning?: string;
 	toolCalls: WorkersAiTransportToolCall[];
+	/** Provider `finish_reason`, e.g. `length` when `max_tokens` cut it off. */
+	finishReason?: string;
 	usage: {
 		promptTokens: number | null;
 		completionTokens: number | null;
@@ -323,6 +327,8 @@ function chatBody(
 	if (req.temperature !== undefined) body.temperature = req.temperature;
 	if (req.response_format !== undefined)
 		body.response_format = req.response_format;
+	if (req.reasoning_effort !== undefined)
+		body.reasoning_effort = req.reasoning_effort;
 	return body;
 }
 
@@ -368,9 +374,11 @@ async function callViaGateway(
 	const data = (await response.json()) as OpenAiChatResponse;
 	const message = data.choices?.[0]?.message;
 	const reasoning = reasoningContent(message);
+	const finishReason = data.choices?.[0]?.finish_reason;
 	return {
 		text: typeof message?.content === "string" ? message.content : "",
 		...(reasoning ? { reasoning } : {}),
+		...(finishReason ? { finishReason } : {}),
 		toolCalls: openAiToolCalls(message),
 		usage: normalizedUsage(data.usage),
 	};
@@ -473,6 +481,9 @@ async function callViaBinding(
 					? result.choices[0].message.content
 					: "",
 		...(reasoning ? { reasoning } : {}),
+		...(result.choices?.[0]?.finish_reason
+			? { finishReason: result.choices[0].finish_reason }
+			: {}),
 		toolCalls: toolCalls.length
 			? toolCalls
 			: openAiToolCalls(result.choices?.[0]?.message),

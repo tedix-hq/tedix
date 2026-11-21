@@ -384,6 +384,38 @@ describe("reasoning results", () => {
 		);
 	}
 
+	it("reports a reply cut off while thinking as length and forwards the effort", async () => {
+		// Production: GLM 5.3 spent max_tokens on reasoning, so the Home route
+		// came back empty and read as a finished but invalid decision.
+		const run = vi.fn(async () => ({
+			reasoning: "thinking",
+			choices: [
+				{
+					message: { content: "", reasoning: "thinking" },
+					finish_reason: "length",
+				},
+			],
+		}));
+		const model = workersAiModel(
+			{
+				env: {
+					AI_GATEWAY_ACCOUNT_ID: "account",
+					AI_GATEWAY_LLM_ID: "gateway",
+					AI: { run } as unknown as Ai,
+				},
+				authorize: async () => ({}),
+			},
+			"@cf/zai-org/glm-5.3",
+		);
+		const result = await model.doGenerate({
+			prompt: HELLO,
+			maxOutputTokens: 3000,
+			providerOptions: { workersAi: { reasoningEffort: "low" } },
+		} as CallOptions);
+		expect(result.finishReason).toBe("length");
+		expect(run.mock.calls[0]?.[1]).toMatchObject({ reasoning_effort: "low" });
+	});
+
 	it("preserves reasoning and detailed usage through the installed AI SDK", async () => {
 		const result = await generateText({
 			model: reasoningModel(),

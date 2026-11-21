@@ -311,6 +311,9 @@ async function generateOnce(
 		...(options.maxOutputTokens !== undefined
 			? { max_tokens: options.maxOutputTokens }
 			: {}),
+		...(typeof options.providerOptions?.workersAi?.reasoningEffort === "string"
+			? { reasoning_effort: options.providerOptions.workersAi.reasoningEffort }
+			: {}),
 		...(!capabilities?.dropSampling && options.temperature !== undefined
 			? { temperature: options.temperature }
 			: {}),
@@ -340,8 +343,14 @@ async function generateOnce(
 		});
 	});
 
+	// A cut-off reply must not read as finished: a reasoning model can spend
+	// all of `max_tokens` thinking and leave the text empty.
 	const finishReason: FinishReason =
-		result.toolCalls.length > 0 ? "tool-calls" : "stop";
+		result.toolCalls.length > 0
+			? "tool-calls"
+			: result.finishReason === "length"
+				? "length"
+				: "stop";
 
 	return { content, finishReason, usage: toUsage(result.usage), warnings };
 }

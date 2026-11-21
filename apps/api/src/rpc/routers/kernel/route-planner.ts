@@ -56,6 +56,10 @@ import {
 
 // Modest bounds — the planner emits a small typed object plus a short message.
 const MAX_OUTPUT_TOKENS = 3000;
+// Workers AI reasoning models default to maximum effort, and GLM 5.3 spent the
+// whole route budget thinking and returned no route. A route or a short Home
+// answer needs little.
+const ROUTE_PROVIDER_OPTIONS = { workersAi: { reasoningEffort: "low" } };
 
 export interface KernelRouteAttempt {
 	model: string;
@@ -1000,6 +1004,7 @@ async function planKernelRouteUnguarded(
 			telemetry: objectSpanTelemetry("kernel.route_plan", span),
 			...modelPrompt,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			providerOptions: ROUTE_PROVIDER_OPTIONS,
 			// Flat abort: a stalled generateObject never settles and never throws;
 			// the timeout rejects while preserving the selected route.
 			// Combined with the operator abort signal so a mid-turn cancel actually
@@ -1375,6 +1380,7 @@ async function streamRoutePlan(args: {
 		telemetry: objectSpanTelemetry("kernel.route_plan.stream", args.span),
 		...modelPrompt,
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
+		providerOptions: ROUTE_PROVIDER_OPTIONS,
 		abortSignal: signal ?? idle.signal,
 		maxRetries: 0,
 		// The SDK default logs every stream error; a request aborted because it
@@ -1514,6 +1520,7 @@ async function streamHomeAnswer(
 				args.context.history,
 			),
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			providerOptions: ROUTE_PROVIDER_OPTIONS,
 			maxRetries: 0,
 			abortSignal: signal,
 			runtimeContext: kernelSpanContext({
