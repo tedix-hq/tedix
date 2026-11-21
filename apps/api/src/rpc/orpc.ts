@@ -218,6 +218,28 @@ export const withFleetAuthority = base.middleware(async ({ context, next }) => {
 });
 
 /**
+ * Copy the MCP gateway's end-user and scope headers onto the context. Call
+ * only after the request is known to come over the trusted service binding.
+ * The end user is the Descope id of the HUMAN whose OAuth session made the
+ * gateway call (95dff537): provenance, never `context.user`. The scopes are
+ * the capability scopes the gateway resolved for the call.
+ */
+export function readGatewayIdentityHeaders(context: BaseContext): void {
+	if (!context.gatewayEndUserId) {
+		const endUser = context.headers.get("X-Tedix-End-User-Id");
+		if (endUser && /^[A-Za-z0-9_-]{4,128}$/.test(endUser)) {
+			context.gatewayEndUserId = endUser;
+		}
+	}
+	if (!context.tediScopes) {
+		const tediScopesHeader = context.headers.get("X-Tedix-Tedi-Scopes");
+		if (tediScopesHeader) {
+			context.tediScopes = tediScopesHeader.split(/\s+/).filter(Boolean);
+		}
+	}
+}
+
+/**
  * Service binding authentication (Worker-to-Worker only).
  *
  * Used for internal endpoints that should NOT be publicly accessible:
@@ -889,27 +911,7 @@ export const withAuth = base.middleware(async (options, input) => {
 				context.headers.get("x-tedix-tedi-id");
 			if (tediIdHeader) context.tediId = tediIdHeader;
 		}
-		// Operator provenance forwarded by the MCP gateway (95dff537): the
-		// Descope user id of the HUMAN whose OAuth session made the gateway
-		// call. Only readable on the trusted binding; never populates
-		// context.user (same doctrine as the tedi headers — provenance, not
-		// authority).
-		if (!context.gatewayEndUserId) {
-			const endUser =
-				context.headers.get("X-Tedix-End-User-Id") ??
-				context.headers.get("x-tedix-end-user-id");
-			if (endUser && /^[A-Za-z0-9_-]{4,128}$/.test(endUser)) {
-				context.gatewayEndUserId = endUser;
-			}
-		}
-		if (!context.tediScopes) {
-			const tediScopesHeader =
-				context.headers.get("X-Tedix-Tedi-Scopes") ??
-				context.headers.get("x-tedix-tedi-scopes");
-			if (tediScopesHeader) {
-				context.tediScopes = tediScopesHeader.split(/\s+/).filter(Boolean);
-			}
-		}
+		readGatewayIdentityHeaders(context);
 		if (
 			context.headers.get("X-Tedix-Caller-Type") === "mcp-edge-external-agent"
 		) {

@@ -41,12 +41,13 @@ export async function resolveHumanPolicyReplay(
 	);
 	const inputArgs = JSON.parse(JSON.stringify(args));
 	const argsDigest = await tenantPolicyDescriptorDigest(inputArgs);
-	const { binding, probeReceiptId } =
-		await client.mcpGovernance.prepareOwnerPolicyReplay({
-			organizationId: caller.organizationId,
-			approvalRequestId,
-			args: inputArgs,
-		});
+	const prepared = await client.mcpGovernance.prepareOwnerPolicyReplay({
+		organizationId: caller.organizationId,
+		approvalRequestId,
+		args: inputArgs,
+	});
+	if (!prepared) return null;
+	const { binding, probeReceiptId } = prepared;
 	if (
 		binding.descriptor.actorUserId !== caller.userId ||
 		binding.descriptor.mount.sourceToolRowId !== tool.id

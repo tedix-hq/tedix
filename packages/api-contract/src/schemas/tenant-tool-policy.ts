@@ -413,17 +413,20 @@ export const PrepareOwnerPolicyReplayInputSchema = z
 		args: z.record(z.string(), JsonValueSchema),
 	})
 	.strict();
-export const PrepareOwnerPolicyReplayResponseSchema = z.object({
-	binding: z
-		.object({
-			descriptor: TenantToolPolicyProfileDescriptorSchema,
-			descriptorDigest: z.string(),
-			revisionId: z.string(),
-			ruleDigest: z.string(),
-		})
-		.strict(),
-	probeReceiptId: z.uuid(),
-});
+/** Null when the approval carries no tenant policy binding. */
+export const PrepareOwnerPolicyReplayResponseSchema = z
+	.object({
+		binding: z
+			.object({
+				descriptor: TenantToolPolicyProfileDescriptorSchema,
+				descriptorDigest: z.string(),
+				revisionId: z.string(),
+				ruleDigest: z.string(),
+			})
+			.strict(),
+		probeReceiptId: z.uuid(),
+	})
+	.nullable();
 export type ResolveTenantToolPolicyInput = z.infer<
 	typeof ResolveTenantToolPolicyInputSchema
 >;
