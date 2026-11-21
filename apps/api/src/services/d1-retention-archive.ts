@@ -73,8 +73,13 @@ export const D1_ARCHIVE_CHUNK_ROWS = D1_RETENTION_PAGE_ROWS;
  * tables). Each 15-minute tick has to move a few 500-row artifact pages, each
  * costing a few seconds of reads, copies and R2 writes, or the main database
  * grows faster than retention drains it.
+ *
+ * Temporarily 5 minutes (normally 60 s) while the 1.4M-row MCP telemetry
+ * audit backlog drains (Work 539ccae7). Each page still pauses for
+ * `D1_RETENTION_PAGE_PAUSE_MS`, so main D1 sees the same load per second,
+ * just for longer. Put back to 60_000 once the backlog is gone.
  */
-const DEFAULT_TIME_BUDGET_MS = 60_000;
+const DEFAULT_TIME_BUDGET_MS = 300_000;
 /** Conflicts kept in `last_report` for repair evidence. */
 const D1_RETENTION_CONFLICT_SAMPLE = 20;
 /** Waits before each retry of a statement D1 refused as overloaded. */
