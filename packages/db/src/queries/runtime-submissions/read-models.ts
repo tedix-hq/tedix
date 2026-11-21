@@ -29,24 +29,6 @@ export async function getSubmissionById(
 	return rows[0];
 }
 
-export async function getSubmissionByIdempotencyKey(
-	db: DbClient,
-	organizationId: string,
-	idempotencyKey: string,
-): Promise<RuntimeSubmission | undefined> {
-	const rows = await db
-		.select()
-		.from(runtimeSubmissions)
-		.where(
-			and(
-				eq(runtimeSubmissions.organizationId, organizationId),
-				eq(runtimeSubmissions.idempotencyKey, idempotencyKey),
-			),
-		)
-		.limit(1);
-	return rows[0];
-}
-
 export async function listSubmissionsByRun(
 	db: DbClient,
 	organizationId: string,

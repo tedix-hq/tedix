@@ -86,7 +86,6 @@ export const items = sqliteTable(
 		updatedAt: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 	},
 	(table) => [
-		index("idx_items_app").on(table.appId),
 		index("idx_items_vertical").on(table.vertical),
 		unique("uq_items_app_url").on(table.appId, table.url),
 	],

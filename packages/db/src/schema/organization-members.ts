@@ -87,7 +87,6 @@ export const organizationMembers = sqliteTable(
 		// Unique constraint: one membership per user per organization
 		unique("uniq_org_member").on(table.organizationId, table.descopeUserId),
 		// Indexes for common queries
-		index("idx_org_members_org").on(table.organizationId),
 		uniqueIndex("uniq_org_member_user")
 			.on(table.organizationId, table.userId)
 			.where(sql`${table.userId} IS NOT NULL`),

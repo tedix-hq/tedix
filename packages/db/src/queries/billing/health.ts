@@ -21,10 +21,8 @@ import {
 import { tediCallCosts } from "../../schema/tedis";
 import {
 	type BillingProviderReconciliation,
-	type BillingUsagePeriod,
 	billingProviderReconciliations,
 	billingUsageCharges,
-	billingUsagePeriods,
 	billingUsageQuarantines,
 	billingUsageReservations,
 } from "../../schema/billing";
@@ -98,24 +96,6 @@ export async function getBillingSettlementHealth(
 			typeof row.latestSettledAt === "string" ? row.latestSettledAt : null,
 		quarantined24h: Number(row.quarantined24h ?? 0),
 	};
-}
-
-export async function getBillingUsagePeriod(
-	db: DbClient,
-	organizationId: string,
-	periodStart: string,
-): Promise<BillingUsagePeriod | null> {
-	const [row] = await db
-		.select()
-		.from(billingUsagePeriods)
-		.where(
-			and(
-				eq(billingUsagePeriods.organizationId, organizationId),
-				eq(billingUsagePeriods.periodStart, periodStart),
-			),
-		)
-		.limit(1);
-	return row ?? null;
 }
 
 export async function recordBillingProviderReconciliation(

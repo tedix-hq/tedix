@@ -6,6 +6,8 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  * an old Wrangler upload must never regain authority after a timed takeover.
  * A GitHub holder can be replaced after its exact numeric job has completed.
  * Other abandoned rows require an operator to confirm uploads have stopped.
+ * No code in this repository reads it: the private ops release takes the lock,
+ * so the table stays even though it is usually empty.
  */
 export const releaseLocks = sqliteTable("release_locks", {
 	surface: text("surface").primaryKey(),

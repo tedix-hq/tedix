@@ -1412,7 +1412,6 @@ export const billingHistoricalExposures = sqliteTable(
 			t.generation,
 			t.snapshotId,
 		),
-		index("idx_historical_exposure_root").on(t.organizationId, t.tediId),
 		check(
 			"historical_exposure_unknown",
 			sql`${t.exposure} = 'UNKNOWN' AND ${t.generation} > 0`,

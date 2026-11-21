@@ -1,11 +1,9 @@
 /** Item query helpers, isolated from app and job query graphs. */
 
-import type { LayoutItemSchemaType as LayoutItem } from "@tedix/api-contract/schemas/layout";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { NewItem } from "../schema/items";
-import { items, itemToLayoutItem } from "../schema/items";
-import { chunkForBoundParams } from "../utils/batch";
+import { items } from "../schema/items";
 import { getAffectedRows } from "../utils/d1-result";
 
 /**
@@ -145,32 +143,4 @@ export async function deleteItemsByApp(db: DbClient, appId: string) {
  */
 export async function getItemCount(db: DbClient, appId: string) {
 	return db.$count(items, eq(items.appId, appId));
-}
-
-/**
- * Get multiple items by IDs for widget display (returns LayoutItem format)
- * Used by semantic search to fetch full data after Vectorize query
- * Preserves order of input IDs for ranking stability
- */
-export async function getItemsByIds(
-	db: DbClient,
-	ids: string[],
-): Promise<LayoutItem[]> {
-	if (ids.length === 0) return [];
-
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	const itemMap = new Map<string, typeof items.$inferSelect>();
-	for (const chunk of chunkForBoundParams([...new Set(ids)], 50)) {
-		const rawItems = await db
-			.select()
-			.from(items)
-			.where(inArray(items.id, chunk));
-		for (const item of rawItems) itemMap.set(item.id, item);
-	}
-
-	// Return items in the order of input IDs (preserves Vectorize ranking)
-	return ids
-		.map((id) => itemMap.get(id))
-		.filter((item): item is NonNullable<typeof item> => item !== undefined)
-		.map(itemToLayoutItem);
 }

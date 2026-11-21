@@ -53,7 +53,6 @@ export const organizationSecrets = sqliteTable(
 		// Unique constraint: one secret name per organization
 		unique("org_secret_unique").on(t.organizationId, t.name),
 		// Index for fast lookups by org
-		index("org_secrets_org_idx").on(t.organizationId),
 	],
 );
 

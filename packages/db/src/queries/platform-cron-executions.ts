@@ -10,7 +10,6 @@ import { getAffectedRows } from "../utils/d1-result";
 export const PLATFORM_CRON_RECEIPT_RETENTION_DAYS = 90;
 // Leave a generous margin for slow cron jobs before treating a lost finish as abandoned.
 export const PLATFORM_CRON_RUNNING_ABANDONED_HOURS = 6;
-export const PLATFORM_CRON_MAX_AFFECTED_ROW_KEYS = 32;
 
 export interface PlatformCronExecutionStart {
 	id: string;

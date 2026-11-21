@@ -58,10 +58,7 @@ export const tediSecrets = sqliteTable(
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at").notNull(),
 	},
-	(t) => [
-		unique("tedi_secret_unique").on(t.tediId, t.name),
-		index("tedi_secrets_tedi_idx").on(t.tediId),
-	],
+	(t) => [unique("tedi_secret_unique").on(t.tediId, t.name)],
 );
 
 export type TediSecret = typeof tediSecrets.$inferSelect;

@@ -418,7 +418,6 @@ export const tedis = sqliteTable(
 	(table) => [
 		unique("uniq_tedi_org_slug").on(table.organizationId, table.slug),
 		unique("uniq_tedi_slug").on(table.slug),
-		index("idx_tedis_org").on(table.organizationId),
 		index("idx_tedis_slug").on(table.slug),
 		index("tedis_descope_user_id_idx").on(table.descopeUserId),
 		uniqueIndex("tedis_body_generation_token_hash_idx").on(
@@ -565,7 +564,6 @@ export const tediRuntimeLeases = sqliteTable(
 	},
 	(table) => [
 		unique("tedi_runtime_leases_scope_unique").on(table.tediId, table.name),
-		index("idx_tedi_runtime_leases_tedi").on(table.tediId),
 		index("idx_tedi_runtime_leases_expires").on(table.expiresAt),
 	],
 );

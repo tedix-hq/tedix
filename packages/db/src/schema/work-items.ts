@@ -387,7 +387,6 @@ export const workItems = sqliteTable(
 		index("idx_work_items_deadline").on(table.deadline),
 		index("idx_work_items_due_date").on(table.dueDate),
 		index("idx_work_items_org_created").on(table.orgId, table.createdAt),
-		index("idx_work_items_org_disposition").on(table.orgId, table.disposition),
 		index("idx_work_items_stale_delegation")
 			.on(
 				table.disposition,

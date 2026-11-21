@@ -73,7 +73,6 @@ export const projects = sqliteTable(
 	(table) => [
 		uniqueIndex("uniq_projects_org_id").on(table.orgId, table.id),
 		uniqueIndex("uniq_projects_org_key").on(table.orgId, table.key),
-		index("idx_projects_org_status").on(table.orgId, table.status),
 		index("idx_projects_status_id").on(table.status, table.id),
 		index("idx_projects_org_status_id").on(table.orgId, table.status, table.id),
 		index("idx_projects_org_objective_status").on(

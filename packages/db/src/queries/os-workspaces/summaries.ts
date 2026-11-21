@@ -17,20 +17,12 @@ import {
 	kernelRuntimeRuns,
 } from "../../schema/cognitive-runtime";
 import {
-	type NewOsWorkspaceSummaryRow,
 	type OsWorkspaceProjectRow,
 	type OsWorkspaceSummaryRow,
 	osWorkspaceProjects,
 	osWorkspaceSummaries,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
-
-/** Run statuses a workspace summary counts as still active. */
-export const OS_WORKSPACE_ACTIVE_RUN_STATUSES = [
-	"queued",
-	"running",
-	"requires_approval",
-] as const;
 
 /** Workspace activity rollup for admin and usage views. */
 export interface OsWorkspaceUsageSummary {

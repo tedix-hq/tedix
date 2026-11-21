@@ -160,7 +160,6 @@ export const tediRuntimeEvents = sqliteTable(
 		terminalSeen: integer("terminal_seen").notNull().default(0),
 	},
 	(table) => [
-		index("idx_tedi_runtime_events_org").on(table.organizationId),
 		index("idx_tedi_runtime_events_unfinished").on(
 			table.terminalSeen,
 			table.kind,

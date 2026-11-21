@@ -71,7 +71,6 @@ export const appAdapterSecretBindings = sqliteTable(
 		// One binding per config path per adapter
 		unique("adapter_binding_unique").on(table.adapterId, table.configPath),
 		// Fast lookups by adapter
-		index("idx_adapter_bindings_adapter").on(table.adapterId),
 		// Fast lookups by app (for cross-adapter queries)
 		index("idx_adapter_bindings_app").on(table.appId),
 		// Fast lookups by secret (for finding affected adapters when secret changes)

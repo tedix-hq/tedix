@@ -50,7 +50,6 @@ export const appConfigVersions = sqliteTable(
 			table.appId,
 			table.version,
 		),
-		index("idx_app_config_versions_app").on(table.appId),
 		index("idx_app_config_versions_status").on(table.status),
 	],
 );

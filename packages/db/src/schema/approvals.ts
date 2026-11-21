@@ -137,7 +137,6 @@ export const tediApprovalRequests = sqliteTable(
 			table.expiresAt,
 		),
 		index("idx_approval_requests_resolved").on(table.resolvedAt),
-		index("idx_approval_requests_status").on(table.orgId, table.status),
 		index("idx_approval_requests_tedi_status").on(table.tediId, table.status),
 		// The expiry sweep walks pending requests in expiry order and stops at
 		// the first that is still open. Almost every request is long resolved.

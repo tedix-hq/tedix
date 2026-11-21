@@ -141,7 +141,6 @@ export const tediObjectives = sqliteTable(
 		completedAt: text("completed_at"),
 	},
 	(table) => [
-		index("idx_objectives_org").on(table.orgId),
 		index("idx_objectives_status_id").on(table.status, table.id),
 		index("idx_objectives_org_status_id").on(
 			table.orgId,

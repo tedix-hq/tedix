@@ -95,21 +95,6 @@ export async function getActivePolicyPackDefinition(
 	return definition;
 }
 
-/** Live tedis for the kernel's org context. Retired workers are excluded. */
-export async function listOrganizationTedis(
-	db: DbClient,
-	organizationId: string,
-	limit: number,
-): Promise<Tedi[]> {
-	return db
-		.select()
-		.from(tedis)
-		.where(
-			and(eq(tedis.organizationId, organizationId), isNull(tedis.retiredAt)),
-		)
-		.limit(limit);
-}
-
 export async function getOrganizationTedi(
 	db: DbClient,
 	input: { id: string; organizationId: string },

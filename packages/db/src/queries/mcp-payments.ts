@@ -145,38 +145,6 @@ export async function insertSettledMcpPaymentEventWithinBudget(
 	return rows.length > 0;
 }
 
-export async function listMcpPaymentEventsByRequirement(
-	db: DbClient,
-	requirementId: string,
-): Promise<McpPaymentEvent[]> {
-	return db
-		.select()
-		.from(mcpPaymentEvents)
-		.where(eq(mcpPaymentEvents.requirementId, requirementId))
-		.orderBy(desc(mcpPaymentEvents.createdAt));
-}
-
-export async function listMcpPaymentEventsForTool(
-	db: DbClient,
-	params: {
-		appSlug: string;
-		toolId: string;
-		limit: number;
-	},
-): Promise<McpPaymentEvent[]> {
-	return db
-		.select()
-		.from(mcpPaymentEvents)
-		.where(
-			and(
-				eq(mcpPaymentEvents.appSlug, params.appSlug),
-				eq(mcpPaymentEvents.toolId, params.toolId),
-			),
-		)
-		.orderBy(desc(mcpPaymentEvents.createdAt))
-		.limit(params.limit);
-}
-
 export interface ListMcpPaymentEventsOptions {
 	organizationId: string;
 	appSlug?: string;

@@ -678,34 +678,6 @@ export async function getKernelRuntimeEventById(
 	return row;
 }
 
-export async function countKernelConversationEventsByKind(
-	db: DbClient,
-	input: {
-		organizationId: string;
-		conversationId: string;
-		kinds: readonly TediRuntimeEventKind[];
-	} & TenantScope,
-): Promise<Map<TediRuntimeEventKind, number>> {
-	input = { ...input, ...normalizeTenantScope(input) };
-	if (input.kinds.length === 0) return new Map();
-	const rows = await db
-		.select({
-			kind: kernelRuntimeEvents.kind,
-			count: sql<number>`count(*)`,
-		})
-		.from(kernelRuntimeEvents)
-		.where(
-			and(
-				eq(kernelRuntimeEvents.organizationId, input.organizationId),
-				eq(kernelRuntimeEvents.conversationId, input.conversationId),
-				// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
-				inArray(kernelRuntimeEvents.kind, input.kinds),
-			),
-		)
-		.groupBy(kernelRuntimeEvents.kind);
-	return new Map(rows.map((row) => [row.kind, Number(row.count) || 0]));
-}
-
 /** Count first-settlement events and title-bearing conversation updates only. */
 export async function countKernelConversationTitleGuardEvents(
 	db: DbClient,

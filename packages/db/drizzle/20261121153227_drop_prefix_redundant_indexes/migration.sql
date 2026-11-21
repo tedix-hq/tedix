@@ -1,0 +1,21 @@
+DROP INDEX IF EXISTS `idx_adapter_bindings_adapter`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_app_config_versions_app`;--> statement-breakpoint
+DROP INDEX IF EXISTS `app_secrets_app_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_app_org`;--> statement-breakpoint
+DROP INDEX IF EXISTS `tenant_tool_policies_tool_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `os_gadget_executions_org_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_items_app`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_org_members_org`;--> statement-breakpoint
+DROP INDEX IF EXISTS `org_secrets_org_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_projects_org_status`;--> statement-breakpoint
+DROP INDEX IF EXISTS `tedi_secrets_tedi_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_tedi_runtime_leases_tedi`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_tedis_org`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_user_configs_user`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_work_items_org_disposition`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_approval_requests_status`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_historical_exposure_root`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_tedi_runtime_events_org`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_mcp_payment_account_org`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_mcp_payment_policy_org`;--> statement-breakpoint
+DROP INDEX IF EXISTS `idx_objectives_org`;

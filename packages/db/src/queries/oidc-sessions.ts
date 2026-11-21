@@ -109,24 +109,6 @@ export async function consumeOidcLogin(
 		.returning();
 	return row;
 }
-export async function getOidcSession(
-	db: DbQueryClient,
-	id: string,
-	now: number,
-) {
-	const [row] = await db
-		.select()
-		.from(oidcSessions)
-		.where(
-			and(
-				eq(oidcSessions.id, id),
-				eq(oidcSessions.kind, "session"),
-				gt(oidcSessions.expiresAt, now),
-			),
-		)
-		.limit(1);
-	return row;
-}
 export async function deleteOidcSession(db: DbQueryClient, id: string) {
 	await db.delete(oidcSessions).where(eq(oidcSessions.id, id));
 }

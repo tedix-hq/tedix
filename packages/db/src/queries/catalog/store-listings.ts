@@ -41,28 +41,6 @@ export async function getCatalogStoreListingBySourceId(
 }
 
 /**
- * Get store listing by app and source
- */
-export async function getCatalogStoreListingByAppSource(
-	db: Database,
-	catalogAppId: string,
-	source: Source,
-): Promise<CatalogStoreListing | null> {
-	const result = await db
-		.select()
-		.from(appCatalogStoreListings)
-		.where(
-			and(
-				eq(appCatalogStoreListings.catalogAppId, catalogAppId),
-				eq(appCatalogStoreListings.source, source),
-			),
-		)
-		.limit(1);
-
-	return result[0] ?? null;
-}
-
-/**
  * Upsert a store listing
  */
 export async function upsertCatalogStoreListing(
