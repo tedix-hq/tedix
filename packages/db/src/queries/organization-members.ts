@@ -550,7 +550,17 @@ export async function getOrganizationAggregatorGateways(
 				metadata: apps.metadata,
 			})
 			.from(apps)
-			.where(inArray(apps.organizationId, chunk));
+			.where(
+				and(
+					inArray(apps.organizationId, chunk),
+					// Narrow in SQL to rows the checks below can accept. Without it every
+					// call returned each app's full metadata (164 rows a call for some
+					// users, about 17k calls in 2 h on 21 Nov 2026) only to discard
+					// all but one per organization.
+					sql`json_extract(${apps.metadata}, '$.mcpConfig.authMode') = 'authenticated'`,
+					sql`json_type(${apps.metadata}, '$.mcpConfig.codeMode') = 'true'`,
+				),
+			);
 	const rows: Awaited<ReturnType<typeof selectChunk>> = [];
 	// D1 caps bound parameters at 100 per statement; chunk the org IN() list.
 	for (const chunk of chunkForBoundParams([...new Set(organizationIds)], 50)) {
