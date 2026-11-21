@@ -1246,17 +1246,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			const key = `document-transfer-import:${transfer.transferId}`;
 			const payloadSha256 = await sha256Hex(JSON.stringify(payload));
 			const receipt = { transfer, snapshot, payloadSha256 };
-			const saved = this.#store.get<
-				DocumentTransferReceipt | DocumentTransferPackage
-			>(key);
+			const saved = this.#store.get<DocumentTransferReceipt>(key);
 			if (saved) {
-				const savedHash =
-					"payloadSha256" in saved
-						? saved.payloadSha256
-						: await sha256Hex(JSON.stringify(saved));
-				if (savedHash !== payloadSha256)
+				if (saved.payloadSha256 !== payloadSha256)
 					throw new Error("Document transfer id conflicts with its receipt");
-				this.#store.put(key, receipt);
 				return;
 			}
 			if (
@@ -6082,15 +6075,6 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		workspaceId: string;
 		createdAt: string;
 		migrations: string[];
-	}>;
-	importRows(
-		scope: WorkspaceScope,
-		batch: { batchId: string; table: string; rows: Record<string, unknown>[] },
-	): Promise<{
-		batchId: string;
-		table: string;
-		rowCount: number;
-		status: "imported" | "duplicate";
 	}>;
 	fetch(request: Request): Promise<Response>;
 }

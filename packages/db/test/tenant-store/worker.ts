@@ -7,7 +7,9 @@ import { tenantStoreMigrations } from "../../src/tenant-store/migrations";
 import {
 	TenantStore,
 	type TenantStoreDefinition,
+	type TenantStoreImportBatch,
 } from "../../src/tenant-store/store";
+import type { TenantScope } from "../../src/tenant-scope";
 
 export { TenantStore };
 
@@ -32,6 +34,13 @@ export const fixtureDefinition: TenantStoreDefinition = {
 export class TenantStoreFixture extends TenantStore {
 	constructor(ctx: DurableObjectState, env: unknown) {
 		super(ctx, env, fixtureDefinition);
+	}
+
+	/** Test entry to the protected loader, which production calls in-object. */
+	importRows(scope: TenantScope, batch: TenantStoreImportBatch) {
+		return this.ctx.storage.transactionSync(() =>
+			this.importRowsSync(scope, batch),
+		);
 	}
 
 	countNotes(): number {

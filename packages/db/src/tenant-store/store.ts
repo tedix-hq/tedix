@@ -16,32 +16,10 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { getTableConfig, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { tenantStoreMigrations } from "./migrations";
 import {
-	tediExpertise,
-	tediCuriosityQueue,
-	tediOptimizationSignals,
-} from "./memory-schema/memory-state";
-import {
 	executeMemoryQuery,
 	type MemoryQuery,
 } from "../queries/memory-graph/tenant-rpc";
 import { selectMemoryStore } from "../queries/memory-graph/tenant-store";
-import {
-	memoryDomains,
-	memoryFacts,
-	memoryEdges,
-} from "./memory-schema/memory-graph";
-import {
-	memoryEntities,
-	memoryEntityMentions,
-	memoryEntityAliases,
-	memoryEntityResolutionHeads,
-	memoryEntityResolutionDecisions,
-	memoryEntityResolutions,
-} from "./memory-schema/memory-entities";
-import {
-	memoryFactCitations,
-	memoryFactCitationBackfills,
-} from "./memory-schema/memory-fact-citations";
 import {
 	requireWorkspaceScope,
 	tenantStoreName,
@@ -57,25 +35,13 @@ import {
 	MemoryOwnerScopeSchema,
 	type MemoryOwnerScope,
 } from "@tedix/api-contract/schemas/memory-graph";
-import {
-	tenantKernelConversations,
-	tenantKernelRuntimeEvents,
-	tenantKernelRuntimeRuns,
-	tenantKernelToolResults,
-	tenantTediArtifacts,
-} from "./chat-schema";
-import {
-	osOutputRevisions,
-	osOutputs,
-	tenantOsWorkspaceResources,
-	tenantOsWorkspaces,
-} from "./outputs-schema";
+import { osOutputRevisions, osOutputs } from "./outputs-schema";
 import type { TenantScope } from "../tenant-scope";
 
 /** Rows per import call; each row is one statement inside one transaction. */
 export const TENANT_STORE_IMPORT_MAX_ROWS = 1000;
 
-/** A raw SQLite row keyed by SQL column name, as the copy pipeline reads it. */
+/** A raw SQLite row keyed by SQL column name. */
 export type TenantStoreImportRow = Record<
 	string,
 	string | number | null | ArrayBuffer
@@ -108,37 +74,16 @@ export interface TenantStoreDescription extends TenantStoreIdentity {
 /** Schema chain and import targets one TenantStore class serves. */
 export interface TenantStoreDefinition {
 	migrations: Record<string, string>;
-	/** Tables the migration pipeline may bulk-load, keyed by SQL table name. */
+	/** Tables `importRowsSync` may load, keyed by SQL table name. */
 	importTables: Record<string, SQLiteTable>;
 }
 
-/** Tenant ports register their tables here as they land. */
+/** Document transfers copy a file and its revisions between workspaces. */
 export const tenantStoreDefinition: TenantStoreDefinition = {
 	migrations: tenantStoreMigrations,
 	importTables: {
-		os_workspaces: tenantOsWorkspaces,
 		os_outputs: osOutputs,
 		os_output_revisions: osOutputRevisions,
-		os_workspace_resources: tenantOsWorkspaceResources,
-		kernel_conversations: tenantKernelConversations,
-		kernel_runtime_runs: tenantKernelRuntimeRuns,
-		kernel_runtime_events: tenantKernelRuntimeEvents,
-		kernel_tool_results: tenantKernelToolResults,
-		tedi_artifacts: tenantTediArtifacts,
-		memory_domains: memoryDomains,
-		tedi_expertise: tediExpertise,
-		tedi_curiosity_queue: tediCuriosityQueue,
-		tedi_optimization_signals: tediOptimizationSignals,
-		memory_facts: memoryFacts,
-		memory_edges: memoryEdges,
-		memory_entities: memoryEntities,
-		memory_entity_mentions: memoryEntityMentions,
-		memory_entity_aliases: memoryEntityAliases,
-		memory_entity_resolution_heads: memoryEntityResolutionHeads,
-		memory_entity_resolution_decisions: memoryEntityResolutionDecisions,
-		memory_entity_resolutions: memoryEntityResolutions,
-		memory_fact_citations: memoryFactCitations,
-		memory_fact_citation_backfills: memoryFactCitationBackfills,
 	},
 };
 
@@ -232,18 +177,10 @@ export class TenantStore<Env = unknown> extends DurableObject<Env> {
 	}
 
 	/**
-	 * Load one chunk of rows copied from the current store, all or nothing.
-	 * Values are written as stored (no Drizzle mapping), so JSON and boolean
-	 * columns keep their source encoding.
+	 * Load one chunk of rows, all or nothing, inside the caller's transaction.
+	 * Values are written as stored (no Drizzle mapping). Used by document
+	 * transfers between workspaces and the local demo seed; not an RPC.
 	 */
-	async importRows(
-		scope: TenantScope,
-		batch: TenantStoreImportBatch,
-	): Promise<TenantStoreImportResult> {
-		return this.importRowsSync(scope, batch);
-	}
-
-	/** Subclasses can atomically commit migration state with the imported rows. */
 	protected importRowsSync(
 		scope: TenantScope,
 		batch: TenantStoreImportBatch,
@@ -386,13 +323,4 @@ function buildInsert(
 		query: `INSERT INTO "${tableName}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
 		values: columns.map((column) => row[column] ?? null),
 	};
-}
-
-function sameImportValue(a: unknown, b: unknown): boolean {
-	if (a instanceof ArrayBuffer && b instanceof ArrayBuffer) {
-		const left = new Uint8Array(a),
-			right = new Uint8Array(b);
-		return left.length === right.length && left.every((v, i) => v === right[i]);
-	}
-	return a === b;
 }
