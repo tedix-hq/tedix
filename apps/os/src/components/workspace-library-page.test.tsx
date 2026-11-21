@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
 		update: vi.fn(),
 		archive: vi.fn(),
 		activity: vi.fn(),
+		personal: vi.fn(async () => ({ workspace: null })),
 	},
 	outputs: { list: vi.fn() },
 	gadgets: { list: vi.fn(), restore: vi.fn() },
@@ -48,6 +49,8 @@ vi.mock("@/lib/api", () => ({
 		osWorkspaces: api,
 		osShares: { shares },
 		osCollaborators: collaborators,
+		// The settings dialog's default-tedi picker reads the tedi roster.
+		tedis: { list: vi.fn(async () => ({ data: [], total: 0 })) },
 		webPush,
 		workspaceUnread: {
 			summary: unread.summary,

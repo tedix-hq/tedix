@@ -489,6 +489,11 @@ export const OS_PAGES: readonly OsPage[] = [
 	{ id: "invite", path: "/invite", label: "Invitation" },
 	{ id: "cli-login", path: "/cli/login", label: "CLI sign in" },
 	{
+		id: "desktop-sign-in",
+		path: "/desktop-sign-in",
+		label: "Desktop app sign in",
+	},
+	{
 		id: "oauth-consent",
 		path: "/oauth/consent",
 		label: "Authorize application",

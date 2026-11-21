@@ -157,7 +157,6 @@ import {
 } from "@/lib/os-route-loaders-impl";
 import {
 	billingOverviewQueryOptions,
-	billingPlansQueryOptions,
 	activeOutputLibraryQueryOptions,
 	activeWorkspacesQueryOptions,
 	BLUEPRINT_GALLERY_LIMIT,
@@ -314,8 +313,13 @@ beforeEach(() => {
 	api.listEvents.mockResolvedValue({ events: [], nextSequence: null });
 });
 
+const billingManager = {
+	organization: { id: "00000000-0000-4000-8000-000000000003" },
+	authority: { permissions: ["billing:manage"] },
+};
+
 describe("OS route loaders", () => {
-	it.each(["overview", "plans", "context", "packs"])(
+	it.each(["overview", "context"])(
 		"lands billing while %s is stalled and keeps the read in the cache",
 		async (read) => {
 			vi.useFakeTimers();
@@ -324,11 +328,13 @@ describe("OS route loaders", () => {
 			const pending = new Promise((resolve) => {
 				release = resolve;
 			});
+			// Only a billing manager's page reads the overview, so the loader
+			// asks for it only after the context grants billing:manage.
+			if (read === "overview")
+				api.getOperationalContext.mockResolvedValueOnce(billingManager);
 			const mock = {
 				overview: api.getBillingOverview,
-				plans: api.listBillingPlans,
 				context: api.getOperationalContext,
-				packs: api.listTopUpPacks,
 			}[read]!;
 			mock.mockReturnValueOnce(pending);
 			try {
@@ -349,13 +355,10 @@ describe("OS route loaders", () => {
 							: {};
 				release(value);
 				await vi.advanceTimersByTimeAsync(0);
-				if (read === "overview" || read === "plans") {
-					const key =
-						read === "overview"
-							? billingOverviewQueryOptions().queryKey
-							: billingPlansQueryOptions().queryKey;
-					expect(queryClient.getQueryData(key)).toEqual(value);
-				}
+				if (read === "overview")
+					expect(
+						queryClient.getQueryData(billingOverviewQueryOptions().queryKey),
+					).toEqual(value);
 				expect(mock).toHaveBeenCalledTimes(1);
 			} finally {
 				release({});
@@ -365,10 +368,11 @@ describe("OS route loaders", () => {
 		},
 	);
 
-	it("lands billing after denied overview and plan reads", async () => {
+	it("lands billing after a denied overview read", async () => {
+		api.getOperationalContext.mockResolvedValueOnce(billingManager);
 		api.getBillingOverview.mockRejectedValueOnce(new Error("Forbidden"));
-		api.listBillingPlans.mockRejectedValueOnce(new Error("Forbidden"));
 		await expect(prefetchAdminBillingRoute(client())).resolves.toBeUndefined();
+		expect(api.getBillingOverview).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not warm unavailable fleet capabilities locally", async () => {
