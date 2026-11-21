@@ -26,7 +26,7 @@ export type PanelAction =
 	| "done-setup";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
-export type PanelLink = "claude-connectors" | "folder-access";
+export type PanelLink = "claude-connectors";
 
 /** The only functions the app's own two windows can call; the Tedix OS page gets none. */
 export interface PanelApi {

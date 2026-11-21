@@ -147,9 +147,9 @@ status files untouched for 7 days. `tedix supervise --once` runs one check;
 (no `sudo`) and reinstalls over a loaded agent by waiting for the old job to
 unload and confirming the new one, and `tedix supervise uninstall` removes
 it. Activity goes to `~/.tedix/supervisor.log`. On macOS the supervisor skips a
-headless resume in a privacy-protected folder (Documents, Desktop, Downloads)
-and logs why; [Full Disk Access for the supervisor](./supervisor-full-disk-access.md)
-lifts that.
+headless resume in a folder it cannot read and logs why: macOS keeps
+background programs out of Documents, Desktop and Downloads, so keep checkouts
+somewhere else, for example `~/Developer`.
 
 The supervisor also runs your runners: the processes on this machine that
 pick up accepted Work for one executor each (Codex, Claude Code, OpenCode or

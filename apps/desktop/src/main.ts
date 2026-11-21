@@ -91,8 +91,6 @@ function osOrigin(): string {
 }
 const PANEL_LINKS: Record<PanelLink, string> = {
 	"claude-connectors": "https://claude.ai/settings/connectors",
-	"folder-access":
-		"x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
 };
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
@@ -347,15 +345,10 @@ async function applyCommandLineTool(appUpdated: boolean): Promise<void> {
 	const names = parts.join(" and ");
 	sayDone(
 		`${names[0]!.toUpperCase()}${names.slice(1)} ${parts.length > 1 ? "are" : "is"} in use.${
-			cliProgress().reloadedAt >= from
-				? ` Runners restarted. ${FOLDER_PROMPT}`
-				: ""
+			cliProgress().reloadedAt >= from ? " Runners restarted." : ""
 		}`,
 	);
 }
-
-const FOLDER_PROMPT =
-	"If macOS asks whether Tedix may use your Documents folder, choose Allow.";
 
 /** Runs one of the entry's jobs and shows how it ended. */
 async function working(text: string, job: () => Promise<void>): Promise<void> {
@@ -485,7 +478,6 @@ async function applyUpdate(): Promise<void> {
 					: "this Mac's runners"
 			}, which stops ${runs === 1 ? "that task" : "these tasks"}.`,
 			appVersion ? "Tedix also relaunches." : "",
-			FOLDER_PROMPT,
 		]
 			.filter(Boolean)
 			.join("\n\n"),
@@ -596,8 +588,7 @@ async function askToUpdate(appVersion?: string, cli?: string): Promise<void> {
 			`Tedix ${appVersion} is now available. You have ${app.getVersion()}.`,
 		cli &&
 			`Command-line tool ${cli} is now available${have ? `. You have ${have}` : ""}.`,
-		cli &&
-			`Updating the command-line tool restarts this Mac's runners. ${FOLDER_PROMPT}`,
+		cli && "Updating the command-line tool restarts this Mac's runners.",
 		!cli && appVersion && "Updating the app restarts this Mac's runners.",
 		appVersion && readyVersion() === appVersion
 			? "It is downloaded and ready. Would you like to install it now?"

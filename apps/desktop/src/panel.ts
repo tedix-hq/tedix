@@ -124,18 +124,7 @@ function draw(state: PanelState) {
 	if (down?.down && !state.setup.cli.updating)
 		nodes.push(el("div", "problem", el("p", "", down.text), restart()));
 	if (state.setup.cli.access)
-		nodes.push(
-			el(
-				"div",
-				"problem soft",
-				el("p", "", state.setup.cli.access),
-				button(
-					"Open System Settings",
-					false,
-					() => void tedixShell.open("folder-access"),
-				),
-			),
-		);
+		nodes.push(el("div", "problem soft", el("p", "", state.setup.cli.access)));
 
 	nodes.push(el("div", "section", "Run tasks with"));
 	nodes.push(
