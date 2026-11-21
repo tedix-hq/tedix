@@ -43,8 +43,14 @@ vi.mock("@tedix/db/queries/memory-graph/facts", async (importOriginal) => ({
 	...(await importOriginal<
 		typeof import("@tedix/db/queries/memory-graph/facts")
 	>()),
-	createFact: mocks.createFact,
 	getFactById: mocks.getFactById,
+}));
+
+vi.mock("../../services/organization-memory-binding", () => ({
+	organizationMemoryWriter: (context: BaseContext) => ({
+		create: (params: Record<string, unknown>) =>
+			mocks.createFact(context.db, params),
+	}),
 }));
 
 function fact(id: string, overrides: Record<string, unknown> = {}) {

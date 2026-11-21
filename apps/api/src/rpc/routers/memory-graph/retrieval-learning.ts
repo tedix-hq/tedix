@@ -1,3 +1,4 @@
+import { organizationMemoryWriter } from "../../../services/organization-memory-binding";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	createEdge,
@@ -9,17 +10,14 @@ import { FactSchema } from "@tedix/api-contract/schemas/memory-graph";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	type FactType,
-	createFact,
 	findCurrentFactsByTopicKey,
 	findFactBySourceHash,
 	getFactsByIds,
 	recordFactVerification,
-	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
 import {
 	archiveLowConfidence,
 	decayConfidence,
-	invalidateFact,
 	resetCollapsedConfidence,
 } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { assembleContext } from "../../../services/memory-graph-context-assembly";
@@ -764,7 +762,8 @@ const learn = authed.learn
 			},
 			writeQuality,
 		);
-		const fact = await createFact(context.db, {
+		const memory = organizationMemoryWriter(context, "memory_graph_learn");
+		const fact = await memory.create({
 			id: factId,
 			organizationId: orgId,
 			tediId: factTediId,
@@ -899,19 +898,17 @@ const learn = authed.learn
 			// Supersession targets were prefetched for the admission gate above
 			// (before this fact existed, so no self-filter is needed).
 			for (const existingFact of supersessionTargets) {
-				await invalidateFact(
-					context.db,
-					{ organizationId: orgId },
-					existingFact.id,
-					`Superseded by ${factId} for topic ${topicKey}`,
-				);
-				await updateFact(
-					context.db,
-					{ organizationId: orgId },
-					existingFact.id,
+				await memory.update(
+					existingFact,
 					{
+						validTo: new Date().toISOString(),
 						reviewStatus: "superseded",
+						metadata: {
+							...existingFact.metadata,
+							invalidationReason: `Superseded by ${factId} for topic ${topicKey}`,
+						},
 					},
+					"supersede",
 				);
 				const supersedesEdge = await createEdge(
 					context.db,
