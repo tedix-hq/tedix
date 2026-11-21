@@ -316,14 +316,19 @@ export default {
 		const payload = event.payload ?? {};
 		const runId = env.__RUN_CONTEXT__?.runId ?? null;
 		const startedAt = await step.do("started-at", async () => new Date().toISOString());
+		let slotStartedAt = startedAt;
 		if (boundFactory.runsAt && !payload.probe) {
 			const clock = new Intl.DateTimeFormat("en-GB", { timeZone: boundFactory.runsAt.timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startedAt));
-			if (!boundFactory.runsAt.times.includes(clock)) return { status: "off_slot" };
+			const minutes = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+			const age = Math.min(...boundFactory.runsAt.times.map((time) => (minutes(clock) - minutes(time) + 1440) % 1440));
+			// Allow dispatch delays, but stop before the extra daylight-saving cron fire.
+			if (age >= 30) return { status: "skipped", reason: "off_slot", summary: "Outside the local slot window; no reads or writes." };
+			slotStartedAt = new Date(Math.floor(Date.parse(startedAt) / 60000) * 60000 - age * 60000).toISOString();
 		}
 		const cycleKey = await step.do("cycle-key", async () =>
 			typeof payload.cycleKey === "string" && payload.cycleKey
 				? payload.cycleKey
-				: startedAt.slice(0, boundFactory.cycle === "minute" ? 16 : boundFactory.cycle === "hour" ? 13 : 10),
+				: slotStartedAt.slice(0, boundFactory.cycle === "minute" ? 16 : boundFactory.cycle === "hour" ? 13 : 10),
 		);
 
 		const open = await step.do("gather-project-work", READ_STEP, async () =>

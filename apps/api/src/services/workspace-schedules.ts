@@ -14,7 +14,7 @@ import { parseSkillFrontmatter } from "@tedix/api-contract/utils/skill-manifest"
 import type { ReportedSkillRunRow } from "@tedix/db/queries/skill-runs";
 
 /** Result statuses of runs that did no work and are not shown as the last run. */
-export const SKIPPED_RUN_RESULT_STATUSES = ["off_slot"] as const;
+export const SKIPPED_RUN_RESULT_STATUSES = ["off_slot", "skipped"] as const;
 
 const DAY_MS = 86_400_000;
 /** Enough fires to cover eight days of an hourly cron. */

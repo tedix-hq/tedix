@@ -432,7 +432,12 @@ export function factoryTimestampMs(value: string | null | undefined): number {
 	return Date.parse(iso);
 }
 
-const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "canceled"]);
+const TERMINAL_RUN_STATUSES = new Set([
+	"completed",
+	"failed",
+	"canceled",
+	"skipped",
+]);
 
 export interface FactoryVerdictInput {
 	now: Date;
@@ -530,6 +535,12 @@ export function factoryVerdict(input: FactoryVerdictInput): {
 			reason: `Run ${latest.runId} is ${latest.status}; no run has finished yet.`,
 		};
 	}
+	if (terminal.status === "skipped") {
+		return {
+			verdict: "idle",
+			reason: `Run ${terminal.runId} skipped: ${terminal.resultSummary ?? "outside its local slot."}`,
+		};
+	}
 	if (terminal.status !== "completed") {
 		return {
 			verdict: "failing",
@@ -582,7 +593,9 @@ export async function listFactoryHealth(
 		.select({
 			id: sql<string>`${skillRuns.id}`.as("ranked_run_id"),
 			skillId: sql<string>`${skillRuns.skillId}`.as("ranked_skill_id"),
-			status: sql<string>`${skillRuns.status}`.as("ranked_status"),
+			status: sql<string>`CASE WHEN ${skillRuns.status} = 'completed'
+				AND json_extract(${skillRuns.result}, '$.status') IN ('off_slot', 'skipped')
+				THEN 'skipped' ELSE ${skillRuns.status} END`.as("ranked_status"),
 			startedAt: sql<string | null>`${skillRuns.startedAt}`.as(
 				"ranked_started_at",
 			),
