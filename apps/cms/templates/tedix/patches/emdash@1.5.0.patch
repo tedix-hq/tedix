@@ -1577,3 +1577,287 @@ index 4ed2e74..c2f1f35 100644
  }
  
  async function assertMappedUsersExist(context: ImportContext): Promise<void> {
+diff --git a/dist/hreflang-Bzvlo9Ci.mjs b/dist/hreflang-Bzvlo9Ci.mjs
+--- a/dist/hreflang-Bzvlo9Ci.mjs
++++ b/dist/hreflang-Bzvlo9Ci.mjs
+@@ -9,15 +9,15 @@
+ //#region src/seo/hreflang.ts
+ const ABSOLUTE_URL_RE = /^https?:\/\//i;
+ /**
+-* IDs of variants flagged `noindex` in the SEO panel. Entries without
++* SEO metadata for published locale variants. Entries without
+ * an `_emdash_seo` row are indexable by default (same as the sitemap).
+ * The id list is bounded by the number of configured locales, so no
+ * chunking is needed.
+ */
+-async function findNoindexIds(db, collection, ids) {
+-	if (ids.length === 0) return /* @__PURE__ */ new Set();
+-	const rows = await db.selectFrom("_emdash_seo").select("content_id").where("collection", "=", collection).where("content_id", "in", ids).where("seo_no_index", "=", 1).execute();
+-	return new Set(rows.map((r) => r.content_id));
++async function findVariantSeo(db, collection, ids) {
++	if (ids.length === 0) return /* @__PURE__ */ new Map();
++	const rows = await db.selectFrom("_emdash_seo").select(["content_id", "seo_no_index", "seo_canonical"]).where("collection", "=", collection).where("content_id", "in", ids).execute();
++	return new Map(rows.map((r) => [r.content_id, r]));
+ }
+ /**
+ * Resolve hreflang alternates for a content entry.
+@@ -63,9 +63,9 @@
+ 	if (variants.length === 0) variants = [item];
+ 	let published = variants.filter((v) => v.status === "published");
+ 	if (published.length === 0) return [];
+-	const noindexIds = await findNoindexIds(db, collection, published.map((v) => v.id));
+-	if (noindexIds.has(item.id)) return [];
+-	published = published.filter((v) => !noindexIds.has(v.id));
++	const variantSeo = await findVariantSeo(db, collection, published.map((v) => v.id));
++	if (variantSeo.get(item.id)?.seo_no_index === 1) return [];
++	published = published.filter((v) => variantSeo.get(v.id)?.seo_no_index !== 1);
+ 	const urlPattern = (await getCollectionInfoWithDb(db, collection))?.urlPattern ?? null;
+ 	const resolved = [];
+ 	for (const variant of published) {
+@@ -80,10 +80,16 @@
+ 			trailingSlash: options.trailingSlash
+ 		});
+ 		if (path === null) continue;
+-		resolved.push({
+-			locale,
+-			href: `${siteUrl}${path}`
+-		});
++		let href = `${siteUrl}${path}`;
++		const override = variantSeo.get(variant.id)?.seo_canonical;
++		if (override) {
++			try {
++				const canonical = new URL(override, siteUrl);
++				if (canonical.origin !== new URL(siteUrl).origin || !["https:", "http:"].includes(canonical.protocol) || canonical.hash || canonical.username || canonical.password) continue;
++				href = canonical.href;
++			} catch { /* Invalid overrides retain the native route, as in the sitemap. */ }
++		}
++		resolved.push({ locale, href });
+ 	}
+ 	if (resolved.length === 0) return [];
+ 	resolved.sort((a, b) => a.locale.localeCompare(b.locale));
+diff --git a/src/seo/hreflang.ts b/src/seo/hreflang.ts
+--- a/src/seo/hreflang.ts
++++ b/src/seo/hreflang.ts
+@@ -36,25 +36,24 @@
+ const ABSOLUTE_URL_RE = /^https?:\/\//i;
+ 
+ /**
+- * IDs of variants flagged `noindex` in the SEO panel. Entries without
++ * SEO metadata for published locale variants. Entries without
+  * an `_emdash_seo` row are indexable by default (same as the sitemap).
+  * The id list is bounded by the number of configured locales, so no
+  * chunking is needed.
+  */
+-async function findNoindexIds(
++async function findVariantSeo(
+ 	db: Kysely<Database>,
+ 	collection: string,
+ 	ids: string[],
+-): Promise<Set<string>> {
+-	if (ids.length === 0) return new Set();
++): Promise<Map<string, { seo_no_index: number | null; seo_canonical: string | null }>> {
++	if (ids.length === 0) return new Map();
+ 	const rows = await db
+ 		.selectFrom("_emdash_seo")
+-		.select("content_id")
++		.select(["content_id", "seo_no_index", "seo_canonical"])
+ 		.where("collection", "=", collection)
+ 		.where("content_id", "in", ids)
+-		.where("seo_no_index", "=", 1)
+ 		.execute();
+-	return new Set(rows.map((r) => r.content_id));
++	return new Map(rows.map((r) => [r.content_id, r]));
+ }
+ 
+ /** A single alternate link, ready to render as `<link rel="alternate">`. */
+@@ -151,13 +150,13 @@
+ 	// discoverable. When the requested entry itself is noindex, emit
+ 	// nothing: a page opting out of indexing shouldn't announce an
+ 	// hreflang set.
+-	const noindexIds = await findNoindexIds(
++	const variantSeo = await findVariantSeo(
+ 		db,
+ 		collection,
+ 		published.map((v) => v.id),
+ 	);
+-	if (noindexIds.has(item.id)) return [];
+-	published = published.filter((v) => !noindexIds.has(v.id));
++	if (variantSeo.get(item.id)?.seo_no_index === 1) return [];
++	published = published.filter((v) => variantSeo.get(v.id)?.seo_no_index !== 1);
+ 
+ 	const info = await getCollectionInfoWithDb(db, collection);
+ 	const urlPattern = info?.urlPattern ?? null;
+@@ -175,7 +174,16 @@
+ 			trailingSlash: options.trailingSlash,
+ 		});
+ 		if (path === null) continue;
+-		resolved.push({ locale, href: `${siteUrl}${path}` });
++		let href = `${siteUrl}${path}`;
++		const override = variantSeo.get(variant.id)?.seo_canonical;
++		if (override) {
++			try {
++				const canonical = new URL(override, siteUrl);
++				if (canonical.origin !== new URL(siteUrl).origin || !["https:", "http:"].includes(canonical.protocol) || canonical.hash || canonical.username || canonical.password) continue;
++				href = canonical.href;
++			} catch { /* Invalid overrides retain the native route, as in the sitemap. */ }
++		}
++		resolved.push({ locale, href });
+ 	}
+ 	if (resolved.length === 0) return [];
+ 
+diff --git a/dist/entry-lock-DsVhZcJN.mjs b/dist/entry-lock-DsVhZcJN.mjs
+--- a/dist/entry-lock-DsVhZcJN.mjs
++++ b/dist/entry-lock-DsVhZcJN.mjs
+@@ -989,6 +989,7 @@
+ const seoSettingsInput = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceInput.nullable().optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+@@ -1018,6 +1019,7 @@
+ const seoSettingsResponse = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceResponse.optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+diff --git a/src/api/schemas/settings.ts b/src/api/schemas/settings.ts
+--- a/src/api/schemas/settings.ts
++++ b/src/api/schemas/settings.ts
+@@ -28,6 +28,7 @@
+ const seoSettingsInput = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceInput.nullable().optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5000).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+@@ -76,6 +77,7 @@
+ const seoSettingsResponse = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceResponse.optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5000).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+diff --git a/dist/astro/routes/api/mcp.mjs b/dist/astro/routes/api/mcp.mjs
+--- a/dist/astro/routes/api/mcp.mjs
++++ b/dist/astro/routes/api/mcp.mjs
+@@ -428,6 +428,7 @@
+ const settingsSeoSchema = z.object({
+ 	titleSeparator: z.string().max(10).optional().describe("Separator between page title and site title (e.g. ' | ')"),
+ 	defaultOgImage: settingsMediaReferenceSchema.nullable().optional().describe("Default Open Graph image when content has none; null removes it"),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional().describe("Custom robots.txt body. Leave unset for the EmDash default. Changes are rejected when the site serves its own src/pages/robots.txt."),
+ 	disallowAiTraining: z.boolean().optional().describe("Add robots.txt rules asking AI crawlers not to use the site for training. Changes are rejected when the site serves its own src/pages/robots.txt."),
+ 	googleVerification: z.string().max(100).optional().describe("Google Search Console verification token"),
+diff --git a/dist/types-DLKviL1s.d.mts b/dist/types-DLKviL1s.d.mts
+--- a/dist/types-DLKviL1s.d.mts
++++ b/dist/types-DLKviL1s.d.mts
+@@ -43,6 +43,8 @@
+   defaultOgImage?: MediaReference;
+   /** Custom robots.txt content. If unset, a default is generated. */
+   robotsTxt?: string;
++	/** Additional same-site child sitemap paths listed by the native index. */
++	additionalSitemaps?: string[];
+   /** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
+   disallowAiTraining?: boolean;
+   /** Google Search Console verification meta tag content */
+diff --git a/src/settings/types.ts b/src/settings/types.ts
+--- a/src/settings/types.ts
++++ b/src/settings/types.ts
+@@ -44,6 +44,8 @@
+ 	defaultOgImage?: MediaReference;
+ 	/** Custom robots.txt content. If unset, a default is generated. */
+ 	robotsTxt?: string;
++	/** Additional same-site child sitemap paths listed by the native index. */
++	additionalSitemaps?: string[];
+ 	/** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
+ 	disallowAiTraining?: boolean;
+ 	/** Google Search Console verification meta tag content */
+diff --git a/dist/astro/routes/sitemap.xml.mjs b/dist/astro/routes/sitemap.xml.mjs
+--- a/dist/astro/routes/sitemap.xml.mjs
++++ b/dist/astro/routes/sitemap.xml.mjs
+@@ -25,13 +25,22 @@
+ 		});
+ 		const { sitemaps } = result.data;
+ 		const lines = ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"];
++		const listed = new Set();
+ 		for (const sitemap of sitemaps) {
+ 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
+ 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
++			listed.add(loc);
+ 			lines.push("  <sitemap>");
+ 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
+ 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
+ 			lines.push("  </sitemap>");
++		}
++		for (const path of settings.seo?.additionalSitemaps ?? []) {
++			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
++			const loc = `${siteUrl}${path}`;
++			if (listed.has(loc)) continue;
++			listed.add(loc);
++			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
+ 		}
+ 		lines.push("</sitemapindex>");
+ 		return new Response(lines.join("\n"), {
+diff --git a/src/mcp/server.ts b/src/mcp/server.ts
+--- a/src/mcp/server.ts
++++ b/src/mcp/server.ts
+@@ -167,6 +167,7 @@
+ });
+ 
+ const settingsSeoSchema = z.object({
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	titleSeparator: z
+ 		.string()
+ 		.max(10)
+diff --git a/src/astro/routes/sitemap.xml.ts b/src/astro/routes/sitemap.xml.ts
+--- a/src/astro/routes/sitemap.xml.ts
++++ b/src/astro/routes/sitemap.xml.ts
+@@ -53,13 +53,23 @@
+ 			'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+ 		];
+ 
++		const listed = new Set<string>();
+ 		for (const sitemap of sitemaps) {
+ 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
+ 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
++			listed.add(loc);
+ 			lines.push("  <sitemap>");
+ 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
+ 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
+ 			lines.push("  </sitemap>");
++		}
++
++		for (const path of settings.seo?.additionalSitemaps ?? []) {
++			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
++			const loc = `${siteUrl}${path}`;
++			if (listed.has(loc)) continue;
++			listed.add(loc);
++			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
+ 		}
+ 
+ 		lines.push("</sitemapindex>");
+diff --git a/dist/rooms-CyXG83RZ.d.mts b/dist/rooms-CyXG83RZ.d.mts
+--- a/dist/rooms-CyXG83RZ.d.mts
++++ b/dist/rooms-CyXG83RZ.d.mts
+@@ -3682,6 +3682,7 @@
+       mediaId: z.ZodString;
+       alt: z.ZodOptional<z.ZodString>;
+     }, z.core.$strip>>>;
++    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     robotsTxt: z.ZodOptional<z.ZodString>;
+     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
+     googleVerification: z.ZodOptional<z.ZodString>;
+@@ -3730,6 +3731,7 @@
+       width: z.ZodOptional<z.ZodNumber>;
+       height: z.ZodOptional<z.ZodNumber>;
+     }, z.core.$strip>>;
++    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     robotsTxt: z.ZodOptional<z.ZodString>;
+     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
+     googleVerification: z.ZodOptional<z.ZodString>;

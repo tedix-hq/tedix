@@ -309,6 +309,20 @@ owner identity, breadcrumbs, FAQ, enriching the native graph under its
 `/rss.xml`, and the `tedix-tedi-bridge` publish hook. Plugins derive links from
 the collection `urlPattern`, never a hardcoded `/posts/*`.
 
+The pinned Emdash patch applies same-origin SEO canonical overrides to both
+collection sitemaps and native hreflang links. A custom route backed by a
+content entry must pass that entry's collection and ID to `EmDashHead` through
+`createPublicPageContext`; otherwise the SEO panel and translations cannot
+identify it.
+
+For a separate catalog, set `seo.additionalSitemaps` to child paths such as
+`["/sitemap-catalog.xml"]`. The native `/sitemap.xml` index retains its
+collection children and lists each configured child once. Paths must match
+`/sitemap-<name>.xml`; the setting accepts up to 20. It does not create the
+child endpoint or add catalog entries to an Emdash collection. Remove theme
+sitemap overrides only after published pages cover the public routes and the
+custom child is configured.
+
 ## Checks
 
 | Change                                   | Check                                                                                                     |
