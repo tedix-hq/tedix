@@ -838,14 +838,52 @@ describe("cleanupStagedBundle", () => {
 		const deleted = await cleanupStagedBundle(storage, "tedix", "job-1");
 
 		expect(deleted).toBe(6);
-		expect(deleteObjects).toHaveBeenCalledWith([
-			"themes/tedix/staging/job-1/manifest.json",
-			"themes/tedix/staging/job-1/static-manifest.json",
+		expect(deleteObjects).toHaveBeenNthCalledWith(1, [
 			"themes/tedix/staging/job-1/files/entry.mjs",
 			"themes/tedix/staging/job-1/files/chunks/cache.mjs",
 			"themes/tedix/staging/job-1/static/app.js",
 			"themes/tedix/staging/job-1/static/font.woff2",
 		]);
+		expect(deleteObjects).toHaveBeenNthCalledWith(2, [
+			"themes/tedix/staging/job-1/manifest.json",
+			"themes/tedix/staging/job-1/static-manifest.json",
+		]);
+	});
+
+	it("batches large bundles and retains manifests for retry after a partial cleanup", async () => {
+		const prefix = "themes/acme/staging/attempt/";
+		const files = Array.from({ length: 713 }, (_, i) => `${i}.mjs`);
+		const filenames = Array.from({ length: 321 }, (_, i) => `${i}.css`);
+		const objects = new Map<string, unknown>([
+			[`${prefix}manifest.json`, { files }],
+			[`${prefix}static-manifest.json`, { filenames }],
+			...files.map((file): [string, unknown] => [`${prefix}files/${file}`, {}]),
+			...filenames.map((file): [string, unknown] => [
+				`${prefix}static/${file}`,
+				{},
+			]),
+		]);
+		let fail = true;
+		const storage = {
+			get: async (key: string) =>
+				objects.has(key) ? jsonObject(objects.get(key)) : null,
+			delete: vi.fn(async (keys: string[]) => {
+				if (keys.length > 1_000) throw new Error("R2 delete limit exceeded");
+				if (fail && keys.some((key) => key.endsWith("/320.css"))) {
+					fail = false;
+					throw new Error("R2 unavailable");
+				}
+				for (const key of keys) objects.delete(key);
+			}),
+		} as unknown as R2Bucket;
+		await expect(
+			cleanupStagedBundle(storage, "acme", "attempt"),
+		).rejects.toThrow("R2 unavailable");
+		expect(objects.has(`${prefix}manifest.json`)).toBe(true);
+		expect(objects.has(`${prefix}static-manifest.json`)).toBe(true);
+		expect(objects.size).toBe(36);
+		expect(await cleanupStagedBundle(storage, "acme", "attempt")).toBe(1_036);
+		expect(objects.size).toBe(0);
 	});
 
 	it("is idempotent when manifests were already removed", async () => {
@@ -1314,54 +1352,82 @@ describe("deployment health activation fence", () => {
 });
 
 describe("staged candidate workflow", () => {
-	it("stops before publishing or checking live health", async () => {
-		const { workflow, event } = workflowFixture("site-original");
-		Object.assign(event.payload, {
-			stageOnly: true,
-			sourceCommit: "a".repeat(40),
-		});
-		vi.mocked(withExactCmsSiteRestorePermit).mockImplementation(
-			async (_db, _site, run) => run(),
-		);
-		const stage = vi
-			.spyOn(candidates, "stageThemeCandidate")
-			.mockResolvedValue({
-				version: 2,
-				etag: "candidate",
-				id: event.instanceId,
-			} as never);
-		const publish = vi.spyOn(publishing, "publishStagedCmsBundle");
-		const step = {
-			do: vi.fn(
-				async (
-					name: string,
-					_options: unknown,
-					run: () => Promise<unknown>,
-				) => {
-					if (name === "stage-candidate") return run();
-					return {
-						workspace: "/attempt",
-						stagingAttemptId: "snapshot",
-						fileCount: 1,
-						staticCount: 0,
-					};
-				},
-			),
-		};
-		try {
-			expect(await workflow.run(event as never, step as never)).toMatchObject({
-				candidateId: event.instanceId,
+	it.each(["none", "storage", "permit", "workflow"])(
+		"completes without activation when cleanup fault is %s",
+		async (fault) => {
+			const { workflow, event, env, put } = workflowFixture("site-original");
+			const deleteObjects = vi.fn(async () => {
+				if (fault === "storage") throw new Error("R2 unavailable");
 			});
-			expect(stage).toHaveBeenCalledOnce();
-			expect(publish).not.toHaveBeenCalled();
-			expect(step.do.mock.calls.map((call) => call[0])).not.toContain(
-				"health-check",
+			Object.assign(env.SITE_BUILDER_STORAGE, { delete: deleteObjects });
+			let cleaning = false;
+			Object.assign(event.payload, {
+				stageOnly: true,
+				sourceCommit: "a".repeat(40),
+			});
+			vi.mocked(withExactCmsSiteRestorePermit).mockImplementation(
+				async (_db, _site, run) => {
+					if (cleaning && fault === "permit")
+						throw new Error("site closed or replaced");
+					return run();
+				},
 			);
-		} finally {
-			stage.mockRestore();
-			publish.mockRestore();
-		}
-	});
+			const stage = vi
+				.spyOn(candidates, "stageThemeCandidate")
+				.mockResolvedValue({
+					version: 2,
+					etag: "candidate",
+					id: event.instanceId,
+				} as never);
+			const publish = vi.spyOn(publishing, "publishStagedCmsBundle");
+			const step = {
+				do: vi.fn(
+					async (
+						name: string,
+						_options: unknown,
+						run: () => Promise<unknown>,
+					) => {
+						if (name === "stage-candidate") return run();
+						if (name === "cleanup-staging") {
+							cleaning = true;
+							if (fault === "workflow")
+								throw new Error("Workflow step timed out");
+							return run();
+						}
+						return {
+							workspace: "/attempt",
+							stagingAttemptId: "snapshot",
+							fileCount: 1,
+							staticCount: 0,
+						};
+					},
+				),
+			};
+			try {
+				expect(await workflow.run(event as never, step as never)).toMatchObject(
+					{
+						candidateId: event.instanceId,
+					},
+				);
+				expect(stage).toHaveBeenCalledOnce();
+				expect(cleaning).toBe(true);
+				expect(deleteObjects).toHaveBeenCalledTimes(
+					fault === "permit" || fault === "workflow" ? 0 : 1,
+				);
+				expect(JSON.parse(String(put.mock.calls.at(-1)?.[1]))).toMatchObject({
+					phase: "staged",
+					status: "complete",
+				});
+				expect(publish).not.toHaveBeenCalled();
+				expect(step.do.mock.calls.map((call) => call[0])).not.toContain(
+					"health-check",
+				);
+			} finally {
+				stage.mockRestore();
+				publish.mockRestore();
+			}
+		},
+	);
 
 	it("activates the original candidate inputs and propagates a lost predecessor race without rebuilding", async () => {
 		const { workflow, event } = workflowFixture("site-original");

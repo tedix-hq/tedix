@@ -50,8 +50,6 @@ export async function cleanupStagedBundle(
 		? ((await staticManifestObj.json()) as { filenames?: string[] })
 		: null;
 	const keys = [
-		manifestKey,
-		staticManifestKey,
 		...(manifest?.files ?? []).map((path) =>
 			stagingFileKey(orgSlug, jobId, path),
 		),
@@ -59,6 +57,11 @@ export async function cleanupStagedBundle(
 			stagingStaticKey(orgSlug, jobId, filename),
 		),
 	];
-	await storage.delete(keys);
-	return keys.length;
+	// R2 accepts at most 1,000 keys per delete. Keep manifests until every
+	// input is removed so a retry can still discover partially cleaned inputs.
+	for (let offset = 0; offset < keys.length; offset += 1_000) {
+		await storage.delete(keys.slice(offset, offset + 1_000));
+	}
+	await storage.delete([manifestKey, staticManifestKey]);
+	return keys.length + 2;
 }
