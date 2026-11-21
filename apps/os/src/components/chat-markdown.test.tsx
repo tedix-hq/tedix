@@ -124,6 +124,16 @@ describe("ChatMarkdown links", () => {
 		expect(html).not.toContain('target="_blank"');
 	});
 
+	it("links app paths and bare addresses written in prose, and nothing else", () => {
+		const html = render(
+			"See /workspaces or (/work/items/42). Also https://docs.tedix.dev/x. Not and/or, /src/main.ts, `/apps` or /skill brief.",
+		);
+		expect(html).toContain('href="/workspaces"');
+		expect(html).toContain('href="/work/items/42"');
+		expect(html).toContain('href="https://docs.tedix.dev/x"');
+		expect(html.match(/<a /g)).toHaveLength(3);
+	});
+
 	it("opens an output link in the host Workspace pane on a plain click", () => {
 		const outputId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const opened: string[] = [];

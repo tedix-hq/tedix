@@ -2,6 +2,7 @@ import { ShieldCheck } from "@phosphor-icons/react";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import { ChatCard } from "@/components/workspace-chat-card";
 import type { ChatTediApproval } from "@/lib/workspace-chat-state";
 
 /** Tedix's own approval list, for a request that came without a link. */
@@ -28,23 +29,13 @@ export function tediApprovalHref(url: string | null): string {
  */
 export function TediApprovalCard({ request }: { request: ChatTediApproval }) {
 	return (
-		<div
-			className="workspace-chat-connect"
+		<ChatCard
+			attention
 			data-testid="workspace-chat-tedi-approval"
-		>
-			<div className="workspace-chat-connect-head">
-				<ShieldCheck aria-hidden />
-				<Text as="strong" role="label">
-					Waiting for approval
-				</Text>
-				<Badge variant="secondary">{request.tool}</Badge>
-			</div>
-			<Text role="body">{request.description}</Text>
-			<Text role="caption" tone="secondary">
-				A person decides this in Tedix approvals. The result does not come back
-				into this chat.
-			</Text>
-			<div className="workspace-chat-connect-actions">
+			icon={<ShieldCheck />}
+			title="Waiting for approval"
+			status={<Badge variant="secondary">{request.tool}</Badge>}
+			actions={
 				<Button
 					size="sm"
 					render={<a href={tediApprovalHref(request.url)} />}
@@ -52,7 +43,13 @@ export function TediApprovalCard({ request }: { request: ChatTediApproval }) {
 				>
 					Open approval
 				</Button>
-			</div>
-		</div>
+			}
+		>
+			<Text role="body">{request.description}</Text>
+			<Text role="caption" tone="secondary">
+				A person decides this in Tedix approvals. The result does not come back
+				into this chat.
+			</Text>
+		</ChatCard>
 	);
 }

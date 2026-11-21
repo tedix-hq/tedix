@@ -65,6 +65,23 @@
 	border-radius: 16px;
 }
 
+/* Holds the thread and the "Jump to latest" button floating over it. */
+.workspace-chat-thread-frame {
+	position: relative;
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.workspace-chat-jump.workspace-chat-jump {
+	position: absolute;
+	bottom: 12px;
+	left: 50%;
+	transform: translateX(-50%);
+	box-shadow: var(--shadow-tedix-floating, none);
+}
+
 .workspace-chat-thread {
 	display: flex;
 	min-height: 0;
@@ -155,32 +172,15 @@
 	animation: workspace-chat-pulse 0.9s steps(2) infinite;
 }
 
-.workspace-chat-thinking {
+.workspace-chat-working {
 	display: flex;
-	align-items: baseline;
+	align-items: center;
 	gap: 8px;
-}
-
-.workspace-chat-shimmer {
-	font-size: var(--text-tedix-body);
-	color: var(--color-kumo-subtle, inherit);
-	background: linear-gradient(
-		90deg,
-		currentcolor 0%,
-		var(--color-kumo-default, #000) 50%,
-		currentcolor 100%
-	);
-	background-size: 200% 100%;
-	background-clip: text;
-	-webkit-background-clip: text;
-	-webkit-text-fill-color: transparent;
-	animation: workspace-chat-shimmer 1.8s linear infinite;
+	min-height: 24px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.workspace-chat-shimmer,
 	.workspace-chat-connection-dot,
-	.workspace-chat-step-pulse,
 	.workspace-chat-list-working {
 		animation: none;
 	}
@@ -192,20 +192,12 @@
 	gap: 4px;
 }
 
-.workspace-chat-activity-summary {
-	display: flex;
+/* One quiet line for all of a turn's steps. */
+.workspace-chat-activity-summary.workspace-chat-activity-summary {
+	align-self: flex-start;
+	max-width: 100%;
 	min-width: 0;
-	align-items: center;
-	gap: 6px;
-	padding: 4px 0;
-	border: 0;
-	background: none;
-	font: inherit;
-	font-size: var(--text-tedix-caption);
-	line-height: var(--text-tedix-caption--line-height);
-	color: var(--color-kumo-subtle, inherit);
-	text-align: left;
-	cursor: pointer;
+	margin-left: -8px;
 }
 
 .workspace-chat-activity[data-live="true"] .workspace-chat-activity-summary {
@@ -217,7 +209,7 @@
 	transition: transform 120ms ease-out;
 }
 
-.workspace-chat-caret[data-open="true"] {
+[data-panel-open] > .workspace-chat-caret {
 	transform: rotate(90deg);
 }
 
@@ -240,22 +232,14 @@
 	color: var(--color-kumo-subtle, inherit);
 }
 
-.workspace-chat-step-toggle {
-	padding: 0;
-	border: 0;
-	border-radius: 4px;
-	background: none;
-	font: inherit;
-	color: inherit;
-	text-align: left;
+.workspace-chat-step-toggle.workspace-chat-step-toggle {
+	min-width: 0;
+	min-height: 0;
+	padding: 0 4px;
+	font-size: inherit;
+	line-height: inherit;
 	text-decoration: underline dotted;
 	text-underline-offset: 3px;
-	cursor: pointer;
-}
-
-.workspace-chat-step-toggle:focus-visible {
-	outline: 2px solid var(--color-kumo-brand, var(--primary));
-	outline-offset: 1px;
 }
 
 .workspace-chat-step-detail {
@@ -277,10 +261,31 @@
 	font-size: var(--text-tedix-caption);
 }
 
-.workspace-chat-reply-copy {
+/* Time, copy and retry under a reply: shown on hover or keyboard focus. */
+.workspace-chat-reply-hover {
 	display: flex;
-	min-height: 28px;
+	min-height: 32px;
 	align-items: center;
+	gap: 2px;
+	opacity: 0;
+	transition: opacity var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.workspace-chat-turn:hover .workspace-chat-reply-hover,
+.workspace-chat-reply-hover:focus-within {
+	opacity: 1;
+}
+
+@media (pointer: coarse) {
+	.workspace-chat-reply-hover {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-chat-reply-hover {
+		transition: none;
+	}
 }
 
 .workspace-chat-summarised {
@@ -313,67 +318,46 @@
 	color: var(--color-kumo-success, currentcolor);
 }
 
-.workspace-chat-step-pulse {
-	width: 6px;
-	height: 6px;
-	margin-left: auto;
-	border-radius: 999px;
-	background: currentcolor;
-	animation: workspace-chat-pulse 1.2s ease-in-out infinite;
-}
-
-.workspace-chat-approval {
+/* The thread's one card: head, body, actions. */
+.workspace-chat-card {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
-	padding: 12px 16px;
-	border: 1px solid var(--color-kumo-brand, currentcolor);
-	border-radius: 16px;
-	background: color-mix(
-		in srgb,
-		var(--color-kumo-brand, currentcolor) 8%,
-		transparent
-	);
+	padding: 12px 14px;
 }
 
-.workspace-chat-approval[data-decision="approve"],
-.workspace-chat-approval[data-decision="deny"] {
-	border-color: var(--color-kumo-hairline, var(--border));
-	background: none;
+/* Waiting for the person. */
+.workspace-chat-card[data-attention] {
+	border-color: var(--color-kumo-brand, currentcolor);
 }
 
-/* An account the agent asked for: an ask, not a change waiting for a decision. */
-.workspace-chat-connect {
+.workspace-chat-card-head {
 	display: flex;
-	flex-direction: column;
+	align-items: flex-start;
 	gap: 8px;
-	padding: 12px 16px;
-	border: 1px solid var(--color-kumo-hairline, var(--border));
-	border-radius: 16px;
+	min-width: 0;
 }
 
-.workspace-chat-connect-head {
+.workspace-chat-card-icon {
 	display: flex;
-	flex-wrap: wrap;
+	flex: none;
+	min-height: 20px;
 	align-items: center;
-	gap: 8px;
+	color: var(--color-kumo-subtle, inherit);
+}
+
+.workspace-chat-card-title {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
 
-.workspace-chat-connect-actions {
+.workspace-chat-card-actions {
 	display: flex;
-	justify-content: flex-end;
-}
-
-.workspace-chat-approval-head {
-	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 8px;
-}
-
-.workspace-chat-approval-actions {
-	display: flex;
 	justify-content: flex-end;
 	gap: 8px;
 }
@@ -420,35 +404,6 @@
 	gap: 8px;
 }
 
-/* Sits in the gap under a finished answer, so showing it moves nothing. */
-.workspace-chat-turn-time {
-	position: absolute;
-	top: 100%;
-	left: 0;
-	padding: 0;
-	border: 0;
-	border-radius: 4px;
-	background: none;
-	font: inherit;
-	font-size: var(--text-tedix-caption);
-	line-height: var(--text-tedix-caption--line-height);
-	color: var(--color-kumo-subtle, inherit);
-	cursor: default;
-	opacity: 0;
-	transition: opacity var(--duration-tedix-fast) var(--ease-tedix-standard);
-}
-
-.workspace-chat-turn:hover .workspace-chat-turn-time,
-.workspace-chat-turn:focus-within .workspace-chat-turn-time,
-.workspace-chat-turn-time:focus-visible {
-	opacity: 1;
-}
-
-.workspace-chat-turn-time:focus-visible {
-	outline: 2px solid var(--color-kumo-brand, var(--primary));
-	outline-offset: 1px;
-}
-
 .workspace-chat-error {
 	display: flex;
 	align-items: center;
@@ -457,27 +412,11 @@
 	color: var(--color-kumo-error, currentcolor);
 }
 
-.workspace-chat-tray {
+.workspace-chat-tray.workspace-chat-tray {
 	flex: none;
-	display: flex;
-	flex-direction: column;
 	gap: 6px;
 	margin: 0 16px;
 	padding: 8px 12px;
-	border: 1px solid var(--color-kumo-brand, currentcolor);
-	border-radius: 12px;
-	background: color-mix(
-		in srgb,
-		var(--color-kumo-brand, currentcolor) 6%,
-		transparent
-	);
-}
-
-.workspace-chat-tray-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
 }
 
 .workspace-chat-tray-list {
@@ -490,16 +429,6 @@
 	padding: 4px;
 	overflow-y: auto;
 	list-style: none;
-}
-
-/* The count and, beside it, how far a run got or how many came from other chats. */
-.workspace-chat-tray-summary {
-	display: flex;
-	flex: 1 1 auto;
-	flex-wrap: wrap;
-	align-items: baseline;
-	gap: 2px 8px;
-	min-width: 0;
 }
 
 /* Where a run stopped; stays until dismissed, also after the list empties. */
@@ -538,20 +467,16 @@
 	list-style: none;
 }
 
-.workspace-chat-tray-item {
+.workspace-chat-tray-item.workspace-chat-tray-item {
+	display: block;
 	flex: 1 1 auto;
 	min-width: 0;
-	padding: 0;
-	border: 0;
-	background: none;
+	min-height: 0;
+	padding: 2px 4px;
 	color: inherit;
 	font: inherit;
 	text-align: start;
 	text-decoration: none;
-}
-
-button.workspace-chat-tray-item {
-	cursor: pointer;
 }
 
 /* A long title is cut with an ellipsis so it never runs under the buttons. */
@@ -562,7 +487,7 @@ button.workspace-chat-tray-item {
 	white-space: nowrap;
 }
 
-.workspace-chat-tray-row > button:not(.workspace-chat-tray-item) {
+.workspace-chat-tray-row > :not(.workspace-chat-tray-item) {
 	flex: none;
 }
 
@@ -817,14 +742,5 @@ button.workspace-chat-tray-item {
 	}
 	50% {
 		opacity: 0.25;
-	}
-}
-
-@keyframes workspace-chat-shimmer {
-	from {
-		background-position: 200% 0;
-	}
-	to {
-		background-position: -200% 0;
 	}
 }
