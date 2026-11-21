@@ -53,6 +53,92 @@ describe("platform cron path receipts", () => {
 		expect(row.error).toBeNull();
 	});
 
+	it.each(["success", "failure"] as const)(
+		"retries the same %s receipt through transient D1 overload without rerunning the job",
+		async (status) => {
+			const { env, event, sqlite } = fixture();
+			const failure = new Error("job failed");
+			const run = vi.fn(async () => {
+				if (status === "failure") throw failure;
+				return { updated: 1 };
+			});
+			const originalPrepare = env.DB.prepare.bind(env.DB);
+			const writes: unknown[][] = [];
+			vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+				const statement = originalPrepare(query);
+				if (!/do update set/i.test(query)) return statement;
+				return {
+					...statement,
+					bind: (...values: unknown[]) => {
+						writes.push(values);
+						const bound = statement.bind(...values);
+						if (writes.length > 1) return bound;
+						return {
+							...bound,
+							run: async () => {
+								throw new Error("D1_ERROR", {
+									cause: new Error("overloaded"),
+								});
+							},
+						};
+					},
+				};
+			});
+
+			const observed = runPlatformCronPath(
+				env,
+				event,
+				"retention-cleanup",
+				run,
+			);
+			if (status === "failure") await expect(observed).rejects.toBe(failure);
+			else await expect(observed).resolves.toBeUndefined();
+			expect(run).toHaveBeenCalledOnce();
+			expect(writes).toHaveLength(2);
+			expect(writes[0]).toEqual(writes[1]);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT status, affected_row_counts AS counts FROM platform_cron_executions",
+					)
+					.all(),
+			).toEqual([
+				{ status, counts: status === "success" ? '{"updated":1}' : "{}" },
+			]);
+		},
+	);
+
+	it("does not retry or reclassify a permanent error writing a successful receipt", async () => {
+		const { env, event, sqlite } = fixture();
+		const run = vi.fn(async () => ({ updated: 1 }));
+		const originalPrepare = env.DB.prepare.bind(env.DB);
+		let finishWrites = 0;
+		vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+			if (/do update set/i.test(query)) {
+				finishWrites++;
+				throw new Error("D1_ERROR: no such column");
+			}
+			return originalPrepare(query);
+		});
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await expect(
+				runPlatformCronPath(env, event, "retention-cleanup", run),
+			).rejects.toThrow();
+			expect(run).toHaveBeenCalledOnce();
+			expect(finishWrites).toBe(1);
+			expect(
+				sqlite.prepare("SELECT status FROM platform_cron_executions").get(),
+			).toEqual({ status: "running" });
+			expect(log).toHaveBeenCalledOnce();
+			expect(JSON.parse(String(log.mock.calls[0]?.[0])).event).toBe(
+				"platform.cron.receipt_finish_failed",
+			);
+		} finally {
+			log.mockRestore();
+		}
+	});
+
 	it("runs a duplicate delivery but preserves one immutable terminal receipt", async () => {
 		const { env, event, sqlite } = fixture();
 		const first = vi.fn(async () => ({ updated: 1 }));

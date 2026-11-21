@@ -1,9 +1,13 @@
+import type { PlatformCronExecutionFinish } from "@tedix/db/queries/platform-cron-executions";
+import { isTransientD1ReadError } from "@tedix/db/utils/d1-retry";
+import { sleep } from "@tedix/worker-kit/sleep";
 import {
 	safeExceptionTopology,
 	safeErrorClassification,
 } from "../lib/safe-log-metadata";
 
 const MAX_COUNT_KEYS = 32;
+const RECEIPT_FINISH_BACKOFF_MS = [500, 1000, 2000];
 
 export type PlatformCronAffectedRows = Record<string, number>;
 
@@ -70,16 +74,36 @@ export async function runPlatformCronPath(
 			}),
 		);
 	}
+
+	// The upsert only updates running receipts, so retrying the same stamp is safe.
+	async function writeFinish(
+		stamp: PlatformCronExecutionFinish,
+	): Promise<void> {
+		for (let attempt = 0; ; attempt++) {
+			try {
+				await recordPlatformCronExecutionFinish(db, stamp);
+				return;
+			} catch (error) {
+				const delayMs = RECEIPT_FINISH_BACKOFF_MS[attempt];
+				if (delayMs !== undefined && isTransientD1ReadError(error)) {
+					await sleep(delayMs);
+					continue;
+				}
+				console.error(
+					JSON.stringify({
+						event: "platform.cron.receipt_finish_failed",
+						scheduleId,
+						exception: safeExceptionTopology(error),
+					}),
+				);
+				throw error;
+			}
+		}
+	}
+
+	let counts: PlatformCronAffectedRows | void;
 	try {
-		const counts = await run();
-		const finishedMs = Date.now();
-		await recordPlatformCronExecutionFinish(db, {
-			...base,
-			status: "success",
-			finishedAt: new Date(finishedMs).toISOString(),
-			durationMs: Math.max(0, finishedMs - startedMs),
-			affectedRowCounts: boundedAffectedRows(counts ?? undefined),
-		});
+		counts = await run();
 	} catch (error) {
 		const finishedMs = Date.now();
 		const diagnostic = {
@@ -100,26 +124,27 @@ export async function runPlatformCronPath(
 				...diagnostic,
 			}),
 		);
-		try {
-			await recordPlatformCronExecutionFinish(db, {
-				...base,
-				status: "failure",
-				finishedAt: new Date(finishedMs).toISOString(),
-				durationMs: Math.max(0, finishedMs - startedMs),
-				affectedRowCounts: boundedAffectedRows(
-					error instanceof PlatformCronPathError ? error.counts : undefined,
-				),
-				error: JSON.stringify(diagnostic),
-			});
-		} catch (receiptFinishError) {
-			console.error(
-				JSON.stringify({
-					event: "platform.cron.receipt_finish_failed",
-					scheduleId,
-					exception: safeExceptionTopology(receiptFinishError),
-				}),
-			);
-		}
+		await writeFinish({
+			...base,
+			status: "failure",
+			finishedAt: new Date(finishedMs).toISOString(),
+			durationMs: Math.max(0, finishedMs - startedMs),
+			affectedRowCounts: boundedAffectedRows(
+				error instanceof PlatformCronPathError ? error.counts : undefined,
+			),
+			error: JSON.stringify(diagnostic),
+		}).catch(() => {
+			// writeFinish logged the receipt error. Propagate the job error.
+		});
 		throw error;
 	}
+
+	const finishedMs = Date.now();
+	await writeFinish({
+		...base,
+		status: "success",
+		finishedAt: new Date(finishedMs).toISOString(),
+		durationMs: Math.max(0, finishedMs - startedMs),
+		affectedRowCounts: boundedAffectedRows(counts ?? undefined),
+	});
 }
