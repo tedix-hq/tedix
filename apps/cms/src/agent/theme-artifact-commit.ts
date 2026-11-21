@@ -3,6 +3,7 @@ import { sendArtifactsCommit } from "@tedix/worker-kit/artifacts-git-push";
 import { GitMemoryFs } from "@tedix/worker-kit/git-memory-fs";
 import themeArtifactAuthor from "./theme-artifact-author.json";
 import {
+	findThemeArtifactFile,
 	readThemeArtifactTree,
 	readThemeArtifactTreeEntries,
 } from "./theme-artifacts";
@@ -10,7 +11,9 @@ import {
 const branch = "main";
 const maxPackBytes = 24 * 1024 * 1024;
 const dir = "/theme";
-type FileChange = { path: string; content: string };
+export type ThemeArtifactFileChange =
+	| { path: string; content: string }
+	| { path: string; delete: true };
 
 async function mainHead(repo: ArtifactsRepo) {
 	const [commit] = await repo.log({ ref: branch, limit: 1 });
@@ -23,7 +26,7 @@ export async function commitThemeArtifactFiles(input: {
 	repo: ArtifactsRepo;
 	remote: string;
 	expectedHead: string;
-	files: FileChange[];
+	files: ThemeArtifactFileChange[];
 	message: string;
 }) {
 	const { repo, expectedHead } = input;
@@ -40,7 +43,10 @@ export async function commitThemeArtifactFiles(input: {
 	const fs = new GitMemoryFs(32 * 1024 * 1024, 16_384);
 	await git.init({ fs, dir, defaultBranch: branch });
 	const objects = new Set<string>();
-	async function updateTree(oldOid: string | undefined, files: FileChange[]) {
+	async function updateTree(
+		oldOid: string | undefined,
+		files: ThemeArtifactFileChange[],
+	) {
 		const entries: TreeEntry[] = oldOid
 			? (await readThemeArtifactTreeEntries(repo, oldOid)).map((entry) => {
 					const mode = entry.mode === "040000" ? "40000" : entry.mode;
@@ -56,12 +62,16 @@ export async function commitThemeArtifactFiles(input: {
 		if (oldOid && (await git.writeTree({ fs, dir, tree: entries })) !== oldOid)
 			throw new Error("Artifacts tree cannot be reconstructed");
 
-		const children = new Map<string, FileChange[]>();
-		for (const { path, content } of files) {
+		const children = new Map<string, ThemeArtifactFileChange[]>();
+		for (const change of files) {
+			const { path } = change;
 			const slash = path.indexOf("/");
 			const name = slash === -1 ? path : path.slice(0, slash);
 			const group = children.get(name) ?? [];
-			group.push({ path: slash === -1 ? "" : path.slice(slash + 1), content });
+			group.push({
+				...change,
+				path: slash === -1 ? "" : path.slice(slash + 1),
+			});
 			children.set(name, group);
 		}
 		const updated = new Map(entries.map((entry) => [entry.path, entry]));
@@ -74,6 +84,10 @@ export async function commitThemeArtifactFiles(input: {
 					(entry && !["100644", "100755"].includes(entry.mode))
 				)
 					throw new Error("Theme artifact destination is not a regular file");
+				if ("delete" in file) {
+					updated.delete(name);
+					continue;
+				}
 				const oid = await git.writeBlob({
 					fs,
 					dir,
@@ -89,17 +103,24 @@ export async function commitThemeArtifactFiles(input: {
 			} else {
 				if (entry && entry.type !== "tree")
 					throw new Error("Theme artifact parent is not a directory");
-				const oid = await updateTree(entry?.oid, group);
-				updated.set(name, { path: name, mode: "40000", type: "tree", oid });
+				const child = await updateTree(entry?.oid, group);
+				if (child.empty && child.oid !== entry?.oid) updated.delete(name);
+				else
+					updated.set(name, {
+						path: name,
+						mode: "40000",
+						type: "tree",
+						oid: child.oid,
+					});
 			}
 		}
 		const oid = await git.writeTree({ fs, dir, tree: [...updated.values()] });
 		if (oid !== oldOid) objects.add(oid);
-		return oid;
+		return { oid, empty: updated.size === 0 };
 	}
 
 	const baseTree = await readThemeArtifactTree(repo, expectedHead);
-	const tree = await updateTree(baseTree, input.files);
+	const { oid: tree } = await updateTree(baseTree, input.files);
 	if (tree === baseTree) {
 		const current = await mainHead(repo);
 		return current === expectedHead
@@ -144,10 +165,27 @@ export async function commitThemeArtifactFiles(input: {
 		authorization: `Bearer ${await token.plaintext}`,
 		deadlineAt: Date.now() + 20_000,
 	});
-	if (sent.kind === "acknowledged") return { committed: true, commit, branch };
+	async function confirmedCommit() {
+		const deletedPaths = input.files
+			.filter((file) => "delete" in file)
+			.map((file) => file.path);
+		if (deletedPaths.length) {
+			const root = await readThemeArtifactTree(repo, commit);
+			if (root !== tree)
+				throw new Error(`Artifacts tree was not confirmed at commit ${commit}`);
+			for (const path of deletedPaths) {
+				if (await findThemeArtifactFile(repo, root, path))
+					throw new Error(
+						`Artifacts deletion was not confirmed at commit ${commit}`,
+					);
+			}
+		}
+		return { committed: true, commit, branch, deletedPaths };
+	}
+	if (sent.kind === "acknowledged") return confirmedCommit();
 
 	const current = await mainHead(repo);
-	if (current === commit) return { committed: true, commit, branch };
+	if (current === commit) return confirmedCommit();
 	if (sent.kind === "rejected") {
 		if (current !== expectedHead) return conflict(current);
 		throw new Error("Artifacts rejected the theme commit");

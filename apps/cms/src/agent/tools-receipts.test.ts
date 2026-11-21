@@ -3,6 +3,7 @@ import { GitMemoryFs } from "@tedix/worker-kit/git-memory-fs";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ZodType } from "zod";
 const mocks = vi.hoisted(() => ({
+	inputSchemas: new Map<string, ZodType>(),
 	outputSchemas: new Map<string, ZodType>(),
 	handlers: new Map<
 		string,
@@ -18,9 +19,10 @@ vi.mock("@tedix/mcp-shared/server", () => ({
 	createMcpServer: () => ({
 		registerTool: (
 			name: string,
-			config: { outputSchema: ZodType },
+			config: { outputSchema: ZodType; inputSchema: ZodType },
 			handler: never,
 		) => {
+			mocks.inputSchemas.set(name, config.inputSchema);
 			mocks.outputSchemas.set(name, config.outputSchema);
 			mocks.handlers.set(name, handler);
 		},
@@ -182,220 +184,324 @@ it("returns schema-valid JSON preview output when process properties are RPC stu
 	}
 });
 
-it("commits an editable route without a sandbox and fences a concurrent push", async () => {
-	const fs = new GitMemoryFs();
-	const dir = "/remote";
-	await git.init({ fs, dir, defaultBranch: "main" });
-	const blob = await git.writeBlob({
-		fs,
-		dir,
-		blob: new TextEncoder().encode("existing"),
-	});
-	const pages = await git.writeTree({
-		fs,
-		dir,
-		tree: [
-			{ mode: "100755", type: "blob", oid: blob, path: "index.astro" },
-			{ mode: "120000", type: "blob", oid: blob, path: "link" },
-		],
-	});
-	const src = await git.writeTree({
-		fs,
-		dir,
-		tree: [{ mode: "040000", type: "tree", oid: pages, path: "pages" }],
-	});
-	const tree = await git.writeTree({
-		fs,
-		dir,
-		tree: [
-			{ mode: "040000", type: "tree", oid: src, path: "src" },
-			{ mode: "100644", type: "blob", oid: blob, path: "README.md" },
-		],
-	});
-	const author = {
-		name: "Test",
-		email: "test@example.invalid",
-		timestamp: 1,
-		timezoneOffset: 0,
-	};
-	const base = await git.writeCommit({
-		fs,
-		dir,
-		commit: { tree, parent: [], author, committer: author, message: "Base" },
-	});
-	let head = base;
-	const competitor = "b".repeat(40);
-	const createToken = vi.fn(async () => ({ plaintext: "fixture-private" }));
-	const repo = {
-		log: async () => [{ hash: head }],
-		readCommit: async (oid: string) => ({
-			hash: oid,
-			treeHash: (await git.readCommit({ fs, dir, oid })).commit.tree,
-		}),
-		readTree: async (oid: string) =>
-			(await git.readTree({ fs, dir, oid })).tree.map((entry) => ({
-				name: entry.path,
-				mode: entry.mode,
-				type: entry.type,
-				hash: entry.oid,
-			})),
-		createToken,
-		[Symbol.dispose]() {},
-	};
-	const receipts = new Map<string, string>();
-	const f = setup(null, {
-		artifacts: {
-			get: async () => repo,
-		} as unknown as SiteBuilderToolContext["artifacts"],
-		artifactsAccountId: "a".repeat(32),
-		artifactsNamespace: "test",
-		storage: {
-			get: async (key: string) => {
-				const body = receipts.get(key);
-				return body
-					? { etag: "saved", json: async () => JSON.parse(body) }
-					: null;
-			},
-			put: async (key: string, body: string) => {
-				receipts.set(key, body);
-				return { etag: "saved" };
-			},
-		} as unknown as R2Bucket,
-		sandbox: new Proxy({} as SiteBuilderToolContext["sandbox"], {
-			get() {
-				throw new Error("Authoring sandbox unavailable");
-			},
-		}),
-	});
-	f.artifactCommitSandbox.mockImplementation(() => {
-		throw new Error("Job sandbox unavailable");
-	});
-	let race = false;
-	const ref = "refs/heads/main";
-	const packet = (value: string) =>
-		(value.length + 4).toString(16).padStart(4, "0") + value;
-	const fetcher = vi.fn<typeof fetch>(async (_url, init = {}) => {
-		expect(new Headers(init.headers).get("Authorization")).toBe(
-			"Bearer fixture-private",
-		);
-		expect(init.redirect).toBe("manual");
-		if (init.method === "GET") {
-			return new Response(
-				packet("# service=git-receive-pack\n") +
-					"0000" +
-					// Captured Artifacts advertisement shape; repository names and OIDs replaced.
-					packet(
-						head +
-							" HEAD\0agent=gitty/1.0 object-format=sha1 report-status report-status-v2 delete-refs atomic ofs-delta side-band side-band-64k symref=HEAD:refs/heads/main\n",
-					) +
-					packet(competitor + " refs/heads/agent/draft\n") +
-					packet(head + " " + ref + "\n") +
-					packet(competitor + " refs/tags/bundle-v1\n") +
-					packet(head + " refs/tags/bundle-v1^{}\n") +
-					"0000",
-				{
-					headers: {
-						"Content-Type": "application/x-git-receive-pack-advertisement",
-					},
-				},
-			);
-		}
-		const body = init.body as Uint8Array;
-		const decoder = new TextDecoder();
-		const size = Number.parseInt(decoder.decode(body.subarray(0, 4)), 16);
-		const [oldOid, newOid] = decoder.decode(body.subarray(4, size)).split(" ");
-		expect(oldOid).toBe(base);
-		expect(decoder.decode(body.subarray(size, size + 4))).toBe("0000");
-		if (race) head = competitor;
-		let status = "ng " + ref + " failed to lock\n";
-		if (oldOid === head) {
-			const filepath = ".git/objects/pack/fixture.pack";
-			await fs.promises.mkdir(dir + "/.git/objects/pack", { recursive: true });
-			await fs.promises.writeFile(
-				dir + "/" + filepath,
-				body.subarray(size + 4),
-			);
-			const { oids } = await git.indexPack({ fs, dir, filepath });
-			expect(oids).toContain(newOid);
-			head = newOid!;
-			status = "ok " + ref + "\n";
-		}
-		return new Response(packet("unpack ok\n") + packet(status) + "0000", {
-			headers: { "Content-Type": "application/x-git-receive-pack-result" },
-		});
-	});
-	vi.stubGlobal("fetch", fetcher);
-	try {
-		const commit = mocks.handlers.get("commit_theme_artifact_files")!;
-		const path = "src/pages/sitemap-apps.xml.ts";
-		const args = {
-			expectedHead: base,
-			message: "Fix app sitemap",
-			files: [
-				{ path, content: "new route\n" },
-				{ path: "src/pages/index.astro", content: "updated page\n" },
-			],
-		};
-		const reply = await commit(args);
-		const committed = head;
-		expect(reply.structuredContent).toMatchObject({
-			status: "complete",
-			result: { committed: true, commit: committed },
-		});
-		expect(JSON.stringify(reply)).not.toContain("fixture-private");
-		const stored = await git.readCommit({ fs, dir, oid: committed });
-		expect(stored.commit.parent).toEqual([base]);
-		expect(
-			(await git.readBlob({ fs, dir, oid: committed, filepath: "README.md" }))
-				.oid,
-		).toBe(blob);
-		expect(
-			new TextDecoder().decode(
-				(await git.readBlob({ fs, dir, oid: committed, filepath: path })).blob,
-			),
-		).toBe("new route\n");
-		const updatedPages = await git.readTree({
+it.each([false, true])(
+	"commits editable files without a sandbox and fences a concurrent push (deletion: %s)",
+	async (deletion) => {
+		const fs = new GitMemoryFs();
+		const dir = "/remote";
+		await git.init({ fs, dir, defaultBranch: "main" });
+		const blob = await git.writeBlob({
 			fs,
 			dir,
-			oid: committed,
-			filepath: "src/pages",
+			blob: new TextEncoder().encode("existing"),
 		});
-		expect(updatedPages.tree).toContainEqual(
-			expect.objectContaining({ path: "index.astro", mode: "100755" }),
-		);
-		const status = await mocks.handlers.get("theme_artifact_commit_status")!({
-			jobId: reply.structuredContent.jobId,
+		const pages = await git.writeTree({
+			fs,
+			dir,
+			tree: [
+				{ mode: "100755", type: "blob", oid: blob, path: "index.astro" },
+				{ mode: "120000", type: "blob", oid: blob, path: "link" },
+				{
+					mode: "100644",
+					type: "blob",
+					oid: blob,
+					path: "sitemap-apps.xml.ts",
+				},
+				{
+					mode: "040000",
+					type: "tree",
+					oid: await git.writeTree({
+						fs,
+						dir,
+						tree: [
+							{ mode: "100644", type: "blob", oid: blob, path: "last.astro" },
+						],
+					}),
+					path: "obsolete",
+				},
+			],
 		});
-		expect(status.structuredContent).toMatchObject({
-			result: { committed: true, commit: committed },
+		const src = await git.writeTree({
+			fs,
+			dir,
+			tree: [{ mode: "040000", type: "tree", oid: pages, path: "pages" }],
 		});
-		expect((await commit(args)).structuredContent).toMatchObject({
-			result: { conflict: true, remoteHead: committed },
+		const tree = await git.writeTree({
+			fs,
+			dir,
+			tree: [
+				{ mode: "040000", type: "tree", oid: src, path: "src" },
+				{ mode: "100644", type: "blob", oid: blob, path: "README.md" },
+			],
 		});
-		expect(
-			(await commit({ ...args, expectedHead: committed })).structuredContent,
-		).toMatchObject({ result: { unchanged: true, commit: committed } });
-		await expect(
-			commit({
-				...args,
-				expectedHead: committed,
-				files: [{ path: "src/pages/link/route.ts", content: "blocked" }],
+		const author = {
+			name: "Test",
+			email: "test@example.invalid",
+			timestamp: 1,
+			timezoneOffset: 0,
+		};
+		const base = await git.writeCommit({
+			fs,
+			dir,
+			commit: { tree, parent: [], author, committer: author, message: "Base" },
+		});
+		let head = base;
+		let wrongReadback = false;
+		const competitor = "b".repeat(40);
+		const createToken = vi.fn(async () => ({ plaintext: "fixture-private" }));
+		const repo = {
+			log: async () => [{ hash: head }],
+			readCommit: vi.fn(async (oid: string) => ({
+				hash: oid,
+				treeHash:
+					wrongReadback && oid !== base
+						? tree
+						: (await git.readCommit({ fs, dir, oid })).commit.tree,
+			})),
+			readTree: async (oid: string) =>
+				(await git.readTree({ fs, dir, oid })).tree.map((entry) => ({
+					name: entry.path,
+					mode: entry.mode,
+					type: entry.type,
+					hash: entry.oid,
+				})),
+			createToken,
+			[Symbol.dispose]() {},
+		};
+		const receipts = new Map<string, string>();
+		const f = setup(null, {
+			artifacts: {
+				get: async () => repo,
+			} as unknown as SiteBuilderToolContext["artifacts"],
+			artifactsAccountId: "a".repeat(32),
+			artifactsNamespace: "test",
+			storage: {
+				get: async (key: string) => {
+					const body = receipts.get(key);
+					return body
+						? { etag: "saved", json: async () => JSON.parse(body) }
+						: null;
+				},
+				put: async (key: string, body: string) => {
+					receipts.set(key, body);
+					return { etag: "saved" };
+				},
+			} as unknown as R2Bucket,
+			sandbox: new Proxy({} as SiteBuilderToolContext["sandbox"], {
+				get() {
+					throw new Error("Authoring sandbox unavailable");
+				},
 			}),
-		).rejects.toThrow("parent is not a directory");
-		expect(createToken).toHaveBeenCalledOnce();
-		expect(fetcher).toHaveBeenCalledTimes(2);
-
-		head = base;
-		race = true;
-		expect((await commit(args)).structuredContent).toMatchObject({
-			result: { conflict: true, remoteHead: competitor },
 		});
-		expect(head).toBe(competitor);
-		expect(f.artifactCommitSandbox).not.toHaveBeenCalled();
-	} finally {
-		vi.unstubAllGlobals();
-	}
-});
+		f.artifactCommitSandbox.mockImplementation(() => {
+			throw new Error("Job sandbox unavailable");
+		});
+		let race = false;
+		const ref = "refs/heads/main";
+		const packet = (value: string) =>
+			(value.length + 4).toString(16).padStart(4, "0") + value;
+		const fetcher = vi.fn<typeof fetch>(async (_url, init = {}) => {
+			expect(new Headers(init.headers).get("Authorization")).toBe(
+				"Bearer fixture-private",
+			);
+			expect(init.redirect).toBe("manual");
+			if (init.method === "GET") {
+				return new Response(
+					packet("# service=git-receive-pack\n") +
+						"0000" +
+						// Captured Artifacts advertisement shape; repository names and OIDs replaced.
+						packet(
+							head +
+								" HEAD\0agent=gitty/1.0 object-format=sha1 report-status report-status-v2 delete-refs atomic ofs-delta side-band side-band-64k symref=HEAD:refs/heads/main\n",
+						) +
+						packet(competitor + " refs/heads/agent/draft\n") +
+						packet(head + " " + ref + "\n") +
+						packet(competitor + " refs/tags/bundle-v1\n") +
+						packet(head + " refs/tags/bundle-v1^{}\n") +
+						"0000",
+					{
+						headers: {
+							"Content-Type": "application/x-git-receive-pack-advertisement",
+						},
+					},
+				);
+			}
+			const body = init.body as Uint8Array;
+			const decoder = new TextDecoder();
+			const size = Number.parseInt(decoder.decode(body.subarray(0, 4)), 16);
+			const [oldOid, newOid] = decoder
+				.decode(body.subarray(4, size))
+				.split(" ");
+			expect(oldOid).toBe(base);
+			expect(decoder.decode(body.subarray(size, size + 4))).toBe("0000");
+			if (race) head = competitor;
+			let status = "ng " + ref + " failed to lock\n";
+			if (oldOid === head) {
+				const filepath = ".git/objects/pack/fixture.pack";
+				await fs.promises.mkdir(dir + "/.git/objects/pack", {
+					recursive: true,
+				});
+				await fs.promises.writeFile(
+					dir + "/" + filepath,
+					body.subarray(size + 4),
+				);
+				const { oids } = await git.indexPack({ fs, dir, filepath });
+				expect(oids).toContain(newOid);
+				head = newOid!;
+				status = "ok " + ref + "\n";
+			}
+			return new Response(packet("unpack ok\n") + packet(status) + "0000", {
+				headers: { "Content-Type": "application/x-git-receive-pack-result" },
+			});
+		});
+		vi.stubGlobal("fetch", fetcher);
+		try {
+			const commit = mocks.handlers.get("commit_theme_artifact_files")!;
+			const path = "src/pages/sitemap-apps.xml.ts";
+			const args = {
+				expectedHead: base,
+				message: "Fix app sitemap",
+				files: [
+					...(deletion
+						? [
+								{ path, delete: true },
+								{ path: "src/pages/obsolete/last.astro", delete: true },
+								{ path: "src/pages/missing/file.astro", delete: true },
+							]
+						: [{ path, content: "new route\n" }]),
+					{
+						path: "src/pages/index.astro",
+						content: deletion ? "" : "updated page\n",
+					},
+				],
+			};
+			const input = mocks.inputSchemas.get("commit_theme_artifact_files")!;
+			expect(input.safeParse(args).success).toBe(true);
+			for (const file of [
+				{ path },
+				{ path, delete: false },
+				{ path, delete: true, content: "" },
+			])
+				expect(input.safeParse({ ...args, files: [file] }).success).toBe(false);
+			for (const files of [
+				[{ path: "package.json", delete: true }],
+				[{ path: "src/pages/../index.astro", delete: true }],
+				[
+					{ path, delete: true },
+					{ path, content: "" },
+				],
+			])
+				expect(await commit({ ...args, files })).toMatchObject({
+					isError: true,
+				});
+			const reply = await commit(args);
+			const committed = head;
+			expect(reply.structuredContent).toMatchObject({
+				status: "complete",
+				result: { committed: true, commit: committed },
+			});
+			expect(JSON.stringify(reply)).not.toContain("fixture-private");
+			const stored = await git.readCommit({ fs, dir, oid: committed });
+			expect(stored.commit.parent).toEqual([base]);
+			expect(
+				(await git.readBlob({ fs, dir, oid: committed, filepath: "README.md" }))
+					.oid,
+			).toBe(blob);
+			if (deletion) {
+				expect(repo.readCommit).toHaveBeenCalledWith(committed);
+				expect(reply.structuredContent.result).toMatchObject({
+					deletedPaths: args.files
+						.filter((file) => "delete" in file)
+						.map((file) => file.path),
+				});
+				await expect(
+					git.readBlob({ fs, dir, oid: committed, filepath: path }),
+				).rejects.toThrow();
+			} else
+				expect(
+					new TextDecoder().decode(
+						(await git.readBlob({ fs, dir, oid: committed, filepath: path }))
+							.blob,
+					),
+				).toBe("new route\n");
+			const updatedPages = await git.readTree({
+				fs,
+				dir,
+				oid: committed,
+				filepath: "src/pages",
+			});
+			expect(updatedPages.tree).toContainEqual(
+				expect.objectContaining({ path: "index.astro", mode: "100755" }),
+			);
+			expect(updatedPages.tree).toContainEqual({
+				path: "link",
+				mode: "120000",
+				type: "blob",
+				oid: blob,
+			});
+			if (deletion) {
+				expect(
+					updatedPages.tree.some((entry) =>
+						["obsolete", "missing", "sitemap-apps.xml.ts"].includes(entry.path),
+					),
+				).toBe(false);
+				expect(
+					(
+						await git.readBlob({
+							fs,
+							dir,
+							oid: committed,
+							filepath: "src/pages/index.astro",
+						})
+					).blob.byteLength,
+				).toBe(0);
+			}
+			const status = await mocks.handlers.get("theme_artifact_commit_status")!({
+				jobId: reply.structuredContent.jobId,
+			});
+			expect(status.structuredContent).toMatchObject({
+				result: { committed: true, commit: committed },
+			});
+			expect((await commit(args)).structuredContent).toMatchObject({
+				result: { conflict: true, remoteHead: committed },
+			});
+			expect(
+				(await commit({ ...args, expectedHead: committed })).structuredContent,
+			).toMatchObject({ result: { unchanged: true, commit: committed } });
+			await expect(
+				commit({
+					...args,
+					expectedHead: committed,
+					files: [{ path: "src/pages/link/route.ts", content: "blocked" }],
+				}),
+			).rejects.toThrow("parent is not a directory");
+			expect(createToken).toHaveBeenCalledOnce();
+			expect(fetcher).toHaveBeenCalledTimes(2);
+
+			head = base;
+			for (const path of ["src/pages/link", "src/pages/obsolete"])
+				await expect(
+					commit({ ...args, files: [{ path, delete: true }] }),
+				).rejects.toThrow("destination is not a regular file");
+			race = true;
+			expect((await commit(args)).structuredContent).toMatchObject({
+				result: { conflict: true, remoteHead: competitor },
+			});
+			expect(head).toBe(competitor);
+			if (deletion) {
+				head = base;
+				race = false;
+				wrongReadback = true;
+				await expect(commit(args)).rejects.toThrow(
+					"Artifacts tree was not confirmed at commit",
+				);
+			}
+			expect(f.artifactCommitSandbox).not.toHaveBeenCalled();
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	},
+);
 
 it("refuses unknown isolated commit status before obtaining a container", async () => {
 	const f = setup(null);

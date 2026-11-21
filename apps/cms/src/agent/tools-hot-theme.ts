@@ -4,7 +4,10 @@ import {
 	readThemeArtifactFile,
 	readThemeArtifactHead,
 } from "./artifact-source-read";
-import { commitThemeArtifactFiles } from "./theme-artifact-commit";
+import {
+	commitThemeArtifactFiles,
+	type ThemeArtifactFileChange,
+} from "./theme-artifact-commit";
 import { isPathEditable } from "./constraints";
 import {
 	HOT_THEME_PUBLIC_PATH,
@@ -616,6 +619,8 @@ export function registerHotThemeTools(
 			title: "Commit Theme Files to Artifacts",
 			description:
 				"Commit complete editable Astro/CSS file contents to the tenant's existing Artifacts Git main branch. " +
+				"Each file supplies either content (including an empty string) or delete: true to remove an editable regular file. Missing files are already deleted. " +
+				"Successful commits report deletedPaths after exact-commit readback. Unrelated tree entries are preserved. " +
 				"The server handles the short-lived Git token; no credential is returned. Pass the current full main commit as expectedHead. " +
 				"Pass result.commit from a successful commit to theme_deploy.sourceCommit. The result can also be read using theme_artifact_commit_status. " +
 				"A changed main branch is reported as a conflict; this tool never force-pushes or deploys.",
@@ -625,10 +630,17 @@ export function registerHotThemeTools(
 					message: z.string().min(1).max(200),
 					files: z
 						.array(
-							z.object({
-								path: z.string().min(1),
-								content: z.string().max(256_000),
-							}),
+							z.union([
+								z
+									.object({
+										path: z.string().min(1),
+										content: z.string().max(256_000),
+									})
+									.strict(),
+								z
+									.object({ path: z.string().min(1), delete: z.literal(true) })
+									.strict(),
+							]),
 						)
 						.min(1)
 						.max(20),
@@ -638,7 +650,7 @@ export function registerHotThemeTools(
 		async (args: {
 			expectedHead: string;
 			message: string;
-			files: Array<{ path: string; content: string }>;
+			files: ThemeArtifactFileChange[];
 		}) => {
 			if (!ctx.artifacts)
 				return forbidden("CMS Artifacts binding is not configured");
