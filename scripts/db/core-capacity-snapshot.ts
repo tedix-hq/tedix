@@ -132,6 +132,8 @@ async function cf(args: string[]): Promise<unknown> {
 
 /** Time D1 itself spent on this script's statements, for pacing. */
 let serverMs = 0;
+/** Rows this script read from the shared database, printed at the end. */
+let serverRowsRead = 0;
 
 /**
  * Several read statements in one `cf d1 query` call (one D1 batch), so the
@@ -163,6 +165,10 @@ async function d1Batch(databaseId: string, statements: string[]) {
 		throw new Error("Read-only snapshot unexpectedly wrote rows");
 	const ms = result.reduce((sum, r) => sum + (r.meta?.duration ?? 0), 0);
 	serverMs += ms;
+	serverRowsRead += result.reduce(
+		(sum, r) => sum + Number(r.meta?.rows_read ?? 0),
+		0,
+	);
 	return { results: result.map((r) => r.results), ms };
 }
 
@@ -188,8 +194,12 @@ async function inBatches<T>(
 	}
 }
 
-/** Tables whose rowid span is larger than this are not counted row by row. */
-const COUNT_LIMIT = 250_000;
+/**
+ * Only tables whose rowid span is at most this are counted row by row:
+ * count(*) reads every entry of the smallest index, so counting every table
+ * up to 250k rows read millions of rows from the shared database each day.
+ */
+const COUNT_LIMIT = 10_000;
 
 const ident = (name: string) => `"${name.replaceAll('"', '""')}"`;
 
@@ -253,11 +263,23 @@ async function measureTables(
 			},
 		]),
 	);
-	// count(*) scans the table and holds the database for seconds on
-	// million-row tables. Above COUNT_LIMIT, the rowid span (two index seeks)
-	// stands in: exact for append-only tables, an upper bound where rows were
-	// deleted from the middle.
+	// count(*) scans the table, so only small tables are counted. Larger ones
+	// use the rowid span (two index seeks): exact for append-only tables, an
+	// upper bound where rows were deleted from the middle. Where the planner's
+	// own row estimate (sqlite_stat1) is under half the span, many rows were
+	// deleted, and the estimate stands in instead.
 	const span = new Map<string, number>();
+	const planned = new Map<string, number>();
+	try {
+		const stat = (await d1(
+			databaseId,
+			"SELECT tbl, max(CAST(stat AS INTEGER)) AS n FROM sqlite_stat1 GROUP BY tbl",
+		)) as { tbl: string; n: number | null }[];
+		for (const row of stat)
+			if (Number.isFinite(Number(row.n))) planned.set(row.tbl, Number(row.n));
+	} catch (error) {
+		console.error(`sqlite_stat1 unavailable: ${String(error)}`);
+	}
 	let memoryFirstRowid = 0;
 	let memoryLastRowid = -1;
 	console.error("rowid spans");
@@ -267,7 +289,9 @@ async function measureTables(
 		25,
 		pause,
 		(t) =>
-			`SELECT coalesce(max(rowid) - min(rowid) + 1, 0) AS n, min(rowid) AS first_rowid, max(rowid) AS last_rowid FROM ${ident(t.name)}`,
+			// min() and max() each seek only as the lone aggregate of a SELECT;
+			// together in one SELECT they scan the whole table.
+			`SELECT coalesce(last_rowid - first_rowid + 1, 0) AS n, first_rowid, last_rowid FROM (SELECT (SELECT min(rowid) FROM ${ident(t.name)}) AS first_rowid, (SELECT max(rowid) FROM ${ident(t.name)}) AS last_rowid)`,
 		(t, rows) => {
 			span.set(t.name, Number(rows[0]?.n ?? 0));
 			if (t.name === "tedi_memory_documents") {
@@ -276,10 +300,20 @@ async function measureTables(
 			}
 		},
 	);
-	for (const [name, n] of span) {
-		// FTS shadow tables encode segment levels in rowid: their span says nothing.
-		if (n > COUNT_LIMIT && n < 100_000_000)
-			Object.assign(stats.get(name)!, { rows: n, rowsEstimated: true });
+	for (const t of tables) {
+		const n = span.get(t.name);
+		const estimate = planned.get(t.name);
+		if (n !== undefined && n <= COUNT_LIMIT) continue;
+		// FTS shadow tables encode segment levels in rowid: their span says
+		// nothing. WITHOUT ROWID tables have no span.
+		const usable = n !== undefined && n < 100_000_000;
+		const rows = usable
+			? estimate !== undefined && estimate < n / 2
+				? estimate
+				: n
+			: estimate;
+		if (rows !== undefined)
+			Object.assign(stats.get(t.name)!, { rows, rowsEstimated: true });
 	}
 	const counts = tables
 		.filter(
@@ -331,7 +365,7 @@ async function measureTables(
 	await inBatches(
 		databaseId,
 		tables.filter((t) => stats.get(t.name)!.rows > 0),
-		1,
+		5,
 		pause,
 		(t) => {
 			const order = /WITHOUT\s+ROWID/i.test(t.sql) ? "" : "ORDER BY rowid DESC";
@@ -827,6 +861,9 @@ async function main() {
 		),
 	);
 	console.log(`Snapshot written to ${file}`);
+	console.log(
+		`D1 statements read ${serverRowsRead} rows in ${Math.round(serverMs)} ms`,
+	);
 	console.table(
 		sheetRows(snapshot).map((row) =>
 			Object.fromEntries(SHEET_COLUMNS.map((column, i) => [column, row[i]])),
