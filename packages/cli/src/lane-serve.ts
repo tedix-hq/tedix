@@ -709,6 +709,17 @@ export function parseServeOptions(
  */
 const REQUEST_READ_ATTEMPTS = 3;
 const requestedRun = new AsyncLocalStorage<{ direct: boolean }>();
+/**
+ * How a start got its preparation place: "requested" when a person's start
+ * request took it out of the waiting order, false when it was dropped.
+ */
+type PreparationPlace = false | "place" | "requested";
+type PreparationWaiter = {
+	itemId: string;
+	version: number;
+	turn: number;
+	begin: (place: PreparationPlace) => void;
+};
 
 export function serialCalls() {
 	const pending: Array<{ critical: boolean; run: () => Promise<void> }> = [];
@@ -2667,7 +2678,13 @@ export class LaneDispatcher {
 	private identityReads = new Set<Promise<void>>();
 	private preparing = new Set<string>();
 	/** Starts waiting for one of the MAX_PREPARATIONS places, oldest first. */
-	private preparationWaiters: Array<() => void> = [];
+	private preparationWaiters: PreparationWaiter[] = [];
+	/**
+	 * The turn of each Work Item that waits or was dropped while waiting, so
+	 * a dropped start that comes back keeps its place in the order.
+	 */
+	private preparationTurns = new Map<string, number>();
+	private nextPreparationTurn = 0;
 	private passes = 0;
 	private passRules?: { pass: number; rules: Promise<RunRules> };
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
@@ -2782,7 +2799,7 @@ export class LaneDispatcher {
 	}
 	stop = () => {
 		this.stopping = true;
-		for (const wake of this.preparationWaiters.splice(0)) wake();
+		this.dropAllWaiting();
 	};
 	/**
 	 * Stops admitting Work so this runner can empty and restart onto an updated
@@ -2791,7 +2808,7 @@ export class LaneDispatcher {
 	 */
 	holdAdmissions(version?: string) {
 		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
-		for (const wake of this.preparationWaiters.splice(0)) wake();
+		this.dropAllWaiting();
 	}
 	private holdsRestart(row: Receipt): boolean {
 		if (hasSettledOutcome(row)) return false;
@@ -3074,40 +3091,94 @@ export class LaneDispatcher {
 				at: new Date().toISOString(),
 			});
 	}
+	/**
+	 * Frees the item's preparation place, once however often it is called, and
+	 * gives every free place to the oldest waiting start. The waiting start
+	 * holds the place before it runs again: a start that was only woken found
+	 * the place taken whenever a requested start had made a fourth, and went
+	 * to the back of the order.
+	 */
 	private finishPreparation(itemId: string) {
 		const held = this.preparing.delete(itemId);
 		const requested = requestedRun.getStore();
 		if (requested) requested.direct = false;
-		if (held) this.preparationWaiters.shift()?.();
+		if (!held) return;
+		while (this.preparing.size < MAX_PREPARATIONS && this.preparationWaiters[0])
+			this.beginWaiting(this.preparationWaiters[0], "place");
+	}
+	/** Takes a start out of the waiting order, with a place unless dropped. */
+	private beginWaiting(waiter: PreparationWaiter, place: PreparationPlace) {
+		const at = this.preparationWaiters.indexOf(waiter);
+		if (at < 0) return;
+		this.preparationWaiters.splice(at, 1);
+		if (place) {
+			this.preparing.add(waiter.itemId);
+			this.preparationTurns.delete(waiter.itemId);
+		}
+		if (!this.preparationWaiters.length) this.preparationTurns.clear();
+		waiter.begin(place);
+	}
+	private waitingStart(itemId: string) {
+		return this.preparationWaiters.find((waiter) => waiter.itemId === itemId);
 	}
 	/**
-	 * Waits until fewer than MAX_PREPARATIONS Work Items are in preparation,
-	 * then takes a place with no step in between, so starts launched together
-	 * cannot all see the same free place. A start a person asked for does not
-	 * wait. Returns false when the runner stopped or began waiting to restart
-	 * meanwhile: nothing was read or recorded for the item, so the next pass
-	 * or runner starts it.
+	 * Drops a waiting start that may no longer begin. Nothing was read or
+	 * recorded for it. Returns its task, which ends at once and then no longer
+	 * counts as running; the item keeps its turn if it waits again.
 	 */
-	private async preparationPlace(itemId: string): Promise<boolean> {
-		let waited = false;
-		while (
-			!requestedRun.getStore()?.direct &&
-			this.preparing.size >= MAX_PREPARATIONS &&
-			!this.stopping &&
-			!this.admissionsHeld
+	private dropWaiting(itemId: string, reason: string) {
+		const waiter = this.waitingStart(itemId);
+		if (!waiter) return;
+		this.beginWaiting(waiter, false);
+		this.log("start-dropped", itemId, `Was waiting to start: ${reason}`);
+		return this.running.get(itemId);
+	}
+	private dropAllWaiting() {
+		for (const waiter of [...this.preparationWaiters])
+			this.beginWaiting(waiter, false);
+	}
+	/**
+	 * Takes one of the MAX_PREPARATIONS places, or waits in order for one.
+	 * The check and the take have no step between them, so starts launched
+	 * together cannot all see the same free place. A start a person asked for
+	 * does not wait. Returns false when the start was dropped while waiting
+	 * (the runner stopped or began waiting to restart, or the Work changed):
+	 * nothing was read or recorded for the item, so a later pass or runner
+	 * starts it.
+	 */
+	private async preparationPlace(
+		candidate: DispatchItem,
+	): Promise<PreparationPlace> {
+		if (
+			requestedRun.getStore()?.direct ||
+			this.preparing.size < MAX_PREPARATIONS ||
+			this.stopping ||
+			this.admissionsHeld
 		) {
-			if (!waited)
-				this.log(
-					"start-waiting",
-					itemId,
-					`${this.preparing.size} starts are in preparation; this one begins when one of them is admitted or fails`,
-				);
-			waited = true;
-			await new Promise<void>((wake) => this.preparationWaiters.push(wake));
+			this.preparing.add(candidate.id);
+			this.preparationTurns.delete(candidate.id);
+			return "place";
 		}
-		if (waited && (this.stopping || this.admissionsHeld)) return false;
-		this.preparing.add(itemId);
-		return true;
+		const turn =
+			this.preparationTurns.get(candidate.id) ?? this.nextPreparationTurn++;
+		this.preparationTurns.set(candidate.id, turn);
+		const before = this.preparationWaiters.findIndex(
+			(waiter) => waiter.turn > turn,
+		);
+		const ahead = before < 0 ? this.preparationWaiters.length : before;
+		this.log(
+			"start-waiting",
+			candidate.id,
+			`${this.preparing.size} starts are in preparation and ${ahead} wait ahead; this one begins when its turn comes`,
+		);
+		return new Promise<PreparationPlace>((begin) =>
+			this.preparationWaiters.splice(ahead, 0, {
+				itemId: candidate.id,
+				version: candidate.version,
+				turn,
+				begin,
+			}),
+		);
 	}
 	/**
 	 * The rules for a run, read at most once per pass: every preparation of a
@@ -3312,13 +3383,21 @@ export class LaneDispatcher {
 					!record.held &&
 					!(record.pid && alive(record.pid)) &&
 					Date.now() >= (record.recheckAt ?? 0);
+				// A start that waits for a place has read and recorded nothing yet.
+				// The request starts that same start now; a waiting start for an
+				// older revision is dropped and this revision starts instead.
+				let waiting = item ? this.waitingStart(item.id) : undefined;
+				if (item && waiting && waiting.version !== item.version) {
+					await this.dropWaiting(item.id, "Work changed while it waited");
+					waiting = undefined;
+				}
 				const skip = !item
 					? "Not in this runner's list of accepted Work that is ready to start"
-					: this.running.has(item.id)
+					: this.running.has(item.id) && !waiting
 						? "Already running here"
 						: this.maintenance.has(item.id)
 							? "A maintenance task for it is running here"
-							: record && !neverSent
+							: record && !neverSent && !waiting
 								? "This runner already has a record of this revision"
 								: this.deps.freeDiskBytes(this.directory) < MIN_FREE_DISK_BYTES
 									? "Not enough free disk space"
@@ -3337,6 +3416,15 @@ export class LaneDispatcher {
 					return true;
 				}
 				this.route(item);
+				if (waiting) {
+					this.log(
+						"requested",
+						item.id,
+						"Was waiting for a place; started ahead of the waiting starts",
+					);
+					this.beginWaiting(waiting, "requested");
+					return true;
+				}
 				this.log("requested", item.id, "Started ahead of the pass");
 				const task = this.execute(item, record)
 					.catch((error) => this.log("failed", item.id, String(error)))
@@ -3616,6 +3704,7 @@ export class LaneDispatcher {
 		// read after the whole list has been walked.
 		const awaitingOwner: DispatchItem[] = [];
 		let ownerRound = false;
+		const listed = new Set<string>();
 		while (
 			!this.stopping &&
 			(admissionPause ? healthSource : !this.admissionsHeld)
@@ -3655,6 +3744,7 @@ export class LaneDispatcher {
 			}
 			for (const item of page.data) {
 				if (this.stopping) break;
+				listed.add(item.id);
 				this.coordinatorSample.skips.delete(item.id);
 				const pause = admissionPause ?? this.admissionsHeld;
 				if (pause) {
@@ -3713,6 +3803,7 @@ export class LaneDispatcher {
 					}
 				}
 				if (reason) {
+					this.dropWaiting(item.id, reason);
 					observeSkip(current, reason);
 					this.log("skipped", item.id, reason);
 					if (!verificationPlan(current))
@@ -3815,6 +3906,11 @@ export class LaneDispatcher {
 				) {
 					previous.phase = "deferred";
 				}
+				// A start still waiting for a place has read nothing: one for an
+				// older revision is dropped and this revision takes its turn.
+				const waiting = this.waitingStart(item.id);
+				if (waiting && waiting.version !== item.version)
+					await this.dropWaiting(item.id, "Work changed while it waited");
 				if (this.running.has(item.id) || this.maintenance.has(item.id)) {
 					// A newer revision waits for this runner's in-flight preparation,
 					// which re-reads the Work and stops before admission.
@@ -3869,6 +3965,16 @@ export class LaneDispatcher {
 				ownerRound = true;
 				continue;
 			}
+			// The whole list was walked: a waiting start whose Work left it (done,
+			// cancelled, moved to another runner) would otherwise hold its turn
+			// and count as running here until its place came.
+			if (!admissionPause && !page.pagination.hasMore && !this.stopping)
+				for (const waiter of [...this.preparationWaiters])
+					if (!listed.has(waiter.itemId))
+						this.dropWaiting(
+							waiter.itemId,
+							"No longer in this runner's list of Work that is ready to start",
+						);
 			// A paused runner only needs a bounded sample for health telemetry.
 			if (admissionPause || !page.pagination.hasMore) break;
 			offset += page.data.length;
@@ -4871,6 +4977,21 @@ export class LaneDispatcher {
 		);
 	}
 	private async execute(candidate: DispatchItem, previous?: Receipt) {
+		const place = await this.preparationPlace(candidate);
+		if (!place) return;
+		try {
+			// A waiting start a person then asked for prepares like any requested
+			// start: its calls skip the call queue until it is admitted.
+			await (place === "requested"
+				? requestedRun.run({ direct: true }, () =>
+						this.prepareAndRun(candidate, previous),
+					)
+				: this.prepareAndRun(candidate, previous));
+		} finally {
+			this.finishPreparation(candidate.id);
+		}
+	}
+	private async prepareAndRun(candidate: DispatchItem, previous?: Receipt) {
 		const path = this.path(candidate);
 		const interrupted =
 			previous &&
@@ -4906,7 +5027,6 @@ export class LaneDispatcher {
 		let codexServer: CodexLaneServer | undefined;
 		let stepTimer: ReturnType<typeof setInterval> | undefined;
 		let stopKillTimer: ReturnType<typeof setTimeout> | undefined;
-		if (!(await this.preparationPlace(candidate.id))) return;
 		try {
 			const detail = await this.call<{
 				workItem: DispatchItem;

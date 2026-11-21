@@ -1236,6 +1236,49 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 
+	it("keeps the oldest waiting start first when a requested start makes a fourth, and a request starts a waiting item once", async () => {
+		const f = fixture();
+		for (let n = 4; n <= 6; n++) f.items.push(item(n));
+		const [, , , oldest, second, asked] = f.items;
+		const extra = item(7);
+		// Each preparation stops at its thread until the test lets it go on.
+		const began: string[] = [];
+		const gates = new Map<string, () => void>();
+		const thread = f.deps.thread!;
+		f.deps.thread = async (repo, ...rest) => {
+			const id = f.items.find((row) => repo.includes(row.id))!.id;
+			began.push(id);
+			await new Promise<void>((open) => gates.set(id, open));
+			return thread(repo, ...rest);
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => began.length === MAX_PREPARATIONS, 1000);
+		// Items 4 to 6 wait. A request for a new item takes a fourth place.
+		f.items.push(extra);
+		await dispatcher.startRequested(extra.id);
+		await until(() => began.includes(extra.id), 1000);
+		// One of the first three is admitted: four were preparing, so no place
+		// is free and nobody may lose a turn. Then the requested one is too.
+		gates.get(began[0]!)!();
+		await until(() => f.releases.length === 1, 1000);
+		gates.get(extra.id)!();
+		await until(() => began.length === 5, 1000);
+		expect(began[4]).toBe(oldest!.id);
+		// A request for a waiting item starts it now, ahead of the one before
+		// it, and not a second time.
+		await dispatcher.startRequested(asked!.id);
+		await until(() => began.length === 6, 1000);
+		expect(began[5]).toBe(asked!.id);
+		for (const id of began) gates.get(id)!();
+		await until(() => began.length === 7, 1000);
+		gates.get(second!.id)!();
+		await until(() => f.releases.length === 7, 1000);
+		expect(began.filter((id) => id === asked!.id)).toHaveLength(1);
+		for (const release of f.releases) release();
+		await dispatcher.drain();
+	});
+
 	it("drains a delayed process identity read before fixture teardown", async () => {
 		const f = fixture();
 		f.items.splice(1);
