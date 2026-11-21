@@ -68,6 +68,7 @@ import {
 	STRUCTURED_FACTORY_VERBS,
 	workStructuredFactory,
 	workClaimFiles,
+	workEpics,
 } from "./work-factory";
 
 export interface WorkOptions {
@@ -85,6 +86,7 @@ export interface WorkOptions {
 	parent?: string;
 	disposition?: string;
 	mine?: boolean;
+	all?: boolean;
 	reason?: string;
 	note?: string;
 	event?: string;
@@ -281,7 +283,7 @@ project and inherits its goal (--objective). For example:
 --parent <work-id> links create/delegate to existing Work and inherits its project.
 An explicit --project must match the parent. Parent access is checked in the selected organization.
 Inherited objectives override --class and --expires defaults.
-A Work Item joins an epic afterwards with case-attach, not at creation.
+A Work Item joins an epic afterwards with epic-attach, not at creation.
 Without --owner, the person who creates the Work answers for it; for an agent
 session that is the person it acts for or who registered it. Name someone else
 with --owner <user|tedi|team|system>:<id>.
@@ -300,9 +302,11 @@ trusting a filtered page as a whole-ledger answer.
 Factory controls (--input accepts inline JSON or @path):
   agent-turn-triage · agent-reply-label · agent-reply-draft-request · agent-session-report
   dispatch-reassign · dispatch-hold · dispatch-idle-list · dispatch-list · dispatch-get · dispatch-attempts
-  case-list · case-get · case-create · case-stage · case-close · case-attach
-  case-dependency-add (epics; the API calls them cases)
-    case-create kind: delivery (a feature or other result due by a date) · investigation · incident
+  epics [--all] [--project <id>] [--limit <n>] [--json] (open epics; --all includes closed)
+  epic-get · epic-create · epic-stage · epic-close · epic-attach · epic-dependency-add
+    Legacy epic verbs: case-list · case-get · case-create · case-stage · case-close · case-attach
+    · case-dependency-add (the API calls epics cases).
+    epic-create kind: delivery (a feature or other result due by a date) · investigation · incident
     · customer · opportunity · legal · operations · other
   dispatcher-health-list · dispatcher-health-record · runner-rules
   approval-list · approval-audit-list · approval-propose · approval-decide (admission authority)
@@ -319,7 +323,7 @@ Factory controls (--input accepts inline JSON or @path):
   fleet · scheduler · clusters --executor-tedi <uuid>
 
 Scheduler receipts distinguish factsTruncated + truncatedFacts (dependency, capability,
-approval, resource, budget, or case facts; affected candidates are withheld as
+approval, resource, budget, or epic facts; affected candidates are withheld as
 evaluation_required) from graphTruncated (ranking only).
 Cluster receipts group ranked ready Work into sequential, resource-compatible waves;
 they remain advisory and every start re-evaluates admission.
@@ -347,6 +351,7 @@ type VerbHandler = (
 ) => Promise<number>;
 
 const VERBS: Record<string, VerbHandler> = {
+	epics: (ctx) => workEpics(ctx),
 	checkpoint: (ctx, id, text) => workCheckpoint(ctx, id, text),
 	"claim-files": (ctx, id, text) => workClaimFiles(ctx, id, text),
 	list: (ctx, id) => workList(ctx, id),
@@ -453,6 +458,8 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 		console.log(workUsage());
 		return verb ? 0 : WORK_EXIT_FAIL;
 	}
+	const [id, text] = firstToken(rest);
+	ctx.errorWorkItemId = /^[0-9a-f-]{36}$/i.test(id) ? id : undefined;
 	const handler = VERBS[verb];
 	if (!handler) {
 		// Nearest-verb guidance instead of the full verb dump: an agent that
@@ -460,9 +467,11 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 		// page in its context window.
 		const nearest = nearestWorkVerbs(verb);
 		const hint =
-			nearest.length > 0
-				? `Did you mean: ${nearest.join(", ")}?`
-				: `Verbs: ${workVerbNames().join(", ")}`;
+			verb === "show"
+				? `Use: tedix work context ${rest || "<id>"} or tedix work readiness ${rest || "<id>"}.`
+				: nearest.length > 0
+					? `Did you mean: ${nearest.join(", ")}?`
+					: `Verbs: ${workVerbNames().join(", ")}`;
 		throw new Error(
 			`Unknown work verb "${verb}". ${hint} (\`tedix work --help\` for details)`,
 		);
@@ -498,7 +507,5 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 	if (ctx.work.worktreeRoot && !ctx.work.worktree) {
 		throw new Error("--worktree-root requires --worktree");
 	}
-	const [id, text] = firstToken(rest);
-	ctx.errorWorkItemId = /^[0-9a-f-]{36}$/i.test(id) ? id : undefined;
 	return handler(ctx, id, text);
 }

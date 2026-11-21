@@ -19,6 +19,13 @@ export function workErrorDetails(error: BoardError, id?: string) {
 		/identity|session_required/i.test(reason)
 	) {
 		nextCommands = ["tedix agent status --json", "tedix agent start --help"];
+	} else if (error.message.includes("Epics are listed with:")) {
+		nextCommands = ["tedix work epics"];
+	} else if (/Unknown work verb "show"/.test(error.message)) {
+		nextCommands = [
+			`tedix work context ${id ?? "<id>"}`,
+			`tedix work readiness ${id ?? "<id>"}`,
+		];
 	} else if (!id) {
 		nextCommands = ["tedix work --help"];
 	} else if (/stale_attempt|invalid_lease|attempt_expired/i.test(reason)) {
