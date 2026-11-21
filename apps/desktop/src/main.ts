@@ -1,7 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openLocalTedix, startLocalDesktop } from "./local-mode";
-import { localOrigin } from "./local-origin";
+import { openLocalTedix } from "./local-mode";
 import {
 	app,
 	BrowserWindow,
@@ -1217,7 +1216,7 @@ function setMenu(): void {
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
 					setUp,
-					{ label: "Open Local Tedix", click: openLocalTedix },
+					{ label: "Open Local Tedix", click: () => openLocalTedix() },
 					// Offered only while it is needed: signing in again when already
 					// signed in opens a browser page that leads nowhere.
 					appSignIn.state === "in"
@@ -1324,7 +1323,7 @@ let tray: Tray | undefined;
 function trayMenu(): Menu {
 	return Menu.buildFromTemplate([
 		{ label: "Open Tedix", click: showMain },
-		{ label: "Open Local Tedix", click: openLocalTedix },
+		{ label: "Open Local Tedix", click: () => openLocalTedix() },
 		{ label: "New Chat…", click: () => openInputBar() },
 		{ type: "separator" },
 		// A line on the runners only when something is off: paused, stopped or failing.
@@ -1562,9 +1561,7 @@ async function openedAtLogin(): Promise<boolean> {
 const appLink = (args: string[]) =>
 	args.find((arg) => arg.startsWith("tedix://"));
 
-const local = localOrigin(process.argv);
-if (local !== undefined) startLocalDesktop(local);
-else if (!app.requestSingleInstanceLock()) app.quit();
+if (!app.requestSingleInstanceLock()) app.quit();
 else {
 	if (app.isPackaged) app.setAsDefaultProtocolClient("tedix");
 	// macOS hands a clicked link over here; other systems pass it as an argument.
@@ -1575,6 +1572,8 @@ else {
 	openAppLink(appLink(process.argv));
 	void app.whenReady().then(async () => {
 		log(`start: version ${app.getVersion()}`);
+		if (process.argv.some((arg) => arg.startsWith("--local")))
+			openLocalTedix(process.argv);
 		// Read and deleted before anything else: only a start that follows a
 		// click on the update button may replace the command-line tool.
 		const clicked = takeUpdateClick();
@@ -1708,6 +1707,9 @@ else {
 		});
 
 		app.on("second-instance", (_event, args) => {
+			// `open -na Tedix.app --args --local`: the Local Tedix window of this app.
+			if (args.some((arg) => arg.startsWith("--local")))
+				return openLocalTedix(args);
 			showMain();
 			openAppLink(appLink(args));
 		});
