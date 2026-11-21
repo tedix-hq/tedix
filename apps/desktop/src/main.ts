@@ -40,7 +40,9 @@ import {
 import { log } from "./log";
 import {
 	onRunnersChange,
+	pauseRunners,
 	removeLoginService,
+	runnersPaused,
 	runnersProblem,
 	runnersRunning,
 	startRunners,
@@ -1413,6 +1415,7 @@ function trayImage(): Electron.NativeImage {
 
 /** One line on this Mac's runners for the menu bar menu. */
 function runnersLine(): string {
+	if (runnersPaused()) return "This Mac's runners are paused";
 	const problem = runnersProblem();
 	if (problem)
 		return problem.length > 90 ? `${problem.slice(0, 89)}…` : problem;
@@ -1433,7 +1436,15 @@ function trayMenu(): Menu {
 		{ type: "separator" },
 		{ label: runnersLine(), enabled: false },
 		{ label: "This Mac…", click: openPanel },
-		{ label: "Restart Runners", click: () => void restartRunners() },
+		runnersPaused() || !runnersRunning()
+			? { label: "Resume Runners", click: () => void restartRunners() }
+			: {
+					// Pausing stops the tasks running on this Mac, so it says how many.
+					label: status?.activeRuns
+						? `Pause Runners and Stop ${status.activeRuns === 1 ? "1 Task" : `${status.activeRuns} Tasks`}`
+						: "Pause Runners",
+					click: () => void pauseRunners().then(refresh),
+				},
 		{ type: "separator" },
 		{ label: "Check for Updates…", click: () => void checkForUpdates(true) },
 		...(app.isPackaged
@@ -1547,7 +1558,8 @@ async function newChat(text: string): Promise<void> {
 				const wait = () => new Promise((resolve) => setTimeout(resolve, 200));
 				for (let tries = 0; tries < 75; tries++) {
 					if (location.pathname === "/login") return "sign-in";
-					const field = document.querySelector('textarea[aria-label="Message"]');
+					// The chat with a picked tedi and the workspace chat name their field differently.
+					const field = document.querySelector('textarea[aria-label="Message"], textarea[aria-label="Message the workspace"]');
 					if (field && !field.readOnly) {
 						const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
 						set.call(field, text);
@@ -1587,9 +1599,38 @@ async function takeOverRunners(): Promise<void> {
 	}
 	status ??= await loadStatus();
 	if (!tookOver && status.runners.length === 0) return;
+	// Paused by the person: they stay stopped until Resume.
+	if (runnersPaused()) return;
 	const result = await startRunners();
 	if (!result.ok) log(`runners: not started (${lastLine(result.output)})`);
 	await refresh();
+}
+
+/**
+ * True when macOS opened the app as the person logged in. macOS no longer
+ * says so itself, so this goes by the Dock, which starts with the session:
+ * with Open at Login on, a start in the Dock's first two minutes is the
+ * one macOS made.
+ */
+async function openedAtLogin(): Promise<boolean> {
+	if (process.platform !== "darwin" || !app.isPackaged) return false;
+	if (!app.getLoginItemSettings().openAtLogin) return false;
+	const dock = lastLine(
+		(
+			await run("/usr/bin/pgrep", [
+				"-n",
+				"-x",
+				"-u",
+				String(process.getuid?.()),
+				"Dock",
+			])
+		).output,
+	);
+	if (!/^\d+$/.test(dock)) return false;
+	const age = lastLine(
+		(await run("/bin/ps", ["-o", "etime=", "-p", dock])).output,
+	).trim();
+	return /^0[01]:\d\d$/.test(age);
 }
 
 const appLink = (args: string[]) =>
@@ -1604,16 +1645,14 @@ else {
 		openAppLink(url);
 	});
 	openAppLink(appLink(process.argv));
-	void app.whenReady().then(() => {
+	void app.whenReady().then(async () => {
 		log(`start: version ${app.getVersion()}`);
 		// Read and deleted before anything else: only a start that follows a
 		// click on the update button may replace the command-line tool.
 		const clicked = takeUpdateClick();
 		setMenu();
 		// Opened at login, Tedix starts in the menu bar without a window.
-		const atLogin =
-			process.platform === "darwin" &&
-			app.getLoginItemSettings().wasOpenedAtLogin;
+		const atLogin = await openedAtLogin();
 		createMainWindow(!atLogin);
 		if (atLogin) app.dock?.hide();
 		createTray();
