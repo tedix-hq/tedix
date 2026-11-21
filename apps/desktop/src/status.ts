@@ -25,7 +25,6 @@ export interface Status {
 	activeRuns: number;
 	machineToolsUp: boolean;
 	machineToolsEvent: string;
-	onBattery: boolean;
 }
 
 async function json(
@@ -103,7 +102,7 @@ async function machineToolsEvent(): Promise<string> {
 	}
 }
 
-export async function loadStatus(onBattery: boolean): Promise<Status> {
+export async function loadStatus(): Promise<Status> {
 	const entries = readRunners();
 	const serving = servingRunner(entries);
 	const status: Status = {
@@ -129,7 +128,6 @@ export async function loadStatus(onBattery: boolean): Promise<Status> {
 			process.platform !== "win32" &&
 			(await run("pgrep", ["-f", "--", "--machine-tools-only"])).ok,
 		machineToolsEvent: await machineToolsEvent(),
-		onBattery,
 	};
 	const tedix = findTedix();
 	if (!tedix) return { ...status, cliFound: false };
@@ -170,7 +168,6 @@ export function summary(status: Status): string {
 	const enabled = status.runners.filter((runner) => runner.enabled);
 	const running = enabled.filter((runner) => runner.running).length;
 	return [
-		status.onBattery && "On battery: closing the lid stops runs",
 		`${running} of ${enabled.length} runners running`,
 		`${status.activeRuns} active ${status.activeRuns === 1 ? "run" : "runs"}`,
 		`machine tools ${status.machineToolsUp ? "running" : "not running"}`,

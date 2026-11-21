@@ -83,6 +83,11 @@ function draw(state: PanelState) {
 	const enabled = status.runners.filter((runner) => runner.enabled);
 	const running = enabled.filter((runner) => runner.running).length;
 	const healthy = status.cliFound && running === enabled.length;
+	const problem = !status.cliFound
+		? "Command-line tool not found"
+		: !healthy
+			? `${enabled.length - running} of ${enabled.length} runners not running`
+			: "";
 	const nodes: Child[] = [
 		el(
 			"div",
@@ -92,20 +97,8 @@ function draw(state: PanelState) {
 				"div",
 				"",
 				el("div", "name", status.machineName || "This Mac"),
-				el(
-					"div",
-					`state ${healthy ? "good" : "warn"}`,
-					el("span", "mark"),
-					!status.cliFound
-						? "Command-line tool not found"
-						: status.onBattery
-							? "On battery: closing the lid stops runs"
-							: enabled.length === 0
-								? "Does not run tasks"
-								: healthy
-									? "Ready for tasks"
-									: `${enabled.length - running} of ${enabled.length} runners not running`,
-				),
+				// Speak up only when something needs attention.
+				problem && el("div", "state warn", el("span", "mark"), problem),
 			),
 		),
 		el(
