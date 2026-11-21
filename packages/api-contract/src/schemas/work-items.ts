@@ -2548,6 +2548,7 @@ export const DelegationAutonomyFeedbackResultSchema = z.object({
 });
 
 export const WorkActivityEventSchema = z.object({
+	isReply: z.boolean().optional(),
 	delegationFyi: DelegationFyiSchema.optional(),
 	id: z.string(),
 	workItemId: z.string(),

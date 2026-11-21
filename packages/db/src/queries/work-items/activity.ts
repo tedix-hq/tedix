@@ -35,6 +35,7 @@ export interface WorkActivitySettlement {
 
 /** A recent board event (comment/heartbeat/block/done/…) for the activity feed. */
 export interface WorkActivityRow {
+	isReply?: boolean;
 	delegationFyi?: DelegationFyi;
 	id: string;
 	workItemId: string;
@@ -172,6 +173,9 @@ export async function listWorkActivity(
 				? fyi.data
 				: undefined;
 		return {
+			...(r.eventType === "comment" && md.activityKind === "reply"
+				? { isReply: true }
+				: {}),
 			...(trustedFyi ? { delegationFyi: trustedFyi } : {}),
 			id: r.id,
 			workItemId: r.workItemId,

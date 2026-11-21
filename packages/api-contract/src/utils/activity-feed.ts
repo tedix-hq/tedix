@@ -329,10 +329,9 @@ export function workFeedItems(
 							`${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`)
 						: `${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`,
 			),
-			classId: (e.delegationFyi?.classId ?? `work:${e.eventType}`).slice(
-				0,
-				100,
-			),
+			classId: e.isReply
+				? "work:reply"
+				: (e.delegationFyi?.classId ?? `work:${e.eventType}`).slice(0, 100),
 			done: ["completed", "cancelled"].includes(e.workItemDisposition),
 			stalled: /blocked|expired|failed/.test(e.eventType),
 			importance: e.personalAgentContribution

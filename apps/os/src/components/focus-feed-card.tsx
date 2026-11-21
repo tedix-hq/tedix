@@ -124,7 +124,9 @@ function PostDiscussion({
 				<header className="shrink-0 border-b border-kumo-line px-4 py-4 pe-16">
 					<SheetTitle>Comments</SheetTitle>
 					<SheetDescription className="mt-1 line-clamp-2">
-						<Link href={`/work/items/${itemId}`}>{headline}</Link>
+						<Link href={`/work/items/${itemId}`}>
+							{detail.data?.workItem.title ?? headline}
+						</Link>
 					</SheetDescription>
 				</header>
 				<div
@@ -192,7 +194,7 @@ function PostDiscussion({
 						})}
 				</div>
 				<footer className="shrink-0 border-t border-kumo-line p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
-					<WorkItemCommentComposer itemId={itemId} compact />
+					<WorkItemCommentComposer itemId={itemId} reply />
 				</footer>
 			</SheetContent>
 		</Sheet>

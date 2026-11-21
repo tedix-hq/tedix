@@ -352,7 +352,7 @@ export function FocusFeed({
 		...ranked.filter(isPost),
 		...ranked.filter((item) => !isPost(item)),
 	].filter((item) => {
-		if (!outcomes.has(item.id)) return false;
+		if (item.classId === "work:reply" || !outcomes.has(item.id)) return false;
 		const key = item.workItemId ?? item.id;
 		if (seenWork.has(key)) return false;
 		seenWork.add(key);
