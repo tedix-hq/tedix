@@ -1,3 +1,5 @@
+import { auditActor } from "../../audit-helpers";
+import { storeOrganizationMemoryReview } from "../../../services/organization-memory-binding";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
 import {
@@ -331,12 +333,12 @@ const review = authed.review
 			reviewerTediId,
 			reviewerAuthType: context.authType ?? null,
 		});
-		await updateFact(
-			context.db,
-			{ organizationId: orgId },
-			input.factId,
-			updates,
-		);
+		const actor = auditActor(context);
+		await storeOrganizationMemoryReview(context.db, fact, updates, {
+			id: actor.actorId,
+			kind: actor.actorType,
+			organizationId: orgId,
+		});
 		const updated = await getFactById(
 			context.db,
 			{ organizationId: orgId },
