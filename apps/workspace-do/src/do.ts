@@ -73,6 +73,18 @@ import {
 } from "@tedix/db/tenant-store/store";
 import { tenantStoreName } from "@tedix/db/tenant-store/router";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import {
+	applyPersonChats,
+	conversationParticipants,
+	forgetPersonChatWorkspace,
+	listPersonChats,
+	PERSON_CHATS_SCHEMA,
+	personChatsIn,
+	personChatsName,
+	type PersonChat,
+	type PersonChatsOwner,
+	type PersonChatsSnapshot,
+} from "./person-chats";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type {
@@ -778,6 +790,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#activityRecords = new SqlActivityRecords(this.#store);
 		this.#events = new SqlEventLedger(this.#store, (event) => {
 			this.#recordConversationActivity(event);
+			// Home lists each participant's chats; they change with these.
+			const listed =
+				event.type === "turn.started" ||
+				event.type === "turn.finished" ||
+				event.type === "conversation.updated";
+			if (listed)
+				this.#markPersonChats(
+					conversationParticipants(this.#store, event.conversationId),
+				);
 			this.#pushSerial = this.#pushSerial.then(() => this.#push(event));
 			this.ctx.waitUntil(this.#pushSerial);
 			// Unread badges and chat notifications read the activity feed. A
@@ -791,6 +812,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				event.type === "agent_run.question"
 			)
 				this.ctx.waitUntil(this.#flushActivity());
+			else if (listed) this.#flushPersonChatsSoon();
 		});
 		const productSha = this.env.GIT_SHA;
 		this.#ledger = new SqlAccountabilityAdapter(
@@ -2021,6 +2043,130 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			}));
 	}
 
+	/**
+	 * The person-chats object for `owner`: a Home index, never a workspace
+	 * store, and only ever for the one person it was first written for.
+	 */
+	#personChatsStore(owner: PersonChatsOwner) {
+		if (this.ctx.id.name !== personChatsName(owner))
+			throw new Error("Chat index owner does not match this object");
+		if (this.#storeIdentity())
+			throw new Error("A workspace store is not a chat index");
+		const kept = this.#store.get<PersonChatsOwner>("person-chats-owner");
+		if (
+			kept &&
+			(kept.organizationId !== owner.organizationId ||
+				kept.userId !== owner.userId)
+		)
+			throw new Error("Chat index owner does not match the stored owner");
+		if (!kept)
+			this.#store.put("person-chats-owner", {
+				organizationId: owner.organizationId,
+				userId: owner.userId,
+			});
+		this.#store.run(PERSON_CHATS_SCHEMA);
+		return this.#store;
+	}
+
+	/** A workspace store sends one person's chats there; see person-chats.ts. */
+	recordPersonChats(
+		owner: PersonChatsOwner,
+		snapshot: PersonChatsSnapshot,
+	): boolean {
+		const store = this.#personChatsStore(owner);
+		let applied = false;
+		this.ctx.storage.transactionSync(() => {
+			applied = applyPersonChats(store, snapshot);
+		});
+		return applied;
+	}
+
+	/** One person's chats across workspaces, newest first; readers check access. */
+	listPersonChats(owner: PersonChatsOwner, limit = 100): PersonChat[] {
+		return listPersonChats(
+			this.#personChatsStore(owner),
+			Math.max(1, Math.min(limit, 200)),
+		);
+	}
+
+	/** Drops a workspace the person can no longer open. */
+	forgetPersonChatWorkspace(owner: PersonChatsOwner, workspaceId: string) {
+		forgetPersonChatWorkspace(this.#personChatsStore(owner), workspaceId);
+	}
+
+	/** Queues these people's chat lists for Home; `#flushPersonChats` sends them. */
+	#markPersonChats(userIds: readonly string[]) {
+		if (!userIds.length) return;
+		const pending =
+			this.#store.get<Record<string, number>>("person-chats-pending") ?? {};
+		let mark = this.#store.get<number>("person-chats-mark") ?? 0;
+		for (const userId of userIds) pending[userId] = ++mark;
+		this.#store.put("person-chats-mark", mark);
+		this.#store.put("person-chats-pending", pending);
+	}
+
+	/** The workspace this store serves, once it has been bound. */
+	#storeIdentity(): WorkspaceScope | undefined {
+		const [row] = this.#store.exec<{
+			organization_id: string;
+			workspace_id: string;
+		}>(
+			"SELECT organization_id, workspace_id FROM tenant_store_identity WHERE slot = 1",
+		);
+		return row
+			? { organizationId: row.organization_id, workspaceId: row.workspace_id }
+			: undefined;
+	}
+
+	/** Sends queued chat lists now, in line with the activity flushes. */
+	#flushPersonChatsSoon() {
+		this.ctx.waitUntil(
+			this.#serializeActivity(() => this.#flushPersonChats()).catch(() => {}),
+		);
+	}
+
+	/**
+	 * Sends each queued person a fresh snapshot of their chats here. A failed
+	 * send stays queued for the next flush; a person queued again while a send
+	 * was out stays queued, so the newer list goes too.
+	 */
+	async #flushPersonChats(): Promise<void> {
+		const pending =
+			this.#store.get<Record<string, number>>("person-chats-pending") ?? {};
+		if (!Object.keys(pending).length) return;
+		const identity = this.#storeIdentity();
+		if (!identity) return;
+		for (const [userId, mark] of Object.entries(pending)) {
+			const seq = (this.#store.get<number>("person-chats-seq") ?? 0) + 1;
+			this.#store.put("person-chats-seq", seq);
+			const owner = { organizationId: identity.organizationId, userId };
+			try {
+				await (
+					durableObjectStubByName(
+						this.env.WORKSPACE,
+						this.env,
+						personChatsName(owner),
+					) as unknown as WorkspaceRpc
+				).recordPersonChats(owner, {
+					workspaceId: identity.workspaceId,
+					seq,
+					chats: personChatsIn(this.#store, userId),
+				});
+				const left =
+					this.#store.get<Record<string, number>>("person-chats-pending") ?? {};
+				if (left[userId] === mark) {
+					delete left[userId];
+					this.#store.put("person-chats-pending", left);
+				}
+			} catch (error) {
+				workspaceLog.warn("Home chat list update queued for retry", {
+					event: "workspace.person_chats_retry",
+					error,
+				});
+			}
+		}
+	}
+
 	/** Whether this workspace has the conversation; deleted ones are gone. */
 	hasConversation(scope: WorkspaceScope, conversationId: string): boolean {
 		this.bindScope(scope);
@@ -2738,6 +2884,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#conversationRow(conversationId);
 		if (this.#runningTurnIn(conversationId))
 			throw new Error("Stop the reply before you delete this conversation");
+		// Read before the turns go; their lists drop it on the next flush.
+		const participants = conversationParticipants(this.#store, conversationId);
 		this.ctx.storage.transactionSync(() => {
 			// The web grants table exists only once a turn has used the web.
 			this.#store.run(WEB_SCHEMA);
@@ -2772,6 +2920,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#store.delete(`decision-notes:${conversationId}`);
 			this.#store.delete(`compaction:${conversationId}`);
 		});
+		this.#markPersonChats(participants);
+		this.#flushPersonChatsSoon();
 		workspaceLog.info("Workspace conversation deleted", {
 			event: "workspace.conversation_deleted",
 			...this.#diagnostics(),
@@ -3529,6 +3679,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	#flushActivity(): Promise<void> {
 		return this.#serializeActivity(async () => {
+			await this.#flushPersonChats();
 			const scope = this.#store.get<WorkspaceScope>("activity-scope");
 			if (!scope) return;
 			const records = await this.#ledger.list({
@@ -4038,6 +4189,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.bindScope(scope);
 		const current = ws.deserializeAttachment() as Record<string, unknown>;
 		ws.serializeAttachment({ ...current, scope, conversationId });
+		// Opening the workspace refreshes the person's chats in Home, which
+		// also mends a list an earlier failed send left behind.
+		if (current.actorKind === "user" && typeof current.actorId === "string") {
+			this.#markPersonChats([current.actorId]);
+			this.#flushPersonChatsSoon();
+		}
 		// Pick up completion replies that failed before the retry was deployed.
 		if (
 			conversationId &&
@@ -6031,6 +6188,18 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		scope: WorkspaceScope,
 		conversationId: string,
 	): Promise<boolean>;
+	recordPersonChats(
+		owner: PersonChatsOwner,
+		snapshot: PersonChatsSnapshot,
+	): Promise<boolean>;
+	listPersonChats(
+		owner: PersonChatsOwner,
+		limit?: number,
+	): Promise<PersonChat[]>;
+	forgetPersonChatWorkspace(
+		owner: PersonChatsOwner,
+		workspaceId: string,
+	): Promise<void>;
 	listConversationTurnIds(
 		scope: WorkspaceScope,
 		conversationId: string,

@@ -107,8 +107,9 @@ import {
 } from "../src/sandbox";
 import { COMPATIBILITY_DATE } from "../src/do";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
-import type { WorkspaceRpc } from "../src/do";
+import type { WorkspaceDO, WorkspaceRpc } from "../src/do";
 import type { ScriptStep } from "./worker";
+import { personChatsName } from "../src/person-chats";
 import wranglerConfig from "../wrangler.jsonc?raw";
 
 const scope: WorkspaceScope = {
@@ -8948,5 +8949,137 @@ describe("approval modes and computer access", () => {
 				by: "u2",
 			}),
 		).rejects.toThrow("only the person who sent the message");
+	});
+});
+
+describe("Home lists each person's workspace chats", () => {
+	function personIndex(userId: string) {
+		const owner = { organizationId: scope.organizationId, userId };
+		return {
+			owner,
+			index: durableObjectStubByName(
+				testEnv.WORKSPACE,
+				testEnv,
+				personChatsName(owner),
+			) as unknown as WorkspaceRpc,
+		};
+	}
+
+	async function listed(userId: string, conversationId: string) {
+		const { owner, index } = personIndex(userId);
+		for (let attempt = 0; attempt < 50; attempt++) {
+			const chats = await index.listPersonChats(owner);
+			if (chats.some((chat) => chat.conversationId === conversationId))
+				return chats;
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		return index.listPersonChats(owner);
+	}
+
+	test("a person's chat reaches their index after a turn and leaves it when deleted", async () => {
+		await seedCore();
+		const ws = workspace();
+		await ws.scriptModel(scope, [{ text: "Noted." }]);
+		const turn = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Plan the launch checklist",
+		});
+		await ws.awaitTurn(scope, turn.turnId, 20_000);
+		const chats = await listed("u1", turn.conversationId);
+		expect(chats).toContainEqual(
+			expect.objectContaining({
+				workspaceId: scope.workspaceId,
+				conversationId: turn.conversationId,
+			}),
+		);
+		// Someone who never posted there gets no entry.
+		const other = personIndex("u2");
+		expect(
+			(await other.index.listPersonChats(other.owner)).map(
+				(chat) => chat.conversationId,
+			),
+		).not.toContain(turn.conversationId);
+
+		await runInDurableObject(ws, (instance: WorkspaceDO) =>
+			instance.deleteConversation(scope, turn.conversationId),
+		);
+		const { owner, index } = personIndex("u1");
+		let after = await index.listPersonChats(owner);
+		for (
+			let attempt = 0;
+			attempt < 50 &&
+			after.some((chat) => chat.conversationId === turn.conversationId);
+			attempt++
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			after = await index.listPersonChats(owner);
+		}
+		expect(after.map((chat) => chat.conversationId)).not.toContain(
+			turn.conversationId,
+		);
+	});
+
+	test("an older snapshot never replaces a newer one, and the index serves one person only", async () => {
+		const { owner, index } = personIndex(`u-${crypto.randomUUID()}`);
+		const chat = (id: string, at: string) => ({
+			conversationId: id,
+			title: id,
+			lastMessageAt: at,
+		});
+		expect(
+			await index.recordPersonChats(owner, {
+				workspaceId: "w1",
+				seq: 2,
+				chats: [chat("kept", "2026-11-21T10:00:00Z")],
+			}),
+		).toBe(true);
+		expect(
+			await index.recordPersonChats(owner, {
+				workspaceId: "w1",
+				seq: 1,
+				chats: [chat("stale", "2026-11-21T11:00:00Z")],
+			}),
+		).toBe(false);
+		await index.recordPersonChats(owner, {
+			workspaceId: "w2",
+			seq: 1,
+			chats: [chat("newer", "2026-11-21T12:00:00Z")],
+		});
+		expect(
+			(await index.listPersonChats(owner)).map((row) => row.conversationId),
+		).toEqual(["newer", "kept"]);
+		await index.forgetPersonChatWorkspace(owner, "w2");
+		expect(
+			(await index.listPersonChats(owner)).map((row) => row.conversationId),
+		).toEqual(["kept"]);
+
+		/** Await an RPC that must fail; `expect().rejects` leaks RPC rejections. */
+		const failure = async (call: () => Promise<unknown>) => {
+			try {
+				await call();
+			} catch (error) {
+				return error instanceof Error ? error.message : String(error);
+			}
+			return "no error";
+		};
+		expect(
+			await failure(() =>
+				index.listPersonChats({ ...owner, userId: "someone-else" }),
+			),
+		).toContain("does not match this object");
+		// A workspace store never serves as an index.
+		expect(
+			await failure(() =>
+				workspace().listPersonChats({
+					organizationId: scope.organizationId,
+					userId: "u1",
+				}),
+			),
+		).toContain("does not match this object");
+		// And the index never serves workspace calls.
+		expect(
+			await failure(() => (index as unknown as Stub).listConversations(scope)),
+		).toContain("does not match this object");
 	});
 });
