@@ -41,7 +41,11 @@ export interface CmsProxyContext {
 export type ToolResult = {
 	content: Array<{ type: "text"; text: string }>;
 	isError?: true;
-	_meta?: { code?: string; details?: any };
+	_meta?: {
+		code?: string;
+		details?: any;
+		credentialFailureBeforeDispatch?: true;
+	};
 };
 
 export function cmsApiBaseUrl(ctx: CmsProxyContext): string {

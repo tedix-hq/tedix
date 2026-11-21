@@ -432,6 +432,88 @@ describe("ToolHandler MCP transport", () => {
 		},
 	);
 
+	it.each([true, false])(
+		"carries the approving human credential to Site Builder only with a verified grant: %s",
+		async (granted) => {
+			const cmsFetch = methodAwareFetch({
+				content: [{ type: "text", text: '{"success":true}' }],
+			});
+			const ctx = mcpCtx({
+				transport: "mcp",
+				mcpServerUrl: "https://builder.tedix.dev/mcp",
+				mcpToolName: "menu_set_items",
+				_aggregateConnectionLabel: "cms-example",
+			});
+			ctx.env = {
+				...ctx.env,
+				CMS: { fetch: cmsFetch },
+				PLATFORM_SERVICE_TOKEN: "service-secret",
+			} as unknown as CloudflareEnv;
+			ctx.callerIdentity = {
+				authType: "service",
+				kernel: true,
+				userId: "approver-1",
+				organizationId: "org_1",
+				scopes: granted ? ["connections.execute"] : [],
+			};
+			ctx.bearerToken = "human.jwt.token";
+			expect(
+				await new ToolHandler().execute({ name: "main", items: [] }, ctx),
+			).toMatchObject({ status: 200 });
+			for (const [, init] of cmsFetch.mock.calls as Array<
+				[string, RequestInit]
+			>) {
+				const headers = new Headers(init.headers);
+				expect(headers.get("Authorization")).toBe("Bearer service-secret");
+				expect(headers.get("X-Forwarded-Authorization")).toBe(
+					granted ? "Bearer human.jwt.token" : null,
+				);
+				expect(headers.get("X-Tedix-Connection-Label")).toBe("cms-example");
+			}
+		},
+	);
+
+	it.each([true, false])(
+		"attests a pre-dispatch credential failure only from the CMS binding: %s",
+		async (trusted) => {
+			const result = {
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: "[CMS_MCP_DISCOVERY_FAILED] Tenant MCP discovery failed (401): invalid token",
+					},
+				],
+				_meta: { credentialFailureBeforeDispatch: true },
+			};
+			const ctx = mcpCtx(
+				{
+					transport: "mcp",
+					mcpServerUrl: trusted
+						? "https://builder.tedix.dev/mcp"
+						: "https://provider.example/mcp",
+					mcpToolName: "menu_set_items",
+				},
+				result,
+			);
+			ctx.env = {
+				...ctx.env,
+				CMS: { fetch: methodAwareFetch(result) },
+				PLATFORM_SERVICE_TOKEN: "service-secret",
+			} as unknown as CloudflareEnv;
+			vi.stubGlobal("fetch", methodAwareFetch(result));
+			try {
+				const response = await new ToolHandler().execute({}, ctx);
+				expect(response.status).toBe(500);
+				expect(response.cmsCredentialFailureBeforeDispatch).toBe(
+					trusted ? true : undefined,
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		},
+	);
+
 	it("forwards only verified CMS maintenance authority on the CMS binding", async () => {
 		const cmsFetch = methodAwareFetch({
 			content: [{ type: "text", text: JSON.stringify({ ok: true }) }],

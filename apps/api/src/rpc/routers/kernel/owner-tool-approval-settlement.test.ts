@@ -69,6 +69,7 @@ import { resolveReplayTool } from "./write-executor";
 type ApprovalRow = typeof tediApprovalRequests.$inferSelect;
 const context = {
 	db: {},
+	headers: new Headers({ Authorization: "Bearer approving-human.jwt.token" }),
 	env: { MCP_URL: "https://mcp.example.test", MCP_SERVICE: { fetch: vi.fn() } },
 	authType: "user",
 	user: { sub: "owner-1" },
@@ -183,6 +184,39 @@ describe("owner tool approval settlement", () => {
 			}
 		},
 	);
+	it.each([false, true])(
+		"uses the authenticated approver token for direct and gateway approvals: %s",
+		async (forwarded) => {
+			const row = approval({
+				resolvedBy: "user:reviewer",
+				payload: {
+					...payload,
+					requestingAgent: { principalId: "agent" },
+					target: { transport: "mcp" },
+				},
+			});
+			await settleOwnerToolCallApproval(
+				{
+					...context,
+					user: { sub: "reviewer", scopes: ["connections.execute"] },
+					serviceBindingPrincipal: forwarded ? "mcp-edge" : undefined,
+					headers: new Headers({
+						Authorization: forwarded
+							? "Bearer service-secret"
+							: "Bearer human-token",
+						"X-Tedix-Caller-Type": "mcp-edge-user",
+						"X-Forwarded-Authorization": forwarded
+							? "Bearer human-token"
+							: "Bearer untrusted-token",
+					}),
+				} as BaseContext,
+				{ approval: row, status: "approved" },
+			);
+			expect(mocks.executor).toHaveBeenCalledWith(
+				expect.objectContaining({ verifiedHumanBearerToken: "human-token" }),
+			);
+		},
+	);
 	it.each([
 		{
 			sub: "reviewer",
@@ -233,6 +267,7 @@ describe("owner tool approval settlement", () => {
 					expect.objectContaining({
 						verifiedConnectionExecute: true,
 						verifiedConnectionAdmin: false,
+						verifiedHumanBearerToken: "approving-human.jwt.token",
 						payload: expect.objectContaining({
 							initiatedByUserId: "reviewer",
 							approvalRequesterUserId: "owner-1",

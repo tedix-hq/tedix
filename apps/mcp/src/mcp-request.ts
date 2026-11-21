@@ -423,10 +423,17 @@ export async function handleMcpRequest(
 		request.headers,
 		inboundTraceMeta,
 	);
-	// Capture the original bearer token for forwarding to upstream service bindings
+	// Only the authenticated kernel may carry a verified human bearer on replay.
+	// Site Builder validates it again before resolving tenant human authorization.
+	const kernelHumanReplay =
+		callerIdentity?.authType === "service" &&
+		callerIdentity.kernel === true &&
+		callerIdentity.scopes?.includes("connections.execute");
 	const bearerToken =
-		request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ??
-		undefined;
+		(kernelHumanReplay
+			? request.headers.get("X-Forwarded-Authorization")
+			: request.headers.get("Authorization")
+		)?.replace(/^Bearer\s+/i, "") || undefined;
 	const headerConnectionLabel =
 		request.headers.get("X-Tedix-Connection-Label") ?? undefined;
 	const mcpConnectionLabel =

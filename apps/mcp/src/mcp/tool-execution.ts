@@ -1387,6 +1387,9 @@ async function executeWithHandler(
 							},
 						}
 					: {}),
+				...(isErrorResult && result.cmsCredentialFailureBeforeDispatch
+					? { "tedix/cmsCredentialFailureBeforeDispatch": true }
+					: {}),
 				...(isErrorResult && result.connectionRecovery
 					? { "tedix/connectionRecovery": result.connectionRecovery }
 					: {}),

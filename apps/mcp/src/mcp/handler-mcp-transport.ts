@@ -437,7 +437,11 @@ export async function executeMcpTransport(
 			ctx.bearerToken &&
 			(ctx.callerIdentity?.authType === "oauth" ||
 				ctx.callerIdentity?.authType === "user" ||
-				ctx.callerIdentity?.authType === "external_agent")
+				ctx.callerIdentity?.authType === "external_agent" ||
+				(serviceBinding === ctx.env.CMS &&
+					ctx.callerIdentity?.authType === "service" &&
+					ctx.callerIdentity.kernel === true &&
+					ctx.callerIdentity.scopes?.includes("connections.execute")))
 		) {
 			headers["X-Forwarded-Authorization"] = `Bearer ${ctx.bearerToken}`;
 		}
@@ -988,6 +992,13 @@ export async function executeMcpTransport(
 		if (rpcResult.result?.isError) {
 			return {
 				data: { error: textContent || "Remote MCP tool returned an error" },
+				// Site Builder strips this attestation from tenant tool responses.
+				...(serviceBinding === ctx.env.CMS &&
+				ctx.env.CMS &&
+				isRecord(rpcResult.result._meta) &&
+				rpcResult.result._meta.credentialFailureBeforeDispatch === true
+					? { cmsCredentialFailureBeforeDispatch: true as const }
+					: {}),
 				status: 500,
 			};
 		}

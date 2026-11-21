@@ -244,6 +244,8 @@ export interface RpcToolResult {
 	connectionRecovery?: ConnectionRecovery;
 	/** Host-generated only; no credential was on file, so the provider was not called. */
 	credentialMissing?: true;
+	/** Authenticated Site Builder discovery failed before the tenant tool call. */
+	cmsCredentialFailureBeforeDispatch?: true;
 }
 
 type SecretEgressContext = Pick<
