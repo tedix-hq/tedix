@@ -1,5 +1,6 @@
 import { CaretRight, Check, Robot, Warning } from "@phosphor-icons/react";
 import type { ListWorkAttemptStepsResult } from "@tedix/api-contract/schemas/work-attempt-steps";
+import { useQuery } from "@tanstack/react-query";
 import { type ComponentType, type ReactNode, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { OsRouterLink } from "@/components/kumo/link-provider";
@@ -17,6 +18,7 @@ import {
 } from "@/components/work-item-run";
 import type { AgentRunRef } from "@/lib/agent-run-result";
 import { useOsFormattingPreferences } from "@/lib/format";
+import { osQuery } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
@@ -89,6 +91,7 @@ export function AgentRunCardView({
 	onStop,
 	stopping = false,
 	stopError,
+	permissionHold,
 	LinkComponent = DefaultTaskLink,
 }: {
 	agentRun: AgentRunRef;
@@ -105,6 +108,7 @@ export function AgentRunCardView({
 	onStop?: () => Promise<unknown>;
 	stopping?: boolean;
 	stopError?: unknown;
+	permissionHold?: string;
 	LinkComponent?: ComponentType<AgentRunTaskLinkProps>;
 }) {
 	useOsFormattingPreferences();
@@ -125,7 +129,9 @@ export function AgentRunCardView({
 		: !run
 			? "Loading the run…"
 			: waiting && !attempt
-				? notPickedUp(agentRun.requestedAt, now)
+				? permissionHold
+					? "Waiting for your permission. Open the task to review and answer the request."
+					: notPickedUp(agentRun.requestedAt, now)
 				: (stoppedResponding(attempt, run.steps.at(-1)?.at, now) ??
 					workRunStatus(run, attempt, undefined, new Date(now)));
 	const stopRequested = Boolean(
@@ -185,6 +191,11 @@ export function AgentRunCardView({
 						</Text>
 					</div>
 				</div>
+				{waiting && !attempt && permissionHold ? (
+					<Text as="p" className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+						{permissionHold}
+					</Text>
+				) : null}
 				{hidden ? (
 					<div>
 						<Button
@@ -266,12 +277,25 @@ export function AgentRunCardView({
 export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
 	const { run, failed, attempt, viewerId, ownMessageIds, send, stop } =
 		useWorkItemRun(agentRun.workItemId, true);
+	const waiting = run?.attemptId === null && !attempt;
+	const requests = useQuery({
+		...osQuery.workInteractions.listInbox.queryOptions({
+			input: { workItemId: agentRun.workItemId, states: ["open"], limit: 50 },
+		}),
+		enabled: waiting,
+		refetchInterval: waiting ? 3_000 : false,
+		refetchIntervalInBackground: true,
+	});
+	const hold = requests.data?.data.find(
+		({ request }) => request.metadata?.source === "lane-dispatch-blocker",
+	);
 	return (
 		<AgentRunCardView
 			agentRun={agentRun}
 			run={run}
 			failed={failed}
 			attempt={attempt}
+			permissionHold={hold?.request.prompt}
 			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
 			onAnswer={(answer) =>

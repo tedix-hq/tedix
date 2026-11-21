@@ -202,6 +202,7 @@ export type DispatchItem = Pick<
 	executorId?: WorkItem["executorId"];
 	executorType?: WorkItem["executorType"];
 	dispatchState?: WorkItem["dispatchState"];
+	sourceSessionKey?: WorkItem["sourceSessionKey"];
 };
 
 function dispatchPlan(item: DispatchItem) {
@@ -273,6 +274,15 @@ export function dispatchSkip(
 		return "Work already has a live Attempt";
 	// A verify-only Attempt treats the original implementation actions as context.
 	if (verificationPlan(item)) return;
+	// Workspace chat records the requesting person as owner. The brief is
+	// their instruction to the coding agent; protected effects are gated at use.
+	if (
+		item.workKind === "coding" &&
+		item.sourceSessionKey?.startsWith("workspace:") &&
+		item.accountableOwnerType === "user" &&
+		item.accountableOwnerId
+	)
+		return;
 	const text = `${item.title}\n${item.description ?? ""}`;
 	const reserved = laneReservedActions(text);
 	if (!reserved.length) return;
