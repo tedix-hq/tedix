@@ -18,6 +18,7 @@ import {
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
+import { prefixedColumns } from "../utils/select";
 import {
 	type LearningFeedbackAttributionRow,
 	type LearningFeedbackMeasurementRow,
@@ -286,10 +287,18 @@ export async function listDecisionLearningHistory(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
-	const newest = (history: SQL | undefined) =>
+	// Production statistics make the planner prefer idx_learning_event_org_occurred
+	// for the shared read, walking ~17k of a tenant's newest events per call
+	// (48 s of main D1 time in 13 min on 21 Nov 2026). The hint keeps it on the
+	// partial index whose WHERE this read states word for word.
+	const newest = (history: SQL | undefined, hinted = false) =>
 		db
-			.select()
-			.from(learningInteractionEvents)
+			.select(prefixedColumns(learningInteractionEvents, "history"))
+			.from(
+				hinted
+					? sql`${learningInteractionEvents} INDEXED BY idx_learning_event_decision_history_shared`
+					: learningInteractionEvents,
+			)
 			.where(
 				and(
 					eq(learningInteractionEvents.organizationId, input.organizationId),
@@ -298,7 +307,7 @@ export async function listDecisionLearningHistory(
 			)
 			.orderBy(desc(learningInteractionEvents.occurredAt))
 			.limit(input.limit);
-	const shared = newest(sharedDecisionHistory);
+	const shared = newest(sharedDecisionHistory, true);
 	if (!input.personalScopeId) return shared;
 	const sharedHistory = shared.as("shared_history");
 	const personalHistory = newest(

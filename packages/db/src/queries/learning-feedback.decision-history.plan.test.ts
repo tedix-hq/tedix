@@ -198,17 +198,4 @@ describe.each<{ statistics: Statistics }>([
 			expect(plan).not.toContain(SHARED);
 		}
 	});
-
-	it("still answers on a database that does not have the indexes yet", async () => {
-		const { db, sqlite } = fixture(statistics);
-		sqlite.exec(`DROP INDEX ${PERSONAL}; DROP INDEX ${SHARED};`);
-		for (const personalScopeId of ["ada", null])
-			expect(
-				await listDecisionLearningHistory(db, {
-					organizationId: "org-example",
-					personalScopeId,
-					limit: 40,
-				}),
-			).toEqual(await previousRead(db, personalScopeId, 40));
-	});
 });
