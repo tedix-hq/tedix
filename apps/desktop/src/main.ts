@@ -1,6 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openLocalTedix } from "./local-mode";
+import { openLocalTedix, reloadLocalTedix } from "./local-mode";
 import {
 	app,
 	BrowserWindow,
@@ -1277,7 +1277,9 @@ function setMenu(): void {
 					{
 						label: "Reload",
 						accelerator: "CmdOrCtrl+R",
-						click: () => navigate("reload"),
+						click: (_item, focused) => {
+							if (!reloadLocalTedix(focused)) navigate("reload");
+						},
 					},
 				],
 			},

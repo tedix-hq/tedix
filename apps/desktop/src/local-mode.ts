@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, session } from "electron";
+import { type BaseWindow, BrowserWindow, dialog, session } from "electron";
 import {
 	localOrigin,
 	localPageAllowed,
@@ -19,6 +19,16 @@ let guarded = false;
 const load = () => {
 	void window?.loadURL(`${origin}/chat`).catch(() => {});
 };
+
+/** Handles the app menu's Reload command when the Local Tedix window has focus. */
+export function reloadLocalTedix(focused: BaseWindow | undefined): boolean {
+	if (!window || window !== focused || window.isDestroyed()) return false;
+	const contents = window.webContents;
+	if (localPageAllowed(contents.getURL(), origin))
+		contents.reloadIgnoringCache();
+	else load();
+	return true;
+}
 
 /** Opens or brings forward the Local Tedix window; `args` may carry --local=PORT. */
 export function openLocalTedix(args: readonly string[] = []): void {
