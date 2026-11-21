@@ -1,5 +1,6 @@
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
-import { archiveCorrectedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
+import { organizationMemoryWriter } from "../../services/organization-memory-binding";
+import { listCorrectedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { implement } from "@orpc/server";
 import {
 	recordDecisionExposure,
@@ -905,13 +906,20 @@ const correct = authed.correct
 				occurredAt: new Date().toISOString(),
 			}),
 		);
-		await archiveCorrectedAgentLessons(
+		const lessons = await listCorrectedAgentLessons(
 			context.db,
-			{ organizationId: organizationId },
+			{ organizationId },
 			actor.actorId,
 			event.id,
-			new Date().toISOString(),
 		);
+		const memory = organizationMemoryWriter(
+			context,
+			"learning_feedback_correct",
+		);
+		const now = new Date().toISOString();
+		for (const lesson of lessons) {
+			await memory.update(lesson, { archivedAt: now, validTo: now }, "archive");
+		}
 		return recorded;
 	});
 

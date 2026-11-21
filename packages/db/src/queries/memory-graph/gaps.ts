@@ -5,7 +5,6 @@
 
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
-import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -13,34 +12,6 @@ import {
 	memoryDomains,
 	memoryFacts,
 } from "../../schema/memory-graph";
-import { createEdge } from "./edges";
-import { createFact, getFactById, updateFact } from "./facts";
-
-export async function createGapFact(
-	db: DbClient,
-	params: {
-		tediId?: string;
-		domainId: string;
-		content: string;
-		metadata: Record<string, JsonValue>;
-		confidence?: number;
-	} & TenantScope,
-): Promise<MemoryFact> {
-	params = { ...params, ...normalizeTenantScope(params) };
-	return createFact(db, {
-		workspaceId: params.workspaceId,
-		id: crypto.randomUUID(),
-		organizationId: params.organizationId,
-		tediId: params.tediId ?? null,
-		domainId: params.domainId,
-		content: params.content,
-		factType: "gap",
-		confidence: params.confidence ?? 0.8,
-		metadata: params.metadata,
-		visibility: params.tediId ? "private" : "org",
-		accessCount: 0,
-	});
-}
 
 export async function listGaps(
 	db: DbClient,
@@ -81,42 +52,6 @@ export async function listGaps(
 		});
 	}
 	return gaps;
-}
-
-/** Both facts must belong to the supplied tenant before updating the gap or edge. */
-export async function resolveGap(
-	db: DbClient,
-	tenantScope: TenantScope,
-	gapId: string,
-	resolvedByFactId: string,
-): Promise<void> {
-	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
-	const gap = await getFactById(db, tenantScope, gapId);
-	if (!gap || gap.organizationId !== orgId) {
-		throw new Error(`Gap not found: ${gapId}`);
-	}
-	const resolvedBy = await getFactById(db, tenantScope, resolvedByFactId);
-	if (!resolvedBy || resolvedBy.organizationId !== orgId) {
-		throw new Error(`Resolving fact not found: ${resolvedByFactId}`);
-	}
-
-	const now = new Date().toISOString();
-	const meta = (gap.metadata as Record<string, unknown>) ?? {};
-
-	await updateFact(db, tenantScope, gapId, {
-		metadata: { ...meta, resolvedBy: resolvedByFactId, resolvedAt: now },
-		archivedAt: now,
-	});
-
-	// Create edge linking gap to resolving fact
-	await createEdge(db, tenantScope, {
-		id: crypto.randomUUID(),
-		sourceFactId: resolvedByFactId,
-		targetFactId: gapId,
-		relationType: "supersedes",
-		strength: 0.9,
-		context: "Resolves knowledge gap",
-	});
 }
 
 export async function getGapStats(

@@ -14,7 +14,11 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prefixedColumns } from "../../utils/select";
-import { memoryFacts, type MemoryFact } from "../../schema/memory-graph";
+import {
+	memoryFacts,
+	type MemoryFact,
+	type NewMemoryFact,
+} from "../../schema/memory-graph";
 import { normalizeTenantScope, type TenantScope } from "../../tenant-scope";
 
 /** Evidence-only facts are accepted as evidence, not as instructions. */
@@ -49,6 +53,11 @@ export type FactReviewUpdates = Partial<
 		| "metadata"
 	>
 >;
+
+export type FactMutationUpdates = FactReviewUpdates &
+	Partial<
+		Pick<MemoryFact, "content" | "validTo" | "promotedFrom" | "promotedAt">
+	>;
 
 const factStatus = {
 	pending: "pending",
@@ -166,13 +175,16 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 	private async append(
 		input: MemoryWriteInput,
 		rolledBackFrom?: string,
-		factReview?: { fact: MemoryFact; updates: FactReviewUpdates },
+		factReview?: { fact: MemoryFact; updates: FactMutationUpdates },
+		create?: NewMemoryFact,
 	): Promise<MemoryRevision> {
 		if (!input.key.trim()) throw new Error("Memory key must be nonempty");
 		const snapshot = JSON.parse(JSON.stringify(input)) as MemoryWriteInput;
 		if (!("value" in snapshot)) throw new Error("Memory value must be JSON");
 		const hash = await hashValue(snapshot.value);
-		const fact = factReview?.fact ?? (await this.fact(snapshot.key));
+		const fact = create
+			? undefined
+			: (factReview?.fact ?? (await this.fact(snapshot.key)));
 		const revisions = fact ? await this.revisions(fact) : [];
 		const revision: MemoryRevision = {
 			...snapshot,
@@ -189,7 +201,11 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 			...factReview?.updates,
 			reviewStatus: factReview
 				? (factReview.updates.reviewStatus ?? factReview.fact.reviewStatus)
-				: factStatus[revision.review],
+				: create
+					? create.reviewStatus === undefined
+						? "pending"
+						: create.reviewStatus
+					: factStatus[revision.review],
 			updatedAt: revision.writtenAt,
 		};
 		if (fact) await this.save(fact, revisions, updates);
@@ -197,12 +213,15 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 			await this.db.insert(memoryFacts).values({
 				id: snapshot.key,
 				organizationId: this.organizationId,
+				...(create ?? {
+					factType: "technical",
+					memoryScope: "org",
+					visibility: "org",
+					source: snapshot.provenance.source.surface,
+				}),
 				...updates,
-				factType: "technical",
-				memoryScope: "org",
-				visibility: "org",
-				source: snapshot.provenance.source.surface,
 				metadata: {
+					...create?.metadata,
 					memoryAdapterRevisions: JSON.parse(
 						JSON.stringify(revisions),
 					) as JsonValue,
@@ -210,10 +229,32 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 			});
 		return revision;
 	}
-	/** Fact reviews keep lifecycle fields and the revision in the same CAS write. */
+	/** Creates retain the caller's fact fields and database defaults. */
+	async create(
+		fact: NewMemoryFact,
+		provenance: MemoryProvenance,
+	): Promise<{ fact: MemoryFact; revision: MemoryRevision }> {
+		if (fact.organizationId !== this.organizationId)
+			throw new Error("Memory fact does not match the organization");
+		const revision = await this.append(
+			{
+				key: fact.id,
+				value: fact.content,
+				provenance,
+				review: factReviewState(fact.reviewStatus ?? "pending"),
+			},
+			undefined,
+			undefined,
+			fact,
+		);
+		const created = (await this.fact(fact.id))!;
+		await recordOwnerInstructionEdges(this.db, created);
+		return { fact: created, revision };
+	}
+	/** Fact changes keep lifecycle fields and the revision in the same CAS write. */
 	async write(
 		input: MemoryWriteInput,
-		factReview?: { fact: MemoryFact; updates: FactReviewUpdates },
+		factReview?: { fact: MemoryFact; updates: FactMutationUpdates },
 	): Promise<MemoryRevision> {
 		if (
 			factReview &&

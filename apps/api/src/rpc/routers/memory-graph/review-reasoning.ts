@@ -1,7 +1,11 @@
 import { auditActor } from "../../audit-helpers";
-import { storeOrganizationMemoryReview } from "../../../services/organization-memory-binding";
+import type { FactMutationUpdates } from "@tedix/db/queries/memory-graph/memory-adapter";
+import {
+	organizationMemoryWriter,
+	storeOrganizationMemoryReview,
+} from "../../../services/organization-memory-binding";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
-import type { MemoryFact } from "@tedix/db/schema/memory-graph";
+import type { MemoryFact, NewMemoryFact } from "@tedix/db/schema/memory-graph";
 import {
 	agentMemoryProjectionProfileNames,
 	deleteCanonicalMemoryProjection,
@@ -14,18 +18,11 @@ import {
 	createEdge,
 } from "@tedix/db/queries/memory-graph/edges";
 import {
-	createFact,
 	findCurrentFactsByTopicKey,
 	getFactById,
 	recordFactUsage,
-	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
-import {
-	createGapFact,
-	getGapStats,
-	listGaps,
-	resolveGap,
-} from "@tedix/db/queries/memory-graph/gaps";
+import { getGapStats, listGaps } from "@tedix/db/queries/memory-graph/gaps";
 import {
 	getActiveFacts,
 	searchFacts,
@@ -39,7 +36,6 @@ import {
 	listDomains,
 } from "@tedix/db/queries/memory-graph/domains";
 import { getTediById } from "@tedix/db/queries/tedis";
-import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { isMemorySearchFactEligible } from "../../../services/memory-search-filter";
 import { withOrg } from "../../org-scope";
 import {
@@ -52,6 +48,24 @@ import {
 	runGraphQuery,
 	sanitizeViz,
 } from "./policy-operations";
+
+function createGapFact(
+	context: BaseContext,
+	params: Pick<
+		NewMemoryFact,
+		"organizationId" | "domainId" | "content" | "metadata"
+	> & { tediId?: string },
+): Promise<MemoryFact> {
+	return organizationMemoryWriter(context, "memory_graph_gaps_detect").create({
+		...params,
+		id: crypto.randomUUID(),
+		tediId: params.tediId ?? null,
+		factType: "gap",
+		confidence: 0.8,
+		visibility: params.tediId ? "private" : "org",
+		accessCount: 0,
+	});
+}
 
 function reconcileFactProjection(
 	context: BaseContext,
@@ -117,6 +131,7 @@ const promote = authed.promote
 	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
+		const memory = organizationMemoryWriter(context, "memory_graph_promote");
 		const fact = await getFactById(
 			context.db,
 			{ organizationId: orgId },
@@ -142,14 +157,14 @@ const promote = authed.promote
 						return aTime.localeCompare(bTime);
 					})[0];
 					if (oldest) {
-						await updateFact(context.db, { organizationId: orgId }, oldest.id, {
+						await memory.update(oldest, {
 							priority: "active",
 						});
 					}
 				}
 			}
 			const topicKey = input.topicKey ?? fact.topicKey ?? null;
-			const promoted = await createFact(context.db, {
+			const promoted = await memory.create({
 				id: crypto.randomUUID(),
 				organizationId: orgId,
 				tediId: null,
@@ -215,15 +230,18 @@ const promote = authed.promote
 				);
 				for (const current of currentFacts) {
 					if (current.id === promoted.id) continue;
-					await invalidateFact(
-						context.db,
-						{ organizationId: orgId },
-						current.id,
-						`Superseded by promoted fact ${promoted.id} for topic ${topicKey}`,
+					await memory.update(
+						current,
+						{
+							validTo: new Date().toISOString(),
+							reviewStatus: "superseded",
+							metadata: {
+								...current.metadata,
+								invalidationReason: `Superseded by promoted fact ${promoted.id} for topic ${topicKey}`,
+							},
+						},
+						"supersede",
 					);
-					await updateFact(context.db, { organizationId: orgId }, current.id, {
-						reviewStatus: "superseded",
-					});
 					await deleteFactProjection(context, current);
 					await createEdge(
 						context.db,
@@ -243,7 +261,7 @@ const promote = authed.promote
 				fact: promoted,
 			};
 		}
-		const updates: Record<string, unknown> = {
+		const updates: FactMutationUpdates = {
 			visibility: input.visibility,
 			promotedFrom: fact.id,
 			promotedAt: now,
@@ -269,7 +287,7 @@ const promote = authed.promote
 					return aTime.localeCompare(bTime);
 				})[0];
 				if (oldest) {
-					await updateFact(context.db, { organizationId: orgId }, oldest.id, {
+					await memory.update(oldest, {
 						priority: "active",
 					});
 				}
@@ -278,12 +296,14 @@ const promote = authed.promote
 		} else if (input.priority) {
 			updates.priority = input.priority;
 		}
-		await updateFact(
+		// The core-limit demotion above may have changed this same fact.
+		const current = await getFactById(
 			context.db,
 			{ organizationId: orgId },
-			input.factId,
-			updates,
+			fact.id,
 		);
+		if (!current) throw createError(ErrorCodes.NOT_FOUND, "Fact not found");
+		await memory.update(current, updates, "promote");
 		const updated = await getFactById(
 			context.db,
 			{ organizationId: orgId },
@@ -426,7 +446,7 @@ const gapsDetect = authed.gaps.detect
 		for (const sub of subDomains) {
 			const subFacts = facts.filter((f) => f.domainId === sub.id);
 			if (subFacts.length === 0) {
-				const gap = await createGapFact(context.db, {
+				const gap = await createGapFact(context, {
 					organizationId: orgId,
 					tediId: input.tediId,
 					domainId: domain.id,
@@ -445,7 +465,7 @@ const gapsDetect = authed.gaps.detect
 		// Check for low-confidence areas
 		const lowConfFacts = facts.filter((f) => f.confidence < 0.5);
 		if (lowConfFacts.length > 3) {
-			const gap = await createGapFact(context.db, {
+			const gap = await createGapFact(context, {
 				organizationId: orgId,
 				tediId: input.tediId,
 				domainId: domain.id,
@@ -470,7 +490,7 @@ const gapsDetect = authed.gaps.detect
 			return lastTouch < ninetyDaysAgo;
 		});
 		if (staleFacts.length > 5) {
-			const gap = await createGapFact(context.db, {
+			const gap = await createGapFact(context, {
 				organizationId: orgId,
 				tediId: input.tediId,
 				domainId: domain.id,
@@ -523,12 +543,40 @@ export const gapsResolve = authed.gaps.resolve
 	.use(AUTHZ.tedisWrite)
 	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		await resolveGap(
+		const scope = { organizationId: context.organizationId };
+		const gap = await getFactById(context.db, scope, input.gapId);
+		if (!gap || gap.organizationId !== scope.organizationId) {
+			throw new Error(`Gap not found: ${input.gapId}`);
+		}
+		const resolvedBy = await getFactById(
 			context.db,
-			{ organizationId: context.organizationId },
-			input.gapId,
+			scope,
 			input.resolvedByFactId,
 		);
+		if (!resolvedBy || resolvedBy.organizationId !== scope.organizationId) {
+			throw new Error(`Resolving fact not found: ${input.resolvedByFactId}`);
+		}
+		const now = new Date().toISOString();
+		await organizationMemoryWriter(context, "memory_graph_gaps_resolve").update(
+			gap,
+			{
+				metadata: {
+					...gap.metadata,
+					resolvedBy: input.resolvedByFactId,
+					resolvedAt: now,
+				},
+				archivedAt: now,
+			},
+			"archive",
+		);
+		await createEdge(context.db, scope, {
+			id: crypto.randomUUID(),
+			sourceFactId: input.resolvedByFactId,
+			targetFactId: input.gapId,
+			relationType: "supersedes",
+			strength: 0.9,
+			context: "Resolves knowledge gap",
+		});
 		return {
 			success: true,
 		};
@@ -879,7 +927,10 @@ const opine = authed.opine
 		)[0]?.[0];
 
 		// Store as opinion fact
-		const opinion = await createFact(context.db, {
+		const opinion = await organizationMemoryWriter(
+			context,
+			"memory_graph_opine",
+		).create({
 			id: crypto.randomUUID(),
 			organizationId: orgId,
 			tediId: tediId ?? null,

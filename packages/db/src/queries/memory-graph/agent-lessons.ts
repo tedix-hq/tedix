@@ -42,6 +42,7 @@ import { learningInteractionEvents } from "../../schema/learning-feedback";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts } from "../../schema/memory-graph";
+import { prefixedColumns } from "../../utils/select";
 import { batchNonEmpty } from "../../utils/batch";
 
 export interface ApprovedAgentLessonRow {
@@ -314,17 +315,16 @@ export async function setAgentLessonTriggers(
 }
 
 /** Undo can retire only the caller's automatically mined lesson, never a person-authored rule. */
-export async function archiveCorrectedAgentLessons(
+export async function listCorrectedAgentLessons(
 	db: DbQueryClient,
 	tenantScope: TenantScope,
 	ownerUserId: string,
 	eventId: string,
-	now: string,
 ) {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
-		.update(memoryFacts)
-		.set({ archivedAt: now, validTo: now, updatedAt: now })
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(sql`${memoryFacts} INDEXED BY idx_memory_facts_org_source_id`)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
@@ -333,8 +333,7 @@ export async function archiveCorrectedAgentLessons(
 				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.autoConfirmed') = 1`,
 				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata}, '$.learningFeed.evidenceEventIds')) AS evidence WHERE evidence.value = ${eventId})`,
 			),
-		)
-		.returning({ id: memoryFacts.id });
+		);
 }
 
 /** Resolve decision ids within the tenant; quotes are copied from canonical sources. */
