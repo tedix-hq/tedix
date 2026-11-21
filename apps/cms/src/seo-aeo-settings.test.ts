@@ -134,6 +134,20 @@ describe("Tedix public structured data", () => {
 				...(await seoAeo.hooks["page:metadata"]({ page }, ctx)),
 				...generateBaseSeoContributions(page),
 			]);
+			expect(resolved.links.filter((link) => link.hreflang)).toEqual(
+				isPost
+					? []
+					: [{ rel: "alternate", hreflang: "en", href: page.canonical }],
+			);
+			if (path === "/apps/example/") {
+				const hidden = resolvePageMetadata(
+					await seoAeo.hooks["page:metadata"](
+						{ page: { ...page, seo: { robots: "noindex, nofollow" } } },
+						ctx,
+					),
+				);
+				expect(hidden.links.filter((link) => link.hreflang)).toEqual([]);
+			}
 			const graphs = resolved.jsonld.map(({ json }) => JSON.parse(json));
 			expect(
 				graphs.map((graph) => graph["@type"]),
