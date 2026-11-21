@@ -10298,9 +10298,21 @@ describe("watching and steering a run", () => {
 		expect(note).toContain("Result of turn 2.");
 		expect(note).not.toContain("Result of turn 1.");
 		const steps = sentSteps(f);
+		const launchContext = f.briefs[0]?.match(
+			/Runner launch context for this Attempt: (\{[^\n]+\})\./,
+		)?.[1];
+		const launch = JSON.parse(launchContext ?? "{}");
+		expect(launch).toEqual({
+			machineName: expect.any(String),
+			harness: "codex",
+			harnessVersion: "1.2.3",
+		});
 		expect(steps.map((step) => step.seq)).toEqual(steps.map((_, n) => n));
 		expect(steps.map((step) => [step.kind, step.text])).toEqual([
-			["started", "Started codex with model test-model"],
+			[
+				"started",
+				`Started codex 1.2.3 on ${launch.machineName} with model test-model`,
+			],
 			["message", "Turn 1 is reading the guide."],
 			["follow_up", "Also cover pricing."],
 			["message", "Turn 2 is reading the guide."],
@@ -10832,7 +10844,7 @@ describe("watching and steering a run", () => {
 			expect(note).toContain("Result of turn 2.");
 			expect(note).not.toContain("Result of turn 1.");
 			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
-				["started", "Started codex with model test-model"],
+				["started", expect.any(String)],
 				["follow_up", "Use the other branch."],
 				[
 					"stopped",
@@ -11066,7 +11078,7 @@ describe("watching and steering a run", () => {
 			});
 			expect(receipt.interrupted).toBeUndefined();
 			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
-				["started", "Started codex with model test-model"],
+				["started", expect.any(String)],
 				["stopped", "Stopped by user fictional-owner"],
 				["finished", "Agent run ended: cancelled"],
 			]);
