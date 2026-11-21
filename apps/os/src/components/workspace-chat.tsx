@@ -979,6 +979,25 @@ type RetryTurn = (
 const CONTINUE_TEXT =
 	"Continue where you stopped. Check what already happened before repeating any change.";
 
+function createdGadgets(turn: ChatTurn) {
+	const gadgets = new Map<string, string>();
+	for (const step of turn.steps) {
+		if (step.tool !== "apps.create" || step.status !== "ok" || !step.result)
+			continue;
+		try {
+			const app = JSON.parse(step.result);
+			if (typeof app?.id === "string" && app.id && typeof app.name === "string")
+				gadgets.set(app.id, app.name);
+		} catch {
+			// A partial event cannot identify the gadget.
+		}
+	}
+	for (const approval of turn.approvals) {
+		if (approval.execution?.app) gadgets.delete(approval.execution.app.appId);
+	}
+	return gadgets;
+}
+
 function launchedRuns(turn: ChatTurn) {
 	return new Map(
 		turn.steps.flatMap((step) => {
@@ -1114,6 +1133,19 @@ function TurnView({
 						ranOn={ranOn}
 					/>
 				) : null}
+				{Array.from(createdGadgets(turn), ([appId, name]) => (
+					<ChatCard
+						key={appId}
+						title={name}
+						actions={
+							<OpenCreatedApp
+								workspaceId={workspaceId}
+								appId={appId}
+								name={name}
+							/>
+						}
+					/>
+				))}
 				{turn.approvals.map((approval) => (
 					<ApprovalCard
 						approval={approval}

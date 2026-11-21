@@ -345,6 +345,41 @@ describe("what the agent did", () => {
 		expect(button("Open Meeting notes")).toBeUndefined();
 	});
 
+	it("opens a gadget created directly under the workspace rules", async () => {
+		const openEditor = vi.fn();
+		const fake = fakeWorkspaceChatClient("c1");
+		mount(fake, undefined, openEditor);
+		act(() =>
+			fake.feed(
+				turn({
+					...base,
+					seq: 2,
+					type: "step.started",
+					stepId: "create",
+					kind: "write",
+					label: "Creating a gadget",
+					tool: "apps.create",
+				}),
+			),
+		);
+		expect(button("Open preview for Visit counter")).toBeUndefined();
+		act(() =>
+			fake.feed([
+				{
+					...base,
+					seq: 3,
+					type: "step.finished",
+					stepId: "create",
+					status: "ok",
+					durationMs: 2,
+					result: JSON.stringify({ id: "app-1", name: "Visit counter" }),
+				},
+			]),
+		);
+		await click(button("Open preview for Visit counter"));
+		expect(openEditor).toHaveBeenCalledExactlyOnceWith("app-1");
+	});
+
 	it("names a new app on its card and opens it once it was created", async () => {
 		const openEditor = vi.fn();
 		const fake = fakeWorkspaceChatClient("c1");
@@ -376,7 +411,7 @@ describe("what the agent did", () => {
 		expect(card?.textContent).toContain("Counts visits.");
 		expect(card?.textContent).toContain("Files: server.js, client.js");
 		expect(button("Approve creating Visit counter")).toBeDefined();
-		expect(button("Open Visit counter")).toBeUndefined();
+		expect(button("Open preview for Visit counter")).toBeUndefined();
 		act(() =>
 			fake.feed([
 				{
@@ -399,8 +434,10 @@ describe("what the agent did", () => {
 				},
 			]),
 		);
-		expect(button("Open Visit counter")?.textContent).toBe("Open");
-		await click(button("Open Visit counter"));
+		expect(button("Open preview for Visit counter")?.textContent).toBe(
+			"Open preview",
+		);
+		await click(button("Open preview for Visit counter"));
 		expect(openEditor).toHaveBeenCalledExactlyOnceWith("app-1");
 	});
 

@@ -206,7 +206,7 @@ export function OpenCreatedApp({
 	const { openEditor } = useContext(ChatOutputLinkContext);
 	return (
 		<Button
-			aria-label={`Open ${name}`}
+			aria-label={`Open preview for ${name}`}
 			onClick={() => {
 				if (openEditor) openEditor(appId);
 				else
@@ -217,7 +217,7 @@ export function OpenCreatedApp({
 			size="sm"
 			variant="outline"
 		>
-			Open
+			Open preview
 		</Button>
 	);
 }
