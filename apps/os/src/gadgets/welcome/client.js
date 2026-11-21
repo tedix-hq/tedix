@@ -10,7 +10,6 @@ body{margin:0;padding:8px}
 @media (prefers-reduced-motion:reduce){.w{animation:none}}
 .w-dots{display:flex;gap:8px;align-items:center;list-style:none;margin:0;padding:0}
 .w-dots li{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;border:1px solid var(--tx-line);color:var(--tx-muted);font-size:12px;line-height:1}
-.w-dots li[data-state=done]{background:color-mix(in srgb,var(--tx-success) 22%,transparent);border-color:transparent;color:var(--tx-fg)}
 .w-dots li[data-state=current]{border-color:var(--tx-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--tx-accent) 35%,transparent)}
 .w h2{font-size:1.6rem;line-height:1.2;margin:6px 0 0;outline:none}
 .w-lead{margin:0;font-size:1.05rem;color:var(--tx-muted)}
@@ -19,10 +18,7 @@ body{margin:0;padding:8px}
 .w-field{display:flex;flex-direction:column;gap:6px;font-size:.9rem;color:var(--tx-muted)}
 .w-field input{min-height:44px;padding:8px 12px;border:1px solid var(--tx-line);border-radius:var(--tx-radius);background:var(--tx-surface);color:var(--tx-fg);font:inherit}
 .w-field input:focus-visible{outline:3px solid var(--tx-accent);outline-offset:3px}
-.w-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.w-list li{display:grid;grid-template-columns:20px 1fr;gap:8px}
-.w-list .w-mark{color:var(--tx-muted)}
-.w-list li[data-state=done] .w-mark{color:var(--tx-success)}
+.w-list{margin:0;padding-left:1.25rem;display:grid;gap:8px}
 .w-state{min-height:48px;margin:0}
 .w-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .w-actions .w-space{flex:1}
@@ -31,15 +27,13 @@ body{margin:0;padding:8px}
 document.head.append(style);
 
 const root = document.getElementById("app");
-const STEPS = ["name", "model", "tools", "computer"];
+const STEPS = ["name", "model", "computer"];
 let config;
 let step = 0;
 let busy = false;
 let error = "";
 let name = "";
 let modelRef = "";
-// What happened on each step: "done", "skipped", or "later".
-const outcome = {};
 // The computer step's own action: idle, working, done, choose or failed.
 let computer = { state: "idle", text: "" };
 let primary = () => {};
@@ -57,7 +51,6 @@ async function save(work) {
 	render();
 	try {
 		await work();
-		outcome[STEPS[step]] = "done";
 		busy = false;
 		go(step + 1);
 	} catch (failure) {
@@ -82,7 +75,6 @@ async function setUpComputer(chip) {
 		const result = await tedix.call("welcome.computer", { chip: chip ?? null });
 		if (result.state === "choose") computer = { state: "choose", text: "" };
 		else {
-			outcome.computer = "done";
 			computer = {
 				state: "done",
 				text:
@@ -116,16 +108,11 @@ function dots() {
 						: "All steps seen",
 			},
 		},
-		STEPS.map((id, index) =>
+		STEPS.map((_, index) =>
 			ui.el("li", {
-				text: outcome[id] === "done" ? "✓" : String(index + 1),
+				text: String(index + 1),
 				attrs: {
-					"data-state":
-						outcome[id] === "done"
-							? "done"
-							: index === step
-								? "current"
-								: "upcoming",
+					"data-state": index === step ? "current" : "upcoming",
 					"aria-current": index === step ? "step" : null,
 				},
 			}),
@@ -155,14 +142,10 @@ function screen({
 	actions.append(ui.el("span", { class: "w-space" }));
 	if (skip)
 		actions.append(
-			ui.button(
-				"Skip for now",
-				() => {
-					outcome[STEPS[step]] ??= "skipped";
-					go(step + 1);
-				},
-				{ variant: "quiet", disabled: busy },
-			),
+			ui.button("Skip for now", () => go(step + 1), {
+				variant: "quiet",
+				disabled: busy,
+			}),
 		);
 	actions.append(
 		ui.button(primaryLabel, onPrimary, { variant: "primary", disabled: busy }),
@@ -180,25 +163,6 @@ function screen({
 	if (!animate) view.style.animation = "none";
 	root.replaceChildren(view);
 	if (animate) heading.focus();
-}
-
-function marks(lines) {
-	return ui.el(
-		"ul",
-		{ class: "w-list" },
-		lines.map(([state, text]) =>
-			ui.el(
-				"li",
-				{ attrs: { "data-state": state } },
-				ui.el("span", {
-					class: "w-mark",
-					text: state === "done" ? "✓" : "–",
-					attrs: { "aria-hidden": "true" },
-				}),
-				ui.el("span", { text }),
-			),
-		),
-	);
 }
 
 function render(animate = false) {
@@ -274,27 +238,6 @@ function render(animate = false) {
 			skip: choices,
 			animate,
 		});
-	} else if (id === "tools") {
-		screen({
-			title: "Connect your tools",
-			lead: "Agents can work with your other tools once you connect an account.",
-			body: [
-				ui.el("p", {
-					text: "An agent is an AI assistant that can carry out tasks using tools. You choose which accounts it may use. Sign-in and consent stay with you.",
-				}),
-				ui.el("p", {
-					class: "tx-muted",
-					text: "You do this after the welcome, from Connections. Get started keeps it on your list.",
-				}),
-			],
-			primaryLabel: "Continue",
-			onPrimary: () => {
-				outcome.tools ??= "later";
-				go(step + 1);
-			},
-			skip: false,
-			animate,
-		});
 	} else if (id === "computer") {
 		const kind = config.computer;
 		const done = computer.state === "done";
@@ -310,7 +253,11 @@ function render(animate = false) {
 				kind === "mac"
 					? ui.el("p", { text: "The Tedix app for Mac does it for you:" })
 					: null,
-				marks(config.macSetupLines.map((line) => ["note", line])),
+				ui.el(
+					"ul",
+					{ class: "w-list" },
+					config.macSetupLines.map((text) => ui.el("li", { text })),
+				),
 			);
 		if (computer.state === "choose")
 			body.push(
@@ -350,50 +297,18 @@ function render(animate = false) {
 						: kind === "desktop-app"
 							? "Set up this Mac"
 							: "Download the Tedix app for Mac",
-			onPrimary: moveOn
-				? () => {
-						outcome.computer ??= kind === "other" ? "later" : "skipped";
-						go(step + 1);
-					}
-				: () => setUpComputer(),
+			onPrimary: moveOn ? () => go(step + 1) : () => setUpComputer(),
 			skip: kind !== "other" && !done,
 			animate,
 		});
 	} else {
-		const line = (key, done, skipped, later) =>
-			outcome[key] === "done"
-				? ["done", done]
-				: ["note", outcome[key] === "later" ? later : skipped];
 		screen({
-			title: "You're ready",
-			lead: "Ask Tedix to research a topic, draft a document or plan your week.",
-			body: [
-				marks([
-					line(
-						"name",
-						`Your name is ${config.name || config.email}`,
-						"Name: skipped. Change it under Profile in your account menu.",
-					),
-					line(
-						"model",
-						modelRef ? "Your model is chosen" : "Model: organization default",
-						"Model: skipped. The organization default is used.",
-					),
-					line("tools", "", "", "Tools: connect them later from Connections."),
-					line(
-						"computer",
-						config.computer === "desktop-app"
-							? "This Mac: setup window opened"
-							: "This computer: app download started",
-						"This computer: skipped.",
-						"This computer: set up later from your account menu.",
-					),
-				]),
-				ui.el("p", {
-					class: "tx-muted",
-					text: "Get started in the sidebar keeps what is left. Review results and approval requests before you act on them.",
-				}),
-			],
+			title: "Start chatting",
+			lead: "Ask Tedix a question or give it a task.",
+			body: ui.el("p", {
+				class: "tx-muted",
+				text: "You can finish setup later from Get started in the sidebar.",
+			}),
 			primaryLabel: busy
 				? "Opening…"
 				: error
