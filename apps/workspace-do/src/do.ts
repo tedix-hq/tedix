@@ -6574,6 +6574,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	allowRead(...args: unknown[]) {
 		return this.#call("allowRead", args);
 	}
+	access(...args: unknown[]) {
+		return this.#call("access", args);
+	}
 	getCode(...args: unknown[]) {
 		return this.#call("getCode", args);
 	}
