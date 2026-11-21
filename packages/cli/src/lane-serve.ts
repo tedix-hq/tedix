@@ -108,7 +108,7 @@ import {
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import {
-	laneProcessIdentity,
+	laneProcessIdentityAsync,
 	reapLaneProcess,
 	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
@@ -2825,7 +2825,7 @@ export class LaneDispatcher {
 		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
 		this.dropAllWaiting();
 	}
-	private holdsRestart(row: Receipt): boolean {
+	private async holdsRestart(row: Receipt): Promise<boolean> {
 		if (hasSettledOutcome(row)) return false;
 		const terminal =
 			!!row.attemptId &&
@@ -2838,18 +2838,20 @@ export class LaneDispatcher {
 		if (!row.session || (row.processIdentity.startsWith("v2:") && !cwd))
 			return true;
 		return (
-			laneProcessIdentity(row.pid, row.session, cwd) === row.processIdentity
+			(await laneProcessIdentityAsync(row.pid, row.session, cwd)) ===
+			row.processIdentity
 		);
 	}
 
 	/** True when a restart would interrupt neither local nor retained Work. */
-	quiet(): boolean {
+	async quiet(): Promise<boolean> {
 		if (this.running.size || this.preparing.size || this.maintenance.size)
 			return false;
 		try {
-			return !readLaneReceipts(this.directory, this.receipts).some((row) =>
-				this.holdsRestart(row),
-			);
+			for (const row of readLaneReceipts(this.directory, this.receipts)) {
+				if (await this.holdsRestart(row)) return false;
+			}
+			return true;
 		} catch {
 			return false;
 		}
@@ -3739,7 +3741,7 @@ export class LaneDispatcher {
 		}
 		if (this.admissionsHeld) {
 			for (const row of retained) {
-				if (this.holdsRestart(row))
+				if (await this.holdsRestart(row))
 					this.log(
 						"restart-held",
 						row.itemId,
@@ -8193,7 +8195,7 @@ export async function runLaneServe(
 					);
 				updating = true;
 				dispatcher.holdAdmissions(newer);
-				if (dispatcher.quiet()) {
+				if (await dispatcher.quiet()) {
 					process.stderr.write(
 						`Dispatcher restarting onto Tedix CLI ${newer}; no Work in progress\n`,
 					);
