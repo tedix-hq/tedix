@@ -7,6 +7,7 @@ import {
 	workInteractions,
 } from "../../schema/work-factory";
 import { organizationMembers } from "../../schema/organization-members";
+import { externalAgentPrincipals } from "../../schema/external-agent-identity";
 import { tedis } from "../../schema/tedis";
 import { createD1Facade } from "../../test/d1-facade";
 import { deployedWorkInteractionGuards } from "../../test/work-interaction-guards";
@@ -21,7 +22,7 @@ const NOW = "2026-11-06T12:00:00.000Z";
 function fixture(answered = false) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses, workInteractionCardRevisions, organizationMembers, tedis)}`,
+		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses, workInteractionCardRevisions, organizationMembers, tedis, externalAgentPrincipals)}`,
 	);
 	sqlite.exec(
 		"INSERT INTO organizations (id,name,slug) VALUES ('org','Org','org')",

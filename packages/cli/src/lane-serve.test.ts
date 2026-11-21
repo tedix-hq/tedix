@@ -4372,11 +4372,13 @@ describe("dispatcher admission", () => {
 			if (verdict === "blocked") {
 				expect(work.metadata?.laneDispatch).toMatchObject({
 					state: "held",
-					reason: expect.stringContaining("Someone with that access checks it"),
+					reason: expect.stringContaining(
+						"Landed, not verified. The runner will not retry",
+					),
 					note: "Open the signed-in page and confirm the row",
 				});
 				const settle = f.events.filter((event) => event.verb === "settle");
-				expect(settle.at(-1)?.args).toContain("cancelled");
+				expect(settle.at(-1)?.args).toContain("landed_unverified");
 				for (let pass = 0; pass < 2; pass++) await f.restart().tick();
 				expect(f.releases).toHaveLength(2);
 			}
@@ -4386,9 +4388,12 @@ describe("dispatcher admission", () => {
 			expect(requests).toHaveLength(verdict === "blocked" ? 1 : 0);
 			if (verdict === "blocked")
 				expect(requests[0]!.input).toMatchObject({
-					prompt: expect.stringContaining(
-						"Open the signed-in page and confirm the row",
+					notificationReason: "update",
+					subject: expect.stringContaining("Check the landed result"),
+					prompt: expect.stringMatching(
+						/Open the signed-in page and confirm the row[\s\S]*https:\/\/live.example.test\/health[\s\S]*Work: \/work\/items\//,
 					),
+					metadata: { laneBlocker: { kind: "verification_check" } },
 				});
 		},
 	);

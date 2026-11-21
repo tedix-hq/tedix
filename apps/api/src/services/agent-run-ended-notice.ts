@@ -94,7 +94,9 @@ function runEndedSentence(
 	if (attempt.executorType !== "external_agent" || !attempt.outcome)
 		return null;
 	const outcome =
-		attempt.outcome === "succeeded" || attempt.outcome === "cancelled"
+		attempt.outcome === "succeeded" ||
+		attempt.outcome === "cancelled" ||
+		attempt.outcome === "landed_unverified"
 			? attempt.outcome
 			: "failed";
 	const note = (attempt.summary ?? "")
@@ -102,7 +104,7 @@ function runEndedSentence(
 		.trim()
 		.slice(0, NOTE_LIMIT)
 		.replace(/[.\s]+$/, "");
-	return `The run for "${work.title}" ended: ${outcome}.${note ? ` ${note}.` : ""} Task: /work/items/${work.id}`;
+	return `The run for "${work.title}" ended: ${outcome === "landed_unverified" ? "landed, not verified" : outcome}.${note ? ` ${note}.` : ""} Task: /work/items/${work.id}`;
 }
 
 /**
@@ -161,7 +163,7 @@ export type WorkspaceRunReport =
 			workItemId: string;
 			attemptId: string;
 			title: string;
-			outcome: "succeeded" | "failed" | "cancelled";
+			outcome: "succeeded" | "landed_unverified" | "failed" | "cancelled";
 			result: string;
 			commits: string[];
 			unverified: string | null;
@@ -253,7 +255,9 @@ export function workspaceRunEndedReport(
 			attemptId: attempt.id,
 			title: work.title,
 			outcome:
-				attempt.outcome === "succeeded" || attempt.outcome === "cancelled"
+				attempt.outcome === "succeeded" ||
+				attempt.outcome === "cancelled" ||
+				attempt.outcome === "landed_unverified"
 					? attempt.outcome
 					: "failed",
 			result: (attempt.summary ?? "").slice(0, 4_000),

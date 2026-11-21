@@ -215,6 +215,51 @@ export async function preferredApprovalDelegate(
 		: null;
 }
 
+/** Investigation grants no approval authority, so it does not need approval opt-in. */
+export async function preferredVerificationDelegate(
+	db: DbQueryClient,
+	orgId: string,
+	ownerId: string,
+) {
+	const [organization] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, orgId))
+		.limit(1);
+	const policy = DelegatedApprovalsPolicySchema.safeParse(
+		organization?.metadata?.delegatedApprovals,
+	).data;
+	const lead = policy?.leadAgents[ownerId];
+	if (lead) {
+		const [agent] = await db
+			.select({ id: externalAgentPrincipals.id })
+			.from(externalAgentPrincipals)
+			.where(
+				and(
+					eq(externalAgentPrincipals.organizationId, orgId),
+					eq(externalAgentPrincipals.id, lead),
+					eq(externalAgentPrincipals.status, "active"),
+				),
+			)
+			.limit(1);
+		if (agent) return { type: "external_agent" as const, id: agent.id };
+	}
+	const [tedi] = await db
+		.select({ id: tedis.id })
+		.from(tedis)
+		.where(
+			and(
+				eq(tedis.organizationId, orgId),
+				eq(tedis.ownerUserId, ownerId),
+				eq(tedis.status, "active"),
+				isNull(tedis.retiredAt),
+			),
+		)
+		.orderBy(tedis.id)
+		.limit(1);
+	return tedi ? { type: "tedi" as const, id: tedi.id } : null;
+}
+
 /** Retargeting preserves the ordinary response trigger and the actual decider. */
 export async function claimDelegatedApproval(
 	db: DbQueryClient,

@@ -1,3 +1,4 @@
+import { preferredVerificationDelegate } from "@tedix/db/queries/work-items/delegated-approvals";
 import routing from "@tedix/api-contract/assets/blocker-attention.v1.json";
 import { DEFAULT_DECISION_AUTONOMY } from "@tedix/api-contract/utils/decision-autonomy";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
@@ -25,6 +26,37 @@ export async function blockerAttentionRouting(
 	if (actor.type === "user" || !["question", "input"].includes(input.kind))
 		return null;
 	const m = input.metadata ?? {};
+	if (
+		m.source === "lane-dispatch-blocker" &&
+		input.kind === "input" &&
+		m.decisionDeck === undefined &&
+		m.approvalOperation === undefined &&
+		m.internalAction === undefined &&
+		(m.laneBlocker as { kind?: unknown } | undefined)?.kind ===
+			"verification_check" &&
+		input.workItemId
+	) {
+		const work = await getWorkItemById(context.db, input.workItemId, orgId);
+		if (!work?.accountableOwnerId) return null;
+		const target =
+			work.accountableOwnerType === "user"
+				? ((await preferredVerificationDelegate(
+						context.db,
+						orgId,
+						work.accountableOwnerId,
+					)) ?? { type: "user" as const, id: work.accountableOwnerId })
+				: work.accountableOwnerType === "tedi"
+					? { type: "tedi" as const, id: work.accountableOwnerId }
+					: null;
+		return target
+			? {
+					target,
+					reason:
+						"The owner's agent investigates the open verification check; no authority is granted.",
+					evidenceRef: `/work/items/${work.id}`,
+				}
+			: null;
+	}
 	const text = `${input.subject}\n${input.prompt}`;
 	const decision = DecisionEnvelopeSchema.safeParse(m.decisionDeck);
 	const declaredClasses = [

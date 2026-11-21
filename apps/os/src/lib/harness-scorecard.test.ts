@@ -48,6 +48,8 @@ it("sums fully covered fleet observations and withholds stale, warming or legacy
 			runner: "codex",
 			started: 0,
 			succeeded: 0,
+			landedUnverified: 0,
+			cancelled: 0,
 			failed: 0,
 			orphaned: 0,
 			commits: 0,
@@ -170,6 +172,11 @@ it("uses a bounded start-time cohort and deduplicates Attempts across scopes", (
 				outcome: "cancelled",
 				expiresAt: new Date(now - 1).toISOString(),
 			}),
+			row(9, {
+				outcome: "landed_unverified",
+				runtimeState: "finished",
+				expiresAt: new Date(now - 1).toISOString(),
+			}),
 			row(6, { startedAt: new Date(now - SCORECARD_WINDOW_MS).toISOString() }),
 			row(7, {
 				startedAt: new Date(now - SCORECARD_WINDOW_MS - 1).toISOString(),
@@ -182,9 +189,11 @@ it("uses a bounded start-time cohort and deduplicates Attempts across scopes", (
 	expect(rows).toEqual([
 		{
 			runner: "codex",
-			started: 6,
+			started: 7,
 			idle: null,
 			succeeded: 1,
+			landedUnverified: 1,
+			cancelled: 1,
 			failed: 1,
 			orphaned: 2,
 			commits: 0,
@@ -290,6 +299,8 @@ it("includes recently reported idle runners without treating supervisor duties a
 			idle: null,
 			started: 0,
 			succeeded: 0,
+			landedUnverified: 0,
+			cancelled: 0,
 			failed: 0,
 			orphaned: 0,
 			commits: 0,

@@ -241,6 +241,8 @@ export function workRunStatus(
 	const ended = attempt?.finishedAt ?? last;
 	const when = ended ? ` ${relativeTime(ended, now)}` : "";
 	if (attempt?.outcome === "cancelled") return `Stopped${when}`;
+	if (attempt?.outcome === "landed_unverified")
+		return `Landed, not verified${when}`;
 	if (attempt?.outcome && attempt.outcome !== "expired")
 		return `Finished${when}: ${attempt.outcome}`;
 	if (run.steps.at(-1)?.kind === "finished") return `Finished${when}`;

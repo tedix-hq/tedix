@@ -235,7 +235,9 @@ export type StalledCauseKind =
 /** Why a stalled record stopped, read from the record itself. */
 function stalledCauseKind(item: ActivityFeedItem): StalledCauseKind {
 	if (item.kind === "result")
-		return item.resultOutcome && item.resultOutcome !== "succeeded"
+		return item.resultOutcome &&
+			item.resultOutcome !== "succeeded" &&
+			item.resultOutcome !== "landed_unverified"
 			? item.resultOutcome
 			: "other";
 	if (item.kind !== "work") return "other";

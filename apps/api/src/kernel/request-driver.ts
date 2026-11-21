@@ -90,7 +90,7 @@ export interface KernelRequestSourceReader {
 	/** Re-read canonical Work/Attempt and source ACLs; never trust a terminal notification. */
 	readExecution(row: KernelRequestRow): Promise<{
 		attemptId: string;
-		outcome: "succeeded" | "failed" | "cancelled" | null;
+		outcome: "succeeded" | "landed_unverified" | "failed" | "cancelled" | null;
 	}>;
 	/** Idempotency key is the durable delivery intent. Return only a source acknowledgment. */
 	deliverReport(

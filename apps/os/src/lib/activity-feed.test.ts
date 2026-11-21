@@ -383,6 +383,7 @@ describe("attempt result projections", () => {
 
 	it.each([
 		["succeeded", true, false, "normal", "the work finished"],
+		["landed_unverified", false, false, "low", "landed, not verified"],
 		["failed", false, true, "high", "Didn't finish"],
 		["expired", false, true, "low", "paused before finishing"],
 		["cancelled", false, true, "low", "was stopped"],
@@ -392,7 +393,10 @@ describe("attempt result projections", () => {
 			for (const finishedAt of [now.toISOString(), null]) {
 				const row = attemptRow({
 					outcome,
-					runtimeState: outcome === "succeeded" ? "finished" : outcome,
+					runtimeState:
+						outcome === "succeeded" || outcome === "landed_unverified"
+							? "finished"
+							: outcome,
 					finishedAt,
 				});
 				const result = ActivityFeedItemSchema.parse(resultFeedItems([row])[0]);

@@ -117,15 +117,17 @@ export function ActivityHarnessScorecard({
 				<TableHeader>
 					<TableRow>
 						{[
-							["Runner", "10%"],
-							["Started", "8%"],
-							["Succeeded", "14%"],
-							["Failed", "7%"],
-							["Orphaned*", "11%"],
-							["Held", "7%"],
-							["Supervisor kills", "12%"],
-							["Commits on main†", "13%"],
-							["Idle · current blockers", "18%"],
+							["Runner", "9%"],
+							["Started", "6%"],
+							["Succeeded", "9%"],
+							["Landed, not verified", "12%"],
+							["Cancelled", "8%"],
+							["Failed", "6%"],
+							["Orphaned*", "9%"],
+							["Held", "5%"],
+							["Supervisor kills", "10%"],
+							["Commits on main†", "11%"],
+							["Idle · current blockers", "15%"],
 						].map(([label, width]) => (
 							<TableHead key={label} scope="col" style={{ width }}>
 								{label}
@@ -137,13 +139,18 @@ export function ActivityHarnessScorecard({
 					{rows.map((row) => (
 						<TableRow key={row.runner}>
 							<TableCell>{row.runner}</TableCell>
-							{[row.started, row.succeeded, row.failed, row.orphaned].map(
-								(value, index) => (
-									<TableCell key={index}>
-										{incomplete ? "Unknown" : value}
-									</TableCell>
-								),
-							)}
+							{[
+								row.started,
+								row.succeeded,
+								row.landedUnverified,
+								row.cancelled,
+								row.failed,
+								row.orphaned,
+							].map((value, index) => (
+								<TableCell key={index}>
+									{incomplete ? "Unknown" : value}
+								</TableCell>
+							))}
 							<TableCell>
 								{fleetScope ? (row.held ?? "Unknown") : "Unknown"}
 							</TableCell>

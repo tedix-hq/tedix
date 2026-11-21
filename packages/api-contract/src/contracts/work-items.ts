@@ -1432,6 +1432,7 @@ export const workItemsContract = oc
 					id: z.uuid(),
 					attemptId: z.uuid(),
 					outcome: z.enum([
+						"landed_unverified",
 						"succeeded",
 						"failed",
 						"rejected",

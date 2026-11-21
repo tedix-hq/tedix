@@ -272,6 +272,36 @@ describe("Attempt lease write fences", () => {
 			);
 		},
 	);
+	it("settles inaccessible verification as finished without authorizing completion", async () => {
+		const { db } = await fixture();
+		const settled = await settleWorkItemAttempt(db, {
+			...caller,
+			settledAt: "2026-10-01T00:01:00.000Z",
+			outcome: "landed_unverified",
+		});
+		expect(settled.attempt).toMatchObject({
+			runtimeState: "finished",
+			outcome: "landed_unverified",
+			finishedAt: "2026-10-01T00:01:00.000Z",
+		});
+		expect((await db.select().from(workResourceReservations))[0]?.state).toBe(
+			"released",
+		);
+		expect(
+			(await db.select().from(workBudgetReservations))[0]?.consumedMicros,
+		).toBe(1000);
+		await expect(
+			completeWorkItem(db, {
+				orgId: "org",
+				workItemId: "work",
+				actor: { type: "external_agent", id: "agent", sessionId: "session" },
+				completedAt: "2026-10-01T00:02:00.000Z",
+			}),
+		).rejects.toThrow();
+		expect((await db.select().from(workItems))[0]?.disposition).toBe(
+			"accepted",
+		);
+	});
 	it("renews and settles a live Attempt, then completes after its lease deadline", async () => {
 		const { db } = await fixture();
 		const renewed = await heartbeatWorkItemAttempt(db, {

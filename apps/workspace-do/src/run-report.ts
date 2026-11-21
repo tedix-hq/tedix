@@ -14,7 +14,7 @@ export type AgentRunReport =
 			workItemId: string;
 			attemptId: string;
 			title: string;
-			outcome: "succeeded" | "failed" | "cancelled";
+			outcome: "succeeded" | "landed_unverified" | "failed" | "cancelled";
 			/** The runner's result, or why the run failed. */
 			result: string;
 			/** Commits the run landed, newest last. */
@@ -41,6 +41,7 @@ export function isRunReportOverload(error: string | null): boolean {
 /** The one line shown where the person's message would be. */
 export const RUN_OUTCOME_LINE: Record<EndedReport["outcome"], string> = {
 	succeeded: "Run finished",
+	landed_unverified: "Landed, not verified",
 	failed: "Run failed",
 	cancelled: "Run stopped",
 };
@@ -52,7 +53,7 @@ export function runEndedNotice(report: EndedReport): string {
 		.trim()
 		.slice(0, 500)
 		.replace(/[.\s]+$/, "");
-	return `The run for "${report.title}" ended: ${report.outcome}.${note ? ` ${note}.` : ""} Task: /work/items/${report.workItemId}`;
+	return `The run for "${report.title}" ended: ${report.outcome === "landed_unverified" ? "landed, not verified" : report.outcome}.${note ? ` ${note}.` : ""} Task: /work/items/${report.workItemId}`;
 }
 
 /**
@@ -62,7 +63,7 @@ export function runEndedNotice(report: EndedReport): string {
 export function runReportPrompt(report: EndedReport): string {
 	const link = `/work/items/${report.workItemId}`;
 	return [
-		`The agent run "${report.title}" that was started from this conversation has ended: ${report.outcome}. Tell the person in a short reply, without being asked: the outcome; what changed (each commit SHA with its title when the result names it, else the result itself); what is still unverified; and the link ${link}.${report.outcome === "failed" ? " Give the real reason it failed, from the result." : ""} This reply only reports: do not run code, call tools, ask for approval or start new work. If the person wants more, they will ask.`,
+		`The agent run "${report.title}" that was started from this conversation has ended: ${report.outcome === "landed_unverified" ? "landed, not verified" : report.outcome}. Tell the person in a short reply, without being asked: the outcome; what changed (each commit SHA with its title when the result names it, else the result itself); what is still unverified; and the link ${link}.${report.outcome === "failed" ? " Give the real reason it failed, from the result." : ""} This reply only reports: do not run code, call tools, ask for approval or start new work. If the person wants more, they will ask.`,
 		`Commits landed: ${report.commits.length ? report.commits.join(", ") : "none recorded"}`,
 		`Unverified: ${report.unverified ? wrapUntrustedInput(report.unverified, "agent_run") : "nothing reported"}`,
 		`Result: ${report.result.trim() ? wrapUntrustedInput(report.result, "agent_run") : "none reported"}`,

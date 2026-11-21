@@ -24,7 +24,7 @@ const askMoved = sql`NOT EXISTS (SELECT 1 FROM ${workItems}
 	AND coalesce(${workItems.executorId},'')=coalesce(json_extract(${workInteractions.metadata},'$.laneBlocker.executor'),''))`;
 
 /** The owner already posted this version's delegation, for example by hand. */
-const delegated = sql`EXISTS (SELECT 1 FROM ${workItemComments}
+const delegated = sql`(json_extract(${workInteractions.metadata},'$.laneBlocker.kind') IS NOT 'verification_check') AND EXISTS (SELECT 1 FROM ${workItemComments}
 	JOIN ${workItems} ON ${workItems.orgId}=${workItemComments.orgId} AND ${workItems.id}=${workItemComments.workItemId}
 	WHERE ${workItemComments.orgId}=${workInteractions.orgId}
 	AND ${workItemComments.workItemId}=${workInteractions.workItemId}
@@ -39,6 +39,7 @@ const duplicate = sql`EXISTS (SELECT 1 FROM work_interactions older
 	AND older.status IN ('open','resolved')
 	AND older.source=${LANE_DELEGATION_SOURCE}
 	AND json_extract(older.metadata,'$.laneBlocker.workVersion') IS json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')
+	AND (json_extract(older.metadata,'$.laneBlocker.kind') IS 'verification_check') = (json_extract(${workInteractions.metadata},'$.laneBlocker.kind') IS 'verification_check')
 	AND older.target_type IS ${workInteractions.targetType}
 	AND older.target_id IS ${workInteractions.targetId}
 	AND (older.created_at < ${workInteractions.createdAt} OR (older.created_at = ${workInteractions.createdAt} AND older.id < ${workInteractions.id})))`;
@@ -66,6 +67,7 @@ export async function settleLaneDelegationRequests(
 		orgId: string;
 		workItemId: string;
 		workVersion: number;
+		verificationCheck?: boolean;
 		targetType: string;
 		targetId: string;
 		now: string;
@@ -96,6 +98,7 @@ export async function settleLaneDelegationRequests(
 					sameWork,
 					sql`${workInteractions.status} IN ('open','resolved')`,
 					sql`json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')=${p.workVersion}`,
+					sql`(json_extract(${workInteractions.metadata},'$.laneBlocker.kind') IS 'verification_check') = ${p.verificationCheck ? 1 : 0}`,
 					sql`${workInteractions.targetType}=${p.targetType}`,
 					eq(workInteractions.targetId, p.targetId),
 				),

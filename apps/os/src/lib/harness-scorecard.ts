@@ -18,6 +18,8 @@ export function aggregateHarnessScorecard(
 			runner: string;
 			started: number;
 			succeeded: number;
+			landedUnverified: number;
+			cancelled: number;
 			failed: number;
 			orphaned: number;
 			commits: Set<string>;
@@ -30,6 +32,8 @@ export function aggregateHarnessScorecard(
 				runner: name,
 				started: 0,
 				succeeded: 0,
+				landedUnverified: 0,
+				cancelled: 0,
 				failed: 0,
 				orphaned: 0,
 				commits: new Set(),
@@ -80,6 +84,8 @@ export function aggregateHarnessScorecard(
 		const row = runner(name);
 		row.started++;
 		if (attempt.outcome === "succeeded") row.succeeded++;
+		if (attempt.outcome === "landed_unverified") row.landedUnverified++;
+		if (attempt.outcome === "cancelled") row.cancelled++;
 		if (attempt.outcome === "failed" || attempt.outcome === "rejected")
 			row.failed++;
 		if (

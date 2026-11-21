@@ -545,6 +545,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 				orgId,
 				workItemId: input.workItemId,
 				workVersion: laneVersion,
+				verificationCheck:
+					(creationMetadata.laneBlocker as { kind?: unknown } | undefined)
+						?.kind === "verification_check",
 				targetType: target.type,
 				targetId: target.id,
 				now: requestedAt,
@@ -647,12 +650,22 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 				});
 			}
 		}
-		if (delegated?.actorType === "tedi" && context.env.TEDI_SERVICE) {
+		const verificationTedi =
+			creationMetadata.source === "lane-dispatch-blocker" &&
+			(creationMetadata.laneBlocker as { kind?: unknown } | undefined)?.kind ===
+				"verification_check" &&
+			target.type === "tedi"
+				? target.id
+				: undefined;
+		if (
+			(delegated?.actorType === "tedi" || verificationTedi) &&
+			context.env.TEDI_SERVICE
+		) {
 			const { getTediByIdForOrganization } =
 				await import("@tedix/db/queries/tedis");
 			const tedi = await getTediByIdForOrganization(
 				context.db,
-				delegated.actorId,
+				verificationTedi ?? delegated!.actorId,
 				orgId,
 			);
 			if (tedi) {
@@ -666,7 +679,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 							source: "delegated_approval",
 							interactionId: created.id,
 						},
-						text: `Review Interaction ${created.id} (version ${created.version}) in your own name under the organization's reversible-approval policy. Read its current sources, choose an eligible action and explain why with respond_work_interaction. If an option needs the owner, leave it for the owner. This wake grants no execution capability or consent.`,
+						text: verificationTedi
+							? `Check the landed result described in Interaction ${created.id} (version ${created.version}) and report what you observed on its Work. Read the exact check and location from the request. Do not start another runner verification or claim success without evidence. This wake grants no access, consent, approval or execution authority.`
+							: `Review Interaction ${created.id} (version ${created.version}) in your own name under the organization's reversible-approval policy. Read its current sources, choose an eligible action and explain why with respond_work_interaction. If an option needs the owner, leave it for the owner. This wake grants no execution capability or consent.`,
 					}),
 					send: (request) => context.env.TEDI_SERVICE!.fetch(request),
 				});

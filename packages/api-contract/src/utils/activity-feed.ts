@@ -82,6 +82,7 @@ export const DEFAULT_FEED_COPY: FeedCopy = {
 	},
 	outcomes: {
 		succeeded: "the work finished",
+		landed_unverified: "landed, not verified",
 		failed: "needs another look",
 		expired: "paused before finishing",
 		cancelled: "was stopped",
@@ -461,7 +462,7 @@ export function resultFeedItems(
 						: a.outcome === "succeeded"
 							? "normal"
 							: "low",
-				stalled: a.outcome !== "succeeded",
+				stalled: a.outcome !== "succeeded" && a.outcome !== "landed_unverified",
 				done: a.outcome === "succeeded",
 				explanation: [plainReceipt(a.summary, copy), copy.resultExplanation]
 					.filter(Boolean)

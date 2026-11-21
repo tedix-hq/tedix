@@ -1187,7 +1187,7 @@ export async function settleWorkItemAttempt(
 				);
 		}
 		const runtimeState: WorkAttemptRuntimeState =
-			params.outcome === "succeeded"
+			params.outcome === "succeeded" || params.outcome === "landed_unverified"
 				? "finished"
 				: params.outcome === "rejected"
 					? "failed"
@@ -1301,6 +1301,7 @@ export async function settleWorkItemAttempt(
 					committedMicros: params.costMicros,
 					fullOnUnknown:
 						params.outcome === "succeeded" ||
+						params.outcome === "landed_unverified" ||
 						params.outcome === "failed" ||
 						params.outcome === "rejected",
 				}),

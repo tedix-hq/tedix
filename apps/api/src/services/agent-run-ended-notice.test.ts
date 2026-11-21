@@ -22,7 +22,12 @@ afterEach(() => {
 
 async function fixture({
 	sourceSessionKey = "agent:main:chat-1" as string | null,
-	outcome = "succeeded" as "succeeded" | "failed" | "cancelled" | "rejected",
+	outcome = "succeeded" as
+		| "succeeded"
+		| "landed_unverified"
+		| "failed"
+		| "cancelled"
+		| "rejected",
 	executorType = "external_agent" as "external_agent" | "tedi",
 	steward = true,
 	summary = "Changed the label.\nTests pass." as string | null,
@@ -148,6 +153,7 @@ describe("agent run ended notice", () => {
 
 	it.each([
 		["succeeded", "succeeded"],
+		["landed_unverified", "landed, not verified"],
 		["failed", "failed"],
 		["cancelled", "cancelled"],
 		["rejected", "failed"],

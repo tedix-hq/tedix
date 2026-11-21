@@ -296,6 +296,7 @@ export const WorkAttemptStatusSchema = z.enum([
 
 export const WorkAttemptOutcomeSchema = z.enum([
 	"succeeded",
+	"landed_unverified",
 	"failed",
 	"rejected",
 	"cancelled",

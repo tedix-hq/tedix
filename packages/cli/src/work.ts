@@ -117,7 +117,7 @@ export interface WorkOptions {
 	executorTedi?: string;
 	/** `accept`: plain-language done-looks-like, written into the contract. */
 	doneWhen?: string;
-	/** `settle`: succeeded|failed|cancelled|expired. */
+	/** `settle`: succeeded|landed_unverified|failed|cancelled|expired. */
 	outcome?: string;
 	needsUser?: string;
 	requestId?: string;
@@ -246,7 +246,7 @@ Lifecycle:
   start <id> [--lane] [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
   heartbeat <id> [--watch [seconds]]
-  settle <id> --outcome succeeded|failed|cancelled|expired [--note <summary>]
+  settle <id> --outcome succeeded|landed_unverified|failed|cancelled|expired [--note <summary>]
               [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
   complete <id>
   cancel <id> [--reason <summary>]

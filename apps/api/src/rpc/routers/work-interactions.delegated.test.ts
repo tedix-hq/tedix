@@ -14,6 +14,7 @@ import {
 } from "@tedix/db/queries/work-items/interactions";
 import {
 	claimDelegatedApproval,
+	preferredVerificationDelegate,
 	independentApprovalActor,
 } from "@tedix/db/queries/work-items/delegated-approvals";
 import {
@@ -778,3 +779,95 @@ describe("standing approval delegation", () => {
 		expect(delegatedCardAllowed(request, "approve")).toBe(false);
 	});
 });
+
+it.each(["lead", "own-tedi", "owner"] as const)(
+	"routes one landed verification check to %s",
+	async (recipient) => {
+		const { sqlite, db, base } = await fixture(false);
+		sqlite
+			.prepare("UPDATE tedis SET owner_user_id='requester' WHERE id=?")
+			.run(requesterTedi);
+		const delegate = createRouterClient(workInteractionsContractRouter, {
+			context: {
+				...base,
+				authType: "service-binding",
+				serviceBindingPrincipal: "mcp-edge",
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Tedi-Id": requesterTedi,
+					"X-Tedix-Tedi-Scopes": "mcp:work.write mcp:messaging.write",
+				}),
+				tediId: requesterTedi,
+				tediScopes: ["mcp:work.write", "mcp:messaging.write"],
+			} as BaseContext,
+		});
+		try {
+			if (recipient !== "lead")
+				sqlite
+					.prepare(
+						"UPDATE external_agent_principals SET status='revoked' WHERE id=?",
+					)
+					.run(agent);
+			if (recipient === "owner")
+				sqlite
+					.prepare("UPDATE tedis SET status='inactive' WHERE id=?")
+					.run(tedi);
+			const expected =
+				recipient === "lead"
+					? { type: "external_agent", id: agent }
+					: recipient === "own-tedi"
+						? { type: "tedi", id: tedi }
+						: null;
+			expect(await preferredVerificationDelegate(db, org, "owner")).toEqual(
+				expected,
+			);
+			sqlite
+				.prepare(
+					"UPDATE work_items SET disposition='accepted', executor_id='codex', version=3 WHERE id=?",
+				)
+				.run(work);
+			sqlite
+				.prepare(
+					"INSERT INTO work_item_comments (id,org_id,work_item_id,author_type,author_id,body,created_at) VALUES ('delegation',?,?,'user','owner',?,?)",
+				)
+				.run(
+					org,
+					work,
+					"Delegation: codex work-version=3 Check the result.",
+					now(),
+				);
+			const input = {
+				workItemId: work,
+				kind: "input" as const,
+				subject: "Check the landed result: Review boundary",
+				prompt:
+					"Landed, not verified. Check the signed-in row at https://live.acme.test/result. This grants no consent or access.",
+				reason: "The landed result needs an agent check.",
+				notificationReason: "update" as const,
+				requestedFrom: { type: "user" as const, id: "owner" },
+				metadata: {
+					source: "lane-dispatch-blocker",
+					laneBlocker: {
+						kind: "verification_check",
+						executor: "codex",
+						workVersion: 3,
+					},
+				},
+			};
+			const first = await delegate.create(input);
+			const second = await delegate.create(input);
+			expect(second.id).toBe(first.id);
+			const stored = await getWorkInteraction(db, {
+				orgId: org,
+				interactionId: first.id,
+			});
+			expect(stored).toMatchObject({
+				targetType: expected?.type ?? "user",
+				targetId: expected?.id ?? "owner",
+			});
+			expect(stored?.metadata.decisionDeck).toBeUndefined();
+		} finally {
+			sqlite.close();
+		}
+	},
+);

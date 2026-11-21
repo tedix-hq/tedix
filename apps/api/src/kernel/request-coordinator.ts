@@ -78,7 +78,7 @@ export type KernelRequestEvent =
 	| {
 			kind: "terminal";
 			attemptId: string;
-			outcome: "succeeded" | "failed" | "cancelled";
+			outcome: "succeeded" | "landed_unverified" | "failed" | "cancelled";
 	  }
 	| {
 			kind: "checked" | "rechecked";
