@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.4 — 2026-11-21
+
+### Patch Changes
+
+- f92f6e2: A runner on macOS no longer freezes after a start that was not admitted. Checking whether a run's folder was still in use opened the working folder of every process on the Mac, and macOS can hold such an open forever (an app's private folder, Documents); the runner then went silent until the supervisor killed it, and its replacement froze the same way. The check now uses the path macOS reports without opening it. The supervisor also tells a runner that waits for an earlier runner apart from a hung one: it no longer restarts the waiting runner, and it stops the earlier runner once that has outlived its two-minute drain time. A Codex start-up that times out now has its process killed if it ignores the request to stop.
+- 9aaca82: A runner now prepares at most three Work Items for admission at once and starts the next as each is admitted or fails, instead of starting every ready item in one go; on a slow gateway that left dozens of start-ups timing out with nothing admitted. The number of runs that may be running is not limited. The rules are read once per pass instead of once per start.
+
 ## 0.29.3 — 2026-11-20
 
 ### Patch Changes
