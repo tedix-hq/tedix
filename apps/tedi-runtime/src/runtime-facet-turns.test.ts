@@ -125,6 +125,26 @@ for (const request of [
 const background = await agent.prepareMcpFacetTurn(MCP_FACET_TURN_INPUT);
 assert.doesNotMatch(background.system, personalReadGuidance);
 
+// A chat with both tool families gets the guidance in its assembled prompt.
+assert.ok(background.tools.run_machine_command);
+assert.ok(background.tools.start_agent_run);
+assert.match(
+	background.system,
+	/small change in a few files with a quick check/,
+);
+assert.match(background.system, /read, edit and run commands yourself/);
+assert.match(
+	background.system,
+	/Start a Codex or Claude run with start_agent_run/,
+);
+assert.match(background.system, /many steps or a long test run/);
+assert.match(background.system, /do not list machines repeatedly/);
+assert.match(
+	background.system,
+	/read_machine_tool_result instead of requesting the operation again/,
+);
+assert.match(background.system, /close each workspace once/);
+
 const stewardTarget = {
 	id: "22222222-2222-4222-8222-222222222222",
 	expectedWorkItemVersion: 2,
