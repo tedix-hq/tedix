@@ -174,11 +174,13 @@ stack with Workers AI enabled:
 ```sh
 bunx wrangler login
 bunx wrangler whoami
-bun run-local --inference --workers-ai-account=YOUR_ACCOUNT_ID --ai-gateway=YOUR_GATEWAY_ID
+bun run-local --inference --workers-ai-account=YOUR_ACCOUNT_ID
 ```
 
-The stack stores work on this Mac and sends model requests to Cloudflare. Omit
-`--ai-gateway` to use your account's default gateway. See
+The stack stores work on this Mac and sends model requests to Cloudflare. Local
+chat shows whether requests go through AI Gateway or directly to Workers AI.
+Add `--ai-gateway=YOUR_GATEWAY_ID` to require your gateway or
+`--ai-routing=direct` to choose direct Workers AI. See
 [Getting started](../../docs/public/getting-started.md) for the local stack's
 requirements and options.
 

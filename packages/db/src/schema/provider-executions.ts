@@ -80,7 +80,7 @@ export const providerExecutionAttempts = sqliteTable(
 		),
 		check(
 			"chk_provider_execution_identity",
-			sql`(${table.transportKind} = 'direct-https' OR (${table.gatewayAccountId} IS NOT NULL AND ${table.gatewayId} IS NOT NULL AND length(trim(${table.gatewayAccountId})) > 0 AND length(trim(${table.gatewayId})) > 0)) AND length(trim(${table.requestModel})) > 0 AND length(trim(${table.deploymentScope})) > 0 AND length(trim(${table.organizationId})) > 0`,
+			sql`(${table.transportKind} = 'direct-https' OR (${table.gatewayAccountId} IS NOT NULL AND length(trim(${table.gatewayAccountId})) > 0 AND ((${table.gatewayId} IS NOT NULL AND length(trim(${table.gatewayId})) > 0) OR (${table.gatewayId} IS NULL AND ${table.transportKind} = 'workers-ai-binding' AND ${table.settlementMode} = 'disabled')))) AND length(trim(${table.requestModel})) > 0 AND length(trim(${table.deploymentScope})) > 0 AND length(trim(${table.organizationId})) > 0`,
 		),
 	],
 );

@@ -48,6 +48,7 @@ if (
 	);
 }
 const localAiGatewayId = process.env.TEDIX_LOCAL_AI_GATEWAY_ID?.trim();
+const directWorkersAi = process.env.TEDIX_LOCAL_WORKERS_AI_ROUTE === "direct";
 if (
 	localInferenceBackend !== null &&
 	(!localWorkersAiAccountId || !/^[a-f\d]{32}$/i.test(localWorkersAiAccountId))
@@ -385,6 +386,7 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 		config.vars = vars;
 		// Paid local inference also needs Home's normal approval/execution lane.
 		vars.KERNEL_EXECUTE = "true";
+		vars.KERNEL_ROUTE_HEDGE_AFTER_MS = "0";
 	}
 	if (localInferenceBackend === "gateway" && isApi) {
 		// Narrow through a local binding: `config` is a JsonObject, so writing
@@ -411,24 +413,26 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 		delete vars.KERNEL_FORCE_WORKERS_AI;
 		// Native inference needs an explicit provider ref; Auto requires Gateway auth.
 		vars.KERNEL_WORKERS_AI_MODEL = LOCAL_WORKERS_AI_MODEL;
-		// Cloudflare creates the default gateway on the first authenticated call.
-		// Keep the admission identity complete even when no custom gateway is given.
 		vars.AI_GATEWAY_ACCOUNT_ID = localWorkersAiAccountId!;
-		vars.AI_GATEWAY_LLM_ID = localAiGatewayId || "default";
+		vars.AI_GATEWAY_LLM_ID = directWorkersAi
+			? ""
+			: localAiGatewayId || "default";
 		vars.AI_GATEWAY_BINDING_PROVIDERS = "";
 	} else if (
 		localInferenceBackend === "workers-ai" &&
 		config.name === LOCAL_WORKSPACE_WORKER_NAME
 	) {
-		// Workspace chat calls the same model through the AI Gateway binding,
-		// so it needs no gateway token.
+		// Workspace chat uses the same account and route as Home.
 		config.account_id = localWorkersAiAccountId;
 		config.ai = { binding: "AI", remote: true };
 		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
 		config.vars = vars;
 		vars.AI_GATEWAY_ACCOUNT_ID = localWorkersAiAccountId!;
-		vars.AI_GATEWAY_LLM_ID = localAiGatewayId || "default";
-		vars.AI_GATEWAY_BINDING_PROVIDERS = "workers-ai";
+		vars.AI_GATEWAY_LLM_ID = directWorkersAi
+			? ""
+			: localAiGatewayId || "default";
+		vars.AI_GATEWAY_BINDING_PROVIDERS = directWorkersAi ? "" : "workers-ai";
+		vars.TEDIX_LOCAL_WORKERS_AI_ROUTE = directWorkersAi ? "direct" : "gateway";
 		vars.AI_GATEWAY_AUTO_ALLOWED_MODELS = LOCAL_WORKERS_AI_MODEL;
 	}
 	applyShellVarOverrides(config);

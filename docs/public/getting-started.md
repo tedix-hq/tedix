@@ -47,14 +47,16 @@ contacts a Cloudflare account.
 Every server answers on this machine only (loopback), so other devices on your
 network cannot reach the local stack.
 
-| Option                                | What it does                                                                           |
-| ------------------------------------- | -------------------------------------------------------------------------------------- |
-| `--smoke`                             | Onboards into a temporary database, checks the result persists, exits.                 |
-| `--demo`                              | Loads a fictional sample company with sending off, kept in `.wrangler/run-local-demo`. |
-| `--inference --workers-ai-account=ID` | Turns on model calls through Workers AI on your own Cloudflare account.                |
-| `--ai-gateway=ID`                     | Uses a named AI Gateway instead of your account's default gateway.                     |
-| `--verbose`                           | Streams every server log to the terminal instead of `server.log`.                      |
-| `--help`                              | Lists every option without starting anything.                                          |
+| Option                                | What it does                                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `--smoke`                             | Onboards into a temporary database, checks the result persists, exits.                        |
+| `--demo`                              | Loads a fictional sample company with sending off, kept in `.wrangler/run-local-demo`.        |
+| `--inference --workers-ai-account=ID` | Turns on model calls through Workers AI on your own Cloudflare account.                       |
+| `--ai-routing=auto`                   | Uses the account's default gateway if it can be verified. Otherwise uses Workers AI directly. |
+| `--ai-routing=direct`                 | Sends model calls directly to Workers AI.                                                     |
+| `--ai-gateway=ID`                     | Sends model calls through the named gateway in the selected account.                          |
+| `--verbose`                           | Streams every server log to the terminal instead of `server.log`.                             |
+| `--help`                              | Lists every option without starting anything.                                                 |
 
 `--demo` includes a sample Decisions (decisions waiting for you, one card at a
 time), Activity (a timeline of what happened) and a saved Today digest.
@@ -103,9 +105,17 @@ bunx wrangler whoami        # shows your 32-character account id
 bun run-local --inference --workers-ai-account=<account-id>
 ```
 
-Cloudflare's default AI Gateway is created on the first authenticated call.
-Add `--ai-gateway=<gateway-id>` to use a named gateway in the same account.
-Send a small test prompt to confirm replies come back.
+Auto routing checks for your account's existing default gateway at startup
+using the Cloudflare CLI (`cf`) and its current credentials. If the gateway
+can't be verified, including when `cf` is unavailable, the stack uses Workers
+AI directly. Direct calls are billed to the same account and bypass AI Gateway
+limits and logging.
+
+Add `--ai-gateway=<gateway-id>` to require a specific gateway in that account,
+or use `--ai-routing=direct` to skip the check. Tedix shows the active route
+in chat. If a request fails, Tedix keeps that route. To change it, restart the
+local stack with different options and reopen your Local Tedix window. Send a
+small test prompt to confirm replies come back.
 
 With inference on, Home can propose local tool actions for your approval, such
 as saving a document. The launcher also starts the MCP gateway on port 3000, so

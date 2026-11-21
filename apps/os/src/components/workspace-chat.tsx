@@ -1,5 +1,6 @@
 import { LoadingArea } from "@/components/loading-area";
 import { ConversationUsageRing } from "@/components/chat-usage-line";
+import { localWorkersAiRouteLabel } from "@/lib/local-inference";
 import "./workspace-chat.css";
 import { RegisteredAppSchedule } from "./workspace-app-connections";
 import {
@@ -1986,6 +1987,7 @@ function Composer({
 	onStop: (() => void) | null;
 	modelControl: ReactNode;
 }) {
+	const localAiRoute = localWorkersAiRouteLabel();
 	const [submitted, setSubmitted] = useState<{
 		id: string;
 		text: string;
@@ -2521,6 +2523,14 @@ function Composer({
 
 			<div className="workspace-chat-meta">
 				{slot}
+				{localAiRoute ? (
+					<span
+						className="text-xs text-kumo-subtle"
+						title="Model requests are billed to your Cloudflare account"
+					>
+						{localAiRoute}
+					</span>
+				) : null}
 				{modelControl ||
 				(disabledReason === null &&
 					(state.approvalMode || (!pinnedTediId && recipients.length > 0))) ? (

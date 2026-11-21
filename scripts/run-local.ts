@@ -34,7 +34,8 @@ Requires Bun and genuine Node.js 22.23.4+, 24.22+, or 26.12+ on PATH (within tho
   --demo                            Seed a fictional sample company, sending off, in a separate directory
   --smoke                           Run bounded validation with temporary state
   --restart-smoke                   Validate persistence across two offline boots
-  --ai-gateway=<id>                 Use a named gateway instead of Cloudflare's default
+  --ai-routing=auto|direct|gateway  Default: auto; check for the default gateway, or use Workers AI directly
+  --ai-gateway=<id>                 Use a specific gateway (implies --ai-routing=gateway)
   --no-install                      Skip installing locked dependencies
   --verbose                         Stream every server log to this terminal
   --help                            Print this help without starting anything
@@ -98,6 +99,7 @@ export interface RunLocalOptions {
 	inference: LocalInferenceBackend | null;
 	workersAiAccountId: string | null;
 	aiGatewayId: string | null;
+	aiRouting: "auto" | "direct" | "gateway" | null;
 	restartSmoke: boolean;
 	demo: boolean;
 	verbose: boolean;
@@ -117,6 +119,7 @@ export function parseRunLocalOptions(arguments_: string[]): RunLocalOptions {
 			!exactOptions.has(argument) &&
 			!argument.startsWith("--inference=") &&
 			!argument.startsWith("--workers-ai-account=") &&
+			!argument.startsWith("--ai-routing=") &&
 			!argument.startsWith("--ai-gateway="),
 	);
 	if (unknown.length > 0) {
@@ -173,12 +176,36 @@ export function parseRunLocalOptions(arguments_: string[]): RunLocalOptions {
 			"--ai-gateway requires Workers AI inference and a gateway ID of 1–64 lowercase letters, digits or hyphens",
 		);
 	}
-	const options = {
+	const routingArguments = arguments_.filter((arg) =>
+		arg.startsWith("--ai-routing="),
+	);
+	const aiRouting =
+		routingArguments[0]?.slice("--ai-routing=".length) ??
+		(aiGatewayId ? "gateway" : inferenceValue ? "auto" : null);
+	if (
+		aiRouting !== null &&
+		aiRouting !== "auto" &&
+		aiRouting !== "direct" &&
+		aiRouting !== "gateway"
+	) {
+		throw new Error("--ai-routing must be auto, direct, or gateway");
+	}
+	if (
+		routingArguments.length > 1 ||
+		(aiRouting !== null &&
+			(!inferenceValue || (aiRouting === "gateway") !== (aiGatewayId !== null)))
+	) {
+		throw new Error(
+			"--ai-routing requires --inference and one of auto, direct, or gateway. Supply --ai-gateway only with gateway routing.",
+		);
+	}
+	const options: RunLocalOptions = {
 		install: !arguments_.includes("--no-install"),
 		smoke: arguments_.includes("--smoke"),
 		inference: (inferenceValue ?? null) as LocalInferenceBackend | null,
 		workersAiAccountId,
 		aiGatewayId,
+		aiRouting,
 		restartSmoke: arguments_.includes("--restart-smoke"),
 		demo: arguments_.includes("--demo"),
 		verbose: arguments_.includes("--verbose"),
@@ -194,17 +221,43 @@ export function parseRunLocalOptions(arguments_: string[]): RunLocalOptions {
 	return options;
 }
 
+function hasDefaultAiGateway(accountId: string): boolean {
+	return (
+		spawnSync("cf", ["ai-gateway", "gateways", "get", "default", "--quiet"], {
+			env: {
+				...process.env,
+				CLOUDFLARE_ACCOUNT_ID: accountId,
+				CLOUDFLARE_SEND_METRICS: "false",
+				CI: "1",
+			},
+			stdio: "ignore",
+			timeout: 5000,
+		}).status === 0
+	);
+}
+
 export function localInferenceEnvironment(
-	options: Pick<
-		RunLocalOptions,
-		"inference" | "workersAiAccountId" | "aiGatewayId"
-	>,
+	options: RunLocalOptions,
+	defaultGatewayAvailable = hasDefaultAiGateway,
 ): Record<string, string> {
+	let gateway = options.aiGatewayId ?? "";
+	if (
+		options.aiRouting === "auto" &&
+		options.workersAiAccountId &&
+		defaultGatewayAvailable(options.workersAiAccountId)
+	) {
+		gateway = "default";
+	}
 	return {
 		TEDIX_LOCAL_INFERENCE_ENABLED: options.inference ? "true" : "false",
 		TEDIX_LOCAL_INFERENCE_BACKEND: options.inference ?? "",
 		TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID: options.workersAiAccountId ?? "",
-		TEDIX_LOCAL_AI_GATEWAY_ID: options.aiGatewayId ?? "",
+		TEDIX_LOCAL_AI_GATEWAY_ID: gateway,
+		TEDIX_LOCAL_WORKERS_AI_ROUTE: options.inference
+			? gateway
+				? "gateway"
+				: "direct"
+			: "",
 	};
 }
 
@@ -462,8 +515,11 @@ async function main(): Promise<void> {
 			: {}),
 	};
 	if (options.inference === "workers-ai") {
+		const gateway = inferenceEnvironment.TEDIX_LOCAL_AI_GATEWAY_ID;
 		console.warn(
-			`⚠ Paid remote Workers AI enabled for Cloudflare account ${options.workersAiAccountId}; Wrangler login authorizes model calls, while API and D1 remain local.`,
+			gateway
+				? `⚠ Paid Workers AI via AI Gateway (${gateway}).`
+				: "⚠ Paid Workers AI directly. AI Gateway limits and logging do not apply.",
 		);
 	}
 	// The sample company is dated relative to when it was seeded, so a demo

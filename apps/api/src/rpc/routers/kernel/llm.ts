@@ -402,6 +402,7 @@ export function kernelModel(
 	);
 	if (
 		!selected ||
+		env.TEDIX_LOCAL_DEMO_ENABLED === "true" ||
 		typeof selected.model === "string" ||
 		!env.DB ||
 		!catalog ||
@@ -545,20 +546,19 @@ function selectKernelModel(
 					attempts,
 				),
 				forOperation,
-				pricingIdentity:
-					env.AI_GATEWAY_ACCOUNT_ID?.trim() && env.AI_GATEWAY_LLM_ID?.trim()
-						? {
-								provider: "workers-ai",
-								requestModel: modelId,
-								gatewayAccountId: env.AI_GATEWAY_ACCOUNT_ID.trim(),
-								gatewayId: env.AI_GATEWAY_LLM_ID.trim(),
-								transportKind: "workers-ai-binding",
-								apiKind: "workers-ai-chat",
-								providerResource: null,
-								providerOrigin: null,
-								deployment: null,
-							}
-						: null,
+				pricingIdentity: env.AI_GATEWAY_ACCOUNT_ID?.trim()
+					? {
+							provider: "workers-ai",
+							requestModel: modelId,
+							gatewayAccountId: env.AI_GATEWAY_ACCOUNT_ID.trim(),
+							gatewayId: env.AI_GATEWAY_LLM_ID?.trim() || null,
+							transportKind: "workers-ai-binding",
+							apiKind: "workers-ai-chat",
+							providerResource: null,
+							providerOrigin: null,
+							deployment: null,
+						}
+					: null,
 				attempts,
 			};
 		}

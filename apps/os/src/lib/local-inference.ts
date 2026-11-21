@@ -8,7 +8,7 @@ export function isLocalSession(): boolean {
 }
 
 export const LOCAL_AI_UNAVAILABLE =
-	"AI replies are off in this local session. You can explore workspaces and saved content, or enable paid inference with your inference account.";
+	"AI replies are off. You can still use your workspaces and saved content. To enable Workers AI, restart Local Tedix with --inference and your Cloudflare account ID. AI Gateway is optional.";
 
 /** Build mode only: enabling inference does not prove provider connectivity. */
 export function isLocalAiUnavailable(): boolean {
@@ -21,6 +21,7 @@ export function isLocalAiUnavailable(): boolean {
 }
 
 declare const __LOCAL_INFERENCE_BACKEND__: string;
+declare const __LOCAL_WORKERS_AI_ROUTE__: string;
 
 export function isLocalWorkersAi(): boolean {
 	return (
@@ -29,4 +30,13 @@ export function isLocalWorkersAi(): boolean {
 		typeof __LOCAL_INFERENCE_BACKEND__ !== "undefined" &&
 		__LOCAL_INFERENCE_BACKEND__ === "workers-ai"
 	);
+}
+
+export function localWorkersAiRouteLabel(): string | null {
+	if (!isLocalWorkersAi() || typeof __LOCAL_WORKERS_AI_ROUTE__ === "undefined")
+		return null;
+	if (__LOCAL_WORKERS_AI_ROUTE__ === "gateway")
+		return "Workers AI via AI Gateway";
+	if (__LOCAL_WORKERS_AI_ROUTE__ === "direct") return "Direct Workers AI";
+	return null;
 }
