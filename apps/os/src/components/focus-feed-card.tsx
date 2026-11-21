@@ -128,12 +128,14 @@ export function FeedCard({
 	busy,
 	onReact,
 	onWork,
+	onOpenDiscussion,
 	rowActions = [],
 }: {
 	item: FocusItem;
 	actor: string;
 	project?: string;
 	busy: boolean;
+	onOpenDiscussion?: () => void;
 	rowActions?: FocusRowAction[];
 	onReact: (
 		item: ActivityFeedItem,
@@ -306,11 +308,12 @@ export function FeedCard({
 					)}
 					{!item.needsAction && more}
 				</div>
-				{!item.needsAction && item.attachment && (
-					<div className="ft-preview">
-						<FeedOutcomePreview item={item} compact />
-					</div>
-				)}
+				{!item.needsAction &&
+					(item.attachment || (item.workItemId && item.kind === "result")) && (
+						<div className="ft-preview">
+							<FeedOutcomePreview item={item} compact />
+						</div>
+					)}
 				{/* Work done on someone's behalf names them up front; other sources sit behind More. */}
 				{identity?.contributor && (
 					<WorkSourceProvenance actor={identity} name={actor} source={source} />
@@ -342,7 +345,10 @@ export function FeedCard({
 							size="sm"
 							variant="ghost"
 							aria-expanded={discussion}
-							onClick={() => setDiscussion((v) => !v)}
+							onClick={() => {
+								if (!discussion) onOpenDiscussion?.();
+								setDiscussion(!discussion);
+							}}
 						>
 							<ChatText size={16} aria-hidden />
 							Comments

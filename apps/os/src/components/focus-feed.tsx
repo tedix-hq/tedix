@@ -416,7 +416,7 @@ export function FocusFeed({
 	}
 	const budgetSignature = selection.selected.map((i) => i.id).join("|");
 	useEffect(() => {
-		if (loading || failed || budgetReady || timeline) return;
+		if (overview || loading || failed || budgetReady || timeline) return;
 		let active = true;
 		void saveFeed((p) => {
 			const chosen = focusSelection(
@@ -445,7 +445,15 @@ export function FocusFeed({
 		return () => {
 			active = false;
 		};
-	}, [loading, failed, budgetReady, budgetSignature, timeline, selection.day]);
+	}, [
+		overview,
+		loading,
+		failed,
+		budgetReady,
+		budgetSignature,
+		timeline,
+		selection.day,
+	]);
 	const signal = useCallback(
 		async (
 			item: ActivityFeedItem,
@@ -530,7 +538,15 @@ export function FocusFeed({
 		policy: model.data?.config.focusFeed,
 	});
 	useEffect(() => {
-		if (timeline || loading || failed || !budgetReady || !held.length) return;
+		if (
+			overview ||
+			timeline ||
+			loading ||
+			failed ||
+			!budgetReady ||
+			!held.length
+		)
+			return;
 		const key = `held:${inventory}`;
 		if (counters.current.has(key)) return;
 		counters.current.add(key);
@@ -562,6 +578,7 @@ export function FocusFeed({
 			counters.current.delete(key);
 		});
 	}, [
+		overview,
 		timeline,
 		loading,
 		failed,

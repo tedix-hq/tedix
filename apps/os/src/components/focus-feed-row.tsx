@@ -166,6 +166,10 @@ export function FocusRow({
 				busy={busy}
 				onReact={onReact}
 				onWork={onWork}
+				onOpenDiscussion={() => {
+					engaged.current = true;
+					void signal(item, "open", { discussion: true });
+				}}
 				rowActions={actions}
 			/>
 		</div>
