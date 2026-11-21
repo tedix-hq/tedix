@@ -86,7 +86,7 @@ function fencedCode(
 	return { code, lang: lang || "text" };
 }
 
-/** A block longer than this many lines starts folded. */
+/** A raw dump longer than this many lines starts folded. */
 const FOLD_ABOVE_LINES = 24;
 /** How many lines a folded block shows. */
 const FOLDED_LINES = 20;
@@ -124,15 +124,25 @@ function CopyCodeButton({ code }: { code: string }) {
 }
 
 /**
- * A code block in a reply: a header naming the language with a copy button,
- * a body that scrolls sideways instead of wrapping, and long blocks folded
- * to their first lines until the reader asks for the rest. Copy always takes
- * the whole block.
+ * A code block in a reply: a header naming the language with a copy button
+ * and a body that scrolls sideways instead of wrapping. A fenced block is
+ * code the reply wrote, so it shows every line; a reply that is only a raw
+ * JSON dump is output, folded to its first lines until the reader asks for
+ * the rest. Tool logs fold in their own step detail. Copy always takes the
+ * whole block.
  */
-function ChatCodeBlock({ code, lang }: { code: string; lang: string }) {
+function ChatCodeBlock({
+	code,
+	lang,
+	fold,
+}: {
+	code: string;
+	lang: string;
+	fold: boolean;
+}) {
 	const [expanded, setExpanded] = useState(false);
 	const lines = code.split("\n");
-	const foldable = lines.length > FOLD_ABOVE_LINES;
+	const foldable = fold && lines.length > FOLD_ABOVE_LINES;
 	const folded = foldable && !expanded;
 	return (
 		<div
@@ -327,7 +337,8 @@ export function ChatMarkdown({
 	if (dump) {
 		return (
 			<div className={className}>
-				<ChatCodeBlock code={sanitizeUntrustedText(dump)} lang="json" />
+				{/* A bare JSON dump is raw output, not code someone asked for. */}
+				<ChatCodeBlock code={sanitizeUntrustedText(dump)} fold lang="json" />
 			</div>
 		);
 	}
@@ -400,7 +411,11 @@ export function ChatMarkdown({
 					pre: ({ node, children }) => {
 						const fenced = fencedCode(node as MarkdownNode | undefined);
 						return fenced ? (
-							<ChatCodeBlock code={fenced.code} lang={fenced.lang} />
+							<ChatCodeBlock
+								code={fenced.code}
+								fold={false}
+								lang={fenced.lang}
+							/>
 						) : (
 							<pre className="max-w-full overflow-x-auto">{children}</pre>
 						);

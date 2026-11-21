@@ -853,9 +853,10 @@ describe("WorkspaceChat", () => {
 		);
 		const buttons = () =>
 			[...host.querySelectorAll("button")].map((button) => button.textContent);
+		// The lookup read nothing, so the line names it instead of "Read 1 item".
 		expect(
 			host.querySelector(".workspace-chat-activity-summary")?.textContent,
-		).toContain("Failed");
+		).toBe("Looking up the workspace's appsFailed");
 		expect(
 			host.querySelector('[data-testid="workspace-chat-step"]'),
 		).toBeNull();
@@ -876,9 +877,56 @@ describe("WorkspaceChat", () => {
 				.find((button) => button.textContent === "Details")
 				?.click(),
 		);
-		expect(host.textContent).toContain("A Tedix service was busy");
-		expect(host.textContent).toContain("t1");
+		const details = () =>
+			host.querySelector(".workspace-chat-stopped-details")?.textContent ?? "";
+		expect(details()).toContain("A Tedix service was busy");
+		expect(details()).toContain("Stopped atLooking up the workspace's apps");
+		expect(details()).toContain("t1");
 		expect(host.textContent).not.toContain("Failed query");
+	});
+
+	it("drops the advice to try again from an older failed turn without Retry", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				started,
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "error",
+					error:
+						"The model is busy or out of credits right now. Wait a moment and try again.",
+					errorKind: "model_busy",
+					durationMs: 1000,
+				},
+				{ ...started, seq: 3, turnId: "t2", text: "And now?" },
+				{
+					seq: 4,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t2",
+					status: "done",
+					durationMs: 1000,
+				},
+			]),
+		);
+		const stopped = host.querySelector(
+			'[data-testid="workspace-chat-turn-stopped"]',
+		);
+		expect(stopped?.textContent).toContain(
+			"The model is busy or out of credits right now.",
+		);
+		expect(stopped?.textContent?.toLowerCase()).not.toContain("try again");
+		expect(
+			[...(stopped?.querySelectorAll("button") ?? [])].map(
+				(b) => b.textContent,
+			),
+		).toEqual(["Details"]);
 	});
 
 	it("never shows a recorded turn error the workspace did not sort", () => {
