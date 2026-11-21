@@ -10,10 +10,12 @@ import {
 	Menu,
 	type MenuItemConstructorOptions,
 	Notification,
+	nativeImage,
 	nativeTheme,
 	type Rectangle,
 	screen,
 	shell,
+	Tray,
 	WebContentsView,
 } from "electron";
 import type {
@@ -36,6 +38,14 @@ import {
 	updateCli,
 } from "./cli";
 import { log } from "./log";
+import {
+	onRunnersChange,
+	removeLoginService,
+	runnersProblem,
+	runnersRunning,
+	startRunners,
+	stopRunners,
+} from "./runners";
 import { setRunnerField } from "./runners-file";
 import {
 	type AppSignIn,
@@ -146,7 +156,7 @@ async function command(file: string, args: string[], done: string) {
 	await refresh();
 }
 
-/** The CLI has no restart command, so this restarts the supervisor's login service. */
+/** Stops the runners this app runs and starts them again. */
 async function restartRunners(): Promise<void> {
 	if (process.platform === "darwin") {
 		busy = true;
@@ -156,7 +166,7 @@ async function restartRunners(): Promise<void> {
 		busy = false;
 		lastOutput = result.ok
 			? "Runners restarted"
-			: lastLine(result.output) || "The background service did not start";
+			: lastLine(result.output) || "The runners did not start";
 		return refresh();
 	}
 	lastOutput = "Restart `tedix supervise` yourself on this system";
@@ -432,7 +442,7 @@ async function applyUpdate(): Promise<void> {
 				const result = await restartSupervisor();
 				if (!result.ok)
 					throw new Error(
-						`The background service did not start: ${lastLine(result.output) || "no reason given"}.`,
+						`The runners did not start: ${lastLine(result.output) || "no reason given"}.`,
 					);
 				sayDone("Runners restarted.");
 			});
@@ -443,7 +453,9 @@ async function applyUpdate(): Promise<void> {
 		if (found) await installUpdate();
 		return;
 	}
-	const restartsRunners = Boolean(cli) && (await supervisorLoaded());
+	// The runners are this app's child process: a relaunch restarts them too.
+	const restartsRunners =
+		(Boolean(cli) || Boolean(appVersion)) && (await supervisorLoaded());
 	const runs = restartsRunners ? await activeRunCount() : 0;
 	if (runs === 0) return updateNow();
 
@@ -457,7 +469,9 @@ async function applyUpdate(): Promise<void> {
 		message: "Tasks are still running on this Mac",
 		detail: [
 			appVersion
-				? "An update for the app and the command-line tool is ready."
+				? cli
+					? "An update for the app and the command-line tool is ready."
+					: "An update for the app is ready."
 				: "An update for the command-line tool is ready.",
 			`${tasks} running on this Mac. Updating restarts ${
 				runners
@@ -501,6 +515,7 @@ function publishDownload(): void {
 }
 
 function openDownloadWindow(): void {
+	void app.dock?.show();
 	if (downloadWindow && !downloadWindow.isDestroyed())
 		return downloadWindow.show();
 	const window = new BrowserWindow({
@@ -522,6 +537,7 @@ function openDownloadWindow(): void {
 	window.on("closed", () => {
 		if (downloadWindow === window) downloadWindow = undefined;
 		if (!downloadEnded) cancelDownload();
+		updateDock();
 	});
 	void window.loadFile(join(root, "download.html"));
 }
@@ -576,6 +592,7 @@ async function askToUpdate(appVersion?: string, cli?: string): Promise<void> {
 			`Command-line tool ${cli} is now available${have ? `. You have ${have}` : ""}.`,
 		cli &&
 			`Updating the command-line tool restarts this Mac's runners. ${FOLDER_PROMPT}`,
+		!cli && appVersion && "Updating the app restarts this Mac's runners.",
 		appVersion && readyVersion() === appVersion
 			? "It is downloaded and ready. Would you like to install it now?"
 			: "Would you like to download and install it now?",
@@ -638,7 +655,10 @@ async function tell(message: string, detail: string, buttons = ["OK"]) {
 		defaultId: 0,
 		cancelId: buttons.length - 1,
 	};
-	const window = mainWindow?.isDestroyed() ? undefined : mainWindow;
+	const window =
+		mainWindow?.isDestroyed() || !mainWindow?.isVisible()
+			? undefined
+			: mainWindow;
 	const { response } = window
 		? await dialog.showMessageBox(window, options)
 		: await dialog.showMessageBox(options);
@@ -887,8 +907,7 @@ function openAppLink(value: string | undefined): void {
 		startLink = value;
 		return;
 	}
-	mainWindow?.show();
-	mainWindow?.focus();
+	showMain();
 	// `tedix://setup`: the Tedix OS page's "Set up this Mac" button.
 	if (target.host === "setup") {
 		log("link: setup window asked for");
@@ -997,9 +1016,31 @@ function defaultBounds(): Rectangle {
 	};
 }
 
-function createMainWindow(): void {
+/** Quit was chosen: windows really close now instead of hiding. */
+let quitting = false;
+
+/** Shows the main window and puts Tedix back in the Dock. */
+function showMain(): void {
+	const window = mainWindow;
+	if (!window || window.isDestroyed()) return;
+	void app.dock?.show();
+	window.show();
+	window.focus();
+}
+
+/** Without a visible window, Tedix lives in the menu bar only. */
+function updateDock(): void {
+	if (process.platform !== "darwin" || quitting) return;
+	const shown = [mainWindow, panel, setupWindow, downloadWindow].some(
+		(window) => window && !window.isDestroyed() && window.isVisible(),
+	);
+	if (!shown) app.dock?.hide();
+}
+
+function createMainWindow(show: boolean): void {
 	const window = new BrowserWindow({
 		...(savedBounds() ?? defaultBounds()),
+		show,
 		minWidth: 720,
 		minHeight: 520,
 		title: "Tedix",
@@ -1009,13 +1050,22 @@ function createMainWindow(): void {
 		backgroundColor: "#0a0a0a",
 	});
 	mainWindow = window;
-	window.on("close", () => {
+	// Closing the window leaves Tedix in the menu bar, with its runners;
+	// only Quit ends the app.
+	window.on("close", (event) => {
 		try {
 			writeFileSync(windowFile(), JSON.stringify(window.getNormalBounds()));
 		} catch (error) {
 			log(`window: size not kept (${(error as Error).message})`);
 		}
+		if (quitting) return;
+		event.preventDefault();
+		if (window.isFullScreen()) {
+			window.once("leave-full-screen", () => window.hide());
+			window.setFullScreen(false);
+		} else window.hide();
 	});
+	window.on("hide", updateDock);
 
 	const view = new WebContentsView({
 		webPreferences: {
@@ -1129,19 +1179,20 @@ const windowColour = () =>
 
 /** The small This Mac window: status and the day-to-day switches. */
 function openPanel(): void {
+	void app.dock?.show();
 	if (panel && !panel.isDestroyed()) return panel.show();
 	panel = new BrowserWindow({
 		width: 400,
 		height: 640,
 		title: "This Mac",
 		backgroundColor: windowColour(),
-		parent: mainWindow,
 		minimizable: false,
 		maximizable: false,
 		fullscreenable: false,
 		webPreferences: localPage,
 	});
 	panel.setMenuBarVisibility(false);
+	panel.on("closed", updateDock);
 	panel.webContents.on("will-navigate", (event) => event.preventDefault());
 	panel.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	void panel.loadFile(join(root, "panel.html"));
@@ -1154,12 +1205,12 @@ function openPanel(): void {
  * `tedix://setup` link.
  */
 function openSetup(): void {
+	void app.dock?.show();
 	if (setupWindow && !setupWindow.isDestroyed()) return setupWindow.show();
 	const window = new BrowserWindow({
 		width: 960,
 		height: 620,
 		title: "Set up this Mac",
-		parent: mainWindow,
 		resizable: false,
 		minimizable: false,
 		maximizable: false,
@@ -1170,6 +1221,7 @@ function openSetup(): void {
 	});
 	setupWindow = window;
 	window.setMenuBarVisibility(false);
+	window.on("closed", updateDock);
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	// Coming back from the browser shows the new state at once.
@@ -1318,6 +1370,223 @@ function setMenu(): void {
 	);
 }
 
+/**
+ * The menu bar icon, drawn here as a template image so macOS colours it
+ * for light and dark menu bars: a rounded square with a T in it.
+ */
+function trayImage(): Electron.NativeImage {
+	const size = 36;
+	const inRoundedSquare = (x: number, y: number, from: number, r: number) => {
+		const to = size - from;
+		const dx = Math.max(from + r - x, 0, x - (to - r));
+		const dy = Math.max(from + r - y, 0, y - (to - r));
+		return (
+			x >= from && x <= to && y >= from && y <= to && dx * dx + dy * dy <= r * r
+		);
+	};
+	const ink = (x: number, y: number) =>
+		(inRoundedSquare(x, y, 3, 8) && !inRoundedSquare(x, y, 6, 5)) ||
+		(x >= 11 && x <= 25 && y >= 11 && y <= 14.5) ||
+		(x >= 16.25 && x <= 19.75 && y >= 11 && y <= 26);
+	const pixels = Buffer.alloc(size * size * 4);
+	for (let y = 0; y < size; y++)
+		for (let x = 0; x < size; x++) {
+			let covered = 0;
+			for (let sy = 0; sy < 4; sy++)
+				for (let sx = 0; sx < 4; sx++)
+					if (ink(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4)) covered++;
+			pixels[(y * size + x) * 4 + 3] = Math.round((covered / 16) * 255);
+		}
+	const image = nativeImage.createFromBitmap(pixels, {
+		width: size,
+		height: size,
+		scaleFactor: 2,
+	});
+	image.setTemplateImage(true);
+	return image;
+}
+
+/** One line on this Mac's runners for the menu bar menu. */
+function runnersLine(): string {
+	const problem = runnersProblem();
+	if (problem)
+		return problem.length > 90 ? `${problem.slice(0, 89)}…` : problem;
+	if (!runnersRunning()) return "This Mac's runners are not running";
+	const enabled = status?.runners.filter((runner) => runner.enabled) ?? [];
+	const running = enabled.filter((runner) => runner.running).length;
+	const runs = status?.activeRuns ?? 0;
+	return `Runners: ${running} of ${enabled.length} running · ${runs} ${runs === 1 ? "task" : "tasks"}`;
+}
+
+let tray: Tray | undefined;
+
+/** Right click on the menu bar icon. */
+function trayMenu(): Menu {
+	return Menu.buildFromTemplate([
+		{ label: "Open Tedix", click: showMain },
+		{ label: "New Chat…", click: openInputBar },
+		{ type: "separator" },
+		{ label: runnersLine(), enabled: false },
+		{ label: "This Mac…", click: openPanel },
+		{ label: "Restart Runners", click: () => void restartRunners() },
+		{ type: "separator" },
+		{ label: "Check for Updates…", click: () => void checkForUpdates(true) },
+		...(app.isPackaged
+			? [
+					{
+						label: "Open at Login",
+						type: "checkbox" as const,
+						checked: app.getLoginItemSettings().openAtLogin,
+						click: (item: Electron.MenuItem) => {
+							app.setLoginItemSettings({ openAtLogin: item.checked });
+							void publish();
+						},
+					},
+				]
+			: []),
+		{ type: "separator" },
+		{ label: "Quit Tedix and Stop Runners", click: () => app.quit() },
+	]);
+}
+
+function createTray(): void {
+	tray = new Tray(trayImage());
+	tray.setToolTip("Tedix");
+	// Left click opens the input bar; right click (or Control-click) the menu.
+	tray.on("click", (event) => {
+		if (event.ctrlKey) return tray?.popUpContextMenu(trayMenu());
+		openInputBar();
+	});
+	tray.on("right-click", () => tray?.popUpContextMenu(trayMenu()));
+}
+
+/**
+ * The input bar: a small field near the top of the screen, like Spotlight.
+ * What is typed there starts a new chat in the Tedix window.
+ */
+let inputBar: BrowserWindow | undefined;
+/** When the bar last hid because it lost focus, so the icon's click does not reopen it. */
+let inputBarBlurredAt = 0;
+
+function placeInputBar(window: BrowserWindow): void {
+	const { workArea } = screen.getDisplayNearestPoint(
+		screen.getCursorScreenPoint(),
+	);
+	const { width } = window.getBounds();
+	window.setPosition(
+		workArea.x + Math.round((workArea.width - width) / 2),
+		workArea.y + Math.round(workArea.height * 0.2),
+	);
+}
+
+function openInputBar(): void {
+	const existing = inputBar && !inputBar.isDestroyed() ? inputBar : undefined;
+	if (existing?.isVisible()) return existing.hide();
+	if (existing && Date.now() - inputBarBlurredAt < 300) return;
+	const show = (window: BrowserWindow) => {
+		placeInputBar(window);
+		app.focus({ steal: true });
+		window.show();
+		window.focus();
+	};
+	if (existing) return show(existing);
+	const window = new BrowserWindow({
+		width: 640,
+		height: 60,
+		show: false,
+		frame: false,
+		transparent: true,
+		resizable: false,
+		movable: false,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		skipTaskbar: true,
+		alwaysOnTop: true,
+		title: "New chat",
+		webPreferences: localPage,
+	});
+	inputBar = window;
+	window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+	window.webContents.on("will-navigate", (event) => event.preventDefault());
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	window.on("blur", () => {
+		inputBarBlurredAt = Date.now();
+		window.hide();
+	});
+	window.once("ready-to-show", () => show(window));
+	void window.loadFile(join(root, "input.html"));
+}
+
+/**
+ * Starts a new chat in the Tedix window with `text`: opens a new chat,
+ * waits for its message field, fills it in and sends it. When the page
+ * cannot send yet, the text stays in the field for the person to send.
+ */
+async function newChat(text: string): Promise<void> {
+	inputBar?.hide();
+	showMain();
+	const view = os;
+	if (!view || view.webContents.isDestroyed()) return;
+	const current = URL.parse(view.webContents.getURL());
+	const origin =
+		current && isOsHost(current.host) ? current.origin : osOrigin();
+	try {
+		await view.webContents.loadURL(`${origin}/chat`);
+	} catch {
+		/* A redirect, such as to the sign-in, ends the load early. */
+	}
+	const outcome = await view.webContents
+		.executeJavaScript(
+			`(async (text) => {
+				const wait = () => new Promise((resolve) => setTimeout(resolve, 200));
+				for (let tries = 0; tries < 75; tries++) {
+					if (location.pathname === "/login") return "sign-in";
+					const field = document.querySelector('textarea[aria-label="Message"]');
+					if (field && !field.readOnly) {
+						const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+						set.call(field, text);
+						field.dispatchEvent(new Event("input", { bubbles: true }));
+						field.focus();
+						for (let waited = 0; waited < 25; waited++) {
+							await wait();
+							const send = field.closest("form")?.querySelector('button[type="submit"]');
+							if (send && !send.disabled) {
+								send.click();
+								return "sent";
+							}
+						}
+						return "filled";
+					}
+					await wait();
+				}
+				return "no message field";
+			})(${JSON.stringify(text)})`,
+		)
+		.catch(() => "page error");
+	log(`chat: new chat from the menu bar (${String(outcome)})`);
+}
+
+/**
+ * Runs this Mac's runners as the app's child process. The first start on a
+ * Mac that ran them with the CLI's login service removes that service and
+ * opens Tedix at login instead, so the runners still start at login. A Mac
+ * without runners starts them from Set up this Mac.
+ */
+async function takeOverRunners(): Promise<void> {
+	if (process.platform !== "darwin") return;
+	const tookOver = await removeLoginService();
+	if (tookOver && app.isPackaged && !app.getLoginItemSettings().openAtLogin) {
+		app.setLoginItemSettings({ openAtLogin: true });
+		log("start: Tedix opens at login now, in place of the login service");
+	}
+	status ??= await loadStatus();
+	if (!tookOver && status.runners.length === 0) return;
+	const result = await startRunners();
+	if (!result.ok) log(`runners: not started (${lastLine(result.output)})`);
+	await refresh();
+}
+
 const appLink = (args: string[]) =>
 	args.find((arg) => arg.startsWith("tedix://"));
 
@@ -1336,7 +1605,13 @@ else {
 		// click on the update button may replace the command-line tool.
 		const clicked = takeUpdateClick();
 		setMenu();
-		createMainWindow();
+		// Opened at login, Tedix starts in the menu bar without a window.
+		const atLogin =
+			process.platform === "darwin" &&
+			app.getLoginItemSettings().wasOpenedAtLogin;
+		createMainWindow(!atLogin);
+		if (atLogin) app.dock?.hide();
+		createTray();
 		openAppLink(startLink);
 
 		ipcMain.handle("state", (event) => {
@@ -1371,8 +1646,7 @@ else {
 			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
 				if (name === "done-setup") return;
-				mainWindow?.show();
-				mainWindow?.focus();
+				showMain();
 			}
 		});
 		ipcMain.handle("setup", async (event, action: SetupAction, id: unknown) => {
@@ -1437,11 +1711,33 @@ else {
 		});
 
 		app.on("second-instance", (_event, args) => {
-			mainWindow?.show();
+			showMain();
 			openAppLink(appLink(args));
 		});
-		// Closing the window quits the app; the supervisor keeps the runners running.
-		app.on("window-all-closed", () => app.quit());
+		// Only the input bar may start a chat from it.
+		const fromInputBar = (event: { sender: Electron.WebContents }) =>
+			event.sender === inputBar?.webContents;
+		ipcMain.handle("new-chat", (event, text: unknown) => {
+			if (!fromInputBar(event)) throw new Error("Not allowed");
+			if (typeof text === "string" && text.trim())
+				return newChat(text.trim().slice(0, 20_000));
+		});
+		ipcMain.handle("input-close", (event) => {
+			if (!fromInputBar(event)) throw new Error("Not allowed");
+			inputBar?.hide();
+		});
+		// Tedix stays in the menu bar with no window open; only Quit ends it.
+		app.on("window-all-closed", () => {});
+		app.on("activate", showMain);
+		// Quitting stops this Mac's runners first: they are this app's child.
+		app.on("before-quit", (event) => {
+			quitting = true;
+			if (!runnersRunning()) return void stopRunners();
+			event.preventDefault();
+			log("quit: stopping this Mac's runners first");
+			void stopRunners().finally(() => app.quit());
+		});
+		onRunnersChange(() => void refresh());
 		setInterval(() => {
 			void refresh();
 			// While a browser sign-in is waiting, notice when it ends.
@@ -1451,17 +1747,19 @@ else {
 		// sign-in on this Mac is still to do.
 		onSetupChange(() => void publish());
 		onCliChange(() => void refreshSetup(false).then(refresh));
-		void refreshSetup(true).then(() => {
+		void refreshSetup(true).then(async () => {
 			if (setupState().open) openSetup();
-			// The second half of the click that restarted the app.
+			// The second half of the click that restarted the app. It runs
+			// before the runners start, so they start on the new tool.
 			if (clicked) {
 				log("update: this start follows a click to update");
-				void working("Updating…", async () => {
+				await working("Updating…", async () => {
 					await lookForCliUpdate(false);
 					await refreshSetup(false);
 					await applyCommandLineTool(true);
 				});
 			}
+			await takeOverRunners();
 		});
 		// The app and the command-line tool have their own releases. By itself
 		// the app at most asks, downloads a newer app and reads which

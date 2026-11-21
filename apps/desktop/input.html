@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+		/>
+		<title>New chat</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				font:
+					15px -apple-system,
+					BlinkMacSystemFont,
+					sans-serif;
+			}
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				background: transparent;
+				overflow: hidden;
+			}
+			form {
+				box-sizing: border-box;
+				height: 100%;
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 0 10px 0 18px;
+				border-radius: 14px;
+				background: light-dark(#ffffff, #1c1c1e);
+				border: 1px solid light-dark(#d4d4d8, #3a3a3c);
+			}
+			input {
+				flex: 1;
+				min-width: 0;
+				border: 0;
+				outline: 0;
+				background: transparent;
+				color: light-dark(#0a0a0a, #fafafa);
+				font: inherit;
+				font-size: 17px;
+			}
+			button {
+				flex: none;
+				width: 32px;
+				height: 32px;
+				border: 0;
+				border-radius: 50%;
+				background: light-dark(#0a0a0a, #fafafa);
+				color: light-dark(#fafafa, #0a0a0a);
+				font: inherit;
+				font-size: 17px;
+				cursor: pointer;
+			}
+			button:disabled {
+				opacity: 0.3;
+				cursor: default;
+			}
+			button:focus-visible {
+				outline: 2px solid Highlight;
+				outline-offset: 2px;
+			}
+		</style>
+	</head>
+	<body>
+		<form id="bar">
+			<input
+				id="message"
+				type="text"
+				aria-label="Message for a new chat"
+				placeholder="Start a new chat with Tedix"
+				autocomplete="off"
+				maxlength="20000"
+			/>
+			<button id="send" type="submit" aria-label="Start chat" disabled>
+				↑
+			</button>
+		</form>
+		<script src="out/input-bar.js"></script>
+	</body>
+</html>

@@ -15,7 +15,7 @@ export interface PanelState {
 
 /**
  * `cli-back` puts the kept command-line tool back and restarts the
- * background service. `setup-window` opens the Set up this Mac window; `close-setup` closes it
+ * runners. `setup-window` opens the Set up this Mac window; `close-setup` closes it
  * and shows Tedix; `done-setup` only closes it.
  */
 export type PanelAction =
@@ -51,6 +51,9 @@ export interface PanelApi {
 	/** The next two are for the downloading window only. */
 	onDownload(listener: (view: DownloadView) => void): void;
 	cancelDownload(): Promise<void>;
+	/** The next two are for the menu bar's input bar only. */
+	newChat(text: string): Promise<void>;
+	closeInputBar(): Promise<void>;
 }
 
 /**
