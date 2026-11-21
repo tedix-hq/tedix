@@ -12,7 +12,7 @@ async function mount(
 			? {
 					name: "Alex",
 					email: "alex@example.com",
-					organization: "Sample team",
+					computer: "other",
 					models,
 					modelRef,
 				}
@@ -20,7 +20,9 @@ async function mount(
 	);
 	new Function("tedix", `${kit}\n${client}`)({ call });
 	await vi.waitFor(() =>
-		expect(document.querySelector("h2")?.textContent).toBe("Your profile"),
+		expect(document.querySelector("h2")?.textContent).toBe(
+			"What should we call you?",
+		),
 	);
 	return call;
 }
@@ -43,51 +45,51 @@ afterEach(() => {
 });
 
 describe("welcome gadget", () => {
-	it("saves a profile and model, explains connections and tasks, then finishes", async () => {
+	it("saves a profile and model, offers computer setup, then opens chat", async () => {
 		const call = await mount();
 		const input = document.querySelector("input")!;
 		input.value = "Alex Smith";
 		input.dispatchEvent(new Event("input"));
-		await click("Next");
+		await click("Continue");
 		expect(call).toHaveBeenCalledWith("welcome.profile", {
 			name: "Alex Smith",
 		});
 		const select = document.querySelector("select")!;
 		select.value = "azure-openai/example";
 		select.dispatchEvent(new Event("change"));
-		await click("Next");
+		await click("Continue");
 		expect(call).toHaveBeenCalledWith("welcome.model", {
 			ref: "azure-openai/example",
 		});
-		expect(document.body.textContent).toContain(
-			"Sign-in and consent stay with you",
+		expect(document.querySelector("h2")?.textContent).toBe(
+			"Set up this computer",
 		);
-		await click("Next");
-		expect(document.body.textContent).toContain("research a topic");
+		await click("Continue");
+		expect(document.querySelector("h2")?.textContent).toBe("Start chatting");
 		await click("Ask your first question");
 		expect(call).toHaveBeenCalledWith("welcome.complete");
 	});
 	it("allows the organization default without an empty model picker", async () => {
 		const call = await mount([]);
-		await click("Next");
+		await click("Continue");
 		expect(document.querySelector("select")).toBeNull();
-		expect(document.body.textContent).toContain("Use the organization default");
-		await click("Next");
+		expect(document.body.textContent).toContain("Your organization's default");
+		await click("Continue");
 		expect(call).not.toHaveBeenCalledWith("welcome.model", expect.anything());
 	});
 	it("keeps a previous model that is no longer offered until the person changes it", async () => {
 		const call = await mount(undefined, "azure-openai/previous");
-		await click("Next");
+		await click("Continue");
 		expect(document.querySelector("select")?.value).toBe(
 			"azure-openai/previous",
 		);
-		await click("Next");
+		await click("Continue");
 		expect(call).not.toHaveBeenCalledWith("welcome.model", expect.anything());
 		await click("Back");
 		const select = document.querySelector("select")!;
 		select.value = "";
 		select.dispatchEvent(new Event("change"));
-		await click("Next");
+		await click("Continue");
 		expect(call).toHaveBeenCalledWith("welcome.model", { ref: null });
 	});
 
@@ -97,8 +99,10 @@ describe("welcome gadget", () => {
 		const input = document.querySelector("input")!;
 		input.value = "New name";
 		input.dispatchEvent(new Event("input"));
-		await click("Next");
-		expect(document.querySelector("h2")?.textContent).toBe("Your profile");
+		await click("Continue");
+		expect(document.querySelector("h2")?.textContent).toBe(
+			"What should we call you?",
+		);
 		expect(document.querySelector("input")?.value).toBe("New name");
 		expect(document.body.textContent).toContain("Profile changed; try again");
 		expect(call).not.toHaveBeenCalledWith("welcome.complete");

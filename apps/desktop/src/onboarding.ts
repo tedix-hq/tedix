@@ -263,14 +263,6 @@ function attention({
 		};
 	if (failed("sign-in") || failed("cli"))
 		return { text: "A step on This Mac did not finish.", step: "mac" };
-	const tool = setup.tools.find(
-		(row) =>
-			row.found === "no-command" ||
-			(row.tedix === "added" && !connected(row)) ||
-			setup.steps[`add:${row.id}`]?.error ||
-			setup.steps[`connect:${row.id}`]?.error,
-	);
-	if (tool) return { text: `${tool.name} needs attention.`, step: "tools" };
 	if (failed("run:"))
 		return { text: "A tool could not be switched on.", step: "tasks" };
 	return undefined;
@@ -647,11 +639,11 @@ function screenFor(id: StepId, now: PanelState): Screen {
 						"p",
 						"",
 						`${needs.text} `,
-						button("Fix", "link", () => go(needs.step)),
+						button("Open setup step", "link", () => go(needs.step)),
 					),
 				],
 			},
-			headline: "Almost ready",
+			headline: "Finish setting up this Mac",
 			primary: openTedix,
 		};
 	if (setup.reach !== "ok")
@@ -672,26 +664,54 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			headline: "Almost ready",
 			primary: openTedix,
 		};
-	const tools = setup.tools.filter(connected).length;
-	const runs = status.runners
-		.filter((runner) => runner.enabled)
-		.map((runner) => EXECUTOR_NAMES[runner.executor] ?? runner.executor);
-	const mark = el("span", "check", icon("check", 56));
+	const enabled = status.runners.filter((runner) => runner.enabled);
+	const running = enabled.filter((runner) => runner.running).length;
+	const tool = setup.tools.find(
+		(row) =>
+			row.found === "no-command" ||
+			(row.tedix === "added" && !connected(row)) ||
+			setup.steps[`add:${row.id}`]?.error ||
+			setup.steps[`connect:${row.id}`]?.error,
+	);
+	const lines: Child[] = [];
+	if (enabled.length === 0)
+		lines.push(
+			el(
+				"p",
+				"",
+				"Turn on a tool to run tasks here. ",
+				button("Set up tasks", "link", () => go("tasks")),
+			),
+		);
+	else if (enabled.length > running)
+		lines.push(
+			el(
+				"p",
+				"",
+				`${running} of ${enabled.length} tools are running. `,
+				button("Check tasks", "link", () => go("tasks")),
+			),
+		);
+	if (tool)
+		lines.push(
+			el(
+				"p",
+				"",
+				`To use Tedix inside ${tool.name}, finish connecting it. `,
+				button("Open coding tools", "link", () => go("tools")),
+			),
+		);
 	return {
 		centre: {
-			mark,
-			lines: [
-				el(
-					"p",
-					"",
-					[
-						`${tools} ${tools === 1 ? "tool" : "tools"} connected`,
-						runs.length ? `runs ${runs.join(", ")} tasks` : "runs no tasks",
-					].join(" · "),
-				),
-			],
+			mark: running > 0 ? el("span", "check", icon("check", 56)) : appIcon(),
+			lines,
 		},
-		headline: "This Mac is ready",
+		headline:
+			running > 0
+				? "This Mac can run tasks"
+				: enabled.length
+					? "Tasks are unavailable on this Mac"
+					: "This Mac is connected",
 		primary: openTedix,
 	};
 }

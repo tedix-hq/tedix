@@ -136,39 +136,34 @@ try {
 		await next();
 		await guest.getByRole("heading", { name: "Pick a model" }).waitFor();
 		await next();
-		await guest.getByRole("heading", { name: "Connect your tools" }).waitFor();
-		await guest
-			.getByText("Sign-in and consent stay with you", { exact: false })
-			.waitFor();
-		await next();
 		await guest
 			.getByRole("heading", { name: /^Set up this (computer|Mac)$/ })
 			.waitFor();
 		await guest.getByRole("button", { name: "Skip for now" }).click();
-		await guest.getByRole("heading", { name: "You're ready" }).waitFor();
+		await guest.getByRole("heading", { name: "Start chatting" }).waitFor();
 		await guest
 			.getByRole("button", { name: "Ask your first question" })
 			.click();
 		await page.waitForURL(/\/chat$/);
-		await page
-			.getByRole("combobox", { name: "Message", exact: true })
-			.waitFor();
+		await page.locator("#os-main-content").waitFor();
 		assert.equal(completed, true);
 		assert.equal(writes, 1);
-		await page.reload();
-		await page
-			.getByRole("combobox", { name: "Message", exact: true })
-			.waitFor();
+		await Promise.all([
+			page.waitForResponse("**/api/rpc/userProfile/getMine"),
+			page.reload(),
+		]);
+		await page.locator("#os-main-content").waitFor();
 		assert.equal(
 			await dialog.count(),
 			0,
 			"completed welcome stays hidden after reload",
 		);
 		const anotherTab = await context.newPage();
-		await anotherTab.goto(`${server.origin}/chat`);
-		await anotherTab
-			.getByRole("combobox", { name: "Message", exact: true })
-			.waitFor();
+		await Promise.all([
+			anotherTab.waitForResponse("**/api/rpc/userProfile/getMine"),
+			anotherTab.goto(`${server.origin}/chat`),
+		]);
+		await anotherTab.locator("#os-main-content").waitFor();
 		assert.equal(
 			await anotherTab
 				.getByRole("dialog", { name: "Welcome to Tedix" })
@@ -190,9 +185,7 @@ try {
 		failSave = false;
 		await page.getByRole("button", { name: "Close", exact: true }).click();
 		await dialog.waitFor({ state: "hidden" });
-		await page
-			.getByRole("combobox", { name: "Message", exact: true })
-			.waitFor();
+		await page.locator("#os-main-content").waitFor();
 		assert.equal(completed, true);
 		assert.equal(
 			requests.some((url) => url.includes("/userProfile/getWelcomeState")),
