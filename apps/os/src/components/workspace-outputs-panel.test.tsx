@@ -223,7 +223,6 @@ function renderPanel(
 					loading={false}
 					now={new Date("2026-10-24T12:00:00.000Z")}
 					onBrowseLibrary={() => {}}
-					onOpenActivity={() => {}}
 					onOpenWork={() => {}}
 					onOpenAgents={() => {}}
 					onSelect={() => {}}
@@ -237,17 +236,11 @@ function renderPanel(
 }
 
 describe("WorkspaceOutputsPanel", () => {
-	it("offers the template catalog directly in the workspace Files header", () => {
+	it("offers each row's actions once the panel knows the workspace", () => {
 		const panel = renderPanel({ workspaceId: "workspace" });
-		// Each row offers its own actions once the panel knows the workspace.
 		expect(
 			panel.querySelectorAll('button[aria-label^="Actions for "]').length,
 		).toBeGreaterThan(0);
-		expect(
-			panel
-				.querySelector('a[aria-label="Browse workspace templates"]')
-				?.getAttribute("href"),
-		).toBe("/blueprints");
 	});
 	it.each([
 		["Doc", "document"],
@@ -274,7 +267,6 @@ describe("WorkspaceOutputsPanel", () => {
 						onBrowseLibrary={() => {}}
 						onOpenWork={() => {}}
 						onOpenAgents={() => {}}
-						onOpenActivity={() => {}}
 					/>,
 				),
 			);
@@ -321,7 +313,6 @@ describe("WorkspaceOutputsPanel", () => {
 					onBrowseLibrary={() => {}}
 					onOpenWork={() => {}}
 					onOpenAgents={() => {}}
-					onOpenActivity={() => {}}
 				/>,
 			),
 		);
@@ -370,9 +361,6 @@ describe("WorkspaceOutputsPanel", () => {
 		// The fold is the top bar's job: the panel carries no toggle of its own.
 		expect(doc.querySelector("header button")).toBeNull();
 		expect(
-			doc.querySelector("[data-workspace-outputs-activity]")?.textContent,
-		).toContain("Activity and approvals");
-		expect(
 			doc.querySelector("[data-workspace-outputs-library]"),
 		).not.toBeNull();
 		expect(doc.querySelector("[data-workspace-outputs-work]")).not.toBeNull();
@@ -419,9 +407,8 @@ describe("WorkspaceOutputsPanel", () => {
 		expect(doc.querySelector('ul[aria-label="Files"]')).toBeNull();
 	});
 
-	it("opens rows, approvals, the library, Work and Agents through its callbacks", () => {
+	it("opens rows, the library, Work and Agents through its callbacks", () => {
 		const onSelect = vi.fn();
-		const onOpenActivity = vi.fn();
 		const onBrowseLibrary = vi.fn();
 		const onOpenWork = vi.fn();
 		const onOpenAgents = vi.fn();
@@ -436,7 +423,6 @@ describe("WorkspaceOutputsPanel", () => {
 					items={workspaceOutputsPanelItems(outputs, gadgets)}
 					loading={false}
 					onBrowseLibrary={onBrowseLibrary}
-					onOpenActivity={onOpenActivity}
 					onOpenWork={onOpenWork}
 					onOpenAgents={onOpenAgents}
 					onSelect={onSelect}
@@ -453,12 +439,6 @@ describe("WorkspaceOutputsPanel", () => {
 			{ type: "gadget", id: "app" },
 			{ type: "output", id: "new-deck" },
 		]);
-		act(() =>
-			host
-				.querySelector<HTMLButtonElement>("[data-workspace-outputs-activity]")!
-				.click(),
-		);
-		expect(onOpenActivity).toHaveBeenCalledOnce();
 		act(() =>
 			host
 				.querySelector<HTMLButtonElement>("[data-workspace-outputs-library]")!

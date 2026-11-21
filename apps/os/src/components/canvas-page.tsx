@@ -12,12 +12,8 @@ import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 import {
 	ArrowLeft,
 	ArrowsOut,
-	Books,
 	FileX,
-	Kanban,
 	ListChecks,
-	Robot,
-	ChatCircle,
 	FolderOpen,
 	Plugs,
 	X,
@@ -101,8 +97,13 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import { Progress } from "@/components/kumo/progress";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
+import {
+	CanvasPaneSwitcher,
+	canvasPhoneTab,
+} from "@/components/canvas-pane-switcher";
 import { TransportStatus } from "@/components/transport-status";
 import {
 	persistWorkspaceOutputsPanelExpanded,
@@ -217,29 +218,30 @@ const WorkspaceAgentsPanel = lazy(async () => ({
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-export const CANVAS_CHAT_WIDTH_KEY = "tedix-os:canvas-chat-width";
-export const CANVAS_CHAT_WIDTH_MIN = 300;
-export const CANVAS_CHAT_WIDTH_MAX = 720;
-export const CANVAS_CHAT_WIDTH_DEFAULT = 420;
+export const CANVAS_PANEL_WIDTH_KEY = "tedix-os:canvas-panel-width";
+export const CANVAS_PANEL_WIDTH_MIN = 360;
+export const CANVAS_PANEL_WIDTH_MAX = 1200;
+export const CANVAS_PANEL_WIDTH_DEFAULT = 560;
 /**
- * The stage can never be squeezed out: whatever the persisted or dragged chat
- * width, at least this much of the viewport stays with the workpiece.
+ * The chat can never be squeezed out: whatever the persisted or dragged panel
+ * width, at least this much of the viewport stays with the chat and the Files
+ * rail.
  */
-export const CANVAS_STAGE_MIN_WIDTH = 400;
+export const CANVAS_CHAT_MIN_WIDTH = 400;
 
-export function clampCanvasChatWidth(
+export function clampCanvasPanelWidth(
 	width: number,
 	viewportWidth: number = typeof window === "undefined"
 		? Number.POSITIVE_INFINITY
 		: window.innerWidth,
 ): number {
 	const viewportMax = Math.max(
-		CANVAS_CHAT_WIDTH_MIN,
-		viewportWidth - CANVAS_STAGE_MIN_WIDTH,
+		CANVAS_PANEL_WIDTH_MIN,
+		viewportWidth - CANVAS_CHAT_MIN_WIDTH,
 	);
 	return Math.max(
-		CANVAS_CHAT_WIDTH_MIN,
-		Math.min(CANVAS_CHAT_WIDTH_MAX, viewportMax, Math.round(width)),
+		CANVAS_PANEL_WIDTH_MIN,
+		Math.min(CANVAS_PANEL_WIDTH_MAX, viewportMax, Math.round(width)),
 	);
 }
 
@@ -264,30 +266,6 @@ export function isCanvasSimpleMode(input: {
 		input.requestedPane === undefined &&
 		input.unresolvedWorkpiece === null
 	);
-}
-
-/** Whether the person last hid the chat beside an open item; remembered per browser. */
-export const CANVAS_CHAT_COLLAPSED_KEY = "tedix-os:canvas-chat-collapsed";
-
-export function restoreCanvasChatCollapsed(
-	storage: Pick<Storage, "getItem"> | null,
-): boolean {
-	try {
-		return storage?.getItem(CANVAS_CHAT_COLLAPSED_KEY) === "true";
-	} catch {
-		return false;
-	}
-}
-
-export function persistCanvasChatCollapsed(
-	storage: Pick<Storage, "setItem"> | null,
-	collapsed: boolean,
-) {
-	try {
-		storage?.setItem(CANVAS_CHAT_COLLAPSED_KEY, String(collapsed));
-	} catch {
-		// Remembering the chat's fold is a convenience; the toggle still works.
-	}
 }
 
 /**
@@ -367,16 +345,25 @@ function canvasMotionReduced(): boolean {
 	);
 }
 
-export function restoreCanvasChatWidth(
+/** Esc in a field or an editor belongs to it, not to the side panel. */
+function isTypingTarget(target: EventTarget | null): boolean {
+	return (
+		target instanceof HTMLElement &&
+		(target.isContentEditable ||
+			target.closest("input, textarea, select, .cm-editor") !== null)
+	);
+}
+
+export function restoreCanvasPanelWidth(
 	storage: Pick<Storage, "getItem">,
 ): number {
 	try {
-		const stored = Number(storage.getItem(CANVAS_CHAT_WIDTH_KEY));
+		const stored = Number(storage.getItem(CANVAS_PANEL_WIDTH_KEY));
 		return Number.isFinite(stored) && stored > 0
-			? clampCanvasChatWidth(stored)
-			: CANVAS_CHAT_WIDTH_DEFAULT;
+			? clampCanvasPanelWidth(stored)
+			: CANVAS_PANEL_WIDTH_DEFAULT;
 	} catch {
-		return CANVAS_CHAT_WIDTH_DEFAULT;
+		return CANVAS_PANEL_WIDTH_DEFAULT;
 	}
 }
 
@@ -538,16 +525,14 @@ export function missingWorkpieceCopy(doc: CanvasWorkpieceSelection): {
 }
 
 /**
- * What the canvas column shows. The open item leads; with nothing open, a
- * populated workspace shows its library rather than an empty "pick one" state,
- * and the library, Work and Agents are also reachable on purpose from the
- * Files panel and the workspace menu.
+ * What the side panel beside the chat shows. The Overview, Work and Agents
+ * open on purpose from the Files rail; otherwise the open item leads. With
+ * nothing open the panel has nothing to show and the chat takes the room.
  */
 export function canvasColumnView(input: {
 	pane: CanvasMobilePane;
 	libraryOpen: boolean;
 	hasSelection: boolean;
-	hasAnyDocuments: boolean;
 	unresolvedWorkpiece: boolean;
 	/** The directory resolved and this workspace is not in it. */
 	workspaceMissing: boolean;
@@ -557,7 +542,7 @@ export function canvasColumnView(input: {
 	if (input.libraryOpen) return "library";
 	if (input.hasSelection) return "doc";
 	if (input.unresolvedWorkpiece) return "missing";
-	return input.hasAnyDocuments ? "library" : null;
+	return null;
 }
 
 export function canvasArtifactPaneLabel(
@@ -569,11 +554,6 @@ export function canvasArtifactPaneLabel(
 	return doc.type === "gadget"
 		? "Automation"
 		: outputWorkshopKindLabel(outputKind);
-}
-
-/** "Chat (2)" when something is unread, the plain label otherwise. */
-function countedLabel(label: string, count: number | undefined): string {
-	return count ? `${label} (${count > 99 ? "99+" : count})` : label;
 }
 
 export function CanvasPage({
@@ -615,21 +595,6 @@ export function CanvasPage({
 	const [resourceRailOpen, setResourceRailOpen] = useState(
 		(requestedPane ?? (requestedDoc ? "workpiece" : "chat")) === "resources",
 	);
-	const [chatCollapsed, setChatCollapsed] = useState(() =>
-		restoreCanvasChatCollapsed(window.localStorage),
-	);
-	// A link that asks for a conversation (an unread row, a notification)
-	// shows the chat on a wide screen too, without changing the saved choice.
-	useEffect(() => {
-		if (requestedPane === "chat" && requestedConversation)
-			setChatCollapsed(false);
-	}, [requestedPane, requestedConversation]);
-	const toggleChatCollapsed = () => {
-		setChatCollapsed((value) => {
-			persistCanvasChatCollapsed(window.localStorage, !value);
-			return !value;
-		});
-	};
 	// The open app's status and actions render into the tab row, so the app
 	// view keeps one toolbar instead of stacking a second one under the tabs.
 	const [workpieceActionsSlot, setWorkpieceActionsSlot] =
@@ -640,9 +605,6 @@ export function CanvasPage({
 			window.innerWidth,
 		),
 	);
-	// The header's approvals control is the one entry point to the workspace's
-	// approvals; the Files panel's Approvals row opens that same control.
-	const activityEntryRef = useRef<HTMLSpanElement>(null);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
 	// The open app or file's own Share button opens this copy of the dialog.
 	const [focusShareOpen, setFocusShareOpen] = useState(false);
@@ -719,8 +681,8 @@ export function CanvasPage({
 	const [workpieceMode, setWorkpieceMode] = useState<CanvasWorkpieceMode>(
 		requestedView ?? "workpiece",
 	);
-	const [chatWidth, setChatWidth] = useState(() =>
-		restoreCanvasChatWidth(window.localStorage),
+	const [panelWidth, setPanelWidth] = useState(() =>
+		restoreCanvasPanelWidth(window.localStorage),
 	);
 	const [activeConversationId, setActiveConversationId] = useState<
 		string | null
@@ -738,7 +700,7 @@ export function CanvasPage({
 	const [conversationListOpen, setConversationListOpen] = useState(
 		requestedConversation === undefined,
 	);
-	const [resizingChat, setResizingChat] = useState(false);
+	const [resizingPanel, setResizingPanel] = useState(false);
 	// Every conversation the workspace chat knows; the Agents view reads the
 	// ones an agent started from here instead of asking for them again.
 	const [chatConversations, setChatConversations] = useState<
@@ -773,8 +735,8 @@ export function CanvasPage({
 	const visitedWorkspaceRef = useRef<string | null>(null);
 	const primaryWorkpieceWorkspaceRef = useRef<string | null>(null);
 	const openedDocsRef = useRef<CanvasWorkpieceSelection[]>([]);
-	const resizeStartRef = useRef({ pointerX: 0, width: chatWidth });
-	const chatWidthRef = useRef(chatWidth);
+	const resizeStartRef = useRef({ pointerX: 0, width: panelWidth });
+	const panelWidthRef = useRef(panelWidth);
 
 	const writeCanvasSearch = useCallback(
 		(next: CanvasSearch, replace = false) => {
@@ -808,35 +770,35 @@ export function CanvasPage({
 		[],
 	);
 
-	const persistChatWidth = (width: number) => {
-		const next = clampCanvasChatWidth(width);
-		chatWidthRef.current = next;
-		setChatWidth(next);
+	const persistPanelWidth = (width: number) => {
+		const next = clampCanvasPanelWidth(width);
+		panelWidthRef.current = next;
+		setPanelWidth(next);
 		try {
-			window.localStorage.setItem(CANVAS_CHAT_WIDTH_KEY, String(next));
+			window.localStorage.setItem(CANVAS_PANEL_WIDTH_KEY, String(next));
 		} catch {
 			// Width persistence is convenience only; the workbench remains usable.
 		}
 	};
 
-	// A viewport that shrinks under a persisted width re-clamps it so the stage
+	// A viewport that shrinks under a persisted width re-clamps it so the chat
 	// keeps its floor.
 	useEffect(() => {
 		const reclamp = () => {
-			const next = clampCanvasChatWidth(chatWidthRef.current);
-			if (next !== chatWidthRef.current) {
-				chatWidthRef.current = next;
-				setChatWidth(next);
+			const next = clampCanvasPanelWidth(panelWidthRef.current);
+			if (next !== panelWidthRef.current) {
+				panelWidthRef.current = next;
+				setPanelWidth(next);
 			}
 		};
 		window.addEventListener("resize", reclamp);
 		return () => window.removeEventListener("resize", reclamp);
 	}, []);
 
-	const stopResizingChat = () => {
-		if (!resizingChat) return;
-		setResizingChat(false);
-		persistChatWidth(chatWidthRef.current);
+	const stopResizingPanel = () => {
+		if (!resizingPanel) return;
+		setResizingPanel(false);
+		persistPanelWidth(panelWidthRef.current);
 	};
 
 	// The workspace screen has no OS shell around it, so it opens the command
@@ -1046,7 +1008,6 @@ export function CanvasPage({
 	]);
 	const documentCount =
 		(gadgets.data?.items.length ?? 0) + (outputs.data?.items.length ?? 0);
-	const hasAnyDocuments = documentCount > 0;
 	// Arms AFTER the first paint of whatever the lists resolved to: a populated
 	// workspace paints its split instantly, and a document-less one paints
 	// chat-only instantly and then animates the stage in when the first
@@ -1106,10 +1067,10 @@ export function CanvasPage({
 						}
 					: {}),
 			selectionLabel:
-				mobilePane === "workpiece"
-					? "Canvas"
+				mobilePane === "workpiece" || mobilePane === "files"
+					? "Files"
 					: mobilePane === "resources"
-						? "Files"
+						? OS_COPY.workspace.overview
 						: mobilePane === "work"
 							? "Work"
 							: mobilePane === "agents"
@@ -1299,22 +1260,20 @@ export function CanvasPage({
 		if (requestedDoc) return;
 		// Chat is where a bare URL already lands once nothing opens by itself
 		// (see the next effect), so only Files needs writing.
-		if (
-			restoreCanvasPhonePane(window.localStorage, workspaceId) !== "resources"
-		) {
+		if (restoreCanvasPhonePane(window.localStorage, workspaceId) !== "files") {
 			return;
 		}
-		setMobilePane("resources");
-		setResourceRailOpen(true);
-		writeCanvasSearch({ pane: "resources" }, true);
+		setMobilePane("files");
+		setResourceRailOpen(false);
+		writeCanvasSearch({ pane: "files" }, true);
 	}, [narrow, requestedDoc, requestedPane, workspaceId, writeCanvasSearch]);
 
 	// A bare Workspace URL is a first-open request, not an instruction to leave
 	// a populated project blank. This deliberately follows the URL reconciliation
 	// effect above so its local selection is not cleared in the same commit.
 	// Keep every explicit URL pane intact, but once both bounded lists resolve,
-	// open the app marked as the workspace default, else the Overview. The ref
-	// prevents reopening an item a user deliberately closed.
+	// open the app marked as the workspace default; without one the chat keeps
+	// the room. The ref prevents reopening an item a user deliberately closed.
 	useEffect(() => {
 		if (
 			requestedDoc ||
@@ -1334,18 +1293,13 @@ export function CanvasPage({
 				window.localStorage,
 				workspaceId,
 			);
-			if (remembered === "chat" || remembered === "resources") return;
+			if (remembered === "chat" || remembered === "files") return;
 		}
 		// An empty workspace keeps its chat-first layout until something arrives.
 		if (!gadgets.data.items.length && !outputs.data.items.length) return;
 		const primary = primaryCanvasDoc(gadgets.data.items, preferredAppId);
 		primaryWorkpieceWorkspaceRef.current = workspaceId;
-		if (!primary) {
-			setMobilePane("resources");
-			setResourceRailOpen(true);
-			writeCanvasSearch({ pane: "resources" }, true);
-			return;
-		}
+		if (!primary) return;
 		selectionRequestRef.current += 1;
 		noteUnaskedSelection(canvasDocKey(primary));
 		setSelectedDoc(primary);
@@ -1528,7 +1482,6 @@ export function CanvasPage({
 		if (workspaceId === null || chatViewOnly) return;
 		return hostWorkspaceChatDrafts(workspaceId, () => {
 			setFocusMode(false);
-			setChatCollapsed(false);
 			setConversationListOpen(false);
 			setMobilePane("chat");
 		});
@@ -1574,17 +1527,16 @@ export function CanvasPage({
 		if (doc.type === "gadget") void selectGadget(doc.id);
 		else selectOutput(doc.id);
 	};
-	const openWorkspaceActivity = () => {
-		activityEntryRef.current?.querySelector<HTMLElement>("button")?.click();
-	};
 	const changeOutputsPanelExpanded = (expanded: boolean) => {
 		setOutputsPanelExpanded(expanded);
 		persistWorkspaceOutputsPanelExpanded(window.localStorage, expanded);
 	};
-	/** A pane choice from the phone switcher, the Files panel or the menu. */
+	/** A pane choice from the phone switcher or the Files rail. */
 	const showPane = (pane: CanvasMobilePane) => {
 		setTransitionEnabled(true);
-		if (pane !== "chat") openStagePane();
+		if (pane !== "chat" && pane !== "files") openStagePane();
+		// A wide screen always shows the Files rail; asking for it unfolds it.
+		if (pane === "files" && !narrow) setOutputsPanelExpanded(true);
 		setMobilePane(pane);
 		setResourceRailOpen(pane === "resources");
 		if (pane !== "workpiece") setFocusMode(false);
@@ -1599,7 +1551,6 @@ export function CanvasPage({
 		setTransitionEnabled(true);
 		setActiveConversationId(conversationId);
 		setConversationListOpen(false);
-		setChatCollapsed(false);
 		if (narrow) {
 			setMobilePane("chat");
 			setResourceRailOpen(false);
@@ -1650,13 +1601,21 @@ export function CanvasPage({
 
 	const workspaceMissing =
 		workspaces.data !== undefined && workspaceId === null;
+	const canvasView = canvasColumnView({
+		pane: mobilePane,
+		libraryOpen: resourceRailOpen,
+		hasSelection: selectedDoc !== null,
+		unresolvedWorkpiece: unresolvedWorkpiece !== null,
+		workspaceMissing,
+	});
 	/*
-	 * One closed state for the item pane: a workspace with nothing to show yet,
-	 * or a pane the person closed. A phone shows one pane at a time instead, and
-	 * a notice the stage has to deliver keeps it open.
+	 * One closed state for the side panel: nothing to show in it, or a panel
+	 * the person closed. A phone shows one pane at a time instead, and a notice
+	 * the panel has to deliver keeps it open.
 	 */
 	const stageOpen =
 		!simpleMode &&
+		canvasView !== null &&
 		(narrow ||
 			stagePaneOpen ||
 			focusMode ||
@@ -1669,9 +1628,7 @@ export function CanvasPage({
 			Math.max(latest, participant.location?.chatAt ?? 0),
 		0,
 	);
-	const chatHidden = narrow
-		? mobilePane !== "chat"
-		: chatCollapsed && openedDocs.length > 0 && stageOpen;
+	const chatHidden = narrow && mobilePane !== "chat";
 	const unread = useWorkspaceUnread(workspaceId ?? "", {
 		enabled: workspaceId !== null,
 		signal: `${chatAt}:${peerChatAt}`,
@@ -1723,12 +1680,55 @@ export function CanvasPage({
 			closedOn,
 		);
 	};
-	/** The Close button: the chat takes the room and the tabs stay as they are. */
+	/**
+	 * The Close button and Esc: the chat takes the room and the tabs stay as
+	 * they are. The Overview, Work and Agents step aside for the open item, so
+	 * opening the panel again shows that item. A phone goes back to its list.
+	 */
 	const closeStage = () => {
-		if (narrow) showPane("chat");
-		else closeStagePane(selectedDoc ? canvasDocKey(selectedDoc) : "");
+		if (narrow) {
+			showPane("files");
+			return;
+		}
+		if (
+			canvasView === "library" ||
+			canvasView === "work" ||
+			canvasView === "agents"
+		) {
+			setResourceRailOpen(false);
+			setMobilePane(selectedDoc ? "workpiece" : "chat");
+			writeCanvasSearch({
+				...canvasSearch,
+				pane: selectedDoc ? "workpiece" : undefined,
+			});
+		}
+		if (selectedDoc) closeStagePane(canvasDocKey(selectedDoc));
 		setChatFocusRequest((request) => request + 1);
 	};
+	const closeStageRef = useRef(closeStage);
+	useEffect(() => {
+		closeStageRef.current = closeStage;
+	});
+	// Esc closes the side panel on a wide screen, unless a field, an editor or
+	// an open menu or dialog is what the key is for. Focus has its own Esc.
+	const escClosesPanel = stageOpen && !narrow && !focusMode;
+	useEffect(() => {
+		if (!escClosesPanel) return;
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (
+				event.key !== "Escape" ||
+				event.defaultPrevented ||
+				isTypingTarget(event.target) ||
+				document.querySelector(
+					'[role="dialog"], [role="menu"], [role="listbox"]',
+				)
+			)
+				return;
+			closeStageRef.current();
+		};
+		window.addEventListener("keydown", closeOnEscape);
+		return () => window.removeEventListener("keydown", closeOnEscape);
+	}, [escClosesPanel]);
 
 	const closeCanvasDoc = (closingKey: string) => {
 		const lastTab =
@@ -1827,21 +1827,6 @@ export function CanvasPage({
 			workpieces: openedDocsSearch(next),
 		});
 	};
-
-	const canvasView = canvasColumnView({
-		pane: mobilePane,
-		libraryOpen: resourceRailOpen,
-		hasSelection: selectedDoc !== null,
-		// A bare URL is about to open the workspace's first app (the effect
-		// above); the library must not flash in before it does.
-		hasAnyDocuments:
-			hasAnyDocuments &&
-			(requestedDoc !== null ||
-				requestedPane !== undefined ||
-				primaryWorkpieceWorkspaceRef.current === workspaceId),
-		unresolvedWorkpiece: unresolvedWorkpiece !== null,
-		workspaceMissing,
-	});
 
 	/*
 	 * A file with no editor app yet opens straight in its editor for someone
@@ -1980,29 +1965,25 @@ export function CanvasPage({
 		/>
 	);
 
-	const workspaceMenuItems = (
+	// The Overview, Work and Agents open from the Files rail only; the menu
+	// keeps what belongs to the open item.
+	const workspaceMenuItems = selectedDoc ? (
 		<>
-			<DropdownMenuItem onClick={showCanvasResources}>
-				<Books size={14} /> {OS_COPY.workspace.overview}
+			<DropdownMenuItem onClick={() => selectWorkpieceMode("connections")}>
+				<Plugs size={14} /> Connections
 			</DropdownMenuItem>
-			<DropdownMenuItem onClick={() => showPane("work")}>
-				<Kanban size={14} /> Work
+			<DropdownMenuItem onClick={() => selectWorkpieceMode("activity")}>
+				<ListChecks size={14} /> Review changes
 			</DropdownMenuItem>
-			<DropdownMenuItem onClick={() => showPane("agents")}>
-				<Robot size={14} /> Agents
-			</DropdownMenuItem>
-			{selectedDoc ? (
-				<>
-					<DropdownMenuItem onClick={() => selectWorkpieceMode("connections")}>
-						<Plugs size={14} /> Connections
-					</DropdownMenuItem>
-					<DropdownMenuItem onClick={() => selectWorkpieceMode("activity")}>
-						<ListChecks size={14} /> Review changes
-					</DropdownMenuItem>
-				</>
-			) : null}
 		</>
-	);
+	) : undefined;
+	// The open conversation has a turn working; a bar across the top says so.
+	const agentWorking =
+		activeConversationId !== null &&
+		chatConversations.some(
+			(conversation) =>
+				conversation.id === activeConversationId && conversation.running,
+		);
 
 	const page = (
 		<UnreadFilesContext.Provider value={unreadFiles}>
@@ -2011,15 +1992,12 @@ export function CanvasPage({
 				width="bleed"
 				className="canvas-surface"
 				data-canvas-focus={focusMode || undefined}
-				data-chat-collapsed={
-					(chatCollapsed && openedDocs.length > 0 && stageOpen) || undefined
-				}
 				data-mobile-pane={mobilePane}
 				data-resource-rail-open={resourceRailOpen}
-				data-resizing-chat={resizingChat || undefined}
+				data-resizing-panel={resizingPanel || undefined}
 				data-simple-mode={simpleMode}
 				data-stage-open={stageOpen}
-				data-canvas-transition={transitionEnabled && !resizingChat}
+				data-canvas-transition={transitionEnabled && !resizingPanel}
 			>
 				<PageHeader className="canvas-workspace-header">
 					<div
@@ -2057,9 +2035,6 @@ export function CanvasPage({
 								name={organizationWorkspace?.org.name ?? "Tedix"}
 							/>
 						)}
-						<span className="canvas-workspace-separator" aria-hidden="true">
-							/
-						</span>
 						<div className="canvas-workspace-title">
 							{selectedWorkspace ? (
 								<Breadcrumbs
@@ -2096,66 +2071,44 @@ export function CanvasPage({
 										: null
 							}
 						/>
-						<span
-							className="contents"
-							data-workspace-activity-entry=""
-							ref={activityEntryRef}
-						>
-							<ApprovalNotifications
-								conversationId={activeConversationId}
-								workspaceId={workspaceId}
-							/>
-						</span>
-						<TransportStatus />
-						{/* The chat and Files panel toggles on a wide screen; phones
-					    switch panes from the bottom switcher instead. */}
-						{openedDocs.length > 0 && stageOpen ? (
-							<Button
-								aria-expanded={!chatCollapsed}
-								aria-label={
-									chatCollapsed && unread?.chat
-										? `Show chat, ${unread.chat} unread`
-										: chatCollapsed
-											? "Show chat"
-											: "Hide chat"
-								}
-								className="canvas-chat-toggle"
-								icon={
-									<ChatCircle
-										size={16}
-										weight={chatCollapsed && unread?.chat ? "fill" : "regular"}
-									/>
-								}
-								onClick={toggleChatCollapsed}
-								size="icon-sm"
-								title={chatCollapsed ? "Show chat" : "Hide chat"}
-								variant="ghost"
-							/>
-						) : null}
-						<Button
-							aria-controls={WORKSPACE_OUTPUTS_PANEL_ID}
-							aria-expanded={outputsPanelExpanded}
-							aria-label={outputsPanelExpanded ? "Hide files" : "Show files"}
-							className="canvas-files-toggle"
-							icon={<FolderOpen size={16} />}
-							onClick={() => changeOutputsPanelExpanded(!outputsPanelExpanded)}
-							size="icon-sm"
-							title={outputsPanelExpanded ? "Hide files" : "Show files"}
-							variant="ghost"
+						{/* Activity and approvals: their one entry point. */}
+						<ApprovalNotifications
+							conversationId={activeConversationId}
+							workspaceId={workspaceId}
 						/>
-						{canvasView === "doc" && stageOpen ? (
+						<TransportStatus />
+						{/* The pane toggles on a wide screen, as one group; phones
+					    switch panes from the bottom switcher instead. */}
+						<div
+							aria-label="Workspace panes"
+							className="canvas-pane-toolbar"
+							role="group"
+						>
 							<Button
-								aria-label="Focus"
-								className="canvas-workspace-focus"
-								icon={<ArrowsOut size={16} />}
-								onClick={enterFocusMode}
-								size="sm"
-								title="Focus on the open item"
+								aria-controls={WORKSPACE_OUTPUTS_PANEL_ID}
+								aria-expanded={outputsPanelExpanded}
+								aria-label={outputsPanelExpanded ? "Hide files" : "Show files"}
+								className="canvas-files-toggle"
+								icon={<FolderOpen size={16} />}
+								onClick={() =>
+									changeOutputsPanelExpanded(!outputsPanelExpanded)
+								}
+								size="icon-sm"
+								title={outputsPanelExpanded ? "Hide files" : "Show files"}
 								variant="ghost"
-							>
-								Focus
-							</Button>
-						) : null}
+							/>
+							{canvasView === "doc" && stageOpen ? (
+								<Button
+									aria-label="Focus"
+									className="canvas-workspace-focus"
+									icon={<ArrowsOut size={16} />}
+									onClick={enterFocusMode}
+									size="icon-sm"
+									title="Focus on the open item"
+									variant="ghost"
+								/>
+							) : null}
+						</div>
 						<CanvasWorkspaceControls
 							workspace={selectedWorkspace as OsWorkspace | undefined}
 							showCreate={false}
@@ -2176,6 +2129,13 @@ export function CanvasPage({
 					</PageActions>
 				</PageHeader>
 				<div className="canvas-workbench min-w-0">
+					{agentWorking ? (
+						<Progress
+							aria-label="The agent is working"
+							className="canvas-working-bar"
+							value={null}
+						/>
+					) : null}
 					{workspaceId !== null ? (
 						<Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
 							<DialogContent size="lg">
@@ -2208,7 +2168,6 @@ export function CanvasPage({
 						className="canvas-chat-pane"
 						data-simple-mode={simpleMode}
 						ref={chatPaneRef}
-						style={{ "--canvas-chat-width": `${chatWidth}px` } as CSSProperties}
 					>
 						<ChatOutputLinkContext.Provider value={chatOutputLinks}>
 							{workspaceId === null ? (
@@ -2253,32 +2212,33 @@ export function CanvasPage({
 					{/* Stays in place while the pane is closed, so its width can animate. */}
 					<div
 						aria-hidden={!stageOpen || undefined}
-						aria-label="Resize workspace chat"
+						aria-label="Resize side panel"
 						aria-orientation="vertical"
-						aria-valuemax={CANVAS_CHAT_WIDTH_MAX}
-						aria-valuemin={CANVAS_CHAT_WIDTH_MIN}
-						aria-valuenow={chatWidth}
+						aria-valuemax={CANVAS_PANEL_WIDTH_MAX}
+						aria-valuemin={CANVAS_PANEL_WIDTH_MIN}
+						aria-valuenow={panelWidth}
 						className="canvas-chat-resizer"
 						onKeyDown={(event) => {
+							// The divider moves with the arrow; the panel is on its right.
 							if (event.key === "ArrowLeft") {
 								event.preventDefault();
-								persistChatWidth(chatWidth - 24);
+								persistPanelWidth(panelWidth + 24);
 							} else if (event.key === "ArrowRight") {
 								event.preventDefault();
-								persistChatWidth(chatWidth + 24);
+								persistPanelWidth(panelWidth - 24);
 							} else if (event.key === "Home") {
 								event.preventDefault();
-								persistChatWidth(CANVAS_CHAT_WIDTH_MIN);
+								persistPanelWidth(CANVAS_PANEL_WIDTH_MIN);
 							} else if (event.key === "End") {
 								event.preventDefault();
-								persistChatWidth(CANVAS_CHAT_WIDTH_MAX);
+								persistPanelWidth(CANVAS_PANEL_WIDTH_MAX);
 							}
 						}}
-						onDoubleClick={() => persistChatWidth(CANVAS_CHAT_WIDTH_DEFAULT)}
+						onDoubleClick={() => persistPanelWidth(CANVAS_PANEL_WIDTH_DEFAULT)}
 						onPointerDown={(event) => {
 							resizeStartRef.current = {
 								pointerX: event.clientX,
-								width: chatWidth,
+								width: panelWidth,
 							};
 							// The handle keeps the pointer, so the drag carries on over an
 							// open app and ends wherever the button is let go.
@@ -2287,58 +2247,67 @@ export function CanvasPage({
 							} catch {
 								// No such pointer; the handle still follows it while over it.
 							}
-							setResizingChat(true);
+							setResizingPanel(true);
 						}}
 						onPointerMove={(event) => {
-							if (!resizingChat) return;
-							const next = clampCanvasChatWidth(
-								resizeStartRef.current.width +
-									event.clientX -
-									resizeStartRef.current.pointerX,
+							if (!resizingPanel) return;
+							const next = clampCanvasPanelWidth(
+								resizeStartRef.current.width -
+									(event.clientX - resizeStartRef.current.pointerX),
 							);
-							chatWidthRef.current = next;
-							setChatWidth(next);
+							panelWidthRef.current = next;
+							setPanelWidth(next);
 						}}
-						onPointerUp={stopResizingChat}
-						onPointerCancel={stopResizingChat}
-						onLostPointerCapture={stopResizingChat}
+						onPointerUp={stopResizingPanel}
+						onPointerCancel={stopResizingPanel}
+						onLostPointerCapture={stopResizingPanel}
 						role="separator"
 						tabIndex={stageOpen ? 0 : -1}
 					/>
 					<section
-						aria-label="Workspace workpiece"
+						aria-label="Side panel"
 						aria-hidden={!stageOpen || undefined}
 						className="canvas-stage"
 						data-simple-mode={simpleMode}
 						inert={!stageOpen}
+						style={
+							{ "--canvas-panel-width": `${panelWidth}px` } as CSSProperties
+						}
 					>
 						<ChatOutputLinkContext.Provider value={stageOutputLinks}>
-							{openedDocs.length > 0 ? (
+							{canvasView !== null ? (
 								<div className="canvas-workpiece-bar" data-focus-ring="inset">
-									<CanvasWorkpieceTabs
-										gadgets={namedApps}
-										onClose={closeCanvasDoc}
-										onCloseOthers={closeOtherCanvasDocs}
-										onMove={moveCanvasDoc}
-										onSelect={openCanvasDoc}
-										opened={openedDocs}
-										outputs={outputs.data?.items ?? []}
-										selectedKey={selectedDoc ? canvasDocKey(selectedDoc) : null}
-									/>
+									{openedDocs.length > 0 ? (
+										<CanvasWorkpieceTabs
+											gadgets={namedApps}
+											onClose={closeCanvasDoc}
+											onCloseOthers={closeOtherCanvasDocs}
+											onMove={moveCanvasDoc}
+											onSelect={openCanvasDoc}
+											opened={openedDocs}
+											outputs={outputs.data?.items ?? []}
+											selectedKey={
+												selectedDoc ? canvasDocKey(selectedDoc) : null
+											}
+										/>
+									) : (
+										// The view below names itself; Close keeps its place.
+										<span aria-hidden className="canvas-panel-spacer" />
+									)}
 									{/* Actions that come and go with the view (Translate, Save)
 							    sit before the view tabs, so the tabs keep their place. */}
 									<div
 										className="canvas-workpiece-actions"
 										ref={setWorkpieceActionsSlot}
 									/>
-									{workpieceViewControls}
+									{canvasView === "doc" ? workpieceViewControls : null}
 									<Button
 										aria-label="Close"
 										className="canvas-stage-close"
 										icon={<X size={16} />}
 										onClick={closeStage}
 										size="icon-sm"
-										title="Close"
+										title="Close (Esc)"
 										variant="ghost"
 									/>
 								</div>
@@ -2585,7 +2554,7 @@ export function CanvasPage({
 						<WorkspaceOutputsPanel
 							{...outputsPanelList}
 							workspaceId={workspaceId}
-							expanded={outputsPanelExpanded}
+							expanded={narrow || outputsPanelExpanded}
 							canvasView={
 								canvasView === "library" ||
 								canvasView === "work" ||
@@ -2596,7 +2565,6 @@ export function CanvasPage({
 							onBrowseLibrary={showCanvasResources}
 							onOpenWork={() => showPane("work")}
 							onOpenAgents={() => showPane("agents")}
-							onOpenActivity={openWorkspaceActivity}
 							onSelect={openOutputsPanelItem}
 							onOpenAppDraft={(gadgetId) =>
 								openCanvasDoc({ type: "gadget", id: gadgetId }, "edit")
@@ -2614,26 +2582,16 @@ export function CanvasPage({
 					) : null}
 				</div>
 				{/* A phone shows one pane at a time and switches at the bottom, where
-			    the thumb is. Work and Agents have no segment of their own: each
-			    opens from the menu and shows here only while it is the pane. */}
-				<SegmentedControl
-					ariaLabel="Canvas pane"
-					className="canvas-pane-switcher"
-					compact
-					fill
-					onValueChange={showPane}
-					options={[
-						{ value: "chat", label: countedLabel("Chat", unread?.chat) },
-						{ value: "workpiece", label: "Canvas" },
-						{ value: "resources", label: countedLabel("Files", unread?.files) },
-						...(mobilePane === "work"
-							? [{ value: "work" as const, label: "Work" }]
-							: []),
-						...(mobilePane === "agents"
-							? [{ value: "agents" as const, label: "Agents" }]
-							: []),
-					]}
-					value={mobilePane}
+			    the thumb is. Files holds the list and whatever opens from it. */}
+				<CanvasPaneSwitcher
+					onChange={(tab) =>
+						showPane(
+							tab === "chat" ? "chat" : selectedDoc ? "workpiece" : "files",
+						)
+					}
+					tab={canvasPhoneTab(mobilePane)}
+					unreadChat={unread?.chat}
+					unreadFiles={unread?.files}
 				/>
 				{focusShareOpen && selectedWorkspace ? (
 					<WorkspaceShareDialog

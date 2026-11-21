@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CanvasPaneSwitcher } from "@/components/canvas-pane-switcher";
 import { WorkspaceChat } from "@/components/workspace-chat";
 import { persistCanvasPhonePane } from "@/lib/canvas-phone-pane";
 import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
@@ -8,12 +9,15 @@ export function PhoneWorkspaceChat({
 	conversationId,
 	onConversationChange,
 	onOpenWorkspace,
+	onOpenFiles,
 	onOpenAgents,
 }: {
 	workspaceId: string;
 	conversationId: string | null;
 	onConversationChange: (conversationId: string | null) => void;
 	onOpenWorkspace: () => void;
+	/** The Files tab: the workspace's list of files. */
+	onOpenFiles: () => void;
 	/** Opens the workspace's Agents view, which lists the runs agents started. */
 	onOpenAgents: () => void;
 }) {
@@ -41,6 +45,12 @@ export function PhoneWorkspaceChat({
 				}}
 				viewOnly={viewOnly}
 				workspaceId={workspaceId}
+			/>
+			<CanvasPaneSwitcher
+				onChange={(tab) => {
+					if (tab === "files") onOpenFiles();
+				}}
+				tab="chat"
 			/>
 		</div>
 	);

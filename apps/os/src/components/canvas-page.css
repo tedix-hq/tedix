@@ -17,6 +17,7 @@
 }
 
 .canvas-workbench {
+	position: relative;
 	display: flex;
 	min-height: 0;
 	flex: 1 1 auto;
@@ -68,11 +69,6 @@
 	font-size: 12px;
 }
 
-.canvas-workspace-separator {
-	color: var(--muted-foreground);
-	font-size: 14px;
-}
-
 .canvas-workspace-title {
 	min-width: 3rem;
 }
@@ -92,6 +88,66 @@
 	width: auto;
 	flex: none;
 	margin-left: auto;
+}
+
+/* The pane toggles read as one control: a single bordered group. */
+.canvas-pane-toolbar {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	padding: 1px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+}
+
+/*
+ * A thin bar across the top of the workbench while the open conversation's
+ * agent is working. Indeterminate: a short segment slides across the track.
+ */
+.canvas-working-bar {
+	position: absolute;
+	inset: 0 0 auto;
+	z-index: 3;
+	display: block;
+	pointer-events: none;
+}
+
+.canvas-working-bar [data-slot="progress-track"] {
+	height: 2px;
+	border-radius: 0;
+	background: transparent;
+}
+
+.canvas-working-bar [data-slot="progress-indicator"] {
+	width: 30%;
+	border-radius: 0;
+	animation: canvas-working-slide 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes canvas-working-slide {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(340%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.canvas-working-bar [data-slot="progress-indicator"] {
+		width: 100%;
+		animation: none;
+		opacity: 0.6;
+	}
+}
+
+:root[data-motion="reduced"]
+	.canvas-working-bar
+	[data-slot="progress-indicator"] {
+	width: 100%;
+	animation: none;
+	opacity: 0.6;
 }
 
 /* The workspace workbench replaces the whole shell, so it owns the same
@@ -207,63 +263,56 @@
 	grid-column: 1 / -1;
 }
 
+/* The chat is the main column; the side panel and the Files rail sit beside it. */
 .canvas-chat-pane {
 	display: flex;
 	min-height: 0;
-	min-width: 300px;
-	max-width: 720px;
-	flex: 0 0 var(--canvas-chat-width, 420px);
+	min-width: 320px;
+	flex: 1 1 0;
 	flex-direction: column;
 	background: var(--background);
 }
 
-/*
- * The item pane is closed (`data-stage-open="false"` in canvas-page.tsx): a
- * workspace with no document yet, or a pane the person closed. The chat takes
- * the whole workbench and reads at a comfortable measure; the stage stays
- * mounted at no width, so what is in it keeps running and is there at once
- * when the pane opens again.
- */
-.canvas-surface[data-stage-open="false"] .workspace-chat-thread > *,
-.canvas-surface[data-stage-open="false"] .workspace-chat-list > *,
-.canvas-surface[data-stage-open="false"] .workspace-chat-composer > * {
+/* Messages and the composer keep a comfortable reading width in a wide chat. */
+.canvas-chat-pane .workspace-chat-thread > *,
+.canvas-chat-pane .workspace-chat-list > *,
+.canvas-chat-pane .workspace-chat-composer > * {
 	width: 100%;
-	max-width: 920px;
+	max-width: 760px;
 	margin-inline: auto;
 }
 
 @media (min-width: 960px) {
-	/* `max-width: 100%`, not `none`, so the width cap animates and never snaps. */
-	.canvas-surface[data-stage-open="false"] .canvas-chat-pane {
-		max-width: 100%;
-		flex-grow: 1;
-	}
-
+	/*
+	 * The side panel is closed (`data-stage-open="false"` in canvas-page.tsx):
+	 * nothing is open, or the person closed it. It stays mounted at no width,
+	 * so what is in it keeps running and is there at once when it opens again.
+	 */
 	.canvas-surface[data-stage-open="false"] .canvas-chat-resizer {
 		width: 0;
 		pointer-events: none;
 	}
 
 	.canvas-surface[data-stage-open="false"] .canvas-stage {
-		flex-grow: 0;
+		min-width: 0;
+		flex-basis: 0;
 		opacity: 0;
 		pointer-events: none;
 	}
 }
 
 /*
- * Opening and closing is one motion: the chat and the stage trade the free
- * room between them. It never runs on the first paint;
- * `data-canvas-transition` arms once the lists have painted or on the first
- * manual pane change, and drops while a pointer resize is tracking the cursor.
+ * Opening and closing is one motion: the panel grows out of the chat's right
+ * edge. It never runs on the first paint; `data-canvas-transition` arms once
+ * the lists have painted or on the first manual pane change, and drops while a
+ * pointer resize is tracking the cursor.
  */
-.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
 .canvas-surface[data-canvas-transition="true"] .canvas-chat-resizer,
 .canvas-surface[data-canvas-transition="true"] .canvas-stage {
 	transition:
-		flex-grow 200ms cubic-bezier(0, 0, 0.2, 1),
+		flex-basis 200ms cubic-bezier(0, 0, 0.2, 1),
+		min-width 200ms cubic-bezier(0, 0, 0.2, 1),
 		width 200ms cubic-bezier(0, 0, 0.2, 1),
-		max-width 200ms cubic-bezier(0, 0, 0.2, 1),
 		opacity 200ms cubic-bezier(0, 0, 0.2, 1);
 }
 
@@ -279,7 +328,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
 	.canvas-surface[data-canvas-transition="true"] .canvas-chat-resizer,
 	.canvas-surface[data-canvas-transition="true"] .canvas-stage {
 		transition: none;
@@ -290,9 +338,6 @@
 	}
 }
 
-:root[data-motion="reduced"]
-	.canvas-surface[data-canvas-transition="true"]
-	.canvas-chat-pane,
 :root[data-motion="reduced"]
 	.canvas-surface[data-canvas-transition="true"]
 	.canvas-chat-resizer,
@@ -480,29 +525,35 @@
 
 .canvas-chat-resizer:hover,
 .canvas-chat-resizer:focus-visible,
-.canvas-surface[data-resizing-chat] .canvas-chat-resizer {
+.canvas-surface[data-resizing-panel] .canvas-chat-resizer {
 	background: var(--tedix-action-primary);
 	outline: none;
 }
 
-.canvas-surface[data-resizing-chat] {
+.canvas-surface[data-resizing-panel] {
 	cursor: col-resize;
 	user-select: none;
 }
 
 /* An open app must not swallow the pointer while the divider is dragged. */
-.canvas-surface[data-resizing-chat] iframe {
+.canvas-surface[data-resizing-panel] iframe {
 	pointer-events: none;
 }
 
+/* The side panel: the saved width, giving way before the chat's floor. */
 .canvas-stage {
 	display: flex;
 	min-height: 0;
-	min-width: 0;
-	flex: 1 1 0;
+	min-width: 320px;
+	flex: 0 1 var(--canvas-panel-width, 560px);
 	flex-direction: column;
 	overflow: hidden;
 	background: var(--background);
+}
+
+/* With no tabs, the bar keeps Close at its end. */
+.canvas-panel-spacer {
+	flex: 1 1 auto;
 }
 
 .canvas-stage-content {
@@ -555,7 +606,6 @@
 	background: var(--background-lighter);
 }
 
-.canvas-chat-toggle,
 .canvas-stage-close {
 	flex: none;
 }
@@ -737,36 +787,9 @@
 	line-height: 16px;
 }
 
-/* The phone's bottom switcher: one pane at a time, Chat · Canvas · Files. */
-.canvas-pane-switcher {
-	display: none;
-	width: 100%;
-	height: 48px;
-	min-height: 48px;
-	box-sizing: border-box;
-	flex: none;
-	padding: 4px 8px;
-	border-top: 1px solid var(--border);
-	border-radius: 0;
-	background: var(--background-lighter);
-	box-shadow: none;
-}
-
-.canvas-pane-switcher > * {
-	flex: 1 1 0;
-	justify-content: center;
-}
-
-/* The open tab has to read at arm's length, in sunlight, in either theme. */
-.canvas-pane-switcher > [aria-pressed="true"] {
-	background: color-mix(in oklch, var(--foreground) 10%, transparent);
-	color: var(--foreground);
-	font-weight: 600;
-}
-
-/* The Files panel's toggle belongs to wide screens; phones use the switcher. */
+/* The pane toggles belong to wide screens; phones use the switcher. */
 @media (max-width: 959px) {
-	.canvas-files-toggle {
+	.canvas-pane-toolbar {
 		display: none;
 	}
 }
@@ -894,6 +917,11 @@
 	display: none;
 }
 
+/* Focus: the open item has the whole width. */
+.canvas-surface[data-canvas-focus] .canvas-stage {
+	flex: 1 1 0;
+}
+
 .canvas-surface[data-canvas-focus] .canvas-workbench {
 	min-height: 0;
 	flex: 1 1 auto;
@@ -918,10 +946,6 @@
 }
 
 @media (max-width: 959px) {
-	.canvas-pane-switcher {
-		display: flex;
-	}
-
 	.canvas-workbench {
 		display: block;
 	}
@@ -939,6 +963,7 @@
 
 	.canvas-stage {
 		height: 100%;
+		min-width: 0;
 	}
 
 	.canvas-stage-content {
@@ -951,13 +976,11 @@
 		max-width: 100%;
 	}
 
-	/* One pane at a time: the chat, or the canvas column (which is showing
-	   the open item, the library, Work, or Agents). */
-	.canvas-surface[data-mobile-pane="resources"] .canvas-chat-pane,
-	.canvas-surface[data-mobile-pane="work"] .canvas-chat-pane,
-	.canvas-surface[data-mobile-pane="agents"] .canvas-chat-pane,
+	/* One pane at a time: the chat, the Files list, or the side panel (which
+	   is showing the open item, the Overview, Work, or Agents). */
+	.canvas-surface:not([data-mobile-pane="chat"]) .canvas-chat-pane,
 	.canvas-surface[data-mobile-pane="chat"] .canvas-stage,
-	.canvas-surface[data-mobile-pane="workpiece"] .canvas-chat-pane {
+	.canvas-surface[data-mobile-pane="files"] .canvas-stage {
 		display: none;
 	}
 
@@ -969,7 +992,10 @@
 		animation: canvas-pane-enter-from-start 200ms cubic-bezier(0, 0, 0.2, 1);
 	}
 
-	.canvas-surface[data-canvas-transition="true"]:not([data-mobile-pane="chat"])
+	.canvas-surface[data-canvas-transition="true"]:not(
+			[data-mobile-pane="chat"],
+			[data-mobile-pane="files"]
+		)
 		.canvas-stage {
 		animation: canvas-pane-enter-from-end 200ms cubic-bezier(0, 0, 0.2, 1);
 	}
@@ -1037,8 +1063,6 @@
 
 	/* A phone names one thing: the open item, or the workspace beside its
 	   avatar. Focus belongs to wide screens; the pane switcher does its job. */
-	.canvas-workspace-separator,
-	.canvas-workspace-focus,
 	.canvas-workspace-identity[data-open-item] .canvas-workspace-avatar {
 		display: none;
 	}
@@ -1395,17 +1419,6 @@
 
 .canvas-surface[data-canvas-focus] .canvas-workpiece-bar {
 	display: none;
-}
-@media (min-width: 960px) {
-	.canvas-surface[data-chat-collapsed] .canvas-chat-pane,
-	.canvas-surface[data-chat-collapsed] .canvas-chat-resizer {
-		display: none;
-	}
-}
-@media (max-width: 959px) {
-	.canvas-chat-toggle {
-		display: none;
-	}
 }
 
 /* Card review: each new card arrives with a short rise; reduced motion keeps it still. */

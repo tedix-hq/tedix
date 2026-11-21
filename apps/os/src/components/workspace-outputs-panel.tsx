@@ -10,7 +10,6 @@ import {
 	Robot,
 	MonitorPlay,
 	PresentationChart,
-	ShieldCheck,
 	SquaresFour,
 	Table as TableIcon,
 	Tray,
@@ -22,7 +21,6 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { ReactElement } from "react";
 import { Button } from "@/components/kumo/button";
-import { Link } from "@/components/kumo/link";
 import {
 	Tooltip,
 	TooltipContent,
@@ -34,11 +32,11 @@ import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { relativeTime } from "@/lib/time";
 
 /**
- * The workspace's Files panel: a narrow column on the right edge of the
- * workbench that lists the workspace's apps and files, opens any of them in
- * the canvas beside the chat, and folds down to an icon rail when the canvas
- * needs the room. The top bar's one panel toggle drives the fold. Phones get
- * the full library pane from the bottom switcher instead.
+ * The workspace's Files rail: a narrow column on the right edge of the
+ * workbench that lists the workspace's apps and files and opens any of them,
+ * or the Overview, Work and Agents, in the side panel beside the chat. It
+ * folds down to an icon rail when the panel needs the room; the top bar's
+ * Files toggle drives the fold. A phone shows it full width as its Files tab.
  *
  * Presentational: the list queries, selection and URL writes stay in
  * canvas-page.tsx, which owns the workbench.
@@ -219,7 +217,6 @@ type WorkspaceOutputsListProps = {
 	selectedDoc: CanvasDocSelection | null;
 	onSelect: (doc: CanvasDocSelection) => void;
 	onOpenAppDraft?: (gadgetId: string) => void;
-	onOpenActivity: () => void;
 	/** Opens the whole library (search, sources, schedules) in the canvas. */
 	onBrowseLibrary: () => void;
 	/** Opens the workspace's work items in the canvas. */
@@ -283,7 +280,6 @@ export function WorkspaceOutputsList({
 	selectedDoc,
 	onSelect,
 	onOpenAppDraft,
-	onOpenActivity,
 	onBrowseLibrary,
 	onOpenWork,
 	onOpenAgents,
@@ -405,19 +401,6 @@ export function WorkspaceOutputsList({
 					onClick={onOpenAgents}
 					data-workspace-outputs-agents=""
 				/>
-				<FooterRow
-					label="Activity and approvals"
-					icon={
-						<ShieldCheck
-							aria-hidden
-							className="workspace-outputs-icon"
-							size={16}
-						/>
-					}
-					railed={railed}
-					onClick={onOpenActivity}
-					data-workspace-outputs-activity=""
-				/>
 			</div>
 		</div>
 	);
@@ -448,16 +431,9 @@ export function WorkspaceOutputsPanel({
 						<span className="workspace-outputs-count">{count}</span>
 					) : null}
 				</h2>
+				{/* The workspace's one New menu; templates are in it too. */}
 				{expanded && workspaceId && (
 					<div className="ml-auto flex items-center gap-1">
-						<Link
-							href="/blueprints"
-							aria-label="Browse workspace templates"
-							title="Browse templates"
-							className="inline-flex rounded p-1 text-kumo-subtle hover:text-kumo-default"
-						>
-							<Books size={16} />
-						</Link>
 						<NewResourceMenu
 							workspaceId={workspaceId}
 							onCreated={(output) =>

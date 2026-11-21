@@ -17,9 +17,9 @@ function memoryStorage() {
 describe("phone tab memory", () => {
 	it("remembers the tab per workspace", () => {
 		const storage = memoryStorage();
-		persistCanvasPhonePane(storage, "a", "resources");
+		persistCanvasPhonePane(storage, "a", "files");
 		persistCanvasPhonePane(storage, "b", "chat");
-		expect(restoreCanvasPhonePane(storage, "a")).toBe("resources");
+		expect(restoreCanvasPhonePane(storage, "a")).toBe("files");
 		expect(restoreCanvasPhonePane(storage, "b")).toBe("chat");
 		expect(restoreCanvasPhonePane(storage, "c")).toBeNull();
 	});

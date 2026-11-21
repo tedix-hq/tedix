@@ -15,7 +15,6 @@ import { isWorkspaceLinkResource } from "@tedix/api-contract/schemas/os-workspac
 import { type ReactNode, useState } from "react";
 import { ResourceCard } from "@/components/resource-card";
 import { OutputPreview } from "@/components/output-preview";
-import { NewResourceMenu } from "@/components/create-document-dialog";
 import {
 	LoadError,
 	Alert,
@@ -275,19 +274,12 @@ export function CanvasResourceRail({
 						<SectionTitle>{OS_COPY.workspace.overview}</SectionTitle>
 						<p className="type-tedix-body">
 							{emptyWorkspace
-								? "Choose New to create a document, sheet or slides, upload a file, or add a source below. You can also ask this workspace to help."
+								? "Choose New in Files to create a document, sheet or slides, upload a file, or add a source below. You can also ask this workspace to help."
 								: shownGadgets.length > 0
 									? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."
 									: "Start with a file below. Open it in the Editor to read or edit it, or use the conversation to ask for changes."}
 						</p>
 					</div>
-					{workspaceId && (
-						<NewResourceMenu
-							workspaceId={workspaceId}
-							onCreated={(output) => onSelectOutput(output.id)}
-							onAppCreated={(gadget) => onSelectGadget(gadget.id)}
-						/>
-					)}
 					<label className="canvas-resource-search">
 						<span className="sr-only">Search workspace</span>
 						<MagnifyingGlass aria-hidden size={16} />

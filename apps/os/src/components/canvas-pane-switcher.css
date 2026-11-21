@@ -1,0 +1,32 @@
+/* The phone's bottom tabs (canvas-pane-switcher.tsx): Chat and Files. */
+.canvas-pane-switcher {
+	display: none;
+	width: 100%;
+	height: 48px;
+	min-height: 48px;
+	box-sizing: border-box;
+	flex: none;
+	padding: 4px 8px;
+	border-top: 1px solid var(--border);
+	border-radius: 0;
+	background: var(--background-lighter);
+	box-shadow: none;
+}
+
+.canvas-pane-switcher > * {
+	flex: 1 1 0;
+	justify-content: center;
+}
+
+/* The open tab has to read at arm's length, in sunlight, in either theme. */
+.canvas-pane-switcher > [aria-pressed="true"] {
+	background: color-mix(in oklch, var(--foreground) 10%, transparent);
+	color: var(--foreground);
+	font-weight: 600;
+}
+
+@media (max-width: 959px) {
+	.canvas-pane-switcher {
+		display: flex;
+	}
+}

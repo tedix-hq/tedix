@@ -10,7 +10,12 @@ export type CanvasWorkpieceSelection =
 	| CanvasDocSelection
 	| { type: "repository"; id: string; attemptId: string };
 
+/**
+ * Which pane shows: the chat, the open item, the Overview (`resources`),
+ * Work or Agents in the side panel, or `files`, a phone's list of files.
+ */
 export type CanvasMobilePane =
+	| "files"
 	| "resources"
 	| "work"
 	| "agents"
@@ -42,6 +47,7 @@ export type CanvasSearch = {
 };
 
 const CANVAS_MOBILE_PANES = new Set<CanvasMobilePane>([
+	"files",
 	"resources",
 	"work",
 	"agents",
