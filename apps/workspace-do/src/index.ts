@@ -208,6 +208,9 @@ export class InternalEntrypoint
 	listConversations(scope: WorkspaceScope) {
 		return stubFor(this.env, scope).listConversations(scope);
 	}
+	hasConversation(scope: WorkspaceScope, conversationId: string) {
+		return stubFor(this.env, scope).hasConversation(scope, conversationId);
+	}
 	listConversationTurnIds(scope: WorkspaceScope, conversationId: string) {
 		return stubFor(this.env, scope).listConversationTurnIds(
 			scope,

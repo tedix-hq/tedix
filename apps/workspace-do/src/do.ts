@@ -2021,6 +2021,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			}));
 	}
 
+	/** Whether this workspace has the conversation; deleted ones are gone. */
+	hasConversation(scope: WorkspaceScope, conversationId: string): boolean {
+		this.bindScope(scope);
+		return (
+			this.#store.exec(
+				"SELECT 1 FROM conversations WHERE id = ?",
+				String(conversationId),
+			).length > 0
+		);
+	}
+
 	listConversationTurnIds(scope: WorkspaceScope, conversationId: string) {
 		this.bindScope(scope);
 		return this.#store
@@ -6016,6 +6027,10 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		input?: { before?: number | null; limit?: number },
 	): Promise<WireEvent[]>;
 	listConversations(scope: WorkspaceScope): Promise<ConversationSummary[]>;
+	hasConversation(
+		scope: WorkspaceScope,
+		conversationId: string,
+	): Promise<boolean>;
 	listConversationTurnIds(
 		scope: WorkspaceScope,
 		conversationId: string,
