@@ -21,15 +21,40 @@ export interface WorkspaceSession {
 }
 
 /**
- * Frames and outbound events consult the current graph on every call. The
- * role reader reuses a role only while the database's authorization fence is
- * unchanged, so a revoke is seen by the next check.
+ * "unknown" means the access read failed (for example an overloaded
+ * database); callers treat it as not allowed, but must not tell the person
+ * they lost access.
  */
+export type WorkspaceAccess = "allowed" | "denied" | "unknown";
+
+/** Fails closed: true only when the read succeeded and allows the session. */
 export async function workspaceSessionAllowed(
 	database: D1Database,
 	session: WorkspaceSession | null | undefined,
 	write = false,
 ): Promise<boolean> {
+	return (await workspaceSessionAccess(database, session, write)) === "allowed";
+}
+
+/**
+ * Frames and outbound events consult the current graph on every call. The
+ * role reader reuses a role only while the database's authorization fence is
+ * unchanged, so a revoke is seen by the next check.
+ */
+export async function workspaceSessionAccess(
+	database: D1Database,
+	session: WorkspaceSession | null | undefined,
+	write = false,
+): Promise<WorkspaceAccess> {
+	const allowed = await readSessionAllowed(database, session, write);
+	return allowed === undefined ? "unknown" : allowed ? "allowed" : "denied";
+}
+
+async function readSessionAllowed(
+	database: D1Database,
+	session: WorkspaceSession | null | undefined,
+	write: boolean,
+): Promise<boolean | undefined> {
 	if (!session?.scope || !session.actorId) return false;
 	if (session.scopes !== null && !Array.isArray(session.scopes)) return false;
 	if (session.scopes !== null) {
@@ -59,7 +84,7 @@ export async function workspaceSessionAllowed(
 			workspaceId: session.scope.workspaceId,
 			error,
 		});
-		return false;
+		return undefined;
 	}
 }
 
