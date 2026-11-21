@@ -160,7 +160,6 @@ import {
 import { usePushConversation } from "@/lib/use-push-conversation";
 import { UnreadFilesContext } from "@/components/unread-badge";
 import { OS_COPY } from "@/shared/os-copy";
-import { takeWorkspaceFirstMessage } from "@/lib/workspace-first-message";
 
 // ---------------------------------------------------------------------------
 // Stage panels: deferred out of the route's first-paint chunk graph
@@ -727,26 +726,9 @@ export function CanvasPage({
 		string | null
 	>(requestedConversation ?? null);
 	const widgetFollowUpRef = useRef<((content: string) => void) | null>(null);
-	// A question that started this workspace from Home chat waits here for
-	// the chat to connect, then goes out as its first message.
-	const firstMessageTargetRef = useRef({
-		workspaceId: requestedWorkspaceId,
-		conversationId: activeConversationId,
-	});
-	firstMessageTargetRef.current = {
-		workspaceId: requestedWorkspaceId,
-		conversationId: activeConversationId,
-	};
 	const registerWidgetFollowUp = useCallback(
 		(send: (content: string) => void) => {
 			widgetFollowUpRef.current = send;
-			const target = firstMessageTargetRef.current;
-			if (!target.workspaceId) return;
-			const text = takeWorkspaceFirstMessage(
-				target.workspaceId,
-				target.conversationId,
-			);
-			if (text) send(text);
 		},
 		[],
 	);
