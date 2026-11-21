@@ -43,6 +43,7 @@ import {
 	approvalRequestStoredColumns,
 	tediProvisionalOutcomes,
 } from "../schema/approvals";
+import { auditEvents } from "../schema/audit-events";
 import { tedis } from "../schema/tedis";
 import { tediApprovalDependencyEvents } from "../schema/approval-simulations";
 import { getAffectedRows } from "../utils/d1-result";
@@ -518,7 +519,8 @@ export async function resolveApprovalRequest(
 				)
 		)`);
 	}
-	const results = await db
+	const decisionId = crypto.randomUUID();
+	const update = db
 		.update(tediApprovalRequests)
 		.set({
 			status: params.status,
@@ -530,12 +532,56 @@ export async function resolveApprovalRequest(
 				: {}),
 			...(params.delegatedApproval
 				? {
-						payload: sql`json_set(${tediApprovalRequests.payload}, '$.delegatedApproval', json(${JSON.stringify(params.delegatedApproval)}))`,
+						payload: sql`json_set(${tediApprovalRequests.payload}, '$.delegatedApproval', json(${JSON.stringify(params.delegatedApproval)}), '$.delegatedDecisionId', ${decisionId})`,
 					}
 				: {}),
 		})
 		.where(and(...conditions))
 		.returning(approvalRequestStoredColumns);
+	const results = params.delegatedApproval
+		? (
+				await db.batch([
+					update,
+					db.insert(auditEvents).select(
+						db
+							.select({
+								id: sql<string>`${decisionId}`.as("id"),
+								organizationId: tediApprovalRequests.orgId,
+								actorId: sql<string>`${params.delegatedApproval.actorId}`.as(
+									"actor_id",
+								),
+								actorType:
+									sql<string>`${params.delegatedApproval.actorType}`.as(
+										"actor_type",
+									),
+								action: sql<string>`'approval_request.delegated_decision'`.as(
+									"action",
+								),
+								resourceType: sql<string>`'approval_request'`.as(
+									"resource_type",
+								),
+								resourceId: tediApprovalRequests.id,
+								metadata: sql<
+									Record<string, JsonValue>
+								>`${JSON.stringify({ status: params.status, receipt: params.delegatedApproval })}`.as(
+									"metadata",
+								),
+								timestamp:
+									sql<Date>`${Math.floor(Date.parse(resolvedAt) / 1000)}`.as(
+										"timestamp",
+									),
+							})
+							.from(tediApprovalRequests)
+							.where(
+								and(
+									eq(tediApprovalRequests.id, id),
+									sql`json_extract(${tediApprovalRequests.payload},'$.delegatedDecisionId')=${decisionId}`,
+								),
+							),
+					),
+				])
+			)[0]
+		: await update;
 	const resolved = results[0];
 	if (
 		resolved &&

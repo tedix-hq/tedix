@@ -78,6 +78,7 @@ it("shows who decided, what and why, then reopens the exact runtime decision", a
 			).toHaveBeenCalledWith({
 				requestId: data.data[0]!.requestId,
 				source: "runtime",
+				undo: true,
 			}),
 		);
 		await act(async () => {

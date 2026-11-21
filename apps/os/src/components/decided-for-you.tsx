@@ -35,6 +35,10 @@ export function DecidedForYou() {
 			<h2 id="decided-for-you-heading" className="text-lg font-semibold">
 				Decided for you
 			</h2>
+			<p>
+				Undo withdraws the approval and opens a review. Completed actions still
+				need your review.
+			</p>
 			{decisions.isPending && <p>Loading decisions…</p>}
 			{decisions.isError && <p role="alert">Decisions could not be loaded.</p>}
 			{decisions.data?.data.length === 0 && <p>No delegated decisions yet.</p>}
@@ -47,7 +51,7 @@ export function DecidedForYou() {
 						<p>
 							<strong>{item.receipt.actorName}</strong> decided: {item.subject}
 						</p>
-						<p>{item.decision}</p>
+						<p>{item.undoneAt ? "Approval withdrawn" : item.decision}</p>
 						<p>Why: {item.receipt.reason}</p>
 						<Link
 							href={
@@ -65,22 +69,23 @@ export function DecidedForYou() {
 						) : (
 							<Button
 								size="sm"
-								disabled={reopen.isPending}
+								disabled={reopen.isPending || Boolean(item.undoneAt)}
 								onClick={() =>
 									reopen.mutate({
 										requestId: item.requestId,
 										source: item.source,
+										undo: true,
 									})
 								}
 							>
-								Reopen
+								Undo approval
 							</Button>
 						)}
 					</li>
 				))}
 			</ul>
 			{reopen.isError && (
-				<p role="alert">The decision could not be reopened.</p>
+				<p role="alert">The approval could not be withdrawn.</p>
 			)}
 			{before && (
 				<Button size="sm" onClick={() => setBefore(undefined)}>

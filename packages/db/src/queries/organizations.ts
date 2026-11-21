@@ -567,7 +567,7 @@ export async function updateOrganization(
 	db: DbClient,
 	id: string,
 	data: Partial<Omit<NewOrganization, "id" | "createdAt">>,
-	audit?: InsertAuditEventParams,
+	audit?: InsertAuditEventParams | InsertAuditEventParams[],
 ): Promise<Organization> {
 	const now = new Date().toISOString();
 
@@ -582,7 +582,9 @@ export async function updateOrganization(
 	if (audit)
 		await db.batch([
 			update,
-			buildInsertAuditEventStatement(db, audit).statement,
+			...(Array.isArray(audit) ? audit : [audit]).map(
+				(event) => buildInsertAuditEventStatement(db, event).statement,
+			),
 		]);
 	else await update;
 

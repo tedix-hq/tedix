@@ -291,30 +291,58 @@ describe("Work proposal acceptance", () => {
 		expect(f.rows()).toHaveLength(1);
 	});
 
-	it("creates Work for the approving human and records the chat tedi as actor", async () => {
-		const f = setup();
-		const request = await f.propose();
-		const result = await f.kernel("target-sub").respond({
-			requestId: request.id,
-			expectedRequestVersion: request.version,
-			responseKind: "handoff_accepted",
-			resolvesRequest: true,
-			body: "Accepted",
-			metadata: { actor: { type: "user", id: "spoofed" } },
-		});
-		expect(f.rows()).toHaveLength(3);
-		expect(result.request.state).toBe("resolved");
-		expect(result.response).toMatchObject({
-			respondedByType: "user",
-			respondedById: "target-id",
-			metadata: { actor: { type: "tedi", id: "chat-tedi" } },
-		});
-	});
-
-	it.each(["other-sub", undefined])(
-		"rejects chat acceptance without the targeted human's approval (%s)",
-		async (approver) => {
+	it.each([false, true])(
+		"creates Work for the approving human and records the chat tedi as actor (delegation=%s)",
+		async (enabled) => {
 			const f = setup();
+			f.sqlite
+				.prepare(
+					"INSERT OR REPLACE INTO organizations (id,name,slug,metadata) VALUES (?,?,?,?)",
+				)
+				.run(
+					ORG_ID,
+					"Acme",
+					"acme",
+					JSON.stringify({ delegatedApprovals: { enabled, leadAgents: {} } }),
+				);
+			const request = await f.propose();
+			const result = await f.kernel("target-sub").respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "handoff_accepted",
+				resolvesRequest: true,
+				body: "Accepted",
+				metadata: { actor: { type: "user", id: "spoofed" } },
+			});
+			expect(f.rows()).toHaveLength(3);
+			expect(result.request.state).toBe("resolved");
+			expect(result.response).toMatchObject({
+				respondedByType: "user",
+				respondedById: "target-id",
+				metadata: { actor: { type: "tedi", id: "chat-tedi" } },
+			});
+		},
+	);
+
+	it.each([
+		[false, "other-sub"],
+		[false, undefined],
+		[true, "other-sub"],
+		[true, undefined],
+	] as const)(
+		"rejects chat acceptance without the targeted human's approval (delegation=%s, approver=%s)",
+		async (enabled, approver) => {
+			const f = setup();
+			f.sqlite
+				.prepare(
+					"INSERT OR REPLACE INTO organizations (id,name,slug,metadata) VALUES (?,?,?,?)",
+				)
+				.run(
+					ORG_ID,
+					"Acme",
+					"acme",
+					JSON.stringify({ delegatedApprovals: { enabled, leadAgents: {} } }),
+				);
 			const request = await f.propose();
 			await expect(
 				f.kernel(approver).respond({
@@ -324,7 +352,11 @@ describe("Work proposal acceptance", () => {
 					resolvesRequest: true,
 					body: "Accepted",
 				}),
-			).rejects.toThrow("Responder is not the request target");
+			).rejects.toThrow(
+				approver
+					? "Responder is not the request target"
+					: "This card requires its owner; no eligible standing delegation applies",
+			);
 			expect(f.rows()).toHaveLength(0);
 			expect(
 				f.sqlite

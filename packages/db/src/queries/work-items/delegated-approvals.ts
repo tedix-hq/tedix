@@ -1,3 +1,5 @@
+import { auditEvents } from "../../schema/audit-events";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { organizationMembers } from "../../schema/organization-members";
 import {
 	tediApprovalRequests,
@@ -20,11 +22,69 @@ import {
 } from "../../schema/work-factory";
 import type { InteractionActor } from "./interactions";
 
+/** Sessions on the same credential are one requester, regardless of session id. */
+export async function independentApprovalActor(
+	db: DbQueryClient,
+	orgId: string,
+	requester: Pick<InteractionActor, "type" | "id">,
+	decider: Pick<InteractionActor, "type" | "id">,
+): Promise<boolean> {
+	if (requester.type === decider.type && requester.id === decider.id)
+		return false;
+	const credential = async (actor: Pick<InteractionActor, "type" | "id">) => {
+		if (actor.type === "external_agent") {
+			const [principal] = await db
+				.select({
+					type: externalAgentPrincipals.credentialBindingType,
+					id: externalAgentPrincipals.credentialBindingId,
+				})
+				.from(externalAgentPrincipals)
+				.where(
+					and(
+						eq(externalAgentPrincipals.organizationId, orgId),
+						eq(externalAgentPrincipals.id, actor.id),
+					),
+				)
+				.limit(1);
+			return principal ?? null;
+		}
+		if (actor.type === "user") {
+			const [member] = await db
+				.select({ id: organizationMembers.userId })
+				.from(organizationMembers)
+				.where(
+					and(
+						eq(organizationMembers.organizationId, orgId),
+						sql`(${organizationMembers.userId}=${actor.id} OR ${organizationMembers.descopeUserId}=${actor.id})`,
+					),
+				)
+				.limit(1);
+			return member?.id ? { type: "owner_user", id: member.id } : null;
+		}
+		return actor.type === "tedi" ? { type: "tedi", id: actor.id } : null;
+	};
+	const [from, to] = await Promise.all([
+		credential(requester),
+		credential(decider),
+	]);
+	return Boolean(from && to && (from.type !== to.type || from.id !== to.id));
+}
+
 /** Identity and policy are read from canonical rows, never a card's actor claims. */
 export async function delegatedApprover(
 	db: DbQueryClient,
-	p: { orgId: string; ownerId: string; actor: InteractionActor },
+	p: {
+		orgId: string;
+		ownerId: string;
+		actor: InteractionActor;
+		requester?: Pick<InteractionActor, "type" | "id">;
+	},
 ) {
+	if (
+		p.requester &&
+		!(await independentApprovalActor(db, p.orgId, p.requester, p.actor))
+	)
+		return null;
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -111,6 +171,7 @@ export async function preferredApprovalDelegate(
 	db: DbQueryClient,
 	orgId: string,
 	ownerId: string,
+	requester: Pick<InteractionActor, "type" | "id">,
 ) {
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
@@ -127,6 +188,7 @@ export async function preferredApprovalDelegate(
 			orgId,
 			ownerId,
 			actor: { type: "external_agent", id: lead },
+			requester,
 		});
 		if (receipt) return receipt;
 	}
@@ -148,6 +210,7 @@ export async function preferredApprovalDelegate(
 				orgId,
 				ownerId,
 				actor: { type: "tedi", id: tedi.id },
+				requester,
 			})
 		: null;
 }
@@ -180,6 +243,7 @@ export async function claimDelegatedApproval(
 		orgId: request.orgId,
 		ownerId,
 		actor: p.actor,
+		requester: { type: request.creatorType, id: request.creatorId },
 	});
 	if (!receipt) return null;
 	if (request.targetType === p.actor.type && request.targetId === p.actor.id)
@@ -227,6 +291,11 @@ export async function listDecidedForYou(
 			decidedAt: workInteractionResponses.respondedAt,
 			workItemId: workInteractions.workItemId,
 			metadata: workInteractions.metadata,
+			undoneAt: sql<
+				string | null
+			>`(SELECT json_extract(a.metadata,'$.undoneAt') FROM audit_events a WHERE a.organization_id=${workInteractions.orgId} AND a.id='delegated-undo:interaction:' || ${workInteractions.orgId} || ':' || ${workInteractions.id})`.as(
+				"undone_at",
+			),
 		})
 		.from(workInteractions)
 		.innerJoin(
@@ -274,12 +343,17 @@ export async function listDecidedForYou(
 				"work_item_id",
 			),
 			metadata: tediApprovalRequests.payload,
+			undoneAt: sql<
+				string | null
+			>`json_extract(${tediApprovalRequests.payload},'$.delegatedApprovalUndoneAt')`.as(
+				"undone_at",
+			),
 		})
 		.from(tediApprovalRequests)
 		.where(
 			and(
 				eq(tediApprovalRequests.orgId, p.orgId),
-				sql`${tediApprovalRequests.status} IN ('approved','rejected')`,
+				sql`(${tediApprovalRequests.status} IN ('approved','rejected') OR (${tediApprovalRequests.status}='cancelled' AND json_type(${tediApprovalRequests.payload},'$.delegatedApprovalUndoneAt') IS NOT NULL))`,
 				sql`json_extract(${tediApprovalRequests.payload},'$.delegatedApproval.ownerId')=${p.ownerId}`,
 				p.before
 					? sql`${tediApprovalRequests.resolvedAt} || ':runtime:' || ${tediApprovalRequests.id} < ${p.before}`
@@ -325,4 +399,104 @@ export async function getDelegatedRuntimeApproval(
 		)
 		.limit(1);
 	return row ?? null;
+}
+
+/** Withdraw authority without erasing the decision or replaying its effect. */
+export async function undoDelegatedApproval(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		ownerId: string;
+		requestId: string;
+		source: "interaction" | "runtime";
+		now: string;
+	},
+) {
+	const token = crypto.randomUUID();
+	const table =
+		p.source === "interaction" ? workInteractions : tediApprovalRequests;
+	const metadata =
+		p.source === "interaction"
+			? workInteractions.metadata
+			: tediApprovalRequests.payload;
+	const fence = and(
+		eq(table.orgId, p.orgId),
+		eq(table.id, p.requestId),
+		sql`json_extract(${metadata},'$.delegatedApproval.ownerId')=${p.ownerId}`,
+	);
+	const [prior] = await db
+		.select({ metadata })
+		.from(table)
+		.where(fence)
+		.limit(1);
+	if (!prior) return false;
+	if (typeof prior.metadata.delegatedApprovalUndoneAt === "string") return true;
+	const changed = sql`json_extract(${metadata},'$.delegatedApprovalUndoId')=${token}`;
+	const update =
+		p.source === "interaction"
+			? db
+					.select({ id: workInteractions.id })
+					.from(workInteractions)
+					.where(and(fence, eq(workInteractions.status, "resolved")))
+			: db
+					.update(tediApprovalRequests)
+					.set({
+						status: "cancelled",
+						payload: sql`json_set(${metadata},'$.delegatedApprovalUndoneAt',${p.now},'$.delegatedApprovalUndoId',${token})`,
+					})
+					.where(
+						and(
+							fence,
+							sql`${tediApprovalRequests.status} IN ('approved','rejected')`,
+							sql`json_type(${metadata},'$.delegatedApprovalUndoneAt') IS NULL`,
+						),
+					);
+	const auditId = `delegated-undo:${p.source}:${p.orgId}:${p.requestId}`;
+
+	await db.batch([
+		update,
+		db
+			.insert(auditEvents)
+			.select(
+				db
+					.select({
+						id: sql<string>`${auditId}`.as("id"),
+						organizationId: table.orgId,
+						actorId: sql<string>`${p.ownerId}`.as("actor_id"),
+						actorType: sql<string>`'user'`.as("actor_type"),
+						action: sql<string>`'delegated_approval.undone'`.as("action"),
+						resourceType:
+							sql<string>`${p.source === "interaction" ? "work_interaction" : "approval_request"}`.as(
+								"resource_type",
+							),
+						resourceId: table.id,
+						metadata: sql<
+							Record<string, JsonValue>
+						>`${JSON.stringify({ source: p.source, receipt: prior.metadata.delegatedApproval ?? null, completedEffectsRetained: true, undoneAt: p.now })}`.as(
+							"metadata",
+						),
+						timestamp: sql<Date>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+							"timestamp",
+						),
+					})
+					.from(table)
+					.where(
+						and(
+							fence,
+							p.source === "interaction"
+								? eq(workInteractions.status, "resolved")
+								: changed,
+						),
+					),
+			)
+			.onConflictDoNothing(),
+	]);
+	const [record] = await db
+		.select({ id: auditEvents.id })
+		.from(auditEvents)
+		.where(
+			and(eq(auditEvents.organizationId, p.orgId), eq(auditEvents.id, auditId)),
+		)
+		.limit(1);
+	return Boolean(record);
 }

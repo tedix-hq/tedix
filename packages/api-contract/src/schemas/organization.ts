@@ -549,7 +549,9 @@ export const OrganizationMetadataSchema = z.object({
 		),
 	modelFallback: ModelFallbackPolicySchema.nullable().optional(),
 	workDelegation: WorkDelegationSettingsSchema.optional(),
-	delegatedApprovals: DelegatedApprovalsPolicySchema.optional(),
+	delegatedApprovals: DelegatedApprovalsPolicySchema.optional().describe(
+		"Only the human organization owner can enable delegation or designate lead agents; absent means off.",
+	),
 	workStewardship: WorkStewardshipPolicySchema.optional().describe(
 		"Creation-time stewardship defaults; explicit ownership and human execution are preserved.",
 	),

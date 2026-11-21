@@ -1,6 +1,11 @@
 import { HOLDS, type ActionClass } from "./approval-holds";
 import { parseDeclaredToolClass } from "./tool-declared-class";
-import { DecisionEnvelopeSchema } from "../schemas/os-decision-deck";
+import { z } from "zod";
+import {
+	DecisionEffectSchema,
+	ProtectedEffectSchema,
+} from "../schemas/decision-effects";
+import { DecisionKindSchema } from "../schemas/os-decision-deck";
 import { laneHoldDecision } from "./lane-hold-decision";
 
 /** Intrinsic classes of finite internal adapters, never supplied by card prose. */
@@ -33,6 +38,23 @@ export function delegatedClassAllowed(input: {
 	);
 }
 
+const StructuralDecisionSchema = z.object({
+	kind: DecisionKindSchema,
+	protectedEffects: z.array(ProtectedEffectSchema).default([]),
+	options: z
+		.array(
+			z.object({
+				id: z.string(),
+				intent: z.enum(["approve", "reject", "later", "change"]),
+				effect: DecisionEffectSchema.optional(),
+			}),
+		)
+		.refine(
+			(options) =>
+				new Set(options.map((option) => option.id)).size === options.length,
+		),
+});
+
 /** Card effects are classified from the finite adapter, not title or reasoning. */
 export function delegatedCardAllowed(
 	request: {
@@ -53,8 +75,13 @@ export function delegatedCardAllowed(
 			(!Array.isArray(m.protectedEffects) || m.protectedEffects.length > 0))
 	)
 		return false;
-	const decision = DecisionEnvelopeSchema.safeParse(
-		m.decisionDeck ?? laneHoldDecision(request),
+	const structuralRequest = {
+		...request,
+		subject: "Decision",
+		prompt: "Decision",
+	};
+	const decision = StructuralDecisionSchema.safeParse(
+		m.decisionDeck ?? laneHoldDecision(structuralRequest),
 	);
 	if (
 		!decision.success ||

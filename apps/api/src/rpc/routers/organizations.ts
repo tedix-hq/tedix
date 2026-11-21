@@ -6,6 +6,7 @@ import {
 } from "./organization-domains";
 /** oRPC organizations router: CRUD, provisioning, features and the router assembly. */
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
+import { getRequestOrganizationMembership } from "../org-membership";
 import { auditActor } from "../audit-helpers";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { installDefaultWorkApps } from "../../services/default-work-apps";
@@ -260,6 +261,11 @@ async function createOrganizationResources(
 	input: CreateOrganizationInput,
 	providerAuthorized = false,
 ) {
+	if (input.metadata?.delegatedApprovals !== undefined)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Configure delegated approvals in organization settings after creation so the owner decision is audited",
+		);
 	if (input.metadata?.sensitiveDataEgressApproval === true)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
@@ -569,6 +575,35 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 				"Exact fetch approval settings require a human organization owner or admin",
 			);
 		if (
+			updates.metadata?.delegatedApprovals !== undefined &&
+			(context.authType !== "user" ||
+				context.userRole !== "owner" ||
+				context.externalAgentPrincipalId ||
+				context.ownerHostSessionId ||
+				context.browserAgentSeat ||
+				context.tediId)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Delegated approval settings require the human organization owner",
+			);
+		if (updates.metadata?.delegatedApprovals !== undefined) {
+			const member = await getRequestOrganizationMembership(
+				context,
+				organizationId,
+				context.user?.sub ?? "",
+			);
+			if (
+				member?.status !== "active" ||
+				member.role !== "owner" ||
+				member.kind !== "human"
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Delegated approval settings require an active human organization owner",
+				);
+		}
+		if (
 			updates.metadata?.agentRequestApprovals !== undefined &&
 			(context.authType !== "user" ||
 				context.userRole !== "owner" ||
@@ -675,22 +710,42 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 					? { metadata: { ...(existing.metadata ?? {}), ...updates.metadata } }
 					: {}),
 			},
-			setting === undefined ||
+			[
+				...(updates.metadata?.delegatedApprovals !== undefined
+					? [
+							{
+								organizationId,
+								actorId: actor.actorId,
+								actorType: actor.actorType,
+								action: "organization.delegated_approvals_changed",
+								resourceType: "organization",
+								resourceId: organizationId,
+								metadata: {
+									previousValue: existing.metadata?.delegatedApprovals ?? null,
+									value: updates.metadata.delegatedApprovals,
+								},
+							},
+						]
+					: []),
+				...(setting === undefined ||
 				setting === (existing.metadata?.sensitiveDataEgressApproval === true)
-				? undefined
-				: {
-						organizationId,
-						actorId: actor.actorId,
-						actorType: actor.actorType,
-						action: "organization.sensitive_data_egress_approval_changed",
-						resourceType: "organization",
-						resourceId: organizationId,
-						metadata: {
-							previousValue:
-								existing.metadata?.sensitiveDataEgressApproval === true,
-							enabled: setting,
-						},
-					},
+					? []
+					: [
+							{
+								organizationId,
+								actorId: actor.actorId,
+								actorType: actor.actorType,
+								action: "organization.sensitive_data_egress_approval_changed",
+								resourceType: "organization",
+								resourceId: organizationId,
+								metadata: {
+									previousValue:
+										existing.metadata?.sensitiveDataEgressApproval === true,
+									enabled: setting,
+								},
+							},
+						]),
+			],
 		);
 
 		invalidateKernelContextCache(

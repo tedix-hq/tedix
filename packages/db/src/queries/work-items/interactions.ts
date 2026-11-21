@@ -1038,6 +1038,45 @@ export async function respondToWorkInteraction(
 	try {
 		const [responses] = await db.batch([
 			responseInsert,
+			...((resolvesRequest || effectReceipt?.status === "started") &&
+			request.metadata.delegatedApproval &&
+			p.responder.type !== "user"
+				? [
+						db.insert(auditEvents).select(
+							db
+								.select({
+									id: sql<string>`${`delegated-decision:${p.id}`}`.as("id"),
+									organizationId: workInteractionResponses.orgId,
+									actorId: workInteractionResponses.responderId,
+									actorType: workInteractionResponses.responderType,
+									action:
+										sql<string>`${resolvesRequest ? "work_interaction.delegated_decision" : "work_interaction.delegated_decision_started"}`.as(
+											"action",
+										),
+									resourceType: sql<string>`'work_interaction'`.as(
+										"resource_type",
+									),
+									resourceId: workInteractionResponses.interactionId,
+									metadata: sql<
+										Record<string, JsonValue>
+									>`${JSON.stringify({ responseId: p.id, receipt: request.metadata.delegatedApproval, reason: p.body, cardAction: p.metadata?.cardAction ?? null })}`.as(
+										"metadata",
+									),
+									timestamp:
+										sql<Date>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+											"timestamp",
+										),
+								})
+								.from(workInteractionResponses)
+								.where(
+									and(
+										eq(workInteractionResponses.orgId, p.orgId),
+										eq(workInteractionResponses.id, p.id),
+									),
+								),
+						),
+					]
+				: []),
 			...(request.workItemId &&
 			request.kind !== "coordination" &&
 			resolvesRequest &&

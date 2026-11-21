@@ -241,11 +241,13 @@ describe("exact fetch approval settings", () => {
 				organizationId: ORGANIZATION_ID,
 				metadata: { sensitiveDataEgressApproval: enabled },
 			});
-			expect(mocks.updateOrganization.mock.calls.at(-1)?.[3]).toMatchObject({
-				action: "organization.sensitive_data_egress_approval_changed",
-				actorId: "user-1",
-				metadata: { previousValue: !enabled, enabled },
-			});
+			expect(mocks.updateOrganization.mock.calls.at(-1)?.[3]).toMatchObject([
+				{
+					action: "organization.sensitive_data_egress_approval_changed",
+					actorId: "user-1",
+					metadata: { previousValue: !enabled, enabled },
+				},
+			]);
 		},
 	);
 });
@@ -395,4 +397,87 @@ it("only owners can change portfolio sections, including clearing the list", asy
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	}
+});
+
+describe("delegated approval settings", () => {
+	it("requires policy setup after creation so it cannot bypass owner authorization and audit", async () => {
+		const { organizationsContractRouter } = await import("./organizations");
+		await expect(
+			createRouterClient(organizationsContractRouter, {
+				context: adminContext(),
+			}).create({
+				name: "Acme",
+				metadata: { delegatedApprovals: { enabled: true, leadAgents: {} } },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it.each([
+		"admin",
+		"external agent",
+		"owner host",
+		"browser agent",
+		"tedi",
+		"api key",
+	])("rejects %s even with owner role claims", async (kind) => {
+		const context = { ...adminContext(), userRole: "owner" } as BaseContext;
+		if (kind === "admin") context.userRole = "admin";
+		if (kind === "external agent") context.externalAgentPrincipalId = "agent";
+		if (kind === "owner host") context.ownerHostSessionId = "session";
+		if (kind === "browser agent")
+			context.browserAgentSeat = {
+				userId: "agent",
+				memberId: "agent-member",
+				displayName: "Agent",
+				representedUserId: "owner",
+				representedUserName: "Owner",
+			};
+		if (kind === "tedi") context.tediId = "tedi";
+		if (kind === "api key") context.authType = "apikey";
+		const { organizationsContractRouter } = await import("./organizations");
+		mocks.updateOrganization.mockClear();
+		await expect(
+			createRouterClient(organizationsContractRouter, { context }).update({
+				organizationId: ORGANIZATION_ID,
+				metadata: { delegatedApprovals: { enabled: true, leadAgents: {} } },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(mocks.updateOrganization).not.toHaveBeenCalled();
+	});
+	it.each([true, false])(
+		"audits the human owner's switch and lead assignments (enabled=%s)",
+		async (enabled) => {
+			const { organizationsContractRouter } = await import("./organizations");
+			const previousValue = { enabled: !enabled, leadAgents: {} };
+			const value = {
+				enabled,
+				leadAgents: { owner: "11111111-1111-4111-8111-111111111111" },
+			};
+			mocks.getMemberByUserId.mockResolvedValue({
+				status: "active",
+				role: "owner",
+				kind: "human",
+			});
+			mocks.getOrganizationById.mockResolvedValue({
+				id: ORGANIZATION_ID,
+				slug: "acme",
+				metadata: { delegatedApprovals: previousValue },
+			});
+			const context = { ...adminContext(), userRole: "owner" } as BaseContext;
+			await createRouterClient(organizationsContractRouter, { context }).update(
+				{
+					organizationId: ORGANIZATION_ID,
+					metadata: { delegatedApprovals: value },
+				},
+			);
+			expect(mocks.updateOrganization.mock.calls.at(-1)?.[3]).toMatchObject([
+				{
+					action: "organization.delegated_approvals_changed",
+					actorId: "user-1",
+					actorType: "user",
+					metadata: { previousValue, value },
+				},
+			]);
+		},
+	);
 });

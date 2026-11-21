@@ -22,6 +22,7 @@ export const DecidedForYouItemSchema = z.object({
 	subject: z.string(),
 	decision: z.string(),
 	decidedAt: z.string(),
+	undoneAt: z.string().nullable().optional(),
 	workItemId: z.string().nullable(),
 	receipt: DelegatedApprovalReceiptSchema,
 });
@@ -36,4 +37,5 @@ export const ListDecidedForYouResultSchema = z.object({
 export const ReopenDelegatedApprovalInputSchema = z.strictObject({
 	requestId: z.uuid(),
 	source: z.enum(["interaction", "runtime"]).default("interaction"),
+	undo: z.boolean().default(false),
 });

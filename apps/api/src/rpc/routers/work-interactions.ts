@@ -3,6 +3,7 @@ import {
 	preferredApprovalDelegate,
 	listDecidedForYou,
 	getDelegatedRuntimeApproval,
+	undoDelegatedApproval,
 } from "@tedix/db/queries/work-items/delegated-approvals";
 import { delegatedCardAllowed } from "@tedix/api-contract/utils/delegated-approvals";
 import { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
@@ -446,7 +447,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			workItemId: input.workItemId,
 			metadata: creationMetadata,
 		})
-			? await preferredApprovalDelegate(context.db, orgId, target.id)
+			? await preferredApprovalDelegate(context.db, orgId, target.id, actor)
 			: null;
 	if (delegated) target = { type: delegated.actorType, id: delegated.actorId };
 	const { deckCreateGate } = await import("../../services/deck-create-gate");
@@ -771,7 +772,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			: null;
 		if (
 			initialRequest &&
-			actor.type !== "user" &&
+			responder.type !== "user" &&
 			(initialRequest.targetType === "user" ||
 				initialRequest.metadata.delegatedApproval)
 		) {
@@ -868,7 +869,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				const parsed = WorkProposalMetadataSchema.safeParse(request.metadata);
 				if (parsed.success) {
 					const workItemIds = await materializeWorkProposal(
-						context,
+						startContext,
 						orgId,
 						parsed.data.proposal,
 					);
@@ -2240,16 +2241,32 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			).data;
 			if (
 				actor.type !== "user" ||
+				context.browserAgentSeat ||
 				receipt?.ownerId !== actor.id ||
 				!(
 					original?.status === "resolved" ||
 					runtime?.status === "approved" ||
-					runtime?.status === "rejected"
+					runtime?.status === "rejected" ||
+					runtime?.payload.delegatedApprovalUndoneAt
 				)
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
 					"Only the owner can reopen a delegated decision",
+				);
+			if (
+				input.undo &&
+				!(await undoDelegatedApproval(context.db, {
+					orgId,
+					ownerId: actor.id,
+					requestId: input.requestId,
+					source: input.source,
+					now: new Date().toISOString(),
+				}))
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The delegated decision changed; reload it before undoing",
 				);
 			// A review carries no executable effect: the original receipt is retained.
 			const responses = original
@@ -2303,7 +2320,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 						0,
 						300,
 					),
-					prompt: `${receipt.actorName} decided: ${answer}\n\nReview the result and say what should change. Reopening does not undo or repeat the earlier action.`,
+					prompt: `${receipt.actorName} decided: ${answer}\n\n${input.undo ? "You withdrew this approval. Calls that have not started can no longer use it. Completed effects remain; review them and say what should change." : "Review the result and say what should change. Reopening does not undo or repeat the earlier action."}`,
 					creator: actor,
 					targetType: "user",
 					targetId: actor.id,

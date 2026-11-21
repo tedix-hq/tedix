@@ -1498,6 +1498,7 @@ const resolveProcedure = authedOs.resolve
 			input.resolution = `Decide for me: ${recommendation.recommendation}. ${recommendation.reason}`;
 		}
 		const machineDecider = Boolean(
+			context.browserAgentSeat ||
 			context.externalAgentPrincipalId ||
 			context.ownerHostSessionId ||
 			(context.tediId &&

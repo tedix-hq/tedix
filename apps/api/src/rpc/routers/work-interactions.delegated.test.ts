@@ -1,5 +1,8 @@
 import { tediApprovalsContractRouter } from "./tedi-approvals";
-import { createApprovalRequest } from "@tedix/db/queries/approvals";
+import {
+	consumeHomeToolApprovalCall,
+	createApprovalRequest,
+} from "@tedix/db/queries/approvals";
 import { createWorkItem } from "@tedix/db/queries/work-items/crud";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -9,7 +12,10 @@ import {
 	createWorkInteraction,
 	getWorkInteraction,
 } from "@tedix/db/queries/work-items/interactions";
-import { claimDelegatedApproval } from "@tedix/db/queries/work-items/delegated-approvals";
+import {
+	claimDelegatedApproval,
+	independentApprovalActor,
+} from "@tedix/db/queries/work-items/delegated-approvals";
 import {
 	delegatedCardAllowed,
 	delegatedClassAllowed,
@@ -23,6 +29,7 @@ const org = "00000000-0000-4000-8000-000000000001";
 const work = "00000000-0000-4000-8000-000000000002";
 const tedi = "00000000-0000-4000-8000-000000000003";
 const agent = "00000000-0000-4000-8000-000000000004";
+const requesterTedi = "00000000-0000-4000-8000-000000000005";
 const now = () => new Date().toISOString();
 
 function card() {
@@ -92,6 +99,22 @@ async function fixture(enabled = true) {
 			"INSERT INTO external_agent_principals (id,organization_id,key,display_name,credential_binding_type,credential_binding_id,created_by_type,created_by_id) VALUES (?,?,?,'Lead agent','owner_user','owner','user','owner')",
 		)
 		.run(agent, org, "lead-agent");
+	sqlite
+		.prepare(
+			"INSERT INTO organization_members (id,organization_id,user_id,descope_user_id,email,role,status) VALUES (?,?,?,?,?,'member','active')",
+		)
+		.run(
+			"requester-member",
+			org,
+			"requester",
+			"requester-sub",
+			"requester@acme.test",
+		);
+	sqlite
+		.prepare(
+			"INSERT INTO tedis (id,organization_id,name,slug,owner_user_id,status) VALUES (?,?,?,?,?,'active')",
+		)
+		.run(requesterTedi, org, "Requester", "requester", "owner");
 	const facade = createD1Facade(sqlite);
 	const db = createDbClient(facade);
 	await createWorkItem(db, {
@@ -149,7 +172,7 @@ async function fixture(enabled = true) {
 		kind: "question",
 		subject: "Review boundary",
 		prompt: "Record the reviewed boundary",
-		creator: { type: "user", id: "owner" },
+		creator: { type: "user", id: "requester" },
 		targetType: "user",
 		targetId: "owner",
 		metadata: { decisionDeck: card() },
@@ -163,7 +186,7 @@ async function fixture(enabled = true) {
 		await createApprovalRequest(db, {
 			id,
 			orgId: org,
-			tediId: tedi,
+			tediId: requesterTedi,
 			actionType: "home.tool_write",
 			description: "Update the internal record",
 			payload: {
@@ -182,10 +205,177 @@ async function fixture(enabled = true) {
 		});
 		return id;
 	};
-	return { sqlite, db, request, owner, delegate, runtime, toolApproval };
+	return { sqlite, db, request, owner, delegate, runtime, toolApproval, base };
 }
 
 describe("standing approval delegation", () => {
+	it("does not treat a browser agent on a human credential as the human approver", async () => {
+		const { base, toolApproval } = await fixture();
+		const id = await toolApproval({
+			writeCapability: "write",
+			riskTier: "bounded_write",
+			blastRadius: "tenant",
+		});
+		const browser = createRouterClient(tediApprovalsContractRouter, {
+			context: {
+				...base,
+				authType: "user",
+				userId: "owner",
+				userRole: "owner",
+				user: { sub: "owner-sub" } as BaseContext["user"],
+				browserAgentSeat: {
+					userId: "owner",
+					memberId: "seat",
+					displayName: "Agent",
+					representedUserId: "owner",
+					representedUserName: "Owner",
+				},
+			},
+		});
+		await expect(
+			browser.resolve({
+				id,
+				status: "approved",
+				resolution: "An internal edit",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("uses the live human owner membership and batches policy changes with their audit", async () => {
+		const { base, sqlite } = await fixture(false);
+		const { organizationsContractRouter } = await import("./organizations");
+		const client = createRouterClient(organizationsContractRouter, {
+			context: {
+				...base,
+				authType: "user",
+				userId: "owner",
+				userRole: "owner",
+				user: { sub: "owner-sub" } as BaseContext["user"],
+			},
+		});
+		const metadata = {
+			delegatedApprovals: { enabled: true, leadAgents: { owner: agent } },
+		};
+		sqlite
+			.prepare(
+				"UPDATE organization_members SET role='admin' WHERE user_id='owner'",
+			)
+			.run();
+		await expect(
+			client.update({ organizationId: org, metadata }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		sqlite
+			.prepare(
+				"UPDATE organization_members SET role='owner' WHERE user_id='owner'",
+			)
+			.run();
+		sqlite.exec(
+			"CREATE TRIGGER deny_policy_audit BEFORE INSERT ON audit_events WHEN NEW.action='organization.delegated_approvals_changed' BEGIN SELECT RAISE(ABORT,'audit unavailable'); END",
+		);
+		await expect(
+			client.update({ organizationId: org, metadata }),
+		).rejects.toThrow();
+		expect(
+			JSON.parse(
+				String(
+					sqlite
+						.prepare("SELECT metadata FROM organizations WHERE id=?")
+						.get(org)?.metadata,
+				),
+			).delegatedApprovals.enabled,
+		).toBe(false);
+		sqlite.exec("DROP TRIGGER deny_policy_audit");
+		await client.update({ organizationId: org, metadata });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_type FROM audit_events WHERE action='organization.delegated_approvals_changed' AND resource_id=?",
+				)
+				.all(org),
+		).toEqual([{ actor_type: "user" }]);
+	});
+
+	it("rejects the requester in every session and the requesting user's credential", async () => {
+		const { db, request } = await fixture();
+		const claim = (
+			requesterType: "tedi" | "external_agent" | "user",
+			requesterId: string,
+			actor: {
+				type: "tedi" | "external_agent";
+				id: string;
+				sessionId?: string;
+			},
+		) =>
+			claimDelegatedApproval(db, {
+				request: {
+					...request,
+					creatorType: requesterType,
+					creatorId: requesterId,
+				},
+				actor,
+				expectedVersion: request.version,
+				now: now(),
+				cardAction: "approve",
+			});
+		expect(await claim("tedi", tedi, { type: "tedi", id: tedi })).toBeNull();
+		for (const sessionId of ["first-session", "second-session"]) {
+			expect(
+				await claim("external_agent", agent, {
+					type: "external_agent",
+					id: agent,
+					sessionId,
+				}),
+			).toBeNull();
+			expect(
+				await claim("user", "owner", {
+					type: "external_agent",
+					id: agent,
+					sessionId,
+				}),
+			).toBeNull();
+		}
+		expect(
+			await independentApprovalActor(
+				db,
+				org,
+				{ type: "external_agent", id: agent },
+				{ type: "user", id: "owner" },
+			),
+		).toBe(false);
+		expect(
+			await independentApprovalActor(
+				db,
+				org,
+				{ type: "user", id: "owner-sub" },
+				{ type: "external_agent", id: agent },
+			),
+		).toBe(false);
+	});
+
+	it("refuses the runtime requester even when it is the owner's own tedi", async () => {
+		const { sqlite, runtime, toolApproval } = await fixture();
+		const id = await toolApproval({
+			writeCapability: "write",
+			riskTier: "bounded_write",
+			blastRadius: "tenant",
+		});
+		sqlite
+			.prepare("UPDATE tedi_approval_requests SET tedi_id=? WHERE id=?")
+			.run(tedi, id);
+		await expect(
+			runtime.resolve({
+				id,
+				status: "approved",
+				resolution: "An internal edit",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			sqlite
+				.prepare("SELECT status FROM tedi_approval_requests WHERE id=?")
+				.get(id)?.status,
+		).toBe("pending");
+	});
+
 	it("executes as the own tedi, lists who/what/why for the owner and reopens without replay", async () => {
 		const { sqlite, request, owner, delegate } = await fixture();
 		await delegate.respond({
@@ -196,6 +386,13 @@ describe("standing approval delegation", () => {
 			resolvesRequest: true,
 			metadata: { cardAction: "approve", decisionChoice: "approve" },
 		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_id,actor_type FROM audit_events WHERE action='work_interaction.delegated_decision' AND resource_id=?",
+				)
+				.all(request.id),
+		).toEqual([{ actor_id: tedi, actor_type: "tedi" }]);
 		const list = await owner.listDecidedForYou({ limit: 25 });
 		expect(list.data).toHaveLength(1);
 		expect(list.data[0]).toMatchObject({
@@ -212,6 +409,7 @@ describe("standing approval delegation", () => {
 		});
 		const review = await owner.reopenDelegatedApproval({
 			requestId: request.id,
+			undo: true,
 		});
 		expect(review).toMatchObject({
 			state: "open",
@@ -219,6 +417,26 @@ describe("standing approval delegation", () => {
 			requestedFromId: "owner",
 		});
 		expect(review.metadata.decisionDeck).toBeUndefined();
+		expect(review.prompt).toContain("You withdrew this approval");
+		expect(
+			(await owner.listDecidedForYou({ limit: 25 })).data[0]?.undoneAt,
+		).toEqual(expect.any(String));
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_id FROM audit_events WHERE action='delegated_approval.undone' AND resource_id=?",
+				)
+				.all(request.id),
+		).toEqual([{ actor_id: "owner" }]);
+		expect(
+			(
+				await owner.reopenDelegatedApproval({
+					requestId: request.id,
+					undo: true,
+				})
+			).id,
+		).toBe(review.id);
+
 		expect(
 			sqlite
 				.prepare(
@@ -227,7 +445,7 @@ describe("standing approval delegation", () => {
 				.get(work)?.n,
 		).toBe(1);
 		await expect(
-			delegate.reopenDelegatedApproval({ requestId: request.id }),
+			delegate.reopenDelegatedApproval({ requestId: request.id, undo: true }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
@@ -312,7 +530,8 @@ describe("standing approval delegation", () => {
 	});
 
 	it("settles a declared internal runtime card as the own tedi and includes it in the same owner list", async () => {
-		const { owner, runtime, toolApproval } = await fixture();
+		const { owner, runtime, toolApproval, sqlite, db, delegate } =
+			await fixture();
 		const id = await toolApproval({
 			writeCapability: "write",
 			riskTier: "bounded_write",
@@ -337,8 +556,88 @@ describe("standing approval delegation", () => {
 				await owner.reopenDelegatedApproval({
 					requestId: id,
 					source: "runtime",
+					undo: true,
 				})
 			).state,
+		).toBe("open");
+		expect(
+			sqlite
+				.prepare("SELECT status FROM tedi_approval_requests WHERE id=?")
+				.get(id)?.status,
+		).toBe("cancelled");
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				id,
+				organizationId: org,
+				slot: `tenant_${"a".repeat(64)}`,
+				now: now(),
+			}),
+		).toBe(false);
+		expect(
+			(await owner.listDecidedForYou({ limit: 25 })).data[0]?.undoneAt,
+		).toEqual(expect.any(String));
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_id FROM audit_events WHERE action='approval_request.delegated_decision' AND resource_id=?",
+				)
+				.all(id),
+		).toEqual([{ actor_id: tedi }]);
+		await expect(
+			delegate.reopenDelegatedApproval({
+				requestId: id,
+				source: "runtime",
+				undo: true,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("rolls back a delegated decision if its audit cannot be written", async () => {
+		const { sqlite, runtime, toolApproval } = await fixture();
+		const id = await toolApproval({
+			writeCapability: "write",
+			riskTier: "bounded_write",
+			blastRadius: "tenant",
+		});
+		sqlite.exec(
+			"CREATE TRIGGER deny_delegated_audit BEFORE INSERT ON audit_events WHEN NEW.action='approval_request.delegated_decision' BEGIN SELECT RAISE(ABORT,'audit unavailable'); END",
+		);
+		await expect(
+			runtime.resolve({ id, status: "approved", resolution: "Internal edit" }),
+		).rejects.toThrow();
+		expect(
+			sqlite
+				.prepare("SELECT status FROM tedi_approval_requests WHERE id=?")
+				.get(id)?.status,
+		).toBe("pending");
+	});
+
+	it("writes the card decision audit before executing its effect", async () => {
+		const { sqlite, delegate, request } = await fixture();
+		sqlite.exec(
+			"CREATE TRIGGER deny_delegated_audit BEFORE INSERT ON audit_events WHEN NEW.action='work_interaction.delegated_decision_started' BEGIN SELECT RAISE(ABORT,'audit unavailable'); END",
+		);
+		await expect(
+			delegate.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "answer",
+				body: "Record review",
+				resolvesRequest: true,
+				metadata: { cardAction: "approve", decisionChoice: "approve" },
+			}),
+		).rejects.toThrow();
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_item_comments WHERE work_item_id=?",
+				)
+				.get(work)?.n,
+		).toBe(0);
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id=?")
+				.get(request.id)?.status,
 		).toBe("open");
 	});
 
@@ -413,8 +712,8 @@ describe("standing approval delegation", () => {
 			},
 		});
 		expect(request).toMatchObject({
-			requestedFromType: "external_agent",
-			requestedFromId: agent,
+			requestedFromType: "tedi",
+			requestedFromId: tedi,
 		});
 		expect(
 			delegatedCardAllowed(
@@ -437,6 +736,31 @@ describe("standing approval delegation", () => {
 			metadata: { decisionDeck: card() },
 		};
 		expect(delegatedCardAllowed(request, "approve")).toBe(true);
+		for (const text of [
+			"Send money and publish everything",
+			"",
+			"x".repeat(5000),
+		]) {
+			expect(
+				delegatedCardAllowed(
+					{
+						...request,
+						subject: text,
+						prompt: text,
+						metadata: {
+							decisionDeck: {
+								...card(),
+								proposal: text,
+								reasoning: text,
+								reversibility: "one_way",
+							},
+						},
+					},
+					"approve",
+				),
+			).toBe(true);
+		}
+
 		expect(
 			delegatedClassAllowed({
 				actionClass: "always",
