@@ -3,10 +3,13 @@
  * chat, /chat, Home, and the cards that quote agent text. Calm reading type
  * on the app's tokens, modest headings, quiet chrome.
  *
- * In the components layer so a caller's `components` override with utility
- * classes still wins.
+ * In the base layer, scoped under `.chat-markdown`, so these rules beat the
+ * element reset there by specificity whatever order the stylesheets load in,
+ * and a caller's utility classes still win. (This file loads with its own
+ * chunk, often before the main stylesheet, so a layer it names first would
+ * otherwise rank lowest.)
  */
-@layer components {
+@layer base {
 	.chat-markdown {
 		font-size: var(--text-tedix-body);
 		line-height: var(--text-tedix-section--line-height);
