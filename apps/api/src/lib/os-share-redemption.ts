@@ -42,7 +42,10 @@ import {
 	getOsOutput,
 	listOsOutputs,
 } from "../services/workspace-output-storage";
-import { getOsOutputRevision } from "../services/os-workspace-outputs";
+import {
+	getOsOutputRevision,
+	readStoredOutputRevision,
+} from "../services/os-workspace-outputs";
 import { parseOutputContentWithImages } from "../services/os-output-assets";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { approvedGuestSkillRead } from "../services/os-share-skill-read-grants";
@@ -298,6 +301,7 @@ async function currentOutputSources(
 	db: DbQueryClient,
 	scope: WorkspaceScope,
 	outputId: string,
+	readBody = false,
 ) {
 	const output = await getOsOutput(db, {
 		organizationId: scope.organizationId,
@@ -310,7 +314,11 @@ async function currentOutputSources(
 		!output.currentRevisionId
 	)
 		return null;
-	const revision = await getOsOutputRevision(db, {
+	const revision = await (
+		readBody || output.kind !== "sheet"
+			? getOsOutputRevision
+			: readStoredOutputRevision
+	)(db, {
 		organizationId: scope.organizationId,
 		revisionId: output.currentRevisionId,
 	});
@@ -332,8 +340,9 @@ export async function shareableOutputRevision(
 	db: DbQueryClient,
 	scope: WorkspaceScope,
 	outputId: string,
+	readBody = true,
 ) {
-	const current = await currentOutputSources(db, scope, outputId);
+	const current = await currentOutputSources(db, scope, outputId, readBody);
 	if (current?.sources?.length !== 0) return null;
 	return { output: current.output, revision: current.revision };
 }
@@ -399,6 +408,7 @@ export async function guestAppRefusal(
 								db,
 								scope,
 								resource.providerResourceId,
+								false,
 							),
 						),
 					}

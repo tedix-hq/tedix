@@ -11,7 +11,8 @@
 		"./feed": "./src/feed.ts",
 		"./consumer": "./src/consumer.ts",
 		"./reconcile": "./src/reconcile.ts",
-		"./output-revision-notice": "./src/output-revision-notice.ts"
+		"./output-revision-notice": "./src/output-revision-notice.ts",
+		"./sheet-blocks": "./src/sheet-blocks.ts"
 	},
 	"scripts": {
 		"type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",

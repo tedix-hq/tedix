@@ -523,6 +523,7 @@ async function guestSlotFile(
 	db: DbQueryClient,
 	scope: Pick<GuestAppScope, "organizationId" | "workspaceId">,
 	slot: string,
+	readBody = true,
 ) {
 	const resources = await listOsWorkspaceResources(db, {
 		organizationId: scope.organizationId,
@@ -537,7 +538,12 @@ async function guestSlotFile(
 		resource.resourceType !== "output"
 	)
 		return null;
-	return shareableOutputRevision(db, scope, resource.providerResourceId);
+	return shareableOutputRevision(
+		db,
+		scope,
+		resource.providerResourceId,
+		readBody,
+	);
 }
 
 /** A revision a visitor may read: one that names no connected-account source. */
@@ -663,15 +669,15 @@ export async function handleGuestAppSave(
 		});
 	const patch = OsOutputContentPatchSchema.safeParse(rawPatch);
 	if (!patch.success) return notFound();
-	const file = await guestSlotFile(db, scope, slot);
+	const file = await guestSlotFile(db, scope, slot, false);
 	if (!file) return notFound();
 	if (patch.data.kind !== file.output.kind)
 		return refusal(400, {
 			code: "BAD_REQUEST",
 			message: "This change does not fit this file",
 		});
-	const current = async () => {
-		const shared = await guestSlotFile(db, scope, slot);
+	const current = async (readBody = true) => {
+		const shared = await guestSlotFile(db, scope, slot, readBody);
 		if (!shared || shared.output.id !== file.output.id)
 			throw new ORPCError("NOT_FOUND", { message: "Share link not found" });
 		return shared;
@@ -680,7 +686,7 @@ export async function handleGuestAppSave(
 		return noStoreJson(
 			await saveOsOutputPatch(db, {
 				output: file.output,
-				reloadOutput: async () => (await current()).output,
+				reloadOutput: async () => (await current(false)).output,
 				currentRevision: async () => (await current()).revision,
 				canReadRevision: async (revision) => sourceless(revision),
 				baseRevision: Number(baseRevision),
@@ -729,7 +735,7 @@ export async function handleGuestAppChanges(
 		}).allowed
 	)
 		return notFound();
-	const file = await guestSlotFile(db, call.scope, call.slot);
+	const file = await guestSlotFile(db, call.scope, call.slot, false);
 	if (!file) return notFound();
 	return noStoreJson(
 		await osOutputChangesSince(db, {

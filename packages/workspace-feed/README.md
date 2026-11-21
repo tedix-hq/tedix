@@ -7,6 +7,23 @@ org-level views (recent activity, the output library and search, Work
 linkage, the Home conversation list) within a second, without ever listing a
 workspace object.
 
+## Sheet bodies
+
+`@tedix/workspace-feed/sheet-blocks` is the shared sheet format used by the API
+and workspace agent. A revision body holds a small manifest in R2. Each row is
+an immutable, digest-checked block under `os-sheet-blocks/v1/<organization>/`.
+The manifest holds row order and stable row and column identifiers. Moving
+rows or columns reuses cell blocks; a cell edit replaces one row reference.
+History, restore and workspace transfers retain references to unchanged blocks.
+
+Existing sheet bodies are converted on access and their revision pointers are
+replaced behind a digest fence before editing. Reads and exports assemble the
+public sheet shape; editor patches save and fetch changed rows only. Range
+writes keep their full response for existing callers, so their response assembly
+is measured separately from the save. Open tabs use the existing workspace
+revision notices and fetch changes under their own source-access checks.
+Body collection remains paused: a block may be referenced by another revision.
+
 ## The event
 
 ```ts
