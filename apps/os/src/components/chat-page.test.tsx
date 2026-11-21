@@ -14,6 +14,7 @@ import {
 const chatHarness = vi.hoisted(() => ({
 	onSelect: null as null | ((conversationId: string | null) => void),
 	onTediConversationCreated: null as null | ((conversationId: string) => void),
+	extraIds: [] as string[],
 }));
 
 const apiHarness = vi.hoisted(() => ({
@@ -27,6 +28,13 @@ const apiHarness = vi.hoisted(() => ({
 		id: string;
 		title?: string;
 		workspaceId?: string | null;
+	}>,
+	recentChats: [] as Array<{
+		workspaceId: string;
+		workspaceName: string;
+		conversationId: string;
+		title: string | null;
+		lastMessageAt: string;
 	}>,
 }));
 
@@ -67,11 +75,14 @@ vi.mock("@/components/chat-sidebar", () => ({
 	ChatSidebar: ({
 		activeConversationId,
 		onSelect,
+		extraConversations,
 	}: {
 		activeConversationId: string | null;
 		onSelect: (conversationId: string | null) => void;
+		extraConversations?: ReadonlyArray<{ id: string }>;
 	}) => {
 		chatHarness.onSelect = onSelect;
+		chatHarness.extraIds = (extraConversations ?? []).map((row) => row.id);
 		return (
 			<nav
 				aria-label="Conversations"
@@ -162,6 +173,15 @@ vi.mock("@/lib/os-query-options", () => ({
 				},
 			},
 		},
+		workspaceUnread: {
+			recentChats: {
+				queryOptions: () => ({
+					queryKey: ["recent-workspace-chats"],
+					queryFn: async () => ({ chats: apiHarness.recentChats }),
+					enabled: true,
+				}),
+			},
+		},
 		kernelRuntime: {
 			listConversations: {
 				queryOptions: ({ input }: { input: { conversationId: string } }) => ({
@@ -196,6 +216,7 @@ beforeEach(() => {
 		created: false,
 	};
 	apiHarness.readConversation.mockReset();
+	apiHarness.recentChats = [];
 	apiHarness.readConversation.mockImplementation(
 		async ({ conversationId }: { conversationId: string }) => ({
 			conversations: [
@@ -304,6 +325,33 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 				?.getAttribute("data-active-conversation"),
 		).toBe("new");
 		expect(routing.navigate).not.toHaveBeenCalled();
+	});
+
+	it("lists chats from the person's other workspaces, but not the private one twice", async () => {
+		const other = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		const chat = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+		apiHarness.recentChats = [
+			{
+				workspaceId: other,
+				workspaceName: "Launch",
+				conversationId: chat,
+				title: "Launch plan",
+				lastMessageAt: "2026-11-21T10:00:00Z",
+			},
+			{
+				workspaceId: WORKSPACE_ID,
+				workspaceName: "Private",
+				conversationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+				title: "Listed live already",
+				lastMessageAt: "2026-11-21T09:00:00Z",
+			},
+		];
+		await mountPage();
+		for (let tick = 0; tick < 20 && !chatHarness.extraIds.length; tick++)
+			await act(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			});
+		expect(chatHarness.extraIds).toEqual([`ws:${other}:${chat}`]);
 	});
 
 	it("honours the conversation in the URL on load", async () => {

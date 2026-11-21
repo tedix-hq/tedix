@@ -5,6 +5,7 @@
  * conversations keep their `home:os:…` ids and their own path.
  */
 import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtime";
+import type { WorkspaceRecentChat } from "@tedix/api-contract/schemas/workspace-unread";
 import type { ConversationSummary } from "./workspace-chat-protocol";
 
 const TEDI_CHAT_ID = /^ws:([0-9a-f-]{36}):([A-Za-z0-9_-]{1,48})$/i;
@@ -75,4 +76,37 @@ export function tediChatListRows(
 				]
 			: [],
 	);
+}
+
+/**
+ * Chats the person took part in inside other workspaces, as /chat list rows.
+ * They open in /chat over that workspace's chat connection. The private
+ * workspace's own rows come live from its connection, so it is left out.
+ */
+export function recentWorkspaceChatRows(
+	chats: readonly WorkspaceRecentChat[],
+	organizationId: string,
+	liveWorkspaceId: string | null | undefined,
+): TediChatListRow[] {
+	return chats.flatMap((chat) => {
+		const id = tediChatConversationId(chat.workspaceId, chat.conversationId);
+		if (
+			chat.workspaceId === liveWorkspaceId ||
+			!parseTediChatConversationId(id)
+		)
+			return [];
+		return [
+			{
+				id,
+				organizationId,
+				title: chat.title,
+				status: "active" as const,
+				createdAt: chat.lastMessageAt,
+				updatedAt: chat.lastMessageAt,
+				lastMessageAt: chat.lastMessageAt,
+				workspaceId: chat.workspaceId,
+				tedi: { id: null, name: chat.workspaceName, avatar: null },
+			},
+		];
+	});
 }
