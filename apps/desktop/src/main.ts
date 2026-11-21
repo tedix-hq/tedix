@@ -134,7 +134,15 @@ async function state(): Promise<PanelState> {
 	};
 }
 
+/** The app menu's Pause or Resume label, so the menu is rebuilt when it changes. */
+let runnersLabel: string | undefined;
+
 async function publish(): Promise<void> {
+	const label = runnersItem().label;
+	if (label !== runnersLabel && app.isReady()) {
+		runnersLabel = label;
+		setMenu();
+	}
 	const current = await state();
 	for (const window of [panel, setupWindow])
 		if (window && !window.isDestroyed())
@@ -1221,6 +1229,7 @@ function setMenu(): void {
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
 					setUp,
+					runnersItem(),
 					{ label: "Open Local Tedix", click: () => openLocalTedix() },
 					// Offered only while it is needed: signing in again when already
 					// signed in opens a browser page that leads nowhere.
@@ -1322,6 +1331,23 @@ function runnersLine(): string {
 	return `Runners: ${running} of ${enabled.length} running · ${runs} ${runs === 1 ? "task" : "tasks"}`;
 }
 
+/**
+ * Pause or Resume, in the menu bar icon's menu and in the app menu. The app
+ * menu copy is the one that accessibility and scripts can reach: the icon's
+ * menu opens only on a real right click.
+ */
+function runnersItem(): MenuItemConstructorOptions {
+	return runnersPaused() || !runnersRunning()
+		? { label: "Resume Runners", click: () => void restartRunners() }
+		: {
+				// Pausing stops the tasks running on this Mac, so it says how many.
+				label: status?.activeRuns
+					? `Pause Runners and Stop ${status.activeRuns === 1 ? "1 Task" : `${status.activeRuns} Tasks`}`
+					: "Pause Runners",
+				click: () => void pauseRunners().then(refresh),
+			};
+}
+
 let tray: Tray | undefined;
 
 /** Right click on the menu bar icon. */
@@ -1336,15 +1362,7 @@ function trayMenu(): Menu {
 			? [{ label: runnersLine(), enabled: false }]
 			: []),
 		{ label: "This Mac…", click: openPanel },
-		runnersPaused() || !runnersRunning()
-			? { label: "Resume Runners", click: () => void restartRunners() }
-			: {
-					// Pausing stops the tasks running on this Mac, so it says how many.
-					label: status?.activeRuns
-						? `Pause Runners and Stop ${status.activeRuns === 1 ? "1 Task" : `${status.activeRuns} Tasks`}`
-						: "Pause Runners",
-					click: () => void pauseRunners().then(refresh),
-				},
+		runnersItem(),
 		{ type: "separator" },
 		{ label: "Check for Updates…", click: () => void checkForUpdates(true) },
 		...(app.isPackaged
