@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { readCmsBundle } from "@tedix/provisioning/cms-bundle";
-import { stageThemeCandidate } from "./theme-candidate";
+import { readThemeCandidate, stageThemeCandidate } from "./theme-candidate";
+import { cleanupStagedBundle } from "./deploy-staging";
 import type { AppBindings } from "../types";
 
 function bucket() {
 	const objects = new Map<string, ArrayBuffer>();
 	return {
 		objects,
+		delete: vi.fn(async (keys: string[]) => {
+			for (const key of keys) objects.delete(key);
+		}),
 		put: vi.fn(async (key: string, value: string | ArrayBuffer) => {
 			objects.set(
 				key,
@@ -85,10 +89,27 @@ describe("CMS theme candidate staging", () => {
 				(key) => key.startsWith("static/") || key.startsWith("acme/v"),
 			),
 		).toBe(false);
+		const expectedModule = await (await staging.get(
+			`${prefix}files/entry.mjs`,
+		))!.text();
+		await cleanupStagedBundle(
+			staging as unknown as R2Bucket,
+			"acme",
+			"attempt",
+		);
+		expect(staging.objects.size).toBe(0);
+		expect(
+			await readThemeCandidate(
+				bundles as unknown as R2Bucket,
+				"acme",
+				"cms-candidate",
+			),
+		).toEqual(candidate);
+		expect(bundles.delete).not.toHaveBeenCalled();
 		expect(
 			(await readCmsBundle(bundles, candidate.r2Prefix)).modules["entry.mjs"]
 				?.js,
-		).toBe(await (await staging.get(`${prefix}files/entry.mjs`))!.text());
+		).toBe(expectedModule);
 		expect(
 			new TextDecoder().decode(bundles.objects.get(`${prefix}static/app.css`)),
 		).toBe("body { color: green }");

@@ -429,6 +429,30 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 			);
 		};
 
+		const cleanupStaging = async (stagingAttemptId: string) => {
+			// Cleanup cannot invalidate a staged candidate or a healthy publication.
+			// Catch outside the step so permit and Workflow errors are nonfatal too.
+			try {
+				await step.do(
+					"cleanup-staging",
+					{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
+					() =>
+						withSitePermit(async () => ({
+							deleted: await cleanupStagedBundle(
+								env.SITE_BUILDER_STORAGE,
+								orgSlug,
+								stagingAttemptId,
+							),
+						})),
+				);
+			} catch (error) {
+				console.warn(
+					`[deploy-workflow] staging cleanup deferred for ${orgSlug}/${jobId}:`,
+					error,
+				);
+			}
+		};
+
 		await record("queued", "queued", "Deploy workflow queued", {
 			summary,
 			sourceCommit,
@@ -1098,16 +1122,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					"complete",
 					"Theme candidate staged without activation",
 				);
-				await guardedStep(
-					"cleanup-staging",
-					{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
-					() =>
-						cleanupStagedBundle(
-							env.SITE_BUILDER_STORAGE,
-							orgSlug,
-							snapshot.stagingAttemptId,
-						),
-				);
+				await cleanupStaging(snapshot.stagingAttemptId);
 				return {
 					version: staged.version,
 					etag: staged.etag,
@@ -1347,29 +1362,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 			// prefix after an internal Workflow error; those bounded retry leftovers
 			// remain under themes/<org>/staging/<jobId>-a<uuid> for later age-based
 			// recovery cleanup after the whole Workflow is terminal.
-			await guardedStep(
-				"cleanup-staging",
-				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
-				async () => {
-					try {
-						return {
-							deleted: candidate
-								? 0
-								: await cleanupStagedBundle(
-										env.SITE_BUILDER_STORAGE,
-										orgSlug,
-										snapshot.stagingAttemptId,
-									),
-						};
-					} catch (error) {
-						console.warn(
-							`[deploy-workflow] staging cleanup deferred for ${orgSlug}/${jobId}:`,
-							error,
-						);
-						return { deleted: 0 };
-					}
-				},
-			);
+			if (!candidate) await cleanupStaging(snapshot.stagingAttemptId);
 
 			await record("complete", "complete", "Deploy completed", {
 				version: published.version,
