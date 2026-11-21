@@ -22,6 +22,7 @@ import { eq, getColumns, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
+import { MCP_TELEMETRY_ACTIONS } from "../utils/audit-telemetry";
 import {
 	billingProviderCostEvidenceVersions,
 	billingProviderUsage,
@@ -218,7 +219,48 @@ export function getD1RetentionTableSpec(
 		: null;
 }
 
+export const MCP_TELEMETRY_KEEP_DAYS = 14;
+
 export type D1RetentionCutoff = number | string;
+
+export type D1RetentionPolicyCutoff =
+	| D1RetentionCutoff
+	| {
+			standard: number;
+			telemetry: number;
+	  };
+
+/** Audit telemetry may move earlier; all other actions retain the policy window. */
+export function d1RetentionPolicyCutoff(
+	tableSpec: D1RetentionTableSpec,
+	now: Date,
+	policy: Pick<D1RetentionPolicyRow, "keepDays">,
+): D1RetentionPolicyCutoff {
+	const standard = d1RetentionCutoff(
+		tableSpec,
+		now,
+		d1RetentionEffectiveKeepDays(tableSpec, policy),
+	);
+	return tableSpec.tableName === "audit_events"
+		? {
+				standard: Number(standard),
+				telemetry: Number(
+					d1RetentionCutoff(tableSpec, now, MCP_TELEMETRY_KEEP_DAYS),
+				),
+			}
+		: standard;
+}
+
+function retentionExpiredPredicate(
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionPolicyCutoff,
+): SQL {
+	if (typeof cutoff !== "object")
+		return sql`${tableSpec.timestamp} < ${cutoff}`;
+	return sql`${tableSpec.timestamp} < ${cutoff.telemetry} AND
+		(${tableSpec.timestamp} < ${cutoff.standard} OR ${auditEvents.action} IN
+		(SELECT value FROM json_each(${JSON.stringify([...MCP_TELEMETRY_ACTIONS])})))`;
+}
 
 /** The exclusive cutoff value in the table's own timestamp representation. */
 export function d1RetentionCutoff(
@@ -234,8 +276,18 @@ export function d1RetentionCutoff(
 export function isD1RetentionExpired(
 	tableSpec: D1RetentionTableSpec,
 	value: unknown,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
+	action?: unknown,
 ): boolean {
+	if (typeof cutoff === "object") {
+		return isD1RetentionExpired(
+			tableSpec,
+			value,
+			typeof action === "string" && MCP_TELEMETRY_ACTIONS.has(action)
+				? cutoff.telemetry
+				: cutoff.standard,
+		);
+	}
 	if (value === null || value === undefined) return false;
 	if (tableSpec.format === "epoch_seconds") {
 		return (
@@ -302,7 +354,7 @@ export async function listActiveD1RetentionPolicies(
 export type D1RetentionRow = Record<string, JsonValue> & { __rowid: number };
 
 /**
- * One covering-index seek; no count, sort or row bodies. A negative result
+ * One indexed age probe; audit telemetry also checks the action. A negative result
  * rules out all expired rows, including out-of-order inserts beyond the sweep
  * cursor. A positive result is conservative: validation and reference checks
  * still decide which candidates may move.
@@ -310,12 +362,12 @@ export type D1RetentionRow = Record<string, JsonValue> & { __rowid: number };
 export async function hasD1RetentionExpiredRows(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ): Promise<boolean> {
 	const rows = await db
 		.select({ age: sql`${tableSpec.timestamp}`.as("retention_age") })
 		.from(tableSpec.table)
-		.where(sql`${tableSpec.timestamp} < ${cutoff}`)
+		.where(retentionExpiredPredicate(tableSpec, cutoff))
 		.orderBy(tableSpec.timestamp)
 		.limit(1);
 	return rows.length > 0;
@@ -350,8 +402,10 @@ export async function readD1RetentionPage(
  */
 export function mayBeOlderThanD1RetentionCutoff(
 	value: unknown,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ): boolean {
+	if (typeof cutoff === "object")
+		return mayBeOlderThanD1RetentionCutoff(value, cutoff.telemetry);
 	// NULL is never less than anything.
 	if (value === null || value === undefined) return false;
 	if (typeof cutoff === "number")
@@ -364,7 +418,7 @@ export function mayBeOlderThanD1RetentionCutoff(
 /**
  * The first row after `afterRowid`, in rowid order, that is older than the
  * cutoff, or null when there is none. Read from the index on the timestamp
- * alone: it visits the entries older than the cutoff and no table row. Both
+ * alone: it visits entries older than the cutoff (audit also reads the action). Both
  * unary pluses keep SQLite from walking the table in rowid order instead,
  * which it does for a bare `min(rowid)` or a rowid range and which reads
  * every newer row on the way.
@@ -372,13 +426,15 @@ export function mayBeOlderThanD1RetentionCutoff(
 export async function nextD1RetentionOldRowid(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 	afterRowid: number,
 ): Promise<number | null> {
 	const [row] = await db
 		.select({ nextRowid: sql<number | null>`min(+rowid)`.as("next_rowid") })
 		.from(tableSpec.table)
-		.where(sql`${tableSpec.timestamp} < ${cutoff} AND +rowid > ${afterRowid}`);
+		.where(
+			sql`${retentionExpiredPredicate(tableSpec, cutoff)} AND +rowid > ${afterRowid}`,
+		);
 	return row?.nextRowid === null || row?.nextRowid === undefined
 		? null
 		: Number(row.nextRowid);
@@ -704,7 +760,7 @@ function callCostIsMovable(): SQL {
  * left in main is always the first of a checkpoint and `verifyChain` can
  * start there. `sequence` is the table's rowid.
  */
-function gatewayRecordIsMovable(cutoff: D1RetentionCutoff): SQL {
+function gatewayRecordIsMovable(cutoff: D1RetentionPolicyCutoff): SQL {
 	return sql`"gateway_change_records"."chain_hash" IS NOT NULL AND EXISTS (
 		SELECT 1 FROM "gateway_change_record_checkpoints" c
 		WHERE c.organization_id = "gateway_change_records"."organization_id"
@@ -728,7 +784,7 @@ export async function filterD1RetentionReferencedRows(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rows: D1RetentionRow[],
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ): Promise<{ rows: D1RetentionRow[]; referencedRows: number }> {
 	if (rows.length === 0) return { rows, referencedRows: 0 };
 	let movable: Set<number>;
@@ -772,7 +828,7 @@ export async function filterD1RetentionReferencedRows(
 /** Table-specific condition every retention delete repeats. */
 function retentionDeleteGuard(
 	tableSpec: D1RetentionTableSpec,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ): SQL {
 	if (tableSpec.tableName === "gateway_change_records")
 		return gatewayRecordIsMovable(cutoff);
@@ -802,7 +858,7 @@ export function buildD1RetentionDeleteStatements(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rowids: readonly number[],
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ) {
 	const statements = [];
 	for (let start = 0; start < rowids.length; start += D1_RETENTION_PAGE_ROWS) {
@@ -811,7 +867,7 @@ export function buildD1RetentionDeleteStatements(
 			db
 				.delete(tableSpec.table)
 				.where(
-					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${tableSpec.timestamp} < ${cutoff}
+					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${retentionExpiredPredicate(tableSpec, cutoff)}
 					AND ${retentionDeleteGuard(tableSpec, cutoff)}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
@@ -830,7 +886,7 @@ export async function deleteD1RetentionRows(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rowids: readonly number[],
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ): Promise<number> {
 	let deletable = rowids;
 	if (tableSpec.tableName === "skill_run_artifacts" && rowids.length > 0) {
@@ -873,6 +929,14 @@ export interface D1RetentionBacklogEstimate {
 	eligibleBytes: number;
 }
 
+type D1RetentionPolicyBacklogEstimate = Omit<
+	D1RetentionBacklogEstimate,
+	"eligibleRows" | "eligibleBytes"
+> & {
+	eligibleRows: number | null;
+	eligibleBytes: number | null;
+};
+
 async function rowAt(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
@@ -893,12 +957,24 @@ export class D1RetentionEstimateDeadlineError extends Error {}
  * scans the table. The deadline is checked before each statement; an in-flight
  * read finishes before the next check.
  */
-export async function estimateD1RetentionBacklog(
+export function estimateD1RetentionBacklog(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	cutoff: D1RetentionCutoff,
+	deadline?: number,
+): Promise<D1RetentionBacklogEstimate>;
+export function estimateD1RetentionBacklog(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionPolicyCutoff,
+	deadline?: number,
+): Promise<D1RetentionPolicyBacklogEstimate>;
+export async function estimateD1RetentionBacklog(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionPolicyCutoff,
 	deadline = Number.POSITIVE_INFINITY,
-): Promise<D1RetentionBacklogEstimate> {
+): Promise<D1RetentionPolicyBacklogEstimate> {
 	const checkDeadline = () => {
 		if (Date.now() >= deadline)
 			throw new D1RetentionEstimateDeadlineError(
@@ -906,6 +982,17 @@ export async function estimateD1RetentionBacklog(
 			);
 	};
 	checkDeadline();
+	// Mixed action windows have no monotonic rowid boundary. The indexed
+	// probe can prove zero; a positive backlog stays unknown without a count.
+	if (typeof cutoff === "object") {
+		const hasExpired = await hasD1RetentionExpiredRows(db, tableSpec, cutoff);
+		return {
+			oldest: null,
+			eligibleRows: hasExpired ? null : 0,
+			avgRowBytes: 0,
+			eligibleBytes: hasExpired ? null : 0,
+		};
+	}
 	const [bounds] = (await db.all(
 		sql`SELECT (SELECT min(rowid) FROM ${tableSpec.table}) AS lo, (SELECT max(rowid) FROM ${tableSpec.table}) AS hi`,
 	)) as Array<{ lo: number | null; hi: number | null }>;

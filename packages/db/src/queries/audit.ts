@@ -10,6 +10,7 @@ import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { isMissingAuditMetadataRefsTable } from "../utils/audit-metadata-refs";
 import { chunkForBoundParams } from "../utils/batch";
+import { MCP_TELEMETRY_ACTIONS } from "../utils/audit-telemetry";
 import {
 	compareTimestampId,
 	mergeLogStoreRows,
@@ -79,19 +80,6 @@ export interface SearchAuditEventsOptions {
 // ============================================================================
 // Queries
 // ============================================================================
-
-// Only execution telemetry belongs in LOGS_DB. Access, payment, authority and
-// unknown future actions keep main-D1 persistence.
-const MCP_TELEMETRY_ACTIONS = new Set([
-	"mcp.tool.execute",
-	"mcp.tool.error",
-	"mcp.code.execute",
-	"mcp.code.error",
-	"mcp.prompt.execute",
-	"mcp.prompt.error",
-	"mcp.resource.read",
-	"mcp.resource.error",
-]);
 
 /**
  * Insert a single audit event.

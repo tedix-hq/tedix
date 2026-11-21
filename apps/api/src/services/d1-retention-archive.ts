@@ -38,13 +38,14 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	type D1LogsCopyVerification,
-	type D1RetentionCutoff,
+	type D1RetentionPolicyCutoff,
 	type D1RetentionRow,
 	type D1RetentionTableSpec,
 	D1_RETENTION_PAGE_ROWS,
 	D1RetentionEstimateDeadlineError,
 	copyD1RetentionRowsToLogs,
-	d1RetentionCutoff,
+	d1RetentionPolicyCutoff,
+	MCP_TELEMETRY_KEEP_DAYS,
 	d1RetentionEffectiveKeepDays,
 	d1RetentionPolicyProblem,
 	deleteD1RetentionRows,
@@ -259,7 +260,7 @@ export const D1_RETENTION_SKIPS_PER_SWEEP = 8;
 async function readExpiredChunk(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 	limit: number,
 	afterRowid: number,
 	deadline: number,
@@ -269,7 +270,12 @@ async function readExpiredChunk(
 		deadline,
 	);
 	const expired = page.filter((row) =>
-		isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff),
+		isD1RetentionExpired(
+			tableSpec,
+			row[tableSpec.timestamp.name],
+			cutoff,
+			row.action,
+		),
 	);
 	const filtered = await withOverloadBackoff(
 		() => filterD1RetentionReferencedRows(db, tableSpec, expired, cutoff),
@@ -327,7 +333,7 @@ async function archiveChunk(
 	organizationId: string,
 	tableSpec: D1RetentionTableSpec,
 	rows: readonly D1RetentionRow[],
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 ): Promise<void> {
 	const key = d1ArchiveObjectKey(tableSpec, organizationId, rows);
 	const body = await gzipNdjson(rows);
@@ -341,7 +347,8 @@ async function archiveChunk(
 			rows: String(rows.length),
 			firstRowid: String(rows[0]?.__rowid),
 			lastRowid: String(rows[rows.length - 1]?.__rowid),
-			cutoff: String(cutoff),
+			cutoff:
+				typeof cutoff === "object" ? JSON.stringify(cutoff) : String(cutoff),
 		},
 	});
 	if (!stored || stored.key !== key || stored.size !== body.byteLength) {
@@ -365,7 +372,7 @@ async function timed<T>(
 async function estimateBacklog(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
-	cutoff: D1RetentionCutoff,
+	cutoff: D1RetentionPolicyCutoff,
 	result: D1RetentionTableResult,
 	deadline: number,
 ): Promise<void> {
@@ -423,11 +430,7 @@ async function preparePolicyTurn(
 		result.stoppedBy = "time_budget";
 		return turn;
 	}
-	const cutoff = d1RetentionCutoff(
-		tableSpec,
-		now,
-		d1RetentionEffectiveKeepDays(tableSpec, policy),
-	);
+	const cutoff = d1RetentionPolicyCutoff(tableSpec, now, policy);
 	const hasExpired = await timed(result.timings, "readMs", () =>
 		withOverloadBackoff(
 			() => hasD1RetentionExpiredRows(db, tableSpec, cutoff),
@@ -475,8 +478,7 @@ async function movePages(
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (!tableSpec) return;
 	const archives = policy.mode === "move_to_logs_db";
-	const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
-	const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
+	const cutoff = d1RetentionPolicyCutoff(tableSpec, now, policy);
 	const { timings } = result;
 	const sweepAfterRowid = result.scanAfterRowid;
 	let readAfterRowid = phase === "head" ? -1 : (turn.sweepFrom ?? -1);
@@ -639,6 +641,9 @@ function reportFor(
 		mode: result.mode,
 		/** The window the run used; `keepDaysRow` when the row sat below the floor. */
 		keepDays,
+		...(policy.tableName === "audit_events"
+			? { telemetryKeepDays: MCP_TELEMETRY_KEEP_DAYS }
+			: {}),
 		...(keepDays !== policy.keepDays ? { keepDaysRow: policy.keepDays } : {}),
 		problem: result.problem,
 		eligibleRows: result.eligibleRows,
@@ -720,10 +725,10 @@ export async function runD1Retention(params: {
 		const tableDeadline = shareOf(processing.length - index);
 		if (turn.policy.mode === "dry_run") {
 			const tableSpec = getD1RetentionTableSpec(turn.policy.tableName)!;
-			const cutoff = d1RetentionCutoff(
+			const cutoff = d1RetentionPolicyCutoff(
 				tableSpec,
 				params.now,
-				d1RetentionEffectiveKeepDays(tableSpec, turn.policy),
+				turn.policy,
 			);
 			await estimateBacklog(
 				params.db,
@@ -773,11 +778,7 @@ export async function runD1Retention(params: {
 			tableSpec &&
 			Date.now() < deadline
 		) {
-			const cutoff = d1RetentionCutoff(
-				tableSpec,
-				params.now,
-				d1RetentionEffectiveKeepDays(tableSpec, policy),
-			);
+			const cutoff = d1RetentionPolicyCutoff(tableSpec, params.now, policy);
 			await estimateBacklog(params.db, tableSpec, cutoff, result, deadline);
 		}
 		await recordD1RetentionRun(params.db, {

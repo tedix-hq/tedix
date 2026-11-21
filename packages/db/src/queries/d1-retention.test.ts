@@ -23,6 +23,7 @@ import {
 	buildD1RetentionDeleteStatements,
 	copyD1RetentionRowsToLogs,
 	d1RetentionCutoff,
+	d1RetentionPolicyCutoff,
 	d1RetentionEffectiveKeepDays,
 	d1RetentionPolicyProblem,
 	deleteD1RetentionRows,
@@ -32,6 +33,7 @@ import {
 	hasD1RetentionExpiredRows,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
+	nextD1RetentionOldRowid,
 	readD1RetentionPage,
 	recordD1RetentionRun,
 	verifyD1LogsCopy,
@@ -86,6 +88,27 @@ const audit = () => {
 };
 
 describe("d1 retention policy validation", () => {
+	it("probes and skips retained audit actions using both windows", async () => {
+		const { db, sqlite, seedAudit } = fixture();
+		seedAudit([30, 15, 14, 91]);
+		sqlite.exec(
+			"UPDATE audit_events SET action = 'payment.captured' WHERE id IN ('audit-0', 'audit-3')",
+		);
+		const cutoff = d1RetentionPolicyCutoff(audit(), NOW, { keepDays: 90 });
+		expect(await hasD1RetentionExpiredRows(db, audit(), cutoff)).toBe(true);
+		expect(await estimateD1RetentionBacklog(db, audit(), cutoff)).toMatchObject(
+			{ eligibleRows: null, eligibleBytes: null },
+		);
+		expect(await nextD1RetentionOldRowid(db, audit(), cutoff, 0)).toBe(2);
+		expect(await nextD1RetentionOldRowid(db, audit(), cutoff, 2)).toBe(4);
+		expect(await nextD1RetentionOldRowid(db, audit(), cutoff, 4)).toBeNull();
+		sqlite.exec("DELETE FROM audit_events WHERE rowid IN (2,4)");
+		expect(await hasD1RetentionExpiredRows(db, audit(), cutoff)).toBe(false);
+		expect(await estimateD1RetentionBacklog(db, audit(), cutoff)).toMatchObject(
+			{ eligibleRows: 0, eligibleBytes: 0 },
+		);
+	});
+
 	it("refuses unknown tables and raises windows below the floor", () => {
 		expect(
 			d1RetentionPolicyProblem({
