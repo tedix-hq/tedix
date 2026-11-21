@@ -153,9 +153,10 @@ copy run from source). It holds page addresses without anything after `?` or
 
 Run `bun run-local` from the Tedix source checkout. In the Mac app's **Tedix**
 menu or the menu bar icon's right-click menu, choose **Open Local Tedix**.
-It opens `http://localhost:3030` in a separate app profile and lets you set up
-your local organization. Local Tedix skips Cloud sign-in and runs independently
-of the installed app's Cloud session and runners. Keep the local stack running
+It opens `http://localhost:3030` in a window of the app with its own storage
+and lets you set up your local organization. Local Tedix skips Cloud sign-in and
+keeps its session apart from the app's Cloud session; the menu bar icon and
+runners stay with the app. Keep the local stack running
 while using the window.
 
 To open the installed app directly in local mode:
