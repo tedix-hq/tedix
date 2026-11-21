@@ -219,7 +219,6 @@ export class ComputerTurnFixture extends ConversationFacet {
 							{
 								...input,
 								attempt: 0,
-								phase: "provision",
 								startedAt: Date.now(),
 							},
 							(value) => ctx.stash(value),
