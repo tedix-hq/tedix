@@ -3008,9 +3008,9 @@ describe("WorkspaceDO", () => {
 			);
 		});
 
-		test("a call that needs approval shows a card that links to Tedix's approvals", async () => {
+		test("a send asks here first, then the tedi's own approval shows a card that links to Tedix's approvals", async () => {
 			const { own, ws } = await setup();
-			const { events } = await ask(
+			const { conversationId, events } = await ask(
 				ws,
 				own,
 				`export default async ({tedi}) => tedi.call({ tool: "mail.send", args: { to: "sam@example.test" } })`,
@@ -3018,8 +3018,25 @@ describe("WorkspaceDO", () => {
 				"Send Sam the notes.",
 				"tedi1",
 			);
+			const held = events.find((event) => event.type === "approval.requested");
+			if (held?.type !== "approval.requested")
+				throw new Error("The send did not ask first");
 			expect(
-				events.filter((event) => event.type === "tedi_approval.requested"),
+				(await guestCalls(conversationId)).some(
+					(call) => call.method === "guestToolRun",
+				),
+			).toBe(false);
+			await ws.scriptModel(own, [{ text: "Waiting for approval." }]);
+			const decided = await ws.decideApproval(own, {
+				approvalId: held.approvalId,
+				decision: "approve",
+				by: "u1",
+			});
+			if (decided.turnId) await ws.awaitTurn(own, decided.turnId, 20_000);
+			expect(
+				(await ws.readEvents(own, { conversationId })).filter(
+					(event) => event.type === "tedi_approval.requested",
+				),
 			).toEqual([
 				expect.objectContaining({
 					approvalId: "11111111-2222-4333-8444-555555555555",
@@ -3057,6 +3074,82 @@ describe("WorkspaceDO", () => {
 				trust: "trusted",
 			});
 			expect(learn.at).toBeGreaterThanOrEqual(Date.parse(finished?.at ?? ""));
+		});
+
+		test('in "Auto" a message to people and rm -rf ask; a file edit and git status run', async () => {
+			const { own, ws } = await setup();
+			await privateTo(own, "u1");
+			await seedOutputs(ws, own);
+			await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });
+			const studio = {
+				status: "machines" as const,
+				machines: [
+					{
+						machineName: "Studio",
+						executors: [],
+						lastSeenAt: "2026-11-20T10:00:00.000Z",
+						cliVersion: null,
+						machineTools: ["run_command" as const],
+						online: true,
+						ownedBySender: true,
+					},
+				],
+			};
+			const callId = crypto.randomUUID();
+			await ws.scriptMachine(own, [
+				studio,
+				studio,
+				{ status: "queued", callId, callStatus: "pending" },
+				{
+					status: "call",
+					call: {
+						callId,
+						machine: "Studio",
+						tool: "run_command",
+						status: "done",
+						result: "On branch main",
+						createdAt: "2026-11-20T10:00:00.000Z",
+					},
+				},
+				studio,
+			]);
+			const command = (line: string) =>
+				`env.machine.call({ machine: "Studio", tool: "run_command", input: { command: ${JSON.stringify(line)} } })`;
+			const { conversationId, events } = await ask(
+				ws,
+				own,
+				`export default async (env) => {
+					const doc = await env.documents.read({ outputId: "out-doc" });
+					await env.documents.edit({ outputId: doc.id, expectedRevision: doc.revision, ops: [{ op: "insert", index: 1, block: { type: "paragraph", text: "Added" } }] });
+					await ${command("git status")};
+					const rm = await ${command("rm -rf build")}.catch(e => e.message);
+					const mail = await env.tedi.call({ tool: "mail.send", args: { to: "sam@example.test" } }).catch(e => e.message);
+					return { rm, mail };
+				}`,
+				"Done.",
+				"Tidy up and tell Sam.",
+				"tedi1",
+			);
+			const held = events.flatMap((event) =>
+				event.type === "approval.requested" ? [event] : [],
+			);
+			expect(held).toHaveLength(2);
+			expect(JSON.stringify(held)).toContain("rm -rf build");
+			expect(JSON.stringify(held)).toContain("mail.send");
+			expect(JSON.stringify(events)).toContain(
+				"Ran a read-only command on Studio",
+			);
+			expect(
+				(await ws.readChangeRecords(own, { resource: "output" })).some(
+					(record) =>
+						record.operation === "edit" && record.outcome === "applied",
+				),
+			).toBe(true);
+			expect(
+				(await guestCalls(conversationId)).some(
+					(call) => call.method === "guestToolRun",
+				),
+			).toBe(false);
 		});
 	});
 
@@ -3607,7 +3700,7 @@ describe("WorkspaceDO", () => {
 		) as { workItemId: string };
 		expect(
 			await testEnv.DB.prepare(
-				"SELECT project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source FROM work_items WHERE id = ?",
+				"SELECT project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source, json_extract(metadata, '$.approvalMode') AS approval_mode FROM work_items WHERE id = ?",
 			)
 				.bind(run.workItemId)
 				.first(),
@@ -3618,6 +3711,7 @@ describe("WorkspaceDO", () => {
 			disposition: "accepted",
 			dispatch_state: "ready",
 			source: "os.workspace.start_run",
+			approval_mode: "ask_for_changes",
 		});
 		expect((await ws.readMachineCalls(own))[1]).toMatchObject({
 			userId: "u1",

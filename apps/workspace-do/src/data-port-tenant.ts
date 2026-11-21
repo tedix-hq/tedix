@@ -3,6 +3,7 @@
  * gzip objects in R2 addressed by digest. Resources use the workspace object;
  * apps and Work items use the core database.
  */
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { createDbClient } from "@tedix/db/client";
 import {
@@ -220,6 +221,8 @@ export interface TenantDataPortDeps {
 	 * only the linked ones.
 	 */
 	personScope?: boolean;
+	/** The turn's approval mode; a run started from the turn records it. */
+	approvalMode?: ApprovalMode;
 	/** The tedi answering the turn; its home project is the default for a run. */
 	answeringTediId?: string | null;
 	conversationId?: string;
@@ -1686,7 +1689,13 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			sourceIntentId: intent.sourceIntentId,
 			provenance: { source: "os.workspace.chat", workspaceId },
 			// The ready list puts a task with this marker first.
-			metadata: { source: WORKSPACE_RUN_SOURCE },
+			metadata: {
+				source: WORKSPACE_RUN_SOURCE,
+				// The chat's mode, for the run's own approvals.
+				...(this.deps.approvalMode
+					? { approvalMode: this.deps.approvalMode }
+					: {}),
+			},
 			createdAt: now.toISOString(),
 		}).catch(async (error: unknown) => {
 			const existing = await getWorkItemBySourceIntentId(core, intent);
