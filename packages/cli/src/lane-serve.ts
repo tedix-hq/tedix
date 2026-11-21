@@ -721,12 +721,12 @@ type PreparationWaiter = {
 	begin: (place: PreparationPlace) => void;
 };
 
-export function serialCalls() {
+export function serialCalls(concurrency = 1) {
 	const pending: Array<{ critical: boolean; run: () => Promise<void> }> = [];
-	let draining = false;
-	const drain = async () => {
-		let urgentBurst = 0;
-		while (pending.length) {
+	let active = 0;
+	let urgentBurst = 0;
+	const drain = () => {
+		while (pending.length && active < concurrency) {
 			const urgent = pending.findIndex((entry) => entry.critical);
 			const normal = pending.findIndex((entry) => !entry.critical);
 			// Prioritize settlement without letting it starve admission.
@@ -736,9 +736,12 @@ export function serialCalls() {
 					: Math.max(normal, 0);
 			const [next] = pending.splice(index, 1);
 			urgentBurst = next!.critical ? urgentBurst + 1 : 0;
-			await next!.run();
+			active++;
+			void next!.run().finally(() => {
+				active--;
+				drain();
+			});
 		}
-		draining = false;
 	};
 	return <T>(operation: () => Promise<T>, critical = false): Promise<T> =>
 		new Promise<T>((resolve, reject) => {
@@ -752,10 +755,7 @@ export function serialCalls() {
 					}
 				},
 			});
-			if (!draining) {
-				draining = true;
-				void Promise.resolve().then(drain);
-			}
+			void Promise.resolve().then(drain);
 		});
 }
 
@@ -770,8 +770,8 @@ const READ_CEILING_MS = 5 * 60_000;
 /**
  * How many Work Items one runner prepares for admission at once. It bounds
  * simultaneous start-ups only, never how many runs are running: every
- * preparation makes about nine gateway calls through the runner's one call
- * queue and starts an agent process, and a pass that began dozens at once got
+ * preparation makes about nine gateway calls through the runner's bounded
+ * call queue and starts an agent process, and a pass that began dozens at once got
  * none of them to admission before their process start-ups timed out.
  */
 export const MAX_PREPARATIONS = 3;
@@ -2702,7 +2702,7 @@ export class LaneDispatcher {
 		string,
 		{ key: string; bytes: number; at: number; failed?: boolean }
 	> = {};
-	private queue = serialCalls();
+	private queue = serialCalls(3);
 	private stopping = false;
 	private admissionsHeld: string | undefined;
 	private proposalsSweptAt = 0;
@@ -3261,10 +3261,23 @@ export class LaneDispatcher {
 							? readBudgetMs(READ_BUDGET_MS, this.running.size)
 							: undefined,
 					);
+		const queuedAt = Date.now();
 		const result = requestedRun.getStore()?.direct
 			? operation()
 			: this.queue(
-					operation,
+					() => {
+						const waitMs = Date.now() - queuedAt;
+						if (waitMs > 1000)
+							this.log(
+								"call-queue-wait",
+								undefined,
+								JSON.stringify({
+									operation: `${args[0]}.${args[1]}`,
+									waitMs,
+								}),
+							);
+						return operation();
+					},
 					args[0] === "work" && ["settle", "complete"].includes(args[1] ?? ""),
 				);
 		return result.finally(() => this.notePassProgress());
