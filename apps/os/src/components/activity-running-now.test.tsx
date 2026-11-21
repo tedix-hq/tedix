@@ -16,8 +16,6 @@ vi.mock("@/lib/api", () => ({
 vi.mock("./work-operations-shared", () => ({
 	useWorkPrincipalNames: () =>
 		new Map([["external_agent:cedar", "Cedar agent"]]),
-	namedWorkPrincipal: (type: string, id: string, names: Map<string, string>) =>
-		names.get(`${type}:${id}`),
 }));
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -132,18 +130,18 @@ it("shows the canonical attempt fields and polls away completed attempts without
 		expect.anything(),
 	);
 	expect(host.textContent).toContain("Prepare Cedar brief");
-	expect(host.textContent).toContain(`Attempt 2 · ${attemptId}`);
+	expect(host.textContent).not.toContain(attemptId);
 	expect(host.textContent).toContain("Cedar agent");
-	expect(host.textContent).toContain("10 min elapsed");
+	expect(host.textContent).toContain("10m ago");
 	expect(
-		host.querySelectorAll(`time[datetime="${at}"]`).length,
+		host.querySelectorAll(`time[datetime="${row().attempt.startedAt}"]`).length,
 	).toBeGreaterThan(0);
-	expect(host.textContent).toContain("Runners up: 1 / 1");
 	expect(host.textContent).not.toContain("Last renewal");
 	expect(api.attempts.mock.calls.every(([input]) => input.runtimeStates)).toBe(
 		true,
 	);
 	await openScorecard();
+	expect(host.textContent).toContain("Runners up: 1 / 1");
 	api.attempts.mockResolvedValue({
 		data: [],
 		hasMore: false,
@@ -158,7 +156,7 @@ it("shows the canonical attempt fields and polls away completed attempts without
 	).toHaveLength(2);
 	expect(api.health).toHaveBeenCalledTimes(2);
 	expect(host.textContent).not.toContain("Prepare Cedar brief");
-	expect(host.textContent).toContain("No active attempts in this scope.");
+	expect(host.textContent).toContain("No work is running here.");
 });
 it("ages fleet observations locally and marks elapsed leases without claiming health", async () => {
 	const expired = row();
@@ -169,13 +167,12 @@ it("ages fleet observations locally and marks elapsed leases without claiming he
 		nextCursor: null,
 	});
 	await mount();
-	expect(host.textContent).toContain(
-		"Lease elapsed · current activity unknown",
-	);
+	expect(host.textContent).toContain("No recent update");
 	const more = [...host.querySelectorAll("a")].find(
-		(link) => link.textContent === "More active attempts in Work",
+		(link) => link.textContent === "More running work",
 	);
 	expect(more?.getAttribute("href")).toBe("/work?view=feed&filter=queue");
+	await openScorecard();
 	await flush(75_010);
 	expect(host.textContent).toContain("Runners up: unknown");
 	expect(host.textContent).toContain("1 stale report");
@@ -201,7 +198,8 @@ it("keeps failures distinct from a quiet fleet and exposes retry controls", asyn
 	api.attempts.mockRejectedValue(failure);
 	api.health.mockRejectedValue(failure);
 	await mount();
-	expect(host.textContent).toContain("Active attempts unavailable");
+	expect(host.textContent).toContain("Could not load running work");
+	await openScorecard();
 	expect(host.textContent).toContain("Runner health unavailable");
 	expect(host.textContent).toContain("Current activity is unknown.");
 	expect(host.textContent).not.toContain("No active attempts");

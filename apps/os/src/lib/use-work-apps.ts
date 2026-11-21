@@ -3,6 +3,19 @@ import { workRefreshOptions } from "@/lib/work-refresh";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { workAppsQueryOptions } from "@/lib/os-query-options";
 
+export const defaultWorkApps = {
+	feed: {
+		entry: "tedix:app/activity-feed",
+		capabilities: [],
+		config: { version: 1, scope: "organization", projects: [] },
+	},
+	deck: {
+		entry: "tedix:app/decision-deck",
+		capabilities: [],
+		config: { version: 1, gamification: false },
+	},
+} satisfies Record<"feed" | "deck", OsGadgetManifest>;
+
 function workAppRole(manifest: OsGadgetManifest): "feed" | "deck" | null {
 	if (manifest.navigation?.work) return manifest.navigation.work;
 	if (!manifest.navigation?.board) return null;
