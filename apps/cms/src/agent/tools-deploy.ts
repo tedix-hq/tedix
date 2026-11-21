@@ -269,6 +269,12 @@ export function registerDeployTools(
 				}),
 			),
 			annotations: { destructiveHint: false },
+			_meta: {
+				"com.tedix/policy": {
+					riskTier: "high_impact_write",
+					blastRadius: "tenant",
+				},
+			},
 		},
 		async (args: { sourceCommit: string; summary?: string }) => {
 			const result = await ctx.startDeploy(
