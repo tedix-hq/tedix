@@ -566,7 +566,7 @@ describe("profile-bound tenant policy", () => {
 				})
 			).candidate!.ruleDigest,
 		};
-		mocks.approval.mockResolvedValue({
+		const approved = {
 			id: approvalRequestId,
 			orgId: "org",
 			actionType: "mcp.tool_call",
@@ -579,22 +579,27 @@ describe("profile-bound tenant policy", () => {
 				target: { tenantPolicyBinding: binding },
 				args: replayArgs,
 			},
-		});
-		const context = {
-			authType: "service-binding",
-			organizationId: "org",
-			gatewayEndUserId: "owner",
-			tediScopes: ["connections.execute"],
-			db: {},
-			env: { ENVIRONMENT: "production" },
-			headers: new Headers({
-				"X-Service-Binding": "true",
-				"X-Tedix-Kernel": "true",
-			}),
-			url: new URL("https://api.test/rpc"),
-			rateLimiter: { limit: async () => ({ success: true }) },
-		} as BaseContext;
-		const replay = createRouterClient(mcpGovernanceContractRouter, { context });
+		};
+		mocks.approval.mockResolvedValue(approved);
+		// Identity arrives only as the gateway's headers, as in production.
+		const gateway = (endUser: string, scopes: string) =>
+			createRouterClient(mcpGovernanceContractRouter, {
+				context: () =>
+					({
+						organizationId: "org",
+						db: {},
+						env: { ENVIRONMENT: "production" },
+						headers: new Headers({
+							"X-Service-Binding": "true",
+							"X-Tedix-Kernel": "true",
+							"X-Tedix-End-User-Id": endUser,
+							"X-Tedix-Tedi-Scopes": scopes,
+						}),
+						url: new URL("https://api.test/rpc"),
+						rateLimiter: { limit: async () => ({ success: true }) },
+					}) as BaseContext,
+			});
+		const replay = gateway("owner", "connections.execute");
 		const replayInput = {
 			organizationId: "org",
 			approvalRequestId,
@@ -611,18 +616,21 @@ describe("profile-bound tenant policy", () => {
 		await expect(
 			replay.prepareOwnerPolicyReplay({ ...replayInput, args }),
 		).rejects.toThrow();
-		const wrongActor = createRouterClient(mcpGovernanceContractRouter, {
-			context: { ...context, gatewayEndUserId: "other" },
-		});
 		await expect(
-			wrongActor.prepareOwnerPolicyReplay(replayInput),
+			gateway("other", "connections.execute").prepareOwnerPolicyReplay(
+				replayInput,
+			),
 		).rejects.toThrow();
-		const noGrant = createRouterClient(mcpGovernanceContractRouter, {
-			context: { ...context, tediScopes: [] },
-		});
 		await expect(
-			noGrant.prepareOwnerPolicyReplay(replayInput),
+			gateway("owner", "connections.read").prepareOwnerPolicyReplay(
+				replayInput,
+			),
 		).rejects.toThrow();
+		mocks.approval.mockResolvedValueOnce({
+			...approved,
+			payload: { ...approved.payload, target: {} },
+		});
+		expect(await replay.prepareOwnerPolicyReplay(replayInput)).toBeNull();
 		mocks.revisions.mockResolvedValue([
 			{ ...row, revokedAt: "2026-10-30T00:00:00Z" },
 		]);

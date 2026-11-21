@@ -154,6 +154,7 @@ import { mayDecideWorkspaceConnection } from "../../services/os-app-connection";
 import {
 	AUTHZ,
 	type BaseContext,
+	readGatewayIdentityHeaders,
 	resolveServiceBindingOrganizationId,
 	withAuth,
 	withServiceAuth,
@@ -1445,6 +1446,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	prepareOwnerPolicyReplay: serviceOs.prepareOwnerPolicyReplay.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);
+			// withServiceAuth does not copy these headers; withAuth does.
+			readGatewayIdentityHeaders(context);
 			const actor = context.gatewayEndUserId;
 			if (
 				context.authType !== "service-binding" ||
@@ -1463,6 +1466,20 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			);
 			const now = new Date().toISOString();
 			const stored = approval?.payload as Record<string, unknown> | undefined;
+			// The gateway asks on every approved replay; most approvals carry no
+			// tenant policy binding and take the ordinary owner-approval path.
+			const storedTarget = stored?.target;
+			if (
+				approval?.orgId === input.organizationId &&
+				approval.actionType === "mcp.tool_call" &&
+				!(
+					storedTarget &&
+					typeof storedTarget === "object" &&
+					"tenantPolicyBinding" in storedTarget &&
+					storedTarget.tenantPolicyBinding
+				)
+			)
+				return null;
 			if (
 				!approval ||
 				approval.orgId !== input.organizationId ||
