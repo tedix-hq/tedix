@@ -283,7 +283,6 @@ export interface RecordKernelConversationMessageParams {
 	 * default, because an unstamped column already reads as human.
 	 */
 	origin?: KernelConversationOrigin | null;
-	workspaceId?: string | null;
 	workpieceKind?: "gadget" | "output" | null;
 	workpieceId?: string | null;
 }
@@ -317,7 +316,6 @@ export function buildRecordKernelConversationMessageStatement(
 				: {}),
 			channel: input.channel,
 			...(origin ? { origin } : {}),
-			...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
 			...(input.workpieceKind
 				? { workpieceKind: input.workpieceKind, workpieceId: input.workpieceId }
 				: {}),
@@ -336,11 +334,6 @@ export function buildRecordKernelConversationMessageStatement(
 				messageCount: sql`${kernelConversations.messageCount} + 1`,
 				channel: sql`COALESCE(${input.channel}, ${kernelConversations.channel})`,
 				...(origin ? { origin: originConflictValue(origin) } : {}),
-				...(input.workspaceId
-					? {
-							workspaceId: sql`COALESCE(${kernelConversations.workspaceId}, ${input.workspaceId})`,
-						}
-					: {}),
 				...(input.workpieceKind
 					? {
 							workpieceKind: input.workpieceKind,
@@ -607,9 +600,11 @@ export async function listKernelConversationPage(
 				input.includeArchived
 					? undefined
 					: isNull(kernelConversations.archivedAt),
+				// Workspace chats live in their workspace; Home lists only its
+				// own. The rows left from before the move stay out of Home.
 				input.workspaceId
 					? eq(kernelConversations.workspaceId, input.workspaceId)
-					: undefined,
+					: isNull(kernelConversations.workspaceId),
 				// LIKE has no wildcards to escape here: every prefix is literal
 				// `[a-z-]` plus `:`, so a caller cannot smuggle in `%` or `_`.
 				...hiddenPrefixes.map((prefix) =>

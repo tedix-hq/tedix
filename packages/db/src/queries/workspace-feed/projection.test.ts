@@ -3,7 +3,6 @@ import { DatabaseSync } from "node:sqlite";
 import type { WorkspaceChangeEvent } from "@tedix/api-contract/schemas/workspace-feed";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { kernelConversations } from "../../schema/cognitive-runtime";
 import { osWorkspaces } from "../../schema/os-workspaces";
 import {
 	workspaceActivity,
@@ -47,7 +46,6 @@ async function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			osWorkspaces,
-			kernelConversations,
 			workspaceFeedLedger,
 			workspaceFeedCursors,
 			workspaceActivity,
@@ -205,33 +203,6 @@ describe("applyWorkspaceChangeEvents", () => {
 			viewer,
 		});
 		expect(activity).toHaveLength(5);
-	});
-
-	it("bumps the Home conversation index for chat events", async () => {
-		const db = await fixture();
-		await applyWorkspaceChangeEvents(db, [
-			event(1, {
-				kind: "chat",
-				id: "msg-1",
-				changeRecordId: "msg-1",
-				summary: { conversationId: "ws:thread-1", title: "Budget chat" },
-			}),
-			event(2, {
-				kind: "chat",
-				id: "msg-2",
-				changeRecordId: "msg-2",
-				summary: { conversationId: "ws:thread-1" },
-			}),
-		]);
-		const rows = await db.select().from(kernelConversations);
-		expect(rows).toHaveLength(1);
-		expect(rows[0]).toMatchObject({
-			conversationId: "ws:thread-1",
-			workspaceId: WS,
-			title: "Budget chat",
-			messageCount: 2,
-			lastMessageAt: "2026-11-07T10:00:02.000Z",
-		});
 	});
 
 	it("matches the ledger snapshot after every event is applied", async () => {

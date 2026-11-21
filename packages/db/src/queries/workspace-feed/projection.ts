@@ -19,7 +19,6 @@ import type {
 } from "@tedix/api-contract/schemas/workspace-feed";
 import { and, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { kernelConversations } from "../../schema/cognitive-runtime";
 import {
 	workspaceActivity,
 	workspaceFeedCursors,
@@ -193,10 +192,6 @@ function projectionStatements(
 		}
 	}
 	if (event.kind === "output") statements.push(...outputStatements(db, event));
-	if (event.kind === "chat") {
-		const chat = chatStatement(db, event);
-		if (chat) statements.push(chat);
-	}
 	return statements;
 }
 
@@ -314,50 +309,4 @@ function outputStatements(
 		}
 	}
 	return statements;
-}
-
-/**
- * Home lists conversations from `kernel_conversations`; a workspace chat
- * message bumps that index the same way a kernel event does. The bump is not
- * idempotent on its own; the cursor guarantees each event lands once.
- */
-function chatStatement(
-	db: DbQueryClient,
-	event: WorkspaceChangeEvent,
-): BatchStatement | null {
-	const conversationId = event.summary.conversationId;
-	if (!conversationId) return null;
-	const title = clip(event.summary.title, TITLE_MAX);
-	const channel = event.summary.channel ?? null;
-	return db
-		.insert(kernelConversations)
-		.values({
-			id: `${event.organizationId}:${conversationId}`,
-			organizationId: event.organizationId,
-			conversationId,
-			...(title ? { title, titleSource: "provisional" as const } : {}),
-			channel,
-			workspaceId: event.workspaceId,
-			lastMessageAt: event.at,
-			messageCount: 1,
-			createdAt: event.at,
-			updatedAt: event.at,
-		})
-		.onConflictDoUpdate({
-			target: kernelConversations.id,
-			where: isNull(kernelConversations.deletedAt),
-			set: {
-				lastMessageAt: sql`CASE WHEN ${kernelConversations.lastMessageAt} < ${event.at} THEN ${event.at} ELSE ${kernelConversations.lastMessageAt} END`,
-				messageCount: sql`${kernelConversations.messageCount} + 1`,
-				channel: sql`COALESCE(${channel}, ${kernelConversations.channel})`,
-				workspaceId: sql`COALESCE(${kernelConversations.workspaceId}, ${event.workspaceId})`,
-				...(title
-					? {
-							title: sql`CASE WHEN ${kernelConversations.title} IS NULL THEN ${title} ELSE ${kernelConversations.title} END`,
-							titleSource: sql`CASE WHEN ${kernelConversations.title} IS NULL THEN 'provisional' ELSE ${kernelConversations.titleSource} END`,
-						}
-					: {}),
-				updatedAt: event.at,
-			},
-		});
 }

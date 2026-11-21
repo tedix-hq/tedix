@@ -142,8 +142,8 @@ describe("recordKernelConversationMessage origin", () => {
 	});
 });
 
-describe("workspace conversation projection", () => {
-	it("persists a Workspace association and scopes indexed pages to it", async () => {
+describe("Home conversation list", () => {
+	it("leaves out Workspace chats unless a Workspace is asked for", async () => {
 		const db = realDb();
 		await recordKernelConversationMessage(db, {
 			organizationId: ORG,
@@ -151,10 +151,11 @@ describe("workspace conversation projection", () => {
 			channel: "home",
 			createdAt: "2026-07-01T00:00:00.000Z",
 			provisionalTitle: null,
-			workspaceId: "workspace-1",
-			workpieceKind: "gadget",
-			workpieceId: "gadget-1",
 		});
+		await db
+			.update(kernelConversations)
+			.set({ workspaceId: "workspace-1" })
+			.where(eq(kernelConversations.conversationId, "home:workspace"));
 		await recordKernelConversationMessage(db, {
 			organizationId: ORG,
 			conversationId: "home:global",
@@ -162,19 +163,21 @@ describe("workspace conversation projection", () => {
 			createdAt: "2026-07-01T00:01:00.000Z",
 			provisionalTitle: null,
 		});
-		const rows = await listKernelConversationPage(db, {
+		const home = await listKernelConversationPage(db, {
+			organizationId: ORG,
+			cursor: null,
+			limit: 10,
+		});
+		expect(home.map((row) => row.conversationId)).toEqual(["home:global"]);
+		const workspace = await listKernelConversationPage(db, {
 			organizationId: ORG,
 			cursor: null,
 			limit: 10,
 			workspaceId: "workspace-1",
 		});
-		expect(rows).toHaveLength(1);
-		expect(rows[0]).toMatchObject({
-			conversationId: "home:workspace",
-			workspaceId: "workspace-1",
-			workpieceKind: "gadget",
-			workpieceId: "gadget-1",
-		});
+		expect(workspace.map((row) => row.conversationId)).toEqual([
+			"home:workspace",
+		]);
 	});
 });
 
