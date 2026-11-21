@@ -6016,6 +6016,43 @@ it("installs worktree dependencies and rejects a changed frozen lockfile", async
 	await expect(installLaneDependencies(repo)).rejects.toThrow();
 });
 
+it("launches owner-requested workspace coding runs without classifying their brief", () => {
+	const work = {
+		...item(),
+		workKind: "coding" as const,
+		sourceSessionKey: `workspace:${projectId}:${projectId}`,
+	};
+	for (const description of [
+		"First run sleep 480 in the shell as one command, so the task owner has time to send a follow-up.",
+		"Fix the send email handler, payment flow and credential rotation.",
+		"Send an email to the customer, pay the invoice and rotate the API key.",
+		"Complete MFA consent.",
+	])
+		expect(dispatchSkip({ ...work, description })).toBeUndefined();
+	const reserved = { ...work, description: "Send an email to the customer." };
+	for (const other of [
+		{ sourceSessionKey: null },
+		{ sourceSessionKey: "home:os:chat-7" },
+		{ workKind: "research" as const },
+		{ accountableOwnerType: "tedi" as const },
+		{ accountableOwnerId: null },
+	])
+		expect(dispatchSkip({ ...reserved, ...other })).toContain("human-reserved");
+	expect(dispatchSkip({ ...work, disposition: "proposed" })).toContain(
+		"not accepted",
+	);
+	expect(dispatchSkip({ ...work, metadata: { executor: "devin" } })).toContain(
+		"not assigned",
+	);
+	expect(dispatchSkip(work, [], "codex", true)).toContain("coordinator");
+	expect(dispatchSkip({ ...work, startAt: "2999-01-01T00:00:00Z" })).toContain(
+		"scheduled",
+	);
+	expect(dispatchSkip({ ...work, activeAttempt: {} })).toContain(
+		"live Attempt",
+	);
+});
+
 it("requires the owner's version-specific note for money or personal messaging", () => {
 	const work = { ...item(), description: "Send an email as the owner" };
 	expect(dispatchSkip(work)).toContain("owner comment");

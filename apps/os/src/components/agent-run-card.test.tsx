@@ -81,42 +81,47 @@ describe("AgentRunCardView", () => {
 	});
 
 	it("says plainly when no runner took the run or the runner went quiet", async () => {
-		const status = async (element: React.ReactElement) => {
-			const card = await mount(element);
-			const text = card.host.querySelector(
-				"[data-slot=agent-run-status]",
-			)?.textContent;
-			card.unmount();
-			return text;
-		};
-		expect(
-			await status(
-				<AgentRunCardView
-					agentRun={{
-						...agentRun,
-						requestedAt: new Date(Date.now() - 6.5 * 60_000).toISOString(),
-					}}
-					run={run(0, { attemptId: null, live: false })}
-					LinkComponent={TaskLink}
-				/>,
-			),
-		).toBe("No runner has picked this up for 6 minutes");
-		expect(
-			await status(
-				<AgentRunCardView
-					agentRun={agentRun}
-					run={run(2)}
-					attempt={{
-						id: "44444444-4444-4444-8444-444444444444",
-						executorType: "external_agent",
-						executorId: "agent-1",
-						outcome: null,
-						heartbeatAt: new Date(START).toISOString(),
-					}}
-					LinkComponent={TaskLink}
-				/>,
-			),
-		).toBe("The runner stopped responding 9 minutes ago");
+		const clock = vi.spyOn(Date, "now").mockReturnValue(START + 10 * 60_000);
+		try {
+			const status = async (element: React.ReactElement) => {
+				const card = await mount(element);
+				const text = card.host.querySelector(
+					"[data-slot=agent-run-status]",
+				)?.textContent;
+				card.unmount();
+				return text;
+			};
+			expect(
+				await status(
+					<AgentRunCardView
+						agentRun={{
+							...agentRun,
+							requestedAt: new Date(Date.now() - 6.5 * 60_000).toISOString(),
+						}}
+						run={run(0, { attemptId: null, live: false })}
+						LinkComponent={TaskLink}
+					/>,
+				),
+			).toBe("No runner has picked this up for 6 minutes");
+			expect(
+				await status(
+					<AgentRunCardView
+						agentRun={agentRun}
+						run={run(2)}
+						attempt={{
+							id: "44444444-4444-4444-8444-444444444444",
+							executorType: "external_agent",
+							executorId: "agent-1",
+							outcome: null,
+							heartbeatAt: new Date(START).toISOString(),
+						}}
+						LinkComponent={TaskLink}
+					/>,
+				),
+			).toBe("The runner stopped responding 9 minutes ago");
+		} finally {
+			clock.mockRestore();
+		}
 	});
 
 	it("offers no stop once the run has ended, and says so when it cannot load", async () => {

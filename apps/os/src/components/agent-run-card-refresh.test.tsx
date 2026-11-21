@@ -4,10 +4,15 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 import { AgentRunCard } from "./agent-run-card";
 
-const api = vi.hoisted(() => ({ steps: vi.fn(), attempts: vi.fn() }));
+const api = vi.hoisted(() => ({
+	steps: vi.fn(),
+	attempts: vi.fn(),
+	inbox: vi.fn(),
+}));
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		workItems: { listAttemptSteps: api.steps, listAttempts: api.attempts },
+		workInteractions: { listInbox: api.inbox },
 		userProfile: { getMine: vi.fn(async () => ({ id: "u" })) },
 	},
 }));
@@ -37,6 +42,7 @@ it("moves from waiting to running to failed without a reload", async () => {
 		messages: [],
 	});
 	api.attempts.mockResolvedValue({ data: [], nextCursor: null });
+	api.inbox.mockResolvedValue({ data: [] });
 	const host = document.body.appendChild(document.createElement("div"));
 	const root = createRoot(host);
 	const client = new QueryClient({
@@ -67,6 +73,21 @@ it("moves from waiting to running to failed without a reload", async () => {
 		host.querySelector('[data-slot="agent-run-status"]')?.textContent;
 	await act(() => vi.advanceTimersByTimeAsync(100));
 	expect(status()).toBe("Waiting for an agent to pick it up");
+	api.inbox.mockResolvedValue({
+		data: [
+			{
+				request: {
+					metadata: { source: "lane-dispatch-blocker" },
+					prompt:
+						"Codex paused because this task asks it to message people outside the team. Allow: posts your permission. No: the task stays blocked.",
+				},
+			},
+		],
+	});
+	await act(() => vi.advanceTimersByTimeAsync(3_100));
+	expect(status()).toContain("Waiting for your permission");
+	expect(host.textContent).toContain("message people outside the team");
+	expect(host.textContent).toContain("Open the task to review and answer");
 
 	api.steps.mockResolvedValue({
 		attemptId,
@@ -77,6 +98,7 @@ it("moves from waiting to running to failed without a reload", async () => {
 	api.attempts.mockResolvedValue({ data: [attempt(null)], nextCursor: null });
 	await act(() => vi.advanceTimersByTimeAsync(3_100));
 	expect(status()).toMatch(/^Running/);
+	expect(host.textContent).not.toContain("message people outside the team");
 
 	// The run ends without ever reporting a step.
 	api.steps.mockResolvedValue({
