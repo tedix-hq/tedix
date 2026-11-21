@@ -11,7 +11,6 @@ import {
 	type MenuItemConstructorOptions,
 	Notification,
 	nativeTheme,
-	powerMonitor,
 	type Rectangle,
 	screen,
 	shell,
@@ -109,7 +108,7 @@ let busy = false;
 let startLink: string | undefined;
 
 async function state(): Promise<PanelState> {
-	status ??= await loadStatus(powerMonitor.isOnBatteryPower());
+	status ??= await loadStatus();
 	return {
 		status,
 		setup: setupState(),
@@ -131,7 +130,7 @@ async function publish(): Promise<void> {
 }
 
 async function refresh(): Promise<void> {
-	status = await loadStatus(powerMonitor.isOnBatteryPower());
+	status = await loadStatus();
 	await publish();
 }
 
@@ -448,7 +447,7 @@ async function applyUpdate(): Promise<void> {
 	const runs = restartsRunners ? await activeRunCount() : 0;
 	if (runs === 0) return updateNow();
 
-	status ??= await loadStatus(powerMonitor.isOnBatteryPower());
+	status ??= await loadStatus();
 	const runners = status.runners.filter(
 		(runner) => runner.enabled && runner.running,
 	).length;
@@ -1443,8 +1442,6 @@ else {
 		});
 		// Closing the window quits the app; the supervisor keeps the runners running.
 		app.on("window-all-closed", () => app.quit());
-		powerMonitor.on("on-battery", () => void refresh());
-		powerMonitor.on("on-ac", () => void refresh());
 		setInterval(() => {
 			void refresh();
 			// While a browser sign-in is waiting, notice when it ends.
