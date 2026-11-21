@@ -18,7 +18,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   again. A click on the icon opens a small input bar near the top of the
   screen: type a message and press Return to start a new chat in the Tedix
   window (Escape closes the bar). A right click (or Control-click) opens a
-  menu with **Open Tedix**, **New Chat…**, a line on the runners, **This
+  menu with **Open Tedix**, **New Chat…**, a line on the runners when they are paused or not running, **This
   Mac…**, **Pause Runners** or **Resume Runners**, **Check for Updates…**,
   **Open at Login** and **Quit Tedix and Stop Runners**. Pause stops the
   runners and the tasks running on this Mac (the menu item says how many);
