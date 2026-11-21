@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import {
+	ListWorkAttemptProjectionInputSchema,
 	WorkAttemptProjectionSchema,
 	type WorkActivityEvent,
 } from "@tedix/api-contract/schemas/work-items";
@@ -237,6 +238,11 @@ it.each([
 		await view.render(0);
 		expect(api.listActivity).toHaveBeenCalledTimes(1);
 		expect(api.listAttemptProjection).toHaveBeenCalledTimes(1);
+		expect(
+			ListWorkAttemptProjectionInputSchema.shape.outcomes.parse(
+				api.listAttemptProjection.mock.calls[0]![0].outcomes,
+			),
+		).toContain("landed_unverified");
 		await view.render(1);
 		expect(api.listActivity.mock.calls.map(([input]) => input)).toEqual([
 			{ projectId: scope, limit: 2, cursor: undefined },

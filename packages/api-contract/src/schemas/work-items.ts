@@ -1077,7 +1077,7 @@ export const ListWorkAttemptProjectionInputSchema =
 		outcomes: z
 			.array(WorkAttemptOutcomeSchema)
 			.min(1)
-			.max(5)
+			.max(WorkAttemptOutcomeSchema.options.length)
 			.optional()
 			.describe(
 				"Optional settled-outcome filter; omission includes settled and active attempts.",
