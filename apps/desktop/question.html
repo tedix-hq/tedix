@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'"
+		/>
+		<title>Tedix</title>
+		<link rel="stylesheet" href="ui.css" />
+		<style>
+			body {
+				-webkit-app-region: drag;
+				padding: 20px 20px 16px;
+				display: grid;
+				grid-template-columns: 56px 1fr;
+				gap: 16px;
+				align-items: start;
+			}
+			img {
+				width: 56px;
+				height: 56px;
+			}
+			main {
+				display: grid;
+				gap: 10px;
+				min-width: 0;
+			}
+			h1 {
+				margin: 0;
+				font-size: 13.5px;
+				font-weight: 600;
+			}
+			#detail p {
+				margin: 0 0 8px;
+				line-height: 1.4;
+			}
+			button,
+			label {
+				-webkit-app-region: no-drag;
+			}
+			label {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+			label[hidden] {
+				display: none;
+			}
+			.foot {
+				display: flex;
+				flex-direction: row-reverse;
+				flex-wrap: wrap;
+				gap: 8px;
+				margin-top: 6px;
+			}
+		</style>
+	</head>
+	<body>
+		<img src="assets/icon.png" alt="" />
+		<main>
+			<h1 id="message"></h1>
+			<div id="detail"></div>
+			<label id="box" hidden
+				><input id="check" type="checkbox" /><span id="boxLabel"></span
+			></label>
+			<div class="foot" id="buttons"></div>
+		</main>
+		<script src="out/question-window.js"></script>
+	</body>
+</html>
