@@ -105,18 +105,26 @@ export async function useWorkspaceMachine(
 			edges: permissions.edges,
 			links: permissions.links,
 		});
-		const owners = shared
-			? await listMachineOwners(deps.db, { orgId })
-			: new Map<string, string | null>();
+		// A listing also says which machines are the sender's own, so the
+		// store knows where a read-only command may run without asking.
+		const owners =
+			shared || request.op === "list"
+				? await listMachineOwners(deps.db, { orgId })
+				: new Map<string, string | null>();
 		const yours = (machineName: string) =>
 			owners.get(machineName.toLowerCase()) === `user:${member.userId}`;
 		switch (request.op) {
 			case "list": {
-				const machines = await listOrganizationMachines(deps, orgId);
+				const machines = (await listOrganizationMachines(deps, orgId)).map(
+					(machine) => ({
+						...machine,
+						ownedBySender: yours(machine.machineName),
+					}),
+				);
 				return {
 					status: "machines",
 					machines: shared
-						? machines.filter((machine) => yours(machine.machineName))
+						? machines.filter((machine) => machine.ownedBySender)
 						: machines,
 				};
 			}

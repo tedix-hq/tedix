@@ -459,6 +459,8 @@ export function stepSummary(
 	input: unknown,
 	value: unknown,
 ): string | undefined {
+	if (binding === "machine" && method === "call")
+		return readOnlyCommandSummary(input, value);
 	if (binding !== "person" || method !== "memory" || !Array.isArray(value))
 		return undefined;
 	const query = (input as { query?: unknown } | null | undefined)?.query;
@@ -470,6 +472,17 @@ export function stepSummary(
 		return words ? `No memories matched '${words}'` : "No memories found";
 	const count = `${value.length} of your memories`;
 	return words ? `Read ${count} about '${words}'` : `Read ${count}`;
+}
+
+/** A command that ran without asking because it only reads. */
+function readOnlyCommandSummary(input: unknown, value: unknown) {
+	if ((value as { ranAs?: unknown } | null)?.ranAs !== "read") return undefined;
+	const call = input as { machine?: unknown; input?: unknown } | null;
+	const command = (call?.input as { command?: unknown } | null)?.command;
+	if (typeof command !== "string") return undefined;
+	const where =
+		typeof call?.machine === "string" ? call.machine.slice(0, 80) : "this Mac";
+	return `Ran a read-only command on ${where}: ${command.slice(0, 200)}`;
 }
 
 /**

@@ -39,7 +39,11 @@ export const WorkspaceMachineInputSchema = z.discriminatedUnion("op", [
 export type WorkspaceMachineInput = z.input<typeof WorkspaceMachineInputSchema>;
 
 export type WorkspaceMachineResult =
-	| { status: "machines"; machines: Machine[] }
+	| {
+			status: "machines";
+			/** `ownedBySender`: the sender's own runner reports from it. */
+			machines: Array<Machine & { ownedBySender?: boolean }>;
+	  }
 	| { status: "queued"; callId: string; callStatus: MachineToolCallStatus }
 	| { status: "call"; call: MachineToolCall }
 	| { status: "refused"; message: string };

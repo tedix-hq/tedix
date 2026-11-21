@@ -97,6 +97,20 @@ export function workspaceMachine(deps: {
 	}
 	return {
 		list,
+		/** True when the sender's own runner reports from this machine. */
+		async isOwn(machine: unknown) {
+			if (typeof machine !== "string") return false;
+			const result = await deps.api.useMachine({ ...acting, op: "list" });
+			const wanted = machine.toLowerCase();
+			return (
+				result.status === "machines" &&
+				result.machines.some(
+					(candidate) =>
+						candidate.machineName.toLowerCase() === wanted &&
+						candidate.ownedBySender === true,
+				)
+			);
+		},
 		/**
 		 * Throws the reason a call cannot run: an unknown tool, an input the
 		 * tool does not take, or a machine that is unknown, offline or does not

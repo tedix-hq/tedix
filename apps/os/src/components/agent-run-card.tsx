@@ -133,7 +133,10 @@ export function AgentRunCardView({
 	const [interruptError, setInterruptError] = useState<string>();
 	const interruptFieldId = useId();
 	const live = run?.live ?? false;
-	const now = useNow(live);
+	const waiting = Boolean(run && !run.live && run.steps.length === 0);
+	// A run nobody picked up is not live, yet its wait keeps growing: check
+	// it once a minute so an open tab says so without a reload.
+	const now = useNow(live || (waiting && !attempt), live ? 1_000 : 60_000);
 	const steps = run?.steps;
 	const messages = run?.messages;
 	const entries = useMemo(
@@ -141,7 +144,6 @@ export function AgentRunCardView({
 		[steps, messages],
 	);
 	const executor = executorLabel(agentRun.executor);
-	const waiting = Boolean(run && !run.live && run.steps.length === 0);
 	const status = failed
 		? "The run could not be loaded. Open the task to see it."
 		: !run

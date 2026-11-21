@@ -42,7 +42,12 @@ import type { workspaceAccounts } from "./accounts";
 import { ACCOUNTS_UNAVAILABLE } from "./prompt";
 import { isMachineWriteTool } from "@tedix/api-contract/schemas/machines";
 import { MACHINE_UNAVAILABLE, type workspaceMachine } from "./machine";
-import { COMPUTER_READ_RESOURCE } from "./approval-modes";
+import {
+	COMMAND_READ_RESOURCE,
+	COMPUTER_READ_RESOURCE,
+} from "./approval-modes";
+import { isReadOnlyCommand } from "./read-only-commands";
+import type { ReadOnlyCommandPattern } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { PERSON_UNAVAILABLE, type workspacePerson } from "./person";
 import { TEDI_UNAVAILABLE, type workspaceTedi } from "./tedi";
 import { CHAT_UNAVAILABLE, type workspaceChat } from "./chat";
@@ -84,6 +89,12 @@ export interface BindingDeps {
 	machineUnavailable?: string;
 	/** Other people can open the workspace: a computer read waits for the sender. */
 	computerReadsAsk?: boolean;
+	/**
+	 * Command shapes that only read. Set only on a turn the signed-in person
+	 * sent in a workspace nobody else can open; a matching command on their
+	 * own computer then counts as a read.
+	 */
+	readOnlyCommands?: readonly ReadOnlyCommandPattern[];
 	/** The turn runs in Read only: nothing that changes anything runs. */
 	readOnly?: boolean;
 	/** Absent unless a signed-in person sent the turn themself. */
@@ -525,6 +536,32 @@ export function buildWorkspaceBindings(
 			methods: { call: { riskTier: "read", blastRadius: "none" } },
 		},
 	);
+	// A read-only command on the sender's own computer follows the approval
+	// mode like any other read: it asks only under "Ask every time".
+	const commandReadGate = wrapBinding(
+		{ call: (input: MachineCall) => machinePort().call(input) },
+		{
+			...common,
+			resource: COMMAND_READ_RESOURCE,
+			methods: {
+				call: {
+					riskTier: "external_side_effect",
+					blastRadius: "external_system",
+				},
+			},
+		},
+	);
+	const commandOnlyReads = async (input: MachineCall) => {
+		const command = (input?.input as { command?: unknown } | undefined)
+			?.command;
+		return (
+			deps.readOnlyCommands !== undefined &&
+			input?.tool === "run_command" &&
+			typeof command === "string" &&
+			isReadOnlyCommand(command, deps.readOnlyCommands) &&
+			(await machinePort().isOwn(input.machine))
+		);
+	};
 	const machine = {
 		list: () => machinePort().list(),
 		call: async (input: MachineCall) => {
@@ -533,6 +570,8 @@ export function buildWorkspaceBindings(
 				typeof input?.tool === "string" && isMachineWriteTool(input.tool);
 			// A call that cannot run is refused here, before anyone is asked.
 			if (write || deps.computerReadsAsk) await port.assertCanRun(input);
+			if (write && (await commandOnlyReads(input)))
+				return { ...(await commandReadGate.call(input)), ranAs: "read" };
 			return write ? machineWriteGate.call(input) : machineReadGate.call(input);
 		},
 		read: (input: { callId?: unknown }) => machinePort().read(input),
