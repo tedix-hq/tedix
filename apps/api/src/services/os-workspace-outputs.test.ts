@@ -220,6 +220,15 @@ describe("output body persistence", () => {
 		const f = fixture();
 		try {
 			const first = await createOsOutput(f.db, f.output, f.revision, f.storage);
+			const noticesBefore = notices.notifyOutputRevision.mock.calls.length;
+			await expect(
+				createOsOutputRevision(
+					f.db,
+					{ ...f.revision, id: "stale-unchanged", expectedRevision: 99 },
+					f.storage,
+					first.revision,
+				),
+			).resolves.toEqual({ ok: false, reason: "revision_conflict" });
 			const same = await createOsOutputRevision(
 				f.db,
 				{ ...f.revision, id: "unused", expectedRevision: 1 },
@@ -227,6 +236,9 @@ describe("output body persistence", () => {
 				first.revision,
 			);
 			expect(f.revisionCountsAtWrite).toEqual([0]);
+			expect(notices.notifyOutputRevision.mock.calls).toHaveLength(
+				noticesBefore,
+			);
 			expect(same).toMatchObject({
 				ok: true,
 				revision: {

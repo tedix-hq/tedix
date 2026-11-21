@@ -70,6 +70,26 @@ async function storeRevisionBody(
 	} catch {
 		// Existing callers also store plain text bodies.
 	}
+	// Verified bytes already belong to this file; CAS still checks the revision
+	// and merges source requirements in the workspace object.
+	if (
+		previous?.organizationId === revision.organizationId &&
+		previous.outputId === revision.outputId &&
+		previous.content === revision.content &&
+		previous.bodyR2Key &&
+		previous.contentSha256 &&
+		previous.contentBytes === requireStorableBody(revision.content).byteLength
+	) {
+		return {
+			content: revision.content,
+			parsedContent: isJson ? decoded : undefined,
+			body: {
+				bodyR2Key: previous.bodyR2Key,
+				contentSha256: previous.contentSha256,
+				contentBytes: previous.contentBytes,
+			},
+		};
+	}
 	// JSON escapes preserve lone surrogates; inspect before any body or asset write.
 	requireSavableText({ content: decoded });
 	const content = await externalizeOutputAssets(
@@ -307,7 +327,7 @@ export async function createOsOutputRevision(
 			organizationId: params.organizationId,
 			outputId: params.outputId,
 		}));
-	if (output) {
+	if (output && result.revision.id === params.id) {
 		const notice = notifyOutputRevision(
 			{
 				db,
