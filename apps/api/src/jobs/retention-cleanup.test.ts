@@ -4,10 +4,7 @@ import { appCatalogHealthHistory } from "@tedix/db/schema/catalog";
 import { kernelToolResults } from "@tedix/db/schema/cognitive-runtime";
 import { organizations } from "@tedix/db/schema/organizations";
 import { sweepAbandonedSkillImprovements } from "@tedix/db/queries/cognitive/skill-improvement-cleanup";
-import {
-	prunePlatformCronExecutions,
-	terminalizeAbandonedPlatformCronExecutions,
-} from "@tedix/db/queries/platform-cron-executions";
+import { terminalizeAbandonedPlatformCronExecutions } from "@tedix/db/queries/platform-cron-executions";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -58,23 +55,14 @@ vi.mock("@tedix/db/queries/jobs", () => ({
 }));
 vi.mock("@tedix/db/queries/tedis", () => ({
 	cleanupOldSnapshots: vi.fn().mockResolvedValue(0),
-	cleanupOldUsageEvents: vi.fn().mockResolvedValue(0),
 }));
 vi.mock("@tedix/db/queries/platform-cron-executions", () => ({
-	PLATFORM_CRON_RECEIPT_RETENTION_DAYS: 90,
-	prunePlatformCronExecutions: vi.fn().mockResolvedValue(0),
 	terminalizeAbandonedPlatformCronExecutions: vi.fn().mockResolvedValue(2),
 	getPlatformCronCheckpoint: vi.fn().mockResolvedValue(null),
 	putPlatformCronCheckpoint: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@tedix/db/queries/catalog/create-base-app", () => ({
 	backfillCatalogBaseAppAutoSync: vi.fn().mockResolvedValue(0),
-}));
-vi.mock("@tedix/db/queries/analytics", () => ({
-	deleteOldWidgetEvents: vi.fn().mockResolvedValue(0),
-}));
-vi.mock("@tedix/db/queries/workflow-runs", () => ({
-	deleteOldWorkflowRunRecords: vi.fn().mockResolvedValue(0),
 }));
 vi.mock("@tedix/db/queries/graph-projection", () => ({
 	pruneAcknowledgedGraphProjectionEvents: vi.fn().mockResolvedValue(0),
@@ -218,7 +206,6 @@ describe("scheduled usage evidence retention", () => {
 				expect.anything(),
 				"2026-09-21T03:00:00.000Z",
 			);
-			expect(prunePlatformCronExecutions).not.toHaveBeenCalled();
 			expect(warn).not.toHaveBeenCalled();
 			expect(error).not.toHaveBeenCalled();
 			expect(

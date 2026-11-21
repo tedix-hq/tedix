@@ -60,21 +60,6 @@ export const RETENTION_CLEANUP_STEP_PAUSE_MS = 1_000;
 /** platform_cron_checkpoints row naming the step to start with next time. */
 export const RETENTION_CLEANUP_CHECKPOINT_ID = "retention-cleanup:next-step";
 
-/**
- * Steps that no longer run because their rows are kept instead of deleted
- * (docs/engineering/append-only-data-targets.md). Add a step id here when
- * the move that replaces its delete lands.
- * - platform-cron-receipts-prune: finished cron receipts are copied to the
- *   logs database by the d1-retention engine (move_to_logs_db policy,
- *   commit 414700f67); deleting them here would destroy that history.
- */
-export const RETENTION_STEPS_SWITCHED_OFF: ReadonlySet<string> = new Set([
-	"platform-cron-receipts-prune",
-	// Moved to the logs database by d1-retention instead.
-	"tedi-usage-events",
-	"workflow-runs",
-	"widget-events",
-]);
 const CHECKPOINT_IO_TIMEOUT_MS = 10_000;
 
 export interface RetentionStepContext {
@@ -244,13 +229,7 @@ export async function runRetentionCleanupCron(
 		);
 	}
 
-	const steps = retentionCleanupSteps(
-		env,
-		event,
-		runId,
-		db,
-		scheduledDate,
-	).filter((step) => !RETENTION_STEPS_SWITCHED_OFF.has(step.id));
+	const steps = retentionCleanupSteps(env, event, runId, db, scheduledDate);
 	const { counts, nextStepId } = await runRetentionSteps(steps, {
 		deadlineMs,
 		firstStepId,
@@ -338,28 +317,6 @@ function retentionCleanupSteps(
 			},
 		},
 		{
-			id: "platform-cron-receipts-prune",
-			run: async () => {
-				const {
-					PLATFORM_CRON_RECEIPT_RETENTION_DAYS,
-					prunePlatformCronExecutions,
-				} = await import("@tedix/db/queries/platform-cron-executions");
-				const cutoff = new Date(
-					event.scheduledTime -
-						PLATFORM_CRON_RECEIPT_RETENTION_DAYS * 86_400_000,
-				)
-					.toISOString()
-					.replace("T", " ")
-					.slice(0, 19);
-				return {
-					platformCronExecutionsDeleted: await prunePlatformCronExecutions(
-						db,
-						cutoff,
-					),
-				};
-			},
-		},
-		{
 			id: "catalog-autosync-backfill",
 			run: async () => {
 				try {
@@ -424,35 +381,10 @@ function retentionCleanupSteps(
 				return { snapshotsDeleted: await cleanupOldSnapshots(db, 7) };
 			},
 		},
-		{
-			id: "tedi-usage-events",
-			run: async () => {
-				const { cleanupOldUsageEvents } =
-					await import("@tedix/db/queries/tedis");
-				return { usageEventsDeleted: await cleanupOldUsageEvents(db, 30) };
-			},
-		},
 		// Preserve all call-cost rows, including failed and unpriced usage evidence.
-		{
-			id: "widget-events",
-			run: async () => {
-				const { deleteOldWidgetEvents } =
-					await import("@tedix/db/queries/analytics");
-				return { widgetEventsDeleted: await deleteOldWidgetEvents(db, 30) };
-			},
-		},
-		{
-			id: "workflow-runs",
-			run: async () => {
-				const { deleteOldWorkflowRunRecords } =
-					await import("@tedix/db/queries/workflow-runs");
-				return {
-					workflowRunsDeleted: await deleteOldWorkflowRunRecords(db, 90),
-				};
-			},
-		},
-		// audit_events, tedi_runtime_events and kernel_runtime_events are NOT
-		// deleted here. "Keep logs": their rows leave the main database only
+		// audit_events, tedi_runtime_events, kernel_runtime_events,
+		// platform_cron_executions, tedi_usage_events, widget_events and
+		// workflow_runs are NOT deleted here. "Keep logs": their rows leave the main database only
 		// through the policy-driven engine (jobs/d1-retention.ts), which copies
 		// each row to the logs database and R2 and verifies the copy before
 		// removing it.
