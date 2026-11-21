@@ -12,6 +12,7 @@ import {
 	type MenuItemConstructorOptions,
 	nativeImage,
 	nativeTheme,
+	powerMonitor,
 	type Rectangle,
 	screen,
 	shell,
@@ -379,6 +380,7 @@ function updateNow(): Promise<void> {
 	return working("Updating…", async () => {
 		if (readyVersion()) {
 			noteUpdateClick();
+			quitSource = "an update";
 			restartToUpdate();
 			// The app quits now; the entry keeps saying so until it does.
 			return new Promise(() => {});
@@ -1356,9 +1358,28 @@ function runnersItem(): MenuItemConstructorOptions {
  * Who asked the app to quit, for the log. Without one of the app's own Quit
  * items or a TERM signal, it was the Dock, an update, or macOS itself.
  */
-let quitSource = "the Dock, an update or macOS";
+let quitSource = "the Dock or macOS";
 function quitFrom(source: string): void {
 	quitSource = source;
+	app.quit();
+}
+/** Set once the person agreed to stop running tasks by quitting. */
+let quitAgreed = false;
+
+/**
+ * A quit by hand while tasks run asks first, so a stray Cmd+Q does not stop
+ * the work on this Mac. Updates and TERM signals quit without asking.
+ */
+async function askToQuit(): Promise<void> {
+	const runs = status?.activeRuns ?? 0;
+	const { response } = await ask({
+		message: `${runs === 1 ? "1 task is" : `${runs} tasks are`} running. Quit and stop ${runs === 1 ? "it" : "them"}?`,
+		buttons: ["Cancel", "Quit"],
+		defaultId: 0,
+		cancelId: 0,
+	});
+	if (response !== 1) return log("quit: cancelled, tasks keep running");
+	quitAgreed = true;
 	app.quit();
 }
 
@@ -1785,8 +1806,22 @@ else {
 		app.on("window-all-closed", () => {});
 		app.on("activate", showMain);
 		process.on("SIGTERM", () => quitFrom("a TERM signal"));
+		powerMonitor.on("shutdown", () => {
+			quitSource = "macOS shutting down";
+		});
 		// Quitting stops this Mac's runners first: they are this app's child.
 		app.on("before-quit", (event) => {
+			// The menu bar icon's item already says it stops the runners.
+			const byHand = ![
+				"an update",
+				"a TERM signal",
+				"macOS shutting down",
+				"the menu bar icon",
+			].includes(quitSource);
+			if (!quitting && byHand && !quitAgreed && (status?.activeRuns ?? 0) > 0) {
+				event.preventDefault();
+				return void askToQuit();
+			}
 			if (!quitting) log(`quit: asked by ${quitSource}`);
 			quitting = true;
 			if (!runnersRunning()) return void stopRunners();
