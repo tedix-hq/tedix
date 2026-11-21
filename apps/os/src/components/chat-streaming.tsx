@@ -1,7 +1,14 @@
 import type { ChatRuntimePhase } from "@tedix/chat-transport/runtime-frames";
 import { useEffect, useState } from "react";
+import { CaretRight } from "@phosphor-icons/react";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
+import { describeToolCall } from "@/lib/chat-structured-content";
 import type { StreamedPhase } from "@/lib/overlay-state";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
@@ -77,37 +84,58 @@ export function StreamedAssistantBubble({
 }
 
 // ---------------------------------------------------------------------------
-// StreamedRationaleRow — the planner's provisional thinking line
+// StreamedRationaleRow — the planner's reasoning, folded
 // ---------------------------------------------------------------------------
 
 /**
- * The route planner's `rationale` as it streams — the decision forming, shown
- * while the turn is in flight.
+ * The route planner's `rationale` while the turn is in flight, behind one
+ * quiet "Thought for 4s" line. The reasoning itself opens only on a click;
+ * nothing opens it for the person.
  *
- * It exists because the planner only ever forwarded `answer` deltas, and
- * `answer` is null on every route except `answer_in_home`: a delegation, a
- * write proposal, a workflow start or a clarifying question showed the
- * operator NOTHING until the rendered acknowledgement replayed at the end of
- * the pass.
- *
- * PROVISIONAL and display-only. Deliberately NOT the assistant treatment:
- * muted, italic, one line, no markdown and no caret, so it can never be
- * mistaken for the answer. Sanitized as untrusted runtime text, and PRE-SPACED
- * — the row keeps exactly one line of height whether or not any rationale has
- * arrived, so the thread does not shift when the first chunk lands or when the
- * settled answer supersedes it.
+ * PROVISIONAL and display-only: no markdown, no caret, so it can never be
+ * mistaken for the answer. Sanitized as untrusted runtime text, and
+ * PRE-SPACED — the row keeps one line of height before any rationale has
+ * arrived, so the thread does not shift when the first chunk lands.
+ * `done` (the answer has started) freezes the clock.
  */
-export function StreamedRationaleRow({ rationale }: { rationale: string }) {
+export function StreamedRationaleRow({
+	rationale,
+	done = false,
+	now,
+}: {
+	rationale: string;
+	done?: boolean;
+	/** Injectable clock for tests; defaults to a 1s ticker. */
+	now?: number;
+}) {
 	const text = sanitizeUntrustedText(rationale).trim();
+	const [since] = useState(() => now ?? Date.now());
+	const tick = useElapsedTick(now === undefined && !done);
+	const seconds = Math.max(1, Math.round(((now ?? tick) - since) / 1000));
 	return (
 		<li
 			className="flex w-full min-w-0 justify-start"
 			data-slot="streaming-rationale"
 			data-empty={text === "" ? "true" : "false"}
-			aria-live="polite"
 		>
-			<div className="min-h-5 min-w-0 max-w-full truncate py-0.5 text-kumo-subtle italic type-tedix-body">
-				{text}
+			<div className="min-h-5 min-w-0 max-w-full">
+				{text ? (
+					<Collapsible>
+						<CollapsibleTrigger className="min-h-5 gap-1 px-0 py-0 hover:bg-transparent">
+							<span className="tabular-nums">Thought for {seconds}s</span>
+							<CaretRight
+								size={11}
+								aria-hidden
+								className="transition-transform motion-reduce:transition-none [[data-panel-open]>&]:rotate-90"
+							/>
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<p className="m-0 mt-1 whitespace-pre-wrap border-kumo-hairline border-l pl-3 text-kumo-subtle [overflow-wrap:anywhere] type-tedix-body">
+								{text}
+							</p>
+						</CollapsibleContent>
+					</Collapsible>
+				) : null}
 			</div>
 		</li>
 	);
@@ -134,7 +162,10 @@ export const CHAT_PHASE_LABELS: Record<ChatRuntimePhase, string> = {
  */
 export function phaseRowLabel(phase: StreamedPhase, now: number): string {
 	const base = CHAT_PHASE_LABELS[phase.phase];
-	const detail = phase.detail ? sanitizeUntrustedText(phase.detail).trim() : "";
+	const raw = phase.detail ? sanitizeUntrustedText(phase.detail).trim() : "";
+	// A tool detail is a protocol name (`gmail_send`); say it in words.
+	const detail =
+		raw && phase.phase === "using_tool" ? describeToolCall(raw) : raw;
 	const elapsed = Math.max(0, Math.floor((now - phase.since) / 1000));
 	return `${detail ? `${base}: ${detail}` : base} · ${elapsed}s`;
 }

@@ -7,11 +7,7 @@ import {
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { BrowserAgentSeatSchema } from "@tedix/api-contract/schemas/browser-agent-seat";
 import { isLocalWorkersAi } from "@/lib/local-inference";
-import {
-	ArrowCounterClockwise,
-	ArrowDown,
-	FolderSimple,
-} from "@phosphor-icons/react";
+import { ArrowDown, FolderSimple } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type {
 	HomeMessage,
@@ -30,7 +26,12 @@ import { Text } from "@/components/kumo/text";
 import { Badge } from "@/components/kumo/badge";
 import { ChatMessageActions } from "@/components/chat-message-actions";
 import { ChatMarkdown } from "@/components/chat-markdown";
-import { StructuredChatContent } from "@/components/chat-structured-content";
+import {
+	ChatErrorLine,
+	chatErrorCategory,
+	chatErrorReference,
+	StructuredChatContent,
+} from "@/components/chat-structured-content";
 import { Surface } from "@/components/kumo/surface";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { CostChip } from "@/components/cost-chip";
@@ -514,54 +515,41 @@ export function RunningIndicator({ label }: { label?: string | null }) {
 export function SendFailureBanner({
 	outcomeUnknown,
 	draftHeld = false,
-	message,
+	error,
 	retrying = false,
 	onRetry,
 }: {
-	message: string;
+	/** The failure cause; only its plain category and reference id show. */
+	error?: unknown;
 	retrying?: boolean;
 	onRetry?: () => void;
 	/**
 	 * The transport died with the send in flight, so whether the server
-	 * accepted it is genuinely unknown. Titling that "Message not sent" states
-	 * the failure case as fact — and the body text immediately contradicts it.
+	 * accepted it is genuinely unknown. Saying "Message not sent" would state
+	 * the failure case as fact.
 	 */
 	outcomeUnknown?: boolean;
 	/**
 	 * The message is held in the unconfirmed bubble above rather than back in
-	 * the composer. Saying "your draft is intact" while the textarea is empty
-	 * points the operator at the wrong place to look for it.
+	 * the composer, so the line must not point at an empty composer.
 	 */
 	draftHeld?: boolean;
 }) {
+	const message = draftHeld
+		? "Message may not have been sent. It is shown above as unconfirmed; Retry sends it once."
+		: outcomeUnknown
+			? // Neither claim is safe here: the message may already be recorded
+				// (so it is not a lost draft), and the composer may be empty.
+				"Message may not have been sent. Reload to check before sending it again."
+			: "Message not sent. Your draft is intact; Retry sends it once.";
 	return (
-		<Alert variant="destructive">
-			<AlertTitle>
-				{outcomeUnknown ? "Message may not have been sent" : "Message not sent"}
-			</AlertTitle>
-			<AlertDescription>
-				{message}{" "}
-				{draftHeld
-					? "It is shown above as unconfirmed — Retry re-sends it exactly once."
-					: outcomeUnknown
-						? // Neither claim is safe here: the message may already be
-							// durable (so it is not a lost draft), and the composer may
-							// be empty (so promising an intact draft points at nothing).
-							"Reload to see whether it was recorded before sending it again."
-						: "Your draft is intact — Retry re-sends it exactly once."}
-			</AlertDescription>
-			<AlertAction className="p-2">
-				<Button
-					size="sm"
-					variant="outline"
-					icon={<ArrowCounterClockwise size={14} />}
-					disabled={retrying}
-					onClick={() => onRetry?.()}
-				>
-					Retry
-				</Button>
-			</AlertAction>
-		</Alert>
+		<ChatErrorLine
+			message={message}
+			category={chatErrorCategory(error)}
+			referenceId={chatErrorReference(error)}
+			onRetry={() => onRetry?.()}
+			retrying={retrying}
+		/>
 	);
 }
 

@@ -27,7 +27,6 @@ describe("MachineActivity", () => {
 			root.render(
 				<ul>
 					<MachineActivity
-						defaultOpen
 						loadFull={async () => ({
 							status: "done",
 							result: "the whole file",
@@ -60,6 +59,8 @@ describe("MachineActivity", () => {
 					?.click(),
 			);
 		expect(buttons()[0]?.textContent).toContain("Read 1 file, ran 1 command");
+		expect(host.querySelectorAll("[data-slot=machine-action]")).toHaveLength(0);
+		await click("Read 1 file, ran 1 command");
 		const rows = host.querySelectorAll("[data-slot=machine-action]");
 		expect(rows).toHaveLength(2);
 		expect(rows[1]?.textContent).toContain("Exit 1");

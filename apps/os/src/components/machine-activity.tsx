@@ -334,15 +334,12 @@ function MachineActionRow({
  */
 export function MachineActivity({
 	actions,
-	defaultOpen = false,
 	loadFull = readMachineToolCallResult,
 }: {
 	actions: readonly MachineAction[];
-	/** Open the group from the start, as for a turn still going. */
-	defaultOpen?: boolean;
 	loadFull?: (callId: string) => Promise<MachineToolCallResult>;
 }) {
-	const [open, setOpen] = useState(defaultOpen);
+	const [open, setOpen] = useState(false);
 	if (actions.length === 0) return null;
 	const rows = (
 		<ul
