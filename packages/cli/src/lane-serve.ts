@@ -117,8 +117,11 @@ import { kernelProcessCwd, kernelProcessTable } from "./process-facts";
 import { beginFileLock } from "./local-file-lock";
 import {
 	readRunnerDuties,
+	RUNNER_STOP_DRAIN_MS,
 	runnerKey,
 	RUNNER_UPDATE_EXIT_CODE,
+	readRunnerLockWait,
+	writeRunnerLockWait,
 } from "./supervise-runners";
 import { newerInstalledVersion } from "./update";
 import { inDarkWake } from "./oauth-provider";
@@ -7812,7 +7815,7 @@ ${firstBrief}`;
  * waits on this executor's lock meanwhile, so an unbounded drain froze the
  * lane for a whole model turn (claude-code, 5 Nov 2026: 61 minutes).
  */
-export const LANE_STOP_DRAIN_MS = 2 * 60_000;
+export const LANE_STOP_DRAIN_MS = RUNNER_STOP_DRAIN_MS;
 
 /** True when the supervisor's runner list has this runner enabled, so it is started again after it exits. */
 function supervised(key: string): boolean {
@@ -7875,7 +7878,14 @@ export async function runLaneServe(
 	process.on("SIGTERM", stop);
 	process.on("SIGINT", stop);
 	try {
-		const waiting = new Set<number>();
+		// The supervisor reads this record: a runner that waits has not missed
+		// its pass, and an earlier runner that outlives its drain time is hung.
+		const waiting = new Map<number, number>();
+		const recordWait = () =>
+			writeRunnerLockWait(directory, {
+				pid: process.pid,
+				waiting: [...waiting].map(([pid, since]) => ({ pid, since })),
+			});
 		// Acquire in the same order so overlapping any-local runners cannot deadlock.
 		for (const lockKey of options.executor === "any-local" && !scoped
 			? [...localExecutors, "any-local" as const].map((executor) =>
@@ -7885,18 +7895,41 @@ export async function runLaneServe(
 			const lock = beginFileLock(join(directory, "..", lockKey, "lock"));
 			locks.push(lock);
 			while (!stopping && !lock.ready()) {
-				for (const pid of lock.blockingPids()) {
+				const blocking = lock.blockingPids();
+				let changed = false;
+				for (const pid of blocking) {
 					if (waiting.has(pid)) continue;
-					waiting.add(pid);
+					waiting.set(pid, Date.now());
+					changed = true;
 					process.stderr.write(
 						`Dispatcher waiting for ${pid} to finish draining\n`,
 					);
+					try {
+						appendFileSync(
+							join(directory, "dispatcher.log"),
+							`${JSON.stringify({
+								at: new Date().toISOString(),
+								event: "lock-wait",
+								reason: `Runner pid ${process.pid} waits for the earlier runner pid ${pid} to exit before it serves`,
+							})}\n`,
+							{ mode: 0o600 },
+						);
+					} catch {}
 				}
+				for (const pid of [...waiting.keys()])
+					if (!blocking.includes(pid)) {
+						waiting.delete(pid);
+						changed = true;
+					}
+				if (changed) recordWait();
 				await new Promise<void>((done) => setTimeout(done, 250));
 			}
 			if (stopping) return 0;
 		}
+		writeRunnerLockWait(directory, undefined);
 		writeDispatcherHealthSource(directory, options);
+		// The first pass is due from now, not from the start of the wait.
+		recordDispatcherNextCheck(directory, new Date().toISOString());
 		const lane = new LaneDispatcher(options, directory);
 		dispatcher = lane;
 		if (!options.once) {
@@ -7953,6 +7986,8 @@ export async function runLaneServe(
 	} finally {
 		process.off("SIGTERM", stop);
 		process.off("SIGINT", stop);
+		if (readRunnerLockWait(directory, process.pid))
+			writeRunnerLockWait(directory, undefined);
 		for (const lock of locks) lock.release();
 		// Lease and heartbeat timers of abandoned work would keep this process,
 		// and its stale heartbeats, alive after the lock is released.

@@ -28,6 +28,7 @@ import {
 	RUNNER_PASS_GRACE_MS,
 	RUNNER_RESTART_BASE_MS,
 	RUNNER_RESTART_MAX_MS,
+	RUNNER_STOP_DRAIN_MS,
 	RUNNER_UPDATE_EXIT_CODE,
 	RUNNERS_FILE,
 	type RunnerChild,
@@ -38,6 +39,7 @@ import {
 	readRunnerDuties,
 	removeRunnerDuty,
 	writeRunnerDuty,
+	writeRunnerLockWait,
 } from "./supervise-runners";
 
 const PROJECT = "66666666-6666-4666-8666-666666666666";
@@ -289,9 +291,12 @@ describe("running the dispatchers", () => {
 		let nextPid = 100;
 		const spawned: Fake[] = [];
 		const lines: string[] = [];
+		const killed: number[] = [];
 		const duties = new RunnerDuties({
 			env,
 			identity,
+			runnerProcess: () => true,
+			kill: (pid) => killed.push(pid),
 			now: () => now,
 			log: (line) => lines.push(line),
 			program: () => ["/bin/tedix", []],
@@ -323,6 +328,7 @@ describe("running the dispatchers", () => {
 			duties,
 			spawned,
 			lines,
+			killed,
 			write,
 			advance: (ms: number) => {
 				now += ms;
@@ -360,6 +366,34 @@ describe("running the dispatchers", () => {
 			{ key: runnerKey(runner()), executor: "codex", pid: 100 },
 		]);
 		expect(f.lines[0]).toContain("codex started (pid 100)");
+	});
+
+	test("kills the earlier runner a waiting runner is stuck behind, not the waiting one", () => {
+		const f = setup();
+		f.write([runner({ executor: "claude-code" })]);
+		f.duties.tick();
+		const directory = join(
+			config,
+			"dispatchers",
+			runnerKey(runner({ executor: "claude-code" })),
+		);
+		mkdirSync(directory, { recursive: true });
+		// This test process stands in for the earlier runner: it is alive.
+		writeRunnerLockWait(directory, {
+			pid: 100,
+			waiting: [{ pid: process.pid, since: f.now() }],
+		});
+		// Within the drain time nobody is killed, though no pass was made.
+		f.advance(RUNNER_STOP_DRAIN_MS);
+		f.duties.tick();
+		expect(f.killed).toEqual([]);
+		for (let i = 0; i < 20; i++) {
+			f.advance(30_000);
+			f.duties.tick();
+		}
+		expect(f.killed[0]).toBe(process.pid);
+		expect(f.spawned).toHaveLength(1);
+		expect(f.lines.join("\n")).not.toContain("missed its lane pass");
 	});
 
 	test("kills and immediately restarts a runner that misses its lane pass", () => {

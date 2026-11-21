@@ -113,9 +113,19 @@ function codexAppServer(
 			disconnect(new Error("Codex app-server was closed"));
 			lines.close();
 			if (child.pid && child.exitCode === null && child.signalCode === null) {
+				const group = -child.pid;
 				try {
-					process.kill(-child.pid, "SIGTERM");
+					process.kill(group, "SIGTERM");
 				} catch {}
+				// An app-server stuck in start-up can ignore SIGTERM; it must not
+				// outlive the start that gave up on it.
+				const kill = setTimeout(() => {
+					try {
+						process.kill(group, "SIGKILL");
+					} catch {}
+				}, 2000);
+				kill.unref();
+				child.once("exit", () => clearTimeout(kill));
 			}
 		},
 	};

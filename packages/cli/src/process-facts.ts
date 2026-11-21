@@ -228,18 +228,23 @@ function darwinBirth(pid: number): string[] | undefined {
 	return [String(sec), String(usec)];
 }
 
+/**
+ * The kernel reports the vnode's own path, which is already the real path.
+ * It is returned as reported and never opened: opening another process's
+ * folder (an app container, Documents) can wait on a macOS privacy prompt
+ * nobody answers, and that froze a runner's only thread.
+ */
 function darwinCwd(pid: number): string | undefined {
 	const row = darwinPidInfo(pid, PROC_PIDVNODEPATHINFO, 8192);
 	if (!row || row.n < 200) return;
 	for (const offset of [152, 144]) {
 		const path = cstr(row.buf, offset, row.n);
-		if (path.startsWith("/")) return realpathSync(path);
+		if (path.startsWith("/")) return path;
 	}
 	for (let i = 128; i < row.n; i++) {
 		if (row.buf[i] !== 0x2f) continue;
 		const path = cstr(row.buf, i, row.n);
-		if (path.length > 1 && /^\/[^\x00-\x1f]*$/.test(path))
-			return realpathSync(path);
+		if (path.length > 1 && /^\/[^\x00-\x1f]*$/.test(path)) return path;
 	}
 }
 
