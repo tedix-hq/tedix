@@ -206,7 +206,18 @@ interface TableStats {
 	error?: string;
 }
 
-async function measureTables(databaseId: string, pause: number) {
+interface TediMemoryWrites {
+	versions: number;
+	contentBytes: number;
+	revisionBytes: number;
+}
+
+async function measureTables(
+	databaseId: string,
+	pause: number,
+	since: Date,
+	until: Date,
+) {
 	const schema = (await d1(
 		databaseId,
 		"SELECT type, name, tbl_name AS tbl, coalesce(sql, '') AS sql FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'",
@@ -249,6 +260,8 @@ async function measureTables(databaseId: string, pause: number) {
 	// stands in: exact for append-only tables, an upper bound where rows were
 	// deleted from the middle.
 	const span = new Map<string, number>();
+	let memoryFirstRowid = 0;
+	let memoryLastRowid = -1;
 	console.error("rowid spans");
 	await inBatches(
 		databaseId,
@@ -256,26 +269,59 @@ async function measureTables(databaseId: string, pause: number) {
 		25,
 		pause,
 		(t) =>
-			`SELECT coalesce(max(rowid) - min(rowid) + 1, 0) AS n FROM ${ident(t.name)}`,
-		(t, rows) => span.set(t.name, Number(rows[0]?.n ?? 0)),
+			`SELECT coalesce(max(rowid) - min(rowid) + 1, 0) AS n, min(rowid) AS first_rowid, max(rowid) AS last_rowid FROM ${ident(t.name)}`,
+		(t, rows) => {
+			span.set(t.name, Number(rows[0]?.n ?? 0));
+			if (t.name === "tedi_memory_documents") {
+				memoryFirstRowid = Number(rows[0]?.first_rowid ?? 0);
+				memoryLastRowid = Number(rows[0]?.last_rowid ?? -1);
+			}
+		},
 	);
 	for (const [name, n] of span) {
 		// FTS shadow tables encode segment levels in rowid: their span says nothing.
 		if (n > COUNT_LIMIT && n < 100_000_000)
 			Object.assign(stats.get(name)!, { rows: n, rowsEstimated: true });
 	}
-	console.error("row counts");
+	const counts = tables
+		.filter(
+			(t) => (span.get(t.name) ?? 1) > 0 && !stats.get(t.name)!.rowsEstimated,
+		)
+		.map((t) => ({
+			sql: `SELECT count(*) AS n FROM ${ident(t.name)}`,
+			onResult: (row: Record<string, unknown>) => {
+				stats.get(t.name)!.rows = Number(row.n ?? 0);
+			},
+		}));
+	const tediMemory: TediMemoryWrites = {
+		versions: 0,
+		contentBytes: 0,
+		revisionBytes: 0,
+	};
+	// No created_at index exists. Bound each scan to 1,000 rowids and batch
+	// with the counts; filtering by time must not assume rowid order is time order.
+	for (let first = memoryFirstRowid; first <= memoryLastRowid; first += 1_000) {
+		counts.push({
+			sql: `SELECT count(*) AS versions,
+				coalesce(sum(coalesce(length(CAST(sections AS BLOB)), 0) + coalesce(length(CAST(description AS BLOB)), 0) + coalesce(length(CAST(content AS BLOB)), 0)), 0) AS content_bytes,
+				coalesce(sum(length(CAST(revision AS BLOB))), 0) AS revision_bytes
+				FROM tedi_memory_documents WHERE rowid >= ${first} AND rowid < ${first + 1_000}
+				AND datetime(created_at) >= datetime('${since.toISOString()}') AND datetime(created_at) < datetime('${until.toISOString()}')`,
+			onResult: (row) => {
+				tediMemory.versions += Number(row.versions);
+				tediMemory.contentBytes += Number(row.content_bytes);
+				tediMemory.revisionBytes += Number(row.revision_bytes);
+			},
+		});
+	}
+	console.error("row counts and tedi memory writes");
 	await inBatches(
 		databaseId,
-		tables.filter(
-			(t) => (span.get(t.name) ?? 1) > 0 && !stats.get(t.name)!.rowsEstimated,
-		),
+		counts,
 		10,
 		pause,
-		(t) => `SELECT count(*) AS n FROM ${ident(t.name)}`,
-		(t, rows) => {
-			stats.get(t.name)!.rows = Number(rows[0]?.n ?? 0);
-		},
+		(item) => item.sql,
+		(item, rows) => item.onResult(rows[0]!),
 	);
 	// One statement per table over its newest 200 rows: the mean row width
 	// and the mean key width of each index (expressions count 16 bytes).
@@ -328,6 +374,7 @@ async function measureTables(databaseId: string, pause: number) {
 	return {
 		stats: [...stats.values()],
 		tableNames: new Set(tables.map((t) => t.name)),
+		tediMemory,
 	};
 }
 
@@ -507,12 +554,21 @@ export const SHEET_COLUMNS = [
 	"Temporarily unavailable 24h",
 	"D1_ERROR 24h",
 	"Insights coverage (rows read %)",
+	"Tedi memory versions 24h",
+	"Tedi memory content bytes 24h",
+	"Tedi memory revision bytes 24h",
+	"Tedi memory total bytes 24h",
+	"Tedi memory >50 MB/day",
 ];
 
 function sheetRows(snapshot: Snapshot): (string | number | null)[][] {
 	const mb = (n: number) => Math.round(n / 1e5) / 10;
 	return [...GROUPS, "total" as const].map((group) => {
 		const isTotal = group === "total";
+		const memory = group === "memory" ? snapshot.tediMemory : undefined;
+		const memoryBytes = memory
+			? memory.contentBytes + memory.revisionBytes
+			: null;
 		const size = isTotal ? snapshot.size.total : snapshot.size.groups[group];
 		const load = isTotal
 			? snapshot.insights.covered
@@ -534,6 +590,17 @@ function sheetRows(snapshot: Snapshot): (string | number | null)[][] {
 			isTotal ? snapshot.errors.temporarilyUnavailable!.total : null,
 			isTotal ? snapshot.errors.d1ErrorAny!.total : null,
 			isTotal ? snapshot.insights.coveragePercent : null,
+			...(snapshot.tediMemory
+				? [
+						memory?.versions ?? null,
+						memory?.contentBytes ?? null,
+						memory?.revisionBytes ?? null,
+						memoryBytes,
+						memoryBytes !== null && memoryBytes > 50_000_000
+							? ">50 MB/day"
+							: null,
+					]
+				: []),
 		];
 	});
 }
@@ -552,8 +619,19 @@ async function appendToSheet(
 		const content = typeof revision?.content === "string" ? JSON.parse(revision.content) : revision?.content;
 		const existing = content?.rows ?? [];
 		if (existing.some((r) => r[0] === ${JSON.stringify(snapshot.date)})) return { skipped: "already recorded" };
+		let expectedRevision = revision.revision;
+		const columns = ${JSON.stringify(SHEET_COLUMNS)};
+		// Range writes cannot add columns. Extend the sheet once, preserving its rows and workbook.
+		if (${Boolean(snapshot.tediMemory)} && content.columns.length < columns.length) {
+			const expanded = { ...content, columns: [...content.columns, ...columns.slice(content.columns.length)] };
+			const active = expanded.workbook?.sheets.find((s) => s.id === expanded.workbook.activeSheetId);
+			if (active) active.columns.push(...columns.slice(active.columns.length).map((label, i) => ({ id: "tedi-memory-" + i, label, width: 180 })));
+			const resized = await os.revise_os_output({ outputId: ${JSON.stringify(outputId)}, content: expanded,
+				expectedRevisionId: revision.id, expectedRevision, note: "tedi memory capacity columns" });
+			expectedRevision = resized.revision.revision;
+		}
 		const res = await os.set_os_sheet_range({ outputId: ${JSON.stringify(outputId)}, startRow: existing.length, startColumn: 0,
-			cells: ${JSON.stringify(rows)}, expectedRevision: revision.revision, note: "core capacity snapshot ${snapshot.date}" });
+			cells: ${JSON.stringify(rows)}, expectedRevision, note: "core capacity snapshot ${snapshot.date}" });
 		return { revision: res.revision?.revision, startRow: existing.length };
 	}`;
 	// The gateway answers "retry shortly" during deploys and index refreshes.
@@ -603,6 +681,8 @@ interface Snapshot {
 	window: { since: string; until: string };
 	databaseId: string;
 	fileBytes: number;
+	/** Absent in snapshots saved before tedi memory write measurement. */
+	tediMemory?: TediMemoryWrites;
 	size: {
 		total: SizeTotals;
 		groups: Record<Group, SizeTotals>;
@@ -661,7 +741,12 @@ async function main() {
 	const date = until.toISOString().slice(0, 10);
 
 	const info = (await cf(["d1", "get", databaseId])) as { file_size: number };
-	const { stats, tableNames } = await measureTables(databaseId, pause);
+	const { stats, tableNames, tediMemory } = await measureTables(
+		databaseId,
+		pause,
+		since,
+		until,
+	);
 	const insights = await readInsights(
 		databaseId,
 		since.toISOString(),
@@ -718,6 +803,7 @@ async function main() {
 				: null,
 		},
 		errors,
+		tediMemory,
 		tables: stats
 			.map((s) => {
 				const load = insights.byTable.get(s.table);
