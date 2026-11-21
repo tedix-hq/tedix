@@ -39,11 +39,12 @@ tedixShell.onQuestion((view: QuestionView) => {
 			return button;
 		}),
 	);
+	// The default button is marked by its colour, not by a focus ring:
+	// Return answers it while no button has focus.
 	document.onkeydown = (event) => {
 		if (event.key === "Escape") answer(view.cancelId);
 		if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement))
 			answer(view.defaultId);
 	};
-	(buttons.children[view.defaultId] as HTMLButtonElement | undefined)?.focus();
 	void tedixShell.questionSize(Math.ceil(document.body.scrollHeight));
 });
