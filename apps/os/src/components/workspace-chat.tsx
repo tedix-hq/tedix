@@ -17,6 +17,7 @@ import {
 	GearSix,
 	ShieldCheck,
 	Stop,
+	Trash,
 	WarningCircle,
 	Wrench,
 } from "@phosphor-icons/react";
@@ -50,6 +51,7 @@ import {
 	removeSkillReference,
 } from "@/lib/chat-skill-picker";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Alert, AlertAction, AlertDescription } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -323,6 +325,7 @@ export function WorkspaceChat({
 		staleTime: 60_000,
 		enabled: personChat,
 	});
+	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const [pickedModel, setPickedModel] = useState<{
 		conversationId: string | null;
 		id: string;
@@ -661,7 +664,36 @@ export function WorkspaceChat({
 					title={title}
 				/>
 				<ConnectionChip client={client} connection={connection} />
+				{conversationId && changeConversation ? (
+					<Button
+						aria-label="Delete conversation"
+						onClick={() => setConfirmingDelete(true)}
+						size="icon-sm"
+						title="Delete conversation"
+						variant="ghost"
+					>
+						<Trash aria-hidden />
+					</Button>
+				) : null}
 			</div>
+			<ConfirmDialog
+				confirmLabel="Delete"
+				description={`“${title ?? "Conversation"}” and its messages are deleted for everyone in this workspace. Files it saved stay. This cannot be undone.`}
+				destructive
+				isPending={false}
+				onConfirm={() => {
+					if (conversationId)
+						changeConversation?.({
+							type: "delete_conversation",
+							conversationId,
+						});
+					setConfirmingDelete(false);
+				}}
+				onOpenChange={setConfirmingDelete}
+				open={confirmingDelete}
+				pendingLabel="Deleting…"
+				title="Delete conversation"
+			/>
 			<Thread
 				workspaceId={workspaceId}
 				conversationId={conversationId}
