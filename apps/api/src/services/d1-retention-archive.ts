@@ -88,9 +88,10 @@ const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
  * Pause after each moved page (500 rows: logs copy, R2 write, one main
  * delete). Back-to-back pages overloaded main D1 for live reads (7429) on
  * 20 Nov 2026; 300 ms raised live "Database temporarily unavailable" 503s
- * to ~35 a minute during runs on 21 Nov 2026.
+ * to ~35 a minute during runs on 21 Nov 2026. Temporarily 500 ms while the
+ * telemetry audit backlog drains (Work 539ccae7); back to 1000 after.
  */
-export const D1_RETENTION_PAGE_PAUSE_MS = 1000;
+export const D1_RETENTION_PAGE_PAUSE_MS = 500;
 
 /**
  * The error's message followed by its causes. Drizzle reports "Failed query:
