@@ -1687,4 +1687,131 @@ console.log(
 	console.log("✓ runRepoLoad: streams writes as blobs arrive");
 }
 
+// Raw streaming loads a file above 5 MB without buffering or starting the
+// next blob before the preceding workspace write has finished.
+{
+	const encrypted = await encryptTediSecret(
+		TEST_MASTER_KEY,
+		TEST_TEDI_ID,
+		TEST_PAT,
+	);
+	const chunk = new Uint8Array(64 * 1024).fill(255);
+	let consumed = 0;
+	let blobReads = 0;
+	let stored = 0;
+	globalThis.fetch = async (input, init) => {
+		if (String(input).includes("/git/trees/")) {
+			return jsonResponse({
+				truncated: false,
+				tree: [
+					{
+						type: "blob",
+						path: "large.bin",
+						sha: "large",
+						size: 80 * chunk.byteLength,
+					},
+					{
+						type: "blob",
+						path: "next.bin",
+						sha: "next",
+						size: chunk.byteLength,
+					},
+				],
+			});
+		}
+		assert.equal(
+			new Headers(init?.headers).get("Accept"),
+			"application/vnd.github.raw+json",
+		);
+		assert.equal(stored, blobReads, "fetch waits for durable write");
+		const count = blobReads++ === 0 ? 80 : 1;
+		let produced = 0;
+		return new Response(
+			new ReadableStream<Uint8Array>({
+				pull(controller) {
+					assert.ok(produced - consumed <= 2, "bounded stream read-ahead");
+					if (produced++ === count) controller.close();
+					else controller.enqueue(chunk);
+				},
+			}),
+		);
+	};
+	const deps = await happyDeps(new Map(), encrypted);
+	const result = await runRepoLoad(
+		{
+			...deps,
+			writeFile: async () => {
+				assert.fail("streaming must not decode into strings");
+			},
+			writeFileStream: async (path, content) => {
+				assert.ok(path.startsWith("repo/"));
+				const reader = content.getReader();
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						assert.equal(value[0], 255);
+						consumed++;
+					}
+				} finally {
+					reader.releaseLock();
+				}
+				stored++;
+			},
+		},
+		{ tediId: TEST_TEDI_ID, paths: ["large.bin", "next.bin"] },
+	);
+	assert.equal(result.ok, true, "selection above 5 MB streams successfully");
+	assert.equal(result.totalBytes, 81 * chunk.byteLength);
+	assert.equal(result.fileCount, 2);
+	assert.equal(stored, 2);
+	console.log("✓ runRepoLoad: raw binary stream above 5 MB with backpressure");
+
+	let cancelled = false;
+	blobReads = 0;
+	globalThis.fetch = async (input) => {
+		if (String(input).includes("/git/trees/")) {
+			return jsonResponse({
+				truncated: false,
+				tree: [
+					{
+						type: "blob",
+						path: "large.bin",
+						sha: "large",
+						size: 80 * chunk.byteLength,
+					},
+					{ type: "blob", path: "next.bin", sha: "next", size: 1 },
+				],
+			});
+		}
+		blobReads++;
+		return new Response(
+			new ReadableStream<Uint8Array>({
+				pull(controller) {
+					controller.enqueue(chunk);
+				},
+				cancel() {
+					cancelled = true;
+				},
+			}),
+		);
+	};
+	const failed = await runRepoLoad(
+		{
+			...deps,
+			writeFileStream: async () => {
+				throw new Error("storage unavailable");
+			},
+		},
+		{ tediId: TEST_TEDI_ID, paths: ["large.bin", "next.bin"] },
+	);
+	assert.deepEqual(failed, {
+		ok: false,
+		error: "workspace_write_failed",
+		written: 0,
+	});
+	assert.equal(cancelled, true, "failed storage cancels the download");
+	assert.equal(blobReads, 1, "no subsequent blob fetched after failure");
+}
+
 console.log("\n✅ All repo-load tests passed");

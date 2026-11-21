@@ -137,6 +137,32 @@ it("keeps native Git operations confined to their workspace storage", async () =
 	).rejects.toThrow("no such path");
 });
 
+it("streams large binary files through the scoped workspace RPC into durable chunks", async () => {
+	const workspace = new ScopedComputerWorkspace(
+		bindings.TEDI_COMPUTER_WORKSPACE,
+		bindings,
+		computerWorkspaceScope({ sessionKey: "repo-stream" }),
+		crypto.randomUUID(),
+		async () => "tedi-test",
+	);
+	const chunk = new Uint8Array(64 * 1024).fill(255);
+	let produced = 0;
+	await workspace.workspace.writeFileStream(
+		"repo/large.bin",
+		new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (produced++ === 80) controller.close();
+				else controller.enqueue(chunk);
+			},
+		}),
+	);
+	expect((await workspace.workspace.stat("repo/large.bin"))?.size).toBe(
+		80 * chunk.byteLength,
+	);
+	const bytes = await workspace.workspace.readFileBytes("repo/large.bin");
+	expect(bytes?.every((byte) => byte === 255)).toBe(true);
+});
+
 it("uses the production scoped adapter for native tools, shell and Code Mode files", async () => {
 	const owner = crypto.randomUUID();
 	const scoped = (sessionKey: string) =>

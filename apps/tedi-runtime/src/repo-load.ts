@@ -146,6 +146,11 @@ export interface RepoLoadDeps {
 	masterKey: string | undefined;
 	/** Workspace: write a file by path with string content. */
 	writeFile: (path: string, content: string) => Promise<void>;
+	/** Durable chunked storage; without it the buffered byte budget still applies. */
+	writeFileStream?: (
+		path: string,
+		content: ReadableStream<Uint8Array>,
+	) => Promise<void>;
 }
 
 export interface RepoLoadInput {
@@ -277,13 +282,12 @@ export async function runRepoLoad(
 			? Math.min(Math.floor(inputMaxFiles), REPO_LOAD_MAX_FILES)
 			: REPO_LOAD_MAX_FILES;
 
-	// 7. Measure the selection from tree metadata, refuse it before any blob is
-	// downloaded when it exceeds the caps, then stream each file straight to the
-	// workspace. Buffering a broad selection here (e.g. `apps` + `packages` of a
-	// large monorepo, hundreds of MB) exhausted the tedi DO's isolate memory.
+	// Chunked storage bounds memory independently of the total selection size.
+	// String-only consumers still need the buffered byte budget.
 	let written: Array<{ path: string; bytes: number }> = [];
 	let skippedDirectories: string[] = [];
 	let writes = 0;
+	const writeFileStream = deps.writeFileStream;
 	try {
 		const result = await loadRepoFilesResult({
 			owner,
@@ -292,7 +296,20 @@ export async function runRepoLoad(
 			token,
 			paths: validPaths,
 			maxFiles,
-			maxBytes: REPO_LOAD_MAX_TOTAL_BYTES,
+			maxBytes: writeFileStream ? undefined : REPO_LOAD_MAX_TOTAL_BYTES,
+			onFileStream: writeFileStream
+				? async (file) => {
+						try {
+							await writeFileStream(
+								`${REPO_LOAD_WORKSPACE_PREFIX}${file.path}`,
+								file.content,
+							);
+							writes++;
+						} catch {
+							throw new WorkspaceWriteError();
+						}
+					}
+				: undefined,
 			onFile: async (file) => {
 				try {
 					await deps.writeFile(
@@ -551,23 +568,23 @@ export interface RepoFallbackSnapshotFile {
 }
 
 export interface RepoFallbackSnapshotDeps {
-	readFile: (path: string) => Promise<string | null>;
-	writeFile: (path: string, content: string) => Promise<void>;
-	removeRepoDir: () => Promise<void>;
+	mv: (from: string, to: string) => Promise<void>;
+	mkdir: (path: string, options: { recursive: true }) => Promise<void>;
+	rm: (
+		path: string,
+		options: { recursive: true; force: true },
+	) => Promise<void>;
 }
 
 /**
  * Turn an additive `repo_load` result into the replacement semantics promised
- * by `clone_repo`. Contents are staged in memory (bounded by repo_load's 5 MB
- * cap), then the old `repo/` tree is removed and only the fetched files are
- * restored. A failed restore removes the partial tree and throws so callers
- * cannot claim an isolated snapshot.
+ * by `clone_repo`. Rename the old tree aside and move only selected files back;
+ * no file contents enter memory. A failed restore removes the partial snapshot.
  */
 export async function replaceRepoFallbackSnapshot(
 	deps: RepoFallbackSnapshotDeps,
 	files: RepoFallbackSnapshotFile[],
 ): Promise<void> {
-	const staged: Array<{ path: string; content: string }> = [];
 	const seen = new Set<string>();
 	for (const file of files) {
 		const path = file.path.trim();
@@ -582,22 +599,28 @@ export async function replaceRepoFallbackSnapshot(
 			throw new Error("invalid fallback snapshot file set");
 		}
 		seen.add(path);
-		const workspacePath = `${REPO_LOAD_WORKSPACE_PREFIX}${path}`;
-		const content = await deps.readFile(workspacePath);
-		if (content === null) {
-			throw new Error("fallback snapshot file is missing from the workspace");
-		}
-		staged.push({ path: workspacePath, content });
 	}
 
-	await deps.removeRepoDir();
+	const stage = `.repo-snapshot-${crypto.randomUUID()}`;
+	const removeOptions = { recursive: true, force: true } as const;
+	if (seen.size === 0) {
+		await deps.rm("repo", removeOptions);
+		return;
+	}
+	await deps.mv("repo", stage);
 	try {
-		for (const file of staged) {
-			await deps.writeFile(file.path, file.content);
+		for (const path of seen) {
+			const target = `${REPO_LOAD_WORKSPACE_PREFIX}${path}`;
+			await deps.mkdir(target.slice(0, target.lastIndexOf("/")), {
+				recursive: true,
+			});
+			await deps.mv(`${stage}/${path}`, target);
 		}
 	} catch (error) {
-		await deps.removeRepoDir().catch(() => {});
+		await deps.rm("repo", removeOptions).catch(() => {});
 		throw error;
+	} finally {
+		await deps.rm(stage, removeOptions);
 	}
 }
 

@@ -516,19 +516,7 @@ export const runtimeRepository = {
 							: { ok: false, error: "repo_load_fallback_failed" };
 					},
 					replaceFallbackSnapshot: (files) =>
-						replaceRepoFallbackSnapshot(
-							{
-								readFile: (path) => computer.workspace.readFile(path),
-								writeFile: (path, content) =>
-									computer.workspace.writeFile(path, content),
-								removeRepoDir: () =>
-									computer.workspace.rm("repo", {
-										recursive: true,
-										force: true,
-									}),
-							},
-							files,
-						),
+						replaceRepoFallbackSnapshot(computer.workspace, files),
 				},
 				{
 					tediId,
@@ -602,6 +590,8 @@ export const runtimeRepository = {
 						.SECRETS_MASTER_KEY,
 					writeFile: (path: string, content: string) =>
 						computer.workspace.writeFile(path, content),
+					writeFileStream: (path, content) =>
+						computer.workspace.writeFileStream(path, content),
 				},
 				{
 					tediId,

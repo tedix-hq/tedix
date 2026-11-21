@@ -168,6 +168,11 @@ interface LoadRepoFilesOptions {
 	 * retained in the result, so at most the in-flight blobs are held in memory.
 	 */
 	onFile?: (file: { path: string; content: string }) => Promise<void>;
+	/** Persist raw bytes with backpressure, without decoding or buffering a blob. */
+	onFileStream?: (file: {
+		path: string;
+		content: ReadableStream<Uint8Array>;
+	}) => Promise<void>;
 }
 
 /** Normalize a caller path selector: no leading `./` or trailing slashes. */
@@ -252,8 +257,15 @@ function ghHeaders(token: string): Record<string, string> {
 	};
 }
 
-async function ghFetch<T>(url: string, token: string): Promise<T> {
-	const res = await fetch(url, { headers: ghHeaders(token) });
+async function ghFetchResponse(
+	url: string,
+	token: string,
+	accept = GH_ACCEPT,
+): Promise<Response> {
+	const res = await fetch(url, {
+		headers: { ...ghHeaders(token), Accept: accept },
+	});
+	if (!res.ok) await res.body?.cancel();
 
 	if (res.status === 404) {
 		// surface owner/repo from URL for a better message; caller catches and wraps
@@ -284,7 +296,11 @@ async function ghFetch<T>(url: string, token: string): Promise<T> {
 		);
 	}
 
-	return res.json() as Promise<T>;
+	return res;
+}
+
+async function ghFetch<T>(url: string, token: string): Promise<T> {
+	return (await ghFetchResponse(url, token)).json() as Promise<T>;
 }
 
 /** Decode a GitHub blob's content field per its encoding. */
@@ -392,9 +408,9 @@ export async function readRepoBlob({
 
 /** Result from `loadRepoFilesResult`. */
 export interface LoadRepoFilesResult {
-	/** Loaded contents; empty when the caller streamed them through `onFile`. */
+	/** Loaded contents; empty when either file callback is supplied. */
 	files: Array<{ path: string; content: string }>;
-	/** Every delivered file with its decoded UTF-8 byte length. */
+	/** Every delivered file with its stored byte length. */
 	loaded: Array<{ path: string; bytes: number }>;
 	/** Directory paths that were skipped (truncated-tree Contents API fallback). */
 	skippedDirectories: string[];
@@ -409,7 +425,8 @@ export interface LoadRepoFilesResult {
  * and downloaded bytes are re-checked as they arrive. With `onFile`, contents
  * are handed off one by one instead of accumulated. Both matter in a Durable
  * Object: a broad selector such as `packages` on a large monorepo selects
- * hundreds of megabytes, which exhausts the isolate if buffered.
+ * hundreds of megabytes, which exhausts the isolate if buffered. `onFileStream`
+ * instead passes raw response chunks to durable storage, one blob at a time.
  *
  * Returns both the loaded files and any directory paths that were skipped
  * (only possible when the tree is truncated and a path resolves to a directory).
@@ -427,6 +444,7 @@ export async function loadRepoFilesResult({
 	maxFiles,
 	maxBytes,
 	onFile,
+	onFileStream,
 }: LoadRepoFilesOptions): Promise<LoadRepoFilesResult> {
 	// For truncated trees we need skippedDirectories; go through the lower-level
 	// resolvePathsViaContents directly. For non-truncated trees, skippedDirectories
@@ -516,6 +534,48 @@ export async function loadRepoFilesResult({
 			const blob = queue.shift();
 			if (!blob) break;
 			try {
+				if (onFileStream) {
+					const url = `${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/blobs/${encodeSegment(blob.sha)}`;
+					const response = await ghFetchResponse(
+						url,
+						token,
+						"application/vnd.github.raw+json",
+					);
+					if (!response.body) throw new Error("Missing repository blob body");
+					let bytes = 0;
+					let complete = false;
+					const content = response.body.pipeThrough(
+						new TransformStream<Uint8Array, Uint8Array>({
+							transform(chunk, controller) {
+								bytes += chunk.byteLength;
+								loadedBytes += chunk.byteLength;
+								if (maxBytes !== undefined && loadedBytes > maxBytes) {
+									throw new RepoSelectionTooLargeError(
+										"bytes",
+										{
+											...summarizeRepoSelection(blobs, paths),
+											totalBytes: Math.max(loadedBytes, declaredBytes),
+										},
+										limits,
+									);
+								}
+								controller.enqueue(chunk);
+							},
+							flush() {
+								complete = true;
+							},
+						}),
+					);
+					try {
+						await onFileStream({ path: blob.path, content });
+						if (!complete)
+							throw new Error("Repository blob was not fully stored");
+					} finally {
+						if (!content.locked) await content.cancel().catch(() => {});
+					}
+					loaded.push({ path: blob.path, bytes });
+					continue;
+				}
 				const content = await readRepoBlob({
 					owner,
 					repo,
@@ -546,7 +606,10 @@ export async function loadRepoFilesResult({
 	}
 
 	await Promise.all(
-		Array.from({ length: Math.min(CONCURRENCY, blobs.length || 1) }, worker),
+		Array.from(
+			{ length: onFileStream ? 1 : Math.min(CONCURRENCY, blobs.length || 1) },
+			worker,
+		),
 	);
 	if (failure !== null) throw failure;
 

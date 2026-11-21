@@ -129,6 +129,44 @@ const bytes = new Uint8Array([0, 1, 2, 250, 255]);
 await ws.writeFileBytes("repo/.git/objects/blob", bytes);
 assert.deepEqual(await ws.readFileBytes("repo/.git/objects/blob"), bytes);
 
+// Chunked writes preserve binary bytes above the former repository load cap.
+const largeChunk = new Uint8Array(64 * 1024).fill(255);
+let streamChunks = 0;
+await ws.writeFileStream(
+	"repo/large.bin",
+	new ReadableStream<Uint8Array>({
+		pull(controller) {
+			if (streamChunks++ === 80) controller.close();
+			else controller.enqueue(largeChunk);
+		},
+	}),
+);
+assert.equal(
+	(await ws.stat("repo/large.bin"))?.size,
+	80 * largeChunk.byteLength,
+);
+assert.ok(
+	(await ws.readFileBytes("repo/large.bin"))?.every((byte) => byte === 255),
+);
+
+// A failed stream must leave the previous complete file intact.
+await ws.writeFile("scratch/atomic.bin", "previous");
+let failedStreamPulls = 0;
+await assert.rejects(
+	() =>
+		ws.writeFileStream(
+			"scratch/atomic.bin",
+			new ReadableStream<Uint8Array>({
+				pull(controller) {
+					if (failedStreamPulls++ < 10) controller.enqueue(largeChunk);
+					else controller.error(new Error("interrupted download"));
+				},
+			}),
+		),
+	/interrupted download/,
+);
+assert.equal(await ws.readFile("scratch/atomic.bin"), "previous");
+
 // appendFile creates then extends.
 await ws.appendFile("scratch/log.txt", "one\n");
 await ws.appendFile("scratch/log.txt", "two\n");
@@ -413,17 +451,23 @@ assert.equal(await ws.readFile("scratch/confined.txt"), "ok\n");
 await ws.writeFile("repo/stale/turn-work.test.ts", "stale\n");
 await ws.writeFile("repo/.git/config", "stale git\n");
 await ws.writeFile("repo/src/fresh.ts", "fresh\n");
-await replaceRepoFallbackSnapshot(
-	{
-		readFile: (path) => ws.readFile(path),
-		writeFile: (path, content) => ws.writeFile(path, content),
-		removeRepoDir: () => ws.rm("repo", { recursive: true, force: true }),
-	},
-	[{ path: "src/fresh.ts", bytes: 6 }],
-);
+await replaceRepoFallbackSnapshot(ws, [
+	{ path: "src/fresh.ts", bytes: 6 },
+	{ path: "large.bin" },
+]);
 assert.equal(await ws.readFile("repo/src/fresh.ts"), "fresh\n");
+assert.equal(
+	(await ws.stat("repo/large.bin"))?.size,
+	80 * largeChunk.byteLength,
+);
 assert.equal(await ws.readFile("repo/stale/turn-work.test.ts"), null);
 assert.equal(await ws.readFile("repo/.git/config"), null);
+assert.ok(
+	!(await ws.readDir()).some((file) => file.name.startsWith(".repo-snapshot-")),
+);
+await replaceRepoFallbackSnapshot(ws, []);
+assert.equal(await ws.exists("repo"), false);
+await replaceRepoFallbackSnapshot(ws, []);
 
 console.log("workspace-fs adapter over real VFS: all assertions passed");
 
