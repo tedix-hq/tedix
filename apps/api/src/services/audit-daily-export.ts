@@ -9,7 +9,7 @@
  *   audit-exports/v1/<organizationId>/<YYYY-MM-DD>/<HH>.jsonl.gz
  *
  * Each line is the event exactly as `GET /audit/export?format=jsonl` returns
- * it. Objects are kept 13 months, then deleted by the same tick.
+ * it. Objects are kept indefinitely; this export never deletes history.
  *
  * Every step is idempotent: an hour whose object exists is skipped, so a tick
  * that ran out of time resumes the next night, and the last
@@ -24,13 +24,10 @@ import { toAuditEventOutput } from "../lib/audit-event-output";
 export const AUDIT_DAILY_EXPORT_PREFIX = "audit-exports/v1/";
 /** Finished days retried each run, so a missed night is filled in. */
 export const AUDIT_DAILY_EXPORT_BACKFILL_DAYS = 7;
-export const AUDIT_DAILY_EXPORT_KEEP_MONTHS = 13;
 /** Rows per search page within one hour. */
 export const AUDIT_DAILY_EXPORT_PAGE_ROWS = 1000;
 /** Organizations read per listing page. */
 const ORGANIZATION_PAGE = 50;
-/** Expired objects deleted per organization per run. */
-const SWEEP_LIMIT = 1000;
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -54,19 +51,6 @@ export function auditDailyExportKey(
 ): string {
 	const iso = new Date(hourStartMs).toISOString();
 	return `${AUDIT_DAILY_EXPORT_PREFIX}${organizationId}/${iso.slice(0, 10)}/${iso.slice(11, 13)}.jsonl.gz`;
-}
-
-/** The first day (YYYY-MM-DD) still kept: anything before it is deleted. */
-export function auditDailyExportKeepFrom(now: Date): string {
-	return new Date(
-		Date.UTC(
-			now.getUTCFullYear(),
-			now.getUTCMonth() - AUDIT_DAILY_EXPORT_KEEP_MONTHS,
-			now.getUTCDate(),
-		),
-	)
-		.toISOString()
-		.slice(0, 10);
 }
 
 async function gzipLines(lines: string[]): Promise<Uint8Array> {
@@ -156,35 +140,9 @@ async function exportOrganizationDay(params: {
 	}
 }
 
-/** Delete this organization's export objects older than the keep window. */
-async function sweepOrganization(
-	bucket: R2Bucket,
-	organizationId: string,
-	keepFrom: string,
-): Promise<number> {
-	const prefix = `${AUDIT_DAILY_EXPORT_PREFIX}${organizationId}/`;
-	const expired: string[] = [];
-	let cursor: string | undefined;
-	// Keys sort by day, so the listing stops at the first kept day.
-	listing: do {
-		const page = await bucket.list({ prefix, cursor, limit: 500 });
-		for (const object of page.objects) {
-			if (object.key.slice(prefix.length, prefix.length + 10) >= keepFrom)
-				break listing;
-			expired.push(object.key);
-			if (expired.length >= SWEEP_LIMIT) break listing;
-		}
-		cursor = page.truncated ? page.cursor : undefined;
-	} while (cursor);
-	for (let index = 0; index < expired.length; index += 1000) {
-		await bucket.delete(expired.slice(index, index + 1000));
-	}
-	return expired.length;
-}
-
 /**
  * Export every organization's finished days not yet exported (newest last
- * `AUDIT_DAILY_EXPORT_BACKFILL_DAYS`), then delete objects past 13 months.
+ * `AUDIT_DAILY_EXPORT_BACKFILL_DAYS`). Existing objects stay indefinitely.
  * Stops cleanly at `budgetMs`; the next run resumes from what exists.
  */
 export async function runAuditDailyExport(params: {
@@ -198,7 +156,6 @@ export async function runAuditDailyExport(params: {
 	const deadline = clock() + params.budgetMs;
 	const outOfTime = () => clock() >= deadline;
 	const todayStartMs = Date.parse(`${utcDay(params.now.getTime())}T00:00:00Z`);
-	const keepFrom = auditDailyExportKeepFrom(params.now);
 	const result: AuditDailyExportResult = {
 		organizations: 0,
 		objectsWritten: 0,
@@ -229,11 +186,6 @@ export async function runAuditDailyExport(params: {
 						result,
 						outOfTime,
 					});
-				result.objectsDeleted += await sweepOrganization(
-					params.bucket,
-					organization.id,
-					keepFrom,
-				);
 			} catch (error) {
 				result.errors += 1;
 				console.warn(

@@ -897,7 +897,7 @@ function retentionCleanupSteps(
 			},
 		},
 		// Audit events stay 90 days in D1; each finished day is copied to the
-		// organization's R2 storage and kept 13 months (decision 5c5512a5). The
+		// organization's R2 storage and kept indefinitely. The
 		// export takes its own budget, never past this step's deadline.
 		{
 			id: "audit-daily-export",
