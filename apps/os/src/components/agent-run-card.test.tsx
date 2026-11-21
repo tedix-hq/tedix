@@ -43,11 +43,18 @@ async function mount(element: React.ReactElement) {
 }
 
 describe("AgentRunCardView", () => {
-	it("shows the newest eight steps of a live run, then all of them", async () => {
+	it("shows the launch receipt even when older steps are collapsed", async () => {
+		const active = run(12);
+		const launch = "Started codex 0.171.0 on Test Mac with model test-model";
+		active.steps = active.steps.map((step) =>
+			step.seq === 0
+				? { ...step, kind: "started", text: launch }
+				: { ...step, text: `Step ${step.seq - 1}` },
+		);
 		const { host, unmount } = await mount(
 			<AgentRunCardView
 				agentRun={agentRun}
-				run={run(11)}
+				run={active}
 				LinkComponent={TaskLink}
 			/>,
 		);
@@ -56,6 +63,7 @@ describe("AgentRunCardView", () => {
 				(row) => row.textContent,
 			);
 		expect(host.textContent).toContain("Fix paging");
+		expect(host.textContent).toContain(launch);
 		expect(
 			host.querySelector("[data-slot=agent-run-executor]")?.textContent,
 		).toContain("Codex");

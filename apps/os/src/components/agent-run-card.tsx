@@ -139,9 +139,14 @@ export function AgentRunCardView({
 	const now = useNow(live || (waiting && !attempt), live ? 1_000 : 60_000);
 	const steps = run?.steps;
 	const messages = run?.messages;
+	const launch = steps?.findLast((step) => step.kind === "started");
 	const entries = useMemo(
-		() => workRunEntries({ steps: steps ?? [], messages: messages ?? [] }),
-		[steps, messages],
+		() =>
+			workRunEntries({
+				steps: steps?.filter((step) => step !== launch) ?? [],
+				messages: messages ?? [],
+			}),
+		[steps, messages, launch],
 	);
 	const executor = executorLabel(agentRun.executor);
 	const status = failed
@@ -212,6 +217,15 @@ export function AgentRunCardView({
 								{status}
 							</span>
 						</Text>
+						{launch ? (
+							<Text
+								as="span"
+								tone="secondary"
+								className="block [overflow-wrap:anywhere]"
+							>
+								{launch.text}
+							</Text>
+						) : null}
 					</div>
 				</div>
 				{waiting && !attempt && permissionHold ? (
