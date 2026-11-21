@@ -1,3 +1,4 @@
+import { Check, Copy } from "@phosphor-icons/react";
 import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
 import {
 	Children,
@@ -8,17 +9,31 @@ import {
 	type ReactElement,
 	type ReactNode,
 	useContext,
+	useEffect,
+	useRef,
+	useState,
 } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Button } from "@/components/kumo/button";
 import { CodeBlock, CodeInline } from "@/components/kumo/code";
 import { Link } from "@/components/kumo/link";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/kumo/table";
+import { toast } from "@/components/kumo/toast";
 import { outputIdFromHref } from "@/lib/output-navigation";
-import { cn } from "@/lib/utils";
 import {
 	rehypeStripDirectionControls,
 	sanitizeUntrustedMarkdown,
+	sanitizeUntrustedText,
 } from "@/lib/untrusted-text";
+import "./chat-markdown.css";
 
 /**
  * The shape of the hast node `react-markdown` hands each component. Declared
@@ -69,6 +84,102 @@ function fencedCode(
 		.join("")
 		.replace(/\n$/, "");
 	return { code, lang: lang || "text" };
+}
+
+/** A block longer than this many lines starts folded. */
+const FOLD_ABOVE_LINES = 24;
+/** How many lines a folded block shows. */
+const FOLDED_LINES = 20;
+
+function CopyCodeButton({ code }: { code: string }) {
+	const [copied, setCopied] = useState(false);
+	const reset = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (reset.current) clearTimeout(reset.current);
+		},
+		[],
+	);
+	const label = copied ? "Copied" : "Copy code";
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			size="icon-xs"
+			aria-label={label}
+			title={label}
+			icon={copied ? <Check size={14} /> : <Copy size={14} />}
+			onClick={async () => {
+				try {
+					await navigator.clipboard.writeText(code);
+					setCopied(true);
+					if (reset.current) clearTimeout(reset.current);
+					reset.current = setTimeout(() => setCopied(false), 2000);
+				} catch {
+					toast.error("Could not copy");
+				}
+			}}
+		/>
+	);
+}
+
+/**
+ * A code block in a reply: a header naming the language with a copy button,
+ * a body that scrolls sideways instead of wrapping, and long blocks folded
+ * to their first lines until the reader asks for the rest. Copy always takes
+ * the whole block.
+ */
+function ChatCodeBlock({ code, lang }: { code: string; lang: string }) {
+	const [expanded, setExpanded] = useState(false);
+	const lines = code.split("\n");
+	const foldable = lines.length > FOLD_ABOVE_LINES;
+	const folded = foldable && !expanded;
+	return (
+		<div
+			className="chat-markdown-code"
+			data-slot="chat-markdown-code"
+			data-folded={folded ? "true" : undefined}
+		>
+			<div className="chat-markdown-code-header">
+				<span className="chat-markdown-code-lang">{lang}</span>
+				<CopyCodeButton code={code} />
+			</div>
+			<CodeBlock
+				code={folded ? lines.slice(0, FOLDED_LINES).join("\n") : code}
+				lang={lang}
+				variant="plain"
+				className="chat-markdown-code-body rounded-none bg-transparent px-3 py-2.5"
+			/>
+			{foldable ? (
+				<div className="chat-markdown-code-more">
+					<Button
+						type="button"
+						variant="ghost"
+						size="xs"
+						aria-expanded={expanded}
+						onClick={() => setExpanded((value) => !value)}
+					>
+						{expanded ? "Show fewer lines" : `Show all ${lines.length} lines`}
+					</Button>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+/**
+ * A reply that is nothing but a JSON object or array: a raw dump, shown as a
+ * code block rather than run together as prose.
+ */
+function jsonDump(content: string): string | null {
+	const trimmed = content.trim();
+	if (!/^[[{]/.test(trimmed)) return null;
+	try {
+		JSON.parse(trimmed);
+		return trimmed;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -159,6 +270,23 @@ function remarkAppPaths() {
 	return (tree: MarkdownTreeNode) => linkAppPaths(tree);
 }
 
+function unescapeCodeText(node: MarkdownTreeNode): void {
+	if ((node.type === "code" || node.type === "inlineCode") && node.value) {
+		node.value = node.value.replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+	}
+	node.children?.forEach(unescapeCodeText);
+}
+
+/**
+ * `sanitizeUntrustedMarkdown` escapes every angle bracket, and Markdown does
+ * not decode character references inside code, so `a < b` in a fence would
+ * read `a &lt; b`. Code text is rendered as text (React or the highlighter
+ * escapes it), so the brackets go back.
+ */
+function remarkCodeText() {
+	return (tree: MarkdownTreeNode) => unescapeCodeText(tree);
+}
+
 /** A plain primary click; modified clicks keep the browser's own behavior. */
 function isPlainPrimaryClick(event: MouseEvent<HTMLAnchorElement>): boolean {
 	return (
@@ -193,45 +321,33 @@ export function ChatMarkdown({
 	// stay — the string pass is what keeps a control out of the markdown
 	// grammar itself.
 	const markdown = sanitizeUntrustedMarkdown(content);
+	const dump = jsonDump(content);
+	// Typography lives in `chat-markdown.css`; only behaviour stays here.
+	const className = `chat-markdown min-w-0 max-w-full [overflow-wrap:anywhere] text-kumo-default ${preserveLineBreaks ? "whitespace-pre-wrap" : ""}`;
+	if (dump) {
+		return (
+			<div className={className}>
+				<ChatCodeBlock code={sanitizeUntrustedText(dump)} lang="json" />
+			</div>
+		);
+	}
 	return (
-		<div
-			className={`chat-markdown min-w-0 max-w-full [overflow-wrap:anywhere] text-kumo-default type-tedix-body ${preserveLineBreaks ? "whitespace-pre-wrap" : ""}`}
-		>
+		<div className={className}>
 			<ReactMarkdown
 				skipHtml
-				remarkPlugins={[remarkGfm, remarkAppPaths]}
+				remarkPlugins={[remarkGfm, remarkAppPaths, remarkCodeText]}
 				rehypePlugins={[rehypeStripDirectionControls]}
 				components={{
-					p: ({ children }) => (
-						<p className="my-[0.4em] first:mt-0 last:mb-0">{children}</p>
-					),
-					h1: ({ children }) => (
-						<h1 className="mt-[0.9em] mb-[0.4em] text-xl font-semibold first:mt-0">
-							{children}
-						</h1>
-					),
-					h2: ({ children }) => (
-						<h2 className="mt-[0.9em] mb-[0.4em] text-lg font-semibold first:mt-0">
-							{children}
-						</h2>
-					),
-					h3: ({ children }) => (
-						<h3 className="mt-[0.9em] mb-[0.4em] font-semibold first:mt-0">
-							{children}
-						</h3>
-					),
+					// Lists stay components, not plain tags: only a component element
+					// carries its `node`, which a caller's `li` override reads to find
+					// a nested list.
 					ul: ({ className, children }) => (
-						<ul
-							className={cn(
-								"my-[0.4em] list-disc pl-6",
-								className?.includes("contains-task-list") && "list-none pl-0",
-							)}
-						>
-							{children}
-						</ul>
+						<ul className={className}>{children}</ul>
 					),
-					ol: ({ children }) => (
-						<ol className="my-[0.4em] list-decimal pl-6">{children}</ol>
+					ol: ({ className, start, children }) => (
+						<ol className={className} start={start}>
+							{children}
+						</ol>
 					),
 					li: ({ className, children }) => {
 						const taskLabel = className?.includes("task-list-item")
@@ -250,16 +366,7 @@ export function ChatMarkdown({
 									return child;
 								})
 							: children;
-						return (
-							<li
-								className={cn(
-									"my-[0.2em]",
-									className?.includes("task-list-item") && "list-none",
-								)}
-							>
-								{renderedChildren}
-							</li>
-						);
+						return <li className={className}>{renderedChildren}</li>;
 					},
 					input: ({ type, checked, "aria-label": ariaLabel }) =>
 						type === "checkbox" ? (
@@ -272,52 +379,28 @@ export function ChatMarkdown({
 								className="mr-2 size-3.5 align-middle accent-[var(--primary)]"
 							/>
 						) : null,
-					del: ({ children }) => (
-						<del className="text-kumo-subtle decoration-kumo-subtle">
-							{children}
-						</del>
-					),
-					blockquote: ({ children }) => (
-						<blockquote className="my-[0.6em] border-kumo-hairline border-l-2 pl-3 text-kumo-subtle">
-							{children}
-						</blockquote>
-					),
-					hr: () => <hr className="my-4 border-kumo-hairline" />,
 					table: ({ children }) => (
-						<div className="my-3 max-w-full overflow-x-auto rounded-lg border border-kumo-hairline">
-							<table className="w-full border-collapse text-left text-sm">
-								{children}
-							</table>
-						</div>
+						<Table containerClassName="chat-markdown-table">{children}</Table>
 					),
-					th: ({ children }) => (
-						<th className="border-kumo-hairline border-b bg-kumo-fill px-3 py-2 font-medium">
+					thead: ({ children }) => <TableHeader>{children}</TableHeader>,
+					tbody: ({ children }) => <TableBody>{children}</TableBody>,
+					tr: ({ children }) => <TableRow>{children}</TableRow>,
+					// Body cells wrap, so a column of prose does not stretch the table;
+					// the container still scrolls sideways when the columns cannot fit.
+					th: ({ children, style }) => (
+						<TableHead style={style}>{children}</TableHead>
+					),
+					td: ({ children, style }) => (
+						<TableCell style={style} className="whitespace-normal align-top">
 							{children}
-						</th>
+						</TableCell>
 					),
-					td: ({ children }) => (
-						<td className="border-kumo-hairline border-b px-3 py-2 align-top last:border-b-0">
-							{children}
-						</td>
-					),
+					// `react-markdown` renders a fenced block as `pre > code`, so the
+					// block is claimed here and `ChatCodeBlock` brings its own `<pre>`.
 					pre: ({ node, children }) => {
 						const fenced = fencedCode(node as MarkdownNode | undefined);
-						// Kumo's highlighter owns the block's geometry; the wrapper owns
-						// the width contract. `min-w-0` lets a flex/grid parent shrink
-						// the block below its content width, and `overflow-x-auto` on
-						// both wrapper and `<pre>` scrolls a long line instead of
-						// clipping it — in a 370px pane as well as a wide one.
 						return fenced ? (
-							<div
-								className="chat-markdown-code my-3 min-w-0 max-w-full overflow-x-auto whitespace-normal [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre"
-								data-slot="chat-markdown-code"
-							>
-								<CodeBlock
-									code={fenced.code}
-									lang={fenced.lang}
-									showCopyButton
-								/>
-							</div>
+							<ChatCodeBlock code={fenced.code} lang={fenced.lang} />
 						) : (
 							<pre className="max-w-full overflow-x-auto">{children}</pre>
 						);
@@ -326,30 +409,32 @@ export function ChatMarkdown({
 					a: ({ href, children }) => {
 						const resolved = resolveChatMarkdownHref(href);
 						if (!resolved) return <span>{children}</span>;
-						const outputId = resolved.external
-							? null
-							: outputIdFromHref(resolved.href);
-						// Another page of the app goes through the router.
-						if (!resolved.external && !(outputId && openOutput))
+						if (resolved.external)
+							return (
+								<Link
+									href={resolved.href}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									{children}
+								</Link>
+							);
+						const outputId = outputIdFromHref(resolved.href);
+						// Another page of the app goes through the router; an output
+						// opens in the host Workspace's pane on a plain click.
+						if (!(outputId && openOutput))
 							return <Link href={resolved.href}>{children}</Link>;
 						return (
-							<a
-								href={resolved.href}
-								rel="noopener noreferrer"
-								{...(resolved.external ? { target: "_blank" } : {})}
-								{...(outputId && openOutput
-									? {
-											onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-												if (!isPlainPrimaryClick(event)) return;
-												event.preventDefault();
-												openOutput(outputId);
-											},
-										}
-									: {})}
-								className="text-kumo-link underline-offset-2 hover:underline"
+							<Link
+								render={<a href={resolved.href} />}
+								onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+									if (!isPlainPrimaryClick(event)) return;
+									event.preventDefault();
+									openOutput(outputId);
+								}}
 							>
 								{children}
-							</a>
+							</Link>
 						);
 					},
 					...components,

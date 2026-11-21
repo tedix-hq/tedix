@@ -60,7 +60,7 @@ describe("StreamedAssistantBubble", () => {
 		// Same renderer as the durable row, so the swap is not a reflow.
 		expect(html).toContain("chat-markdown");
 		expect(html).toContain("<strong>bold</strong>");
-		expect(html).toContain('class="my-[0.2em]">one</li>');
+		expect(html).toContain("<li>one</li>");
 		expect(html).not.toContain("**bold**");
 	});
 

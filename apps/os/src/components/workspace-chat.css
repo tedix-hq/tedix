@@ -161,15 +161,38 @@
 	margin: 2px 0 4px 20px;
 }
 
-.workspace-chat-prose[data-streaming="true"] > .chat-markdown::after {
+/*
+ * The streaming caret ends the last line of text: after a closing paragraph,
+ * heading or list item it sits inline; after a code block or table it sits on
+ * its own line below. It never adds a line of its own to finished prose.
+ */
+.workspace-chat-prose[data-streaming="true"]
+	> .chat-markdown
+	> :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
+.workspace-chat-prose[data-streaming="true"]
+	> .chat-markdown
+	> :is(ul, ol):last-child
+	> li:last-child::after,
+.workspace-chat-prose[data-streaming="true"]
+	> .chat-markdown:not(
+		:has(> :is(p, h1, h2, h3, h4, h5, h6, ul, ol):last-child)
+	)::after {
 	content: "";
 	display: inline-block;
-	width: 0.5em;
+	width: 2px;
 	height: 1em;
 	margin-left: 2px;
+	border-radius: 1px;
 	vertical-align: text-bottom;
-	background: currentcolor;
-	animation: workspace-chat-pulse 0.9s steps(2) infinite;
+	background: var(--color-kumo-brand, currentcolor);
+	animation: workspace-chat-pulse 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-chat-prose[data-streaming="true"] .chat-markdown *::after,
+	.workspace-chat-prose[data-streaming="true"] .chat-markdown::after {
+		animation: none;
+	}
 }
 
 .workspace-chat-working {

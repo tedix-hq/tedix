@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { ChatMarkdown, ChatOutputLinkContext } from "./chat-markdown";
 
 /**
@@ -57,28 +57,17 @@ describe("ChatMarkdown document flow", () => {
 		expect(html).toContain("whitespace-pre-wrap");
 	});
 
-	it("renders lists, blockquotes, and responsive tables with readable chrome", () => {
+	it("renders a table as a scrollable table with a header row", () => {
 		const html = render(
-			[
-				"> quoted result",
-				"",
-				"- first",
-				"- second",
-				"",
-				"| Name | Value |",
-				"| --- | --- |",
-				"| Alpha | 42 |",
-			].join("\n"),
+			["| Name | Value |", "| --- | --- |", "| Alpha | 42 |"].join("\n"),
 		);
-		expect(html).toContain("<blockquote");
-		expect(html).toContain("list-disc");
-		expect(html).toContain("overflow-x-auto");
-		expect(html).toContain("<table");
+		expect(html).toContain('data-slot="table-container"');
+		expect(html).toContain('role="columnheader"');
+		expect(html).toContain("Alpha");
 	});
 
 	it("renders GFM task lists as compact read-only controls", () => {
 		const html = render("- [x] shipped\n- [ ] verify production");
-		expect(html).toContain("list-none pl-0");
 		expect(html).toContain('type="checkbox"');
 		expect(html).toContain("accent-[var(--primary)]");
 		expect(html).toContain('aria-label="shipped"');
@@ -89,24 +78,84 @@ describe("ChatMarkdown document flow", () => {
 });
 
 describe("ChatMarkdown code blocks", () => {
-	it("scrolls a long fenced line horizontally instead of clipping it", () => {
-		const html = render(
-			["```ts", `const veryLongIdentifier = ${"x".repeat(400)};`, "```"].join(
-				"\n",
-			),
+	function mount(content: string) {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		act(() => root.render(<ChatMarkdown content={content} />));
+		return {
+			container,
+			unmount() {
+				act(() => root.unmount());
+				container.remove();
+			},
+		};
+	}
+
+	const fence = (lang: string, lines: string[]) =>
+		["```" + lang, ...lines, "```"].join("\n");
+
+	it("labels the block with its language, or text when the fence has none", () => {
+		expect(render(fence("ts", ["const a = 1;"]))).toContain(
+			'<span class="chat-markdown-code-lang">ts</span>',
 		);
-		expect(html).toContain('data-slot="chat-markdown-code"');
-		expect(html).toContain("min-w-0 max-w-full overflow-x-auto");
-		expect(html).toContain("[&amp;_pre]:overflow-x-auto");
-		expect(html).toContain("[&amp;_pre]:whitespace-pre");
-		expect(html).not.toContain("overflow-hidden");
-		// The container itself can shrink inside a narrow (370px) pane.
-		expect(html).toContain("chat-markdown min-w-0 max-w-full");
+		expect(render(fence("", ["plain"]))).toContain(
+			'<span class="chat-markdown-code-lang">text</span>',
+		);
 	});
 
-	it("keeps an unlabelled fence a block with the same width contract", () => {
-		const html = render(["```", "plain", "```"].join("\n"));
-		expect(html).toContain('data-slot="chat-markdown-code"');
+	it("shows angle brackets in code as written", () => {
+		const html = render(
+			"`a < b`\n\n" + fence("ts", ["if (a < b && c > d) {}"]),
+		);
+		expect(html).toContain("a &lt; b");
+		expect(html).toContain("if (a &lt; b &amp;&amp; c &gt; d) {}");
+		expect(html).not.toContain("&amp;lt;");
+	});
+
+	it("folds a long block to its first lines and copies all of it", async () => {
+		const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const view = mount(fence("bash", lines));
+		const body = () =>
+			view.container.querySelector(".chat-markdown-code-body")?.textContent ??
+			"";
+		const toggle = [...view.container.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("lines"),
+		);
+		expect(toggle?.textContent).toBe("Show all 30 lines");
+		expect(body()).toContain("line 20");
+		expect(body()).not.toContain("line 21");
+
+		const copy = view.container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Copy code"]',
+		);
+		await act(async () => copy?.click());
+		expect(writeText).toHaveBeenCalledWith(lines.join("\n"));
+		expect(
+			view.container.querySelector('button[aria-label="Copied"]'),
+		).not.toBeNull();
+
+		act(() => toggle?.click());
+		expect(body()).toContain("line 30");
+		expect(toggle?.textContent).toBe("Show fewer lines");
+		view.unmount();
+	});
+
+	it("leaves a short block unfolded", () => {
+		const html = render(fence("ts", ["a", "b", "c"]));
+		expect(html).not.toContain("Show all");
+		expect(html).not.toContain("data-folded");
+	});
+
+	it("shows a reply that is only JSON as a JSON code block", () => {
+		const html = render('{\n  "status": "ok",\n  "count": 2\n}');
+		expect(html).toContain('<span class="chat-markdown-code-lang">json</span>');
+		expect(html).not.toContain("<p>");
 	});
 });
 

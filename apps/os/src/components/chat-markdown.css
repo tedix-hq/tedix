@@ -1,0 +1,180 @@
+/*
+ * Reply text, shared by every surface that renders `ChatMarkdown`: workspace
+ * chat, /chat, Home, and the cards that quote agent text. Calm reading type
+ * on the app's tokens, modest headings, quiet chrome.
+ *
+ * In the components layer so a caller's `components` override with utility
+ * classes still wins.
+ */
+@layer components {
+	.chat-markdown {
+		font-size: var(--text-tedix-body);
+		line-height: var(--text-tedix-section--line-height);
+	}
+
+	.chat-markdown
+		:where(
+			p,
+			ul,
+			ol,
+			blockquote,
+			hr,
+			.chat-markdown-code,
+			.chat-markdown-table
+		) {
+		margin-block: 0.75em;
+	}
+
+	.chat-markdown :where(h1, h2, h3, h4, h5, h6) {
+		margin-block: 1.25em 0.5em;
+		color: var(--text-color-kumo-strong);
+		font-weight: 600;
+	}
+
+	.chat-markdown h1 {
+		font-size: var(--text-tedix-dialog);
+		line-height: var(--text-tedix-dialog--line-height);
+	}
+
+	.chat-markdown h2 {
+		font-size: var(--text-tedix-section);
+		line-height: var(--text-tedix-section--line-height);
+	}
+
+	.chat-markdown :where(h3, h4, h5, h6) {
+		font-size: inherit;
+		line-height: inherit;
+	}
+
+	.chat-markdown :where(h4, h5, h6) {
+		color: var(--text-color-kumo-default);
+	}
+
+	/* The first and last block sit flush with the message edges. */
+	.chat-markdown > :first-child,
+	.chat-markdown li > :first-child {
+		margin-top: 0;
+	}
+
+	.chat-markdown > :last-child,
+	.chat-markdown li > :last-child {
+		margin-bottom: 0;
+	}
+
+	.chat-markdown strong {
+		font-weight: 600;
+	}
+
+	.chat-markdown ul,
+	.chat-markdown ol {
+		padding-left: 1.5em;
+	}
+
+	.chat-markdown ul {
+		list-style: disc;
+	}
+
+	.chat-markdown ol {
+		list-style: decimal;
+	}
+
+	.chat-markdown ul ul {
+		list-style: circle;
+	}
+
+	.chat-markdown li {
+		margin-block: 0.25em;
+		padding-left: 0.125em;
+	}
+
+	.chat-markdown li::marker {
+		color: var(--text-color-kumo-subtle);
+	}
+
+	.chat-markdown li > :where(ul, ol, p) {
+		margin-block: 0.25em;
+	}
+
+	.chat-markdown ul.contains-task-list {
+		padding-left: 0;
+		list-style: none;
+	}
+
+	.chat-markdown li.task-list-item {
+		padding-left: 0;
+		list-style: none;
+	}
+
+	.chat-markdown blockquote {
+		padding-left: 0.875em;
+		border-left: 2px solid var(--color-kumo-hairline);
+		color: var(--text-color-kumo-subtle);
+	}
+
+	.chat-markdown hr {
+		margin-block: 1.5em;
+		border: 0;
+		border-top: 1px solid var(--color-kumo-hairline);
+	}
+
+	.chat-markdown del {
+		color: var(--text-color-kumo-subtle);
+	}
+
+	/* Words stay whole in cells; a table too wide for the pane scrolls. */
+	.chat-markdown-table {
+		border: 1px solid var(--color-kumo-hairline);
+		border-radius: 8px;
+		overflow-wrap: normal;
+	}
+
+	/*
+	 * Code: one hairline frame, a small header with the language and copy,
+	 * and a body that scrolls sideways rather than wrapping.
+	 */
+	.chat-markdown-code {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		border: 1px solid var(--color-kumo-hairline);
+		border-radius: 8px;
+		background: var(--color-kumo-base);
+		white-space: normal;
+	}
+
+	.chat-markdown-code-header {
+		display: flex;
+		min-height: 32px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 0 4px 0 12px;
+		border-bottom: 1px solid var(--color-kumo-hairline);
+		background: var(--color-kumo-tint);
+	}
+
+	.chat-markdown-code-lang {
+		color: var(--text-color-kumo-subtle);
+		font-family: var(--font-mono);
+		font-size: var(--text-tedix-label);
+		line-height: var(--text-tedix-label--line-height);
+	}
+
+	.chat-markdown-code-body pre {
+		font-size: var(--text-tedix-control) !important;
+		line-height: 1.6 !important;
+		white-space: pre !important;
+		overflow-wrap: normal;
+	}
+
+	.chat-markdown-code[data-folded="true"] .chat-markdown-code-body {
+		mask-image: linear-gradient(to bottom, #000 calc(100% - 3em), transparent);
+	}
+
+	.chat-markdown-code-more {
+		display: flex;
+		justify-content: center;
+		padding: 2px;
+		border-top: 1px solid var(--color-kumo-hairline);
+	}
+}
