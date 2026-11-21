@@ -525,7 +525,7 @@ export function registerHotThemeTools(
 		{
 			title: "Read Theme Artifact File",
 			description:
-				"Read one editable text file from an exact commit in this tenant's Artifacts theme repo through the native binding, without starting the Site Builder sandbox or creating credentials.",
+				"Read one editable text file from an exact commit in this tenant's Artifacts theme repo through the native binding, without starting the Site Builder sandbox or creating credentials. Decode contentBase64 for exact UTF-8 source bytes; verify sizeBytes and sha256. The gateway may sanitize content.",
 			inputSchema: schema(
 				z.object({
 					sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
@@ -537,6 +537,8 @@ export function registerHotThemeTools(
 					sourceCommit: z.string(),
 					path: z.string(),
 					content: z.string(),
+					contentBase64: z.string(),
+					sha256: z.string(),
 					sizeBytes: z.number(),
 				}),
 			),

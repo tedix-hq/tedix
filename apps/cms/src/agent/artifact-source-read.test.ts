@@ -1,3 +1,6 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
+import { sanitizeUntrustedValue } from "@tedix/mcp-shared/content-sanitize";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { ArtifactsBinding } from "../types";
 import { readThemeArtifactFile } from "./artifact-source-read";
@@ -70,9 +73,37 @@ function fixture(
 	return { read, repo, get, dispose };
 }
 describe("native Artifacts source file read", () => {
+	it("round-trips source bytes through gateway sanitization without exempting untrusted text", async () => {
+		const prefix =
+			'\uFEFF---\r\nconst label = "Grüße 👋";\r\n---\r\n<nav onclick="open()"><svg><path d="M0 0"/></svg></nav><script>run()</script><style>nav{color:red}</style>&amp;\u202e';
+		const source = prefix + " ".repeat(17493 - Buffer.byteLength(prefix));
+		const bytes = Buffer.from(source);
+		const output = await fixture({ bytes }).read();
+		const wire = sanitizeUntrustedValue({
+			structuredContent: output,
+			content: [{ type: "text", text: JSON.stringify(output) }],
+		}) as {
+			structuredContent: typeof output;
+			content: Array<{ text: string }>;
+		};
+		for (const result of [
+			wire.structuredContent,
+			JSON.parse(wire.content[0]!.text),
+		]) {
+			const decoded = Buffer.from(result.contentBase64, "base64");
+			expect(decoded).toEqual(bytes);
+			expect(decoded.length).toBe(17493);
+			expect(result.sizeBytes).toBe(decoded.length);
+			expect(result.sha256).toBe(
+				createHash("sha256").update(decoded).digest("hex"),
+			);
+			expect(result.content).not.toContain("run()");
+			expect(result.content).not.toContain("onclick");
+		}
+	});
 	it("reads exact tenant commit and regular blob, disposing the RPC handle without tokens", async () => {
 		const f = fixture();
-		expect(await f.read()).toEqual({
+		expect(await f.read()).toMatchObject({
 			sourceCommit: COMMIT,
 			path: "src/components/Hero.astro",
 			content: "<h1>Active</h1>",
