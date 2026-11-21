@@ -1648,6 +1648,36 @@ describe("WorkspaceDO", () => {
 			resourceGrants: [{ slot: bound!.slot, operations: ["outputs.read"] }],
 			config: { settings: { reads: { budget: bound!.slot } } },
 		});
+		await ws.scriptModel(own, [
+			{
+				code: "export default async env => { const [app] = await env.apps.list(); return env.apps.access({ appId: app.id }); }",
+			},
+			{ text: "Checked." },
+		]);
+		const check = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Which files can the gadget read?",
+		});
+		await ws.awaitTurn(own, check.turnId, 20000);
+		const events = await ws.readEvents(own, {
+			conversationId: check.conversationId,
+			after: 0,
+		});
+		const access = events.find(
+			(event) => event.type === "step.started" && event.tool === "apps.access",
+		);
+		expect(access).toMatchObject({ label: "Checking gadget access" });
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: "step.finished",
+				stepId: access?.type === "step.started" ? access.stepId : null,
+				status: "ok",
+				result: JSON.stringify([
+					{ slot: bound!.slot, operations: ["outputs.read"] },
+				]),
+			}),
+		);
 	});
 
 	test("typed Doc edits use the canonical document; one that removes a block cannot run before approval", async () => {
