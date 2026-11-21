@@ -1,4 +1,4 @@
-import { useContext, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import {
 	ChatText,
 	CheckCircle,
@@ -25,6 +25,13 @@ import {
 } from "./work-actor-avatar";
 import { useQuery } from "@tanstack/react-query";
 import { workItemDetailQueryOptions } from "@/lib/os-query-options";
+import {
+	Sheet,
+	SheetContent,
+	SheetTitle,
+	SheetDescription,
+} from "./kumo/sheet";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { resolveWorkContributor, workActorReference } from "@/lib/work-actor";
 import { WorkSourceProvenance } from "./work-source-provenance";
@@ -71,53 +78,115 @@ const RECEIPT_NOTES = [
 	OS_COPY.feed.correctionExplanation,
 ];
 
-function PostDiscussion({ itemId }: { itemId: string }) {
+function PostDiscussion({
+	itemId,
+	headline,
+	open,
+	onOpenChange,
+	trigger,
+}: {
+	itemId: string;
+	headline: string;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	trigger: HTMLButtonElement;
+}) {
+	const mobile = useMediaQuery("(max-width: 639px)");
+	const list = useRef<HTMLDivElement>(null);
+	const [limit, setLimit] = useState(5);
 	const detail = useQuery({
 		...workItemDetailQueryOptions(itemId),
-		refetchInterval: 30_000,
+		enabled: open,
+		refetchInterval: open ? 30_000 : false,
 	});
 	const directory = useContext(WorkActorDirectoryContext);
 	const replies = detail.data?.comments ?? [];
+	useEffect(() => {
+		if (open && list.current)
+			list.current.scrollTop = list.current.scrollHeight;
+	}, [open, replies.length]);
 	return (
-		<section
-			aria-label="Work discussion"
-			className="grid gap-3 border-t border-kumo-line pt-3"
-		>
-			{detail.isPending && <Text>Loading comments…</Text>}
-			{detail.isError && (
-				<Text>
-					Could not load comments.{" "}
-					<Link href={`/work/items/${itemId}`}>Open task</Link>
-				</Text>
-			)}
-			{replies.slice(-5).map((reply) => {
-				const actor = workActorReference(
-					reply.authorType,
-					reply.authorId,
-					reply.metadata,
-				);
-				const author = resolveWorkContributor(
-					actor,
-					reply.authorType === "user" ? "Team member" : "Agent",
-					directory,
-				);
-				return (
-					<div key={reply.id} className="flex items-start gap-2">
-						<WorkActorAvatar actor={actor} name={author.label} />
-						<div className="min-w-0">
-							<Text weight="semibold">{author.label}</Text>
-							<p className="whitespace-pre-wrap break-words line-clamp-5">
-								{reply.body}
-							</p>
-						</div>
-					</div>
-				);
-			})}
-			{replies.length > 0 && (
-				<Link href={`/work/items/${itemId}`}>Open full discussion</Link>
-			)}
-			<WorkItemCommentComposer itemId={itemId} />
-		</section>
+		<Sheet open={open} onOpenChange={onOpenChange}>
+			<SheetContent
+				keepMounted
+				side={mobile ? "bottom" : "right"}
+				size="md"
+				finalFocus={() => trigger}
+				className={
+					mobile
+						? "h-[min(82dvh,var(--viewport-tedix-height))] overflow-hidden rounded-t-2xl"
+						: "overflow-hidden"
+				}
+			>
+				<header className="shrink-0 border-b border-kumo-line px-4 py-4 pe-16">
+					<SheetTitle>Comments</SheetTitle>
+					<SheetDescription className="mt-1 line-clamp-2">
+						<Link href={`/work/items/${itemId}`}>{headline}</Link>
+					</SheetDescription>
+				</header>
+				<div
+					ref={list}
+					className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4"
+					aria-label="Work discussion"
+					role="region"
+				>
+					{replies.length > limit && (
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() => setLimit((n) => n + 10)}
+						>
+							Earlier comments
+						</Button>
+					)}
+					{detail.isSuccess && replies.length === 0 && (
+						<Text tone="secondary">No comments yet.</Text>
+					)}
+					{detail.isPending && <Text>Loading comments…</Text>}
+					{detail.isError && (
+						<Text>
+							Could not load comments.{" "}
+							<Link href={`/work/items/${itemId}`}>Open task</Link>
+						</Text>
+					)}
+					{replies.slice(-limit).map((reply) => {
+						const actor = workActorReference(
+							reply.authorType,
+							reply.authorId,
+							reply.metadata,
+						);
+						const author = resolveWorkContributor(
+							actor,
+							reply.authorType === "user" ? "Team member" : "Agent",
+							directory,
+						);
+						return (
+							<div key={reply.id} className="flex items-start gap-2">
+								<WorkActorAvatar actor={actor} name={author.label} />
+								<div className="min-w-0">
+									<div className="flex flex-wrap items-baseline gap-x-2">
+										<Text weight="semibold">{author.label}</Text>
+										<time
+											dateTime={reply.createdAt}
+											title={absoluteTime(reply.createdAt)}
+											className="text-xs text-kumo-subtle"
+										>
+											{relativeTime(reply.createdAt)}
+										</time>
+									</div>
+									<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+										{reply.body}
+									</p>
+								</div>
+							</div>
+						);
+					})}
+				</div>
+				<footer className="shrink-0 border-t border-kumo-line p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
+					<WorkItemCommentComposer itemId={itemId} compact />
+				</footer>
+			</SheetContent>
+		</Sheet>
 	);
 }
 
@@ -151,6 +220,8 @@ export function FeedCard({
 	const article = useRef<HTMLElement>(null);
 	const commentTrigger = useRef<HTMLButtonElement>(null);
 	const [receipt, setReceipt] = useState(false);
+	const [discussionTrigger, setDiscussionTrigger] =
+		useState<HTMLButtonElement | null>(null);
 	const [discussion, setDiscussion] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
@@ -339,15 +410,17 @@ export function FeedCard({
 						disabled={busy}
 					/>
 				)}
-				<div className="flex flex-wrap items-center gap-2">
+				<div className="ft-post-actions flex flex-wrap items-center gap-2">
 					{item.workItemId && (
 						<Button
 							size="sm"
 							variant="ghost"
 							aria-expanded={discussion}
-							onClick={() => {
-								if (!discussion) onOpenDiscussion?.();
-								setDiscussion(!discussion);
+							aria-haspopup="dialog"
+							onClick={(event) => {
+								setDiscussionTrigger(event.currentTarget);
+								onOpenDiscussion?.();
+								setDiscussion(true);
 							}}
 						>
 							<ChatText size={16} aria-hidden />
@@ -388,8 +461,15 @@ export function FeedCard({
 						]}
 					/>
 				</div>
-				{discussion && item.workItemId && (
-					<PostDiscussion key={item.workItemId} itemId={item.workItemId} />
+				{discussionTrigger && item.workItemId && (
+					<PostDiscussion
+						key={item.workItemId}
+						itemId={item.workItemId}
+						headline={story.headline}
+						open={discussion}
+						onOpenChange={setDiscussion}
+						trigger={discussionTrigger}
+					/>
 				)}
 				<div
 					id={receiptId}

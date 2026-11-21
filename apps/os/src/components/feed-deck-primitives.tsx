@@ -13,6 +13,12 @@ import {
 	type ReactNode,
 } from "react";
 import { FileTextIcon, CaretRightIcon } from "@phosphor-icons/react";
+import {
+	Dialog,
+	DialogContent,
+	DialogTitle,
+	DialogTrigger,
+} from "./kumo/dialog";
 import { Kbd } from "@/components/kumo/kbd";
 import {
 	Tooltip,
@@ -218,24 +224,52 @@ export function RichPreview({
 	image?: string;
 	imageAlt?: string;
 }) {
+	const caption = (
+		<span className="fd-preview-copy">
+			<span className="fd-preview-title">{title}</span>
+			{summary && <span className="fd-preview-summary">{summary}</span>}
+		</span>
+	);
+	if (image)
+		return (
+			<div className="fd-preview fd-image-post">
+				<Dialog>
+					<DialogTrigger
+						render={
+							<button
+								type="button"
+								className="w-full cursor-zoom-in"
+								aria-label={`Enlarge ${title}`}
+							/>
+						}
+					>
+						<img
+							src={image}
+							alt={imageAlt}
+							loading="lazy"
+							className="fd-preview-image"
+						/>
+					</DialogTrigger>
+					<DialogContent size="xl">
+						<DialogTitle className="pe-10">{title}</DialogTitle>
+						<img
+							src={image}
+							alt={imageAlt}
+							className="mx-auto max-h-[70dvh] max-w-full object-contain"
+						/>
+					</DialogContent>
+				</Dialog>
+				<Link variant="plain" href={href}>
+					{caption}
+				</Link>
+			</div>
+		);
 	return (
 		<Link href={href} variant="plain" className="fd-preview">
-			{image ? (
-				<img
-					src={image}
-					alt={imageAlt}
-					loading="lazy"
-					className="fd-preview-image"
-				/>
-			) : (
-				<span className="fd-preview-mark" aria-hidden="true">
-					<FileTextIcon size={26} weight="light" />
-				</span>
-			)}
-			<span className="fd-preview-copy">
-				<span className="fd-preview-title">{title}</span>
-				{summary && <span className="fd-preview-summary">{summary}</span>}
+			<span className="fd-preview-mark" aria-hidden="true">
+				<FileTextIcon size={26} weight="light" />
 			</span>
+			{caption}
 		</Link>
 	);
 }

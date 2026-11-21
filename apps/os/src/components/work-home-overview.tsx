@@ -1,4 +1,4 @@
-import { PencilSimple, SlidersHorizontal } from "@phosphor-icons/react";
+import { PencilSimple, Pulse, SlidersHorizontal } from "@phosphor-icons/react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { ActivityRunningNow } from "./activity-running-now";
@@ -168,11 +168,11 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 			<div
 				role="group"
 				aria-label="Activity scope"
-				className="flex flex-wrap items-center gap-1"
+				className="activity-toolbar flex flex-wrap items-center gap-1 border-b border-kumo-line"
 			>
 				<Button
 					size="sm"
-					variant={following ? "secondary" : "ghost"}
+					variant="ghost"
 					aria-pressed={following}
 					disabled={!preferences || save.isPending}
 					onClick={() =>
@@ -183,7 +183,7 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 				</Button>
 				<Button
 					size="sm"
-					variant={following ? "ghost" : "secondary"}
+					variant="ghost"
 					aria-pressed={!following}
 					disabled={!preferences || save.isPending}
 					onClick={() => choose("all")}
@@ -193,18 +193,28 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 				<Button
 					size="sm"
 					variant="ghost"
+					className="ms-auto"
+					aria-label="Running now"
+					title="Running now"
+					aria-expanded={running}
+					onClick={() => setRunning(!running)}
+				>
+					<Pulse aria-hidden className="size-5" />
+					<span className="max-sm:sr-only">Running now</span>
+				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
 					aria-label="Choose projects"
 					title="Choose projects"
 					aria-expanded={pick}
 					onClick={() => setPick(!pick)}
 				>
-					<SlidersHorizontal aria-hidden className="sm:hidden" />
-					<span className="max-sm:sr-only">Choose projects</span>
+					<SlidersHorizontal aria-hidden className="size-5" />
+					<span className="sr-only">Choose projects</span>
 				</Button>
 				<Button
 					size="sm"
-					variant="secondary"
-					className="ms-auto"
 					aria-label="Share an update"
 					title="Share an update"
 					aria-expanded={sharing}
@@ -213,7 +223,7 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 						setSharing(!sharing);
 					}}
 				>
-					<PencilSimple aria-hidden className="sm:hidden" />
+					<PencilSimple aria-hidden className="size-5" />
 					<span className="max-sm:sr-only">Share an update</span>
 				</Button>
 			</div>
@@ -282,27 +292,22 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 					Could not save your Activity preference. Try again.
 				</Text>
 			)}
-			<Collapsible open={running} onOpenChange={setRunning}>
-				<CollapsibleDefaultTrigger>Running now</CollapsibleDefaultTrigger>
-				<CollapsibleDefaultContent>
-					{running && (
-						<>
-							<ActivityRunningNow
-								config={ORGANIZATION_ACTIVITY_CONFIG}
-								followedProjects={following ? projects : undefined}
-							/>
-							<Collapsible open={details} onOpenChange={setDetails}>
-								<CollapsibleDefaultTrigger>
-									Stuck and upcoming work
-								</CollapsibleDefaultTrigger>
-								<CollapsibleDefaultContent>
-									{details && <OverviewSections />}
-								</CollapsibleDefaultContent>
-							</Collapsible>
-						</>
-					)}
-				</CollapsibleDefaultContent>
-			</Collapsible>
+			{running && (
+				<div>
+					<ActivityRunningNow
+						config={ORGANIZATION_ACTIVITY_CONFIG}
+						followedProjects={following ? projects : undefined}
+					/>
+					<Collapsible open={details} onOpenChange={setDetails}>
+						<CollapsibleDefaultTrigger>
+							Stuck and upcoming work
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
+							{details && <OverviewSections />}
+						</CollapsibleDefaultContent>
+					</Collapsible>
+				</div>
+			)}
 			<div aria-label="Recent activity" className="activity-posts min-w-0">
 				{children}
 			</div>
