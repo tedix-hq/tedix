@@ -18,3 +18,8 @@
 	box-sizing: border-box;
 	margin-inline: auto;
 }
+
+/* Replies start where the composer card starts, inside its 16px padding. */
+.chat-tedi-thread .workspace-chat-thread > * {
+	max-width: calc(48rem - 32px);
+}

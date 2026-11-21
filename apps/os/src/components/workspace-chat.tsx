@@ -1020,27 +1020,8 @@ function TurnView({
 	const startedAt = Date.parse(turn.startedAt);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
 	const agentRuns = launchedRuns(turn);
-	const machineStep =
-		turn.steps.findLast((step) => step.tool === "machine.call") ??
-		turn.steps.findLast((step) => step.tool === "machine.read");
-	const machineInput = machineStep?.input;
-	const machineName =
-		machineInput &&
-		typeof machineInput === "object" &&
-		"machine" in machineInput &&
-		typeof machineInput.machine === "string"
-			? machineInput.machine
-			: null;
-	const taskLocation =
-		agentRuns.size || !turn.steps.some((step) => step.tool === "run_code")
-			? null
-			: machineStep
-				? (machineName ?? "Connected computer")
-				: running && turn.steps.some((step) => step.tool === "machine.list")
-					? "Finding a computer"
-					: running && turn.steps.every((step) => step.tool === "run_code")
-						? "Working"
-						: "Tedix Cloud";
+	// A coding run's card says where it runs; only a direct call names the Mac.
+	const ranOn = agentRuns.size ? null : machineLabel(turn.steps);
 	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
 	const own =
 		turn.authorKind === "person" &&
@@ -1104,16 +1085,7 @@ function TurnView({
 				tediNames={tediNames}
 				viewerId={viewerId}
 			/>
-			<div
-				className="workspace-chat-reply"
-				data-task-card={taskLocation ? true : undefined}
-				key={turn.replyKey}
-			>
-				{taskLocation ? (
-					<Text role="caption" tone="secondary">
-						{taskLocation}
-					</Text>
-				) : null}
+			<div className="workspace-chat-reply" key={turn.replyKey}>
 				{turn.respondingTediId ? (
 					<WorkspaceChatAuthor
 						id={turn.respondingTediId}
@@ -1136,7 +1108,11 @@ function TurnView({
 					</Text>
 				) : null}
 				{turn.steps.length > 0 ? (
-					<Activity steps={turn.steps} approvals={turn.approvals} />
+					<Activity
+						steps={turn.steps}
+						approvals={turn.approvals}
+						ranOn={ranOn}
+					/>
 				) : null}
 				{turn.approvals.map((approval) => (
 					<ApprovalCard
@@ -1288,6 +1264,21 @@ function TurnView({
 	);
 }
 
+/** The connected computer a turn's code ran on, from its last machine step. */
+function machineLabel(steps: ChatStep[]): string | null {
+	const step =
+		steps.findLast((step) => step.tool === "machine.call") ??
+		steps.findLast((step) => step.tool === "machine.read");
+	if (!step) return null;
+	const input = step.input;
+	return input &&
+		typeof input === "object" &&
+		"machine" in input &&
+		typeof input.machine === "string"
+		? input.machine
+		: "a connected computer";
+}
+
 /**
  * How long the agent took before its first step or word. The wire carries
  * no reasoning text, so this is the whole of what the thread can say about
@@ -1435,9 +1426,12 @@ function stepsSummary(steps: readonly ChatStep[]): string {
 function Activity({
 	steps,
 	approvals,
+	ranOn,
 }: {
 	steps: ChatStep[];
 	approvals: ChatApproval[];
+	/** The connected computer the code ran on, said inside the folded line. */
+	ranOn: string | null;
 }) {
 	const refused = (step: ChatStep) =>
 		step.error?.startsWith("Approval required") ||
@@ -1476,6 +1470,15 @@ function Activity({
 				) : null}
 			</CollapsibleTrigger>
 			<CollapsibleContent>
+				{ranOn ? (
+					<Text
+						role="caption"
+						tone="secondary"
+						className="workspace-chat-ran-on"
+					>
+						Ran on {ranOn}
+					</Text>
+				) : null}
 				<ol className="workspace-chat-steps">
 					{steps.map((step) => {
 						const Icon = STEP_ICON[step.kind] ?? Wrench;
