@@ -234,13 +234,28 @@ export async function readOutputBody(
 	row: OsOutputRevisionRow,
 	storedContent?: string,
 ): Promise<string> {
+	const started = performance.now();
 	const content = storedContent ?? (await readStoredBody(bucket, row));
 	const manifest = sheetBlockManifest(content);
-	return manifest
-		? JSON.stringify(
-				await readSheetBlocks(bucket, row.organizationId, manifest),
-			)
-		: content;
+	if (!manifest) return content;
+	const storageMs = Math.round(performance.now() - started);
+	console.info({
+		event: "os_output_sheet_body_read_start",
+		outputId: row.outputId,
+		revisionId: row.id,
+		storageMs,
+	});
+	const body = JSON.stringify(
+		await readSheetBlocks(bucket, row.organizationId, manifest),
+	);
+	console.info({
+		event: "os_output_sheet_body_read",
+		outputId: row.outputId,
+		revisionId: row.id,
+		storageMs,
+		totalMs: Math.round(performance.now() - started),
+	});
+	return body;
 }
 
 export interface TenantDataPortDeps {
@@ -437,16 +452,27 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	}
 
 	async getOutput(outputId: string): Promise<OutputDetail | null> {
+		const started = performance.now();
 		const located = await this.locate(outputId);
 		if (!located) return null;
 		const { row, revision } = located;
 		if (!revision || !this.canRead(revision)) return null;
 		const summary = this.summary(row, revision);
+		const lookupMs = Math.round(performance.now() - started);
 		const body = await readOutputBody(this.deps.bucket, revision);
-		return {
+		const result = {
 			...summary,
 			content: OsOutputContentSchema.parse(JSON.parse(body)),
 		};
+		if (row.kind === "sheet")
+			console.info({
+				event: "os_output_sheet_app_read",
+				outputId,
+				revisionId: revision.id,
+				lookupMs,
+				totalMs: Math.round(performance.now() - started),
+			});
+		return result;
 	}
 
 	async createOutput(input: {

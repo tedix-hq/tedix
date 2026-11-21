@@ -151,14 +151,30 @@ export async function hydrateOutputRevision(
 	bucket: OutputBodyBucket | undefined = env.R2_BUCKET,
 	lap?: (stage: string) => void,
 ): Promise<OsOutputRevisionRow> {
+	const started = performance.now();
 	const stored = await readOutputRevisionStorage(row, bucket, lap);
 	const manifest = sheetBlockManifest(stored.content);
 	if (!manifest) return stored;
 	if (!bucket) throw new Error("Sheet block storage is unavailable");
-	return {
+	const storageMs = Math.round(performance.now() - started);
+	console.info({
+		event: "os_output_sheet_body_read_start",
+		outputId: row.outputId,
+		revisionId: row.id,
+		storageMs,
+	});
+	const result = {
 		...stored,
 		content: JSON.stringify(
 			await readSheetBlocks(bucket, row.organizationId, manifest),
 		),
 	};
+	console.info({
+		event: "os_output_sheet_body_read",
+		outputId: row.outputId,
+		revisionId: row.id,
+		storageMs,
+		totalMs: Math.round(performance.now() - started),
+	});
+	return result;
 }

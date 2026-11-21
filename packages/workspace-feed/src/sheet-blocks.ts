@@ -266,13 +266,34 @@ export async function readSheetBlocks(
 	manifest: SheetBlockManifest,
 	selection?: ReadonlyMap<string, ReadonlySet<number>>,
 ): Promise<Sheet> {
+	const started = performance.now();
+	const readId = crypto.randomUUID();
+	let blockGets = 0;
+	let cache = "blocks";
+	console.info({
+		event: "os_sheet_blocks_read_start",
+		readId,
+		selected: Boolean(selection),
+	});
+	const report = () =>
+		console.info({
+			event: "os_sheet_blocks_read",
+			readId,
+			cache,
+			blockGets,
+			readMs: Math.round(performance.now() - started),
+		});
 	const key = assemblyKey(organizationId, manifest);
 	let packed: Record<string, string> | undefined;
 	let packedKey: string | undefined;
 	let loadedPacked = false;
 	if (!selection) {
 		const cached = cachedSheet(bucket, key);
-		if (cached && assembled.get(key)?.persisted) return cached;
+		if (cached && assembled.get(key)?.persisted) {
+			cache = "memory";
+			report();
+			return cached;
+		}
 		// Persist an assembly across isolates and memory-cache eviction. Every row
 		// is still checked against the authoritative manifest before it is served.
 		packedKey = blockKey(organizationId, await sha256Hex(key)).replace(
@@ -280,6 +301,7 @@ export async function readSheetBlocks(
 			"os-sheet-assemblies/v1/",
 		);
 		if (cached) {
+			cache = "memory_persist";
 			packed = Object.create(null) as Record<string, string>;
 			for (const table of manifest.tables) {
 				const rows = tables(cached).find(
@@ -308,6 +330,7 @@ export async function readSheetBlocks(
 						.pipeThrough(new DecompressionStream("gzip")),
 				).json()) as Record<string, string>;
 				loadedPacked = true;
+				cache = "r2";
 			}
 		}
 	}
@@ -336,6 +359,7 @@ export async function readSheetBlocks(
 						throw new Error(
 							"Sheet assembly integrity mismatch: row is missing",
 						);
+					if (raw === undefined) blockGets++;
 					const object =
 						raw === undefined
 							? await bucket.get(blockKey(organizationId, ref.digest))
@@ -390,6 +414,7 @@ export async function readSheetBlocks(
 		}
 		rememberSheet(bucket, key, content, true);
 	}
+	report();
 	return content;
 }
 
