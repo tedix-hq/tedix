@@ -54,17 +54,6 @@ describe("workspace candidate discovery", () => {
 });
 
 describe("positive public workspace surface", () => {
-	test("keeps the interim marketing Worker in public product source", () => {
-		const result = checkPublicSurface(repositoryRoot);
-		expect(result.errors).toEqual([]);
-		expect(
-			result.resolved.find((entry) => entry.path === "apps/landing"),
-		).toMatchObject({
-			decision: "public-product",
-			licenseClass: "agpl-product",
-		});
-	});
-
 	test("classifies the exact candidate set and closes local dependency edges", () => {
 		const result = checkPublicSurface(repositoryRoot);
 		expect(result.errors).toEqual([]);

@@ -101,7 +101,7 @@ export default defineConfig({
 			// across separate optimize-deps chunks (different `?v=` hashes), leaving the
 			// hooks dispatcher null in the secondary chunk — recharts-based DataChart
 			// widgets then crash with "Cannot read properties of null (reading 'useRef')"
-			// while non-hook components (tables) survive. Mirrors apps/landing.
+			// while non-hook components (tables) survive.
 			//
 			// json-render core/react are deduped for a second reason: every
 			// @json-render/* package pins `@json-render/core` as an exact

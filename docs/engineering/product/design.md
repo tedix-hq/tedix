@@ -1,7 +1,7 @@
 ---
 summary: "Cross-surface design-system decisions, UI runtime ownership, tokens, and component rules"
 read_when:
-  - Updating Tedix OS, widget, landing, or CMS UI behavior
+  - Updating Tedix OS, widget, or CMS UI behavior
   - Choosing the correct UI owner and component system
   - Adding a token, component adapter, or page layout
 title: "Design system"
@@ -11,7 +11,7 @@ title: "Design system"
 
 The cross-surface design decisions for Tedix. When code and this page diverge,
 fix one of them in the same change. Kumo adapter mechanics and lint gates are in
-`apps/os/AGENTS.md`; landing composition is in `apps/landing/DESIGN.md`.
+`apps/os/AGENTS.md`.
 
 ## UI Runtimes And Owners
 
@@ -23,7 +23,6 @@ Tedix has several UI runtimes. They share tokens and contracts, not components.
 | MCP Apps / widget runtime | `apps/mcp-ui`            | Astro SSR + React islands, json-render, `@tedix/widget-ui`; must work in any MCP Apps host     |
 | Embedded host widget      | `apps/widget`            | Framework-neutral Shadow DOM; sandboxed tool projections loaded from `apps/mcp-ui`             |
 | CMS public sites          | `apps/cms/templates/*`   | Locked infrastructure; per-org retheming only via `src/styles/theme.css` and platform branding |
-| Marketing site            | `apps/landing`           | App-local pages and styles                                                                     |
 | Shared widget components  | `packages/widget-ui`     | Embeddable widget primitives, composites, layouts; not an OS component package                 |
 | Shared tokens             | `packages/design-tokens` | Typed tokens for OS (via the Kumo bridge `kumo.css`) and widgets (`widget.css`), parity-tested |
 
@@ -119,7 +118,7 @@ OS uses two tiers so a card reads as a layer above its controls:
   `tier="well"`; `tier="panel"` is the deliberate promotion.
 - Move the card tier at the adapter or `--radius-xl`, never by bumping
   `--radius`, which shifts the whole control ladder. Kumo components with their
-  own fixed geometry (overlays, code blocks) keep it. Widget, landing, and CMS
+  own fixed geometry (overlays, code blocks) keep it. Widget and CMS
   radii stay local.
 
 ### Control density

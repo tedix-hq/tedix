@@ -38,7 +38,6 @@ export type DevPortReservation = {
  * `bun dev` because their dev script runs `astro dev`, never `wrangler dev`.
  */
 const DECLARED_ADAPTER_PORTS: Readonly<Record<string, number>> = {
-	landing: 9233,
 	"mcp-ui": 9231,
 };
 

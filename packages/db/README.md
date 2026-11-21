@@ -27,7 +27,7 @@ migration, and package gates.
 ┌─────────────────────────────────────────────────────────────┐
 │  packages/api-contract (API Layer - PUBLIC)                  │
 │  SOURCE OF TRUTH: API schemas, shared types, contracts      │
-│  CONSUMERS: All apps (api, os, mcp, widget, landing)        │
+│  CONSUMERS: All apps (api, os, mcp, widget)                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 

@@ -15,8 +15,7 @@ import {
  * Parent-side cache for anonymous tenant HTML pages.
  *
  * Every tenant page render costs a dozen sequential tenant-database round
- * trips (2-3 s from a distant colo), while the static apps/landing site
- * answers in ~0.2 s. This cache lives inside the Worker, in the
+ * trips (2-3 s from a distant colo). This cache lives inside the Worker, in the
  * Cache API, under a key built from the resolved tenant, never from the bare
  * URL. Workers Cache keys omit the hostname, which is how responses once
  * crossed tenant boundaries; this key names the host, site, slug, restore

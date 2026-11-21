@@ -42,13 +42,6 @@
 		"reason": "Docs runtime intentionally serves public sites and broker-protected organization sites from one edge."
 	},
 	{
-		"app": "apps/landing",
-		"kind": "public",
-		"workersDev": true,
-		"previewUrls": true,
-		"reason": "Public marketing, discovery, and health surface with no tenant authority."
-	},
-	{
 		"app": "apps/mcp",
 		"kind": "application-authenticated",
 		"workersDev": false,

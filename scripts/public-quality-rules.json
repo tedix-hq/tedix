@@ -5,7 +5,6 @@
 		"**/README.md",
 		"CHANGELOG.md",
 		"CONTRIBUTING.md",
-		"apps/landing/src/**",
 		"apps/os/src/**/*.tsx",
 		"packages/cli/src/**/*.ts"
 	],

@@ -387,7 +387,7 @@ support for the bucket jurisdiction before its overlay can be used.
 These generated files are sanitized examples, not deployment or clean-account
 certification. Managed production coordinates are never published: every
 checked-in Worker config file (`cloudflare.config.ts`, or `wrangler.jsonc` for
-apps/api, apps/landing, apps/mcp-ui, apps/tedi-runtime,
+apps/api, apps/mcp-ui, apps/tedi-runtime,
 apps/tedi-workstation-runtime and packages/db) is an example with placeholders
 instead of account, zone, or resource identifiers, and the private operations
 repository holds the live configuration. See

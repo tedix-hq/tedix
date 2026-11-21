@@ -28,12 +28,8 @@ const DISABLED_CACHE_CONTROL = "private, no-store";
 /**
  * Content-Signal tells AI crawlers what they may do with a page before they
  * parse the body — the HTTP-header counterpart to the `<meta name="content-signal">`
- * tag. apps/landing already sets this on every HTML response; tenant CMS pages
- * were the gap, so blog.tedix.dev was served to GPTBot/ClaudeBot/PerplexityBot
- * with no signal at all.
- *
- * Same value as the landing worker: content may be surfaced and cited in AI
- * search and used as model input, but not used for training.
+ * tag. Content may be surfaced and cited in AI search and used as model
+ * input, but not used for training.
  *
  * @see https://contentsignals.org — Content Signals framework
  */
