@@ -72,6 +72,30 @@ describe("workspace agent data storage", () => {
 			);
 	});
 
+	test("reading a legacy sheet does not upload blocks or commit a conversion", async () => {
+		const bindings = env as unknown as WorkspaceEnv;
+		const ws = tenantStoreStub(bindings.WORKSPACE, bindings, scope);
+		await runInDurableObject(ws, async (_instance, state) => {
+			const content = { kind: "sheet", columns: ["A"], rows: [[1]] };
+			state.storage.sql.exec(
+				"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, current_revision_id, created_by_kind, created_by_id) VALUES ('legacy-sheet', ?, ?, 'sheet', 'Legacy', 'legacy-revision', 'user', 'fixture')",
+				scope.organizationId,
+				scope.workspaceId,
+			);
+			state.storage.sql.exec(
+				"INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id) VALUES ('legacy-revision', ?, 'legacy-sheet', 1, ?, ?, 'user', 'fixture')",
+				scope.organizationId,
+				JSON.stringify(content),
+				JSON.stringify({ version: 1, sources: [] }),
+			);
+			const data = port(createTenantStoreDb(state.storage), true);
+			expect(await data.getOutput("legacy-sheet")).toMatchObject({
+				revision: 1,
+				content,
+			});
+		});
+	});
+
 	test("resource summaries use only active rows in the object's organization and workspace", async () => {
 		const bindings = env as unknown as WorkspaceEnv;
 		const ws = tenantStoreStub(bindings.WORKSPACE, bindings, scope);

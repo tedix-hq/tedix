@@ -12,7 +12,6 @@ import {
 	getOsOutput,
 	getOsOutputRevision,
 	listOsOutputs,
-	replaceOsOutputRevisionBody,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import {
 	readSheetBlocks,
@@ -443,37 +442,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		const { row, revision } = located;
 		if (!revision || !this.canRead(revision)) return null;
 		const summary = this.summary(row, revision);
-		let storedBody = await readStoredBody(this.deps.bucket, revision);
-		if (row.kind === "sheet" && !sheetBlockManifest(storedBody)) {
-			const body = await storeOutputBody(
-				this.deps.bucket,
-				row.organizationId,
-				storedBody,
-			);
-			if (!revision.contentSha256)
-				throw new Error("Sheet migration requires a verified body");
-			const changed = await this.deps.commitOutput(row.id, () =>
-				replaceOsOutputRevisionBody(this.deps.tenant, {
-					organizationId: row.organizationId,
-					revisionId: revision.id,
-					previousSha256: revision.contentSha256!,
-					...body,
-				}),
-			);
-			if (!changed) {
-				const current = await getOsOutputRevision(this.deps.tenant, {
-					organizationId: row.organizationId,
-					revisionId: revision.id,
-				});
-				if (!current || current.contentSha256 !== body.contentSha256)
-					throw new Error(
-						"Sheet revision changed during migration; reopen the file",
-					);
-			}
-			Object.assign(revision, body, { content: "" });
-			storedBody = await readStoredBody(this.deps.bucket, revision);
-		}
-		const body = await readOutputBody(this.deps.bucket, revision, storedBody);
+		const body = await readOutputBody(this.deps.bucket, revision);
 		return {
 			...summary,
 			content: OsOutputContentSchema.parse(JSON.parse(body)),
