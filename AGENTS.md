@@ -42,6 +42,14 @@ CLI unless their session and fence handling are verified compatible. Never
 reconstruct a CLI Attempt cache by hand. A denied scope needs the normal access
 path, not a different surface to evade the denial.
 
+For authorized production Worker timings and errors, use `bun run logs --
+--service tedix-api --needle os_output_sheet_range_saved --since 20m` from this
+checkout. Use `--gateway` for grant, session, approval, execution-record and audit
+timings, or `--trace <id>` to follow a Cloudflare trace. This uses the existing
+local `cf` login and account selection; see the runner guidance in
+`docs/public/agent-guide.md#worker-logs`. Do not use the Tedix OS Cloudflare
+connection for logs while reconnect Work b48fc3a2 is open.
+
 ## Explain things plainly
 
 Use familiar words and concrete examples in product text and public guides.

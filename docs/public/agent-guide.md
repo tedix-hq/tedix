@@ -840,6 +840,41 @@ A suspected delivery gap creates proposed Work, once per fingerprint, lesson and
 actor session. Unknown delivery stays unknown; an observed delivery does not
 create a delivery-gap proposal. Other incident producers can use the same tool.
 
+## Worker logs
+
+For authorized production diagnosis, runners and coding agents use the source
+checkout's log command with the existing local `cf` login and account selection:
+
+```sh
+bun run logs -- --service tedix-api --needle os_output_sheet_range_saved --since 20m
+bun run logs -- --service tedix-api --gateway --since 20m
+bun run logs -- --trace <cloudflare-trace-id> --since <ISO-start> --until <ISO-end>
+```
+
+Do not use the Tedix OS Cloudflare connection for logs while reconnect Work
+`b48fc3a2` is open. The command wraps `cf o11y telemetry query`, uses the
+`cloudflare-workers` dataset, and prints one compact JSON row per event. It
+does not log in, store credentials, or change the account. A missing login or
+provider permission still needs the normal owner access path.
+
+`--since` accepts a duration (`s`, `m`, `h`, `d`) or ISO timestamp; `--until`
+defaults to now. `--limit` defaults to 100 (maximum 1000); a full page warns
+that results may be incomplete. Narrow the window before claiming absence.
+Omit `--service` to include other Workers in a trace. `--trace` matches
+Cloudflare `$metadata.traceId`, which differs from application trace IDs.
+
+`--gateway` finds `mcp_grant_timing`, `resolveSessionAuth`,
+`recordVerifiedMcpExecution`, `recordPolicyToolApproval`, and `/audit/createEvent`.
+Grant rows carry `total_ms` and stage laps. RPC completion messages carry elapsed
+milliseconds; invocation rows carry `wallTimeMs` and `cpuTimeMs` when available.
+Save rows carry `handlerMs`, `commitMs`, and lookup laps. Correlate by trace,
+request and timestamp; several tool calls can share a trace. Gateway auth and
+audit calls surround the handler, and detached work may overlap, so do not add
+all rows into a serial total. For request-local gateway versus handler phases,
+also inspect the tool result's `com.tedix/timings` metadata: `auth`, `policy`,
+`catalogResolution`, `handler`, `persistence`, and `total` in milliseconds.
+Keep private log content in the matching Work evidence, outside public source.
+
 ## Devin lanes
 
 [Set up Devin](./cli.md#devin-cli) before assigning it local coding Work.
