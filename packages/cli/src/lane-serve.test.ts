@@ -4162,8 +4162,10 @@ describe("dispatcher admission", () => {
 		expect(settle.args).toContain("a".repeat(40));
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 	});
-	it.each(["verified", "refuted", "inconclusive"] as const)(
-		"dispatches a verify-only Attempt after deploy and handles a %s result without asking the owner",
+	// On 21 Nov 2026 verifiers without a browser or connections.admin reported
+	// landed_unverified; each was settled failed and verified again, twice.
+	it.each(["verified", "refuted", "inconclusive", "blocked"] as const)(
+		"dispatches a verify-only Attempt after deploy and handles a %s result",
 		async (verdict) => {
 			const f = fixture();
 			f.items.splice(1);
@@ -4221,7 +4223,12 @@ describe("dispatcher admission", () => {
 								outcome: "incomplete",
 								remaining: "The live row is still absent",
 							}
-						: {}),
+						: verdict === "blocked"
+							? {
+									outcome: "landed_unverified",
+									unverified: "Open the signed-in page and confirm the row",
+								}
+							: {}),
 				})}`;
 				f.releases[round]!();
 				await verifier.drain();
@@ -4249,9 +4256,27 @@ describe("dispatcher admission", () => {
 					reason: "Agent verification stopped after round 3",
 					note: expect.stringContaining("did not cite a live test report"),
 				});
-			expect(
-				f.events.filter((event) => event.verb === "interaction-create"),
-			).toHaveLength(0);
+			if (verdict === "blocked") {
+				expect(work.metadata?.laneDispatch).toMatchObject({
+					state: "held",
+					reason: expect.stringContaining("Someone with that access checks it"),
+					note: "Open the signed-in page and confirm the row",
+				});
+				const settle = f.events.filter((event) => event.verb === "settle");
+				expect(settle.at(-1)?.args).toContain("cancelled");
+				for (let pass = 0; pass < 2; pass++) await f.restart().tick();
+				expect(f.releases).toHaveLength(2);
+			}
+			const requests = f.events.filter(
+				(event) => event.verb === "interaction-create",
+			);
+			expect(requests).toHaveLength(verdict === "blocked" ? 1 : 0);
+			if (verdict === "blocked")
+				expect(requests[0]!.input).toMatchObject({
+					prompt: expect.stringContaining(
+						"Open the signed-in page and confirm the row",
+					),
+				});
 		},
 	);
 	it("fails a landed but unconfirmed result that has no commit on main", async () => {
