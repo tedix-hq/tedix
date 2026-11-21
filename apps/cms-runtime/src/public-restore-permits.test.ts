@@ -11,6 +11,8 @@ import {
 	publicRestorePermitEligible,
 } from "./public-restore-permits";
 import { withCmsRestoreResponsePermit } from "./tenant-restore-fence";
+import { startRestorePermitLease } from "./restore-permit-lease";
+import { CMS_RESTORE_LEASE_SECONDS } from "@tedix/db/queries/cms-restore-fences";
 
 const db = {} as never;
 const identity = { siteId: "site-one", slug: "one", restoreEpoch: 7 };
@@ -38,6 +40,60 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("public restore reservations", () => {
+	it("keeps a long-running holder renewable and stops renewing when it leaves", async () => {
+		const tasks: Promise<unknown>[] = [];
+		const context = {
+			waitUntil: (task: Promise<unknown>) => tasks.push(task),
+			abort: vi.fn(),
+		};
+		const renew = vi.fn().mockResolvedValue(true);
+		const lease = startRestorePermitLease(context, renew);
+		await vi.advanceTimersByTimeAsync(CMS_RESTORE_LEASE_SECONDS * 3_000);
+		lease.assertActive();
+		expect(renew).toHaveBeenCalled();
+		expect(context.abort).not.toHaveBeenCalled();
+		lease.stop();
+		const renewals = renew.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(CMS_RESTORE_LEASE_SECONDS * 1_000);
+		await Promise.all(tasks);
+		expect(renew).toHaveBeenCalledTimes(renewals);
+	});
+
+	it("aborts before D1 expiry when renewal hangs and never accepts its late response", async () => {
+		const tasks: Promise<unknown>[] = [];
+		const context = {
+			waitUntil: (task: Promise<unknown>) => tasks.push(task),
+			abort: vi.fn(),
+		};
+		const pending = Promise.withResolvers<boolean>();
+		const renew = vi.fn().mockReturnValue(pending.promise);
+		const lease = startRestorePermitLease(context, renew);
+		await vi.advanceTimersByTimeAsync(CMS_RESTORE_LEASE_SECONDS * 500);
+		expect(context.abort).toHaveBeenCalledOnce();
+		expect(() => lease.assertActive()).toThrow("lease lost");
+		pending.resolve(true);
+		await vi.advanceTimersByTimeAsync(CMS_RESTORE_LEASE_SECONDS * 1_000);
+		await Promise.all(tasks);
+		expect(renew).toHaveBeenCalledOnce();
+		expect(() => lease.assertActive()).toThrow("lease lost");
+	});
+
+	it("does not abort a finished borrower when its pending renewal later fails", async () => {
+		const context = {
+			waitUntil: (_task: Promise<unknown>) => {},
+			abort: vi.fn(),
+		};
+		const pending = Promise.withResolvers<boolean>();
+		const renew = vi.fn().mockReturnValue(pending.promise);
+		const lease = startRestorePermitLease(context, renew);
+		await vi.advanceTimersByTimeAsync((CMS_RESTORE_LEASE_SECONDS * 1_000) / 6);
+		expect(renew).toHaveBeenCalledOnce();
+		lease.stop();
+		pending.resolve(false);
+		await vi.advanceTimersByTimeAsync(CMS_RESTORE_LEASE_SECONDS * 1_000);
+		expect(context.abort).not.toHaveBeenCalled();
+	});
+
 	it("awaits cleanup of an uncertain cold INSERT without a replacement borrower", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		queries.enter.mockRejectedValueOnce(new Error("INSERT response lost"));

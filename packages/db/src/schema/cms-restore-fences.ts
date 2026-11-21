@@ -23,7 +23,8 @@ export const cmsCaptureCronPauses = sqliteTable("cms_capture_cron_pauses", {
 	drainedAtUnix: integer("drained_at_unix"),
 });
 
-/** Durable in-flight claims; no lease or timeout can silently clear a claim. */
+/** Durable claims. Only lease:v1 IDs use enteredAt as their renewable grant;
+ * unleased administrative claims retain their explicit completion contract. */
 export const cmsRestorePermits = sqliteTable(
 	"cms_restore_permits",
 	{

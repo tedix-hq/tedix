@@ -35,6 +35,15 @@ export interface CmsRestorePermitParams extends CmsRestoreWriteParams {
 	kind: "outer" | "nested" | "scheduled";
 }
 
+export const CMS_RESTORE_LEASE_SECONDS = 120;
+
+/** A separate ID domain prevents treating historical timestamps as leases. */
+export function cmsRestoreLeasePermit(
+	input: CmsRestorePermitParams,
+): CmsRestorePermitParams {
+	return { ...input, permitId: `lease:v1:${input.permitId}` };
+}
+
 export interface CmsRestoreFenceParams extends CmsRestoreSiteParams {
 	generation: string;
 	captureId: string;
@@ -445,6 +454,7 @@ export async function countCmsRestorePermitsForSite(
 	db: DbQueryClient,
 	siteId: string,
 ): Promise<number> {
+	await deleteExpiredCmsRestorePermitLeases(db, { siteId, limit: 1_000 });
 	const [permits] = await db
 		.select({ inFlight: count() })
 		.from(cmsRestorePermits)
@@ -501,48 +511,55 @@ export async function reconcileCmsRestoreOuterPermits(
 	return rows.length;
 }
 
-/** A release operator supplies proof that these runtime owners have stopped,
- * including outstanding invocations. Age alone never authorizes reclamation.
- * Legacy claims need an exact identity inventory: unknown provider creates
- * must not be swept merely because their initiating runtime stopped. */
-export async function deleteRetiredCmsRuntimePermits(
+/** Renewal cannot resurrect an expired or deleted generation, even if its
+ * delayed response arrives after the caller has lost execution authority. */
+export async function renewCmsRestorePermitLease(
 	db: DbQueryClient,
-	input: {
-		currentRuntimeOwnerId: string;
-		retiredRuntimeOwnerIds: string[];
-		legacyPermits: CmsRestorePermitParams[];
-		limit: number;
-	},
+	input: CmsRestorePermitParams,
+): Promise<boolean> {
+	const rows = await db
+		.update(cmsRestorePermits)
+		.set({ enteredAt: sql`CURRENT_TIMESTAMP` })
+		.where(
+			and(
+				eq(cmsRestorePermits.id, input.permitId),
+				eq(cmsRestorePermits.siteId, input.siteId),
+				eq(cmsRestorePermits.slug, input.slug),
+				eq(cmsRestorePermits.restoreEpoch, input.restoreEpoch),
+				eq(cmsRestorePermits.kind, input.kind),
+				sql`${cmsRestorePermits.id} LIKE 'lease:v1:%'`,
+				sql`${cmsRestorePermits.enteredAt} > datetime('now', ${`-${CMS_RESTORE_LEASE_SECONDS} seconds`})`,
+			),
+		)
+		.returning({ id: cmsRestorePermits.id });
+	return rows.length === 1;
+}
+
+export interface DeleteExpiredCmsRestorePermitLeasesParams {
+	siteId?: string;
+	limit: number;
+}
+
+/** Only protocol holders that abort before expiry may use this ID domain.
+ * Administrative and pre-lease claims remain fenced, regardless of age. */
+export async function deleteExpiredCmsRestorePermitLeases(
+	db: DbQueryClient,
+	input: DeleteExpiredCmsRestorePermitLeasesParams,
 ): Promise<Array<{ id: string; siteId: string; kind: string }>> {
 	if (
-		!/^[0-9a-f]{40}$/.test(input.currentRuntimeOwnerId) ||
-		input.retiredRuntimeOwnerIds.some(
-			(ownerId) =>
-				!/^[0-9a-f]{40}$/.test(ownerId) ||
-				ownerId === input.currentRuntimeOwnerId,
-		) ||
 		!Number.isSafeInteger(input.limit) ||
 		input.limit < 1 ||
 		input.limit > 1_000
 	)
-		throw new Error("CMS runtime retirement scope invalid");
+		throw new Error("CMS restore lease sweep limit invalid");
 	const stale = db
 		.select({ id: cmsRestorePermits.id })
 		.from(cmsRestorePermits)
 		.where(
-			or(
-				sql`(length(${cmsRestorePermits.id}) = 85
-				AND substr(${cmsRestorePermits.id}, 1, 8) = 'runtime:'
-				AND substr(${cmsRestorePermits.id}, 49, 1) = ':'
-				AND substr(${cmsRestorePermits.id}, 9, 40) IN
-				(SELECT value FROM json_each(${JSON.stringify(input.retiredRuntimeOwnerIds)})))`,
-				sql`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(input.legacyPermits)}) legacy
-				WHERE json_extract(legacy.value, '$.permitId') = ${cmsRestorePermits.id}
-				AND json_extract(legacy.value, '$.siteId') = ${cmsRestorePermits.siteId}
-				AND json_extract(legacy.value, '$.slug') = ${cmsRestorePermits.slug}
-				AND json_extract(legacy.value, '$.restoreEpoch') = ${cmsRestorePermits.restoreEpoch}
-				AND json_extract(legacy.value, '$.kind') = ${cmsRestorePermits.kind}
-				AND ${cmsRestorePermits.id} NOT LIKE 'runtime:%')`,
+			and(
+				sql`${cmsRestorePermits.id} LIKE 'lease:v1:%'`,
+				sql`${cmsRestorePermits.enteredAt} <= datetime('now', ${`-${CMS_RESTORE_LEASE_SECONDS} seconds`})`,
+				input.siteId ? eq(cmsRestorePermits.siteId, input.siteId) : undefined,
 			),
 		)
 		.orderBy(cmsRestorePermits.enteredAt, cmsRestorePermits.id)
@@ -597,6 +614,10 @@ export async function getCmsRestoreFenceState(
 	db: DbQueryClient,
 	input: CmsRestoreSiteParams,
 ): Promise<CmsRestoreFenceStateResult> {
+	await deleteExpiredCmsRestorePermitLeases(db, {
+		siteId: input.siteId,
+		limit: 1_000,
+	});
 	const [fence] = await db
 		.select()
 		.from(cmsRestoreFences)
