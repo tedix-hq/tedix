@@ -201,7 +201,7 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	list_work_interaction_outbox: "workInteractions/listOutbox",
 	list_work_item_attempts: "workItems/listAttempts",
 	list_work_item_events: "workItems/listEvents",
-	wait_work_item: "workItems/wait",
+	wait_work_items: "workItems/wait",
 	list_work_item_evidence: "workItems/listEvidence",
 	list_work_items: "workItems/list",
 	list_work_resource_pools: "workItems/listResourcePools",
