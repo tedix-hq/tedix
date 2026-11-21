@@ -146,7 +146,6 @@ it("initializes a saved conversation's workspace before its first document", asy
 		conversationId: "chat",
 		fromWorkspaceIds: [],
 	});
-	expect(saved.linked).toBe(true);
 	expect((await firstWrite(f.db, saved.workspace.id)).output.workspaceId).toBe(
 		row.id,
 	);

@@ -116,7 +116,7 @@ async function fixture() {
 	return { sqlite, db, params, events };
 }
 
-it("initializes before transfer, keeps its plan after repointing, and links only after source removal", async () => {
+it("initializes before transfer, keeps its plan after repointing, and leaves the chat in Home", async () => {
 	const f = await fixture();
 	let fail = true;
 	const removed = new Set<string>();
@@ -146,9 +146,10 @@ it("initializes before transfer, keeps its plan after repointing, and links only
 	const saved = await saveConversationWorkspace(f.db, f.params);
 	expect(saved.movedOutputIds).toEqual(["a", "b"]);
 	expect(removed).toEqual(new Set(["a", "b"]));
-	expect((await f.db.select().from(kernelConversations))[0]?.workspaceId).toBe(
-		"target",
-	);
+	// The documents moved; the chat itself stays a Home chat.
+	expect(
+		(await f.db.select().from(kernelConversations))[0]?.workspaceId,
+	).toBeNull();
 	expect(await f.db.select().from(osWorkspaces)).toHaveLength(2);
 	expect(
 		(

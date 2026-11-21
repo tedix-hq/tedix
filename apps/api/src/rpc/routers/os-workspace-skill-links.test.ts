@@ -354,23 +354,28 @@ describe("Workspace skill links", () => {
 		).rejects.toThrow(/linked with the skills that use them/);
 	});
 
-	it("finds the Workspace of a Home turn only on the trusted hop", async () => {
+	it("finds the Workspace of a chat opened inside it, only on the trusted hop", async () => {
 		const { env, sqlite, workspaceId } = await seed();
 		const { callerTurnWorkspace } = await import("./os-workspaces-shared");
 		const runId = "20000000-0000-4000-8000-000000000001";
+		const homeRunId = "20000000-0000-4000-8000-000000000002";
 		sqlite.exec(`
 			INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at, created_at, updated_at)
-			VALUES ('org-1:home:ws', 'org-1', 'home:ws', '${workspaceId}', '2026-10-25', '2026-10-25', '2026-10-25');
+			VALUES ('org-1:home:os:ws', 'org-1', 'home:os:ws', '${workspaceId}', '2026-10-25', '2026-10-25', '2026-10-25'),
+				('org-1:home:main', 'org-1', 'home:main', '${workspaceId}', '2026-10-25', '2026-10-25', '2026-10-25');
 			INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, created_at, updated_at)
-			VALUES ('${runId}', 'org-1', 'home:ws', '2026-10-25', '2026-10-25');
+			VALUES ('${runId}', 'org-1', 'home:os:ws', '2026-10-25', '2026-10-25'),
+				('${homeRunId}', 'org-1', 'home:main', '2026-10-25', '2026-10-25');
 		`);
-		const trusted = new Headers({
-			"X-Service-Binding": "true",
-			"X-Tedix-Kernel-Run-Id": runId,
-		});
-		expect((await callerTurnWorkspace(memberContext(env, trusted)))?.id).toBe(
-			workspaceId,
-		);
+		const trusted = (id: string) =>
+			new Headers({ "X-Service-Binding": "true", "X-Tedix-Kernel-Run-Id": id });
+		expect(
+			(await callerTurnWorkspace(memberContext(env, trusted(runId))))?.id,
+		).toBe(workspaceId);
+		// A Home chat that saved a document to the Workspace stays in Home.
+		expect(
+			await callerTurnWorkspace(memberContext(env, trusted(homeRunId))),
+		).toBeNull();
 		expect(
 			await callerTurnWorkspace(
 				memberContext(env, new Headers({ "X-Tedix-Kernel-Run-Id": runId })),

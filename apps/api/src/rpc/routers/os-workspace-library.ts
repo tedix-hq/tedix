@@ -379,12 +379,6 @@ const createFromConversation =
 			if (!conversation || conversation.deletedAt) {
 				throw createError(ErrorCodes.NOT_FOUND, "Conversation not found");
 			}
-			if (conversation.workspaceId) {
-				throw createError(
-					ErrorCodes.CONFLICT,
-					"This conversation already belongs to a workspace",
-				);
-			}
 			const accountable = creator(context);
 			const timestamp = new Date().toISOString();
 			const workspaceId = await workspacePlacementId(

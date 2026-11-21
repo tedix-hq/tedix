@@ -36,7 +36,7 @@ import {
 	updateOsWorkspaceResourceMetadata,
 } from "../../services/workspace-resource-storage";
 import {
-	findOsWorkspaceForKernelRun,
+	findHomeTurnForKernelRun,
 	getOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
@@ -800,16 +800,14 @@ export async function ensureWorkspaceSkillDependencyLinks(
 }
 
 /**
- * The Workspace and Home conversation of the turn making this call. The MCP
- * edge forwards the turn's kernel run id only on its trusted Worker-to-Worker
- * hop: a Home run id, or the `<tediId>:<origin>:<requestId>` id of a tedi turn
- * Home delegated. The run's conversation (or the run that delegated it) names
- * the Workspace. Null for a direct call, a turn outside a Workspace, or a
- * Workspace the caller cannot see.
+ * The Home turn making this call. The MCP edge forwards the turn's kernel run
+ * id only on its trusted Worker-to-Worker hop: a Home run id, or the
+ * `<tediId>:<origin>:<requestId>` id of a tedi turn Home delegated. Null for
+ * a direct call or a run this organization does not have.
  */
-export async function callerTurn(
+export async function callerHomeTurn(
 	context: BaseContext,
-): Promise<{ workspace: OsWorkspaceRow; conversationId: string } | null> {
+): Promise<{ conversationId: string; workspaceId: string | null } | null> {
 	const runId = context.headers?.get("X-Tedix-Kernel-Run-Id");
 	if (
 		!runId ||
@@ -819,15 +817,26 @@ export async function callerTurn(
 		)
 	)
 		return null;
-	const organizationId = requireOrgId(context);
-	const db = queryDb(context);
-	const turn = await findOsWorkspaceForKernelRun(db, {
-		organizationId,
+	return findHomeTurnForKernelRun(queryDb(context), {
+		organizationId: requireOrgId(context),
 		runId,
 	});
-	if (!turn) return null;
+}
+
+/**
+ * The Workspace of the Home turn making this call, only when that chat was
+ * opened from inside the Workspace. A Home chat that saved a document to a
+ * Workspace stays a Home chat, so anything made later names its Workspace
+ * itself. Null as well for a Workspace the caller cannot see.
+ */
+export async function callerTurn(
+	context: BaseContext,
+): Promise<{ workspace: OsWorkspaceRow; conversationId: string } | null> {
+	const turn = await callerHomeTurn(context);
+	if (!turn?.workspaceId) return null;
+	const db = queryDb(context);
 	const workspace = await getOsWorkspace(db, {
-		organizationId,
+		organizationId: requireOrgId(context),
 		workspaceId: turn.workspaceId,
 	});
 	if (!workspace || workspace.status !== "active") return null;
