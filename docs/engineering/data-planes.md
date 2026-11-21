@@ -61,9 +61,9 @@ Totals: 189 core · 125 workspace · 5 logs · 319 tables.
 
 ### `cognitive.ts`
 
-| table                 | scope key               | split | query modules (R read / W write)                                                                                                                                                                | rows | flags                                                                              |
-| --------------------- | ----------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---------------------------------------------------------------------------------- |
-| `skill_run_artifacts` | none (+tedi+org via FK) | tedi  | R: skill-run-artifacts.ts, rationale-records.ts, durable-sqlite/skill-run-artifacts.ts, d1-retention.ts, skill-lifecycle.ts<br>W: skill-run-artifacts.ts, durable-sqlite/skill-run-artifacts.ts | —    | also has a tenant-store port (durable-sqlite/skill-run-artifacts.ts); bodies in R2 |
+| table                 | scope key               | split | query modules (R read / W write)                                                                                  | rows | flags        |
+| --------------------- | ----------------------- | ----- | ----------------------------------------------------------------------------------------------------------------- | ---- | ------------ |
+| `skill_run_artifacts` | none (+tedi+org via FK) | tedi  | R: skill-run-artifacts.ts, rationale-records.ts, d1-retention.ts, skill-lifecycle.ts<br>W: skill-run-artifacts.ts | —    | bodies in R2 |
 
 ### `logs-db.ts`
 
@@ -102,7 +102,7 @@ Totals: 189 core · 125 workspace · 5 logs · 319 tables.
 | `chat_dispatch_idempotency`           | organization+tedi      | tedi  | R: cognitive-runtime.ts, kernel-conversations.ts, kernel-runtime-events.ts, kernel-runtime-runs.ts<br>W: cognitive-runtime.ts, kernel-conversations.ts                                                  | —    | ⚑ no workspace key |
 | `kernel_conversations`                | organization+workspace | —     | R: os-workspaces/workspaces.ts, os-workspaces/summaries.ts, kernel-tool-results.ts, kernel-conversations.ts, work-attention.ts, approvals.ts<br>W: os-workspaces/workspaces.ts, kernel-conversations.ts | —    |                    |
 | `tedi_artifact_contribution_receipts` | organization+tedi      | tedi  | R: artifact-policy/contributions.ts, artifact-policy/releases.ts<br>W: artifact-policy/contributions.ts                                                                                                 | —    | ⚑ no workspace key |
-| `tedi_artifacts`                      | organization+tedi      | tedi  | R: cognitive-runtime.ts, durable-sqlite/tedi-artifacts.ts, d1-retention.ts, kernel-runtime-events.ts, artifact-policy/contributions.ts<br>W: cognitive-runtime.ts, durable-sqlite/tedi-artifacts.ts     | —    | ⚑ no workspace key |
+| `tedi_artifacts`                      | organization+tedi      | tedi  | R: cognitive-runtime.ts, d1-retention.ts, kernel-runtime-events.ts, artifact-policy/contributions.ts<br>W: cognitive-runtime.ts                                                                         | —    | ⚑ no workspace key |
 
 ### `cognitive.ts`
 
