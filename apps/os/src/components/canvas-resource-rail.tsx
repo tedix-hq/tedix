@@ -6,9 +6,15 @@ import {
 	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
-import { MagnifyingGlass } from "@phosphor-icons/react";
+import {
+	FileText,
+	MonitorPlay,
+	PresentationChart,
+	Table as TableIcon,
+} from "@phosphor-icons/react";
 import type {
 	OsGadget,
+	OsOutputKind,
 	OsOutputLibraryItem,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { isWorkspaceLinkResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
@@ -32,7 +38,7 @@ import {
 	EmptyTitle,
 } from "@/components/kumo/empty";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { Input } from "@/components/kumo/input";
+import { SearchInput } from "@/components/kumo/search-input";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { Text } from "@/components/kumo/text";
 import {
@@ -43,6 +49,7 @@ import {
 	outputStateCounts,
 } from "@/lib/canvas-deliverables";
 import type { CanvasDocSelection } from "@/lib/canvas-search";
+import { relativeTime } from "@/lib/time";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { WorkspaceAppCards } from "@/components/workspace-app-cards";
 import { WorkspaceRunners } from "@/components/workspace-runners";
@@ -87,6 +94,40 @@ function fileLabel(item: OsOutputLibraryItem) {
 		.replace(/^video$/, "Video");
 }
 
+const OUTPUT_KIND_ICONS: Record<OsOutputKind, typeof FileText> = {
+	document: FileText,
+	sheet: TableIcon,
+	presentation: PresentationChart,
+	video: MonitorPlay,
+};
+
+const OUTPUT_KIND_LABELS: Record<OsOutputKind, string> = {
+	document: "Document",
+	sheet: "Spreadsheet",
+	presentation: "Slides",
+	video: "Video",
+};
+
+/** A file whose content loads only when opened: its kind and last change. */
+function FileSummaryPreview({ item }: { item: OsOutputLibraryItem }) {
+	const Icon = OUTPUT_KIND_ICONS[item.output.kind];
+	const updated = relativeTime(item.output.updatedAt);
+	return (
+		<div className="grid h-full content-center justify-items-center gap-2 bg-kumo-tint px-4 text-center">
+			<Icon
+				aria-hidden
+				className="text-kumo-subtle"
+				size={32}
+				weight="duotone"
+			/>
+			<Text as="span" role="label" tone="secondary">
+				{OUTPUT_KIND_LABELS[item.output.kind]}
+				{updated ? ` · Updated ${updated}` : ""}
+			</Text>
+		</div>
+	);
+}
+
 function DocButton({
 	selected,
 	onSelect,
@@ -126,7 +167,11 @@ function DocButton({
 			}
 			preview={
 				<div data-workspace-output-preview className="h-full">
-					<OutputPreview preview={item.preview} />
+					{item.preview.kind === "metadata" ? (
+						<FileSummaryPreview item={item} />
+					) : (
+						<OutputPreview preview={item.preview} />
+					)}
 				</div>
 			}
 		>
@@ -280,16 +325,13 @@ export function CanvasResourceRail({
 									: "Start with a file below. Open it in the Editor to read or edit it, or use the conversation to ask for changes."}
 						</p>
 					</div>
-					<label className="canvas-resource-search">
-						<span className="sr-only">Search workspace</span>
-						<MagnifyingGlass aria-hidden size={16} />
-						<Input
-							aria-label="Search workspace"
-							placeholder="Search this workspace"
-							value={query}
-							onChange={(event) => setQuery(event.target.value)}
-						/>
-					</label>
+					<SearchInput
+						containerClassName="canvas-resource-search"
+						aria-label="Search workspace"
+						placeholder="Search this workspace"
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+					/>
 				</header>
 				{workspaces.isPending && <ListSkeleton rows={2} rowClassName="h-9" />}
 				{workspaces.isError && (

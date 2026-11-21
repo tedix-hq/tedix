@@ -292,7 +292,6 @@ function ConversationRowView({
 									aria-label="Working"
 									className="inline-flex shrink-0 text-kumo-subtle"
 									role="img"
-									title="Working"
 								>
 									<Loader aria-hidden size={12} />
 								</span>
@@ -312,7 +311,7 @@ function ConversationRowView({
 						) : null}
 					</TooltipTrigger>
 					<TooltipContent role="tooltip" side="right">
-						{row.title}
+						{row.working ? `${row.title} · Working` : row.title}
 					</TooltipContent>
 				</Tooltip>
 			)}

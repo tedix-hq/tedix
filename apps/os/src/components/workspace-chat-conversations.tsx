@@ -17,6 +17,11 @@ import {
 } from "@/components/conversation-list";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import type { ConversationChange } from "@/lib/workspace-chat-client";
 import { agentConversations, ownConversations } from "@/lib/workspace-agents";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
@@ -63,16 +68,22 @@ export function ConversationTitle({
 			</Text>
 		);
 	return (
-		<button
-			className="workspace-chat-title"
-			onClick={() => setEditing(true)}
-			title="Rename conversation"
-			type="button"
-		>
-			<Text as="strong" role="label" className="truncate">
-				{title ?? fallback}
-			</Text>
-		</button>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						className="workspace-chat-title"
+						onClick={() => setEditing(true)}
+						type="button"
+					/>
+				}
+			>
+				<Text as="strong" role="label" className="truncate">
+					{title ?? fallback}
+				</Text>
+			</TooltipTrigger>
+			<TooltipContent>Rename conversation</TooltipContent>
+		</Tooltip>
 	);
 }
 

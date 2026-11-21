@@ -20,7 +20,10 @@ import type {
 	OsOutputKind,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { ReactElement } from "react";
+import { LoadError } from "@/components/kumo/alert";
+import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { Empty } from "@/components/kumo/empty";
 import {
 	Tooltip,
 	TooltipContent,
@@ -50,7 +53,7 @@ export const WORKSPACE_OUTPUTS_PANEL_KEY = "tedix-os:workspace-outputs-panel";
 export const WORKSPACE_OUTPUTS_PANEL_ROOMY_MIN = 1200;
 
 export const WORKSPACE_OUTPUTS_EMPTY_COPY =
-	"Nothing here yet. Apps and files made in this workspace will show up here.";
+	"Apps and files made in this workspace will show up here.";
 
 export function restoreWorkspaceOutputsPanelExpanded(
 	storage: Pick<Storage, "getItem"> | null,
@@ -214,6 +217,9 @@ type WorkspaceOutputsListProps = {
 	items: readonly WorkspaceOutputsPanelItem[];
 	loading: boolean;
 	error: boolean;
+	/** Loads the list again after it failed. */
+	onRetry?: () => void;
+	retrying?: boolean;
 	selectedDoc: CanvasDocSelection | null;
 	onSelect: (doc: CanvasDocSelection) => void;
 	onOpenAppDraft?: (gadgetId: string) => void;
@@ -277,6 +283,8 @@ export function WorkspaceOutputsList({
 	items,
 	loading,
 	error,
+	onRetry,
+	retrying,
 	selectedDoc,
 	onSelect,
 	onOpenAppDraft,
@@ -296,17 +304,21 @@ export function WorkspaceOutputsList({
 					<ListSkeleton rows={3} rowClassName="h-7" />
 				</div>
 			) : error ? (
-				<p className="workspace-outputs-note" role="status">
-					Files are unavailable right now.
-				</p>
+				<LoadError
+					className="workspace-outputs-empty"
+					title="Files are unavailable"
+					onRetry={onRetry}
+					retrying={retrying}
+				/>
 			) : items.length === 0 ? (
-				<div
+				<Empty
+					appearance="quiet"
 					className="workspace-outputs-empty"
 					data-workspace-outputs-empty=""
-				>
-					<Tray aria-hidden size={18} />
-					<p>{WORKSPACE_OUTPUTS_EMPTY_COPY}</p>
-				</div>
+					description={WORKSPACE_OUTPUTS_EMPTY_COPY}
+					icon={<Tray aria-hidden size={20} />}
+					title="Nothing here yet"
+				/>
 			) : (
 				<ul className="workspace-outputs-list" aria-label="Files">
 					{items.map((item) => {
@@ -427,9 +439,7 @@ export function WorkspaceOutputsPanel({
 			<header className="workspace-outputs-header">
 				<h2 className="workspace-outputs-heading">
 					Files
-					{count ? (
-						<span className="workspace-outputs-count">{count}</span>
-					) : null}
+					{count ? <Badge variant="secondary">{count}</Badge> : null}
 				</h2>
 				{/* The workspace's one New menu; templates are in it too. */}
 				{expanded && workspaceId && (
