@@ -95,7 +95,7 @@ it("keeps stable, distinct row disclosure targets and receipt content behind Mor
 	const rows = [...host.querySelectorAll("article")];
 	const triggers = rows.flatMap((row) => [
 		namedButton(row, "More"),
-		button(row, "Comment"),
+		button(row, "Private note"),
 	]);
 	const ids = triggers.map((trigger) => trigger.getAttribute("aria-controls"));
 	expect(new Set(ids).size).toBe(4);
@@ -127,7 +127,7 @@ it("retains failed note text and focus, then returns successful save focus to it
 		.mockResolvedValueOnce(true);
 	await mount(onReact);
 	const rows = [...host.querySelectorAll("article")];
-	const comment = button(rows[1]!, "Comment");
+	const comment = button(rows[1]!, "Private note");
 	await click(comment);
 	expect(document.activeElement).toBe(comment);
 	const field = rows[1]!.querySelector("textarea")!;
@@ -153,7 +153,7 @@ it("retains failed note text and focus, then returns successful save focus to it
 it("closes explicitly without losing an unsaved note and restores trigger focus", async () => {
 	const onReact = await mount();
 	const row = host.querySelector("article")!;
-	const comment = button(row, "Comment");
+	const comment = button(row, "Private note");
 	await click(comment);
 	await type(row.querySelector("textarea")!, "Unsent note");
 	await click(namedButton(row, "Close note"));

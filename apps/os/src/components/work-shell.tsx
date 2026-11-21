@@ -117,7 +117,12 @@ export function WorkShell() {
 							aria-current={deck ? "page" : undefined}
 							className="flex-1 justify-center sm:flex-none"
 						>
-							{OS_COPY.workHome.deck}
+							{feed &&
+							decisions.count > 0 &&
+							!decisions.pending &&
+							!decisions.failed
+								? "Needs your answer"
+								: OS_COPY.workHome.deck}
 							{config.success &&
 								((deck && remaining !== null) ||
 									(!decisions.pending && !decisions.failed)) && (

@@ -23,7 +23,10 @@ import {
 	WorkActorAvatar,
 	WorkActorDirectoryContext,
 } from "./work-actor-avatar";
-import { resolveWorkContributor } from "@/lib/work-actor";
+import { useQuery } from "@tanstack/react-query";
+import { workItemDetailQueryOptions } from "@/lib/os-query-options";
+import { WorkItemCommentComposer } from "./work-item-comment-composer";
+import { resolveWorkContributor, workActorReference } from "@/lib/work-actor";
 import { WorkSourceProvenance } from "./work-source-provenance";
 import { Badge } from "./kumo/badge";
 import { Button } from "./kumo/button";
@@ -68,6 +71,56 @@ const RECEIPT_NOTES = [
 	OS_COPY.feed.correctionExplanation,
 ];
 
+function PostDiscussion({ itemId }: { itemId: string }) {
+	const detail = useQuery({
+		...workItemDetailQueryOptions(itemId),
+		refetchInterval: 30_000,
+	});
+	const directory = useContext(WorkActorDirectoryContext);
+	const replies = detail.data?.comments ?? [];
+	return (
+		<section
+			aria-label="Work discussion"
+			className="grid gap-3 border-t border-kumo-line pt-3"
+		>
+			{detail.isPending && <Text>Loading comments…</Text>}
+			{detail.isError && (
+				<Text>
+					Could not load comments.{" "}
+					<Link href={`/work/items/${itemId}`}>Open task</Link>
+				</Text>
+			)}
+			{replies.slice(-5).map((reply) => {
+				const actor = workActorReference(
+					reply.authorType,
+					reply.authorId,
+					reply.metadata,
+				);
+				const author = resolveWorkContributor(
+					actor,
+					reply.authorType === "user" ? "Team member" : "Agent",
+					directory,
+				);
+				return (
+					<div key={reply.id} className="flex items-start gap-2">
+						<WorkActorAvatar actor={actor} name={author.label} />
+						<div className="min-w-0">
+							<Text weight="semibold">{author.label}</Text>
+							<p className="whitespace-pre-wrap break-words line-clamp-5">
+								{reply.body}
+							</p>
+						</div>
+					</div>
+				);
+			})}
+			{replies.length > 0 && (
+				<Link href={`/work/items/${itemId}`}>Open full discussion</Link>
+			)}
+			<WorkItemCommentComposer itemId={itemId} />
+		</section>
+	);
+}
+
 export function FeedCard({
 	item,
 	actor,
@@ -96,6 +149,7 @@ export function FeedCard({
 	const article = useRef<HTMLElement>(null);
 	const commentTrigger = useRef<HTMLButtonElement>(null);
 	const [receipt, setReceipt] = useState(false);
+	const [discussion, setDiscussion] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
 	const [correctionSaved, setCorrectionSaved] = useState(false);
@@ -171,6 +225,29 @@ export function FeedCard({
 				detail={`${actor}${project ? ` · ${project}` : ""}`}
 			/>
 			<div className="fd-story-body grid">
+				<div className="ft-byline flex-wrap">
+					<Text as="span" className="min-w-0 break-words">
+						{resolved.label}
+					</Text>
+					{project && (
+						<Text as="span" tone="secondary">
+							·{" "}
+							{item.projectId ? (
+								<Link
+									href={`/work/projects/${item.projectId}`}
+									variant="record"
+								>
+									{project}
+								</Link>
+							) : (
+								project
+							)}
+						</Text>
+					)}
+					<time dateTime={item.at} title={absoluteTime(item.at)}>
+						· {relativeTime(item.at)}
+					</time>
+				</div>
 				<Link
 					href={item.needsAction ? decisionHref : item.source}
 					variant="record"
@@ -209,29 +286,7 @@ export function FeedCard({
 						))}
 					</ul>
 				)}
-				<div className="ft-byline flex-wrap">
-					<Text as="span" className="min-w-0 break-words">
-						{resolved.label}
-					</Text>
-					{project && (
-						<Text as="span" tone="secondary">
-							·{" "}
-							{item.projectId ? (
-								<Link
-									href={`/work/projects/${item.projectId}`}
-									variant="record"
-								>
-									{project}
-								</Link>
-							) : (
-								project
-							)}
-						</Text>
-					)}
-					<time dateTime={item.at} title={absoluteTime(item.at)}>
-						· {relativeTime(item.at)}
-					</time>
-				</div>
+
 				<div className="ft-detail-row">
 					{item.needsAction && (
 						<Link href={decisionHref} variant="plain" className="ft-chip-link">
@@ -281,39 +336,55 @@ export function FeedCard({
 						disabled={busy}
 					/>
 				)}
-				<FocusRowActions
-					actions={[
-						// The first two row reactions stay one click away beside Comment.
-						...rowActions.slice(0, 2),
-						{
-							label: "Comment",
-							Icon: ChatText,
-							expanded: comment,
-							controls: commentId,
-							onClick: (trigger) => {
-								commentTrigger.current = trigger;
-								if (comment) closeComment();
-								else setComment(true);
+				<div className="flex flex-wrap items-center gap-2">
+					{item.workItemId && (
+						<Button
+							size="sm"
+							variant="ghost"
+							aria-expanded={discussion}
+							onClick={() => setDiscussion((v) => !v)}
+						>
+							<ChatText size={16} aria-hidden />
+							Comments
+						</Button>
+					)}
+					<FocusRowActions
+						actions={[
+							// The first two row reactions stay one click away beside Comment.
+							...rowActions.slice(0, 2),
+							{
+								label: "Private note",
+								Icon: ChatText,
+								expanded: comment,
+								controls: commentId,
+								onClick: (trigger) => {
+									commentTrigger.current = trigger;
+									if (comment) closeComment();
+									else setComment(true);
+								},
 							},
-						},
-						...rowActions.slice(2),
-						{
-							label: "Why this update",
-							Icon: Info,
-							onClick: () => rail?.openSection(section),
-						},
-						...(item.projectId
-							? [
-									{
-										label: "Turn into Work",
-										Icon: ListPlus,
-										disabled: busy,
-										onClick: () => void onWork(item),
-									},
-								]
-							: []),
-					]}
-				/>
+							...rowActions.slice(2),
+							{
+								label: "Why this update",
+								Icon: Info,
+								onClick: () => rail?.openSection(section),
+							},
+							...(item.projectId
+								? [
+										{
+											label: "Turn into Work",
+											Icon: ListPlus,
+											disabled: busy,
+											onClick: () => void onWork(item),
+										},
+									]
+								: []),
+						]}
+					/>
+				</div>
+				{discussion && item.workItemId && (
+					<PostDiscussion key={item.workItemId} itemId={item.workItemId} />
+				)}
 				<div
 					id={receiptId}
 					role="region"

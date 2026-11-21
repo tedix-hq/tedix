@@ -1,13 +1,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Label } from "@/components/kumo/label";
 import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
 import { osQuery, workItemDetailQueryOptions } from "@/lib/os-query-options";
 
-export function WorkItemCommentComposer({ itemId }: { itemId: string }) {
+export function WorkItemCommentComposer({
+	itemId,
+	onPosted,
+}: {
+	itemId: string;
+	onPosted?: () => void;
+}) {
 	const [body, setBody] = useState("");
+	const fieldId = useId();
 	const client = useQueryClient();
 	const comment = useMutation({
 		mutationFn: (text: string) =>
@@ -19,9 +26,10 @@ export function WorkItemCommentComposer({ itemId }: { itemId: string }) {
 					queryKey: workItemDetailQueryOptions(itemId).queryKey,
 				}),
 				client.invalidateQueries({
-					queryKey: osQuery.workItems.key({ type: "query" }),
+					queryKey: osQuery.workItems.key(),
 				}),
 			]);
+			onPosted?.();
 		},
 	});
 	return (
@@ -32,9 +40,11 @@ export function WorkItemCommentComposer({ itemId }: { itemId: string }) {
 				if (body.trim() && !comment.isPending) comment.mutate(body.trim());
 			}}
 		>
-			<Label htmlFor={`work-comment-${itemId}`}>Add a comment</Label>
+			<Label htmlFor={fieldId}>
+				{onPosted ? "Your update" : "Add a comment"}
+			</Label>
 			<Textarea
-				id={`work-comment-${itemId}`}
+				id={fieldId}
 				value={body}
 				onChange={(event) => setBody(event.target.value)}
 				maxLength={10000}
@@ -49,7 +59,7 @@ export function WorkItemCommentComposer({ itemId }: { itemId: string }) {
 				type="submit"
 				disabled={!body.trim() || comment.isPending}
 			>
-				Post comment
+				{onPosted ? "Post update" : "Post comment"}
 			</Button>
 		</form>
 	);

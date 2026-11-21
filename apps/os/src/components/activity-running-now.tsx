@@ -14,6 +14,7 @@ import {
 	CollapsibleDefaultContent,
 	CollapsibleDefaultTrigger,
 } from "./kumo/collapsible";
+import { Button } from "./kumo/button";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { ActivityHarnessScorecard } from "./activity-harness-scorecard";
@@ -22,16 +23,18 @@ import { ActivityHarnessScorecard } from "./activity-harness-scorecard";
 export function ActivityRunningNow({
 	config,
 	projectId,
+	followedProjects,
 	children,
 }: {
 	config: ActivityFeedConfig;
 	projectId?: string;
+	followedProjects?: string[];
 	children?: ReactNode;
 }) {
 	const scopes = projectId
 		? [projectId]
 		: config.scope === "organization"
-			? [undefined]
+			? (followedProjects ?? [undefined])
 			: [...new Set(config.projects.map((project) => project.id))];
 	const queries = useQueries({
 		queries: scopes.map((id) => ({
@@ -67,6 +70,18 @@ export function ActivityRunningNow({
 		).values(),
 	];
 	const names = useWorkPrincipalNames(rows[0]?.attempt.orgId);
+	const [expanded, setExpanded] = useState(false);
+	const byWork = new Map<string, typeof rows>();
+	for (const row of rows.sort(
+		(a, b) =>
+			a.attempt.startedAt.localeCompare(b.attempt.startedAt) ||
+			a.workItem.id.localeCompare(b.workItem.id),
+	)) {
+		const group = byWork.get(row.workItem.id);
+		if (group) group.push(row);
+		else byWork.set(row.workItem.id, [row]);
+	}
+	const work = [...byWork.values()];
 	const failed = queries.some((query) => query.isError);
 	const pending = queries.some((query) => query.isPending);
 	const reports = health.data?.data ?? [];
@@ -109,42 +124,41 @@ export function ActivityRunningNow({
 						/>
 					)}
 					{rows.length > 0 ? (
-						<ul aria-label="Active attempts" className="grid min-w-0 gap-3">
-							{rows.map(({ attempt, workItem }) => {
-								const expired =
-									!!attempt.expiresAt &&
-									Date.parse(attempt.expiresAt) <= now.getTime();
-								return (
-									<li
-										key={attempt.id}
-										className="grid min-w-0 gap-1 border-t border-kumo-line pt-3"
-									>
-										<Link variant="record" href={`/work/items/${workItem.id}`}>
-											{/* "Copy skill <id> (Forum Scout)" reads as "Copy skill Forum Scout". */}
-											{plainFeedText(workItem.title) || workItem.title}
-										</Link>
-										<Text>
-											{workPrincipalTooltip(
+						<ul aria-label="Active work" className="grid min-w-0 gap-2">
+							{(expanded ? work : work.slice(0, 5)).map((group) => {
+								const { attempt, workItem } = group[group.length - 1]!;
+								const people = [
+									...new Set(
+										group.map(({ attempt }) =>
+											workPrincipalTooltip(
 												attempt.executorType,
 												attempt.executorId,
 												names,
-											)}{" "}
-											·{" "}
-											{expired
-												? "No recent update"
-												: attempt.runtimeState === "running"
-													? "Working"
-													: attempt.runtimeState}
-										</Text>
-										<Text role="caption" tone="secondary">
-											Started{" "}
-											<time
-												dateTime={attempt.startedAt}
-												title={absoluteTime(attempt.startedAt)}
-											>
-												{relativeTime(attempt.startedAt, now)}
-											</time>
-										</Text>
+											),
+										),
+									),
+								];
+								const status =
+									attempt.expiresAt &&
+									Date.parse(attempt.expiresAt) <= now.getTime()
+										? "No recent update"
+										: (
+												{
+													queued: "Waiting to start",
+													waiting: "Waiting",
+													retrying: "Trying again",
+												} as Record<string, string>
+											)[attempt.runtimeState];
+								return (
+									<li
+										key={workItem.id}
+										className="flex min-w-0 flex-wrap items-baseline gap-x-2"
+									>
+										<Text weight="semibold">{people.join(", ")}</Text>
+										<Link variant="record" href={`/work/items/${workItem.id}`}>
+											{plainFeedText(workItem.title) || workItem.title}
+										</Link>
+										{status && <Text tone="secondary">{status}</Text>}
 									</li>
 								);
 							})}
@@ -157,6 +171,16 @@ export function ActivityRunningNow({
 									? "Checking running work…"
 									: "No work is running here."}
 						</Text>
+					)}
+					{work.length > 5 && (
+						<Button
+							className="justify-self-start"
+							size="sm"
+							variant="ghost"
+							onClick={() => setExpanded(!expanded)}
+						>
+							{expanded ? "Show fewer" : `Show all ${work.length}`}
+						</Button>
 					)}
 					{failed && rows.length > 0 && (
 						<Text tone="secondary">

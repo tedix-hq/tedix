@@ -338,8 +338,10 @@ it("shows the overview on Activity, not above Decisions or a narrowed list", () 
 it("shows the Activity overview before any Work app is installed", () => {
 	const page = render({ view: "feed" }, false);
 	const overview = page.querySelector('section[aria-label="Work overview"]')!;
-	for (const title of ["Stuck", "Needs you", "This week"])
-		expect(overview.querySelector(`[aria-label="${title}"]`)).not.toBeNull();
+	expect(
+		overview.querySelector('[aria-label="Recent activity"]'),
+	).not.toBeNull();
+	expect(overview.querySelector('[aria-label="Stuck"]')).toBeNull();
 	expect(page.querySelector("article")?.getAttribute("data-entry")).toBe(
 		"tedix:app/activity-feed",
 	);

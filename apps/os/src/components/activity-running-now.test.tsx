@@ -135,10 +135,9 @@ it("shows the canonical attempt fields and polls away completed attempts without
 	expect(host.textContent).toContain("Prepare Cedar brief");
 	expect(host.textContent).not.toContain(attemptId);
 	expect(host.textContent).toContain("Cedar agent");
-	expect(host.textContent).toContain("10m ago");
 	expect(
-		host.querySelectorAll(`time[datetime="${row().attempt.startedAt}"]`).length,
-	).toBeGreaterThan(0);
+		host.querySelector(`a[href="/work/items/${workId}"]`)?.textContent,
+	).toContain("Prepare Cedar brief");
 	expect(host.textContent).not.toContain("Last renewal");
 	expect(api.attempts.mock.calls.every(([input]) => input.runtimeStates)).toBe(
 		true,

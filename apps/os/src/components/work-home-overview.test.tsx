@@ -1,22 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vite-plus/test";
-import { osQuery, pendingApprovalsQueryOptions } from "@/lib/os-query-options";
-import { WorkHomeOverview } from "./work-home-overview";
+import { osQuery } from "@/lib/os-query-options";
+import { OverviewSections } from "./work-home-overview";
 import { workHomeMattersThrough } from "@/lib/work-home-overview";
-
-vi.mock("./activity-running-now", () => ({
-	ActivityRunningNow: ({ children }: { children: React.ReactNode }) => (
-		<section aria-label="Running now">
-			<a href="/work/items/running-work">Running task</a>
-			{children}
-		</section>
-	),
-}));
 
 afterEach(() => vi.useRealTimers());
 
-it("shows running, stuck reasons, requests and approvals, and this week's Work with record links", () => {
+it("shows stuck reasons and this week's work with record links", () => {
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date("2026-11-15T12:00:00.000Z"));
 	const client = new QueryClient({
@@ -71,37 +62,6 @@ it("shows running, stuck reasons, requests and approvals, and this week's Work w
 		},
 	);
 	client.setQueryData<unknown>(
-		osQuery.workInteractions.listInbox.queryOptions({
-			input: { limit: 50, states: ["open"] },
-		}).queryKey,
-		{ data: [], hasMore: false, nextCursor: null },
-	);
-	client.setQueryData<unknown>(
-		osQuery.workApprovals.listInbox.queryOptions({
-			input: { limit: 50, statuses: ["pending"] },
-		}).queryKey,
-		{
-			data: [
-				{
-					proposal: {
-						id: "approval-1",
-						requestedAt: "2026-11-15T11:00:00.000Z",
-						requestRationale: "Confirm the risk",
-					},
-					effectiveStatus: "pending",
-					canDecide: true,
-					workItem: { id: "approval-work", title: "Approve launch" },
-				},
-			],
-			hasMore: false,
-			nextCursor: null,
-		},
-	);
-	client.setQueryData<unknown>(pendingApprovalsQueryOptions().queryKey, {
-		data: [],
-		pagination: { limit: 50, offset: 0, total: 0, hasMore: false },
-	});
-	client.setQueryData<unknown>(
 		osQuery.workItems.list.queryOptions({
 			input: {
 				disposition: "accepted",
@@ -134,11 +94,11 @@ it("shows running, stuck reasons, requests and approvals, and this week's Work w
 
 	const html = renderToStaticMarkup(
 		<QueryClientProvider client={client}>
-			<WorkHomeOverview />
+			<OverviewSections />
 		</QueryClientProvider>,
 	);
 	const page = new DOMParser().parseFromString(html, "text/html");
-	for (const name of ["Running now", "Stuck", "Needs you", "This week"])
+	for (const name of ["Stuck", "This week"])
 		expect(page.querySelector(`[aria-label="${name}"]`)).not.toBeNull();
 	expect(page.body.textContent).toContain("Blocked by prerequisite task");
 	expect(page.body.textContent).toContain("The last run failed");
@@ -152,9 +112,7 @@ it("shows running, stuck reasons, requests and approvals, and this week's Work w
 	expect(
 		page.querySelector('a[href="/work/items/failed-work"]'),
 	).not.toBeNull();
-	expect(
-		page.querySelector('a[href="/work/items/approval-work"]'),
-	).not.toBeNull();
+
 	expect(
 		page.querySelector('a[href="/work/items/priority-work"]'),
 	).not.toBeNull();

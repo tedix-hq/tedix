@@ -201,6 +201,7 @@ export const OsUserPreferencesSchema = z.object({
 	),
 	accessibility: OsAccessibilityPreferencesSchema,
 	notifications: OsNotificationPreferencesSchema,
+	activityOverviewScope: z.enum(["following", "all"]).optional(),
 	activityFeed: z
 		.object({
 			projectIds: z.array(z.uuid()).max(100),

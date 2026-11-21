@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { ActivityRunningNow } from "./activity-running-now";
 import { Card, CardContent, CardHeader, CardTitle } from "./kumo/card";
@@ -6,12 +6,19 @@ import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { WorkListSkeleton, WorkReadFailure } from "./work-surface-primitives";
 import {
-	isOpenRequestForYou,
-	isPendingRuntimeApproval,
-} from "./work-needs-you-count";
-import { osQuery, pendingApprovalsQueryOptions } from "@/lib/os-query-options";
-import { isDecidableWorkApproval } from "@/lib/work-counts";
-import { officeAsk } from "@/lib/work-interaction-display";
+	osQuery,
+	projectListQueryOptions,
+	workItemPagesQueryOptions,
+} from "@/lib/os-query-options";
+import { useOsPreferences } from "@/lib/use-os-preferences";
+import { EMPTY_FEED_PREFERENCES } from "@tedix/api-contract/utils/activity-feed";
+import { WorkItemCommentComposer } from "./work-item-comment-composer";
+import { Button } from "./kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "./kumo/collapsible";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { absoluteDate } from "@/lib/time";
 import { workHomeMattersThrough } from "@/lib/work-home-overview";
@@ -71,21 +78,222 @@ const recoveryReason: Record<string, string> = {
 	attempt_lease_elapsed: "The run stopped reporting",
 };
 
-export function WorkHomeOverview({ children }: { children?: ReactNode }) {
+function ShareUpdate({ onPosted }: { onPosted: () => void }) {
+	const [itemId, setItemId] = useState("");
+	const list = useInfiniteQuery(workItemPagesQueryOptions({}));
 	return (
 		<section
-			aria-label="Work overview"
-			className="mx-auto grid w-full max-w-6xl gap-4 pb-6"
+			aria-label="Share an update"
+			className="grid gap-3 rounded-lg border border-kumo-line p-4"
 		>
-			<ActivityRunningNow config={ORGANIZATION_ACTIVITY_CONFIG}>
-				<OverviewSections />
-				{children}
-			</ActivityRunningNow>
+			{list.isError && (
+				<WorkReadFailure
+					title="Could not load tasks"
+					error={list.error}
+					onRetry={() => list.refetch()}
+				/>
+			)}
+			<label className="grid gap-1">
+				Task
+				<select
+					className="min-w-0 rounded-md border border-kumo-line bg-kumo-base p-2"
+					value={itemId}
+					onChange={(event) => setItemId(event.target.value)}
+				>
+					<option value="">
+						{list.isPending ? "Loading tasks…" : "Choose a task"}
+					</option>
+					{list.data?.pages
+						.flatMap((page) => page.data)
+						.map((task) => (
+							<option key={task.id} value={task.id}>
+								{task.title}
+							</option>
+						))}
+				</select>
+			</label>
+			{list.hasNextPage && (
+				<Button
+					variant="ghost"
+					disabled={list.isFetchingNextPage}
+					onClick={() => list.fetchNextPage()}
+				>
+					More tasks
+				</Button>
+			)}
+			{itemId && (
+				<WorkItemCommentComposer
+					key={itemId}
+					itemId={itemId}
+					onPosted={onPosted}
+				/>
+			)}
 		</section>
 	);
 }
 
-function OverviewSections() {
+export function WorkHomeOverview({ children }: { children?: ReactNode }) {
+	const { query, save } = useOsPreferences();
+	const preferences = query.data?.preferences;
+	const projects = preferences?.activityFeed?.projectIds ?? [];
+	const following =
+		projects.length > 0 && preferences?.activityOverviewScope !== "all";
+	const [sharing, setSharing] = useState(false);
+	const [posted, setPosted] = useState(false);
+	const [pick, setPick] = useState(false);
+	const [details, setDetails] = useState(false);
+	const [offset, setOffset] = useState(0);
+	const available = useQuery({
+		...projectListQueryOptions(50, { offset }),
+		enabled: pick,
+	});
+	function choose(scope: "all" | "following", ids = projects) {
+		if (!preferences || save.isPending) return;
+		save.mutate({
+			...preferences,
+			activityOverviewScope: scope,
+			activityFeed: {
+				...(preferences.activityFeed ?? EMPTY_FEED_PREFERENCES),
+				projectIds: ids,
+			},
+		});
+	}
+	return (
+		<section
+			aria-label="Work overview"
+			className="mx-auto grid w-full max-w-3xl gap-3 pb-6"
+		>
+			<div
+				role="group"
+				aria-label="Activity scope"
+				className="flex flex-wrap items-center gap-1"
+			>
+				<Button
+					size="sm"
+					variant={following ? "secondary" : "ghost"}
+					aria-pressed={following}
+					disabled={!preferences || save.isPending}
+					onClick={() =>
+						projects.length ? choose("following") : setPick(true)
+					}
+				>
+					Following
+				</Button>
+				<Button
+					size="sm"
+					variant={following ? "ghost" : "secondary"}
+					aria-pressed={!following}
+					disabled={!preferences || save.isPending}
+					onClick={() => choose("all")}
+				>
+					All work
+				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					aria-expanded={pick}
+					onClick={() => setPick(!pick)}
+				>
+					Choose projects
+				</Button>
+				<Button
+					size="sm"
+					variant="secondary"
+					className="ms-auto"
+					aria-expanded={sharing}
+					onClick={() => {
+						setPosted(false);
+						setSharing(!sharing);
+					}}
+				>
+					Share an update
+				</Button>
+			</div>
+			{sharing && (
+				<ShareUpdate
+					onPosted={() => {
+						setPosted(true);
+						setSharing(false);
+					}}
+				/>
+			)}
+			{posted && <p role="status">Update posted.</p>}
+			{pick && (
+				<fieldset className="grid max-h-64 gap-2 overflow-auto">
+					<legend>Projects to follow</legend>
+					{available.isPending && <Text>Loading projects…</Text>}
+					{available.isError && (
+						<WorkReadFailure
+							title="Could not load projects"
+							error={available.error}
+							onRetry={() => available.refetch()}
+						/>
+					)}
+					{available.data?.data.map((project) => (
+						<label key={project.id} className="flex items-center gap-2">
+							<input
+								type="checkbox"
+								checked={projects.includes(project.id)}
+								disabled={!preferences || save.isPending}
+								onChange={(event) =>
+									choose(
+										"following",
+										event.target.checked
+											? [...projects, project.id]
+											: projects.filter((id) => id !== project.id),
+									)
+								}
+							/>
+							{project.name}
+						</label>
+					))}
+					{(offset > 0 || available.data?.pagination.hasMore) && (
+						<div className="flex gap-2">
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={!offset}
+								onClick={() => setOffset((n) => Math.max(0, n - 50))}
+							>
+								Previous projects
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={!available.data?.pagination.hasMore}
+								onClick={() => setOffset((n) => n + 50)}
+							>
+								More projects
+							</Button>
+						</div>
+					)}
+				</fieldset>
+			)}
+			{save.isError && (
+				<Text role="body">
+					Could not save your Activity preference. Try again.
+				</Text>
+			)}
+			<ActivityRunningNow
+				config={ORGANIZATION_ACTIVITY_CONFIG}
+				followedProjects={following ? projects : undefined}
+			/>
+			<Collapsible open={details} onOpenChange={setDetails}>
+				<CollapsibleDefaultTrigger>
+					Stuck and upcoming work
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
+					{details && <OverviewSections />}
+				</CollapsibleDefaultContent>
+			</Collapsible>
+			<div aria-label="Recent activity" className="activity-posts min-w-0">
+				{children}
+			</div>
+		</section>
+	);
+}
+
+export function OverviewSections() {
 	const [now] = useState(() => new Date());
 	const mattersThrough = workHomeMattersThrough(now);
 	const readiness = useQuery({
@@ -98,22 +306,6 @@ function OverviewSections() {
 		...osQuery.workItems.listRecoveryProjection.queryOptions({
 			input: { limit: 100 },
 		}),
-		...workRefreshOptions,
-	});
-	const interactions = useQuery({
-		...osQuery.workInteractions.listInbox.queryOptions({
-			input: { limit: 50, states: ["open"] },
-		}),
-		...workRefreshOptions,
-	});
-	const workApprovals = useQuery({
-		...osQuery.workApprovals.listInbox.queryOptions({
-			input: { limit: 50, statuses: ["pending"] },
-		}),
-		...workRefreshOptions,
-	});
-	const runtimeApprovals = useQuery({
-		...pendingApprovalsQueryOptions(),
 		...workRefreshOptions,
 	});
 	const matters = useQuery({
@@ -161,41 +353,10 @@ function OverviewSections() {
 				.join(" · "),
 		});
 	}
-	const needsYou = [
-		...(runtimeApprovals.data?.data ?? [])
-			.filter(isPendingRuntimeApproval)
-			.map((row) => ({
-				key: `runtime-approval:${row.id}`,
-				kind: "Approval",
-				label: row.description,
-				href: "/work/approvals",
-				askedBy: "A tedi",
-			})),
-		...(workApprovals.data?.data ?? [])
-			.filter(isDecidableWorkApproval)
-			.map((row) => ({
-				key: `work-approval:${row.proposal.id}`,
-				kind: "Approval",
-				label: row.workItem.title,
-				href: `/work/items/${encodeURIComponent(row.workItem.id)}`,
-				askedBy: "Tedix",
-			})),
-		...(interactions.data?.data ?? [])
-			.filter(isOpenRequestForYou)
-			.map((row) => ({
-				key: `request:${row.request.id}`,
-				kind: "Request",
-				label: officeAsk(row.request),
-				href: `/work/interactions/${encodeURIComponent(row.request.id)}`,
-				askedBy: row.askedBy,
-			})),
-	];
 	const stuckFailed = readiness.isError || recovery.isError;
-	const needsFailed =
-		interactions.isError || workApprovals.isError || runtimeApprovals.isError;
 
 	return (
-		<div className="grid gap-4 lg:grid-cols-3">
+		<div className="grid gap-4 lg:grid-cols-2">
 			<Section title="Stuck">
 				{stuckFailed && (
 					<WorkReadFailure
@@ -223,42 +384,6 @@ function OverviewSections() {
 					readiness.data?.hasMore ||
 					recovery.data?.hasMore) && (
 					<Link href="/work?view=feed&filter=stalled">More stuck Work</Link>
-				)}
-			</Section>
-
-			<Section title="Needs you">
-				{needsFailed && (
-					<WorkReadFailure
-						title="Requests and approvals unavailable"
-						error={
-							interactions.error ??
-							workApprovals.error ??
-							runtimeApprovals.error
-						}
-					/>
-				)}
-				{needsYou.length ? (
-					<Rows label="Requests and approvals">
-						{needsYou.slice(0, SECTION_ROWS).map((item) => (
-							<Row
-								key={item.key}
-								href={item.href}
-								label={item.label}
-								detail={`${item.kind}${item.askedBy ? ` · ${item.askedBy}` : ""}`}
-							/>
-						))}
-					</Rows>
-				) : interactions.isPending ||
-				  workApprovals.isPending ||
-				  runtimeApprovals.isPending ? (
-					<WorkListSkeleton label="Checking Requests and approvals" />
-				) : needsFailed ? null : (
-					<Text tone="secondary">Nothing needs your answer.</Text>
-				)}
-				{(needsYou.length > 0 ||
-					interactions.data?.hasMore ||
-					workApprovals.data?.hasMore) && (
-					<Link href="/work?view=deck">All Decisions</Link>
 				)}
 			</Section>
 

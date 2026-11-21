@@ -23,8 +23,9 @@ export function FocusRowActions({ actions }: { actions: FocusRowAction[] }) {
 	return (
 		<div className="focus-row-tools">
 			<div className="focus-actions">
-				{actions.map(
-					({ label, Icon, onClick, disabled, expanded, controls }) => (
+				{actions
+					.slice(0, 2)
+					.map(({ label, Icon, onClick, disabled, expanded, controls }) => (
 						<Tooltip key={label}>
 							<TooltipTrigger
 								render={
@@ -43,8 +44,7 @@ export function FocusRowActions({ actions }: { actions: FocusRowAction[] }) {
 							</TooltipTrigger>
 							<TooltipContent>{label}</TooltipContent>
 						</Tooltip>
-					),
-				)}
+					))}
 			</div>
 			<DropdownMenu>
 				<Tooltip>

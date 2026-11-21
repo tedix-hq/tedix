@@ -147,8 +147,14 @@ export function FocusFeed({
 		}),
 		...workRefreshOptions,
 	});
-	const prefs =
+	const storedPrefs =
 		preferences.data?.preferences.activityFeed ?? EMPTY_FEED_PREFERENCES;
+	const overview = navigation?.showRunningNow === false && !timeline;
+	const prefs =
+		overview && preferences.data?.preferences.activityOverviewScope === "all"
+			? { ...storedPrefs, projectIds: [] }
+			: storedPrefs;
+	const [postLimit, setPostLimit] = useState(6);
 	const events = useMemo(
 		() => [
 			...new Map(
@@ -335,20 +341,47 @@ export function FocusFeed({
 		model.isError ||
 		decisions.queueFailed;
 	const more = states.some((s) => s?.more) || decisions.more;
-	const visible = timeline
-		? chronological.map((i) => ({
-				...i,
-				score: 0,
-				unseen: false,
-				deadline: false,
-				factors: {},
-			}))
-		: [
-				...needs,
-				...updates,
-				...(heldOpen ? waiting : []),
-				...(handledOpen ? handled : []),
-			];
+	// Keep a varied set of work in view. Related events stay on the task.
+	const seenWork = new Set<string>();
+	const isPost = (item: (typeof ranked)[number]) =>
+		item.kind === "result" ||
+		item.kind === "signal" ||
+		item.classId === "work:comment" ||
+		Boolean(item.attachment);
+	const posts = [
+		...ranked.filter(isPost),
+		...ranked.filter((item) => !isPost(item)),
+	].filter((item) => {
+		if (!outcomes.has(item.id)) return false;
+		const key = item.workItemId ?? item.id;
+		if (seenWork.has(key)) return false;
+		seenWork.add(key);
+		return true;
+	});
+	const question = ranked.find(
+		(item) =>
+			item.kind === "decision" &&
+			item.classId === "question" &&
+			item.needsAction &&
+			(!item.workItemId || !seenWork.has(item.workItemId)),
+	);
+	if (question) posts.splice(Math.min(posts.length, 2), 0, question);
+	const visible = overview
+		? posts.slice(0, postLimit)
+		: timeline
+			? chronological.map((i) => ({
+					...i,
+					score: 0,
+					unseen: false,
+					deadline: false,
+					factors: {},
+				}))
+			: [
+					...needs,
+					...updates,
+					...(heldOpen ? waiting : []),
+					...(handledOpen ? handled : []),
+				];
 	const root = useRef<HTMLDivElement>(null);
 	const counters = useRef(new Set<string>());
 	async function saveFeed(change: (p: typeof prefs) => typeof prefs) {
@@ -828,7 +861,22 @@ export function FocusFeed({
 				}
 				aria-busy={loading || revealing}
 			>
-				{filter === "stalled" ? (
+				{overview ? (
+					<div className="activity-post-list" role="list">
+						{visible.map((item) => render(item))}
+						{!loading && !failed && !visible.length && (
+							<Text>No updates yet.</Text>
+						)}
+						{posts.length > postLimit && (
+							<Button
+								variant="ghost"
+								onClick={() => setPostLimit((n) => n + 6)}
+							>
+								More updates
+							</Button>
+						)}
+					</div>
+				) : filter === "stalled" ? (
 					visible.length > 0 && causes(visible)
 				) : timeline ? (
 					days(visible)
