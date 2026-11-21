@@ -1,3 +1,4 @@
+import { claimDelegatedApproval } from "@tedix/db/queries/work-items/delegated-approvals";
 import {
 	getWorkItemById,
 	getWorkItemBySourceIntentId,
@@ -362,7 +363,7 @@ export async function executeDecisionCardEffect(
 	const { decisionEffect: _untrustedReceipt, ...clientMetadata } =
 		input.metadata ?? {};
 	input = { ...input, metadata: clientMetadata };
-	const request = await getWorkInteraction(context.db, {
+	let request = await getWorkInteraction(context.db, {
 		orgId: input.orgId,
 		interactionId: input.interactionId,
 	});
@@ -378,10 +379,28 @@ export async function executeDecisionCardEffect(
 		);
 	if (!parsed.success || !parsed.data.options.some((option) => option.effect))
 		return input;
+	const delegated =
+		request && input.responder.type !== "user"
+			? await claimDelegatedApproval(context.db, {
+					request,
+					actor: input.responder,
+					expectedVersion: input.expectedVersion,
+					now: new Date().toISOString(),
+					cardAction:
+						typeof input.metadata?.cardAction === "string"
+							? input.metadata.cardAction
+							: "",
+				})
+			: null;
+	if (delegated) {
+		request = delegated.request;
+		input = { ...input, expectedVersion: request.version };
+	}
 	if (
-		context.authType !== "user" ||
-		input.responder.type !== "user" ||
-		context.tediId
+		!delegated &&
+		(context.authType !== "user" ||
+			input.responder.type !== "user" ||
+			context.tediId)
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
@@ -391,7 +410,7 @@ export async function executeDecisionCardEffect(
 		!request ||
 		request.status !== "open" ||
 		request.version !== input.expectedVersion ||
-		request.targetType !== "user" ||
+		request.targetType !== input.responder.type ||
 		request.targetId !== input.responder.id ||
 		(request.expiresAt && request.expiresAt <= new Date().toISOString())
 	)
@@ -494,7 +513,7 @@ export async function executeDecisionCardEffect(
 			option.effect,
 			request.id,
 			parsed.data.proposal,
-			input.responder.id,
+			delegated?.receipt.ownerId ?? input.responder.id,
 			scope,
 		);
 		return {

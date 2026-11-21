@@ -1860,6 +1860,10 @@
 		{
 			"name": "20261121213238_billing_history_retention/migration.sql",
 			"sha256": "6509e5e408b0659074bc594fbca3ee023d1b413f074d08ac5fd22025b418796b"
+		},
+		{
+			"name": "20261121214857_delegated_approval_routing/migration.sql",
+			"sha256": "5650037228e8e963a768516772e89f34355b24b9ea228ecab929fb5618ef3d51"
 		}
 	]
 }

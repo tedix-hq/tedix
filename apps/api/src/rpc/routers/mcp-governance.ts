@@ -1,3 +1,5 @@
+import { runtimeApprovalDelegate } from "../../services/delegated-runtime-approval";
+import { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
 /**
  * MCP Governance Router
  *
@@ -1280,6 +1282,14 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			// Human receipts name the requester or approver. Policy receipts for
 			// agent-started runs bind to the stored agent on the tenant credential;
 			// neither path borrows a human's personal connection or scopes.
+			const delegateReceipt = DelegatedApprovalReceiptSchema.safeParse(
+				approval?.payload.delegatedApproval,
+			).data;
+			const delegated =
+				approval && delegateReceipt
+					? await runtimeApprovalDelegate(context, approval, delegateReceipt)
+					: null;
+			if (delegateReceipt && !delegated) return { approved: false };
 			const approvedByUserId = approvingUserId(approval?.resolvedBy);
 			const policyAgent =
 				!input.userId &&
@@ -1330,7 +1340,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			}
 			// The canonical resolve path already checked os:approve, including
 			// explicit member grants. Recheck membership without narrowing it to roles.
-			if (approval.resolvedBy !== "policy") {
+			if (approval.resolvedBy !== "policy" && !delegated) {
 				const approver = approval.resolvedBy
 					? await getMemberByUserId(
 							context.db,

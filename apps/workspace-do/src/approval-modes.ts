@@ -1,64 +1,15 @@
+import { namesOtherOrganization } from "@tedix/api-contract/utils/approval-holds";
 /**
  * Which of the agent's actions wait for the person, by approval mode. Every
  * call a binding makes is put in one class; one table says, per mode, whether
  * a call of that class runs, asks the person or is refused. The compliance
  * gate applies it to every wrapped binding in workspace chat.
  */
-import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import type { RiskTier } from "@tedix/agent-governance/types";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { isDestructiveCommand } from "./destructive-commands";
 
-export type ActionClass =
-	/** A read that asks when nothing else says so, such as a new web site. */
-	| "read"
-	/** A change to this workspace's own files, apps or Work. */
-	| "change"
-	/** Commands and changes outside the workspace, such as on a computer. */
-	| "outside"
-	/**
-	 * What Tedix always asks for: deleting or removing content, human-only
-	 * steps, messages and posts to people, money, another organization and
-	 * destructive computer commands.
-	 */
-	| "always"
-	/** Reading a person's computer where other people can open the workspace. */
-	| "computer_read";
-
-export type Hold = "run" | "ask" | "refuse";
-
-export const HOLDS: Record<ActionClass, Record<ApprovalMode, Hold>> = {
-	read: {
-		read_only: "run",
-		ask_every_time: "ask",
-		ask_for_changes: "run",
-		auto: "run",
-	},
-	change: {
-		read_only: "refuse",
-		ask_every_time: "ask",
-		ask_for_changes: "ask",
-		auto: "run",
-	},
-	outside: {
-		read_only: "refuse",
-		ask_every_time: "ask",
-		ask_for_changes: "ask",
-		auto: "run",
-	},
-	always: {
-		read_only: "refuse",
-		ask_every_time: "ask",
-		ask_for_changes: "ask",
-		auto: "ask",
-	},
-	computer_read: {
-		read_only: "ask",
-		ask_every_time: "ask",
-		ask_for_changes: "ask",
-		auto: "ask",
-	},
-};
+import type { ActionClass } from "@tedix/api-contract/utils/approval-holds";
 
 /** Steps only a person takes, by gate resource and method. */
 const HUMAN_ONLY = new Set(["memory.review"]);
@@ -116,24 +67,6 @@ export function toolAlwaysAsks(tool: string): boolean {
 	return (
 		words.some((word) => OUTBOUND_WORDS.has(word)) ||
 		humanReservedActionClasses(tool).some((id) => ALWAYS_TOOL_CLASSES.has(id))
-	);
-}
-
-const ORGANIZATION_KEYS = ["organizationId", "orgId", "organization_id"];
-
-/** An argument naming an organization other than the sender's. */
-function namesOtherOrganization(
-	value: unknown,
-	organizationId: string,
-	depth = 0,
-): boolean {
-	if (!value || typeof value !== "object" || depth > 3) return false;
-	return Object.entries(value).some(
-		([key, inner]) =>
-			(ORGANIZATION_KEYS.includes(key) &&
-				typeof inner === "string" &&
-				inner !== organizationId) ||
-			namesOtherOrganization(inner, organizationId, depth + 1),
 	);
 }
 

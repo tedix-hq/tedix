@@ -255,6 +255,45 @@ describe("parseHomeToolWritePayload", () => {
 });
 
 describe("executeApprovedKernelWrite", () => {
+	it("rechecks the live declared class before executing a delegated approval", async () => {
+		for (const riskTier of ["bounded_write", "high_impact_write"]) {
+			const stored = payload();
+			const service = mcpService((body) => ({
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result:
+						body.method === "tools/list"
+							? {
+									tools: [
+										{
+											name: stored.toolName,
+											_meta: {
+												"com.tedix/policy": {
+													declared: true,
+													writeCapability: "write",
+													riskTier,
+													blastRadius: "tenant",
+												},
+											},
+										},
+									],
+								}
+							: { structuredContent: { ok: true } },
+				},
+			}));
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: stored,
+				delegatedApproval: true,
+			});
+			expect(result.ok).toBe(riskTier === "bounded_write");
+			expect(
+				service.calls.filter((call) => call.method === "tools/call"),
+			).toHaveLength(riskTier === "bounded_write" ? 1 : 0);
+		}
+	});
+
 	it.each([
 		"work.respond_work_interaction",
 		"work__respond_work_interaction",

@@ -1,4 +1,9 @@
 import {
+	ListDecidedForYouInputSchema,
+	ListDecidedForYouResultSchema,
+	ReopenDelegatedApprovalInputSchema,
+} from "../schemas/delegated-approvals";
+import {
 	ListWorkInteractionCliInboxInputSchema,
 	ListWorkInteractionCliInboxResultSchema,
 } from "../schemas/work-interactions";
@@ -51,6 +56,12 @@ export const workInteractionsContract = oc
 	.errors(baseErrors)
 	.router({
 		outbound: outboundContract,
+		listDecidedForYou: oc
+			.input(ListDecidedForYouInputSchema)
+			.output(ListDecidedForYouResultSchema),
+		reopenDelegatedApproval: oc
+			.input(ReopenDelegatedApprovalInputSchema)
+			.output(WorkInteractionRequestSchema),
 		snooze: oc
 			.route({
 				summary:

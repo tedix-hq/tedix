@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import type { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
 /**
  * Tedi Approval Request Query Helpers
  * CRUD operations for the tedi_approval_requests table
@@ -91,6 +93,7 @@ export interface ResolveApprovalRequestParams {
 	 * the executor only ever sees the approved input.
 	 */
 	payload?: Record<string, JsonValue>;
+	delegatedApproval?: z.infer<typeof DelegatedApprovalReceiptSchema>;
 }
 
 export interface CreateProvisionalOutcomeParams {
@@ -524,6 +527,11 @@ export async function resolveApprovalRequest(
 			resolution: params.resolution ?? null,
 			...(params.payload && params.status === "approved"
 				? { payload: params.payload }
+				: {}),
+			...(params.delegatedApproval
+				? {
+						payload: sql`json_set(${tediApprovalRequests.payload}, '$.delegatedApproval', json(${JSON.stringify(params.delegatedApproval)}))`,
+					}
 				: {}),
 		})
 		.where(and(...conditions))

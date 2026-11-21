@@ -1,3 +1,5 @@
+import { runtimeApprovalDelegate } from "../../../services/delegated-runtime-approval";
+import { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
@@ -744,7 +746,22 @@ export async function settleHomeToolWriteApproval(
 		// approved tool's authority on the tenant credential. An approver
 		// resolving in their own authenticated request just passed the resolve
 		// guard; a deferred settlement re-reads their membership.
-		const approvedByUserId = approvingUserId(input.approval.resolvedBy);
+		const delegatedReceipt = DelegatedApprovalReceiptSchema.safeParse(
+			input.approval.payload.delegatedApproval,
+		).data;
+		const delegated = delegatedReceipt
+			? await runtimeApprovalDelegate(context, input.approval, delegatedReceipt)
+			: null;
+		if (delegatedReceipt && !delegated)
+			return closeWithoutExecuting({
+				preview:
+					"The standing delegation changed; ask the owner to review this call.",
+				content: "The delegated approval no longer has authority. Nothing ran.",
+				approvalStatus: "approver_revoked",
+			});
+		const approvedByUserId = delegated
+			? undefined
+			: approvingUserId(input.approval.resolvedBy);
 		const approverActsNow =
 			approvedByUserId !== undefined &&
 			approvedByUserId ===
@@ -817,11 +834,13 @@ export async function settleHomeToolWriteApproval(
 				env: context.env as unknown as WriteExecutorEnv,
 				payload,
 				approvalRequestId: input.approval.id,
-				approvedWorkResponderUserId:
-					input.approval.resolvedBy === "policy"
+				approvedWorkResponderUserId: delegated
+					? undefined
+					: input.approval.resolvedBy === "policy"
 						? (payload.initiatedByUserId ?? undefined)
 						: (input.approval.resolvedBy ?? undefined),
 				approvedByUserId,
+				delegatedApproval: Boolean(delegated),
 				timings: executorTimings,
 			})))().catch((error) => ({
 			ok: false as const,

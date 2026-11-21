@@ -128,6 +128,7 @@ export interface OrganizationMetadata {
 	modelFallback?: OrganizationContractMetadata["modelFallback"];
 	workStewardship?: OrganizationContractMetadata["workStewardship"];
 	workDelegation?: OrganizationContractMetadata["workDelegation"];
+	delegatedApprovals?: OrganizationContractMetadata["delegatedApprovals"];
 	decisionLearning?: DecisionLearningConfig;
 	connectionConsumerGrants?: Record<string, ConnectionConsumerGrants>;
 	connectionResourceLimits?: Record<string, ConnectionAllowedResources | null>;

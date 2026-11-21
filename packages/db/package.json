@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/work-items/delegated-approvals": "./src/queries/work-items/delegated-approvals.ts",
 		"./queries/os-workspace-inspections": "./src/queries/os-workspace-inspections.ts",
 		"./queries/auth-context-cache": "./src/queries/auth-context-cache.ts",
 		"./queries/os-workspace-access": "./src/queries/os-workspace-access.ts",

@@ -1,3 +1,4 @@
+import type { ActionClass } from "@tedix/api-contract/utils/approval-holds";
 import { matchingChatSentence } from "@tedix/api-contract/utils/markdown-plain-text";
 import type {
 	OsWorkspaceChangeRecordsQuery,
@@ -110,11 +111,7 @@ import {
 	workspaceMachineAccess,
 } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { readOnlyCommandList } from "./read-only-commands";
-import {
-	type ActionClass,
-	actionClass,
-	READ_ONLY_REFUSAL,
-} from "./approval-modes";
+import { actionClass, READ_ONLY_REFUSAL } from "./approval-modes";
 import { buildWorkspaceBindings, type ConnectionRequest } from "./bindings";
 import {
 	AccountReadHeld,

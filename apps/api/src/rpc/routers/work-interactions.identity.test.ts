@@ -1,3 +1,4 @@
+import { organizations } from "@tedix/db/schema/organizations";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
 import {
@@ -46,6 +47,7 @@ function fixture(
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
 			workItems,
 			workEvents,
 			workItemComments,

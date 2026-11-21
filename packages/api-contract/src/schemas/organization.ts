@@ -4,6 +4,7 @@
  */
 
 import * as z from "zod";
+import { DelegatedApprovalsPolicySchema } from "./delegated-approvals";
 import { WorkDelegationSettingsSchema } from "./lane-execution";
 import { ModelFallbackPolicySchema } from "./model-fallback";
 import { DecisionLearningConfigSchema } from "./decision-learning";
@@ -548,6 +549,7 @@ export const OrganizationMetadataSchema = z.object({
 		),
 	modelFallback: ModelFallbackPolicySchema.nullable().optional(),
 	workDelegation: WorkDelegationSettingsSchema.optional(),
+	delegatedApprovals: DelegatedApprovalsPolicySchema.optional(),
 	workStewardship: WorkStewardshipPolicySchema.optional().describe(
 		"Creation-time stewardship defaults; explicit ownership and human execution are preserved.",
 	),

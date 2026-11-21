@@ -76,6 +76,7 @@ export const ActivityFeedConfigSchema = z
 	.strictObject({
 		version: z.literal(1),
 		scope: z.enum(["projects", "organization"]).optional(),
+		decidedForYou: z.boolean().optional(),
 		today: z
 			.strictObject({
 				outputId: z.uuid(),

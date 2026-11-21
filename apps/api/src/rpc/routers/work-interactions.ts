@@ -1,3 +1,11 @@
+import {
+	claimDelegatedApproval,
+	preferredApprovalDelegate,
+	listDecidedForYou,
+	getDelegatedRuntimeApproval,
+} from "@tedix/db/queries/work-items/delegated-approvals";
+import { delegatedCardAllowed } from "@tedix/api-contract/utils/delegated-approvals";
+import { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { laneRunnerAsker } from "@tedix/api-contract/utils/lane-runner-asker";
 import {
@@ -341,6 +349,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
 	const {
+		delegatedApproval: _untrustedDelegatedApproval,
 		curation: _untrustedCuration,
 		internalRouting: _untrustedRouting,
 		blockerRouting: _untrustedBlockerRouting,
@@ -429,6 +438,17 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 				? { type: "tedi", id: work.stewardId }
 				: actor;
 	}
+	const delegated =
+		target.type === "user" &&
+		delegatedCardAllowed({
+			subject: input.subject,
+			prompt: input.prompt,
+			workItemId: input.workItemId,
+			metadata: creationMetadata,
+		})
+			? await preferredApprovalDelegate(context.db, orgId, target.id)
+			: null;
+	if (delegated) target = { type: delegated.actorType, id: delegated.actorId };
 	const { deckCreateGate } = await import("../../services/deck-create-gate");
 	const gate =
 		target.type === "user" && actor.type !== "user"
@@ -548,6 +568,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			expiresAt,
 			metadata: {
 				...creationMetadata,
+				...(delegated ? { delegatedApproval: delegated } : {}),
 				blockerRouting: blockerRoute
 					? {
 							reason: blockerRoute.reason,
@@ -623,6 +644,33 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 					requestId: created.id,
 					exception: safeExceptionTopology(error),
 				});
+			}
+		}
+		if (delegated?.actorType === "tedi" && context.env.TEDI_SERVICE) {
+			const { getTediByIdForOrganization } =
+				await import("@tedix/db/queries/tedis");
+			const tedi = await getTediByIdForOrganization(
+				context.db,
+				delegated.actorId,
+				orgId,
+			);
+			if (tedi) {
+				const wake = deliverTediContextWake(context.db, {
+					orgId,
+					tediId: tedi.id,
+					request: buildTediContextWakeRequest(tedi.slug, context.env, {
+						session_key: `interaction:${created.id}`,
+						client_request_id: `delegated-approval:${created.id}:${created.version}`,
+						metadata: {
+							source: "delegated_approval",
+							interactionId: created.id,
+						},
+						text: `Review Interaction ${created.id} (version ${created.version}) in your own name under the organization's reversible-approval policy. Read its current sources, choose an eligible action and explain why with respond_work_interaction. If an option needs the owner, leave it for the owner. This wake grants no execution capability or consent.`,
+					}),
+					send: (request) => context.env.TEDI_SERVICE!.fetch(request),
+				});
+				if (context.waitUntil) context.waitUntil(wake);
+				else await wake;
 			}
 		}
 		await queueDeckCuration(context, created, actor);
@@ -715,12 +763,36 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 		};
 	}
 	try {
-		const initialRequest = input.resolvesRequest
+		let initialRequest = input.resolvesRequest
 			? await getWorkInteraction(context.db, {
 					orgId,
 					interactionId: input.requestId,
 				})
 			: null;
+		if (
+			initialRequest &&
+			actor.type !== "user" &&
+			(initialRequest.targetType === "user" ||
+				initialRequest.metadata.delegatedApproval)
+		) {
+			const claimed = await claimDelegatedApproval(context.db, {
+				request: initialRequest,
+				actor,
+				expectedVersion: input.expectedRequestVersion,
+				now: new Date().toISOString(),
+				cardAction:
+					typeof input.metadata?.cardAction === "string"
+						? input.metadata.cardAction
+						: "",
+			});
+			if (!claimed)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"This card requires its owner; no eligible standing delegation applies",
+				);
+			initialRequest = claimed.request;
+			input = { ...input, expectedRequestVersion: claimed.request.version };
+		}
 		if (input.resolvesRequest) {
 			if (
 				initialRequest?.status === "open" &&
@@ -1136,7 +1208,14 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 			request.targetType === actor.type && request.targetId === actor.id;
 		const isCreator =
 			request.creatorType === actor.type && request.creatorId === actor.id;
-		if (!isTarget && !isCreator) {
+		const delegatedOwner = DelegatedApprovalReceiptSchema.safeParse(
+			request.metadata.delegatedApproval,
+		).data?.ownerId;
+		if (
+			!isTarget &&
+			!isCreator &&
+			!(actor.type === "user" && delegatedOwner === actor.id)
+		) {
 			if (request.metadata.schema === "tedix.decision-capture.v1")
 				throw createError(
 					ErrorCodes.FORBIDDEN,
@@ -2120,6 +2199,124 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			);
 		return requestOutput(request, undefined, undefined, saved.presentation);
 	}),
+	listDecidedForYou: readOs.listDecidedForYou.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const actor = await verifiedActiveWorkActor(context, orgId);
+			if (actor.type !== "user")
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Decided for you belongs to the owner",
+				);
+			return listDecidedForYou(context.db, {
+				orgId,
+				ownerId: actor.id,
+				...input,
+			});
+		},
+	),
+	reopenDelegatedApproval: writeOs.reopenDelegatedApproval.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const actor = await verifiedActiveWorkActor(context, orgId);
+			const original =
+				input.source === "interaction"
+					? await getWorkInteraction(context.db, {
+							orgId,
+							interactionId: input.requestId,
+						})
+					: null;
+			const runtime =
+				input.source === "runtime"
+					? await getDelegatedRuntimeApproval(
+							context.db,
+							orgId,
+							input.requestId,
+						)
+					: null;
+			const receipt = DelegatedApprovalReceiptSchema.safeParse(
+				original?.metadata.delegatedApproval ??
+					runtime?.payload.delegatedApproval,
+			).data;
+			if (
+				actor.type !== "user" ||
+				receipt?.ownerId !== actor.id ||
+				!(
+					original?.status === "resolved" ||
+					runtime?.status === "approved" ||
+					runtime?.status === "rejected"
+				)
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only the owner can reopen a delegated decision",
+				);
+			// A review carries no executable effect: the original receipt is retained.
+			const responses = original
+				? await listWorkInteractionResponses(context.db, {
+						orgId,
+						interactionId: original.id,
+						limit: 100,
+					})
+				: [];
+			const answer =
+				responses.find((row) => row.resolvesRequest)?.body ??
+				runtime?.resolution ??
+				"See the original decision";
+			let reviewWorkItemId = original?.workItemId ?? undefined;
+			if (!reviewWorkItemId && !original?.projectId && !original?.caseId) {
+				const sourceIntentId = `delegated-review:${input.source}:${input.requestId}`;
+				const existing = await getWorkItemBySourceIntentId(context.db, {
+					orgId,
+					sourceIntentId,
+				});
+				const { createProcedure } = await import("./work-items/creation-reads");
+				const work =
+					existing ??
+					(await call(
+						createProcedure,
+						{
+							title: "Review approval",
+							description: `Review the delegated decision ${input.requestId} and decide what should change.`,
+							workKind: "other",
+							workClass: "maintenance",
+							purposeExceptionExpiresAt: new Date(
+								Date.now() + 7 * 86_400_000,
+							).toISOString(),
+							accountableOwnerType: "user",
+							accountableOwnerId: actor.id,
+							sourceIntentId,
+						},
+						{ context },
+					));
+				reviewWorkItemId = work.id;
+			}
+			return requestOutput(
+				await createWorkInteraction(context.db, {
+					id: crypto.randomUUID(),
+					orgId,
+					workItemId: reviewWorkItemId,
+					projectId: original?.projectId ?? undefined,
+					caseId: original?.caseId ?? undefined,
+					kind: "question",
+					subject: `Review: ${original?.subject ?? runtime?.description}`.slice(
+						0,
+						300,
+					),
+					prompt: `${receipt.actorName} decided: ${answer}\n\nReview the result and say what should change. Reopening does not undo or repeat the earlier action.`,
+					creator: actor,
+					targetType: "user",
+					targetId: actor.id,
+					metadata: {
+						source: "delegated-approval-review",
+						originalRequestId: input.requestId,
+						originalSource: input.source,
+					},
+					now: new Date().toISOString(),
+				}),
+			);
+		},
+	),
 	create: createProcedure,
 	review: writeOs.review.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);

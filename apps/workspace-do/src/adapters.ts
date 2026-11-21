@@ -1,3 +1,8 @@
+import {
+	HOLDS,
+	type ActionClass,
+	type Hold,
+} from "@tedix/api-contract/utils/approval-holds";
 /**
  * Compliance and accountability bound to the workspace object's SQLite.
  * Compliance applies the shared `evaluateCall` rules; change records are
@@ -22,12 +27,7 @@ import {
 	type LedgerQuery,
 } from "@tedix/agent-governance/types";
 import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
-import {
-	type ActionClass,
-	actionClass,
-	type Hold,
-	HOLDS,
-} from "./approval-modes";
+import { actionClass } from "./approval-modes";
 import type { WorkspaceStorage } from "./runtime";
 
 export const LEDGER_SCHEMA = `

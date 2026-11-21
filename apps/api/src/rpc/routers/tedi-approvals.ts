@@ -1,3 +1,4 @@
+import { runtimeApprovalDelegate } from "../../services/delegated-runtime-approval";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	approvalPayloadForViewer,
@@ -1496,13 +1497,38 @@ const resolveProcedure = authedOs.resolve
 		if (input.delegateRecommendation) {
 			input.resolution = `Decide for me: ${recommendation.recommendation}. ${recommendation.reason}`;
 		}
-		const resolvedBy = resolveApprovalPrincipal(context, existing);
+		const machineDecider = Boolean(
+			context.externalAgentPrincipalId ||
+			context.ownerHostSessionId ||
+			(context.tediId &&
+				!context.gatewayEndUserId &&
+				existing.actionType !== "embedded_user_confirmation"),
+		);
+		const delegated = machineDecider
+			? await runtimeApprovalDelegate(context, existing)
+			: null;
+		if (machineDecider && !delegated)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"This approval requires its owner; no reversible internal tool class and standing delegation apply",
+			);
+		if (delegated && !input.resolution?.trim())
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Explain the delegated decision",
+			);
+		const resolvedBy = delegated
+			? `${delegated.actorType}:${delegated.actorId}`
+			: resolveApprovalPrincipal(context, existing);
 		const edited = approverEditedPayload(context, existing, input, resolvedBy);
 
 		const resolutionParams = {
 			status: input.status,
 			resolvedBy,
 			resolution: input.resolution,
+			...(delegated
+				? { delegatedApproval: { ...delegated, reason: input.resolution! } }
+				: {}),
 			...(edited ? { payload: edited.payload } : {}),
 		};
 		const resolved =
@@ -1545,7 +1571,9 @@ const resolveProcedure = authedOs.resolve
 		await insertAuditEvent(context.db, {
 			organizationId: orgId ?? existing.orgId,
 			actorId: resolvedBy,
-			actorType: context.authType === "service-binding" ? "service" : "user",
+			actorType:
+				delegated?.actorType ??
+				(context.authType === "service-binding" ? "service" : "user"),
 			action: runtimeApprovalAuditAction({ status: input.status }),
 			resourceType: "approval_request",
 			resourceId: input.id,

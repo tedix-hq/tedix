@@ -1,3 +1,4 @@
+import { DecidedForYou } from "@/components/decided-for-you";
 import type { ReactNode } from "react";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
 import { OS_COPY } from "@/shared/os-copy";
@@ -24,6 +25,7 @@ export function ActivityFeedApp(props: {
 	return (
 		<DecisionContextRail>
 			<WorkReadRegion>
+				{props.config.decidedForYou && <DecidedForYou />}
 				<FocusFeed {...props} />
 			</WorkReadRegion>
 		</DecisionContextRail>

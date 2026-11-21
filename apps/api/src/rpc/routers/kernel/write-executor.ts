@@ -1,3 +1,5 @@
+import { wireDeclaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
+import { delegatedClassAllowed } from "@tedix/api-contract/utils/delegated-approvals";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
 
@@ -739,6 +741,7 @@ export async function executeApprovedKernelWrite(args: {
 	 * on the approver's personal credential or user scopes.
 	 */
 	approvedByUserId?: string;
+	delegatedApproval?: boolean;
 	timings?: KernelWriteExecutorTimings;
 }): Promise<KernelWriteExecutionResult> {
 	const { env, payload } = args;
@@ -800,6 +803,18 @@ export async function executeApprovedKernelWrite(args: {
 			};
 		}
 
+		if (
+			args.delegatedApproval &&
+			!delegatedClassAllowed({
+				actionClass: "change",
+				declaredClass: wireDeclaredToolClass(tool._meta),
+			})
+		)
+			return {
+				ok: false,
+				error:
+					"The live tool class is not a reversible internal write; the owner must review it",
+			};
 		if (payload.approverEdits?.changes.length) {
 			const editable = deriveApprovalEditableFields({
 				inputSchema: tool.inputSchema,
