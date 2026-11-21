@@ -17,7 +17,7 @@ import {
 } from "cloudflare:test";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { describe, expect, test, vi } from "vite-plus/test";
+import { describe, expect, onTestFinished, test, vi } from "vite-plus/test";
 import {
 	osGadgets,
 	osGadgetRevisions,
@@ -2294,6 +2294,35 @@ describe("WorkspaceDO", () => {
 
 	test("a view shown from sandbox code lands in the answer's events", async () => {
 		await seedCore();
+		// The MCP host only serves a session's own organization, so a view must
+		// name this organization's gateway, never another organization's.
+		const metadata = {
+			mcpConfig: { authMode: "authenticated", codeMode: true },
+		};
+		await testEnv.DB.prepare(ddl(apps)).run();
+		await createDbQueryClient(testEnv.DB)
+			.insert(apps)
+			.values([
+				{
+					id: "view-gateway-platform",
+					organizationId: "platform-org",
+					slug: "tedix-unified",
+					name: "Platform gateway",
+					metadata,
+				},
+				{
+					id: "view-gateway-own",
+					organizationId: scope.organizationId,
+					slug: "acme-unified",
+					name: "Acme gateway",
+					metadata,
+				},
+			]);
+		onTestFinished(async () => {
+			await testEnv.DB.prepare(
+				"DELETE FROM apps WHERE id IN ('view-gateway-platform', 'view-gateway-own')",
+			).run();
+		});
 		const ws = workspace();
 		const SHOW = `export default async (env) => {
 			for (const n of [1, 2, 3, 4]) {
@@ -2315,8 +2344,8 @@ describe("WorkspaceDO", () => {
 		expect(views).toHaveLength(3);
 		expect(views[0]).toMatchObject({
 			turnId,
-			appSlug: "tedix-unified",
-			resourceUri: "ui://widgets/mcp-app/tedix-unified/r/open-work-1.html",
+			appSlug: "acme-unified",
+			resourceUri: "ui://widgets/mcp-app/acme-unified/r/open-work-1.html",
 			toolResult: { rows: [{ title: "A", disposition: "accepted" }] },
 		});
 	});

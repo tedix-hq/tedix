@@ -72,6 +72,8 @@ export interface BindingDeps {
 	onRecorded?: (record: ChangeRecord) => void;
 	/** Puts a view in the running turn's answer; throws past the turn's limit. */
 	showView?: (view: ShownView) => void;
+	/** The workspace organization's gateway app, which serves its views. */
+	viewAppSlug?: () => Promise<string>;
 	/** Web page reads for the running conversation; absent outside a chat turn. */
 	web?: WebPort;
 	/** Shows a "Connect" card in the running turn's answer; absent outside a chat turn. */
@@ -623,9 +625,14 @@ export function buildWorkspaceBindings(
 	};
 
 	const views = {
-		show: (input: unknown) => {
-			if (!deps.showView) throw new Error("Views need a running chat turn");
-			const view = buildView(input, crypto.randomUUID());
+		show: async (input: unknown) => {
+			if (!deps.showView || !deps.viewAppSlug)
+				throw new Error("Views need a running chat turn");
+			const view = buildView(
+				input,
+				crypto.randomUUID(),
+				await deps.viewAppSlug(),
+			);
 			deps.showView(view);
 			return { viewId: view.viewId, shown: true as const };
 		},

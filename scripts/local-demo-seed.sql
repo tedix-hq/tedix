@@ -147,16 +147,20 @@ INSERT OR IGNORE INTO billing_accounts (
 	'2026-08-10T00:00:00.000Z'
 );
 
--- Chat views are addressed to the `tedix-unified` app, which a deployment's
--- platform provisioning creates. The local run has no platform organization,
--- so the local organization holds it and the local MCP service serves views.
+-- Chat views are addressed to the organization's own gateway app (a Code Mode
+-- app), the only app the MCP host serves a person's session for. The local
+-- organization's gateway is `tedix-unified`; the local MCP service serves it.
 INSERT OR IGNORE INTO apps (
-	id, organization_id, name, slug, created_at, updated_at
+	id, organization_id, name, slug, metadata, created_at, updated_at
 ) VALUES (
 	'00000000-0000-4000-8000-0000000000a1',
 	'00000000-0000-4000-8000-000000000001',
 	'Tedix views',
 	'tedix-unified',
+	'{"mcpConfig":{"authMode":"authenticated","codeMode":true}}',
 	'2026-08-10T00:00:00.000Z',
 	'2026-08-10T00:00:00.000Z'
 );
+UPDATE apps
+SET metadata = '{"mcpConfig":{"authMode":"authenticated","codeMode":true}}'
+WHERE id = '00000000-0000-4000-8000-0000000000a1' AND metadata IS NULL;
