@@ -6,6 +6,7 @@ import {
 	type CmsRestorePermitParams,
 } from "@tedix/db/queries/cms-restore-fences";
 import type { EmDashDBStub } from "./emdash-db";
+import { runtimePermitId } from "./runtime-permit-owner";
 
 export class CmsRestoreFenceUnavailableError extends Error {
 	constructor() {
@@ -38,6 +39,8 @@ async function enterPermit(
 	try {
 		return await queries.enter(db, permit);
 	} catch {
+		// No tenant work began, even if D1 committed before losing its response.
+		await queries.leave(db, permit).catch(() => false);
 		throw new CmsRestoreFenceUnavailableError();
 	}
 }
@@ -65,7 +68,7 @@ export async function withCmsRestorePermit<T>(
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
 	const permit = {
 		...identity,
-		permitId: crypto.randomUUID(),
+		permitId: runtimePermitId(),
 		kind,
 	};
 	if (!(await enterPermit(db, permit, queries))) return { admitted: false };
@@ -130,7 +133,7 @@ export async function withCmsRestoreResponsePermit(
 	const pinnedIdentity = { ...identity };
 	const initialPermit: CmsRestorePermitParams = {
 		...pinnedIdentity,
-		permitId: crypto.randomUUID(),
+		permitId: runtimePermitId(),
 		kind: "outer",
 	};
 	if (!(await enterPermit(db, initialPermit, initialQueries)))
@@ -162,7 +165,7 @@ export async function withCmsRestoreResponsePermit(
 						const pull = (async () => {
 							const permit: CmsRestorePermitParams = {
 								...pinnedIdentity,
-								permitId: crypto.randomUUID(),
+								permitId: runtimePermitId(),
 								kind: "outer",
 							};
 							const pullQueries = createPullQueries?.() ?? queries;

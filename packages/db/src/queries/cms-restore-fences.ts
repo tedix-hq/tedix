@@ -501,6 +501,65 @@ export async function reconcileCmsRestoreOuterPermits(
 	return rows.length;
 }
 
+/** A release operator supplies proof that these runtime owners have stopped,
+ * including outstanding invocations. Age alone never authorizes reclamation.
+ * Legacy claims need an exact identity inventory: unknown provider creates
+ * must not be swept merely because their initiating runtime stopped. */
+export async function deleteRetiredCmsRuntimePermits(
+	db: DbQueryClient,
+	input: {
+		currentRuntimeOwnerId: string;
+		retiredRuntimeOwnerIds: string[];
+		legacyPermits: CmsRestorePermitParams[];
+		limit: number;
+	},
+): Promise<Array<{ id: string; siteId: string; kind: string }>> {
+	if (
+		!/^[0-9a-f]{40}$/.test(input.currentRuntimeOwnerId) ||
+		input.retiredRuntimeOwnerIds.some(
+			(ownerId) =>
+				!/^[0-9a-f]{40}$/.test(ownerId) ||
+				ownerId === input.currentRuntimeOwnerId,
+		) ||
+		!Number.isSafeInteger(input.limit) ||
+		input.limit < 1 ||
+		input.limit > 1_000
+	)
+		throw new Error("CMS runtime retirement scope invalid");
+	const stale = db
+		.select({ id: cmsRestorePermits.id })
+		.from(cmsRestorePermits)
+		.where(
+			or(
+				sql`(length(${cmsRestorePermits.id}) = 85
+				AND substr(${cmsRestorePermits.id}, 1, 8) = 'runtime:'
+				AND substr(${cmsRestorePermits.id}, 49, 1) = ':'
+				AND substr(${cmsRestorePermits.id}, 9, 40) IN
+				(SELECT value FROM json_each(${JSON.stringify(input.retiredRuntimeOwnerIds)})))`,
+				sql`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(input.legacyPermits)}) legacy
+				WHERE json_extract(legacy.value, '$.permitId') = ${cmsRestorePermits.id}
+				AND json_extract(legacy.value, '$.siteId') = ${cmsRestorePermits.siteId}
+				AND json_extract(legacy.value, '$.slug') = ${cmsRestorePermits.slug}
+				AND json_extract(legacy.value, '$.restoreEpoch') = ${cmsRestorePermits.restoreEpoch}
+				AND json_extract(legacy.value, '$.kind') = ${cmsRestorePermits.kind}
+				AND ${cmsRestorePermits.id} NOT LIKE 'runtime:%')`,
+			),
+		)
+		.orderBy(cmsRestorePermits.enteredAt, cmsRestorePermits.id)
+		.limit(input.limit);
+	return (
+		db
+			.delete(cmsRestorePermits)
+			// bound-params: `stale` is a LIMIT subquery, not a bound list
+			.where(inArray(cmsRestorePermits.id, stale))
+			.returning({
+				id: cmsRestorePermits.id,
+				siteId: cmsRestorePermits.siteId,
+				kind: cmsRestorePermits.kind,
+			})
+	);
+}
+
 /** Bundle retention runs directly in the cron invocation, whose platform wall
  * limit is 15 minutes. An hour allows for cancellation and outstanding I/O.
  * HTTP, DO and tenant RPC permits have no such bound and are never swept here.

@@ -93,10 +93,11 @@ export class PublicRestorePermits {
 				try {
 					if (!(await this.queries.enter(db, durablePermit))) return false;
 				} catch (error) {
+					// An uncertain INSERT has no borrowers. Release it before this
+					// request ends, whether or not another request admitted a row.
+					await this.queries.leave(db, durablePermit).catch(() => false);
 					// Another request may have confirmed admission in the meantime.
 					if (borrow()) {
-						// This INSERT may also have committed before the error.
-						waitUntil(this.queries.leave(db, durablePermit));
 						return true;
 					}
 					throw error;

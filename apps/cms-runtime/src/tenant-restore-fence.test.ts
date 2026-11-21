@@ -86,6 +86,10 @@ describe("CMS tenant restore permit", () => {
 			withCmsRestorePermit(db, identity, run, ledger),
 		).rejects.toBeInstanceOf(CmsRestoreFenceUnavailableError);
 		expect(run).not.toHaveBeenCalled();
+		expect(ledger.leave).toHaveBeenCalledWith(
+			db,
+			ledger.enter.mock.calls[0]![1],
+		);
 	});
 
 	test("releases the permit when tenant execution throws", async () => {

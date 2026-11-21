@@ -1,6 +1,12 @@
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { defineConfig, lazyPlugins } from "vite-plus";
+
+// A fresh build must have a new owner even when the Git SHA did not change.
+export const runtimePermitDefines = {
+	__CMS_RUNTIME_PERMIT_OWNER__: JSON.stringify(randomBytes(20).toString("hex")),
+};
 
 // @emdash-cms/cloudflare/db/do-sql pulls EmDashConfigurationError from the root
 // `emdash` package, whose dist chunk statically imports these Astro-only virtual
@@ -21,6 +27,7 @@ export const emdashVirtualStubs = Object.fromEntries(
 );
 
 export default defineConfig({
+	define: runtimePermitDefines,
 	plugins: lazyPlugins(() => [
 		cloudflare({
 			inspectorPort: 19243,

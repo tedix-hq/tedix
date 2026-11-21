@@ -1,8 +1,9 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vite-plus";
-import { emdashVirtualStubs } from "./vite.config";
+import { emdashVirtualStubs, runtimePermitDefines } from "./vite.config";
 
 export default defineConfig({
+	define: runtimePermitDefines,
 	plugins: [
 		cloudflareTest({
 			config: true,

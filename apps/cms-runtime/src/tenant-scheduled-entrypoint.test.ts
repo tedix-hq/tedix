@@ -16,6 +16,7 @@ function scheduledTenant(source: string) {
 	return worker.getEntrypoint() as unknown as {
 		scheduled(
 			controller: ScheduledController,
+			completed?: () => Promise<void>,
 		): Promise<{ ok: true } | { ok: false; error: string }>;
 		fetch(request: Request): Promise<Response>;
 	};
@@ -44,7 +45,18 @@ export default {
   fetch() { return Response.json(completed); },
 };`);
 
-		await expect(tenant.scheduled(controller)).resolves.toEqual({ ok: true });
+		let acknowledged = false;
+		await expect(
+			tenant.scheduled(controller, async () => {
+				expect(
+					await (
+						await tenant.fetch(new Request("https://tenant.test/"))
+					).json(),
+				).toEqual(["first", "late"]);
+				acknowledged = true;
+			}),
+		).resolves.toEqual({ ok: true });
+		expect(acknowledged).toBe(true);
 		expect(
 			await (await tenant.fetch(new Request("https://tenant.test/"))).json(),
 		).toEqual(["first", "late"]);
