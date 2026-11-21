@@ -284,6 +284,8 @@ export const ResolveAgentLifecycleAuthorizationResponseSchema = z.object({
 
 /** Gateway-attested caller and resolved target; never a public tool input. */
 export const RequestOwnerToolApprovalInputSchema = z.object({
+	/** Gateway attestation of the acting human on a kernel approval replay. */
+	replayUserId: z.string().min(1).optional(),
 	/** Gateway attestation: a human call, with no agent session or replay. */
 	directUserCall: z.boolean().optional(),
 	organizationId: z.string().min(1),

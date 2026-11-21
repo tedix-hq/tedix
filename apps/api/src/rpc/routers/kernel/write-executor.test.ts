@@ -1661,7 +1661,8 @@ describe("approved owner tool call replay", () => {
 					},
 					args: { page_id: "page-1", command: "insert_content" },
 					organizationId: "org-1",
-					initiatedByUserId: "owner-1",
+					initiatedByUserId: "approver-1",
+					approvalRequesterUserId: "owner-1",
 				},
 				approvalRequestId: "approval-1",
 				verifiedConnectionExecute: true,
@@ -1671,8 +1672,14 @@ describe("approved owner tool call replay", () => {
 			expect(service.calls.at(-1)?.params).toMatchObject({
 				name: "notion-tedix__notion-update-page",
 				arguments: { page_id: "page-1", command: "insert_content" },
-				_meta: { "com.tedix/approvalRequestId": "approval-1" },
+				_meta: {
+					"com.tedix/approvalRequestId": "approval-1",
+					"com.tedix/approvalRequesterUserId": "owner-1",
+				},
 			});
+			expect(service.calls.at(-1)?.headers.get("X-Tedix-Acting-User")).toBe(
+				"approver-1",
+			);
 			expect(service.calls.at(-1)?.headers.get("X-Tedix-Tedi-Scopes")).toBe(
 				admin ? "connections.execute connections.admin" : "connections.execute",
 			);

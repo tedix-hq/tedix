@@ -183,6 +183,83 @@ describe("owner tool approval settlement", () => {
 			}
 		},
 	);
+	it.each([
+		{
+			sub: "reviewer",
+			scopes: ["connections.execute"],
+			authType: "user",
+			allowed: true,
+		},
+		{ sub: "reviewer", scopes: [], authType: "user", allowed: false },
+		{
+			sub: "owner-1",
+			scopes: ["connections.execute"],
+			authType: "user",
+			allowed: false,
+		},
+		{
+			sub: "reviewer",
+			scopes: ["connections.execute"],
+			authType: "service-binding",
+			allowed: false,
+		},
+		{
+			sub: "reviewer",
+			scopes: ["connections.execute"],
+			authType: "external_agent",
+			allowed: false,
+		},
+	])(
+		"runs an agent MCP approval only under the approving human grant: $sub $authType $scopes",
+		async ({ sub, scopes, authType, allowed }) => {
+			const row = approval({
+				resolvedBy: "user:reviewer",
+				payload: {
+					...payload,
+					requestingAgent: { principalId: "agent" },
+					requestingAttemptId: "attempt-1",
+					approverUserId: "reviewer",
+					target: { transport: "mcp", mcpToolName: "menu_set_items" },
+				},
+			});
+			const result = await settleOwnerToolCallApproval(
+				{ ...context, authType, user: { sub, scopes } } as BaseContext,
+				{ approval: row, status: "approved" },
+			);
+			expect(result).toBe(allowed ? "succeeded" : "failed");
+			if (allowed) {
+				expect(mocks.executor).toHaveBeenCalledTimes(1);
+				expect(mocks.executor).toHaveBeenCalledWith(
+					expect.objectContaining({
+						verifiedConnectionExecute: true,
+						verifiedConnectionAdmin: false,
+						payload: expect.objectContaining({
+							initiatedByUserId: "reviewer",
+							approvalRequesterUserId: "owner-1",
+							args: payload.args,
+						}),
+					}),
+				);
+				mocks.claim.mockResolvedValue(false);
+				await settleOwnerToolCallApproval(context, {
+					approval: row,
+					status: "approved",
+				});
+				expect(mocks.executor).toHaveBeenCalledTimes(1);
+			} else {
+				expect(mocks.executor).not.toHaveBeenCalled();
+				expect(mocks.record).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({
+						execution: expect.objectContaining({
+							error: expect.stringContaining("approving owner"),
+							retryable: false,
+						}),
+					}),
+				);
+			}
+		},
+	);
 	it("runs the stored call once on approval and records the result on the request", async () => {
 		expect(
 			await settleOwnerToolCallApproval(context, {

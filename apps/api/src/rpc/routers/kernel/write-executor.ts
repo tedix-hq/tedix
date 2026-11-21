@@ -474,6 +474,8 @@ function reportedWriteFailure(data: unknown): unknown {
 
 /** The stored call behind an owner tool approval (`mcp.tool_call` rows). */
 export interface OwnerToolCallReplay {
+	/** Original requester for receipt matching when the approver acts on an agent call. */
+	approvalRequesterUserId?: string;
 	/** Gateway host to replay on (the organization's own gateway for `connect`). */
 	appSlug: string;
 	/** Native wire name of the tool on that gateway. */
@@ -578,6 +580,12 @@ export async function executeApprovedOwnerToolCall(args: {
 				arguments: payload.args,
 				_meta: {
 					"com.tedix/approvalRequestId": args.approvalRequestId,
+					...(payload.approvalRequesterUserId
+						? {
+								"com.tedix/approvalRequesterUserId":
+									payload.approvalRequesterUserId,
+							}
+						: {}),
 					...(payload.target?.sensitiveDataEgress
 						? {
 								"com.tedix/sensitiveDataEgress":
