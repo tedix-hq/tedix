@@ -87,9 +87,10 @@ const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
 /**
  * Pause after each moved page (500 rows: logs copy, R2 write, one main
  * delete). Back-to-back pages overloaded main D1 for live reads (7429) on
- * 20 Nov 2026.
+ * 20 Nov 2026. Temporarily 300 ms (normally 1000) while the telemetry audit
+ * backlog drains (Work 539ccae7).
  */
-export const D1_RETENTION_PAGE_PAUSE_MS = 1000;
+export const D1_RETENTION_PAGE_PAUSE_MS = 300;
 
 /**
  * The error's message followed by its causes. Drizzle reports "Failed query:
@@ -582,10 +583,15 @@ async function movePages(
 			}
 			if (archives && bucket) {
 				const groups = await groupD1RetentionArchiveRows(db, tableSpec, rows);
-				for (const [organizationId, group] of groups) {
-					await timed(timings, "archiveMs", () =>
-						archiveChunk(bucket, organizationId, tableSpec, group, cutoff),
-					);
+				// One object per organization; all must be confirmed before the delete.
+				await timed(timings, "archiveMs", () =>
+					Promise.all(
+						[...groups].map(([organizationId, group]) =>
+							archiveChunk(bucket, organizationId, tableSpec, group, cutoff),
+						),
+					),
+				);
+				for (const group of groups.values()) {
 					result.archivedRows += group.length;
 					result.objects += 1;
 				}
