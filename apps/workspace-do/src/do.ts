@@ -150,8 +150,10 @@ import type {
 } from "./env";
 import {
 	assertWorkspaceGuestTedi,
-	workspaceSessionAllowed,
+	type WorkspaceAccess,
 	type WorkspaceSession,
+	workspaceSessionAccess,
+	workspaceSessionAllowed,
 } from "./session-access";
 import { workspaceLog, type WorkspaceLogFields } from "./log";
 import { apiInferenceAdmission } from "./admission";
@@ -237,25 +239,33 @@ const MODEL_CATALOG_TTL_MS = 60_000;
 /** How long an object reuses the workspace's chat settings before rereading them. */
 const SETTINGS_TTL_MS = 60_000;
 
+/** What a chat frame did not do, as the start of one sentence. */
+function frameWhat(type: string | undefined) {
+	return type === "send_turn"
+		? "Your message was not sent"
+		: type === "decide_approval" || type === "decide_approvals"
+			? "Your decision was not recorded"
+			: type === "cancel_turn"
+				? "The reply was not stopped"
+				: type === "set_approval_mode"
+					? "Your approval mode was not saved"
+					: type === "rename_conversation" ||
+						  type === "archive_conversation" ||
+						  type === "delete_conversation"
+						? "The conversation was not changed"
+						: "This chat could not be opened";
+}
+
 /** What a refused chat frame did not do and why, in one sentence. */
 function refusedFrameText(type: string | undefined, mayView: boolean) {
-	const what =
-		type === "send_turn"
-			? "Your message was not sent"
-			: type === "decide_approval" || type === "decide_approvals"
-				? "Your decision was not recorded"
-				: type === "cancel_turn"
-					? "The reply was not stopped"
-					: type === "set_approval_mode"
-						? "Your approval mode was not saved"
-						: type === "rename_conversation" ||
-							  type === "archive_conversation" ||
-							  type === "delete_conversation"
-							? "The conversation was not changed"
-							: "This chat could not be opened";
 	return mayView
-		? `${what}: you can view this workspace but not change it. Someone who can edit it can give you edit access.`
-		: `${what}: you no longer have access to this workspace.`;
+		? `${frameWhat(type)}: you can view this workspace but not change it. Someone who can edit it can give you edit access.`
+		: `${frameWhat(type)}: you no longer have access to this workspace.`;
+}
+
+/** A frame not carried out because Tedix could not check access just now. */
+function busyFrameText(type: string | undefined) {
+	return `${frameWhat(type)}: Tedix is busy right now. Try again in a moment.`;
 }
 
 /** Gates that run something on the sender's computer. */
@@ -822,6 +832,26 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...this.#diagnostics(),
 		});
 		ws.close(1008, "Workspace access denied");
+	}
+
+	/**
+	 * The access read failed, not the person's access: close with "try again
+	 * later" and no error, so the chat reconnects by itself and replays.
+	 */
+	#closeRetry(ws: WebSocket, where: string) {
+		workspaceLog.warn("Workspace chat socket closed to retry", {
+			event: "workspace.socket_retry",
+			where,
+			closeCode: 1013,
+			...this.#diagnostics(),
+		});
+		ws.close(1013, "Try again later");
+	}
+
+	/** Closes a socket the check did not allow, for the reason it gave. */
+	#closeNotAllowed(ws: WebSocket, access: WorkspaceAccess, where: string) {
+		if (access === "unknown") this.#closeRetry(ws, where);
+		else this.#closeDenied(ws, where);
 	}
 
 	// ------------------------------------------------------------------ RPC
@@ -3024,7 +3054,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			frame?.type !== "subscribe" &&
 			frame?.type !== "read_ledger" &&
 			frame?.type !== "ping";
-		if (!(await workspaceSessionAllowed(this.env.DB, attachment, write))) {
+		const access = await workspaceSessionAccess(this.env.DB, attachment, write);
+		if (access === "unknown" && !write) return this.#closeRetry(ws, "frame");
+		if (access === "unknown") {
+			// Nothing was refused: the frame was not carried out, the socket stays.
+			this.#control(ws, {
+				type: "error",
+				code: "unavailable",
+				message: busyFrameText(frame?.type),
+				...(typeof (frame as { clientTurnId?: unknown })?.clientTurnId ===
+				"string"
+					? { clientTurnId: (frame as { clientTurnId: string }).clientTurnId }
+					: {}),
+			});
+			return;
+		}
+		if (access === "denied") {
 			const mayView =
 				write && (await workspaceSessionAllowed(this.env.DB, attachment));
 			this.#control(ws, {
@@ -3815,10 +3860,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		conversationId: string | null,
 		cursor: number | null,
 	) {
-		if (
-			!(await workspaceSessionAllowed(this.env.DB, ws.deserializeAttachment()))
-		) {
-			this.#closeDenied(ws, "subscribe");
+		const access = await workspaceSessionAccess(
+			this.env.DB,
+			ws.deserializeAttachment(),
+		);
+		if (access !== "allowed") {
+			this.#closeNotAllowed(ws, access, "subscribe");
 			return;
 		}
 		this.bindScope(scope);
@@ -3910,8 +3957,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			const attachment = ws.deserializeAttachment() as
 				| (WorkspaceSession & { conversationId?: string | null })
 				| null;
-			if (!(await workspaceSessionAllowed(this.env.DB, attachment))) {
-				this.#closeDenied(ws, "push");
+			const access = await workspaceSessionAccess(this.env.DB, attachment);
+			if (access !== "allowed") {
+				// Closed either way: a socket that missed this event replays it
+				// from its cursor when it reconnects.
+				this.#closeNotAllowed(ws, access, "push");
 				continue;
 			}
 			// A request that waits for a person, and its decision, reach every
