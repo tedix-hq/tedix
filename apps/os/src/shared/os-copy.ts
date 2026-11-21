@@ -615,8 +615,7 @@ const ENGLISH_COPY = {
 			provider_error: "hit a model error",
 			early_stop: "stopped early",
 		} as Record<string, string>,
-		partlyDone: (title: string) =>
-			`Finished part of “${title}” and needs you to check the rest.`,
+		partlyDone: (title: string) => `Finished part of “${title}”.`,
 		didntFinish: "Didn't finish",
 		delegationOutcomes: {
 			completed: "finished",

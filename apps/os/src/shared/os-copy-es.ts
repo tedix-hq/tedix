@@ -342,8 +342,7 @@ export const SPANISH_FEED_DECK_COPY = {
 			provider_error: "tuvo un error del modelo",
 			early_stop: "se detuvo antes de tiempo",
 		} as Record<string, string>,
-		partlyDone: (title: string) =>
-			`Terminó parte de “${title}” y necesita que revises el resto.`,
+		partlyDone: (title: string) => `Terminó parte de “${title}”.`,
 		didntFinish: "No terminó",
 		delegationOutcomes: {
 			completed: "terminó",

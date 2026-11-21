@@ -104,8 +104,7 @@ export const DEFAULT_FEED_COPY: FeedCopy = {
 		provider_error: "hit a model error",
 		early_stop: "stopped early",
 	},
-	partlyDone: (title) =>
-		`Finished part of “${title}” and needs you to check the rest.`,
+	partlyDone: (title) => `Finished part of “${title}”.`,
 	didntFinish: "Didn't finish",
 	delegationOutcomes: {
 		completed: "finished",

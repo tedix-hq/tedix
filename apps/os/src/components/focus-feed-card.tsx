@@ -93,7 +93,8 @@ function PostDiscussion({
 }) {
 	const mobile = useMediaQuery("(max-width: 639px)");
 	const list = useRef<HTMLDivElement>(null);
-	const [limit, setLimit] = useState(5);
+	const followLatest = useRef(true);
+	const [start, setStart] = useState<number | null>(null);
 	const detail = useQuery({
 		...workItemDetailQueryOptions(itemId),
 		enabled: open,
@@ -102,9 +103,11 @@ function PostDiscussion({
 	const directory = useContext(WorkActorDirectoryContext);
 	const replies = detail.data?.comments ?? [];
 	useEffect(() => {
-		if (open && list.current)
+		if (!open || !detail.data || !list.current) return;
+		if (start === null) setStart(Math.max(0, replies.length - 5));
+		if (followLatest.current)
 			list.current.scrollTop = list.current.scrollHeight;
-	}, [open, replies.length]);
+	}, [open, detail.data, replies.length, start]);
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
 			<SheetContent
@@ -126,15 +129,19 @@ function PostDiscussion({
 				</header>
 				<div
 					ref={list}
+					onScroll={({ currentTarget: el }) => {
+						followLatest.current =
+							el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+					}}
 					className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4"
 					aria-label="Work discussion"
 					role="region"
 				>
-					{replies.length > limit && (
+					{start !== null && start > 0 && (
 						<Button
 							size="sm"
 							variant="ghost"
-							onClick={() => setLimit((n) => n + 10)}
+							onClick={() => setStart(Math.max(0, (start ?? 0) - 10))}
 						>
 							Earlier comments
 						</Button>
@@ -149,38 +156,40 @@ function PostDiscussion({
 							<Link href={`/work/items/${itemId}`}>Open task</Link>
 						</Text>
 					)}
-					{replies.slice(-limit).map((reply) => {
-						const actor = workActorReference(
-							reply.authorType,
-							reply.authorId,
-							reply.metadata,
-						);
-						const author = resolveWorkContributor(
-							actor,
-							reply.authorType === "user" ? "Team member" : "Agent",
-							directory,
-						);
-						return (
-							<div key={reply.id} className="flex items-start gap-2">
-								<WorkActorAvatar actor={actor} name={author.label} />
-								<div className="min-w-0">
-									<div className="flex flex-wrap items-baseline gap-x-2">
-										<Text weight="semibold">{author.label}</Text>
-										<time
-											dateTime={reply.createdAt}
-											title={absoluteTime(reply.createdAt)}
-											className="text-xs text-kumo-subtle"
-										>
-											{relativeTime(reply.createdAt)}
-										</time>
+					{replies
+						.slice(start ?? Math.max(0, replies.length - 5))
+						.map((reply) => {
+							const actor = workActorReference(
+								reply.authorType,
+								reply.authorId,
+								reply.metadata,
+							);
+							const author = resolveWorkContributor(
+								actor,
+								reply.authorType === "user" ? "Team member" : "Agent",
+								directory,
+							);
+							return (
+								<div key={reply.id} className="flex items-start gap-2">
+									<WorkActorAvatar actor={actor} name={author.label} />
+									<div className="min-w-0">
+										<div className="flex flex-wrap items-baseline gap-x-2">
+											<Text weight="semibold">{author.label}</Text>
+											<time
+												dateTime={reply.createdAt}
+												title={absoluteTime(reply.createdAt)}
+												className="text-xs text-kumo-subtle"
+											>
+												{relativeTime(reply.createdAt)}
+											</time>
+										</div>
+										<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+											{reply.body}
+										</p>
 									</div>
-									<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-										{reply.body}
-									</p>
 								</div>
-							</div>
-						);
-					})}
+							);
+						})}
 				</div>
 				<footer className="shrink-0 border-t border-kumo-line p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
 					<WorkItemCommentComposer itemId={itemId} compact />

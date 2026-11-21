@@ -489,13 +489,13 @@ describe("attempt result projections", () => {
 			"Failed: partial_result\n\nDelegated tedi returned a partial result (reported_partial; The tedi reported a partial result). The Work Item remains incomplete. Recovery: continue or re-dispatch the same work order, then attach fresh terminal proof.",
 			{ failureReason: "partial_result" },
 			"Run the certification for draft",
-			"Finished part of “Run the certification for draft” and needs you to check the rest.",
+			"Finished part of “Run the certification for draft”.",
 		],
 		[
 			"Failed: partial_result\n\nDelegated tedi reported Outcome: needs_follow_up. The Work Item remains incomplete. Outcome: needs_follow_up",
 			{},
 			"Copy skill 4f1c2a90-3b7d-4e21-9a55-0c8e7d6b1f42 (Reddit Operator) into the workspace",
-			"Finished part of “Copy skill Reddit Operator into the workspace” and needs you to check the rest.",
+			"Finished part of “Copy skill Reddit Operator into the workspace”.",
 		],
 		[
 			"Failed: partial_result\n\nCedar finished part of “Update the schedule” and needs you to check the rest. It stays open so it can be continued or sent again.",
