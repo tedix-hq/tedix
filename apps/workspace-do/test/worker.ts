@@ -147,6 +147,20 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		this.#script = steps;
 	}
 
+	#titleReply: string | null = null;
+
+	/** Name new conversations with this answer; without it, naming is off. */
+	scriptTitle(scope: WorkspaceScope, answer: string) {
+		this.bindScope(scope);
+		this.#titleReply = answer;
+	}
+
+	protected override titleModelFor(plan: TurnPlan): ModelPort | null {
+		return this.#titleReply === null
+			? null
+			: scriptedModel([{ text: this.#titleReply }], plan.modelId);
+	}
+
 	failNextModelCall(scope: WorkspaceScope, message: string) {
 		this.bindScope(scope);
 		this.#nextModelError = message;

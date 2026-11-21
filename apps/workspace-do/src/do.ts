@@ -613,6 +613,31 @@ function unavailableDefaultNote(name: string): string {
 	return `Answered by the workspace agent: ${name} is not available.`;
 }
 
+/** A new conversation's name until its first reply names it: the first message. */
+function firstMessageTitle(text: string): string {
+	return text.replace(/\s+/g, " ").slice(0, 80);
+}
+
+const TITLE_PROMPT =
+	"Name this conversation in at most six words. Reply with the name only: no quotes, no full stop.";
+
+/** The model's answer as a name of at most six words, or null when it gave none. */
+function generatedTitle(answer: string): string | null {
+	const line = answer
+		.split("\n")
+		.map((part) => part.trim())
+		.find(Boolean)
+		?.replace(/^title:\s*/i, "")
+		.replace(/^["'“‘*#\s]+|["'”’*.!\s]+$/g, "");
+	const title = (line ?? "")
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 6)
+		.join(" ")
+		.slice(0, 80);
+	return title || null;
+}
+
 /** A tedi's own object as a guest turn calls it. */
 type TediObject = TediGuestService & {
 	guestProfile(input: {
@@ -2581,21 +2606,89 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			.slice(0, 80);
 		if (!title) throw new Error("A conversation needs a name");
 		this.#conversationRow(input.conversationId);
+		this.#setTitle(input.conversationId, title);
+	}
+
+	#setTitle(conversationId: string, title: string) {
 		// `updated_at` moves too, so a chat that replays an older name keeps this one.
 		this.#store.run(
 			"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
 			title,
 			new Date().toISOString(),
-			input.conversationId,
+			conversationId,
 		);
 		this.#announceConversation(
-			this.#events.append(input.conversationId, {
+			this.#events.append(conversationId, {
 				type: "conversation.updated",
-				conversationId: input.conversationId,
+				conversationId,
 				title,
-				tediId: this.#conversationTediId(input.conversationId),
+				tediId: this.#conversationTediId(conversationId),
 			}),
 		);
+	}
+
+	/**
+	 * Name a conversation after its first reply, in one short call to the
+	 * turn's model. Runs after the reply was sent. A name a person gave, a
+	 * later reply or any failure leaves the first-message name in place.
+	 */
+	async #nameConversation(plan: TurnPlan, reply: string) {
+		const { conversationId, turnId } = plan;
+		try {
+			const [started] = this.#events.ofTurn(turnId, "turn.started");
+			if (started?.type !== "turn.started") return;
+			const placeholder = firstMessageTitle(started.text);
+			const unnamed = () => {
+				const [row] = this.#store.exec<{
+					title: string | null;
+					answered: number;
+				}>(
+					"SELECT c.title, (SELECT COUNT(*) FROM turns t WHERE t.conversation_id = c.id AND t.turn_id != ? AND t.status = 'finished') AS answered FROM conversations c WHERE c.id = ?",
+					turnId,
+					conversationId,
+				);
+				return (
+					!!placeholder && row?.title === placeholder && row.answered === 0
+				);
+			};
+			if (!unnamed()) return;
+			const model = this.titleModelFor(plan);
+			if (!model) return;
+			const answer = await model
+				.stream(
+					{
+						systemPrompt: TITLE_PROMPT,
+						messages: [
+							{
+								role: "user",
+								content: `Message:\n${started.text.slice(0, 2_000)}\n\nReply:\n${reply.slice(0, 2_000)}`,
+								timestamp: Date.now(),
+							},
+						],
+					},
+					{ maxTokens: 200, signal: AbortSignal.timeout(20_000) },
+				)
+				.result();
+			if (answer.stopReason === "error" || answer.stopReason === "aborted")
+				return;
+			const title = generatedTitle(
+				answer.content
+					.filter(
+						(block): block is { type: "text"; text: string } =>
+							block.type === "text",
+					)
+					.map((block) => block.text)
+					.join(""),
+			);
+			if (title && title !== placeholder && unnamed())
+				this.#setTitle(conversationId, title);
+		} catch (error) {
+			workspaceLog.warn("The conversation kept its first-message name", {
+				event: "workspace.conversation_title_failed",
+				error,
+				...this.#diagnostics(),
+			});
+		}
 	}
 
 	/**
@@ -4093,7 +4186,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return conversationId;
 		}
 		const id = crypto.randomUUID();
-		const title = firstText.replace(/\s+/g, " ").slice(0, 80);
+		const title = firstMessageTitle(firstText);
 		this.#store.run(
 			"INSERT INTO conversations (id, title, created_at, updated_at, last_turn_at) VALUES (?, ?, ?, ?, ?)",
 			id,
@@ -5567,6 +5660,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return admittedTurnModel(this.env, plan);
 	}
 
+	/** The model that names a new conversation; null skips naming. */
+	protected titleModelFor(plan: TurnPlan): ModelPort | null {
+		return this.modelFor(plan);
+	}
+
 	async #execute(
 		scope: WorkspaceScope,
 		turnId: string,
@@ -5665,6 +5763,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (result.stopReason !== "aborted") {
 				answered = true;
 				// Never delays the reply; a failure is logged and dropped.
+				if (!report)
+					this.ctx.waitUntil(this.#nameConversation(plan, result.text));
 				if (input.tediId && input.actorKind === "user" && !report)
 					this.ctx.waitUntil(
 						this.#learnFromTurn(scope, turnId, {

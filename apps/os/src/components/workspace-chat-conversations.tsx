@@ -5,142 +5,29 @@ import {
 	ArrowLeft,
 	Bell,
 	BellSlash,
-	DotsThree,
-	PencilSimple,
 	Trash,
 } from "@phosphor-icons/react";
-import { type FormEvent, useState } from "react";
+import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Badge } from "@/components/kumo/badge";
+import {
+	type ConversationListRow,
+	ConversationListView,
+	ConversationsEmpty,
+	RenameField,
+} from "@/components/conversation-list";
 import { Button } from "@/components/kumo/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/kumo/dropdown-menu";
-import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
-import { UnreadBadge } from "@/components/unread-badge";
 import type { ConversationChange } from "@/lib/workspace-chat-client";
-import {
-	agentConversations,
-	agentRunsNeedingYou,
-	ownConversations,
-} from "@/lib/workspace-agents";
+import { agentConversations, ownConversations } from "@/lib/workspace-agents";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
 const UNTITLED = "Untitled conversation";
 /** The object keeps at most this many characters of a name. */
 const TITLE_LIMIT = 80;
-const DAY_MS = 86_400_000;
-
-export type ConversationGroupLabel =
-	| "Today"
-	| "Yesterday"
-	| "Earlier this week"
-	| "Earlier";
 
 /** When someone last wrote in the conversation; a rename does not move it. */
 function lastActiveAt(conversation: ConversationSummary): string {
 	return conversation.lastTurnAt ?? conversation.updatedAt;
-}
-
-/**
- * The list in sections by the day of the last message, newest first. The week
- * starts on Monday, in the reader's own time zone; a section with nothing in
- * it is left out.
- */
-export function groupConversations(
-	conversations: readonly ConversationSummary[],
-	now: Date,
-): Array<{
-	label: ConversationGroupLabel;
-	conversations: ConversationSummary[];
-}> {
-	const today = new Date(
-		now.getFullYear(),
-		now.getMonth(),
-		now.getDate(),
-	).getTime();
-	const yesterday = today - DAY_MS;
-	const week = today - ((now.getDay() + 6) % 7) * DAY_MS;
-	const groups: Record<ConversationGroupLabel, ConversationSummary[]> = {
-		Today: [],
-		Yesterday: [],
-		"Earlier this week": [],
-		Earlier: [],
-	};
-	for (const conversation of conversations.toSorted((a, b) =>
-		lastActiveAt(b).localeCompare(lastActiveAt(a)),
-	)) {
-		const at = Date.parse(lastActiveAt(conversation));
-		groups[
-			at >= today
-				? "Today"
-				: at >= yesterday
-					? "Yesterday"
-					: at >= week
-						? "Earlier this week"
-						: "Earlier"
-		].push(conversation);
-	}
-	return (Object.keys(groups) as ConversationGroupLabel[])
-		.filter((label) => groups[label].length > 0)
-		.map((label) => ({ label, conversations: groups[label] }));
-}
-
-function relativeTime(iso: string, now: number): string {
-	const ms = now - Date.parse(iso);
-	if (!Number.isFinite(ms) || ms < 60_000) return "just now";
-	const minutes = Math.floor(ms / 60_000);
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} h ago`;
-	return `${Math.floor(hours / 24)} d ago`;
-}
-
-/** A name field that saves on Enter or when focus leaves, and gives up on Escape. */
-function RenameField({
-	title,
-	onSave,
-	onCancel,
-}: {
-	title: string | null;
-	onSave: (title: string) => void;
-	onCancel: () => void;
-}) {
-	const [value, setValue] = useState(title ?? "");
-	const finish = () => {
-		const next = value.replace(/\s+/g, " ").trim();
-		if (next && next !== title) onSave(next);
-		else onCancel();
-	};
-	return (
-		<form
-			className="workspace-chat-rename"
-			onSubmit={(event: FormEvent) => {
-				event.preventDefault();
-				finish();
-			}}
-		>
-			<Input
-				aria-label="Conversation name"
-				autoFocus
-				maxLength={TITLE_LIMIT}
-				onBlur={finish}
-				onChange={(event) => setValue(event.target.value)}
-				onFocus={(event) => event.target.select()}
-				onKeyDown={(event) => {
-					if (event.key !== "Escape") return;
-					event.preventDefault();
-					onCancel();
-				}}
-				size="sm"
-				value={value}
-			/>
-		</form>
-	);
 }
 
 /**
@@ -160,6 +47,7 @@ export function ConversationTitle({
 	if (editing && onRename)
 		return (
 			<RenameField
+				maxLength={TITLE_LIMIT}
 				title={title}
 				onCancel={() => setEditing(false)}
 				onSave={(next) => {
@@ -198,6 +86,7 @@ export type ConversationNotifications = {
 	set: (conversationId: string, on: boolean) => void;
 };
 
+/** The workspace chat's conversations in the shared list. */
 export function ConversationList({
 	conversations: all,
 	onOpenAgents,
@@ -212,8 +101,9 @@ export function ConversationList({
 	/** Every conversation the object named, the archived ones included. */
 	conversations: ConversationSummary[];
 	/**
-	 * Opens the Agents view. With it, the conversations an agent started are
-	 * left out here, because that view lists them.
+	 * Set where an Agents view lists the conversations an agent started; they
+	 * are then left out here. The list has no link to it: the Files rail
+	 * opens Agents.
 	 */
 	onOpenAgents?: () => void;
 	activeId: string | null;
@@ -228,262 +118,163 @@ export function ConversationList({
 	/** Left out while it is not known; the menu then has no notification item. */
 	notifications?: ConversationNotifications;
 }) {
-	const now = Date.now();
-	const conversations = onOpenAgents ? ownConversations(all) : all;
-	const agentRuns = onOpenAgents ? agentConversations(all) : [];
-	const runsNeedingYou = agentRunsNeedingYou(agentRuns, {
-		id: activeId,
-		pendingApprovals: activePendingApprovals,
-	});
+	const agentsListedElsewhere = !!onOpenAgents;
+	const conversations = agentsListedElsewhere ? ownConversations(all) : all;
+	const agentRuns = agentsListedElsewhere ? agentConversations(all) : [];
 	const [showArchived, setShowArchived] = useState(false);
-	const [renaming, setRenaming] = useState<string | null>(null);
+	const [query, setQuery] = useState("");
 	const [deleting, setDeleting] = useState<ConversationSummary | null>(null);
 	const archivedCount = conversations.filter((row) => row.archivedAt).length;
 	const viewingArchived = showArchived && archivedCount > 0;
-	const groups = groupConversations(
-		conversations.filter((row) => !!row.archivedAt === viewingArchived),
-		new Date(now),
-	);
-	const row = (conversation: ConversationSummary) => {
-		const title = conversation.title ?? UNTITLED;
+	const searched = query.trim().toLowerCase();
+	const row = (conversation: ConversationSummary): ConversationListRow => {
 		const active = conversation.id === activeId;
 		const working = (active && activeRunning) || conversation.running === true;
-		const needsApproval = active
-			? activePendingApprovals > 0
-			: (conversation.pendingApprovals ?? 0) > 0;
-		return (
-			<li className="workspace-chat-list-item" key={conversation.id}>
-				{renaming === conversation.id && onChange ? (
-					<RenameField
-						title={conversation.title}
-						onCancel={() => setRenaming(null)}
-						onSave={(next) => {
-							onChange({
-								type: "rename_conversation",
-								conversationId: conversation.id,
-								title: next,
-							});
-							setRenaming(null);
-						}}
-					/>
-				) : (
-					<button
-						aria-current={active ? "true" : undefined}
-						className="workspace-chat-list-row"
-						onClick={() => onSelect(conversation.id)}
-						type="button"
-					>
-						<Text as="span" role="body" className="truncate">
-							{title}
-						</Text>
-						{needsApproval ? (
-							<Badge className="shrink-0" variant="warning">
-								Needs approval
-							</Badge>
-						) : null}
-						{working ? (
-							<span
-								className="workspace-chat-list-working"
-								role="img"
-								aria-label="Working"
-								title="Working"
-							/>
-						) : null}
-						<UnreadBadge
-							count={unread?.get(conversation.id) ?? 0}
-							label="unread"
-						/>
-						<Text
-							as="span"
-							role="caption"
-							tone="secondary"
-							className="shrink-0 whitespace-nowrap"
-						>
-							{relativeTime(lastActiveAt(conversation), now)}
-						</Text>
-					</button>
-				)}
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								aria-label={`Actions for ${title}`}
-								disabled={!onChange}
-								size="icon-sm"
-								title={`Actions for ${title}`}
-								variant="ghost"
-							/>
-						}
-					>
-						<DotsThree aria-hidden size={16} weight="bold" />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={() => setRenaming(conversation.id)}>
-							<PencilSimple aria-hidden size={14} />
-							Rename
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							onClick={() =>
-								onChange?.({
-									type: "archive_conversation",
-									conversationId: conversation.id,
-									archived: !conversation.archivedAt,
-								})
-							}
-						>
-							{conversation.archivedAt ? (
-								<ArrowCounterClockwise aria-hidden size={14} />
-							) : (
-								<Archive aria-hidden size={14} />
-							)}
-							{conversation.archivedAt ? "Restore" : "Archive"}
-						</DropdownMenuItem>
-						{notifications ? (
-							<DropdownMenuItem
-								onClick={() =>
-									notifications.set(
-										conversation.id,
-										!notifications.on.has(conversation.id),
-									)
-								}
-								title={
-									notifications.on.has(conversation.id)
-										? "Stop notifications for this conversation. Approval requests still notify you."
-										: "Get notified about new messages and agent results here."
-								}
-							>
-								{notifications.on.has(conversation.id) ? (
+		const notifying = notifications?.on.has(conversation.id) ?? false;
+		return {
+			id: conversation.id,
+			title: conversation.title ?? UNTITLED,
+			at: lastActiveAt(conversation),
+			working,
+			needsYou: active
+				? activePendingApprovals > 0
+				: (conversation.pendingApprovals ?? 0) > 0,
+			unread: unread?.get(conversation.id) ?? 0,
+			actions: [
+				{
+					label: conversation.archivedAt ? "Restore" : "Archive",
+					icon: conversation.archivedAt ? (
+						<ArrowCounterClockwise aria-hidden size={14} />
+					) : (
+						<Archive aria-hidden size={14} />
+					),
+					onSelect: () =>
+						onChange?.({
+							type: "archive_conversation",
+							conversationId: conversation.id,
+							archived: !conversation.archivedAt,
+						}),
+				},
+				...(notifications
+					? [
+							{
+								label: notifying
+									? "Turn off notifications"
+									: "Turn on notifications",
+								icon: notifying ? (
 									<BellSlash aria-hidden size={14} />
 								) : (
 									<Bell aria-hidden size={14} />
-								)}
-								{notifications.on.has(conversation.id)
-									? "Turn off notifications"
-									: "Turn on notifications"}
-							</DropdownMenuItem>
-						) : null}
-						<DropdownMenuItem
-							disabled={working}
-							onClick={() => setDeleting(conversation)}
-							title={working ? "Stop the reply first" : undefined}
-							variant="destructive"
-						>
-							<Trash aria-hidden size={14} />
-							Delete
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
-			</li>
-		);
+								),
+								title: notifying
+									? "Stop notifications for this conversation. Approval requests still notify you."
+									: "Get notified about new messages and agent results here.",
+								onSelect: () => notifications.set(conversation.id, !notifying),
+							},
+						]
+					: []),
+				{
+					label: "Delete",
+					icon: <Trash aria-hidden size={14} />,
+					destructive: true,
+					disabled: working,
+					title: working ? "Stop the reply first" : undefined,
+					onSelect: () => setDeleting(conversation),
+				},
+			],
+		};
 	};
-	return (
-		<div className="workspace-chat-list">
-			{viewingArchived ? (
-				<div className="workspace-chat-list-bar">
-					<Button
-						onClick={() => setShowArchived(false)}
-						size="sm"
-						variant="ghost"
-					>
-						<ArrowLeft aria-hidden />
-						Conversations
-					</Button>
-					<Text as="strong" role="label">
-						Archived
-					</Text>
-				</div>
-			) : (
-				<div className="workspace-chat-list-bar">
-					<Button onClick={() => onSelect(null)} size="sm" variant="secondary">
-						New conversation
-					</Button>
-					{onOpenAgents ? (
-						<Button
-							aria-label={
-								runsNeedingYou > 0
-									? `Agents, ${runsNeedingYou} ${runsNeedingYou === 1 ? "run needs" : "runs need"} you`
-									: undefined
-							}
-							onClick={onOpenAgents}
-							size="sm"
-							variant="ghost"
-						>
-							Agents
-							{runsNeedingYou > 0 ? (
-								<Badge
-									aria-hidden
-									className="h-4 min-w-4 shrink-0 justify-center rounded-full px-1 tabular-nums"
-									variant="warning"
-								>
-									{runsNeedingYou > 99 ? "99+" : runsNeedingYou}
-								</Badge>
-							) : null}
-						</Button>
-					) : null}
-					{archivedCount > 0 ? (
-						<Button
-							onClick={() => setShowArchived(true)}
-							size="sm"
-							variant="ghost"
-						>
-							Archived ({archivedCount})
-						</Button>
-					) : null}
-				</div>
-			)}
-			{groups.length === 0 && onOpenAgents && agentRuns.length > 0 ? (
-				// Not an empty workspace: every conversation in it is an agent's run.
-				<div className="grid justify-items-start gap-2">
-					<Text role="body" tone="secondary">
-						No conversations of your own here. The ones agents started are under
-						Agents.
-					</Text>
-					<Button onClick={onOpenAgents} size="sm" variant="secondary">
-						Open Agents
-					</Button>
-				</div>
-			) : groups.length === 0 ? (
-				<Text role="body" tone="secondary">
-					No conversations in this workspace yet.
-				</Text>
-			) : (
-				groups.map((group) => (
-					<section
-						aria-label={group.label}
-						className="workspace-chat-list-group"
-						key={group.label}
-					>
-						<Text as="h3" role="caption" tone="secondary">
-							{group.label}
-						</Text>
-						<ul>{group.conversations.map(row)}</ul>
-					</section>
-				))
-			)}
-			<ConfirmDialog
-				confirmLabel="Delete"
-				description={
-					deleting
-						? `“${deleting.title ?? UNTITLED}” and its messages are deleted for everyone in this workspace. Files it saved stay. This cannot be undone.`
-						: null
-				}
-				destructive
-				isPending={false}
-				onConfirm={() => {
-					if (deleting)
-						onChange?.({
-							type: "delete_conversation",
-							conversationId: deleting.id,
-						});
-					setDeleting(null);
-				}}
-				onOpenChange={(open) => {
-					if (!open) setDeleting(null);
-				}}
-				open={deleting !== null}
-				pendingLabel="Deleting…"
-				title="Delete conversation"
-			/>
+	const rows = conversations
+		.filter(
+			(conversation) =>
+				!!conversation.archivedAt === viewingArchived &&
+				(!searched ||
+					(conversation.title ?? UNTITLED).toLowerCase().includes(searched)),
+		)
+		.map(row);
+	const toolbar = viewingArchived ? (
+		<div className="flex items-center justify-between gap-2">
+			<Button onClick={() => setShowArchived(false)} size="sm" variant="ghost">
+				<ArrowLeft aria-hidden />
+				Conversations
+			</Button>
+			<Text as="strong" role="label">
+				Archived
+			</Text>
 		</div>
+	) : (
+		<div className="flex items-center justify-between gap-2">
+			<Button onClick={() => onSelect(null)} size="sm" variant="secondary">
+				New conversation
+			</Button>
+			{archivedCount > 0 ? (
+				<Button onClick={() => setShowArchived(true)} size="sm" variant="ghost">
+					Archived ({archivedCount})
+				</Button>
+			) : null}
+		</div>
+	);
+	return (
+		<ConversationListView
+			activeId={activeId}
+			className="workspace-chat-list"
+			empty={
+				agentRuns.length > 0 ? (
+					// Not an empty workspace: every conversation in it is an agent's run.
+					<ConversationsEmpty
+						description="The ones agents started are under Agents."
+						title="No conversations of your own here"
+					/>
+				) : (
+					<ConversationsEmpty
+						description="Send a message to start one."
+						title="No conversations in this workspace yet"
+					/>
+				)
+			}
+			footer={
+				<ConfirmDialog
+					confirmLabel="Delete"
+					description={
+						deleting
+							? `“${deleting.title ?? UNTITLED}” and its messages are deleted for everyone in this workspace. Files it saved stay. This cannot be undone.`
+							: null
+					}
+					destructive
+					isPending={false}
+					onConfirm={() => {
+						if (deleting)
+							onChange?.({
+								type: "delete_conversation",
+								conversationId: deleting.id,
+							});
+						setDeleting(null);
+					}}
+					onOpenChange={(open) => {
+						if (!open) setDeleting(null);
+					}}
+					open={deleting !== null}
+					pendingLabel="Deleting…"
+					title="Delete conversation"
+				/>
+			}
+			maxTitleLength={TITLE_LIMIT}
+			menusDisabled={!onChange}
+			onQueryChange={setQuery}
+			onRename={
+				onChange
+					? (conversationId, title) =>
+							onChange({
+								type: "rename_conversation",
+								conversationId,
+								title,
+							})
+					: null
+			}
+			onSelect={onSelect}
+			query={query}
+			rows={rows}
+			toolbar={toolbar}
+		/>
 	);
 }

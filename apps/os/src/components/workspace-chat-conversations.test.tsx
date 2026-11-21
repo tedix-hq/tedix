@@ -36,10 +36,7 @@ vi.mock("@/lib/use-chat-model-preference", async (original) => ({
 	}),
 }));
 import { WorkspaceChat } from "./workspace-chat";
-import {
-	ConversationList,
-	groupConversations,
-} from "./workspace-chat-conversations";
+import { ConversationList } from "./workspace-chat-conversations";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -115,59 +112,6 @@ function submit(input: HTMLInputElement) {
 	});
 }
 
-describe("groupConversations", () => {
-	it("puts conversations under the day they were last used, newest first", () => {
-		const groups = groupConversations(
-			[
-				conversation("last-week", localIso(13)),
-				conversation("monday", localIso(16)),
-				conversation("yesterday", localIso(17)),
-				conversation("this-morning", localIso(18, 8)),
-				conversation("just-now", localIso(18, 14)),
-			],
-			NOW,
-		);
-		expect(
-			groups.map((group) => [
-				group.label,
-				group.conversations.map((row) => row.id),
-			]),
-		).toEqual([
-			["Today", ["just-now", "this-morning"]],
-			["Yesterday", ["yesterday"]],
-			["Earlier this week", ["monday"]],
-			["Earlier", ["last-week"]],
-		]);
-	});
-
-	it("leaves out an empty section and files a renamed conversation by its last message", () => {
-		const groups = groupConversations(
-			[
-				conversation("old", localIso(2), { updatedAt: localIso(18, 14) }),
-				conversation("new", localIso(18, 9)),
-			],
-			NOW,
-		);
-		expect(groups.map((group) => group.label)).toEqual(["Today", "Earlier"]);
-	});
-
-	it("has no 'Earlier this week' on a Monday", () => {
-		const monday = new Date(2026, 10, 16, 15, 0, 0);
-		expect(
-			groupConversations(
-				[
-					conversation("sunday", localIso(15)),
-					conversation("friday", localIso(13)),
-				],
-				monday,
-			).map((group) => [group.label, group.conversations.length]),
-		).toEqual([
-			["Yesterday", 1],
-			["Earlier", 1],
-		]);
-	});
-});
-
 describe("ConversationList", () => {
 	function mount(
 		conversations: ConversationSummary[],
@@ -192,9 +136,9 @@ describe("ConversationList", () => {
 	}
 	const sections = () =>
 		[...host.querySelectorAll("section")].map((section) => [
-			section.getAttribute("aria-label"),
-			[...section.querySelectorAll(".workspace-chat-list-row")].map(
-				(row) => row.querySelector("span")?.textContent,
+			section.querySelector("h3")?.textContent,
+			[...section.querySelectorAll('[data-slot="conversation-title"]')].map(
+				(title) => title.textContent,
 			),
 		]);
 
@@ -208,85 +152,70 @@ describe("ConversationList", () => {
 		expect(sections()).toEqual([
 			["Today", ["Conversation a"]],
 			["Yesterday", ["Conversation b"]],
-			["Earlier", ["Conversation c"]],
+			["Older", ["Conversation c"]],
 		]);
 	});
 
-	it("leaves out conversations an agent started when an Agents view lists them", () => {
+	it("finds conversations by name and says when none match", () => {
+		mount([
+			conversation("a", localIso(18, 9), { title: "Launch plan" }),
+			conversation("b", localIso(17), { title: "Budget" }),
+		]);
+		const search = host.querySelector<HTMLInputElement>(
+			'input[aria-label="Search conversations"]',
+		);
+		if (!search) throw new Error("No search field");
+		type(search, "launch");
+		expect(sections()).toEqual([["Today", ["Launch plan"]]]);
+		type(search, "invoices");
+		expect(host.textContent).toContain("No conversations match “invoices”.");
+		act(() => button("Clear search", host).click());
+		expect(sections()).toHaveLength(2);
+	});
+
+	it("leaves out conversations an agent started when an Agents view lists them, with no link to it", () => {
 		const list = [
 			conversation("a", localIso(18, 9)),
 			conversation("run", localIso(18, 10), {
 				startedBy: { kind: "tedi", id: "tedi-1" },
+				pendingApprovals: 1,
 			}),
 		];
 		mount(list, { onOpenAgents: () => {} });
 		expect(sections()).toEqual([["Today", ["Conversation a"]]]);
+		// The Files rail opens Agents; the list has no button of its own.
+		expect(() => button("Agents", host)).toThrow();
 		// Without an Agents view beside it, the list still shows every one.
 		mount(list);
 		expect(sections()).toEqual([
 			["Today", ["Conversation run", "Conversation a"]],
 		]);
-		expect(() => button("Agents", host)).toThrow();
-	});
-
-	it("links to Agents and counts the agent runs that need the person", () => {
-		const tedi = { kind: "tedi", id: "tedi-1" } as const;
-		const opened = vi.fn();
-		mount(
-			[
-				conversation("a", localIso(18, 9), { pendingApprovals: 1 }),
-				conversation("run", localIso(18, 10), { startedBy: tedi }),
-			],
-			{ onOpenAgents: opened },
-		);
-		// A person's own waiting conversation is not an agent's run.
-		expect(button("Agents", host).textContent).toBe("Agents");
-		act(() => button("Agents", host).click());
-		expect(opened).toHaveBeenCalledTimes(1);
-
-		mount(
-			[
-				conversation("a", localIso(18, 9)),
-				conversation("run", localIso(18, 10), {
-					startedBy: tedi,
-					pendingApprovals: 2,
-				}),
-				conversation("run-2", localIso(18, 11), {
-					startedBy: tedi,
-					pendingApprovals: 1,
-				}),
-			],
-			{ onOpenAgents: opened },
-		);
-		expect(button("Agents, 2 runs need you", host).textContent).toBe("Agents2");
 	});
 
 	it("says so when every conversation was started by an agent", () => {
-		const opened = vi.fn();
 		mount(
 			[
 				conversation("run", localIso(18, 10), {
 					startedBy: { kind: "agent", id: "app:1" },
 				}),
 			],
-			{ onOpenAgents: opened },
+			{ onOpenAgents: () => {} },
 		);
 		expect(sections()).toEqual([]);
+		expect(host.textContent).toContain("No conversations of your own here");
 		expect(host.textContent).toContain(
-			"No conversations of your own here. The ones agents started are under Agents.",
-		);
-		act(() => button("Open Agents", host).click());
-		expect(opened).toHaveBeenCalledTimes(1);
-
-		// A workspace nobody has used says the plain thing.
-		mount([], { onOpenAgents: opened });
-		expect(host.textContent).toContain(
-			"No conversations in this workspace yet.",
+			"The ones agents started are under Agents.",
 		);
 		expect(() => button("Open Agents", host)).toThrow();
+
+		// A workspace nobody has used says the plain thing.
+		mount([], { onOpenAgents: () => {} });
+		expect(host.textContent).toContain(
+			"No conversations in this workspace yet",
+		);
 	});
 
-	it("marks a conversation with changes waiting, beside the working dot", () => {
+	it("marks a conversation with changes waiting, beside the working spinner", () => {
 		mount(
 			[
 				conversation("waiting", localIso(18, 9), {
@@ -300,10 +229,13 @@ describe("ConversationList", () => {
 			],
 			{ activeId: "open" },
 		);
-		const rows = [...host.querySelectorAll(".workspace-chat-list-row")];
-		expect(
-			rows.map((row) => row.textContent?.includes("Needs approval")),
-		).toEqual([true, false, false, false]);
+		const rows = [...host.querySelectorAll("[data-conversation-id]")];
+		expect(rows.map((row) => row.textContent?.includes("Needs you"))).toEqual([
+			true,
+			false,
+			false,
+			false,
+		]);
 		expect(rows[0]?.querySelector('[aria-label="Working"]')).not.toBeNull();
 		expect(rows[1]?.querySelector('[aria-label="Working"]')).toBeNull();
 
@@ -311,7 +243,7 @@ describe("ConversationList", () => {
 			activeId: "open-waiting",
 			activePendingApprovals: 1,
 		});
-		expect(host.textContent).toContain("Needs approval");
+		expect(host.textContent).toContain("Needs you");
 	});
 
 	it("renames from the row menu", () => {
@@ -332,7 +264,9 @@ describe("ConversationList", () => {
 				title: "Launch plan",
 			},
 		]);
-		expect(host.querySelector("input")).toBeNull();
+		expect(
+			host.querySelector('input[aria-label="Conversation name"]'),
+		).toBeNull();
 	});
 
 	it("does not rename to an empty or unchanged name", () => {
@@ -340,7 +274,9 @@ describe("ConversationList", () => {
 		for (const value of ["   ", "Conversation a"]) {
 			act(() => button("Actions for Conversation a").click());
 			act(() => menuItem("Rename").click());
-			const input = host.querySelector<HTMLInputElement>("input");
+			const input = host.querySelector<HTMLInputElement>(
+				'input[aria-label="Conversation name"]',
+			);
 			if (!input) throw new Error("No name field");
 			type(input, value);
 			submit(input);
