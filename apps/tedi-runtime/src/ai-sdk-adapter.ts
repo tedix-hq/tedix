@@ -66,11 +66,10 @@ export function resolveAiRequestTimeoutMs(value: string | undefined): number {
 /** Stream timers share the existing absolute request ceiling across providers. */
 export function resolveAiStreamDeadlines(value: string | undefined) {
 	const totalMs = resolveAiRequestTimeoutMs(value);
-	return {
-		totalMs,
-		firstOutputMs: Math.min(30_000, totalMs),
-		idleMs: Math.min(30_000, totalMs),
-	};
+	// First output and idle share the request ceiling: a model that reasons for
+	// a long time before its first counted chunk, or a provider that buffers the
+	// whole answer, must not be cut off earlier than it was before stream timers.
+	return { totalMs, firstOutputMs: totalMs, idleMs: totalMs };
 }
 
 /** Preserve caller cancellation and add an independent upstream deadline. */
