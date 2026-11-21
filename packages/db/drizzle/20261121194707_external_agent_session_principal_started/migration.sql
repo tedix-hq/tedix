@@ -1,0 +1,1 @@
+CREATE INDEX `idx_external_agent_session_principal_started` ON `external_agent_sessions` (`organization_id`,`principal_id`,`started_at`,`id`);

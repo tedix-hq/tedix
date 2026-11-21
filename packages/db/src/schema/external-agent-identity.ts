@@ -183,6 +183,15 @@ export const externalAgentSessions = sqliteTable(
 			table.principalId,
 			table.status,
 		),
+		// The principal list shows each principal's newest session; without this
+		// it sorted all of a principal's sessions per row (~43k rows a call on
+		// 21 Nov 2026).
+		index("idx_external_agent_session_principal_started").on(
+			table.organizationId,
+			table.principalId,
+			table.startedAt,
+			table.id,
+		),
 		check(
 			"chk_external_agent_session_key",
 			sql`length(${table.externalSessionKey}) > 0`,

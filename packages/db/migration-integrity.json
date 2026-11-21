@@ -1852,6 +1852,10 @@
 		{
 			"name": "20261121184852_work_child_delegation/migration.sql",
 			"sha256": "c17e14623168998d0d743641ee50db5263b490a1cab607eada972660d2ca1828"
+		},
+		{
+			"name": "20261121194707_external_agent_session_principal_started/migration.sql",
+			"sha256": "382831201ec456a45d2843d5dc358241c7535513e7f9dd8486d9ffa5e3850d78"
 		}
 	]
 }
