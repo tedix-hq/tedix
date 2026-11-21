@@ -336,6 +336,56 @@ describe("standing approval delegation", () => {
 		},
 	);
 
+	it.each(["delegate", "delegateToSteward"] as const)(
+		"allows a question hand-back via %s without delegated approval when disabled",
+		async (via) => {
+			const { sqlite, db, owner } = await fixture(false);
+			try {
+				sqlite
+					.prepare(
+						"UPDATE organizations SET metadata=json_set(metadata,'$.workStewardship',json(?)) WHERE id=?",
+					)
+					.run(JSON.stringify({ enabled: true, defaultTediId: tedi }), org);
+				const request = await createWorkInteraction(db, {
+					id: crypto.randomUUID(),
+					orgId: org,
+					workItemId: work,
+					kind: "question",
+					subject: "Choose the next step",
+					prompt: "How should we continue?",
+					creator: { type: "tedi", id: tedi },
+					targetType: "user",
+					targetId: "owner",
+					now: now(),
+				});
+				const input = {
+					requestId: request.id,
+					expectedRequestVersion: request.version,
+				};
+				if (via === "delegate")
+					await owner.delegate({ ...input, tediId: tedi });
+				else
+					await owner.delegateToSteward({
+						...input,
+						reason: "Choose the next step",
+					});
+				const stored = await getWorkInteraction(db, {
+					orgId: org,
+					interactionId: request.id,
+				});
+				expect(stored).toMatchObject({
+					targetType: "tedi",
+					targetId: tedi,
+					status: "open",
+					version: request.version + 1,
+				});
+				expect(stored?.metadata.delegatedApproval).toBeUndefined();
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
+
 	it("does not treat a browser agent on a human credential as the human approver", async () => {
 		const { base, toolApproval } = await fixture();
 		const id = await toolApproval({

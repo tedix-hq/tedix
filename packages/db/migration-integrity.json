@@ -1868,6 +1868,10 @@
 		{
 			"name": "20261121224340_independent_approval_target/migration.sql",
 			"sha256": "be958dda05e6d31ca93679e291c30b3ce6887784aef29b863252e059f122d259"
+		},
+		{
+			"name": "20261121230200_delegated_approval_creator_guard/migration.sql",
+			"sha256": "0092042e7c8ad60882d6f49f0659a2c43bb301082ecc29348892aa4315bc7a38"
 		}
 	]
 }
