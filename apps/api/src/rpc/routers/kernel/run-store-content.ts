@@ -186,7 +186,21 @@ const FAILURE_READINGS: ReadonlyArray<{
 		reason: () => "The worker hit its per-run model-call limit.",
 		nextStep: "Ask again with a narrower task.",
 	},
+	{
+		match: /^Model turn failed:.*\b(?:idle timeout|timed? ?out|deadline)\b/i,
+		reason: () => "The model stopped responding before it finished.",
+		nextStep: "Send the request again to retry.",
+	},
+	{
+		match: /^Model turn failed:/i,
+		reason: () => "The model request failed before an answer came back.",
+		nextStep: "Send the request again to retry.",
+	},
 ];
+
+/** Shown when the failure has no plain reading; the raw reason stays in run details. */
+const UNREAD_FAILURE_NOTICE =
+	"I couldn't finish this request. The worker stopped before it produced an answer. Send the request again to retry.";
 
 /**
  * One operator-facing line for a delegated turn that failed before producing
@@ -208,14 +222,34 @@ export function delegationFailureNotice(finalMessage: string): string | null {
 		const match = reasonText.match(reading.match) as RegExpMatchArray;
 		return `I couldn't finish this request. ${reading.reason(match)} ${reading.nextStep}`;
 	}
-	if (!noticeMatch) return null;
-	const clipped =
-		reasonText.length > 200
-			? `${reasonText.slice(0, 197).trimEnd()}...`
-			: reasonText;
-	return clipped && clipped !== "unknown error"
-		? `I couldn't finish this request. The worker's turn failed before it produced anything: ${clipped}. Please try again.`
-		: "I couldn't finish this request. Nothing was produced. Please try again.";
+	// Provider, runtime and stack text never reaches the reply; the run's
+	// details (`childRunPreview`, `delegationFailure`) keep the exact reason.
+	return noticeMatch ? UNREAD_FAILURE_NOTICE : null;
+}
+
+// Replies stored before failure readings stopped echoing the raw reason.
+const LEGACY_ECHOED_FAILURE =
+	/^I couldn't finish this request\. (?:The worker's turn failed before it produced anything: ([^]*)|Nothing was produced)\. Please try again\.$/;
+const LEGACY_RELAYED_FAILURE = /^I couldn't finish this request\.\s+/;
+
+/**
+ * Display text for a stored delegation completion: a failure reply written
+ * by an earlier build (raw reason echoed or relayed verbatim) reads as the
+ * same plain sentence a new failure gets. Any other reply is unchanged.
+ */
+export function plainDelegationFailureContent(content: string): string {
+	const trimmed = content.trim();
+	const echoed = LEGACY_ECHOED_FAILURE.exec(trimmed);
+	if (echoed)
+		return (
+			delegationFailureNotice(
+				`This turn ended without a reply. Reason: ${echoed[1] ?? "unknown error"}`,
+			) ?? content
+		);
+	const relayed = trimmed.replace(LEGACY_RELAYED_FAILURE, "");
+	if (TURN_FAILURE_NOTICE_PREFIX.test(relayed))
+		return delegationFailureNotice(relayed) ?? content;
+	return content;
 }
 
 export function homeDelegationCompletionContent(input: {

@@ -16,6 +16,7 @@ import {
 import { reconcileHomeRunRowsFromChildStatus } from "./run-store-reconciliation";
 import {
 	homeDelegationCompletionContent,
+	plainDelegationFailureContent,
 	homeDelegationProofMetadata,
 	homeDelegationVerdictMetadata,
 } from "./run-store-content";
@@ -863,27 +864,45 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 		);
 	});
 
-	it("keeps the generic line only when the notice carries no reason", () => {
-		expect(
+	it("keeps provider and runtime text out of a failed reply", () => {
+		const notice = (reason: string) =>
 			homeDelegationCompletionContent({
 				preview: null,
 				status: "failed",
-				finalMessage:
-					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: unknown error",
-			}),
+				finalMessage: `This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: ${reason}`,
+			});
+		expect(
+			notice("Model turn failed: Provider stream idle timeout after 120000ms"),
 		).toBe(
-			"I couldn't finish this request. Nothing was produced. Please try again.",
+			"I couldn't finish this request. The model stopped responding before it finished. Send the request again to retry.",
+		);
+		const unread =
+			"I couldn't finish this request. The worker stopped before it produced an answer. Send the request again to retry.";
+		expect(
+			notice(
+				"workflow errored before terminal: TypeError: x is not a function",
+			),
+		).toBe(unread);
+		expect(notice("unknown error")).toBe(unread);
+	});
+
+	it("reads a stored reply that echoed the raw reason as the plain sentence", () => {
+		expect(
+			plainDelegationFailureContent(
+				"I couldn't finish this request. The worker's turn failed before it produced anything: Model turn failed: Provider stream idle timeout after 120000ms. Please try again.",
+			),
+		).toBe(
+			"I couldn't finish this request. The model stopped responding before it finished. Send the request again to retry.",
 		);
 		expect(
-			homeDelegationCompletionContent({
-				preview: null,
-				status: "failed",
-				finalMessage:
-					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: workflow errored before terminal: TypeError: x is not a function",
-			}),
+			plainDelegationFailureContent(
+				"I couldn't finish this request.\n\nThis turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Model turn failed: 502 Bad Gateway",
+			),
 		).toBe(
-			"I couldn't finish this request. The worker's turn failed before it produced anything: TypeError: x is not a function. Please try again.",
+			"I couldn't finish this request. The model request failed before an answer came back. Send the request again to retry.",
 		);
+		const answer = "I couldn't finish this request.\n\nTwo checks failed.";
+		expect(plainDelegationFailureContent(answer)).toBe(answer);
 	});
 
 	it("leaves a partial result alone even when its prose names a budget", () => {

@@ -114,6 +114,7 @@ import {
 	readHomeNarrationClass,
 } from "../kernel/home-narration";
 import { stripDelegationOutcome } from "../kernel/delegated-stop";
+import { plainDelegationFailureContent } from "../kernel/run-store-content";
 import { summarizeRunSetReconciliation } from "./reconciliation-observability";
 
 const capabilityView = (
@@ -906,7 +907,12 @@ export const readMessagesRoute = authed.readMessages
 					message.id === `${message.runId}:async-completion:assistant`
 				) {
 					return [
-						{ ...message, content: stripDelegationOutcome(message.content) },
+						{
+							...message,
+							content: plainDelegationFailureContent(
+								stripDelegationOutcome(message.content),
+							),
+						},
 					];
 				}
 				return [message];
