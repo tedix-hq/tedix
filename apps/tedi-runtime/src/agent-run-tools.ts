@@ -175,6 +175,8 @@ export function agentRunTools(input: {
 						"No task was created. Which project does this belong to? Ask the person, then start the run again with its projectId.",
 					);
 				let workItemId: string;
+				// The run card counts how long nobody has picked the run up from this.
+				const requestedAt = new Date().toISOString();
 				try {
 					const created = await (
 						await platformClient()
@@ -235,6 +237,7 @@ export function agentRunTools(input: {
 					title,
 					executor,
 					url: `/work/items/${workItemId}`,
+					requestedAt,
 				};
 			},
 		}),

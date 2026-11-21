@@ -251,6 +251,7 @@ function ddl(table: SQLiteTable): string {
 async function seedCore() {
 	const now = "2026-11-07T10:00:00.000Z";
 	const tables = [
+		organizations,
 		organizationMembers,
 		osWorkspaceCollaborators,
 		osWorkspaceAccessEdges,
@@ -8558,6 +8559,61 @@ describe("approval modes and computer access", () => {
 		);
 		expect(await ws.webFetchCount(own)).toBe(1);
 		expect(held).toEqual([expect.objectContaining({ title: "memory.write" })]);
+	});
+
+	test("in a private workspace a read-only command on the sender's own computer runs without asking; a change asks", async () => {
+		const { own, ws } = await setup("private");
+		const studio = {
+			status: "machines" as const,
+			machines: [
+				{
+					machineName: "Studio",
+					executors: [],
+					lastSeenAt: "2026-11-20T10:00:00.000Z",
+					cliVersion: null,
+					machineTools: ["run_command" as const],
+					online: true,
+					ownedBySender: true,
+				},
+			],
+		};
+		const callId = crypto.randomUUID();
+		await ws.scriptMachine(own, [
+			studio,
+			studio,
+			{ status: "queued", callId, callStatus: "pending" },
+			{
+				status: "call",
+				call: {
+					callId,
+					machine: "Studio",
+					tool: "run_command",
+					status: "done",
+					result: "On branch main",
+					createdAt: "2026-11-20T10:00:00.000Z",
+				},
+			},
+			studio,
+		]);
+		const command = (line: string) =>
+			`env.machine.call({ machine: "Studio", tool: "run_command", input: { command: ${JSON.stringify(line)} } })`;
+		// No mode picked: "Ask for changes" is the default where only the owner can open it.
+		const { held, text } = await run(
+			ws,
+			own,
+			`export default async (env) => { const read = await ${command("git -C ~/repo status && date -u")}; const change = await ${command("git -C ~/repo status; rm -rf build")}.catch(e => e.message); return { read, change }; }`,
+		);
+		expect(text).toContain(
+			"Ran a read-only command on Studio: git -C ~/repo status && date -u",
+		);
+		expect(held).toHaveLength(1);
+		expect((await ws.readMachineCalls(own)).map((call) => call.op)).toEqual([
+			"list",
+			"list",
+			"call",
+			"read",
+			"list",
+		]);
 	});
 
 	test('"Auto" still holds what Tedix always asks for', async () => {

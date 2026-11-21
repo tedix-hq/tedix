@@ -57,8 +57,14 @@ export const HOLDS: Record<ActionClass, Record<ApprovalMode, Hold>> = {
 /** Steps only a person takes, by gate resource and method. */
 const HUMAN_ONLY = new Set(["memory.review"]);
 
-/** Gates that hold a read: the first page from a new web site. */
-const HELD_READS = new Set(["web_domain"]);
+/**
+ * A command on the sender's own computer whose whole line only reads, in a
+ * workspace nobody else can open. It asks only under "Ask every time".
+ */
+export const COMMAND_READ_RESOURCE = "machine_command_read";
+
+/** Gates that hold a read: the first page from a new web site, a read-only command. */
+const HELD_READS = new Set(["web_domain", COMMAND_READ_RESOURCE]);
 
 /** Reading a computer: held only where other people can open the workspace. */
 export const COMPUTER_READ_RESOURCE = "machine_read";

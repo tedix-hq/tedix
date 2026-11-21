@@ -108,6 +108,22 @@ export async function getOrganizationPersonalDataRedaction(
 	return row?.metadata?.personalDataRedaction?.enabled === true;
 }
 
+/**
+ * The organization's own list of read-only command shapes, unchecked;
+ * undefined when it keeps none.
+ */
+export async function getOrganizationReadOnlyCommands(
+	db: DbQueryClient,
+	id: string,
+): Promise<unknown> {
+	const [row] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, id))
+		.limit(1);
+	return row?.metadata?.readOnlyCommands;
+}
+
 export async function getOrganizationSessionProjectBindings(
 	db: DbQueryClient,
 	id: string,

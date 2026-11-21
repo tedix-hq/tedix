@@ -57,6 +57,7 @@ it("moves from waiting to running to failed without a reload", async () => {
 							workItemId: "11111111-1111-4111-8111-111111111111",
 							title: "Fix paging",
 							executor: "codex",
+							requestedAt: new Date().toISOString(),
 						}}
 					/>
 				</ul>
@@ -73,6 +74,9 @@ it("moves from waiting to running to failed without a reload", async () => {
 		host.querySelector('[data-slot="agent-run-status"]')?.textContent;
 	await act(() => vi.advanceTimersByTimeAsync(100));
 	expect(status()).toBe("Waiting for an agent to pick it up");
+	// Nothing changes in the run, yet an open card shows how long it has waited.
+	await act(() => vi.advanceTimersByTimeAsync(6 * 60_000));
+	expect(status()).toBe("No runner has picked this up for 6 minutes");
 	api.inbox.mockResolvedValue({
 		data: [
 			{

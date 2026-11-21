@@ -34,6 +34,7 @@ import {
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { getOrganizationReadOnlyCommands } from "@tedix/db/queries/organizations";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { guestMayUseMemory } from "./guest-memory";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
@@ -90,9 +91,11 @@ import {
 	capApprovalMode,
 	DEFAULT_APPROVAL_MODE,
 	COMPUTER_ACCESS_OFF,
+	type ReadOnlyCommandPattern,
 	workspaceHighestApprovalMode,
 	workspaceMachineAccess,
 } from "@tedix/api-contract/schemas/workspace-agent-access";
+import { readOnlyCommandList } from "./read-only-commands";
 import {
 	type ActionClass,
 	actionClass,
@@ -252,13 +255,19 @@ function refusedFrameText(type: string | undefined, mayView: boolean) {
 }
 
 /** Gates that run something on the sender's computer. */
-const MACHINE_RESOURCES = new Set(["machine_read", "machine_write"]);
+const MACHINE_RESOURCES = new Set([
+	"machine_read",
+	"machine_write",
+	"machine_command_read",
+]);
 
 /** The workspace row's chat settings, defaults applied. */
 interface WorkspaceChatSettings {
 	defaultTediId: string | null;
 	machineAccess: boolean;
 	highestApprovalMode: ApprovalMode;
+	/** Command shapes that only read, from the organization or the platform. */
+	readOnlyCommands: ReadOnlyCommandPattern[];
 	readAt: number;
 }
 
@@ -269,6 +278,15 @@ interface TurnPolicy {
 	mode: ApprovalMode;
 	/** Someone other than the sender can open the workspace. */
 	shared: boolean;
+	readOnlyCommands?: ReadOnlyCommandPattern[];
+}
+
+/**
+ * A person's mode before they pick one: "Ask for changes" where only they can
+ * open the workspace, else how the chat has always asked.
+ */
+function defaultApprovalMode(onlyOwner: boolean): ApprovalMode {
+	return onlyOwner ? "ask_for_changes" : DEFAULT_APPROVAL_MODE;
 }
 /** How long the default tedi's profile may take before the agent answers. */
 const DEFAULT_TEDI_PROFILE_TIMEOUT_MS = 4_000;
@@ -4054,6 +4072,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? { machineUnavailable: COMPUTER_ACCESS_OFF }
 				: {}),
 			computerReadsAsk: policy.shared,
+			...(policy.readOnlyCommands
+				? { readOnlyCommands: policy.readOnlyCommands }
+				: {}),
 			readOnly: policy.mode === "read_only",
 			person:
 				accountActor &&
@@ -4499,16 +4520,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	async #settings(scope: WorkspaceScope): Promise<WorkspaceChatSettings> {
 		const held = this.#chatSettings;
 		if (held && Date.now() - held.readAt < SETTINGS_TTL_MS) return held;
-		const workspace = await getOsWorkspace(
-			createDbQueryClient(this.env.DB),
-			scope,
-		);
+		const db = createDbQueryClient(this.env.DB);
+		const [workspace, readOnlyCommands] = await Promise.all([
+			getOsWorkspace(db, scope),
+			// Unreadable, no command runs without asking.
+			getOrganizationReadOnlyCommands(db, scope.organizationId).catch(() => []),
+		]);
 		const settings = {
 			defaultTediId: workspace?.defaultTediId ?? null,
 			machineAccess: workspace ? workspaceMachineAccess(workspace) : false,
 			highestApprovalMode: workspace
 				? workspaceHighestApprovalMode(workspace)
 				: DEFAULT_APPROVAL_MODE,
+			readOnlyCommands: readOnlyCommandList(readOnlyCommands),
 			readAt: Date.now(),
 		};
 		this.#chatSettings = settings;
@@ -4524,7 +4548,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const { highestApprovalMode: highest } = await this.#settings(scope);
 		const picked =
 			this.#store.get<ApprovalMode>(`approval-mode:${userId}`) ??
-			DEFAULT_APPROVAL_MODE;
+			defaultApprovalMode(
+				await this.#onlyOpenableBy(scope, userId).catch(() => false),
+			);
 		return { mode: capApprovalMode(picked, highest), highest };
 	}
 
@@ -4558,18 +4584,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			personSent && turn
 				? this.#store.get<ApprovalMode>(`approval-mode:${turn.actor_id}`)
 				: undefined;
-		const policy = {
+		// Unreadable, the workspace counts as open to others.
+		const shared =
+			!personSent ||
+			!turn ||
+			!(await this.#onlyOpenableBy(scope, turn.actor_id).catch(() => false));
+		const policy: TurnPolicy = {
 			personSent,
 			machineAccess: settings?.machineAccess ?? false,
 			mode: capApprovalMode(
-				picked ?? DEFAULT_APPROVAL_MODE,
+				picked ?? defaultApprovalMode(!shared),
 				settings?.highestApprovalMode ?? DEFAULT_APPROVAL_MODE,
 			),
-			// Unreadable, the workspace counts as open to others.
-			shared:
-				!personSent ||
-				!turn ||
-				!(await this.#onlyOpenableBy(scope, turn.actor_id).catch(() => false)),
+			shared,
+			// Only the sender's own message in their private workspace.
+			...(shared || !settings
+				? {}
+				: { readOnlyCommands: settings.readOnlyCommands }),
 		};
 		// Kept while the turn runs; a decision after it ended reads afresh.
 		if (turn?.status === "running") this.#turnPolicies.set(turnId, policy);

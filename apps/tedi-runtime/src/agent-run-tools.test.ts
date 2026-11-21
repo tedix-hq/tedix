@@ -107,12 +107,17 @@ assert.deepEqual(Object.keys(build({}).tools), [
 			};
 		},
 	});
-	assert.deepEqual(await run("start_agent_run", start), {
+	const started = (await run("start_agent_run", start)) as {
+		requestedAt: string;
+	};
+	assert.ok(!Number.isNaN(Date.parse(started.requestedAt)));
+	assert.deepEqual(started, {
 		kind: "agent_run",
 		workItemId: item,
 		title: start.title,
 		executor: "codex",
 		url: `/work/items/${item}`,
+		requestedAt: started.requestedAt,
 	});
 	assert.deepEqual(calls, [
 		[

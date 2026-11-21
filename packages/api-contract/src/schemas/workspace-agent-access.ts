@@ -54,3 +54,30 @@ export function capApprovalMode(
 /** What the agent says, and a machine call answers, while the setting is off. */
 export const COMPUTER_ACCESS_OFF =
 	"Computer access is off for this workspace. Someone who can edit the workspace can switch it on in Edit workspace, or use your private workspace.";
+
+/**
+ * One shape of command line that only reads, such as `git -C <path> log`.
+ * An organization keeps its own list in its settings; without one the
+ * platform's list applies. In `argv`, `<path>` is any word not starting with
+ * `-`, `<n>` is a number, `<health-url>` is `https://<host>/health` and a
+ * word ending in `*` matches by its start.
+ */
+export const ReadOnlyCommandPatternSchema = z.strictObject({
+	argv: z.array(z.string().min(1)).min(1).max(12),
+	/** Whether more words may follow `argv`. */
+	rest: z.enum(["any", "none"]),
+	/** Options that may not appear after `argv`, such as `-X` or `--method`. */
+	forbid: z.array(z.string().min(2)).max(30).optional(),
+	/** The last word must be a file under this folder, written as `~/...`. */
+	fileUnder: z.string().startsWith("~/").optional(),
+	/** At most this many words after `argv` that are not options. */
+	maxOperands: z.number().int().min(0).max(20).optional(),
+	/** Every word after `argv` that is not an option starts with this. */
+	operandPrefix: z.string().min(1).optional(),
+});
+export type ReadOnlyCommandPattern = z.infer<
+	typeof ReadOnlyCommandPatternSchema
+>;
+export const ReadOnlyCommandListSchema = z
+	.array(ReadOnlyCommandPatternSchema)
+	.max(200);
