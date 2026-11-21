@@ -18,6 +18,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/kumo/button";
 import { CodeBlock, CodeInline } from "@/components/kumo/code";
 import { Link } from "@/components/kumo/link";
+import type { FileRoutesByFullPath } from "@/routeTree.gen";
 import {
 	Table,
 	TableBody,
@@ -236,6 +237,63 @@ interface MarkdownTreeNode {
 const APP_PATH =
 	/(^|[\s(])(\/[a-z][\w-]*(?:\/[\w-]+)*\/?)(?=$|[\s),;:!?]|\.(?!\w))/giu;
 
+type FirstSegment<Path> = Path extends `/${infer Segment}/${string}`
+	? Segment
+	: Path extends `/${infer Segment}`
+		? Segment
+		: never;
+
+/** First segments of the app's own routes: "work" for "/work/items/$id". */
+type AppRouteSegment = Exclude<
+	FirstSegment<keyof FileRoutesByFullPath>,
+	"" | `$${string}`
+>;
+
+/**
+ * Only a path under one of the app's routes becomes a link, so
+ * "/tmp/report" or "/Users/me" stay text. `satisfies` keeps this list in
+ * step with the generated route tree: a new or removed route fails the build.
+ */
+const APP_ROUTE_SEGMENTS = new Set(
+	Object.keys({
+		account: true,
+		admin: true,
+		apps: true,
+		audit: true,
+		blueprint: true,
+		blueprints: true,
+		brain: true,
+		chat: true,
+		cli: true,
+		compute: true,
+		"desktop-sign-in": true,
+		explore: true,
+		guest: true,
+		inbox: true,
+		install: true,
+		invite: true,
+		login: true,
+		oauth: true,
+		outputs: true,
+		s: true,
+		settings: true,
+		shared: true,
+		sites: true,
+		skills: true,
+		team: true,
+		usage: true,
+		widget: true,
+		work: true,
+		workspace: true,
+		workspaces: true,
+	} satisfies Record<AppRouteSegment, true>),
+);
+
+/** Whether `path` ("/work/items/42") starts with one of the app's routes. */
+function isAppRoutePath(path: string): boolean {
+	return APP_ROUTE_SEGMENTS.has(path.split("/")[1] ?? "");
+}
+
 /** Nodes whose text is never turned into a link. */
 const NO_APP_PATHS = new Set([
 	"link",
@@ -258,7 +316,7 @@ function linkAppPaths(node: MarkdownTreeNode): void {
 			const start = match.index + match[1]!.length;
 			const path = match[2]!;
 			// "/skill <slug>" asks for a skill; it is not a page.
-			if (path === "/skill") continue;
+			if (path === "/skill" || !isAppRoutePath(path)) continue;
 			if (start > last)
 				parts.push({ type: "text", value: child.value.slice(last, start) });
 			parts.push({

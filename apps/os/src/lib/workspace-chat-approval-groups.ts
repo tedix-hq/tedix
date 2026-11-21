@@ -31,6 +31,83 @@ export function approvalLine(approval: ChatApproval): string {
 	return `${approvalTitle(approval)}${target ? `: ${target}` : ""}`;
 }
 
+/**
+ * What will happen if the person approves, in plain words: "Run on Aaron's
+ * MacBook:" with the command as `code`, or "Using the tedi's tool
+ * send_email to ana@example.com". `code` is cut short; Technical details
+ * keeps the whole request.
+ */
+export type ApprovalAction = { text: string; code?: string };
+
+const ACTION_CODE_CHARS = 120;
+
+function record(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function text(value: unknown): string | null {
+	if (typeof value === "string" && value.trim()) return value.trim();
+	if (typeof value === "number" && Number.isFinite(value)) return String(value);
+	return null;
+}
+
+const MACHINE_ACTIONS: Record<string, { verb: string; field: string }> = {
+	run_command: { verb: "Run on", field: "command" },
+	write_file: { verb: "Write a file on", field: "path" },
+	edit_file: { verb: "Edit a file on", field: "path" },
+	open_workspace: { verb: "Open a workspace on", field: "name" },
+	close_workspace: { verb: "Close a workspace on", field: "workspace" },
+	list_folder: { verb: "List a folder on", field: "path" },
+	read_file: { verb: "Read a file on", field: "path" },
+};
+
+/** Who receives it and how much, when the request names them. */
+function recipientAndAmount(args: Record<string, unknown> | null): string {
+	if (!args) return "";
+	const to = [args.to, args.recipient, args.recipients, args.email]
+		.flatMap((value) => (Array.isArray(value) ? value : [value]))
+		.map(text)
+		.filter((value): value is string => value !== null);
+	const amount = text(args.amount);
+	const currency = text(args.currency);
+	return [
+		to.length
+			? ` to ${to.slice(0, 3).join(", ")}${to.length > 3 ? ` and ${to.length - 3} more` : ""}`
+			: "",
+		amount ? ` for ${amount}${currency ? ` ${currency}` : ""}` : "",
+	].join("");
+}
+
+export function approvalAction(approval: ChatApproval): ApprovalAction | null {
+	const input = record(approval.input);
+	const machine = text(input?.machine);
+	const tool = text(input?.tool);
+	if (input && machine && tool) {
+		const action = MACHINE_ACTIONS[tool];
+		const code = action ? text(record(input.input)?.[action.field]) : null;
+		const label = action
+			? `${action.verb} ${machine}`
+			: `Use ${tool} on ${machine}`;
+		if (!code) return { text: label };
+		return {
+			text: `${label}:`,
+			code:
+				code.length > ACTION_CODE_CHARS
+					? `${code.slice(0, ACTION_CODE_CHARS - 1)}…`
+					: code,
+		};
+	}
+	// A tedi's tool: { tool, args }.
+	if (input && tool && "args" in input)
+		return {
+			text: `${approval.title.trim()}: ${tool}${recipientAndAmount(record(input.args))}`,
+		};
+	const extra = recipientAndAmount(input);
+	return extra ? { text: `${approvalLine(approval)}${extra}` } : null;
+}
+
 /** The requests waiting on one thing: a file, an app, a site. */
 export type ApprovalGroup = {
 	/** Stable while the group has requests; names what is being changed. */

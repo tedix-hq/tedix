@@ -70,6 +70,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
+import { CodeInline } from "@/components/kumo/code";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import {
@@ -164,7 +165,10 @@ import {
 	ApprovalTray,
 	approvalSubject,
 } from "@/components/workspace-chat-approval-tray";
-import { approvalTarget } from "@/lib/workspace-chat-approval-groups";
+import {
+	approvalAction,
+	approvalTarget,
+} from "@/lib/workspace-chat-approval-groups";
 import {
 	noteAskedTurn,
 	receiveWorkspaceChatAsks,
@@ -1862,6 +1866,7 @@ function ApprovalCard({
 	const decided = approval.decision ?? sent;
 	const input = objectValue(approval.input);
 	const target = approvalTarget(approval);
+	const action = approvalAction(approval);
 	const appEdit = appEditRequestFrom(approval.input);
 	const preview = appEdit ? "" : approvalPreview(input);
 	const failed = approval.execution?.status === "failed";
@@ -1956,7 +1961,21 @@ function ApprovalCard({
 					{page.url}
 				</Text>
 			) : null}
-			{target ? (
+			{action ? (
+				<Text
+					role="body"
+					className="workspace-chat-approval-target"
+					data-testid="workspace-chat-approval-action"
+				>
+					<strong>{action.text}</strong>
+					{action.code ? (
+						<>
+							{" "}
+							<CodeInline>{action.code}</CodeInline>
+						</>
+					) : null}
+				</Text>
+			) : target ? (
 				<Text
 					as="strong"
 					role="body"
@@ -1978,7 +1997,9 @@ function ApprovalCard({
 								? "Your approval was recorded. The action's result has not been recorded."
 								: page
 									? `The agent wants to read this page. If you approve, it can read pages on ${page.site} for the rest of this conversation.`
-									: "Review the proposed change, then approve or deny it."}
+									: action
+										? "This happens only if you approve it."
+										: "Review the proposed change, then approve or deny it."}
 			</Text>
 			{appEdit ? (
 				<div className="workspace-chat-approval-preview">

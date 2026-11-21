@@ -1513,6 +1513,34 @@ describe("WorkspaceChat", () => {
 		expect(card?.textContent).toContain("writes_need_approval");
 	});
 
+	it("says which command runs on which computer before Approve and Deny", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		const command = `rm -rf /tmp/${"x".repeat(200)}`;
+		act(() =>
+			fake.feed(
+				heldChange({
+					machine: "Aaron's MacBook",
+					tool: "run_command",
+					input: { command },
+				}).map((event) =>
+					event.type === "approval.requested"
+						? { ...event, title: "Using a machine", target: undefined }
+						: event,
+				),
+			),
+		);
+		const action = host.querySelector(
+			'[data-testid="workspace-chat-approval-action"]',
+		);
+		expect(action?.textContent).toMatch(
+			/^Run on Aaron's MacBook: rm -rf \/tmp\/x+…$/,
+		);
+		expect(action?.querySelector("code")?.textContent?.length).toBe(120);
+		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
+		expect(card?.textContent).not.toContain(command);
+	});
+
 	it.each(["applied", "failed"] as const)(
 		"shows the actual %s outcome separately from human approval",
 		(status) => {

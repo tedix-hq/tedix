@@ -195,6 +195,14 @@ describe("ChatMarkdown links", () => {
 		expect(html.match(/<a /g)).toHaveLength(3);
 	});
 
+	it("links only the app's own routes, never filesystem paths", () => {
+		const html = render(
+			"Ran /tmp/tedix-approval-check-does-not-exist-7731 in /Users/aaron/x, see /work.",
+		);
+		expect(html).toContain('href="/work"');
+		expect(html.match(/<a /g)).toHaveLength(1);
+	});
+
 	it("opens an output link in the host Workspace pane on a plain click", () => {
 		const outputId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const opened: string[] = [];
