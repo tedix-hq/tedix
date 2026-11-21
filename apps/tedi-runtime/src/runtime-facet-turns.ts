@@ -158,6 +158,7 @@ import {
 import { markFacetToolDispatch } from "./runtime-latency-markers";
 import {
 	type RepositoryMode,
+	MACHINE_AND_AGENT_TOOLS_NOTE,
 	PERSONAL_REQUEST_READ_GUIDANCE,
 	selectRepositoryToolSurface,
 	settledDelegatedReply,
@@ -1439,6 +1440,9 @@ export const runtimeFacetTurns = {
 				mcpRuntime?.getSystemInstructions({ includeGuidance: !supervised }) ??
 					"",
 				toolsNote,
+				tools.run_machine_command && tools.start_agent_run
+					? MACHINE_AND_AGENT_TOOLS_NOTE
+					: "",
 				isolatedRequest ? PERSONAL_REQUEST_READ_GUIDANCE : "",
 				CODE_MODE_BATCHING_NOTE,
 				trust === "untrusted" ? untrustedTurnSystemAddendum("mcp") : "",

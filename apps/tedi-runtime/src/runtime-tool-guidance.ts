@@ -161,6 +161,9 @@ export function workspaceToolGuidance(input: {
 
 export const WORKSPACE_TOOLS_NOTE = workspaceToolGuidance({});
 
+export const MACHINE_AND_AGENT_TOOLS_NOTE =
+	"For a small change in a few files with a quick check, use the machine tools to read, edit and run commands yourself. Start a Codex or Claude run with start_agent_run for work needing many steps or a long test run. Reuse the machine list; do not list machines repeatedly unless availability needs checking. For a pending machine call, wait by reading its callId with read_machine_tool_result instead of requesting the operation again. When finished, close each workspace once; if closing is pending, read that call rather than closing again.";
+
 /** Tool selection guidance only; the credential gateway supplies all authority. */
 export const PERSONAL_REQUEST_READ_GUIDANCE =
 	"If this request asks you to read the requester's own Gmail or Calendar, use the reviewed read tools google_gmail_tedix.search_threads (and get_thread/get_message for sources) and google_calendar_tedix.list_events (calendarId: primary unless the requester specifies another calendar). list_calendars is not a reviewed personal read. The credential gateway verifies the requester and account owner against active run-bound consent; missing owner fields in connection discovery are not an authorization verdict. Attempt the requested reviewed read and report any gateway denial exactly. This guidance grants no access, background consent or write authority. Never use another person's account or change account connections, permissions or consent to complete this request.";
