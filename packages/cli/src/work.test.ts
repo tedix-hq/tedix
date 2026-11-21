@@ -120,7 +120,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	list_work_interaction_outbox: "workInteractions/listOutbox",
 	list_work_item_attempts: "workItems/listAttempts",
 	list_work_item_events: "workItems/listEvents",
-	wait_work_item: "workItems/wait",
+	wait_work_items: "workItems/wait",
 	list_work_item_evidence: "workItems/listEvidence",
 	list_work_items: "workItems/list",
 	list_work_resource_pools: "workItems/listResourcePools",
@@ -5394,8 +5394,7 @@ describe("work wait", () => {
 		expect(result.code).toBe(0);
 		expect(JSON.parse(result.out[0]!)).toEqual(value);
 		expect(sources).toHaveLength(1);
-		expect(sources[0]).toContain("wait_work_item");
-		expect(sources[0]).toContain(ITEM);
+		expect(sources[0]).toBe(`work.wait_work_items({"id":"${ITEM}"})`);
 	});
 	test("passes a previous cursor and reports a refused wait as failure", async () => {
 		const input = {
