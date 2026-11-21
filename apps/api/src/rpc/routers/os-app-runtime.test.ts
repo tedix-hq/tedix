@@ -1464,12 +1464,15 @@ describe("workspace app runtime API under attack", () => {
 describe("app chat drafts", () => {
 	async function chatFixture() {
 		const f = await fixture();
-		await f.db.insert(kernelConversations).values({
-			id: "org-1:chat-1",
-			organizationId: "org-1",
-			conversationId: "chat-1",
-			workspaceId,
-			lastMessageAt: new Date().toISOString(),
+		// The workspace store holds this workspace's chats.
+		Object.assign(outputStores.get(f.db)!.runtime, {
+			hasConversation: async (
+				at: { organizationId: string; workspaceId: string },
+				conversationId: string,
+			) =>
+				at.organizationId === "org-1" &&
+				at.workspaceId === workspaceId &&
+				conversationId === "chat-1",
 		});
 		const collaboration = createRouterClient(osCollaborationProcedures, {
 			context: f.context,

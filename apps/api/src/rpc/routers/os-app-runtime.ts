@@ -43,7 +43,7 @@ import {
 	proposeOsAppFileEdits,
 	createOsCollaborationProposal,
 } from "@tedix/db/queries/os-workspaces/collaboration";
-import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
+import { env } from "cloudflare:workers";
 import { mapCollaborationProposal } from "./os-workspaces-shared";
 import {
 	mergeAppFiles,
@@ -462,22 +462,37 @@ export function createOsAppRuntimeRouter() {
 			!context.externalAgentSessionId &&
 			!context.ownerHostSessionId
 		) {
-			const conversation = input.conversationId
-				? await getKernelConversation(context.db, {
-						organizationId: scope.organizationId,
-						conversationId: input.conversationId,
-					})
-				: null;
+			// Workspace chats live in the workspace's own store.
+			const runtime = (
+				env as unknown as {
+					WORKSPACE_RUNTIME?: {
+						hasConversation(
+							scope: { organizationId: string; workspaceId: string },
+							conversationId: string,
+						): Promise<boolean>;
+					};
+				}
+			).WORKSPACE_RUNTIME;
+			if (!runtime)
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"Workspace runtime unavailable",
+				);
 			if (
-				!conversation ||
-				conversation.deletedAt ||
-				conversation.workspaceId !== scope.workspaceId
+				!input.conversationId ||
+				!(await runtime.hasConversation(
+					{
+						organizationId: scope.organizationId,
+						workspaceId: scope.workspaceId,
+					},
+					input.conversationId,
+				))
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
-					"App edits require a Home conversation linked to this workspace",
+					"App edits require a chat in this workspace",
 				);
-			source = { sourceKind: "chat", sourceId: conversation.conversationId };
+			source = { sourceKind: "chat", sourceId: input.conversationId };
 		} else if (context.tediId && !resolveProducer(context).skillRunId) {
 			// A tedi proposes only from a Home turn (or one Home delegated to it)
 			// in this app's own workspace; the draft still waits for review.
