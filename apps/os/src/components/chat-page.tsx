@@ -23,6 +23,7 @@ import {
 import { ChatThread } from "@/components/chat-thread";
 import {
 	parseTediChatConversationId,
+	recentWorkspaceChatRows,
 	tediChatConversationId,
 	tediChatListRows,
 } from "@/lib/chat-tedi-conversations";
@@ -184,6 +185,22 @@ export function ChatPage() {
 				: [],
 		[personalWorkspace, tediConversations, tediProfiles],
 	);
+	// Chats the person took part in inside their other workspaces.
+	const recentWorkspaceChats = useQuery({
+		...osQuery.workspaceUnread.recentChats.queryOptions({ input: {} }),
+		refetchInterval: 30_000,
+	});
+	const listRows = useMemo(
+		() => [
+			...tediRows,
+			...recentWorkspaceChatRows(
+				recentWorkspaceChats.data?.chats ?? [],
+				personalWorkspace?.organizationId ?? "",
+				personalWorkspace?.id,
+			),
+		],
+		[tediRows, recentWorkspaceChats.data, personalWorkspace],
+	);
 	const conversationLookup = useQuery({
 		...osQuery.kernelRuntime.listConversations.queryOptions({
 			input: {
@@ -246,7 +263,7 @@ export function ChatPage() {
 					<ChatSidebar
 						activeConversationId={activeConversationId}
 						onSelect={selectConversation}
-						extraConversations={tediRows}
+						extraConversations={listRows}
 						personalWorkspace={personalWorkspace ?? undefined}
 					/>
 					{personalWorkspace && !showTediChat ? (
