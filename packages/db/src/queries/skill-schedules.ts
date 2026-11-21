@@ -216,7 +216,10 @@ export async function listSkillSchedules(
 		excludeParamsReferenceId?: string;
 	},
 ): Promise<SkillSchedule[]> {
-	const conditions = [eq(skillSchedules.organizationId, organizationId)];
+	const conditions = [
+		eq(skillSchedules.organizationId, organizationId),
+		sql`not exists (select 1 from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId} and ${skillEntries.lifecycleState} = 'archived')`,
+	];
 	if (options.excludeParamsReferenceId) {
 		conditions.push(
 			...paramsReferenceExclusion(options.excludeParamsReferenceId),
@@ -251,7 +254,10 @@ export async function listSkillSchedulesPage(
 		excludeParamsReferenceId?: string;
 	},
 ): Promise<{ schedules: SkillSchedule[]; total: number }> {
-	const conditions = [eq(skillSchedules.organizationId, organizationId)];
+	const conditions = [
+		eq(skillSchedules.organizationId, organizationId),
+		sql`not exists (select 1 from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId} and ${skillEntries.lifecycleState} = 'archived')`,
+	];
 	if (options.excludeParamsReferenceId) {
 		conditions.push(
 			...paramsReferenceExclusion(options.excludeParamsReferenceId),
