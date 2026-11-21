@@ -33,6 +33,7 @@ import {
 	assertFleetAuthorityAvailable,
 	resolveFleetAuthorityDb,
 } from "./fleet-authority";
+import { hasMaterialGatewayDrift } from "./gateway-reconciliation-threshold";
 import { safeExceptionTopology } from "./safe-log-metadata";
 
 export type HealthSeverity = "P1" | "P2";
@@ -333,7 +334,7 @@ function driftBucketRank(differenceMicros: number): number {
 
 /**
  * Billing health conditions from the latest ledger-vs-Gateway reconciliation.
- * Only proven missing charges alert, once per provider-day total (`model = ''`).
+ * Missing charges above the reconciliation threshold alert once per provider-day total.
  * A reconciliation older than two closed days is itself a condition, so
  * a stopped job cannot silently resolve an open drift.
  */
@@ -359,7 +360,7 @@ export function gatewayReconciliationHealthConditions(
 	const conditions: HealthCondition[] = [];
 	for (const row of rows) {
 		const c = row.coverage;
-		if (row.model !== "" || !c || c.missingCallCount === 0) continue;
+		if (row.model !== "" || !c || !hasMaterialGatewayDrift(row)) continue;
 		conditions.push({
 			key: `${GATEWAY_RECONCILIATION_CONDITION_PREFIX}drift:${row.provider}`,
 			severity: "P2",

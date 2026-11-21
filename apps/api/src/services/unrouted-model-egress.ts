@@ -39,12 +39,17 @@ export async function requireUnrestrictedModelEgress(
 
 /** Bind legacy model helpers to their actual organization without changing shared Worker env. */
 export function organizationModelEnv<
-	T extends { AI?: unknown; DB?: D1Database },
+	T extends {
+		AI?: unknown;
+		DB?: D1Database;
+		AI_GATEWAY_ACCOUNT_ID?: string;
+		TEDIX_BILLING_SETTLEMENT_MODE?: string;
+	},
 >(
 	env: T,
 	db: DbQueryClient,
 	organizationId: string,
-	onDispatch?: () => void,
+	options: { onDispatch?: () => void; billWorkersAiSurface?: string } = {},
 ): T {
 	const check = () =>
 		requireUnrestrictedModelEgress(
@@ -60,10 +65,57 @@ export function organizationModelEnv<
 			get(target, property) {
 				const value = Reflect.get(target, property, target);
 				if (property === "run" && typeof value === "function")
-					return async (...args: unknown[]) => {
+					return async (model: string, body: unknown, request?: AiOptions) => {
 						await check();
-						onDispatch?.();
-						return value.apply(target, args);
+						request?.signal?.throwIfAborted();
+						const source = options.billWorkersAiSurface;
+						if (
+							source &&
+							env.TEDIX_BILLING_SETTLEMENT_MODE === "managed" &&
+							(!request?.gateway ||
+								request.gateway.metadata?.surface === source)
+						) {
+							const gateway = request?.gateway;
+							const gatewayAccountId = env.AI_GATEWAY_ACCOUNT_ID?.trim();
+							if (!gateway?.id || !gatewayAccountId)
+								throw new Error(
+									"Workers AI credit admission requires a gateway and account",
+								);
+							const { reserveKernelBilling, kernelRegionalExecution } =
+								await import("../rpc/routers/kernel/billing-reservation");
+							const { kernelGatewayMetadata } =
+								await import("../rpc/routers/kernel/gateway-attribution");
+							const admitted = await reserveKernelBilling(env, {
+								context: { organizationId, source },
+								source: "system",
+								execution: {
+									provider: "workers-ai",
+									requestModel: model,
+									gatewayAccountId,
+									gatewayId: gateway.id,
+									transportKind: "workers-ai-binding",
+									apiKind: "workers-ai-chat",
+									providerResource: null,
+									providerOrigin: null,
+									deployment: null,
+								},
+								body: JSON.stringify(body),
+							});
+							if (kernelRegionalExecution(admitted))
+								throw new Error(
+									"This Workers AI call has no regional provider route",
+								);
+							request = {
+								...request,
+								gateway: {
+									...gateway,
+									metadata: kernelGatewayMetadata(admitted),
+								},
+							};
+						}
+						request?.signal?.throwIfAborted();
+						options.onDispatch?.();
+						return value.call(target, model, body, request);
 					};
 				return typeof value === "function" ? value.bind(target) : value;
 			},

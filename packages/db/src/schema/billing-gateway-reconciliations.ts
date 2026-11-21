@@ -9,9 +9,9 @@ import {
 
 /**
  * Per-row verdict of the daily ledger-vs-AI-Gateway comparison.
- * - `matched`: every billable Gateway call has a ledger charge.
- * - `drift`: some Gateway calls have no ledger charge.
- * - `gateway_only`: no Gateway calls have a ledger charge.
+ * - `matched`: missing charges fall within the reconciliation thresholds.
+ * - `drift`: missing charges exceed a threshold and some calls have charges.
+ * - `gateway_only`: missing charges exceed a threshold and no calls have charges.
  * - `ledger_only`: retained for historical cost comparisons.
  */
 export const BILLING_GATEWAY_RECONCILIATION_STATUSES = [

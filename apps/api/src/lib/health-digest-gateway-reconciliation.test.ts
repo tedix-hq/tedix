@@ -42,16 +42,26 @@ function row(
 }
 
 describe("gateway reconciliation health conditions", () => {
-	it("ignores pricing differences, token mismatches, and historical cost-only drift", () => {
+	it("ignores pricing differences, token mismatches, and historical alerts below the coverage thresholds", () => {
 		const matched = row({
 			ledgerCostMicros: 60300000,
 			gatewayCostMicros: 67160000,
+			gatewayRequestCount: 1819,
 		});
 		expect(
 			gatewayReconciliationHealthConditions(
 				[
 					matched,
 					row({ status: "drift", coverage: null }),
+					{
+						...matched,
+						status: "drift",
+						coverage: {
+							...matched.coverage!,
+							missingCallCount: 4,
+							missingCostMicros: 12372,
+						},
+					},
 					row({
 						coverage: { ...matched.coverage!, tokenMismatchCallCount: 1 },
 					}),
@@ -65,6 +75,7 @@ describe("gateway reconciliation health conditions", () => {
 		const total = row({
 			provider: "azure-openai",
 			status: "drift",
+			gatewayRequestCount: 1000,
 			coverage: {
 				...covered.coverage!,
 				missingCallCount: 69,

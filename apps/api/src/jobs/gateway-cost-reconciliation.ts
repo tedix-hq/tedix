@@ -14,6 +14,7 @@ import type {
 } from "@tedix/db/schema/billing-gateway-reconciliations";
 import type { BillingSettlementBindings } from "../lib/billing-settlement-mode";
 import type { FleetAuthorityEnv } from "../lib/fleet-authority";
+import { hasMaterialGatewayDrift } from "../lib/gateway-reconciliation-threshold";
 import type { AiGatewayLogRow } from "./gateway-cost-ingestion";
 
 export type GatewayReconciliationEnv = BillingSettlementBindings &
@@ -136,6 +137,14 @@ interface SideTotals {
 	coverage: GatewayReconciliationCoverage;
 }
 
+// These Clef classifiers support platform triage. Clef has no customer model
+// catalog entry, and its Gateway logs report cost without token usage.
+const CLEF_OVERHEAD_SURFACES = new Set<unknown>([
+	"agent-turn-triage",
+	"agent-reply-label",
+	"reply-draft-routing",
+]);
+
 /**
  * Merge both sides into reconciliation rows: one per provider and model, and
  * one provider-day total (`model = ''`).
@@ -191,7 +200,9 @@ export function buildReconciliationRows(input: {
 		const coverage = totals.coverage;
 		if (
 			log.provider === "workers-ai" &&
-			log.metadata?.surface === "lane-lesson"
+			(log.metadata?.surface === "lane-lesson" ||
+				(CLEF_OVERHEAD_SURFACES.has(log.metadata?.surface) &&
+					!charges.has(log.id)))
 		) {
 			coverage.platformOverheadCallCount++;
 			coverage.platformOverheadCostMicros += toMicros(log.cost);
@@ -237,14 +248,13 @@ export function buildReconciliationRows(input: {
 			ledgerRowCount: totals.ledgerRowCount,
 			gatewayRequestCount: totals.gatewayRequestCount,
 			coverage: totals.coverage,
-			status:
-				totals.coverage.missingCallCount === 0
-					? "matched"
-					: totals.coverage.tokenCheckedCallCount +
-								totals.coverage.tokenUnknownCallCount ===
-						  0
-						? "gateway_only"
-						: "drift",
+			status: !hasMaterialGatewayDrift(totals)
+				? "matched"
+				: totals.coverage.tokenCheckedCallCount +
+							totals.coverage.tokenUnknownCallCount ===
+					  0
+					? "gateway_only"
+					: "drift",
 			computedAt: input.computedAt,
 		});
 	for (const totals of byModel.values()) {
