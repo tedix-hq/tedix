@@ -43,23 +43,45 @@ export interface PanelApi {
 	open(link: PanelLink): Promise<void>;
 	openAtLogin(on: boolean): Promise<void>;
 	onState(listener: (state: PanelState) => void): void;
-	/** The next three are for the update button in the main window only. */
+	/** The next three are for the update entry in the main window only. */
 	applyUpdate(): Promise<void>;
-	/** Tells the app how much room the button needs right now. */
+	/** Tells the app how much room the entry needs right now. */
 	updateSize(width: number, height: number): Promise<void>;
 	onUpdate(listener: (view: UpdateView) => void): void;
+	/** The next two are for the downloading window only. */
+	onDownload(listener: (view: DownloadView) => void): void;
+	cancelDownload(): Promise<void>;
 }
 
 /**
- * What the update button in the main window shows. `available`: something
- * can be applied. `working`: `text` says what it is doing. `failed`: `text`
- * is the reason. `done`: `text` says what is now in use.
+ * What the update entry at the bottom left of the main window shows.
+ * `ready`: something can be applied. `waiting`: it applies by itself once
+ * the tasks on this Mac have finished. `working`: `text` says what it is
+ * doing. `failed`: a click shows the reason.
  */
 export interface UpdateView {
-	kind: "hidden" | "available" | "working" | "failed" | "done";
+	kind: "hidden" | "ready" | "waiting" | "working" | "failed";
 	text: string;
-	/** The Tedix OS page behind the button is dark. */
+	/** What a screen reader says for the button; longer than `text`. */
+	label: string;
+	/**
+	 * `sidebar`: across the Tedix OS sidebar, above the account row. `rail`:
+	 * an icon in the collapsed sidebar. `corner`: the bottom-left corner of a
+	 * page without a sidebar.
+	 */
+	place: "sidebar" | "rail" | "corner";
+	/** The Tedix OS page behind the entry is dark. */
 	dark: boolean;
+}
+
+/** What the downloading window shows. */
+export interface DownloadView {
+	version: string;
+	received: number;
+	/** 0 while the size is not known yet. */
+	total: number;
+	/** Set once the download has stopped: why, or empty when it finished. */
+	ended?: string;
 }
 
 /**

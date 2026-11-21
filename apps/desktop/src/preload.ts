@@ -19,5 +19,10 @@ const api: PanelApi = {
 		ipcRenderer.on("update", (_event, view) => listener(view));
 		ipcRenderer.send("update-ready");
 	},
+	onDownload: (listener) => {
+		ipcRenderer.on("download", (_event, view) => listener(view));
+		ipcRenderer.send("download-ready");
+	},
+	cancelDownload: () => ipcRenderer.invoke("download-cancel"),
 };
 contextBridge.exposeInMainWorld("tedixShell", api);

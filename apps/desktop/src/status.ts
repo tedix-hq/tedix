@@ -48,16 +48,24 @@ function alive(pid: unknown): boolean {
 	}
 }
 
-/** Run records in a runner's folder, counted while their phase is `running` and their process is alive. */
+const LIVE_PHASES = ["preparing", "admitted", "running", "settling"];
+
+/**
+ * Run records in a runner's folder, counted while their agent process is
+ * alive and their phase is one of a run in progress: the rule of the CLI's
+ * own Mac status. A record without a process never counts.
+ */
 async function activeRuns(folder: string): Promise<number> {
 	const names = await readdir(folder).catch(() => []);
 	let count = 0;
 	for (const name of names) {
 		if (!name.endsWith(".json")) continue;
 		const text = await readFile(join(folder, name), "utf8").catch(() => "");
-		if (!text.includes('"phase":"running"')) continue;
+		if (!text.includes('"pid"')) continue;
 		try {
-			if (alive(JSON.parse(text).pid)) count += 1;
+			const record = JSON.parse(text) as { phase?: unknown; pid?: unknown };
+			if (LIVE_PHASES.includes(String(record.phase)) && alive(record.pid))
+				count += 1;
 		} catch {
 			/* A record being written. */
 		}

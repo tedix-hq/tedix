@@ -215,6 +215,12 @@ export interface SetupState {
 interface Settings {
 	host?: string;
 	repo?: string;
+	/** "Download updates automatically": download in the background, never install. */
+	autoDownload?: boolean;
+	/** "Skip This Version": the app and command-line tool versions not offered again by themselves. */
+	skipped?: { app?: string; cli?: string };
+	/** "Remind Me Later": no update question by itself before this time. */
+	remindAfter?: number;
 }
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 export function settings(): Settings {

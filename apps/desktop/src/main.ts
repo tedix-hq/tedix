@@ -9,12 +9,16 @@ import {
 	type IpcMainInvokeEvent,
 	Menu,
 	type MenuItemConstructorOptions,
+	Notification,
 	nativeTheme,
 	powerMonitor,
+	type Rectangle,
+	screen,
 	shell,
 	WebContentsView,
 } from "electron";
 import type {
+	DownloadView,
 	PanelAction,
 	PanelLink,
 	PanelState,
@@ -28,6 +32,7 @@ import {
 	noteUpdateClick,
 	onCliChange,
 	restartSupervisor,
+	supervisorLoaded,
 	takeUpdateClick,
 	updateCli,
 } from "./cli";
@@ -45,8 +50,16 @@ import {
 	setupState,
 } from "./setup";
 import { lastLine, run } from "./shell";
-import { loadStatus, type Status, summary } from "./status";
-import { checkForUpdate, readyVersion, restartToUpdate } from "./update";
+import { activeRunCount, loadStatus, type Status, summary } from "./status";
+import {
+	cancelDownload,
+	downloadProgress,
+	downloadUpdate,
+	type FoundUpdate,
+	findUpdate,
+	readyVersion,
+	restartToUpdate,
+} from "./update";
 
 // The copy run from source keeps its own name and data folder and leaves the
 // `tedix://` link type to the installed app, so the two never share a session
@@ -152,19 +165,32 @@ async function restartRunners(): Promise<void> {
 }
 
 /**
- * The update button: a small view of the app's own over the top-right corner
- * of the main window. It is there only while something can be applied: a
- * newer app that is downloaded and checked, or a newer command-line tool
- * than the app's copy in use. It is the only thing that applies either.
+ * The update entry: a small view of the app's own at the bottom left of the
+ * main window, across the Tedix OS sidebar just above the account row. It
+ * is there only while something can be applied: a newer app that is
+ * downloaded and checked, or a newer command-line tool than the app's copy
+ * in use. A click on it, or on Install Update, is the only thing that
+ * applies either.
  */
 let updateButton: WebContentsView | undefined;
-/** How much room the button's page asked for. */
+/** How much room the entry's page asked for. */
 let updateSize = { width: 0, height: 0 };
 let applying: string | undefined;
 let failure: string | undefined;
-let doneLine: string | undefined;
+/** The person chose to update once the tasks on this Mac have finished. */
+let waitingForWork = false;
 let pageDark = nativeTheme.shouldUseDarkColors;
 let layoutMain = () => {};
+/** A newer published app, found by the last check, maybe not downloaded yet. */
+let found: FoundUpdate | undefined;
+let downloadWindow: BrowserWindow | undefined;
+/** Why the last download shown in the window stopped. */
+let downloadEnded: string | undefined;
+/** An update question is open, so a background check does not ask again. */
+let asking = false;
+/** Where the Tedix OS page's sidebar footer is, in the view's pixels. */
+let sidebarSpot: { x: number; y: number; width: number; rail: boolean } | null =
+	null;
 
 /** A newer command-line tool, when `~/.local/bin/tedix` is the app's copy. */
 function cliOffer(): string | undefined {
@@ -172,8 +198,19 @@ function cliOffer(): string | undefined {
 	return kind === "included" ? offer : undefined;
 }
 
+/** What the entry offers: skipped command-line tool versions only on a click. */
+function offers(): { app?: string; cli?: string } {
+	const cli = cliOffer();
+	return {
+		app: readyVersion(),
+		cli: cli && settings().skipped?.cli !== cli ? cli : undefined,
+	};
+}
+
 function updateView(): UpdateView {
 	const dark = pageDark;
+	const place = !sidebarSpot ? "corner" : sidebarSpot.rail ? "rail" : "sidebar";
+	const view = { dark, place } as const;
 	if (applying) {
 		const step = cliProgress().updating ?? "";
 		const text = step.startsWith("Downloading")
@@ -181,32 +218,84 @@ function updateView(): UpdateView {
 			: /^(Restarting|Waiting)/.test(step)
 				? "Restarting runners…"
 				: applying;
-		return { kind: "working", text, dark };
+		return { ...view, kind: "working", text, label: text };
 	}
-	if (failure) return { kind: "failed", text: failure, dark };
-	if (doneLine) return { kind: "done", text: doneLine, dark };
-	const kind = readyVersion() || cliOffer() ? "available" : "hidden";
-	return { kind, text: "", dark };
+	if (failure)
+		return {
+			...view,
+			kind: "failed",
+			text: "Update did not finish",
+			label: "Update did not finish. Show why",
+		};
+	const { app: appVersion, cli } = offers();
+	if (!appVersion && !cli)
+		return { ...view, kind: "hidden", text: "", label: "" };
+	if (waitingForWork)
+		return {
+			...view,
+			kind: "waiting",
+			text: "Updates when work is done",
+			label:
+				"Updates by itself when the tasks on this Mac have finished. Choose to update now or not now",
+		};
+	return {
+		...view,
+		kind: "ready",
+		text: appVersion ? "Relaunch to update" : "Update command-line tool",
+		label: appVersion
+			? cli
+				? `Relaunch to update to Tedix ${appVersion} and command-line tool ${cli}`
+				: `Relaunch to update to Tedix ${appVersion}`
+			: `Update the command-line tool to ${cli}`,
+	};
 }
 
 /**
- * The Tedix OS page keeps its top bars clear of the button: the app adds
- * the room on the right while the button is there.
+ * The Tedix OS page keeps the space above its account row free while the
+ * entry is there: the app adds the room and finds where it ended up.
  */
-let reserved = 0;
-let reservedRule: Promise<string> | undefined;
-function reserve(pixels: number, again = false): void {
+const ROOM = 48;
+let roomRule: Promise<string> | undefined;
+function makeRoom(on: boolean, again = false): void {
 	const contents = os?.webContents;
 	if (!contents || contents.isDestroyed()) return;
-	if (pixels === reserved && !again) return;
-	reserved = pixels;
-	const old = again ? undefined : reservedRule;
-	reservedRule = pixels
+	if (on === Boolean(roomRule) && !again) return;
+	const old = again ? undefined : roomRule;
+	roomRule = on
 		? contents.insertCSS(
-				`.topbar, .canvas-workspace-header { padding-right: ${pixels}px !important; }`,
+				`[data-sidebar="footer"] { padding-top: ${ROOM}px !important; }`,
 			)
 		: undefined;
 	void old?.then((rule) => contents.removeInsertedCSS(rule)).catch(() => {});
+}
+
+async function findSidebar(): Promise<void> {
+	const contents = os?.webContents;
+	if (!contents || contents.isDestroyed()) return;
+	const shown = updateView().kind !== "hidden";
+	makeRoom(shown);
+	if (!shown) return;
+	const spot = (await contents
+		.executeJavaScript(
+			`(() => {
+				const footer = document.querySelector('[data-sidebar="sidebar"]:not([data-mobile]) [data-sidebar="footer"]');
+				const box = footer?.getBoundingClientRect();
+				if (!box?.width) return null;
+				const style = getComputedStyle(footer);
+				const left = parseFloat(style.paddingLeft) || 0;
+				const right = parseFloat(style.paddingRight) || 0;
+				return {
+					x: Math.round(box.left + left),
+					y: Math.round(box.top),
+					width: Math.round(box.width - left - right),
+					rail: footer.closest('[data-sidebar="sidebar"]').getAttribute("data-state") === "collapsed",
+				};
+			})()`,
+		)
+		.catch(() => null)) as typeof sidebarSpot;
+	if (JSON.stringify(spot) === JSON.stringify(sidebarSpot)) return;
+	sidebarSpot = spot;
+	publishUpdate();
 }
 
 function publishUpdate(): void {
@@ -214,22 +303,21 @@ function publishUpdate(): void {
 	if (contents && !contents.isDestroyed())
 		contents.send("update", updateView());
 	layoutMain();
+	if (waitingForWork) watchWork();
 }
 
-/** Says what is in use now, briefly, where the button was. */
+/** Says what is in use now, in a notification. */
 function sayDone(line: string): void {
-	doneLine = line;
 	log(`update: ${line}`);
-	setTimeout(() => {
-		if (doneLine === line) doneLine = undefined;
-		publishUpdate();
-	}, 15_000);
+	if (Notification.isSupported())
+		new Notification({ title: "Tedix is up to date", body: line }).show();
 }
 
 /**
  * Puts the newest command-line tool in place and reloads the background
- * service. Only ever reached from the person's click on the update button:
- * directly, or on the start that follows it (see `takeUpdateClick`).
+ * service. Only ever reached from the person's click on the update entry or
+ * Install Update: directly, or on the start that follows it (see
+ * `takeUpdateClick`).
  */
 async function applyCommandLineTool(appUpdated: boolean): Promise<void> {
 	const from = Date.now();
@@ -249,18 +337,21 @@ async function applyCommandLineTool(appUpdated: boolean): Promise<void> {
 	sayDone(
 		`${names[0]!.toUpperCase()}${names.slice(1)} ${parts.length > 1 ? "are" : "is"} in use.${
 			cliProgress().reloadedAt >= from
-				? " Runners restarted. If macOS asks whether Tedix may access your Documents folder, choose Allow."
+				? ` Runners restarted. ${FOLDER_PROMPT}`
 				: ""
 		}`,
 	);
 }
 
-/** Runs one of the button's jobs and shows how it ended. */
+const FOLDER_PROMPT =
+	"If macOS asks whether Tedix may use your Documents folder, choose Allow.";
+
+/** Runs one of the entry's jobs and shows how it ended. */
 async function working(text: string, job: () => Promise<void>): Promise<void> {
 	if (applying) return;
 	applying = text;
 	failure = undefined;
-	doneLine = undefined;
+	waitingForWork = false;
 	publishUpdate();
 	try {
 		await job();
@@ -273,39 +364,254 @@ async function working(text: string, job: () => Promise<void>): Promise<void> {
 }
 
 /**
- * The click on the update button, or on its Retry. With a newer app ready
- * (or once its download finishes) it restarts into it, and the note it
- * leaves lets that start put the newest command-line tool in place. With
- * only a newer command-line tool it does that now, without a restart.
+ * Applies what is ready, after the person chose it. With a newer app it
+ * restarts into it, and the note it leaves lets that start put the newest
+ * command-line tool in place. With only a newer command-line tool it does
+ * that now, without a restart.
  */
-function applyUpdate(): Promise<void> {
-	return working("Downloading…", async () => {
-		if (cliProgress().last?.down) {
-			// Retry after a reload that left the runners down: reload again.
-			applying = "Restarting runners…";
-			publishUpdate();
-			const result = await restartSupervisor();
-			if (!result.ok)
-				throw new Error(
-					`The background service did not start: ${lastLine(result.output) || "no reason given"}.`,
-				);
-			return sayDone("Runners restarted.");
-		}
-		try {
-			await checkForUpdate();
-		} catch (error) {
-			log(`update: check failed (${(error as Error).message})`);
-		}
-		applying = "Updating…";
-		publishUpdate();
+function updateNow(): Promise<void> {
+	return working("Updating…", async () => {
 		if (readyVersion()) {
 			noteUpdateClick();
 			restartToUpdate();
-			// The app quits now; the button keeps working until it does.
+			// The app quits now; the entry keeps saying so until it does.
 			return new Promise(() => {});
 		}
 		await applyCommandLineTool(false);
 	});
+}
+
+/** While the person waits for the work on this Mac to finish: checks every 15 seconds. */
+let workWatch: ReturnType<typeof setInterval> | undefined;
+function watchWork(): void {
+	workWatch ??= setInterval(async () => {
+		if (!waitingForWork || updateView().kind === "hidden") {
+			clearInterval(workWatch);
+			workWatch = undefined;
+			waitingForWork = false;
+			return;
+		}
+		if ((await activeRunCount()) > 0) return;
+		clearInterval(workWatch);
+		workWatch = undefined;
+		log("update: the work on this Mac has finished; updating as chosen");
+		void updateNow();
+	}, 15_000);
+}
+
+/** A free-standing native dialog, so every button is a real, reachable button. */
+async function ask(
+	options: Electron.MessageBoxOptions,
+): Promise<Electron.MessageBoxReturnValue> {
+	await app.whenReady();
+	app.focus({ steal: true });
+	return dialog.showMessageBox(options);
+}
+
+/**
+ * The click on the update entry, or Install Update. When applying it
+ * restarts this Mac's runners while tasks run there, one dialog says how
+ * many and lets the person choose: not now, once the work is done, or now.
+ */
+async function applyUpdate(): Promise<void> {
+	if (applying) return;
+	if (failure) {
+		const down = cliProgress().last?.down;
+		const { response } = await ask({
+			type: "warning",
+			message: "The update did not finish",
+			detail: failure,
+			buttons: [down ? "Restart Runners" : "Try Again", "Close"],
+			defaultId: 0,
+			cancelId: 1,
+		});
+		failure = undefined;
+		publishUpdate();
+		if (response !== 0) return;
+		if (down)
+			return working("Restarting runners…", async () => {
+				const result = await restartSupervisor();
+				if (!result.ok)
+					throw new Error(
+						`The background service did not start: ${lastLine(result.output) || "no reason given"}.`,
+					);
+				sayDone("Runners restarted.");
+			});
+	}
+	const appVersion = readyVersion();
+	const cli = cliOffer();
+	if (!appVersion && !cli) {
+		if (found) await installUpdate();
+		return;
+	}
+	const restartsRunners = Boolean(cli) && (await supervisorLoaded());
+	const runs = restartsRunners ? await activeRunCount() : 0;
+	if (runs === 0) return updateNow();
+
+	status ??= await loadStatus(powerMonitor.isOnBatteryPower());
+	const runners = status.runners.filter(
+		(runner) => runner.enabled && runner.running,
+	).length;
+	const tasks = runs === 1 ? "1 task is" : `${runs} tasks are`;
+	const { response } = await ask({
+		type: "warning",
+		message: "Tasks are still running on this Mac",
+		detail: [
+			appVersion
+				? "An update for the app and the command-line tool is ready."
+				: "An update for the command-line tool is ready.",
+			`${tasks} running on this Mac. Updating restarts ${
+				runners
+					? `this Mac's ${runners} ${runners === 1 ? "runner" : "runners"}`
+					: "this Mac's runners"
+			}, which stops ${runs === 1 ? "that task" : "these tasks"}.`,
+			appVersion ? "Tedix also relaunches." : "",
+			FOLDER_PROMPT,
+		]
+			.filter(Boolean)
+			.join("\n\n"),
+		buttons: ["Update When Work Is Done", "Update Now", "Not Now"],
+		defaultId: 0,
+		cancelId: 2,
+	});
+	if (response === 1) return updateNow();
+	waitingForWork = response === 0;
+	log(
+		waitingForWork
+			? `update: waiting for ${runs} running tasks to finish`
+			: "update: not now",
+	);
+	publishUpdate();
+}
+
+/** The downloading window: the Tedix icon, a progress bar, and Cancel. */
+function downloadView(): DownloadView {
+	const progress = downloadProgress();
+	return {
+		version: progress?.version ?? found?.version ?? "",
+		received: progress?.received ?? 0,
+		total: progress?.total ?? found?.size ?? 0,
+		ended: downloadEnded,
+	};
+}
+
+function publishDownload(): void {
+	const contents = downloadWindow?.webContents;
+	if (contents && !contents.isDestroyed())
+		contents.send("download", downloadView());
+}
+
+function openDownloadWindow(): void {
+	if (downloadWindow && !downloadWindow.isDestroyed())
+		return downloadWindow.show();
+	const window = new BrowserWindow({
+		width: 440,
+		height: 136,
+		title: "Updating Tedix",
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		backgroundColor: windowColour(),
+		webPreferences: localPage,
+	});
+	downloadWindow = window;
+	window.setMenuBarVisibility(false);
+	window.webContents.on("will-navigate", (event) => event.preventDefault());
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	// Closing the window is the same as Cancel.
+	window.on("closed", () => {
+		if (downloadWindow === window) downloadWindow = undefined;
+		if (!downloadEnded) cancelDownload();
+	});
+	void window.loadFile(join(root, "download.html"));
+}
+
+/** Downloads and checks the found app; `show` opens the downloading window. */
+async function download(show: boolean): Promise<boolean> {
+	if (!found) return false;
+	downloadEnded = undefined;
+	if (show) openDownloadWindow();
+	try {
+		await downloadUpdate(found, () => {
+			publishDownload();
+		});
+		downloadEnded = "";
+		downloadWindow?.close();
+		publishUpdate();
+		return true;
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		if ((error as Error).name === "AbortError") {
+			downloadEnded = "Cancelled";
+			downloadWindow?.close();
+		} else {
+			downloadEnded = reason;
+			log(`update: download failed (${reason})`);
+			publishDownload();
+		}
+		return false;
+	}
+}
+
+/** Install Update: downloads the app with the window, then applies like the entry. */
+async function installUpdate(): Promise<void> {
+	saveSettings({ skipped: {} });
+	if (found && readyVersion() !== found.version && !(await download(true)))
+		return;
+	await refreshSetup(false);
+	await applyUpdate();
+}
+
+/**
+ * The update question: both version numbers, Install Update, Remind Me
+ * Later, Skip This Version, and whether to download by itself from now on.
+ */
+async function askToUpdate(appVersion?: string, cli?: string): Promise<void> {
+	asking = true;
+	const have = setupState().cli.version;
+	const lines = [
+		appVersion &&
+			`Tedix ${appVersion} is now available. You have ${app.getVersion()}.`,
+		cli &&
+			`Command-line tool ${cli} is now available${have ? `. You have ${have}` : ""}.`,
+		cli &&
+			`Updating the command-line tool restarts this Mac's runners. ${FOLDER_PROMPT}`,
+		appVersion && readyVersion() === appVersion
+			? "It is downloaded and ready. Would you like to install it now?"
+			: "Would you like to download and install it now?",
+	].filter(Boolean);
+	let choice: Electron.MessageBoxReturnValue;
+	try {
+		choice = await ask({
+			type: "info",
+			message: appVersion
+				? "A new version of Tedix is available"
+				: "A new command-line tool is available",
+			detail: lines.join("\n\n"),
+			buttons: ["Install Update", "Remind Me Later", "Skip This Version"],
+			defaultId: 0,
+			cancelId: 1,
+			checkboxLabel: "Download updates automatically",
+			checkboxChecked: settings().autoDownload === true,
+		});
+	} finally {
+		asking = false;
+	}
+	const { response, checkboxChecked } = choice;
+	saveSettings({ autoDownload: checkboxChecked });
+	log(
+		`update: question answered (${["install", "remind later", "skip"][response]}, download automatically ${checkboxChecked ? "on" : "off"})`,
+	);
+	if (response === 0) return installUpdate();
+	if (response === 1) {
+		saveSettings({ remindAfter: Date.now() + 24 * 60 * 60_000 });
+		if (checkboxChecked && appVersion && found) void download(false);
+	}
+	if (response === 2) {
+		saveSettings({ skipped: { app: appVersion, cli } });
+		publishUpdate();
+	}
 }
 
 function isTedixPage(url: string): boolean {
@@ -637,10 +943,66 @@ function finishSignIn(link: string): void {
  * access to this app or the computer; its sign-in lives in a session kept
  * between launches.
  */
+/**
+ * The main window's size and place, kept in the app's data folder (each copy
+ * has its own, so the copy run from source never moves the installed one).
+ */
+const windowFile = () => join(app.getPath("userData"), "window.json");
+
+/** The last size and place, when they still fit on a screen that is connected now. */
+function savedBounds(): Rectangle | undefined {
+	let saved: Partial<Rectangle>;
+	try {
+		saved = JSON.parse(readFileSync(windowFile(), "utf8")) as Rectangle;
+	} catch {
+		return undefined;
+	}
+	const { x, y, width, height } = saved;
+	if (![x, y, width, height].every((part) => Number.isFinite(part)))
+		return undefined;
+	const bounds = { x: x!, y: y!, width: width!, height: height! };
+	// The title bar must be on a screen, or the window could not be moved back.
+	const onScreen = screen.getAllDisplays().some(({ workArea }) => {
+		const left = Math.max(bounds.x, workArea.x);
+		const right = Math.min(
+			bounds.x + bounds.width,
+			workArea.x + workArea.width,
+		);
+		return (
+			right - left >= 100 &&
+			bounds.y >= workArea.y &&
+			bounds.y + 40 <= workArea.y + workArea.height
+		);
+	});
+	return onScreen ? bounds : undefined;
+}
+
+/** A first window: most of the screen it opens on, capped, centred. */
+function defaultBounds(): Rectangle {
+	const { workArea } = screen.getDisplayNearestPoint(
+		screen.getCursorScreenPoint(),
+	);
+	const width = Math.min(
+		workArea.width,
+		Math.max(1100, Math.min(Math.round(workArea.width * 0.8), 1680)),
+	);
+	const height = Math.min(
+		workArea.height,
+		Math.max(720, Math.min(Math.round(workArea.height * 0.85), 1100)),
+	);
+	return {
+		x: workArea.x + Math.round((workArea.width - width) / 2),
+		y: workArea.y + Math.round((workArea.height - height) / 2),
+		width,
+		height,
+	};
+}
+
 function createMainWindow(): void {
 	const window = new BrowserWindow({
-		width: 1280,
-		height: 860,
+		...(savedBounds() ?? defaultBounds()),
+		minWidth: 720,
+		minHeight: 520,
 		title: "Tedix",
 		titleBarStyle: "hiddenInset",
 		// Centres the buttons in the page's 56 px top bar.
@@ -648,6 +1010,13 @@ function createMainWindow(): void {
 		backgroundColor: "#0a0a0a",
 	});
 	mainWindow = window;
+	window.on("close", () => {
+		try {
+			writeFileSync(windowFile(), JSON.stringify(window.getNormalBounds()));
+		} catch (error) {
+			log(`window: size not kept (${(error as Error).message})`);
+		}
+	});
 
 	const view = new WebContentsView({
 		webPreferences: {
@@ -659,8 +1028,7 @@ function createMainWindow(): void {
 	});
 	os = view;
 	window.contentView.addChildView(view);
-	// The update button, over the right end of the page's 56 px top bar. The
-	// line that says what happened shows below the bar instead.
+	// The update entry, above the account row of the page's sidebar.
 	const button = new WebContentsView({ webPreferences: localPage });
 	updateButton = button;
 	button.setBackgroundColor("#00000000");
@@ -673,26 +1041,35 @@ function createMainWindow(): void {
 		if (window.isDestroyed()) return;
 		const { width, height } = window.getContentBounds();
 		view.setBounds({ x: 0, y: 0, width, height });
-		const { kind } = updateView();
-		const size = kind === "hidden" ? { width: 0, height: 0 } : updateSize;
-		button.setVisible(size.width > 0);
-		button.setBounds({
-			x: width - 12 - size.width,
-			y: kind === "done" ? 64 : 12,
-			...size,
-		});
-		// The reason under a failed button may cover the bar; it is open on a click.
-		reserve(
-			kind === "available" || kind === "failed"
-				? 56
-				: kind === "working" && size.width
-					? size.width + 24
-					: 0,
+		const { kind, place } = updateView();
+		const shown = kind !== "hidden" && updateSize.width > 0;
+		button.setVisible(shown);
+		if (!shown) return;
+		const entry = 32;
+		const spot = sidebarSpot;
+		button.setBounds(
+			place === "corner" || !spot
+				? {
+						x: 12,
+						y: height - 12 - entry,
+						width: Math.min(updateSize.width, width - 24),
+						height: entry,
+					}
+				: place === "rail"
+					? {
+							x: spot.x + Math.round((spot.width - entry) / 2),
+							y: spot.y + 8,
+							width: entry,
+							height: entry,
+						}
+					: { x: spot.x, y: spot.y + 8, width: spot.width, height: entry },
 		);
 	};
 	layoutMain = layout;
 	layout();
 	window.on("resize", layout);
+	// The page's sidebar can open, close or move; the entry follows it.
+	setInterval(() => void findSidebar(), 1000);
 
 	// A link that asks for a new window: Tedix pages load here, anything else
 	// opens in the default browser. Redirects inside the page are left alone
@@ -732,8 +1109,8 @@ function createMainWindow(): void {
 	view.webContents.on("did-navigate", (_event, url, status) => {
 		const page = URL.parse(url);
 		log(`page: ${page?.host}${page?.pathname} (${status})`);
-		// A new page has lost the room made for the update button.
-		reserve(reserved, true);
+		// A new page has lost the room made for the update entry.
+		if (roomRule) makeRoom(true, true);
 		// Remembered so the next launch opens the same organization.
 		if (page?.protocol === "https:" && isOsHost(page.host) && status < 400)
 			if (settings().host !== page.host) saveSettings({ host: page.host });
@@ -825,17 +1202,19 @@ function navigate(action: "back" | "forward" | "reload"): void {
 }
 
 /**
- * Looks for a newer app and a newer command-line tool. It downloads and
- * checks a newer app and reads which command-line tool is published; it
- * applies nothing. What it finds makes the update button appear. `asked` is
- * true when the person chose Check for Updates…: then it also answers when
- * there is nothing to apply.
+ * Looks for a newer app and a newer command-line tool; it applies nothing.
+ * `asked` is true when the person chose Check for Updates…: then it always
+ * answers, also for a skipped version. By itself it asks only about a newer
+ * app that was not skipped, at most once a day after Remind Me Later, and
+ * with Download updates automatically on it only downloads; a newer
+ * command-line tool by itself only brings up the update entry.
  */
 async function checkForUpdates(asked: boolean): Promise<void> {
 	let problem = "";
 	try {
-		const result = await checkForUpdate();
+		const result = await findUpdate();
 		if (result.kind === "unavailable") problem = result.reason;
+		found = result.kind === "found" ? result.update : undefined;
 	} catch (error) {
 		problem = `Could not check for a newer app: ${error instanceof Error ? error.message : String(error)}. Try again later.`;
 		log(`update: ${problem}`);
@@ -843,18 +1222,33 @@ async function checkForUpdates(asked: boolean): Promise<void> {
 	await lookForCliUpdate(asked);
 	await refreshSetup(false);
 	publishUpdate();
-	if (!asked) return;
-	if (updateView().kind !== "hidden") return mainWindow?.show();
-	const { version } = setupState().cli;
-	await tell(
-		"Everything is up to date",
-		[
-			`You have Tedix ${app.getVersion()}${version ? ` and command-line tool ${version}` : ""}.`,
-			problem,
-		]
-			.filter(Boolean)
-			.join(" "),
-	);
+	const appVersion = found?.version;
+	const cli = cliOffer();
+	if (asked) {
+		if (appVersion || cli) return askToUpdate(appVersion, cli);
+		const { version } = setupState().cli;
+		await ask({
+			type: "info",
+			message: `You're up to date (version ${app.getVersion()})`,
+			detail: [
+				`Tedix ${app.getVersion()}${version ? ` and command-line tool ${version} are the newest versions` : " is the newest version"}.`,
+				problem,
+			]
+				.filter(Boolean)
+				.join(" "),
+			buttons: ["OK"],
+		});
+		return;
+	}
+	const { autoDownload, skipped, remindAfter } = settings();
+	if (!appVersion || skipped?.app === appVersion) return;
+	if (autoDownload) {
+		if (readyVersion() !== appVersion) void download(false);
+		return;
+	}
+	if (asking || readyVersion() === appVersion) return;
+	if (remindAfter && remindAfter > Date.now()) return;
+	await askToUpdate(appVersion, cli);
 }
 
 function setMenu(): void {
@@ -1009,7 +1403,7 @@ else {
 			const url = PANEL_LINKS[link];
 			if (url) return shell.openExternal(url);
 		});
-		// Only the update button's own page may ask for an update.
+		// Only the update entry's own page may ask for an update.
 		const fromUpdateButton = (event: { sender: Electron.WebContents }) =>
 			event.sender === updateButton?.webContents;
 		ipcMain.handle("update-apply", (event) => {
@@ -1026,6 +1420,16 @@ else {
 		});
 		ipcMain.on("update-ready", (event) => {
 			if (fromUpdateButton(event)) publishUpdate();
+		});
+		// Only the downloading window may cancel the download.
+		const fromDownloadWindow = (event: { sender: Electron.WebContents }) =>
+			event.sender === downloadWindow?.webContents;
+		ipcMain.handle("download-cancel", (event) => {
+			if (!fromDownloadWindow(event)) throw new Error("Not allowed");
+			cancelDownload();
+		});
+		ipcMain.on("download-ready", (event) => {
+			if (fromDownloadWindow(event)) publishDownload();
 		});
 		ipcMain.handle("open-at-login", (event, on: boolean) => {
 			fromLocalPage(event);
@@ -1054,7 +1458,7 @@ else {
 			if (setupState().open) openSetup();
 			// The second half of the click that restarted the app.
 			if (clicked) {
-				log("update: this start follows a click on the update button");
+				log("update: this start follows a click to update");
 				void working("Updating…", async () => {
 					await lookForCliUpdate(false);
 					await refreshSetup(false);
@@ -1063,8 +1467,8 @@ else {
 			}
 		});
 		// The app and the command-line tool have their own releases. By itself
-		// the app only downloads a newer app and reads which command-line tool
-		// is published; applying either takes a click on the update button.
+		// the app at most asks, downloads a newer app and reads which
+		// command-line tool is published; applying either takes a click.
 		setTimeout(() => void checkForUpdates(false), 10_000);
 		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
 		void refresh();

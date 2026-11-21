@@ -22,14 +22,36 @@ import { log } from "./log";
  */
 const RELEASES = "https://downloads.tedix.dev/desktop";
 
+/** A newer published app for this Mac, found but not downloaded yet. */
+export interface FoundUpdate {
+	version: string;
+	name: string;
+	sha256: string;
+	/** From the manifest; the download's own length wins when it has one. */
+	size: number;
+}
+
 export type UpdateResult =
-	| { kind: "ready"; version: string }
+	| { kind: "found"; update: FoundUpdate }
 	| { kind: "current" }
 	| { kind: "unavailable"; reason: string };
 
+/** How far the download is, for the downloading window. */
+export interface DownloadProgress {
+	version: string;
+	received: number;
+	total: number;
+}
+
 /** A downloaded, checked and unpacked newer app, waiting for a restart. */
 let ready: { version: string; bundle: string } | undefined;
-let checking: Promise<UpdateResult> | undefined;
+let downloading:
+	| {
+			progress: DownloadProgress;
+			stop: AbortController;
+			done: Promise<void>;
+	  }
+	| undefined;
 
 /** The folder `Tedix.app` that this program runs from. */
 function installedBundle(): string {
@@ -61,19 +83,24 @@ export function isNewer(candidate: string, current: string): boolean {
 	return false;
 }
 
-async function get(url: string, timeoutMs: number): Promise<Response> {
+async function get(
+	url: string,
+	timeoutMs: number,
+	stop?: AbortSignal,
+): Promise<Response> {
+	const timeout = AbortSignal.timeout(timeoutMs);
 	const response = await fetch(url, {
 		redirect: "error",
 		cache: "no-store",
-		signal: AbortSignal.timeout(timeoutMs),
+		signal: stop ? AbortSignal.any([timeout, stop]) : timeout,
 	});
 	if (!response.ok || !response.body)
 		throw new Error(`${url} answered ${response.status}`);
 	return response;
 }
 
-async function check(): Promise<UpdateResult> {
-	if (ready) return { kind: "ready", version: ready.version };
+/** Reads which app is published. Downloads nothing. */
+export async function findUpdate(): Promise<UpdateResult> {
 	const reason = cannotUpdate();
 	if (reason) return { kind: "unavailable", reason };
 
@@ -92,7 +119,7 @@ async function check(): Promise<UpdateResult> {
 		await get(`${RELEASES}/releases/${version}/manifest.json`, 30_000)
 	).json()) as {
 		version?: unknown;
-		assets?: { name?: unknown; sha256?: unknown }[];
+		assets?: { name?: unknown; sha256?: unknown; size?: unknown }[];
 	};
 	const asset = Array.isArray(manifest.assets)
 		? manifest.assets.find((candidate) => candidate.name === name)
@@ -104,7 +131,17 @@ async function check(): Promise<UpdateResult> {
 		!/^[0-9a-f]{64}$/.test(sha256)
 	)
 		throw new Error(`Release ${version} has no valid ${name}`);
+	const size = typeof asset?.size === "number" ? asset.size : 0;
+	return { kind: "found", update: { version, name, sha256, size } };
+}
 
+async function fetchApp(
+	update: FoundUpdate,
+	progress: DownloadProgress,
+	stop: AbortSignal,
+	changed: () => void,
+): Promise<void> {
+	const { version, name, sha256 } = update;
 	const folder = mkdtempSync(join(app.getPath("temp"), "tedix-update-"));
 	try {
 		const zip = join(folder, name);
@@ -112,17 +149,29 @@ async function check(): Promise<UpdateResult> {
 		const download = await get(
 			`${RELEASES}/releases/${version}/${name}`,
 			30 * 60_000,
+			stop,
 		);
+		const length = Number(download.headers.get("content-length"));
+		if (length > 0) progress.total = length;
+		let shown = 0;
 		await pipeline(
 			Readable.fromWeb(download.body as never),
 			async function* (chunks: AsyncIterable<Buffer>) {
 				for await (const chunk of chunks) {
 					hash.update(chunk);
+					progress.received += chunk.length;
+					// About ten times a second is enough for a progress bar.
+					if (Date.now() - shown > 100) {
+						shown = Date.now();
+						changed();
+					}
 					yield chunk;
 				}
 			},
 			createWriteStream(zip),
+			{ signal: stop },
 		);
+		changed();
 		if (hash.digest("hex") !== sha256)
 			throw new Error("The download did not match its checksum");
 		await new Promise<void>((done, failed) =>
@@ -135,20 +184,49 @@ async function check(): Promise<UpdateResult> {
 		if (!existsSync(join(bundle, "Contents", "Info.plist")))
 			throw new Error("The download holds no Tedix.app");
 		ready = { version, bundle };
-		log(`update: ${version} is ready`);
-		return { kind: "ready", version };
+		log(`update: ${version} is downloaded, checked and ready`);
 	} catch (error) {
 		rmSync(folder, { recursive: true, force: true });
 		throw error;
 	}
 }
 
-/** Looks for a newer release and gets it ready. One check runs at a time. */
-export function checkForUpdate(): Promise<UpdateResult> {
-	checking ??= check().finally(() => {
-		checking = undefined;
+/**
+ * Downloads, checks and unpacks a found app. One download runs at a time;
+ * asking again while it runs joins it. `changed` is called as it moves.
+ */
+export function downloadUpdate(
+	update: FoundUpdate,
+	changed: () => void,
+): Promise<void> {
+	if (ready?.version === update.version) return Promise.resolve();
+	if (downloading) return downloading.done;
+	const progress = {
+		version: update.version,
+		received: 0,
+		total: update.size,
+	};
+	const stop = new AbortController();
+	log(`update: downloading ${update.version}`);
+	const done = fetchApp(update, progress, stop.signal, changed).finally(() => {
+		downloading = undefined;
+		changed();
 	});
-	return checking;
+	downloading = { progress, stop, done };
+	changed();
+	return done;
+}
+
+/** The download in progress, if any. */
+export function downloadProgress(): DownloadProgress | undefined {
+	return downloading?.progress;
+}
+
+/** Stops the download in progress; nothing it fetched is kept. */
+export function cancelDownload(): void {
+	if (!downloading) return;
+	log(`update: download of ${downloading.progress.version} cancelled`);
+	downloading.stop.abort();
 }
 
 /** The version waiting for a restart, if any. */
