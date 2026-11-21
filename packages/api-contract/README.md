@@ -10,7 +10,7 @@ This package is the **public interface** for API schemas and types. All apps imp
 ┌─────────────────────────────────────────────────────────────┐
 │  packages/db (Database Layer)                                │
 │  SOURCE OF TRUTH: Drizzle schemas, DB types, relations      │
-│  CONSUMERS: apps/api, apps/landing (SSR), packages          │
+│  CONSUMERS: apps/api, approved storage owners, packages     │
 └──────────────────────────┬──────────────────────────────────┘
                            │ imports
                            ▼
@@ -20,13 +20,12 @@ This package is the **public interface** for API schemas and types. All apps imp
 │  ├── All shared types (Vertical, LayoutItem, AppCaps)       │
 │  ├── All API schemas (Zod request/response validation)      │
 │  ├── All oRPC contracts (API definitions)                   │
-│  CONSUMERS: All apps (api, os, mcp, widget, landing)        │
+│  CONSUMERS: All apps (api, os, mcp, widget)                 │
 └──────────────────────────┬──────────────────────────────────┘
                            │ imports
               ┌────────────┼────────────┬────────────┐
               ▼            ▼            ▼            ▼
          apps/api       apps/os      apps/mcp-ui  apps/mcp
-                                                  apps/landing
 ```
 
 **Key Rule:** Apps should import shared types from `@tedix/api-contract`, not from `@tedix/db`.
@@ -154,7 +153,7 @@ type AppsInputs = InferContractRouterInputs<typeof apiContract.apps>;
 ## Design Principles
 
 1. **Canonical source for shared types** - All apps import `Vertical`, `LayoutItem`, `AppCapabilities`, etc. from here
-2. **Apps import from here** - Most apps never import from `@tedix/db` (exceptions: `apps/api`, `apps/landing`)
+2. **Apps import from here** - Most apps never import from `@tedix/db` (see approved storage owners in `scripts/db-access-exceptions.json`)
 3. **Contract-first** - Define schemas before implementation
 4. **Type inference** - Use `InferContractInput/Output` for type safety
 5. **Single source** - No duplicate schemas across packages

@@ -193,7 +193,7 @@ describe("public secret scan", () => {
 	});
 	test("reviewed founder path metadata does not exempt reasons, credentials or stale references", () => {
 		const founder = ["aa", "ron"].join("");
-		const path = `apps/landing/src/pages/${founder}-linktree.astro`;
+		const path = `apps/example/src/pages/${founder}-linktree.astro`;
 		const content = `<strong>${founder} </strong>\n`;
 		const allowancePath = "scripts/oss/secret-scan-allowlist.json";
 		const entry = {
@@ -268,7 +268,7 @@ describe("public secret scan", () => {
 	});
 
 	test("reviewed public founder content does not exempt credentials or later edits", () => {
-		const path = "apps/landing/src/pages/imprint.astro";
+		const path = "apps/example/src/pages/imprint.astro";
 		const founder = ["Aa", "ron", " ", "Koi", "vunen"].join("");
 		const fakeToken = ["ghp", "_123456789012345678901234"].join("");
 		const content = `<strong>${founder}</strong>\nconst token = "${fakeToken}";\n`;

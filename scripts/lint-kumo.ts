@@ -173,9 +173,6 @@ export const REQUIRED_BRIDGE_IMPORTS = [
 function isAuthorizedKumoImport(file: string): boolean {
 	return (
 		file.startsWith("apps/os/src/components/kumo/") ||
-		// Landing owns its app-local UI adapters.
-		file.startsWith("apps/landing/src/components/ui/") ||
-		file === "apps/landing/src/styles/globals.css" ||
 		file === "apps/os/src/kumo-tedix.css"
 	);
 }

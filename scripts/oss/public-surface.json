@@ -99,11 +99,6 @@
 			"licenseClass": "agpl-product"
 		},
 		{
-			"path": "apps/landing",
-			"decision": "public-product",
-			"licenseClass": "agpl-product"
-		},
-		{
 			"path": "apps/mcp",
 			"decision": "public-product",
 			"licenseClass": "agpl-product"

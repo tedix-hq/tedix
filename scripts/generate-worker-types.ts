@@ -97,7 +97,7 @@ const CANONICAL_WRANGLER_ARGS = [
 ] as const;
 
 /**
- * Astro apps (landing, widget) genuinely need a different recipe, so the
+ * The Astro MCP UI app needs a different recipe, so the
  * difference is encoded here rather than left as a special case in a shell
  * chain:
  *
@@ -116,7 +116,6 @@ const CANONICAL_WRANGLER_ARGS = [
  *    can exceed the deadline on a cold cache.
  */
 const ASTRO_WORKSPACES: ReadonlyMap<string, string> = new Map([
-	["apps/landing", "LANDING_INSPECTOR_PORT"],
 	["apps/mcp-ui", "MCP_UI_INSPECTOR_PORT"],
 ]);
 

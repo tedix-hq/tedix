@@ -69,9 +69,3 @@ License: MIT (`apps/cms/templates/starter/LICENSE`)
 Includes a modified input rendering implementation from ink-text-input 6.0.0, Copyright (c) Vadim Demedes, under the MIT License.
 
 License: MIT (`LICENSES/third-party/ink-text-input-MIT.txt`)
-
-## magic-ui-landing-components
-
-Includes modified Magic UI animation components, Copyright (c) Magic UI, under the MIT License. Provenance was reviewed against upstream revision db541666d9ff4e8b74aca3a6a6df129fd0c3a842; the original import revision was not recorded.
-
-License: MIT (`LICENSES/third-party/magic-ui-MIT.txt`)

@@ -102,10 +102,10 @@ describe("typeCheckTargets", () => {
 	test("nested Markdown still selects its workspace", () => {
 		expect(
 			typeCheckTargets(
-				["apps/cms/templates/tedix/README.md", "apps/landing/src/content/a.md"],
+				["apps/cms/templates/tedix/README.md", "apps/docs/src/content/a.md"],
 				allWorkspacesExist,
 			),
-		).toEqual(["apps/cms", "apps/landing"]);
+		).toEqual(["apps/cms", "apps/docs"]);
 	});
 });
 

@@ -38,23 +38,22 @@ runtime services behind it.
 
 ## Apps
 
-| App                                   | Host                                   | Purpose                                                                               |
-| ------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
-| `apps/os`                             | `os.tedix.dev`, `*.os.tedix.dev`       | Product frontend (TanStack Router + Query)                                            |
-| `apps/session-broker`                 | `auth.tedix.dev/tedix/session/*`       | Browser session handoff and refresh rotation                                          |
-| `apps/api`                            | `api.tedix.dev`                        | oRPC control plane, Workflows, kernel Durable Object; shared D1 through `packages/db` |
-| `apps/mcp`                            | `*.mcp.tedix.dev`                      | Stateless multi-tenant MCP edge; tools loaded from D1                                 |
-| `apps/tedi`                           | `*.tedi.tedix.dev`                     | Tedi edge/control Worker: routing, auth, MCP, admin APIs, status/wake, proxying       |
-| `apps/tedi-runtime`                   | internal                               | The Agent runtime (Cloudflare Agents/Pi Durable Durable Object)                       |
-| `apps/tedi-workstation-runtime`       | internal                               | Container workstation leases for coding and shell work                                |
-| `apps/tedi-workstation-egress-broker` | internal                               | GitHub App credentials and scoped Git transport for workstations                      |
-| `apps/artifact-gateway`               | signed artifact routes                 | Cookie-isolated `GET`/`HEAD` byte boundary for agent-authored content                 |
-| `apps/skill-runtime`                  | `skill-runtime.tedix.dev`              | Executable skill workflows (`@cloudflare/dynamic-workflows` + Worker Loader)          |
-| `apps/mcp-ui`                         | `mcp-ui.tedix.dev`                     | MCP Apps UI renderer (Astro + React islands, json-render)                             |
-| `apps/widget`                         | `widget.tedix.dev`                     | Framework-neutral embeddable Tedi widget                                              |
-| `apps/landing`                        | `tedix.dev`, `www.tedix.dev`           | Public marketing site; remains active until its CMS replacement is verified           |
-| `apps/cms`, `apps/cms-runtime`        | `builder.tedix.dev`, `*.cms.tedix.dev` | CMS studio and tenant site runtime; see [CMS](emdash/cms.md)                          |
-| `apps/docs`, `apps/docs-runtime`      | `*.docs.tedix.dev`                     | Multitenant docs control plane and static serving plane                               |
+| App                                   | Host                                                                 | Purpose                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `apps/os`                             | `os.tedix.dev`, `*.os.tedix.dev`                                     | Product frontend (TanStack Router + Query)                                            |
+| `apps/session-broker`                 | `auth.tedix.dev/tedix/session/*`                                     | Browser session handoff and refresh rotation                                          |
+| `apps/api`                            | `api.tedix.dev`                                                      | oRPC control plane, Workflows, kernel Durable Object; shared D1 through `packages/db` |
+| `apps/mcp`                            | `*.mcp.tedix.dev`                                                    | Stateless multi-tenant MCP edge; tools loaded from D1                                 |
+| `apps/tedi`                           | `*.tedi.tedix.dev`                                                   | Tedi edge/control Worker: routing, auth, MCP, admin APIs, status/wake, proxying       |
+| `apps/tedi-runtime`                   | internal                                                             | The Agent runtime (Cloudflare Agents/Pi Durable Durable Object)                       |
+| `apps/tedi-workstation-runtime`       | internal                                                             | Container workstation leases for coding and shell work                                |
+| `apps/tedi-workstation-egress-broker` | internal                                                             | GitHub App credentials and scoped Git transport for workstations                      |
+| `apps/artifact-gateway`               | signed artifact routes                                               | Cookie-isolated `GET`/`HEAD` byte boundary for agent-authored content                 |
+| `apps/skill-runtime`                  | `skill-runtime.tedix.dev`                                            | Executable skill workflows (`@cloudflare/dynamic-workflows` + Worker Loader)          |
+| `apps/mcp-ui`                         | `mcp-ui.tedix.dev`                                                   | MCP Apps UI renderer (Astro + React islands, json-render)                             |
+| `apps/widget`                         | `widget.tedix.dev`                                                   | Framework-neutral embeddable Tedi widget                                              |
+| `apps/cms`, `apps/cms-runtime`        | `builder.tedix.dev`, `*.cms.tedix.dev`, `tedix.dev`, `www.tedix.dev` | CMS studio, marketing site and tenant site runtime; see [CMS](emdash/cms.md)          |
+| `apps/docs`, `apps/docs-runtime`      | `*.docs.tedix.dev`                                                   | Multitenant docs control plane and static serving plane                               |
 
 ## Service Bindings
 
