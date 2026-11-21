@@ -137,10 +137,7 @@ import {
 import { mayPickWorkspaceTedi } from "@/lib/workspace-guest-tedi";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
-import type {
-	ConversationSummary,
-	TurnErrorKind,
-} from "@/lib/workspace-chat-protocol";
+import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 import type {
 	ConversationChange,
 	WorkspaceChatClient,
@@ -1386,16 +1383,6 @@ function partialReply(turn: ChatTurn): boolean {
 	);
 }
 
-/** What went wrong, in plain words, by the kind the workspace sorted it into. */
-const FAILURE_KIND: Record<Exclude<TurnErrorKind, "other">, string> = {
-	interrupted: "The reply was cut off",
-	no_answer: "The model gave no answer",
-	service: "A Tedix service was busy",
-	model_unavailable: "The model is not available",
-	model_busy: "The model is busy or out of credits",
-	timeout: "The model took too long",
-};
-
 /**
  * The failure line without advice to try again, for a turn that offers no
  * Retry or Continue: an older turn, or one sent again since. A sentence such
@@ -1410,9 +1397,9 @@ function withoutRetryAdvice(line: string): string {
 
 /**
  * A reply that stopped: one plain line with Continue or Retry. A failed reply
- * keeps a reference to quote to support behind "Details", with the kind of
- * problem when the line does not already say it and the step it stopped on;
- * the recorded error stays with the workspace.
+ * keeps the step it stopped on and a reference to quote to support behind
+ * "Details"; the line already says what went wrong, and the recorded error
+ * stays with the workspace.
  */
 function TurnStopped({
 	turn,
@@ -1431,7 +1418,6 @@ function TurnStopped({
 			? turn.error
 			: "Something went wrong, so this reply stopped. Try again.";
 	const line = onRetry || onContinue ? said : withoutRetryAdvice(said);
-	const kind = turn.errorKind ?? "other";
 	const lastStep = turn.steps.at(-1);
 	const failedStep = lastStep?.status === "error" ? lastStep : null;
 	return (
@@ -1462,12 +1448,6 @@ function TurnStopped({
 					</CollapsibleTrigger>
 					<CollapsibleContent>
 						<dl className="workspace-chat-stopped-details">
-							{kind === "other" ? null : (
-								<>
-									<dt>What happened</dt>
-									<dd>{FAILURE_KIND[kind]}</dd>
-								</>
-							)}
 							{failedStep ? (
 								<>
 									<dt>Stopped at</dt>

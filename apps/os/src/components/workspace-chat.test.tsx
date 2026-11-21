@@ -879,7 +879,8 @@ describe("WorkspaceChat", () => {
 		);
 		const details = () =>
 			host.querySelector(".workspace-chat-stopped-details")?.textContent ?? "";
-		expect(details()).toContain("A Tedix service was busy");
+		// The line already says what went wrong; Details does not repeat it.
+		expect(details()).not.toContain("What happened");
 		expect(details()).toContain("Stopped atLooking up the workspace's apps");
 		expect(details()).toContain("t1");
 		expect(host.textContent).not.toContain("Failed query");
