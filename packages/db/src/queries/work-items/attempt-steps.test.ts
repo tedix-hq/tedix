@@ -374,18 +374,23 @@ describe("run steps and steering messages", () => {
 		await appendWorkAttemptSteps(db, { ...runner, steps: [question] });
 		sqlite.exec(`UPDATE work_attempts SET runtime_state='finished', outcome='cancelled',
 			finished_at='${during}', metadata='${JSON.stringify({ dispatchVersion: 1, runQuestion: question })}'`);
-		const answer = await sendWorkAttemptMessage(db, {
+		const response = {
 			orgId: runner.orgId,
 			workItemId: runner.workItemId,
 			attemptId: runner.attemptId,
-			kind: "follow_up",
+			kind: "follow_up" as const,
 			body: "Plans",
 			sender: owner,
 			at: during,
-		});
+		};
+		await expect(
+			sendWorkAttemptMessage(db, { ...response, interrupt: true }),
+		).resolves.toBeNull();
+		const answer = await sendWorkAttemptMessage(db, response);
 		expect(answer).toMatchObject({
 			attemptId: runner.attemptId,
 			body: "Plans",
+			interrupt: false,
 		});
 		await db.insert(workAttempts).values({
 			id: "next",

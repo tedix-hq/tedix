@@ -1,11 +1,19 @@
 import { CaretRight, Check, Robot, Warning } from "@phosphor-icons/react";
 import type { ListWorkAttemptStepsResult } from "@tedix/api-contract/schemas/work-attempt-steps";
 import { useQuery } from "@tanstack/react-query";
-import { type ComponentType, type ReactNode, useMemo, useState } from "react";
+import {
+	type ComponentType,
+	type ReactNode,
+	useId,
+	useMemo,
+	useState,
+} from "react";
 import { Button } from "@/components/kumo/button";
+import { Label } from "@/components/kumo/label";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
+import { Textarea } from "@/components/kumo/textarea";
 import {
 	useWorkItemRun,
 	type WorkRunAttempt,
@@ -18,6 +26,7 @@ import {
 } from "@/components/work-item-run";
 import type { AgentRunRef } from "@/lib/agent-run-result";
 import { useOsFormattingPreferences } from "@/lib/format";
+import { errorMessage } from "@/lib/orpc-error";
 import { osQuery } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -75,9 +84,8 @@ function executorLabel(executor: string): string | null {
 
 /**
  * A run a tedi started for an agent, in the chat: what it is for, who runs
- * it, where it stands and its newest steps. The person steers the run by
- * writing to the tedi, so there is no follow-up box here; stopping is direct,
- * and so is answering a question the agent is waiting on.
+ * it, where it stands and its newest steps. Ordinary follow-ups go through
+ * the tedi. The person can interrupt, stop or answer directly on the card.
  */
 export function AgentRunCardView({
 	agentRun,
@@ -88,6 +96,7 @@ export function AgentRunCardView({
 	ownMessageIds,
 	onAnswer,
 	answering = false,
+	onInterrupt,
 	onStop,
 	stopping = false,
 	stopError,
@@ -105,6 +114,11 @@ export function AgentRunCardView({
 	/** Sends the person's answer to a question the run is waiting on. */
 	onAnswer?: (answer: string) => Promise<unknown>;
 	answering?: boolean;
+	onInterrupt?: (input: {
+		body: string;
+		attemptId: string;
+		interrupt: true;
+	}) => Promise<unknown>;
 	onStop?: () => Promise<unknown>;
 	stopping?: boolean;
 	stopError?: unknown;
@@ -114,6 +128,10 @@ export function AgentRunCardView({
 	useOsFormattingPreferences();
 	const [showAll, setShowAll] = useState(false);
 	const [confirmStop, setConfirmStop] = useState(false);
+	const [interruptAttemptId, setInterruptAttemptId] = useState<string>();
+	const [interruptDraft, setInterruptDraft] = useState("");
+	const [interruptError, setInterruptError] = useState<string>();
+	const interruptFieldId = useId();
 	const live = run?.live ?? false;
 	const now = useNow(live);
 	const steps = run?.steps;
@@ -142,6 +160,9 @@ export function AgentRunCardView({
 	const title = agentRun.title || "Agent run";
 	const outcome = attempt?.outcome;
 	const question = workRunOpenQuestion(run);
+	const canInterrupt = live && !question && !stopRequested && run?.attemptId;
+	const composingInterrupt =
+		canInterrupt && canInterrupt === interruptAttemptId;
 
 	return (
 		<li
@@ -248,12 +269,32 @@ export function AgentRunCardView({
 						Open task
 						<CaretRight size={11} aria-hidden />
 					</LinkComponent>
+					{canInterrupt && onInterrupt && !composingInterrupt ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							aria-controls={interruptFieldId}
+							className="ml-auto"
+							onClick={() => {
+								setInterruptAttemptId(canInterrupt);
+								setInterruptDraft("");
+								setInterruptError(undefined);
+							}}
+						>
+							Interrupt
+						</Button>
+					) : null}
 					{live && !question ? (
 						<Button
 							type="button"
 							variant="outline"
 							size="sm"
-							className="ml-auto"
+							className={
+								canInterrupt && onInterrupt && !composingInterrupt
+									? undefined
+									: "ml-auto"
+							}
 							disabled={stopRequested}
 							onClick={() => setConfirmStop(true)}
 						>
@@ -261,6 +302,61 @@ export function AgentRunCardView({
 						</Button>
 					) : null}
 				</div>
+				{composingInterrupt && onInterrupt ? (
+					<form
+						className="grid gap-2"
+						onSubmit={(event) => {
+							event.preventDefault();
+							const body = interruptDraft.trim();
+							if (!body || answering) return;
+							setInterruptError(undefined);
+							void onInterrupt({
+								body,
+								attemptId: canInterrupt,
+								interrupt: true,
+							}).then(
+								() => setInterruptAttemptId(undefined),
+								(error: unknown) =>
+									setInterruptError(
+										errorMessage(error, "The interrupt could not be sent."),
+									),
+							);
+						}}
+					>
+						<Label htmlFor={interruptFieldId}>Send an urgent follow-up</Label>
+						<Textarea
+							id={interruptFieldId}
+							autoFocus
+							value={interruptDraft}
+							onChange={(event) => setInterruptDraft(event.target.value)}
+							maxLength={4000}
+							disabled={answering}
+						/>
+						{interruptError ? (
+							<p role="alert" className="m-0">
+								{interruptError}
+							</p>
+						) : null}
+						<div className="flex flex-wrap gap-2">
+							<Button
+								type="submit"
+								size="sm"
+								disabled={!interruptDraft.trim() || answering}
+							>
+								{answering ? "Sending…" : "Interrupt and send"}
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								disabled={answering}
+								onClick={() => setInterruptAttemptId(undefined)}
+							>
+								Cancel
+							</Button>
+						</div>
+					</form>
+				) : null}
 				<WorkRunStopConfirm
 					open={confirmStop}
 					onOpenChange={setConfirmStop}
@@ -305,6 +401,7 @@ export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
 				})
 			}
 			answering={send.isPending}
+			onInterrupt={send.mutateAsync}
 			onStop={() => stop.mutateAsync()}
 			stopping={stop.isPending}
 			stopError={stop.error}

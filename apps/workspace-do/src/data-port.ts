@@ -220,7 +220,11 @@ export interface WorkspaceRunPort {
 		steps: Array<{ seq: number; at: number; kind: string; text: string }>;
 		messages: import("@tedix/api-contract/schemas/work-attempt-steps").WorkAttemptMessage[];
 	}>;
-	sendRunMessage(input: { workItemId: string; message: string }): Promise<{
+	sendRunMessage(input: {
+		workItemId: string;
+		message: string;
+		interrupt?: boolean;
+	}): Promise<{
 		kind: "agent_run_message";
 		workItemId: string;
 		messageId: string;

@@ -3143,9 +3143,9 @@ describe("WorkspaceDO", () => {
 		await ws.scriptModel(scope, [
 			{
 				code:
-					"export default async (env) => env.work.sendRunMessage({workItemId: " +
+					"export default async (env) => { const workItemId = " +
 					JSON.stringify(workItemId) +
-					', message: "Also cover page zero"})',
+					'; try { await env.work.sendRunMessage({workItemId, message: "Stop the current step", interrupt: true}); } catch {} return env.work.sendRunMessage({workItemId, message: "Also cover page zero"}); }',
 			},
 			{ text: "Saved." },
 		]);
@@ -3156,26 +3156,29 @@ describe("WorkspaceDO", () => {
 			text: "Also cover page zero",
 		});
 		await ws.awaitTurn(scope, early.turnId, 20_000);
-		expect(
-			(await ws.readEvents(scope, { conversationId })).find(
-				(event) =>
-					event.type === "step.finished" && event.turnId === early.turnId,
-			),
-		).toMatchObject({
-			status: "ok",
-			result: expect.stringContaining('"delivery":"when_run_starts"'),
-		});
+		const earlySteps = (await ws.readEvents(scope, { conversationId })).filter(
+			(event) =>
+				event.type === "step.finished" && event.turnId === early.turnId,
+		);
+		expect(earlySteps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ status: "error" }),
+				expect.objectContaining({
+					status: "ok",
+					result: expect.stringContaining('"delivery":"when_run_starts"'),
+				}),
+			]),
+		);
 		expect(
 			await testEnv.DB.prepare(
 				"SELECT attempt_id, body, delivered_at FROM work_attempt_messages WHERE work_item_id = ?",
 			)
 				.bind(workItemId)
-				.first(),
-		).toEqual({
-			attempt_id: "",
-			body: "Also cover page zero",
-			delivered_at: null,
-		});
+				.all()
+				.then(({ results }) => results),
+		).toEqual([
+			{ attempt_id: "", body: "Also cover page zero", delivered_at: null },
+		]);
 
 		const attemptId = crypto.randomUUID();
 		const now = new Date().toISOString();
@@ -3205,7 +3208,7 @@ describe("WorkspaceDO", () => {
 				code:
 					"export default async (env) => { const workItemId = " +
 					JSON.stringify(workItemId) +
-					'; await env.work.runs(); await env.work.readRun({workItemId}); await env.work.sendRunMessage({workItemId, message: "Include empty pages"}); return env.work.stopRun({workItemId}) }',
+					'; await env.work.runs(); await env.work.readRun({workItemId}); await env.work.sendRunMessage({workItemId, message: "Include empty pages"}); await env.work.sendRunMessage({workItemId, message: "Use a different pager now", interrupt: true}); return env.work.stopRun({workItemId}) }',
 			},
 			{ text: "Sent." },
 		]);
@@ -3213,7 +3216,7 @@ describe("WorkspaceDO", () => {
 			conversationId,
 			actorId: "u1",
 			actorKind: "user",
-			text: "Include empty pages, then stop",
+			text: "Include empty pages. Interrupt the current step to switch pagers, then stop the run.",
 		});
 		await ws.awaitTurn(scope, follow.turnId, 20_000);
 		const runSteps = (await ws.readEvents(scope, { conversationId })).filter(
@@ -3234,6 +3237,9 @@ describe("WorkspaceDO", () => {
 					result: expect.stringContaining('"kind":"agent_run_message"'),
 				}),
 				expect.objectContaining({
+					result: expect.stringContaining("Interrupt requested."),
+				}),
+				expect.objectContaining({
 					result: expect.stringContaining('"kind":"agent_run_stop"'),
 				}),
 			]),
@@ -3241,7 +3247,7 @@ describe("WorkspaceDO", () => {
 		expect(
 			(
 				await testEnv.DB.prepare(
-					"SELECT kind, body, sender_type, sender_id FROM work_attempt_messages WHERE attempt_id = ? ORDER BY rowid",
+					"SELECT kind, body, sender_type, sender_id, interrupt FROM work_attempt_messages WHERE attempt_id = ? ORDER BY rowid",
 				)
 					.bind(attemptId)
 					.all()
@@ -3252,8 +3258,22 @@ describe("WorkspaceDO", () => {
 				body: "Include empty pages",
 				sender_type: "user",
 				sender_id: "u1",
+				interrupt: 0,
 			},
-			{ kind: "stop", body: "", sender_type: "user", sender_id: "u1" },
+			{
+				kind: "follow_up",
+				body: "Use a different pager now",
+				sender_type: "user",
+				sender_id: "u1",
+				interrupt: 1,
+			},
+			{
+				kind: "stop",
+				body: "",
+				sender_type: "user",
+				sender_id: "u1",
+				interrupt: 0,
+			},
 		]);
 
 		// The run ended: the person's turn reports it once, marked as the
