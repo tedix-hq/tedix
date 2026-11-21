@@ -11,6 +11,7 @@ import {
 } from "@tedix/api-contract/schemas/tedi-memory";
 import { createDbClient } from "@tedix/db/client";
 import { tediMemoryDocuments } from "@tedix/db/schema/tedi-memory";
+import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -33,7 +34,8 @@ function fixture() {
 	databases.push(sqlite);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
-		canonicalWorkFactoryDdl() + schemaDdl(tedis, tediMemoryDocuments),
+		canonicalWorkFactoryDdl() +
+			schemaDdl(tedis, tediMemoryDocuments, gatewayChangeRecords),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('${ORG}','Example','example'),('${OTHER_ORG}','Other','other');
 		INSERT INTO tedis(id,organization_id,name,slug,status,mcp_capability_profile) VALUES
@@ -88,7 +90,7 @@ const edit = (text: string, mode: "replace" | "append" = "replace") => ({
 
 describe("tedi core memory", () => {
 	it("lets a tedi read, replace and add to its own memory, one version per change", async () => {
-		const { runtime, person } = fixture();
+		const { sqlite, runtime, person } = fixture();
 		const mine = runtime("mine");
 
 		await expect(mine.readCore({ tediId: "mine" })).resolves.toMatchObject({
@@ -103,6 +105,24 @@ describe("tedi core memory", () => {
 		});
 		expect(added.status).toBe("saved");
 		expect(added.memory.version).toBe(2);
+		const rows = sqlite
+			.prepare("SELECT revision FROM tedi_memory_documents ORDER BY version")
+			.all() as { revision: string }[];
+		for (const row of rows) {
+			const revision = JSON.parse(row.revision);
+			const change = sqlite
+				.prepare("SELECT record FROM gateway_change_records WHERE id = ?")
+				.get(revision.provenance.changeRecordId) as { record: string };
+			expect(JSON.parse(change.record)).toMatchObject({
+				operation: "write",
+				outcome: "applied",
+				after: { revisionId: revision.revisionId, hash: revision.hash },
+				decision: { verdict: "allow", riskTier: "bounded_write" },
+			});
+		}
+		expect(JSON.parse(rows[1]!.revision).provenance.source.surface).toBe(
+			"tedi_memory_reflection",
+		);
 		expect(
 			added.memory.sections.find((section) => section.key === "project")?.text,
 		).toBe("Ships on Fridays.\nReviews go to the reviewer first.");
