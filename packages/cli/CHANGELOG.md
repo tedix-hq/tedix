@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.5 — 2026-11-21
+
+### Patch Changes
+
+- 9c866bf: Stop re-running agent verification of a landed change when the verifier cannot reach what proves it, such as a browser, computer use or a missing scope. The runner records the run as cancelled instead of failed, holds the task, and asks its owner once what someone with access must check.
+- 2a86391: A restarted runner no longer marks a finished run as failed. Since the change that releases runs whose process died, a run that had already ended and was waiting for its commit proof, its completion or a retried settlement was settled as "Recorded agent process is dead" and lost the commit it had landed. Those runs are left to their own settlement again.
+- 4666858: Release dispatcher runs when their recorded process dies or their server Attempt ends or expires. Preserve unfinished work in the retained checkout and allow newer Work revisions to run.
+- c2a50d4: Allow up to three queued runner calls at once so a slow preparation does not block every other call.
+- 5df5761: A runner's waiting starts keep their order. A start a person asked for takes a fourth preparation place; the next preparation to end then woke the oldest waiting start although no place was free, and that start went to the back of the order. A freed place now goes straight to the oldest waiting start, however the preparation ended. A start request for an item that is waiting starts it at once instead of being skipped as "Already running here", and a waiting start whose Work changed or left the runner's list is dropped and no longer counts as running.
+- d4af264: Fix `tedix work wait` to resolve the gateway's canonical Work wait tool.
+- e59af11: Let coding runs requested by their owner in workspace chat start without a wording check on the brief. Tool permissions and approvals still apply when the agent acts.
+
 ## 0.29.4 — 2026-11-21
 
 ### Patch Changes
