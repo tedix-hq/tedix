@@ -23,14 +23,25 @@ export function transientReadFailure(error: unknown): boolean {
 	if (status !== undefined)
 		return status === 408 || status === 429 || status >= 500;
 	const code = (error as { code?: string } | null)?.code;
-	if (code) return ["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN"].includes(code);
+	if (code)
+		return [
+			"ETIMEDOUT",
+			"ECONNRESET",
+			"ECONNREFUSED",
+			"EPIPE",
+			"EAI_AGAIN",
+			"INTERNAL_SERVER_ERROR",
+			"BAD_GATEWAY",
+			"SERVICE_UNAVAILABLE",
+			"GATEWAY_TIMEOUT",
+		].includes(code);
 	if (isReadDeadline(error)) return true;
 	const message = error instanceof Error ? error.message : "";
 	return (
 		!/\b(?:FORBIDDEN|UNAUTHORIZED|NOT_FOUND|CONFLICT|BAD_REQUEST)\b/.test(
 			message,
 		) &&
-		/\b(?:ECONNRESET|ETIMEDOUT|EAI_AGAIN|\w+_unavailable)\b|tool policy could not be verified; no action was executed/.test(
+		/\b(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|\w+_unavailable)\b|Internal Server Error|fetch failed|connection (?:error|reset|closed)|socket hang up|tool policy could not be verified; no action was executed/i.test(
 			message,
 		)
 	);

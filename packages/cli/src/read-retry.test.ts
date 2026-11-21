@@ -63,6 +63,8 @@ describe("one read retry budget", () => {
 	});
 
 	test.each([
+		"Could not submit evidence: Internal Server Error",
+		"fetch failed: connection error",
 		`Tedix CLI read failed (exit 2): {"message":"MCP tool error: The organization's tool policy could not be verified; no action was executed."}`,
 		`Tedix CLI read failed (exit 2): {"message":"ECONNRESET: The socket connection was closed unexpectedly. [traceId: 00000000-0000-4000-8000-000000000000]"}`,
 		`Tedix CLI read failed (exit 2): {"message":"MCP tools/call error: \\"external_agent_validation_unavailable\\" [traceId: 00000000-0000-4000-8000-000000000000]"}`,

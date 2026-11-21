@@ -151,7 +151,7 @@ import { resolveCliApiUrl } from "./workspace-resolver";
 import { fileGatewayCooldown } from "./gateway-cooldown";
 import { installLaneService } from "./lane-service";
 import { CliReadError, readJsonChild } from "./hooks/hook-io";
-import { readBudgetMs, retryRead } from "./read-retry";
+import { readBudgetMs, retryRead, transientReadFailure } from "./read-retry";
 import { prefixLaneBrief } from "./lane";
 import { acquireCredentialLock } from "./credential-lock";
 import {
@@ -7303,8 +7303,12 @@ ${firstBrief}`;
 			this.directory,
 			`${receipt.itemId}-${receipt.version}.json`,
 		);
+		receipt.settlementRetries = (receipt.settlementRetries ?? 0) + 1;
+		// Revisit before the five-minute Attempt lease can lapse between retries.
+		receipt.recheckAt =
+			Date.now() +
+			Math.min(2 * 60_000, 60_000 * 2 ** (receipt.settlementRetries - 1));
 		if (receipt.pendingCommitProof !== undefined) {
-			receipt.recheckAt = Date.now() + 60_000;
 			this.save(path, receipt);
 			try {
 				await this.renewLease(receipt);
@@ -7487,7 +7491,8 @@ ${firstBrief}`;
 					error instanceof LaneSkillProofReadError ||
 					error instanceof LaneRuntimeAppProofReadError ||
 					error instanceof LaneLocalBranchProofReadError ||
-					error instanceof LaneOutcomeReadError
+					error instanceof LaneOutcomeReadError ||
+					transientReadFailure(error)
 				) {
 					// An unavailable proof source cannot prove either success or failure.
 					this.log("settlement-proof-deferred", receipt.itemId, String(error));
@@ -7505,9 +7510,6 @@ ${firstBrief}`;
 		}
 
 		const unlanded = recordUnlandedCommits(receipt);
-		receipt.settlementRetries = (receipt.settlementRetries ?? 0) + 1;
-		receipt.recheckAt =
-			Date.now() + (receipt.settlementRetries >= 5 ? 15 * 60_000 : 60_000);
 		this.save(path, receipt);
 		// A renewal already waiting is sent before the settlement; none follows it.
 		lease.stop();
@@ -8087,6 +8089,8 @@ ${firstBrief}`;
 			attempt.expiresAt &&
 			Date.parse(attempt.expiresAt) > Date.now()
 		) {
+			if (receipt.pendingCommitProof === undefined)
+				await this.renewLease(receipt);
 			await this.settle(receipt);
 			this.scheduleCleanup(receipt);
 		} else {

@@ -227,6 +227,7 @@ function fixture({
 		runSizes: new Map<string, number>(),
 		freeDiskBytes: Number.MAX_SAFE_INTEGER,
 		proofError: undefined as Error | undefined,
+		settlementError: undefined as Error | undefined,
 		evidenceError: undefined as Error | undefined,
 		evidence: {
 			data: [] as Record<string, unknown>[],
@@ -509,6 +510,8 @@ function fixture({
 				response = comment;
 			} else if (verb === "settle" && failSettle)
 				throw new Error("Transient settlement failure");
+			else if (verb === "settle" && control.settlementError)
+				throw control.settlementError;
 			else if (verb === "complete" && control.completeError)
 				throw control.completeError;
 			else if (
@@ -6194,6 +6197,85 @@ describe("dispatcher admission", () => {
 			await dispatcher.drain();
 		}
 	});
+	it.each([
+		["proof", "500"],
+		["settlement", "500"],
+		["proof", "ECONNRESET"],
+		["settlement", "ECONNRESET"],
+	] as const)(
+		"retries a %s %s then succeeds without another agent turn",
+		async (stage, fault) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			f.control.commits = ["c".repeat(40)];
+			const error =
+				fault === "500"
+					? new CliReadError(
+							"Internal Server Error",
+							"INTERNAL_SERVER_ERROR",
+							500,
+						)
+					: new CliReadError("Connection reset", "ECONNRESET");
+			if (stage === "proof") f.control.proofError = error;
+			else f.control.settlementError = error;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const path = join(f.dir, `${item().id}-2.json`);
+			const retained = JSON.parse(readFileSync(path, "utf8"));
+			expect(retained).toMatchObject({
+				phase: "settling",
+				outcome: "succeeded",
+				settlementRetries: 1,
+			});
+			expect(retained.recheckAt).toBeGreaterThan(Date.now());
+			f.control.history.data = [
+				{
+					id: retained.attemptId,
+					externalSessionKey: retained.session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+				},
+			];
+			const clock = spyOn(Date, "now").mockReturnValue(retained.recheckAt + 1);
+			try {
+				await f.dispatcher.tick();
+				const again = JSON.parse(readFileSync(path, "utf8"));
+				expect(again).toMatchObject({
+					phase: "settling",
+					outcome: "succeeded",
+					settlementRetries: 2,
+				});
+				expect(again.recheckAt - Date.now()).toBe(120_000);
+				f.control.proofError = undefined;
+				f.control.settlementError = undefined;
+				clock.mockReturnValue(again.recheckAt + 1);
+				await f.dispatcher.tick();
+				expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+					phase: "settled",
+					outcome: "succeeded",
+					commits: f.control.commits,
+					attemptId: retained.attemptId,
+				});
+				expect(f.releases).toHaveLength(1);
+				expect(
+					f.events.filter((event) => event.verb === "settle").length,
+				).toBeGreaterThan(0);
+				expect(
+					f.events
+						.filter((event) => event.verb === "settle")
+						.every(
+							(event) =>
+								event.args[event.args.indexOf("--outcome") + 1] === "succeeded",
+						),
+				).toBe(true);
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
 	it("retains the exact fence, outcome and retry deadline when settlement fails", async () => {
 		const { dispatcher, releases, dir } = fixture({ failSettle: true });
 		await dispatcher.tick();
