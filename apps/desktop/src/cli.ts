@@ -152,6 +152,60 @@ function linkToApp(): void {
 }
 
 /**
+ * Signs a command-line tool with the person's own local certificate, when
+ * they made one (`Tedix CLI (local)`, see the Full Disk Access guide).
+ * macOS then knows every version as the same program, so a folder
+ * permission given once is kept across updates. Without the certificate
+ * each version is a new program to macOS and the permission is lost.
+ * True when the file was signed now.
+ */
+async function signLocally(path: string): Promise<boolean> {
+	if (process.platform !== "darwin") return false;
+	const identities = await run("/usr/bin/security", [
+		"find-identity",
+		"-p",
+		"codesigning",
+	]);
+	if (!identities.output.includes('"Tedix CLI (local)"')) return false;
+	const now = await run("/usr/bin/codesign", ["-d", "-r-", path]);
+	if (now.output.includes('identifier "dev.tedix.cli"')) return false;
+	return (
+		await run("/usr/bin/codesign", [
+			"--force",
+			"--sign",
+			"Tedix CLI (local)",
+			"--identifier",
+			"dev.tedix.cli",
+			path,
+		])
+	).ok;
+}
+
+/**
+ * Signs the copy in use when the person made the certificate after that
+ * copy was put in place. It signs a second file and renames it over the
+ * copy, and runs once as the app starts, before the runners do.
+ */
+async function signCopyInUse(): Promise<void> {
+	if (!existsSync(staged())) return;
+	const fresh = `${staged()}.signed-${process.pid}`;
+	try {
+		copyFileSync(staged(), fresh);
+		chmodSync(fresh, 0o755);
+		if (!(await signLocally(fresh))) return;
+		if (!(await versionOf(fresh))) return;
+		renameSync(fresh, staged());
+		log(
+			"cli: signed the copy in use with your local certificate; allow it once more in Full Disk Access, and updates keep that permission",
+		);
+	} catch (error) {
+		log(`cli: could not sign the copy in use (${(error as Error).message})`);
+	} finally {
+		rmSync(fresh, { force: true });
+	}
+}
+
+/**
  * Puts a command-line tool in the app's data folder in one step: writes it
  * beside the copy in use, signs it with the person's own local identity when
  * they made one, checks that it starts as version `want`, keeps the copy in
@@ -164,20 +218,7 @@ async function install(bytes: Buffer, want: string): Promise<void> {
 		// A fresh file, so nothing macOS attached to a download comes along.
 		writeFileSync(fresh, bytes, { mode: 0o755 });
 		chmodSync(fresh, 0o755);
-		const identities = await run("/usr/bin/security", [
-			"find-identity",
-			"-p",
-			"codesigning",
-		]);
-		if (identities.output.includes('"Tedix CLI (local)"'))
-			await run("/usr/bin/codesign", [
-				"--force",
-				"--sign",
-				"Tedix CLI (local)",
-				"--identifier",
-				"dev.tedix.cli",
-				fresh,
-			]);
+		await signLocally(fresh);
 		const got = await versionOf(fresh);
 		if (got !== want)
 			throw new Error(
@@ -287,7 +328,7 @@ function accessNote(): string | undefined {
 	const folder = path.startsWith(home)
 		? `your ${path.slice(home.length).split("/")[0]} folder`
 		: path || "a folder";
-	return `Some earlier sessions could not be reopened because macOS has not allowed access to ${folder}. Open System Settings → Privacy & Security → Files and Folders (or Full Disk Access) and allow Tedix.`;
+	return `Some earlier sessions could not be reopened because macOS has not allowed access to ${folder}. Allow ~/.local/bin/tedix in System Settings → Privacy & Security → Full Disk Access. macOS forgets that at every update unless you create the local certificate once: docs.tedix.dev/supervisor-full-disk-access`;
 }
 
 /**
@@ -307,6 +348,7 @@ export async function readCli(): Promise<CliState> {
 		if (!tidied) {
 			tidy();
 			tidied = true;
+			await signCopyInUse();
 		}
 		if (!existsSync(staged()) && !updateRun) {
 			const want = await versionOf(source);

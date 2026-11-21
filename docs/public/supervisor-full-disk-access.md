@@ -43,6 +43,19 @@ identity keeps the grant across updates. Tedix never creates it for you.
    turn it on. Then restart the supervisor with
    `tedix supervise uninstall && tedix supervise install`.
 
+### With the Tedix app
+
+On a Mac with the Tedix app, the app runs the supervisor and keeps the
+command-line tool up to date, so steps 2 and 3 differ:
+
+2. Quit Tedix and open it again. As it starts, the app signs its copy of the
+   command-line tool with your certificate, and it signs every later version
+   the same way. macOS may ask whether `codesign` may use the certificate's
+   key; choose **Always Allow**.
+3. Add `~/.local/bin/tedix` to **Full Disk Access** as above, then choose
+   **Restart runners** in **Tedix → This Mac…**. Do not run
+   `tedix supervise install` on this Mac: the app removes that login service.
+
 `codesign -d -r- ~/.local/bin/tedix` then shows
 `identifier "dev.tedix.cli" and certificate leaf = …`, which stays the same
 across updates.
