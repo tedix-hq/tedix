@@ -141,7 +141,10 @@ export type WireEventBody =
 			status: "ok" | "error";
 			summary?: string;
 			durationMs: number;
+			/** What went wrong in plain words; see `stepFailure`. */
 			error?: string;
+			/** The error as recorded, for the step's detail only; never shown inline. */
+			detail?: string;
 			/** The start of what the step returned, as text; a few KB at most. */
 			result?: string;
 	  }
@@ -245,7 +248,9 @@ export type WireEventBody =
 			turnId: string;
 			status: "done" | "error" | "cancelled" | "waiting";
 			approvalUrl?: string;
+			/** Why the reply stopped, in one plain sentence; see `turnFailure`. */
 			error?: string;
+			errorKind?: TurnErrorKind;
 			durationMs: number;
 	  }
 	| {
@@ -258,6 +263,114 @@ export type WireEventBody =
 	  };
 
 export type WireEvent = WireEventBase & WireEventBody;
+
+/** What kind of failure stopped a reply; the chat names it in plain words. */
+export type TurnErrorKind =
+	| "interrupted"
+	| "no_answer"
+	| "service"
+	| "model_unavailable"
+	| "model_busy"
+	| "timeout"
+	| "other";
+
+const TURN_ERROR_TEXT: Record<TurnErrorKind, string> = {
+	interrupted: "This reply was cut off before it finished.",
+	no_answer: "The model returned no answer. Try again, or pick another model.",
+	service:
+		"Something went wrong on our side, so this reply stopped. Try again.",
+	model_unavailable:
+		"This model is not available right now. Pick another model and try again.",
+	model_busy:
+		"The model is busy or out of credits right now. Wait a moment and try again.",
+	timeout: "The model took too long to answer. Try again.",
+	other: "Something went wrong, so this reply stopped. Try again.",
+};
+
+/**
+ * Text already written for a person: whole sentences without status codes,
+ * markup or names of internal services. A credit or plan refusal ends with
+ * its gate in brackets and counts.
+ */
+function readsAsPlainText(error: string): boolean {
+	const text = error.replace(/\s*\([a-z_]+\)/g, "").trim();
+	return (
+		/^[A-Z]/.test(text) &&
+		/[.!?]$/.test(text) &&
+		text.length <= 300 &&
+		!/[{}<>_"]|^\d{3}\b|\b\w+Error\b|https?:\/\/|\bD1\b|\bDB\b|\bSQL\b|\bquery\b|Connection error|Durable Object|executor/i.test(
+			text,
+		)
+	);
+}
+
+function turnErrorKind(error: string): TurnErrorKind {
+	const text = error.toLowerCase();
+	const says = (pattern: RegExp) => pattern.test(text);
+	// The reply had no text and no step, e.g. the model spent its whole output
+	// budget reasoning.
+	if (text.startsWith("model returned no answer")) return "no_answer";
+	if (error === "interrupted" || says(/no live executor/)) return "interrupted";
+	// Tedix's own storage or services, not the model.
+	if (
+		says(
+			/\bd1\b|database|failed query|sqlite|durable object|could not determine|connection error|internal error/,
+		)
+	)
+		return "service";
+	if (
+		says(
+			/deprecat|retired|decommission|no such model|model[^.]*not found|unavailable|\b(404|410|503)\b/,
+		)
+	)
+		return "model_unavailable";
+	if (
+		says(
+			/\b(402|429)\b|rate.?limit|too many requests|quota|capacity|overloaded|credit|billing|insufficient/,
+		)
+	)
+		return "model_busy";
+	if (says(/time.?out|timed out|deadline|\b(408|504)\b/)) return "timeout";
+	return "other";
+}
+
+/**
+ * Why a reply failed, as the chat shows it. A provider or database error
+ * becomes one plain sentence by its kind; the recorded error stays on the
+ * turn row, never in the event. A reason already written for a person, such
+ * as a credit limit, is kept.
+ */
+export function turnFailure(error: string): {
+	error: string;
+	errorKind: TurnErrorKind;
+} {
+	const errorKind = readsAsPlainText(error) ? "other" : turnErrorKind(error);
+	return {
+		error: readsAsPlainText(error) ? error : TURN_ERROR_TEXT[errorKind],
+		errorKind,
+	};
+}
+
+/** The longest recorded error a step event carries for its detail. */
+const STEP_DETAIL_CHARS = 4_000;
+
+/**
+ * A failed step as the chat shows it: a plain line, and the recorded error
+ * as `detail` for the step's own detail. The model reads the recorded error
+ * from the call itself.
+ */
+export function stepFailure(error: string): { error: string; detail: string } {
+	const plain = /approval required|approval_pending|waits for the person/i.test(
+		error,
+	)
+		? "Waiting for approval"
+		: readsAsPlainText(error)
+			? error
+			: turnErrorKind(error) === "service"
+				? "A Tedix service was busy"
+				: "Didn't work";
+	return { error: plain, detail: error.slice(0, STEP_DETAIL_CHARS) };
+}
 
 /** A person's approval mode in this workspace and the loosest they may pick. */
 export interface ApprovalModeState {
@@ -484,7 +597,10 @@ export function stepSummary(
 	return words ? `Read ${count} about '${words}'` : `Read ${count}`;
 }
 
-/** A command that ran without asking because it only reads. */
+/**
+ * A command that ran without asking because it only reads. The command
+ * itself stays in the step's detail.
+ */
 function readOnlyCommandSummary(input: unknown, value: unknown) {
 	const result = value as { ranAs?: unknown; status?: unknown } | null;
 	if (result?.ranAs !== "read") return undefined;
@@ -493,17 +609,16 @@ function readOnlyCommandSummary(input: unknown, value: unknown) {
 	if (typeof command !== "string") return undefined;
 	const where =
 		typeof call?.machine === "string" ? call.machine.slice(0, 80) : "this Mac";
-	const shown = command.slice(0, 200);
 	// The machine answers on its own: it may refuse, fail or not answer yet.
 	switch (result.status) {
 		case "done":
-			return `Ran a read-only command on ${where}: ${shown}`;
+			return `Ran a read-only command on ${where}`;
 		case "failed":
-			return `${where} refused or failed a read-only command: ${shown}`;
+			return `${where} refused or failed a read-only command`;
 		case "expired":
-			return `${where} did not pick up a read-only command: ${shown}`;
+			return `${where} did not pick up a read-only command`;
 		default:
-			return `Sent a read-only command to ${where}: ${shown}`;
+			return `Sent a read-only command to ${where}`;
 	}
 }
 
@@ -541,9 +656,9 @@ export function stepLabel(
 			edit: "Editing slides",
 		},
 		apps: {
-			list: "Listing apps",
-			access: "Checking gadget access",
-			getCode: "Reading gadget code",
+			list: "Looking up the workspace's apps",
+			access: "Checking app access",
+			getCode: "Reading app code",
 			versions: "Listing app versions",
 			readFile: "Reading an app file",
 			grep: "Searching app files",
@@ -576,6 +691,14 @@ export function stepLabel(
 			list: "Finding computers",
 			call: "Using a machine",
 			read: "Reading a machine's answer",
+		},
+		memory: {
+			read: "Reading the workspace memory",
+			list: "Looking through the workspace memory",
+			history: "Reading the history of a memory",
+			write: "Saving to the workspace memory",
+			review: "Reviewing a saved memory",
+			rollback: "Restoring an earlier memory",
 		},
 		work: {
 			list: "Reading Work items",
@@ -613,7 +736,7 @@ export function stepLabel(
 	return {
 		label: created
 			? `Creating ${created}`
-			: (table[binding]?.[method] ?? `${binding}.${method}`),
+			: (table[binding]?.[method] ?? "Using a workspace tool"),
 		kind: write ? "write" : "read",
 	};
 }

@@ -536,8 +536,8 @@ describe("WorkspaceDO", () => {
 			steps.map((step) => (step.type === "step.started" ? step.label : "")),
 		).toEqual([
 			// One step: shown while the code is written, then while it runs.
-			"Writing the next step",
-			"Running code against the workspace",
+			"Planning the next step",
+			"Running a script",
 			"Listing documents and sheets",
 			"Reading a document or sheet",
 			"Reading a document or sheet",
@@ -1667,7 +1667,7 @@ describe("WorkspaceDO", () => {
 		const access = events.find(
 			(event) => event.type === "step.started" && event.tool === "apps.access",
 		);
-		expect(access).toMatchObject({ label: "Checking gadget access" });
+		expect(access).toMatchObject({ label: "Checking app access" });
 		expect(events).toContainEqual(
 			expect.objectContaining({
 				type: "step.finished",
@@ -2806,7 +2806,7 @@ describe("WorkspaceDO", () => {
 				"Connected accounts are not available to tedi-started or scheduled turns yet.";
 			expect(
 				events.filter(
-					(event) => event.type === "step.finished" && event.error === message,
+					(event) => event.type === "step.finished" && event.detail === message,
 				),
 			).toHaveLength(3);
 			expect((await ws.readSystemPrompts(own))[0]).toContain(message);
@@ -3450,7 +3450,7 @@ describe("WorkspaceDO", () => {
 				expect.objectContaining({
 					type: "step.finished",
 					status: "error",
-					error: expect.stringContaining("only reports"),
+					detail: expect.stringContaining("only reports"),
 				}),
 				expect.objectContaining({
 					type: "assistant.done",
@@ -3522,7 +3522,7 @@ describe("WorkspaceDO", () => {
 					expect.objectContaining({
 						type: "step.finished",
 						status: "error",
-						error: expect.stringContaining(
+						detail: expect.stringContaining(
 							"A person with build access must request this in workspace chat",
 						),
 					}),
@@ -3871,7 +3871,7 @@ describe("WorkspaceDO", () => {
 				type: "step.finished",
 				stepId: requested.stepId,
 				status: "error",
-				error: expect.stringContaining("revision_conflict"),
+				detail: expect.stringContaining("revision_conflict"),
 			}),
 		);
 		const results = JSON.stringify(
@@ -4111,7 +4111,7 @@ describe("WorkspaceDO", () => {
 			const events = await ws.readEvents(own, { conversationId, after: 0 });
 			expect(
 				events.flatMap((event) =>
-					event.type === "step.finished" && event.error ? [event.error] : [],
+					event.type === "step.finished" && event.detail ? [event.detail] : [],
 				),
 			).toEqual([sandboxTimeoutError(4_000)]);
 			// Only the run the turn was waiting for reached the workspace.
@@ -8753,7 +8753,9 @@ describe("approval modes and computer access", () => {
 			`export default async (env) => { await env.web.fetch("https://example.com/prices"); return ${WRITE}.catch(e => e.message); }`,
 		);
 		expect(await ws.webFetchCount(own)).toBe(1);
-		expect(held).toEqual([expect.objectContaining({ title: "memory.write" })]);
+		expect(held).toEqual([
+			expect.objectContaining({ title: "Saving to the workspace memory" }),
+		]);
 	});
 
 	test("in a private workspace a read-only command on the sender's own computer runs without asking; a change asks", async () => {
@@ -8798,9 +8800,7 @@ describe("approval modes and computer access", () => {
 			own,
 			`export default async (env) => { const read = await ${command("git -C ~/repo status && date -u")}; const change = await ${command("git -C ~/repo status; rm -rf build")}.catch(e => e.message); return { read, change }; }`,
 		);
-		expect(text).toContain(
-			"Ran a read-only command on Studio: git -C ~/repo status && date -u",
-		);
+		expect(text).toContain("Ran a read-only command on Studio");
 		expect(held).toHaveLength(1);
 		expect((await ws.readMachineCalls(own)).map((call) => call.op)).toEqual([
 			"list",
@@ -8819,7 +8819,9 @@ describe("approval modes and computer access", () => {
 			own,
 			`export default async (env) => { await ${WRITE}; return env.memory.review({ revisionId: "r1", decision: "approve" }).catch(e => e.message); }`,
 		);
-		expect(held).toEqual([expect.objectContaining({ title: "memory.review" })]);
+		expect(held).toEqual([
+			expect.objectContaining({ title: "Reviewing a saved memory" }),
+		]);
 		expect(held[0]).not.toHaveProperty("approveAllInTurn");
 		const records = await ws.readChangeRecords(own, { resource: "memory" });
 		expect(

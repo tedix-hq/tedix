@@ -12,6 +12,7 @@ import type {
 	ApprovalModeState,
 	ConversationSummary,
 	StepKind,
+	TurnErrorKind,
 	TurnStatus,
 	TurnUsage,
 	UsageTotals,
@@ -30,7 +31,10 @@ export type ChatStep = {
 	status: "running" | "ok" | "error";
 	summary?: string;
 	durationMs?: number;
+	/** What went wrong in plain words. */
 	error?: string;
+	/** The error as recorded; shown only behind the step's raw output. */
+	detail?: string;
 	/** The start of what the step returned, as text. */
 	result?: string;
 };
@@ -155,7 +159,9 @@ export type ChatTurn = {
 	summarizedEarlier?: boolean;
 	status: "running" | "retrying" | TurnStatus;
 	approvalUrl?: string;
+	/** Why the reply stopped; plain text only when `errorKind` is set. */
 	error?: string;
+	errorKind?: TurnErrorKind;
 	finishedAt: string | null;
 	durationMs?: number;
 	usage?: TurnUsage;
@@ -783,6 +789,7 @@ export function applyWorkspaceChatEvent(
 										summary: event.summary,
 										durationMs: event.durationMs,
 										error: event.error,
+										detail: event.detail,
 										result: event.result,
 									}
 								: step,
@@ -800,6 +807,7 @@ export function applyWorkspaceChatEvent(
 								summary: event.summary,
 								durationMs: event.durationMs,
 								error: event.error,
+								detail: event.detail,
 								result: event.result,
 							},
 						];
@@ -897,6 +905,7 @@ export function applyWorkspaceChatEvent(
 				...turn,
 				status: "retrying",
 				error: undefined,
+				errorKind: undefined,
 				finishedAt: null,
 				reply: "",
 				replyDeltas: undefined,
@@ -909,6 +918,7 @@ export function applyWorkspaceChatEvent(
 				status: event.status,
 				approvalUrl: event.approvalUrl,
 				error: event.error,
+				errorKind: event.errorKind,
 				finishedAt: event.at,
 				durationMs: event.durationMs,
 				replyDone: true,

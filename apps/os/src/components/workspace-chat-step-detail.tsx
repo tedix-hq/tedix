@@ -2,6 +2,11 @@ import { ArrowClockwise, Check, Copy } from "@phosphor-icons/react";
 import { useContext, useEffect, useRef, useState } from "react";
 import { ChatOutputLinkContext } from "@/components/chat-markdown";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import {
@@ -27,39 +32,70 @@ function stepRequest(
 	return text ? { label: "Request", text } : null;
 }
 
-/** True when the step has code, a request or a result to show. */
+/**
+ * What went wrong in a failed step: the plain line, and the error as it was
+ * recorded. Older events carry only the recorded error.
+ */
+function stepError(step: ChatStep): { plain?: string; raw?: string } {
+	if (step.status !== "error") return {};
+	return step.detail
+		? { plain: step.error, raw: step.detail }
+		: { raw: step.error };
+}
+
+/** True when the step has code, a request, a result or an error to show. */
 export function stepHasDetail(step: ChatStep): boolean {
-	return stepRequest(step) !== null || Boolean(step.result);
+	return (
+		stepRequest(step) !== null ||
+		Boolean(step.result) ||
+		Boolean(stepError(step).raw)
+	);
+}
+
+/** Longer raw text than this waits behind "Show raw output". */
+const RAW_PREVIEW_CHARS = 240;
+
+function RawText({ label, text }: { label: string; text: string }) {
+	const long = text.length > RAW_PREVIEW_CHARS || text.split("\n").length > 4;
+	return (
+		<>
+			<Text role="caption" tone="secondary">
+				{label}
+			</Text>
+			{long ? (
+				<Collapsible>
+					<CollapsibleTrigger className="workspace-chat-raw-toggle">
+						Show raw output
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<pre>{text}</pre>
+					</CollapsibleContent>
+				</Collapsible>
+			) : (
+				<pre>{text}</pre>
+			)}
+		</>
+	);
 }
 
 /**
- * What one step ran and the start of what came back. Both arrive already cut
- * to a few thousand characters; each block scrolls inside a fixed height.
+ * What one step ran, the start of what came back, and what went wrong. All
+ * arrive already cut to a few thousand characters; long text stays folded
+ * and each block scrolls inside a fixed height.
  */
 export function StepDetail({ step }: { step: ChatStep }) {
 	const request = stepRequest(step);
-	if (!request && !step.result) return null;
+	const error = stepError(step);
+	if (!request && !step.result && !error.raw) return null;
 	return (
 		<div
 			className="workspace-chat-step-detail"
 			data-testid="workspace-chat-step-detail"
 		>
-			{request ? (
-				<>
-					<Text role="caption" tone="secondary">
-						{request.label}
-					</Text>
-					<pre>{request.text}</pre>
-				</>
-			) : null}
-			{step.result ? (
-				<>
-					<Text role="caption" tone="secondary">
-						Result
-					</Text>
-					<pre>{step.result}</pre>
-				</>
-			) : null}
+			{error.plain ? <Text role="caption">{error.plain}</Text> : null}
+			{request ? <RawText label={request.label} text={request.text} /> : null}
+			{step.result ? <RawText label="Result" text={step.result} /> : null}
+			{error.raw ? <RawText label="Error" text={error.raw} /> : null}
 		</div>
 	);
 }

@@ -283,6 +283,45 @@
 	font-size: var(--text-tedix-caption);
 }
 
+.workspace-chat-raw-toggle.workspace-chat-raw-toggle,
+.workspace-chat-stopped-toggle.workspace-chat-stopped-toggle {
+	min-height: 0;
+	margin-left: -4px;
+	padding: 0 4px;
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+}
+
+/* A reply that stopped: one quiet line, then a folded reference. */
+.workspace-chat-stopped {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.workspace-chat-stopped-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.workspace-chat-stopped-details {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	align-items: center;
+	gap: 4px 12px;
+	margin: 4px 0 0;
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+	color: var(--color-kumo-subtle, inherit);
+}
+
+.workspace-chat-stopped-details dd {
+	min-width: 0;
+	margin: 0;
+}
+
 /* Time, copy and retry under a reply: shown on hover or keyboard focus. */
 .workspace-chat-reply-hover {
 	display: flex;

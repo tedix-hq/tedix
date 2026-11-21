@@ -5,6 +5,7 @@ import {
 	halfCharacterPath,
 	unsavableTextError,
 } from "./call-failure";
+import { stepFailure, turnFailure } from "./wire";
 
 test("finds half of a character anywhere in a call's arguments", () => {
 	expect(
@@ -78,4 +79,46 @@ test("a thrown value that is not an Error is shown as it is", () => {
 		"The call threw [object Object] instead of an Error",
 	);
 	expect(callFailureText(10n)).toBe("The call threw 10 instead of an Error");
+});
+
+test.each([
+	[
+		'410: {"message":"AiError: Model has been deprecated"}',
+		"model_unavailable",
+	],
+	["429 Too Many Requests", "model_busy"],
+	["Request timed out after 120000ms", "timeout"],
+	["TypeError: fetch failed", "other"],
+	["Stopped: no live executor for this turn.", "interrupted"],
+	[
+		'model returned no answer: @cf/zai-org/glm-5.3 stopped with "length" after 16000 output tokens, all of them reasoning',
+		"no_answer",
+	],
+	[
+		"Connection error.: D1 DB is overloaded. Too many resources consumed within a 10 second window.",
+		"service",
+	],
+])("a failed reply sends %s only as a plain sentence", (raw, kind) => {
+	const failure = turnFailure(raw);
+	expect(failure.errorKind).toBe(kind);
+	expect(failure.error).not.toContain(raw);
+	expect(failure.error).toMatch(/^[A-Z][^{}"]*\.$/);
+});
+
+test("a failed reply keeps a reason already written for a person", () => {
+	const reason =
+		"This month's Tedix credits are used up. Buy a top-up or turn on pay-as-you-go. (monthly_credit_limit_reached)";
+	expect(turnFailure(reason)).toEqual({ error: reason, errorKind: "other" });
+});
+
+test("a failed step sends a database error only as its detail", () => {
+	const raw =
+		'Failed query: select "id", "organization_id" from "os_gadgets" where "id" = ?';
+	expect(stepFailure(raw)).toEqual({
+		error: "A Tedix service was busy",
+		detail: raw,
+	});
+	expect(stepFailure("Approval required: deleting a file").error).toBe(
+		"Waiting for approval",
+	);
 });

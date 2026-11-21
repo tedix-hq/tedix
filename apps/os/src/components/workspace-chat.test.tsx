@@ -755,26 +755,44 @@ describe("WorkspaceChat", () => {
 		["cancelled", undefined],
 		["error", "interrupted"],
 	] as const)(
-		"offers Continue after a %s turn and sends it as the next turn",
-		(status, error) => {
+		"offers Continue after a %s turn with part of a reply and sends it as the next turn",
+		(status, errorKind) => {
 			const fake = fakeClient("c1");
 			mount(fake);
 			const continueButton = () =>
 				[...host.querySelectorAll("button")].find(
 					(button) => button.textContent === "Continue",
 				);
-			act(() => fake.feed([started]));
+			act(() =>
+				fake.feed([
+					started,
+					{
+						seq: 2,
+						at,
+						conversationId: "c1",
+						type: "assistant.delta",
+						turnId: "t1",
+						messageId: "t1",
+						text: "There are",
+					},
+				]),
+			);
 			expect(continueButton()).toBeUndefined();
 			act(() =>
 				fake.feed([
 					{
-						seq: 2,
+						seq: 3,
 						at,
 						conversationId: "c1",
 						type: "turn.finished",
 						turnId: "t1",
 						status,
-						...(error ? { error } : {}),
+						...(errorKind
+							? {
+									error: "This reply was cut off before it finished.",
+									errorKind,
+								}
+							: {}),
 						durationMs: 1000,
 					},
 				]),
@@ -789,11 +807,83 @@ describe("WorkspaceChat", () => {
 		},
 	);
 
-	it("says in plain words that the model could not answer", () => {
+	it("keeps a failed turn to one plain line with folded steps and no recorded error", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
-		const raw =
-			'410: {"name":"AiError","internalCode":3028,"httpCode":410,"message":"AiError: Model has been deprecated"}';
+		const query =
+			'Failed query: select "id", "organization_id" from "os_gadgets" where "id" = ?';
+		act(() =>
+			fake.feed([
+				started,
+				{
+					type: "step.started",
+					seq: 2,
+					at,
+					conversationId: "c1",
+					turnId: "t1",
+					stepId: "s1",
+					kind: "read",
+					label: "Looking up the workspace's apps",
+				},
+				{
+					type: "step.finished",
+					seq: 3,
+					at,
+					conversationId: "c1",
+					turnId: "t1",
+					stepId: "s1",
+					status: "error",
+					durationMs: 1,
+					error: "A Tedix service was busy",
+					detail: query,
+				},
+				{
+					seq: 4,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "error",
+					error:
+						"Something went wrong on our side, so this reply stopped. Try again.",
+					errorKind: "service",
+					durationMs: 1000,
+				},
+			]),
+		);
+		const buttons = () =>
+			[...host.querySelectorAll("button")].map((button) => button.textContent);
+		expect(
+			host.querySelector(".workspace-chat-activity-summary")?.textContent,
+		).toContain("Failed");
+		expect(
+			host.querySelector('[data-testid="workspace-chat-step"]'),
+		).toBeNull();
+		expect(host.textContent).not.toContain("Failed query");
+		expect(host.textContent).not.toContain("t1");
+		expect(host.querySelector('[role="alert"]')).toBeNull();
+		expect(
+			host.querySelector('[data-testid="workspace-chat-turn-stopped"]')
+				?.textContent,
+		).toContain(
+			"Something went wrong on our side, so this reply stopped. Try again.",
+		);
+		// Nothing of the reply happened, so only Retry is offered.
+		expect(buttons()).toContain("Retry");
+		expect(buttons()).not.toContain("Continue");
+		act(() =>
+			[...host.querySelectorAll("button")]
+				.find((button) => button.textContent === "Details")
+				?.click(),
+		);
+		expect(host.textContent).toContain("A Tedix service was busy");
+		expect(host.textContent).toContain("t1");
+		expect(host.textContent).not.toContain("Failed query");
+	});
+
+	it("never shows a recorded turn error the workspace did not sort", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
 		act(() =>
 			fake.feed([
 				started,
@@ -804,15 +894,16 @@ describe("WorkspaceChat", () => {
 					type: "turn.finished",
 					turnId: "t1",
 					status: "error",
-					error: raw,
+					error:
+						"Connection error.: D1 DB is overloaded. Too many resources consumed within a 10 second window.",
 					durationMs: 1000,
 				},
 			]),
 		);
-		expect(host.querySelector('[role="alert"]')?.textContent).toBe(
-			"This model is not available right now. Pick another model and try again.",
+		expect(host.textContent).not.toContain("D1");
+		expect(host.textContent).toContain(
+			"Something went wrong, so this reply stopped. Try again.",
 		);
-		expect(host.textContent).toContain("Technical details");
 	});
 
 	it("retries a failed turn by sending its own message again", () => {
