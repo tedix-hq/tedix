@@ -1492,6 +1492,8 @@ function createTray(): void {
 let inputBar: BrowserWindow | undefined;
 /** When the bar last hid because it lost focus, so the icon's click does not reopen it. */
 let inputBarBlurredAt = 0;
+/** When the bar was last shown, to tell a real loss of focus from the one macOS causes as it appears. */
+let inputBarShownAt = 0;
 
 function placeInputBar(window: BrowserWindow): void {
 	const { workArea } = screen.getDisplayNearestPoint(
@@ -1510,6 +1512,7 @@ function openInputBar(): void {
 	if (existing && Date.now() - inputBarBlurredAt < 300) return;
 	const show = (window: BrowserWindow) => {
 		placeInputBar(window);
+		inputBarShownAt = Date.now();
 		app.focus({ steal: true });
 		window.show();
 		window.focus();
@@ -1536,10 +1539,28 @@ function openInputBar(): void {
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	window.on("blur", () => {
+		// The first click finds Tedix in the background: bringing it forward
+		// hands the keyboard to the main window a moment after the bar took
+		// it, which closed the bar at once. That early loss gives it back.
+		if (Date.now() - inputBarShownAt < 500) {
+			setTimeout(() => {
+				if (window.isDestroyed() || !window.isVisible()) return;
+				window.focus();
+			}, 50);
+			return;
+		}
 		inputBarBlurredAt = Date.now();
 		window.hide();
 	});
-	window.once("ready-to-show", () => show(window));
+	// Shown once its page is there, whichever of the two says so first.
+	let shown = false;
+	const first = () => {
+		if (shown || window.isDestroyed()) return;
+		shown = true;
+		show(window);
+	};
+	window.once("ready-to-show", first);
+	window.webContents.once("did-finish-load", first);
 	void window.loadFile(join(root, "input.html"));
 }
 
