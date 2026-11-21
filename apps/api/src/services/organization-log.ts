@@ -1,28 +1,22 @@
 /**
  * The gateway change ledger, read and written through the organization's log
- * store (`docs/engineering/organization-log-store.md`). A store answers
- * `forward` / `not_live` until its organization has moved to it; those calls
- * use the main database as before. After the move, the store is the only
- * place new records go and the only place they are read from.
+ * store (`docs/engineering/organization-log-store.md`). The store is the only
+ * place records are written and read: a store that cannot answer, or that is
+ * not live, fails the call. There is no other copy to fall back to.
  */
 
 import { env } from "cloudflare:workers";
-import type { GatewayChangeRecordInput } from "@tedix/api-contract/schemas/audit";
 import type {
+	GatewayChangeRecord,
+	GatewayChangeRecordInput,
+} from "@tedix/api-contract/schemas/audit";
+import type {
+	GatewayChangeRecordCheckpointQuery,
+	GatewayChangeRecordRangeParams,
+	OrganizationLogRead,
 	OrganizationLogRecord,
 	OrganizationLogRuntime,
 } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
-import {
-	appendGatewayChangeRecord,
-	countGatewayChangeRecordsInRange,
-	type GatewayChangeRecordCheckpointQuery,
-	type GatewayChangeRecordRangeParams,
-	getGatewayChangeRecord,
-	listGatewayChangeRecordCheckpoints,
-	listGatewayChangeRecords,
-	listGatewayChangeRecordsInRange,
-} from "@tedix/db/queries/gateway-change-records";
-import type { DbQueryClient } from "@tedix/db/query-client";
 
 /** The workspace runtime's entrypoint, which fronts every organization's store. */
 export function organizationLogRuntime(
@@ -33,16 +27,14 @@ export function organizationLogRuntime(
 }
 
 /**
- * Call the store; undefined when the runtime is absent or is a release that
- * does not have the store methods yet (it is deployed separately). Any other
- * failure is thrown.
+ * Call the store. A missing runtime, or a release without the store methods
+ * (it is deployed separately), throws: nothing is written anywhere else.
  */
-export async function callOrganizationLog<T>(
+async function callOrganizationLog<T>(
 	call: (log: OrganizationLogRuntime) => Promise<T>,
-	bindings: object = env,
-): Promise<T | undefined> {
-	const log = organizationLogRuntime(bindings);
-	if (!log) return undefined;
+): Promise<T> {
+	const log = organizationLogRuntime();
+	if (!log) throw new Error("The organization log store is unreachable");
 	try {
 		return await call(log);
 	} catch (error) {
@@ -50,31 +42,36 @@ export async function callOrganizationLog<T>(
 			error instanceof Error &&
 			/does not implement the method|is not a function/i.test(error.message)
 		)
-			return undefined;
+			throw new Error("The organization log store is unreachable", {
+				cause: error,
+			});
 		throw error;
 	}
 }
 
-/** A stored record: the same shape the main database returns. */
-type ChangeRecord = NonNullable<
-	Awaited<ReturnType<typeof getGatewayChangeRecord>>
->;
-type SealedChangeRecord = Awaited<
-	ReturnType<typeof listGatewayChangeRecordsInRange>
->[number];
-
-/** A record without its seal fields, as the gateway-facing reads return it. */
-function unsealed(record: OrganizationLogRecord): ChangeRecord {
-	const { recordDigest: _digest, chainHash: _chain, ...rest } = record;
-	return rest as unknown as ChangeRecord;
+async function readLive<T>(
+	call: (log: OrganizationLogRuntime) => Promise<OrganizationLogRead<T>>,
+): Promise<T> {
+	const read = await callOrganizationLog(call);
+	if (read.status !== "live")
+		throw new Error("The organization log store is not live");
+	return read.value;
 }
 
-/**
- * Append one record for the organization. The id and time are fixed here,
- * so a record forwarded to the main database keeps them.
- */
+/** A record with its seal fields, as the store returns it. */
+type SealedChangeRecord = GatewayChangeRecord & {
+	recordDigest: string | null;
+	chainHash: string | null;
+};
+
+/** A record without its seal fields, as the gateway-facing reads return it. */
+function unsealed(record: OrganizationLogRecord): GatewayChangeRecord {
+	const { recordDigest: _digest, chainHash: _chain, ...rest } = record;
+	return rest as unknown as GatewayChangeRecord;
+}
+
+/** Append one record for the organization. The id and time are fixed here. */
 export async function appendChangeRecord(
-	db: DbQueryClient,
 	organizationId: string,
 	input: GatewayChangeRecordInput,
 ) {
@@ -86,75 +83,53 @@ export async function appendChangeRecord(
 	const result = await callOrganizationLog((log) =>
 		log.organizationLogAppend(organizationId, record),
 	);
-	if (result && result.status !== "forward") return unsealed(result.record);
-	// Only a store that answered "forward" (not moved yet) sends a record to
-	// main. A runtime that cannot answer (a workspace runtime release
-	// without the store, deployed out of order or rolled back) gets no
-	// fallback: writing to main could fork a moved organization's chain.
-	if (!result && organizationLogRuntime())
-		throw new Error(
-			"The organization log store is unreachable; the record was not written to the main database",
-		);
-	return appendGatewayChangeRecord(db, organizationId, record);
+	if (result.status !== "stored")
+		throw new Error("The organization log store is not live");
+	return unsealed(result.record);
 }
 
 export async function listChangeRecords(
-	db: DbQueryClient,
 	organizationId: string,
-	query: Parameters<typeof listGatewayChangeRecords>[2],
+	query: {
+		resource?: string;
+		actorId?: string;
+		afterSequence?: number;
+		limit?: number;
+	},
 ) {
-	const read = await callOrganizationLog((log) =>
+	const records = await readLive((log) =>
 		log.organizationLogList(organizationId, {
 			...query,
 			limit: query.limit ?? 1000,
 		}),
 	);
-	if (read?.status === "live") return read.value.map(unsealed);
-	return listGatewayChangeRecords(db, organizationId, query);
+	return records.map(unsealed);
 }
 
-export async function getChangeRecord(
-	db: DbQueryClient,
-	organizationId: string,
-	id: string,
-) {
-	const read = await callOrganizationLog((log) =>
+export async function getChangeRecord(organizationId: string, id: string) {
+	const record = await readLive((log) =>
 		log.organizationLogGet(organizationId, id),
 	);
-	if (read?.status === "live") return read.value ? unsealed(read.value) : null;
-	return getGatewayChangeRecord(db, organizationId, id);
+	return record ? unsealed(record) : null;
 }
 
 /** One page of a time range plus the count of the whole range. */
 export async function readChangeRecordRange(
-	db: DbQueryClient,
 	organizationId: string,
 	range: GatewayChangeRecordRangeParams,
 	page: { afterSequence?: number; limit: number },
 ) {
-	const read = await callOrganizationLog((log) =>
+	const { count, records } = await readLive((log) =>
 		log.organizationLogRange(organizationId, range, page),
 	);
-	if (read?.status === "live")
-		return {
-			count: read.value.count,
-			records: read.value.records as unknown as SealedChangeRecord[],
-		};
-	const [count, records] = await Promise.all([
-		countGatewayChangeRecordsInRange(db, organizationId, range),
-		listGatewayChangeRecordsInRange(db, organizationId, range, page),
-	]);
-	return { count, records };
+	return { count, records: records as unknown as SealedChangeRecord[] };
 }
 
-export async function listChangeRecordCheckpoints(
-	db: DbQueryClient,
+export function listChangeRecordCheckpoints(
 	organizationId: string,
 	query: GatewayChangeRecordCheckpointQuery,
 ) {
-	const read = await callOrganizationLog((log) =>
+	return readLive((log) =>
 		log.organizationLogCheckpoints(organizationId, query),
 	);
-	if (read?.status === "live") return read.value;
-	return listGatewayChangeRecordCheckpoints(db, organizationId, query);
 }

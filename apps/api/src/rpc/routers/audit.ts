@@ -318,7 +318,7 @@ const appendChangeRecord = auditOs.appendChangeRecord
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const organizationId = gatewayLedgerOrganizationId(context);
-		return organizationLog.appendChangeRecord(context.db, organizationId, {
+		return organizationLog.appendChangeRecord(organizationId, {
 			...input,
 			actor: { ...input.actor, organizationId },
 		});
@@ -327,17 +327,13 @@ const listChangeRecords = auditOs.listChangeRecords
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const organizationId = gatewayLedgerOrganizationId(context);
-		return organizationLog.listChangeRecords(context.db, organizationId, input);
+		return organizationLog.listChangeRecords(organizationId, input);
 	});
 const getChangeRecord = auditOs.getChangeRecord
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const organizationId = gatewayLedgerOrganizationId(context);
-		return organizationLog.getChangeRecord(
-			context.db,
-			organizationId,
-			input.id,
-		);
+		return organizationLog.getChangeRecord(organizationId, input.id);
 	});
 
 /** Gateway change records and their checkpoints are for owners and admins. */
@@ -369,7 +365,6 @@ const listOrganizationGatewayChangeRecords = authedOs.listGatewayChangeRecords
 		await assertGatewayChangeRecordReader(context, context.organizationId);
 		const { afterSequence, limit, ...range } = input;
 		const { count, records } = await organizationLog.readChangeRecordRange(
-			context.db,
 			context.organizationId,
 			range,
 			{ afterSequence, limit: limit + 1 },
@@ -401,7 +396,6 @@ const listOrganizationGatewayChangeRecordCheckpoints =
 		.handler(async ({ input, context }) => {
 			await assertGatewayChangeRecordReader(context, context.organizationId);
 			const rows = await organizationLog.listChangeRecordCheckpoints(
-				context.db,
 				context.organizationId,
 				{
 					fromSequence: input.fromSequence,

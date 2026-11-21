@@ -7,8 +7,9 @@
  * Records keep the gateway ledger's contract byte for byte: the same body
  * JSON, the same digest over the reader view (`GatewayChangeRecordSchema`),
  * the same chain hash and checkpoint statement. Sealed history copied from
- * the main database keeps its sequences, digests and chain hashes, and the
- * store's own records continue that chain.
+ * the main database during the finished move keeps its sequences, digests
+ * and chain hashes, and the store's own records continue that chain. A new
+ * organization's store starts live: its first append is sequence 1.
  */
 
 import { DurableObject } from "cloudflare:workers";
@@ -38,11 +39,8 @@ import type {
 	GatewayChangeRecordCheckpointQuery,
 	GatewayChangeRecordCheckpointRow,
 	GatewayChangeRecordRangeParams,
-} from "@tedix/db/queries/gateway-change-records";
-import type {
 	OrganizationLogAppendInput,
 	OrganizationLogAppendResult,
-	OrganizationLogImportPage,
 	OrganizationLogRead,
 	OrganizationLogRecord,
 	OrganizationLogState,
@@ -288,10 +286,18 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 			);
 	}
 
+	/**
+	 * A store with no state and no history belongs to a new organization: it
+	 * is live from the start, and the state is written so it stays live once
+	 * records exist. A store with copied history but no state was left
+	 * mid-move and stays `passthrough`, which callers treat as a failure.
+	 */
 	#state(): OrganizationLogState {
-		return (
-			(this.#meta("state") as OrganizationLogState | null) ?? "passthrough"
-		);
+		const state = this.#meta("state") as OrganizationLogState | null;
+		if (state) return state;
+		if (this.#tail() !== null) return "passthrough";
+		this.#setMeta("state", "live");
+		return "live";
 	}
 
 	#tail(): OrganizationLogTail | null {
@@ -382,30 +388,8 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		input: OrganizationLogAppendInput,
 	): Promise<OrganizationLogAppendResult> {
 		this.#bind(organizationId);
-		const state = this.#state();
-		if (state === "passthrough") return { status: "forward" };
+		if (this.#state() !== "live") return { status: "forward" };
 		const { id, recordedAt, ...body } = input;
-		if (state === "cutover") {
-			const stored = this.#recordById(id);
-			if (stored) return { status: "stored", record: stored };
-			this.#sql.exec(
-				"INSERT INTO pending_change_records (id, recorded_at, record) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
-				id,
-				recordedAt,
-				JSON.stringify(body),
-			);
-			return {
-				status: "held",
-				record: {
-					...body,
-					id,
-					recordedAt,
-					sequence: 0,
-					recordDigest: null,
-					chainHash: null,
-				},
-			};
-		}
 		const record = await this.#serial(async () => {
 			const stored = this.#recordById(id);
 			if (stored) return stored;
@@ -770,179 +754,5 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 					? null
 					: Number(this.#meta("main_tail_sequence")),
 		};
-	}
-
-	/**
-	 * Copy whole sealed checkpoints from main, continuing exactly where the
-	 * last copy (or nothing) ended. The page is verified before anything is
-	 * written: every record's digest and link, and that the first checkpoint
-	 * links to the store's last one. Signatures are checked when the bundle
-	 * is written in main and again by the archive check; here the chain is.
-	 */
-	async organizationLogImport(
-		organizationId: string,
-		page: OrganizationLogImportPage,
-	): Promise<OrganizationLogTail> {
-		this.#bind(organizationId);
-		return await this.#serial(async () => {
-			if (this.#state() === "live")
-				throw new Error("A live organization log store takes no more copies");
-			const tail = this.#tail();
-			const last = this.#lastCheckpoint();
-			const checkpoints = [...page.checkpoints].sort(
-				(a, b) => a.lastSequence - b.lastSequence,
-			);
-			const first = checkpoints[0];
-			if (!first)
-				return tail ?? { sequence: 0, chainHash: null, checkpointDigest: null };
-			if (
-				first.previousChainHash !==
-					(tail?.chainHash ?? first.previousChainHash) ||
-				(last !== null &&
-					first.previousCheckpointDigest !== last.checkpoint_digest)
-			)
-				throw new Error(
-					"The copied checkpoints do not continue the store's chain",
-				);
-			if (checkpoints.some((c) => !c.evidenceBundleKey))
-				throw new Error("Only checkpoints with an evidence bundle are copied");
-			const records = page.records.map(sealedView);
-			const verified = await verifyChain({
-				records: records as never,
-				checkpoints: checkpoints.map((c) => checkpointInput(c, false)),
-				publicKey: null,
-				allowUnsigned: true,
-				startingChainHash: first.previousChainHash,
-			});
-			const expected = checkpoints.reduce((n, c) => n + c.recordCount, 0);
-			if (!verified.ok || verified.recordsVerified !== expected)
-				throw new Error(
-					verified.ok
-						? `Verified ${verified.recordsVerified} of ${expected} copied records`
-						: `Copied records do not verify: ${verified.message}`,
-				);
-			// Manifest entries first: if the archive is unreachable nothing is
-			// copied, and the retry adds the same entries again (they dedupe).
-			await this.#addCopiedToManifests(organizationId, checkpoints);
-			this.ctx.storage.transactionSync(() => {
-				for (const record of page.records) {
-					const body = bodyOf(record);
-					this.#sql.exec(
-						"INSERT INTO change_records (sequence, id, recorded_at, resource, actor_id, subject_id, record, record_digest, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-						record.sequence,
-						record.id,
-						record.recordedAt,
-						body.resource,
-						body.actor.id,
-						body.subject?.id ?? null,
-						JSON.stringify(body),
-						record.recordDigest,
-						record.chainHash,
-					);
-				}
-				for (const c of checkpoints)
-					this.#sql.exec(
-						"INSERT INTO change_record_checkpoints (id, first_sequence, last_sequence, record_count, head_chain_hash, previous_checkpoint_digest, previous_chain_hash, checkpoint_digest, sealed_at, envelope, key_id, evidence_bundle_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-						c.id,
-						c.firstSequence,
-						c.lastSequence,
-						c.recordCount,
-						c.headChainHash,
-						c.previousCheckpointDigest,
-						c.previousChainHash,
-						c.checkpointDigest,
-						c.sealedAt,
-						c.envelope,
-						c.keyId,
-						c.evidenceBundleKey,
-					);
-				const head = checkpoints.at(-1)!;
-				this.#setMeta("tail_sequence", String(head.lastSequence));
-				this.#setMeta("tail_chain_hash", head.headChainHash);
-			});
-			return this.#tail()!;
-		});
-	}
-
-	/** Day manifests for copied checkpoints, hashing the bundles main wrote. */
-	async #addCopiedToManifests(
-		organizationId: string,
-		checkpoints: GatewayChangeRecordCheckpointRow[],
-	) {
-		const bucket = (this.env as { R2_BUCKET?: R2Bucket }).R2_BUCKET;
-		if (!bucket) return;
-		for (const checkpoint of checkpoints) {
-			const object = await bucket.get(checkpoint.evidenceBundleKey!);
-			if (!object)
-				throw new Error(
-					`The evidence bundle of the checkpoint ending at ${checkpoint.lastSequence} is missing`,
-				);
-			await this.#addToManifest(
-				bucket,
-				{ ...checkpoint, organizationId },
-				checkpoint.evidenceBundleKey!,
-				await sha256Hex(await object.text()),
-			);
-		}
-	}
-
-	async organizationLogBeginCutover(organizationId: string): Promise<void> {
-		this.#bind(organizationId);
-		if (this.#state() !== "passthrough") return;
-		if (!(await this.#signingKey()))
-			throw new Error(
-				"The organization log store has no signing key; a cutover would leave unsigned checkpoints",
-			);
-		this.#setMeta("state", "cutover");
-		this.#setMeta("cutover_started_at", new Date().toISOString());
-	}
-
-	/**
-	 * Take over the chain: the caller has copied everything main holds for
-	 * the organization, ending at `expected`. Held appends that were already
-	 * copied (a retry that also reached main) are dropped; the rest are
-	 * chained in arrival order, and the store goes live.
-	 */
-	async organizationLogFinishCutover(
-		organizationId: string,
-		expected: { sequence: number; chainHash: string | null },
-	): Promise<{ chained: number; dropped: number }> {
-		this.#bind(organizationId);
-		const result = await this.#serial(async () => {
-			if (this.#state() !== "cutover")
-				throw new Error("The organization log store is not in cutover");
-			const tail = this.#tail();
-			if (
-				(tail?.sequence ?? 0) !== expected.sequence ||
-				(tail?.chainHash ?? null) !== expected.chainHash
-			)
-				throw new Error("The store has not copied everything main holds");
-			const pending = this.#sql
-				.exec<{ id: string; recorded_at: string; record: string }>(
-					"SELECT id, recorded_at, record FROM pending_change_records ORDER BY arrival",
-				)
-				.toArray();
-			const fresh = pending.filter((row) => !this.#recordById(row.id));
-			// Every digest and link is computed before anything is written, then
-			// the rows, the tail and the state change land in one transaction:
-			// a failure leaves the store exactly as it was, so a retry works.
-			const linked = await this.#link(
-				tail,
-				fresh.map((row) => ({
-					id: row.id,
-					recordedAt: row.recorded_at,
-					body: JSON.parse(row.record) as Body,
-				})),
-			);
-			this.ctx.storage.transactionSync(() => {
-				this.#insertLinked(linked);
-				this.#sql.exec("DELETE FROM pending_change_records");
-				this.#setMeta("main_tail_sequence", String(expected.sequence));
-				this.#setMeta("state", "live");
-			});
-			return { chained: linked.length, dropped: pending.length - fresh.length };
-		});
-		await this.#scheduleCheckpoint(organizationId);
-		return result;
 	}
 }

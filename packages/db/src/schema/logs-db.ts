@@ -33,8 +33,8 @@
  * - `tedi_usage_events`, `widget_events`, `workflow_run_ledger`: rows the
  *   nightly cleanup used to delete (30, 30 and 90 days); unfinished workflow
  *   runs stay in main.
- * - `gateway_change_records`: whole sealed checkpoints past the keep window
- *   whose evidence bundle is in R2; checkpoints stay in main.
+ * - `gateway_change_records`: unused since the change ledger moved to each
+ *   organization's log store; the main table is dropped.
  *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this

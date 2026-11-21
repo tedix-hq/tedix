@@ -18,7 +18,6 @@ import {
 	externalAgentSessions,
 } from "@tedix/db/schema/external-agent-identity";
 import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { machineToolCalls, machineToolPolls } from "@tedix/db/schema/machines";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizations } from "@tedix/db/schema/organizations";
@@ -31,6 +30,7 @@ import { TEDI_RUNTIME_SERVICE_BINDING_SCOPES } from "../../../../tedi-runtime/sr
 import { writeMachineToolResultRecords } from "../../services/machine-change-records";
 import { MachineConnectionDO } from "../../services/machine-connection-do";
 import { verifyMachineConnectionTicket } from "../../services/machine-connections";
+import { installOrganizationLogFixture } from "../../../test/organization-log-fixture";
 import type { BaseContext } from "../orpc";
 import { dispatcherHealthContractRouter } from "./dispatcher-health";
 import { machinesContractRouter } from "./machines";
@@ -63,7 +63,6 @@ function fixture() {
 			dispatcherHealthReports,
 			machineToolCalls,
 			machineToolPolls,
-			gatewayChangeRecords,
 		),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('${ORG}','Example','example'),('${OTHER_ORG}','Other','other');
@@ -80,6 +79,7 @@ function fixture() {
 		INSERT INTO external_agent_sessions(id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,credit_eligible,started_at,last_seen_at) VALUES
 			('${AGENT_SESSION}','${ORG}','${AGENT}','codex:one','codex','1','p','m','1','explicit',0,'2026-11-19','2026-11-19');`);
 	const facade = createD1Facade(sqlite);
+	const store = installOrganizationLogFixture();
 	const base = {
 		db: createDbClient(facade),
 		env: { ENVIRONMENT: "test", DB: facade } as CloudflareEnv,
@@ -140,32 +140,20 @@ function fixture() {
 			machineTools: ["read_file", "read_runner_state"],
 			...overrides,
 		});
-	/** The change ledger's rows, each checked against the published record schema. */
+	/** Each organization's stored records, checked against the published record schema. */
 	const records = () =>
-		(
-			sqlite
-				.prepare(
-					"SELECT id, sequence, recorded_at, organization_id, record FROM gateway_change_records ORDER BY sequence",
-				)
-				.all() as {
-				id: string;
-				sequence: number;
-				recorded_at: string;
-				organization_id: string;
-				record: string;
-			}[]
-		).map((row) => ({
-			organizationId: row.organization_id,
-			raw: row.record,
-			...GatewayChangeRecordSchema.parse({
-				...JSON.parse(row.record),
-				id: row.id,
-				sequence: row.sequence,
-				recordedAt: row.recorded_at,
-			}),
-		}));
+		[ORG, OTHER_ORG].flatMap((organizationId) =>
+			store
+				.records(organizationId)
+				.map(({ recordDigest: _digest, chainHash: _chain, ...record }) => ({
+					organizationId,
+					raw: JSON.stringify(record),
+					...GatewayChangeRecordSchema.parse(record),
+				})),
+		);
 	return {
 		sqlite,
+		store,
 		db: base.db,
 		env: base.env,
 		person,
@@ -584,7 +572,7 @@ describe("machine change records", () => {
 
 		// Record ids come from the call id, so writing the same one again
 		// (a retried request) stores no second row.
-		await writeMachineToolResultRecords(f.db, {
+		await writeMachineToolResultRecords({
 			orgId: ORG,
 			reporterId: "reporter-1",
 			calls: [
@@ -659,7 +647,9 @@ describe("machine change records", () => {
 		const f = fixture();
 		const runner = f.person("member-subject");
 		await f.report(runner, writeTools);
-		f.sqlite.exec("DROP TABLE gateway_change_records");
+		f.store.runtime.organizationLogAppend = async () => {
+			throw new Error("The organization log store is unreachable");
+		};
 		await expect(
 			f.runtime("tedi-1").machines.requestToolCall(command),
 		).rejects.toThrow();

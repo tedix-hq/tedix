@@ -13,12 +13,12 @@ import {
 	memoryFactCitations,
 	memoryFactCitationBackfills,
 } from "@tedix/db/schema/memory-fact-citations";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { OrganizationMemoryAdapter } from "@tedix/db/queries/memory-graph/memory-adapter";
 import {
 	getChangeRecord,
 	listChangeRecords,
 } from "../../services/organization-log";
+import { installOrganizationLogFixture } from "../../../test/organization-log-fixture";
 import type { BaseContext } from "../orpc";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { learningFeedbackContractRouter } from "./learning-feedback";
@@ -138,13 +138,9 @@ it("records a fact review as a new organization memory revision with a readable 
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
-		schemaDdl(
-			memoryFacts,
-			memoryFactCitations,
-			memoryFactCitationBackfills,
-			gatewayChangeRecords,
-		),
+		schemaDdl(memoryFacts, memoryFactCitations, memoryFactCitationBackfills),
 	);
+	installOrganizationLogFixture();
 	const organizationId = "00000000-0000-4000-8000-000000000501";
 	const db = createDbClient(createD1Facade(sqlite));
 	await db.insert(memoryFacts).values({
@@ -201,7 +197,6 @@ it("records a fact review as a new organization memory revision with a readable 
 		value: fact.content,
 	});
 	const record = await getChangeRecord(
-		db,
 		organizationId,
 		revision.provenance.changeRecordId!,
 	);
@@ -214,7 +209,7 @@ it("records a fact review as a new organization memory revision with a readable 
 		after: { revisionId: revision.revisionId, hash: revision.hash },
 	});
 	expect(
-		await listChangeRecords(db, organizationId, {
+		await listChangeRecords(organizationId, {
 			resource: `memory:organization:${fact.id}`,
 		}),
 	).toEqual([record]);
@@ -231,10 +226,10 @@ it("records procedure fact lifecycles with matching revisions and preserves fact
 			memoryDomains,
 			memoryFactCitations,
 			memoryFactCitationBackfills,
-			gatewayChangeRecords,
 			learningInteractionEvents,
 		),
 	);
+	installOrganizationLogFixture();
 	const organizationId = "00000000-0000-4000-8000-000000000502";
 	const db = createDbClient(createD1Facade(sqlite));
 	await db.insert(memoryFacts).values([
@@ -371,13 +366,12 @@ it("records procedure fact lifecycles with matching revisions and preserves fact
 			(revision) => revision.provenance.changeRecordId,
 		);
 		expect(revisions).toHaveLength(operations.length);
-		const records = await listChangeRecords(db, organizationId, {
+		const records = await listChangeRecords(organizationId, {
 			resource: `memory:organization:${factId}`,
 		});
 		expect(records).toHaveLength(operations.length);
 		for (const [index, revision] of revisions.entries()) {
 			const record = await getChangeRecord(
-				db,
 				organizationId,
 				revision.provenance.changeRecordId!,
 			);

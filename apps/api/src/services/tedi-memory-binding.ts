@@ -33,16 +33,16 @@ export async function storeTediMemoryRevision(
 	const accountability: AccountabilityAdapter = {
 		append: async (record) =>
 			Object.freeze(
-				await appendChangeRecord(db, params.organizationId, {
+				await appendChangeRecord(params.organizationId, {
 					...record,
 					id: changeRecordId,
 				}),
 			),
-		get: (id) => getChangeRecord(db, params.organizationId, id),
-		list: (query) => listChangeRecords(db, params.organizationId, query ?? {}),
+		get: (id) => getChangeRecord(params.organizationId, id),
+		list: (query) => listChangeRecords(params.organizationId, query ?? {}),
 		export: async () => ({
 			exportedAt: new Date().toISOString(),
-			records: await listChangeRecords(db, params.organizationId, {}),
+			records: await listChangeRecords(params.organizationId, {}),
 		}),
 	};
 	const adapter = new TediMemoryAdapter(db, params);

@@ -5,16 +5,14 @@ import {
 	importVerifyingKey,
 	verifyChain,
 } from "@tedix/agent-governance/seal";
+import type { GatewayChangeRecordBody } from "@tedix/api-contract/schemas/audit";
 import { createDbClient } from "@tedix/db/client";
-import {
-	gatewayChangeRecordCheckpoints,
-	gatewayChangeRecords,
-} from "@tedix/db/schema/gateway-change-records";
+import type { OrganizationLogAppendInput } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it, vi } from "vite-plus/test";
-import { runGatewayChangeRecordSealer } from "../../jobs/gateway-change-record-sealer";
+import { describe, expect, it } from "vite-plus/test";
+import { installOrganizationLogFixture } from "../../../test/organization-log-fixture";
 import type { BaseContext } from "../orpc";
 import { auditContractRouter } from "./audit";
 
@@ -24,9 +22,9 @@ const ORG_B = "22222222-2222-4222-8222-222222222222";
 it("stores gateway change records under the gateway's organization only", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	try {
-		// Only the ledger table exists: an append or list that looked anything
-		// else up would fail here.
-		sqlite.exec(schemaDdl(gatewayChangeRecords));
+		// No table exists: an append or list that looked anything up in the
+		// main database would fail here. The organization's store holds them.
+		const store = installOrganizationLogFixture();
 		const db = createDbClient(createD1Facade(sqlite));
 		const client = (
 			orgId?: string,
@@ -85,14 +83,9 @@ it("stores gateway change records under the gateway's organization only", async 
 		expect(record.sequence).toBeGreaterThan(0);
 		expect(await first.listChangeRecords({})).toEqual([record]);
 		expect(await first.getChangeRecord({ id: record.id })).toEqual(record);
-		const stored = sqlite
-			.prepare("SELECT organization_id, record FROM gateway_change_records")
-			.all();
+		const stored = store.records(ORG_A);
 		expect(stored).toHaveLength(1);
-		expect(stored[0]?.organization_id).toBe(ORG_A);
-		expect(Object.keys(JSON.parse(String(stored[0]?.record)))).not.toContain(
-			"id",
-		);
+		expect(store.records(ORG_B)).toEqual([]);
 		expect(JSON.stringify(stored)).not.toContain("do-not-store");
 
 		// The gateway may name the record; naming it twice stores it once.
@@ -133,7 +126,6 @@ it("stores gateway change records under the gateway's organization only", async 
 		).toMatchObject({ recordedAt: "2026-11-18T10:00:00.000Z" });
 
 		const other = client(ORG_B);
-		await expect(other.appendChangeRecord(namedInput)).rejects.toThrow();
 		expect(await other.listChangeRecords({})).toEqual([]);
 		expect(await other.getChangeRecord({ id: record.id })).toBeNull();
 
@@ -163,8 +155,8 @@ describe("owner and admin read of gateway change records", () => {
 		const sqlite = new DatabaseSync(":memory:", {
 			enableForeignKeyConstraints: false,
 		});
-		sqlite.exec(schemaDdl(gatewayChangeRecords));
 		sqlite.exec(schemaDdl(organizationMembers));
+		const store = installOrganizationLogFixture();
 		const db = createDbClient(createD1Facade(sqlite));
 		await db.insert(organizationMembers).values(
 			(
@@ -196,30 +188,27 @@ describe("owner and admin read of gateway change records", () => {
 			[ORG_A, "2026-11-19T00:00:00.001Z", "tool:get_example", "user-1"],
 			[ORG_A, "2026-11-19T00:00:00.000Z", "tool:get_example", "user-1"],
 		] as const;
-		await db.insert(gatewayChangeRecords).values(
-			rows.map(([organizationId, recordedAt, resource, actorId], index) => ({
+		// Each organization's store numbers its own records from 1.
+		for (const [index, [organizationId, recordedAt, resource, actorId]] of [
+			...rows.entries(),
+		])
+			await store.runtime.organizationLogAppend(organizationId, {
 				id: `00000000-0000-4000-8000-00000000000${index}`,
-				organizationId,
-				resource,
-				actorId,
 				recordedAt,
-				record: {
-					resource,
-					operation: resource.slice("tool:".length),
-					actor: { id: actorId, kind: "user", organizationId },
-					source: { surface: "mcp_gateway" },
-					decision: {
-						verdict: "allow",
-						gate: "tool_scope",
-						reason: "allowed",
-						riskTier: "read",
-						blastRadius: "none",
-					},
-					outcome: "applied",
-					argsHash: `hash-${index}`,
-				} as (typeof gatewayChangeRecords.$inferInsert)["record"],
-			})),
-		);
+				resource,
+				operation: resource.slice("tool:".length),
+				actor: { id: actorId, kind: "user", organizationId },
+				source: { surface: "mcp_gateway" },
+				decision: {
+					verdict: "allow",
+					gate: "tool_scope",
+					reason: "allowed",
+					riskTier: "read",
+					blastRadius: "none",
+				},
+				outcome: "applied",
+				argsHash: `hash-${index}`,
+			} as OrganizationLogAppendInput);
 		const call = (context: Partial<BaseContext>) =>
 			createRouterClient(auditContractRouter, {
 				context: {
@@ -266,7 +255,7 @@ describe("owner and admin read of gateway change records", () => {
 				nextAfterSequence: null,
 			});
 			expect(own.records.map((record) => record.sequence)).toEqual([
-				2, 4, 5, 6,
+				2, 3, 4, 5,
 			]);
 			expect(
 				own.records.every((record) => record.actor.organizationId === ORG_A),
@@ -276,7 +265,7 @@ describe("owner and admin read of gateway change records", () => {
 
 			const other = await member(ORG_B, "owner-b")(DAY);
 			expect(other.count).toBe(1);
-			expect(other.records.map((record) => record.sequence)).toEqual([3]);
+			expect(other.records.map((record) => record.sequence)).toEqual([1]);
 
 			// No input names an organization, and membership of one organization
 			// gives nothing in another.
@@ -331,17 +320,17 @@ describe("owner and admin read of gateway change records", () => {
 			const read = member(ORG_A, "owner-a");
 			const first = await read({ ...DAY, limit: 3 });
 			expect(first.count).toBe(4);
-			expect(first.records.map((record) => record.sequence)).toEqual([2, 4, 5]);
-			expect(first.nextAfterSequence).toBe(5);
+			expect(first.records.map((record) => record.sequence)).toEqual([2, 3, 4]);
+			expect(first.nextAfterSequence).toBe(4);
 			const second = await read({
 				...DAY,
 				limit: 3,
 				afterSequence: first.nextAfterSequence ?? undefined,
 			});
 			expect(second.count).toBe(4);
-			expect(second.records.map((record) => record.sequence)).toEqual([6]);
+			expect(second.records.map((record) => record.sequence)).toEqual([5]);
 			expect(second.nextAfterSequence).toBeNull();
-			expect((await read({ ...DAY, afterSequence: 6 })).count).toBe(4);
+			expect((await read({ ...DAY, afterSequence: 5 })).count).toBe(4);
 
 			// Moving `until` onto a record leaves it out; one millisecond later
 			// takes it in.
@@ -354,7 +343,7 @@ describe("owner and admin read of gateway change records", () => {
 				(
 					await read({ from: DAY.from, until: "2026-11-18T10:00:00.001Z" })
 				).records.map((record) => record.sequence),
-			).toEqual([2, 4]);
+			).toEqual([2, 3]);
 			// An offset names the same instant.
 			expect(
 				(await read({ from: "2026-11-18T01:00:00+01:00", until: DAY.until }))
@@ -380,7 +369,7 @@ describe("owner and admin read of gateway change records", () => {
 			const read = member(ORG_A, "owner-a");
 			const byResource = await read({ ...DAY, resource: "tool:send_example" });
 			expect(byResource.count).toBe(1);
-			expect(byResource.records.map((record) => record.sequence)).toEqual([4]);
+			expect(byResource.records.map((record) => record.sequence)).toEqual([3]);
 			const byActor = await read({ ...DAY, actorId: "user-1", limit: 1 });
 			expect(byActor.count).toBe(3);
 			expect(byActor.records.map((record) => record.sequence)).toEqual([2]);
@@ -391,7 +380,7 @@ describe("owner and admin read of gateway change records", () => {
 				actorId: "user-2",
 			});
 			expect(both.count).toBe(1);
-			expect(both.records.map((record) => record.sequence)).toEqual([5]);
+			expect(both.records.map((record) => record.sequence)).toEqual([4]);
 			expect(
 				(
 					await read({
@@ -432,13 +421,8 @@ describe("verifying an export offline", () => {
 		const sqlite = new DatabaseSync(":memory:", {
 			enableForeignKeyConstraints: false,
 		});
-		sqlite.exec(
-			schemaDdl(
-				gatewayChangeRecords,
-				gatewayChangeRecordCheckpoints,
-				organizationMembers,
-			),
-		);
+		sqlite.exec(schemaDdl(organizationMembers));
+		const store = installOrganizationLogFixture();
 		const facade = createD1Facade(sqlite);
 		const db = createDbClient(facade);
 		await db.insert(organizationMembers).values(
@@ -457,35 +441,28 @@ describe("verifying an export offline", () => {
 				status: "active" as const,
 			})),
 		);
-		// Interleaved organizations, so each one's sequences have gaps.
-		await db.insert(gatewayChangeRecords).values(
-			Array.from({ length: 12 }, (_, index) => {
-				const organizationId = index % 3 === 2 ? ORG_B : ORG_A;
-				const resource = index % 2 ? "tool:send_example" : "tool:get_example";
-				return {
-					id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-					organizationId,
-					resource,
-					actorId: "user-1",
-					recordedAt: new Date(Date.UTC(2026, 10, 18, 10, index)).toISOString(),
-					record: {
-						resource,
-						operation: resource.slice("tool:".length),
-						actor: { id: "user-1", kind: "user", organizationId },
-						source: { surface: "mcp_gateway", traceId: `trace-${index}` },
-						decision: {
-							verdict: index === 5 ? "deny" : "allow",
-							gate: "tool_scope",
-							reason: index === 5 ? "refused" : "allowed",
-							riskTier: "bounded_write",
-							blastRadius: "single_resource",
-						},
-						outcome: index === 5 ? "denied" : "applied",
-						argsHash: `hash-${index}`,
-					} as (typeof gatewayChangeRecords.$inferInsert)["record"],
-				};
-			}),
-		);
+		// Interleaved organizations; each store chains only its own records.
+		for (let index = 0; index < 12; index++) {
+			const organizationId = index % 3 === 2 ? ORG_B : ORG_A;
+			const resource = index % 2 ? "tool:send_example" : "tool:get_example";
+			await store.runtime.organizationLogAppend(organizationId, {
+				id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+				recordedAt: new Date(Date.UTC(2026, 10, 18, 10, index)).toISOString(),
+				resource,
+				operation: resource.slice("tool:".length),
+				actor: { id: "user-1", kind: "user", organizationId },
+				source: { surface: "mcp_gateway", traceId: `trace-${index}` },
+				decision: {
+					verdict: index === 5 ? "deny" : "allow",
+					gate: "tool_scope",
+					reason: index === 5 ? "refused" : "allowed",
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+				outcome: index === 5 ? "denied" : "applied",
+				argsHash: `hash-${index}`,
+			} as OrganizationLogAppendInput);
+		}
 		const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
 			"sign",
 			"verify",
@@ -499,40 +476,33 @@ describe("verifying an export offline", () => {
 			CHANGE_RECORD_SIGNING_KEY: pkcs8,
 			CHANGE_RECORD_SIGNING_KEY_ID: "change-records-2026",
 		};
-		const log = vi.spyOn(console, "log").mockImplementation(() => {});
-		try {
-			// Two sealer runs, so the export spans several checkpoints.
-			await runGatewayChangeRecordSealer(env as unknown as CloudflareEnv, NOW);
-			await db.insert(gatewayChangeRecords).values({
-				id: "00000000-0000-4000-8000-000000000099",
-				organizationId: ORG_A,
-				resource: "tool:send_example",
-				actorId: "user-2",
-				recordedAt: "2026-11-18T09:00:00.000Z",
-				record: {
-					resource: "tool:send_example",
-					operation: "send_example",
-					actor: { id: "user-2", kind: "agent", organizationId: ORG_A },
-					source: { surface: "mcp_codemode" },
-					decision: {
-						verdict: "allow",
-						gate: "tool_scope",
-						reason: "allowed",
-						riskTier: "bounded_write",
-						blastRadius: "single_resource",
-					},
-					outcome: "applied",
-					argsHash: "hash-late",
-					approval: lateApproval,
-				},
-			});
-			await runGatewayChangeRecordSealer(
-				env as unknown as CloudflareEnv,
-				NOW + 120_000,
-			);
-		} finally {
-			log.mockRestore();
-		}
+		// Two seals, so the export spans several checkpoints.
+		const signer = {
+			privateKey: pair.privateKey,
+			keyId: env.CHANGE_RECORD_SIGNING_KEY_ID,
+		};
+		const sealedAt = new Date(NOW).toISOString();
+		await store.seal(ORG_A, sealedAt, signer);
+		await store.seal(ORG_B, sealedAt, signer);
+		await store.runtime.organizationLogAppend(ORG_A, {
+			id: "00000000-0000-4000-8000-000000000099",
+			recordedAt: "2026-11-18T09:00:00.000Z",
+			resource: "tool:send_example",
+			operation: "send_example",
+			actor: { id: "user-2", kind: "agent", organizationId: ORG_A },
+			source: { surface: "mcp_codemode" },
+			decision: {
+				verdict: "allow",
+				gate: "tool_scope",
+				reason: "allowed",
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+			outcome: "applied",
+			argsHash: "hash-late",
+			approval: lateApproval,
+		} as OrganizationLogAppendInput);
+		await store.seal(ORG_A, new Date(NOW + 120_000).toISOString(), signer);
 		const audit = (organizationId: string, sub: string) =>
 			createRouterClient(auditContractRouter, {
 				context: {
@@ -549,7 +519,19 @@ describe("verifying an export offline", () => {
 					} as unknown as BaseContext["user"],
 				} as unknown as BaseContext,
 			});
-		return { sqlite, audit, publicKey: pair.publicKey };
+		/** A stored record, by reference, to tamper with it in the store. */
+		const storedBody = (id: string) =>
+			store.records(ORG_A).find((record) => record.id === id) as unknown as
+				| GatewayChangeRecordBody
+				| undefined;
+		const remove = (id: string) => {
+			const records = store.records(ORG_A);
+			records.splice(
+				records.findIndex((record) => record.id === id),
+				1,
+			);
+		};
+		return { sqlite, audit, publicKey: pair.publicKey, storedBody, remove };
 	}
 
 	/** Read every record and checkpoint of the caller's organization. */
@@ -584,7 +566,8 @@ describe("verifying an export offline", () => {
 	}
 
 	it("verifies what the two reads return with only the public key", async () => {
-		const { sqlite, audit, publicKey } = await sealedLedger();
+		const { sqlite, audit, publicKey, storedBody, remove } =
+			await sealedLedger();
 		try {
 			const exported = await exportAll(audit(ORG_A, "owner-a"));
 			expect(exported.records).toHaveLength(9);
@@ -626,11 +609,8 @@ describe("verifying an export offline", () => {
 				(record) => record.id === "00000000-0000-4000-8000-000000000099",
 			);
 			expect(late?.approval).toEqual(lateApproval);
-			sqlite
-				.prepare(
-					"UPDATE gateway_change_records SET record = json_set(record, '$.approval.boundArgsHash', ?) WHERE id = ?",
-				)
-				.run("f".repeat(64), "00000000-0000-4000-8000-000000000099");
+			const stored = storedBody("00000000-0000-4000-8000-000000000099")!;
+			stored.approval = { ...lateApproval, boundArgsHash: "f".repeat(64) };
 			const forged = await exportAll(audit(ORG_A, "owner-a"));
 			expect(
 				await verifyChain({
@@ -643,19 +623,10 @@ describe("verifying an export offline", () => {
 				reason: "digest",
 				sequence: late?.sequence,
 			});
-			sqlite
-				.prepare(
-					"UPDATE gateway_change_records SET record = json_set(record, '$.approval.boundArgsHash', ?) WHERE id = ?",
-				)
-				.run(
-					lateApproval.boundArgsHash,
-					"00000000-0000-4000-8000-000000000099",
-				);
+			stored.approval = lateApproval;
 
-			// A row deleted in the database shows up in the next export.
-			sqlite
-				.prepare("DELETE FROM gateway_change_records WHERE id = ?")
-				.run("00000000-0000-4000-8000-000000000007");
+			// A record deleted from the store shows up in the next export.
+			remove("00000000-0000-4000-8000-000000000007");
 			const deleted = await exportAll(audit(ORG_A, "owner-a"));
 			expect(
 				await verifyChain({
@@ -663,14 +634,10 @@ describe("verifying an export offline", () => {
 					checkpoints: deleted.checkpoints,
 					publicKey,
 				}),
-			).toMatchObject({ ok: false, reason: "gap", sequence: 10 });
+			).toMatchObject({ ok: false, reason: "gap", sequence: 7 });
 
-			// So does an edited row, at its own sequence.
-			sqlite
-				.prepare(
-					"UPDATE gateway_change_records SET record = json_set(record, '$.outcome', 'denied') WHERE id = ?",
-				)
-				.run("00000000-0000-4000-8000-000000000004");
+			// So does an edited record, at its own sequence.
+			storedBody("00000000-0000-4000-8000-000000000004")!.outcome = "denied";
 			const tampered = await exportAll(audit(ORG_A, "owner-a"));
 			expect(
 				await verifyChain({
@@ -678,7 +645,7 @@ describe("verifying an export offline", () => {
 					checkpoints: tampered.checkpoints,
 					publicKey,
 				}),
-			).toMatchObject({ ok: false, reason: "digest", sequence: 5 });
+			).toMatchObject({ ok: false, reason: "digest", sequence: 4 });
 		} finally {
 			sqlite.close();
 		}

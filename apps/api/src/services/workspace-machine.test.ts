@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
 import { dispatcherHealthReports } from "@tedix/db/schema/dispatcher-health";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { machineToolCalls, machineToolPolls } from "@tedix/db/schema/machines";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
@@ -33,7 +32,6 @@ function setup() {
 			dispatcherHealthReports,
 			machineToolCalls,
 			machineToolPolls,
-			gatewayChangeRecords,
 		),
 	);
 	const now = new Date().toISOString();

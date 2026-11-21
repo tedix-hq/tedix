@@ -193,7 +193,6 @@
 		"./queries/skill-run-artifacts": "./src/queries/skill-run-artifacts.ts",
 		"./queries/plugins": "./src/queries/plugins.ts",
 		"./queries/audit": "./src/queries/audit.ts",
-		"./queries/gateway-change-records": "./src/queries/gateway-change-records.ts",
 		"./queries/personal-request-consent": "./src/queries/personal-request-consent.ts",
 		"./queries/tenant-bundles": "./src/queries/tenant-bundles.ts",
 		"./queries/tenant-behavioral-evals": "./src/queries/tenant-behavioral-evals.ts",

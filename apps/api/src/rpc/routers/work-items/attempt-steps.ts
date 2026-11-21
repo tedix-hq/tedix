@@ -206,7 +206,7 @@ async function steerRun(
 	// through the gateway is recorded there; one steering from the app is not
 	// recorded yet.
 	if (actor.type === "tedi")
-		await writeRunSteeringRecord(context.db, {
+		await writeRunSteeringRecord({
 			orgId: workItem.orgId,
 			workItemId: workItem.id,
 			messageId: message.id,

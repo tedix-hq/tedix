@@ -42,15 +42,6 @@ export function formatWorkGraphStewardSummary(
 }
 
 /**
- * Gateway change record retention: each round looks at the 500 oldest sealed
- * rows and deletes the whole checkpoints covering them, at most 50 rounds a
- * night (about 25,000 rows), well above the few thousand change records a
- * day the gateway writes once reads and liveness reports are left out.
- */
-export const GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE = 500;
-export const GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES = 50;
-
-/**
  * A Cloudflare scheduled invocation may run 15 minutes of wall time, and the
  * 3am trigger runs three short paths before this one. Nine minutes of steps,
  * never past 13 minutes after the scheduled time, leaves room for the
@@ -76,8 +67,6 @@ export const RETENTION_CLEANUP_CHECKPOINT_ID = "retention-cleanup:next-step";
  * - platform-cron-receipts-prune: finished cron receipts are copied to the
  *   logs database by the d1-retention engine (move_to_logs_db policy,
  *   commit 414700f67); deleting them here would destroy that history.
- * - gateway-change-records: still runs; switch it off here when Work
- *   2661a2c4 moves the gateway change ledger instead of pruning it.
  */
 export const RETENTION_STEPS_SWITCHED_OFF: ReadonlySet<string> = new Set([
 	"platform-cron-receipts-prune",
@@ -85,9 +74,6 @@ export const RETENTION_STEPS_SWITCHED_OFF: ReadonlySet<string> = new Set([
 	"tedi-usage-events",
 	"workflow-runs",
 	"widget-events",
-	// Change records are evidence and are kept; they leave main only for the
-	// per-organization log store (Work c5642d65), never by deletion.
-	"gateway-change-records",
 ]);
 const CHECKPOINT_IO_TIMEOUT_MS = 10_000;
 
@@ -548,45 +534,6 @@ function retentionCleanupSteps(
 						{ limit: 250, maxBatches: 50 },
 					),
 				};
-			},
-		},
-		// The MCP gateway's change ledger. Rows older than the retention window
-		// go in statements of GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE rows, at
-		// most GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES per night; a backlog
-		// drains over several nights. The row count and oldest record are
-		// logged every night so the table's size can be watched.
-		{
-			id: "gateway-change-records",
-			run: async () => {
-				const {
-					GATEWAY_CHANGE_RECORD_RETENTION_DAYS,
-					getGatewayChangeRecordStats,
-					pruneGatewayChangeRecords,
-				} = await import("@tedix/db/queries/gateway-change-records");
-				const before = new Date(
-					event.scheduledTime -
-						GATEWAY_CHANGE_RECORD_RETENTION_DAYS * 86_400_000,
-				).toISOString();
-				const deletedRows = await pruneGatewayChangeRecords(db, {
-					before,
-					batchSize: GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE,
-					maxBatches: GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES,
-				});
-				const stats = await getGatewayChangeRecordStats(db);
-				console.log(
-					JSON.stringify({
-						event: "gateway_change_records.retention.run",
-						before,
-						deletedRows,
-						reachedRunCap:
-							deletedRows >=
-							GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE *
-								GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES,
-						rows: stats.rows,
-						oldestRecordedAt: stats.oldestRecordedAt,
-					}),
-				);
-				return { gatewayChangeRecordsDeleted: deletedRows };
 			},
 		},
 		{

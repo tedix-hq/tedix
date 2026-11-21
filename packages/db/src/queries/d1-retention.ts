@@ -44,7 +44,6 @@ import {
 	externalAgentAttributions,
 	externalAgentReviewEvidence,
 } from "../schema/external-agent-identity";
-import { gatewayChangeRecords } from "../schema/gateway-change-records";
 import { kernelRequestEvents } from "../schema/kernel-requests";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { memoryFacts } from "../schema/memory-graph";
@@ -188,15 +187,6 @@ export const D1_RETENTION_TABLES: Readonly<
 		"workflow_run_ledger",
 		workflowRunLedger,
 		workflowRunLedger.startedAt,
-		"text",
-		90,
-	),
-	// Change-ledger evidence: whole sealed checkpoints whose R2 evidence bundle
-	// exists (`gatewayRecordIsMovable`). Checkpoints stay in main.
-	gateway_change_records: spec(
-		"gateway_change_records",
-		gatewayChangeRecords,
-		gatewayChangeRecords.recordedAt,
 		"text",
 		90,
 	),
@@ -755,27 +745,6 @@ function callCostIsMovable(): SQL {
 }
 
 /**
- * A change record moves only when it is sealed and its whole checkpoint is
- * past the cutoff and has its evidence bundle in R2, so the oldest record
- * left in main is always the first of a checkpoint and `verifyChain` can
- * start there. `sequence` is the table's rowid.
- */
-function gatewayRecordIsMovable(cutoff: D1RetentionPolicyCutoff): SQL {
-	return sql`"gateway_change_records"."chain_hash" IS NOT NULL AND EXISTS (
-		SELECT 1 FROM "gateway_change_record_checkpoints" c
-		WHERE c.organization_id = "gateway_change_records"."organization_id"
-		AND "gateway_change_records"."sequence" BETWEEN c.first_sequence AND c.last_sequence
-		AND c.evidence_bundle_key IS NOT NULL
-		AND NOT EXISTS (
-			SELECT 1 FROM "gateway_change_records" later
-			WHERE later.organization_id = c.organization_id
-			AND later.sequence BETWEEN c.first_sequence AND c.last_sequence
-			AND (later.recorded_at >= ${cutoff} OR later.chain_hash IS NULL)
-		)
-	)`;
-}
-
-/**
  * Filter expired candidates before copying. Keep the raw page's cursor and
  * end marker: an entirely pinned page does not mean the sweep has ended.
  * Callers accumulate referencedRows in the run report.
@@ -784,7 +753,7 @@ export async function filterD1RetentionReferencedRows(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rows: D1RetentionRow[],
-	cutoff: D1RetentionPolicyCutoff,
+	_cutoff: D1RetentionPolicyCutoff,
 ): Promise<{ rows: D1RetentionRow[]; referencedRows: number }> {
 	if (rows.length === 0) return { rows, referencedRows: 0 };
 	let movable: Set<number>;
@@ -806,15 +775,7 @@ export async function filterD1RetentionReferencedRows(
 		movable = new Set(
 			rows.filter((row) => row.status !== "running").map((row) => row.__rowid),
 		);
-	else if (tableSpec.tableName === "gateway_change_records") {
-		const candidates = await db
-			.select({ rowid: sql<number>`rowid`.as("record_rowid") })
-			.from(gatewayChangeRecords)
-			.where(
-				sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(rows.map((row) => row.__rowid))})) AND ${gatewayRecordIsMovable(cutoff)}`,
-			);
-		movable = new Set(candidates.map((row) => Number(row.rowid)));
-	} else if (tableSpec.tableName === "workflow_run_ledger")
+	else if (tableSpec.tableName === "workflow_run_ledger")
 		movable = new Set(
 			rows
 				.filter((row) => row.status !== "queued" && row.status !== "running")
@@ -826,12 +787,7 @@ export async function filterD1RetentionReferencedRows(
 }
 
 /** Table-specific condition every retention delete repeats. */
-function retentionDeleteGuard(
-	tableSpec: D1RetentionTableSpec,
-	cutoff: D1RetentionPolicyCutoff,
-): SQL {
-	if (tableSpec.tableName === "gateway_change_records")
-		return gatewayRecordIsMovable(cutoff);
+function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
 	if (tableSpec.tableName === "skill_run_artifacts")
 		return artifactRunIsTerminal();
 	if (tableSpec.tableName === "external_agent_attributions")
@@ -868,7 +824,7 @@ export function buildD1RetentionDeleteStatements(
 				.delete(tableSpec.table)
 				.where(
 					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${retentionExpiredPredicate(tableSpec, cutoff)}
-					AND ${retentionDeleteGuard(tableSpec, cutoff)}`,
+					AND ${retentionDeleteGuard(tableSpec)}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
 		);

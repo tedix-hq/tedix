@@ -21,10 +21,7 @@ import {
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
-import {
-	gatewayChangeRecordCheckpoints,
-	gatewayChangeRecords,
-} from "@tedix/db/schema/gateway-change-records";
+import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { kernelRequestEvents } from "@tedix/db/schema/kernel-requests";
 import { platformCronExecutions } from "@tedix/db/schema/platform-cron-executions";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
@@ -120,8 +117,6 @@ function fixture(policies: string) {
 			tediUsageEvents,
 			widgetEvents,
 			workflowRunLedger,
-			gatewayChangeRecords,
-			gatewayChangeRecordCheckpoints,
 		),
 	);
 	sqlite.exec(
@@ -1742,52 +1737,6 @@ describe("runD1Retention", () => {
 				key.startsWith("d1-archive/v1/workflow_run_ledger/_platform/"),
 			),
 		).toBe(true);
-	});
-
-	it("moves whole sealed change-record checkpoints that have an evidence bundle", async () => {
-		const { db, sqlite, count } = fixture(
-			"('gateway_change_records','move_to_logs_db',90,1000,'2026-10-21')",
-		);
-		const record = (
-			sequence: number,
-			recordedAt: string,
-			chain: string | null,
-		) =>
-			`(${sequence},'record-${sequence}','fictional-lighthouse','tool','actor','${recordedAt}','{"n":${sequence}}','d${sequence}',${chain ? `'${chain}'` : "NULL"})`;
-		sqlite.exec(`INSERT INTO gateway_change_records(sequence, id, organization_id, resource, actor_id, recorded_at, record, record_digest, chain_hash) VALUES
-			${[
-				record(1, "2024-01-01T00:00:00.000Z", "h1"),
-				record(2, "2024-01-02T00:00:00.000Z", "h2"),
-				record(3, "2024-01-03T00:00:00.000Z", "h3"),
-				record(4, "2024-01-04T00:00:00.000Z", "h4"),
-				record(5, "2024-01-05T00:00:00.000Z", "h5"),
-				record(6, "2026-10-20T00:00:00.000Z", "h6"),
-				record(7, "2024-01-06T00:00:00.000Z", null),
-			].join(",")};
-			INSERT INTO gateway_change_record_checkpoints(id, organization_id, first_sequence, last_sequence, record_count, head_chain_hash, checkpoint_digest, sealed_at, evidence_bundle_key) VALUES
-			('bundled','fictional-lighthouse',1,2,2,'h2','c1','2024-01-02T00:00:00.000Z','change-record-evidence/v1/a.json'),
-			('no-bundle','fictional-lighthouse',3,4,2,'h4','c2','2024-01-04T00:00:00.000Z',NULL),
-			('straddles','fictional-lighthouse',5,6,2,'h6','c3','2026-10-20T00:00:00.000Z','change-record-evidence/v1/b.json');`);
-		const logs = logsFixture();
-		const result = await runD1Retention({
-			db,
-			logsDb: logs.db,
-			bucket: new MemoryBucket() as unknown as R2Bucket,
-			now: NOW,
-			pagePauseMs: 0,
-		});
-		expect(result.tables[0]).toMatchObject({ movedRows: 2, stoppedBy: "done" });
-		expect(logs.count("gateway_change_records")).toBe(2);
-		expect(
-			(
-				sqlite
-					.prepare(
-						"SELECT group_concat(sequence) AS s FROM (SELECT sequence FROM gateway_change_records ORDER BY sequence)",
-					)
-					.get() as { s: string }
-			).s,
-		).toBe("3,4,5,6,7");
-		expect(count("gateway_change_record_checkpoints")).toBe(3);
 	});
 
 	it("reports a missing logs binding and changes nothing", async () => {

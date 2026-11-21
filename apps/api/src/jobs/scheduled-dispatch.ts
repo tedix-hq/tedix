@@ -215,26 +215,6 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (cron === "*/2 * * * *") {
-			// No AI: chains and checkpoints gateway change records written since
-			// the last run, in bounded batches, off the tool-call path.
-			const { runGatewayChangeRecordSealer } =
-				await import("./gateway-change-record-sealer");
-			await trackPlatformCronPath(
-				env,
-				event,
-				"gateway-change-record-sealer",
-				() => runGatewayChangeRecordSealer(env, event.scheduledTime),
-			);
-			// Moves one organization's ledger at a time into its log store,
-			// after the sealer so freshly sealed checkpoints can be copied.
-			const { runOrganizationLogCutoverCron } =
-				await import("./organization-log-cutover");
-			await trackPlatformCronPath(env, event, "organization-log-cutover", () =>
-				runOrganizationLogCutoverCron(env, event.scheduledTime),
-			);
-		}
-
 		if (fleetEnabled && cron === "*/2 * * * *") {
 			// Separate from the 15-minute billing tick: catch up observations more
 			// quickly without repeating settlement, credits, or Stripe side effects.

@@ -84,7 +84,7 @@ export async function queueMachineToolCall(
 		error: Error,
 		machineName = input.machine,
 	) => {
-		await writeMachineToolRefusedRecord(deps.db, {
+		await writeMachineToolRefusedRecord({
 			orgId,
 			callId,
 			machineName,
@@ -153,7 +153,7 @@ export async function queueMachineToolCall(
 	// A write tool's record is written before the call exists: if the
 	// write fails, the request fails and nothing is queued for the
 	// machine. Its outcome stays "unknown" until the result record.
-	await writeMachineToolQueuedRecord(deps.db, {
+	await writeMachineToolQueuedRecord({
 		orgId,
 		callId,
 		machineName: machine.machineName,
