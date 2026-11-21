@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	closeSync,
@@ -67,6 +67,76 @@ export const RUNNER_PASS_GRACE_MS = 3.5 * 60_000;
  * problem recorded.
  */
 export const RUNNER_UPDATE_EXIT_CODE = 75;
+/** How long a stopping runner waits for its Work in progress before it exits. */
+export const RUNNER_STOP_DRAIN_MS = 2 * 60_000;
+/** A stopping runner still alive this long after its drain time is hung. */
+export const RUNNER_PREDECESSOR_GRACE_MS = 30_000;
+const LOCK_WAIT_FILE = "lock-wait.state";
+
+/** The runners a starting runner waits for, and since when, before it may serve. */
+export interface RunnerLockWait {
+	pid: number;
+	waiting: { pid: number; since: number }[];
+}
+
+/**
+ * A starting runner records here whom it waits for; the supervisor reads it
+ * to tell a waiting runner from a hung one. `undefined` clears the record.
+ */
+export function writeRunnerLockWait(
+	directory: string,
+	wait: RunnerLockWait | undefined,
+): void {
+	const path = join(directory, LOCK_WAIT_FILE);
+	try {
+		if (!wait) {
+			rmSync(path, { force: true });
+			return;
+		}
+		writeFileSync(`${path}.tmp`, JSON.stringify(wait), { mode: 0o600 });
+		renameSync(`${path}.tmp`, path);
+	} catch {
+		// Without the record the supervisor falls back to the missed-pass check.
+	}
+}
+
+export function readRunnerLockWait(
+	directory: string,
+	pid: number,
+): RunnerLockWait | undefined {
+	try {
+		const wait = JSON.parse(
+			readFileSync(join(directory, LOCK_WAIT_FILE), "utf8"),
+		) as RunnerLockWait;
+		if (wait.pid !== pid || !Array.isArray(wait.waiting)) return;
+		return {
+			pid,
+			waiting: wait.waiting.filter(
+				(row) =>
+					Number.isSafeInteger(row?.pid) &&
+					row.pid > 0 &&
+					Number.isFinite(row.since),
+			),
+		};
+	} catch {
+		return;
+	}
+}
+
+/**
+ * True when `pid` is a `tedix lane serve` process, so a reused pid is never
+ * killed. Read with `ps`: the kernel argument read returns nothing for the
+ * packaged CLI on macOS.
+ */
+function runnerProcess(pid: number): boolean {
+	const listed = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+		encoding: "utf8",
+		timeout: 2000,
+		killSignal: "SIGKILL",
+	});
+	return listed.status === 0 && /\slane serve(\s|$)/.test(listed.stdout);
+}
+
 /** A longer gap between checks means this machine slept; passes restart from waking. */
 const CHECK_GAP_MS = 90_000;
 /** Exits older than this no longer lengthen the backoff. */
@@ -427,6 +497,10 @@ export interface RunnerDutiesDeps {
 	identity?: typeof laneProcessIdentity;
 	/** The `tedix` program; defaults to this CLI. */
 	program?: () => [string, string[]];
+	/** Whether a pid is a runner process; tests replace the kernel read. */
+	runnerProcess?: (pid: number) => boolean;
+	/** Kills a runner's process group; tests record the call. */
+	kill?: (pid: number) => void;
 }
 
 /** Keeps the configured dispatchers running; one instance per supervisor. */
@@ -435,6 +509,7 @@ export class RunnerDuties {
 	private readonly exits = new Map<string, number[]>();
 	private readonly restartAt = new Map<string, number>();
 	private configError: string | undefined;
+	private readonly reported = new Set<string>();
 	private checkedAt = 0;
 	private awakeAt = 0;
 
@@ -734,12 +809,58 @@ export class RunnerDuties {
 	}
 
 	/**
+	 * True while the runner waits for an earlier runner to exit: it has not
+	 * missed a pass, it has not been allowed to make one. An earlier runner
+	 * still alive past its drain time is hung, so it is the one killed;
+	 * restarting the waiting runner would only make the next one wait too.
+	 */
+	private waitingForPredecessor(
+		directory: string,
+		entry: Running,
+		now: number,
+	): boolean {
+		const blockers =
+			readRunnerLockWait(directory, entry.pid)?.waiting.filter((row) =>
+				alive(row.pid),
+			) ?? [];
+		for (const { pid, since } of blockers) {
+			if (now - since <= RUNNER_STOP_DRAIN_MS + RUNNER_PREDECESSOR_GRACE_MS)
+				continue;
+			const tag = `${entry.pid}:${pid}`;
+			if (!(this.deps.runnerProcess ?? runnerProcess)(pid)) {
+				if (!this.reported.has(tag))
+					this.log(
+						`${entry.runner.executor} (pid ${entry.pid}) waits for pid ${pid}, which is not a runner; left alone`,
+					);
+				this.reported.add(tag);
+				continue;
+			}
+			this.log(
+				`${entry.runner.executor} (pid ${entry.pid}) has waited ${Math.round((now - since) / 1000)}s for the earlier runner pid ${pid}, past its ${RUNNER_STOP_DRAIN_MS / 1000}s drain time; killing pid ${pid}`,
+			);
+			if (this.deps.kill) this.deps.kill(pid);
+			else
+				try {
+					process.kill(-pid, "SIGKILL");
+				} catch {
+					try {
+						process.kill(pid, "SIGKILL");
+					} catch {
+						/* Already gone. */
+					}
+				}
+		}
+		return blockers.length > 0;
+	}
+
+	/**
 	 * Kills and restarts a runner that missed its scheduled pass. SIGKILL,
 	 * because a hung pass never reaches the SIGTERM drain. Lane processes run
 	 * in their own process groups, so the replacement recovers them as orphans.
 	 */
 	private restartIfHung(key: string, entry: Running, now: number): boolean {
 		const directory = join(configDir(this.deps.env), "dispatchers", key);
+		if (this.waitingForPredecessor(directory, entry, now)) return false;
 		const due = Math.max(
 			dispatcherNextCheckAt(directory, entry.pid) ?? entry.startedAt,
 			this.awakeAt,
