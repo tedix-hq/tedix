@@ -19,6 +19,7 @@ import {
 } from "@tedix/db/schema/work-factory";
 import {
 	workEvents,
+	workAttempts,
 	workItemComments,
 	workItems,
 } from "@tedix/db/schema/work-items";
@@ -152,18 +153,23 @@ function fixture() {
 		});
 	return {
 		sqlite,
-		kernel: (approvingUserId?: string) =>
+		kernel: (approvingUserId?: string, actingUserId = approvingUserId) =>
 			createRouterClient(workInteractionsContractRouter, {
 				context: {
 					authType: "service-binding",
+					serviceBindingPrincipal: "mcp-edge",
 					tediId: "chat-tedi",
 					tediScopes: ["mcp:messaging.write", "mcp:work.write"],
 					db: createDbClient(facade),
 					env: { ENVIRONMENT: "test", DB: facade } as CloudflareEnv,
 					headers: new Headers({
 						"X-Service-Binding": "true",
+						"X-Tedix-Kernel": "true",
 						...(approvingUserId
-							? { "X-Tedix-Approved-Work-Responder": approvingUserId }
+							? {
+									"X-Tedix-Approved-Work-Responder": approvingUserId,
+									"X-Tedix-Acting-User": actingUserId!,
+								}
 							: {}),
 					}),
 					organizationId: ORG_ID,
@@ -291,10 +297,39 @@ describe("Work proposal acceptance", () => {
 		expect(f.rows()).toHaveLength(1);
 	});
 
+	it("keeps the chat creation membership check when delegation is absent", async () => {
+		const f = setup();
+		const request = await f.propose(metadata(false));
+		f.sqlite
+			.prepare(
+				"UPDATE organization_members SET status='inactive' WHERE user_id='other-id'",
+			)
+			.run();
+		await expect(
+			f.kernel("target-sub", "other-sub").respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "handoff_accepted",
+				resolvesRequest: true,
+				body: "Accept",
+			}),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Home Work creation requires an active contributing member",
+		});
+		expect(f.rows()).toHaveLength(0);
+		expect(
+			f.sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id=?")
+				.get(request.id),
+		).toEqual({ status: "open" });
+	});
+
 	it.each([false, true])(
-		"creates Work for the approving human and records the chat tedi as actor (delegation=%s)",
+		"creates Work in the chat tedi context and records the approving human response (delegation=%s)",
 		async (enabled) => {
 			const f = setup();
+			f.sqlite.exec(schemaDdl(workAttempts));
 			f.sqlite
 				.prepare(
 					"INSERT OR REPLACE INTO organizations (id,name,slug,metadata) VALUES (?,?,?,?)",
@@ -315,6 +350,17 @@ describe("Work proposal acceptance", () => {
 				metadata: { actor: { type: "user", id: "spoofed" } },
 			});
 			expect(f.rows()).toHaveLength(3);
+			expect(
+				f.sqlite
+					.prepare(
+						"SELECT actor_type,actor_id FROM work_events WHERE event_type='work.created' AND work_item_id IN (SELECT id FROM work_items WHERE source_intent_id IS NOT NULL)",
+					)
+					.all(),
+			).toEqual([
+				{ actor_type: "tedi", actor_id: "chat-tedi" },
+				{ actor_type: "tedi", actor_id: "chat-tedi" },
+				{ actor_type: "tedi", actor_id: "chat-tedi" },
+			]);
 			expect(result.request.state).toBe("resolved");
 			expect(result.response).toMatchObject({
 				respondedByType: "user",
@@ -353,7 +399,7 @@ describe("Work proposal acceptance", () => {
 					body: "Accepted",
 				}),
 			).rejects.toThrow(
-				approver
+				approver || !enabled
 					? "Responder is not the request target"
 					: "This card requires its owner; no eligible standing delegation applies",
 			);

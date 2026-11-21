@@ -1,3 +1,4 @@
+import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { runtimeApprovalDelegate } from "../../services/delegated-runtime-approval";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
@@ -1505,10 +1506,14 @@ const resolveProcedure = authedOs.resolve
 				!context.gatewayEndUserId &&
 				existing.actionType !== "embedded_user_confirmation"),
 		);
-		const delegated = machineDecider
+		const delegationEnabled =
+			machineDecider &&
+			(await getOrganizationById(context.db, existing.orgId))?.metadata
+				?.delegatedApprovals?.enabled === true;
+		const delegated = delegationEnabled
 			? await runtimeApprovalDelegate(context, existing)
 			: null;
-		if (machineDecider && !delegated)
+		if (delegationEnabled && !delegated)
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				"This approval requires its owner; no reversible internal tool class and standing delegation apply",

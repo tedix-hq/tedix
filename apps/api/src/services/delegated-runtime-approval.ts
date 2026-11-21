@@ -31,6 +31,8 @@ export async function runtimeApprovalDelegate(
 		namesOtherOrganization(
 			[payload.args, ...(payload.additionalArgs ?? [])],
 			approval.orgId,
+			// Standing delegation must inspect the entire stored call.
+			Infinity,
 		)
 	)
 		return null;

@@ -90,6 +90,7 @@ const ORGANIZATION_SECTION_ITEMS = [
 const ORGANIZATION_OWNER_SECTION_ITEMS = [
 	...ORGANIZATION_SECTION_ITEMS,
 	["Project sections", "organization-portfolio"],
+	["Delegated approvals", "organization-delegated-approvals"],
 	["Danger", "organization-danger"],
 ] as const;
 
@@ -264,6 +265,18 @@ function AdminOrganizationBody({
 					<OrganizationInboundClientsSection organizationId={organization.id} />
 				</Suspense>
 			</div>
+
+			{isOwner && (
+				<div id="organization-delegated-approvals" className="scroll-mt-24">
+					<WorkspaceAppRenderer
+						manifest={{
+							entry: "tedix:app/delegated-approval-settings",
+							capabilities: [],
+							config: { organizationId },
+						}}
+					/>
+				</div>
+			)}
 
 			{isOwner && (
 				<div id="organization-portfolio" className="scroll-mt-24">

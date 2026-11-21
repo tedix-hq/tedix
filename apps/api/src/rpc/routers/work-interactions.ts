@@ -1,3 +1,4 @@
+import { getOrganizationById } from "@tedix/db/queries/organizations";
 import {
 	claimDelegatedApproval,
 	preferredApprovalDelegate,
@@ -789,7 +790,9 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			initialRequest &&
 			responder.type !== "user" &&
 			(initialRequest.targetType === "user" ||
-				initialRequest.metadata.delegatedApproval)
+				initialRequest.metadata.delegatedApproval) &&
+			(await getOrganizationById(context.db, orgId))?.metadata
+				?.delegatedApprovals?.enabled === true
 		) {
 			const claimed = await claimDelegatedApproval(context.db, {
 				request: initialRequest,
@@ -884,7 +887,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				const parsed = WorkProposalMetadataSchema.safeParse(request.metadata);
 				if (parsed.success) {
 					const workItemIds = await materializeWorkProposal(
-						startContext,
+						context,
 						orgId,
 						parsed.data.proposal,
 					);
@@ -2335,7 +2338,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 						0,
 						300,
 					),
-					prompt: `${receipt.actorName} decided: ${answer}\n\n${input.undo ? "You withdrew this approval. Calls that have not started can no longer use it. Completed effects remain; review them and say what should change." : "Review the result and say what should change. Reopening does not undo or repeat the earlier action."}`,
+					prompt: `${receipt.actorName} decided: ${answer}\n\n${input.undo && input.source === "runtime" ? "You cancelled this runtime approval. Unused tool calls can no longer use it. Completed effects remain; review them and say what should change." : "Review the result and say what should change. Reopening does not undo or repeat the earlier action, or change the resolved card."}`,
 					creator: actor,
 					targetType: "user",
 					targetId: actor.id,

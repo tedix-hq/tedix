@@ -1,3 +1,4 @@
+import { namesOtherOrganization } from "./approval-holds";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	decideAutonomousAction,
@@ -1067,4 +1068,21 @@ describe("native steward completion autonomy", () => {
 			).toBe(false);
 		},
 	);
+});
+
+describe("organization argument scan", () => {
+	it("keeps the workspace depth boundary while allowing a stricter delegation scan", () => {
+		expect(
+			namesOtherOrganization(
+				[{ first: { second: { organizationId: "other" } } }],
+				"org",
+			),
+		).toBe(true);
+		const deeper = [
+			{ first: { second: { third: { organizationId: "other" } } } },
+		];
+		expect(namesOtherOrganization(deeper, "org")).toBe(false);
+		expect(namesOtherOrganization(deeper, "org", Infinity)).toBe(true);
+		expect(namesOtherOrganization([{ orgId: "org" }], "org")).toBe(false);
+	});
 });

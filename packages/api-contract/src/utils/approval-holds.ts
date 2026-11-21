@@ -53,25 +53,33 @@ export const HOLDS: Record<ActionClass, Record<ApprovalMode, Hold>> = {
 
 const ORGANIZATION_KEYS = ["organizationId", "orgId", "organization_id"];
 
-/** An argument naming an organization other than the sender's. */
+/** Workspace approval modes retain their original three-level argument scan. */
 export function namesOtherOrganization(
 	value: unknown,
 	organizationId: string,
+	maxDepth = 3,
 ): boolean {
-	const pending = [value];
+	const pending = [{ value, depth: 0 }];
 	const seen = new WeakSet<object>();
 	while (pending.length) {
-		const current = pending.pop();
-		if (!current || typeof current !== "object" || seen.has(current)) continue;
-		seen.add(current);
-		for (const [key, inner] of Object.entries(current)) {
+		const current = pending.pop()!;
+		if (
+			!current.value ||
+			typeof current.value !== "object" ||
+			current.depth > maxDepth ||
+			seen.has(current.value)
+		)
+			continue;
+		seen.add(current.value);
+		for (const [key, inner] of Object.entries(current.value)) {
 			if (
 				ORGANIZATION_KEYS.includes(key) &&
 				typeof inner === "string" &&
 				inner !== organizationId
 			)
 				return true;
-			if (inner && typeof inner === "object") pending.push(inner);
+			if (inner && typeof inner === "object")
+				pending.push({ value: inner, depth: current.depth + 1 });
 		}
 	}
 	return false;

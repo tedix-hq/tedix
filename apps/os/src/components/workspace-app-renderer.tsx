@@ -45,6 +45,12 @@ import { cardReviewConfigFromManifest } from "@tedix/api-contract/utils/card-rev
 import { lazy, Suspense } from "react";
 import { AppLoading } from "@/components/app-loading";
 
+const DelegatedApprovalSettingsApp = lazy(() =>
+	import("./delegated-approval-settings-app").then((m) => ({
+		default: m.DelegatedApprovalSettingsApp,
+	})),
+);
+
 const WorkDispatchApp = lazy(() =>
 	import("./work-dispatch-app").then((m) => ({ default: m.WorkDispatchApp })),
 );
@@ -147,6 +153,15 @@ function InstalledApp({
 	activityFeed?: ActivityFeedNavigation;
 }) {
 	const entry = manifest.entry.trim();
+	if (
+		entry === "tedix:app/delegated-approval-settings" &&
+		typeof manifest.config?.organizationId === "string"
+	)
+		return (
+			<DelegatedApprovalSettingsApp
+				organizationId={manifest.config.organizationId}
+			/>
+		);
 	if (
 		entry === "tedix:app/agent-work-management" &&
 		typeof manifest.config?.organizationId === "string"

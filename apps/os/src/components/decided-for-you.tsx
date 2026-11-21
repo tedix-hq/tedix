@@ -36,8 +36,8 @@ export function DecidedForYou() {
 				Decided for you
 			</h2>
 			<p>
-				Undo withdraws the approval and opens a review. Completed actions still
-				need your review.
+				Undo opens a review. For runtime approvals it also cancels unused tool
+				calls. It does not reverse completed actions or change resolved cards.
 			</p>
 			{decisions.isPending && <p>Loading decisions…</p>}
 			{decisions.isError && <p role="alert">Decisions could not be loaded.</p>}
@@ -51,7 +51,13 @@ export function DecidedForYou() {
 						<p>
 							<strong>{item.receipt.actorName}</strong> decided: {item.subject}
 						</p>
-						<p>{item.undoneAt ? "Approval withdrawn" : item.decision}</p>
+						<p>
+							{item.undoneAt
+								? item.source === "runtime"
+									? "Approval cancelled"
+									: "Review requested"
+								: item.decision}
+						</p>
 						<p>Why: {item.receipt.reason}</p>
 						<Link
 							href={
@@ -78,14 +84,16 @@ export function DecidedForYou() {
 									})
 								}
 							>
-								Undo approval
+								{item.source === "runtime"
+									? "Undo approval"
+									: "Review decision"}
 							</Button>
 						)}
 					</li>
 				))}
 			</ul>
 			{reopen.isError && (
-				<p role="alert">The approval could not be withdrawn.</p>
+				<p role="alert">The decision could not be reopened.</p>
 			)}
 			{before && (
 				<Button size="sm" onClick={() => setBefore(undefined)}>

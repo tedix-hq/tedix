@@ -1864,6 +1864,10 @@
 		{
 			"name": "20261121214857_delegated_approval_routing/migration.sql",
 			"sha256": "5650037228e8e963a768516772e89f34355b24b9ea228ecab929fb5618ef3d51"
+		},
+		{
+			"name": "20261121224340_independent_approval_target/migration.sql",
+			"sha256": "be958dda05e6d31ca93679e291c30b3ce6887784aef29b863252e059f122d259"
 		}
 	]
 }

@@ -210,6 +210,132 @@ async function fixture(enabled = true) {
 }
 
 describe("standing approval delegation", () => {
+	it.each([false, undefined])(
+		"preserves legacy runtime machine deciders when delegation is %s",
+		async (enabled) => {
+			const { base, sqlite, db } = await fixture(false);
+			if (enabled === undefined)
+				sqlite
+					.prepare("UPDATE organizations SET metadata='{}' WHERE id=?")
+					.run(org);
+			const identities: Partial<BaseContext>[] = [
+				{
+					authType: "user",
+					userId: "owner",
+					userRole: "owner",
+					user: { sub: "owner-sub" } as BaseContext["user"],
+					externalAgentPrincipalId: agent,
+				},
+				{
+					authType: "user",
+					userId: "owner",
+					userRole: "owner",
+					user: { sub: "owner-sub" } as BaseContext["user"],
+					ownerHostSessionId: "host-session",
+				},
+				{
+					authType: "service-binding",
+					headers: new Headers({ "X-Service-Binding": "true" }),
+					tediId: tedi,
+					tediScopes: ["mcp:memory.admin"],
+				},
+			];
+			for (const identity of identities) {
+				const client = createRouterClient(tediApprovalsContractRouter, {
+					context: { ...base, ...identity } as BaseContext,
+				});
+				const id = crypto.randomUUID();
+				await createApprovalRequest(db, {
+					id,
+					orgId: org,
+					tediId: requesterTedi,
+					actionType: "tool_execution",
+					description: "Legacy approval",
+					payload: {},
+					createdAt: now(),
+					expiresAt: "2099-01-01T00:00:00.000Z",
+				});
+				const result = await client.resolve({ id, status: "approved" });
+				expect(result).toMatchObject({
+					status: "approved",
+					resolvedBy:
+						identity.authType === "user" ? "owner-sub" : "service-binding",
+				});
+				expect(result.payload.delegatedApproval).toBeUndefined();
+				const self = crypto.randomUUID();
+				await createApprovalRequest(db, {
+					id: self,
+					orgId: org,
+					tediId: tedi,
+					actionType: "tool_execution",
+					description: "Own approval",
+					payload: {},
+					createdAt: now(),
+					expiresAt: "2099-01-01T00:00:00.000Z",
+				});
+				if (identity.tediId)
+					await expect(
+						client.resolve({ id: self, status: "approved" }),
+					).rejects.toThrow("A tedi cannot decide its own approval request");
+			}
+			sqlite.close();
+		},
+	);
+
+	it.each(["tedi", "external_agent"] as const)(
+		"the database refuses retargeting a card to its %s creator",
+		async (type) => {
+			const { sqlite } = await fixture();
+			const id = type === "tedi" ? tedi : agent;
+			if (type === "external_agent")
+				sqlite
+					.prepare(
+						"INSERT INTO external_agent_sessions (id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,started_at,last_seen_at) VALUES ('session',?,?,'external-key','test','1','test','test','1','explicit',?,?)",
+					)
+					.run(org, agent, now(), now());
+			const request = { id: crypto.randomUUID(), version: 1 };
+			sqlite
+				.prepare(
+					"INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,creator_session_id,creator_external_session_key,target_type,target_id,created_at,metadata) VALUES (?,?,?,'question','Self review','Review',?,?,'session','external-key','user','owner',?,?)",
+				)
+				.run(
+					request.id,
+					org,
+					work,
+					type,
+					id,
+					now(),
+					JSON.stringify({ decisionDeck: card() }),
+				);
+			const receipt = {
+				ownerId: "owner",
+				actorType: type,
+				actorId: id,
+				actorName: "Lead",
+				reason: "Review",
+			};
+			expect(() =>
+				sqlite
+					.prepare(
+						"UPDATE work_interactions SET target_type=?,target_id=?,version=version+1,metadata=json_set(metadata,'$.delegatedApproval',json(?)) WHERE id=?",
+					)
+					.run(type, id, JSON.stringify(receipt), request.id),
+			).toThrow("The card creator cannot be its delegate");
+			expect(
+				sqlite
+					.prepare(
+						"SELECT target_type,target_id,version FROM work_interactions WHERE id=?",
+					)
+					.get(request.id),
+			).toMatchObject({
+				target_type: "user",
+				target_id: "owner",
+				version: request.version,
+			});
+			sqlite.close();
+		},
+	);
+
 	it("does not treat a browser agent on a human credential as the human approver", async () => {
 		const { base, toolApproval } = await fixture();
 		const id = await toolApproval({
@@ -418,7 +544,9 @@ describe("standing approval delegation", () => {
 			requestedFromId: "owner",
 		});
 		expect(review.metadata.decisionDeck).toBeUndefined();
-		expect(review.prompt).toContain("You withdrew this approval");
+		expect(review.prompt).toContain(
+			"Reopening does not undo or repeat the earlier action, or change the resolved card.",
+		);
 		expect(
 			(await owner.listDecidedForYou({ limit: 25 })).data[0]?.undoneAt,
 		).toEqual(expect.any(String));
@@ -511,7 +639,10 @@ describe("standing approval delegation", () => {
 				resolvesRequest: true,
 				metadata: { cardAction: "approve", decisionChoice: "approve" },
 			}),
-		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Only the addressed person can execute a decision card",
+		});
 		sqlite
 			.prepare("UPDATE organizations SET metadata='{}' WHERE id=?")
 			.run(org);
