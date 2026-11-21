@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { join } from "node:path";
 import {
 	listLocalModels,
@@ -75,6 +75,7 @@ export function openLocalModelChat(): void {
 		});
 	}
 
+	const root = app.getAppPath();
 	window = new BrowserWindow({
 		title: "Local Model Chat",
 		width: 820,
@@ -83,7 +84,7 @@ export function openLocalModelChat(): void {
 		minHeight: 480,
 		webPreferences: {
 			partition: "tedix-local-model",
-			preload: join(__dirname, "local-model-preload.cjs"),
+			preload: join(root, "out/local-model-preload.cjs"),
 			contextIsolation: true,
 			nodeIntegration: false,
 			sandbox: true,
@@ -99,5 +100,5 @@ export function openLocalModelChat(): void {
 		availableModels.clear();
 		window = undefined;
 	});
-	void window.loadFile(join(__dirname, "../local-model.html"));
+	void window.loadFile(join(root, "local-model.html"));
 }
