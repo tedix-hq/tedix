@@ -16,7 +16,7 @@
  * Plain TypeScript and Web Crypto only.
  */
 
-import { serializeGovernanceValue } from "./hash";
+import { serializeGovernanceValue } from "./hash.js";
 
 /** Fields that describe a record's place in the chain, never its content. */
 export const SEAL_FIELDS = ["sequence", "recordDigest", "chainHash"] as const;
@@ -300,13 +300,20 @@ export async function importVerifyingKey(
 	);
 }
 
-/** Sign a checkpoint statement into a DSSE envelope with one signature. */
-export async function signCheckpoint(
-	statement: CheckpointStatement,
+export interface InTotoStatement {
+	_type: typeof IN_TOTO_STATEMENT_TYPE;
+	subject: Array<{ name: string; digest: { sha256: string } }>;
+	predicateType: string;
+	predicate: object;
+}
+
+/** The same DSSE signer serves individual changes and ledger checkpoints. */
+export async function signStatement(
+	statement: InTotoStatement,
 	privateKey: CryptoKey,
 	keyId: string,
 ): Promise<DsseEnvelope> {
-	const payload = serializeCheckpointStatement(statement);
+	const payload = utf8.encode(serializeGovernanceValue(statement));
 	const signature = await crypto.subtle.sign(
 		ED25519,
 		privateKey,
@@ -319,6 +326,15 @@ export async function signCheckpoint(
 			{ keyid: keyId, sig: encodeBase64(new Uint8Array(signature)) },
 		],
 	};
+}
+
+/** Sign a checkpoint statement into a DSSE envelope with one signature. */
+export async function signCheckpoint(
+	statement: CheckpointStatement,
+	privateKey: CryptoKey,
+	keyId: string,
+): Promise<DsseEnvelope> {
+	return signStatement(statement, privateKey, keyId);
 }
 
 export type CheckpointVerification =

@@ -11,7 +11,7 @@
  * the day's records and checkpoints together. Obtain the public key out of band.
  */
 
-import type { CheckpointInput } from "./seal";
+import type { CheckpointInput } from "./seal.js";
 
 /** Prefix of every evidence object. Objects under it are never deleted. */
 export const EVIDENCE_BUNDLE_PREFIX = "change-record-evidence/v1/";

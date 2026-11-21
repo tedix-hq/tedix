@@ -14,7 +14,8 @@
 		"./in-memory": "./src/in-memory.ts",
 		"./seal": "./src/seal.ts",
 		"./evidence": "./src/evidence.ts",
-		"./memory-transfer": "./src/memory-transfer.ts"
+		"./memory-transfer": "./src/memory-transfer.ts",
+		"./record": "./src/record.ts"
 	},
 	"scripts": {
 		"clean": "true",
@@ -22,7 +23,8 @@
 		"test:run": "vp test run",
 		"test:ci": "bun run test:run",
 		"test:watch": "vp test",
-		"type-check": "tsc --noEmit"
+		"type-check": "tsc --noEmit",
+		"build": "tsc -p tsconfig.build.json"
 	},
 	"devDependencies": {
 		"@tedix/tsconfig": "workspace:*",

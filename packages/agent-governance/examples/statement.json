@@ -1,0 +1,101 @@
+{
+	"_type": "https://in-toto.io/Statement/v1",
+	"subject": [
+		{
+			"name": "change-record/example-change-1",
+			"digest": {
+				"sha256": "935d067ef7b7312da3b192054604ad500e4ace8de44481ff72e5af2b2dfea88d"
+			}
+		}
+	],
+	"predicateType": "https://tedix.dev/attestations/change-record/v1",
+	"predicate": {
+		"record": {
+			"id": "example-change-1",
+			"recordedAt": "2026-01-01T12:00:00.000Z",
+			"resource": "tool:example_add_note",
+			"operation": "example_add_note",
+			"actor": {
+				"id": "agent-example",
+				"kind": "agent",
+				"organizationId": "organization-example"
+			},
+			"source": {
+				"surface": "mcp_gateway",
+				"traceId": "example-trace"
+			},
+			"decision": {
+				"verdict": "allow",
+				"gate": "tool_scope",
+				"reason": "Example scoped write",
+				"riskTier": "bounded_write",
+				"blastRadius": "single_resource"
+			},
+			"outcome": "applied",
+			"argsHash": "caa8e68f50e1cde5f7aa81cb3e80db243db4b79dea6da1b3c964c3b9cb95fada",
+			"subject": {
+				"kind": "work_item",
+				"id": "00000000-0000-4000-8000-000000000001"
+			},
+			"parent": {
+				"runId": "example-run"
+			},
+			"environment": {
+				"harness": "example",
+				"policyDigest": "example-tool-policy-digest"
+			},
+			"approval": {
+				"approverId": "example-owner",
+				"approvedAt": "2026-01-01T11:59:00.000Z",
+				"kind": "owner_request",
+				"boundArgsHash": "caa8e68f50e1cde5f7aa81cb3e80db243db4b79dea6da1b3c964c3b9cb95fada"
+			}
+		},
+		"subjectKind": "change_record",
+		"actor": {
+			"id": "agent-example",
+			"kind": "agent",
+			"organizationId": "organization-example"
+		},
+		"onBehalfOf": null,
+		"cause": {
+			"operation": "example_add_note",
+			"source": {
+				"surface": "mcp_gateway",
+				"traceId": "example-trace"
+			},
+			"task": {
+				"kind": "work_item",
+				"id": "00000000-0000-4000-8000-000000000001"
+			},
+			"parent": {
+				"runId": "example-run"
+			}
+		},
+		"approval": {
+			"approverId": "example-owner",
+			"approvedAt": "2026-01-01T11:59:00.000Z",
+			"kind": "owner_request",
+			"boundArgsHash": "caa8e68f50e1cde5f7aa81cb3e80db243db4b79dea6da1b3c964c3b9cb95fada"
+		},
+		"environment": {
+			"harness": "example",
+			"policyDigest": "example-tool-policy-digest"
+		},
+		"time": {
+			"recordedAt": "2026-01-01T12:00:00.000Z",
+			"source": "recorder_clock",
+			"trustedTime": null
+		},
+		"openFields": [
+			{
+				"field": "onBehalfOf",
+				"reason": "The record does not capture a delegated principal."
+			},
+			{
+				"field": "trustedTime",
+				"reason": "Recorder time has no independent timestamp authority receipt."
+			}
+		]
+	}
+}

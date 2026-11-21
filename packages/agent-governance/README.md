@@ -10,6 +10,11 @@ same way.
 Plain TypeScript. No platform, database or application imports; a test
 asserts that. Apache-2.0.
 
+For individual signed change records, the language-neutral valid/invalid
+examples and a standalone offline verifier, see [examples](examples/README.md).
+`bun run build` emits the portable record, seal and evidence modules without
+Tedix build configuration; nothing is published by that command.
+
 ## The three contracts (`@tedix/agent-governance/types`)
 
 | Contract                | What it does                                                                                                                                              |
