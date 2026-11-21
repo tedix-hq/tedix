@@ -497,7 +497,7 @@ describe("TeamPage", () => {
 		const container = renderPage();
 		await flush();
 		expect(container.textContent).toContain("Runtime status unavailable");
-		expect(container.textContent).toContain("View Compute");
+		expect(container.textContent).toContain("View usage");
 		expect(container.textContent).toContain("CTO Tedi");
 	});
 
