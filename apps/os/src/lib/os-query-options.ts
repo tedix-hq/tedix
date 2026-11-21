@@ -293,6 +293,16 @@ export const userProfileQueryOptions = () =>
 export const homeConversationsQueryPrefix = () =>
 	osQuery.kernelRuntime.listConversations.key({ type: "query" });
 
+export const workspaceChatSearchKey = (
+	organizationId?: string,
+	workspaceId?: string,
+	search?: string,
+) =>
+	[
+		...homeConversationsQueryPrefix(),
+		{ organizationId, workspaceId, messageSearch: search },
+	] as const;
+
 /** Exact cache key for an infinite Home/Workspace conversation list. */
 export const homeConversationsQueryKey = (
 	workspaceId?: string,

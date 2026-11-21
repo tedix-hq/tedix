@@ -67,13 +67,15 @@ import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import type {
-	TediChatListRow,
-	TediChatRowTedi,
+import {
+	tediChatConversationId,
+	type TediChatListRow,
+	type TediChatRowTedi,
 } from "@/lib/chat-tedi-conversations";
 import {
 	activeWorkspacesQueryOptions,
 	homeConversationsQueryKey,
+	workspaceChatSearchKey,
 } from "@/lib/os-query-options";
 
 // ---------------------------------------------------------------------------
@@ -464,6 +466,11 @@ export function ConversationRow({
 							</Text>
 						) : null}
 					</span>
+					{conversation.match && (
+						<span className="line-clamp-3 whitespace-normal text-kumo-subtle">
+							{conversation.match}
+						</span>
+					)}
 					<span className="flex min-w-0 items-center gap-1 text-kumo-subtle type-tedix-label">
 						{tedi ? (
 							<>
@@ -595,7 +602,9 @@ export function ChatSidebar({
 	onSelect,
 	workspaceId,
 	extraConversations,
+	personalWorkspace,
 }: {
+	personalWorkspace?: { id: string; organizationId: string };
 	/** `null` means the synthetic "new conversation" state (no thread yet). */
 	activeConversationId: string | null;
 	onSelect: (conversationId: string | null) => void;
@@ -630,6 +639,31 @@ export function ChatSidebar({
 	const conversations = useInfiniteQuery(
 		conversationListQueryOptions(workspaceId, showArchived, normalizedSearch),
 	);
+	const messageSearch = useQuery({
+		queryKey: workspaceChatSearchKey(
+			personalWorkspace?.organizationId,
+			personalWorkspace?.id,
+			normalizedSearch,
+		),
+		enabled: Boolean(personalWorkspace && normalizedSearch),
+		queryFn: async ({ signal }) => {
+			const response = await fetch(
+				`/workspace/${personalWorkspace!.id}/chat?search=${encodeURIComponent(normalizedSearch!)}`,
+				{ signal, credentials: "include" },
+			);
+			if (!response.ok) throw new Error("Could not search workspace messages.");
+			return z
+				.array(
+					z.object({
+						id: z.string(),
+						title: z.string().nullable(),
+						updatedAt: z.string(),
+						match: z.string().optional(),
+					}),
+				)
+				.parse(await response.json());
+		},
+	});
 	const merged = useMemo(() => {
 		const byId = new Map<string, HomeConversation>();
 		for (const page of conversations.data?.pages ?? []) {
@@ -648,8 +682,33 @@ export function ChatSidebar({
 			extraTedis.set(conversation.id, conversation.tedi);
 			byId.set(conversation.id, conversation);
 		}
+		for (const hit of messageSearch.data ?? []) {
+			if (!personalWorkspace || !hit.match) continue;
+			const id = tediChatConversationId(personalWorkspace.id, hit.id);
+			const row = extraConversations?.find((c) => c.id === id);
+			byId.set(id, {
+				...row,
+				id,
+				title: row?.title ?? hit.title,
+				organizationId: personalWorkspace.organizationId,
+				status: "active",
+				createdAt: hit.updatedAt,
+				updatedAt: hit.updatedAt,
+				match: hit.match,
+			});
+			extraTedis.set(
+				id,
+				row?.tedi ?? { id: null, name: "Workspace agent", avatar: null },
+			);
+		}
 		return { rows: sortConversations([...byId.values()]), extraTedis };
-	}, [conversations.data, extraConversations, normalizedSearch]);
+	}, [
+		conversations.data,
+		extraConversations,
+		normalizedSearch,
+		messageSearch.data,
+		personalWorkspace,
+	]);
 	const { rows: sorted, extraTedis } = merged;
 	const grouped = useMemo(() => groupConversationsByRecency(sorted), [sorted]);
 	const invalidate = () =>
@@ -881,6 +940,7 @@ export function ChatSidebar({
 					aria-label="Search conversations"
 					onChange={(event) => setSearch(event.target.value)}
 					placeholder="Search conversations…"
+					maxLength={200}
 					value={search}
 				/>
 			</div>
@@ -896,7 +956,17 @@ export function ChatSidebar({
 					retrying={conversations.isFetching}
 				/>
 			)}
+			{messageSearch.isError && (
+				<LoadError
+					title="Messages could not be searched"
+					error={messageSearch.error}
+					onRetry={() => void messageSearch.refetch()}
+					retrying={messageSearch.isFetching}
+				/>
+			)}
 			{conversations.data &&
+				!messageSearch.isFetching &&
+				!messageSearch.isError &&
 				sorted.length === 0 &&
 				(normalizedSearch ? (
 					<ConversationSearchEmpty

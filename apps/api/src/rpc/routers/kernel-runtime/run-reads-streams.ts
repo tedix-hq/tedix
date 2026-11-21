@@ -12,7 +12,13 @@ import {
 	type JsonValue,
 	JsonValueSchema,
 } from "@tedix/api-contract/schemas/common";
-import { KERNEL_RUNTIME_BACKEND } from "../kernel/run-store";
+import { matchingChatSentence } from "@tedix/api-contract/utils/markdown-plain-text";
+import { excludeWithdrawnSteering } from "../kernel/steering-history";
+import { readPayloadText } from "./policy-normalization";
+import {
+	ensureHomeConversationAccess,
+	KERNEL_RUNTIME_BACKEND,
+} from "../kernel/run-store";
 import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconciliation";
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import {
@@ -624,6 +630,62 @@ export async function listKernelConversationsFromIndex(
 				workspaceId: input.list.workspaceId,
 				includeArchived: input.list.includeArchived,
 			});
+	const matches = new Map<string, string>();
+	if (input.list.search) {
+		for (let start = 0; start < rows.length; start += 50) {
+			const conversationIds = rows
+				.slice(start, start + 50)
+				.filter(
+					(row) =>
+						!row.deletedAt && !isEphemeralHomeConversation(row.conversationId),
+				)
+				.map((row) => row.conversationId);
+			if (!conversationIds.length) continue;
+			const events = await listKernelRuntimeEvents(context.db, {
+				organizationId: input.organizationId,
+				kinds: ["message.received", "message.completed"],
+				messageSearch: { conversationIds, query: input.list.search },
+				order: "desc",
+				limit: 500,
+			});
+			for (const event of events) {
+				const id = event.conversationId;
+				if (!id || matches.has(id) || !isHomeMessageEvent(event)) continue;
+				const sentence = matchingChatSentence(
+					event.delta ?? readPayloadText(nonNullRecord(event.payload)),
+					input.list.search,
+				);
+				if (
+					!sentence ||
+					!(
+						await excludeWithdrawnSteering(
+							context.db,
+							input.organizationId,
+							id,
+							[event],
+						)
+					).length
+				)
+					continue;
+				try {
+					await ensureHomeConversationAccess(context, {
+						organizationId: input.organizationId,
+						conversationId: id,
+						required: "read",
+					});
+				} catch (error) {
+					if (
+						error instanceof Error &&
+						"code" in error &&
+						error.code === "FORBIDDEN"
+					)
+						continue;
+					throw error;
+				}
+				matches.set(id, sentence);
+			}
+		}
+	}
 	const conversations: HomeConversation[] = [];
 	let lastConsumed: (typeof rows)[number] | null = null;
 	let stoppedEarly = false;
@@ -666,7 +728,15 @@ export async function listKernelConversationsFromIndex(
 					: {}),
 			},
 		};
-		if (!kernelConversationMatchesInput(conversation, input.list)) continue;
+		const match = matches.get(conversation.id);
+		if (match) conversation.match = match;
+		if (
+			!kernelConversationMatchesInput(
+				conversation,
+				match ? { ...input.list, search: undefined } : input.list,
+			)
+		)
+			continue;
 		conversations.push(conversation);
 		if (conversations.length >= input.limit) {
 			stoppedEarly = true;

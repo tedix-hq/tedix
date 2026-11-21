@@ -247,6 +247,7 @@ export function ChatPage() {
 						activeConversationId={activeConversationId}
 						onSelect={selectConversation}
 						extraConversations={tediRows}
+						personalWorkspace={personalWorkspace ?? undefined}
 					/>
 					{personalWorkspace && !showTediChat ? (
 						<ChatTediListFeed

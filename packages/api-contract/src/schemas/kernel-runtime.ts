@@ -332,6 +332,7 @@ export function homeConversationOrigin(conversation: {
 }
 
 export const HomeConversationSchema = z.object({
+	match: z.string().optional(),
 	id: z.string(),
 	organizationId: z.string(),
 	title: z.string().nullable().optional(),

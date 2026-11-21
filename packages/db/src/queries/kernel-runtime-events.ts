@@ -168,6 +168,7 @@ export async function listKernelRuntimeEvents(
 	input: {
 		organizationId?: string;
 		conversationId?: string;
+		messageSearch?: { conversationIds: string[]; query: string };
 		runId?: string;
 		/**
 		 * Select only events that carry NO run id (the conversation-scoped
@@ -184,6 +185,11 @@ export async function listKernelRuntimeEvents(
 	} & TenantScope,
 ): Promise<KernelRuntimeEvent[]> {
 	input = { ...input, ...normalizeTenantScope(input) };
+	if (
+		input.messageSearch &&
+		input.messageSearch.conversationIds.length > D1_IN_LIST_CHUNK
+	)
+		throw new Error("Search up to 50 conversations per batch");
 	if (input.kinds?.length === 0) return [];
 	// Rows older than the retention keep window live in the logs database.
 	// Each store applies the same filters; offset applies to the merged set.
@@ -218,6 +224,16 @@ export async function listKernelRuntimeEvents(
 			: input.runIdNull
 				? [isNull(kernelRuntimeEvents.runId)]
 				: []),
+		...(input.messageSearch
+			? [
+					// bound-params: message search batches are checked against D1_IN_LIST_CHUNK above.
+					inArray(
+						kernelRuntimeEvents.conversationId,
+						input.messageSearch.conversationIds,
+					),
+					sql`instr(lower(coalesce(${kernelRuntimeEvents.delta},json_extract(${kernelRuntimeEvents.payload},'$.content'),json_extract(${kernelRuntimeEvents.payload},'$.text'),json_extract(${kernelRuntimeEvents.payload},'$.message.content'),'')),lower(${input.messageSearch.query})) > 0`,
+				]
+			: []),
 		...(input.id ? [eq(kernelRuntimeEvents.id, input.id)] : []),
 		...(input.kind ? [eq(kernelRuntimeEvents.kind, input.kind)] : []),
 		// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum

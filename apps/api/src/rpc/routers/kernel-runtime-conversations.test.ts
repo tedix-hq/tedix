@@ -232,6 +232,28 @@ describe("kernel runtime router: conversations", () => {
 			}),
 		);
 
+		db.events.push(
+			normalizeKernelRuntimeEventInsert({
+				id: "beta-answer",
+				organizationId: ORG_ID,
+				conversationId: "home:beta",
+				kind: "message.completed",
+				messageId: "beta-answer",
+				payload: {
+					role: "assistant",
+					content:
+						"The counts are in. **Help Cedar first:** four reviews are overdue.",
+				},
+				createdAt: "2026-06-06T08:00:00.000Z",
+			}),
+		);
+		const answers = await client.listConversations({
+			limit: 10,
+			search: "help cedar first",
+		});
+		expect(answers.conversations.map((row) => [row.id, row.match])).toEqual([
+			["home:beta", "Help Cedar first: four reviews are overdue."],
+		]);
 		const page = await client.listConversations({ limit: 10, search: "alpha" });
 
 		expect(page.conversations.map((conversation) => conversation.id)).toEqual([
