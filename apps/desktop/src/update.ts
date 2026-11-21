@@ -224,13 +224,16 @@ export function readyVersion(): string | undefined {
 
 // $1 the running app's process, $2 the installed Tedix.app, $3 the new one.
 // Waits for the app to exit, copies the new app next to the installed one,
-// swaps them, and puts the old one back if the swap fails.
+// swaps them, and puts the old one back if the swap fails. The copies have
+// hidden names, so Spotlight and launchers never list them as apps.
 const REPLACE = `
 while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
-rm -rf "$2.update" "$2.previous"
-/usr/bin/ditto "$3" "$2.update" && mv "$2" "$2.previous" && mv "$2.update" "$2"
-[ -d "$2" ] || mv "$2.previous" "$2"
-rm -rf "$2.update" "$2.previous" "$(dirname "$3")"
+next="$(dirname "$2")/.$(basename "$2").update"
+old="$(dirname "$2")/.$(basename "$2").previous"
+rm -rf "$next" "$old" "$2.update" "$2.previous"
+/usr/bin/ditto "$3" "$next" && mv "$2" "$old" && mv "$next" "$2"
+[ -d "$2" ] || mv "$old" "$2"
+rm -rf "$next" "$old" "$(dirname "$3")"
 open "$2"
 `;
 
