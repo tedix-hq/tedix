@@ -63,6 +63,7 @@ import {
 } from "./setup";
 import { lastLine, run } from "./shell";
 import { activeRunCount, loadStatus, type Status, summary } from "./status";
+import { bindTrayMenu } from "./tray-menu";
 import {
 	downloadUpdate,
 	type FoundUpdate,
@@ -1470,12 +1471,7 @@ function trayMenu(): Menu {
 function createTray(): void {
 	tray = new Tray(trayImage());
 	tray.setToolTip("Tedix");
-	// Left click opens the input bar; right click (or Control-click) the menu.
-	tray.on("click", (event) => {
-		if (event.ctrlKey) return tray?.popUpContextMenu(trayMenu());
-		openInputBar();
-	});
-	tray.on("right-click", () => tray?.popUpContextMenu(trayMenu()));
+	bindTrayMenu(tray, openInputBar, trayMenu);
 	openInputBar(true);
 }
 
