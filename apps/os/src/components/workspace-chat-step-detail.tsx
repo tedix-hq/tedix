@@ -29,18 +29,23 @@ function stepRequest(
 	}
 	const text =
 		typeof input === "string" ? input : JSON.stringify(input, null, 2);
-	return text ? { label: "Request", text } : null;
+	// A call without arguments, such as listing apps, has no request to show.
+	return text && text !== "{}" && text !== "[]"
+		? { label: "Request", text }
+		: null;
 }
 
 /**
  * What went wrong in a failed step: the plain line, and the error as it was
- * recorded. Older events carry only the recorded error.
+ * recorded. Older events carry only the recorded error. The step's row
+ * already says "Didn't work", so that line is not repeated here.
  */
 function stepError(step: ChatStep): { plain?: string; raw?: string } {
 	if (step.status !== "error") return {};
-	return step.detail
+	if (!step.detail) return { raw: step.error };
+	return step.error && step.error !== "Didn't work"
 		? { plain: step.error, raw: step.detail }
-		: { raw: step.error };
+		: { raw: step.detail };
 }
 
 /** True when the step has code, a request, a result or an error to show. */

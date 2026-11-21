@@ -113,7 +113,7 @@ describe("ChatMarkdown code blocks", () => {
 		expect(html).not.toContain("&amp;lt;");
 	});
 
-	it("folds a long block to its first lines and copies all of it", async () => {
+	it("shows every line of a long fenced block and copies all of it", async () => {
 		const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", {
@@ -121,15 +121,11 @@ describe("ChatMarkdown code blocks", () => {
 			value: { writeText },
 		});
 		const view = mount(fence("bash", lines));
-		const body = () =>
+		const body =
 			view.container.querySelector(".chat-markdown-code-body")?.textContent ??
 			"";
-		const toggle = [...view.container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("lines"),
-		);
-		expect(toggle?.textContent).toBe("Show all 30 lines");
-		expect(body()).toContain("line 20");
-		expect(body()).not.toContain("line 21");
+		expect(body).toContain("line 30");
+		expect(view.container.textContent).not.toContain("Show all");
 
 		const copy = view.container.querySelector<HTMLButtonElement>(
 			'button[aria-label="Copy code"]',
@@ -139,10 +135,26 @@ describe("ChatMarkdown code blocks", () => {
 		expect(
 			view.container.querySelector('button[aria-label="Copied"]'),
 		).not.toBeNull();
+		view.unmount();
+	});
 
+	it("folds a long raw JSON dump until the reader opens it", () => {
+		const dump = JSON.stringify(
+			Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, i])),
+			null,
+			2,
+		);
+		const view = mount(dump);
+		const body = () =>
+			view.container.querySelector(".chat-markdown-code-body")?.textContent ??
+			"";
+		const toggle = [...view.container.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("lines"),
+		);
+		expect(toggle?.textContent).toBe("Show all 32 lines");
+		expect(body()).not.toContain('"k29"');
 		act(() => toggle?.click());
-		expect(body()).toContain("line 30");
-		expect(toggle?.textContent).toBe("Show fewer lines");
+		expect(body()).toContain('"k29"');
 		view.unmount();
 	});
 

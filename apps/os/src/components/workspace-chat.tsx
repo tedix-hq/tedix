@@ -1387,20 +1387,32 @@ function partialReply(turn: ChatTurn): boolean {
 }
 
 /** What went wrong, in plain words, by the kind the workspace sorted it into. */
-const FAILURE_KIND: Record<TurnErrorKind, string> = {
+const FAILURE_KIND: Record<Exclude<TurnErrorKind, "other">, string> = {
 	interrupted: "The reply was cut off",
 	no_answer: "The model gave no answer",
 	service: "A Tedix service was busy",
 	model_unavailable: "The model is not available",
 	model_busy: "The model is busy or out of credits",
 	timeout: "The model took too long",
-	other: "Something else went wrong",
 };
 
 /**
+ * The failure line without advice to try again, for a turn that offers no
+ * Retry or Continue: an older turn, or one sent again since. A sentence such
+ * as "Pick another model and try again." goes; the rest stays.
+ */
+function withoutRetryAdvice(line: string): string {
+	const kept = (line.match(/[^.!?]+[.!?]+/g) ?? [line])
+		.map((sentence) => sentence.trim())
+		.filter((sentence) => !/\btry again\b/i.test(sentence));
+	return kept.join(" ") || "This reply stopped.";
+}
+
+/**
  * A reply that stopped: one plain line with Continue or Retry. A failed reply
- * keeps a reference to quote to support behind "Details"; the recorded error
- * stays with the workspace.
+ * keeps a reference to quote to support behind "Details", with the kind of
+ * problem when the line does not already say it and the step it stopped on;
+ * the recorded error stays with the workspace.
  */
 function TurnStopped({
 	turn,
@@ -1413,11 +1425,15 @@ function TurnStopped({
 }) {
 	const failed = turn.status === "error";
 	// Only the workspace's own sorting makes the text safe to show as it is.
-	const line = !failed
+	const said = !failed
 		? "Stopped."
 		: turn.errorKind && turn.error
 			? turn.error
 			: "Something went wrong, so this reply stopped. Try again.";
+	const line = onRetry || onContinue ? said : withoutRetryAdvice(said);
+	const kind = turn.errorKind ?? "other";
+	const lastStep = turn.steps.at(-1);
+	const failedStep = lastStep?.status === "error" ? lastStep : null;
 	return (
 		<div
 			className="workspace-chat-stopped"
@@ -1446,8 +1462,18 @@ function TurnStopped({
 					</CollapsibleTrigger>
 					<CollapsibleContent>
 						<dl className="workspace-chat-stopped-details">
-							<dt>What happened</dt>
-							<dd>{FAILURE_KIND[turn.errorKind ?? "other"]}</dd>
+							{kind === "other" ? null : (
+								<>
+									<dt>What happened</dt>
+									<dd>{FAILURE_KIND[kind]}</dd>
+								</>
+							)}
+							{failedStep ? (
+								<>
+									<dt>Stopped at</dt>
+									<dd>{failedStep.label}</dd>
+								</>
+							) : null}
 							<dt>Reference</dt>
 							<dd>
 								<ClipboardText
@@ -1547,8 +1573,28 @@ const STEP_COUNT: Record<ChatStep["kind"], ((count: number) => string) | null> =
 		think: () => "summarised the conversation",
 	};
 
-/** Summarize the work done; the expanded list keeps the individual calls. */
-function stepsSummary(steps: readonly ChatStep[]): string {
+/**
+ * Summarize the work done; the expanded list keeps the individual calls. A
+ * step that did not work counts as nothing done: when the last one failed
+ * the line names it, and the trigger's "Failed" badge says how it ended.
+ */
+function stepsSummary(steps: readonly ChatStep[], failed: boolean): string {
+	const failedStep = failed
+		? steps.findLast((step) => step.status === "error")
+		: undefined;
+	const done = failedStep
+		? steps.filter((step) => step.status !== "error")
+		: steps;
+	const line = countSteps(done);
+	if (failedStep)
+		return line ? `${line} · ${failedStep.label}` : failedStep.label;
+	if (!line)
+		return steps.length === 1 ? steps[0]!.label : `${steps.length} steps`;
+	return line;
+}
+
+/** "Read 3 items, ran 1 script", or "" when no step counts. */
+function countSteps(steps: readonly ChatStep[]): string {
 	const counts = new Map<ChatStep["kind"], number>();
 	for (const step of steps) {
 		// Writing the next script is the agent thinking, not a step of its own.
@@ -1560,8 +1606,6 @@ function stepsSummary(steps: readonly ChatStep[]): string {
 		.map(([kind, count]) => STEP_COUNT[kind]?.(count))
 		.filter(Boolean)
 		.join(", ");
-	if (!line)
-		return steps.length === 1 ? steps[0]!.label : `${steps.length} steps`;
 	return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
@@ -1602,7 +1646,7 @@ function Activity({
 	const approval = approvals.at(-1);
 	const summary = live
 		? (steps.findLast((step) => step.status === "running")?.label ?? "Working")
-		: stepsSummary(steps);
+		: stepsSummary(steps, failed);
 	return (
 		<Collapsible className="workspace-chat-activity" data-live={live}>
 			<CollapsibleTrigger className="workspace-chat-activity-summary">
