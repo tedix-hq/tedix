@@ -29,15 +29,22 @@ export function useDecisionInbox(
 ) {
 	const { now, timeZone } = useCardSchedule();
 	const client = useQueryClient();
+	const inbox = useQuery({
+		...firstDecisionPageOptions(config?.projectId, config?.limit),
+		enabled: Boolean(config),
+		...workRefreshOptions,
+	});
+	// Let one small inbox read finish before competing database work starts.
+	const loadMore =
+		Boolean(config) && (inbox.isFetched || inbox.failureCount > 0);
 	const learning = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		enabled: Boolean(config),
 		...workRefreshOptions,
 	});
-	const enabled = Boolean(config);
 	useEffect(() => {
-		if (enabled) return subscribeDecisionSourceRefresh(client);
-	}, [enabled, client]);
+		if (loadMore) return subscribeDecisionSourceRefresh(client);
+	}, [loadMore, client]);
 
 	const factories = useFactoryCardCount(
 		config?.factorySources ?? [],
@@ -45,11 +52,7 @@ export function useDecisionInbox(
 		learning.data,
 		config?.classPolicies,
 	);
-	const inbox = useQuery({
-		...firstDecisionPageOptions(config?.projectId, config?.limit),
-		enabled: Boolean(config),
-		...workRefreshOptions,
-	});
+
 	// A scheduled reminder can be older than the newest inbox page.
 	const earlierEnabled = Boolean(config && inbox.data?.nextCursor);
 	const earlier = useInfiniteQuery({
@@ -93,7 +96,7 @@ export function useDecisionInbox(
 				decisionKind: "approval",
 			},
 		}),
-		enabled: Boolean(config),
+		enabled: loadMore,
 		...workRefreshOptions,
 	});
 	const approvals = useQuery({
