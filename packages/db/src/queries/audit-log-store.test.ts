@@ -13,6 +13,15 @@ import {
 	searchAuditEvents,
 } from "./audit";
 import {
+	copyD1RetentionRowsToLogs,
+	d1RetentionPolicyCutoff,
+	deleteD1RetentionRows,
+	getD1RetentionTableSpec,
+	isD1RetentionExpired,
+	readD1RetentionPage,
+	verifyD1LogsCopy,
+} from "./d1-retention";
+import {
 	getAnalyticsAppFreshness,
 	listRecentAnalyticsAuditActivity,
 } from "./analytics-audit";
@@ -57,6 +66,7 @@ describe("optional audit log store", () => {
 				...event,
 				id: `legacy:${action}`,
 				action,
+				occurredAt: new Date("2026-10-06T12:00:00Z"),
 			});
 		}
 		configureLogStore(main.db, { LOGS_DB: logs.binding });
@@ -88,6 +98,33 @@ describe("optional audit log store", () => {
 		expect(
 			logs.sqlite.prepare("SELECT id FROM audit_events ORDER BY id").all(),
 		).toEqual([...telemetry].sort().map((id) => ({ id })));
+		const table = getD1RetentionTableSpec("audit_events")!;
+		const cutoff = d1RetentionPolicyCutoff(
+			table,
+			new Date("2026-10-21T12:00:00Z"),
+			{ keepDays: 90 },
+		);
+		const expired = (await readD1RetentionPage(main.db, table, 0)).filter(
+			(row) => isD1RetentionExpired(table, row.timestamp, cutoff, row.action),
+		);
+		expect(expired).toHaveLength(8);
+		const copied = await copyD1RetentionRowsToLogs(logs.db, table, expired);
+		const verification = verifyD1LogsCopy(table, expired, copied);
+		expect(verification.missing).toEqual([]);
+		expect(verification.mismatched).toEqual([]);
+		expect(
+			await deleteD1RetentionRows(
+				main.db,
+				table,
+				expired.map((row) => row.__rowid),
+				cutoff,
+			),
+		).toBe(8);
+		expect(
+			main.sqlite
+				.prepare("SELECT id FROM audit_events WHERE id LIKE 'legacy:%'")
+				.all(),
+		).toEqual([]);
 		for (const action of telemetry) {
 			const result = await searchAuditEvents(main.db, {
 				organizationId: event.organizationId,

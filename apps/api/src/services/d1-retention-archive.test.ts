@@ -168,7 +168,7 @@ function fixture(policies: string) {
 					"fictional-lighthouse",
 					"user-ada",
 					"user",
-					"mcp.tool.execute",
+					"security.review",
 					"mcp_tool",
 					JSON.stringify({ n: index }),
 					nowSeconds - age * DAY,
@@ -340,11 +340,13 @@ describe("runD1Retention", () => {
 	});
 
 	it("bounds a slow dry-run estimate so the next ledger still moves", async () => {
-		const { db, d1, seed, seedRuntime, count } = fixture(
-			"('audit_events','dry_run',90,10000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,10000,'2026-10-21')",
+		const { db, d1, sqlite, seedRuntime, count } = fixture(
+			"('kernel_runtime_events','dry_run',14,10000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,10000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 5000 }, () => 120));
 		seedRuntime(Array.from({ length: 5000 }, () => 30));
+		sqlite.exec(
+			"INSERT INTO kernel_runtime_events(id, organization_id, kind, conversation_id, created_at) SELECT id, organization_id, kind, 'conversation-ada', created_at FROM tedi_runtime_events",
+		);
 		const logs = logsFixture();
 		let clock = 0;
 		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
@@ -371,7 +373,7 @@ describe("runD1Retention", () => {
 			});
 			expect(result.tables[0]?.error).toBeUndefined();
 			expect(result.tables[0]?.timings.estimateMs).toBeGreaterThan(0);
-			expect(count()).toBe(5000);
+			expect(count("kernel_runtime_events")).toBe(5000);
 			expect(result.tables[1]?.movedRows).toBeGreaterThan(0);
 			expect(logs.count("tedi_runtime_events")).toBe(result.movedRows);
 		} finally {
@@ -1010,10 +1012,10 @@ describe("runD1Retention", () => {
 	});
 
 	it("dry run reports what it would free and changes no rows", async () => {
-		const { db, seed, count, policy } = fixture(
-			"('audit_events','dry_run',30,2000,'2026-10-21')",
+		const { db, seedRuntime, count, policy } = fixture(
+			"('tedi_runtime_events','dry_run',30,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 120 }, () => 120), 1, 1]);
+		seedRuntime([...Array.from({ length: 120 }, () => 120), 1, 1]);
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
 			db,
@@ -1021,16 +1023,16 @@ describe("runD1Retention", () => {
 			now: NOW,
 			pagePauseMs: 0,
 		});
-		expect(count()).toBe(122);
+		expect(count("tedi_runtime_events")).toBe(122);
 		expect(bucket.objects.size).toBe(0);
 		expect(result.tables[0]).toMatchObject({
-			tableName: "audit_events",
+			tableName: "tedi_runtime_events",
 			mode: "dry_run",
 			eligibleRows: 120,
 			deletedRows: 0,
 		});
 		expect(result.eligibleBytes).toBeGreaterThan(0);
-		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
+		expect(JSON.parse(policy("tedi_runtime_events").report)).toMatchObject({
 			mode: "dry_run",
 			eligibleRows: 120,
 		});
@@ -1155,6 +1157,106 @@ describe("runD1Retention", () => {
 			stoppedBy: "row_cap",
 		});
 		expect(count()).toBe(180);
+	});
+
+	it("moves only allowlisted telemetry after 14 days", async () => {
+		const { db, seed, sqlite, policy } = fixture(
+			"('audit_events','move_to_logs_db',90,2000,'2026-10-21')",
+		);
+		const actions = [
+			"mcp.tool.execute",
+			"mcp.tool.error",
+			"mcp.code.execute",
+			"mcp.code.error",
+			"mcp.prompt.execute",
+			"mcp.prompt.error",
+			"mcp.resource.read",
+			"mcp.resource.error",
+		];
+		seed([30, 30, 30, 30, 14, 13, ...actions.map(() => 15), 91, 90]);
+		const setAction = sqlite.prepare(
+			"UPDATE audit_events SET action = ? WHERE id = ?",
+		);
+		[
+			"security.review",
+			"payment.captured",
+			"mcp.access.denied",
+			"mcp.future.execute",
+			"mcp.tool.execute",
+			"mcp.tool.execute",
+			...actions,
+			"payment.captured",
+			"payment.captured",
+		].forEach((action, index) => setAction.run(action, `audit-${index}`));
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+			pagePauseMs: 0,
+		});
+		expect(result.tables[0]).toMatchObject({
+			movedRows: 9,
+			archivedRows: 9,
+			deletedRows: 9,
+			stoppedBy: "done",
+		});
+		expect(result.tables[0]?.error).toBeUndefined();
+		expect(
+			sqlite.prepare("SELECT id FROM audit_events ORDER BY rowid").all(),
+		).toEqual(
+			[0, 1, 2, 3, 4, 5, 15].map((index) => ({ id: `audit-${index}` })),
+		);
+		expect(logs.count()).toBe(9);
+		const archived = (
+			await Promise.all([...bucket.objects.values()].map(gunzipLines))
+		)
+			.flat()
+			.map((line) => JSON.parse(line).id)
+			.sort();
+		expect(archived).toEqual(
+			[6, 7, 8, 9, 10, 11, 12, 13, 14].map((index) => `audit-${index}`).sort(),
+		);
+		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
+			keepDays: 90,
+			telemetryKeepDays: 14,
+			movedRows: 9,
+			error: null,
+		});
+	});
+
+	it("rechecks telemetry action and age after copying and archiving", async () => {
+		const { db, seed, sqlite } = fixture(
+			"('audit_events','move_to_logs_db',90,2000,'2026-10-21')",
+		);
+		seed([30, 30]);
+		sqlite.exec("UPDATE audit_events SET action = 'mcp.tool.execute'");
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const put = bucket.put.bind(bucket);
+		bucket.put = async (key, value) => {
+			sqlite.exec(
+				"UPDATE audit_events SET action = 'payment.captured' WHERE id = 'audit-0'",
+			);
+			sqlite
+				.prepare("UPDATE audit_events SET timestamp = ? WHERE id = 'audit-1'")
+				.run(Math.floor(NOW.getTime() / 1000) - 14 * DAY);
+			return put(key, value);
+		};
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+			pagePauseMs: 0,
+		});
+		expect(result.deletedRows).toBe(0);
+		expect(
+			sqlite.prepare("SELECT id FROM audit_events ORDER BY id").all(),
+		).toEqual([{ id: "audit-0" }, { id: "audit-1" }]);
+		expect(logs.count()).toBe(2);
 	});
 
 	it("moves expired rows into the logs database, verifies them, archives, then deletes", async () => {
@@ -1308,7 +1410,7 @@ describe("runD1Retention", () => {
 				"fictional-lighthouse",
 				"user-ada",
 				"user",
-				"mcp.tool.execute",
+				"security.review",
 				"mcp_tool",
 				stale,
 				Math.floor(NOW.getTime() / 1000) - 120 * DAY,
@@ -1385,7 +1487,8 @@ describe("runD1Retention", () => {
 		const probes = ageProbe.mock.calls.filter(([query]) =>
 			query.includes('as "retention_age"'),
 		);
-		expect(probes).toHaveLength(1);
+		// The initial probe admits work; the final probe confirms no backlog remains.
+		expect(probes).toHaveLength(2);
 		expect(main.statements - probes.length).toBeLessThanOrEqual(15);
 		const report = JSON.parse(policy("audit_events").report);
 		expect(report.timings).toMatchObject({ pages: 3 });
@@ -1710,25 +1813,26 @@ describe("runD1Retention", () => {
 
 	it("runs a window below the table floor at the floor and says so", async () => {
 		const { db, seed, count, policy } = fixture(
-			"('audit_events','dry_run',14,10000,'2026-10-21')",
+			"('audit_events','move_to_logs_db',14,10000,'2026-10-21')",
 		);
 		seed([...Array.from({ length: 30 }, () => 100), 50, 50, 50]);
 		const result = await runD1Retention({
 			db,
+			logsDb: logsFixture().db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
 			pagePauseMs: 0,
 		});
 		expect(result.tables[0]).toMatchObject({
 			problem: null,
-			eligibleRows: 30,
+			movedRows: 30,
 			stoppedBy: "done",
 		});
-		expect(count()).toBe(33);
+		expect(count()).toBe(3);
 		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
 			keepDays: 90,
 			keepDaysRow: 14,
-			eligibleRows: 30,
+			movedRows: 30,
 		});
 	});
 
