@@ -746,6 +746,39 @@ export function FocusFeed({
 			{sourceFilter}
 		</div>
 	);
+	const today = config.today && (
+		<div hidden={timeline}>
+			<TodayPost
+				config={config.today}
+				onUpdate={onUpdate}
+				compact
+				changesSinceLook={
+					new Map(
+						events
+							.filter(
+								(e) =>
+									e.metadata?.reaction === "open" &&
+									typeof e.metadata?.projectId === "string",
+							)
+							.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+							.map((e) => {
+								const projectId = String(e.metadata?.projectId);
+								const latest = all.find(
+									(i) =>
+										i.projectId === projectId && i.at > e.occurredAt && i.done,
+								);
+								return [
+									projectId,
+									latest
+										? OS_COPY.feed.timeline.sinceLooked(latest.sentence)
+										: OS_COPY.feed.timeline.nothingSinceLooked,
+								];
+							}),
+					)
+				}
+			/>
+		</div>
+	);
 	return (
 		<div
 			ref={root}
@@ -805,6 +838,14 @@ export function FocusFeed({
 						</Link>
 					)}
 				</div>
+			) : overview ? (
+				<details>
+					<summary className="cursor-pointer text-sm text-kumo-subtle">
+						Feed options
+					</summary>
+					{chips}
+					{today}
+				</details>
 			) : (
 				chips
 			)}
@@ -831,41 +872,7 @@ export function FocusFeed({
 					})
 				}
 			/>
-			{config.today && (
-				<div hidden={timeline}>
-					<TodayPost
-						config={config.today}
-						onUpdate={onUpdate}
-						compact
-						changesSinceLook={
-							new Map(
-								events
-									.filter(
-										(e) =>
-											e.metadata?.reaction === "open" &&
-											typeof e.metadata?.projectId === "string",
-									)
-									.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
-									.map((e) => {
-										const projectId = String(e.metadata?.projectId);
-										const latest = all.find(
-											(i) =>
-												i.projectId === projectId &&
-												i.at > e.occurredAt &&
-												i.done,
-										);
-										return [
-											projectId,
-											latest
-												? OS_COPY.feed.timeline.sinceLooked(latest.sentence)
-												: OS_COPY.feed.timeline.nothingSinceLooked,
-										];
-									}),
-							)
-						}
-					/>
-				</div>
-			)}
+			{!overview && today}
 			<div
 				id="feed-receipts"
 				role="feed"
