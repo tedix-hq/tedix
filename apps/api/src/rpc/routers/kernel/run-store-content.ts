@@ -144,10 +144,48 @@ const FAILURE_READINGS: ReadonlyArray<{
 		reason: () => "The run was stopped before the worker could answer.",
 		nextStep: "Send the request again to start a fresh run.",
 	},
+	// Preflight reasons carry gateway, tool and scope text; the reply names the
+	// kind of problem and the run details keep the rest.
 	{
-		match: /^Delegation preflight failed:\s*(.+?)(?:;|$)/i,
-		reason: (m) =>
-			`The hand-off could not start: ${m[1]?.trim() ?? "unknown"}.`,
+		match:
+			/^Delegation preflight failed:\s*(?:the tedi's tool connection could not be read|child MCP credential unavailable|tool authority (?:result )?could not be (?:read|verified))/i,
+		reason: () =>
+			"The hand-off could not start because the worker's tool connection could not be checked.",
+		nextStep:
+			"Send the request again; if it repeats, check the worker's connected apps.",
+	},
+	{
+		match:
+			/^Delegation preflight failed:\s*\S+ is unavailable or unauthorized\b/i,
+		reason: () =>
+			"The hand-off could not start because the worker does not have access to a tool this task needs.",
+		nextStep:
+			"Ask an administrator to grant that access, or ask Home to use a worker that has it.",
+	},
+	{
+		match: /^Delegation preflight failed:\s*missing capabilities\b/i,
+		reason: () =>
+			"The hand-off could not start because the worker is missing a capability this task needs.",
+		nextStep: "Ask Home to retry with a worker that has it.",
+	},
+	{
+		match:
+			/^Delegation preflight failed:\s*\S+ reaches its tenant connection only through the provider's embedded assistant\b/i,
+		reason: () =>
+			"The hand-off could not start because this source can only be reached through the provider's own assistant.",
+		nextStep: "Ask the question in that assistant instead.",
+	},
+	{
+		match:
+			/^Delegation preflight failed:\s*empty or unready native repository checkout\b/i,
+		reason: () =>
+			"The hand-off could not start because the worker has no prepared copy of the repository.",
+		nextStep:
+			"Ask Home to prepare the checkout or narrow the sources, then try again.",
+	},
+	{
+		match: /^Delegation preflight failed:/i,
+		reason: () => "The hand-off could not start.",
 		nextStep:
 			"Ask Home to retry with a worker that has access to the required source or tool.",
 	},
@@ -259,6 +297,8 @@ const LEGACY_ECHOED_FAILURE =
 const LEGACY_RELAYED_FAILURE = /^I couldn't finish this request\.\s+/;
 const LEGACY_FAILED_EVIDENCE =
 	/^The delegated tedi reported that the assignment failed\.(?: Latest evidence: ([^]*))?$/;
+const LEGACY_PREFLIGHT_FAILURE =
+	/^I couldn't finish this request\. The hand-off could not start: ([^]*)\. Ask Home to retry with a worker that has access to the required source or tool\.$/;
 
 /**
  * Display text for a stored delegation completion: a failure reply written
@@ -276,6 +316,11 @@ export function plainDelegationFailureContent(content: string): string {
 		);
 	const evidence = LEGACY_FAILED_EVIDENCE.exec(trimmed);
 	if (evidence) return failedPreviewNotice(evidence[1]);
+	const preflight = LEGACY_PREFLIGHT_FAILURE.exec(trimmed);
+	if (preflight)
+		return failedPreviewNotice(
+			`Delegation preflight failed: ${preflight[1] ?? ""}`,
+		);
 	const relayed = trimmed.replace(LEGACY_RELAYED_FAILURE, "");
 	if (TURN_FAILURE_NOTICE_PREFIX.test(relayed))
 		return delegationFailureNotice(relayed) ?? content;

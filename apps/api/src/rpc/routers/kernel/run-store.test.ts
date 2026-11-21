@@ -827,7 +827,7 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Delegation preflight failed: work.list_work_items is unavailable or unauthorized; return to Home",
 			}),
 		).toBe(
-			"I couldn't finish this request. The hand-off could not start: work.list_work_items is unavailable or unauthorized. Ask Home to retry with a worker that has access to the required source or tool.",
+			"I couldn't finish this request. The hand-off could not start because the worker does not have access to a tool this task needs. Ask an administrator to grant that access, or ask Home to use a worker that has it.",
 		);
 		expect(
 			homeDelegationCompletionContent({
@@ -903,6 +903,34 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 		);
 		const answer = "I couldn't finish this request.\n\nTwo checks failed.";
 		expect(plainDelegationFailureContent(answer)).toBe(answer);
+	});
+
+	it("names a preflight problem without its gateway text, new and stored", () => {
+		const plain =
+			"I couldn't finish this request. The hand-off could not start because the worker's tool connection could not be checked. Send the request again; if it repeats, check the worker's connected apps.";
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					'This turn ended without a reply. Reason: Delegation preflight failed: the tedi\'s tool connection could not be read (MCP tool error: Execution error: Callable "tedix.work_item_get" is not exposed in the current gateway catalog. Nearest namespaces: example-mcp_tedix); return to Home and retry',
+			}),
+		).toBe(plain);
+		expect(
+			plainDelegationFailureContent(
+				"I couldn't finish this request. The hand-off could not start: the tedi's tool connection could not be read (MCP tool error: Execution error: Callable \"tedix.work_item_get\" is not exposed in the current gateway catalog. Nearest namespaces: example-mcp_tedix, cloudflare_tedix, descope_tedix, docs_tedix, find_it_ted). Ask Home to retry with a worker that has access to the required source or tool.",
+			),
+		).toBe(plain);
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"This turn ended without a reply. Reason: Delegation preflight failed: tedix.work_item_get is unavailable or unauthorized; missing scopes: mcp:work.read. No scopes were added; return to Home",
+			}),
+		).toBe(
+			"I couldn't finish this request. The hand-off could not start because the worker does not have access to a tool this task needs. Ask an administrator to grant that access, or ask Home to use a worker that has it.",
+		);
 	});
 
 	it("keeps dispatch and orphan-sweep reasons out of a failed reply, new and stored", () => {

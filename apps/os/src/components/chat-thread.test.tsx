@@ -1234,6 +1234,34 @@ describe("mergeHomeMessages", () => {
 		expect(original.content).toBe("");
 	});
 
+	it("shows a plain line, not the runtime diagnostic, for a swept delegation", () => {
+		const [projected] = applyDelegatedRunPreviews(
+			[message({ content: "", runId: RUN_ID })],
+			[
+				{
+					id: RUN_ID,
+					organizationId: ORG_ID,
+					conversationId: "home:test",
+					status: "failed",
+					createdAt: "2026-09-03T00:00:00.000Z",
+					metadata: {
+						childRunPreview:
+							"Delegated child dispatch failed: Runtime dropped before emitting a terminal event. Auto-failed by orphan sweep.",
+						delegationFailure: {
+							reason: "runtime_unavailable",
+							error:
+								"Runtime dropped before emitting a terminal event. Auto-failed by orphan sweep.",
+							childStillRunning: false,
+						},
+					},
+				},
+			],
+		);
+		expect(projected?.content).toBe(
+			"That assistant isn't available right now. Send the request again to retry.",
+		);
+	});
+
 	it("does not expose a rolling preview while delegation is active", () => {
 		const original = message({ content: "", runId: RUN_ID });
 		const [projected] = applyDelegatedRunPreviews(

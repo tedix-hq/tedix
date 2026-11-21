@@ -14,6 +14,7 @@ import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-sub
 import { provisionalSendMessageId } from "@/lib/provisional-send";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import { chatWidgetTargetsFromMetadata } from "@/lib/chat-widget-targets";
+import { plainFailure } from "@/lib/delegation-activity";
 import {
 	homeMessagesQueryKey,
 	homeRunSetQueryKey,
@@ -378,7 +379,22 @@ export function applyDelegatedRunPreviews(
 		}
 		const metadata = asRecord(run.metadata);
 		const preview = metadata?.childRunPreview;
-		if (typeof preview === "string" && preview.trim()) {
+		// A dispatch or sweep failure's preview is a runtime diagnostic; the
+		// transcript gets a plain line and the run details keep the exact text.
+		const failure =
+			run.status === "failed" ? asRecord(metadata?.delegationFailure) : null;
+		if (failure) {
+			const line = plainFailure({
+				reason: typeof failure.reason === "string" ? failure.reason : null,
+				error: typeof failure.error === "string" ? failure.error : null,
+			});
+			previews.set(
+				run.id,
+				failure.childStillRunning === true
+					? `${line} Check the run details before sending it again.`
+					: `${line} Send the request again to retry.`,
+			);
+		} else if (typeof preview === "string" && preview.trim()) {
 			previews.set(run.id, preview);
 		}
 	}
