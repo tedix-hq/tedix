@@ -54,7 +54,6 @@ import {
 	IngestRuntimeProjectionInputSchema,
 	ListTediRuntimeMetaBySlugsInputSchema,
 	ListTediRuntimeMetaBySlugsResponseSchema,
-	TediBackupAuditResponseSchema,
 	TediChannelConfigSchema,
 	TediChannelConfigUpdateResponseSchema,
 	TediCronSyncResponseSchema,
@@ -392,27 +391,6 @@ export const tedisContract = oc
 			})
 			.input(PortableTediImportBeginInputSchema)
 			.output(PortableTediImportBeginOutputSchema),
-
-		auditBackups: oc
-			.route({
-				method: "GET",
-				path: "/backup-audit",
-				summary: "Audit tedi backups",
-				description:
-					"Read-only fleet backup audit for the current organization. Checks stored backup handles, optional R2 object presence, freshness, and restore readiness without waking workstation sandboxes.",
-			})
-			.input(
-				PaginationSchema.extend({
-					maxBackupAgeHours: z
-						.number()
-						.int()
-						.positive()
-						.max(24 * 30)
-						.optional(),
-					includeR2: z.boolean().optional(),
-				}).optional(),
-			)
-			.output(TediBackupAuditResponseSchema),
 
 		get: oc
 			.route({

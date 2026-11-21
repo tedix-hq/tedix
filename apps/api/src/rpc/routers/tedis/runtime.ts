@@ -31,22 +31,6 @@ import {
 // RUNTIME OPERATIONS
 // =============================================================================
 
-export const auditBackupsProcedure = authedTedisOs.auditBackups
-	.use(AUTHZ.tedisAppsRead)
-	.handler(async ({ input }) => {
-		const { maxBackupAgeHours = 24, includeR2 = true } = input || {};
-		const checkedAt = new Date().toISOString();
-		return {
-			checkedAt,
-			maxBackupAgeHours,
-			includeR2,
-			total: 0,
-			restorable: 0,
-			warnings: 0,
-			items: [],
-		};
-	});
-
 export const getStatus = authedTedisOs.getStatus
 	.use(AUTHZ.tedisAppsRead)
 	.handler(async ({ input, context }) => {

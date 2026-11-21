@@ -98,7 +98,6 @@ import {
 	validatePortableWebMcpProfileProcedure,
 } from "./tedis/provider-installations";
 import {
-	auditBackupsProcedure,
 	authorizeCodingSessionProcedure,
 	getStatus,
 	revokeCodingSessionProcedure,
@@ -137,7 +136,6 @@ export const tedisContractRouter = tedisOs.router({
 	portableSnapshotPage: portableSnapshotPageProcedure,
 	portableGitReadAccess: portableGitReadAccessProcedure,
 	portableImportBegin: portableImportBeginProcedure,
-	auditBackups: auditBackupsProcedure,
 	get: getTedi,
 	listRuntimeMetaBySlugs,
 	create: createTediProcedure,
