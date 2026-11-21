@@ -185,6 +185,45 @@ async function putRow(
 	);
 }
 
+async function persistSheet(
+	bucket: SheetBlockBucket,
+	organizationId: string,
+	manifest: SheetBlockManifest,
+	content: Sheet,
+) {
+	const packed: Record<string, string> = Object.create(null);
+	for (const table of manifest.tables) {
+		const rows = tables(content).find((value) => value.id === table.id)!.rows;
+		for (const [index, ref] of table.rows.entries()) {
+			const encoded = await rowBytes(
+				rows[index]!,
+				table.columns,
+				Boolean(content.workbook),
+			);
+			if (
+				encoded.digest !== ref.digest ||
+				encoded.bytes.byteLength !== ref.bytes
+			)
+				throw new Error("Sheet row block integrity mismatch");
+			packed[ref.digest] = new TextDecoder().decode(encoded.bytes);
+		}
+	}
+	const key = assemblyKey(organizationId, manifest);
+	const packedKey = blockKey(organizationId, await sha256Hex(key)).replace(
+		"os-sheet-blocks/v1/",
+		"os-sheet-assemblies/v1/",
+	);
+	await bucket.put(
+		packedKey,
+		await new Response(
+			new Blob([JSON.stringify(packed)])
+				.stream()
+				.pipeThrough(new CompressionStream("gzip")),
+		).arrayBuffer(),
+	);
+	rememberSheet(bucket, key, content, true);
+}
+
 /** Whole-content writers also store only changed rows, including restores and imports. */
 export async function storeSheetBlocks(
 	bucket: SheetBlockBucket,
@@ -255,7 +294,7 @@ export async function storeSheetBlocks(
 			);
 		result.tables.push({ id: table.id, columns, rows });
 	}
-	rememberSheet(bucket, assemblyKey(organizationId, result), content);
+	await persistSheet(bucket, organizationId, result, content);
 	return result;
 }
 
@@ -283,6 +322,24 @@ export async function readSheetBlocks(
 			blockGets,
 			readMs: Math.round(performance.now() - started),
 		});
+	const get = async (objectKey: string) => {
+		const getStarted = performance.now();
+		let status = "error";
+		try {
+			const object = await bucket.get(objectKey);
+			const bytes = object ? await object.arrayBuffer() : null;
+			status = object ? "found" : "missing";
+			return bytes;
+		} finally {
+			console.info({
+				event: "os_sheet_blocks_get",
+				readId,
+				key: objectKey,
+				status,
+				getMs: Math.round(performance.now() - getStarted),
+			});
+		}
+	};
 	const key = assemblyKey(organizationId, manifest);
 	let packed: Record<string, string> | undefined;
 	let packedKey: string | undefined;
@@ -300,38 +357,15 @@ export async function readSheetBlocks(
 			"os-sheet-blocks/v1/",
 			"os-sheet-assemblies/v1/",
 		);
-		if (cached) {
-			cache = "memory_persist";
-			packed = Object.create(null) as Record<string, string>;
-			for (const table of manifest.tables) {
-				const rows = tables(cached).find(
-					(value) => value.id === table.id,
-				)!.rows;
-				for (const [index, ref] of table.rows.entries()) {
-					const encoded = await rowBytes(
-						rows[index]!,
-						table.columns,
-						Boolean(cached.workbook),
-					);
-					if (
-						encoded.digest !== ref.digest ||
-						encoded.bytes.byteLength !== ref.bytes
-					)
-						throw new Error("Sheet row block integrity mismatch");
-					packed[ref.digest] = new TextDecoder().decode(encoded.bytes);
-				}
-			}
-		} else {
-			const object = await bucket.get(packedKey);
-			if (object) {
-				packed = (await new Response(
-					new Blob([await object.arrayBuffer()])
-						.stream()
-						.pipeThrough(new DecompressionStream("gzip")),
-				).json()) as Record<string, string>;
-				loadedPacked = true;
-				cache = "r2";
-			}
+		const object = await get(packedKey);
+		if (object) {
+			packed = (await new Response(
+				new Blob([object])
+					.stream()
+					.pipeThrough(new DecompressionStream("gzip")),
+			).json()) as Record<string, string>;
+			loadedPacked = true;
+			cache = "r2";
 		}
 	}
 	const collected: Record<string, string> = Object.create(null);
@@ -362,14 +396,14 @@ export async function readSheetBlocks(
 					if (raw === undefined) blockGets++;
 					const object =
 						raw === undefined
-							? await bucket.get(blockKey(organizationId, ref.digest))
+							? await get(blockKey(organizationId, ref.digest))
 							: undefined;
 					if (raw === undefined && !object)
 						throw new Error("Sheet row block is missing");
 					const bytes =
 						raw === undefined
 							? await new Response(
-									new Blob([await object!.arrayBuffer()])
+									new Blob([object!])
 										.stream()
 										.pipeThrough(new DecompressionStream("gzip")),
 								).arrayBuffer()
@@ -447,16 +481,16 @@ export async function updateSheetBlocks(
 			};
 		}
 	}
-	const full = cachedSheet(bucket, assemblyKey(organizationId, previous));
-	if (full) {
-		for (const table of tables(full)) {
-			const changed = tables(content).find((value) => value.id === table.id)!;
-			for (const index of selection.get(table.id) ?? [])
-				table.rows[index] = changed.rows[index]!;
-		}
-		if (full.workbook) Object.assign(full, projectSheet(full.workbook));
-		rememberSheet(bucket, assemblyKey(organizationId, result), full);
+	const full =
+		cachedSheet(bucket, assemblyKey(organizationId, previous)) ??
+		(await readSheetBlocks(bucket, organizationId, previous));
+	for (const table of tables(full)) {
+		const changed = tables(content).find((value) => value.id === table.id)!;
+		for (const index of selection.get(table.id) ?? [])
+			table.rows[index] = changed.rows[index]!;
 	}
+	if (full.workbook) Object.assign(full, projectSheet(full.workbook));
+	await persistSheet(bucket, organizationId, result, full);
 	return result;
 }
 

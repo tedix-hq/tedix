@@ -53,7 +53,7 @@ describe("sheet row blocks", () => {
 			sheetContentBytes(original) - "Row 74".length + "Edited".length,
 		);
 		expect(store.get).toHaveBeenCalledTimes(1);
-		expect(store.put).toHaveBeenCalledTimes(1);
+		expect(store.put).toHaveBeenCalledTimes(2);
 		expect(changed.tables[0]!.rows[74]!.id).toBe(
 			original.tables[0]!.rows[74]!.id,
 		);
@@ -109,7 +109,9 @@ describe("sheet row blocks", () => {
 			],
 		};
 		const reordered = await storeSheetBlocks(store, "org", moved, original);
-		expect(store.put).not.toHaveBeenCalled();
+		expect(store.put.mock.calls.map(([key]) => key.split("/")[0])).toEqual([
+			"os-sheet-assemblies",
+		]);
 		expect(reordered.tables[0]!.rows).toEqual([
 			original.tables[0]!.rows[2],
 			original.tables[0]!.rows[0],
@@ -125,7 +127,7 @@ describe("sheet row blocks", () => {
 			reordered.tables[0]!.rows,
 		);
 		expect(new Set(inserted.tables[0]!.rows.map((row) => row.id)).size).toBe(4);
-		expect(store.put).toHaveBeenCalledTimes(1);
+		expect(store.put).toHaveBeenCalledTimes(3);
 		expect(await readSheetBlocks(store, "org", reordered)).toEqual(moved);
 	});
 
@@ -177,6 +179,8 @@ describe("sheet row blocks", () => {
 			columns: ["A"],
 			rows: [[2]],
 		});
+		for (const key of store.objects.keys())
+			if (key.startsWith("os-sheet-assemblies/")) store.objects.delete(key);
 		const keys = [...store.objects.keys()];
 		store.objects.set(keys[0]!, store.objects.get(keys[1]!)!);
 		// A fresh bucket identity exercises cold reads rather than verified cached bytes.
@@ -194,7 +198,7 @@ describe("sheet row blocks", () => {
 		).rejects.toThrow("integrity");
 	});
 
-	it("persists a cold assembly and uses one R2 read after memory eviction", async () => {
+	it("persists on save so the first cold read and reads after eviction use one R2 get", async () => {
 		const store = bucket();
 		const first = await storeSheetBlocks(store, "org", {
 			kind: "sheet",
@@ -202,24 +206,26 @@ describe("sheet row blocks", () => {
 			rows: [["a".repeat(1_500_000)]],
 		});
 		const cold = { get: store.get, put: store.put };
+		store.put.mockClear();
 		await readSheetBlocks(cold, "org", first);
+		expect(store.get).toHaveBeenCalledTimes(1);
+		expect(store.put).not.toHaveBeenCalled();
 		await readSheetBlocks(cold, "org", first);
-		expect(store.get).toHaveBeenCalledTimes(2);
+		expect(store.get).toHaveBeenCalledTimes(1);
 		await storeSheetBlocks(store, "org", {
 			kind: "sheet",
 			columns: ["A"],
 			rows: [["b".repeat(3_000_000)]],
 		});
 		await readSheetBlocks(cold, "org", first);
-		expect(store.get).toHaveBeenCalledTimes(3);
+		expect(store.get).toHaveBeenCalledTimes(2);
 		expect(store.get.mock.calls.at(-1)![0]).toContain("os-sheet-assemblies/");
 	});
 
-	it("checks persisted assemblies against row digests and keeps cell saves row-only", async () => {
+	it("persists cold cell saves before their first read and checks assembly digests", async () => {
 		const store = bucket();
 		const sheet: Sheet = { kind: "sheet", columns: ["A"], rows: [[1], [2]] };
 		const manifest = await storeSheetBlocks(store, "org", sheet);
-		await readSheetBlocks(store, "org", manifest);
 		const snapshot = [...store.objects.keys()].find((key) =>
 			key.includes("os-sheet-assemblies/"),
 		)!;
@@ -233,18 +239,23 @@ describe("sheet row blocks", () => {
 		const partial = await readSheetBlocks(cold, "org", manifest, selected);
 		partial.rows[0]![0] = 3;
 		const changed = await updateSheetBlocks(
-			cold,
+			{ get: store.get, put: store.put },
 			"org",
 			manifest,
 			partial,
 			selected,
 		);
-		expect(store.put).toHaveBeenCalledTimes(1);
+		expect(store.put).toHaveBeenCalledTimes(2);
 		expect(store.put.mock.calls[0]![0]).toContain("os-sheet-blocks/");
+		store.get.mockClear();
+		store.put.mockClear();
 		expect(await readSheetBlocks(cold, "org", changed)).toEqual({
 			...sheet,
 			rows: [[3], [2]],
 		});
+		expect(store.get).toHaveBeenCalledTimes(1);
+		expect(store.get.mock.calls[0]![0]).toContain("os-sheet-assemblies/");
+		expect(store.put).not.toHaveBeenCalled();
 		const corrupt = JSON.stringify({
 			[manifest.tables[0]!.rows[0]!.digest]: "{}",
 		});
@@ -257,5 +268,30 @@ describe("sheet row blocks", () => {
 		await expect(
 			readSheetBlocks({ get: store.get, put: store.put }, "org", manifest),
 		).rejects.toThrow("integrity");
+	});
+	it("does not return a new manifest when its assembly write fails", async () => {
+		const store = bucket();
+		const sheet: Sheet = { kind: "sheet", columns: ["A"], rows: [[1]] };
+		const original = await storeSheetBlocks(store, "org", sheet);
+		const failing = {
+			get: store.get,
+			put: async (key: string, bytes: ArrayBuffer) => {
+				if (key.startsWith("os-sheet-assemblies/"))
+					throw new Error("R2 unavailable");
+				return store.put(key, bytes);
+			},
+		};
+		await expect(storeSheetBlocks(failing, "org", sheet)).rejects.toThrow(
+			"R2 unavailable",
+		);
+		await expect(
+			updateSheetBlocks(
+				failing,
+				"org",
+				original,
+				{ ...sheet, rows: [[2]] },
+				new Map([["flat", new Set([0])]]),
+			),
+		).rejects.toThrow("R2 unavailable");
 	});
 });

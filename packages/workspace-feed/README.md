@@ -18,7 +18,9 @@ History, restore and workspace transfers retain references to unchanged blocks.
 
 Existing sheet bodies are converted on access and their revision pointers are
 replaced behind a digest fence before editing. Reads and exports assemble the
-public sheet shape; editor patches save and fetch changed rows only. Range
+public sheet shape. Saves write a stored assembly before publishing the revision,
+including cell saves, so the next reader can load it in one R2 get. Editor
+patches fetch selected rows and replace only changed row blocks. Range
 writes keep their full response for existing callers, so their response assembly
 is measured separately from the save. Open tabs use the existing workspace
 revision notices and fetch changes under their own source-access checks.
