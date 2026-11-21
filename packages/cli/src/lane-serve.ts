@@ -2838,6 +2838,17 @@ export class LaneDispatcher {
 		} else if (!on && this.admissionsHeld === reason)
 			this.admissionsHeld = undefined;
 	}
+	/**
+	 * Read again right before each admission, not only once per pass: a start
+	 * already in preparation when the app begins to wait is handed back.
+	 */
+	private appUpdateWaiting(): boolean {
+		const on = existsSync(
+			join(this.directory, "..", "..", APP_UPDATE_WAITING_FILE),
+		);
+		if (on) this.setAppUpdateHold(true);
+		return on;
+	}
 	private async holdsRestart(row: Receipt): Promise<boolean> {
 		if (hasSettledOutcome(row)) return false;
 		const terminal =
@@ -5425,7 +5436,8 @@ export class LaneDispatcher {
 					item.version,
 					current.workItem?.version,
 				);
-			if (this.stopping) throw new DispatcherStoppingError();
+			if (this.stopping || this.appUpdateWaiting())
+				throw new DispatcherStoppingError();
 			const health = this.availability[executor];
 			if (health.preflightFailed)
 				throw new LocalExecutorPreflightError(health.reason);
