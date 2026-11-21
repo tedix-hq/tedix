@@ -2005,6 +2005,10 @@ export const CMS_PROXY_TOOL_SCHEMAS = {
 							"Native Emdash site-wide fallback social image. EmDashHead emits it as og:image, twitter:image, and BlogPosting image when a page has no own image.",
 						)
 						.optional(),
+					additionalSitemaps: z
+						.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/))
+						.max(20)
+						.optional(),
 					robotsTxt: z.string().optional(),
 					googleVerification: z.string().optional(),
 					bingVerification: z.string().optional(),

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+import { settingsUpdateBody } from "emdash/api/schemas";
 import { describe, expect, it } from "vite-plus/test";
+import { CMS_PROXY_TOOL_SCHEMAS } from "./agent/cms-proxy-schemas";
 
 // Exercise the installed, patched endpoint while substituting its runtime services.
 const source = readFileSync(
@@ -93,4 +95,144 @@ describe("Native sitemap canonical overrides", () => {
 			await (await sitemap("https://other.example/")).text(),
 		).not.toContain("<loc>");
 	});
+});
+
+const hreflangSource = readFileSync(
+	new URL("../node_modules/emdash/dist/hreflang-Bzvlo9Ci.mjs", import.meta.url),
+	"utf8",
+);
+const loadHreflang = new Function(
+	"ContentRepository",
+	"getCollectionInfoWithDb",
+	"resolveLocalizedContentRoutePath",
+	"isI18nEnabled",
+	"getI18nConfig",
+	"withBasePath",
+	hreflangSource
+		.replace(/^import .*;$/gm, "")
+		.replace(/^export .*;$/gm, "")
+		.replaceAll("import.meta.env.BASE_URL", '"/"') +
+		"\nreturn getHreflangAlternatesWithDb;",
+);
+
+async function alternates(seo: Array<Record<string, unknown>>) {
+	const variants = ["en", "de"].map((locale) => ({
+		id: locale,
+		slug: "home",
+		locale,
+		status: "published",
+		translationGroup: "home",
+	}));
+	const query = {
+		select: () => query,
+		where: () => query,
+		execute: async () => seo,
+	};
+	const get = loadHreflang(
+		class {
+			findByIdOrSlug = async () => variants[0];
+			findTranslations = async () => variants;
+		},
+		async () => ({ urlPattern: "/{slug}" }),
+		async ({ locale }: { locale: string }) =>
+			locale === "en" ? "/home" : "/de/home",
+		() => true,
+		() => ({ defaultLocale: "en" }),
+		(url: string) => url,
+	);
+	return get({ selectFrom: () => query }, "pages", "en", {
+		siteUrl: "https://personal.example",
+	});
+}
+
+describe("Native hreflang canonical overrides", () => {
+	it("uses each published variant's SEO canonical, matching the sitemap", async () => {
+		expect(
+			await alternates([
+				{ content_id: "en", seo_canonical: "https://personal.example/" },
+				{ content_id: "de", seo_canonical: "/de/" },
+			]),
+		).toEqual([
+			{ hreflang: "de", href: "https://personal.example/de/" },
+			{ hreflang: "en", href: "https://personal.example/" },
+			{ hreflang: "x-default", href: "https://personal.example/" },
+		]);
+	});
+
+	it("excludes noindex and externally canonicalized variants", async () => {
+		expect(await alternates([{ content_id: "en", seo_no_index: 1 }])).toEqual(
+			[],
+		);
+		expect(
+			await alternates([
+				{ content_id: "de", seo_canonical: "https://other.example/" },
+			]),
+		).toEqual([
+			{ hreflang: "en", href: "https://personal.example/home" },
+			{ hreflang: "x-default", href: "https://personal.example/home" },
+		]);
+	});
+});
+
+const indexSource = readFileSync(
+	new URL(
+		"../node_modules/emdash/dist/astro/routes/sitemap.xml.mjs",
+		import.meta.url,
+	),
+	"utf8",
+);
+const loadIndex = new Function(
+	"handleSitemapIndexData",
+	"getSiteSettingsWithDb",
+	"getPublicSiteUrl",
+	indexSource
+		.replace(/^import .*;$/gm, "")
+		.replace(/^export .*;$/gm, "")
+		.replaceAll("import.meta.env.BASE_URL", '"/"') + "\nreturn GET;",
+);
+
+it("keeps native collection sitemaps and lists configured children once without unsafe URLs", async () => {
+	const get = loadIndex(
+		async () => ({
+			success: true,
+			data: {
+				sitemaps: [{ collection: "pages", page: 1, lastmod: "2026-11-21" }],
+			},
+		}),
+		async () => ({
+			seo: {
+				additionalSitemaps: [
+					"/sitemap-apps.xml",
+					"/sitemap-apps.xml",
+					"/sitemap-pages.xml",
+					"https://other.example/sitemap.xml",
+					"/sitemap.xml",
+					"/sitemap-x.xml?bad=1",
+				],
+			},
+		}),
+		() => "https://personal.example",
+	);
+	const response = await get({
+		locals: { emdash: { db: {} } },
+		url: new URL("https://personal.example/sitemap.xml"),
+	});
+	expect(response.status).toBe(200);
+	const xml = await response.text();
+	expect(xml.match(/<loc>[^<]+<\/loc>/g)).toEqual([
+		"<loc>https://personal.example/sitemap-pages.xml</loc>",
+		"<loc>https://personal.example/sitemap-apps.xml</loc>",
+	]);
+	expect(xml).toContain("<lastmod>2026-11-21</lastmod>");
+});
+
+it("retains custom child settings through the CMS proxy and native write validation", () => {
+	const input = { seo: { additionalSitemaps: ["/sitemap-catalog.xml"] } };
+	const proxied = CMS_PROXY_TOOL_SCHEMAS.settings_update.input.parse(input);
+	expect(settingsUpdateBody.parse(proxied)).toEqual(input);
+	expect(
+		settingsUpdateBody.safeParse({
+			seo: { additionalSitemaps: ["https://other.example/sitemap.xml"] },
+		}).success,
+	).toBe(false);
 });
