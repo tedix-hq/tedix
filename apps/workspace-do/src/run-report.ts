@@ -34,6 +34,10 @@ export type AgentRunReport =
 
 type EndedReport = Extract<AgentRunReport, { kind: "ended" }>;
 
+export function isRunReportOverload(error: string | null): boolean {
+	return /\bD1 DB is overloaded\b/i.test(error ?? "");
+}
+
 /** The one line shown where the person's message would be. */
 export const RUN_OUTCOME_LINE: Record<EndedReport["outcome"], string> = {
 	succeeded: "Run finished",
