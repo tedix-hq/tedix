@@ -36,7 +36,7 @@ import {
 	listOsWorkspaces,
 	listConversationWorkspaceDocuments,
 	listOrganizationWorkspaceDeletionCandidates,
-	findOsWorkspaceForKernelRun,
+	findHomeTurnForKernelRun,
 	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
 } from "./workspaces";
@@ -582,7 +582,6 @@ describe("save a conversation as a workspace", () => {
 			name: "Launch plan",
 		});
 		expect(saved.movedOutputIds).toEqual([]);
-		expect(saved.linked).toBe(false);
 		const placement = Object.fromEntries(
 			(await db.select().from(osOutputs)).map((row) => [
 				row.id,
@@ -638,62 +637,34 @@ describe("save a conversation as a workspace", () => {
 		).toBeUndefined();
 	});
 
-	it("never relinks a conversation that already belongs to a workspace", async () => {
-		const db = conversationFixture();
-		await createOsWorkspace(db, {
-			...workspace,
-			id: "ws-other",
-			name: "Other",
-		});
-		await db.insert(kernelConversations).values({
-			id: "org-1:home:os:a",
-			organizationId: "org-1",
-			conversationId: "home:os:a",
-			workspaceId: "ws-other",
-			lastMessageAt: "2026-10-16T00:00:00.000Z",
-			createdAt: "2026-10-16T00:00:00.000Z",
-			updatedAt: "2026-10-16T00:00:00.000Z",
-		});
-		const saved = await saveConversationAsOsWorkspace(db, {
-			workspace: { ...workspace, id: "ws-new", name: "Second" },
-			conversationId: "home:os:a",
-			fromWorkspaceIds: [],
-		});
-		expect(saved.linked).toBe(false);
-		const [conversation] = await db.select().from(kernelConversations);
-		expect(conversation?.workspaceId).toBe("ws-other");
-	});
-
-	it("finds the Workspace a turn or its delegated child run belongs to", async () => {
+	it("keeps a Workspace only for chats opened inside it", async () => {
 		const db = conversationFixture();
 		await createOsWorkspace(db, { ...workspace, id: "ws-chat", name: "Chat" });
 		const at = "2026-10-25T00:00:00.000Z";
-		await db.insert(kernelConversations).values([
-			{
-				id: "org-1:home:ws",
-				organizationId: "org-1",
-				conversationId: "home:ws",
-				workspaceId: "ws-chat",
-				lastMessageAt: at,
-				createdAt: at,
-				updatedAt: at,
-			},
-			{
-				id: "org-1:home:global",
-				organizationId: "org-1",
-				conversationId: "home:global",
-				lastMessageAt: at,
-				createdAt: at,
-				updatedAt: at,
-			},
-		]);
+		const conversation = (conversationId: string, workspaceId?: string) => ({
+			id: `org-1:${conversationId}`,
+			organizationId: "org-1",
+			conversationId,
+			workspaceId: workspaceId ?? null,
+			lastMessageAt: at,
+			createdAt: at,
+			updatedAt: at,
+		});
+		await db
+			.insert(kernelConversations)
+			.values([
+				conversation("home:os:opened", "ws-chat"),
+				conversation("home:main", "ws-chat"),
+				conversation("home:global"),
+			]);
 		await db.insert(kernelRuntimeRuns).values([
 			{
-				id: "run-ws",
+				id: "run-opened",
 				organizationId: "org-1",
-				conversationId: "home:ws",
+				conversationId: "home:os:opened",
 				childRunId: "child-run",
 			},
+			{ id: "run-main", organizationId: "org-1", conversationId: "home:main" },
 			{
 				id: "run-global",
 				organizationId: "org-1",
@@ -701,12 +672,20 @@ describe("save a conversation as a workspace", () => {
 			},
 		]);
 		const find = (organizationId: string, runId: string) =>
-			findOsWorkspaceForKernelRun(db, { organizationId, runId });
-		const turn = { workspaceId: "ws-chat", conversationId: "home:ws" };
-		expect(await find("org-1", "run-ws")).toEqual(turn);
-		expect(await find("org-1", "child-run")).toEqual(turn);
-		expect(await find("org-1", "run-global")).toBeNull();
-		expect(await find("org-2", "run-ws")).toBeNull();
+			findHomeTurnForKernelRun(db, { organizationId, runId });
+		const opened = { conversationId: "home:os:opened", workspaceId: "ws-chat" };
+		expect(await find("org-1", "run-opened")).toEqual(opened);
+		expect(await find("org-1", "child-run")).toEqual(opened);
+		// A Home chat that once saved a document to a Workspace stays in Home.
+		expect(await find("org-1", "run-main")).toEqual({
+			conversationId: "home:main",
+			workspaceId: null,
+		});
+		expect(await find("org-1", "run-global")).toEqual({
+			conversationId: "home:global",
+			workspaceId: null,
+		});
+		expect(await find("org-2", "run-opened")).toBeNull();
 	});
 });
 

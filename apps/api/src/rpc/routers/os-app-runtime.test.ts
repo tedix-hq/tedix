@@ -2774,7 +2774,10 @@ describe("app edits from a delegated tedi", () => {
 	const tediId = "55555555-5555-4555-8555-555555555555";
 	const homeRunId = "66666666-6666-4666-8666-666666666666";
 	const childRunId = `${tediId}:mcp:${homeRunId}_workstation_${tediId}`;
-	async function delegated(conversationWorkspace: string) {
+	async function delegated(
+		conversationWorkspace: string | null,
+		conversationId = "home:os:fix-app",
+	) {
 		const f = await fixture();
 		// The delegated tedi reaches the workspace through its own builder grant.
 		await f.db.insert(tedis).values({
@@ -2796,16 +2799,16 @@ describe("app edits from a delegated tedi", () => {
 			role: "build",
 		});
 		await f.db.insert(kernelConversations).values({
-			id: "org-1:home:os:fix-app",
+			id: `org-1:${conversationId}`,
 			organizationId: "org-1",
-			conversationId: "home:os:fix-app",
+			conversationId,
 			workspaceId: conversationWorkspace,
 			lastMessageAt: new Date().toISOString(),
 		});
 		await f.db.insert(kernelRuntimeRuns).values({
 			id: homeRunId,
 			organizationId: "org-1",
-			conversationId: "home:os:fix-app",
+			conversationId,
 			childRunId,
 			delegatedTediId: tediId,
 		} as typeof kernelRuntimeRuns.$inferInsert);
@@ -2854,6 +2857,17 @@ describe("app edits from a delegated tedi", () => {
 			.from(osGadgets)
 			.where(eq(osGadgets.id, gadgetId));
 		expect(revision?.currentRevisionId).toBe(revisionId);
+	});
+
+	it("lets a plain Home chat delegate a draft for the app's own workspace", async () => {
+		// A Home chat that once saved a document elsewhere stays in Home.
+		const f = await delegated(previewId, "home:main");
+		const { proposal } = await f.tedi(childRunId).proposeEdit(f.input);
+		expect(proposal).toMatchObject({
+			status: "open",
+			sourceKind: "chat",
+			sourceId: "home:main",
+		});
 	});
 
 	it("refuses a tedi turn from another workspace or with no attested Home turn", async () => {

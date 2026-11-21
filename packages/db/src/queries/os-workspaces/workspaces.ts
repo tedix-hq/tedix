@@ -3,7 +3,6 @@ import {
 	asc,
 	eq,
 	inArray,
-	isNotNull,
 	isNull,
 	ne,
 	notExists,
@@ -245,10 +244,9 @@ export interface SaveConversationAsOsWorkspaceParams {
 export interface SaveConversationAsOsWorkspaceResult {
 	workspace: OsWorkspaceRow;
 	movedOutputIds: string[];
-	linked: boolean;
 }
 
-/** Creates only the core destination; document placement and linking follow initialization. */
+/** Creates only the core destination; document placement follows initialization. */
 export async function saveConversationAsOsWorkspace(
 	db: DbQueryClient,
 	params: SaveConversationAsOsWorkspaceParams,
@@ -271,7 +269,7 @@ export async function saveConversationAsOsWorkspace(
 		workspace.ownerUserId !== (params.workspace.ownerUserId ?? null)
 	)
 		throw new Error("Workspace save destination conflicts with its owner");
-	return { workspace, movedOutputIds: [], linked: false };
+	return { workspace, movedOutputIds: [] };
 }
 
 /** The index supplies revision lineage and current location without reading shared documents. */
@@ -308,32 +306,6 @@ export async function listConversationWorkspaceDocuments(
 			),
 		)
 		.orderBy(asc(workspaceOutputIndex.outputId));
-}
-
-export async function linkConversationWorkspace(
-	db: DbQueryClient,
-	params: {
-		organizationId: string;
-		conversationId: string;
-		workspaceId: string;
-	},
-) {
-	const rows = await db
-		.update(kernelConversations)
-		.set({
-			workspaceId: params.workspaceId,
-			updatedAt: new Date().toISOString(),
-		})
-		.where(
-			and(
-				eq(kernelConversations.organizationId, params.organizationId),
-				eq(kernelConversations.conversationId, params.conversationId),
-				isNull(kernelConversations.workspaceId),
-				isNull(kernelConversations.deletedAt),
-			),
-		)
-		.returning({ id: kernelConversations.id });
-	return rows.length > 0;
 }
 
 export async function listOsWorkspaces(
@@ -490,15 +462,19 @@ export async function deleteOsWorkspace(
 	return result.length > 0;
 }
 
+/** Chats opened from inside a Workspace keep it; other Home chats stay in Home. */
+const WORKSPACE_OPENED_CHAT_PREFIX = "home:os:";
+
 /**
- * The Workspace a Home turn runs in: the Workspace of the conversation that
- * holds the kernel run, or of the run that delegated it as a child run. Null
- * when the turn is not in a Workspace conversation.
+ * The Home conversation of a kernel run, or of the run that delegated it as a
+ * child run. `workspaceId` is set only for a chat opened from inside a
+ * Workspace: a document saved from a Home chat ties that document, not the
+ * chat, to a Workspace.
  */
-export async function findOsWorkspaceForKernelRun(
+export async function findHomeTurnForKernelRun(
 	db: DbQueryClient,
 	params: { organizationId: string; runId: string },
-): Promise<{ workspaceId: string; conversationId: string } | null> {
+): Promise<{ conversationId: string; workspaceId: string | null } | null> {
 	const [row] = await db
 		.select({
 			workspaceId: kernelConversations.workspaceId,
@@ -525,14 +501,17 @@ export async function findOsWorkspaceForKernelRun(
 					eq(kernelRuntimeRuns.id, params.runId),
 					eq(kernelRuntimeRuns.childRunId, params.runId),
 				),
-				isNotNull(kernelConversations.workspaceId),
 				isNull(kernelConversations.deletedAt),
 			),
 		)
 		.limit(1);
-	return row?.workspaceId
-		? { workspaceId: row.workspaceId, conversationId: row.conversationId }
-		: null;
+	if (!row) return null;
+	return {
+		conversationId: row.conversationId,
+		workspaceId: row.conversationId.startsWith(WORKSPACE_OPENED_CHAT_PREFIX)
+			? row.workspaceId
+			: null,
+	};
 }
 
 /** No visibility filter: organization offboarding includes every private workspace. */

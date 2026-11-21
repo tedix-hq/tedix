@@ -164,13 +164,18 @@ describe("workspaces", () => {
 			.select()
 			.from(kernelConversations)
 			.where(eq(kernelConversations.conversationId, "home:os:chat-1"));
-		expect(conversation?.workspaceId).toBe(saved.workspace.id);
-		await expect(
-			c.org1.workspaces.createFromConversation({
-				conversationId: "home:os:chat-1",
-				name: "Again",
-			}),
-		).rejects.toThrow(/already belongs to a workspace/);
+		// The documents moved; the chat stays a Home chat.
+		expect(conversation?.workspaceId).toBeNull();
+		// Saving the same chat again returns the same workspace.
+		const again = await c.org1.workspaces.createFromConversation({
+			conversationId: "home:os:chat-1",
+			name: "Again",
+		});
+		expect(again.workspace.id).toBe(saved.workspace.id);
+		expect(
+			(await c.org1.outputs.get({ outputId: made.output.id })).output
+				.workspaceId,
+		).toBe(saved.workspace.id);
 	});
 
 	it("creates, updates, reads, and archives inside the caller's organization only", async () => {

@@ -3,7 +3,6 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	getOsWorkspace,
 	listConversationWorkspaceDocuments,
-	linkConversationWorkspace,
 	saveConversationAsOsWorkspace,
 	type SaveConversationAsOsWorkspaceParams,
 } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -109,11 +108,5 @@ export async function saveConversationWorkspace(
 				throw new Error("Document source is outside the owner boundary");
 		},
 	);
-	const linked = await linkConversationWorkspace(db, {
-		organizationId: workspace.organizationId,
-		conversationId: params.conversationId,
-		workspaceId: workspace.id,
-	});
-	if (!linked) throw new Error("Conversation changed before workspace linking");
-	return { workspace, movedOutputIds, linked };
+	return { workspace, movedOutputIds };
 }
