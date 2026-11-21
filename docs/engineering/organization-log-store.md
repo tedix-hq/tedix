@@ -226,8 +226,8 @@ dual-running, and only one organization is in `cutover` at a time.
 late write chained after pending appends keeps its own time). Verifiers
 order by `sequence`, as `verifyChain` already requires.
 
-The empty `gateway_change_records` table in `LOGS_DB` (logs migration 0017,
-policy off) stays unused and is dropped with the old path.
+The empty `gateway_change_records` table in the logs databases (logs
+migration 0017) never received a row; logs migration 0018 drops it.
 
 ## Audit events
 

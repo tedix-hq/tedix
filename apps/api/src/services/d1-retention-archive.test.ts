@@ -21,7 +21,6 @@ import {
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { kernelRequestEvents } from "@tedix/db/schema/kernel-requests";
 import { platformCronExecutions } from "@tedix/db/schema/platform-cron-executions";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
@@ -212,7 +211,6 @@ function logsFixture() {
 			tediUsageEvents,
 			widgetEvents,
 			workflowRunLedger,
-			gatewayChangeRecords,
 		]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),

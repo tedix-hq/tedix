@@ -33,8 +33,6 @@
  * - `tedi_usage_events`, `widget_events`, `workflow_run_ledger`: rows the
  *   nightly cleanup used to delete (30, 30 and 90 days); unfinished workflow
  *   runs stay in main.
- * - `gateway_change_records`: unused since the change ledger moved to each
- *   organization's log store; the main table is dropped.
  *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this
@@ -47,7 +45,6 @@ import { auditMetadataRefs } from "./audit-metadata-refs";
 import { skillRunArtifacts } from "./cognitive";
 import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
 import { externalAgentAttributions } from "./external-agent-identity";
-import { gatewayChangeRecords } from "./gateway-change-records";
 import { kernelRequestEvents } from "./kernel-requests";
 import { platformCronExecutions } from "./platform-cron-executions";
 import { tediCallCosts, tediUsageEvents } from "./tedis";
@@ -83,7 +80,6 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	tediUsageEvents,
 	workflowRunLedger,
 	widgetEvents,
-	gatewayChangeRecords,
 	logPartition,
 ];
 
@@ -155,5 +151,4 @@ export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"tedi_usage_events",
 	"workflow_run_ledger",
 	"widget_events",
-	"gateway_change_records",
 ]);

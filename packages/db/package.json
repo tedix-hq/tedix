@@ -82,7 +82,6 @@
 		"./schema/approvals": "./src/schema/approvals.ts",
 		"./schema/approval-simulations": "./src/schema/approval-simulations.ts",
 		"./schema/audit-events": "./src/schema/audit-events.ts",
-		"./schema/gateway-change-records": "./src/schema/gateway-change-records.ts",
 		"./schema/ops-alert-state": "./src/schema/ops-alert-state.ts",
 		"./schema/billing": "./src/schema/billing.ts",
 		"./schema/billing-gateway-reconciliations": "./src/schema/billing-gateway-reconciliations.ts",

@@ -179,7 +179,7 @@ export async function exportHistory(params: {
 	for (const store of stores) {
 		const reader = createHistoryReader(store.read);
 		for (const table of HISTORY_TABLES) {
-			if (store.binding === "DB" ? table.main === false : !table.logs) continue;
+			if (store.binding !== "DB" && !table.logs) continue;
 			const highWater = await reader.highWater(table);
 			const scan = {
 				table: table.table,
