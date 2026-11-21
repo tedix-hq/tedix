@@ -1254,12 +1254,17 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		void supervisor.beat();
 		// The runners stop at once, not after a slow question pass ends: the
 		// Tedix app waits for this process when it quits.
+		let halt = () => {};
+		const halted = new Promise<void>((resolve) => {
+			halt = resolve;
+		});
 		const stop = () => {
 			if (stopped) return;
 			stopped = true;
 			clearInterval(runnerTimer);
 			runners?.stop();
 			machineTools?.stop();
+			halt();
 		};
 		process.once("SIGTERM", stop);
 		process.once("SIGINT", stop);
@@ -1269,7 +1274,8 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		const orphaned = () =>
 			Number.isSafeInteger(parent) && parent > 1 && process.ppid !== parent;
 		while (!stopped) {
-			await supervisor.tick();
+			// A question pass can take minutes; a stop does not wait for it.
+			await Promise.race([supervisor.tick(), halted]);
 			for (
 				let waited = 0;
 				waited < SUPERVISE_INTERVAL_MS && !stopped;
@@ -1292,7 +1298,10 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		machineTools?.stop();
 		releaseAwake();
 		supervisorLog(env, "supervisor stopped");
-		return 0;
+		// A pass still in progress would keep this process alive until it
+		// ends, and whoever asked it to stop is waiting.
+		release();
+		process.exit(0);
 	} finally {
 		release();
 	}
