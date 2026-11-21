@@ -285,9 +285,9 @@ export function kernelGatewayFetch(
 		);
 		if (regionalExecution && response.status >= 300 && response.status < 400) {
 			await response.body?.cancel();
-			throw new Error(
-				`Azure OpenAI redirect rejected (HTTP ${response.status})`,
-			);
+			throw baseErrorConstructors.BAD_GATEWAY({
+				message: `Azure OpenAI redirect rejected (HTTP ${response.status})`,
+			});
 		}
 		return response;
 	};

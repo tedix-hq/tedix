@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import * as ledger from "@tedix/db/queries/calendar-coordinator";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
@@ -55,7 +56,10 @@ export async function loadCalendarConfig(
 		organizationId,
 		configurationId: id,
 	});
-	if (!row) throw new Error("Calendar configuration not found");
+	if (!row)
+		throw baseErrorConstructors.NOT_FOUND({
+			message: "Calendar configuration not found",
+		});
 	const configuration = JSON.parse(row.configuration) as Configuration;
 	if (
 		configuration.organizationId !== organizationId ||
