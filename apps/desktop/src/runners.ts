@@ -6,6 +6,7 @@ import {
 	openSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +57,13 @@ function alive(pid: number): boolean {
 		return false;
 	}
 }
+
+/**
+ * There while the person has paused the runners, so that opening the app
+ * again leaves them stopped. Any start the person asks for removes it.
+ */
+const pausedFile = () => join(app.getPath("userData"), "runners-paused");
+export const runnersPaused = () => existsSync(pausedFile());
 
 /** The process this app started runs now. */
 export function runnersRunning(): boolean {
@@ -197,6 +205,7 @@ export async function startRunners(): Promise<RunResult> {
 			"Tedix Dev leaves this Mac's runners to the installed app. Start it with TEDIX_DEV_RUNNERS=1 to run them from here.",
 		);
 	wanted = true;
+	rmSync(pausedFile(), { force: true });
 	clearTimeout(restartTimer);
 	restartTimer = undefined;
 	if (runnersRunning()) return { ok: true, output: "" };
@@ -283,6 +292,14 @@ export function stopRunners(): Promise<void> {
 		stopping = undefined;
 	});
 	return stopping;
+}
+
+/** Stops the runners until the person resumes or restarts them; tasks running on this Mac stop. */
+export async function pauseRunners(): Promise<void> {
+	writeFileSync(pausedFile(), "");
+	log("runners: paused by the person");
+	await stopRunners();
+	changed();
 }
 
 /** Stops the runners and starts them again: after a new command-line tool or a changed runner. */

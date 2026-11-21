@@ -19,9 +19,12 @@ The app is not signed or notarized yet and has been run on macOS only.
   screen: type a message and press Return to start a new chat in the Tedix
   window (Escape closes the bar). A right click (or Control-click) opens a
   menu with **Open Tedix**, **New Chat…**, a line on the runners, **This
-  Mac…**, **Restart Runners**, **Check for Updates…**, **Open at Login** and
-  **Quit Tedix and Stop Runners**. Opened at login, Tedix starts in the menu
-  bar without a window.
+  Mac…**, **Pause Runners** or **Resume Runners**, **Check for Updates…**,
+  **Open at Login** and **Quit Tedix and Stop Runners**. Pause stops the
+  runners and the tasks running on this Mac (the menu item says how many);
+  they stay stopped, also when the app opens again, until **Resume
+  Runners** or **Restart runners** in This Mac. Opened at login, Tedix
+  starts in the menu bar without a window.
 - **Run this Mac's runners.** The app starts `tedix supervise`, which runs
   the runners in `~/.tedix/supervisor-runners.json`, as its own child
   process, and stops it when you quit (it waits up to 30 seconds before it
@@ -139,8 +142,8 @@ The app is not signed or notarized yet and has been run on macOS only.
   folder, the app says which folder and opens the right page of System
   Settings; it does not treat that as runners being down. `tedix update`
   and `tedix rollback` in a terminal work on the app's copy too; the runners
-  use the new version after **Restart Runners** or the next start of the
-  app.
+  use the new version after **Restart runners** in This Mac or the next
+  start of the app.
 - **See and change this computer's status.** **Tedix → This Mac…**
   (`Cmd+Shift+M`) shows the runners, active runs, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. It
