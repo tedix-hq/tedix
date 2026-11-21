@@ -71,7 +71,7 @@ export function registerPreviewTools(
 				}),
 				95_000,
 			);
-			const output = previewStatusOutput(snapshot);
+			const output = previewOutputSchema.parse(previewStatusOutput(snapshot));
 
 			return {
 				content: [
@@ -105,7 +105,7 @@ export function registerPreviewTools(
 					preferredExposure: args.exposure,
 				}),
 			);
-			const output = previewStatusOutput(snapshot);
+			const output = previewOutputSchema.parse(previewStatusOutput(snapshot));
 
 			return {
 				content: [
@@ -132,7 +132,7 @@ export function registerPreviewTools(
 				"theme_preview_stop",
 				stopCmsPreview(ctx.sandbox, ctx.previewHostname),
 			);
-			const output = previewStatusOutput(snapshot);
+			const output = previewOutputSchema.parse(previewStatusOutput(snapshot));
 
 			return {
 				content: [
