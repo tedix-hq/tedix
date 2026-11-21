@@ -218,14 +218,12 @@ export function useDecisionDeck(
 		(project === "all" || row.project === project) &&
 		(urgency === "all" || row.urgency === urgency) &&
 		row.label.toLowerCase().includes(search.toLowerCase());
-	// Once every source has loaded, the order stays as first shown while the
-	// deck is open; new cards join at the end, so the card on screen and its
-	// Details panel never swap.
-	if (pinnedOrder.current.mode !== mode || decisions.pending)
+	// Keep visible cards in place as more sources arrive.
+	if (pinnedOrder.current.mode !== mode)
 		pinnedOrder.current = { mode, order: new Map() };
 	const pinned = pinnedOrder.current.order;
 	rows.sort(compare);
-	if (mode === "decide" && !decisions.pending) {
+	if (mode === "decide") {
 		for (const row of rows)
 			if (!pinned.has(row.id)) pinned.set(row.id, pinned.size);
 		rows.sort((a, b) => pinned.get(a.id)! - pinned.get(b.id)!);
