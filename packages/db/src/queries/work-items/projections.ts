@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
+import { ACTIVE_ATTEMPT_STATES } from "./factory-state";
 import { personalWorkFeedPredicate } from "./personal-feed";
 import { prefixedColumns } from "../../utils/select";
 import {
@@ -129,6 +130,16 @@ export async function listOrgWorkAttempts(
 	},
 ): Promise<ProjectionPage<WorkAttemptProjectionRow>> {
 	const limit = pageLimit(params.limit);
+	const states = params.runtimeStates;
+	// Bound values cannot match SQLite's partial index for active attempts.
+	const allActive =
+		states?.length === ACTIVE_ATTEMPT_STATES.length &&
+		ACTIVE_ATTEMPT_STATES.every((state) => states.includes(state));
+	const stateFilter = allActive
+		? sql`${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')`
+		: states?.length
+			? inArray(workAttempts.runtimeState, states) // bound-params: at most 8 runtime states.
+			: undefined;
 	const rows = await db
 		.select({
 			attempt: prefixedColumns(workAttempts, "factory_attempt"),
@@ -154,10 +165,7 @@ export async function listOrgWorkAttempts(
 				params.workItemId
 					? eq(workAttempts.workItemId, params.workItemId)
 					: undefined,
-				params.runtimeStates?.length
-					? // bound-params: API contract limits runtimeStates to 8 values.
-						inArray(workAttempts.runtimeState, params.runtimeStates)
-					: undefined,
+				stateFilter,
 				params.outcomes?.length
 					? // bound-params: API contract limits outcomes to 4 values.
 						inArray(workAttempts.outcome, params.outcomes)

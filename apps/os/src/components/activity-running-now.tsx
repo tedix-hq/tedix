@@ -44,12 +44,13 @@ export function ActivityRunningNow({
 			refetchInterval: 30_000,
 		})),
 	});
+	const [scorecard, setScorecard] = useState(false);
 	const health = useQuery({
 		...dispatcherHealthQueryOptions(),
+		enabled: scorecard,
 		...workRefreshOptions,
 		refetchInterval: 30_000,
 	});
-	const [scorecard, setScorecard] = useState(false);
 	const [now, setNow] = useState(() => new Date());
 	useEffect(() => {
 		const timer = setInterval(() => setNow(new Date()), 15_000);
@@ -63,9 +64,7 @@ export function ActivityRunningNow({
 		).values(),
 	];
 	const names = useWorkPrincipalNames(rows[0]?.attempt.orgId);
-	const failed = queries.some(
-		(query) => query.isError || query.failureCount > 0,
-	);
+	const failed = queries.some((query) => query.isError);
 	const pending = queries.some((query) => query.isPending);
 	const reports = health.data?.data ?? [];
 	const fresh = reports.filter(

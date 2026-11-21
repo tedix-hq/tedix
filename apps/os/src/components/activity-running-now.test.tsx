@@ -193,6 +193,16 @@ it("names records in task titles instead of printing their ids", async () => {
 	);
 	expect(host.textContent).not.toContain("4f1c2a90");
 });
+it("keeps the first load pending while a transient failure recovers", async () => {
+	api.attempts.mockRejectedValueOnce(new Error("Timed out"));
+	await mount();
+	expect(host.textContent).toContain("Checking running work");
+	expect(host.textContent).not.toContain("Could not load running work");
+	expect(api.health).not.toHaveBeenCalled();
+	await flush(2010);
+	expect(host.textContent).toContain("Prepare Cedar brief");
+});
+
 it("keeps failures distinct from a quiet fleet and exposes retry controls", async () => {
 	const failure = Object.assign(new Error("No access"), { code: "FORBIDDEN" });
 	api.attempts.mockRejectedValue(failure);
