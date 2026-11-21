@@ -2,6 +2,7 @@ import { Plugs } from "@phosphor-icons/react";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import { ChatCard } from "@/components/workspace-chat-card";
 import type { ChatConnectionRequest } from "@/lib/workspace-chat-state";
 
 /**
@@ -30,25 +31,13 @@ export function ConnectionRequestCard({
 }) {
 	const personal = request.connectionScope === "personal";
 	return (
-		<div
-			className="workspace-chat-connect"
+		<ChatCard
 			data-testid="workspace-chat-connect"
 			data-scope={request.connectionScope}
-		>
-			<div className="workspace-chat-connect-head">
-				<Plugs aria-hidden />
-				<Text as="strong" role="label">
-					Connect {request.service}
-				</Text>
-				<Badge variant="secondary">{request.resourceName}</Badge>
-			</div>
-			{request.reason ? <Text role="body">{request.reason}</Text> : null}
-			<Text role="caption" tone="secondary">
-				{personal
-					? `${request.resourceName} is read through each person's own ${request.service} account. Connect yours to use it here.`
-					: `${request.resourceName} uses a ${request.service} account your organization shares. An organization admin connects it.`}
-			</Text>
-			<div className="workspace-chat-connect-actions">
+			icon={<Plugs />}
+			title={`Connect ${request.service}`}
+			status={<Badge variant="secondary">{request.resourceName}</Badge>}
+			actions={
 				<Button
 					size="sm"
 					render={<a href={connectionRequestHref(request)} />}
@@ -56,7 +45,14 @@ export function ConnectionRequestCard({
 				>
 					{personal ? "Connect account" : "Open connections"}
 				</Button>
-			</div>
-		</div>
+			}
+		>
+			{request.reason ? <Text role="body">{request.reason}</Text> : null}
+			<Text role="caption" tone="secondary">
+				{personal
+					? `${request.resourceName} is read through each person's own ${request.service} account. Connect yours to use it here.`
+					: `${request.resourceName} uses a ${request.service} account your organization shares. An organization admin connects it.`}
+			</Text>
+		</ChatCard>
 	);
 }

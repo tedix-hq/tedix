@@ -133,6 +133,8 @@ export type ChatTurn = {
 	/** Assistant prose so far; grows with every delta and settles on done. */
 	reply: string;
 	replyDeltas?: Array<{ seq: number; text: string }>;
+	/** When the first word of the reply arrived. */
+	replyStartedAt?: string;
 	replyMessageId: string | null;
 	plainNotice?: true;
 	/** A run started here asks a question: its card, to answer it here. */
@@ -602,6 +604,10 @@ export function applyWorkspaceChatEvent(
 					replyDeltas,
 					reply: replyDeltas.map((delta) => delta.text).join(""),
 					replyMessageId: event.messageId,
+					replyStartedAt:
+						turn.replyStartedAt && turn.replyStartedAt <= event.at
+							? turn.replyStartedAt
+							: event.at,
 				};
 			});
 			break;

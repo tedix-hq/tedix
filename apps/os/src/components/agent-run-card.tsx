@@ -14,6 +14,7 @@ import { OsRouterLink } from "@/components/kumo/link-provider";
 import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import { ChatCard } from "@/components/workspace-chat-card";
 import {
 	useWorkItemRun,
 	type WorkRunAttempt,
@@ -179,57 +180,37 @@ export function AgentRunCardView({
 			data-run-live={live}
 			className="flex w-full min-w-0 justify-start"
 		>
-			<section
+			<ChatCard
 				aria-label={`Agent run: ${title}`}
-				className="flex min-w-0 max-w-[860px] flex-1 flex-col gap-2 rounded-xl border border-kumo-hairline bg-kumo-base px-3.5 py-3"
-			>
-				<div className="flex min-w-0 items-start gap-2">
-					<span
-						aria-hidden="true"
-						className="flex size-5 shrink-0 items-center justify-center text-kumo-subtle"
-					>
-						{live ? (
-							<Loader aria-label="Run in progress" size={15} />
-						) : failed || outcome === "failed" ? (
-							<Warning size={15} className="text-kumo-warning" />
-						) : outcome === "succeeded" ? (
-							<Check size={15} className="text-kumo-success" />
-						) : (
-							<Robot size={15} />
-						)}
-					</span>
-					<div className="min-w-0 flex-1">
-						<Text
-							as="strong"
-							weight="medium"
-							className="block [overflow-wrap:anywhere]"
-						>
-							{title}
-						</Text>
-						<Text
-							as="span"
-							role="label"
-							tone="secondary"
-							className="block [overflow-wrap:anywhere]"
-						>
-							{executor ? (
-								<span data-slot="agent-run-executor">{executor} · </span>
-							) : null}
-							<span role="status" data-slot="agent-run-status">
-								{status}
-							</span>
-						</Text>
-						{launch ? (
-							<Text
-								as="span"
-								tone="secondary"
-								className="block [overflow-wrap:anywhere]"
-							>
-								{launch.text}
-							</Text>
+				className="max-w-[860px] flex-1"
+				icon={
+					live ? (
+						<Loader aria-label="Run in progress" size={15} />
+					) : failed || outcome === "failed" ? (
+						<Warning size={15} className="text-kumo-warning" />
+					) : outcome === "succeeded" ? (
+						<Check size={15} className="text-kumo-success" />
+					) : (
+						<Robot size={15} />
+					)
+				}
+				title={title}
+				meta={
+					<>
+						{executor ? (
+							<span data-slot="agent-run-executor">{executor} · </span>
 						) : null}
-					</div>
-				</div>
+						<span role="status" data-slot="agent-run-status">
+							{status}
+						</span>
+						{launch ? (
+							<span className="block [overflow-wrap:anywhere]">
+								{launch.text}
+							</span>
+						) : null}
+					</>
+				}
+			>
 				{children}
 				{waiting && !attempt && permissionHold ? (
 					<Text as="p" className="whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -383,7 +364,7 @@ export function AgentRunCardView({
 					stopping={stopping}
 					stopError={stopError}
 				/>
-			</section>
+			</ChatCard>
 		</li>
 	);
 }

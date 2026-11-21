@@ -12,6 +12,13 @@ function Bubble({ message }: { message: ChatQueuedMessage }) {
 	);
 }
 
+function ownMessage(message: ChatQueuedMessage, viewerId: string | null) {
+	return (
+		message.authorKind === "person" &&
+		(message.authorId === "" || message.authorId === viewerId)
+	);
+}
+
 /**
  * Messages sent while the agent was working that it has not read yet. They
  * are dimmed until it picks them up at its next step.
@@ -19,20 +26,25 @@ function Bubble({ message }: { message: ChatQueuedMessage }) {
 export function QueuedMessages({
 	messages,
 	tediNames,
+	viewerId = null,
 }: {
 	messages: readonly ChatQueuedMessage[];
 	tediNames: Record<string, string>;
+	/** The person reading; their own messages carry no name. */
+	viewerId?: string | null;
 }) {
 	if (messages.length === 0) return null;
 	return (
 		<ul aria-label="Messages not read yet" className="workspace-chat-queued">
 			{messages.map((message) => (
 				<li data-testid="workspace-chat-queued-message" key={message.messageId}>
-					<WorkspaceChatAuthor
-						id={message.authorId}
-						kind={message.authorKind}
-						tediNames={tediNames}
-					/>
+					{ownMessage(message, viewerId) ? null : (
+						<WorkspaceChatAuthor
+							id={message.authorId}
+							kind={message.authorKind}
+							tediNames={tediNames}
+						/>
+					)}
 					<div className="workspace-chat-queued-text">
 						<Bubble message={message} />
 					</div>
@@ -49,20 +61,24 @@ export function QueuedMessages({
 export function AddedMessages({
 	messages,
 	tediNames,
+	viewerId = null,
 }: {
 	messages: readonly ChatQueuedMessage[] | undefined;
 	tediNames: Record<string, string>;
+	viewerId?: string | null;
 }) {
 	if (!messages?.length) return null;
 	return (
 		<>
 			{messages.map((message) => (
 				<div key={message.messageId} data-testid="workspace-chat-added-message">
-					<WorkspaceChatAuthor
-						id={message.authorId}
-						kind={message.authorKind}
-						tediNames={tediNames}
-					/>
+					{ownMessage(message, viewerId) ? null : (
+						<WorkspaceChatAuthor
+							id={message.authorId}
+							kind={message.authorKind}
+							tediNames={tediNames}
+						/>
+					)}
 					<div className="workspace-chat-user">
 						<Bubble message={message} />
 					</div>

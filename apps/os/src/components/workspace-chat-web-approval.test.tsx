@@ -120,7 +120,7 @@ describe("a web page the agent asks to read", () => {
 				'[data-testid="workspace-chat-approval"]',
 			);
 			expect(
-				card?.querySelector(".workspace-chat-approval-head")?.textContent,
+				card?.querySelector(".workspace-chat-card-title")?.textContent,
 			).toBe("Read example.com");
 			expect(
 				card?.querySelector('[data-testid="workspace-chat-approval-url"]')

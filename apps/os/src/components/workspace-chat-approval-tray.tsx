@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import { appEditRequestFrom } from "@/lib/app-edit-approval";
 import {
 	type ApprovalGroup,
@@ -23,6 +28,7 @@ import {
 	approvalTitle,
 	webPageRequest,
 } from "@/lib/workspace-chat-web-approval";
+import { ChatCard } from "./workspace-chat-card";
 import { useWorkspaceChatAuthor } from "./workspace-chat-author";
 
 /**
@@ -129,13 +135,14 @@ export function ApprovalTray({
 	// A run can empty the tray and still owe the person where it stopped.
 	if (approvals.length === 0)
 		return alert ? (
-			<section
+			<ChatCard
 				aria-label="Waiting for you"
 				className="workspace-chat-tray"
 				data-testid="workspace-chat-tray"
+				title="Waiting for you"
 			>
 				{alert}
-			</section>
+			</ChatCard>
 		) : null;
 
 	const mark = (ids: readonly string[], decision: ApprovalDecision) =>
@@ -207,22 +214,31 @@ export function ApprovalTray({
 		return (
 			<li className="workspace-chat-tray-row" key={request.approvalId}>
 				{here ? (
-					<a
-						className="workspace-chat-tray-item"
-						href={`#approval-${request.approvalId}`}
-						title="Show the proposal in the conversation"
-					>
-						{text}
-					</a>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<a
+									className="workspace-chat-tray-item"
+									href={`#approval-${request.approvalId}`}
+								/>
+							}
+						>
+							{text}
+						</TooltipTrigger>
+						<TooltipContent>
+							Show the proposal in the conversation
+						</TooltipContent>
+					</Tooltip>
 				) : onOpenConversation ? (
-					<button
+					<Button
 						className="workspace-chat-tray-item"
+						multiline
 						onClick={() => onOpenConversation(request.conversationId)}
 						title="Open the chat that asked"
-						type="button"
+						variant="ghost"
 					>
 						{text}
-					</button>
+					</Button>
 				) : (
 					<span className="workspace-chat-tray-item">{text}</span>
 				)}
@@ -263,12 +279,13 @@ export function ApprovalTray({
 		return (
 			<li className="workspace-chat-tray-group" key={item.key}>
 				<div className="workspace-chat-tray-row">
-					<button
+					<Button
 						aria-expanded={open}
 						className="workspace-chat-tray-item"
+						multiline
 						// One group at a time, so an open one never crowds out the rest.
 						onClick={() => setOpenGroup(open ? null : item.key)}
-						type="button"
+						variant="ghost"
 					>
 						<Text as="span" role="body" className="workspace-chat-tray-title">
 							{item.title}
@@ -277,7 +294,7 @@ export function ApprovalTray({
 							{item.requests.length} requests
 							{item.askedElsewhere ? " · Asked in another chat" : ""}
 						</Text>
-					</button>
+					</Button>
 					<Button
 						aria-label={`Deny all for ${item.title}`}
 						disabled={busy || left.length === 0}
@@ -306,31 +323,25 @@ export function ApprovalTray({
 	};
 
 	return (
-		<section
+		<ChatCard
 			aria-label={`Waiting for you: ${approvals.length}`}
+			attention
 			className="workspace-chat-tray"
 			data-testid="workspace-chat-tray"
-		>
-			<div className="workspace-chat-tray-head">
-				<div className="workspace-chat-tray-summary">
-					<Text as="strong" role="label">
-						Waiting for you ({approvals.length})
-					</Text>
-					{run ? (
-						<span role="status">
-							<Text as="span" role="caption" tone="secondary">
-								{approvalRunProgress(run, approvals)}
-							</Text>
-						</span>
-					) : elsewhere > 0 ? (
-						<Text as="span" role="caption" tone="secondary">
-							{elsewhere === approvals.length
-								? "Asked in other chats"
-								: `${elsewhere} from other chats`}
-						</Text>
-					) : null}
-				</div>
-				{approvals.length > 1 ? (
+			title={`Waiting for you (${approvals.length})`}
+			meta={
+				run ? (
+					<span role="status">{approvalRunProgress(run, approvals)}</span>
+				) : elsewhere > 0 ? (
+					elsewhere === approvals.length ? (
+						"Asked in other chats"
+					) : (
+						`${elsewhere} from other chats`
+					)
+				) : null
+			}
+			actions={
+				approvals.length > 1 ? (
 					<>
 						<Button
 							disabled={busy || undecided.length === 0}
@@ -348,10 +359,11 @@ export function ApprovalTray({
 							Approve all
 						</Button>
 					</>
-				) : null}
-			</div>
+				) : null
+			}
+		>
 			{alert}
 			<ul className="workspace-chat-tray-list">{groups.map(group)}</ul>
-		</section>
+		</ChatCard>
 	);
 }

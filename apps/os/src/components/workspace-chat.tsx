@@ -3,6 +3,7 @@ import { ConversationUsageRing } from "@/components/chat-usage-line";
 import "./workspace-chat.css";
 import { RegisteredAppSchedule } from "./workspace-app-connections";
 import {
+	ArrowDown,
 	ArrowLeft,
 	CaretRight,
 	CheckCircle,
@@ -47,12 +48,17 @@ import {
 	removeSkillReference,
 } from "@/lib/chat-skill-picker";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
+	CollapsibleContent,
 	CollapsibleDefaultContent,
 	CollapsibleDefaultTrigger,
+	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
+import { Loader } from "@/components/kumo/loader";
+import { ChatCard } from "@/components/workspace-chat-card";
 import {
 	Select,
 	SelectContent,
@@ -63,11 +69,6 @@ import {
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { ApprovalModePicker } from "@/components/workspace-chat-approval-mode";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/kumo/tooltip";
 import { Link } from "@/components/kumo/link";
 import { UnreadBadge } from "@/components/unread-badge";
 import { AppEditDiff, AppEditUndo } from "@/components/app-edit-approval";
@@ -162,7 +163,7 @@ import {
 import {
 	OpenChangedFile,
 	OpenCreatedApp,
-	ReplyCopy,
+	ReplyActions,
 	StepDetail,
 	stepHasDetail,
 	SummarisedMarker,
@@ -843,8 +844,16 @@ function Thread({
 	onRetry: RetryTurn | null;
 }) {
 	const tediNames = useTediNames();
+	// The person's own messages carry no name; other people's and tedis' do.
+	const viewer = useQuery({
+		...workspacePresenceQueryOptions(workspaceId),
+		staleTime: 60_000,
+		retry: false,
+	});
+	const viewerId = viewer.data?.userId ?? null;
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
+	const [atLatest, setAtLatest] = useState(true);
 	const shownConversation = useRef(conversationId);
 	const launches = new Set(
 		turns.flatMap((turn) => [...launchedRuns(turn).keys()]),
@@ -857,80 +866,103 @@ function Thread({
 		reports.set(id, [...(reports.get(id) ?? []), turn]);
 		return false;
 	});
-	// Before paint, so a thread never shows its top and then jumps down.
+	const scrollToLatest = (behavior: ScrollBehavior) => {
+		const node = scroller.current;
+		if (!node) return;
+		if (typeof node.scrollTo === "function")
+			node.scrollTo({ top: node.scrollHeight, behavior });
+		else node.scrollTop = node.scrollHeight;
+	};
+	// Before paint, so a thread never shows its top and then jumps down. It
+	// follows new output only while the person is already at the bottom.
 	useLayoutEffect(() => {
 		if (shownConversation.current !== conversationId) {
 			shownConversation.current = conversationId;
 			stick.current = true;
+			setAtLatest(true);
 		}
-		const node = scroller.current;
-		if (!node || !stick.current) return;
-		if (typeof node.scrollTo === "function")
-			node.scrollTo({ top: node.scrollHeight, behavior: "auto" });
-		else node.scrollTop = node.scrollHeight;
+		if (stick.current) scrollToLatest("auto");
 	});
 	return (
-		<div
-			className="workspace-chat-thread"
-			onScroll={(event) => {
-				const node = event.currentTarget;
-				stick.current =
-					node.scrollHeight - node.scrollTop - node.clientHeight < 48;
-			}}
-			ref={scroller}
-		>
-			{hasEarlier ? (
-				<Button onClick={onLoadEarlier} size="xs" variant="ghost">
-					Load earlier
-				</Button>
-			) : null}
-			{catchingUp ? (
-				<LoadingArea
-					className="min-h-40 flex-1"
-					label="Loading the conversation"
-				/>
-			) : null}
-			{turns.length === 0 && !pendingSend && !catchingUp ? (
-				<div className="workspace-chat-empty">
-					<Text role="body" tone="secondary">
-						{emptyText}
-					</Text>
-				</div>
-			) : null}
-			{visibleTurns.map((turn, index) => (
-				<TurnView
-					reports={reports}
-					key={turn.turnId}
-					workspaceId={workspaceId}
-					modelLabel={
-						models.find((model) => model.id === turn.model)?.label ?? turn.model
-					}
-					onDecide={onDecide}
-					onApproveAll={onApproveAll}
-					latest={index === visibleTurns.length - 1}
-					onContinue={
-						index === visibleTurns.length - 1 &&
-						(turn.status === "cancelled" || turn.status === "error")
-							? onContinue
-							: null
-					}
-					onRetry={
-						index === visibleTurns.length - 1 &&
-						(turn.status === "cancelled" || turn.status === "error")
-							? onRetry
-							: null
-					}
-					turn={turn}
+		<div className="workspace-chat-thread-frame">
+			<div
+				className="workspace-chat-thread"
+				onScroll={(event) => {
+					const node = event.currentTarget;
+					stick.current =
+						node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+					setAtLatest(stick.current);
+				}}
+				ref={scroller}
+			>
+				{hasEarlier ? (
+					<Button onClick={onLoadEarlier} size="xs" variant="ghost">
+						Load earlier
+					</Button>
+				) : null}
+				{catchingUp ? (
+					<LoadingArea
+						className="min-h-40 flex-1"
+						label="Loading the conversation"
+					/>
+				) : null}
+				{turns.length === 0 && !pendingSend && !catchingUp ? (
+					<div className="workspace-chat-empty">
+						<Text role="body" tone="secondary">
+							{emptyText}
+						</Text>
+					</div>
+				) : null}
+				{visibleTurns.map((turn, index) => {
+					const last = index === visibleTurns.length - 1;
+					const stopped =
+						turn.status === "cancelled" || turn.status === "error";
+					return (
+						<TurnView
+							reports={reports}
+							key={turn.turnId}
+							workspaceId={workspaceId}
+							viewerId={viewerId}
+							modelLabel={
+								models.find((model) => model.id === turn.model)?.label ??
+								turn.model
+							}
+							onDecide={onDecide}
+							onApproveAll={onApproveAll}
+							onContinue={last && stopped ? onContinue : null}
+							onRetry={last ? onRetry : null}
+							turn={turn}
+							tediNames={tediNames}
+						/>
+					);
+				})}
+				<QueuedMessages
+					messages={queued}
 					tediNames={tediNames}
+					viewerId={viewerId}
 				/>
-			))}
-			<QueuedMessages messages={queued} tediNames={tediNames} />
-			{pendingSend ? (
-				<div className="workspace-chat-turn" data-pending="true">
-					<UserBubble text={pendingSend.text} />
-					<Thinking label="Sending" since={pendingSend.sentAt} />
-				</div>
-			) : null}
+				{pendingSend ? (
+					<div className="workspace-chat-turn" data-pending="true">
+						<UserBubble text={pendingSend.text} />
+						<Working label="Sending" since={pendingSend.sentAt} />
+					</div>
+				) : null}
+			</div>
+			{atLatest ? null : (
+				<Button
+					className="workspace-chat-jump"
+					icon={<ArrowDown aria-hidden />}
+					onClick={() => {
+						stick.current = true;
+						setAtLatest(true);
+						scrollToLatest("smooth");
+					}}
+					size="sm"
+					variant="secondary"
+				>
+					Jump to latest
+				</Button>
+			)}
 		</div>
 	);
 }
@@ -960,10 +992,10 @@ function launchedRuns(turn: ChatTurn) {
 function TurnView({
 	reports,
 	workspaceId,
+	viewerId,
 	turn,
 	tediNames,
 	modelLabel,
-	latest,
 	onDecide,
 	onApproveAll,
 	onContinue,
@@ -971,18 +1003,20 @@ function TurnView({
 }: {
 	reports: ReadonlyMap<string, ChatTurn[]>;
 	workspaceId: string;
+	/** The person reading; their own messages carry no name. */
+	viewerId: string | null;
 	turn: ChatTurn;
 	tediNames: Record<string, string>;
 	/** The catalog name of the model that answered, else its id. */
 	modelLabel: string | undefined;
-	/** The newest turn of the thread. */
-	latest: boolean;
 	onDecide: DecideApproval;
 	onApproveAll: ApproveAll;
 	onContinue: (() => void) | null;
+	/** Sends this turn's message again; only on the newest turn, `null` while busy. */
 	onRetry: RetryTurn | null;
 }) {
 	const running = turn.status === "running";
+	const stopped = turn.status === "cancelled" || turn.status === "error";
 	const startedAt = Date.parse(turn.startedAt);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
 	const agentRuns = launchedRuns(turn);
@@ -1007,13 +1041,22 @@ function TurnView({
 					: running && turn.steps.every((step) => step.tool === "run_code")
 						? "Working"
 						: "Tedix Cloud";
-	const now = useNow(running && !waiting);
 	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
-	const quiet =
-		running && !waiting && turn.reply === "" && turn.steps.length === 0;
+	const own =
+		turn.authorKind === "person" &&
+		(turn.authorId === "" || turn.authorId === viewerId);
+	const thought = running ? null : thoughtMs(turn);
+	const sendAgain =
+		onRetry && turn.text && !turn.handedFrom && !turn.runReport
+			? () =>
+					onRetry(
+						turn.text,
+						turn.attachments?.map((file) => ({ outputId: file.outputId })),
+					)
+			: null;
 	return (
 		<article
-			className="workspace-chat-turn group/message"
+			className="workspace-chat-turn"
 			data-status={turn.status}
 			data-testid="workspace-chat-turn"
 		>
@@ -1024,7 +1067,7 @@ function TurnView({
 				</Text>
 			) : turn.text ? (
 				<>
-					{turn.authorId ? (
+					{turn.authorId && !own ? (
 						<WorkspaceChatAuthor
 							id={turn.authorId}
 							kind={turn.authorKind}
@@ -1056,7 +1099,11 @@ function TurnView({
 					))}
 				</ul>
 			) : null}
-			<AddedMessages messages={turn.added} tediNames={tediNames} />
+			<AddedMessages
+				messages={turn.added}
+				tediNames={tediNames}
+				viewerId={viewerId}
+			/>
 			<div
 				className="workspace-chat-reply"
 				data-task-card={taskLocation ? true : undefined}
@@ -1077,6 +1124,15 @@ function TurnView({
 				{turn.answererNote ? (
 					<Text role="caption" tone="secondary">
 						{turn.answererNote}
+					</Text>
+				) : null}
+				{thought !== null ? (
+					<Text
+						role="caption"
+						tone="secondary"
+						data-testid="workspace-chat-thought"
+					>
+						Thought for {elapsedLabel(thought)}
 					</Text>
 				) : null}
 				{turn.steps.length > 0 ? (
@@ -1103,7 +1159,6 @@ function TurnView({
 						onApproveAll(approvalIds);
 					}}
 				/>
-				{quiet ? <Thinking label="Thinking" since={startedAt} /> : null}
 				{turn.reply ? (
 					<div
 						className="workspace-chat-prose"
@@ -1115,9 +1170,6 @@ function TurnView({
 							<ChatMarkdown content={turn.reply} />
 						)}
 					</div>
-				) : null}
-				{turn.reply && turn.replyDone ? (
-					<ReplyCopy text={turn.reply} latest={latest} />
 				) : null}
 				{turn.agentRunAsk ? (
 					<ul
@@ -1186,26 +1238,15 @@ function TurnView({
 						Stopped.
 					</Text>
 				) : null}
-				{onContinue || (onRetry && turn.text) ? (
+				{onContinue || (stopped && sendAgain) ? (
 					<div className="flex gap-2">
 						{onContinue ? (
 							<Button onClick={onContinue} size="xs" variant="outline">
 								Continue
 							</Button>
 						) : null}
-						{onRetry && turn.text ? (
-							<Button
-								onClick={() =>
-									onRetry(
-										turn.text,
-										turn.attachments?.map((file) => ({
-											outputId: file.outputId,
-										})),
-									)
-								}
-								size="xs"
-								variant="ghost"
-							>
+						{stopped && sendAgain ? (
+							<Button onClick={sendAgain} size="xs" variant="ghost">
 								Retry
 							</Button>
 						) : null}
@@ -1217,37 +1258,49 @@ function TurnView({
 							Retrying reply…
 						</Text>
 					</div>
-				) : waiting || running || turn.status === "waiting" ? (
-					<footer className="workspace-chat-turn-footer">
-						<Text
-							role="caption"
-							tone="secondary"
-							data-testid="workspace-chat-timer"
-						>
-							{waiting || turn.status === "waiting" ? (
-								<a
-									href={
-										waiting
-											? `#approval-${waiting.approvalId}`
-											: turn.approvalUrl
-									}
-								>
-									Waiting for approval
-								</a>
-							) : (
-								<>Working · {elapsedLabel(now - startedAt)}</>
-							)}
-						</Text>
+				) : waiting || turn.status === "waiting" ? (
+					<footer
+						className="workspace-chat-turn-footer"
+						data-testid="workspace-chat-timer"
+					>
+						<Badge variant="warning">
+							<a
+								href={
+									waiting ? `#approval-${waiting.approvalId}` : turn.approvalUrl
+								}
+							>
+								Waiting for approval
+							</a>
+						</Badge>
 					</footer>
+				) : running ? (
+					<Working label="Working" since={startedAt} />
 				) : (
-					<TurnTime
-						details={turnDetails(turn, modelLabel)}
+					<ReplyActions
+						text={turn.reply && turn.replyDone ? turn.reply : null}
 						startedAt={startedAt}
+						details={turnDetails(turn, modelLabel)}
+						onRetry={stopped ? null : sendAgain}
 					/>
 				)}
 			</div>
 		</article>
 	);
+}
+
+/**
+ * How long the agent took before its first step or word. The wire carries
+ * no reasoning text, so this is the whole of what the thread can say about
+ * the agent's thinking. Under a second says nothing.
+ */
+function thoughtMs(turn: ChatTurn): number | null {
+	const firsts = [turn.steps[0]?.startedAt, turn.replyStartedAt]
+		.filter((at) => at !== undefined)
+		.map((at) => Date.parse(at))
+		.filter(Number.isFinite);
+	if (firsts.length === 0) return null;
+	const thought = Math.min(...firsts) - Date.parse(turn.startedAt);
+	return thought >= 1_000 ? thought : null;
 }
 
 /** Why a reply failed, in one plain sentence; the recorded error on request. */
@@ -1272,44 +1325,6 @@ function TurnFailure({ error }: { error: string | undefined }) {
 				</Collapsible>
 			) : null}
 		</>
-	);
-}
-
-/**
- * When a finished turn began. It appears while the turn is hovered or holds
- * focus, and its tooltip carries what was recorded about the turn.
- */
-function TurnTime({
-	startedAt,
-	details,
-}: {
-	startedAt: number;
-	details: string[];
-}) {
-	if (!Number.isFinite(startedAt)) return null;
-	const time = new Date(startedAt).toLocaleTimeString([], {
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-	const label = (
-		<button
-			className="workspace-chat-turn-time"
-			data-testid="workspace-chat-turn-time"
-			type="button"
-		>
-			{time}
-		</button>
-	);
-	if (details.length === 0) return label;
-	return (
-		<Tooltip>
-			<TooltipTrigger render={label} />
-			<TooltipContent align="start" side="bottom">
-				{details.map((detail) => (
-					<span key={detail}>{detail}</span>
-				))}
-			</TooltipContent>
-		</Tooltip>
 	);
 }
 
@@ -1345,16 +1360,18 @@ function UserBubble({ text }: { text: string }) {
 	);
 }
 
-function Thinking({ label, since }: { label: string; since: number }) {
+/** The thread's one sign that something is under way, with how long. */
+function Working({ label, since }: { label: string; since: number }) {
 	const now = useNow(true);
 	return (
 		<div
-			className="workspace-chat-thinking"
-			data-testid="workspace-chat-thinking"
+			className="workspace-chat-working"
+			data-testid="workspace-chat-working"
+			role="status"
 		>
-			<span className="workspace-chat-shimmer">{label}…</span>
+			<Loader size={14} />
 			<Text as="span" role="caption" tone="secondary">
-				{elapsedLabel(now - since)}
+				{label} · {elapsedLabel(now - since)}
 			</Text>
 		</div>
 	);
@@ -1377,7 +1394,44 @@ function approvalStatus(approval: ChatApproval) {
 	return "Waiting for approval";
 }
 
-/** The steps of one turn with plain labels; the group folds once it is done. */
+function approvalBadge(approval: ChatApproval): BadgeVariant {
+	if (approval.execution?.status === "applied") return "success";
+	if (approval.execution?.status === "failed") return "destructive";
+	if (approval.decision === null && !approval.automatic) return "warning";
+	return "secondary";
+}
+
+/** One clause per kind of step: "read 3 items", "ran 1 script". */
+const STEP_COUNT: Record<ChatStep["kind"], ((count: number) => string) | null> =
+	{
+		read: (count) => `read ${count} ${count === 1 ? "item" : "items"}`,
+		write: (count) => `made ${count} ${count === 1 ? "change" : "changes"}`,
+		code: (count) => `ran ${count} ${count === 1 ? "script" : "scripts"}`,
+		tool: (count) => `used ${count} ${count === 1 ? "tool" : "tools"}`,
+		think: () => "summarised the conversation",
+	};
+
+/** A finished turn's steps in one line: "Read 3 items, ran 1 script". */
+function stepsSummary(steps: readonly ChatStep[]): string {
+	const counts = new Map<ChatStep["kind"], number>();
+	for (const step of steps) {
+		// Writing the next script is the agent thinking, not a step of its own.
+		if (step.kind === "code" && step.tool !== "run_code") continue;
+		counts.set(step.kind, (counts.get(step.kind) ?? 0) + 1);
+	}
+	const line = [...counts]
+		.map(([kind, count]) => STEP_COUNT[kind]?.(count))
+		.filter(Boolean)
+		.join(", ");
+	if (!line)
+		return steps.length === 1 ? steps[0]!.label : `${steps.length} steps`;
+	return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/**
+ * The steps of one turn folded into one line; it opens on the full list.
+ * While the turn works, the line names the current step.
+ */
 function Activity({
 	steps,
 	approvals,
@@ -1392,9 +1446,6 @@ function Activity({
 		approvals.find((approval) => approval.stepId === step.stepId) ??
 		(refused(step) ? approvals.at(-1) : undefined);
 	const live = steps.some((step) => step.status === "running");
-	const [open, setOpen] = useState(false);
-	const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
-	const expanded = open || live;
 	const errored = (step: ChatStep) =>
 		!held(step) && !refused(step) && step.status === "error";
 	// A step that went wrong and was followed by one that worked is a retry,
@@ -1406,39 +1457,25 @@ function Activity({
 	const approval = approvals.at(-1);
 	const summary = live
 		? (steps.findLast((step) => step.status === "running")?.label ?? "Working")
-		: steps.length === 1
-			? steps[0]!.label
-			: `${steps.length} steps`;
+		: stepsSummary(steps);
 	return (
-		<div className="workspace-chat-activity" data-live={live}>
-			<Button
-				aria-expanded={expanded}
-				className="workspace-chat-activity-summary"
-				onClick={() => setOpen((value) => !value)}
-				variant="ghost"
-				size="xs"
-			>
-				<CaretRight
-					aria-hidden
-					className="workspace-chat-caret"
-					data-open={expanded}
-				/>
+		<Collapsible className="workspace-chat-activity" data-live={live}>
+			<CollapsibleTrigger className="workspace-chat-activity-summary">
 				<span className="truncate">{summary}</span>
+				<CaretRight aria-hidden className="workspace-chat-caret" />
 				{failed ? (
-					<Text as="span" role="caption" tone="error">
-						Failed
-					</Text>
+					<Badge variant="destructive">
+						<WarningCircle aria-hidden /> Failed
+					</Badge>
 				) : approval ? (
-					<Text as="span" role="caption" tone="secondary">
+					<Badge variant={approvalBadge(approval)}>
 						{approvalStatus(approval)}
-					</Text>
+					</Badge>
 				) : retried > 0 ? (
-					<Text as="span" role="caption" tone="secondary">
-						{retried} retried
-					</Text>
+					<Badge variant="secondary">{retried} retried</Badge>
 				) : null}
-			</Button>
-			{expanded ? (
+			</CollapsibleTrigger>
+			<CollapsibleContent>
 				<ol className="workspace-chat-steps">
 					{steps.map((step) => {
 						const Icon = STEP_ICON[step.kind] ?? Wrench;
@@ -1448,78 +1485,61 @@ function Activity({
 							: refused(step)
 								? "Waiting for approval"
 								: null;
-						const detailed = stepHasDetail(step);
-						const detailOpen = detailed && shown.has(step.stepId);
+						const row = (
+							<div
+								className="workspace-chat-step"
+								data-status={approvalLabel ?? step.status}
+								data-testid="workspace-chat-step"
+							>
+								<Icon aria-hidden />
+								{stepHasDetail(step) ? (
+									<CollapsibleTrigger className="workspace-chat-step-toggle">
+										<span className="truncate">{step.label}</span>
+									</CollapsibleTrigger>
+								) : (
+									<span className="truncate">{step.label}</span>
+								)}
+								{approvalLabel ? (
+									<Badge
+										variant={approval ? approvalBadge(approval) : "warning"}
+									>
+										{approvalLabel}
+									</Badge>
+								) : null}
+								{!approvalLabel && step.status === "ok" && step.summary ? (
+									<Text as="span" role="caption" tone="secondary">
+										{step.summary}
+									</Text>
+								) : null}
+								{!approvalLabel && step.status === "error" ? (
+									<Text as="span" role="caption" tone="error">
+										{step.error ?? "failed"}
+									</Text>
+								) : null}
+								{approval?.execution?.status === "applied" ||
+								(!approval && step.status === "ok") ? (
+									<CheckCircle aria-hidden className="workspace-chat-step-ok" />
+								) : null}
+							</div>
+						);
 						return (
 							<li key={step.stepId}>
-								<div
-									className="workspace-chat-step"
-									data-status={approvalLabel ?? step.status}
-									data-testid="workspace-chat-step"
-								>
-									<Icon aria-hidden />
-									{detailed ? (
-										<button
-											aria-expanded={detailOpen}
-											className="workspace-chat-step-toggle truncate"
-											onClick={() =>
-												setShown((previous) => {
-													const next = new Set(previous);
-													if (!next.delete(step.stepId)) next.add(step.stepId);
-													return next;
-												})
-											}
-											title={detailOpen ? "Hide what ran" : "Show what ran"}
-											type="button"
-										>
-											{step.label}
-										</button>
-									) : (
-										<span className="truncate">{step.label}</span>
-									)}
-									{approvalLabel ? (
-										<Text
-											as="span"
-											role="caption"
-											tone={
-												approval?.execution?.status === "failed"
-													? "error"
-													: "secondary"
-											}
-										>
-											{approvalLabel}
-										</Text>
-									) : null}
-									{!approvalLabel && step.status === "ok" && step.summary ? (
-										<Text as="span" role="caption" tone="secondary">
-											{step.summary}
-										</Text>
-									) : null}
-									{!approvalLabel && step.status === "error" ? (
-										<Text as="span" role="caption" tone="error">
-											{step.error ?? "failed"}
-										</Text>
-									) : null}
-									{!approvalLabel && step.status === "running" ? (
-										<span
-											className="workspace-chat-step-pulse"
-											aria-label="running"
-										/>
-									) : approval?.execution?.status === "applied" ||
-									  (!approval && step.status === "ok") ? (
-										<CheckCircle
-											aria-hidden
-											className="workspace-chat-step-ok"
-										/>
-									) : null}
-								</div>
-								{detailOpen ? <StepDetail step={step} /> : null}
+								{stepHasDetail(step) ? (
+									<Collapsible>
+										{row}
+										<CollapsibleContent>
+											<StepDetail step={step} />
+										</CollapsibleContent>
+									</Collapsible>
+								) : (
+									row
+								)}
 							</li>
 						);
 					})}
 				</ol>
-			) : null}
-		</div>
+			</CollapsibleContent>
+		</Collapsible>
 	);
 }
 
@@ -1668,23 +1688,89 @@ function ApprovalCard({
 	const target = approvalTarget(approval);
 	const appEdit = appEditRequestFrom(approval.input);
 	const preview = appEdit ? "" : approvalPreview(input);
-	const status = approvalStatus(approval);
 	const failed = approval.execution?.status === "failed";
 	const subject = approvalSubject(approval);
 	const page = webPageRequest(approval);
+	const open = !approval.decision && !approval.execution;
+	const applied = approval.execution?.status === "applied";
 	return (
-		<div
-			className="workspace-chat-approval"
+		<ChatCard
+			attention={open && !sent}
 			id={`approval-${approval.approvalId}`}
 			data-decision={approval.decision ?? (sent ? "pending" : "open")}
 			data-testid="workspace-chat-approval"
+			icon={<ShieldCheck />}
+			title={approvalTitle(approval)}
+			status={
+				<Badge
+					variant={approvalBadge(approval)}
+					data-testid="workspace-chat-approval-status"
+				>
+					{open && sent ? "Recording your decision…" : approvalStatus(approval)}
+				</Badge>
+			}
+			actions={
+				open ? (
+					<>
+						{approval.approveAllInTurn ? (
+							<Button
+								aria-label={`Approve ${subject} and all like it in this turn`}
+								disabled={decided !== null}
+								onClick={() => {
+									setSent("approve");
+									onDecide(approval.approvalId, "approve", { likeThis: true });
+								}}
+								size="sm"
+								title="Also approves the same kind of action for the rest of this reply. The next message asks again."
+								variant="ghost"
+							>
+								Approve all like this in this turn
+							</Button>
+						) : null}
+						<Button
+							aria-label={`${appEdit ? "Reject" : "Deny"} ${subject}`}
+							disabled={decided !== null}
+							onClick={() => {
+								setSent("deny");
+								onDecide(approval.approvalId, "deny");
+							}}
+							size="sm"
+							variant="outline"
+						>
+							{appEdit ? "Reject" : "Deny"}
+						</Button>
+						<Button
+							aria-label={`${appEdit ? "Accept" : "Approve"} ${subject}`}
+							disabled={decided !== null}
+							onClick={() => {
+								setSent("approve");
+								onDecide(approval.approvalId, "approve");
+							}}
+							size="sm"
+						>
+							{sent === "approve"
+								? appEdit
+									? "Accepting…"
+									: "Approving…"
+								: appEdit
+									? "Accept"
+									: "Approve"}
+						</Button>
+					</>
+				) : applied && approval.execution?.output && !appEdit ? (
+					<OpenChangedFile
+						outputId={approval.execution.output.outputId}
+						title={target}
+					/>
+				) : applied && approval.execution?.app ? (
+					<OpenCreatedApp
+						workspaceId={workspaceId}
+						appId={approval.execution.app.appId}
+						name={approval.execution.app.name}
+					/>
+				) : null
+			}
 		>
-			<div className="workspace-chat-approval-head">
-				<ShieldCheck aria-hidden />
-				<Text as="strong" role="label">
-					{approvalTitle(approval)}
-				</Text>
-			</div>
 			{page ? (
 				<Text
 					role="body"
@@ -1706,7 +1792,7 @@ function ApprovalCard({
 			<Text role="body" tone="secondary">
 				{failed
 					? "The workspace could not apply this action. See Technical details for the recorded error."
-					: approval.execution?.status === "applied"
+					: applied
 						? page
 							? "The agent read this page."
 							: "The workspace applied this change."
@@ -1721,7 +1807,7 @@ function ApprovalCard({
 			{appEdit ? (
 				<div className="workspace-chat-approval-preview">
 					<AppEditDiff workspaceId={workspaceId} edit={appEdit} />
-					{approval.execution?.status === "applied" ? (
+					{applied ? (
 						<AppEditUndo workspaceId={workspaceId} edit={appEdit} />
 					) : null}
 				</div>
@@ -1734,21 +1820,6 @@ function ApprovalCard({
 					<pre>{preview}</pre>
 				</div>
 			) : null}
-			<Text
-				role="caption"
-				tone={
-					failed
-						? "error"
-						: approval.execution?.status === "applied"
-							? "success"
-							: "secondary"
-				}
-				data-testid="workspace-chat-approval-status"
-			>
-				{!approval.decision && !approval.execution && sent
-					? "Recording your decision…"
-					: status}
-			</Text>
 			<Collapsible className="workspace-chat-approval-details">
 				<CollapsibleDefaultTrigger>Technical details</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent>
@@ -1775,74 +1846,7 @@ function ApprovalCard({
 					) : null}
 				</CollapsibleDefaultContent>
 			</Collapsible>
-			{approval.execution?.status === "applied" &&
-			approval.execution.output &&
-			!appEdit ? (
-				<div className="workspace-chat-approval-actions">
-					<OpenChangedFile
-						outputId={approval.execution.output.outputId}
-						title={target}
-					/>
-				</div>
-			) : null}
-			{approval.execution?.status === "applied" && approval.execution.app ? (
-				<div className="workspace-chat-approval-actions">
-					<OpenCreatedApp
-						workspaceId={workspaceId}
-						appId={approval.execution.app.appId}
-						name={approval.execution.app.name}
-					/>
-				</div>
-			) : null}
-			{!approval.decision && !approval.execution ? (
-				<div className="workspace-chat-approval-actions">
-					<Button
-						aria-label={`${appEdit ? "Reject" : "Deny"} ${subject}`}
-						disabled={decided !== null}
-						onClick={() => {
-							setSent("deny");
-							onDecide(approval.approvalId, "deny");
-						}}
-						size="sm"
-						variant="outline"
-					>
-						{appEdit ? "Reject" : "Deny"}
-					</Button>
-					<Button
-						aria-label={`${appEdit ? "Accept" : "Approve"} ${subject}`}
-						disabled={decided !== null}
-						onClick={() => {
-							setSent("approve");
-							onDecide(approval.approvalId, "approve");
-						}}
-						size="sm"
-					>
-						{sent === "approve"
-							? appEdit
-								? "Accepting…"
-								: "Approving…"
-							: appEdit
-								? "Accept"
-								: "Approve"}
-					</Button>
-					{approval.approveAllInTurn ? (
-						<Button
-							aria-label={`Approve ${subject} and all like it in this turn`}
-							disabled={decided !== null}
-							onClick={() => {
-								setSent("approve");
-								onDecide(approval.approvalId, "approve", { likeThis: true });
-							}}
-							size="sm"
-							title="Also approves the same kind of action for the rest of this reply. The next message asks again."
-							variant="outline"
-						>
-							Approve all like this in this turn
-						</Button>
-					) : null}
-				</div>
-			) : null}
-		</div>
+		</ChatCard>
 	);
 }
 

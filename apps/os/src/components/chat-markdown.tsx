@@ -12,6 +12,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, CodeInline } from "@/components/kumo/code";
+import { Link } from "@/components/kumo/link";
 import { outputIdFromHref } from "@/lib/output-navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -98,6 +99,66 @@ export const ChatOutputLinkContext = createContext<{
 	openEditor?: (gadgetId: string) => void;
 }>({});
 
+/** The part of the Markdown tree an app path is looked for in. */
+interface MarkdownTreeNode {
+	type: string;
+	value?: string;
+	url?: string;
+	children?: MarkdownTreeNode[];
+}
+
+/**
+ * An app path written in prose, "/workspaces" or "(/work/items/42)": at the
+ * start, after a space or an opening parenthesis, and with no file
+ * extension, so "and/or" and "/src/main.ts" stay text.
+ */
+const APP_PATH =
+	/(^|[\s(])(\/[a-z][\w-]*(?:\/[\w-]+)*\/?)(?=$|[\s),;:!?]|\.(?!\w))/giu;
+
+/** Nodes whose text is never turned into a link. */
+const NO_APP_PATHS = new Set([
+	"link",
+	"linkReference",
+	"definition",
+	"inlineCode",
+	"code",
+]);
+
+function linkAppPaths(node: MarkdownTreeNode): void {
+	if (NO_APP_PATHS.has(node.type) || !node.children) return;
+	node.children = node.children.flatMap((child) => {
+		if (child.type !== "text" || !child.value) {
+			linkAppPaths(child);
+			return [child];
+		}
+		const parts: MarkdownTreeNode[] = [];
+		let last = 0;
+		for (const match of child.value.matchAll(APP_PATH)) {
+			const start = match.index + match[1]!.length;
+			const path = match[2]!;
+			// "/skill <slug>" asks for a skill; it is not a page.
+			if (path === "/skill") continue;
+			if (start > last)
+				parts.push({ type: "text", value: child.value.slice(last, start) });
+			parts.push({
+				type: "link",
+				url: path,
+				children: [{ type: "text", value: path }],
+			});
+			last = start + path.length;
+		}
+		if (parts.length === 0) return [child];
+		if (last < child.value.length)
+			parts.push({ type: "text", value: child.value.slice(last) });
+		return parts;
+	});
+}
+
+/** Turns app paths in prose into links; bare web addresses come from GFM. */
+function remarkAppPaths() {
+	return (tree: MarkdownTreeNode) => linkAppPaths(tree);
+}
+
 /** A plain primary click; modified clicks keep the browser's own behavior. */
 function isPlainPrimaryClick(event: MouseEvent<HTMLAnchorElement>): boolean {
 	return (
@@ -138,7 +199,7 @@ export function ChatMarkdown({
 		>
 			<ReactMarkdown
 				skipHtml
-				remarkPlugins={[remarkGfm]}
+				remarkPlugins={[remarkGfm, remarkAppPaths]}
 				rehypePlugins={[rehypeStripDirectionControls]}
 				components={{
 					p: ({ children }) => (
@@ -268,6 +329,9 @@ export function ChatMarkdown({
 						const outputId = resolved.external
 							? null
 							: outputIdFromHref(resolved.href);
+						// Another page of the app goes through the router.
+						if (!resolved.external && !(outputId && openOutput))
+							return <Link href={resolved.href}>{children}</Link>;
 						return (
 							<a
 								href={resolved.href}

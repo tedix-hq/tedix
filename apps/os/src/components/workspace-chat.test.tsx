@@ -669,13 +669,13 @@ describe("WorkspaceChat", () => {
 		mount(fake, "c1", true, browse);
 		expect(host.querySelector('[aria-label="Add files"]')).not.toBeNull();
 	});
-	it("shows the thinking state the moment a turn starts, then streams prose", () => {
+	it("shows one working sign the moment a turn starts, then streams prose", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
 		act(() => fake.feed([started]));
-		expect(
-			host.querySelector('[data-testid="workspace-chat-thinking"]'),
-		).not.toBeNull();
+		const working = () =>
+			host.querySelector('[data-testid="workspace-chat-working"]')?.textContent;
+		expect(working()).toMatch(/^Working · (\d+m )?\d+s$/);
 		expect(host.textContent).toContain("How many challenges are open?");
 		act(() =>
 			fake.feed([
@@ -690,15 +690,13 @@ describe("WorkspaceChat", () => {
 				},
 			]),
 		);
-		expect(
-			host.querySelector('[data-testid="workspace-chat-thinking"]'),
-		).toBeNull();
 		expect(host.querySelector(".workspace-chat-prose")?.textContent).toContain(
 			"Twelve",
 		);
 		expect(
-			host.querySelector('[data-testid="workspace-chat-timer"]')?.textContent,
-		).toMatch(/^Working · (\d+m )?\d+s$/);
+			host.querySelectorAll('[data-testid="workspace-chat-working"]'),
+		).toHaveLength(1);
+		expect(working()).toMatch(/^Working · (\d+m )?\d+s$/);
 	});
 
 	it("shows Stop beside Send while a turn runs, and takes it away when it ends", () => {
@@ -959,7 +957,7 @@ describe("WorkspaceChat", () => {
 		expect(scrolls.at(-1)).toEqual({ top: 1_400, behavior: "auto" });
 	});
 
-	it("lists steps with their plain labels", () => {
+	it("folds the steps into one line naming the current step, and lists them on request", async () => {
 		const fake = fakeClient("c1");
 		mount(fake);
 		act(() =>
@@ -998,6 +996,14 @@ describe("WorkspaceChat", () => {
 				},
 			]),
 		);
+		const line = host.querySelector<HTMLButtonElement>(
+			".workspace-chat-activity-summary",
+		);
+		expect(line?.textContent).toBe("Listing Work");
+		expect(
+			host.querySelector('[data-testid="workspace-chat-step"]'),
+		).toBeNull();
+		await act(async () => line?.click());
 		const steps = [
 			...host.querySelectorAll('[data-testid="workspace-chat-step"]'),
 		];
@@ -1044,7 +1050,8 @@ describe("WorkspaceChat", () => {
 			act(() => void vi.advanceTimersByTime(1_600));
 			expect(chip()?.textContent).toBe("Reconnecting…");
 			expect(
-				host.querySelector('[data-testid="workspace-chat-timer"]')?.textContent,
+				host.querySelector('[data-testid="workspace-chat-working"]')
+					?.textContent,
 			).toMatch(/^Working · (\d+m )?\d+s$/);
 			expect(host.textContent).not.toContain("last update");
 			expect(host.textContent).not.toContain("Live updates paused");
@@ -1071,7 +1078,9 @@ describe("WorkspaceChat", () => {
 			"Workspace chat is unavailable on this origin. Home chat still works.",
 		);
 		expect(host.querySelector("textarea")?.disabled).toBe(true);
-		expect(host.querySelector(".workspace-chat-thinking")).toBeNull();
+		expect(
+			host.querySelector('[data-testid="workspace-chat-working"]'),
+		).toBeNull();
 		const retry = [...(notice?.querySelectorAll("button") ?? [])].find(
 			(button) => button.textContent === "Retry",
 		);

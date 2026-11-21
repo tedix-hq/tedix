@@ -1,8 +1,14 @@
-import { useContext } from "react";
-import { ChatMessageActions } from "@/components/chat-message-actions";
+import { ArrowClockwise, Check, Copy } from "@phosphor-icons/react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { ChatOutputLinkContext } from "@/components/chat-markdown";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import { toast } from "@/components/kumo/toast";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import type { ChatStep } from "@/lib/workspace-chat-state";
 
 /** What a step ran: its code, or the request it made. */
@@ -58,14 +64,101 @@ export function StepDetail({ step }: { step: ChatStep }) {
 	);
 }
 
-/** Copies one finished agent reply. Always visible on the newest reply. */
-export function ReplyCopy({ text, latest }: { text: string; latest: boolean }) {
+/**
+ * Under a finished reply, shown on hover or keyboard focus: when it began
+ * (its tooltip says what was recorded), copy, and send the message again.
+ */
+export function ReplyActions({
+	text,
+	startedAt,
+	details,
+	onRetry,
+}: {
+	/** The finished reply; `null` offers no copy. */
+	text: string | null;
+	startedAt: number;
+	details: string[];
+	onRetry: (() => void) | null;
+}) {
+	const [copied, setCopied] = useState(false);
+	const reset = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (reset.current) clearTimeout(reset.current);
+		},
+		[],
+	);
+	const time = Number.isFinite(startedAt)
+		? new Date(startedAt).toLocaleTimeString([], {
+				hour: "2-digit",
+				minute: "2-digit",
+			})
+		: null;
+	if (!time && !text && !onRetry) return null;
 	return (
 		<div
-			className="workspace-chat-reply-copy"
-			data-testid="workspace-chat-reply-copy"
+			className="workspace-chat-reply-hover"
+			data-testid="workspace-chat-reply-actions-hover"
 		>
-			<ChatMessageActions content={text} latest={latest} />
+			{time && details.length ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								data-testid="workspace-chat-turn-time"
+								size="xs"
+								variant="ghost"
+							/>
+						}
+					>
+						{time}
+					</TooltipTrigger>
+					<TooltipContent align="start" side="bottom">
+						{details.map((detail) => (
+							<span key={detail}>{detail}</span>
+						))}
+					</TooltipContent>
+				</Tooltip>
+			) : time ? (
+				<Text
+					as="span"
+					role="caption"
+					tone="secondary"
+					data-testid="workspace-chat-turn-time"
+				>
+					{time}
+				</Text>
+			) : null}
+			{text ? (
+				<Button
+					aria-label={copied ? "Copied" : "Copy"}
+					icon={copied ? <Check size={16} /> : <Copy size={16} />}
+					onClick={async () => {
+						try {
+							await navigator.clipboard.writeText(text);
+							setCopied(true);
+							toast.success("Copied");
+							if (reset.current) clearTimeout(reset.current);
+							reset.current = setTimeout(() => setCopied(false), 2000);
+						} catch {
+							toast.error("Could not copy response");
+						}
+					}}
+					size="icon-sm"
+					title={copied ? "Copied" : "Copy"}
+					variant="ghost"
+				/>
+			) : null}
+			{onRetry ? (
+				<Button
+					aria-label="Retry"
+					icon={<ArrowClockwise size={16} />}
+					onClick={onRetry}
+					size="icon-sm"
+					title="Send your message again"
+					variant="ghost"
+				/>
+			) : null}
 		</div>
 	);
 }
@@ -136,9 +229,16 @@ export function SummarisedMarker() {
 			className="workspace-chat-summarised"
 			data-testid="workspace-chat-summarised"
 			role="note"
-			title="The agent now works from a summary of the earlier messages. They are still shown here."
 		>
-			<span>Earlier messages were summarised</span>
+			<Tooltip>
+				<TooltipTrigger render={<span tabIndex={0} />}>
+					Earlier messages were summarised
+				</TooltipTrigger>
+				<TooltipContent>
+					The agent now works from a summary of the earlier messages. They are
+					still shown here.
+				</TooltipContent>
+			</Tooltip>
 		</div>
 	);
 }

@@ -204,7 +204,7 @@ describe("what the agent did", () => {
 		const fake = fakeWorkspaceChatClient("c1");
 		mount(fake);
 		act(() => fake.feed(turn(...codeStep)));
-		await click(button("2 steps"));
+		await click(button("Ran 1 script, read 1 item"));
 		expect(details()).toEqual([]);
 
 		await click(button("Running code against the workspace"));
@@ -272,7 +272,7 @@ describe("what the agent did", () => {
 		mount(fake);
 		act(() => fake.feed(turn(...codeStep.slice(0, 4))));
 		expect(
-			host.querySelector('[data-testid="workspace-chat-reply-copy"]'),
+			host.querySelector('[data-testid="workspace-chat-reply-actions-hover"]'),
 		).toBeNull();
 		act(() => fake.feed(codeStep.slice(4)));
 		await click(button("Copy"));
