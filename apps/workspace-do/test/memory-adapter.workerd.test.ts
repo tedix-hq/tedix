@@ -8,6 +8,11 @@ import {
 } from "@tedix/agent-governance/memory-transfer";
 import type { MemoryProvenance } from "@tedix/agent-governance/types";
 import { SqlMemoryAdapter } from "../src/memory-adapter";
+import { buildMemoryBinding } from "../src/memory-binding";
+import {
+	SqlAccountabilityAdapter,
+	SqlComplianceAdapter,
+} from "../src/adapters";
 import type { WorkspaceStorage } from "../src/runtime";
 import type { WorkspaceEnv } from "../src/env";
 
@@ -111,6 +116,67 @@ describe("SQL MemoryAdapter", () => {
 				revisionId: (await sql.history("policy"))[0]!.revisionId,
 			});
 			expect((await restored.read("unrelated"))?.current.value).toBe(false);
+		});
+	});
+
+	test("links each memory mutation to its recorded call in the result and persisted history", async () => {
+		const object = stub();
+		const saved = await runInDurableObject(object, async (_instance, state) => {
+			const storage = storageFor(state.storage);
+			const accountability = new SqlAccountabilityAdapter(storage);
+			const memory = buildMemoryBinding({
+				memory: new SqlMemoryAdapter(storage),
+				accountability,
+				compliance: new SqlComplianceAdapter(storage, {
+					writesNeedApproval: false,
+				}),
+				actor: provenance.actor,
+				source: provenance.source,
+			});
+			const written = await memory.write({ key: "policy", value: "careful" });
+			const writeRecord = (
+				await accountability.list({ resource: "memory" })
+			).find((record) => record.operation === "write")!;
+			expect(written.provenance.changeRecordId).toBe(writeRecord.id);
+			expect(await memory.history("policy")).toEqual([written]);
+			const reviewed = await memory.review({
+				revisionId: written.revisionId,
+				decision: "approve",
+			});
+			const reviewRecord = (
+				await accountability.list({ resource: "memory" })
+			).find((record) => record.operation === "review")!;
+			expect(reviewed.provenance.changeRecordId).toBe(reviewRecord.id);
+			expect(reviewRecord.id).not.toBe(writeRecord.id);
+			expect(await memory.history("policy")).toEqual([reviewed]);
+			const restored = await memory.rollback({
+				key: "policy",
+				toRevisionId: written.revisionId,
+			});
+			const rollbackRecord = (
+				await accountability.list({ resource: "memory" })
+			).find((record) => record.operation === "rollback")!;
+			expect(restored.provenance.changeRecordId).toBe(rollbackRecord.id);
+			expect(rollbackRecord.id).not.toBe(reviewRecord.id);
+			for (const [record, revision] of [
+				[writeRecord, written],
+				[reviewRecord, reviewed],
+				[rollbackRecord, restored],
+			] as const) {
+				expect(record).toMatchObject({
+					resource: "memory",
+					outcome: "applied",
+					after: { revisionId: revision.revisionId },
+				});
+			}
+			expect(await memory.history("policy")).toEqual([reviewed, restored]);
+			return [reviewed, restored];
+		});
+		await evictDurableObject(object);
+		await runInDurableObject(object, async (_instance, state) => {
+			expect(
+				await new SqlMemoryAdapter(storageFor(state.storage)).history("policy"),
+			).toEqual(saved);
 		});
 	});
 

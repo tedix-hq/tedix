@@ -48,6 +48,8 @@ export interface MethodPolicy {
 		args: unknown[],
 		result: unknown,
 	) => Promise<RevisionRef | undefined>;
+	/** Persist the ledger link before returning a successfully recorded call. */
+	afterRecorded?: (result: unknown, record: ChangeRecord) => Promise<void>;
 	undo?: (
 		args: unknown[],
 		result: unknown,
@@ -203,7 +205,7 @@ export function wrapBinding<B extends object>(
 					...(policy?.destructive ? { destructive: true } : {}),
 				};
 				let before: RevisionRef | undefined;
-				const { result } = await guardedCall(
+				const { result, record } = await guardedCall(
 					call,
 					() => Promise.resolve(Reflect.apply(value, target, args)),
 					{
@@ -222,6 +224,7 @@ export function wrapBinding<B extends object>(
 							: undefined,
 					},
 				);
+				await policy?.afterRecorded?.(result, record);
 				return result;
 			};
 		},

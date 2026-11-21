@@ -8,6 +8,7 @@ import type {
 	MemoryWriteInput,
 } from "@tedix/agent-governance/types";
 import type { WorkspaceStorage } from "./runtime";
+import { linkWorkspaceMemoryChangeRecord } from "@tedix/db/queries/durable-sqlite/workspace-memory";
 
 interface RevisionRow {
 	record: string;
@@ -113,6 +114,15 @@ CREATE INDEX IF NOT EXISTS workspace_memory_review ON workspace_memory_revisions
 				key,
 			)
 			.map((row) => JSON.parse(row.record) as MemoryRevision);
+	}
+
+	recordChange(revision: MemoryRevision, changeRecordId: string): void {
+		linkWorkspaceMemoryChangeRecord(
+			this.storage,
+			revision.revisionId,
+			changeRecordId,
+		);
+		revision.provenance.changeRecordId = changeRecordId;
 	}
 
 	async review(
