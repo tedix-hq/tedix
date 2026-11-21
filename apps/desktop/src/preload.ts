@@ -24,6 +24,13 @@ const api: PanelApi = {
 		ipcRenderer.send("download-ready");
 	},
 	cancelDownload: () => ipcRenderer.invoke("download-cancel"),
+	onQuestion: (listener) => {
+		ipcRenderer.on("question", (_event, view) => listener(view));
+		ipcRenderer.send("question-ready");
+	},
+	answerQuestion: (response, checked) =>
+		ipcRenderer.invoke("question-answer", response, checked),
+	questionSize: (height) => ipcRenderer.invoke("question-size", height),
 	newChat: (text) => ipcRenderer.invoke("new-chat", text),
 	closeInputBar: () => ipcRenderer.invoke("input-close"),
 };

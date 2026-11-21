@@ -23,6 +23,7 @@ import type {
 	PanelAction,
 	PanelLink,
 	PanelState,
+	QuestionView,
 	RunnerField,
 	UpdateView,
 } from "./api";
@@ -403,17 +404,85 @@ function watchWork(): void {
 	}, 15_000);
 }
 
+/** The question window that is open now, and how it answers. */
+let question:
+	| {
+			window: BrowserWindow;
+			view: QuestionView;
+			settle: (answer: Electron.MessageBoxReturnValue) => void;
+	  }
+	| undefined;
+
 /**
- * A free-standing native dialog, so every button is a real, reachable button.
- * The text gets a set width: left to itself, macOS draws a dialog with little
- * text narrow, with wrapped lines, and one with more text wide.
+ * Asks in the app's own small window (question.html) rather than a native
+ * dialog: macOS stacks a native dialog's buttons when it has little text and
+ * opens it on any screen. This one keeps the buttons in a row and opens
+ * centred on the screen the Tedix window is on. Every button is a real,
+ * reachable button, and closing the window answers `cancelId`.
  */
 async function ask(
 	options: Electron.MessageBoxOptions,
 ): Promise<Electron.MessageBoxReturnValue> {
 	await app.whenReady();
-	app.focus({ steal: true });
-	return dialog.showMessageBox({ textWidth: 440, ...options });
+	question?.window.close();
+	const view: QuestionView = {
+		message: options.message,
+		detail: options.detail ?? "",
+		buttons: options.buttons?.length ? options.buttons : ["OK"],
+		defaultId: options.defaultId ?? 0,
+		cancelId:
+			options.cancelId ?? Math.max((options.buttons?.length ?? 1) - 1, 0),
+		checkboxLabel: options.checkboxLabel,
+		checkboxChecked: options.checkboxChecked,
+	};
+	const width = 520;
+	const anchor =
+		mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+			? mainWindow.getBounds()
+			: undefined;
+	const area = (
+		anchor
+			? screen.getDisplayMatching(anchor)
+			: screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+	).workArea;
+	const window = new BrowserWindow({
+		width,
+		height: 200,
+		useContentSize: true,
+		x: Math.round(area.x + (area.width - width) / 2),
+		y: Math.round(area.y + area.height * 0.25),
+		show: false,
+		frame: false,
+		title: options.message,
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		alwaysOnTop: true,
+		backgroundColor: windowColour(),
+		webPreferences: localPage,
+	});
+	window.setMenuBarVisibility(false);
+	window.webContents.on("will-navigate", (event) => event.preventDefault());
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	return new Promise((resolve) => {
+		let answered = false;
+		const settle = (answer: Electron.MessageBoxReturnValue) => {
+			if (answered) return;
+			answered = true;
+			if (question?.window === window) question = undefined;
+			resolve(answer);
+			if (!window.isDestroyed()) window.close();
+		};
+		question = { window, view, settle };
+		window.on("closed", () =>
+			settle({
+				response: view.cancelId,
+				checkboxChecked: view.checkboxChecked === true,
+			}),
+		);
+		void window.loadFile(join(root, "question.html"));
+	});
 }
 
 /**
@@ -1768,6 +1837,39 @@ else {
 		ipcMain.on("update-ready", (event) => {
 			if (fromUpdateButton(event)) publishUpdate();
 		});
+		// Only the question window may answer the question.
+		const fromQuestion = (event: { sender: Electron.WebContents }) =>
+			event.sender === question?.window.webContents;
+		ipcMain.on("question-ready", (event) => {
+			if (fromQuestion(event)) event.sender.send("question", question?.view);
+		});
+		ipcMain.handle("question-size", (event, height: number) => {
+			if (!fromQuestion(event) || !question) throw new Error("Not allowed");
+			const { window } = question;
+			window.setContentSize(
+				520,
+				Math.max(120, Math.min(Number(height) || 0, 640)),
+			);
+			app.focus({ steal: true });
+			window.show();
+			window.focus();
+		});
+		ipcMain.handle(
+			"question-answer",
+			(event, response: number, checked: boolean) => {
+				if (!fromQuestion(event) || !question) throw new Error("Not allowed");
+				const { view, settle } = question;
+				settle({
+					response:
+						Number.isInteger(response) &&
+						response >= 0 &&
+						response < view.buttons.length
+							? response
+							: view.cancelId,
+					checkboxChecked: checked === true,
+				});
+			},
+		);
 		// Only the downloading window may cancel the download.
 		const fromDownloadWindow = (event: { sender: Electron.WebContents }) =>
 			event.sender === downloadWindow?.webContents;

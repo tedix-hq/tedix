@@ -51,6 +51,11 @@ export interface PanelApi {
 	/** The next two are for the downloading window only. */
 	onDownload(listener: (view: DownloadView) => void): void;
 	cancelDownload(): Promise<void>;
+	/** The next three are for the question window only. */
+	onQuestion(listener: (view: QuestionView) => void): void;
+	answerQuestion(response: number, checked: boolean): Promise<void>;
+	/** Tells the app how tall the question is, so the window fits it. */
+	questionSize(height: number): Promise<void>;
 	/** The next two are for the menu bar's input bar only. */
 	newChat(text: string): Promise<void>;
 	closeInputBar(): Promise<void>;
@@ -75,6 +80,19 @@ export interface UpdateView {
 	place: "sidebar" | "rail" | "corner";
 	/** The Tedix OS page behind the entry is dark. */
 	dark: boolean;
+}
+
+/** What the question window asks: a native dialog's message box options. */
+export interface QuestionView {
+	message: string;
+	/** Paragraphs separated by a blank line. */
+	detail: string;
+	buttons: string[];
+	defaultId: number;
+	/** The answer when the window is closed or Escape is pressed. */
+	cancelId: number;
+	checkboxLabel?: string;
+	checkboxChecked?: boolean;
 }
 
 /** What the downloading window shows. */
