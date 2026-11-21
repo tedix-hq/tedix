@@ -1464,6 +1464,17 @@ function openInputBar(prepare = false): void {
 	void window.loadFile(join(root, "input.html"));
 }
 
+/** Shows a Tedix OS page in the Tedix window, in the organization open now. */
+async function openOsPage(path: string): Promise<void> {
+	showMain();
+	const view = os;
+	if (!view || view.webContents.isDestroyed()) return;
+	const current = URL.parse(view.webContents.getURL());
+	const origin =
+		current && isOsHost(current.host) ? current.origin : osOrigin();
+	await view.webContents.loadURL(`${origin}${path}`).catch(() => {});
+}
+
 /**
  * Starts a new chat in the Tedix window with `text`: opens a new chat,
  * waits for its message field, fills it in and sends it. When the page
@@ -1653,6 +1664,11 @@ else {
 			fromLocalPage(event);
 			const url = PANEL_LINKS[link];
 			if (url) return shell.openExternal(url);
+		});
+		ipcMain.handle("open-work", (event, itemId: unknown) => {
+			fromLocalPage(event);
+			if (typeof itemId === "string" && /^[0-9a-f-]{36}$/.test(itemId))
+				void openOsPage(`/work/items/${itemId}`);
 		});
 		// Only the update entry's own page may ask for an update.
 		const fromUpdateButton = (event: { sender: Electron.WebContents }) =>

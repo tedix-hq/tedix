@@ -13,6 +13,13 @@ export interface RunnerRow {
 	problem?: string;
 }
 
+/** A task a runner on this Mac is working on now. */
+export interface RunningTask {
+	itemId: string;
+	title?: string;
+	executor?: string;
+}
+
 /** What the app shows about this computer, read from the CLI and the files it keeps. */
 export interface Status {
 	cliFound: boolean;
@@ -23,6 +30,8 @@ export interface Status {
 	machineWrite: boolean;
 	notes: string[];
 	activeRuns: number;
+	/** The tasks running on this Mac now. */
+	activeTasks: RunningTask[];
 	machineToolsUp: boolean;
 	machineToolsEvent: string;
 }
@@ -54,22 +63,30 @@ const LIVE_PHASES = ["preparing", "admitted", "running", "settling"];
  * alive and their phase is one of a run in progress: the rule of the CLI's
  * own Mac status. A record without a process never counts.
  */
-async function activeRuns(folder: string): Promise<number> {
+async function activeRuns(folder: string): Promise<RunningTask[]> {
 	const names = await readdir(folder).catch(() => []);
-	let count = 0;
+	const tasks: RunningTask[] = [];
 	for (const name of names) {
 		if (!name.endsWith(".json")) continue;
 		const text = await readFile(join(folder, name), "utf8").catch(() => "");
 		if (!text.includes('"pid"')) continue;
 		try {
-			const record = JSON.parse(text) as { phase?: unknown; pid?: unknown };
+			const record = JSON.parse(text) as {
+				phase?: unknown;
+				pid?: unknown;
+				itemId?: unknown;
+				title?: unknown;
+			};
 			if (LIVE_PHASES.includes(String(record.phase)) && alive(record.pid))
-				count += 1;
+				tasks.push({
+					itemId: String(record.itemId ?? name.replace(/-\d+\.json$/, "")),
+					title: typeof record.title === "string" ? record.title : undefined,
+				});
 		} catch {
 			/* A record being written. */
 		}
 	}
-	return count;
+	return tasks;
 }
 
 /** Tasks running on this Mac now, over every runner's folder. */
@@ -77,7 +94,7 @@ export async function activeRunCount(): Promise<number> {
 	const root = join(configDir(), "dispatchers");
 	let count = 0;
 	for (const name of await readdir(root).catch(() => []))
-		count += await activeRuns(join(root, name));
+		count += (await activeRuns(join(root, name))).length;
 	return count;
 }
 
@@ -124,6 +141,7 @@ export async function loadStatus(): Promise<Status> {
 		machineWrite: serving?.machineWriteMode === "allow",
 		notes: [],
 		activeRuns: 0,
+		activeTasks: [],
 		machineToolsUp:
 			process.platform !== "win32" &&
 			(await run("pgrep", ["-f", "--", "--machine-tools-only"])).ok,
@@ -154,7 +172,9 @@ export async function loadStatus(): Promise<Status> {
 		if (!row.enabled) continue;
 		const problem = duties.find((duty) => duty.id === item.runner)?.lastProblem;
 		if (typeof problem === "string") row.problem = problem;
-		status.activeRuns += await activeRuns(folder);
+		for (const task of await activeRuns(folder))
+			status.activeTasks.push({ ...task, executor: row.executor });
+		status.activeRuns = status.activeTasks.length;
 	}
 	for (const duty of duties)
 		if (duty.kind === "task" && typeof duty.lastProblem === "string")
