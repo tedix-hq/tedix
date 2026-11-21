@@ -1,3 +1,7 @@
+import {
+	workAttemptLimitAvailable,
+	workAttemptLimitReason,
+} from "./attempt-limit";
 import { inheritedChildAuthority } from "./child-delegation";
 import { WorkControlError } from "./factory-validation";
 import {
@@ -92,6 +96,7 @@ export interface WorkItemReadinessProjectionRow {
 interface ReadinessFacts {
 	item: WorkItem;
 	ownerDelegated: boolean;
+	attemptLimitAvailable: boolean;
 	inheritedAuthority?: boolean;
 	derivedAt: string;
 	activeAttemptId?: string;
@@ -300,10 +305,13 @@ function evaluateWorkItemReadiness(
 		},
 		{
 			gate: "attempt",
-			evaluation: activeAttemptId ? "failed" : "passed",
+			evaluation:
+				activeAttemptId || !facts.attemptLimitAvailable ? "failed" : "passed",
 			detail: activeAttemptId
 				? `Active attempt ${activeAttemptId}`
-				: "No active attempt",
+				: !facts.attemptLimitAvailable
+					? workAttemptLimitReason(item)
+					: "No active attempt",
 		},
 		{
 			gate: "not_before",
@@ -323,6 +331,9 @@ function evaluateWorkItemReadiness(
 	} else if (!accepted) {
 		state = "not_accepted";
 		detail = "WorkSpec has not been accepted";
+	} else if (!facts.attemptLimitAvailable) {
+		state = "evaluation_required";
+		detail = workAttemptLimitReason(item);
 	} else if (!eligibility.eligible) {
 		state = eligibility.blocker!;
 		detail = eligibility.detail!;
@@ -363,6 +374,13 @@ export async function deriveWorkItemReadiness(
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	const ownerDelegated = await hasOwnerWorkDelegation(db, item, derivedAt);
+	const [attemptLimit] = await db
+		.select({
+			available: workAttemptLimitAvailable().as("attempt_limit_available"),
+		})
+		.from(workItems)
+		.where(and(eq(workItems.orgId, params.orgId), eq(workItems.id, item.id)))
+		.limit(1);
 	await ensureWorkRiskApproval(db, item, derivedAt);
 	const [
 		activeAttempt,
@@ -485,6 +503,7 @@ export async function deriveWorkItemReadiness(
 	return evaluateWorkItemReadiness({
 		item,
 		ownerDelegated,
+		attemptLimitAvailable: Boolean(attemptLimit?.available),
 		inheritedAuthority: await readinessInheritedAuthority(db, item),
 		derivedAt,
 		activeAttemptId: activeAttempt[0]?.id,
@@ -519,6 +538,9 @@ export async function listWorkItemReadinessProjection(
 	const rows = await db
 		.select({
 			...workItemStoredColumns,
+			attemptLimitAvailable: workAttemptLimitAvailable().as(
+				"attempt_limit_available",
+			),
 			ownerDelegated: ownerWorkDelegation(workItems, observedAt).as(
 				"owner_delegated",
 			),
@@ -691,6 +713,7 @@ export async function listWorkItemReadinessProjection(
 			readiness: evaluateWorkItemReadiness({
 				item,
 				ownerDelegated: Boolean(rows[index]?.ownerDelegated),
+				attemptLimitAvailable: Boolean(rows[index]?.attemptLimitAvailable),
 				inheritedAuthority: await readinessInheritedAuthority(db, item),
 				derivedAt: observedAt,
 				activeAttemptId: activeAttempts.get(item.id),

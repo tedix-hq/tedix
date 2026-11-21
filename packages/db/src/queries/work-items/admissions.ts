@@ -1,4 +1,8 @@
 import {
+	workAttemptLimitAvailable,
+	workAttemptLimitReason,
+} from "./attempt-limit";
+import {
 	workDelegationAncestors,
 	inheritedChildAuthority,
 	rootAttemptBudgetAvailable,
@@ -339,6 +343,21 @@ async function evaluate(
 		return {
 			...empty,
 			rejection: { code: "not_accepted", reason: "Work Item is not accepted" },
+		};
+	const [attemptLimit] = await db
+		.select({
+			available: workAttemptLimitAvailable().as("attempt_limit_available"),
+		})
+		.from(workItems)
+		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, item.id)))
+		.limit(1);
+	if (!attemptLimit?.available)
+		return {
+			...empty,
+			rejection: {
+				code: "evaluation_required",
+				reason: workAttemptLimitReason(item),
+			},
 		};
 	const lane = await loadLanePolicy(db, item);
 	if (lane.rejection)

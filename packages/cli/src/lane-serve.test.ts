@@ -5684,6 +5684,50 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
+	it.each(["typed", "wrapped"])(
+		"backs off %s start refusals even when readiness passes",
+		async (kind) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.startError =
+				kind === "typed"
+					? new CliReadError(
+							"NOT_ELIGIBLE: stale_specification",
+							"CONFLICT",
+							409,
+						)
+					: new Error(
+							"Tedix CLI read failed (exit 2): CONFLICT: NOT_ELIGIBLE: stale_specification",
+						);
+			let now = Date.now();
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			const path = join(f.dir, `${f.items[0]!.id}-${f.items[0]!.version}.json`);
+			const read = () => JSON.parse(readFileSync(path, "utf8"));
+			try {
+				for (const minutes of [10, 20]) {
+					const runner = f.restart();
+					await runner.tick();
+					await runner.drain();
+					expect(read().admissionRetryAt).toBe(now + minutes * 60_000);
+					expect(read().admissionState).toBe(
+						kind === "typed" ? "rejected" : "not_sent",
+					);
+					f.events.length = 0;
+					now += minutes * 60_000 - 1;
+					const restarted = f.restart();
+					await restarted.tick();
+					await restarted.drain();
+					expect(
+						f.events.filter((event) => event.verb === "start" && event.input),
+					).toHaveLength(0);
+					now++;
+				}
+				expect(f.releases).toHaveLength(0);
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
 	it("backs off admission refusals across restarts and resets on a Work version change", async () => {
 		const f = fixture();
 		f.items.splice(1);

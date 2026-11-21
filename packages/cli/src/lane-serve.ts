@@ -6281,11 +6281,11 @@ ${firstBrief}`;
 			receipt.note = String(error).slice(0, 1800);
 			if (
 				!admitted &&
-				!admissionSent &&
-				error instanceof Error &&
-				/^(Admission not ready:|Complete Attempt history is unavailable)/.test(
-					error.message,
-				)
+				((admissionSent && /\bNOT_ELIGIBLE\b/.test(String(error))) ||
+					(error instanceof Error &&
+						/^(Admission not ready:|Complete Attempt history is unavailable)/.test(
+							error.message,
+						)))
 			) {
 				receipt.admissionRefusals = (previous?.admissionRefusals ?? 0) + 1;
 				receipt.admissionRetryAt =

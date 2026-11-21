@@ -1,3 +1,4 @@
+import { workAttemptLimitAvailable } from "./attempt-limit";
 import {
 	workDelegationAncestors,
 	rootAttemptBudgetAvailable,
@@ -601,31 +602,7 @@ export async function startWorkItemAttempt(
 						),
 						eq(workItems.disposition, "accepted"),
 						rootAttemptBudgetAvailable(params.orgId, rootWork.id),
-						// Recheck the Work contract's attempt cap in the INSERT itself.
-						// An admitted receipt may predate another completed attempt.
-						sql`(
-							(json_type(${workItems.metadata}, '$.factoryCycle') IS NULL AND (
-								${workItems.maxAttempts} IS NULL OR (
-									typeof(${workItems.maxAttempts}) = 'integer'
-									AND ${workItems.maxAttempts} BETWEEN 1 AND 20
-									AND (SELECT COUNT(*) FROM work_attempts AS prior
-										WHERE prior.org_id = ${params.orgId}
-										AND prior.work_item_id = ${params.workItemId}
-										AND (prior.outcome IS NULL OR prior.outcome NOT IN ('cancelled','rejected')))
-										< ${workItems.maxAttempts} + (SELECT COUNT(*) FROM work_events AS grants
-											WHERE grants.org_id = ${params.orgId}
-											AND grants.work_item_id = ${params.workItemId}
-											AND grants.event_type = 'lane.attempt_granted')
-								)
-							)) OR (
-								json_type(${workItems.metadata}, '$.factoryCycle') = 'object'
-								AND typeof(${workItems.maxAttempts}) = 'integer'
-								AND ${workItems.maxAttempts} BETWEEN 1 AND 5
-							AND (SELECT COUNT(*) FROM work_attempts AS factory_prior
-								WHERE factory_prior.org_id = ${params.orgId}
-								AND factory_prior.work_item_id = ${params.workItemId})
-								< ${workItems.maxAttempts}
-							))`,
+						workAttemptLimitAvailable(),
 					),
 				),
 		)

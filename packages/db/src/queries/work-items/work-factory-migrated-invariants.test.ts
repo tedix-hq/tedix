@@ -1,3 +1,4 @@
+import { grantLaneAttempt } from "./lane-attempt-grants";
 import { readFileSync, readdirSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -20,6 +21,7 @@ import {
 import {
 	evaluateAndRecordWorkAdmission,
 	prepareWorkAdmission,
+	previewWorkAdmission,
 	replaceWorkAdmissionSpecification,
 	WORK_ADMISSION_BUDGET_ENVELOPE_CAP,
 	WORK_ADMISSION_RESOURCE_REQUIREMENT_CAP,
@@ -2561,7 +2563,7 @@ it("does not treat another organization's interaction ID as a replay or suppress
 });
 
 describe("atomic admission and Attempt start", () => {
-	async function prepared(id = "start") {
+	async function prepared(id = "start", budgetLimit = 100) {
 		const sqlite = migrated();
 		seedCore(sqlite);
 		seedTedi(sqlite);
@@ -2569,7 +2571,7 @@ describe("atomic admission and Attempt start", () => {
 			UPDATE work_items SET disposition='accepted',max_attempts=1 WHERE id='work';
 			INSERT INTO work_resource_pools(id,org_id,resource_key,allocation_mode,capacity,created_at) VALUES('pool','org','browser','exclusive',1,'2026-08-20T00:00:00.000Z');
 			INSERT INTO work_resource_requirements(org_id,work_item_id,resource_key,quantity,created_at,updated_at) VALUES('org','work','browser',1,'2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z');
-			INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,currency,created_at) VALUES('budget','org','work_item','work',100,60,'USD','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,currency,created_at) VALUES('budget','org','work_item','work',${budgetLimit},60,'USD','2026-08-20T00:00:00.000Z');
 		`);
 		const db = createDbQueryClient(createD1Facade(sqlite));
 		const batch = vi.spyOn(db, "batch");
@@ -2585,7 +2587,7 @@ describe("atomic admission and Attempt start", () => {
 			now: "2026-08-20T01:00:00.000Z",
 		};
 		const admission = await prepareWorkAdmission(db, params);
-		const start = (plan = admission) =>
+		const start = (plan = admission, startedAt = params.now) =>
 			startWorkItemAttempt(db, {
 				orgId: "org",
 				workItemId: "work",
@@ -2593,10 +2595,75 @@ describe("atomic admission and Attempt start", () => {
 				admission: plan,
 				executor: { type: "tedi", id: "tedi" },
 				expiresAt: plan.expiresAt,
-				startedAt: params.now,
+				startedAt,
 			});
 		return { sqlite, db, batch, params, admission, start };
 	}
+
+	it("readiness and admission name the exhausted Attempt cap and an owner grant clears it", async () => {
+		const f = await prepared("start", 200);
+		try {
+			const { attempt } = await f.start();
+			await settleWorkItemAttempt(f.db, {
+				orgId: "org",
+				workItemId: "work",
+				attemptId: attempt.id,
+				executor: { type: "tedi", id: "tedi" },
+				outcome: "failed",
+				settledAt: "2026-08-20T01:00:10.000Z",
+			});
+			const now = "2026-08-20T01:01:00.000Z";
+			const readiness = () =>
+				deriveWorkItemReadiness(f.db, {
+					orgId: "org",
+					workItemId: "work",
+					derivedAt: now,
+					budgetAdmissible: true,
+					resourcesAvailable: true,
+				});
+			const params = { ...f.params, id: "retry", now };
+			const preview = await previewWorkAdmission(f.db, params);
+			expect(preview.rejection).toMatchObject({ code: "evaluation_required" });
+			expect(preview.rejection!.reason).toContain(
+				"Attempt retry limit (1) exhausted",
+			);
+			expect(preview.rejection!.reason).toContain("work attempt-grant work");
+			expect(await readiness()).toMatchObject({
+				ready: false,
+				reasons: [
+					{ code: preview.rejection!.code, detail: preview.rejection!.reason },
+				],
+			});
+			const projection = await listWorkItemReadinessProjection(f.db, {
+				orgId: "org",
+				observedAt: now,
+			});
+			expect(projection.data[0]!.readiness).toMatchObject({
+				ready: false,
+				reasons: [{ detail: preview.rejection!.reason }],
+			});
+			await expect(prepareWorkAdmission(f.db, params)).rejects.toMatchObject({
+				rejectionCode: "evaluation_required",
+			});
+			await grantLaneAttempt(f.db, {
+				id: "owner-grant",
+				orgId: "org",
+				workItemId: "work",
+				attemptId: attempt.id,
+				userId: "user",
+				reason: "Retry after fixing the failure",
+				now,
+			});
+			expect(await readiness()).toMatchObject({ ready: true });
+			expect(
+				(await previewWorkAdmission(f.db, params)).rejection,
+			).toBeUndefined();
+			const next = await prepareWorkAdmission(f.db, params);
+			expect((await f.start(next, now)).attempt.attemptNumber).toBe(2);
+		} finally {
+			f.sqlite.close();
+		}
+	});
 
 	it("writes once with one expiry and refuses a competing start without orphan records", async () => {
 		const f = await prepared();
