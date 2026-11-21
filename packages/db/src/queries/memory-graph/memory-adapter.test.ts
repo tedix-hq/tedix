@@ -1,7 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { describeGovernanceConformance } from "@tedix/agent-governance/conformance";
-import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
+import {
+	createInMemoryAdapters,
+	InMemoryMemoryAdapter,
+} from "@tedix/agent-governance/in-memory";
+import {
+	exportMemory,
+	importMemory,
+} from "@tedix/agent-governance/memory-transfer";
+import type { MemoryRevision } from "@tedix/agent-governance/types";
 import { hashValue } from "@tedix/agent-governance/hash";
 import { createDbClient } from "../../client";
 import { memoryFacts, memoryEdges } from "../../schema/memory-graph";
@@ -51,6 +59,59 @@ describeGovernanceConformance("Organization fact memory conformance", () => ({
 	memory: fixture().memory,
 }));
 describe("organization fact memory", () => {
+	it("round-trips imported history with timestamps, reviews and rollback links", async () => {
+		const source = new InMemoryMemoryAdapter(
+			() => new Date("2024-03-01T00:00:00.000Z"),
+		);
+		const first = await source.write({
+			key: "history",
+			value: { fact: "original" },
+			provenance,
+			writtenAt: "2024-01-01T00:00:00.000Z",
+			review: "approved",
+			reviewedBy: "reviewer-1",
+			reviewedAt: "2024-01-02T00:00:00.000Z",
+			reviewNote: "Verified against source",
+		});
+		await source.write({
+			key: "history",
+			value: { fact: "rejected change" },
+			provenance,
+			writtenAt: "2024-02-01T00:00:00.000Z",
+			review: "rejected",
+			reviewedBy: "reviewer-2",
+			reviewedAt: "2024-02-02T00:00:00.000Z",
+			reviewNote: "",
+		});
+		await source.rollback("history", first.revisionId, provenance);
+		const original = await exportMemory(source);
+		const { memory } = fixture();
+		expect(await importMemory(memory, original, "source-store")).toBe(3);
+		const parse = (bundle: string): MemoryRevision[] =>
+			bundle
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+		const originals = parse(original);
+		const imported = parse(await exportMemory(memory));
+		const localIds = new Map(
+			originals.map((row, i) => [row.revisionId, imported[i]!.revisionId]),
+		);
+		// Import allocates local IDs and records the source of each revision.
+		expect(imported).toEqual(
+			originals.map((row) => ({
+				...row,
+				revisionId: localIds.get(row.revisionId),
+				provenance: {
+					...row.provenance,
+					importedFrom: [{ store: "source-store", revisionId: row.revisionId }],
+				},
+				...(row.rolledBackFrom !== undefined
+					? { rolledBackFrom: localIds.get(row.rolledBackFrom) }
+					: {}),
+			})),
+		);
+	});
 	it("maps legacy review statuses without changing reader, search or edge results", async () => {
 		const { db, memory } = fixture();
 		const statuses = [
