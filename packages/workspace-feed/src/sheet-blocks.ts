@@ -30,7 +30,10 @@ export interface SheetBlockManifest {
 }
 
 // Cache immutable content only; callers still resolve revision metadata and access.
-const assembled = new Map<string, { bucket: SheetBlockBucket; json: string }>();
+const assembled = new Map<
+	string,
+	{ bucket: SheetBlockBucket; json: string; persisted: boolean }
+>();
 const ASSEMBLED_MAX_BYTES = 8 * 1024 * 1024;
 const ASSEMBLED_MAX_ENTRIES = 16;
 let assembledBytes = 0;
@@ -48,7 +51,12 @@ function cachedSheet(bucket: SheetBlockBucket, key: string): Sheet | undefined {
 	return JSON.parse(cached.json) as Sheet;
 }
 
-function rememberSheet(bucket: SheetBlockBucket, key: string, content: Sheet) {
+function rememberSheet(
+	bucket: SheetBlockBucket,
+	key: string,
+	content: Sheet,
+	persisted = false,
+) {
 	const json = JSON.stringify(content);
 	const size = (key.length + json.length) * 2;
 	if (size > ASSEMBLED_MAX_BYTES) return;
@@ -66,7 +74,7 @@ function rememberSheet(bucket: SheetBlockBucket, key: string, content: Sheet) {
 		assembledBytes -= (oldest.length + assembled.get(oldest)!.json.length) * 2;
 		assembled.delete(oldest);
 	}
-	assembled.set(key, { bucket, json });
+	assembled.set(key, { bucket, json, persisted });
 	assembledBytes += size;
 }
 
@@ -236,9 +244,9 @@ export async function storeSheetBlocks(
 		);
 		// Bound concurrent uploads, including large imports.
 		const known = new Set(old?.rows.map((row) => row.digest));
-		for (let start = 0; start < encoded.length; start += 16)
+		for (let start = 0; start < encoded.length; start += 64)
 			await Promise.all(
-				encoded.slice(start, start + 16).map(async ({ bytes, digest }) => {
+				encoded.slice(start, start + 64).map(async ({ bytes, digest }) => {
 					if (!known.has(digest)) {
 						known.add(digest);
 						await putRow(bucket, organizationId, bytes, digest);
@@ -259,10 +267,51 @@ export async function readSheetBlocks(
 	selection?: ReadonlyMap<string, ReadonlySet<number>>,
 ): Promise<Sheet> {
 	const key = assemblyKey(organizationId, manifest);
+	let packed: Record<string, string> | undefined;
+	let packedKey: string | undefined;
+	let loadedPacked = false;
 	if (!selection) {
 		const cached = cachedSheet(bucket, key);
-		if (cached) return cached;
+		if (cached && assembled.get(key)?.persisted) return cached;
+		// Persist an assembly across isolates and memory-cache eviction. Every row
+		// is still checked against the authoritative manifest before it is served.
+		packedKey = blockKey(organizationId, await sha256Hex(key)).replace(
+			"os-sheet-blocks/v1/",
+			"os-sheet-assemblies/v1/",
+		);
+		if (cached) {
+			packed = Object.create(null) as Record<string, string>;
+			for (const table of manifest.tables) {
+				const rows = tables(cached).find(
+					(value) => value.id === table.id,
+				)!.rows;
+				for (const [index, ref] of table.rows.entries()) {
+					const encoded = await rowBytes(
+						rows[index]!,
+						table.columns,
+						Boolean(cached.workbook),
+					);
+					if (
+						encoded.digest !== ref.digest ||
+						encoded.bytes.byteLength !== ref.bytes
+					)
+						throw new Error("Sheet row block integrity mismatch");
+					packed[ref.digest] = new TextDecoder().decode(encoded.bytes);
+				}
+			}
+		} else {
+			const object = await bucket.get(packedKey);
+			if (object) {
+				packed = (await new Response(
+					new Blob([await object.arrayBuffer()])
+						.stream()
+						.pipeThrough(new DecompressionStream("gzip")),
+				).json()) as Record<string, string>;
+				loadedPacked = true;
+			}
+		}
 	}
+	const collected: Record<string, string> = Object.create(null);
 	const content = structuredClone(manifest.content);
 	for (const table of manifest.tables) {
 		const target = tables(content).find((value) => value.id === table.id);
@@ -275,27 +324,46 @@ export async function readSheetBlocks(
 		const indices = table.rows
 			.map((_, index) => index)
 			.filter((index) => !selection || selected?.has(index));
-		for (let start = 0; start < indices.length; start += 16)
+		for (let start = 0; start < indices.length; start += 64)
 			await Promise.all(
-				indices.slice(start, start + 16).map(async (index) => {
+				indices.slice(start, start + 64).map(async (index) => {
 					const ref = table.rows[index]!;
-					const object = await bucket.get(blockKey(organizationId, ref.digest));
-					if (!object) throw new Error("Sheet row block is missing");
-					const bytes = await new Response(
-						new Blob([await object.arrayBuffer()])
-							.stream()
-							.pipeThrough(new DecompressionStream("gzip")),
-					).arrayBuffer();
+					const raw =
+						packed && Object.hasOwn(packed, ref.digest)
+							? packed[ref.digest]
+							: undefined;
+					if (loadedPacked && raw === undefined)
+						throw new Error(
+							"Sheet assembly integrity mismatch: row is missing",
+						);
+					const object =
+						raw === undefined
+							? await bucket.get(blockKey(organizationId, ref.digest))
+							: undefined;
+					if (raw === undefined && !object)
+						throw new Error("Sheet row block is missing");
+					const bytes =
+						raw === undefined
+							? await new Response(
+									new Blob([await object!.arrayBuffer()])
+										.stream()
+										.pipeThrough(new DecompressionStream("gzip")),
+								).arrayBuffer()
+							: new TextEncoder().encode(raw);
 					if (
 						bytes.byteLength !== ref.bytes ||
 						(await sha256Hex(bytes)) !== ref.digest
 					)
 						throw new Error("Sheet row block integrity mismatch");
-					const block = JSON.parse(
-						new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-							bytes,
-						),
-					) as { cells: Record<string, JsonValue>; overflow: JsonValue[] };
+					const json = new TextDecoder("utf-8", {
+						fatal: true,
+						ignoreBOM: true,
+					}).decode(bytes);
+					if (!selection) collected[ref.digest] = json;
+					const block = JSON.parse(json) as {
+						cells: Record<string, JsonValue>;
+						overflow: JsonValue[];
+					};
 					const row = table.columns.map((id) =>
 						Object.hasOwn(block.cells, id) ? block.cells[id] : undefined,
 					);
@@ -309,7 +377,19 @@ export async function readSheetBlocks(
 		else content.rows = rows as Sheet["rows"];
 	}
 	if (content.workbook) Object.assign(content, projectSheet(content.workbook));
-	if (!selection) rememberSheet(bucket, key, content);
+	if (!selection) {
+		if (!loadedPacked) {
+			await bucket.put(
+				packedKey!,
+				await new Response(
+					new Blob([JSON.stringify(collected)])
+						.stream()
+						.pipeThrough(new CompressionStream("gzip")),
+				).arrayBuffer(),
+			);
+		}
+		rememberSheet(bucket, key, content, true);
+	}
 	return content;
 }
 

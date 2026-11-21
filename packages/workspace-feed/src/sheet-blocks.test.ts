@@ -72,6 +72,15 @@ describe("sheet row blocks", () => {
 		expect((await readSheetBlocks(store, "org", changed)).rows[0]![0]).toBe(
 			"Row 0",
 		);
+		store.get.mockClear();
+		expect(
+			await readSheetBlocks(
+				{ get: store.get, put: store.put },
+				"org",
+				original,
+			),
+		).toEqual(sheet);
+		expect(store.get).toHaveBeenCalledTimes(1);
 		await expect(readSheetBlocks(store, "other-org", original)).rejects.toThrow(
 			"missing",
 		);
@@ -185,7 +194,7 @@ describe("sheet row blocks", () => {
 		).rejects.toThrow("integrity");
 	});
 
-	it("assembles a cold revision once and evicts older bodies within its memory bound", async () => {
+	it("persists a cold assembly and uses one R2 read after memory eviction", async () => {
 		const store = bucket();
 		const first = await storeSheetBlocks(store, "org", {
 			kind: "sheet",
@@ -195,13 +204,58 @@ describe("sheet row blocks", () => {
 		const cold = { get: store.get, put: store.put };
 		await readSheetBlocks(cold, "org", first);
 		await readSheetBlocks(cold, "org", first);
-		expect(store.get).toHaveBeenCalledTimes(1);
+		expect(store.get).toHaveBeenCalledTimes(2);
 		await storeSheetBlocks(store, "org", {
 			kind: "sheet",
 			columns: ["A"],
 			rows: [["b".repeat(3_000_000)]],
 		});
 		await readSheetBlocks(cold, "org", first);
-		expect(store.get).toHaveBeenCalledTimes(2);
+		expect(store.get).toHaveBeenCalledTimes(3);
+		expect(store.get.mock.calls.at(-1)![0]).toContain("os-sheet-assemblies/");
+	});
+
+	it("checks persisted assemblies against row digests and keeps cell saves row-only", async () => {
+		const store = bucket();
+		const sheet: Sheet = { kind: "sheet", columns: ["A"], rows: [[1], [2]] };
+		const manifest = await storeSheetBlocks(store, "org", sheet);
+		await readSheetBlocks(store, "org", manifest);
+		const snapshot = [...store.objects.keys()].find((key) =>
+			key.includes("os-sheet-assemblies/"),
+		)!;
+		const cold = { get: store.get, put: store.put };
+		store.get.mockClear();
+		store.put.mockClear();
+		expect(await readSheetBlocks(cold, "org", manifest)).toEqual(sheet);
+		expect(store.get).toHaveBeenCalledTimes(1);
+		expect(store.put).not.toHaveBeenCalled();
+		const selected = new Map([["flat", new Set([0])]]);
+		const partial = await readSheetBlocks(cold, "org", manifest, selected);
+		partial.rows[0]![0] = 3;
+		const changed = await updateSheetBlocks(
+			cold,
+			"org",
+			manifest,
+			partial,
+			selected,
+		);
+		expect(store.put).toHaveBeenCalledTimes(1);
+		expect(store.put.mock.calls[0]![0]).toContain("os-sheet-blocks/");
+		expect(await readSheetBlocks(cold, "org", changed)).toEqual({
+			...sheet,
+			rows: [[3], [2]],
+		});
+		const corrupt = JSON.stringify({
+			[manifest.tables[0]!.rows[0]!.digest]: "{}",
+		});
+		store.objects.set(
+			snapshot,
+			await new Response(
+				new Blob([corrupt]).stream().pipeThrough(new CompressionStream("gzip")),
+			).arrayBuffer(),
+		);
+		await expect(
+			readSheetBlocks({ get: store.get, put: store.put }, "org", manifest),
+		).rejects.toThrow("integrity");
 	});
 });
