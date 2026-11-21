@@ -1378,36 +1378,38 @@ function setMenu(): void {
 }
 
 /**
- * The menu bar icon, drawn here as a template image so macOS colours it
- * for light and dark menu bars: a rounded square with a T in it.
+ * The menu bar icon: the astronaut of the app icon, from the helmet to the
+ * waving hand, cut out of its dark tile. Its light parts become one colour
+ * that macOS tints for light and dark menu bars. It is 22 points high, as
+ * tall as a menu bar icon gets.
  */
 function trayImage(): Electron.NativeImage {
-	const size = 36;
-	const inRoundedSquare = (x: number, y: number, from: number, r: number) => {
-		const to = size - from;
-		const dx = Math.max(from + r - x, 0, x - (to - r));
-		const dy = Math.max(from + r - y, 0, y - (to - r));
-		return (
-			x >= from && x <= to && y >= from && y <= to && dx * dx + dy * dy <= r * r
-		);
-	};
-	const ink = (x: number, y: number) =>
-		(inRoundedSquare(x, y, 3, 8) && !inRoundedSquare(x, y, 6, 5)) ||
-		(x >= 11 && x <= 25 && y >= 11 && y <= 14.5) ||
-		(x >= 16.25 && x <= 19.75 && y >= 11 && y <= 26);
-	const pixels = Buffer.alloc(size * size * 4);
-	for (let y = 0; y < size; y++)
-		for (let x = 0; x < size; x++) {
-			let covered = 0;
-			for (let sy = 0; sy < 4; sy++)
-				for (let sx = 0; sx < 4; sx++)
-					if (ink(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4)) covered++;
-			pixels[(y * size + x) * 4 + 3] = Math.round((covered / 16) * 255);
-		}
+	const points = 22;
+	const scale = 2;
+	const size = points * scale;
+	const icon = nativeImage.createFromPath(join(root, "assets/icon.png"));
+	// Where the figure's upper half is in the 1024-pixel icon.
+	const unit = icon.getSize().width / 1024;
+	const pixels = icon
+		.crop({
+			x: Math.round(290 * unit),
+			y: Math.round(195 * unit),
+			width: Math.round(520 * unit),
+			height: Math.round(520 * unit),
+		})
+		.resize({ width: size, height: size, quality: "best" })
+		.toBitmap();
+	for (let at = 0; at < pixels.length; at += 4) {
+		const light = (pixels[at]! + pixels[at + 1]! + pixels[at + 2]!) / 3;
+		// The suit is opaque, its purple parts half so, the tile and visor clear.
+		const shown = pixels[at + 3] === 0 ? 0 : (light - 60) / 120;
+		pixels[at] = pixels[at + 1] = pixels[at + 2] = 0;
+		pixels[at + 3] = Math.round(255 * Math.max(0, Math.min(1, shown)));
+	}
 	const image = nativeImage.createFromBitmap(pixels, {
 		width: size,
 		height: size,
-		scaleFactor: 2,
+		scaleFactor: scale,
 	});
 	image.setTemplateImage(true);
 	return image;
