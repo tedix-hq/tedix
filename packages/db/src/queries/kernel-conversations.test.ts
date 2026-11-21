@@ -143,7 +143,7 @@ describe("recordKernelConversationMessage origin", () => {
 });
 
 describe("Home conversation list", () => {
-	it("leaves out Workspace chats unless a Workspace is asked for", async () => {
+	it("lists every Home chat and scopes to a Workspace when asked", async () => {
 		const db = realDb();
 		await recordKernelConversationMessage(db, {
 			organizationId: ORG,
@@ -168,7 +168,11 @@ describe("Home conversation list", () => {
 			cursor: null,
 			limit: 10,
 		});
-		expect(home.map((row) => row.conversationId)).toEqual(["home:global"]);
+		// Home threads tagged with a Workspace (home:main among them) stay in Home.
+		expect(home.map((row) => row.conversationId)).toEqual([
+			"home:global",
+			"home:workspace",
+		]);
 		const workspace = await listKernelConversationPage(db, {
 			organizationId: ORG,
 			cursor: null,

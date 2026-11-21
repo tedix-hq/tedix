@@ -600,11 +600,9 @@ export async function listKernelConversationPage(
 				input.includeArchived
 					? undefined
 					: isNull(kernelConversations.archivedAt),
-				// Workspace chats live in their workspace; Home lists only its
-				// own. The rows left from before the move stay out of Home.
 				input.workspaceId
 					? eq(kernelConversations.workspaceId, input.workspaceId)
-					: isNull(kernelConversations.workspaceId),
+					: undefined,
 				// LIKE has no wildcards to escape here: every prefix is literal
 				// `[a-z-]` plus `:`, so a caller cannot smuggle in `%` or `_`.
 				...hiddenPrefixes.map((prefix) =>
