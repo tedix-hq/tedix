@@ -1835,12 +1835,12 @@ describe("output patch verbs", () => {
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 
-	it("saves one cell in a 150-row sheet within the response budget", async () => {
-		const rows = Array.from({ length: 150 }, (_, row) => [
+	it("saves one cell in a 1.45 MB sheet within the response budget", async () => {
+		const rows = Array.from({ length: 180 }, (_, row) => [
 			`Row ${row + 1}`,
 			row,
 			"Pending",
-			"Fixture description ".repeat(20),
+			"Fixture description ".repeat(400),
 		]);
 		const { output } = await c.org1.outputs.create({
 			workspaceId: await homeWorkspaceId(c.env),
@@ -1867,14 +1867,35 @@ describe("output patch verbs", () => {
 			expect(saved.output.currentRevisionId).toBe(saved.revision.id);
 			if (saved.revision.content.kind !== "sheet")
 				throw new Error("Expected sheet");
-			expect(saved.revision.content.rows).toHaveLength(150);
+			expect(saved.revision.content.rows).toHaveLength(180);
 			expect(saved.revision.content.rows[74]?.[2]).toBe(`Saved ${revision}`);
 			expect(saved.revision.content.rows[73]).toEqual(rows[73]);
 		}
 		console.info(
-			"150-row setSheetRange milliseconds",
+			"1.45 MB setSheetRange milliseconds",
 			timings.map((ms) => Number(ms.toFixed(2))),
 		);
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const started = performance.now();
+			const saved = await c.org1.outputs.setSheetRange({
+				outputId: output.id,
+				startRow: 74,
+				startColumn: 2,
+				cells: [["Saved 5"]],
+				expectedRevision: 6,
+			});
+			console.info("unchanged sheet save ms", performance.now() - started);
+			expect(saved.revision.revision).toBe(6);
+		}
+		mocks.authorizeDerivedOutputSources.mockResolvedValueOnce(false);
+		await expect(
+			c.org1.outputs.setSheetRange({
+				outputId: output.id,
+				startRow: 74,
+				startColumn: 2,
+				cells: [["Saved 5"]],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(Math.max(...timings)).toBeLessThan(1_500);
 	});
 

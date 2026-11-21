@@ -7,6 +7,41 @@ export interface OutputBodyBucket {
 	put(key: string, value: ArrayBuffer): Promise<unknown>;
 }
 
+// Cache only verified immutable bytes, never revision metadata or access decisions.
+const bodyCache = new Map<
+	string,
+	{ bucket: OutputBodyBucket; content: string; bytes: number }
+>();
+const BODY_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+const BODY_CACHE_MAX_ENTRIES = 16;
+let bodyCacheBytes = 0;
+
+function rememberBody(
+	key: string,
+	bucket: OutputBodyBucket,
+	content: string,
+	bytes: number,
+) {
+	const previous = bodyCache.get(key);
+	if (previous) {
+		bodyCacheBytes -= previous.content.length * 2;
+		bodyCache.delete(key);
+	}
+	const size = content.length * 2;
+	if (size > BODY_CACHE_MAX_BYTES) return;
+	while (
+		bodyCache.size &&
+		(bodyCacheBytes + size > BODY_CACHE_MAX_BYTES ||
+			bodyCache.size >= BODY_CACHE_MAX_ENTRIES)
+	) {
+		const oldest = bodyCache.keys().next().value!;
+		bodyCacheBytes -= bodyCache.get(oldest)!.content.length * 2;
+		bodyCache.delete(oldest);
+	}
+	bodyCache.set(key, { bucket, content, bytes });
+	bodyCacheBytes += size;
+}
+
 export function outputRevisionBodyKey(organizationId: string, sha256: string) {
 	if (!organizationId || /[/\\\u0000-\u001f]/.test(organizationId))
 		throw new Error("Invalid output body organization");
@@ -41,10 +76,12 @@ export async function storeOutputRevisionBody(
 export async function hydrateOutputRevision(
 	row: OsOutputRevisionRow,
 	bucket: OutputBodyBucket | undefined = env.R2_BUCKET,
+	lap?: (stage: string) => void,
 ): Promise<OsOutputRevisionRow> {
 	let content = row.content;
 	let bytes: Uint8Array;
-	if (content == null || (content === "" && row.bodyR2Key)) {
+	const offloaded = content == null || (content === "" && row.bodyR2Key);
+	if (offloaded) {
 		if (!row.contentSha256 || !row.bodyR2Key || !bucket)
 			throw new Error("Output revision body is unavailable");
 		if (
@@ -54,6 +91,15 @@ export async function hydrateOutputRevision(
 			throw new Error(
 				"Output revision body key does not match its organization and digest",
 			);
+		const cached = bodyCache.get(row.bodyR2Key);
+		if (cached?.bucket === bucket) {
+			if (row.contentBytes != null && cached.bytes !== row.contentBytes)
+				throw new Error("Output revision body length mismatch");
+			bodyCache.delete(row.bodyR2Key);
+			bodyCache.set(row.bodyR2Key, cached);
+			lap?.("bodyCacheHitMs");
+			return { ...row, content: cached.content };
+		}
 		const object = await bucket.get(row.bodyR2Key);
 		if (!object) throw new Error("Output revision body object is missing");
 		bytes = new Uint8Array(
@@ -73,5 +119,7 @@ export async function hydrateOutputRevision(
 		throw new Error("Output revision body digest mismatch");
 	if (row.contentBytes != null && bytes.byteLength !== row.contentBytes)
 		throw new Error("Output revision body length mismatch");
+	if (offloaded && row.bodyR2Key && bucket)
+		rememberBody(row.bodyR2Key, bucket, content, bytes.byteLength);
 	return { ...row, content };
 }

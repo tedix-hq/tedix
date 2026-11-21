@@ -89,9 +89,50 @@ describe("output revision body store", () => {
 				(await hydrateOutputRevision(revision("", metadata), storage)).content,
 			).toBe(content);
 			expect(digest).toHaveBeenCalledTimes(1);
+			const lap = vi.fn();
+			const next = { ...revision("", metadata), id: "revision-2", revision: 2 };
+			expect(await hydrateOutputRevision(next, storage, lap)).toEqual({
+				...next,
+				content,
+			});
+			expect(storage.get).toHaveBeenCalledTimes(1);
+			expect(digest).toHaveBeenCalledTimes(1);
+			expect(lap).toHaveBeenCalledWith("bodyCacheHitMs");
+			await expect(
+				hydrateOutputRevision({ ...next, contentBytes: 1 }, storage),
+			).rejects.toThrow("length mismatch");
+			await expect(
+				hydrateOutputRevision({ ...next, organizationId: "org-2" }, storage),
+			).rejects.toThrow("key does not match");
+			await expect(hydrateOutputRevision(next, bucket())).rejects.toThrow(
+				"object is missing",
+			);
 		} finally {
 			digest.mockRestore();
 		}
+	});
+
+	it("bounds cached body memory and does not cache oversized bodies", async () => {
+		const storage = bucket();
+		const first = revision(
+			"",
+			await storeOutputRevisionBody(storage, "org-1", "a".repeat(3_000_000)),
+		);
+		const second = revision(
+			"",
+			await storeOutputRevisionBody(storage, "org-1", "b".repeat(3_000_000)),
+		);
+		await hydrateOutputRevision(first, storage);
+		await hydrateOutputRevision(second, storage);
+		await hydrateOutputRevision(first, storage);
+		expect(storage.get).toHaveBeenCalledTimes(3);
+		const oversized = revision(
+			"",
+			await storeOutputRevisionBody(storage, "org-1", "c".repeat(4_200_000)),
+		);
+		await hydrateOutputRevision(oversized, storage);
+		await hydrateOutputRevision(oversized, storage);
+		expect(storage.get).toHaveBeenCalledTimes(5);
 	});
 
 	it("deduplicates within an organization and separates organizations", async () => {

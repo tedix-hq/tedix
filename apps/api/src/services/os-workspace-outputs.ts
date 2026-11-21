@@ -220,7 +220,7 @@ export async function getOsOutputRevision(
 ) {
 	const row = await outputs.getOsOutputRevision(db, params);
 	lap?.("baseLookupMs");
-	return row ? hydrateOutputRevision(row, bucket) : undefined;
+	return row ? hydrateOutputRevision(row, bucket, lap) : undefined;
 }
 
 export async function getOsOutputRevisionByNumber(
