@@ -410,13 +410,17 @@ function watchWork(): void {
 	}, 15_000);
 }
 
-/** A free-standing native dialog, so every button is a real, reachable button. */
+/**
+ * A free-standing native dialog, so every button is a real, reachable button.
+ * The text gets a set width: left to itself, macOS draws a dialog with little
+ * text narrow, with wrapped lines, and one with more text wide.
+ */
 async function ask(
 	options: Electron.MessageBoxOptions,
 ): Promise<Electron.MessageBoxReturnValue> {
 	await app.whenReady();
 	app.focus({ steal: true });
-	return dialog.showMessageBox(options);
+	return dialog.showMessageBox({ textWidth: 440, ...options });
 }
 
 /**
