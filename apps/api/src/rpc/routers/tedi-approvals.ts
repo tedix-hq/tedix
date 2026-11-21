@@ -1372,11 +1372,39 @@ const resolveReviewManifestProcedure = authedOs.resolveReviewManifest
 export function resolveApprovalPrincipal(
 	context: Pick<
 		BaseContext,
-		"authType" | "gatewayEndUserId" | "tediId" | "user"
+		| "authType"
+		| "gatewayEndUserId"
+		| "tediId"
+		| "user"
+		| "ownerHostSessionId"
+		| "externalAgentPrincipalId"
 	>,
 	request: Pick<DbApprovalRequest, "payload"> &
 		Partial<Pick<DbApprovalRequest, "actionType" | "tediId">>,
 ): string {
+	if (
+		request.payload.kind === "mcp_tool_call" &&
+		request.payload.requestingAgent
+	) {
+		const requester = request.payload.requestingAgent as Record<
+			string,
+			unknown
+		>;
+		if (
+			context.authType !== "user" ||
+			context.tediId ||
+			context.ownerHostSessionId ||
+			context.externalAgentPrincipalId ||
+			!context.user?.sub ||
+			context.user.sub !== request.payload.approverUserId ||
+			context.user.sub === requester.principalId
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the designated human approver may decide this agent's exact call",
+			);
+		return `user:${context.user.sub}`;
+	}
 	// A tedi never decides its own request: someone else has to. The embedded
 	// chat is the one place its runtime relays a person's click, shown by the
 	// host user it carries or by the confirmation it asked that person for.

@@ -152,6 +152,41 @@ describe("approval workflow signaling", () => {
 	});
 });
 
+describe("agent exact call approval principal", () => {
+	const request = {
+		payload: {
+			kind: "mcp_tool_call",
+			requestingAgent: { principalId: "machine" },
+			approverUserId: "owner",
+		},
+	};
+	it("accepts only the designated human's own OS decision", () => {
+		expect(
+			resolveApprovalPrincipal(
+				{ authType: "user", user: { sub: "owner" } },
+				request,
+			),
+		).toBe("user:owner");
+		for (const context of [
+			{
+				authType: "external_agent",
+				externalAgentPrincipalId: "machine",
+				gatewayEndUserId: "owner",
+			},
+			{ authType: "service-binding", gatewayEndUserId: "owner" },
+			{ authType: "user", user: { sub: "other" } },
+			{
+				authType: "user",
+				user: { sub: "owner" },
+				ownerHostSessionId: "agent-host",
+			},
+		])
+			expect(() => resolveApprovalPrincipal(context, request)).toThrow(
+				/designated human/,
+			);
+	});
+});
+
 describe("product-motion rig approval principal", () => {
 	const request = {
 		payload: { kind: "product_motion_rig_admission_v1" },

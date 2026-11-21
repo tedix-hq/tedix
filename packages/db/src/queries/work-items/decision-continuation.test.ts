@@ -67,6 +67,10 @@ it("links an agent request only to its unique live exact-session Attempt", async
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	try {
+		sqlite.exec(schemaDdl(workItems));
+		sqlite.exec(
+			`INSERT INTO work_items(id,org_id,title,disposition,accountable_owner_type,accountable_owner_id,reviewer_type,reviewer_id,created_at) VALUES('work','org','Approval','accepted','user','owner','user','reviewer','2026-11-13'),('work-2','org','Other','accepted','user','other-owner',NULL,NULL,'2026-11-13')`,
+		);
 		sqlite.exec(schemaDdl(workAttempts));
 		sqlite.exec(`INSERT INTO work_attempts(id,org_id,work_item_id,admission_id,executor_type,executor_id,external_session_key,runtime_state,attempt_number,started_at,heartbeat_at,expires_at)
 			VALUES('attempt','org','work','admission','external_agent','agent','codex:session','running',1,'2026-11-13','2026-11-13','2026-11-14')`);
@@ -77,7 +81,14 @@ it("links an agent request only to its unique live exact-session Attempt", async
 			externalSessionKey: "codex:session",
 			now: "2026-11-13T12:00:00.000Z",
 		};
-		expect(await findAgentApprovalWork(db, p)).toBe("work");
+		expect(await findAgentApprovalWork(db, p)).toEqual({
+			workItemId: "work",
+			attemptId: "attempt",
+			accountableOwnerType: "user",
+			accountableOwnerId: "owner",
+			reviewerType: "user",
+			reviewerId: "reviewer",
+		});
 		expect(
 			await findAgentApprovalWork(db, { ...p, externalSessionKey: "other" }),
 		).toBeUndefined();
@@ -87,6 +98,15 @@ it("links an agent request only to its unique live exact-session Attempt", async
 		expect(
 			await findAgentApprovalWork(db, { ...p, now: "2026-11-15" }),
 		).toBeUndefined();
+		sqlite.exec(`INSERT INTO work_attempts(id,org_id,work_item_id,admission_id,executor_type,executor_id,external_session_key,runtime_state,attempt_number,started_at,heartbeat_at,expires_at)
+			VALUES('second','org','work-2','admission-2','external_agent','agent','codex:session','running',2,'2026-11-13','2026-11-13','2026-11-14')`);
+		expect(await findAgentApprovalWork(db, p)).toBeUndefined();
+		sqlite.exec("DELETE FROM work_attempts WHERE id='second'");
+		sqlite.exec("UPDATE work_attempts SET outcome='succeeded'");
+		expect(await findAgentApprovalWork(db, p)).toBeUndefined();
+		sqlite.exec("UPDATE work_attempts SET outcome=NULL, admission_id=NULL");
+		expect(await findAgentApprovalWork(db, p)).toBeUndefined();
+		sqlite.exec("UPDATE work_attempts SET admission_id='admission'");
 		sqlite.exec("UPDATE work_attempts SET runtime_state='cancelled'");
 		expect(await findAgentApprovalWork(db, p)).toBeUndefined();
 	} finally {
