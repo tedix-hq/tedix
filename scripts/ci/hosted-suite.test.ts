@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { deployedSha, greenBase, hostedObservation } from "./hosted-suite.mjs";
+import {
+	deployedSha,
+	greenBase,
+	hostedObservation,
+	WATCH_TITLE,
+} from "./hosted-suite.mjs";
 
 const [a, b, c, d] = ["a", "b", "c", "d"].map((x) => x.repeat(40));
 // Linear history a <- b <- c; d is off main.
@@ -24,14 +29,14 @@ describe("post-deploy range", () => {
 		conclusion,
 		display_title: `Post-deploy tests @ ${sha}`,
 	});
-	test("starts after the last passing run, so a failed range is tested again", () => {
+	test("starts after the last passing run, so a failed range is tested again", async () => {
 		expect(
-			greenBase([run(3, b, "failure"), run(2, a)], c, { isAncestor }),
+			await greenBase([run(3, b, "failure"), run(2, a)], c, { isAncestor }),
 		).toBe(a);
 	});
-	test("ignores its own run and passing runs of other commits", () => {
+	test("ignores its own run and passing runs of other commits", async () => {
 		expect(
-			greenBase([run(9, c), run(8, d)], c, { runId: 9, isAncestor }),
+			await greenBase([run(9, c), run(8, d)], c, { runId: 9, isAncestor }),
 		).toBeNull();
 	});
 });
@@ -80,5 +85,27 @@ describe("hosted observation", () => {
 			kind: "ci_green",
 			surface: "hosted-full",
 		});
+	});
+	test("reads a watch run's tested commit from its aggregate, and skips an idle one", () => {
+		const watch = { ...base, display_title: WATCH_TITLE };
+		expect(
+			hostedObservation({
+				projectId: "p",
+				repository: "example/product",
+				run: { ...watch, conclusion: "failure" },
+				jobs: [
+					failedJob,
+					{ name: `Hosted suite @ ${b}`, conclusion: "failure" },
+				],
+			}),
+		).toMatchObject({ sha: b, kind: "ci_red", surface: "post-deploy" });
+		expect(
+			hostedObservation({
+				projectId: "p",
+				repository: "example/product",
+				run: { ...watch, conclusion: "success" },
+				jobs: [{ name: "Hosted suite @ ", conclusion: "skipped" }],
+			}),
+		).toBeNull();
 	});
 });

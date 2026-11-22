@@ -1,8 +1,8 @@
 // Hosted test runs that never gate a deploy: affected tests after a commit is
-// live, and the full suite nightly. `watch` reads the deployed commit from the
-// service health endpoints and dispatches `hosted-suite.yml` for it; `plan`
-// re-checks that the commit is live and selects the jobs. Neither touches the
-// push gate (`full-suite-hourly.yml`), its aggregate, or Ship.
+// live, and the full suite nightly. `plan` reads the deployed commit from the
+// service health endpoints on the 10-minute schedule, tests each live commit
+// once, and selects the jobs. It never touches the push gate
+// (`full-suite-hourly.yml`), its aggregate, or Ship.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -10,6 +10,9 @@ import { laneSelection, suiteSelection } from "./full-suite-hourly.mjs";
 
 export const HOSTED_WORKFLOW = "hosted-suite.yml";
 export const DEPLOYED_TITLE = "Post-deploy tests @ ";
+export const WATCH_TITLE = "Post-deploy tests (watch)";
+export const NIGHTLY_CRON = "17 2 * * *";
+export const STATUS_CONTEXT = "Hosted suite / post-deploy";
 const SHA = /^[0-9a-f]{40}$/;
 
 export function gitIsAncestor(ancestor, descendant) {
@@ -79,6 +82,17 @@ export function deployedRunSha(run) {
 	return SHA.test(sha) ? sha : null;
 }
 
+/** The commit a run tested: from its title, or from a watch run's aggregate job. */
+export function testedSha(run, jobs = []) {
+	const titled = (run.display_title ?? "").match(/ @ ([0-9a-f]{40})$/)?.[1];
+	if (titled) return titled;
+	for (const job of jobs) {
+		const named = /^Hosted suite @ ([0-9a-f]{40})$/.exec(job.name ?? "")?.[1];
+		if (named) return named;
+	}
+	return null;
+}
+
 async function github(path, { method = "GET", body, env = process.env } = {}) {
 	const response = await fetch(
 		`${env.GITHUB_API_URL || "https://api.github.com"}${path}`,
@@ -102,66 +116,78 @@ async function github(path, { method = "GET", body, env = process.env } = {}) {
  * Diffing from there, not from the previous deploy, re-tests a failed range
  * until a run covering it passes.
  */
-export function greenBase(
+export async function greenBase(
 	runs,
 	sha,
-	{ runId, isAncestor = gitIsAncestor } = {},
+	{ runId, isAncestor = gitIsAncestor, testedOf = deployedRunSha } = {},
 ) {
 	for (const run of runs) {
 		if (String(run.id) === String(runId)) continue;
 		if (run.status !== "completed" || run.conclusion !== "success") continue;
-		const tested = deployedRunSha(run);
+		const tested = await testedOf(run);
 		if (tested && tested !== sha && isAncestor(tested, sha)) return tested;
 	}
 	return null;
 }
 
-export async function watch(env = process.env) {
-	const urls = env.HEALTH_URLS.split(/\s+/).filter(Boolean);
+/** The live commit a watch run should test, or null when there is nothing new. */
+async function watchedSha(env, urls) {
 	let reported;
 	try {
 		reported = await readHealthShas(urls);
 	} catch (error) {
 		// A health outage is the deploy smoke check's incident, not this one's.
-		console.log(`::warning::${error.message}; nothing dispatched`);
-		return;
+		console.log(`::warning::${error.message}; nothing to test`);
+		return null;
 	}
 	const sha = deployedSha(reported);
-	if (!sha) {
+	if (!sha || !gitIsAncestor(sha, "origin/main")) {
 		console.log(
-			`::notice::Health reports ${reported.join(", ")} share no deployed commit on main; nothing dispatched`,
+			`::notice::Health reports ${reported.join(", ")} share no deployed commit on main; nothing to test`,
 		);
-		return;
+		return null;
 	}
-	const { workflow_runs: runs } = await github(
-		`/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${HOSTED_WORKFLOW}/runs?event=workflow_dispatch&per_page=100`,
+	const statuses = await github(
+		`/repos/${env.GITHUB_REPOSITORY}/commits/${sha}/statuses?per_page=100`,
 	);
-	if (runs.some((run) => deployedRunSha(run) === sha)) {
-		console.log(`Deployed ${sha} already has a post-deploy run`);
-		return;
+	if (statuses.some((status) => status.context === STATUS_CONTEXT)) {
+		console.log(`Live ${sha} already has a post-deploy run`);
+		return null;
 	}
-	await github(
-		`/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${HOSTED_WORKFLOW}/dispatches`,
-		{ method: "POST", body: { ref: "main", inputs: { sha } } },
-	);
-	console.log(`Dispatched post-deploy tests for live ${sha}`);
-	appendFileSync(
-		env.GITHUB_STEP_SUMMARY,
-		`Dispatched post-deploy tests for ${sha} (health: ${reported.join(", ")})\n`,
-	);
+	return sha;
 }
 
 export async function plan(env = process.env) {
-	const full = env.EVENT_NAME === "schedule" || env.INPUT_FULL === "true";
-	const sha = (full && !env.INPUT_SHA ? env.GITHUB_SHA : env.INPUT_SHA) ?? "";
+	const nightly =
+		env.EVENT_NAME === "schedule" && env.SCHEDULE === NIGHTLY_CRON;
+	const watching = env.EVENT_NAME === "schedule" && !nightly;
+	const full = nightly || env.INPUT_FULL === "true";
+	const urls = env.HEALTH_URLS.split(/\s+/).filter(Boolean);
+	// A commit deployed after this run started is newer than its checkout.
+	execFileSync("git", [
+		"fetch",
+		"--quiet",
+		"--no-tags",
+		"origin",
+		"+refs/heads/main:refs/remotes/origin/main",
+	]);
+	const sha =
+		(watching
+			? await watchedSha(env, urls)
+			: full && !env.INPUT_SHA
+				? env.GITHUB_SHA
+				: env.INPUT_SHA) ?? "";
+	if (watching && !sha) {
+		appendFileSync(env.GITHUB_OUTPUT, "run=false\nsha=\nlane=deployed\n");
+		return;
+	}
 	if (!SHA.test(sha))
 		throw new Error(`An exact 40-character commit is required, got "${sha}"`);
-	if (!gitIsAncestor(sha, env.GITHUB_SHA))
+	if (!gitIsAncestor(sha, "origin/main"))
 		throw new Error(`${sha} is not on main`);
 	let files = null;
 	let note = "full suite";
 	if (!full) {
-		const urls = env.HEALTH_URLS.split(/\s+/).filter(Boolean);
 		const reported = await readHealthShas(urls);
 		const live = deployedSha(reported);
 		if (!live || (live !== sha && !gitIsAncestor(sha, live)))
@@ -171,12 +197,25 @@ export async function plan(env = process.env) {
 		const runs = [];
 		for (let page = 1; page <= 3; page++) {
 			const result = await github(
-				`/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${HOSTED_WORKFLOW}/runs?event=workflow_dispatch&status=success&per_page=100&page=${page}`,
+				`/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${HOSTED_WORKFLOW}/runs?status=success&per_page=100&page=${page}`,
 			);
 			runs.push(...result.workflow_runs);
 			if (result.workflow_runs.length < 100) break;
 		}
-		const base = greenBase(runs, sha, { runId: env.GITHUB_RUN_ID });
+		const base = await greenBase(runs, sha, {
+			runId: env.GITHUB_RUN_ID,
+			testedOf: async (run) =>
+				run.display_title === WATCH_TITLE
+					? testedSha(
+							run,
+							(
+								await github(
+									`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
+								)
+							).jobs,
+						)
+					: deployedRunSha(run),
+		});
 		if (base) {
 			files = execFileSync(
 				"git",
@@ -187,6 +226,15 @@ export async function plan(env = process.env) {
 				.filter(Boolean);
 			note = `affected by ${base}..${sha} (live ${live})`;
 		} else note = `full suite: no passing post-deploy run before ${sha}`;
+		await github(`/repos/${env.GITHUB_REPOSITORY}/statuses/${sha}`, {
+			method: "POST",
+			body: {
+				state: "pending",
+				context: STATUS_CONTEXT,
+				description: "Post-deploy tests running",
+				target_url: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`,
+			},
+		});
 	}
 	// The selection reads manifests and scripts at the tested commit.
 	execFileSync("git", ["checkout", "--quiet", "--detach", sha]);
@@ -196,7 +244,7 @@ export async function plan(env = process.env) {
 	);
 	appendFileSync(
 		env.GITHUB_OUTPUT,
-		`sha=${sha}\nmatrix=${JSON.stringify(selected.matrix)}\nworkspace=${selected.matrix.include.length > 0}\nrepository=${selected.repository && selected.checks.length > 0}\nchecks=${JSON.stringify(selected.checks)}\n`,
+		`run=true\nlane=${full ? "full" : "deployed"}\nsha=${sha}\nmatrix=${JSON.stringify(selected.matrix)}\nworkspace=${selected.matrix.include.length > 0}\nrepository=${selected.repository && selected.checks.length > 0}\nchecks=${JSON.stringify(selected.checks)}\n`,
 	);
 	appendFileSync(
 		env.GITHUB_STEP_SUMMARY,
@@ -219,9 +267,15 @@ export function hostedObservation({
 		!["failure", "success"].includes(run.conclusion)
 	)
 		throw new Error("Not a completed main hosted-suite run");
-	const tested = (run.display_title ?? "").match(/ @ ([0-9a-f]{40})$/)?.[1];
-	if (!tested) throw new Error("An exact tested commit is required");
-	const deployed = deployedRunSha(run) !== null;
+	// A passing watch run without a tested commit found nothing newly live. A
+	// failing one broke before choosing a commit; report it on its own.
+	const named = testedSha(run, jobs);
+	if (!named && run.conclusion === "success") return null;
+	const tested = named ?? run.head_sha;
+	if (!SHA.test(tested ?? ""))
+		throw new Error("An exact tested commit is required");
+	const deployed =
+		deployedRunSha(run) !== null || run.display_title === WATCH_TITLE;
 	const failed = jobs.filter((job) =>
 		["failure", "timed_out", "action_required"].includes(job.conclusion),
 	);
@@ -241,7 +295,7 @@ export function hostedObservation({
 			? "Affected workspaces since the last passing post-deploy run: bun run test:run + type-check"
 			: "Every workspace: bun run test:run + bun run type-check",
 		summary:
-			`${run.display_title} ${run.conclusion === "success" ? "passed" : "failed"}\n${failed.map((job) => `${job.name}: ${job.conclusion} ${job.html_url}`).join("\n")}\n${message ?? ""}`.slice(
+			`${run.display_title}${named ? "" : " (failed before choosing a commit)"} at ${tested} ${run.conclusion === "success" ? "passed" : "failed"}\n${failed.map((job) => `${job.name}: ${job.conclusion} ${job.html_url}`).join("\n")}\n${message ?? ""}`.slice(
 				0,
 				24000,
 			),
@@ -254,7 +308,6 @@ if (
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
 	const command = process.argv[2];
-	if (command === "watch") await watch();
-	else if (command === "plan") await plan();
+	if (command === "plan") await plan();
 	else throw new Error(`Unknown command: ${command}`);
 }

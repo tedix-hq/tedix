@@ -72,13 +72,18 @@ GitHub-hosted `ubuntu-latest` only (it ignores `FULL_SUITE_RUNNER_LABELS`),
 outside the `main-certification` group. Its `Hosted suite` aggregate is not
 `Main CI`, so neither Ship nor the push gate reads it.
 
-- After deploy: every 10 minutes `deploy-watch.yml` reads `deployedSha` from
-  the api, os and builder `/health` endpoints. Ship deploys only the services
-  a commit changes, so the live commit is the newest report that the other
-  reports are ancestors of. The watcher dispatches one `Post-deploy tests @
-  <sha>` run per live commit. That run checks health again, then tests the
-  workspaces affected since the last passing post-deploy run. A failed range
-  is therefore tested again until a later run passes.
+- After deploy: every 10 minutes a `Post-deploy tests (watch)` run reads
+  `deployedSha` from the api, os and builder `/health` endpoints. Ship deploys
+  only the services a commit changes, so the live commit is the newest report
+  that the other reports are ancestors of. A live commit without a
+  `Hosted suite / post-deploy` commit status is tested once: the run tests the
+  workspaces affected since the last passing post-deploy run, so a failed
+  range is tested again until a later run passes. The aggregate job's name,
+  `Hosted suite @ <sha>`, records the tested commit. An idle watch run ends
+  after the plan job. Runs come from the schedule, not from a `GITHUB_TOKEN`
+  dispatch, because GitHub starts no `workflow_run` for runs that token
+  creates and the observer listens for one. To test one live commit on
+  demand, dispatch the workflow with `sha`.
 - Nightly: at 02:17 UTC, `Nightly full suite @ <sha>` runs every workspace
   suite and the repository checks at main's tip. To run the full suite on
   demand, dispatch the workflow with `full` set.

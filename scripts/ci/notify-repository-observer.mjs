@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { ciObservation, githubRequest } from "./full-suite-hourly.mjs";
-import { HOSTED_WORKFLOW, hostedObservation } from "./hosted-suite.mjs";
+import {
+	HOSTED_WORKFLOW,
+	hostedObservation,
+	testedSha,
+} from "./hosted-suite.mjs";
 
 const git = (...args) =>
 	execFileSync("git", args, { encoding: "utf8", maxBuffer: 2_000_000 }).trim();
@@ -180,14 +184,19 @@ async function main(env, url) {
 			// The tested commit is live or nightly, not main's tip: no superseded
 			// check. The observation is the repair Work; no commit Work is
 			// targeted because a range failure need not belong to its tip commit.
-			const tested = run.display_title.match(/ @ ([0-9a-f]{40})$/)?.[1];
+			const jobs = await jobsOf();
+			const tested = testedSha(run, jobs);
 			payload = hostedObservation({
 				projectId,
 				repository: env.GITHUB_REPOSITORY,
 				run,
-				jobs: await jobsOf(),
+				jobs,
 				message: tested ? git("show", "-s", "--format=%B", tested) : "",
 			});
+			if (!payload) {
+				console.log("Watch run found no newly live commit; nothing to report");
+				return;
+			}
 			const receipt = await notifyObserver(url, payload);
 			console.log(JSON.stringify(receipt));
 			return;

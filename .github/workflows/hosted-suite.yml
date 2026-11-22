@@ -1,17 +1,20 @@
 name: Hosted tests after deploy and nightly
 
-# Tests that never gate a deploy. `deploy-watch.yml` dispatches one run per
-# live commit (the plan re-reads api/os/builder health before testing);
-# the schedule runs every workspace suite at main's tip each night. Both run
+# Tests that never gate a deploy. Every 10 minutes the plan reads the live
+# commit from api/os/builder health and tests it once; each night the full
+# suite runs at main's tip. Both lanes start from a schedule, not from a
+# GITHUB_TOKEN dispatch: GitHub starts no workflow_run for runs that token
+# creates, and tedix-observer.yml needs one to report a failure. Both run
 # on free GitHub-hosted Ubuntu only, outside the main-certification group,
 # and certify nothing: Ship still requires the push gate's `Main CI`.
 # Failures reach repair Work through tedix-observer.yml.
 
-run-name: ${{ github.event_name == 'schedule' && format('Nightly full suite @ {0}', github.sha) || inputs.full && format('Full hosted suite @ {0}', inputs.sha || github.sha) || format('Post-deploy tests @ {0}', inputs.sha) }}
+run-name: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && format('Nightly full suite @ {0}', github.sha) || 'Post-deploy tests (watch)') || inputs.full && format('Full hosted suite @ {0}', inputs.sha || github.sha) || format('Post-deploy tests @ {0}', inputs.sha) }}
 
 on:
   schedule:
     - cron: "17 2 * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       sha:
@@ -28,11 +31,14 @@ on:
 permissions:
   contents: read
   actions: read
+  # A `Hosted suite / post-deploy` commit status marks each live commit as
+  # tested, so the watch tests it once. Nothing gates on it.
+  statuses: write
 
 concurrency:
   # Waiting post-deploy runs coalesce: the newest one re-tests every change
   # since the last passing run. Nightly runs have their own lane.
-  group: hosted-suite-${{ (github.event_name == 'schedule' || inputs.full) && 'full' || 'deployed' }}
+  group: hosted-suite-${{ (github.event.schedule == '17 2 * * *' || inputs.full) && 'full' || 'deployed' }}
   cancel-in-progress: false
 
 env:
@@ -45,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      run: ${{ steps.plan.outputs.run }}
+      lane: ${{ steps.plan.outputs.lane }}
       sha: ${{ steps.plan.outputs.sha }}
       workspace: ${{ steps.plan.outputs.workspace }}
       repository: ${{ steps.plan.outputs.repository }}
@@ -64,6 +72,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_FULL: ${{ inputs.full }}
           HEALTH_URLS: https://api.tedix.dev/health https://os.tedix.dev/health https://builder.tedix.dev/health
@@ -184,10 +193,12 @@ jobs:
         run: bun run verify --all --ci-policy
 
   aggregate:
-    # Not `Main CI`: Ship and the push gate never read this result.
-    name: Hosted suite
+    # Not `Main CI`: Ship and the push gate never read this result. The name
+    # carries the tested commit, which a watch run's title cannot.
+    name: Hosted suite @ ${{ needs.plan.outputs.sha }}
     needs: [plan, workspace, repository]
-    if: ${{ always() }}
+    # A watch run with no newly live commit skips this job and reports nothing.
+    if: ${{ always() && needs.plan.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -209,3 +220,14 @@ jobs:
               test "${!lane}" = skipped
             fi
           done
+      - name: Record the post-deploy result on the tested commit
+        if: ${{ always() && needs.plan.outputs.lane == 'deployed' && needs.plan.outputs.sha != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$STATE" \
+            -f context="Hosted suite / post-deploy" -f target_url="$RUN_URL" \
+            -f description="Post-deploy tests $STATE" >/dev/null
