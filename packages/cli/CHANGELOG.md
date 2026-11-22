@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.35.2 (2026-11-22)
+
+### Patch Changes
+
+- a5d45b3: When a runner cannot start an agent process, the runner log now says why ("Lane child did not run: …") instead of leaving no trace.
+- 631d547: Fall-over skips a task whose last run on this revision kept a result for its runner (a question to a person, a deferral, a landed commit awaiting proof). A task refused as not startable (missing approval, purpose or budget) is tried again after an hour instead of every 5 minutes.
+
 ## 0.35.1 (2026-11-22)
 
 ### Patch Changes
