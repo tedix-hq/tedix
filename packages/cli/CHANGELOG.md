@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.34.2 (2026-11-22)
+
+### Patch Changes
+
+- 483015b: A retry that fails before it starts (for example, a database read fails while it prepares) no longer loses the earlier run's checkout: the next try still continues in that checkout, with its unpushed commits, and resumes the same agent session.
+
 ## 0.34.1 (2026-11-22)
 
 ### Patch Changes
