@@ -17,6 +17,7 @@ import { externalAgentPrincipals } from "../../schema/external-agent-identity";
 import { tedis } from "../../schema/tedis";
 import {
 	workInteractions,
+	workInteractionStoredColumns,
 	workInteractionResponses,
 	type WorkInteraction,
 } from "../../schema/work-factory";
@@ -313,7 +314,7 @@ export async function claimDelegatedApproval(
 				sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
 			),
 		)
-		.returning();
+		.returning(workInteractionStoredColumns);
 	return row ? { request: row, receipt } : null;
 }
 

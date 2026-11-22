@@ -1,0 +1,3 @@
+ALTER TABLE `tedi_approval_requests` ADD `work_item_id` text GENERATED ALWAYS AS (CASE WHEN json_valid("payload") THEN CASE WHEN json_type("payload", '$.workItemId') = 'text' THEN json_extract("payload", '$.workItemId') END END) VIRTUAL;--> statement-breakpoint
+CREATE INDEX `idx_work_agent_sessions_org_harness_session` ON `work_agent_sessions` (`organization_id`,`harness`,`session_key`);--> statement-breakpoint
+CREATE INDEX `idx_approval_requests_org_action_work_status` ON `tedi_approval_requests` (`org_id`,`action_type`,`work_item_id`,`status`);

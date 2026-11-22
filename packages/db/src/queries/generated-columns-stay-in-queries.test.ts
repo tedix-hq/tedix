@@ -45,7 +45,7 @@ const tables: [string, SQLiteTable, Record<string, SQLiteColumn>, string[]][] =
 			"tediApprovalRequests",
 			tediApprovalRequests,
 			approvalRequestStoredColumns,
-			["executionStatus", "executionDismissedAt", "consumedAt"],
+			["workItemId", "executionStatus", "executionDismissedAt", "consumedAt"],
 		],
 		[
 			"workInteractions",

@@ -286,9 +286,26 @@ describe("budget reservation settlement", () => {
 				wait.expiresAt,
 			);
 		const scope = { orgId: ORG, workItemId: ITEM, workVersion: 1, now: NOW };
+		const plans: string[] = [];
+		db = createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare(query) {
+					if (!query.includes('from "tedi_approval_requests"')) return;
+					plans.push(
+						...sqlite
+							.prepare(`EXPLAIN QUERY PLAN ${query}`)
+							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+							.map((row) => String(row.detail)),
+					);
+				},
+			}),
+		);
 		expect(
 			await findWorkToolApprovalWait(db, { ...scope, attemptId: attempt.id }),
 		).toEqual(wait);
+		expect(plans.join("\n")).toContain(
+			"USING INDEX idx_approval_requests_org_action_work_status (org_id=? AND action_type=? AND work_item_id=?",
+		);
 		for (const patch of [
 			{ orgId: "other" },
 			{ workItemId: "other" },
@@ -302,6 +319,21 @@ describe("budget reservation settlement", () => {
 					...patch,
 				}),
 			).toBeUndefined();
+		sqlite.exec(
+			"UPDATE tedi_approval_requests SET payload=json_set(payload,'$.workItemId',1234)",
+		);
+		expect(
+			await findWorkToolApprovalWait(db, {
+				...scope,
+				workItemId: "1234",
+				attemptId: attempt.id,
+			}),
+		).toBeUndefined();
+		sqlite
+			.prepare(
+				"UPDATE tedi_approval_requests SET payload=json_set(payload,'$.workItemId',?)",
+			)
+			.run(ITEM);
 		await settleWorkItemAttempt(db, {
 			orgId: ORG,
 			workItemId: ITEM,

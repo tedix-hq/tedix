@@ -86,6 +86,10 @@ export const tediApprovalRequests = sqliteTable(
 			.$type<Record<string, JsonValue>>()
 			.notNull(),
 
+		workItemId: text("work_item_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("payload") THEN CASE WHEN json_type("payload", '$.workItemId') = 'text' THEN json_extract("payload", '$.workItemId') END END`,
+			{ mode: "virtual" },
+		),
 		executionStatus: text("execution_status").generatedAlwaysAs(
 			sql`CASE WHEN json_valid("payload") THEN json_extract("payload", '$.execution.status') END`,
 			{ mode: "virtual" },
@@ -123,6 +127,12 @@ export const tediApprovalRequests = sqliteTable(
 		workflowId: text("workflow_id"),
 	},
 	(table) => [
+		index("idx_approval_requests_org_action_work_status").on(
+			table.orgId,
+			table.actionType,
+			table.workItemId,
+			table.status,
+		),
 		index("idx_approval_requests_execution_attention").on(
 			table.orgId,
 			table.status,
@@ -156,6 +166,7 @@ export const tediApprovalRequests = sqliteTable(
  * the whole table, so they do not reach a caller or an API response.
  */
 export const {
+	workItemId: _approvalWorkItemId,
 	executionStatus: _executionStatus,
 	executionDismissedAt: _executionDismissedAt,
 	consumedAt: _consumedAt,
@@ -164,7 +175,7 @@ export const {
 
 export type TediApprovalRequest = Omit<
 	typeof tediApprovalRequests.$inferSelect,
-	"executionStatus" | "executionDismissedAt" | "consumedAt"
+	"workItemId" | "executionStatus" | "executionDismissedAt" | "consumedAt"
 >;
 export type NewTediApprovalRequest = typeof tediApprovalRequests.$inferInsert;
 

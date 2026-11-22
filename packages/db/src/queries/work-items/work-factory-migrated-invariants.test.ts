@@ -2153,7 +2153,7 @@ it("runs digests and owner follow-through with migrated D1 guards", async () => 
 	});
 });
 
-async function laneFixture() {
+async function laneFixture(onPrepare?: (query: string) => void) {
 	const sqlite = migrated();
 	seedCore(sqlite);
 	seedTedi(sqlite);
@@ -2161,7 +2161,7 @@ async function laneFixture() {
 		"UPDATE work_items SET accountable_owner_type='user',accountable_owner_id='user',source_session_key='codex:lead' WHERE id='work'; UPDATE tedis SET status='active' WHERE id='tedi'",
 	);
 	admitWithCapacity(sqlite);
-	const db = createDbQueryClient(createD1Facade(sqlite));
+	const db = createDbQueryClient(createD1Facade(sqlite, { onPrepare }));
 	const { attempt } = await startWorkItemAttempt(db, {
 		orgId: "org",
 		workItemId: "work",
@@ -2185,6 +2185,40 @@ async function laneFixture() {
 }
 
 describe("lane human handoffs with production triggers", () => {
+	it("seeks the requesting host session within its organization and preserves colons in its key", async () => {
+		const queries: string[] = [];
+		const { sqlite, settle } = await laneFixture((query) => {
+			if (query.includes('from "work_agent_sessions"')) queries.push(query);
+		});
+		sqlite.exec(`
+			INSERT INTO organizations(id,name,slug) VALUES('other','Other','other');
+			INSERT INTO work_agent_sessions(id,organization_id,user_id,harness,session_key,state,state_since,last_event_at) VALUES
+				('foreign','other','wrong','codex','lead:child','working','2026-08-20','2026-08-20'),
+				('other-harness','org','wrong','claude-code','lead:child','working','2026-08-20','2026-08-20'),
+				('requester','org','user','codex','lead:child','working','2026-08-20','2026-08-20');
+			UPDATE work_items SET source_session_key='codex:lead:child',accountable_owner_id='wrong' WHERE id='work';
+		`);
+		const result = await settle();
+		expect(
+			sqlite
+				.prepare("SELECT target_id FROM work_interactions WHERE id=?")
+				.get(result.interactionId!)?.target_id,
+		).toBe("user");
+		expect(queries).toHaveLength(1);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${queries[0]}`)
+			.all(...Array((queries[0]!.match(/\?/g) ?? []).length).fill(null))
+			.map((row) => String(row.detail))
+			.join("\n");
+		expect(plan).toContain(
+			"USING INDEX idx_work_agent_sessions_org_harness_session (organization_id=? AND harness=? AND session_key=?)",
+		);
+		expect(
+			sqlite
+				.prepare("SELECT harness,session_key FROM agent_session_requests")
+				.get(),
+		).toEqual({ harness: "codex", session_key: "lead:child" });
+	});
 	it("settles atomically, addresses the requester, preserves Work, and replays one receipt", async () => {
 		const { sqlite, settle, db } = await laneFixture();
 		const result = await settle();

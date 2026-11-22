@@ -1880,6 +1880,10 @@
 		{
 			"name": "20261122125013_conversation-event-stream-index/migration.sql",
 			"sha256": "e7ac91548717f25a035380fd964311fa5416f66dd37aff0137118ee98f6f8575"
+		},
+		{
+			"name": "20261122130020_runner_lookup_indexes/migration.sql",
+			"sha256": "076745c37e76cfd0c45ff0255f8439deaa402593521a7947ed8945e55d6e7e47"
 		}
 	]
 }

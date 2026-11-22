@@ -121,6 +121,11 @@ export const workAgentSessions = sqliteTable(
 			.default(sql`(CURRENT_TIMESTAMP)`),
 	},
 	(table) => [
+		index("idx_work_agent_sessions_org_harness_session").on(
+			table.organizationId,
+			table.harness,
+			table.sessionKey,
+		),
 		uniqueIndex("uniq_work_agent_sessions_org_user_harness_session").on(
 			table.organizationId,
 			table.userId,

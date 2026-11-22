@@ -42,7 +42,7 @@ export async function findWorkToolApprovalWait(
 				eq(tediApprovalRequests.orgId, p.orgId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, p.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.workItemId') = ${p.workItemId}`,
+				eq(tediApprovalRequests.workItemId, p.workItemId),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.requestingWorkVersion') = ${p.workVersion}`,
 				sql`json_type(${tediApprovalRequests.payload}, '$.requestingAgent.principalId') = 'text'`,
 				sql`json_type(${tediApprovalRequests.payload}, '$.requestingAttemptId') = 'text'`,

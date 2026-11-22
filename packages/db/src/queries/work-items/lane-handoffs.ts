@@ -2,7 +2,10 @@ import { and, eq, exists, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
 import { externalAgentPrincipals } from "../../schema/external-agent-identity";
-import { workAgentSessions } from "../../schema/work-agent-sessions";
+import {
+	workAgentSessions,
+	WORK_AGENT_SESSION_HARNESS_VALUES,
+} from "../../schema/work-agent-sessions";
 import {
 	workInteractions,
 	workInteractionStoredColumns,
@@ -41,18 +44,26 @@ export async function prepareLaneHandoff(
 	const hostKey = /^(codex|claude-code):/.test(work.sourceSessionKey ?? "")
 		? work.sourceSessionKey
 		: attempt.externalSessionKey;
-	const [session] = hostKey
-		? await db
-				.select()
-				.from(workAgentSessions)
-				.where(
-					and(
-						eq(workAgentSessions.organizationId, work.orgId),
-						sql`${workAgentSessions.harness} || ':' || ${workAgentSessions.sessionKey} = ${hostKey}`,
-					),
-				)
-				.limit(1)
-		: [];
+	const harness = WORK_AGENT_SESSION_HARNESS_VALUES.find((value) =>
+		hostKey?.startsWith(`${value}:`),
+	);
+	const [session] =
+		hostKey && harness
+			? await db
+					.select()
+					.from(workAgentSessions)
+					.where(
+						and(
+							eq(workAgentSessions.organizationId, work.orgId),
+							eq(workAgentSessions.harness, harness),
+							eq(
+								workAgentSessions.sessionKey,
+								hostKey.slice(harness.length + 1),
+							),
+						),
+					)
+					.limit(1)
+			: [];
 	const [principal] =
 		attempt.executorType === "external_agent"
 			? await db
