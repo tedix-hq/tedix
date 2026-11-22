@@ -1,127 +1,11 @@
 import { expect, it } from "vite-plus/test";
 import { WorkAttemptProjectionSchema } from "@tedix/api-contract/schemas/work-items";
-import { DispatcherHealthReportSchema } from "@tedix/api-contract/schemas/dispatcher-health";
 import {
 	aggregateHarnessScorecard,
 	SCORECARD_WINDOW_MS,
 } from "./harness-scorecard";
 
 const now = Date.parse("2026-11-07T12:00:00.000Z");
-it("sums fully covered fleet observations and withholds stale, warming or legacy totals", () => {
-	const at = new Date(now).toISOString();
-	const start = new Date(now - SCORECARD_WINDOW_MS).toISOString();
-	const report = DispatcherHealthReportSchema.parse({
-		reporterId: "cedar",
-		executor: "codex",
-		lane: "runner",
-		running: true,
-		observedAt: at,
-		reportedAt: at,
-		lastAdmissionAt: null,
-		topReason: null,
-		ageSeconds: 0,
-		staleAfterSeconds: 60,
-		stale: false,
-		duty: {
-			id: "runner",
-			kind: "service",
-			state: "running",
-			observedAt: at,
-			lastRunAt: at,
-			lastExitAt: null,
-			lastExitCode: null,
-			lastExecutor: "codex",
-			restartsLastHour: 0,
-			retryAt: null,
-			lastProblem: null,
-			reliability: {
-				coverageStartedAt: start,
-				windowStartedAt: start,
-				observedAt: at,
-				runners: [{ runner: "codex", held: 2, supervisorKills: 3 }],
-			},
-		},
-	});
-	const second = { ...report, reporterId: "other-machine" };
-	expect(aggregateHarnessScorecard([], [report, report, second], now)).toEqual([
-		{
-			runner: "codex",
-			started: 0,
-			succeeded: 0,
-			landedUnverified: 0,
-			cancelled: 0,
-			failed: 0,
-			orphaned: 0,
-			commits: 0,
-			idle: null,
-			held: 4,
-			supervisorKills: 6,
-		},
-	]);
-	const idle = {
-		observedAt: at,
-		held: 3,
-		waitingOnPerson: 2,
-		noCoordinator: 4,
-		other: 1,
-		complete: true,
-	};
-	const idleReport = { ...report, duty: { ...report.duty!, idle } };
-	expect(
-		aggregateHarnessScorecard([], [idleReport, idleReport], now)[0]!.idle,
-	).toEqual({ held: 3, waitingOnPerson: 2, noCoordinator: 4, other: 1 });
-	for (const unavailable of [
-		{ ...idleReport, stale: true },
-		{
-			...idleReport,
-			duty: { ...idleReport.duty, idle: { ...idle, complete: false } },
-		},
-		{
-			...idleReport,
-			duty: {
-				...idleReport.duty,
-				idle: { ...idle, observedAt: new Date(now - 61_000).toISOString() },
-			},
-		},
-	])
-		expect(
-			aggregateHarnessScorecard([], [unavailable], now)[0]!.idle,
-		).toBeNull();
-	const warming = {
-		...second,
-		duty: {
-			...second.duty!,
-			reliability: { ...second.duty!.reliability!, coverageStartedAt: at },
-		},
-	};
-	for (const unavailable of [
-		warming,
-		{ ...second, stale: true },
-		{ ...second, duty: undefined },
-	]) {
-		const result = aggregateHarnessScorecard(
-			[],
-			[report, unavailable],
-			now,
-		)[0]!;
-		expect(result.held).toBeNull();
-		expect(result.supervisorKills).toBeNull();
-	}
-	const coordinated = {
-		// An any-local source cannot attribute idle capacity to one harness.
-		...report,
-		executor: "any-local",
-		duty: {
-			...report.duty!,
-			reliability: { ...report.duty!.reliability!, runners: [] },
-		},
-	};
-	expect(
-		aggregateHarnessScorecard([row(1)], [coordinated], now).find(
-			(row) => row.runner === "codex",
-		)?.held,
-	).toBe(0);
-});
 function row(id: number, overrides: Record<string, unknown> = {}) {
 	return WorkAttemptProjectionSchema.parse({
 		attempt: {
@@ -183,26 +67,15 @@ it("uses a bounded start-time cohort and deduplicates Attempts across scopes", (
 			}),
 			row(8, { startedAt: new Date(now + 1).toISOString() }),
 		],
-		[],
 		now,
 	);
+	// Done counts succeeded and landed; failed counts failed and expired.
+	// Running and cancelled Attempts are started but neither.
 	expect(rows).toEqual([
-		{
-			runner: "codex",
-			started: 7,
-			idle: null,
-			succeeded: 1,
-			landedUnverified: 1,
-			cancelled: 1,
-			failed: 1,
-			orphaned: 2,
-			commits: 0,
-			held: null,
-			supervisorKills: null,
-		},
+		{ runner: "codex", started: 7, done: 2, failed: 2, commits: 0 },
 	]);
 	expect(
-		aggregateHarnessScorecard([success], [], now + SCORECARD_WINDOW_MS + 1),
+		aggregateHarnessScorecard([success], now + SCORECARD_WINDOW_MS + 1),
 	).toEqual([]);
 });
 
@@ -220,14 +93,9 @@ it("attributes harnesses by stamped session key and retains unattributed and ted
 			row(3, { executorType: "tedi", externalSessionKey: null }),
 			row(4, { externalSessionKey: "bare-session-key" }),
 		],
-		[],
 		now,
 	);
-	expect(rows.map((row) => row.runner)).toEqual([
-		"claude",
-		"tedi",
-		"Unknown runner",
-	]);
+	expect(rows.map((row) => row.runner)).toEqual(["other", "claude", "tedi"]);
 });
 
 it("counts unique dispatcher commit receipts, excluding declared or recovered existing fixes", () => {
@@ -257,54 +125,7 @@ it("counts unique dispatcher commit receipts, excluding declared or recovered ex
 			}),
 			row(6, { metadata: { lane: true, settlement: [sha] } }),
 		],
-		[],
 		now,
 	);
 	expect(rows[0]?.commits).toBe(2);
-});
-
-it("includes recently reported idle runners without treating supervisor duties as runners", () => {
-	const report = DispatcherHealthReportSchema.parse({
-		reporterId: "cedar",
-		executor: "claude",
-		lane: "runner",
-		running: true,
-		observedAt: new Date(now).toISOString(),
-		reportedAt: new Date(now).toISOString(),
-		lastAdmissionAt: null,
-		topReason: null,
-		ageSeconds: 0,
-		staleAfterSeconds: 60,
-		stale: false,
-	});
-	expect(
-		aggregateHarnessScorecard(
-			[],
-			[
-				report,
-				report,
-				{ ...report, executor: "supervisor", lane: "supervisor-lead" },
-				{
-					...report,
-					executor: "old",
-					observedAt: new Date(now - SCORECARD_WINDOW_MS - 1).toISOString(),
-				},
-			],
-			now,
-		),
-	).toEqual([
-		{
-			runner: "claude",
-			idle: null,
-			started: 0,
-			succeeded: 0,
-			landedUnverified: 0,
-			cancelled: 0,
-			failed: 0,
-			orphaned: 0,
-			commits: 0,
-			held: null,
-			supervisorKills: null,
-		},
-	]);
 });

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { WorkAttemptProjectionSchema } from "@tedix/api-contract/schemas/work-items";
+import { retryWorkRead, workRetryDelay } from "@/lib/work-refresh";
 import { ActivityRunningNow } from "./activity-running-now";
 
 const api = vi.hoisted(() => ({ attempts: vi.fn(), health: vi.fn() }));
@@ -98,7 +99,12 @@ async function flush(ms = 5) {
 	});
 }
 async function mount(selected?: string) {
-	client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	// The app's own read retry policy (router.tsx).
+	client = new QueryClient({
+		defaultOptions: {
+			queries: { retry: retryWorkRead, retryDelay: workRetryDelay },
+		},
+	});
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
@@ -261,8 +267,7 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 		[...scorecard.querySelectorAll("tbody tr")].find(
 			(tr) => tr.firstElementChild?.textContent === "codex",
 		)?.textContent;
-	expect(cells()).toBe("codex2010UnknownUnknown0Unknown");
-	expect(scorecard.textContent).not.toContain("Counts are unknown");
+	expect(cells()).toBe("codex2010");
 	expect(
 		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
 	).toHaveLength(2);
@@ -272,12 +277,11 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 		lane: true,
 		settlement: {
 			mode: "commit",
-			commitSha: "a".repeat(40),
 			commitShas: ["a".repeat(40)],
 		},
 	};
 	await flush(30_020);
-	expect(cells()).toBe("codex2110UnknownUnknown1Unknown");
+	expect(cells()).toBe("codex2111");
 });
 
 it("keeps forbidden history unknown and recovers through manual retry", async () => {
@@ -291,11 +295,11 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 	await mount();
 	await openScorecard();
 	expect(host.textContent).toContain("Runner scorecard unavailable");
-	expect(host.textContent).toContain("Counts are unknown");
-	const cells = host.querySelector(
-		'section[aria-label="Runner scorecard"] tbody tr',
-	)?.textContent;
-	expect(cells).toBe(`codex${"Unknown".repeat(8)}`);
+	// No partial counts while history is unreadable.
+	expect(host.textContent).toContain("Counting runner attempts");
+	expect(
+		host.querySelector('section[aria-label="Runner scorecard"] table'),
+	).toBeNull();
 	const recovered = row();
 	recovered.attempt.externalSessionKey = "codex:recovered-session";
 	api.attempts.mockResolvedValue({
@@ -315,5 +319,5 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 	expect(
 		host.querySelector('section[aria-label="Runner scorecard"] tbody tr')
 			?.textContent,
-	).toBe("codex1000UnknownUnknown0Unknown");
+	).toBe("codex1000");
 });

@@ -91,9 +91,12 @@ export function ActivityRunningNow({
 			now.getTime() - Date.parse(lane.duty?.observedAt ?? lane.observedAt) <=
 				lane.staleAfterSeconds * 1000,
 	);
-	const runners = fresh.filter(
-		(lane) => lane.duty?.kind !== "task" && lane.lane !== "supervisor-lead",
-	);
+	// The supervisor reports its own lane; it is not a runner.
+	const supervisor = (lane: (typeof reports)[number]) =>
+		lane.lane === "supervisor" ||
+		lane.lane === "supervisor-lead" ||
+		lane.duty?.kind === "task";
+	const runners = fresh.filter((lane) => !supervisor(lane));
 	const up = runners.filter(
 		(lane) => lane.running && (!lane.duty || lane.duty.state === "running"),
 	);
@@ -203,12 +206,7 @@ export function ActivityRunningNow({
 								{reports.length > fresh.length
 									? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
 									: ""}
-								{!healthFailed &&
-								fresh.some(
-									(lane) =>
-										lane.lane === "supervisor-lead" ||
-										lane.duty?.kind === "task",
-								)
+								{!healthFailed && fresh.some(supervisor)
 									? " · Supervisor reporting"
 									: " · Supervisor: unknown"}
 								{lastReport && (
@@ -234,11 +232,7 @@ export function ActivityRunningNow({
 							)}
 
 							{scorecard && (
-								<ActivityHarnessScorecard
-									scopes={scopes}
-									reports={healthFailed ? [] : reports}
-									now={now.getTime()}
-								/>
+								<ActivityHarnessScorecard scopes={scopes} now={now.getTime()} />
 							)}
 						</CollapsibleDefaultContent>
 					</Collapsible>

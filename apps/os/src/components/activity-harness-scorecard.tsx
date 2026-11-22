@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { DispatcherHealthReport } from "@tedix/api-contract/schemas/dispatcher-health";
 import { osQuery } from "@/lib/os-query-options";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import {
@@ -79,11 +78,9 @@ function ScorecardSource({
 
 export function ActivityHarnessScorecard({
 	scopes,
-	reports,
 	now,
 }: {
 	scopes: (string | undefined)[];
-	reports: DispatcherHealthReport[];
 	now: number;
 }) {
 	const [sources, setSources] = useState<Record<string, ScopeState>>({});
@@ -94,12 +91,11 @@ export function ActivityHarnessScorecard({
 	);
 	const selected = scopes.map((scope) => sources[scope ?? "organization"]);
 	const incomplete = selected.some((source) => !source || source.incomplete);
-	const fleetScope = scopes.length === 1 && scopes[0] === undefined;
 	const rows = aggregateHarnessScorecard(
 		selected.flatMap((source) => source?.rows ?? []),
-		reports,
 		now,
 	);
+	const numeric = "w-px text-right tabular-nums";
 	return (
 		<section aria-label="Runner scorecard" className="grid min-w-0 gap-2">
 			{scopes.map((projectId) => (
@@ -110,85 +106,45 @@ export function ActivityHarnessScorecard({
 					onUpdate={onUpdate}
 				/>
 			))}
-			<Table
-				scrollLabel="Runner scorecard for the last 24 hours"
-				className="w-full table-fixed [&_th]:whitespace-normal [&_th]:break-words [&_th]:px-1 [&_td]:whitespace-normal [&_td]:break-words [&_td]:px-1"
-			>
-				<TableHeader>
-					<TableRow>
-						{[
-							["Runner", "9%"],
-							["Started", "6%"],
-							["Succeeded", "9%"],
-							["Landed, not verified", "12%"],
-							["Cancelled", "8%"],
-							["Failed", "6%"],
-							["Orphaned*", "9%"],
-							["Held", "5%"],
-							["Supervisor kills", "10%"],
-							["Commits on main†", "11%"],
-							["Idle · current blockers", "15%"],
-						].map(([label, width]) => (
-							<TableHead key={label} scope="col" style={{ width }}>
-								{label}
-							</TableHead>
-						))}
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{rows.map((row) => (
-						<TableRow key={row.runner}>
-							<TableCell>{row.runner}</TableCell>
-							{[
-								row.started,
-								row.succeeded,
-								row.landedUnverified,
-								row.cancelled,
-								row.failed,
-								row.orphaned,
-							].map((value, index) => (
-								<TableCell key={index}>
-									{incomplete ? "Unknown" : value}
-								</TableCell>
+			{incomplete ? (
+				<Text tone="secondary">Counting runner attempts…</Text>
+			) : rows.length ? (
+				<Table
+					scrollLabel="Runner scorecard for the last 24 hours"
+					className="w-full [&_td]:px-1 [&_th]:px-1 sm:[&_td]:px-2 sm:[&_th]:px-2"
+				>
+					<TableHeader>
+						<TableRow>
+							<TableHead scope="col">Runner</TableHead>
+							{["Started", "Done", "Failed", "Commits"].map((label) => (
+								<TableHead key={label} scope="col" className={numeric}>
+									{label}
+								</TableHead>
 							))}
-							<TableCell>
-								{fleetScope ? (row.held ?? "Unknown") : "Unknown"}
-							</TableCell>
-							<TableCell>
-								{fleetScope ? (row.supervisorKills ?? "Unknown") : "Unknown"}
-							</TableCell>
-							<TableCell>{incomplete ? "Unknown" : row.commits}</TableCell>
-							<TableCell>
-								{fleetScope && row.idle
-									? `${row.idle.held} held; ${row.idle.waitingOnPerson} waiting on person; ${row.idle.noCoordinator} no coordinator; ${row.idle.other} other`
-									: "Unknown"}
-							</TableCell>
 						</TableRow>
-					))}
-				</TableBody>
-			</Table>
-			{!rows.length && (
+					</TableHeader>
+					<TableBody>
+						{rows.map((row) => (
+							<TableRow key={row.runner}>
+								<TableCell className="whitespace-normal break-all">
+									{row.runner}
+								</TableCell>
+								{[row.started, row.done, row.failed, row.commits].map(
+									(value, index) => (
+										<TableCell key={index} className={numeric}>
+											{value}
+										</TableCell>
+									),
+								)}
+							</TableRow>
+						))}
+					</TableBody>
+				</Table>
+			) : (
 				<Text tone="secondary">
-					{incomplete
-						? "Checking runner attempts…"
-						: "No runner attempts or reports in the last 24 hours."}
+					No runner started work in the last 24 hours.
 				</Text>
 			)}
-			{incomplete && (
-				<Text role="caption">
-					Counts are unknown until all pages load successfully.
-				</Text>
-			)}
-			<Text role="caption" tone="secondary">
-				Attempts started in the last 24 h; outcomes as of now. *Orphaned counts
-				expired Attempts and unsettled Attempts with elapsed leases, not
-				confirmed process exits. Held counts Work revisions placed on hold;
-				supervisor kills count lease-guard stop signals. These require fresh
-				health reports covering 24 h; legacy, warming and project-scoped counts
-				are unknown. †Unique dispatcher settlement commit receipts for these
-				Attempts; existing fixes are excluded. Idle blockers use the latest
-				complete runner report.
-			</Text>
 		</section>
 	);
 }
