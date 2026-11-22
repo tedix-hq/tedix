@@ -893,6 +893,7 @@
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
+        "acorn": "8.19.0",
       },
       "devDependencies": {
         "@cloudflare/codemode": "catalog:",

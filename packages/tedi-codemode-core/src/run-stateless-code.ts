@@ -4,6 +4,7 @@ import {
 	sanitizeToolName,
 	ToolDispatcher,
 } from "@cloudflare/codemode";
+import { type Expression, parse, type SpreadElement } from "acorn";
 
 export interface StatelessCodeModeRunOptions {
 	code: string;
@@ -177,22 +178,73 @@ function literalToolCall(code: string, providers: ResolvedProvider[]) {
 	const entry = functions[0];
 	if (functions.length !== 1 || !entry) return;
 	try {
-		// Parse data only. Expressions, extra calls and statements stay sandboxed.
-		const args = argument.trim()
-			? [
-					JSON.parse(argument, (key, value) => {
-						if (key === "__proto__")
-							throw new Error(
-								"Prototype literal requires JavaScript semantics",
-							);
-						return value;
-					}),
-				]
-			: [];
+		let args: unknown[] = [];
+		if (argument.trim()) {
+			const program = parse(`(${argument})`, {
+				ecmaVersion: "latest",
+				// The SDK executes code inside a strict class method.
+				sourceType: "module",
+			});
+			const statement = program.body[0];
+			if (
+				program.body.length !== 1 ||
+				statement?.type !== "ExpressionStatement"
+			)
+				return;
+			args = [literalValue(statement.expression)];
+		}
 		return { fn: entry[1], args: JSON.stringify(args) };
 	} catch {
 		return;
 	}
+}
+
+/** Decode data syntax without evaluating expressions or invoking user code. */
+function literalValue(
+	node: Expression | SpreadElement | null,
+	depth = 0,
+): unknown {
+	if (node && depth < 100) {
+		if (
+			node.type === "Literal" &&
+			(node.value === null ||
+				typeof node.value === "string" ||
+				typeof node.value === "boolean" ||
+				(typeof node.value === "number" && Number.isFinite(node.value)))
+		)
+			return node.value;
+		if (
+			node.type === "UnaryExpression" &&
+			node.operator === "-" &&
+			node.argument.type === "Literal" &&
+			typeof node.argument.value === "number" &&
+			Number.isFinite(node.argument.value)
+		)
+			return -node.argument.value;
+		if (node.type === "ArrayExpression")
+			return node.elements.map((element) => literalValue(element, depth + 1));
+		if (node.type === "ObjectExpression")
+			return Object.fromEntries(
+				node.properties.map((property) => {
+					if (
+						property.type !== "Property" ||
+						property.kind !== "init" ||
+						property.computed ||
+						property.method ||
+						property.shorthand
+					)
+						throw new Error("Requires sandbox execution");
+					const key =
+						property.key.type === "Identifier"
+							? property.key.name
+							: String(literalValue(property.key, depth + 1));
+					if (key === "__proto__")
+						throw new Error("Prototype literal requires JavaScript semantics");
+					return [key, literalValue(property.value, depth + 1)];
+				}),
+			);
+	}
+	throw new Error("Requires sandbox execution");
 }
 
 function decodeBinaryResult(_key: string, value: unknown): unknown {

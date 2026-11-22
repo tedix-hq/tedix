@@ -16,6 +16,7 @@ describe("runStatelessCodeMode", () => {
 	it.each([
 		'async () => await scope.echo({"marker":"request"})',
 		'async () => { return await scope.echo({"marker":"request"}); };',
+		"async () => scope.echo({ marker: 'request', })",
 	])(
 		"dispatches a literal call without constructing a worker: %s",
 		async (code) => {
@@ -40,6 +41,12 @@ describe("runStatelessCodeMode", () => {
 		"async () => scope.echo((globalThis.secret = 1))",
 		"async () => { return scope.echo({}); scope.echo({}); }",
 		'async () => scope.echo({"a":1}, scope.echo({}))',
+		"async () => scope.echo({ [scope.echo()]: 1 })",
+		"async () => scope.echo({ get value() { return scope.echo(); } })",
+		"async () => scope.echo({ ...scope.echo() })",
+		"async () => scope.echo({ __proto__: {} })",
+		"async () => scope.echo(010)",
+		"async () => scope.echo('\\1')",
 	])(
 		"leaves JavaScript expressions and statements in the sandbox: %s",
 		async (code) => {
@@ -56,6 +63,24 @@ describe("runStatelessCodeMode", () => {
 			expect(execute).toHaveBeenCalledOnce();
 		},
 	);
+
+	it("decodes nested JavaScript data literals without a worker", async () => {
+		const execute = vi.fn();
+		const echo = vi.fn(async (value) => value);
+		const result = await runStatelessCodeMode({
+			code: "async () => scope.echo({ values: [null, true, false, -1.5, 0xff, 'line\\nnext',], nested: { constructor: 'data' }, duplicate: 1, duplicate: 2 })",
+			executor: { execute } as never,
+			timeoutMs: 1000,
+			providers: [{ name: "scope", fns: { echo } }],
+		});
+		expect(result.result).toEqual({
+			values: [null, true, false, -1.5, 255, "line\nnext"],
+			nested: { constructor: "data" },
+			duplicate: 2,
+		});
+		expect(echo).toHaveBeenCalledOnce();
+		expect(execute).not.toHaveBeenCalled();
+	});
 
 	it("keeps request providers separate and preserves binary serialization", async () => {
 		const execute = vi.fn();
