@@ -140,6 +140,7 @@ export async function composeCognitiveAddenda(input: {
 	const turnKind = classifyContextTurn({
 		isLeanContextSession: isLeanContextSession(input.sessionKey),
 		isHomeDelegationWorkOrder: input.homeWorkOrder === true,
+		isCommitmentWake: input.sessionKey?.startsWith("commitments:") === true,
 	});
 	const blocks = contextSegmentsForTurn(turnKind);
 	type BuiltBlock = {

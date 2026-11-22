@@ -424,3 +424,42 @@ for (const sessionKey of [
 	assert.match(text, /not continued work/);
 	assert.match(text, /reask once/);
 }
+
+// A background commitment notification must not search memory or expand the
+// whole task history. Its prompt already names the canonical objects to read.
+{
+	let memoryReads = 0;
+	const sources: CognitiveAddendaSources = {
+		directives: async () => "Applicable directive",
+		brainDigest: async () => {
+			memoryReads++;
+			return "Unrelated remembered task ".repeat(6_000);
+		},
+		skillGuidance: async () => "Operational guidance",
+		retrievedSkills: async () => "Relevant procedure",
+	};
+	const ordinary = await composeCognitiveAddenda({
+		sessionKey: "agent:main:main",
+		sources,
+		onComposition: () => {},
+	});
+	assert.equal(memoryReads, 1);
+	for (let wake = 0; wake < 2; wake++) {
+		const text = await composeCognitiveAddenda({
+			sessionKey: "commitments:worker",
+			sources,
+			onComposition: (report) => {
+				assert.equal(
+					report.blocks.find((block) => block.name === "brainDigest")?.status,
+					"withheld",
+				);
+			},
+		});
+		assert.equal(memoryReads, 1, "neither wake invokes memory retrieval");
+		assert.ok(!text.includes("Unrelated remembered task"));
+		assert.ok(text.includes("Applicable directive"));
+		assert.ok(text.includes("Operational guidance"));
+		assert.ok(text.includes("Relevant procedure"));
+		assert.ok(text.length < ordinary.length / 100);
+	}
+}

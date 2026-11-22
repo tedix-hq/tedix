@@ -270,6 +270,11 @@ export async function listCommitmentChanges(
 					e.event_type = 'attempt.settled' AND e.actor_type = 'external_agent'
 					AND json_extract(e.payload, '$.outcome') = 'succeeded'))
 				AND NOT (e.actor_type = 'tedi' AND e.actor_id = t.id)
+				AND (e.event_type NOT IN ('lane.stale', 'attempt.expired') OR NOT EXISTS (
+					SELECT 1 FROM work_attempts a INDEXED BY uniq_work_attempt_number
+					WHERE a.org_id = w.org_id AND a.work_item_id = w.id
+						AND a.runtime_state = 'running' AND a.expires_at > ${through}
+						AND a.heartbeat_at > e.occurred_at))
 				AND (e.event_type IN ('work.accepted', 'work.specification_updated', 'attempt.expired', 'lane.stale')
 					OR (e.event_type = 'attempt.settled' AND (
 						json_extract(e.payload, '$.outcome') = 'failed'

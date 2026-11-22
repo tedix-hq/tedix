@@ -43,6 +43,8 @@ export type ContextSegmentId = (typeof CONTEXT_SEGMENT_IDS)[number];
  * - `home-delegation-work-order` — an explicit, bounded operator work order.
  *   Keeps identity, memory and operational guidance, but withholds learned
  *   preferences so a loosely matching directive cannot redirect the order.
+ * - `commitment-wake` — read the changed canonical objects supplied by the
+ *   scheduler. Keeps guidance without recalling unrelated memory and tasks.
  * - `lean` — blind verification (an evidence judge that must receive NO
  *   accumulated belief, or the verdict is contaminated) and lean workflow
  *   synthesis (self-contained summarization whose whole input is already in the
@@ -51,6 +53,7 @@ export type ContextSegmentId = (typeof CONTEXT_SEGMENT_IDS)[number];
 export const CONTEXT_TURN_KINDS = [
 	"standard",
 	"home-delegation-work-order",
+	"commitment-wake",
 	"lean",
 ] as const;
 
@@ -86,6 +89,11 @@ export const CONTEXT_SEGMENT_CATALOG: readonly ContextSegmentDefinition[] = [
 		purpose:
 			"Cached top-K brain digest — the tedi's accumulated beliefs about its world.",
 		withheldFrom: [
+			{
+				kind: "commitment-wake",
+				because:
+					"A commitment wake supplies changed canonical objects to read, not a reason to recall the tedi's entire brain and task history.",
+			},
 			{
 				kind: "lean",
 				because:
@@ -137,7 +145,7 @@ export function contextSegmentsForTurn(
 }
 
 /**
- * Classify a turn from the two signals the runtime already has.
+ * Classify a turn from the runtime's session and dispatch signals.
  *
  * `lean` wins over everything: it is a correctness boundary (a contaminated
  * blind verdict is worse than a missing one), whereas the work-order rule is a
@@ -146,8 +154,10 @@ export function contextSegmentsForTurn(
 export function classifyContextTurn(input: {
 	isLeanContextSession: boolean;
 	isHomeDelegationWorkOrder: boolean;
+	isCommitmentWake?: boolean;
 }): ContextTurnKind {
 	if (input.isLeanContextSession) return "lean";
 	if (input.isHomeDelegationWorkOrder) return "home-delegation-work-order";
+	if (input.isCommitmentWake) return "commitment-wake";
 	return "standard";
 }

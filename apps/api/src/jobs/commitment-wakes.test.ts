@@ -132,7 +132,7 @@ describe("commitment wakes", () => {
 			try {
 				sqlite.exec(`
 				INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id) VALUES
-				('personal','org-one','Personal','personal','active','personal','provider-user'),
+				('personal','org-one','Personal','personal','active','personal','human'),
 				('steward','org-one','Steward','steward','active','organization',null);
 				INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status)
 				VALUES ('member','org-one','human','provider-user','human@example.test','active');
@@ -177,7 +177,7 @@ describe("commitment wakes", () => {
 			const { db, sqlite } = fixture();
 			try {
 				sqlite.exec(`
-    INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id) VALUES ('personal','org-one','Personal','personal','active','personal','provider-user');
+    INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id) VALUES ('personal','org-one','Personal','personal','active','personal','human');
     INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status) VALUES ('member','org-one','human','provider-user','human@example.test','active');
     INSERT INTO work_items(id,org_id,title,created_at,accepted_at,disposition,accountable_owner_type,accountable_owner_id,work_kind) VALUES ('engineering','org-one','Repair service','2026-10-10T08:01:00.000Z','2026-10-10T08:01:00.000Z','accepted','user','human','coding');
    `);
@@ -221,7 +221,7 @@ describe("commitment wakes", () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`
 		INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id)
-		VALUES ('personal','org-one','Personal','personal','active','personal','provider-user');
+		VALUES ('personal','org-one','Personal','personal','active','personal','human');
 		INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status)
 		VALUES ('member','org-one','human','provider-user','human@example.test','active');
 		INSERT INTO work_items(id,org_id,title,created_at,accepted_at,disposition,accountable_owner_type,accountable_owner_id)
@@ -1441,3 +1441,45 @@ it("wakes the project's lead tedi for a lane without a Work-level owner", async 
 		),
 	).toEqual(["worker-1"]);
 });
+
+it.each(["lane.stale", "attempt.expired"])(
+	"skips a recovered %s notification without starting an AI turn",
+	async (eventType) => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite
+			.prepare(`INSERT INTO work_events
+			(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at)
+			VALUES ('stale','org-1','work-1',?,'system','runtime',?)`)
+			.run(eventType, changedAt);
+		expect(
+			await listCommitmentChanges(db, after, through, "test"),
+		).toHaveLength(1);
+		sqlite.exec(`INSERT INTO work_attempts
+			(id,org_id,work_item_id,executor_type,executor_id,attempt_number,started_at,heartbeat_at,expires_at)
+			VALUES ('recovered','org-1','work-1','tedi','worker-1',1,
+			'${after}','2026-10-16T12:01:30.000Z','2026-10-16T12:10:00.000Z')`);
+		const fetch = vi.fn();
+		vi.spyOn(Date, "now").mockReturnValue(Date.parse(through) + 30_000);
+		try {
+			const counts = await dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "test",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			);
+			expect(counts).toMatchObject({ observed: 0, dispatched: 0 });
+			expect(fetch).not.toHaveBeenCalled();
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		} finally {
+			vi.restoreAllMocks();
+		}
+		// An expired lease cannot suppress a genuine recovery notification.
+		sqlite.prepare("UPDATE work_attempts SET expires_at=?").run(through);
+		expect(
+			await listCommitmentChanges(db, after, through, "test"),
+		).toHaveLength(1);
+	},
+);
