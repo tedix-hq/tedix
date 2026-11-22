@@ -1284,7 +1284,7 @@ describe("Request and case identity presentation", () => {
 						subject: "Review sample deployment",
 						creatorType: "user",
 						creatorId: "sample-owner",
-						metadata: {},
+						metadata: { triage: { urgency: "now" } },
 						workItemId: "sample-work",
 					},
 					workItem: { id: "sample-work", title: "Review sample deployment" },

@@ -13,7 +13,7 @@ import {
 	goalEpicListQueryOptions,
 	goalListQueryOptions,
 	projectPortfolioQueryOptions,
-	workOfficeKnocksQueryOptions,
+	workNeedsYouInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import { Route as WorkIndexRoute } from "@/routes/_session/_tenant/work.index";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
@@ -205,7 +205,7 @@ function seededClient({
 		data: factories,
 		since: "2026-09-03T00:00:00.000Z",
 	});
-	queryClient.setQueryData(workOfficeKnocksQueryOptions().queryKey, {
+	queryClient.setQueryData(workNeedsYouInteractionsQueryOptions().queryKey, {
 		data: interactions,
 		nextCursor: null,
 		hasMore: false,

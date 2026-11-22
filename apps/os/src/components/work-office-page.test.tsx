@@ -48,7 +48,7 @@ function seeded() {
 	seed(
 		workUrgentInteractionsQueryOptions().queryKey,
 		"workInteractions/listInbox",
-		{ limit: 100, states: ["open"], urgency: "now" },
+		{ limit: 100, states: ["open"] },
 	);
 	seed(tediRosterQueryOptions(100).queryKey, "tedis/list", { limit: 100 });
 	seed(notebookLessonsQueryOptions().queryKey, "agentTurnTriage/listLessons", {

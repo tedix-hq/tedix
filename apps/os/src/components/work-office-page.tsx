@@ -182,12 +182,18 @@ export function OfficeSummarySentence({
 }
 
 function useTodayKnocks(since: string) {
-	const knocks = useQuery(workOfficeKnocksQueryOptions());
-	const rows = (knocks.data?.data ?? []).filter(
-		(row) =>
-			decisionCaptureSummary(row.request.metadata) &&
-			isToday(row.request.requestedAt, since),
-	);
+	const knocks = useQuery({
+		...workOfficeKnocksQueryOptions(),
+		select: (page) => ({
+			...page,
+			data: page.data.filter(
+				(row) =>
+					decisionCaptureSummary(row.request.metadata) &&
+					isToday(row.request.requestedAt, since),
+			),
+		}),
+	});
+	const rows = knocks.data?.data ?? [];
 	return {
 		knocks,
 		rows,

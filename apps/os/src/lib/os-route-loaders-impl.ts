@@ -15,7 +15,6 @@ import {
 	paymentsSummaryInput,
 } from "@/lib/admin-payments-search";
 import {
-	agentSessionRequestsQueryOptions,
 	activeOutputLibraryQueryOptions,
 	appListQueryOptions,
 	activeWorkspacesQueryOptions,
@@ -103,7 +102,6 @@ import {
 	workCaseListQueryOptions,
 	workFleetQueryOptions,
 	dispatcherHealthQueryOptions,
-	workNeedsYouInteractionsQueryOptions,
 	workPendingApprovalsQueryOptions,
 	workResourcePoolsQueryOptions,
 	workspacePreferencesQueryOptions,
@@ -766,15 +764,6 @@ export async function prefetchWorkApprovalsRoute(queryClient: QueryClient) {
 		queryClient.ensureQueryData(workPendingApprovalsQueryOptions()),
 		queryClient.ensureQueryData(workApprovalsQueryOptions()),
 	]);
-}
-
-/** Start independent sources together; the page renders each as it arrives. */
-export function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
-	void queryClient.prefetchQuery(workFleetQueryOptions());
-	void queryClient.prefetchQuery(workNeedsYouInteractionsQueryOptions());
-	void queryClient.prefetchQuery(agentSessionRequestsQueryOptions());
-	void queryClient.prefetchQuery(workPendingApprovalsQueryOptions());
-	void queryClient.prefetchQuery(pendingApprovalsQueryOptions());
 }
 
 export async function prefetchWorkCapacityRoute(queryClient: QueryClient) {

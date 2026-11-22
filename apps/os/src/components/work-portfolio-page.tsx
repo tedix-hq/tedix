@@ -59,7 +59,7 @@ import {
 	goalEpicListQueryOptions,
 	goalListQueryOptions,
 	projectPortfolioQueryOptions,
-	workOfficeKnocksQueryOptions,
+	workNeedsYouInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	isProjectOverdue,
@@ -888,7 +888,7 @@ export function PortfolioApp({
 		goalEpics.fetchNextPage,
 	]);
 	const inbox = useQuery({
-		...workOfficeKnocksQueryOptions(),
+		...workNeedsYouInteractionsQueryOptions(),
 		refetchOnWindowFocus: false,
 	});
 	const [query, setQuery] = useState("");

@@ -1,5 +1,7 @@
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
-import type { QueryClient } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
+import * as z from "zod";
+import { pollingBackoff } from "@/lib/polling-backoff";
 import { createOsInspectionApi, osApi } from "@/lib/api";
 import { readWorkRunSteps, WORK_RUN_STEP_PAGE } from "@/lib/work-run-steps";
 import {
@@ -1001,32 +1003,46 @@ export const firstDecisionPageOptions = (projectId?: string, limit = 50) =>
 		input: { projectId, limit: Math.min(limit, 5), states: ["open"] },
 	});
 
-export const WORK_URGENT_INTERACTIONS_LIMIT = 20;
-
-/** Open requests addressed to the caller that triage marked as needing them now. */
-export const workUrgentInteractionsQueryOptions = () =>
-	osQuery.workInteractions.listInbox.queryOptions({
-		input: {
-			limit: WORK_URGENT_INTERACTIONS_LIMIT,
-			states: ["open"],
-			urgency: "now",
-		},
-	});
-
 /** The open requests addressed to the caller: the Needs you list and its count. */
 export const workNeedsYouInteractionsQueryOptions = () =>
 	osQuery.workInteractions.listInbox.queryOptions({
 		input: { limit: 100, states: ["open"] },
+		refetchInterval: (query) => pollingBackoff(query, 30_000, 300_000),
 	});
 
-/** Polled so a new knock shows up in the office within half a minute. */
+const inboxUrgencyMetadata = z.object({
+	notification: z
+		.object({ state: z.string().optional() })
+		.nullish()
+		.catch(null),
+	attention: z.object({ kind: z.string().optional() }).nullish().catch(null),
+	triage: z.object({ urgency: z.string().optional() }).nullish().catch(null),
+});
+
+/** Match the server's urgency precedence without a second inbox request. */
+export const workUrgentInteractionsQueryOptions = () =>
+	queryOptions({
+		...workNeedsYouInteractionsQueryOptions(),
+		select: (page) => ({
+			...page,
+			data: page.data.filter(({ request }) => {
+				const metadata = inboxUrgencyMetadata.parse(request.metadata);
+				return (
+					metadata.notification?.state === "immediate" ||
+					(metadata.attention?.kind !== "fyi" &&
+						metadata.triage?.urgency === "now")
+				);
+			}),
+		}),
+	});
+
 export const WORK_OFFICE_REFETCH_MS = 30_000;
 
-/** The caller's newest inbox page: the office counts today's knocks from it. */
+/** Include resolved requests so answers do not disappear from today's totals. */
 export const workOfficeKnocksQueryOptions = () =>
 	osQuery.workInteractions.listInbox.queryOptions({
 		input: { limit: 100 },
-		refetchInterval: WORK_OFFICE_REFETCH_MS,
+		refetchInterval: (query) => pollingBackoff(query, 30_000, 300_000),
 		refetchOnWindowFocus: true,
 	});
 

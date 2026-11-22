@@ -17,12 +17,98 @@ import {
 	workReadinessProjectionQueryOptions,
 	workEvidencePreviewQueryOptions,
 	userPreferencesQueryOptions,
+	workNeedsYouInteractionsQueryOptions,
+	workUrgentInteractionsQueryOptions,
+	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
 
 const ORG = "00000000-0000-4000-8000-000000000001";
 const APP = "00000000-0000-4000-8000-0000000000a1";
 
 describe("canonical OS Query definitions", () => {
+	it("shares the open inbox fetch while projecting urgent requests without changing the cache", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const page = {
+			data: [
+				{ request: { id: "urgent", metadata: { triage: { urgency: "now" } } } },
+				{ request: { id: "later", metadata: {} } },
+				{
+					request: {
+						id: "fyi",
+						metadata: {
+							triage: { urgency: "now" },
+							attention: { kind: "fyi" },
+						},
+					},
+				},
+				{
+					request: {
+						id: "notification",
+						metadata: {
+							notification: { state: "immediate" },
+							attention: { kind: "fyi" },
+						},
+					},
+				},
+				{ request: { id: "malformed", metadata: { triage: "bad" } } },
+			],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: "2026-11-22T12:00:00Z",
+		};
+		const read = vi.fn().mockResolvedValue(page);
+		const inbox = new QueryObserver(client, {
+			...workNeedsYouInteractionsQueryOptions(),
+			queryFn: read,
+		});
+		const urgent = new QueryObserver(client, {
+			...workUrgentInteractionsQueryOptions(),
+			queryFn: read,
+		});
+		const stopInbox = inbox.subscribe(() => {});
+		const stopUrgent = urgent.subscribe(() => {});
+		try {
+			await inbox.refetch();
+			expect(read).toHaveBeenCalledTimes(1);
+			expect(
+				urgent.getCurrentResult().data?.data.map((row) => row.request.id),
+			).toEqual(["urgent", "notification"]);
+			expect(inbox.getCurrentResult().data).toEqual(page);
+			expect(client.getQueryCache().getAll()).toHaveLength(1);
+		} finally {
+			stopInbox();
+			stopUrgent();
+			client.clear();
+		}
+	});
+
+	it.each([workNeedsYouInteractionsQueryOptions, workOfficeKnocksQueryOptions])(
+		"backs off unchanged inbox reads and resets when data changes",
+		(options) => {
+			const client = new QueryClient();
+			const interval = new QueryObserver(client, options()).options
+				.refetchInterval;
+			if (typeof interval !== "function")
+				throw new Error("Expected adaptive polling");
+			const query = client.getQueryCache().build(client, options());
+			expect(interval(query)).toBe(30_000);
+			for (const delay of [60_000, 120_000, 240_000, 300_000, 300_000]) {
+				query.setState({ dataUpdateCount: query.state.dataUpdateCount + 1 });
+				expect(interval(query)).toBe(delay);
+			}
+			query.setData({
+				data: [],
+				hasMore: false,
+				nextCursor: null,
+				observedAt: "2026-11-22T12:00:00Z",
+			});
+			expect(interval(query)).toBe(30_000);
+			client.clear();
+		},
+	);
+
 	it("keys private artifact review targets by tedi and exact artifact", () => {
 		const first = artifactReleaseTargetQueryOptions(
 			"tedi-a",

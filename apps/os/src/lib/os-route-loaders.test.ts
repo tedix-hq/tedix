@@ -134,7 +134,6 @@ import {
 	optionalUuidSearchParam,
 	prefetchBlueprintsRoute,
 	prefetchWorkQueueRoute,
-	prefetchWorkNeedsYouRoute,
 	prefetchWorkPortfolioRoute,
 	prefetchWorkAttemptsRoute,
 	prefetchWorkRecoveryRoute,
@@ -189,9 +188,7 @@ import {
 	workflowDefinitionHealthQueryOptions,
 	workflowRunInspectQueryOptions,
 	workFleetQueryOptions,
-	workNeedsYouInteractionsQueryOptions,
 	workPendingApprovalsQueryOptions,
-	agentSessionRequestsQueryOptions,
 	projectPortfolioQueryOptions,
 	workReadinessProjectionQueryOptions,
 	workAttemptProjectionQueryOptions,
@@ -1000,49 +997,5 @@ describe("list-route prefetchers", () => {
 
 		await expect(prefetchTeamRoute(queryClient)).resolves.toBeUndefined();
 		expect(api.listTediSummaries).not.toHaveBeenCalled();
-	});
-});
-
-describe("Needs you first paint", () => {
-	it("shares pending approval, ledger and fleet reads without blocking ready questions", async () => {
-		const queryClient = client();
-		let resolveFleet!: (value: unknown) => void;
-		let resolveApprovals!: (value: unknown) => void;
-		let resolveLedger!: (value: unknown) => void;
-		api.getControlTower.mockImplementationOnce(
-			() =>
-				new Promise((resolve) => {
-					resolveFleet = resolve;
-				}),
-		);
-		api.listWorkApprovals.mockImplementationOnce(
-			() =>
-				new Promise((resolve) => {
-					resolveApprovals = resolve;
-				}),
-		);
-		api.listSessionRequests.mockImplementationOnce(
-			() =>
-				new Promise((resolve) => {
-					resolveLedger = resolve;
-				}),
-		);
-		expect(prefetchWorkNeedsYouRoute(queryClient)).toBeUndefined();
-		await expect(
-			queryClient.ensureQueryData(workNeedsYouInteractionsQueryOptions()),
-		).resolves.toEqual({ data: [] });
-		const fleet = queryClient.fetchQuery(workFleetQueryOptions());
-		const approvals = queryClient.fetchQuery(
-			workPendingApprovalsQueryOptions(),
-		);
-		const ledger = queryClient.fetchQuery(agentSessionRequestsQueryOptions());
-		expect(api.getControlTower).toHaveBeenCalledTimes(1);
-		expect(api.listWorkApprovals).toHaveBeenCalledTimes(1);
-		expect(api.listSessionRequests).toHaveBeenCalledTimes(1);
-		resolveFleet({ attention: { actions: [] } });
-		resolveApprovals({ data: [] });
-		resolveLedger({ data: [] });
-		await Promise.all([fleet, approvals, ledger]);
-		queryClient.clear();
 	});
 });

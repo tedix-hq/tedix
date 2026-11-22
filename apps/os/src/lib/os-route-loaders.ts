@@ -134,14 +134,6 @@ export const prefetchWorkApprovalsRoute = demandLoaded(
 	"prefetchWorkApprovalsRoute",
 );
 
-export function prefetchWorkNeedsYouRoute(
-	...args: Parameters<Loaders["prefetchWorkNeedsYouRoute"]>
-): void {
-	void loadRouteLoaders().then((loaders) =>
-		loaders.prefetchWorkNeedsYouRoute(...args),
-	);
-}
-
 export const prefetchWorkCapacityRoute = demandLoaded(
 	"prefetchWorkCapacityRoute",
 );
