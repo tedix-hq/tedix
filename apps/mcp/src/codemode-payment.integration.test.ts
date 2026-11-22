@@ -7,6 +7,11 @@ import { clientSupportsMcpApps } from "./mcp/client-apps-capability";
 
 vi.mock("./mcp/code-run-admission", () => ({
 	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+	executeMeteredCodeMode: ({
+		execute,
+	}: {
+		execute: (onLoad: () => void) => unknown;
+	}) => execute(() => {}),
 }));
 
 vi.mock("cloudflare:workers", async (importOriginal) => ({

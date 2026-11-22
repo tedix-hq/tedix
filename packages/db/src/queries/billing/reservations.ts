@@ -386,11 +386,14 @@ export async function reserveBillingUsage(
 		input.estimatedInputTokens + input.estimatedOutputTokens;
 	if (
 		!Number.isSafeInteger(estimatedTokens) ||
-		estimatedTokens <= 0 ||
+		(estimatedTokens === 0 && input.credits === undefined) ||
+		estimatedTokens < 0 ||
 		input.estimatedInputTokens < 0 ||
 		input.estimatedOutputTokens < 0
 	)
-		throw new Error("Estimated billing tokens must be positive safe integers");
+		throw new Error(
+			"Estimated billing tokens must be non-negative safe integers; zero requires explicit credits",
+		);
 
 	const preflight = input.preflight;
 	if (

@@ -1,10 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const admitCodeRun = vi.fn();
-vi.mock("@tedix/db/queries/billing/credit-pool", () => ({ admitCodeRun }));
+const getCreditPoolSnapshot = vi.fn();
+const reserveBillingUsage = vi.fn();
+const releaseBillingReservation = vi.fn();
+const recordBillingProviderUsage = vi.fn();
+const settleBillingUsage = vi.fn();
+vi.mock("@tedix/db/queries/billing/reservations", () => ({
+	reserveBillingUsage,
+	releaseBillingReservation,
+}));
+vi.mock("@tedix/db/queries/billing/provider-usage", () => ({
+	recordBillingProviderUsage,
+}));
+vi.mock("@tedix/db/queries/billing/settlement", () => ({ settleBillingUsage }));
+vi.mock("@tedix/db/queries/billing/credit-pool", () => ({
+	admitCodeRun,
+	getCreditPoolSnapshot,
+}));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 
-const { admitCodeModeRun, codeRunRefusalMessage } =
+const { admitCodeModeRun, codeRunRefusalMessage, executeMeteredCodeMode } =
 	await import("./code-run-admission");
 
 const env = {
@@ -133,5 +149,86 @@ describe("code run admission", () => {
 			});
 		}
 		expect(admitCodeRun).not.toHaveBeenCalled();
+	});
+});
+
+describe("Code Mode load billing", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		getCreditPoolSnapshot.mockResolvedValue({
+			creditFx: { microUsdPerEur: 1_000_000 },
+		});
+		reserveBillingUsage.mockResolvedValue({
+			allowed: true,
+			reservation: { id: "reservation-1" },
+		});
+	});
+	const input = {
+		env,
+		organizationId: "org-1",
+		executionId: "exec-metered",
+		timeoutMs: 330_000,
+		caller: { authType: "user" as const, userId: "member-1" },
+	};
+	it("reserves before loading and settles a loaded Worker even when user code fails", async () => {
+		await expect(
+			executeMeteredCodeMode({
+				...input,
+				execute: async (onLoad) => {
+					expect(reserveBillingUsage).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.objectContaining({
+							organizationId: "org-1",
+							userId: "member-1",
+							credits: 1,
+							estimatedInputTokens: 0,
+						}),
+					);
+					onLoad({ method: "load", identity: "anonymous" });
+					throw new Error("user code failed");
+				},
+			}),
+		).rejects.toThrow("user code failed");
+		expect(recordBillingProviderUsage).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				organizationId: "org-1",
+				reservationId: "reservation-1",
+				quantity: 1,
+				providerCostMicros: 2000,
+				metadata: {
+					surface: "gateway_model_code",
+					identity: "anonymous",
+					method: "load",
+				},
+			}),
+		);
+		expect(settleBillingUsage).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				provider: "cloudflare-dynamic-workers",
+				providerCostMicros: 2000,
+				inputTokens: 0,
+				outputTokens: 0,
+			}),
+		);
+		expect(releaseBillingReservation).not.toHaveBeenCalled();
+	});
+	it("releases without charging when the SDK starts no Worker", async () => {
+		await executeMeteredCodeMode({ ...input, execute: async () => "no load" });
+		expect(releaseBillingReservation).toHaveBeenCalled();
+		expect(recordBillingProviderUsage).not.toHaveBeenCalled();
+		expect(settleBillingUsage).not.toHaveBeenCalled();
+	});
+	it("refuses before executing when credits are exhausted", async () => {
+		reserveBillingUsage.mockResolvedValue({
+			allowed: false,
+			code: "monthly_credit_limit_reached",
+		});
+		const execute = vi.fn();
+		await expect(executeMeteredCodeMode({ ...input, execute })).rejects.toThrow(
+			"monthly_credit_limit_reached",
+		);
+		expect(execute).not.toHaveBeenCalled();
 	});
 });

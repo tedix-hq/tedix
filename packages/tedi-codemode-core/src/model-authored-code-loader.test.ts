@@ -717,3 +717,25 @@ describe("lazy factory callback diagnostics", () => {
 		expect(log).not.toHaveBeenCalled();
 	});
 });
+
+test("observes each returned load once, including named get, and excludes synchronous refusals", () => {
+	const calls = vi.fn();
+	const loader = withModelAuthoredCodeIsolation(
+		{
+			load: () => ({}) as WorkerStub,
+			get: (name) => {
+				if (name === "refused") throw new Error("loader refused");
+				return {} as WorkerStub;
+			},
+		},
+		undefined,
+		calls,
+	);
+	loader.load(baseCode);
+	loader.get("named", () => baseCode);
+	expect(() => loader.get("refused", () => baseCode)).toThrow("loader refused");
+	expect(calls.mock.calls).toEqual([
+		[{ method: "load", identity: "anonymous" }],
+		[{ method: "get", identity: "named" }],
+	]);
+});

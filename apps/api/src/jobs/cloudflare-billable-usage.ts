@@ -12,7 +12,7 @@
  * reconciliation table exists to hold.
  *
  * Every service is stored by charge day in billing_cloudflare_daily_costs.
- * Workers AI and Containers also reconcile against their attributed ledgers.
+ * Workers AI, Containers and Dynamic Workers reconcile against their attributed ledgers.
  *
  * Boundaries this job does NOT cross:
  *  - It never marks a rate-card estimate as provider-reported. It writes only
@@ -27,6 +27,8 @@ import {
 	upsertCloudflareDailyCost,
 	type CloudflareDailyCost,
 } from "@tedix/db/queries/billing/cloudflare-costs";
+import { DYNAMIC_WORKER_PROVIDER } from "@tedix/api-contract/utils/credit-pricing";
+import { allocateDynamicWorkerCostForPeriod } from "./dynamic-worker-cost-allocation";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import { recordBillingProviderReconciliation } from "@tedix/db/queries/billing/health";
@@ -221,6 +223,16 @@ export async function ingestCloudflareBillableUsage(
 		{ periodStart: string; periodEnd: string; costMicros: number }
 	>();
 
+	const dynamicWorkersByPeriod = new Map<
+		string,
+		{
+			periodStart: string;
+			periodEnd: string;
+			costMicros: number;
+			billedQuantity: number | null;
+		}
+	>();
+
 	for (const row of rows) {
 		const cost = row.ContractedCost;
 		if (typeof cost !== "number" || !Number.isFinite(cost)) {
@@ -280,6 +292,26 @@ export async function ingestCloudflareBillableUsage(
 				consumedUnit: unit,
 				fetchedAt: options.now,
 			});
+		}
+
+		if (service.toLowerCase() === "dynamic workers") {
+			const periodStart = start.toISOString(),
+				periodEnd = end.toISOString();
+			const key = `${periodStart}..${periodEnd}`;
+			const seen = dynamicWorkersByPeriod.get(key);
+			if (seen) {
+				seen.costMicros += micros;
+				seen.billedQuantity =
+					seen.billedQuantity === null || quantity === null
+						? null
+						: seen.billedQuantity + quantity;
+			} else
+				dynamicWorkersByPeriod.set(key, {
+					periodStart,
+					periodEnd,
+					costMicros: micros,
+					billedQuantity: quantity,
+				});
 		}
 
 		if (family !== WORKERS_AI_FAMILY) {
@@ -412,6 +444,38 @@ export async function ingestCloudflareBillableUsage(
 			providerResource: "",
 			reconciledBy: "job:cloudflare-billable-usage",
 			usageRowCountOverride: attributed.rows,
+		});
+		reconciled += 1;
+	}
+
+	for (const [key, period] of dynamicWorkersByPeriod) {
+		const evidenceRef = `cloudflare-billable-usage:${env.CF_ACCOUNT_ID}:dynamic-workers:${key}`;
+		const allocation = await allocateDynamicWorkerCostForPeriod(db, {
+			...period,
+			totalCostMicros: period.costMicros,
+			evidenceRef,
+		});
+		await recordBillingProviderReconciliation(db, {
+			id: crypto.randomUUID(),
+			provider: DYNAMIC_WORKER_PROVIDER,
+			providerResource: "",
+			periodStart: period.periodStart,
+			periodEnd: period.periodEnd,
+			providerCostMicros: period.costMicros,
+			ledgerCostMicrosOverride: allocation.allocatedMicros,
+			usageRowCountOverride: allocation.rows,
+			evidenceRef,
+			reconciledBy: "job:cloudflare-billable-usage",
+			now: options.now,
+			metadata: {
+				source: "cloudflare-billable-usage-api",
+				accountId: env.CF_ACCOUNT_ID,
+				allocatedCostMicros: allocation.allocatedMicros,
+				unallocatedCostMicros: allocation.unallocatedMicros,
+				billedQuantity: period.billedQuantity,
+				loadRowsAllocated: allocation.rows,
+				attributionBasis: "anonymous_worker_load_share",
+			},
 		});
 		reconciled += 1;
 	}

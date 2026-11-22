@@ -6,7 +6,10 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { aiCreditsForProviderCost } from "@tedix/api-contract/utils/credit-pricing";
+import {
+	aiCreditsForProviderCost,
+	DYNAMIC_WORKER_PROVIDER,
+} from "@tedix/api-contract/utils/credit-pricing";
 import { and, eq, exists, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -254,7 +257,7 @@ export async function settleBillingUsage(
 	const consume = buildCreditConsumptionStatements(db, {
 		id: consumptionId,
 		organizationId: input.organizationId,
-		kind: "ai",
+		kind: input.provider === DYNAMIC_WORKER_PROVIDER ? "code_run" : "ai",
 		sourceRef: input.id,
 		tediId,
 		userId: reservation.userId,

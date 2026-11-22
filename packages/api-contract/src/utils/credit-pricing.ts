@@ -1,7 +1,8 @@
 /**
  * Tedix credit pricing. One credit is EUR 0.01. AI use costs the provider
  * price converted to EUR at the plan's pinned reference rate, times two,
- * rounded up per call. A code run costs one credit. Service operations keep
+ * rounded up per call. Gateway Worker loads use the same pricing. Stored code
+ * tools cost one credit. Service operations keep
  * the fixed credit cost of their rate card.
  */
 
@@ -28,7 +29,11 @@ export function monthlyAllowanceCredits(credits: {
 /** AI use is billed at twice the provider cost. */
 export const AI_CREDIT_COST_MULTIPLIER = 2;
 
-/** Every Code Mode or dynamic Worker execution costs one credit. */
+/** Cloudflare charges USD 0.002 per unique Dynamic Worker per day. */
+export const DYNAMIC_WORKER_COST_USD_MICROS = 2_000;
+export const DYNAMIC_WORKER_PROVIDER = "cloudflare-dynamic-workers";
+
+/** Stored code transport executions cost one credit. */
 export const CODE_RUN_CREDITS = 1;
 
 /** Purchased or converted top-up credits stay usable for this many months. */

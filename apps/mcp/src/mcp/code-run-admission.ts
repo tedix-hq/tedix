@@ -1,20 +1,24 @@
-/**
- * Code runs cost one Tedix credit each. Every Code Mode program and every
- * stored code-transport tool runs in a dynamic Worker; before one starts, the
- * organization credit pool must admit it. The execution id keys the charge, so
- * a retried execution is charged once.
- *
- * Only an installation whose billing settlement is `managed` charges credits.
- * A self-hosted installation (`external` or `disabled`) has no credit pool to
- * draw from, so its code runs start without admission. The mode is the same
- * explicit `TEDIX_BILLING_SETTLEMENT_MODE` value the API reads; a missing or
- * unknown value fails closed, as it does there.
- */
+/** Credit admission for stored code tools and metered gateway Worker loads. */
 
 import { BillingSettlementModeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
-import { CODE_RUN_CREDITS } from "@tedix/api-contract/utils/credit-pricing";
+import {
+	CODE_RUN_CREDITS,
+	DYNAMIC_WORKER_COST_USD_MICROS,
+	DYNAMIC_WORKER_PROVIDER,
+	aiCreditsForProviderCost,
+} from "@tedix/api-contract/utils/credit-pricing";
 import { createDbClient } from "@tedix/db/client";
-import { admitCodeRun } from "@tedix/db/queries/billing/credit-pool";
+import {
+	admitCodeRun,
+	getCreditPoolSnapshot,
+} from "@tedix/db/queries/billing/credit-pool";
+import type { ModelAuthoredLoaderCall } from "@tedix/tedi-codemode-core/model-authored-code-loader";
+import {
+	reserveBillingUsage,
+	releaseBillingReservation,
+} from "@tedix/db/queries/billing/reservations";
+import { recordBillingProviderUsage } from "@tedix/db/queries/billing/provider-usage";
+import { settleBillingUsage } from "@tedix/db/queries/billing/settlement";
 import type { CallerIdentity } from "./caller-identity";
 
 export type CodeRunAdmission =
@@ -76,4 +80,114 @@ export async function admitCodeModeRun(input: {
 		now: new Date(input.nowMs ?? Date.now()).toISOString(),
 	});
 	return decision.allowed ? { allowed: true } : refuse(decision.code);
+}
+
+/** Reserve before the SDK runs; settle returned loader calls even if user code fails. */
+export async function executeMeteredCodeMode<T>(input: {
+	env: { DB?: D1Database; TEDIX_BILLING_SETTLEMENT_MODE?: string };
+	organizationId: string | null | undefined;
+	executionId: string;
+	caller: CallerIdentity | undefined;
+	timeoutMs: number;
+	execute: (onLoad: (call: ModelAuthoredLoaderCall) => void) => Promise<T>;
+}): Promise<T> {
+	const mode = BillingSettlementModeSchema.safeParse(
+		input.env.TEDIX_BILLING_SETTLEMENT_MODE,
+	);
+	if (!mode.success)
+		throw new Error(codeRunRefusalMessage("billing_settlement_mode_missing"));
+	if (mode.data !== "managed") return input.execute(() => {});
+	const organizationId = input.organizationId ?? input.caller?.organizationId;
+	if (!organizationId || !input.env.DB)
+		throw new Error(codeRunRefusalMessage("billing_not_configured"));
+	const db = createDbClient(input.env.DB);
+	const now = new Date().toISOString();
+	const tediId = input.caller?.authType === "tedi" ? input.caller.tediId : null;
+	const userId =
+		input.caller?.authType !== "tedi" ? input.caller?.userId : null;
+	const pool = await getCreditPoolSnapshot(db, {
+		organizationId,
+		now,
+		subject: { tediId, userId },
+	});
+	if (!pool?.creditFx)
+		throw new Error(codeRunRefusalMessage("billing_not_configured"));
+	const decision = await reserveBillingUsage(db, {
+		id: crypto.randomUUID(),
+		organizationId,
+		tediId,
+		userId,
+		source: "system",
+		provider: DYNAMIC_WORKER_PROVIDER,
+		model: "dynamic-worker",
+		estimatedInputTokens: 0,
+		estimatedOutputTokens: 0,
+		credits: aiCreditsForProviderCost(
+			DYNAMIC_WORKER_COST_USD_MICROS,
+			pool.creditFx.microUsdPerEur,
+		),
+		idempotencyKey: `dynamic-worker:${input.executionId}`,
+		expiresAt: new Date(Date.now() + input.timeoutMs + 60_000).toISOString(),
+		now,
+	});
+	if (!decision.allowed) throw new Error(codeRunRefusalMessage(decision.code));
+	const calls: (ModelAuthoredLoaderCall & { occurredAt: string })[] = [];
+	try {
+		return await input.execute((call) =>
+			calls.push({ ...call, occurredAt: new Date().toISOString() }),
+		);
+	} finally {
+		const settledAt = new Date().toISOString();
+		if (calls.length === 0) {
+			await releaseBillingReservation(db, {
+				reservationId: decision.reservation.id,
+				organizationId,
+				reason: "no_worker_loaded",
+				now: settledAt,
+			});
+		} else {
+			for (const [index, call] of calls.entries()) {
+				await recordBillingProviderUsage(db, {
+					id: crypto.randomUUID(),
+					organizationId,
+					tediId,
+					reservationId: decision.reservation.id,
+					providerUsageId: `dynamic-worker:${input.executionId}:${index}`,
+					provider: DYNAMIC_WORKER_PROVIDER,
+					model: "dynamic-worker",
+					usageKind: "other",
+					unit: "units",
+					quantity: 1,
+					providerCostMicros: DYNAMIC_WORKER_COST_USD_MICROS,
+					providerCostQuality: "estimated",
+					occurredAt: call.occurredAt,
+					now: settledAt,
+					metadata: {
+						surface: "gateway_model_code",
+						identity: call.identity,
+						method: call.method,
+					},
+				});
+			}
+			await settleBillingUsage(db, {
+				id: `dynamic-worker:${input.executionId}`,
+				organizationId,
+				tediId,
+				reservationId: decision.reservation.id,
+				providerUsageId: `dynamic-worker:${input.executionId}`,
+				provider: DYNAMIC_WORKER_PROVIDER,
+				model: "dynamic-worker",
+				source: "system",
+				inputTokens: 0,
+				outputTokens: 0,
+				providerCostMicros: calls.length * DYNAMIC_WORKER_COST_USD_MICROS,
+				usageQuality: "gateway_reported",
+				providerCostQuality: "estimated",
+				meteringReady: true,
+				occurredAt: calls[0]!.occurredAt,
+				now: settledAt,
+				metadata: { surface: "gateway_model_code", loads: calls.length },
+			});
+		}
+	}
 }

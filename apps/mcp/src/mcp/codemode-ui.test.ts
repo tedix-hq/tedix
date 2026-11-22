@@ -8,6 +8,11 @@ import { clientSupportsMcpApps } from "./client-apps-capability";
 
 vi.mock("./code-run-admission", () => ({
 	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+	executeMeteredCodeMode: ({
+		execute,
+	}: {
+		execute: (onLoad: () => void) => unknown;
+	}) => execute(() => {}),
 }));
 
 vi.mock("../lib/api-client", () => ({

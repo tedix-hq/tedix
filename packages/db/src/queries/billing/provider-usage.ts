@@ -1,5 +1,9 @@
 /** Canonical billing provider-usage queries. */
 
+import {
+	DYNAMIC_WORKER_PROVIDER,
+	DYNAMIC_WORKER_COST_USD_MICROS,
+} from "@tedix/api-contract/utils/credit-pricing";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, gte, lt, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -584,4 +588,133 @@ export async function getWorkstationCostCoverage(
 		pending: group("pending"),
 		unproven: group("unproven"),
 	};
+}
+
+/**
+ * Allocate in one statement: tens of thousands of daily loads must not require
+ * one D1 subrequest per row. The windowed share key keeps the count and
+ * ordered remainder split on the same snapshot, including during late arrivals.
+ */
+export async function applyDynamicWorkerCostAllocation(
+	db: DbClient,
+	input: {
+		periodStart: string;
+		periodEnd: string;
+		totalCostMicros: number;
+		billedQuantity: number | null;
+		evidenceRef: string;
+	},
+) {
+	if (!Number.isSafeInteger(input.totalCostMicros) || input.totalCostMicros < 0)
+		throw new Error("Invalid Dynamic Worker charge");
+	const billed =
+		input.billedQuantity !== null &&
+		Number.isSafeInteger(input.billedQuantity) &&
+		input.billedQuantity > 0
+			? input.billedQuantity
+			: null;
+	if (billed !== null && !Number.isSafeInteger(input.totalCostMicros * billed))
+		throw new Error(
+			"Dynamic Worker allocation exceeds safe monetary precision",
+		);
+
+	const usage = billingProviderUsage;
+	const targets = db.$with("worker_targets").as(
+		db
+			.select({
+				id: usage.id,
+				metadata: usage.metadata,
+				ordinal: sql<number>`ROW_NUMBER() OVER (ORDER BY ${usage.id})`.as(
+					"ordinal",
+				),
+				n: sql<number>`COUNT(*) OVER ()`.as("n"),
+			})
+			.from(usage)
+			.where(
+				and(
+					eq(usage.provider, DYNAMIC_WORKER_PROVIDER),
+					sql`${usage.organizationId} IS NOT NULL`,
+					eq(usage.quantity, 1),
+					sql`json_extract(${usage.metadata}, '$.identity') = 'anonymous'`,
+					gte(usage.occurredAt, input.periodStart),
+					lt(usage.occurredAt, input.periodEnd),
+				),
+			),
+	);
+	const totals = db.$with("worker_totals").as(
+		db
+			.select({
+				id: targets.id,
+				metadata: targets.metadata,
+				ordinal: targets.ordinal,
+				n: targets.n,
+				allocated:
+					sql<number>`CASE WHEN ${billed} IS NULL THEN 0 ELSE ${input.totalCostMicros} * MIN(${targets.n}, ${billed}) / ${billed} END`.as(
+						"allocated",
+					),
+			})
+			.from(targets),
+	);
+	const updates = db.$with("worker_updates").as(
+		db
+			.select({
+				id: totals.id,
+				cost: sql<number>`CASE WHEN ${billed} IS NULL THEN ${DYNAMIC_WORKER_COST_USD_MICROS}
+   ELSE ${totals.allocated} / ${totals.n} + CASE WHEN ${totals.ordinal} <= ${totals.allocated} % ${totals.n} THEN 1 ELSE 0 END END`.as(
+					"cost",
+				),
+				quality: sql<
+					BillingProviderUsage["providerCostQuality"]
+				>`CASE WHEN ${billed} IS NULL THEN 'estimated' ELSE 'provider_reconciled' END`.as(
+					"quality",
+				),
+				evidence: sql<
+					Record<string, JsonValue>
+				>`json_set(${totals.metadata}, '$.pricingStatus', CASE WHEN ${billed} IS NULL THEN 'pending' ELSE 'allocated' END, '$.allocation', json_object(
+   'basis', 'anonymous_worker_load_share', 'chargePeriod', ${`${input.periodStart}..${input.periodEnd}`},
+   'chargeSourceRef', ${input.evidenceRef}, 'chargeTotalMicros', ${input.totalCostMicros},
+   'billedQuantity', ${billed}, 'recordedQuantity', ${totals.n}
+  ))`.as("evidence"),
+			})
+			.from(totals),
+	);
+	await db
+		.with(targets, totals, updates)
+		.update(usage)
+		.set({
+			providerCostMicros: sql`${updates.cost}`,
+			providerCostQuality: sql`${updates.quality}`,
+			metadata: sql`${updates.evidence}`,
+		})
+		.from(updates)
+		.where(
+			and(
+				eq(usage.id, updates.id),
+				sql`(${usage.providerCostMicros} != ${updates.cost} OR ${usage.providerCostQuality} != ${updates.quality} OR ${usage.metadata} != ${updates.evidence})`,
+			),
+		);
+}
+
+/** Provider totals must come from allocated rows, never customer estimates. */
+export async function sumDynamicWorkerAllocatedCost(
+	db: DbClient,
+	input: { periodStart: string; periodEnd: string },
+) {
+	const [row] = await db
+		.select({
+			micros: sql<number>`COALESCE(SUM(${billingProviderUsage.providerCostMicros}), 0)`,
+			rows: sql<number>`COUNT(*)`,
+		})
+		.from(billingProviderUsage)
+		.where(
+			and(
+				eq(billingProviderUsage.provider, DYNAMIC_WORKER_PROVIDER),
+				eq(billingProviderUsage.providerCostQuality, "provider_reconciled"),
+				sql`${billingProviderUsage.organizationId} IS NOT NULL`,
+				gte(billingProviderUsage.occurredAt, input.periodStart),
+				lt(billingProviderUsage.occurredAt, input.periodEnd),
+				sql`json_extract(${billingProviderUsage.metadata}, '$.allocation.chargePeriod') = ${`${input.periodStart}..${input.periodEnd}`}`,
+			),
+		);
+	return { micros: Number(row?.micros ?? 0), rows: Number(row?.rows ?? 0) };
 }

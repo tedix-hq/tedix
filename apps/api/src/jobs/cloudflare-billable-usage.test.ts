@@ -20,6 +20,23 @@ vi.mock("@tedix/db/queries/billing/cloudflare-costs", () => ({
 	upsertCloudflareDailyCost,
 }));
 
+const allocateDynamicWorkerCostForPeriod = vi.hoisted(() =>
+	vi.fn(
+		async (
+			..._args: Parameters<
+				typeof import("./dynamic-worker-cost-allocation").allocateDynamicWorkerCostForPeriod
+			>
+		) => ({
+			allocatedMicros: 6_940_000,
+			unallocatedMicros: 60_000,
+			rows: 3470,
+		}),
+	),
+);
+vi.mock("./dynamic-worker-cost-allocation", () => ({
+	allocateDynamicWorkerCostForPeriod,
+}));
+
 const db = {} as DbClient;
 const env = {
 	CF_ACCOUNT_ID: "acct-1",
@@ -60,6 +77,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 	recordBillingProviderReconciliation.mockClear();
 	upsertCloudflareDailyCost.mockClear();
+	allocateDynamicWorkerCostForPeriod.mockClear();
 });
 
 describe("cloudflare billable usage ingestion", () => {
@@ -93,6 +111,28 @@ describe("cloudflare billable usage ingestion", () => {
 			]),
 		);
 		await ingestCloudflareBillableUsage(db, env, options);
+		expect(
+			allocateDynamicWorkerCostForPeriod.mock.calls.map((call) => call[1]),
+		).toEqual([
+			expect.objectContaining({
+				billedQuantity: 30,
+				totalCostMicros: 7_000_000,
+				periodStart: "2026-08-01T00:00:00.000Z",
+			}),
+			expect.objectContaining({
+				billedQuantity: 300,
+				totalCostMicros: 74_000_000,
+				periodStart: "2026-08-02T00:00:00.000Z",
+			}),
+		]);
+		expect(recordBillingProviderReconciliation).toHaveBeenCalledWith(
+			db,
+			expect.objectContaining({
+				provider: "cloudflare-dynamic-workers",
+				ledgerCostMicrosOverride: 6_940_000,
+				metadata: expect.objectContaining({ unallocatedCostMicros: 60_000 }),
+			}),
+		);
 		expect(upsertCloudflareDailyCost.mock.calls.map((call) => call[1])).toEqual(
 			[
 				expect.objectContaining({

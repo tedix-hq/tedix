@@ -8,6 +8,11 @@ import { buildMcpServer, type CachedAppData } from "./server-factory";
 // Code-run credit admission has its own tests; these exercise the sandbox.
 vi.mock("./code-run-admission", () => ({
 	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+	executeMeteredCodeMode: ({
+		execute,
+	}: {
+		execute: (onLoad: () => void) => unknown;
+	}) => execute(() => {}),
 }));
 
 it("rejects first-party oRPC failures with code and status inside the real Code Mode sandbox", async () => {

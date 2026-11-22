@@ -217,6 +217,11 @@ export function withDynamicWorkerLoaderDiagnostics<
 	} as T;
 }
 
+export interface ModelAuthoredLoaderCall {
+	method: "load" | "get";
+	identity: "anonymous" | "named";
+}
+
 /**
  * Add `disallow_importable_env` to anonymous and named/cached manifests.
  * Production constructors supply trusted host labels. Isolation-only callers
@@ -225,6 +230,7 @@ export function withDynamicWorkerLoaderDiagnostics<
 export function withModelAuthoredCodeIsolation(
 	loader: WorkerLoader,
 	host?: ModelAuthoredLoaderHost,
+	onLoad?: (call: ModelAuthoredLoaderCall) => void,
 ): WorkerLoader {
 	const fixed = capturedHost(host);
 	return {
@@ -233,6 +239,7 @@ export function withModelAuthoredCodeIsolation(
 			emitLoaderCall(fixed, "load", "anonymous", "attempted");
 			try {
 				const stub = loader.load(hardened);
+				onLoad?.({ method: "load", identity: "anonymous" });
 				emitLoaderCall(fixed, "load", "anonymous", "returned");
 				return stub;
 			} catch (error) {
@@ -246,6 +253,7 @@ export function withModelAuthoredCodeIsolation(
 			emitLoaderCall(fixed, "get", identity, "attempted");
 			try {
 				const stub = loader.get(name, wrapped);
+				onLoad?.({ method: "get", identity });
 				emitLoaderCall(fixed, "get", identity, "returned");
 				return stub;
 			} catch (error) {

@@ -1541,3 +1541,70 @@ describe("billing reservation query budgets", () => {
 		sqlite.close();
 	});
 });
+
+it("reserves and settles non-token Worker cost once as code credits, preserving tenant scope", async () => {
+	const { db, sqlite, now } = setup();
+	try {
+		const decision = await reserveBillingUsage(db, {
+			id: "worker-reservation",
+			organizationId: "org-1",
+			source: "system",
+			provider: "cloudflare-dynamic-workers",
+			model: "dynamic-worker",
+			estimatedInputTokens: 0,
+			estimatedOutputTokens: 0,
+			credits: 1,
+			idempotencyKey: "worker-1",
+			expiresAt: "2026-07-27T12:10:00.000Z",
+			now,
+		});
+		expect(decision.allowed).toBe(true);
+		const charge = {
+			id: "worker-charge",
+			organizationId: "org-1",
+			reservationId: "worker-reservation",
+			providerUsageId: "worker-1",
+			source: "system" as const,
+			provider: "cloudflare-dynamic-workers",
+			model: "dynamic-worker",
+			inputTokens: 0,
+			outputTokens: 0,
+			providerCostMicros: 2000,
+			usageQuality: "gateway_reported" as const,
+			providerCostQuality: "estimated" as const,
+			meteringReady: true,
+			occurredAt: now,
+			now,
+		};
+		await expect(
+			settleBillingUsage(db, { ...charge, organizationId: "other-org" }),
+		).rejects.toThrow();
+		await settleBillingUsage(db, charge);
+		await settleBillingUsage(db, charge);
+		expect(
+			sqlite
+				.prepare("SELECT kind, credits FROM billing_credit_consumptions")
+				.all(),
+		).toEqual([{ kind: "code_run", credits: 1 }]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT status FROM billing_usage_reservations WHERE id='worker-reservation'",
+				)
+				.get(),
+		).toEqual({ status: "settled" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT used_input_tokens, used_output_tokens, provider_cost_micros FROM billing_usage_periods",
+				)
+				.get(),
+		).toEqual({
+			used_input_tokens: 0,
+			used_output_tokens: 0,
+			provider_cost_micros: 2000,
+		});
+	} finally {
+		sqlite.close();
+	}
+});

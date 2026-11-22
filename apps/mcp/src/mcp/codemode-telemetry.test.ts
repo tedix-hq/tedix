@@ -14,6 +14,11 @@ const executorBudgets = vi.hoisted(() => [] as number[]);
 const executedPrograms = vi.hoisted(() => [] as string[]);
 vi.mock("./code-run-admission", () => ({
 	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+	executeMeteredCodeMode: ({
+		execute,
+	}: {
+		execute: (onLoad: () => void) => unknown;
+	}) => execute(() => {}),
 }));
 
 vi.mock("@cloudflare/codemode", async () => {

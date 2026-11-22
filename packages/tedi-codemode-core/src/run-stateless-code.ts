@@ -8,7 +8,7 @@ import { type Expression, parse, type SpreadElement } from "acorn";
 
 export interface StatelessCodeModeRunOptions {
 	code: string;
-	executor: DynamicWorkerExecutor;
+	executor: Pick<DynamicWorkerExecutor, "execute">;
 	providers: ResolvedProvider[];
 	/** Match the executor's timeout to enable literal single-call dispatch. */
 	timeoutMs?: number;

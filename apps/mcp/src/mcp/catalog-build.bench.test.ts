@@ -10,6 +10,11 @@ vi.mock("../lib/api-client", () => ({ getApiClient: () => ({}) }));
 // Code-run credit admission has its own tests; these exercise the sandbox.
 vi.mock("./code-run-admission", () => ({
 	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+	executeMeteredCodeMode: ({
+		execute,
+	}: {
+		execute: (onLoad: () => void) => unknown;
+	}) => execute(() => {}),
 }));
 
 it("keeps discovery SDK bindings bounded on a 15,922-tool aggregate", async () => {

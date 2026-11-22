@@ -19,7 +19,7 @@ import {
 	type McpServer,
 	type ServerContext as McpCtx,
 } from "@modelcontextprotocol/server";
-import { admitCodeModeRun } from "./code-run-admission";
+import { executeMeteredCodeMode } from "./code-run-admission";
 import { type ServerContext } from "./server-context";
 import { codeModeAnalyticsSessionId } from "./caller-identity";
 import {
@@ -218,16 +218,6 @@ export async function registerCodeModeTools(
 	const modules = mcpConfig?.codeModeModules as
 		| Record<string, string>
 		| undefined;
-
-	const executor = new DynamicWorkerExecutor({
-		loader: withModelAuthoredCodeIsolation(loader, {
-			surface: "gateway_model_code",
-			reason: "gateway_model_authored_invocation",
-		}),
-		timeout,
-		globalOutbound: null,
-		modules,
-	});
 
 	// Mutable refs for correlating code_exec → inner tool_calls and forwarding
 	// outer MCP payment proofs into inner Code Mode tool calls.
@@ -740,33 +730,6 @@ export async function registerCodeModeTools(
 				executionRefs.skillWorkflowRunIds.clear();
 				executionRefs.readObservations = [];
 				executionRefs.collectionReads = [];
-				// A program runs in a dynamic Worker and costs one credit; a
-				// structured read calls one tool directly and starts no Worker.
-				if (!structuredRead) {
-					const admission = await admitCodeModeRun({
-						env: serverCtx.env,
-						organizationId,
-						executionId,
-						caller: serverCtx.callerIdentity,
-					});
-					if (!admission.allowed) {
-						emitExecTelemetry(false, admission.message);
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `Execution error: ${admission.message}`,
-								},
-							],
-							isError: true,
-							structuredContent: {
-								executionId,
-								error: admission.message,
-								code: admission.code,
-							},
-						};
-					}
-				}
 				// Workers custom spans are beta: diagnostic timing only, never an
 				// SLO gate or proof artifact. IDs identify the execution; code and
 				// returned values stay out of span attributes.
@@ -844,7 +807,32 @@ export async function registerCodeModeTools(
 							);
 						return runStatelessCodeMode({
 							code,
-							executor,
+							executor: {
+								execute: (
+									...args: Parameters<DynamicWorkerExecutor["execute"]>
+								) =>
+									executeMeteredCodeMode({
+										env: serverCtx.env,
+										organizationId,
+										executionId,
+										caller: serverCtx.callerIdentity,
+										timeoutMs: timeout,
+										execute: async (onLoad) =>
+											new DynamicWorkerExecutor({
+												loader: withModelAuthoredCodeIsolation(
+													loader,
+													{
+														surface: "gateway_model_code",
+														reason: "gateway_model_authored_invocation",
+													},
+													onLoad,
+												),
+												timeout,
+												globalOutbound: null,
+												modules,
+											}).execute(...args),
+									}),
+							},
 							timeoutMs: timeout,
 							providers:
 								executionNamespaces === null || unknownNamespace
