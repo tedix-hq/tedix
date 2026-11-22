@@ -21,7 +21,7 @@ export default defineConfig({
 				compatibilityFlags: ["nodejs_compat"],
 				workerLoaders: { LOADER: {} },
 				d1Databases: ["DB"],
-				r2Buckets: ["R2_BUCKET"],
+				r2Buckets: ["R2_BUCKET", "SKILL_ARTIFACTS"],
 				bindings: {
 					DO_JURISDICTION: "",
 					ENVIRONMENT: "test",

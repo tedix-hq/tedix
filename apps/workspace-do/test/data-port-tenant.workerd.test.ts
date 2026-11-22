@@ -44,6 +44,7 @@ function port(
 		tenant,
 		core,
 		bucket,
+		workspaceFiles: bucket,
 		actorKind: "user",
 		validateAppSource: unused,
 		assertWorkspaceAuthority: async () => {
@@ -337,6 +338,7 @@ describe("workspace agent data storage", () => {
 					tenant: createTenantStoreDb(state.storage),
 					core: createDbQueryClient(bindings.DB),
 					bucket,
+					workspaceFiles: bucket,
 					actorKind: actingUserId ? "user" : "external_agent",
 					actingUserId,
 					validateAppSource: unused,
@@ -417,6 +419,7 @@ describe("workspace agent data storage", () => {
 					tenant,
 					core,
 					bucket: bindings.R2_BUCKET,
+					workspaceFiles: bindings.SKILL_ARTIFACTS,
 					actorKind: "user",
 					agentTurnId,
 					validateAppSource: unused,

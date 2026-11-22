@@ -266,6 +266,7 @@ export interface TenantDataPortDeps {
 	tenant: TenantStoreDb;
 	core: DbQueryClient;
 	bucket: OutputBodyBucket;
+	workspaceFiles: Pick<R2Bucket, "get">;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
 	/**
 	 * The person the turn acts for, when a person started it. Decides which
@@ -416,7 +417,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		chatOnly?: true;
 	}): Promise<WorkspaceFileText | null> {
 		if (file.workspaceId !== this.deps.workspaceId) return null;
-		const object = await this.deps.bucket.get(
+		const object = await this.deps.workspaceFiles.get(
 			workspaceFileTextKey(
 				this.deps.organizationId,
 				file.workspaceId,

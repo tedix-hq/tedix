@@ -1643,14 +1643,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			input.attachments,
 			(file, canReadChatUpload) =>
 				workspaceImageAttachment(
-					this.env.R2_BUCKET,
+					this.env.SKILL_ARTIFACTS,
 					scope,
 					file,
 					canReadChatUpload,
 				),
 			async (resourceId) => {
 				const upload = await workspaceChatUpload(
-					this.env.R2_BUCKET,
+					this.env.SKILL_ARTIFACTS,
 					scope,
 					resourceId,
 				);
@@ -4541,6 +4541,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			tenant: this.db as TenantStoreDb,
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
+			workspaceFiles: this.env.SKILL_ARTIFACTS,
 			actorKind,
 			actingUserId: started?.actor_kind === "user" ? started.actor_id : null,
 			// The person sent it and nobody else can open the workspace.
@@ -4661,7 +4662,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			data,
 			chatFile: (resourceId) =>
 				this.#events.hasChatFile(turn.conversationId, resourceId)
-					? workspaceChatUpload(this.env.R2_BUCKET, scope, resourceId)
+					? workspaceChatUpload(this.env.SKILL_ARTIFACTS, scope, resourceId)
 					: Promise.resolve(null),
 			runs: data,
 			accountActor,
@@ -6423,7 +6424,7 @@ export async function executeTurn(
 	const prepareMessages = (messages: Message[]) =>
 		hydrateWorkspaceImages(
 			messages,
-			host.env.R2_BUCKET,
+			host.env.SKILL_ARTIFACTS,
 			plan.scope,
 			host.model.supportsImages === true,
 		);

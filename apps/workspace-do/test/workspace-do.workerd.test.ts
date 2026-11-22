@@ -1138,6 +1138,7 @@ describe("WorkspaceDO", () => {
 			tenant: {} as TenantStoreDb,
 			core: db,
 			bucket: testEnv.R2_BUCKET,
+			workspaceFiles: testEnv.SKILL_ARTIFACTS,
 			actorKind: "user",
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(testEnv.LOADER, files, date),
@@ -1461,6 +1462,7 @@ describe("WorkspaceDO", () => {
 			tenant: {} as TenantStoreDb,
 			core: db,
 			bucket: testEnv.R2_BUCKET,
+			workspaceFiles: testEnv.SKILL_ARTIFACTS,
 			actorKind: "user",
 			validateAppSource: (source, date) =>
 				validateWorkspaceAppSource(testEnv.LOADER, source, date),
@@ -4802,8 +4804,8 @@ describe("WorkspaceDO", () => {
 				fileScope.workspaceId,
 				resourceId,
 			);
-			await testEnv.R2_BUCKET.put(key, bytes);
-			await testEnv.R2_BUCKET.put(
+			await testEnv.SKILL_ARTIFACTS.put(key, bytes);
+			await testEnv.SKILL_ARTIFACTS.put(
 				`${key}.json`,
 				JSON.stringify({
 					...fileScope,
@@ -4939,7 +4941,7 @@ describe("WorkspaceDO", () => {
 			(_, index) => `Clause ${index + 1}: nothing of note in this clause.`,
 		);
 		lines.push('Clause 1901: the "renewal date" is 14 March 2031.');
-		await testEnv.R2_BUCKET.put(
+		await testEnv.SKILL_ARTIFACTS.put(
 			workspaceFileTextKey(
 				fileScope.organizationId,
 				fileScope.workspaceId,
