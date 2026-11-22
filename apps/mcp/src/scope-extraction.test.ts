@@ -431,6 +431,7 @@ describe("targeted Code Mode surface extraction", () => {
 		'async () => await discover.search({"namespace":"tedix_unified","query":"run","limit":3})',
 		'async () => discover.describe("tedix_unified.read_run");',
 		'async () => await discover.describe({"callable":"tedix_unified.read_run"})',
+		'async () => await discover.describe({"callable":"tedix_unified.read_run","format":"ts"})',
 	])("bounds complete literal discovery: %s", (code) => {
 		const namespaces = extractCodeModeProviderNamespacesFromCode(code);
 		expect(namespaces).toEqual(new Set(["tedix_unified"]));

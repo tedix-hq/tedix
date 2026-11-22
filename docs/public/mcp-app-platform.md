@@ -251,7 +251,8 @@ In Code Mode, `discover.describe("namespace.tool")` returns the full input
 schema, description and annotations. Output schemas are omitted by default to
 keep the result small. Use
 `discover.describe({ callable: "namespace.tool", includeOutputSchema: true })`
-when you need the output schema. The native `catalog/describe` transport retains
+when you need the output schema. Add `format: "ts"` to get the tool as one
+TypeScript declaration (its inputs and result type) instead of JSON. The native `catalog/describe` transport retains
 its full descriptor for existing clients. Native CLI Work commands explicitly
 request output schemas through catalog search and validate results against them.
 

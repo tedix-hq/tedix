@@ -68,6 +68,12 @@ annotations, a bounded TypeScript `resultType`, and `outputSchemaProvenance`
 when a schema exists. Unknown or deeply nested parts render as `unknown`.
 Request the output schema only when needed with
 `discover.describe({ callable, includeOutputSchema: true })`.
+`discover.describe({ callable, format: "ts" })` returns
+`{ callable, format, declaration, authorized, missingScopes? }` instead: one
+TypeScript declaration with the description as JSDoc, `interface Input` with
+field docs, and `type Output` (marked advisory when inferred). It comes from
+`buildToolDeclaration` in `packages/mcp/src/compact-types.ts`, the same
+bounded walker that renders `resultType`.
 The native `catalog/describe` transport retains its full descriptor
 for existing clients; the CLI explicitly fetches output schemas through
 `catalog/search` with `includeOutputSchema: true` for result validation.

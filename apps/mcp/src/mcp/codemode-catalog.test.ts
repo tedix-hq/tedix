@@ -2124,6 +2124,27 @@ describe("discover.search results flat array", () => {
 				},
 			},
 		});
+		const typed = (await describe({
+			callable: "app.delete_thing_0",
+			format: "ts",
+		})) as Record<string, unknown>;
+		expect(typed).toEqual({
+			callable: "app.delete_thing_0",
+			format: "ts",
+			declaration: expect.any(String),
+			authorized: false,
+			missingScopes: ["mcp:apps.admin"],
+		});
+		expect(typed.declaration).toMatch(/\n {2}confirmDestructive\??: boolean;/);
+		expect(typed.declaration).toContain(
+			'type Output = { id?: string; kind?: "deleted" };',
+		);
+		expect(typed.declaration).toContain(
+			"function delete_thing_0(input: Input): Promise<Output>;",
+		);
+		await expect(
+			describe({ callable: "app.delete_thing_0", format: "yaml" }),
+		).rejects.toThrow('format must be "json" or "ts"');
 		const found = await runSearch(provider, "delete_thing_0", 5, {
 			includeParameters: true,
 		});
@@ -2906,7 +2927,7 @@ it("describes the nested TypeScript result and its inferred provenance without r
 	>;
 	expect(await tools.describe!.execute("records.list_records")).toMatchObject({
 		resultType:
-			'{ "data": Array<{ "id": string; "count"?: number }>; "cursor"?: (string | null) }',
+			"{ data: Array<{ id: string; count?: number }>; cursor?: (string | null) }",
 		outputSchemaProvenance: "inferred",
 	});
 	expect(
