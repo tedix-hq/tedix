@@ -1518,10 +1518,10 @@ function resumableAfterRestart(row: Receipt, attempt: WorkAttempt): boolean {
 		row.admissionState === "admitted" &&
 		!!row.repo &&
 		!!row.executorKey &&
-		// Devin's sessions are not resumed by the runner; it keeps its own path.
 		(executor === "codex" ||
 			executor === "claude-code" ||
-			executor === "opencode") &&
+			executor === "opencode" ||
+			executor === "devin") &&
 		!row.verification &&
 		!row.interrupted &&
 		!row.approvalWait &&
@@ -5681,11 +5681,20 @@ export class LaneDispatcher {
 			const fresh = () => prepareThread();
 			const thread = await (
 				adopted
-					? prepareThread(previousSession).catch((error: unknown) => {
-							throw new RestartResumeFallback(
-								`session ${adopted.session} could not be resumed (${String(error).slice(0, 300)})`,
-							);
-						})
+					? prepareThread(previousSession)
+							.catch(async (error: unknown) => {
+								// Devin can hold its session lock a moment after the
+								// stopped process exits.
+								if (executor !== "devin" || !isDevinSessionBusy(error))
+									throw error;
+								await new Promise((done) => setTimeout(done, 5000));
+								return prepareThread(previousSession);
+							})
+							.catch((error: unknown) => {
+								throw new RestartResumeFallback(
+									`session ${adopted.session} could not be resumed (${String(error).slice(0, 300)})`,
+								);
+							})
 					: continuingQuestion
 						? prepareThread(previousSession)
 						: previousSession
@@ -6286,11 +6295,12 @@ ${firstBrief}`;
 							executor === "devin"
 								? createDevinWorkBridge(
 										{
-											orgId: started!.workItem.orgId,
+											orgId: started?.workItem.orgId ?? adopt!.orgId,
 											workItemId: item.id,
 											workVersion: item.version,
 											attemptId: receipt.attemptId!,
-											executorId: started!.attempt.executorId,
+											executorId:
+												started?.attempt.executorId ?? adopt!.executorId,
 											externalSessionKey: receipt.session!,
 										},
 										{

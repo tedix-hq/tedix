@@ -3598,6 +3598,66 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		},
 	);
+	it("continues a Devin run its stopped runner left under the same Attempt", async () => {
+		const f = fixture({ executor: "devin" });
+		f.items.splice(1);
+		f.items[0]!.metadata = { executor: "devin" };
+		const path = join(f.dir, `${item().id}-2.json`);
+		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		const attemptId = "88888888-8888-4888-8888-888888888888";
+		const nativeId = "33333333-3333-4333-8333-000000000099";
+		const session = `devin:${nativeId}`;
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				admissionState: "admitted",
+				attemptId,
+				session,
+				executorKey: "local-acme",
+				pid: 2_000_000_000,
+				repo,
+			}),
+		);
+		f.control.history.data = [
+			{
+				id: attemptId,
+				externalSessionKey: session,
+				outcome: null,
+				expiresAt: new Date(Date.now() + 300_000).toISOString(),
+				orgId: "99999999-9999-4999-8999-999999999999",
+				executorId: "local-acme",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		const thread = f.deps.thread!;
+		f.deps.thread = async (...args) => {
+			const prepared = await thread(...args);
+			const resume = args[3];
+			return resume
+				? { ...prepared, thread: { ...prepared.thread, id: resume } }
+				: prepared;
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		expect(f.control.threadSessions).toEqual([nativeId]);
+		expect(
+			f.events.some(
+				(event) => event.verb === "start" && event.args[4] === "work",
+			),
+		).toBe(false);
+		expect(f.briefs.at(-1)).toContain("The Tedix app restarted");
+		expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+			'"restart-resume"',
+		);
+		f.releases[0]!();
+		await dispatcher.drain();
+		expect(f.events.some((event) => event.verb === "settle")).toBe(true);
+	});
 	it("keeps an incomplete run's checkout through cleanup until its retry", async () => {
 		const f = fixture();
 		f.items.splice(0);
