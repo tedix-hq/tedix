@@ -9,6 +9,7 @@ interface DocsActorParams {
 }
 
 export interface CreateDocsBuildParams {
+	id?: string;
 	siteId: string;
 	sourceBranch: string;
 	proposalId?: string | null;
@@ -58,7 +59,7 @@ export async function createDocsBuild(
 	db: DbQueryClient,
 	params: CreateDocsBuildParams,
 ): Promise<DocsBuild> {
-	const id = crypto.randomUUID();
+	const id = params.id ?? crypto.randomUUID();
 	const insertBuild = db
 		.insert(docsBuilds)
 		.values({

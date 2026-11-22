@@ -10,7 +10,7 @@ vi.mock("./registry", () => ({
 }));
 afterEach(() => vi.unstubAllGlobals());
 
-it("schedules only a fast-forward change to the configured site's public docs", async () => {
+it("schedules only the configured site's advertised main revision", async () => {
 	const policy = {
 		siteId: "10000000-0000-4000-8000-000000000001",
 		orgSlug: "example",
@@ -90,17 +90,19 @@ it("schedules only a fast-forward change to the configured site's public docs", 
 	expect(createBatch).not.toHaveBeenCalled();
 	fetchSource.mockClear();
 
-	fetchSource.mockResolvedValueOnce(Response.json([{ sha: candidate }]));
 	fetchSource.mockResolvedValueOnce(
-		Response.json({
-			status: "ahead",
-			merge_base_commit: { sha: previous },
-		}),
+		new Response(
+			`001e# service=git-upload-pack\n0000003d${previous} refs/heads/work\n003d${candidate} refs/heads/main\n0000`,
+			{
+				headers: {
+					"Content-Type": "application/x-git-upload-pack-advertisement",
+				},
+			},
+		),
 	);
 	await scheduleDocsRelease(env);
 	expect(fetchSource.mock.calls.map(([url]) => url)).toEqual([
-		"https://api.github.com/repos/example/project/commits?sha=main&path=docs%2Fpublic&per_page=1",
-		`https://api.github.com/repos/example/project/compare/${previous}...${candidate}?per_page=1`,
+		"https://github.com/example/project.git/info/refs?service=git-upload-pack",
 	]);
 	expect(createBatch).toHaveBeenCalledExactlyOnceWith([
 		{
@@ -109,6 +111,7 @@ it("schedules only a fast-forward change to the configured site's public docs", 
 				operation: "release",
 				siteId: site.id,
 				sourceRevision: candidate,
+				previousRevision: previous,
 				previousBuildId: "build-previous",
 				previousReleaseId: "release-previous",
 			},

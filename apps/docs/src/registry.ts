@@ -198,6 +198,7 @@ export async function upsertSite(
 export async function createBuild(
 	d1: D1Database,
 	input: {
+		id?: string;
 		siteId: string;
 		sourceBranch: string;
 		proposalId?: string | null;

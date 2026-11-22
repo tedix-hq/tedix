@@ -193,8 +193,12 @@ export async function checkoutAndBuild(
 	env: AppBindings,
 	site: DocsSite,
 	buildId: string,
-	releaseRevision?: string,
-): Promise<{ revision: string; fileCount: number; manifestKey: string }> {
+	release?: DelegatedDocsRelease,
+): Promise<{
+	revision: string;
+	fileCount: number;
+	manifestKey: string;
+} | null> {
 	// A build gets an immutable Sandbox identity. Reusing a site's Durable
 	// Object can retain the previous container generation after an image
 	// rollout, and concurrent builds would also share a filesystem.
@@ -216,18 +220,27 @@ export GIT_CONFIG_KEY_0=http.extraHeader
 test -s ${shellQuote(tokenFile)}
 export GIT_CONFIG_VALUE_0="Authorization: $(cat ${shellQuote(tokenFile)})"`
 		: "";
-	const checkRelease = releaseRevision
+	const checkRelease = release
 		? `cd ${shellQuote(sourceDir)}
-git fetch --depth 1 origin ${shellQuote(releaseRevision)}
-git checkout --detach FETCH_HEAD
-test "$(git rev-parse HEAD)" = ${shellQuote(releaseRevision)}
+git merge-base --is-ancestor ${shellQuote(release.sourceRevision)} refs/remotes/origin/main
+git merge-base --is-ancestor ${shellQuote(release.previousRevision)} ${shellQuote(release.sourceRevision)}
+previous_tree="$(git rev-parse ${shellQuote(release.previousRevision + ":docs/public")})"
+candidate_tree="$(git rev-parse ${shellQuote(release.sourceRevision + ":docs/public")})"
+if [ "$previous_tree" = "$candidate_tree" ]; then
+	printf '%s\n' no-public-docs-change
+	exit 0
+fi
+git checkout --detach ${shellQuote(release.sourceRevision)}
 bun run docs:public:check >&2`
 		: "";
+	const cloneOptions = release
+		? "--filter=blob:none --no-checkout"
+		: "--depth 1";
 	const cloneScript = `set -eu
 cd /tmp
 rm -rf ${shellQuote(sourceDir)}
 ${authSetup}
-git clone --depth 1 --single-branch --branch ${shellQuote(site.branch)} ${shellQuote(checkout.remote)} ${shellQuote(sourceDir)}
+git clone ${cloneOptions} --single-branch --branch ${shellQuote(site.branch)} ${shellQuote(checkout.remote)} ${shellQuote(sourceDir)}
 ${checkRelease}
 git -C ${shellQuote(sourceDir)} rev-parse HEAD`;
 	const cloned = await (
@@ -241,6 +254,7 @@ git -C ${shellQuote(sourceDir)} rev-parse HEAD`;
 	) {
 		throw new Error(`Git checkout failed: ${cloned.stderr.slice(-1200)}`);
 	}
+	if (release && cloned.stdout.trim() === "no-public-docs-change") return null;
 	const revision = cloned.stdout
 		.split("\n")
 		.find((line) => /^[a-f0-9]{40,64}$/i.test(line.trim()))
@@ -359,6 +373,30 @@ fi`;
 		files,
 	);
 
+	if (release) {
+		const verified = await (
+			await sandbox.exec([
+				"bash",
+				"-lc",
+				`set -eu
+cd ${shellQuote(sourceDir)}
+git fetch --filter=blob:none --no-tags origin main
+git merge-base --is-ancestor ${shellQuote(release.sourceRevision)} FETCH_HEAD
+git diff --exit-code --quiet ${shellQuote(release.sourceRevision)} FETCH_HEAD -- docs/public`,
+			])
+		).output({ encoding: "utf8", maxBytes: 4096 });
+		if (
+			verified.exitCode !== 0 ||
+			verified.timedOut ||
+			verified.signal !== undefined ||
+			verified.truncated
+		) {
+			throw new Error(
+				"Could not verify the staged documentation still matches main",
+			);
+		}
+	}
+
 	const manifestKey = `sites/${site.id}/builds/${buildId}/manifest.json`;
 	const manifest: DocsManifest = {
 		buildId,
@@ -383,31 +421,14 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 		step: WorkflowStep,
 	): Promise<{ buildId: string; sourceRevision: string } | null> {
 		const payload = event.payload;
-		const { siteId } = payload;
+		if (payload.operation === "release")
+			return this.runDelegatedRelease(payload, step);
+		const { siteId, buildId } = payload;
 		const site = await getSiteById(this.env.DB, siteId);
 		if (!site) throw new Error(`Docs site ${siteId} not found`);
-		const release = payload.operation === "release" ? payload : null;
-		const reservation = release
-			? await step.do("reserve-release-build", async () => {
-					const checked = await checkDelegatedRelease(this.env, release);
-					if (!checked) return null;
-					const build = await createBuild(this.env.DB, {
-						siteId,
-						sourceBranch: "main",
-						requestedBy: docsReleaseActor,
-					});
-					return { build, site: checked.site };
-				})
-			: null;
-		if (release && !reservation) return null;
-		const build =
-			payload.operation === "release"
-				? reservation?.build
-				: await getBuild(this.env.DB, payload.buildId);
-		const buildId = build?.id;
-		if (!build || !buildId || build.siteId !== siteId) {
+		const build = await getBuild(this.env.DB, buildId);
+		if (!build || build.siteId !== siteId)
 			throw new Error(`Docs build ${buildId} not found`);
-		}
 		if (event.payload.operation === "index") {
 			if (site.accessMode !== "public" || build.status !== "complete") {
 				throw new Error("Search indexing requires a completed public build");
@@ -420,10 +441,9 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 			);
 		}
 		const sourceSite = {
-			...(reservation?.site ?? site),
+			...site,
 			branch: build.sourceBranch ?? site.branch,
 		};
-		let sourceRevision: string;
 		try {
 			await updateBuildProgress(this.env.DB, buildId, {
 				status: "running",
@@ -435,14 +455,10 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 					retries: { limit: 2, delay: "10 seconds" },
 					timeout: "15 minutes",
 				},
-				() =>
-					checkoutAndBuild(
-						this.env,
-						sourceSite,
-						buildId,
-						release?.sourceRevision,
-					),
+				() => checkoutAndBuild(this.env, sourceSite, buildId),
 			);
+			if (!snapshot)
+				throw new Error("Docs preview checkout did not produce a build");
 
 			await step.do("record-preview", async () => {
 				await completeBuild(this.env.DB, {
@@ -452,7 +468,7 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 					manifestKey: snapshot.manifestKey,
 				});
 			});
-			sourceRevision = snapshot.revision;
+			return { buildId, sourceRevision: snapshot.revision };
 		} catch (error) {
 			const message = errorMessage(error).slice(0, 4000);
 			await updateBuildProgress(this.env.DB, buildId, {
@@ -468,31 +484,68 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 				.deleteFile(docsSourceAuthPath(buildId))
 				.catch(() => undefined);
 		}
-		if (release) {
-			await step.do("publish-checked-release", async () => {
-				const checked = await checkDelegatedRelease(this.env, release);
-				if (!checked) {
-					// A retry after the activation committed can still enqueue search.
-					const [latest] = await listReleases(this.env.DB, siteId);
-					if (
-						latest?.buildId === buildId &&
-						latest.actor.id === docsReleaseActor.id
-					) {
-						await publicationReceipt(this.env, { site, release: latest });
-					}
-					return;
-				}
-				const activated = await activateBuild(this.env.DB, {
-					buildId,
-					siteId,
-					orgSlug: checked.site.orgSlug,
-					action: "publish",
-					actor: docsReleaseActor,
-					guard: checked.guard,
+	}
+
+	private async runDelegatedRelease(
+		release: DelegatedDocsRelease,
+		step: WorkflowStep,
+	) {
+		const reservation = await step.do("reserve-release-build", async () => {
+			const checked = await checkDelegatedRelease(this.env, release);
+			return checked
+				? { site: checked.site, buildId: crypto.randomUUID() }
+				: null;
+		});
+		if (!reservation) return null;
+		const { buildId, site } = reservation;
+		const staged = await step.do(
+			"checkout-check-and-stage-release",
+			{ retries: { limit: 2, delay: "10 seconds" }, timeout: "15 minutes" },
+			() => checkoutAndBuild(this.env, site, buildId, release),
+		);
+		if (!staged) return null;
+		await step.do("record-checked-release", async () => {
+			if (!(await getBuild(this.env.DB, buildId))) {
+				await createBuild(this.env.DB, {
+					id: buildId,
+					siteId: site.id,
+					sourceBranch: "main",
+					requestedBy: docsReleaseActor,
 				});
-				await publicationReceipt(this.env, activated);
+			}
+			await completeBuild(this.env.DB, {
+				buildId,
+				siteId: site.id,
+				sourceRevision: staged.revision,
+				manifestKey: staged.manifestKey,
 			});
-		}
-		return { buildId, sourceRevision };
+		});
+		await step.do("publish-checked-release", async () => {
+			const checked = await checkDelegatedRelease(this.env, release);
+			if (!checked) {
+				// A retry after the activation committed can still enqueue search.
+				const [latest] = await listReleases(this.env.DB, site.id);
+				if (
+					latest?.buildId === buildId &&
+					latest.actor.id === docsReleaseActor.id
+				) {
+					await publicationReceipt(this.env, {
+						site: (await getSiteById(this.env.DB, site.id)) ?? site,
+						release: latest,
+					});
+				}
+				return;
+			}
+			const activated = await activateBuild(this.env.DB, {
+				buildId,
+				siteId: site.id,
+				orgSlug: checked.site.orgSlug,
+				action: "publish",
+				actor: docsReleaseActor,
+				guard: checked.guard,
+			});
+			await publicationReceipt(this.env, activated);
+		});
+		return { buildId, sourceRevision: staged.revision };
 	}
 }

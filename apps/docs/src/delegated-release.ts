@@ -22,6 +22,7 @@ export interface DelegatedDocsRelease {
 	operation: "release";
 	siteId: string;
 	sourceRevision: string;
+	previousRevision: string;
 	previousBuildId: string;
 	previousReleaseId: string;
 }
@@ -47,14 +48,10 @@ export function matchesReleaseSource(site: DocsSite, policy: Policy): boolean {
 	);
 }
 
-async function github(policy: Policy, path: string) {
+async function mainRevision(policy: Policy): Promise<string> {
 	const response = await fetch(
-		`https://api.github.com/repos/${policy.repository}/${path}`,
+		`https://github.com/${policy.repository}.git/info/refs?service=git-upload-pack`,
 		{
-			headers: {
-				Accept: "application/vnd.github+json",
-				"User-Agent": "Tedix-Docs-Release",
-			},
 			redirect: "manual",
 			cache: "no-store",
 			signal: AbortSignal.timeout(10_000),
@@ -62,18 +59,16 @@ async function github(policy: Policy, path: string) {
 	);
 	if (!response.ok)
 		throw new Error(`Docs source check failed with HTTP ${response.status}`);
-	return response.json();
-}
-
-async function publicDocsRevision(policy: Policy): Promise<string> {
-	const commits = z
-		.array(z.object({ sha: revision }))
-		.parse(
-			await github(policy, "commits?sha=main&path=docs%2Fpublic&per_page=1"),
-		);
-	if (!commits[0])
-		throw new Error("Public docs are missing from the release branch");
-	return commits[0].sha;
+	if (
+		response.headers.get("Content-Type") !==
+		"application/x-git-upload-pack-advertisement"
+	)
+		throw new Error("Docs source did not return a Git advertisement");
+	// The four hex bytes before the revision are the Git packet length.
+	const ref = /^003d([a-f0-9]{40}) refs\/heads\/main$/m.exec(
+		await response.text(),
+	);
+	return revision.parse(ref?.[1]);
 }
 
 export async function scheduleDocsRelease(env: AppBindings): Promise<void> {
@@ -94,25 +89,8 @@ export async function scheduleDocsRelease(env: AppBindings): Promise<void> {
 	const active = await getBuild(env.DB, site.activeBuildId);
 	const activeRevision = revision.safeParse(active?.sourceRevision);
 	if (!activeRevision.success) return;
-	const sourceRevision = await publicDocsRevision(policy);
+	const sourceRevision = await mainRevision(policy);
 	if (sourceRevision === activeRevision.data) return;
-
-	const comparison = z
-		.object({
-			status: z.string(),
-			merge_base_commit: z.object({ sha: revision }),
-		})
-		.parse(
-			await github(
-				policy,
-				`compare/${activeRevision.data}...${sourceRevision}?per_page=1`,
-			),
-		);
-	if (
-		comparison.status !== "ahead" ||
-		comparison.merge_base_commit.sha !== activeRevision.data
-	)
-		return;
 
 	// A revision can be built at most once for this release baseline, even if
 	// the scheduler is delivered twice. Workflows owns retries after admission.
@@ -123,6 +101,7 @@ export async function scheduleDocsRelease(env: AppBindings): Promise<void> {
 				operation: "release",
 				siteId: site.id,
 				sourceRevision,
+				previousRevision: activeRevision.data,
 				previousBuildId: site.activeBuildId,
 				previousReleaseId: latest.id,
 			},
@@ -146,7 +125,12 @@ export async function checkDelegatedRelease(
 	const [latest] = await listReleases(env.DB, site.id);
 	if (latest?.id !== release.previousReleaseId || latest.action !== "publish")
 		return null;
-	if ((await publicDocsRevision(policy)) !== release.sourceRevision)
+	const active = await getBuild(env.DB, release.previousBuildId);
+	if (
+		!revision.safeParse(release.sourceRevision).success ||
+		!revision.safeParse(release.previousRevision).success ||
+		active?.sourceRevision !== release.previousRevision
+	)
 		return null;
 	return {
 		site,
