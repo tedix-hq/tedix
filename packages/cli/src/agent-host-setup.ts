@@ -12,6 +12,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { credentialDirectory } from "./credential-store";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
+import {
+	opencodeConfigFile,
+	opencodeStatus,
+	setupOpencode,
+} from "./opencode-config";
 
 type AgentHost = "codex" | "claude";
 type CommandResult = { status: number; stdout: string; stderr: string };
@@ -55,9 +60,10 @@ Usage:
   tedix setup agents --codex         Set up Codex only
   tedix setup agents --claude        Set up Claude Code only
   tedix setup agents --devin --yes   Merge Devin hooks and MCP config (no login)
+  tedix setup agents --opencode --yes Add the Tedix plugin to OpenCode (no login)
   tedix setup agents --all --yes     Require both hosts; skip Tedix's prompt
   tedix setup agents --status        Report installed, login, hook, and read steps
-  tedix setup agents --status --json Print the same facts as JSON, Devin included
+  tedix setup agents --status --json Print the same facts as JSON, Devin and OpenCode included
   tedix setup agents --codex --verify Verify a read inside Codex (no model call)
   tedix setup agents --claude --verify Verify a read inside Claude (uses its model)
   tedix setup agents --update        Preview and refresh installed host plugins
@@ -707,7 +713,11 @@ export async function runAgentHostSetup(
 		console.log(`${host}: a Tedix profile read succeeded inside the tool.`);
 		return 0;
 	}
-	if (args.includes("--status") && !args.includes("--devin")) {
+	if (
+		args.includes("--status") &&
+		!args.includes("--devin") &&
+		!args.includes("--opencode")
+	) {
 		const json = args.includes("--json");
 		const options = parseAgentHostSetupArgs(
 			args.filter((arg) => arg !== "--json"),
@@ -728,7 +738,9 @@ export async function runAgentHostSetup(
 					{
 						hosts: [
 							...hosts,
-							...(!options.hosts.length ? [devinStatus()] : []),
+							...(!options.hosts.length
+								? [devinStatus(), opencodeStatus()]
+								: []),
 						],
 					},
 					null,
@@ -749,10 +761,51 @@ export async function runAgentHostSetup(
 				);
 				if (status.problem) console.error(status.problem);
 			}
+		if (!json && !options.hosts.length) {
+			const opencode = opencodeStatus();
+			if (opencode.found)
+				console.log(
+					`opencode: plugin ${opencode.current ? `installed${opencode.version ? ` (v${opencode.version})` : ""}` : opencode.installed ? "installed from an older copy; run tedix setup agents --opencode --yes" : "absent; run tedix setup agents --opencode --yes"}; Connect OAuth: check opencode mcp list.`,
+				);
+			if (opencode.problem) console.error(opencode.problem);
+		}
 		return 0;
 	}
 	if (args.includes("--json"))
 		throw new Error("Use --json only with --status.");
+	if (args.includes("--opencode")) {
+		if (
+			new Set(args).size !== args.length ||
+			args.some(
+				(arg) =>
+					!["--opencode", "--yes", "--dry-run", "--status"].includes(arg),
+			) ||
+			(args.includes("--status") && args.includes("--yes"))
+		)
+			throw new Error("Use --opencode with --yes, --dry-run or --status only");
+		if (args.includes("--status")) {
+			const status = opencodeStatus();
+			console.log(
+				`opencode: ${status.found ? "found" : "not found"}; Tedix plugin ${status.current ? `installed${status.version ? ` (v${status.version})` : ""}` : status.installed ? "installed from an older copy" : "absent"}.`,
+			);
+			if (status.problem) console.error(status.problem);
+			return 0;
+		}
+		console.log(
+			`OpenCode: download the Tedix plugin from tedix-hq/tedix-plugins and add it to ${opencodeConfigFile()}, replacing any earlier Tedix plugin entry; the old file is backed up first.`,
+		);
+		if (args.includes("--dry-run")) return 0;
+		if (
+			!args.includes("--yes") &&
+			!(await (confirm ?? promptForConsent)("Add Tedix to OpenCode? [Y/n] "))
+		)
+			return 0;
+		const { configPath, backup } = await setupOpencode();
+		console.log(
+			`OpenCode configured in ${configPath}${backup ? `; previous settings saved as ${backup}` : ""}. Sign in with opencode mcp auth tedix, then start a new OpenCode session.`,
+		);
+		return 0;
+	}
 	if (args.includes("--devin")) {
 		if (
 			new Set(args).size !== args.length ||

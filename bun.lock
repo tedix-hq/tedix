@@ -720,6 +720,7 @@
         "@tedix/worker-kit": "workspace:*",
         "chalk": "^6.0.1",
         "ink": "^8.0.0",
+        "jsonc-parser": "3.3.1",
         "react": "catalog:",
         "react-devtools-core": "^8.0.0",
         "zod": "catalog:",

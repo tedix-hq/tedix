@@ -166,7 +166,24 @@ const TOOLS: Tool[] = [
 		binary: "opencode",
 		folder: join(home, ".config", "opencode"),
 		executor: "opencode",
-		say: "Tedix can start OpenCode runs. Adding Tedix inside OpenCode is not available yet.",
+		status: "opencode",
+		add: "--opencode",
+		connection: async (command) => {
+			const { output } = await run(command, ["mcp", "list"], {
+				timeoutMs: 45_000,
+			});
+			// One block per server: "●  ✓ tedix connected", or "✗ tedix failed" and its error.
+			const block =
+				output
+					.replace(/\x1b\[[0-9;]*m/g, "")
+					.split("●")
+					.find((part) => /^\s*\S+\s+tedix\s/.test(part)) ?? "";
+			if (/\bconnected\b/.test(block)) return "signed-in";
+			// A refused sign-in (401/403) is fixed by signing in again.
+			return /needs auth|\b40[13]\b/i.test(block) ? "signed-out" : "unknown";
+		},
+		signIn: ["mcp", "auth", "tedix"],
+		say: "Signing in replaces the Tedix sign-in OpenCode saved before. Tedix cannot check a read inside OpenCode from here; ask OpenCode about your Tedix work to try it.",
 	},
 ];
 
@@ -913,6 +930,9 @@ export async function setupAction(
 						timeoutMs: 60_000,
 					}),
 				);
+			// OpenCode asks in a terminal before replacing a saved sign-in; clear it first.
+			if (tool.id === "opencode")
+				await run(command, ["mcp", "logout", "tedix"], { timeoutMs: 30_000 });
 			// Claude Code refuses to sign in without a terminal. On a Mac,
 			// `script` gives it one; the sign-in itself happens in the browser.
 			const [file, args] =

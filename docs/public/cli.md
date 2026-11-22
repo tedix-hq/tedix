@@ -777,3 +777,27 @@ Plugin hooks defer to matching setup hooks marked `tedix-managed-devin-hook`
 and to governed lane hooks. This requires a CLI with Devin plugin support;
 older CLIs fail open for plugin hooks. Setup remains a local fallback so it
 does not change your personal Devin Cloud plugin scope.
+
+## OpenCode
+
+The Tedix desktop app adds Tedix to OpenCode with **Add** and signs it in with
+**Sign in** under **Coding tools**. From a terminal, the same steps are:
+
+```sh
+tedix setup agents --opencode --yes
+opencode mcp auth tedix
+```
+
+Setup downloads the published Tedix plugin to
+`~/.local/share/tedix/plugins/opencode` and adds it to the `plugin` list in
+`~/.config/opencode/opencode.jsonc` (or `opencode.json`). It replaces any
+earlier Tedix plugin entry, keeps its options and your comments, and saves the
+previous file next to it as `.bak-tedix-<time>`. Running it again refreshes the
+plugin and changes nothing else. `--dry-run` shows the plan and
+`--status` reports whether the plugin is added.
+
+The plugin brings the Tedix connection, skills, session context and the same
+lifecycle hooks as Claude Code; see the
+[OpenCode plugin guide](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/opencode.md).
+Tedix cannot check a read inside OpenCode from outside it: start a new OpenCode
+session and ask it about your Tedix work.
