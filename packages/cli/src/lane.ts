@@ -51,6 +51,8 @@ export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode
 
 ${laneRunUsage}
 
+tedix lane routing [--routing-config <file>] [--json]  # which agent takes which tasks, in plain words
+
 tedix lane remote-job send|receive|inspect --input <file> --workspace <profile> --organization <org>
 
 tedix lane start "<title>" --project <id> [--work-item <id>]
@@ -130,6 +132,10 @@ export async function runLane(
 			...args.slice(0, verbIndex),
 			...args.slice(verbIndex + 1),
 		]);
+	}
+	if (args[verbIndex] === "routing") {
+		const { runLaneRouting } = await import("./lane-routing-command");
+		return runLaneRouting(args.slice(verbIndex + 1), options);
 	}
 	if (args[verbIndex] === "serve") {
 		const { runLaneServe } = await import("./lane-serve");

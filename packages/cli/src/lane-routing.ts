@@ -18,6 +18,8 @@ export const routingPolicySchema = z.strictObject({
 		.array(
 			z.strictObject({
 				name: z.string().min(1),
+				/** Why this rule exists, in the owner's words; shown with the rule. */
+				description: z.string().max(300).optional(),
 				tags: z.array(z.string()),
 				sizes: z.array(z.string()),
 				risks: z.array(z.string()),
@@ -69,6 +71,55 @@ export function readRoutingPolicy(
 	}
 	return policy;
 }
+const AGENT_NAMES: Record<LocalExecutor, string> = {
+	codex: "Codex",
+	"claude-code": "Claude Code",
+	opencode: "OpenCode",
+	devin: "Devin",
+};
+
+function words(list: string[], joiner: "or" | "then") {
+	return list.length < 2
+		? (list[0] ?? "")
+		: `${list.slice(0, -1).join(", ")} ${joiner} ${list.at(-1)}`;
+}
+
+/**
+ * The routing file in plain sentences, one per rule, in the order the runner
+ * reads them: the first rule a task matches decides, and the last rule takes
+ * everything else. Each rule's agents are tried in order; a busy, out of
+ * budget or failing agent passes the task to the next one.
+ */
+export function describeRoutingPolicy(policy: RoutingPolicy): string[] {
+	const lines = policy.rules.map((rule, index) => {
+		const last = index === policy.rules.length - 1;
+		const when = [
+			rule.tags.length ? `tagged ${words(rule.tags, "or")}` : "",
+			rule.sizes.length ? `of size ${words(rule.sizes, "or")}` : "",
+			rule.risks.length ? `with ${words(rule.risks, "or")} risk` : "",
+		].filter(Boolean);
+		const who =
+			last && !when.length
+				? "Every other task"
+				: `Tasks ${words(when, "or") || "matching nothing"}`;
+		const agents = rule.routes.map(
+			(route) =>
+				AGENT_NAMES[route.executor] + (route.model ? ` (${route.model})` : ""),
+		);
+		const one = last && !when.length;
+		const go = agents.length
+			? agents.length === 1
+				? `${one ? "goes" : "go"} to ${agents[0]}; nobody else takes ${one ? "it" : "them"} when it is busy`
+				: `${one ? "goes" : "go"} to ${agents[0]}, then ${words(agents.slice(1), "then")} when the one before is busy or out of budget`
+			: `${one ? "goes" : "go"} to no agent; set one for this rule`;
+		return `${who} (“${rule.name}”) ${go}.${rule.description ? ` ${rule.description}` : ""}`;
+	});
+	lines.push(
+		`An agent counts as out of budget at ${policy.nearLimitPercent}% or less of its allowance left.`,
+	);
+	return lines;
+}
+
 export interface BudgetSnapshot {
 	observedAt: number;
 	source: "native" | "error" | "unknown";
