@@ -171,7 +171,7 @@ it.each(["completed", "cancelled"])(
 	},
 );
 
-it("backfills legacy reviews on inbox read without crossing tenants or closing protected cards", async () => {
+it("retires legacy reviews explicitly without crossing tenants or closing protected cards", async () => {
 	const { sqlite, db, add } = fixture();
 	try {
 		add("foreign-review", "foreign");
@@ -197,6 +197,19 @@ it("backfills legacy reviews on inbox read without crossing tenants or closing p
 		sqlite.exec(
 			"UPDATE work_items SET disposition='cancelled',version=version+1,cancelled_at='2026-10-27T08:00:00.000Z' WHERE id='work'",
 		);
+		sqlite.exec("PRAGMA query_only = ON");
+		await listWorkInteractionInbox(db, {
+			orgId: "org",
+			states: ["open"],
+			observedAt: now,
+		});
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id='review'")
+				.get(),
+		).toMatchObject({ status: "open" });
+		sqlite.exec("PRAGMA query_only = OFF");
+		expect(await retireDecisionReviews(db, { orgId: "org", now })).toBe(1);
 		const inbox = await listWorkInteractionInbox(db, {
 			orgId: "org",
 			states: ["open"],

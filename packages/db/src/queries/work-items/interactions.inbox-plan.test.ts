@@ -74,6 +74,7 @@ it("pages the inbox without related history and evaluates history only for reque
 	});
 	expect(first.data.map((row) => row.request.id)).toEqual(["request-0499"]);
 	expect(first.hasMore).toBe(true);
+	expect(statements).toHaveLength(1);
 	expect(statements.some((query) => query.includes("json_each"))).toBe(false);
 	statements.length = 0;
 	returned.length = 0;

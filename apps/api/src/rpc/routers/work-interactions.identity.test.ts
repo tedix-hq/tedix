@@ -199,6 +199,36 @@ async function createTargetedInteraction(
 }
 
 describe("Work interaction canonical actor projections", () => {
+	it("lists cards without writing when a blocker condition has cleared", async () => {
+		const { sqlite, owner, target } = fixture();
+		try {
+			const request = await createTargetedInteraction(owner);
+			sqlite
+				.prepare(
+					"UPDATE work_interactions SET creator_type='system', metadata=? WHERE id=?",
+				)
+				.run(
+					JSON.stringify({
+						resolveWhen: { kind: "blocker_resolved", workItemId: WORK_ITEM_ID },
+					}),
+					request.id,
+				);
+			sqlite
+				.prepare("UPDATE work_items SET disposition='completed' WHERE id=?")
+				.run(WORK_ITEM_ID);
+			sqlite.exec("PRAGMA query_only = ON");
+			const inbox = await target.listInbox({ states: ["open"] });
+			expect(inbox.data.map((row) => row.request.id)).toContain(request.id);
+			expect(
+				sqlite
+					.prepare("SELECT status FROM work_interactions WHERE id=?")
+					.get(request.id),
+			).toMatchObject({ status: "open" });
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("keeps pagination complete when a page contains only withheld legacy cards", async () => {
 		const { sqlite, owner, target } = fixture();
 		const stale = await owner.create({

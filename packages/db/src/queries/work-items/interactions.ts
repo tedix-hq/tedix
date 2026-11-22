@@ -2259,7 +2259,6 @@ export async function listWorkInteractionInbox(
 		observedAt: string;
 	},
 ) {
-	await retireDecisionReviews(db, { orgId: p.orgId, now: p.observedAt });
 	const effective = sql<
 		"open" | "resolved" | "cancelled" | "expired"
 	>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workInteractions.status} END`;
