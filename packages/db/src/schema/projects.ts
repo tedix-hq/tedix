@@ -69,6 +69,9 @@ export const projects = sqliteTable(
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at"),
 		archivedAt: text("archived_at"),
+		archivedFromStatus: text("archived_from_status", {
+			enum: ["active", "paused", "done"],
+		}),
 	},
 	(table) => [
 		uniqueIndex("uniq_projects_org_id").on(table.orgId, table.id),

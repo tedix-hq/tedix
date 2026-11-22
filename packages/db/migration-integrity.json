@@ -1904,6 +1904,10 @@
 		{
 			"name": "20261122150541_blueprint_archive_state/migration.sql",
 			"sha256": "71f05fbd51d9671a44f0910c210bfdb68c1d8ea5ae9472f1b5dbf3d6b65d587b"
+		},
+		{
+			"name": "20261122152129_project_archive_state/migration.sql",
+			"sha256": "60d246c0456738ab11ffa1d6b882e941cfa29c6af71a25160a52efb15fae5aee"
 		}
 	]
 }

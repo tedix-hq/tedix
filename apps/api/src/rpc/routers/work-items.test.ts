@@ -38,7 +38,7 @@ const DDL = `
 CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE organization_members (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT, descope_user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, avatar_url TEXT, kind TEXT NOT NULL DEFAULT 'human', represented_user_id TEXT, role TEXT NOT NULL, custom_permissions TEXT, status TEXT NOT NULL DEFAULT 'active', invited_at TEXT, invite_accepted_at TEXT, invited_by TEXT, last_active_at TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE tedi_objectives (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');
-CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, name TEXT, description TEXT, lead_tedi_id TEXT, owner_user_id TEXT, target_date TEXT, metadata TEXT DEFAULT '{}', updated_at TEXT, archived_at TEXT);
+CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, name TEXT, description TEXT, lead_tedi_id TEXT, owner_user_id TEXT, target_date TEXT, metadata TEXT DEFAULT '{}', updated_at TEXT, archived_from_status TEXT, archived_at TEXT);
 CREATE UNIQUE INDEX uniq_projects_org_id ON projects(org_id,id);
 CREATE TABLE work_items (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT,

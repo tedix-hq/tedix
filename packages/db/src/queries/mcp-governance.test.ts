@@ -78,7 +78,7 @@ CREATE TABLE projects (
 	metadata TEXT DEFAULT '{}',
 	created_at TEXT NOT NULL,
 	updated_at TEXT,
-	archived_at TEXT
+	archived_from_status TEXT, archived_at TEXT
 );
 CREATE TABLE tedis (
 	id TEXT PRIMARY KEY NOT NULL,

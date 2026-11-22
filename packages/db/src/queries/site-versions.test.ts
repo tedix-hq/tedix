@@ -13,7 +13,7 @@ it("scopes version reports to configured projects and preserves unrelated metada
 	sqlite.exec(`CREATE TABLE projects (
 		id TEXT PRIMARY KEY, org_id TEXT, key TEXT, name TEXT, description TEXT,
 		status TEXT, lead_tedi_id TEXT, owner_user_id TEXT, objective_id TEXT,
-		target_date TEXT, metadata TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT
+		target_date TEXT, metadata TEXT, created_at TEXT, updated_at TEXT, archived_from_status TEXT, archived_at TEXT
 	);
 	CREATE TABLE work_items (id TEXT, org_id TEXT, project_id TEXT, title TEXT, created_at TEXT);
 	INSERT INTO work_items VALUES ('other-upgrade', 'org-b', 'site-project', 'Upgrade emdash to 2.0.0', '2026-01-01');

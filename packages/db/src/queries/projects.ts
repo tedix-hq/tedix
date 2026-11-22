@@ -236,6 +236,10 @@ export async function updateProject(
 	if (params.name !== undefined) set.name = params.name;
 	if (params.description !== undefined) set.description = params.description;
 	if (params.status !== undefined) set.status = params.status;
+	if (params.status === "archived") {
+		set.archivedFromStatus = sql`case when ${projects.status} <> 'archived' then ${projects.status} else ${projects.archivedFromStatus} end`;
+		set.archivedAt = sql`coalesce(${projects.archivedAt}, ${params.updatedAt})`;
+	}
 	if (params.leadTediId !== undefined) set.leadTediId = params.leadTediId;
 	if (params.ownerUserId !== undefined) set.ownerUserId = params.ownerUserId;
 	if (params.objectiveId !== undefined) set.objectiveId = params.objectiveId;
@@ -312,10 +316,39 @@ export async function archiveProject(
 ): Promise<Project | undefined> {
 	const rows = await db
 		.update(projects)
-		.set({ status: "archived", archivedAt, updatedAt: archivedAt })
+		.set({
+			status: "archived",
+			archivedAt,
+			updatedAt: archivedAt,
+			archivedFromStatus: sql`case when ${projects.status} <> 'archived' then ${projects.status} else ${projects.archivedFromStatus} end`,
+		})
 		.where(eq(projects.id, id))
 		.returning();
 	return rows[0];
+}
+
+export async function restoreProject(
+	db: DbClient,
+	params: { orgId: string; id: string; updatedAt: string },
+): Promise<Project | undefined> {
+	const [row] = await db
+		.update(projects)
+		.set({
+			status: sql`${projects.archivedFromStatus}`,
+			archivedAt: null,
+			archivedFromStatus: null,
+			updatedAt: params.updatedAt,
+		})
+		.where(
+			and(
+				eq(projects.orgId, params.orgId),
+				eq(projects.id, params.id),
+				sql`${projects.archivedFromStatus} is not null`,
+				sql`(${projects.status} = 'archived' or ${projects.archivedAt} is not null)`,
+			),
+		)
+		.returning();
+	return row;
 }
 
 /**

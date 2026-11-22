@@ -5,6 +5,7 @@ import { createD1Facade, type D1FacadeOptions } from "../test/d1-facade";
 import { workItems } from "../schema/work-items";
 import {
 	archiveProject,
+	restoreProject,
 	createProject,
 	findRequestContextProjectId,
 	getProjectById,
@@ -39,7 +40,7 @@ CREATE TABLE projects (
 	metadata TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT,
-	archived_at TEXT
+	archived_from_status TEXT, archived_at TEXT
 );
 CREATE UNIQUE INDEX uniq_projects_org_key ON projects (org_id, key);
 CREATE TABLE work_items (
@@ -346,6 +347,25 @@ describe("projects CRUD", () => {
 		expect(archived?.archivedAt).toBe(LATER);
 		// the row stays queryable (audit-preserving).
 		expect((await getProjectById(db, project.id))?.status).toBe("archived");
+		await archiveProject(db, project.id, LATER);
+		expect(
+			await restoreProject(db, {
+				orgId: "other-org",
+				id: project.id,
+				updatedAt: LATER,
+			}),
+		).toBeUndefined();
+		expect(
+			await restoreProject(db, {
+				orgId: ORG,
+				id: project.id,
+				updatedAt: LATER,
+			}),
+		).toMatchObject({
+			status: "active",
+			archivedAt: null,
+			archivedFromStatus: null,
+		});
 	});
 });
 

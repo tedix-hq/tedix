@@ -716,6 +716,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"plugins/install": "mcp:apps.write",
 	"plugins/list": "mcp:apps.read",
 	"plugins/uninstall": "mcp:apps.admin",
+	"projects/restore": "mcp:memory.write",
 	"projects/getContinuity": "mcp:memory.read",
 	"projects/getPortfolio": "mcp:memory.read",
 	"projects/getTodayTotals": "mcp:memory.read",

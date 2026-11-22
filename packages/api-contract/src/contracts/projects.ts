@@ -260,6 +260,17 @@ export const projectsContract = oc
 			.input(z.object({ id: z.uuid() }))
 			.output(ProjectSchema),
 
+		restore: oc
+			.route({
+				method: "POST",
+				path: "/{id}/restore",
+				summary: "Restore project",
+				description:
+					"Owner/admin only. Restore the saved pre-archive status and clear the archive date. Refuses old archives without saved state.",
+			})
+			.input(z.object({ id: z.uuid() }))
+			.output(ProjectSchema),
+
 		list: oc
 			.route({
 				method: "GET",

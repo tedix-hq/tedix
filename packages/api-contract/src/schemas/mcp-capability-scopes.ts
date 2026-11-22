@@ -461,6 +461,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	create_project: "mcp:memory",
 	update_project: "mcp:memory",
 	archive_project: "mcp:memory",
+	restore_project: "mcp:memory",
 	list_projects: "mcp:memory",
 	get_project: "mcp:memory",
 	get_project_rollup: "mcp:memory",

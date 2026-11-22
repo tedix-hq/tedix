@@ -34,6 +34,7 @@ import { listFactoryHealth } from "@tedix/db/queries/factories";
 import { listFactoryScoreboard } from "@tedix/db/queries/factory-scoreboard";
 import {
 	archiveProject,
+	restoreProject,
 	createProject,
 	getProjectById,
 	getProjectByKey,
@@ -65,6 +66,7 @@ import {
 } from "../orpc";
 import { verifiedActiveWorkActor } from "./work-items-principal";
 import {
+	requireOwnerAdminWorkItemAuthor,
 	rethrowWorkControlError,
 	verifiedWorkFactoryMutator,
 } from "./work-items/policy-helpers";
@@ -236,6 +238,30 @@ const archiveProcedure = authOs.archive
 			throw createError(ErrorCodes.BAD_REQUEST, "Failed to archive project");
 		}
 		return archived;
+	});
+
+const restoreProcedure = authOs.restore
+	.use(AUTHZ.objectiveWrite)
+	.handler(async ({ input, context }) => {
+		const orgId = requireOrgIdOrInput(context);
+		await requireOwnerAdminWorkItemAuthor(
+			context,
+			orgId,
+			"Restoring a project",
+		);
+		const project = await assertProjectAccess(context, input.id);
+		if (project.status !== "archived" && !project.archivedAt) return project;
+		const restored = await restoreProject(context.db, {
+			orgId,
+			id: input.id,
+			updatedAt: new Date().toISOString(),
+		});
+		if (!restored)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Project archive has no saved status or changed; re-read the project",
+			);
+		return restored;
 	});
 
 const listProcedure = authOs.list
@@ -496,6 +522,7 @@ export const projectsContractRouter = projectsOs.router({
 	create: createProcedure,
 	update: updateProcedure,
 	archive: archiveProcedure,
+	restore: restoreProcedure,
 	list: skipOutputValidation(listProcedure),
 	get: getProcedure,
 	getRollup: skipOutputValidation(getRollupProcedure),
