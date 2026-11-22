@@ -73,8 +73,12 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 		const released = new Promise<void>((resolve) => {
 			release = resolve;
 		});
+		// Pin IPv4: the spawned child resolves the token endpoint itself, and a
+		// localhost that prefers ::1 would fail before connect — which the
+		// refresh path reads as "unsent" and correctly lifts the fence.
 		const server = Bun.serve({
 			port: 0,
+			hostname: "127.0.0.1",
 			async fetch() {
 				requests++;
 				markedBeforeSend =

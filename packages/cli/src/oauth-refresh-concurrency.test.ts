@@ -24,8 +24,11 @@ for (const invalidated of [false, true]) {
 		const barrier = new Promise<void>((resolve) => {
 			release = resolve;
 		});
+		// Pin IPv4: spawned children resolve localhost themselves, and a ::1
+		// preference would fail before connect.
 		const server = Bun.serve({
 			port: 0,
+			hostname: "127.0.0.1",
 			async fetch(request) {
 				if (new URL(request.url).pathname === "/ready") {
 					if (++ready === 8) release();
