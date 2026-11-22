@@ -254,7 +254,7 @@ function OsSidebar({
 				<OsSidebarWorkspaces />
 			</SidebarContent>
 
-			<SidebarFooter className="h-auto flex-col gap-1 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
+			<SidebarFooter className="h-auto flex-col gap-1 border-r py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
 				<OsAccountMenu identity={identity} />
 			</SidebarFooter>
 		</Sidebar>
