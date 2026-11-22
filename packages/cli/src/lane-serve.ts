@@ -39,7 +39,7 @@ import {
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	appendFileSync,
 	closeSync,
@@ -2002,7 +2002,9 @@ export async function cleanupLaneWorktree(
 		// A lock someone else placed keeps its registration.
 		if (registered?.lock === `locked ${LANE_WORKTREE_LOCK_REASON}`)
 			await run(source, ["worktree", "unlock", canonicalPath(destination)]);
-		await run(source, ["worktree", "prune"]);
+		await withLaneWorktreeLock(source, () =>
+			run(source, ["worktree", "prune"]),
+		);
 		return true;
 	}
 	const status = await run(destination, [
@@ -2029,7 +2031,9 @@ export async function cleanupLaneWorktree(
 		}
 		await rm(destination, { recursive: true, force: true });
 		// The registration of a half-deleted checkout may outlive its folder.
-		await run(source, ["worktree", "prune"]);
+		await withLaneWorktreeLock(source, () =>
+			run(source, ["worktree", "prune"]),
+		);
 		return true;
 	}
 	const changes = status.stdout
@@ -2196,11 +2200,31 @@ async function gitSucceeds(repo: string, args: string[]): Promise<boolean> {
 	}
 }
 
+// Git creates a metadata directory before writing its initialization lock.
+// Coordinate add and prune across dispatcher processes sharing one repository.
+async function withLaneWorktreeLock<T>(
+	source: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const common = await gitOutput(source, [
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	]);
+	const lock = beginFileLock(join(common, "tedix-worktree-lock"));
+	try {
+		while (!lock.ready()) await sleep(50);
+		return await operation();
+	} finally {
+		lock.release();
+	}
+}
+
 /**
  * Adds the checkout without blocking the runner: a whole-repository checkout
- * can take minutes. A failed or timed-out add leaves a half-made folder and a
- * registration still locked as "initializing"; both are removed so the next
- * try starts clean, and the error says what Git reported.
+ * can take minutes. Git names metadata after the checkout basename, so use a
+ * UUID before moving to the run path: a removed registration can never alias
+ * another run. Keep the registration locked throughout checkout and move.
  */
 async function addLaneWorktree(
 	source: string,
@@ -2208,6 +2232,7 @@ async function addLaneWorktree(
 	head: string,
 	timeoutMs: number,
 ) {
+	const staging = join(dirname(destination), `lane-${randomUUID()}`);
 	try {
 		await promisify(execFile)(
 			"git",
@@ -2218,18 +2243,32 @@ async function addLaneWorktree(
 				"add",
 				"--quiet",
 				"--detach",
-				destination,
+				"--lock",
+				"--reason",
+				LANE_WORKTREE_LOCK_REASON,
+				staging,
 				head,
 			],
 			{ encoding: "utf8", timeout: timeoutMs },
 		);
+		await gitOutput(source, [
+			"worktree",
+			"move",
+			"--force",
+			"--force",
+			staging,
+			destination,
+		]);
 	} catch (error) {
 		const failure = error as { killed?: boolean; stderr?: string };
-		await rm(destination, { recursive: true, force: true });
-		await gitOutput(source, ["worktree", "unlock", destination]).catch(
-			() => {},
-		);
-		await gitOutput(source, ["worktree", "prune"]).catch(() => {});
+		await gitOutput(source, [
+			"worktree",
+			"remove",
+			"--force",
+			"--force",
+			staging,
+		]).catch(() => {});
+		await rm(staging, { recursive: true, force: true });
 		throw new Error(
 			`git worktree add failed: ${
 				failure.killed
@@ -2269,7 +2308,9 @@ export async function provisionLaneWorktree(
 		(await gitSucceeds(source, ["merge-base", "--is-ancestor", "HEAD", head]))
 	)
 		await gitOutput(source, ["merge", "--ff-only", head]);
-	await gitOutput(source, ["worktree", "prune"]);
+	await withLaneWorktreeLock(source, () =>
+		gitOutput(source, ["worktree", "prune"]),
+	);
 	const registered = new Set(
 		(await gitOutput(source, ["worktree", "list", "--porcelain", "-z"]))
 			.split("\0")
@@ -2309,7 +2350,9 @@ export async function provisionLaneWorktree(
 		const recovery = mkdtempSync(`${destination}.orphan-`);
 		renameSync(destination, join(recovery, "repo"));
 	}
-	await addLaneWorktree(source, destination, head, addTimeoutMs);
+	await withLaneWorktreeLock(source, () =>
+		addLaneWorktree(source, destination, head, addTimeoutMs),
+	);
 	await lockLaneWorktree(source, destination);
 	return destination;
 }

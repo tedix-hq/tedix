@@ -9,6 +9,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	realpathSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -7478,6 +7479,46 @@ it("does not cut a stale run when origin cannot be fetched", async () => {
 	const destination = join(root, "repo");
 	await expect(provisionLaneWorktree(repo, destination)).rejects.toThrow();
 	expect(existsSync(destination)).toBe(false);
+}, 30_000);
+
+it("keeps concurrent run metadata unique and stable through prune and peer cleanup", async () => {
+	const { root, repo, git } = gitFixture(true);
+	// Keep provisioning from advancing the shared source index in parallel.
+	writeFileSync(join(repo, "source-work.txt"), "retained");
+	const destinations = ["first", "second"].map((name) => {
+		mkdirSync(join(root, name));
+		return join(root, name, "repo");
+	});
+	const runs = await Promise.all(
+		destinations.map((path) => provisionLaneWorktree(repo, path)),
+	);
+	const metadata = runs.map((path) =>
+		git(["rev-parse", "--absolute-git-dir"], path),
+	);
+	expect(new Set(metadata).size).toBe(2);
+	for (let i = 0; i < runs.length; i++) {
+		expect(basename(metadata[i]!)).toMatch(/^lane-[0-9a-f-]{36}$/);
+		expect(readFileSync(join(metadata[i]!, "gitdir"), "utf8").trim()).toBe(
+			realpathSync(join(runs[i]!, ".git")),
+		);
+		writeFileSync(join(runs[i]!, "own.txt"), String(i));
+		git(["add", "own.txt"], runs[i]);
+	}
+	git(["worktree", "prune", "--expire=now"]);
+	for (let i = 0; i < runs.length; i++) {
+		expect(git(["show", ":own.txt"], runs[i])).toBe(String(i));
+		expect(git(["rev-parse", "--absolute-git-dir"], runs[i])).toBe(
+			metadata[i]!,
+		);
+	}
+	git(["reset", "--hard"], runs[0]);
+	expect(await cleanupLaneWorktree(repo, runs[0]!, () => false)).toBe(true);
+	await provisionLaneWorktree(repo, runs[0]!);
+	expect(git(["rev-parse", "--absolute-git-dir"], runs[0])).not.toBe(
+		metadata[0]!,
+	);
+	expect(git(["rev-parse", "--absolute-git-dir"], runs[1])).toBe(metadata[1]!);
+	expect(git(["show", ":own.txt"], runs[1])).toBe("1");
 }, 30_000);
 
 it.each(["slow", "failing"])(
