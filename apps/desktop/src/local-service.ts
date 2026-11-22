@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, createWriteStream } from "node:fs";
 import {
 	mkdir,
@@ -9,8 +9,10 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { app } from "electron";
 
+const run = promisify(execFile);
 const payload = () => join(process.resourcesPath, "local-workspace.tar.gz");
 let processOwner: ChildProcess | undefined;
 let ready = false;
@@ -78,6 +80,17 @@ async function start() {
 		mode: 0o600,
 	});
 	log.on("error", () => {});
+	// macOS can take longer than the launcher's normal five-second PATH check
+	// to verify the bundled binary on first use.
+	try {
+		await run(join(runtime, "bin", "node"), ["--version"], {
+			timeout: 30_000,
+			signal: shutdown.signal,
+		});
+	} catch (error) {
+		log.end(String(error));
+		throw error;
+	}
 	const child = spawn(
 		join(runtime, "bin", "bun"),
 		["scripts/run-local.ts", "--demo", "--no-install", "--verbose"],
