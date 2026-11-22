@@ -1,3 +1,4 @@
+import { DecisionOutputSources } from "./cited-output";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { laneRunnerAsker } from "@tedix/api-contract/utils/lane-runner-asker";
 import { CardFaceContext } from "@/components/deck-presentation-context";
@@ -327,6 +328,12 @@ export function WorkInteractionDecisionCard({
 						capturedAt: preview.request.requestedAt,
 						evidenceUrl: `/work/interactions/${preview.request.id}`,
 					}}
+					citedSources={
+						<DecisionOutputSources
+							sources={previewDecision?.sources}
+							requestSources={preview.request.metadata?.decisionSources}
+						/>
+					}
 					at={preview.request.requestedAt}
 					content={
 						<>
@@ -456,6 +463,7 @@ export function WorkInteractionDecisionCard({
 				<DecisionEnvelopeCard
 					key={request.id}
 					decision={decision}
+					requestSources={request.metadata?.decisionSources}
 					askedBy={source}
 					revisionTarget={{ requestId, version: request.version }}
 					onNext={onNext}
@@ -599,6 +607,12 @@ export function WorkInteractionDecisionCard({
 					capturedAt: request.requestedAt,
 					evidenceUrl: `/work/interactions/${request.id}`,
 				}}
+				citedSources={
+					<DecisionOutputSources
+						sources={decision?.sources}
+						requestSources={request.metadata?.decisionSources}
+					/>
+				}
 				at={request.requestedAt}
 				content={
 					<div className="grid gap-3">

@@ -1,4 +1,4 @@
-import { CitedOutput } from "./cited-output";
+import { DecisionOutputSources } from "./cited-output";
 import { useRef, useState } from "react";
 import { renderCardDateText } from "@tedix/api-contract/utils/decision-card-copy";
 import type { CardRevisionTarget } from "@/components/card-revision-panel";
@@ -15,6 +15,7 @@ import { OS_COPY, decisionText } from "@/shared/os-copy";
 
 export function DecisionEnvelopeCard({
 	decision,
+	requestSources,
 	askedBy,
 	revisionTarget,
 	disabled,
@@ -24,6 +25,7 @@ export function DecisionEnvelopeCard({
 	onPrevious,
 }: {
 	decision: DecisionEnvelope;
+	requestSources?: unknown;
 	askedBy: string;
 	revisionTarget?: CardRevisionTarget;
 	disabled?: boolean;
@@ -68,18 +70,12 @@ export function DecisionEnvelopeCard({
 			body={decision.preview?.body ?? decision.recommendation}
 			disabled={disabled}
 			allowEdits={!decision.options.some((option) => option.effect)}
-			citedSources={decision.sources?.map(
-				(source) =>
-					source.kind === "output" && (
-						<CitedOutput
-							key={source.revisionId + ":" + source.slide}
-							outputId={source.id}
-							revisionId={source.revisionId}
-							title={source.title ?? "Open source"}
-							slide={source.slide}
-						/>
-					),
-			)}
+			citedSources={
+				<DecisionOutputSources
+					sources={decision.sources}
+					requestSources={requestSources}
+				/>
+			}
 			faceContent={
 				<>
 					{delegation && (

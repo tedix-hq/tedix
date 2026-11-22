@@ -689,6 +689,9 @@ function DecisionDeckContent({
 																: undefined
 														}
 														decision={current}
+														requestSources={
+															selected.row?.request.metadata?.decisionSources
+														}
 														defaultLowStakesToDelegate={
 															config.defaultLowStakesToDelegate
 														}

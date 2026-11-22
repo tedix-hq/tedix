@@ -301,28 +301,25 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 							)}
 						</>
 					),
-					running: (
-						<>
+					running: running && (
+						<div>
 							<ActivityOwnerOverview
 								projectIds={following ? projects : undefined}
 							/>
-							{running && (
-								<div>
-									<ActivityRunningNow
-										config={ORGANIZATION_ACTIVITY_CONFIG}
-										followedProjects={following ? projects : undefined}
-									/>
-									<Collapsible open={details} onOpenChange={setDetails}>
-										<CollapsibleDefaultTrigger>
-											Stuck and upcoming work
-										</CollapsibleDefaultTrigger>
-										<CollapsibleDefaultContent>
-											{details && <OverviewSections />}
-										</CollapsibleDefaultContent>
-									</Collapsible>
-								</div>
-							)}
-						</>
+
+							<ActivityRunningNow
+								config={ORGANIZATION_ACTIVITY_CONFIG}
+								followedProjects={following ? projects : undefined}
+							/>
+							<Collapsible open={details} onOpenChange={setDetails}>
+								<CollapsibleDefaultTrigger>
+									Stuck and upcoming work
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent>
+									{details && <OverviewSections />}
+								</CollapsibleDefaultContent>
+							</Collapsible>
+						</div>
 					),
 					posts: (
 						<>

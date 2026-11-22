@@ -1,3 +1,7 @@
+import {
+	DecisionSourcesSchema,
+	type DecisionSource,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, CaretLeft, CaretRight } from "@phosphor-icons/react";
@@ -127,4 +131,30 @@ export function CitedOutput(props: Citation) {
 			)}
 		</div>
 	);
+}
+
+export function DecisionOutputSources({
+	sources,
+	requestSources,
+}: {
+	sources?: DecisionSource[];
+	requestSources?: unknown;
+}) {
+	const rows = DecisionSourcesSchema.safeParse(requestSources).data ?? [];
+	const outputs = new Map<
+		string,
+		Extract<DecisionSource, { kind: "output" }>
+	>();
+	for (const source of [...rows, ...(sources ?? [])])
+		if (source.kind === "output")
+			outputs.set(source.revisionId + ":" + (source.slide ?? ""), source);
+	return [...outputs].map(([key, source]) => (
+		<CitedOutput
+			key={key}
+			outputId={source.id}
+			revisionId={source.revisionId}
+			title={source.title ?? "Open source"}
+			slide={source.slide}
+		/>
+	));
 }
