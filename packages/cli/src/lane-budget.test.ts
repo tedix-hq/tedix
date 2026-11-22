@@ -2,7 +2,11 @@ import { afterEach, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cachedExecutorBudgets, readExecutorBudgets } from "./lane-budget";
+import {
+	cachedExecutorBudgets,
+	readExecutorBudgets,
+	recordExecutorUsageSignal,
+} from "./lane-budget";
 import * as laneSubprocess from "./lane-command";
 import {
 	defaultRoutingPolicy,
@@ -44,6 +48,7 @@ it("reads native usage and explicit plan caps, omitting secrets and keeping abse
 	try {
 		const budgets = await readExecutorBudgets(policy, {
 			PATH: "/missing",
+			TEDIX_CONFIG_DIR: join(dir, "config"),
 			CODEX_HOME: dir,
 			CLAUDE_CONFIG_DIR: join(dir, "absent"),
 		});
@@ -59,6 +64,40 @@ it("reads native usage and explicit plan caps, omitting secrets and keeping abse
 		command.mockRestore();
 	}
 });
+it("keeps the freshest run signal and says plainly what a tool does not expose", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "lane-usage-test-"));
+	dirs.push(dir);
+	const env = {
+		PATH: "/missing",
+		TEDIX_CONFIG_DIR: join(dir, "config"),
+		CODEX_HOME: join(dir, "codex"),
+		CLAUDE_CONFIG_DIR: join(dir, "claude"),
+	};
+	const policy = structuredClone(defaultRoutingPolicy);
+	const command = spyOn(laneSubprocess, "laneCommand");
+	try {
+		recordExecutorUsageSignal(
+			"claude-code",
+			{
+				status: "allowed",
+				unifiedWindows: {
+					seven_day: { utilization: 0.96, resetsAt: 4_000_000_000 },
+				},
+			},
+			env,
+		);
+		recordExecutorUsageSignal("devin", { unrelated: true }, env);
+		const budgets = await readExecutorBudgets(policy, env);
+		expect(budgets["claude-code"]?.windows?.[0]?.usedPercent).toBeCloseTo(96);
+		expect(budgets["claude-code"]?.note).toBeUndefined();
+		expect(budgets.devin?.note).toContain("no scriptable account read");
+		expect(budgets.opencode?.note).toContain("exposes no plan quota");
+		expect(budgets.codex?.note).toContain("session records");
+	} finally {
+		command.mockRestore();
+	}
+});
+
 it("uses an optional launcher-adjacent OpenCode default, with explicit policy taking precedence", () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-config-test-"));
 	dirs.push(dir);

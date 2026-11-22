@@ -173,6 +173,19 @@ export function describeRoutingPolicy(policy: RoutingPolicy): string[] {
 	return lines;
 }
 
+/** One reported limit or balance, in the tool's own words. */
+export interface UsageWindow {
+	/** Plain name, e.g. "Weekly", "5-hour", "Credits". */
+	name: string;
+	/** Share of the limit used, 0-100. */
+	usedPercent?: number;
+	/** Share left, 0-100, when the tool reports remaining instead. */
+	remainingPercent?: number;
+	/** When the window resets, epoch ms. */
+	resetAt?: number;
+	/** Extra plain detail, e.g. "79.85 left" or "9 of 10 sessions". */
+	detail?: string;
+}
 export interface BudgetSnapshot {
 	observedAt: number;
 	source: "native" | "error" | "unknown";
@@ -181,6 +194,12 @@ export interface BudgetSnapshot {
 	estimatedCostUsd?: number;
 	backoffUntil?: number;
 	consecutiveLimits?: number;
+	/** The plan or credit source the tool reported, e.g. "pro" or "azure". */
+	plan?: string;
+	/** Each limit the tool itself reports, with its reset time. */
+	windows?: UsageWindow[];
+	/** Plain words on what the tool does or does not expose. */
+	note?: string;
 }
 export type ExecutorBudgets = Partial<Record<LocalExecutor, BudgetSnapshot>>;
 export function parseBudgetSignal(
@@ -194,14 +213,14 @@ export function parseBudgetSignal(
 			: {};
 	const root = record(signal);
 	const limits = record(root.rate_limits ?? root.rateLimits ?? signal);
-	const windows = [
+	const candidates = [
 		limits.primary,
 		limits.secondary,
 		limits.five_hour,
 		limits.seven_day,
 		limits,
 	];
-	for (const raw of windows) {
+	for (const raw of candidates) {
 		const window = record(raw);
 		const used = window.used_percent ?? window.utilization;
 		const remaining =
@@ -257,7 +276,168 @@ export function parseBudgetSignal(
 		snapshot.estimatedCostUsd = root.estimatedCostUsd;
 		snapshot.source = "native";
 	}
+	const usage = usageWindows(limits, root);
+	if (usage.plan) snapshot.plan = usage.plan;
+	if (usage.windows.length) snapshot.windows = usage.windows;
+	// A nested report (Claude's unifiedWindows, Codex's per-window entries)
+	// still bounds the snapshot's remaining share for routing.
+	const floor = usage.windows.reduce<number | undefined>(
+		(best, window) =>
+			window.usedPercent !== undefined
+				? Math.min(best ?? 100, 100 - window.usedPercent)
+				: best,
+		undefined,
+	);
+	if (floor !== undefined) {
+		snapshot.remainingPercent = Math.min(
+			snapshot.remainingPercent ?? 100,
+			floor,
+		);
+		snapshot.source = "native";
+		const resets = usage.windows
+			.map((window) => window.resetAt)
+			.filter((at): at is number => at !== undefined);
+		if (resets.length)
+			snapshot.resetAt = Math.max(snapshot.resetAt ?? 0, ...resets);
+	}
 	return snapshot;
+}
+
+const CLAUDE_WINDOW_NAMES: Record<string, string> = {
+	five_hour: "5-hour",
+	seven_day: "Weekly",
+	seven_day_opus: "Weekly Opus",
+	seven_day_sonnet: "Weekly Sonnet",
+	seven_day_overage_included: "Weekly extra usage",
+	overage: "Extra usage",
+};
+const CODEX_WINDOW_NAMES: Record<number, string> = {
+	300: "5-hour",
+	10080: "Weekly",
+	43200: "Monthly",
+};
+function epochMs(value: unknown): number | undefined {
+	if (typeof value === "number" && Number.isFinite(value))
+		return value > 1e12 ? value : value * 1000;
+	if (typeof value === "string") {
+		const at = Date.parse(value);
+		return Number.isFinite(at) ? at : undefined;
+	}
+	return undefined;
+}
+/** Plan, credit source and each named window a tool reports for itself. */
+function usageWindows(
+	limits: Record<string, unknown>,
+	root: Record<string, unknown>,
+): { plan?: string; windows: UsageWindow[] } {
+	const record = (value: unknown): Record<string, unknown> =>
+		value && typeof value === "object" && !Array.isArray(value)
+			? (value as Record<string, unknown>)
+			: {};
+	const windows: UsageWindow[] = [];
+	let plan: string | undefined;
+	const planType = limits.plan_type ?? limits.planType;
+	if (typeof planType === "string" && planType) plan = planType;
+	const credits = record(limits.credits);
+	if (credits.unlimited === true)
+		plan = plan ? `${plan} · unlimited` : "Unlimited";
+	else if (typeof credits.balance === "string" && credits.balance)
+		windows.push({ name: "Credits", detail: `${credits.balance} left` });
+	const limitName =
+		typeof limits.limit_name === "string" && limits.limit_name
+			? limits.limit_name
+			: typeof limits.limit_id === "string" && limits.limit_id
+				? limits.limit_id
+				: undefined;
+	for (const key of ["primary", "secondary"]) {
+		const window = record(limits[key]);
+		const used = window.used_percent;
+		if (typeof used !== "number" || !Number.isFinite(used)) continue;
+		const minutes =
+			typeof window.window_minutes === "number"
+				? window.window_minutes
+				: undefined;
+		const span = minutes
+			? (CODEX_WINDOW_NAMES[minutes] ?? `${minutes} minutes`)
+			: key;
+		const entry: UsageWindow = {
+			name: limitName ? `${limitName} ${span}` : span,
+			usedPercent: Math.min(100, Math.max(0, used)),
+			resetAt: epochMs(window.resets_at ?? window.resetAt),
+		};
+		windows.push(entry);
+	}
+	const unified = record(limits.unifiedWindows);
+	for (const [key, name] of Object.entries(CLAUDE_WINDOW_NAMES)) {
+		const window = record(unified[key]);
+		const utilization = window.utilization;
+		if (typeof utilization !== "number" || !Number.isFinite(utilization))
+			continue;
+		windows.push({
+			name,
+			usedPercent: Math.min(100, Math.max(0, utilization * 100)),
+			resetAt: epochMs(window.resetsAt ?? window.reset_at),
+		});
+	}
+	const type = limits.rateLimitType ?? limits.rate_limit_type;
+	if (typeof type === "string" && type && !(type in unified)) {
+		windows.push({
+			name: CLAUDE_WINDOW_NAMES[type] ?? type.replaceAll("_", " "),
+			usedPercent:
+				root.status === "rejected"
+					? 100
+					: typeof limits.used_percent === "number"
+						? limits.used_percent
+						: undefined,
+			resetAt: epochMs(limits.resetsAt ?? limits.reset_at),
+		});
+	}
+	const used = root.sessions_used,
+		cap = root.session_limit;
+	if (
+		typeof used === "number" &&
+		typeof cap === "number" &&
+		cap > 0 &&
+		used >= 0
+	)
+		windows.push({
+			name: "Sessions",
+			usedPercent: Math.min(100, Math.max(0, (100 * used) / cap)),
+			detail: `${used} of ${cap} sessions`,
+		});
+	return { plan, windows };
+}
+/** One plain line per tool: plan or credit source, each limit used and reset. */
+export function describeUsage(snapshot: BudgetSnapshot | undefined): string {
+	if (!snapshot) return "";
+	const parts: string[] = [];
+	if (snapshot.plan) parts.push(snapshot.plan);
+	for (const window of snapshot.windows ?? []) {
+		const name = window.name.charAt(0).toUpperCase() + window.name.slice(1);
+		if (window.usedPercent !== undefined) {
+			let text = `${name}: ${Math.round(window.usedPercent)}% used`;
+			if (window.detail) text += ` (${window.detail})`;
+			if (window.resetAt && window.resetAt > Date.now())
+				text += `, resets ${new Date(window.resetAt).toLocaleString(undefined, {
+					month: "short",
+					day: "numeric",
+					hour: "numeric",
+					minute: "2-digit",
+				})}`;
+			parts.push(text);
+		} else if (window.detail) parts.push(`${name}: ${window.detail}`);
+	}
+	if (snapshot.estimatedCostUsd !== undefined)
+		parts.push(`cost $${snapshot.estimatedCostUsd.toFixed(2)} today`);
+	if (!parts.length && snapshot.note) return snapshot.note;
+	const text = parts.join(" · ");
+	return snapshot.note ? `${text} — ${snapshot.note}` : text;
+}
+/** True when any reported window is at or above ~90% used. */
+export function nearUsageLimit(snapshot: BudgetSnapshot | undefined): boolean {
+	return (snapshot?.windows ?? []).some(
+		(window) => window.usedPercent !== undefined && window.usedPercent >= 90,
+	);
 }
 export function executorBackoff(
 	message: string,

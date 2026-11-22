@@ -3,8 +3,11 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
 	describeRoutingPolicy,
+	describeUsage,
 	localExecutors,
+	nearUsageLimit,
 	readRoutingPolicy,
+	type BudgetSnapshot,
 	type ExecutorBudgets,
 	type LocalExecutor,
 } from "./lane-routing";
@@ -29,6 +32,7 @@ export function toolAvailability(
 		"dispatchers",
 	);
 	const until: Partial<Record<LocalExecutor, number>> = {};
+	const snapshots: Partial<Record<LocalExecutor, BudgetSnapshot>> = {};
 	let names: string[] = [];
 	try {
 		names = readdirSync(root);
@@ -39,13 +43,20 @@ export function toolAvailability(
 				readFileSync(join(root, name, "budgets.state"), "utf8"),
 			) as ExecutorBudgets;
 			for (const executor of localExecutors) {
-				const end = budgets[executor]?.backoffUntil ?? 0;
+				const snapshot = budgets[executor];
+				const end = snapshot?.backoffUntil ?? 0;
 				if (end > now && end > (until[executor] ?? 0)) until[executor] = end;
+				if (
+					snapshot &&
+					(snapshot.observedAt ?? 0) > (snapshots[executor]?.observedAt ?? -1)
+				)
+					snapshots[executor] = snapshot;
 			}
 		} catch {}
 	}
 	return localExecutors.map((executor) => {
 		const end = until[executor];
+		const usage = describeUsage(snapshots[executor]);
 		return {
 			executor,
 			available: !end,
@@ -53,6 +64,8 @@ export function toolAvailability(
 			description: end
 				? `${NAMES[executor]}: out of credits or at its usage limit, back around ${new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
 				: `${NAMES[executor]}: available`,
+			usage: usage || undefined,
+			nearLimit: nearUsageLimit(snapshots[executor]),
 		};
 	});
 }
@@ -95,6 +108,9 @@ export async function runLaneRouting(
 	);
 	for (const line of description) console.log(`- ${line}`);
 	console.log("\nRight now:");
-	for (const tool of tools) console.log(`- ${tool.description}`);
+	for (const tool of tools) {
+		console.log(`- ${tool.description}`);
+		if (tool.usage) console.log(`  ${tool.usage}`);
+	}
 	return 0;
 }

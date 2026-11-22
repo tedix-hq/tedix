@@ -650,12 +650,18 @@ supply a string or `{ "defaultModel": "provider/model" }` default when present.
 No installation-specific path or provider credential is stored in the policy.
 
 The private `budgets.state` receipt contains only per-executor usage projections
-and cooldowns. Codex and Claude Code observations come from bounded recent native
-transcript tails. `budgetFiles` can supply explicit native JSON/JSONL usage exports,
+and cooldowns. Codex observations come from bounded recent native transcript
+tails (plan, each rate-limit window with its reset, and credit balance);
+Claude Code's stream reports its windows (`five_hour`, `seven_day` and
+per-model shares) during a run and the runner keeps the freshest one.
+`budgetFiles` can supply explicit native JSON/JSONL usage exports,
 including Devin `sessions_used` / `session_limit` plan observations where available.
-The installed Devin CLI may expose no cap signal; missing limits stay unknown.
-OpenCode's one-day `stats` cost is a local estimate, not a remaining credit balance.
-Credential stores are never queried for budgets. Signals expire after five minutes
+`tedix lane routing` (and `--json`) shows each tool's plan or credit source,
+each reported limit's share used and reset time, or plainly what the tool
+does not expose: Devin CLI has no scriptable account read, and OpenCode
+exposes no plan quota (its one-day `stats` cost is a local estimate, not a
+remaining credit balance). Credential stores are never queried for budgets.
+Signals expire after five minutes
 by default; at 10% remaining or below, an executor is withheld until reset or a
 fresh observation. Rate-limit failures persist exponential cooldowns from one minute
 to one hour, honoring a longer numeric Retry-After. A pinned assignment waits;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
 	describeRoutingPolicy,
+	describeUsage,
+	nearUsageLimit,
 	routeLocalWork,
 	executorBackoff,
 	statedResetAt,
@@ -351,6 +353,81 @@ describe("budget observations", () => {
 		const snapshot = parseBudgetSignal({ estimatedCostUsd: 1.25 });
 		expect(snapshot.estimatedCostUsd).toBe(1.25);
 		expect(snapshot.remainingPercent).toBeUndefined();
+	});
+	it("keeps each Codex window, plan and credit balance", () => {
+		const snapshot = parseBudgetSignal(
+			{
+				limit_id: "codex",
+				plan_type: "pro",
+				primary: {
+					used_percent: 96,
+					window_minutes: 10080,
+					resets_at: 1_800_000_000,
+				},
+				credits: { has_credits: true, unlimited: false, balance: "79.85" },
+				secret: "never retained",
+			},
+			1000,
+		);
+		expect(snapshot.plan).toBe("pro");
+		expect(snapshot.windows).toEqual([
+			{ name: "Credits", detail: "79.85 left" },
+			{
+				name: "codex Weekly",
+				usedPercent: 96,
+				resetAt: 1_800_000_000_000,
+			},
+		]);
+		expect(snapshot.remainingPercent).toBe(4);
+		expect(JSON.stringify(snapshot)).not.toContain("secret");
+		expect(nearUsageLimit(snapshot)).toBe(true);
+	});
+	it("reads Claude's unified windows and per-model shares", () => {
+		const snapshot = parseBudgetSignal(
+			{
+				status: "allowed",
+				rateLimitType: "seven_day",
+				resetsAt: 1_800_000_000,
+				unifiedWindows: {
+					five_hour: { utilization: 0.09, resetsAt: 1_799_000_000 },
+					seven_day: { utilization: 0.96, resetsAt: 1_800_000_000 },
+					seven_day_overage_included: {
+						utilization: 0.5,
+						resetsAt: 1_800_000_000,
+					},
+				},
+			},
+			1000,
+		);
+		expect(snapshot.remainingPercent).toBe(4);
+		expect(snapshot.windows?.map((window) => window.name)).toEqual([
+			"5-hour",
+			"Weekly",
+			"Weekly extra usage",
+		]);
+		expect(snapshot.windows?.[1]?.usedPercent).toBeCloseTo(96);
+		expect(nearUsageLimit(snapshot)).toBe(true);
+	});
+	it("describes plan, each limit with its reset and the tool's own note", () => {
+		const snapshot = parseBudgetSignal(
+			{
+				limit_id: "codex",
+				plan_type: "pro",
+				primary: { used_percent: 42, window_minutes: 10080, resets_at: 0 },
+				credits: { has_credits: true, unlimited: false, balance: "79.85" },
+			},
+			1000,
+		);
+		snapshot.note = "From session records.";
+		snapshot.estimatedCostUsd = 1.25;
+		const text = describeUsage(snapshot);
+		expect(text).toContain("pro");
+		expect(text).toContain("Credits: 79.85 left");
+		expect(text).toContain("Weekly: 42% used");
+		expect(text).toContain("cost $1.25 today");
+		expect(text).toContain("From session records.");
+		expect(nearUsageLimit(snapshot)).toBe(false);
+		expect(describeUsage(undefined)).toBe("");
 	});
 	it("backs off rate limits exponentially and honors retry-after", () => {
 		expect(

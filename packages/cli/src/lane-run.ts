@@ -20,6 +20,7 @@ import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatc
 import type { CodexLaneServer } from "./codex-lane-thread";
 import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
+import { recordExecutorUsageSignal } from "./lane-budget";
 import type { LaneObservation } from "./lane-telemetry";
 import { laneTurnOutput } from "./lane-output";
 import { laneAgentSteps, type LaneStep } from "./lane-steps";
@@ -676,6 +677,12 @@ async function runLaneProcessWithReporter(
 			for (const line of lines) {
 				try {
 					const event = JSON.parse(line);
+					if (claudeJson && event?.rate_limit_info)
+						recordExecutorUsageSignal(
+							"claude-code",
+							event.rate_limit_info,
+							env,
+						);
 					if ((codexJson || claudeJson) && typeof event?.type === "string")
 						deps.onAgentEvent?.(Date.now());
 					if (deps.onAgentStep && (codexJson || claudeJson))

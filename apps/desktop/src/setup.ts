@@ -323,6 +323,11 @@ export interface Routing {
 	 */
 	limits?: Record<string, string>;
 	/**
+	 * What each tool reports about its plan and limits, by executor id:
+	 * the plain summary and whether a limit is nearly used up.
+	 */
+	usage?: Record<string, { text: string; near: boolean }>;
+	/**
 	 * When Clef picks the tool for each task: what each tool is good at, by
 	 * executor id. Absent when the rules decide or no strengths are set.
 	 */
@@ -590,29 +595,40 @@ async function readRouting(): Promise<void> {
 			policy?: { rules?: unknown; decide?: unknown; tools?: unknown };
 			tools?: unknown;
 		};
-		const limits = Array.isArray(parsed.tools)
-			? Object.fromEntries(
-					parsed.tools
-						.filter(
-							(tool: {
-								available?: unknown;
-								executor?: unknown;
-								description?: unknown;
-							}) =>
-								tool?.available === false &&
-								typeof tool.executor === "string" &&
-								typeof tool.description === "string",
-						)
-						.map((tool: { executor: string; description: string }) => {
-							// "Codex: out of credits…" → "Out of credits…"
-							const why = tool.description.replace(/^[^:]+:\s*/, "");
-							return [
-								tool.executor,
-								why.charAt(0).toUpperCase() + why.slice(1),
-							];
-						}),
+		const parsedTools = Array.isArray(parsed.tools) ? parsed.tools : [];
+		const limits = Object.fromEntries(
+			parsedTools
+				.filter(
+					(tool: {
+						available?: unknown;
+						executor?: unknown;
+						description?: unknown;
+					}) =>
+						tool?.available === false &&
+						typeof tool.executor === "string" &&
+						typeof tool.description === "string",
 				)
-			: undefined;
+				.map((tool: { executor: string; description: string }) => {
+					// "Codex: out of credits…" → "Out of credits…"
+					const why = tool.description.replace(/^[^:]+:\s*/, "");
+					return [tool.executor, why.charAt(0).toUpperCase() + why.slice(1)];
+				}),
+		);
+		const usage = Object.fromEntries(
+			parsedTools
+				.filter(
+					(tool: { executor?: unknown; usage?: unknown }) =>
+						typeof tool?.executor === "string" &&
+						typeof tool.usage === "string" &&
+						tool.usage.length > 0,
+				)
+				.map(
+					(tool: { executor: string; usage: string; nearLimit?: unknown }) => [
+						tool.executor,
+						{ text: tool.usage, near: tool.nearLimit === true },
+					],
+				),
+		);
 		const rules = (
 			Array.isArray(parsed.policy?.rules) ? parsed.policy.rules : []
 		)
@@ -651,7 +667,14 @@ async function readRouting(): Promise<void> {
 				? strengths
 				: undefined;
 		routing = rules.length
-			? { rules, file, changedAt, limits, clef }
+			? {
+					rules,
+					file,
+					changedAt,
+					limits,
+					usage: Object.keys(usage).length ? usage : undefined,
+					clef,
+				}
 			: undefined;
 	} catch {
 		routing = undefined;

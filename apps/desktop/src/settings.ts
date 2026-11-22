@@ -186,13 +186,28 @@ function tools(now: PanelState): Group[] {
 		const on = Boolean(runner?.enabled);
 		// Held back by its own limit, such as out of credits until a time.
 		const limit = on ? now.setup.routing?.limits?.[tool.executor] : undefined;
+		// What the tool itself reports: plan, each limit used and its reset.
+		const usage = on ? now.setup.routing?.usage?.[tool.executor] : undefined;
 		return {
 			title: tool.name,
 			glyph: TOOL_ICONS[tool.id] ?? "terminal",
 			sub: view.working
 				? el("span", "live", el("span", "spinner"), view.working)
-				: (limit ?? view.sub),
-			tone: view.working ? undefined : limit ? "warn" : view.tone,
+				: limit
+					? limit
+					: usage
+						? el(
+								"span",
+								"",
+								el("div", "", usage.text),
+								view.sub ? el("div", "", view.sub) : null,
+							)
+						: view.sub,
+			tone: view.working
+				? undefined
+				: limit || usage?.near
+					? "warn"
+					: view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
 				!view.working && (view.ready && !limit ? READY_MARK() : view.action),

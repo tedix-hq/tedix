@@ -1,15 +1,76 @@
 import { laneCommand } from "./lane-command";
-import { closeSync, openSync, readSync, statSync, readdirSync } from "node:fs";
+import {
+	closeSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	readSync,
+	renameSync,
+	statSync,
+	readdirSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { laneChildEnv } from "./lane-child-env";
 import {
 	localExecutors,
 	parseBudgetSignal,
 	type BudgetSnapshot,
 	type ExecutorBudgets,
+	type LocalExecutor,
 	type RoutingPolicy,
 } from "./lane-routing";
+
+function configDir(env: NodeJS.ProcessEnv): string {
+	return env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix");
+}
+function usageSignalPath(env: NodeJS.ProcessEnv, executor: LocalExecutor) {
+	return join(configDir(env), "tool-usage", `${executor}.json`);
+}
+/** Keep the freshest usage a tool reported during a run, for later reads. */
+export function recordExecutorUsageSignal(
+	executor: LocalExecutor,
+	signal: unknown,
+	env = process.env,
+) {
+	try {
+		const snapshot = parseBudgetSignal(signal);
+		if (snapshot.source === "unknown") return;
+		snapshot.observedAt = Date.now();
+		const path = usageSignalPath(env, executor);
+		mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+		try {
+			const prior = JSON.parse(readFileSync(path, "utf8")) as BudgetSnapshot;
+			if (
+				typeof prior.observedAt === "number" &&
+				prior.observedAt > snapshot.observedAt
+			)
+				return;
+		} catch {
+			/* No earlier signal or an unreadable one; the new one wins. */
+		}
+		const temporary = `${path}.${process.pid}.tmp`;
+		writeFileSync(temporary, JSON.stringify(snapshot), { mode: 0o600 });
+		renameSync(temporary, path);
+	} catch {
+		/* Recording usage never affects the run that reported it. */
+	}
+}
+/** What each tool does and does not expose, in plain words. */
+const USAGE_EXPOSURE: Record<LocalExecutor, (policy: RoutingPolicy) => string> =
+	{
+		codex: () =>
+			"Codex reports plan and window usage in its own session records.",
+		"claude-code": () =>
+			"Claude Code reports window usage during a run; Tedix records it after each run.",
+		opencode: (policy) => {
+			const provider = policy.opencodeModel?.split("/")[0];
+			return `OpenCode exposes no plan quota${provider ? `; the configured model runs on ${provider}` : ""} — cost comes from opencode stats.`;
+		},
+		devin: () =>
+			"Devin CLI exposes usage only inside a session (`/usage`); there is no scriptable account read.",
+	};
 
 function tail(path: string) {
 	const fd = openSync(path, "r");
@@ -85,7 +146,11 @@ export async function readExecutorBudgets(
 								? Date.parse(event.timestamp)
 								: observedAt;
 						const snapshot = parseBudgetSignal(
-							event.payload?.rate_limits ?? event.rate_limit_info ?? event,
+							event.payload?.rate_limits ??
+								event.rate_limit_info ??
+								event.apiErrorParams?.rate_limit_info ??
+								event.quotaLimits ??
+								event,
 							Number.isFinite(timestamp) ? timestamp : observedAt,
 						);
 						if (
@@ -117,6 +182,22 @@ export async function readExecutorBudgets(
 			if (cost)
 				best = { ...best, estimatedCostUsd: Number(cost[1]), source: "native" };
 		}
+		try {
+			const saved = JSON.parse(
+				readFileSync(usageSignalPath(env, executor), "utf8"),
+			) as BudgetSnapshot;
+			if (
+				saved &&
+				saved.source !== "unknown" &&
+				(best.source === "unknown" ||
+					(saved.observedAt ?? 0) >= best.observedAt)
+			)
+				best = saved;
+		} catch {
+			/* No recorded run signal yet. */
+		}
+		if (!best.plan && !best.windows?.length)
+			best.note = USAGE_EXPOSURE[executor](policy);
 		result[executor] = best;
 	}
 	return result;
