@@ -7,9 +7,12 @@
  * turned it on, results of tools declared `sensitive_data` are masked in
  * response shaping (`@tedix/mcp-shared/personal-data-redact`).
  *
- * The answer is cached per isolate for five minutes. When the API cannot
- * answer, a previously cached answer is reused even if expired; an org whose
- * setting was never seen resolves to off — redaction stays strictly opt-in.
+ * The answer is cached per isolate for five minutes. When no fresh answer is
+ * available — the API call fails, no API client is bound, or the cached entry
+ * expired — this fails closed and reports masking on, so a cold isolate or an
+ * expired cached `false` never returns unmasked `sensitive_data` results
+ * during an outage. Organizations that never turned it on are over-masked
+ * only while the setting cannot be read.
  */
 
 import { setBoundedExpiringCacheEntry } from "../lib/bounded-cache";
@@ -30,7 +33,11 @@ export function resetPersonalDataRedactionCaches(): void {
 	orgRedactionCache.clear();
 }
 
-/** Whether the organization enabled personal-data redaction. Never throws. */
+/**
+ * Whether results of `sensitive_data` tools must be masked for the
+ * organization. True when it enabled redaction or when the setting cannot be
+ * confirmed by a fresh answer. Never throws.
+ */
 export async function personalDataRedactionEnabled(
 	agent: RedactionContext,
 ): Promise<boolean> {
@@ -39,7 +46,7 @@ export async function personalDataRedactionEnabled(
 	const cached = orgRedactionCache.get(organizationId);
 	if (cached && cached.expiresAt > Date.now()) return cached.enabled;
 	const resolve = agent.apiClient?.mcpGovernance?.resolvePersonalDataRedaction;
-	if (!resolve) return cached?.enabled ?? false;
+	if (!resolve) return true;
 	try {
 		const { enabled } = await resolve({ organizationId });
 		setBoundedExpiringCacheEntry(
@@ -55,6 +62,6 @@ export async function personalDataRedactionEnabled(
 			staleAnswer: cached?.enabled ?? null,
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return cached?.enabled ?? false;
+		return true;
 	}
 }

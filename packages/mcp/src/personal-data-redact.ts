@@ -13,8 +13,10 @@
  *
  * Strings mask as `[REDACTED]`; numbers and booleans under a personal-data
  * field name mask as `null` (never a fabricated value). Object and array
- * children always recurse, so structure survives. Like `content-sanitize`,
- * the module is pure — no model or network call.
+ * children always recurse, so structure survives. A subtree deeper than the
+ * depth limit, a cycle, or a non-plain object is replaced by `[REDACTED]`
+ * rather than returned unmasked. Like `content-sanitize`, the module is
+ * pure — no model or network call.
  */
 
 const MASK = "[REDACTED]";
@@ -125,7 +127,10 @@ function redactValue(
 		return personalField ? MASK : redactPersonalDataText(value);
 	if (value === null || typeof value !== "object")
 		return personalField && typeof value !== "undefined" ? null : value;
-	if (depth > MAX_REDACT_DEPTH || seen.has(value)) return value;
+	// Fail closed: anything this pass cannot walk is dropped, never returned
+	// as the original (unmasked) reference.
+	if (depth > MAX_REDACT_DEPTH || seen.has(value)) return MASK;
+	if (value instanceof Date) return personalField ? MASK : value;
 	seen.add(value);
 	if (Array.isArray(value)) {
 		const out: unknown[] = new Array(value.length);
@@ -137,11 +142,11 @@ function redactValue(
 	const proto = Object.getPrototypeOf(value);
 	if (proto !== Object.prototype && proto !== null) {
 		seen.delete(value);
-		return value;
+		return MASK;
 	}
 	const out: Record<string, unknown> = {};
 	for (const [key, child] of Object.entries(value)) {
-		out[key] = redactValue(
+		out[uniqueKey(out, redactPersonalDataText(key))] = redactValue(
 			child,
 			seen,
 			depth + 1,
@@ -153,9 +158,20 @@ function redactValue(
 }
 
 /**
- * Deep-mask a tool result: string leaves are value-pattern redacted, fields
- * named for personal data are fully masked. Object keys pass through — a key
- * is metadata, not content.
+ * Keys can carry personal data too (records keyed by email address). A masked
+ * key that collides with one already written gets a numbered suffix so two
+ * records never merge into one.
+ */
+function uniqueKey(out: Record<string, unknown>, key: string): string {
+	if (!Object.hasOwn(out, key)) return key;
+	let n = 2;
+	while (Object.hasOwn(out, `${key}#${n}`)) n += 1;
+	return `${key}#${n}`;
+}
+
+/**
+ * Deep-mask a tool result: string leaves and object keys are value-pattern
+ * redacted, fields named for personal data are fully masked.
  */
 export function redactPersonalDataValue(value: unknown): unknown {
 	return redactValue(value, new Set(), 0, false);

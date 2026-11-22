@@ -19,6 +19,7 @@ import {
 	type CallerIdentity,
 	normalizeCallerIdentity,
 } from "../caller-identity";
+import { redactPersonalDataText } from "@tedix/mcp-shared/personal-data-redact";
 import { redactSecretValues } from "./payload-capture";
 
 const writeAnalytics = createTelemetryWriter("mcp.analytics.engine");
@@ -396,7 +397,7 @@ export function getJsonSize(obj: unknown): number {
  * @returns Truncated message
  */
 export function truncateErrorMessage(message: string, maxLength = 500): string {
-	const redacted = redactSecretValues(message);
+	const redacted = redactPersonalDataText(redactSecretValues(message));
 	if (redacted.length <= maxLength) return redacted;
 	return `${redacted.substring(0, maxLength)}... (truncated)`;
 }

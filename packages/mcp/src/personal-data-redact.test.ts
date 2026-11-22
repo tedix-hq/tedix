@@ -113,4 +113,21 @@ describe("structured payloads", () => {
 			count: 3,
 		});
 	});
+
+	it("drops over-depth subtrees and keeps records keyed by personal data apart", () => {
+		let deep: Record<string, unknown> = { note: "jane@example.com" };
+		for (let i = 0; i < 60; i += 1) deep = { child: deep };
+		expect(JSON.stringify(redactPersonalDataValue(deep))).not.toContain(
+			"jane@example.com",
+		);
+		expect(
+			redactPersonalDataValue({
+				"jane@example.com": { plan: "pro" },
+				"bob@example.com": { plan: "free" },
+			}),
+		).toEqual({
+			"[REDACTED]": { plan: "pro" },
+			"[REDACTED]#2": { plan: "free" },
+		});
+	});
 });

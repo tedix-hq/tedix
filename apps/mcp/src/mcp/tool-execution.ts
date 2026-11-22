@@ -84,7 +84,10 @@ import {
 	sanitizeUntrustedValue,
 	TOOL_TRUST_META_KEY,
 } from "@tedix/mcp-shared/content-sanitize";
-import { redactPersonalDataValue } from "@tedix/mcp-shared/personal-data-redact";
+import {
+	redactPersonalDataText,
+	redactPersonalDataValue,
+} from "@tedix/mcp-shared/personal-data-redact";
 import { homeQueuedAckText } from "./home-surface";
 import { personalDataRedactionEnabled } from "./personal-data-redaction";
 import { recordSensitiveRead } from "./sensitive-data-latch";
@@ -446,7 +449,12 @@ export async function executeTool(
 		} as McpEvent;
 		trackMcpEvent(agent.env, event);
 		emitMcpAuditEvent(agent.env, event, waitUntil);
-		const inputCap = redactAndTruncate(args);
+		// A masked response keeps the caller's arguments out of the capture too.
+		const inputCap = redactAndTruncate(
+			result._meta?.["tedix/personalDataRedaction"]
+				? redactPersonalDataValue(args)
+				: args,
+		);
 		const outputCap = redactAndTruncate(result);
 		capturePayloadRecord(
 			agent.env,
@@ -487,7 +495,13 @@ export async function executeTool(
 		} as McpEvent;
 		trackMcpEvent(agent.env, event);
 		emitMcpAuditEvent(agent.env, event, waitUntil);
-		const inputCap = redactAndTruncate(args);
+		const inputCap = redactAndTruncate(
+			capturePayloads &&
+				tool.sensitiveData === true &&
+				(await personalDataRedactionEnabled(agent))
+				? redactPersonalDataValue(args)
+				: args,
+		);
 		capturePayloadRecord(
 			agent.env,
 			agent.ctx,
@@ -845,6 +859,10 @@ async function executeWithHandler(
 		clientSupportsTasks,
 	};
 
+	// Per-organization personal-data masking for tools declared sensitive_data.
+	// Resolved before the provider call so a thrown provider error (which often
+	// quotes the person) is masked in the catch block too.
+	let personalDataRedacted = false;
 	try {
 		// Tedi enrichment policy
 		const mcpConfig = agent.appMetadata?.mcpConfig as
@@ -895,6 +913,9 @@ async function executeWithHandler(
 			saveTimings[stage] = Math.round(now - saveMark);
 			saveMark = now;
 		};
+		personalDataRedacted =
+			tool.sensitiveData === true &&
+			(await personalDataRedactionEnabled(agent));
 		const result = await handler.execute(effectiveArgs, ctx);
 		saveLap("upstreamMs");
 		// Third-party content: remove invisible/bidirectional Unicode and
@@ -906,10 +927,9 @@ async function executeWithHandler(
 		// Per-organization personal-data redaction: a tool declared
 		// sensitive_data returns its result with emails, phone numbers and
 		// national identifiers masked — but only when the organization turned
-		// the setting on (organizations.metadata.personalDataRedaction).
-		const personalDataRedacted =
-			tool.sensitiveData === true &&
-			(await personalDataRedactionEnabled(agent));
+		// the setting on (organizations.metadata.personalDataRedaction). This
+		// early pass keeps real values out of the enrichment input; the final
+		// response is masked again below.
 		if (personalDataRedacted) {
 			result.data = redactPersonalDataValue(result.data);
 		}
@@ -984,6 +1004,17 @@ async function executeWithHandler(
 					error: contentFreeMcpException(err),
 				});
 			}
+			// The enrichment tedi may use its own tools or memory, so its output
+			// can carry real values back; mask it like the provider result.
+			if (personalDataRedacted) {
+				structuredContent = redactPersonalDataValue(structuredContent);
+				textContent = redactPersonalDataText(textContent);
+				if (tediLayoutSpec)
+					tediLayoutSpec = redactPersonalDataValue(tediLayoutSpec) as Record<
+						string,
+						unknown
+					>;
+			}
 		}
 
 		if (
@@ -1023,7 +1054,7 @@ async function executeWithHandler(
 			result: structuredContent,
 			retryKey: tool.toolId,
 		});
-		const actionReceipt =
+		const verifiedReceipt =
 			!isErrorResult &&
 			annotations?.readOnlyHint === false &&
 			outcome.status === "succeeded"
@@ -1092,6 +1123,12 @@ async function executeWithHandler(
 						},
 					})
 				: null;
+		// The receipt is built from the caller's original arguments (its URL
+		// can quote them), so mask it before it reaches text, data or _meta.
+		const actionReceipt =
+			personalDataRedacted && verifiedReceipt
+				? (redactPersonalDataValue(verifiedReceipt) as typeof verifiedReceipt)
+				: verifiedReceipt;
 		saveLap("readbackMs");
 		if (actionReceipt)
 			textContent += `\n\n${renderActionReceipt(actionReceipt)}`;
@@ -1127,7 +1164,7 @@ async function executeWithHandler(
 		// assistantMessage, so prepend a presentation-layer text block telling
 		// the caller how to recover the outcome. structuredContent (the run
 		// object) is never touched — the do writes the real ledger message later.
-		const homeAckText =
+		const rawHomeAckText =
 			!isErrorResult &&
 			(toolConfig as unknown as Record<string, unknown>)._emitTaskLinkage ===
 				true
@@ -1137,6 +1174,10 @@ async function executeWithHandler(
 							: undefined,
 					)
 				: null;
+		const homeAckText =
+			personalDataRedacted && rawHomeAckText
+				? redactPersonalDataText(rawHomeAckText)
+				: rawHomeAckText;
 
 		if (!isErrorResult) {
 			validateStructuredContentAgainstOutputSchema(
@@ -1342,10 +1383,15 @@ async function executeWithHandler(
 		// Resource URIs are version-agnostic (no ?v=) to avoid stale-hash mismatches
 		const mcpAppResourceUri = `ui://widgets/mcp-app/${agent.appSlug}/${widgetRoute}.html`;
 
-		const selectedContent =
+		const unmaskedSelectedContent =
 			!isErrorResult && responseFields !== undefined
 				? selectResponseFields(fullStructuredContent, responseFields)
 				: fullStructuredContent;
+		// Final boundary: every piece above was masked at its source; one more
+		// pass keeps a future addition from slipping real values through.
+		const selectedContent = personalDataRedacted
+			? redactPersonalDataValue(unmaskedSelectedContent)
+			: unmaskedSelectedContent;
 		const fieldSelection =
 			!isErrorResult && responseFields !== undefined
 				? {
@@ -1358,9 +1404,17 @@ async function executeWithHandler(
 			selectedContent !== null &&
 			typeof selectedContent === "object"
 		) {
-			fieldSelectionSources.set(selectedContent, fullStructuredContent);
+			fieldSelectionSources.set(
+				selectedContent,
+				personalDataRedacted
+					? redactPersonalDataValue(fullStructuredContent)
+					: fullStructuredContent,
+			);
 			textContent = JSON.stringify(selectedContent);
 		}
+		// Final boundary: the text the model, the preview and telemetry read
+		// includes the rendered receipt; mask it once more.
+		if (personalDataRedacted) textContent = redactPersonalDataText(textContent);
 		if (toolConfig.endpoint === "osWorkspaces/outputs/setSheetRange") {
 			saveLap("finishMs");
 			console.info({
@@ -1463,9 +1517,15 @@ async function executeWithHandler(
 		const mcpAppResourceUri = `ui://widgets/mcp-app/${agent.appSlug}/${errorWidgetRoute}.html`;
 
 		const message = error instanceof Error ? error.message : "Unknown error";
-		const safeMessage = isUntrustedTransport(toolConfig.transport)
+		const cleanMessage = isUntrustedTransport(toolConfig.transport)
 			? sanitizeUntrustedText(message)
 			: message;
+		// Provider errors often quote the person ("contact jane@example.com
+		// already exists"); this text reaches the model, Code Mode failures,
+		// receipts and telemetry.
+		const safeMessage = personalDataRedacted
+			? redactPersonalDataText(cleanMessage)
+			: cleanMessage;
 		return {
 			content: [{ type: "text" as const, text: `Error: ${safeMessage}` }],
 			structuredContent: { error: safeMessage },
@@ -1476,6 +1536,9 @@ async function executeWithHandler(
 			isError: true,
 			_meta: {
 				[TOOL_TRUST_META_KEY]: trustLabel,
+				...(personalDataRedacted
+					? { "tedix/personalDataRedaction": { masked: true } }
+					: {}),
 				"openai/outputTemplate": outputTemplate,
 				"openai/widgetAccessible": tool.widgetAccessible ?? true,
 				"openai/toolInvocation/invoking": `Processing ${tool.title}...`,

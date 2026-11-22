@@ -15,6 +15,15 @@ vi.mock("./utils/analytics", async () => {
 	};
 });
 
+const enrichment = vi.hoisted(() => ({ invokeTediEnrichment: vi.fn() }));
+vi.mock("./tedi-enrichment", async () => {
+	const actual =
+		await vi.importActual<typeof import("./tedi-enrichment")>(
+			"./tedi-enrichment",
+		);
+	return { ...actual, invokeTediEnrichment: enrichment.invokeTediEnrichment };
+});
+
 const OPTIONS = {
 	adapterScope: "primary" as const,
 	resultStrategy: "merge" as const,
@@ -164,10 +173,70 @@ describe("personal-data redaction on sensitive tool results", () => {
 		expect(resolvePersonalDataRedaction).not.toHaveBeenCalled();
 	});
 
-	it("stays off when the gateway cannot reach the setting", async () => {
-		// The resolver is absent (older API) — redaction is strictly opt-in.
-		const agent = makeAgent(CUSTOMER);
+	it("masks when the setting cannot be confirmed fresh", async () => {
+		// No resolver bound: cold isolate with no answer fails closed.
+		const cold = await executeTool(
+			makeAgent(CUSTOMER),
+			makeTool(),
+			{},
+			OPTIONS,
+		);
+		expect(JSON.stringify(cold)).not.toContain("jane@example.com");
+
+		// An expired cached "off" is not reused when the API then fails.
+		vi.useFakeTimers();
+		try {
+			const resolvePersonalDataRedaction = vi
+				.fn()
+				.mockResolvedValueOnce({ enabled: false })
+				.mockRejectedValueOnce(new Error("api down"));
+			const agent = makeAgent(CUSTOMER, { resolvePersonalDataRedaction });
+			const off = await executeTool(agent, makeTool(), {}, OPTIONS);
+			expect(off.structuredContent).toMatchObject(CUSTOMER);
+			vi.advanceTimersByTime(6 * 60 * 1000);
+			const stale = await executeTool(agent, makeTool(), {}, OPTIONS);
+			expect((stale.structuredContent as { email: string }).email).toBe(
+				"[REDACTED]",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("masks a thrown provider error", async () => {
+		const agent = makeAgent(CUSTOMER, {
+			resolvePersonalDataRedaction: vi.fn(async () => ({ enabled: true })),
+		});
+		(
+			agent.toolHandler as unknown as { execute: ReturnType<typeof vi.fn> }
+		).execute.mockRejectedValueOnce(
+			new Error("contact jane@example.com already exists"),
+		);
 		const result = await executeTool(agent, makeTool(), {}, OPTIONS);
-		expect(result.structuredContent).toMatchObject(CUSTOMER);
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toBe(
+			"Error: contact [REDACTED] already exists",
+		);
+		expect(JSON.stringify(result)).not.toContain("jane@example.com");
+	});
+
+	it("masks the Tedi enrichment output", async () => {
+		enrichment.invokeTediEnrichment.mockResolvedValueOnce({
+			enrichedData: { summary: "Reach Jane at jane@example.com" },
+			textContent: "Jane: +1 (415) 555-0132",
+			layoutSpec: { title: "jane@example.com" },
+		});
+		const agent = makeAgent(CUSTOMER, {
+			resolvePersonalDataRedaction: vi.fn(async () => ({ enabled: true })),
+		});
+		(agent as unknown as { appMetadata: unknown }).appMetadata = {
+			mcpConfig: { tediPolicy: { enabled: true, tediId: "tedi-enrich" } },
+		};
+		const result = await executeTool(agent, makeTool(), {}, OPTIONS);
+		expect(enrichment.invokeTediEnrichment).toHaveBeenCalledOnce();
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain("jane@example.com");
+		expect(serialized).not.toContain("555-0132");
+		expect(result.content[0]?.text).toBe("Jane: [REDACTED]");
 	});
 });
