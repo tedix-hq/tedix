@@ -163,7 +163,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: `The ${tool.name} command was not found. Install ${tool.name} again.`,
+			sub: `Install ${tool.name} again.`,
 		};
 	if (tool.tedix === "checking")
 		return { ...base, ready: false, sub: "Checking…" };
@@ -189,7 +189,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: tool.note || "Could not check right now",
+			sub: "Could not check right now",
 			action: button("Check again", "quiet", () => act("check")),
 		};
 	if (!tool.enabled)
@@ -197,7 +197,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: `The Tedix plugin is off in ${tool.name}`,
+			sub: `Tedix is turned off in ${tool.name}`,
 			action: button("Check again", "quiet", () => act("check")),
 		};
 	if (tool.id === "codex" && tool.hookTrust !== "trusted")
@@ -205,8 +205,8 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: "Trust the Tedix hooks in Codex",
-			action: plain("Open hooks", "trust-hooks"),
+			sub: "Needs one approval in Codex",
+			action: plain("Open Codex", "trust-hooks"),
 		};
 	if (tool.connection === "signed-out")
 		return {
@@ -222,27 +222,28 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			...base,
 			ready: false,
 			sub: checkable
-				? "Signed in; a Tedix read is not checked yet"
+				? "Not checked yet"
 				: tool.connection === "signed-in"
 					? "Signed in to Tedix"
 					: "Sign in to Tedix once",
 			action: checkable
-				? plain("Check read", "verify")
+				? plain("Check", "verify")
 				: tool.canSignIn && tool.connection !== "signed-in"
 					? plain("Sign in", "connect")
 					: undefined,
 		};
 	}
-	if (!runner?.enabled)
-		return { ...base, ready: false, sub: "Connected. Not running tasks." };
+	if (!runner?.enabled) return { ...base, ready: false, sub: "" };
 	if (!runner.running)
 		return {
 			...base,
 			ready: false,
 			tone: runner.problem ? "warn" : undefined,
 			sub: state.app.paused
-				? "Runners are paused"
-				: (runner.problem ?? "Starting…"),
+				? "Paused"
+				: runner.problem
+					? "Not running"
+					: "Starting…",
 		};
 	return { ...base, ready: true, sub: "Running tasks" };
 }
@@ -341,16 +342,7 @@ export function sessionsPanel(
 		el(
 			"div",
 			"item",
-			el(
-				"div",
-				"text",
-				el("div", "title", "Show my coding sessions in Tedix"),
-				el(
-					"div",
-					"sub",
-					"Status and replies of your sessions appear in their Tedix project.",
-				),
-			),
+			el("div", "text", el("div", "title", "Show my coding sessions in Tedix")),
 			el(
 				"div",
 				"control",
@@ -476,7 +468,7 @@ export function sessionsPanel(
 				"div",
 				"bar",
 				search,
-				el("small", "count", `${count} of ${projects.length} shown in Tedix`),
+				el("small", "count", `${count} of ${projects.length}`),
 				button("All", "quiet", () =>
 					set(
 						matching.filter((project) => !project.on[tab]).map((p) => p.id),

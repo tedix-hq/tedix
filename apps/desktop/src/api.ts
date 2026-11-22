@@ -35,8 +35,6 @@ export type SettingsSection =
 	| "tools"
 	| "sessions"
 	| "mac"
-	| "updates"
-	| "advanced"
 	| "about";
 
 /**

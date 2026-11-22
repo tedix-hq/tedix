@@ -1,6 +1,5 @@
 import {
 	type Appearance,
-	cliUpdateLine,
 	type PanelApi,
 	type PanelState,
 	type SettingsSection,
@@ -111,11 +110,10 @@ function general(now: PanelState): Group[] {
 		{
 			items: [
 				now.openAtLogin !== undefined && {
-					title: "Open Tedix at login",
-					sub: "Starts in the menu bar and runs this Mac's runners.",
+					title: "Open at login",
 					control: [
 						toggle(
-							"Open Tedix at login",
+							"Open at login",
 							now.openAtLogin,
 							(on) => void tedixShell.openAtLogin(on),
 						),
@@ -127,18 +125,7 @@ function general(now: PanelState): Group[] {
 					words: "theme dark light mode",
 				},
 				{
-					title: "New chat",
-					sub: "Also a click on the menu bar icon.",
-					control: [el("kbd", "", "⌘"), el("kbd", "", "N")],
-					words: "shortcut hotkey menu bar",
-				},
-			].filter(Boolean) as Item[],
-		},
-		{
-			items: [
-				{
-					title: "Set up this Mac",
-					sub: "The first-run steps, from the start.",
+					title: "Setup guide",
 					control: [
 						button(
 							"Open",
@@ -146,9 +133,9 @@ function general(now: PanelState): Group[] {
 							() => void tedixShell.action("setup-window"),
 						),
 					],
-					words: "onboarding welcome",
+					words: "set up onboarding welcome",
 				},
-			],
+			].filter(Boolean) as Item[],
 		},
 	];
 }
@@ -159,9 +146,9 @@ function tools(now: PanelState): Group[] {
 		title: "Chat apps",
 		items: [
 			{
-				title: "Claude app",
+				title: "Claude",
 				glyph: "bubble",
-				sub: "Add Tedix as a custom connector with this address.",
+				sub: "Add Tedix as a connector.",
 				control: [
 					button(
 						"Copy address",
@@ -169,23 +156,19 @@ function tools(now: PanelState): Group[] {
 						() => void tedixShell.copy(CONNECTOR_URL),
 					),
 					button(
-						"Open settings",
+						"Open",
 						"quiet",
 						() => void tedixShell.open("claude-connectors"),
 					),
 				],
-				words: "connector",
+				words: "claude app connector",
 			},
 			{
-				title: "ChatGPT app",
+				title: "ChatGPT",
 				glyph: "bubble-spark",
-				sub: "Open the Plugins Directory and turn on Tedix.",
+				sub: "Turn on Tedix in the Plugins Directory.",
 				control: [
-					button(
-						"Open ChatGPT",
-						"plain",
-						() => void tedixShell.open("chatgpt"),
-					),
+					button("Open", "plain", () => void tedixShell.open("chatgpt")),
 				],
 			},
 		],
@@ -204,14 +187,6 @@ function tools(now: PanelState): Group[] {
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
 				!view.working && (view.ready ? READY_MARK() : view.action),
-				on &&
-					runner?.running &&
-					button(
-						"Restart",
-						"quiet",
-						() => void tedixShell.restartRunner(runner.index),
-						now.busy,
-					),
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,
@@ -220,34 +195,30 @@ function tools(now: PanelState): Group[] {
 				),
 			],
 			below: fail(view.error, view.retry),
-			words: "runner sign in add check read",
+			words: "sign in add check",
 		};
 	});
 	for (const runner of otherRunners(now))
 		rows.push({
-			title: EXECUTOR_NAMES[runner.executor] ?? "Another runner",
+			title: EXECUTOR_NAMES[runner.executor] ?? "Other tool",
 			glyph: "bolt",
-			sub: runner.enabled
-				? runner.running
-					? "Running"
-					: (runner.problem ?? "Starting…")
-				: "Off",
 			control: [
 				toggle(
-					`Use ${EXECUTOR_NAMES[runner.executor] ?? "this runner"} for tasks`,
+					`Use ${EXECUTOR_NAMES[runner.executor] ?? "this tool"} for tasks`,
 					runner.enabled,
 					(on) => void tedixShell.set(runner.index, "enabled", on),
 				),
 			],
 		});
+	const again = button("Check again", "quiet", () => act("check"));
 	if (!found.length && !rows.length)
 		return [
 			chat,
 			{
+				title: "Coding tools",
 				items: [
 					{
-						title: "Coding tools: none found",
-						sub: "Install one, then choose Check again.",
+						title: "None found",
 						control: [
 							button(
 								"Get Claude Code",
@@ -259,7 +230,7 @@ function tools(now: PanelState): Group[] {
 								"quiet",
 								() => void tedixShell.open("install-codex"),
 							),
-							button("Check again", "plain", () => act("check")),
+							again,
 						],
 					},
 				],
@@ -272,13 +243,13 @@ function tools(now: PanelState): Group[] {
 			items: [
 				{
 					title: "Project folder",
-					sub: now.setup.repo || "Asked when you switch a tool on.",
+					sub: now.setup.repo.split("/").at(-1) || undefined,
 					control: [button("Choose…", "plain", () => act("choose-folder"))],
 					words: "repository repo",
 				},
 				{
 					title: "Look for tools again",
-					control: [button("Check again", "plain", () => act("check"))],
+					control: [again],
 				},
 			],
 		},
@@ -299,7 +270,7 @@ function mac(now: PanelState): Group[] {
 	const serving = status.servingIndex;
 	const name = el("input", "field");
 	name.type = "text";
-	name.placeholder = "Machine name";
+	name.placeholder = "Name";
 	name.maxLength = 100;
 	name.value = nameDraft ?? status.machineName;
 	name.dataset.key = "machine-name";
@@ -316,74 +287,66 @@ function mac(now: PanelState): Group[] {
 			);
 	};
 	const enabled = status.runners.filter((runner) => runner.enabled);
-	const running = enabled.filter((runner) => runner.running).length;
+	const stopped =
+		!now.app.paused &&
+		(!now.app.running || enabled.some((runner) => !runner.running));
 	const runs = status.activeRuns;
 	return [
 		{
-			items:
-				serving === undefined
-					? [
-							{
-								title: "Machine name",
-								sub: "Switch on a coding tool first.",
-								control: [button("Coding tools", "plain", () => go("tools"))],
-								words: "edit files run commands",
-							},
-						]
-					: [
-							{ title: "Machine name", control: [name] },
-							{
-								title: "Let tedis edit files and run commands",
-								sub: status.machineWrite
-									? "Tedis can change files here."
-									: "Tedis can only look.",
-								control: [
-									toggle(
-										"Let tedis edit files and run commands",
-										status.machineWrite,
-										(on) =>
-											void tedixShell.set(
-												serving,
-												"machineWriteMode",
-												on ? "allow" : "off",
-											),
-									),
-								],
-								words: "write shell machine tools",
-							},
-						],
-		},
-		{
-			title: "Runners",
 			items: [
+				serving !== undefined && { title: "Name", control: [name] },
+				serving !== undefined && {
+					title: "Let tedis edit files and run commands",
+					control: [
+						toggle(
+							"Let tedis edit files and run commands",
+							status.machineWrite,
+							(on) =>
+								void tedixShell.set(
+									serving,
+									"machineWriteMode",
+									on ? "allow" : "off",
+								),
+						),
+					],
+					words: "write machine",
+				},
 				{
 					title: now.app.paused
-						? "Paused"
-						: `${running} of ${enabled.length} running`,
-					tone:
-						!now.app.paused && running < enabled.length ? "warn" : undefined,
-					sub:
-						now.app.problem ?? `${runs} ${runs === 1 ? "task" : "tasks"} now`,
+						? "Tasks are paused"
+						: stopped
+							? "Tasks are not running"
+							: runs
+								? `${runs} ${runs === 1 ? "task" : "tasks"} running`
+								: "Ready for tasks",
+					tone: stopped ? "warn" : undefined,
 					control: [
-						now.app.paused || !now.app.running
+						now.app.paused
 							? button(
 									"Resume",
 									"plain",
 									() => void tedixShell.action("restart"),
 									now.busy,
 								)
-							: button(
-									runs ? `Pause and stop ${runs}` : "Pause",
-									"plain",
-									() => void tedixShell.action("pause"),
-									now.busy,
-								),
+							: stopped
+								? button(
+										"Restart",
+										"plain",
+										() => void tedixShell.action("restart"),
+										now.busy,
+									)
+								: button(
+										"Pause",
+										"plain",
+										() => void tedixShell.action("pause"),
+										now.busy,
+									),
 					],
-					words: "pause resume tasks",
+					words: "pause resume restart tasks",
 				},
 				...status.activeTasks.map((task): Item => ({
 					title: task.title ?? "Task",
-					sub: EXECUTOR_NAMES[task.executor ?? ""] ?? "",
+					sub: EXECUTOR_NAMES[task.executor ?? ""],
 					control: [
 						button(
 							"Open",
@@ -392,13 +355,12 @@ function mac(now: PanelState): Group[] {
 						),
 					],
 				})),
-			],
+			].filter(Boolean) as Item[],
 		},
 		{
 			items: [
 				{
-					title: "Model on this Mac",
-					sub: "Chat with Ollama or LM Studio, without Tedix Cloud.",
+					title: "Chat with a model on this Mac",
 					control: [
 						button(
 							"Open",
@@ -409,8 +371,7 @@ function mac(now: PanelState): Group[] {
 					words: "local model ollama lm studio",
 				},
 				{
-					title: "Local workspace",
-					sub: "Try Tedix with a sample workspace on this Mac.",
+					title: "Try a sample workspace",
 					control: [
 						button(
 							"Open",
@@ -418,216 +379,84 @@ function mac(now: PanelState): Group[] {
 							() => void tedixShell.action("local-workspace"),
 						),
 					],
-					words: "sample offline local",
+					words: "sample offline local workspace",
 				},
 			],
 		},
 	];
 }
 
-function updates(now: PanelState): Group[] {
+function about(now: PanelState): Group[] {
 	const { cli } = now.setup;
-	const running = [
-		...new Set(
-			now.status.runners
-				.filter((runner) => runner.enabled && runner.version)
-				.map((runner) => runner.version!),
-		),
-	];
-	const behind =
-		cli.version && running.some((version) => version !== cli.version);
-	const failed = cli.update?.ok === false && !cli.updating;
-	const line = cliUpdateLine(cli);
+	const enabled = now.status.runners.filter((runner) => runner.enabled);
+	const failedUpdate = cli.update?.ok === false && !cli.updating;
+	const problems = [
+		cli.kind === "missing" &&
+			"Tedix's helper is missing. Install the app again.",
+		!(now.setup.signedIn && now.setup.app.state === "in") && "Not signed in.",
+		now.setup.reach !== "ok" &&
+			now.setup.reach !== "checking" &&
+			"Tedix could not be reached.",
+		!now.app.paused &&
+			enabled.some((runner) => !runner.running) &&
+			"Tasks are not running.",
+		failedUpdate && "The last update did not finish.",
+	].filter((line): line is string => Boolean(line));
+	const details = [
+		`Tedix ${now.app.version}`,
+		`Command-line tool ${cli.version || "not found"} (${cli.kind})`,
+		now.summary,
+		cli.update?.text,
+		...problems,
+		now.setup.reachDetail,
+	]
+		.filter(Boolean)
+		.join("\n");
+	const ready = now.app.updateReady || now.app.cliOffer;
 	return [
 		{
 			items: [
 				{
 					title: "Tedix",
-					sub: `Version ${now.app.version}`,
+					glyph: undefined,
+					sub: cli.updating
+						? el("span", "live", el("span", "spinner"), "Updating…")
+						: `Version ${now.app.version}`,
 					control: [
-						now.app.updateReady || now.app.cliOffer
+						ready
 							? button(
 									"Update",
 									"primary",
 									() => void tedixShell.action("apply-update"),
 								)
 							: button(
-									"Check now",
+									"Check for updates",
 									"plain",
 									() => void tedixShell.action("check-updates"),
 								),
-					],
-					words: "app update version",
-				},
-				{
-					title: "Command-line tool",
-					sub: cli.updating
-						? el("span", "live", el("span", "spinner"), cli.updating)
-						: cli.kind === "missing"
-							? "Not found"
-							: `Version ${cli.version || "unknown"}`,
-					tone: cli.kind === "missing" ? "bad" : undefined,
-					control: [
-						cli.kind === "separate" &&
-							button("Let the app manage it", "plain", () => act("manage-cli")),
-						failed &&
+						failedUpdate &&
 							cli.other &&
 							button(
-								`Go back to ${cli.other}`,
-								"plain",
+								"Go back",
+								"quiet",
 								() => void tedixShell.action("cli-back"),
 								now.busy,
 							),
 					],
-					below: fail(
-						cli.kind === "missing"
-							? (cli.problem ?? "Install the Tedix app again, then open it.")
-							: failed
-								? cli.update?.text
-								: (now.setup.steps.cli?.error ?? cli.access),
-						now.setup.steps.cli?.error
-							? () =>
-									act(cli.kind === "separate" ? "manage-cli" : "restore-cli")
-							: undefined,
-					),
-					words: "cli tedix version go back",
+					words: "version update",
 				},
-				behind && {
-					title: "Runners",
-					tone: "warn",
-					sub: `Still on ${running.join(", ")}`,
+				{
+					title: problems.length ? problems[0]! : "Everything works",
+					tone: problems.length ? "warn" : "good",
+					sub: problems.length > 1 ? problems.slice(1).join(" ") : undefined,
 					control: [
 						button(
-							"Restart runners",
-							"plain",
-							() => void tedixShell.action("restart"),
-							now.busy,
+							"Copy details",
+							"quiet",
+							() => void tedixShell.copy(details),
 						),
 					],
-				},
-				line &&
-					!failed &&
-					!cli.updating && {
-						title: "Last check",
-						sub: line,
-					},
-			].filter(Boolean) as Item[],
-		},
-	];
-}
-
-function advanced(now: PanelState): Group[] {
-	const { cli } = now.setup;
-	return [
-		{
-			items: [
-				{
-					title: "Restart all runners",
-					sub: "Stops the tasks running on this Mac.",
-					control: [
-						button(
-							"Restart",
-							"plain",
-							() => void tedixShell.action("restart"),
-							now.busy,
-						),
-					],
-					words: "runners supervisor",
-				},
-				{
-					title: "Logs",
-					control: [
-						button("Show", "plain", () => void tedixShell.action("open-logs")),
-					],
-					words: "log folder supervisor",
-				},
-				cli.kind === "included" &&
-					cli.canRestore && {
-						title: "Use the separate command-line tool",
-						sub: "The one installed before this app.",
-						control: [button("Use it", "plain", () => act("restore-cli"))],
-					},
-				...now.status.notes.map((note): Item => ({
-					title: "Problem",
-					tone: "warn",
-					sub: note,
-				})),
-			].filter(Boolean) as Item[],
-		},
-	];
-}
-
-/** The checks About lists; each is true when fine. */
-function checks(now: PanelState): [string, boolean][] {
-	const enabled = now.status.runners.filter((runner) => runner.enabled);
-	return [
-		["Command-line tool", now.setup.cli.kind !== "missing"],
-		[
-			"Signed in on this Mac",
-			now.setup.signedIn && now.setup.app.state === "in",
-		],
-		["Reaches Tedix", now.setup.reach === "ok"],
-		[
-			"Runners running",
-			now.app.paused ||
-				enabled.every((runner) => runner.running) ||
-				enabled.length === 0,
-		],
-	];
-}
-
-function about(now: PanelState): Group[] {
-	const list = checks(now);
-	const ok = list.every(([, fine]) => fine);
-	const diagnostics = [
-		`Tedix ${now.app.version}`,
-		`Command-line tool ${now.setup.cli.version || "not found"} (${now.setup.cli.kind})`,
-		now.summary,
-		...list.map(([name, fine]) => `${fine ? "ok" : "PROBLEM"}: ${name}`),
-		now.setup.reachDetail,
-	]
-		.filter(Boolean)
-		.join("\n");
-	return [
-		{
-			items: [
-				{
-					title: "Tedix",
-					sub: `Version ${now.app.version} · command-line tool ${now.setup.cli.version || "not found"}`,
-					control: [
-						Object.assign(el("img", "appicon"), {
-							src: "assets/icon.png",
-							alt: "",
-						}),
-					],
-					words: "version",
-				},
-			],
-		},
-		{
-			title: "Diagnostics",
-			items: [
-				{
-					title: ok ? "All checks passed" : "Something needs attention",
-					tone: ok ? "good" : "warn",
-					control: [
-						button("Copy", "plain", () => void tedixShell.copy(diagnostics)),
-					],
-					below: !ok
-						? el(
-								"div",
-								"checks",
-								...list.map(([name, fine]) =>
-									el(
-										"div",
-										`state ${fine ? "good" : "warn"}`,
-										el("span", "mark"),
-										name,
-									),
-								),
-							)
-						: undefined,
-					words: "diagnostics health",
+					words: "diagnostics health problem",
 				},
 			],
 		},
@@ -639,8 +468,6 @@ const SECTIONS: Section[] = [
 	{ id: "tools", name: "Coding tools", glyph: "terminal", groups: tools },
 	{ id: "sessions", name: "Sessions", glyph: "bubble", groups: sessions },
 	{ id: "mac", name: "This Mac", glyph: "laptop", groups: mac },
-	{ id: "updates", name: "Updates", glyph: "download", groups: updates },
-	{ id: "advanced", name: "Advanced", glyph: "bolt", groups: advanced },
 	{ id: "about", name: "About", glyph: "flag", groups: about },
 ];
 
@@ -651,7 +478,7 @@ function needs(now: PanelState, id: SettingsSection): boolean {
 			const view = toolView(now, tool);
 			return Boolean(view.error) || (view.tone === "warn" && !view.working);
 		});
-	if (id === "updates")
+	if (id === "about")
 		return (
 			now.setup.cli.kind === "missing" ||
 			now.setup.cli.update?.ok === false ||

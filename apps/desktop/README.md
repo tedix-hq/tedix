@@ -18,12 +18,12 @@ The app is not signed or notarized yet and has been run on macOS only.
   again. A click on the icon opens **New Chat…**. Type a message and press
   Return for Tedix Cloud, or choose **On This Mac** for a local model.
   Escape closes the launcher. A right click (or Control-click) opens a
-  menu with **Open Tedix**, **New Chat…**, a line on the runners when they are paused or not running, **This
-  Mac…**, **Pause Runners** or **Resume Runners**, **Check for Updates…**,
-  **Open at Login** and **Quit Tedix and Stop Runners**. Pause stops the
-  runners and the tasks running on this Mac (the menu item says how many);
-  they stay stopped, also when the app opens again, until **Resume
-  Runners** or **Restart runners** in This Mac. Opened at login, Tedix
+  short menu: **Open Tedix**, **New Chat…**, a line when tasks are paused
+  or not running, **Pause Tasks** or **Resume Tasks**, **Settings…** and
+  **Quit Tedix**. Pause and Quit ask first while tasks run; paused tasks
+  stay paused, also when the app opens again, until **Resume Tasks**.
+  The app menu is short too: About, **Check for Updates…**, **Settings…**
+  (`Cmd+,`), Hide and Quit; **File → New Chat** is `Cmd+N`. Opened at login, Tedix
   starts in the menu bar without a window.
 - **Run this Mac's runners.** The app starts `tedix supervise`, which runs
   the runners in `~/.tedix/supervisor-runners.json`, as its own child
@@ -61,7 +61,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   The app waits 30 minutes for this, also across a restart. If the sign-in
   cannot finish, the app says why and offers to start again. Once you are
   signed in, the menu shows who is signed in instead.
-- **Set up this Mac.** **Tedix → Set Up This Mac…** opens by itself until
+- **Set up this Mac.** **Settings → General → Setup guide** opens it, and it opens by itself until
   this Mac is signed in, and from a `tedix://setup` link. Five short
   screens, with dashes at the bottom left to move between them (Welcome,
   This Mac, Coding tools, Sessions, Ready); Settings → General → Set up
@@ -126,8 +126,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   nothing. This stays so until the tool is signed with an identity that
   does not change between versions.
 - **Go back, and see what is wrong.** The app keeps the command-line tool
-  from before. **Settings → Updates** shows both numbers and, after an update
-  that failed, offers **Go back to version Y**, which swaps the two and restarts the runners. The
+  from before. **Settings → About** offers **Go back** after an update that failed, which swaps the two and restarts the runners. The
   app never goes back by itself. If `tedix supervise` or every runner stays
   down after a restart, the app says that this Mac's
   runners are down, shows one notification, and offers **Restart runners**.
@@ -136,22 +135,23 @@ The app is not signed or notarized yet and has been run on macOS only.
   runners being down. Keep checkouts outside Documents, Desktop and
   Downloads. `tedix update`
   and `tedix rollback` in a terminal work on the app's copy too; the runners
-  use the new version after **Restart runners** in Settings or the next
+  use the new version after **Restart** in Settings → This Mac or the next
   start of the app.
-- **Change every setting in one place.** **Tedix → Settings…** (`Cmd+,`),
-  or **This Mac…** in the menu bar icon's menu, shows Settings inside the
-  main window; **Done** or Escape goes back to the page. It has search,
-  the account, and the sections General (open at login, appearance),
-  Coding tools (the Claude and ChatGPT apps; one row per coding tool with
-  its next step, **Ready** only after a Tedix read worked inside it, and a
-  **Use for tasks** switch), Sessions (one switch, a tab per coding tool,
-  a searchable project list), This Mac (machine name, "Let tedis edit
-  files and run commands", the runners and their tasks, a model on this
-  Mac, the local workspace), Updates, Advanced and About (diagnostics).
-  A tool's switch changes only that tool's runner: the running supervisor
-  reads `~/.tedix/supervisor-runners.json` by itself, so other tools keep
-  their tasks. Switching off a tool, pausing, or restarting all runners
-  asks first while tasks run.
+- **Change every setting in one place.** **Tedix → Settings…** (`Cmd+,`)
+  shows Settings inside the main window; **Done** or Escape goes back. It
+  has search, the account, and five sections: General (open at login,
+  appearance, setup guide), Coding tools (the Claude and ChatGPT apps, and
+  one row per coding tool with its next step and a **Use for tasks**
+  switch; **Ready** only after Tedix worked inside it), Sessions (one
+  switch, a tab per coding tool, a searchable project list), This Mac
+  (name, "Let tedis edit files and run commands", the tasks running now,
+  a model on this Mac, a sample workspace) and About (version, updates,
+  and whether everything works). A tool's switch starts or stops only that
+  tool's runner: the supervisor reads `~/.tedix/supervisor-runners.json`
+  by itself, so other tools keep their tasks.
+- **Update without stopping work.** With tasks running, the update asks
+  once, **Update now** or **Later**; running tasks keep going and their
+  runner restarts on the new version when the task ends.
 
 ## When something goes wrong
 

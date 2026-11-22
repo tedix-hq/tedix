@@ -344,7 +344,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				? cli.updating
 				: cli.kind === "missing"
 					? "Not found"
-					: `Version ${cli.version || "unknown"}`,
+					: `Version ${cli.version.split("+")[0] || "unknown"}`,
 			control: cli.updating
 				? el("span", "spinner")
 				: cli.kind === "separate"
@@ -366,7 +366,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				cli.update?.ok !== false && cliUpdateLine(cli),
 				cli.other && `Version ${cli.other} is kept.`,
 				running.some((version) => version !== cli.version) &&
-					`The runners still run version ${running.join(", ")}. Restart them in Settings → Updates to use this one.`,
+					"Restart in Settings → This Mac to use this version.",
 				cli.access,
 				cli.kind === "included" &&
 					cli.canRestore &&

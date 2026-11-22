@@ -384,17 +384,17 @@ async function reload(
 		if (now && now.running >= now.enabled) break;
 	}
 	const why = !restart.ok
-		? `The runners did not start: ${lastLine(restart.output) || "no reason given"}.`
+		? "They did not start again."
 		: !(await supervisorLoaded())
-			? "tedix supervise is not running."
+			? "They did not start again."
 			: !now || (now.enabled > 0 && now.running === 0)
-				? "No runner started within three minutes."
+				? "Nothing started within three minutes."
 				: "";
 	if (!why)
 		return {
 			runners: ` ${now?.running} of ${now?.enabled} runners are running.`,
 		};
-	const down = `This Mac's runners are down. ${why} Choose Restart runners in Tedix → This Mac… to try again.`;
+	const down = `Tasks on this Mac are not running. ${why} Choose Restart in Settings → This Mac to try again.`;
 	lastUpdate = { ok: false, down: true, text: down, at: Date.now() };
 	log(`cli: ${down}`);
 	if (Notification.isSupported())

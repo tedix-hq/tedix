@@ -228,8 +228,6 @@ let updateButton: WebContentsView | undefined;
 let updateSize = { width: 0, height: 0 };
 let applying: string | undefined;
 let failure: string | undefined;
-/** The person chose to update once the tasks on this Mac have finished. */
-let waitingForWork = false;
 let pageDark = nativeTheme.shouldUseDarkColors;
 let layoutMain = () => {};
 /** A newer published app, found by the last check, maybe not downloaded yet. */
@@ -244,22 +242,12 @@ function cliOffer(): string | undefined {
 	return kind === "included" ? offer : undefined;
 }
 
-/** The marker that tells this Mac's runners to take no new tasks. */
+/** The marker an older app left to tell this Mac's runners to take no new tasks. */
 const updateWaitingFile = () =>
 	join(
 		process.env.TEDIX_CONFIG_DIR || join(app.getPath("home"), ".tedix"),
 		"app-update-waiting",
 	);
-
-/**
- * "Update when done": the runners finish what they run and take nothing
- * new, so the wait ends even on a busy Mac.
- */
-function setWaitingForWork(on: boolean): void {
-	waitingForWork = on;
-	if (on) writeFileSync(updateWaitingFile(), "");
-	else rmSync(updateWaitingFile(), { force: true });
-}
 
 function updateView(): UpdateView {
 	const dark = pageDark;
@@ -279,14 +267,6 @@ function updateView(): UpdateView {
 		};
 	if (!readyVersion() && !cliOffer())
 		return { ...view, kind: "hidden", text: "", label: "" };
-	if (waitingForWork)
-		return {
-			...view,
-			kind: "waiting",
-			text: "Updating when tasks finish",
-			label:
-				"Tedix updates when the tasks on this Mac finish. Choose to update now",
-		};
 	return {
 		...view,
 		kind: "ready",
@@ -389,7 +369,6 @@ function publishUpdate(): void {
 	if (contents && !contents.isDestroyed())
 		contents.send("update", updateView());
 	layoutMain();
-	if (waitingForWork) watchWork();
 }
 
 function sayDone(line: string): void {
@@ -429,7 +408,6 @@ async function working(text: string, job: () => Promise<void>): Promise<void> {
 	if (applying) return;
 	applying = text;
 	failure = undefined;
-	setWaitingForWork(false);
 	publishUpdate();
 	try {
 		await job();
@@ -458,24 +436,6 @@ function updateNow(): Promise<void> {
 		}
 		await applyCommandLineTool(false);
 	});
-}
-
-/** While the person waits for the work on this Mac to finish: checks every 15 seconds. */
-let workWatch: ReturnType<typeof setInterval> | undefined;
-function watchWork(): void {
-	workWatch ??= setInterval(async () => {
-		if (!waitingForWork || updateView().kind === "hidden") {
-			clearInterval(workWatch);
-			workWatch = undefined;
-			setWaitingForWork(false);
-			return;
-		}
-		if ((await activeRunCount()) > 0) return;
-		clearInterval(workWatch);
-		workWatch = undefined;
-		log("update: the work on this Mac has finished; updating as chosen");
-		void updateNow();
-	}, 15_000);
 }
 
 /** The question window that is open now, and how it answers. */
@@ -590,23 +550,19 @@ async function applyUpdate(): Promise<void> {
 	const appVersion = readyVersion();
 	const cli = cliOffer();
 	if (!appVersion && !cli) return;
-	// The runners are this app's child process: a relaunch restarts them too.
+	// A running task keeps going through an update: its runner holds the
+	// restart until the task ends. So the question only offers now or later.
 	const runs = (await supervisorLoaded()) ? await activeRunCount() : 0;
 	if (runs === 0) return updateNow();
 	const { response } = await ask({
-		message: `${runs === 1 ? "1 task is" : `${runs} tasks are`} running. Update when ${runs === 1 ? "it finishes" : "they finish"}?`,
-		buttons: ["Update when done", "Update now"],
+		message: "Update Tedix now?",
+		detail: "Running tasks keep going.",
+		buttons: ["Update now", "Later"],
 		defaultId: 0,
-		// Escape or closing the window: not now.
-		cancelId: 2,
+		cancelId: 1,
 	});
-	if (response === 1) return updateNow();
-	setWaitingForWork(response === 0);
-	log(
-		waitingForWork
-			? `update: waiting for ${runs} running tasks to finish; runners take no new tasks`
-			: "update: not now",
-	);
+	if (response === 0) return updateNow();
+	log("update: not now");
 	publishUpdate();
 }
 
@@ -1186,7 +1142,7 @@ const windowColour = () =>
 /**
  * Settings: every setting of the app in one place, shown inside the main
  * window over the Tedix OS page, the way chat apps show theirs. Cmd+, opens
- * it, the menu bar icon's This Mac… opens it at This Mac, and Escape or
+ * it, and so does Settings… in the menu bar icon's menu; Escape or
  * Done goes back to the page.
  */
 function openSettings(section?: SettingsSection): void {
@@ -1325,32 +1281,26 @@ function setMenu(): void {
 		Menu.buildFromTemplate([
 			{
 				label: mac ? app.name : "Tedix",
+				// Short, like other Mac apps: everything else is in Settings.
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
-					settingsItem,
-					{ type: "separator" },
-					newChatItem(),
-					runnersItem(),
-					// Offered only while it is needed: signing in again when already
-					// signed in opens a browser page that leads nowhere.
-					appSignIn.state === "in"
-						? {
-								label: `Signed In as ${appSignIn.name || appSignIn.email || "you"}`,
-								enabled: false,
-							}
-						: {
-								label: "Sign In with Browser",
-								click: () => {
-									log("sign-in: chosen from the menu");
-									void signInWithBrowser();
-								},
-							},
 					{
 						label: "Check for Updates…",
 						click: () => void checkForUpdates(true),
 					},
 					{ type: "separator" },
-					...(mac ? [{ role: "hide" as const }] : []),
+					settingsItem,
+					{ type: "separator" },
+					...(mac
+						? [
+								{ role: "services" as const },
+								{ type: "separator" as const },
+								{ role: "hide" as const },
+								{ role: "hideOthers" as const },
+								{ role: "unhide" as const },
+								{ type: "separator" as const },
+							]
+						: []),
 					{
 						label: mac ? `Quit ${app.name}` : "Quit",
 						accelerator: "CmdOrCtrl+Q",
@@ -1358,6 +1308,7 @@ function setMenu(): void {
 					},
 				],
 			},
+			{ label: "File", submenu: [newChatItem()] },
 			{ role: "editMenu" },
 			{
 				label: "View",
@@ -1431,15 +1382,10 @@ function trayImage(): Electron.NativeImage {
 
 /** One line on this Mac's runners for the menu bar menu. */
 function runnersLine(): string {
-	if (runnersPaused()) return "This Mac's runners are paused";
-	const problem = runnersProblem();
-	if (problem)
-		return problem.length > 90 ? `${problem.slice(0, 89)}…` : problem;
-	if (!runnersRunning()) return "This Mac's runners are not running";
-	const enabled = status?.runners.filter((runner) => runner.enabled) ?? [];
-	const running = enabled.filter((runner) => runner.running).length;
+	if (runnersPaused()) return "Tasks are paused";
+	if (runnersProblem() || !runnersRunning()) return "Tasks are not running";
 	const runs = status?.activeRuns ?? 0;
-	return `Runners: ${running} of ${enabled.length} running · ${runs} ${runs === 1 ? "task" : "tasks"}`;
+	return `${runs} ${runs === 1 ? "task" : "tasks"} running`;
 }
 
 /**
@@ -1449,12 +1395,10 @@ function runnersLine(): string {
  */
 function runnersItem(): MenuItemConstructorOptions {
 	return runnersPaused() || !runnersRunning()
-		? { label: "Resume Runners", click: () => void restartRunners() }
+		? { label: "Resume Tasks", click: () => void restartRunners() }
 		: {
 				// Pausing stops the tasks running on this Mac, so it says how many.
-				label: status?.activeRuns
-					? `Pause Runners and Stop ${status.activeRuns === 1 ? "1 Task" : `${status.activeRuns} Tasks`}`
-					: "Pause Runners",
+				label: "Pause Tasks",
 				click: () => void pauseAsked(),
 			};
 }
@@ -1547,20 +1491,15 @@ function trayMenu(): Menu {
 		{ label: "Open Tedix", click: showMain },
 		newChatItem(),
 		{ type: "separator" },
-		// A line on the runners only when something is off: paused, stopped or failing.
+		// One line only when tasks are paused or stopped.
 		...(runnersPaused() || !runnersRunning()
 			? [{ label: runnersLine(), enabled: false }]
 			: []),
-		{ label: "This Mac…", click: () => openSettings("mac") },
 		runnersItem(),
 		{ type: "separator" },
-		{ label: "Check for Updates…", click: () => void checkForUpdates(true) },
 		{ label: "Settings…", click: () => openSettings() },
 		{ type: "separator" },
-		{
-			label: "Quit Tedix and Stop Runners",
-			click: () => quitFrom("the menu bar icon"),
-		},
+		{ label: "Quit Tedix", click: () => quitFrom("the menu bar icon") },
 	]);
 }
 
@@ -2007,12 +1946,10 @@ else if (process.argv.includes("--local-model")) {
 		});
 		// Quitting stops this Mac's runners first: they are this app's child.
 		app.on("before-quit", (event) => {
-			// The menu bar icon's item already says it stops the runners.
 			const byHand = ![
 				"an update",
 				"a TERM signal",
 				"macOS shutting down",
-				"the menu bar icon",
 			].includes(quitSource);
 			if (!quitting && byHand && !quitAgreed && (status?.activeRuns ?? 0) > 0) {
 				event.preventDefault();
