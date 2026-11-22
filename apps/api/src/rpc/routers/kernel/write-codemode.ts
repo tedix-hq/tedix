@@ -175,19 +175,27 @@ export function codeModeCanonicalDescribeParams(
  * one Code Mode call. A programmatic caller's `tools/list` on a Code Mode
  * gateway is the compact surface (`code`, `ask`, ...), so a stored native tool
  * can only be re-validated through the gateway's own catalog: search by the
- * bare tool name with metadata. Replay needs no input or output schemas;
+ * bare tool name, or the persisted RPC endpoint after a rename, with metadata.
+ * Replay needs no input or output schemas;
  * describing hits hydrates those definitions concurrently in the gateway.
  */
 export function codeModeReplayLookupParams(
 	toolName: string,
+	rpcEndpoint?: string,
 ): Record<string, unknown> {
 	if (!/^[A-Za-z_][\w-]*$/.test(toolName))
 		throw baseErrorConstructors.BAD_REQUEST({
 			message: `Invalid Code Mode tool name: ${toolName}`,
 		});
 	const projectedName = toolName.replace(/-/g, "_");
-	const search = `const page = await discover.search(${JSON.stringify({ query: projectedName, limit: 25, includeMetadata: true })}); `;
-	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => hit.tool === ${JSON.stringify(projectedName)} && typeof hit.callable === "string").slice(0, 8); `;
+	const query = rpcEndpoint
+		? rpcEndpoint.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/\//g, " ")
+		: projectedName;
+	const search = `const page = await discover.search(${JSON.stringify({ query, limit: 25, includeMetadata: true })}); `;
+	const predicate = rpcEndpoint
+		? `hit.wire?.endpoint === ${JSON.stringify(rpcEndpoint)}`
+		: `hit.tool === ${JSON.stringify(projectedName)}`;
+	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => ${predicate} && typeof hit.callable === "string").slice(0, 8); `;
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
@@ -330,7 +338,13 @@ export function parseCodeModeCatalogValue(
 							},
 						}
 					: typeof wire?.name === "string" && wire.name.length > 0
-						? { wire: { name: wire.name, endpoint: null } }
+						? {
+								wire: {
+									name: wire.name,
+									endpoint:
+										typeof wire.endpoint === "string" ? wire.endpoint : null,
+								},
+							}
 						: {}),
 			},
 		];

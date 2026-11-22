@@ -552,11 +552,35 @@ export async function executeApprovedOwnerToolCall(args: {
 					payload.initiatedByUserId,
 				),
 			);
-			const entry = resolveReplayCatalogEntry(
+			let entry = resolveReplayCatalogEntry(
 				catalog,
 				payload.toolId,
 				payload.target,
 			);
+			if (
+				!entry &&
+				payload.target?.transport === "rpc" &&
+				typeof payload.target.endpoint === "string"
+			) {
+				const renamed = parseCodeModeCatalog(
+					await mcpCall(
+						env,
+						host,
+						payload.organizationId,
+						"tools/call",
+						codeModeReplayLookupParams(
+							replayToolBaseName(payload.toolId),
+							payload.target.endpoint,
+						),
+						payload.initiatedByUserId,
+					),
+				);
+				entry = resolveReplayCatalogEntry(
+					renamed,
+					payload.toolId,
+					payload.target,
+				);
+			}
 			if (entry?.wire)
 				tool = { name: entry.wire.name, annotations: entry.annotations };
 		}
@@ -700,6 +724,16 @@ export function resolveReplayCatalogEntry<
 		entry.wire ? [{ name: entry.wire.name, entry }] : [],
 	);
 	const exact = resolveReplayTool(bound, storedToolId)?.entry;
+	if (
+		!exact &&
+		target?.transport === "rpc" &&
+		typeof target.endpoint === "string"
+	) {
+		const matches = entries.filter(
+			(entry) => entry.wire?.endpoint === target.endpoint,
+		);
+		return matches.length === 1 ? matches[0] : undefined;
+	}
 	if (
 		exact ||
 		target?.transport !== "mcp" ||

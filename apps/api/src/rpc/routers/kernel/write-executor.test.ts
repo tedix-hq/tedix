@@ -1775,6 +1775,102 @@ describe("approved owner tool call replay", () => {
 		});
 	});
 
+	it("looks up a renamed RPC tool and dispatches the stored call once", async () => {
+		let lookups = 0;
+		const service = mcpService((body) => {
+			if (body.method === "tools/list")
+				return {
+					json: { jsonrpc: "2.0", result: { tools: [{ name: "code" }] } },
+				};
+			if (body.params.name === "code") {
+				lookups++;
+				return {
+					json: {
+						jsonrpc: "2.0",
+						result: {
+							structuredContent: {
+								executionId: "rename-lookup",
+								result: JSON.stringify(
+									lookups === 1
+										? []
+										: [
+												{
+													callable: "projects.update_projects",
+													wire: {
+														name: "tedix__update_projects",
+														endpoint: "projects/update",
+													},
+													annotations: { readOnlyHint: false },
+												},
+											],
+								),
+							},
+						},
+					},
+				};
+			}
+			return {
+				json: {
+					jsonrpc: "2.0",
+					result: { structuredContent: { success: true } },
+				},
+			};
+		});
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			approvalRequestId: "approved-rename",
+			payload: {
+				appSlug: "example-unified",
+				toolId: "cto__update_project",
+				target: { transport: "rpc", endpoint: "projects/update" },
+				args: { id: "project-1", name: "Approved name" },
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+		});
+		expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+		expect(lookups).toBe(2);
+		expect(
+			service.calls
+				.filter(
+					(call) => call.method === "tools/call" && call.params.name !== "code",
+				)
+				.map((call) => call.params),
+		).toEqual([
+			expect.objectContaining({
+				name: "tedix__update_projects",
+				arguments: { id: "project-1", name: "Approved name" },
+				_meta: expect.objectContaining({
+					"com.tedix/approvalRequestId": "approved-rename",
+				}),
+			}),
+		]);
+	});
+	it("resolves a renamed native tool only at the approved RPC endpoint", () => {
+		const current = {
+			wire: { name: "tedix__update_projects", endpoint: "projects/update" },
+		};
+		const target = { transport: "rpc", endpoint: "projects/update" };
+		expect(
+			resolveReplayCatalogEntry([current], "cto__update_project", target),
+		).toBe(current);
+		expect(
+			resolveReplayCatalogEntry([current], "cto__update_project", {
+				...target,
+				endpoint: "projects/delete",
+			}),
+		).toBeUndefined();
+		expect(
+			resolveReplayCatalogEntry(
+				[
+					current,
+					{ ...current, wire: { ...current.wire, name: "other__update" } },
+				],
+				"cto__update_project",
+				target,
+			),
+		).toBeUndefined();
+	});
 	it("refuses ambiguous connected tool bindings", () => {
 		const entry = {
 			wire: { name: "notion-tedix__notion-update-page", endpoint: null },

@@ -19,6 +19,28 @@ async function runGenerated(params: Record<string, unknown>, discover: object) {
 }
 
 describe("write discovery contracts", () => {
+	it("discovers renamed RPC tools by their persisted endpoint", async () => {
+		const hit = {
+			tool: "update_projects",
+			callable: "projects.update_projects",
+			wire: { name: "tedix__update_projects", endpoint: "projects/update" },
+		};
+		const result = await runGenerated(
+			codeModeReplayLookupParams("update_project", "projects/update"),
+			{
+				search: async (input: { query: string }) => {
+					expect(input.query).toBe("projects update");
+					return {
+						results: [
+							hit,
+							{ ...hit, wire: { ...hit.wire, endpoint: "projects/delete" } },
+						],
+					};
+				},
+			},
+		);
+		expect(result).toEqual([{ callable: hit.callable, wire: hit.wire }]);
+	});
 	it("finds a hyphenated provider tool using its projected catalog name", async () => {
 		const wire = { name: "notion__notion-update-page" };
 		const result = await runGenerated(

@@ -1,4 +1,6 @@
 import { extractTokenFromCookie } from "@tedix/auth/utils";
+import { isOAuthClientToken } from "@tedix/auth/jwt";
+import { extractJwtScopes } from "@tedix/auth/types";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Owner tool approval settlement.
@@ -51,7 +53,7 @@ import type { TediApprovalRequest } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../../lib/blueprint-digest";
 import { organizationGatewaySlug } from "../../../lib/organization-mcp-gateway";
-import type { BaseContext } from "../../orpc";
+import { type BaseContext, userHoldsPermission } from "../../orpc";
 import { errorMessage, nowIso } from "./runtime-shared";
 import {
 	approvingUserId,
@@ -358,13 +360,27 @@ function hasVerifiedRequesterGrant(
 	context: BaseContext,
 	payload: OwnerToolCallPayload,
 	actingUserId: string,
+	organizationId: string,
 ): boolean {
 	return (
 		payload.target.transport === "mcp" &&
 		context.authType === "user" &&
 		context.user?.sub === actingUserId &&
-		Array.isArray(context.user.scopes) &&
-		context.user.scopes.includes("connections.execute")
+		!context.tediId &&
+		!context.externalAgentPrincipalId &&
+		!context.ownerHostSessionId &&
+		!context.browserAgentSeat &&
+		((Array.isArray(context.user.scopes) &&
+			context.user.scopes.includes("connections.execute")) ||
+			// Product sessions carry tenant permissions, not OAuth scopes. Only
+			// the human's exact approval may delegate their live connection access;
+			// an OAuth client remains bounded by its own consented scopes.
+			(Boolean(payload.requestingAgent) &&
+				context.organizationId === organizationId &&
+				!context.serviceBindingPrincipal &&
+				!isOAuthClientToken(context.user) &&
+				extractJwtScopes(context.user).length === 0 &&
+				userHoldsPermission(context, "integrations:manage")))
 	);
 }
 
@@ -618,6 +634,7 @@ async function runOwnerToolCall(
 			context,
 			payload,
 			actingUserId,
+			organizationId,
 		);
 		const verifiedConnectionAdmin =
 			verifiedConnectionExecute &&
@@ -809,7 +826,12 @@ export async function retryOwnerToolCallExecution(
 	const requesterOnly = isRequesterOnlyOwnerToolFailure(execution);
 	if (
 		requesterOnly &&
-		!hasVerifiedRequesterGrant(context, payload, payload.initiatedByUserId)
+		!hasVerifiedRequesterGrant(
+			context,
+			payload,
+			payload.initiatedByUserId,
+			input.approval.orgId,
+		)
 	)
 		return "requester_must_retry";
 	if (!requesterOnly && !isRetryableOwnerToolExecution(execution, now))

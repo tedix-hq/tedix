@@ -691,6 +691,41 @@ describe("owner gateway approvals", () => {
 		).rejects.toThrow(reason);
 		expect(mocks.consume).not.toHaveBeenCalled();
 	});
+	it("consumes a renamed RPC call only for the same endpoint and arguments", async () => {
+		const call = {
+			...input,
+			toolId: "cto__update_project",
+			target: { transport: "rpc", endpoint: "projects/update" },
+		};
+		const created = await client().requestOwnerToolApproval(call);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		const retry = {
+			...call,
+			toolId: "tedix__update_projects",
+			approvalRequestId: created.approvalRequestId,
+		};
+		await expect(
+			client().requestOwnerToolApproval({
+				...retry,
+				args: { body: "changed" },
+			}),
+		).rejects.toThrow(/arguments differ/);
+		await expect(
+			client().requestOwnerToolApproval({
+				...retry,
+				target: { transport: "rpc", endpoint: "projects/delete" },
+			}),
+		).rejects.toThrow(/target differ/);
+		expect(mocks.consume).not.toHaveBeenCalled();
+		await expect(
+			client().requestOwnerToolApproval(retry),
+		).resolves.toMatchObject({ approved: true, status: "consumed" });
+	});
 	// The platform replays a `connect` approval on the organization gateway,
 	// where the same tool carries no mount prefix and a different config hash.
 	it.each([

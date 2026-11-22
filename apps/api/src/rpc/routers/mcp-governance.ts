@@ -984,11 +984,12 @@ function isSkillStart(target: Record<string, unknown>): boolean {
 
 /**
  * The call an owner approval binds, independent of where it was mounted: the
- * organization, the requester, the tool's own name, its target and the exact
- * arguments. A `connect` session names `tedix_unified_tedix__x`; the same tool
- * on the organization gateway is `tedix__x`, and a platform-side replay runs
+ * organization, the requester, the tool's endpoint (or provider name), its
+ * target and exact arguments. A `connect` session names `tedix_unified_tedix__x`;
+ * on the organization gateway it is `tedix__x`, and a platform-side replay runs
  * there. Only the gateway config hash is left out: it carries mount-time
- * fields that differ between two otherwise identical calls.
+ * fields that differ between two otherwise identical calls. RPC tool renames
+ * keep the endpoint identity; every other target binding and argument must match.
  */
 function ownerToolCallIdentity(input: {
 	organizationId: string;
@@ -1000,7 +1001,11 @@ function ownerToolCallIdentity(input: {
 	return {
 		organizationId: input.organizationId,
 		userId: input.userId,
-		toolName: input.toolId.split("__").at(-1) ?? input.toolId,
+		toolName:
+			input.target.transport === "rpc" &&
+			typeof input.target.endpoint === "string"
+				? input.target.endpoint
+				: (input.toolId.split("__").at(-1) ?? input.toolId),
 		// Every target binding the gateway or a workspace app recorded (endpoint,
 		// provider, resource and account hashes, revision) except the gateway
 		// config hash.

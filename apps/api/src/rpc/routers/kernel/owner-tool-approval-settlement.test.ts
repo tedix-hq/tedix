@@ -295,6 +295,60 @@ describe("owner tool approval settlement", () => {
 			}
 		},
 	);
+	it.each([
+		{ patch: {}, allowed: true },
+		{ patch: { userRole: "member" }, allowed: false },
+		{
+			patch: { user: { sub: "reviewer", scope: "mcp:apps.read" } },
+			allowed: false,
+		},
+		{
+			patch: { user: { sub: "reviewer", client_id: "oauth-client" } },
+			allowed: false,
+		},
+		{ patch: { externalAgentPrincipalId: "agent" }, allowed: false },
+		{ patch: { ownerHostSessionId: "host" }, allowed: false },
+		{ patch: { browserAgentSeat: {} }, allowed: false },
+		{ patch: { organizationId: undefined }, allowed: false },
+		{ patch: { organizationId: "other-org" }, allowed: false },
+	])(
+		"uses the OS approver's live connection permission: %j",
+		async ({ patch, allowed }) => {
+			const row = approval({
+				resolvedBy: "user:reviewer",
+				payload: {
+					...payload,
+					requestingAgent: { principalId: "agent" },
+					target: { transport: "mcp" },
+				},
+			});
+			const outcome = await settleOwnerToolCallApproval(
+				{
+					...context,
+					organizationId: "org-1",
+					userRole: "owner",
+					user: { sub: "reviewer" },
+					headers: new Headers({ Cookie: "DS=approver-session" }),
+					...patch,
+				} as BaseContext,
+				{ approval: row, status: "approved" },
+			);
+			expect(outcome).toBe(allowed ? "succeeded" : "failed");
+			if (allowed) {
+				expect(mocks.executor).toHaveBeenCalledExactlyOnceWith(
+					expect.objectContaining({
+						verifiedConnectionExecute: true,
+						verifiedConnectionAdmin: false,
+						verifiedHumanBearerToken: "approver-session",
+						payload: expect.objectContaining({
+							initiatedByUserId: "reviewer",
+							approvalRequesterUserId: "owner-1",
+						}),
+					}),
+				);
+			} else expect(mocks.executor).not.toHaveBeenCalled();
+		},
+	);
 	it("runs the stored call once on approval and records the result on the request", async () => {
 		expect(
 			await settleOwnerToolCallApproval(context, {
