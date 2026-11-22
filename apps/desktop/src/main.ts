@@ -1,6 +1,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openLocalTedix, reloadLocalTedix } from "./local-mode";
+import { bundledLocalAvailable } from "./local-service";
 import { openLocalModelChat } from "./local-model-window";
 import { configDir } from "./shell";
 import {
@@ -149,6 +150,7 @@ async function state(): Promise<PanelState> {
 			updateReady: readyVersion(),
 			cliOffer: cliOffer(),
 			appearance: settings().appearance ?? "system",
+			localWorkspace: bundledLocalAvailable(),
 		},
 	};
 }
@@ -1802,6 +1804,16 @@ else if (process.argv.includes("--local-model")) {
 			if (name === "check-updates") return checkForUpdates(true);
 			if (name === "apply-update") return applyUpdate();
 			if (name === "local-workspace") return openLocalTedix();
+			if (name === "start-local-workspace") {
+				if (
+					event.sender !== setupWindow?.webContents ||
+					!bundledLocalAvailable()
+				)
+					return;
+				openLocalTedix([], true);
+				setupWindow.close();
+				return;
+			}
 			if (name === "local-model") return openLocalModelChat();
 			if (name === "open-logs") return void shell.openPath(configDir());
 			if (name === "close-settings") return closeSettings();

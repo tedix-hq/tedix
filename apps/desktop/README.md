@@ -183,8 +183,8 @@ the window or start a new chat.
 
 ## Use Local Tedix without a Cloud account
 
-In Tedix, open **Settings → This Mac**, choose **Open** next to **Local workspace**,
-then click **Start on this Mac**. Tedix opens the Revenue Ops sample workspace and saves
+On the first screen, click **Start on this Mac**. You can also open
+**Local workspace** from **Settings → This Mac**. Tedix opens the Revenue Ops sample workspace and saves
 its files on this Mac. When you open Local Workspace again, Tedix starts the
 service for you. Local Workspace uses a separate session from Tedix Cloud.
 

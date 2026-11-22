@@ -26,6 +26,7 @@ export interface PanelState {
 		/** A newer command-line tool can be applied. */
 		cliOffer?: string;
 		appearance: Appearance;
+		localWorkspace: boolean;
 	};
 }
 
@@ -52,6 +53,7 @@ export type PanelAction =
 	| "check-updates"
 	| "apply-update"
 	| "local-workspace"
+	| "start-local-workspace"
 	| "local-model"
 	| "open-logs"
 	| "close-settings";

@@ -95,7 +95,10 @@ export function reloadLocalTedix(focused: BaseWindow | undefined): boolean {
 }
 
 /** Opens or brings forward the Local Tedix window; `args` may carry --local=PORT. */
-export function openLocalTedix(args: readonly string[] = []): void {
+export function openLocalTedix(
+	args: readonly string[] = [],
+	startImmediately = false,
+): void {
 	const requested = localOrigin(args);
 	if (requested === null) {
 		dialog.showErrorBox(
@@ -109,10 +112,9 @@ export function openLocalTedix(args: readonly string[] = []): void {
 	const changed = next !== origin || useBundle !== bundled;
 	bundled = useBundle;
 	if (window && !window.isDestroyed()) {
-		if (changed) {
-			origin = next;
-			load();
-		}
+		if (changed) origin = next;
+		if (bundled && startImmediately && !bundledLocalRunning()) openSample();
+		else if (changed) load();
 		window.show();
 		window.focus();
 		return;
@@ -162,7 +164,11 @@ export function openLocalTedix(args: readonly string[] = []): void {
 		if (!isMainFrame || error === -3 || !inside(url)) return;
 		showSetup(bundled ? "retry" : "unavailable");
 	});
-	if (bundled && !bundledLocalRunning() && bundledLocalWasStarted())
+	if (
+		bundled &&
+		!bundledLocalRunning() &&
+		(startImmediately || bundledLocalWasStarted())
+	)
 		openSample();
 	else load();
 }

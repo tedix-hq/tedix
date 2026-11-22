@@ -256,6 +256,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				mark: appIcon(),
 				lines: [
 					el("p", "", "Connect your coding tools to Tedix."),
+					now.app.localWorkspace &&
+						button(
+							"Start on this Mac",
+							"plain",
+							() => void tedixShell.action("start-local-workspace"),
+						),
 					who &&
 						el(
 							"span",
