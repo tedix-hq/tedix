@@ -601,7 +601,7 @@ with the last rule as the default. Within a rule, routes are tried in order: an
 agent that is busy, out of budget or failing passes the task to the next one.
 An empty route list pauses automatic assignments for that rule. A rule may carry
 a `description` in your own words. `tedix lane routing` prints the file runners
-use and what each rule does, in plain sentences (`--json` adds the parsed
+use and which tool takes which tasks, in plain words (`--json` adds the parsed
 policy); it changes nothing.
 Without a policy, Work assigned to `any-local` waits before an agent is launched
 or an Attempt is started. Named assignments keep their native model defaults;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+	describeRoutingPolicy,
 	routeLocalWork,
 	executorBackoff,
 	parseBudgetSignal,
@@ -387,6 +388,55 @@ describe("budget observations", () => {
 			).toThrow("No eligible");
 		},
 	);
+});
+describe("routing description", () => {
+	it("summarizes in one line when every rule names the same agents", () => {
+		const policy = structuredClone(testRoutingPolicy);
+		for (const rule of policy.rules)
+			rule.routes = [{ executor: "codex" }, { executor: "claude-code" }];
+		expect(describeRoutingPolicy(policy)).toEqual([
+			"Right now every task goes to Codex, then Claude Code.",
+		]);
+	});
+	it("lists one plain line per kind of task only when rules differ", () => {
+		expect(describeRoutingPolicy(testRoutingPolicy)).toEqual([
+			"Each kind of task goes to its own tool.",
+			"Large or risky tasks go to Codex, then Claude Code, then OpenCode.",
+			"Small routine tasks go to OpenCode, then Claude Code, then Codex, then Devin.",
+			"Everything else goes to Codex, then Claude Code, then OpenCode, then Devin.",
+		]);
+	});
+	it("names no tags, rule names, model ids or budget without a budget file", () => {
+		const text = describeRoutingPolicy(testRoutingPolicy).join("\n");
+		expect(text).not.toContain("“");
+		expect(text).not.toContain("(");
+		expect(text).not.toContain("hard");
+		expect(text).not.toContain("mechanical");
+		expect(text).not.toContain("security");
+		expect(text).not.toContain("example");
+		expect(text).not.toContain("out of budget");
+	});
+	it("mentions the budget threshold only when a budget file is configured", () => {
+		const policy = structuredClone(testRoutingPolicy);
+		policy.budgetFiles = { codex: ["/private/codex-usage.jsonl"] };
+		const lines = describeRoutingPolicy(policy);
+		expect(lines.at(-1)).toBe(
+			"An agent counts as out of budget at 10% or less of its allowance left.",
+		);
+	});
+	it("says when no agent takes tasks", () => {
+		expect(
+			describeRoutingPolicy({
+				version: 1,
+				nearLimitPercent: 10,
+				signalMaxAgeMs: 300_000,
+				rules: [
+					{ name: "unconfigured", tags: [], sizes: [], risks: [], routes: [] },
+				],
+				budgetFiles: {},
+			}),
+		).toEqual(["Right now no agent takes tasks."]);
+	});
 });
 describe("resume recovery before admission", () => {
 	it("resumes first and allocates fresh only for missing native state", async () => {

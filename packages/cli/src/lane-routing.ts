@@ -78,45 +78,62 @@ const AGENT_NAMES: Record<LocalExecutor, string> = {
 	devin: "Devin",
 };
 
-function words(list: string[], joiner: "or" | "then") {
-	return list.length < 2
-		? (list[0] ?? "")
-		: `${list.slice(0, -1).join(", ")} ${joiner} ${list.at(-1)}`;
+/** A kind of task in plain words, from what a routing rule matches. */
+function taskKind(rule: {
+	tags: string[];
+	sizes: string[];
+	risks: string[];
+}): string {
+	if (!rule.tags.length && !rule.sizes.length && !rule.risks.length)
+		return "Everything else";
+	if (rule.risks.length || rule.sizes.includes("large"))
+		return "Large or risky tasks";
+	if (
+		rule.sizes.includes("small") ||
+		rule.tags.some((tag) => ["mechanical", "formatting", "docs"].includes(tag))
+	)
+		return "Small routine tasks";
+	return rule.tags.length
+		? `Tasks about ${rule.tags.slice(0, 2).join(" or ")}`
+		: "Other tasks";
+}
+
+/** The agents a rule tries, first choice first, in plain names. */
+function agentChain(routes: RoutingPolicy["rules"][number]["routes"]): string {
+	const names = routes.map((route) => AGENT_NAMES[route.executor]);
+	return names.length ? names.join(", then ") : "no agent";
 }
 
 /**
- * The routing file in plain sentences, one per rule, in the order the runner
- * reads them: the first rule a task matches decides, and the last rule takes
- * everything else. Each rule's agents are tried in order; a busy, out of
- * budget or failing agent passes the task to the next one.
+ * The routing file in plain words, matching the desktop app's wording: one
+ * summary line when every rule names the same agents, or a row per kind of
+ * task when they differ. No rule names, tags, model ids or budget sentence
+ * unless a budget file is configured.
  */
 export function describeRoutingPolicy(policy: RoutingPolicy): string[] {
-	const lines = policy.rules.map((rule, index) => {
-		const last = index === policy.rules.length - 1;
-		const when = [
-			rule.tags.length ? `tagged ${words(rule.tags, "or")}` : "",
-			rule.sizes.length ? `of size ${words(rule.sizes, "or")}` : "",
-			rule.risks.length ? `with ${words(rule.risks, "or")} risk` : "",
-		].filter(Boolean);
-		const who =
-			last && !when.length
-				? "Every other task"
-				: `Tasks ${words(when, "or") || "matching nothing"}`;
-		const agents = rule.routes.map(
-			(route) =>
-				AGENT_NAMES[route.executor] + (route.model ? ` (${route.model})` : ""),
+	const chains = policy.rules.map((rule) => agentChain(rule.routes));
+	const lines: string[] = [];
+	if (chains.every((chain) => chain === chains[0])) {
+		lines.push(
+			chains[0] === "no agent"
+				? "Right now no agent takes tasks."
+				: `Right now every task goes to ${chains[0]}.`,
 		);
-		const one = last && !when.length;
-		const go = agents.length
-			? agents.length === 1
-				? `${one ? "goes" : "go"} to ${agents[0]}; nobody else takes ${one ? "it" : "them"} when it is busy`
-				: `${one ? "goes" : "go"} to ${agents[0]}, then ${words(agents.slice(1), "then")} when the one before is busy or out of budget`
-			: `${one ? "goes" : "go"} to no agent; set one for this rule`;
-		return `${who} (“${rule.name}”) ${go}.${rule.description ? ` ${rule.description}` : ""}`;
-	});
-	lines.push(
-		`An agent counts as out of budget at ${policy.nearLimitPercent}% or less of its allowance left.`,
-	);
+	} else {
+		lines.push("Each kind of task goes to its own tool.");
+		for (const [index, rule] of policy.rules.entries()) {
+			const kind = taskKind(rule);
+			const target = chains[index]!;
+			lines.push(
+				`${kind} ${kind === "Everything else" ? "goes" : "go"} to ${target === "no agent" ? "no agent yet" : target}.` +
+					(rule.description ? ` ${rule.description}` : ""),
+			);
+		}
+	}
+	if (Object.values(policy.budgetFiles).some((files) => files.length > 0))
+		lines.push(
+			`An agent counts as out of budget at ${policy.nearLimitPercent}% or less of its allowance left.`,
+		);
 	return lines;
 }
 
