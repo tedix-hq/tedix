@@ -115,11 +115,6 @@ function prefetchActivityFeed(client: QueryClient, value: unknown) {
 			}),
 		)
 		.catch(ignore);
-	void client
-		.ensureQueryData(
-			osQuery.attention.listDeckCards.queryOptions({ input: { limit: 100 } }),
-		)
-		.catch(ignore);
 	const today = config.success ? config.data.today : undefined;
 	if (today)
 		void client

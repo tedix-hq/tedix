@@ -31,7 +31,6 @@ const reads = vi.hoisted(() => ({
 // Activity-only reads, warmed only when Work lands on Activity.
 const activity = vi.hoisted(() => ({
 	preferences: vi.fn(),
-	deckCards: vi.fn(),
 	output: vi.fn(),
 }));
 
@@ -48,7 +47,6 @@ vi.mock("@/lib/api", () => ({
 			outputs: { get: activity.output },
 		},
 		userSettings: { getPreferences: activity.preferences },
-		attention: { listDeckCards: activity.deckCards },
 	},
 }));
 vi.mock("@/components/decision-deck-app", () => ({}));
@@ -185,7 +183,6 @@ describe("prefetchWorkDeck", () => {
 				surfaces: FOCUS_HISTORY_SURFACES,
 			},
 		}),
-		osQuery.attention.listDeckCards.queryOptions({ input: { limit: 100 } }),
 		osQuery.osWorkspaces.outputs.get.queryOptions({ input: { outputId } }),
 	];
 	// Activity reads start after the app inventory resolves, so wait for them.

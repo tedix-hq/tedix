@@ -54,12 +54,6 @@ export function ActivityOwnerOverview({
 	const [shown, setShown] = useState(3);
 	const [answering, setAnswering] = useState<string>();
 	const { now } = useCardSchedule();
-	const deck = useQuery({
-		...osQuery.attention.listDeckCards.queryOptions({
-			input: { limit: 100, presentation: "stored" },
-		}),
-		...workRefreshOptions,
-	});
 	const portfolio = useQuery({
 		...osQuery.projects.getPortfolio.queryOptions({ input: {} }),
 		...workRefreshOptions,
@@ -67,6 +61,15 @@ export function ActivityOwnerOverview({
 	const attention = useQuery({
 		...workAttentionQueryOptions(),
 		...workRefreshOptions,
+	});
+	// The decisions read is slow enough to push reads beside it past the
+	// request timeout, so it starts once the area reads have settled.
+	const deck = useQuery({
+		...osQuery.attention.listDeckCards.queryOptions({
+			input: { limit: 100, presentation: "stored" },
+		}),
+		...workRefreshOptions,
+		enabled: !portfolio.isPending && !attention.isPending,
 	});
 	const questions = (deck.data?.cards ?? []).filter(ownerQuestion);
 	const projects = (portfolio.data?.data ?? []).filter(
