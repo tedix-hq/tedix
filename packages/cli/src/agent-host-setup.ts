@@ -542,7 +542,9 @@ async function codexSetup(
 			cursor = typeof page?.nextCursor === "string" ? page.nextCursor : null;
 		} while (!server && cursor);
 		if (!server)
-			throw new Error("Sign in to Tedix in Codex /mcp, then check again.");
+			throw new Error(
+				"Codex is not signed in to Tedix any more. Choose Sign in.",
+			);
 		const result = asRecord(
 			await request("mcpServer/tool/call", {
 				threadId,

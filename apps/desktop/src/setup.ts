@@ -567,6 +567,11 @@ function toolRows(): ToolRow[] {
 			(row.connection === "unknown" && signedInHere()[tool.id])
 		)
 			row.connection = "signed-in";
+		// A tool can keep a stored sign-in that Tedix no longer accepts (Codex
+		// lists it as signed in). When the read check says to sign in, the
+		// sign-in it has does not work: offer Sign in again.
+		if (/sign in/i.test(steps[`verify:${tool.id}`]?.error ?? ""))
+			row.connection = "signed-out";
 		if (row.account === "signed-out") return row;
 		if (row.connection === "signed-in") return row;
 		row.canSignIn = Boolean(tool.signIn) && facts.signInWorks;
@@ -951,6 +956,7 @@ export async function setupAction(
 				}),
 			);
 			rememberSignIn(tool.id);
+			delete steps[`verify:${tool.id}`];
 			return `${tool.name} is connected to Tedix.`;
 		});
 		return readAgentStatus();
