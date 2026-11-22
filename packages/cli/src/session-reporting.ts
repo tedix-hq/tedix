@@ -21,6 +21,31 @@ export interface SessionReportingProject {
 	mcpUrl: string;
 	projectId: string;
 	enabled: boolean;
+	/** Only sessions of this coding tool; absent for every tool. */
+	harness?: string;
+}
+
+/** The coding tools whose sessions can report. */
+export const REPORTING_HARNESSES = [
+	"claude-code",
+	"codex",
+	"devin",
+	"opencode",
+] as const;
+
+/**
+ * Whether sessions of `harness` in `projectId` report: a row for that tool
+ * decides, else a row for every tool. Without a tool, any row that is on.
+ */
+export function reportsSessions(
+	projects: SessionReportingProject[],
+	projectId: string | undefined,
+	harness?: string,
+): boolean {
+	const rows = projects.filter((row) => row.projectId === projectId);
+	if (!harness) return rows.some((row) => row.enabled);
+	const own = rows.find((row) => row.harness === harness);
+	return own ? own.enabled : rows.some((row) => !row.harness && row.enabled);
 }
 
 type Target = Pick<SessionReportingProject, "workspace" | "org" | "mcpUrl">;
@@ -49,7 +74,9 @@ export function sessionReportingProjects(
 				typeof row.org !== "string" ||
 				typeof row.mcpUrl !== "string" ||
 				!looksLikeUuid(row.projectId) ||
-				typeof row.enabled !== "boolean",
+				typeof row.enabled !== "boolean" ||
+				(row.harness !== undefined &&
+					!(REPORTING_HARNESSES as readonly string[]).includes(row.harness)),
 		)
 	)
 		throw new Error("Invalid session reporting settings");
@@ -64,12 +91,19 @@ export function sessionReportingProjects(
 
 export function setSessionReporting(
 	target: Target,
-	projectId: string,
+	projectIds: string | string[],
 	enabled: boolean,
 	options?: CredentialStoreOpts,
+	harness?: string,
 ): SessionReportingProject[] {
-	if (!looksLikeUuid(projectId))
-		throw new Error("Session reporting requires --project <UUID>");
+	const ids = typeof projectIds === "string" ? [projectIds] : projectIds;
+	if (!ids.length || !ids.every(looksLikeUuid))
+		throw new Error("Session reporting requires --project <UUID>[,<UUID>…]");
+	if (
+		harness !== undefined &&
+		!(REPORTING_HARNESSES as readonly string[]).includes(harness)
+	)
+		throw new Error(`--harness takes one of ${REPORTING_HARNESSES.join(", ")}`);
 	const directory = credentialDirectory(options);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	withFileLockSync(join(directory, "locks", "agent-status"), () => {
@@ -83,10 +117,16 @@ export function setSessionReporting(
 						row.workspace === target.workspace &&
 						row.org === target.org &&
 						row.mcpUrl === target.mcpUrl &&
-						row.projectId === projectId
+						ids.includes(row.projectId) &&
+						row.harness === harness
 					),
 			),
-			{ ...target, projectId, enabled },
+			...ids.map((projectId) => ({
+				...target,
+				projectId,
+				enabled,
+				...(harness ? { harness } : {}),
+			})),
 		];
 		const path = join(directory, "agent-status.json");
 		const temp = `${path}.${randomUUID()}.tmp`;

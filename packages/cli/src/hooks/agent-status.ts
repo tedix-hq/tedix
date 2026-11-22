@@ -28,7 +28,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
-import { sessionReportingProjects } from "../session-reporting";
+import {
+	reportsSessions,
+	sessionReportingProjects,
+} from "../session-reporting";
 import {
 	type AgentContextOptions,
 	resolveAgentContext,
@@ -225,15 +228,19 @@ function loadConfig(env: NodeJS.ProcessEnv): JsonObject {
 /** Profile, organization and notify when the owner opted in, else undefined. */
 export function statusSettings(
 	env: NodeJS.ProcessEnv,
-	context?: Pick<AgentContextOptions, "cwd" | "sessionId">,
+	context?: Pick<AgentContextOptions, "cwd" | "sessionId"> & {
+		/** The coding tool the session runs in, when the caller knows it. */
+		harness?: string;
+	},
 ): { profile?: string; organization?: string; notify: boolean } | undefined {
 	const config = loadConfig(env);
 	const toggle = (env.TEDIX_AGENT_STATUS ?? "").trim().toLowerCase();
 	if (FALSY.has(toggle)) return undefined;
 	if (config.sessionReporting !== undefined) {
 		if (!context) return undefined;
+		const { harness, ...where } = context;
 		const options = {
-			...context,
+			...where,
 			env,
 			configDir: baseDir(env),
 			allowDefault: true,
@@ -257,9 +264,7 @@ export function statusSettings(
 		if (projects) {
 			if (
 				binding.decisionCapture !== true ||
-				!projects.some(
-					(row) => row.projectId === binding.projectId && row.enabled,
-				)
+				!reportsSessions(projects, binding.projectId, harness)
 			)
 				return undefined;
 			return {
@@ -754,6 +759,7 @@ export async function runAgentStatus(deps: StatusDeps): Promise<void> {
 	const configured = statusSettings(env, {
 		cwd: typeof event.cwd === "string" ? event.cwd : deps.cwd,
 		sessionId: sessionKey,
+		harness: harnessOf(event, env),
 	});
 	if (!configured) return;
 	// With decision capture on, capture-stop triages and owns Stop: one notification per Stop.
@@ -787,6 +793,7 @@ export async function applyTriagedStop(
 	const configured = statusSettings(deps.env, {
 		cwd: typeof event.cwd === "string" ? event.cwd : deps.cwd,
 		sessionId: sessionKey,
+		harness: harnessOf(event, deps.env),
 	});
 	if (!configured) return;
 	const harness = harnessOf(event, deps.env);
@@ -825,6 +832,7 @@ export function recordAutoContinued(deps: StatusDeps, event: JsonObject): void {
 	const configured = statusSettings(deps.env, {
 		cwd: typeof event.cwd === "string" ? event.cwd : deps.cwd,
 		sessionId: sessionKey,
+		harness: harnessOf(event, deps.env),
 	});
 	if (!configured) return;
 	const harness = harnessOf(event, deps.env);

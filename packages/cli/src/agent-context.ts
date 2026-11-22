@@ -579,7 +579,12 @@ function defaultContext(
 		row.mcpUrl === target.mcpUrl;
 	const optIn = (store.decisionCapture ?? []).find(same);
 	const reporting = sessionReportingProjects(target, options);
-	const enabledProjects = reporting?.filter((row) => row.enabled);
+	// One project may have a row per coding tool; count projects, not rows.
+	const enabledProjects = [
+		...new Set(
+			reporting?.filter((row) => row.enabled).map((row) => row.projectId),
+		),
+	];
 	const projects = new Set(
 		store.repositories
 			.filter(same)
@@ -589,8 +594,8 @@ function defaultContext(
 	const projectId =
 		routedProjectId ??
 		(reporting
-			? enabledProjects?.length === 1
-				? enabledProjects[0]!.projectId
+			? enabledProjects.length === 1
+				? enabledProjects[0]
 				: undefined
 			: optIn?.projectId && looksLikeUuid(optIn.projectId)
 				? optIn.projectId
@@ -616,7 +621,7 @@ function defaultContext(
 		...(projectId ? { projectId } : {}),
 		...(optIn &&
 		projectId &&
-		(!reporting || enabledProjects?.some((row) => row.projectId === projectId))
+		(!reporting || enabledProjects.includes(projectId))
 			? { decisionCapture: true }
 			: {}),
 		...(preference
@@ -1500,7 +1505,7 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context set-default-organization <selected ID or slug> [--workspace <profile>]
   tedix setup agents context set-default-organization --clear
   tedix setup agents context disconnect-output
-  tedix setup agents context session-reporting --state on|off|show --workspace <profile> [--organization <ID>] [--project <UUID>] --json
+  tedix setup agents context session-reporting --state on|off|show --workspace <profile> [--organization <ID>] [--project <UUID>[,<UUID>…]] [--harness claude-code|codex|devin|opencode] --json
   tedix setup agents context show [--json] [--allow-default]
   tedix setup agents context unbind
 
@@ -1545,7 +1550,8 @@ so while other repositories of it are bound it refuses without --organization-wi
 unbind revokes the local opt-in for all worktrees of this repository and keeps the
 organization's decision-capture opt-in for its other repositories.
 session-reporting is the non-interactive desktop setting: --state on or off needs
---project and writes per-project status and capture choices in agent-status.json.
+--project (one or more, comma-separated) and writes per-project status and capture
+choices in agent-status.json; --harness limits the choice to one coding tool's sessions.
 On also saves this default organization and enables decision capture. Managed
 projects restrict the organization opt-in; off stops only the chosen project.
 With several projects on, a session needs its own project context; no inbox is guessed.
@@ -1569,9 +1575,13 @@ export function runAgentContext(
 			const key = args[i]!;
 			const value = args[++i];
 			if (
-				!["--state", "--workspace", "--organization", "--project"].includes(
-					key,
-				) ||
+				![
+					"--state",
+					"--workspace",
+					"--organization",
+					"--project",
+					"--harness",
+				].includes(key) ||
 				values[key] ||
 				!value ||
 				value.startsWith("--")
@@ -1600,13 +1610,14 @@ export function runAgentContext(
 				? (sessionReportingProjects(target, options) ?? [])
 				: setSessionReporting(
 						target,
-						values["--project"] ?? "",
+						(values["--project"] ?? "").split(","),
 						state === "on",
 						options,
+						values["--harness"],
 					);
 		if (state === "on") {
 			setDefaultOrganization(target.org, workspace, options);
-			changeDefaultCapture(true, values["--project"], false, {
+			changeDefaultCapture(true, values["--project"]?.split(",")[0], false, {
 				...options,
 				env: {
 					...options?.env,

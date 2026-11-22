@@ -1226,6 +1226,47 @@ describe("default organization outside a bound repository", () => {
 		expect(() => command("on", "invalid")).toThrow("--project");
 	});
 
+	test("desktop reporting can choose per coding tool; a tool's own row wins over the row for every tool", () => {
+		const { opts } = fixture();
+		connect(opts, ["org_tedix"]);
+		const away = { ...outside(opts, {}), allowDefault: true };
+		const command = (state: string, harness?: string) =>
+			runAgentContext(
+				[
+					"session-reporting",
+					"--state",
+					state,
+					"--workspace",
+					"connect",
+					"--organization",
+					"org_tedix",
+					"--project",
+					`${PROJECT},${SECOND}`,
+					...(harness ? ["--harness", harness] : []),
+					"--json",
+				],
+				away,
+			);
+		const context = { ...opts, env: {} };
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", organization: "org_tedix", projectId: PROJECT },
+			context,
+		);
+		const env = { TEDIX_CONFIG_DIR: opts.configDir };
+		const as = (harness: string) => ({ ...context, harness });
+		expect(command("on", "codex")).toBe(0);
+		expect(statusSettings(env, as("codex"))).toMatchObject({
+			organization: "org_tedix",
+		});
+		expect(statusSettings(env, as("devin"))).toBeUndefined();
+		command("on");
+		command("off", "codex");
+		expect(statusSettings(env, as("codex"))).toBeUndefined();
+		expect(statusSettings(env, as("devin"))).toBeDefined();
+		expect(() => command("on", "cursor")).toThrow("--harness");
+	});
+
 	test("is opt-in per caller and names no repository", () => {
 		const { opts } = fixture();
 		const away = outside(opts, { TEDIX_WORKSPACE: "tedix" });
