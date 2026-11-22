@@ -1495,7 +1495,11 @@ function retainsInterruptedWork(receipt: Receipt): boolean {
 				(receipt.outcome === "expired" ||
 					(receipt.outcome === "cancelled" && !!receipt.approvalWait) ||
 					(receipt.outcome === "failed" &&
-						receipt.transportInterrupted === true))
+						(receipt.transportInterrupted === true ||
+							// A run that ended incomplete (its push refused) keeps its
+							// checkout and session for the retry.
+							(receipt.laneResult?.outcome === "incomplete" &&
+								!receipt.verification))))
 			: !!receipt.retainedAttemptId && receipt.admissionState !== "unknown")
 	);
 }
@@ -6677,6 +6681,7 @@ ${firstBrief}`;
 						processIdentity: interrupted.processIdentity,
 						outcome: interrupted.outcome,
 						transportInterrupted: interrupted.transportInterrupted,
+						laneResult: interrupted.laneResult,
 					});
 				}
 			}

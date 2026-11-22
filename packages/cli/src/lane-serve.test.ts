@@ -3598,6 +3598,36 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		},
 	);
+	it("keeps an incomplete run's checkout through cleanup until its retry", async () => {
+		const f = fixture();
+		f.items.splice(0);
+		f.control.cleanupRemoves = true;
+		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(f.dir, `${item().id}-2.json`),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: "failed",
+				admissionState: "admitted",
+				attemptId: "incomplete-attempt",
+				session: "codex:33333333-3333-4333-8333-000000000099",
+				executorKey: "local-acme",
+				repo,
+				laneResult: {
+					...completedResult(),
+					outcome: "incomplete",
+					remaining: "Push refused by a pre-push check",
+				},
+			}),
+		);
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(existsSync(repo)).toBe(true);
+	});
 	it("keeps an incomplete run's checkout and session across a retry that failed before admission", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -3615,11 +3645,18 @@ describe("dispatcher admission", () => {
 				outcome: "failed",
 				admissionState: "admitted",
 				attemptId: "incomplete-attempt",
+				laneResult: {
+					...completedResult(),
+					outcome: "incomplete",
+					remaining: "Push refused by a pre-push check",
+				},
 				session: `codex:${nativeId}`,
 				executorKey: "local-acme",
 				repo,
 			}),
 		);
+		// Cleanup really removes checkouts: the incomplete run's must survive.
+		f.control.cleanupRemoves = true;
 		// A run that ended incomplete settles rejected.
 		f.control.history.data = [
 			{
@@ -3653,10 +3690,11 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 		readinessFails = false;
 		const saved = JSON.parse(readFileSync(path, "utf8"));
-		expect(saved).toMatchObject({
-			repo,
-			retainedAttemptId: "incomplete-attempt",
-		});
+		expect(saved.repo).toBe(repo);
+		expect(saved.attemptId ?? saved.retainedAttemptId).toBe(
+			"incomplete-attempt",
+		);
+		expect(existsSync(repo)).toBe(true);
 		saved.recheckAt = 0;
 		saved.admissionRetryAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
