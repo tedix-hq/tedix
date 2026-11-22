@@ -84,9 +84,18 @@ export async function reassignIdleWork(
 		eq(workItems.executorId, input.fromExecutor),
 		eq(workItems.disposition, "accepted"),
 		sql`(${workItems.startAt} IS NULL OR ${workItems.startAt} <= ${now})`,
-		// Unresolved leases and retained user/deferred/success results stay with their runner.
+		// Unresolved leases and retained user/deferred/success results stay with
+		// their runner. When the runner itself reports its tool unavailable, it
+		// has already checked its own records for a kept result, so a cancelled
+		// Attempt (a restart, or a run its tool refused) no longer pins the Work.
 		sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} WHERE ${workAttempts.orgId} = ${input.orgId} AND ${workAttempts.workItemId} = ${item.id}
-			AND (${workAttempts.outcome} IS NULL OR (${workAttempts.outcome} NOT IN ('failed', 'expired') AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version})))`,
+			AND (${workAttempts.outcome} IS NULL OR (${workAttempts.outcome} NOT IN (${sql.join(
+				(input.reason === "unavailable"
+					? ["failed", "expired", "cancelled"]
+					: ["failed", "expired"]
+				).map((outcome) => sql`${outcome}`),
+				sql`, `,
+			)}) AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version})))`,
 		sql`(SELECT count(*) FROM ${workAttempts} WHERE ${workAttempts.orgId} = ${input.orgId} AND ${workAttempts.workItemId} = ${item.id}
 			AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version} AND ${workAttempts.outcome} IN ('failed', 'expired')) < 3`,
 		sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${workInteractions.orgId} = ${input.orgId} AND ${workInteractions.workItemId} = ${item.id} AND ${workInteractions.status} = 'open')`,

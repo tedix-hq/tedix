@@ -5362,6 +5362,26 @@ export class LaneDispatcher {
 		)
 			return;
 		this.failoverRetryAt.set(key, now + HELD_ITEM_RECHECK_MS);
+		// A kept result on this revision stays with this runner: a person's
+		// answer it waits for, a deferral, a landed commit awaiting proof.
+		const path = this.path({ id: item.id, version: item.version });
+		if (existsSync(path)) {
+			try {
+				const receipt = JSON.parse(readFileSync(path, "utf8")) as Receipt;
+				if (
+					receipt.held ||
+					receipt.admissionState === "unknown" ||
+					receipt.completionPending ||
+					landedForVerification(receipt) ||
+					receipt.pendingCommitProof ||
+					receipt.laneResult?.outcome === "waiting_on_user" ||
+					receipt.laneResult?.outcome === "deferred"
+				) {
+					this.failoverRetryAt.set(key, now + DEFERRED_RETRY_MS);
+					return;
+				}
+			} catch {}
+		}
 		let target: LocalExecutor;
 		try {
 			target = this.route(
@@ -5402,6 +5422,10 @@ export class LaneDispatcher {
 			]);
 			this.log("reassigned", item.id, `${from} to ${target}: ${detail}`);
 		} catch (error) {
+			// Not startable (approval, purpose, budget) or kept for a person:
+			// the item's own blocker, not the tool's, so ask again much later.
+			if (/not startable|NOT_READY/.test(String(error)))
+				this.failoverRetryAt.set(key, now + DEFERRED_RETRY_MS);
 			this.log("reassignment-retained", item.id, String(error));
 		}
 	}

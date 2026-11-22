@@ -124,6 +124,23 @@ it("moves Work whose wording names a tool, and writes the plain reason", async (
 	}
 });
 
+it("lets a runner reporting its tool unavailable move Work past a cancelled Attempt, not an unreachable takeover", async () => {
+	const { sqlite, db, input, attempt } = fixture();
+	try {
+		attempt(1, "cancelled");
+		await expect(reassignIdleWork(db, input)).rejects.toThrow();
+		const moved = await reassignIdleWork(db, {
+			...input,
+			reason: "unavailable",
+			detail:
+				"Codex is out of credits or at its usage limit until about 23:18 UTC",
+		});
+		expect(moved.executorId).toBe("opencode");
+	} finally {
+		sqlite.close();
+	}
+});
+
 it.each([
 	"threshold",
 	"version",
