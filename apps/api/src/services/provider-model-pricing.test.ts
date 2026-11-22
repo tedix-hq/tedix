@@ -101,8 +101,19 @@ describe("fleet ownership", () => {
 		).toEqual({ status: "unpriced", reason: "rate_authority_unavailable" });
 		expect(findRates).not.toHaveBeenCalled();
 	});
-	it("preserves unknown cost on lookup failure", async () => {
-		findRates.mockRejectedValueOnce(new Error("offline"));
+	it("rides out a brief lookup failure, else preserves unknown cost", async () => {
+		const rate = { id: "rate-1" };
+		findRates
+			.mockRejectedValueOnce(new Error("overloaded"))
+			.mockResolvedValueOnce([rate]);
+		expect(await resolveProviderModelRate(env, input)).toEqual({
+			status: "resolved",
+			rate,
+		});
+		findRates
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockRejectedValueOnce(new Error("offline"));
 		expect(await resolveProviderModelRate(env, input)).toEqual({
 			status: "unpriced",
 			reason: "rate_lookup_failed",

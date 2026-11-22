@@ -44,6 +44,25 @@ import {
 } from "./credit-pool";
 import { findProviderModelRates } from "./provider-model-rates";
 
+/** Admitted token estimates, for pricing a call whose provider usage was lost. */
+export async function getBillingReservationTokenEstimates(
+	db: DbClient,
+	reservationIds: string[],
+) {
+	if (reservationIds.length === 0) return [];
+	return (
+		db
+			.select({
+				id: billingUsageReservations.id,
+				estimatedInputTokens: billingUsageReservations.estimatedInputTokens,
+				estimatedOutputTokens: billingUsageReservations.estimatedOutputTokens,
+			})
+			.from(billingUsageReservations)
+			// bound-params: callers pass one AI Gateway log page, at most 50 rows.
+			.where(inArray(billingUsageReservations.id, [...new Set(reservationIds)]))
+	);
+}
+
 export async function getVoiceBillingReservation(
 	db: DbClient,
 	input: { organizationId: string; reservationId: string },

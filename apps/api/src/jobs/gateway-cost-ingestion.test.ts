@@ -14,6 +14,7 @@ import {
 	mapRowToCallCost,
 	matchesGatewayExecution,
 	matchesAuthenticatedGatewayExecution,
+	pricingUsage,
 } from "./gateway-cost-ingestion";
 
 const insertCallCosts = vi.hoisted(() => vi.fn());
@@ -255,6 +256,28 @@ describe("gateway cost and immutable token identity", () => {
 			dataQuality: "quarantined_no_pricing",
 			costReason: priced.reason,
 		});
+	});
+	it("prices a rejected call at zero and a lost stream at its admitted estimate", () => {
+		const estimate = { estimatedInputTokens: 900, estimatedOutputTokens: 6000 };
+		const empty = { tokens_in: 0, tokens_out: 0 };
+		expect(pricingUsage(row({ ...empty, success: false }), estimate)).toEqual({
+			usage: {
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+			note: "provider_rejected_no_usage",
+		});
+		expect(pricingUsage(row(empty), estimate)).toMatchObject({
+			usage: { inputTokens: 900, outputTokens: 6000 },
+			note: "lost_usage_reservation_estimate",
+		});
+		// A cache hit never reached the provider; reported usage stays as is.
+		expect(pricingUsage(row({ ...empty, cached: true }), estimate).note).toBe(
+			null,
+		);
+		expect(pricingUsage(row(), estimate).usage.inputTokens).toBe(100);
 	});
 	it("keeps failed usage raw and unpriced", () =>
 		expect(
@@ -1263,7 +1286,7 @@ describe("provider cost presence and pricing basis", () => {
 });
 
 describe("modern native Auto log correlation", () => {
-	it("authenticates exact persisted pool and native /run while preserving failed-usage quarantine", async () => {
+	it("authenticates exact persisted pool and native /run and prices a failed call at its reported charge", async () => {
 		const policy = {
 			kind: "auto_router_v1" as const,
 			routing: {
@@ -1353,8 +1376,9 @@ describe("modern native Auto log correlation", () => {
 				"example-gateway",
 			),
 		).toMatchObject({
-			estimatedCostUsd: null,
-			dataQuality: "quarantined_failed",
+			estimatedCostUsd: 4,
+			costBasis: "gateway_reported",
+			dataQuality: "ok",
 		});
 	});
 });

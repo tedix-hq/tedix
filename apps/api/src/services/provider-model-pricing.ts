@@ -37,13 +37,20 @@ export async function resolveProviderModelRate(
 		} as const;
 	}
 	let rows;
-	try {
-		rows = await findProviderModelRates(db, {
-			...input,
-			deploymentScope: input.deploymentScope,
-		});
-	} catch {
-		return { status: "unpriced", reason: "rate_lookup_failed" } as const;
+	// A short D1 overload left calls unpriced for good: ingestion never
+	// reprices a written row. Two quick retries ride out such a burst.
+	for (let attempt = 0; ; attempt++) {
+		try {
+			rows = await findProviderModelRates(db, {
+				...input,
+				deploymentScope: input.deploymentScope,
+			});
+			break;
+		} catch {
+			if (attempt === 2)
+				return { status: "unpriced", reason: "rate_lookup_failed" } as const;
+			await new Promise((resolve) => setTimeout(resolve, 250 * 4 ** attempt));
+		}
 	}
 	if (rows.length === 0)
 		return { status: "unpriced", reason: "missing_rate" } as const;

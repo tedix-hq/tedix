@@ -132,16 +132,14 @@ export async function executeMeteredCodeMode<T>(input: {
 	});
 	if (!decision.allowed) throw new Error(codeRunRefusalMessage(decision.code));
 	const calls: (ModelAuthoredLoaderCall & { occurredAt: string })[] = [];
-	try {
-		return await input.execute((call) =>
-			calls.push({ ...call, occurredAt: new Date().toISOString() }),
-		);
-	} finally {
+	const reservationId = decision.reservation.id;
+	const settledOrganizationId = organizationId;
+	const settleCodeRun = async () => {
 		const settledAt = new Date().toISOString();
 		if (calls.length === 0) {
 			await releaseBillingReservation(db, {
-				reservationId: decision.reservation.id,
-				organizationId,
+				reservationId,
+				organizationId: settledOrganizationId,
 				reason: "no_worker_loaded",
 				now: settledAt,
 			});
@@ -149,9 +147,9 @@ export async function executeMeteredCodeMode<T>(input: {
 			for (const [index, call] of calls.entries()) {
 				await recordBillingProviderUsage(db, {
 					id: crypto.randomUUID(),
-					organizationId,
+					organizationId: settledOrganizationId,
 					tediId,
-					reservationId: decision.reservation.id,
+					reservationId,
 					providerUsageId: `dynamic-worker:${input.executionId}:${index}`,
 					provider: DYNAMIC_WORKER_PROVIDER,
 					model: "dynamic-worker",
@@ -171,9 +169,9 @@ export async function executeMeteredCodeMode<T>(input: {
 			}
 			await settleBillingUsage(db, {
 				id: `dynamic-worker:${input.executionId}`,
-				organizationId,
+				organizationId: settledOrganizationId,
 				tediId,
-				reservationId: decision.reservation.id,
+				reservationId,
 				providerUsageId: `dynamic-worker:${input.executionId}`,
 				provider: DYNAMIC_WORKER_PROVIDER,
 				model: "dynamic-worker",
@@ -188,6 +186,28 @@ export async function executeMeteredCodeMode<T>(input: {
 				now: settledAt,
 				metadata: { surface: "gateway_model_code", loads: calls.length },
 			});
+		}
+	};
+	try {
+		return await input.execute((call) =>
+			calls.push({ ...call, occurredAt: new Date().toISOString() }),
+		);
+	} finally {
+		// A finished run keeps its result when this bookkeeping write hits a
+		// busy database: every write is idempotent, so retry once, then let the
+		// hold expire uncharged rather than replace the result with the error.
+		try {
+			await settleCodeRun();
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			try {
+				await settleCodeRun();
+			} catch (error) {
+				console.error("[code-run-admission] settlement failed", {
+					exception: error instanceof Error ? error.name : typeof error,
+					loads: calls.length,
+				});
+			}
 		}
 	}
 }

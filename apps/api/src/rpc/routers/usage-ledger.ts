@@ -10,6 +10,8 @@ export type LedgerSessionType =
 	| "unattributed";
 
 export interface NormalizedLedgerRow {
+	/** Calls this row stands for: a daily rollup bucket folds many; raw rows are 1. */
+	calls?: number;
 	providerCostEvidence: OrgCallCostLedgerRow["providerCostEvidence"];
 	sourceRetired: boolean;
 	id: string;
@@ -417,6 +419,141 @@ export function normalizeLedgerRows(
 	});
 }
 
+/** One daily rollup grain, attribution already normalized like a ledger row. */
+export interface LedgerRollupGrain {
+	latestSnapshotAt: string;
+	latestCallId: string;
+	tediId: string;
+	tediName: string;
+	tediSlug: string;
+	sessionType: string;
+	source: string;
+	model: string;
+	provider: string | null;
+	providerResource: string | null;
+	providerBaseUrl: string | null;
+	deployment: string | null;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	totalTokens: number;
+	/** Effective attested cost of the priced calls, reviewed estimates included. */
+	estimatedCostUsd: number;
+	callCount: number;
+	pricedCallCount: number;
+	unpricedTokens: number;
+	reviewedCallCount: number;
+	reviewedTokens: number;
+	reviewedCostMicros: number;
+	retiredCallCount: number;
+}
+
+/**
+ * A rollup grain as up to three weighted ledger rows: its unpriced calls, its
+ * reviewed-estimate calls and its other priced calls, so a closed day folds
+ * into the drilldown without reading every raw row. Input, output and cache
+ * detail sit on one bucket; retired calls count among the priced ones. A
+ * rollup does not keep why a call went unpriced, so every unpriced call
+ * counts as flagged by ingestion, as nearly all are.
+ */
+export function rollupLedgerRows(
+	grain: LedgerRollupGrain,
+): NormalizedLedgerRow[] {
+	const sessionType = grain.sessionType as LedgerSessionType;
+	const unpricedCalls = grain.callCount - grain.pricedCallCount;
+	const pricedCalls = grain.pricedCallCount - grain.reviewedCallCount;
+	const detailOn =
+		pricedCalls > 0 ? "priced" : unpricedCalls > 0 ? "unpriced" : "reviewed";
+	const reviewedUsd = grain.reviewedCostMicros / 1_000_000;
+	const bucket = (
+		suffix: string,
+		calls: number,
+		totalTokens: number,
+		estimatedCostUsd: number | null,
+		reviewedMicros: number | null,
+	): NormalizedLedgerRow =>
+		withReconciliation({
+			calls,
+			id: `${grain.latestCallId}:${suffix}`,
+			providerCostEvidence:
+				reviewedMicros === null
+					? null
+					: // Internal stand-in: only the cost and original quality are read.
+						({
+							providerEstimatedCostMicros: reviewedMicros,
+							originalDataQuality: "quarantined_no_pricing",
+							originalCostBasis: "unknown",
+							originalEstimatedCostUsd: null,
+						} as unknown as NonNullable<
+							NormalizedLedgerRow["providerCostEvidence"]
+						>),
+			sourceRetired: false,
+			tediId: grain.tediId,
+			tediName: grain.tediName,
+			tediSlug: grain.tediSlug,
+			snapshotAt: grain.latestSnapshotAt,
+			model: grain.model,
+			provider: grain.provider,
+			providerResource: grain.providerResource,
+			providerBaseUrl: grain.providerBaseUrl,
+			deployment: grain.deployment,
+			runId: null,
+			workItemId: null,
+			sessionKeyHash: null,
+			sessionType,
+			source: grain.source,
+			inputTokens: suffix === detailOn ? grain.inputTokens : 0,
+			outputTokens: suffix === detailOn ? grain.outputTokens : 0,
+			cacheReadTokens: suffix === detailOn ? grain.cacheReadTokens : 0,
+			cacheWriteTokens: suffix === detailOn ? grain.cacheWriteTokens : 0,
+			totalTokens,
+			estimatedCostUsd,
+			callDurationMs: null,
+			executionId: null,
+			rawEstimatedCostUsd: estimatedCostUsd,
+			costBasis: estimatedCostUsd === null ? "unknown" : "governed_estimate",
+			rateVersionId: null,
+			costReason: null,
+			dataQuality: suffix === "priced" ? "ok" : "quarantined_no_pricing",
+			sessionCount: calls,
+			createdAt: null,
+			billingCategory: billingCategory(sessionType),
+			billable: false,
+			billableTokens: 0,
+			billableCostUsd: 0,
+			invoiceReady: false,
+			invoiceReadyTokens: 0,
+			invoiceReadyCostUsd: 0,
+			reconciliationStatus: "quarantined",
+			reconciliationReasons: [],
+			quarantinedTokens: totalTokens,
+			quarantinedCostUsd: estimatedCostUsd ?? 0,
+			pricingVersion: "daily-rollup",
+			attributionVersion: USAGE_ATTRIBUTION_VERSION,
+		});
+	return [
+		unpricedCalls > 0 &&
+			bucket("unpriced", unpricedCalls, grain.unpricedTokens, null, null),
+		grain.reviewedCallCount > 0 &&
+			bucket(
+				"reviewed",
+				grain.reviewedCallCount,
+				grain.reviewedTokens,
+				reviewedUsd,
+				grain.reviewedCostMicros,
+			),
+		pricedCalls > 0 &&
+			bucket(
+				"priced",
+				pricedCalls,
+				grain.totalTokens - grain.unpricedTokens - grain.reviewedTokens,
+				Math.max(0, grain.estimatedCostUsd - reviewedUsd),
+				null,
+			),
+	].filter((row): row is NormalizedLedgerRow => row !== false);
+}
+
 function completeness(value: {
 	pricedRowCount: number;
 	unpricedRowCount: number;
@@ -458,13 +595,14 @@ function emptyAggregate(key: string, label: string): CostAggregate {
 }
 
 function addToAggregate(aggregate: CostAggregate, row: NormalizedLedgerRow) {
+	const calls = row.calls ?? 1;
 	if (row.providerCostEvidence) {
-		aggregate.reviewedEstimateRowCount++;
+		aggregate.reviewedEstimateRowCount += calls;
 		aggregate.reviewedEstimateTokens += row.totalTokens;
 		aggregate.reviewedEstimateMicros +=
 			row.providerCostEvidence.providerEstimatedCostMicros;
 	}
-	if (row.sourceRetired) aggregate.sourceRetiredRowCount++;
+	if (row.sourceRetired) aggregate.sourceRetiredRowCount += calls;
 	aggregate.totalInputTokens += row.inputTokens;
 	aggregate.totalOutputTokens += row.outputTokens;
 	aggregate.totalCacheReadTokens += row.cacheReadTokens;
@@ -472,9 +610,9 @@ function addToAggregate(aggregate: CostAggregate, row: NormalizedLedgerRow) {
 	aggregate.totalTokens += row.totalTokens;
 	aggregate.knownSubtotalUsd += row.estimatedCostUsd ?? 0;
 	if (row.estimatedCostUsd === null) {
-		aggregate.unpricedRowCount++;
+		aggregate.unpricedRowCount += calls;
 		aggregate.unpricedTokens += row.totalTokens;
-	} else aggregate.pricedRowCount++;
+	} else aggregate.pricedRowCount += calls;
 	aggregate.costCompleteness = completeness(aggregate);
 	aggregate.totalCostUsd =
 		aggregate.costCompleteness === "complete"
@@ -486,7 +624,7 @@ function addToAggregate(aggregate: CostAggregate, row: NormalizedLedgerRow) {
 	aggregate.invoiceReadyCostUsd += row.invoiceReadyCostUsd;
 	aggregate.quarantinedTokens += row.quarantinedTokens;
 	aggregate.quarantinedCostUsd += row.quarantinedCostUsd;
-	aggregate.rowCount++;
+	aggregate.rowCount += calls;
 }
 
 function sorted<T extends CostAggregate>(values: Iterable<T>): T[] {
@@ -587,7 +725,6 @@ function buildDataQuality(rows: NormalizedLedgerRow[]): BillingDataQuality {
 		{ rowCount: number; totalTokens: number; totalCostUsd: number }
 	>();
 	const tediStats = new Map<string, BillingDataQualityTedi>();
-	const problemRowIds = new Set<string>();
 	const recentProblemRows: BillingDataQualityProblemRow[] = [];
 
 	let totalTokens = 0;
@@ -597,8 +734,12 @@ function buildDataQuality(rows: NormalizedLedgerRow[]): BillingDataQuality {
 	let pricedTokens = 0;
 	let unknownModelTokens = 0;
 	let zeroCostTokens = 0;
+	let rowCount = 0;
+	let issueRowCount = 0;
 
 	for (const row of rows) {
+		const calls = row.calls ?? 1;
+		rowCount += calls;
 		totalTokens += row.totalTokens;
 		totalCostUsd += row.estimatedCostUsd ?? 0;
 		if (row.estimatedCostUsd !== null) {
@@ -622,17 +763,17 @@ function buildDataQuality(rows: NormalizedLedgerRow[]): BillingDataQuality {
 			};
 			tediStats.set(row.tediId, tedi);
 		}
-		tedi.rowCount++;
+		tedi.rowCount += calls;
 		tedi.totalTokens += row.totalTokens;
 		tedi.totalCostUsd += row.estimatedCostUsd ?? 0;
 
 		const flags = qualityFlags(row);
 		if (flags.length === 0) continue;
 
-		problemRowIds.add(row.id);
+		issueRowCount += calls;
 		issueTokens += row.totalTokens;
 		issueCostUsd += row.estimatedCostUsd ?? 0;
-		tedi.issueRowCount++;
+		tedi.issueRowCount += calls;
 		tedi.issueTokens += row.totalTokens;
 		tedi.issueCostUsd += row.estimatedCostUsd ?? 0;
 
@@ -645,13 +786,13 @@ function buildDataQuality(rows: NormalizedLedgerRow[]): BillingDataQuality {
 				totalTokens: 0,
 				totalCostUsd: 0,
 			};
-			stats.rowCount++;
+			stats.rowCount += calls;
 			stats.totalTokens += row.totalTokens;
 			stats.totalCostUsd += row.estimatedCostUsd ?? 0;
 			issueStats.set(flag, stats);
 		}
 
-		if (recentProblemRows.length < 25) {
+		if (row.calls === undefined && recentProblemRows.length < 25) {
 			recentProblemRows.push({
 				id: row.id,
 				tediId: row.tediId,
@@ -747,8 +888,8 @@ function buildDataQuality(rows: NormalizedLedgerRow[]): BillingDataQuality {
 	return {
 		level,
 		score,
-		rowCount: rows.length,
-		issueRowCount: problemRowIds.size,
+		rowCount,
+		issueRowCount,
 		totalTokens,
 		issueTokens,
 		totalCostUsd,
@@ -805,13 +946,14 @@ export function buildCostDrilldown(params: {
 	};
 
 	for (const row of params.rows) {
+		const calls = row.calls ?? 1;
 		if (row.providerCostEvidence) {
-			totals.reviewedEstimateRowCount++;
+			totals.reviewedEstimateRowCount += calls;
 			totals.reviewedEstimateTokens += row.totalTokens;
 			totals.reviewedEstimateMicros +=
 				row.providerCostEvidence.providerEstimatedCostMicros;
 		}
-		if (row.sourceRetired) totals.sourceRetiredRowCount++;
+		if (row.sourceRetired) totals.sourceRetiredRowCount += calls;
 		totals.inputTokens += row.inputTokens;
 		totals.outputTokens += row.outputTokens;
 		totals.cacheReadTokens += row.cacheReadTokens;
@@ -819,9 +961,9 @@ export function buildCostDrilldown(params: {
 		totals.totalTokens += row.totalTokens;
 		totals.knownSubtotalUsd += row.estimatedCostUsd ?? 0;
 		if (row.estimatedCostUsd === null) {
-			totals.unpricedRowCount++;
+			totals.unpricedRowCount += calls;
 			totals.unpricedTokens += row.totalTokens;
-		} else totals.pricedRowCount++;
+		} else totals.pricedRowCount += calls;
 		totals.billableTokens += row.billableTokens;
 		totals.billableCostUsd += row.billableCostUsd;
 		totals.invoiceReadyTokens += row.invoiceReadyTokens;

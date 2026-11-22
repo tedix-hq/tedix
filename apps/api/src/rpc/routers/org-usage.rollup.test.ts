@@ -431,6 +431,66 @@ describe("organization usage from daily rollups", () => {
 		const after = await usage(db);
 		expectSameMoney(after.result, before.result);
 	});
+
+	it("builds the 30-day cost drilldown from rollups with the raw-ledger aggregates", async () => {
+		const { db, call } = await fixture();
+		await seedLedger(call);
+		await call({
+			id: "reviewed-call",
+			tediId: "tedi-a",
+			snapshotAt: "2026-09-20T09:00:00.000Z",
+			costBasis: "unknown",
+			estimatedCostUsd: null,
+			dataQuality: "quarantined_no_pricing",
+		});
+		await db
+			.insert(evidence)
+			.values(
+				evidenceRow("reviewed-call", "2026-09-20T09:00:00.000Z", 375_000, 1),
+			);
+		const drilldown = async () => {
+			reads.raw = 0;
+			const result = await createRouterClient(orgUsageContractRouter, {
+				context: context(db),
+			}).getCostDrilldown({ organizationId: ORG, period: "30d" });
+			// Problem-row samples name single calls; rollup days have none. A
+			// rollup does not keep why a call went unpriced, so it cannot split
+			// ingestion-flagged calls from other unpriced ones.
+			const { recentProblemRows: _, ...dataQuality } = result.dataQuality;
+			dataQuality.issues = dataQuality.issues.filter(
+				(issue) => issue.code !== "ingestion_quarantined",
+			);
+			dataQuality.byTedi = [...dataQuality.byTedi].sort((a, b) =>
+				a.tediId.localeCompare(b.tediId),
+			);
+			return { ...result, dataQuality, rawRows: reads.raw };
+		};
+		const { rawRows: rawOnly, ...raw } = await drilldown();
+		await rebuildClosedCostRollups(db, NOW);
+		const { rawRows, ...fromRollups } = await drilldown();
+		const lists = [
+			"byTedi",
+			"bySource",
+			"byCategory",
+			"byModel",
+			"byResource",
+		] as const;
+		const withoutLists = (value: typeof raw) =>
+			Object.fromEntries(
+				Object.entries(value).filter(
+					([key]) => !(lists as readonly string[]).includes(key),
+				),
+			);
+		expectSameMoney(withoutLists(fromRollups), withoutLists(raw));
+		// Breakdowns agree as sets; equal-cost ties may change order.
+		for (const key of lists)
+			expectSameMoney(
+				[...fromRollups[key]].sort((a, b) => a.key.localeCompare(b.key)),
+				[...raw[key]].sort((a, b) => a.key.localeCompare(b.key)),
+				key,
+			);
+		expect(rawRows).toBeLessThan(rawOnly / 5);
+	});
 });
 
 function evidenceRow(

@@ -32,6 +32,7 @@ import {
 	mergeCostDrilldowns,
 	type NormalizedLedgerRow,
 	normalizeLedgerRows,
+	rollupLedgerRows,
 } from "./usage-ledger";
 
 const orgUsageOs = implement(orgUsageContract).$context<BaseContext>();
@@ -263,12 +264,12 @@ function rollupContribution(row: CostRollupResult): UsageContribution {
  * come from raw ledger rows. Every raw row in the window lands in exactly one
  * of the two sources.
  */
-async function loadUsageContributions(
+async function planUsageSources(
 	db: BaseContext["db"],
 	organizationId: string,
 	window: { from: string; to: string },
 	now: Date,
-): Promise<UsageContribution[]> {
+) {
 	const lastClosedDay = [
 		previousUtcDay(window.to.slice(0, 10)),
 		previousUtcDay(now.toISOString().slice(0, 10)),
@@ -278,7 +279,6 @@ async function loadUsageContributions(
 		firstClosedDay <= lastClosedDay
 			? await listCostRollups(db, organizationId, firstClosedDay, lastClosedDay)
 			: [];
-	const contributions = rollups.map(rollupContribution);
 
 	// "~" sorts after every timestamp character, so `${day}~` closes a day.
 	const rawRanges: Array<{ from: string; to: string }> = [];
@@ -289,7 +289,22 @@ async function loadUsageContributions(
 		lower = nextUtcDay(day);
 	}
 	if (lower <= window.to) rawRanges.push({ from: lower, to: window.to });
+	return { rollups, rawRanges };
+}
 
+async function loadUsageContributions(
+	db: BaseContext["db"],
+	organizationId: string,
+	window: { from: string; to: string },
+	now: Date,
+): Promise<UsageContribution[]> {
+	const { rollups, rawRanges } = await planUsageSources(
+		db,
+		organizationId,
+		window,
+		now,
+	);
+	const contributions = rollups.map(rollupContribution);
 	const rawGrains = new Map<string, UsageContribution>();
 	for (const range of rawRanges) {
 		let cursor: { snapshotAt: string; id: string } | undefined;
@@ -632,34 +647,73 @@ const getCostDrilldownProcedure = authedOs.getCostDrilldown
 		}
 
 		const window = usageWindow(period);
-		const drilldownParts = [];
-		let cursor: { snapshotAt: string; id: string } | undefined;
-
-		for (;;) {
-			const ledgerRows = await listOrgCallCostLedger(db, {
-				organizationId,
-				from: window.from,
-				to: window.to,
-				tediId,
-				source,
-				model,
-				includeUnattributed,
-				limit: BILLING_LEDGER_AGGREGATION_PAGE_SIZE,
-				cursor,
-			});
-			drilldownParts.push(
-				buildCostDrilldown({
-					rows: normalizeLedgerRows(ledgerRows),
-					period,
-					days: window.days,
-					sessionLimit,
-				}),
-			);
-			if (ledgerRows.length < BILLING_LEDGER_AGGREGATION_PAGE_SIZE) break;
-
-			const last = ledgerRows.at(-1);
-			if (!last) break;
-			cursor = { snapshotAt: last.snapshotAt, id: last.id };
+		// Closed days come from daily rollups; reading every raw row of 30 days
+		// (~170k for a busy organization) outran the D1 read budget.
+		const { rollups, rawRanges } = await planUsageSources(
+			db,
+			organizationId,
+			window,
+			new Date(),
+		);
+		const drilldownParts = [
+			buildCostDrilldown({
+				rows: rollups
+					.filter(
+						(row) =>
+							(!tediId || row.tediId === tediId) &&
+							(!source || row.source === source) &&
+							(!model || row.model === model) &&
+							(includeUnattributed || row.sessionType !== "unattributed"),
+					)
+					.flatMap((row) => {
+						const grain = rollupContribution(row);
+						return rollupLedgerRows({
+							...grain,
+							inputTokens: row.inputTokens,
+							outputTokens: row.outputTokens,
+							cacheReadTokens: row.cacheReadTokens,
+							cacheWriteTokens: row.cacheWriteTokens,
+							estimatedCostUsd: row.estimatedCostUsd,
+							callCount: row.callCount,
+							pricedCallCount: row.pricedCallCount,
+							reviewedCallCount: row.reviewedCallCount,
+							reviewedTokens: row.reviewedTokens,
+							reviewedCostMicros: row.reviewedCostMicros,
+							retiredCallCount: row.retiredCallCount,
+						});
+					}),
+				period,
+				days: window.days,
+				sessionLimit,
+			}),
+		];
+		for (const range of rawRanges) {
+			let cursor: { snapshotAt: string; id: string } | undefined;
+			for (;;) {
+				const ledgerRows = await listOrgCallCostLedger(db, {
+					organizationId,
+					from: range.from,
+					to: range.to,
+					tediId,
+					source,
+					model,
+					includeUnattributed,
+					limit: BILLING_LEDGER_AGGREGATION_PAGE_SIZE,
+					cursor,
+				});
+				drilldownParts.push(
+					buildCostDrilldown({
+						rows: normalizeLedgerRows(ledgerRows),
+						period,
+						days: window.days,
+						sessionLimit,
+					}),
+				);
+				if (ledgerRows.length < BILLING_LEDGER_AGGREGATION_PAGE_SIZE) break;
+				const last = ledgerRows.at(-1);
+				if (!last) break;
+				cursor = { snapshotAt: last.snapshotAt, id: last.id };
+			}
 		}
 
 		const drilldown = mergeCostDrilldowns({

@@ -16,8 +16,10 @@
  *  - `azure-openai` rows (BYOK): the gateway's `cost` is unreliable (Azure is
  *    the true biller), so cost is recomputed from token counts via the
  *    governed event-time rates joined through immutable execution evidence.
- *  - Failed or unpriced requests remain held usage evidence; a stored zero
- *    under quarantine does not establish that the provider consumed no resources.
+ *  - A request the provider rejected with no usage costs zero (Azure bills no
+ *    4xx; Workers AI reports its own charge). A stream whose usage the Gateway
+ *    lost is priced at its admitted token estimate. Rows still without a price
+ *    remain held usage evidence.
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
@@ -43,6 +45,7 @@ import { WEB_SEARCH_COST_SOURCE } from "@tedix/api-contract/schemas/web-search";
 import type { NewTediCallCost } from "@tedix/db/schema/tedis";
 import { getProviderExecutionsByIds } from "@tedix/db/queries/provider-executions";
 import type { ProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
+import { getBillingReservationTokenEstimates } from "@tedix/db/queries/billing/reservations";
 import { priceProviderUsage } from "../services/provider-model-pricing";
 import type { FleetAuthorityEnv } from "../lib/fleet-authority";
 
@@ -129,6 +132,64 @@ function normalizeGatewayTokenUsage(row: AiGatewayLogRow) {
 				: row.usage_metadata?.input_cache_creation_tokens,
 		),
 	};
+}
+
+function reportsNoTokens(row: AiGatewayLogRow): boolean {
+	return [
+		row.tokens_in,
+		row.tokens_out,
+		row.usage_metadata?.input_tokens,
+		row.usage_metadata?.output_tokens,
+	].every((value) => !value);
+}
+
+/**
+ * A provider stream the Gateway logged as a success with no usage. The client
+ * stopped reading before the final usage event (a timeout or abort), so the
+ * provider still charged for the work it did.
+ */
+function lostStreamUsage(row: AiGatewayLogRow): boolean {
+	return (
+		row.success &&
+		!row.cached &&
+		row.provider !== "workers-ai" &&
+		reportsNoTokens(row)
+	);
+}
+
+const NO_USAGE = {
+	inputTokens: 0,
+	outputTokens: 0,
+	cacheReadTokens: 0,
+	cacheWriteTokens: 0,
+};
+
+/**
+ * Token usage to price a call with. A request the provider rejected with no
+ * usage is priced at zero tokens; a stream whose usage was lost is priced at
+ * the token estimate admitted for it, the most that call could have used.
+ */
+export function pricingUsage(
+	row: AiGatewayLogRow,
+	estimate:
+		| { estimatedInputTokens: number; estimatedOutputTokens: number }
+		| undefined,
+): {
+	usage: ReturnType<typeof normalizeGatewayTokenUsage>;
+	note: string | null;
+} {
+	if (!row.success && reportsNoTokens(row))
+		return { usage: NO_USAGE, note: "provider_rejected_no_usage" };
+	if (lostStreamUsage(row) && estimate)
+		return {
+			usage: {
+				...NO_USAGE,
+				inputTokens: estimate.estimatedInputTokens,
+				outputTokens: estimate.estimatedOutputTokens,
+			},
+			note: "lost_usage_reservation_estimate",
+		};
+	return { usage: normalizeGatewayTokenUsage(row), note: null };
 }
 
 interface AiGatewayLogsResponse {
@@ -255,6 +316,8 @@ export function mapRowToCallCost(
 		costUsd: number | null;
 		rateVersionId: string | null;
 		reason: string | null;
+		/** Why a priced call needed a usage substitute (see `pricingUsage`). */
+		note?: string | null;
 	} = {
 		execution: null,
 		costUsd: null,
@@ -333,17 +396,22 @@ export function mapRowToCallCost(
 		row.usage_metadata?.total_tokens ?? inputTokens + outputTokens;
 
 	let estimatedCostUsd: number | null = null;
+	let costNote = priced.note ?? null;
 	let dataQuality: "ok" | "quarantined_no_pricing" | "quarantined_failed" =
-		"quarantined_no_pricing";
-	if (!row.success) dataQuality = "quarantined_failed";
-	else if (
+		row.success ? "quarantined_no_pricing" : "quarantined_failed";
+	if (
 		isWorkersAi &&
 		typeof row.cost === "number" &&
 		Number.isFinite(row.cost) &&
 		row.cost >= 0 &&
 		Number.isSafeInteger(Math.round(row.cost * 1000000))
 	) {
+		// Cloudflare's own charge, also for a failed call.
 		estimatedCostUsd = row.cost;
+		dataQuality = "ok";
+	} else if (isWorkersAi && !row.success && reportsNoTokens(row)) {
+		estimatedCostUsd = 0;
+		costNote = "provider_rejected_no_usage";
 		dataQuality = "ok";
 	} else if (!isWorkersAi && !providerUsage && priced.costUsd !== null) {
 		// A Gateway cache hit never reaches the provider. Preserve admission and
@@ -404,7 +472,7 @@ export function mapRowToCallCost(
 				? isWorkersAi && row.success
 					? "invalid_reported_cost"
 					: (priced.reason ?? "invalid_reported_cost")
-				: null,
+				: costNote,
 		sessionCount: 1,
 		success: row.success,
 		cached: row.cached,
@@ -650,6 +718,23 @@ async function ingestGateway(
 		const executionMap = new Map(
 			executions.map((execution) => [execution.id, execution]),
 		);
+		const reservationEstimates = new Map(
+			(
+				await getBillingReservationTokenEstimates(
+					db,
+					costRows.flatMap((row) => {
+						if (!lostStreamUsage(row)) return [];
+						const id = decodeAiGatewayAttribution(
+							row.metadata?.attribution,
+						)?.executionId;
+						const reservationId = id
+							? executionMap.get(id)?.billingReservationId
+							: null;
+						return reservationId ? [reservationId] : [];
+					}),
+				)
+			).map((estimate) => [estimate.id, estimate]),
+		);
 		const toInsert: NewTediCallCost[] = [];
 		for (const row of costRows) {
 			const id = decodeAiGatewayAttribution(
@@ -672,18 +757,27 @@ async function ingestGateway(
 							row.model,
 						)
 					: null;
-			const priced = execution
-				? await priceProviderUsage(
-						env,
-						{
-							provider: execution.provider,
-							modelId: routed?.modelId ?? execution.requestModel,
-							deploymentScope:
-								routed?.deploymentScope ?? execution.deploymentScope,
-							occurredAt: row.created_at,
-						},
-						normalizeGatewayTokenUsage(row),
+			const pricing = execution
+				? pricingUsage(
+						row,
+						reservationEstimates.get(execution.billingReservationId ?? ""),
 					)
+				: null;
+			const priced = execution
+				? {
+						...(await priceProviderUsage(
+							env,
+							{
+								provider: execution.provider,
+								modelId: routed?.modelId ?? execution.requestModel,
+								deploymentScope:
+									routed?.deploymentScope ?? execution.deploymentScope,
+								occurredAt: row.created_at,
+							},
+							pricing!.usage,
+						)),
+						note: pricing!.note,
+					}
 				: {
 						costUsd: null,
 						rateVersionId: null,
