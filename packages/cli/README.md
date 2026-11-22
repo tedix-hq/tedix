@@ -603,6 +603,14 @@ An empty route list pauses automatic assignments for that rule. A rule may carry
 a `description` in your own words. `tedix lane routing` prints the file runners
 use and which tool takes which tasks, in plain words (`--json` adds the parsed
 policy); it changes nothing.
+
+When a runner's own tool cannot take Work for 5 minutes (out of credits or at
+its usage limit, or failing its start check), Work waiting for that tool moves
+to the next available tool in the same rule. Running tasks stay where they are.
+The task gets a comment such as "Reassigned from codex to claude-code: Codex is
+out of credits or at its usage limit until about 21:00 UTC". Set
+`metadata.onlyExecutor: true` (or `requiredExecutor`) on a task to keep it on
+its tool. The task's wording never decides this.
 Without a policy, Work assigned to `any-local` waits before an agent is launched
 or an Attempt is started. Named assignments keep their native model defaults;
 OpenCode always needs a configured `provider/model`.

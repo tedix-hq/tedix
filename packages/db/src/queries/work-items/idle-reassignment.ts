@@ -7,7 +7,6 @@ import {
 	workItemComments,
 } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
-import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { getScopedWorkItem, WorkFactoryError } from "./factory-state";
 import { normalizeWorkItemRow } from "./normalization";
 
@@ -24,14 +23,18 @@ export async function reassignIdleWork(
 		fromExecutor: string;
 		unavailableSince: string;
 		minimumIdleMinutes: number;
-		reason: "unreachable";
+		reason: "unreachable" | "unavailable";
+		/** Why the tool cannot take Work, in plain words, for the item's comment. */
+		detail?: string;
 		now?: string;
 	},
 ) {
 	const item = await getScopedWorkItem(db, input.orgId, input.workItemId);
 	const now = input.now ?? new Date().toISOString();
 	const age = Date.parse(now) - Date.parse(input.unavailableSince);
-	const text = `${item.title}\n${item.description ?? ""}\n${item.acceptanceContract?.doneLooksLike ?? ""}\n${JSON.stringify(item.metadata?.tags ?? [])}`;
+	const tags: unknown[] = Array.isArray(item.metadata?.tags)
+		? item.metadata.tags
+		: [];
 	if (
 		!runners.includes(input.executor) ||
 		!runners.includes(input.fromExecutor) ||
@@ -47,12 +50,13 @@ export async function reassignIdleWork(
 		!item.acceptanceContract ||
 		item.requiredCapabilities.length ||
 		item.requiredAuthorities.length ||
-		item.riskLevel === "high" ||
-		item.riskLevel === "critical" ||
+		// Only fields a person set keep Work on its tool, never its wording.
+		item.metadata?.onlyExecutor === true ||
 		item.metadata?.requiredExecutor ||
 		item.metadata?.executorRequirement ||
-		/\b(codex|claude(?:[- ]code)?|opencode|devin)\b/i.test(text) ||
-		humanReservedActionClasses(text).length ||
+		tags.some(
+			(tag) => typeof tag === "string" && tag.startsWith("requires:"),
+		) ||
 		item.dispatchState !== "ready"
 	)
 		throw new WorkFactoryError(
@@ -67,6 +71,7 @@ export async function reassignIdleWork(
 			from: input.fromExecutor,
 			to: input.executor,
 			reason: input.reason,
+			...(input.detail ? { detail: input.detail } : {}),
 			unavailableSince: input.unavailableSince,
 			at: now,
 		},
@@ -86,7 +91,12 @@ export async function reassignIdleWork(
 			AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version} AND ${workAttempts.outcome} IN ('failed', 'expired')) < 3`,
 		sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${workInteractions.orgId} = ${input.orgId} AND ${workInteractions.workItemId} = ${item.id} AND ${workInteractions.status} = 'open')`,
 	);
-	const body = `Reassigned from ${input.fromExecutor} to ${input.executor}: assigned runner ${input.reason} since ${input.unavailableSince} (at least ${input.minimumIdleMinutes} minutes). Work revision ${item.version} and failure holds preserved.`;
+	const why =
+		input.detail ??
+		(input.reason === "unreachable"
+			? `no ${input.fromExecutor} runner is running`
+			: `${input.fromExecutor} cannot take Work`);
+	const body = `Reassigned from ${input.fromExecutor} to ${input.executor}: ${why}, since ${input.unavailableSince} (waited at least ${input.minimumIdleMinutes} minutes). Work revision ${item.version} and failure holds preserved. Set metadata.onlyExecutor to keep a task on its tool.`;
 	const [changed] = await db.batch([
 		db
 			.update(workItems)

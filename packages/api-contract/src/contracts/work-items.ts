@@ -830,11 +830,20 @@ export const workItemsContract = oc
 							]),
 							unavailableSince: z.iso.datetime(),
 							minimumIdleMinutes: z.number().int().min(1).max(1440).default(15),
-							reason: z.literal("unreachable"),
+							reason: z.enum(["unreachable", "unavailable"]),
+							detail: z
+								.string()
+								.trim()
+								.min(1)
+								.max(300)
+								.optional()
+								.describe(
+									"Why the assigned tool cannot take Work, in plain words; written on the item.",
+								),
 						})
 						.optional()
 						.describe(
-							"Owner/admin dispatcher reassignment. Preserves the Work revision and failure hold; cannot accompany specification edits.",
+							"Owner/admin dispatcher reassignment when the assigned tool is unreachable or unavailable (out of credits, at its limit, signed out). Preserves the Work revision and failure hold; cannot accompany specification edits. Work with metadata.onlyExecutor stays on its tool.",
 						),
 					executor: WorkExecutorSchema.optional().describe(
 						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",

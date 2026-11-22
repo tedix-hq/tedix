@@ -305,6 +305,53 @@ export function dispatchSkip(
 		return `${OWNER_HOLD}: ${hold.cause}. The owner allows it with Allow on the request, or a comment that starts with "Delegation: ${assigned}".`;
 }
 
+/**
+ * How long a tool must be unable to take Work before Work waiting for it
+ * moves to the next tool in its routing rule.
+ */
+export const FAILOVER_WAIT_MS = 5 * 60_000;
+
+/** Work a person kept on its tool: only those fields count, never wording. */
+export function keepsItsTool(item: Pick<DispatchItem, "metadata">): boolean {
+	const metadata = item.metadata ?? {};
+	const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
+	return (
+		metadata.onlyExecutor === true ||
+		!!metadata.requiredExecutor ||
+		!!metadata.executorRequirement ||
+		tags.some((tag) => typeof tag === "string" && tag.startsWith("requires:"))
+	);
+}
+
+/** The routing rules without one tool, for picking the next one. */
+export function withoutExecutor(
+	policy: RoutingPolicy,
+	executor: LocalExecutor,
+): RoutingPolicy {
+	return {
+		...policy,
+		rules: policy.rules.map((rule) => ({
+			...rule,
+			routes: rule.routes.filter((route) => route.executor !== executor),
+		})),
+	};
+}
+
+/** Why a tool cannot take Work, in plain words, from its routing refusal. */
+export function unavailableDetail(executor: string, error: Error): string {
+	const name = AGENT_NAMES[executor] ?? executor;
+	const until = error.message.match(
+		new RegExp(`${executor}: budget backoff until (\\S+?)\\)?(?:;|$)`),
+	)?.[1];
+	if (until && Number.isFinite(Date.parse(until)))
+		return `${name} is out of credits or at its usage limit until about ${new Date(until).toISOString().slice(11, 16)} UTC`;
+	if (new RegExp(`${executor}: \\d+% remaining`).test(error.message))
+		return `${name} is near its usage limit`;
+	if (error instanceof LocalExecutorPreflightError)
+		return `${name} failed its start check`;
+	return `${name} cannot take Work: ${error.message}`.slice(0, 300);
+}
+
 /** Start of every skip reason for Work that waits on its owner's permission. */
 export const OWNER_HOLD = "Needs the owner";
 
@@ -2898,6 +2945,10 @@ export class LaneDispatcher {
 	private healthCheckedAt = 0;
 	private takeoverOffset = new Map<LocalExecutor, number>();
 	private takeoverCheckedAt = 0;
+	/** Since when this runner's own tool could not take Work it was given. */
+	private ownToolUnavailableSince?: number;
+	/** When a failed move of one Work revision to another tool may be tried again. */
+	private failoverRetryAt = new Map<string, number>();
 	private idleItems = new Map<string, ReturnType<typeof idleReason>>();
 	/** The reason and time of each item's last written state log. */
 	private loggedStates = new Map<string, { reason: string; at: number }>();
@@ -4237,8 +4288,10 @@ export class LaneDispatcher {
 						observeSkip(item, paused.message);
 						this.log("skipped", item.id, String(paused));
 					}
+					await this.failOver(item, paused);
 					continue;
 				}
+				this.ownToolUnavailableSince = undefined;
 				const task = this.execute(item, previous)
 					.catch((error) => this.log("failed", item.id, String(error)))
 					.finally(() => {
@@ -5243,11 +5296,15 @@ export class LaneDispatcher {
 			}
 		}
 	}
-	private route(item: DispatchItem) {
+	private route(
+		item: DispatchItem,
+		executor = String(assignedExecutor(item)),
+		policy = this.policy,
+	) {
 		const metadata = item.metadata ?? {};
 		return routeLocalWork(
 			{
-				executor: String(assignedExecutor(item)),
+				executor,
 				tags: Array.isArray(metadata.tags)
 					? metadata.tags.filter(
 							(tag): tag is string => typeof tag === "string",
@@ -5256,10 +5313,79 @@ export class LaneDispatcher {
 				size: typeof metadata.size === "string" ? metadata.size : undefined,
 				risk: item.riskLevel,
 			},
-			this.policy,
+			policy,
 			this.availability,
 			this.budgets,
 		);
+	}
+	/**
+	 * Waiting Work given to this runner's tool moves to the next available
+	 * tool in its routing rule once the tool has been unavailable for
+	 * FAILOVER_WAIT_MS: out of credits or at its limit, or failing its start
+	 * check. Running tasks stay. Work marked `metadata.onlyExecutor` (or
+	 * with a required executor) stays on its tool. The server writes the
+	 * move and its reason on the item.
+	 */
+	private async failOver(item: DispatchItem, paused: Error) {
+		const from = String(assignedExecutor(item));
+		if (
+			this.options.executor === "any-local" ||
+			!localExecutors.includes(from as LocalExecutor) ||
+			keepsItsTool(item)
+		)
+			return;
+		const now = Date.now();
+		this.ownToolUnavailableSince ??= now;
+		const since = this.ownToolUnavailableSince;
+		const key = `${item.id}:${item.version}`;
+		if (
+			now - since < FAILOVER_WAIT_MS ||
+			now < (this.failoverRetryAt.get(key) ?? 0)
+		)
+			return;
+		this.failoverRetryAt.set(key, now + HELD_ITEM_RECHECK_MS);
+		let target: LocalExecutor;
+		try {
+			target = this.route(
+				item,
+				"any-local",
+				withoutExecutor(this.policy, from as LocalExecutor),
+			).executor;
+		} catch (error) {
+			this.log(
+				"failover-none",
+				item.id,
+				`${from} cannot take it and no other tool in its rule can: ${String(error)}`,
+			);
+			return;
+		}
+		if (this.unavailable.has(target)) {
+			this.log("failover-none", item.id, `${target} has no running runner`);
+			return;
+		}
+		const detail = unavailableDetail(from, paused);
+		try {
+			await this.call([
+				"work",
+				"dispatch-reassign",
+				item.id,
+				"--input",
+				JSON.stringify({
+					executorReference: { type: "external_agent", id: target },
+					expectedWorkItemVersion: item.version,
+					idleReassignment: {
+						fromExecutor: from,
+						unavailableSince: new Date(since).toISOString(),
+						minimumIdleMinutes: FAILOVER_WAIT_MS / 60_000,
+						reason: "unavailable",
+						detail,
+					},
+				}),
+			]);
+			this.log("reassigned", item.id, `${from} to ${target}: ${detail}`);
+		} catch (error) {
+			this.log("reassignment-retained", item.id, String(error));
+		}
 	}
 	/**
 	 * True once the process recorded for a run left by a stopped runner is gone.

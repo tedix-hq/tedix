@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import * as retryTimers from "node:timers/promises";
 import { laneTurnOutputPaths } from "./lane-output";
+import { testRoutingPolicy } from "./lane-routing.fixture";
 import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
@@ -38,6 +39,7 @@ import {
 	existingLaneCommits,
 	retainedLaneWorktree,
 	dispatchSkip,
+	FAILOVER_WAIT_MS,
 	laneDelegationRequest,
 	parseServeOptions,
 	runLaneServe,
@@ -5052,6 +5054,51 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
+	it("moves waiting Work to the next tool in its rule after the tool is unavailable for the wait, unless it keeps its tool", async () => {
+		const { restart, deps, items, events, dir, config } = fixture();
+		const routing = join(dir, "routing.json");
+		writeFileSync(routing, JSON.stringify(testRoutingPolicy));
+		config.routingConfig = routing;
+		items.splice(1);
+		const kept = {
+			...item(2),
+			metadata: { executor: "codex", onlyExecutor: true },
+		};
+		items.push(kept);
+		let now = Date.now();
+		const until = now + 2 * 60 * 60_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		deps.budgets = () => ({
+			codex: { observedAt: now, source: "native", backoffUntil: until },
+		});
+		const moves = () =>
+			events.filter(
+				(event) =>
+					event.verb === "dispatch-reassign" && event.input?.idleReassignment,
+			);
+		const dispatcher = restart();
+		try {
+			await dispatcher.tick();
+			expect(moves()).toHaveLength(0);
+			now += FAILOVER_WAIT_MS;
+			await dispatcher.tick();
+			expect(moves()).toHaveLength(1);
+			expect(moves()[0]!.args).toContain(item().id);
+			expect(moves()[0]!.input).toMatchObject({
+				executorReference: { type: "external_agent", id: "claude-code" },
+				idleReassignment: {
+					fromExecutor: "codex",
+					reason: "unavailable",
+					minimumIdleMinutes: 5,
+					detail: `Codex is out of credits or at its usage limit until about ${new Date(until).toISOString().slice(11, 16)} UTC`,
+				},
+			});
+			expect(events.some((event) => event.verb === "start")).toBe(false);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it.each(["quota", "backoff"])(
 		"waits through routing %s pauses without reads and resumes when capacity returns",
 		async (pause) => {

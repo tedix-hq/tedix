@@ -80,7 +80,7 @@ it("reassigns at the threshold with one visible reason while preserving revision
 			[
 				{
 					body: expect.stringContaining(
-						"Reassigned from codex to opencode: assigned runner unreachable",
+						"Reassigned from codex to opencode: no codex runner is running",
 					),
 				},
 			],
@@ -103,6 +103,27 @@ it("reassigns at the threshold with one visible reason while preserving revision
 	}
 });
 
+it("moves Work whose wording names a tool, and writes the plain reason", async () => {
+	const { sqlite, db, input } = fixture();
+	try {
+		sqlite.exec(
+			"UPDATE work_items SET description='Codex found this; complete the OAuth consent check fix'",
+		);
+		await reassignIdleWork(db, {
+			...input,
+			reason: "unavailable",
+			detail: "Codex is out of credits or at its limit until 21:00 UTC",
+		});
+		expect(
+			sqlite.prepare("SELECT body FROM work_item_comments").get()?.body,
+		).toContain(
+			"Reassigned from codex to opencode: Codex is out of credits or at its limit until 21:00 UTC",
+		);
+	} finally {
+		sqlite.close();
+	}
+});
+
 it.each([
 	"threshold",
 	"version",
@@ -114,10 +135,9 @@ it.each([
 	"deferred",
 	"capability",
 	"authority",
-	"named harness",
+	"only this tool",
 	"harness tag",
 	"explicit requirement",
-	"reserved",
 	"held coordinator",
 	"future",
 	"unaccepted",
@@ -149,8 +169,10 @@ it.each([
 			sqlite.exec(`UPDATE work_items SET required_capabilities='["browser"]'`);
 		if (reason === "authority")
 			sqlite.exec(`UPDATE work_items SET required_authorities='["owner"]'`);
-		if (reason === "named harness")
-			sqlite.exec("UPDATE work_items SET description='Use Claude Code only'");
+		if (reason === "only this tool")
+			sqlite.exec(
+				`UPDATE work_items SET metadata=json_set(metadata,'$.onlyExecutor',json('true'))`,
+			);
 		if (reason === "harness tag")
 			sqlite.exec(
 				`UPDATE work_items SET metadata=json_set(metadata,'$.tags',json('["requires:codex"]'))`,
@@ -159,8 +181,6 @@ it.each([
 			sqlite.exec(
 				`UPDATE work_items SET metadata=json_set(metadata,'$.requiredExecutor','codex')`,
 			);
-		if (reason === "reserved")
-			sqlite.exec("UPDATE work_items SET description='Complete OAuth consent'");
 		if (reason === "held coordinator")
 			sqlite.exec("UPDATE work_items SET dispatch_state='held'");
 		if (reason === "future")
