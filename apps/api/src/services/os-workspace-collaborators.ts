@@ -180,14 +180,16 @@ export async function requireWorkspaceCollaboratorAccess(
 	context: BaseContext,
 	workspaceId: string,
 	operation: OsWorkspaceOperation,
+	options?: { collaborators?: boolean },
 ): Promise<WorkspaceAccess> {
 	const callerId = requireCollaboratorIdentity(context);
-	const database = db(context);
+	const database = context.db;
 	const access = await loadWorkspaceAccess(
 		database,
 		await findWorkspace(database, workspaceId),
 		callerId,
 		context.authType === "user" ? "user" : "tedi",
+		options,
 	);
 	if (
 		context.authType !== "user" &&

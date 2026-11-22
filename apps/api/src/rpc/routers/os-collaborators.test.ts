@@ -7,10 +7,12 @@ import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import * as conversationAccess from "@tedix/db/queries/kernel-conversation-access";
 import {
 	kernelConversations,
 	kernelConversationGrants,
 	kernelRuntimeEvents,
+	kernelRuntimeRuns,
 } from "@tedix/db/schema/cognitive-runtime";
 import { ensureHomeConversationAccess } from "./kernel/run-store";
 import { kernelRuntimeContractRouter } from "./kernel-runtime";
@@ -79,6 +81,7 @@ function createEnv() {
 			kernelConversations,
 			kernelConversationGrants,
 			kernelRuntimeEvents,
+			kernelRuntimeRuns,
 			osWorkspaces,
 			osWorkspaceSummaries,
 			osWorkspaceResources,
@@ -356,56 +359,85 @@ describe("workspace collaborators", () => {
 			);
 		},
 	);
-	it("cuts an in-flight chat poll even when the removed collaborator still owns its conversation", async () => {
-		const { env, workspaceId, sqlite } = await seed();
-		await as(env, ROBIN).add({
-			workspaceId,
-			email: "kai@example.test",
-			role: "build",
-		});
-		const ctx = context(env, KAI);
-		ctx.user!.permissions = [...ctx.user!.permissions, "tedis:read"];
-		await ctx.db.insert(kernelConversations).values({
-			id: "chat-1",
-			organizationId: "org-1",
-			conversationId: "chat-1",
-			workspaceId,
-			lastMessageAt: new Date().toISOString(),
-		});
-		await ctx.db.insert(kernelConversationGrants).values({
-			id: "grant-1",
-			organizationId: "org-1",
-			conversationId: "chat-1",
-			granteeDescopeUserId: KAI,
-			access: "owner",
-		});
-		await ensureHomeConversationAccess(ctx, {
-			organizationId: "org-1",
-			conversationId: "chat-1",
-			required: "read",
-		});
-		const client = createRouterClient(kernelRuntimeContractRouter, {
-			context: ctx,
-		});
-		const poll = client.readConversationEvents({
-			conversationId: "chat-1",
-			waitMs: 2_000,
-		});
-		const denied = expect(poll).rejects.toMatchObject({ code: "FORBIDDEN" });
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		await as(env, ROBIN).remove({
-			workspaceId,
-			target: { kind: "user", userId: KAI },
-		});
-		await denied;
-		expect(
-			sqlite
-				.prepare(
-					"SELECT access FROM kernel_conversation_grants WHERE id = 'grant-1'",
-				)
-				.get(),
-		).toMatchObject({ access: "owner" });
-	});
+	it.each(["conversation", "run"] as const)(
+		"reuses %s poll access and rejects the next request after removal",
+		async (stream) => {
+			const { env, workspaceId, sqlite } = await seed();
+			await as(env, ROBIN).add({
+				workspaceId,
+				email: "kai@example.test",
+				role: "build",
+			});
+			const ctx = context(env, KAI);
+			ctx.user!.permissions = [...ctx.user!.permissions, "tedis:read"];
+			await ctx.db.insert(kernelConversations).values({
+				id: "chat-1",
+				organizationId: "org-1",
+				conversationId: "chat-1",
+				workspaceId,
+				lastMessageAt: new Date().toISOString(),
+			});
+			await ctx.db.insert(kernelConversationGrants).values({
+				id: "grant-1",
+				organizationId: "org-1",
+				conversationId: "chat-1",
+				granteeDescopeUserId: KAI,
+				access: "owner",
+			});
+			await ctx.db.insert(kernelRuntimeRuns).values({
+				id: "chat-run-1",
+				organizationId: "org-1",
+				conversationId: "chat-1",
+				status: "running",
+			});
+			ctx.db = createDbClient(createD1Facade(sqlite));
+			const primaryRead = vi.spyOn(env.DB, "prepare").mockImplementation(() => {
+				throw new Error("Access must use the request session");
+			});
+			await ensureHomeConversationAccess(ctx, {
+				organizationId: "org-1",
+				conversationId: "chat-1",
+				required: "read",
+			});
+			expect(primaryRead).not.toHaveBeenCalled();
+			primaryRead.mockRestore();
+			const grants = vi.spyOn(
+				conversationAccess,
+				"listKernelConversationGrants",
+			);
+			onTestFinished(() => grants.mockRestore());
+			const client = createRouterClient(kernelRuntimeContractRouter, {
+				context: ctx,
+			});
+			const read = () =>
+				stream === "conversation"
+					? client.readConversationEvents({
+							conversationId: "chat-1",
+							waitMs: 2_000,
+						})
+					: client.readRunEvents({ runId: "chat-run-1", waitMs: 2_000 });
+			const poll = read();
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			await as(env, ROBIN).remove({
+				workspaceId,
+				target: { kind: "user", userId: KAI },
+			});
+			await expect(poll).resolves.toMatchObject({
+				events: [],
+				stream: { closed: false },
+			});
+			expect(grants).toHaveBeenCalledTimes(1);
+			await expect(read()).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(grants).toHaveBeenCalledTimes(2);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT access FROM kernel_conversation_grants WHERE id = 'grant-1'",
+					)
+					.get(),
+			).toMatchObject({ access: "owner" });
+		},
+	);
 	it("cuts a suspended browser seat even when its explicit workspace share remains", async () => {
 		const { env, workspaceId, sqlite } = await seed();
 		await as(env, ROBIN).add({

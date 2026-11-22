@@ -100,7 +100,7 @@ export async function ensureHomeConversationAccess(
 		organizationId: string;
 		required: KernelConversationAccessLevel;
 	},
-): Promise<void> {
+): Promise<Awaited<ReturnType<typeof getKernelConversation>>> {
 	const decision = await resolveKernelConversationAccess(context.db, {
 		conversationId: input.conversationId,
 		descopeUserId: context.descopeUserId ?? context.user?.sub ?? null,
@@ -115,8 +115,10 @@ export async function ensureHomeConversationAccess(
 					context,
 					conversation.workspaceId,
 					"app.chat",
+					{ collaborators: false },
 				);
 			}
+			return conversation;
 		}
 		return;
 	}

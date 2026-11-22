@@ -275,6 +275,13 @@ export const kernelRuntimeEvents = sqliteTable(
 			table.conversationId,
 			table.createdAt,
 		),
+		index("idx_kernel_runtime_events_conversation_run_created").on(
+			table.organizationId,
+			table.conversationId,
+			table.runId,
+			table.createdAt,
+			table.id,
+		),
 		// Cover the active Home SSE cursor read:
 		// WHERE organization_id=? AND run_id=? ORDER BY created_at,id LIMIT/OFFSET.
 		index("idx_kernel_runtime_events_run_created").on(

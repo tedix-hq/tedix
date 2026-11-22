@@ -689,7 +689,7 @@ export const readConversationEventsRoute = authed.readConversationEvents
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
-		await ensureHomeConversationAccess(context, {
+		const authorizedConversation = await ensureHomeConversationAccess(context, {
 			conversationId: input.conversationId,
 			organizationId,
 			required: "read",
@@ -702,20 +702,18 @@ export const readConversationEventsRoute = authed.readConversationEvents
 		const deadline = Date.now() + waitMs;
 		let polls = 0;
 		const start = input.offset ?? 0;
+		// Access is fixed for this request, whose wait is capped at 30 seconds.
 		while (true) {
-			await ensureHomeConversationAccess(context, {
-				conversationId: input.conversationId,
-				organizationId,
-				required: "read",
-			});
 			let conversation: KernelConversationRow | undefined;
 			let rows: KernelRuntimeEvent[];
 			try {
 				[conversation, rows] = await Promise.all([
-					getKernelConversation(context.db, {
-						organizationId,
-						conversationId: input.conversationId,
-					}),
+					polls === 0 && context.authType === "user"
+						? authorizedConversation
+						: getKernelConversation(context.db, {
+								organizationId,
+								conversationId: input.conversationId,
+							}),
 					listKernelRuntimeEvents(context.db, {
 						organizationId,
 						conversationId: input.conversationId,

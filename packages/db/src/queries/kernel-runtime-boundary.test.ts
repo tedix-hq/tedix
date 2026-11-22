@@ -285,6 +285,43 @@ describe("kernel runtime query boundary", () => {
 		});
 	});
 
+	it("pages run-less conversation events in index order without scanning run history", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(`
+			INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, created_at) VALUES
+				('a', 'org-1', 'conversation.updated', 'conversation-1', NULL, '2026-07-31T10:00:00Z'),
+				('b', 'org-1', 'conversation.updated', 'conversation-1', NULL, '2026-07-31T10:00:00Z'),
+				('c', 'org-1', 'run.started', 'conversation-1', 'run-1', '2026-07-31T10:00:00Z'),
+				('d', 'org-2', 'conversation.updated', 'conversation-1', NULL, '2026-07-31T10:00:00Z'),
+				('e', 'org-1', 'conversation.updated', 'conversation-2', NULL, '2026-07-31T10:00:00Z');
+		`);
+		expect(
+			(
+				await listKernelRuntimeEvents(db, {
+					organizationId: "org-1",
+					conversationId: "conversation-1",
+					runIdNull: true,
+					order: "asc",
+					limit: 1,
+					offset: 1,
+				})
+			).map((row) => row.id),
+		).toEqual(["b"]);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN SELECT * FROM kernel_runtime_events
+			WHERE organization_id = ? AND conversation_id = ? AND run_id IS NULL
+			ORDER BY created_at, id LIMIT ? OFFSET ?`)
+			.all("org-1", "conversation-1", 1, 1);
+		expect(plan).toEqual([
+			expect.objectContaining({
+				detail: expect.stringContaining(
+					"USING INDEX idx_kernel_runtime_events_conversation_run_created (organization_id=? AND conversation_id=? AND run_id=?)",
+				),
+			}),
+		]);
+		sqlite.close();
+	});
+
 	it("preserves parent and child event cursor ordering and receipt counts", async () => {
 		const { db, sqlite } = fixture();
 		seedRuns(sqlite);

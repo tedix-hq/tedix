@@ -1876,6 +1876,10 @@
 		{
 			"name": "20261122091911_runtime_profile_auto_to_terra/migration.sql",
 			"sha256": "7e174970bddb05ab1222198670d65bc969888920d35bf11eb41e4eacc488e2bb"
+		},
+		{
+			"name": "20261122125013_conversation-event-stream-index/migration.sql",
+			"sha256": "e7ac91548717f25a035380fd964311fa5416f66dd37aff0137118ee98f6f8575"
 		}
 	]
 }

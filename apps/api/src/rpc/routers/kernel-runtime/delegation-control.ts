@@ -172,12 +172,8 @@ export const readRunEventsRoute = authed.readRunEvents
 		// event page plus a bounded receipt set; it never re-fetches full history.
 		let currentRowStatus = runRow.status;
 		let settlementRepairAttempted = false;
+		// Access is fixed for this request, whose wait is capped at 30 seconds.
 		while (true) {
-			await ensureHomeConversationAccess(context, {
-				conversationId: runRow.conversationId,
-				organizationId,
-				required: "read",
-			});
 			let rows: RunEventStreamRow[] = [];
 			let receiptRows: RunEventStreamRow[] = [];
 			let tailStart: number | null = null;
