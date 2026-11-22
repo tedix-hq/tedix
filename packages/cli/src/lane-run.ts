@@ -905,10 +905,14 @@ async function runLaneProcessWithReporter(
 		if (
 			identityMismatch ||
 			streamError ||
+			// A tool call refused in headless mode fails a turn that then reports
+			// nothing; one that still declares success keeps its result, which
+			// delivery and settlement check (on 22 Nov a landed commit was lost).
 			(devin &&
 				devinStderr.includes(
 					"rejected a tool call that requires confirmation",
-				)) ||
+				) &&
+				!devinDeclaredSuccess(telemetry.finalMessage)) ||
 			(deps.sessionKey &&
 				(codexJson || claudeJson || opencode) &&
 				nativeId !== deps.sessionKey)

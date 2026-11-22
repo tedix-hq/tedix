@@ -347,6 +347,44 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 	expect(reports.at(-1).telemetry.outcome).toBe("succeeded");
 });
 
+test("a headless permission rejection keeps a Devin turn that still declares success", async () => {
+	const dir = temporary();
+	const binary = fakeDevin(dir);
+	writeFileSync(
+		binary,
+		readFileSync(binary, "utf8").replace(
+			"console.log('Fake Devin completed the brief.');",
+			"console.error('warning: rejected a tool call that requires confirmation. Running in non-interactive mode.'); console.log('Landed on main.\\nTEDIX_WORK_RESULT ' + JSON.stringify({ outcome: 'succeeded', note: 'Landed on main.' }));",
+		),
+	);
+	const brief = join(dir, "brief.txt");
+	writeFileSync(brief, "Read-only smoke");
+	const reports: Record<string, unknown>[] = [];
+	expect(
+		await runLaneProcess(
+			[
+				"run",
+				"--executor",
+				"devin",
+				"--project",
+				"11111111-1111-4111-8111-111111111111",
+				"--brief",
+				brief,
+				"--",
+				binary,
+			],
+			{
+				cwd: dir,
+				report: async (value) => {
+					reports.push(value);
+					return {};
+				},
+			},
+		),
+	).toBe(0);
+	expect(reports.at(-1)?.telemetry).toMatchObject({ outcome: "succeeded" });
+});
+
 test("headless permission rejection fails the lane even when Devin exits zero", async () => {
 	const dir = temporary();
 	const binary = fakeDevin(dir);
