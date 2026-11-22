@@ -48,7 +48,10 @@ export async function respondConfirmed<I extends RespondInput, R>(
 		return new Promise<never>(() => {});
 	};
 	try {
-		return await Promise.race([api.respond(input), readBack()]);
+		const saved = await Promise.race([api.respond(input), readBack()]);
+		if (typeof window !== "undefined")
+			window.dispatchEvent(new Event("tedix:decision-saved"));
+		return saved;
 	} finally {
 		done = true;
 	}

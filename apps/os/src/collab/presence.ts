@@ -50,6 +50,7 @@ export interface CollabLocation {
 	 * check for unread chat now, so nobody has to ask on a timer.
 	 */
 	chatAt?: number;
+	decisionAt?: number;
 }
 
 /**
@@ -157,6 +158,7 @@ function sanitizeLocation(value: unknown): CollabLocation | null {
 			: undefined;
 	const artifactLabel = shortString(input.artifactLabel, 120) ?? undefined;
 	const selectionLabel = shortString(input.selectionLabel, 120) ?? undefined;
+	const decisionAt = offset(input.decisionAt) ?? undefined;
 	const chatAt = offset(input.chatAt) ?? undefined;
 	return {
 		surface: "canvas",
@@ -164,6 +166,7 @@ function sanitizeLocation(value: unknown): CollabLocation | null {
 		...(artifactLabel ? { artifactLabel } : {}),
 		...(selectionLabel ? { selectionLabel } : {}),
 		...(chatAt ? { chatAt } : {}),
+		...(decisionAt ? { decisionAt } : {}),
 	};
 }
 
@@ -292,7 +295,13 @@ export function collabParticipantsFromStates(
 		if (current) {
 			current.sessions += 1;
 			current.clientIds.push(clientId);
-			if (location) current.location = location;
+			if (location) {
+				const decisionAt = Math.max(
+					current.location?.decisionAt ?? 0,
+					location.decisionAt ?? 0,
+				);
+				current.location = decisionAt ? { ...location, decisionAt } : location;
+			}
 			if (selection) current.selection = selection;
 		} else {
 			participants.set(identity.key, {

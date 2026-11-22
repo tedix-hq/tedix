@@ -1,5 +1,5 @@
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
-import { workViewRole } from "@tedix/api-contract/assets/work-view-blueprint";
+import { APP_RUNTIME_ENTRY } from "@tedix/api-contract/schemas/os-app-runtime";
 import { LoadingArea } from "@/components/loading-area";
 import { lazy, Suspense } from "react";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
@@ -103,6 +103,7 @@ export function WorkHome({
 				</Suspense>
 			</Page>
 		);
+	const editable = selected?.revision.manifest.entry === APP_RUNTIME_ENTRY;
 	const renderWork = (manifest: OsGadgetManifest) => (
 		<WorkspaceAppRenderer
 			key={selected?.gadget.id ?? role}
@@ -123,11 +124,32 @@ export function WorkHome({
 				projectId: search.project,
 				day: search.day,
 				onFilterChange,
-				apps: appLinks,
+				apps: editable ? undefined : appLinks,
 				showRunningNow: !overview,
 			}}
 		/>
 	);
+	if (editable && selected)
+		return (
+			<Page width="full" className="fd-work-home">
+				<Suspense fallback={<LoadingArea />}>
+					<WorkRuntime
+						key={selected.revision.id}
+						workspaceId={selected.gadget.workspaceId}
+						gadget={selected.gadget}
+						revision={selected.revision}
+						renderWork={(source) =>
+							overview ? (
+								<WorkHomeOverview>{renderWork(source)}</WorkHomeOverview>
+							) : (
+								renderWork(source)
+							)
+						}
+						layout="content"
+					/>
+				</Suspense>
+			</Page>
+		);
 	const content = manifest ? (
 		renderWork(manifest)
 	) : pending ? (
@@ -148,7 +170,7 @@ export function WorkHome({
 	) : (
 		content
 	);
-	const editable = selected && workViewRole(selected.revision.manifest);
+
 	const presentationId = selected?.manifest.config?.presentationGadgetId;
 	const usePresentation =
 		selected?.role &&
@@ -169,15 +191,7 @@ export function WorkHome({
 						!pending &&
 						!failed &&
 						!truncated && <InstallWorkAppearance />}
-					{editable && canCustomize && (
-						<Link
-							href={`/workspace/${selected.gadget.workspaceId}?workpiece=gadget:${selected.gadget.id}&pane=workpiece`}
-						>
-							Edit gadget
-						</Link>
-					)}
-					{!editable &&
-						selected?.role &&
+					{selected?.role &&
 						selected.manifest.entry === defaultWorkApps[selected.role].entry &&
 						canCustomize && (
 							<WorkAppearance
@@ -189,24 +203,7 @@ export function WorkHome({
 						)}
 				</div>
 			)}
-			{editable ? (
-				<Suspense fallback={<LoadingArea />}>
-					<WorkRuntime
-						key={selected.revision.id}
-						workspaceId={selected.gadget.workspaceId}
-						gadget={selected.gadget}
-						revision={selected.revision}
-						renderWork={(source) =>
-							overview ? (
-								<WorkHomeOverview>{renderWork(source)}</WorkHomeOverview>
-							) : (
-								renderWork(source)
-							)
-						}
-						layout="content"
-					/>
-				</Suspense>
-			) : usePresentation && typeof presentationId === "string" ? (
+			{usePresentation && typeof presentationId === "string" ? (
 				<WorkGadgetPresentation
 					key={presentationId}
 					workspaceId={selected.gadget.workspaceId}

@@ -962,7 +962,7 @@ export function WorkDecisionCard({
 			onClickCapture={(event) => {
 				if (
 					(event.target as HTMLElement).closest(
-						"summary, [data-slot=collapsible-trigger], .fd-card-details",
+						"summary, [data-slot=collapsible-trigger]",
 					)
 				) {
 					detailsOpened.current = true;
@@ -1080,16 +1080,6 @@ export function WorkDecisionCard({
 												</time>
 											) : null}
 										</span>
-										{rail && (
-											<Button
-												variant="ghost"
-												size="sm"
-												className="fd-card-details"
-												onClick={() => rail.openSection("details")}
-											>
-												{OS_COPY.feed.details}
-											</Button>
-										)}
 									</CardDescription>
 									<CardTitle className="text-xl leading-snug">
 										<DecisionProposalHeading title={heading} />

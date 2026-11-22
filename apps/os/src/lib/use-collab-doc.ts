@@ -1039,6 +1039,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	const locationArtifactKind = location?.artifactKind;
 	const locationArtifactLabel = location?.artifactLabel;
 	const locationSelectionLabel = location?.selectionLabel;
+	const locationDecisionAt = location?.decisionAt;
 	const locationChatAt = location?.chatAt;
 
 	useEffect(() => {
@@ -1131,6 +1132,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 						...(locationArtifactLabel
 							? { artifactLabel: locationArtifactLabel }
 							: {}),
+						...(locationDecisionAt ? { decisionAt: locationDecisionAt } : {}),
 						...(locationChatAt ? { chatAt: locationChatAt } : {}),
 						...(locationSelectionLabel
 							? { selectionLabel: locationSelectionLabel }
@@ -1142,6 +1144,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		locationArtifactKind,
 		locationArtifactLabel,
 		locationChatAt,
+		locationDecisionAt,
 		locationSelectionLabel,
 		locationSurface,
 		session,

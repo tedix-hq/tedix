@@ -1203,11 +1203,6 @@
 .fd-work-home[data-slot="page"] {
 	padding-top: 1rem;
 }
-.fd-card-details {
-	margin-left: auto;
-	flex: none;
-	color: var(--fd-muted);
-}
 .feed-deck .fd-decision [data-slot="card-description"] {
 	flex-wrap: nowrap;
 }

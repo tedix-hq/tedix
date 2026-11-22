@@ -40,7 +40,15 @@ import {
 	ProposerContext,
 	ShortcutTooltip,
 } from "@/components/feed-deck-primitives";
-import { createElement, lazy, Suspense, useEffect, useRef } from "react";
+import {
+	createElement,
+	lazy,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { isTypingEvent } from "@/lib/keyboard";
 import { type DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
@@ -175,6 +183,26 @@ function DecisionDeckContent({
 		cardType,
 		faceState,
 	} = useDecisionDeck(config, workspaceId);
+	const [decisionAt, setDecisionAt] = useState(0);
+	useEffect(() => {
+		const saved = () => setDecisionAt(Date.now());
+		window.addEventListener("tedix:decision-saved", saved);
+		return () => window.removeEventListener("tedix:decision-saved", saved);
+	}, []);
+	const participants = useWorkspacePresence({
+		workspaceId: workspaceId ?? null,
+		location: { surface: "canvas", decisionAt },
+	});
+	const peerAnswer = participants.reduce(
+		(latest, peer) => Math.max(latest, peer.location?.decisionAt ?? 0),
+		0,
+	);
+	useEffect(() => {
+		if (peerAnswer)
+			void client.invalidateQueries({
+				queryKey: osQuery.workInteractions.listInbox.key(),
+			});
+	}, [client, peerAnswer]);
 	const keyPaging = useRef({ next, previous, active: false });
 	keyPaging.current = {
 		next,

@@ -300,8 +300,6 @@ try {
 			return {
 				left: notice.left - box.left,
 				gap: box.top - notice.bottom,
-				details: getComputedStyle(card.querySelector(".fd-card-details")!)
-					.fontSize,
 				whyMargin: getComputedStyle(card.querySelector(".fd-card-why")!)
 					.marginLeft,
 			};
@@ -309,7 +307,6 @@ try {
 		if (
 			Math.abs(deckGeometry.left) > 1 ||
 			deckGeometry.gap !== 12 ||
-			deckGeometry.details !== "13px" ||
 			deckGeometry.whyMargin !== "0px"
 		)
 			throw new Error(
@@ -601,7 +598,7 @@ try {
 			layout.gap > 96 ||
 			layout.field < layout.min ||
 			layout.inset < 16 ||
-			!layout.details ||
+			layout.details ||
 			layout.overflow
 		)
 			throw new Error(
