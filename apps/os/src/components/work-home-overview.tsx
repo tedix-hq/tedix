@@ -11,10 +11,14 @@ import { WorkListSkeleton, WorkReadFailure } from "./work-surface-primitives";
 import {
 	osQuery,
 	projectListQueryOptions,
+	userProfileQueryOptions,
 	workItemPagesQueryOptions,
 } from "@/lib/os-query-options";
 import { useOsPreferences } from "@/lib/use-os-preferences";
-import { EMPTY_FEED_PREFERENCES } from "@tedix/api-contract/utils/activity-feed";
+import {
+	EMPTY_FEED_PREFERENCES,
+	plainFeedText,
+} from "@tedix/api-contract/utils/activity-feed";
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { Button } from "./kumo/button";
 import {
@@ -80,6 +84,48 @@ const recoveryReason: Record<string, string> = {
 	latest_attempt_expired: "The last run timed out",
 	attempt_lease_elapsed: "The run stopped reporting",
 };
+
+/** The last tasks you commented on stay one tap away above newer posts. */
+function YourDiscussions() {
+	const profile = useQuery(userProfileQueryOptions());
+	const comments = useQuery({
+		...osQuery.workItems.listActivity.queryOptions({
+			input: { eventTypes: ["comment"], limit: 150 },
+		}),
+		...workRefreshOptions,
+		enabled: !!profile.data,
+	});
+	const seen = new Set<string>();
+	const recent = (comments.data?.events ?? [])
+		.filter(
+			(event) =>
+				event.authorType === "user" &&
+				event.authorId === profile.data?.id &&
+				!seen.has(event.workItemId) &&
+				seen.add(event.workItemId),
+		)
+		.slice(0, 3);
+	if (!recent.length) return null;
+	return (
+		<nav
+			aria-label="Your discussions"
+			className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1"
+		>
+			<Text as="span" tone="secondary">
+				Your discussions
+			</Text>
+			{recent.map((event) => (
+				<Link
+					key={event.workItemId}
+					href={`/work/items/${event.workItemId}`}
+					className="max-w-full truncate"
+				>
+					{plainFeedText(event.workItemTitle) || event.workItemTitle}
+				</Link>
+			))}
+		</nav>
+	);
+}
 
 function ShareUpdate({ onPosted }: { onPosted: () => void }) {
 	const [itemId, setItemId] = useState("");
@@ -323,6 +369,7 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 					),
 					posts: (
 						<>
+							<YourDiscussions />
 							<div
 								aria-label="Recent activity"
 								className="activity-posts min-w-0"
