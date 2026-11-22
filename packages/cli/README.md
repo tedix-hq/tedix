@@ -828,15 +828,18 @@ the owner is not a person). Editing the task makes it ready again and closes the
 request. The runner uses the operator's login for this, which needs an owner or
 admin role.
 
-Possible money, personal messaging, login or credential requests are skipped
-and logged unless an actual owner comment says
-`Delegation: codex work-version=<version> <bounded note>`.
-Use the assigned executor name in that comment for Claude Code.
-Work without an accountable user owner must first have one set; a comment from
-any other author cannot delegate that owner's actions.
-Work that asks the executor to complete consent, MFA or a password step stays
-human-only even with that comment. The lexical screen is conservative; provider
-permissions and atomic Work admission still apply.
+A runner holds a task for its accountable owner only when the task itself says
+so: its kind is `finance`, `outbound` or `legal`, its risk is `critical`, or
+whoever created it set `metadata.needsOwner` (`true` or a short reason, for
+example `"deletes customer data"`). Words in the title or description never
+hold a task. The skip reason starts with `Needs the owner:` and says which field
+caused it; the owner gets one request with Allow, No and Later. Allow posts a
+comment that starts with `Delegation: <executor>` (for example
+`Delegation: codex`); the owner can also write that comment by hand. It names no
+version, so editing the task does not undo it. A task with no person as its
+accountable owner must first get one. Sign-in, consent, MFA and secrets stay
+with the person in every case, and protected tool calls are still checked when
+the agent makes them.
 
 On macOS, add `--install` to write and load a user LaunchAgent. It starts now
 and at login, survives the launching session, and defers during dark wake.

@@ -34,12 +34,7 @@ import { OS_COPY } from "@/shared/os-copy";
 import { OrganizationMachines } from "./organization-machines";
 
 function skipReasonSummary(reason: string): string {
-	if (
-		reason.startsWith(
-			"Possible human-reserved action; no accountable user owner can authorize a delegation comment.",
-		)
-	)
-		return "Owner authorization required";
+	if (reason.startsWith("Needs the owner:")) return "Waiting for the owner";
 	if (
 		/requires (?:its owner or steward|a current active organization owner or admin membership)/i.test(
 			reason,

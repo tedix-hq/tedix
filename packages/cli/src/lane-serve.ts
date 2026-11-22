@@ -3,7 +3,6 @@ import {
 	workSettlementCommits,
 	type WorkAttemptCloseoutResultSchema,
 } from "@tedix/api-contract/schemas/work-items";
-import { laneActionLabel } from "@tedix/api-contract/utils/lane-runner-asker";
 import {
 	AppendWorkAttemptStepsResultSchema,
 	WorkAttemptStepSchema,
@@ -83,7 +82,6 @@ import {
 	serveDispatchRequests,
 } from "./lane-dispatch-wake";
 import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
-import { lanePermissionCopy } from "./lane-permission-copy";
 import { cachedExecutorBudgets } from "./lane-budget";
 import {
 	localExecutors,
@@ -290,29 +288,78 @@ export function dispatchSkip(
 		item.accountableOwnerId
 	)
 		return;
-	const text = `${item.title}\n${item.description ?? ""}`;
-	const reserved = laneReservedActions(text);
-	if (!reserved.length) return;
-	// Describing logins or credentials is ordinary code work; asking the
-	// executor to perform consent, MFA or a sign-in step is not delegable.
-	if (userPresenceStep.test(withoutNegatedClauses(text)))
-		return "Consent, MFA and user presence remain human-only";
-	const kind = reserved.includes("credentials")
-		? "Possible human-reserved action (consent or credentials)"
-		: "Possible human-reserved action";
+	const hold = ownerHold(item);
+	if (!hold) return;
 	if (item.accountableOwnerType !== "user" || !item.accountableOwnerId)
-		return `${kind}; no accountable user owner can authorize a delegation comment. Set an accountable user owner, then have that owner add the version-specific Delegation comment.`;
-	const delegated = comments.some(
+		return `${OWNER_HOLD}: ${hold.cause}, and the task has no person as its accountable owner. Make a person its owner; they then allow or refuse it.`;
+	const assigned = String(assignedExecutor(item) ?? "");
+	// Any version: an older permission still stands after the task is edited.
+	const note = new RegExp(`^Delegation: ${assigned}(?:\\s|$)`, "m");
+	const allowed = comments.some(
 		(comment) =>
 			comment.authorType === "user" &&
 			comment.authorId === item.accountableOwnerId &&
-			new RegExp(
-				`^Delegation: ${assignedExecutor(item)} work-version=${item.version}\\s+\\S.{9,}`,
-				"im",
-			).test(comment.body),
+			note.test(comment.body),
 	);
-	if (!delegated)
-		return `${kind}; needs an owner comment: Delegation: ${assignedExecutor(item)} work-version=${item.version} <bounded delegation note>`;
+	if (!allowed)
+		return `${OWNER_HOLD}: ${hold.cause}. The owner allows it with Allow on the request, or a comment that starts with "Delegation: ${assigned}".`;
+}
+
+/** Start of every skip reason for Work that waits on its owner's permission. */
+export const OWNER_HOLD = "Needs the owner";
+
+/**
+ * Kinds of Work whose purpose is a step only the owner may allow, with the
+ * owner's undo note. Risky steps inside other Work are gated where the tool
+ * is called, not guessed from the task's words.
+ */
+const OWNER_KINDS: Partial<
+	Record<
+		string,
+		{ cause: string; action: string; undo: string; oneWay: boolean }
+	>
+> = {
+	finance: {
+		cause: "it is a finance task, which can move money",
+		action: "money",
+		undo: "A refund or cancellation is a separate action and is not guaranteed.",
+		oneWay: false,
+	},
+	outbound: {
+		cause:
+			"it is an outbound task, which contacts people outside the organization",
+		action: "external_message",
+		undo: "Sent messages cannot reliably be recalled.",
+		oneWay: true,
+	},
+	legal: {
+		cause: "it is a legal task, which can make a commitment",
+		action: "legal",
+		undo: "Ending a commitment requires a separate agreement or legal process.",
+		oneWay: true,
+	},
+};
+
+/**
+ * Why Work waits for its owner, read only from fields a person set on it:
+ * `metadata.needsOwner` (true or a short reason), a finance, outbound or
+ * legal kind, or critical risk. Nothing is inferred from the description.
+ */
+export function ownerHold(
+	item: Pick<DispatchItem, "workKind" | "metadata"> & {
+		riskLevel?: DispatchItem["riskLevel"];
+	},
+):
+	| { cause: string; action?: string; undo?: string; oneWay?: boolean }
+	| undefined {
+	const flag = item.metadata?.needsOwner;
+	if (typeof flag === "string" && flag.trim())
+		return { cause: `its creator marked it: ${flag.trim().slice(0, 200)}` };
+	if (flag === true)
+		return { cause: "its creator marked it as needing the owner" };
+	const kind = item.workKind ? OWNER_KINDS[item.workKind] : undefined;
+	if (kind) return kind;
+	if (item.riskLevel === "critical") return { cause: "its risk is critical" };
 }
 
 const AGENT_NAMES: Record<string, string> = {
@@ -339,12 +386,12 @@ export function laneDelegationRequest(
 		DispatchItem,
 		| "id"
 		| "title"
-		| "description"
 		| "version"
+		| "workKind"
 		| "metadata"
 		| "accountableOwnerType"
 		| "accountableOwnerId"
-	>,
+	> & { riskLevel?: DispatchItem["riskLevel"] },
 	reason: string,
 	operatorUserId: string | undefined,
 ):
@@ -359,17 +406,10 @@ export function laneDelegationRequest(
 			metadata: Record<string, unknown>;
 	  }
 	| undefined {
-	if (!reason.startsWith("Possible human-reserved action")) return;
+	const hold = reason.startsWith(OWNER_HOLD) ? ownerHold(item) : undefined;
+	if (!hold) return;
 	const executor = String(assignedExecutor(item) ?? "");
 	const agent = AGENT_NAMES[executor] ?? executor;
-	const copy = lanePermissionCopy(
-		`${item.title}\n${item.description ?? ""}`,
-		agent,
-	);
-	const steps = laneReservedActions(`${item.title}\n${item.description ?? ""}`);
-	const step =
-		[...new Set(steps.map(laneActionLabel))].join(" and ") ||
-		"take a step only a person can allow";
 	const owner =
 		item.accountableOwnerType === "user" && item.accountableOwnerId
 			? item.accountableOwnerId
@@ -380,7 +420,8 @@ export function laneDelegationRequest(
 		kind: owner ? "owner_delegation" : "accountable_owner",
 		executor,
 		workVersion: item.version,
-		matchedActions: copy.matches,
+		cause: hold.cause,
+		...(hold.action ? { matchedActions: [{ action: hold.action }] } : {}),
 	};
 	if (!owner) {
 		const title = shortTitle(item.title, 120);
@@ -388,7 +429,7 @@ export function laneDelegationRequest(
 			workItemId: item.id,
 			kind: "input",
 			subject: `Choose an accountable owner for "${title}"`,
-			prompt: `${agent} paused "${title}" because it asks the agent to ${step}, and the task has no person who can allow that. An organization owner or admin can make a person the task's accountable owner; that person then gets a card to allow or refuse it.`,
+			prompt: `${agent} paused "${title}" because ${hold.cause}, and the task has no person who can allow that. An organization owner or admin can make a person the task's accountable owner; that person then gets a card to allow or refuse it.`,
 			reason:
 				"Only a person can become the accountable owner who allows this step.",
 			notificationReason: "blocked_approval",
@@ -398,14 +439,16 @@ export function laneDelegationRequest(
 	}
 	const title = shortTitle(item.title, 200);
 	const ask = `Allow ${agent} to proceed?`;
-	const scope = `${agent} may ${step} only as this task describes, and nothing beyond it.\n\nMatched task sentences:\n${copy.sentences.map((sentence) => `“${sentence}”`).join("\n")}`;
-	const whyNow = `${agent} paused this task because it asks the agent to ${step}, which needs your permission. It stays blocked until you answer.`;
-	const allow = `Posts your permission for this version of the task; ${agent} starts on its next check.`;
+	const undo = hold.undo ?? "An undo path has not been verified.";
+	const scope = `${agent} may do what this task describes, and nothing beyond it.`;
+	const whyNow = `${agent} paused this task because ${hold.cause}. It waits until you answer.`;
+	const allow = `Posts your permission on the task; ${agent} starts on its next check.`;
+	const story = `${agent} needs your permission for “${title}”.`;
 	return {
 		workItemId: item.id,
 		kind: "question",
 		subject: ask,
-		prompt: `${copy.story}\n\n${whyNow}\n\nAllow: ${allow}\nNo: nothing is posted and the task stays blocked; this version is not asked again.\nLater: the card stays and the task waits.\n\nPermission text: ${scope}\n\nUndo: ${copy.undo}`,
+		prompt: `${story}\n\n${whyNow}\n\nAllow: ${allow}\nNo: nothing is posted and the task keeps waiting.\nLater: the card stays and the task waits.\n\nPermission text: ${scope}\n\nUndo: ${undo}`,
 		reason: "Only the task's accountable owner can allow this step.",
 		notificationReason: "blocked_approval",
 		requestedFrom: { type: "user", id: target },
@@ -416,25 +459,25 @@ export function laneDelegationRequest(
 				version: 1,
 				kind: "approval",
 				classId: "lane-delegation",
-				proposal: `Let ${agent} work on “${title}”, including the step that needs you: ${step}?`,
+				proposal: `Let ${agent} work on “${title}”? ${whyNow}`,
 				whyNow,
 				recommendation:
-					"Review the matched sentences before allowing; accepting a task does not establish permission for these effects.",
+					"Read the task before allowing; accepting a task does not by itself give this permission.",
 				preview: { body: scope },
-				reversibility: copy.reversibility,
+				reversibility: hold.oneWay ? "one_way" : "unknown",
 				tasteOrStrategy: false,
 				protectedEffects: [],
-				blastRadius: `Only this task as it reads now; if the task changes, ${agent} asks again.`,
+				blastRadius: `Only this task; ${agent} may do what it describes.`,
 				confidence: null,
-				costOfWaiting: "The task stays blocked; no agent works on it.",
-				reasoning: `The runner holds a task that asks an agent to ${step} until its accountable owner allows that for the current version. Undo: ${copy.undo}`,
+				costOfWaiting: "The task waits; no agent works on it.",
+				reasoning: `The runner holds this task until its accountable owner allows it, because ${hold.cause}. Undo: ${undo}`,
 				options: [
 					{
 						id: "allow",
 						label: "Allow",
 						intent: "approve",
 						consequence: allow,
-						cost: `${agent} may do what the sentence above says.`,
+						cost: `${agent} may do what the task describes.`,
 						effect: {
 							kind: "delegate_work",
 							workItemId: item.id,
@@ -446,8 +489,7 @@ export function laneDelegationRequest(
 						id: "no",
 						label: "No",
 						intent: "reject",
-						consequence:
-							"Nothing is posted; the task stays blocked and this version is not asked again.",
+						consequence: "Nothing is posted; the task keeps waiting.",
 						cost: "No agent works on this task until it changes.",
 					},
 					{
@@ -455,7 +497,7 @@ export function laneDelegationRequest(
 						label: "Later",
 						intent: "later",
 						consequence: "Keeps this card; the task waits.",
-						cost: "The task stays blocked meanwhile.",
+						cost: "The task waits meanwhile.",
 					},
 				],
 			},
@@ -463,10 +505,12 @@ export function laneDelegationRequest(
 				version: 2,
 				title: ask,
 				body: allow.slice(0, 120),
-				story: copy.story,
+				story,
 				whyMe: "You own this task.",
-				stakes: copy.stakes,
-				recommendation: "Review scope before allowing.",
+				stakes: hold.oneWay
+					? "Some effects cannot be undone."
+					: "Undo path unverified.",
+				recommendation: "Read the task before allowing.",
 				effectStatus: "known",
 			},
 		},
@@ -3985,13 +4029,10 @@ export class LaneDispatcher {
 				// A delegation found once stands for this revision: preparation
 				// reads the comments again before any admission.
 				const heldKey = `delegation:${item.id}:${item.version}`;
-				if (
-					reason?.startsWith("Possible human-reserved") &&
-					this.delegated.has(heldKey)
-				)
+				if (reason?.startsWith(OWNER_HOLD) && this.delegated.has(heldKey))
 					reason = undefined;
 				if (
-					reason?.startsWith("Possible human-reserved") &&
+					reason?.startsWith(OWNER_HOLD) &&
 					Date.now() >= (this.recheckAfter.get(heldKey) ?? 0)
 				) {
 					if (!recheckRound) {
@@ -7091,7 +7132,7 @@ ${firstBrief}`;
 	}
 	/** Raise or reuse the one owner request a delegation skip needs. */
 	private async requestDelegation(item: DispatchItem, reason: string) {
-		if (!reason.startsWith("Possible human-reserved action")) return;
+		if (!reason.startsWith(OWNER_HOLD)) return;
 		const request = laneDelegationRequest(
 			item,
 			reason,

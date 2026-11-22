@@ -2,7 +2,9 @@ import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructio
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 
 /**
- * Which human-reserved actions a Work Item asks a local lane to perform.
+ * Which human-reserved actions a piece of text asks for: a run's question, a
+ * follow-up sent to a run, or a machine command. Work admission does not use
+ * it; a runner holds Work only on its explicit fields (`ownerHold`).
  *
  * The shared classifier flags any mention of consent, credentials, sending or
  * deleting, which is right for a single tool call but wrong for a code task

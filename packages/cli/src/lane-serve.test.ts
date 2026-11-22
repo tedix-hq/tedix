@@ -6626,15 +6626,18 @@ it("launches owner-requested workspace coding runs without classifying their bri
 		"Complete MFA consent.",
 	])
 		expect(dispatchSkip({ ...work, description })).toBeUndefined();
-	const reserved = { ...work, description: "Send an email to the customer." };
+	const reserved = {
+		...work,
+		metadata: { executor: "codex", needsOwner: true },
+	};
 	for (const other of [
 		{ sourceSessionKey: null },
 		{ sourceSessionKey: "home:os:chat-7" },
 		{ workKind: "research" as const },
-		{ accountableOwnerType: "tedi" as const },
-		{ accountableOwnerId: null },
 	])
-		expect(dispatchSkip({ ...reserved, ...other })).toContain("human-reserved");
+		expect(dispatchSkip({ ...reserved, ...other })).toContain(
+			"Needs the owner",
+		);
 	expect(dispatchSkip({ ...work, disposition: "proposed" })).toContain(
 		"not accepted",
 	);
@@ -6650,36 +6653,59 @@ it("launches owner-requested workspace coding runs without classifying their bri
 	);
 });
 
-it("requires the owner's version-specific note for money or personal messaging", () => {
-	const work = { ...item(), description: "Send an email as the owner" };
-	expect(dispatchSkip(work)).toContain("owner comment");
+it("holds Work for its owner only on explicit fields, released by any-version owner note", () => {
+	for (const description of [
+		"Send an email to the customer, pay the invoice and rotate the API key.",
+		"Complete the OAuth consent for the new connector.",
+		"Delete the old rows from the production database.",
+	])
+		expect(dispatchSkip({ ...item(), description })).toBeUndefined();
+	for (const fields of [
+		{ workKind: "finance" as const },
+		{ workKind: "outbound" as const },
+		{ workKind: "legal" as const },
+		{ riskLevel: "critical" as const },
+		{ metadata: { executor: "codex", needsOwner: true } },
+		{ metadata: { executor: "codex", needsOwner: "deletes customer data" } },
+	])
+		expect(dispatchSkip({ ...item(), ...fields })).toMatch(
+			/^Needs the owner: /,
+		);
+	expect(
+		dispatchSkip({ ...item(), riskLevel: "high" as const }),
+	).toBeUndefined();
+	const work = { ...item(), workKind: "outbound" as const };
+	expect(dispatchSkip(work)).toBe(
+		'Needs the owner: it is an outbound task, which contacts people outside the organization. The owner allows it with Allow on the request, or a comment that starts with "Delegation: codex".',
+	);
 	const note = {
 		authorType: "user" as const,
 		authorId: "fictional-owner",
-		body: "Delegation: codex work-version=2 Send this approved draft to the named recipient.",
+		body: "Delegation: codex Send only the approved draft.",
 	};
 	expect(dispatchSkip(work, [note])).toBeUndefined();
+	// A note naming an older version still stands after the task was edited.
+	expect(
+		dispatchSkip({ ...work, version: 3 }, [
+			{ ...note, body: "Delegation: codex work-version=2 Send the draft." },
+		]),
+	).toBeUndefined();
+	expect(
+		dispatchSkip(work, [{ ...note, body: "Delegation: codexx go" }]),
+	).toContain("Needs the owner");
+	expect(
+		dispatchSkip(work, [{ ...note, authorId: "another-owner" }]),
+	).toContain("Needs the owner");
 	for (const owner of [
 		{ accountableOwnerType: null, accountableOwnerId: null },
-		{ accountableOwnerType: "user" as const, accountableOwnerId: null },
 		{
 			accountableOwnerType: "tedi" as const,
 			accountableOwnerId: "fictional-tedi",
 		},
-	]) {
-		const reason = dispatchSkip({ ...work, ...owner }, [note]);
-		expect(reason).toContain("no accountable user owner");
-		expect(reason).toContain("Set an accountable user owner");
-	}
-	expect(
-		dispatchSkip(work, [{ ...note, authorId: "another-owner" }]),
-	).toContain("owner comment");
-	expect(dispatchSkip({ ...work, version: 3 }, [note])).toContain(
-		"owner comment",
-	);
-	expect(
-		dispatchSkip({ ...work, description: "Complete MFA consent" }, [note]),
-	).toContain("human-only");
+	])
+		expect(dispatchSkip({ ...work, ...owner }, [note])).toContain(
+			"no person as its accountable owner",
+		);
 	expect(dispatchSkip({ ...work, disposition: "proposed" }, [note])).toContain(
 		"not accepted",
 	);
@@ -6691,10 +6717,10 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	f.items.splice(
 		0,
 		f.items.length,
-		{ ...owned, description: "Send an email as the owner" },
+		{ ...owned, workKind: "outbound" as const },
 		{
 			...ownerless,
-			description: "Send an email as the owner",
+			workKind: "outbound" as const,
 			accountableOwnerType: "tedi",
 			accountableOwnerId: "fictional-tedi",
 		},
@@ -6740,7 +6766,7 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	// The card names the agent and the task, says what each answer does and
 	// carries no jargon; Allow posts the delegation through a card effect.
 	expect(input.subject).toBe("Allow Codex to proceed?");
-	expect(input.prompt).toContain("message people outside the team");
+	expect(input.prompt).toContain("contacts people outside the organization");
 	expect(input.prompt).not.toMatch(
 		/lane|work-version|Delegation:|sign-in|MFA/i,
 	);
@@ -6757,7 +6783,7 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 		workVersion: 2,
 	});
 	expect(deck.preview?.body).toBe(
-		"Codex may message people outside the team only as this task describes, and nothing beyond it.\n\nMatched task sentences:\n“Send an email as the owner”",
+		"Codex may do what this task describes, and nothing beyond it.",
 	);
 	expect(deck.reversibility).toBe("one_way");
 	expect(
@@ -6776,7 +6802,7 @@ it("asks again only for a new Work version or recipient after restart", async ()
 	const f = fixture();
 	f.items.splice(0, f.items.length, {
 		...item(1),
-		description: "Send an email to the customer",
+		workKind: "outbound" as const,
 	});
 	const base = f.deps.cli!;
 	let requests = 0;
@@ -6802,7 +6828,7 @@ it("reads an item waiting on its owner once per window, not once per pass", asyn
 	const f = fixture();
 	f.items.splice(0, f.items.length, {
 		...item(1),
-		description: "Send an email as the owner",
+		workKind: "outbound" as const,
 	});
 	const base = f.deps.cli!;
 	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) =>
@@ -6849,7 +6875,7 @@ it("spends a few gateway requests per pass on a lane of waiting items", async ()
 		f.items.length,
 		...Array.from({ length: 10 }, (_, n) => ({
 			...item(n + 1),
-			description: "Send an email as the owner",
+			workKind: "outbound" as const,
 		})),
 	);
 	const base = f.deps.cli!;
@@ -6886,7 +6912,7 @@ it("reads a delegated item once while another reason keeps it waiting", async ()
 	const f = fixture();
 	f.items.splice(0, f.items.length, {
 		...item(1),
-		description: "Send an email as the owner",
+		workKind: "outbound" as const,
 	});
 	f.control.comments.push({
 		authorType: "user",
@@ -6919,20 +6945,23 @@ it("routes an ownerless delegation blocker to the signed-in lane operator", () =
 		accountableOwnerType: "tedi" as const,
 		accountableOwnerId: "fictional-tedi",
 	};
-	const reason = dispatchSkip({ ...work, description: "Send an email" });
-	expect(reason).toContain("no accountable user owner");
-	const request = laneDelegationRequest(work, reason!, "fictional-operator");
+	const reason = dispatchSkip({ ...work, workKind: "outbound" as const });
+	expect(reason).toContain("no person as its accountable owner");
+	const request = laneDelegationRequest(
+		{ ...work, workKind: "outbound" as const },
+		reason!,
+		"fictional-operator",
+	);
 	expect(request).toMatchObject({
 		requestedFrom: { type: "user", id: "fictional-operator" },
 		metadata: { laneBlocker: { kind: "accountable_owner" } },
 	});
 	expect(request?.subject).toContain("Choose an accountable owner");
-	expect(laneDelegationRequest(work, reason!, undefined)).toBeUndefined();
 	expect(
 		laneDelegationRequest(
-			work,
-			"Consent, MFA and user presence remain human-only",
-			"fictional-operator",
+			{ ...work, workKind: "outbound" as const },
+			reason!,
+			undefined,
 		),
 	).toBeUndefined();
 	expect(
@@ -6940,40 +6969,6 @@ it("routes an ownerless delegation blocker to the signed-in lane operator", () =
 	).toBeUndefined();
 });
 
-it("dispatches Work that only mentions logins or credentials and holds credential acts for the owner", () => {
-	const note = {
-		authorType: "user" as const,
-		authorId: "fictional-owner",
-		body: "Delegation: codex work-version=2 Rotate only the fictional staging key.",
-	};
-	for (const description of [
-		"Redesign the connections pages: login status, credentials list and reconnect button.",
-		"The dispatcher refuses Work whose text mentions an owner login.",
-		"Interview through the already logged-in desktop app. Never run tedix login or complete OAuth consent yourself.",
-		"Fix the profile panel's consent check and approval count.",
-	])
-		expect(dispatchSkip({ ...item(), description })).toBeUndefined();
-	const work = { ...item(), description: "Rotate the staging API key." };
-	const reason = dispatchSkip(work);
-	expect(reason).toContain("consent or credentials");
-	expect(reason).toContain(
-		"Delegation: codex work-version=2 <bounded delegation note>",
-	);
-	expect(dispatchSkip(work, [note])).toBeUndefined();
-	expect(dispatchSkip({ ...work, version: 3 }, [note])).toContain(
-		"owner comment",
-	);
-	expect(dispatchSkip({ ...work, accountableOwnerId: null }, [note])).toContain(
-		"no accountable user owner",
-	);
-	for (const description of [
-		"Complete the OAuth consent for the new connector.",
-		"Enter the password and approve MFA on the owner's phone.",
-	])
-		expect(dispatchSkip({ ...item(), description }, [note])).toBe(
-			"Consent, MFA and user presence remain human-only",
-		);
-});
 it("takes no slot count and pins selectors without persisting inherited identity or credentials", () => {
 	const args = ["--executor", "codex", "--rules", projectId];
 	const env = { TEDIX_WORKSPACE: "acme", TEDIX_ORGANIZATION: "org_acme" };
@@ -7246,21 +7241,14 @@ it("any-local runs native Claude and Codex Attempts side by side", async () => {
 });
 
 it("any-local requests delegation for the assigned native executor", () => {
-	expect(
-		dispatchSkip(
-			{ ...item(), title: "Summarize email fixtures" },
-			[],
-			"any-local",
-		),
-	).toBeUndefined();
-	const reserved = { ...item(), title: "Send an email to a customer" };
+	const reserved = { ...item(), workKind: "outbound" as const };
 	expect(dispatchSkip(reserved, [], "any-local")).toContain(
-		"Delegation: codex work-version=2",
+		'"Delegation: codex"',
 	);
 	const comment = {
 		authorType: "user" as const,
 		authorId: "fictional-owner",
-		body: "Delegation: codex work-version=2 Summarize fictional fixtures only.",
+		body: "Delegation: codex Summarize fictional fixtures only.",
 	};
 	expect(dispatchSkip(reserved, [comment], "any-local")).toBeUndefined();
 	expect(
@@ -7269,7 +7257,7 @@ it("any-local requests delegation for the assigned native executor", () => {
 			[{ ...comment, body: comment.body.replace("codex", "any-local") }],
 			"any-local",
 		),
-	).toContain("needs an owner comment");
+	).toContain("Needs the owner");
 });
 
 function gitFixture(withOrigin = false, autoCleanup = true) {

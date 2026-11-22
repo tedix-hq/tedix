@@ -154,8 +154,8 @@ export async function runLaneStates() {
 		}
 		const reasons = [
 			[
-				"Possible human-reserved action; no accountable user owner can authorize a delegation comment. Set an accountable user owner, then have that owner add the version-specific Delegation comment.",
-				"Owner authorization required",
+				'Needs the owner: it is a finance task, which can move money. The owner allows it with Allow on the request, or a comment that starts with "Delegation: codex".',
+				"Waiting for the owner",
 			],
 			[
 				"Work Item completion requires its owner or steward",
