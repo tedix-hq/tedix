@@ -15,7 +15,10 @@ import {
 } from "@/lib/work-home-search";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { OS_COPY } from "@/shared/os-copy";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { useOsLocale } from "@/lib/use-os-locale";
+import { InstallWorkAppearance, WorkAppearance } from "./work-appearance";
+import { WorkGadgetPresentation } from "./work-gadget-presentation";
 import { WorkHomeOverview } from "@/components/work-home-overview";
 import "./feed-deck.css";
 
@@ -33,6 +36,11 @@ export function WorkHome({
 	onFilterChange?: (filter: WorkFeedFilter) => void;
 }) {
 	useOsLocale();
+	const authority = useOsOperationalContext().data?.authority.permissions;
+	const canCustomize = authority?.some(
+		(permission) =>
+			permission === "os:author" || permission === "settings:manage",
+	);
 	const { apps, pending, failed, truncated, retry } = useWorkApps();
 	const defaultApp =
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
@@ -127,11 +135,53 @@ export function WorkHome({
 			{failed && <Link href="/workspaces">{copy.workspaces}</Link>}
 		</div>
 	);
+	const standardView = overview ? (
+		<WorkHomeOverview>{content}</WorkHomeOverview>
+	) : (
+		content
+	);
+	const presentationId = selected?.manifest.config?.presentationGadgetId;
+	const usePresentation =
+		selected?.role &&
+		typeof presentationId === "string" &&
+		!search.project &&
+		(!search.filter || search.filter === "all") &&
+		!search.day &&
+		!search.source;
 	return (
 		<Page width="full" className="fd-work-home">
 			{/* The page heading comes first, so overview sections sit under it. */}
-			{(!selected || selected.role) && <PageTitle>{title}</PageTitle>}
-			{overview ? <WorkHomeOverview>{content}</WorkHomeOverview> : content}
+			{(!selected || selected.role) && (
+				<div className="flex items-center justify-between gap-3">
+					<PageTitle>{title}</PageTitle>
+					{canCustomize &&
+						!selected &&
+						!search.app &&
+						!pending &&
+						!failed &&
+						!truncated && <InstallWorkAppearance />}
+					{selected?.role &&
+						selected.manifest.entry === defaultWorkApps[selected.role].entry &&
+						canCustomize && (
+							<WorkAppearance
+								key={selected.gadget.id}
+								role={selected.role}
+								gadget={selected.gadget}
+								revision={selected.revision}
+							/>
+						)}
+				</div>
+			)}
+			{usePresentation ? (
+				<WorkGadgetPresentation
+					key={presentationId}
+					workspaceId={selected.gadget.workspaceId}
+					gadgetId={presentationId}
+					standardView={standardView}
+				/>
+			) : (
+				standardView
+			)}
 			{selected && failed && (
 				<Text aria-live="polite" tone="secondary">
 					{copy.partial}

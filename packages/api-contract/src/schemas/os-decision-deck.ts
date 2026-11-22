@@ -258,6 +258,8 @@ export function classifyDeckCard(
 }
 
 export const DecisionDeckConfigSchema = z.strictObject({
+	presentationGadgetId: z.uuid().optional(),
+	cardLayout: z.enum(["compact", "full"]).optional(),
 	version: z.literal(1),
 	factorySources: z.array(CardReviewSourceSchema).max(10).default([]),
 	projectId: z.uuid().optional(),

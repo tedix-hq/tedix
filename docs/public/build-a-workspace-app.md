@@ -1271,6 +1271,19 @@ loaded records; unread sources stay visibly unavailable.
 Use `/work?view=feed` for Activity and `/work?view=deck` for Decisions.
 Links to other Work apps select the installed app for that role.
 
+Each organization gets its own Activity and Decisions gadgets in its Work
+workspace. Choose **Customize** to set how many posts appear at once in
+Activity or choose compact or full decision cards. Saving changes the gadget
+for the organization. Each person can still choose their own card layout.
+Choose **Open gadget** for its workspace, code and revision history.
+
+For a different layout, build a runtime gadget in that same workspace. Set
+`config.presentationGadgetId` on Activity or Decisions to the new gadget's ID.
+Everyone who can open the gadget sees its current saved version. **Show standard
+view** opens the original feed or decision cards. Links to specific projects,
+days and filtered queues still open their standard view. Remove
+`presentationGadgetId` to restore the standard layout for everyone.
+
 Work item, project, request, run and receipt links remain direct. Office keeps
 the personal request ledger and Support section. The existing Attention app
 can use `config: {"scope": "personal"}` to show personal session activity and

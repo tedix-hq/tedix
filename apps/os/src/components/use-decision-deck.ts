@@ -633,7 +633,10 @@ export function useDecisionDeck(
 					// The "2 of 21" header line already carries the due date.
 					dueInHeader: true,
 					cardType,
-					preferences: storedPreferences?.decisionCards,
+					preferences: {
+						density: config.cardLayout,
+						...storedPreferences?.decisionCards,
+					},
 					onOpenSettings: () => setCardSettingsOpen(true),
 				}
 			: null;

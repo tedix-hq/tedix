@@ -235,6 +235,57 @@ describe("default Work blueprint installation", () => {
 			const pine = await installDefaultWorkApps(db, "pine-studio", owner);
 			const cedar = await installDefaultWorkApps(db, "cedar-studio", owner);
 			expect(pine.workspaceId).not.toBe(cedar.workspaceId);
+			const pineApps = await listOsWorkApps(
+				db,
+				"pine-studio",
+				{ userIds: [] },
+				100,
+			);
+			const cedarBefore = await listOsWorkApps(
+				db,
+				"cedar-studio",
+				{ userIds: [] },
+				100,
+			);
+			for (const { gadget, revision } of pineApps) {
+				const manifest = OsGadgetManifestSchema.parse(
+					JSON.parse(revision.manifest),
+				);
+				const layout =
+					manifest.navigation?.work === "deck"
+						? { cardLayout: "compact" }
+						: { postsPerPage: 2 };
+				await createOsGadgetRevision(db, {
+					id: crypto.randomUUID(),
+					organizationId: "pine-studio",
+					gadgetId: gadget.id,
+					createdById: owner.id,
+					createdByKind: owner.kind,
+					expectedRevision: revision.revision,
+					manifest: JSON.stringify({
+						...manifest,
+						config: { ...manifest.config, ...layout },
+					}),
+				});
+			}
+			await installDefaultWorkApps(db, "pine-studio", owner);
+			const revisions = await listOsWorkApps(
+				db,
+				"pine-studio",
+				{ userIds: [] },
+				100,
+			);
+			expect(
+				revisions.map((row) => JSON.parse(row.revision.manifest).config),
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ cardLayout: "compact" }),
+					expect.objectContaining({ postsPerPage: 2 }),
+				]),
+			);
+			expect(
+				await listOsWorkApps(db, "cedar-studio", { userIds: [] }, 100),
+			).toEqual(cedarBefore);
 			expect(
 				await getOsWorkspace(db, {
 					organizationId: "cedar-studio",

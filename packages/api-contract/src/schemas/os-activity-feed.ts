@@ -81,6 +81,8 @@ export type ActivityFeedItem = z.infer<typeof ActivityFeedItemSchema>;
 
 export const ActivityFeedConfigSchema = z
 	.strictObject({
+		presentationGadgetId: z.uuid().optional(),
+		postsPerPage: z.number().int().min(1).max(50).optional(),
 		version: z.literal(1),
 		scope: z.enum(["projects", "organization"]).optional(),
 		decidedForYou: z.boolean().optional(),

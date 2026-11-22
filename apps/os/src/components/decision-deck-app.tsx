@@ -787,6 +787,7 @@ function DecisionDeckContent({
 					))
 				)}
 				<DecisionCardSettings
+					defaultLayout={config.cardLayout}
 					open={cardSettingsOpen}
 					onOpenChange={setCardSettingsOpen}
 					cardType={cardType}

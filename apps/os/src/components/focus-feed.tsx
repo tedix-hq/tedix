@@ -154,7 +154,8 @@ export function FocusFeed({
 		overview && preferences.data?.preferences.activityOverviewScope === "all"
 			? { ...storedPrefs, projectIds: [] }
 			: storedPrefs;
-	const [postLimit, setPostLimit] = useState(6);
+	const [pages, setPages] = useState(1);
+	const postLimit = pages * (config.postsPerPage ?? 6);
 	const events = useMemo(
 		() => [
 			...new Map(
@@ -892,10 +893,7 @@ export function FocusFeed({
 							<Text>No updates yet.</Text>
 						)}
 						{posts.length > postLimit && (
-							<Button
-								variant="ghost"
-								onClick={() => setPostLimit((n) => n + 6)}
-							>
+							<Button variant="ghost" onClick={() => setPages((n) => n + 1)}>
 								More updates
 							</Button>
 						)}

@@ -31,7 +31,9 @@ export function DecisionCardSettings({
 	open,
 	onOpenChange,
 	cardType,
+	defaultLayout,
 }: {
+	defaultLayout?: DecisionCardPreferences["density"];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	cardType: string;
@@ -101,7 +103,7 @@ export function DecisionCardSettings({
 						<Text weight="semibold">{decisionText("Layout")}</Text>
 						<SegmentedControl
 							ariaLabel={decisionText("Layout")}
-							value={cards.density ?? "full"}
+							value={cards.density ?? defaultLayout ?? "full"}
 							onValueChange={(density) => update({ ...cards, density })}
 							options={[
 								{ value: "full", label: decisionText("Full") },

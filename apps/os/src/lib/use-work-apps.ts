@@ -29,6 +29,7 @@ export function useWorkApps() {
 	const query = useQuery({ ...workAppsQueryOptions(), ...workRefreshOptions });
 	const apps = (query.data?.items ?? []).map((data) => ({
 		gadget: data.gadget,
+		revision: data.currentRevision,
 		manifest: data.currentRevision.manifest,
 		role: workAppRole(data.currentRevision.manifest),
 	}));
