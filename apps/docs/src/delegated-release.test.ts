@@ -79,6 +79,14 @@ it("schedules only a fast-forward change to the configured site's public docs", 
 			createdAt: "2026-01-01",
 		},
 	]);
+	fetchSource.mockResolvedValueOnce(Response.redirect("https://example.com/"));
+	await expect(scheduleDocsRelease(env)).rejects.toThrow(
+		"Docs source check failed with HTTP 302",
+	);
+	expect(fetchSource.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+	expect(createBatch).not.toHaveBeenCalled();
+	fetchSource.mockClear();
+
 	fetchSource.mockResolvedValueOnce(Response.json([{ sha: candidate }]));
 	fetchSource.mockResolvedValueOnce(
 		Response.json({

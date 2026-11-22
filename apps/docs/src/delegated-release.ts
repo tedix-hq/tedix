@@ -55,7 +55,7 @@ async function github(policy: Policy, path: string) {
 				Accept: "application/vnd.github+json",
 				"User-Agent": "Tedix-Docs-Release",
 			},
-			redirect: "error",
+			redirect: "manual",
 			cache: "no-store",
 			signal: AbortSignal.timeout(10_000),
 		},
