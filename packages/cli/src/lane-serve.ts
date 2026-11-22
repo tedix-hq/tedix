@@ -3962,10 +3962,11 @@ export class LaneDispatcher {
 				const previous = existsSync(this.path(item))
 					? readReceipt(this.path(item))
 					: undefined;
+				// Readiness can release an admission pause, but cannot erase an
+				// agent's saved wait, including after a dispatcher restart.
 				if (
 					previous?.phase === "deferred" &&
-					(previous.sharedDeferral ||
-						previous.laneResult?.outcome === "deferred") &&
+					previous.sharedDeferral &&
 					!(
 						previous.laneResult?.outcome === "deferred" &&
 						previous.laneResult.notBefore
@@ -4082,6 +4083,7 @@ export class LaneDispatcher {
 					previous?.phase === "settled" &&
 					!previous.verification &&
 					previous.outcome === "failed" &&
+					previous.laneResult?.outcome !== "landed_unverified" &&
 					previous.pendingCommitProof === undefined &&
 					!previous.pendingObservation
 				) {
@@ -5286,7 +5288,9 @@ export class LaneDispatcher {
 				(attempt) =>
 					attempt.outcome &&
 					attempt.metadata?.dispatchVersion === item.version &&
-					attempt.outcome !== "failed" &&
+					(attempt.outcome !== "failed" ||
+						(isRecord(attempt.metadata?.laneResult) &&
+							attempt.metadata.laneResult.outcome === "landed_unverified")) &&
 					attempt.outcome !== "expired" &&
 					attempt.outcome !== "rejected" &&
 					!cancelledWithoutVerdict(attempt, previous),
