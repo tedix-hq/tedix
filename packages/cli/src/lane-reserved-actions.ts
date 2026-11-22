@@ -64,6 +64,15 @@ const partyAsCode = String.raw`(?![ \t-]+(?:side|component|library|lib|sdk|code|
 const emailAddress = String.raw`[\w.+-]+@[\w-]+(?:\.[\w-]+)+`;
 const internalName = String.raw`(?:Tedix|Output|Workspace|OS|Feed|Deck|Work|Claude|Codex|Devin|OpenCode|GitHub|Cloudflare|D1|R2|KV|Descope|Stripe|Sentry|Home|Hub|Today|Activity|Notion)`;
 
+// The named-person rule is case-sensitive, so spell out prefix case variants.
+const technicalCallPrefix =
+	"tool|api|function|rpc|mcp|gateway|network|http|fetch|method|system|remote|hook".replace(
+		/[a-z]/g,
+		(letter) => `[${letter}${letter.toUpperCase()}]`,
+	);
+const phoneCall = String.raw`(?<!\b(?:${technicalCallPrefix})[ \t]+)[Cc]all`;
+const codeObject = String.raw`(?![ \t]+(?:(?!(?:and|or|then|from|of|for|in|on|at|to|with|via|using)\b)[\w'’-]+[ \t]+){0,3}(?:quer(?:y|ies)|functions?|code|tests?|helpers?|imports?|types?|handlers?|routes?|files?|flags?|shims?|fallbacks?|modules?|exports?|endpoints?|indexes|methods?|components?|scripts?|jobs?|paths?)\b)`;
+
 const actRules: Record<string, RegExp[]> = {
 	credentials: [
 		userPresenceStep,
@@ -134,7 +143,7 @@ const actRules: Record<string, RegExp[]> = {
 	],
 	external_message: [
 		new RegExp(
-			String.raw`\b(?:send|e-?mail|mail|message|dm|text|call|phone|forward|notify|invite|reply(?:[ \t]+to)?|respond(?:[ \t]+to)?|answer|write[ \t]+to|reach[ \t]+out[ \t]+to|contact|ping|schicke|schick|sende|schreibe|schreib|antworte|kontaktiere|benachrichtige|rufe)\b${inSentence}{0,40}\b${outsideParty}\b${partyAsCode}`,
+			String.raw`\b(?:send|e-?mail|mail|message|dm|text|${phoneCall}|phone|forward|notify|invite|reply(?:[ \t]+to)?|respond(?:[ \t]+to)?|answer|write[ \t]+to|reach[ \t]+out[ \t]+to|contact|ping|schicke|schick|sende|schreibe|schreib|antworte|kontaktiere|benachrichtige|rufe)\b${inSentence}{0,40}\b${outsideParty}\b${partyAsCode}`,
 			"i",
 		),
 		new RegExp(
@@ -145,7 +154,7 @@ const actRules: Record<string, RegExp[]> = {
 			"i",
 		),
 		new RegExp(
-			String.raw`\b(?:[Ee]-?mail|[Tt]ext|[Cc]all|[Pp]hone|DM|dm|[Mm]essage|[Pp]ing)[ \t]+(?!${internalName}\b)[A-Z][a-z]+\b(?!'s)(?![ \t]+(?:helper|function|method|hook|component|class|module|type|fixture|mock|stub|test|variable|object|handler|service|api|endpoint))`,
+			String.raw`\b(?:[Ee]-?mail|[Tt]ext|${phoneCall}|[Pp]hone|DM|dm|[Mm]essage|[Pp]ing)[ \t]+(?!${internalName}\b)[A-Z][a-z]+\b(?!'s)(?![ \t]+(?:helper|function|method|hook|component|class|module|type|fixture|mock|stub|test|variable|object|handler|service|api|endpoint))`,
 		),
 		new RegExp(
 			String.raw`\b${outsideParty}[ \t]+(?:must|should|will|to)?[ \t]*(?:receives?|gets?)\b${inSentence}{0,30}\b(?:e-?mails?|repl(?:y|ies)|quotes?|invoices?|newsletters?)\b${partyAsCode}|\b(?:is|are|gets?|be|been|was|were)[ \t]+(?:sent|e-?mailed|mailed|delivered|forwarded)[ \t]+(?:out|to|back)\b${inSentence}{0,40}\b${outsideParty}\b${partyAsCode}`,
@@ -166,7 +175,10 @@ const actRules: Record<string, RegExp[]> = {
 		/\b(?:tweet|github[ \t]+merge[ \t]+pull[ \t]+request|veröffentliche|veröffentlichen|publiziere|publizieren|poste)\b/i,
 	],
 	delete_data: [
-		/\b(?:(?:delet|purg|wip|truncat|trash|destroy|eras|remov|lösch)\w*|drop(?:s|ped|ping)?(?![ \t]+(?:by|to|below)\b))\b[^.;!?\n]{0,60}\b(?:data|rows?|records?(?![ \t]+(?:why|what|how|that|whether|it|its|the|an?)\b)|tables?|database|d1|r2|kv|buckets?|archives?|backups?|snapshots?|e-?mails?|messages?|users?|accounts?|tenants?|orgs?|organi[sz]ations?|customers?|memor(?:y|ies)|history|logs?|uploads?|namespaces?|live|production|prod|environments?|cloudflare[ \t]+\w+|workers?(?![ \t-]+(?:type|types|code|file|module|thread|threads|pool|script|config|entry|loader|class|test|tests))|daten|datenbank|zeilen|tabellen?|kunden)\b/i,
+		new RegExp(
+			String.raw`\b(?:(?:delet|purg|wip|truncat|trash|destroy|eras|remov|lösch)\w*|drop(?:s|ped|ping)?(?![ \t]+(?:by|to|below)\b))\b${codeObject}[^.;!?\n]{0,60}\b(?:data|rows?|records?(?![ \t]+(?:why|what|how|that|whether|it|its|the|an?)\b)|tables?|database|d1|r2|kv|buckets?|archives?|backups?|snapshots?|e-?mails?|messages?|users?|accounts?|tenants?|orgs?|organi[sz]ations?|customers?|memor(?:y|ies)|history|logs?|uploads?|namespaces?|live|production|prod|environments?|cloudflare[ \t]+\w+|workers?(?![ \t-]+(?:type|types|code|file|module|thread|threads|pool|script|config|entry|loader|class|test|tests))|daten|datenbank|zeilen|tabellen?|kunden)\b`,
+			"i",
+		),
 		/\b(?:data|rows?|records?|tables?|database|buckets?|archives?|backups?|snapshots?|e-?mails?|accounts?|tenants?|customers?|orgs?)\b[^.;!?\n]{0,40}\b(?:are|is|get|be)[ \t]+(?:deleted|purged|dropped|wiped|gone|removed)\b/i,
 		/\b(?:DELETE[ \t]+FROM|DROP[ \t]+(?:TABLE|DATABASE|INDEX|SCHEMA)|TRUNCATE(?:[ \t]+TABLE)?)[ \t]+[\w"`.]+/i,
 		/\bwrangler[ \t]+(?:d1|r2|kv(?::\w+)?|vectorize|queues)[ \t]+(?:\w+[ \t]+)?(?:delete|purge|drop)\b/i,
