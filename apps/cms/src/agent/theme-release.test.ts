@@ -6,7 +6,17 @@ import {
 	requireSupportedBlocks,
 	type ThemeRelease,
 } from "./theme-release";
+import {
+	platformThemeManifest,
+	themePackageVersions,
+} from "./theme-dependencies";
+import { snapshotForTemplate } from "./template-sync";
 import { CMS_TEMPLATE_SLUGS } from "../template-policy";
+
+const lock = `{ "packages": {
+// ignored request range
+"emdash": ["emdash@1.5.0"], "forms": ["@emdash-cms/plugin-forms@0.2.13"],
+}, }`;
 
 const declaration = {
 	upstreamStarterRevision: "a".repeat(40),
@@ -21,18 +31,39 @@ const release: ThemeRelease = {
 };
 
 describe("theme release identity", () => {
+	it.each(CMS_TEMPLATE_SLUGS)(
+		"pins every EmDash dependency and bundled plugin for %s",
+		(slug) => {
+			const manifest = JSON.parse(platformThemeManifest(slug));
+			const pins = themePackageVersions(
+				snapshotForTemplate(slug).snapshot["bun.lock"]!,
+			);
+			for (const [name, versions] of Object.entries(pins)) {
+				expect(manifest.overrides[name]).toBe(versions[0]);
+				if (manifest.dependencies[name])
+					expect(manifest.dependencies[name]).toBe(versions[0]);
+			}
+			expect(manifest.patchedDependencies["emdash@1.5.0"]).toBe(
+				"patches/emdash@1.5.0.patch",
+			);
+		},
+	);
+	it("rejects missing resolved packages rather than recording guessed versions", () => {
+		expect(() => themePackageVersions('{"packages":')).toThrow();
+		expect(() => themePackageVersions('{"packages": {}}')).toThrow();
+	});
+
 	it("records locked snapshot, exact dependency lock, starter revision and renderer versions", async () => {
 		const sandbox = {
 			readFile: async (path: string) => ({
-				content: path.endsWith("bun.lock")
-					? "lock bytes"
-					: JSON.stringify(declaration),
+				content: path.endsWith("bun.lock") ? lock : JSON.stringify(declaration),
 			}),
 		};
 		const first = await identifyThemeRelease(sandbox, "marketing", "/build");
 		expect(first).toMatchObject({
 			...declaration,
-			dependencyLockHash: await sha256Hex("lock bytes"),
+			dependencyLockHash: await sha256Hex(lock),
+			packages: { emdash: ["1.5.0"], "@emdash-cms/plugin-forms": ["0.2.13"] },
 		});
 		expect(first.lockedTemplateSnapshotHash).toMatch(/^[a-f0-9]{64}$/);
 		expect(await identifyThemeRelease(sandbox, "marketing", "/build")).toEqual(

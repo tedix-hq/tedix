@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ThemePackageVersionsSchema } from "@tedix/api-contract/schemas/site-versions";
+import { themePackageVersions } from "./theme-dependencies";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { isPathLocked } from "./constraints";
 import { snapshotForTemplate } from "./template-sync";
@@ -16,6 +18,7 @@ export const themeReleaseSchema = declarationSchema.extend({
 	templateSlug: z.string().min(1),
 	lockedTemplateSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
 	dependencyLockHash: z.string().regex(/^[a-f0-9]{64}$/),
+	packages: ThemePackageVersionsSchema.optional(),
 });
 export type ThemeRelease = z.infer<typeof themeReleaseSchema>;
 
@@ -44,14 +47,14 @@ export async function identifyThemeRelease(
 		.toSorted()) {
 		locked.push(`${path}:${await sha256Hex(snapshot[path]!)}`);
 	}
+	const lock = (await sandbox.readFile(`${workspace}/bun.lock`)).content;
 	return {
 		version: 1,
 		templateSlug,
 		...declaration,
 		lockedTemplateSnapshotHash: await sha256Hex(locked.join("\n")),
-		dependencyLockHash: await sha256Hex(
-			(await sandbox.readFile(`${workspace}/bun.lock`)).content,
-		),
+		dependencyLockHash: await sha256Hex(lock),
+		packages: themePackageVersions(lock),
 	};
 }
 

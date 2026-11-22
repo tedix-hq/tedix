@@ -12,7 +12,6 @@ import {
 	isVersionBehind,
 	productPackageVersions,
 	siteVersionAlerts,
-	themePackageVersions,
 } from "./site-versions";
 
 const mocks = vi.hoisted(() => ({
@@ -64,15 +63,6 @@ const dockerfile = readFileSync(
 	new URL("../../../docs/Dockerfile", import.meta.url),
 	"utf8",
 );
-const lock = `{
-  "workspaces": { "": { "dependencies": { "emdash": "^1.0.0" } } },
-  "packages": {
-    // "fake": ["emdash@0.0.1"],
-    "emdash": ["emdash@1.4.0", "", {}, "sha512-test"],
-    "nested/emdash": ["emdash@1.5.0", "", {}, "sha512-test"],
-    "forms": ["@emdash-cms/plugin-forms@0.2.12", "", {}, "sha512-test"],
-  },
-}`;
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -106,10 +96,6 @@ beforeEach(() => {
 });
 
 function input(failTheme = false, latest: Record<string, string> = {}) {
-	const readFile = vi.fn(async () => {
-		if (failTheme) throw new Error("unavailable");
-		return new Blob([lock]);
-	});
 	const fetcher = vi.fn(async (url: string) => {
 		if (url.endsWith("/package.json")) return new Response(manifest);
 		if (url.endsWith("/apps/docs/Dockerfile")) return new Response(dockerfile);
@@ -132,12 +118,30 @@ function input(failTheme = false, latest: Record<string, string> = {}) {
 		env: {
 			GIT_SHA: "a".repeat(40),
 			RELEASE_REPOSITORY: "example/product",
-			ARTIFACTS: {
-				get: async () => ({
-					log: async ({ ref }: { ref: string }) =>
-						ref === "main" ? [{ hash: "b".repeat(40) }] : [],
-					readFile,
-					[Symbol.dispose]() {},
+			PLATFORM_SERVICE_TOKEN: "test-token",
+			CMS: {
+				fetch: vi.fn(async (request: Request) => {
+					expect(request.url).toMatch(
+						/\/deployments\/(example|second)\/theme-version$/,
+					);
+					expect(request.headers.get("Authorization")).toBe(
+						"Bearer test-token",
+					);
+					if (failTheme) return Response.json({ active: { release: {} } });
+					return Response.json({
+						active: {
+							sourceRevision: {
+								kind: "artifacts_commit",
+								value: "b".repeat(40),
+							},
+							release: {
+								packages: {
+									emdash: ["1.4.0", "1.5.0"],
+									"@emdash-cms/plugin-forms": ["0.2.12"],
+								},
+							},
+						},
+					});
 				}),
 			},
 		} as unknown as CloudflareEnv,
@@ -145,12 +149,7 @@ function input(failTheme = false, latest: Record<string, string> = {}) {
 }
 
 describe("site version check", () => {
-	it("uses resolved JSONC lock tuples and compares versions numerically without downgrading", () => {
-		expect(themePackageVersions(lock)).toEqual({
-			emdash: ["1.4.0", "1.5.0"],
-			"@emdash-cms/plugin-forms": ["0.2.12"],
-		});
-		expect(() => themePackageVersions('{"packages":')).toThrow();
+	it("compares versions numerically without downgrading", () => {
 		expect(isVersionBehind("1.9.0", "1.10.0")).toBe(true);
 		expect(isVersionBehind("1.10.0", "1.9.0")).toBe(false);
 		expect(isVersionBehind("1.5.0", "1.5.0")).toBe(false);
@@ -265,11 +264,11 @@ describe("site version check", () => {
 		);
 	});
 
-	it("does not report a failed theme read as current or invent an upgrade", async () => {
+	it("does not substitute repository versions when an older active build has no package evidence", async () => {
 		const [report] = await checkSiteVersions(input(true));
 		expect(report!.alerts).toEqual([]);
 		expect(report!.sites[0]!.errors).toEqual([
-			"Theme bun.lock could not be checked",
+			"Active theme build versions are unavailable",
 		]);
 		expect(mocks.create).not.toHaveBeenCalled();
 	});

@@ -26,6 +26,12 @@ vi.mock("./container/site-builder-sandbox", () => ({
 }));
 vi.mock("./sandbox", () => ({ getSiteBuilderSandbox: vi.fn() }));
 
+const bundles = vi.hoisted(() => ({ listTenantBundleVersions: vi.fn() }));
+vi.mock("@tedix/provisioning/cms", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/provisioning/cms")>()),
+	...bundles,
+}));
+
 const jwt = vi.hoisted(() => ({ validateToken: vi.fn() }));
 vi.mock("@tedix/auth/jwt", () => jwt);
 
@@ -130,5 +136,56 @@ describe("CMS tedi platform delegation", () => {
 				env,
 			),
 		).toMatchObject({ authenticated: true, platformAdmin: true });
+	});
+});
+
+describe("built theme version service", () => {
+	it("requires the matching internal service identity before reading build evidence", async () => {
+		bundles.listTenantBundleVersions.mockClear();
+		const cases: Record<string, string>[] = [
+			{},
+			{
+				Authorization: "Bearer service-secret",
+				"X-Tedix-Connection-Label": "other",
+			},
+		];
+		for (const headers of cases) {
+			const response = await app.request(
+				"https://builder.tedix.dev/api/internal/deployments/acme/theme-version",
+				{ headers },
+				env,
+			);
+			expect(response.status).toBe(403);
+		}
+		expect(bundles.listTenantBundleVersions).not.toHaveBeenCalled();
+	});
+	it("reads only the active built release even when newer unpublished bundles exist", async () => {
+		bundles.listTenantBundleVersions.mockResolvedValue([
+			{ version: 3, isActive: false },
+			{
+				version: 2,
+				isActive: true,
+				sourceRevision: { kind: "artifacts_commit", value: "a".repeat(40) },
+			},
+		]);
+		const release = { packages: { emdash: ["1.5.0"] } };
+		const get = vi.fn(async () => ({ json: async () => release }));
+		const response = await app.request(
+			"https://builder.tedix.dev/api/internal/deployments/acme/theme-version",
+			{
+				headers: {
+					Authorization: "Bearer service-secret",
+					"X-Tedix-Connection-Label": "acme",
+				},
+			},
+			{
+				PLATFORM_SERVICE_TOKEN: "service-secret",
+				BUNDLES_BUCKET: { get },
+				DB: {},
+			} as never,
+		);
+		expect(response.status).toBe(200);
+		expect(get).toHaveBeenCalledExactlyOnceWith("acme/v2/theme-release.json");
+		expect(await response.json()).toMatchObject({ active: { release } });
 	});
 });

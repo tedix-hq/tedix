@@ -1159,6 +1159,29 @@ function isInternalDeploymentRequestAuthorized(
 	);
 }
 
+app.get("/api/internal/deployments/:slug/theme-version", async (c) => {
+	const auth = await authenticateRequest(c.req.raw, c.env);
+	const slug = c.req.param("slug");
+	if (!isInternalDeploymentRequestAuthorized(auth, slug)) {
+		return c.json({ error: "Internal service authorization required" }, 403);
+	}
+	const versions = await listTenantBundleVersions(
+		{ bundlesBucket: c.env.BUNDLES_BUCKET, platformDb: c.env.DB },
+		slug,
+	);
+	const active = versions.find((version) => version.isActive);
+	if (!active) return c.json({ active: null });
+	const release = await c.env.BUNDLES_BUCKET.get(
+		`${slug}/v${active.version}/theme-release.json`,
+	);
+	return c.json({
+		active: {
+			sourceRevision: active.sourceRevision,
+			release: release ? await release.json() : null,
+		},
+	});
+});
+
 app.get("/api/internal/deployments/:slug/resources", async (c) => {
 	const auth = await authenticateRequest(c.req.raw, c.env);
 	const slug = c.req.param("slug");

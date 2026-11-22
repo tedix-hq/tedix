@@ -116,6 +116,7 @@
         "@tedix/workers-ai": "workspace:*",
         "hono": "catalog:",
         "isomorphic-git": "catalog:",
+        "jsonc-parser": "3.3.1",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -128,7 +129,6 @@
         "cf": "catalog:",
         "emdash": "catalog:",
         "happy-dom": "^21.0.4",
-        "jsonc-parser": "3.3.1",
         "react": "catalog:",
         "react-dom": "catalog:",
         "typescript": "catalog:",

@@ -1,10 +1,10 @@
 import {
+	ActiveThemeVersionSchema,
 	SiteVersionCheckConfigSchema,
 	SiteVersionReportSchema,
 	type SiteVersionReport,
 } from "@tedix/api-contract/schemas/site-versions";
 import type { DbClient } from "@tedix/db/client";
-import { parse, type ParseError } from "jsonc-parser";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
 import { listCmsSitesByOrganization } from "@tedix/db/queries/cms-sites";
 import { listDocsSites } from "@tedix/db/queries/docs-sites/sites";
@@ -23,27 +23,6 @@ import {
 	resolveWorkItemPurpose,
 	WORK_ITEM_PURPOSE_EXCEPTION_MAX_MS,
 } from "@tedix/db/queries/work-items/purpose";
-
-/** Read resolved package tuples, never the requested ranges in workspaces. */
-export function themePackageVersions(lock: string): Record<string, string[]> {
-	const versions: Record<string, string[]> = {};
-	const errors: ParseError[] = [];
-	const data = parse(lock, errors, { allowTrailingComma: true }) as {
-		packages?: Record<string, unknown>;
-	} | null;
-	if (errors.length || !data?.packages)
-		throw new Error("Invalid theme bun.lock");
-	for (const tuple of Object.values(data.packages)) {
-		if (!Array.isArray(tuple) || typeof tuple[0] !== "string") continue;
-		const match = /^(emdash|@emdash-cms\/[^@]+)@(.+)$/.exec(tuple[0]);
-		if (!match) continue;
-		const values = (versions[match[1]!] ??= []);
-		if (!values.includes(match[2]!)) values.push(match[2]!);
-	}
-	if (!versions.emdash)
-		throw new Error("Theme bun.lock has no resolved EmDash package");
-	return versions;
-}
 
 export function isVersionBehind(
 	installed: string,
@@ -204,19 +183,27 @@ export async function checkSiteVersions(input: {
 			);
 			if (isCms) {
 				try {
-					using repo = await input.env.ARTIFACTS.get(`cms-theme-${site.slug}`);
-					const [head] = await repo.log({ ref: "main", limit: 1 });
-					if (!head) throw new Error("Theme repository has no head");
-					entry.themeRevision = head.hash;
-					const lock = await repo.readFile({
-						ref: head.hash,
-						path: "bun.lock",
-					});
-					if (!lock || lock.size > 2_000_000)
-						throw new Error("Theme bun.lock unavailable or too large");
-					await add(themePackageVersions(await lock.text()), "theme");
+					const response = await input.env.CMS.fetch(
+						new Request(
+							`https://cms.internal/api/internal/deployments/${encodeURIComponent(site.slug)}/theme-version`,
+							{
+								headers: {
+									Authorization: `Bearer ${input.env.PLATFORM_SERVICE_TOKEN}`,
+									"X-Tedix-Connection-Label": site.slug,
+								},
+							},
+						),
+					);
+					if (!response.ok) throw new Error("Theme build unavailable");
+					const { active } = ActiveThemeVersionSchema.parse(
+						await response.json(),
+					);
+					if (!active.release.packages.emdash)
+						throw new Error("Theme package evidence unavailable");
+					entry.themeRevision = active.sourceRevision?.value;
+					await add(active.release.packages, "theme");
 				} catch {
-					entry.errors.push("Theme bun.lock could not be checked");
+					entry.errors.push("Active theme build versions are unavailable");
 				}
 			}
 			report.sites.push(entry);

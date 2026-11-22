@@ -1,5 +1,6 @@
 import { readThemeCandidate, stageThemeCandidate } from "./theme-candidate";
 import { identifyThemeRelease } from "./theme-release";
+import { platformThemeManifest } from "./theme-dependencies";
 import { probeCmsDeploy } from "./deploy-health";
 import { CmsDeployFailure, type DeployRollback } from "./deploy-failure";
 import { normalizeCmsTemplateSlug } from "../template-policy";
@@ -676,6 +677,10 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 							"Privacy banner config prepared",
 							{ privacyBannerEnabled },
 						);
+						await sandbox.writeFile(
+							`${attemptWorkspace}/package.json`,
+							platformThemeManifest(templateSlug),
+						);
 						// Best-effort: restore a prior node_modules backup for this exact
 						// template + dependency fingerprint so the install below becomes a
 						// fast verification pass instead of a from-scratch resolve+download.
@@ -700,7 +705,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 							await sandbox.exec([
 								"bash",
 								"-lc",
-								`cd '${attemptWorkspace}' && bun install --no-progress`,
+								`cd '${attemptWorkspace}' && rm -f bun.lock bun.lockb && bun install --no-progress`,
 							])
 						).output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 });
 						if (installExec.timedOut) {

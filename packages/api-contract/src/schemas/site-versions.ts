@@ -1,5 +1,21 @@
 import * as z from "zod";
 
+export const ThemePackageVersionsSchema = z.record(
+	z.string(),
+	z.array(z.string().min(1)).min(1),
+);
+export const ActiveThemeVersionSchema = z.object({
+	active: z.object({
+		sourceRevision: z
+			.object({
+				kind: z.enum(["artifacts_commit", "editable_source_digest"]),
+				value: z.string(),
+			})
+			.nullable(),
+		release: z.object({ packages: ThemePackageVersionsSchema }),
+	}),
+});
+
 export const SiteVersionCheckConfigSchema = z.object({
 	enabled: z.literal(true),
 	/** Existing upgrade Work, keyed by "<siteId>:<source>", takes precedence over filing. */

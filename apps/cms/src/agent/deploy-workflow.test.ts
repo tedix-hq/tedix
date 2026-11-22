@@ -621,7 +621,9 @@ describe("DeployWorkflow exact-site lifecycle", () => {
 							upstreamStarterRevision: "a".repeat(40),
 							supportedBlocks: {},
 						})
-					: 'i18n: { defaultLocale: "en", fallback: {} }',
+					: path.endsWith("bun.lock")
+						? '{"packages":{"emdash":["emdash@1.5.0"]}}'
+						: 'i18n: { defaultLocale: "en", fallback: {} }',
 			})),
 			writeFile: vi.fn(async () => undefined),
 			exec: vi.fn(async (argv: string[]) => ({
