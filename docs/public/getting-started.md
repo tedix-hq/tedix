@@ -20,6 +20,8 @@ machine unless you turn on model calls. In about five minutes you will have
 Tedix open in your browser, a first Workspace saved, and, with `--demo`, a
 fictional company's Decisions and Activity to click through.
 
+On a Mac? [Download the Tedix app (beta)](./desktop-app.md).
+
 Just want to use the hosted service? [Use Tedix in ChatGPT, Codex and
 Claude](./learning-paths/first-plugin.md). To connect the CLI to an invited
 Cloud organization instead, [connect to Tedix
