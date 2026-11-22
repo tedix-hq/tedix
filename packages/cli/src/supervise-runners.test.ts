@@ -27,6 +27,7 @@ import {
 	RUNNER_LOG_KEEP_BYTES,
 	RUNNER_PASS_GRACE_MS,
 	RUNNER_RESTART_BASE_MS,
+	RUNNER_SETTLED_AFTER_MS,
 	RUNNER_RESTART_MAX_MS,
 	RUNNER_STOP_DRAIN_MS,
 	RUNNER_UPDATE_EXIT_CODE,
@@ -559,7 +560,7 @@ describe("running the dispatchers", () => {
 
 		// The runner leaves for an update with nothing in progress: restarted on
 		// the next check, no backoff, no problem recorded.
-		f.advance(RUNNER_RESTART_BASE_MS);
+		f.advance(RUNNER_SETTLED_AFTER_MS);
 		f.spawned[0]!.exit(RUNNER_UPDATE_EXIT_CODE);
 		expect(f.lines.at(-1)).toContain("to run the updated CLI; restarting");
 		f.duties.tick();
@@ -581,7 +582,7 @@ describe("running the dispatchers", () => {
 		f.write([runner()]);
 		f.duties.tick();
 		f.spawned[0]!.exit(RUNNER_UPDATE_EXIT_CODE);
-		expect(f.lines.at(-1)).toContain("codex exited (code 75); restart in 60s");
+		expect(f.lines.at(-1)).toContain("codex exited (code 75); restart in 5s");
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
 	});
@@ -591,7 +592,7 @@ describe("running the dispatchers", () => {
 		f.write([runner()]);
 		f.duties.tick();
 		f.spawned[0]!.exit(1);
-		expect(f.lines.at(-1)).toContain("codex exited (code 1); restart in 60s");
+		expect(f.lines.at(-1)).toContain("codex exited (code 1); restart in 5s");
 		expect(existsSync(f.childFile(runner()))).toBe(false);
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
@@ -599,9 +600,10 @@ describe("running the dispatchers", () => {
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(2);
 		f.spawned[1]!.exit(1);
-		expect(f.lines.at(-1)).toContain("restart in 120s");
-		for (let i = 0; i < 3; i++) {
-			f.advance(RUNNER_RESTART_MAX_MS);
+		expect(f.lines.at(-1)).toContain("restart in 10s");
+		// Each restart waits out the delay before it, so exits stay in the window.
+		for (let i = 1; i < 9; i++) {
+			f.advance(RUNNER_RESTART_BASE_MS * 2 ** i);
 			f.duties.tick();
 			f.spawned.at(-1)!.exit(1);
 		}

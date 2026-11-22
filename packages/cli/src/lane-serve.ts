@@ -8567,13 +8567,6 @@ ${firstBrief}`;
  */
 export const LANE_STOP_DRAIN_MS = RUNNER_STOP_DRAIN_MS;
 
-/**
- * How long a runner leaving for an update waits for in-flight work before it
- * exits. Short: running tasks continue under the next runner, and each second
- * here is a second no runner takes new Work.
- */
-export const UPDATE_DRAIN_MS = 10_000;
-
 /** True when the supervisor's runner list has this runner enabled, so it is started again after it exits. */
 function supervised(key: string): boolean {
 	try {
@@ -8728,12 +8721,10 @@ export async function runLaneServe(
 			await dispatcher.drain();
 			return 0;
 		}
-		abandoned = !(await dispatcher.drain(
-			updating ? UPDATE_DRAIN_MS : LANE_STOP_DRAIN_MS,
-		));
+		abandoned = !(await dispatcher.drain(LANE_STOP_DRAIN_MS));
 		if (abandoned)
 			process.stderr.write(
-				`Dispatcher stopped after draining ${(updating ? UPDATE_DRAIN_MS : LANE_STOP_DRAIN_MS) / 1000}s; left ${dispatcher.inFlight().join(", ")} running for the next runner to continue\n`,
+				`Dispatcher stopped after draining ${LANE_STOP_DRAIN_MS / 1000}s; left ${dispatcher.inFlight().join(", ")} running for the next runner to continue\n`,
 			);
 		return updating ? RUNNER_UPDATE_EXIT_CODE : 0;
 	} finally {

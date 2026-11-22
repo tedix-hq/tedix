@@ -173,7 +173,10 @@ After `tedix update`, each runner in that file moves to the new version by
 itself. On its next check it notices the newer installed binary and restarts
 at once; it does not wait for running tasks to end, so new Work never pauses
 for an update. The new runner continues each running Codex, Claude Code or
-OpenCode task in the same session and checkout under the same Attempt. The
+OpenCode task in the same session and checkout under the same Attempt. A
+stopping runner waits at most 10 seconds for its tasks, and the supervisor
+restarts an exited runner after 5 seconds, doubling for repeated exits within
+an hour up to 15 minutes. The
 supervisor starts it without the usual wait and logs
 `runner <executor> now on <version>`. You do not need to stop runners by hand
 after an update.

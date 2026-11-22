@@ -51,13 +51,19 @@ export const RUNNERS_FILE = "supervisor-runners.json";
 /** Child records live beside the supervisor's own state, never in a runner's
  * directory: the runner treats every `.json` there as a Work receipt. */
 export const RUNNER_RECORDS_DIR = ["supervisor", "runners"] as const;
-/** A dispatcher that exits is restarted after this long, doubling per exit. */
-export const RUNNER_RESTART_BASE_MS = 60_000;
+/**
+ * A dispatcher that exits is restarted after this long, doubling per exit
+ * within the exit window, up to RUNNER_RESTART_MAX_MS. Short: a stopped
+ * runner's tasks wait for its replacement to continue them.
+ */
+export const RUNNER_RESTART_BASE_MS = 5_000;
+/** A runner that has run this long counts as started cleanly. */
+export const RUNNER_SETTLED_AFTER_MS = 60_000;
 export const RUNNER_RESTART_MAX_MS = 15 * 60_000;
 /**
  * A runner that misses its scheduled pass by this much is hung and restarted.
  * Passes run every 30 seconds, so this restarts a hung lane about four minutes
- * after its last pass. A stopping runner drains for at most two minutes, so its
+ * after its last pass. A stopping runner drains for at most ten seconds, so its
  * replacement passes well inside this window.
  */
 export const RUNNER_PASS_GRACE_MS = 3.5 * 60_000;
@@ -67,8 +73,12 @@ export const RUNNER_PASS_GRACE_MS = 3.5 * 60_000;
  * problem recorded.
  */
 export const RUNNER_UPDATE_EXIT_CODE = 75;
-/** How long a stopping runner waits for its Work in progress before it exits. */
-export const RUNNER_STOP_DRAIN_MS = 2 * 60_000;
+/**
+ * How long a stopping runner waits for its Work in progress before it exits.
+ * Short: the next runner continues running tasks in the same session and
+ * checkout, and no runner takes new Work while this one drains.
+ */
+export const RUNNER_STOP_DRAIN_MS = 10_000;
 /** A stopping runner still alive this long after its drain time is hung. */
 export const RUNNER_PREDECESSOR_GRACE_MS = 30_000;
 const LOCK_WAIT_FILE = "lock-wait.state";
@@ -634,7 +644,7 @@ export class RunnerDuties {
 						runner,
 						{
 							state: "running",
-							...(now - entry.startedAt >= RUNNER_RESTART_BASE_MS
+							...(now - entry.startedAt >= RUNNER_SETTLED_AFTER_MS
 								? { lastProblem: null }
 								: {}),
 						},
@@ -796,7 +806,7 @@ export class RunnerDuties {
 			// installed version; the ordinary backoff stops that loop.
 			if (
 				code === RUNNER_UPDATE_EXIT_CODE &&
-				at - entry.startedAt >= RUNNER_RESTART_BASE_MS
+				at - entry.startedAt >= RUNNER_SETTLED_AFTER_MS
 			) {
 				this.log(
 					`${runner.executor} stopped to run the updated CLI; restarting, and its running tasks continue`,

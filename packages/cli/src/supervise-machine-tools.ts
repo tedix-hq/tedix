@@ -9,6 +9,7 @@ import {
 	EXIT_WINDOW_MS,
 	readRunnerDuties,
 	RUNNER_RESTART_BASE_MS,
+	RUNNER_SETTLED_AFTER_MS,
 	RUNNER_RESTART_MAX_MS,
 	RUNNER_UPDATE_EXIT_CODE,
 	type RunnerChild,
@@ -83,7 +84,7 @@ export class MachineToolsDuty {
 			// Left for changed settings or an updated CLI: start again at once.
 			if (
 				code === RUNNER_UPDATE_EXIT_CODE &&
-				at - entry.startedAt >= RUNNER_RESTART_BASE_MS
+				at - entry.startedAt >= RUNNER_SETTLED_AFTER_MS
 			)
 				return this.log("left to restart on the current settings and CLI");
 			this.noteExit(code, at);

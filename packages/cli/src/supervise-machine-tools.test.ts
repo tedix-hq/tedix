@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { MachineToolsDuty } from "./supervise-machine-tools";
 import {
 	RUNNER_RESTART_BASE_MS,
+	RUNNER_SETTLED_AFTER_MS,
 	RUNNER_UPDATE_EXIT_CODE,
 	RUNNERS_FILE,
 	type RunnerChild,
@@ -88,7 +89,7 @@ test("the supervisor keeps one machine tools process, started as the codex runne
 	now += RUNNER_RESTART_BASE_MS;
 	duty.tick();
 	expect(spawned).toHaveLength(2);
-	now += RUNNER_RESTART_BASE_MS;
+	now += RUNNER_SETTLED_AFTER_MS;
 	spawned[1]!.exit(RUNNER_UPDATE_EXIT_CODE);
 	duty.tick();
 	expect(spawned).toHaveLength(3);
