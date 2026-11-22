@@ -260,7 +260,7 @@ const command = async (repo: string, executable: string, args: string[]) =>
 			cwd: repo,
 			encoding: "utf8",
 			timeout: 30_000,
-			maxBuffer: 1024 * 1024,
+			maxBuffer: 16 * 1024 * 1024,
 		})
 	).stdout.trim();
 

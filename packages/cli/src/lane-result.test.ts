@@ -1,4 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as z from "zod";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
@@ -706,6 +716,59 @@ describe("target repository results", () => {
 			workflowName: "Deploy tests",
 		},
 	};
+	it("reads repository proof command output larger than one MiB", async () => {
+		const root = mkdtempSync(join(tmpdir(), "lane-proof-buffer-"));
+		const previousPath = process.env.PATH;
+		try {
+			const git = (args: string[]) => {
+				const child = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+				if (child.status !== 0) throw new Error(child.stderr);
+			};
+			git(["init"]);
+			git([
+				"remote",
+				"add",
+				"origin",
+				"https://github.com/example/product.git",
+			]);
+			const f = repositoryFixture();
+			const bin = join(root, "bin");
+			mkdirSync(bin);
+			const responses = [
+				{ ...f.proof, logs: "x".repeat(2 * 1024 * 1024) },
+				f.latest,
+				{ object: { sha: "d".repeat(40) } },
+				{ status: "ahead" },
+			];
+			responses.forEach((body, index) =>
+				writeFileSync(join(root, `${index}.json`), JSON.stringify(body)),
+			);
+			writeFileSync(
+				join(bin, "gh"),
+				`#!/bin/sh
+case "$2" in
+  */actions/runs/*) cat '${root}/0.json' ;;
+  */actions/workflows/*) cat '${root}/1.json' ;;
+  */git/ref/heads/main) cat '${root}/2.json' ;;
+  */compare/*) cat '${root}/3.json' ;;
+  *) exit 1 ;;
+esac
+`,
+			);
+			chmodSync(join(bin, "gh"), 0o755);
+			process.env.PATH = `${bin}:${previousPath}`;
+			await expect(
+				verifyRepositoryLaneResult(root, result),
+			).resolves.toMatchObject({
+				repository: "example/operations",
+				commitSha: "b".repeat(40),
+			});
+		} finally {
+			if (previousPath === undefined) delete process.env.PATH;
+			else process.env.PATH = previousPath;
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 	it("verifies an allowed repository's main ancestry and latest green CI", async () => {
 		const f = repositoryFixture();
 		expect(

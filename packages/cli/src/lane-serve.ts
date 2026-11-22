@@ -2177,6 +2177,7 @@ async function gitOutput(repo: string, args: string[]): Promise<string> {
 	const result = await promisify(execFile)("git", ["-C", repo, ...args], {
 		encoding: "utf8",
 		timeout: 30_000,
+		maxBuffer: 16 * 1024 * 1024,
 	});
 	return result.stdout.trim();
 }
@@ -2186,6 +2187,7 @@ async function gitSucceeds(repo: string, args: string[]): Promise<boolean> {
 		await promisify(execFile)("git", ["-C", repo, ...args], {
 			encoding: "utf8",
 			timeout: 10_000,
+			maxBuffer: 16 * 1024 * 1024,
 		});
 		return true;
 	} catch {
@@ -2464,17 +2466,21 @@ export async function mainLaneCommits(
 			"refs/heads/main:refs/remotes/origin/main",
 		]);
 		const landed: string[] = [];
-		for (const sha of commits)
+		for (const sha of commits) {
+			if (!(await gitSucceeds(repo, ["cat-file", "-e", `${sha}^{commit}`])))
+				throw new Error(
+					`Commit ${sha} is missing from the product checkout after fetching origin/main`,
+				);
 			if (
-				!(await gitOutput(repo, [
-					"rev-list",
-					"--max-count=1",
-					`${sha}^{commit}`,
-					"--not",
+				await gitSucceeds(repo, [
+					"merge-base",
+					"--is-ancestor",
+					sha,
 					"refs/remotes/origin/main",
-				]))
+				])
 			)
 				landed.push(sha);
+		}
 		return landed;
 	} catch (error) {
 		throw new LaneCommitFetchError(String(error));
@@ -2484,7 +2490,7 @@ export async function mainLaneCommits(
 export async function landedDeployments(
 	repo: string,
 	commits: string[],
-	repository: string | undefined,
+	_repository: string | undefined,
 	scope: string[],
 	readHealth: (url: string, options: RequestInit) => Promise<Response> = fetch,
 ): Promise<z.infer<typeof DeploymentSchema>[]> {
@@ -2500,10 +2506,8 @@ export async function landedDeployments(
 		for (const baseUrl of [resolveCliApiUrl(), workspaceUrl ?? options.url])
 			urls.add(new URL("/health", baseUrl).href);
 	}
-	if (
-		!repository &&
-		(await mainLaneCommits(repo, commits)).length !== commits.length
-	)
+	// Health revisions belong to the product, even when delivery proof names ops.
+	if ((await mainLaneCommits(repo, commits)).length !== commits.length)
 		throw new Error("A commit is no longer on origin/main");
 	return Promise.all(
 		[...urls].map(async (url) => {
@@ -2519,14 +2523,18 @@ export async function landedDeployments(
 			if (!sha.success)
 				throw new Error(`${url} did not report a full deployedSha`);
 			for (const commit of commits) {
-				const contains = repository
-					? await githubDeploymentContains(repo, repository, commit, sha.data)
-					: await gitSucceeds(repo, [
-							"merge-base",
-							"--is-ancestor",
-							commit,
-							sha.data,
-						]);
+				if (
+					!(await gitSucceeds(repo, ["cat-file", "-e", `${sha.data}^{commit}`]))
+				)
+					throw new Error(
+						`${url} reports deployed commit ${sha.data}, which is missing from the product checkout after fetching origin/main`,
+					);
+				const contains = await gitSucceeds(repo, [
+					"merge-base",
+					"--is-ancestor",
+					commit,
+					sha.data,
+				]);
 				if (!contains)
 					throw new Error(
 						`${url} reports ${sha.data}, which does not prove deployment of ${commit}`,
@@ -2534,24 +2542,6 @@ export async function landedDeployments(
 			}
 			return { url, sha: sha.data };
 		}),
-	);
-}
-
-async function githubDeploymentContains(
-	repo: string,
-	repository: string,
-	commit: string,
-	deployed: string,
-) {
-	const { stdout } = await promisify(execFile)(
-		"gh",
-		["api", `repos/${repository}/compare/${commit}...${deployed}`],
-		{ cwd: repo, encoding: "utf8", timeout: 10_000 },
-	);
-	const comparison: unknown = JSON.parse(stdout);
-	return (
-		isRecord(comparison) &&
-		(comparison.status === "ahead" || comparison.status === "identical")
 	);
 }
 
@@ -3290,6 +3280,9 @@ export class LaneDispatcher {
 		executorKey?: string,
 		attemptId?: string,
 	): Promise<T> {
+		args = args.map((value, index) =>
+			args[index - 1] === "--note" ? value.slice(0, 2000) : value,
+		);
 		const env: NodeJS.ProcessEnv = {
 			...this.ownerEnv,
 			...(session ? { TEDIX_AGENT_SESSION: session } : {}),
@@ -6515,13 +6508,29 @@ ${firstBrief}`;
 					let encoded = JSON.stringify(data);
 					if (encoded.length > 2000)
 						encoded = JSON.stringify({ ...data, unverified: "" });
+					if (encoded.length > 2000) {
+						// Each deployed tip was checked to contain every original commit.
+						// Rechecking those tips preserves the proof in a bounded handoff.
+						encoded = JSON.stringify({
+							...data,
+							commits: [...new Set(deployments.map(({ sha }) => sha))],
+							unverified: "",
+						});
+					}
+					if (encoded.length > 2000)
+						throw new Error(
+							"Deployment proof exceeds the 2,000-character handoff limit even without the commit list or explanation",
+						);
 					next = LaneDispatchPlanSchema.parse({
 						state: "ready",
 						reason: VERIFY_LANDED,
 						note: encoded,
 					});
 				} catch (error) {
-					const detail = String(error).slice(0, 400);
+					const detail = String(error)
+						.replace(/\s+/g, " ")
+						.trim()
+						.slice(0, 400);
 					if (Date.now() < row.verificationDeadline) {
 						this.holdRecheck(key);
 						this.log("verification-awaiting-deploy", row.itemId, detail);
@@ -6530,7 +6539,7 @@ ${firstBrief}`;
 					next = {
 						state: "held",
 						reason: "Deployment could not be confirmed within 48 hours",
-						note: `${detail}\n${note}`,
+						note: `${detail}\n${note}`.slice(0, 2000),
 					};
 				}
 			}
