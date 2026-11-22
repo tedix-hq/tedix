@@ -4,7 +4,10 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { listWorkItemsPage } from "./crud";
-import { deriveWorkItemReadiness } from "./readiness";
+import {
+	deriveWorkItemReadiness,
+	listWorkItemReadinessProjection,
+} from "./readiness";
 
 const migration = "20261022073425_work_items_lane_dispatch_indexes";
 const backfill = "20261115163121_lane_ready_requires_state";
@@ -296,4 +299,126 @@ describe("dispatch order and readiness", () => {
 		expect((await readiness("undated", early)).ready).toBe(true);
 		sqlite.close();
 	});
+});
+
+it("backs off repeated deferrals and wakes when the task, a dependency or an approval changes", async () => {
+	const sqlite = createMigratedSqlite({ foreignKeys: false });
+	try {
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const start = "2026-11-22T01:00:00.000Z";
+		const finish = "2026-11-22T01:05:00.000Z";
+		const now = "2026-11-22T01:06:00.000Z";
+		sqlite.exec(`INSERT INTO tedis(id,organization_id,name,slug) VALUES('fictional','o','Executor','executor');
+			INSERT INTO work_items(id,org_id,title,disposition,created_at,admission_spec_revision,work_class,purpose_exception_expires_at)
+			VALUES('deferred','o','Waiting task','accepted','2026-01-01','r','maintenance','2026-11-30T00:00:00.000Z'),
+			('dependency','o','Dependency','completed','2026-01-01','r','maintenance','2026-11-30T00:00:00.000Z');
+			INSERT INTO work_item_relations(id,org_id,from_work_item_id,to_work_item_id,relation_type,created_at) VALUES('r','o','dependency','deferred','blocks','2026-01-01');`);
+		const admission =
+			sqlite.prepare(`INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at)
+			VALUES(?,'o','deferred',1,'r','tedi','fictional','admitted',?,'2026-11-30',?)`);
+		const attempt =
+			sqlite.prepare(`INSERT INTO work_attempts(id,org_id,work_item_id,admission_id,attempt_number,runtime_state,outcome,executor_type,executor_id,started_at,heartbeat_at,finished_at,expires_at,metadata)
+			VALUES(?,'o','deferred',?,?,'cancelled','cancelled','tedi','fictional',?,?,?,'2026-11-30',?)`);
+		const readiness = (at = now) =>
+			deriveWorkItemReadiness(db, {
+				orgId: "o",
+				workItemId: "deferred",
+				derivedAt: at,
+			});
+		for (const [n, hours] of [
+			[1, 1],
+			[2, 1],
+			[3, 4],
+			[4, 24],
+			[5, 24],
+		] as const) {
+			admission.run(`admission-${n}`, start, start);
+			attempt.run(
+				`attempt-${n}`,
+				`admission-${n}`,
+				n,
+				start,
+				finish,
+				finish,
+				JSON.stringify({
+					laneResult: { outcome: "deferred", reason: "Waiting on publication" },
+				}),
+			);
+			const result = await readiness();
+			const retryAt = new Date(
+				Date.parse(finish) + hours * 3_600_000,
+			).toISOString();
+			expect(result.state).toBe("not_before");
+			expect(result.reasons[0]?.detail).toContain("Waiting on publication");
+			expect(result.reasons[0]?.detail).toContain(retryAt);
+			expect((await readiness(retryAt)).ready).toBe(true);
+		}
+		const projection = await listWorkItemReadinessProjection(db, {
+			orgId: "o",
+			observedAt: now,
+		});
+		expect(
+			projection.data.find((row) => row.workItem.id === "deferred")?.readiness
+				.state,
+		).toBe("not_before");
+		admission.run("different-reason", start, start);
+		attempt.run(
+			"different-reason",
+			"different-reason",
+			6,
+			start,
+			finish,
+			finish,
+			JSON.stringify({
+				laneResult: {
+					outcome: "deferred",
+					reason: "Waiting on production access",
+				},
+			}),
+		);
+		expect((await readiness()).reasons[0]?.detail).toContain(
+			"2026-11-22T02:05:00.000Z",
+		);
+		// Runner heartbeats and its own progress do not wake a parked task.
+		sqlite.exec(
+			`UPDATE work_items SET updated_at='2026-11-22T01:06:00.000Z' WHERE id='deferred'`,
+		);
+		expect((await readiness()).ready).toBe(false);
+		sqlite.exec(
+			`UPDATE work_items SET updated_at='2026-11-22T01:06:00.000Z' WHERE id='dependency'`,
+		);
+		expect((await readiness()).ready).toBe(true);
+		sqlite.exec(`UPDATE work_items SET updated_at=NULL WHERE id='dependency';
+			UPDATE work_items SET metadata=json_set(metadata,'$.decisionContinuation.at','2026-11-22T01:06:00.000Z') WHERE id='deferred'`);
+		expect((await readiness()).ready).toBe(true);
+		sqlite.exec(`UPDATE work_items SET metadata='{}' WHERE id='deferred';
+			INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,rationale,expires_at,created_at)
+			VALUES('p','o','deferred',1,'publication','publish','{}','system','tedix','tedi','fictional','Review publication','2026-11-30','2026-11-22T01:06:00.000Z')`);
+		expect((await readiness()).ready).toBe(true);
+		// A run after that change starts a fresh streak.
+		const nextStart = "2026-11-22T01:07:00.000Z";
+		const nextFinish = "2026-11-22T01:08:00.000Z";
+		const nextNow = "2026-11-22T01:09:00.000Z";
+		admission.run("admission-6", nextStart, nextStart);
+		attempt.run(
+			"attempt-7",
+			"admission-6",
+			7,
+			nextStart,
+			nextFinish,
+			nextFinish,
+			JSON.stringify({
+				laneResult: { outcome: "deferred", reason: "Waiting on publication" },
+			}),
+		);
+		expect((await readiness(nextNow)).reasons[0]?.detail).toContain(
+			"2026-11-22T02:08:00.000Z",
+		);
+		sqlite.exec(
+			`UPDATE work_items SET version=2,admission_spec_revision='r2' WHERE id='deferred'`,
+		);
+		expect((await readiness(nextNow)).ready).toBe(true);
+	} finally {
+		sqlite.close();
+	}
 });

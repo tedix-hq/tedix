@@ -822,7 +822,7 @@ const HELD_ITEM_RECHECK_MS = 5 * 60_000;
 /** Spreads dispatchers that wake on the same cooldown end. */
 const COOLDOWN_WAKE_JITTER_MS = 5_000;
 /** A deferred wait with no declared recheck time is revisited after this delay. */
-const DEFERRED_RETRY_MS = 6 * 60 * 60_000;
+const DEFERRED_RETRY_MS = 60 * 60_000;
 /**
  * Below this much free disk under the dispatcher directory no new Work is
  * admitted; a lane checkout with dependencies takes about 2.5 GB.
@@ -1122,6 +1122,7 @@ interface Receipt {
 	admissionCheckFailures?: number;
 	admissionRefusals?: number;
 	admissionRetryAt?: number;
+	sharedDeferral?: boolean;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	baseCommit?: string;
@@ -3961,6 +3962,38 @@ export class LaneDispatcher {
 				const previous = existsSync(this.path(item))
 					? readReceipt(this.path(item))
 					: undefined;
+				if (
+					previous?.phase === "deferred" &&
+					(previous.sharedDeferral ||
+						previous.laneResult?.outcome === "deferred") &&
+					!(
+						previous.laneResult?.outcome === "deferred" &&
+						previous.laneResult.notBefore
+					) &&
+					!previous.held &&
+					!previous.approvalWait &&
+					!waitsForRunAnswer(previous)
+				) {
+					const readiness = await this.call<{
+						ready: boolean;
+						reasons: Array<{ detail: string }>;
+					}>(
+						["work", "readiness", item.id],
+						previous.session,
+						previous.executorKey,
+					);
+					if (!readiness.ready) {
+						observeSkip(
+							item,
+							readiness.reasons[0]?.detail ?? "Deferred Work is not ready",
+						);
+						continue;
+					}
+					previous.recheckAt = 0;
+					delete previous.admissionRetryAt;
+					delete previous.sharedDeferral;
+					this.save(this.path(item), previous);
+				}
 				if (Date.now() < (previous?.admissionRetryAt ?? 0)) {
 					observeSkip(item, previous?.note ?? "Admission retry is deferred");
 					continue;
@@ -4044,6 +4077,7 @@ export class LaneDispatcher {
 					previous.recheckAt = 0;
 					this.save(this.path(item), previous);
 				}
+
 				if (
 					previous?.phase === "settled" &&
 					!previous.verification &&
@@ -5479,10 +5513,14 @@ export class LaneDispatcher {
 				ready: boolean;
 				reasons: Array<{ detail: string }>;
 			}>(["work", "readiness", item.id], receipt.session, receipt.executorKey);
-			if (readiness.ready !== true)
+			if (readiness.ready !== true) {
+				receipt.sharedDeferral = readiness.reasons.some((reason) =>
+					reason.detail.startsWith("Deferred"),
+				);
 				throw new Error(
 					`Admission not ready: ${JSON.stringify(readiness.reasons)}`,
 				);
+			}
 			// Preparation can take minutes. Admission fences the revision current
 			// at start, so an edit meanwhile would admit a revision this brief was
 			// not built from. Re-read and stop before any Attempt exists.

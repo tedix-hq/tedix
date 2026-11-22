@@ -1,3 +1,4 @@
+import { workDeferralWait } from "./deferral";
 import { taskContractRefusal } from "./task-contract";
 import {
 	workAttemptLimitAvailable,
@@ -96,6 +97,7 @@ export interface WorkItemReadinessProjectionRow {
 }
 
 interface ReadinessFacts {
+	deferralWait?: string;
 	contractRefusal?: string;
 	item: WorkItem;
 	ownerDelegated: boolean;
@@ -323,12 +325,13 @@ function evaluateWorkItemReadiness(
 		},
 		{
 			gate: "not_before",
-			evaluation: notBefore ? "failed" : "passed",
+			evaluation: notBefore || facts.deferralWait ? "failed" : "passed",
 			detail: notBefore
 				? notBeforeDetail(notBefore)
-				: item.startAt
-					? `Start date ${item.startAt} has passed`
-					: "No start date",
+				: (facts.deferralWait ??
+					(item.startAt
+						? `Start date ${item.startAt} has passed`
+						: "No start date")),
 		},
 	];
 	let state: WorkItemReadiness = "ready",
@@ -348,9 +351,9 @@ function evaluateWorkItemReadiness(
 	} else if (!eligibility.eligible) {
 		state = eligibility.blocker!;
 		detail = eligibility.detail!;
-	} else if (notBefore) {
+	} else if (notBefore || facts.deferralWait) {
 		state = "not_before";
-		detail = notBeforeDetail(notBefore);
+		detail = notBefore ? notBeforeDetail(notBefore) : facts.deferralWait;
 	}
 	return {
 		workItemId: item.id,
@@ -512,6 +515,7 @@ export async function deriveWorkItemReadiness(
 			.limit(1000),
 	]);
 	return evaluateWorkItemReadiness({
+		deferralWait: await workDeferralWait(db, item, derivedAt),
 		item,
 		ownerDelegated,
 		attemptLimitAvailable: Boolean(attemptLimit?.available),
@@ -723,6 +727,7 @@ export async function listWorkItemReadinessProjection(
 				updatedAt: item.updatedAt,
 			},
 			readiness: evaluateWorkItemReadiness({
+				deferralWait: await workDeferralWait(db, item, observedAt),
 				item,
 				ownerDelegated: Boolean(rows[index]?.ownerDelegated),
 				attemptLimitAvailable: Boolean(rows[index]?.attemptLimitAvailable),

@@ -9856,7 +9856,11 @@ describe("structured dispatcher outcomes", () => {
 			});
 			expect(saved.recheckAt).toBe(Date.parse(recheckAt));
 			expect(saved.held).toBeUndefined();
-			// The wait parks until its recheck time instead of retrying at once.
+			// The wait parks until shared readiness permits a new run.
+			f.control.readiness = {
+				ready: false,
+				reasons: [{ detail: "Deferred wait" }],
+			};
 			await f.restart().tick();
 			expect(f.releases).toHaveLength(1);
 			if (wake === "timer") {
@@ -9878,6 +9882,7 @@ describe("structured dispatcher outcomes", () => {
 				dispatchVersion: 2,
 				laneResult: deferred(),
 			};
+			f.control.readiness = { ready: true, reasons: [] };
 			f.control.finalMessage = "Access granted; result recorded.";
 			const restarted = f.restart();
 			await restarted.tick();
@@ -9890,6 +9895,79 @@ describe("structured dispatcher outcomes", () => {
 			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
 		},
 	);
+	it("uses shared readiness to wake a deferral before its local timer", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const deferred = {
+			...common(),
+			outcome: "deferred",
+			reason: "Waiting on publication",
+		};
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(deferred)}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const path = join(f.dir, `${item().id}-2.json`);
+		const read = () => JSON.parse(readFileSync(path, "utf8"));
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = {
+			dispatchVersion: 2,
+			laneResult: deferred,
+		};
+		f.control.readiness = {
+			ready: false,
+			reasons: [{ detail: "Deferred: Waiting on publication" }],
+		};
+		await f.restart().tick();
+		expect(f.releases).toHaveLength(1);
+		expect(read().recheckAt).toBeGreaterThan(Date.now());
+		// A dependency or approval changed; the server now says this Work is ready.
+		f.control.readiness = {
+			ready: true,
+			reasons: [],
+		};
+		f.control.finalMessage = "Publication completed; result recorded.";
+		const restarted = f.restart();
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await restarted.drain();
+		expect(
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(2);
+	});
+	it("wakes shared deferrals without waiting for a refused admission's back-off", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.readiness = {
+			ready: false,
+			reasons: [
+				{
+					detail:
+						"Deferred 2 times for the same reason: Waiting on publication",
+				},
+			],
+		};
+		await f.dispatcher.tick();
+		await f.dispatcher.drain();
+		const path = join(f.dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.sharedDeferral).toBe(true);
+		expect(saved.admissionRetryAt).toBeGreaterThan(Date.now());
+		await f.restart().tick();
+		expect(f.releases).toHaveLength(0);
+		f.control.readiness = { ready: true, reasons: [] };
+		const restarted = f.restart();
+		await restarted.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await restarted.drain();
+		expect(
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(1);
+	});
 	it("records a deferred run's not-before date as the Work's start date, once, and starts nothing earlier", async () => {
 		const f = fixture();
 		f.items.splice(1);
