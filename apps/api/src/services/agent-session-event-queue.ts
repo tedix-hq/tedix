@@ -54,7 +54,11 @@ export async function processAgentSessionEventQueue(
 	const modelEnv = organizationModelEnv(env, db, owner.organizationId, {
 		billWorkersAiSurface: "agent-session-request-observer",
 	});
-	const model = workersAiLedgerModel(modelEnv, owner.organizationId);
+	const model = workersAiLedgerModel(
+		modelEnv,
+		owner.organizationId,
+		member.descopeUserId,
+	);
 	model.enqueueFilings = async () => {
 		if (await automaticFilingEnabled(db, owner))
 			await enqueueRequestFiling(env, {

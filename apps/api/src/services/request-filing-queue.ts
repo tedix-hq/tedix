@@ -66,6 +66,7 @@ export async function processRequestFilingQueue(
 	const model = workersAiLedgerModel(
 		organizationModelEnv(env, db, owner.organizationId),
 		owner.organizationId,
+		owner.ownerSubject,
 	);
 	model.chooseProject = requestFilingFitModel(
 		db,

@@ -70,6 +70,13 @@ vi.mock("../rpc/routers/kernel/billing-reservation", () => ({
 	kernelProviderRate: () => undefined,
 }));
 
+/** The prompt text a Responses API ledger request carries, across its blocks. */
+function promptText(body: {
+	input: Array<{ content: Array<{ text: string }> }>;
+}): string {
+	return body.input[0]!.content.map((block) => block.text).join("");
+}
+
 const SCOPE = {
 	organizationId: "org-example",
 	userId: "user-ada",
@@ -1353,8 +1360,9 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 	);
 	expect(JSON.parse(init.body)).toMatchObject({
 		model: "gpt-6.1-sol",
-		input: "full turn",
+		prompt_cache_options: { mode: "explicit" },
 	});
+	expect(promptText(JSON.parse(init.body))).toBe("full turn");
 	fetch.mockResolvedValueOnce(
 		Response.json({
 			status: "completed",
@@ -1390,7 +1398,7 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 	);
 	expect(await model.reflectLessons!(longSources)).toBe('{"lessons":[]}');
 	expect(run).toHaveBeenCalledTimes(1);
-	expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).input).toBe(
+	expect(promptText(JSON.parse(fetch.mock.calls.at(-1)![1].body))).toBe(
 		JSON.stringify(longSources),
 	);
 	fetch.mockResolvedValueOnce(
@@ -1410,7 +1418,9 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 		await model("system", "portfolio", "agent-session-project-routing"),
 	).toBe('{"projectId":"project-docs"}');
 	expect(run).toHaveBeenCalledTimes(1);
-	expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).input).toBe("portfolio");
+	expect(promptText(JSON.parse(fetch.mock.calls.at(-1)![1].body))).toBe(
+		"portfolio",
+	);
 	fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
 	expect(
 		await model("system", "prompt", "agent-session-request-reflector"),
@@ -2805,8 +2815,10 @@ it("retains the qualified intake model and exact certified system prompt", async
 		expect(intake).toMatchObject({
 			max_output_tokens: 6000,
 			reasoning: { effort: "low" },
-			input: requestIntakeInput("Lead words", [], "User request"),
 		});
+		expect(promptText(intake)).toBe(
+			requestIntakeInput("Lead words", [], "User request"),
+		);
 		expect(deadline).toHaveBeenCalledWith(24_000);
 		await model(
 			"status system",
@@ -2976,10 +2988,16 @@ it("uses the qualified status prompt in real ledger orchestration and keeps less
 		organizationId: SCOPE.organizationId,
 		userId: SCOPE.userId,
 	});
-	expect(status.body.input).toContain(
+	// Only the rows prefix is cached; the turn after it changes every call.
+	const [rowsBlock, rest] = status.body.input[0].content;
+	expect(rowsBlock.text).toMatch(/^OPEN ROWS:/);
+	expect(rowsBlock.prompt_cache_breakpoint).toEqual({ mode: "explicit" });
+	expect(rest.text).toMatch(/^\n\nORIGINAL REQUEST SCOPES:/);
+	expect(rest.prompt_cache_breakpoint).toBeUndefined();
+	expect(promptText(status.body)).toContain(
 		"ORIGINAL REQUEST SCOPES:\n<<<\nr1:\nVerify live deployment",
 	);
-	expect(status.body.input).toContain(
+	expect(promptText(status.body)).toContain(
 		"Inspection started; no deployment outcome is verified.",
 	);
 	for (const [surface, model] of [

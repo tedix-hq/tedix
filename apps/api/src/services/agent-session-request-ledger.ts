@@ -91,6 +91,7 @@ const TERRA_SURFACES = new Set([
 	"agent-session-request-reply-reflector",
 ]);
 export const LEDGER_SILENCE_TURNS = 5;
+const LEDGER_DROPPED_ROWS_IN_PROMPT = 40;
 const writeInferenceDiagnostic = createTelemetryWriter(
 	"agent-session-request-ledger",
 );
@@ -110,9 +111,21 @@ function recordSkippedInference(
 
 type LedgerEnv = DistillEnv & LedgerGatewayEnv;
 
+/**
+ * Length of the rows block that opens status and intake prompts. Rows change
+ * slowly between turns of one session; the message, activity and turn after
+ * them are new every call.
+ */
+function ledgerStablePrefixLength(prompt: string): number {
+	if (!/^(?:OPEN|KNOWN) ROWS:/.test(prompt)) return 0;
+	const variable = /\n\n(?:ORIGINAL REQUEST SCOPES:|USER MESSAGE)/.exec(prompt);
+	return variable?.index ?? 0;
+}
+
 async function reflectWithGateway(
 	env: LedgerEnv,
-	organizationId: string,
+	owner: { organizationId: string; userId?: string },
+	session: LedgerModel["session"],
 	system: string,
 	prompt: string,
 	surface: string,
@@ -121,7 +134,12 @@ async function reflectWithGateway(
 	const filing = surface === "agent-session-project-routing";
 	try {
 		const response = await fetchLedgerGatewayCompletion(env, {
-			organizationId,
+			organizationId: owner.organizationId,
+			userId: owner.userId,
+			sessionKey: session
+				? `${session.harness}:${session.sessionKey}`
+				: undefined,
+			stablePrefixLength: ledgerStablePrefixLength(prompt),
 			source: surface,
 			billingSource: "system",
 			model: TERRA_SURFACES.has(surface)
@@ -186,6 +204,8 @@ export interface LedgerCheck {
 
 export interface LedgerModel {
 	(system: string, prompt: string, surface: string): Promise<string | null>;
+	/** Session whose event is being processed; set per event, read per call. */
+	session?: { harness: string; sessionKey: string };
 	routeProjects?: boolean;
 	enqueueFilings?: (owner: {
 		organizationId: string;
@@ -234,6 +254,7 @@ export interface LedgerProcessingModel extends LedgerModel {
 export function workersAiLedgerModel(
 	env: LedgerEnv,
 	organizationId: string,
+	userId?: string,
 ): LedgerProcessingModel {
 	const model: LedgerModel = (system, prompt, surface) =>
 		surface === "agent-session-request-reflector" ||
@@ -241,7 +262,14 @@ export function workersAiLedgerModel(
 		surface === "agent-session-request-intake" ||
 		surface === "agent-session-project-routing" ||
 		surface === "agent-session-lesson-reflector"
-			? reflectWithGateway(env, organizationId, system, prompt, surface)
+			? reflectWithGateway(
+					env,
+					{ organizationId, userId },
+					model.session,
+					system,
+					prompt,
+					surface,
+				)
 			: runDistillModel(env, prompt, {
 					model: LEDGER_MODEL,
 					system,
@@ -324,7 +352,17 @@ async function activeRows(db: DbQueryClient, scope: SessionScope) {
 		limit: AGENT_SESSION_REQUEST_LIST_LIMIT,
 		newestFirst: true,
 	});
-	return rows.reverse();
+	// Long sessions pile up rows already flagged as dropped (160 of 200 in the
+	// busiest session on 22 Nov), and every turn paid to resend them. Keep the
+	// newest few so a late completion can still close them.
+	let dropped = 0;
+	return rows
+		.filter(
+			(row) =>
+				row.status !== "dropped_risk" ||
+				++dropped <= LEDGER_DROPPED_ROWS_IN_PROMPT,
+		)
+		.reverse();
 }
 
 async function sourceKey(parts: readonly string[]): Promise<string> {
@@ -1068,6 +1106,7 @@ export async function processAgentSessionEvents(
 			harness: event.harness,
 			sessionKey: event.sessionKey,
 		};
+		model.session = { harness: event.harness, sessionKey: event.sessionKey };
 		let ok = false;
 		let reason = "model_unavailable";
 		try {
