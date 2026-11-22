@@ -1,7 +1,9 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	brokerStatusQueryOptions,
 	buildOsAuthReturnUrl,
 	clearSilentOsResumeAttempt,
 	hasAttemptedSilentOsResume,
@@ -154,50 +156,106 @@ describe("buildOsAuthReturnUrl", () => {
 	});
 });
 
-describe("useOsBrokerSessionStatus — bounded status read", () => {
-	/*
-	 * Spinner-wedge class: while `status` is null the boundary
-	 * renders a spinner with no error path, so a `/status` fetch that never
-	 * settles would hold that spinner forever with zero console output. The
-	 * hook must therefore pass an abort signal bounded at
-	 * OS_BROKER_STATUS_TIMEOUT_MS; a rejected read exposes a retryable failure.
-	 */
-	it("passes a timeout-bounded abort signal to the status fetch", async () => {
-		(
-			globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-		).IS_REACT_ACT_ENVIRONMENT = true;
-		const captured: RequestInit[] = [];
-		const originalFetch = globalThis.fetch;
-		globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-			captured.push(init ?? {});
-			void input;
-			return Promise.resolve(
-				new Response(JSON.stringify({ authenticated: false }), {
-					headers: { "Content-Type": "application/json" },
-				}),
-			);
-		}) as typeof fetch;
-		const container = document.createElement("div");
-		document.body.append(container);
-		const root = createRoot(container);
-		function Probe() {
-			useOsBrokerSessionStatus("/auth/session-broker");
-			return null;
-		}
-		try {
-			await act(async () => {
-				root.render(createElement(Probe));
+describe("useOsBrokerSessionStatus — startup prefetch", () => {
+	it.each(["pending", "success", "failure"] as const)(
+		"shares a %s startup request and retries only on demand",
+		async (startup) => {
+			(
+				globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT = true;
+			const client = new QueryClient({
+				defaultOptions: { queries: { retry: 2 } },
 			});
-			expect(captured).toHaveLength(1);
-			expect(captured[0]?.signal).toBeInstanceOf(AbortSignal);
-			expect(captured[0]?.signal?.aborted).toBe(false);
-			expect(OS_BROKER_STATUS_TIMEOUT_MS).toBe(15_000);
-		} finally {
-			await act(async () => {
-				root.unmount();
-			});
-			container.remove();
-			globalThis.fetch = originalFetch;
-		}
-	});
+			let finish!: (response: Response) => void;
+			const fetchStatus = vi
+				.fn()
+				.mockImplementationOnce(
+					() =>
+						new Promise<Response>((resolve) => {
+							finish = resolve;
+						}),
+				)
+				.mockImplementation(() =>
+					Promise.resolve(
+						new Response(JSON.stringify({ authenticated: true })),
+					),
+				);
+			vi.stubGlobal("fetch", fetchStatus);
+			const container = document.createElement("div");
+			const root = createRoot(container);
+			let session!: ReturnType<typeof useOsBrokerSessionStatus>;
+			function Probe() {
+				session = useOsBrokerSessionStatus("/auth/session-broker");
+				return null;
+			}
+			const response = () =>
+				new Response(JSON.stringify({ authenticated: true }), {
+					status: startup === "failure" ? 503 : 200,
+				});
+			try {
+				const prefetch = client.prefetchQuery(
+					brokerStatusQueryOptions("/auth/session-broker"),
+				);
+				expect(fetchStatus).toHaveBeenCalledTimes(1);
+				const [url, init] = fetchStatus.mock.calls[0]!;
+				expect(url).toBe("/auth/session-broker/status");
+				expect(init.credentials).toBe("include");
+				expect(init.signal).toBeInstanceOf(AbortSignal);
+				expect(init.signal.aborted).toBe(false);
+				expect(OS_BROKER_STATUS_TIMEOUT_MS).toBe(15_000);
+				if (startup !== "pending") {
+					finish(response());
+					await prefetch;
+				}
+				await act(async () => {
+					root.render(
+						createElement(
+							QueryClientProvider,
+							{ client },
+							createElement(Probe),
+						),
+					);
+				});
+				expect(fetchStatus).toHaveBeenCalledTimes(1);
+				if (startup === "pending") {
+					expect(session.status).toBeNull();
+					await act(async () => {
+						finish(response());
+						await prefetch;
+					});
+				}
+				await act(async () => {
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				});
+				if (startup === "failure") {
+					expect(session.unavailable).toBe(true);
+					expect(session.status).toBeNull();
+					await act(async () => {
+						session.retryStatus();
+						expect(fetchStatus).toHaveBeenCalledTimes(2);
+					});
+					await act(async () => {
+						await new Promise((resolve) => setTimeout(resolve, 0));
+					});
+				}
+				expect(session.unavailable).toBe(false);
+				expect(session.status?.authenticated).toBe(true);
+				expect(fetchStatus).toHaveBeenCalledTimes(
+					startup === "failure" ? 2 : 1,
+				);
+				await client.prefetchQuery(
+					brokerStatusQueryOptions("/cli/session-broker"),
+				);
+				expect(fetchStatus.mock.calls.at(-1)?.[0]).toBe(
+					"/cli/session-broker/status",
+				);
+			} finally {
+				await act(async () => {
+					root.unmount();
+				});
+				client.clear();
+				vi.unstubAllGlobals();
+			}
+		},
+	);
 });

@@ -15,8 +15,21 @@ import { captureInstallPrompt } from "@/lib/install-prompt";
 import { captureDescopeContinuation } from "@/lib/step-up-continuation";
 import { applyTedixOsTheme } from "@/lib/theme";
 import { osQueryClient, osRouter } from "@/router";
+import { resolveOsTenant } from "@/shared/os-tenant";
+import { brokerStatusQueryOptions } from "@/shared/session-status";
 import "@fontsource-variable/comfortaa/wght.css";
 import "@/styles.css";
+
+// Start verification before the router requests the lazy page components.
+if (resolveOsTenant(window.location.hostname).kind !== "local") {
+	void osQueryClient.prefetchQuery(
+		brokerStatusQueryOptions(
+			window.location.pathname === "/cli/login"
+				? "/cli/session-broker"
+				: "/auth/session-broker",
+		),
+	);
+}
 
 // Installed before the root lookup and the first render so a failure in either
 // is still captured — that is the whole point of a global handler.

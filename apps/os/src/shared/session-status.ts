@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { createTanstackQueryUtils } from "@orpc/tanstack-query";
+import { useQuery } from "@tanstack/react-query";
 import { OS_BROKER_RENEWAL_WINDOW_SECONDS } from "@/auth/broker-session.shared";
 import type { OsIdentity } from "@/lib/os-identity-context";
 
@@ -55,6 +57,39 @@ export interface BrokerStatus {
 	expiresAt?: number | null;
 	renewalRequired?: boolean;
 	user?: OsIdentity;
+}
+
+const brokerStatusQuery = createTanstackQueryUtils(
+	async (brokerPrefix: BrokerPrefix): Promise<BrokerStatus> => {
+		const response = await fetch(`${brokerPrefix}/status`, {
+			credentials: "include",
+			headers: { Accept: "application/json" },
+			signal: AbortSignal.timeout(OS_BROKER_STATUS_TIMEOUT_MS),
+		});
+		if (!response.ok && response.status !== 401) {
+			throw new Error("Session verification unavailable");
+		}
+		const value = (await response.json()) as BrokerStatus;
+		if (typeof value?.authenticated !== "boolean") {
+			throw new Error("Invalid session status");
+		}
+		return value;
+	},
+	{ path: ["session-broker", "status"] },
+);
+
+export function brokerStatusQueryOptions(brokerPrefix: BrokerPrefix) {
+	return brokerStatusQuery.queryOptions({
+		input: brokerPrefix,
+		// Startup and the boundary share one check, including a failed check.
+		// Renewal is driven by expiresAt; failed verification needs Try again.
+		staleTime: Infinity,
+		networkMode: "always",
+		retry: false,
+		retryOnMount: false,
+		refetchOnWindowFocus: false,
+		refetchOnReconnect: false,
+	});
 }
 
 /**
@@ -187,14 +222,12 @@ export function useOsBrokerSessionStatus(brokerPrefix: BrokerPrefix): {
 	resumeThroughBroker: () => void;
 	redirectStarted: boolean;
 } {
-	const [status, setStatus] = useState<BrokerStatus | null>(null);
-	const [unavailable, setUnavailable] = useState(false);
-	const [attempt, setAttempt] = useState(0);
-	const retryStatus = useCallback(() => {
-		setUnavailable(false);
-		setStatus(null);
-		setAttempt((value) => value + 1);
-	}, []);
+	const query = useQuery(brokerStatusQueryOptions(brokerPrefix));
+	const status = query.data ?? null;
+	const unavailable = query.isError && !query.isFetching;
+	const retryStatus = () => {
+		void query.refetch();
+	};
 	const redirectStarted = useRef(false);
 	// A flow continuation suppresses the automatic broker bounce exactly like a
 	// broker error: the login surface must mount first so the magic-link
@@ -202,34 +235,6 @@ export function useOsBrokerSessionStatus(brokerPrefix: BrokerPrefix): {
 	const hasBrokerError =
 		new URL(window.location.href).searchParams.has("error") ||
 		isDescopeFlowContinuation(window.location.href);
-
-	useEffect(() => {
-		let active = true;
-		void fetch(`${brokerPrefix}/status`, {
-			credentials: "include",
-			headers: { Accept: "application/json" },
-			signal: AbortSignal.timeout(OS_BROKER_STATUS_TIMEOUT_MS),
-		})
-			.then(async (response) => {
-				if (!response.ok && response.status !== 401) {
-					throw new Error("Session verification unavailable");
-				}
-				const value = (await response.json()) as BrokerStatus;
-				if (typeof value?.authenticated !== "boolean") {
-					throw new Error("Invalid session status");
-				}
-				return value;
-			})
-			.then((value) => {
-				if (active) setStatus(value);
-			})
-			.catch(() => {
-				if (active) setUnavailable(true);
-			});
-		return () => {
-			active = false;
-		};
-	}, [brokerPrefix, attempt]);
 
 	const resumeThroughBroker = useCallback(() => {
 		if (redirectStarted.current) return;
