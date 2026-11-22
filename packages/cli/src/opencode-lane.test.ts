@@ -34,6 +34,7 @@ const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request) {
  const url = new URL(request.url); appendFileSync(${JSON.stringify(requests)}, JSON.stringify({path:url.pathname,method:request.method})+'\\n');
  if (!request.headers.get('authorization')?.startsWith('Basic ')) return new Response('',{status:401});
  if (url.pathname === '/global/health') return Response.json({healthy:true,version:'1.2.3'});
+ if (url.pathname === '/config') return Response.json({model:'azure/fictional-default'});
  if (url.pathname === '/session' || url.pathname === '/session/${id}') return Response.json({id:${JSON.stringify(id)},directory:${JSON.stringify(dir)}});
  return new Response('',{status:404});
 }}); console.log('opencode server listening on '+server.url.origin);`,
@@ -64,6 +65,10 @@ const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request) {
 			createOpenCodeLaneThread(dir, "fictional/model", undefined, executable),
 	);
 	expect(fresh.thread.id).toBe(id);
+	// No model from Tedix: OpenCode's own default is used.
+	expect(
+		await createOpenCodeLaneThread(dir, "", undefined, executable),
+	).toMatchObject({ model: "fictional-default", modelProvider: "azure" });
 	expect(readFileSync(requests, "utf8")).not.toContain("prompt");
 });
 it("fails closed on backend startup failure", async () => {

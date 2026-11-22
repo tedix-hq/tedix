@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { laneChildEnv } from "./lane-child-env";
 
+const MODEL = /^[^/\s]+\/[^\s]+$/;
 export const opencodeSessionId = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 /** Allocate or recover native state using metadata requests, before any model turn. */
 export async function createOpenCodeLaneThread(
@@ -12,8 +13,6 @@ export async function createOpenCodeLaneThread(
 	executable = "opencode",
 	timeoutMs = 30_000,
 ) {
-	if (!/^[^/\s]+\/[^\s]+$/.test(model))
-		throw new Error("OpenCode requires a configured provider/model");
 	if (resume && !opencodeSessionId.test(resume))
 		throw new Error("Invalid OpenCode native session");
 	const password = randomBytes(24).toString("hex");
@@ -81,6 +80,27 @@ export async function createOpenCodeLaneThread(
 		};
 		if (!health.healthy || !health.version)
 			throw new Error("OpenCode backend unavailable");
+		// No model from Tedix: use the one OpenCode itself is set to, else the
+		// default of the first provider it is signed in to.
+		if (!MODEL.test(model)) {
+			const config = (await request("/config")) as { model?: unknown };
+			const providers = (await request("/config/providers").catch(
+				() => ({}),
+			)) as { default?: Record<string, string> };
+			const defaults = Object.entries(providers.default ?? {}).sort(
+				([a], [b]) => Number(a === "opencode") - Number(b === "opencode"),
+			);
+			model =
+				typeof config.model === "string" && MODEL.test(config.model)
+					? config.model
+					: defaults[0]
+						? `${defaults[0][0]}/${defaults[0][1]}`
+						: "";
+			if (!MODEL.test(model))
+				throw new Error(
+					"OpenCode has no model to use: open OpenCode, connect a provider and choose a model",
+				);
+		}
 		const session = (await request(
 			resume ? `/session/${resume}` : "/session",
 			resume ? "GET" : "POST",

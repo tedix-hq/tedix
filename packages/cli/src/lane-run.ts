@@ -581,7 +581,9 @@ async function runLaneProcessWithReporter(
 			"--format",
 			"json",
 			"--model",
-			options.get("--model") ?? "",
+			nativeThread?.modelProvider
+				? `${nativeThread.modelProvider}/${nativeThread.model}`
+				: (options.get("--model") ?? ""),
 			"--auto",
 			"--session",
 			sessionKey,
