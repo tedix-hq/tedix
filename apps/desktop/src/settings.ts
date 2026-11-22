@@ -431,10 +431,12 @@ function about(now: PanelState): Group[] {
 		!now.app.paused &&
 			enabled.some((runner) => !runner.running) &&
 			"Tasks are not running.",
-		failedUpdate && "The last update did not finish.",
+		(now.app.updateFailure || failedUpdate) &&
+			"The last update did not finish.",
 	].filter((line): line is string => Boolean(line));
 	const details = [
 		`Tedix ${now.app.version}`,
+		now.app.updateFailure,
 		`Command-line tool ${cli.version || "not found"} (${cli.kind})`,
 		now.summary,
 		cli.update?.text,
@@ -452,7 +454,9 @@ function about(now: PanelState): Group[] {
 					glyph: undefined,
 					sub: cli.updating
 						? el("span", "live", el("span", "spinner"), "Updating…")
-						: `Version ${now.app.version}`,
+						: [`Version ${now.app.version}`, now.app.checked]
+								.filter(Boolean)
+								.join(" · "),
 					control: [
 						ready
 							? button(

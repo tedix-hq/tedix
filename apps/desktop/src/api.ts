@@ -25,6 +25,10 @@ export interface PanelState {
 		updateReady?: string;
 		/** A newer command-line tool can be applied. */
 		cliOffer?: string;
+		/** How the last look for updates ended. */
+		checked?: string;
+		/** Why the last update did not finish. */
+		updateFailure?: string;
 		appearance: Appearance;
 		localWorkspace: boolean;
 	};
@@ -106,12 +110,12 @@ export interface PanelApi {
 
 /**
  * What the update entry at the bottom left of the main window shows.
- * `ready`: something can be applied. `waiting`: it applies by itself once
- * the tasks on this Mac have finished. `working`: `text` says what it is
- * doing. `failed`: a click shows the reason.
+ * `ready`: something can be applied; a click applies it at once, never
+ * anything by itself. `working`: `text` says what it is doing. `failed`: a
+ * click tries again; Settings › About says why it failed.
  */
 export interface UpdateView {
-	kind: "hidden" | "ready" | "waiting" | "working" | "failed";
+	kind: "hidden" | "ready" | "working" | "failed";
 	text: string;
 	/** What a screen reader says for the button; longer than `text`. */
 	label: string;

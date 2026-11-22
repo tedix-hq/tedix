@@ -39,16 +39,7 @@ function draw(view: UpdateView): void {
 		entry.className = view.kind === "failed" ? "entry warn" : "entry";
 		entry.title = view.label;
 		entry.setAttribute("aria-label", view.label);
-		entry.append(
-			icon(
-				view.kind === "failed"
-					? "warning"
-					: view.kind === "waiting"
-						? "clock"
-						: "refresh",
-				16,
-			),
-		);
+		entry.append(icon(view.kind === "failed" ? "warning" : "refresh", 16));
 		if (view.place !== "rail")
 			entry.append(
 				Object.assign(document.createElement("span"), {

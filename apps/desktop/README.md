@@ -102,19 +102,12 @@ The app is not signed or notarized yet and has been run on macOS only.
     above the account row (in the bottom-left corner without a sidebar). The
     app draws it over the page and moves the account row up while it is
     there.
-  - One click updates. With no task running on this Mac, the app restarts
-    into the new version at once and puts the newest command-line tool in
-    place before it starts the runners; with only a newer command-line tool,
-    it does that without a restart.
-  - With tasks running, it asks once: "2 tasks are running. Update when they
-    finish?" with **Update when done** and **Update now**; Escape means not
-    now. While it waits, the runners finish their tasks and take no new
-    ones (the app writes `~/.tedix/app-update-waiting`), so the wait ends.
-    A task counts only while its agent process is alive.
-  - If an update fails, the entry says so; a click shows why and offers to
-    try again.
-  - **Check for Updates…** updates like a click on the entry, or says
-    "Tedix is up to date" with the version.
+  - One click updates, with no question: the app restarts into the new
+    version and puts the newest command-line tool in place before it
+    starts the runners; with only a newer command-line tool, it does that
+    without a restart. Running tasks keep going.
+  - If an update fails, the entry says so; a click tries again, and
+    Settings › About says why.
 - **Nothing is replaced without a click.** Replacing the command-line
   tool stops tasks running on this Mac. So the app never
   replaces the tool and never restarts the runners by itself.
@@ -149,162 +142,10 @@ The app is not signed or notarized yet and has been run on macOS only.
   and whether everything works). A tool's switch starts or stops only that
   tool's runner: the supervisor reads `~/.tedix/supervisor-runners.json`
   by itself, so other tools keep their tasks.
-- **Update without stopping work.** With tasks running, the update asks
-  once, **Update now** or **Later**; running tasks keep going and their
-  runner restarts on the new version when the task ends.
-
-## When something goes wrong
-
-The app writes one line per sign-in, setup and update step to
-`~/Library/Logs/@tedix/desktop/tedix.log` (`~/Library/Logs/Tedix Dev/` for the
-copy run from source). It holds page addresses without anything after `?` or
-`#`, and no tokens, codes or keys.
-
-## Chat with a local model
-
-Choose **Tedix → New Chat… → On This Mac**, or click the menu bar icon
-and choose **On This Mac**. This chat needs no Tedix account or local workspace.
-You can also open it directly:
-
-```sh
-open -na /Applications/Tedix.app --args --local-model
-```
-
-Start [Ollama](https://docs.ollama.com/api/openai-compatibility) with a downloaded
-model, or start the [LM Studio local server](https://lmstudio.ai/docs/developer/core/server)
-with a model available on this Mac. Tedix looks for models from both servers
-and shows them in the picker beside the message box. Open **Connections** to
-change a port or refresh the list. The default ports are 11434 for Ollama and
-1234 for LM Studio. Replies appear as text arrives.
-
-Tedix connects to the local server at `127.0.0.1` without API credentials.
-Choose a model on this Mac for on-device inference. Chats last until you close
-the window or start a new chat.
-
-## Use Local Tedix without a Cloud account
-
-On the first screen, click **Start on this Mac**. You can also open
-**Local workspace** from **Settings → This Mac**. Tedix opens the Revenue Ops sample workspace and saves
-its files on this Mac. When you open Local Workspace again, Tedix starts the
-service for you. Local Workspace uses a separate session from Tedix Cloud.
-
-The sample workspace ships with AI replies turned off.
-
-### Run a separate local workspace for development
-
-Run `bun run-local` from a Tedix source checkout.
-
-To open the installed app directly in local mode:
-
-```sh
-open -na /Applications/Tedix.app --args --local
-```
-
-If you set `TEDIX_LOCAL_OS_PORT` on the launcher, pass the same port to the app
-with `--local=3048` in place of `--local`.
-
-For AI replies, authenticate Wrangler to your Cloudflare account and start the
-stack with Workers AI enabled:
-
-```sh
-bunx wrangler login
-bunx wrangler whoami
-bun run-local --inference --workers-ai-account=YOUR_ACCOUNT_ID
-```
-
-The stack stores work on this Mac and sends model requests to Cloudflare. Local
-chat shows whether requests go through AI Gateway or directly to Workers AI.
-Add `--ai-gateway=YOUR_GATEWAY_ID` to require your gateway or
-`--ai-routing=direct` to choose direct Workers AI. See
-[Getting started](../../docs/public/getting-started.md) for the local stack's
-requirements and options.
-
-## Run it from source
-
-From the repository root, after `bun install`:
-
-```sh
-bun run --cwd apps/desktop dev
-```
-
-This copy is called Tedix Dev. It keeps its own data folder
-(`~/Library/Application Support/Tedix Dev`), so it has its own sign-in, and it
-does not take `tedix://` links: those always go to the installed app. It has
-a command-line tool inside only after `bun scripts/fetch-cli.ts arm64` (or
-`x64`); without that it uses the `tedix` already on this Mac. To finish
-a browser sign-in in Tedix Dev, copy the address of the **Open the Tedix app**
-button and pass it on:
-
-```sh
-bun run --cwd apps/desktop dev "tedix://sign-in?code=…"
-```
-
-## Build the Mac app
-
-```sh
-bun run --cwd apps/desktop build
-open apps/desktop/dist/mac-arm64/Tedix.app
-```
-
-## Publish a release
-
-The app updates itself from `https://downloads.tedix.dev/desktop/`, laid out
-like the CLI's releases. It accepts only https from that host, follows no
-redirects, and refuses a download whose SHA-256 differs from the manifest.
-A release with version `X.Y.Z` (three numbers) publishes, in this order:
-
-1. `desktop/releases/X.Y.Z/Tedix-X.Y.Z-darwin-arm64.zip` and
-   `…-darwin-x64.zip`: a zip of `Tedix.app` with the app folder at the top.
-2. `desktop/releases/X.Y.Z/manifest.json`:
-
-   ```json
-   {
-   	"schemaVersion": 1,
-   	"version": "X.Y.Z",
-   	"sourceSha": "<40-character commit>",
-   	"assets": [
-   		{
-   			"name": "Tedix-X.Y.Z-darwin-arm64.zip",
-   			"sha256": "<64 lowercase hex characters>",
-   			"size": 123456789,
-   			"url": "https://downloads.tedix.dev/desktop/releases/X.Y.Z/Tedix-X.Y.Z-darwin-arm64.zip"
-   		}
-   	]
-   }
-   ```
-
-3. `desktop/latest.json`, last, served without caching:
-
-   ```json
-   {
-   	"schemaVersion": 1,
-   	"version": "X.Y.Z",
-   	"sourceSha": "<40-character commit>",
-   	"manifestUrl": "https://downloads.tedix.dev/desktop/releases/X.Y.Z/manifest.json"
-   }
-   ```
-
-The app reads `version` from `latest.json`, and `version` and each asset's
-`name` and `sha256` from the manifest. It builds the download address itself
-from the version and its processor (`arm64` or `x64`).
-
-Build the files on a Mac, from `apps/desktop`. `scripts/fetch-cli.ts` puts the
-command-line tool for one processor type in `cli/<arch>/tedix`, where the
-build picks it up as `Contents/Resources/cli/tedix`. The publish job sets
-`DESKTOP_SOURCE_SHA`, which makes `bun run compile` prepare both Local Workspace
-payloads from that checkout. For a local packaging test, use
-`bun run bundle:local arm64` (or `x64`) before packaging. The installed app
-unpacks its payload into its application data folder on the first start.
-
-The CLI fetch script downloads the latest
-published CLI from `downloads.tedix.dev` and refuses it unless its SHA-256 is
-the one in that release's `SHA256SUMS`; add a version to pin one
-(`bun scripts/fetch-cli.ts arm64 0.29.0`). Publish the CLI release the app
-needs first. A build without these two steps has no command-line tool inside.
-
-The copy inside the app is only the starting point. A CLI release reaches
-installed apps without an app release, through the update entry:
-
+- **Update when you choose.** While an update is ready, **Update Tedix**
+  also shows in the app menu and the menu bar menu. **Check for Updates…**
+  updates at once when one is found, else opens Settings › About with the
+  result.
 - The app reads `https://downloads.tedix.dev/latest.json` and remembers the
   version. That is all it does by itself. The update entry appears for
   the newer of that version and the copy inside the app when it is newer

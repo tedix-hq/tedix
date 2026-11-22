@@ -39,7 +39,6 @@ import {
 	noteUpdateClick,
 	onCliChange,
 	restartSupervisor,
-	supervisorLoaded,
 	takeUpdateClick,
 	updateCli,
 } from "./cli";
@@ -67,7 +66,7 @@ import {
 	setupState,
 } from "./setup";
 import { lastLine, run } from "./shell";
-import { activeRunCount, loadStatus, type Status, summary } from "./status";
+import { loadStatus, type Status, summary } from "./status";
 import { bindTrayMenu } from "./tray-menu";
 import { isOsHost, isOsPage, mainPageAllowed } from "./navigation";
 import {
@@ -149,21 +148,35 @@ async function state(): Promise<PanelState> {
 			problem: runnersProblem(),
 			updateReady: readyVersion(),
 			cliOffer: cliOffer(),
+			checked: lastCheck,
+			updateFailure: failure,
 			appearance: settings().appearance ?? "system",
 			localWorkspace: bundledLocalAvailable(),
 		},
 	};
 }
 
-/** The app menu's Pause or Resume label, so the menu is rebuilt when it changes. */
-let runnersLabel: string | undefined;
+/** What the menus show that can change, so they are rebuilt only then. */
+let menuKey: string | undefined;
+function refreshMenu(): void {
+	const key = `${runnersItem().label}|${updateItems().length}`;
+	if (key === menuKey || !app.isReady()) return;
+	menuKey = key;
+	setMenu();
+}
+
+/** "Update Tedix" in the menus while an update is ready; a click updates at once. */
+function updateItems(): MenuItemConstructorOptions[] {
+	return readyVersion() || cliOffer()
+		? [{ label: "Update Tedix", click: () => void applyUpdate() }]
+		: [];
+}
+
+/** How the last look for updates ended: "Up to date" or why it failed. */
+let lastCheck: string | undefined;
 
 async function publish(): Promise<void> {
-	const label = runnersItem().label;
-	if (label !== runnersLabel && app.isReady()) {
-		runnersLabel = label;
-		setMenu();
-	}
+	refreshMenu();
 	const current = await state();
 	for (const contents of [settingsView?.webContents, setupWindow?.webContents])
 		if (contents && !contents.isDestroyed()) contents.send("state", current);
@@ -265,7 +278,7 @@ function updateView(): UpdateView {
 			...view,
 			kind: "failed",
 			text: "Update did not finish",
-			label: "Update did not finish. Show why",
+			label: "Update did not finish. Try again",
 		};
 	if (!readyVersion() && !cliOffer())
 		return { ...view, kind: "hidden", text: "", label: "" };
@@ -367,6 +380,7 @@ async function watchSidebar(): Promise<void> {
 }
 
 function publishUpdate(): void {
+	refreshMenu();
 	const contents = updateButton?.webContents;
 	if (contents && !contents.isDestroyed())
 		contents.send("update", updateView());
@@ -527,45 +541,23 @@ async function ask(
  */
 async function applyUpdate(): Promise<void> {
 	if (applying) return;
+	// After a failed update, a click tries again; runners that stayed down
+	// are started again first.
 	if (failure) {
 		const down = cliProgress().last?.down;
-		const { response } = await ask({
-			message: "Tedix did not update",
-			detail: failure,
-			buttons: [down ? "Restart Runners" : "Try Again", "Close"],
-			defaultId: 0,
-			cancelId: 1,
-		});
 		failure = undefined;
 		publishUpdate();
-		if (response !== 0) return;
 		if (down)
-			return working("Restarting runners…", async () => {
+			return working("Restarting…", async () => {
 				const result = await restartSupervisor();
 				if (!result.ok)
-					throw new Error(
-						`The runners did not start: ${lastLine(result.output) || "no reason given"}.`,
-					);
-				sayDone("Runners restarted.");
+					throw new Error("Tasks on this Mac did not start again.");
+				sayDone("Tasks run again.");
 			});
 	}
-	const appVersion = readyVersion();
-	const cli = cliOffer();
-	if (!appVersion && !cli) return;
-	// A running task keeps going through an update: its runner holds the
-	// restart until the task ends. So the question only offers now or later.
-	const runs = (await supervisorLoaded()) ? await activeRunCount() : 0;
-	if (runs === 0) return updateNow();
-	const { response } = await ask({
-		message: "Update Tedix now?",
-		detail: "Running tasks keep going.",
-		buttons: ["Update now", "Later"],
-		defaultId: 0,
-		cancelId: 1,
-	});
-	if (response === 0) return updateNow();
-	log("update: not now");
-	publishUpdate();
+	// No question: the person chose to update, and running tasks keep going
+	// (their runner restarts on the new version when the task ends).
+	if (readyVersion() || cliOffer()) return updateNow();
 }
 
 /** Downloads and checks the found app in the background. */
@@ -1256,16 +1248,13 @@ async function checkForUpdates(asked: boolean): Promise<void> {
 	await refreshSetup(false);
 	if (found && readyVersion() !== found.version && !(await download()))
 		problem ||= "The update did not download. Try again later.";
+	lastCheck = problem || "Up to date";
 	publishUpdate();
 	if (!asked) return;
+	// Chosen by the person: update at once, or show the result in Settings.
 	if (readyVersion() || cliOffer()) return applyUpdate();
-	await ask({
-		message: problem
-			? "Tedix could not check for updates"
-			: "Tedix is up to date",
-		detail: problem || `Version ${app.getVersion()}`,
-		buttons: ["OK"],
-	});
+	openSettings("about");
+	void publish();
 }
 
 function newChatItem(): MenuItemConstructorOptions {
@@ -1290,6 +1279,7 @@ function setMenu(): void {
 				// Short, like other Mac apps: everything else is in Settings.
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
+					...updateItems(),
 					{
 						label: "Check for Updates…",
 						click: () => void checkForUpdates(true),
@@ -1504,6 +1494,7 @@ function trayMenu(): Menu {
 			: []),
 		runnersItem(),
 		{ type: "separator" },
+		...updateItems(),
 		{ label: "Settings…", click: () => openSettings() },
 		{ type: "separator" },
 		{ label: "Quit Tedix", click: () => quitFrom("the menu bar icon") },
