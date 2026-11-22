@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.34.1 (2026-11-22)
+
+### Patch Changes
+
+- 50eabde: Read Home messages, run summaries, child trees, and conversation titles with single server-side tool calls to avoid starting a Dynamic Worker for each read.
+- b1505f5: A runner leaving for an updated CLI now actually exits. It used to log that it was restarting and then stay alive, taking no Work, until the supervisor killed it as hung several minutes later.
+
 ## 0.34.0 (2026-11-22)
 
 ### Minor Changes
