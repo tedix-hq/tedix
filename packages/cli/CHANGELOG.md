@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.18 — 2026-11-22
+
+### Patch Changes
+
+- edf89b3: Repeated deferrals for the same reason wait one hour, then four, then 24. Work readiness shows the wait and reason; task, dependency and approval changes wake the runner on its next check.
+
 ## 0.29.17 — 2026-11-22
 
 ### Patch Changes
