@@ -15,12 +15,21 @@ interface DocsActorParams {
 	sessionId: string | null;
 }
 
+export interface DocsReleaseGuard {
+	sourceRevision: string;
+	previousBuildId: string;
+	previousReleaseId: string;
+	canonicalUrl: string;
+	repositoryUrl: string;
+}
+
 export interface ActivateDocsBuildParams {
 	buildId: string;
 	orgSlug: string;
 	siteId: string;
 	action: DocsRelease["action"];
 	actor: DocsActorParams;
+	guard?: DocsReleaseGuard;
 }
 
 export interface ActivateDocsBuildResult {
@@ -36,7 +45,7 @@ export function listDocsReleases(
 		.select()
 		.from(docsReleases)
 		.where(eq(docsReleases.siteId, siteId))
-		.orderBy(desc(docsReleases.createdAt))
+		.orderBy(desc(docsReleases.createdAt), desc(sql`rowid`))
 		.limit(50);
 }
 
@@ -56,6 +65,22 @@ export async function activateDocsBuild(
 		throw new Error("Completed documentation build not found");
 	}
 
+	const guard = params.guard;
+	if (
+		guard &&
+		(params.action !== "publish" ||
+			site.activeBuildId !== guard.previousBuildId ||
+			build.sourceBranch !== "main" ||
+			build.sourceRevision !== guard.sourceRevision ||
+			build.proposalId ||
+			build.phase !== "ready" ||
+			!build.manifestKey ||
+			build.requestedByType !== params.actor.type ||
+			build.requestedById !== params.actor.id)
+	) {
+		throw new Error("Documentation build does not match its delegated release");
+	}
+
 	const releaseId = crypto.randomUUID();
 	const activateSite = db
 		.update(docsSites)
@@ -68,6 +93,25 @@ export async function activateDocsBuild(
 				eq(docsSites.id, params.siteId),
 				eq(docsSites.orgSlug, params.orgSlug),
 				sql`${docsSites.activeBuildId} is ${site.activeBuildId}`,
+				guard &&
+					and(
+						eq(docsSites.canonicalUrl, guard.canonicalUrl),
+						eq(docsSites.status, "active"),
+						eq(docsSites.accessMode, "public"),
+						eq(docsSites.sourceProvider, "github"),
+						eq(docsSites.sourceAuthMode, "public"),
+						eq(docsSites.repositoryUrl, guard.repositoryUrl),
+						eq(docsSites.branch, "main"),
+						eq(docsSites.contentRoot, "docs/public"),
+						sql`(${db
+							.select({
+								id: sql`case when ${docsReleases.action} = 'publish' then ${docsReleases.id} end`,
+							})
+							.from(docsReleases)
+							.where(eq(docsReleases.siteId, params.siteId))
+							.orderBy(desc(docsReleases.createdAt), desc(sql`rowid`))
+							.limit(1)}) = ${guard.previousReleaseId}`,
+					),
 			),
 		);
 	const recordRelease = db

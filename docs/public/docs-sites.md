@@ -150,6 +150,12 @@ tedix -w acme code 'async () => ({
 
 Publishing one site does not change the other.
 
+Tedix operates a dedicated release policy for its own public documentation.
+Changes to `docs/public` on `main` go live there after the documentation checks
+and build pass. The release history attributes those publishes to the Docs
+release service. A manual rollback pauses that site's scheduled publishes
+until a maintainer publishes again.
+
 ## Validate the tenant boundary
 
 Run the acceptance check from a browser profile that is not signed in to Tedix:

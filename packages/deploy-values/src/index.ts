@@ -35,7 +35,12 @@ export type DeployValues = {
 	host(key: string, fallback: string): string;
 	routes(surface: string, fallback: RouteValue[]): RouteValue[];
 	domains(surface: string, fallback: string[]): string[];
-	vars(surface: string, name: string, fallback: string): string;
+	vars(
+		surface: string,
+		name: string,
+		fallback: string,
+		options?: { optional: true },
+	): string;
 };
 
 export type DeployValuesOptions = {
@@ -178,7 +183,7 @@ export function deployValues(options: DeployValuesOptions): DeployValues {
 			}));
 		},
 		domains: (surface, fallback) => stringList(["domains", surface], fallback),
-		vars: (surface, name, fallback) => {
+		vars: (surface, name, fallback, options) => {
 			if (!values) return fallback;
 			const vars = isObject(values.vars) ? values.vars : {};
 			const own = isObject(vars[surface]) ? vars[surface] : {};
@@ -187,6 +192,7 @@ export function deployValues(options: DeployValuesOptions): DeployValues {
 			if (shared[name] !== undefined) {
 				return string(["vars", "shared", name], "");
 			}
+			if (options?.optional) return fallback;
 			fail(`missing key "vars.${surface}.${name}" or "vars.shared.${name}"`);
 		},
 	};

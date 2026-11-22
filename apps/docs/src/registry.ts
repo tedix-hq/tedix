@@ -15,6 +15,7 @@ import {
 } from "@tedix/db/queries/docs-sites/changes";
 import {
 	activateDocsBuild,
+	type ActivateDocsBuildParams,
 	listDocsReleases,
 } from "@tedix/db/queries/docs-sites/releases";
 import {
@@ -208,13 +209,7 @@ export async function createBuild(
 
 export async function activateBuild(
 	d1: D1Database,
-	input: {
-		buildId: string;
-		orgSlug: string;
-		siteId: string;
-		action: DocsRelease["action"];
-		actor: DocsActor;
-	},
+	input: ActivateDocsBuildParams,
 ): Promise<{ site: DocsSite; release: DocsRelease }> {
 	const result = await activateDocsBuild(createDbQueryClient(d1), input);
 	return { site: mapSite(result.site), release: mapRelease(result.release) };

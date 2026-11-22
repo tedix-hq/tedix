@@ -11,6 +11,7 @@ import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { authorizeDocsRequest, DocsAuthError, requestedOrg } from "./auth";
+import { scheduleDocsRelease } from "./delegated-release";
 import { serveDocsPreview, withDocsPreviewRobotsPolicy } from "./preview";
 import { authorizePreviewAccess, previewAccessOrg } from "./preview-access";
 import { buildDocsMcpServer } from "./tools";
@@ -167,4 +168,7 @@ app.on("HEAD", "/preview/:buildId/*", (context) => handlePreview(context));
 app.get("/preview/:buildId", (context) => handlePreview(context));
 app.on("HEAD", "/preview/:buildId", (context) => handlePreview(context));
 
-export default app;
+export default {
+	fetch: app.fetch,
+	scheduled: (_controller, env, ctx) => ctx.waitUntil(scheduleDocsRelease(env)),
+} satisfies ExportedHandler<AppEnv["Bindings"]>;

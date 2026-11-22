@@ -18,7 +18,7 @@ import {
 	proposeDocsChange,
 } from "./authoring";
 import { createPreviewAccess } from "./preview-access";
-import { logDocsFailure } from "./log";
+import { publicationReceipt } from "./publication";
 import { docsSourceAuthPath, getDocsSandbox } from "./sandbox";
 import {
 	activateBuild,
@@ -67,31 +67,6 @@ export interface DocsToolContext {
 	scopes: string[];
 	actor: DocsActor;
 	providerAuthorization: string | null;
-}
-
-async function publicationReceipt(
-	ctx: DocsToolContext,
-	activated: Awaited<ReturnType<typeof activateBuild>>,
-) {
-	let searchProjection: unknown = null;
-	if (activated.site.accessMode === "public") {
-		try {
-			const workflow = await ctx.env.DOCS_BUILD_WORKFLOW.create({
-				id: `search-${activated.release.id}`,
-				params: {
-					operation: "index",
-					siteId: activated.site.id,
-					buildId: activated.release.buildId,
-				},
-			});
-			searchProjection = { status: "queued", workflowId: workflow.id };
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			logDocsFailure("docs.search_index_queue_failed", error);
-			searchProjection = { status: "failed", error: message };
-		}
-	}
-	return { ...activated, searchProjection };
 }
 
 const providerSchema = z.enum(["artifacts", "github", "gitlab", "generic"]);
@@ -537,7 +512,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 					action: "publish",
 					actor: ctx.actor,
 				});
-				return publicationReceipt(ctx, activated);
+				return publicationReceipt(ctx.env, activated);
 			}),
 	);
 
@@ -569,7 +544,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 					action: "rollback",
 					actor: ctx.actor,
 				});
-				return publicationReceipt(ctx, activated);
+				return publicationReceipt(ctx.env, activated);
 			}),
 	);
 

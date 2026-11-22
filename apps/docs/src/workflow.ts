@@ -5,9 +5,18 @@ import {
 } from "cloudflare:workers";
 import { indexPublicDocsBuild } from "./ai-search";
 import {
+	checkDelegatedRelease,
+	docsReleaseActor,
+	type DelegatedDocsRelease,
+} from "./delegated-release";
+import { publicationReceipt } from "./publication";
+import {
+	activateBuild,
 	completeBuild,
+	createBuild,
 	getBuild,
 	getSiteById,
+	listReleases,
 	updateBuildProgress,
 } from "./registry";
 import { docsSourceAuthPath, getDocsSandbox } from "./sandbox";
@@ -65,12 +74,14 @@ function contentTypeFor(path: string): string {
 	return CONTENT_TYPES[extension] ?? "application/octet-stream";
 }
 
-export interface DocsBuildWorkflowParams {
+interface DocsBuildRequest {
 	// Already queued build executions have no operation.
 	operation?: "build" | "index";
 	siteId: string;
 	buildId: string;
 }
+
+export type DocsBuildWorkflowParams = DocsBuildRequest | DelegatedDocsRelease;
 
 interface SourceCheckout {
 	remote: string;
@@ -182,6 +193,7 @@ export async function checkoutAndBuild(
 	env: AppBindings,
 	site: DocsSite,
 	buildId: string,
+	releaseRevision?: string,
 ): Promise<{ revision: string; fileCount: number; manifestKey: string }> {
 	// A build gets an immutable Sandbox identity. Reusing a site's Durable
 	// Object can retain the previous container generation after an image
@@ -204,11 +216,19 @@ export GIT_CONFIG_KEY_0=http.extraHeader
 test -s ${shellQuote(tokenFile)}
 export GIT_CONFIG_VALUE_0="Authorization: $(cat ${shellQuote(tokenFile)})"`
 		: "";
+	const checkRelease = releaseRevision
+		? `cd ${shellQuote(sourceDir)}
+git fetch --depth 1 origin ${shellQuote(releaseRevision)}
+git checkout --detach FETCH_HEAD
+test "$(git rev-parse HEAD)" = ${shellQuote(releaseRevision)}
+bun run docs:public:check >&2`
+		: "";
 	const cloneScript = `set -eu
 cd /tmp
 rm -rf ${shellQuote(sourceDir)}
 ${authSetup}
 git clone --depth 1 --single-branch --branch ${shellQuote(site.branch)} ${shellQuote(checkout.remote)} ${shellQuote(sourceDir)}
+${checkRelease}
 git -C ${shellQuote(sourceDir)} rev-parse HEAD`;
 	const cloned = await (
 		await sandbox.exec(["bash", "-lc", cloneScript])
@@ -361,12 +381,31 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 	async run(
 		event: WorkflowEvent<DocsBuildWorkflowParams>,
 		step: WorkflowStep,
-	): Promise<{ buildId: string; sourceRevision: string }> {
-		const { siteId, buildId } = event.payload;
+	): Promise<{ buildId: string; sourceRevision: string } | null> {
+		const payload = event.payload;
+		const { siteId } = payload;
 		const site = await getSiteById(this.env.DB, siteId);
 		if (!site) throw new Error(`Docs site ${siteId} not found`);
-		const build = await getBuild(this.env.DB, buildId);
-		if (!build || build.siteId !== siteId) {
+		const release = payload.operation === "release" ? payload : null;
+		const reservation = release
+			? await step.do("reserve-release-build", async () => {
+					const checked = await checkDelegatedRelease(this.env, release);
+					if (!checked) return null;
+					const build = await createBuild(this.env.DB, {
+						siteId,
+						sourceBranch: "main",
+						requestedBy: docsReleaseActor,
+					});
+					return { build, site: checked.site };
+				})
+			: null;
+		if (release && !reservation) return null;
+		const build =
+			payload.operation === "release"
+				? reservation?.build
+				: await getBuild(this.env.DB, payload.buildId);
+		const buildId = build?.id;
+		if (!build || !buildId || build.siteId !== siteId) {
 			throw new Error(`Docs build ${buildId} not found`);
 		}
 		if (event.payload.operation === "index") {
@@ -381,10 +420,10 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 			);
 		}
 		const sourceSite = {
-			...site,
+			...(reservation?.site ?? site),
 			branch: build.sourceBranch ?? site.branch,
 		};
-
+		let sourceRevision: string;
 		try {
 			await updateBuildProgress(this.env.DB, buildId, {
 				status: "running",
@@ -396,7 +435,13 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 					retries: { limit: 2, delay: "10 seconds" },
 					timeout: "15 minutes",
 				},
-				() => checkoutAndBuild(this.env, sourceSite, buildId),
+				() =>
+					checkoutAndBuild(
+						this.env,
+						sourceSite,
+						buildId,
+						release?.sourceRevision,
+					),
 			);
 
 			await step.do("record-preview", async () => {
@@ -407,7 +452,7 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 					manifestKey: snapshot.manifestKey,
 				});
 			});
-			return { buildId, sourceRevision: snapshot.revision };
+			sourceRevision = snapshot.revision;
 		} catch (error) {
 			const message = errorMessage(error).slice(0, 4000);
 			await updateBuildProgress(this.env.DB, buildId, {
@@ -423,5 +468,31 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 				.deleteFile(docsSourceAuthPath(buildId))
 				.catch(() => undefined);
 		}
+		if (release) {
+			await step.do("publish-checked-release", async () => {
+				const checked = await checkDelegatedRelease(this.env, release);
+				if (!checked) {
+					// A retry after the activation committed can still enqueue search.
+					const [latest] = await listReleases(this.env.DB, siteId);
+					if (
+						latest?.buildId === buildId &&
+						latest.actor.id === docsReleaseActor.id
+					) {
+						await publicationReceipt(this.env, { site, release: latest });
+					}
+					return;
+				}
+				const activated = await activateBuild(this.env.DB, {
+					buildId,
+					siteId,
+					orgSlug: checked.site.orgSlug,
+					action: "publish",
+					actor: docsReleaseActor,
+					guard: checked.guard,
+				});
+				await publicationReceipt(this.env, activated);
+			});
+		}
+		return { buildId, sourceRevision };
 	}
 }

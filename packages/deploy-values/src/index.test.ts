@@ -103,6 +103,7 @@ describe("deployValues", () => {
 		expect(() => live.vars("api", "NOPE", "x")).toThrow(
 			/vars\.api\.NOPE.*vars\.shared\.NOPE/,
 		);
+		expect(live.vars("api", "NOPE", "", { optional: true })).toBe("");
 	});
 
 	it("prefers surface vars over shared vars", () => {

@@ -131,6 +131,7 @@ export interface AppBindings {
 	ENVIRONMENT: string;
 	/** Release SHA, set at deploy time via `--var GIT_SHA`. Reported by /health. */
 	GIT_SHA?: string;
+	DOCS_DELEGATED_RELEASE?: string;
 	DOCS_BASE_DOMAIN: string;
 	DOCS_ADMIN_URL: string;
 	DESCOPE_PROJECT_ID: string;

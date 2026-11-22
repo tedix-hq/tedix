@@ -39,6 +39,9 @@ export default defineConfig(({ mode }) => {
 	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
 	// every lookup returns the placeholder beside it.
 	const live = deployValues({ mode });
+	const delegatedRelease = live.vars("docs", "DOCS_DELEGATED_RELEASE", "", {
+		optional: true,
+	});
 	const workerName = production
 		? live.worker("docs", "public-installation-docs-production")
 		: "public-installation-docs";
@@ -69,9 +72,12 @@ export default defineConfig(({ mode }) => {
 			...(live.active
 				? {
 						domains: live.domains("docs", []),
-						triggers: live
-							.routes("docs", [])
-							.map((route) => triggers.fetch(route)),
+						triggers: [
+							...live.routes("docs", []).map((route) => triggers.fetch(route)),
+							...(delegatedRelease
+								? [triggers.scheduled({ schedule: "*/10 * * * *" })]
+								: []),
+						],
 					}
 				: {}),
 			logpush: true,
@@ -133,6 +139,9 @@ export default defineConfig(({ mode }) => {
 					: {}),
 				ENVIRONMENT: bindings.text(production ? "production" : "development"),
 				GIT_SHA: bindings.text(releaseSha),
+				...(delegatedRelease
+					? { DOCS_DELEGATED_RELEASE: bindings.text(delegatedRelease) }
+					: {}),
 				DOCS_BASE_DOMAIN: bindings.text(live.host("docs", PLACEHOLDER)),
 				DOCS_ADMIN_URL: bindings.text(
 					live.active ? `https://${live.host("docsAdmin", "")}` : PLACEHOLDER,

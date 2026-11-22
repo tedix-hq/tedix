@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { docsBuilds, docsReleases, docsSites } from "../../schema/docs-sites";
@@ -120,6 +121,88 @@ describe("Docs activation and release receipt atomicity", () => {
 			expect(await db.select().from(docsReleases)).toEqual([retried.release]);
 		},
 	);
+
+	it("requires the checked source and preserves manual releases that land after scheduling", async () => {
+		const { db, params } = await setup();
+		const baseline = await activateDocsBuild(db, {
+			...params,
+			buildId: "build-old",
+		});
+		const source = {
+			sourceProvider: "github" as const,
+			sourceAuthMode: "public" as const,
+			repositoryUrl: "https://github.com/example/project.git",
+			contentRoot: "docs/public",
+			branch: "main",
+			accessMode: "public" as const,
+			status: "active" as const,
+		};
+		await db
+			.update(docsSites)
+			.set(source)
+			.where(eq(docsSites.id, params.siteId));
+		const sourceRevision = "a".repeat(40);
+		await db
+			.update(docsBuilds)
+			.set({
+				sourceBranch: source.branch,
+				sourceRevision,
+				phase: "ready",
+				manifestKey: "test-manifest.json",
+				requestedByType: ACTOR.type,
+				requestedById: ACTOR.id,
+			})
+			.where(eq(docsBuilds.id, params.buildId));
+
+		const guard = {
+			sourceRevision,
+			previousBuildId: baseline.site.activeBuildId!,
+			previousReleaseId: baseline.release.id,
+			canonicalUrl: baseline.site.canonicalUrl,
+			repositoryUrl: source.repositoryUrl,
+		};
+		await expect(
+			activateDocsBuild(db, {
+				...params,
+				guard: {
+					...guard,
+					sourceRevision: "b".repeat(40),
+				},
+			}),
+		).rejects.toThrow("does not match its delegated release");
+		await db
+			.update(docsSites)
+			.set({ contentRoot: "docs/internal" })
+			.where(eq(docsSites.id, params.siteId));
+		await expect(activateDocsBuild(db, { ...params, guard })).rejects.toThrow(
+			"concurrent activation race",
+		);
+		await db
+			.update(docsSites)
+			.set(source)
+			.where(eq(docsSites.id, params.siteId));
+
+		const guarded = await activateDocsBuild(db, { ...params, guard });
+		expect(guarded.release.buildId).toBe(params.buildId);
+		const rollback = await activateDocsBuild(db, {
+			...params,
+			action: "rollback",
+			buildId: guard.previousBuildId,
+		});
+		await expect(activateDocsBuild(db, { ...params, guard })).rejects.toThrow(
+			"concurrent activation race",
+		);
+		expect((await db.select().from(docsReleases)).length).toBe(3);
+		expect((await getDocsSiteById(db, params.siteId))?.activeBuildId).toBe(
+			guard.previousBuildId,
+		);
+		await expect(
+			activateDocsBuild(db, {
+				...params,
+				guard: { ...guard, previousReleaseId: rollback.release.id },
+			}),
+		).rejects.toThrow("concurrent activation race");
+	});
 
 	it("records the exact previous build and actor for initial publish, replacement and rollback", async () => {
 		const { db, params } = await setup();
