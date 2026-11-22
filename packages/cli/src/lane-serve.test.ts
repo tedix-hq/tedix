@@ -5098,7 +5098,7 @@ describe("dispatcher admission", () => {
 			expect(moves()).toHaveLength(1);
 			expect(moves()[0]!.args).toContain(item().id);
 			expect(moves()[0]!.input).toMatchObject({
-				executorReference: { type: "external_agent", id: "claude-code" },
+				executor: "claude-code",
 				idleReassignment: {
 					fromExecutor: "codex",
 					reason: "unavailable",
@@ -5106,6 +5106,12 @@ describe("dispatcher admission", () => {
 					detail: `Codex is out of credits or at its usage limit until about ${new Date(until).toISOString().slice(11, 16)} UTC`,
 				},
 			});
+			// The server's reassignment refuses any key besides these.
+			expect(Object.keys(moves()[0]!.input!).sort()).toEqual([
+				"executor",
+				"expectedWorkItemVersion",
+				"idleReassignment",
+			]);
 			expect(events.some((event) => event.verb === "start")).toBe(false);
 		} finally {
 			clock.mockRestore();

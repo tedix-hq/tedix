@@ -4607,7 +4607,8 @@ export class LaneDispatcher {
 						item.id,
 						"--input",
 						JSON.stringify({
-							executorReference: { type: "external_agent", id: executor },
+							// The server's reassignment takes `executor`, nothing else.
+							executor,
 							expectedWorkItemVersion: item.version,
 							idleReassignment: {
 								fromExecutor: donor,
@@ -5388,7 +5389,7 @@ export class LaneDispatcher {
 				item.id,
 				"--input",
 				JSON.stringify({
-					executorReference: { type: "external_agent", id: target },
+					executor: target,
 					expectedWorkItemVersion: item.version,
 					idleReassignment: {
 						fromExecutor: from,
