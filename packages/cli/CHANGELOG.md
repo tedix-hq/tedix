@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.32.0 (2026-11-22)
+
+### Minor Changes
+
+- 9cd1ab7: Runner tasks continue where they stopped after the Tedix app quits or restarts. When a runner starts and finds a task its previous runner left mid-turn, with the task's Attempt still open, it resumes the same Codex, Claude Code or OpenCode session in the same checkout under the same Attempt, with a short note that the app restarted. Only when the session or checkout is gone does the Attempt end and the task start again, and the runner log says why (`restart-resume-fallback`).
+
+### Patch Changes
+
+- af51c68: Settle and complete a successful dispatcher run in one request against the accepted Work revision. Settlement proof now uses the typed `settlement` field. Update the CLI and API together when deploying to a self-hosted installation.
+- 90be1d4: Avoid dispatcher permission holds for transport events, source-referenced function calls, and conditional access changes in code tasks.
+
 ## 0.31.0 (2026-11-22)
 
 ### Minor Changes
