@@ -36,6 +36,15 @@ const DecisionSourceSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("output"),
 		id: z.uuid(),
 		revisionId: z.uuid(),
+		title: z.string().trim().min(1).max(200).optional(),
+		slide: z
+			.number()
+			.int()
+			.positive()
+			.optional()
+			.describe(
+				"One-based slide in the cited revision, when the decision concerns a particular slide.",
+			),
 	}),
 ]);
 export type DecisionSource = z.infer<typeof DecisionSourceSchema>;

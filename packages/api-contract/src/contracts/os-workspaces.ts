@@ -1656,6 +1656,10 @@ export const osWorkspacesContract = oc
 						outputId: z.uuid(),
 						beforeRevision: z.number().int().positive().optional(),
 						revision: z.number().int().positive().optional(),
+						revisionId: z
+							.uuid()
+							.optional()
+							.describe("Immutable revision cited in Work or a decision"),
 					}),
 				)
 				.output(

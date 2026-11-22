@@ -1,3 +1,4 @@
+import { CitedOutput } from "./cited-output";
 import { useQuery } from "@tanstack/react-query";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
@@ -54,6 +55,23 @@ export function FeedOutcomePreview({
 			plainFeedText(item.attachment.summary, OS_COPY.feed),
 	};
 	const title = image?.label || document?.label || attachment?.title;
+	if (
+		!evidence.isError &&
+		!image &&
+		document?.reference.kind === "output_revision" &&
+		document.reference.outputId &&
+		document.reference.revisionId
+	) {
+		return (
+			<CitedOutput
+				inline
+				key={document.reference.revisionId}
+				title={title || "Workspace file"}
+				outputId={document.reference.outputId}
+				revisionId={document.reference.revisionId}
+			/>
+		);
+	}
 	if (!title && (compact || !enabled)) return null;
 
 	const loading =

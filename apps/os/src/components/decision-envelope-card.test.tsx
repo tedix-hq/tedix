@@ -1,3 +1,5 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { osQuery } from "@/lib/os-query-options";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
@@ -259,3 +261,80 @@ it.each(["execution_hold", "result_unverified", "accountable_owner"] as const)(
 		}
 	},
 );
+
+it("opens a cited slide in one click without answering the decision", async () => {
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { staleTime: Infinity } },
+	});
+	const id = "00000000-0000-4000-8000-000000000001",
+		revisionId = "00000000-0000-4000-8000-000000000002";
+	const decision = structuredClone(DECISION_DECK_EXAMPLES[0]!);
+	decision.sources = [
+		{ kind: "output", id, revisionId, title: "Pilot brief", slide: 2 },
+	];
+	queryClient.setQueryData(
+		osQuery.osWorkspaces.outputs.history.queryOptions({
+			input: { outputId: id, revisionId },
+		}).queryKey,
+		{
+			nextBeforeRevision: null,
+			pending: [],
+			revisions: [
+				{
+					id: revisionId,
+					revision: 3,
+					organizationId: "test-org",
+					note: null,
+					accessEnvelope: null,
+					producedBy: null,
+					createdByKind: "user",
+					createdById: "author",
+					createdAt: "2026-11-22T10:00:00Z",
+					outputId: id,
+					content: {
+						kind: "presentation",
+						slides: [
+							{ title: "Cover", bullets: [] },
+							{ title: "Partner review", bullets: ["Check the local notes."] },
+						],
+					},
+				},
+			],
+		},
+	);
+	const onDecision = vi.fn();
+	try {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={queryClient}>
+					<DecisionEnvelopeCard
+						decision={decision}
+						askedBy="Workspace agent"
+						onDecision={onDecision}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		const source = [...host.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("Pilot brief"),
+		);
+		expect(source).toBeDefined();
+		await act(async () => source!.click());
+		await vi.waitFor(() =>
+			expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+				"Slide 2 of 2",
+			),
+		);
+		expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+			"Partner review",
+		);
+		expect(onDecision).not.toHaveBeenCalled();
+	} finally {
+		await act(async () => root.unmount());
+		queryClient.clear();
+		host.remove();
+	}
+});

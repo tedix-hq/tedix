@@ -325,6 +325,7 @@ export function WorkDecisionCard({
 	agentDetails,
 	content,
 	faceContent,
+	citedSources,
 	actions = [],
 	feedbackAction,
 	editAction,
@@ -358,6 +359,7 @@ export function WorkDecisionCard({
 	content?: ReactNode;
 	/** Shown on the card face, not behind Context: fields the answer needs. */
 	faceContent?: ReactNode;
+	citedSources?: ReactNode;
 	actions?: readonly DecisionCardAction[];
 	feedbackAction?: DecisionCardAction;
 	editAction?: DecisionCardAction;
@@ -1061,6 +1063,7 @@ export function WorkDecisionCard({
 								<CardContent ref={cardBody}>
 									<div className="fd-card-body grid grid-cols-1 gap-4">
 										{deckNotice}
+										{citedSources}
 										<div
 											data-card-feedback-content
 											aria-busy={revising}

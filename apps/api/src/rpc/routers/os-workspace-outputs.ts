@@ -465,13 +465,25 @@ const outputsHistory = readOs.outputs.history.handler(
 			organizationId: output.organizationId,
 			outputId: output.id,
 		};
-		const exact = input.revision
-			? await getOsOutputRevisionByNumber(queryDb(context), {
-					...scope,
-					revision: input.revision,
+		const selected = input.revisionId
+			? await getOsOutputRevision(queryDb(context), {
+					organizationId: output.organizationId,
+					workspaceId: output.workspaceId ?? undefined,
+					revisionId: input.revisionId,
 				})
-			: null;
-		const rows = input.revision
+			: input.revision
+				? await getOsOutputRevisionByNumber(queryDb(context), {
+						...scope,
+						revision: input.revision,
+					})
+				: null;
+		const exact =
+			selected?.outputId === output.id &&
+			(!input.revision || input.revision === selected.revision)
+				? selected
+				: null;
+		const pinned = Boolean(input.revision || input.revisionId);
+		const rows = pinned
 			? exact
 				? [exact]
 				: []
@@ -484,10 +496,7 @@ const outputsHistory = readOs.outputs.history.handler(
 		const { factoryCardRevisionRequests } =
 			await import("../../services/factory-card-revisions");
 		const newest =
-			output.kind === "sheet" &&
-			!input.revision &&
-			!input.beforeRevision &&
-			rows[0]
+			output.kind === "sheet" && !pinned && !input.beforeRevision && rows[0]
 				? await getOsOutputRevision(queryDb(context), {
 						organizationId: output.organizationId,
 						revisionId: rows[0].id,
@@ -539,7 +548,7 @@ const outputsHistory = readOs.outputs.history.handler(
 				? [named(mapOsOutputRevisionRow(exact))]
 				: rows.map((row) => named(mapOsOutputRevisionMetadata(row))),
 			nextBeforeRevision:
-				!input.revision && rows.length === 50 ? rows.at(-1)!.revision : null,
+				!pinned && rows.length === 50 ? rows.at(-1)!.revision : null,
 			pending,
 		};
 	},

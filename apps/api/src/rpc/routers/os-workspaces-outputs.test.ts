@@ -870,6 +870,22 @@ describe("outputs", () => {
 			revision: 1,
 		});
 		expect(exact.revisions[0]?.content).toEqual(created.revision.content);
+		const pinned = await c.org1.outputs.history({
+			outputId: created.output.id,
+			revisionId: created.revision.id,
+		});
+		expect(pinned.revisions[0]?.content).toEqual(created.revision.content);
+		const other = await c.org1.outputs.create({
+			workspaceId: to.id,
+			kind: "document",
+			title: "Another file",
+		});
+		const mismatched = await c.org1.outputs.history({
+			outputId: other.output.id,
+			revisionId: created.revision.id,
+		});
+		expect(mismatched.revisions).toEqual([]);
+
 		const audit = await createDbClient(c.env.DB)
 			.select()
 			.from(auditEvents)
