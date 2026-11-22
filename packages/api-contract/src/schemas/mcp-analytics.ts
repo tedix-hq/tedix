@@ -19,6 +19,8 @@ export const MCP_ANALYTICS_BLOB = {
 	executionId: "blob11",
 	traceId: "blob12",
 	registrationMethod: "blob13",
+	clientComponent: "blob14",
+	cliVersion: "blob15",
 } as const;
 
 export const MCP_ANALYTICS_DOUBLE = {
@@ -45,6 +47,8 @@ export const MCP_ANALYTICS_BLOB_ORDER = [
 	"executionId",
 	"traceId",
 	"registrationMethod",
+	"clientComponent",
+	"cliVersion",
 ] as const;
 
 export const MCP_ANALYTICS_DOUBLE_ORDER = [
@@ -104,6 +108,8 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
 ] as const;
 
 export interface McpAnalyticsDataPointEvent {
+	clientComponent?: string;
+	cliVersion?: string;
 	eventType: string;
 	appId?: string;
 	appSlug?: string;
@@ -176,6 +182,8 @@ export function buildMcpAnalyticsDataPoint(event: McpAnalyticsDataPointEvent): {
 			event.executionId || "",
 			event.traceId || "",
 			event.registrationMethod || "",
+			event.clientComponent || "",
+			event.cliVersion || "",
 		],
 		doubles: [
 			event.success ? 1 : 0,

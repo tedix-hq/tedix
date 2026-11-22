@@ -1,3 +1,4 @@
+import { readTurnContext } from "../../../../apps/mcp/src/mcp/hook-context-projection";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,7 +47,13 @@ test("board priorities exclude other harnesses, projects, selected and running W
 	const code = gatewayCode({
 		nextWork: { projectId, harness: "claude-code", selected: id(6) },
 	});
-	const execute = new Function("work", `return (${code})();`);
+	const execute = new Function(
+		"readTurnContext",
+		`return work => {
+ const home = {read_turn_context: input => readTurnContext(input, (name,args) => work[name.split('.')[1]](args))};
+ return (${code})();
+ };`,
+	)(readTurnContext);
 	const data = await execute({
 		list_work_items: async (query: unknown) => {
 			expect(query).toEqual({ projectId, disposition: "accepted", limit: 50 });
@@ -60,6 +67,7 @@ test("board priorities exclude other harnesses, projects, selected and running W
 				view: "board",
 			});
 			return {
+				view: "board",
 				data: rows.map((row) => ({
 					...row,
 					activeAttempt:

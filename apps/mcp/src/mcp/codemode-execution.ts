@@ -261,7 +261,14 @@ export function writeCodeModeAnalytics(
 	const dataset = serverCtx.env.CODEMODE_ANALYTICS;
 	if (!dataset) return;
 	writeCodeModeTelemetry(
-		() => dataset.writeDataPoint(buildMcpCodeModeAnalyticsDataPoint(event)),
+		() =>
+			dataset.writeDataPoint(
+				buildMcpCodeModeAnalyticsDataPoint({
+					...event,
+					clientComponent: serverCtx.callerIdentity?.clientComponent,
+					cliVersion: serverCtx.callerIdentity?.cliVersion,
+				}),
+			),
 		serverCtx.ctx.waitUntil.bind(serverCtx.ctx),
 	);
 }

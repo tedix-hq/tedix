@@ -147,6 +147,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		const event = JSON.parse(stdin);
 		if (typeof event.cwd === "string" && isAbsolute(event.cwd)) cwd = event.cwd;
 	} catch {}
+	env = { ...env, TEDIX_CLI_COMPONENT: `hook:${name}` };
 	const deps: HookDeps = {
 		env,
 		stdin,

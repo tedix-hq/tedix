@@ -33,6 +33,7 @@
  * budget they go after the lessons beyond the top six and before any document
  * text; only that session sees them.
  */
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import {
 	type Delegation,
 	forgetDelegations,
@@ -91,8 +92,7 @@ const TOP_LESSONS = 6;
 const DOCUMENT_STEP = 200;
 /** Open delegations named per turn; settled ones drop off the local list. */
 const DELEGATION_LIMIT = 8;
-/** Request ledger rows read per turn, and the ones named to the agent. */
-const REQUEST_READ_LIMIT = 30;
+/** Request ledger rows named to the agent. */
 const REQUEST_LIMIT = 5;
 /** Answer text handed over with the prompt, leaving room for the context. */
 const ANSWERS_IN_CONTEXT = 3000;
@@ -252,19 +252,7 @@ export function boundedContext(
 /** One boundary-only read of a selected Work Item and its existing purpose path. */
 export function workBoundaryCode(workItemId: string): string {
 	if (!UUID.test(workItemId)) throw new Error("invalid Work Item id");
-	return String.raw`async () => {
- const r = await work.get_work_items_by_id({id:WORK_ID});
- const w = r.workItem;
- async function each(read) { try { return await read(); } catch { return {unavailable:true}; } }
- const project = w.projectId ? await each(() => projects.get_project({id:w.projectId})) : null;
- const objectiveId = w.objectiveId ?? (project?.unavailable === true ? null : project?.objectiveId ?? null);
- const objective = objectiveId ? await each(() => tedis.get_tedi_objectives_by_id({id:objectiveId})) : null;
- return {
-  item:{id:w.id,organizationId:w.orgId,projectId:w.projectId,objectiveId:w.objectiveId,title:w.title,disposition:w.disposition,dueDate:w.dueDate,deadline:w.deadline,acceptanceContract:w.acceptanceContract},
-  project:project?.unavailable === true ? project : project ? {id:project.id,organizationId:project.orgId,objectiveId:project.objectiveId,targetDate:project.targetDate} : null,
-  objective:objective?.unavailable === true ? objective : objective ? {id:objective.id,organizationId:objective.orgId,title:objective.title,status:objective.status,successCriteria:objective.successCriteria} : null
- };
-}`.replace("WORK_ID", JSON.stringify(workItemId));
+	return `async () => await home.read_work_boundary(${codeModeLiteral({ workItemId })})`;
 }
 
 /** A single focus line for task and purpose changes. */
@@ -395,64 +383,7 @@ export function gatewayCode(
 		["codex", "claude-code", "devin"].includes(binding.nextWork.harness)
 	)
 		target.nextWork = binding.nextWork;
-	// Every source reads concurrently: the call lasts as long as its slowest read.
-	return String.raw`async () => {
- const t = TARGET;
- const pending = {};
- async function document(workspaceId, outputId) {
-  const [w, r] = await Promise.all([os.get_os_workspace({workspaceId:workspaceId}), os.get_os_output({outputId:outputId})]);
-  const blocks = r.currentRevision.content.blocks;
-  if (!Array.isArray(blocks) || blocks.some(b => !b || typeof b !== 'object' || (b.type === 'list' ? !Array.isArray(b.items) || b.items.some(item => typeof item !== 'string') : !['heading','paragraph','quote','code'].includes(b.type) || typeof b.text !== 'string'))) throw new Error('Malformed shared document blocks');
-  const text = blocks.flatMap(b => b.type === 'list' ? b.items : [b.text]).join('\n');
-  return { workspace:{id:w.workspace.id,organizationId:w.workspace.organizationId,status:w.workspace.status}, output:{id:r.output.id,workspaceId:r.output.workspaceId,organizationId:r.output.organizationId,kind:r.output.kind,status:r.output.status,currentRevisionId:r.output.currentRevisionId}, revision:{id:r.currentRevision.id,outputId:r.currentRevision.outputId,organizationId:r.currentRevision.organizationId,revision:r.currentRevision.revision,kind:r.currentRevision.content.kind},text:text.slice(0,3200),blocksValid:true,complete:text.length<=3200 };
- }
- async function each(read) { try { return await read(); } catch { return {unavailable:true}; } }
- if (t.contextOutputId) pending.shared = each(() => document(t.osWorkspaceId, t.contextOutputId));
- if (t.preferencesOutputId) pending.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? pending.shared : each(() => document(t.preferencesWorkspaceId, t.preferencesOutputId));
- if (t.lessons) pending.lessons = each(async () => {
-  const r = await agent.get_agent_session_lessons(t.lessons);
-  return {organizationId:r.organizationId,matched:r.matched,truncated:r.truncated,holdout:r.holdout === true,lessons:r.lessons.map(l => ({id:l.id,shortId:l.shortId,text:l.text,scope:l.scope,learned:l.learned,updatedAt:l.updatedAt}))};
- });
- if (t.workItemId) pending.work = each(async () => {
-  const r = await work.get_work_items_by_id({id:t.workItemId});
-  const comments = r.comments ?? [];
-  return {item:{title:r.workItem.title,id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
- });
- if (t.requests) pending.requests = each(async () => {
-  const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],sessionKey:t.requests.session,...(t.requests.harness ? {harness:t.requests.harness} : {}),limit:REQUEST_READ_LIMIT,order:'newest'});
-  const rows = r.data.filter(q => q.sessionKey === t.requests.session && (!q.projectId || !t.requests.projectId || q.projectId === t.requests.projectId));
-  const data = await Promise.all(rows.map(async (q, index) => {
-   let verifiedCompletion = false;
-   let verificationUnavailable = false;
-   const ids = [...new Set(Array.from((q.evidence ?? '').matchAll(/(?:work\/items\/|Work-Item:\s*|Work=)([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\b/gi), m => m[1]))];
-   if (q.kind !== 'ask' && ids.length) {
-    verificationUnavailable = index >= 8 || ids.length > 4;
-    if (!verificationUnavailable) {
-    const items = await Promise.all(ids.map(id => each(() => work.get_work_items_by_id({id:id}))));
-    verificationUnavailable = items.some((r, i) => r.workItem?.id !== ids[i]);
-    verifiedCompletion = !verificationUnavailable && items.every(r => r.workItem.disposition === 'completed' && (!q.projectId || r.workItem.projectId === q.projectId));
-    }
-   }
-   return {id:q.id,projectId:q.projectId,harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt,verifiedCompletion,verificationUnavailable};
-  }));
-  return {complete:r.data.length < REQUEST_READ_LIMIT,data:data};
- });
- if (t.nextWork) pending.nextWork = each(async () => {
-  const query = {projectId:t.nextWork.projectId,disposition:'accepted',limit:50};
-  const [r, board] = await Promise.all([work.list_work_items(query),work.list_work_item_cli_rows({...query,view:'board'})]);
-  const idle = new Set(board.data.filter(w => w.projectId === t.nextWork.projectId && w.disposition === 'accepted' && w.activeAttempt === null).map(w => w.id));
-   const candidates = r.data.filter(w => idle.has(w.id) && w.disposition === 'accepted' && w.projectId === t.nextWork.projectId && w.id !== t.nextWork.selected && ((w.executorType == null && w.executorId == null) || (w.executorType === 'external_agent' && w.executorId === t.nextWork.harness)));
-  return {data:candidates.slice(0,3).map(w => ({id:w.id,title:w.title.slice(0,160),projectId:w.projectId,organizationId:w.orgId}))};
- });
- if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
- const keys = Object.keys(pending);
- const values = await Promise.all(keys.map(k => pending[k]));
- const result = {};
- keys.forEach((k, i) => { result[k] = values[i]; });
- return result;
-}`
-		.replace("TARGET", JSON.stringify(target))
-		.replaceAll("REQUEST_READ_LIMIT", String(REQUEST_READ_LIMIT));
+	return `async () => await home.read_turn_context(${codeModeLiteral(target)})`;
 }
 
 /**

@@ -642,6 +642,8 @@ describe("@tedix/cli home client helpers", () => {
 		expect(first?.headers.get("Mcp-Method")).toBe("tasks/get");
 		expect(first?.headers.get("Mcp-Name")).toBe("task-1");
 		expect(first?.headers.get("Authorization")).toBe("Bearer test");
+		expect(first?.headers.get("x-tedix-component")).toBe("cli");
+		expect(first?.headers.get("x-tedix-cli-version")).toBeTruthy();
 		const params = first?.body.params as Record<string, unknown>;
 		expect(params.taskId).toBe("task-1");
 		expect(params._meta).toMatchObject({

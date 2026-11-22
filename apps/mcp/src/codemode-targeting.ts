@@ -26,6 +26,10 @@ export function directToolCallNamespaces(
 	}>,
 ): Set<string> | null {
 	if (!toolName || toolName === "code" || toolName === "get_info") return null;
+	if (toolName === "home__read_turn_context")
+		return new Set(["home", "os", "work", "agent"]);
+	if (toolName === "home__read_work_boundary")
+		return new Set(["home", "work", "projects", "tedis"]);
 	const root = rootTools.find((tool) => tool.toolId === toolName);
 	if (root) {
 		const transport = root.config?.transport ?? "rpc";

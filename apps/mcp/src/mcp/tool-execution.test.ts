@@ -1,3 +1,4 @@
+import { buildHomeSurfaceTools } from "./home-surface-tools";
 import { createGatewayLedgerApi } from "../../test/gateway-ledger";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
@@ -1997,5 +1998,70 @@ it("serves selected fields over native tools/call with a strict output schema an
 			responseBytesBefore: 38,
 			responseBytesAfter: 23,
 		}),
+	);
+});
+
+it("hook context rechecks each source scope and preserves other readable sources", async () => {
+	const id = "11111111-1111-4111-8111-111111111111";
+	const agent = makeAgent({
+		status: 200,
+		data: {
+			workItem: {
+				id,
+				title: "Fictional work",
+				orgId: "org-uuid",
+				disposition: "accepted",
+			},
+			comments: [],
+		},
+	});
+	const work = {
+		...makeTool(),
+		toolId: "work__get_work_items_by_id",
+		config: {
+			transport: "rpc",
+			endpoint: "workItems/getById",
+			_aggregateNamespace: "work",
+		},
+		annotations: { readOnlyHint: true },
+		writeCapability: "read" as const,
+	};
+	const lessons = {
+		...makeTool(),
+		toolId: "agent__get_agent_session_lessons",
+		config: {
+			transport: "rpc",
+			endpoint: "agentTurnTriage/getSessionLessons",
+			_aggregateNamespace: "agent",
+		},
+		annotations: { readOnlyHint: true },
+		writeCapability: "read" as const,
+	};
+	const scoped = {
+		...agent,
+		callerIdentity: { ...agent.callerIdentity!, scopes: ["mcp:work.read"] },
+		loadedTools: new Map([
+			[work.toolId, work],
+			[lessons.toolId, lessons],
+		]),
+	};
+	const hook = buildHomeSurfaceTools().find(
+		(tool) => tool.toolId === "home__read_turn_context",
+	)!;
+	const result = await executeTool(
+		scoped,
+		hook,
+		{ workItemId: id, lessons: { harness: "claude-code" } },
+		{ adapterScope: "primary", resultStrategy: "first_success" },
+	);
+	expect(result.isError).not.toBe(true);
+	expect(result.structuredContent).toMatchObject({
+		work: { item: { id, title: "Fictional work" } },
+		lessons: { unavailable: true },
+	});
+	expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
+	expect(agent.toolHandler.execute).toHaveBeenCalledWith(
+		{ id },
+		expect.objectContaining({ toolId: work.toolId }),
 	);
 });

@@ -85,6 +85,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			executionId: "execution-id",
 			traceId: "trace-id",
 			registrationMethod: "pre_registered",
+			clientComponent: "hook:prompt-context",
+			cliVersion: "0.34.3",
 			success: false,
 			durationMs: 42,
 			toolInputSize: 128,
@@ -108,6 +110,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			"execution-id",
 			"trace-id",
 			"pre_registered",
+			"hook:prompt-context",
+			"0.34.3",
 		]);
 		expect(dataPoint.doubles).toEqual([0, 42, 128, 256, 512, 4096, 128]);
 		expect(dataPoint.indexes).toEqual(["app-id"]);
@@ -128,6 +132,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			"executionId",
 			"traceId",
 			"registrationMethod",
+			"clientComponent",
+			"cliVersion",
 		]);
 		expect(MCP_ANALYTICS_DOUBLE_ORDER).toEqual([
 			"success",
@@ -156,6 +162,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			"",
 			"",
 			"anonymous",
+			"",
+			"",
 			"",
 			"",
 			"",
@@ -197,6 +205,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			"oauth",
 			"execution-id",
 			"trace-id",
+			"",
+			"",
 			"",
 		]);
 		expect(dataPoint.doubles).toEqual([

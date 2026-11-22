@@ -311,14 +311,16 @@ export function workTool(
 	input: JsonObject,
 	timeoutMs: number,
 ): Promise<JsonObject> {
-	return deps.read(
-		[
-			...binding.command,
-			"code",
-			`async () => { const { completionEvidence, ...result } = await work.${tool}(${asciiJson(input)}); return result; }`,
-		],
-		timeoutMs,
-	);
+	return deps
+		.read(
+			[
+				...binding.command,
+				"code",
+				`async () => await work.${tool}(${asciiJson(input)})`,
+			],
+			timeoutMs,
+		)
+		.then(({ completionEvidence: _evidence, ...result }) => result);
 }
 
 /** The tool and input of a recorded `workTool` read; the inverse of its args. */
@@ -326,10 +328,9 @@ export function workToolCall(
 	args: string[],
 ): { name: string; input: JsonObject } | undefined {
 	if (args.at(-2) !== "code") return undefined;
-	const match =
-		/^async \(\) => \{ const \{ completionEvidence, \.\.\.result \} = await work\.([a-z_]+)\(([\s\S]*)\); return result; \}$/.exec(
-			args.at(-1) ?? "",
-		);
+	const match = /^async \(\) => await work\.([a-z_]+)\(([\s\S]*)\)$/.exec(
+		args.at(-1) ?? "",
+	);
 	return match ? { name: match[1]!, input: JSON.parse(match[2]!) } : undefined;
 }
 

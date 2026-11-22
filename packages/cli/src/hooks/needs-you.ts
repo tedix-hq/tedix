@@ -60,14 +60,20 @@ export async function needsYou(
 					)
 				: undefined;
 			if (!tool) return undefined;
-			const organization = await deps.read(
+			const result = await deps.read(
 				[
 					...command,
 					"code",
-					`async () => { const r = await ${tool.callable}({limit:100}); const rows = Array.isArray(r) ? r : r?.data ?? []; const o = rows.find(x => x.organizationId === ${codeModeLiteral(runtime.organizationId)}); return {slug:o?.organizationSlug}; }`,
+					`async () => await ${tool.callable}({limit:100,_fields:["data.organizationId","data.organizationSlug"]})`,
 				],
 				3000,
 			);
+			const rows = Array.isArray(result) ? result : (result?.data ?? []);
+			const organization = {
+				slug: rows.find(
+					(row: JsonObject) => row.organizationId === runtime.organizationId,
+				)?.organizationSlug,
+			};
 			if (
 				typeof organization.slug !== "string" ||
 				!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(organization.slug)

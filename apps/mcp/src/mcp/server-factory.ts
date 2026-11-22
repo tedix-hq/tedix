@@ -380,6 +380,8 @@ export function extractCallerIdentity(
 	};
 	return {
 		authType: authType as CallerAuthType,
+		clientComponent: tokenHeader("x-tedix-component"),
+		cliVersion: tokenHeader("x-tedix-cli-version"),
 		userId: request.headers.get("x-tedix-auth-user-id") ?? undefined,
 		organizationId: request.headers.get("x-tedix-auth-org-id") ?? undefined,
 		email: request.headers.get("x-tedix-auth-email") ?? undefined,

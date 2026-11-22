@@ -143,6 +143,10 @@ export async function extractRequestedCodeModeNamespaces(
 	if (args.invocation !== undefined) {
 		const invocation = McpStructuredInvocationSchema.safeParse(args.invocation);
 		if (!invocation.success || args.code !== undefined) return new Set();
+		if (invocation.data.callable === "home.read_turn_context")
+			return new Set(["home", "os", "work", "agent"]);
+		if (invocation.data.callable === "home.read_work_boundary")
+			return new Set(["home", "work", "projects", "tedis"]);
 		const namespace = invocation.data.callable.split(".")[0]!;
 		return ["discover", "flow", "ui", "codemode"].includes(namespace)
 			? null
@@ -150,7 +154,16 @@ export async function extractRequestedCodeModeNamespaces(
 	}
 	const code = typeof args.code === "string" ? args.code : "";
 	if (!code) return new Set();
-	return extractCodeModeProviderNamespacesFromCode(code);
+	const namespaces = extractCodeModeProviderNamespacesFromCode(code);
+	if (namespaces?.has("home")) {
+		if (/\bhome\.read_turn_context\s*\(/.test(code))
+			for (const namespace of ["os", "work", "agent"])
+				namespaces.add(namespace);
+		if (/\bhome\.read_work_boundary\s*\(/.test(code))
+			for (const namespace of ["work", "projects", "tedis"])
+				namespaces.add(namespace);
+	}
+	return namespaces;
 }
 
 export async function extractDirectToolCallArguments(

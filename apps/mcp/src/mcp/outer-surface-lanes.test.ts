@@ -382,3 +382,23 @@ it("hydrates the structured call namespace and keeps discovery helpers unbounded
 		),
 	).toEqual(new Set());
 });
+
+it("hydrates hook sources for both literal and structured server reads", async () => {
+	for (const arguments_ of [
+		{ code: "async () => await home.read_turn_context({})" },
+		{ invocation: { callable: "home.read_turn_context", args: {} } },
+	]) {
+		const request = new Request("https://example.invalid/mcp", {
+			method: "POST",
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: "code", arguments: arguments_ },
+			}),
+		});
+		expect(await extractRequestedCodeModeNamespaces(request)).toEqual(
+			new Set(["home", "os", "work", "agent"]),
+		);
+	}
+});

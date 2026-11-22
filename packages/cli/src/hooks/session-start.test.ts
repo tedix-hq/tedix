@@ -750,9 +750,7 @@ describe("SessionStart request ledger", () => {
 			expect(context(output)).toContain("Open requests (1)");
 			expect(context(output)).toContain("waiting on user");
 			expect(context(output)).toContain("Approve README publication");
-			expect(calls.at(-1)?.at(-1)).toContain(
-				"work.list_agent_session_requests",
-			);
+			expect(calls.at(-1)?.at(-1)).toContain("home.read_turn_context");
 		});
 	}
 	test("uploads events an earlier chat left in the outbox", async () => {

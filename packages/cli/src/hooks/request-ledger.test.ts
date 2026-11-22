@@ -1,3 +1,4 @@
+import { readTurnContext } from "../../../../apps/mcp/src/mcp/hook-context-projection";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	mkdtempSync,
@@ -803,7 +804,13 @@ test("gateway verifies linked Work before showing a request, using one scoped sn
 	const ledger = { session: SESSION, harness: "claude-code", projectId };
 	const queries: JsonObject[] = [];
 	const code = gatewayCode({ ledger }, undefined, [], true);
-	const run = new Function("work", `return (${code})();`);
+	const run = new Function(
+		"readTurnContext",
+		`return work => {
+ const home = {read_turn_context: input => readTurnContext(input, (name,args) => work[name.split('.')[1]](args))};
+ return (${code})();
+ };`,
+	)(readTurnContext);
 	const data = await run({
 		list_agent_session_requests: async (input: JsonObject) => {
 			queries.push(input);

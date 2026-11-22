@@ -1,3 +1,8 @@
+import { readTurnContext, readWorkBoundary } from "./hook-context-projection";
+import {
+	HookTurnContextInputSchema,
+	HookWorkBoundaryInputSchema,
+} from "@tedix/api-contract/schemas/hook-context";
 import { requestPhaseTimings } from "./phase-timings";
 import { countToolCall } from "../tool-call-counts";
 import {
@@ -916,7 +921,61 @@ async function executeWithHandler(
 		personalDataRedacted =
 			tool.sensitiveData === true &&
 			(await personalDataRedactionEnabled(agent));
-		const result = await handler.execute(effectiveArgs, ctx);
+		const hookProjection =
+			(tool.meta as { source?: string } | null)?.source === "homeSurface"
+				? toolConfig.endpoint === "hooks/readTurnContext"
+					? "turn"
+					: toolConfig.endpoint === "hooks/readWorkBoundary"
+						? "boundary"
+						: null
+				: null;
+		const readHookSource = async (
+			callable: string,
+			input: Record<string, unknown>,
+		) => {
+			const [namespace, name] = callable.split(".");
+			const namespaces = agent.appMetadata?.mcpConfig?.codeModeNamespaces as
+				| Record<string, string>
+				| undefined;
+			const readers = [...agent.loadedTools.entries()].filter(
+				([toolId, candidate]) => {
+					const rawName = toolId.includes("__")
+						? toolId.split("__").slice(1).join("__")
+						: toolId;
+					return (
+						resolveMcpToolNamespace(candidate, namespaces) === namespace &&
+						sanitizeToolName(rawName) === name
+					);
+				},
+			);
+			const reader = readers.length === 1 ? readers[0]![1] : undefined;
+			if (!reader || reader.annotations?.readOnlyHint !== true)
+				throw new Error("Hook source unavailable");
+			assertCodeModeInnerToolAuthorized(agent, reader, namespace!, input);
+			const result = await executeTool(agent, reader, input, {
+				adapterScope: parseAdapterScope(reader.adapterScope),
+				resultStrategy:
+					(reader.resultStrategy as ResultStrategy | null) ?? "first_success",
+				executionId,
+			});
+			if (result.isError) throw new Error("Hook source unavailable");
+			return result.structuredContent;
+		};
+		const result = hookProjection
+			? {
+					status: 200,
+					data:
+						hookProjection === "turn"
+							? await readTurnContext(
+									HookTurnContextInputSchema.parse(effectiveArgs),
+									readHookSource,
+								)
+							: await readWorkBoundary(
+									HookWorkBoundaryInputSchema.parse(effectiveArgs),
+									readHookSource,
+								),
+				}
+			: await handler.execute(effectiveArgs, ctx);
 		saveLap("upstreamMs");
 		// Third-party content: remove invisible/bidirectional Unicode and
 		// unsafe HTML before shaping so the client and the Code Mode sandbox

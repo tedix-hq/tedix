@@ -44,6 +44,8 @@ export type McpEventType =
  * All fields are optional except timestamp, eventType to support partial tracking
  */
 export interface McpEvent {
+	clientComponent?: string;
+	cliVersion?: string;
 	// Core identifiers
 	timestamp: string; // ISO 8601 format
 	eventType: McpEventType;
@@ -108,7 +110,13 @@ export function buildCallerTelemetryFields(
 	callerIdentity: CallerIdentity | undefined,
 ): Pick<
 	McpEvent,
-	"userId" | "tediId" | "clientId" | "authType" | "registrationMethod"
+	| "userId"
+	| "tediId"
+	| "clientId"
+	| "authType"
+	| "registrationMethod"
+	| "clientComponent"
+	| "cliVersion"
 > & {
 	metadata?: McpMetadata;
 } {
@@ -117,6 +125,8 @@ export function buildCallerTelemetryFields(
 		clientId: callerIdentity?.clientId,
 	});
 	return {
+		clientComponent: callerIdentity?.clientComponent,
+		cliVersion: callerIdentity?.cliVersion,
 		userId: callerIdentity?.userId,
 		tediId: callerIdentity?.tediId,
 		clientId: callerIdentity?.clientId,

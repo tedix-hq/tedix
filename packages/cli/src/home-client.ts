@@ -1,3 +1,4 @@
+import { CLI_VERSION } from "./shared";
 import {
 	NativeCallScope,
 	rawModernRequest,
@@ -63,6 +64,7 @@ import type { SessionRefreshOutcome } from "./oauth-provider";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	gatewayTrafficFetch,
+	cliTrafficComponent,
 	type CliTrafficComponent,
 } from "./gateway-traffic";
 type FetchLike = (
@@ -273,7 +275,11 @@ export class TedixHomeClient {
 		// The local MCP edge resolves the app from the host. Supply X-Tedix-Host
 		// for loopback URLs unless the caller already set it.
 		// A client keeps its selected gateway binding; caller mutation cannot retarget it.
-		let headers = Object.freeze({ ...options.headers });
+		let headers: Readonly<Record<string, string>> = Object.freeze({
+			...options.headers,
+			"x-tedix-component": cliTrafficComponent(options.trafficComponent),
+			"x-tedix-cli-version": CLI_VERSION,
+		});
 		try {
 			const host = new URL(options.url).hostname;
 			if (

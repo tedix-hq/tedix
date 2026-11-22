@@ -1,3 +1,4 @@
+import { readTurnContext } from "../../../../apps/mcp/src/mcp/hook-context-projection";
 import { describe, expect, test } from "bun:test";
 import { CACHE_TTLS_MS } from "./context-cache";
 import {
@@ -282,7 +283,7 @@ describe("tedix hooks prompt-context", () => {
 			text.indexOf("Team lessons"),
 		);
 		const source = calls.at(-1)!.at(-1)!;
-		expect(source).toContain("agent.get_agent_session_lessons");
+		expect(source).toContain("home.read_turn_context");
 		expect(source).toContain('"harness":"claude-code"');
 		expect(source).toContain('"repo":"github.com/tedix-hq/tedix"');
 		expect(source).toContain('"selectedLessonIds"');
@@ -333,11 +334,16 @@ describe("tedix hooks prompt-context", () => {
 		};
 		// The gateway source itself catches the per-source failure.
 		const project = new Function(
-			"os",
-			"work",
-			"agent",
-			`return (${gatewayCode(binding, { harness: "claude-code", topics: [] })})();`,
-		) as (os: unknown, work: unknown, agent: unknown) => Promise<JsonObject>;
+			"readTurnContext",
+			`return (os, work, agent) => {
+ const home = {read_turn_context: input => readTurnContext(input, (name, args) => ({os,work,agent}[name.split('.')[0]][name.split('.')[1]](args)))};
+ return (${gatewayCode(binding, { harness: "claude-code", topics: [] })})();
+ };`,
+		)(readTurnContext) as (
+			os: unknown,
+			work: unknown,
+			agent: unknown,
+		) => Promise<JsonObject>;
 		const data = await project(
 			{
 				get_os_workspace: async () => ({ workspace: DATA.shared.workspace }),
@@ -895,9 +901,12 @@ describe("tedix hooks prompt-context", () => {
 
 	test("the actual gateway projection rejects malformed blocks", async () => {
 		const project = new Function(
-			"os",
-			`return (${gatewayCode(BINDING)})();`,
-		) as (os: unknown) => Promise<JsonObject>;
+			"readTurnContext",
+			`return os => {
+ const home = {read_turn_context: input => readTurnContext(input, (name, args) => os[name.split('.')[1]](args))};
+ return (${gatewayCode(BINDING)})();
+ };`,
+		)(readTurnContext) as (os: unknown) => Promise<JsonObject>;
 		for (const blocks of <unknown[]>[
 			undefined,
 			{},
@@ -940,12 +949,12 @@ describe("tedix hooks prompt-context", () => {
 		}
 	});
 
-	test("the gateway source renders semantic blocks and limits its return", () => {
+	test("the hook sends a single literal server call", () => {
 		const source = gatewayCode({ ...BINDING, workItemId: WORK });
-		expect(source).toContain("get_os_workspace");
-		expect(source).toContain("b.type === 'list' ? b.items");
-		expect(source).toContain("slice(-2)");
-		expect(source).toContain("authorId");
+		expect(source).toMatch(
+			/^async \(\) => await home\.read_turn_context\(\{.*\}\)$/,
+		);
+		expect(source).not.toContain("\n");
 		expect(source).not.toContain("prompt");
 	});
 
@@ -1942,7 +1951,10 @@ test("reranks a shared catalog per prompt without storing or sending the prompt"
 		// The second prompt reuses the shared catalog; only its delivery receipt is sent.
 		expect(
 			second.calls.filter((c) =>
-				c.some((a) => a.includes("agent.get_agent_session_lessons")),
+				c.some(
+					(a) =>
+						a.includes("home.read_turn_context") && a.includes('"lessons":'),
+				),
 			),
 		).toHaveLength(1);
 		expect(JSON.stringify([...first.calls, ...second.calls])).not.toMatch(

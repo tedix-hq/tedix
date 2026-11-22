@@ -17,6 +17,9 @@ export type DelegationMode =
 
 export interface CallerIdentity {
 	authType: CallerAuthType;
+	/** Unverified diagnostic labels; never used for authorization. */
+	clientComponent?: string;
+	cliVersion?: string;
 	userId?: string;
 	organizationId?: string;
 	email?: string;

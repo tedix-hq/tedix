@@ -1,4 +1,8 @@
 /** Home tool schemas load only when an aggregate surface mounts Home. */
+import {
+	HookTurnContextInputSchema,
+	HookWorkBoundaryInputSchema,
+} from "@tedix/api-contract/schemas/hook-context";
 import type {
 	ToolAnnotations,
 	ToolInputJsonSchema,
@@ -493,6 +497,23 @@ type HomeSurfaceToolSpec = {
 const HOME_SURFACE_NAMESPACE = "home";
 
 const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
+	{
+		name: "read_turn_context",
+		description:
+			"Read bounded turn context using the caller's authorized sources. Unavailable sources are omitted independently.",
+		inputSchema: zodToToolInputJsonSchema(HookTurnContextInputSchema),
+		annotations: READ_ONLY,
+		rpcEndpoint: "hooks/readTurnContext",
+	},
+	{
+		name: "read_work_boundary",
+		description:
+			"Read a selected Work Item and its project and objective boundary.",
+		inputSchema: zodToToolInputJsonSchema(HookWorkBoundaryInputSchema),
+		annotations: READ_ONLY,
+		rpcEndpoint: "hooks/readWorkBoundary",
+	},
+
 	{
 		name: "ask",
 		description:

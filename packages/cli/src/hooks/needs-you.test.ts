@@ -97,7 +97,14 @@ function fixture() {
 					],
 				};
 			if (args.some((arg) => arg.includes("fictional.list_all_mine")))
-				return { slug: org === organizationId ? "fictional" : "other" };
+				return {
+					data: [
+						{
+							organizationId: org,
+							organizationSlug: org === organizationId ? "fictional" : "other",
+						},
+					],
+				};
 			if (args.includes("deck"))
 				return {
 					cards,

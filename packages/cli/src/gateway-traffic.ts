@@ -8,8 +8,23 @@ const components = [
 	"dispatcher",
 	"runner-heartbeat",
 	"runner-steps",
+	"lane",
 ] as const;
-export type CliTrafficComponent = (typeof components)[number];
+export type CliTrafficComponent =
+	| (typeof components)[number]
+	| `hook:${string}`;
+export function cliTrafficComponent(
+	component?: CliTrafficComponent,
+): CliTrafficComponent {
+	const selected = process.env.TEDIX_CLI_COMPONENT;
+	return (
+		component ??
+		components.find((value) => value === selected) ??
+		(selected && /^hook:[a-z-]{1,60}$/.test(selected)
+			? (selected as `hook:${string}`)
+			: "cli")
+	);
+}
 type FetchLike = (
 	...args: Parameters<typeof fetch>
 ) => ReturnType<typeof fetch>;
@@ -22,9 +37,7 @@ export function gatewayTrafficFetch(
 ): FetchLike {
 	const directory =
 		options.directory ?? join(credentialDirectory(), "mcp-traffic");
-	const selected = process.env.TEDIX_CLI_COMPONENT;
-	const source =
-		component ?? components.find((value) => value === selected) ?? "cli";
+	const source = cliTrafficComponent(component);
 	let cleanedDay = "";
 	return (input, init) => {
 		try {
