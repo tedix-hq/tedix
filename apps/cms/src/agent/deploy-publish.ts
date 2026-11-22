@@ -1,9 +1,9 @@
-import { themeCandidateEtag } from "@tedix/provisioning/cms-theme-candidate";
 import { themeReleaseSchema, type ThemeRelease } from "./theme-release";
 import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { CmsDeployFailure } from "./deploy-failure";
 import {
 	type TenantBundleSourceRevision,
+	computeBundleEtag,
 	uploadTenantBundle,
 } from "@tedix/provisioning/cms";
 import type { AppBindings } from "../types";
@@ -92,13 +92,7 @@ export async function publishStagedCmsBundle(
 		}
 
 		if (input.expectedCandidateEtag) {
-			const modules = Object.fromEntries(
-				Object.entries(files).map(([path, bytes]) => [
-					path,
-					{ js: new TextDecoder().decode(bytes) },
-				]),
-			);
-			if ((await themeCandidateEtag(modules)) !== input.expectedCandidateEtag)
+			if ((await computeBundleEtag(files)) !== input.expectedCandidateEtag)
 				throw new Error("Candidate bundle digest changed");
 		}
 

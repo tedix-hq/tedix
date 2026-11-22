@@ -201,6 +201,54 @@ describe("private built theme preview", () => {
 		expect(render).not.toHaveBeenCalled();
 	});
 
+	test("loads island modules and hydrated image props from the candidate", async () => {
+		const { candidate, objects, env, url } = fixture();
+		const previewUrl = await url();
+		const props = JSON.stringify({
+			image: [
+				0,
+				{
+					src: [0, "/_astro/new.svg"],
+					srcset: [0, "/_astro/new.svg 1x, /_astro/new2.svg 2x"],
+					caption: [0, "Unchanged text"],
+					external: [0, "https://cdn.test/logo.svg"],
+				},
+			],
+		});
+		const render = vi.fn(
+			async () =>
+				new Response(
+					`<astro-island component-url="/_astro/new.js" renderer-url="/_astro/renderer.js" before-hydration-url="/_astro/setup.js" props='${props}'></astro-island>`,
+					{ headers: { "Content-Type": "text/html" } },
+				),
+		);
+		const response = await serveThemePreview(
+			new Request(previewUrl),
+			env,
+			render,
+		);
+		const html = await response.text();
+		for (const filename of ["new.js", "renderer.js", "setup.js"]) {
+			expect(html).toContain(`${previewUrl}_astro/${filename}`);
+			objects.set(
+				`${candidate.r2Prefix}static/${filename}`,
+				`export default "${filename}"`,
+			);
+			const asset = await serveThemePreview(
+				new Request(`${previewUrl}_astro/${filename}`),
+				env,
+				render,
+			);
+			expect(asset.status).toBe(200);
+			expect(await asset.text()).toBe(`export default "${filename}"`);
+		}
+		expect(html).toContain(`${previewUrl}_astro/new.svg`);
+		expect(html).toContain(`${previewUrl}_astro/new2.svg`);
+		expect(html).toContain("Unchanged text");
+		expect(html).toContain("https://cdn.test/logo.svg");
+		expect(render).toHaveBeenCalledOnce();
+	});
+
 	test("rejects writes before issuing any database RPC", async () => {
 		const db = Object.create(
 			ThemePreviewDatabase.prototype,

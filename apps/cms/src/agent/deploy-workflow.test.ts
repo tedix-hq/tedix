@@ -1464,7 +1464,7 @@ describe("staged candidate workflow", () => {
 			);
 			expect(publish).toHaveBeenCalledWith(
 				expect.objectContaining({
-					nextBundleVersion: 2,
+					nextBundleVersion: 9,
 					expectedActiveVersion: 1,
 					stagingAttemptId: "original-snapshot",
 				}),

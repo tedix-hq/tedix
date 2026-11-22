@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { readCmsBundle, readCmsBundleModule } from "./cms-bundle";
+import {
+	compressCmsBundle,
+	readCmsBundle,
+	readCmsBundleModule,
+} from "./cms-bundle";
 
 const prefix = "acme/v1/";
 const bundle = {
@@ -29,6 +33,21 @@ function bucket(bytes: Uint8Array | null) {
 }
 
 describe("CMS compressed bundle reader", () => {
+	it("round-trips incrementally compressed modules with JSON escapes and Unicode", async () => {
+		const sources: Record<string, { js: string }> = {
+			...bundle.modules,
+			'odd"name.mjs': { js: '\n"\\é😀'.repeat(100_000) },
+		};
+		const compressed = await compressCmsBundle(
+			bundle.mainModule,
+			Object.keys(sources),
+			async (path) => sources[path]!.js,
+		);
+		await expect(
+			readCmsBundle(bucket(new Uint8Array(compressed)), prefix),
+		).resolves.toEqual({ ...bundle, modules: sources });
+	});
+
 	it("reads one pack and matches its catalog independent of key order", async () => {
 		const store = bucket(await gzip(JSON.stringify(bundle)));
 		await expect(

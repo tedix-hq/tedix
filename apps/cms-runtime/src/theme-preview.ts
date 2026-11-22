@@ -141,16 +141,41 @@ export async function serveThemePreview(
 			if (location) response.headers.set("Location", rewrite(location));
 			if (response.headers.get("Content-Type")?.includes("text/html")) {
 				response = new HTMLRewriter()
-					.on("[href], [src], [srcset], [action]", {
+					.on("[href], [src], [srcset], [action], astro-island", {
 						element(element) {
 							if (
 								element.tagName === "link" &&
 								/canonical|alternate/.test(element.getAttribute("rel") ?? "")
 							)
 								return;
-							for (const attr of ["href", "src", "action"]) {
+							for (const attr of [
+								"href",
+								"src",
+								"action",
+								"component-url",
+								"renderer-url",
+								"before-hydration-url",
+							]) {
 								const value = element.getAttribute(attr);
 								if (value) element.setAttribute(attr, rewrite(value));
+							}
+							const props = element.getAttribute("props");
+							if (element.tagName === "astro-island" && props) {
+								// Astro's tagged tuples retain their types; rewrite only asset URLs.
+								element.setAttribute(
+									"props",
+									JSON.stringify(
+										JSON.parse(props, (_key, value) =>
+											typeof value === "string"
+												? value.replace(
+														/(^|,\s+)(\/(?:_astro\/|_image\?|_emdash\/api\/media\/file\/)[^\s,]*)/g,
+														(_match, separator: string, asset: string) =>
+															`${separator}${rewrite(asset)}`,
+													)
+												: value,
+										),
+									),
+								);
 							}
 							const srcset = element.getAttribute("srcset");
 							if (srcset)

@@ -5,6 +5,41 @@ export interface CmsBundle {
 	modules: Record<string, { js: string }>;
 }
 
+/** Compress one module at a time; whole-bundle JSON copies exceed Worker memory. */
+export async function compressCmsBundle(
+	mainModule: string,
+	modules: string[],
+	read: (path: string) => Promise<string>,
+): Promise<ArrayBuffer> {
+	const encoder = new TextEncoder();
+	let index = -1;
+	const stream = new ReadableStream<Uint8Array<ArrayBuffer>>({
+		async pull(controller) {
+			if (index === -1) {
+				controller.enqueue(
+					encoder.encode(
+						`{"mainModule":${JSON.stringify(mainModule)},"modules":{`,
+					),
+				);
+			} else if (index < modules.length) {
+				const path = modules[index]!;
+				controller.enqueue(
+					encoder.encode(
+						`${index ? "," : ""}${JSON.stringify(path)}:${JSON.stringify({ js: await read(path) })}`,
+					),
+				);
+			} else {
+				controller.enqueue(encoder.encode("}}"));
+				controller.close();
+			}
+			index++;
+		},
+	});
+	return new Response(
+		stream.pipeThrough(new CompressionStream("gzip")),
+	).arrayBuffer();
+}
+
 interface CmsBundleBucket {
 	get(
 		key: string,

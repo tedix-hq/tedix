@@ -13,6 +13,7 @@
 import {
 	readCmsBundle,
 	readCmsBundleModule,
+	compressCmsBundle,
 	COMPRESSED_CMS_BUNDLE_KEY,
 	type CmsBundle,
 } from "./cms-bundle";
@@ -518,7 +519,7 @@ function asArrayBuffer(content: Uint8Array | ArrayBuffer): ArrayBuffer {
 	) as ArrayBuffer;
 }
 
-async function computeBundleEtag(
+export async function computeBundleEtag(
 	files: Record<string, Uint8Array | ArrayBuffer>,
 ): Promise<string> {
 	const parts: string[] = [];
@@ -936,18 +937,11 @@ export async function uploadTenantBundle(
 	}
 
 	// Publish the single immutable runtime object before activating its D1 row.
-	const packed = JSON.stringify({
+	const compressed = await compressCmsBundle(
 		mainModule,
-		modules: Object.fromEntries(
-			modules.map((path) => [
-				path,
-				{ js: new TextDecoder().decode(files[path]!) },
-			]),
-		),
-	});
-	const compressed = await new Response(
-		new Blob([packed]).stream().pipeThrough(new CompressionStream("gzip")),
-	).arrayBuffer();
+		modules,
+		async (path) => new TextDecoder().decode(files[path]!),
+	);
 	await bindings.bundlesBucket.put(
 		`${r2Prefix}${COMPRESSED_CMS_BUNDLE_KEY}`,
 		compressed,

@@ -507,7 +507,8 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 						},
 					)
 				: null;
-			const nextBundleVersion = candidate?.version ?? admittedNextBundleVersion;
+			// The candidate identifies preview inputs; publication owns a new generation.
+			const nextBundleVersion = admittedNextBundleVersion;
 			const expectedActiveVersion = candidate
 				? candidate.expectedActiveVersion
 				: admittedExpectedActiveVersion;

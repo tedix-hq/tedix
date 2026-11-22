@@ -1,6 +1,7 @@
 import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { uploadTenantBundle } from "@tedix/provisioning/cms";
+import { themeCandidateEtag } from "@tedix/provisioning/cms-theme-candidate";
 import type { AppBindings } from "../types";
 import {
 	reclaimCmsBundleRetentionPermits,
@@ -12,7 +13,10 @@ vi.mock("./theme-content-compatibility", () => ({
 	checkLiveThemeCompatibility: vi.fn(async () => undefined),
 }));
 
-vi.mock("@tedix/provisioning/cms", () => ({ uploadTenantBundle: vi.fn() }));
+vi.mock("@tedix/provisioning/cms", async (original) => ({
+	...(await original<typeof import("@tedix/provisioning/cms")>()),
+	uploadTenantBundle: vi.fn(),
+}));
 vi.mock("./cms-restore-permit", () => ({
 	reclaimCmsBundleRetentionPermits: vi.fn(async () => 0),
 	withExactCmsSiteRestorePermit: vi.fn(),
@@ -129,6 +133,25 @@ describe("publishStagedCmsBundle restore fence", () => {
 		expect(bundles.put.mock.invocationCallOrder[1]).toBeLessThan(
 			vi.mocked(uploadTenantBundle).mock.invocationCallOrder[0]!,
 		);
+	});
+
+	it("checks the signed candidate digest before publication without changing its encoding", async () => {
+		const { input } = fixture();
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementation(
+			async (_db, _site, operation) => operation(),
+		);
+		const expectedCandidateEtag = await themeCandidateEtag({
+			"entry.mjs": { js: "entry" },
+		});
+		await publishStagedCmsBundle({ ...input, expectedCandidateEtag });
+		vi.mocked(uploadTenantBundle).mockClear();
+		await expect(
+			publishStagedCmsBundle({
+				...input,
+				expectedCandidateEtag: "0".repeat(64),
+			}),
+		).rejects.toThrow("Candidate bundle digest changed");
+		expect(uploadTenantBundle).not.toHaveBeenCalled();
 	});
 
 	it("never activates when the renderer cannot support live content", async () => {
