@@ -40,6 +40,7 @@ import {
 	retainedLaneWorktree,
 	dispatchSkip,
 	FAILOVER_WAIT_MS,
+	routingPickNote,
 	laneDelegationRequest,
 	parseServeOptions,
 	runLaneServe,
@@ -5054,6 +5055,18 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
+	it("says in plain words which tool the rules picked and why earlier ones were skipped", () => {
+		expect(
+			routingPickNote({
+				executor: "claude-code",
+				rule: "general",
+				skipped: ["codex: budget backoff until 2026-11-22T21:00:00.000Z"],
+			}),
+		).toBe(
+			"Taken by Claude Code under the “general” routing rule. Skipped: Codex is out of credits or at its usage limit until about 21:00 UTC. The task names no tool, so the rules chose; set a tool on the task to keep it on that one.",
+		);
+	});
+
 	it("moves waiting Work to the next tool in its rule after the tool is unavailable for the wait, unless it keeps its tool", async () => {
 		const { restart, deps, items, events, dir, config } = fixture();
 		const routing = join(dir, "routing.json");

@@ -337,6 +337,20 @@ export function withoutExecutor(
 	};
 }
 
+/** "Taken by Claude Code …": the rules' pick for Work that names no tool. */
+export function routingPickNote(selection: {
+	executor: string;
+	rule: string;
+	skipped?: string[];
+}): string {
+	const name = AGENT_NAMES[selection.executor] ?? selection.executor;
+	const skipped = (selection.skipped ?? []).map((line) => {
+		const executor = line.slice(0, line.indexOf(":"));
+		return unavailableDetail(executor, new Error(line));
+	});
+	return `Taken by ${name} under the “${selection.rule}” routing rule.${skipped.length ? ` Skipped: ${skipped.join("; ")}.` : ""} The task names no tool, so the rules chose; set a tool on the task to keep it on that one.`;
+}
+
 /** Why a tool cannot take Work, in plain words, from its routing refusal. */
 export function unavailableDetail(executor: string, error: Error): string {
 	const name = AGENT_NAMES[executor] ?? executor;
@@ -349,7 +363,10 @@ export function unavailableDetail(executor: string, error: Error): string {
 		return `${name} is near its usage limit`;
 	if (error instanceof LocalExecutorPreflightError)
 		return `${name} failed its start check`;
-	return `${name} cannot take Work: ${error.message}`.slice(0, 300);
+	return `${name} cannot take Work: ${error.message.replace(`${executor}: `, "")}`.slice(
+		0,
+		300,
+	);
 }
 
 /** Start of every skip reason for Work that waits on its owner's permission. */
@@ -5575,6 +5592,11 @@ export class LaneDispatcher {
 				: routed;
 			const executor = selection.executor;
 			receipt.model = selection.model;
+			// Work that names no tool records which one the rules picked, and why.
+			const pickNote =
+				!adopted && assignedExecutor(item) === "any-local"
+					? routingPickNote(selection)
+					: undefined;
 			this.log(
 				"routed",
 				item.id,
@@ -6311,6 +6333,14 @@ ${firstBrief}`;
 				item.id,
 				`Attempt ${receipt.attemptId}, ${receipt.session}, ${rules.label}`,
 			);
+			if (pickNote)
+				await this.call(
+					["work", "comment", item.id, "--body", pickNote],
+					receipt.session,
+					receipt.executorKey,
+				).catch((error) =>
+					this.log("pick-note-failed", item.id, String(error)),
+				);
 			if (sessionRecovery)
 				await this.call(
 					["work", "comment", item.id, "--body", sessionRecovery],

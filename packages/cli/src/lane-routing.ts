@@ -340,6 +340,8 @@ export function routeLocalWork(
 		}
 		return {
 			...route,
+			/** Earlier tools in the rule that could not take it, and why. */
+			skipped: rejected,
 			model:
 				route.executor === "opencode"
 					? (policy.opencodeModel ??
