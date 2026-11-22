@@ -28,6 +28,8 @@ import {
 } from "../schemas/agent-session-decisions";
 import {
 	AgentTurnTriagePolicyStateSchema,
+	ChooseWorkToolInputSchema,
+	ChooseWorkToolResultSchema,
 	GetAgentReplyDraftAcceptanceInputSchema,
 	GetAgentReplyDraftAcceptanceResultSchema,
 	GetAgentReplyDraftLeaderboardInputSchema,
@@ -92,6 +94,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(TriageAgentTurnInputSchema)
 			.output(TriageResultSchema),
+
+		chooseTool: oc
+			.route({
+				method: "POST",
+				path: "/choose-tool",
+				summary: "Choose a coding tool for a task",
+				description:
+					"Asks the Clef decision model which of the offered coding tools fits the task best, from its title, description, kind, risk, size and each tool's strengths. Offer only tools available now. Stores nothing; billed as a Workers AI call. Model failure, a 2 s timeout or an answer outside the offered tools returns `status: \"unavailable\"` so the caller's routing rules decide.",
+			})
+			.input(ChooseWorkToolInputSchema)
+			.output(ChooseWorkToolResultSchema),
 
 		labelReply: oc
 			.route({

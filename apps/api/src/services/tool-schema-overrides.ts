@@ -1086,6 +1086,7 @@ export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"learningFeedback/configure": "configure_decision_learning",
 	"learningFeedback/correct": "correct_decision_learning",
 	"agentTurnTriage/triage": "triage_agent_turn",
+	"agentTurnTriage/chooseTool": "choose_work_tool",
 	"agentTurnTriage/labelReply": "label_agent_reply",
 	"agentTurnTriage/getPolicy": "get_agent_turn_triage_policy",
 	"agentTurnTriage/updatePolicy": "update_agent_turn_triage_policy",

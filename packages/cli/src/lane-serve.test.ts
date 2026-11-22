@@ -5055,6 +5055,102 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
+	it.each([
+		["picks another tool", true],
+		["is unavailable", false],
+	] as const)(
+		"asks Clef once per revision; when Clef %s the task says so",
+		async (_name, answers) => {
+			const { restart, deps, items, events, dir, config, releases } = fixture();
+			const routing = join(dir, "routing.json");
+			writeFileSync(
+				routing,
+				JSON.stringify({
+					...testRoutingPolicy,
+					decide: "clef",
+					tools: {
+						codex: { strengths: "large multi-file and risky changes" },
+						opencode: { strengths: "small routine edits and docs" },
+					},
+				}),
+			);
+			config.routingConfig = routing;
+			items.splice(1);
+			const base = deps.cli!;
+			const asked: unknown[] = [];
+			deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+				if (args[5] !== "choose-tool") return base<T>(args, env);
+				asked.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+				return (
+					answers
+						? {
+								status: "ok",
+								executor: "opencode",
+								confidence: 0.82,
+								model: "@cf/cloudflare/clef-flash",
+								latencyMs: 400,
+								reason: null,
+							}
+						: {
+								status: "unavailable",
+								executor: null,
+								confidence: null,
+								model: "@cf/cloudflare/clef-flash",
+								latencyMs: 2000,
+								reason: "timeout",
+							}
+				) as T;
+			};
+			const dispatcher = restart();
+			await dispatcher.tick();
+			await dispatcher.tick();
+			// The fixture keeps the item on codex, so it starts there: let it end.
+			await until(() => releases.length >= 1);
+			for (const release of releases) release();
+			await dispatcher.drain();
+			expect(asked).toHaveLength(1);
+			expect(asked[0]).toMatchObject({
+				tools: [
+					{
+						executor: "codex",
+						strengths: "large multi-file and risky changes",
+					},
+					{ executor: "opencode", strengths: "small routine edits and docs" },
+				],
+			});
+			const moves = events.filter(
+				(event) =>
+					event.verb === "dispatch-reassign" && event.input?.idleReassignment,
+			);
+			if (answers) {
+				expect(moves).toHaveLength(1);
+				expect(moves[0]!.input).toMatchObject({
+					executor: "opencode",
+					idleReassignment: {
+						fromExecutor: "codex",
+						reason: "chosen",
+						detail: expect.stringContaining(
+							"Clef chose OpenCode (82% sure): small routine edits and docs",
+						),
+					},
+				});
+			} else {
+				expect(moves).toHaveLength(0);
+				expect(
+					events.some(
+						(event) =>
+							event.verb === "comment" &&
+							event.args.some((arg) =>
+								arg.startsWith(
+									"Clef did not answer (timeout), so the routing rules decide and the task stays with Codex.",
+								),
+							),
+					),
+				).toBe(true);
+			}
+		},
+	);
+
 	it("lets waiting Work wait with one plain note when every tool in its rule is unavailable", async () => {
 		const { restart, deps, items, events, dir, config } = fixture();
 		const routing = join(dir, "routing.json");

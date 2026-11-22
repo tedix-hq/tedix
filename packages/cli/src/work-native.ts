@@ -151,6 +151,7 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	record_agent_decision_outcome: "decisionGraph/recordAgentDecisionOutcome",
 	list_agent_decisions: "decisionGraph/listAgentDecisions",
 	triage_agent_turn: "agentTurnTriage/triage",
+	choose_work_tool: "agentTurnTriage/chooseTool",
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
 	report_work_agent_session_status: "workAgentSessions/report",

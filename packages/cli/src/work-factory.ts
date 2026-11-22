@@ -59,6 +59,11 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		namespace: "agent",
 		write: false,
 	},
+	"choose-tool": {
+		tool: "choose_work_tool",
+		namespace: "agent",
+		write: false,
+	},
 	"agent-reply-label": {
 		tool: "label_agent_reply",
 		namespace: "agent",

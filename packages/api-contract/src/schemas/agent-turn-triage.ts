@@ -839,3 +839,53 @@ export const RetriageAgentTurnQuestionsResultSchema = z.object({
 		}),
 	),
 });
+
+/** The coding tools a runner can hand a task to. */
+export const LocalToolSchema = z.enum([
+	"codex",
+	"claude-code",
+	"opencode",
+	"devin",
+]);
+
+export const ChooseWorkToolInputSchema = z.strictObject({
+	title: z.string().min(1).max(500),
+	description: z.string().max(4_000).default(""),
+	workKind: z.string().max(40).optional(),
+	riskLevel: z.string().max(20).optional(),
+	size: z.string().max(40).optional(),
+	tags: z.array(z.string().max(80)).max(20).default([]),
+	tools: z
+		.array(
+			z.strictObject({
+				executor: LocalToolSchema,
+				strengths: z
+					.string()
+					.min(1)
+					.max(300)
+					.describe("What this tool is good at, in the owner's words"),
+			}),
+		)
+		.min(2)
+		.max(4)
+		.describe("Only the tools available right now"),
+});
+export type ChooseWorkToolInput = z.infer<typeof ChooseWorkToolInputSchema>;
+
+export const ChooseWorkToolResultSchema = z.object({
+	status: z
+		.enum(["ok", "unavailable"])
+		.describe(
+			"`unavailable` when the model failed, timed out or answered outside the offered tools",
+		),
+	executor: LocalToolSchema.nullable(),
+	confidence: z.number().min(0).max(1).nullable(),
+	probabilities: z.record(z.string(), z.number()).nullable(),
+	model: z.string(),
+	latencyMs: z.number().int().nonnegative(),
+	reason: z
+		.string()
+		.nullable()
+		.describe("Why it is unavailable: error, timeout or malformed"),
+});
+export type ChooseWorkToolResult = z.infer<typeof ChooseWorkToolResultSchema>;

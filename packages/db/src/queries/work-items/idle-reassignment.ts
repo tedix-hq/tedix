@@ -23,7 +23,7 @@ export async function reassignIdleWork(
 		fromExecutor: string;
 		unavailableSince: string;
 		minimumIdleMinutes: number;
-		reason: "unreachable" | "unavailable";
+		reason: "unreachable" | "unavailable" | "chosen";
 		/** Why the tool cannot take Work, in plain words, for the item's comment. */
 		detail?: string;
 		now?: string;
@@ -37,11 +37,14 @@ export async function reassignIdleWork(
 		: [];
 	if (
 		!runners.includes(input.executor) ||
-		!runners.includes(input.fromExecutor) ||
+		!(
+			runners.includes(input.fromExecutor) ||
+			(input.reason === "chosen" && input.fromExecutor === "any-local")
+		) ||
 		input.executor === input.fromExecutor ||
 		!Number.isFinite(age) ||
 		input.minimumIdleMinutes < 1 ||
-		age < input.minimumIdleMinutes * 60_000 ||
+		(input.reason !== "chosen" && age < input.minimumIdleMinutes * 60_000) ||
 		item.version !== input.expectedVersion ||
 		item.executorType !== "external_agent" ||
 		item.executorId !== input.fromExecutor ||
@@ -72,6 +75,8 @@ export async function reassignIdleWork(
 			to: input.executor,
 			reason: input.reason,
 			...(input.detail ? { detail: input.detail } : {}),
+			// The revision it was decided on, so a pick is not asked again.
+			version: item.version,
 			unavailableSince: input.unavailableSince,
 			at: now,
 		},
@@ -102,9 +107,11 @@ export async function reassignIdleWork(
 	);
 	const why =
 		input.detail ??
-		(input.reason === "unreachable"
-			? `no ${input.fromExecutor} runner is running`
-			: `${input.fromExecutor} cannot take Work`);
+		(input.reason === "chosen"
+			? "the decision model chose it"
+			: input.reason === "unreachable"
+				? `no ${input.fromExecutor} runner is running`
+				: `${input.fromExecutor} cannot take Work`);
 	const body = `Reassigned from ${input.fromExecutor} to ${input.executor}: ${why}, since ${input.unavailableSince} (waited at least ${input.minimumIdleMinutes} minutes). Work revision ${item.version} and failure holds preserved. Set metadata.onlyExecutor to keep a task on its tool.`;
 	const [changed] = await db.batch([
 		db

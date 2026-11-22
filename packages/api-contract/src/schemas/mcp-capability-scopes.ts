@@ -250,6 +250,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	run_tedi_turn: "mcp:messaging",
 	// Agent-turn urgency triage reads and configures operator messaging.
 	triage_agent_turn: "mcp:messaging",
+	choose_work_tool: "mcp:messaging",
 	label_agent_reply: "mcp:messaging",
 	get_agent_turn_triage_policy: "mcp:messaging",
 	update_agent_turn_triage_policy: "mcp:messaging",
@@ -674,6 +675,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	// "triage"/"label" match neither verb regex; both are stateless model
 	// reads that store nothing, so they sit at messaging.read.
 	triage_agent_turn: "read",
+	choose_work_tool: "read",
 	label_agent_reply: "read",
 	// "request"/"propose" match no verb regex. Both write (queue a drafting
 	// turn / append a draft) but never answer for the user.

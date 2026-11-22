@@ -309,7 +309,7 @@ page — the board exposes no server-side evidence filter — so raise --limit b
 trusting a filtered page as a whole-ledger answer.
 
 Factory controls (--input accepts inline JSON or @path):
-  agent-turn-triage · agent-reply-label · agent-reply-draft-request · agent-session-report
+  agent-turn-triage · agent-reply-label · agent-reply-draft-request · agent-session-report · choose-tool
   dispatch-reassign · dispatch-hold · dispatch-idle-list · dispatch-list · dispatch-get · dispatch-attempts
   epics [--all] [--project <id>] [--limit <n>] [--json] (open epics; --all includes closed)
   epic-get · epic-create · epic-stage · epic-close · epic-attach · epic-dependency-add

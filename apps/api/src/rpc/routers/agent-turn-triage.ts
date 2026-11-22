@@ -558,6 +558,74 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 	};
 });
 
+/** Clef answers within this or the runner's routing rules decide. */
+const CHOOSE_TOOL_TIMEOUT_MS = 2_000;
+
+/**
+ * Which offered coding tool fits a task, as Clef sees it. The runner offers
+ * only tools available now and keeps the decision: an unavailable answer,
+ * a timeout or a choice outside the offer leaves its routing rules in charge.
+ */
+const chooseTool = readOs.chooseTool.handler(async ({ input, context }) => {
+	const organizationId = requireOrgId(context);
+	// The organization's configured Clef model, as for turn triage.
+	const { policy } = await readPolicyState(context, organizationId);
+	const model = policy.model;
+	const result = await runClef(
+		organizationModelEnv(context.env, context.db, organizationId, {
+			billWorkersAiSurface: "work-tool-choice",
+		}),
+		{
+			modelId: model,
+			state: {
+				title: input.title,
+				description: input.description,
+				kind: input.workKind ?? null,
+				risk: input.riskLevel ?? null,
+				size: input.size ?? null,
+				tags: input.tags,
+			},
+			questions: {
+				tool: {
+					type: "choice",
+					instructions:
+						"Which coding agent should take this task? Choose the one whose strengths fit the task best.",
+					criteria: Object.fromEntries(
+						input.tools.map((tool) => [tool.executor, tool.strengths]),
+					),
+				},
+			},
+			surface: "work-tool-choice",
+			timeoutMs: CHOOSE_TOOL_TIMEOUT_MS,
+		},
+	);
+	const answer = result.ok ? result.answers.tool : undefined;
+	const offered = input.tools.map((tool) => tool.executor as string);
+	if (
+		!result.ok ||
+		answer?.type !== "choice" ||
+		!offered.includes(answer.choice)
+	)
+		return {
+			status: "unavailable" as const,
+			executor: null,
+			confidence: null,
+			probabilities: null,
+			model,
+			latencyMs: result.latencyMs,
+			reason: result.ok ? "malformed" : result.reason,
+		};
+	return {
+		status: "ok" as const,
+		executor: answer.choice as (typeof input.tools)[number]["executor"],
+		confidence: answer.confidence,
+		probabilities: answer.probabilities,
+		model,
+		latencyMs: result.latencyMs,
+		reason: null,
+	};
+});
+
 const labelReply = readOs.labelReply.handler(async ({ input, context }) => {
 	const organizationId = requireOrgId(context);
 	const { policy, defaults } = await readPolicyState(context, organizationId);
@@ -2007,6 +2075,7 @@ export const agentTurnTriageContractRouter = os.router({
 	retriageQuestions,
 	triage,
 	labelReply,
+	chooseTool,
 	getPolicy,
 	updatePolicy,
 	requestReplyDraft,

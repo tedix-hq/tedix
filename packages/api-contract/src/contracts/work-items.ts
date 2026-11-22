@@ -827,10 +827,15 @@ export const workItemsContract = oc
 								"claude-code",
 								"opencode",
 								"devin",
+								"any-local",
 							]),
 							unavailableSince: z.iso.datetime(),
 							minimumIdleMinutes: z.number().int().min(1).max(1440).default(15),
-							reason: z.enum(["unreachable", "unavailable"]),
+							reason: z
+								.enum(["unreachable", "unavailable", "chosen"])
+								.describe(
+									"unreachable/unavailable: the tool cannot take Work; chosen: the decision model picked another available tool (no waiting time)",
+								),
 							detail: z
 								.string()
 								.trim()

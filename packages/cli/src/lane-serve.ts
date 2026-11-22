@@ -88,6 +88,7 @@ import {
 	readRoutingPolicy,
 	routeLocalWork,
 	ruleFor,
+	clefDecides,
 	executorBackoff,
 	resumeThenFresh,
 	isMissingNativeState,
@@ -2967,6 +2968,8 @@ export class LaneDispatcher {
 	private ownToolUnavailableSince?: number;
 	/** When a failed move of one Work revision to another tool may be tried again. */
 	private failoverRetryAt = new Map<string, number>();
+	/** Work revisions whose tool was already decided by Clef or the rules. */
+	private toolChoices?: Set<string>;
 	/** Work revisions already told that every tool for them is unavailable. */
 	private limitNotes?: Set<string>;
 	private idleItems = new Map<string, ReturnType<typeof idleReason>>();
@@ -4292,6 +4295,8 @@ export class LaneDispatcher {
 					rechecks.push(item);
 					continue;
 				}
+				// Clef picks the tool once per revision; a move hands it away.
+				if (await this.chooseTool(item)) continue;
 				// A capacity pause is never held, so it would cost a Work read on
 				// every retry; routing is local and preparation routes again.
 				const paused = (() => {
@@ -5340,6 +5345,151 @@ export class LaneDispatcher {
 			this.availability,
 			this.budgets,
 		);
+	}
+	/**
+	 * Clef picks the tool for Work that is not kept on one, from the tools
+	 * available now, once per Work revision. True when the Work moved to
+	 * another tool and leaves this runner. Clef unavailable, slow, unsure or
+	 * answering outside the offer leaves the routing rules in charge; the
+	 * task says which happened.
+	 */
+	private async chooseTool(item: DispatchItem): Promise<boolean> {
+		const from = String(assignedExecutor(item));
+		const receipt = item.metadata?.idleReassignment as
+			| { reason?: string; version?: number }
+			| undefined;
+		if (
+			!clefDecides(this.policy) ||
+			keepsItsTool(item) ||
+			verificationPlan(item) ||
+			(receipt?.reason === "chosen" && receipt.version === item.version)
+		)
+			return false;
+		const key = `${item.id}:${item.version}`;
+		const file = join(this.directory, "tool-choices.state");
+		if (!this.toolChoices) {
+			try {
+				this.toolChoices = new Set(JSON.parse(readFileSync(file, "utf8")));
+			} catch {
+				this.toolChoices = new Set();
+			}
+		}
+		if (this.toolChoices.has(key)) return false;
+		const remember = () => {
+			this.toolChoices!.add(key);
+			writeFileSync(file, JSON.stringify([...this.toolChoices!].slice(-1000)), {
+				mode: 0o600,
+			});
+		};
+		const now = Date.now();
+		const offered = localExecutors.filter(
+			(executor) =>
+				!!this.policy.tools?.[executor] &&
+				this.availability[executor]?.available &&
+				(this.budgets[executor]?.backoffUntil ?? 0) <= now &&
+				!this.unavailable.has(executor),
+		);
+		if (offered.length < 2) {
+			remember();
+			return false;
+		}
+		const metadata = item.metadata ?? {};
+		const comment = (body: string) =>
+			this.call(["work", "comment", item.id, "--body", body]).catch((error) =>
+				this.log("tool-choice-note-failed", item.id, String(error)),
+			);
+		let answer: {
+			status: "ok" | "unavailable";
+			executor: LocalExecutor | null;
+			confidence: number | null;
+			model: string;
+			latencyMs: number;
+			reason: string | null;
+		};
+		try {
+			answer = await this.call([
+				"work",
+				"choose-tool",
+				"--input",
+				JSON.stringify({
+					title: item.title.slice(0, 500),
+					description: (item.description ?? "").slice(0, 4_000),
+					workKind: item.workKind,
+					riskLevel: item.riskLevel,
+					size: typeof metadata.size === "string" ? metadata.size : undefined,
+					tags: Array.isArray(metadata.tags)
+						? metadata.tags
+								.filter((tag): tag is string => typeof tag === "string")
+								.slice(0, 20)
+						: [],
+					tools: offered.map((executor) => ({
+						executor,
+						strengths: this.policy.tools![executor]!.strengths,
+					})),
+				}),
+			]);
+		} catch (error) {
+			answer = {
+				status: "unavailable",
+				executor: null,
+				confidence: null,
+				model: "clef",
+				latencyMs: 0,
+				reason: String(error).slice(0, 120),
+			};
+		}
+		remember();
+		const minimum = this.policy.clefMinConfidence ?? 0.5;
+		const fromName = AGENT_NAMES[from] ?? from;
+		if (
+			answer.status !== "ok" ||
+			!answer.executor ||
+			!offered.includes(answer.executor) ||
+			(answer.confidence ?? 0) < minimum
+		) {
+			const why =
+				answer.status !== "ok"
+					? `Clef did not answer (${answer.reason ?? "unavailable"})`
+					: `Clef was only ${Math.round((answer.confidence ?? 0) * 100)}% sure`;
+			const body = `${why}, so the routing rules decide${from === "any-local" ? "" : ` and the task stays with ${fromName}`}.`;
+			this.log("tool-choice", item.id, body);
+			await comment(body);
+			return false;
+		}
+		const name = AGENT_NAMES[answer.executor] ?? answer.executor;
+		const detail = `Clef chose ${name} (${Math.round(answer.confidence! * 100)}% sure): ${this.policy.tools![answer.executor]!.strengths}`;
+		const receiptLine = `Model ${answer.model}, ${answer.latencyMs} ms, billed as Workers AI usage.`;
+		if (answer.executor === from) {
+			this.log("tool-choice", item.id, detail);
+			await comment(`${detail}. ${receiptLine}`);
+			return false;
+		}
+		try {
+			await this.call([
+				"work",
+				"dispatch-reassign",
+				item.id,
+				"--input",
+				JSON.stringify({
+					executor: answer.executor,
+					expectedWorkItemVersion: item.version,
+					idleReassignment: {
+						fromExecutor: from,
+						unavailableSince: new Date(now).toISOString(),
+						minimumIdleMinutes: 1,
+						reason: "chosen",
+						detail: `${detail}. ${receiptLine}`,
+					},
+				}),
+			]);
+			this.log("tool-choice", item.id, `${detail}; moved from ${from}`);
+			return true;
+		} catch (error) {
+			const body = `${detail}, but the move was refused (${String(error).slice(0, 160)}), so the task stays with ${fromName}.`;
+			this.log("tool-choice", item.id, body);
+			await comment(body);
+			return false;
+		}
 	}
 	/**
 	 * When every tool in a task's rule is unavailable, the task waits: it is

@@ -604,6 +604,29 @@ a `description` in your own words. `tedix lane routing` prints the file runners
 use and which tool takes which tasks, in plain words (`--json` adds the parsed
 policy); it changes nothing.
 
+Clef can pick the tool. Add each tool's strengths to the routing file and runners
+ask the Clef decision model, once per task revision, which of the tools available
+right now fits a task best:
+
+```json
+{
+	"decide": "clef",
+	"tools": {
+		"codex": { "strengths": "large multi-file and risky changes" },
+		"claude-code": { "strengths": "general coding and reviews" },
+		"opencode": { "strengths": "small routine edits and docs" },
+		"devin": { "strengths": "well-scoped self-contained tasks" }
+	}
+}
+```
+
+The task gets a comment such as "Clef chose OpenCode (82% sure): small routine
+edits and docs", and moves to that tool when it differs. When Clef does not
+answer within 2 seconds, is less sure than `clefMinConfidence` (default 0.5), or
+fewer than two described tools are available, the rules decide and the task says
+so. Tasks kept on their tool (`metadata.onlyExecutor`) are never asked about.
+Set `"decide": "rules"` to switch Clef off.
+
 When a runner's own tool cannot take Work for 5 minutes (out of credits or at
 its usage limit, or failing its start check), Work waiting for that tool moves
 to the next available tool in the same rule. Running tasks stay where they are.

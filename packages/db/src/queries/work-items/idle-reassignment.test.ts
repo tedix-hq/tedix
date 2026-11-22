@@ -141,6 +141,27 @@ it("lets a runner reporting its tool unavailable move Work past a cancelled Atte
 	}
 });
 
+it("moves Work to the tool the decision model chose without waiting, from any-local too", async () => {
+	const { sqlite, db, input } = fixture();
+	try {
+		sqlite.exec("UPDATE work_items SET executor_id='any-local'");
+		const moved = await reassignIdleWork(db, {
+			...input,
+			fromExecutor: "any-local",
+			unavailableSince: now,
+			reason: "chosen",
+			detail: "Clef chose OpenCode (82% sure): small routine edits and docs",
+		});
+		expect(moved.executorId).toBe("opencode");
+		expect(moved.metadata?.idleReassignment).toMatchObject({
+			reason: "chosen",
+			version: 3,
+		});
+	} finally {
+		sqlite.close();
+	}
+});
+
 it.each([
 	"threshold",
 	"version",

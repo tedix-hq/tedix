@@ -89,6 +89,7 @@ const CLI_TASK_CONTRACT = {
 const TEST_ORG = "99999999-9999-4999-8999-999999999999";
 const TEST_ENDPOINTS: Record<string, string> = {
 	triage_agent_turn: "agentTurnTriage/triage",
+	choose_work_tool: "agentTurnTriage/chooseTool",
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
 	report_work_agent_session_status: "workAgentSessions/report",
@@ -4367,6 +4368,18 @@ describe("native dispatcher coverage", () => {
 				args: "",
 				work: { input: JSON.stringify({ text: "Fictional turn" }) },
 			},
+			"choose-tool": {
+				args: "",
+				work: {
+					input: JSON.stringify({
+						title: "Fictional task",
+						tools: [
+							{ executor: "codex", strengths: "large changes" },
+							{ executor: "opencode", strengths: "small edits" },
+						],
+					}),
+				},
+			},
 			"agent-reply-label": {
 				args: "",
 				work: {
@@ -4585,7 +4598,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(79);
+		expect(covered).toHaveLength(80);
 	});
 });
 

@@ -4,6 +4,7 @@
 		"agentTurnTriage/labelReply",
 		"agentTurnTriage/requestReplyDraft",
 		"agentTurnTriage/triage",
+		"agentTurnTriage/chooseTool",
 		"attention/decideDeckCard",
 		"attention/getDeckCard",
 		"attention/listDeckCards",

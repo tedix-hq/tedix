@@ -33,6 +33,21 @@ export const routingPolicySchema = z.strictObject({
 		)
 		.min(1),
 	budgetFiles: z.partialRecord(executorSchema, z.array(z.string())),
+	/**
+	 * Who picks the tool for a task that is not kept on one: "clef" asks the
+	 * Clef decision model among the tools available now, with the rules as
+	 * the backup; "rules" uses the rules alone. Default "clef".
+	 */
+	decide: z.enum(["clef", "rules"]).optional(),
+	/** Each tool's strengths in the owner's words, offered to Clef. */
+	tools: z
+		.partialRecord(
+			executorSchema,
+			z.strictObject({ strengths: z.string().min(1).max(300) }),
+		)
+		.optional(),
+	/** Below this Clef confidence the rules decide. Default 0.5. */
+	clefMinConfidence: z.number().min(0).max(1).optional(),
 	opencodeModel: z
 		.string()
 		.regex(/^[^/\s]+\/[^\s]+$/)
@@ -78,6 +93,14 @@ const AGENT_NAMES: Record<LocalExecutor, string> = {
 	devin: "Devin",
 };
 
+/** True when Clef picks the tool: switched on and at least two tools described. */
+export function clefDecides(policy: RoutingPolicy): boolean {
+	return (
+		(policy.decide ?? "clef") === "clef" &&
+		Object.keys(policy.tools ?? {}).length >= 2
+	);
+}
+
 /** A kind of task in plain words, from what a routing rule matches. */
 function taskKind(rule: {
 	tags: string[];
@@ -113,6 +136,19 @@ function agentChain(routes: RoutingPolicy["rules"][number]["routes"]): string {
 export function describeRoutingPolicy(policy: RoutingPolicy): string[] {
 	const chains = policy.rules.map((rule) => agentChain(rule.routes));
 	const lines: string[] = [];
+	const strengths = Object.entries(policy.tools ?? {});
+	if (clefDecides(policy)) {
+		lines.push(
+			"Clef picks the tool for each task from the tools available now; the order below is the backup.",
+		);
+		for (const [executor, tool] of strengths)
+			lines.push(
+				`${AGENT_NAMES[executor as LocalExecutor]}: ${tool!.strengths}`,
+			);
+	} else if (policy.decide === "clef")
+		lines.push(
+			"Clef is chosen to pick the tool, but fewer than two tools have strengths written down, so the order below decides.",
+		);
 	if (chains.every((chain) => chain === chains[0])) {
 		lines.push(
 			chains[0] === "no agent"
