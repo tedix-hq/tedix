@@ -160,6 +160,9 @@ export interface ToolRow {
 	enabled: boolean;
 	/** Whether the tool's own connection to Tedix is signed in. */
 	connection: Connection | "checking";
+	account: Connection;
+	readVerified: boolean;
+	hookTrust: "trusted" | "untrusted" | "unknown";
 	/** Tedix can be added to this tool from here. */
 	canAdd: boolean;
 	/** The tool has a command that signs it in to Tedix through the browser. */
@@ -451,6 +454,9 @@ function toolRows(): ToolRow[] {
 			version: "",
 			enabled: true,
 			connection: "unknown",
+			account: "unknown",
+			readVerified: false,
+			hookTrust: "unknown",
 			canAdd: false,
 			canSignIn: false,
 			note: "",
@@ -476,6 +482,22 @@ function toolRows(): ToolRow[] {
 			return row;
 		}
 		const host = agentStatus.hosts[tool.status];
+		row.account =
+			host?.account === "signed-in" || host?.account === "signed-out"
+				? host.account
+				: "unknown";
+		const readAge =
+			typeof host?.readVerifiedAt === "string"
+				? Date.now() - Date.parse(host.readVerifiedAt)
+				: NaN;
+		row.readVerified = readAge >= 0 && readAge < 24 * 60 * 60_000;
+		row.hookTrust =
+			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
+				? host.hookTrust
+				: "unknown";
+		if (row.account === "signed-out") {
+			row.note = `Not signed in to ${tool.name}; run ${tool.id === "codex" ? "codex login" : tool.id === "claude" ? "claude auth login" : "devin auth login"}, then choose Check again.`;
+		}
 		if (host?.problem && !facts.hasTedix) {
 			row.note = `${tool.name} did not answer: ${String(host.problem).split("\n")[0]!.slice(0, 200)}`;
 			return row;
@@ -491,6 +513,8 @@ function toolRows(): ToolRow[] {
 			row.note = `Switch the Tedix plugin on in ${tool.name}, then choose Check again.`;
 			return row;
 		}
+		if (host?.signedIn === true) row.connection = "signed-in";
+		if (row.account === "signed-out") return row;
 		if (row.connection === "signed-in") return row;
 		row.canSignIn = Boolean(tool.signIn) && facts.signInWorks;
 		row.note = row.canSignIn ? (tool.say ?? "") : (tool.signInSay ?? "");
@@ -615,6 +639,8 @@ const ACTIONS = [
 	"cancel",
 	"add",
 	"connect",
+	"verify",
+	"trust-hooks",
 	"run-tasks",
 	"choose-folder",
 	"sessions-on",
@@ -770,6 +796,58 @@ export async function setupAction(
 	}
 	if (!tool) return;
 	const command = findCommand(tool.binary);
+	if (action === "trust-hooks" && tool.id === "codex" && command) {
+		await step("hooks:codex", async (say) => {
+			// Open the real TUI view; trust remains a click made by the person.
+			const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+			const navigation =
+				'set timeout 60\nspawn -noecho -- $env(TEDIX_SETUP_CODEX) -C $env(HOME) -a on-request -s read-only\nexpect {\n-re {state=idle:app=codex} {send -- "/hooks\\r"}\ntimeout {}\neof {exit}\n}\ninteract';
+			const launch = `TEDIX_SETUP_CODEX=${quote(command)} /usr/bin/expect -c ${quote(navigation)}`;
+			const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(launch)}\nend tell`;
+			await must(
+				run("/usr/bin/osascript", ["-e", script], { timeoutMs: 15_000 }),
+			);
+			say("In Codex /hooks, select each Tedix hook and choose Trust.");
+			let stopped = false;
+			stops["hooks:codex"] = () => {
+				stopped = true;
+			};
+			const until = Date.now() + 15 * 60_000;
+			while (!stopped && Date.now() < until) {
+				await readAgentStatus();
+				if (
+					agentStatus &&
+					"hosts" in agentStatus &&
+					agentStatus.hosts.codex?.hookTrust === "trusted"
+				)
+					return "Codex reports the Tedix hooks are trusted; choose Check read next.";
+				await new Promise((resolve) => setTimeout(resolve, 3000));
+			}
+			throw new Error(
+				"Hook trust is still waiting; open /hooks in Codex and trust the Tedix hooks, then choose Check again.",
+			);
+		});
+		return readAgentStatus();
+	}
+	if (action === "verify" && (tool.id === "codex" || tool.id === "claude")) {
+		await step(`verify:${tool.id}`, async (say) => {
+			say(`Checking a read inside ${tool.name}…`);
+			await must(
+				tedix(
+					["-w", "connect", "setup", "agents", `--${tool.id}`, "--verify"],
+					{
+						onLine: say,
+						onStart: (stop) => {
+							stops[`verify:${tool.id}`] = stop;
+						},
+						timeoutMs: 150_000,
+					},
+				),
+			);
+			return `A Tedix read succeeded inside ${tool.name}.`;
+		});
+		return readAgentStatus();
+	}
 	if (action === "add" && tool.add) {
 		await step(`add:${tool.id}`, async (say) => {
 			await must(

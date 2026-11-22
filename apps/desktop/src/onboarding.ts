@@ -184,26 +184,51 @@ const connected = (tool: ToolRow) =>
 	tool.found === "found" &&
 	tool.tedix === "added" &&
 	tool.enabled &&
-	tool.connection !== "signed-out";
+	tool.account === "signed-in" &&
+	tool.connection === "signed-in" &&
+	tool.readVerified &&
+	(tool.id !== "codex" || tool.hookTrust === "trusted");
 
 function toolRow(tool: ToolRow, steps: Record<string, StepRun>): HTMLElement {
 	const adding = steps[`add:${tool.id}`];
 	const connecting = steps[`connect:${tool.id}`];
+	const verifying = steps[`verify:${tool.id}`];
+	const hooks = steps[`hooks:${tool.id}`];
 	const ran =
-		adding?.working || adding?.error ? adding : (connecting ?? adding);
+		adding?.working || adding?.error
+			? adding
+			: verifying?.working || verifying?.error
+				? verifying
+				: hooks?.working || hooks?.error
+					? hooks
+					: (connecting ?? verifying ?? hooks ?? adding);
 	const base = {
 		key: `tool:${tool.id}`,
 		icon: TOOL_ICONS[tool.id] ?? ("terminal" as const),
 		title: tool.name,
 		ran,
-		retry: () => act(ran === connecting ? "connect" : "add", tool.id),
+		retry: () =>
+			act(
+				ran === connecting
+					? "connect"
+					: ran === verifying
+						? "verify"
+						: ran === hooks
+							? "trust-hooks"
+							: "add",
+				tool.id,
+			),
 		waiting:
 			ran === connecting && ran?.working
 				? "Waiting for your browser…"
 				: undefined,
 		cancel:
-			ran === connecting
-				? () => act("cancel", `connect:${tool.id}`)
+			ran === connecting || ran === verifying || ran === hooks
+				? () =>
+						act(
+							"cancel",
+							`${ran === verifying ? "verify" : ran === hooks ? "hooks" : "connect"}:${tool.id}`,
+						)
 				: undefined,
 		details: [tool.note],
 	};
@@ -216,6 +241,23 @@ function toolRow(tool: ToolRow, steps: Record<string, StepRun>): HTMLElement {
 			...base,
 			sub: "Checking…",
 			control: el("span", "spinner"),
+		});
+	if (tool.account === "signed-out")
+		return row({
+			...base,
+			sub: `Not signed in to ${tool.name}; run ${tool.id === "codex" ? "codex login" : tool.id === "claude" ? "claude auth login" : "devin auth login"}, then choose Check again.`,
+			control: button(
+				"Copy command",
+				"plain",
+				() =>
+					void tedixShell.copy(
+						tool.id === "codex"
+							? "codex login"
+							: tool.id === "claude"
+								? "claude auth login"
+								: "devin auth login",
+					),
+			),
 		});
 	if (tool.tedix === "missing")
 		return row({
@@ -232,16 +274,37 @@ function toolRow(tool: ToolRow, steps: Record<string, StepRun>): HTMLElement {
 			control: button("Check again", "quiet", () => act("check")),
 		});
 	if (!tool.enabled) return row({ ...base, sub: "Switched off in the tool" });
+	if (tool.id === "codex" && tool.hookTrust !== "trusted")
+		return row({
+			...base,
+			sub: "In Codex /hooks, select each Tedix hook and choose Trust, then choose Check again here.",
+			control: button("Open hooks", "plain", () => act("trust-hooks", tool.id)),
+		});
 	if (tool.connection === "signed-out")
 		return row({
 			...base,
-			sub: signIn ? "Not signed in yet" : "Sign in inside the tool",
+			sub: signIn
+				? "Not signed in to Tedix yet"
+				: tool.note || "Open /mcp in the tool and authenticate Tedix.",
 			control: signIn,
 		});
-	if (tool.connection === "signed-in" || !signIn)
-		return row({ ...base, sub: "Tedix added", control: done("Ready") });
-	// Added, and the tool does not say whether it is signed in.
-	return row({ ...base, sub: "Tedix added", control: signIn });
+	if (connected(tool))
+		return row({
+			...base,
+			sub: "A Tedix read succeeded inside this tool",
+			control: done("Ready"),
+		});
+	return row({
+		...base,
+		sub:
+			tool.id === "claude"
+				? "Check a Tedix read using Claude Code’s model"
+				: "A read inside this tool has not been verified",
+		control:
+			tool.id === "codex" || tool.id === "claude"
+				? button("Check read", "plain", () => act("verify", tool.id))
+				: signIn,
+	});
 }
 
 /** The one thing that still needs the person, and the screen that has it. */

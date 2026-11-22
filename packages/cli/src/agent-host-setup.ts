@@ -1,7 +1,16 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
-import { existsSync, readFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+	rmSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { credentialDirectory } from "./credential-store";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
 
 type AgentHost = "codex" | "claude";
@@ -49,6 +58,8 @@ Usage:
   tedix setup agents --all --yes     Require both hosts; skip Tedix's prompt
   tedix setup agents --status        Report installed, login, hook, and read steps
   tedix setup agents --status --json Print the same facts as JSON, Devin included
+  tedix setup agents --codex --verify Verify a read inside Codex (no model call)
+  tedix setup agents --claude --verify Verify a read inside Claude (uses its model)
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
 
@@ -106,6 +117,8 @@ export function runHostCommand(
 		env: {
 			CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS: "840000",
 			...process.env,
+			TEDIX_AGENT_SESSION: undefined,
+			TEDIX_EXTERNAL_AGENT: undefined,
 		},
 		maxBuffer: 2 * 1024 * 1024,
 	});
@@ -249,12 +262,21 @@ export interface AgentHostStatus {
 	enabled?: boolean;
 	version?: string;
 	signedIn?: boolean;
+	/** The coding tool's own account, separate from its Tedix MCP sign-in. */
+	account?: "signed-in" | "signed-out" | "unknown";
+	hookTrust?: "trusted" | "untrusted" | "unknown";
+	readVerifiedAt?: string;
 	/** Codex only: whether the MCP protocol Tedix Connect needs is on. */
 	protocolEnabled?: boolean;
 	problem?: string;
 }
 
-function hostStatus(host: AgentHost, run: HostCommandRunner): AgentHostStatus {
+const accountFingerprints = new WeakMap<AgentHostStatus, string>();
+
+async function hostStatus(
+	host: AgentHost,
+	run: HostCommandRunner,
+): Promise<AgentHostStatus> {
 	if (run(host, ["--version"]).status !== 0)
 		return { host, found: false, installed: false };
 	try {
@@ -263,6 +285,34 @@ function hostStatus(host: AgentHost, run: HostCommandRunner): AgentHostStatus {
 			readJson(host, ["plugin", "list", "--json"], run),
 		);
 		const status: AgentHostStatus = { host, found: true, ...plugin };
+		const auth = run(
+			host,
+			host === "codex" ? ["login", "status"] : ["auth", "status", "--json"],
+		);
+		const output = `${auth.stdout}\n${auth.stderr}`;
+		accountFingerprints.set(
+			status,
+			createHash("sha256").update(output).digest("hex"),
+		);
+		status.account =
+			host === "codex"
+				? /not logged in/i.test(output)
+					? "signed-out"
+					: auth.status === 0 && /logged in/i.test(output)
+						? "signed-in"
+						: "unknown"
+				: (() => {
+						try {
+							const loggedIn = JSON.parse(auth.stdout).loggedIn;
+							return loggedIn === true
+								? "signed-in"
+								: loggedIn === false
+									? "signed-out"
+									: "unknown";
+						} catch {
+							return "unknown";
+						}
+					})();
 		if (host === "codex") {
 			const features = run(host, ["features", "list"]);
 			const enabled =
@@ -282,6 +332,33 @@ function hostStatus(host: AgentHost, run: HostCommandRunner): AgentHostStatus {
 					)
 			)
 				status.signedIn = false;
+			if (plugin.installed && plugin.enabled && run === runHostCommand) {
+				try {
+					status.hookTrust = await codexSetup(false);
+				} catch {
+					status.hookTrust = "unknown";
+				}
+			}
+		}
+		try {
+			const proof = JSON.parse(readFileSync(proofPath(host), "utf8"));
+			const age = Date.now() - Date.parse(proof.at);
+			if (
+				plugin.installed &&
+				plugin.enabled &&
+				status.account === "signed-in" &&
+				status.signedIn !== false &&
+				status.protocolEnabled !== false &&
+				(host !== "codex" || status.hookTrust === "trusted") &&
+				age >= 0 &&
+				age < 24 * 60 * 60_000 &&
+				proof.fingerprint === proofFingerprint(host, status)
+			) {
+				status.readVerifiedAt = proof.at;
+				status.signedIn = true;
+			}
+		} catch {
+			/* No current successful host read. */
 		}
 		return status;
 	} catch (error) {
@@ -292,6 +369,295 @@ function hostStatus(host: AgentHost, run: HostCommandRunner): AgentHostStatus {
 			problem: error instanceof Error ? error.message : String(error),
 		};
 	}
+}
+
+const proofPath = (host: AgentHost) =>
+	join(credentialDirectory(), `setup-read-${host}.json`);
+
+/** Invalidate a read after account, plugin, configuration or credential changes. */
+function proofFingerprint(host: AgentHost, status: AgentHostStatus): string {
+	const directory =
+		host === "codex"
+			? process.env.CODEX_HOME || join(homedir(), ".codex")
+			: process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+	const hash = createHash("sha256").update(
+		JSON.stringify([
+			status.version,
+			status.account,
+			accountFingerprints.get(status),
+		]),
+	);
+	for (const name of [
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"CLAUDE_CODE_OAUTH_TOKEN",
+	])
+		hash.update(process.env[name] ?? "");
+	for (const file of host === "codex"
+		? ["config.toml", "auth.json", ".credentials.json", "hooks.json"]
+		: ["settings.json", ".credentials.json"])
+		try {
+			hash.update(readFileSync(join(directory, file)));
+		} catch {
+			hash.update("missing");
+		}
+	return hash.digest("hex");
+}
+
+/** Read-only app-server requests. Never answer consent, trust or approval requests. */
+async function codexSetup(
+	verify: boolean,
+): Promise<"trusted" | "untrusted" | "unknown"> {
+	const child = spawn(
+		"codex",
+		[
+			"app-server",
+			"-c",
+			'mcp_servers.tedix.url="https://connect.mcp.tedix.dev/mcp"',
+		],
+		{
+			stdio: ["pipe", "pipe", "ignore"],
+			cwd: homedir(),
+			env: {
+				...process.env,
+				TEDIX_AGENT_SESSION: undefined,
+				TEDIX_EXTERNAL_AGENT: undefined,
+			},
+		},
+	);
+	const lines = createInterface({ input: child.stdout });
+	let next = 0;
+	const pending = new Map<
+		number,
+		{ resolve: (value: unknown) => void; reject: (error: Error) => void }
+	>();
+	const fail = () => {
+		for (const item of pending.values())
+			item.reject(new Error("Codex did not finish the setup check."));
+		pending.clear();
+	};
+	child.on("error", fail);
+	child.on("exit", fail);
+	child.stdin.on("error", fail);
+	lines.on("line", (line) => {
+		try {
+			const event = JSON.parse(line);
+			if (event.method && event.id !== undefined) {
+				child.stdin.write(
+					`${JSON.stringify({ id: event.id, error: { code: -32601, message: "Finish this request inside Codex." } })}\n`,
+				);
+				return;
+			}
+			const item = pending.get(event.id);
+			if (!item) return;
+			pending.delete(event.id);
+			if (event.error)
+				item.reject(
+					new Error("Codex could not run the setup read; check /mcp in Codex."),
+				);
+			else item.resolve(event.result);
+		} catch {
+			/* Ignore non-protocol output. */
+		}
+	});
+	const timer = setTimeout(() => {
+		fail();
+		child.kill();
+	}, 90_000);
+	const request = (method: string, params: unknown): Promise<unknown> =>
+		new Promise((resolve, reject) => {
+			const id = ++next;
+			pending.set(id, { resolve, reject });
+			child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+		});
+	try {
+		await request("initialize", {
+			clientInfo: { name: "tedix_setup", title: "Tedix setup", version: "1" },
+			capabilities: { experimentalApi: true, explicitGatewayOauth: true },
+		});
+		child.stdin.write('{"method":"initialized"}\n');
+		const listed = asRecord(await request("hooks/list", { cwds: [homedir()] }));
+		const entries = records(listed?.data);
+		const hooks = entries
+			.flatMap((entry) => records(entry.hooks))
+			.filter(
+				(hook) =>
+					(typeof hook.pluginId === "string" &&
+						/^tedix@/.test(hook.pluginId)) ||
+					(typeof hook.command === "string" &&
+						/(?:^|[\s/])tedix['"]?\s+hooks\s/.test(hook.command)),
+			);
+		const trust =
+			!hooks.length ||
+			entries.some(
+				(entry) =>
+					(Array.isArray(entry.errors) && entry.errors.length) ||
+					(Array.isArray(entry.warnings) && entry.warnings.length),
+			)
+				? "unknown"
+				: hooks.every(
+							(hook) =>
+								hook.enabled === true &&
+								(hook.trustStatus === "trusted" ||
+									hook.trustStatus === "managed"),
+					  )
+					? "trusted"
+					: "untrusted";
+		if (!verify) return trust;
+		if (trust !== "trusted")
+			throw new Error(
+				"In Codex /hooks, review and trust the Tedix hooks, then check again.",
+			);
+		const started = asRecord(
+			await request("thread/start", {
+				cwd: homedir(),
+				ephemeral: true,
+				approvalPolicy: "untrusted",
+				sandbox: "read-only",
+			}),
+		);
+		const threadId = asRecord(started?.thread)?.id;
+		if (typeof threadId !== "string")
+			throw new Error("Codex did not start the setup check.");
+		let cursor: string | null = null;
+		let server: Record<string, unknown> | undefined;
+		do {
+			const page = asRecord(
+				await request("mcpServerStatus/list", { threadId, cursor }),
+			);
+			server = records(page?.data).find(
+				(item) =>
+					item.httpOrigin === "https://connect.mcp.tedix.dev" &&
+					(item.name === "tedix" ||
+						(typeof item.pluginId === "string" &&
+							/^tedix@/.test(item.pluginId))) &&
+					asRecord(item.tools)?.get_profile,
+			);
+			cursor = typeof page?.nextCursor === "string" ? page.nextCursor : null;
+		} while (!server && cursor);
+		if (!server)
+			throw new Error("Sign in to Tedix in Codex /mcp, then check again.");
+		const result = asRecord(
+			await request("mcpServer/tool/call", {
+				threadId,
+				server: server.name,
+				environmentId: server.environmentId,
+				tool: "get_profile",
+				arguments: {},
+			}),
+		);
+		if (
+			!result ||
+			result.isError === true ||
+			(!profileRead(result.structuredContent) && !profileRead(result.content))
+		)
+			throw new Error(
+				"Tedix did not return a successful profile read inside Codex.",
+			);
+		return trust;
+	} finally {
+		clearTimeout(timer);
+		lines.close();
+		child.stdin.end();
+		child.kill();
+	}
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+	return Array.isArray(value)
+		? value
+				.map(asRecord)
+				.filter((item): item is Record<string, unknown> => item !== undefined)
+		: [];
+}
+
+function profileRead(value: unknown): boolean {
+	if (typeof asRecord(value)?.id === "string" && asRecord(value)?.id)
+		return true;
+	if (Array.isArray(value))
+		return records(value).some(
+			(item) => item.type === "text" && profileRead(item.text),
+		);
+	if (typeof value === "string") {
+		try {
+			return profileRead(JSON.parse(value));
+		} catch {
+			return false;
+		}
+	}
+	return false;
+}
+
+/** Accept host tool results, never the model's claim that a read worked. */
+function claudeSetupReadSucceeded(output: string): boolean {
+	const calls = new Set<string>();
+	for (const line of output.split(/\r?\n/)) {
+		try {
+			const event = asRecord(JSON.parse(line));
+			for (const block of records(asRecord(event?.message)?.content)) {
+				if (
+					event?.type === "assistant" &&
+					block.type === "tool_use" &&
+					block.name === "mcp__plugin_tedix_tedix__get_profile" &&
+					typeof block.id === "string"
+				)
+					calls.add(block.id);
+				if (
+					event?.type === "user" &&
+					block.type === "tool_result" &&
+					typeof block.tool_use_id === "string" &&
+					calls.has(block.tool_use_id) &&
+					block.is_error !== true &&
+					profileRead(block.content)
+				)
+					return true;
+			}
+		} catch {
+			/* Not a host event. */
+		}
+	}
+	return false;
+}
+
+async function verifyHost(
+	host: AgentHost,
+	run: HostCommandRunner,
+): Promise<void> {
+	rmSync(proofPath(host), { force: true });
+	const status = await hostStatus(host, run);
+	if (!status.installed || !status.enabled)
+		throw new Error(`Enable the Tedix plugin in ${host}, then check again.`);
+	if (status.account !== "signed-in")
+		throw new Error(
+			`Sign in to ${host} first: ${host === "codex" ? "codex login" : "claude auth login"}.`,
+		);
+	if (host === "codex") await codexSetup(true);
+	else {
+		const result = run(host, [
+			"-p",
+			"Call only mcp__plugin_tedix_tedix__get_profile with {} once to check the Tedix sign-in. Do not use other tools, change anything, or request consent. Stop after that read.",
+			"--output-format",
+			"stream-json",
+			"--verbose",
+			"--max-turns",
+			"2",
+			"--tools",
+			"",
+			"--allowedTools",
+			"mcp__plugin_tedix_tedix__get_profile",
+		]);
+		if (result.status !== 0 || !claudeSetupReadSucceeded(result.stdout))
+			throw new Error(
+				"Tedix did not return a successful profile read inside Claude Code; open /mcp and authenticate Tedix, then check again.",
+			);
+	}
+	const at = new Date().toISOString();
+	mkdirSync(credentialDirectory(), { recursive: true, mode: 0o700 });
+	writeFileSync(
+		proofPath(host),
+		JSON.stringify({ at, fingerprint: proofFingerprint(host, status) }),
+		{ mode: 0o600 },
+	);
 }
 
 function devinStatus(): AgentHostStatus {
@@ -309,7 +675,19 @@ function devinStatus(): AgentHostStatus {
 	} catch {
 		/* No settings file yet, or one this command cannot read. */
 	}
-	return { host: "devin", found, installed };
+	const auth = found
+		? spawnSync("devin", ["auth", "status"], {
+				encoding: "utf8",
+				timeout: 20_000,
+			})
+		: undefined;
+	const output = `${auth?.stdout ?? ""}\n${auth?.stderr ?? ""}`;
+	const account = /not (?:logged|signed) in/i.test(output)
+		? "signed-out"
+		: auth?.status === 0 && /logged in/i.test(output)
+			? "signed-in"
+			: "unknown";
+	return { host: "devin", found, installed, account };
 }
 
 export async function runAgentHostSetup(
@@ -317,20 +695,64 @@ export async function runAgentHostSetup(
 	run: HostCommandRunner = runHostCommand,
 	confirm?: (prompt: string) => Promise<boolean>,
 ): Promise<number> {
-	if (args.includes("--json")) {
-		if (args.length !== 2 || !args.includes("--status"))
-			throw new Error("Use --json only as: tedix setup agents --status --json");
-		console.log(
-			JSON.stringify(
-				{
-					hosts: [...HOSTS.map((host) => hostStatus(host, run)), devinStatus()],
-				},
-				null,
-				2,
-			),
-		);
+	if (args.includes("--verify")) {
+		const host = args.includes("--codex")
+			? "codex"
+			: args.includes("--claude")
+				? "claude"
+				: undefined;
+		if (!host || args.length !== 2 || new Set(args).size !== 2)
+			throw new Error("Use --verify with exactly one of --codex or --claude.");
+		await verifyHost(host, run);
+		console.log(`${host}: a Tedix profile read succeeded inside the tool.`);
 		return 0;
 	}
+	if (args.includes("--status") && !args.includes("--devin")) {
+		const json = args.includes("--json");
+		const options = parseAgentHostSetupArgs(
+			args.filter((arg) => arg !== "--json"),
+		);
+		if (
+			args.filter((arg) => arg === "--json").length > 1 ||
+			options.dryRun ||
+			options.yes
+		)
+			throw new Error("Use --status with optional host selectors and --json.");
+		const selected = options.hosts.length ? options.hosts : [...HOSTS];
+		const hosts = await Promise.all(
+			selected.map((host) => hostStatus(host, run)),
+		);
+		if (json)
+			console.log(
+				JSON.stringify(
+					{
+						hosts: [
+							...hosts,
+							...(!options.hosts.length ? [devinStatus()] : []),
+						],
+					},
+					null,
+					2,
+				),
+			);
+		else
+			for (const status of hosts) {
+				console.log(
+					`${status.host}: plugin ${status.installed ? (status.enabled ? "installed and enabled" : "disabled") : "absent"}; account ${status.account ?? "unknown"}.`,
+				);
+				if (status.host === "codex")
+					console.log(
+						`codex: MCP 2026-07-28 ${status.protocolEnabled === true ? "enabled" : status.protocolEnabled === false ? "disabled; run codex features enable mcp_2026_07_28, then restart Codex" : "unverified; run codex features list"}.`,
+					);
+				console.log(
+					`${status.host}: Connect OAuth ${status.readVerifiedAt ? "verified" : status.signedIn === false ? "not logged in" : "unverified"}; hook trust: ${status.hookTrust ?? "check /hooks"}; read: ${status.readVerifiedAt ? `verified at ${status.readVerifiedAt}` : `unverified; run tedix setup agents --${status.host} --verify`}.`,
+				);
+				if (status.problem) console.error(status.problem);
+			}
+		return 0;
+	}
+	if (args.includes("--json"))
+		throw new Error("Use --json only with --status.");
 	if (args.includes("--devin")) {
 		if (
 			new Set(args).size !== args.length ||
