@@ -12,7 +12,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
 import { log } from "./log";
-import { configDir, findTedix, type RunResult, run, toolPath } from "./shell";
+import {
+	configDir,
+	findTedix,
+	personEnv,
+	type RunResult,
+	run,
+	toolPath,
+} from "./shell";
 
 /**
  * This Mac's runners run under `tedix supervise`. On a Mac with the app, the
@@ -175,9 +182,7 @@ async function stopRunnerProcesses(): Promise<void> {
 
 /** The supervisor's environment: the person's shell PATH finds their coding tools. */
 function supervisorEnv(): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = {};
-	for (const [key, value] of Object.entries(process.env))
-		if (!key.startsWith("ELECTRON_")) env[key] = value;
+	const env = personEnv();
 	env.PATH = toolPath();
 	// The supervisor stops when this app is gone, also after a crash.
 	env.TEDIX_SUPERVISOR_PARENT = String(process.pid);

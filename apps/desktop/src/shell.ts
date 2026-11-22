@@ -31,7 +31,7 @@ export function refreshShellPath(): Promise<void> {
 		execFile(
 			loginShell(),
 			["-lic", 'printf "<path>%s</path>" "$PATH"'],
-			{ timeout: 8000, env: process.env },
+			{ timeout: 8000, env: personEnv() },
 			(_error, stdout) => {
 				const found = /<path>([^<]*)<\/path>/.exec(String(stdout))?.[1];
 				if (found) shellPath = found;
@@ -39,6 +39,26 @@ export function refreshShellPath(): Promise<void> {
 			},
 		).stdin?.end();
 	});
+}
+
+/**
+ * The app acts for the person, even when a coding agent started it (a
+ * relaunch from a Codex or Claude Code session). Its environment then carries
+ * that agent's session variables, and `tedix` would refuse the person's
+ * sign-in and record their work as the agent's. Commands the app starts get
+ * the environment without them.
+ */
+export function personEnv(): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {};
+	for (const [key, value] of Object.entries(process.env))
+		if (
+			(key === "CODEX_HOME" || !/^(ELECTRON_|CODEX_|CLAUDE_CODE_)/.test(key)) &&
+			!["CLAUDECODE", "TEDIX_AGENT_SESSION", "TEDIX_EXTERNAL_AGENT"].includes(
+				key,
+			)
+		)
+			env[key] = value;
+	return env;
 }
 
 /** True when the person's own shell already has `~/.local/bin` on its PATH. */
@@ -113,7 +133,7 @@ export function run(
 			resolve({ ok, output: output || extra });
 		};
 		const child = spawn(command, args, {
-			env: { ...process.env, ...options.env, PATH: toolPath() },
+			env: { ...personEnv(), ...options.env, PATH: toolPath() },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const timer = options.timeoutMs
