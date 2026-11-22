@@ -29,6 +29,7 @@ import type { AgentRunRef } from "@/lib/agent-run-result";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import { osQuery } from "@/lib/os-query-options";
+import { pollingBackoff } from "@/lib/polling-backoff";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
@@ -390,8 +391,9 @@ export function AgentRunCard({
 			input: { workItemId: agentRun.workItemId, states: ["open"], limit: 50 },
 		}),
 		enabled: waiting,
-		refetchInterval: waiting ? 3_000 : false,
-		refetchIntervalInBackground: true,
+		staleTime: 0,
+		refetchInterval: (query) =>
+			pollingBackoff(query, waiting ? 3_000 : false, 30_000),
 	});
 	const hold = requests.data?.data.find(
 		({ request }) => request.metadata?.source === "lane-dispatch-blocker",

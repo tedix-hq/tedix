@@ -69,13 +69,17 @@ it("moves from waiting to running to failed without a reload", async () => {
 		configurable: true,
 		get: () => "hidden",
 	});
-	document.dispatchEvent(new Event("visibilitychange"));
+	window.dispatchEvent(new Event("visibilitychange"));
 	const status = () =>
 		host.querySelector('[data-slot="agent-run-status"]')?.textContent;
 	await act(() => vi.advanceTimersByTimeAsync(100));
 	expect(status()).toBe("Waiting for an agent to pick it up");
-	// Nothing changes in the run, yet an open card shows how long it has waited.
-	await act(() => vi.advanceTimersByTimeAsync(6 * 60_000));
+	const hiddenSteps = api.steps.mock.calls.length;
+	const hiddenInbox = api.inbox.mock.calls.length;
+	await act(() => vi.advanceTimersByTimeAsync(2 * 60_000));
+	expect(api.steps).toHaveBeenCalledTimes(hiddenSteps);
+	expect(api.inbox).toHaveBeenCalledTimes(hiddenInbox);
+	await act(() => vi.advanceTimersByTimeAsync(4 * 60_000));
 	expect(status()).toBe("No runner has picked this up for 6 minutes");
 	api.inbox.mockResolvedValue({
 		data: [
@@ -88,7 +92,16 @@ it("moves from waiting to running to failed without a reload", async () => {
 			},
 		],
 	});
-	await act(() => vi.advanceTimersByTimeAsync(3_100));
+	Object.defineProperty(document, "visibilityState", {
+		configurable: true,
+		get: () => "visible",
+	});
+	await act(async () => {
+		window.dispatchEvent(new Event("visibilitychange"));
+		await vi.advanceTimersByTimeAsync(100);
+	});
+	expect(api.steps).toHaveBeenCalledTimes(hiddenSteps + 1);
+	expect(api.inbox).toHaveBeenCalledTimes(hiddenInbox + 1);
 	expect(status()).toContain("Waiting for your permission");
 	expect(host.textContent).toContain("message people outside the team");
 	expect(host.textContent).toContain("Open the task to review and answer");
@@ -101,6 +114,8 @@ it("moves from waiting to running to failed without a reload", async () => {
 	});
 	api.attempts.mockResolvedValue({ data: [attempt(null)], nextCursor: null });
 	await act(() => vi.advanceTimersByTimeAsync(3_100));
+	expect(api.steps).toHaveBeenCalledTimes(hiddenSteps + 1);
+	await act(() => vi.advanceTimersByTimeAsync(3_000));
 	expect(status()).toMatch(/^Running/);
 	expect(host.textContent).not.toContain("message people outside the team");
 
@@ -120,6 +135,8 @@ it("moves from waiting to running to failed without a reload", async () => {
 	expect(status()).toMatch(/^Finished.*failed/);
 	act(() => root.unmount());
 	Reflect.deleteProperty(document, "visibilityState");
-	document.dispatchEvent(new Event("visibilitychange"));
+	window.dispatchEvent(new Event("visibilitychange"));
+	client.clear();
+	host.remove();
 	vi.useRealTimers();
 });

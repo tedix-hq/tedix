@@ -266,7 +266,6 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 			enabled: state.status === "ready",
 			staleTime: 0,
 			refetchInterval: 3_000,
-			refetchIntervalInBackground: true,
 			retry: false,
 		}),
 	);

@@ -153,3 +153,41 @@ describe("a workspace address that does not open", () => {
 		expect(container.querySelector("[data-workspace-archived]")).toBeNull();
 	});
 });
+
+it("pauses access reads while hidden and shows revoked access on return", async () => {
+	api.open.mockResolvedValue({
+		workspace: { id: WORKSPACE_ID, title: "Launch plan" },
+		role: "use",
+		apps: [],
+	});
+	api.access.mockResolvedValue({ role: "use" });
+	const container = await renderPage();
+	vi.useFakeTimers();
+	try {
+		await act(() => vi.advanceTimersByTimeAsync(100));
+		const reads = api.access.mock.calls.length;
+		expect(reads).toBeGreaterThan(0);
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			get: () => "hidden",
+		});
+		window.dispatchEvent(new Event("visibilitychange"));
+		await act(() => vi.advanceTimersByTimeAsync(120_000));
+		expect(api.access).toHaveBeenCalledTimes(reads);
+		api.access.mockRejectedValue({ code: "FORBIDDEN", status: 403 });
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			get: () => "visible",
+		});
+		await act(async () => {
+			window.dispatchEvent(new Event("visibilitychange"));
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		expect(api.access).toHaveBeenCalledTimes(reads + 1);
+		expect(container.textContent).toContain("You don't have access");
+	} finally {
+		Reflect.deleteProperty(document, "visibilityState");
+		window.dispatchEvent(new Event("visibilitychange"));
+		vi.useRealTimers();
+	}
+});

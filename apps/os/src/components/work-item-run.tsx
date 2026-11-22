@@ -18,6 +18,7 @@ import {
 	workItemAttemptsQueryOptions,
 	workItemRunStepsQueryOptions,
 } from "@/lib/os-query-options";
+import { pollingBackoff } from "@/lib/polling-backoff";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 /**
@@ -395,16 +396,18 @@ export function useWorkItemRun(itemId: string, waitForStart = false) {
 	const options = workItemRunStepsQueryOptions(itemId);
 	const run = useQuery({
 		...options,
+		staleTime: 0,
 		refetchInterval: (query) =>
-			(waitForStart && query.state.data?.attemptId === null) ||
-			query.state.data?.live ||
-			query.state.data?.questionOpen ||
-			query.state.data?.steps.at(-1)?.kind === "question"
-				? RUN_REFRESH_MS
-				: false,
-		// A run goes on while the person looks at another window; the card and
-		// the task page must be current when they look back, not a poll later.
-		refetchIntervalInBackground: true,
+			pollingBackoff(
+				query,
+				(waitForStart && query.state.data?.attemptId === null) ||
+					query.state.data?.live ||
+					query.state.data?.questionOpen ||
+					query.state.data?.steps.at(-1)?.kind === "question"
+					? RUN_REFRESH_MS
+					: false,
+				30_000,
+			),
 	});
 	// Read again while the run is live, so a runner that stops reporting shows.
 	const attempts = useQuery({
