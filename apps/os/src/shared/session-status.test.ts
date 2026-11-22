@@ -2,6 +2,11 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { installOsErrorReporting } from "@/lib/error-reporting/install";
+import {
+	createOsClientErrorIngest,
+	type OsClientErrorEventV1,
+} from "@/lib/error-reporting/ingest";
 import {
 	brokerStatusQueryOptions,
 	buildOsAuthReturnUrl,
@@ -253,6 +258,115 @@ describe("useOsBrokerSessionStatus — startup prefetch", () => {
 				await act(async () => {
 					root.unmount();
 				});
+				client.clear();
+				vi.unstubAllGlobals();
+			}
+		},
+	);
+});
+
+describe("broker status failure reporting", () => {
+	it.each([
+		{
+			name: "network",
+			cause: "network",
+			error: new TypeError("Failed to fetch"),
+		},
+		{
+			name: "abort",
+			cause: "abort",
+			error: new DOMException("Aborted", "AbortError"),
+		},
+		{
+			name: "timeout",
+			cause: "abort",
+			error: new DOMException("Timed out", "TimeoutError"),
+		},
+		{ name: "HTTP failure", cause: "status-503", status: 503 },
+		{ name: "invalid JSON", cause: "invalid-response", body: "not JSON" },
+		{ name: "invalid status body", cause: "invalid-response", body: "{}" },
+	])(
+		"posts $name with cause and elapsed time to the Worker log sink",
+		async (scenario) => {
+			const logged: OsClientErrorEventV1[] = [];
+			const ingest = createOsClientErrorIngest({
+				sink: (event) => logged.push(event),
+			});
+			let delivery: Promise<Response> | undefined;
+			const fetchRequest = vi.fn((url: string, init?: RequestInit) => {
+				if (url === "/client-errors") {
+					delivery = ingest.handle(
+						new Request(`https://acme.os.tedix.dev${url}`, init),
+						{ tenant: "acme", deployedSha: "test" },
+					);
+					return delivery;
+				}
+				if (scenario.error) return Promise.reject(scenario.error);
+				return Promise.resolve(
+					new Response(scenario.body ?? "{}", {
+						status: scenario.status ?? 200,
+					}),
+				);
+			});
+			vi.stubGlobal("fetch", fetchRequest);
+			vi.spyOn(performance, "now")
+				.mockReturnValueOnce(100)
+				.mockReturnValue(350);
+			const teardown = installOsErrorReporting();
+			const client = new QueryClient();
+			try {
+				await expect(
+					client.fetchQuery(brokerStatusQueryOptions("/auth/session-broker")),
+				).rejects.toThrow();
+				expect(delivery).toBeDefined();
+				expect((await delivery)?.status).toBe(204);
+				expect(fetchRequest.mock.calls.map(([url]) => url)).toEqual([
+					"/auth/session-broker/status",
+					"/client-errors",
+				]);
+				expect(logged).toHaveLength(1);
+				expect(logged[0]).toMatchObject({
+					event: "os.client-error",
+					report: {
+						failureSite: "os.session-status",
+						handled: true,
+						exception: {
+							message: `Session check failed: cause=${scenario.cause} elapsedMs=250 broker=/auth/session-broker`,
+						},
+					},
+				});
+			} finally {
+				teardown();
+				client.clear();
+				vi.restoreAllMocks();
+				vi.unstubAllGlobals();
+			}
+		},
+	);
+
+	it.each([200, 401])(
+		"does not report a valid %s session response",
+		async (status) => {
+			const reports: unknown[] = [];
+			const teardown = installOsErrorReporting(window, (report) => {
+				reports.push(report);
+			});
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					new Response(JSON.stringify({ authenticated: status === 200 }), {
+						status,
+					}),
+				),
+			);
+			const client = new QueryClient();
+			try {
+				await expect(
+					client.fetchQuery(brokerStatusQueryOptions("/cli/session-broker")),
+				).resolves.toEqual({ authenticated: status === 200 });
+				expect(reports).toHaveLength(0);
+			} finally {
+				teardown();
 				client.clear();
 				vi.unstubAllGlobals();
 			}

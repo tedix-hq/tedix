@@ -3,6 +3,7 @@ import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { useQuery } from "@tanstack/react-query";
 import { OS_BROKER_RENEWAL_WINDOW_SECONDS } from "@/auth/broker-session.shared";
 import type { OsIdentity } from "@/lib/os-identity-context";
+import { reportOsIssue } from "@/lib/error-reporting/install";
 
 /**
  * Shared session-broker status plumbing for the OS. It owns nothing product- or
@@ -61,19 +62,44 @@ export interface BrokerStatus {
 
 const brokerStatusQuery = createTanstackQueryUtils(
 	async (brokerPrefix: BrokerPrefix): Promise<BrokerStatus> => {
-		const response = await fetch(`${brokerPrefix}/status`, {
-			credentials: "include",
-			headers: { Accept: "application/json" },
-			signal: AbortSignal.timeout(OS_BROKER_STATUS_TIMEOUT_MS),
-		});
-		if (!response.ok && response.status !== 401) {
-			throw new Error("Session verification unavailable");
+		const startedAt = performance.now();
+		const signal = AbortSignal.timeout(OS_BROKER_STATUS_TIMEOUT_MS);
+		let cause = "network";
+		try {
+			const response = await fetch(`${brokerPrefix}/status`, {
+				credentials: "include",
+				headers: { Accept: "application/json" },
+				signal,
+			});
+			if (!response.ok && response.status !== 401) {
+				cause = `status-${response.status}`;
+				throw new Error("Session verification unavailable");
+			}
+			const value = (await response.json()) as BrokerStatus;
+			cause = "invalid-response";
+			if (typeof value?.authenticated !== "boolean") {
+				throw new Error("Invalid session status");
+			}
+			return value;
+		} catch (error) {
+			if (
+				signal.aborted ||
+				((error instanceof Error || error instanceof DOMException) &&
+					(error.name === "AbortError" || error.name === "TimeoutError"))
+			) {
+				cause = "abort";
+			} else if (error instanceof SyntaxError) {
+				cause = "invalid-response";
+			}
+			const elapsedMs = Math.round(performance.now() - startedAt);
+			reportOsIssue(
+				"os.session-status",
+				new Error(
+					`Session check failed: cause=${cause} elapsedMs=${elapsedMs} broker=${brokerPrefix}`,
+				),
+			);
+			throw error;
 		}
-		const value = (await response.json()) as BrokerStatus;
-		if (typeof value?.authenticated !== "boolean") {
-			throw new Error("Invalid session status");
-		}
-		return value;
 	},
 	{ path: ["session-broker", "status"] },
 );
