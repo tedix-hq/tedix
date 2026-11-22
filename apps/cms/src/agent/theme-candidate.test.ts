@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { readCmsBundle } from "@tedix/provisioning/cms-bundle";
-import { readThemeCandidate, stageThemeCandidate } from "./theme-candidate";
+import {
+	listThemeCandidatePreviews,
+	readThemeCandidate,
+	stageThemeCandidate,
+} from "./theme-candidate";
 import { cleanupStagedBundle } from "./deploy-staging";
 import type { AppBindings } from "../types";
 
@@ -113,5 +117,67 @@ describe("CMS theme candidate staging", () => {
 		expect(
 			new TextDecoder().decode(bundles.objects.get(`${prefix}static/app.css`)),
 		).toBe("body { color: green }");
+	});
+});
+
+it("lists only unexpired candidates for the current site identity without activating them", async () => {
+	const storage = bucket();
+	const now = Date.now();
+	const candidate = {
+		ready: true,
+		id: "cms-ready",
+		slug: "acme",
+		siteId: "site",
+		restoreEpoch: 2,
+		version: 8,
+		expectedActiveVersion: 7,
+		createdAt: new Date(now).toISOString(),
+		expiresAt: new Date(now + 60_000).toISOString(),
+		etag: "etag",
+	};
+	const variants = [
+		candidate,
+		{ ...candidate, id: "cms-other-site", siteId: "other" },
+		{ ...candidate, id: "cms-old-epoch", restoreEpoch: 1 },
+		{
+			...candidate,
+			id: "cms-expired",
+			expiresAt: new Date(now - 1).toISOString(),
+		},
+		{ ...candidate, id: "cms-incomplete", ready: false },
+		{ ...candidate, id: "cms-live", version: 7 },
+		{ ...candidate, id: "cms-outdated", expectedActiveVersion: 6 },
+	];
+	for (const value of variants)
+		await storage.put(
+			`theme-candidates/acme/${value.id}.json`,
+			JSON.stringify(value),
+		);
+	const list = vi.fn().mockResolvedValue({
+		objects: variants.map((value) => ({
+			key: `theme-candidates/acme/${value.id}.json`,
+		})),
+		truncated: false,
+	});
+	const previews = await listThemeCandidatePreviews(
+		{ ...storage, list } as unknown as R2Bucket,
+		{ siteId: "site", slug: "acme", restoreEpoch: 2 },
+		7,
+		"https://acme.example",
+		"preview-secret",
+	);
+	expect(previews.map((value) => value.id)).toEqual([
+		"cms-ready",
+		"cms-outdated",
+	]);
+	expect(previews[0]).toMatchObject({ version: 8, predecessorMatches: true });
+	expect(previews[0]!.previewUrl).toMatch(
+		/^https:\/\/acme.example\/_tedix\/theme-preview\/cms-ready\/\d+\.[a-f0-9]{64}\/$/,
+	);
+	expect(previews[1]!.predecessorMatches).toBe(false);
+	expect(storage.delete).not.toHaveBeenCalled();
+	expect(list).toHaveBeenCalledWith({
+		prefix: "theme-candidates/acme/",
+		cursor: undefined,
 	});
 });

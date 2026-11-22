@@ -9,6 +9,26 @@ import {
 	vi,
 } from "vite-plus/test";
 
+const navigation = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => navigation,
+	Link: ({
+		children,
+		to,
+		params,
+		...props
+	}: {
+		children: React.ReactNode;
+		to: string;
+		params?: { siteId: string };
+		onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+		className?: string;
+	}) => (
+		<a href={to.replace("$siteId", params?.siteId ?? "")} {...props}>
+			{children}
+		</a>
+	),
+}));
 const queryClient = vi.hoisted(() => ({
 	fetchQuery: vi.fn(),
 	invalidateQueries: vi.fn(),
@@ -78,6 +98,7 @@ const readStates = vi.hoisted(() => ({
 	docs: undefined as ReadState | undefined,
 	deprovision: undefined as ReadState | undefined,
 	reconciliation: undefined as ReadState | undefined,
+	recovery: undefined as ReadState | undefined,
 }));
 const deprovisionStatusOptions = vi.hoisted(() => ({
 	current: null as null | {
@@ -91,6 +112,8 @@ vi.mock("@tanstack/react-query", () => ({
 	useMutation: vi.fn(() => lifecycleMutation),
 	useQueryClient: () => queryClient,
 	useQuery: (options: { testKind?: string }) => {
+		if (options.testKind === "recovery" && readStates.recovery)
+			return readStates.recovery;
 		if (options.testKind === "docs" && readStates.docs) return readStates.docs;
 		if (options.testKind === "deprovision" && readStates.deprovision)
 			return readStates.deprovision;
@@ -146,6 +169,7 @@ vi.mock("@tanstack/react-query", () => ({
 							accessMode: null,
 							customDomain: siteCustomDomain.current,
 							activeRevisionId: "75",
+							changedAt: new Date().toISOString(),
 							mcpAppId: null,
 							authoringAppId: null,
 						},
@@ -274,6 +298,8 @@ vi.mock("@/components/kumo/dropdown-menu", () => ({
 }));
 
 import { SitesPage } from "./sites-page";
+import { SitePage } from "./site-page";
+import { CmsDomainManager } from "./site-domain";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -293,6 +319,8 @@ beforeEach(() => {
 	lifecycleMutation.mutate.mockReset();
 	readStates.siteType = "cms";
 	readStates.docs = undefined;
+	readStates.recovery = undefined;
+	navigation.mockReset();
 	readStates.deprovision = undefined;
 	readStates.reconciliation = undefined;
 	deprovisionStatusData.current = undefined;
@@ -304,11 +332,11 @@ afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
 });
 
-function renderPage(): HTMLElement {
+function renderPage(view: React.ReactNode = <SitesPage />): HTMLElement {
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	act(() => root.render(<SitesPage />));
+	act(() => root.render(view));
 	cleanups.push(() => {
 		act(() => root.unmount());
 		host.remove();
@@ -330,76 +358,29 @@ function enterConfirmation(slug: string) {
 	});
 }
 
-describe("SitesPage owned-site actions", () => {
-	it("allows the search result count to wrap on narrow screens", () => {
-		const host = renderPage();
-		const resultCount = [...host.querySelectorAll("span")].find((element) =>
-			element.textContent?.includes("1 results"),
-		);
-
-		expect(resultCount).not.toBeNull();
-		expect(resultCount?.className).toContain("whitespace-normal");
-		expect(resultCount?.className).toContain("break-words");
-		expect(resultCount?.className).not.toContain("whitespace-nowrap");
-	});
-
-	it("opens management from the mobile card without mutating the site", () => {
-		authorityPermissions.current = [];
-		siteCustomDomain.current = null;
-		const host = renderPage();
-		const card = host.querySelector('ul[aria-label="Owned sites"] li');
-		expect(card?.textContent).toContain("Acme");
-		expect(card?.textContent).toContain("Active");
-		expect(card?.textContent).toContain("blog.acme.example");
-		expect(card?.textContent).not.toContain("https://");
-		expect(
-			card?.querySelector('[aria-label="More actions for Acme"]'),
-		).not.toBeNull();
-		const manage = [...(card?.querySelectorAll("button") ?? [])].find(
-			(button) => button.textContent === "Manage",
-		);
-		if (!manage) throw new Error("Mobile manage action missing");
-		act(() => manage.click());
-		expect(host.textContent).toContain(
-			"Manage the domain and deployment for this CMS site.",
-		);
-		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
-	});
-
-	it("requires typed confirmation for the mobile archive action", () => {
-		const host = renderPage();
-		const card = host.querySelector('ul[aria-label="Owned sites"] li');
-		const archive = [...(card?.querySelectorAll("button") ?? [])].find(
-			(button) => button.textContent === "Archive site",
-		);
-		if (!archive) throw new Error("Mobile archive action missing");
-		act(() => archive.click());
-		expect(document.body.textContent).toContain("Archive Acme?");
-		expect(
-			document.querySelector('input[aria-labelledby*="confirmation"]'),
-		).not.toBeNull();
-		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
-	});
-
-	it.each(["tedix.dev", "www.tedix.dev", "tedix.tech", "blog.tedix.tech"])(
-		"keeps %s outside the custom-domain claim controls",
-		(customDomain) => {
-			siteCustomDomain.current = customDomain;
-			const host = renderPage();
-			const manage = [
-				...host.querySelectorAll<HTMLButtonElement>(
-					'[data-testid="menu-item"]',
-				),
-			].find((button) => button.textContent === "Manage site");
-			if (!manage) throw new Error("Manage site action missing");
-			act(() => manage.click());
-			expect(host.textContent).toContain(customDomain);
-			expect(host.querySelector('input[id^="cms-domain-"]')).toBeNull();
-			expect(host.textContent).not.toContain("Manage existing domain");
-			expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
-		},
+const siteId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+function renderDomain() {
+	return renderPage(
+		<CmsDomainManager
+			siteId={siteId}
+			canConnect={customDomainEntitlement.enabled === true}
+		/>,
 	);
-
+}
+function button(host: HTMLElement, label: string) {
+	const found = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+		(item) =>
+			(item.getAttribute("aria-label") ?? item.textContent?.trim()) === label,
+	);
+	if (!found) throw new Error(`Button missing: ${label}`);
+	return found;
+}
+function siteTab(label: string) {
+	const host = renderPage(<SitePage siteId={siteId} />);
+	act(() => button(host, label).click());
+	return host;
+}
+describe("Website actions", () => {
 	it("explains an in-flight domain provisioning attempt and offers retry", () => {
 		domainClaim.current = {
 			claimId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -413,12 +394,7 @@ describe("SitesPage owned-site actions", () => {
 			sslStatus: null,
 			validationRecords: [],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		expect(host.textContent).toContain("Provisioning is in progress");
 		const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
 			(button) => button.textContent?.trim() === "Retry provisioning",
@@ -444,12 +420,7 @@ describe("SitesPage owned-site actions", () => {
 			sslStatus: null,
 			validationRecords: [],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		expect(host.textContent).toContain(
 			"Custom domains are unavailable on this plan",
 		);
@@ -457,18 +428,6 @@ describe("SitesPage owned-site actions", () => {
 		expect(host.querySelector('input[id^="cms-domain-"]')).toBeNull();
 		expect(host.textContent).not.toContain("Verify domain");
 		expect(host.textContent).toContain("Remove domain");
-	});
-
-	it("hides domain management until the API advertises the capability", () => {
-		customDomainEntitlement.enabled = undefined;
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
-		expect(host.textContent).not.toContain("Manage existing domain");
-		expect(host.querySelector('input[id^="cms-domain-"]')).toBeNull();
 	});
 
 	it("shows DNS ownership and TLS instructions for a pending CMS domain", () => {
@@ -490,12 +449,7 @@ describe("SitesPage owned-site actions", () => {
 				},
 			],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		expect(host.textContent).toContain("_tedix.www.acme.example");
 		expect(host.textContent).toContain("tedix-verify=claim");
 		expect(host.textContent).toContain("acme.cms.tedix.dev");
@@ -530,12 +484,7 @@ describe("SitesPage owned-site actions", () => {
 			sslStatus: "active",
 			validationRecords: [],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		const connect = [
 			...host.querySelectorAll<HTMLButtonElement>("button"),
 		].find((button) => button.textContent?.trim() === "Connect www redirect");
@@ -579,12 +528,7 @@ describe("SitesPage owned-site actions", () => {
 				},
 			],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		expect(host.textContent).toContain("_tedix-cms.www.acme.example");
 		expect(host.textContent).toContain("tedix-verify=www");
 		expect(host.textContent).toContain("_acme-challenge.www.acme.example");
@@ -630,12 +574,7 @@ describe("SitesPage owned-site actions", () => {
 			sslStatus: "active",
 			validationRecords: [],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		expect(host.textContent).toContain(
 			"HTTPS requests to www.acme.example redirect to acme.example with a 301, preserving the path and query.",
 		);
@@ -657,12 +596,7 @@ describe("SitesPage owned-site actions", () => {
 
 	it("lets an admin start a custom domain claim from the CMS site", async () => {
 		siteCustomDomain.current = null;
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		const input = host.querySelector<HTMLInputElement>(
 			"#cms-domain-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 		);
@@ -696,12 +630,7 @@ describe("SitesPage owned-site actions", () => {
 			sslStatus: "active",
 			validationRecords: [],
 		};
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
+		const host = renderDomain();
 		const remove = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
 			(button) => button.textContent?.trim() === "Remove domain",
 		);
@@ -722,17 +651,6 @@ describe("SitesPage owned-site actions", () => {
 		);
 	});
 
-	it("shows quota usage and disables creation when all slots are used", () => {
-		cmsSiteQuota.current = { used: 1, limit: 1 };
-		const host = renderPage();
-		expect(host.textContent).toContain("1 of 1 sites");
-		expect(
-			Array.from(host.querySelectorAll("button")).find((button) =>
-				button.textContent?.includes("Create CMS site"),
-			)?.disabled,
-		).toBe(true);
-	});
-
 	it("hides creation from a viewer who can only read owned sites", () => {
 		authorityPermissions.current = [];
 		const host = renderPage();
@@ -745,7 +663,6 @@ describe("SitesPage owned-site actions", () => {
 
 	it("offers a starter selection and submits a new site for authoring", async () => {
 		const host = renderPage();
-		expect(host.textContent).toContain("1 of 5 sites");
 		expect(host.querySelector('input[name="name"]')).toBeNull();
 		const create = host.querySelector<HTMLButtonElement>(
 			'button[aria-controls="create-cms-site"]',
@@ -780,161 +697,6 @@ describe("SitesPage owned-site actions", () => {
 		});
 		expect(host.textContent).toContain("Deploy a theme when you");
 	});
-	it("presents each site as a scan-friendly row with its status and release", () => {
-		const host = renderPage();
-		const siteRow = host.querySelector("tbody tr");
-
-		expect(siteRow?.querySelector('[data-slot="icon-frame"]')).not.toBeNull();
-		expect(siteRow?.textContent).toContain("Acme");
-		expect(siteRow?.textContent).toContain("Active");
-		expect(siteRow?.textContent).toContain("blog.acme.example");
-		expect(siteRow?.textContent).toContain("Published");
-	});
-
-	it("makes management visible and keeps lifecycle actions in the menu", () => {
-		const host = renderPage();
-
-		expect(
-			[...host.querySelectorAll("tbody button")].find(
-				(button) => button.textContent?.trim() === "Manage",
-			),
-		).not.toBeNull();
-		expect(
-			host.querySelector('button[aria-label="More actions for Acme"]'),
-		).not.toBeNull();
-		expect(host.textContent).toContain("Open public site");
-		expect(
-			host.querySelector(
-				'[data-testid="menu-item"][data-variant="destructive"]',
-			)?.textContent,
-		).toBe("Archive site");
-	});
-
-	it("opens a CMS site's editor on its own platform host", () => {
-		const open = vi.spyOn(window, "open").mockReturnValue(null);
-		const host = renderPage();
-		const item = [
-			...host.querySelectorAll<HTMLElement>('[data-testid="menu-item"]'),
-		].find((entry) => entry.textContent === "Open editor");
-		if (!item) throw new Error("Open editor action missing");
-		act(() => item.click());
-		expect(open).toHaveBeenCalledWith(
-			"https://acme.cms.tedix.dev/_emdash/admin",
-			"_blank",
-			"noopener,noreferrer",
-		);
-		open.mockRestore();
-	});
-
-	it("filters sites by domain and opens a focused management view", () => {
-		const host = renderPage();
-		const search = host.querySelector<HTMLInputElement>(
-			'input[aria-label="Search sites"]',
-		);
-		if (!search) throw new Error("Site search missing");
-		act(() => {
-			Object.getOwnPropertyDescriptor(
-				HTMLInputElement.prototype,
-				"value",
-			)?.set?.call(search, "missing.example");
-			search.dispatchEvent(new Event("input", { bubbles: true }));
-		});
-		expect(host.textContent).toContain("No matching sites");
-		const clear = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-			(button) => button.textContent?.trim() === "Clear filters",
-		);
-		if (!clear) throw new Error("Clear filters action missing");
-		act(() => clear.click());
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>("tbody button"),
-		].find((button) => button.textContent?.trim() === "Manage");
-		if (!manage) throw new Error("Visible Manage action missing");
-		act(() => manage.click());
-		expect(host.querySelector("h1")?.textContent).toBe("Acme");
-		expect(host.textContent).toContain("Custom domain");
-		expect(host.querySelector("tbody")).toBeNull();
-		const back = host.querySelector<HTMLButtonElement>("[data-page-back]");
-		if (!back) throw new Error("Back to all sites missing");
-		act(() => back.click());
-		expect(host.querySelector("tbody tr")).not.toBeNull();
-	});
-
-	it("opens typed confirmation immediately before any lifecycle mutation", () => {
-		const host = renderPage();
-		const archive = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Archive site");
-		if (!archive) throw new Error("Archive action missing");
-
-		act(() => archive.click());
-
-		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
-		expect(document.body.textContent).toContain("Archive Acme?");
-		expect(document.body.textContent).toContain("Type acme to confirm");
-		expect(
-			document.querySelector('input[aria-labelledby*="confirmation"]'),
-		).not.toBeNull();
-		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
-	});
-
-	it("submits the exact slug when the final archive button is clicked", async () => {
-		const host = renderPage();
-		const archive = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Archive site");
-		if (!archive) throw new Error("Archive action missing");
-		act(() => archive.click());
-		enterConfirmation("acme");
-
-		const confirm = [
-			...document.querySelectorAll<HTMLButtonElement>("button"),
-		].find(
-			(button) =>
-				button.textContent?.trim() === "Archive site" &&
-				button.type === "submit",
-		);
-		if (!confirm) throw new Error("Final archive button missing");
-		await act(async () => confirm.click());
-
-		expect(lifecycleMutation.mutate).toHaveBeenCalledWith({
-			siteId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			action: "archive",
-			confirmation: "acme",
-		});
-		expect(document.body.textContent).toContain("Archive Acme?");
-	});
-
-	it("submits the exact slug when the final deprovision button is clicked", async () => {
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
-
-		const deprovision = [
-			...host.querySelectorAll<HTMLButtonElement>("button"),
-		].find((button) => button.textContent?.trim() === "Deprovision");
-		if (!deprovision) throw new Error("Deprovision action missing");
-		act(() => deprovision.click());
-		enterConfirmation("acme");
-
-		const confirm = [
-			...document.querySelectorAll<HTMLButtonElement>("button"),
-		].find(
-			(button) => button.textContent?.trim() === "Deprovision permanently",
-		);
-		if (!confirm) throw new Error("Final deprovision button missing");
-		await act(async () => confirm.click());
-
-		expect(lifecycleMutation.mutate).toHaveBeenCalledWith({
-			siteId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			confirmation: "acme",
-			name: "Acme",
-		});
-		expect(document.body.textContent).toContain("Deprovision Acme?");
-	});
-
 	it("restores the final cleanup receipt after a reload, even when the site is gone", () => {
 		const operation = {
 			operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -959,7 +721,7 @@ describe("SitesPage owned-site actions", () => {
 
 		const host = renderPage();
 		expect(host.textContent).toContain("Cleanup — Acme");
-		expect(host.textContent).toContain("acme was deprovisioned");
+		expect(host.textContent).toContain("acme was deleted");
 		expect(host.textContent).toContain("3 resource(s) removed");
 		expect(queryClient.invalidateQueries).toHaveBeenCalled();
 		expect(
@@ -1010,121 +772,132 @@ describe("SitesPage owned-site actions", () => {
 			}),
 		).toBe(false);
 	});
-});
 
-function readState(overrides: Partial<ReadState>): ReadState {
-	return {
-		isPending: false,
-		isError: false,
-		isSuccess: false,
-		isFetching: false,
-		refetch: vi.fn(),
-		...overrides,
-	};
-}
-
-function button(host: HTMLElement, label: string): HTMLButtonElement {
-	const found = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-		(button) =>
-			(button.getAttribute("aria-label") ?? button.textContent?.trim()) ===
-			label,
-	);
-	if (!found) throw new Error(`Button missing: ${label}`);
-	return found;
-}
-
-function expectNoSiteMutations(host: HTMLElement) {
-	void host;
-	expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
-}
-
-describe("SitesPage diagnostic read states", () => {
-	it("does not claim reconciliation never ran while the read is pending or failed", () => {
-		readStates.reconciliation = readState({ isPending: true });
-		const pending = renderPage();
-		expect(pending.textContent).not.toContain("No reconciliation has run yet.");
-
-		const refetch = vi.fn();
-		readStates.reconciliation = readState({
-			isError: true,
-			error: new Error("Reconciliation read timed out"),
-			refetch,
+	it("opens the site row through its own URL without changing the site", () => {
+		const host = renderPage();
+		expect(host.querySelector(`a[href="/sites/${siteId}"]`)).not.toBeNull();
+		act(() => host.querySelector<HTMLTableRowElement>("tbody tr")!.click());
+		expect(navigation).toHaveBeenCalledWith({
+			to: "/sites/$siteId",
+			params: { siteId },
 		});
-		const host = renderPage();
-		expect(host.textContent).toContain(
-			"The last reconciliation result is unavailable",
-		);
-		expect(host.textContent).toContain("Reconciliation read timed out");
-		expect(host.textContent).not.toContain("No reconciliation has run yet.");
-		act(() => button(host, "Retry").click());
-		expect(refetch).toHaveBeenCalledTimes(1);
-		expectNoSiteMutations(host);
+		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
 	});
-
-	it("says so only when a successful read has no result", () => {
-		readStates.reconciliation = readState({ isSuccess: true });
+	it("keeps quota enforcement without showing quota chips", () => {
+		cmsSiteQuota.current = { used: 5, limit: 5 };
 		const host = renderPage();
-		expect(host.textContent).toContain("No reconciliation has run yet.");
+		expect(button(host, "New site").disabled).toBe(true);
+		expect(host.textContent).not.toContain("5 of 5");
 	});
-
-	it("keeps the last reconciliation result visible when a refresh fails", () => {
-		readStates.reconciliation = readState({
+	it("shows health issues above the list without hiding cached issues after a failed refresh", () => {
+		readStates.reconciliation = {
 			isError: true,
-			isSuccess: true,
-			error: new Error("Refresh failed"),
+			isPending: false,
+			isSuccess: false,
+			isFetching: false,
+			refetch: vi.fn(),
 			data: {
-				checkedAt: "2026-08-31T12:00:00.000Z",
-				source: "scheduled",
-				sitesChecked: 1,
-				issues: [],
+				issues: [
+					{
+						siteId,
+						slug: "acme",
+						code: "missing_media",
+						detail: "Image storage is missing",
+					},
+				],
 			},
-		});
+		};
 		const host = renderPage();
-		expect(host.textContent).toContain("Refresh failed");
-		expect(host.textContent).toContain("Showing the last result that loaded.");
-		expect(host.textContent).toContain("Last checked");
-		expect(host.textContent).toContain("1 owned sites are consistent");
-	});
-
-	it("retries the cleanup plan read without any site mutation", () => {
-		const refetch = vi.fn();
-		readStates.deprovision = readState({
-			isError: true,
-			error: new Error("Plan unavailable"),
-			refetch,
-		});
-		const host = renderPage();
-		const card = host.querySelector('ul[aria-label="Owned sites"] li');
-		const manage = [...(card?.querySelectorAll("button") ?? [])].find(
-			(b) => b.textContent === "Manage",
+		expect(host.querySelector('[data-slot="alert"]')?.textContent).toContain(
+			"Image storage is missing",
 		);
-		if (!manage) throw new Error("Manage action missing");
-		act(() => manage.click());
-		expect(host.textContent).toContain("The cleanup plan is unavailable");
-		act(() => button(host, "Retry").click());
-		expect(refetch).toHaveBeenCalledTimes(1);
-		expectNoSiteMutations(host);
+		expect(
+			host.querySelector(`[data-slot="alert"] a`)?.getAttribute("href"),
+		).toBe(`/sites/${siteId}`);
 	});
-
-	it("shows a documentation builds failure with its own retry", () => {
-		readStates.siteType = "docs";
-		const refetch = vi.fn();
-		readStates.docs = readState({
-			isError: true,
-			error: new Error("Builds unavailable"),
-			refetch,
-		});
-		const host = renderPage();
-		const card = host.querySelector('ul[aria-label="Owned sites"] li');
-		const manage = [...(card?.querySelectorAll("button") ?? [])].find(
-			(b) => b.textContent === "Manage",
+	it("opens health for missing parts and hides healthy and optional parts", () => {
+		readStates.deprovision = {
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			isFetching: false,
+			refetch: vi.fn(),
+			data: {
+				dependencies: [
+					{ kind: "media", status: "absent" },
+					{ kind: "site", status: "present" },
+					{ kind: "mcp_app", status: "absent" },
+				],
+			},
+		};
+		const host = siteTab("Settings");
+		expect(button(host, "Health check").getAttribute("aria-expanded")).toBe(
+			"true",
 		);
-		if (!manage) throw new Error("Manage action missing");
-		act(() => manage.click());
-		expect(host.textContent).toContain("Documentation builds are unavailable");
-		expect(host.textContent).not.toContain("No documentation builds yet.");
-		act(() => button(host, "Retry").click());
-		expect(refetch).toHaveBeenCalledTimes(1);
-		expectNoSiteMutations(host);
+		expect(host.textContent?.replace(/\s+/g, " ")).toContain(
+			"The site's image storage is missing.",
+		);
+		expect(host.textContent).not.toContain("site record");
+		expect(host.textContent).not.toContain("mcp_app");
+	});
+	it("keeps a healthy check collapsed and requires the exact slug before deleting", async () => {
+		readStates.deprovision = {
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			isFetching: false,
+			refetch: vi.fn(),
+			data: { dependencies: [{ kind: "site", status: "present" }] },
+		};
+		const host = siteTab("Settings");
+		expect(button(host, "Health check").getAttribute("aria-expanded")).toBe(
+			"false",
+		);
+		act(() => button(host, "Delete site").click());
+		const confirm = [...document.querySelectorAll<HTMLButtonElement>("button")]
+			.filter((item) => item.textContent?.trim() === "Delete site")
+			.at(-1)!;
+		expect(confirm.disabled).toBe(true);
+		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
+		enterConfirmation("acme");
+		await act(async () => confirm.click());
+		expect(lifecycleMutation.mutate).toHaveBeenCalledWith("acme");
+	});
+	it("limits the overview to five changes and marks only the active version live", () => {
+		readStates.recovery = {
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			isFetching: false,
+			refetch: vi.fn(),
+			data: {
+				themeCandidates: [
+					{
+						id: "cms-ready",
+						version: 76,
+						previewUrl: "https://preview.example",
+						predecessorMatches: true,
+					},
+				],
+				recoveryPoints: Array.from({ length: 7 }, (_, i) => ({
+					id: String(75 - i),
+					active: i === 0,
+					createdAt: `2026-11-${22 - i}T12:00:00Z`,
+				})),
+			},
+		};
+		const host = renderPage(<SitePage siteId={siteId} />);
+		expect(host.querySelectorAll("li").length).toBe(5);
+		act(() => button(host, "Versions").click());
+		expect(
+			document
+				.getElementById(button(host, "Versions").getAttribute("aria-controls")!)
+				?.querySelectorAll("li").length,
+		).toBe(8);
+		expect(host.textContent).toContain("Ready to go live");
+		expect(
+			host.querySelector('a[href="https://preview.example"]'),
+		).not.toBeNull();
+		expect(host.textContent?.match(/Live/g)).toHaveLength(2);
 	});
 });

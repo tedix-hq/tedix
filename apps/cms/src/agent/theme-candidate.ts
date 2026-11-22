@@ -1,6 +1,8 @@
 import { COMPRESSED_CMS_BUNDLE_KEY } from "@tedix/provisioning/cms-bundle";
 import {
 	THEME_CANDIDATE_TTL_MS,
+	signThemePreview,
+	THEME_PREVIEW_PATH,
 	themeCandidateKey,
 	themeCandidateEtag,
 	type CmsThemeCandidate,
@@ -111,4 +113,48 @@ export async function stageThemeCandidate(
 	candidate.ready = true;
 	await env.BUNDLES_BUCKET.put(key, JSON.stringify(candidate));
 	return candidate;
+}
+
+export async function listThemeCandidatePreviews(
+	bucket: R2Bucket,
+	site: { siteId: string; slug: string; restoreEpoch: number },
+	activeVersion: number | null,
+	origin: string,
+	secret: string | undefined,
+) {
+	const candidates = [];
+	let cursor: string | undefined;
+	do {
+		const page = await bucket.list({
+			prefix: `theme-candidates/${site.slug}/`,
+			cursor,
+		});
+		for (const item of page.objects) {
+			const object = await bucket.get(item.key);
+			if (!object) continue;
+			const candidate = await object.json<CmsThemeCandidate>();
+			if (
+				!candidate.ready ||
+				candidate.siteId !== site.siteId ||
+				candidate.slug !== site.slug ||
+				candidate.restoreEpoch !== site.restoreEpoch ||
+				!/^cms-[a-z0-9-]+$/.test(candidate.id) ||
+				item.key !== themeCandidateKey(site.slug, candidate.id) ||
+				!Number.isFinite(Date.parse(candidate.expiresAt)) ||
+				Date.parse(candidate.expiresAt) <= Date.now() ||
+				candidate.version === activeVersion
+			)
+				continue;
+			const token = await signThemePreview(secret, candidate);
+			candidates.push({
+				id: candidate.id,
+				version: candidate.version,
+				createdAt: candidate.createdAt,
+				previewUrl: `${origin}${THEME_PREVIEW_PATH}${candidate.id}/${token}/`,
+				predecessorMatches: candidate.expectedActiveVersion === activeVersion,
+			});
+		}
+		cursor = page.truncated ? page.cursor : undefined;
+	} while (cursor);
+	return candidates.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

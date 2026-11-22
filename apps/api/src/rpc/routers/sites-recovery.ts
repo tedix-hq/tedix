@@ -56,7 +56,11 @@ export const getRecoveryManifestProcedure = authedSitesOs.getRecoveryManifest
 				getAppsByOrganization(context.db, owned.site.organizationId),
 				listTenantBundleRecoveryPoints(context.db, owned.site.slug),
 				inspectCmsMediaResource(context.env, owned.site.slug),
-				inspectCmsProviderResources(context.env, owned.site.slug),
+				inspectCmsProviderResources(
+					context.env,
+					owned.site.slug,
+					owned.site.status === "active",
+				),
 				inspectLatestCmsRecoveryCapture(
 					context.env,
 					owned.site.slug,
@@ -146,6 +150,7 @@ export const getRecoveryManifestProcedure = authedSitesOs.getRecoveryManifest
 						requiredForRecovery: true,
 					},
 				],
+				themeCandidates: provider.themeCandidates,
 				recoveryPoints: points.map((point) => ({
 					id: String(point.version),
 					label: `Bundle rollback v${point.version} (content and media unchanged)`,

@@ -65,6 +65,7 @@ const routePaths = [
 
 /** Old addresses kept as route files that only redirect to their new page. */
 const REDIRECT_ONLY_ROUTES = new Set([
+	"/websites",
 	"/compute", // → /usage
 	"/settings/billing", // → /admin/billing
 ]);

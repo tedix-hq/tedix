@@ -373,6 +373,7 @@ export const listSitesProcedure = authedSitesOs.list
 					editorUrl: cmsEditorUrl(site.slug, platformDomain),
 					accessMode: null,
 					customDomain: site.customDomain,
+					changedAt: bundle.lastDeployedAt ?? site.updatedAt,
 					activeRevisionId:
 						bundle.activeVersion === null ? null : String(bundle.activeVersion),
 					mcpAppId: site.mcpAppId,
@@ -393,6 +394,7 @@ export const listSitesProcedure = authedSitesOs.list
 					)
 						? null
 						: new URL(site.canonicalUrl).hostname,
+					changedAt: site.updatedAt,
 					activeRevisionId: site.activeBuildId,
 					mcpAppId: null,
 					authoringAppId: null,

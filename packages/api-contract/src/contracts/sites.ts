@@ -1,3 +1,4 @@
+import { SiteThemeCandidateSchema } from "../schemas/site-theme-candidate";
 import { CMS_TEMPLATE_SLUGS } from "../schemas/cms-template";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
@@ -70,6 +71,7 @@ const SiteRecoveryManifestSchema = z.object({
 	blockers: z.array(z.string()),
 	resources: z.array(SiteResourceSchema),
 	recoveryPoints: z.array(RecoveryPointSchema),
+	themeCandidates: z.array(SiteThemeCandidateSchema).optional(),
 });
 
 const CmsRecoveryCaptureSchema = z.object({
@@ -135,11 +137,12 @@ export const SiteSummarySchema = z.object({
 		.string()
 		.nullable()
 		.describe("Null when the platform hostname is canonical"),
+	changedAt: z.string().nullable().optional(),
 	activeRevisionId: z
 		.string()
 		.nullable()
 		.describe(
-			"Active documentation build; null for CMS sites or an unpublished Docs site",
+			"Live website version or documentation build; null before publication",
 		),
 	mcpAppId: z
 		.uuid()

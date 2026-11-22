@@ -439,6 +439,12 @@ export const OS_PAGES: readonly OsPage[] = [
 		titleKey: "skill",
 	},
 	{
+		id: "site",
+		path: "/sites/$siteId",
+		label: "Website",
+		parentId: "sites",
+	},
+	{
 		id: "app",
 		path: "/apps/$appId",
 		label: "App",

@@ -426,6 +426,7 @@
 		"./schemas/provider-model-pricing": "./src/schemas/provider-model-pricing.ts",
 		"./schemas/provider-execution": "./src/schemas/provider-execution.ts",
 		"./schemas/cms-editor-proposals": "./src/schemas/cms-editor-proposals.ts",
+		"./schemas/site-theme-candidate": "./src/schemas/site-theme-candidate.ts",
 		"./schemas/cms-template": "./src/schemas/cms-template.ts",
 		"./contracts/personal-resource-delegations": "./src/contracts/personal-resource-delegations.ts",
 		"./schemas/personal-resource-delegations": "./src/schemas/personal-resource-delegations.ts",

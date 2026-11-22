@@ -282,6 +282,7 @@ const APP_ROUTE_SEGMENTS = new Set(
 		skills: true,
 		team: true,
 		usage: true,
+		websites: true,
 		widget: true,
 		work: true,
 		workspace: true,

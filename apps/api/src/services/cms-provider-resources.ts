@@ -1,3 +1,5 @@
+import { SiteThemeCandidateSchema } from "@tedix/api-contract/schemas/site-theme-candidate";
+import type * as z from "zod";
 export type CmsProviderResourceState = "present" | "missing" | "unknown";
 
 export interface CmsProviderResourceInspection {
@@ -7,6 +9,7 @@ export interface CmsProviderResourceInspection {
 }
 
 export interface CmsProviderResources {
+	themeCandidates?: z.infer<typeof SiteThemeCandidateSchema>[];
 	durableObject: CmsProviderResourceInspection;
 	theme: CmsProviderResourceInspection;
 }
@@ -17,6 +20,7 @@ type CmsResourceEnv = Pick<CloudflareEnv, "CMS" | "PLATFORM_SERVICE_TOKEN">;
 export async function inspectCmsProviderResources(
 	env: CmsResourceEnv,
 	slug: string,
+	includeThemeCandidates = false,
 ): Promise<CmsProviderResources> {
 	const unknown = (
 		identifier: string,
@@ -30,6 +34,8 @@ export async function inspectCmsProviderResources(
 		const url = new URL(
 			`https://cms.internal/api/internal/deployments/${encodeURIComponent(slug)}/resources`,
 		);
+		if (includeThemeCandidates)
+			url.searchParams.set("includeThemeCandidates", "1");
 		const response = await env.CMS.fetch(
 			new Request(url, {
 				headers: {
@@ -40,6 +46,7 @@ export async function inspectCmsProviderResources(
 		);
 		const data = (await response.json()) as {
 			success?: boolean;
+			themeCandidates?: unknown;
 			durableObject?: CmsProviderResourceInspection;
 			theme?: CmsProviderResourceInspection;
 			error?: string;
@@ -64,7 +71,11 @@ export async function inspectCmsProviderResources(
 						identifier,
 						"CMS resource service returned an invalid status",
 					);
+		const candidates = SiteThemeCandidateSchema.array().safeParse(
+			data.themeCandidates,
+		);
 		return {
+			...(candidates.success ? { themeCandidates: candidates.data } : {}),
 			durableObject: valid(data.durableObject, `EmDashDB:${slug}`),
 			theme: valid(data.theme, `cms-theme-${slug}`),
 		};

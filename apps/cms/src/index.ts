@@ -1,3 +1,5 @@
+import { listThemeCandidatePreviews } from "./agent/theme-candidate";
+import { getActiveCmsSiteForPermit } from "./agent/cms-restore-permit";
 import { previewContainerHeaders } from "./preview-headers";
 import { requireUnrestrictedCmsModels } from "./agent/data-residency";
 import { checkUserTenantMembership } from "@tedix/auth/descope";
@@ -1208,10 +1210,26 @@ app.get("/api/internal/deployments/:slug/resources", async (c) => {
 	} catch (error) {
 		theme.error = error instanceof Error ? error.message : String(error);
 	}
+	let themeCandidates;
+	if (c.req.query("includeThemeCandidates") === "1") {
+		const site = await getActiveCmsSiteForPermit(c.env.DB, slug);
+		const versions = await listTenantBundleVersions(
+			{ platformDb: c.env.DB, bundlesBucket: c.env.BUNDLES_BUCKET },
+			slug,
+		);
+		themeCandidates = await listThemeCandidatePreviews(
+			c.env.BUNDLES_BUCKET,
+			site,
+			versions.find((version) => version.isActive)?.version ?? null,
+			cmsPlatformHosts(c.env).tenantOrigin(slug),
+			c.env.CMS_INTERNAL_AUTH_TOKEN,
+		);
+	}
 	return c.json({
 		success: true,
 		durableObject: { identifier: `EmDashDB:${slug}`, ...durableObject },
 		theme: { identifier: themeArtifactRepoName(slug), ...theme },
+		...(themeCandidates ? { themeCandidates } : {}),
 	});
 });
 
