@@ -109,6 +109,41 @@ export async function settleOsAppCallExecution(
 	return row;
 }
 
+/** Publish or clear against the exact receipt version which was archived. */
+export async function cutOverOsGadgetExecutionOutput(
+	db: DbQueryClient,
+	row: OsGadgetExecutionRow & { output: string; completedAt: string },
+	sha256: string,
+	phase: "publish" | "clear",
+): Promise<boolean> {
+	const [updated] = await db
+		.update(osGadgetExecutions)
+		.set(
+			phase === "publish"
+				? { workspaceOutputSha256: sha256 }
+				: { output: null },
+		)
+		.where(
+			and(
+				eq(osGadgetExecutions.organizationId, row.organizationId),
+				eq(osGadgetExecutions.workspaceId, row.workspaceId),
+				eq(osGadgetExecutions.gadgetId, row.gadgetId),
+				eq(osGadgetExecutions.id, row.id),
+				eq(osGadgetExecutions.status, "completed"),
+				eq(osGadgetExecutions.completedAt, row.completedAt),
+				eq(osGadgetExecutions.output, row.output),
+				eq(osGadgetExecutions.executionEpoch, row.executionEpoch),
+				isNull(osGadgetExecutions.runId),
+				isNull(osGadgetExecutions.workflowInstanceId),
+				phase === "publish"
+					? isNull(osGadgetExecutions.workspaceOutputSha256)
+					: eq(osGadgetExecutions.workspaceOutputSha256, sha256),
+			),
+		)
+		.returning({ id: osGadgetExecutions.id });
+	return updated !== undefined;
+}
+
 export async function getOsGadgetExecution(
 	db: DbQueryClient,
 	params: OsGadgetExecutionScopeParams,

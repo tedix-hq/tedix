@@ -1,0 +1,1 @@
+ALTER TABLE `os_gadget_executions` ADD `workspace_output_sha256` text;

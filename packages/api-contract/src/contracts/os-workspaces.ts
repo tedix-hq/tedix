@@ -57,6 +57,7 @@ import {
 	OsGadgetExecutionSchema,
 	OsGadgetExecutionStatusSchema,
 	OsGadgetExecutionOutputCopySchema,
+	OsGadgetExecutionOutputCutoverSchema,
 	OsGadgetExportDescriptorSchema,
 	OsGadgetManifestWriteSchema,
 	OsGadgetRevisionSchema,
@@ -2154,9 +2155,13 @@ export const osWorkspacesContract = oc
 					summary:
 						"Copy and verify one completed direct app call output in its workspace",
 					description:
-						"Copies the exact output bytes into storage owned by the workspace and verifies the copy. Leaves the shared execution receipt and output intact. Requires a machine agent session.",
+						"Requires a machine agent session. By default copies and verifies the output. An explicit matching digest may publish the workspace copy for reads or clear the redundant source after publication.",
 				})
-				.input(executionIdInput)
+				.input(
+					executionIdInput.extend({
+						cutover: OsGadgetExecutionOutputCutoverSchema.optional(),
+					}),
+				)
 				.output(OsGadgetExecutionOutputCopySchema),
 			export: oc
 				.route({

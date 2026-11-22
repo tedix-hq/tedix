@@ -126,6 +126,17 @@ export class InternalEntrypoint
 			? log.organizationLogCheckpoints(organizationId, query)
 			: { status: "not_live" as const };
 	}
+	readGadgetExecutionOutput(
+		scope: WorkspaceScope,
+		executionId: string,
+		sha256: string,
+	) {
+		return stubFor(this.env, scope).readGadgetExecutionOutput(
+			scope,
+			executionId,
+			sha256,
+		);
+	}
 	copyGadgetExecutionOutput(
 		scope: WorkspaceScope,
 		executionId: string,

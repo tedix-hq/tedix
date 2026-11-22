@@ -1884,6 +1884,10 @@
 		{
 			"name": "20261122130020_runner_lookup_indexes/migration.sql",
 			"sha256": "076745c37e76cfd0c45ff0255f8439deaa402593521a7947ed8945e55d6e7e47"
+		},
+		{
+			"name": "20261122133041_gadget-execution-output-location/migration.sql",
+			"sha256": "ac7fe129b3a19db80ea54c5272230ec9592d5a0d720f0fe1c54669b5d9e476fb"
 		}
 	]
 }

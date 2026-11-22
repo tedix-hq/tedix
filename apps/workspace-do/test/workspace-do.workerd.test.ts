@@ -8640,7 +8640,24 @@ test("copies execution output idempotently and rejects another workspace", async
 		executionId,
 		bytes: new TextEncoder().encode(output).byteLength,
 	});
+	await runInDurableObject(ws, (_instance, state) => {
+		state.storage.kv.delete(
+			`gadget-execution-output:${executionId}:${first.sha256}`,
+		);
+	});
 	await evictDurableObject(ws);
+	expect(
+		await ws.readGadgetExecutionOutput(scope, executionId, first.sha256),
+	).toBe(output);
+	await runInDurableObject(ws, async (instance) => {
+		await expect(() =>
+			(instance as WorkspaceDO).readGadgetExecutionOutput(
+				scope,
+				executionId,
+				"a".repeat(64),
+			),
+		).rejects.toThrow("not found");
+	});
 	expect(
 		await ws.copyGadgetExecutionOutput(scope, executionId, output),
 	).toEqual(first);

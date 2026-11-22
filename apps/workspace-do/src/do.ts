@@ -742,6 +742,14 @@ function sameDocumentTransfer(a: DocumentTransfer, b: DocumentTransfer) {
 	);
 }
 
+function gadgetExecutionOutputKey(
+	scope: WorkspaceScope,
+	executionId: string,
+	sha256: string,
+) {
+	return `workspace-gadget-execution-outputs/v1/${encodeURIComponent(scope.organizationId)}/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(executionId)}/${sha256}.json`;
+}
+
 export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #store: WorkspaceStorage;
 	readonly #memory: SqlMemoryAdapter;
@@ -985,23 +993,41 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.bindScope(scope);
 		const body = new TextEncoder().encode(output);
 		const sha256 = await sha256Hex(body);
-		const key = `workspace-gadget-execution-outputs/v1/${encodeURIComponent(scope.organizationId)}/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(executionId)}/${sha256}.json`;
+		const key = gadgetExecutionOutputKey(scope, executionId, sha256);
 		const bucket = this.env.R2_BUCKET;
 		await bucket.put(key, body, {
 			onlyIf: { etagDoesNotMatch: "*" },
 			sha256,
 			httpMetadata: { contentType: "application/json" },
 		});
-		const stored = await bucket.get(key);
-		if (
-			!stored ||
-			stored.size !== body.byteLength ||
-			(await sha256Hex(await stored.arrayBuffer())) !== sha256
-		) {
+		const verified = await this.readGadgetExecutionOutput(
+			scope,
+			executionId,
+			sha256,
+		);
+		if (verified !== output)
 			throw new Error("Workspace execution output verification failed");
-		}
 		this.#store.put(`gadget-execution-output:${executionId}:${sha256}`, key);
 		return { executionId, sha256, bytes: body.byteLength };
+	}
+
+	async readGadgetExecutionOutput(
+		scope: WorkspaceScope,
+		executionId: string,
+		sha256: string,
+	): Promise<string> {
+		this.bindScope(scope);
+		if (!/^[a-f0-9]{64}$/.test(sha256))
+			throw new Error("Invalid workspace output digest");
+		// Derive the location from the shared receipt so reads survive recovery
+		// of a workspace object whose local index predates the copy.
+		const key = gadgetExecutionOutputKey(scope, executionId, sha256);
+		const stored = await this.env.R2_BUCKET.get(key);
+		if (!stored) throw new Error("Workspace execution output not found");
+		const output = await stored.text();
+		if ((await sha256Hex(output)) !== sha256)
+			throw new Error("Workspace execution output verification failed");
+		return output;
 	}
 
 	async outputQuery<K extends OutputQuery["op"]>(
@@ -6231,6 +6257,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc extends DocumentTransferRuntime {
+	readGadgetExecutionOutput(
+		scope: WorkspaceScope,
+		executionId: string,
+		sha256: string,
+	): Promise<string>;
 	copyGadgetExecutionOutput(
 		scope: WorkspaceScope,
 		executionId: string,

@@ -559,6 +559,7 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			executionId: input.executionId,
 			sha256: output.sha256,
 			bytes: output.bytes,
+			phase: fields(input.cutover).phase ?? "copy",
 		}),
 	},
 	"executions.export": {

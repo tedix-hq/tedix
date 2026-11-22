@@ -3,8 +3,9 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
-	createOsGadgetExecution,
 	claimApprovedOsGadgetExecution,
+	createOsGadgetExecution,
+	cutOverOsGadgetExecutionOutput,
 	failClaimedOsGadgetExecution,
 	getOsGadgetExecution,
 	getOsGadgetExecutionByRunId,
@@ -32,6 +33,7 @@ function fixture() {
 			policy_decision TEXT NOT NULL,
 			input TEXT,
 			output TEXT,
+			workspace_output_sha256 TEXT,
 			error TEXT,
 			costs TEXT,
 			evidence_refs TEXT,
@@ -461,5 +463,50 @@ describe("os gadget executions", () => {
 				status: "completed",
 			}),
 		).toHaveLength(0);
+	});
+});
+
+it("publishes before clearing and refuses to clear a different source version", async () => {
+	const { db } = fixture();
+	const payload = '{"before":true}';
+	const completedAt = "2026-08-13T16:01:00.000Z";
+	const row = await createOsGadgetExecution(
+		db,
+		executionParams("settled", {
+			status: "completed",
+			output: payload,
+			completedAt,
+		}),
+	);
+	const scope = { organizationId: row.organizationId, executionId: row.id };
+	const archived = { ...row, output: payload, completedAt };
+	const digest = "a".repeat(64);
+	expect(
+		await cutOverOsGadgetExecutionOutput(db, archived, digest, "clear"),
+	).toBe(false);
+	expect(
+		await cutOverOsGadgetExecutionOutput(db, archived, digest, "publish"),
+	).toBe(true);
+	expect(await getOsGadgetExecution(db, scope)).toMatchObject({
+		output: payload,
+		workspaceOutputSha256: digest,
+	});
+	expect(
+		await cutOverOsGadgetExecutionOutput(
+			db,
+			{ ...archived, output: '{"stale":true}' },
+			digest,
+			"clear",
+		),
+	).toBe(false);
+	expect(
+		await cutOverOsGadgetExecutionOutput(db, archived, "b".repeat(64), "clear"),
+	).toBe(false);
+	expect(
+		await cutOverOsGadgetExecutionOutput(db, archived, digest, "clear"),
+	).toBe(true);
+	expect(await getOsGadgetExecution(db, scope)).toMatchObject({
+		output: null,
+		workspaceOutputSha256: digest,
 	});
 });

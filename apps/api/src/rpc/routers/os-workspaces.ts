@@ -63,6 +63,7 @@ import { getOrganizationDisplayName } from "@tedix/db/queries/organizations";
 import { getRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
 import {
 	createOsGadgetExecution,
+	cutOverOsGadgetExecutionOutput,
 	getOsGadgetExecution,
 	listOsGadgetExecutions,
 	settleOsGadgetExecutionFromRun,
@@ -682,7 +683,11 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 			executionId,
 		});
 		if (existing && existing.gadgetId === gadget.id) {
-			return { execution: mapGadgetExecution(existing) };
+			return {
+				execution: mapGadgetExecution(
+					await readWorkspaceExecutionOutput(context, existing),
+				),
+			};
 		}
 	}
 
@@ -1108,6 +1113,52 @@ async function settleExecutionFromRunEvidence(
 	return settled.find((candidate) => candidate.id === row.id) ?? row;
 }
 
+type ExecutionWorkspaceScope = Pick<
+	OsGadgetExecutionRow,
+	"organizationId" | "workspaceId"
+>;
+
+function executionWorkspaceRuntime(context: BaseContext) {
+	const { WORKSPACE_RUNTIME: runtime } = context.env as unknown as {
+		WORKSPACE_RUNTIME?: {
+			copyGadgetExecutionOutput(
+				scope: ExecutionWorkspaceScope,
+				executionId: string,
+				output: string,
+			): Promise<{ executionId: string; sha256: string; bytes: number }>;
+			readGadgetExecutionOutput(
+				scope: ExecutionWorkspaceScope,
+				executionId: string,
+				sha256: string,
+			): Promise<string>;
+		};
+	};
+	if (!runtime)
+		throw createError(
+			ErrorCodes.SERVICE_UNAVAILABLE,
+			"Workspace storage is unavailable",
+		);
+	return runtime;
+}
+
+async function readWorkspaceExecutionOutput(
+	context: BaseContext,
+	row: OsGadgetExecutionRow,
+) {
+	if (!row.workspaceOutputSha256) return row;
+	const output = await executionWorkspaceRuntime(
+		context,
+	).readGadgetExecutionOutput(
+		{
+			organizationId: row.organizationId,
+			workspaceId: row.workspaceId,
+		},
+		row.id,
+		row.workspaceOutputSha256,
+	);
+	return { ...row, output };
+}
+
 const executionsList = readOs.executions.list.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
@@ -1128,7 +1179,12 @@ const executionsList = readOs.executions.list.handler(
 		const settledPage = await Promise.all(
 			scoped
 				.slice(0, input.limit)
-				.map((row) => settleExecutionFromRunEvidence(context, row)),
+				.map(async (row) =>
+					readWorkspaceExecutionOutput(
+						context,
+						await settleExecutionFromRunEvidence(context, row),
+					),
+				),
 		);
 		return {
 			items: settledPage.map(mapGadgetExecution),
@@ -1157,7 +1213,7 @@ const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 			execution.runtimeEnvironment !== context.env.ENVIRONMENT ||
 			execution.createdById === "workspace-app-host" ||
 			!execution.completedAt ||
-			!execution.output ||
+			(!execution.output && !execution.workspaceOutputSha256) ||
 			!JSON.parse(execution.grantedCapabilities).includes("app.call")
 		) {
 			throw createError(
@@ -1170,36 +1226,97 @@ const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 			organizationId: execution.organizationId,
 			workspaceId: execution.workspaceId,
 		};
-		const { WORKSPACE_RUNTIME } = context.env as unknown as {
-			WORKSPACE_RUNTIME?: {
-				copyGadgetExecutionOutput(
-					workspace: typeof scope,
-					executionId: string,
-					output: string,
-				): Promise<{ executionId: string; sha256: string; bytes: number }>;
-			};
-		};
-		if (!WORKSPACE_RUNTIME) {
+		const runtime = executionWorkspaceRuntime(context);
+		if (
+			input.cutover?.phase === "clear" &&
+			execution.workspaceOutputSha256 !== input.cutover.sha256
+		) {
 			throw createError(
-				ErrorCodes.SERVICE_UNAVAILABLE,
-				"Workspace storage is unavailable",
+				ErrorCodes.CONFLICT,
+				"Publish the verified workspace copy before clearing the shared output",
 			);
 		}
-		const copy = await WORKSPACE_RUNTIME.copyGadgetExecutionOutput(
-			scope,
-			execution.id,
-			execution.output,
-		);
+		if (
+			execution.workspaceOutputSha256 &&
+			(input.cutover === undefined ||
+				execution.workspaceOutputSha256 === input.cutover.sha256)
+		) {
+			if (execution.output === null || input.cutover?.phase !== "clear") {
+				const output = await runtime.readGadgetExecutionOutput(
+					scope,
+					execution.id,
+					execution.workspaceOutputSha256,
+				);
+				return {
+					executionId: execution.id,
+					sha256: execution.workspaceOutputSha256,
+					bytes: new TextEncoder().encode(output).byteLength,
+				};
+			}
+		}
+		if (execution.output === null)
+			throw createError(ErrorCodes.CONFLICT, "Workspace output digest changed");
+		const sha256 = await sha256Hex(execution.output);
+		if (input.cutover && input.cutover.sha256 !== sha256) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Source output digest no longer matches",
+			);
+		}
+		const readExistingCopy = async () => {
+			const archived = await runtime.readGadgetExecutionOutput(
+				scope,
+				execution.id,
+				sha256,
+			);
+			if (archived !== execution.output) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Workspace copy differs from the shared output",
+				);
+			}
+			return {
+				executionId: execution.id,
+				sha256,
+				bytes: new TextEncoder().encode(archived).byteLength,
+			};
+		};
+		const copy = input.cutover
+			? await readExistingCopy()
+			: await runtime.copyGadgetExecutionOutput(
+					scope,
+					execution.id,
+					execution.output,
+				);
 		if (
 			copy.executionId !== execution.id ||
 			copy.bytes !== new TextEncoder().encode(execution.output).byteLength ||
-			copy.sha256 !== (await sha256Hex(execution.output))
+			copy.sha256 !== sha256
 		) {
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Workspace output copy did not match the execution",
 			);
 		}
+		if (input.cutover) {
+			const updated = await cutOverOsGadgetExecutionOutput(
+				queryDb(context),
+				{
+					...execution,
+					output: execution.output,
+					completedAt: execution.completedAt,
+				},
+				sha256,
+				input.cutover.phase,
+			);
+			if (!updated)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Source changed while its workspace copy was verified",
+				);
+			return copy;
+		}
+
 		const current = await getOsGadgetExecution(queryDb(context), {
 			organizationId: execution.organizationId,
 			executionId: execution.id,
@@ -1221,9 +1338,12 @@ const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 const executionsGet = readOs.executions.get.handler(
 	async ({ input, context }) => ({
 		execution: mapGadgetExecution(
-			await settleExecutionFromRunEvidence(
+			await readWorkspaceExecutionOutput(
 				context,
-				await requireExecution(context, input),
+				await settleExecutionFromRunEvidence(
+					context,
+					await requireExecution(context, input),
+				),
 			),
 		),
 	}),

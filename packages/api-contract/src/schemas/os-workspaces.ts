@@ -819,6 +819,11 @@ export const OsGadgetRevisionSchema = z.object({
 	createdAt: z.string(),
 });
 
+export const OsGadgetExecutionOutputCutoverSchema = z.object({
+	sha256: z.string().regex(/^[0-9a-f]{64}$/),
+	phase: z.enum(["publish", "clear"]),
+});
+
 export const OsGadgetExecutionOutputCopySchema = z.object({
 	executionId: z.uuid(),
 	sha256: z.string().regex(/^[0-9a-f]{64}$/),

@@ -546,6 +546,7 @@ export const osGadgetExecutions = sqliteTable(
 		input: text("input"),
 		/** JSON: runtime-reported output recorded at settlement. */
 		output: text("output"),
+		workspaceOutputSha256: text("workspace_output_sha256"),
 		error: text("error"),
 		/** JSON: runtime-reported cost summary recorded at settlement. */
 		costs: text("costs"),
