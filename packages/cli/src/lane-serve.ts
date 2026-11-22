@@ -1696,12 +1696,15 @@ export function retainedLaneWorktree(
 	}>,
 	onMissing?: (repo: string) => void,
 ) {
+	// A rejected Attempt is a run that ended incomplete (its push refused, a
+	// write denied): its checkout and session hold that work for the retry.
 	const reusable = new Set(
 		history
 			.filter(
 				(row) =>
 					row.outcome === "failed" ||
 					row.outcome === "expired" ||
+					row.outcome === "rejected" ||
 					(row.outcome === "cancelled" &&
 						(isRecord(row.metadata?.runQuestion) ||
 							isRecord(row.metadata?.approvalWait))),
@@ -5577,7 +5580,10 @@ export class LaneDispatcher {
 				);
 			}
 			const failedAttempt = history.data.find(
-				(row) => row.outcome === "failed" || row.outcome === "expired",
+				(row) =>
+					row.outcome === "failed" ||
+					row.outcome === "expired" ||
+					row.outcome === "rejected",
 			);
 			const decisionContinuation = item.metadata?.decisionContinuation;
 			const decisionBrief = isRecord(decisionContinuation)

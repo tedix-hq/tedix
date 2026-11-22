@@ -7034,6 +7034,12 @@ it("defers a future planned start and reuses only a canonically failed Work's re
 			{ id: "failed-attempt", outcome: "failed" },
 		])?.repo,
 	).toBe(repo);
+	// A run that ended incomplete settles rejected; its retry keeps the tree.
+	expect(
+		retainedLaneWorktree(dir, item().id, [
+			{ id: "failed-attempt", outcome: "rejected" },
+		])?.repo,
+	).toBe(repo);
 	expect(
 		retainedLaneWorktree(dir, item().id, [
 			{ id: "failed-attempt", outcome: "succeeded" },
