@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.30.0 (2026-11-22)
+
+### Minor Changes
+
+- 3df6e26: Add `tedix setup agents --opencode` to add the Tedix plugin to OpenCode: it downloads the published plugin, backs up your OpenCode settings and replaces any earlier Tedix entry. `--status` now reports OpenCode too.
+
+### Patch Changes
+
+- 3bd374c: Let the local dispatcher take code cleanup and technical call tasks without an owner note, while retaining holds for live data deletion and personal messages.
+
 ## 0.29.20 — 2026-11-22
 
 ### Patch Changes
