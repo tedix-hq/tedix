@@ -1279,7 +1279,8 @@ function setMenu(): void {
 		click: openPanel,
 	};
 	const setUp: MenuItemConstructorOptions = {
-		label: "Set Up This Mac…",
+		label: "Settings…",
+		accelerator: "CmdOrCtrl+,",
 		click: openSetup,
 	};
 	const mac = process.platform === "darwin";
