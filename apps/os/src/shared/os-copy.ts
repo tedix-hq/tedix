@@ -595,6 +595,7 @@ const ENGLISH_COPY = {
 		},
 		outcomes: {
 			succeeded: "the work finished",
+			landed_unverified: "landed, not verified",
 			failed: "needs another look",
 			expired: "paused before finishing",
 			cancelled: "was stopped",
