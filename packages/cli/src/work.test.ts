@@ -2605,7 +2605,7 @@ describe("settle carries verified commits", () => {
 		).toThrow(/does not resolve to a commit/);
 	});
 
-	test("settle sends nested settlement metadata the contract accepts as-is", async () => {
+	test("settle sends resolved commits through the typed field", async () => {
 		const { ctx, sources } = makeContext(
 			{ outcome: "succeeded", commit: [head.slice(0, 8)] },
 			ATTEMPT,
@@ -2618,9 +2618,6 @@ describe("settle carries verified commits", () => {
 			process.chdir(cwd);
 		}
 		expect(sources[0]).toContain("work.settle_work_item_attempt");
-		expect(sources[0]).toContain(
-			`"settlement":{"mode":"commit","commitSha":"${head}"`,
-		);
 		expect(sources[0]).toContain(`"commitShas":["${head}"]`);
 	});
 });

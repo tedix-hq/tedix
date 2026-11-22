@@ -11,6 +11,22 @@ describe("Work Item factory contract", () => {
 		return workItemsContract[name]["~orpc"].inputSchemas[0]!;
 	}
 
+	it("exposes full commit IDs on the settlement input", () => {
+		const schema = inputSchema("settleAttempt");
+		const input = {
+			id: "11111111-1111-4111-8111-111111111111",
+			attemptId: "22222222-2222-4222-8222-222222222222",
+			outcome: "succeeded",
+		};
+		expect(
+			schema.safeParse({ ...input, commitShas: ["a".repeat(40)] }).success,
+		).toBe(true);
+		expect(schema.safeParse({ ...input, commitShas: ["abc"] }).success).toBe(
+			false,
+		);
+		expect(schema.safeParse({ ...input, commitShas: [] }).success).toBe(false);
+	});
+
 	it("accepts project objective classification without accepting a client objective", () => {
 		const schema = inputSchema("updateSpecification");
 		const input = {

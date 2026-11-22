@@ -1455,6 +1455,14 @@ export const workItemsContract = oc
 							"Original private request-ledger row, when known. Must belong to the requesting user and this Work's project.",
 						),
 					summary: z.string().max(10_000).optional(),
+					commitShas: z
+						.array(z.string().regex(/^[a-f0-9]{40}$/i))
+						.min(1)
+						.max(100)
+						.optional()
+						.describe(
+							"Full commit IDs for this Attempt's repository result, in order. The first is the primary commit.",
+						),
 					metadata: JsonRecordSchema.optional(),
 					repositoryLifecycle:
 						WorkAttemptRepositoryLifecycleSchema.optional().describe(

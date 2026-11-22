@@ -447,7 +447,9 @@ export async function workAccept(
 export function buildSettlementMetadata(
 	commits: readonly string[] | undefined,
 	cwd = process.cwd(),
-): Record<string, unknown> | undefined {
+):
+	| { settlement: { mode: "commit"; commitSha: string; commitShas: string[] } }
+	| undefined {
 	if (!commits?.length) return undefined;
 	const resolved: string[] = [];
 	for (const value of commits) {
@@ -459,7 +461,7 @@ export function buildSettlementMetadata(
 	return {
 		settlement: {
 			mode: "commit",
-			commitSha: resolved[0],
+			commitSha: resolved[0]!,
 			commitShas: resolved,
 		},
 	};
@@ -497,9 +499,9 @@ export async function workSettle(
 	const as = ctx.work.as?.trim();
 	// Resolve BEFORE the board call: a fabricated sha must fail locally, not
 	// land as a settled pointer to nothing.
-	const metadata = ctx.work.input
-		? { ...workMetadataInput(ctx), ...buildSettlementMetadata(ctx.work.commit) }
-		: buildSettlementMetadata(ctx.work.commit);
+	const metadata = ctx.work.input ? workMetadataInput(ctx) : undefined;
+	const commits = buildSettlementMetadata(ctx.work.commit)?.settlement
+		.commitShas;
 	const call = await boardCall(
 		ctx,
 		mutationCallable(as, "work.settle_work_item_attempt"),
@@ -510,6 +512,7 @@ export async function workSettle(
 			...(ctx.work.note?.trim() ? { summary: ctx.work.note.trim() } : {}),
 			...(ctx.work.needsUser ? { needsUser: ctx.work.needsUser } : {}),
 			...(ctx.work.requestId ? { requestId: ctx.work.requestId } : {}),
+			...(commits ? { commitShas: commits } : {}),
 			...(metadata ? { metadata } : {}),
 		}),
 	);

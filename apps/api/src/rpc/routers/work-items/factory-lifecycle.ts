@@ -1147,11 +1147,23 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 					executor.type === "external_agent" ? executor.sessionId : undefined,
 				externalSessionKey: external?.externalSessionKey,
 			});
+			const receiptMetadata = {
+				...input.metadata,
+				...(input.commitShas
+					? {
+							settlement: {
+								mode: "commit",
+								commitSha: input.commitShas[0],
+								commitShas: input.commitShas,
+							},
+						}
+					: {}),
+			};
 			if (
 				input.outcome === "succeeded" &&
 				!(await hasRecoveredCommitCustody(context, attempt, {
 					...attempt.metadata,
-					...toJsonRecord(input.metadata ?? {}),
+					...toJsonRecord(receiptMetadata),
 				}))
 			) {
 				throw createError(
@@ -1167,7 +1179,7 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				outcome: input.outcome,
 				summary: input.summary,
 			});
-			const metadata = { ...input.metadata, feedSentence };
+			const metadata = { ...receiptMetadata, feedSentence };
 			const { laneNextStepNeedsPerson, routeLaneNextStepToAgent } =
 				await import("../../../services/lane-handoff-routing");
 			const agentNextStep =

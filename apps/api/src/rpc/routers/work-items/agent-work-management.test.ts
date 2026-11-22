@@ -285,19 +285,21 @@ describe("owner-granted external-agent Work management", () => {
 							state === "wrong session" ? "codex:unadmitted" : "codex:earlier",
 					},
 				],
-				...(state === "missing settlement"
-					? {}
-					: {
-							settlement: {
-								mode: "commit",
-								commitSha: state === "wrong commit" ? "b".repeat(40) : sha,
-							},
-						}),
 			};
 			const settle = () =>
 				settleAttemptProcedure["~orpc"].handler!({
 					context,
-					input: { id, attemptId: "current", outcome: "succeeded", metadata },
+					input: {
+						id,
+						attemptId: "current",
+						outcome: "succeeded",
+						metadata,
+						...(state === "missing settlement"
+							? {}
+							: {
+									commitShas: [state === "wrong commit" ? "b".repeat(40) : sha],
+								}),
+					},
 					path: [],
 					procedure: settleAttemptProcedure,
 					signal: undefined,
