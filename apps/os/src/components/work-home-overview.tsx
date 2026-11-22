@@ -164,7 +164,7 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 	return (
 		<section
 			aria-label="Work overview"
-			className="mx-auto grid w-full max-w-3xl gap-3 pb-6"
+			className="mx-auto grid w-full max-w-[44rem] gap-3 pb-6"
 		>
 			<WorkLayoutRegion
 				region="overview"

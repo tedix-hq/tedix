@@ -189,7 +189,7 @@ export function WorkHome({
 			{/* The page heading comes first, so overview sections sit under it. */}
 			{(!selected || selected.role) && (
 				<PageHeader
-					className={overview ? "mx-auto w-full max-w-3xl" : undefined}
+					className={overview ? "mx-auto w-full max-w-[44rem]" : undefined}
 				>
 					<PageTitle>{title}</PageTitle>
 					{canCustomize && (
