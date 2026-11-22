@@ -1,3 +1,4 @@
+import { listRuleMiningGuards } from "@tedix/db/queries/memory-graph/rules";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { organizationModelEnv } from "./unrouted-model-egress";
 /**
@@ -66,6 +67,7 @@ import {
 } from "./decision-learning-signal";
 import {
 	assignRuleKeys,
+	managedRuleTexts,
 	mergeRevoked,
 	revokedRulesOf,
 	sameRule,
@@ -860,9 +862,16 @@ export async function prepareOwners(
 			LESSON_PREFIX,
 			owner.ownerUserId,
 		);
-		const settled = [...current, ...archived].filter(
-			(row) => !isReplaceableLesson(row),
+		const guards = await listRuleMiningGuards(
+			db,
+			{ organizationId: orgId },
+			owner.ownerUserId,
 		);
+		const settled = [
+			...new Map(
+				[...current, ...archived, ...guards].map((row) => [row.id, row]),
+			).values(),
+		].filter((row) => !isReplaceableLesson(row));
 		const signature: HistorySignature = {
 			version: MAP_REDUCE_VERSION,
 			events: owner.events,
@@ -888,7 +897,11 @@ export async function prepareOwners(
 			signature,
 			skip,
 			covered: [...new Set(settled.flatMap(evidenceOf))],
-			blocked: settled.flatMap((row) => rulesOf(row.content)),
+			blocked: settled.flatMap((row) =>
+				row.metadata?.managedRule
+					? [...managedRuleTexts(row), ...rulesOf(row.content)]
+					: rulesOf(row.content),
+			),
 		});
 	}
 	return prepared;

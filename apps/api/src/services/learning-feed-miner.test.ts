@@ -1,7 +1,11 @@
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import type { DbClient } from "@tedix/db/client";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { listRuleMiningGuards } from "@tedix/db/queries/memory-graph/rules";
 
+vi.mock("@tedix/db/queries/memory-graph/rules", () => ({
+	listRuleMiningGuards: vi.fn(async () => []),
+}));
 vi.mock("@tedix/db/queries/learning-feedback", async (importActual) => {
 	const actual =
 		await importActual<typeof import("@tedix/db/queries/learning-feedback")>();
@@ -129,6 +133,7 @@ const personal = (userId: string) => ({
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	vi.mocked(listRuleMiningGuards).mockResolvedValue([]);
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
 	vi.mocked(findFactBySourceHash).mockResolvedValue(undefined);
 	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
@@ -581,25 +586,60 @@ describe("mineLearningFeed", () => {
 		expect(invalidateFact).not.toHaveBeenCalled();
 	});
 
-	it("does not relearn events of a lesson a person archived", async () => {
+	it.each(["archived", "managed"])(
+		"does not relearn events of a %s rule",
+		async (kind) => {
+			vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+				async (_db, input) =>
+					input.surfaces[0] === "decision_capture"
+						? [event("e1"), event("e2")]
+						: [],
+			);
+			vi.mocked(
+				kind === "archived"
+					? listArchivedLearningFeedLessons
+					: listRuleMiningGuards,
+			).mockResolvedValue([
+				{
+					id: "fact-archived",
+					topicKey: "learning-feed:written:example",
+					content: "Retired rule",
+					reviewStatus: "confirmed",
+					metadata: {
+						learningFeed: {
+							autoConfirmed: true,
+							evidenceEventIds: ["e1", "e2"],
+						},
+						memoryLifecycle: { lastReview: { archived: true } },
+					},
+				},
+			]);
+			const result = await mineLearningFeed(db, { orgId: "org-1" });
+			expect(result.factsWritten).toBe(0);
+		},
+	);
+
+	it("does not mine a retired written rule from matching source text", async () => {
+		const source = event("e1");
 		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
 			async (_db, input) =>
-				input.surfaces[0] === "decision_capture"
-					? [event("e1"), event("e2")]
-					: [],
+				input.surfaces[0] === "decision_capture" ? [source, event("e2")] : [],
 		);
-		vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([
+		vi.mocked(listRuleMiningGuards).mockResolvedValue([
 			{
-				id: "fact-archived",
+				id: "written",
+				topicKey: "learning-feed:written:example",
+				content: String(source.metadata?.answer),
 				reviewStatus: "confirmed",
 				metadata: {
-					learningFeed: { autoConfirmed: true, evidenceEventIds: ["e1", "e2"] },
-					memoryLifecycle: { lastReview: { archived: true } },
+					managedRule: { origin: "written" },
+					learningFeed: { retired: true },
 				},
 			},
 		]);
-		const result = await mineLearningFeed(db, { orgId: "org-1" });
-		expect(result.factsWritten).toBe(0);
+		expect((await mineLearningFeed(db, { orgId: "org-1" })).factsWritten).toBe(
+			0,
+		);
 	});
 
 	it("rebuilds an org-wide held lesson even with the same decisions and content hash", async () => {

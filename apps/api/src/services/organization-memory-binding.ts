@@ -1,3 +1,4 @@
+import { createError, ErrorCodes } from "../rpc/orpc";
 import { evaluateCall } from "@tedix/agent-governance/compliance";
 import type {
 	AccountabilityAdapter,
@@ -88,6 +89,11 @@ export async function storeOrganizationMemoryReview(
 	updates: FactReviewUpdates,
 	actor: Actor,
 ): Promise<void> {
+	if (fact.metadata?.managedRule)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Use the rule tools to review this rule",
+		);
 	const adapter = new OrganizationMemoryAdapter(db, {
 		organizationId: fact.organizationId,
 	});
@@ -127,6 +133,11 @@ export function organizationMemoryWriter(
 	});
 	return {
 		async create(fact: NewMemoryFact): Promise<MemoryFact> {
+			if (fact.metadata?.managedRule)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Use the rule tools to create this rule",
+				);
 			const adapter = new OrganizationMemoryAdapter(context.db, {
 				organizationId: fact.organizationId,
 			});
@@ -146,6 +157,11 @@ export function organizationMemoryWriter(
 			updates: FactMutationUpdates,
 			operation = "update",
 		): Promise<void> {
+			if (fact.metadata?.managedRule)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Use the rule tools to change this rule",
+				);
 			const adapter = new OrganizationMemoryAdapter(context.db, {
 				organizationId: fact.organizationId,
 			});

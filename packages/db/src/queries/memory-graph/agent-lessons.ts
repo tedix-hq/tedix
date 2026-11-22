@@ -581,7 +581,12 @@ export async function filterEvidenceBackedLessons<
 	const held: T[] = [];
 	for (const { row, parsed } of parsedRows) {
 		const feed = row.metadata?.learningFeed;
-		if (!feed || typeof feed !== "object" || Array.isArray(feed)) {
+		if (
+			!feed ||
+			typeof feed !== "object" ||
+			Array.isArray(feed) ||
+			feed.authored === true
+		) {
 			live.push(row);
 			continue;
 		}

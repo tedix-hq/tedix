@@ -684,3 +684,24 @@ it("projects the checkpoint read as one read-only gateway tool", async () => {
 		"untilSequence",
 	]);
 });
+
+it("projects the rule lifecycle as usable gateway tools", async () => {
+	const candidates = projectionCandidates({ router: "rules" });
+	const ids: string[] = [];
+	for (const candidate of candidates) {
+		const { tool } = await buildProjectedTool("fixture-app", candidate);
+		ids.push(tool.toolId);
+		const read = candidate.procPath === "get" || candidate.procPath === "list";
+		expect(tool.annotations?.readOnlyHint).toBe(read);
+		expect(tool.writeCapability).toBe(read ? "read" : "write");
+	}
+	expect(ids.sort()).toEqual([
+		"approve_rule",
+		"create_rule",
+		"get_rule",
+		"list_rules",
+		"restore_rule",
+		"retire_rule",
+		"update_rule",
+	]);
+});

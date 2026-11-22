@@ -1,7 +1,11 @@
 import type { DbClient } from "@tedix/db/client";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { listRuleMiningGuards } from "@tedix/db/queries/memory-graph/rules";
 
+vi.mock("@tedix/db/queries/memory-graph/rules", () => ({
+	listRuleMiningGuards: vi.fn(async () => []),
+}));
 vi.mock("@tedix/db/queries/learning-feedback", () => ({
 	listLearningOwnersForReflection: vi.fn(),
 	listOwnerLearningInteractionsPage: vi.fn(),
@@ -123,6 +127,7 @@ function candidate(over: Partial<RuleCandidate>): RuleCandidate {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	vi.mocked(listRuleMiningGuards).mockResolvedValue([]);
 	vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listArchivedLearningFeedLessonsForOwner).mockResolvedValue([]);
 });
@@ -652,30 +657,43 @@ describe("distillPersonalLessons", () => {
 		expect(updateFact).toHaveBeenCalledTimes(2);
 	});
 
-	it("never relearns what a person archived, and keeps lessons when the model fails", async () => {
-		vi.mocked(listArchivedLearningFeedLessonsForOwner).mockResolvedValue([
-			{
-				id: "archived",
-				topicKey: "learning-feed:decision:tedix:general:git:user:user-1",
-				content: "Git:\n- Commit straight to main, never open pull requests",
-				reviewStatus: "confirmed",
-				metadata: {
-					learningFeed: { ownerUserId: "user-1", autoConfirmed: true },
-					memoryLifecycle: { lastReview: { archived: true } },
+	it.each(["archived", "managed"])(
+		"never relearns a %s rule, and keeps lessons when the model fails",
+		async (kind) => {
+			vi.mocked(
+				kind === "archived"
+					? listArchivedLearningFeedLessonsForOwner
+					: listRuleMiningGuards,
+			).mockResolvedValue([
+				{
+					id: "archived",
+					topicKey: "learning-feed:decision:tedix:general:git:user:user-1",
+					content:
+						kind === "managed"
+							? "Commit straight to main, never open pull requests"
+							: "Git:\n- Commit straight to main, never open pull requests",
+					reviewStatus: "confirmed",
+					metadata: {
+						...(kind === "managed"
+							? { managedRule: { origin: "written" } }
+							: {}),
+						learningFeed: { ownerUserId: "user-1", autoConfirmed: true },
+						memoryLifecycle: { lastReview: { archived: true } },
+					},
 				},
-			},
-		]);
-		await distillPersonalLessons(direct, db, env, "org-1");
-		const facts = vi.mocked(createFact).mock.calls.map((call) => call[1]);
-		expect(facts.map((f) => f.content).join("\n")).not.toContain("main");
+			]);
+			await distillPersonalLessons(direct, db, env, "org-1");
+			const facts = vi.mocked(createFact).mock.calls.map((call) => call[1]);
+			expect(facts.map((f) => f.content).join("\n")).not.toContain("main");
 
-		vi.mocked(createFact).mockClear();
-		vi.mocked(runDistillModel).mockResolvedValue(null);
-		const failed = await distillPersonalLessons(direct, db, env, "org-1");
-		expect(failed.chunksFailed).toBe(failed.chunks);
-		expect(createFact).not.toHaveBeenCalled();
-		expect(invalidateFact).not.toHaveBeenCalled();
-	});
+			vi.mocked(createFact).mockClear();
+			vi.mocked(runDistillModel).mockResolvedValue(null);
+			const failed = await distillPersonalLessons(direct, db, env, "org-1");
+			expect(failed.chunksFailed).toBe(failed.chunks);
+			expect(createFact).not.toHaveBeenCalled();
+			expect(invalidateFact).not.toHaveBeenCalled();
+		},
+	);
 	describe("incremental", () => {
 		async function currentFromFullRun() {
 			await distillPersonalLessons(direct, db, env, "org-1");

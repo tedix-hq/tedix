@@ -39,6 +39,7 @@ import { descopeAihContract } from "./descope-aih";
 import { directoryContract } from "./directory";
 import { dispatcherHealthContract } from "./dispatcher-health";
 import { machinesContract } from "./machines";
+import { rulesContract } from "./rules";
 import { workMapContract } from "./work-map";
 import { tediMemoryContract } from "./tedi-memory";
 import { docsContract } from "./docs";
@@ -368,6 +369,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	controlPlane: controlPlaneContract,
 	dispatcherHealth: dispatcherHealthContract,
 	machines: machinesContract,
+	rules: rulesContract,
 	workMap: workMapContract,
 	tediMemory: tediMemoryContract,
 

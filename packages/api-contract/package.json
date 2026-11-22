@@ -6,6 +6,8 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./contracts/rules": "./src/contracts/rules.ts",
+		"./schemas/rules": "./src/schemas/rules.ts",
 		"./utils/approval-holds": "./src/utils/approval-holds.ts",
 		"./utils/delegated-approvals": "./src/utils/delegated-approvals.ts",
 		"./schemas/delegated-approvals": "./src/schemas/delegated-approvals.ts",

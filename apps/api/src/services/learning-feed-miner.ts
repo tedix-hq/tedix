@@ -52,6 +52,8 @@
  * `metadata.learningFeed.scope = { repo, harness, topic }`.
  */
 
+import { managedRuleTexts, sameRule } from "./lesson-rules";
+import { listRuleMiningGuards } from "@tedix/db/queries/memory-graph/rules";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { LessonEvidence } from "@tedix/api-contract/schemas/agent-session-lessons";
 import type { DbClient } from "@tedix/db/client";
@@ -588,11 +590,23 @@ async function writeDecisionLessons(
 			{ organizationId: orgId },
 			[...new Set([topicKey, legacyKey])],
 		);
+		const guards = await listRuleMiningGuards(
+			db,
+			{ organizationId: orgId },
+			ownerUserId,
+		);
 		const covered = new Set(
-			[...current, ...legacy, ...archived]
+			[...current, ...legacy, ...archived, ...guards]
 				.filter((f) => !isReplaceableLesson(f))
 				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
+		const blocked = guards.flatMap(managedRuleTexts);
+		for (const event of topicEvents) {
+			if (
+				blocked.some((rule) => sameRule(rule, text(rec(event.metadata).answer)))
+			)
+				covered.add(event.id);
+		}
 		const [quoted] = buildDecisionLessons(topicEvents, covered);
 		if (!quoted) continue;
 		const evidence = new Set(quoted.metadata.evidenceEventIds);

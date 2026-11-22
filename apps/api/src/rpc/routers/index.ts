@@ -189,6 +189,7 @@ export const apiRouter = {
 	machines: lazyRouter(() =>
 		import("./machines").then((m) => m.machinesContractRouter),
 	),
+	rules: lazyRouter(() => import("./rules").then((m) => m.rulesContractRouter)),
 	workMap: lazyRouter(() =>
 		import("./work-map").then((m) => m.workMapContractRouter),
 	),

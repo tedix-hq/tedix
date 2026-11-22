@@ -283,3 +283,22 @@ export function renderRules(header: string, rules: DeliverableRule[]): string {
 		),
 	].join("\n");
 }
+
+/** Explicit revisions keep earlier wording from returning through history mining. */
+export function managedRuleTexts(row: {
+	content: string;
+	metadata: unknown;
+}): string[] {
+	const meta = rec(row.metadata);
+	if (!meta.managedRule) return [];
+	const revisions = Array.isArray(meta.memoryAdapterRevisions)
+		? meta.memoryAdapterRevisions
+		: [];
+	return [
+		...new Set(
+			[row.content, ...revisions.map((r) => text(rec(r).value))].filter(
+				Boolean,
+			),
+		),
+	];
+}

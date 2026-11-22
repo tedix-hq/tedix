@@ -41,6 +41,7 @@ import { descopeAihContract } from "../contracts/descope-aih";
 import { directoryContract } from "../contracts/directory";
 import { dispatcherHealthContract } from "../contracts/dispatcher-health";
 import { machinesContract } from "../contracts/machines";
+import { rulesContract } from "../contracts/rules";
 import { workMapContract } from "../contracts/work-map";
 import { tediMemoryContract } from "../contracts/tedi-memory";
 import { docsContract } from "../contracts/docs";
@@ -154,6 +155,7 @@ export const ROUTERS: Record<string, unknown> = {
 	directory: directoryContract,
 	dispatcherHealth: dispatcherHealthContract,
 	machines: machinesContract,
+	rules: rulesContract,
 	workMap: workMapContract,
 	tediMemory: tediMemoryContract,
 	docs: docsContract,

@@ -150,6 +150,13 @@ export type McpGranularCapabilityScopeName =
 const DOCS_SCOPES_BY_TOOL = new Map(Object.entries(DOCS_TOOL_SCOPES));
 
 const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
+	create_rule: "mcp:memory",
+	list_rules: "mcp:memory",
+	get_rule: "mcp:memory",
+	update_rule: "mcp:memory",
+	retire_rule: "mcp:memory",
+	restore_rule: "mcp:memory",
+	approve_rule: "mcp:memory",
 	configure_repository_observer: "mcp:work",
 	observe_repository_event: "mcp:work",
 	report_repository_observation: "mcp:work",
@@ -649,6 +656,8 @@ const READ_TOOL_NAME_RE =
 	/(^|[_.:/-])(analyze|ask|check|fetch|find|get|health|inspect|list|load|preview|query|read|resolve|search|status|stats|summary|validate)([_.:/-]|$)/i;
 
 const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
+	retire_rule: "write",
+	restore_rule: "write",
 	configure_repository_observer: "admin",
 	observe_repository_event: "write",
 	report_repository_observation: "write",
