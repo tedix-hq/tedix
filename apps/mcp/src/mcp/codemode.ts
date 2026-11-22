@@ -34,6 +34,7 @@ import {
 	runSerializedSideEffect,
 	buildRuntimeProvider,
 	withLegacyNamespaceAliases,
+	withInnerErrorTransport,
 	buildProviders,
 	legacyNamespaceAliases,
 	namespaceGlobalsPrelude,
@@ -830,7 +831,18 @@ export async function registerCodeModeTools(
 												timeout,
 												globalOutbound: null,
 												modules,
-											}).execute(...args),
+											}).execute(
+												args[0],
+												// Transport preludes belong at the worker boundary; attaching
+												// them earlier disables literal-call dispatch for every tool.
+												Array.isArray(args[1])
+													? args[1].map((provider) =>
+															builtins.has(provider.name)
+																? provider
+																: withInnerErrorTransport(provider),
+														)
+													: args[1],
+											),
 									}),
 							},
 							timeoutMs: timeout,

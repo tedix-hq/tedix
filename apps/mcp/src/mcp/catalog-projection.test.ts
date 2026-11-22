@@ -14,6 +14,7 @@ import {
 	buildProviders,
 	legacyNamespaceAliases,
 	withLegacyNamespaceAliases,
+	withInnerErrorTransport,
 	type CodeModeExecutionRefs,
 } from "./codemode-execution";
 import { McpNativeDescriptorSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
@@ -375,7 +376,10 @@ describe("catalog projection reuse", () => {
 			expect(stringify).not.toHaveBeenCalled();
 			const legacy = providers.find((provider) => provider.name === "legacy")!;
 			expect(Object.keys(legacy.fns).sort()).toEqual(["shadowed", "unique"]);
-			expect(legacy.prelude).toContain("__dispatchers.legacy");
+			expect(legacy.prelude).toBeUndefined();
+			expect(withInnerErrorTransport(legacy).prelude).toContain(
+				"__dispatchers.legacy",
+			);
 			expect(stringify).toHaveBeenCalled();
 			expect(
 				legacyNamespaceAliases(ctx, undefined, groups, new Set()).get("legacy")

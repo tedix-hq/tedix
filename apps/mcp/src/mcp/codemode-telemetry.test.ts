@@ -599,6 +599,7 @@ describe("Code Mode tail telemetry", () => {
 		const legacy = await registered.get("code")!({
 			code: "async () => await test.soft_fail({})",
 		});
+		expect(executedPrograms).toHaveLength(0);
 		expect(response.structuredContent.result).toEqual(
 			legacy.structuredContent.result,
 		);

@@ -1084,13 +1084,24 @@ export function withLegacyNamespaceAliases(
 			merged.push({ name, fns: fns as ResolvedProvider["fns"] });
 		}
 	}
-	return merged.map(withInnerErrorTransport);
+	return merged.map((provider) => ({
+		...provider,
+		// Enumerating a namespace must not construct its executable handlers.
+		fns: lazyRecord(
+			Object.keys(provider.fns),
+			(name) =>
+				(...args: unknown[]) =>
+					provider.fns[name]!(...args),
+		),
+	}));
 }
 
 // The SDK dispatcher preserves only Error.message. Encode structured errors
 // on that channel and reconstruct an Error inside the sandbox, after RPC.
 const INNER_ERROR_PREFIX = "tedix:inner-tool-error:";
-function withInnerErrorTransport(provider: ResolvedProvider): ResolvedProvider {
+export function withInnerErrorTransport(
+	provider: ResolvedProvider,
+): ResolvedProvider {
 	const names = Object.keys(provider.fns);
 	return {
 		...provider,
