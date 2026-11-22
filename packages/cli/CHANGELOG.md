@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.34.4 (2026-11-22)
+
+### Patch Changes
+
+- 1be2957: Use native catalog discovery for hook organization links without starting a Dynamic Worker.
+- e8f9c90: Use server tools for Claude Code hook context reads so the gateway can skip Dynamic Workers. Send CLI version and component headers for gateway attribution.
+
 ## 0.34.3 (2026-11-22)
 
 ### Patch Changes
