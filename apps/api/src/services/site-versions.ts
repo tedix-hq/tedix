@@ -205,7 +205,7 @@ export async function checkSiteVersions(input: {
 			if (isCms) {
 				try {
 					using repo = await input.env.ARTIFACTS.get(`cms-theme-${site.slug}`);
-					const [head] = await repo.log({ ref: "HEAD", limit: 1 });
+					const [head] = await repo.log({ ref: "main", limit: 1 });
 					if (!head) throw new Error("Theme repository has no head");
 					entry.themeRevision = head.hash;
 					const lock = await repo.readFile({

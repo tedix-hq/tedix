@@ -4,6 +4,7 @@ import { sanitizeUntrustedValue } from "@tedix/mcp-shared/content-sanitize";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { ArtifactsBinding } from "../types";
 import { readThemeArtifactFile } from "./artifact-source-read";
+import { isPathEditable } from "./constraints";
 const COMMIT = "a".repeat(40);
 function fixture(
 	options: {
@@ -30,7 +31,20 @@ function fixture(
 			options.missing === "tree"
 				? null
 				: hash === "b".repeat(40)
-					? [{ name: "src", type: "tree", mode: "40000", hash: "c".repeat(40) }]
+					? [
+							{
+								name: "src",
+								type: "tree",
+								mode: "40000",
+								hash: "c".repeat(40),
+							},
+							...["package.json", "bun.lock"].map((name) => ({
+								name,
+								type: options.mode === "120000" ? "symlink" : "blob",
+								mode: options.mode ?? "100644",
+								hash: "e".repeat(40),
+							})),
+						]
 					: hash === "c".repeat(40)
 						? [
 								{
@@ -125,7 +139,30 @@ describe("native Artifacts source file read", () => {
 			).content,
 		).toBe("\uFEFFA");
 	});
+	it.each(["package.json", "bun.lock"])(
+		"reads %s without granting edit access, retaining blob safety and size limits",
+		async (path) => {
+			expect(isPathEditable(path, "tedix")).toBe(false);
+			const bytes = new TextEncoder().encode(" ".repeat(300_000));
+			expect(await fixture({ bytes }).read({ path })).toMatchObject({
+				path,
+				sizeBytes: bytes.length,
+			});
+			for (const options of [
+				{ mode: "120000" },
+				{ bytes: new Uint8Array(2_000_001) },
+			])
+				await expect(fixture(options).read({ path })).rejects.toThrow(
+					"Unable to read the requested Artifacts source file",
+				);
+		},
+	);
 	it.each([
+		"./package.json",
+		"src/../bun.lock",
+		"package.json/extra",
+		".env",
+		"wrangler.jsonc",
 		"../src/components/Hero.astro",
 		"src/components/../Hero.astro",
 		"src//components/Hero.astro",
@@ -135,7 +172,7 @@ describe("native Artifacts source file read", () => {
 		"rejects invalid or locked path %s before provider access",
 		async (path) => {
 			const f = fixture();
-			await expect(f.read({ path })).rejects.toThrow("not editable");
+			await expect(f.read({ path })).rejects.toThrow("not readable");
 			expect(f.get).not.toHaveBeenCalled();
 		},
 	);

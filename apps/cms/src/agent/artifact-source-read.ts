@@ -75,19 +75,25 @@ export async function readThemeArtifactFile(input: {
 	const { sourceCommit, path } = input;
 	if (!/^[a-f0-9]{40}$/.test(sourceCommit))
 		throw new Error("Invalid Artifacts source commit");
+	const dependencyFile = path === "package.json" || path === "bun.lock";
 	if (
-		!/^src\/[A-Za-z0-9_./\[\]-]+$/.test(path) ||
-		path.split("/").some((part) => !part || part === "." || part === "..") ||
-		!isPathEditable(path, input.templateSlug)
+		!dependencyFile &&
+		(!/^src\/[A-Za-z0-9_./\[\]-]+$/.test(path) ||
+			path.split("/").some((part) => !part || part === "." || part === "..") ||
+			!isPathEditable(path, input.templateSlug))
 	)
-		throw new Error("Theme source path is not editable");
+		throw new Error("Theme source path is not readable");
 	try {
 		using repo = await input.artifacts.get(
 			themeArtifactRepoName(input.orgSlug),
 		);
 		const root = await readThemeArtifactTree(repo, sourceCommit);
 		const hash = await resolveThemeArtifactFile(repo, root, path);
-		const file = await readThemeArtifactBlob(repo, hash, 256_000);
+		const file = await readThemeArtifactBlob(
+			repo,
+			hash,
+			dependencyFile ? 2_000_000 : 256_000,
+		);
 		return { sourceCommit, path, ...sourceFileResult(file.content) };
 	} catch {
 		throw new Error("Unable to read the requested Artifacts source file");

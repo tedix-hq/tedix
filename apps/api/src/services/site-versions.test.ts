@@ -133,7 +133,8 @@ function input(failTheme = false) {
 			RELEASE_REPOSITORY: "example/product",
 			ARTIFACTS: {
 				get: async () => ({
-					log: async () => [{ hash: "b".repeat(40) }],
+					log: async ({ ref }: { ref: string }) =>
+						ref === "main" ? [{ hash: "b".repeat(40) }] : [],
 					readFile,
 					[Symbol.dispose]() {},
 				}),
