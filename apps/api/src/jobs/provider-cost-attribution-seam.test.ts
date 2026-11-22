@@ -96,7 +96,7 @@ async function observe(
 		DB: {} as D1Database,
 		TEDIX_BILLING_SETTLEMENT_MODE: mode,
 		AI_GATEWAY_ACCOUNT_ID: "account",
-		AI_GATEWAY_LLM_ID: "tedix-llm-production",
+		AI_GATEWAY_LLM_ID: "test-llm-gateway",
 		AI: { run } as unknown as Ai,
 	};
 	await callWorkersAi(
@@ -141,14 +141,9 @@ describe("issued attribution from forced binding to settlement", () => {
 		async (cost) => {
 			const { receipt, log } = await observe("managed", cost);
 			expect(
-				matchesGatewayExecution(
-					log,
-					"tedix-llm-production",
-					"account",
-					receipt,
-				),
+				matchesGatewayExecution(log, "test-llm-gateway", "account", receipt),
 			).toBe(true);
-			const mapped = mapRowToCallCost(log, "tedix-llm-production", {
+			const mapped = mapRowToCallCost(log, "test-llm-gateway", {
 				execution: receipt,
 				costUsd: null,
 				rateVersionId: null,
@@ -186,7 +181,7 @@ describe("issued attribution from forced binding to settlement", () => {
 	);
 	it("holds a response with no cost evidence instead of settling zero", async () => {
 		const { receipt, log } = await observe("managed", undefined);
-		const mapped = mapRowToCallCost(log, "tedix-llm-production", {
+		const mapped = mapRowToCallCost(log, "test-llm-gateway", {
 			execution: receipt,
 			costUsd: null,
 			rateVersionId: null,
@@ -218,12 +213,12 @@ describe("issued attribution from forced binding to settlement", () => {
 			log.metadata.attribution = JSON.stringify(envelope);
 			const matched = matchesGatewayExecution(
 				log,
-				"tedix-llm-production",
+				"test-llm-gateway",
 				kind === "account" ? "foreign-account" : "account",
 				candidate,
 			);
 			expect(matched).toBe(false);
-			const mapped = mapRowToCallCost(log, "tedix-llm-production", {
+			const mapped = mapRowToCallCost(log, "test-llm-gateway", {
 				execution: matched ? candidate : null,
 				costUsd: null,
 				rateVersionId: null,
@@ -245,15 +240,10 @@ describe("issued attribution from forced binding to settlement", () => {
 		async (mode) => {
 			const { receipt, log } = await observe(mode, 0);
 			expect(
-				matchesGatewayExecution(
-					log,
-					"tedix-llm-production",
-					"account",
-					receipt,
-				),
+				matchesGatewayExecution(log, "test-llm-gateway", "account", receipt),
 			).toBe(true);
 			expect(JSON.parse(log.metadata.attribution!).b).toBeUndefined();
-			const mapped = mapRowToCallCost(log, "tedix-llm-production", {
+			const mapped = mapRowToCallCost(log, "test-llm-gateway", {
 				execution: receipt,
 				costUsd: null,
 				rateVersionId: null,

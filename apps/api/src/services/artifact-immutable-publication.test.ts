@@ -34,7 +34,7 @@ async function artifact(
 		kind: "document",
 		name: "redacted.txt",
 		mimeType: "text/plain; charset=utf-8",
-		uri: "r2://tedix-tedi-production/tedi-1/artifacts/redacted/child-1.txt",
+		uri: "r2://test-tedi-artifacts/tedi-1/artifacts/redacted/child-1.txt",
 		sizeBytes: bytes.byteLength,
 		contentDigest: await sha256Hex(bytes),
 		accessClassification: "runtime_private",
@@ -79,12 +79,12 @@ describe("complete private text review", () => {
 		["unknown MIME", { mimeType: null }],
 		[
 			"foreign tedi key",
-			{ uri: "r2://tedix-tedi-production/another-tedi/artifacts/secret.txt" },
+			{ uri: "r2://test-tedi-artifacts/another-tedi/artifacts/secret.txt" },
 		],
 		["foreign bucket", { uri: "r2://other/tedi-1/artifacts/secret.txt" }],
 		[
 			"unsafe key",
-			{ uri: "r2://tedix-tedi-production/tedi-1/artifacts/../secret.txt" },
+			{ uri: "r2://test-tedi-artifacts/tedi-1/artifacts/../secret.txt" },
 		],
 		["missing digest", { contentDigest: null }],
 	] as const)("rejects %s before reading storage", async (_name, changes) => {

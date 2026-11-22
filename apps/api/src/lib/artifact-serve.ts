@@ -10,6 +10,7 @@
  * No auth here — callers (the signed-token route and the session route in
  * `index.ts`) authorize first, then delegate to this pure streamer.
  */
+import { env as workerEnv } from "cloudflare:workers";
 
 export interface ArtifactR2Env {
 	TEDI_R2_BUCKET?: R2Bucket;
@@ -30,18 +31,18 @@ export function artifactBucketBinding(
 	bucketName: string,
 ): R2Bucket | undefined {
 	switch (bucketName) {
-		case "tedix-tedi-production":
+		case workerEnv.TEDI_R2_BUCKET_NAME:
 			return env.TEDI_R2_BUCKET;
-		case "skill-artifacts-production":
+		case workerEnv.SKILL_ARTIFACTS_BUCKET_NAME:
 			return env.SKILL_ARTIFACTS;
-		case "tedix-assets":
+		case workerEnv.R2_BUCKET_NAME:
 			return env.R2_BUCKET;
-		case "content-cms":
+		case workerEnv.CONTENT_CMS_BUCKET_NAME:
 			return env.CONTENT_CMS_BUCKET;
 		case "tedi-storage":
 			// Legacy workstation-evidence refs: the adapter stamped
 			// "tedi-storage" but always wrote via a binding
-			// bound to tedix-tedi-production — alias to that bucket.
+			// bound to TEDI_R2_BUCKET — alias to that bucket.
 			return env.TEDI_R2_BUCKET;
 		default:
 			return undefined;

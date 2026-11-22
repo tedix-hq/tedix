@@ -616,6 +616,7 @@ export const runtimeTrace = {
 				]);
 				const uri = await writeTraceBundle({
 					bucket: this.env.TEDI_STORAGE,
+					bucketName: this.env.TEDI_STORAGE_BUCKET_NAME,
 					evidence: {
 						tediId: opts.tediId,
 						orgId: opts.orgId,
@@ -859,6 +860,7 @@ export const runtimeTrace = {
 			const bundleUri =
 				(await writeTraceBundle({
 					bucket: this.env.TEDI_STORAGE,
+					bucketName: this.env.TEDI_STORAGE_BUCKET_NAME,
 					evidence: {
 						tediId,
 						orgId: orgId || undefined,

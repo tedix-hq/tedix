@@ -17,7 +17,7 @@ function row(
 	return {
 		id: crypto.randomUUID(),
 		day: "2026-11-18",
-		gatewayId: "tedix-llm-production",
+		gatewayId: "test-llm-gateway",
 		provider: "workers-ai",
 		model: "",
 		ledgerCostMicros: ledger,

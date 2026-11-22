@@ -172,7 +172,7 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 	catchup.outcomes.length = 0;
 	catchup.ingest.mockReset().mockResolvedValue([
 		{
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			ingested: 3,
 			skipped: 0,
 			failure: null,
@@ -217,7 +217,7 @@ it("fails the catch-up receipt on a gateway error but continues sibling cron pat
 	catchup.outcomes.length = 0;
 	catchup.ingest.mockReset().mockResolvedValue([
 		{
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			ingested: 0,
 			skipped: 0,
 			failure: "fetch failed",
@@ -311,7 +311,7 @@ it("treats CAS contention as a successful catch-up receipt", async () => {
 	catchup.outcomes.length = 0;
 	catchup.ingest.mockReset().mockResolvedValue([
 		{
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			ingested: 0,
 			skipped: 1,
 			failure: null,

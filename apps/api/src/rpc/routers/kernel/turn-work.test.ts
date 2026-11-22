@@ -980,7 +980,7 @@ describe("runKernelTurnWork progress seam", () => {
 			},
 			writeKernelTraceBundle: async (evidence) => {
 				capturedRawTraceInputs.push({ runId: evidence.runId });
-				return "r2://tedix-tedi-production/kernel/org-1/harness/runs/run-1/";
+				return "r2://test-tedi-artifacts/kernel/org-1/harness/runs/run-1/";
 			},
 			ensureKernelHarnessVersion: async (input) => {
 				ensured.push(input);
@@ -1078,8 +1078,7 @@ describe("runKernelTurnWork progress seam", () => {
 				eventIds: ["event:message.completed", "event:run.completed"],
 				rationaleRecordIds: [],
 				artifactIds: [],
-				bundleUri:
-					"r2://tedix-tedi-production/kernel/org-1/harness/runs/run-1/",
+				bundleUri: "r2://test-tedi-artifacts/kernel/org-1/harness/runs/run-1/",
 				summary: "stamped.",
 				outcome: "success",
 				metadata: expect.objectContaining({

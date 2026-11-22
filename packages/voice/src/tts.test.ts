@@ -130,7 +130,7 @@ async function run() {
 		globalThis.fetch = (async (url: string) => {
 			assert.ok(
 				String(url).includes(
-					"/tedix-llm-production/azure-openai/myresource/gpt-4o-mini-tts/audio/speech",
+					"/test-llm-gateway/azure-openai/myresource/gpt-4o-mini-tts/audio/speech",
 				),
 				"Azure deployment speech URL",
 			);
@@ -140,7 +140,7 @@ async function run() {
 			AI: stubAi(AUDIO),
 			AZURE_OPENAI_RESOURCE: "myresource",
 			AI_GATEWAY_ACCOUNT_ID: "acct",
-			AI_GATEWAY_LLM_ID: "tedix-llm-production",
+			AI_GATEWAY_LLM_ID: "test-llm-gateway",
 			CF_AI_GATEWAY_TOKEN: "token",
 		};
 		const result = await synthesizeSpeech(env, { text: "speak this" });

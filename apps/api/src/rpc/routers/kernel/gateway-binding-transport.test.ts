@@ -60,7 +60,7 @@ function bindingEnv(extra: Partial<WorkersAiTransportEnv> = {}) {
 	const env: WorkersAiTransportEnv = {
 		AI: { fetch: bindingFetch, run: vi.fn() } as unknown as Ai,
 		AI_GATEWAY_ACCOUNT_ID: "acct123",
-		AI_GATEWAY_LLM_ID: "tedix-llm-production",
+		AI_GATEWAY_LLM_ID: "test-llm-gateway",
 		AI_GATEWAY_BINDING_PROVIDERS: "workers-ai,azure-openai",
 		...extra,
 	};
@@ -94,7 +94,7 @@ describe("Workers AI over the AI Gateway binding transport", () => {
 		expect(bindingFetch).toHaveBeenCalledTimes(1);
 		const [url, init] = bindingFetch.mock.calls[0] as [string, RequestInit];
 		expect(url).toBe(
-			"https://workers-binding.ai/ai-gateway/gateways/tedix-llm-production/workers-ai/v1/chat/completions",
+			"https://workers-binding.ai/ai-gateway/gateways/test-llm-gateway/workers-ai/v1/chat/completions",
 		);
 		// Provider-native passthrough: the chat body, not a universal-endpoint envelope.
 		expect(JSON.parse(init.body as string)).toEqual({
@@ -129,7 +129,7 @@ describe("Workers AI over the AI Gateway binding transport", () => {
 			expect(globalFetch).toHaveBeenCalledTimes(1);
 			const [url, init] = globalFetch.mock.calls[0] as [string, RequestInit];
 			expect(url).toBe(
-				"https://gateway.ai.cloudflare.com/v1/acct123/tedix-llm-production/workers-ai/v1/chat/completions",
+				"https://gateway.ai.cloudflare.com/v1/acct123/test-llm-gateway/workers-ai/v1/chat/completions",
 			);
 			const headers = init.headers as Record<string, string>;
 			expect(headers["cf-aig-authorization"]).toBe("Bearer aig-token");
@@ -144,7 +144,7 @@ describe("Workers AI over the AI Gateway binding transport", () => {
 		const env: WorkersAiTransportEnv = {
 			AI: { run } as unknown as Ai,
 			AI_GATEWAY_ACCOUNT_ID: "acct123",
-			AI_GATEWAY_LLM_ID: "tedix-llm-production",
+			AI_GATEWAY_LLM_ID: "test-llm-gateway",
 		};
 		expect(usingWorkersAiGateway(env)).toBe(false);
 		const result = await callWorkersAi(
@@ -167,7 +167,7 @@ describe("Azure Responses over the AI Gateway binding transport", () => {
 			AZURE_OPENAI_RESOURCE: "tedix-resource",
 			AZURE_CHAT_DEPLOYMENT: "gpt-5.6-luna",
 			AI_GATEWAY_ACCOUNT_ID: "acct123",
-			AI_GATEWAY_LLM_ID: "tedix-llm-production",
+			AI_GATEWAY_LLM_ID: "test-llm-gateway",
 			AI: { fetch: bindingFetch } as unknown as Ai,
 			AI_GATEWAY_BINDING_PROVIDERS: "workers-ai,azure-openai",
 			...extra,
@@ -187,7 +187,7 @@ describe("Azure Responses over the AI Gateway binding transport", () => {
 		expect(bindingFetch).toHaveBeenCalledTimes(1);
 		const [url, init] = bindingFetch.mock.calls[0] as [string, RequestInit];
 		expect(url).toBe(
-			"https://workers-binding.ai/ai-gateway/gateways/tedix-llm-production/azure-openai/tedix-resource/openai/v1/responses",
+			"https://workers-binding.ai/ai-gateway/gateways/test-llm-gateway/azure-openai/tedix-resource/openai/v1/responses",
 		);
 		expect(init.body).toBe(body);
 		expect(new Headers(init.headers).get("cf-aig-authorization")).toBe(
@@ -211,7 +211,7 @@ describe("Azure Responses over the AI Gateway binding transport", () => {
 			expect(bindingFetch).not.toHaveBeenCalled();
 			const [url, init] = globalFetch.mock.calls[0] as [string, RequestInit];
 			expect(url).toBe(
-				"https://gateway.ai.cloudflare.com/v1/acct123/tedix-llm-production/azure-openai/tedix-resource/openai/v1/responses",
+				"https://gateway.ai.cloudflare.com/v1/acct123/test-llm-gateway/azure-openai/tedix-resource/openai/v1/responses",
 			);
 			expect(new Headers(init.headers).get("cf-aig-authorization")).toBe(
 				"Bearer aig-token",
@@ -275,7 +275,7 @@ describe("operation-scoped attempt observations", () => {
 					AZURE_OPENAI_RESOURCE: "resource",
 					AZURE_CHAT_DEPLOYMENT: "deployment",
 					AI_GATEWAY_ACCOUNT_ID: "acct123",
-					AI_GATEWAY_LLM_ID: "tedix-llm-production",
+					AI_GATEWAY_LLM_ID: "test-llm-gateway",
 					CF_AI_GATEWAY_TOKEN: "aig-token",
 				} as KernelEnv,
 				undefined,

@@ -28,6 +28,10 @@
 	},
 	"vars": {
 		"ENVIRONMENT": "development",
+		"TEDI_R2_BUCKET_NAME": "configured-via-private-overlay",
+		"SKILL_ARTIFACTS_BUCKET_NAME": "configured-via-private-overlay",
+		"R2_BUCKET_NAME": "configured-via-private-overlay",
+		"CONTENT_CMS_BUCKET_NAME": "configured-via-private-overlay",
 		"GIT_SHA": "configured-via-private-overlay",
 		"RELEASE_REPOSITORY": "configured-via-private-overlay",
 		"SHIP_RUN_ID": "configured-via-private-overlay",
@@ -480,6 +484,10 @@
 			},
 			"vars": {
 				"ENVIRONMENT": "production",
+				"TEDI_R2_BUCKET_NAME": "configured-via-private-overlay",
+				"SKILL_ARTIFACTS_BUCKET_NAME": "configured-via-private-overlay",
+				"R2_BUCKET_NAME": "configured-via-private-overlay",
+				"CONTENT_CMS_BUCKET_NAME": "configured-via-private-overlay",
 				"GIT_SHA": "configured-via-private-overlay",
 				"RELEASE_REPOSITORY": "configured-via-private-overlay",
 				"SHIP_RUN_ID": "configured-via-private-overlay",

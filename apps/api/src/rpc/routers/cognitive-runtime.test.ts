@@ -268,6 +268,7 @@ function createContext(db: ReturnType<typeof createRuntimeDb>): BaseContext {
 			API_URL: "https://api.tedix.test",
 			ENVIRONMENT: "test",
 			TEDI_DEV_BASE_URL: "https://runtime.tedix.test",
+			TEDI_R2_BUCKET_NAME: "test-tedi-artifacts",
 			TEDIX_BILLING_SETTLEMENT_MODE: "external",
 		} as CloudflareEnv,
 		headers: new Headers(),
@@ -3692,7 +3693,7 @@ describe("cognitive runtime router invariants", () => {
 				id: "foreign-r2",
 				kind: "document",
 				name: "foreign.md",
-				uri: "r2://tedix-tedi-production/other-tedi/artifacts/secret.md",
+				uri: "r2://test-tedi-artifacts/other-tedi/artifacts/secret.md",
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
@@ -3703,7 +3704,7 @@ describe("cognitive runtime router invariants", () => {
 				tediId: TEDI_ID,
 				kind: "document",
 				name: "unsafe.md",
-				uri: "r2://skill-artifacts-production/another-tenant/secret.md",
+				uri: "r2://test-skill-artifacts/another-tenant/secret.md",
 				createdAt: "2026-09-22T00:00:00.000Z",
 			},
 			{
@@ -3721,7 +3722,7 @@ describe("cognitive runtime router invariants", () => {
 				tediId: TEDI_ID,
 				kind: "document",
 				name: "protected.md",
-				uri: `r2://tedix-tedi-production/${TEDI_ID}/artifacts/protected.md`,
+				uri: `r2://test-tedi-artifacts/${TEDI_ID}/artifacts/protected.md`,
 				accessClassification: "source_derived",
 				contentDigest: "a".repeat(64),
 				producerExecutionId: "execution-1",
@@ -3767,7 +3768,7 @@ describe("cognitive runtime router invariants", () => {
 				tediId: "peer-tedi",
 				kind: "log",
 				name: "peer-proof.json",
-				uri: "r2://tedix-tedi-production/peer-tedi/artifacts/deliverable/peer-proof.json",
+				uri: "r2://test-tedi-artifacts/peer-tedi/artifacts/deliverable/peer-proof.json",
 				createdAt: "2026-08-31T00:00:00.000Z",
 			},
 			{
@@ -3776,7 +3777,7 @@ describe("cognitive runtime router invariants", () => {
 				tediId: "foreign-tedi",
 				kind: "log",
 				name: "foreign-proof.json",
-				uri: "r2://tedix-tedi-production/foreign-tedi/artifacts/deliverable/foreign-proof.json",
+				uri: "r2://test-tedi-artifacts/foreign-tedi/artifacts/deliverable/foreign-proof.json",
 				createdAt: "2026-08-31T00:00:00.000Z",
 			},
 		]);
@@ -4457,6 +4458,7 @@ function createInboxWakeContext(
 		env: {
 			ENVIRONMENT: "test",
 			TEDI_DEV_BASE_URL: "https://runtime.tedix.test",
+			TEDI_R2_BUCKET_NAME: "test-tedi-artifacts",
 			KERNEL: kernelNs,
 		} as unknown as CloudflareEnv,
 		headers: new Headers(),

@@ -54,7 +54,7 @@ function insertCost(
 				provider, session_type, source, input_tokens, output_tokens,
 				cache_read_tokens, cache_write_tokens, total_tokens,
 				estimated_cost_usd, session_count, success, cached, data_quality
-			) VALUES (?, 'tedi-1', 'org-1', ?, 'tedix-llm-production', ?, ?,
+			) VALUES (?, 'tedi-1', 'org-1', ?, 'test-llm-gateway', ?, ?,
 				'azure-openai', 'tedi', 'ai-gateway-log', 100, 0, 0, 0, 100,
 				?, 1, 1, 0, ?)`,
 		)

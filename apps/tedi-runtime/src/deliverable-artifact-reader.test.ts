@@ -7,13 +7,14 @@ import type {
 } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type { HttpPlatformClient } from "./brain/platform-client";
 import { recordDeliverableArtifact } from "./artifact-recorder";
-import { TEDIX_ARTIFACTS_R2_BUCKET_NAME } from "./artifacts-contract";
 import {
 	createDeliverableArtifactTools,
 	readDeliverableArtifact,
 	readRecordedArtifact,
 	type DeliverableArtifactReaderDependencies,
 } from "./deliverable-artifact-reader";
+
+const TEDIX_ARTIFACTS_R2_BUCKET_NAME = "test-tedi-artifacts";
 
 const tediId = "5eed0043-0000-4000-8000-000000000043";
 const artifactId = "run-a:artifact:v2:deliverable:acme-commercial-briefing.md";
@@ -31,7 +32,7 @@ const artifact: TediArtifact = {
 	kind: "document",
 	name: "deliverable/acme-commercial-briefing.md",
 	mimeType: "text/markdown; charset=utf-8",
-	uri: `r2://tedix-tedi-production/${tediId}/artifacts/deliverable/acme-commercial-briefing.md`,
+	uri: `r2://test-tedi-artifacts/${tediId}/artifacts/deliverable/acme-commercial-briefing.md`,
 	sizeBytes: new TextEncoder().encode(content).byteLength,
 	createdAt: "2026-08-08T00:00:00.000Z",
 };
@@ -50,6 +51,7 @@ function dependencies(
 		"",
 	);
 	return {
+		bucketName: "test-tedi-artifacts",
 		bucket: {
 			get: async (key: string) => {
 				assert.equal(key, expectedKey);
@@ -123,6 +125,7 @@ assert.equal(writtenInRunA.artifactId, artifactId);
 
 const recovered = await readDeliverableArtifact(
 	{
+		bucketName: "test-tedi-artifacts",
 		bucket: sharedBucket,
 		ensureIdentity: async () => undefined,
 		getTediId: () => tediId,
@@ -206,7 +209,7 @@ const wrongTree = await readDeliverableArtifact(
 	dependencies({
 		artifact: {
 			...artifact,
-			uri: `r2://tedix-tedi-production/${tediId}/objects/deliverable/acme-commercial-briefing.md`,
+			uri: `r2://test-tedi-artifacts/${tediId}/objects/deliverable/acme-commercial-briefing.md`,
 		},
 	}),
 	{ artifactId },
@@ -237,6 +240,7 @@ const listCalls: Array<Record<string, unknown>> = [];
 const getCalls: string[] = [];
 const bucketReads: string[] = [];
 const recordedDeps: DeliverableArtifactReaderDependencies = {
+	bucketName: "test-tedi-artifacts",
 	bucket: {
 		get: async (key: string) => {
 			bucketReads.push(key);
@@ -371,6 +375,7 @@ assert.deepEqual(fallbackCalls, ["list", stdoutArtifact.id, "list"]);
 	} as unknown as R2Bucket;
 	const listTool = createDeliverableArtifactTools({
 		...dependencies(),
+		bucketName: "test-tedi-artifacts",
 		bucket: listBucket,
 	}).deliverable_list as unknown as {
 		inputSchema: z.ZodType;

@@ -187,7 +187,7 @@ describe("transcribeAudioAttachment — Azure provider", () => {
 			AZURE_OPENAI_STT_DEPLOYMENT: "gpt-transcribe",
 			AZURE_OPENAI_STT_API_VERSION: "2025-01-01-preview",
 			AI_GATEWAY_ACCOUNT_ID: "acct123",
-			AI_GATEWAY_LLM_ID: "tedix-llm-production",
+			AI_GATEWAY_LLM_ID: "test-llm-gateway",
 			CF_AI_GATEWAY_TOKEN: "gateway-token",
 		};
 		const result = await transcribeAudioAttachment(env, audioAttachment(), {
@@ -196,7 +196,7 @@ describe("transcribeAudioAttachment — Azure provider", () => {
 		expect(result).toEqual({ text: "azure transcript", provider: "azure" });
 		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 		expect(url).toBe(
-			"https://gateway.ai.cloudflare.com/v1/acct123/tedix-llm-production/azure-openai/myresource/gpt-transcribe/audio/transcriptions?api-version=2025-01-01-preview",
+			"https://gateway.ai.cloudflare.com/v1/acct123/test-llm-gateway/azure-openai/myresource/gpt-transcribe/audio/transcriptions?api-version=2025-01-01-preview",
 		);
 		expect((init.headers as Record<string, string>)["api-key"]).toBeUndefined();
 		expect(

@@ -32,7 +32,7 @@ describe("Cloudflare credential health", () => {
 	it("classifies account-path and token failures without retaining raw errors", () => {
 		const probe = classifyCloudflareCredentialProbe([
 			result(
-				"tedix-llm-production",
+				"test-llm-gateway",
 				"7003: route missing for account secret-value-that-must-not-survive",
 			),
 			result("default", "9106: Authentication failed token=also-secret"),
@@ -42,7 +42,7 @@ describe("Cloudflare credential health", () => {
 			finding: {
 				workerName: "tedix-api",
 				bindingNames: ["CF_ACCOUNT_ID", "CF_AI_GATEWAY_TOKEN"],
-				gatewayIds: ["default", "tedix-llm-production"],
+				gatewayIds: ["default", "test-llm-gateway"],
 				remediationUrl: CLOUDFLARE_CREDENTIAL_REMEDIATION_URL,
 			},
 		});
@@ -54,7 +54,7 @@ describe("Cloudflare credential health", () => {
 	it("creates one finding, refreshes its last-seen time, then resolves after repair", async () => {
 		const db = fixture();
 		const failure = [
-			result("tedix-llm-production", "7000: no route for that account"),
+			result("test-llm-gateway", "7000: no route for that account"),
 			result("default", "7003: route missing"),
 		];
 		const firstSeen = "2026-08-09T05:00:00.000Z";
@@ -83,7 +83,7 @@ describe("Cloudflare credential health", () => {
 			reconcileCloudflareCredentialFinding(
 				db,
 				alertEnv,
-				[result("tedix-llm-production", null), result("default", null)],
+				[result("test-llm-gateway", null), result("default", null)],
 				repairedAt,
 			),
 		).resolves.toMatchObject({ lifecycle: "resolved" });

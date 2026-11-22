@@ -49,7 +49,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 		});
@@ -59,14 +59,14 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 			{ websocket: true },
 		);
 		expect(calls).toHaveLength(1);
-		expect(gatewayOf(calls[0]).id).toBe("tedix-llm-production");
+		expect(gatewayOf(calls[0]).id).toBe("test-llm-gateway");
 	});
 
 	it("preserves the Flux-required websocket:true option", async () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 		});
@@ -78,7 +78,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 		});
@@ -97,7 +97,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => ({
 				organizationId: "org-123",
@@ -114,7 +114,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 		});
@@ -129,7 +129,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		let active: { organizationId: string } | null = null;
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => active,
 		});
@@ -150,7 +150,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		const events: unknown[] = [];
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 			afterRun: (event) => events.push(event),
@@ -171,7 +171,7 @@ describe("createVoiceGatewayAi — voice-stt (Flux)", () => {
 		const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 			afterRun: () => {
@@ -201,7 +201,7 @@ describe("createVoiceGatewayAi — voice-tts", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-tts",
 			attribution: () => ({ organizationId: "org-123" }),
 		});
@@ -220,7 +220,7 @@ describe("createVoiceGatewayAi — voice-tts", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-tts",
 			attribution: () => null,
 		});
@@ -234,7 +234,7 @@ describe("createVoiceGatewayAi — option and metadata merging", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => ({ organizationId: "org-123" }),
 		});
@@ -267,7 +267,7 @@ describe("createVoiceGatewayAi — option and metadata merging", () => {
 		const { ai, calls } = recordingAi();
 		const runner = createVoiceGatewayAi({
 			ai: () => ai,
-			gatewayId: () => "tedix-llm-production",
+			gatewayId: () => "test-llm-gateway",
 			channel: "voice-stt",
 			attribution: () => null,
 		});
@@ -276,7 +276,7 @@ describe("createVoiceGatewayAi — option and metadata merging", () => {
 			{},
 			{ websocket: true, gateway: { id: "some-other-gateway" } },
 		);
-		expect(gatewayOf(calls[0]).id).toBe("tedix-llm-production");
+		expect(gatewayOf(calls[0]).id).toBe("test-llm-gateway");
 	});
 });
 

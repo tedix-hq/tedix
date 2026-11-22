@@ -604,8 +604,8 @@ export type NewTediUsageEvent = typeof tediUsageEvents.$inferInsert;
 
 /**
  * Per-call cost ledger — one row per AI Gateway log entry. Ingested directly
- * from the Cloudflare AI Gateway Logs REST API (tedix-llm-production,
- * tedix-voice-production) by `apps/api/src/jobs/gateway-cost-ingestion.ts`.
+ * from the Cloudflare AI Gateway Logs REST API (the configured LLM gateway,
+ * the configured voice gateway) by `apps/api/src/jobs/gateway-cost-ingestion.ts`.
  * Powers the get_tedi_usage/get_org_usage/cost-drilldown/billing-ledger APIs.
  */
 export const tediCallCosts = sqliteTable(
@@ -634,7 +634,7 @@ export const tediCallCosts = sqliteTable(
 
 		// Stable identity of the source AI Gateway log row — the dedupe key.
 		gatewayLogId: text("gateway_log_id").notNull(),
-		// Which gateway the row was ingested from (tedix-llm-production | tedix-voice-production).
+		// Which gateway the row was ingested from (the configured LLM or voice gateway).
 		gatewayId: text("gateway_id").notNull(),
 
 		snapshotAt: text("snapshot_at").notNull(), // gateway log row's created_at

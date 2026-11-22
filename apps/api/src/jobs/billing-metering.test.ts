@@ -113,7 +113,7 @@ function call(gatewayLogId: string, billingReservationId: string | null) {
 		executionId: "execution",
 		rawReportedCostUsd: null,
 		costReason: null,
-		gatewayId: "tedix-llm-production",
+		gatewayId: "test-llm-gateway",
 		snapshotAt: "2026-07-27T12:00:00.000Z",
 		orgId: "org-1",
 		tediId: null,

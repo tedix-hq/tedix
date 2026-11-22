@@ -30,7 +30,6 @@
  */
 
 import { logTediPersistenceFailure } from "./persistence-failure-log";
-import { TEDIX_ARTIFACTS_R2_BUCKET_NAME } from "./artifacts-contract";
 import {
 	DEFAULT_TRACE_SAFETY_POLICY,
 	redactBundleFile,
@@ -312,6 +311,7 @@ export function traceBundlePrefix(tediId: string, runId: string): string {
  */
 export async function writeTraceBundle(opts: {
 	bucket: R2Bucket;
+	bucketName: string;
 	evidence: TraceBundleEvidence;
 	knownSecrets?: readonly string[];
 }): Promise<string | null> {
@@ -350,5 +350,5 @@ export async function writeTraceBundle(opts: {
 		logTediPersistenceFailure("tedi.trace.bundle_write_failed", err);
 	}
 	if (wrote === 0) return null;
-	return `r2://${TEDIX_ARTIFACTS_R2_BUCKET_NAME}/${prefix}/`;
+	return `r2://${opts.bucketName}/${prefix}/`;
 }

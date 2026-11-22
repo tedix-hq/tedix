@@ -7,7 +7,7 @@ import {
 import { isOwnedArtifactR2Uri } from "./artifact-uri-ownership";
 
 const BUNDLE = {
-	uri: "r2://tedix-tedi-production/tedi-1/artifacts/deliverable/bundle/art-1/",
+	uri: "r2://test-tedi-artifacts/tedi-1/artifacts/deliverable/bundle/art-1/",
 	metadata: { bundle: true, entrypoint: "index.html" },
 };
 
@@ -83,7 +83,7 @@ describe("resolveBundleObject", () => {
 		).toBe(true);
 		expect(
 			isOwnedArtifactR2Uri({
-				uri: "r2://tedix-tedi-production/orgs/other-org/tedis/22222222-2222-4222-8222-222222222222/workstations/coding/processes/p/terminal/app.js",
+				uri: "r2://test-tedi-artifacts/orgs/other-org/tedis/22222222-2222-4222-8222-222222222222/workstations/coding/processes/p/terminal/app.js",
 				organizationId: "org-1",
 				tediId: "tedi-1",
 			}),

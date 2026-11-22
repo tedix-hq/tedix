@@ -88,7 +88,7 @@ describe("kernel trace bundle writer", () => {
 			evidence,
 		});
 		expect(uri).toBe(
-			"r2://tedix-tedi-production/kernel/org-1/harness/runs/widget:run-1/",
+			"r2://test-tedi-artifacts/kernel/org-1/harness/runs/widget:run-1/",
 		);
 		expect(put).toHaveBeenCalledTimes(6);
 		const written = put.mock.calls.map((call) => String(call[1])).join("\n");

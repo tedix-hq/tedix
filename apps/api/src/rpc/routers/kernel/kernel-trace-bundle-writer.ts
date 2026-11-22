@@ -8,6 +8,8 @@
  * provider-reported reasoning token count inside BodyExecutionResult usage is
  * retained.
  */
+import { env } from "cloudflare:workers";
+
 import type { BodyExecutionResult } from "@tedix/api-contract/schemas/body-certification";
 import type { KernelRouteDecision } from "./route-schema";
 import type { KernelRouteTraceInput } from "./route-planner";
@@ -17,7 +19,7 @@ import {
 	traceSafetyPolicyId,
 } from "@tedix/context-core/trace-safety";
 
-export const TRACE_BUCKET_NAME = "tedix-tedi-production";
+const TRACE_BUCKET_NAME = env.TEDI_R2_BUCKET_NAME;
 export const KERNEL_TRACE_BUNDLE_FILE_NAMES = [
 	"manifest.json",
 	"prompt.json",

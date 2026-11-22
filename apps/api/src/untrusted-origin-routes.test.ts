@@ -26,7 +26,7 @@ const artifactMock = vi.hoisted(() => ({
 		sizeBytes: 0,
 		organizationId: "org-1",
 		tediId: "tedi-1",
-		uri: "r2://tedix-tedi-production/tedi-1/artifacts/art-1/",
+		uri: "r2://test-tedi-artifacts/tedi-1/artifacts/art-1/",
 		mimeType: "text/html; charset=utf-8",
 		metadata: { bundle: true, entrypoint: "index.html" },
 		accessClassification: null as
@@ -251,7 +251,7 @@ describe("configured — trusted-origin byte routes bounce to the boundary", () 
 		const original = artifactMock.current;
 		artifactMock.current = {
 			...original,
-			uri: "r2://tedix-tedi-production/other-tedi/artifacts/secret.html",
+			uri: "r2://test-tedi-artifacts/other-tedi/artifacts/secret.html",
 		};
 		const get = vi.fn(async () => ({ body: "secret", size: 6 }));
 		try {
@@ -432,7 +432,7 @@ describe("reviewed private-child v2 byte boundary", () => {
 		).join("");
 		artifactMock.current = {
 			...original,
-			uri: "r2://tedix-tedi-production/tedi-1/artifacts/redacted/child.txt",
+			uri: "r2://test-tedi-artifacts/tedi-1/artifacts/redacted/child.txt",
 			mimeType: "text/plain",
 			metadata: { bundle: false, entrypoint: "" },
 			accessClassification: "runtime_private",
@@ -577,7 +577,7 @@ describe("reviewed private-child v2 byte boundary", () => {
 				artifactMock.current.mimeType = "application/pdf";
 			if (failure === "unowned")
 				artifactMock.current.uri =
-					"r2://tedix-tedi-production/other/artifacts/file.txt";
+					"r2://test-tedi-artifacts/other/artifacts/file.txt";
 			if (failure === "oversized") head.mockResolvedValue({ size: 51201 });
 			expect((await call(signed.url, env())).status).toBe(404);
 		},

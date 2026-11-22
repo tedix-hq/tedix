@@ -40,6 +40,7 @@ const evidence: TraceBundleEvidence = {
 
 try {
 	const failedBundle = await writeTraceBundle({
+		bucketName: "test-tedi-artifacts",
 		bucket: {
 			put: async () => {
 				throw thrown;
@@ -56,6 +57,7 @@ try {
 		},
 	});
 	const assembled = await writeTraceBundle({
+		bucketName: "test-tedi-artifacts",
 		bucket: {
 			put: async () => {
 				assert.fail("assembly failure must not write R2");

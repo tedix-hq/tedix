@@ -63,6 +63,10 @@ export class WorkflowEntrypoint {
 const outputBodies = new Map<string, ArrayBuffer>();
 const outputBodyTypes = new Map<string, string | undefined>();
 export const env = {
+	TEDI_R2_BUCKET_NAME: "test-tedi-artifacts",
+	SKILL_ARTIFACTS_BUCKET_NAME: "test-skill-artifacts",
+	R2_BUCKET_NAME: "test-assets",
+	CONTENT_CMS_BUCKET_NAME: "content-cms",
 	R2_BUCKET: {
 		async put(
 			key: string,

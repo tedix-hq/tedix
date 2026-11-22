@@ -39,7 +39,7 @@ function charge(
 		model: "openai/gpt-6.1-sol",
 		occurredAt: "2026-11-18T10:00:00.000Z",
 		providerCostMicros: 1_000_000,
-		metadata: { gatewayId: "tedix-llm-production" },
+		metadata: { gatewayId: "test-llm-gateway" },
 		...patch,
 	} as typeof billingUsageCharges.$inferInsert;
 }
@@ -51,7 +51,7 @@ function row(
 	return {
 		id: `rec-${seq}`,
 		day: "2026-11-18",
-		gatewayId: "tedix-llm-production",
+		gatewayId: "test-llm-gateway",
 		provider: "workers-ai",
 		model: "",
 		ledgerCostMicros: 0,
@@ -81,7 +81,7 @@ describe("gateway reconciliation queries", () => {
 		])
 			await db.insert(billingUsageCharges).values(value);
 		const rows = await getGatewayLedgerCharges(db, {
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			gatewayLogIds: [
 				...charges.map((c) => c.gatewayLogId!),
 				"missing",
@@ -94,7 +94,7 @@ describe("gateway reconciliation queries", () => {
 		).toBe(true);
 		expect(
 			await getGatewayLedgerCharges(db, {
-				gatewayId: "tedix-llm-production",
+				gatewayId: "test-llm-gateway",
 				gatewayLogIds: [],
 			}),
 		).toEqual([]);
@@ -118,7 +118,7 @@ describe("gateway reconciliation queries", () => {
 			await db.insert(billingUsageCharges).values(value);
 
 		const rows = await sumLedgerCostByProviderModel(db, {
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			sinceInclusive: "2026-11-18T00:00:00.000Z",
 			untilExclusive: "2026-11-19T00:00:00.000Z",
 		});
@@ -149,7 +149,7 @@ describe("gateway reconciliation queries", () => {
 		const db = fixture();
 		await replaceGatewayReconciliationDay(db, {
 			day: "2026-11-17",
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			rows: [row({ day: "2026-11-17", status: "drift" })],
 		});
 		// More rows than one insert chunk, to exercise chunking.
@@ -158,7 +158,7 @@ describe("gateway reconciliation queries", () => {
 		);
 		await replaceGatewayReconciliationDay(db, {
 			day: "2026-11-18",
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			rows: [row({ model: "@cf/stale" }), ...models],
 		});
 		// A re-run drops models that no longer appear and stores call coverage.
@@ -174,7 +174,7 @@ describe("gateway reconciliation queries", () => {
 		};
 		await replaceGatewayReconciliationDay(db, {
 			day: "2026-11-18",
-			gatewayId: "tedix-llm-production",
+			gatewayId: "test-llm-gateway",
 			rows: [row({ coverage }), ...models],
 		});
 		const latest = await getLatestGatewayReconciliation(db);
@@ -190,7 +190,7 @@ describe("gateway reconciliation queries", () => {
 		await expect(
 			replaceGatewayReconciliationDay(db, {
 				day: "2026-11-18",
-				gatewayId: "tedix-llm-production",
+				gatewayId: "test-llm-gateway",
 				rows: [row({ day: "2026-11-17" })],
 			}),
 		).rejects.toThrow("does not belong");

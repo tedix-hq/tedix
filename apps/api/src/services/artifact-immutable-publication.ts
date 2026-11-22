@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import {
 	claimTediArtifact,
 	getTediArtifact,
@@ -9,7 +10,7 @@ import { inspectArtifactUriOwnership } from "../lib/artifact-uri-ownership";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 export const MAX_REDACTED_ARTIFACT_BYTES = 50 * 1024;
-const BUCKET_NAME = "tedix-tedi-production";
+const BUCKET_NAME = env.TEDI_R2_BUCKET_NAME;
 
 async function readBoundedBody(
 	object: R2ObjectBody,

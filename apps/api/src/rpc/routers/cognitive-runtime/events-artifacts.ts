@@ -990,7 +990,7 @@ export const recordArtifactRoute = authed.recordArtifact
 		// Bundle mode: a multi-file deliverable (interactive dashboard / static
 		// site). Files land under a content-addressed immutable R2 prefix.
 		if (input.files && input.files.length > 0) {
-			const bucketName = "tedix-tedi-production";
+			const bucketName = context.env.TEDI_R2_BUCKET_NAME;
 			const normalizePath = (raw: string): string | null => {
 				const cleaned = raw.replace(/\\/g, "/").replace(/^\/+/, "").trim();
 				if (!cleaned || cleaned.length > 512) return null;
@@ -1084,7 +1084,7 @@ export const recordArtifactRoute = authed.recordArtifact
 				};
 			}
 		} else if (typeof input.content === "string" && input.content.length > 0) {
-			const bucketName = "tedix-tedi-production";
+			const bucketName = context.env.TEDI_R2_BUCKET_NAME;
 			// Names are presentation metadata and commonly repeat (for example every
 			// workstation job publishes evidence.json). Scope the object by the
 			// canonical artifact id so recording a later artifact cannot overwrite

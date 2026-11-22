@@ -169,7 +169,7 @@ function seedCallCost(input: {
 				provider, session_type, source, input_tokens, output_tokens,
 				cache_read_tokens, cache_write_tokens, total_tokens,
 				estimated_cost_usd, session_count, success, cached, data_quality
-			) VALUES (?, ?, ?, ?, 'tedix-llm-production', ?, 'gpt-5.6-luna',
+			) VALUES (?, ?, ?, ?, 'test-llm-gateway', ?, 'gpt-5.6-luna',
 				?, ?, 'ai-gateway-log', ?, 0, 0, 0, ?, ?, 1, 1, 0, ?)`,
 		)
 		.run(

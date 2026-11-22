@@ -465,7 +465,7 @@ describe("gateway log cursor CAS", () => {
 			expect(
 				await advanceGatewayLogIngestionCursor(db, {
 					...input,
-					gatewayId: "tedix-llm-production",
+					gatewayId: "test-llm-gateway",
 				}),
 			).toBe(true);
 			expect(

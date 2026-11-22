@@ -228,7 +228,7 @@ describe("Work Item factory contract", () => {
 		expect(
 			schema.safeParse({
 				...base,
-				uri: "r2://tedix-tedi-production/tedi-1/artifacts/deliverable/report.md",
+				uri: "r2://test-tedi-artifacts/tedi-1/artifacts/deliverable/report.md",
 			}).success,
 		).toBe(false);
 		expect(
@@ -237,7 +237,7 @@ describe("Work Item factory contract", () => {
 		expect(
 			schema.safeParse({
 				...base,
-				uri: "r2://tedix-tedi-production/tedi-1/other-evidence/report.json",
+				uri: "r2://test-tedi-artifacts/tedi-1/other-evidence/report.json",
 			}).success,
 		).toBe(true);
 	});

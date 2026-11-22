@@ -43,7 +43,7 @@ function makeInput(overrides: Record<string, unknown> = {}) {
 			records.push(input);
 			return {
 				artifact: {
-					uri: "r2://tedix-tedi-production/echo/artifacts/turn_summary/digest/body.json",
+					uri: "r2://test-tedi-artifacts/echo/artifacts/turn_summary/digest/body.json",
 				},
 			};
 		},
@@ -131,7 +131,7 @@ function makeInput(overrides: Record<string, unknown> = {}) {
 			records.push(input);
 			return {
 				artifact: {
-					uri: "r2://tedix-tedi-production/echo/artifacts/deliverable/digest/report.md",
+					uri: "r2://test-tedi-artifacts/echo/artifacts/deliverable/digest/report.md",
 				},
 			};
 		},
@@ -170,7 +170,7 @@ function makeInput(overrides: Record<string, unknown> = {}) {
 	assert.equal(records[0]?.content, "# Weekly Trend Report\n\nMovers...");
 	assert.equal(
 		result.uri,
-		"r2://tedix-tedi-production/echo/artifacts/deliverable/digest/report.md",
+		"r2://test-tedi-artifacts/echo/artifacts/deliverable/digest/report.md",
 	);
 	assert.deepEqual(records[0]?.metadata, {
 		subKind: "deliverable",
@@ -358,9 +358,9 @@ assert.equal(
 		runId: "child-run-1",
 		processId: "install-deps",
 		artifactRefs: [
-			"r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/evidence.json",
-			"r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stdout.log",
-			"r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stderr.log",
+			"r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/evidence.json",
+			"r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stdout.log",
+			"r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stderr.log",
 		],
 		evidence: {
 			eventType: "workstation.process.completed",
@@ -424,7 +424,7 @@ assert.equal(
 		exitCode: 0,
 		canceled: false,
 		timedOut: false,
-		ref: "r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/evidence.json",
+		ref: "r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/evidence.json",
 	});
 }
 
@@ -432,9 +432,9 @@ assert.equal(
 	const records: Array<Record<string, unknown>> = [];
 	const prefix = "child-run-1:artifact:workstation_process:install-deps";
 	const sourceRefs = [
-		"r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/evidence.json",
-		"r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stdout.log",
-		"r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stderr.log",
+		"r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/evidence.json",
+		"r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stdout.log",
+		"r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/coding/processes/install-deps/terminal/stderr.log",
 	];
 	const aliases = [
 		`artifact://${prefix}:evidence`,

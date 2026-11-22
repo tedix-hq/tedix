@@ -36,6 +36,7 @@ function fixture() {
 	let identityError: Error | undefined;
 	let identityCalls = 0;
 	const tools = createObjectStoreTools({
+		bucketName: "test-tedi-artifacts",
 		bucket: {
 			async list(input: R2ListOptions) {
 				calls.push(input);

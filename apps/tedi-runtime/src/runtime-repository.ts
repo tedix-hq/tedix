@@ -211,6 +211,7 @@ export const runtimeRepository = {
 			const recorded = await readRecordedArtifact(
 				{
 					bucket: this.env.TEDI_STORAGE,
+					bucketName: this.env.TEDI_STORAGE_BUCKET_NAME,
 					ensureIdentity: () => this.ensureIdentity(),
 					getTediId: () => identityValue(this.state.tediId),
 					getPlatformClient: async () =>

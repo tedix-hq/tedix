@@ -175,7 +175,7 @@ describe("kernel runtime router: child-evidence", () => {
 				runId: "child-run-workstation",
 				sizeBytes: null,
 				tediId: "tedi-cto",
-				uri: "r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/general/processes/install-deps/terminal/evidence.json",
+				uri: "r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/general/processes/install-deps/terminal/evidence.json",
 			},
 			{
 				conversationId: "cto:agent:main:main",
@@ -196,7 +196,7 @@ describe("kernel runtime router: child-evidence", () => {
 				runId: "child-run-workstation",
 				sizeBytes: null,
 				tediId: "tedi-cto",
-				uri: "r2://tedix-tedi-production/orgs/org-1/tedis/cto/workstations/general/processes/install-deps/terminal/stdout.log",
+				uri: "r2://test-tedi-artifacts/orgs/org-1/tedis/cto/workstations/general/processes/install-deps/terminal/stdout.log",
 			},
 		);
 

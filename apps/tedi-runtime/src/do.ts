@@ -2958,6 +2958,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private objectStoreAiTools(binding: ActiveTurnBinding | null): ToolSet {
 		return createObjectStoreTools({
 			bucket: this.env.TEDI_STORAGE,
+			bucketName: this.env.TEDI_STORAGE_BUCKET_NAME,
 			ensureIdentity: () => this.ensureIdentity(),
 			getTediId: () => identityValue(this.state.tediId),
 			getSlug: () => this.state.slug,

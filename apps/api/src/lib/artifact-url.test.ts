@@ -152,13 +152,13 @@ describe("artifactBucketBinding", () => {
 			R2_BUCKET: "assets" as unknown as R2Bucket,
 			CONTENT_CMS_BUCKET: "cms" as unknown as R2Bucket,
 		};
-		expect(artifactBucketBinding(env, "tedix-tedi-production")).toBe(
+		expect(artifactBucketBinding(env, "test-tedi-artifacts")).toBe(
 			env.TEDI_R2_BUCKET,
 		);
-		expect(artifactBucketBinding(env, "skill-artifacts-production")).toBe(
+		expect(artifactBucketBinding(env, "test-skill-artifacts")).toBe(
 			env.SKILL_ARTIFACTS,
 		);
-		expect(artifactBucketBinding(env, "tedix-assets")).toBe(env.R2_BUCKET);
+		expect(artifactBucketBinding(env, "test-assets")).toBe(env.R2_BUCKET);
 		expect(artifactBucketBinding(env, "content-cms")).toBe(
 			env.CONTENT_CMS_BUCKET,
 		);
@@ -192,7 +192,7 @@ describe("streamArtifactObject", () => {
 		const res = await streamArtifactObject(
 			env,
 			{
-				uri: "r2://tedix-tedi-production/5eed0024/artifacts/deliverable/report.html",
+				uri: "r2://test-tedi-artifacts/5eed0024/artifacts/deliverable/report.html",
 				mimeType: "text/html; charset=utf-8",
 			},
 			null,
@@ -215,7 +215,7 @@ describe("streamArtifactObject", () => {
 		const env = { TEDI_R2_BUCKET: fakeBucket() };
 		const csv = await streamArtifactObject(
 			env,
-			{ uri: "r2://tedix-tedi-production/x/report.csv", mimeType: "text/csv" },
+			{ uri: "r2://test-tedi-artifacts/x/report.csv", mimeType: "text/csv" },
 			null,
 		);
 		expect(csv.headers.get("X-Content-Type-Options")).toBe("nosniff");
@@ -235,7 +235,7 @@ describe("streamArtifactObject", () => {
 		]) {
 			const res = await streamArtifactObject(
 				env,
-				{ uri: "r2://tedix-tedi-production/x/evil", mimeType },
+				{ uri: "r2://test-tedi-artifacts/x/evil", mimeType },
 				null,
 			);
 			expect(
@@ -250,7 +250,7 @@ describe("streamArtifactObject", () => {
 		for (const mimeType of ["video/mp4", "audio/mpeg", "image/png"]) {
 			const res = await streamArtifactObject(
 				env,
-				{ uri: "r2://tedix-tedi-production/x/media", mimeType },
+				{ uri: "r2://test-tedi-artifacts/x/media", mimeType },
 				null,
 			);
 			expect(res.headers.get("Content-Security-Policy")).toBeNull();
@@ -262,7 +262,7 @@ describe("streamArtifactObject", () => {
 		const res = await streamArtifactObject(
 			env,
 			{
-				uri: "r2://tedix-tedi-production/5eed0024/artifacts/deliverable/clip.mp4",
+				uri: "r2://test-tedi-artifacts/5eed0024/artifacts/deliverable/clip.mp4",
 				mimeType: "video/mp4",
 			},
 			"bytes=0-9",
@@ -277,7 +277,7 @@ describe("streamArtifactObject", () => {
 		const res = await streamArtifactObject(
 			env,
 			{
-				uri: "r2://tedix-tedi-production/5eed0024/artifacts/deliverable/clip.mp4",
+				uri: "r2://test-tedi-artifacts/5eed0024/artifacts/deliverable/clip.mp4",
 				mimeType: "video/mp4",
 			},
 			"bytes=-3",

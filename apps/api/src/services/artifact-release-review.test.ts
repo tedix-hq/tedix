@@ -74,7 +74,7 @@ const parent = {
 	kind: "file" as const,
 	name: "original.txt",
 	mimeType: "text/plain; charset=utf-8",
-	uri: "r2://tedix-tedi-production/private/original",
+	uri: "r2://test-tedi-artifacts/private/original",
 	sizeBytes: 8,
 	metadata: null,
 	accessClassification: "runtime_private" as const,

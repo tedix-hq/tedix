@@ -605,7 +605,7 @@ describe("public secret scan", () => {
 				"src/graph.ts": `const uri = "${aura}";\n`,
 				"apps/api/wrangler.jsonc": `{ "vars": { "ASSETS_URL": "https://${bucket}", "GRAPH_DB_URI": "${aura}" } }\n`,
 				"src/placeholder.ts":
-					'const fallback = "https://pub-tedix-assets.r2.dev";\n',
+					'const fallback = "https://pub-fixture-assets.r2.dev";\n',
 			}),
 		).map((finding) => `${finding.path}:${finding.rule}`);
 		expect(findings.sort()).toEqual([

@@ -91,7 +91,9 @@ async function requireKernelBundle(
 	}
 	const bundleUri = bundle.bundleUri;
 	const expectedPrefix = kernelTraceBundlePrefix(organizationId, runId);
-	if (bundleUri !== `r2://tedix-tedi-production/${expectedPrefix}/`) {
+	if (
+		bundleUri !== `r2://${context.env.TEDI_R2_BUCKET_NAME}/${expectedPrefix}/`
+	) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
 			"Kernel trace bundle URI is invalid",

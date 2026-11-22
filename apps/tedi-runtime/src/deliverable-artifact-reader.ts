@@ -5,7 +5,6 @@ import {
 } from "./portable-path";
 import type { TediArtifact } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
-import { TEDIX_ARTIFACTS_R2_BUCKET_NAME } from "./artifacts-contract";
 import type { PlatformClient } from "./brain/platform-client";
 import { tool, type ToolSet } from "ai";
 import * as z from "zod";
@@ -15,6 +14,7 @@ const DELIVERABLE_STORE_PREFIX = "artifacts/";
 
 export interface DeliverableArtifactReaderDependencies {
 	bucket: R2Bucket;
+	bucketName: string;
 	ensureIdentity(): Promise<void>;
 	getTediId(): string | null | undefined;
 	getPlatformClient(): Promise<Pick<
@@ -23,9 +23,12 @@ export interface DeliverableArtifactReaderDependencies {
 	> | null>;
 }
 
-function artifactObjectKey(artifact: TediArtifact): string | null {
+function artifactObjectKey(
+	artifact: TediArtifact,
+	bucketName: string,
+): string | null {
 	if (!artifact.tediId || typeof artifact.uri !== "string") return null;
-	const uriPrefix = `r2://${TEDIX_ARTIFACTS_R2_BUCKET_NAME}/`;
+	const uriPrefix = `r2://${bucketName}/`;
 	if (!artifact.uri.startsWith(uriPrefix)) return null;
 	const key = artifact.uri.slice(uriPrefix.length);
 	const segments = key.split("/");
@@ -150,7 +153,7 @@ async function readRecordedArtifactBody(
 	artifact: TediArtifact,
 	requestedMaxChars: number | undefined,
 ): Promise<Record<string, unknown>> {
-	const key = artifactObjectKey(artifact);
+	const key = artifactObjectKey(artifact, deps.bucketName);
 	if (!key) {
 		return {
 			ok: false,

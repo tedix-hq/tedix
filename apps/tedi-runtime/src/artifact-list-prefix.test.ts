@@ -35,6 +35,7 @@ const tools = createDeliverableArtifactTools({
 	ensureIdentity: async () => {},
 	getTediId: () => "tedi-example",
 	getPlatformClient: async () => null,
+	bucketName: "test-tedi-artifacts",
 	bucket: {
 		list: async (input: R2ListOptions) => {
 			calls.push(input);

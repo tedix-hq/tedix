@@ -22,7 +22,7 @@ export type GatewayReconciliationEnv = BillingSettlementBindings &
 		CF_ACCOUNT_ID?: string;
 		/** Same AI Gateway Read credential used by log ingestion. */
 		CF_AI_GATEWAY_TOKEN?: string;
-		/** The production LLM gateway, e.g. `tedix-llm-production`. */
+		/** The deployment-configured LLM gateway. */
 		AI_GATEWAY_LLM_ID?: string;
 	};
 

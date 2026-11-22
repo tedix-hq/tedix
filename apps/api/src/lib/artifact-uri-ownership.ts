@@ -1,4 +1,6 @@
-const PRIMARY_ARTIFACT_BUCKET = "tedix-tedi-production";
+import { env } from "cloudflare:workers";
+
+const PRIMARY_ARTIFACT_BUCKET = env.TEDI_R2_BUCKET_NAME;
 const LEGACY_ARTIFACT_BUCKET_ALIAS = "tedi-storage";
 const UUID_SEGMENT =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

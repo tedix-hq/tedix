@@ -228,6 +228,7 @@ assert.equal(
 		assistantText: "ok",
 	};
 	const uri = await writeTraceBundle({
+		bucketName: "test-tedi-artifacts",
 		bucket: fakeBucket,
 		evidence: leaky,
 		knownSecrets: ["topsecretvalue"],
@@ -235,7 +236,7 @@ assert.equal(
 
 	assert.equal(
 		uri,
-		"r2://tedix-tedi-production/tedi_cto/harness/runs/tedi_cto:chat:msg-123/",
+		"r2://test-tedi-artifacts/tedi_cto/harness/runs/tedi_cto:chat:msg-123/",
 	);
 	assert.ok(puts.length >= 5, "all bundle files written");
 	// every R2 key is under the run prefix
@@ -265,6 +266,7 @@ assert.equal(
 		},
 	} as unknown as R2Bucket;
 	const uri = await writeTraceBundle({
+		bucketName: "test-tedi-artifacts",
 		bucket: failBucket,
 		evidence: baseEvidence,
 	});

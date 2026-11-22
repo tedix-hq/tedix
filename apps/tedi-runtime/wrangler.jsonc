@@ -29,6 +29,7 @@
 	},
 	"vars": {
 		"ENVIRONMENT": "development",
+		"TEDI_STORAGE_BUCKET_NAME": "configured-via-private-overlay",
 		"GIT_SHA": "configured-via-private-overlay",
 		"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
 		"CF_ACCOUNT_ID": "configured-via-private-overlay",
@@ -186,6 +187,7 @@
 			"workers_dev": false,
 			"vars": {
 				"ENVIRONMENT": "development",
+				"TEDI_STORAGE_BUCKET_NAME": "configured-via-private-overlay",
 				"GIT_SHA": "configured-via-private-overlay",
 				"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
 				"CF_ACCOUNT_ID": "configured-via-private-overlay",
@@ -349,6 +351,7 @@
 			],
 			"vars": {
 				"ENVIRONMENT": "production",
+				"TEDI_STORAGE_BUCKET_NAME": "configured-via-private-overlay",
 				"GIT_SHA": "configured-via-private-overlay",
 				"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
 				"CF_ACCOUNT_ID": "configured-via-private-overlay",

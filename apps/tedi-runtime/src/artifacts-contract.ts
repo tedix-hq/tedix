@@ -1,7 +1,6 @@
 export const TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION = "tedix-prod";
 export const TEDIX_ARTIFACTS_DEFAULT_BRANCH = "main";
 export const TEDIX_ARTIFACTS_WRITE_TOKEN_TTL_SECONDS = 3_600;
-export const TEDIX_ARTIFACTS_R2_BUCKET_NAME = "tedix-tedi-production";
 export function artifactsRepoNameForTediId(tediId: string): string {
 	return tediId;
 }
