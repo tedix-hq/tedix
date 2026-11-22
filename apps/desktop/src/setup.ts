@@ -2,13 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
-import {
-	type CliState,
-	manageCli,
-	readCli,
-	restartSupervisor,
-	restoreCli,
-} from "./cli";
+import { type CliState, manageCli, readCli, restoreCli } from "./cli";
 import type { LocalModelPreferences } from "./local-model-client";
 import { log } from "./log";
 import { runnersPath } from "./runners-file";
@@ -75,6 +69,8 @@ interface Tool {
 	signInWorks?: (command: string) => Promise<boolean>;
 	signInSay?: string;
 	say?: string;
+	/** The tool's own sign-in to its account, through the browser. */
+	accountSignIn?: string[];
 }
 const home = homedir();
 /**
@@ -103,6 +99,7 @@ const TOOLS: Tool[] = [
 			return /Status:.*Connected/i.test(output) ? "signed-in" : "unknown";
 		},
 		signIn: ["mcp", "login", "plugin:tedix:tedix"],
+		accountSignIn: ["auth", "login"],
 		signInWorks: async (command) =>
 			(await run(command, ["mcp", "login", "--help"], { timeoutMs: 20_000 }))
 				.ok,
@@ -136,6 +133,7 @@ const TOOLS: Tool[] = [
 			}
 		},
 		signIn: ["mcp", "login", "tedix", ...CODEX_TEDIX],
+		accountSignIn: ["login"],
 		signInSay: "Codex asks you to sign in to Tedix the first time you use it.",
 	},
 	{
@@ -159,6 +157,7 @@ const TOOLS: Tool[] = [
 			}
 		},
 		signIn: ["mcp", "login", "tedix"],
+		accountSignIn: ["auth", "login"],
 		say: "Devin does not say whether it is signed in to Tedix. Sign in once; if Tedix already answers in Devin, you are done.",
 	},
 	{
@@ -212,6 +211,8 @@ export interface ToolRow {
 	canAdd: boolean;
 	/** The tool has a command that signs it in to Tedix through the browser. */
 	canSignIn: boolean;
+	/** The app can sign the tool in to its own account. */
+	canSignInAccount: boolean;
 	/** One sentence on what is wrong or what happens next. */
 	note: string;
 }
@@ -236,6 +237,17 @@ export interface StepRun {
 	address?: string;
 }
 
+export interface SessionProject {
+	id: string;
+	name: string;
+	/** When the project last changed, for sorting; ISO time or empty. */
+	updatedAt: string;
+	on: Record<string, boolean>;
+}
+
+/** The coding tools whose sessions can show in Tedix, by executor id. */
+export const SESSION_TOOLS = ["claude-code", "codex", "devin", "opencode"];
+
 export interface SetupState {
 	cli: CliState;
 	/** Tedix in the app's window. */
@@ -252,7 +264,10 @@ export interface SetupState {
 	reachDetail: string;
 	organization: string;
 	tools: ToolRow[];
-	sessionProjects: { id: string; name: string; enabled: boolean }[];
+	/** Tedix projects; `on` says, per coding tool, whether its sessions show there. */
+	sessionProjects: SessionProject[];
+	/** True once session reporting was ever chosen on this Mac. */
+	sessionsChosen: boolean;
 	repo: string;
 	steps: Record<string, StepRun>;
 	/** True while the command-line tool or the sign-in is still to do. */
@@ -263,6 +278,7 @@ interface Settings {
 	host?: string;
 	repo?: string;
 	localModels?: LocalModelPreferences;
+	appearance?: "system" | "light" | "dark";
 }
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 export function settings(): Settings {
@@ -289,6 +305,7 @@ let signedIn = false;
 let organizations: string[] = [];
 let tenant = "";
 let sessionProjects: SetupState["sessionProjects"] = [];
+let sessionsChosen = false;
 let sessionOrganization = "";
 let reach: Reach = "unchecked";
 let reachDetail = "";
@@ -505,6 +522,7 @@ function toolRows(): ToolRow[] {
 			hookTrust: "unknown",
 			canAdd: false,
 			canSignIn: false,
+			canSignInAccount: false,
 			note: "",
 		};
 		if (found === "absent") return row;
@@ -537,13 +555,11 @@ function toolRows(): ToolRow[] {
 				? Date.now() - Date.parse(host.readVerifiedAt)
 				: NaN;
 		row.readVerified = readAge >= 0 && readAge < 24 * 60 * 60_000;
+		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
 			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
 				? host.hookTrust
 				: "unknown";
-		if (row.account === "signed-out") {
-			row.note = `Not signed in to ${tool.name}; run ${tool.id === "codex" ? "codex login" : tool.id === "claude" ? "claude auth login" : "devin auth login"}, then choose Check again.`;
-		}
 		if (host?.problem && !facts.hasTedix) {
 			row.note = `${tool.name} did not answer: ${String(host.problem).split("\n")[0]!.slice(0, 200)}`;
 			return row;
@@ -591,6 +607,7 @@ export function setupState(): SetupState {
 		organization: organization(),
 		tools,
 		sessionProjects,
+		sessionsChosen,
 		repo: settings().repo ?? "",
 		steps,
 		open: cli.kind === "missing" || !signedIn,
@@ -703,6 +720,7 @@ const ACTIONS = [
 	"choose-folder",
 	"sessions-on",
 	"sessions-off",
+	"account-sign-in",
 ] as const;
 export type SetupAction = (typeof ACTIONS)[number];
 
@@ -710,6 +728,8 @@ export type SetupAction = (typeof ACTIONS)[number];
 export interface SetupHost {
 	chooseFolder: () => Promise<string | undefined>;
 	appSignIn: () => Promise<void>;
+	/** Starts this Mac's runners when none run; leaves running ones alone. */
+	startRunnersIfStopped: () => Promise<void>;
 }
 
 async function readSessionProjects(): Promise<void> {
@@ -730,7 +750,7 @@ async function readSessionProjects(): Promise<void> {
 			for (let offset = 0; ; offset += 100) {
 				const r = await projects.list_projects({limit: 100, offset});
 				if (r?.ok === false || !Array.isArray(r?.data)) throw new Error("Could not list projects");
-				listed.push(...r.data.filter(p => !p.archivedAt && p.status !== "archived" && p.status !== "done").map(p => ({id: p.id, name: p.name})));
+				listed.push(...r.data.filter(p => !p.archivedAt && p.status !== "archived" && p.status !== "done").map(p => ({id: p.id, name: p.name, updatedAt: String(p.updatedAt ?? p.createdAt ?? "")})));
 				if (!r.pagination?.hasMore || !r.data.length) break;
 			}
 			return {projects: listed};
@@ -756,27 +776,43 @@ async function readSessionProjects(): Promise<void> {
 			),
 		]);
 		const projects = (
-			JSON.parse(catalog) as { projects: { id: string; name: string }[] }
+			JSON.parse(catalog) as {
+				projects: { id: string; name: string; updatedAt: string }[];
+			}
 		).projects;
 		const choices = (
 			JSON.parse(saved) as {
-				projects: { projectId: string; enabled: boolean }[];
+				projects: { projectId: string; enabled: boolean; harness?: string }[];
 			}
 		).projects;
 		if (!Array.isArray(projects) || !Array.isArray(choices))
 			throw new Error(
 				"The command-line tool could not read session reporting. Update it and check again.",
 			);
-		if (org === organization())
+		// A tool's own choice wins over the choice for every tool (the CLI's rule).
+		const on = (projectId: string, harness: string) => {
+			const rows = choices.filter((choice) => choice.projectId === projectId);
+			const own = rows.find((choice) => choice.harness === harness);
+			return own
+				? own.enabled
+				: rows.some((choice) => !choice.harness && choice.enabled);
+		};
+		if (org === organization()) {
+			sessionsChosen = choices.length > 0;
 			sessionProjects = projects
 				.map((project) => ({
 					...project,
-					enabled: choices.some(
-						(choice) => choice.projectId === project.id && choice.enabled,
+					on: Object.fromEntries(
+						SESSION_TOOLS.map((harness) => [harness, on(project.id, harness)]),
 					),
 				}))
-				.sort((a, b) => a.name.localeCompare(b.name));
-		return "Choose which projects can show your sessions.";
+				.sort(
+					(a, b) =>
+						b.updatedAt.localeCompare(a.updatedAt) ||
+						a.name.localeCompare(b.name),
+				);
+		}
+		return "";
 	});
 }
 
@@ -784,7 +820,7 @@ async function readSessionProjects(): Promise<void> {
 export async function setupAction(
 	action: SetupAction,
 	id: string,
-	{ chooseFolder, appSignIn: signInToApp }: SetupHost,
+	{ chooseFolder, appSignIn: signInToApp, startRunnersIfStopped }: SetupHost,
 ): Promise<void> {
 	if (!ACTIONS.includes(action)) return;
 	const tool = TOOLS.find((item) => item.id === id);
@@ -821,34 +857,81 @@ export async function setupAction(
 		return refreshSetup(false);
 	}
 	if (action === "sessions-on" || action === "sessions-off") {
+		// `id` is "<tool or *>|<project ids>", and "|<project ids>" to first
+		// switch those on for every tool (the default nobody chose yet).
+		const [who = "", list = "", first = ""] = id.split("|");
+		const defaults = sessionProjects.filter((project) =>
+			first.split(",").includes(project.id),
+		);
 		const org = organization();
-		const project = sessionProjects.find((project) => project.id === id);
-		if (!project || !signedIn || org !== sessionOrganization) return;
-		await step(`sessions:${id}`, async () => {
-			await must(
-				tedix(
-					[
-						"--workspace",
-						"connect",
-						"--organization",
-						org,
-						"setup",
-						"agents",
-						"context",
-						"session-reporting",
-						"--state",
-						action === "sessions-on" ? "on" : "off",
-						"--project",
-						id,
-						"--json",
-					],
-					{ timeoutMs: 20_000 },
-				),
-			);
-			if (org === organization()) project.enabled = action === "sessions-on";
-			return project.enabled
-				? "Session reporting is on. Start a new session with the Tedix plugin enabled; in Codex, trust its hooks in /hooks."
-				: "Session reporting is off for this project.";
+		const tools = who === "*" ? SESSION_TOOLS : [who];
+		const projects = sessionProjects.filter((project) =>
+			list.split(",").includes(project.id),
+		);
+		if (
+			!projects.length ||
+			!tools.every((tool) => SESSION_TOOLS.includes(tool)) ||
+			!signedIn ||
+			org !== sessionOrganization
+		)
+			return;
+		const on = action === "sessions-on";
+		await step(`sessions:${who}`, async () => {
+			if (defaults.length)
+				for (const tool of SESSION_TOOLS) {
+					await must(
+						tedix(
+							[
+								"--workspace",
+								"connect",
+								"--organization",
+								org,
+								"setup",
+								"agents",
+								"context",
+								"session-reporting",
+								"--state",
+								"on",
+								"--project",
+								defaults.map((project) => project.id).join(","),
+								"--harness",
+								tool,
+								"--json",
+							],
+							{ timeoutMs: 30_000 },
+						),
+					);
+					for (const project of defaults) project.on[tool] = true;
+				}
+			for (const tool of tools)
+				await must(
+					tedix(
+						[
+							"--workspace",
+							"connect",
+							"--organization",
+							org,
+							"setup",
+							"agents",
+							"context",
+							"session-reporting",
+							"--state",
+							on ? "on" : "off",
+							"--project",
+							projects.map((project) => project.id).join(","),
+							"--harness",
+							tool,
+							"--json",
+						],
+						{ timeoutMs: 30_000 },
+					),
+				);
+			if (org === organization()) {
+				sessionsChosen = true;
+				for (const project of projects)
+					for (const tool of tools) project.on[tool] = on;
+			}
+			return "";
 		});
 		return;
 	}
@@ -884,6 +967,29 @@ export async function setupAction(
 			throw new Error(
 				"Hook trust is still waiting; open /hooks in Codex and trust the Tedix hooks, then choose Check again.",
 			);
+		});
+		return readAgentStatus();
+	}
+	if (action === "account-sign-in" && tool.accountSignIn && command) {
+		await step(`account:${tool.id}`, async (say) => {
+			// Claude Code wants a terminal for its sign-in; `script` gives it one.
+			const [file, args] =
+				process.platform === "darwin"
+					? [
+							"/usr/bin/script",
+							["-q", "/dev/null", command, ...tool.accountSignIn!],
+						]
+					: [command, tool.accountSignIn!];
+			await must(
+				run(file, args, {
+					onLine: say,
+					onStart: (stop) => {
+						stops[`account:${tool.id}`] = stop;
+					},
+					timeoutMs: 15 * 60_000,
+				}),
+			);
+			return `Signed in to ${tool.name}.`;
 		});
 		return readAgentStatus();
 	}
@@ -1010,9 +1116,10 @@ export async function setupAction(
 					{ onLine: say, timeoutMs: 60_000 },
 				),
 			);
-			say("Restarting this Mac's runners…");
-			await must(restartSupervisor());
-			return `Tedix can start ${tool.name} runs on this Mac for ${org}, in ${repo}. The first run starts within a minute of being assigned.`;
+			// A running supervisor reads the new entry by itself and starts only
+			// this tool's runner; the other tools keep their tasks.
+			await startRunnersIfStopped();
+			return `${tool.name} can run tasks on this Mac.`;
 		});
 	}
 }

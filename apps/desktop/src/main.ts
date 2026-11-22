@@ -2,6 +2,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openLocalTedix, reloadLocalTedix } from "./local-mode";
 import { openLocalModelChat } from "./local-model-window";
+import { configDir } from "./shell";
 import {
 	app,
 	BrowserWindow,
@@ -21,11 +22,13 @@ import {
 	WebContentsView,
 } from "electron";
 import type {
+	Appearance,
 	PanelAction,
 	PanelLink,
 	PanelState,
 	QuestionView,
 	RunnerField,
+	SettingsSection,
 	UpdateView,
 } from "./api";
 import {
@@ -97,6 +100,11 @@ function osOrigin(): string {
 }
 const PANEL_LINKS: Record<PanelLink, string> = {
 	"claude-connectors": "https://claude.ai/settings/connectors",
+	chatgpt: "https://chatgpt.com/",
+	"install-claude-code": "https://claude.com/product/claude-code",
+	"install-codex": "https://openai.com/codex/",
+	docs: "https://docs.tedix.dev",
+	"release-status": "https://docs.tedix.dev/release-status",
 };
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
@@ -105,7 +113,7 @@ const RUNNER_FIELDS: RunnerField[] = [
 	"machineName",
 	"machineWriteMode",
 ];
-/** The This Mac page gets the preload; the Tedix OS page never does. */
+/** The app's own pages get the preload; the Tedix OS page never does. */
 const localPage = {
 	preload: join(root, "out/preload.cjs"),
 	contextIsolation: true,
@@ -115,7 +123,7 @@ const localPage = {
 
 let mainWindow: BrowserWindow | undefined;
 let os: WebContentsView | undefined;
-let panel: BrowserWindow | undefined;
+let settingsWindow: BrowserWindow | undefined;
 let setupWindow: BrowserWindow | undefined;
 let status: Status | undefined;
 let lastOutput = "";
@@ -134,6 +142,15 @@ async function state(): Promise<PanelState> {
 		openAtLogin: app.isPackaged
 			? app.getLoginItemSettings().openAtLogin
 			: undefined,
+		app: {
+			version: app.getVersion(),
+			paused: runnersPaused(),
+			running: runnersRunning(),
+			problem: runnersProblem(),
+			updateReady: readyVersion(),
+			cliOffer: cliOffer(),
+			appearance: settings().appearance ?? "system",
+		},
 	};
 }
 
@@ -147,7 +164,7 @@ async function publish(): Promise<void> {
 		setMenu();
 	}
 	const current = await state();
-	for (const window of [panel, setupWindow])
+	for (const window of [settingsWindow, setupWindow])
 		if (window && !window.isDestroyed())
 			window.webContents.send("state", current);
 	publishUpdate();
@@ -170,8 +187,21 @@ async function command(file: string, args: string[], done: string) {
 	await refresh();
 }
 
+/** True when nothing runs, or the person agreed to stop what runs. */
+async function agreeToStop(what: string, runs: number): Promise<boolean> {
+	if (runs === 0) return true;
+	const { response } = await ask({
+		message: `${runs === 1 ? "1 task is" : `${runs} tasks are`} running. ${what} and stop ${runs === 1 ? "it" : "them"}?`,
+		buttons: [what, "Cancel"],
+		defaultId: 1,
+		cancelId: 1,
+	});
+	return response === 0;
+}
+
 /** Stops the runners this app runs and starts them again. */
-async function restartRunners(): Promise<void> {
+async function restartRunners(asked = false): Promise<void> {
+	if (asked && !(await agreeToStop("Restart", status?.activeRuns ?? 0))) return;
 	if (process.platform === "darwin") {
 		busy = true;
 		lastOutput = "Running…";
@@ -481,7 +511,7 @@ async function ask(
 		checkboxLabel: options.checkboxLabel,
 		checkboxChecked: options.checkboxChecked,
 	};
-	const width = 520;
+	const width = 420;
 	const anchor =
 		mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
 			? mainWindow.getBounds()
@@ -1002,7 +1032,7 @@ function showMain(): void {
 /** Without a visible window, Tedix lives in the menu bar only. */
 function updateDock(): void {
 	if (process.platform !== "darwin" || quitting) return;
-	const shown = [mainWindow, panel, setupWindow].some(
+	const shown = [mainWindow, settingsWindow, setupWindow].some(
 		(window) => window && !window.isDestroyed() && window.isVisible(),
 	);
 	if (!shown) app.dock?.hide();
@@ -1150,26 +1180,45 @@ function createMainWindow(show: boolean): void {
 const windowColour = () =>
 	nativeTheme.shouldUseDarkColors ? "#0b0b0c" : "#fafafa";
 
-/** The small This Mac window: status and the day-to-day switches. */
-function openPanel(): void {
+/**
+ * The Settings window: every setting of the app in one place. Cmd+, opens
+ * it, and the menu bar icon's This Mac… opens it at This Mac.
+ */
+function openSettings(section?: SettingsSection): void {
 	void app.dock?.show();
-	if (panel && !panel.isDestroyed()) return panel.show();
-	panel = new BrowserWindow({
-		width: 400,
-		height: 640,
-		title: "This Mac",
-		backgroundColor: windowColour(),
+	if (settingsWindow && !settingsWindow.isDestroyed()) {
+		if (section) settingsWindow.webContents.send("section", section);
+		settingsWindow.show();
+		settingsWindow.focus();
+		return;
+	}
+	const window = new BrowserWindow({
+		width: 820,
+		height: 600,
+		minWidth: 680,
+		minHeight: 440,
+		title: "Settings",
 		minimizable: false,
-		maximizable: false,
 		fullscreenable: false,
+		titleBarStyle: "hiddenInset",
+		trafficLightPosition: { x: 14, y: 14 },
+		backgroundColor: windowColour(),
 		webPreferences: localPage,
 	});
-	panel.setMenuBarVisibility(false);
-	panel.on("closed", updateDock);
-	panel.webContents.on("will-navigate", (event) => event.preventDefault());
-	panel.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-	void panel.loadFile(join(root, "panel.html"));
+	settingsWindow = window;
+	window.setMenuBarVisibility(false);
+	window.on("closed", updateDock);
+	window.webContents.on("will-navigate", (event) => event.preventDefault());
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	window.on("focus", () => {
+		void refreshSetup(false);
+		void readAppSignIn();
+	});
+	void window.loadFile(join(root, "settings.html"), {
+		hash: section ?? "general",
+	});
 	void refresh();
+	void refreshSetup(true);
 }
 
 /**
@@ -1208,7 +1257,7 @@ function openSetup(): void {
 }
 
 function fromLocalPage(event: IpcMainInvokeEvent): BrowserWindow {
-	const window = [panel, setupWindow].find(
+	const window = [settingsWindow, setupWindow].find(
 		(candidate) =>
 			candidate &&
 			!candidate.isDestroyed() &&
@@ -1265,23 +1314,11 @@ function newChatItem(): MenuItemConstructorOptions {
 	};
 }
 
-function developerItem(): MenuItemConstructorOptions {
-	return {
-		label: "Developer",
-		submenu: [{ label: "Open Local Workspace", click: () => openLocalTedix() }],
-	};
-}
-
 function setMenu(): void {
-	const thisMac: MenuItemConstructorOptions = {
-		label: "This Mac…",
-		accelerator: "CmdOrCtrl+Shift+M",
-		click: openPanel,
-	};
-	const setUp: MenuItemConstructorOptions = {
+	const settingsItem: MenuItemConstructorOptions = {
 		label: "Settings…",
 		accelerator: "CmdOrCtrl+,",
-		click: openSetup,
+		click: () => openSettings(),
 	};
 	const mac = process.platform === "darwin";
 	Menu.setApplicationMenu(
@@ -1290,11 +1327,10 @@ function setMenu(): void {
 				label: mac ? app.name : "Tedix",
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
+					settingsItem,
+					{ type: "separator" },
 					newChatItem(),
-					thisMac,
-					setUp,
 					runnersItem(),
-					developerItem(),
 					// Offered only while it is needed: signing in again when already
 					// signed in opens a browser page that leads nowhere.
 					appSignIn.state === "in"
@@ -1419,8 +1455,59 @@ function runnersItem(): MenuItemConstructorOptions {
 				label: status?.activeRuns
 					? `Pause Runners and Stop ${status.activeRuns === 1 ? "1 Task" : `${status.activeRuns} Tasks`}`
 					: "Pause Runners",
-				click: () => void pauseRunners().then(refresh),
+				click: () => void pauseAsked(),
 			};
+}
+
+/** Pauses the runners; asks first when that stops running tasks. */
+async function pauseAsked(): Promise<void> {
+	if (!(await agreeToStop("Pause", status?.activeRuns ?? 0))) return;
+	await pauseRunners();
+	await refresh();
+}
+
+/**
+ * Restarts one runner: its process ends and the supervisor starts it again
+ * by itself. The other runners and their tasks keep running.
+ */
+async function restartRunner(index: number): Promise<void> {
+	const runner = status?.runners.find((row) => row.index === index);
+	if (!runner?.key || !/^[0-9a-f]{16}$/.test(runner.key)) return;
+	const runs = status?.activeTasks.filter(
+		(task) => task.executor === runner.executor,
+	).length;
+	if (!(await agreeToStop("Restart", runs ?? 0))) return;
+	try {
+		const record = JSON.parse(
+			readFileSync(
+				join(configDir(), "supervisor", "runners", `${runner.key}.json`),
+				"utf8",
+			),
+		) as { pid?: unknown };
+		const pid = Number(record.pid);
+		if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error("no process");
+		try {
+			process.kill(-pid, "SIGTERM");
+		} catch {
+			process.kill(pid, "SIGTERM");
+		}
+		log(`runners: restarting the ${runner.executor} runner (pid ${pid})`);
+		lastOutput = "";
+	} catch (error) {
+		lastOutput = `Could not restart ${runner.executor}: ${error instanceof Error ? error.message : String(error)}`;
+	}
+	await refresh();
+}
+
+/** The runners start when none run, unless the person paused them. */
+async function startRunnersIfStopped(): Promise<void> {
+	if (runnersPaused() || runnersRunning()) return;
+	const result = await startRunners();
+	if (!result.ok) log(`runners: not started (${lastLine(result.output)})`);
+}
+
+function applyAppearance(mode: Appearance): void {
+	nativeTheme.themeSource = mode;
 }
 
 /**
@@ -1464,24 +1551,11 @@ function trayMenu(): Menu {
 		...(runnersPaused() || !runnersRunning()
 			? [{ label: runnersLine(), enabled: false }]
 			: []),
-		{ label: "This Mac…", click: openPanel },
+		{ label: "This Mac…", click: () => openSettings("mac") },
 		runnersItem(),
-		developerItem(),
 		{ type: "separator" },
 		{ label: "Check for Updates…", click: () => void checkForUpdates(true) },
-		...(app.isPackaged
-			? [
-					{
-						label: "Open at Login",
-						type: "checkbox" as const,
-						checked: app.getLoginItemSettings().openAtLogin,
-						click: (item: Electron.MenuItem) => {
-							app.setLoginItemSettings({ openAtLogin: item.checked });
-							void publish();
-						},
-					},
-				]
-			: []),
+		{ label: "Settings…", click: () => openSettings() },
 		{ type: "separator" },
 		{
 			label: "Quit Tedix and Stop Runners",
@@ -1722,6 +1796,7 @@ else if (process.argv.includes("--local-model")) {
 	openAppLink(appLink(process.argv));
 	void app.whenReady().then(async () => {
 		log(`start: version ${app.getVersion()}`);
+		applyAppearance(settings().appearance ?? "system");
 		if (process.argv.some((arg) => arg.startsWith("--local")))
 			openLocalTedix(process.argv);
 		// Read and deleted before anything else: only a start that follows a
@@ -1752,20 +1827,43 @@ else if (process.argv.includes("--local-model")) {
 					typeof value !== "boolean"
 				)
 					return;
+				// Switching a tool off stops its tasks: ask first.
+				const runner = status?.runners.find((row) => row.index === index);
+				const runs =
+					status?.activeTasks.filter(
+						(task) => task.executor === runner?.executor,
+					).length ?? 0;
+				if (
+					key === "enabled" &&
+					value === false &&
+					!(await agreeToStop("Switch off", runs))
+				)
+					return refresh();
 				try {
 					setRunnerField(index, key, value);
 				} catch (error) {
 					lastOutput = error instanceof Error ? error.message : String(error);
 					return refresh();
 				}
-				await restartRunners();
+				// The supervisor reads the file on its next check and starts or
+				// stops only this runner; machine tools pick up a new name or
+				// write setting once idle. Nothing else restarts.
+				lastOutput = "";
+				await startRunnersIfStopped();
+				await refresh();
 			},
 		);
 		ipcMain.handle("action", (event, name: PanelAction) => {
 			fromLocalPage(event);
-			if (name === "restart") return restartRunners();
+			if (name === "restart") return restartRunners(true);
+			if (name === "pause") return pauseAsked();
 			if (name === "cli-back") return void goBackCli();
 			if (name === "setup-window") return openSetup();
+			if (name === "check-updates") return checkForUpdates(true);
+			if (name === "apply-update") return applyUpdate();
+			if (name === "local-workspace") return openLocalTedix();
+			if (name === "local-model") return openLocalModelChat();
+			if (name === "open-logs") return void shell.openPath(configDir());
 			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
 				if (name === "done-setup") return;
@@ -1784,9 +1882,10 @@ else if (process.argv.includes("--local-model")) {
 					return chosen.canceled ? undefined : chosen.filePaths[0];
 				},
 				appSignIn: () => {
-					log("sign-in: chosen in Set up this Mac");
+					log("sign-in: chosen in Set up this Mac or Settings");
 					return signInWithBrowser();
 				},
+				startRunnersIfStopped,
 			});
 			await refresh();
 		});
@@ -1832,8 +1931,8 @@ else if (process.argv.includes("--local-model")) {
 			if (!fromQuestion(event) || !question) throw new Error("Not allowed");
 			const { window } = question;
 			window.setContentSize(
-				520,
-				Math.max(120, Math.min(Number(height) || 0, 640)),
+				420,
+				Math.max(72, Math.min(Number(height) || 0, 640)),
 			);
 			app.focus({ steal: true });
 			window.show();
@@ -1855,6 +1954,17 @@ else if (process.argv.includes("--local-model")) {
 				});
 			},
 		);
+		ipcMain.handle("restart-runner", (event, index: unknown) => {
+			fromLocalPage(event);
+			if (Number.isInteger(index)) return restartRunner(index as number);
+		});
+		ipcMain.handle("appearance", (event, mode: unknown) => {
+			fromLocalPage(event);
+			if (mode !== "system" && mode !== "light" && mode !== "dark") return;
+			saveSettings({ appearance: mode });
+			applyAppearance(mode);
+			return publish();
+		});
 		ipcMain.handle("open-at-login", (event, on: boolean) => {
 			fromLocalPage(event);
 			app.setLoginItemSettings({ openAtLogin: on === true });

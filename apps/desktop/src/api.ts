@@ -2,7 +2,9 @@ import type { CliState } from "./cli";
 import type { SetupAction, SetupState } from "./setup";
 import type { Status } from "./status";
 
-/** What the main process sends the This Mac and Set up this Mac windows. */
+export type Appearance = "system" | "light" | "dark";
+
+/** What the main process sends the Settings and Set up this Mac windows. */
 export interface PanelState {
 	status: Status;
 	setup: SetupState;
@@ -11,7 +13,31 @@ export interface PanelState {
 	busy: boolean;
 	/** Undefined when the app runs unpackaged, where the switch is hidden. */
 	openAtLogin?: boolean;
+	app: {
+		version: string;
+		/** The person paused the runners. */
+		paused: boolean;
+		/** This app's supervisor process runs. */
+		running: boolean;
+		/** Why the runners are not running, when they are not. */
+		problem?: string;
+		/** A newer app is downloaded and ready to apply. */
+		updateReady?: string;
+		/** A newer command-line tool can be applied. */
+		cliOffer?: string;
+		appearance: Appearance;
+	};
 }
+
+/** The sections of the Settings window. */
+export type SettingsSection =
+	| "general"
+	| "tools"
+	| "sessions"
+	| "mac"
+	| "updates"
+	| "advanced"
+	| "about";
 
 /**
  * `cli-back` puts the kept command-line tool back and restarts the
@@ -23,12 +49,24 @@ export type PanelAction =
 	| "cli-back"
 	| "setup-window"
 	| "close-setup"
-	| "done-setup";
+	| "done-setup"
+	| "pause"
+	| "check-updates"
+	| "apply-update"
+	| "local-workspace"
+	| "local-model"
+	| "open-logs";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
-export type PanelLink = "claude-connectors";
+export type PanelLink =
+	| "claude-connectors"
+	| "chatgpt"
+	| "install-claude-code"
+	| "install-codex"
+	| "docs"
+	| "release-status";
 
-/** The only functions the app's own two windows can call; the Tedix OS page gets none. */
+/** The only functions the app's own windows can call; the Tedix OS page gets none. */
 export interface PanelApi {
 	state(): Promise<PanelState>;
 	set(
@@ -45,6 +83,11 @@ export interface PanelApi {
 	openWork(itemId: string): Promise<void>;
 	openAtLogin(on: boolean): Promise<void>;
 	onState(listener: (state: PanelState) => void): void;
+	/** Restarts one runner; the others and their tasks keep running. */
+	restartRunner(index: number): Promise<void>;
+	appearance(mode: Appearance): Promise<void>;
+	/** The Settings window is asked to show a section. */
+	onSection(listener: (section: SettingsSection) => void): void;
 	/** The next three are for the update entry in the main window only. */
 	applyUpdate(): Promise<void>;
 	/** Tells the app how much room the entry needs right now. */

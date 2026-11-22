@@ -9,6 +9,8 @@ export interface RunnerRow {
 	organization: string;
 	enabled: boolean;
 	running: boolean;
+	/** The supervisor's name for this runner, once it reported one. */
+	key?: string;
 	version?: string;
 	problem?: string;
 }
@@ -166,6 +168,7 @@ export async function loadStatus(): Promise<Status> {
 		if (!row || item.executor !== row.executor) continue;
 		const folder = join(configDir(), "dispatchers", String(item.runner));
 		row.running = item.running === true;
+		row.key = String(item.runner);
 		const version = (await json(join(folder, "health-source.json")))
 			?.cliVersion;
 		if (typeof version === "string") row.version = version;

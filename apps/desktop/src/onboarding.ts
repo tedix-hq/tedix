@@ -1,35 +1,33 @@
 import { cliUpdateLine, type PanelApi, type PanelState } from "./api";
 import { icon, type IconName } from "./icons";
-import type { StepRun, ToolRow } from "./setup";
+import type { StepRun } from "./setup";
+import {
+	CONNECTOR_URL,
+	foundTools,
+	keepFocus,
+	READY_MARK,
+	runnerFor,
+	type SessionsUi,
+	sessionsPanel,
+	TOOL_ICONS,
+	toolView,
+	useForTasks,
+} from "./ui-parts";
 
 /**
- * The Set up this Mac window: five screens drawn from the state the app
- * sends. Two shapes only: a centred mark with a headline (Welcome, Ready),
+ * The Set up this Mac window: the first-run screens, drawn from the state
+ * the app sends. Every setting here is also in the Settings window. Two shapes only: a centred mark with a headline (Welcome, Ready),
  * and a headline on the left with a plain list of rows on the right.
  */
 declare const tedixShell: PanelApi;
 const screen = document.getElementById("screen")!;
 const foot = document.getElementById("foot")!;
 
-const CONNECTOR_URL = "https://connect.mcp.tedix.dev/mcp";
-const EXECUTOR_NAMES: Record<string, string> = {
-	codex: "Codex",
-	"claude-code": "Claude Code",
-	devin: "Devin",
-	opencode: "OpenCode",
-	"any-local": "Any coding tool",
-};
-const TOOL_ICONS: Record<string, IconName> = {
-	claude: "prompt",
-	codex: "brackets",
-	devin: "cube",
-	opencode: "braces",
-};
 const STEPS = [
 	["welcome", "Welcome"],
 	["mac", "This Mac"],
 	["tools", "Coding tools"],
-	["tasks", "Run tasks"],
+	["sessions", "Sessions"],
 	["ready", "Ready"],
 ] as const;
 type StepId = (typeof STEPS)[number][0];
@@ -40,6 +38,7 @@ let current: StepId | undefined;
 let drawn: StepId | undefined;
 /** Rows whose details are showing. */
 const openDetails = new Set<string>();
+const sessionsUi: SessionsUi = { query: "" };
 
 type Child = Node | string | false | undefined;
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -76,7 +75,7 @@ const act = (action: Parameters<PanelApi["setup"]>[0], id?: string) =>
 
 const done = (label: string) => el("span", "done", icon("check", 13), label);
 
-function toggle(
+function toggleSwitch(
 	title: string,
 	checked: boolean,
 	change: (on: boolean) => void,
@@ -179,134 +178,6 @@ const orgName = (id: string) => id.replace(/^org_/, "");
 const person = ({ name, email }: { name: string; email: string }) =>
 	name || email || "your account";
 
-/** Tedix is in the tool and nothing about it needs the person. */
-const connected = (tool: ToolRow) =>
-	tool.found === "found" &&
-	tool.tedix === "added" &&
-	tool.enabled &&
-	tool.account === "signed-in" &&
-	tool.connection === "signed-in" &&
-	tool.readVerified &&
-	(tool.id !== "codex" || tool.hookTrust === "trusted");
-
-function toolRow(tool: ToolRow, steps: Record<string, StepRun>): HTMLElement {
-	const adding = steps[`add:${tool.id}`];
-	const connecting = steps[`connect:${tool.id}`];
-	const verifying = steps[`verify:${tool.id}`];
-	const hooks = steps[`hooks:${tool.id}`];
-	const ran =
-		adding?.working || adding?.error
-			? adding
-			: verifying?.working || verifying?.error
-				? verifying
-				: hooks?.working || hooks?.error
-					? hooks
-					: (connecting ?? verifying ?? hooks ?? adding);
-	const base = {
-		key: `tool:${tool.id}`,
-		icon: TOOL_ICONS[tool.id] ?? ("terminal" as const),
-		title: tool.name,
-		ran,
-		retry: () =>
-			act(
-				ran === connecting
-					? "connect"
-					: ran === verifying
-						? "verify"
-						: ran === hooks
-							? "trust-hooks"
-							: "add",
-				tool.id,
-			),
-		waiting:
-			ran === connecting && ran?.working
-				? "Waiting for your browser…"
-				: undefined,
-		cancel:
-			ran === connecting || ran === verifying || ran === hooks
-				? () =>
-						act(
-							"cancel",
-							`${ran === verifying ? "verify" : ran === hooks ? "hooks" : "connect"}:${tool.id}`,
-						)
-				: undefined,
-		details: [tool.note],
-	};
-	const signIn =
-		tool.canSignIn && button("Sign in", "plain", () => act("connect", tool.id));
-	if (tool.found === "no-command")
-		return row({ ...base, sub: "Command not found" });
-	if (tool.tedix === "checking")
-		return row({
-			...base,
-			sub: "Checking…",
-			control: el("span", "spinner"),
-		});
-	if (tool.account === "signed-out")
-		return row({
-			...base,
-			sub: `Not signed in to ${tool.name}; run ${tool.id === "codex" ? "codex login" : tool.id === "claude" ? "claude auth login" : "devin auth login"}, then choose Check again.`,
-			control: button(
-				"Copy command",
-				"plain",
-				() =>
-					void tedixShell.copy(
-						tool.id === "codex"
-							? "codex login"
-							: tool.id === "claude"
-								? "claude auth login"
-								: "devin auth login",
-					),
-			),
-		});
-	if (tool.tedix === "missing")
-		return row({
-			...base,
-			sub: "Tedix not added yet",
-			control: tool.canAdd && button("Add", "plain", () => act("add", tool.id)),
-		});
-	if (tool.tedix === "unsupported")
-		return row({ ...base, sub: "Tedix cannot be added here yet" });
-	if (tool.tedix === "unknown")
-		return row({
-			...base,
-			sub: "Could not check right now",
-			control: button("Check again", "quiet", () => act("check")),
-		});
-	if (!tool.enabled) return row({ ...base, sub: "Switched off in the tool" });
-	if (tool.id === "codex" && tool.hookTrust !== "trusted")
-		return row({
-			...base,
-			sub: "In Codex /hooks, select each Tedix hook and choose Trust, then choose Check again here.",
-			control: button("Open hooks", "plain", () => act("trust-hooks", tool.id)),
-		});
-	if (tool.connection === "signed-out")
-		return row({
-			...base,
-			sub: signIn
-				? "Not signed in to Tedix yet"
-				: tool.note || "Open /mcp in the tool and authenticate Tedix.",
-			control: signIn,
-		});
-	if (connected(tool))
-		return row({
-			...base,
-			sub: "A Tedix read succeeded inside this tool",
-			control: done("Ready"),
-		});
-	return row({
-		...base,
-		sub:
-			tool.id === "claude"
-				? "Check a Tedix read using Claude Code’s model"
-				: "A read inside this tool has not been verified",
-		control:
-			tool.id === "codex" || tool.id === "claude"
-				? button("Check read", "plain", () => act("verify", tool.id))
-				: signIn,
-	});
-}
-
 /** The one thing that still needs the person, and the screen that has it. */
 function attention({
 	setup,
@@ -327,7 +198,7 @@ function attention({
 	if (failed("sign-in") || failed("cli"))
 		return { text: "A step on This Mac did not finish.", step: "mac" };
 	if (failed("run:"))
-		return { text: "A tool could not be switched on.", step: "tasks" };
+		return { text: "A tool could not be switched on.", step: "tools" };
 	return undefined;
 }
 
@@ -495,7 +366,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				cli.update?.ok !== false && cliUpdateLine(cli),
 				cli.other && `Version ${cli.other} is kept.`,
 				running.some((version) => version !== cli.version) &&
-					`The runners still run version ${running.join(", ")}. Restart runners in Tedix → This Mac… to use this one.`,
+					`The runners still run version ${running.join(", ")}. Restart them in Settings → Updates to use this one.`,
 				cli.access,
 				cli.kind === "included" &&
 					cli.canRestore &&
@@ -519,7 +390,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 						icon: "window",
 						title: "Open at login",
 						sub: "Opens the Tedix window",
-						control: toggle(
+						control: toggleSwitch(
 							"Open at login",
 							now.openAtLogin,
 							(on) => void tedixShell.openAtLogin(on),
@@ -538,181 +409,135 @@ function screenFor(id: StepId, now: PanelState): Screen {
 	}
 
 	if (id === "tools") {
-		// Only tools Tedix can be added to; the others show under Run tasks.
-		const found = setup.tools.filter(
-			(tool) => tool.found !== "absent" && tool.tedix !== "unsupported",
-		);
+		const found = foundTools(now);
+		const tools = found.map((tool) => {
+			const view = toolView(now, tool);
+			const on = Boolean(runnerFor(now, tool)?.enabled);
+			return row({
+				key: `tool:${tool.id}`,
+				icon: TOOL_ICONS[tool.id] ?? "terminal",
+				title: tool.name,
+				sub: view.sub,
+				control: el(
+					"span",
+					"controls",
+					view.ready ? READY_MARK() : view.action,
+					toggleSwitch(
+						`Use ${tool.name} for tasks`,
+						on,
+						(next) => useForTasks(now, tool, next),
+						!setup.signedIn,
+					),
+				),
+				ran: view.working
+					? { working: view.working }
+					: view.error
+						? { error: view.error }
+						: undefined,
+				retry: view.retry,
+				cancel: view.cancel,
+				waiting: view.working,
+			});
+		});
 		return {
 			label: "Coding tools",
-			headline: "Add Tedix to your tools",
+			headline: "Choose your tools",
 			sentence: el(
 				"span",
 				"",
-				"Each tool signs in to Tedix by itself. ",
+				found.length
+					? "Switch on the tools Tedix may use for tasks, then sign in only those. "
+					: "Use Tedix from the Claude or ChatGPT app. ",
 				button("Check again", "link", () => act("check")),
 			),
 			rows: [
-				...found.map((tool) => toolRow(tool, steps)),
-				row({
-					key: "sessions",
-					icon: "bubble",
-					title: "Show my Codex and Claude sessions in Tedix",
-					sub: setup.signedIn
-						? setup.sessionProjects.length
-							? "Choose a project below"
-							: "No projects found. Choose Check again to refresh."
-						: "Sign in on this Mac first",
-					ran: steps.sessions,
-					retry: () => act("check"),
-					details: [
-						"Reports session status and records turn summaries and replies for the projects you switch on. Needs the Tedix plugin in Codex or Claude Code. Start a new session after enabling; in Codex, trust the hooks in /hooks.",
-					],
-				}),
-				...setup.sessionProjects.map((project) =>
-					row({
-						key: `sessions:${project.id}`,
-						icon: "folder",
-						title: project.name,
-						sub: project.enabled
-							? "Session reporting on"
-							: "Session reporting off",
-						control: toggle(
-							`Show my Codex and Claude sessions in Tedix: ${project.name}`,
-							project.enabled,
-							(on) => act(on ? "sessions-on" : "sessions-off", project.id),
-							Boolean(steps[`sessions:${project.id}`]?.working) ||
-								!setup.signedIn,
-						),
-						ran: steps[`sessions:${project.id}`],
-						retry: () =>
-							act(project.enabled ? "sessions-off" : "sessions-on", project.id),
-					}),
-				),
-				found.length === 0 &&
-					el("p", "none", "No coding tool was found on this Mac."),
 				row({
 					key: "chat:claude",
 					icon: "bubble",
 					title: "Claude app",
-					sub: "Add a connector named Tedix",
-					control: button(
-						"Copy address",
-						"quiet",
-						() => void tedixShell.copy(CONNECTOR_URL),
-					),
-					details: [
-						"In Settings → Connectors, add a custom connector named Tedix with the copied address, then sign in.",
+					sub: "Add Tedix as a custom connector",
+					control: el(
+						"span",
+						"controls",
+						button(
+							"Copy address",
+							"plain",
+							() => void tedixShell.copy(CONNECTOR_URL),
+						),
 						button(
 							"Open settings",
-							"link",
+							"quiet",
 							() => void tedixShell.open("claude-connectors"),
 						),
-					],
+					),
 				}),
 				row({
 					key: "chat:chatgpt",
 					icon: "bubble-spark",
 					title: "ChatGPT app",
-					sub: "Plugins Directory → turn on tedix",
-					details: ["Add Tedix to Codex first. The ChatGPT app then lists it."],
+					sub: "Turn on Tedix in the Plugins Directory",
+					control: button(
+						"Open ChatGPT",
+						"plain",
+						() => void tedixShell.open("chatgpt"),
+					),
 				}),
+				...tools,
+				found.length === 0 &&
+					row({
+						key: "none",
+						icon: "terminal",
+						title: "Coding tools: none found",
+						sub: "Install one to run tasks on this Mac",
+						control: el(
+							"span",
+							"controls",
+							button(
+								"Get Claude Code",
+								"quiet",
+								() => void tedixShell.open("install-claude-code"),
+							),
+							button(
+								"Get Codex",
+								"quiet",
+								() => void tedixShell.open("install-codex"),
+							),
+						),
+					}),
+				found.length > 0 &&
+					row({
+						key: "folder",
+						icon: "folder",
+						title: "Project folder",
+						sub: setup.repo
+							? setup.repo.split("/").at(-1) || setup.repo
+							: "Asked when you switch a tool on",
+						control: button("Choose…", "quiet", () => act("choose-folder")),
+					}),
 			],
 			primary: continueButton,
 		};
 	}
 
-	if (id === "tasks") {
-		const rows: Child[] = [];
-		for (const runner of status.runners) {
-			const name = EXECUTOR_NAMES[runner.executor] ?? runner.executor;
-			rows.push(
-				row({
-					key: `runner:${runner.index}`,
-					icon:
-						TOOL_ICONS[
-							setup.tools.find((tool) => tool.executor === runner.executor)
-								?.id ?? ""
-						] ?? "bolt",
-					title: name,
-					sub: runner.enabled
-						? runner.running
-							? "Running"
-							: "Starting or stopped"
-						: "Off",
-					control: toggle(
-						`Start ${name} tasks`,
-						runner.enabled,
-						(on) => void tedixShell.set(runner.index, "enabled", on),
-					),
-					details: [
-						`For ${orgName(runner.organization)}.`,
-						runner.enabled && runner.problem,
-					],
-				}),
-			);
-		}
-		for (const tool of setup.tools) {
-			// Ready: Tedix is in the tool, or the tool needs nothing added.
-			if (!connected(tool) && tool.tedix !== "unsupported") continue;
-			if (tool.found !== "found") continue;
-			if (status.runners.some((runner) => runner.executor === tool.executor))
-				continue;
-			const ran = steps[`run:${tool.executor}`];
-			rows.push(
-				row({
-					key: `run:${tool.id}`,
-					icon: TOOL_ICONS[tool.id] ?? "bolt",
-					title: tool.name,
-					sub: setup.signedIn ? "Off" : "Sign in on this Mac first",
-					control: toggle(
-						`Start ${tool.name} tasks`,
-						false,
-						(on) => on && act("run-tasks", tool.id),
-						!setup.signedIn,
-					),
-					ran,
-					retry: () => act("run-tasks", tool.id),
-				}),
-			);
-		}
-		const serving = status.servingIndex;
+	if (id === "sessions") {
+		const pending = !setup.sessionsChosen;
+		const projects = setup.sessionProjects.map((project) => project.id);
 		return {
-			label: "Run tasks",
-			headline: "Let Tedix start tasks",
-			sentence: "Tasks that are running stop when a switch changes.",
-			rows: [
-				...rows,
-				rows.length === 0 &&
-					el("p", "none", "No coding tool was found on this Mac."),
-				serving !== undefined &&
-					row({
-						key: "write",
-						icon: "shield",
-						title: "Let Tedix edit files and run commands",
-						sub: status.machineWrite ? "On" : "Off: it can only look",
-						control: toggle(
-							"Let Tedix edit files and run commands",
-							status.machineWrite,
-							(on) =>
-								void tedixShell.set(
-									serving,
-									"machineWriteMode",
-									on ? "allow" : "off",
-								),
-						),
-					}),
-				row({
-					key: "folder",
-					icon: "folder",
-					title: "Project folder",
-					sub: setup.repo
-						? setup.repo.split("/").at(-1) || setup.repo
-						: "Asked when you switch a tool on",
-					control: button("Choose…", "quiet", () => act("choose-folder")),
-					details: [setup.repo],
-				}),
-			],
-			primary: continueButton,
+			label: "Sessions",
+			headline: "Show your sessions in Tedix",
+			sentence:
+				"On for every project to start. You can change this later in Settings.",
+			rows: [sessionsPanel(now, sessionsUi, () => keepFocus(draw), pending)],
+			primary: {
+				label: "Continue",
+				click: () => {
+					// The default is applied only when the person moves on.
+					if (pending && projects.length && setup.signedIn)
+						act("sessions-on", `*|${projects.join(",")}`);
+					next();
+				},
+			},
+			later: pending,
 		};
 	}
 
@@ -758,12 +583,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 		};
 	const enabled = status.runners.filter((runner) => runner.enabled);
 	const running = enabled.filter((runner) => runner.running).length;
-	const tool = setup.tools.find(
+	// A tool switched on for tasks that still needs a step.
+	const tool = foundTools(now).find(
 		(row) =>
-			row.found === "no-command" ||
-			(row.tedix === "added" && !connected(row)) ||
-			setup.steps[`add:${row.id}`]?.error ||
-			setup.steps[`connect:${row.id}`]?.error,
+			runnerFor(now, row)?.enabled &&
+			!toolView(now, row).ready &&
+			!toolView(now, row).working,
 	);
 	const lines: Child[] = [];
 	if (enabled.length === 0)
@@ -772,7 +597,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				"p",
 				"",
 				"Turn on a tool to run tasks here. ",
-				button("Set up tasks", "link", () => go("tasks")),
+				button("Choose tools", "link", () => go("tools")),
 			),
 		);
 	else if (enabled.length > running)
@@ -781,7 +606,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				"p",
 				"",
 				`${running} of ${enabled.length} tools are running. `,
-				button("Check tasks", "link", () => go("tasks")),
+				button("Check tools", "link", () => go("tools")),
 			),
 		);
 	if (tool)

@@ -13,6 +13,11 @@ const api: PanelApi = {
 	onState: (listener) => {
 		ipcRenderer.on("state", (_event, state) => listener(state));
 	},
+	restartRunner: (index) => ipcRenderer.invoke("restart-runner", index),
+	appearance: (mode) => ipcRenderer.invoke("appearance", mode),
+	onSection: (listener) => {
+		ipcRenderer.on("section", (_event, section) => listener(section));
+	},
 	applyUpdate: () => ipcRenderer.invoke("update-apply"),
 	updateSize: (width, height) =>
 		ipcRenderer.invoke("update-size", width, height),
