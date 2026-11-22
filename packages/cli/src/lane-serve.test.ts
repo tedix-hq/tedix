@@ -2691,18 +2691,55 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
-	it("admits and settles Devin through the same dispatcher", async () => {
-		const { dispatcher, events, releases, control } = fixture({
+	it("settles Devin commits under each native session before completing Work", async () => {
+		const { dispatcher, events, releases, control, items, briefs } = fixture({
 			executor: "devin",
 		});
+		for (const work of items) work.workKind = "coding";
+		control.commits = ["b".repeat(40)];
 		await dispatcher.tick();
 		await until(() => releases.length === 3);
+		const starts = events.filter(
+			(event) => event.verb === "start" && event.args[4] === "work",
+		);
 		expect(
-			events.find((event) => event.verb === "start")?.env.TEDIX_AGENT_SESSION,
-		).toStartWith("devin:");
+			new Set(starts.map((event) => event.env.TEDIX_AGENT_SESSION)).size,
+		).toBe(3);
 		for (const release of releases) release();
 		await dispatcher.drain();
 		expect(events.filter((event) => event.verb === "settle")).toHaveLength(3);
+		for (const start of starts) {
+			const session = start.env.TEDIX_AGENT_SESSION!;
+			expect(session).toStartWith("devin:");
+			expect(
+				briefs.some((brief) => brief.includes(`Agent-Session: ${session}`)),
+			).toBe(true);
+			const settlement = events.find(
+				(event) =>
+					event.verb === "settle" && event.env.TEDIX_AGENT_SESSION === session,
+			)!;
+			expect(settlement.args).toContain("succeeded");
+			expect(settlement.args).toContain("--commit");
+			expect(settlement.input?.metadata).toMatchObject({
+				settlement: {
+					mode: "commit",
+					commitSha: control.commits[0],
+					commitShas: control.commits,
+				},
+			});
+			const completion = events.find(
+				(event) =>
+					event.verb === "complete" &&
+					event.env.TEDIX_AGENT_SESSION === session,
+			)!;
+			expect(completion).toBeDefined();
+			expect(events.indexOf(completion)).toBeGreaterThan(
+				events.indexOf(settlement),
+			);
+			expect(completion.env.TEDIX_EXTERNAL_AGENT).toBe(
+				start.env.TEDIX_EXTERNAL_AGENT,
+			);
+		}
 		expect(control.installed).toHaveLength(3);
 	});
 	it("posts Devin notes only to the admitted Work using its own fenced identity", async () => {

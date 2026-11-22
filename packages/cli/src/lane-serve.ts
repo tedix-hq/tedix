@@ -7732,15 +7732,17 @@ ${firstBrief}`;
 							...(receipt.runQuestion
 								? { runQuestion: receipt.runQuestion }
 								: {}),
-							...(receipt.recoveredCommits?.length
+							...(receipt.commits?.length
 								? {
-										recoveredCommits: receipt.recoveredCommits,
 										settlement: {
 											mode: "commit",
-											commitSha: receipt.commits?.[0],
+											commitSha: receipt.commits[0],
 											commitShas: receipt.commits,
 										},
 									}
+								: {}),
+							...(receipt.recoveredCommits?.length
+								? { recoveredCommits: receipt.recoveredCommits }
 								: {}),
 							...(receipt.existingProof
 								? { settlement: receipt.existingProof }
