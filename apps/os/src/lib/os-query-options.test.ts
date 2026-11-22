@@ -86,23 +86,34 @@ describe("canonical OS Query definitions", () => {
 
 	it.each([workNeedsYouInteractionsQueryOptions, workOfficeKnocksQueryOptions])(
 		"backs off unchanged inbox reads and resets when data changes",
-		(options) => {
+		async (options) => {
 			const client = new QueryClient();
 			const interval = new QueryObserver(client, options()).options
 				.refetchInterval;
 			if (typeof interval !== "function")
 				throw new Error("Expected adaptive polling");
 			const query = client.getQueryCache().build(client, options());
-			expect(interval(query)).toBe(30_000);
-			for (const delay of [60_000, 120_000, 240_000, 300_000, 300_000]) {
-				query.setState({ dataUpdateCount: query.state.dataUpdateCount + 1 });
-				expect(interval(query)).toBe(delay);
-			}
-			query.setData({
+			const page = {
 				data: [],
 				hasMore: false,
 				nextCursor: null,
 				observedAt: "2026-11-22T12:00:00Z",
+			};
+			query.setData(page);
+			expect(interval(query)).toBe(30_000);
+			for (const delay of [60_000, 120_000, 240_000, 300_000, 300_000]) {
+				query.setData({
+					...page,
+					observedAt: String(query.state.dataUpdateCount),
+				});
+				expect(interval(query)).toBe(delay);
+			}
+			await client.fetchQuery({
+				...options(),
+				queryFn: vi.fn().mockResolvedValue({
+					...page,
+					data: [{ request: { id: "new-request" } }],
+				}),
 			});
 			expect(interval(query)).toBe(30_000);
 			client.clear();

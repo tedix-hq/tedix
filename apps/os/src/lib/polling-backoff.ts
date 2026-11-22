@@ -12,14 +12,16 @@ const observations = new WeakMap<
 >();
 
 /** Structural sharing keeps identical responses referentially equal. Track the
- * query, rather than its observers, so rerenders cannot reset the backoff. */
+ * query, rather than its observers, so rerenders cannot reset the backoff.
+ * Callers with read timestamps can observe only the stable response rows. */
 export function pollingBackoff(
 	query: PollQuery,
 	baseMs: number | false,
 	maxMs: number,
+	data: unknown = query.state.data,
 ): number | false {
 	if (baseMs === false) return false;
-	const { data, dataUpdateCount, errorUpdateCount } = query.state;
+	const { dataUpdateCount, errorUpdateCount } = query.state;
 	const updates = dataUpdateCount + errorUpdateCount;
 	const previous = observations.get(query);
 	const unchanged =

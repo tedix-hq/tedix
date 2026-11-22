@@ -1007,7 +1007,8 @@ export const firstDecisionPageOptions = (projectId?: string, limit = 50) =>
 export const workNeedsYouInteractionsQueryOptions = () =>
 	osQuery.workInteractions.listInbox.queryOptions({
 		input: { limit: 100, states: ["open"] },
-		refetchInterval: (query) => pollingBackoff(query, 30_000, 300_000),
+		refetchInterval: (query) =>
+			pollingBackoff(query, 30_000, 300_000, query.state.data?.data),
 	});
 
 const inboxUrgencyMetadata = z.object({
@@ -1042,7 +1043,8 @@ export const WORK_OFFICE_REFETCH_MS = 30_000;
 export const workOfficeKnocksQueryOptions = () =>
 	osQuery.workInteractions.listInbox.queryOptions({
 		input: { limit: 100 },
-		refetchInterval: (query) => pollingBackoff(query, 30_000, 300_000),
+		refetchInterval: (query) =>
+			pollingBackoff(query, 30_000, 300_000, query.state.data?.data),
 		refetchOnWindowFocus: true,
 	});
 
