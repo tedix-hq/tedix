@@ -686,3 +686,40 @@ export async function findRepositoryPushObservations(
 		];
 	});
 }
+
+/** Exact head pushes whose commit trailer identifies the Work they delivered. */
+export async function findWorkImplementationPushes(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		commitShas: string[];
+		since: string;
+	},
+) {
+	const shas = [...new Set(params.commitShas)].slice(0, 30);
+	if (!shas.length) return [];
+	const list = sql.join(
+		shas.map((sha) => sql`${sha}`),
+		sql`, `,
+	);
+	return db
+		.select({
+			id: workItems.id,
+			projectId: workItems.projectId,
+			metadata: workItems.metadata,
+		})
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				gte(workItems.createdAt, params.since),
+				sql`${workItems.repositoryObserver} = 1`,
+				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
+				sql`json_extract(${workItems.metadata}, '$.event.branch') = 'main'`,
+				sql`json_extract(${workItems.metadata}, '$.event.workItemId') = ${params.workItemId}`,
+				sql`json_extract(${workItems.metadata}, '$.event.sha') IN (${list})`,
+			),
+		)
+		.limit(30);
+}

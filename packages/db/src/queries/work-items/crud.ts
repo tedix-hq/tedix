@@ -974,6 +974,7 @@ export async function completeWorkItem(
 		expectedWorkItemVersion?: number;
 		completedAt?: string;
 		nativeStewardCloseout?: NativeStewardCloseoutFence;
+		reclassifiedImplementationAttemptId?: string;
 		/** Internal timer closeout, fenced against a changed request, policy or Attempt. */
 		verifiedDispatcherDelivery?: {
 			requestId: string;
@@ -1040,10 +1041,28 @@ export async function completeWorkItem(
 			"Only accepted work can complete",
 		);
 	const delivery = params.verifiedDispatcherDelivery;
+	const implementationId = params.reclassifiedImplementationAttemptId;
+	if (
+		implementationId &&
+		(params.actor.type !== "external_agent" ||
+			!params.actor.sessionId ||
+			params.expectedWorkItemVersion === undefined ||
+			item.workKind !== "design")
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Implementation closeout proof is mismatched",
+		);
 	const completeMutation = db
 		.update(workItems)
 		.set({
 			disposition: "completed",
+			...(implementationId
+				? {
+						workKind: "coding" as const,
+						admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+					}
+				: {}),
 			completedAt,
 			updatedAt: completedAt,
 			...(params.closingComment
@@ -1063,7 +1082,7 @@ export async function completeWorkItem(
 				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
 				eq(workItems.disposition, "accepted"),
 				params.actor.type === "external_agent"
-					? sql`EXISTS (SELECT 1 FROM ${workAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
+					? sql`EXISTS (SELECT 1 FROM ${workAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND (${implementationId ?? null} IS NULL OR completed_attempt.id=${implementationId ?? null}) AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
 					: undefined,
 				native
 					? and(

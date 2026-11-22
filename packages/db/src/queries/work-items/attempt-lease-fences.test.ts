@@ -327,6 +327,43 @@ describe("Attempt lease write fences", () => {
 			).disposition,
 		).toBe("completed");
 	});
+	it("atomically corrects a design classification only for the fenced implementation attempt", async () => {
+		const { db, sqlite } = await fixture();
+		sqlite.exec("UPDATE work_items SET work_kind='design' WHERE id='work'");
+		await settleWorkItemAttempt(db, {
+			...caller,
+			settledAt: "2026-10-01T00:01:00.000Z",
+			outcome: "succeeded",
+		});
+		const [before] = await db.select().from(workItems);
+		const params = {
+			orgId: "org",
+			workItemId: "work",
+			actor: {
+				type: "external_agent" as const,
+				id: "agent",
+				sessionId: "session",
+			},
+			expectedWorkItemVersion: before!.version,
+			completedAt: "2026-10-01T00:02:00.000Z",
+		};
+		await expect(
+			completeWorkItem(db, {
+				...params,
+				reclassifiedImplementationAttemptId: "different",
+			}),
+		).rejects.toThrow();
+		expect((await db.select().from(workItems))[0]).toMatchObject({
+			workKind: "design",
+			disposition: "accepted",
+		});
+		await expect(
+			completeWorkItem(db, {
+				...params,
+				reclassifiedImplementationAttemptId: "attempt",
+			}),
+		).resolves.toMatchObject({ workKind: "coding", disposition: "completed" });
+	});
 	it("refuses completion from a success recorded after the lease expired", async () => {
 		const { db, sqlite } = await fixture();
 		sqlite

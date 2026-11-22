@@ -1,6 +1,7 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { grantLaneAttempt } from "@tedix/db/queries/work-items/lane-attempt-grants";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
+import { verifiedImplementationCloseout } from "./implementation-closeout";
 import {
 	normalizeNativeStewardCloseoutInput,
 	assertNativeStewardCloseout,
@@ -1484,7 +1485,12 @@ export const completeProcedure = factoryOs.complete.handler(
 		const workItem =
 			native?.item ?? (await assertWorkItemAccess(context, request.id));
 		if (native?.completed) return workItem;
-		const actor = await workItemStewardActor(context, workItem, "completion");
+		const implementation = native
+			? null
+			: await verifiedImplementationCloseout(context, workItem);
+		const actor =
+			implementation?.actor ??
+			(await workItemStewardActor(context, workItem, "completion"));
 		try {
 			const completed = await completeWorkItem(context.db, {
 				orgId: workItem.orgId,
@@ -1494,7 +1500,18 @@ export const completeProcedure = factoryOs.complete.handler(
 					request.nativeStewardCloseout?.expectedWorkItemVersion ??
 					workItem.version,
 				nativeStewardCloseout: native?.fence ?? undefined,
-				closingComment: native?.closingComment ?? undefined,
+				reclassifiedImplementationAttemptId: implementation?.attemptId,
+				closingComment: implementation
+					? {
+							id: crypto.randomUUID(),
+							body: `Classified as coding and completed after verifying commit ${implementation.commit} on main.`,
+							metadata: {
+								observationId: implementation.observationId,
+								attemptId: implementation.attemptId,
+								previousKind: "design",
+							},
+						}
+					: (native?.closingComment ?? undefined),
 				completedAt: new Date().toISOString(),
 			});
 			await recordWorkCompletedLearning(context, completed);
