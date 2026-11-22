@@ -1180,6 +1180,24 @@ describe("WorkspaceChat", () => {
 		expect(steps[1]?.textContent).toContain("Listing Work");
 	});
 
+	it("restores the selected conversation draft before the socket connects", () => {
+		const key = "tedix.workspace-chat.draft.ws-1.c1";
+		sessionStorage.setItem(key, "Saved before a reload");
+		try {
+			const fake = fakeClient("c1");
+			fake.set({
+				connection: { phase: "reconnecting", attempt: 1, nextTryAt: 0 },
+			});
+			mount(fake);
+			expect(host.querySelector("textarea")?.value).toBe(
+				"Saved before a reload",
+			);
+			expect(sessionStorage.getItem(key)).toBe("Saved before a reload");
+		} finally {
+			sessionStorage.removeItem(key);
+		}
+	});
+
 	it("says nothing about the connection until it drops, then only Reconnecting", () => {
 		vi.useFakeTimers();
 		try {

@@ -602,6 +602,7 @@ export function WorkspaceChat({
 				<Composer
 					key="composer"
 					client={client}
+					draftConversationId={conversationId ?? state.conversationId}
 					state={state}
 					modelControl={modelControl}
 					workspaceId={workspaceId}
@@ -793,6 +794,7 @@ export function WorkspaceChat({
 			<Composer
 				key="composer"
 				client={client}
+				draftConversationId={conversationId ?? state.conversationId}
 				state={state}
 				modelControl={modelControl}
 				workspaceId={workspaceId}
@@ -2117,6 +2119,7 @@ function ApprovalCard({
 
 function Composer({
 	client,
+	draftConversationId,
 	state,
 	workspaceId,
 	onBrowseResources,
@@ -2150,6 +2153,7 @@ function Composer({
 	) => string | undefined;
 	state: WorkspaceChatState;
 	client: WorkspaceChatClient | null;
+	draftConversationId: string | null;
 	disabledReason: string | null;
 	autoFocus: boolean;
 	busy: boolean;
@@ -2165,7 +2169,6 @@ function Composer({
 		conversationId: string | null;
 	} | null>(null);
 	// An unsent message survives a reload and a switch to another conversation.
-	const draftConversationId = client?.getConversationId() ?? null;
 	const [draft, setDraftText] = useState(() =>
 		readWorkspaceChatDraft(workspaceId, draftConversationId),
 	);
@@ -2275,7 +2278,8 @@ function Composer({
 		// same conversation, so what is typed and attached stays.
 		if (
 			previous.workspaceId === workspaceId &&
-			previous.draftConversationId === null
+			previous.draftConversationId === null &&
+			submitted?.conversationId === null
 		) {
 			setDraftText((text) => {
 				writeWorkspaceChatDraft(workspaceId, draftConversationId, text);
@@ -2288,7 +2292,7 @@ function Composer({
 		uploads.clear();
 		setDraftText(readWorkspaceChatDraft(workspaceId, draftConversationId));
 		setSubmitted(null);
-	}, [draftConversationId, workspaceId]);
+	}, [draftConversationId, submitted, workspaceId]);
 	useEffect(() => setSubmitted(null), [client]);
 	// Stop hands back what the agent had not read: it goes ahead of the draft.
 	const returnedMessages = useReturnedMessages(state.returned, (messages) => {
