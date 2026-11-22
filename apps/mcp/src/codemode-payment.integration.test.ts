@@ -2656,7 +2656,7 @@ describe("Code Mode payment-gated tools", () => {
 
 	it("rebuilds the code tool description from the per-request tool catalog", async () => {
 		const firstDescription = await listCodeToolDescription(createCachedData());
-		expect(firstDescription).toContain("13 tools across 5 namespaces");
+		expect(firstDescription).toContain("14 tools across 5 namespaces");
 		expect(firstDescription).toContain("payments (1)");
 		expect(firstDescription).toContain("nosana (1)");
 		expect(firstDescription).toContain("codemode (1)");
@@ -2683,7 +2683,7 @@ describe("Code Mode payment-gated tools", () => {
 		];
 
 		const secondDescription = await listCodeToolDescription(cachedData);
-		expect(secondDescription).toContain("14 tools across 6 namespaces");
+		expect(secondDescription).toContain("15 tools across 6 namespaces");
 		expect(secondDescription).toContain("catalog (1)");
 		expect(secondDescription).toContain("declare namespace catalog");
 		expect(secondDescription).toContain("function reconcile_app");

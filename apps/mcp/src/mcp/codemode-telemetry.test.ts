@@ -1957,7 +1957,7 @@ describe("Code Mode tail telemetry", () => {
 			mode: "stateless",
 			surface: "mcp-gateway",
 			// 1 app tool + 5 ui + 1 codemode + 4 flow built-ins.
-			toolCount: 12,
+			toolCount: 13,
 			namespaceCount: 4,
 			executionSurface: {
 				kind: "mcp-gateway",

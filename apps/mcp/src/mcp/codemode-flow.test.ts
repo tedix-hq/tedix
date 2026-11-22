@@ -482,6 +482,44 @@ describe("flow.run", () => {
 	});
 });
 
+describe("flow.save", () => {
+	it("records a code-saved draft without running it", async () => {
+		const { groups, calls } = makeGroups({
+			record: async () => ({ entry: { id: "skill-1", revision: 1 } }),
+		});
+		const result = await tools(groups).save!.execute({
+			source: SOURCE,
+			name: "weekly sweep",
+			capabilities: { mcp: { app_config: ["list_app_tools"] } },
+		});
+		expect(result).toEqual({ skillId: "skill-1", revision: 1 });
+		expect(calls.map((call) => call.callable)).toEqual([
+			"skills.record_skills",
+		]);
+		expect(calls[0]!.args).toMatchObject({
+			title: "weekly sweep",
+			tags: ["code-saved"],
+			lifecycleState: "draft",
+			validate: "error",
+			files: { "scripts/workflow.ts": SOURCE },
+		});
+	});
+
+	it("refuses a missing name or a non-workflow source before recording", async () => {
+		for (const input of [
+			{ source: SOURCE },
+			{ source: SOURCE, name: "  " },
+			{ source: "async () => gmail.send({})", name: "mail" },
+		]) {
+			const { groups, calls } = makeGroups();
+			await expect(tools(groups).save!.execute(input)).rejects.toThrow(
+				/flow\.save requires/,
+			);
+			expect(calls).toEqual([]);
+		}
+	});
+});
+
 describe("flow.status", () => {
 	it("returns the bounded projection so a poll stays small by construction", async () => {
 		const { groups } = makeGroups();

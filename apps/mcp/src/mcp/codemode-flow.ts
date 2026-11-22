@@ -7,7 +7,7 @@ import { type ToolJsonSchema } from "@tedix/api-contract/schemas/tools";
 
 export const FLOW_NAMESPACE = "flow";
 
-export const FLOW_TOOL_COUNT = 5;
+export const FLOW_TOOL_COUNT = 6;
 
 /**
  * One vocabulary for the skill-workflow lifecycle across canonical providers
@@ -51,6 +51,8 @@ const FLOW_PROVIDER_TYPES = [
 	'  type WorkspaceContextRef = { kind: "file" | "resource" | "output" | "link" | "structured"; uri: string; revision?: string; label?: string };',
 	"  /** Run a multi-step job OFF your context window: records `source` as an EPHEMERAL draft skill automation, a scripts/workflow.ts file (never scheduled, auto-archives unused), and starts it in one call. `source` is a Cloudflare Workflow module: export default { async run(event, step, env) { ... } } using step.do/sleep and env.MCP.<namespace>.<tool>(args) for every capability DECLARED in `capabilities.mcp`. The automation runs durably server-side; only its RETURN VALUE ever reaches your context, so return counts/ids/verdicts and put bulk output in an artifact. Returns { skillId, runId } — poll flow.status later (the run outlives this execution; do NOT busy-wait here). */",
 	"  function run(input: { source?: string; skillId?: string; name?: string; description?: string; skillDoc?: string; capabilities?: { mcp?: Record<string, string[]>; network?: boolean; reason?: { maxCalls?: number } }; params?: Record<string, unknown>; workspaceContext?: WorkspaceContextRef[]; workItemId?: string; tediSlug?: string; reason?: string }): Promise<{ skillId: string; runId: string; status: string; tediSlug: string; workItemId: string | null; workspaceContext: WorkspaceContextRef[] }>;",
+	"  /** Save a workflow module YOU wrote (same shape as flow.run source) as a draft skill tagged code-saved, WITHOUT running it. Returns { skillId, revision }; start it later with flow.run({ skillId }). */",
+	"  function save(input: { source: string; name: string; description?: string; skillDoc?: string; capabilities?: { mcp?: Record<string, string[]>; network?: boolean; reason?: { maxCalls?: number } } }): Promise<{ skillId: string; revision: number | null }>;",
 	"  /** Compact lifecycle poll for a flow run: { status, output, error, durationMs }. Terminal statuses: completed | failed | canceled. */",
 	"  function status(input: { runId: string; tediSlug?: string }): Promise<{ status: string | null; output: unknown; error: unknown; durationMs: number | null }>;",
 	"  /** Full evidence view (steps, tool-call receipts, artifacts, warnings) — reach for it when a run FAILED, not per poll. */",
@@ -182,6 +184,93 @@ export function buildFlowProvider(
 		});
 	};
 
+	/**
+	 * Record `source` as a draft skill through skills.record_skills — the one
+	 * path flow.run and flow.save share, so the near-duplicate gate, slug rules
+	 * and validation stay the library's.
+	 */
+	const recordDraft = async (
+		verb: "flow.run" | "flow.save",
+		input: Record<string, unknown>,
+		draft: {
+			name: string;
+			description: string;
+			source: string;
+			tag: "flow-ephemeral" | "code-saved";
+			note: string[];
+		},
+	): Promise<{ skillId: string; revision: number | null }> => {
+		const { name, description } = draft;
+		// The capability manifest rides SKILL.md frontmatter. JSON is valid
+		// YAML, so the declared object embeds verbatim — the platform validator
+		// stays the single authority on its shape.
+		const capabilities = recordFrom(input.capabilities) ?? {};
+		const content =
+			typeof input.skillDoc === "string" && input.skillDoc.trim()
+				? input.skillDoc
+				: [
+						"---",
+						// JSON strings are valid YAML double-quoted scalars, so a ": ",
+						// quote, or newline in the value cannot break the frontmatter.
+						`name: ${JSON.stringify(name)}`,
+						`description: ${JSON.stringify(description)}`,
+						`capabilities: ${JSON.stringify(capabilities)}`,
+						"---",
+						"",
+						`# ${name}`,
+						"",
+						description,
+						"",
+						...draft.note,
+						"",
+					].join("\n");
+		let recorded: unknown;
+		try {
+			recorded = await call("skills", "record_skills", {
+				title: name,
+				description,
+				content,
+				files: { "scripts/workflow.ts": draft.source },
+				tags: [draft.tag],
+				lifecycleState: "draft",
+				validate: "error",
+			});
+		} catch (error) {
+			// The library's near-duplicate gate is the wrong shape for ephemeral
+			// RERUNS (a retry is a near-dupe of itself by definition), but silently
+			// mutating the 90%-similar skill it names would be worse — that could
+			// be a real library asset. Turn the refusal into the rerun path instead.
+			const message = error instanceof Error ? error.message : String(error);
+			const suggested = message.match(
+				/improve_skills\(\{ id: "([0-9a-f-]{36})"/,
+			)?.[1];
+			if (suggested) {
+				throw new Error(
+					`${verb}: an equivalent skill already exists (${suggested}). Rerun it as-is with flow.run({ skillId: "${suggested}", params }), or change the automation body if this is genuinely new. Original: ${message}`,
+				);
+			}
+			throw error;
+		}
+		// Handlers nest the created row (live shape: { entry: {...} }); tolerate
+		// top-level and the sibling wrappers too.
+		const recordedRow = recordFrom(recorded) ?? {};
+		const nested =
+			recordFrom(recordedRow.entry) ??
+			recordFrom(recordedRow.skill) ??
+			recordFrom(recordedRow.data) ??
+			recordedRow;
+		const foundId = nested.id ?? nested.skillId ?? recordedRow.id;
+		if (typeof foundId !== "string" || !foundId) {
+			throw new Error(
+				`${verb}: draft was recorded without an id — inspect skills.record_skills output directly`,
+			);
+		}
+		return {
+			skillId: foundId,
+			revision: typeof nested.revision === "number" ? nested.revision : null,
+		};
+	};
+
 	return {
 		name: FLOW_NAMESPACE,
 		tools: {
@@ -229,33 +318,6 @@ export function buildFlowProvider(
 						typeof input.description === "string" && input.description.trim()
 							? input.description.trim()
 							: "Ephemeral automation authored via flow.run.";
-					// The capability manifest rides SKILL.md frontmatter. JSON is
-					// valid YAML, so the declared object embeds verbatim — the
-					// platform validator stays the single authority on its shape.
-					const capabilities = recordFrom(input.capabilities) ?? {};
-					const suppliedSkillDoc =
-						typeof input.skillDoc === "string" && input.skillDoc.trim()
-							? input.skillDoc
-							: null;
-					const content =
-						suppliedSkillDoc ??
-						[
-							"---",
-							// JSON strings are valid YAML double-quoted scalars, so a ": ",
-							// quote, or newline in the value cannot break the frontmatter.
-							`name: ${JSON.stringify(name)}`,
-							`description: ${JSON.stringify(description)}`,
-							`capabilities: ${JSON.stringify(capabilities)}`,
-							"---",
-							"",
-							`# ${name}`,
-							"",
-							description,
-							"",
-							"Ephemeral flow.run automation: runs only when started, never on",
-							"a schedule, auto-archives after 14 days unused.",
-							"",
-						].join("\n");
 					const tediNs = resolveTediNamespace(
 						input,
 						SKILL_WORKFLOW_SURFACES.run.tediTool,
@@ -314,55 +376,22 @@ export function buildFlowProvider(
 								`flow.run runner arguments invalid: ${checked.issues.map((issue) => issue.message).join("; ")}`,
 							);
 					}
-					let skillId = existingSkillId ?? undefined;
-					if (!skillId) {
-						let recorded: unknown;
-						try {
-							recorded = await call("skills", "record_skills", {
-								title: name,
+					const skillId =
+						existingSkillId ??
+						(
+							await recordDraft("flow.run", input, {
+								name,
 								description,
-								content,
-								files: { "scripts/workflow.ts": source },
+								source,
 								// The adoption cohort — same tag the CLI stamps, so gateway
 								// and CLI usage are one queryable population.
-								tags: ["flow-ephemeral"],
-								lifecycleState: "draft",
-								validate: "error",
-							});
-						} catch (error) {
-							// The library's near-duplicate gate is the wrong shape for
-							// ephemeral RERUNS (a retry is a near-dupe of itself by
-							// definition), but silently mutating the 90%-similar skill it
-							// names would be worse — that could be a real library asset.
-							// Turn the refusal into the actionable rerun path instead.
-							const message =
-								error instanceof Error ? error.message : String(error);
-							const suggested = message.match(
-								/improve_skills\(\{ id: "([0-9a-f-]{36})"/,
-							)?.[1];
-							if (suggested) {
-								throw new Error(
-									`flow.run: an equivalent skill already exists (${suggested}). Rerun it as-is with flow.run({ skillId: "${suggested}", params }), or change the automation body if this is genuinely new. Original: ${message}`,
-								);
-							}
-							throw error;
-						}
-						// Handlers nest the created row (live shape: { entry: {...} });
-						// tolerate top-level and the sibling wrappers too.
-						const recordedRow = recordFrom(recorded) ?? {};
-						const nested =
-							recordFrom(recordedRow.entry) ??
-							recordFrom(recordedRow.skill) ??
-							recordFrom(recordedRow.data) ??
-							recordedRow;
-						const foundId = nested.id ?? nested.skillId ?? recordedRow.id;
-						if (typeof foundId !== "string" || !foundId) {
-							throw new Error(
-								"flow.run: draft was recorded without an id — inspect skills.record_skills output directly",
-							);
-						}
-						skillId = foundId;
-					}
+								tag: "flow-ephemeral",
+								note: [
+									"Ephemeral flow.run automation: runs only when started, never on",
+									"a schedule, auto-archives after 14 days unused.",
+								],
+							})
+						).skillId;
 
 					const started = await call(
 						tediNs,
@@ -401,6 +430,43 @@ export function buildFlowProvider(
 							typeof input.workItemId === "string" ? input.workItemId : null,
 						workspaceContext,
 					};
+				},
+			},
+			save: {
+				description:
+					"Save a workflow module you wrote as a draft skill (tag code-saved) without running it. Returns { skillId, revision }; run it later with flow.run({ skillId }). Promotion stays an explicit request to org skill reviewers.",
+				execute: async (rawInput: unknown) => {
+					const input = recordFrom(rawInput) ?? {};
+					const name = typeof input.name === "string" ? input.name.trim() : "";
+					if (!name) throw new Error("flow.save requires `name`");
+					const source = typeof input.source === "string" ? input.source : "";
+					// Only an explicit module in the flow shape is saved; sandbox code is
+					// never wrapped or translated, so it cannot move to the tedi's access.
+					if (
+						!/\bexport\s+default\b/.test(source) ||
+						!/\brun\s*\(/.test(source)
+					)
+						throw new Error(
+							"flow.save requires `source` as a workflow module: export default { async run(event, step, env) { ... } }",
+						);
+					if (!namespaceGroups.get("skills")?.fns.record_skills)
+						throw new Error(
+							"flow.save requires skills.record_skills on this gateway",
+						);
+					assertAuthorized("skills", "record_skills");
+					return recordDraft("flow.save", input, {
+						name: name.slice(0, 80),
+						description:
+							typeof input.description === "string" && input.description.trim()
+								? input.description.trim()
+								: "Workflow saved via flow.save.",
+						source,
+						tag: "code-saved",
+						note: [
+							"Saved with flow.save: a draft that runs only when started with",
+							"flow.run({ skillId }), under the normal draft rules.",
+						],
+					});
 				},
 			},
 			status: {
@@ -528,6 +594,26 @@ export const FLOW_CATALOG_TOOLS = {
 				reason: { type: "string" },
 			},
 			required: [],
+		},
+	},
+	save: {
+		name: "Save Flow Workflow As Draft Skill",
+		description:
+			"Save an explicit workflow module (export default { async run(event, step, env) { ... } }) as a draft skill tagged code-saved without running it. Returns { skillId, revision }; run it later with flow.run({ skillId }).",
+		parameters: {
+			type: "object",
+			properties: {
+				source: {
+					type: "string",
+					description:
+						"Workflow module in the flow.run source shape. Sandbox code is not accepted or translated.",
+				},
+				name: { type: "string" },
+				description: { type: "string" },
+				skillDoc: { type: "string" },
+				capabilities: { type: "object" },
+			},
+			required: ["source", "name"],
 		},
 	},
 	status: {
