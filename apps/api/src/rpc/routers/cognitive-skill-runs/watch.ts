@@ -14,6 +14,7 @@ import { getTediById } from "@tedix/db/queries/tedis";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { recordTediSubmissionStarted } from "../../../kernel/runtime-submission-bridge";
+import { resolveKernelFallbackTediId } from "../kernel/write-approval-settlement";
 import {
 	WATCH_CHECK_TOOL,
 	WATCH_OPEN_WINDOW_HOURS,
@@ -99,9 +100,18 @@ export const skillsStartWorkItemWatch = authedSkills.startWorkItemWatch
 	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
-		if (!input.tediId)
-			throw createError(ErrorCodes.BAD_REQUEST, "tediId is required");
-		await requireOwnedTedi(context, input.tediId, orgId);
+		// A tedi surface injects its own id. The organization's admin surface has
+		// no tedi, so the run takes the same stable org executor Home uses; the
+		// executor grants nothing here, because every check re-verifies the
+		// starter and returns only the watched item's status.
+		const tediId =
+			input.tediId ?? (await resolveKernelFallbackTediId(context, orgId));
+		if (!tediId)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"flow.watch needs a tedi in this organization to own the run",
+			);
+		await requireOwnedTedi(context, tediId, orgId);
 		let params;
 		try {
 			params = normalizeFlowWatchInput(input.watch, new Date());
@@ -137,7 +147,7 @@ export const skillsStartWorkItemWatch = authedSkills.startWorkItemWatch
 					skillSlug: skill.slug,
 					skillRevision: skill.revision,
 					orgId,
-					tediId: input.tediId,
+					tediId,
 					params,
 					workflowSource: WATCH_WORKFLOW_SOURCE,
 					skillDoc: WATCH_SKILL_DOC,
@@ -166,7 +176,7 @@ export const skillsStartWorkItemWatch = authedSkills.startWorkItemWatch
 				limit: FLOW_WATCH_LIMITS.maxOpenPerOrganization,
 			});
 			const visible = open
-				.filter((run) => run.openRunTediId === input.tediId)
+				.filter((run) => run.openRunTediId === tediId)
 				.map((run) => run.openRunId);
 			const hidden = open.length - visible.length;
 			throw createError(
@@ -176,7 +186,7 @@ export const skillsStartWorkItemWatch = authedSkills.startWorkItemWatch
 		}
 
 		await recordTediSubmissionStarted(context.db, {
-			tediId: input.tediId,
+			tediId,
 			runId: dispatched.runId,
 			organizationId: orgId,
 			sourceKind: "skill_workflow",

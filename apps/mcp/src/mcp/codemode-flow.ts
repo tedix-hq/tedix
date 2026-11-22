@@ -53,6 +53,11 @@ export const SKILL_WORKFLOW_SURFACE_BY_TEDI_TOOL = new Map<
 
 const WATCH_START_TOOL = "start_work_item_watch";
 const WATCH_CANCEL_TOOL = "cancel_skill_workflow";
+/** Contract-named run tools on an organization's admin surface. */
+const ADMIN_SURFACE_RUN_TOOLS: Record<string, string> = {
+	get_skill_workflow_status: "run_workflow_status",
+	cancel_skill_workflow: "run_workflow_cancel",
+};
 
 const FLOW_PROVIDER_TYPES = [
 	"declare namespace flow {",
@@ -69,7 +74,7 @@ const FLOW_PROVIDER_TYPES = [
 	"  function list(input?: { limit?: number; tediSlug?: string }): Promise<unknown>;",
 	"  /** List the exact env.MCP.tedi methods reachable by an automation on this gateway. Call this before authoring a manifest instead of guessing from the broader Code Mode catalog. */",
 	"  function tools(input?: { tediSlug?: string }): Promise<{ tediSlug: string; namespace: string; methods: string[]; manifest: { mcp: { tedi: string[] } } }>;",
-	'  /** Wait for a Work Item status OFF your context: a durable watch checks it every `every` (>= 15 s) until `until` matches, maxChecks (<= 100) is used or the deadline (<= 24 h) passes. Returns { runId } at once; end your turn and read the outcome later with flow.status (output.outcome: matched | max_checks | deadline | check_failed). At most 20 open watches per organization. until is a rule, not code: { path: "disposition", in: ["completed"] } | { path, eq } | { path, gte }. */',
+	'  /** Wait for a Work Item status OFF your context: a durable watch checks it every `every` (>= 15 s) until `until` matches, maxChecks (<= 100) is used or the deadline (<= 24 h) passes. Returns { runId } at once; end your turn and read the outcome later with flow.status (output.outcome: matched | max_checks | deadline | check_failed). At most 20 open watches per organization. On an organization admin surface pass tediSlug, e.g. "tedix_unified_tedix". until is a rule, not code: { path: "disposition", in: ["completed"] } | { path, eq } | { path, gte }. */',
 	'  function watch(input: { check: { callable: "work.item_status"; args: { workItemId: string } }; until: { path: string; in?: Array<string | number | boolean>; eq?: string | number | boolean; gte?: number }; every: number | string; maxChecks?: number; deadline?: number | string; tediSlug?: string; reason?: string }): Promise<{ runId: string; status: string; tediSlug: string; workItemId: string; everySeconds: number; maxChecks: number; deadlineAt: string }>;',
 	"  /** Stop a flow run (a watch or any flow.run job). */",
 	"  function cancel(input: { runId: string; tediSlug?: string; reason?: string }): Promise<unknown>;",
@@ -160,6 +165,25 @@ export function buildFlowProvider(
 		throw new Error(
 			`flow.* found multiple tedi namespaces with ${tool} (${candidates.join(", ")}); pass tediSlug explicitly`,
 		);
+	};
+
+	// An organization's admin surface (e.g. tedix_unified_tedix) projects the
+	// same run procedures under their contract names and has no tedi of its
+	// own. With an explicit tediSlug naming such a surface, use those names.
+	const resolveRunTool = (
+		input: Record<string, unknown>,
+		tool: string,
+	): { namespace: string; tool: string } => {
+		const alias = ADMIN_SURFACE_RUN_TOOLS[tool];
+		const explicit =
+			typeof input.tediSlug === "string" &&
+			/^[a-z0-9_-]{1,64}$/i.test(input.tediSlug.trim())
+				? sanitizeToolName(input.tediSlug.trim())
+				: "";
+		const group = explicit ? namespaceGroups.get(explicit) : undefined;
+		if (alias && group && !group.fns[tool] && group.fns[alias])
+			return { namespace: explicit, tool: alias };
+		return { namespace: resolveTediNamespace(input, tool), tool };
 	};
 
 	const workspaceContextFrom = (value: unknown) => {
@@ -488,14 +512,12 @@ export function buildFlowProvider(
 					const input = recordFrom(rawInput) ?? {};
 					const runId = typeof input.runId === "string" ? input.runId : "";
 					if (!runId) throw new Error("flow.status requires `runId`");
-					const tediNs = resolveTediNamespace(
+					const target = resolveRunTool(
 						input,
 						SKILL_WORKFLOW_SURFACES.status.tediTool,
 					);
 					const row = recordFrom(
-						await call(tediNs, SKILL_WORKFLOW_SURFACES.status.tediTool, {
-							runId,
-						}),
+						await call(target.namespace, target.tool, { runId }),
 					);
 					// Same bounded projection the CLI uses: the run's own `result`
 					// field must never eat the envelope, and a poll must stay small
@@ -579,9 +601,9 @@ export function buildFlowProvider(
 					const input = recordFrom(rawInput) ?? {};
 					const runId = typeof input.runId === "string" ? input.runId : "";
 					if (!runId) throw new Error("flow.cancel requires `runId`");
-					const tediNs = resolveTediNamespace(input, WATCH_CANCEL_TOOL);
-					assertAuthorized(tediNs, WATCH_CANCEL_TOOL);
-					return call(tediNs, WATCH_CANCEL_TOOL, {
+					const target = resolveRunTool(input, WATCH_CANCEL_TOOL);
+					assertAuthorized(target.namespace, target.tool);
+					return call(target.namespace, target.tool, {
 						runId,
 						// Destructive-governed: stateless callers authorize explicitly.
 						confirmDestructive: true,

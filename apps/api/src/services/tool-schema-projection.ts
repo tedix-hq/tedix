@@ -776,6 +776,9 @@ const UNPROJECTABLE_ENDPOINTS = new Set([
 	"osWorkspaces/inspections/workspaces",
 	"osWorkspaces/inspections/start",
 	"osWorkspaces/inspections/history",
+	// Only a running flow.watch may call it (trusted run header); tedis reach
+	// it through their own tool surface.
+	"skills/checkWorkItemWatch",
 ]);
 
 function isProjectableEndpoint(endpoint: ResolvedContractEndpoint): boolean {

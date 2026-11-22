@@ -570,6 +570,71 @@ describe("flow.watch", () => {
 			},
 		]);
 	});
+
+	it("watches, polls and cancels through an organization admin surface", async () => {
+		const calls: Array<{ callable: string; args: Record<string, unknown> }> =
+			[];
+		const track =
+			(callable: string, result: unknown) =>
+			async (args: Record<string, unknown>) => {
+				calls.push({ callable, args });
+				return result;
+			};
+		const groups = new Map<string, NamespaceGroup>([
+			[
+				"tedix_unified_tedix",
+				{
+					fns: {
+						start_work_item_watch: track("start", {
+							runId: "r1",
+							status: "queued",
+						}),
+						run_workflow_status: track("status", { status: "running" }),
+						run_workflow_cancel: track("cancel", {
+							runId: "r1",
+							status: "canceled",
+						}),
+					},
+					schemas: {},
+				},
+			],
+			[
+				"acme_unified_tedix",
+				{ fns: { start_work_item_watch: track("other", {}) }, schemas: {} },
+			],
+		]);
+		const flow = tools(groups);
+		const watch = {
+			check: {
+				callable: "work.item_status",
+				args: { workItemId: WORK_ITEM_ID },
+			},
+			until: { path: "disposition", eq: "accepted" },
+			every: 15,
+		};
+		// Several organizations' surfaces: the caller must name one.
+		await expect(flow.watch!.execute(watch)).rejects.toThrow(/pass tediSlug/);
+		const tediSlug = "tedix_unified_tedix";
+		await expect(
+			flow.watch!.execute({ ...watch, tediSlug }),
+		).resolves.toMatchObject({
+			runId: "r1",
+			tediSlug,
+		});
+		await flow.status!.execute({ runId: "r1", tediSlug });
+		await flow.cancel!.execute({ runId: "r1", tediSlug });
+		// No tediId is sent: the server picks the organization's run executor.
+		expect(calls.map((call) => call.callable)).toEqual([
+			"start",
+			"status",
+			"cancel",
+		]);
+		expect(calls[0]!.args).toEqual({ watch });
+		expect(calls[2]!.args).toMatchObject({
+			runId: "r1",
+			confirmDestructive: true,
+		});
+	});
 });
 
 describe("flow.status", () => {
