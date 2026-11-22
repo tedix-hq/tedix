@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.17 — 2026-11-22
+
+### Patch Changes
+
+- 6197552: Make landed-work deployment checks use local product ancestry, refresh missing commits, tolerate larger proof output, and bound settlement and verification notes. Inconclusive checks report a one-line reason and back off.
+
 ## 0.29.16 — 2026-11-21
 
 ### Patch Changes
