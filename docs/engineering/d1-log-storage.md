@@ -1,3 +1,8 @@
+---
+title: "D1 log storage"
+description: "D1 log storage"
+---
+
 # D1 log storage
 
 The main database holds business state and authority. The append-only log

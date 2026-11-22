@@ -1,3 +1,8 @@
+---
+title: "Organization history packs"
+description: "Organization history packs"
+---
+
 # Organization history packs
 
 An authorized installation operator can collect one organization's history for

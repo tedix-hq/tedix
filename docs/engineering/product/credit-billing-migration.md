@@ -1,3 +1,8 @@
+---
+title: "A monetary credit wallet"
+description: "A monetary credit wallet"
+---
+
 # A monetary credit wallet
 
 ## First implementation

@@ -1,4 +1,6 @@
 ---
+title: "Organization data residency"
+description: "Organization data residency"
 summary: "Organization model-egress residency policy, regional provider catalog and remaining migration boundaries"
 read_when:
   - Designing organization data residency or provider region enforcement

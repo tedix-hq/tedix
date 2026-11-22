@@ -1,3 +1,8 @@
+---
+title: "Investigating slow Work reads"
+description: "Investigating slow Work reads"
+---
+
 # Investigating slow Work reads
 
 Use operator-authorized, read-only Workers Observability and D1 Query Insights
