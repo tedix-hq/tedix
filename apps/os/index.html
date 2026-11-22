@@ -176,12 +176,25 @@
 					style="border-radius: 12px"
 				/>
 				<!-- Same geometry as Kumo's Loader, which is not loaded yet. -->
+				<!-- A CSS transform keeps turning while the app script loads; an SVG
+				     animation runs on the busy main thread and stands still. -->
+				<style>
+					@keyframes boot-spin {
+						to {
+							transform: rotate(360deg);
+						}
+					}
+				</style>
 				<svg
 					width="24"
 					height="24"
 					viewBox="0 0 24 24"
 					stroke="currentColor"
 					aria-hidden="true"
+					style="
+						animation: boot-spin 1.5s linear infinite;
+						will-change: transform;
+					"
 				>
 					<circle
 						cx="12"
@@ -191,16 +204,7 @@
 						stroke-width="2"
 						stroke-linecap="round"
 						stroke-dasharray="42 150"
-					>
-						<animateTransform
-							attributeName="transform"
-							type="rotate"
-							from="0 12 12"
-							to="360 12 12"
-							dur="1.5s"
-							repeatCount="indefinite"
-						/>
-					</circle>
+					/>
 				</svg>
 				<p style="margin: 0">Opening Tedix…</p>
 			</div>
