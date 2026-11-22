@@ -58,6 +58,22 @@ it("rejects unknown refs even without any tier restriction", () => {
 	);
 });
 
+it("admits platform decision models that are not catalog entries", () => {
+	for (const [provider, model] of [
+		["workers-ai", "@cf/cloudflare/clef"],
+		["workers-ai", "@cf/cloudflare/clef-flash"],
+		["typesafe", "typesafe/jev"],
+		["typesafe", "jev-1.13.0"],
+	] as const) {
+		expect(aiGatewayModelTierAllowed(provider, model, {}, catalog)).toBe(true);
+		expect(
+			aiGatewayModelTierAllowed(provider, model, {
+				organization: { allowedModelTiers: ["economy"] },
+			}),
+		).toBe(true);
+	}
+});
+
 it("uses the canonical Auto ref for its Workers AI transport identity", () => {
 	const registry = [modelCatalogEntry("cloudflare/auto", { tier: "balanced" })];
 	expect(
