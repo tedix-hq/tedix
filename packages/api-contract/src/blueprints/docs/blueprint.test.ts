@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import { AppRuntimeFilesSchema } from "../schemas/os-app-runtime";
-import { OsBlueprintDefinitionSchema } from "../schemas/os-workspaces";
-import { normalizeOsOutputInput } from "../utils/os-document";
+import { AppRuntimeFilesSchema } from "../../schemas/os-app-runtime";
+import { OsBlueprintDefinitionSchema } from "../../schemas/os-workspaces";
+import { normalizeOsOutputInput } from "../../utils/os-document";
 import {
 	buildDocBlueprint,
 	DOC_CLIENT_SOURCE,
 	DOC_CLIENT_SHA256,
 	DOC_SERVER_SOURCE,
-} from "./doc-blueprint";
-import { DOC_BLUEPRINT_VERSION } from "./office-editor-versions";
+} from "./blueprint";
+import { DOC_BLUEPRINT_VERSION } from "../../assets/office-editor-versions";
 
 type Document = {
 	kind: "document";

@@ -6,9 +6,9 @@ import {
 	OsDocumentPatchOpSchema,
 	OsWorkspaceResourceSlotSchema,
 	type OsBlueprintDefinition,
-} from "../schemas/os-workspaces";
+} from "../../schemas/os-workspaces";
 
-import { DOC_BLUEPRINT_VERSION } from "./office-editor-versions";
+import { DOC_BLUEPRINT_VERSION } from "../../assets/office-editor-versions";
 export const DOC_CLIENT_SOURCE = portableDocClient.source;
 export const DOC_CLIENT_SHA256 = portableDocClient.sha256;
 

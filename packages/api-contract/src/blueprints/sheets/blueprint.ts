@@ -1,14 +1,14 @@
 import { z } from "zod";
 import portableSheetClient from "./sheet-client.v3.generated.json";
-import { SHEET_BLUEPRINT_VERSION } from "./office-editor-versions";
+import { SHEET_BLUEPRINT_VERSION } from "../../assets/office-editor-versions";
 import {
 	OsBlueprintDefinitionSchema,
 	OsOutputContentSchema,
 	OsOutputPatchSchema,
 	OsWorkspaceResourceSlotSchema,
 	type OsBlueprintDefinition,
-} from "../schemas/os-workspaces";
-import { sheetCsvText } from "../utils/sheet-csv";
+} from "../../schemas/os-workspaces";
+import { sheetCsvText } from "../../utils/sheet-csv";
 
 export const SHEET_CLIENT_SOURCE = portableSheetClient.source;
 export const SHEET_CLIENT_SHA256 = portableSheetClient.sha256;

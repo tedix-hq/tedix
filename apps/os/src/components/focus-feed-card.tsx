@@ -1,3 +1,4 @@
+import { WorkLayoutRegion } from "./work-layout";
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import {
 	ChatText,
@@ -309,247 +310,289 @@ export function FeedCard({
 				detail={`${actor}${project ? ` · ${project}` : ""}`}
 			/>
 			<div className="fd-story-body grid">
-				<div className="ft-byline flex-wrap">
-					<Text as="span" className="min-w-0 break-words">
-						{resolved.label}
-					</Text>
-					{project && (
-						<Text as="span" tone="secondary">
-							·{" "}
-							{item.projectId ? (
+				<WorkLayoutRegion
+					region="post"
+					slots={{
+						author: (
+							<>
+								<div className="ft-byline flex-wrap">
+									<Text as="span" className="min-w-0 break-words">
+										{resolved.label}
+									</Text>
+									{project && (
+										<Text as="span" tone="secondary">
+											·{" "}
+											{item.projectId ? (
+												<Link
+													href={`/work/projects/${item.projectId}`}
+													variant="record"
+												>
+													{project}
+												</Link>
+											) : (
+												project
+											)}
+										</Text>
+									)}
+									<time dateTime={item.at} title={absoluteTime(item.at)}>
+										· {relativeTime(item.at)}
+									</time>
+								</div>
+							</>
+						),
+						headline: (
+							<>
 								<Link
-									href={`/work/projects/${item.projectId}`}
+									href={item.needsAction ? decisionHref : item.source}
 									variant="record"
+									className="ft-post-link"
+									aria-label={
+										item.needsAction
+											? undefined
+											: `Open ${item.attachment?.title ?? item.sentence}`
+									}
 								>
-									{project}
+									<span className="ft-sentence">{story.headline}</span>
 								</Link>
-							) : (
-								project
-							)}
-						</Text>
-					)}
-					<time dateTime={item.at} title={absoluteTime(item.at)}>
-						· {relativeTime(item.at)}
-					</time>
-				</div>
-				<Link
-					href={item.needsAction ? decisionHref : item.source}
-					variant="record"
-					className="ft-post-link"
-					aria-label={
-						item.needsAction
-							? undefined
-							: `Open ${item.attachment?.title ?? item.sentence}`
-					}
-				>
-					<span className="ft-sentence">{story.headline}</span>
-				</Link>
-				{item.presentation?.version === 2 && item.presentation.story && (
-					<div className="grid gap-1">
-						<Text>{item.presentation.story}</Text>
-						{item.presentation.whyMe && (
-							<Text>
-								<strong>Why you:</strong> {item.presentation.whyMe}
-							</Text>
-						)}
-						<Text>
-							<strong>Recommended:</strong> {item.presentation.recommendation}
-						</Text>
-					</div>
-				)}
-				{options.length > 0 && (
-					<ul aria-label="Options" className="grid gap-1">
-						{options.map((option) => (
-							<li key={option.id}>
-								<strong>
-									{option.label}
-									{option.recommended && " · Recommended"}
-								</strong>
-								: {option.consequence}
-							</li>
-						))}
-					</ul>
-				)}
+							</>
+						),
+						details: (
+							<>
+								{item.presentation?.version === 2 &&
+									item.presentation.story && (
+										<div className="grid gap-1">
+											<Text>{item.presentation.story}</Text>
+											{item.presentation.whyMe && (
+												<Text>
+													<strong>Why you:</strong> {item.presentation.whyMe}
+												</Text>
+											)}
+											<Text>
+												<strong>Recommended:</strong>{" "}
+												{item.presentation.recommendation}
+											</Text>
+										</div>
+									)}
+								{options.length > 0 && (
+									<ul aria-label="Options" className="grid gap-1">
+										{options.map((option) => (
+											<li key={option.id}>
+												<strong>
+													{option.label}
+													{option.recommended && " · Recommended"}
+												</strong>
+												: {option.consequence}
+											</li>
+										))}
+									</ul>
+								)}
 
-				<div className="ft-detail-row">
-					{item.needsAction && (
-						<Link href={decisionHref} variant="plain" className="ft-chip-link">
-							<Badge variant="warning">
-								{OS_COPY.feed.timeline.status.needsYou}
-							</Badge>
-						</Link>
-					)}
-					{status && <ActivityStatusBadge {...status} />}
-					{story.detail && (
-						<p
-							className={quote ? "ft-detail ft-quote" : "ft-detail"}
-							title={story.detail}
-						>
-							{story.detail}
-						</p>
-					)}
-					{!item.needsAction && more}
-				</div>
-				{!item.needsAction &&
-					(item.attachment || (item.workItemId && item.kind === "result")) && (
-						<div className="ft-preview">
-							<FeedOutcomePreview item={item} compact />
-						</div>
-					)}
-				{/* Work done on someone's behalf names them up front; other sources sit behind More. */}
-				{identity?.contributor && (
-					<WorkSourceProvenance actor={identity} name={actor} source={source} />
-				)}
-				{item.autonomyFeedback && (
-					<Button
-						size="sm"
-						variant="ghost"
-						disabled={busy || correctionSaved}
-						onClick={async () => {
-							if (await onReact(item, "ask")) setCorrectionSaved(true);
-						}}
-					>
-						{correctionSaved
-							? "I'll ask next time"
-							: "This should have asked me"}
-					</Button>
-				)}
-				{item.internalDecisionUndo && (
-					<InternalDecisionUndo
-						key={`${item.internalDecisionUndo.requestId}:${item.internalDecisionUndo.expectedRevision}`}
-						target={item.internalDecisionUndo}
-						disabled={busy}
-					/>
-				)}
-				<div className="ft-post-actions flex flex-wrap items-center gap-2">
-					{item.workItemId && (
-						<Button
-							size="sm"
-							variant="ghost"
-							aria-expanded={discussion}
-							aria-haspopup="dialog"
-							onClick={(event) => {
-								setDiscussionTrigger(event.currentTarget);
-								onOpenDiscussion?.();
-								setDiscussion(true);
-							}}
-						>
-							<ChatText size={16} aria-hidden />
-							Comments
-						</Button>
-					)}
-					<FocusRowActions
-						actions={[
-							// The first two row reactions stay one click away beside Comment.
-							...rowActions.slice(0, 2),
-							{
-								label: "Private note",
-								Icon: ChatText,
-								expanded: comment,
-								controls: commentId,
-								onClick: (trigger) => {
-									commentTrigger.current = trigger;
-									if (comment) closeComment();
-									else setComment(true);
-								},
-							},
-							...rowActions.slice(2),
-							{
-								label: "Why this update",
-								Icon: Info,
-								onClick: () => rail?.openSection(section),
-							},
-							...(item.projectId
-								? [
-										{
-											label: "Turn into Work",
-											Icon: ListPlus,
-											disabled: busy,
-											onClick: () => void onWork(item),
-										},
-									]
-								: []),
-						]}
-					/>
-				</div>
-				{discussionTrigger && item.workItemId && (
-					<PostDiscussion
-						key={item.workItemId}
-						itemId={item.workItemId}
-						headline={story.headline}
-						open={discussion}
-						onOpenChange={setDiscussion}
-						trigger={discussionTrigger}
-					/>
-				)}
-				<div
-					id={receiptId}
-					role="region"
-					aria-label="Receipt"
-					hidden={!receipt}
-				>
-					{receipt && (
-						<div className="focus-receipt">
-							<WorkSourceProvenance
-								actor={identity}
-								name={actor}
-								source={source}
-								details
-							/>
-							{!item.attachment && <FeedOutcomePreview item={item} />}
-							<Text tone="secondary" className="whitespace-pre-line">
-								{item.explanation}
-							</Text>
-							<Link variant="record" href={item.source}>
-								Open receipt
-							</Link>
-						</div>
-					)}
-				</div>
-				{rail?.activeSection === section && (
-					<DecisionContextSection sectionId={section} title="Why this update">
-						<WorkSourceProvenance
-							actor={identity}
-							name={actor}
-							source={source}
-							details
-						/>
-						<Text>{item.explanation}</Text>
-						{item.because && <Text>{item.because}</Text>}
-						<Text tone="secondary">
-							Ranked using urgency, importance, value, continuity, freshness and
-							the time it takes to read.
-						</Text>
-					</DecisionContextSection>
-				)}
-				<div id={commentId} role="region" aria-label="Note" hidden={!comment}>
-					{comment && (
-						<div className="grid gap-2">
-							<Textarea
-								aria-label="Your correction"
-								value={text}
-								onChange={(e) => setText(e.target.value)}
-								maxLength={4000}
-							/>
-							<Button
-								disabled={busy || !text.trim()}
-								onClick={() =>
-									void onReact(item, "comment", text.trim()).then((ok) => {
-										if (ok) {
-											setText("");
-											closeComment();
-										}
-									})
-								}
-							>
-								Save note
-							</Button>
-							<Button variant="ghost" onClick={closeComment}>
-								Close note
-							</Button>
-						</div>
-					)}
-				</div>
+								<div className="ft-detail-row">
+									{item.needsAction && (
+										<Link
+											href={decisionHref}
+											variant="plain"
+											className="ft-chip-link"
+										>
+											<Badge variant="warning">
+												{OS_COPY.feed.timeline.status.needsYou}
+											</Badge>
+										</Link>
+									)}
+									{status && <ActivityStatusBadge {...status} />}
+									{story.detail && (
+										<p
+											className={quote ? "ft-detail ft-quote" : "ft-detail"}
+											title={story.detail}
+										>
+											{story.detail}
+										</p>
+									)}
+									{!item.needsAction && more}
+								</div>
+								{!item.needsAction &&
+									(item.attachment ||
+										(item.workItemId && item.kind === "result")) && (
+										<div className="ft-preview">
+											<FeedOutcomePreview item={item} compact />
+										</div>
+									)}
+								{/* Work done on someone's behalf names them up front; other sources sit behind More. */}
+								{identity?.contributor && (
+									<WorkSourceProvenance
+										actor={identity}
+										name={actor}
+										source={source}
+									/>
+								)}
+								{item.autonomyFeedback && (
+									<Button
+										size="sm"
+										variant="ghost"
+										disabled={busy || correctionSaved}
+										onClick={async () => {
+											if (await onReact(item, "ask")) setCorrectionSaved(true);
+										}}
+									>
+										{correctionSaved
+											? "I'll ask next time"
+											: "This should have asked me"}
+									</Button>
+								)}
+								{item.internalDecisionUndo && (
+									<InternalDecisionUndo
+										key={`${item.internalDecisionUndo.requestId}:${item.internalDecisionUndo.expectedRevision}`}
+										target={item.internalDecisionUndo}
+										disabled={busy}
+									/>
+								)}
+							</>
+						),
+						discussion: (
+							<>
+								<div className="ft-post-actions flex flex-wrap items-center gap-2">
+									{item.workItemId && (
+										<Button
+											size="sm"
+											variant="ghost"
+											aria-expanded={discussion}
+											aria-haspopup="dialog"
+											onClick={(event) => {
+												setDiscussionTrigger(event.currentTarget);
+												onOpenDiscussion?.();
+												setDiscussion(true);
+											}}
+										>
+											<ChatText size={16} aria-hidden />
+											Comments
+										</Button>
+									)}
+									<FocusRowActions
+										actions={[
+											// The first two row reactions stay one click away beside Comment.
+											...rowActions.slice(0, 2),
+											{
+												label: "Private note",
+												Icon: ChatText,
+												expanded: comment,
+												controls: commentId,
+												onClick: (trigger) => {
+													commentTrigger.current = trigger;
+													if (comment) closeComment();
+													else setComment(true);
+												},
+											},
+											...rowActions.slice(2),
+											{
+												label: "Why this update",
+												Icon: Info,
+												onClick: () => rail?.openSection(section),
+											},
+											...(item.projectId
+												? [
+														{
+															label: "Turn into Work",
+															Icon: ListPlus,
+															disabled: busy,
+															onClick: () => void onWork(item),
+														},
+													]
+												: []),
+										]}
+									/>
+								</div>
+								{discussionTrigger && item.workItemId && (
+									<PostDiscussion
+										key={item.workItemId}
+										itemId={item.workItemId}
+										headline={story.headline}
+										open={discussion}
+										onOpenChange={setDiscussion}
+										trigger={discussionTrigger}
+									/>
+								)}
+								<div
+									id={receiptId}
+									role="region"
+									aria-label="Receipt"
+									hidden={!receipt}
+								>
+									{receipt && (
+										<div className="focus-receipt">
+											<WorkSourceProvenance
+												actor={identity}
+												name={actor}
+												source={source}
+												details
+											/>
+											{!item.attachment && <FeedOutcomePreview item={item} />}
+											<Text tone="secondary" className="whitespace-pre-line">
+												{item.explanation}
+											</Text>
+											<Link variant="record" href={item.source}>
+												Open receipt
+											</Link>
+										</div>
+									)}
+								</div>
+								{rail?.activeSection === section && (
+									<DecisionContextSection
+										sectionId={section}
+										title="Why this update"
+									>
+										<WorkSourceProvenance
+											actor={identity}
+											name={actor}
+											source={source}
+											details
+										/>
+										<Text>{item.explanation}</Text>
+										{item.because && <Text>{item.because}</Text>}
+										<Text tone="secondary">
+											Ranked using urgency, importance, value, continuity,
+											freshness and the time it takes to read.
+										</Text>
+									</DecisionContextSection>
+								)}
+								<div
+									id={commentId}
+									role="region"
+									aria-label="Note"
+									hidden={!comment}
+								>
+									{comment && (
+										<div className="grid gap-2">
+											<Textarea
+												aria-label="Your correction"
+												value={text}
+												onChange={(e) => setText(e.target.value)}
+												maxLength={4000}
+											/>
+											<Button
+												disabled={busy || !text.trim()}
+												onClick={() =>
+													void onReact(item, "comment", text.trim()).then(
+														(ok) => {
+															if (ok) {
+																setText("");
+																closeComment();
+															}
+														},
+													)
+												}
+											>
+												Save note
+											</Button>
+											<Button variant="ghost" onClick={closeComment}>
+												Close note
+											</Button>
+										</div>
+									)}
+								</div>
+							</>
+						),
+					}}
+				/>
 			</div>
 		</article>
 	);

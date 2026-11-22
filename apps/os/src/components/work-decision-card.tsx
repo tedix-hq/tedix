@@ -1,3 +1,4 @@
+import { WorkLayoutRegion } from "./work-layout";
 import {
 	DecisionContextSection,
 	DecisionRailContext,
@@ -1057,748 +1058,823 @@ export function WorkDecisionCard({
 			}}
 		>
 			<FeedDeckCard>
-				<CardHeader>
-					<CardDescription className="flex flex-wrap items-center gap-2">
-						<span className="flex min-w-0 items-center">
-							{faceState ? (
-								<span>{asker}</span>
-							) : (
-								<ProposerChip name={asker} actor={askerActor ?? actor} />
-							)}
-							{at ? (
-								<time dateTime={at} title={absoluteTime(at)}>
-									&nbsp;· {relativeTime(at)}
-								</time>
-							) : null}
-						</span>
-						{rail && (
-							<Button
-								variant="ghost"
-								size="sm"
-								className="fd-card-details"
-								onClick={() => rail.openSection("details")}
-							>
-								{OS_COPY.feed.details}
-							</Button>
-						)}
-					</CardDescription>
-					<CardTitle className="text-xl leading-snug">
-						<DecisionProposalHeading title={heading} />
-					</CardTitle>
-				</CardHeader>
-				<CardContent ref={cardBody}>
-					<div className="fd-card-body grid grid-cols-1 gap-4">
-						{deckNotice}
-						<div
-							data-card-feedback-content
-							aria-busy={revising}
-							className={revising ? "opacity-60" : undefined}
-							onPointerDown={(event) => {
-								if (
-									revision &&
-									!secureConnection &&
-									(event.pointerType === "touch" || event.pointerType === "pen")
-								)
-									event.stopPropagation();
-							}}
-						>
-							{editing ? (
-								<div className="grid gap-3">
-									{editContent}
-									<Textarea
-										aria-label={decisionText("Edit draft")}
-										rows={8}
-										value={draft}
-										onChange={(event) => setDraft(event.target.value)}
-										disabled={busy}
-									/>
-								</div>
-							) : faceState ? (
-								<div className="fd-face grid gap-3">
-									{(whyNow || due) && (
-										<p className="fd-card-context" data-why-now>
-											{due && (
-												<strong
-													className="fd-due"
-													data-overdue={/overdue/.test(due) || undefined}
-												>
-													{due.charAt(0).toUpperCase() + due.slice(1)}
-												</strong>
+				<WorkLayoutRegion
+					region="card"
+					slots={{
+						heading: (
+							<>
+								<CardHeader>
+									<CardDescription className="flex flex-wrap items-center gap-2">
+										<span className="flex min-w-0 items-center">
+											{faceState ? (
+												<span>{asker}</span>
+											) : (
+												<ProposerChip
+													name={asker}
+													actor={askerActor ?? actor}
+												/>
 											)}
-											{due && whyNow ? " · " : null}
-											{whyNow && <InlineMarkdown text={whyNow} />}
-										</p>
-									)}
-									{face && "whyMe" in face && face.whyMe && (
-										<Text data-why-me>
-											<strong>{decisionText("Why you:")}</strong>{" "}
-											<InlineMarkdown text={face.whyMe} />
-										</Text>
-									)}
-									{face && (
-										<Text className="fd-recommendation">
-											<strong>{decisionText("Recommended:")}</strong>{" "}
-											<InlineMarkdown text={face.recommendation} />
-										</Text>
-									)}
-									{faceContent}
-									{!face && (
-										// No summary yet: the original ask, as written, right away.
-										<div className="fd-face-original grid gap-2">
-											{content ?? <DecisionProposalBody body={body || title} />}
-										</div>
-									)}
-									{outcomes.length > 0 && (
-										<dl
-											className="fd-outcomes"
-											aria-label={decisionText("What happens")}
-										>
-											{outcomes.map(([label, effect, actionId]) => (
-												<div key={actionId ?? label}>
-													<dt
-														data-recommended={
-															(displayRecommended &&
-																actionId === displayRecommended.id) ||
-															undefined
-														}
-													>
-														{label}
-														{displayRecommended &&
-															actionId === displayRecommended.id && (
-																<span> · {decisionText("Recommended")}</span>
-															)}
-													</dt>
-													<dd>
-														<InlineMarkdown text={effect} />
-													</dd>
-												</div>
-											))}
-										</dl>
-									)}
-									{autoAction && autoId && (
-										<p role="status" className="fd-auto-decide">
-											<span>
-												{decisionText("Tedix picks")} “{actionLabel(autoAction)}
-												” {decisionText("in")} {autoSeconds}s
-											</span>
+											{at ? (
+												<time dateTime={at} title={absoluteTime(at)}>
+													&nbsp;· {relativeTime(at)}
+												</time>
+											) : null}
+										</span>
+										{rail && (
 											<Button
 												variant="ghost"
 												size="sm"
-												onClick={() => setAutoStopped(true)}
+												className="fd-card-details"
+												onClick={() => rail.openSection("details")}
 											>
-												{decisionText("Stop")}
+												{OS_COPY.feed.details}
 											</Button>
-										</p>
-									)}
-									<FeedDeckDisclosure
-										inline
-										title={decisionText("Context")}
-										open={detailsOpen}
-										onOpenChange={setDetailsOpen}
-									>
-										<div className="grid min-w-0 gap-3 break-words">
-											{stakes && (
-												<Text className="fd-stakes">
-													<InlineMarkdown text={stakes} />
-												</Text>
-											)}
-											{faceState.lastRelatedDecision && (
-												<Text>
-													<strong>{decisionText("Last time:")}</strong>{" "}
-													{plainDecisionText(
-														faceState.lastRelatedDecision.body,
-													)}{" "}
-													<time
-														dateTime={faceState.lastRelatedDecision.decidedAt}
-													>
-														(
-														{relativeTime(
-															faceState.lastRelatedDecision.decidedAt,
-														)}
-														)
-													</time>
-												</Text>
-											)}
-											{face &&
-												(content ??
-													(body ? (
-														<DecisionProposalBody
-															body={plainDecisionSource(body)}
-															inline
-														/>
-													) : null))}
-										</div>
-									</FeedDeckDisclosure>
-								</div>
-							) : (
-								<>
-									{faceContent}
-									{content ??
-										(body ? <DecisionProposalBody body={body} /> : null)}
-								</>
-							)}
-						</div>
-						{secureConnection && (
-							<Button
-								variant="outline"
-								render={<a href="/account/connections" />}
-							>
-								Open connection settings
-							</Button>
-						)}
-						{revision && !secureConnection && (
-							<Collapsible
-								// Closed, it keeps its listeners but takes no row in the card.
-								className={revisionsOpen ? undefined : "contents"}
-								open={revisionsOpen}
-								onOpenChange={setRevisionsOpen}
-							>
-								<CollapsibleDefaultContent keepMounted>
-									<CardRevisionPanel
-										key={revision.requestId}
-										target={revision}
-										contentKind={
-											kind === "proposal"
-												? "plan"
-												: kind === "outbound"
-													? "email"
-													: "text"
-										}
-										agentName={asker}
-										disabled={disabled || pending || saving || saved}
-										onRevising={setRevising}
-										cardRef={section}
-										openRequest={changeRequest}
-										onOpen={() => setRevisionsOpen(true)}
-									/>
-								</CollapsibleDefaultContent>
-							</Collapsible>
-						)}
-						{kind === "question" && !secureConnection && !disabled && !saved ? (
-							<div className="grid gap-3">
-								{suggestedAnswers.length ? (
-									<div
-										className="flex flex-wrap gap-2"
-										aria-label={decisionText("Suggested answers")}
-									>
-										{suggestedAnswers.map((suggestion) => (
-											<Button
-												key={suggestion}
-												variant={answer === suggestion ? "default" : "outline"}
-												disabled={busy}
-												onClick={() => setAnswer(suggestion)}
-											>
-												{suggestion}
-											</Button>
-										))}
-									</div>
-								) : null}
-								<Textarea
-									className="fd-answer"
-									data-optional={yesNoLabel ? "" : undefined}
-									rows={yesNoLabel ? 1 : 3}
-									aria-label={decisionText("Your answer")}
-									placeholder={decisionText(
-										yesNoLabel ? "Or write your own answer…" : "Your answer…",
-									)}
-									value={answer}
-									disabled={busy}
-									onChange={(event) => setAnswer(event.target.value)}
-									onKeyDown={(event) => {
-										if (
-											event.key === "Enter" &&
-											(event.metaKey || event.ctrlKey) &&
-											!event.nativeEvent.isComposing &&
-											approve
-										) {
-											event.preventDefault();
-											void submit(approve);
-										}
-									}}
-								/>
-							</div>
-						) : null}
-						{staged && !saved ? (
-							<p role="status" data-agent-staged-note>
-								{decisionText("Prepared in chat:")} {staged.label}
-							</p>
-						) : null}
-						{saved ? (
-							<Text role="label" tone="secondary">
-								{decisionText("Decision saved")}
-							</Text>
-						) : (
-							<>
-								{reasonsOpen && reject ? (
-									<div
-										className="flex flex-wrap gap-2"
-										aria-label={decisionText("Why not this?")}
-									>
-										{reasons.map((reason) => (
-											<Button
-												key={reason}
-												variant="outline"
-												disabled={busy}
-												onClick={() => void submit(reject, reason)}
-											>
-												{reason}
-											</Button>
-										))}
-									</div>
-								) : null}
-								<ConfirmDialog
-									open={Boolean(confirmation)}
-									onOpenChange={(open) => {
-										if (!open) setConfirmation(null);
-									}}
-									title={decisionText("Confirm decision")}
-									description={confirmation?.confirm}
-									cancelLabel={decisionText("Go back")}
-									confirmLabel={decisionText("Confirm")}
-									pendingLabel={decisionText("Confirming…")}
-									retryLabel={decisionText("Try again")}
-									isPending={saving}
-									confirmDisabled={busy || confirmation?.confirmDisabled}
-									error={error || undefined}
-									onConfirm={() => {
-										if (confirmation)
-											void submit(confirmation, undefined, true);
-									}}
-								>
-									{confirmation?.confirmContent}
-								</ConfirmDialog>
-								{feedbackOpen && !disabled && !secureConnection ? (
-									<div className="fd-feedback grid gap-2">
-										<Textarea
-											autoFocus
-											aria-label={decisionText("Optional feedback")}
-											placeholder={decisionText(
-												`What should ${askerInText} change? (optional)`,
-											)}
-											rows={2}
-											value={feedback}
-											onChange={(event) => setFeedback(event.target.value)}
-										/>
-										{feedbackAction ? (
-											<Button
-												className="w-fit"
-												disabled={busy || !feedback.trim()}
-												onClick={() => void submit(feedbackAction)}
-											>
-												{feedbackAction.label}
-											</Button>
-										) : null}
-									</div>
-								) : null}
+										)}
+									</CardDescription>
+									<CardTitle className="text-xl leading-snug">
+										<DecisionProposalHeading title={heading} />
+									</CardTitle>
+								</CardHeader>
 							</>
-						)}
-						{stale && !saved ? (
-							<div role="alert" className="fd-stale grid gap-2">
-								<Text weight="semibold">
-									{decisionText("Something changed since this was asked")}
-								</Text>
-								<Text>
-									{decisionText(
-										`${asker} added a newer note to the linked task. Read it, then save your answer against the latest version.`,
-									)}
-								</Text>
-								{stale.note && (
-									<blockquote className="fd-stale-note">
-										<InlineMarkdown text={plainDecisionText(stale.note)} />
-									</blockquote>
-								)}
-								<Button
-									className="w-fit"
-									disabled={busy}
-									onClick={() =>
-										void submit(stale.action, stale.reason, true, stale.through)
-									}
-								>
-									{saving
-										? decisionText("Saving…")
-										: decisionText("Save with the latest version")}
-								</Button>
-							</div>
-						) : null}
-						{error ? (
-							<p role="alert" className="text-kumo-danger">
-								{error}
-							</p>
-						) : null}
-						{!saved &&
-						(submittingActor ||
-							identifiers.length > 0 ||
-							body ||
-							agentDetails) ? (
-							<FeedDeckDisclosure
-								inline
-								className="fd-agent-details"
-								title={decisionText("Details for agents")}
-							>
-								<div className="grid min-w-0 gap-3 [overflow-wrap:anywhere]">
-									{submittingActor && (
-										<WorkSourceProvenance
-											actor={submittingActor}
-											name={askedBy}
-											source={contributionSource}
-											details
-										/>
-									)}
-									{identifiers.length > 0 && (
-										<div className="fd-identifiers">
-											{identifiers.map((id) => (
-												<code key={id} className="fd-identifier" title={id}>
-													{id}
-												</code>
-											))}
-										</div>
-									)}
-									{(body || agentDetails) && (
-										<Text className="whitespace-pre-wrap break-all font-mono text-xs">
-											{[title, body, agentDetails]
-												.filter(
-													(part, index, parts): part is string =>
-														Boolean(part) && parts.indexOf(part) === index,
+						),
+						request: (
+							<>
+								<CardContent ref={cardBody}>
+									<div className="fd-card-body grid grid-cols-1 gap-4">
+										{deckNotice}
+										<div
+											data-card-feedback-content
+											aria-busy={revising}
+											className={revising ? "opacity-60" : undefined}
+											onPointerDown={(event) => {
+												if (
+													revision &&
+													!secureConnection &&
+													(event.pointerType === "touch" ||
+														event.pointerType === "pen")
 												)
-												.join("\n\n")}
-										</Text>
-									)}
-								</div>
-							</FeedDeckDisclosure>
-						) : null}
-						{!rail && (why || learnedWhy) && <div ref={setWhyTarget} />}
-					</div>
-				</CardContent>
-				{!saved && !secureConnection && (
-					<CardFooter ref={footer}>
-						{" "}
-						<div
-							data-decision-actions
-							data-outcome-row={outcomeRow || undefined}
-							className={
-								kind === "decision" ||
-								kind === "adr" ||
-								actions.some((action) => action.description)
-									? "grid grid-cols-1 gap-3 sm:grid-cols-2"
-									: "flex flex-wrap gap-2"
-							}
-						>
-							{actions
-								.filter(
-									(action) =>
-										!(action.intent === "delegate" && action.disabled) &&
-										(!editing || !editAction || action.intent === "reject"),
-								)
-								.map((action) => {
-									const label = buttonLabel(action);
-									const shortcut = ACTION_SHORTCUTS[action.intent ?? ""];
-									const inactive =
-										busy ||
-										action.disabled ||
-										(kind === "question" &&
-											!yesNo &&
-											action.intent !== "reject" &&
-											!answer.trim()) ||
-										(editing && !draft.trim());
-									const control = (
-										<Button
-											data-decision-intent={action.intent}
-											data-agent-staged={
-												action.id === stagedOptionId ? "" : undefined
-											}
-											data-deck-overflow={
-												!outcomeRow && overflowActions.includes(action)
-													? true
-													: undefined
-											}
-											data-phone-overflow={
-												outcomeRow && overflowActions.includes(action)
-													? true
-													: undefined
-											}
-											style={
-												inactive && action !== approve
-													? DISABLED_ACTION_LABEL
-													: undefined
-											}
+													event.stopPropagation();
+											}}
+										>
+											{editing ? (
+												<div className="grid gap-3">
+													{editContent}
+													<Textarea
+														aria-label={decisionText("Edit draft")}
+														rows={8}
+														value={draft}
+														onChange={(event) => setDraft(event.target.value)}
+														disabled={busy}
+													/>
+												</div>
+											) : faceState ? (
+												<div className="fd-face grid gap-3">
+													{(whyNow || due) && (
+														<p className="fd-card-context" data-why-now>
+															{due && (
+																<strong
+																	className="fd-due"
+																	data-overdue={
+																		/overdue/.test(due) || undefined
+																	}
+																>
+																	{due.charAt(0).toUpperCase() + due.slice(1)}
+																</strong>
+															)}
+															{due && whyNow ? " · " : null}
+															{whyNow && <InlineMarkdown text={whyNow} />}
+														</p>
+													)}
+													{face && "whyMe" in face && face.whyMe && (
+														<Text data-why-me>
+															<strong>{decisionText("Why you:")}</strong>{" "}
+															<InlineMarkdown text={face.whyMe} />
+														</Text>
+													)}
+													{face && (
+														<Text className="fd-recommendation">
+															<strong>{decisionText("Recommended:")}</strong>{" "}
+															<InlineMarkdown text={face.recommendation} />
+														</Text>
+													)}
+													{faceContent}
+													{!face && (
+														// No summary yet: the original ask, as written, right away.
+														<div className="fd-face-original grid gap-2">
+															{content ?? (
+																<DecisionProposalBody body={body || title} />
+															)}
+														</div>
+													)}
+													{outcomes.length > 0 && (
+														<dl
+															className="fd-outcomes"
+															aria-label={decisionText("What happens")}
+														>
+															{outcomes.map(([label, effect, actionId]) => (
+																<div key={actionId ?? label}>
+																	<dt
+																		data-recommended={
+																			(displayRecommended &&
+																				actionId === displayRecommended.id) ||
+																			undefined
+																		}
+																	>
+																		{label}
+																		{displayRecommended &&
+																			actionId === displayRecommended.id && (
+																				<span>
+																					{" "}
+																					· {decisionText("Recommended")}
+																				</span>
+																			)}
+																	</dt>
+																	<dd>
+																		<InlineMarkdown text={effect} />
+																	</dd>
+																</div>
+															))}
+														</dl>
+													)}
+													{autoAction && autoId && (
+														<p role="status" className="fd-auto-decide">
+															<span>
+																{decisionText("Tedix picks")} “
+																{actionLabel(autoAction)}” {decisionText("in")}{" "}
+																{autoSeconds}s
+															</span>
+															<Button
+																variant="ghost"
+																size="sm"
+																onClick={() => setAutoStopped(true)}
+															>
+																{decisionText("Stop")}
+															</Button>
+														</p>
+													)}
+													<FeedDeckDisclosure
+														inline
+														title={decisionText("Context")}
+														open={detailsOpen}
+														onOpenChange={setDetailsOpen}
+													>
+														<div className="grid min-w-0 gap-3 break-words">
+															{stakes && (
+																<Text className="fd-stakes">
+																	<InlineMarkdown text={stakes} />
+																</Text>
+															)}
+															{faceState.lastRelatedDecision && (
+																<Text>
+																	<strong>{decisionText("Last time:")}</strong>{" "}
+																	{plainDecisionText(
+																		faceState.lastRelatedDecision.body,
+																	)}{" "}
+																	<time
+																		dateTime={
+																			faceState.lastRelatedDecision.decidedAt
+																		}
+																	>
+																		(
+																		{relativeTime(
+																			faceState.lastRelatedDecision.decidedAt,
+																		)}
+																		)
+																	</time>
+																</Text>
+															)}
+															{face &&
+																(content ??
+																	(body ? (
+																		<DecisionProposalBody
+																			body={plainDecisionSource(body)}
+																			inline
+																		/>
+																	) : null))}
+														</div>
+													</FeedDeckDisclosure>
+												</div>
+											) : (
+												<>
+													{faceContent}
+													{content ??
+														(body ? (
+															<DecisionProposalBody body={body} />
+														) : null)}
+												</>
+											)}
+										</div>
+										{secureConnection && (
+											<Button
+												variant="outline"
+												render={<a href="/account/connections" />}
+											>
+												Open connection settings
+											</Button>
+										)}
+										{revision && !secureConnection && (
+											<Collapsible
+												// Closed, it keeps its listeners but takes no row in the card.
+												className={revisionsOpen ? undefined : "contents"}
+												open={revisionsOpen}
+												onOpenChange={setRevisionsOpen}
+											>
+												<CollapsibleDefaultContent keepMounted>
+													<CardRevisionPanel
+														key={revision.requestId}
+														target={revision}
+														contentKind={
+															kind === "proposal"
+																? "plan"
+																: kind === "outbound"
+																	? "email"
+																	: "text"
+														}
+														agentName={asker}
+														disabled={disabled || pending || saving || saved}
+														onRevising={setRevising}
+														cardRef={section}
+														openRequest={changeRequest}
+														onOpen={() => setRevisionsOpen(true)}
+													/>
+												</CollapsibleDefaultContent>
+											</Collapsible>
+										)}
+										{kind === "question" &&
+										!secureConnection &&
+										!disabled &&
+										!saved ? (
+											<div className="grid gap-3">
+												{suggestedAnswers.length ? (
+													<div
+														className="flex flex-wrap gap-2"
+														aria-label={decisionText("Suggested answers")}
+													>
+														{suggestedAnswers.map((suggestion) => (
+															<Button
+																key={suggestion}
+																variant={
+																	answer === suggestion ? "default" : "outline"
+																}
+																disabled={busy}
+																onClick={() => setAnswer(suggestion)}
+															>
+																{suggestion}
+															</Button>
+														))}
+													</div>
+												) : null}
+												<Textarea
+													className="fd-answer"
+													data-optional={yesNoLabel ? "" : undefined}
+													rows={yesNoLabel ? 1 : 3}
+													aria-label={decisionText("Your answer")}
+													placeholder={decisionText(
+														yesNoLabel
+															? "Or write your own answer…"
+															: "Your answer…",
+													)}
+													value={answer}
+													disabled={busy}
+													onChange={(event) => setAnswer(event.target.value)}
+													onKeyDown={(event) => {
+														if (
+															event.key === "Enter" &&
+															(event.metaKey || event.ctrlKey) &&
+															!event.nativeEvent.isComposing &&
+															approve
+														) {
+															event.preventDefault();
+															void submit(approve);
+														}
+													}}
+												/>
+											</div>
+										) : null}
+										{staged && !saved ? (
+											<p role="status" data-agent-staged-note>
+												{decisionText("Prepared in chat:")} {staged.label}
+											</p>
+										) : null}
+										{saved ? (
+											<Text role="label" tone="secondary">
+												{decisionText("Decision saved")}
+											</Text>
+										) : (
+											<>
+												{reasonsOpen && reject ? (
+													<div
+														className="flex flex-wrap gap-2"
+														aria-label={decisionText("Why not this?")}
+													>
+														{reasons.map((reason) => (
+															<Button
+																key={reason}
+																variant="outline"
+																disabled={busy}
+																onClick={() => void submit(reject, reason)}
+															>
+																{reason}
+															</Button>
+														))}
+													</div>
+												) : null}
+												<ConfirmDialog
+													open={Boolean(confirmation)}
+													onOpenChange={(open) => {
+														if (!open) setConfirmation(null);
+													}}
+													title={decisionText("Confirm decision")}
+													description={confirmation?.confirm}
+													cancelLabel={decisionText("Go back")}
+													confirmLabel={decisionText("Confirm")}
+													pendingLabel={decisionText("Confirming…")}
+													retryLabel={decisionText("Try again")}
+													isPending={saving}
+													confirmDisabled={
+														busy || confirmation?.confirmDisabled
+													}
+													error={error || undefined}
+													onConfirm={() => {
+														if (confirmation)
+															void submit(confirmation, undefined, true);
+													}}
+												>
+													{confirmation?.confirmContent}
+												</ConfirmDialog>
+												{feedbackOpen && !disabled && !secureConnection ? (
+													<div className="fd-feedback grid gap-2">
+														<Textarea
+															autoFocus
+															aria-label={decisionText("Optional feedback")}
+															placeholder={decisionText(
+																`What should ${askerInText} change? (optional)`,
+															)}
+															rows={2}
+															value={feedback}
+															onChange={(event) =>
+																setFeedback(event.target.value)
+															}
+														/>
+														{feedbackAction ? (
+															<Button
+																className="w-fit"
+																disabled={busy || !feedback.trim()}
+																onClick={() => void submit(feedbackAction)}
+															>
+																{feedbackAction.label}
+															</Button>
+														) : null}
+													</div>
+												) : null}
+											</>
+										)}
+										{stale && !saved ? (
+											<div role="alert" className="fd-stale grid gap-2">
+												<Text weight="semibold">
+													{decisionText(
+														"Something changed since this was asked",
+													)}
+												</Text>
+												<Text>
+													{decisionText(
+														`${asker} added a newer note to the linked task. Read it, then save your answer against the latest version.`,
+													)}
+												</Text>
+												{stale.note && (
+													<blockquote className="fd-stale-note">
+														<InlineMarkdown
+															text={plainDecisionText(stale.note)}
+														/>
+													</blockquote>
+												)}
+												<Button
+													className="w-fit"
+													disabled={busy}
+													onClick={() =>
+														void submit(
+															stale.action,
+															stale.reason,
+															true,
+															stale.through,
+														)
+													}
+												>
+													{saving
+														? decisionText("Saving…")
+														: decisionText("Save with the latest version")}
+												</Button>
+											</div>
+										) : null}
+										{error ? (
+											<p role="alert" className="text-kumo-danger">
+												{error}
+											</p>
+										) : null}
+										{!saved &&
+										(submittingActor ||
+											identifiers.length > 0 ||
+											body ||
+											agentDetails) ? (
+											<FeedDeckDisclosure
+												inline
+												className="fd-agent-details"
+												title={decisionText("Details for agents")}
+											>
+												<div className="grid min-w-0 gap-3 [overflow-wrap:anywhere]">
+													{submittingActor && (
+														<WorkSourceProvenance
+															actor={submittingActor}
+															name={askedBy}
+															source={contributionSource}
+															details
+														/>
+													)}
+													{identifiers.length > 0 && (
+														<div className="fd-identifiers">
+															{identifiers.map((id) => (
+																<code
+																	key={id}
+																	className="fd-identifier"
+																	title={id}
+																>
+																	{id}
+																</code>
+															))}
+														</div>
+													)}
+													{(body || agentDetails) && (
+														<Text className="whitespace-pre-wrap break-all font-mono text-xs">
+															{[title, body, agentDetails]
+																.filter(
+																	(part, index, parts): part is string =>
+																		Boolean(part) &&
+																		parts.indexOf(part) === index,
+																)
+																.join("\n\n")}
+														</Text>
+													)}
+												</div>
+											</FeedDeckDisclosure>
+										) : null}
+										{!rail && (why || learnedWhy) && <div ref={setWhyTarget} />}
+									</div>
+								</CardContent>
+							</>
+						),
+						actions: (
+							<>
+								{!saved && !secureConnection && (
+									<CardFooter ref={footer}>
+										{" "}
+										<div
+											data-decision-actions
+											data-outcome-row={outcomeRow || undefined}
 											className={
 												kind === "decision" ||
 												kind === "adr" ||
-												action.description
-													? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
-													: "min-h-11 grow sm:grow-0"
+												actions.some((action) => action.description)
+													? "grid grid-cols-1 gap-3 sm:grid-cols-2"
+													: "flex flex-wrap gap-2"
 											}
-											data-suggested={action === suggested || undefined}
-											data-highlighted={
-												(action === highlighted && !stale) || undefined
-											}
-											variant={
-												(action === highlighted && !stale) ||
-												action.id === stagedOptionId
-													? "default"
-													: action.intent === "reject"
-														? "outline"
-														: "ghost"
-											}
-											disabled={inactive}
-											onClick={() => choose(action)}
 										>
-											{saving ? (
-												decisionText("Saving…")
-											) : (
-												<span className="grid min-w-0 gap-1 whitespace-normal break-words">
-													<span>{label}</span>
-													{action.description && !faceState ? (
-														<span
-															className={
-																action.intent === "approve"
-																	? "fd-action-description font-normal opacity-90"
-																	: "fd-action-description font-normal text-kumo-subtle"
+											{actions
+												.filter(
+													(action) =>
+														!(
+															action.intent === "delegate" && action.disabled
+														) &&
+														(!editing ||
+															!editAction ||
+															action.intent === "reject"),
+												)
+												.map((action) => {
+													const label = buttonLabel(action);
+													const shortcut =
+														ACTION_SHORTCUTS[action.intent ?? ""];
+													const inactive =
+														busy ||
+														action.disabled ||
+														(kind === "question" &&
+															!yesNo &&
+															action.intent !== "reject" &&
+															!answer.trim()) ||
+														(editing && !draft.trim());
+													const control = (
+														<Button
+															data-decision-intent={action.intent}
+															data-agent-staged={
+																action.id === stagedOptionId ? "" : undefined
 															}
+															data-deck-overflow={
+																!outcomeRow && overflowActions.includes(action)
+																	? true
+																	: undefined
+															}
+															data-phone-overflow={
+																outcomeRow && overflowActions.includes(action)
+																	? true
+																	: undefined
+															}
+															style={
+																inactive && action !== approve
+																	? DISABLED_ACTION_LABEL
+																	: undefined
+															}
+															className={
+																kind === "decision" ||
+																kind === "adr" ||
+																action.description
+																	? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
+																	: "min-h-11 grow sm:grow-0"
+															}
+															data-suggested={action === suggested || undefined}
+															data-highlighted={
+																(action === highlighted && !stale) || undefined
+															}
+															variant={
+																(action === highlighted && !stale) ||
+																action.id === stagedOptionId
+																	? "default"
+																	: action.intent === "reject"
+																		? "outline"
+																		: "ghost"
+															}
+															disabled={inactive}
+															onClick={() => choose(action)}
 														>
-															{action.description}
-														</span>
-													) : null}
-												</span>
-											)}
-										</Button>
-									);
-									const button = shortcut ? (
-										<ShortcutTooltip
-											key={action.id}
-											label={label}
-											shortcut={shortcut.key}
-											keyshortcuts={shortcut.aria}
-										>
-											{control}
-										</ShortcutTooltip>
-									) : (
-										<Fragment key={action.id}>{control}</Fragment>
-									);
-									return action.intent === "delegate" && rail ? (
-										<DecisionContextSection
-											key={action.id}
-											title="Delegate this choice"
-										>
-											{button}
-										</DecisionContextSection>
-									) : (
-										button
-									);
-								})}
-							{editing && editAction ? (
-								<Button
-									disabled={
-										busy ||
-										editAction.disabled ||
-										!draft.trim() ||
-										(draft === body && !hasEdits)
-									}
-									onClick={() => void submit(editAction)}
-								>
-									{editAction.label}
-								</Button>
-							) : null}
-							{allowEdits &&
-							(kind === "outbound" || editAction) &&
-							!disabled ? (
-								<DecisionContextSection title="Edit proposal">
-									<ShortcutTooltip
-										label={decisionText("Change…")}
-										shortcut="E"
-										keyshortcuts="E"
-									>
-										<Button
-											variant="outline"
-											className="min-h-11"
-											disabled={busy}
-											onClick={() => setEditing(!editing)}
-										>
-											{editing
-												? decisionText("Preview")
-												: outcomeRow
-													? decisionText("Change…")
-													: decisionText("Change")}
-										</Button>
-									</ShortcutTooltip>
-								</DecisionContextSection>
-							) : outcomeRow &&
-							  !disabled &&
-							  ((revision && !secureConnection) || feedbackAction) ? (
-								// No editable draft: Change… asks for changes in a note.
-								<Button
-									variant="outline"
-									className="min-h-11"
-									data-card-change
-									disabled={busy}
-									onClick={() => {
-										if (revision && !secureConnection) {
-											setRevisionsOpen(true);
-											setChangeRequest((value) => value + 1);
-										} else setFeedbackOpen(true);
-									}}
-								>
-									{decisionText("Change…")}
-								</Button>
-							) : null}
-							{outcomeRow && !delegateAction && recommended ? (
-								<ShortcutTooltip
-									label={decisionText("Decide for me")}
-									shortcut="D"
-									keyshortcuts="D"
-								>
-									<Button
-										variant="ghost"
-										className="min-h-11"
-										data-decide-for-me
-										disabled={busy}
-										onClick={() => choose(recommended)}
-									>
-										{decisionText("Decide for me")}
-									</Button>
-								</ShortcutTooltip>
-							) : null}
-							{!actions.some((action) => action.intent === "later") &&
-								deckFooter}
-							{deckCuration}
-							<div className="fd-card-why">
-								{why || learnedWhy ? (
-									rail ? (
-										<DecisionContextSection
-											sectionId="why"
-											title={decisionText("Why am I seeing this")}
-											trigger
-											defaultOpen
-										>
-											{why}
-											{learnedWhy && (
-												<DecisionLearningWhy explanation={learnedWhy} />
-											)}
-										</DecisionContextSection>
-									) : (
-										<Collapsible
-											className="fd-why"
-											open={whyOpen}
-											onOpenChange={setWhyOpen}
-										>
-											<CollapsibleDefaultTrigger>
-												{decisionText("Why am I seeing this?")}
-											</CollapsibleDefaultTrigger>
-											{whyTarget &&
-												createPortal(
-													<CollapsibleDefaultContent className="text-kumo-subtle">
-														{why}
-														{learnedWhy && (
-															<DecisionLearningWhy explanation={learnedWhy} />
-														)}
-													</CollapsibleDefaultContent>,
-													whyTarget,
-												)}
-										</Collapsible>
-									)
-								) : null}
-							</div>
-							{(overflowActions.length > 0 ||
-								(!disabled && !secureConnection) ||
-								deckFooter ||
-								deckCuration ||
-								why ||
-								learnedWhy ||
-								faceState?.onOpenSettings) && (
-								<DropdownMenu
-									onOpenChange={(open) => {
-										if (open)
-											setQuiet({
-												later: Boolean(quietControl("later")),
-												notUseful: Boolean(quietControl("notUseful")),
-												why: Boolean(quietControl("why")),
-												steward: Boolean(quietControl("steward")),
-											});
-									}}
-								>
-									<DropdownMenuTrigger
-										render={
-											<Button
-												variant="ghost"
-												size="icon"
-												className="fd-action-more"
-												aria-label={decisionText("More actions")}
-												disabled={busy}
-											/>
-										}
-									>
-										<DotsThree aria-hidden weight="bold" size={20} />
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end">
-										{overflowActions.map((action) => (
-											<DropdownMenuItem
-												key={action.id}
-												disabled={action.disabled}
-												onClick={() => choose(action)}
-											>
-												{actionLabel(action)}
-											</DropdownMenuItem>
-										))}
-										{revision && !secureConnection && (
-											<DropdownMenuItem
-												onClick={() => setRevisionsOpen((open) => !open)}
-											>
-												{decisionText(
-													revisionsOpen
-														? "Hide versions"
-														: "Versions and changes",
-												)}
-											</DropdownMenuItem>
-										)}
-										{!disabled && !secureConnection && !feedbackOpen && (
-											<DropdownMenuItem onClick={() => setFeedbackOpen(true)}>
-												{decisionText("Give feedback")}
-											</DropdownMenuItem>
-										)}
-										{quiet.steward && (
-											<DropdownMenuItem
-												onClick={() => quietControl("steward")?.click()}
-											>
-												{decisionText("Let the CTO tedi decide")}
-											</DropdownMenuItem>
-										)}
-										{quiet.later && !outcomeRow && (
-											<DropdownMenuItem
-												onClick={() => quietControl("later")?.click()}
-											>
-												{decisionText("Later")}
-											</DropdownMenuItem>
-										)}
-										{quiet.notUseful &&
-											!overflowActions.some(
-												(action) =>
-													actionLabel(action) ===
-													OS_COPY.decisionDeck.notUseful.button,
-											) && (
-												<DropdownMenuItem
-													onClick={() => quietControl("notUseful")?.click()}
+															{saving ? (
+																decisionText("Saving…")
+															) : (
+																<span className="grid min-w-0 gap-1 whitespace-normal break-words">
+																	<span>{label}</span>
+																	{action.description && !faceState ? (
+																		<span
+																			className={
+																				action.intent === "approve"
+																					? "fd-action-description font-normal opacity-90"
+																					: "fd-action-description font-normal text-kumo-subtle"
+																			}
+																		>
+																			{action.description}
+																		</span>
+																	) : null}
+																</span>
+															)}
+														</Button>
+													);
+													const button = shortcut ? (
+														<ShortcutTooltip
+															key={action.id}
+															label={label}
+															shortcut={shortcut.key}
+															keyshortcuts={shortcut.aria}
+														>
+															{control}
+														</ShortcutTooltip>
+													) : (
+														<Fragment key={action.id}>{control}</Fragment>
+													);
+													return action.intent === "delegate" && rail ? (
+														<DecisionContextSection
+															key={action.id}
+															title="Delegate this choice"
+														>
+															{button}
+														</DecisionContextSection>
+													) : (
+														button
+													);
+												})}
+											{editing && editAction ? (
+												<Button
+													disabled={
+														busy ||
+														editAction.disabled ||
+														!draft.trim() ||
+														(draft === body && !hasEdits)
+													}
+													onClick={() => void submit(editAction)}
 												>
-													{OS_COPY.decisionDeck.notUseful.button}
-												</DropdownMenuItem>
+													{editAction.label}
+												</Button>
+											) : null}
+											{allowEdits &&
+											(kind === "outbound" || editAction) &&
+											!disabled ? (
+												<DecisionContextSection title="Edit proposal">
+													<ShortcutTooltip
+														label={decisionText("Change…")}
+														shortcut="E"
+														keyshortcuts="E"
+													>
+														<Button
+															variant="outline"
+															className="min-h-11"
+															disabled={busy}
+															onClick={() => setEditing(!editing)}
+														>
+															{editing
+																? decisionText("Preview")
+																: outcomeRow
+																	? decisionText("Change…")
+																	: decisionText("Change")}
+														</Button>
+													</ShortcutTooltip>
+												</DecisionContextSection>
+											) : outcomeRow &&
+											  !disabled &&
+											  ((revision && !secureConnection) || feedbackAction) ? (
+												// No editable draft: Change… asks for changes in a note.
+												<Button
+													variant="outline"
+													className="min-h-11"
+													data-card-change
+													disabled={busy}
+													onClick={() => {
+														if (revision && !secureConnection) {
+															setRevisionsOpen(true);
+															setChangeRequest((value) => value + 1);
+														} else setFeedbackOpen(true);
+													}}
+												>
+													{decisionText("Change…")}
+												</Button>
+											) : null}
+											{outcomeRow && !delegateAction && recommended ? (
+												<ShortcutTooltip
+													label={decisionText("Decide for me")}
+													shortcut="D"
+													keyshortcuts="D"
+												>
+													<Button
+														variant="ghost"
+														className="min-h-11"
+														data-decide-for-me
+														disabled={busy}
+														onClick={() => choose(recommended)}
+													>
+														{decisionText("Decide for me")}
+													</Button>
+												</ShortcutTooltip>
+											) : null}
+											{!actions.some((action) => action.intent === "later") &&
+												deckFooter}
+											{deckCuration}
+											<div className="fd-card-why">
+												{why || learnedWhy ? (
+													rail ? (
+														<DecisionContextSection
+															sectionId="why"
+															title={decisionText("Why am I seeing this")}
+															trigger
+															defaultOpen
+														>
+															{why}
+															{learnedWhy && (
+																<DecisionLearningWhy explanation={learnedWhy} />
+															)}
+														</DecisionContextSection>
+													) : (
+														<Collapsible
+															className="fd-why"
+															open={whyOpen}
+															onOpenChange={setWhyOpen}
+														>
+															<CollapsibleDefaultTrigger>
+																{decisionText("Why am I seeing this?")}
+															</CollapsibleDefaultTrigger>
+															{whyTarget &&
+																createPortal(
+																	<CollapsibleDefaultContent className="text-kumo-subtle">
+																		{why}
+																		{learnedWhy && (
+																			<DecisionLearningWhy
+																				explanation={learnedWhy}
+																			/>
+																		)}
+																	</CollapsibleDefaultContent>,
+																	whyTarget,
+																)}
+														</Collapsible>
+													)
+												) : null}
+											</div>
+											{(overflowActions.length > 0 ||
+												(!disabled && !secureConnection) ||
+												deckFooter ||
+												deckCuration ||
+												why ||
+												learnedWhy ||
+												faceState?.onOpenSettings) && (
+												<DropdownMenu
+													onOpenChange={(open) => {
+														if (open)
+															setQuiet({
+																later: Boolean(quietControl("later")),
+																notUseful: Boolean(quietControl("notUseful")),
+																why: Boolean(quietControl("why")),
+																steward: Boolean(quietControl("steward")),
+															});
+													}}
+												>
+													<DropdownMenuTrigger
+														render={
+															<Button
+																variant="ghost"
+																size="icon"
+																className="fd-action-more"
+																aria-label={decisionText("More actions")}
+																disabled={busy}
+															/>
+														}
+													>
+														<DotsThree aria-hidden weight="bold" size={20} />
+													</DropdownMenuTrigger>
+													<DropdownMenuContent align="end">
+														{overflowActions.map((action) => (
+															<DropdownMenuItem
+																key={action.id}
+																disabled={action.disabled}
+																onClick={() => choose(action)}
+															>
+																{actionLabel(action)}
+															</DropdownMenuItem>
+														))}
+														{revision && !secureConnection && (
+															<DropdownMenuItem
+																onClick={() =>
+																	setRevisionsOpen((open) => !open)
+																}
+															>
+																{decisionText(
+																	revisionsOpen
+																		? "Hide versions"
+																		: "Versions and changes",
+																)}
+															</DropdownMenuItem>
+														)}
+														{!disabled &&
+															!secureConnection &&
+															!feedbackOpen && (
+																<DropdownMenuItem
+																	onClick={() => setFeedbackOpen(true)}
+																>
+																	{decisionText("Give feedback")}
+																</DropdownMenuItem>
+															)}
+														{quiet.steward && (
+															<DropdownMenuItem
+																onClick={() => quietControl("steward")?.click()}
+															>
+																{decisionText("Let the CTO tedi decide")}
+															</DropdownMenuItem>
+														)}
+														{quiet.later && !outcomeRow && (
+															<DropdownMenuItem
+																onClick={() => quietControl("later")?.click()}
+															>
+																{decisionText("Later")}
+															</DropdownMenuItem>
+														)}
+														{quiet.notUseful &&
+															!overflowActions.some(
+																(action) =>
+																	actionLabel(action) ===
+																	OS_COPY.decisionDeck.notUseful.button,
+															) && (
+																<DropdownMenuItem
+																	onClick={() =>
+																		quietControl("notUseful")?.click()
+																	}
+																>
+																	{OS_COPY.decisionDeck.notUseful.button}
+																</DropdownMenuItem>
+															)}
+														{quiet.why && (
+															<DropdownMenuItem
+																onClick={() => quietControl("why")?.click()}
+															>
+																{decisionText("Why am I seeing this")}
+															</DropdownMenuItem>
+														)}
+														{faceState?.onOpenSettings && (
+															<DropdownMenuItem
+																onClick={faceState.onOpenSettings}
+															>
+																{decisionText("Card settings")}
+															</DropdownMenuItem>
+														)}
+													</DropdownMenuContent>
+												</DropdownMenu>
 											)}
-										{quiet.why && (
-											<DropdownMenuItem
-												onClick={() => quietControl("why")?.click()}
-											>
-												{decisionText("Why am I seeing this")}
-											</DropdownMenuItem>
-										)}
-										{faceState?.onOpenSettings && (
-											<DropdownMenuItem onClick={faceState.onOpenSettings}>
-												{decisionText("Card settings")}
-											</DropdownMenuItem>
-										)}
-									</DropdownMenuContent>
-								</DropdownMenu>
-							)}
-						</div>
-					</CardFooter>
-				)}
+										</div>
+									</CardFooter>
+								)}
+							</>
+						),
+					}}
+				/>
 			</FeedDeckCard>
 		</section>
 	);

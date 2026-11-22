@@ -1,7 +1,12 @@
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import { parseStoredOsBlueprintDefinition } from "@tedix/api-contract/schemas/os-workspaces";
 import { installWorkspaceApp } from "./workspace-resource-storage";
-import { buildWorkView } from "@tedix/api-contract/assets/work-view-blueprint";
+import { workLayouts } from "@tedix/api-contract/blueprints/work-layout";
+import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	buildWorkView,
+	workViewRole,
+} from "@tedix/api-contract/assets/work-view-blueprint";
 import { appRuntimeCodeLength } from "@tedix/api-contract/utils/app-runtime";
 import { initializeWorkspaceDocumentOwner } from "./workspace-document-owner";
 import { ORPCError } from "@orpc/server";
@@ -12,6 +17,7 @@ import {
 import { instantiateOsBlueprint } from "./os-workspace-outputs";
 import {
 	createOsGadgetRevision,
+	getOsGadgetCode,
 	listOsWorkApps,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
@@ -57,23 +63,38 @@ export async function installDefaultWorkApps(
 				JSON.parse(revision.manifest),
 			);
 			if (manifest.navigation?.work) rolesHere.add(manifest.navigation.work);
-			if (
-				gadget.sourceBlueprintRevisionId !== existing.sourceBlueprintRevisionId
-			)
-				continue;
+			const role = workViewRole(manifest);
+			const official =
+				gadget.sourceBlueprintRevisionId ===
+					existing.sourceBlueprintRevisionId ||
+				(role && gadget.id === (await workId([workspaceId, role, "gadget"])));
+			if (!official) continue;
 			const view = buildWorkView(manifest);
-			if (!view) continue;
+			let files: Record<string, string>;
+			if (view) {
+				files = view.files;
+			} else if (role) {
+				const code = await getOsGadgetCode(db, {
+					organizationId,
+					revisionId: revision.id,
+				});
+				if (!code) continue;
+				files = AppRuntimeFilesSchema.parse(JSON.parse(code.files));
+				if ("layout.json" in files) continue;
+				files["layout.json"] =
+					JSON.stringify(workLayouts[role], null, 2) + "\n";
+			} else continue;
 			const result = await createOsGadgetRevision(db, {
 				organizationId,
 				gadgetId: gadget.id,
 				id: crypto.randomUUID(),
-				manifest: JSON.stringify(view.manifest),
+				manifest: JSON.stringify(view?.manifest ?? manifest),
 				expectedRevision: revision.revision,
 				createdByKind: creator.kind,
 				createdById: creator.id,
 				code: {
-					files: JSON.stringify(view.files),
-					codeLength: appRuntimeCodeLength(view.files),
+					files: JSON.stringify(files),
+					codeLength: appRuntimeCodeLength(files),
 				},
 			});
 			if (!result.ok)

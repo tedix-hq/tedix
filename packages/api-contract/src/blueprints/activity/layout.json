@@ -1,0 +1,4 @@
+{
+	"overview": ["toolbar", "running", "posts"],
+	"post": ["author", "headline", "details", "discussion"]
+}

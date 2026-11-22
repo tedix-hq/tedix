@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { OsOutputContent } from "../schemas/os-workspaces";
-import { OsBlueprintDefinitionSchema } from "../schemas/os-workspaces";
-import { applyPresentationPatch } from "../utils/presentation-patch";
-import { buildSlidesBlueprint, SLIDES_SERVER_SOURCE } from "./slides-blueprint";
+import type { OsOutputContent } from "../../schemas/os-workspaces";
+import { OsBlueprintDefinitionSchema } from "../../schemas/os-workspaces";
+import { applyPresentationPatch } from "../../utils/presentation-patch";
+import { buildSlidesBlueprint, SLIDES_SERVER_SOURCE } from "./blueprint";
 
 type Presentation = Extract<OsOutputContent, { kind: "presentation" }>;
 

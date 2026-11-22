@@ -1,3 +1,4 @@
+import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { workViewRole } from "@tedix/api-contract/assets/work-view-blueprint";
 import { LoadingArea } from "@/components/loading-area";
 import { lazy, Suspense } from "react";
@@ -102,7 +103,7 @@ export function WorkHome({
 				</Suspense>
 			</Page>
 		);
-	const content = manifest ? (
+	const renderWork = (manifest: OsGadgetManifest) => (
 		<WorkspaceAppRenderer
 			key={selected?.gadget.id ?? role}
 			manifest={
@@ -126,6 +127,9 @@ export function WorkHome({
 				showRunningNow: !overview,
 			}}
 		/>
+	);
+	const content = manifest ? (
+		renderWork(manifest)
 	) : pending ? (
 		<Text>{copy.loading}</Text>
 	) : (
@@ -185,13 +189,20 @@ export function WorkHome({
 						)}
 				</div>
 			)}
-			{usePresentation && editable ? (
+			{editable ? (
 				<Suspense fallback={<LoadingArea />}>
 					<WorkRuntime
 						key={selected.revision.id}
 						workspaceId={selected.gadget.workspaceId}
 						gadget={selected.gadget}
 						revision={selected.revision}
+						renderWork={(source) =>
+							overview ? (
+								<WorkHomeOverview>{renderWork(source)}</WorkHomeOverview>
+							) : (
+								renderWork(source)
+							)
+						}
 						layout="content"
 					/>
 				</Suspense>

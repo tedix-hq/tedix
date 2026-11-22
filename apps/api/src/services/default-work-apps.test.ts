@@ -16,6 +16,7 @@ import {
 	createOsGadget,
 	createOsGadgetRevision,
 	listOsWorkApps,
+	getOsGadgetCode,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import {
@@ -230,6 +231,57 @@ describe("default Work blueprint installation", () => {
 			expect(
 				await listOsWorkApps(db, "pine-studio", { userIds: [] }, 10),
 			).toEqual(after);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("adds the layout to an installed workspace without replacing its edited client", async () => {
+		const { db, sqlite } = fixture();
+		const organizationId = "pine-studio";
+		try {
+			await installDefaultWorkApps(db, organizationId, owner);
+			const [app] = await listOsWorkApps(
+				db,
+				organizationId,
+				{ userIds: [] },
+				10,
+			);
+			const custom = {
+				"client.js": "void tedix.call('work.display', {});",
+				"server.js": "export class App {}",
+				"README.md": "Our instructions",
+			};
+			const files = JSON.stringify(custom);
+			await createOsGadgetRevision(db, {
+				organizationId,
+				gadgetId: app!.gadget.id,
+				id: crypto.randomUUID(),
+				manifest: app!.revision.manifest,
+				createdByKind: "user",
+				createdById: owner.id,
+				code: { files, codeLength: files.length },
+			});
+			await installDefaultWorkApps(db, organizationId, owner);
+			const rows = await listOsWorkApps(
+				db,
+				organizationId,
+				{ userIds: [] },
+				10,
+			);
+			const current = rows.find((r) => r.gadget.id === app!.gadget.id)!;
+			const code = await getOsGadgetCode(db, {
+				organizationId,
+				revisionId: current.revision.id,
+			});
+			expect(JSON.parse(code!.files)).toEqual({
+				...custom,
+				"layout.json": expect.any(String),
+			});
+			await installDefaultWorkApps(db, organizationId, owner);
+			expect(
+				await listOsWorkApps(db, organizationId, { userIds: [] }, 10),
+			).toEqual(rows);
 		} finally {
 			sqlite.close();
 		}

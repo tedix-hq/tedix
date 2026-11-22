@@ -1,3 +1,4 @@
+import { WorkLayoutRegion } from "./work-layout";
 import { PencilSimple, Pulse, SlidersHorizontal } from "@phosphor-icons/react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
@@ -165,152 +166,172 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 			aria-label="Work overview"
 			className="mx-auto grid w-full max-w-3xl gap-3 pb-6"
 		>
-			<div
-				role="group"
-				aria-label="Activity scope"
-				className="activity-toolbar flex flex-wrap items-center gap-1 border-b border-kumo-line"
-			>
-				<Button
-					size="sm"
-					variant="ghost"
-					aria-pressed={following}
-					disabled={!preferences || save.isPending}
-					onClick={() =>
-						projects.length ? choose("following") : setPick(true)
-					}
-				>
-					Following
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					aria-pressed={!following}
-					disabled={!preferences || save.isPending}
-					onClick={() => choose("all")}
-				>
-					All work
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					className="ms-auto"
-					aria-label="Running now"
-					title="Running now"
-					aria-expanded={running}
-					onClick={() => setRunning(!running)}
-				>
-					<Pulse aria-hidden className="size-5" />
-					<span className="max-sm:sr-only">Running now</span>
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					aria-label="Choose projects"
-					title="Choose projects"
-					aria-expanded={pick}
-					onClick={() => setPick(!pick)}
-				>
-					<SlidersHorizontal aria-hidden className="size-5" />
-					<span className="sr-only">Choose projects</span>
-				</Button>
-				<Button
-					size="sm"
-					aria-label="Share an update"
-					title="Share an update"
-					aria-expanded={sharing}
-					onClick={() => {
-						setPosted(false);
-						setSharing(!sharing);
-					}}
-				>
-					<PencilSimple aria-hidden className="size-5" />
-					<span className="max-sm:sr-only">Share an update</span>
-				</Button>
-			</div>
-			{sharing && (
-				<ShareUpdate
-					onPosted={() => {
-						setPosted(true);
-						setSharing(false);
-					}}
-				/>
-			)}
-			{posted && <p role="status">Update posted.</p>}
-			{pick && (
-				<fieldset className="grid max-h-64 gap-2 overflow-auto">
-					<legend>Projects to follow</legend>
-					{available.isPending && <Text>Loading projects…</Text>}
-					{available.isError && (
-						<WorkReadFailure
-							title="Could not load projects"
-							error={available.error}
-							onRetry={() => available.refetch()}
-						/>
-					)}
-					{available.data?.data.map((project) => (
-						<label key={project.id} className="flex items-center gap-2">
-							<input
-								type="checkbox"
-								checked={projects.includes(project.id)}
-								disabled={!preferences || save.isPending}
-								onChange={(event) =>
-									choose(
-										"following",
-										event.target.checked
-											? [...projects, project.id]
-											: projects.filter((id) => id !== project.id),
-									)
-								}
-							/>
-							{project.name}
-						</label>
-					))}
-					{(offset > 0 || available.data?.pagination.hasMore) && (
-						<div className="flex gap-2">
-							<Button
-								size="sm"
-								variant="ghost"
-								disabled={!offset}
-								onClick={() => setOffset((n) => Math.max(0, n - 50))}
+			<WorkLayoutRegion
+				region="overview"
+				slots={{
+					toolbar: (
+						<>
+							<div
+								role="group"
+								aria-label="Activity scope"
+								className="activity-toolbar flex flex-wrap items-center gap-1 border-b border-kumo-line"
 							>
-								Previous projects
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								disabled={!available.data?.pagination.hasMore}
-								onClick={() => setOffset((n) => n + 50)}
+								<Button
+									size="sm"
+									variant="ghost"
+									aria-pressed={following}
+									disabled={!preferences || save.isPending}
+									onClick={() =>
+										projects.length ? choose("following") : setPick(true)
+									}
+								>
+									Following
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									aria-pressed={!following}
+									disabled={!preferences || save.isPending}
+									onClick={() => choose("all")}
+								>
+									All work
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="ms-auto"
+									aria-label="Running now"
+									title="Running now"
+									aria-expanded={running}
+									onClick={() => setRunning(!running)}
+								>
+									<Pulse aria-hidden className="size-5" />
+									<span className="max-sm:sr-only">Running now</span>
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									aria-label="Choose projects"
+									title="Choose projects"
+									aria-expanded={pick}
+									onClick={() => setPick(!pick)}
+								>
+									<SlidersHorizontal aria-hidden className="size-5" />
+									<span className="sr-only">Choose projects</span>
+								</Button>
+								<Button
+									size="sm"
+									aria-label="Share an update"
+									title="Share an update"
+									aria-expanded={sharing}
+									onClick={() => {
+										setPosted(false);
+										setSharing(!sharing);
+									}}
+								>
+									<PencilSimple aria-hidden className="size-5" />
+									<span className="max-sm:sr-only">Share an update</span>
+								</Button>
+							</div>
+							{sharing && (
+								<ShareUpdate
+									onPosted={() => {
+										setPosted(true);
+										setSharing(false);
+									}}
+								/>
+							)}
+							{posted && <p role="status">Update posted.</p>}
+							{pick && (
+								<fieldset className="grid max-h-64 gap-2 overflow-auto">
+									<legend>Projects to follow</legend>
+									{available.isPending && <Text>Loading projects…</Text>}
+									{available.isError && (
+										<WorkReadFailure
+											title="Could not load projects"
+											error={available.error}
+											onRetry={() => available.refetch()}
+										/>
+									)}
+									{available.data?.data.map((project) => (
+										<label key={project.id} className="flex items-center gap-2">
+											<input
+												type="checkbox"
+												checked={projects.includes(project.id)}
+												disabled={!preferences || save.isPending}
+												onChange={(event) =>
+													choose(
+														"following",
+														event.target.checked
+															? [...projects, project.id]
+															: projects.filter((id) => id !== project.id),
+													)
+												}
+											/>
+											{project.name}
+										</label>
+									))}
+									{(offset > 0 || available.data?.pagination.hasMore) && (
+										<div className="flex gap-2">
+											<Button
+												size="sm"
+												variant="ghost"
+												disabled={!offset}
+												onClick={() => setOffset((n) => Math.max(0, n - 50))}
+											>
+												Previous projects
+											</Button>
+											<Button
+												size="sm"
+												variant="ghost"
+												disabled={!available.data?.pagination.hasMore}
+												onClick={() => setOffset((n) => n + 50)}
+											>
+												More projects
+											</Button>
+										</div>
+									)}
+								</fieldset>
+							)}
+							{save.isError && (
+								<Text role="body">
+									Could not save your Activity preference. Try again.
+								</Text>
+							)}
+						</>
+					),
+					running: (
+						<>
+							{running && (
+								<div>
+									<ActivityRunningNow
+										config={ORGANIZATION_ACTIVITY_CONFIG}
+										followedProjects={following ? projects : undefined}
+									/>
+									<Collapsible open={details} onOpenChange={setDetails}>
+										<CollapsibleDefaultTrigger>
+											Stuck and upcoming work
+										</CollapsibleDefaultTrigger>
+										<CollapsibleDefaultContent>
+											{details && <OverviewSections />}
+										</CollapsibleDefaultContent>
+									</Collapsible>
+								</div>
+							)}
+						</>
+					),
+					posts: (
+						<>
+							<div
+								aria-label="Recent activity"
+								className="activity-posts min-w-0"
 							>
-								More projects
-							</Button>
-						</div>
-					)}
-				</fieldset>
-			)}
-			{save.isError && (
-				<Text role="body">
-					Could not save your Activity preference. Try again.
-				</Text>
-			)}
-			{running && (
-				<div>
-					<ActivityRunningNow
-						config={ORGANIZATION_ACTIVITY_CONFIG}
-						followedProjects={following ? projects : undefined}
-					/>
-					<Collapsible open={details} onOpenChange={setDetails}>
-						<CollapsibleDefaultTrigger>
-							Stuck and upcoming work
-						</CollapsibleDefaultTrigger>
-						<CollapsibleDefaultContent>
-							{details && <OverviewSections />}
-						</CollapsibleDefaultContent>
-					</Collapsible>
-				</div>
-			)}
-			<div aria-label="Recent activity" className="activity-posts min-w-0">
-				{children}
-			</div>
+								{children}
+							</div>
+						</>
+					),
+				}}
+			/>
 		</section>
 	);
 }

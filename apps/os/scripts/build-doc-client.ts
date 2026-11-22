@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
 	DOC_SERVER_SOURCE,
 	DOC_README,
-} from "../../../packages/api-contract/src/assets/doc-blueprint";
+} from "../../../packages/api-contract/src/blueprints/docs/blueprint";
 import {
 	APP_RUNTIME_MAX_FILES_BYTES,
 	appRuntimeFilesBytes,
@@ -15,7 +15,7 @@ import {
 const osRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const destination = resolve(
 	osRoot,
-	"../../packages/api-contract/src/assets/doc-client.v3.generated.json",
+	"../../packages/api-contract/src/blueprints/docs/doc-client.v3.generated.json",
 );
 const result = await build({
 	absWorkingDir: osRoot,

@@ -1,6 +1,10 @@
 import type { OsGadgetManifest } from "../schemas/os-workspaces";
 import { APP_RUNTIME_ENTRY } from "../schemas/os-app-runtime";
 
+import activityFiles from "../blueprints/activity/files.json";
+import decisionsFiles from "../blueprints/decisions/files.json";
+import { workLayouts } from "../blueprints/work-layout";
+
 const workEntries = {
 	feed: "tedix:app/activity-feed",
 	deck: "tedix:app/decision-deck",
@@ -42,9 +46,8 @@ export function buildWorkView(manifest: OsGadgetManifest) {
 	)
 		return null;
 	const files = {
-		"server.js": "export class App {}",
-		"client.js": 'void tedix.call("work.display", {});\n',
-		"README.md": `This workspace owns this copy. Edit client.js and publish a new revision. tedix.call("work.display", {}) opens the signed-in member’s ${role === "feed" ? "Activity feed. Set postsPerPage to 1–50 to change the number of updates." : "Decisions. Set cardLayout to compact or full."} You can add your own interface in #app. Private cards and approval controls stay in the host. For MCP calls from server.js, bind a connection and call its granted tools through env.TEDIX.connectionsCall.\n`,
+		"layout.json": JSON.stringify(workLayouts[role], null, 2) + "\n",
+		...(role === "feed" ? activityFiles : decisionsFiles),
 	};
 	return {
 		manifest: {

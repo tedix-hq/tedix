@@ -1,0 +1,5 @@
+{
+	"client.js": "void tedix.call(\"work.display\", {});\n",
+	"server.js": "export class App {}",
+	"README.md": "Edit layout.json to rearrange this workspace’s activity. Keep each named section once. To group sections, replace them in the list with {\"display\": \"stack\", \"title\": \"Update\", \"sections\": [\"headline\", \"details\"]}. Use columns for a side-by-side group on wide screens. Set postsPerPage in client.js to show between 1 and 50 updates. Publish the revision to update this workspace. In server.js, env.TEDIX.connectionsCall can call tools granted through a bound connection.\n"
+}

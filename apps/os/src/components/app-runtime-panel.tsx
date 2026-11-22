@@ -1,3 +1,5 @@
+import { readWorkLayout } from "@tedix/api-contract/blueprints/work-layout";
+import { WorkLayoutContext, WorkLayoutRegion } from "./work-layout";
 import { WorkHomeOverview } from "./work-home-overview";
 import { z } from "zod";
 import {
@@ -132,12 +134,14 @@ export function AppRuntimePreview({
 	revision,
 	layout = "fill",
 	translation,
+	renderWork,
 }: {
 	workspaceId: string;
 	gadget: OsGadget;
 	revision: OsGadgetRevision;
 	layout?: "content" | "fill";
 	translation?: AppRuntimeTranslationChannel;
+	renderWork?: (manifest: OsGadgetManifest) => ReactNode;
 }) {
 	const code = useQuery(
 		appRuntimeCodeQueryOptions(workspaceId, gadget.id, revision.id),
@@ -193,6 +197,7 @@ export function AppRuntimePreview({
 				).data
 			}
 			files={code.data.code.files}
+			renderWork={renderWork}
 			callServer={callServer}
 			layout={layout}
 			translation={translation}
@@ -218,6 +223,7 @@ export function AppRuntimeSandbox({
 	title = gadget.name,
 	layout = "fill",
 	translation,
+	renderWork,
 }: {
 	workspaceId: string;
 	gadget: Pick<OsGadget, "id" | "name">;
@@ -230,6 +236,7 @@ export function AppRuntimeSandbox({
 	title?: string;
 	layout?: "content" | "fill";
 	translation?: AppRuntimeTranslationChannel;
+	renderWork?: (manifest: OsGadgetManifest) => ReactNode;
 }) {
 	const queryClient = useQueryClient();
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
@@ -747,22 +754,46 @@ export function AppRuntimeSandbox({
 	);
 	const workManifest =
 		workOptions && workRole ? workSourceManifest(manifest) : null;
-	const workView = workManifest && (
-		<WorkspaceAppRenderer
-			workspaceId={workspaceId}
-			activityFeed={{ showRunningNow: false }}
-			manifest={{
-				...workManifest,
-				config: { ...workManifest.config, ...workOptions },
-			}}
-		/>
-	);
+	let layoutError: string | undefined;
+	let workLayout;
+	try {
+		if (workRole) workLayout = readWorkLayout(workRole, files["layout.json"]);
+	} catch (error) {
+		layoutError = error instanceof Error ? error.message : "Check layout.json.";
+	}
+	const resolvedWork = workManifest && {
+		...workManifest,
+		config: { ...workManifest.config, ...workOptions },
+	};
+	const workView =
+		resolvedWork &&
+		(renderWork ? (
+			renderWork(resolvedWork)
+		) : (
+			<WorkspaceAppRenderer
+				workspaceId={workspaceId}
+				activityFeed={{ showRunningNow: false }}
+				manifest={resolvedWork}
+			/>
+		));
+
 	return (
 		<>
-			{workRole === "feed" && workView ? (
-				<WorkHomeOverview>{workView}</WorkHomeOverview>
+			{layoutError ? (
+				<Alert variant="warning">
+					<AlertTitle>Check the gadget layout</AlertTitle>
+					<AlertDescription>{layoutError}</AlertDescription>
+				</Alert>
 			) : (
-				workView
+				<WorkLayoutContext.Provider value={workLayout ?? {}}>
+					{!renderWork && workRole === "feed" && workView ? (
+						<WorkHomeOverview>{workView}</WorkHomeOverview>
+					) : workRole === "deck" && workView ? (
+						<WorkLayoutRegion region="desk" slots={{ queue: workView }} />
+					) : (
+						workView
+					)}
+				</WorkLayoutContext.Provider>
 			)}
 			{attachedFile && (
 				<Suspense fallback={<AppLoading />}>

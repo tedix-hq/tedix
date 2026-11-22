@@ -4,15 +4,15 @@ import { z } from "zod";
 import {
 	OsBlueprintDefinitionSchema,
 	type OsOutputContent,
-} from "../schemas/os-workspaces";
-import { applySheetRange } from "../utils/sheet-range";
-import { sheetCsvText } from "../utils/sheet-csv";
+} from "../../schemas/os-workspaces";
+import { applySheetRange } from "../../utils/sheet-range";
+import { sheetCsvText } from "../../utils/sheet-csv";
 import {
 	buildSheetBlueprint,
 	SHEET_CLIENT_SOURCE,
 	SHEET_CLIENT_SHA256,
 	SHEET_SERVER_SOURCE,
-} from "./sheet-blueprint";
+} from "./blueprint";
 
 type Sheet = Extract<OsOutputContent, { kind: "sheet" }>;
 function content(): Sheet {

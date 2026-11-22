@@ -5,10 +5,10 @@ import {
 	OsPresentationSlideSchema,
 	OsWorkspaceResourceSlotSchema,
 	type OsBlueprintDefinition,
-} from "../schemas/os-workspaces";
+} from "../../schemas/os-workspaces";
 
-import { SLIDES_BLUEPRINT_VERSION } from "./office-editor-versions";
-import { OS_DECK_MAX_SLIDES } from "../utils/os-output-limits";
+import { SLIDES_BLUEPRINT_VERSION } from "../../assets/office-editor-versions";
+import { OS_DECK_MAX_SLIDES } from "../../utils/os-output-limits";
 import portableSlidesClient from "./slides-client.v2.generated.json";
 
 export const SLIDES_SERVER_SOURCE = String.raw`
