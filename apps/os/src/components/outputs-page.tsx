@@ -801,7 +801,11 @@ export function OutputsPage() {
 						/>
 					</PageActions>
 				</PageHeader>
-				<PageToolbar aria-label="Output library controls" appearance="inline">
+				<PageToolbar
+					aria-label="Output library controls"
+					appearance="inline"
+					className="lg:flex-col lg:items-stretch"
+				>
 					<Tabs
 						className="w-full min-w-0 max-w-full shrink"
 						value={kind}
@@ -820,14 +824,14 @@ export function OutputsPage() {
 							))}
 						</TabsList>
 					</Tabs>
-					<div className="flex w-full min-w-0 items-stretch gap-2 sm:items-center lg:w-auto lg:shrink-0">
+					<div className="flex w-full min-w-0 items-center gap-2">
 						<ScopeSelect
 							value={scope}
 							counts={scopeCounts}
 							onChange={setScope}
 						/>
 						<SearchInput
-							containerClassName="min-w-0 flex-1 sm:w-60"
+							containerClassName="min-w-0 flex-1 sm:w-60 sm:flex-none"
 							aria-label="Search documents"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}

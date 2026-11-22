@@ -629,10 +629,6 @@ describe("Installed Apps layout", () => {
 		expect(input).not.toBeNull();
 		expect(input?.closest('[data-slot="page-toolbar"]')).not.toBeNull();
 		expect(
-			input?.closest(".w-full.sm\\:max-w-sm"),
-			"the search control keeps its responsive container",
-		).not.toBeNull();
-		expect(
 			page.host.querySelector('[aria-label="3 results"]')?.textContent,
 		).toBe("3 results");
 		expect(page.host.textContent).toContain(

@@ -961,7 +961,7 @@ export function AppsPage({
 					<>
 						<PageToolbar appearance="inline">
 							<SearchInput
-								containerClassName="w-full sm:max-w-sm"
+								containerClassName="w-full sm:w-md"
 								aria-label="Search installed apps"
 								placeholder="Search apps by name, purpose, or domain…"
 								value={search.q}

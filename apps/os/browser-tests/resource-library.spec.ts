@@ -55,53 +55,64 @@ try {
 			surface === "documents" ? ".outputs-library" : ".canvas-resource-library",
 		);
 		await library.locator("[data-resource-card]").first().waitFor();
-		await library.getByRole("button", { name: "New", exact: true }).click();
-		await page.getByRole("menuitem", { name: "Doc", exact: true }).waitFor();
-		assert.deepEqual(await page.getByRole("menuitem").allTextContents(), [
-			"Doc",
-			"Sheet",
-			"Slides",
-			"Browse templates",
-			"Document from a template",
-		]);
-		assert.equal(
-			await page
-				.getByRole("menuitem", { name: "Browse templates" })
-				.getAttribute("href"),
-			"/blueprints",
-		);
-		await page.screenshot({
-			path: `${evidence}/${surface}-new-${width}-${theme}.png`,
-			fullPage: true,
-		});
-		await page.keyboard.press("Escape");
-		for (const choice of ["Doc", "Sheet", "Slides"]) {
+		if (surface === "documents") {
+			const types = library.getByRole("tablist", { name: "Filter by type" });
+			assert(
+				await types.evaluate(
+					(strip) => strip.scrollWidth <= strip.clientWidth + 1,
+				),
+				"all document types fit at desktop width with the sidebar open",
+			);
 			await library.getByRole("button", { name: "New", exact: true }).click();
-			await page.getByRole("menuitem", { name: choice, exact: true }).click();
-			const dialog = page.getByRole("dialog");
-			await dialog
-				.getByRole("heading", { name: `New ${choice}`, exact: true })
+			await page.getByRole("menuitem", { name: "Doc", exact: true }).waitFor();
+			assert.deepEqual(await page.getByRole("menuitem").allTextContents(), [
+				"Doc",
+				"Sheet",
+				"Slides",
+				"Browse templates",
+				"Document from a template",
+			]);
+			assert.equal(
+				await page
+					.getByRole("menuitem", { name: "Browse templates" })
+					.getAttribute("href"),
+				"/blueprints",
+			);
+			await page.screenshot({
+				path: `${evidence}/${surface}-new-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			await page.keyboard.press("Escape");
+			for (const choice of ["Doc", "Sheet", "Slides"]) {
+				await library.getByRole("button", { name: "New", exact: true }).click();
+				await page.getByRole("menuitem", { name: choice, exact: true }).click();
+				const dialog = page.getByRole("dialog");
+				await dialog
+					.getByRole("heading", { name: `New ${choice}`, exact: true })
+					.waitFor();
+				await dialog
+					.getByRole("button", { name: "Close", exact: true })
+					.click();
+			}
+			await library.getByRole("button", { name: "New", exact: true }).click();
+			await page
+				.getByRole("menuitem", {
+					name: "Document from a template",
+					exact: true,
+				})
+				.click();
+			const templateDialog = page.getByRole("dialog");
+			await templateDialog
+				.getByRole("heading", { name: "New document", exact: true })
 				.waitFor();
-			await dialog.getByRole("button", { name: "Close", exact: true }).click();
+			assert.equal(
+				await templateDialog.getByText("Template", { exact: true }).count(),
+				1,
+			);
+			await templateDialog
+				.getByRole("button", { name: "Cancel", exact: true })
+				.click();
 		}
-		await library.getByRole("button", { name: "New", exact: true }).click();
-		await page
-			.getByRole("menuitem", {
-				name: "Document from a template",
-				exact: true,
-			})
-			.click();
-		const templateDialog = page.getByRole("dialog");
-		await templateDialog
-			.getByRole("heading", { name: "New document", exact: true })
-			.waitFor();
-		assert.equal(
-			await templateDialog.getByText("Template", { exact: true }).count(),
-			1,
-		);
-		await templateDialog
-			.getByRole("button", { name: "Cancel", exact: true })
-			.click();
 		assert(
 			(await library.locator("[data-workspace-app]").count()) > 0,
 			`${surface} includes apps`,

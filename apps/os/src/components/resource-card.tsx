@@ -34,6 +34,22 @@ export function ResourceCard({
 	openLabel?: string;
 	bodyClassName?: string;
 }) {
+	const cardActions =
+		actions ??
+		(onOpen && (
+			<div className="output-card-actions workspace-app-footer flex shrink-0">
+				<Button
+					disabled={disabled}
+					variant="ghost"
+					size="sm"
+					aria-label={label}
+					onClick={onOpen}
+					className="output-card-open static after:absolute after:inset-px after:content-['']"
+				>
+					{openLabel}
+				</Button>
+			</div>
+		));
 	return (
 		<Surface
 			tier="panel"
@@ -79,22 +95,9 @@ export function ResourceCard({
 					</Text>
 				)}
 				{children}
-				{actions ??
-					(onOpen && (
-						<div className="output-card-actions workspace-app-footer flex">
-							<Button
-								disabled={disabled}
-								variant="ghost"
-								size="sm"
-								aria-label={label}
-								onClick={onOpen}
-								className="output-card-open static after:absolute after:inset-px after:content-['']"
-							>
-								{openLabel}
-							</Button>
-						</div>
-					))}
+				{layout === "grid" ? cardActions : null}
 			</div>
+			{layout === "list" ? cardActions : null}
 		</Surface>
 	);
 }

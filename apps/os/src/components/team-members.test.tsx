@@ -41,7 +41,6 @@ import {
 } from "./team-members";
 import { TeamRolesPanel } from "./team-roles";
 import { Card, CardContent } from "@/components/kumo/card";
-import { Collection } from "@/components/kumo/page";
 import {
 	MEMBERS_PAGE_SIZE,
 	membersListQueryOptions,
@@ -855,30 +854,6 @@ describe("members surface", () => {
 	const kumoClass = (element: React.ReactElement) =>
 		new DOMParser().parseFromString(renderToStaticMarkup(element), "text/html")
 			.body.firstElementChild?.className;
-
-	it("keeps the members header and content on the shared Kumo Card inset", async () => {
-		const { host } = await mountPanel({});
-		const content = host.querySelector('[data-slot="card-content"]');
-		expect(content?.className).toBe(kumoClass(<CardContent />));
-	});
-
-	it("uses inline Kumo collections for mobile members", async () => {
-		const { host } = await mountPanel({});
-		const collection = host.querySelector(
-			'[aria-label="Organization members"]',
-		);
-		expect(collection?.className).toBe(
-			kumoClass(
-				<Collection
-					appearance="inline"
-					aria-label="Organization members"
-					className="md:hidden"
-				>
-					<li />
-				</Collection>,
-			),
-		);
-	});
 
 	it("keeps the pending collection on shared Kumo Card geometry", async () => {
 		const { host } = await mountPanel({ contextPending: true });

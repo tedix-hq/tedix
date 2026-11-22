@@ -75,7 +75,11 @@ async function mount(rows?: SkillSchedule[]) {
 	});
 	if (rows)
 		client.setQueryData(skillSpecificSchedulesQueryOptions("alpha").queryKey, {
-			schedules: rows,
+			schedules: rows.map((row) => ({
+				...row,
+				skillTitle: null,
+				lifecycleState: null,
+			})),
 			total: rows.length,
 			offset: 0,
 			limit: 200,

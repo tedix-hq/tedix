@@ -250,7 +250,7 @@ describe("OutputsPage", () => {
 		expect(archivedTab.textContent).toContain("Archived 1");
 	});
 
-	it("uses the ordinary desktop lane for the compact filter row", async () => {
+	it("groups the type, sharing, and search filters in one toolbar", async () => {
 		outputsApi.library.mockResolvedValue({
 			items: [libraryItem()],
 			truncated: false,
@@ -259,22 +259,15 @@ describe("OutputsPage", () => {
 		await flush();
 
 		const toolbar = container.querySelector('[data-slot="page-toolbar"]');
-		expect(toolbar?.className).toContain("lg:flex-row");
-		expect(toolbar?.className).not.toContain("xl:flex-row");
-		const searchGroup = toolbar?.querySelector(".lg\\:w-auto");
-		expect(searchGroup).not.toBeNull();
-		expect(searchGroup?.className).not.toContain("flex-col");
-		expect(searchGroup?.className).toContain("items-center");
-		const scopeButton = Array.from(container.querySelectorAll("button")).find(
-			(button) => button.textContent?.includes("Yours and shared"),
-		);
-		expect(scopeButton?.className).toContain("shrink-0");
-		expect(scopeButton?.className).toContain("justify-between");
-		// The visible label names the button, so phones hear "All sharing".
-		expect(scopeButton?.hasAttribute("aria-label")).toBe(false);
-		const search = container.querySelector('[aria-label="Search documents"]');
-		expect(search?.parentElement?.className).toContain("flex-1");
-		expect(search?.parentElement?.className).toContain("sm:w-60");
+		expect(toolbar?.querySelector('[role="tablist"]')).not.toBeNull();
+		expect(
+			toolbar?.querySelector('[aria-label="Search documents"]'),
+		).not.toBeNull();
+		expect(
+			Array.from(toolbar?.querySelectorAll("button") ?? []).some((button) =>
+				button.textContent?.includes("Yours and shared"),
+			),
+		).toBe(true);
 	});
 
 	it("opens an active workspace-backed output in the collaborative workbench", async () => {

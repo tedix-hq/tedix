@@ -6,6 +6,7 @@ import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
+import { cn } from "@/lib/utils";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import {
@@ -93,7 +94,7 @@ function MarkWorkspaceRead({
 	return (
 		<Button
 			aria-label={`Mark ${workspaceName} as read`}
-			className="ml-auto shrink-0"
+			className="ms-auto shrink-0"
 			disabled={mark.isPending}
 			onClick={() => mark.mutate({ workspaceId, target: { type: "all" } })}
 			size="sm"
@@ -147,7 +148,12 @@ export function UnreadList({
 		);
 	return (
 		<div className="grid grid-cols-[minmax(0,1fr)]">
-			<div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 pt-3">
+			<div
+				className={cn(
+					"flex min-w-0 flex-wrap items-center justify-between gap-2 px-4",
+					page ? "border-kumo-hairline border-b py-2" : "pt-3",
+				)}
+			>
 				<Text as="p" className="m-0" role="label" tone="secondary">
 					{list.data.total} unread
 				</Text>
@@ -166,18 +172,22 @@ export function UnreadList({
 					className="border-b border-kumo-hairline last:border-b-0"
 					key={group.workspaceId}
 				>
-					<h3 className="m-0 flex min-w-0 items-center gap-2 wrap-anywhere px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold">
-						{sanitizeUntrustedText(group.workspaceName)}
-						<span className="shrink-0 tabular-nums font-normal">
-							{group.items.length}
-						</span>
+					<div className="flex min-w-0 items-center gap-2 px-4 pb-1 pt-3">
+						<h3 className="m-0 flex min-w-0 items-center gap-2 text-kumo-subtle type-tedix-caption font-semibold">
+							<span className="min-w-0 wrap-anywhere">
+								{sanitizeUntrustedText(group.workspaceName)}
+							</span>
+							<span className="shrink-0 tabular-nums font-normal">
+								{group.items.length}
+							</span>
+						</h3>
 						{page ? (
 							<MarkWorkspaceRead
 								workspaceId={group.workspaceId}
 								workspaceName={sanitizeUntrustedText(group.workspaceName)}
 							/>
 						) : null}
-					</h3>
+					</div>
 					<ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none p-0 pb-1">
 						{(page
 							? unreadRows(group.items)
@@ -185,14 +195,20 @@ export function UnreadList({
 						).map(({ item, count }) => (
 							<li key={`${item.kind}:${item.id}`}>
 								<Link
-									className="flex min-h-9 w-full min-w-0 items-center gap-2 rounded-none px-4 py-1.5 text-kumo-default type-tedix-control max-sm:min-h-11"
+									className={cn(
+										"flex w-full min-w-0 items-center gap-2 rounded-none px-4 text-kumo-default type-tedix-control",
+										page ? "min-h-12 py-2" : "min-h-9 py-1.5 max-sm:min-h-11",
+									)}
 									href={unreadItemHref(group.workspaceId, item)}
 									onClick={onNavigate}
 									variant="collection"
 								>
 									{page ? (
 										<span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)]">
-											<span className="truncate" title={unreadItemLabel(item)}>
+											<span
+												className="line-clamp-2 wrap-anywhere"
+												title={unreadItemLabel(item)}
+											>
 												{unreadItemLabel(item)}
 											</span>
 											<span className="truncate text-kumo-subtle type-tedix-label">

@@ -93,6 +93,33 @@ try {
 		);
 		await page.close();
 	}
+	const desktop = await browser.newPage({
+		viewport: { width: 960, height: 850 },
+	});
+	await desktop.goto(fixture);
+	// At 960px the expanded OS sidebar leaves a 700px content lane.
+	await desktop.addStyleTag({
+		content: "@media (max-width: 1000px) { #root { max-width: 700px; } }",
+	});
+	const list = desktop.getByRole("list", { name: "Organization members" });
+	await list.waitFor();
+	assert.equal(
+		await list.getByRole("button", { name: /^Actions for / }).count(),
+		6,
+	);
+
+	await desktop.setViewportSize({ width: 1280, height: 850 });
+	const table = desktop.getByRole("table", { name: "Team members" });
+	await table.waitFor();
+	assert.equal(await list.isVisible(), false);
+	assert(
+		await table.evaluate((element) => {
+			const container = element.parentElement!;
+			return container.scrollWidth <= container.clientWidth + 1;
+		}),
+		"long member identities leave room for all columns in the wide table",
+	);
+	await desktop.close();
 	console.log(
 		"PASS: members rows keep long identities and controls inside a 390px viewport, light and dark",
 	);

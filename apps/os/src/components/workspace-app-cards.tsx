@@ -91,6 +91,11 @@ export function WorkspaceAppCard({
 		<ResourceCard
 			openLabel="Open app"
 			layout={layout}
+			bodyClassName={
+				layout === "list"
+					? "flex min-w-0 flex-1 flex-col gap-1 max-sm:col-span-full"
+					: undefined
+			}
 			title={gadget.name}
 			label={`Open ${gadget.name}`}
 			selected={selected}

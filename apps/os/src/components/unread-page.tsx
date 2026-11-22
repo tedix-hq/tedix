@@ -5,6 +5,7 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
+import { Surface } from "@/components/kumo/surface";
 import { UnreadList } from "@/components/unread-list";
 
 /** Everything new for the person, in one place: `/inbox`. */
@@ -21,9 +22,9 @@ export function UnreadPage() {
 						</PageDescription>
 					</PageHeading>
 				</PageHeader>
-				<div className="min-w-0 overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base">
+				<Surface tier="panel" className="min-w-0 overflow-hidden">
 					<UnreadList page />
-				</div>
+				</Surface>
 			</div>
 		</Page>
 	);

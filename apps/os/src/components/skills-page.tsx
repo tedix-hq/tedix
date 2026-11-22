@@ -729,11 +729,14 @@ export function SkillsPage({
 					}
 					tabs={SKILLS_SECTIONS.map(({ id, label }) => ({ value: id, label }))}
 				/>
-				<PageToolbar appearance="inline">
+				<PageToolbar
+					appearance="inline"
+					className="flex-row flex-wrap items-center justify-between lg:flex-wrap"
+				>
 					<SearchInput
 						aria-label={searchLabel}
 						placeholder={`Search ${search.section} by name or purpose…`}
-						containerClassName="w-full lg:max-w-md"
+						containerClassName="w-full sm:w-md"
 						value={search.q}
 						onChange={(event) =>
 							onSearchChange({ q: event.target.value, page: 1 })
@@ -749,21 +752,21 @@ export function SkillsPage({
 							)
 						}
 					/>
+					{search.section === "skills" ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="shrink-0"
+							aria-pressed={search.showArchived}
+							onClick={() =>
+								onSearchChange({ showArchived: !search.showArchived, page: 1 })
+							}
+						>
+							{search.showArchived ? "Hide archived" : "Show archived"}
+							{archived.data ? ` (${archived.data.total})` : ""}
+						</Button>
+					) : null}
 				</PageToolbar>
-				{search.section === "skills" ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						className="justify-self-start"
-						aria-pressed={search.showArchived}
-						onClick={() =>
-							onSearchChange({ showArchived: !search.showArchived, page: 1 })
-						}
-					>
-						{search.showArchived ? "Hide archived" : "Show archived"}
-						{archived.data ? ` (${archived.data.total})` : ""}
-					</Button>
-				) : null}
 			</div>
 
 			{search.section === "skills" ? (

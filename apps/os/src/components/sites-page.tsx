@@ -44,6 +44,7 @@ import {
 	PageToolbar,
 } from "@/components/kumo/page";
 import { SearchInput } from "@/components/kumo/search-input";
+import { Surface } from "@/components/kumo/surface";
 import { Table, TableBody, TableCell, TableRow } from "@/components/kumo/table";
 import { Empty } from "@/components/kumo/empty";
 import { toast } from "@/components/kumo/toast";
@@ -182,7 +183,11 @@ export function SitesPage() {
 				</PageActions>
 			</PageHeader>
 			{canCreateCmsSite && createOpen ? (
-				<PageSection id="create-cms-site">
+				<Surface
+					id="create-cms-site"
+					tier="panel"
+					className="@container grid w-full max-w-3xl min-w-0 gap-4 p-4 sm:p-5"
+				>
 					<SectionHeader>
 						<SectionHeading>
 							<SectionTitle>New site</SectionTitle>
@@ -193,7 +198,7 @@ export function SitesPage() {
 						</SectionHeading>
 					</SectionHeader>
 					<form
-						className="grid gap-4 sm:grid-cols-3"
+						className="grid items-start gap-4 @min-[34rem]:grid-cols-3"
 						onSubmit={(event) => {
 							event.preventDefault();
 							void createSiteForm.handleSubmit();
@@ -244,7 +249,7 @@ export function SitesPage() {
 								</SelectContent>
 							</Select>
 						</div>
-						<div className="flex flex-wrap justify-end gap-2 sm:col-span-3">
+						<div className="col-span-full flex flex-wrap justify-end gap-2">
 							<Button
 								type="button"
 								variant="outline"
@@ -265,7 +270,7 @@ export function SitesPage() {
 							</Button>
 						</div>
 					</form>
-				</PageSection>
+				</Surface>
 			) : null}
 
 			{sites.data?.versionAlerts?.length ? (
@@ -310,7 +315,7 @@ export function SitesPage() {
 							placeholder="Search by site or domain"
 							value={siteSearch}
 							onChange={(event) => setSiteSearch(event.target.value)}
-							containerClassName="w-full lg:max-w-md"
+							containerClassName="w-full sm:w-md"
 						/>
 					</PageToolbar>
 				) : null}

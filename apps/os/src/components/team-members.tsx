@@ -572,7 +572,7 @@ function TeamMembersPanelBody({
 						) : null}
 					</CardAction>
 				</CardHeader>
-				<CardContent>
+				<CardContent className="@container">
 					{notice ? (
 						<Text
 							aria-live="polite"
@@ -592,15 +592,15 @@ function TeamMembersPanelBody({
 						</Alert>
 					) : null}
 
-					<div className="hidden md:block">
-						<Table aria-label="Team members">
+					<div className="hidden @min-[42rem]:block">
+						<Table aria-label="Team members" className="w-full table-fixed">
 							<TableHeader>
 								<TableRow>
 									<TableHead>Member</TableHead>
-									<TableHead>Status</TableHead>
-									<TableHead>Role</TableHead>
-									<TableHead>Activity</TableHead>
-									<TableHead className="w-12">
+									<TableHead className="w-28">Status</TableHead>
+									<TableHead className="w-40">Role</TableHead>
+									<TableHead className="w-36">Activity</TableHead>
+									<TableHead className="w-14">
 										<span className="sr-only">Actions</span>
 									</TableHead>
 								</TableRow>
@@ -614,8 +614,8 @@ function TeamMembersPanelBody({
 									return (
 										<TableRow key={member.id}>
 											<TableCell>
-												<div className="flex min-w-48 items-center gap-3">
-													<MemberAvatar member={member} />
+												<div className="flex min-w-0 items-center gap-3">
+													<MemberAvatar member={member} className="shrink-0" />
 													<MemberIdentityCell
 														member={member}
 														self={self}
@@ -636,7 +636,7 @@ function TeamMembersPanelBody({
 													}
 												/>
 											</TableCell>
-											<TableCell className="text-kumo-subtle">
+											<TableCell className="whitespace-normal text-kumo-subtle">
 												<MemberActivityCell member={member} />
 											</TableCell>
 											<TableCell>
@@ -658,7 +658,7 @@ function TeamMembersPanelBody({
 					<Collection
 						appearance="inline"
 						aria-label="Organization members"
-						className="md:hidden"
+						className="@min-[42rem]:hidden"
 					>
 						{members.map((member) => {
 							const self = isCurrentUser(member);

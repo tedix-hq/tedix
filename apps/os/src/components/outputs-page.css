@@ -14,6 +14,20 @@
 	border: 1px solid transparent;
 }
 
+.outputs-library [data-workspace-app].output-grid-card,
+.outputs-library [data-workspace-app].output-grid-card .output-card-footer {
+	display: flex;
+	flex-direction: column;
+}
+
+.outputs-library [data-workspace-app].output-grid-card {
+	height: 100%;
+}
+
+.outputs-library [data-workspace-app].output-grid-card .output-card-actions {
+	margin-block-start: auto;
+}
+
 .resource-card .output-card-footer > .output-card-actions {
 	grid-column: 1 / -1;
 }
