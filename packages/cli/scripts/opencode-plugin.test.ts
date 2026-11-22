@@ -306,7 +306,7 @@ const emit = (
 	properties = {},
 ) => hooks.event!({ event: { type, properties } } as never);
 
-function sessionClient(wakes: unknown[]) {
+function sessionClient(wakes: unknown[], onWake?: () => void) {
 	return {
 		session: {
 			messages: async () => ({
@@ -327,6 +327,7 @@ function sessionClient(wakes: unknown[]) {
 			}),
 			promptAsync: async (input: unknown) => {
 				wakes.push(input);
+				onWake?.();
 			},
 		},
 	};
@@ -337,12 +338,16 @@ test("idle captures the whole turn and wakes once with the CLI's framed reply", 
 		'if [ "$2" = "await-reply" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
 	);
 	const wakes: unknown[] = [];
+	let resolveWake!: () => void;
+	const woke = new Promise<void>((resolve) => (resolveWake = resolve));
 	const hooks = await module.default.server({
 		directory,
-		client: sessionClient(wakes),
+		client: sessionClient(wakes, resolveWake),
 	});
-	await emit(hooks, "session.idle", { sessionID: SESSION });
-	await until(() => wakes.length === 1);
+	await hooks.event!({
+		event: { type: "session.idle", properties: { sessionID: SESSION } },
+	} as never);
+	await woke;
 	expect(wakes[0]).toEqual({
 		path: { id: SESSION },
 		body: {
@@ -370,7 +375,7 @@ test("idle captures the whole turn and wakes once with the CLI's framed reply", 
 	expect(
 		calls().filter((call) => call.args?.includes("capture-stop")),
 	).toHaveLength(1);
-});
+}, 30_000);
 
 test("permission, tool, error and deletion events report status without approving permissions", async () => {
 	fakeCli();
