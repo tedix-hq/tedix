@@ -1,3 +1,4 @@
+import { WorkHomeOverview } from "./work-home-overview";
 import { z } from "zod";
 import {
 	workSourceManifest,
@@ -744,16 +745,24 @@ export function AppRuntimeSandbox({
 			onError={officeEditor ? undefined : onAppError}
 		/>
 	);
+	const workManifest =
+		workOptions && workRole ? workSourceManifest(manifest) : null;
+	const workView = workManifest && (
+		<WorkspaceAppRenderer
+			workspaceId={workspaceId}
+			activityFeed={{ showRunningNow: false }}
+			manifest={{
+				...workManifest,
+				config: { ...workManifest.config, ...workOptions },
+			}}
+		/>
+	);
 	return (
 		<>
-			{workOptions && workRole && (
-				<WorkspaceAppRenderer
-					workspaceId={workspaceId}
-					manifest={{
-						...workSourceManifest(manifest),
-						config: { ...workSourceManifest(manifest).config, ...workOptions },
-					}}
-				/>
+			{workRole === "feed" && workView ? (
+				<WorkHomeOverview>{workView}</WorkHomeOverview>
+			) : (
+				workView
 			)}
 			{attachedFile && (
 				<Suspense fallback={<AppLoading />}>
