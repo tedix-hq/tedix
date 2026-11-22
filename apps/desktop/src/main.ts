@@ -65,6 +65,7 @@ import {
 import { lastLine, run } from "./shell";
 import { activeRunCount, loadStatus, type Status, summary } from "./status";
 import { bindTrayMenu } from "./tray-menu";
+import { isOsHost, isOsPage, mainPageAllowed } from "./navigation";
 import {
 	downloadUpdate,
 	type FoundUpdate,
@@ -90,7 +91,6 @@ if (!app.isPackaged) {
  * Tedix OS lives at `os.tedix.dev`, where the sign-in picks the organization,
  * and at `<organization>.os.tedix.dev`. The app opens the one used last.
  */
-const isOsHost = (host: string) => /^([a-z0-9-]+\.)?os\.tedix\.dev$/.test(host);
 function osOrigin(): string {
 	const host = settings().host ?? "";
 	return `https://${isOsHost(host) ? host : "os.tedix.dev"}`;
@@ -1094,12 +1094,10 @@ function createMainWindow(show: boolean): void {
 		void watchSidebar();
 	}, 1000);
 
-	// A link that asks for a new window: Tedix pages load here, anything else
-	// opens in the default browser. Redirects inside the page are left alone
-	// so sign-in can leave and come back.
+	// Editors and other sites belong in the browser, outside the OS view.
 	view.webContents.setWindowOpenHandler(({ url }) => {
 		if (refusesAppWindows(url)) void signInWithBrowser();
-		else if (isTedixPage(url)) void view.webContents.loadURL(url);
+		else if (isOsPage(url)) void view.webContents.loadURL(url);
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 		return { action: "deny" };
 	});
@@ -1122,9 +1120,10 @@ function createMainWindow(show: boolean): void {
 	// Google and Apple block sign-in inside an app window: continue in the
 	// person's normal browser instead of showing their refusal page.
 	const leaveForBrowser = (event: Electron.Event, url: string) => {
-		if (!refusesAppWindows(url)) return;
+		if (mainPageAllowed(url)) return;
 		event.preventDefault();
-		void signInWithBrowser();
+		if (refusesAppWindows(url)) void signInWithBrowser();
+		else if (/^https?:/.test(url)) void shell.openExternal(url);
 	};
 	view.webContents.on("will-navigate", leaveForBrowser);
 	view.webContents.on("will-redirect", leaveForBrowser);
@@ -1311,6 +1310,11 @@ function setMenu(): void {
 			{
 				label: "View",
 				submenu: [
+					{
+						label: "Tedix Home",
+						accelerator: "CmdOrCtrl+Shift+H",
+						click: () => void openOsPage("/"),
+					},
 					{
 						label: "Back",
 						accelerator: "CmdOrCtrl+[",
