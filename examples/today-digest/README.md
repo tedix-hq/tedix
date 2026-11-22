@@ -2,8 +2,8 @@
 
 Open Activity to read the saved Today post, or ask “what's moving today” from an
 assistant. Both read the same project progress document; purpose and the
-needs-you count come from the current charter and Decisions. Press `t` in Activity or
-Decisions to open Today.
+needs-you count come from the current charter and Decisions. Press `t` from
+Decisions to open Today in Activity.
 
 Install `SKILL.md` and `workflow.js` under an existing project lead, using the
 same native schedule mechanism as `night-shift-coordinator`. Create one

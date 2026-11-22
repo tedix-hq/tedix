@@ -1,8 +1,7 @@
 # Supplier review
 
-The example from the main README: give Tedix one supplier folder, get a
-decision note that cites its sources, and a follow-up email that is drafted but
-not sent.
+Import a sample supplier folder into a local workspace. With model calls
+enabled, ask Tedix for a decision note and a draft follow-up email.
 
 ![The supplier folder in a Tedix OS workspace](../../docs/public/assets/tedix-os-supplier-review.png)
 
