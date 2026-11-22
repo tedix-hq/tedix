@@ -5,6 +5,7 @@ import {
 	OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
 	OWNED_CHANNEL_MAX_AUTHORIZATION_MS,
 	getOrganizationOwnedChannel,
+	type OrganizationOwnedChannel,
 	recordOwnedChannelAuthorizationEvent,
 	signOwnedChannelAuthorizationProof,
 } from "@tedix/db/queries/mcp-governance";
@@ -36,7 +37,10 @@ async function writeReceipt(
 	eventType:
 		| typeof OWNED_CHANNEL_AUTHORIZATION_EVENT
 		| typeof OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
-	bodyForTime: (now: string, channel: string | null) => string,
+	bodyForTime: (
+		now: string,
+		ownedChannel: OrganizationOwnedChannel | null,
+	) => string,
 ) {
 	const item = await assertWorkItemAccess(context, input.id);
 	const actorId = await requireOwnerAdminWorkItemAuthor(
@@ -94,11 +98,11 @@ export const authorizeOwnedChannelProcedure =
 			context,
 			input,
 			OWNED_CHANNEL_AUTHORIZATION_EVENT,
-			(now, channel) => {
-				if (!channel) {
+			(now, ownedChannel) => {
+				if (!ownedChannel?.collection) {
 					throw createError(
 						ErrorCodes.BAD_REQUEST,
-						"Set the organization's owned channel (metadata.ownedChannel.channel) before authorizing publishing",
+						"Set the organization's owned channel and collection (metadata.ownedChannel.channel and .collection) before authorizing publishing",
 					);
 				}
 				const expiry = Date.parse(input.validUntil);
@@ -116,10 +120,10 @@ export const authorizeOwnedChannelProcedure =
 					OwnedChannelAuthorizationReceiptSchema.parse({
 						version: 1,
 						campaignKey: input.campaignKey,
-						channel,
+						channel: ownedChannel.channel,
 						allowedAction: "content_publish",
 						contentRisk: "low",
-						collection: "posts",
+						collection: ownedChannel.collection,
 						contentIds: [...new Set(input.contentIds)],
 						validUntil: input.validUntil,
 					}),
@@ -136,11 +140,11 @@ export const revokeOwnedChannelProcedure =
 			OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
 			// Revocation never depends on configuration: any verified revocation
 			// stops every earlier receipt, whatever channel it names.
-			(_now, channel) =>
+			(_now, ownedChannel) =>
 				JSON.stringify({
 					version: 1,
 					campaignKey: input.campaignKey,
-					channel,
+					channel: ownedChannel?.channel ?? null,
 					reason: input.reason,
 				}),
 		),

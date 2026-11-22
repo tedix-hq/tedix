@@ -109,7 +109,7 @@ export const roleTemplatesContract = oc
 				path: "" as `/${string}`,
 				summary: "Create role template",
 				description:
-					"Create an org-scoped reusable role template that provisions { persona + standing objectives + app-assignment tags + capability profile } as one unit. `key` is unique per org. Platform-wide blueprints (e.g. the seeded `cmo`) are managed via the seed helper, not this tool.",
+					"Create an org-scoped reusable role template that provisions { persona + standing objectives + app-assignment tags + capability profile } as one unit. `key` is unique per org. Platform-wide blueprints are managed via the seed helper, not this tool.",
 				successStatus: 201,
 			})
 			.input(

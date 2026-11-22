@@ -1908,6 +1908,10 @@
 		{
 			"name": "20261122152129_project_archive_state/migration.sql",
 			"sha256": "60d246c0456738ab11ffa1d6b882e941cfa29c6af71a25160a52efb15fae5aee"
+		},
+		{
+			"name": "20261122152501_owned_channel_publisher_settings/migration.sql",
+			"sha256": "3a1d19f23ff9b9fce02d60d4efef267ab3612198204040c41e2dfc22eeb5df21"
 		}
 	]
 }

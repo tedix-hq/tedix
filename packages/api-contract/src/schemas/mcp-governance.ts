@@ -214,6 +214,14 @@ export const SetOrganizationAutoApprovalInputSchema = z.discriminatedUnion(
 
 /** An organization's own publishing channel, for example `example.com/blog`. */
 export const OwnedChannelNameSchema = z.string().trim().min(1).max(200);
+/** Content collection an owned-channel receipt covers, for example `posts`. */
+export const OwnedChannelCollectionSchema = z.string().trim().min(1).max(100);
+/** Slug of the tedi an organization lets publish to its owned channel. */
+export const OwnedChannelPublisherSlugSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(100);
 
 /**
  * Server-attributed owner/admin user authorization attached to the exact Work
@@ -229,7 +237,8 @@ export const OwnedChannelAuthorizationReceiptSchema = z
 		channel: OwnedChannelNameSchema,
 		allowedAction: z.literal("content_publish"),
 		contentRisk: z.literal("low"),
-		collection: z.literal("posts"),
+		/** The organization's configured `metadata.ownedChannel.collection`. */
+		collection: OwnedChannelCollectionSchema,
 		/** Exact draft ids approved for this bounded campaign window. */
 		contentIds: z.array(z.string().trim().min(1).max(200)).min(1).max(20),
 		validUntil: z.iso.datetime({ offset: true }),

@@ -34,7 +34,7 @@ export const ROLE_TEMPLATE_TOOLS: TediToolSpec[] = [
 		name: "list_role_templates",
 		remoteName: "list_role_templates",
 		description:
-			"List this organization's role templates plus platform-wide (org-null) blueprints such as the seeded `cmo`.",
+			"List this organization's role templates plus platform-wide (org-null) blueprints.",
 		inputSchema: LIST_ROLE_TEMPLATES_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "roleTemplates/list",

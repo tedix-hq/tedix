@@ -419,8 +419,8 @@ function readApprovalPolicy(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
 ): "once" | "always" | "work_item" | null {
-	// Load-bearing invariant: every addressable route to the Tedix publisher
-	// must remain fail-closed even while versioned aggregate caches converge.
+	// Load-bearing invariant: every route an organization declares for its
+	// owned-channel publisher must remain fail-closed even while versioned aggregate caches converge.
 	if (isTedixOwnedChannelPublishBoundary(agent, tool)) {
 		return "work_item";
 	}

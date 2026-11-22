@@ -102,6 +102,8 @@ CREATE TABLE work_events (
 	occurred_at TEXT NOT NULL
 );
 CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
+CREATE TABLE apps (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, slug TEXT NOT NULL);
+CREATE TABLE app_tools (id TEXT PRIMARY KEY, app_id TEXT NOT NULL, tool_id TEXT NOT NULL, config TEXT);
 `;
 
 const sqliteByDb = new WeakMap<object, DatabaseSync>();
@@ -126,6 +128,18 @@ const TOOL = "delete_order";
 const NOW = "2026-07-25T12:00:00.000Z";
 const AUTHORIZATION_SIGNING_SECRET = "owned-channel-test-signing-key";
 const OWNED_CHANNEL = "example.com/blog";
+const PUBLISHER_SLUG = "brand-lead";
+const GATEWAY_ROUTE = {
+	appSlug: "acme-gateway",
+	toolId: "cms_blog__content_publish",
+};
+const DIRECT_ROUTE = { appSlug: "acme-cms", toolId: "content_publish" };
+const OWNED_CHANNEL_SETTINGS = {
+	channel: OWNED_CHANNEL,
+	publisherTediSlug: PUBLISHER_SLUG,
+	collection: "posts",
+	locales: ["en"],
+};
 
 async function seedActiveTediLeaf(
 	db: DbClient,
@@ -142,12 +156,36 @@ async function seedActiveTediLeaf(
 	if (!sqlite) throw new Error("missing test sqlite");
 	sqlite
 		.prepare(
-			"INSERT OR IGNORE INTO tedis (id, organization_id, slug, status) VALUES (?, ?, 'cmo', 'active')",
+			"INSERT OR IGNORE INTO tedis (id, organization_id, slug, status) VALUES (?, ?, ?, 'active')",
 		)
-		.run(subjectId, ORG);
+		.run(subjectId, ORG, PUBLISHER_SLUG);
 	sqlite
 		.prepare("INSERT OR IGNORE INTO organizations (id, metadata) VALUES (?, ?)")
-		.run(ORG, JSON.stringify({ ownedChannel: { channel: OWNED_CHANNEL } }));
+		.run(ORG, JSON.stringify({ ownedChannel: OWNED_CHANNEL_SETTINGS }));
+	// The organization's own publisher declaration, as the MCP edge reads it.
+	sqlite
+		.prepare(
+			"INSERT OR IGNORE INTO apps (id, organization_id, slug) VALUES (?, ?, ?)",
+		)
+		.run("cms-app", ORG, "cms");
+	sqlite
+		.prepare(
+			"INSERT OR IGNORE INTO app_tools (id, app_id, tool_id, config) VALUES (?, ?, ?, ?)",
+		)
+		.run(
+			"cms-publish",
+			"cms-app",
+			"content_publish",
+			JSON.stringify({
+				ownedChannelPublish: {
+					routes: [
+						`${GATEWAY_ROUTE.appSlug}:${GATEWAY_ROUTE.toolId}`,
+						`${DIRECT_ROUTE.appSlug}:${DIRECT_ROUTE.toolId}`,
+					],
+					connectionLabels: ["acme"],
+				},
+			}),
+		);
 	await db
 		.insert(projects)
 		.values({
@@ -266,8 +304,7 @@ async function seedAuthorization(
 const ownedChannelCall = {
 	organizationId: ORG,
 	subjectId: SUBJECT,
-	appSlug: "tedix-unified",
-	toolId: "cms_landing__content_publish",
+	...GATEWAY_ROUTE,
 	args: { collection: "posts", id: "post-1" },
 	authorizationSigningSecret: AUTHORIZATION_SIGNING_SECRET,
 	nowIso: NOW,
@@ -844,28 +881,30 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 		});
 	});
 
-	it("admits the exact landing tool id emitted by the aggregate gateway", async () => {
+	it("refuses a route the organization did not declare, or declared only in another organization", async () => {
 		const db = realDb();
 		const leafId = await seedActiveTediLeaf(db);
 		await seedAuthorization(db, leafId);
-
-		await expect(
-			resolveWorkItemAuthorization(db, {
-				...ownedChannelCall,
-				toolId: "cms_landing__content_publish",
-			}),
-		).resolves.toMatchObject({ approved: true, workItemId: leafId });
-	});
-
-	it("refuses every retired blog publishing route", async () => {
+		const sqlite = sqliteByDb.get(db);
+		sqlite
+			?.prepare("INSERT INTO apps (id, organization_id, slug) VALUES (?, ?, ?)")
+			.run("other-cms", OTHER_ORG, "cms");
+		sqlite
+			?.prepare(
+				"INSERT INTO app_tools (id, app_id, tool_id, config) VALUES (?, ?, ?, ?)",
+			)
+			.run(
+				"other-publish",
+				"other-cms",
+				"content_publish",
+				JSON.stringify({
+					ownedChannelPublish: { routes: ["other-gateway:content_publish"] },
+				}),
+			);
 		for (const route of [
-			{ appSlug: "tedix-unified", toolId: "cms_tedix__content_publish" },
-			{ appSlug: "tedix-unified", toolId: "cms-tedix__content_publish" },
-			{ appSlug: "cms-tedix", toolId: "content_publish" },
+			{ appSlug: "acme-gateway", toolId: "cms_old__content_publish" },
+			{ appSlug: "other-gateway", toolId: "content_publish" },
 		]) {
-			const db = realDb();
-			const leafId = await seedActiveTediLeaf(db);
-			await seedAuthorization(db, leafId);
 			await expect(
 				resolveWorkItemAuthorization(db, { ...ownedChannelCall, ...route }),
 			).resolves.toMatchObject({
@@ -897,19 +936,59 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 		});
 	});
 
-	it("admits the direct per-tenant CMS routes the edge boundary also accepts", async () => {
-		for (const toolId of ["cms__content_publish", "content_publish"]) {
-			const db = realDb();
-			const leafId = await seedActiveTediLeaf(db);
-			await seedAuthorization(db, leafId);
-			await expect(
-				resolveWorkItemAuthorization(db, {
-					...ownedChannelCall,
-					appSlug: "cms-tedix-landing",
-					toolId,
-				}),
-			).resolves.toMatchObject({ approved: true, workItemId: leafId });
-		}
+	it("admits every route the organization declared for its publisher", async () => {
+		const db = realDb();
+		const leafId = await seedActiveTediLeaf(db);
+		await seedAuthorization(db, leafId);
+		await expect(
+			resolveWorkItemAuthorization(db, {
+				...ownedChannelCall,
+				...DIRECT_ROUTE,
+			}),
+		).resolves.toMatchObject({ approved: true, workItemId: leafId });
+	});
+
+	it("approves only the configured collection and locales, and needs a configured publisher", async () => {
+		const db = realDb();
+		const leafId = await seedActiveTediLeaf(db);
+		await seedAuthorization(db, leafId);
+		await expect(
+			resolveWorkItemAuthorization(db, {
+				...ownedChannelCall,
+				args: { collection: "posts", id: "post-1", locale: "en" },
+			}),
+		).resolves.toMatchObject({ approved: true });
+		await expect(
+			resolveWorkItemAuthorization(db, {
+				...ownedChannelCall,
+				args: { collection: "posts", id: "post-1", locale: "de" },
+			}),
+		).resolves.toMatchObject({
+			approved: false,
+			reason: "argument_scope_mismatch",
+		});
+		const sqlite = sqliteByDb.get(db);
+		sqlite?.exec(
+			`UPDATE organizations SET metadata = json_set(metadata, '$.ownedChannel.collection', 'pages')`,
+		);
+		await expect(
+			resolveWorkItemAuthorization(db, {
+				...ownedChannelCall,
+				args: { collection: "pages", id: "post-1" },
+			}),
+		).resolves.toMatchObject({
+			approved: false,
+			reason: "no_current_user_authorization",
+		});
+		sqlite?.exec(
+			`UPDATE organizations SET metadata = json_set(json_remove(metadata, '$.ownedChannel.publisherTediSlug'), '$.ownedChannel.collection', 'posts')`,
+		);
+		await expect(
+			resolveWorkItemAuthorization(db, ownedChannelCall),
+		).resolves.toMatchObject({
+			approved: false,
+			reason: "owned_channel_not_configured",
+		});
 	});
 
 	it("stays an allowlist: a neighbouring publish tool or app is still refused", async () => {
@@ -918,8 +997,8 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 			// deliberately NOT reproduced here, so this must not slip through.
 			{ appSlug: "cms-other", toolId: "cms_other__content_publish" },
 			// Right app, adjacent tool.
-			{ appSlug: "tedix-unified", toolId: "cms_landing__content_unpublish" },
-			{ appSlug: "tedix-unified", toolId: "cms_landing__content_update" },
+			{ appSlug: "acme-gateway", toolId: "cms_blog__content_unpublish" },
+			{ appSlug: "acme-gateway", toolId: "cms_blog__content_update" },
 		];
 		for (const scope of cases) {
 			const db = realDb();
@@ -1298,7 +1377,7 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 
 	it("denies a receipt on another leaf or for another tedi", async () => {
 		const db = realDb();
-		const cmoLeaf = await seedActiveTediLeaf(db);
+		const publisherLeaf = await seedActiveTediLeaf(db);
 		const otherLeaf = await seedActiveTediLeaf(db, {
 			id: "leaf-2",
 			subjectId: "tedi-2",
@@ -1310,7 +1389,7 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 		).resolves.toMatchObject({
 			approved: false,
 			reason: "no_current_user_authorization",
-			workItemId: cmoLeaf,
+			workItemId: publisherLeaf,
 		});
 	});
 
@@ -1328,8 +1407,13 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 		});
 	});
 
-	it("denies released, expired, non-CMO, and non-leaf claim projections", async () => {
-		for (const mutation of ["released", "expired", "non-cmo", "non-leaf"]) {
+	it("denies released, expired, non-publisher, and non-leaf claim projections", async () => {
+		for (const mutation of [
+			"released",
+			"expired",
+			"non-publisher",
+			"non-leaf",
+		]) {
 			const db = realDb();
 			const leafId = await seedActiveTediLeaf(db);
 			await seedAuthorization(db, leafId);
@@ -1346,7 +1430,7 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 						"UPDATE work_attempts SET expires_at = '2026-07-25T11:59:59.000Z' WHERE work_item_id = ?",
 					)
 					.run(leafId);
-			} else if (mutation === "non-cmo") {
+			} else if (mutation === "non-publisher") {
 				sqlite
 					.prepare("UPDATE tedis SET slug = 'cto' WHERE id = ?")
 					.run(SUBJECT);
@@ -1398,7 +1482,7 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 		await expect(
 			resolveWorkItemAuthorization(db, {
 				...ownedChannelCall,
-				toolId: "cms_landing__content_unpublish",
+				toolId: "cms_blog__content_unpublish",
 			}),
 		).resolves.toMatchObject({
 			approved: false,

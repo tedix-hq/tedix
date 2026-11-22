@@ -435,10 +435,9 @@ export interface CronPolicy {
  * Cron-template source definitions used by the system-default policy pack and
  * role-specific runtime overrides.
  *
- * The system-default pack receives only the shared cognitive cycles. The CMO
- * `content-operations` loop is deliberately exported separately and belongs in
- * the CMO tedi's runtime override; putting it in the shared pack makes every
- * default-policy tedi execute a marketing procedure under the wrong identity.
+ * The system-default pack receives only the shared cognitive cycles.
+ * Role-specific loops, such as a marketing tedi's content cycle, belong in that
+ * organization's tedi runtime override in D1, never in shared source.
  * HEARTBEAT.md is rendered dynamically from these templates via
  * `generateHeartbeatMd(cronTemplates)` in `@tedix/context-core/tedi-workspace`.
  * The `message` field of each template IS the procedure shown in HEARTBEAT.md.
@@ -448,10 +447,10 @@ export interface CronPolicy {
  */
 /**
  * Code-level source definitions — kept in sync with D1 production.
- * D1 is authoritative at runtime. Shared entries and the role-specific CMO
- * entry must be updated in D1 deliberately; nothing syncs them from this seed.
+ * D1 is authoritative at runtime. Shared entries must be updated in D1
+ * deliberately; nothing syncs them from this seed.
  */
-const PLATFORM_CRON_TEMPLATE_SOURCES: PolicyPackCronTemplate[] = [
+export const DEFAULT_CRON_TEMPLATES: PolicyPackCronTemplate[] = [
 	{
 		name: "brain-reflection",
 		schedule: "0 */8 * * *",
@@ -482,14 +481,6 @@ Objective review and rationale closure cycle:
 2. Discover recent rationale reads and outcome updates. Close stale pending records only when execution evidence establishes their outcome.
 3. For an objective with a concrete uncovered next step, use the discovered Work factory to propose bounded work without duplicating an existing item. Admission and independent review still govern execution and completion.
 4. Discover feedback for the brain facts used in these decisions and record the actual review outcome.`,
-	},
-	{
-		name: "content-operations",
-		schedule: "0 * * * *",
-		event: "systemEvent",
-		staggerMs: 300000,
-		tools: ["code"],
-		message: `Operate the marketing portfolio through the canonical Work factory. Discover only the exact Work tools needed for this cycle. Select by stable projectId, inspect Work Item disposition and derived readiness independently, and start one authoritative attempt only for accepted ready work. Preserve the returned attemptId and immutable executor session fence for every heartbeat, evidence submission, and settlement. Record artifact-neutral evidence against the accepted claims, leave approval to the configured reviewer, and never infer completion from runtime state. If no item is ready, report the explicit readiness reasons and stop without manufacturing work or compatibility identifiers.`,
 	},
 	{
 		name: "app-operations",
@@ -586,17 +577,6 @@ Weekly growth snapshot:
 4. Record the measured snapshot and actual outcome so the Growth Timeline stays current.`,
 	},
 ];
-
-/** The CMO-only operating loop. Never seed this into the shared policy pack. */
-export const CMO_CONTENT_OPERATIONS_CRON_TEMPLATE =
-	PLATFORM_CRON_TEMPLATE_SOURCES.find(
-		(template) => template.name === "content-operations",
-	) as PolicyPackCronTemplate;
-
-/** Shared system-default templates. Role-specific loops are excluded. */
-export const DEFAULT_CRON_TEMPLATES = PLATFORM_CRON_TEMPLATE_SOURCES.filter(
-	(template) => template.name !== "content-operations",
-);
 
 // The system-default record IDs used to be pinned here as three literals, and
 // every caller that took the fallback read whichever revision those ids named.

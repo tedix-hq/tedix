@@ -59,12 +59,12 @@ beforeEach(() => {
 		`CREATE TABLE work_events (project_id TEXT, objective_id TEXT, sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);
 		CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);`,
 	);
-	sqlite
-		.prepare("INSERT INTO organizations (id, metadata) VALUES (?, ?)")
-		.run(
-			orgId,
-			JSON.stringify({ ownedChannel: { channel: "example.com/blog" } }),
-		);
+	sqlite.prepare("INSERT INTO organizations (id, metadata) VALUES (?, ?)").run(
+		orgId,
+		JSON.stringify({
+			ownedChannel: { channel: "example.com/blog", collection: "articles" },
+		}),
+	);
 	context = {
 		db: createDbClient(createD1Facade(sqlite)),
 		authType: "user",
@@ -109,6 +109,7 @@ describe("owned-channel authorization", () => {
 			expect(JSON.parse(body)).toMatchObject({
 				contentIds: ["draft-1"],
 				channel: "example.com/blog",
+				collection: "articles",
 				contentRisk: "low",
 				allowedAction: "content_publish",
 			});
@@ -181,13 +182,21 @@ describe("owned-channel authorization", () => {
 			).toEqual({ count: 0 });
 		},
 	);
-	it("refuses to authorize until the organization sets its owned channel", async () => {
-		sqlite.exec("UPDATE organizations SET metadata = '{}'");
-		await expect(authorize()).rejects.toMatchObject({ code: "BAD_REQUEST" });
-		expect(
-			sqlite.prepare("SELECT count(*) AS count FROM work_events").get(),
-		).toEqual({ count: 0 });
-	});
+	it.each([
+		["channel", "{}"],
+		["collection", '{"ownedChannel":{"channel":"example.com/blog"}}'],
+	])(
+		"refuses to authorize until the organization sets its owned %s",
+		async (_setting, metadata) => {
+			sqlite.prepare("UPDATE organizations SET metadata = ?").run(metadata);
+			await expect(authorize()).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+			});
+			expect(
+				sqlite.prepare("SELECT count(*) AS count FROM work_events").get(),
+			).toEqual({ count: 0 });
+		},
+	);
 	it("writes signed revocation to the same event ledger, even without a configured channel", async () => {
 		sqlite.exec("DELETE FROM organizations");
 		const event = await revoke();

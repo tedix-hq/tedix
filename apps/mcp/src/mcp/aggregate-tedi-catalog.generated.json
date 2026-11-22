@@ -5037,7 +5037,7 @@
 		{
 			"name": "list_role_templates",
 			"remoteName": "list_role_templates",
-			"description": "List this organization's role templates plus platform-wide (org-null) blueprints such as the seeded `cmo`.",
+			"description": "List this organization's role templates plus platform-wide (org-null) blueprints.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {

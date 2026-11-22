@@ -25,9 +25,11 @@ import {
 	type McpToolApprovalGrantKind,
 	mcpToolApprovalGrants,
 } from "../schema/mcp-governance";
+import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
 import { projects } from "../schema/projects";
 import { tedis } from "../schema/tedis";
+import { appTools } from "../schema/tools";
 import { workAttempts, workEvents, workItems } from "../schema/work-items";
 
 export type { McpToolApprovalGrant, McpToolApprovalGrantKind };
@@ -542,33 +544,60 @@ export const OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT =
 	"owned_channel_authorization_revoked" as const;
 export const OWNED_CHANNEL_AUTHORIZATION_PROOF_KEY =
 	"ownedChannelAuthorizationProof" as const;
-export const OWNED_CHANNEL_GATEWAY_APP_SLUG = "tedix-unified" as const;
-export const OWNED_CHANNEL_PUBLISH_TOOL_ID =
-	"cms_landing__content_publish" as const;
 /**
- * Exact routes to the current Tedix blog publisher. The edge also gates every
- * content_publish on the tedix connection, including retired cms_tedix, but
- * the resolver authorizes only this allowlist. The aggregate namespace uses an
- * underscore, as emitted by the live gateway.
+ * Is this (appSlug, toolId) pair a publish route the organization declared?
+ * Routes live in tenant D1 config: the `ownedChannelPublish.routes` of the
+ * organization's own app tool rows, the same declaration the MCP edge uses to
+ * gate every call on the boundary. The resolver authorizes only exact routes;
+ * a connection-label match gates a call at the edge but never approves one.
  */
-const OWNED_CHANNEL_PUBLISH_ROUTES: ReadonlyArray<
-	readonly [appSlug: string, toolId: string]
-> = [
-	[OWNED_CHANNEL_GATEWAY_APP_SLUG, OWNED_CHANNEL_PUBLISH_TOOL_ID],
-	// Direct landing-tenant CMS routes, also gated by the MCP edge.
-	["cms-tedix-landing", "cms__content_publish"],
-	["cms-tedix-landing", "content_publish"],
-];
+async function isOwnedChannelPublishRoute(
+	db: DbClient,
+	organizationId: string,
+	appSlug: string,
+	toolId: string,
+): Promise<boolean> {
+	const rows = await db
+		.select({
+			routes: sql<
+				string | null
+			>`json_extract(${appTools.config}, '$.ownedChannelPublish.routes')`.as(
+				"owned_channel_publish_routes",
+			),
+		})
+		.from(appTools)
+		.innerJoin(
+			apps,
+			and(eq(apps.id, appTools.appId), eq(apps.organizationId, organizationId)),
+		)
+		.where(
+			sql`json_type(${appTools.config}, '$.ownedChannelPublish.routes') = 'array'`,
+		)
+		.limit(50);
+	const route = `${normalizeScopeSegment(appSlug)}:${normalizeScopeSegment(toolId)}`;
+	return rows.some((row) => {
+		const routes = typeof row.routes === "string" ? safeJson(row.routes) : null;
+		return (
+			Array.isArray(routes) &&
+			routes.some((declared) => {
+				if (typeof declared !== "string") return false;
+				const separator = declared.indexOf(":");
+				if (separator <= 0) return false;
+				return (
+					`${normalizeScopeSegment(declared.slice(0, separator))}:${normalizeScopeSegment(declared.slice(separator + 1))}` ===
+					route
+				);
+			})
+		);
+	});
+}
 
-/** Does this (appSlug, toolId) pair address the Tedix owned-channel publisher? */
-function isOwnedChannelPublishRoute(appSlug: string, toolId: string): boolean {
-	const app = normalizeScopeSegment(appSlug);
-	const tool = normalizeScopeSegment(toolId);
-	return OWNED_CHANNEL_PUBLISH_ROUTES.some(
-		([routeApp, routeTool]) =>
-			normalizeScopeSegment(routeApp) === app &&
-			normalizeScopeSegment(routeTool) === tool,
-	);
+function safeJson(value: string): unknown {
+	try {
+		return JSON.parse(value);
+	} catch {
+		return null;
+	}
 }
 export const OWNED_CHANNEL_MAX_AUTHORIZATION_MS = 30 * 24 * 60 * 60 * 1000;
 /**
@@ -719,27 +748,52 @@ async function verifyOwnedChannelAuthorizationProof(
 	);
 }
 
+/** An organization's owned-channel settings from `metadata.ownedChannel`. */
+export interface OrganizationOwnedChannel {
+	channel: string;
+	publisherTediSlug: string | null;
+	collection: string | null;
+	locales: string[];
+}
+
+function trimmedText(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
- * The organization's configured owned channel, or null when none is set.
- * Receipts name this channel and stop counting when it changes or is removed.
+ * The organization's owned-channel settings, or null when no channel is set.
+ * Receipts name the channel and collection and stop counting when either
+ * changes or is removed; only the configured publisher tedi may use them.
  */
 export async function getOrganizationOwnedChannel(
 	db: DbClient,
 	organizationId: string,
-): Promise<string | null> {
+): Promise<OrganizationOwnedChannel | null> {
 	const [row] = await db
 		.select({
-			channel: sql<
+			config: sql<
 				string | null
-			>`json_extract(${organizations.metadata}, '$.ownedChannel.channel')`.as(
+			>`json_extract(${organizations.metadata}, '$.ownedChannel')`.as(
 				"owned_channel",
 			),
 		})
 		.from(organizations)
 		.where(eq(organizations.id, organizationId))
 		.limit(1);
-	const channel = typeof row?.channel === "string" ? row.channel.trim() : "";
-	return channel.length > 0 ? channel : null;
+	const config =
+		typeof row?.config === "string" ? recordFromDbJson(row.config) : null;
+	const channel = trimmedText(config?.channel);
+	if (!config || !channel) return null;
+	return {
+		channel,
+		publisherTediSlug: trimmedText(config.publisherTediSlug),
+		collection: trimmedText(config.collection),
+		locales: Array.isArray(config.locales)
+			? config.locales.flatMap((locale) => trimmedText(locale) ?? [])
+			: [],
+	};
 }
 
 export interface ResolveWorkItemAuthorizationResult {
@@ -774,7 +828,7 @@ function denied(
  *
  * This is deliberately not a durable wildcard grant. Every publish call must
  * prove all of the following from canonical D1 state in one service-bound
- * resolution: one active CMO/tedi claim, leaf grain, a server-attributed
+ * resolution: one active claim by the organization's configured publisher tedi, leaf grain, a server-attributed
  * authorization comment on that leaf or a verified ancestor campaign item,
  * strict receipt scope, and current bounded validity.
  *
@@ -797,23 +851,39 @@ export async function resolveWorkItemAuthorization(
 	db: DbClient,
 	input: ResolveWorkItemAuthorizationArgs,
 ): Promise<ResolveWorkItemAuthorizationResult> {
-	if (!isOwnedChannelPublishRoute(input.appSlug, input.toolId)) {
-		return denied("tool_scope_mismatch");
-	}
 	if (
-		input.args.collection !== "posts" ||
-		typeof input.args.id !== "string" ||
-		input.args.id.trim().length === 0 ||
-		input.args.publishedAt !== undefined ||
-		(input.args.locale !== undefined && input.args.locale !== "en")
+		!(await isOwnedChannelPublishRoute(
+			db,
+			input.organizationId,
+			input.appSlug,
+			input.toolId,
+		))
 	) {
-		return denied("argument_scope_mismatch");
+		return denied("tool_scope_mismatch");
 	}
 	const ownedChannel = await getOrganizationOwnedChannel(
 		db,
 		input.organizationId,
 	);
-	if (!ownedChannel) return denied("owned_channel_not_configured");
+	if (
+		!ownedChannel ||
+		!ownedChannel.publisherTediSlug ||
+		!ownedChannel.collection
+	) {
+		return denied("owned_channel_not_configured");
+	}
+	const publisherTediSlug = ownedChannel.publisherTediSlug;
+	if (
+		input.args.collection !== ownedChannel.collection ||
+		typeof input.args.id !== "string" ||
+		input.args.id.trim().length === 0 ||
+		input.args.publishedAt !== undefined ||
+		(input.args.locale !== undefined &&
+			(typeof input.args.locale !== "string" ||
+				!ownedChannel.locales.includes(input.args.locale)))
+	) {
+		return denied("argument_scope_mismatch");
+	}
 	const nowIso = input.nowIso ?? new Date().toISOString();
 
 	const activeAttempts = await db
@@ -833,7 +903,7 @@ export async function resolveWorkItemAuthorization(
 			and(
 				eq(workItems.accountableOwnerId, tedis.id),
 				eq(tedis.organizationId, input.organizationId),
-				eq(tedis.slug, "cmo"),
+				eq(tedis.slug, publisherTediSlug),
 				eq(tedis.status, "active"),
 			),
 		)
@@ -997,7 +1067,12 @@ export async function resolveWorkItemAuthorization(
 		}
 		const parsed = OwnedChannelAuthorizationReceiptSchema.safeParse(json);
 		if (!parsed.success) continue;
-		if (parsed.data.channel !== ownedChannel) continue;
+		if (
+			parsed.data.channel !== ownedChannel.channel ||
+			parsed.data.collection !== ownedChannel.collection
+		) {
+			continue;
+		}
 		if (!parsed.data.contentIds.includes(input.args.id as string)) continue;
 		const authorizationScope = authorizationScopes.find(
 			(scope) => scope.id === comment.workItemId,
@@ -1059,7 +1134,7 @@ export async function resolveWorkItemAuthorization(
 
 		// Linearization point: all state that can invalidate the decision is
 		// re-read in one SQLite snapshot. This includes the exact signed receipt,
-		// current ancestry/campaign metadata, the one active CMO leaf + attempt,
+		// current ancestry/campaign metadata, the one active publisher leaf + attempt,
 		// project state, and every same-or-later reserved revocation event.
 		// Cryptographic verification happens only over rows returned by this
 		// snapshot, so a revocation inserted before the query can never be missed.
@@ -1099,11 +1174,11 @@ export async function resolveWorkItemAuthorization(
 				ON project.id = leaf.project_id
 				AND project.org_id = ${input.organizationId}
 				AND project.status = 'active'
-			INNER JOIN tedis AS cmo
-				ON cmo.id = leaf.accountable_owner_id
-				AND cmo.organization_id = ${input.organizationId}
-				AND cmo.slug = 'cmo'
-				AND cmo.status = 'active'
+			INNER JOIN tedis AS publisher
+				ON publisher.id = leaf.accountable_owner_id
+				AND publisher.organization_id = ${input.organizationId}
+				AND publisher.slug = ${publisherTediSlug}
+				AND publisher.status = 'active'
 			INNER JOIN work_attempts AS attempt
 				ON attempt.id = ${attemptId}
 				AND attempt.work_item_id = leaf.id

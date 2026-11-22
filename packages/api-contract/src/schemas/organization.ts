@@ -20,7 +20,11 @@ import { OrganizationPermissionSchema } from "./user-settings";
 import { PortableWebMcpProfileSchema } from "./portable-webmcp";
 import { WebSearchPolicySchema } from "./web-search";
 import { McpInboundClientPolicySchema } from "./mcp-grant";
-import { OwnedChannelNameSchema } from "./mcp-governance";
+import {
+	OwnedChannelCollectionSchema,
+	OwnedChannelNameSchema,
+	OwnedChannelPublisherSlugSchema,
+} from "./mcp-governance";
 import {
 	ApprovalModeSchema,
 	ReadOnlyCommandListSchema,
@@ -607,11 +611,26 @@ export const OrganizationMetadataSchema = z.object({
 			"Org admin overrides of 'check each person's access' per organization account; accounts without an entry use the provider default.",
 		),
 	ownedChannel: z
-		.strictObject({ channel: OwnedChannelNameSchema })
+		.strictObject({
+			channel: OwnedChannelNameSchema,
+			publisherTediSlug: OwnedChannelPublisherSlugSchema.optional().describe(
+				"Slug of the one active tedi allowed to publish under a receipt; absent means no publish is approved.",
+			),
+			collection: OwnedChannelCollectionSchema.optional().describe(
+				"The content collection receipts cover, such as posts; absent means none can be issued or used.",
+			),
+			locales: z
+				.array(z.string().trim().min(1).max(35))
+				.max(50)
+				.optional()
+				.describe(
+					"Locales a publish call may name; a call without a locale is always allowed, absent allows none.",
+				),
+		})
 		.nullable()
 		.optional()
 		.describe(
-			"The organization's own publishing channel, such as its blog address. Owned-channel publish authorizations name it and are honored only while it matches; absent means none can be issued.",
+			"The organization's own publishing channel, such as its blog address, and who may publish to it. Owned-channel publish authorizations name it and are honored only while it matches; absent means none can be issued.",
 		),
 	mcpInboundClientPolicy: McpInboundClientPolicySchema.optional().describe(
 		"Which OAuth clients members may connect to this organization's MCP servers. Absent admits every verified client; audit records allowlist misses; enforce admits listed clients only.",
