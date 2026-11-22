@@ -303,20 +303,20 @@ export function FeedCard({
 			aria-label={item.sentence}
 			className="fd-story min-w-0"
 		>
-			<WorkActorAvatar
-				actor={identity}
-				name={actor}
-				className="ft-avatar"
-				detail={`${actor}${project ? ` · ${project}` : ""}`}
-			/>
-			<div className="fd-story-body grid">
+			<div className="fd-story-body col-span-full grid">
 				<WorkLayoutRegion
 					region="post"
 					slots={{
 						author: (
 							<>
-								<div className="ft-byline flex-wrap">
-									<Text as="span" className="min-w-0 break-words">
+								<div className="ft-byline ft-post-author flex-wrap">
+									<WorkActorAvatar
+										actor={identity}
+										name={actor}
+										className="ft-avatar"
+										detail={`${actor}${project ? ` · ${project}` : ""}`}
+									/>
+									<Text as="span" className="min-w-0 break-words font-semibold">
 										{resolved.label}
 									</Text>
 									{project && (
