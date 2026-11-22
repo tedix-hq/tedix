@@ -229,7 +229,7 @@ export function executorBackoff(
 	now = Date.now(),
 ): BudgetSnapshot | undefined {
 	if (
-		!/\b429\b|rate.?limit|usage limit|usageLimitExceeded|quota exceeded|session limit|weekly limit|capacity exhausted|purchase more credits|out of credits/i.test(
+		!/\b429\b|\b529\b|overloaded|rate.?limit|usage limit|usageLimitExceeded|limit reached|hit your limit|quota exceeded|insufficient_quota|resource_exhausted|session limit|weekly limit|capacity exhausted|purchase more credits|out of credits|credit balance is too low/i.test(
 			message,
 		)
 	)
@@ -237,14 +237,10 @@ export function executorBackoff(
 	const consecutiveLimits = (previous?.consecutiveLimits ?? 0) + 1;
 	const retry = message.match(/retry[- ]after[\s:=]+(\d+)/i);
 	const retryMs = retry ? Number(retry[1]) * 1000 : 0;
-	// The tool's own "try again at <time>" (local time on this Mac) wins over
-	// the doubling guess, so a long outage is not retried every hour.
-	const againAt = message.match(
-		/try again (?:at|after) ([A-Z][a-z]{2,8} \d{1,2})(?:st|nd|rd|th)?,? (\d{4}),? (\d{1,2}:\d{2}(?: ?[AP]M)?)/,
-	);
-	const until = againAt
-		? Date.parse(`${againAt[1]}, ${againAt[2]} ${againAt[3]}`)
-		: Number.NaN;
+	// The tool's own reset time wins over the doubling guess, so a long
+	// outage is not retried every hour, and the tool counts as back at once
+	// when that time passes.
+	const until = statedResetAt(message, now) ?? Number.NaN;
 	const toolWait =
 		Number.isFinite(until) && until > now && until - now < 8 * 86_400_000
 			? until - now
@@ -282,6 +278,58 @@ export interface ExecutorAvailability {
 	slow?: string;
 }
 
+/** The first rule a task matches; the last rule takes everything else. */
+export function ruleFor(
+	work: { tags?: string[]; size?: string; risk?: string },
+	policy: RoutingPolicy,
+) {
+	return (
+		policy.rules.find(
+			(row) =>
+				row.tags.some((tag) => work.tags?.includes(tag)) ||
+				row.sizes.includes(work.size ?? "") ||
+				row.risks.includes(work.risk ?? ""),
+		) ?? policy.rules[policy.rules.length - 1]!
+	);
+}
+
+/**
+ * When a tool says it works again, read from its own limit message, as a
+ * time. Codex: "try again at Nov 23rd, 2026 12:18 AM". Claude Code: "usage
+ * limit reached|1732321080" or "resets 9pm" / "resets at 3:30 AM". Any tool:
+ * "resets at <ISO time>". Clock times are this Mac's local time; a time
+ * already past today means tomorrow.
+ */
+export function statedResetAt(
+	message: string,
+	now = Date.now(),
+): number | undefined {
+	const codex = message.match(
+		/try again (?:at|after) ([A-Z][a-z]{2,8} \d{1,2})(?:st|nd|rd|th)?,? (\d{4}),? (\d{1,2}:\d{2}(?: ?[AP]M)?)/,
+	);
+	if (codex) {
+		const at = Date.parse(`${codex[1]}, ${codex[2]} ${codex[3]}`);
+		if (Number.isFinite(at)) return at;
+	}
+	const epoch = message.match(/limit reached\|(\d{10})\b/i);
+	if (epoch) return Number(epoch[1]) * 1000;
+	const iso = message.match(
+		/\bresets?(?: at)? (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2}))/i,
+	);
+	if (iso && Number.isFinite(Date.parse(iso[1]!))) return Date.parse(iso[1]!);
+	const clock = message.match(
+		/\bresets?(?: at)? (\d{1,2})(?::(\d{2}))? ?([ap])\.?m\b/i,
+	);
+	if (clock) {
+		const hour =
+			(Number(clock[1]) % 12) + (clock[3]!.toLowerCase() === "p" ? 12 : 0);
+		const at = new Date(now);
+		at.setHours(hour, Number(clock[2] ?? 0), 0, 0);
+		if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+		return at.getTime();
+	}
+}
+
 export function routeLocalWork(
 	work: { executor: string; tags?: string[]; size?: string; risk?: string },
 	policy: RoutingPolicy,
@@ -289,13 +337,7 @@ export function routeLocalWork(
 	budgets: ExecutorBudgets,
 	now = Date.now(),
 ) {
-	const rule =
-		policy.rules.find(
-			(row) =>
-				row.tags.some((tag) => work.tags?.includes(tag)) ||
-				row.sizes.includes(work.size ?? "") ||
-				row.risks.includes(work.risk ?? ""),
-		) ?? policy.rules[policy.rules.length - 1]!;
+	const rule = ruleFor(work, policy);
 	const routes =
 		work.executor === "any-local"
 			? rule.routes

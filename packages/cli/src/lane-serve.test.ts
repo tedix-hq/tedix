@@ -5055,6 +5055,51 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
+	it("lets waiting Work wait with one plain note when every tool in its rule is unavailable", async () => {
+		const { restart, deps, items, events, dir, config } = fixture();
+		const routing = join(dir, "routing.json");
+		writeFileSync(routing, JSON.stringify(testRoutingPolicy));
+		config.routingConfig = routing;
+		items.splice(1);
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const back = (minutes: number) => ({
+			observedAt: now,
+			source: "native" as const,
+			backoffUntil: now + minutes * 60_000,
+		});
+		deps.budgets = () => ({
+			codex: back(240),
+			"claude-code": back(90),
+			opencode: back(120),
+			devin: back(180),
+		});
+		const notes = () =>
+			events.filter(
+				(event) =>
+					event.verb === "comment" &&
+					event.args.some((arg) => arg.startsWith("All tools")),
+			);
+		const dispatcher = restart();
+		try {
+			await dispatcher.tick();
+			now += FAILOVER_WAIT_MS;
+			await dispatcher.tick();
+			await dispatcher.tick();
+			expect(notes()).toHaveLength(1);
+			expect(notes()[0]!.args.join(" ")).toContain(
+				"next back: Claude Code at about",
+			);
+			expect(
+				events.some((event) =>
+					["start", "settle", "dispatch-reassign"].includes(event.verb),
+				),
+			).toBe(false);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it("says in plain words which tool the rules picked and why earlier ones were skipped", () => {
 		expect(
 			routingPickNote({

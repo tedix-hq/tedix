@@ -3,6 +3,7 @@ import {
 	describeRoutingPolicy,
 	routeLocalWork,
 	executorBackoff,
+	statedResetAt,
 	parseBudgetSignal,
 	resumeThenFresh,
 	LocalExecutorCapacityError,
@@ -496,5 +497,37 @@ describe("a tool's own limit message", () => {
 			now,
 		);
 		expect(next?.backoffUntil).toBe(new Date(2026, 10, 23, 0, 18).getTime());
+	});
+});
+
+describe("each tool's stated reset time", () => {
+	const now = new Date(2026, 10, 22, 20, 0).getTime();
+	it.each([
+		[
+			`Claude AI usage limit reached|${new Date(2026, 10, 22, 23, 0).getTime() / 1000}`,
+			new Date(2026, 10, 22, 23, 0).getTime(),
+		],
+		[
+			"5-hour limit reached ∙ resets 9pm",
+			new Date(2026, 10, 22, 21, 0).getTime(),
+		],
+		[
+			"You've hit your limit · resets 3:30 AM (Europe/Berlin)",
+			new Date(2026, 10, 23, 3, 30).getTime(),
+		],
+		[
+			"429 quota exceeded; resets at 2026-11-23T01:00:00Z",
+			Date.parse("2026-11-23T01:00:00Z"),
+		],
+	])("reads %s", (message, expected) => {
+		expect(statedResetAt(message, now)).toBe(expected);
+		expect(executorBackoff(message, undefined, now)?.backoffUntil).toBe(
+			expected,
+		);
+	});
+	it("guesses a short doubling wait when no time is stated", () => {
+		expect(
+			executorBackoff("529 overloaded", undefined, now)?.backoffUntil,
+		).toBe(now + 60_000);
 	});
 });

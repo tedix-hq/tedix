@@ -610,7 +610,12 @@ to the next available tool in the same rule. Running tasks stay where they are.
 The task gets a comment such as "Reassigned from codex to claude-code: Codex is
 out of credits or at its usage limit until about 21:00 UTC". Set
 `metadata.onlyExecutor: true` (or `requiredExecutor`) on a task to keep it on
-its tool. The task's wording never decides this.
+its tool. The task's wording never decides this. A tool counts as back by itself at the reset
+time it named in its own limit message (Codex "try again at …", Claude Code
+"resets 9pm" or "limit reached|<time>", or "resets at <ISO time>"); without a
+stated time the runner waits 1 minute, doubling up to an hour. When every tool
+in a task's rule is unavailable, the task waits with one comment naming the first
+tool due back; nothing is failed or retried meanwhile.
 Without a policy, Work assigned to `any-local` waits before an agent is launched
 or an Attempt is started. Named assignments keep their native model defaults;
 OpenCode always needs a configured `provider/model`.

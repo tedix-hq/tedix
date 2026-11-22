@@ -87,6 +87,7 @@ import {
 	localExecutors,
 	readRoutingPolicy,
 	routeLocalWork,
+	ruleFor,
 	executorBackoff,
 	resumeThenFresh,
 	isMissingNativeState,
@@ -2966,6 +2967,8 @@ export class LaneDispatcher {
 	private ownToolUnavailableSince?: number;
 	/** When a failed move of one Work revision to another tool may be tried again. */
 	private failoverRetryAt = new Map<string, number>();
+	/** Work revisions already told that every tool for them is unavailable. */
+	private limitNotes?: Set<string>;
 	private idleItems = new Map<string, ReturnType<typeof idleReason>>();
 	/** The reason and time of each item's last written state log. */
 	private loggedStates = new Map<string, { reason: string; at: number }>();
@@ -4305,7 +4308,9 @@ export class LaneDispatcher {
 						observeSkip(item, paused.message);
 						this.log("skipped", item.id, String(paused));
 					}
-					await this.failOver(item, paused);
+					if (this.options.executor === "any-local")
+						await this.noteAllAtLimits(item);
+					else await this.failOver(item, paused);
 					continue;
 				}
 				this.ownToolUnavailableSince = undefined;
@@ -5337,6 +5342,65 @@ export class LaneDispatcher {
 		);
 	}
 	/**
+	 * When every tool in a task's rule is unavailable, the task waits: it is
+	 * not failed and not retried in a loop. Say so on the task once per
+	 * revision and expected return, with the first tool due back.
+	 */
+	private async noteAllAtLimits(item: DispatchItem) {
+		const metadata = item.metadata ?? {};
+		const rule = ruleFor(
+			{
+				tags: Array.isArray(metadata.tags)
+					? metadata.tags.filter(
+							(tag): tag is string => typeof tag === "string",
+						)
+					: [],
+				size: typeof metadata.size === "string" ? metadata.size : undefined,
+				risk: item.riskLevel,
+			},
+			this.policy,
+		);
+		const now = Date.now();
+		const tools = rule.routes.map((route) => ({
+			executor: route.executor,
+			until: this.budgets[route.executor]?.backoffUntil ?? 0,
+		}));
+		if (
+			!tools.length ||
+			tools.some(
+				(tool) =>
+					tool.until <= now && this.availability[tool.executor]?.available,
+			)
+		)
+			return;
+		const next = tools
+			.filter((tool) => tool.until > now)
+			.sort((a, b) => a.until - b.until)[0];
+		const key = `${item.id}:${item.version}:${next ? Math.floor(next.until / 600_000) : "none"}`;
+		const file = join(this.directory, "limit-notes.state");
+		if (!this.limitNotes) {
+			try {
+				this.limitNotes = new Set(JSON.parse(readFileSync(file, "utf8")));
+			} catch {
+				this.limitNotes = new Set();
+			}
+		}
+		if (this.limitNotes.has(key)) return;
+		this.limitNotes.add(key);
+		writeFileSync(file, JSON.stringify([...this.limitNotes].slice(-500)), {
+			mode: 0o600,
+		});
+		const body = `All tools for this kind of task (the “${rule.name}” routing rule) are unavailable right now${
+			next
+				? `; next back: ${AGENT_NAMES[next.executor] ?? next.executor} at about ${new Date(next.until).toISOString().slice(11, 16)} UTC`
+				: ""
+		}. The task waits and starts by itself when a tool is back; nothing is failed or retried meanwhile.`;
+		await this.call(["work", "comment", item.id, "--body", body]).catch(
+			(error) => this.log("limit-note-failed", item.id, String(error)),
+		);
+		this.log("all-tools-unavailable", item.id, body);
+	}
+	/**
 	 * Waiting Work given to this runner's tool moves to the next available
 	 * tool in its routing rule once the tool has been unavailable for
 	 * FAILOVER_WAIT_MS: out of credits or at its limit, or failing its start
@@ -5395,6 +5459,7 @@ export class LaneDispatcher {
 				item.id,
 				`${from} cannot take it and no other tool in its rule can: ${String(error)}`,
 			);
+			await this.noteAllAtLimits(item);
 			return;
 		}
 		if (this.unavailable.has(target)) {
