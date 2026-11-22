@@ -286,6 +286,7 @@ beforeEach(() => {
 	mocks.getLatestSiteReconciliation.mockResolvedValue(null);
 	mocks.getCmsDeprovisionOperationForOrganization.mockResolvedValue(null);
 	mocks.inspectCmsProviderResources.mockResolvedValue({
+		theme: { identifier: `cms-theme-${cmsSite.slug}`, state: "present" },
 		durableObject: { identifier: `EmDashDB:${cmsSite.slug}`, state: "present" },
 	});
 	mocks.reconcileOrganizationSites.mockResolvedValue({
@@ -298,8 +299,21 @@ beforeEach(() => {
 });
 
 describe("site lifecycle confirmation", () => {
+	it("checks canonical theme source without treating disposable build storage as a site dependency", async () => {
+		const plan = await client().getDeprovisionPlan({ siteId: cmsSite.id });
+		expect(plan.dependencies).toContainEqual({
+			kind: "theme",
+			status: "present",
+			detail: `cms-theme-${cmsSite.slug}`,
+			destructive: false,
+		});
+		expect(plan.dependencies.some((part) => part.kind === "sandbox")).toBe(
+			false,
+		);
+	});
 	it("does not claim provider resources are present from a retained site record", async () => {
 		mocks.inspectCmsProviderResources.mockResolvedValue({
+			theme: { identifier: `cms-theme-${cmsSite.slug}`, state: "unknown" },
 			durableObject: {
 				identifier: `EmDashDB:${cmsSite.slug}`,
 				state: "unknown",
@@ -314,6 +328,7 @@ describe("site lifecycle confirmation", () => {
 		expect(plan.dependencies).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ kind: "durable_object", status: "unknown" }),
+				expect.objectContaining({ kind: "theme", status: "unknown" }),
 			]),
 		);
 	});
@@ -656,6 +671,7 @@ describe("site recovery and reconciliation", () => {
 
 	it("blocks recovery when provider storage cannot be verified", async () => {
 		mocks.inspectCmsProviderResources.mockResolvedValue({
+			theme: { identifier: `cms-theme-${cmsSite.slug}`, state: "present" },
 			durableObject: {
 				identifier: `EmDashDB:${cmsSite.slug}`,
 				state: "unknown",

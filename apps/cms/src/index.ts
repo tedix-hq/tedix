@@ -1196,9 +1196,22 @@ app.get("/api/internal/deployments/:slug/resources", async (c) => {
 	} else {
 		durableObject.error = "CMS runtime binding or internal token missing";
 	}
+	const theme: { state: "present" | "missing" | "unknown"; error?: string } = {
+		state: "unknown",
+	};
+	try {
+		if (!c.env.ARTIFACTS) throw new Error("Artifacts binding unavailable");
+		const { readThemeArtifactHead } =
+			await import("./agent/artifact-source-read");
+		await readThemeArtifactHead({ orgSlug: slug, artifacts: c.env.ARTIFACTS });
+		theme.state = "present";
+	} catch (error) {
+		theme.error = error instanceof Error ? error.message : String(error);
+	}
 	return c.json({
 		success: true,
 		durableObject: { identifier: `EmDashDB:${slug}`, ...durableObject },
+		theme: { identifier: themeArtifactRepoName(slug), ...theme },
 	});
 });
 

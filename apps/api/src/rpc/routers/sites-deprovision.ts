@@ -240,15 +240,14 @@ export const getDeprovisionPlanProcedure = authedSitesOs.getDeprovisionPlan
 				},
 				{
 					kind: "theme" as const,
-					status: "unknown" as const,
-					detail: `hot-themes/${site.slug}/`,
-					destructive: true,
-				},
-				{
-					kind: "sandbox" as const,
-					status: "unknown" as const,
-					detail: `Site Builder sandbox ${site.slug}`,
-					destructive: true,
+					status:
+						provider.theme.state === "present"
+							? ("present" as const)
+							: provider.theme.state === "missing"
+								? ("absent" as const)
+								: ("unknown" as const),
+					detail: provider.theme.identifier,
+					destructive: false,
 				},
 				{
 					kind: "hostname" as const,

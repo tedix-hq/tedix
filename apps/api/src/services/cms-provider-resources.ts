@@ -8,6 +8,7 @@ export interface CmsProviderResourceInspection {
 
 export interface CmsProviderResources {
 	durableObject: CmsProviderResourceInspection;
+	theme: CmsProviderResourceInspection;
 }
 
 type CmsResourceEnv = Pick<CloudflareEnv, "CMS" | "PLATFORM_SERVICE_TOKEN">;
@@ -40,6 +41,7 @@ export async function inspectCmsProviderResources(
 		const data = (await response.json()) as {
 			success?: boolean;
 			durableObject?: CmsProviderResourceInspection;
+			theme?: CmsProviderResourceInspection;
 			error?: string;
 		};
 		if (!response.ok || !data.success) {
@@ -47,6 +49,7 @@ export async function inspectCmsProviderResources(
 				data.error ?? `CMS resource service returned ${response.status}`;
 			return {
 				durableObject: unknown(`EmDashDB:${slug}`, error),
+				theme: unknown(`cms-theme-${slug}`, error),
 			};
 		}
 		const valid = (
@@ -63,11 +66,13 @@ export async function inspectCmsProviderResources(
 					);
 		return {
 			durableObject: valid(data.durableObject, `EmDashDB:${slug}`),
+			theme: valid(data.theme, `cms-theme-${slug}`),
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {
 			durableObject: unknown(`EmDashDB:${slug}`, message),
+			theme: unknown(`cms-theme-${slug}`, message),
 		};
 	}
 }

@@ -12,6 +12,8 @@ vi.mock("@tedix/container-runtime/sandbox", () => ({
 const authority = vi.hoisted(() => ({
 	hasExactCmsDeprovisionAuthority: vi.fn(),
 }));
+const artifacts = vi.hoisted(() => ({ readThemeArtifactHead: vi.fn() }));
+vi.mock("./agent/artifact-source-read", () => artifacts);
 const provisioning = vi.hoisted(() => ({ deprovisionCms: vi.fn() }));
 const sandbox = vi.hoisted(() => ({ destroy: vi.fn() }));
 vi.mock("./agent/cms-restore-permit", () => authority);
@@ -80,6 +82,7 @@ function fixture() {
 		CMS_DISPATCH: dispatch,
 		SITE_BUILDER_STORAGE: storage,
 		BUNDLES_BUCKET: {},
+		ARTIFACTS: {},
 		DB: {},
 	};
 	return { env, storage, dispatch };
@@ -177,5 +180,59 @@ describe("private CMS deprovision endpoint", () => {
 			"themes/deploy-status/cms-22222222-2222-4222-8222-222222222222-v1.json",
 		);
 		expect(sandbox.destroy).toHaveBeenCalledOnce();
+	});
+});
+
+describe("private CMS resource inspection", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+	it("reads canonical theme source without modifying site or build storage", async () => {
+		const { env, storage, dispatch } = fixture();
+		artifacts.readThemeArtifactHead.mockResolvedValue({
+			branch: "main",
+			sourceCommit: "a".repeat(40),
+		});
+		const response = await app.request(
+			`${URL}/resources`,
+			{ headers: HEADERS },
+			env as never,
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			theme: { identifier: "cms-theme-acme", state: "present" },
+		});
+		expect(artifacts.readThemeArtifactHead).toHaveBeenCalledWith({
+			orgSlug: "acme",
+			artifacts: env.ARTIFACTS,
+		});
+		expect(storage.delete).not.toHaveBeenCalled();
+		expect(sandbox.destroy).not.toHaveBeenCalled();
+		expect(provisioning.deprovisionCms).not.toHaveBeenCalled();
+		expect(dispatch.fetch.mock.calls[0]?.[0].method).toBe("GET");
+	});
+	it("preserves unknown when the theme provider is unavailable", async () => {
+		const { env } = fixture();
+		artifacts.readThemeArtifactHead.mockRejectedValue(
+			new Error("provider unavailable"),
+		);
+		const response = await app.request(
+			`${URL}/resources`,
+			{ headers: HEADERS },
+			env as never,
+		);
+		expect(await response.json()).toMatchObject({
+			theme: { state: "unknown", error: "provider unavailable" },
+		});
+	});
+	it("rejects a mismatched site label before reading Artifacts", async () => {
+		const { env } = fixture();
+		const response = await app.request(
+			`${URL}/resources`,
+			{ headers: { ...HEADERS, "X-Tedix-Connection-Label": "other" } },
+			env as never,
+		);
+		expect(response.status).toBe(403);
+		expect(artifacts.readThemeArtifactHead).not.toHaveBeenCalled();
 	});
 });
