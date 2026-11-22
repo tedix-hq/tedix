@@ -16,6 +16,7 @@ import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import { DecisionDeckApp } from "./decision-deck-app";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
+import { retryWorkRead, workRetryDelay } from "@/lib/work-refresh";
 import {
 	osQuery,
 	pendingApprovalsQueryOptions,
@@ -58,6 +59,7 @@ vi.mock("@/lib/api", async (original) => {
 							: key === "learningFeedback"
 								? {
 										recordInteraction: writes.record,
+										recordDeckRoutings: writes.routings,
 										recordExposure: vi.fn(async () => ({
 											id: "fictional-exposure",
 										})),
@@ -81,6 +83,7 @@ const writes = vi.hoisted(() => ({
 	save: vi.fn(),
 	getCard: vi.fn(),
 	record: vi.fn(async (_input: { surface?: string }) => ({})),
+	routings: vi.fn(async (_input: { routes: { id: string }[] }) => ({})),
 	learning: {
 		events: [] as LearningInteractionEvent[],
 		model: undefined as ReturnType<typeof learnDecisions> | undefined,
@@ -150,7 +153,15 @@ async function mount(
 	} = {},
 ) {
 	client = new QueryClient({
-		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+		defaultOptions: {
+			queries: {
+				staleTime: Infinity,
+				// Face-read tests use the app's read retry policy from router.tsx.
+				...(input.uncachedFace
+					? { retry: retryWorkRead, retryDelay: workRetryDelay }
+					: { retry: false }),
+			},
+		},
 	});
 	client.setQueryData(userPreferencesQueryOptions().queryKey, {
 		preferences: { ...DEFAULT_OS_USER_PREFERENCES, timezone: "Europe/Berlin" },
@@ -779,7 +790,7 @@ it("keeps an owner question on the Deck and counts it once in the badge and Feed
 		"Which fictional supplier?",
 	);
 	row.request.metadata = {};
-	writes.record.mockClear();
+	writes.routings.mockClear();
 	await mount({ rows: [row] });
 	function Counts() {
 		const config = DecisionDeckConfigSchema.parse({ version: 1 });
@@ -802,8 +813,8 @@ it("keeps an owner question on the Deck and counts it once in the badge and Feed
 	// A question asked of a person always routes to the Deck (ad1e502a9).
 	expect(host.querySelector("output")?.textContent).toBe("1:1:1");
 	expect(
-		writes.record.mock.calls.filter(
-			([input]) => input.surface === "decision_deck_routing",
+		writes.routings.mock.calls.flatMap(([input]) =>
+			input.routes.filter((route) => route.id === row.request.id),
 		),
 	).toHaveLength(1);
 });
