@@ -59,6 +59,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "rehearse_workspace_storage_recovery",
+		endpoint: "osWorkspaces/workspaces/rehearseStorageRecovery",
+		kind: "write",
+	},
+	{
 		toolId: "restore_os_workspace",
 		endpoint: "osWorkspaces/workspaces/restore",
 		kind: "write",

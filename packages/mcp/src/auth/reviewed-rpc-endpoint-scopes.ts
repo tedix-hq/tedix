@@ -698,6 +698,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/workspaces/purgeArchived": "mcp:apps.admin",
 	"osWorkspaces/workspaces/previewArchivedCleanup": "mcp:apps.admin",
 	"osWorkspaces/workspaces/previewBlueprintUpgrade": "mcp:apps.read",
+	"osWorkspaces/workspaces/rehearseStorageRecovery": "mcp:apps.write",
 	"osWorkspaces/workspaces/restore": "mcp:apps.write",
 	"osWorkspaces/workspaces/removeIcon": "mcp:apps.write",
 	"osWorkspaces/workspaces/setIcon": "mcp:apps.write",

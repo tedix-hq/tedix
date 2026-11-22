@@ -277,6 +277,16 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_workspace",
 		resourceId: ({ output }) => nestedId(output, "workspace"),
 	},
+	"workspaces.rehearseStorageRecovery": {
+		action: "os.workspace.storage_recovery_rehearsed",
+		resourceType: "workspace_recovery_drill",
+		resourceId: ({ input }) => text(input.drillId),
+		metadata: ({ input, output }) => ({
+			phase: input.phase,
+			state: output.state,
+			capturedAt: output.capturedAt,
+		}),
+	},
 	"workspaces.restore": {
 		action: "os.workspace.restored",
 		resourceType: "os_workspace",

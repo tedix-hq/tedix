@@ -96,6 +96,8 @@ import {
 	OsWorkspaceResourceSlotSchema,
 	OsWorkspaceResourceStatusSchema,
 	OsWorkspaceStatusSchema,
+	WorkspaceRecoveryDrillInputSchema,
+	WorkspaceRecoveryDrillResultSchema,
 	OsWorkspaceVisibilitySchema,
 	OS_WORKSPACE_ICON_CONTENT_TYPES,
 	OS_WORKSPACE_ICON_MAX_BYTES,
@@ -374,6 +376,17 @@ export const osWorkspacesContract = oc
 	.errors(baseErrors)
 	.router({
 		workspaces: oc.router({
+			rehearseStorageRecovery: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/storage-recovery-drill",
+					summary:
+						"Rehearse workspace SQLite and document storage recovery in a disposable EU fixture",
+					description:
+						"Machine-agent only. Use one drill ID for prepare, restore and verify. Restore restarts the disposable object, so the verification call determines whether it succeeded. No existing workspace can be targeted.",
+				})
+				.input(WorkspaceRecoveryDrillInputSchema)
+				.output(WorkspaceRecoveryDrillResultSchema),
 			conversationCharges: oc
 				.route({
 					method: "GET",

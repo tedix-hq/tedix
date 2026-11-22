@@ -38,6 +38,10 @@ import {
 	type MemoryQueryResult,
 } from "@tedix/db/queries/memory-graph/tenant-rpc";
 import type { WorkspaceRpc } from "./do";
+import {
+	workspaceRecoveryScope,
+	type WorkspaceRecoveryPhase,
+} from "./workspace-recovery-drill";
 import { personChatsName, type PersonChatsOwner } from "./person-chats";
 import type { AgentRunReport } from "./run-report";
 import type { TurnRequest, WorkspaceEnv, WorkspaceScope } from "./env";
@@ -125,6 +129,24 @@ export class InternalEntrypoint
 		return log
 			? log.organizationLogCheckpoints(organizationId, query)
 			: { status: "not_live" as const };
+	}
+	async rehearseStorageRecovery(
+		organizationId: string,
+		agentId: string,
+		drillId: string,
+		phase: WorkspaceRecoveryPhase,
+	) {
+		const scope = await workspaceRecoveryScope(
+			organizationId,
+			agentId,
+			drillId,
+		);
+		return stubFor(this.env, scope).rehearseStorageRecovery(
+			scope,
+			phase,
+			agentId,
+			drillId,
+		);
 	}
 	readGadgetExecutionOutput(
 		scope: WorkspaceScope,

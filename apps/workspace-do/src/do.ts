@@ -16,6 +16,11 @@ import {
 	type WorkspaceChangeInput,
 } from "@tedix/api-contract/schemas/workspace-feed";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
+import {
+	runWorkspaceRecoveryDrill,
+	workspaceRecoveryScope,
+	type WorkspaceRecoveryPhase,
+} from "./workspace-recovery-drill";
 import type { Message } from "@earendil-works/pi-ai";
 import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -983,6 +988,36 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 		await this.#serializePublish(() => this.#flushOutputProjections(outputIds));
 		return { seeded: true };
+	}
+
+	async rehearseStorageRecovery(
+		scope: WorkspaceScope,
+		phase: WorkspaceRecoveryPhase,
+		agentId: string,
+		drillId: string,
+	) {
+		const fixture = await workspaceRecoveryScope(
+			scope.organizationId,
+			agentId,
+			drillId,
+		);
+		if (scope.workspaceId !== fixture.workspaceId) {
+			throw new Error("Recovery drill requires a reserved fixture");
+		}
+		this.bindScope(scope);
+		return runWorkspaceRecoveryDrill({
+			ctx: this.ctx,
+			db: this.db as TenantStoreDb,
+			env: this.env,
+			scope,
+			phase,
+			agentId,
+			copyExecution: (id, output) =>
+				this.copyGadgetExecutionOutput(scope, id, output),
+			readExecution: (id, sha256) =>
+				this.readGadgetExecutionOutput(scope, id, sha256),
+			restart: () => this.ctx.abort(),
+		});
 	}
 
 	async copyGadgetExecutionOutput(
@@ -6257,6 +6292,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc extends DocumentTransferRuntime {
+	rehearseStorageRecovery(
+		scope: WorkspaceScope,
+		phase: WorkspaceRecoveryPhase,
+		agentId: string,
+		drillId: string,
+	): ReturnType<typeof runWorkspaceRecoveryDrill>;
 	readGadgetExecutionOutput(
 		scope: WorkspaceScope,
 		executionId: string,

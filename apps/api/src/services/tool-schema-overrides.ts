@@ -176,6 +176,8 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/workspaces/get": "get_os_workspace",
 	"osWorkspaces/workspaces/update": "update_os_workspace",
 	"osWorkspaces/workspaces/archive": "archive_os_workspace",
+	"osWorkspaces/workspaces/rehearseStorageRecovery":
+		"rehearse_workspace_storage_recovery",
 	"osWorkspaces/workspaces/restore": "restore_os_workspace",
 	"osWorkspaces/workspaces/setIcon": "set_os_workspace_icon",
 	"osWorkspaces/workspaces/removeIcon": "remove_os_workspace_icon",
@@ -339,6 +341,7 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/workspaces/get": "read",
 	"osWorkspaces/workspaces/update": "write",
 	"osWorkspaces/workspaces/archive": "write",
+	"osWorkspaces/workspaces/rehearseStorageRecovery": "write",
 	"osWorkspaces/workspaces/restore": "write",
 	"osWorkspaces/workspaces/setIcon": "write",
 	"osWorkspaces/workspaces/removeIcon": "write",

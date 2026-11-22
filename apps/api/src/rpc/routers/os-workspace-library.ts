@@ -3,6 +3,7 @@ import {
 	saveConversationWorkspace,
 	workspacePlacementId,
 } from "../../services/workspace-document-placement";
+import { verifiedExternalAgent } from "./work-items-principal";
 import { createWorkspaceDocumentOwner } from "../../services/workspace-document-owner";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
@@ -667,6 +668,43 @@ const archive = authorOs.workspaces.archive.handler(
 	},
 );
 
+const rehearseStorageRecovery =
+	authorOs.workspaces.rehearseStorageRecovery.handler(
+		async ({ input, context }) => {
+			const organizationId = requireOrgId(context);
+			const agent = await verifiedExternalAgent(context, organizationId);
+			if (!agent || agent.ownerBound) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Workspace recovery requires a machine agent session",
+				);
+			}
+			const runtime = (
+				context.env as unknown as {
+					WORKSPACE_RUNTIME?: {
+						rehearseStorageRecovery(
+							organizationId: string,
+							agentId: string,
+							drillId: string,
+							phase: typeof input.phase,
+						): Promise<{ state: "prepared" | "verified"; capturedAt: string }>;
+					};
+				}
+			).WORKSPACE_RUNTIME;
+			if (!runtime)
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"Workspace runtime unavailable",
+				);
+			return runtime.rehearseStorageRecovery(
+				organizationId,
+				agent.executor.id,
+				input.drillId,
+				input.phase,
+			);
+		},
+	);
+
 const restore = authorOs.workspaces.restore.handler(
 	async ({ input, context }) => {
 		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
@@ -901,6 +939,7 @@ export const osWorkspaceProcedures = {
 	setAgentAccess,
 	archive,
 	restore,
+	rehearseStorageRecovery,
 	delete: deleteWorkspace,
 	purgeArchived,
 	previewArchivedCleanup,

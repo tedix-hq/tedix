@@ -8677,6 +8677,20 @@ test("copies execution output idempotently and rejects another workspace", async
 	).rejects.toThrow();
 });
 
+test("workspace recovery cannot target a normal workspace object", async () => {
+	const ws = workspace();
+	await runInDurableObject(ws, async (instance) => {
+		await expect(() =>
+			(instance as WorkspaceDO).rehearseStorageRecovery(
+				scope,
+				"prepare",
+				crypto.randomUUID(),
+				crypto.randomUUID(),
+			),
+		).rejects.toThrow("reserved fixture");
+	});
+});
+
 describe("empty document owners", () => {
 	test("refuses files before initialization, then initializes once and survives eviction", async () => {
 		await seedCore();

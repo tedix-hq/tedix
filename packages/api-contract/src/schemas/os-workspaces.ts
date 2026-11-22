@@ -83,6 +83,15 @@ const Sha256HexSchema = z
 	.string()
 	.regex(/^[0-9a-f]{64}$/, "expected a lowercase sha-256 hex digest");
 
+export const WorkspaceRecoveryDrillInputSchema = z.object({
+	drillId: z.uuid(),
+	phase: z.enum(["prepare", "restore", "verify"]),
+});
+export const WorkspaceRecoveryDrillResultSchema = z.object({
+	state: z.enum(["prepared", "verified"]),
+	capturedAt: z.string(),
+});
+
 export const OsWorkspaceStatusSchema = z.enum(["active", "archived"]);
 
 /**
