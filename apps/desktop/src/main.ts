@@ -1481,6 +1481,19 @@ function quitFrom(source: string): void {
 	quitSource = source;
 	app.quit();
 }
+/** Ends the app if a quit has not finished after the runners stopped. */
+let quitTimer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Once the runners are stopped nothing may hold the quit: a page that asks
+ * to stay open, a quit macOS answered before the runners stopped, anything
+ * else gets five seconds, then the app exits anyway.
+ */
+function exitSoon(): void {
+	quitTimer ??= setTimeout(() => {
+		log("quit: still open five seconds after the runners stopped; exiting");
+		app.exit(0);
+	}, 5000);
+}
 /** Set once the person agreed to stop running tasks by quitting. */
 let quitAgreed = false;
 
@@ -1754,6 +1767,13 @@ else if (process.argv.includes("--local-model")) {
 		openAppLink(url);
 	});
 	openAppLink(appLink(process.argv));
+	// A page's "leave this page?" guard (an unsent draft, say) would cancel
+	// the quit silently and leave the app running without runners.
+	app.on("web-contents-created", (_event, contents) => {
+		contents.on("will-prevent-unload", (event) => {
+			if (quitting) event.preventDefault();
+		});
+	});
 	void app.whenReady().then(async () => {
 		log(`start: version ${app.getVersion()}`);
 		applyAppearance(settings().appearance ?? "system");
@@ -2002,10 +2022,16 @@ else if (process.argv.includes("--local-model")) {
 			}
 			if (!quitting) log(`quit: asked by ${quitSource}`);
 			quitting = true;
-			if (!runnersRunning()) return void stopRunners();
+			if (!runnersRunning()) {
+				exitSoon();
+				return void stopRunners();
+			}
 			event.preventDefault();
 			log("quit: stopping this Mac's runners first");
-			void stopRunners().finally(() => app.quit());
+			void stopRunners().finally(() => {
+				exitSoon();
+				app.quit();
+			});
 		});
 		onRunnersChange(() => void refresh());
 		setInterval(() => {
