@@ -3598,6 +3598,79 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		},
 	);
+	it("keeps an incomplete run's checkout and session across a retry that failed before admission", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const path = join(f.dir, `${item().id}-2.json`);
+		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(repo, "unpushed.txt"), "kept");
+		const nativeId = "33333333-3333-4333-8333-000000000099";
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: "failed",
+				admissionState: "admitted",
+				attemptId: "incomplete-attempt",
+				session: `codex:${nativeId}`,
+				executorKey: "local-acme",
+				repo,
+			}),
+		);
+		// A run that ended incomplete settles rejected.
+		f.control.history.data = [
+			{
+				id: "incomplete-attempt",
+				externalSessionKey: `codex:${nativeId}`,
+				outcome: "rejected",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		const thread = f.deps.thread!;
+		f.deps.thread = async (...args) => {
+			const prepared = await thread(...args);
+			const resume = args[3];
+			return resume
+				? { ...prepared, thread: { ...prepared.thread, id: resume } }
+				: prepared;
+		};
+		// The first retry fails before admission, as on 22 Nov when a database
+		// read failed mid-preparation.
+		const cli = f.deps.cli!;
+		let readinessFails = true;
+		f.deps.cli = async (args, ...rest) => {
+			if (args[5] === "readiness" && readinessFails)
+				throw new Error(
+					"SERVICE_UNAVAILABLE: Database temporarily unavailable",
+				);
+			return cli(args, ...rest);
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		readinessFails = false;
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved).toMatchObject({
+			repo,
+			retainedAttemptId: "incomplete-attempt",
+		});
+		saved.recheckAt = 0;
+		saved.admissionRetryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		expect(f.control.threadSessions).toEqual([nativeId, nativeId]);
+		expect(f.briefs.at(-1)).toContain(
+			`Resume Work after Attempt incomplete-attempt rejected`,
+		);
+		expect(f.briefs.at(-1)).toContain(`Reuse the retained worktree ${repo}`);
+		expect(readFileSync(join(repo, "unpushed.txt"), "utf8")).toBe("kept");
+		f.releases[0]!();
+		await dispatcher.drain();
+	});
 	it.each([
 		["continues", true],
 		["falls back to a clean retry when the checkout is gone", false],

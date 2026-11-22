@@ -5604,7 +5604,15 @@ export class LaneDispatcher {
 				previousLane?.repo ??
 				(await this.deps.provision(this.options.repo, join(dir, "repo")));
 			receipt.repo = repo;
-			delete receipt.retainedAttemptId;
+			// Until admission the receipt names the earlier Attempt whose checkout
+			// it reuses, so a preparation that fails before admission (a read
+			// error, a refusal) leaves the next try that same checkout.
+			const reusedAttemptId =
+				!adopted && previousLane
+					? (previousLane.attemptId ?? previousLane.retainedAttemptId)
+					: undefined;
+			if (reusedAttemptId) receipt.retainedAttemptId = reusedAttemptId;
+			else delete receipt.retainedAttemptId;
 			receipt.unpushedCommits = previousLane?.unpushedCommits;
 			receipt.unpushedReason = previousLane?.unpushedReason;
 			receipt.baseCommit =
