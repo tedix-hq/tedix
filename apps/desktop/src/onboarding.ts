@@ -226,16 +226,24 @@ function firstOpen(now: PanelState): StepId {
 	return attention(now)?.step ?? "ready";
 }
 
+/** One of the big choices on the first screen. */
+interface Choice {
+	title: string;
+	sub: string;
+	click: () => void;
+}
+
 interface Screen {
 	/** Centred: a mark, an optional pill, a headline and up to two lines. */
-	centre?: { mark: Child; pill?: Child; lines: Child[] };
+	centre?: { mark: Child; pill?: Child; lines: Child[]; choices?: Choice[] };
 	/** Split: the pill and one sentence on the left, rows on the right. */
 	label?: string;
 	sentence?: Child;
 	rows?: Child[];
 	headline: string;
 	/** The bottom-right button; Return presses it. */
-	primary: { label: string; click: () => void; disabled?: boolean };
+	/** Absent when the screen offers big choices instead. */
+	primary?: { label: string; click: () => void; disabled?: boolean };
 	/** A quiet button beside it that moves on without doing the step. */
 	later?: boolean;
 }
@@ -315,17 +323,25 @@ function screenFor(id: StepId, now: PanelState): Screen {
 
 	if (id === "welcome") {
 		const who = setup.app.state === "in" && person(setup.app);
+		const choices: Choice[] = [
+			{
+				title: "Use Tedix Cloud",
+				sub: "Sign in, or ask for access.",
+				click: next,
+			},
+		];
+		// A developer can try Tedix first: no account, nothing else changes.
+		if (now.app.localWorkspace)
+			choices.push({
+				title: "Try it on this Mac",
+				sub: "No account. A sample workspace that stays on this Mac.",
+				click: () => void tedixShell.action("start-local-workspace"),
+			});
 		return {
 			centre: {
 				mark: appIcon(),
 				lines: [
 					el("p", "", "Use Tedix here and in the apps you already use."),
-					now.app.localWorkspace &&
-						button(
-							"Start on this Mac",
-							"plain",
-							() => void tedixShell.action("start-local-workspace"),
-						),
 					who &&
 						el(
 							"span",
@@ -334,9 +350,11 @@ function screenFor(id: StepId, now: PanelState): Screen {
 							who,
 						),
 				],
+				choices: choices.length > 1 ? choices : undefined,
 			},
 			headline: "Set up this Mac",
-			primary: { label: "Get started", click: next },
+			primary:
+				choices.length > 1 ? undefined : { label: "Get started", click: next },
 		};
 	}
 
@@ -524,6 +542,18 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				rows: chatRows(now),
 				primary: continueButton,
 			};
+		// One click for people who want it all: add Tedix to each tool found
+		// and switch it on for tasks. Each stays a switch they can turn off.
+		const todo = found.filter(
+			(tool) => !toolView(now, tool).ready && !runnerFor(now, tool)?.enabled,
+		);
+		const setUpAll = async () => {
+			for (const tool of todo) {
+				if (tool.tedix === "missing" && tool.canAdd)
+					await tedixShell.setup("add", tool.id);
+				useForTasks(now, tool, true);
+			}
+		};
 		return {
 			label: "Coding tools",
 			headline: "Choose your tools",
@@ -534,7 +564,14 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				button("Check again", "link", () => act("check")),
 			),
 			rows: [...chatRows(now), ...tools],
-			primary: continueButton,
+			primary: todo.length
+				? {
+						label: "Set everything up",
+						click: () => void setUpAll().then(next),
+						disabled: !setup.signedIn,
+					}
+				: continueButton,
+			later: todo.length > 0,
 		};
 	}
 
@@ -706,6 +743,23 @@ function draw(): void {
 				view.centre.pill,
 				headline,
 				...view.centre.lines,
+				view.centre.choices &&
+					el(
+						"div",
+						"choices",
+						...view.centre.choices.map((choice, index) => {
+							const node = el(
+								"button",
+								"choice",
+								el("span", "title", choice.title),
+								el("span", "sub", choice.sub),
+							);
+							node.type = "button";
+							node.dataset.key = `choice:${index}`;
+							node.onclick = choice.click;
+							return node;
+						}),
+					),
 			)
 		: el(
 				"div",
@@ -743,14 +797,18 @@ function draw(): void {
 		if (index === at) dash.setAttribute("aria-current", "step");
 		else dash.removeAttribute("aria-current");
 	});
-	const primary = button(
-		view.primary.label,
-		"primary",
-		view.primary.click,
-		view.primary.disabled,
-	);
-	primary.id = "primary";
-	primary.append(el("kbd", "", "↵"));
+	const primary =
+		view.primary &&
+		button(
+			view.primary.label,
+			"primary",
+			view.primary.click,
+			view.primary.disabled,
+		);
+	if (primary) {
+		primary.id = "primary";
+		primary.append(el("kbd", "", "↵"));
+	}
 	actions.replaceChildren(
 		...[view.later && button("Later", "quiet", next), primary].filter(
 			(node): node is HTMLButtonElement => !!node,

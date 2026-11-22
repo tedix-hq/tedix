@@ -256,6 +256,39 @@
 			.done svg {
 				color: var(--good);
 			}
+			/* The first screen's two big choices. */
+			.choices {
+				display: grid;
+				grid-template-columns: repeat(2, 240px);
+				gap: 12px;
+				margin-top: 20px;
+			}
+			.choice {
+				all: unset;
+				display: grid;
+				gap: 4px;
+				padding: 16px;
+				border-radius: 12px;
+				border: 1px solid var(--border);
+				background: var(--card);
+				box-shadow: var(--shadow);
+				text-align: left;
+				cursor: default;
+			}
+			.choice:hover {
+				border-color: var(--primary);
+			}
+			.choice:focus-visible {
+				outline: 2px solid var(--primary);
+				outline-offset: 2px;
+			}
+			.choice .title {
+				font-weight: 600;
+			}
+			.choice .sub {
+				font-size: 12.5px;
+				color: var(--muted-foreground);
+			}
 			.dash[hidden] {
 				display: none;
 			}

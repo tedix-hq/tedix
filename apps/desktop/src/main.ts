@@ -916,6 +916,8 @@ function finishSignIn(link: string): void {
  * has its own, so the copy run from source never moves the installed one).
  */
 const windowFile = () => join(app.getPath("userData"), "window.json");
+/** The person chose Try it on this Mac in the first-run setup. */
+let localChosen = false;
 /** There once the person has been through the first-run setup. */
 const setUpFile = () => join(app.getPath("userData"), "set-up");
 /**
@@ -1205,8 +1207,14 @@ function openSetup(): void {
 	window.setMenuBarVisibility(false);
 	window.on("closed", () => {
 		writeFileSync(setUpFile(), new Date().toISOString());
-		// After the first-run setup the Tedix window comes next.
-		if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible())
+		// After the first-run setup the Tedix window comes next, unless the
+		// person chose to try Tedix on this Mac without an account.
+		if (
+			!localChosen &&
+			mainWindow &&
+			!mainWindow.isDestroyed() &&
+			!mainWindow.isVisible()
+		)
 			showMain();
 		updateDock();
 	});
@@ -1825,6 +1833,8 @@ else if (process.argv.includes("--local-model")) {
 				)
 					return;
 				openLocalTedix([], true);
+				// Trying it on this Mac: the Cloud window waits until asked for.
+				localChosen = true;
 				setupWindow.close();
 				return;
 			}
