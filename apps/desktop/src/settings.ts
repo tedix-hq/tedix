@@ -182,16 +182,18 @@ function tools(now: PanelState): Group[] {
 		const view = toolView(now, tool);
 		const runner = runnerFor(now, tool);
 		const on = Boolean(runner?.enabled);
+		// Held back by its own limit, such as out of credits until a time.
+		const limit = on ? now.setup.routing?.limits?.[tool.executor] : undefined;
 		return {
 			title: tool.name,
 			glyph: TOOL_ICONS[tool.id] ?? "terminal",
 			sub: view.working
 				? el("span", "live", el("span", "spinner"), view.working)
-				: view.sub,
-			tone: view.working ? undefined : view.tone,
+				: (limit ?? view.sub),
+			tone: view.working ? undefined : limit ? "warn" : view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
-				!view.working && (view.ready ? READY_MARK() : view.action),
+				!view.working && (view.ready && !limit ? READY_MARK() : view.action),
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,

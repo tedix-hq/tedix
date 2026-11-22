@@ -247,6 +247,11 @@ export interface Routing {
 	file: string | null;
 	/** When that file last changed, ISO time. */
 	changedAt?: string;
+	/**
+	 * Tools held back by their own limit, by executor id: why, in plain
+	 * words without the tool's name. Absent with older command-line tools.
+	 */
+	limits?: Record<string, string>;
 }
 
 export interface SessionProject {
@@ -507,7 +512,31 @@ async function readRouting(): Promise<void> {
 		const parsed = JSON.parse(result.output) as {
 			path?: unknown;
 			policy?: { rules?: unknown };
+			tools?: unknown;
 		};
+		const limits = Array.isArray(parsed.tools)
+			? Object.fromEntries(
+					parsed.tools
+						.filter(
+							(tool: {
+								available?: unknown;
+								executor?: unknown;
+								description?: unknown;
+							}) =>
+								tool?.available === false &&
+								typeof tool.executor === "string" &&
+								typeof tool.description === "string",
+						)
+						.map((tool: { executor: string; description: string }) => {
+							// "Codex: out of credits…" → "Out of credits…"
+							const why = tool.description.replace(/^[^:]+:\s*/, "");
+							return [
+								tool.executor,
+								why.charAt(0).toUpperCase() + why.slice(1),
+							];
+						}),
+				)
+			: undefined;
 		const rules = (
 			Array.isArray(parsed.policy?.rules) ? parsed.policy.rules : []
 		)
@@ -525,7 +554,7 @@ async function readRouting(): Promise<void> {
 		} catch {
 			/* Not there. */
 		}
-		routing = rules.length ? { rules, file, changedAt } : undefined;
+		routing = rules.length ? { rules, file, changedAt, limits } : undefined;
 	} catch {
 		routing = undefined;
 	}
