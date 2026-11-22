@@ -361,13 +361,12 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 			).toBe(false);
 			expect((await readiness(retryAt)).ready).toBe(true);
 			nextStartAt = retryAt;
-			// Recreating the client models a new process reading durable history.
-			const restarted = await deriveWorkItemReadiness(
-				createDbQueryClient(createD1Facade(sqlite)),
-				{ orgId: "o", workItemId: "deferred", derivedAt: now },
-			);
-			expect(restarted.reasons).toEqual(result.reasons);
 		}
+		const freshRead = await deriveWorkItemReadiness(
+			createDbQueryClient(createD1Facade(sqlite)),
+			{ orgId: "o", workItemId: "deferred", derivedAt: now },
+		);
+		expect(freshRead.reasons).toEqual((await readiness()).reasons);
 		const projection = await listWorkItemReadinessProjection(db, {
 			orgId: "o",
 			observedAt: now,

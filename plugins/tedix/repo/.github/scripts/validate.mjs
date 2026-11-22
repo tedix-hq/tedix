@@ -67,16 +67,26 @@ const walk = (dir) => {
 	for (const entry of readdirSync(join(root, dir || "."))) {
 		if (entry === ".git" || entry === "node_modules") continue;
 		const path = dir ? `${dir}/${entry}` : entry;
+		if (
+			path === "hooks" ||
+			/\.(env|pem|key)$/.test(path) ||
+			(entry.startsWith(".env.") && entry !== ".env.example")
+		) {
+			errors.push(`${path}: must not be published`);
+			continue;
+		}
 		if (statSync(join(root, path)).isDirectory()) walk(path);
-		else if (/\.(md|json|js|mjs|yml|yaml|txt)$/.test(path)) {
+		else if (
+			entry === ".env.example" ||
+			/\.(md|json|js|mjs|yml|yaml|txt)$/.test(path)
+		) {
 			read(path)
 				.split("\n")
 				.forEach((line, index) => {
 					if (SECRET.test(line))
 						errors.push(`${path}:${index + 1}: credential-shaped value`);
 				});
-		} else if (/^hooks\//.test(path) || /\.(env|pem|key)$/.test(path))
-			errors.push(`${path}: must not be published`);
+		}
 	}
 };
 walk("");

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -139,6 +140,30 @@ describe("public plugin repository", () => {
 			expect(existsSync(join(dir, "stale.txt"))).toBe(false);
 			expect(readFileSync(join(dir, "README.md"), "utf8")).toContain(
 				"tedix-hq/tedix-plugins",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("the published validator rejects hook source and local dotenv files", () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-plugin-repo-"));
+		try {
+			writePluginRepo(dir);
+			mkdirSync(join(dir, "hooks"));
+			writeFileSync(join(dir, "hooks/local.js"), "export {};\n");
+			writeFileSync(join(dir, ".env.local"), "EXAMPLE=value\n");
+			const result = Bun.spawnSync([
+				"node",
+				join(dir, ".github/scripts/validate.mjs"),
+				dir,
+			]);
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr.toString()).toContain(
+				"hooks: must not be published",
+			);
+			expect(result.stderr.toString()).toContain(
+				".env.local: must not be published",
 			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
