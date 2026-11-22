@@ -221,20 +221,44 @@ export async function checkSiteVersions(input: {
 			}
 			report.sites.push(entry);
 		}
-		const behind = new Map<string, { version: string; siteIds: Set<string> }>();
-		for (const site of report.sites)
-			for (const pkg of site.packages) {
-				if (!pkg.behind || !pkg.latest) continue;
-				const group = behind.get(pkg.package) ?? {
-					version: pkg.latest,
-					siteIds: new Set<string>(),
-				};
-				group.siteIds.add(site.siteId);
-				behind.set(pkg.package, group);
-			}
-		for (const [name, group] of behind) {
-			const sourceIntentId = `site-upgrade:${project.id}:${name}:${group.version}`;
-			const existingId = config.upgradeWorkItems?.[name];
+		const groups = report.sites.flatMap((site) =>
+			(["runtime", "theme", "docs image"] as const).flatMap((source) => {
+				const packages = site.packages.filter(
+					(pkg) => pkg.source === source && pkg.behind && pkg.latest,
+				);
+				if (!packages.length) return [];
+				const primary =
+					source === "docs image" ? "@cloudflare/nimbus-docs" : "emdash";
+				const version = site.packages.find(
+					(pkg) => pkg.source === source && pkg.package === primary,
+				)?.latest;
+				const target = version
+					? `${source === "docs image" ? "Nimbus" : "EmDash"} ${version}`
+					: "the latest package releases";
+				return [{ site, source, packages, target }];
+			}),
+		);
+		const alerts = new Map<string, SiteVersionReport["alerts"][number]>();
+		for (const group of groups) {
+			const { site, source, packages, target } = group;
+			const key = `${site.siteId}:${source}`;
+			const targets = [
+				...new Set(packages.map((pkg) => `${pkg.package}@${pkg.latest}`)),
+			].sort();
+			const sourceIntentId = `site-upgrade:${project.id}:${key}:${targets.join(",")}`;
+			const existingId = config.upgradeWorkItems?.[key];
+			const title = `Upgrade the ${site.slug} ${source} to ${target}`;
+			const description = `${title}\n\n${JSON.stringify(
+				{
+					siteId: site.siteId,
+					slug: site.slug,
+					source,
+					themeRevision: site.themeRevision,
+					packages,
+				},
+				null,
+				2,
+			)}`;
 			let item = existingId
 				? await getWorkItemById(input.db, existingId, project.orgId)
 				: null;
@@ -246,7 +270,6 @@ export async function checkSiteVersions(input: {
 				orgId: project.orgId,
 				sourceIntentId,
 			});
-			const title = `Upgrade ${name} to ${group.version}`;
 			if (!item) {
 				const matching = await findSiteUpgradeWork(
 					input.db,
@@ -274,11 +297,7 @@ export async function checkSiteVersions(input: {
 						projectId: project.id,
 						createdBy: { type: "system", id: "site-version-check" },
 						title,
-						description: JSON.stringify(
-							report.sites.filter((site) => group.siteIds.has(site.siteId)),
-							null,
-							2,
-						),
+						description,
 						workKind: "coding",
 						sourceIntentId,
 						objectiveId: purpose.objectiveId ?? undefined,
@@ -303,7 +322,6 @@ export async function checkSiteVersions(input: {
 				});
 			}
 			if (!item) throw new Error("Upgrade Work could not be read back");
-			const count = group.siteIds.size;
 			await addWorkItemComment(input.db, {
 				id: crypto.randomUUID(),
 				orgId: project.orgId,
@@ -311,23 +329,18 @@ export async function checkSiteVersions(input: {
 				authorType: "system",
 				authorId: "site-version-check",
 				createdAt: report.checkedAt,
-				body: `Upgrade ${name} to ${group.version}: ${count} ${count === 1 ? "site is" : "sites are"} behind.\n\n${JSON.stringify(
-					report.sites.filter((site) => group.siteIds.has(site.siteId)),
-					null,
-					2,
-				)}`,
+				body: description,
 			});
-			const label =
-				name === "emdash"
-					? "EmDash"
-					: name === "@cloudflare/nimbus-docs"
-						? "Nimbus"
-						: name;
-			report.alerts.push({
-				message: `${count} ${count === 1 ? "site is" : "sites are"} behind ${label} ${group.version}`,
-				workItemId: item.id,
-			});
+			const message = `${source} to ${target}`;
+			const alert = alerts.get(site.siteId);
+			if (alert) alert.message += `; ${message}`;
+			else
+				alerts.set(site.siteId, {
+					message: `Upgrade ${site.slug}: ${message}`,
+					workItemId: item.id,
+				});
 		}
+		report.alerts = [...alerts.values()];
 		await saveSiteVersionReport(input.db, project.id, project.orgId, report);
 		reports.push(report);
 	}

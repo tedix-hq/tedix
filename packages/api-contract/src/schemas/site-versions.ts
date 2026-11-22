@@ -2,7 +2,7 @@ import * as z from "zod";
 
 export const SiteVersionCheckConfigSchema = z.object({
 	enabled: z.literal(true),
-	/** Existing upgrade Work, keyed by package, takes precedence over filing. */
+	/** Existing upgrade Work, keyed by "<siteId>:<source>", takes precedence over filing. */
 	upgradeWorkItems: z.record(z.string(), z.uuid()).optional(),
 });
 export const SiteVersionAlertSchema = z.object({

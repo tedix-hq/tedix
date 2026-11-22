@@ -105,7 +105,7 @@ beforeEach(() => {
 	);
 });
 
-function input(failTheme = false) {
+function input(failTheme = false, latest: Record<string, string> = {}) {
 	const readFile = vi.fn(async () => {
 		if (failTheme) throw new Error("unavailable");
 		return new Blob([lock]);
@@ -116,6 +116,7 @@ function input(failTheme = false) {
 		const name = decodeURIComponent(
 			url.split("registry.npmjs.org/")[1]!.replace(/\/latest$/, ""),
 		);
+		if (latest[name]) return Response.json({ version: latest[name] });
 		if (name === "@emdash-cms/plugin-forms")
 			return new Response("offline", { status: 503 });
 		const pins = productPackageVersions(manifest, dockerfile);
@@ -164,7 +165,7 @@ describe("site version check", () => {
 		expect(first!.sites).toHaveLength(2);
 		expect(first!.alerts).toEqual([
 			{
-				message: "1 site is behind EmDash 1.5.0",
+				message: "Upgrade example: theme to EmDash 1.5.0",
 				workItemId: expect.any(String),
 			},
 		]);
@@ -189,6 +190,52 @@ describe("site version check", () => {
 		);
 	});
 
+	it("groups packages by site and source with one alert per site across repeated checks", async () => {
+		mocks.cms.mockResolvedValue([
+			{ id: "cms", slug: "example", organizationId: "org" },
+			{ id: "cms-two", slug: "second", organizationId: "org" },
+		]);
+		const params = input(false, {
+			emdash: "1.6.0",
+			"@emdash-cms/plugin-forms": "0.3.0",
+		});
+		const [first] = await checkSiteVersions(params);
+		const [second] = await checkSiteVersions(params);
+		expect(mocks.create).toHaveBeenCalledTimes(4);
+		expect(first!.alerts).toHaveLength(2);
+		expect(first!.alerts.map((alert) => alert.message)).toEqual([
+			"Upgrade example: runtime to EmDash 1.6.0; theme to EmDash 1.6.0",
+			"Upgrade second: runtime to EmDash 1.6.0; theme to EmDash 1.6.0",
+		]);
+		expect(second!.alerts).toEqual(first!.alerts);
+		const items = mocks.create.mock.calls.map((call) => call[1]);
+		expect(new Set(items.map((item) => item.sourceIntentId)).size).toBe(4);
+		const theme = items.find(
+			(item) => item.title === "Upgrade the example theme to EmDash 1.6.0",
+		);
+		const details = JSON.parse(theme.description.split("\n\n")[1]);
+		expect(details).toMatchObject({
+			siteId: "cms",
+			source: "theme",
+			themeRevision: "b".repeat(40),
+		});
+		expect(details.packages).toHaveLength(3);
+		expect(details.packages).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					package: "emdash",
+					installed: "1.4.0",
+					latest: "1.6.0",
+				}),
+				expect.objectContaining({
+					package: "@emdash-cms/plugin-forms",
+					installed: "0.2.12",
+					latest: "0.3.0",
+				}),
+			]),
+		);
+	});
+
 	it("updates configured upgrade Work instead of creating a duplicate", async () => {
 		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		mocks.projects.mockResolvedValue([
@@ -196,7 +243,10 @@ describe("site version check", () => {
 				id: "project",
 				orgId: "org",
 				metadata: {
-					siteVersionCheck: { enabled: true, upgradeWorkItems: { emdash: id } },
+					siteVersionCheck: {
+						enabled: true,
+						upgradeWorkItems: { "cms:theme": id },
+					},
 				},
 			},
 		]);
@@ -208,7 +258,9 @@ describe("site version check", () => {
 			expect.anything(),
 			expect.objectContaining({
 				workItemId: id,
-				body: expect.stringContaining("Upgrade emdash to 1.5.0"),
+				body: expect.stringContaining(
+					"Upgrade the example theme to EmDash 1.5.0",
+				),
 			}),
 		);
 	});

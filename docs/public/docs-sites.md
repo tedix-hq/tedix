@@ -182,12 +182,15 @@ Runtime and image pins come from the API's recorded product source revision;
 theme reads record their repository revision. Unavailable reads remain unknown.
 
 The latest report is stored in the project's `siteVersionReport` metadata.
-When a package is behind, the check files proposed Work named
-“Upgrade &lt;package&gt; to &lt;version&gt;”, reusing the item on later checks.
-An optional `siteVersionCheck.upgradeWorkItems` map links package names to
-existing upgrade Work IDs in the same project. The check updates those items
-with its findings. Only platform admins in the configured organization see a
-linked alert above Sites. The check never builds, upgrades, or publishes a site.
+When packages are behind, the check files one proposed Work per site and source
+(runtime, theme, or docs image), listing the affected packages and their versions.
+For example: “Upgrade the example theme to EmDash 1.5.0”. Later checks reuse the
+item for the same target package releases. An optional
+`siteVersionCheck.upgradeWorkItems` map links `"<siteId>:<source>"` keys to existing
+upgrade Work IDs in the same project. Package-name keys are no longer used.
+The check updates those items with its findings. Only platform admins in the
+configured organization see one linked alert per site above Sites, combining
+its affected sources. The check never builds, upgrades, or publishes a site.
 
 ## Safety model and current non-guarantees
 
