@@ -159,6 +159,7 @@ function createExecutionRefs(): CodeModeExecutionRefs {
 		discoverCalls: 0,
 		discoverParameterRequests: 0,
 		discoverResultChars: 0,
+		workerLoads: 0,
 		toolReceipts: [],
 		trust: { untrusted: new Set(), trusted: new Set() },
 		skillWorkflowRunIds: new Set(),
@@ -534,6 +535,7 @@ export async function registerCodeModeTools(
 							discoverCalls,
 							discoverParameterRequests,
 							discoverResultChars,
+							workerLoads: executionRefs.workerLoads,
 							// Spreading undefined is a no-op, so no fallback object needed.
 							...resultMetrics,
 							success,
@@ -561,6 +563,7 @@ export async function registerCodeModeTools(
 					discoverCalls,
 					discoverParameterRequests,
 					discoverResultChars,
+					workerLoads: executionRefs.workerLoads,
 					resultChars: resultMetrics?.resultChars,
 					resultTokensApprox: resultMetrics?.resultTokensApprox,
 					resultTruncated: resultMetrics?.resultTruncated,
@@ -826,7 +829,10 @@ export async function registerCodeModeTools(
 														surface: "gateway_model_code",
 														reason: "gateway_model_authored_invocation",
 													},
-													onLoad,
+													(call) => {
+														executionRefs.workerLoads += 1;
+														onLoad(call);
+													},
 												),
 												timeout,
 												globalOutbound: null,

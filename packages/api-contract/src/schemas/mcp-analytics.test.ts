@@ -200,7 +200,7 @@ describe("MCP Analytics Engine data point contract", () => {
 			"",
 		]);
 		expect(dataPoint.doubles).toEqual([
-			1, 99, 1234, 7, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			1, 99, 1234, 7, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		]);
 		expect(dataPoint.indexes).toEqual(["app-id"]);
 		expect(MCP_CODEMODE_ANALYTICS_DOUBLE.codeLength).toBe("double3");
@@ -221,6 +221,7 @@ describe("MCP Analytics Engine data point contract", () => {
 			"listChars",
 			"catalogChars",
 			"catalogToolCount",
+			"workerLoads",
 		]);
 		// The original five positions are frozen — every existing AE query reads
 		// them by position, so the cost-shape tail may only ever APPEND.

@@ -80,6 +80,8 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE = {
 	listChars: "double13",
 	catalogChars: "double14",
 	catalogToolCount: "double15",
+	// exec: Dynamic Worker loads this execution started; 0 = worker-free path.
+	workerLoads: "double16",
 } as const;
 
 export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
@@ -98,6 +100,7 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
 	"listChars",
 	"catalogChars",
 	"catalogToolCount",
+	"workerLoads",
 ] as const;
 
 export interface McpAnalyticsDataPointEvent {
@@ -149,6 +152,8 @@ export interface McpCodeModeAnalyticsDataPointEvent extends McpAnalyticsDataPoin
 	/** list: chars of every catalog tool's name, description and input schema. */
 	catalogChars?: number;
 	catalogToolCount?: number;
+	/** exec: Dynamic Worker loads started; 0 means the worker-free path ran. */
+	workerLoads?: number;
 }
 
 export function buildMcpAnalyticsDataPoint(event: McpAnalyticsDataPointEvent): {
@@ -211,6 +216,7 @@ export function buildMcpCodeModeAnalyticsDataPoint(
 		event.listChars || 0,
 		event.catalogChars || 0,
 		event.catalogToolCount || 0,
+		event.workerLoads || 0,
 	];
 	return dataPoint;
 }

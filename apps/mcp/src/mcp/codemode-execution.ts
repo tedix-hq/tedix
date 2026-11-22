@@ -162,6 +162,8 @@ export interface CodeModeExecutionRefs {
 	discoverParameterRequests: number;
 	/** Serialized chars of discover.* results this execution received. */
 	discoverResultChars: number;
+	/** Dynamic Worker loads this execution started; 0 = worker-free path. */
+	workerLoads: number;
 	trust: { untrusted: Set<string>; trusted: Set<string> };
 	/**
 	 * EXECUTION RECEIPTS the executor observed itself, one per namespaced tool
