@@ -131,7 +131,10 @@ function OpenDesktopApp({ onContinueHere }: { onContinueHere: () => void }) {
 		<main className="centered-state">
 			<TedixBrandMark />
 			<p>Open the Tedix app to finish signing in.</p>
-			<Button onClick={() => window.location.assign(appLink)}>
+			<Button
+				className="max-w-full justify-center"
+				onClick={() => window.location.assign(appLink)}
+			>
 				Open the Tedix app
 			</Button>
 			<Button variant="link" onClick={onContinueHere}>

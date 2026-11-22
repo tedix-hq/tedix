@@ -51,8 +51,8 @@ function DesktopSignInPage() {
 	const code = useMutation({ mutationFn: requestCode });
 
 	return (
-		<main className="flex min-h-dvh items-center justify-center bg-background p-4">
-			<div className="w-full max-w-md space-y-3 px-6 text-center">
+		<main className="flex min-h-dvh items-center justify-center bg-background px-5 py-8">
+			<div className="grid w-full max-w-sm justify-items-center gap-4 text-center [overflow-wrap:anywhere]">
 				<Text as="h1" role="title" weight="semibold">
 					Sign in to the Tedix app
 				</Text>
@@ -68,11 +68,11 @@ function DesktopSignInPage() {
 				) : code.data ? (
 					<>
 						<Text as="p" role="body" tone="secondary">
-							Open the Tedix app to finish. The button works once, for two
-							minutes, and only in the app that asked.
+							Open the app that requested sign-in. This link works once and
+							expires in two minutes.
 						</Text>
 						<Button
-							className="mx-auto mt-1 flex w-full sm:w-auto"
+							className="max-w-full justify-center"
 							render={<a href={`tedix://sign-in?code=${code.data}`} />}
 						>
 							Open the Tedix app
@@ -93,7 +93,7 @@ function DesktopSignInPage() {
 							</div>
 						) : null}
 						<Button
-							className="mx-auto mt-1 flex w-full sm:w-auto"
+							className="max-w-full justify-center"
 							loading={code.isPending}
 							disabled={code.isPending}
 							onClick={() => code.mutate(key)}
