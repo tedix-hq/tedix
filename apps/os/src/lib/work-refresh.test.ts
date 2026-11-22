@@ -20,6 +20,8 @@ describe("Work reconciliation", () => {
 		expect(retryWorkRead(1, new Error("offline"))).toBe(true);
 		expect(retryWorkRead(2, new Error("offline"))).toBe(false);
 		expect(retryWorkRead(0, { code: "FORBIDDEN" })).toBe(false);
+		expect(retryWorkRead(2, { code: "SERVICE_UNAVAILABLE" })).toBe(true);
+		expect(retryWorkRead(3, { code: "SERVICE_UNAVAILABLE" })).toBe(false);
 		const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
 		expect([0, 1, 2, 9].map(workRetryDelay)).toEqual([1500, 3000, 6000, 22500]);
 		random.mockRestore();

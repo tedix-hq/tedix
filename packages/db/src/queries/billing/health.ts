@@ -7,6 +7,7 @@ import {
 	eq,
 	exists,
 	gte,
+	inArray,
 	isNotNull,
 	isNull,
 	lt,
@@ -20,6 +21,7 @@ import {
 } from "./provider-cost-evidence";
 import { tediCallCosts } from "../../schema/tedis";
 import {
+	anyBillingReservation,
 	type BillingProviderReconciliation,
 	billingProviderReconciliations,
 	billingUsageCharges,
@@ -34,10 +36,26 @@ export interface BillingSettlementHealth {
 	quarantined24h: number;
 }
 
+/**
+ * `unsettledSince` bounds the unsettled count to calls whose reservation was
+ * created after it. Without a bound this walked every recorded model call
+ * (about a million rows, 5.4 s) and held up every other read of the database,
+ * sign-in lookups included, while it ran.
+ */
 export async function getBillingSettlementHealth(
 	db: DbClient,
 	since24h: string,
+	unsettledSince: string,
 ): Promise<BillingSettlementHealth> {
+	const recentReservations = db
+		.select({ id: billingUsageReservations.id })
+		.from(billingUsageReservations)
+		.where(
+			and(
+				anyBillingReservation,
+				gte(billingUsageReservations.createdAt, unsettledSince),
+			),
+		);
 	// One D1 batch reads every figure from the same snapshot.
 	const [calls, charges, quarantines] = await db.batch([
 		db
@@ -60,9 +78,10 @@ export async function getBillingSettlementHealth(
 			)
 			.where(
 				and(
+					// bound-params: a subquery, not a list of values
+					inArray(tediCallCosts.billingReservationId, recentReservations),
 					eq(tediCallCosts.success, true),
 					isNotNull(tediCallCosts.orgId),
-					isNotNull(tediCallCosts.billingReservationId),
 					isNull(billingUsageCharges.id),
 					isNull(billingUsageQuarantines.id),
 				),

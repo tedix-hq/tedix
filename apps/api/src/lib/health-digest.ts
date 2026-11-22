@@ -603,9 +603,11 @@ export async function collectHealthConditions(
 	try {
 		const { getBillingSettlementHealth } =
 			await import("@tedix/db/queries/billing/health");
+		// Eight days reaches past the last staleness bucket (168 h).
 		const health = await getBillingSettlementHealth(
 			db,
 			new Date(nowMs - 24 * 60 * 60 * 1_000).toISOString(),
+			new Date(nowMs - 8 * 24 * 60 * 60 * 1_000).toISOString(),
 		);
 		conditions.push(...billingSettlementHealthConditions(health, nowMs));
 	} catch (err) {

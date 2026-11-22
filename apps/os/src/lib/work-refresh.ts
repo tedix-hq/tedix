@@ -1,10 +1,16 @@
 const WORK_REFRESH_MS = 120_000;
 const WORK_READ_RETRIES = 2;
+// The API answers 503 when its database is briefly busy. Those spells last
+// several seconds, so one more, later try rides them out.
+const WORK_READ_BUSY_RETRIES = 3;
 
 export function retryWorkRead(failures: number, error: unknown): boolean {
 	const code = (error as { code?: string } | null)?.code;
 	return (
-		failures < WORK_READ_RETRIES &&
+		failures <
+			(code === "SERVICE_UNAVAILABLE"
+				? WORK_READ_BUSY_RETRIES
+				: WORK_READ_RETRIES) &&
 		![
 			"UNAUTHORIZED",
 			"FORBIDDEN",
