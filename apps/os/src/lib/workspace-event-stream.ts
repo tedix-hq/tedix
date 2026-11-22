@@ -5,8 +5,8 @@ import { reconcileLiveWorkspace } from "@/lib/live-workspace-projection";
 import { osQuery } from "@/lib/os-query-options";
 import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
 
-/** Longest the server holds one request before answering "nothing new". */
-const WAIT_MS = 20_000;
+/** Leave transport overhead below the OS client's 15s request timeout. */
+const WAIT_MS = 12_000;
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 15_000;
 
@@ -78,6 +78,16 @@ export function useWorkspaceEventStream(workspaceId: string): boolean {
 	return open;
 }
 
+function isHeldPollTimeout(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	return (
+		error.name === "AbortError" ||
+		error.name === "TimeoutError" ||
+		/^API request timed out after \d+ms$/.test(error.message) ||
+		(error.cause !== error && isHeldPollTimeout(error.cause))
+	);
+}
+
 export async function followWorkspaceEvents(params: {
 	queryClient: QueryClient;
 	workspaceId: string;
@@ -111,6 +121,15 @@ export async function followWorkspaceEvents(params: {
 			}
 		} catch (error) {
 			if (signal.aborted) return;
+			// Replay from the same cursor: an interrupted hold does not lose events.
+			if (
+				cursor !== undefined &&
+				!isWorkspaceAccessDenied(error) &&
+				isHeldPollTimeout(error)
+			) {
+				await sleep(RETRY_MIN_MS, signal);
+				continue;
+			}
 			params.setOpen(false);
 			gap = true;
 			cursor = undefined;
