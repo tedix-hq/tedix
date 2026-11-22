@@ -559,9 +559,9 @@ function fixture({
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
 			briefs.push(brief);
 			// A follow-up turn resumes the thread with only the new message.
-			const followUp = /follow-up-\d+\.txt$/.test(
-				args[args.indexOf("--brief") + 1]!,
-			);
+			const followUp =
+				/follow-up-\d+\.txt$/.test(args[args.indexOf("--brief") + 1]!) ||
+				brief.startsWith("The Tedix app restarted");
 			const work = items.find(
 				(row) => row.id === args[args.indexOf("--work-item") + 1],
 			)!;
@@ -3601,6 +3601,83 @@ describe("dispatcher admission", () => {
 			).toHaveLength(1);
 			f.releases[0]!();
 			await f.dispatcher.drain();
+		},
+	);
+	it.each([
+		["continues", true],
+		["falls back to a clean retry when the checkout is gone", false],
+	] as const)(
+		"%s a run its stopped runner left under the same Attempt",
+		async (_name, checkout) => {
+			const f = fixture();
+			f.items.splice(1);
+			const path = join(f.dir, `${item().id}-2.json`);
+			const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
+			if (checkout) mkdirSync(repo, { recursive: true });
+			const nativeId = "33333333-3333-4333-8333-000000000099";
+			const session = `codex:${nativeId}`;
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "running",
+					admissionState: "admitted",
+					attemptId: "fictional-attempt",
+					session,
+					executorKey: "local-acme",
+					pid: 2_000_000_000,
+					repo,
+					stepSeq: 7,
+				}),
+			);
+			f.control.history.data = [
+				{
+					id: "fictional-attempt",
+					externalSessionKey: session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			const thread = f.deps.thread!;
+			f.deps.thread = async (...args) => {
+				const prepared = await thread(...args);
+				const resume = args[3];
+				return resume
+					? { ...prepared, thread: { ...prepared.thread, id: resume } }
+					: prepared;
+			};
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			const settled = () => f.events.find((event) => event.verb === "settle");
+			if (!checkout) {
+				await until(() => !!settled());
+				expect(settled()!.args).toContain("failed");
+				expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+					'"restart-resume-fallback"',
+				);
+				expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+					"is gone",
+				);
+				expect(f.releases).toHaveLength(0);
+				await dispatcher.drain();
+				return;
+			}
+			await until(() => f.releases.length === 1);
+			expect(f.control.threadSessions).toEqual([nativeId]);
+			expect(
+				f.events.some(
+					(event) => event.verb === "start" && event.args[4] === "work",
+				),
+			).toBe(false);
+			expect(f.briefs.at(-1)).toContain("The Tedix app restarted");
+			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+				'"restart-resume"',
+			);
+			f.releases[0]!();
+			await dispatcher.drain();
+			expect(settled()).toBeDefined();
 		},
 	);
 	it("defers an expired orphan with diagnostics and re-admits it on the next eligible pass", async () => {

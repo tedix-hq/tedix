@@ -1475,7 +1475,8 @@ let quitAgreed = false;
 async function askToQuit(): Promise<void> {
 	const runs = status?.activeRuns ?? 0;
 	const { response } = await ask({
-		message: `${runs === 1 ? "1 task is" : `${runs} tasks are`} running. Quit and stop ${runs === 1 ? "it" : "them"}?`,
+		message: `${runs === 1 ? "1 task is" : `${runs} tasks are`} running. Quit Tedix?`,
+		detail: `${runs === 1 ? "It continues" : "They continue"} where ${runs === 1 ? "it" : "they"} stopped when you open Tedix again.`,
 		buttons: ["Cancel", "Quit"],
 		defaultId: 0,
 		cancelId: 0,

@@ -1081,6 +1081,14 @@ class DispatcherStoppingError extends Error {
 		);
 	}
 }
+/** A run left by a stopped runner cannot continue where it stopped. */
+class RestartResumeFallback extends Error {
+	constructor(reason: string) {
+		super(
+			`Not continued after the runner restarted: ${reason}. This Attempt ends and the Work starts again with a clean retry`,
+		);
+	}
+}
 
 function permanentSkillProofFailure(error: unknown): boolean {
 	if (!(error instanceof CliReadError)) return false;
@@ -1445,6 +1453,37 @@ function retainsInterruptedWork(receipt: Receipt): boolean {
 					(receipt.outcome === "failed" &&
 						receipt.transportInterrupted === true))
 			: !!receipt.retainedAttemptId && receipt.admissionState !== "unknown")
+	);
+}
+/** A resumed run needs time to renew its lease before the lease runs out. */
+const RESTART_RESUME_MIN_LEASE_MS = 30_000;
+
+/**
+ * A run whose runner stopped mid-turn, with its Attempt still live and owned by
+ * its native session: the next runner continues that session in place instead
+ * of letting the lease run out and starting the Work again.
+ */
+function resumableAfterRestart(row: Receipt, attempt: WorkAttempt): boolean {
+	const executor = row.session?.split(":")[0];
+	return (
+		(row.phase === "admitted" || row.phase === "running") &&
+		row.admissionState === "admitted" &&
+		!!row.repo &&
+		!!row.executorKey &&
+		// Devin's sessions are not resumed by the runner; it keeps its own path.
+		(executor === "codex" ||
+			executor === "claude-code" ||
+			executor === "opencode") &&
+		!row.verification &&
+		!row.interrupted &&
+		!row.approvalWait &&
+		!row.runQuestion &&
+		row.pendingCommitProof === undefined &&
+		!row.completionPending &&
+		attempt.externalSessionKey === row.session &&
+		!attempt.outcome &&
+		!!attempt.expiresAt &&
+		Date.parse(attempt.expiresAt) > Date.now() + RESTART_RESUME_MIN_LEASE_MS
 	);
 }
 function waitsForRunAnswer(receipt: Receipt): boolean {
@@ -3770,6 +3809,21 @@ export class LaneDispatcher {
 				const attempt = history.data.find(
 					(attempt) => attempt.id === row.attemptId,
 				);
+				// The runner that started this run stopped while it ran (the Tedix
+				// app quit or restarted): no one collects its output or renews its
+				// lease. Continue the same native session under the same Attempt.
+				if (
+					attempt &&
+					resumableAfterRestart(row, attempt) &&
+					!this.stopping &&
+					!this.running.has(row.itemId) &&
+					!this.preparing.has(row.itemId) &&
+					(await this.stopForResume(row))
+				) {
+					this.recheckAfter.delete(orphanKey);
+					this.resumeAfterRestart(row, attempt);
+					continue;
+				}
 				if (
 					attempt?.externalSessionKey === row.session &&
 					!attempt.outcome &&
@@ -5247,7 +5301,79 @@ export class LaneDispatcher {
 			this.budgets,
 		);
 	}
-	private async execute(candidate: DispatchItem, previous?: Receipt) {
+	/**
+	 * True once the process recorded for a run left by a stopped runner is gone.
+	 * A process still running is stopped only when its launch identity matches:
+	 * its output has no reader, and the resumed session continues its work.
+	 */
+	private async stopForResume(row: Receipt): Promise<boolean> {
+		if (!row.pid || !alive(row.pid)) return true;
+		if (
+			!row.processIdentity ||
+			!(await reapLaneProcess(
+				row.pid,
+				row.session!,
+				row.processIdentity,
+				row.repo,
+			))
+		)
+			return false;
+		const pid = row.pid;
+		for (let waited = 0; waited < 10_000 && alive(pid); waited += 250)
+			await new Promise((done) => setTimeout(done, 250));
+		if (alive(pid))
+			try {
+				process.kill(-pid, "SIGKILL");
+			} catch {}
+		this.log(
+			"restart-resume-stopped",
+			row.itemId,
+			`Stopped process ${pid} left by the previous runner; its session ${row.session} continues under Attempt ${row.attemptId}`,
+		);
+		return !alive(pid);
+	}
+	private resumeAfterRestart(row: Receipt, attempt: WorkAttempt) {
+		this.log(
+			"restart-resume",
+			row.itemId,
+			`Continuing ${row.session} under Attempt ${row.attemptId} in ${row.repo} after the runner restarted`,
+		);
+		const task = this.call<{ workItem?: DispatchItem }>([
+			"work",
+			"dispatch-get",
+			row.itemId,
+			"--input",
+			"{}",
+		])
+			.then(({ workItem }) => {
+				if (!workItem) throw new Error("Work read returned no item");
+				if (workItem.version !== row.version) {
+					this.log(
+						"restart-resume-fallback",
+						row.itemId,
+						`The Work changed to revision ${workItem.version} while revision ${row.version} ran; Attempt ${row.attemptId} is not continued and the new revision starts again`,
+					);
+					return;
+				}
+				// Resumes skip the start queue: they are work in progress, not new Work.
+				return requestedRun.run({ direct: true }, () =>
+					this.execute(workItem, row, attempt),
+				);
+			})
+			.catch((error) =>
+				this.log("restart-resume-failed", row.itemId, String(error)),
+			)
+			.finally(() => {
+				if (this.running.get(row.itemId) === task)
+					this.running.delete(row.itemId);
+			});
+		this.running.set(row.itemId, task);
+	}
+	private async execute(
+		candidate: DispatchItem,
+		previous?: Receipt,
+		adopt?: WorkAttempt,
+	) {
 		const place = await this.preparationPlace(candidate);
 		if (!place) return;
 		try {
@@ -5255,15 +5381,23 @@ export class LaneDispatcher {
 			// start: its calls skip the call queue until it is admitted.
 			await (place === "requested"
 				? requestedRun.run({ direct: true }, () =>
-						this.prepareAndRun(candidate, previous),
+						this.prepareAndRun(candidate, previous, adopt),
 					)
-				: this.prepareAndRun(candidate, previous));
+				: this.prepareAndRun(candidate, previous, adopt));
 		} finally {
 			this.finishPreparation(candidate.id);
 		}
 	}
-	private async prepareAndRun(candidate: DispatchItem, previous?: Receipt) {
+	private async prepareAndRun(
+		candidate: DispatchItem,
+		previous?: Receipt,
+		adopt?: WorkAttempt,
+	) {
 		const path = this.path(candidate);
+		// Continuing a run the previous runner left mid-turn: same Attempt,
+		// same native session, same checkout.
+		const adopted =
+			adopt && previous?.attemptId === adopt.id ? previous : undefined;
 		const interrupted =
 			previous &&
 			previous.itemId === candidate.id &&
@@ -5287,8 +5421,25 @@ export class LaneDispatcher {
 			nativeResumeCount: previous?.nativeResumeCount,
 			admissionState: previous?.admissionState ?? "not_sent",
 			...retainedCheckout(this.directory, candidate, previous),
+			...(adopted
+				? {
+						phase: "admitted" as const,
+						admissionState: "admitted" as const,
+						attemptId: adopted.attemptId,
+						session: adopted.session,
+						executorKey: adopted.executorKey,
+						model: adopted.model,
+						repo: adopted.repo,
+						baseCommit: adopted.baseCommit,
+						unpushedCommits: adopted.unpushedCommits,
+						unpushedReason: adopted.unpushedReason,
+						stepSeq: adopted.stepSeq,
+					}
+				: {}),
 		};
-		let admitted = false;
+		let admitted = !!adopted;
+		// Keeps an adopted Attempt's lease alive until the run's own watch starts.
+		let adoptedLease: (() => void) | undefined;
 		let admissionSent = false;
 		let preflightPaused = false;
 		let childFinished = false;
@@ -5300,6 +5451,20 @@ export class LaneDispatcher {
 		let stepTimer: ReturnType<typeof setInterval> | undefined;
 		let stopKillTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
+			let adoptedExpiry: number | undefined;
+			if (adopted) {
+				this.save(path, receipt);
+				const renewed = await this.renewLease(this.leaseIdentity(receipt));
+				const renewedExpiry = Date.parse(renewed.expiresAt);
+				adoptedExpiry = Number.isFinite(renewedExpiry)
+					? renewedExpiry
+					: Date.parse(adopt!.expiresAt ?? "");
+				adoptedLease = this.keepLease(receipt);
+				if (!existsSync(adopted.repo!))
+					throw new RestartResumeFallback(
+						`its checkout ${adopted.repo} is gone`,
+					);
+			}
 			const detail = await this.call<{
 				workItem: DispatchItem;
 				comments: WorkItemComment[];
@@ -5312,7 +5477,16 @@ export class LaneDispatcher {
 				!receipt.verification
 			)
 				throw new Error("Landed verification plan is invalid");
-			const selection = this.route(item);
+			const routed = this.route(item);
+			// A continued run keeps the executor and model its session runs on.
+			const selection = adopted
+				? {
+						...routed,
+						rule: "restart-resume",
+						executor: adopted.session!.split(":")[0] as typeof routed.executor,
+						model: adopted.model ?? routed.model,
+					}
+				: routed;
 			const executor = selection.executor;
 			receipt.model = selection.model;
 			this.log(
@@ -5324,12 +5498,15 @@ export class LaneDispatcher {
 				const status = await this.devinStatus();
 				if (!status.available) throw new Error(status.reason);
 			}
-			const reason = dispatchSkip(
-				item,
-				detail.comments ?? [],
-				this.options.executor,
-				this.options.coordinated,
-			);
+			// The adopted Attempt is the live one dispatchSkip would refuse.
+			const reason = adopted
+				? undefined
+				: dispatchSkip(
+						item,
+						detail.comments ?? [],
+						this.options.executor,
+						this.options.coordinated,
+					);
 			if (reason || item.version !== candidate.version)
 				throw new Error(reason ?? "Work changed before admission");
 			const history = await this.call<{
@@ -5373,7 +5550,7 @@ export class LaneDispatcher {
 					attempt.outcome !== "rejected" &&
 					!cancelledWithoutVerdict(attempt, previous),
 			);
-			if (result) {
+			if (result && !adopted) {
 				const prior = LaneResultSchema.safeParse(result.metadata?.laneResult);
 				const commits = workSettlementCommits(
 					WorkAttemptSettlementSchema.safeParse(result.metadata?.settlement)
@@ -5408,7 +5585,10 @@ export class LaneDispatcher {
 			}
 			if (
 				history.data.some(
-					(attempt) => !attempt.outcome && leaseMayBeLive(attempt),
+					(attempt) =>
+						!attempt.outcome &&
+						leaseMayBeLive(attempt) &&
+						attempt.id !== adopted?.attemptId,
 				)
 			)
 				throw new Error(
@@ -5422,16 +5602,18 @@ export class LaneDispatcher {
 			// A checkout evicted to free disk left its work under a Git ref.
 			const evicted: string[] = [];
 			const missing: string[] = [];
-			const previousLane = receipt.verification
-				? undefined
-				: retainedLaneWorktree(
-						this.directory,
-						item.id,
-						history.data,
-						(repo) => {
-							missing.push(repo);
-						},
-					);
+			const previousLane = adopted
+				? adopted
+				: receipt.verification
+					? undefined
+					: retainedLaneWorktree(
+							this.directory,
+							item.id,
+							history.data,
+							(repo) => {
+								missing.push(repo);
+							},
+						);
 			for (const repo of missing) {
 				const ref = await this.deps.evictedWork(this.options.repo, repo);
 				if (ref) evicted.push(ref);
@@ -5527,20 +5709,26 @@ export class LaneDispatcher {
 				});
 			const fresh = () => prepareThread();
 			const thread = await (
-				continuingQuestion
-					? prepareThread(previousSession)
-					: previousSession
-						? resumeThenFresh(async () => {
-								try {
-									return await prepareThread(previousSession);
-								} catch (error) {
-									if (executor !== "devin" || !isDevinSessionBusy(error))
-										throw error;
-									sessionRecovery = `Devin session ${previousSession} is held by another process. Started a fresh session before admission; no Attempt retry was consumed and the other process was left running.`;
-									return fresh();
-								}
-							}, fresh)
-						: fresh()
+				adopted
+					? prepareThread(previousSession).catch((error: unknown) => {
+							throw new RestartResumeFallback(
+								`session ${adopted.session} could not be resumed (${String(error).slice(0, 300)})`,
+							);
+						})
+					: continuingQuestion
+						? prepareThread(previousSession)
+						: previousSession
+							? resumeThenFresh(async () => {
+									try {
+										return await prepareThread(previousSession);
+									} catch (error) {
+										if (executor !== "devin" || !isDevinSessionBusy(error))
+											throw error;
+										sessionRecovery = `Devin session ${previousSession} is held by another process. Started a fresh session before admission; no Attempt retry was consumed and the other process was left running.`;
+										return fresh();
+									}
+								}, fresh)
+							: fresh()
 			).catch((error) => {
 				this.recordLimit(executor, String(error));
 				throw error;
@@ -5550,6 +5738,10 @@ export class LaneDispatcher {
 			const resumed = thread.thread.id === previousSession;
 			if (continuingQuestion && !resumed)
 				throw new Error("The question's native session could not be resumed");
+			if (adopted && !resumed)
+				throw new RestartResumeFallback(
+					`session ${adopted.session} was replaced by ${executor}:${thread.thread.id}`,
+				);
 			const resumingInterrupted =
 				resumed &&
 				executor !== "devin" &&
@@ -5586,85 +5778,106 @@ export class LaneDispatcher {
 			if (typeof identity.principalKey !== "string")
 				throw new Error("No verified executor principal");
 			receipt.executorKey = identity.principalKey;
-			const readiness = await this.call<{
-				ready: boolean;
-				reasons: Array<{ detail: string }>;
-			}>(["work", "readiness", item.id], receipt.session, receipt.executorKey);
-			if (readiness.ready !== true) {
-				receipt.sharedDeferral = readiness.reasons.some((reason) =>
-					reason.detail.startsWith("Deferred"),
+			if (adopted && receipt.executorKey !== adopted.executorKey)
+				throw new RestartResumeFallback(
+					`its session now verifies as ${receipt.executorKey}, not ${adopted.executorKey}`,
 				);
-				throw new Error(
-					`Admission not ready: ${JSON.stringify(readiness.reasons)}`,
+			let started:
+				| {
+						attempt: { id: string; expiresAt: string; executorId: string };
+						workItem: WorkItem;
+				  }
+				| undefined;
+			let leaseExpiry: number;
+			if (adopted) {
+				// Already admitted: the adopted Attempt keeps its fence and lease.
+				this.finishPreparation(candidate.id);
+				leaseExpiry = adoptedExpiry!;
+			} else {
+				const readiness = await this.call<{
+					ready: boolean;
+					reasons: Array<{ detail: string }>;
+				}>(
+					["work", "readiness", item.id],
+					receipt.session,
+					receipt.executorKey,
 				);
-			}
-			// Preparation can take minutes. Admission fences the revision current
-			// at start, so an edit meanwhile would admit a revision this brief was
-			// not built from. Re-read and stop before any Attempt exists.
-			const current = await this.call<{ workItem?: DispatchItem }>([
-				"work",
-				"dispatch-get",
-				item.id,
-				"--input",
-				"{}",
-			]);
-			if (current.workItem?.version !== item.version)
-				throw new WorkRevisedDuringPreparationError(
-					item.version,
-					current.workItem?.version,
-				);
-			if (this.stopping || this.appUpdateWaiting())
-				throw new DispatcherStoppingError();
-			const health = this.availability[executor];
-			if (health.preflightFailed)
-				throw new LocalExecutorPreflightError(health.reason);
-			receipt.admissionState = "unknown";
-			this.save(path, receipt);
-			admissionSent = true;
-			const started = await this.call<{
-				attempt: { id: string; expiresAt: string; executorId: string };
-				workItem: WorkItem;
-			}>(
-				[
+				if (readiness.ready !== true) {
+					receipt.sharedDeferral = readiness.reasons.some((reason) =>
+						reason.detail.startsWith("Deferred"),
+					);
+					throw new Error(
+						`Admission not ready: ${JSON.stringify(readiness.reasons)}`,
+					);
+				}
+				// Preparation can take minutes. Admission fences the revision current
+				// at start, so an edit meanwhile would admit a revision this brief was
+				// not built from. Re-read and stop before any Attempt exists.
+				const current = await this.call<{ workItem?: DispatchItem }>([
 					"work",
-					"start",
+					"dispatch-get",
 					item.id,
-					"--lane",
 					"--input",
-					JSON.stringify({
-						metadata: {
-							dispatchVersion: item.version,
-							runnerRulesVersion: rules.runnerRulesVersion,
-							...(rules.rulesId
-								? {
-										rulesId: rules.rulesId,
-										rulesRevision: rules.rulesRevision,
-									}
-								: {}),
-							...(receipt.verification
-								? { verificationRound: receipt.verification.round }
-								: {}),
-						},
-					}),
-				],
-				receipt.session,
-				receipt.executorKey,
-			);
-			if (typeof started.attempt?.id !== "string")
-				throw new Error("Admission returned no Attempt");
-			admitted = true;
-			receipt.admissionState = "admitted";
-			receipt.attemptId = started.attempt.id;
-			delete receipt.retainedAttemptId;
-			receipt.phase = "admitted";
-			this.save(path, receipt);
-			this.finishPreparation(candidate.id);
-			if (started.workItem.version !== item.version)
-				throw new WorkRevisedDuringPreparationError(
-					item.version,
-					started.workItem.version,
+					"{}",
+				]);
+				if (current.workItem?.version !== item.version)
+					throw new WorkRevisedDuringPreparationError(
+						item.version,
+						current.workItem?.version,
+					);
+				if (this.stopping || this.appUpdateWaiting())
+					throw new DispatcherStoppingError();
+				const health = this.availability[executor];
+				if (health.preflightFailed)
+					throw new LocalExecutorPreflightError(health.reason);
+				receipt.admissionState = "unknown";
+				this.save(path, receipt);
+				admissionSent = true;
+				started = await this.call<{
+					attempt: { id: string; expiresAt: string; executorId: string };
+					workItem: WorkItem;
+				}>(
+					[
+						"work",
+						"start",
+						item.id,
+						"--lane",
+						"--input",
+						JSON.stringify({
+							metadata: {
+								dispatchVersion: item.version,
+								runnerRulesVersion: rules.runnerRulesVersion,
+								...(rules.rulesId
+									? {
+											rulesId: rules.rulesId,
+											rulesRevision: rules.rulesRevision,
+										}
+									: {}),
+								...(receipt.verification
+									? { verificationRound: receipt.verification.round }
+									: {}),
+							},
+						}),
+					],
+					receipt.session,
+					receipt.executorKey,
 				);
-			const leaseExpiry = Date.parse(started.attempt.expiresAt);
+				if (typeof started.attempt?.id !== "string")
+					throw new Error("Admission returned no Attempt");
+				admitted = true;
+				receipt.admissionState = "admitted";
+				receipt.attemptId = started.attempt.id;
+				delete receipt.retainedAttemptId;
+				receipt.phase = "admitted";
+				this.save(path, receipt);
+				this.finishPreparation(candidate.id);
+				if (started.workItem.version !== item.version)
+					throw new WorkRevisedDuringPreparationError(
+						item.version,
+						started.workItem.version,
+					);
+				leaseExpiry = Date.parse(started.attempt.expiresAt);
+			}
 			if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now())
 				throw new Error("Admission returned no live lease");
 			const stopExpiredChild = () => {
@@ -5698,6 +5911,8 @@ export class LaneDispatcher {
 				}, 5000);
 			};
 			let lastAgentEventAt: number | undefined;
+			adoptedLease?.();
+			adoptedLease = undefined;
 			lease = this.watchLease(
 				{ receipt: this.leaseIdentity(receipt), expiry: leaseExpiry },
 				(event) => {
@@ -5859,6 +6074,7 @@ ${message.body}`,
 			};
 			let readPending = false;
 			const steps = createRunStepLog({
+				seq: receipt.stepSeq,
 				send: async (batch, applied) => {
 					const result = await this.sendSteps(receipt, batch, applied);
 					readPending = isRecord(result) && Array.isArray(result.pending);
@@ -5948,14 +6164,18 @@ ${message.body}`,
 				: "";
 			// Every turn ends with these, so the last turn's result can be read.
 			const resultInstruction = `${executor === "codex" ? "End your final answer with only the JSON object required by --output-schema, without a TEDIX_LANE_RESULT prefix or Markdown. Use null for fields that do not apply. Include OS evidence links in evidenceRefs when supported by your outcome. Use these common fields:" : "End your final answer with exactly one TEDIX_LANE_RESULT JSON line with these common fields:"} ${JSON.stringify({ workItemId: item.id, workVersion: item.version, contractVersion: item.acceptanceContract?.version, outcomeText: item.acceptanceContract?.doneLooksLike ?? item.title })}. ${receipt.verification ? "Return the verification verdict and its Attempt evidence using the instructions above." : "Add outcome=completed only when the entire accepted outcome happened. A successful command, partial commit, or completed subtask is not enough. If your change is on main but you could not confirm the result (the check failed, or you cannot reach what proves it, such as a deploy or production), add outcome=landed_unverified and unverified (exactly what is not confirmed); the dispatcher queues agent verification after deployment. If you changed nothing because commits that were on origin/main before this run already meet the accepted outcome, add outcome=landed_unverified, existingCommits (the full SHAs of those commits, at most 10) and unverified (what you could not confirm yourself); the runner checks that each one is on origin/main and that your checkout holds no commit or edit of its own, and queues agent verification after deployment. Outside a verify-only Attempt, landed_unverified requires a landed commit or proven existingCommits. Otherwise add outcome=incomplete and remaining (the exact unmet outcome); report inaccessible facts as unknown. For a verified human wait instead add outcome=waiting_on_user, interactionId, requestVersion, orgId and userId from the existing canonical request; never create a duplicate or infer its response. To ask the person who owns this task a question that only they can settle, add outcome=question, question (one plain question, at most 500 characters) and optional choices (2 to 5 short answers); the runner releases this Attempt and resumes the session on a new Attempt when the answer arrives. Never ask for a password, key, code, sign-in or consent: such a question is not passed on. For any other wait — a date, an approval, production access, or a person with no canonical request — add outcome=deferred, reason, and optional until (ISO-8601 recheck time); a deferred wait leaves Work open without counting a failed Attempt. When nothing can be done before a known date (a measurement window, a release date), add notBefore (ISO-8601 UTC) instead of until: the task gets that start date and no runner starts it earlier. Reserve outcome=already_satisfied for approved CI recovery only; never use it for a non-CI task already satisfied on main. Non-CI tasks must use outcome=landed_unverified with existingCommits and unverified as described above. For approved CI recovery add outcome=already_satisfied, ciApprovalId (the immutable approved ci:recovery admission proposal for this Work revision), commitSha (full existing fix SHA), runId, workflowName, minimumCommit (full SHA from approved criteria) and rootCause. The approved proposal.ciRecovery pins the exact full run, attempt, workflow identity, minimum ancestry and successful test jobs; it never changes outcomeText. Completed, landed_unverified and incomplete results may also include commitSha (40 lowercase hex characters) and evidenceRefs (at most 30 nonempty strings, each at most 2000 characters). These are retained declarations; the dispatcher still verifies landed commits separately. Other unknown keys are rejected."} Research results need no commit; ordinary coding results still require landed commits, completed skill revision evidence or explicitly configured installed runtime app revision evidence. Missing or stale declarations leave Work open.`;
-			const recalled = await this.deps.recall(
-				`${rawBrief}${verificationBrief}\n${resultInstruction}`,
-				this.options.scope,
-				executor,
-				undefined,
-				repo,
-			);
-			let firstBrief = recalled.brief;
+			// A continued session already has the task; it only learns why it stopped.
+			let firstBrief = adopted
+				? `The Tedix app restarted while you were working on Work ${item.id}, so your last turn was cut off. Continue where you stopped in ${repo}: check Git and what you already did before repeating anything. You still hold Attempt ${receipt.attemptId}; do not start, settle or complete it.\n\n${resultInstruction}`
+				: (
+						await this.deps.recall(
+							`${rawBrief}${verificationBrief}\n${resultInstruction}`,
+							this.options.scope,
+							executor,
+							undefined,
+							repo,
+						)
+					).brief;
 			if (
 				answerId &&
 				questionAttempt?.externalSessionKey === receipt.session &&
@@ -5997,7 +6217,7 @@ ${firstBrief}`;
 			// A stop that arrived during preparation must not start a model turn
 			// the drain deadline would then abandon to the next runner.
 			if (this.stopping) throw new DispatcherStoppingError();
-			if (resumingInterrupted) {
+			if (resumingInterrupted || adopted) {
 				receipt.nativeResumeCount = (receipt.nativeResumeCount ?? 0) + 1;
 				this.save(path, receipt);
 			}
@@ -6096,11 +6316,11 @@ ${firstBrief}`;
 							executor === "devin"
 								? createDevinWorkBridge(
 										{
-											orgId: started.workItem.orgId,
+											orgId: started!.workItem.orgId,
 											workItemId: item.id,
 											workVersion: item.version,
 											attemptId: receipt.attemptId!,
-											executorId: started.attempt.executorId,
+											executorId: started!.attempt.executorId,
 											externalSessionKey: receipt.session!,
 										},
 										{
@@ -6434,12 +6654,15 @@ ${firstBrief}`;
 				error instanceof WorkRevisedDuringPreparationError ||
 					error instanceof DispatcherStoppingError
 					? "superseded"
-					: "skipped-or-failed",
+					: error instanceof RestartResumeFallback
+						? "restart-resume-fallback"
+						: "skipped-or-failed",
 				candidate.id,
 				receipt.note,
 			);
 		} finally {
 			codexServer?.close();
+			adoptedLease?.();
 			childFinished = true;
 			this.finishPreparation(candidate.id);
 			lease?.update({ spawned: false });
