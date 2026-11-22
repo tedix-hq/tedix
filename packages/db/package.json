@@ -129,6 +129,7 @@
 		"./queries/graph-projection-health": "./src/queries/graph-projection-health.ts",
 		"./queries/platform-cron-executions": "./src/queries/platform-cron-executions.ts",
 		"./queries/site-reconciliation": "./src/queries/site-reconciliation.ts",
+		"./queries/site-versions": "./src/queries/site-versions.ts",
 		"./queries/graph-projection": "./src/queries/graph-projection.ts",
 		"./queries/graph-projection-maintenance": "./src/queries/graph-projection-maintenance.ts",
 		"./queries/graph-retrieval-benchmark-scorer": "./src/queries/graph-retrieval-benchmark-scorer.ts",

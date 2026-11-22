@@ -268,6 +268,23 @@ export function SitesPage() {
 				</PageSection>
 			) : null}
 
+			{sites.data?.versionAlerts?.length ? (
+				<Alert>
+					<AlertDescription>
+						{sites.data.versionAlerts.map((alert, index) => (
+							<span key={`${alert.workItemId}:${index}`}>
+								{index ? "; " : ""}
+								<Link
+									to="/work/items/$workItemId"
+									params={{ workItemId: alert.workItemId }}
+								>
+									{alert.message}
+								</Link>
+							</span>
+						))}
+					</AlertDescription>
+				</Alert>
+			) : null}
 			{reconciliation.data?.issues.length ? (
 				<Alert>
 					<AlertTitle>Some sites need attention</AlertTitle>

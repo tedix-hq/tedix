@@ -438,6 +438,10 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		if (fleetEnabled && cron === "0 2 * * *") {
+			const { runSiteVersionCheckTick } = await import("./site-versions");
+			await trackPlatformCronPath(env, event, "site-versions", () =>
+				runSiteVersionCheckTick(env),
+			);
 			const { runDailyBillingAndCatalogMaintenance } =
 				await import("./daily-billing-and-catalog-maintenance");
 			await trackPlatformCronPath(

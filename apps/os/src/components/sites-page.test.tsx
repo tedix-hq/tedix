@@ -20,11 +20,16 @@ vi.mock("@tanstack/react-router", () => ({
 	}: {
 		children: React.ReactNode;
 		to: string;
-		params?: { siteId: string };
+		params?: { siteId?: string; workItemId?: string };
 		onClick?: React.MouseEventHandler<HTMLAnchorElement>;
 		className?: string;
 	}) => (
-		<a href={to.replace("$siteId", params?.siteId ?? "")} {...props}>
+		<a
+			href={to
+				.replace("$siteId", params?.siteId ?? "")
+				.replace("$workItemId", params?.workItemId ?? "")}
+			{...props}
+		>
 			{children}
 		</a>
 	),
@@ -44,6 +49,9 @@ const siteCustomDomain = vi.hoisted(() => ({
 }));
 const cmsSiteQuota = vi.hoisted(() => ({
 	current: { used: 1, limit: 5 },
+}));
+const versionAlerts = vi.hoisted(() => ({
+	current: [] as Array<{ message: string; workItemId: string }>,
 }));
 const lifecycleMutation = vi.hoisted(() => ({
 	isPending: false,
@@ -153,6 +161,7 @@ vi.mock("@tanstack/react-query", () => ({
 				data: {
 					cmsCustomDomainsEnabled: customDomainEntitlement.enabled,
 					cmsSiteQuota: cmsSiteQuota.current,
+					versionAlerts: versionAlerts.current,
 					sites: [
 						{
 							id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -314,6 +323,7 @@ beforeEach(() => {
 	domainClaim.current = null;
 	redirectClaim.current = null;
 	cmsSiteQuota.current = { used: 1, limit: 5 };
+	versionAlerts.current = [];
 	queryClient.fetchQuery.mockReset();
 	queryClient.invalidateQueries.mockReset();
 	lifecycleMutation.mutate.mockReset();
@@ -804,6 +814,22 @@ describe("Website actions", () => {
 		).toBe(false);
 	});
 
+	it("shows one linked version alert above the list only when there is a finding", () => {
+		expect(renderPage().textContent).not.toContain("behind EmDash");
+		versionAlerts.current = [
+			{
+				message: "2 sites are behind EmDash 1.6.0",
+				workItemId: "upgrade-work",
+			},
+		];
+		const host = renderPage();
+		const link = host.querySelector('a[href="/work/items/upgrade-work"]')!;
+		expect(link.textContent).toBe("2 sites are behind EmDash 1.6.0");
+		expect(
+			link.compareDocumentPosition(host.querySelector("table")!) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
 	it("opens the site row through its own URL without changing the site", () => {
 		const host = renderPage();
 		expect(host.querySelector(`a[href="/sites/${siteId}"]`)).not.toBeNull();

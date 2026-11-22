@@ -2,6 +2,10 @@ import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { loadUserTenantEditorialIdentity } from "@tedix/auth/descope";
 import { isUserToken } from "@tedix/auth/jwt";
 import { isPlatformPrincipal } from "@tedix/auth/types";
+import {
+	checkSiteVersions,
+	siteVersionAlerts,
+} from "../../services/site-versions";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import {
 	aggregateAppEntryMatches,
@@ -352,6 +356,11 @@ export const listSitesProcedure = authedSitesOs.list
 			})),
 		);
 		return {
+			versionAlerts: await siteVersionAlerts(
+				context.db,
+				organizationId,
+				isPlatformPrincipal(context),
+			),
 			cmsCustomDomainsEnabled:
 				features?.customDomain ?? organization.features?.customDomain ?? false,
 			cmsSiteQuota: {
@@ -486,7 +495,9 @@ export const getSiteReconciliationProcedure = authedSitesOs.getReconciliation
 
 export const runSiteReconciliationProcedure = authedSitesOs.runReconciliation
 	.use(withAuthorization("settings:manage", "mcp:content.admin"))
-	.handler(async ({ context }) => {
+	.handler(async ({ input, context }) => {
+		if (input.checkVersions && !isPlatformPrincipal(context))
+			throw createError(ErrorCodes.FORBIDDEN, "Platform admin access required");
 		const result = await reconcileOrganizationSites({
 			db: context.db,
 			organizationId: requireOrgId(context),
@@ -496,7 +507,19 @@ export const runSiteReconciliationProcedure = authedSitesOs.runReconciliation
 		});
 		if (!result)
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
-		return { ...result, source: "manual" as const };
+		return {
+			...result,
+			source: "manual" as const,
+			...(input.checkVersions
+				? {
+						versionReports: await checkSiteVersions({
+							db: context.db,
+							env: context.env,
+							organizationId: requireOrgId(context),
+						}),
+					}
+				: {}),
+		};
 	});
 
 export const repairCmsMediaProcedure = authedSitesOs.repairCmsMedia

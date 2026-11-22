@@ -5,6 +5,7 @@ import type { BaseContext } from "../orpc";
 import { sitesContractRouter } from "./sites";
 
 const mocks = vi.hoisted(() => ({
+	listSiteVersionProjects: vi.fn(),
 	getCmsSiteByIdForOrganization: vi.fn(),
 	getCmsSiteById: vi.fn(),
 	loadEditorial: vi.fn(),
@@ -159,6 +160,9 @@ vi.mock("@tedix/db/queries/tenant-bundles", () => ({
 	getTenantBundleSummary: mocks.getTenantBundleSummary,
 	listTenantBundleRecoveryPoints: mocks.listTenantBundleRecoveryPoints,
 }));
+vi.mock("@tedix/db/queries/site-versions", () => ({
+	listSiteVersionProjects: mocks.listSiteVersionProjects,
+}));
 vi.mock("@tedix/db/queries/site-reconciliation", () => ({
 	getLatestSiteReconciliation: mocks.getLatestSiteReconciliation,
 }));
@@ -260,6 +264,7 @@ beforeEach(() => {
 	mocks.activateCmsSiteAfterMedia.mockReset();
 	mocks.inspectLatestCmsRecoveryCapture.mockResolvedValue({ verified: false });
 	mocks.getOrganizationById.mockResolvedValue(organization);
+	mocks.listSiteVersionProjects.mockResolvedValue([]);
 	mocks.getOrganizationFeatures.mockResolvedValue({ maxCmsSites: 5 });
 	mocks.getCmsSiteBySlug.mockResolvedValue(cmsSite);
 	mocks.getAppBySlug.mockResolvedValue(null);
@@ -1135,6 +1140,36 @@ it("lists owned CMS quota usage including paused sites", async () => {
 	mocks.getOrganizationFeatures.mockResolvedValue({ maxCmsSites: 5 });
 	const result = await client().list();
 	expect(result.cmsSiteQuota).toEqual({ used: 2, limit: 5 });
+});
+
+it("returns version alerts only to platform admins and denies ordinary users the version check", async () => {
+	mocks.listSiteVersionProjects.mockResolvedValue([
+		{
+			metadata: {
+				siteVersionReport: {
+					checkedAt: "2026-01-01T00:00:00Z",
+					productRevision: "a".repeat(40),
+					sites: [],
+					alerts: [
+						{
+							message: "2 sites are behind EmDash 1.6.0",
+							workItemId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						},
+					],
+				},
+			},
+		},
+	]);
+	expect((await client().list()).versionAlerts).toEqual([]);
+	expect(mocks.listSiteVersionProjects).not.toHaveBeenCalled();
+	expect((await client(true).list()).versionAlerts).toHaveLength(1);
+	expect(mocks.listSiteVersionProjects).toHaveBeenCalledWith(
+		expect.anything(),
+		organization.id,
+	);
+	await expect(
+		client().runReconciliation({ checkVersions: true }),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
 it("opens each CMS site's editor on its platform host, even with a custom domain", async () => {

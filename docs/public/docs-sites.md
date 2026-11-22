@@ -165,6 +165,24 @@ An API client can also prove cross-tenant rejection by sending a valid bearer
 token from another organization to the private URL; the runtime returns `403`
 instead of a login redirect. Never paste that token into a Docs MCP argument.
 
+## Daily package checks
+
+Platform operators can enable a daily version check by setting
+`siteVersionCheck: { enabled: true }` in the upgrade project's metadata.
+The existing 02:00 UTC platform schedule checks the organization's CMS and
+Docs sites. It compares EmDash runtime pins, resolved EmDash and plugin versions
+in each theme's `bun.lock`, and the Nimbus image pins with npm's latest releases.
+Runtime and image pins come from the API's recorded product source revision;
+theme reads record their repository revision. Unavailable reads remain unknown.
+
+The latest report is stored in the project's `siteVersionReport` metadata.
+When a package is behind, the check files proposed Work named
+“Upgrade &lt;package&gt; to &lt;version&gt;”, reusing the item on later checks.
+An optional `siteVersionCheck.upgradeWorkItems` map links package names to
+existing upgrade Work IDs in the same project. The check updates those items
+with its findings. Only platform admins in the configured organization see a
+linked alert above Sites. The check never builds, upgrades, or publishes a site.
+
 ## Safety model and current non-guarantees
 
 Docs builds a locked platform-owned documentation template. It copies documentation

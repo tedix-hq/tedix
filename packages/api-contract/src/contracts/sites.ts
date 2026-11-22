@@ -1,4 +1,8 @@
 import { SiteThemeCandidateSchema } from "../schemas/site-theme-candidate";
+import {
+	SiteVersionAlertSchema,
+	SiteVersionReportSchema,
+} from "../schemas/site-versions";
 import { CMS_TEMPLATE_SLUGS } from "../schemas/cms-template";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
@@ -346,6 +350,7 @@ export const sitesContract = oc.errors(baseErrors).router({
 		.output(
 			z.object({
 				sites: z.array(SiteSummarySchema),
+				versionAlerts: z.array(SiteVersionAlertSchema).optional(),
 				cmsCustomDomainsEnabled: z.boolean(),
 				cmsSiteQuota: z.object({
 					used: z.number().int().nonnegative(),
@@ -472,13 +477,14 @@ export const sitesContract = oc.errors(baseErrors).router({
 			method: "POST",
 			path: "/reconciliation",
 			tags: ["internal"],
-			summary: "Run a read-only owned-site reconciliation",
+			summary: "Check owned sites and optionally file package upgrade Work",
 		})
-		.input(z.object({}).strict())
+		.input(z.object({ checkVersions: z.boolean().optional() }).strict())
 		.output(
 			z.object({
 				runId: z.uuid(),
 				source: z.literal("manual"),
+				versionReports: z.array(SiteVersionReportSchema).optional(),
 				checkedAt: z.string(),
 				sitesChecked: z.number().int().nonnegative(),
 				issues: z.array(
