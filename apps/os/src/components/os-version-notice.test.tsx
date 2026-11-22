@@ -1,3 +1,6 @@
+import { lazyRouteComponent } from "@tanstack/react-router";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { osToastManager } from "@/components/kumo/toast";
 import { reloadOnceForStaleChunk } from "@/components/os-route-boundaries";
@@ -10,11 +13,52 @@ let cleanup: (() => void) | undefined;
 afterEach(() => {
 	cleanup?.();
 	document.body.replaceChildren();
+	window.sessionStorage.clear();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
 
 describe("OS reload notices", () => {
+	it.each(["clean", "draft", "guarded", "leaving"])(
+		"keeps a failed Vite import rejected and respects recovery for a %s tab",
+		async (state) => {
+			const { reloadOnceForStaleChunk: recover, OS_CHUNK_RELOAD_GUARD_KEY } =
+				await vi.importActual<typeof import("./os-route-boundaries")>(
+					"./os-route-boundaries",
+				);
+			vi.mocked(reloadOnceForStaleChunk).mockImplementation(recover);
+			const reload = vi
+				.spyOn(window.location, "reload")
+				.mockImplementation(() => {});
+			const input = document.createElement("textarea");
+			input.value = state === "draft" ? "unfinished draft" : "";
+			document.body.append(input);
+			cleanup = installOsVersionNotice();
+			if (state === "guarded")
+				window.sessionStorage.setItem(OS_CHUNK_RELOAD_GUARD_KEY, "1");
+			if (state === "leaving") window.dispatchEvent(new Event("beforeunload"));
+			const failure = new TypeError(
+				"Failed to fetch dynamically imported module: /assets/old-route.js",
+			);
+			const component = lazyRouteComponent(async () => {
+				// Vite's emitted handlePreloadError returns undefined when cancelled.
+				const event = Object.assign(
+					new Event("vite:preloadError", { cancelable: true }),
+					{ payload: failure },
+				);
+				window.dispatchEvent(event);
+				if (!event.defaultPrevented) throw failure;
+				return undefined as unknown as Record<string, () => null>;
+			}, "component");
+			await component.preload?.();
+			expect(() => renderToStaticMarkup(createElement(component))).toThrow(
+				failure,
+			);
+			expect(reload).toHaveBeenCalledTimes(state === "clean" ? 1 : 0);
+			expect(input.value).toBe(state === "draft" ? "unfinished draft" : "");
+		},
+	);
+
 	it("handles preload failure and shows a persistent Kumo Reload action when recovery is blocked", () => {
 		vi.mocked(reloadOnceForStaleChunk).mockReturnValue(false);
 		const add = vi.spyOn(osToastManager, "add");
@@ -26,7 +70,7 @@ describe("OS reload notices", () => {
 		cleanup = installOsVersionNotice();
 		const event = new Event("vite:preloadError", { cancelable: true });
 		window.dispatchEvent(event);
-		expect(event.defaultPrevented).toBe(true);
+		expect(event.defaultPrevented).toBe(false);
 		expect(reloadOnceForStaleChunk).toHaveBeenCalledTimes(1);
 		const options = add.mock.calls[0]?.[0];
 		expect(options).toMatchObject({

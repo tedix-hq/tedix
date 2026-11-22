@@ -59,8 +59,15 @@ export function installOsVersionNotice(): () => void {
 		buildSha: __OS_BUILD_SHA__,
 		notify: () => notify(),
 	});
-	const onPreloadError = (event: Event) => {
-		event.preventDefault();
+	const onPreloadError = (event: Event & { payload?: unknown }) => {
+		// Cancelling resolves Vite's failed import with undefined, which crashes
+		// lazyRouteComponent when it reads the export. Keep the import rejected.
+		if (event.payload instanceof Error) {
+			// TanStack otherwise reloads these errors itself, bypassing our draft,
+			// departure and loop guards. Keep the original error and asset URL,
+			// but let only OS recovery own the reload.
+			event.payload.message = `OS asset preload failed: ${event.payload.message}`;
+		}
 		// Vite also emits this for CSS failures; use the same bounded recovery.
 		if (
 			!reloadOnceForStaleChunk(
