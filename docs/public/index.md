@@ -47,6 +47,7 @@ what is available today.
 
 | You want to…                                                           | Start with                                                                 |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Install the Tedix app for Mac                                          | [Desktop app (beta)](./desktop-app.md)                                     |
 | Use Tedix from the assistant you already have (Claude, ChatGPT, Codex) | [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md) |
 | Give a tedi a task and find its result                                 | [Give an AI assistant a task](./learning-paths/first-worker.md)            |
 
