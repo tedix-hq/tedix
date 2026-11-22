@@ -298,10 +298,19 @@ function directBridge(
 			DB_DO: {
 				idFromName: (slug: string) => slug,
 				get: () => ({
-					query,
 					runWithRestorePermit: (
 						...args: Parameters<EmDashDB["runWithRestorePermit"]>
 					) => coordinator.runWithRestorePermit(...args),
+					query,
+					queryWithRestorePermit: async (
+						...args: Parameters<EmDashDB["queryWithRestorePermit"]>
+					) => {
+						let result = { rows: [] as Record<string, unknown>[] };
+						await coordinator.runWithRestorePermit(args[0], async () => {
+							result = await query(args[1], args[2]);
+						});
+						return result;
+					},
 				}),
 			},
 		},

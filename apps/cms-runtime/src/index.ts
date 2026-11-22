@@ -396,7 +396,10 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 		input: CollectionDeletionGuardInput,
 	): Promise<CollectionDeletionGuardResult> {
 		return this.withPermit(() =>
-			this.stub().executeCollectionDeletionGuard(input),
+			this.stub().executeCollectionDeletionGuardWithRestorePermit(
+				this.ctx.props,
+				input,
+			),
 		);
 	}
 

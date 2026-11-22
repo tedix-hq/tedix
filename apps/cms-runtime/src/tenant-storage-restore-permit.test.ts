@@ -134,6 +134,22 @@ function tenantDb(
 	const coordinator = namespace.get(namespace.idFromName(identity.slug));
 	const combined = {
 		...stub,
+		executeCollectionDeletionGuardWithRestorePermit: async (
+			...args: Parameters<
+				EmDashDB["executeCollectionDeletionGuardWithRestorePermit"]
+			>
+		) => {
+			const guard = stub.executeCollectionDeletionGuard;
+			if (typeof guard !== "function")
+				return coordinator.executeCollectionDeletionGuardWithRestorePermit(
+					...args,
+				);
+			let result;
+			await coordinator.runWithRestorePermit(args[0], async () => {
+				result = await guard(args[1]);
+			});
+			return result;
+		},
 		queryWithRestorePermit: (
 			...args: Parameters<EmDashDB["queryWithRestorePermit"]>
 		) => {
@@ -480,6 +496,21 @@ describe("nested tenant storage restore permits", () => {
 		const fence = { ...identity, generation: "warm", captureId: "warm" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await getCmsRestoreEpoch(db, identity)).toBe(1);
+		const coordinator = coordinators().get(
+			coordinators().idFromName(identity.slug),
+		) as unknown as EmDashDBStub;
+		const guard = async () =>
+			await coordinator.executeCollectionDeletionGuardWithRestorePermit(
+				identity,
+				{
+					action: "fence",
+					collectionId: "content",
+					collectionSlug: "content",
+					leaseToken: "lease",
+					forceDelete: false,
+				},
+			);
+		await expect(guard()).rejects.toThrow("CMS restore fence unavailable");
 		await expect(media.put("key", "stale")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
 		);

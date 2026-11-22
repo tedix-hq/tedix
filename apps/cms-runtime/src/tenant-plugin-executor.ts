@@ -9,7 +9,10 @@ import {
 	type PluginManifest,
 	type SerializedRequest,
 } from "emdash";
-import { withSharedCmsRestorePermit } from "./tenant-restore-fence";
+import {
+	withSharedCmsRestorePermit,
+	type CmsRestoreFenceIdentity,
+} from "./tenant-restore-fence";
 
 /** The parent owns both bindings. Neither is forwarded to a tenant or plugin Worker. */
 interface PluginHostEnv {
@@ -30,6 +33,11 @@ export interface TenantPluginScope {
 }
 
 interface PluginDbStub {
+	queryWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		sql: string,
+		params?: unknown[],
+	): Promise<{ rows: Record<string, unknown>[] }>;
 	query(
 		sql: string,
 		params?: unknown[],
@@ -184,17 +192,21 @@ export class TenantPluginKvBridge extends WorkerEntrypoint<
 			throw new Error(`Missing capability: ${grant}`);
 	}
 
-	/** Hold the permit until the actual DO RPC settles, even if the caller times out. */
-	private async write<T>(run: (db: PluginDbStub) => Promise<T>): Promise<T> {
+	/** Check the pinned epoch in the object executing SQL, after RPC dispatch. */
+	private async write<T>(
+		run: (db: Pick<PluginDbStub, "query">) => Promise<T>,
+	): Promise<T> {
 		const db = this.db();
-		return withSharedCmsRestorePermit(
-			this.env,
-			{
-				siteId: this.ctx.props.siteId,
-				slug: this.ctx.props.tenantSlug,
-				restoreEpoch: this.ctx.props.restoreEpoch,
-			},
-			() => run(db),
+		const identity = {
+			siteId: this.ctx.props.siteId,
+			slug: this.ctx.props.tenantSlug,
+			restoreEpoch: this.ctx.props.restoreEpoch,
+		};
+		return withSharedCmsRestorePermit(this.env, identity, () =>
+			run({
+				query: (sql, params) =>
+					db.queryWithRestorePermit(identity, sql, params),
+			}),
 		);
 	}
 

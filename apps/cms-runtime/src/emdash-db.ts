@@ -400,6 +400,23 @@ export class EmDashDB extends EmdashSqlDB {
 		await this.withDatabasePermit(identity, run);
 	}
 
+	async executeCollectionDeletionGuardWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		input: CollectionDeletionGuardInput,
+	): Promise<CollectionDeletionGuardResult> {
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
+		).primary;
+		if (primary)
+			return await primary.executeCollectionDeletionGuardWithRestorePermit(
+				identity,
+				input,
+			);
+		return await this.withDatabasePermit(identity, () =>
+			super.executeCollectionDeletionGuard(input),
+		);
+	}
+
 	async queryWithRestorePermit(
 		identity: CmsRestoreFenceIdentity,
 		sql: string,
@@ -1161,6 +1178,10 @@ export interface DoQueryStatement {
 }
 
 export interface EmDashDBStub {
+	executeCollectionDeletionGuardWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		input: CollectionDeletionGuardInput,
+	): Promise<CollectionDeletionGuardResult>;
 	runWithRestorePermit(
 		identity: CmsRestoreFenceIdentity,
 		run: () => Promise<void>,

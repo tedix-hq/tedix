@@ -26,7 +26,8 @@ describe("Emdash collection deletion across the tenant RPC boundary", () => {
 		);
 		const idFromName = vi.fn((name: string) => name);
 		const get = vi.fn(() => ({
-			executeCollectionDeletionGuard,
+			executeCollectionDeletionGuardWithRestorePermit:
+				executeCollectionDeletionGuard,
 			runWithRestorePermit,
 		}));
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
@@ -52,6 +53,7 @@ describe("Emdash collection deletion across the tenant RPC boundary", () => {
 		expect(idFromName).toHaveBeenCalledWith("tenant-a");
 		expect(get).toHaveBeenCalledTimes(2);
 		expect(executeCollectionDeletionGuard).toHaveBeenCalledExactlyOnceWith(
+			{ name: "tenant-a", siteId: "site-1", slug: "tenant-a", restoreEpoch: 0 },
 			input,
 		);
 	});

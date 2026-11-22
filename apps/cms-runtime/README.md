@@ -124,7 +124,9 @@ Tenant R2 and session writes, the collection
 deletion guard and tenant egress borrow the same nested reservation through
 the database object: the operation runs in the caller, and the object holds its
 borrower until the caller's callback settles or disconnects. Plugin KV, AI Search
-and contact-form work also use this shared admission. Scheduled runs keep exact
+and contact-form work also use this shared admission. Plugin KV writes and
+collection deletion additionally check the pinned epoch inside the database
+RPC that performs the mutation. Scheduled runs keep exact
 per-operation permits.
 
 Recovery capture pauses new scheduled admission without waiting for existing

@@ -12,7 +12,7 @@ import {
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { closeCmsRestoreFence } from "@tedix/db/queries/cms-restore-fences";
 import { TenantPluginKvBridge } from "./tenant-plugin-executor";
-import type { EmDashDB } from "./emdash-db";
+import type { EmDashDB, EmDashDBStub } from "./emdash-db";
 import { CmsRestoreFenceUnavailableError } from "./tenant-restore-fence";
 
 const platformD1 = (env as unknown as { PLATFORM_DB: D1Database }).PLATFORM_DB;
@@ -80,7 +80,7 @@ beforeAll(async () => {
 		.run();
 });
 
-async function fixture() {
+async function fixture(native = false) {
 	const siteId = crypto.randomUUID();
 	const identity = { siteId, slug: `plugin-${siteId}`, restoreEpoch: 0 };
 	await platformD1
@@ -96,6 +96,9 @@ async function fixture() {
 			),
 		});
 	});
+	await coordinator.query(
+		"CREATE TABLE _plugin_storage (plugin_id TEXT, collection TEXT, id TEXT, data TEXT, revision TEXT, updated_at TEXT, PRIMARY KEY (plugin_id, collection, id))",
+	);
 	const query = vi.fn().mockResolvedValue({ rows: [] });
 	const props = {
 		tenantSlug: identity.slug,
@@ -117,11 +120,25 @@ async function fixture() {
 			DB_DO: {
 				idFromName: (name: string) => name,
 				get: () => ({
-					query,
 					runWithRestorePermit: (
 						...args: Parameters<EmDashDB["runWithRestorePermit"]>
+					) => coordinator.runWithRestorePermit(...args),
+					query: async (sql: string, params?: unknown[]) => {
+						await query();
+						return native ? coordinator.query(sql, params) : { rows: [] };
+					},
+					queryWithRestorePermit: async (
+						...args: Parameters<EmDashDB["queryWithRestorePermit"]>
 					) => {
-						return coordinator.runWithRestorePermit(...args);
+						if (native) {
+							await query();
+							return coordinator.queryWithRestorePermit(...args);
+						}
+						let result = { rows: [] };
+						await coordinator.runWithRestorePermit(args[0], async () => {
+							result = await query();
+						});
+						return result;
 					},
 				}),
 			},
@@ -136,6 +153,7 @@ async function fixture() {
 	];
 	return {
 		identity,
+		coordinator,
 		bridge,
 		query,
 		operations,
@@ -144,6 +162,48 @@ async function fixture() {
 }
 
 describe("plugin KV shared restore permits", () => {
+	test("a delayed SQL RPC refuses an invocation admitted before the restore close", async () => {
+		const { identity, coordinator, bridge, query, end } = await fixture(true);
+		let dispatch!: () => void;
+		let entered!: () => void;
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		query.mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					dispatch = resolve;
+					entered();
+				}),
+		);
+		const pending = bridge.kvSet("key", "stale");
+		const rejected = expect(pending).rejects.toThrow(
+			"CMS restore fence unavailable",
+		);
+		try {
+			await started;
+			expect(
+				await closeCmsRestoreFence(db, {
+					...identity,
+					generation: "g",
+					captureId: "c",
+				}),
+			).toBe(true);
+			dispatch();
+			await rejected;
+			expect(
+				(
+					await (coordinator as unknown as EmDashDBStub).query(
+						"SELECT * FROM _plugin_storage",
+					)
+				).rows,
+			).toEqual([]);
+		} finally {
+			dispatch?.();
+			end();
+		}
+	});
+
 	test("each write runs once while reusing the same D1 reservation", async () => {
 		const { identity, query, operations, end } = await fixture();
 		try {
