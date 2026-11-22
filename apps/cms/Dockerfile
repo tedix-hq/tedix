@@ -7,12 +7,16 @@ COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shi
 COPY --from=bun-binary /usr/local/bin/bun /usr/local/bin/bun
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git && rm -rf /var/lib/apt/lists/*
 RUN ln -s bun /usr/local/bin/bunx && test "$(bun --version)" = "1.4.5" && node --version
-COPY templates/ /workspace-templates/
-# Tenant workspaces are standalone copies: bake canonical shared source links as bytes.
-RUN cp -aL /workspace-templates /workspace-templates-materialized && rm -rf /workspace-templates && mv /workspace-templates-materialized /workspace-templates
+# Dependencies first: the installed node_modules layer (about 1.2 GB) stays
+# cached, and already in the registry, until the template's manifest, lockfile
+# or patches change. Template source edits rebuild and push only the small
+# layers below, instead of a fresh install on every CMS deploy.
 WORKDIR /workspace
 COPY templates/tedix/package.json templates/tedix/bun.lock* ./
 COPY templates/tedix/patches/ ./patches/
 RUN bun install
+COPY templates/ /workspace-templates/
+# Tenant workspaces are standalone copies: bake canonical shared source links as bytes.
+RUN cp -aL /workspace-templates /workspace-templates-materialized && rm -rf /workspace-templates && mv /workspace-templates-materialized /workspace-templates
 COPY templates/tedix/ ./
 CMD ["sleep", "infinity"]
