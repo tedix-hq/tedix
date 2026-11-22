@@ -18,7 +18,7 @@ RUN apt-get update \
 # CLI version. The renderer is pinned here so every tenant build uses the same
 # certified framework until Tedix deliberately upgrades the image.
 WORKDIR /opt
-RUN bun x @cloudflare/create-nimbus-docs@0.7.7 \
+RUN bun x @cloudflare/create-nimbus-docs@0.9.0 \
 	tedix-docs-template \
 	--yes \
 	--deploy other \
@@ -28,7 +28,7 @@ RUN bun x @cloudflare/create-nimbus-docs@0.7.7 \
 	--skip-install
 
 WORKDIR /opt/tedix-docs-template
-RUN bun add @cloudflare/nimbus-docs@0.15.0 --exact
+RUN bun add @cloudflare/nimbus-docs@0.20.0 --exact
 
 COPY template/astro.config.ts /opt/tedix-docs-template/astro.config.ts
 COPY template/docs-navigation.ts /opt/tedix-docs-template/docs-navigation.ts

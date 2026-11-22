@@ -20,14 +20,19 @@ admin-scoped release action atomically switches the site's active build in D1.
 The request plane is a least-privilege Worker in `apps/docs-runtime`; tenant
 MDX never executes on a live request.
 
-The builder currently pairs `@cloudflare/create-nimbus-docs@0.7.7` with
-`@cloudflare/nimbus-docs@0.15.0`. Keep both versions explicit in the Dockerfile
+The builder currently pairs `@cloudflare/create-nimbus-docs@0.9.0` with
+`@cloudflare/nimbus-docs@0.20.0`. Keep both versions explicit in the Dockerfile
 and verify a complete image and tenant-content build when either changes. The
 copied templates use Nimbus's built-in icon component. Its shared Markdown
 route does not repair source-relative links, so Tedix retains its custom
 Markdown route until that behavior exists upstream. Tenant workspaces symlink
 the image's pinned dependencies; the template keeps Vite symlink paths intact
-so Astro 7 and Rolldown share compiled-module cache keys.
+so Astro 7 and Rolldown share compiled-module cache keys. The image uses Node 24
+and the scaffolder's Astro 7.4.2 starter, meeting Nimbus 0.20's minimum Node
+22.23.4 and Astro 7.2.10. It keeps the new starter's search, theme, code-block,
+and accessibility fixes, enables explicit heading IDs, and includes image zoom
+in the custom docs layout. Markdown twins omit the source footer when neither
+source nor Markdown is published.
 
 Run `bun run --cwd apps/docs test:nimbus-image` for the pinned image contract:
 real Astro diagnostics and build, root-route ownership, Markdown link repair,

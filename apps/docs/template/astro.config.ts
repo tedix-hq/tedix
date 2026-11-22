@@ -119,6 +119,7 @@ export default defineConfig({
 				"nimbus/internal-link": "error",
 			},
 			markdown: {
+				features: { headingAttributes: true },
 				hastPlugins: [
 					omitAuthoredHtmlTitle(),
 					documentationLinks(),

@@ -16,6 +16,7 @@ import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Pagination } from "@/components/ui/pagination";
 import { PageActions } from "@/components/ui/page-actions";
 import { Badge } from "@/components/ui/badge";
+import { ImageZoom } from "@/components/ui/image-zoom";
 import AgentPageHandoff from "../components/AgentPageHandoff.astro";
 import type { DocsPageProps } from "@cloudflare/nimbus-docs/types";
 import { getVersionStatus, getVersionAlternates } from "@cloudflare/nimbus-docs";
@@ -367,4 +368,5 @@ const hasPagination = Astro.slots.has("pagination");
     });
   </script>
 
+  <ImageZoom />
 </BaseLayout>

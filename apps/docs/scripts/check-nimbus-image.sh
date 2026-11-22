@@ -2,7 +2,7 @@
 set -euo pipefail
 
 app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image="${1:-tedix-docs-nimbus-015-contract}"
+image="${1:-tedix-docs-nimbus-020-contract}"
 
 docker build --platform linux/amd64 -t "$image" "$app_dir"
 docker run --rm --entrypoint bash \
