@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
@@ -237,6 +237,18 @@ export interface StepRun {
 	address?: string;
 }
 
+/**
+ * Which coding tool takes which kind of task, in the order runners read the
+ * rules. `tools` are executor ids, first choice first.
+ */
+export interface Routing {
+	rules: { kind: string; tools: string[] }[];
+	/** The file on this Mac the rules come from; null for Tedix's default. */
+	file: string | null;
+	/** When that file last changed, ISO time. */
+	changedAt?: string;
+}
+
 export interface SessionProject {
 	id: string;
 	name: string;
@@ -276,7 +288,7 @@ export interface SetupState {
 	 * Which tool takes which tasks, one plain sentence per rule, and the file
 	 * runners read it from. Undefined when the command-line tool cannot say.
 	 */
-	routing?: { sentences: string[]; file: string | null };
+	routing?: Routing;
 }
 
 interface Settings {
@@ -463,6 +475,29 @@ function organization(): string {
 	return match || tenant || organizations[0] || "";
 }
 
+/** A kind of task in plain words, from what a routing rule matches. */
+function taskKind(rule: {
+	tags?: unknown;
+	sizes?: unknown;
+	risks?: unknown;
+}): string {
+	const list = (value: unknown) =>
+		Array.isArray(value)
+			? value.filter((v): v is string => typeof v === "string")
+			: [];
+	const tags = list(rule.tags);
+	const sizes = list(rule.sizes);
+	const risks = list(rule.risks);
+	if (!tags.length && !sizes.length && !risks.length) return "Everything else";
+	if (risks.length || sizes.includes("large")) return "Large or risky tasks";
+	if (
+		sizes.includes("small") ||
+		tags.some((tag) => ["mechanical", "formatting", "docs"].includes(tag))
+	)
+		return "Small routine tasks";
+	return `Tasks about ${tags.slice(0, 2).join(" or ")}`;
+}
+
 /** Reads which tool takes which tasks; older command-line tools cannot say. */
 async function readRouting(): Promise<void> {
 	const result = await tedix(["lane", "routing", "--json"], {
@@ -471,19 +506,26 @@ async function readRouting(): Promise<void> {
 	try {
 		const parsed = JSON.parse(result.output) as {
 			path?: unknown;
-			description?: unknown;
+			policy?: { rules?: unknown };
 		};
-		const sentences = Array.isArray(parsed.description)
-			? parsed.description.filter(
-					(line): line is string => typeof line === "string" && !!line.trim(),
-				)
-			: [];
-		routing = sentences.length
-			? {
-					sentences,
-					file: typeof parsed.path === "string" ? parsed.path : null,
-				}
-			: undefined;
+		const rules = (
+			Array.isArray(parsed.policy?.rules) ? parsed.policy.rules : []
+		)
+			.map((rule: Record<string, unknown>) => ({
+				kind: taskKind(rule),
+				tools: (Array.isArray(rule.routes) ? rule.routes : [])
+					.map((route: { executor?: unknown }) => String(route?.executor ?? ""))
+					.filter(Boolean),
+			}))
+			.filter((rule) => rule.tools.length);
+		const file = typeof parsed.path === "string" ? parsed.path : null;
+		let changedAt: string | undefined;
+		try {
+			if (file) changedAt = statSync(file).mtime.toISOString();
+		} catch {
+			/* Not there. */
+		}
+		routing = rules.length ? { rules, file, changedAt } : undefined;
 	} catch {
 		routing = undefined;
 	}

@@ -5,6 +5,7 @@ import {
 	type SettingsSection,
 } from "./api";
 import { icon, type IconName } from "./icons";
+import type { Routing } from "./setup";
 import {
 	act,
 	button,
@@ -44,6 +45,8 @@ let section: SettingsSection =
 	(location.hash.slice(1) as SettingsSection) || "general";
 let nameDraft: string | undefined;
 const sessionsUi: SessionsUi = { query: "" };
+/** The rules file row shows only after the person asks for it. */
+let routingAdvanced = false;
 
 /** One line in a card: what it is on the left, its control on the right. */
 interface Item {
@@ -241,35 +244,7 @@ function tools(now: PanelState): Group[] {
 	return [
 		chat,
 		{ title: "Coding tools", column: "Use for tasks", items: rows },
-		...(now.setup.routing
-			? [
-					{
-						title: "Who takes which tasks",
-						items: [
-							...now.setup.routing.sentences.map((sentence): Item => ({
-								title: sentence,
-								plain: true,
-								words: "routing",
-							})),
-							...(now.setup.routing.file
-								? [
-										{
-											title: "Change these rules",
-											control: [
-												button(
-													"Open the file",
-													"plain",
-													() => void tedixShell.action("open-routing"),
-												),
-											],
-											words: "routing rules",
-										},
-									]
-								: []),
-						],
-					},
-				]
-			: []),
+		...(now.setup.routing ? [routingGroup(now.setup.routing)] : []),
 		{
 			items: [
 				{
@@ -285,6 +260,64 @@ function tools(now: PanelState): Group[] {
 			],
 		},
 	];
+}
+
+const toolNames = (tools: string[]) =>
+	tools.map((tool) => EXECUTOR_NAMES[tool] ?? tool).join(", then ");
+
+/**
+ * Which tool takes which tasks, in plain words: one summary line, whose
+ * setting it is, and a row per kind of task only when the kinds differ.
+ */
+function routingGroup(routing: Routing): Group {
+	const same = routing.rules.every(
+		(rule) => toolNames(rule.tools) === toolNames(routing.rules[0]!.tools),
+	);
+	const changed = routing.changedAt
+		? new Date(routing.changedAt).toLocaleDateString(undefined, {
+				day: "numeric",
+				month: "short",
+			})
+		: "";
+	const items: Item[] = [
+		{
+			title: same
+				? `Right now every task goes to ${toolNames(routing.rules[0]!.tools)}.`
+				: "Each kind of task goes to its own tool.",
+			plain: true,
+			sub: routing.file
+				? `Set on this Mac${changed ? ` on ${changed}` : ""}.`
+				: "Tedix's default.",
+			words: "routing who takes tasks",
+		},
+	];
+	if (!same)
+		for (const rule of routing.rules)
+			items.push({
+				title: `${rule.kind} → ${toolNames(rule.tools)}`,
+				plain: true,
+				words: "routing",
+			});
+	if (routing.file && routingAdvanced)
+		items.push({
+			title: "Rules file",
+			control: [
+				button("Open", "plain", () => void tedixShell.action("open-routing")),
+			],
+			words: "routing rules file",
+		});
+	else if (routing.file)
+		items.push({
+			title: "Advanced",
+			plain: true,
+			control: [
+				button("Show", "quiet", () => {
+					routingAdvanced = true;
+					draw();
+				}),
+			],
+		});
+	return { title: "Who takes which tasks", items };
 }
 
 function sessions(now: PanelState): Group[] {
