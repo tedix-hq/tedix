@@ -39,6 +39,13 @@ import {
 	isDecidableWorkApproval,
 } from "@/lib/work-counts";
 import { workRefreshOptions } from "@/lib/work-refresh";
+import { pollingBackoff } from "@/lib/polling-backoff";
+
+const inboxRefreshOptions = {
+	...workRefreshOptions,
+	refetchInterval: (query: Parameters<typeof pollingBackoff>[0]) =>
+		pollingBackoff(query, 120_000, 300_000),
+};
 
 export function isActionableHomeApproval(approval: {
 	decisionMode?: "approve_or_reject" | "no_action";
@@ -399,15 +406,16 @@ export function useApprovalInbox({
 	const authority = context.data?.authority;
 	const runSet = useQuery({
 		...homeRunSetQueryOptions(conversationId ?? ""),
-		enabled: conversationId !== null,
-		...workRefreshOptions,
+		// The thread and realtime own this read. Global holds below also cover
+		// conversations without a mounted thread.
+		enabled: false,
 	});
 	const runtime = useQuery({
 		...pendingApprovalsQueryOptions(),
-		...workRefreshOptions,
+		...inboxRefreshOptions,
 	});
 	const workStart = useQuery({
-		...workRefreshOptions,
+		...inboxRefreshOptions,
 		...workPendingApprovalsQueryOptions(),
 	});
 	const workStartPending = (workStart.data?.data ?? []).filter(
@@ -415,7 +423,7 @@ export function useApprovalInbox({
 	);
 	const pendingHome = useQuery({
 		...pendingHomeDelegationsQueryOptions(),
-		...workRefreshOptions,
+		...inboxRefreshOptions,
 	});
 	const homeApprovals = runSet.data?.runSet
 		? approvalsForAuthority(
@@ -425,12 +433,12 @@ export function useApprovalInbox({
 		: [];
 	const scopedRuntime = useQuery({
 		...pendingApprovalsQueryOptions(workspaceId ?? undefined),
-		...workRefreshOptions,
+		...inboxRefreshOptions,
 		enabled: workspaceId !== null,
 	});
 	const scopedHome = useQuery({
 		...pendingHomeDelegationsQueryOptions(workspaceId ?? undefined),
-		...workRefreshOptions,
+		...inboxRefreshOptions,
 		enabled: workspaceId !== null,
 	});
 	const canDecide = hasOsApprovalAuthority(authority);
@@ -646,7 +654,7 @@ export function useApprovalInbox({
 			items: inWorkspace.items,
 			count: inWorkspace.home + inWorkspace.runtime,
 			loading:
-				(conversationId !== null && runSet.isPending) ||
+				(conversationId !== null && runSet.isLoading) ||
 				scopedRuntime.isPending,
 		},
 		/** More runtime requests exist than one read returns. */
@@ -654,7 +662,7 @@ export function useApprovalInbox({
 		tediNames,
 		canDecide,
 		loading:
-			(conversationId !== null && runSet.isPending) ||
+			(conversationId !== null && runSet.isLoading) ||
 			runtime.isPending ||
 			workStart.isPending,
 		readError: runtime.error ?? workStart.error,

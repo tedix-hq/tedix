@@ -49,6 +49,7 @@
  * from growing silently.
  */
 
+import { stableProjectionRevision } from "@tedix/chat-transport/canonical-projection";
 import {
 	callRpc,
 	RpcCallError,
@@ -663,6 +664,8 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 		let newestObservedRunId: string | null = null;
 		const runPollFailures = new Map<string, number>();
 		let refreshFailures = 0;
+		let runSetRevision: string | null = null;
+		let unchangedRefreshes = 0;
 		let callbackFailures = 0;
 		let refresh: Promise<RefreshResult> | null = null;
 
@@ -800,7 +803,19 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 					candidates.push(...runSet.activeRunIds);
 					for (const runId of candidates) addRun(runId);
 					newestObservedRunId = runSet.runs[0]?.id ?? newestObservedRunId;
-					scheduleRefresh(SUBSCRIBE_IDLE_DELAY_MS);
+					const revision = stableProjectionRevision(runSet);
+					unchangedRefreshes =
+						revision === runSetRevision
+							? Math.min(2, unchangedRefreshes + 1)
+							: 0;
+					runSetRevision = revision;
+					const active = runSet.activeRunIds.length > 0;
+					scheduleRefresh(
+						Math.min(
+							active ? 30_000 : 120_000,
+							(active ? 15_000 : 60_000) * 2 ** unchangedRefreshes,
+						),
+					);
 					continue;
 				}
 

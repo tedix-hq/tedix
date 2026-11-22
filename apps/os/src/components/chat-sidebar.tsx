@@ -45,6 +45,7 @@ import { Text } from "@/components/kumo/text";
 import { Input } from "@/components/kumo/input";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
+import { pollingBackoff } from "@/lib/polling-backoff";
 import {
 	tediChatConversationId,
 	type TediChatListRow,
@@ -274,7 +275,9 @@ export function conversationListQueryOptions(
 		initialPageParam: undefined as string | undefined,
 		// The Cap'n stream covers the FOLLOWED conversation's run-free markers;
 		// edits to every other row still arrive only through the canonical read.
-		refetchInterval: 15_000,
+		refetchInterval: (query: Parameters<typeof pollingBackoff>[0]) =>
+			pollingBackoff(query, 15_000, 120_000),
+		refetchIntervalInBackground: false,
 		// The composite keyset cursor is opaque to the UI; pass it back verbatim.
 		getNextPageParam: (lastPage: { nextCursor?: string | null }) =>
 			lastPage.nextCursor ?? undefined,

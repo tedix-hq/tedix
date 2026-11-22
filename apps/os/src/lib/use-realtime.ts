@@ -32,6 +32,7 @@ import {
 	REALTIME_PATCHED_EVENT_KINDS,
 } from "@/lib/realtime-projections";
 import { publishLiveWorkspaceEvent } from "@/lib/live-workspace-projection";
+import { usePollingVisible } from "@/lib/use-polling-visible";
 
 // ---------------------------------------------------------------------------
 // Status + active conversation reads
@@ -181,6 +182,7 @@ export function useRealtimeSurface(
 	const conversationId =
 		options.conversationId === undefined ? active : options.conversationId;
 	const enabled = options.enabled ?? true;
+	const visible = usePollingVisible();
 	// Creation-time seams held in refs: re-running the effect on their identity
 	// would tear down a healthy stream on every render.
 	const seamsRef = useRef({ config: options.config, now: options.now });
@@ -188,7 +190,7 @@ export function useRealtimeSurface(
 	const aggregate = useRealtimeStatus();
 
 	useEffect(() => {
-		if (!enabled || conversationId === null) return;
+		if (!enabled || !visible || conversationId === null) return;
 		const { config, now } = seamsRef.current;
 		return retainPump(
 			conversationId,
@@ -196,7 +198,7 @@ export function useRealtimeSurface(
 			config ?? {},
 			now ?? Date.now,
 		);
-	}, [conversationId, enabled, queryClient]);
+	}, [conversationId, enabled, visible, queryClient]);
 
 	return {
 		conversationId,

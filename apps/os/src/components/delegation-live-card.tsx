@@ -6,6 +6,7 @@ import {
 import { delegationLiveState } from "@/lib/delegation-activity";
 import { homeChildRunActivityQueryOptions } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
+import { pollingBackoff } from "@/lib/polling-backoff";
 
 /** How often a running delegation re-reads its delegated tedi's events. */
 const ACTIVITY_POLL_MS = 5_000;
@@ -39,7 +40,9 @@ export function LiveDelegationCard({
 			work.childRunId ?? "",
 		),
 		enabled: Boolean(work.delegatedTediId && work.childRunId),
-		refetchInterval: active ? ACTIVITY_POLL_MS : false,
+		refetchInterval: (query) =>
+			pollingBackoff(query, active ? ACTIVITY_POLL_MS : false, 30_000),
+		refetchIntervalInBackground: false,
 		retry: false,
 	});
 	const now = useNow(active);

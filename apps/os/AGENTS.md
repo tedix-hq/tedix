@@ -122,7 +122,9 @@ Other properties worth preserving:
   after the ledger purge). Those frames invalidate the generated
   `listConversations` key prefix, updating the mounted sidebar and header.
   Mutations on conversations the client is NOT following still converge
-  through the canonical infinite query's 15-second visible poll.
+  through the canonical infinite query's visible poll, which backs off from
+  15 seconds to two minutes while its data is unchanged. Hidden tabs pause
+  query intervals and release realtime subscriptions after pending sends finish.
 
 ## Capability lifecycle is a document singleton
 

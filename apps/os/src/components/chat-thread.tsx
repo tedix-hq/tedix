@@ -201,6 +201,8 @@ import {
 	transientTranscriptRetryMs,
 	useIsRunActive,
 } from "@/components/chat-polling";
+import { pollingBackoff } from "@/lib/polling-backoff";
+import { usePollingVisible } from "@/lib/use-polling-visible";
 import {
 	ACTIVE_RUN_STATUSES,
 	type ChatContext,
@@ -340,6 +342,7 @@ export function ChatThread({
 		composerOnly ? null : conversationId,
 	);
 	const queryClient = useQueryClient();
+	const pollingVisible = usePollingVisible();
 	const tediNames = useTediNames();
 	const activeTedis = useActiveTedis();
 	const pickableTedis = usePickableTedis();
@@ -673,7 +676,9 @@ export function ChatThread({
 	const steering = useQuery({
 		...homeRunSteeringQueryOptions(steeringTargetId ?? "", organizationId),
 		enabled: steeringTargetId != null,
-		refetchInterval: steeringRunId ? 1000 : false,
+		refetchInterval: (query) =>
+			pollingBackoff(query, steeringRunId ? 5_000 : false, 30_000),
+		refetchIntervalInBackground: false,
 	});
 	const queuedSteering =
 		steering.data?.messages.filter((message) => message.status === "queued") ??
@@ -859,6 +864,7 @@ export function ChatThread({
 		heldSendKeys,
 		recordRendered,
 	} = useChatTransport(conversationId, {
+		enabled: pollingVisible,
 		// Both live and hydrated frames land here (source: "live" | "hydrate")
 		// and fold into the same id-keyed tool-card map — re-delivery across
 		// sources is a plain overwrite, never a duplicate card.
@@ -1111,7 +1117,7 @@ export function ChatThread({
 					realtimeDegraded,
 				})
 			)
-				return RUN_POLL_INTERVAL_MS;
+				return pollingBackoff(query, RUN_POLL_INTERVAL_MS, 30_000);
 			// A transient read failure clears itself without a manual reload.
 			return query.state.status === "error"
 				? transientTranscriptRetryMs(

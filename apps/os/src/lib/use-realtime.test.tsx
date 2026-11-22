@@ -2,7 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import type {
 	CapnConversationSnapshot,
 	CapnConversationStub,
@@ -31,6 +38,8 @@ import {
 	resetRealtimePumps,
 	useRealtimeSurface,
 } from "./use-realtime";
+import { useCapnStreamedOverlays } from "./use-capn-chat";
+import { usePollingVisible } from "./use-polling-visible";
 
 const CONVERSATION_ID = "home:main";
 const ORG_ID = "org-1";
@@ -399,6 +408,71 @@ function Surface(props: { config: RealtimeStreamConfig }) {
 }
 
 describe("useRealtimeSurface", () => {
+	it("pauses the shared subscription while hidden and resumes once for all surfaces", async () => {
+		const server = mockServer();
+		setActiveRealtimeConversation(CONVERSATION_ID);
+		const visibility = vi
+			.spyOn(document, "hidden", "get")
+			.mockReturnValue(true);
+		try {
+			const config = { connect: server.connect, metrics: null };
+			function ChatSurface() {
+				useRealtimeSurface({ config });
+				useCapnStreamedOverlays(CONVERSATION_ID, {
+					...config,
+					enabled: usePollingVisible(),
+				});
+				return null;
+			}
+			const rendered = render(
+				createElement(
+					"div",
+					null,
+					createElement(ChatSurface),
+					createElement(ChatSurface),
+				),
+			);
+			await flushAsync();
+			expect(server.dialCount()).toBe(0);
+			visibility.mockReturnValue(false);
+			act(() => document.dispatchEvent(new Event("visibilitychange")));
+			await flushAsync();
+			expect(server.dialCount()).toBe(1);
+			expect(realtimeSubscriptionCount()).toBe(1);
+			let finishSend!: () => void;
+			const mutation = rendered.queryClient
+				.getMutationCache()
+				.build(rendered.queryClient, {
+					mutationFn: () =>
+						new Promise<void>((resolve) => {
+							finishSend = resolve;
+						}),
+				});
+			let sending!: Promise<void>;
+			await act(async () => {
+				sending = mutation.execute(undefined);
+				await Promise.resolve();
+			});
+			visibility.mockReturnValue(true);
+			act(() => document.dispatchEvent(new Event("visibilitychange")));
+			teardown.run();
+			expect(realtimeSubscriptionCount()).toBe(1);
+			await act(async () => {
+				finishSend();
+				await sending;
+			});
+			teardown.run();
+			expect(realtimeSubscriptionCount()).toBe(0);
+			visibility.mockReturnValue(false);
+			act(() => document.dispatchEvent(new Event("visibilitychange")));
+			await flushAsync();
+			expect(server.dialCount()).toBe(2);
+			expect(realtimeSubscriptionCount()).toBe(1);
+		} finally {
+			visibility.mockRestore();
+		}
+	});
+
 	it("multiplexes several surfaces onto ONE subscription and ONE pump", async () => {
 		const server = mockServer();
 		setActiveRealtimeConversation(CONVERSATION_ID);

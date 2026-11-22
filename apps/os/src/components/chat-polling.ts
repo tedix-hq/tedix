@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { HomeRunSet } from "@tedix/api-contract/schemas/kernel-runtime";
 import { provisionalSendMessageId } from "@/lib/provisional-send";
 import { homeRunSetQueryOptions } from "@/lib/os-query-options";
+import { pollingBackoff } from "@/lib/polling-backoff";
 import {
 	ACTIVE_PROJECTION_RECONCILE_MS,
 	IDLE_PROJECTION_RECONCILE_MS,
@@ -143,13 +144,18 @@ export function useIsRunActive(
 		enabled: conversationId !== null,
 		refetchInterval: (current) => {
 			const active = (current.state.data?.runSet.activeRunIds.length ?? 0) > 0;
-			return runSetPollInterval({
-				active,
-				forceActive,
-				realtimeDegraded,
-				realtimeOpen,
-			});
+			return pollingBackoff(
+				current,
+				runSetPollInterval({
+					active,
+					forceActive,
+					realtimeDegraded,
+					realtimeOpen,
+				}),
+				active || forceActive ? 30_000 : 120_000,
+			);
 		},
+		refetchIntervalInBackground: false,
 	});
 	const activeRunIds = query.data?.runSet.activeRunIds ?? [];
 	return {

@@ -533,6 +533,37 @@ describe("cancel and respondApproval", () => {
 // -----------------------------------------------------------------------------
 
 describe("subscribe", () => {
+	it("bounds unchanged run-set reads over twenty minutes and resets when runs change", async () => {
+		vi.useFakeTimers();
+		let active = ["run-1"];
+		const { service, calls } = mockApiService((path) => {
+			if (path === "kernelRuntime/readRunSet") return runSetOutput(active);
+			return new Promise(() => {});
+		});
+		const session = makeSession(service, {
+			sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+		});
+		const { stub } = subscriberStub();
+		const subscription = session.openConversation("conv-1").subscribe(stub);
+		const reads = () =>
+			calls.filter((call) => call.path === "kernelRuntime/readRunSet");
+		try {
+			await vi.advanceTimersByTimeAsync(20 * 60_000);
+			expect(reads()).toHaveLength(41);
+			active = ["run-2", "run-1"];
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(reads()).toHaveLength(42);
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(reads()).toHaveLength(43);
+			subscription.dispose();
+			await vi.advanceTimersByTimeAsync(120_000);
+			expect(reads()).toHaveLength(43);
+		} finally {
+			session[Symbol.dispose]();
+			vi.useRealTimers();
+		}
+	});
+
 	it("ignores repeated start() calls instead of spawning a pump each time", async () => {
 		// `start()` is a PUBLIC member of an RpcTarget, so the peer can call it.
 		// Each call used to launch an independent concurrent pump on the same
