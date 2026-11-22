@@ -845,6 +845,7 @@ export async function registerCodeModeTools(
 						return runStatelessCodeMode({
 							code,
 							executor,
+							timeoutMs: timeout,
 							providers:
 								executionNamespaces === null || unknownNamespace
 									? allProviders

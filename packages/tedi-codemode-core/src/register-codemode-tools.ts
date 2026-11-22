@@ -423,6 +423,7 @@ export async function registerCodeModeTools(
 				const result = await runStatelessCodeMode({
 					code,
 					executor,
+					timeoutMs: timeoutMs ?? 60_000,
 					providers: runtime.createProviders(context),
 				});
 				// The Cloudflare codemode SDK never throws on a thrown

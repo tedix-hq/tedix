@@ -1,12 +1,16 @@
-import type {
-	DynamicWorkerExecutor,
-	ResolvedProvider,
+import {
+	type DynamicWorkerExecutor,
+	type ResolvedProvider,
+	sanitizeToolName,
+	ToolDispatcher,
 } from "@cloudflare/codemode";
 
 export interface StatelessCodeModeRunOptions {
 	code: string;
 	executor: DynamicWorkerExecutor;
 	providers: ResolvedProvider[];
+	/** Match the executor's timeout to enable literal single-call dispatch. */
+	timeoutMs?: number;
 }
 
 export interface StatelessCodeModeRunResult {
@@ -93,14 +97,45 @@ export function wrapStatelessCodeModeSource(code: string): string {
  *
  * `@cloudflare/codemode@0.5.6` exposes durable runtime primitives,
  * `DynamicWorkerExecutor`, and a package-level `runCode` helper. Tedix
- * deliberately keeps stateless MCP execution on the executor boundary so
- * gateway, per-tedi, and muscle-memory paths share one import-safe contract.
+ * shares the request-local providers between literal single-tool dispatch and
+ * sandbox execution so both paths retain the same tool authorization.
  */
 export async function runStatelessCodeMode({
 	code,
 	executor,
 	providers,
+	timeoutMs,
 }: StatelessCodeModeRunOptions): Promise<StatelessCodeModeRunResult> {
+	const direct =
+		timeoutMs === undefined ? undefined : literalToolCall(code, providers);
+	if (direct) {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const response = await Promise.race([
+				new ToolDispatcher({ call: direct.fn }).call("call", direct.args),
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(
+						() => reject(new Error("Execution timed out")),
+						timeoutMs,
+					);
+				}),
+			]);
+			const decoded = JSON.parse(response, decodeBinaryResult);
+			return {
+				result: decoded.result,
+				...(decoded.error ? { error: decoded.error } : {}),
+				logs: [],
+			};
+		} catch (error) {
+			return {
+				result: undefined,
+				error: error instanceof Error ? error.message : String(error),
+				logs: [],
+			};
+		} finally {
+			clearTimeout(timer);
+		}
+	}
 	const response = (await executor.execute(
 		wrapStatelessCodeModeSource(code),
 		providers,
@@ -113,4 +148,62 @@ export async function runStatelessCodeMode({
 		...(response.logs ? { logs: response.logs } : {}),
 		...(response.error ? { error: response.error } : {}),
 	};
+}
+
+function literalToolCall(code: string, providers: ResolvedProvider[]) {
+	const source = stripTrailingSemicolons(code).trim();
+	const prefix = /^async[ \t]*\(\s*\)\s*=>/.exec(source);
+	if (!prefix) return;
+	let body = source.slice(prefix[0].length).trim();
+	if (body.startsWith("{")) {
+		if (!body.endsWith("}")) return;
+		body = body.slice(1, -1).trim();
+		const returned = /^return[ \t]+(?=\S)/.exec(body);
+		if (!returned) return;
+		body = stripTrailingSemicolons(body.slice(returned[0].length)).trim();
+	}
+	const match =
+		/^(?:await\s+)?([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(([\s\S]*)\)$/.exec(
+			body.trim(),
+		);
+	if (!match) return;
+	const [, namespace, tool, argument = ""] = match;
+	const matching = providers.filter((provider) => provider.name === namespace);
+	const provider = matching[0];
+	if (matching.length !== 1 || !provider || provider.prelude) return;
+	const functions = Object.entries(provider.fns).filter(
+		([name]) => sanitizeToolName(name) === tool,
+	);
+	const entry = functions[0];
+	if (functions.length !== 1 || !entry) return;
+	try {
+		// Parse data only. Expressions, extra calls and statements stay sandboxed.
+		const args = argument.trim()
+			? [
+					JSON.parse(argument, (key, value) => {
+						if (key === "__proto__")
+							throw new Error(
+								"Prototype literal requires JavaScript semantics",
+							);
+						return value;
+					}),
+				]
+			: [];
+		return { fn: entry[1], args: JSON.stringify(args) };
+	} catch {
+		return;
+	}
+}
+
+function decodeBinaryResult(_key: string, value: unknown): unknown {
+	if (
+		!value ||
+		typeof value !== "object" ||
+		!("__codemode_binary_v1__" in value) ||
+		!("data" in value) ||
+		typeof value.data !== "string"
+	)
+		return value;
+	const bytes = Uint8Array.from(atob(value.data), (char) => char.charCodeAt(0));
+	return value.__codemode_binary_v1__ === "ArrayBuffer" ? bytes.buffer : bytes;
 }

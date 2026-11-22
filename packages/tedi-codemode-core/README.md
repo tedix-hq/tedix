@@ -67,9 +67,14 @@ import type {
 } from "@tedix/tedi-codemode-core/types";
 ```
 
-- `runStatelessCodeMode` — runs one request-scoped execution through
-  `DynamicWorkerExecutor.execute()`. The Cloudflare codemode SDK never throws
-  on a sandboxed JS error; callers must check the returned `error` field
+- `runStatelessCodeMode` — runs one request-scoped execution. When `timeoutMs`
+  matches the executor's timeout, a returned single tool call with one JSON
+  argument (or none) runs directly through its request-local provider and the
+  SDK's tool dispatcher, without loading a Worker. Other JavaScript and
+  providers with sandbox preludes use `DynamicWorkerExecutor.execute()`.
+  Arbitrary code keeps a fresh Worker: caching its isolate can retain globals,
+  captured values and console collectors across requests. The Cloudflare codemode
+  SDK never throws on a sandboxed JS error; callers must check the returned `error` field
   instead of trusting `result`.
 
 ## Types

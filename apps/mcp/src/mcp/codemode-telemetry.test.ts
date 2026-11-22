@@ -1956,8 +1956,8 @@ describe("Code Mode tail telemetry", () => {
 			executionId: response.structuredContent.executionId,
 			mode: "stateless",
 			surface: "mcp-gateway",
-			// 1 app tool + 5 ui + 1 codemode + 4 flow built-ins.
-			toolCount: 13,
+			// 1 app tool + 5 ui + 1 codemode + 8 flow built-ins.
+			toolCount: 15,
 			namespaceCount: 4,
 			executionSurface: {
 				kind: "mcp-gateway",
