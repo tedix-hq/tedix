@@ -101,14 +101,20 @@ kbd {
 	outline-offset: 2px;
 }
 
-/* Buttons. */
+/*
+ * Buttons: Kumo's small size (26px high, 13px text) for every kind, so a
+ * row of buttons lines up whichever one is the default. Setup's footer
+ * uses Kumo's base size (36px) for all of its buttons.
+ */
 button.btn {
 	font: inherit;
 	font-size: 13px;
 	font-weight: 500;
-	height: 30px;
-	padding: 0 12px;
-	border-radius: var(--radius-small);
+	line-height: 1;
+	height: 26px;
+	padding: 0 10px;
+	border-radius: 6px;
+	box-sizing: border-box;
 	border: 1px solid var(--border);
 	background: var(--card);
 	color: var(--foreground);
@@ -129,8 +135,6 @@ button.btn:active:not(:disabled) {
 	transform: translateY(0.5px);
 }
 button.btn.primary {
-	height: 34px;
-	padding: 0 14px;
 	background: var(--primary);
 	border-color: var(--primary);
 	color: var(--primary-foreground);
