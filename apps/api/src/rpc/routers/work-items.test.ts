@@ -1850,3 +1850,30 @@ it("moves an epic to a project in its organization without moving linked Work", 
 			.get(caseId),
 	).toEqual({ work_item_id: itemId });
 });
+
+it("reads Work in one bounded batch, preserves request order and keeps other organizations private", async () => {
+	const first = "55555555-5555-4555-8555-555555555555";
+	const second = "66666666-6666-4666-8666-666666666666";
+	const foreign = "77777777-7777-4777-8777-777777777777";
+	const missing = "88888888-8888-4888-8888-888888888888";
+	seed({ id: first, title: "First" });
+	seed({ id: second, title: "Second" });
+	seed({ id: foreign, orgId: OTHER_ORG_ID, title: "Private" });
+	const reader = context("api");
+	reader.apiKey!.scopes = ["mcp:work.read"];
+	const batch = createRouterClient(workItemsContractRouter, {
+		context: reader,
+	});
+	const result = await batch.getMany({
+		ids: [second, foreign, first, missing, second],
+	});
+	expect(result.items.map((item) => [item.id, item.title])).toEqual([
+		[second, "Second"],
+		[first, "First"],
+	]);
+	expect(result.missingIds).toEqual([foreign, missing]);
+	reader.apiKey!.scopes = ["mcp:skills.read"];
+	await expect(batch.getMany({ ids: [first] })).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+});

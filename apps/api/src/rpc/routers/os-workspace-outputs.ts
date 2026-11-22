@@ -248,12 +248,14 @@ const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
 			kind: input.kind,
 			status: input.status,
 			limit: input.limit + 1,
+			offset: input.offset,
 		},
 	);
 	lap("query");
 	return {
 		items: rows.slice(0, input.limit).map(mapOsOutputRow),
 		truncated: rows.length > input.limit,
+		nextOffset: rows.length > input.limit ? input.offset + input.limit : null,
 	};
 });
 

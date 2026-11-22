@@ -1,3 +1,4 @@
+import { chunkForBoundParams } from "../../utils/batch";
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
 import { laneDispatchHasNoSettledResult } from "./attempt-limit";
 import { runtimeSubmissions } from "../../schema/runtime-submissions";
@@ -255,6 +256,23 @@ export async function getWorkItemById(
 				.limit(1)
 		)[0] ?? null;
 	return row ? normalizeWorkItemRow(row) : null;
+}
+
+export async function getWorkItemsByIds(
+	db: DbQueryClient,
+	params: { orgId: string; ids: string[] },
+): Promise<WorkItem[]> {
+	const items: WorkItem[] = [];
+	for (const ids of chunkForBoundParams(params.ids, 50)) {
+		const rows = await db
+			.select(workItemStoredColumns)
+			.from(workItems)
+			.where(
+				and(eq(workItems.orgId, params.orgId), inArray(workItems.id, ids)),
+			);
+		items.push(...rows.map(normalizeWorkItemRow));
+	}
+	return items;
 }
 
 /** Resolve the idempotency key used by Home and other durable producers. */

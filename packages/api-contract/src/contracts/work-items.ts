@@ -673,6 +673,22 @@ export const workItemsContract = oc
 			.input(GetWorkItemInputSchema)
 			.output(GetWorkItemResultSchema),
 
+		getMany: oc
+			.route({
+				method: "POST",
+				path: "/batch-read",
+				summary: "Read several Work Items",
+				description:
+					"Read up to 50 canonical Work Item IDs in one call. Returns each accessible item once, in request order, and missingIds for absent or out-of-organization IDs. Does not include comments or evidence.",
+			})
+			.input(z.strictObject({ ids: z.array(z.uuid()).min(1).max(50) }))
+			.output(
+				z.object({
+					items: z.array(WorkItemSchema),
+					missingIds: z.array(z.uuid()),
+				}),
+			),
+
 		getWorkGraphHealth: oc
 			.route({
 				method: "GET",

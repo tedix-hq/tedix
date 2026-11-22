@@ -599,6 +599,23 @@ describe("outputs", () => {
 
 		const listed = await c.org1.outputs.list({});
 		expect(listed.items).toHaveLength(2);
+		for (const workspaceId of [undefined, await homeWorkspaceId(c.env)]) {
+			const first = await c.org1.outputs.list({ workspaceId, limit: 1 });
+			expect(first).toMatchObject({ truncated: true, nextOffset: 1 });
+			const second = await c.org1.outputs.list({
+				workspaceId,
+				limit: 1,
+				offset: first.nextOffset!,
+			});
+			expect(second).toMatchObject({ truncated: false, nextOffset: null });
+			expect([...first.items, ...second.items].map((item) => item.id)).toEqual(
+				listed.items.map((item) => item.id),
+			);
+			expect(
+				(await c.org1.outputs.list({ workspaceId, offset: 2 })).items,
+			).toEqual([]);
+		}
+
 		expect((await c.org1.outputs.list({ kind: "sheet" })).items).toHaveLength(
 			1,
 		);

@@ -110,6 +110,7 @@ export interface ListWorkspaceOutputLibraryOptions {
 	/** Case-insensitive substring match on title and indexed excerpt. */
 	search?: string;
 	limit?: number;
+	offset?: number;
 }
 
 /** D1 caps LIKE patterns; longer terms are cut, never rejected. */
@@ -179,9 +180,10 @@ export async function listWorkspaceOutputLibrary(
 		.where(and(...conditions))
 		.orderBy(
 			desc(workspaceOutputIndex.updatedAt),
-			desc(workspaceOutputIndex.id),
+			desc(workspaceOutputIndex.outputId),
 		)
-		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
+		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500))
+		.offset(options.offset ?? 0);
 	return rows.map((row) => ({
 		index: row.index as WorkspaceOutputIndexRow,
 		workspace:

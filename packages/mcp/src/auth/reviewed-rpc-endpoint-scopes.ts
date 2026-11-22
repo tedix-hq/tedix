@@ -973,6 +973,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"workItems/applyRepositoryCandidate": "mcp:work.write",
 	"workItems/reconcileRepositoryCandidate": "mcp:work.write",
 	"workItems/revokeOwnedChannel": "mcp:work.admin",
+	"workItems/getMany": "mcp:work.read",
 	"workItems/updateCase": "mcp:work.write",
 	"workItems/reopenCase": "mcp:work.write",
 	"workItems/moveCase": "mcp:work.write",

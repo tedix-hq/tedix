@@ -1543,6 +1543,14 @@ export const osWorkspacesContract = oc
 							"Filter by lifecycle status; omitted returns all statuses",
 						),
 						limit: listLimitSchema,
+						offset: z
+							.number()
+							.int()
+							.nonnegative()
+							.default(0)
+							.describe(
+								"Skip this many matching outputs; use nextOffset from the previous page.",
+							),
 					}),
 				)
 				.output(
@@ -1550,6 +1558,7 @@ export const osWorkspacesContract = oc
 						items: z.array(OsOutputSchema),
 						/** True when more rows exist beyond `limit`. */
 						truncated: z.boolean(),
+						nextOffset: z.number().int().nonnegative().nullable(),
 					}),
 				),
 			library: oc

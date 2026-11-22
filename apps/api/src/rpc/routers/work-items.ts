@@ -1,6 +1,7 @@
 import {
 	listCliProjectionProcedure,
 	getCheckpointProjectionProcedure,
+	getManyProcedure,
 } from "./work-items/creation-reads";
 import {
 	listAttemptCliProjectionProcedure,
@@ -131,6 +132,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	detachCaseWorkItem: detachCaseWorkItemProcedure,
 	addCaseDependency: addCaseDependencyProcedure,
 	getById: getByIdRoute,
+	getMany: getManyProcedure,
 	getWorkGraphHealth: getWorkGraphHealthRoute,
 	runWorkGraphSteward: runWorkGraphStewardRoute,
 	getOrgGraphHealth: getOrgGraphHealthRoute,

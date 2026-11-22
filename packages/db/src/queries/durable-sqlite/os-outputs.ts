@@ -76,6 +76,7 @@ export interface ListOsOutputsOptions {
 	kind?: OsOutputRow["kind"];
 	status?: OsOutputRow["status"];
 	limit?: number;
+	offset?: number;
 }
 
 export interface UpdateOsOutputPatch {
@@ -245,7 +246,8 @@ export async function listOsOutputs(
 		.from(osOutputs)
 		.where(and(...conditions))
 		.orderBy(desc(osOutputs.updatedAt), desc(osOutputs.id))
-		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
+		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500))
+		.offset(options.offset ?? 0);
 }
 
 /**

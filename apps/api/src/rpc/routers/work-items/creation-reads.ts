@@ -45,6 +45,7 @@ import {
 import { listWorkItemComments } from "@tedix/db/queries/work-items/comments";
 import {
 	createWorkItem,
+	getWorkItemsByIds,
 	listOrgWorkItemProjections,
 	listWorkItemProjections,
 	listWorkItemsPage,
@@ -371,6 +372,24 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 		},
 	};
 });
+
+export const getManyProcedure = authOs.getMany
+	.use(withAuthorization("tedis:read", "mcp:work.read"))
+	.handler(async ({ input, context }) => {
+		const ids = [...new Set(input.ids.map((id) => id.toLowerCase()))];
+		const rows = await getWorkItemsByIds(context.db, {
+			orgId: requireOrgId(context),
+			ids,
+		});
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		return {
+			items: ids.flatMap((id) => {
+				const row = byId.get(id);
+				return row ? [row] : [];
+			}),
+			missingIds: ids.filter((id) => !byId.has(id)),
+		};
+	});
 
 export const getByIdProcedure = authOs.getById.handler(
 	async ({ input, context }) => {
