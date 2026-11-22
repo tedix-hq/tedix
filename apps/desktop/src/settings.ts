@@ -410,7 +410,7 @@ function mac(now: PanelState): Group[] {
 				},
 				{
 					title: "Local workspace",
-					sub: "Tedix running from its source folder on this Mac.",
+					sub: "Try Tedix with a sample workspace on this Mac.",
 					control: [
 						button(
 							"Open",
@@ -418,7 +418,7 @@ function mac(now: PanelState): Group[] {
 							() => void tedixShell.action("local-workspace"),
 						),
 					],
-					words: "developer local mode localhost",
+					words: "sample offline local",
 				},
 			],
 		},

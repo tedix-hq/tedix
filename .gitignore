@@ -47,3 +47,6 @@ storybook-static/
 
 # Private Devin conversation exports
 *.devin.atif.json
+
+# Mac installer payload
+/apps/desktop/local-workspace/

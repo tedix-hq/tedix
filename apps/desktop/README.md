@@ -183,13 +183,16 @@ the window or start a new chat.
 
 ## Use Local Tedix without a Cloud account
 
-Run `bun run-local` from the Tedix source checkout. In the Mac app's **Tedix**
-**Settings → This Mac**, choose **Local workspace → Open**.
-It opens `http://localhost:3030` in a window of the app with its own storage
-and lets you set up your local organization. Local Tedix skips Cloud sign-in and
-keeps its session apart from the app's Cloud session; the menu bar icon and
-runners stay with the app. Keep the local stack running
-while using the window.
+In Tedix, open **Settings → This Mac**, choose **Open** next to **Local workspace**,
+then click **Start on this Mac**. Tedix opens the Revenue Ops sample workspace and saves
+its files on this Mac. When you open Local Workspace again, Tedix starts the
+service for you. Local Workspace uses a separate session from Tedix Cloud.
+
+The sample workspace ships with AI replies turned off.
+
+### Run a separate local workspace for development
+
+Run `bun run-local` from a Tedix source checkout.
 
 To open the installed app directly in local mode:
 
@@ -287,7 +290,13 @@ from the version and its processor (`arm64` or `x64`).
 
 Build the files on a Mac, from `apps/desktop`. `scripts/fetch-cli.ts` puts the
 command-line tool for one processor type in `cli/<arch>/tedix`, where the
-build picks it up as `Contents/Resources/cli/tedix`. It downloads the latest
+build picks it up as `Contents/Resources/cli/tedix`. The publish job sets
+`DESKTOP_SOURCE_SHA`, which makes `bun run compile` prepare both Local Workspace
+payloads from that checkout. For a local packaging test, use
+`bun run bundle:local arm64` (or `x64`) before packaging. The installed app
+unpacks its payload into its application data folder on the first start.
+
+The CLI fetch script downloads the latest
 published CLI from `downloads.tedix.dev` and refuses it unless its SHA-256 is
 the one in that release's `SHA256SUMS`; add a version to pin one
 (`bun scripts/fetch-cli.ts arm64 0.29.0`). Publish the CLI release the app

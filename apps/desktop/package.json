@@ -6,8 +6,9 @@
 	"license": "AGPL-3.0-only",
 	"main": "out/main.cjs",
 	"scripts": {
-		"clean": "rm -rf out dist",
-		"compile": "bun build src/main.ts src/preload.ts src/local-model-preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/settings.ts src/onboarding.ts src/update-button.ts src/question-window.ts src/input-bar.ts --outdir out --target browser && bun build src/local-model-chat.ts --outdir out --target browser --format iife",
+		"clean": "rm -rf out dist local-workspace",
+		"bundle:local": "bun scripts/package-local-workspace.ts",
+		"compile": "if [ -n \"$DESKTOP_SOURCE_SHA\" ]; then bun run bundle:local arm64 && bun run bundle:local x64 || exit; fi; bun build src/main.ts src/preload.ts src/local-model-preload.ts --outdir out --target node --format cjs --external electron --entry-naming '[name].cjs' && bun build src/settings.ts src/onboarding.ts src/update-button.ts src/question-window.ts src/input-bar.ts --outdir out --target browser && bun build src/local-model-chat.ts --outdir out --target browser --format iife",
 		"dev": "bun run compile && node node_modules/electron/install.js && electron .",
 		"build": "bun run compile && electron-builder --dir --publish never",
 		"type-check": "tsc --noEmit"
@@ -48,6 +49,10 @@
 			{
 				"from": "cli/${arch}",
 				"to": "cli"
+			},
+			{
+				"from": "local-workspace/${arch}/local-workspace.tar.gz",
+				"to": "local-workspace.tar.gz"
 			}
 		],
 		"mac": {

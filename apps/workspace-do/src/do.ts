@@ -956,7 +956,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<{ seeded: boolean }> {
 		if (this.env.ENVIRONMENT !== "development")
 			throw new Error("Demo seeding runs only in local development");
+		this.bindScope(scope);
 		if (this.#ownsOutputs()) return { seeded: false };
+		await this.#adoptDirectory(scope);
 		await this.outputQuery(scope, { op: "initialize" });
 		const outputIds = (tables.os_outputs ?? []).map((row) => String(row.id));
 		await this.#serializeOutput(async () => {
