@@ -54,7 +54,8 @@ export function laneReservedActionMatches(text: string) {
 export const userPresenceStep =
 	/\b(?:complete|approve|grant|give|pass|perform|finish|enter|type|paste|accept|click|solve|scan|tap|confirm|answer|redo|re-do|do|go[ \t]+through|click[ \t]+through)\s+(?:(?:the|an?|your|my|their|its|our)\s+)?(?:oauth\s+|login\s+|sign[- ]?in\s+|verification\s+|sms\s+|e-?mail\s+|authenticator\s+|security\s+|device\s+|consent\s+|mfa\s+|2fa\s+)?(?:mfa|2fa|otp|totp|consent|passkey|password|captcha|qr[ -]?code|touch[ -]?id|face[ -]?id|security[ \t]+key|authenticator|login|sign[- ]?in|oauth(?:[ \t]+(?:flow|dance|screen|prompt))?|consent[ \t]+(?:screen|prompt|dialog)|verification[ \t]+code|sms[ \t]+code|e-?mail[ \t]+code|device|push[ \t]+notification)\b|\b(?:enter|type|paste|read[ \t]+out|answer)[ \t]+(?:the[ \t]+)?(?:\w+[ \t]+)?code\b(?![ \t]+(?:path|base|review|change|style|owner|block|sample|snippet|point))|\buse[ \t]+(?:the|your|my|an?)?[ \t]*(?:passkey|touch[ -]?id|face[ -]?id|security[ \t]+key|authenticator)\b(?![ \t]+(?:mock|stub|fake|test|fixture|component|module|class))|\bclick[ \t]+(?:on[ \t]+)?(?:["'“]?)(?:allow|approve|accept|authori[sz]e|continue[ \t]+with[ \t]+google|sign[ \t]+in[ \t]+with)\b|\bconsent[ \t]+to\b(?![^.;!?\n]*\b(?:checkbox|label|form|page|component|copy|text|ui|string|wording)\b)|(?:^|[.;!\n][ \t]*)(?:please[ \t]+)?(?:log|sign)[ -]?(?:in|on)[ \t]*(?:[.!;\n]|$)/i;
 
-const anyWords = String.raw`(?:[\w'’-]+[ \t]+){0,3}`;
+// Credential targets must stay in the action clause, before a condition.
+const anyWords = String.raw`(?:(?!(?:when|if|after|before|once|while)\b)[\w'’-]+[ \t]+){0,3}`;
 const inSentence = String.raw`[^.;!?\n]`;
 // Nouns after a credential word that make it a code subject, not a secret.
 const codeSubject = String.raw`(?![ \t-]+(?:exchange|hash|requirements?|rules?|polic(?:y|ies)|strength|complexity|hashes|hashing|map|salt|length|strength|entropy|module|handler|cache|resolution|lookup|refresh|store|path|file|header|injection|broker|flow|endpoint|route|check|validation|tests?|type|schema|format|field|column|table|parser|parsing|helper|util|service|class|function|logic|bug|error|issue|leak|audit|scan|scanner|rule|policy|manager|page|form|input|prompt|ui|screen|component|docs?|readme|guide|section))`;
@@ -70,7 +71,7 @@ const technicalCallPrefix =
 		/[a-z]/g,
 		(letter) => `[${letter}${letter.toUpperCase()}]`,
 	);
-const phoneCall = String.raw`(?<!\b(?:${technicalCallPrefix})[ \t]+)[Cc]all`;
+const phoneCall = String.raw`(?<!\b(?:${technicalCallPrefix})[ \t]+)[Cc]all(?![ \t]+(?:it|them)[ \t]*\([ \t]*[\w./-]+\.(?:[cm]?[jt]sx?):\d+)`;
 const codeObject = String.raw`(?![ \t]+(?:(?!(?:and|or|then|from|of|for|in|on|at|to|with|via|using)\b)[\w'’-]+[ \t]+){0,3}(?:quer(?:y|ies)|functions?|code|tests?|helpers?|imports?|types?|handlers?|routes?|files?|flags?|shims?|fallbacks?|modules?|exports?|endpoints?|indexes|methods?|components?|scripts?|jobs?|paths?)\b)`;
 
 const actRules: Record<string, RegExp[]> = {
@@ -143,7 +144,7 @@ const actRules: Record<string, RegExp[]> = {
 	],
 	external_message: [
 		new RegExp(
-			String.raw`\b(?:send|e-?mail|mail|message|dm|text|${phoneCall}|phone|forward|notify|invite|reply(?:[ \t]+to)?|respond(?:[ \t]+to)?|answer|write[ \t]+to|reach[ \t]+out[ \t]+to|contact|ping|schicke|schick|sende|schreibe|schreib|antworte|kontaktiere|benachrichtige|rufe)\b${inSentence}{0,40}\b${outsideParty}\b${partyAsCode}`,
+			String.raw`\b(?:send(?![ \t]+(?:events?|requests?)[ \t]+(?:through|via|using)[ \t]+(?:(?:an?|the)[ \t]+)?(?:http[ \t]+)?client\b)|e-?mail|mail|message|dm|text|${phoneCall}|phone|forward|notify|invite|reply(?:[ \t]+to)?|respond(?:[ \t]+to)?|answer|write[ \t]+to|reach[ \t]+out[ \t]+to|contact|ping|schicke|schick|sende|schreibe|schreib|antworte|kontaktiere|benachrichtige|rufe)\b${inSentence}{0,40}\b${outsideParty}\b${partyAsCode}`,
 			"i",
 		),
 		new RegExp(
