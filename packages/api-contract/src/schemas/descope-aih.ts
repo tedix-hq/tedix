@@ -191,6 +191,7 @@ export const DescopeAihServerAuditSchema = z.object({
 	loginPageURL: z.string().nullish(),
 	dynamicRegistrationFlowId: z.string().nullish(),
 	disableApprovedScopesAsDefault: z.boolean(),
+	skipConsentScreen: z.boolean(),
 	cimdEnabled: z.boolean(),
 	cimdDomainPolicies: z.array(z.string()),
 	sessionSettingsEnabled: z.boolean(),

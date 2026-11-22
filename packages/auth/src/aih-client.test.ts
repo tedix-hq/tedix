@@ -53,6 +53,15 @@ describe("AIH MCP server registration hardening", () => {
 		expect(hardened.loginPageURL).toBe("https://os.tedix.dev/oauth/consent");
 	});
 
+	it("never lets Descope skip the consent screen that records the organization choice", () => {
+		expect(
+			hardenDescopeMcpServerRegistration(
+				{ id: "server-id", name: "Tedix Connect", skipConsentScreen: true },
+				env,
+			).skipConsentScreen,
+		).toBe(false);
+	});
+
 	it("defaults DCR enabled when unset, still hardened to disable scope defaults", () => {
 		const hardened = hardenDescopeMcpServerRegistration(
 			{ id: "server-id", name: "Tedix Unified" },

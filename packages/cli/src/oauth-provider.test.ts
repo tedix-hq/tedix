@@ -100,6 +100,8 @@ test("multi-organization login accepts only a signed bounded selection", () => {
 		{ ...valid, aud: [valid.aud, "Pother"] },
 		{ ...valid, aud: [valid.aud, "https://another.example/mcp"] },
 		{ ...valid, aud: [valid.aud, 123] },
+		// A skipped Descope consent screen issues a token without the claim.
+		{ ...valid, tedixSelectedOrganizations: undefined },
 		{ ...valid, tedixSelectedOrganizations: [] },
 		{ ...valid, tedixSelectedOrganizations: ["org_tedix", "org_tedix"] },
 		{ ...valid, dci: undefined },

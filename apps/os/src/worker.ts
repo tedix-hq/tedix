@@ -169,6 +169,17 @@ const RECIPIENT_SHARE_API_PATH =
 /** A gallery blueprint's shareable landing page and the one public read it makes. */
 const BLUEPRINT_DOCUMENT_PATH = /^\/blueprint\/[0-9a-f-]{36}$/i;
 const PUBLIC_BLUEPRINT_API_PATH = /^\/api\/public\/blueprints\/[0-9a-f-]{36}$/i;
+/**
+ * Launcher APIs a signed Descope session may call before any product cookie
+ * exists: invitation acceptance, and the OAuth consent page's workspace list
+ * and consent staging (`tedix login` from a browser with no Tedix session).
+ * Each handler binds its result to the verified bearer subject.
+ */
+const DESCOPE_SESSION_LAUNCHER_API_PATHS = new Set([
+	"/api/rpc/members/acceptInvitation",
+	"/api/rpc/directory/listMyWorkspaces",
+	"/api/rpc/organizations/stageMultiOrgMcpConsent",
+]);
 const OUTBOUND_APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 /**
@@ -1323,7 +1334,7 @@ export async function handleOsRequest(
 			tenant.kind === "launcher" &&
 			(url.pathname ===
 				`${cliApi ? "/cli/api" : "/api"}/rpc/organizations/getMyOrganization` ||
-				(!cliApi && url.pathname === "/api/rpc/members/acceptInvitation"));
+				(!cliApi && DESCOPE_SESSION_LAUNCHER_API_PATHS.has(url.pathname)));
 		const { hasOidcSession } = await import("./auth/oidc");
 		let authenticated =
 			(!cliApi && hasOidcSession(request) ? request : null) ??

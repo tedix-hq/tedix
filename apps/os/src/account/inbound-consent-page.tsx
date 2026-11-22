@@ -5,7 +5,12 @@ import {
 	isReadOnlyConsentSelection,
 	selectConsentPreset,
 } from "@tedix/mcp-shared/auth/consent-scopes";
-import { Descope, useDescope, useUser } from "@descope/react-sdk/flows";
+import {
+	Descope,
+	useDescope,
+	useSession,
+	useUser,
+} from "@descope/react-sdk/flows";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TedixDescopeProvider } from "@/shared/descope-provider";
 import { Badge } from "@/components/kumo/badge";
@@ -25,13 +30,7 @@ import {
 } from "@/components/kumo/card";
 import { Text } from "@/components/kumo/text";
 import { useDocumentTitle } from "@/lib/use-document-title";
-import { osApi } from "@/lib/api";
-import {
-	buildBrokerStartPath,
-	buildOsAuthReturnUrl,
-	isDescopeFlowContinuation,
-	OS_BROKER_STATUS_TIMEOUT_MS,
-} from "@/shared/session-status";
+import { createInboundConsentApi } from "@/lib/api";
 import { TedixBrandMark } from "@/shared/tedix-brand";
 import { IdentityJourneyFrame } from "@/account/identity-journey";
 import { ConsentPermissionGroups } from "@/account/consent-permission-groups";
@@ -67,8 +66,6 @@ export const INBOUND_CONSENT_AUTHORIZE_INTERACTION = "_Z6xPaS9jy";
 export const INBOUND_CONSENT_CANCEL_INTERACTION = "6N3cb_5t3T";
 export const INBOUND_CONSENT_RECOVERY_STORAGE_PREFIX =
 	"tedix-inbound-consent-authorization:";
-const INBOUND_CONSENT_BROKER_GUARD_PREFIX =
-	"tedix-inbound-consent-broker-attempted:";
 
 type InboundConsentFlowFailure =
 	| "expired-callback"
@@ -291,73 +288,6 @@ function inboundConsentAppRecoveryStorageKey(
 	}
 }
 
-function inboundConsentBrokerGuardKey(path: string): string {
-	return `${INBOUND_CONSENT_BROKER_GUARD_PREFIX}${inboundConsentStateId(path) ?? "unknown"}`;
-}
-
-/**
- * Whether a product-session bounce can return to this same authorization. The
- * bounce drops the in-flight Descope execution, so only a URL that still names
- * the `/authorize` transaction (`third_party_app_state_id`) can resume it. A
- * provider-callback URL cannot: a fresh flow would record consent and then
- * never redirect back to the application.
- */
-export function inboundConsentResumableAfterBroker(
-	returnPath: string,
-): boolean {
-	return inboundConsentStateId(returnPath) !== null;
-}
-
-/**
- * The broker start path to visit before the Descope flow starts, or null to
- * start the flow here. Signing in to Tedix OS first keeps the transaction in
- * the URL; signing in inside the consent flow returns through a provider
- * callback that no longer carries it.
- */
-export function inboundConsentPreFlowBrokerPath(
-	locationUrl: string,
-	brokerAuthenticated: boolean,
-): string | null {
-	if (brokerAuthenticated) return null;
-	try {
-		const url = new URL(locationUrl);
-		if (url.searchParams.has("error") || isDescopeFlowContinuation(url.href)) {
-			return null;
-		}
-	} catch {
-		return null;
-	}
-	if (!inboundConsentResumableAfterBroker(locationUrl)) return null;
-	return buildBrokerStartPath("/auth/session-broker", {
-		redirectTo: inboundConsentBrokerReturnPath(locationUrl),
-	});
-}
-
-async function readOsBrokerStatus(): Promise<{
-	authenticated: boolean;
-	email: string;
-}> {
-	const response = await fetch("/auth/session-broker/status", {
-		credentials: "same-origin",
-		headers: { Accept: "application/json" },
-		signal: AbortSignal.timeout(OS_BROKER_STATUS_TIMEOUT_MS),
-	});
-	if (!response.ok && response.status !== 401) {
-		throw new Error("Broker status unavailable");
-	}
-	const status = (await response.json()) as {
-		authenticated?: unknown;
-		user?: { email?: unknown };
-	};
-	return {
-		authenticated: response.ok && status.authenticated === true,
-		email:
-			typeof status.user?.email === "string"
-				? status.user.email.trim().toLowerCase()
-				: "",
-	};
-}
-
 /**
  * Preserve the immutable Descope `/authorize` request across the external IdP
  * round trip. Only the opaque transaction URL is stored; provider codes,
@@ -485,6 +415,57 @@ export function inboundConsentClientReference(
 	}
 }
 
+/** A session JWT that will not expire during the request it authorizes. */
+export function inboundConsentSessionJwtUsable(
+	jwt: string | null | undefined,
+	nowMs = Date.now(),
+): jwt is string {
+	if (!jwt) return false;
+	try {
+		const payload = JSON.parse(
+			atob(jwt.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")),
+		) as { exp?: unknown };
+		return (
+			typeof payload.exp === "number" && payload.exp * 1000 > nowMs + 30_000
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Consent API calls carry the consent flow's own Descope session, so a
+ * browser with no Tedix OS session can still list workspaces and stage the
+ * organization choice. The SDK holds the session the pre-flow refresh found;
+ * after a sign-in inside the flow it holds none until the flow ends, so one
+ * refresh reads it from the Descope session cookie.
+ */
+function useInboundConsentApi() {
+	const descope = useDescope();
+	const { sessionToken } = useSession();
+	const sessionTokenRef = useRef(sessionToken);
+	sessionTokenRef.current = sessionToken;
+	return useMemo(() => {
+		let refreshing: Promise<string> | null = null;
+		return createInboundConsentApi(async () => {
+			if (inboundConsentSessionJwtUsable(sessionTokenRef.current)) {
+				return sessionTokenRef.current;
+			}
+			refreshing ??= descope
+				.refresh(undefined, false)
+				.then((result) => {
+					const jwt = result.ok ? result.data?.sessionJwt : undefined;
+					if (!jwt) throw new Error("Consent sign-in unavailable");
+					return jwt;
+				})
+				.finally(() => {
+					refreshing = null;
+				});
+			return refreshing;
+		});
+	}, [descope]);
+}
+
 function GroupedConsentScreen({
 	state,
 	tenant,
@@ -500,6 +481,7 @@ function GroupedConsentScreen({
 }) {
 	const descope = useDescope();
 	const { user } = useUser();
+	const consentApi = useInboundConsentApi();
 	const selectableScopes = state.scopes.filter(
 		(scope) => scope.name !== "platform:admin",
 	);
@@ -580,7 +562,7 @@ function GroupedConsentScreen({
 			eligibleTenants: null,
 			error: false,
 		});
-		void osApi.directory
+		void consentApi
 			.listMyWorkspaces({ limit: 100, offset: 0 })
 			.then((result) => {
 				if (!active) return;
@@ -614,7 +596,7 @@ function GroupedConsentScreen({
 		return () => {
 			active = false;
 		};
-	}, [directoryReload]);
+	}, [consentApi, directoryReload]);
 	const currentDirectory = workspaceDirectory;
 	const eligibleTenants =
 		currentDirectory?.eligibleTenants ?? new Set<string>();
@@ -712,7 +694,7 @@ function GroupedConsentScreen({
 			}
 			try {
 				if (kind === "authorize") {
-					const staged = await osApi.organizations.stageMultiOrgMcpConsent({
+					const staged = await consentApi.stageMultiOrgMcpConsent({
 						clientId,
 						resourceUrl,
 						selectedTenantIds,
@@ -1094,123 +1076,8 @@ function GroupedConsentScreen({
 	);
 }
 
-/** Keep the OAuth transaction identifier across the product-session bounce. */
-export function inboundConsentBrokerReturnPath(locationUrl: string): string {
-	const destination = new URL(buildOsAuthReturnUrl(locationUrl));
-	// A provider callback code is single-use and must never be replayed.
-	destination.searchParams.delete("code");
-	return `${destination.pathname}${destination.search}`;
-}
-
-function BrokerReadyConsentScreen({
-	returnPath,
-	recoveryUrl,
-	...screenProps
-}: {
-	returnPath: string;
-	recoveryUrl: string | null;
-	state: ConsentScreenState;
-	tenant?: string;
-	clientId: string | null;
-	resourceUrl: string | null;
-	onFlowError: (error: unknown) => void;
-}) {
-	const { user } = useUser();
-	const consentEmail =
-		typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
-	const [brokerState, setBrokerState] = useState<
-		"checking" | "authenticated" | "redirecting" | "unavailable"
-	>("checking");
-	const [authenticatedEmail, setAuthenticatedEmail] = useState<string | null>(
-		null,
-	);
-	const [retrying, setRetrying] = useState(false);
-	useEffect(() => {
-		let active = true;
-		void readOsBrokerStatus()
-			.then((status) => {
-				if (!active) return;
-				if (status.authenticated) {
-					const matches =
-						Boolean(consentEmail) && status.email === consentEmail;
-					setAuthenticatedEmail(matches ? consentEmail : null);
-					setBrokerState(matches ? "authenticated" : "unavailable");
-					return;
-				}
-				const currentUrl = new URL(window.location.href);
-				if (
-					currentUrl.searchParams.has("error") ||
-					isDescopeFlowContinuation(currentUrl.href) ||
-					// Bouncing would drop the authorization this flow is finishing.
-					!inboundConsentResumableAfterBroker(returnPath)
-				) {
-					setBrokerState("unavailable");
-					return;
-				}
-				const guardKey = inboundConsentBrokerGuardKey(returnPath);
-				try {
-					if (window.sessionStorage.getItem(guardKey) !== null) {
-						setBrokerState("unavailable");
-						return;
-					}
-					window.sessionStorage.setItem(guardKey, "1");
-				} catch {
-					setBrokerState("unavailable");
-					return;
-				}
-				setBrokerState("redirecting");
-				window.location.replace(
-					buildBrokerStartPath("/auth/session-broker", {
-						redirectTo: returnPath,
-					}),
-				);
-			})
-			.catch(() => {
-				if (active) setBrokerState("unavailable");
-			});
-		return () => {
-			active = false;
-		};
-	}, [consentEmail, returnPath]);
-	if (
-		brokerState === "authenticated" &&
-		consentEmail &&
-		authenticatedEmail === consentEmail
-	) {
-		return <GroupedConsentScreen {...screenProps} />;
-	}
-	return (
-		<IdentityJourneyFrame
-			title="Authorize access"
-			description={
-				brokerState !== "unavailable"
-					? "Getting the access request ready…"
-					: recoveryUrl
-						? "Your Tedix sign-in could not be prepared. Nothing was approved. Retry to sign in to Tedix and load the original request again."
-						: "Your Tedix sign-in could not be prepared. Nothing was approved. Start the connection again from the application that requested access."
-			}
-			loading={brokerState !== "unavailable"}
-		>
-			{brokerState === "unavailable" && recoveryUrl ? (
-				<Button
-					disabled={retrying}
-					onClick={() => {
-						setRetrying(true);
-						window.location.replace(recoveryUrl);
-					}}
-				>
-					{retrying ? "Preparing authorization…" : "Retry authorization"}
-				</Button>
-			) : null}
-		</IdentityJourneyFrame>
-	);
-}
-
 function InboundConsentFlow() {
 	const descope = useDescope();
-	const brokerReturnPath = useRef(
-		inboundConsentBrokerReturnPath(window.location.href),
-	);
 	const recoveryUrl = useRef(
 		inboundConsentRecoveryUrl(
 			window.location.href,
@@ -1390,10 +1257,8 @@ function InboundConsentFlow() {
 				</IdentityJourneyFrame>
 			) : null}
 			{customScreen?.kind === "consent" ? (
-				<BrokerReadyConsentScreen
+				<GroupedConsentScreen
 					key={JSON.stringify(customScreen.scopes)}
-					returnPath={brokerReturnPath.current}
-					recoveryUrl={recoveryUrl.current}
 					state={customScreen}
 					tenant={tenant}
 					clientId={clientReference.current}
@@ -1407,35 +1272,6 @@ function InboundConsentFlow() {
 	);
 }
 
-/**
- * Sign in to Tedix OS before the Descope flow starts when no product session
- * exists. Returns true once the page is leaving for the broker.
- */
-async function preFlowBrokerBounce(): Promise<boolean> {
-	const href = window.location.href;
-	// Cheap URL checks first: a provider callback or broker error never bounces.
-	if (!inboundConsentPreFlowBrokerPath(href, false)) return false;
-	let authenticated: boolean;
-	try {
-		authenticated = (await readOsBrokerStatus()).authenticated;
-	} catch {
-		return false;
-	}
-	const brokerPath = inboundConsentPreFlowBrokerPath(href, authenticated);
-	if (!brokerPath) return false;
-	const guardKey = inboundConsentBrokerGuardKey(href);
-	try {
-		if (window.sessionStorage.getItem(guardKey) !== null) return false;
-		window.sessionStorage.setItem(guardKey, "1");
-	} catch {
-		return false;
-	}
-	// Keep the `/authorize` URL (only visible as this load's referrer) for retry.
-	inboundConsentRecoveryUrl(href, document.referrer, window.sessionStorage);
-	window.location.replace(brokerPath);
-	return true;
-}
-
 function SessionReadyInboundConsent() {
 	const descope = useDescope();
 	const [ready, setReady] = useState(false);
@@ -1444,13 +1280,14 @@ function SessionReadyInboundConsent() {
 		// One forced refresh hydrates the consent session from the auth-host
 		// HttpOnly refresh cookie (the SDK persists nothing client-side, so
 		// there is no app-host copy to guard against) and advances the central
-		// broker lineage before the inbound-app flow takes over.
+		// broker lineage before the inbound-app flow takes over. Without a
+		// session the flow signs the person in itself; consent needs no Tedix
+		// OS session because its API calls carry the flow's Descope session.
 		void descope
 			.refresh(undefined, false)
 			.catch(() => undefined)
-			.then(() => preFlowBrokerBounce())
-			.then((bounced) => {
-				if (active && !bounced) setReady(true);
+			.then(() => {
+				if (active) setReady(true);
 			});
 		return () => {
 			active = false;

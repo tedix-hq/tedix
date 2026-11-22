@@ -19,7 +19,13 @@ const descopeMock = vi.hoisted(() => ({
 		data: { tenants: [{ id: "org_tedix", name: "Tedix" }] },
 	})),
 	logout: vi.fn(),
-	refresh: vi.fn(async () => ({ ok: false })),
+	refresh: vi.fn(
+		async (): Promise<{
+			ok: boolean;
+			data?: { sessionJwt: string };
+		}> => ({ ok: false }),
+	),
+	sessionToken: "" as string,
 	flowProps: null as Record<string, unknown> | null,
 }));
 
@@ -37,9 +43,9 @@ vi.mock("@descope/react-sdk/flows", () => ({
 		isUserLoading: false,
 	}),
 	useSession: () => ({
-		isAuthenticated: false,
+		isAuthenticated: Boolean(descopeMock.sessionToken),
 		isSessionLoading: false,
-		sessionToken: null,
+		sessionToken: descopeMock.sessionToken,
 	}),
 }));
 
@@ -47,23 +53,31 @@ const apiMock = vi.hoisted(() => ({
 	listMyWorkspaces: vi.fn(),
 	stageMultiOrgMcpConsent: vi.fn(),
 	revokeMultiOrgMcpConsent: vi.fn(),
+	consentSessionJwt: null as null | (() => Promise<string>),
 }));
 
 vi.mock("@/lib/api", () => ({
-	osApi: {
-		directory: { listMyWorkspaces: apiMock.listMyWorkspaces },
-		organizations: {
+	createInboundConsentApi: (getSessionJwt: () => Promise<string>) => {
+		apiMock.consentSessionJwt = getSessionJwt;
+		return {
+			listMyWorkspaces: apiMock.listMyWorkspaces,
 			stageMultiOrgMcpConsent: apiMock.stageMultiOrgMcpConsent,
-			revokeMultiOrgMcpConsent: apiMock.revokeMultiOrgMcpConsent,
-		},
+		};
 	},
 }));
+
+/** A Descope session JWT that stays valid for the test. */
+function sessionJwt(subject: string): string {
+	const payload = btoa(
+		JSON.stringify({ sub: subject, exp: Math.floor(Date.now() / 1000) + 600 }),
+	).replace(/=+$/, "");
+	return `header.${payload}.signature`;
+}
 
 import {
 	INBOUND_CONSENT_AUTHORIZE_INTERACTION,
 	INBOUND_CONSENT_CANCEL_INTERACTION,
 	InboundConsentPage,
-	inboundConsentBrokerReturnPath,
 } from "./inbound-consent-page";
 import {
 	DESCOPE_LOGIN_INTERACTIONS,
@@ -102,11 +116,13 @@ beforeEach(() => {
 		data: { email: "member@example.test", roleNames: [] },
 	});
 	descopeMock.myTenants.mockClear();
+	descopeMock.sessionToken = sessionJwt("member");
+	descopeMock.refresh.mockReset();
+	descopeMock.refresh.mockResolvedValue({ ok: false });
+	apiMock.consentSessionJwt = null;
+	// Consent never depends on a Tedix OS session or its broker endpoints.
 	globalThis.fetch = vi.fn(async () =>
-		Response.json({
-			authenticated: true,
-			user: { email: " MEMBER@EXAMPLE.TEST " },
-		}),
+		Response.json({ authenticated: false }, { status: 401 }),
 	);
 	apiMock.listMyWorkspaces.mockReset();
 	apiMock.stageMultiOrgMcpConsent.mockReset();
@@ -473,9 +489,9 @@ describe("InboundConsentPage layout", () => {
 		expect(container.textContent).toContain("Tedix");
 		expect(container.textContent).toContain("Sample");
 		await click("Authorize");
-		expect(globalThis.fetch).toHaveBeenCalledWith(
-			"/auth/session-broker/status",
-			expect.objectContaining({ credentials: "same-origin" }),
+		expect(globalThis.fetch).not.toHaveBeenCalled();
+		await expect(apiMock.consentSessionJwt?.()).resolves.toBe(
+			descopeMock.sessionToken,
 		);
 		expect(apiMock.listMyWorkspaces).toHaveBeenCalledWith({
 			limit: 100,
@@ -529,10 +545,6 @@ describe("InboundConsentPage layout", () => {
 			(button) => button.textContent === "Cancel",
 		);
 		await act(async () => cancel?.click());
-		expect(globalThis.fetch).toHaveBeenCalledWith(
-			"/auth/session-broker/status",
-			expect.objectContaining({ credentials: "same-origin" }),
-		);
 		expect(apiMock.revokeMultiOrgMcpConsent).not.toHaveBeenCalled();
 		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
 		expect(next).toHaveBeenCalledWith(INBOUND_CONSENT_CANCEL_INTERACTION, {
@@ -541,179 +553,90 @@ describe("InboundConsentPage layout", () => {
 		});
 	});
 
-	it.each(
-		[
-			{
-				caseName: "a different broker account",
-				brokerEmail: "other@example.test",
-				consentEmail: "member@example.test" as string | null,
-			},
-			{
-				caseName: "a missing broker email",
-				brokerEmail: null,
-				consentEmail: "member@example.test" as string | null,
-			},
-			{
-				caseName: "a missing Descope email",
-				brokerEmail: "member@example.test",
-				consentEmail: null,
-			},
-		].flatMap((entry) =>
-			["tenant-bound", "multi-org"].map((mode) => ({ ...entry, mode })),
-		),
-	)(
-		"does not show consent for $caseName in $mode mode",
-		async ({ brokerEmail, consentEmail, mode }) => {
-			descopeMock.userEmail = consentEmail;
-			globalThis.fetch = vi.fn(async () =>
-				Response.json({
-					authenticated: true,
-					user: brokerEmail ? { email: brokerEmail } : {},
-				}),
-			);
-			window.history.replaceState(
-				{},
-				"",
-				mode === "multi-org"
-					? "/oauth/consent?mode=multi-org"
-					: "/oauth/consent?tenant=org_tedix",
-			);
+	it.each([
+		{
+			caseName: "an authorize load",
+			query:
+				"mode=multi-org&third_party_app_state_id=state-1&third_party_app_id=TPAclient1&resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp",
+		},
+		{
+			caseName: "a provider callback that lost the OAuth state",
+			query:
+				"resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1",
+		},
+	])(
+		"completes consent with no Tedix session after signing in inside the flow ($caseName)",
+		async ({ query }) => {
+			// A fresh private window: no OS cookie and, until the in-flow sign-in,
+			// no Descope session for the SDK to hold.
+			descopeMock.sessionToken = "";
+			const flowSession = sessionJwt("fresh-member");
+			descopeMock.refresh.mockResolvedValue({ ok: false });
+			window.history.replaceState({}, "", `/oauth/consent?${query}`);
 			await act(async () => renderConsentPage());
+			expect(descopeMock.flowProps).toBeTruthy();
+			expect(window.location.pathname).toBe("/oauth/consent");
+			descopeMock.refresh.mockResolvedValue({
+				ok: true,
+				data: { sessionJwt: flowSession },
+			});
 			const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
 				screenName: string,
 				context: Record<string, unknown>,
 				next: ReturnType<typeof vi.fn>,
 			) => boolean;
+			const next = vi.fn().mockResolvedValue({ ok: true });
 			await act(async () => {
 				onScreenUpdate(
 					"Consent Screen - Verified App",
 					{ data: { inboundAppApproveScopes: [{ id: "mcp:apps.read" }] } },
-					vi.fn(),
+					next,
 				);
 			});
-			expect(container.textContent).toContain(
-				"Your Tedix sign-in could not be prepared.",
-			);
+			await expect(apiMock.consentSessionJwt?.()).resolves.toBe(flowSession);
+			await clickButton("Choose organizations");
+			await clickButton("Select all current");
+			await clickButton("Review access");
+			await clickButton("Authorize");
+			expect(globalThis.fetch).not.toHaveBeenCalled();
 			expect(window.location.pathname).toBe("/oauth/consent");
-			expect(apiMock.listMyWorkspaces).not.toHaveBeenCalled();
-			expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
-			expect(apiMock.revokeMultiOrgMcpConsent).not.toHaveBeenCalled();
+			expect(apiMock.listMyWorkspaces).toHaveBeenCalled();
+			expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith(
+				expect.objectContaining({ selectedTenantIds: ["org_tedix"] }),
+			);
+			expect(next).toHaveBeenCalledWith(
+				INBOUND_CONSENT_AUTHORIZE_INTERACTION,
+				expect.objectContaining({
+					"form.tedixSelectedOrganizations": '["org_tedix"]',
+					"form.tedixConsentRevision": consentRevision,
+				}),
+			);
 		},
 	);
 
-	it("signs in to Tedix OS before the Descope flow starts, keeping the OAuth state", async () => {
-		globalThis.fetch = vi.fn(async () =>
-			Response.json({ authenticated: false }),
-		);
-		window.sessionStorage.setItem(
-			"tedix-inbound-consent-authorization:state-1",
-			"https://auth.tedix.dev/authorize?client_id=client-1",
-		);
-		window.history.replaceState(
-			{},
-			"",
-			"/oauth/consent?mode=multi-org&third_party_app_state_id=state-1",
-		);
+	it("does not stage consent when the flow has no Descope session", async () => {
+		descopeMock.sessionToken = "";
+		apiMock.listMyWorkspaces.mockImplementation(async () => {
+			await apiMock.consentSessionJwt?.();
+			return { data: [], pagination: {} };
+		});
 		await act(async () => renderConsentPage());
-		// The bounce happens before the Descope flow starts, so a provider login
-		// never runs inside the flow and drop the state id from the URL.
-		expect(descopeMock.flowProps).toBeFalsy();
-		expect(
-			window.sessionStorage.getItem(
-				"tedix-inbound-consent-broker-attempted:state-1",
-			),
-		).toBe("1");
-		expect(window.location.pathname).toBe("/auth/session-broker/start");
-		expect(new URLSearchParams(window.location.search).get("redirect_to")).toBe(
-			"/oauth/consent?mode=multi-org&third_party_app_state_id=state-1",
-		);
-		expect(
-			window.sessionStorage.getItem(
-				"tedix-inbound-consent-authorization:state-1",
-			),
-		).toBe("https://auth.tedix.dev/authorize?client_id=client-1");
-		expect(apiMock.listMyWorkspaces).not.toHaveBeenCalled();
+		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
+			screenName: string,
+			context: Record<string, unknown>,
+			next: ReturnType<typeof vi.fn>,
+		) => boolean;
+		const next = vi.fn();
+		await act(async () => {
+			onScreenUpdate(
+				"Consent Screen - Verified App",
+				{ data: { inboundAppApproveScopes: [{ id: "mcp:apps.read" }] } },
+				next,
+			);
+		});
+		await expect(apiMock.consentSessionJwt?.()).rejects.toThrow();
 		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
-		expect(apiMock.revokeMultiOrgMcpConsent).not.toHaveBeenCalled();
-	});
-
-	it("does not repeat a failed broker bounce for the same OAuth state", async () => {
-		globalThis.fetch = vi.fn(async () =>
-			Response.json({ authenticated: false }),
-		);
-		window.sessionStorage.setItem(
-			"tedix-inbound-consent-broker-attempted:state-1",
-			"1",
-		);
-		window.history.replaceState(
-			{},
-			"",
-			"/oauth/consent?mode=multi-org&third_party_app_state_id=state-1",
-		);
-		await act(async () => renderConsentPage());
-		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
-			screenName: string,
-			context: Record<string, unknown>,
-			next: ReturnType<typeof vi.fn>,
-		) => boolean;
-		await act(async () => {
-			onScreenUpdate(
-				"Consent Screen - Verified App",
-				{ data: { inboundAppApproveScopes: [{ id: "mcp:apps.read" }] } },
-				vi.fn(),
-			);
-		});
-		expect(window.location.pathname).toBe("/oauth/consent");
-		expect(container.textContent).toContain(
-			"Your Tedix sign-in could not be prepared.",
-		);
-		expect(apiMock.listMyWorkspaces).not.toHaveBeenCalled();
-	});
-
-	it("offers a retry instead of bouncing a provider callback that lost the OAuth state", async () => {
-		globalThis.fetch = vi.fn(async () =>
-			Response.json({ authenticated: false }, { status: 401 }),
-		);
-		window.sessionStorage.setItem(
-			"tedix-inbound-consent-authorization:app:TPAclient1",
-			"https://auth.tedix.dev/authorize?client_id=client-1",
-		);
-		window.history.replaceState(
-			{},
-			"",
-			"/oauth/consent?resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1",
-		);
-		await act(async () => renderConsentPage());
-		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
-			screenName: string,
-			context: Record<string, unknown>,
-			next: ReturnType<typeof vi.fn>,
-		) => boolean;
-		await act(async () => {
-			onScreenUpdate(
-				"Consent Screen - Verified App",
-				{ data: { inboundAppApproveScopes: [{ id: "mcp:apps.read" }] } },
-				vi.fn(),
-			);
-		});
-		expect(window.location.pathname).toBe("/oauth/consent");
-		expect(container.textContent).toContain(
-			"Your Tedix sign-in could not be prepared.",
-		);
-		expect(
-			[...container.querySelectorAll("button")].some(
-				(button) => button.textContent === "Retry authorization",
-			),
-		).toBe(true);
-		expect(apiMock.listMyWorkspaces).not.toHaveBeenCalled();
-	});
-
-	it("removes spent callback parameters but keeps the consent state in the broker return path", () => {
-		expect(
-			inboundConsentBrokerReturnPath(
-				"https://os.tedix.dev/oauth/consent?mode=multi-org&third_party_app_state_id=state-1&code=spent&descope-login-flow=flow&t=secret",
-			),
-		).toBe("/oauth/consent?mode=multi-org&third_party_app_state_id=state-1");
+		expect(next).not.toHaveBeenCalled();
 	});
 
 	it("uses the dedicated Descope flow for multi-organization consent", async () => {
@@ -967,41 +890,6 @@ it.each([
 );
 
 it.each(["tenant-bound", "multi-org"])(
-	"requires canonical broker cookie before showing %s consent and preserves exact request across bounce",
-	async (mode) => {
-		globalThis.fetch = vi.fn(async () =>
-			Response.json({ authenticated: false }, { status: 401 }),
-		);
-		const query = mode === "multi-org" ? "mode=multi-org" : "tenant=org_tedix";
-		const resource = "https://tedix-unified.mcp.tedix.dev/mcp";
-		window.history.replaceState(
-			{},
-			"",
-			`/oauth/consent?${query}&third_party_app_state_id=state-cookie&third_party_app_id=TPAclient1&oidc_resource=${encodeURIComponent(resource)}`,
-		);
-		await act(async () => renderConsentPage());
-		// The bounce precedes the Descope flow; consent never rendered.
-		expect(descopeMock.flowProps).toBeFalsy();
-		expect(window.location.pathname).toBe("/auth/session-broker/start");
-		const destination = new URL(
-			new URLSearchParams(window.location.search).get("redirect_to")!,
-			window.location.origin,
-		);
-		expect(destination.searchParams.get("third_party_app_state_id")).toBe(
-			"state-cookie",
-		);
-		expect(destination.searchParams.get("third_party_app_id")).toBe(
-			"TPAclient1",
-		);
-		expect(destination.searchParams.get("oidc_resource")).toBe(resource);
-		expect(
-			destination.searchParams.get(mode === "multi-org" ? "mode" : "tenant"),
-		).toBe(mode === "multi-org" ? "multi-org" : "org_tedix");
-		expect(container.textContent).not.toContain("Choose permissions");
-		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
-	},
-);
-it.each(["tenant-bound", "multi-org"])(
 	"reports an expired canonical session in %s mode without advancing provider consent",
 	async (mode) => {
 		if (mode === "multi-org") {
@@ -1029,10 +917,6 @@ it.each(["tenant-bound", "multi-org"])(
 				next,
 			);
 		});
-		expect(globalThis.fetch).toHaveBeenCalledWith(
-			"/auth/session-broker/status",
-			expect.objectContaining({ credentials: "same-origin" }),
-		);
 		await clickButton("Choose organizations");
 		// The tenant-bound request starts with its organization selected.
 		if (mode === "multi-org") await clickButton("Select all current");

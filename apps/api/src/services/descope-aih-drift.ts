@@ -41,6 +41,7 @@ type DescopeServer = {
 	tags?: string[] | null;
 	loginPageURL?: string | null;
 	loginPageUrl?: string | null;
+	skipConsentScreen?: boolean | null;
 	dynamicRegistration?: {
 		flowId?: string | null;
 		disableApprovedScopesAsDefault?: boolean | null;
@@ -673,6 +674,7 @@ export function buildDescopeAihDriftReport(
 			loginPageURL: server.loginPageURL ?? server.loginPageUrl ?? null,
 			dynamicRegistrationFlowId: flowFromDcr,
 			disableApprovedScopesAsDefault: disablesApprovedScopesAsDefault,
+			skipConsentScreen: server.skipConsentScreen === true,
 			cimdEnabled: cimdEnabled(server),
 			cimdDomainPolicies: cimdDomainPolicies(server),
 			sessionSettingsEnabled: sessionSettingsEnabled(server),
@@ -751,6 +753,17 @@ export function buildDescopeAihDriftReport(
 				resourceName: server.name,
 				message: `Descope MCP server ${server.name} uses login flow ${flowFromLogin}; expected ${CONSENT_FLOW}, the only consent flow.`,
 				details: { flow: flowFromLogin },
+			});
+		}
+
+		if (server.skipConsentScreen === true) {
+			issue(report, {
+				severity: "warning",
+				code: "mcp_server_skips_consent_screen",
+				resourceType: "mcp_server",
+				resourceId: server.id,
+				resourceName: server.name,
+				message: `Descope MCP server ${server.name} skips the consent screen, so its tokens carry no organization choice and \`tedix login\` rejects them. Re-register or reconcile the server to restore the screen.`,
 			});
 		}
 

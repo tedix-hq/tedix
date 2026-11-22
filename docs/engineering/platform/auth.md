@@ -406,10 +406,20 @@ Consent-flow rules (`packages/auth/src/aih-client.ts`,
    Single-organization resources require exactly one selection matching `dct`
    and the resource tenant; Connect enables `multiOrganization` explicitly.
 3. The consent page (`/oauth/consent` in Tedix OS) embeds the Descope flow and
-   replaces only the consent screens; authentication stays with Descope. It
-   calls `selectTenant` once and waits until the session JWT's `dct` matches
-   before mounting consent. On an expired refresh family (`E064006`) it explains
-   that nothing was granted and replays the original authorization request.
+   replaces only the consent screens; authentication stays with Descope, so a
+   browser with no Tedix session signs in inside the flow. The page needs no
+   Tedix OS session: it calls `directory.listMyWorkspaces` and
+   `organizations.stageMultiOrgMcpConsent` with the flow's Descope session JWT
+   as a bearer and sends no cookies. The OS Worker accepts that bearer on the
+   launcher for only those two paths (plus `getMyOrganization` and
+   `acceptInvitation`); every other `/api` path still needs the product
+   cookie. The person always picks organizations; a `tenant` hint only
+   preselects one. `hardenDescopeMcpServerRegistration` forces
+   `skipConsentScreen: false`, because a skipped screen issues a token without
+   `tedixSelectedOrganizations` that the CLI and Connect reject; the drift audit
+   reports `mcp_server_skips_consent_screen`. On an expired refresh family
+   (`E064006`) the page explains that nothing was granted and replays the
+   original authorization request.
 4. CLI access tokens use a current-tenant JWT template: `dct` plus that tenant's
    roles and permissions, no multi-tenant `tenants` map.
 

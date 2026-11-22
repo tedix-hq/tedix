@@ -24,9 +24,8 @@ import {
 	inboundConsentContextError,
 	inboundConsentFlowFailure,
 	inboundConsentFlowError,
-	inboundConsentPreFlowBrokerPath,
 	inboundConsentRecoveryUrl,
-	inboundConsentResumableAfterBroker,
+	inboundConsentSessionJwtUsable,
 	inboundConsentRequestedPermissions,
 	inboundConsentTenant,
 	isInvalidDescopeJwtFamily,
@@ -409,40 +408,14 @@ describe("reloaded consent requests", () => {
 	});
 });
 
-describe("product-session bounce keeps the authorization transaction", () => {
+describe("a provider callback keeps the authorization transaction for retry", () => {
 	const authorizeLoad =
 		"https://os.tedix.dev/oauth/consent?application_scopes=mcp%3Awork.read&oidc_resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1&third_party_app_state_id=s-abc";
 	// Descope returns from a provider login without the state id.
 	const providerCallback =
 		"https://os.tedix.dev/oauth/consent?code=one-time&descope-login-flow=inbound-apps-multi-org-consent%7C%23%7Cexecution.end&resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1";
 
-	it("signs in to Tedix OS before the flow starts, returning with the state id", () => {
-		const path = inboundConsentPreFlowBrokerPath(authorizeLoad, false);
-		expect(path).not.toBeNull();
-		const start = new URL(path!, "https://os.tedix.dev");
-		expect(start.pathname).toBe("/auth/session-broker/start");
-		const returnTo = start.searchParams.get("redirect_to")!;
-		expect(returnTo.startsWith("/oauth/consent?")).toBe(true);
-		expect(inboundConsentResumableAfterBroker(returnTo)).toBe(true);
-		expect(
-			new URL(returnTo, "https://os.tedix.dev").searchParams.get(
-				"third_party_app_state_id",
-			),
-		).toBe("s-abc");
-		// A signed-in browser, a broker error, or a provider callback starts the flow.
-		expect(inboundConsentPreFlowBrokerPath(authorizeLoad, true)).toBeNull();
-		expect(
-			inboundConsentPreFlowBrokerPath(`${authorizeLoad}&error=denied`, false),
-		).toBeNull();
-		expect(inboundConsentPreFlowBrokerPath(providerCallback, false)).toBeNull();
-	});
-
-	it("never bounces a provider callback, and still offers the original request for retry", () => {
-		// The SDK has already stripped code and descope-login-flow by then.
-		const strippedCallback =
-			"/oauth/consent?resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1";
-		expect(inboundConsentResumableAfterBroker(strippedCallback)).toBe(false);
-
+	it("offers the original request for retry after a provider callback", () => {
 		const authorize =
 			"https://auth.tedix.dev/oauth2/v1/apps/project/authorize?client_id=https%3A%2F%2Fos.tedix.dev%2F.well-known%2Foauth-client%2Ftedix-cli.json&state=opaque";
 		const values = new Map<string, string>();
@@ -506,4 +479,15 @@ it("submits every read-only capability subset without adding declined authority"
 		).toBe(true);
 		expect(permissions.every((permission) => !permission.required)).toBe(true);
 	}
+});
+
+it("refreshes the consent session JWT before it expires mid-request", () => {
+	const jwt = (exp: unknown) =>
+		`h.${btoa(JSON.stringify({ exp })).replace(/=+$/, "")}.s`;
+	const now = 1_800_000_000_000;
+	expect(inboundConsentSessionJwtUsable(jwt(now / 1000 + 600), now)).toBe(true);
+	expect(inboundConsentSessionJwtUsable(jwt(now / 1000 + 10), now)).toBe(false);
+	expect(inboundConsentSessionJwtUsable(jwt("soon"), now)).toBe(false);
+	expect(inboundConsentSessionJwtUsable("", now)).toBe(false);
+	expect(inboundConsentSessionJwtUsable("not-a-jwt", now)).toBe(false);
 });

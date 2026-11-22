@@ -92,7 +92,7 @@ export interface McpServerCreateParams {
 	logo?: string;
 	/** Override the login page URL — inbound apps must use an `inbound-apps-*-consent` flow */
 	loginPageURL?: string;
-	/** Skip user consent screen (useful for internal/trusted tedis) */
+	/** Always rewritten to false by `hardenDescopeMcpServerRegistration`. */
 	skipConsentScreen?: boolean;
 	/** Ask Descope to attach all authorization metadata to generated tokens. */
 	forceAddAllAuthorizationInfo?: boolean;
@@ -307,6 +307,10 @@ export function hardenDescopeMcpServerRegistration<T extends McpServerRecord>(
 			disableApprovedScopesAsDefault: true,
 		},
 		cimdSettings: hardenCimdSettings(server.cimdSettings),
+		// Every grant goes through the Tedix consent screen, which records the
+		// organization choice the token's `tedixSelectedOrganizations` claim
+		// carries. A skipped screen yields a token the CLI and Connect reject.
+		skipConsentScreen: false,
 	};
 }
 

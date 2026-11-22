@@ -1510,6 +1510,45 @@ describe("Tedix OS origin router", () => {
 		);
 		expect(ordinaryCli.status).toBe(401);
 		expect(seen).toHaveLength(4);
+
+		// `tedix login` consent from a browser with no Tedix OS session.
+		for (const path of [
+			"/api/rpc/directory/listMyWorkspaces",
+			"/api/rpc/organizations/stageMultiOrgMcpConsent",
+		]) {
+			const consent = await handleOsRequest(
+				new Request(`https://os.tedix.dev${path}`, {
+					method: "POST",
+					headers: { Authorization: "Bearer consent-flow-descope-jwt" },
+					body: "{}",
+				}),
+				env,
+				provisioned,
+			);
+			expect(consent.status).toBe(200);
+			expect(seen.at(-1)?.headers.get("Authorization")).toBe(
+				"Bearer consent-flow-descope-jwt",
+			);
+		}
+		expect(seen).toHaveLength(6);
+		for (const path of [
+			"/api/rpc/organizations/revokeMultiOrgMcpConsent",
+			"/api/rpc/organizations/listOsMine",
+			"/cli/api/rpc/directory/listMyWorkspaces",
+			"/cli/api/rpc/organizations/stageMultiOrgMcpConsent",
+		]) {
+			const refused = await handleOsRequest(
+				new Request(`https://os.tedix.dev${path}`, {
+					method: "POST",
+					headers: { Authorization: "Bearer consent-flow-descope-jwt" },
+					body: "{}",
+				}),
+				env,
+				provisioned,
+			);
+			expect(refused.status, path).toBe(401);
+		}
+		expect(seen).toHaveLength(6);
 	});
 
 	it("requires a product session for ordinary API routes at the launcher", async () => {

@@ -188,3 +188,25 @@ export function prepareFirstOsOrganization(sessionJwt?: string) {
 	});
 	return bootstrapApi.organizations.getMyOrganization({});
 }
+
+/**
+ * The two OS calls the OAuth consent page makes, authenticated by the Descope
+ * session of the consent flow itself, so `tedix login` works without a prior
+ * Tedix OS sign-in. The OS proxy accepts this bearer only on these launcher
+ * paths. Cookies are omitted so an OS session for another account can never
+ * stand in for the person giving consent.
+ */
+export function createInboundConsentApi(getSessionJwt: () => Promise<string>) {
+	const consentApi = getApiClient<ApiContract>(OS_API_URL, {
+		credentials: "omit",
+		bookmarkSession: osBookmarkSession,
+		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
+		getHeaders: async () => ({
+			Authorization: `Bearer ${await getSessionJwt()}`,
+		}),
+	});
+	return {
+		listMyWorkspaces: consentApi.directory.listMyWorkspaces,
+		stageMultiOrgMcpConsent: consentApi.organizations.stageMultiOrgMcpConsent,
+	};
+}

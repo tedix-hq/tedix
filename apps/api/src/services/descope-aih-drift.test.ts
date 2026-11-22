@@ -541,6 +541,7 @@ describe("buildDescopeAihDriftReport", () => {
 					audienceWhitelist: ["https://cmo.tedi.tedix.dev/mcp"],
 					loginPageURL:
 						"https://auth.tedix.dev/login/project-id?flow=sign-up-or-in",
+					skipConsentScreen: true,
 					dynamicRegistration: { flowId: "sign-up-or-in" },
 					approvedScopes: {
 						connectionsScopes: [{ name: "tedi:admin" }],
@@ -683,6 +684,12 @@ describe("buildDescopeAihDriftReport", () => {
 					(issue) =>
 						issue.code === "mcp_server_login_flow_repeats_tenant_selection",
 				)
+				.map((issue) => issue.resourceId),
+		).toEqual(["server-bad-flow"]);
+		// A skipped consent screen issues tokens without the organization claim.
+		expect(
+			report.issues
+				.filter((issue) => issue.code === "mcp_server_skips_consent_screen")
 				.map((issue) => issue.resourceId),
 		).toEqual(["server-bad-flow"]);
 		expect(
