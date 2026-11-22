@@ -1,10 +1,10 @@
+import { workspaceFileKey } from "@tedix/api-contract/schemas/workspace-files";
 import { createRouterClient, ORPCError } from "@orpc/server";
 import { createContext } from "../rpc/orpc";
 import { getFile } from "../rpc/routers/os-workspace-files";
 import {
 	readWorkspaceFileManifest,
 	verifyWorkspaceFileSignature,
-	workspaceFileKey,
 	workspaceFilePartSize,
 	streamWorkspaceFile,
 } from "./workspace-files";

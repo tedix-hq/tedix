@@ -1,3 +1,4 @@
+import { workspaceFileKey } from "@tedix/api-contract/schemas/workspace-files";
 import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { DatabaseSync } from "node:sqlite";
@@ -36,7 +37,6 @@ import {
 	serveWorkspaceFile,
 } from "../../lib/workspace-file-routes";
 import {
-	workspaceFileKey,
 	workspaceFileSignature,
 	workspaceFileMimeMatches,
 	workspaceFileInlineMime,

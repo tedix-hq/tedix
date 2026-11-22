@@ -83,8 +83,18 @@ export function apiInferenceAdmission(api: unknown): InferenceAdmissionPort {
 	};
 }
 
-function estimatedInputTokens(body: string): number {
-	return Math.min(10_000_000, Math.max(1, Math.ceil(body.length / 3)));
+function estimatedInputTokens(body: string, imageCount: number): number {
+	// Base64 length does not reflect the number of visual tokens.
+	const text = imageCount
+		? body.replace(
+				/("image_url"\s*:\s*"data:image\/[a-z]+;base64,)[A-Za-z0-9+/=]+/g,
+				"$1",
+			)
+		: body;
+	return Math.min(
+		10_000_000,
+		Math.max(1, Math.ceil(text.length / 3) + imageCount * 4_096),
+	);
 }
 
 /** Gateway metadata naming the admitted execution, so its log settles the hold. */
@@ -119,6 +129,7 @@ export async function admittedProviderFetch(input: {
 	execution: ProviderExecutionIdentity;
 	request: Request;
 	maxOutputTokens: number;
+	imageCount?: number;
 	send: (request: Request) => Promise<Response>;
 	onRefused: (error: InferenceRefusedError) => void;
 }): Promise<Response> {
@@ -130,7 +141,8 @@ export async function admittedProviderFetch(input: {
 		tediId: input.call.tediId ?? null,
 		userId: input.call.userId ?? null,
 		execution: input.execution,
-		estimatedInputTokens: estimatedInputTokens(body),
+		...(input.imageCount ? { residencyModality: "image" as const } : {}),
+		estimatedInputTokens: estimatedInputTokens(body, input.imageCount ?? 0),
 		estimatedOutputTokens: Math.min(
 			2_000_000,
 			Math.max(1, input.maxOutputTokens),

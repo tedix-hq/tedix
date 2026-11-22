@@ -65,7 +65,10 @@ import {
 import { repointDocumentTransferIndex } from "@tedix/db/queries/workspace-feed/document-transfer";
 import { unreferencedObjectOutputRevisions } from "@tedix/db/queries/os-workspaces/output-revision-thinning";
 import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
-import type { ModelCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
+import {
+	resolveModelImageInput,
+	type ModelCatalogEntry,
+} from "@tedix/api-contract/schemas/model-catalog";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	TenantStore,
@@ -141,7 +144,13 @@ import {
 	WEB_SCHEMA,
 	webApprovalTitle,
 } from "./web";
-import { resolveAttachments } from "./attachments";
+import {
+	hydrateWorkspaceImages,
+	resolveAttachments,
+	workspaceImageAttachment,
+	type WorkspaceImageAttachment,
+	type WorkspaceUserMessage,
+} from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import { BINDING_NAMES, type BindingName } from "./declarations";
@@ -510,6 +519,7 @@ interface QueuedMessageRow {
 /** What a queued message needs to start a turn of its own. */
 interface QueuedRequest {
 	input: TurnRequest;
+	imageAttachments?: WorkspaceImageAttachment[];
 	displayText?: string;
 	shown: Pick<
 		Extract<WireEventBody, { type: "message.queued" }>,
@@ -678,7 +688,9 @@ export interface TurnPlan {
 	systemPrompt: string;
 	history: Message[];
 	userText: string;
+	imageAttachments?: WorkspaceImageAttachment[];
 	modelId?: string;
+	supportsImages?: boolean;
 }
 
 /**
@@ -701,6 +713,7 @@ function admittedTurnModel(env: WorkspaceEnv, plan: TurnPlan): ModelPort {
 		},
 		apiInferenceAdmission(env.API_SERVICE),
 		plan.modelId,
+		plan.supportsImages,
 	);
 }
 
@@ -1600,6 +1613,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const selected = await resolveAttachments(
 			this.#dataPort(scope, input.actorKind),
 			input.attachments,
+			(file) => workspaceImageAttachment(this.env.R2_BUCKET, scope, file),
 		);
 		// Resolving file bodies yields; a retried frame may have admitted this id.
 		const admitted = this.#turn(turnId);
@@ -1636,6 +1650,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			};
 			const request: QueuedRequest = {
 				input: { ...input, modelId },
+				...(selected.images.length
+					? { imageAttachments: selected.images }
+					: {}),
 				...(displayText ? { displayText } : {}),
 				shown,
 			};
@@ -1720,7 +1737,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				scope,
 				turnId,
 				conversationId,
-				{ ...input, modelId, text: decisions + text + selected.context },
+				{
+					...input,
+					modelId,
+					text: decisions + text + selected.context,
+					imageAttachments: selected.images,
+				},
 				controller,
 			),
 		);
@@ -2611,6 +2633,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				turnId,
 				message.message_id,
 			);
+			const images = request.imageAttachments?.length
+				? { imageAttachments: request.imageAttachments }
+				: {};
 			this.#store.run(
 				"INSERT INTO messages (conversation_id, turn_id, at, message) VALUES (?, ?, ?, ?)",
 				turn.conversation_id,
@@ -2620,7 +2645,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					role: "user",
 					content: message.model_text,
 					timestamp: Date.parse(now),
-				} satisfies Message),
+					...images,
+				} satisfies WorkspaceUserMessage),
 			);
 			this.#events.append(turn.conversation_id, {
 				type: "message.read",
@@ -2628,7 +2654,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				messageId: message.message_id,
 				...request.shown,
 			});
-			taken.push({ id: message.message_id, text: message.model_text });
+			taken.push({
+				id: message.message_id,
+				text: message.model_text,
+				...images,
+			});
 		}
 		return taken;
 	}
@@ -5659,7 +5689,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		turnId: string,
 		conversationId: string,
-		input: TurnRequest,
+		input: TurnRequest & { imageAttachments?: WorkspaceImageAttachment[] },
 	): Promise<TurnPlan> {
 		if (input.runReport)
 			return {
@@ -5762,8 +5792,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...(input.tediId ? { tediId: input.tediId } : {}),
 			...(input.actorKind === "user" ? { memberId: input.actorId } : {}),
 			modelId: input.modelId,
+			supportsImages:
+				!!input.modelId &&
+				resolveModelImageInput(input.modelId, this.#modelCatalog?.entries) ===
+					"supported",
 			systemPrompt,
 			history,
+			imageAttachments: input.imageAttachments,
 			userText:
 				input.actorKind === "user"
 					? input.text
@@ -5860,7 +5895,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		turnId: string,
 		conversationId: string,
-		input: TurnRequest,
+		input: TurnRequest & { imageAttachments?: WorkspaceImageAttachment[] },
 		controller: AbortController,
 	) {
 		const startedAt = Date.now();
@@ -5879,6 +5914,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				event: "workspace.turn_running",
 				isolated: isolate,
 				historyMessages: plan.history.length,
+				imageAttachments: plan.imageAttachments?.length ?? 0,
 				...this.#diagnostics(() => ({
 					historyBytes:
 						this.#store.exec<{ bytes: number }>(
@@ -6321,9 +6357,17 @@ export async function executeTurn(
 	host: ExecuteTurnHost,
 ): Promise<TurnResult> {
 	const sandbox = createLoaderSandbox(host.env.LOADER, COMPATIBILITY_DATE);
+	const prepareMessages = (messages: Message[]) =>
+		hydrateWorkspaceImages(
+			messages,
+			host.env.R2_BUCKET,
+			plan.scope,
+			host.model.supportsImages === true,
+		);
 	return runTurn(
 		{
 			model: host.model,
+			prepareMessages,
 			runCode: async (code) => {
 				const runId = crypto.randomUUID();
 				await host.codeRuns.start(runId);
@@ -6353,7 +6397,7 @@ export async function executeTurn(
 						systemPrompt:
 							"Summarise this conversation for an agent that continues it: goal, constraints, progress, decisions, open items. Be concrete. Do not continue the conversation.",
 						messages: [
-							...messages,
+							...(await prepareMessages(messages)),
 							{
 								role: "user",
 								content: "Write the summary now.",
@@ -6381,6 +6425,7 @@ export async function executeTurn(
 			systemPrompt: plan.systemPrompt,
 			history: plan.history,
 			userText: plan.userText,
+			imageAttachments: plan.imageAttachments,
 		},
 	);
 }

@@ -2,7 +2,8 @@ import { base64UrlEncode } from "@tedix/auth/utils";
 import { deriveHkdfHmacKey, hmacSha256 } from "@tedix/worker-kit/crypto";
 import {
 	WORKSPACE_FILE_PART_BYTES,
-	WorkspaceFileMetadataSchema,
+	WorkspaceFileManifestSchema,
+	workspaceFileKey,
 } from "@tedix/api-contract/schemas/workspace-files";
 import type { OsDocumentBlock } from "@tedix/api-contract/schemas/os-workspaces";
 import { officeExtractBlocks } from "@tedix/api-contract/utils/office-file-blocks";
@@ -21,27 +22,7 @@ import {
 } from "@tedix/api-contract/utils/workspace-file-text";
 import { DataResidencyError } from "../services/data-residency";
 import { splitConvertedPdf } from "../workflows/content-ingestion-pdf";
-import * as z from "zod";
 
-export const WorkspaceFileManifestSchema = WorkspaceFileMetadataSchema.extend({
-	organizationId: z.string().min(1),
-	workspaceId: z.uuid(),
-	resourceId: z.uuid(),
-	uploadId: z.string().min(1),
-	createdByKind: z.enum(["user", "tedi", "external_agent", "service"]),
-	createdById: z.string().min(1),
-	createdAt: z.iso.datetime(),
-	expiresAt: z.iso.datetime(),
-	mimeValidated: z.boolean().optional(),
-});
-export type WorkspaceFileManifest = z.infer<typeof WorkspaceFileManifestSchema>;
-export function workspaceFileKey(
-	org: string,
-	workspace: string,
-	resource: string,
-) {
-	return `workspace-files/${encodeURIComponent(org)}/${workspace}/${resource}`;
-}
 export async function readWorkspaceFileManifest(
 	env: Pick<CloudflareEnv, "SKILL_ARTIFACTS">,
 	org: string,

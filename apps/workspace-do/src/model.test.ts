@@ -146,6 +146,54 @@ test.each(["azure", "workers"] as const)(
 	},
 );
 
+test("Azure sends the screenshot as image input after image residency admission", async () => {
+	const requests: Request[] = [];
+	spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+		requests.push(new Request(input, init));
+		return Response.json(
+			{ error: { message: "fixture response" } },
+			{ status: 400 },
+		);
+	});
+	const admitted = admission();
+	const model = createAzureGatewayModel(
+		configuredEnv,
+		attribution,
+		admitted.port,
+		undefined,
+		true,
+	);
+	const data = "iVBORw0KGgo=".repeat(512);
+	await model
+		.stream({
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Look" },
+						{ type: "image", mimeType: "image/png", data },
+					],
+					timestamp: 0,
+				},
+			],
+		})
+		.result();
+	expect(admitted.authorized[0]?.residencyModality).toBe("image");
+	expect(admitted.authorized[0]?.estimatedInputTokens).toBeLessThan(4_500);
+	const body = (await requests[0]!.json()) as { input: unknown[] };
+	expect(body.input).toContainEqual(
+		expect.objectContaining({
+			role: "user",
+			content: expect.arrayContaining([
+				expect.objectContaining({
+					type: "input_image",
+					image_url: `data:image/png;base64,${data}`,
+				}),
+			]),
+		}),
+	);
+});
+
 test.each(["v1", "2025-03-01-preview"])(
 	"the real Azure SDK uses GA Responses and stored BYOK with SDK version %s",
 	async (apiVersion) => {

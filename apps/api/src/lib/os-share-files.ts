@@ -1,3 +1,4 @@
+import { workspaceFileKey } from "@tedix/api-contract/schemas/workspace-files";
 /**
  * The uploaded file a shared document carries, served through the link and
  * never through the owner's workspace. Every read re-resolves the share
@@ -32,7 +33,6 @@ import {
 import {
 	readWorkspaceFileManifest,
 	streamWorkspaceFile,
-	workspaceFileKey,
 } from "./workspace-files";
 
 type ShareFileEnv = Pick<

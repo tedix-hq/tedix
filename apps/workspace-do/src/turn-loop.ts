@@ -16,6 +16,10 @@ import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { callFailureText } from "./call-failure";
 import { describeBinding } from "./declarations";
 import type { ModelPort } from "./model";
+import type {
+	WorkspaceImageAttachment,
+	WorkspaceUserMessage,
+} from "./attachments";
 import type { TurnUsage } from "./wire";
 import { DESCRIBE_BINDING_TOOL, RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult, WorkspaceEventInput } from "./runtime";
@@ -28,6 +32,7 @@ export const STEP_DETAIL_CHARS = 4_000;
 
 export interface TurnPorts {
 	model: ModelPort;
+	prepareMessages?(messages: Message[]): Promise<Message[]>;
 	runCode(code: string): Promise<SandboxRunResult>;
 	emit(event: Omit<WorkspaceEventInput, "turnId">): void;
 	/** Summarise `messages` into a compaction summary (model call). */
@@ -55,6 +60,7 @@ export interface TurnPorts {
 export interface AddedMessage {
 	id: string;
 	text: string;
+	imageAttachments?: WorkspaceImageAttachment[];
 }
 
 export interface TurnProgress {
@@ -68,6 +74,7 @@ export interface TurnInput {
 	/** Prior conversation after the last compaction, oldest first. */
 	history: Message[];
 	userText: string;
+	imageAttachments?: WorkspaceImageAttachment[];
 }
 
 export interface TurnResult {
@@ -286,9 +293,12 @@ export async function runTurn(
 		ports.emit({ type: "compacted", data: { summary } });
 	}
 
-	const userMessage: Message = {
+	const userMessage: WorkspaceUserMessage = {
 		role: "user",
 		content: input.userText,
+		...(input.imageAttachments?.length
+			? { imageAttachments: input.imageAttachments }
+			: {}),
 		timestamp: now(),
 	};
 	appended.push(userMessage);
@@ -317,8 +327,11 @@ export async function runTurn(
 		}
 		steps += 1;
 		ports.emit({ type: "step_started", data: { step: steps } });
+		const modelMessages = ports.prepareMessages
+			? await ports.prepareMessages(messages)
+			: messages;
 		const stream = ports.model.stream(
-			{ systemPrompt, messages, tools: TURN_TOOLS },
+			{ systemPrompt, messages: modelMessages, tools: TURN_TOOLS },
 			{ signal: ports.signal, maxTokens: ports.model.maxOutputTokens },
 		);
 		let streamedText = "";
@@ -460,9 +473,12 @@ export async function runTurn(
 		// call. Past the step ceiling nothing would read it, so it stays queued.
 		if (ports.takeAdded && !ports.signal?.aborted && steps < MAX_STEPS) {
 			for (const added of await ports.takeAdded()) {
-				const message: Message = {
+				const message: WorkspaceUserMessage = {
 					role: "user",
 					content: added.text,
+					...(added.imageAttachments?.length
+						? { imageAttachments: added.imageAttachments }
+						: {}),
 					timestamp: now(),
 				};
 				messages.push(message);

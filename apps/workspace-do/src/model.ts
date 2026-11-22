@@ -55,6 +55,7 @@ function requestContext(context: Context) {
 }
 
 export interface ModelPort {
+	supportsImages?: boolean;
 	/** Model id for the prompt-cache key and telemetry. */
 	id: string;
 	contextWindow: number;
@@ -262,6 +263,7 @@ export function createWorkspaceModel(
 	call: WorkspaceModelCall,
 	admission: InferenceAdmissionPort,
 	requestedId?: string,
+	supportsImages = false,
 ): ModelPort {
 	const choices = configuredWorkspaceModels(env);
 	const modelId = requestedId ?? choices[0]?.id;
@@ -281,7 +283,7 @@ export function createWorkspaceModel(
 		);
 	return modelId.startsWith("@cf/")
 		? createWorkersAiModel(env, call, admission, modelId)
-		: createAzureGatewayModel(env, call, admission, deployment);
+		: createAzureGatewayModel(env, call, admission, deployment, supportsImages);
 }
 
 export function createAzureGatewayModel(
@@ -290,6 +292,7 @@ export function createAzureGatewayModel(
 	admission: InferenceAdmissionPort,
 	/** The deployment this call runs on; the configured one when not named. */
 	deploymentName?: string,
+	supportsImages = false,
 ): ModelPort {
 	const resource = configured(env.AZURE_OPENAI_RESOURCE);
 	const deployment = deploymentName ?? configured(env.AZURE_CHAT_DEPLOYMENT);
@@ -310,7 +313,7 @@ export function createAzureGatewayModel(
 		api: "azure-openai-responses",
 		provider: "azure-openai-responses",
 		baseUrl,
-		input: ["text"],
+		input: supportsImages ? ["text", "image"] : ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		reasoning: false,
 		contextWindow: 128_000,
@@ -329,12 +332,23 @@ export function createAzureGatewayModel(
 		responseMetadata: () => responseMetadata,
 		admissionRefusal: () => refusal?.message ?? null,
 		id: `azure-openai/${deployment}`,
+		supportsImages,
 		contextWindow: model.contextWindow,
 		maxOutputTokens: model.maxTokens,
 		stream(context, options) {
 			responseMetadata = { usageReported: false };
 			refusal = null;
 			const maxTokens = options?.maxTokens ?? model.maxTokens;
+			const imageCount = supportsImages
+				? context.messages.reduce(
+						(count, message) =>
+							count +
+							(message.role === "user" && Array.isArray(message.content)
+								? message.content.filter((part) => part.type === "image").length
+								: 0),
+						0,
+					)
+				: 0;
 			const streamOptions: SimpleStreamOptions = {
 				apiKey: "cloudflare-ai-gateway-byok",
 				onProviderStreamEvent: (data) => {
@@ -380,6 +394,7 @@ export function createAzureGatewayModel(
 						}),
 						request: new Request(url, request),
 						maxOutputTokens: maxTokens,
+						imageCount,
 						send: (admitted) => fetch(admitted),
 						onRefused: (error) => {
 							refusal = error;

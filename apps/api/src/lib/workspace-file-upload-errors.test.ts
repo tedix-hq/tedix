@@ -1,9 +1,7 @@
+import { type WorkspaceFileManifest } from "@tedix/api-contract/schemas/workspace-files";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { uploadWorkspaceFilePart } from "./workspace-file-routes";
-import {
-	workspaceFileSignature,
-	type WorkspaceFileManifest,
-} from "./workspace-files";
+import { workspaceFileSignature } from "./workspace-files";
 
 const queries = vi.hoisted(() => ({ getWorkspace: vi.fn() }));
 vi.mock("@tedix/db/queries/os-workspaces/workspaces", () => ({

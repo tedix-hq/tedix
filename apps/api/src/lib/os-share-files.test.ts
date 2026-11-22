@@ -1,3 +1,4 @@
+import { workspaceFileKey } from "@tedix/api-contract/schemas/workspace-files";
 import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
@@ -36,7 +37,6 @@ import {
 	hashOsShareToken,
 	openOsShareSession,
 } from "./os-share-redemption";
-import { workspaceFileKey } from "./workspace-files";
 
 const ORG = "org-fictional";
 const WORKSPACE = "11111111-1111-4111-8111-111111111111";

@@ -31,3 +31,23 @@ export const WorkspaceFilePartSchema = z.object({
 	partNumber: z.number().int().min(1).max(25),
 	etag: z.string().min(1).max(200),
 });
+
+export const WorkspaceFileManifestSchema = WorkspaceFileMetadataSchema.extend({
+	organizationId: z.string().min(1),
+	workspaceId: z.uuid(),
+	resourceId: z.uuid(),
+	uploadId: z.string().min(1),
+	createdByKind: z.enum(["user", "tedi", "external_agent", "service"]),
+	createdById: z.string().min(1),
+	createdAt: z.iso.datetime(),
+	expiresAt: z.iso.datetime(),
+	mimeValidated: z.boolean().optional(),
+});
+export type WorkspaceFileManifest = z.infer<typeof WorkspaceFileManifestSchema>;
+export function workspaceFileKey(
+	org: string,
+	workspace: string,
+	resource: string,
+) {
+	return `workspace-files/${encodeURIComponent(org)}/${workspace}/${resource}`;
+}

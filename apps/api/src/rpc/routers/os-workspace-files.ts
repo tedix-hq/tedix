@@ -1,6 +1,10 @@
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
-import { WORKSPACE_FILE_PART_BYTES } from "@tedix/api-contract/schemas/workspace-files";
+import {
+	WORKSPACE_FILE_PART_BYTES,
+	workspaceFileKey,
+	type WorkspaceFileManifest,
+} from "@tedix/api-contract/schemas/workspace-files";
 import { confirmOsWorkspaceFile } from "../../services/os-workspace-outputs";
 import { attachOutputEditor } from "../../services/os-output-editor";
 import { getOsOutput } from "../../services/workspace-output-storage";
@@ -29,13 +33,11 @@ import {
 import { mapWorkspaceResource } from "./os-workspace-resources";
 import {
 	readWorkspaceFileManifest,
-	workspaceFileKey,
 	workspaceFileSignature,
 	workspaceFileMimeMatches,
 	readWorkspaceFileContent,
 	storeWorkspaceFileText,
 	type PdfToMarkdown,
-	type WorkspaceFileManifest,
 } from "../../lib/workspace-files";
 
 const os = implement(osWorkspacesContract)

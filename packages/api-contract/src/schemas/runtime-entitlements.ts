@@ -255,6 +255,7 @@ export const AuthorizeWorkspaceInferenceInputSchema = z.strictObject({
 	tediId: z.string().min(1).nullable().optional(),
 	userId: ActingMemberSubjectSchema,
 	execution: ProviderExecutionIdentitySchema,
+	residencyModality: z.enum(["image", "text"]).optional(),
 	estimatedInputTokens: z.number().int().min(0).max(10_000_000),
 	estimatedOutputTokens: z.number().int().min(0).max(2_000_000),
 	idempotencyKey: z.string().min(8).max(300),

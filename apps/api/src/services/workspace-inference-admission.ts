@@ -41,7 +41,7 @@ export function authorizeWorkspaceInference(input: {
 			metadata: {
 				source: "workspace_chat",
 				workspaceId: request.workspaceId,
-				residencyModality: "text",
+				residencyModality: request.residencyModality ?? "text",
 			},
 		},
 	});

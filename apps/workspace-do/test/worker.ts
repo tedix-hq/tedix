@@ -43,7 +43,7 @@ export { OrganizationLogStore } from "../src/organization-log";
 
 export type ScriptStep =
 	| { code: string; tokensPerSecond?: number }
-	| { text: string; tokensPerSecond?: number };
+	| { text: string; tokensPerSecond?: number; expectedImage?: string };
 
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
@@ -404,14 +404,33 @@ function scriptedModel(script: ScriptStep[], modelId?: string): ModelPort {
 			),
 		);
 		const model = core.getModel();
+		const expectedImage =
+			script[0] && "text" in script[0] ? script[0].expectedImage : undefined;
 		return {
 			id: modelId ?? "faux-default",
+			supportsImages: expectedImage !== undefined,
 			contextWindow: 128_000,
 			maxOutputTokens: 4_000,
-			stream: (context, options) =>
-				core.streamSimple(model, normalizeContext(context), {
+			stream: (context, options) => {
+				if (
+					expectedImage &&
+					!context.messages.some(
+						(message) =>
+							message.role === "user" &&
+							Array.isArray(message.content) &&
+							message.content.some(
+								(part) =>
+									part.type === "image" &&
+									part.mimeType === "image/png" &&
+									part.data === expectedImage,
+							),
+					)
+				)
+					throw new Error("The model did not receive the expected PNG");
+				return core.streamSimple(model, normalizeContext(context), {
 					signal: options?.signal,
-				}),
+				});
+			},
 		};
 	}
 }
