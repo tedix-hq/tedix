@@ -144,7 +144,7 @@ export function SitesPage() {
 		<Page width="xl">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Websites</PageTitle>
+					<PageTitle>Sites</PageTitle>
 				</PageHeading>
 				<PageActions>
 					{canCreateCmsSite ? (
@@ -270,7 +270,7 @@ export function SitesPage() {
 
 			{reconciliation.data?.issues.length ? (
 				<Alert>
-					<AlertTitle>Some websites need attention</AlertTitle>
+					<AlertTitle>Some sites need attention</AlertTitle>
 					<AlertDescription>
 						<ul>
 							{reconciliation.data.issues.map((issue) => (
@@ -300,7 +300,7 @@ export function SitesPage() {
 				{sites.isPending ? <ListSkeleton /> : null}
 				{sites.isError ? (
 					<LoadError
-						title="Websites are unavailable"
+						title="Sites are unavailable"
 						error={sites.error}
 						onRetry={() => void sites.refetch()}
 						retrying={sites.isFetching}
@@ -321,7 +321,7 @@ export function SitesPage() {
 					/>
 				) : null}
 				{filteredSites?.length ? (
-					<Table scrollLabel="Websites">
+					<Table scrollLabel="Sites">
 						<TableBody>
 							{filteredSites.map((site) => (
 								<TableRow

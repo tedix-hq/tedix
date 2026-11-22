@@ -44,7 +44,7 @@ describe("shell page titles", () => {
 					{ id: "site-1", name: "Acme" },
 				],
 			},
-			"Websites · Acme",
+			"Sites · Acme",
 		],
 	])("resolves resource titles for %s", async (pathname, data, title) => {
 		query.mockReturnValue({ data });

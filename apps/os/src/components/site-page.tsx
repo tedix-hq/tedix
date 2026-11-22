@@ -155,7 +155,7 @@ export function SitePage({ siteId }: { siteId: string }) {
 	if (!site)
 		return (
 			<Page width="xl">
-				<Link to="/sites">Websites</Link>
+				<Link to="/sites">Sites</Link>
 				{sites.isPending ? (
 					<ListSkeleton />
 				) : sites.isError ? (
@@ -188,10 +188,7 @@ export function SitePage({ siteId }: { siteId: string }) {
 			<PageHeader>
 				<PageHeading>
 					<Breadcrumbs
-						items={[
-							{ label: "Websites", href: "/sites" },
-							{ label: site.name },
-						]}
+						items={[{ label: "Sites", href: "/sites" }, { label: site.name }]}
 					/>
 					<PageTitle>{site.name}</PageTitle>
 				</PageHeading>

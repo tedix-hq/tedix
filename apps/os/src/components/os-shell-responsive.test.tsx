@@ -394,7 +394,7 @@ describe("OS shell chrome", () => {
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Setup"]')).toBeNull();
 		expect(container.querySelector('[data-sidebar="group-label"]')).toBeNull();
-		for (const label of ["Team", "Skills", "Connections", "Websites"]) {
+		for (const label of ["Team", "Skills", "Connections", "Sites"]) {
 			expect(
 				[...rail(container).querySelectorAll("a")].filter(
 					(a) => a.textContent === label,

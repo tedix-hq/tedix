@@ -125,7 +125,7 @@ const OS_SURFACES = [
 		},
 		path: "/sites",
 		get description() {
-			return navigationDescription("sites", "Create and manage your websites.");
+			return navigationDescription("sites", "Create and manage your sites.");
 		},
 	},
 	{

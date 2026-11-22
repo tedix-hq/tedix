@@ -44,7 +44,7 @@ const ENGLISH_COPY = {
 		team: "Team",
 		skills: "Skills",
 		gateways: "Connections",
-		sites: "Websites",
+		sites: "Sites",
 		brain: "Memory",
 		blueprints: "Templates",
 		widget: "Website chat",
