@@ -8,6 +8,23 @@
 import * as z from "zod";
 import { type JsonValue, JsonValueSchema } from "./common";
 
+/** Native compositions receive their reader from the authenticated request. */
+export const NativeProjectionTransportConfigSchema = z
+	.object({
+		transport: z.literal("projection"),
+		endpoint: z.enum(["hooks/readTurnContext", "hooks/readWorkBoundary"]),
+		_aggregateNamespace: z.literal("home"),
+		_multiOrgOrganizationId: z.string().optional(),
+	})
+	.strict();
+export type NativeProjectionTransportConfig = z.infer<
+	typeof NativeProjectionTransportConfigSchema
+>;
+export type NativeProjectionTransportCallback = (
+	config: NativeProjectionTransportConfig,
+	input: Record<string, unknown>,
+) => Promise<unknown>;
+
 /** Closed, server-configured discovery operations; these never evaluate code. */
 export const CatalogueTransportConfigSchema = z
 	.object({
@@ -1348,8 +1365,16 @@ export interface ToolConfig {
 	 * - "mcp": Materialized per-tool call to an upstream MCP server
 	 * - "code": Execute stored JavaScript in a Dynamic Worker sandbox
 	 * - "catalog": Search or describe the request-local discovery catalog
+	 * - "projection": A built-in, bounded composition of authorized catalog reads
 	 */
-	transport?: "rpc" | "rest" | "external" | "mcp" | "code" | "catalog";
+	transport?:
+		| "rpc"
+		| "rest"
+		| "external"
+		| "mcp"
+		| "code"
+		| "catalog"
+		| "projection";
 
 	/** HTTP method for REST/external transport (default: "POST") */
 	method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";

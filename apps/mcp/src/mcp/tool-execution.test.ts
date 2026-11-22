@@ -2015,6 +2015,23 @@ it("hook context rechecks each source scope and preserves other readable sources
 			comments: [],
 		},
 	});
+	const sourceExecute = agent.toolHandler.execute;
+	vi.mocked(sourceExecute).mockImplementation(async (input, context) =>
+		context.config.transport === "projection"
+			? new ToolHandler().execute(input, context)
+			: {
+					status: 200,
+					data: {
+						workItem: {
+							id,
+							title: "Fictional work",
+							orgId: "org-uuid",
+							disposition: "accepted",
+						},
+						comments: [],
+					},
+				},
+	);
 	const work = {
 		...makeTool(),
 		toolId: "work__get_work_items_by_id",
@@ -2059,7 +2076,7 @@ it("hook context rechecks each source scope and preserves other readable sources
 		work: { item: { id, title: "Fictional work" } },
 		lessons: { unavailable: true },
 	});
-	expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
+	expect(agent.toolHandler.execute).toHaveBeenCalledTimes(2);
 	expect(agent.toolHandler.execute).toHaveBeenCalledWith(
 		{ id },
 		expect.objectContaining({ toolId: work.toolId }),

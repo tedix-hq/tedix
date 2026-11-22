@@ -5,6 +5,7 @@ import {
 } from "@tedix/api-contract/schemas/hook-context";
 import type {
 	ToolAnnotations,
+	NativeProjectionTransportConfig,
 	ToolInputJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
@@ -471,8 +472,6 @@ type HomeSurfaceToolSpec = {
 	description: string;
 	inputSchema: ToolInputJsonSchema;
 	annotations: ToolAnnotations;
-	/** oRPC endpoint string, e.g. "kernelRuntime/enqueueMessage". */
-	rpcEndpoint: string;
 	readProjection?: HomeReadProjection;
 	/**
 	 * MCP tasks extension (io.modelcontextprotocol/tasks) linkage: tools that
@@ -492,7 +491,13 @@ type HomeSurfaceToolSpec = {
 	 * result. Used by the async canary to keep the gate + workflow path live.
 	 */
 	asyncTask?: boolean;
-};
+} & (
+	| { rpcEndpoint: string; projectionEndpoint?: never }
+	| {
+			rpcEndpoint?: never;
+			projectionEndpoint: NativeProjectionTransportConfig["endpoint"];
+	  }
+);
 
 const HOME_SURFACE_NAMESPACE = "home";
 
@@ -503,7 +508,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 			"Read bounded turn context using the caller's authorized sources. Unavailable sources are omitted independently.",
 		inputSchema: zodToToolInputJsonSchema(HookTurnContextInputSchema),
 		annotations: READ_ONLY,
-		rpcEndpoint: "hooks/readTurnContext",
+		projectionEndpoint: "hooks/readTurnContext",
 	},
 	{
 		name: "read_work_boundary",
@@ -511,7 +516,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 			"Read a selected Work Item and its project and objective boundary.",
 		inputSchema: zodToToolInputJsonSchema(HookWorkBoundaryInputSchema),
 		annotations: READ_ONLY,
-		rpcEndpoint: "hooks/readWorkBoundary",
+		projectionEndpoint: "hooks/readWorkBoundary",
 	},
 
 	{
@@ -798,53 +803,59 @@ function buildHomeSurfaceTool(spec: HomeSurfaceToolSpec): AppTool {
 		toolTypeId: "rpc",
 		inputSchema: spec.inputSchema,
 		outputSchema: null,
-		config: {
-			transport: "rpc",
-			endpoint: spec.rpcEndpoint,
-			...(spec.readProjection
-				? { _homeReadProjection: spec.readProjection }
-				: {}),
-			...(spec.readProjection === "title"
-				? {
-						paramMap: {
-							limit: "limit",
-							cursor: "cursor",
-							search: "search",
-							channel: "channel",
-							includeArchived: "includeArchived",
-						},
-					}
-				: {}),
-			method: "POST",
-			// Home is not a tedi: never accept or inject a tedi identity. The
-			// caller's org is carried on the X-Tedix-Org-Id header (handler.ts)
-			// and resolved server-side by resolveOrganizationId.
-			allowExplicitTediId: false,
-			// allowExplicitAppId:true mirrors the per-tedi home tools — with no
-			// appId in the (closed) input schema, enforceContextParams leaves
-			// params.appId undefined rather than injecting the tedix-unified app
-			// id, which the kernelRuntime procedures do not accept.
-			allowExplicitAppId: true,
-			...(spec.name === "synthesize_spoken_reply"
-				? { staticParams: { subject: { type: "kernel" } } }
-				: {}),
-			// Forward the authenticated caller's auth to apps/api so the Home
-			// kernel runs under the user's speaker authority (docs/engineering/product/tedix-os.md).
-			// The operator surface is public-auth; this opt-in flag forwards only an
-			// already-authenticated oauth/user caller, with no escalation.
-			// Detached generic tasks cannot replay a live bearer credential. Async
-			// Home tools instead use the Workflow's bounded service-binding identity
-			// and code-owned endpoint scope map; keeping both flags would make the
-			// safety guard run the tool synchronously and defeat Tasks entirely.
-			...(spec.asyncTask ? {} : { _forwardCallerAuth: true }),
-			_aggregateNamespace: HOME_SURFACE_NAMESPACE,
-			// MCP tasks extension: enqueue tools surface task.id = homeRunId in
-			// their result so callers can poll tasks/get past client timeouts.
-			...(spec.emitTaskLinkage ? { _emitTaskLinkage: true } : {}),
-			// Generic async task: opt this tool into out-of-band execution via the
-			// GenericTasksWorkflow (tool-execution.ts `_asyncTask` gate).
-			...(spec.asyncTask ? { _asyncTask: true } : {}),
-		},
+		config: spec.projectionEndpoint
+			? {
+					transport: "projection",
+					endpoint: spec.projectionEndpoint,
+					_aggregateNamespace: HOME_SURFACE_NAMESPACE,
+				}
+			: {
+					transport: "rpc",
+					endpoint: spec.rpcEndpoint,
+					...(spec.readProjection
+						? { _homeReadProjection: spec.readProjection }
+						: {}),
+					...(spec.readProjection === "title"
+						? {
+								paramMap: {
+									limit: "limit",
+									cursor: "cursor",
+									search: "search",
+									channel: "channel",
+									includeArchived: "includeArchived",
+								},
+							}
+						: {}),
+					method: "POST",
+					// Home is not a tedi: never accept or inject a tedi identity. The
+					// caller's org is carried on the X-Tedix-Org-Id header (handler.ts)
+					// and resolved server-side by resolveOrganizationId.
+					allowExplicitTediId: false,
+					// allowExplicitAppId:true mirrors the per-tedi home tools — with no
+					// appId in the (closed) input schema, enforceContextParams leaves
+					// params.appId undefined rather than injecting the tedix-unified app
+					// id, which the kernelRuntime procedures do not accept.
+					allowExplicitAppId: true,
+					...(spec.name === "synthesize_spoken_reply"
+						? { staticParams: { subject: { type: "kernel" } } }
+						: {}),
+					// Forward the authenticated caller's auth to apps/api so the Home
+					// kernel runs under the user's speaker authority (docs/engineering/product/tedix-os.md).
+					// The operator surface is public-auth; this opt-in flag forwards only an
+					// already-authenticated oauth/user caller, with no escalation.
+					// Detached generic tasks cannot replay a live bearer credential. Async
+					// Home tools instead use the Workflow's bounded service-binding identity
+					// and code-owned endpoint scope map; keeping both flags would make the
+					// safety guard run the tool synchronously and defeat Tasks entirely.
+					...(spec.asyncTask ? {} : { _forwardCallerAuth: true }),
+					_aggregateNamespace: HOME_SURFACE_NAMESPACE,
+					// MCP tasks extension: enqueue tools surface task.id = homeRunId in
+					// their result so callers can poll tasks/get past client timeouts.
+					...(spec.emitTaskLinkage ? { _emitTaskLinkage: true } : {}),
+					// Generic async task: opt this tool into out-of-band execution via the
+					// GenericTasksWorkflow (tool-execution.ts `_asyncTask` gate).
+					...(spec.asyncTask ? { _asyncTask: true } : {}),
+				},
 		annotations: spec.annotations,
 		meta: {
 			source: "homeSurface",
@@ -869,7 +880,8 @@ function buildHomeSurfaceTool(spec: HomeSurfaceToolSpec): AppTool {
 		widgetDomain: null,
 		schemaDialect: "json-schema-2020-12",
 		schemaSource: "manual",
-		schemaSourceRef: spec.rpcEndpoint,
+		schemaSourceRef:
+			spec.rpcEndpoint ?? "@tedix/api-contract/schemas/hook-context",
 		schemaSourceHash: null,
 		schemaSyncedAt: null,
 		sortOrder: null,

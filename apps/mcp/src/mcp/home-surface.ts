@@ -21,8 +21,9 @@
  *    that allowlist only governs REST tools that embed `{organizationId}` in the
  *    path; these are rpc-transport tools that carry org on the header.
  *
- * All tools use `transport: "rpc"` against `kernelRuntime/<procedure>` and proxy
- * straight to apps/api, so they are runtime-agnostic (no container required).
+ * RPC tools proxy to their apps/api contract procedures. Native hook projections
+ * compose authorized catalog reads through the request-owned ToolHandler callback.
+ * Neither path needs a container or Dynamic Worker.
  */
 
 import type { AppTool } from "./server-context";

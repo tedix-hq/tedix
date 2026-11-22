@@ -2115,3 +2115,54 @@ describe("compact Home reads", () => {
 		).toEqual({ found: false, title: null, nextCursor: "next" });
 	});
 });
+
+it("native projections require a request-owned capability and validate their bounded inputs", async () => {
+	const handler = new ToolHandler();
+	const config = {
+		transport: "projection",
+		endpoint: "hooks/readWorkBoundary",
+		_aggregateNamespace: "home",
+	};
+	const context = ctx(config);
+	expect(
+		(
+			await handler.execute(
+				{ workItemId: "11111111-1111-4111-8111-111111111111" },
+				context,
+			)
+		).status,
+	).toBe(403);
+	const projectionTransport = vi.fn(async () => ({
+		item: { title: "Fictional work" },
+	}));
+	expect(
+		(
+			await handler.execute(
+				{ workItemId: "invalid" },
+				{ ...context, projectionTransport },
+			)
+		).status,
+	).toBe(400);
+	expect(
+		(
+			await handler.execute(
+				{},
+				{
+					...context,
+					config: { ...config, endpoint: "workItems/delete" } as ToolConfig,
+					projectionTransport,
+				},
+			)
+		).status,
+	).toBe(403);
+	expect(projectionTransport).not.toHaveBeenCalled();
+	const result = await handler.execute(
+		{ workItemId: "11111111-1111-4111-8111-111111111111" },
+		{ ...context, projectionTransport },
+	);
+	expect(result).toEqual({
+		status: 200,
+		data: { item: { title: "Fictional work" } },
+	});
+	expect(projectionTransport).toHaveBeenCalledOnce();
+});

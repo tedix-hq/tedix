@@ -85,7 +85,10 @@ describe("home surface tools", () => {
 		expect(asyncTools.map((tool) => tool.toolId)).toEqual([
 			"home__async_canary",
 		]);
-		for (const tool of tools.filter((candidate) => candidate !== canary)) {
+		for (const tool of tools.filter(
+			(candidate) =>
+				candidate !== canary && candidate.config?.transport === "rpc",
+		)) {
 			expect(
 				(tool.config as { _forwardCallerAuth?: boolean })._forwardCallerAuth,
 				tool.toolId,
@@ -112,8 +115,22 @@ describe("home surface tools", () => {
 		]);
 		for (const tool of tools) {
 			const config = tool.config as Record<string, unknown>;
-			expect(config.transport).toBe("rpc");
-			expect(config.allowExplicitTediId).toBe(false);
+			if (
+				tool.toolId === "home__read_turn_context" ||
+				tool.toolId === "home__read_work_boundary"
+			) {
+				expect(config).toEqual({
+					transport: "projection",
+					endpoint:
+						tool.toolId === "home__read_turn_context"
+							? "hooks/readTurnContext"
+							: "hooks/readWorkBoundary",
+					_aggregateNamespace: "home",
+				});
+			} else {
+				expect(config.transport).toBe("rpc");
+				expect(config.allowExplicitTediId).toBe(false);
+			}
 			// No tedi static params: home is not modeled under a tedi.
 			expect(config._aggregateTediId).toBeUndefined();
 			expect(

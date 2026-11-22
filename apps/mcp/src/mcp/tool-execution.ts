@@ -922,13 +922,12 @@ async function executeWithHandler(
 			tool.sensitiveData === true &&
 			(await personalDataRedactionEnabled(agent));
 		const hookProjection =
-			(tool.meta as { source?: string } | null)?.source === "homeSurface"
-				? toolConfig.endpoint === "hooks/readTurnContext"
-					? "turn"
-					: toolConfig.endpoint === "hooks/readWorkBoundary"
-						? "boundary"
-						: null
-				: null;
+			toolConfig.transport === "projection" &&
+			(tool.meta as { source?: string } | null)?.source === "homeSurface" &&
+			((tool.id === "home:read_turn_context" &&
+				toolConfig.endpoint === "hooks/readTurnContext") ||
+				(tool.id === "home:read_work_boundary" &&
+					toolConfig.endpoint === "hooks/readWorkBoundary"));
 		const readHookSource = async (
 			callable: string,
 			input: Record<string, unknown>,
@@ -961,21 +960,18 @@ async function executeWithHandler(
 			if (result.isError) throw new Error("Hook source unavailable");
 			return result.structuredContent;
 		};
-		const result = hookProjection
-			? {
-					status: 200,
-					data:
-						hookProjection === "turn"
-							? await readTurnContext(
-									HookTurnContextInputSchema.parse(effectiveArgs),
-									readHookSource,
-								)
-							: await readWorkBoundary(
-									HookWorkBoundaryInputSchema.parse(effectiveArgs),
-									readHookSource,
-								),
-				}
-			: await handler.execute(effectiveArgs, ctx);
+		if (hookProjection)
+			ctx.projectionTransport = async (config, input) =>
+				config.endpoint === "hooks/readTurnContext"
+					? readTurnContext(
+							HookTurnContextInputSchema.parse(input),
+							readHookSource,
+						)
+					: readWorkBoundary(
+							HookWorkBoundaryInputSchema.parse(input),
+							readHookSource,
+						);
+		const result = await handler.execute(effectiveArgs, ctx);
 		saveLap("upstreamMs");
 		// Third-party content: remove invisible/bidirectional Unicode and
 		// unsafe HTML before shaping so the client and the Code Mode sandbox

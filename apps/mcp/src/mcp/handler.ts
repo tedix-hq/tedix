@@ -1,3 +1,7 @@
+import {
+	HookTurnContextInputSchema,
+	HookWorkBoundaryInputSchema,
+} from "@tedix/api-contract/schemas/hook-context";
 import { projectHomeRead } from "./home-read-projection";
 import { readResponseFields } from "./field-selection";
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
@@ -12,6 +16,8 @@ import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/c
 import type { ProviderIdentityProbeProfile } from "./provider-identity-probe";
 import {
 	CatalogueTransportConfigSchema,
+	NativeProjectionTransportConfigSchema,
+	type NativeProjectionTransportCallback,
 	CatalogueSearchInputSchema,
 	CatalogueDescribeInputSchema,
 	type CatalogueTransportCallback,
@@ -81,6 +87,7 @@ import { findSecretValuePattern } from "./utils/secret-egress-scan";
  * - "mcp": Direct stateless call to upstream MCP server via Streamable HTTP
  * - "code": Execute stored JavaScript in a Dynamic Worker sandbox (globalOutbound: null)
  * - "catalog": Request-local, configuration-backed discovery without a sandbox
+ * - "projection": Built-in compositions through request-owned authorized readers
  *
  * Auth: Internal transports use service binding (API_SERVICE).
  * External + MCP transports resolve credentials from Descope Token Vault via connections.fetchTediToken.
@@ -150,6 +157,8 @@ export interface ToolExecutionContext<TConfig = unknown> {
 
 	/** Request-local capability; never loaded from tool config or arguments. */
 	catalogTransport?: CatalogueTransportCallback;
+	/** Only built-in native tools receive this request-owned capability. */
+	projectionTransport?: NativeProjectionTransportCallback;
 
 	/** Tool-specific configuration from D1 */
 	config: TConfig;
@@ -511,6 +520,29 @@ export class ToolHandler {
 			};
 		}
 
+		if (transport === "projection") {
+			const configured =
+				NativeProjectionTransportConfigSchema.safeParse(config);
+			if (!configured.success || !ctx.projectionTransport)
+				return {
+					status: 403,
+					data: { error: "Native projection unavailable or invalid" },
+				};
+			const parsed = (
+				configured.data.endpoint === "hooks/readTurnContext"
+					? HookTurnContextInputSchema
+					: HookWorkBoundaryInputSchema
+			).safeParse(input);
+			if (!parsed.success)
+				return {
+					status: 400,
+					data: { error: "Invalid native projection arguments" },
+				};
+			return {
+				status: 200,
+				data: await ctx.projectionTransport(configured.data, parsed.data),
+			};
+		}
 		if (transport === "catalog") {
 			const configured = CatalogueTransportConfigSchema.safeParse(config);
 			if (!configured.success || !ctx.catalogTransport) {

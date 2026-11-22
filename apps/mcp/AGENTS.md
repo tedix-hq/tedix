@@ -46,12 +46,15 @@ Authorization, native eligibility and execution closures remain request-local.
 ## Tools are D1 rows, not files
 
 Every app tool is a config-driven `app_tools` row executed by the universal
-`ToolHandler` (`src/mcp/handler.ts` — six transports: rpc/rest/external/mcp/
-code/catalog). The `catalog` transport runs `catalog/search` and
+`ToolHandler` (`src/mcp/handler.ts` — seven transports: rpc/rest/external/mcp/
+code/catalog/projection). The `catalog` transport runs `catalog/search` and
 `catalog/describe` through the same authorized catalog projection with fresh
 request context; it does not create a WorkerLoader. Only the code-built pair in
 `src/mcp/native-catalog-tools.ts` uses it; stored catalog rows are ignored. Native RPC descriptors
-remain subject to their endpoint scope checks. **No per-tool handler files.**
+remain subject to their endpoint scope checks. Native Home hook tools use the
+`projection` transport with closed inputs and a request-owned reader; every source
+read retains its own scope check. Stored tools receive no projection callback.
+**No per-tool handler files.**
 The few code-built platform tools under
 `src/mcp/tools/` (widget authoring) are the deliberate exceptions,
 not a pattern. `tool_id` names are verb-first snake_case (root rule "MCP Tool
