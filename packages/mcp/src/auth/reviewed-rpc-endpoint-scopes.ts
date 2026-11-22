@@ -424,6 +424,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"learningFeedback/listImprovements": "mcp:tedis.read",
 	"learningFeedback/listInteractions": "mcp:tedis.read",
 	"learningFeedback/proposeImprovement": "mcp:tedis.write",
+	"learningFeedback/recordDeckRoutings": "mcp:tedis.write",
 	"learningFeedback/recordInteraction": "mcp:tedis.write",
 	"learningFeedback/recordMeasurement": "mcp:tedis.write",
 	"learningFeedback/reviewImprovement": "mcp:tedis.write",

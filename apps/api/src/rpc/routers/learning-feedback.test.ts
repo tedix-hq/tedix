@@ -1,3 +1,10 @@
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
+import { organizations } from "@tedix/db/schema/organizations";
+import { tedis } from "@tedix/db/schema/tedis";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
 import { createRouterClient } from "@orpc/server";
 import { userContext, apiKeyContext } from "../test-context";
@@ -187,4 +194,57 @@ describe("learning feedback identity and scope", () => {
 			}),
 		).toBe(false);
 	});
+});
+
+it("records the first routing once per organization/person/card and rejects machines", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec(schemaDdl(organizations, tedis, learningInteractionEvents));
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		const db = createDbClient(createD1Facade(sqlite));
+		const person = (sub: string, organizationId = "org-1") =>
+			createRouterClient(learningFeedbackContractRouter, {
+				context: userContext({ db, sub, organizationId }),
+			});
+		const route = {
+			id: "candidate-one",
+			destination: "deck",
+			reason: "valuable_opportunity",
+			policyVersion: 1,
+			classId: "opportunity",
+		};
+		await expect(
+			person("user-1").recordDeckRoutings({ routes: [route, route] }),
+		).resolves.toEqual({ recorded: 1 });
+		await expect(
+			person("user-1").recordDeckRoutings({
+				routes: [{ ...route, reason: "critical", policyVersion: 2 }],
+			}),
+		).resolves.toEqual({ recorded: 0 });
+		await expect(
+			person("user-2").recordDeckRoutings({ routes: [route] }),
+		).resolves.toEqual({ recorded: 1 });
+		await expect(
+			person("user-1", "org-2").recordDeckRoutings({ routes: [route] }),
+		).resolves.toEqual({ recorded: 1 });
+		const rows = await db.select().from(learningInteractionEvents);
+		expect(rows).toHaveLength(3);
+		expect(rows[0]).toMatchObject({
+			organizationId: "org-1",
+			actorId: "user-1",
+			scopeId: "user-1",
+			scopeKind: "personal",
+			surface: "decision_deck_routing",
+			eventKind: "delivered",
+			metadata: { routingReason: "valuable_opportunity", policyVersion: 1 },
+		});
+		const machine = createRouterClient(learningFeedbackContractRouter, {
+			context: apiKeyContext({ db, scopes: ["tedis:write"] }),
+		});
+		await expect(
+			machine.recordDeckRoutings({ routes: [route] }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	} finally {
+		sqlite.close();
+	}
 });

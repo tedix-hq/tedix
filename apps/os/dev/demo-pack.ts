@@ -786,6 +786,7 @@ export function applyDemoPack(
 		nextCursor: null,
 		hasMore: false,
 	});
+	h["learningFeedback/recordDeckRoutings"] = () => ({ recorded: 0 });
 	h["learningFeedback/recordInteraction"] = (input: Row) => {
 		const event = {
 			...input,

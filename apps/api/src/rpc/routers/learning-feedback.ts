@@ -16,6 +16,7 @@ import type {
 	LearningSubjectKind,
 } from "@tedix/api-contract/schemas/learning-feedback";
 import {
+	recordLearningInteractionsBatch,
 	analyzeRecurringLearningIssues,
 	getLearningFeedbackSummary,
 	LearningFeedbackIdempotencyConflictError,
@@ -214,6 +215,56 @@ export function learningScopeCanNominateSubject(input: {
 			return false;
 	}
 }
+
+const recordDeckRoutings = authed.recordDeckRoutings
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"A person may record routing telemetry only in their own personal scope",
+			},
+			"tedis:write",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const actorId = requireLearningPerson(context);
+		const occurredAt = new Date().toISOString();
+		const rows = await Promise.all(
+			input.routes.map(async (row) => {
+				const digest = await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(JSON.stringify([actorId, row.id])),
+				);
+				const hash = Array.from(new Uint8Array(digest), (byte) =>
+					byte.toString(16).padStart(2, "0"),
+				).join("");
+				return {
+					organizationId,
+					actorType: "user" as const,
+					actorId,
+					clientEventId: `deck-routing:v2:${hash}`,
+					scopeKind: "personal" as const,
+					scopeId: actorId,
+					surface: "decision_deck_routing",
+					eventKind: "delivered" as const,
+					issueKey: `deck:${row.classId}`,
+					targetType: "deck_candidate",
+					targetId: row.id,
+					metadata: {
+						destination: row.destination,
+						routingReason: row.reason,
+						policyVersion: row.policyVersion,
+						decisionClass: row.classId,
+						classId: row.classId,
+					},
+					occurredAt,
+				};
+			}),
+		);
+		// First routing wins, including when another browser already recorded this card.
+		return recordLearningInteractionsBatch(context.db, rows);
+	});
 
 const recordInteraction = authed.recordInteraction
 	.use(
@@ -980,6 +1031,7 @@ export const learningFeedbackContractRouter = learningFeedbackOs.router({
 	model,
 	configure,
 	correct,
+	recordDeckRoutings,
 	recordInteraction,
 	listInteractions,
 	attributeFeedback,

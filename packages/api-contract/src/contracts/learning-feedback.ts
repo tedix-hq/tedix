@@ -12,6 +12,7 @@ import {
 	LearningCorrectionInputSchema,
 } from "../schemas/decision-learning";
 import {
+	DeckRoutingAuditInputSchema,
 	AnalyzeRecurringLearningIssuesInputSchema,
 	AnalyzeRecurringLearningIssuesOutputSchema,
 	AttributeLearningFeedbackInputSchema,
@@ -102,6 +103,12 @@ export const learningFeedbackContract = oc
 		correct: oc
 			.input(LearningCorrectionInputSchema)
 			.output(RecordLearningInteractionOutputSchema),
+		recordDeckRoutings: oc
+			.route({
+				summary: "Record first routing per personal Deck card in a batch",
+			})
+			.input(DeckRoutingAuditInputSchema)
+			.output(z.object({ recorded: z.number().int().nonnegative() })),
 		recordInteraction: oc
 			.route({
 				method: "POST",

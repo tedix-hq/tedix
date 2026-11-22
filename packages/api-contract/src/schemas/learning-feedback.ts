@@ -2,6 +2,21 @@ import * as z from "zod";
 import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import { JsonValueSchema } from "./common";
 
+export const DeckRoutingAuditInputSchema = z.object({
+	routes: z
+		.array(
+			z.object({
+				id: z.string().min(1).max(500),
+				destination: z.string().min(1).max(100),
+				reason: z.string().min(1).max(200),
+				policyVersion: z.number().int().nonnegative(),
+				classId: z.string().min(1).max(200),
+			}),
+		)
+		.min(1)
+		.max(100),
+});
+
 export const LEARNING_INTERACTION_KINDS = [
 	"accepted",
 	"edited",

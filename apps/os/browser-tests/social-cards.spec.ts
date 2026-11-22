@@ -302,6 +302,8 @@ try {
 				);
 			if (path.endsWith("/learningFeedback/listInteractions"))
 				return json({ events: [] });
+			if (path.endsWith("/learningFeedback/recordDeckRoutings"))
+				return json({ recorded: 0 });
 			if (path.endsWith("/learningFeedback/recordInteraction"))
 				return json({ event: { id: crypto.randomUUID() } });
 			if (path.endsWith("/learningFeedback/recordExposure"))
