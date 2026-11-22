@@ -86,15 +86,17 @@ function fixture() {
 			if (args.includes("show")) return { ...binding };
 			if (args.includes("auth")) return auth;
 			if (args.includes(ORGANIZATION_PROBE)) return organizationInfo(org);
-			if (args.some((arg) => arg.includes("discover.search")))
+			if (args.some((arg) => arg.includes("search_native_tools")))
 				return {
-					tools: [
-						{
-							authorized: true,
-							callable: "fictional.list_all_mine",
-							schemaFreshness: { sourceRef: "organizations/listAllMine" },
-						},
-					],
+					structuredContent: {
+						results: [
+							{
+								authorized: true,
+								callable: "fictional.list_all_mine",
+								schemaFreshness: { sourceRef: "organizations/listAllMine" },
+							},
+						],
+					},
 				};
 			if (args.some((arg) => arg.includes("fictional.list_all_mine")))
 				return {

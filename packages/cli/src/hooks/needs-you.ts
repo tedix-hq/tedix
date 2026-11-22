@@ -2,11 +2,13 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DeckProjectionSchema } from "@tedix/api-contract/schemas/attention";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
+import { unwrapToolResult } from "../home-payload";
 import { scrub } from "../learn-import";
 import { cacheDir } from "./context-cache";
 import { contextHash } from "./context-delivery";
 import { redact } from "./decision-capture";
 import {
+	isObject,
 	readOrganizationContext,
 	type HookDeps,
 	type JsonObject,
@@ -42,23 +44,33 @@ export async function needsYou(
 		const runtime = await readOrganizationContext(deps.read, command, 3000);
 		let origin = deps.env.TEDIX_OS_URL;
 		if (!origin) {
-			const discovery = await deps.read(
-				[
-					...command,
-					"code",
-					'async () => ({tools: await discover.search({query:"list_all_mine",limit:3,includeParameters:true})})',
-				],
-				3000,
+			const discovery = unwrapToolResult(
+				await deps.read(
+					[
+						...command,
+						"mcp",
+						"call",
+						"tools/call",
+						"--params",
+						JSON.stringify({
+							name: "search_native_tools",
+							arguments: { query: "list_all_mine", limit: 3 },
+						}),
+					],
+					3000,
+				),
+				"search_native_tools",
 			);
-			const tool = Array.isArray(discovery.tools)
-				? discovery.tools.find(
-						(entry: JsonObject) =>
-							entry.authorized === true &&
-							entry.schemaFreshness?.sourceRef ===
-								"organizations/listAllMine" &&
-							/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(entry.callable),
-					)
-				: undefined;
+			const tool =
+				isObject(discovery) && Array.isArray(discovery.results)
+					? discovery.results.find(
+							(entry: JsonObject) =>
+								entry.authorized === true &&
+								entry.schemaFreshness?.sourceRef ===
+									"organizations/listAllMine" &&
+								/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(entry.callable),
+						)
+					: undefined;
 			if (!tool) return undefined;
 			const result = await deps.read(
 				[
