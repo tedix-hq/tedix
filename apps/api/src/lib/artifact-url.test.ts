@@ -159,7 +159,7 @@ describe("artifactBucketBinding", () => {
 			env.SKILL_ARTIFACTS,
 		);
 		expect(artifactBucketBinding(env, "test-assets")).toBe(env.R2_BUCKET);
-		expect(artifactBucketBinding(env, "content-cms")).toBe(
+		expect(artifactBucketBinding(env, "test-content-cms")).toBe(
 			env.CONTENT_CMS_BUCKET,
 		);
 		expect(artifactBucketBinding(env, "nope")).toBeUndefined();

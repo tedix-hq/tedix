@@ -3,7 +3,7 @@
  *
  * Per-app CMS code bundles served by `apps/cms-runtime`. Each row is a
  * versioned snapshot of an Astro+Emdash build for a single app slug.
- * The actual JS lives in R2 (`tedix-cms-bundles`), keyed by
+ * The actual JS lives in the configured R2 bucket, keyed by
  * `{slug}/v{version}/{module}` plus a `manifest.json` listing the entry
  * module + chunked dependencies.
  *

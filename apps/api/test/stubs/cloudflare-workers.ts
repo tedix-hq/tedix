@@ -66,7 +66,7 @@ export const env = {
 	TEDI_R2_BUCKET_NAME: "test-tedi-artifacts",
 	SKILL_ARTIFACTS_BUCKET_NAME: "test-skill-artifacts",
 	R2_BUCKET_NAME: "test-assets",
-	CONTENT_CMS_BUCKET_NAME: "content-cms",
+	CONTENT_CMS_BUCKET_NAME: "test-content-cms",
 	R2_BUCKET: {
 		async put(
 			key: string,
