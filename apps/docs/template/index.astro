@@ -32,6 +32,7 @@ function routeKey(href: string): string {
 const sidebar = taskLedSidebar(rawSidebar, siteSlug, entryPath);
 const pages = links(rawSidebar).filter((link, index, all) => all.findIndex((other) => other.href === link.href) === index);
 const gettingStarted = pages.find((page) => routeKey(page.href) === "/getting-started");
+const cloudConnection = pages.find((page) => routeKey(page.href) === "/learning-paths/first-connection");
 const startHref = gettingStarted?.href ?? entryPath;
 const preferredTasks = ["/learning-paths/first-connection", "/learning-paths/first-worker", "/troubleshooting"];
 const firstSteps = preferredTasks.flatMap((path) => pages.find((page) => routeKey(page.href) === path) ?? []).slice(0, 3);
@@ -78,7 +79,7 @@ const dateLabel = new Intl.DateTimeFormat("en", { day: "numeric", month: "short"
               <h2 id="start-path-heading" class="mb-3 text-2xl font-semibold tracking-tight text-foreground">Start with Cloud or run Tedix locally</h2>
               <p class="mb-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">Both paths use the same product model. Choose the setup that matches what you can access today.</p>
               <div class="grid gap-3 md:grid-cols-2">
-                <a href={`${gettingStarted.href}#use-tedix-cloud`} class="td-start-card no-underline">
+                <a href={cloudConnection?.href ?? gettingStarted.href} class="td-start-card no-underline">
                   <span class="td-start-card__eyebrow">Invited beta</span>
                   <strong>Use Tedix Cloud</strong>
                   <span>Sign in, run a first task, and inspect its result.</span>
