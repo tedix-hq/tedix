@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.34.5 (2026-11-22)
+
+### Patch Changes
+
+- 8f5b439: Devin runner tasks now continue after the Tedix app quits or restarts, like Codex, Claude Code and OpenCode tasks: the next runner resumes the same Devin session in the same checkout under the same Attempt. Before, a running Devin task was left until its lease ran out, ended `expired`, and after two such ends the Work was held with its result unrecorded.
+
 ## 0.34.4 (2026-11-22)
 
 ### Patch Changes
