@@ -600,6 +600,11 @@ describe("Code Mode tail telemetry", () => {
 			code: "async () => await test.soft_fail({})",
 		});
 		expect(executedPrograms).toHaveLength(0);
+		// The namespace-globals prelude is worker-only, so discover.* stays off it.
+		await registered.get("code")!({
+			code: "async () => await discover.list_namespaces({})",
+		});
+		expect(executedPrograms).toHaveLength(0);
 		expect(response.structuredContent.result).toEqual(
 			legacy.structuredContent.result,
 		);

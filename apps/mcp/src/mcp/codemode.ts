@@ -359,28 +359,12 @@ export async function registerCodeModeTools(
 					),
 				);
 
-		const providersWithoutPrelude: ResolvedProvider[] = [
+		return [
 			resolvedCatalog,
 			resolvedRuntimeProvider,
 			resolvedUiProvider,
 			resolvedFlowProvider,
 			...toolProviders,
-		];
-		// Namespace bindings are block-scoped constants in the sandbox, so
-		// `globalThis[ns]` would otherwise be undefined even for a mounted namespace.
-		return [
-			{
-				...resolvedCatalog,
-				prelude: [
-					resolvedCatalog.prelude,
-					namespaceGlobalsPrelude(
-						providersWithoutPrelude.map((provider) => provider.name),
-					),
-				]
-					.filter(Boolean)
-					.join("\n"),
-			},
-			...providersWithoutPrelude.slice(1),
 		];
 	};
 	let callableInventory: string[] | undefined;
@@ -809,6 +793,25 @@ export async function registerCodeModeTools(
 								(name) =>
 									!allProviders.some((provider) => provider.name === name),
 							);
+						// Worker-only preludes: attaching them earlier disables
+						// literal-call dispatch. Namespace bindings are block-scoped
+						// constants in the sandbox, so `globalThis[ns]` needs getters.
+						const globalsPrelude = namespaceGlobalsPrelude(
+							allProviders.map((provider) => provider.name),
+						);
+						const workerProviders = (providers: ResolvedProvider[]) =>
+							providers.map((provider) =>
+								provider.name === "discover"
+									? {
+											...provider,
+											prelude: [provider.prelude, globalsPrelude]
+												.filter(Boolean)
+												.join("\n"),
+										}
+									: builtins.has(provider.name)
+										? provider
+										: withInnerErrorTransport(provider),
+							);
 						return runStatelessCodeMode({
 							code,
 							executor: {
@@ -842,11 +845,7 @@ export async function registerCodeModeTools(
 												// Transport preludes belong at the worker boundary; attaching
 												// them earlier disables literal-call dispatch for every tool.
 												Array.isArray(args[1])
-													? args[1].map((provider) =>
-															builtins.has(provider.name)
-																? provider
-																: withInnerErrorTransport(provider),
-														)
+													? workerProviders(args[1])
 													: args[1],
 											),
 									}),
