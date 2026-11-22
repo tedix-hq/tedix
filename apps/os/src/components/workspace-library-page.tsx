@@ -156,7 +156,10 @@ export function WorkspaceLibraryPage({
 					</PageActions>
 				</PageHeader>
 
-				<PageToolbar appearance="inline">
+				<PageToolbar
+					appearance="inline"
+					className="sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+				>
 					<SegmentedControl
 						ariaLabel="Workspace status"
 						className="shrink-0"
@@ -171,7 +174,7 @@ export function WorkspaceLibraryPage({
 					{view === "active" &&
 					workspaces.data &&
 					(workspaces.data.items.length > 0 || normalizedSearch) ? (
-						<div className="w-full lg:w-80">
+						<div className="w-full sm:w-80">
 							<SearchInput
 								aria-label="Search workspaces"
 								containerClassName="w-full"

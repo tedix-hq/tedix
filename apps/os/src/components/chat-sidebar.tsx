@@ -5,6 +5,7 @@ import {
 	Archive,
 	ArrowCounterClockwise,
 	CaretLeft,
+	ChatCircle,
 	Check,
 	DotsThree,
 	Info,
@@ -563,7 +564,9 @@ export function ChatSidebar({
 					kind="tedi"
 					className="size-5 shrink-0"
 				/>
-			) : undefined,
+			) : (
+				<ChatCircle aria-hidden className="size-5 shrink-0 text-kumo-subtle" />
+			),
 			answeredBy: extra?.tedi.id ? extra.tedi.name : null,
 			match: conversation.match,
 			working: extra?.running === true,

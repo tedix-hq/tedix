@@ -5,7 +5,12 @@ import { lazy, Suspense } from "react";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
-import { Page, PageTitle } from "@/components/kumo/page";
+import {
+	Page,
+	PageActions,
+	PageHeader,
+	PageTitle,
+} from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { defaultWorkApps, useWorkApps } from "@/lib/use-work-apps";
 import {
@@ -183,25 +188,30 @@ export function WorkHome({
 		<Page width="full" className="fd-work-home">
 			{/* The page heading comes first, so overview sections sit under it. */}
 			{(!selected || selected.role) && (
-				<div className="flex items-center justify-between gap-3">
+				<PageHeader
+					className={overview ? "mx-auto w-full max-w-3xl" : undefined}
+				>
 					<PageTitle>{title}</PageTitle>
-					{canCustomize &&
-						!selected &&
-						!search.app &&
-						!pending &&
-						!failed &&
-						!truncated && <InstallWorkAppearance />}
-					{selected?.role &&
-						selected.manifest.entry === defaultWorkApps[selected.role].entry &&
-						canCustomize && (
-							<WorkAppearance
-								key={selected.gadget.id}
-								role={selected.role}
-								gadget={selected.gadget}
-								revision={selected.revision}
-							/>
-						)}
-				</div>
+					{canCustomize && (
+						<PageActions className="empty:hidden">
+							{!selected &&
+								!search.app &&
+								!pending &&
+								!failed &&
+								!truncated && <InstallWorkAppearance />}
+							{selected?.role &&
+								selected.manifest.entry ===
+									defaultWorkApps[selected.role].entry && (
+									<WorkAppearance
+										key={selected.gadget.id}
+										role={selected.role}
+										gadget={selected.gadget}
+										revision={selected.revision}
+									/>
+								)}
+						</PageActions>
+					)}
+				</PageHeader>
 			)}
 			{usePresentation && typeof presentationId === "string" ? (
 				<WorkGadgetPresentation

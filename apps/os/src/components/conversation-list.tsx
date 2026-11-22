@@ -241,14 +241,6 @@ function ConversationRowView({
 					>
 						<span className="flex w-full min-w-0 items-center gap-2">
 							{row.leading}
-							{row.pinned ? (
-								<PushPin
-									aria-label="Pinned"
-									className="shrink-0 text-kumo-subtle"
-									size={12}
-									weight="fill"
-								/>
-							) : null}
 							<Text
 								as="span"
 								className="min-w-0 flex-1"
@@ -260,6 +252,14 @@ function ConversationRowView({
 							>
 								{row.title}
 							</Text>
+							{row.pinned ? (
+								<PushPin
+									aria-label="Pinned"
+									className="shrink-0 text-kumo-subtle"
+									size={12}
+									weight="fill"
+								/>
+							) : null}
 							{detail ? (
 								<Text
 									as="span"
