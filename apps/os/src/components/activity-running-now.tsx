@@ -6,6 +6,8 @@ import { dispatcherHealthQueryOptions, osQuery } from "@/lib/os-query-options";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { useWorkPrincipalNames } from "./work-operations-shared";
+import { WorkActorAvatar } from "./work-actor-avatar";
+import { workActorReference } from "@/lib/work-actor";
 import { workPrincipalTooltip } from "@/lib/work-display";
 import { WorkReadFailure } from "./work-surface-primitives";
 import { Card, CardContent, CardHeader, CardTitle } from "./kumo/card";
@@ -110,20 +112,24 @@ export function ActivityRunningNow({
 						/>
 					)}
 					{rows.length > 0 ? (
-						<ul aria-label="Active work" className="grid min-w-0 gap-2">
+						<ul aria-label="Active work" className="grid min-w-0 gap-3">
 							{(expanded ? work : work.slice(0, 5)).map((group) => {
 								const { attempt, workItem } = group[group.length - 1]!;
-								const people = [
-									...new Set(
-										group.map(({ attempt }) =>
-											workPrincipalTooltip(
-												attempt.executorType,
-												attempt.executorId,
-												names,
-											),
-										),
+								const actor = workActorReference(
+									attempt.executorType,
+									attempt.executorId,
+									attempt.metadata,
+									attempt.externalSessionKey,
+								);
+								const who = runnerName(
+									actor.harness,
+									attempt.executorType,
+									workPrincipalTooltip(
+										attempt.executorType,
+										attempt.executorId,
+										names,
 									),
-								];
+								);
 								const status =
 									attempt.expiresAt &&
 									Date.parse(attempt.expiresAt) <= now.getTime()
@@ -138,13 +144,33 @@ export function ActivityRunningNow({
 								return (
 									<li
 										key={workItem.id}
-										className="flex min-w-0 flex-wrap items-baseline gap-x-2"
+										className="flex min-w-0 items-center gap-3"
 									>
-										<Text weight="semibold">{people.join(", ")}</Text>
-										<Link variant="record" href={`/work/items/${workItem.id}`}>
-											{plainFeedText(workItem.title) || workItem.title}
-										</Link>
-										{status && <Text tone="secondary">{status}</Text>}
+										<WorkActorAvatar actor={actor} name={who} />
+										<div className="grid min-w-0 flex-1">
+											<Link
+												variant="record"
+												href={`/work/items/${workItem.id}`}
+												className="min-h-0 min-w-0 max-w-full justify-self-start"
+											>
+												<span className="line-clamp-2 min-w-0 break-words">
+													{plainFeedText(workItem.title) || workItem.title}
+												</span>
+											</Link>
+											<Text
+												role="caption"
+												tone="secondary"
+												className="truncate"
+											>
+												{[
+													who,
+													status ??
+														runningFor(attempt.startedAt, now.getTime()),
+												]
+													.filter(Boolean)
+													.join(" · ")}
+											</Text>
+										</div>
 									</li>
 								);
 							})}
@@ -242,4 +268,33 @@ function RunnerProblems({
 			)}
 		</div>
 	);
+}
+
+const TOOL_NAMES: Record<string, string> = {
+	"claude-code": "Claude Code",
+	claude: "Claude",
+	codex: "Codex",
+	devin: "Devin",
+	opencode: "OpenCode",
+};
+
+/** The tool's own name, never the machine or account it runs under. */
+function runnerName(
+	harness: string | null | undefined,
+	executorType: string,
+	principal: string,
+) {
+	if (harness && TOOL_NAMES[harness]) return TOOL_NAMES[harness];
+	if (executorType === "tedi" && principal !== "Tedi") return principal;
+	return principal.replace(/\s*\([^()]*@[^()]*\)\s*$/, "") || principal;
+}
+
+function runningFor(startedAt: string, now: number) {
+	const minutes = Math.floor((now - Date.parse(startedAt)) / 60_000);
+	if (!Number.isFinite(minutes) || minutes < 1) return "Just started";
+	if (minutes < 60) return `${minutes} min`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours} h`;
+	const days = Math.floor(hours / 24);
+	return days === 1 ? "1 day" : `${days} days`;
 }

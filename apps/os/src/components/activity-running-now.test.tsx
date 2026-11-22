@@ -186,6 +186,19 @@ it("ages fleet observations locally and marks elapsed leases without claiming he
 	await flush(75_010);
 	expect(host.textContent).toContain("No runner report since");
 });
+it("names the tool and how long it has run, not the machine", async () => {
+	const local = row();
+	local.attempt.externalSessionKey = "codex:cedar-session";
+	api.attempts.mockResolvedValue({
+		data: [local],
+		hasMore: false,
+		nextCursor: null,
+	});
+	await mount();
+	const item = host.querySelector('ul[aria-label="Active work"] li')!;
+	expect(item.textContent).toContain("Codex · 10 min");
+	expect(item.textContent).not.toContain("@");
+});
 it("names records in task titles instead of printing their ids", async () => {
 	const named = row();
 	named.workItem.title =
