@@ -3,7 +3,23 @@ import {
 	DEFAULT_FEED_COPY,
 	feedHeadlineIssues,
 	plainFeedText,
+	readableLead,
 } from "./activity-feed";
+
+// An agent comment from production on 2026-11-22 read "<title> was updated."
+it.each([
+	[
+		"Blocked measurement handoff: discovery reports billing.get_daily_usage authorized=false, missingScopes=[platform:admin]. No denied tool was invoked.",
+		"Blocked measurement handoff.",
+	],
+	[
+		"Live API serves c80547767, which contains f3858f2a2. Should I rerun the drill?",
+		"Should I rerun the drill?",
+	],
+	["Deploy c80547767 contains f3858f2a2.", undefined],
+])("readableLead(%j)", (body, lead) => {
+	expect(readableLead(body)).toBe(lead);
+});
 
 // Texts Activity showed in production before 2026-10-27.
 it.each([

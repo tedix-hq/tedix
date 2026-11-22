@@ -209,6 +209,45 @@ function plainHeadline(
 		: undefined;
 }
 
+/** Fields, paths and identifiers a person should not have to read in a preview. */
+const MACHINE_FIELD =
+	/[=[\]{}`]|\b[a-z]+[A-Z][A-Za-z]*\b|\b[a-z][a-z0-9]*\.[a-z][a-z0-9_]*\b|https?:|\b[a-f\d]{8,}\b/;
+
+export function machineText(text: string) {
+	return MACHINE_FIELD.test(text) || technicalCopyIssues(text).length > 0;
+}
+
+/**
+ * The result or question a technical update leads with: a question it asks,
+ * its first sentence when that reads plainly, or the plain label before a
+ * colon ("Blocked measurement handoff: … authorized=false").
+ */
+export function readableLead(body: string, copy: FeedCopy = DEFAULT_FEED_COPY) {
+	const readable = (text: string) => {
+		if (machineText(text)) return undefined;
+		const plain = plainFeedText(text, copy);
+		return plain && /\p{L}/u.test(plain) && plain.length <= 200
+			? plain
+			: undefined;
+	};
+	const parts = [
+		...new Intl.Segmenter(undefined, { granularity: "sentence" }).segment(
+			body.replace(/\s+/g, " ").trim(),
+		),
+	]
+		.map(({ segment }) => segment.trim())
+		.slice(0, 6);
+	const question = parts.find((part) => part.endsWith("?") && readable(part));
+	if (question) return readable(question);
+	const first = parts[0];
+	if (!first) return undefined;
+	const whole = readable(first);
+	if (whole) return whole;
+	const label = /^([^:]{6,100}):\s/.exec(first)?.[1];
+	const lead = label && readable(label);
+	return lead && lead.includes(" ") ? `${lead}.` : undefined;
+}
+
 export function workSource(id: string) {
 	return `/work/items/${id}`;
 }
@@ -321,13 +360,15 @@ export function workFeedItems(
 						)
 					: e.body !== e.eventType &&
 						  e.body.length <= 180 &&
+						  (e.authorType === "user" || !machineText(e.body)) &&
 						  /\p{L}/u.test(sentence(e.body)) &&
 						  !/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
 								e.body,
 						  )
 						? (plainHeadline(e.body, copy) ??
 							`${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`)
-						: `${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`,
+						: (e.body !== e.eventType && readableLead(e.body, copy)) ||
+							`${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`,
 			),
 			classId: e.isReply
 				? "work:reply"

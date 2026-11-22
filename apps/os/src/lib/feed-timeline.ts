@@ -1,6 +1,9 @@
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import { focusDay } from "@tedix/api-contract/utils/focus-feed";
-import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
+import {
+	machineText,
+	plainFeedText,
+} from "@tedix/api-contract/utils/activity-feed";
 import { OS_COPY } from "@/shared/os-copy";
 
 export const ACTIVITY_WHO = [
@@ -84,8 +87,11 @@ export function activityHeadline(
 	const normalized = (value: string) =>
 		value.toLowerCase().replace(/\s+/g, " ").trim();
 	const sentence = normalized(plainSentence);
+	// A person's own words stay as written; machine fields stay behind More.
+	const person = PEOPLE.has(item.actorIdentity?.type ?? "");
 	const extra = item.explanation
 		.split(/\n{2,}/)
+		.filter((part) => person || !machineText(plain(part)))
 		.map((part) => {
 			const text = plain(part);
 			// A body that repeats the headline keeps only what it adds.
