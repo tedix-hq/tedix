@@ -300,7 +300,7 @@ export function ownerActionHint(ctx: WorkContext, error: BoardError): string {
 	const forbidden =
 		error.code === "FORBIDDEN" || /\bFORBIDDEN\b/.test(error.message);
 	if (!forbidden || !ctx.authSource?.startsWith("external-agent:")) return "";
-	return "\nThis call ran as the external agent. An agent may complete an accepted item after its own latest Attempt settled succeeded; coding Work also requires --commit. Accepted credentials, payment or messaging actions remain owner-only. For an owner action, the owner can rerun with their login: prefix it with `env -u TEDIX_EXTERNAL_AGENT`.";
+	return "\nThis call ran as the external agent. An agent may complete an accepted item after its own latest Attempt settled succeeded; coding Work also requires --commit. The owner's configured lead agent may also complete Work whose latest Attempt settled succeeded or landed_unverified with a commit on main. Accepted credentials, payment or messaging actions remain owner-only. For an owner action, the owner can rerun with their login: prefix it with `env -u TEDIX_EXTERNAL_AGENT`.";
 }
 
 /** Next step when the server refuses an Attempt for a caller with no executor identity. */

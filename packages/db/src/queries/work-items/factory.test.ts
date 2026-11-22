@@ -1740,3 +1740,147 @@ it.each(["tedi link", "tedi definition", "tedi status", "autonomy lesson"])(
 		f.sqlite.close();
 	},
 );
+
+describe("delegated lead-agent completion", () => {
+	function delegatedFixture(
+		options: { outcome?: string; metadata?: Record<string, unknown> } = {},
+	) {
+		const { sqlite, db } = fixture();
+		seed(sqlite, "work");
+		sqlite
+			.prepare(
+				`INSERT INTO work_attempts (id,org_id,work_item_id,executor_type,executor_id,executor_session_id,runtime_state,outcome,attempt_number,started_at,heartbeat_at,finished_at,expires_at,metadata)
+				 VALUES ('settled-attempt','org','work','external_agent','worker','worker-session','finished',?,?,?,?,?,?,?)`,
+			)
+			.run(
+				options.outcome ?? "succeeded",
+				1,
+				NOW,
+				NOW,
+				NOW,
+				"2026-08-20T13:00:00.000Z",
+				JSON.stringify(
+					options.metadata ?? {
+						settlement: { mode: "commit", commitShas: ["a".repeat(40)] },
+					},
+				),
+			);
+		const params = {
+			orgId: "org",
+			workItemId: "work",
+			actor: {
+				type: "external_agent" as const,
+				id: "lead-agent",
+				sessionId: "lead-session",
+				delegatedCompletion: {
+					onBehalfOf: { type: "user" as const, id: "owner" },
+					attemptId: "settled-attempt",
+				},
+			},
+			completedAt: NOW,
+		};
+		return { sqlite, db, params };
+	}
+
+	it.each(["succeeded", "landed_unverified"])(
+		"completes a %s settle on behalf of the owner, attributed to the lead agent",
+		async (outcome) => {
+			const f = delegatedFixture({ outcome });
+			const result = await completeWorkItem(f.db, f.params);
+			expect(result.disposition).toBe("completed");
+			const event = f.sqlite
+				.prepare(
+					"SELECT actor_type,actor_id,payload FROM work_events WHERE work_item_id='work' AND event_type='work.completed'",
+				)
+				.get();
+			expect(event?.actor_type).toBe("external_agent");
+			expect(event?.actor_id).toBe("lead-agent");
+			const payload = JSON.parse(event?.payload as string);
+			expect(payload.onBehalfOf).toEqual({ type: "user", id: "owner" });
+			expect(payload.delegatedAttemptId).toBe("settled-attempt");
+			f.sqlite.close();
+		},
+	);
+
+	it.each([
+		["an unknown Attempt", { attemptId: "missing-attempt" }],
+		["a non-commit settlement", { metadata: {} }],
+		[
+			"an artifact settlement",
+			{
+				metadata: {
+					settlement: {
+						mode: "skill_revision",
+						skillId: "skill",
+						skillRevision: 1,
+						skillRunId: "run",
+						evidenceId: "evidence",
+						evidenceUri: "skill://runs/run",
+					},
+				},
+			},
+		],
+	])(
+		"denies %s",
+		async (
+			_label,
+			patch: { attemptId?: string; metadata?: Record<string, unknown> },
+		) => {
+			const f = delegatedFixture(
+				patch.metadata ? { metadata: patch.metadata } : {},
+			);
+			const params = patch.attemptId
+				? {
+						...f.params,
+						actor: {
+							...f.params.actor,
+							delegatedCompletion: {
+								...f.params.actor.delegatedCompletion,
+								attemptId: patch.attemptId!,
+							},
+						},
+					}
+				: f.params;
+			await expect(completeWorkItem(f.db, params)).rejects.toBeInstanceOf(
+				WorkFactoryError,
+			);
+			expect(
+				f.sqlite
+					.prepare("SELECT disposition FROM work_items WHERE id='work'")
+					.get()?.disposition,
+			).toBe("accepted");
+			f.sqlite.close();
+		},
+	);
+
+	it("denies a newer Attempt and a non-agent actor carrying the proof", async () => {
+		const f = delegatedFixture();
+		f.sqlite
+			.prepare(
+				`INSERT INTO work_attempts (id,org_id,work_item_id,executor_type,executor_id,runtime_state,outcome,attempt_number,started_at,heartbeat_at,finished_at,expires_at)
+				 VALUES ('newer-attempt','org','work','tedi','other','finished','failed',2,?,?,?,?)`,
+			)
+			.run(NOW, NOW, NOW, "2026-08-20T13:00:00.000Z");
+		await expect(completeWorkItem(f.db, f.params)).rejects.toBeInstanceOf(
+			WorkFactoryError,
+		);
+		expect(
+			f.sqlite
+				.prepare("SELECT disposition FROM work_items WHERE id='work'")
+				.get()?.disposition,
+		).toBe("accepted");
+		const g = delegatedFixture();
+		await expect(
+			completeWorkItem(g.db, {
+				...g.params,
+				actor: {
+					type: "tedi",
+					id: "worker",
+					delegatedCompletion: g.params.actor.delegatedCompletion,
+				},
+			}),
+		).rejects.toBeInstanceOf(WorkFactoryError);
+		g.sqlite.close();
+		f.sqlite.close();
+	});
+});

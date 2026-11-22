@@ -19,6 +19,16 @@ export type WorkActor = {
 	type: WorkActorType;
 	id: string;
 	sessionId?: string;
+	/**
+	 * A verified owner delegation (the organization's lead-agent setting): the
+	 * actor completes on behalf of this owner, fenced to the settled Attempt
+	 * named by `attemptId`. Set only by the authorization layer after it
+	 * re-checks the policy and the Attempt's settled commit.
+	 */
+	delegatedCompletion?: {
+		onBehalfOf: { type: "user" | "tedi"; id: string };
+		attemptId: string;
+	};
 };
 
 export type WorkExecutor = {

@@ -240,6 +240,9 @@ describe("work identity primitives", () => {
 			ownerActionHint(ownerCtx, { code: "FORBIDDEN", message: "FORBIDDEN" }),
 		).toContain("coding Work also requires --commit");
 		expect(
+			ownerActionHint(ownerCtx, { code: "FORBIDDEN", message: "FORBIDDEN" }),
+		).toContain("configured lead agent");
+		expect(
 			ownerActionHint(ownerCtx, { code: "NOT_FOUND", message: "missing" }),
 		).toBe("");
 

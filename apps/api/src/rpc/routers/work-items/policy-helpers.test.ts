@@ -22,8 +22,30 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 	getSkillEntry: artifact.skill,
 }));
 
+const delegation = vi.hoisted(() => ({ approver: vi.fn() }));
+vi.mock(
+	"@tedix/db/queries/work-items/delegated-approvals",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/work-items/delegated-approvals")
+		>()),
+		delegatedApprover: delegation.approver,
+	}),
+);
+const tediLookup = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
+	getTediById: tediLookup.get,
+}));
+const principal = vi.hoisted(() => ({ actor: vi.fn() }));
+vi.mock("../work-items-principal", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../work-items-principal")>()),
+	verifiedActiveWorkActor: principal.actor,
+}));
+
 import {
 	canCompleteOwnSucceededAttempt,
+	leadAgentCompletion,
 	workItemStewardActor,
 } from "./policy-helpers";
 
@@ -423,5 +445,150 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		"Send the weekly summary email to every customer",
 	])("keeps owner completion for reserved work: %s", async (title) => {
 		await expect(allowed(item({ title }))).resolves.toBe(false);
+	});
+});
+
+describe("leadAgentCompletion", () => {
+	const OWNER = "55555555-5555-4555-8555-555555555555";
+	const ATTEMPT_ID = "66666666-6666-4666-8666-666666666666";
+	const owned = (overrides: Partial<WorkItem> = {}) =>
+		item({
+			accountableOwnerType: "user",
+			accountableOwnerId: OWNER,
+			...overrides,
+		});
+	const lead = (
+		work = owned(),
+		id = AGENT,
+		sessionId: string | null = SESSION,
+	) => leadAgentCompletion(context, work, { id, sessionId });
+	const settledAttempt = (overrides: Record<string, unknown> = {}) =>
+		attempt({
+			id: ATTEMPT_ID,
+			runtimeState: "finished",
+			executorId: "worker-agent",
+			...overrides,
+		});
+
+	beforeEach(() => {
+		delegation.approver.mockReset();
+		tediLookup.get.mockReset();
+		attempts.list.mockReset();
+		attempts.admission.mockReset();
+		attempts.admission.mockResolvedValue({
+			workItemVersion: 1,
+			admissionSpecRevision: "current-spec",
+		});
+		delegation.approver.mockResolvedValue({
+			ownerId: OWNER,
+			actorType: "external_agent",
+			actorId: AGENT,
+			actorName: "Lead agent",
+			reason: "delegated",
+		});
+		attempts.list.mockResolvedValue({
+			data: [settledAttempt()],
+			nextCursor: null,
+		});
+	});
+
+	it("lets the owner's configured lead agent complete verified landed Work", async () => {
+		await expect(lead()).resolves.toEqual({
+			onBehalfOf: { type: "user", id: OWNER },
+			attemptId: ATTEMPT_ID,
+		});
+		expect(delegation.approver).toHaveBeenCalledWith(context.db, {
+			orgId: owned().orgId,
+			ownerId: OWNER,
+			actor: { type: "external_agent", id: AGENT },
+		});
+	});
+
+	it("accepts a landed_unverified settle with a commit", async () => {
+		attempts.list.mockResolvedValue({
+			data: [settledAttempt({ outcome: "landed_unverified" })],
+			nextCursor: null,
+		});
+		await expect(lead()).resolves.toMatchObject({ attemptId: ATTEMPT_ID });
+	});
+
+	it("returns a delegated actor through workItemStewardActor", async () => {
+		principal.actor.mockResolvedValue({
+			type: "external_agent",
+			id: AGENT,
+			sessionId: SESSION,
+			externalSessionKey: "lead:session",
+		});
+		const actor = await workItemStewardActor(
+			{ ...context, organizationId: owned().orgId } as BaseContext,
+			owned(),
+			"completion",
+		);
+		expect(actor).toMatchObject({
+			type: "external_agent",
+			id: AGENT,
+			delegatedCompletion: {
+				onBehalfOf: { type: "user", id: OWNER },
+				attemptId: ATTEMPT_ID,
+			},
+		});
+	});
+
+	it("resolves a tedi-owned item's delegation through its owning person", async () => {
+		tediLookup.get.mockResolvedValue({
+			organizationId: owned().orgId,
+			status: "active",
+			retiredAt: null,
+			ownerUserId: OWNER,
+		});
+		await expect(
+			lead(
+				owned({ accountableOwnerType: "tedi", accountableOwnerId: "tedi-1" }),
+			),
+		).resolves.toMatchObject({ attemptId: ATTEMPT_ID });
+		expect(delegation.approver).toHaveBeenCalledWith(
+			context.db,
+			expect.objectContaining({ ownerId: OWNER }),
+		);
+	});
+
+	it.each([
+		["not the configured lead", null],
+		[
+			"a failed settle",
+			{ data: [settledAttempt({ outcome: "failed" })], nextCursor: null },
+		],
+		[
+			"a running attempt",
+			{
+				data: [settledAttempt({ runtimeState: "running", outcome: null })],
+				nextCursor: null,
+			},
+		],
+		[
+			"a settle without a commit",
+			{ data: [settledAttempt({ metadata: {} })], nextCursor: null },
+		],
+	])("refuses %s", async (_label, list) => {
+		if (list) attempts.list.mockResolvedValue(list);
+		else delegation.approver.mockResolvedValue(null);
+		await expect(lead()).resolves.toBeNull();
+	});
+
+	it("keeps reserved actions owner-only and refuses unowned items", async () => {
+		await expect(
+			lead(
+				owned({
+					title: "Rotate the provider API key",
+					acceptanceContract: { version: 1, doneLooksLike: DONE },
+				}),
+			),
+		).resolves.toBeNull();
+		await expect(
+			lead(
+				owned({ accountableOwnerType: "system", accountableOwnerId: "ops" }),
+			),
+		).resolves.toBeNull();
+		expect(delegation.approver).not.toHaveBeenCalled();
 	});
 });

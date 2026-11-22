@@ -10,6 +10,8 @@ import {
 	WorkAttemptSettlementSchema,
 	workSettlementCommits,
 } from "@tedix/api-contract/schemas/work-items";
+import { delegatedApprover } from "@tedix/db/queries/work-items/delegated-approvals";
+import { getTediById } from "@tedix/db/queries/tedis";
 import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
 import {
 	getProjectById,
@@ -166,11 +168,8 @@ export async function canCompleteOwnSucceededAttempt(
 	);
 }
 
-export async function ownAttemptCompletionProblem(
-	context: BaseContext,
-	item: WorkItem,
-	attempt: WorkAttempt,
-): Promise<string | undefined> {
+/** Accepted credential, payment or messaging actions stay owner-only. */
+function ownerOnlyCompletionProblem(item: WorkItem): string | undefined {
 	// The accepted outcome defines the action; descriptions can contain past incidents.
 	const completionScope =
 		item.acceptanceContract?.doneLooksLike?.trim() || item.description || "";
@@ -179,6 +178,96 @@ export async function ownAttemptCompletionProblem(
 	);
 	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id)))
 		return "The accepted action requires the Work owner to complete it.";
+	return undefined;
+}
+
+/**
+ * The person an owner delegation would answer for: the accountable user, or
+ * the owning person of an accountable tedi. Other principal types have no
+ * delegated-approvals lead agent.
+ */
+async function workItemDelegationOwnerId(
+	context: BaseContext,
+	item: WorkItem,
+): Promise<string | null> {
+	if (item.accountableOwnerType === "user" && item.accountableOwnerId)
+		return item.accountableOwnerId;
+	if (item.accountableOwnerType === "tedi" && item.accountableOwnerId) {
+		const tedi = await getTediById(context.db, item.accountableOwnerId);
+		if (
+			tedi?.organizationId === item.orgId &&
+			tedi.status === "active" &&
+			!tedi.retiredAt &&
+			tedi.ownerUserId
+		)
+			return tedi.ownerUserId;
+	}
+	return null;
+}
+
+/**
+ * Whether the calling agent is the Work owner's configured lead agent under
+ * the organization's delegated-approvals policy, completing Work whose latest
+ * Attempt settled succeeded or landed_unverified with a commit on main. The
+ * returned proof fences `completeWorkItem` to that Attempt and records the
+ * owner the agent acts for.
+ */
+export async function leadAgentCompletion(
+	context: BaseContext,
+	item: WorkItem,
+	actor: { id: string; sessionId?: string | null },
+): Promise<{
+	onBehalfOf: { type: "user"; id: string };
+	attemptId: string;
+} | null> {
+	if (item.disposition !== "accepted" || !actor.sessionId) return null;
+	const ownerOnly = ownerOnlyCompletionProblem(item);
+	if (ownerOnly) return null;
+	const ownerId = await workItemDelegationOwnerId(context, item);
+	if (!ownerId) return null;
+	const receipt = await delegatedApprover(context.db, {
+		orgId: item.orgId,
+		ownerId,
+		actor: { type: "external_agent", id: actor.id },
+	});
+	if (!receipt) return null;
+	const { data } = await listWorkItemAttempts(context.db, {
+		orgId: item.orgId,
+		workItemId: item.id,
+		limit: 1,
+	});
+	const latest = data[0];
+	if (
+		!latest ||
+		latest.runtimeState !== "finished" ||
+		(latest.outcome !== "succeeded" && latest.outcome !== "landed_unverified")
+	)
+		return null;
+	const settlement = WorkAttemptSettlementSchema.safeParse(
+		latest.metadata?.settlement,
+	).data;
+	if (!workSettlementCommits(settlement).length) return null;
+	const admission = await getWorkAttemptRepositoryAdmission(context.db, latest);
+	if (
+		!admission ||
+		admission.workItemVersion !== item.version ||
+		admission.admissionSpecRevision !== item.admissionSpecRevision
+	)
+		return null;
+	if (!(await hasRecoveredCommitCustody(context, latest))) return null;
+	return {
+		onBehalfOf: { type: "user", id: receipt.ownerId },
+		attemptId: latest.id,
+	};
+}
+
+export async function ownAttemptCompletionProblem(
+	context: BaseContext,
+	item: WorkItem,
+	attempt: WorkAttempt,
+): Promise<string | undefined> {
+	const reserved = ownerOnlyCompletionProblem(item);
+	if (reserved) return reserved;
 	const metadata = attempt.metadata;
 	const settlement = WorkAttemptSettlementSchema.safeParse(
 		metadata.settlement,
@@ -255,6 +344,16 @@ export async function workItemStewardActor(
 		(await canCompleteOwnSucceededAttempt(context, item, actor))
 	)
 		return actor;
+	if (actor.type === "external_agent" && action === "completion") {
+		const delegated = await leadAgentCompletion(context, item, actor);
+		if (delegated)
+			return {
+				type: actor.type,
+				id: actor.id,
+				sessionId: actor.sessionId,
+				delegatedCompletion: delegated,
+			};
+	}
 	if (actor.type === "external_agent" && action !== "completion") {
 		const principal = await getExternalAgentPrincipal(context.db, {
 			organizationId: item.orgId,
@@ -328,7 +427,7 @@ export async function workItemStewardActor(
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		action === "completion" && actor.type === "external_agent"
-			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires delivery proof; dispatched Work requires its full outcome declaration), and not accepted credentials, payment or messaging actions"
+			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires delivery proof; dispatched Work requires its full outcome declaration) or, as the owner's configured lead agent, verified landed Work with a settled commit, and not accepted credentials, payment or messaging actions"
 			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }

@@ -137,11 +137,16 @@ export function lifecycleEventInsert(
 				actorSessionId: sql<
 					string | null
 				>`${params.actor.sessionId ?? null}`.as("actor_session_id"),
-				payload: sql<
-					Record<string, JsonValue>
-				>`${JSON.stringify({ ...params.payload, workItemVersion: params.expectedVersion })}`.as(
-					"payload",
-				),
+				payload: sql<Record<string, JsonValue>>`${JSON.stringify({
+					...params.payload,
+					...(params.actor.delegatedCompletion
+						? {
+								onBehalfOf: params.actor.delegatedCompletion.onBehalfOf,
+								delegatedAttemptId: params.actor.delegatedCompletion.attemptId,
+							}
+						: {}),
+					workItemVersion: params.expectedVersion,
+				})}`.as("payload"),
 				occurredAt: sql<string>`${params.occurredAt}`.as("occurred_at"),
 			})
 			.from(workItems)
@@ -1053,6 +1058,14 @@ export async function completeWorkItem(
 			"NOT_READY",
 			"Implementation closeout proof is mismatched",
 		);
+	if (
+		params.actor.delegatedCompletion &&
+		params.actor.type !== "external_agent"
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Delegated completion proof is mismatched",
+		);
 	const completeMutation = db
 		.update(workItems)
 		.set({
@@ -1082,7 +1095,9 @@ export async function completeWorkItem(
 				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
 				eq(workItems.disposition, "accepted"),
 				params.actor.type === "external_agent"
-					? sql`EXISTS (SELECT 1 FROM ${workAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND (${implementationId ?? null} IS NULL OR completed_attempt.id=${implementationId ?? null}) AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
+					? params.actor.delegatedCompletion
+						? sql`EXISTS (SELECT 1 FROM ${workAttempts} delegated_attempt WHERE delegated_attempt.org_id=${params.orgId} AND delegated_attempt.work_item_id=${params.workItemId} AND delegated_attempt.id=${params.actor.delegatedCompletion.attemptId} AND delegated_attempt.runtime_state='finished' AND delegated_attempt.outcome IN ('succeeded','landed_unverified') AND delegated_attempt.finished_at IS NOT NULL AND (delegated_attempt.expires_at IS NULL OR delegated_attempt.finished_at < delegated_attempt.expires_at) AND json_extract(delegated_attempt.metadata,'$.settlement.mode') IN ('commit','existing_commits','local_branch','verified_existing','repository_commit') AND NOT EXISTS (SELECT 1 FROM ${workAttempts} delegated_newer WHERE delegated_newer.org_id=delegated_attempt.org_id AND delegated_newer.work_item_id=delegated_attempt.work_item_id AND delegated_newer.attempt_number>delegated_attempt.attempt_number))`
+						: sql`EXISTS (SELECT 1 FROM ${workAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND (${implementationId ?? null} IS NULL OR completed_attempt.id=${implementationId ?? null}) AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
 					: undefined,
 				native
 					? and(
