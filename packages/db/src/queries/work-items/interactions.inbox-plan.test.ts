@@ -35,6 +35,7 @@ it("pages the inbox without related history and evaluates history only for reque
 		VALUES ('answer','org','previous','answer','Keep the service','tedi','cto',1,'2026-01-01',1,'fence')`);
 	const plans: string[] = [];
 	const statements: string[] = [];
+	const returned: number[] = [];
 	const db = createDbQueryClient(
 		createD1Facade({
 			prepare(query) {
@@ -45,7 +46,20 @@ it("pages the inbox without related history and evaluates history only for reque
 						.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
 						.map((row) => String(row.detail)),
 				);
-				return sqlite.prepare(query);
+				const statement = sqlite.prepare(query);
+				return {
+					all(...params: unknown[]) {
+						const rows = statement.all(
+							...(params as Parameters<typeof statement.all>),
+						);
+						returned.push(rows.length);
+						return rows;
+					},
+					get: (...params: unknown[]) =>
+						statement.get(...(params as Parameters<typeof statement.get>)),
+					run: (...params: unknown[]) =>
+						statement.run(...(params as Parameters<typeof statement.run>)),
+				};
 			},
 			exec: (query) => sqlite.exec(query),
 		}),
@@ -62,6 +76,7 @@ it("pages the inbox without related history and evaluates history only for reque
 	expect(first.hasMore).toBe(true);
 	expect(statements.some((query) => query.includes("json_each"))).toBe(false);
 	statements.length = 0;
+	returned.length = 0;
 	const decisions = await listLastRelatedDecisions(
 		db,
 		"org",
@@ -74,16 +89,23 @@ it("pages the inbox without related history and evaluates history only for reque
 	expect(
 		decisions.every((row) => row.decision?.body === "Keep the service"),
 	).toBe(true);
-	// Cards, then the recipient's requests and their answers, however many cards.
-	expect(statements).toHaveLength(3);
-	const historyPlan = sqlite
-		.prepare(`EXPLAIN QUERY PLAN ${statements[1]}`)
-		.all(...Array((statements[1]!.match(/\?/g) ?? []).length).fill(null))
-		.map((row) => String(row.detail));
-	expect(historyPlan[0]).toMatch(
-		/^SEARCH prior USING INDEX idx_work_interactions_target_status/,
+	expect(statements).toHaveLength(1);
+	expect(returned).toEqual([50]);
+	expect(plans).toContainEqual(
+		expect.stringMatching(
+			/SEARCH p USING INDEX idx_work_interactions_work \(org_id=\? AND work_item_id=\?\)/,
+		),
 	);
-	expect(historyPlan.some((plan) => plan.includes("TEMP B-TREE"))).toBe(false);
+	expect(plans).toContainEqual(
+		expect.stringMatching(
+			/SEARCH p USING INDEX idx_work_interactions_target_status \(org_id=\? AND target_type=\? AND target_id=\? AND status=\?\)/,
+		),
+	);
+	expect(plans).toContainEqual(
+		expect.stringMatching(
+			/SEARCH a USING INDEX idx_work_interaction_responses_cursor \(org_id=\? AND interaction_id=\?\)/,
+		),
+	);
 	expect(plans).toContainEqual(
 		expect.stringMatching(
 			/(?:CO-ROUTINE|MATERIALIZE) work_interaction_inbox_page/,
@@ -102,7 +124,14 @@ it("pages the inbox without related history and evaluates history only for reque
 	for (let i = 0; i < 501; i++) {
 		insert.run(`history-${i}`, "resolved", "2026-01-02");
 	}
+	sqlite.exec(`UPDATE work_interactions SET work_item_id='unrelated',
+		metadata=json_object('unused', printf('%.*c',10000,'x')) WHERE id LIKE 'history-%';
+		INSERT INTO work_interaction_responses
+		(id,org_id,interaction_id,response_kind,body,responder_type,responder_id,resolves_request,responded_at,resolved_request_version,resolution_fence)
+		SELECT 'answer-' || id,org_id,id,'answer',printf('%.*c',10000,'x'),'tedi','cto',1,'2026-01-02',1,id
+		FROM work_interactions WHERE id LIKE 'history-%'`);
 	statements.length = 0;
+	returned.length = 0;
 	const olderDecisions = await listLastRelatedDecisions(
 		db,
 		"org",
@@ -115,11 +144,7 @@ it("pages the inbox without related history and evaluates history only for reque
 	expect(
 		olderDecisions.every((row) => row.decision?.requestId === "previous"),
 	).toBe(true);
-	// One card read, one recipient read, and six answer batches for 502 requests.
-	expect(statements).toHaveLength(8);
-	expect(
-		statements.filter((query) => query.includes('"work_interactions" "prior"')),
-	).toHaveLength(1);
-	expect(statements.some((query) => query.includes("json_each"))).toBe(false);
+	expect(statements).toHaveLength(1);
+	expect(returned).toEqual([50]);
 	sqlite.close();
 });

@@ -2467,198 +2467,237 @@ export async function listWorkInteractionInbox(
 	};
 }
 
-/** Source keys match on kind and id, and on tediId including its absence. */
-function decisionSourceKeys(metadata: unknown) {
-	const meta = (metadata ?? {}) as {
-		decisionSources?: unknown;
-		decisionDeck?: { sources?: unknown };
-	};
-	const sources = meta.decisionSources ?? meta.decisionDeck?.sources;
-	if (!Array.isArray(sources)) return [];
-	return sources.flatMap(
-		(source: { kind?: unknown; id?: unknown; tediId?: unknown }) =>
-			source?.kind == null || source.id == null
-				? []
-				: [JSON.stringify([source.kind, source.id, source.tediId ?? null])],
-	);
-}
-
-/**
- * The latest answered request related to each given request: same recipient
- * and same Work, project or decision source. Reads each recipient's
- * answers once and matches them here; a per-card SQL subquery compared every
- * prior answer's sources and scanned millions of rows in production.
- */
+/** Latest answer for the same recipient and Work or decision source. */
 export async function listLastRelatedDecisions(
 	db: DbQueryClient,
 	orgId: string,
 	interactionIds: string[],
 ) {
-	const cards: {
-		id: string;
-		targetType: string | null;
-		targetId: string | null;
-		workItemId: string | null;
-		projectId: string | null;
-		metadata: unknown;
-	}[] = [];
+	const decisions = [];
+	const prior = alias(workInteractions, "p");
+	const answer = alias(workInteractionResponses, "a");
+	const sources = (metadata: SQLWrapper) => sql<string | null>`coalesce(
+		nullif(${metadata} -> '$.decisionSources', 'null'),
+		${metadata} -> '$.decisionDeck.sources')`;
 	for (const ids of chunkForBoundParams(interactionIds, 50)) {
-		cards.push(
-			...(await db
+		const cards = db.$with("cards").as(
+			db
 				.select({
 					id: workInteractions.id,
+					workItemId: workInteractions.workItemId,
 					targetType: workInteractions.targetType,
 					targetId: workInteractions.targetId,
-					workItemId: workInteractions.workItemId,
-					projectId: sql<
-						string | null
-					>`coalesce(${workInteractions.projectId},${workItems.projectId})`.as(
-						"card_project_id",
-					),
-					metadata: workInteractions.metadata,
+					sources: sources(workInteractions.metadata).as("sources"),
 				})
 				.from(workInteractions)
-				.leftJoin(
-					workItems,
-					and(
-						eq(workItems.orgId, workInteractions.orgId),
-						eq(workItems.id, workInteractions.workItemId),
-					),
-				)
 				.where(
 					and(
 						eq(workInteractions.orgId, orgId),
 						inArray(workInteractions.id, ids),
 					),
-				)),
+				),
+		);
+		const workKeys = db.$with("work_keys").as(
+			db
+				.selectDistinct({
+					workItemId: cards.workItemId,
+					targetType: cards.targetType,
+					targetId: cards.targetId,
+				})
+				.from(cards)
+				.where(sql`${cards.workItemId} IS NOT NULL`),
+		);
+		const sourceValue = sql`CASE WHEN s.type = 'object' THEN s.value ELSE '{}' END`;
+		const cardSources = db.$with("card_sources").as(
+			db
+				.selectDistinct({
+					cardId: cards.id,
+					targetType: cards.targetType,
+					targetId: cards.targetId,
+					kind: sql<string>`json_extract(${sourceValue}, '$.kind')`.as("kind"),
+					sourceId: sql<string>`json_extract(${sourceValue}, '$.id')`.as(
+						"source_id",
+					),
+					tediId: sql<
+						string | null
+					>`json_extract(${sourceValue}, '$.tediId')`.as("tedi_id"),
+				})
+				.from(cards)
+				.crossJoin(sql`json_each(CASE WHEN json_type(${cards.sources}) = 'array'
+			THEN ${cards.sources} ELSE '[]' END) s`)
+				.where(sql`json_extract(${sourceValue}, '$.kind') IS NOT NULL
+			AND json_extract(${sourceValue}, '$.id') IS NOT NULL`),
+		);
+		const sourceRecipients = db.$with("source_recipients").as(
+			db
+				.selectDistinct({
+					targetType: cardSources.targetType,
+					targetId: cardSources.targetId,
+				})
+				.from(cardSources),
+		);
+		const projection = {
+			id: sql<string>`${prior.id}`.as("id"),
+			workItemId: sql<string | null>`${prior.workItemId}`.as("work_item_id"),
+			targetType: sql<WorkInteractionTargetType | null>`${prior.targetType}`.as(
+				"target_type",
+			),
+			targetId: sql<string | null>`${prior.targetId}`.as("target_id"),
+			sources: sources(prior.metadata).as("sources"),
+		};
+		// CROSS JOIN keeps page keys outside the indexed history/response lookups.
+		const sourceHistory = db.$with("source_history").as(
+			db
+				.select(projection)
+				.from(sourceRecipients)
+				.crossJoin(
+					sql`${workInteractions} p INDEXED BY idx_work_interactions_target_status`,
+				)
+				.where(
+					and(
+						eq(prior.orgId, orgId),
+						eq(prior.targetType, sourceRecipients.targetType),
+						eq(prior.targetId, sourceRecipients.targetId),
+						eq(prior.status, "resolved"),
+					),
+				),
+		);
+		const sameSource = (priorSources: SQLWrapper, scope: SQLWrapper) =>
+			exists(
+				db.select({ one: sql`1` }).from(cardSources)
+					.crossJoin(sql`json_each(CASE WHEN json_type(${priorSources}) = 'array'
+				THEN ${priorSources} ELSE '[]' END) ps`).where(sql`${scope}
+				AND ${cardSources.kind} = json_extract(CASE WHEN ps.type = 'object' THEN ps.value ELSE '{}' END, '$.kind')
+				AND ${cardSources.sourceId} = json_extract(CASE WHEN ps.type = 'object' THEN ps.value ELSE '{}' END, '$.id')
+				AND ${cardSources.tediId} IS json_extract(CASE WHEN ps.type = 'object' THEN ps.value ELSE '{}' END, '$.tediId')`),
+			);
+		const candidates = db.$with("candidates").as(
+			db
+				.select(projection)
+				.from(workKeys)
+				.crossJoin(
+					sql`${workInteractions} p INDEXED BY idx_work_interactions_work`,
+				)
+				.where(
+					and(
+						eq(prior.orgId, orgId),
+						eq(prior.workItemId, workKeys.workItemId),
+						eq(prior.targetType, workKeys.targetType),
+						eq(prior.targetId, workKeys.targetId),
+						eq(prior.status, "resolved"),
+					),
+				)
+				.union(
+					db
+						.select({
+							id: sourceHistory.id,
+							workItemId: sourceHistory.workItemId,
+							targetType: sourceHistory.targetType,
+							targetId: sourceHistory.targetId,
+							sources: sourceHistory.sources,
+						})
+						.from(sourceHistory)
+						.where(
+							sameSource(
+								sourceHistory.sources,
+								sql`${cardSources.targetType} = ${sourceHistory.targetType} AND ${cardSources.targetId} = ${sourceHistory.targetId}`,
+							),
+						),
+				),
+		);
+		// Request creation time cannot bound history: an older request can have
+		// the newest answer. Rank matching answers before fetching their bodies.
+		const ranked = db.$with("ranked").as(
+			db
+				.select({
+					cardId: sql<string>`${cards.id}`.as("card_id"),
+					requestId: sql<string>`${candidates.id}`.as("request_id"),
+					answerId: sql<string>`${answer.id}`.as("answer_id"),
+					rank: sql<number>`row_number() OVER (PARTITION BY ${cards.id}
+				ORDER BY ${answer.respondedAt} DESC, ${answer.id} DESC)`.as(
+						"answer_rank",
+					),
+				})
+				.from(candidates)
+				.crossJoin(
+					sql`${workInteractionResponses} a INDEXED BY idx_work_interaction_responses_cursor`,
+				)
+				.innerJoin(
+					cards,
+					and(
+						eq(candidates.targetType, cards.targetType),
+						eq(candidates.targetId, cards.targetId),
+						sql`${candidates.id} <> ${cards.id}`,
+					),
+				)
+				.where(
+					and(
+						eq(answer.orgId, orgId),
+						eq(answer.interactionId, candidates.id),
+						eq(answer.resolvesRequest, true),
+						or(
+							eq(candidates.workItemId, cards.workItemId),
+							sameSource(candidates.sources, eq(cardSources.cardId, cards.id)),
+						),
+					),
+				),
+		);
+		const chosen = db.$with("chosen").as(
+			db
+				.select({
+					cardId: ranked.cardId,
+					requestId: ranked.requestId,
+					answerId: ranked.answerId,
+				})
+				.from(ranked)
+				.where(eq(ranked.rank, 1))
+				.limit(ids.length),
+		);
+		const rows = await db
+			.with(
+				cards,
+				workKeys,
+				cardSources,
+				sourceRecipients,
+				sourceHistory,
+				candidates,
+				ranked,
+				chosen,
+			)
+			.select({
+				interactionId: sql<string>`${cards.id}`.as("interaction_id"),
+				requestId: sql<string | null>`${prior.id}`.as("request_id"),
+				subject: sql<string | null>`${prior.subject}`.as("subject"),
+				body: sql<string | null>`${answer.body}`.as("body"),
+				decidedAt: sql<string | null>`${answer.respondedAt}`.as("decided_at"),
+			})
+			.from(cards)
+			.leftJoin(chosen, eq(chosen.cardId, cards.id))
+			.leftJoin(
+				prior,
+				and(eq(prior.orgId, orgId), eq(prior.id, chosen.requestId)),
+			)
+			.leftJoin(
+				answer,
+				and(eq(answer.orgId, orgId), eq(answer.id, chosen.answerId)),
+			)
+			.limit(ids.length);
+		decisions.push(
+			...rows.map((row) => ({
+				interactionId: row.interactionId,
+				decision:
+					row.requestId === null
+						? null
+						: {
+								requestId: row.requestId,
+								subject: row.subject!,
+								body: row.body!,
+								decidedAt: row.decidedAt!,
+							},
+			})),
 		);
 	}
-	const prior = alias(workInteractions, "prior");
-	const priorWork = alias(workItems, "prior_work");
-	type Answered = {
-		id: string;
-		subject: string;
-		workItemId: string | null;
-		projectId: string | null;
-		metadata: unknown;
-		body: string;
-		decidedAt: string;
-		answerId: string;
-	};
-	// Read history once per recipient through its index. Request creation time
-	// cannot bound the search: an older request can have the newest answer.
-	const readHistory = async (targetType: string, targetId: string) => {
-		const requests = await db
-			.select({
-				id: prior.id,
-				subject: prior.subject,
-				workItemId: prior.workItemId,
-				projectId: sql<
-					string | null
-				>`coalesce(${prior.projectId},${priorWork.projectId})`.as(
-					"prior_project_id",
-				),
-				metadata: prior.metadata,
-			})
-			.from(prior)
-			.leftJoin(
-				priorWork,
-				and(
-					eq(priorWork.orgId, prior.orgId),
-					eq(priorWork.id, prior.workItemId),
-				),
-			)
-			.where(
-				and(
-					eq(prior.orgId, orgId),
-					eq(prior.targetType, targetType as WorkInteractionTargetType),
-					eq(prior.targetId, targetId),
-					eq(prior.status, "resolved"),
-				),
-			)
-			.orderBy(desc(prior.createdAt));
-		const answers = [];
-		for (const ids of chunkForBoundParams(
-			requests.map((row) => row.id),
-			90,
-		)) {
-			answers.push(
-				...(await db
-					.select({
-						answerId: workInteractionResponses.id,
-						interactionId: workInteractionResponses.interactionId,
-						body: workInteractionResponses.body,
-						decidedAt: workInteractionResponses.respondedAt,
-					})
-					.from(workInteractionResponses)
-					.where(
-						and(
-							eq(workInteractionResponses.orgId, orgId),
-							eq(workInteractionResponses.resolvesRequest, true),
-							inArray(workInteractionResponses.interactionId, ids),
-						),
-					)),
-			);
-		}
-		const byRequest = new Map(requests.map((row) => [row.id, row]));
-		return answers
-			.flatMap((row): Answered[] => {
-				const request = byRequest.get(row.interactionId);
-				return request
-					? [
-							{
-								...request,
-								body: row.body,
-								decidedAt: row.decidedAt,
-								answerId: row.answerId,
-							},
-						]
-					: [];
-			})
-			.sort(
-				(a, b) =>
-					b.decidedAt.localeCompare(a.decidedAt) ||
-					b.answerId.localeCompare(a.answerId),
-			);
-	};
-	const history = new Map<string, Promise<Answered[]>>();
-	const recipientHistory = (targetType: string, targetId: string) => {
-		const key = JSON.stringify([targetType, targetId]);
-		let rows = history.get(key);
-		if (!rows) {
-			rows = readHistory(targetType, targetId);
-			history.set(key, rows);
-		}
-		return rows;
-	};
-	return Promise.all(
-		cards.map(async (card) => {
-			if (!card.targetType || !card.targetId)
-				return { interactionId: card.id, decision: null };
-			const sources = new Set(decisionSourceKeys(card.metadata));
-			const match = (
-				await recipientHistory(card.targetType, card.targetId)
-			).find(
-				(row) =>
-					row.id !== card.id &&
-					// A shared project alone is not related: "Last time" must be
-					// about the same task or the same decision source.
-					((card.workItemId !== null && row.workItemId === card.workItemId) ||
-						decisionSourceKeys(row.metadata).some((key) => sources.has(key))),
-			);
-			return {
-				interactionId: card.id,
-				decision: match
-					? {
-							requestId: match.id,
-							subject: match.subject,
-							body: match.body,
-							decidedAt: match.decidedAt,
-						}
-					: null,
-			};
-		}),
-	);
+	return decisions;
 }
 
 /** Identifier-only projection for the MCP interaction event feed. */

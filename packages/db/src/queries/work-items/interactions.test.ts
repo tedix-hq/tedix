@@ -1607,6 +1607,35 @@ it("returns the latest resolved related answer only within the same tenant and r
 	);
 	// A shared project alone does not make an earlier answer related.
 	expect(await read()).toBeNull();
+	for (const [card, previous, expected] of [
+		[
+			{ decisionDeck: { sources: [{ kind: "email_thread", id: "thread" }] } },
+			{
+				decisionSources: [{ kind: "email_thread", id: "thread", tediId: null }],
+			},
+			"previous",
+		],
+		[
+			{
+				decisionSources: [
+					null,
+					"invalid",
+					{ kind: "email_thread", id: "thread" },
+				],
+			},
+			{ decisionSources: [{ kind: "email_thread", id: "thread" }] },
+			"previous",
+		],
+		[{ decisionSources: "invalid" }, { decisionSources: "invalid" }, null],
+	] as const) {
+		sqlite
+			.prepare("UPDATE work_interactions SET metadata=? WHERE id='mine'")
+			.run(JSON.stringify(card));
+		sqlite
+			.prepare("UPDATE work_interactions SET metadata=? WHERE id='previous'")
+			.run(JSON.stringify(previous));
+		expect(await read()).toBe(expected);
+	}
 	sqlite.close();
 });
 
