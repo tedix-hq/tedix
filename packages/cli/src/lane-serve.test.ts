@@ -7523,74 +7523,211 @@ function gitFixture(withOrigin = false, autoCleanup = true) {
 	return { root, repo, git };
 }
 
-it.each([undefined, "example/operations"])(
-	"requires product deployment ancestry even with repository proof %s",
-	async (repository) => {
-		const { root, repo, git } = gitFixture(true);
-		const previous = git(["rev-parse", "HEAD"]);
-		const commit = (message: string) => {
-			git([
-				"-c",
-				"commit.gpgsign=false",
-				"commit",
-				"--allow-empty",
-				"-m",
-				message,
-			]);
-			return git(["rev-parse", "HEAD"]);
-		};
-		const first = commit("first landed commit");
-		const second = commit("second landed commit");
-		const descendant = commit("deployed descendant");
-		git(["push", "origin", "main"]);
-		const env = {
-			TEDIX_CONFIG_DIR: join(root, "config"),
-			TEDIX_API_URL: "https://api.example.test:8443/v1/",
-			TEDIX_MCP_URL: undefined,
-			TEDIX_LANE_VERIFY_HEALTH_URLS: undefined,
-		};
-		const previousEnv = Object.keys(env).map(
-			(key) => [key, process.env[key]] as const,
-		);
-		fixtureCleanup.push(async () => {
-			for (const [key, value] of previousEnv) {
-				if (value === undefined) delete process.env[key];
-				else process.env[key] = value;
-			}
-		});
-		for (const [key, value] of Object.entries(env)) {
+it("requires product deployment ancestry for the checkout's own repository", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const previous = git(["rev-parse", "HEAD"]);
+	const commit = (message: string) => {
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			message,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	};
+	const first = commit("first landed commit");
+	const second = commit("second landed commit");
+	const descendant = commit("deployed descendant");
+	git(["push", "origin", "main"]);
+	const env = {
+		TEDIX_CONFIG_DIR: join(root, "config"),
+		TEDIX_API_URL: "https://api.example.test:8443/v1/",
+		TEDIX_MCP_URL: undefined,
+		TEDIX_LANE_VERIFY_HEALTH_URLS: undefined,
+	};
+	const previousEnv = Object.keys(env).map(
+		(key) => [key, process.env[key]] as const,
+	);
+	fixtureCleanup.push(async () => {
+		for (const [key, value] of previousEnv) {
 			if (value === undefined) delete process.env[key];
 			else process.env[key] = value;
 		}
-		writeWorkspaceCredentials("acme", {
-			loginId: "fixture",
-			mcpUrl: "https://gateway.example.test/connect/mcp?tenant=acme",
-		});
-		const check = (deployedSha: string) =>
-			landedDeployments(
-				repo,
-				[first, second],
-				repository,
-				options.scope,
-				async () => Response.json({ deployedSha }),
-			);
-		await expect(check(descendant)).resolves.toEqual([
-			{ url: "https://api.example.test:8443/health", sha: descendant },
-			{ url: "https://gateway.example.test/health", sha: descendant },
-		]);
-
-		const url = "https://live.example.test/custom-health";
-		process.env.TEDIX_LANE_VERIFY_HEALTH_URLS = `  ${url}  ${url}  `;
-		await expect(check(previous)).rejects.toThrow("does not prove deployment");
-		await expect(check(first)).rejects.toThrow(second);
-		await expect(check(descendant)).resolves.toEqual([
-			{ url, sha: descendant },
-		]);
-		await expect(check("f".repeat(40))).rejects.toThrow(
-			"missing from the product checkout after fetching origin/main",
+	});
+	for (const [key, value] of Object.entries(env)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	writeWorkspaceCredentials("acme", {
+		loginId: "fixture",
+		mcpUrl: "https://gateway.example.test/connect/mcp?tenant=acme",
+	});
+	const check = (deployedSha: string) =>
+		landedDeployments(
+			repo,
+			[first, second],
+			undefined,
+			options.scope,
+			async () => Response.json({ deployedSha }),
 		);
-	},
-);
+	await expect(check(descendant)).resolves.toEqual([
+		{ url: "https://api.example.test:8443/health", sha: descendant },
+		{ url: "https://gateway.example.test/health", sha: descendant },
+	]);
+
+	const url = "https://live.example.test/custom-health";
+	process.env.TEDIX_LANE_VERIFY_HEALTH_URLS = `  ${url}  ${url}  `;
+	await expect(check(previous)).rejects.toThrow("does not prove deployment");
+	await expect(check(first)).rejects.toThrow(second);
+	await expect(check(descendant)).resolves.toEqual([{ url, sha: descendant }]);
+	await expect(check("f".repeat(40))).rejects.toThrow(
+		"missing from the product checkout after fetching origin/main",
+	);
+	await expect(
+		landedDeployments(
+			repo,
+			[first],
+			"example/operations",
+			options.scope,
+			async () => Response.json({ deployedSha: descendant }),
+		),
+	).rejects.toThrow("requires the checkout's GitHub origin");
+});
+
+const shipApiFixture = (target: string, main: string, ship: string) => {
+	const calls: string[] = [];
+	const api = async (path: string): Promise<unknown> => {
+		calls.push(path);
+		if (path === `repos/${target}/actions/workflows?per_page=100`)
+			return {
+				workflows: [
+					{ id: 7, name: "Ship" },
+					{ id: 8, name: "Ops boundary CI" },
+				],
+			};
+		if (path === `repos/${target}/git/ref/heads/main`)
+			return { object: { sha: main } };
+		if (path === `repos/${target}/compare/${ship}...${main}`)
+			return { status: "ahead" };
+		if (path.startsWith(`repos/${target}/compare/`)) return { status: "ahead" };
+		if (
+			path ===
+			`repos/${target}/actions/workflows/7/runs?branch=main&status=success&per_page=1`
+		)
+			return {
+				workflow_runs: [
+					{
+						id: 99,
+						name: "Ship",
+						status: "completed",
+						conclusion: "success",
+						head_branch: "main",
+						head_sha: ship,
+					},
+				],
+			};
+		throw new Error(`unexpected api path ${path}`);
+	};
+	return { calls, api };
+};
+
+it("verifies commits on a named sibling repository through its Ship run", async () => {
+	const { repo, git } = gitFixture(true);
+	git([
+		"-c",
+		"commit.gpgsign=false",
+		"commit",
+		"--allow-empty",
+		"-m",
+		"ops fix",
+	]);
+	const landed = git(["rev-parse", "HEAD"]);
+	git(["remote", "set-url", "origin", "https://github.com/tedix-hq/tedix.git"]);
+	const main = "d".repeat(40);
+	const ship = "e".repeat(40);
+	const { api } = shipApiFixture("tedix-hq/tedix-cloud-ops", main, ship);
+	await expect(
+		landedDeployments(
+			repo,
+			[landed],
+			"tedix-hq/tedix-cloud-ops",
+			options.scope,
+			async () => {
+				throw new Error("health must not be read for a foreign repository");
+			},
+			api,
+		),
+	).resolves.toEqual([
+		{
+			url: "https://github.com/tedix-hq/tedix-cloud-ops/actions/runs/99",
+			sha: ship,
+		},
+	]);
+	await expect(
+		landedDeployments(
+			repo,
+			[landed],
+			"other-owner/tedix-cloud-ops",
+			options.scope,
+			async () => Response.json({}),
+			api,
+		),
+	).rejects.toThrow("allowed GitHub owner");
+});
+
+it("proves deploy with the Ship run when health cannot see the checkout's commits", async () => {
+	const { root, repo, git } = gitFixture(true);
+	git([
+		"-c",
+		"commit.gpgsign=false",
+		"commit",
+		"--allow-empty",
+		"-m",
+		"ops fix",
+	]);
+	const landed = git(["rev-parse", "HEAD"]);
+	git(["push", "origin", "main"]);
+	// Fetch still uses the local bare remote while origin reports the ops GitHub name.
+	git([
+		"remote",
+		"set-url",
+		"origin",
+		"https://github.com/tedix-hq/tedix-cloud-ops.git",
+	]);
+	git([
+		"config",
+		`url.${join(root, "origin.git")}.insteadOf`,
+		"https://github.com/tedix-hq/tedix-cloud-ops.git",
+	]);
+	const main = "d".repeat(40);
+	const ship = "e".repeat(40);
+	const { api } = shipApiFixture("tedix-hq/tedix-cloud-ops", main, ship);
+	const previous = process.env.TEDIX_LANE_VERIFY_HEALTH_URLS;
+	fixtureCleanup.push(async () => {
+		if (previous === undefined)
+			delete process.env.TEDIX_LANE_VERIFY_HEALTH_URLS;
+		else process.env.TEDIX_LANE_VERIFY_HEALTH_URLS = previous;
+	});
+	process.env.TEDIX_LANE_VERIFY_HEALTH_URLS =
+		"https://live.example.test/health";
+	await expect(
+		landedDeployments(
+			repo,
+			[landed],
+			undefined,
+			options.scope,
+			async () => Response.json({ deployedSha: "f".repeat(40) }),
+			api,
+		),
+	).resolves.toEqual([
+		{
+			url: "https://github.com/tedix-hq/tedix-cloud-ops/actions/runs/99",
+			sha: ship,
+		},
+	]);
+});
 
 it("renews ten runs during slow Git preparation, cleanup and proof inspection", async () => {
 	const { root, repo, git } = gitFixture(true);

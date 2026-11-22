@@ -30,6 +30,7 @@ import {
 	LaneResultSchema,
 	CodexLaneResultJsonSchema,
 	LaneOutcomeReadError,
+	githubRepository,
 	parseLaneResult,
 	parseCodexLaneResult,
 	laneWaitResponse,
@@ -2692,13 +2693,137 @@ export async function mainLaneCommits(
 	}
 }
 
+const ghApiJson = async (path: string): Promise<unknown> =>
+	JSON.parse(
+		(
+			await promisify(execFile)("gh", ["api", path], {
+				encoding: "utf8",
+				timeout: 30_000,
+				maxBuffer: 16 * 1024 * 1024,
+			})
+		).stdout,
+	);
+
+const ShipRunSchema = z.object({
+	id: z.number().int().positive(),
+	name: z.string(),
+	status: z.string(),
+	conclusion: z.string().nullable(),
+	head_branch: z.string(),
+	head_sha: FullSha,
+});
+const CompareSchema = z.object({
+	status: z.enum(["ahead", "identical", "behind", "diverged"]),
+});
+
+async function assertOnTargetMain(
+	api: (path: string) => Promise<unknown>,
+	target: string,
+	ancestor: string,
+	descendant: string,
+) {
+	const { status } = CompareSchema.parse(
+		await api(`repos/${target}/compare/${ancestor}...${descendant}`),
+	);
+	if (status !== "ahead" && status !== "identical")
+		throw new Error(`${ancestor} is not on ${target} main`);
+}
+
+/** The id of the target repository's Ship workflow, when it has one. */
+async function shipWorkflowId(
+	target: string,
+	api: (path: string) => Promise<unknown>,
+): Promise<number | undefined> {
+	const { workflows } = z
+		.object({
+			workflows: z.array(
+				z.object({ id: z.number().int().positive(), name: z.string() }),
+			),
+		})
+		.parse(await api(`repos/${target}/actions/workflows?per_page=100`));
+	return workflows.find((workflow) => workflow.name === "Ship")?.id;
+}
+
+/**
+ * Deploy proof for a repository whose changes ship through Ship workflow
+ * runs instead of a deployed service's health revision: the commits must be
+ * on its main and inside the head of its latest successful main Ship run.
+ */
+async function shipDeployments(
+	target: string,
+	commits: string[],
+	workflowId: number,
+	api: (path: string) => Promise<unknown>,
+): Promise<z.infer<typeof DeploymentSchema>[]> {
+	const main = z
+		.object({ object: z.object({ sha: FullSha }) })
+		.parse(await api(`repos/${target}/git/ref/heads/main`)).object.sha;
+	for (const commit of commits)
+		await assertOnTargetMain(api, target, commit, main);
+	const { workflow_runs } = z
+		.object({ workflow_runs: z.array(ShipRunSchema) })
+		.parse(
+			await api(
+				`repos/${target}/actions/workflows/${workflowId}/runs?branch=main&status=success&per_page=1`,
+			),
+		);
+	const run = workflow_runs[0];
+	if (
+		!run ||
+		run.status !== "completed" ||
+		run.conclusion !== "success" ||
+		run.head_branch !== "main"
+	)
+		throw new Error(`${target} has no successful Ship run on main`);
+	await assertOnTargetMain(api, target, run.head_sha, main);
+	for (const commit of commits)
+		await assertOnTargetMain(api, target, commit, run.head_sha);
+	return [
+		{
+			url: `https://github.com/${target}/actions/runs/${run.id}`,
+			sha: run.head_sha,
+		},
+	];
+}
+
+/** The GitHub owner/name of the checkout's origin, when it has one. */
+async function checkoutRepository(repo: string): Promise<string | undefined> {
+	try {
+		return githubRepository(
+			await gitOutput(repo, ["config", "--get", "remote.origin.url"]),
+		);
+	} catch {
+		return undefined;
+	}
+}
+
 export async function landedDeployments(
 	repo: string,
 	commits: string[],
-	_repository: string | undefined,
+	repository: string | undefined,
 	scope: string[],
 	readHealth: (url: string, options: RequestInit) => Promise<Response> = fetch,
+	api: (path: string) => Promise<unknown> = ghApiJson,
 ): Promise<z.infer<typeof DeploymentSchema>[]> {
+	// Commits named for another repository under the same GitHub owner are
+	// proven there: target-main ancestry plus its latest successful Ship run,
+	// never the product checkout or the product health revision.
+	const source = await checkoutRepository(repo);
+	if (repository && repository !== source) {
+		if (!source)
+			throw new Error("Repository proof requires the checkout's GitHub origin");
+		if (
+			repository.split("/")[0]!.toLowerCase() !==
+			source.split("/")[0]!.toLowerCase()
+		)
+			throw new Error("Repository proof must target an allowed GitHub owner");
+		const workflowId = await shipWorkflowId(repository, api);
+		if (workflowId === undefined)
+			throw new Error(`${repository} has no Ship workflow`);
+		return shipDeployments(repository, commits, workflowId, api);
+	}
+	if ((await mainLaneCommits(repo, commits)).length !== commits.length)
+		throw new Error("A commit is no longer on origin/main");
 	const urls = new Set(
 		process.env.TEDIX_LANE_VERIFY_HEALTH_URLS?.split(/\s+/).filter(Boolean),
 	);
@@ -2711,43 +2836,62 @@ export async function landedDeployments(
 		for (const baseUrl of [resolveCliApiUrl(), workspaceUrl ?? options.url])
 			urls.add(new URL("/health", baseUrl).href);
 	}
-	// Health revisions belong to the product, even when delivery proof names ops.
-	if ((await mainLaneCommits(repo, commits)).length !== commits.length)
-		throw new Error("A commit is no longer on origin/main");
-	return Promise.all(
-		[...urls].map(async (url) => {
-			const response = await readHealth(url, {
-				cache: "no-store",
-				redirect: "error",
-				signal: AbortSignal.timeout(5_000),
-			});
-			const body: unknown = response.ok ? await response.json() : null;
-			const sha = FullSha.safeParse(
-				isRecord(body) ? body.deployedSha : undefined,
-			);
-			if (!sha.success)
-				throw new Error(`${url} did not report a full deployedSha`);
-			for (const commit of commits) {
-				if (
-					!(await gitSucceeds(repo, ["cat-file", "-e", `${sha.data}^{commit}`]))
-				)
-					throw new Error(
-						`${url} reports deployed commit ${sha.data}, which is missing from the product checkout after fetching origin/main`,
-					);
-				const contains = await gitSucceeds(repo, [
-					"merge-base",
-					"--is-ancestor",
-					commit,
-					sha.data,
-				]);
-				if (!contains)
-					throw new Error(
-						`${url} reports ${sha.data}, which does not prove deployment of ${commit}`,
-					);
+	try {
+		// Health revisions belong to the product, even when delivery proof names ops.
+		return await Promise.all(
+			[...urls].map(async (url) => {
+				const response = await readHealth(url, {
+					cache: "no-store",
+					redirect: "error",
+					signal: AbortSignal.timeout(5_000),
+				});
+				const body: unknown = response.ok ? await response.json() : null;
+				const sha = FullSha.safeParse(
+					isRecord(body) ? body.deployedSha : undefined,
+				);
+				if (!sha.success)
+					throw new Error(`${url} did not report a full deployedSha`);
+				for (const commit of commits) {
+					if (
+						!(await gitSucceeds(repo, [
+							"cat-file",
+							"-e",
+							`${sha.data}^{commit}`,
+						]))
+					)
+						throw new Error(
+							`${url} reports deployed commit ${sha.data}, which is missing from the product checkout after fetching origin/main`,
+						);
+					const contains = await gitSucceeds(repo, [
+						"merge-base",
+						"--is-ancestor",
+						commit,
+						sha.data,
+					]);
+					if (!contains)
+						throw new Error(
+							`${url} reports ${sha.data}, which does not prove deployment of ${commit}`,
+						);
+				}
+				return { url, sha: sha.data };
+			}),
+		);
+	} catch (error) {
+		// A checkout whose origin deploys through Ship runs (the ops repository)
+		// cannot be proven by the product's health revisions; its deploy proof
+		// is the latest successful Ship run containing the commits.
+		if (source) {
+			let workflowId: number | undefined;
+			try {
+				workflowId = await shipWorkflowId(source, api);
+			} catch {
+				workflowId = undefined;
 			}
-			return { url, sha: sha.data };
-		}),
-	);
+			if (workflowId !== undefined)
+				return shipDeployments(source, commits, workflowId, api);
+		}
+		throw error;
+	}
 }
 
 /**

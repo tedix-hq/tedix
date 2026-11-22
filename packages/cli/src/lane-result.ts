@@ -249,7 +249,7 @@ const ciRunSchema = z.object({
 	head_sha: z.string().regex(/^[a-f0-9]{40}$/),
 });
 
-const githubRepository = (remote: string) =>
+export const githubRepository = (remote: string) =>
 	/^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(
 		remote,
 	)?.[1];
