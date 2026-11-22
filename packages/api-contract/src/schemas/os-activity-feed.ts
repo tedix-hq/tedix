@@ -143,3 +143,22 @@ export const ActivityFeedConfigSchema = z
 		},
 	);
 export type ActivityFeedConfig = z.infer<typeof ActivityFeedConfigSchema>;
+
+/** Area leads maintain this dated report in project.metadata.activityOverview. */
+export const ActivityAreaUpdateSchema = z.strictObject({
+	observedAt: z.iso.datetime(),
+	changed: z.string().trim().min(1).max(1000),
+	next: z.string().trim().min(1).max(1000),
+	releases: z
+		.array(
+			z.strictObject({
+				state: z.enum(["live", "held"]),
+				label: z.string().trim().min(1).max(200),
+				detail: z.string().trim().min(1).max(1000),
+				at: z.iso.datetime(),
+				href: z.string().regex(/^\/work\/(items|projects)\/[a-f0-9-]+$/),
+			}),
+		)
+		.max(20)
+		.default([]),
+});

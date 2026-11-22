@@ -1,4 +1,5 @@
 import { WorkLayoutRegion } from "./work-layout";
+import { ActivityOwnerOverview } from "./activity-owner-overview";
 import { PencilSimple, Pulse, SlidersHorizontal } from "@phosphor-icons/react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
@@ -302,6 +303,9 @@ export function WorkHomeOverview({ children }: { children?: ReactNode }) {
 					),
 					running: (
 						<>
+							<ActivityOwnerOverview
+								projectIds={following ? projects : undefined}
+							/>
 							{running && (
 								<div>
 									<ActivityRunningNow

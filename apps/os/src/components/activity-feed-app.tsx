@@ -25,7 +25,8 @@ export function ActivityFeedApp(props: {
 	return (
 		<DecisionContextRail>
 			<WorkReadRegion>
-				{props.config.decidedForYou && <DecidedForYou />}
+				{props.config.decidedForYou &&
+					props.navigation?.showRunningNow !== false && <DecidedForYou />}
 				<FocusFeed {...props} />
 			</WorkReadRegion>
 		</DecisionContextRail>

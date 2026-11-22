@@ -29,7 +29,7 @@ export function ApprovalDecisionCard({
 }: {
 	id: string;
 	onNext: () => void;
-	onPrevious: () => void;
+	onPrevious?: () => void;
 }) {
 	const client = useQueryClient();
 	const optimistic = useContext(OptimisticDeckDecisionContext);

@@ -277,6 +277,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 	"decisionGraph/getContext": (input: { cardId: string }) =>
 		decisionGraphFixture(input.cardId),
 	"workMap/read": () => workMapFixture(),
+	"workInteractions/listDecidedForYou": () => ({ data: [], nextBefore: null }),
 	"attention/listDeckCards": () => ({
 		cards: [],
 		count: 0,

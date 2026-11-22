@@ -32,7 +32,7 @@ export function WorkApprovalDecisionCard({
 }: {
 	row: z.infer<typeof WorkApprovalInboxRowSchema>;
 	onNext: () => void;
-	onPrevious: () => void;
+	onPrevious?: () => void;
 }) {
 	const client = useQueryClient();
 	const optimistic = useContext(OptimisticDeckDecisionContext);
