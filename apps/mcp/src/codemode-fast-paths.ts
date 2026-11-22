@@ -49,6 +49,9 @@ import {
 	accountProfileTool,
 } from "./mcp/registration/account-profile";
 import { extractCallerIdentity } from "./mcp/server-factory";
+import { codeModeAnalyticsSessionId } from "./mcp/caller-identity";
+import { buildMcpCodeModeAnalyticsDataPoint } from "@tedix/api-contract/schemas/mcp-analytics";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import { sortToolsDeterministically } from "./mcp/tools-list-order";
 import { paginateSortedToolsList } from "./mcp/tools-list-pagination";
 import type { ResolvedApp } from "./resolution";
@@ -65,6 +68,63 @@ import {
 	MCP_EVENTS_EXTENSION,
 	type McpSubscriptionBindingEnv,
 } from "./mcp-events-routes";
+
+const writeListTelemetry = createTelemetryWriter("mcp.codemode.list");
+
+type CatalogSize = { chars: number; toolCount: number };
+// Keyed by the cached tool array: the full-catalog size is computed once per
+// app resolution, not on every tools/list.
+const catalogSizes = new WeakMap<ResolvedApp["tools"], CatalogSize>();
+
+/** Chars of every tool's name, description and input schema: the catalog a client without Code Mode would load. */
+function catalogSize(tools: ResolvedApp["tools"]): CatalogSize {
+	let size = catalogSizes.get(tools);
+	if (!size) {
+		let chars = 0;
+		for (const tool of tools)
+			chars +=
+				tool.toolId.length +
+				(tool.description?.length ?? 0) +
+				(JSON.stringify(tool.inputSchema)?.length ?? 0);
+		size = { chars, toolCount: tools.length };
+		catalogSizes.set(tools, size);
+	}
+	return size;
+}
+
+/** One `list` analytics event per compact tools/list or server/discover answer. */
+function writeCodeModeListAnalytics(
+	request: Request,
+	resolvedApp: ResolvedApp,
+	env: CloudflareEnv,
+	method: "tools/list" | "server/discover",
+	result: Record<string, unknown>,
+): void {
+	const dataset = env.CODEMODE_ANALYTICS;
+	if (!dataset) return;
+	writeListTelemetry(() => {
+		const identity = extractCallerIdentity(request);
+		const catalog =
+			method === "tools/list" ? catalogSize(resolvedApp.tools ?? []) : null;
+		dataset.writeDataPoint(
+			buildMcpCodeModeAnalyticsDataPoint({
+				eventType: "list",
+				appId: resolvedApp.app.id,
+				appSlug: resolvedApp.app.slug,
+				organizationId: resolvedApp.app.organizationId ?? undefined,
+				toolName: method,
+				sessionId: codeModeAnalyticsSessionId(identity),
+				userId: identity?.userId,
+				tediId: identity?.tediId,
+				authType: identity?.authType,
+				success: true,
+				listChars: JSON.stringify(result).length,
+				catalogChars: catalog?.chars,
+				catalogToolCount: catalog?.toolCount,
+			}),
+		);
+	});
+}
 
 /**
  * Code Mode fast paths the Worker answers before building a server: the
@@ -315,32 +375,34 @@ export async function maybeHandleCodeModeCompactMcp(
 		const hasSubscriptionStream = Boolean(
 			(env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS,
 		);
-		return jsonRpcEnvelopeResponse(
-			envelope,
-			decorateModernFastPathResult(envelope, resolvedApp, {
-				resultType: "complete",
-				supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
-				capabilities: {
-					...(interactionEventsEnabled ? { events: {} } : {}),
-					tools: hasSubscriptionStream ? { listChanged: true } : {},
-					resources: hasSubscriptionStream
-						? { listChanged: true, subscribe: true }
-						: {},
-					extensions: {
-						"io.modelcontextprotocol/apps": {},
-						"io.modelcontextprotocol/ui": {},
-						"io.modelcontextprotocol/skills": {},
-						...(interactionEventsEnabled ? { [MCP_EVENTS_EXTENSION]: {} } : {}),
-						...(exposesHomeTasks ? { [MCP_TASKS_EXTENSION]: {} } : {}),
-					},
+		const result = decorateModernFastPathResult(envelope, resolvedApp, {
+			resultType: "complete",
+			supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
+			capabilities: {
+				...(interactionEventsEnabled ? { events: {} } : {}),
+				tools: hasSubscriptionStream ? { listChanged: true } : {},
+				resources: hasSubscriptionStream
+					? { listChanged: true, subscribe: true }
+					: {},
+				extensions: {
+					"io.modelcontextprotocol/apps": {},
+					"io.modelcontextprotocol/ui": {},
+					"io.modelcontextprotocol/skills": {},
+					...(interactionEventsEnabled ? { [MCP_EVENTS_EXTENSION]: {} } : {}),
+					...(exposesHomeTasks ? { [MCP_TASKS_EXTENSION]: {} } : {}),
 				},
-				instructions: modernDiscoverInstructions(
-					resolvedApp,
-					connectionAppSlug,
-				),
-				...DEFAULT_MCP_CACHE_HINT,
-			}),
+			},
+			instructions: modernDiscoverInstructions(resolvedApp, connectionAppSlug),
+			...DEFAULT_MCP_CACHE_HINT,
+		});
+		writeCodeModeListAnalytics(
+			request,
+			resolvedApp,
+			env,
+			"server/discover",
+			result,
 		);
+		return jsonRpcEnvelopeResponse(envelope, result);
 	}
 
 	if (method === "tools/list") {
@@ -376,15 +438,14 @@ export async function maybeHandleCodeModeCompactMcp(
 				-32_602,
 				"Invalid params: unrecognized tools/list cursor",
 			);
-		return jsonRpcEnvelopeResponse(
-			envelope,
-			decorateModernFastPathResult(envelope, resolvedApp, {
-				resultType: "complete",
-				tools: page.tools,
-				...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-				...DEFAULT_MCP_CACHE_HINT,
-			}),
-		);
+		const result = decorateModernFastPathResult(envelope, resolvedApp, {
+			resultType: "complete",
+			tools: page.tools,
+			...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+			...DEFAULT_MCP_CACHE_HINT,
+		});
+		writeCodeModeListAnalytics(request, resolvedApp, env, "tools/list", result);
+		return jsonRpcEnvelopeResponse(envelope, result);
 	}
 
 	return null;

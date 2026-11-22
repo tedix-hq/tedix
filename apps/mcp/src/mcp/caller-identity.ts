@@ -96,6 +96,23 @@ export interface CallerIdentity {
 	approvedHomeAgentPrincipalId?: string;
 }
 
+/**
+ * Groups Code Mode analytics events (list, exec, rpc) into one agent session.
+ * The 2026 MCP protocol has no session header, so use the verified external
+ * Agent-Session, then the request's root run, then the OAuth client. A client
+ * key spans many sessions; readers split it by idle gaps.
+ */
+export function codeModeAnalyticsSessionId(
+	identity: CallerIdentity | undefined,
+): string | undefined {
+	if (identity?.externalAgentSessionId)
+		return `agent:${identity.externalAgentSessionId}`;
+	const runId = identity?.requestRootRunId ?? identity?.requestRunId;
+	if (runId) return `run:${runId}`;
+	if (identity?.clientId) return `client:${identity.clientId}`;
+	return undefined;
+}
+
 export function shouldBypassCodeModeForCaller(
 	caller:
 		| Pick<CallerIdentity, "authType" | "credentialMode" | "forceCodeMode">

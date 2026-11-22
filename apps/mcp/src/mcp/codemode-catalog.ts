@@ -404,7 +404,7 @@ export function resolveLazyCatalogProvider(
 		fns: Object.fromEntries(
 			["search", "describe", "list_namespaces", "read_result"].map((name) => [
 				name,
-				(...args: unknown[]) => {
+				async (...args: unknown[]) => {
 					resolved ??= resolveProvider(
 						buildCatalogProvider(
 							serverCtx,
@@ -413,7 +413,14 @@ export function resolveLazyCatalogProvider(
 							collisionKeys,
 						),
 					);
-					return resolved.fns[name]!(...args);
+					const result = await resolved.fns[name]!(...args);
+					// Token telemetry: discovery output stays in the sandbox, but its
+					// size is what a direct client would have read. read_result pages
+					// a tool result, so it is not discovery.
+					if (name !== "read_result")
+						executionRefs.discoverResultChars +=
+							JSON.stringify(result)?.length ?? 0;
+					return result;
 				},
 			]),
 		),

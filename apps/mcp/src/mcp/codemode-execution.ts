@@ -43,6 +43,7 @@ import {
 } from "@tedix/mcp-shared/read-observation-receipt";
 import { recordFrom } from "./codemode-ui";
 import { type ServerContext, type AppTool } from "./server-context";
+import { codeModeAnalyticsSessionId } from "./caller-identity";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	type McpCodeModeAnalyticsDataPointEvent,
@@ -159,6 +160,8 @@ export interface CodeModeExecutionRefs {
 	/** Discovery-option telemetry: how the model actually discovers. */
 	discoverCalls: number;
 	discoverParameterRequests: number;
+	/** Serialized chars of discover.* results this execution received. */
+	discoverResultChars: number;
 	trust: { untrusted: Set<string>; trusted: Set<string> };
 	/**
 	 * EXECUTION RECEIPTS the executor observed itself, one per namespaced tool
@@ -227,6 +230,22 @@ export function codeModeTailContext(
 		executionId: executionId ?? "",
 		traceId: serverCtx.traceId,
 	};
+}
+
+/**
+ * Chars a direct MCP client's model would have read for this inner result:
+ * its text parts, or the structured content when there is no text.
+ */
+function callToolResultChars(result: {
+	content?: Array<{ type: string; text?: string }>;
+	structuredContent?: unknown;
+}): number {
+	let chars = 0;
+	for (const part of result.content ?? [])
+		if (part.type === "text") chars += part.text?.length ?? 0;
+	if (chars === 0 && result.structuredContent !== undefined)
+		chars = JSON.stringify(result.structuredContent)?.length ?? 0;
+	return chars;
 }
 
 export const writeCodeModeLog = createTelemetryWriter("mcp.codemode.log");
@@ -640,6 +659,7 @@ export function buildNamespaceGroups(
 				const rpcStart = Date.now();
 				const innerCallOrdinal = executionRefs.rpcCallCount++;
 				let rpcSuccess = true;
+				let innerResultChars = 0;
 				try {
 					const result = await executeTool(serverCtx, tool, executionArgs, {
 						adapterScope,
@@ -658,6 +678,7 @@ export function buildNamespaceGroups(
 							extra: approvalExtra,
 						}),
 					});
+					innerResultChars = callToolResultChars(result);
 					if (result.isError) {
 						rpcSuccess = false;
 						throw innerToolError(result);
@@ -748,6 +769,7 @@ export function buildNamespaceGroups(
 								ns,
 								tool: safeName,
 								durationMs,
+								innerResultChars,
 								success: rpcSuccess,
 							}),
 						),
@@ -758,12 +780,14 @@ export function buildNamespaceGroups(
 						appSlug: serverCtx.appSlug,
 						organizationId: serverCtx.app.organizationId,
 						toolName: `${ns}.${safeName}`,
+						sessionId: codeModeAnalyticsSessionId(serverCtx.callerIdentity),
 						userId: serverCtx.callerIdentity?.userId,
 						tediId: serverCtx.callerIdentity?.tediId,
 						authType: serverCtx.callerIdentity?.authType,
 						executionId: executionRefs.executionId,
 						traceId: serverCtx.traceId,
 						durationMs,
+						innerResultChars,
 						success: rpcSuccess,
 					});
 				}

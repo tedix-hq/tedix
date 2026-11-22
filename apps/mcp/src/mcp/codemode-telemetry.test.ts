@@ -1827,10 +1827,9 @@ describe("Code Mode tail telemetry", () => {
 			),
 		};
 
-		await registerCodeModeTools(
-			server as never,
-			makeServerCtx(undefined, writeDataPoint),
-		);
+		const ctx = makeServerCtx(undefined, writeDataPoint);
+		ctx.callerIdentity!.externalAgentSessionId = "session-1";
+		await registerCodeModeTools(server as never, ctx);
 		await registered.get("code")?.({ code: "async () => test.soft_fail({})" });
 
 		expect(writeDataPoint).toHaveBeenCalledTimes(2);
@@ -1844,6 +1843,11 @@ describe("Code Mode tail telemetry", () => {
 		]);
 		expect(rpc.indexes).toEqual(["app-uuid"]);
 		expect(rpc.doubles[0]).toBe(0);
+		// The per-session token report joins rpc and exec rows on this key and
+		// sums innerResultChars (double11) as the no-Code-Mode baseline.
+		expect(rpc.blobs[6]).toBe("agent:session-1");
+		expect(exec.blobs[6]).toBe("agent:session-1");
+		expect(rpc.doubles[10]).toBe("soft fail".length);
 		expect(exec.blobs.slice(0, 5)).toEqual([
 			"exec",
 			"app-uuid",

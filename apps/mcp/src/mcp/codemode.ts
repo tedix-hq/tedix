@@ -21,6 +21,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { admitCodeModeRun } from "./code-run-admission";
 import { type ServerContext } from "./server-context";
+import { codeModeAnalyticsSessionId } from "./caller-identity";
 import {
 	isCodeModeAvailable,
 	CODE_MODE_TOOL_ANNOTATIONS,
@@ -156,6 +157,7 @@ function createExecutionRefs(): CodeModeExecutionRefs {
 		failureBudget: new IdenticalFailureBudget(),
 		discoverCalls: 0,
 		discoverParameterRequests: 0,
+		discoverResultChars: 0,
 		toolReceipts: [],
 		trust: { untrusted: new Set(), trusted: new Set() },
 		skillWorkflowRunIds: new Set(),
@@ -520,6 +522,7 @@ export async function registerCodeModeTools(
 				const discoverCalls = executionRefs.discoverCalls;
 				const discoverParameterRequests =
 					executionRefs.discoverParameterRequests;
+				const discoverResultChars = executionRefs.discoverResultChars;
 				writeCodeModeLog(() =>
 					console.log(
 						JSON.stringify({
@@ -539,6 +542,7 @@ export async function registerCodeModeTools(
 							// amplification is invisible server-side.
 							discoverCalls,
 							discoverParameterRequests,
+							discoverResultChars,
 							// Spreading undefined is a no-op, so no fallback object needed.
 							...resultMetrics,
 							success,
@@ -553,6 +557,7 @@ export async function registerCodeModeTools(
 					organizationId,
 					toolName: "code",
 					errorCode: errorMsg?.slice(0, 200),
+					sessionId: codeModeAnalyticsSessionId(serverCtx.callerIdentity),
 					userId: serverCtx.callerIdentity?.userId,
 					tediId: serverCtx.callerIdentity?.tediId,
 					authType: serverCtx.callerIdentity?.authType,
@@ -564,6 +569,7 @@ export async function registerCodeModeTools(
 					namespaceCount: accessedNamespaceCount,
 					discoverCalls,
 					discoverParameterRequests,
+					discoverResultChars,
 					resultChars: resultMetrics?.resultChars,
 					resultTokensApprox: resultMetrics?.resultTokensApprox,
 					resultTruncated: resultMetrics?.resultTruncated,

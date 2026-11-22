@@ -199,7 +199,9 @@ describe("MCP Analytics Engine data point contract", () => {
 			"trace-id",
 			"",
 		]);
-		expect(dataPoint.doubles).toEqual([1, 99, 1234, 7, 3, 0, 0, 0, 0, 0]);
+		expect(dataPoint.doubles).toEqual([
+			1, 99, 1234, 7, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		]);
 		expect(dataPoint.indexes).toEqual(["app-id"]);
 		expect(MCP_CODEMODE_ANALYTICS_DOUBLE.codeLength).toBe("double3");
 		expect(MCP_CODEMODE_ANALYTICS_DOUBLE.namespaceCount).toBe("double5");
@@ -214,6 +216,11 @@ describe("MCP Analytics Engine data point contract", () => {
 			"resultTruncated",
 			"discoverCalls",
 			"discoverParameterRequests",
+			"innerResultChars",
+			"discoverResultChars",
+			"listChars",
+			"catalogChars",
+			"catalogToolCount",
 		]);
 		// The original five positions are frozen — every existing AE query reads
 		// them by position, so the cost-shape tail may only ever APPEND.
@@ -221,6 +228,8 @@ describe("MCP Analytics Engine data point contract", () => {
 		expect(MCP_CODEMODE_ANALYTICS_DOUBLE.discoverParameterRequests).toBe(
 			"double10",
 		);
+		expect(MCP_CODEMODE_ANALYTICS_DOUBLE.innerResultChars).toBe("double11");
+		expect(MCP_CODEMODE_ANALYTICS_DOUBLE.catalogToolCount).toBe("double15");
 	});
 
 	it("builds an aggregate-cache datapoint isolated by blob1=aggregate_cache", () => {

@@ -2079,6 +2079,7 @@ describe("discover.search results flat array", () => {
 			failureBudget: { state: () => ({}) },
 			discoverCalls: 0,
 			discoverParameterRequests: 0,
+			discoverResultChars: 0,
 		};
 		const provider = buildCatalogProvider(ctx, undefined, refs as never);
 		const tools = provider.tools as Record<

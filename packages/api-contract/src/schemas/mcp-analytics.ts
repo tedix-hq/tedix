@@ -70,6 +70,16 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE = {
 	resultTruncated: "double8",
 	discoverCalls: "double9",
 	discoverParameterRequests: "double10",
+	// Token-savings tail. Each event type fills only its own slots; the rest
+	// stay 0. rpc: chars of the inner tool result the sandbox received (kept out
+	// of the model's context). exec: chars of discover.* results this execution
+	// received. list: chars of the tools/list or server/discover payload, plus
+	// the size and tool count of the full catalog a direct client would load.
+	innerResultChars: "double11",
+	discoverResultChars: "double12",
+	listChars: "double13",
+	catalogChars: "double14",
+	catalogToolCount: "double15",
 } as const;
 
 export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
@@ -83,6 +93,11 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
 	"resultTruncated",
 	"discoverCalls",
 	"discoverParameterRequests",
+	"innerResultChars",
+	"discoverResultChars",
+	"listChars",
+	"catalogChars",
+	"catalogToolCount",
 ] as const;
 
 export interface McpAnalyticsDataPointEvent {
@@ -125,6 +140,15 @@ export interface McpCodeModeAnalyticsDataPointEvent extends McpAnalyticsDataPoin
 	discoverCalls?: number;
 	/** How many of those requested schemas (includeParameters/describe). */
 	discoverParameterRequests?: number;
+	/** rpc: serialized chars of the inner tool result returned to the sandbox. */
+	innerResultChars?: number;
+	/** exec: serialized chars of all discover.search/describe/list_namespaces results. */
+	discoverResultChars?: number;
+	/** list: serialized chars of the tools/list or server/discover result. */
+	listChars?: number;
+	/** list: chars of every catalog tool's name, description and input schema. */
+	catalogChars?: number;
+	catalogToolCount?: number;
 }
 
 export function buildMcpAnalyticsDataPoint(event: McpAnalyticsDataPointEvent): {
@@ -182,6 +206,11 @@ export function buildMcpCodeModeAnalyticsDataPoint(
 		event.resultTruncated ? 1 : 0,
 		event.discoverCalls || 0,
 		event.discoverParameterRequests || 0,
+		event.innerResultChars || 0,
+		event.discoverResultChars || 0,
+		event.listChars || 0,
+		event.catalogChars || 0,
+		event.catalogToolCount || 0,
 	];
 	return dataPoint;
 }

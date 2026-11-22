@@ -214,6 +214,7 @@ describe("catalog projection reuse", () => {
 		const refs = {
 			discoverCalls: 0,
 			discoverParameterRequests: 0,
+			discoverResultChars: 0,
 		} as CodeModeExecutionRefs;
 		const lazy = resolveLazyCatalogProvider(ctx, undefined, refs, new Set());
 		expect(values).not.toHaveBeenCalled();
