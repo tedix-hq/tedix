@@ -890,6 +890,8 @@ async function runLaneProcessWithReporter(
 			exitCode = 1;
 			signal = null;
 			telemetry.finalMessage = String(error);
+			// Otherwise a child that never ran leaves no trace in the runner log.
+			process.stderr.write(`Lane child did not run: ${String(error)}\n`);
 		} finally {
 			appServer?.child.stderr.off("data", receiveAppServerStderr);
 			turnClosed = true;

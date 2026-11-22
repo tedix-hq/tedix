@@ -1450,6 +1450,9 @@ test.each([
 		mode === "november-5" ||
 		mode === "duplicate-declarations";
 	const delivered = !mode.startsWith("delivery-");
+	// A rare CI run saw no output from the first turn; show what the run reported.
+	if (exit !== (verified || retained ? 0 : 1) || writes !== (delivered ? 1 : 0))
+		console.error(`Devin ${mode} run reported:`, JSON.stringify(last));
 	expect(exit).toBe(verified || retained ? 0 : 1);
 	expect(writes).toBe(delivered ? 1 : 0);
 	const turns = readFileSync(join(dir, "turns.jsonl"), "utf8")
