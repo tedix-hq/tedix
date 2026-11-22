@@ -2154,7 +2154,12 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 		)
 		.output(
 			z.object({
-				schedules: z.array(SkillScheduleSchema),
+				schedules: z.array(
+					SkillScheduleSchema.extend({
+						skillTitle: z.string().nullable(),
+						lifecycleState: SkillLifecycleStateSchema.nullable(),
+					}),
+				),
 				total: z.number().int().nonnegative(),
 				offset: z.number().int().nonnegative(),
 				limit: z.number().int().positive(),
@@ -2184,6 +2189,18 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 		})
 		.input(z.object({ runId: z.string(), tediId: z.string().optional() }))
 		.output(SkillWorkflowLifecycleOutputSchema),
+
+	removeSchedule: oc
+		.route({
+			method: "POST",
+			path: "/skills/remove-schedule",
+			tags: ["cognitive"],
+			summary: "Remove a skill schedule",
+			description:
+				"Owner/admin only. Removes capabilities.schedule from the skill revision and deletes its timer. Does not cancel runs already dispatched. Repeating the call is safe.",
+		})
+		.input(SkillScheduleControlInputSchema)
+		.output(z.object({ skillId: z.string(), removed: z.boolean() })),
 
 	pauseSchedule: oc
 		.route({

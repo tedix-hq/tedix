@@ -896,6 +896,17 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		rpcEndpoint: "skills/getWorkflowReliability",
 	},
 	{
+		name: "remove_skill_schedule",
+		remoteName: "remove_skill_schedule",
+		description:
+			"Owner/admin only. Remove a skill's schedule from its manifest and delete its timer; already dispatched runs continue.",
+		inputSchema: zodToToolInputJsonSchema(
+			procedureInputSchema(skillsContract.removeSchedule),
+		),
+		annotations: MUTATING,
+		rpcEndpoint: "skills/removeSchedule",
+	},
+	{
 		name: "list_skill_workflow_schedules",
 		remoteName: "list_skill_workflow_schedules",
 		description:

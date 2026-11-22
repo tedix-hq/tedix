@@ -275,8 +275,13 @@ describe("skill schedule budget state", () => {
 		});
 
 		expect(result.total).toBe(1);
-		expect(result.schedules.map((schedule) => schedule.id)).toEqual([
-			"schedule-2",
+		expect(result.schedules).toEqual([
+			expect.objectContaining({
+				id: "schedule-2",
+				skillTitle: "Weekly digest",
+				lifecycleState: "active",
+				lastError: null,
+			}),
 		]);
 	});
 

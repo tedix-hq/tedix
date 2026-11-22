@@ -61,6 +61,7 @@ import {
 	skillsRevokeSkillRun,
 } from "./cognitive-skill-runs/lifecycle";
 import {
+	skillsRemoveSchedule,
 	skillsPauseSchedule,
 	skillsResumeSchedule,
 	skillsUpdateSchedule,
@@ -185,6 +186,7 @@ export const skillsContractRouter = skillsOs.router({
 	getRunSensitiveDataLatch: skillsGetRunSensitiveDataLatch,
 	clearRunSensitiveDataLatch: skillsClearRunSensitiveDataLatch,
 	resumeWorkflow: skillsResumeWorkflow,
+	removeSchedule: skillsRemoveSchedule,
 	pauseSchedule: skillsPauseSchedule,
 	resumeSchedule: skillsResumeSchedule,
 	updateSchedule: skillsUpdateSchedule,

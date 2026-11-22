@@ -16,8 +16,12 @@
 import { createRouterClient } from "@orpc/server";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
-import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import {
+	deleteSkillSchedule,
+	getSkillSchedule,
+} from "@tedix/db/queries/skill-schedules";
+import {
+	removeFactorySchedule,
 	setFactoryScheduleCron,
 	setFactoryScheduleEnabled,
 } from "../../services/factory-lifecycle";
@@ -25,6 +29,7 @@ import { type BaseContext, AUTHZ, createError, ErrorCodes } from "../orpc";
 import { requireOrgIdOrInput } from "../org-scope";
 import { authedSkills } from "./cognitive-shared";
 import { skillsImprove } from "./cognitive-skill-catalog";
+import { requireOwnerAdminWorkItemAuthor } from "./work-items/policy-helpers";
 
 type ScheduleAction = "paused" | "resumed";
 
@@ -168,4 +173,44 @@ export const skillsUpdateSchedule = authedSkills.updateSchedule
 		});
 		const after = await getSkillSchedule(context.db, skill.id, orgId);
 		return result(true, after ?? before);
+	});
+
+export const skillsRemoveSchedule = authedSkills.removeSchedule
+	.use(AUTHZ.tedisWrite)
+	.handler(async ({ context, input }) => {
+		const orgId = requireOrgIdOrInput(context, input.organizationId);
+		await requireOwnerAdminWorkItemAuthor(
+			context,
+			orgId,
+			"Removing a skill schedule",
+		);
+		const skill = await getSkillEntry(context.db, input.id, orgId);
+		if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+		const before = await getSkillSchedule(context.db, skill.id, orgId);
+		const originalContent = skill.content ?? "";
+		let content: string;
+		try {
+			content = removeFactorySchedule(originalContent);
+		} catch {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Skill has no valid schedule manifest",
+			);
+		}
+		if (content !== originalContent) {
+			const client = createRouterClient(
+				{ improve: skillsImprove },
+				{ context },
+			);
+			await client.improve({
+				id: skill.id,
+				content,
+				revisionReasoning: `Remove the schedule of ${skill.slug}.`,
+			});
+		}
+		await deleteSkillSchedule(context.db, skill.id, orgId);
+		return {
+			skillId: skill.id,
+			removed: Boolean(before) || content !== originalContent,
+		};
 	});

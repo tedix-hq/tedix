@@ -3184,6 +3184,32 @@
 			"rpcEndpoint": "skills/getWorkflowReliability"
 		},
 		{
+			"name": "remove_skill_schedule",
+			"remoteName": "remove_skill_schedule",
+			"description": "Owner/admin only. Remove a skill's schedule from its manifest and delete its timer; already dispatched runs continue.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"organizationId": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "The skill whose manifest-owned schedule to pause or resume"
+					}
+				},
+				"required": ["id"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/removeSchedule"
+		},
+		{
 			"name": "list_skill_workflow_schedules",
 			"remoteName": "list_skill_workflow_schedules",
 			"description": "List this tedi's manifest-owned automation schedules, optionally narrowed by skill id or slug.",
@@ -7809,15 +7835,309 @@
 						"type": "string",
 						"maxLength": 10000
 					},
-					"commitShas": {
-						"description": "Full commit IDs for this Attempt's repository result, in order. The first is the primary commit.",
-						"minItems": 1,
-						"maxItems": 100,
-						"type": "array",
-						"items": {
-							"type": "string",
-							"pattern": "^[a-f0-9]{40}$"
-						}
+					"complete": {
+						"description": "Complete this Work revision in the same write as successful settlement.",
+						"type": "object",
+						"properties": {
+							"expectedWorkItemVersion": {
+								"type": "integer",
+								"exclusiveMinimum": 0,
+								"maximum": 9007199254740991
+							}
+						},
+						"required": ["expectedWorkItemVersion"],
+						"additionalProperties": false
+					},
+					"settlement": {
+						"description": "Result delivered by the Attempt.",
+						"oneOf": [
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "commit"
+									},
+									"commitShas": {
+										"minItems": 1,
+										"maxItems": 100,
+										"type": "array",
+										"items": {
+											"type": "string",
+											"pattern": "^[a-f0-9]{40}$"
+										}
+									}
+								},
+								"required": ["mode", "commitShas"],
+								"additionalProperties": false
+							},
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "existing_commits"
+									},
+									"commitShas": {
+										"minItems": 1,
+										"maxItems": 100,
+										"type": "array",
+										"items": {
+											"type": "string",
+											"pattern": "^[a-f0-9]{40}$"
+										}
+									},
+									"repository": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 300
+									}
+								},
+								"required": ["mode", "commitShas"],
+								"additionalProperties": false
+							},
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "verified_existing"
+									},
+									"commitSha": {
+										"type": "string",
+										"pattern": "^[a-f0-9]{40}$"
+									},
+									"runId": {
+										"type": "integer",
+										"exclusiveMinimum": 0,
+										"maximum": 9007199254740991
+									},
+									"runAttempt": {
+										"type": "integer",
+										"exclusiveMinimum": 0,
+										"maximum": 9007199254740991
+									},
+									"runCommitSha": {
+										"type": "string",
+										"pattern": "^[a-f0-9]{40}$"
+									},
+									"evidenceUri": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									},
+									"rootCause": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									},
+									"ciApprovalId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									}
+								},
+								"required": [
+									"mode",
+									"commitSha",
+									"runId",
+									"runAttempt",
+									"runCommitSha",
+									"evidenceUri",
+									"rootCause",
+									"ciApprovalId"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "repository_commit"
+									},
+									"repository": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 300
+									},
+									"commitSha": {
+										"type": "string",
+										"pattern": "^[a-f0-9]{40}$"
+									},
+									"runId": {
+										"type": "integer",
+										"exclusiveMinimum": 0,
+										"maximum": 9007199254740991
+									},
+									"runAttempt": {
+										"type": "integer",
+										"exclusiveMinimum": 0,
+										"maximum": 9007199254740991
+									},
+									"runCommitSha": {
+										"type": "string",
+										"pattern": "^[a-f0-9]{40}$"
+									},
+									"evidenceUri": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									}
+								},
+								"required": [
+									"mode",
+									"repository",
+									"commitSha",
+									"runId",
+									"runAttempt",
+									"runCommitSha",
+									"evidenceUri"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "runtime_app_revision"
+									},
+									"evidenceId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									},
+									"evidenceUri": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									},
+									"workspaceId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									},
+									"gadgetId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									},
+									"revision": {
+										"type": "integer",
+										"exclusiveMinimum": 0,
+										"maximum": 9007199254740991
+									},
+									"revisionId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									}
+								},
+								"required": [
+									"mode",
+									"evidenceId",
+									"evidenceUri",
+									"workspaceId",
+									"gadgetId",
+									"revision",
+									"revisionId"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "skill_revision"
+									},
+									"evidenceId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									},
+									"evidenceUri": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									},
+									"skillId": {
+										"type": "string",
+										"minLength": 1
+									},
+									"skillRevision": {
+										"type": "integer",
+										"exclusiveMinimum": 0,
+										"maximum": 9007199254740991
+									},
+									"skillRunId": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"required": [
+									"mode",
+									"evidenceId",
+									"evidenceUri",
+									"skillId",
+									"skillRevision",
+									"skillRunId"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "object",
+								"properties": {
+									"mode": {
+										"type": "string",
+										"const": "local_branch"
+									},
+									"evidenceId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+									},
+									"evidenceUri": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									},
+									"branch": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 200
+									},
+									"baseCommit": {
+										"type": "string",
+										"pattern": "^[a-f0-9]{40}$"
+									},
+									"commitSha": {
+										"type": "string",
+										"pattern": "^[a-f0-9]{40}$"
+									},
+									"commitShas": {
+										"minItems": 1,
+										"maxItems": 100,
+										"type": "array",
+										"items": {
+											"type": "string",
+											"pattern": "^[a-f0-9]{40}$"
+										}
+									}
+								},
+								"required": [
+									"mode",
+									"evidenceId",
+									"evidenceUri",
+									"branch",
+									"baseCommit",
+									"commitSha",
+									"commitShas"
+								],
+								"additionalProperties": false
+							}
+						]
 					},
 					"metadata": {
 						"type": "object",
@@ -8018,7 +8338,8 @@
 						"maximum": 9007199254740991
 					}
 				},
-				"required": ["id", "attemptId", "outcome"]
+				"required": ["id", "attemptId", "outcome"],
+				"additionalProperties": false
 			},
 			"annotations": {
 				"readOnlyHint": false
@@ -13236,6 +13557,32 @@
 				"readOnlyHint": true
 			},
 			"rpcEndpoint": "skills/getWorkflowReliability"
+		},
+		{
+			"name": "remove_skill_schedule",
+			"remoteName": "remove_skill_schedule",
+			"description": "Owner/admin only. Remove a skill's schedule from its manifest and delete its timer; already dispatched runs continue.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"organizationId": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "The skill whose manifest-owned schedule to pause or resume"
+					}
+				},
+				"required": ["id"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/removeSchedule"
 		},
 		{
 			"name": "list_skill_workflow_schedules",
@@ -19686,6 +20033,27 @@
 							},
 							"updatedAt": {
 								"type": ["string", "null"]
+							},
+							"skillTitle": {
+								"type": ["string", "null"]
+							},
+							"lifecycleState": {
+								"anyOf": [
+									{
+										"type": "string",
+										"enum": [
+											"draft",
+											"active",
+											"proven",
+											"crystallized",
+											"stale",
+											"archived"
+										]
+									},
+									{
+										"type": "null"
+									}
+								]
 							}
 						},
 						"required": [
@@ -19696,7 +20064,9 @@
 							"cron",
 							"params",
 							"enabled",
-							"nextFireAt"
+							"nextFireAt",
+							"skillTitle",
+							"lifecycleState"
 						],
 						"additionalProperties": false
 					}

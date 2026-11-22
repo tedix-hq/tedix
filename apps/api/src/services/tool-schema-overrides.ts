@@ -457,6 +457,7 @@ export const SKILL_WORKFLOW_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"skills/activateWorkflowImprovement": "activate_skill_workflow_improvement",
 	"skills/pauseWorkflow": "pause_skill_workflow",
 	"skills/resumeWorkflow": "resume_skill_workflow",
+	"skills/removeSchedule": "remove_skill_schedule",
 	"skills/pauseSchedule": "pause_skill_schedule",
 	"skills/resumeSchedule": "resume_skill_schedule",
 	"skills/updateSchedule": "update_skill_schedule",
@@ -508,6 +509,7 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	"skills/moveToTedi": "write",
 	"skills/resumeWorkflow": "write",
 	// Only capabilities.schedule.enabled changes; resume undoes pause.
+	"skills/removeSchedule": "write",
 	"skills/pauseSchedule": "write",
 	"skills/resumeSchedule": "write",
 	// Only capabilities.schedule.cron/enabled change; the prior policy is a revision away.

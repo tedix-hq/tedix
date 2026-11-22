@@ -158,6 +158,63 @@ describe("skills.improve keeps a scheduled skill running", () => {
 		mocks.deleteSkillSchedule.mockResolvedValue(undefined);
 	});
 
+	it("removes the manifest schedule and its timer without rewriting the workflow", async () => {
+		const files = {
+			"scripts/workflow.ts":
+				"export default { async run(event, step) { return { ok: true }; } };",
+		};
+		useSkill(skillFixture({ files }));
+		const h = humanContext("owner");
+		try {
+			const client = createRouterClient(skillsContractRouter, {
+				context: h.context,
+			});
+			expect(await client.removeSchedule({ id: "skill-1" })).toEqual({
+				skillId: "skill-1",
+				removed: true,
+			});
+			const updated = await mocks.getSkillEntry(
+				h.context.db,
+				"skill-1",
+				ORG_ID,
+			);
+			expect(updated.content).not.toContain("schedule:");
+			expect(updated.content).toContain("Version 1.");
+			expect(updated.files).toEqual(files);
+			expect(updated.revision).toBe(8);
+			expect(mocks.deleteSkillSchedule).toHaveBeenCalledWith(
+				h.context.db,
+				"skill-1",
+				ORG_ID,
+			);
+			mocks.getSkillSchedule.mockResolvedValue(undefined);
+			expect(await client.removeSchedule({ id: "skill-1" })).toEqual({
+				skillId: "skill-1",
+				removed: false,
+			});
+			expect((await mocks.getSkillEntry()).revision).toBe(8);
+		} finally {
+			h.sqlite.close();
+		}
+	});
+
+	it("refuses schedule removal by a member", async () => {
+		useSkill(skillFixture());
+		const h = humanContext("member");
+		try {
+			const client = createRouterClient(skillsContractRouter, {
+				context: h.context,
+			});
+			await expect(
+				client.removeSchedule({ id: "skill-1" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+			expect(mocks.deleteSkillSchedule).not.toHaveBeenCalled();
+		} finally {
+			h.sqlite.close();
+		}
+	});
+
 	it.each(["draft", "active", "proven"] as const)(
 		"keeps a %s improvement copy off the schedule",
 		async (lifecycleState) => {

@@ -32,6 +32,17 @@ export function setFactoryScheduleEnabled(
 	});
 }
 
+export function removeFactorySchedule(content: string): string {
+	const match = /^(---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))/.exec(content);
+	if (!match) return content;
+	const doc = parseDocument(match[2]!);
+	if (doc.errors.length) throw new Error("Skill frontmatter is invalid");
+	if (!doc.hasIn(["capabilities", "schedule"])) return content;
+	return editFactorySchedule(content, (doc) => {
+		doc.deleteIn(["capabilities", "schedule"]);
+	});
+}
+
 /** Change only the cadence field of the schedule policy. Throws on a cron the scheduler could never fire. */
 export function setFactoryScheduleCron(content: string, cron: string): string {
 	nextSkillScheduleFireAt(cron, Date.now());

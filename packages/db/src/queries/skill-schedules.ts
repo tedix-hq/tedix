@@ -1,7 +1,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, getColumns, gte, lte, sql } from "drizzle-orm";
 import { parseDocument } from "yaml";
 import type { DbClient } from "../client";
 import {
@@ -144,8 +144,18 @@ export async function pauseSkillSchedule(
 export async function deleteSkillSchedule(
 	db: DbClient,
 	skillId: string,
+	organizationId?: string,
 ): Promise<void> {
-	await db.delete(skillSchedules).where(eq(skillSchedules.skillId, skillId));
+	await db
+		.delete(skillSchedules)
+		.where(
+			and(
+				eq(skillSchedules.skillId, skillId),
+				organizationId
+					? eq(skillSchedules.organizationId, organizationId)
+					: undefined,
+			),
+		);
 }
 
 export async function getSkillSchedule(
@@ -253,7 +263,13 @@ export async function listSkillSchedulesPage(
 		/** Leave out schedules whose params mention this id (a private project or its Work). */
 		excludeParamsReferenceId?: string;
 	},
-): Promise<{ schedules: SkillSchedule[]; total: number }> {
+): Promise<{
+	schedules: (SkillSchedule & {
+		skillTitle: string | null;
+		lifecycleState: SkillEntry["lifecycleState"];
+	})[];
+	total: number;
+}> {
 	const conditions = [
 		eq(skillSchedules.organizationId, organizationId),
 		sql`not exists (select 1 from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId} and ${skillEntries.lifecycleState} = 'archived')`,
@@ -295,7 +311,15 @@ export async function listSkillSchedulesPage(
 	const offset = Math.max(options.offset ?? 0, 0);
 	const [schedules, total] = await Promise.all([
 		db
-			.select()
+			.select({
+				...getColumns(skillSchedules),
+				skillTitle: sql<
+					string | null
+				>`(select ${skillEntries.title} from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId})`,
+				lifecycleState: sql<
+					SkillEntry["lifecycleState"]
+				>`(select ${skillEntries.lifecycleState} from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId})`,
+			})
 			.from(skillSchedules)
 			.where(whereClause)
 			.orderBy(asc(skillSchedules.nextFireAt))
