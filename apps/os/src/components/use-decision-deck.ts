@@ -296,7 +296,6 @@ export function useDecisionDeck(
 		...workInteractionDetailQueryOptions(openRequestId ?? ""),
 		...workRefreshOptions,
 		enabled: !!openRequestId,
-		refetchInterval: 5_000,
 	});
 	const checkedRequest = currentRequest.data;
 	useEffect(() => {
