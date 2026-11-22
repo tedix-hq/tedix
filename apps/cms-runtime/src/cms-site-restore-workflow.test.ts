@@ -259,7 +259,10 @@ describe("general CMS site restore", () => {
 			PLATFORM_DB: {},
 			DB_DO: {
 				idFromName: (slug: string) => slug,
-				get: () => ({ scheduleCmsSiteRestore: schedule }),
+				get: () => ({
+					closeCmsSiteRestoreFence: mocks.closeFence,
+					scheduleCmsSiteRestore: schedule,
+				}),
 			},
 		};
 		const doStep = vi.fn(
@@ -373,6 +376,7 @@ describe("general CMS site restore", () => {
 			DB_DO: {
 				idFromName: (slug: string) => slug,
 				get: () => ({
+					closeCmsSiteRestoreFence: mocks.closeFence,
 					scheduleCmsSiteRestore: schedule,
 					restartCmsSiteRestore: restart,
 					captureRecoverySnapshot: async () => ({

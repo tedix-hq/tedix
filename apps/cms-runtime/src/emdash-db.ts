@@ -33,6 +33,7 @@ import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	checkCmsRestoreWriteAdmission,
+	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
 	getCmsRestoreFenceState,
 } from "@tedix/db/queries/cms-restore-fences";
@@ -207,6 +208,8 @@ export function digestCmsRecoverySqlite(
  * through the platform API; dropping tables individually violates foreign keys. */
 export class EmDashDB extends EmdashSqlDB {
 	private databasePermits = new PublicRestorePermits();
+	private activeWrites = new Set<Promise<void>>();
+	private closingRestore?: { key: string; result: Promise<boolean> };
 	/** A public page is cached under the revision its request read before
 	 * querying this object. Until a read follows a rotation, no cache entry can
 	 * hold content older than the next write, so that write needs no rotation. */
@@ -349,6 +352,23 @@ export class EmDashDB extends EmdashSqlDB {
 		identity: CmsRestoreFenceIdentity,
 		run: () => Promise<T>,
 		write = true,
+	): Promise<T> {
+		if (!write) return await this.runWithDatabasePermit(identity, run, false);
+		if (this.closingRestore) throw new CmsRestoreFenceUnavailableError();
+		const finished = Promise.withResolvers<void>();
+		this.activeWrites.add(finished.promise);
+		try {
+			return await this.runWithDatabasePermit(identity, run, true);
+		} finally {
+			this.activeWrites.delete(finished.promise);
+			finished.resolve();
+		}
+	}
+
+	private async runWithDatabasePermit<T>(
+		identity: CmsRestoreFenceIdentity,
+		run: () => Promise<T>,
+		write: boolean,
 	): Promise<T> {
 		const env = this.siteDrillEnv();
 		if (
@@ -1026,6 +1046,43 @@ export class EmDashDB extends EmdashSqlDB {
 			throw new Error("CMS restore Durable Object identity mismatch");
 	}
 
+	/** Serialize epoch closure with real writes, never with durable permit rows.
+	 * A caller callback can await before dispatching a provider write. Keeping
+	 * its promise here prevents the close from overtaking that dispatch. */
+	async closeCmsSiteRestoreFence(
+		input: CmsSiteRestoreIdentity,
+	): Promise<boolean> {
+		this.assertCmsSiteRestoreObject(input);
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDB }
+		).primary;
+		if (primary) return await primary.closeCmsSiteRestoreFence(input);
+		const key = JSON.stringify([
+			input.siteId,
+			input.slug,
+			input.generation,
+			input.captureId,
+		]);
+		if (this.closingRestore) {
+			if (this.closingRestore.key !== key)
+				throw new CmsRestoreFenceUnavailableError();
+			return await this.closingRestore.result;
+		}
+		const result = (async () => {
+			await Promise.all([...this.activeWrites]);
+			return await closeCmsRestoreFence(
+				createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
+				input,
+			);
+		})();
+		this.closingRestore = { key, result };
+		try {
+			return await result;
+		} finally {
+			this.closingRestore = undefined;
+		}
+	}
+
 	/** A one-shot provider schedule: an unacknowledged intent is never retried. */
 	async scheduleCmsSiteRestore(
 		input: CmsSiteRestoreIdentity & {
@@ -1178,6 +1235,7 @@ export interface DoQueryStatement {
 }
 
 export interface EmDashDBStub {
+	closeCmsSiteRestoreFence(input: CmsSiteRestoreIdentity): Promise<boolean>;
 	executeCollectionDeletionGuardWithRestorePermit(
 		identity: CmsRestoreFenceIdentity,
 		input: CollectionDeletionGuardInput,

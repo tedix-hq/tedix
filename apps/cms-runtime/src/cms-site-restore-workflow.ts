@@ -7,7 +7,6 @@ import {
 import { createHash } from "node:crypto";
 import { createDbClient } from "@tedix/db/client";
 import {
-	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
 	getCmsRestoreFenceState,
 	reconcileCmsRestoreOuterPermits,
@@ -44,6 +43,7 @@ export interface CmsSiteRestoreParams extends CmsSiteRestoreIdentity {
 }
 
 export interface CmsSiteRestoreStub {
+	closeCmsSiteRestoreFence(input: CmsSiteRestoreIdentity): Promise<boolean>;
 	captureRecoverySnapshot(): Promise<{
 		bookmark: string;
 		databaseDigest: string;
@@ -349,10 +349,10 @@ export async function runCmsSiteRestore(
 		return capture.manifest;
 	});
 	await step.do("close-exact-site-fence", async () => {
-		const closed = await closeCmsRestoreFence(
-			createDbClient(env.PLATFORM_DB),
-			identity,
-		);
+		const closed = await restoreStub(
+			env,
+			identity.slug,
+		).closeCmsSiteRestoreFence(identity);
 		if (!closed) await assertExactFence(env, identity);
 		await advance(env, identity, "claimed", "fenced");
 	});

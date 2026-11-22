@@ -117,9 +117,13 @@ response. Every SQL operation borrows admission and holds a borrower until its
 actual RPC finishes, even when the caller times out. SQL mutations and storage
 callbacks check the current epoch, site status and fences through a primary D1
 write before dispatch, including when their reservation is cached. Plain SELECTs
-and read-only batches retain shared admission. Restore still drains reservations
-because an already-admitted callback can await before a later write. Only plain
-SELECTs are retried; writes execute once.
+and read-only batches retain shared admission. Epoch closure runs in the owning
+database object, refuses new mutating calls and awaits its actual executing
+write callbacks before closing D1. This prevents a delayed provider dispatch
+from crossing the epoch close; permit rows do not participate in that step.
+The restore workflow still drains durable reservations for administrative
+operations outside this coordinator. Only plain SELECTs are retried; writes
+execute once.
 Tenant R2 and session writes, the collection
 deletion guard and tenant egress borrow the same nested reservation through
 the database object: the operation runs in the caller, and the object holds its

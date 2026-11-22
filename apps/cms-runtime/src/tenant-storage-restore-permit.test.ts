@@ -295,6 +295,71 @@ test("renews a live outer stream, then sweeps its abandoned pull without opening
 });
 
 describe("nested tenant storage restore permits", () => {
+	test("epoch close waits for actual delayed writes, ignores orphan rows, and refuses later writes", async () => {
+		const identity = await site();
+		const coordinator = coordinators().get(
+			coordinators().idFromName(identity.slug),
+		) as unknown as EmDashDBStub;
+		await platformD1
+			.prepare(
+				"INSERT INTO cms_restore_permits (id, site_id, slug, kind) VALUES (?, ?, ?, 'scheduled')",
+			)
+			.bind(crypto.randomUUID(), identity.siteId, identity.slug)
+			.run();
+		let entered!: () => void;
+		let resume!: () => void;
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const delayed = new Promise<void>((resolve) => {
+			resume = resolve;
+		});
+		const write = vi.fn();
+		const active = (async () =>
+			await coordinator.runWithRestorePermit(identity, async () => {
+				entered();
+				await delayed;
+				write();
+			}))();
+		await started;
+		const fence = {
+			...identity,
+			generation: "coordinated",
+			captureId: "capture",
+		};
+		let closed = false;
+		const closing = (async () => {
+			const result = await coordinator.closeCmsSiteRestoreFence(fence);
+			closed = true;
+			return result;
+		})();
+		const lateWrite = vi.fn();
+		try {
+			// This refusal also observes that the close request reached the object.
+			await expect(
+				tenantSession(identity, { put: lateWrite }).put("late", "value"),
+			).rejects.toBeInstanceOf(CmsRestoreFenceUnavailableError);
+			expect(lateWrite).not.toHaveBeenCalled();
+			expect(closed).toBe(false);
+			expect(await getCmsRestoreEpoch(db, identity)).toBe(0);
+			resume();
+			await active;
+			expect(write).toHaveBeenCalledOnce();
+			expect(await closing).toBe(true);
+			expect(await getCmsRestoreEpoch(db, identity)).toBe(1);
+			// The orphan and idle shared row remain: neither participates in close.
+			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(2);
+			await expect(
+				tenantSession(identity, { put: lateWrite }).put("stale", "value"),
+			).rejects.toBeInstanceOf(CmsRestoreFenceUnavailableError);
+			expect(lateWrite).not.toHaveBeenCalled();
+		} finally {
+			resume();
+			await active;
+			await closing;
+		}
+	});
+
 	test("shares SQL reads as nested claims that restore reconciliation cannot reclaim", async () => {
 		const identity = await site();
 		const query = vi.fn().mockResolvedValue({ rows: [] });
