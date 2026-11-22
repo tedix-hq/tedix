@@ -846,3 +846,18 @@ export const HistoricalDecisionEventSchema = z.union([
 export type HistoricalDecisionEvent = z.infer<
 	typeof HistoricalDecisionEventSchema
 >;
+
+export const CloudflareCostsInputSchema = z.object({ day: z.iso.date() });
+export const CloudflareCostsResponseSchema = z.object({
+	rows: z.array(
+		z.object({
+			accountId: z.string(),
+			service: z.string(),
+			day: z.iso.date(),
+			costMicros: z.number().int(),
+			consumedQuantity: z.number().nullable(),
+			consumedUnit: z.string().nullable(),
+			fetchedAt: z.string(),
+		}),
+	),
+});

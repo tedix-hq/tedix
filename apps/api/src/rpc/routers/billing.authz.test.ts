@@ -2,6 +2,11 @@ import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 
+const cloudflareCosts = vi.hoisted(() => vi.fn());
+vi.mock("@tedix/db/queries/billing/cloudflare-costs", () => ({
+	listCloudflareDailyCosts: cloudflareCosts,
+}));
+
 const internalPlanStorage = vi.hoisted(() => vi.fn());
 vi.mock("@tedix/db/queries/billing/internal-plan", () => ({
 	assignInternalPlan: internalPlanStorage,
@@ -707,6 +712,36 @@ describe("complimentary internal plan authority", () => {
 			assignment,
 			{ id: "key", type: "apikey" },
 			expect.any(String),
+		);
+	});
+});
+
+describe("Cloudflare account costs require platform authority", () => {
+	it.each([false, true])(
+		"denies organization billing readers (human=%s)",
+		async (human) => {
+			cloudflareCosts.mockClear();
+			const client = createRouterClient(billingContractRouter, {
+				context: context(["billing:read", "billing:manage"], human),
+			});
+			await expect(
+				client.getCloudflareCosts({ day: "2026-11-21" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(cloudflareCosts).not.toHaveBeenCalled();
+		},
+	);
+	it("returns selected month through selected day for a platform operator", async () => {
+		cloudflareCosts.mockReset().mockResolvedValue([]);
+		const client = createRouterClient(billingContractRouter, {
+			context: context(["platform:admin"]),
+		});
+		await expect(
+			client.getCloudflareCosts({ day: "2026-11-21" }),
+		).resolves.toEqual({ rows: [] });
+		expect(cloudflareCosts).toHaveBeenCalledWith(
+			expect.anything(),
+			"2026-11-01",
+			"2026-11-21",
 		);
 	});
 });

@@ -19,6 +19,7 @@ import {
 	index,
 	integer,
 	primaryKey,
+	real,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -1587,5 +1588,23 @@ AND ((${table.pricingBasis} = 'rate_estimated' AND ${table.rateCertificateDigest
 			table.occurredAt,
 			table.sourceCallId,
 		),
+	],
+);
+
+/** Account-level provider spend, separate from customer charges and variance. */
+export const billingCloudflareDailyCosts = sqliteTable(
+	"billing_cloudflare_daily_costs",
+	{
+		accountId: text("account_id").notNull(),
+		service: text("service").notNull(),
+		day: text("day").notNull(),
+		costMicros: integer("cost_micros").notNull(),
+		consumedQuantity: real("consumed_quantity"),
+		consumedUnit: text("consumed_unit"),
+		fetchedAt: text("fetched_at").notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.accountId, table.service, table.day] }),
+		index("idx_cloudflare_daily_cost_day").on(table.day),
 	],
 );

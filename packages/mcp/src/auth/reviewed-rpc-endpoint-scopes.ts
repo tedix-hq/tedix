@@ -161,6 +161,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"billing/createTopUpCheckout": "platform:admin",
 	"billing/listHistoricalExposures": "platform:admin",
 	"billing/grantTopUpCredits": "platform:admin",
+	"billing/getCloudflareCosts": "platform:admin",
 	"billing/getDailyUsage": "platform:admin",
 	"billing/getPaymentDetails": "platform:admin",
 	"billing/listInvoices": "platform:admin",

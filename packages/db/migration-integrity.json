@@ -1892,6 +1892,10 @@
 		{
 			"name": "20261122133543_normalize_work_attempt_settlement/migration.sql",
 			"sha256": "373c634e971fa867ed70a1524086e86a532d9d61d95664d07e0e3a25fcccdd3a"
+		},
+		{
+			"name": "20261122142904_cloudflare_daily_costs/migration.sql",
+			"sha256": "890b5ff38e2155fd63592158f746942b7e7b2f7ff6344fbba8a731ebe8666f29"
 		}
 	]
 }

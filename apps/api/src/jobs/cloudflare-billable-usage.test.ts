@@ -13,6 +13,13 @@ vi.mock("@tedix/db/queries/billing/health", () => ({
 	recordBillingProviderReconciliation,
 }));
 
+const upsertCloudflareDailyCost = vi.hoisted(() =>
+	vi.fn(() => Promise.resolve()),
+);
+vi.mock("@tedix/db/queries/billing/cloudflare-costs", () => ({
+	upsertCloudflareDailyCost,
+}));
+
 const db = {} as DbClient;
 const env = {
 	CF_ACCOUNT_ID: "acct-1",
@@ -52,9 +59,60 @@ function workersAiRow(
 afterEach(() => {
 	vi.restoreAllMocks();
 	recordBillingProviderReconciliation.mockClear();
+	upsertCloudflareDailyCost.mockClear();
 });
 
 describe("cloudflare billable usage ingestion", () => {
+	it("stores summed service-day costs and quantities without copying window totals into each day", async () => {
+		vi.stubGlobal(
+			"fetch",
+			respondWith([
+				workersAiRow({
+					ServiceName: "Dynamic Workers",
+					ServiceFamilyName: "Workers",
+					ContractedCost: 3,
+					ConsumedQuantity: 10,
+					ConsumedUnit: "workers",
+				}),
+				workersAiRow({
+					ServiceName: "Dynamic Workers",
+					ServiceFamilyName: "Workers",
+					ContractedCost: 4,
+					ConsumedQuantity: 20,
+					ConsumedUnit: "workers",
+				}),
+				workersAiRow({
+					ServiceName: "Dynamic Workers",
+					ServiceFamilyName: "Workers",
+					ContractedCost: 74,
+					ConsumedQuantity: 300,
+					ConsumedUnit: "workers",
+					ChargePeriodStart: "2026-08-02T00:00:00Z",
+					ChargePeriodEnd: "2026-08-03T00:00:00Z",
+				}),
+			]),
+		);
+		await ingestCloudflareBillableUsage(db, env, options);
+		expect(upsertCloudflareDailyCost.mock.calls.map((call) => call[1])).toEqual(
+			[
+				expect.objectContaining({
+					service: "Dynamic Workers",
+					day: "2026-08-01",
+					costMicros: 7_000_000,
+					consumedQuantity: 30,
+					consumedUnit: "workers",
+				}),
+				expect.objectContaining({
+					service: "Dynamic Workers",
+					day: "2026-08-02",
+					costMicros: 74_000_000,
+					consumedQuantity: 300,
+					consumedUnit: "workers",
+				}),
+			],
+		);
+	});
+
 	it("records Workers AI cost as a provider reconciliation in USD micros", async () => {
 		vi.stubGlobal("fetch", respondWith([workersAiRow()]));
 
@@ -94,7 +152,7 @@ describe("cloudflare billable usage ingestion", () => {
 		expect(call.providerCostMicros).toBe(1_250_000);
 	});
 
-	it("keeps non-inference products as evidence without minting variance rows", async () => {
+	it("stores non-inference daily costs without minting variance rows", async () => {
 		// R2/D1 have no per-tedi ledger to reconcile against. They must not
 		// become `provider: cloudflare` reconciliations that read as a
 		// permanent disagreement, but they must not vanish either.
@@ -118,12 +176,17 @@ describe("cloudflare billable usage ingestion", () => {
 		expect(result.reconciled).toBe(1);
 		expect(result.otherCostMicros).toBe(750_000);
 		expect(recordBillingProviderReconciliation).toHaveBeenCalledTimes(1);
-		const call = recordBillingProviderReconciliation.mock.calls[0]?.[1] as {
-			metadata: { nonInferenceCostMicrosByService: Record<string, number> };
-		};
-		expect(call.metadata.nonInferenceCostMicrosByService["R2 Storage"]).toBe(
-			750_000,
+		expect(upsertCloudflareDailyCost).toHaveBeenCalledWith(
+			db,
+			expect.objectContaining({
+				service: "R2 Storage",
+				day: "2026-08-01",
+				costMicros: 750_000,
+			}),
 		);
+		expect(
+			recordBillingProviderReconciliation.mock.calls[0]?.[1].metadata,
+		).not.toHaveProperty("nonInferenceCostMicrosByService");
 	});
 
 	it("never converts a non-USD currency into the USD-micro ledger", async () => {

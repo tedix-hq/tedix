@@ -53,6 +53,8 @@ import {
 	SetBillingServiceCreditControlsResponseSchema,
 	SetCreditCapsInputSchema,
 	SetPayAsYouGoInputSchema,
+	CloudflareCostsInputSchema,
+	CloudflareCostsResponseSchema,
 } from "../schemas/billing";
 
 // =============================================================================
@@ -63,6 +65,16 @@ export const billingContract = oc
 	.route({ tags: ["billing"], prefix: "/billing" })
 	.errors(baseErrors)
 	.router({
+		getCloudflareCosts: oc
+			.route({
+				method: "GET",
+				path: "/cloudflare-costs",
+				tags: ["internal"],
+				description:
+					"Platform billing authority: Cloudflare service costs from the start of the selected month through the selected UTC day, in USD micros.",
+			})
+			.input(CloudflareCostsInputSchema)
+			.output(CloudflareCostsResponseSchema),
 		assignInternalPlan: oc
 			.route({
 				method: "POST",

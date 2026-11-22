@@ -1279,7 +1279,25 @@ const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 			await import("./billing/historical-exposure")
 		).revokeHistoricalFreshExecutionHandler(context, input),
 	);
+const getCloudflareCostsContract = os.getCloudflareCosts
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context, input }) => {
+		requirePlatformBillingAuthority(context);
+		const { listCloudflareDailyCosts } =
+			await import("@tedix/db/queries/billing/cloudflare-costs");
+		return {
+			rows: await listCloudflareDailyCosts(
+				resolveFleetAuthorityDb(context.env),
+				`${input.day.slice(0, 7)}-01`,
+				input.day,
+			),
+		};
+	});
+
 export const billingContractRouter = os.router({
+	getCloudflareCosts: getCloudflareCostsContract,
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
 	listHistoricalExposures: listHistoricalExposuresContract,
 	recordHistoricalFreshDecision: recordHistoricalFreshDecisionContract,

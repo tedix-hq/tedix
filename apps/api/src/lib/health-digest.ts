@@ -36,6 +36,23 @@ import {
 import { hasMaterialGatewayDrift } from "./gateway-reconciliation-threshold";
 import { safeExceptionTopology } from "./safe-log-metadata";
 
+import {
+	cloudflareCostJumps,
+	type CloudflareDailyCost,
+} from "@tedix/db/queries/billing/cloudflare-costs";
+
+export function cloudflareCostHealthConditions(
+	rows: CloudflareDailyCost[],
+	day: string,
+): HealthCondition[] {
+	return cloudflareCostJumps(rows, day).map((row) => ({
+		key: `cloudflare-cost-jump:${row.accountId}:${row.service}`,
+		severity: "P2",
+		bucketRank: 1,
+		detail: `Cloudflare ${row.service} on ${day}: $${(row.costMicros / 1_000_000).toFixed(2)} vs preceding 7-day average $${(row.averageMicros / 1_000_000).toFixed(2)} (>2x and >$10/day)`,
+	}));
+}
+
 export type HealthSeverity = "P1" | "P2";
 
 export interface HealthCondition {
@@ -855,6 +872,32 @@ export async function runPlatformHealthDigest(
 	const conditions = await collectHealthConditions(db, nowMs, {
 		graphProjectionConfigured: getGraphDbSecrets(env) !== null,
 	});
+	const verifiedCloudflareCostKeys = new Set<string>();
+	try {
+		const { listCloudflareDailyCosts } =
+			await import("@tedix/db/queries/billing/cloudflare-costs");
+		const day = new Date(nowMs - 86_400_000).toISOString().slice(0, 10);
+		const from = new Date(nowMs - 8 * 86_400_000).toISOString().slice(0, 10);
+		const rows = await listCloudflareDailyCosts(db, from, day);
+		conditions.push(...cloudflareCostHealthConditions(rows, day));
+		// Only a service with yesterday and all seven prior days can resolve its alert.
+		for (const row of rows.filter((row) => row.day === day)) {
+			const previous = rows.filter(
+				(prior) =>
+					prior.accountId === row.accountId &&
+					prior.service === row.service &&
+					prior.day < day,
+			);
+			if (new Set(previous.map((prior) => prior.day)).size === 7)
+				verifiedCloudflareCostKeys.add(
+					`cloudflare-cost-jump:${row.accountId}:${row.service}`,
+				);
+		}
+	} catch (error) {
+		console.error("[health-digest] Cloudflare cost query failed", {
+			exception: safeExceptionTopology(error),
+		});
+	}
 	let pricingQuerySucceeded = false;
 	try {
 		const { getRecentProviderPricingHealth } =
@@ -923,6 +966,8 @@ export async function runPlatformHealthDigest(
 		conditions,
 		ownedStates.filter(
 			(state) =>
+				(!state.conditionKey.startsWith("cloudflare-cost-jump:") ||
+					verifiedCloudflareCostKeys.has(state.conditionKey)) &&
 				(pricingQuerySucceeded ||
 					state.conditionKey !== PRICING_CONDITION_KEY) &&
 				(attributionQuerySucceeded || !attributionKey(state.conditionKey)) &&
@@ -933,6 +978,21 @@ export async function runPlatformHealthDigest(
 	);
 	// Retain the unresolved incident in presentation, without claiming a fresh
 	// observation or adding a persistence write/resolution on detector failure.
+	for (const state of ownedStates.filter(
+		(state) =>
+			state.conditionKey.startsWith("cloudflare-cost-jump:") &&
+			!verifiedCloudflareCostKeys.has(state.conditionKey),
+	)) {
+		result.ongoing.push({
+			state,
+			condition: {
+				key: state.conditionKey,
+				severity: state.severity as HealthSeverity,
+				bucketRank: Number(state.metricBucket ?? "0"),
+				detail: `Cloudflare daily cost evidence unavailable; still unresolved (current status unknown): ${state.detail}`,
+			},
+		});
+	}
 	for (const state of unverifiedPricingStates) {
 		result.ongoing.push({
 			state,

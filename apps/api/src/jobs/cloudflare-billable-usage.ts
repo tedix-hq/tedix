@@ -11,15 +11,8 @@
  * `tedi_call_costs`/`billing_usage_charges`, which is exactly the pairing the
  * reconciliation table exists to hold.
  *
- * Deliberate scope — only the Workers AI family becomes a reconciliation:
- * `recordBillingProviderReconciliation` computes variance against
- * `billing_usage_charges` for the same provider. Workers AI has a real ledger
- * to compare against; R2/D1/Workers/Images/Stream do not, and recording them
- * as `provider = "cloudflare"` would mint permanent `variance` rows that only
- * mean "we never claimed a per-tedi ledger for storage". Those products are
- * still captured — as an explicit cost breakdown in the reconciliation
- * metadata, and in the returned totals — without being dressed up as a ledger
- * disagreement.
+ * Every service is stored by charge day in billing_cloudflare_daily_costs.
+ * Workers AI and Containers also reconcile against their attributed ledgers.
  *
  * Boundaries this job does NOT cross:
  *  - It never marks a rate-card estimate as provider-reported. It writes only
@@ -30,6 +23,10 @@
  *    customer charge, or touches the Stripe outbox.
  */
 
+import {
+	upsertCloudflareDailyCost,
+	type CloudflareDailyCost,
+} from "@tedix/db/queries/billing/cloudflare-costs";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import { recordBillingProviderReconciliation } from "@tedix/db/queries/billing/health";
@@ -76,11 +73,13 @@ export interface BillableUsageIngestionResult {
 	workersAiCostMicros: number;
 	/** USD micros Cloudflare billed for everything else (evidence only). */
 	otherCostMicros: number;
+	/** Service-day rows upserted, including zero-cost usage. */
+	dailyCostsStored: number;
 	/** Rows the API returned, before filtering. */
 	rowsFetched: number;
 	/** Rows skipped, by reason, for operator visibility. */
 	skipped: Record<string, number>;
-	/** Set when the window produced no reconciliation; never thrown. */
+	/** Set when credentials, the fetch, or the usable row set is missing. */
 	failure?: string;
 }
 
@@ -172,6 +171,7 @@ export async function ingestCloudflareBillableUsage(
 		workersAiCostMicros: 0,
 		otherCostMicros: 0,
 		rowsFetched: 0,
+		dailyCostsStored: 0,
 		skipped: {},
 	};
 	if (!env.CF_ACCOUNT_ID?.trim() || !env.CF_BILLING_TOKEN?.trim()) {
@@ -205,7 +205,7 @@ export async function ingestCloudflareBillableUsage(
 	let workersAiCostMicros = 0;
 	let otherCostMicros = 0;
 
-	/** Per-charge-period Workers AI cost, plus the non-inference breakdown. */
+	/** Workers AI family totals for ledger reconciliation. */
 	const workersAiByPeriod = new Map<
 		string,
 		{
@@ -215,7 +215,7 @@ export async function ingestCloudflareBillableUsage(
 			consumedQuantity: number;
 		}
 	>();
-	const otherByService: Record<string, number> = {};
+	const dailyCosts = new Map<string, CloudflareDailyCost>();
 	const containersByPeriod = new Map<
 		string,
 		{ periodStart: string; periodEnd: string; costMicros: number }
@@ -236,11 +236,54 @@ export async function ingestCloudflareBillableUsage(
 		}
 		const micros = toMicros(cost);
 		const family = (row.ServiceFamilyName ?? "").trim().toLowerCase();
+		const service = row.ServiceName?.trim();
+		const start = row.ChargePeriodStart
+			? new Date(row.ChargePeriodStart)
+			: null;
+		const end = row.ChargePeriodEnd ? new Date(row.ChargePeriodEnd) : null;
+		if (
+			!service ||
+			!start ||
+			!end ||
+			!Number.isFinite(start.getTime()) ||
+			!Number.isFinite(end.getTime()) ||
+			end <= start ||
+			end.getTime() - start.getTime() > 86_400_000
+		) {
+			bump(skipped, "invalid-service-or-daily-period");
+			continue;
+		}
+		const day = start.toISOString().slice(0, 10);
+		const dailyKey = JSON.stringify([service, day]);
+		const unit = row.ConsumedUnit ?? null;
+		const quantity =
+			typeof row.ConsumedQuantity === "number" &&
+			Number.isFinite(row.ConsumedQuantity)
+				? row.ConsumedQuantity
+				: null;
+		const daily = dailyCosts.get(dailyKey);
+		if (daily) {
+			if (daily.consumedUnit !== unit)
+				throw new Error(`Mixed consumed units for ${service} on ${day}`);
+			daily.costMicros += micros;
+			daily.consumedQuantity =
+				daily.consumedQuantity === null || quantity === null
+					? null
+					: daily.consumedQuantity + quantity;
+		} else {
+			dailyCosts.set(dailyKey, {
+				accountId: env.CF_ACCOUNT_ID,
+				service,
+				day,
+				costMicros: micros,
+				consumedQuantity: quantity,
+				consumedUnit: unit,
+				fetchedAt: options.now,
+			});
+		}
 
 		if (family !== WORKERS_AI_FAMILY) {
 			otherCostMicros += micros;
-			const service = row.ServiceName?.trim() || "unknown";
-			otherByService[service] = (otherByService[service] ?? 0) + micros;
 			if (
 				family === CONTAINERS_FAMILY &&
 				row.ChargePeriodStart &&
@@ -287,6 +330,9 @@ export async function ingestCloudflareBillableUsage(
 		}
 	}
 
+	for (const row of dailyCosts.values())
+		await upsertCloudflareDailyCost(db, row);
+
 	let reconciled = 0;
 	for (const [key, period] of workersAiByPeriod) {
 		await recordBillingProviderReconciliation(db, {
@@ -305,11 +351,6 @@ export async function ingestCloudflareBillableUsage(
 				source: "cloudflare-billable-usage-api",
 				accountId: env.CF_ACCOUNT_ID,
 				requestedWindow: { from: options.from, to: options.to },
-				// Infrastructure spend is real Cloudflare cost that has no
-				// per-tedi ledger to reconcile against. Keep it as evidence
-				// beside the inference comparison instead of discarding it or
-				// minting a misleading variance row for it.
-				nonInferenceCostMicrosByService: otherByService,
 				// Cloudflare bills Workers AI in Neurons and our usage currently
 				// sits inside the free allowance, so every cost field comes back
 				// 0 while real inference is happening. Cost alone would therefore record nothing but zeros. The consumed
@@ -380,6 +421,7 @@ export async function ingestCloudflareBillableUsage(
 		workersAiCostMicros,
 		otherCostMicros,
 		rowsFetched: rows.length,
+		dailyCostsStored: dailyCosts.size,
 		skipped,
 		// Zero ROWS is a failure; zero COST is not. An account can legitimately
 		// have zero Workers AI charges in a window — free-tier usage bills at
@@ -396,11 +438,11 @@ export async function ingestCloudflareBillableUsage(
 						"This account bills daily, so an empty window means `from` is after the billing " +
 						"period start, not that nothing was spent — see BILLABLE_USAGE_LOOKBACK_DAYS.",
 				}
-			: Object.keys(skipped).length > 0 && reconciled === 0
+			: Object.keys(skipped).length > 0 && dailyCosts.size === 0
 				? {
 						failure: `Every candidate row was skipped (${Object.entries(skipped)
 							.map(([reason, count]) => `${reason}=${count}`)
-							.join(" ")}) — no provider reconciliation was written.`,
+							.join(" ")}) — no daily provider costs were written.`,
 					}
 				: {}),
 	};
@@ -453,7 +495,7 @@ export async function runCloudflareBillableUsageTick(
 			.map(([reason, count]) => `${reason}=${count}`)
 			.join(" ");
 		const summary =
-			`rows=${result.rowsFetched} reconciled=${result.reconciled} ` +
+			`rows=${result.rowsFetched} dailyCosts=${result.dailyCostsStored} reconciled=${result.reconciled} ` +
 			`workersAiMicros=${result.workersAiCostMicros} otherMicros=${result.otherCostMicros}` +
 			(skippedSummary ? ` skipped(${skippedSummary})` : "");
 		if (result.failure) {
@@ -472,6 +514,7 @@ export async function runCloudflareBillableUsageTick(
 				nonInferenceCostMicros: result.otherCostMicros,
 				reconciled: result.reconciled,
 				rowsFetched: result.rowsFetched,
+				dailyCostsStored: result.dailyCostsStored,
 				signal: "cloudflare.billable.usage.ingested",
 				skipped: result.skipped,
 				workersAiCostMicros: result.workersAiCostMicros,
@@ -479,6 +522,7 @@ export async function runCloudflareBillableUsageTick(
 		);
 		return {
 			rowsFetched: result.rowsFetched,
+			dailyCostsStored: result.dailyCostsStored,
 			reconciliationsWritten: result.reconciled,
 		};
 	} catch (err) {

@@ -1,3 +1,4 @@
+import { CloudflarePlatformCosts } from "@/components/cloudflare-platform-costs";
 import {
 	BillingCreditBalance,
 	BillingCreditUsage,
@@ -230,8 +231,9 @@ function AdminBillingBody({
 					<TabsTrigger value="limits">Limits</TabsTrigger>
 					<TabsTrigger value="invoices">Invoices</TabsTrigger>
 				</TabsList>
-				<TabsContent value="overview" className="pt-4">
+				<TabsContent value="overview" className="space-y-4 pt-4">
 					<BillingCreditBalance credits={overview.data.credits} />
+					<CloudflarePlatformCosts />
 				</TabsContent>
 				<TabsContent value="plan" className="pt-4">
 					<Suspense fallback={<BillingPagePending title="Current plan" />}>

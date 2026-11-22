@@ -20,6 +20,16 @@ vi.mock("@tedix/db/queries/graph-projection", async (importOriginal) => ({
 	listGraphProjectionConsumerHealth: vi.fn(),
 }));
 
+vi.mock(
+	"@tedix/db/queries/billing/cloudflare-costs",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/billing/cloudflare-costs")
+		>()),
+		listCloudflareDailyCosts: vi.fn(async () => []),
+	}),
+);
+
 const NOW = "2026-07-27T08:00:00.000Z";
 
 function openState(
@@ -762,3 +772,101 @@ describe("attribution coverage digest", () => {
 		},
 	);
 });
+
+it("includes a Cloudflare product jump in the digest and deduplicates the incident", async () => {
+	const { cloudflareCostHealthConditions } = await import("./health-digest");
+	const rows = Array.from({ length: 8 }, (_, i) => ({
+		accountId: "test-account",
+		service: "Dynamic Workers",
+		day: `2026-11-${14 + i}`,
+		costMicros: i === 7 ? 74_000_000 : 7_000_000,
+		consumedQuantity: 1,
+		consumedUnit: "workers",
+		fetchedAt: NOW,
+	}));
+	const conditions = cloudflareCostHealthConditions(rows, "2026-11-21");
+	const first = reconcileHealthConditions(conditions, [], NOW);
+	const digest = buildHealthDigest(first, {
+		nowIso: NOW,
+		isWeeklyHeartbeat: false,
+	});
+	expect(digest?.text).toContain("Dynamic Workers");
+	expect(digest?.text).toContain("$74.00");
+	expect(digest?.text).toContain("$7.00");
+	const previous = openState({
+		...first.writes[0]!,
+		conditionKey: conditions[0]!.key,
+	});
+	expect(
+		buildHealthDigest(reconcileHealthConditions(conditions, [previous], NOW), {
+			nowIso: NOW,
+			isWeeklyHeartbeat: false,
+		}),
+	).toBeNull();
+});
+
+it.each([false, true])(
+	"only resolves a Cloudflare jump with complete product-day evidence (complete=%s)",
+	async (complete) => {
+		const costs = await import("@tedix/db/queries/billing/cloudflare-costs");
+		const spies = [
+			vi
+				.spyOn(fleet, "assertFleetAuthorityAvailable")
+				.mockImplementation(() => {}),
+			vi
+				.spyOn(fleet, "resolveFleetAuthorityDb")
+				.mockReturnValue({} as DbClient),
+			vi.spyOn(console, "warn").mockImplementation(() => {}),
+			vi.spyOn(console, "error").mockImplementation(() => {}),
+			vi.spyOn(console, "log").mockImplementation(() => {}),
+		];
+		const key = "cloudflare-cost-jump:test-account:Dynamic Workers";
+		const rows = complete
+			? Array.from({ length: 8 }, (_, i) => ({
+					accountId: "test-account",
+					service: "Dynamic Workers",
+					day: `2026-11-${14 + i}`,
+					costMicros: 7_000_000,
+					consumedQuantity: 1,
+					consumedUnit: "workers",
+					fetchedAt: "2026-11-22T02:00:00Z",
+				}))
+			: [];
+		vi.mocked(costs.listCloudflareDailyCosts).mockResolvedValueOnce(rows);
+		vi.mocked(alertQueries.listOpenAlertStates).mockResolvedValue([
+			openState({ conditionKey: key }),
+		]);
+		vi.mocked(alertQueries.markAlertsResolved).mockClear();
+		vi.mocked(alertQueries.recordAlertState).mockClear();
+		vi.mocked(pricingQueries.getRecentProviderPricingHealth).mockResolvedValue(
+			pricingHealth(0),
+		);
+		vi.mocked(
+			pricingQueries.getRecentProviderAttributionHealth,
+		).mockResolvedValue(attributionHealth());
+		vi.mocked(
+			projectionQueries.listGraphProjectionConsumerHealth,
+		).mockResolvedValue([]);
+		vi.mocked(egress.sendOpsAlert)
+			.mockClear()
+			.mockResolvedValue({ emailed: false, webhookPosted: false });
+		try {
+			await runPlatformHealthDigest({} as CloudflareEnv, {
+				scheduledTimeMs: Date.parse("2026-11-22T08:00:00Z"),
+			});
+			expect(
+				vi
+					.mocked(alertQueries.markAlertsResolved)
+					.mock.calls.flatMap((args) => args[1])
+					.includes(key),
+			).toBe(complete);
+			expect(
+				vi
+					.mocked(alertQueries.recordAlertState)
+					.mock.calls.some((args) => args[1].conditionKey === key),
+			).toBe(false);
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
+	},
+);
