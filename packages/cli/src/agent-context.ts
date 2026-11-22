@@ -19,6 +19,10 @@ import {
 	readWorkspaceCredentials,
 	type CredentialStoreOpts,
 } from "./credential-store";
+import {
+	sessionReportingProjects,
+	setSessionReporting,
+} from "./session-reporting";
 import { nearestHostHarness } from "./host-ancestry";
 import { withFileLockSync } from "./local-file-lock";
 import { looksLikeUuid } from "./shared";
@@ -566,6 +570,7 @@ function defaultContext(
 	store: Store,
 	options: AgentContextOptions | undefined,
 	target: Omit<ContextTarget, "projectId"> | undefined,
+	routedProjectId?: string,
 ): AgentContextResult {
 	if (!target) return { status: "unbound" };
 	const same = (row: { workspace: string; org: string; mcpUrl: string }) =>
@@ -573,6 +578,8 @@ function defaultContext(
 		row.org === target.org &&
 		row.mcpUrl === target.mcpUrl;
 	const optIn = (store.decisionCapture ?? []).find(same);
+	const reporting = sessionReportingProjects(target, options);
+	const enabledProjects = reporting?.filter((row) => row.enabled);
 	const projects = new Set(
 		store.repositories
 			.filter(same)
@@ -580,11 +587,16 @@ function defaultContext(
 			.filter(looksLikeUuid),
 	);
 	const projectId =
-		optIn?.projectId && looksLikeUuid(optIn.projectId)
-			? optIn.projectId
-			: projects.size === 1
-				? [...projects][0]
-				: undefined;
+		routedProjectId ??
+		(reporting
+			? enabledProjects?.length === 1
+				? enabledProjects[0]!.projectId
+				: undefined
+			: optIn?.projectId && looksLikeUuid(optIn.projectId)
+				? optIn.projectId
+				: projects.size === 1
+					? [...projects][0]
+					: undefined);
 	const sessionId = chatIdentity(options);
 	// The same organization-wide selection bound repositories use; an invalid
 	// one only drops the document, never the lessons.
@@ -602,7 +614,11 @@ function defaultContext(
 		...(target.organization ? { organization: target.organization } : {}),
 		mcpUrl: target.mcpUrl,
 		...(projectId ? { projectId } : {}),
-		...(optIn && projectId ? { decisionCapture: true } : {}),
+		...(optIn &&
+		projectId &&
+		(!reporting || enabledProjects?.some((row) => row.projectId === projectId))
+			? { decisionCapture: true }
+			: {}),
 		...(preference
 			? {
 					preferencesWorkspaceId: preference.osWorkspaceId,
@@ -831,8 +847,7 @@ function resolveAgentContextWithRepo(
 			if (options?.allowDefault && routed.length) {
 				const call = routed[0]!;
 				return {
-					...defaultContext(store, options, call.target),
-					...(call.row.projectId ? { projectId: call.row.projectId } : {}),
+					...defaultContext(store, options, call.target, call.row.projectId),
 					scopeRoutingHint: true,
 					alsoActive: [
 						...new Set(recentOrgs.filter((org) => org !== call.target.org)),
@@ -910,12 +925,18 @@ function resolveAgentContextWithRepo(
 		if (!active) return unbound();
 		checkedBinding(active, repo, options);
 		const preference = organizationDocument(store.preferences, active);
-		const capture = (store.decisionCapture ?? []).some(
-			(row) =>
-				row.workspace === active.workspace &&
-				row.org === active.org &&
-				row.mcpUrl === active.mcpUrl,
-		);
+		const reporting = sessionReportingProjects(active, options);
+		const capture =
+			(!reporting ||
+				reporting.some(
+					(row) => row.projectId === active.projectId && row.enabled,
+				)) &&
+			(store.decisionCapture ?? []).some(
+				(row) =>
+					row.workspace === active.workspace &&
+					row.org === active.org &&
+					row.mcpUrl === active.mcpUrl,
+			);
 		const output = active.outputs?.find((row) => row.root === repo.root);
 		if (
 			output &&
@@ -1479,6 +1500,7 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context set-default-organization <selected ID or slug> [--workspace <profile>]
   tedix setup agents context set-default-organization --clear
   tedix setup agents context disconnect-output
+  tedix setup agents context session-reporting --state on|off|show --workspace <profile> [--organization <ID>] [--project <UUID>] --json
   tedix setup agents context show [--json] [--allow-default]
   tedix setup agents context unbind
 
@@ -1517,11 +1539,16 @@ the same origin owner (host/owner) when they all share one, else stay idle.
 show --allow-default prints that resolution.
 enable-decision-capture opts this profile and organization into recording each
 finished agent turn and the reply that follows as an Interaction addressed to you
-in its project inbox. It is the only context setting that sends conversation text;
+in its project inbox. Decision capture sends conversation text;
 disable-decision-capture stops it for every bound repository of that organization,
 so while other repositories of it are bound it refuses without --organization-wide.
 unbind revokes the local opt-in for all worktrees of this repository and keeps the
 organization's decision-capture opt-in for its other repositories.
+session-reporting is the non-interactive desktop setting: --state on or off needs
+--project and writes per-project status and capture choices in agent-status.json.
+On also saves this default organization and enables decision capture. Managed
+projects restrict the organization opt-in; off stops only the chosen project.
+With several projects on, a session needs its own project context; no inbox is guessed.
 show states whether decision capture is on or off.
 These commands do not grant execution authority; only decision capture changes Tedix records.
 `;
@@ -1535,6 +1562,75 @@ export function runAgentContext(
 		return 0;
 	}
 	const action = args[0];
+	if (action === "session-reporting") {
+		const values: Record<string, string> = {};
+		for (let i = 1; i < args.length; i++) {
+			if (args[i] === "--json") continue;
+			const key = args[i]!;
+			const value = args[++i];
+			if (
+				!["--state", "--workspace", "--organization", "--project"].includes(
+					key,
+				) ||
+				values[key] ||
+				!value ||
+				value.startsWith("--")
+			)
+				throw new Error(
+					`Unknown, duplicate or missing session reporting option: ${key}`,
+				);
+			values[key] = value;
+		}
+		const state = values["--state"];
+		const workspace = values["--workspace"];
+		if (
+			!workspace ||
+			!WORKSPACE.test(workspace) ||
+			!["on", "off", "show"].includes(state ?? "")
+		)
+			throw new Error(
+				"Session reporting requires --workspace <profile> and --state on|off|show",
+			);
+		const target = {
+			workspace,
+			...contextTarget(workspace, values["--organization"], options),
+		};
+		const projects =
+			state === "show"
+				? (sessionReportingProjects(target, options) ?? [])
+				: setSessionReporting(
+						target,
+						values["--project"] ?? "",
+						state === "on",
+						options,
+					);
+		if (state === "on") {
+			setDefaultOrganization(target.org, workspace, options);
+			changeDefaultCapture(true, values["--project"], false, {
+				...options,
+				env: {
+					...options?.env,
+					TEDIX_WORKSPACE: workspace,
+					TEDIX_ORGANIZATION: target.org,
+				},
+			});
+		}
+		const captureEnabled = (readStore(options).decisionCapture ?? []).some(
+			(row) =>
+				row.workspace === target.workspace &&
+				row.org === target.org &&
+				row.mcpUrl === target.mcpUrl,
+		);
+		console.log(
+			JSON.stringify({
+				projects: projects.map((row) => ({
+					...row,
+					enabled: row.enabled && captureEnabled,
+				})),
+			}),
+		);
+		return 0;
+	}
 	if (
 		![
 			"bind",

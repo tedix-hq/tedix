@@ -204,6 +204,7 @@ export interface SetupState {
 	reachDetail: string;
 	organization: string;
 	tools: ToolRow[];
+	sessionProjects: { id: string; name: string; enabled: boolean }[];
 	repo: string;
 	steps: Record<string, StepRun>;
 	/** True while the command-line tool or the sign-in is still to do. */
@@ -238,6 +239,8 @@ let appSignIn: AppSignIn = {
 let signedIn = false;
 let organizations: string[] = [];
 let tenant = "";
+let sessionProjects: SetupState["sessionProjects"] = [];
+let sessionOrganization = "";
 let reach: Reach = "unchecked";
 let reachDetail = "";
 /** A live check was asked for while a step was running; it runs afterwards. */
@@ -505,6 +508,7 @@ export function setupState(): SetupState {
 		reachDetail,
 		organization: organization(),
 		tools,
+		sessionProjects,
 		repo: settings().repo ?? "",
 		steps,
 		open: cli.kind === "missing" || !signedIn,
@@ -584,6 +588,8 @@ export async function refreshSetup(deep: boolean): Promise<void> {
 	await readSignIn();
 	changed();
 	if (deep || !agentStatus) void readAgentStatus();
+	if (deep || (signedIn && !was) || sessionOrganization !== organization())
+		void readSessionProjects();
 	if (deep || (signedIn && !was)) void checkReach();
 }
 
@@ -611,6 +617,8 @@ const ACTIONS = [
 	"connect",
 	"run-tasks",
 	"choose-folder",
+	"sessions-on",
+	"sessions-off",
 ] as const;
 export type SetupAction = (typeof ACTIONS)[number];
 
@@ -618,6 +626,74 @@ export type SetupAction = (typeof ACTIONS)[number];
 export interface SetupHost {
 	chooseFolder: () => Promise<string | undefined>;
 	appSignIn: () => Promise<void>;
+}
+
+async function readSessionProjects(): Promise<void> {
+	if (
+		Object.entries(steps).some(
+			([key, ran]) => key.startsWith("sessions") && ran.working,
+		)
+	)
+		return;
+	const org = organization();
+	sessionOrganization = org;
+	sessionProjects = [];
+	if (!signedIn || !org) return changed();
+	await step("sessions", async () => {
+		const selectors = ["--workspace", "connect", "--organization", org];
+		const source = `async () => {
+			const listed = [];
+			for (let offset = 0; ; offset += 100) {
+				const r = await projects.list_projects({limit: 100, offset});
+				if (r?.ok === false || !Array.isArray(r?.data)) throw new Error("Could not list projects");
+				listed.push(...r.data.filter(p => !p.archivedAt && p.status !== "archived" && p.status !== "done").map(p => ({id: p.id, name: p.name})));
+				if (!r.pagination?.hasMore || !r.data.length) break;
+			}
+			return {projects: listed};
+		}`;
+		const [catalog, saved] = await Promise.all([
+			must(
+				tedix([...selectors, "code", source, "--json"], { timeoutMs: 60_000 }),
+			),
+			must(
+				tedix(
+					[
+						...selectors,
+						"setup",
+						"agents",
+						"context",
+						"session-reporting",
+						"--state",
+						"show",
+						"--json",
+					],
+					{ timeoutMs: 20_000 },
+				),
+			),
+		]);
+		const projects = (
+			JSON.parse(catalog) as { projects: { id: string; name: string }[] }
+		).projects;
+		const choices = (
+			JSON.parse(saved) as {
+				projects: { projectId: string; enabled: boolean }[];
+			}
+		).projects;
+		if (!Array.isArray(projects) || !Array.isArray(choices))
+			throw new Error(
+				"The command-line tool could not read session reporting. Update it and check again.",
+			);
+		if (org === organization())
+			sessionProjects = projects
+				.map((project) => ({
+					...project,
+					enabled: choices.some(
+						(choice) => choice.projectId === project.id && choice.enabled,
+					),
+				}))
+				.sort((a, b) => a.name.localeCompare(b.name));
+		return "Choose which projects can show your sessions.";
+	});
 }
 
 /** Carries out one button of the checklist. */
@@ -659,6 +735,38 @@ export async function setupAction(
 			return "The command-line tool is signed in.";
 		});
 		return refreshSetup(false);
+	}
+	if (action === "sessions-on" || action === "sessions-off") {
+		const org = organization();
+		const project = sessionProjects.find((project) => project.id === id);
+		if (!project || !signedIn || org !== sessionOrganization) return;
+		await step(`sessions:${id}`, async () => {
+			await must(
+				tedix(
+					[
+						"--workspace",
+						"connect",
+						"--organization",
+						org,
+						"setup",
+						"agents",
+						"context",
+						"session-reporting",
+						"--state",
+						action === "sessions-on" ? "on" : "off",
+						"--project",
+						id,
+						"--json",
+					],
+					{ timeoutMs: 20_000 },
+				),
+			);
+			if (org === organization()) project.enabled = action === "sessions-on";
+			return project.enabled
+				? "Session reporting is on. Start a new session with the Tedix plugin enabled; in Codex, trust its hooks in /hooks."
+				: "Session reporting is off for this project.";
+		});
+		return;
 	}
 	if (!tool) return;
 	const command = findCommand(tool.binary);

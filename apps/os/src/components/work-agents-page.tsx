@@ -444,13 +444,9 @@ export function WorkAgentsBoard({
 				title="No agent sessions reporting"
 				description={
 					<>
-						Create <code>~/.tedix/agent-status.json</code> with{" "}
-						<code>
-							{
-								'{"enabled": true, "profile": "<CLI profile>", "organization": "<org>"}'
-							}
-						</code>{" "}
-						and restart the sessions you want to report.
+						In the Tedix app, open Tedix → Set up this Mac… → Coding tools.
+						Switch on “Show my Codex and Claude sessions in Tedix” for your
+						project, then start a new session with the Tedix plugin enabled.
 					</>
 				}
 			/>

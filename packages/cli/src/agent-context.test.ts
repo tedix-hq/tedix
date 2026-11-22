@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { statusSettings } from "./hooks/agent-status";
 import { recordSessionScope } from "./session-scope";
 import { resolveOrganizationTarget } from "./organization-target";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
@@ -1137,6 +1138,93 @@ describe("default organization outside a bound repository", () => {
 			env,
 		};
 	}
+
+	test("desktop reporting switches capture and status on and off per project without changing another project or organization", () => {
+		const { opts } = fixture();
+		connect(opts, ["org_tedix", "org_customer"]);
+		const away = { ...outside(opts, {}), allowDefault: true };
+		const command = (state: string, projectId: string, org = "org_tedix") =>
+			runAgentContext(
+				[
+					"session-reporting",
+					"--state",
+					state,
+					"--workspace",
+					"connect",
+					"--organization",
+					org,
+					"--project",
+					projectId,
+					"--json",
+				],
+				away,
+			);
+		const context = { ...opts, env: {} };
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", organization: "org_tedix", projectId: PROJECT },
+			context,
+		);
+		const otherDir = join(opts.cwd, "..", "second");
+		mkdirSync(otherDir);
+		git(otherDir, ["init", "-b", "main"]);
+		git(otherDir, [
+			"remote",
+			"add",
+			"origin",
+			"https://example.invalid/second.git",
+		]);
+		const other = { ...context, cwd: otherDir };
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", organization: "org_tedix", projectId: SECOND },
+			other,
+		);
+		const env = { TEDIX_CONFIG_DIR: opts.configDir };
+		expect(statusSettings(env, context)).toBeUndefined();
+		expect(command("on", PROJECT)).toBe(0);
+		expect(resolveAgentContext(away)).toMatchObject({
+			projectId: PROJECT,
+			decisionCapture: true,
+			org: "org_tedix",
+		});
+		expect(resolveAgentContext(context).decisionCapture).toBe(true);
+		expect(statusSettings(env, context)).toMatchObject({
+			profile: "connect",
+			organization: "org_tedix",
+		});
+		expect(resolveAgentContext(other).decisionCapture).toBeUndefined();
+		expect(statusSettings(env, other)).toBeUndefined();
+		command("on", SECOND);
+		command("on", PROJECT, "org_customer");
+		command("off", PROJECT);
+		expect(resolveAgentContext(context).decisionCapture).toBeUndefined();
+		expect(statusSettings(env, context)).toBeUndefined();
+		expect(resolveAgentContext(other).decisionCapture).toBe(true);
+		expect(statusSettings(env, other)).toMatchObject({
+			organization: "org_tedix",
+		});
+		expect(resolveAgentContext(away)).toMatchObject({
+			org: "org_customer",
+			projectId: PROJECT,
+			decisionCapture: true,
+		});
+		changeAgentContext("disable-decision-capture", {}, away);
+		expect(resolveAgentContext(away).decisionCapture).toBeUndefined();
+		expect(
+			statusSettings(env, { cwd: away.cwd, sessionId: null }),
+		).toBeUndefined();
+		command("off", SECOND);
+		command("off", PROJECT, "org_customer");
+		expect(resolveAgentContext(away).decisionCapture).toBeUndefined();
+		expect(
+			statusSettings(env, { cwd: away.cwd, sessionId: null }),
+		).toBeUndefined();
+		expect(() => command("on", PROJECT, "org_unselected")).toThrow(
+			"selected ID",
+		);
+		expect(() => command("on", "invalid")).toThrow("--project");
+	});
 
 	test("is opt-in per caller and names no repository", () => {
 		const { opts } = fixture();

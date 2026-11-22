@@ -490,6 +490,41 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			),
 			rows: [
 				...found.map((tool) => toolRow(tool, steps)),
+				row({
+					key: "sessions",
+					icon: "bubble",
+					title: "Show my Codex and Claude sessions in Tedix",
+					sub: setup.signedIn
+						? setup.sessionProjects.length
+							? "Choose a project below"
+							: "No projects found. Choose Check again to refresh."
+						: "Sign in on this Mac first",
+					ran: steps.sessions,
+					retry: () => act("check"),
+					details: [
+						"Reports session status and records turn summaries and replies for the projects you switch on. Needs the Tedix plugin in Codex or Claude Code. Start a new session after enabling; in Codex, trust the hooks in /hooks.",
+					],
+				}),
+				...setup.sessionProjects.map((project) =>
+					row({
+						key: `sessions:${project.id}`,
+						icon: "folder",
+						title: project.name,
+						sub: project.enabled
+							? "Session reporting on"
+							: "Session reporting off",
+						control: toggle(
+							`Show my Codex and Claude sessions in Tedix: ${project.name}`,
+							project.enabled,
+							(on) => act(on ? "sessions-on" : "sessions-off", project.id),
+							Boolean(steps[`sessions:${project.id}`]?.working) ||
+								!setup.signedIn,
+						),
+						ran: steps[`sessions:${project.id}`],
+						retry: () =>
+							act(project.enabled ? "sessions-off" : "sessions-on", project.id),
+					}),
+				),
 				found.length === 0 &&
 					el("p", "none", "No coding tool was found on this Mac."),
 				row({

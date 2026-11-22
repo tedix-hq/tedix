@@ -2679,7 +2679,12 @@ describe("localCommandArgs", () => {
 		}
 	});
 	test("applies the workspace to context operations that select a profile", () => {
-		for (const action of ["bind", "connect", "set-default-organization"]) {
+		for (const action of [
+			"bind",
+			"connect",
+			"set-default-organization",
+			"session-reporting",
+		]) {
 			expect(
 				localCommandArgs([
 					"-w",
@@ -2698,6 +2703,35 @@ describe("localCommandArgs", () => {
 				"connect",
 			]);
 		}
+	});
+	test("passes both global selectors to the desktop reporting command", () => {
+		expect(
+			localCommandArgs([
+				"--organization",
+				"org_fixture",
+				"--workspace",
+				"connect",
+				"setup",
+				"agents",
+				"context",
+				"session-reporting",
+				"--state",
+				"show",
+				"--json",
+			]),
+		).toEqual([
+			"setup",
+			"agents",
+			"context",
+			"session-reporting",
+			"--state",
+			"show",
+			"--json",
+			"--workspace",
+			"connect",
+			"--organization",
+			"org_fixture",
+		]);
 	});
 	test("preserves remote arguments and positional literals", () => {
 		expect(localCommandArgs(["ask", "-w"])).toEqual(["ask", "-w"]);

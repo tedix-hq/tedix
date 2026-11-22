@@ -91,17 +91,21 @@ export function localCommandArgs(argv: string[]): string[] {
 		(contextAction[0] === "setup" &&
 			contextAction[1] === "agents" &&
 			contextAction[2] === "context" &&
-			["bind", "connect", "set-default-organization"].includes(
-				contextAction[3] ?? "",
-			));
+			[
+				"bind",
+				"connect",
+				"set-default-organization",
+				"session-reporting",
+			].includes(contextAction[3] ?? ""));
 	const args: string[] = [];
 	let workspace: string | undefined;
+	let organization: string | undefined;
 	let positionalOnly = false;
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]!;
 		if (
 			!positionalOnly &&
-			argv[commandIndex] === "supervise" &&
+			(argv[commandIndex] === "supervise" || appliesWorkspace) &&
 			(arg === "--organization" || arg.startsWith("--organization="))
 		) {
 			const value =
@@ -110,6 +114,7 @@ export function localCommandArgs(argv: string[]): string[] {
 					: arg.slice("--organization=".length);
 			if (!value || value.startsWith("-"))
 				throw new Error("--organization requires an organization name");
+			if (appliesWorkspace) organization = value;
 		} else if (!positionalOnly && (arg === "-w" || arg === "--workspace")) {
 			if (!argv[i + 1] || argv[i + 1]!.startsWith("-"))
 				throw new Error(`${arg} requires a workspace name`);
@@ -124,6 +129,7 @@ export function localCommandArgs(argv: string[]): string[] {
 		}
 	}
 	if (appliesWorkspace && workspace) args.push("--workspace", workspace);
+	if (organization) args.push("--organization", organization);
 	return args;
 }
 

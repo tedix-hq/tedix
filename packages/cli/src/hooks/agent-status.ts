@@ -28,6 +28,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
+import { sessionReportingProjects } from "../session-reporting";
 import {
 	type AgentContextOptions,
 	resolveAgentContext,
@@ -229,6 +230,45 @@ export function statusSettings(
 	const config = loadConfig(env);
 	const toggle = (env.TEDIX_AGENT_STATUS ?? "").trim().toLowerCase();
 	if (FALSY.has(toggle)) return undefined;
+	if (config.sessionReporting !== undefined) {
+		if (!context) return undefined;
+		const options = {
+			...context,
+			env,
+			configDir: baseDir(env),
+			allowDefault: true,
+		};
+		const binding = resolveAgentContext(options);
+		if (
+			binding.status !== "bound" ||
+			!binding.workspace ||
+			!binding.org ||
+			!binding.mcpUrl
+		)
+			return undefined;
+		const projects = sessionReportingProjects(
+			{
+				workspace: binding.workspace,
+				org: binding.org,
+				mcpUrl: binding.mcpUrl,
+			},
+			options,
+		);
+		if (projects) {
+			if (
+				binding.decisionCapture !== true ||
+				!projects.some(
+					(row) => row.projectId === binding.projectId && row.enabled,
+				)
+			)
+				return undefined;
+			return {
+				profile: binding.workspace,
+				organization: binding.org,
+				notify: config.notify !== false,
+			};
+		}
+	}
 	if (!TRUTHY.has(toggle) && config.enabled !== true) {
 		if (!context || config.enabled === false) return undefined;
 		const binding = resolveAgentContext({
