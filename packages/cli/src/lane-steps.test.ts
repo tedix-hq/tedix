@@ -207,7 +207,7 @@ describe("run step log", () => {
 		expect(sizes).toEqual(Array(10).fill(50));
 	});
 
-	it("sends new steps every 5 seconds and asks for messages every 15 when idle", async () => {
+	it("sends new steps promptly and waits a minute between empty message polls", async () => {
 		let at = 0;
 		const sentAt: number[] = [];
 		const log = createRunStepLog({
@@ -220,11 +220,11 @@ describe("run step log", () => {
 			now: () => at,
 		});
 		log.add("started", "Started");
-		for (; at <= 60_000; at += 5_000) {
+		for (; at <= 90_000; at += 5_000) {
 			if (at === 20_000 || at === 25_000) log.add("message", "Working");
 			await log.tick();
 		}
-		expect(sentAt).toEqual([0, 15_000, 20_000, 25_000, 40_000, 55_000]);
+		expect(sentAt).toEqual([0, 20_000, 25_000, 85_000]);
 	});
 
 	it("spreads sends so several runs stay under the shared call budget", async () => {

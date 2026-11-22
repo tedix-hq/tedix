@@ -631,6 +631,7 @@ describe("tedix supervise", () => {
 			const resumed: Array<[string, string, string]> = [];
 			const queued: Array<[string, string]> = [];
 			const board: string[][] = [];
+			let answerReads = 0;
 			/** The working directory each read was given, by its first command word. */
 			const cwds: Array<[string, string | undefined]> = [];
 			let finish: (ok: boolean) => void = () => {};
@@ -679,6 +680,7 @@ describe("tedix supervise", () => {
 							arg.includes("list_undelivered_work_interaction_responses"),
 						)
 					) {
+						answerReads++;
 						if (undeliveredError) throw undeliveredError;
 						return {
 							data: structuredClone(answers),
@@ -719,9 +721,28 @@ describe("tedix supervise", () => {
 				queued,
 				board,
 				cwds,
+				get answerReads() {
+					return answerReads;
+				},
 				finish: (ok: boolean) => finish(ok),
 			};
 		}
+
+		test("empty answer reads back off and a later answer is delivered after the bounded wait", async () => {
+			sessions([SESSION, "codex"]);
+			const answers: Array<ReturnType<typeof answer>> = [];
+			const run = drain(answers);
+			const reads = () => run.answerReads;
+			const start = Date.now();
+			for (let elapsed = 0; elapsed < 3_600_000; elapsed += 30_000)
+				await run.runner.drainAnswers(start + elapsed);
+			expect(reads()).toBe(31);
+			answers.push(answer(SESSION, "codex", 60_000));
+			expect(await run.runner.drainAnswers(start + 3_600_000)).toBe(0);
+			expect(reads()).toBe(31);
+			expect(await run.runner.drainAnswers(start + 3_660_000)).toBe(1);
+			expect(run.acks).toHaveLength(1);
+		});
 
 		test("a real answer races Codex Stop and supervisor drain while acknowledgement is delayed", async () => {
 			sessions([CODEX, "codex"]);

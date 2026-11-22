@@ -29,7 +29,7 @@ const STEP_BUFFER = 500;
 /** How often the runner calls `tick`, and a run with new steps sends them. */
 export const RUN_STEP_FLUSH_MS = 5_000;
 /** How often a run with nothing to send asks for messages. */
-export const RUN_STEP_POLL_MS = 15_000;
+export const RUN_STEP_POLL_MS = 60_000;
 /**
  * The server allows one caller 30 step calls a minute across all its runs, so
  * the runs of one runner share 24: each sends at most once per this many
@@ -297,7 +297,7 @@ export function createRunStepLog(options: {
 		},
 		/**
 		 * Called on a timer. Sends when a send is due: every 5 seconds while
-		 * there are steps to send, every 15 seconds to read messages when
+		 * there are steps to send, every 60 seconds to read messages when
 		 * there are none, less often when several runs share the budget, and
 		 * after the backoff when the server refused the last send as too many.
 		 */

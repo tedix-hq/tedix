@@ -27,7 +27,11 @@ type LaneGatewayDeps = {
 };
 
 /** One in-process gateway connection per admitted run, under its own identity. */
-function laneGateway(scope: string[], deps: LaneGatewayDeps) {
+function laneGateway(
+	scope: string[],
+	deps: LaneGatewayDeps,
+	trafficComponent: "runner-heartbeat" | "runner-steps",
+) {
 	const workspace = scope[scope.indexOf("--workspace") + 1]!;
 	const organization = scope[scope.indexOf("--organization") + 1]!;
 	const bootstrapCache = fileNativeBootstrapCache();
@@ -54,6 +58,7 @@ function laneGateway(scope: string[], deps: LaneGatewayDeps) {
 			timeoutMs: heartbeatTimeoutMs,
 			discoveryCache,
 			fetch: deps.fetch,
+			trafficComponent,
 		});
 		return { auth, client, protocolSequence: {} };
 	}
@@ -114,7 +119,7 @@ export function createLaneHeartbeat(
 	scope: string[],
 	deps: LaneGatewayDeps = defaultGatewayDeps(),
 ) {
-	const gateway = laneGateway(scope, deps);
+	const gateway = laneGateway(scope, deps, "runner-heartbeat");
 	const { workspace, organization } = gateway;
 	const inFlight = new Map<string, Promise<{ expiresAt: string }>>();
 
@@ -209,7 +214,7 @@ export function createLaneStepSender(
 	scope: string[],
 	deps: LaneGatewayDeps = defaultGatewayDeps(),
 ) {
-	const gateway = laneGateway(scope, deps);
+	const gateway = laneGateway(scope, deps, "runner-steps");
 	return async (
 		receipt: LeaseReceipt,
 		steps: Array<{

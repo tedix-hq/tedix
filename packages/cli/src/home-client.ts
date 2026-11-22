@@ -61,6 +61,10 @@ import {
 } from "./gateway-retry";
 import type { SessionRefreshOutcome } from "./oauth-provider";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import {
+	gatewayTrafficFetch,
+	type CliTrafficComponent,
+} from "./gateway-traffic";
 type FetchLike = (
 	...args: Parameters<typeof fetch>
 ) => ReturnType<typeof fetch>;
@@ -134,6 +138,7 @@ export interface TedixHomeClientOptions {
 	connect?: () => Promise<McpClientLike>;
 	/** Override raw modern Task requests (tests inject a fake). */
 	fetch?: FetchLike;
+	trafficComponent?: CliTrafficComponent;
 	/** Resolve current credentials before each request, including long-command polls. */
 	credentialProvider?: () => Promise<Record<string, string>>;
 	headers: Record<string, string>;
@@ -288,7 +293,11 @@ export class TedixHomeClient {
 			timeoutMs: options.timeoutMs ?? 180_000,
 			url: options.url,
 		};
-		const fetcher = options.fetch ?? fetch;
+		const fetcher =
+			options.fetch ??
+			gatewayTrafficFetch(fetch, options.trafficComponent, {
+				url: options.url,
+			});
 		this.#fetch = retryRateLimitedPosts(
 			options.credentialProvider
 				? async (input, init) => {

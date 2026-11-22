@@ -10048,7 +10048,13 @@ describe("structured dispatcher outcomes", () => {
 		const saved = JSON.parse(readFileSync(path, "utf8"));
 		expect(saved.sharedDeferral).toBe(true);
 		expect(saved.admissionRetryAt).toBeGreaterThan(Date.now());
-		await f.restart().tick();
+		const blocked = f.restart();
+		await blocked.tick();
+		const reads = () =>
+			f.events.filter((event) => event.verb === "readiness").length;
+		const before = reads();
+		await blocked.tick();
+		expect(reads()).toBe(before);
 		expect(f.releases).toHaveLength(0);
 		f.control.readiness = { ready: true, reasons: [] };
 		const restarted = f.restart();

@@ -160,7 +160,13 @@ export const supervisorRead: ReadJson = async (
 		return JSON.parse(
 			JSON.stringify(readAuthStatus(parseOptions(args).options)),
 		);
-	return cliRead(args, timeoutMs, input, options);
+	return cliRead(args, timeoutMs, input, {
+		...options,
+		env: {
+			...(options?.env ?? process.env),
+			TEDIX_CLI_COMPONENT: "supervisor",
+		},
+	});
 };
 
 export interface SuperviseDeps {
@@ -183,6 +189,10 @@ export class Supervisor {
 	private prunedAt = Number.NEGATIVE_INFINITY;
 	private healthReportedAt = Number.NEGATIVE_INFINITY;
 	private healthPass: Promise<void> | undefined;
+	private readonly answerPolls = new Map<
+		string,
+		{ at: number; delay: number }
+	>();
 
 	private readonly lead: LeadDuty;
 	constructor(private readonly deps: SuperviseDeps) {
@@ -954,7 +964,9 @@ export class Supervisor {
 			groups.set(key, group);
 		}
 		let delivered = 0;
-		for (const group of groups.values()) {
+		for (const [key, group] of groups) {
+			const poll = this.answerPolls.get(key);
+			if (poll && now < poll.at) continue;
 			let why = "";
 			const answers = await undeliveredAnswers(
 				this.hookDeps(group.cwd),
@@ -974,6 +986,13 @@ export class Supervisor {
 				}
 				continue;
 			}
+			if (!answers.length) {
+				const delay = Math.min(
+					(poll?.delay ?? SUPERVISE_INTERVAL_MS) * 2,
+					120_000,
+				);
+				this.answerPolls.set(key, { at: now + delay, delay });
+			} else this.answerPolls.delete(key);
 			const bySession = new Map<string, PendingAnswer[]>();
 			for (const answer of answers) {
 				const key = answer.sessionId.toLowerCase();

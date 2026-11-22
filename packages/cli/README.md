@@ -309,6 +309,24 @@ It respects `-w`, `--organization` and `TEDIX_ORGANIZATION`, prints the JSON
 result, and never prints the token. Authorization, Cookie and organization
 headers are refused.
 
+### Gateway request counts
+
+The CLI keeps seven days of local HTTP request counts in
+`~/.tedix/mcp-traffic/YYYY-MM-DD.ndjson` (or under `TEDIX_CONFIG_DIR`).
+Each row records the UTC time, HTTP method and component: `supervisor`,
+`dispatcher`, `runner-heartbeat`, `runner-steps`, or `cli` for other calls.
+Count rows by the first 13 characters of `at` and by `component` to compare
+requests per hour. These are HTTP attempts, including retries and protocol
+setup, rather than tool invocation counts. Request bodies and credentials
+are never recorded. Injected test transports are excluded.
+
+An idle run checks for messages once a minute; new steps still publish every
+five seconds and turn completion checks for follow-ups immediately. Empty
+supervisor answer reads back off to two minutes. A shared admission deferral
+is checked at most once per five minutes for an unchanged Work revision.
+Lease renewals keep their existing cadence. Compare complete hours after all
+local runners have updated; older CLI processes do not write these counts.
+
 ### Factories
 
 `tedix factory create` builds a factory from a goal in one call through the

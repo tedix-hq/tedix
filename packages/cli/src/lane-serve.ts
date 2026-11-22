@@ -3350,6 +3350,7 @@ export class LaneDispatcher {
 		);
 		const env: NodeJS.ProcessEnv = {
 			...this.ownerEnv,
+			TEDIX_CLI_COMPONENT: "dispatcher",
 			...(session ? { TEDIX_AGENT_SESSION: session } : {}),
 			...(executorKey ? { TEDIX_EXTERNAL_AGENT: executorKey } : {}),
 			...(attemptId ? { TEDIX_CLI_EXPECTED_ATTEMPT_ID: attemptId } : {}),
@@ -4024,6 +4025,12 @@ export class LaneDispatcher {
 					!previous.approvalWait &&
 					!waitsForRunAnswer(previous)
 				) {
+					const key = `shared-deferral:${item.id}:${item.version}`;
+					if (Date.now() < (this.recheckAfter.get(key) ?? 0)) {
+						observeSkip(item, previous.note ?? "Deferred Work is not ready");
+						continue;
+					}
+					this.holdRecheck(key);
 					const readiness = await this.call<{
 						ready: boolean;
 						reasons: Array<{ detail: string }>;
