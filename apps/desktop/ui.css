@@ -437,6 +437,9 @@ input.field:focus {
 .item .title {
 	font-weight: 500;
 }
+.item .title.plain {
+	font-weight: 400;
+}
 .item .sub {
 	font-size: 12px;
 	color: var(--muted-foreground);

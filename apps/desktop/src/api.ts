@@ -56,6 +56,7 @@ export type PanelAction =
 	| "start-local-workspace"
 	| "local-model"
 	| "open-logs"
+	| "open-routing"
 	| "close-settings";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */

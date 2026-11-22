@@ -272,6 +272,11 @@ export interface SetupState {
 	steps: Record<string, StepRun>;
 	/** True while the command-line tool or the sign-in is still to do. */
 	open: boolean;
+	/**
+	 * Which tool takes which tasks, one plain sentence per rule, and the file
+	 * runners read it from. Undefined when the command-line tool cannot say.
+	 */
+	routing?: { sentences: string[]; file: string | null };
 }
 
 interface Settings {
@@ -306,6 +311,7 @@ let organizations: string[] = [];
 let tenant = "";
 let sessionProjects: SetupState["sessionProjects"] = [];
 let sessionsChosen = false;
+let routing: SetupState["routing"];
 let sessionOrganization = "";
 let reach: Reach = "unchecked";
 let reachDetail = "";
@@ -457,10 +463,37 @@ function organization(): string {
 	return match || tenant || organizations[0] || "";
 }
 
+/** Reads which tool takes which tasks; older command-line tools cannot say. */
+async function readRouting(): Promise<void> {
+	const result = await tedix(["lane", "routing", "--json"], {
+		timeoutMs: 20_000,
+	});
+	try {
+		const parsed = JSON.parse(result.output) as {
+			path?: unknown;
+			description?: unknown;
+		};
+		const sentences = Array.isArray(parsed.description)
+			? parsed.description.filter(
+					(line): line is string => typeof line === "string" && !!line.trim(),
+				)
+			: [];
+		routing = sentences.length
+			? {
+					sentences,
+					file: typeof parsed.path === "string" ? parsed.path : null,
+				}
+			: undefined;
+	} catch {
+		routing = undefined;
+	}
+}
+
 async function readAgentStatus(): Promise<void> {
 	const [result] = await Promise.all([
 		tedix(["setup", "agents", "--status", "--json"], { timeoutMs: 150_000 }),
 		readToolFacts(),
+		readRouting(),
 	]);
 	try {
 		const parsed = JSON.parse(result.output) as {
@@ -608,6 +641,7 @@ export function setupState(): SetupState {
 		tools,
 		sessionProjects,
 		sessionsChosen,
+		routing,
 		repo: settings().repo ?? "",
 		steps,
 		open: cli.kind === "missing" || !signedIn,

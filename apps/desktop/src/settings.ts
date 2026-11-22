@@ -56,6 +56,8 @@ interface Item {
 	below?: Child;
 	/** Extra words the search matches. */
 	words?: string;
+	/** A sentence rather than a name: normal weight. */
+	plain?: boolean;
 }
 interface Group {
 	title?: string;
@@ -239,6 +241,35 @@ function tools(now: PanelState): Group[] {
 	return [
 		chat,
 		{ title: "Coding tools", column: "Use for tasks", items: rows },
+		...(now.setup.routing
+			? [
+					{
+						title: "Who takes which tasks",
+						items: [
+							...now.setup.routing.sentences.map((sentence): Item => ({
+								title: sentence,
+								plain: true,
+								words: "routing",
+							})),
+							...(now.setup.routing.file
+								? [
+										{
+											title: "Change these rules",
+											control: [
+												button(
+													"Open the file",
+													"plain",
+													() => void tedixShell.action("open-routing"),
+												),
+											],
+											words: "routing rules",
+										},
+									]
+								: []),
+						],
+					},
+				]
+			: []),
 		{
 			items: [
 				{
@@ -499,7 +530,7 @@ function itemNode(item: Item): HTMLElement {
 		el(
 			"div",
 			"text",
-			el("div", "title", item.title),
+			el("div", item.plain ? "title plain" : "title", item.title),
 			item.sub && el("div", `sub ${item.tone ?? ""}`, item.sub),
 		),
 		el("div", "control", ...(item.control ?? [])),

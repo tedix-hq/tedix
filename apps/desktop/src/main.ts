@@ -1822,6 +1822,10 @@ else if (process.argv.includes("--local-model")) {
 			if (name === "local-model") return openLocalModelChat();
 			if (name === "open-logs") return void shell.openPath(configDir());
 			if (name === "close-settings") return closeSettings();
+			if (name === "open-routing") {
+				const file = setupState().routing?.file;
+				if (file) return void shell.openPath(file);
+			}
 			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
 				if (name === "done-setup") return;
