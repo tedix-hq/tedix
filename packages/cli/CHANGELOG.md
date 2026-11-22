@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.30.1 (2026-11-22)
+
+### Patch Changes
+
+- 6f52d43: OpenCode runners use the model OpenCode itself is set to when Tedix names none, instead of failing with "OpenCode requires a configured provider/model".
+- 0c78eee: Send commit references in the typed Work settlement field.
+
 ## 0.30.0 (2026-11-22)
 
 ### Minor Changes
