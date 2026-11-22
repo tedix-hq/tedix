@@ -516,8 +516,10 @@ describe("archive persistence through skill actions", () => {
 		{ action: "rejectWorkshop", legacy: false },
 		{ action: "improve", legacy: true },
 		{ action: "rejectWorkshop", legacy: true },
+		{ action: "archive", legacy: false },
+		{ action: "archiveMany", legacy: false },
 	])(
-		"$action persists the pause and keeps restore paused (legacy manifest: $legacy)",
+		"$action pauses the archive and restores its schedule policy (legacy manifest: $legacy)",
 		async ({ action, legacy }) => {
 			vi.clearAllMocks();
 			const h = humanContext("owner");
@@ -540,9 +542,15 @@ describe("archive persistence through skill actions", () => {
 					INSERT INTO tedis VALUES ('tedi-owner', 'org-1', 'policy-1', 'owner', NULL);
 					INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false}}}');
 				`);
-				await h.context.db
-					.insert(skillEntries)
-					.values(skillFixture({ lifecycleState: "active" }));
+				await h.context.db.insert(skillEntries).values(
+					skillFixture({
+						lifecycleState: "active",
+						files: {
+							"scripts/workflow.ts":
+								"export default { async run(event, step) { return { ok: true }; } };",
+						},
+					}),
+				);
 				await h.context.db
 					.insert(skillSchedules)
 					.values({ ...STORED_SCHEDULE, organizationId: ORG_ID });
@@ -572,7 +580,35 @@ describe("archive persistence through skill actions", () => {
 						acknowledgeUsedBy: [`schedule:${STORED_SCHEDULE.id}`],
 						validate: "skip",
 					});
-				else
+				else if (action === "archive")
+					await client.archive({
+						id: "skill-1",
+						acknowledgeUsedBy: [`schedule:${STORED_SCHEDULE.id}`],
+					});
+				else if (action === "archiveMany") {
+					await h.context.db.insert(skillEntries).values(
+						skillFixture({
+							id: "skill-2",
+							slug: "second-skill",
+							lifecycleState: "active",
+							content: "# Second skill",
+							files: {},
+						}),
+					);
+					await client.archiveMany({
+						skills: [
+							{
+								id: "skill-1",
+								acknowledgeUsedBy: [`schedule:${STORED_SCHEDULE.id}`],
+							},
+							{ id: "skill-2" },
+						],
+					});
+					expect(
+						(await crud.getSkillEntry(h.context.db, "skill-2", ORG_ID))
+							?.lifecycleState,
+					).toBe("archived");
+				} else
 					await client.rejectWorkshop({
 						id: "skill-1",
 						reason: "Keep the canonical skill",
@@ -592,13 +628,25 @@ describe("archive persistence through skill actions", () => {
 							"UPDATE skill_entries SET content = ? WHERE id = 'skill-1'",
 						)
 						.run(SCHEDULED_DOC);
-				await client.improve({
-					id: "skill-1",
-					lifecycleState: "active",
-					...(legacy ? { content: SCHEDULED_DOC } : {}),
-					force: true,
-					validate: "skip",
-				});
+				const fullRestore = action === "archive" || action === "archiveMany";
+				if (fullRestore) {
+					await client.restore({ id: "skill-1" });
+					const restored = await crud.getSkillEntry(
+						h.context.db,
+						"skill-1",
+						ORG_ID,
+					);
+					expect(restored?.content).toBe(SCHEDULED_DOC);
+					expect(restored?.archivedFrom).toBeNull();
+					expect(restored?.paceLayer).toBe("differentiation");
+				} else
+					await client.improve({
+						id: "skill-1",
+						lifecycleState: "active",
+						...(legacy ? { content: SCHEDULED_DOC } : {}),
+						force: true,
+						validate: "skip",
+					});
 				expect(
 					(await crud.getSkillEntry(h.context.db, "skill-1", ORG_ID))
 						?.lifecycleState,
@@ -606,7 +654,7 @@ describe("archive persistence through skill actions", () => {
 				expect(
 					(await schedules.getSkillSchedule(h.context.db, "skill-1", ORG_ID))
 						?.enabled,
-				).toBe(false);
+				).toBe(fullRestore);
 			} finally {
 				h.sqlite.close();
 			}

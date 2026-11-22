@@ -636,6 +636,51 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 			}),
 		),
 
+	archive: oc
+		.route({
+			method: "POST",
+			path: "/skills/archive",
+			tags: ["cognitive"],
+			summary: "Archive a skill",
+			description:
+				"Owner/admin only. Preserve the skill and its prior state, and pause its timer. Name any affected users through acknowledgeUsedBy.",
+		})
+		.input(SkillImproveInputSchema.pick({ id: true, acknowledgeUsedBy: true }))
+		.output(z.object({ entry: SkillEntrySchema })),
+
+	restore: oc
+		.route({
+			method: "POST",
+			path: "/skills/restore",
+			tags: ["cognitive"],
+			summary: "Restore an archived skill",
+			description:
+				"Owner/admin only. Restore the saved lifecycle, content, pace layer and schedule policy of an unchanged archive. Refuses legacy archives with no complete saved state.",
+		})
+		.input(SkillImproveInputSchema.pick({ id: true }))
+		.output(z.object({ entry: SkillEntrySchema })),
+
+	archiveMany: oc
+		.route({
+			method: "POST",
+			path: "/skills/archive-many",
+			tags: ["cognitive"],
+			summary: "Archive several skills",
+			description:
+				"Owner/admin only. Archives up to 50 skills sequentially; each completed archive remains applied if a later skill fails. Repeating an archive is safe.",
+		})
+		.input(
+			z.object({
+				skills: z
+					.array(
+						SkillImproveInputSchema.pick({ id: true, acknowledgeUsedBy: true }),
+					)
+					.min(1)
+					.max(50),
+			}),
+		)
+		.output(z.object({ entries: z.array(SkillEntrySchema) })),
+
 	improve: oc
 		.route({ method: "POST", path: "/skills/improve", tags: ["cognitive"] })
 		.input(SkillImproveInputSchema)

@@ -896,6 +896,39 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		rpcEndpoint: "skills/getWorkflowReliability",
 	},
 	{
+		name: "archive_skill",
+		remoteName: "archive_skill",
+		description:
+			"Owner/admin only. Archive one skill while preserving its prior state.",
+		inputSchema: zodToToolInputJsonSchema(
+			procedureInputSchema(skillsContract.archive),
+		),
+		annotations: MUTATING,
+		rpcEndpoint: "skills/archive",
+	},
+	{
+		name: "archive_skills",
+		remoteName: "archive_skills",
+		description:
+			"Owner/admin only. Archive up to 50 skills sequentially; earlier successes remain applied on failure.",
+		inputSchema: zodToToolInputJsonSchema(
+			procedureInputSchema(skillsContract.archiveMany),
+		),
+		annotations: MUTATING,
+		rpcEndpoint: "skills/archiveMany",
+	},
+	{
+		name: "restore_skill",
+		remoteName: "restore_skill",
+		description:
+			"Owner/admin only. Restore the complete saved state of an unchanged archived skill.",
+		inputSchema: zodToToolInputJsonSchema(
+			procedureInputSchema(skillsContract.restore),
+		),
+		annotations: MUTATING,
+		rpcEndpoint: "skills/restore",
+	},
+	{
 		name: "remove_skill_schedule",
 		remoteName: "remove_skill_schedule",
 		description:

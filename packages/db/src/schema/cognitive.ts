@@ -269,6 +269,8 @@ export const skillEntries = sqliteTable(
 		archivedFrom: text("archived_from", { mode: "json" }).$type<{
 			lifecycleState: "draft" | "active" | "proven" | "crystallized" | "stale";
 			revision: number;
+			content?: string;
+			paceLayer?: "record" | "differentiation" | "innovation";
 		}>(),
 
 		/**

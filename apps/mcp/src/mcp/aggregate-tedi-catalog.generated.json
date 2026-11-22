@@ -3184,6 +3184,91 @@
 			"rpcEndpoint": "skills/getWorkflowReliability"
 		},
 		{
+			"name": "archive_skill",
+			"remoteName": "archive_skill",
+			"description": "Owner/admin only. Archive one skill while preserving its prior state.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"acknowledgeUsedBy": {
+						"description": "Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+						"maxItems": 50,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 300
+						}
+					}
+				},
+				"required": ["id"]
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/archive"
+		},
+		{
+			"name": "archive_skills",
+			"remoteName": "archive_skills",
+			"description": "Owner/admin only. Archive up to 50 skills sequentially; earlier successes remain applied on failure.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"skills": {
+						"minItems": 1,
+						"maxItems": 50,
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"id": {
+									"type": "string"
+								},
+								"acknowledgeUsedBy": {
+									"description": "Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+									"maxItems": 50,
+									"type": "array",
+									"items": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 300
+									}
+								}
+							},
+							"required": ["id"]
+						}
+					}
+				},
+				"required": ["skills"]
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/archiveMany"
+		},
+		{
+			"name": "restore_skill",
+			"remoteName": "restore_skill",
+			"description": "Owner/admin only. Restore the complete saved state of an unchanged archived skill.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"required": ["id"]
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/restore"
+		},
+		{
 			"name": "remove_skill_schedule",
 			"remoteName": "remove_skill_schedule",
 			"description": "Owner/admin only. Remove a skill's schedule from its manifest and delete its timer; already dispatched runs continue.",
@@ -13559,6 +13644,91 @@
 			"rpcEndpoint": "skills/getWorkflowReliability"
 		},
 		{
+			"name": "archive_skill",
+			"remoteName": "archive_skill",
+			"description": "Owner/admin only. Archive one skill while preserving its prior state.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"acknowledgeUsedBy": {
+						"description": "Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+						"maxItems": 50,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 300
+						}
+					}
+				},
+				"required": ["id"]
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/archive"
+		},
+		{
+			"name": "archive_skills",
+			"remoteName": "archive_skills",
+			"description": "Owner/admin only. Archive up to 50 skills sequentially; earlier successes remain applied on failure.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"skills": {
+						"minItems": 1,
+						"maxItems": 50,
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"id": {
+									"type": "string"
+								},
+								"acknowledgeUsedBy": {
+									"description": "Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+									"maxItems": 50,
+									"type": "array",
+									"items": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 300
+									}
+								}
+							},
+							"required": ["id"]
+						}
+					}
+				},
+				"required": ["skills"]
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/archiveMany"
+		},
+		{
+			"name": "restore_skill",
+			"remoteName": "restore_skill",
+			"description": "Owner/admin only. Restore the complete saved state of an unchanged archived skill.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"required": ["id"]
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/restore"
+		},
+		{
 			"name": "remove_skill_schedule",
 			"remoteName": "remove_skill_schedule",
 			"description": "Owner/admin only. Remove a skill's schedule from its manifest and delete its timer; already dispatched runs continue.",
@@ -16533,6 +16703,13 @@
 												"type": "integer",
 												"minimum": -9007199254740991,
 												"maximum": 9007199254740991
+											},
+											"content": {
+												"type": "string"
+											},
+											"paceLayer": {
+												"type": "string",
+												"enum": ["innovation", "differentiation", "record"]
 											}
 										},
 										"required": ["lifecycleState", "revision"],

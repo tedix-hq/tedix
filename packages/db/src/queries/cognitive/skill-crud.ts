@@ -420,6 +420,8 @@ export async function updateSkillEntry(
 						archivedFrom: {
 							lifecycleState: current.lifecycleState ?? "draft",
 							revision,
+							content: current.content,
+							paceLayer: current.paceLayer,
 						},
 					}),
 		};

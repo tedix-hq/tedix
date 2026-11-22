@@ -4,6 +4,11 @@
  * Thin namespace composition over cohesive knowledge, skill catalog,
  * governance, workflow-run, and muscle-memory handler slices.
  */
+import {
+	skillsArchive,
+	skillsArchiveMany,
+	skillsRestore,
+} from "./cognitive-skill-archives";
 import { skipOutputValidation } from "../orpc";
 import {
 	knowledgeGet,
@@ -127,6 +132,9 @@ export const skillsContractRouter = skillsOs.router({
 	withdrawWorkspaceDraftProposal: skillsWithdrawWorkspaceDraftProposal,
 	record: skillsRecord,
 	improve: skillsImprove,
+	archive: skillsArchive,
+	archiveMany: skillsArchiveMany,
+	restore: skillsRestore,
 	proposeWorkshop: skillsProposeWorkshop,
 	mineCandidates: skipOutputValidation(skillsMineCandidates),
 	portfolioBalance: skipOutputValidation(skillsPortfolioBalance),

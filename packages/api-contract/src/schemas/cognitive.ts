@@ -276,6 +276,8 @@ export const SkillEntrySchema = z.object({
 				"stale",
 			]),
 			revision: z.number().int(),
+			content: z.string().optional(),
+			paceLayer: SkillPaceLayerSchema.optional(),
 		})
 		.nullable()
 		.optional(),
