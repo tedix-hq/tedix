@@ -93,7 +93,13 @@ export function WorkMoreViewsMenu({
 						className="shrink-0 text-kumo-subtle data-[active]:bg-kumo-tint data-[active]:text-kumo-default data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
 					>
 						<DotsThree size={20} weight="bold" aria-hidden="true" />
-						{activeView?.label}
+						{activeView ? (
+							<span data-tab-label>{activeView.label}</span>
+						) : (
+							<span data-tab-label className="sm:hidden">
+								{OS_COPY.workHome.more}
+							</span>
+						)}
 					</Button>
 				}
 			/>

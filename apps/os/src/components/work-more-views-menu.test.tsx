@@ -135,7 +135,7 @@ describe("Work more-views menu", () => {
 		route.pathname = "/work";
 		route.search = { view: "deck" };
 		await act(async () => root!.render(<WorkMoreViewsMenu apps={ALL_APPS} />));
-		expect(trigger.textContent).toBe("");
+		expect(trigger.textContent).toBe("More");
 		expect(trigger.getAttribute("aria-label")).toBe("More views");
 		expect(trigger.hasAttribute("data-active")).toBe(false);
 		expect(document.querySelector('[aria-current="page"]')).toBeNull();

@@ -1159,6 +1159,13 @@
 	min-width: 0;
 	flex: 1;
 }
+/* Icons and the badge belong to the phone tab bar; the desktop row stays text. */
+@media (min-width: 640px) {
+	.fd-work-navigation [data-tab-icon],
+	.fd-work-navigation [data-tab-badge] {
+		display: none;
+	}
+}
 .fd-app-toolbar {
 	padding: 0;
 	border-radius: 0;
@@ -1357,26 +1364,114 @@
 		/* Room for a focus ring below the clipping top edge of the route content. */
 		padding-top: 0.25rem;
 	}
+	/* A familiar phone tab bar: icon over a short label, a capped badge on
+	   the icon, a translucent blurred surface above the home indicator. */
+	/* Height (3.5rem + border) matches --tedix-host-bottom-inset in styles.css. */
 	.fd-work-navigation {
 		align-self: stretch;
 		position: sticky;
 		bottom: 0;
 		z-index: 20;
 		margin-top: auto;
-		background: var(--color-kumo-base);
+		gap: 0;
+		align-items: stretch;
+		background: color-mix(in oklab, var(--color-kumo-base) 82%, transparent);
+		-webkit-backdrop-filter: saturate(180%) blur(20px);
+		backdrop-filter: saturate(180%) blur(20px);
 		border-top: 1px solid var(--color-kumo-line);
-		padding-bottom: env(safe-area-inset-bottom);
+		padding: 0.25rem 0.5rem env(safe-area-inset-bottom);
 	}
-	.fd-work-navigation a {
-		min-height: 3rem;
-		flex: 1;
-		border-radius: 0;
+	.fd-work-navigation > a,
+	.fd-work-navigation > button {
+		flex: 1 1 0;
+		flex-direction: column;
+		justify-content: center;
+		gap: 0.125rem;
+		min-width: 3rem;
+		min-height: 3.25rem;
+		height: auto;
+		width: auto;
+		padding: 0.25rem 0;
+		border-radius: 0.75rem;
+		background: transparent;
+		color: var(--text-color-kumo-subtle);
+		-webkit-tap-highlight-color: transparent;
+		transition:
+			color 120ms ease,
+			transform 120ms ease;
+	}
+	.fd-work-navigation > a[aria-current="page"],
+	.fd-work-navigation > button[data-active] {
+		background: transparent;
+		color: var(--text-color-kumo-strong);
+	}
+	.fd-work-navigation > a:active,
+	.fd-work-navigation > button:active {
+		transform: scale(0.94);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.fd-work-navigation > a,
+		.fd-work-navigation > button {
+			transition: none;
+		}
+		.fd-work-navigation > a:active,
+		.fd-work-navigation > button:active {
+			transform: none;
+		}
+	}
+	.fd-work-navigation [data-tab-icon],
+	.fd-work-navigation > button svg {
+		display: inline-flex;
+		flex: none;
+		width: 1.5rem;
+		height: 1.5rem;
+	}
+	.fd-work-navigation [data-tab-label] {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.6875rem;
+		line-height: 1rem;
+		font-weight: 500;
+	}
+	.fd-work-navigation [aria-current="page"] [data-tab-label],
+	.fd-work-navigation [data-active] [data-tab-label] {
+		font-weight: 600;
+	}
+	/* The menu button's kumo size forces gap: 0. */
+	.fd-work-navigation > button [data-tab-label] {
+		margin-top: 0.125rem;
+	}
+	/* The badge shows the count; the text stays for screen readers. */
+	.fd-work-navigation [data-tab-count] {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.fd-work-navigation [data-tab-badge] {
+		position: absolute;
+		top: -0.25rem;
+		left: calc(100% - 0.625rem);
+		min-width: 1.125rem;
+		height: 1.125rem;
+		padding-inline: 0.3125rem;
+		border-radius: 999px;
+		background: var(--color-kumo-danger);
+		color: #fff;
+		box-shadow: 0 0 0 2px var(--color-kumo-base);
+		font-size: 0.625rem;
+		font-weight: 700;
+		line-height: 1.125rem;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
 	}
 	/* Leads the row on phones so the chat launcher (bottom-right) never covers it. */
 	.fd-work-navigation > button {
 		order: -1;
-		min-width: 3rem;
-		min-height: 3rem;
 	}
 	.fd-app-toolbar {
 		gap: 0.5rem;

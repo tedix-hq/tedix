@@ -116,6 +116,7 @@ const ENGLISH_COPY = {
 		decide: "Decide",
 		views: "Work",
 		moreViews: "More views",
+		more: "More",
 		apps: "Apps",
 		back: "Back to Activity",
 		loading: "Loading your Work apps…",

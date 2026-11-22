@@ -148,8 +148,9 @@ it("shows known Deck counts including zero and leaves unknown counts empty", () 
 		for (const count of [0, 12]) {
 			route.count = { count, pending: false, failed: false };
 			expect(
-				renderShell("/work").querySelector('a[href="/work?view=deck"] span')
-					?.textContent,
+				renderShell("/work").querySelector(
+					'a[href="/work?view=deck"] [data-tab-count]',
+				)?.textContent,
 			).toBe(String(count));
 		}
 		for (const state of [
