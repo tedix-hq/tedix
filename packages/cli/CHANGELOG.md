@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.34.0 (2026-11-22)
+
+### Minor Changes
+
+- 26ce855: Add `tedix work run <id> -- <command>` to start an Attempt, keep its lease alive while the command runs, and settle by its exit code. Renewal refusal stops the command; Ctrl-C releases the Attempt without failing it. Use `--note` for result text and `--commit` for coding results.
+
+### Patch Changes
+
+- 9c6c6f2: Reduce empty runner message polls and supervisor answer reads, throttle repeated readiness checks for deferred Work, and record local gateway HTTP counts by component.
+- a663893: A runner's retry after a run that ended incomplete (for example, its push was refused) now continues in that run's checkout, with its unpushed commits, and resumes the same agent session. Before, such Attempts settle as `rejected`, the retry did not recognise them, and it started in a fresh checkout and session without the earlier commits.
+- 6872bd5: A stopping runner waits at most 10 seconds for its tasks (was 2 minutes), and the supervisor restarts an exited runner after 5 seconds (was 60), doubling for repeated exits up to 15 minutes. Running tasks continue under the next runner, so a stop no longer leaves them waiting for minutes.
+
 ## 0.33.0 (2026-11-22)
 
 ### Minor Changes
