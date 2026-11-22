@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.35.0 (2026-11-22)
+
+### Minor Changes
+
+- 94a2680: Work waiting for a tool that has been unavailable for 5 minutes (out of credits, at its usage limit, or failing its start check) moves to the next available tool in its routing rule, with the reason written on the task. Running tasks stay. `metadata.onlyExecutor: true` keeps a task on its tool.
+- 0f337ee: A task that names no tool (assigned to any local tool) now gets a comment saying which tool the routing rules picked and why earlier tools in the rule were skipped, for example "Taken by Claude Code under the general routing rule. Skipped: Codex is out of credits or at its usage limit until about 21:00 UTC."
+- f135611: Runners wait until the time a tool names in its own limit message ("try again at Nov 23rd, 2026 12:18 AM") instead of retrying it every hour, and also recognise Codex's out-of-credits message. `tedix lane routing` lists each tool's availability ("Codex: out of credits or at its usage limit, back around 00:18"); `--json` adds a `tools` list.
+
 ## 0.34.6 (2026-11-22)
 
 ### Patch Changes
