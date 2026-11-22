@@ -1,4 +1,4 @@
 {
 	"desk": ["queue"],
-	"card": ["heading", "request", "actions"]
+	"card": ["heading", "actions", "request"]
 }

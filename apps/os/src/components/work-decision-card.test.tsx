@@ -445,7 +445,16 @@ it("leads with the question, why now with a relative due date, and what each opt
 	expect(host.querySelector("[data-context-item]")).toBeNull();
 	const outcomes = host.querySelector(".fd-outcomes")!.textContent;
 	expect(outcomes).toContain(`Yes${FACE.body}`);
-	expect(outcomes).toContain("Not nowSkips it for now");
+	expect(host.querySelector(".fd-outcomes")?.closest("details")?.open).toBe(
+		false,
+	);
+	expect(outcomes).not.toContain("Not nowSkips it for now");
+	expect(
+		host
+			.querySelector("[data-decision-actions]")!
+			.compareDocumentPosition(host.querySelector(".fd-outcomes")!) &
+			Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
 	// The recommendation reads at a glance; the original ask stays in Context.
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
 		`Recommended: ${FACE.recommendation}`,

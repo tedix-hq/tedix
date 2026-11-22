@@ -884,15 +884,6 @@ export function WorkDecisionCard({
 		face && "context" in face && (face.story || face.context)
 			? plainDecisionText(face.story ?? face.context ?? "")
 			: "";
-	// Only a Change… button the person can see on the card earns a line.
-	const draftEditable =
-		allowEdits && (kind === "outbound" || Boolean(editAction));
-	const changeOffered =
-		!disabled &&
-		(draftEditable
-			? !rail
-			: outcomeRow &&
-				((Boolean(revision) && !secureConnection) || Boolean(feedbackAction)));
 	// "Your tedi" reads "your tedi" inside a sentence.
 	const askerInText = /^Your\b/.test(asker) ? `y${asker.slice(1)}` : asker;
 	const effectOf = (action: DecisionCardAction) =>
@@ -902,43 +893,21 @@ export function WorkDecisionCard({
 				? decisionText(`Sends your answer to ${askerInText}.`)
 				: action.intent === "approve" && face
 					? plainDecisionText(withoutIfYes(face.body))
-					: action.intent === "reject"
-						? decisionText(`Tells ${askerInText} no. Nothing else changes.`)
-						: action.intent === "later"
-							? decisionText("Skips it for now; it comes back next visit.")
-							: undefined;
+					: undefined;
 	const outcomes: [string, string, string?][] =
 		faceState &&
 		(face || actions.some((action) => action.description)) &&
 		!compact &&
 		!saved
-			? [
-					...actions.flatMap((action): [string, string, string?][] => {
-						const effect =
-							action.disabled || action.intent === "delegate"
-								? undefined
-								: effectOf(action);
-						return effect ? [[buttonLabel(action), effect, action.id]] : [];
-					}),
-					...(changeOffered
-						? ([
-								[
-									decisionText("Change"),
-									decisionText(
-										`Tell ${askerInText} what to change; the card stays open.`,
-									),
-								],
-							] as [string, string][])
-						: []),
-					...(deckFooter && !actions.some((action) => action.intent === "later")
-						? ([
-								[
-									decisionText("Snooze or Not now"),
-									decisionText("Hides the card for now; nothing is decided."),
-								],
-							] as [string, string][])
-						: []),
-				]
+			? actions.flatMap((action): [string, string, string][] => {
+					const effect =
+						!action.disabled && action.intent !== "delegate"
+							? effectOf(action)
+							: undefined;
+					return effect && effect !== buttonLabel(action)
+						? [[buttonLabel(action), effect, action.id]]
+						: [];
+				})
 			: [];
 	return (
 		<section
@@ -1157,34 +1126,39 @@ export function WorkDecisionCard({
 														</div>
 													)}
 													{outcomes.length > 0 && (
-														<dl
-															className="fd-outcomes"
-															aria-label={decisionText("What happens")}
-														>
-															{outcomes.map(([label, effect, actionId]) => (
-																<div key={actionId ?? label}>
-																	<dt
-																		data-recommended={
-																			(displayRecommended &&
-																				actionId === displayRecommended.id) ||
-																			undefined
-																		}
-																	>
-																		{label}
-																		{displayRecommended &&
-																			actionId === displayRecommended.id && (
-																				<span>
-																					{" "}
-																					· {decisionText("Recommended")}
-																				</span>
-																			)}
-																	</dt>
-																	<dd>
-																		<InlineMarkdown text={effect} />
-																	</dd>
-																</div>
-															))}
-														</dl>
+														<details className="text-sm text-kumo-subtle">
+															<summary className="cursor-pointer">
+																{decisionText("What each choice does")}
+															</summary>
+															<dl
+																className="fd-outcomes"
+																aria-label={decisionText("What happens")}
+															>
+																{outcomes.map(([label, effect, actionId]) => (
+																	<div key={actionId ?? label}>
+																		<dt
+																			data-recommended={
+																				(displayRecommended &&
+																					actionId === displayRecommended.id) ||
+																				undefined
+																			}
+																		>
+																			{label}
+																			{displayRecommended &&
+																				actionId === displayRecommended.id && (
+																					<span>
+																						{" "}
+																						· {decisionText("Recommended")}
+																					</span>
+																				)}
+																		</dt>
+																		<dd>
+																			<InlineMarkdown text={effect} />
+																		</dd>
+																	</div>
+																))}
+															</dl>
+														</details>
 													)}
 													{autoAction && autoId && (
 														<p role="status" className="fd-auto-decide">
