@@ -1,4 +1,5 @@
 import "./__tests__/kernel-runtime-work-mocks";
+import { reconcileInboxWakeRuns } from "./kernel-runtime/run-reads-streams";
 import * as kernelRequestQueries from "@tedix/db/queries/kernel-requests";
 import * as kernelRequestSource from "../../kernel/request-home-source";
 import { receivedKernelRequest } from "../../kernel/request-coordinator";
@@ -350,7 +351,6 @@ describe("kernel runtime router: run-sets", () => {
 				"delegationProof",
 			);
 
-			db.runs[0]!.outputMessageId = "home-run-terminal-1:acceptance:assistant";
 			await client.readRunSet({
 				conversationId: "home:test",
 				limit: 10,
@@ -392,18 +392,19 @@ describe("kernel runtime router: run-sets", () => {
 	);
 
 	it("skips live child-evidence queries for terminal runs (fan-out bound)", async () => {
-		// 20 delegation runs all in terminal state with their async-completion
-		// message already durable (steady state) — none should trigger a
-		// tediRuntimeEvents select: the read-repair's deterministic-event-id
-		// pre-check must gate the child-evidence read per row. Only kernel-side
-		// selects are expected.
+		// Legacy terminal rows have no disposal marker; refresh must still do
+		// constant work, including rows with a child steering reference.
 		const TERMINAL_COUNT = 20;
 		const db = createKernelRuntimeDb();
 
 		// Wrap db.select to count tediRuntimeEvents hits.
 		let childEvidenceSelectCount = 0;
+		let selectCount = 0;
+		const inserts = vi.spyOn(db, "insert");
+		const updates = vi.spyOn(db, "update");
 		const originalSelect = db.select.bind(db);
 		db.select = (() => {
+			selectCount += 1;
 			const builder = originalSelect();
 			const originalFrom = builder.from.bind(builder);
 			builder.from = (table: unknown) => {
@@ -435,6 +436,7 @@ describe("kernel runtime router: run-sets", () => {
 					// Persist childRunStatus so normalizeHomeRunRecord can fall back to row.
 					metadata: {
 						childRunStatus: "completed",
+						delegatedChildSteer: { childInjectRunId: `steer-${i}` },
 						childRunPreview: `Result ${i}`,
 					},
 				}),
@@ -450,31 +452,6 @@ describe("kernel runtime router: run-sets", () => {
 					tediId: "tedi-echo",
 				}),
 			);
-			// The async-completion message is already durable (the terminal
-			// reconcile wrote it when the run settled) — the deterministic event id
-			// is what the read-repair existence gate checks.
-			db.events.push(
-				normalizeKernelRuntimeEventInsert({
-					id: [
-						"home",
-						ORG_ID,
-						"event",
-						"message.completed",
-						"home:heavy",
-						runId,
-						"delegation-completion",
-					].join(":"),
-					organizationId: ORG_ID,
-					kind: "message.completed",
-					conversationId: "home:heavy",
-					runId,
-					messageId: `${runId}:async-completion:assistant`,
-					delegatedTediId: "tedi-echo",
-					childRunId,
-					payload: { role: "assistant", content: `Result ${i}` },
-					createdAt: `2026-06-06T08:${String(i).padStart(2, "0")}:00.000Z`,
-				}),
-			);
 		}
 
 		const client = createKernelRuntimeClient(createContext(db));
@@ -486,8 +463,11 @@ describe("kernel runtime router: run-sets", () => {
 		// All runs returned, all terminal.
 		expect(result.runSet.runs).toHaveLength(TERMINAL_COUNT);
 		expect(result.runSet.activeRunIds).toEqual([]);
-		// No live child-evidence queries were issued.
+		// No per-row child, Work, completion-event reads or writes.
 		expect(childEvidenceSelectCount).toBe(0);
+		expect(selectCount).toBeLessThanOrEqual(6);
+		expect(inserts).not.toHaveBeenCalled();
+		expect(updates).not.toHaveBeenCalled();
 		// Runs use persisted row data for child fields.
 		for (const run of result.runSet.runs) {
 			expect(run.status).toBe("completed");
@@ -495,9 +475,9 @@ describe("kernel runtime router: run-sets", () => {
 		}
 	});
 
-	it("repairs a missing completion message with the child's real final answer", async () => {
+	it("repairs a missing completion message on the completion wake with the child's real final answer", async () => {
 		// Already-terminal row whose async-completion message is missing (a prior
-		// fail-soft insert failure). The read repair must pay the real content
+		// fail-soft insert failure). The completion wake must pay the real content
 		// path: the child's final assistant message, not the rolling preview.
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient(createContext(db));
@@ -545,9 +525,9 @@ describe("kernel runtime router: run-sets", () => {
 			}),
 		);
 
-		await client.readRunSet({
-			conversationId: "home:repair-content",
-			limit: 10,
+		await reconcileInboxWakeRuns(createContext(db), {
+			organizationId: ORG_ID,
+			childRunIds: [childRunId],
 		});
 
 		const completionMessages = db.events.filter(
@@ -560,9 +540,10 @@ describe("kernel runtime router: run-sets", () => {
 			content: "Here is the full audit result: 3 findings, all fixed.",
 		});
 
-		// Idempotent: a second read finds the message via the deterministic-id
-		// gate and neither duplicates it nor re-reads child evidence.
+		// Repeated completion wakes and refreshes neither dispose again nor read child evidence.
 		let childEvidenceSelectCount = 0;
+		const inserts = vi.spyOn(db, "insert");
+		const updates = vi.spyOn(db, "update");
 		const originalSelect = db.select.bind(db);
 		db.select = (() => {
 			const builder = originalSelect();
@@ -584,7 +565,14 @@ describe("kernel runtime router: run-sets", () => {
 					"home-repair-content-1:async-completion:assistant",
 			),
 		).toHaveLength(1);
+		await reconcileInboxWakeRuns(createContext(db), {
+			organizationId: ORG_ID,
+			childRunIds: [childRunId],
+		});
 		expect(childEvidenceSelectCount).toBe(0);
+		expect(inserts).not.toHaveBeenCalled();
+		expect(updates).not.toHaveBeenCalled();
+		expect(db.runs[0]?.metadata?.delegationDisposedChildRunId).toBe(childRunId);
 	});
 
 	it("keeps the run set readable when a historical delegation Work Item is missing", async () => {
@@ -610,6 +598,11 @@ describe("kernel runtime router: run-sets", () => {
 			}),
 		);
 
+		await reconcileInboxWakeRuns(createContext(db), {
+			organizationId: ORG_ID,
+			childRunIds: ["tedi-echo:mcp:terminal-repair-failure"],
+		});
+		expect(db.runs[0]?.metadata?.delegationDisposedChildRunId).toBeUndefined();
 		const result = await client.readRunSet({
 			conversationId: "home:repair-failure",
 			limit: 10,
@@ -651,6 +644,10 @@ describe("kernel runtime router: run-sets", () => {
 			"D1_ERROR: Failed to parse body as JSON, got: Error: Network connection lost.",
 		);
 
+		await reconcileInboxWakeRuns(createContext(db), {
+			organizationId: ORG_ID,
+			childRunIds: [childRunId],
+		});
 		const result = await client.readRunSet({
 			conversationId: "home:repair-fallback",
 			limit: 10,

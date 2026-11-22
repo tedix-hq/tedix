@@ -214,10 +214,7 @@ export async function recordHomeDelegationProgressMessage(
 /**
  * Deterministic event id for the async-completion `message.completed` event —
  * single source of truth shared by the writer
- * ({@link recordHomeDelegationCompletionMessage}) and the read-repair gate in
- * `reconcileHomeRunRowsFromChildStatus` (which pre-checks existence so
- * steady-state reads over terminal history never re-pay the child-evidence
- * read).
+ * ({@link recordHomeDelegationCompletionMessage}) and the completion repair gate.
  */
 export function homeDelegationCompletionEventId(row: KernelRuntimeRun): string {
 	return homeRuntimeEventId({

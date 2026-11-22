@@ -178,6 +178,8 @@ export async function reconcileHomeRunRowsFromChildStatus(
 		childRunStatuses: Map<string, Record<string, unknown>>;
 		unavailableChildRunKeys?: ReadonlySet<string>;
 		rows: KernelRuntimeRun[];
+		/** Only completion wakes may repair terminal history. */
+		repairTerminal?: boolean;
 	},
 ): Promise<KernelRuntimeRun[]> {
 	return Promise.all(
@@ -208,7 +210,10 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				});
 				input.childRunStatuses.set(childKey, stalled);
 			}
-			const childRunStatus = stalled ?? observedChildRunStatus;
+			const terminalRow = isTerminalHomeRunStatus(row.status as TediRunStatus);
+			const childRunStatus = terminalRow
+				? undefined
+				: (stalled ?? observedChildRunStatus);
 			// Post-cancel child reconcile: a parent already `canceled` with a linked
 			// child means the dispatch may have slipped through the cancel race —
 			// stop the still-live child via the same mechanism cancelKernelRunCore
@@ -219,6 +224,15 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				row.status === "canceled"
 					? await stopCanceledParentChildIfLive(context, row)
 					: null;
+			if (canceledStopRow) row.metadata = canceledStopRow.metadata;
+			// Refreshes consume persisted terminal evidence; repair belongs to completion.
+			if (
+				terminalRow &&
+				(!input.repairTerminal ||
+					nonNullRecord(row.metadata)?.delegationDisposedChildRunId ===
+						row.childRunId)
+			)
+				return canceledStopRow ?? row;
 			if (
 				!isTerminalHomeRunStatus(row.status as TediRunStatus) &&
 				input.unavailableChildRunKeys?.has(childKey)
@@ -244,19 +258,12 @@ export async function reconcileHomeRunRowsFromChildStatus(
 						});
 						row.outputMessageId = outputMessageId;
 					}
-					const run = normalizeHomeRunRecord(row);
+					const run = normalizeHomeRunRecord(row, input.childRunStatuses);
 					const runMetadata = nonNullRecord(run.metadata) ?? {};
 					const latestEventKindParse = row.latestEventKind
 						? TediRuntimeEventKindSchema.safeParse(row.latestEventKind)
 						: null;
-					// A terminal Home row is sufficient evidence to repair a completion
-					// message even if child events are temporarily unavailable. The
-					// repair pays the REAL content path (synthesis / child final
-					// assistant message — both retry-backed and fail-soft, falling back
-					// to the rolling preview) — but only when the completion message is
-					// actually missing: the deterministic-event-id pre-check keeps
-					// steady-state reads over terminal history at zero child-evidence
-					// queries and keeps repeated read repairs idempotent.
+					// Missing completion messages still use the full child answer.
 					let completionMessageExists = false;
 					try {
 						const [existingCompletion] = await listKernelRuntimeEvents(
@@ -298,6 +305,7 @@ export async function reconcileHomeRunRowsFromChildStatus(
 							},
 							{ enqueue: kernelUnblockEnqueue(context) },
 						);
+						await settleTerminalHomeRunSubmission(context, row, run.status);
 						if (!completionMessageExists) {
 							await recordHomeDelegationCompletionMessage(context, {
 								createdAt:
@@ -316,11 +324,23 @@ export async function reconcileHomeRunRowsFromChildStatus(
 								run,
 							});
 						}
+						const metadata = toJsonRecord({
+							...runMetadata,
+							delegationDisposedChildRunId: row.childRunId,
+						});
+						const stamped = await transitionKernelRuntimeRunStatus(context.db, {
+							organizationId: row.organizationId,
+							id: row.id,
+							fromStatus: row.status,
+							expectedUpdatedAt: row.updatedAt,
+							patch: { metadata },
+						});
+						if (stamped) row.metadata = metadata;
 					} catch (error) {
 						// A historical repair is maintenance, never read authority. One
 						// stale/missing delegation Work Item must not erase the whole run
 						// set—including unrelated approvals the operator must resolve.
-						console.warn("[kernelRuntime] terminal read repair failed", {
+						console.warn("[kernelRuntime] terminal completion repair failed", {
 							error: errorMessage(error),
 							runId: row.id,
 						});
@@ -402,7 +422,7 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					preview,
 					completedAt: failedAt,
 					updatedAt: failedAt,
-					metadata,
+					metadata: toJsonRecord(metadata),
 				};
 			}
 			const run = normalizeHomeRunRecord(row, input.childRunStatuses);
@@ -425,11 +445,11 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					? run.metadata.childRunPreview
 					: null;
 			const terminal = isTerminalHomeRunStatus(run.status);
-			const nextMetadata = {
+			const nextMetadata = toJsonRecord({
 				...nonNullRecord(row.metadata),
 				...nonNullRecord(run.metadata),
 				source: "kernelRuntime.reconcileChildStatus",
-			};
+			});
 			const nextProgressValue = run.progress?.current ?? null;
 			const nextProgressLabel = run.progress?.label ?? null;
 			const nextProgressDetail = run.progress?.detail ?? null;
@@ -465,43 +485,7 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				(row.preview ?? null) === preview &&
 				(row.completedAt ?? null) === nextCompletedAt &&
 				(row.updatedAt ?? null) === nextUpdatedAt;
-			if (unchanged) {
-				if (terminal) {
-					try {
-						await settleTerminalHomeRunSubmission(context, row, run.status);
-						// Dispose first so the repaired message can disclose the proof
-						// verdict; then repair a prior fail-soft insert failure. The
-						// completion event id is deterministic, so normal repeated reads
-						// remain idempotent.
-						const disposition = await disposeTerminalDirectDelegationWorkItem(
-							context,
-							{
-								createdAt: nextCompletedAt ?? nextUpdatedAt,
-								metadata: nextMetadata,
-								preview,
-								row,
-								run,
-							},
-							{ enqueue: kernelUnblockEnqueue(context) },
-						);
-						await recordHomeDelegationCompletionMessage(context, {
-							createdAt: nextCompletedAt ?? nextUpdatedAt,
-							disposition,
-							latestEventAt,
-							latestEventKind,
-							preview,
-							row,
-							run,
-						});
-					} catch (error) {
-						console.warn("[kernelRuntime] terminal read repair failed", {
-							error: errorMessage(error),
-							runId: row.id,
-						});
-					}
-				}
-				return row;
-			}
+			if (unchanged) return row;
 			try {
 				const transitioned = await transitionKernelRuntimeRunStatus(
 					context.db,
@@ -536,11 +520,7 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				if (terminal) {
 					try {
 						await settleTerminalHomeRunSubmission(context, row, run.status);
-						// Step 4 — disposition: map terminal child status to the Work Item.
-						// Runs BEFORE the completion message so the message can disclose the
-						// proof verdict. Idempotent and also called for unchanged terminal
-						// rows above, so a transient missed disposer is repaired by any later
-						// run-set read.
+						// Persist the proof verdict before publishing the completion message.
 						const disposition = await disposeTerminalDirectDelegationWorkItem(
 							context,
 							{
@@ -561,8 +541,20 @@ export async function reconcileHomeRunRowsFromChildStatus(
 							row,
 							run,
 						});
+						const metadata = {
+							...nextMetadata,
+							delegationDisposedChildRunId: row.childRunId,
+						};
+						const stamped = await transitionKernelRuntimeRunStatus(context.db, {
+							organizationId: row.organizationId,
+							id: row.id,
+							fromStatus: run.status,
+							expectedUpdatedAt: nextUpdatedAt,
+							patch: { metadata },
+						});
+						if (stamped) nextRow.metadata = metadata;
 					} catch (error) {
-						console.warn("[kernelRuntime] terminal read repair failed", {
+						console.warn("[kernelRuntime] terminal completion failed", {
 							error: errorMessage(error),
 							runId: row.id,
 						});

@@ -138,6 +138,7 @@ export function workItemStatusFromPlanAssignmentStatus(
 export async function readChildRunStatusesForRunRows(
 	context: BaseContext,
 	rows: Array<KernelRuntimeRun>,
+	options?: { includeTerminalSteering?: boolean },
 ): Promise<{
 	childRunStatuses: Map<string, Record<string, unknown>>;
 	unavailableChildRunKeys: Set<string>;
@@ -169,7 +170,13 @@ export async function readChildRunStatusesForRunRows(
 			}
 		}
 		const steerRunId = delegatedChildSteerRunId(row);
-		if (row.delegatedTediId && steerRunId) {
+		if (
+			row.delegatedTediId &&
+			steerRunId &&
+			(!isTerminalHomeRunStatus(row.status as TediRunStatus) ||
+				(options?.includeTerminalSteering &&
+					row.metadata?.delegationDisposedChildRunId !== row.childRunId))
+		) {
 			refs.set(childRunStatusKey(row.delegatedTediId, steerRunId), {
 				workstationDispatch: false,
 				runId: steerRunId,

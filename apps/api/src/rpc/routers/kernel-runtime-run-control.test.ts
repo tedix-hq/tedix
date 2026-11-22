@@ -1,4 +1,5 @@
 import "./__tests__/kernel-runtime-work-mocks";
+import { reconcileInboxWakeRuns } from "./kernel-runtime/run-reads-streams";
 import { HomeRunSteering } from "../../kernel/run-steering";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { kernelRuntimeTestHooks } from "./kernel-runtime/policy-normalization";
@@ -258,6 +259,10 @@ describe("kernel runtime router: run-control", () => {
 		);
 		const client = createKernelRuntimeClient(createContext(db));
 
+		await reconcileInboxWakeRuns(createContext(db), {
+			organizationId: ORG_ID,
+			childRunIds: ["child-steer-result-primary-1"],
+		});
 		const read = await client.readRun({ runId: "home-steer-child-result-1" });
 
 		expect(read.run.status).toBe("completed");
@@ -924,6 +929,10 @@ describe("kernel runtime router: run-control", () => {
 			reason: "operator stopped after steering proof",
 		});
 		db.runtimeEvents.push(...steeringProofEvents);
+		await reconcileInboxWakeRuns(createContext(db), {
+			organizationId: ORG_ID,
+			childRunIds: [childRunId],
+		});
 		await client.readRun({ runId: homeRunId });
 
 		const terminalComment = db.workItemCommentRows.find(

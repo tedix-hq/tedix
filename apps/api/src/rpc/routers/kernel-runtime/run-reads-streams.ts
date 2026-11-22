@@ -362,14 +362,17 @@ export async function reconcileInboxWakeRuns(
 				.map((r) => r.childRunId as string),
 		);
 		const { childRunStatuses, unavailableChildRunKeys } =
-			await readChildRunStatusesForRunRows(context, rows);
+			await readChildRunStatusesForRunRows(context, rows, {
+				includeTerminalSteering: true,
+			});
 		const reconciledRows = await reconcileHomeRunRowsFromChildStatus(context, {
+			repairTerminal: true,
 			unavailableChildRunKeys,
 			childRunStatuses,
 			rows,
 		});
 		// Direct-delegation reconciliation owns the deterministic completion event
-		// on the PARENT run (and repairs a missing event on later reads). Mark every
+		// on the PARENT run (and repairs a missing event on completion wakes). Mark every
 		// terminal direct child as canonically owned here, regardless of whether it
 		// became terminal before or during this wake. The synthetic wake run must
 		// never relay that same child result under a fresh run id; client-side
