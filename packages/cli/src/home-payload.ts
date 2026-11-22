@@ -173,56 +173,6 @@ export const HOME_MESSAGES_PAGE = 10;
 
 export const HOME_RUN_SET_PAGE = 20;
 
-/** Run-row fields the CLI reads (summaries, latest-run recovery, HomeRunSchema). */
-export const HOME_RUN_SET_RUN_KEYS = [
-	"id",
-	"organizationId",
-	"conversationId",
-	"status",
-	"inputMessageId",
-	"outputMessageId",
-	"delegatedTediId",
-	"childRunId",
-	"startedAt",
-	"completedAt",
-	"timeoutAt",
-	"createdAt",
-	"updatedAt",
-	"progress",
-	"usage",
-];
-
-/** `run.metadata` keys `summarizeHomePayload` and its helpers consume. */
-export const HOME_RUN_SET_METADATA_KEYS = [
-	"source",
-	"approvalRequestId",
-	"cancelReason",
-	"childRunId",
-	"childTaskOutcome",
-	"clientSubmissionId",
-	"delegatedTediId",
-	"delegationError",
-	"delegationWorkOrder",
-	"homeDelegation",
-	"kernelWriteProposalDeclined",
-	"workItemId",
-];
-
-/** Child-tree node fields the CLI renders; `metadata` keeps progress and a clipped preview. */
-export const HOME_CHILD_TREE_NODE_KEYS = [
-	"id",
-	"homeRunId",
-	"conversationId",
-	"delegatedTediId",
-	"childRunId",
-	"parentRunId",
-	"label",
-	"status",
-	"active",
-	"depth",
-	"updatedAt",
-];
-
 export function parseMcpResponsePayload(
 	text: string,
 	method: string,

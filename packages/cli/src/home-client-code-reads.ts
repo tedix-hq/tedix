@@ -21,9 +21,6 @@ import {
 	HOME_RUN_EVENTS_PAGE,
 	HOME_MESSAGES_PAGE,
 	HOME_RUN_SET_PAGE,
-	HOME_RUN_SET_RUN_KEYS,
-	HOME_RUN_SET_METADATA_KEYS,
-	HOME_CHILD_TREE_NODE_KEYS,
 	parseHomeRunEventsPage,
 } from "./home-payload";
 
@@ -78,7 +75,7 @@ export async function readHomeRun(
  * A raw `read_home_messages` row carries its whole `runtime.metadata` — the
  * delegation work order, execution requirement, usage — so even TWO rows
  * exceed the Code Mode gateway's result budget and come back as a truncation
- * preview with no messages in it. Project inside the gateway program so the
+ * preview with no messages in it. Project in the server-side read tool so the
  * result is small by construction, and halve the page when it still does not
  * fit (one message with a very long answer can be over budget on its own).
  */
@@ -93,11 +90,10 @@ export async function readHomeMessages(
 			...(input.cursor ? { cursor: input.cursor } : {}),
 			limit,
 		};
-		const payload = await this.callTool(
-			"code",
-			{
-				code: readHomeMessagesProgram(args),
-			},
+		const payload = await callHomeTool.call(
+			this,
+			"read_home_messages_compact",
+			args,
 			{ retryable: true },
 		);
 		const normalized = await resolveCodeResult.call(this, payload);
@@ -120,7 +116,7 @@ export async function readHomeMessages(
  * redrive input, work orders) so a page of twenty real runs is several times
  * the Code Mode gateway's result budget and comes back as a truncation
  * preview with no runs in it. `tedix status` used to read that preview as an
- * empty conversation. Project inside the gateway program so the result is
+ * empty conversation. Project in the server-side read tool so the result is
  * small by construction, halve the page while it still does not fit, and
  * return the unwrapped `{ runSet }` payload rather than the gateway envelope.
  */
@@ -131,11 +127,10 @@ export async function readHomeRunSet(
 	let limit = Math.max(1, input.limit ?? HOME_RUN_SET_PAGE);
 	while (true) {
 		const args = { conversationId: input.conversationId, limit };
-		const payload = await this.callTool(
-			"code",
-			{
-				code: readHomeRunSetProgram(args),
-			},
+		const payload = await callHomeTool.call(
+			this,
+			"read_home_run_set_compact",
+			args,
 			{ retryable: true },
 		);
 		const normalized = await resolveCodeResult.call(this, payload);
@@ -162,11 +157,10 @@ export async function readHomeConversationTitle(
 			includeArchived: true,
 			...(cursor ? { cursor } : {}),
 		};
-		const payload = await this.callTool(
-			"code",
-			{
-				code: readHomeConversationTitleProgram(args, conversationId),
-			},
+		const payload = await callHomeTool.call(
+			this,
+			"read_conversation_title",
+			{ ...args, conversationId },
 			{ retryable: true },
 		);
 		const normalized = normalizeCodeResult(payload);
@@ -282,11 +276,10 @@ export async function readChildRunTree(
 			conversationId: input.conversationId,
 			...(limit ? { limit } : {}),
 		};
-		const payload = await this.callTool(
-			"code",
-			{
-				code: readChildRunTreeProgram(args),
-			},
+		const payload = await callHomeTool.call(
+			this,
+			"read_child_run_tree_compact",
+			args,
 			{ retryable: true },
 		);
 		const normalized = await resolveCodeResult.call(this, payload);
@@ -356,106 +349,4 @@ export async function readHomeRunEvents(
 		}
 		limit = Math.max(1, Math.floor(limit / 2));
 	}
-}
-
-function readHomeMessagesProgram(args: Record<string, unknown>): string {
-	return `async () => {
-	const page = await home.read_home_messages(${JSON.stringify(args)});
-	const rows = Array.isArray(page && page.messages) ? page.messages : [];
-	return {
-		messages: rows.map((m) => ({
-			id: m.id,
-			role: m.role,
-			content: typeof m.content === "string" ? m.content : "",
-			runId: m.runId ?? undefined,
-			createdAt: m.createdAt ?? undefined,
-		})),
-		nextCursor: (page && page.nextCursor) ?? undefined,
-	};
-}`;
-}
-
-function readHomeRunSetProgram(args: Record<string, unknown>): string {
-	return `async () => {
-	const clip = (value, max) =>
-		typeof value === "string" && value.length > max
-			? value.slice(0, max) + "…"
-			: value;
-	const pick = (source, keys) => {
-		const out = {};
-		if (!source || typeof source !== "object") return out;
-		for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
-		return out;
-	};
-	const projectRun = (run) => {
-		const metadata = run.metadata && typeof run.metadata === "object" ? run.metadata : {};
-		const route = metadata.kernelRoute && typeof metadata.kernelRoute === "object" ? metadata.kernelRoute : undefined;
-		const body = metadata.bodyExecutionResult && typeof metadata.bodyExecutionResult === "object" ? metadata.bodyExecutionResult : undefined;
-		return {
-			...pick(run, ${JSON.stringify(HOME_RUN_SET_RUN_KEYS)}),
-			metadata: {
-				...pick(metadata, ${JSON.stringify(HOME_RUN_SET_METADATA_KEYS)}),
-				...(route ? { kernelRoute: { ...route, answer: clip(route.answer, 2000) } } : {}),
-				...(body ? { bodyExecutionResult: { summary: clip(body.summary, 2000) } } : {}),
-				...(metadata.childRunPreview !== undefined ? { childRunPreview: clip(metadata.childRunPreview, 500) } : {}),
-			},
-		};
-	};
-	const payload = await home.read_home_run_set(${JSON.stringify(args)});
-	const runSet = payload && typeof payload === "object" && payload.runSet && typeof payload.runSet === "object" ? payload.runSet : payload;
-	if (!runSet || typeof runSet !== "object") return payload;
-	return {
-		runSet: {
-			...pick(runSet, ["organizationId", "conversationId", "activeRunIds", "approvalMirrors", "updatedAt"]),
-			runs: (Array.isArray(runSet.runs) ? runSet.runs : []).map(projectRun),
-		},
-	};
-}`;
-}
-
-function readHomeConversationTitleProgram(
-	args: Record<string, unknown>,
-	conversationId: string,
-): string {
-	return `async () => {
-const page = await home.list_conversations(${JSON.stringify(args)});
-const conversation = page.conversations.find(row => row.id === ${JSON.stringify(conversationId)});
-return { found: Boolean(conversation), title: conversation?.title ?? null, nextCursor: page.nextCursor ?? null };
-}`;
-}
-
-function readChildRunTreeProgram(args: Record<string, unknown>): string {
-	return `async () => {
-	const clip = (value, max) =>
-		typeof value === "string" && value.length > max
-			? value.slice(0, max) + "…"
-			: value;
-	const pick = (source, keys) => {
-		const out = {};
-		if (!source || typeof source !== "object") return out;
-		for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
-		return out;
-	};
-	const projectNode = (node) => {
-		if (!node || typeof node !== "object") return node;
-		const metadata = node.metadata && typeof node.metadata === "object" ? node.metadata : {};
-		return {
-			...pick(node, ${JSON.stringify(HOME_CHILD_TREE_NODE_KEYS)}),
-			metadata: {
-				...pick(metadata, ["progress"]),
-				...(metadata.preview !== undefined ? { preview: clip(metadata.preview, 300) } : {}),
-			},
-			children: (Array.isArray(node.children) ? node.children : []).map(projectNode),
-		};
-	};
-	const payload = await home.read_child_run_tree(${JSON.stringify(args)});
-	const tree = payload && typeof payload === "object" && payload.tree && typeof payload.tree === "object" ? payload.tree : null;
-	if (!tree) return payload;
-	return {
-		tree: {
-			...pick(tree, ["organizationId", "conversationId", "activeNodeId", "updatedAt"]),
-			nodes: (Array.isArray(tree.nodes) ? tree.nodes : []).map(projectNode),
-		},
-	};
-}`;
 }

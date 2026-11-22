@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { latestRunFromSet, summarizeHomePayload } from "./home-payload";
 import { type McpClientLike, TedixHomeClient } from "./home-client";
 
 // `tedix status` read a run set that the Code Mode gateway had replaced with a
 // truncation preview (a page of real runs is several times the 6k-token
 // budget) and a child tree still wrapped in the gateway envelope, so a
 // delegated run in flight rendered as active=0 delegations=0. These reads now
-// project inside the gateway program and return the unwrapped payload.
+// use server-side projections and return the unwrapped payload.
 
 function harness(
 	callImpl: (
@@ -38,44 +37,39 @@ const truncated = (preview: string) => ({
 	guidance: "Result truncated by the Code Mode gateway: ~27,269 tokens",
 });
 
-test("conversation titles survive oversized pages and pagination", async () => {
-	let pages = 0;
-	const { client } = harness(async (_index, params) => {
-		const source = String(params?.arguments.code);
-		const value = await new Function("home", `return (${source})()`)({
-			list_conversations: async ({ cursor }: { cursor?: string }) => {
-				pages++;
-				return cursor
-					? {
-							conversations: [
-								{
-									id: "target-chat",
-									title: "Example title",
-									metadata: "x".repeat(50_000),
-								},
-							],
-							nextCursor: null,
-						}
-					: {
-							conversations: Array.from({ length: 100 }, (_, i) => ({
-								id: `other-chat-${i}`,
-								title: "Other title",
-								metadata: "x".repeat(1_000),
-							})),
-							nextCursor: "page-two",
-						};
-			},
-		});
-		return gatewayResult(
-			JSON.stringify(value).length > 4_000
-				? truncated("oversized conversation page")
-				: value,
-		);
-	});
+test("conversation title reads follow server cursors using one literal tool call per page", async () => {
+	const { client, sources } = harness(async (index) =>
+		gatewayResult(
+			index === 1
+				? { found: false, title: null, nextCursor: "page-two" }
+				: { found: true, title: "Example title", nextCursor: null },
+		),
+	);
 	expect(await client.readHomeConversationTitle("target-chat")).toBe(
 		"Example title",
 	);
-	expect(pages).toBe(2);
+	expect(sources).toEqual([
+		'async () => await home.read_conversation_title({"limit":100,"includeArchived":true,"conversationId":"target-chat"})',
+		'async () => await home.read_conversation_title({"limit":100,"includeArchived":true,"cursor":"page-two","conversationId":"target-chat"})',
+	]);
+});
+
+test("message reads use a literal compact tool call and preserve page arguments", async () => {
+	const page = {
+		messages: [{ id: "m", role: "assistant", content: "answer" }],
+		nextCursor: "next",
+	};
+	const { client, sources } = harness(async () => gatewayResult(page));
+	expect(
+		await client.readHomeMessages({
+			conversationId: "chat",
+			cursor: "previous",
+			limit: 5,
+		}),
+	).toEqual(page);
+	expect(sources).toEqual([
+		'async () => await home.read_home_messages_compact({"conversationId":"chat","cursor":"previous","limit":5})',
+	]);
 });
 
 const fullRun = {
@@ -100,7 +94,7 @@ const fullRun = {
 };
 
 describe("@tedix/cli readHomeRunSet", () => {
-	test("projects rows inside the gateway and returns the unwrapped run set", async () => {
+	test("reads compact rows in a single call and unwraps the run set", async () => {
 		const { client, sources } = harness(async () =>
 			gatewayResult({
 				runSet: {
@@ -115,12 +109,9 @@ describe("@tedix/cli readHomeRunSet", () => {
 			limit: 20,
 		});
 		expect(sources).toHaveLength(1);
-		expect(sources[0]).toContain(
-			'home.read_home_run_set({"conversationId":"home:cli:-private-tmp","limit":20})',
+		expect(sources[0]).toBe(
+			'async () => await home.read_home_run_set_compact({"conversationId":"home:cli:-private-tmp","limit":20})',
 		);
-		// The oversized fields never leave the gateway.
-		expect(sources[0]).not.toContain("runtime");
-		expect(sources[0]).not.toContain("redriveInput");
 		// The caller sees `{ runSet }`, not the `{ executionId, result }` envelope.
 		expect(payload).toEqual({
 			runSet: {
@@ -129,48 +120,6 @@ describe("@tedix/cli readHomeRunSet", () => {
 				runs: [fullRun],
 			},
 		});
-	});
-
-	test("the gateway projection keeps every field the CLI's summary reads", () => {
-		// Apply the same key lists the gateway program uses to a raw row; the
-		// summary and latest-run recovery must not change.
-		const pick = (source: Record<string, unknown>, keys: string[]) =>
-			Object.fromEntries(
-				keys
-					.filter((key) => source[key] !== undefined)
-					.map((key) => [key, source[key]]),
-			);
-		const projected = {
-			...pick(fullRun, [
-				"id",
-				"organizationId",
-				"conversationId",
-				"status",
-				"delegatedTediId",
-				"childRunId",
-				"createdAt",
-				"progress",
-			]),
-			metadata: {
-				...pick(fullRun.metadata, ["clientSubmissionId"]),
-				kernelRoute: fullRun.metadata.kernelRoute,
-				childRunPreview: fullRun.metadata.childRunPreview,
-			},
-		};
-		expect(summarizeHomePayload({ run: projected })).toEqual(
-			summarizeHomePayload({ run: fullRun }),
-		);
-		expect(summarizeHomePayload({ run: projected })).toMatchObject({
-			homeRunId: fullRun.id,
-			status: "running",
-			delegatedTediId: "tedi-cto",
-			childRunId: "tedi-cto:mcp:child-1",
-			targetTediLabel: "CTO",
-			childRunPreview: "Reviewing",
-		});
-		expect(
-			latestRunFromSet({ runSet: { runs: [projected] } }, "sub-1"),
-		).toEqual({ homeRunId: fullRun.id, status: "running" });
 	});
 
 	test("halves the page until the gateway stops truncating", async () => {
@@ -208,7 +157,7 @@ describe("@tedix/cli readHomeRunSet", () => {
 });
 
 describe("@tedix/cli readChildRunTree", () => {
-	test("projects nodes inside the gateway and returns the unwrapped tree", async () => {
+	test("reads compact nodes in a single call and unwraps the tree", async () => {
 		const { client, sources } = harness(async () =>
 			gatewayResult({
 				tree: {
@@ -233,8 +182,8 @@ describe("@tedix/cli readChildRunTree", () => {
 			}),
 		);
 		const payload = await client.readChildRunTree({ conversationId: "c" });
-		expect(sources[0]).toContain(
-			'home.read_child_run_tree({"conversationId":"c"})',
+		expect(sources[0]).toBe(
+			'async () => await home.read_child_run_tree_compact({"conversationId":"c"})',
 		);
 		expect(payload).toMatchObject({
 			tree: {

@@ -259,15 +259,24 @@ const EXTERNAL_AGENT_SELF_LIFECYCLE_RPC_TOOLS: Record<string, string> = {
 
 // The live Home adapter presents these exact aliases on its messaging surface.
 // Keep that existing grant while raw kernel RPC tools retain tedis authority.
-const HOME_RPC_ALIASES: Record<string, string> = {
-	"kernelRuntime/enqueueMessage": "ask",
-	"kernelRuntime/readRun": "read_home_run",
-	"kernelRuntime/readRunEvents": "read_home_run_events",
-	"kernelRuntime/readMessages": "read_home_messages",
-	"kernelRuntime/listConversations": "list_conversations",
-	"kernelRuntime/readRunTrace": "read_home_trace",
-	"kernelRuntime/readChildRunEvidence": "read_child_run_evidence",
-	"kernelRuntime/readChildRunTree": "read_child_run_tree",
+const HOME_RPC_ALIASES: Record<string, readonly string[]> = {
+	"kernelRuntime/enqueueMessage": ["ask"],
+	"kernelRuntime/readRun": ["read_home_run"],
+	"kernelRuntime/readRunEvents": ["read_home_run_events"],
+	"kernelRuntime/readMessages": [
+		"read_home_messages",
+		"read_home_messages_compact",
+	],
+	"kernelRuntime/listConversations": [
+		"list_conversations",
+		"read_conversation_title",
+	],
+	"kernelRuntime/readRunTrace": ["read_home_trace"],
+	"kernelRuntime/readChildRunEvidence": ["read_child_run_evidence"],
+	"kernelRuntime/readChildRunTree": [
+		"read_child_run_tree",
+		"read_child_run_tree_compact",
+	],
 };
 
 function resolveCapabilityFamilyScope(
@@ -775,7 +784,7 @@ function resolveNamespaceFallbackScope(
 	if (
 		rpcEndpoint &&
 		namespace === "home" &&
-		HOME_RPC_ALIASES[rpcEndpoint] === rawToolName(tool.toolId)
+		HOME_RPC_ALIASES[rpcEndpoint]?.includes(rawToolName(tool.toolId))
 	) {
 		endpointScope =
 			rpcEndpoint === "kernelRuntime/enqueueMessage"

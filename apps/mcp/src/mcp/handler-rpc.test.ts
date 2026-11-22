@@ -1935,3 +1935,183 @@ it("forwards an approved user's role grant only on the approved dispatch with to
 	headers = headersFromFetch(...apiFetch.mock.calls[1]!);
 	expect(headers.has("X-Tedix-Approved-Tool-User")).toBe(false);
 });
+
+describe("compact Home reads", () => {
+	async function read(
+		name: string,
+		payload: unknown,
+		args: Record<string, unknown> = { conversationId: "chat", limit: 10 },
+	) {
+		const tool = buildHomeSurfaceTools().find(
+			(tool) => tool.toolId === `home__${name}`,
+		)!;
+		const apiFetch = vi.fn(
+			async (_input: string | URL | Request, _init?: RequestInit) =>
+				Response.json({ json: payload }),
+		);
+		const result = await new ToolHandler().execute(args, {
+			...ctx(tool.config as Record<string, unknown>),
+			toolId: tool.toolId,
+			toolInputSchema: tool.inputSchema,
+			env: {
+				ENVIRONMENT: "test",
+				API_URL: "https://api.example.test",
+				API_SERVICE: { fetch: apiFetch },
+			} as unknown as CloudflareEnv,
+		});
+		expect(result.status).toBe(200);
+		expect(apiFetch).toHaveBeenCalledOnce();
+		const headers = headersFromFetch(...apiFetch.mock.calls[0]!);
+		expect(headers.get("X-Tedix-Org-Id")).toBe("org_1");
+		return {
+			data: result.data,
+			body: (await jsonFromFetch(...apiFetch.mock.calls[0]!)).json,
+		};
+	}
+	it("drops transcript runtime metadata without dropping content or the cursor", async () => {
+		const { data } = await read("read_home_messages_compact", {
+			messages: [
+				{
+					id: "m",
+					role: "assistant",
+					content: "answer",
+					runId: "r",
+					createdAt: "now",
+					runtime: { metadata: "x".repeat(50000) },
+				},
+			],
+			nextCursor: "next",
+		});
+		expect(data).toEqual({
+			messages: [
+				{
+					id: "m",
+					role: "assistant",
+					content: "answer",
+					runId: "r",
+					createdAt: "now",
+				},
+			],
+			nextCursor: "next",
+		});
+	});
+	it("preserves run recovery, approval and usage fields while bounding answer text", async () => {
+		const run = {
+			id: "r",
+			status: "running",
+			delegatedTediId: "t",
+			childRunId: "child",
+			usage: { totalTokens: 20 },
+			runtime: { metadata: "x".repeat(50000) },
+			metadata: {
+				clientSubmissionId: "submission",
+				delegationWorkOrder: { status: "pending" },
+				homeDelegation: { status: "pending" },
+				kernelRoute: { routeKind: "delegate_tedi", answer: "a".repeat(3000) },
+				bodyExecutionResult: { summary: "b".repeat(3000), raw: "unused" },
+				childRunPreview: "p".repeat(1000),
+				redriveInput: "unused",
+			},
+		};
+		const { data } = await read("read_home_run_set_compact", {
+			runSet: {
+				activeRunIds: ["r"],
+				approvalMirrors: ["approval"],
+				runs: [run],
+			},
+		});
+		expect(data).toEqual({
+			runSet: {
+				activeRunIds: ["r"],
+				approvalMirrors: ["approval"],
+				runs: [
+					{
+						id: "r",
+						status: "running",
+						delegatedTediId: "t",
+						childRunId: "child",
+						usage: run.usage,
+						metadata: {
+							clientSubmissionId: "submission",
+							delegationWorkOrder: run.metadata.delegationWorkOrder,
+							homeDelegation: run.metadata.homeDelegation,
+							kernelRoute: {
+								routeKind: "delegate_tedi",
+								answer: "a".repeat(2000) + "…",
+							},
+							bodyExecutionResult: { summary: "b".repeat(2000) + "…" },
+							childRunPreview: "p".repeat(500) + "…",
+						},
+					},
+				],
+			},
+		});
+	});
+	it("projects nested child nodes and bounds every preview", async () => {
+		const child = {
+			id: "child",
+			childRunId: "c",
+			metadata: {
+				progress: { label: "working" },
+				preview: "p".repeat(1000),
+				secret: "unused",
+			},
+			runtime: "unused",
+		};
+		const { data } = await read("read_child_run_tree_compact", {
+			tree: {
+				activeNodeId: "child",
+				nodes: [{ id: "parent", children: [child] }],
+			},
+		});
+		expect(data).toEqual({
+			tree: {
+				activeNodeId: "child",
+				nodes: [
+					{
+						id: "parent",
+						metadata: {},
+						children: [
+							{
+								id: "child",
+								childRunId: "c",
+								metadata: {
+									progress: { label: "working" },
+									preview: "p".repeat(300) + "…",
+								},
+								children: [],
+							},
+						],
+					},
+				],
+			},
+		});
+	});
+	it("finds titles without returning large conversation rows or forwarding the local selector", async () => {
+		const payload = {
+			conversations: [
+				{ id: "chat", title: "Title", metadata: "x".repeat(50000) },
+			],
+			nextCursor: "next",
+		};
+		const { data, body } = await read("read_conversation_title", payload, {
+			conversationId: "chat",
+			limit: 100,
+			includeArchived: true,
+			cursor: "previous",
+		});
+		expect(body).toEqual({
+			limit: 100,
+			includeArchived: true,
+			cursor: "previous",
+		});
+		expect(data).toEqual({ found: true, title: "Title", nextCursor: "next" });
+		expect(
+			(
+				await read("read_conversation_title", payload, {
+					conversationId: "absent",
+				})
+			).data,
+		).toEqual({ found: false, title: null, nextCursor: "next" });
+	});
+});

@@ -14,6 +14,39 @@ describe("home surface tools", () => {
 	const tools = buildHomeSurfaceTools();
 	const byId = new Map(tools.map((tool) => [tool.toolId, tool]));
 
+	it("keeps compact reads on the original tools' capability boundaries", () => {
+		for (const [compact, original] of [
+			["read_home_messages_compact", "read_home_messages"],
+			["read_home_run_set_compact", "read_home_run_set"],
+			["read_child_run_tree_compact", "read_child_run_tree"],
+			["read_conversation_title", "list_conversations"],
+		]) {
+			const tool = byId.get(`home__${compact}`)!;
+			const originalTool = byId.get(`home__${original}`)!;
+			expect(
+				resolveMcpToolRequiredScopes(tool, "home", undefined, {
+					fallbackOnAuthenticatedAuthMode: true,
+				}),
+			).toEqual(
+				resolveMcpToolRequiredScopes(originalTool, "home", undefined, {
+					fallbackOnAuthenticatedAuthMode: true,
+				}),
+			);
+			expect(
+				isMcpToolVisibleToCaller(
+					tool,
+					"home",
+					undefined,
+					{
+						authType: "oauth",
+						scopes: ["mcp:apps.read"],
+					},
+					{ fallbackOnAuthenticatedAuthMode: true },
+				),
+			).toBe(false);
+			expect(tool.annotations?.readOnlyHint).toBe(true);
+		}
+	});
 	it("keeps the ask schema narrow: content only, no Home authority widening", () => {
 		const schema = byId.get("ask")!.inputSchema;
 		expect(schema.required).toEqual(["content"]);

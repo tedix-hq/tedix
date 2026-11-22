@@ -8,6 +8,7 @@ import { builtinToolPolicyMetadata } from "@tedix/api-contract/utils/approval-po
 import { RetryHomeRunInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
+import type { HomeReadProjection } from "./home-read-projection";
 import type { AppTool } from "./server-context";
 
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true };
@@ -468,6 +469,7 @@ type HomeSurfaceToolSpec = {
 	annotations: ToolAnnotations;
 	/** oRPC endpoint string, e.g. "kernelRuntime/enqueueMessage". */
 	rpcEndpoint: string;
+	readProjection?: HomeReadProjection;
 	/**
 	 * MCP tasks extension (io.modelcontextprotocol/tasks) linkage: tools that
 	 * enqueue a Home run set this so the result payload carries
@@ -507,6 +509,49 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 		inputSchema: READ_HOME_MESSAGES_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "kernelRuntime/readMessages",
+	},
+	{
+		name: "read_home_messages_compact",
+		description:
+			"Read Home transcript message fields for terminal clients, excluding runtime metadata.",
+		inputSchema: READ_HOME_MESSAGES_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "kernelRuntime/readMessages",
+		readProjection: "messages",
+	},
+	{
+		name: "read_home_run_set_compact",
+		description:
+			"Read Home run summaries for terminal clients, with clipped answers and previews.",
+		inputSchema: READ_HOME_RUN_SET_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "kernelRuntime/readRunSet",
+		readProjection: "runSet",
+	},
+	{
+		name: "read_child_run_tree_compact",
+		description:
+			"Read delegated child-run nodes for terminal clients, with clipped previews.",
+		inputSchema: READ_CHILD_RUN_TREE_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "kernelRuntime/readChildRunTree",
+		readProjection: "tree",
+	},
+	{
+		name: "read_conversation_title",
+		description:
+			"Find a Home conversation title in one page. Follow nextCursor until found or exhausted.",
+		inputSchema: {
+			...LIST_HOME_CONVERSATIONS_SCHEMA,
+			properties: {
+				...LIST_HOME_CONVERSATIONS_SCHEMA.properties,
+				conversationId: { type: "string", minLength: 1 },
+			},
+			required: ["conversationId"],
+		},
+		annotations: READ_ONLY,
+		rpcEndpoint: "kernelRuntime/listConversations",
+		readProjection: "title",
 	},
 	{
 		name: "synthesize_spoken_reply",
@@ -735,6 +780,20 @@ function buildHomeSurfaceTool(spec: HomeSurfaceToolSpec): AppTool {
 		config: {
 			transport: "rpc",
 			endpoint: spec.rpcEndpoint,
+			...(spec.readProjection
+				? { _homeReadProjection: spec.readProjection }
+				: {}),
+			...(spec.readProjection === "title"
+				? {
+						paramMap: {
+							limit: "limit",
+							cursor: "cursor",
+							search: "search",
+							channel: "channel",
+							includeArchived: "includeArchived",
+						},
+					}
+				: {}),
 			method: "POST",
 			// Home is not a tedi: never accept or inject a tedi identity. The
 			// caller's org is carried on the X-Tedix-Org-Id header (handler.ts)

@@ -1,3 +1,4 @@
+import { projectHomeRead } from "./home-read-projection";
 import { readResponseFields } from "./field-selection";
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import { attachExchangedToken } from "./token-exchange-pilot";
@@ -1184,6 +1185,13 @@ export class ToolHandler {
 				if (extracted !== undefined) data = extracted;
 			}
 			data = filterOperationalTedisResult(endpoint, data);
+			if (status < 400) {
+				data = projectHomeRead(
+					readToolConfigExtension(config, "_homeReadProjection"),
+					data,
+					input,
+				);
+			}
 
 			// MCP tasks extension linkage (io.modelcontextprotocol/tasks): tools
 			// that enqueue a Home run opt in via `_emitTaskLinkage` (home-surface.ts)
