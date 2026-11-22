@@ -1358,10 +1358,11 @@ const archiveDetachedOutputs = authed.executions.archiveDetachedOutputs
 	.handler(async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const agent = await verifiedExternalAgent(context, organizationId);
+		// The unified MCP surface prefixes the registered tool with its app namespace.
 		if (
 			!agent ||
 			agent.ownerBound ||
-			context.serviceBindingAuthorization?.toolId !==
+			context.serviceBindingAuthorization?.toolId.split("__").at(-1) !==
 				"archive_detached_os_gadget_execution_outputs"
 		) {
 			throw createError(
