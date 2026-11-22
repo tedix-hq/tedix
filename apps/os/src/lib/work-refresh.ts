@@ -1,5 +1,5 @@
 const WORK_REFRESH_MS = 120_000;
-const WORK_READ_RETRIES = 3;
+const WORK_READ_RETRIES = 2;
 
 export function retryWorkRead(failures: number, error: unknown): boolean {
 	const code = (error as { code?: string } | null)?.code;
@@ -27,8 +27,6 @@ function canRefresh(): boolean {
 
 /** Retain TanStack's same-key cache on errors; never carry decisions across keys. */
 export const workRefreshOptions = {
-	retry: retryWorkRead,
-	retryDelay: workRetryDelay,
 	refetchInterval: (): number | false =>
 		canRefresh() ? WORK_REFRESH_MS : false,
 	refetchIntervalInBackground: false,

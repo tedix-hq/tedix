@@ -2,6 +2,7 @@ import "@/lib/zod-jitless";
 import { focusManager, QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { OsRouteError, OsRoutePending } from "@/components/os-route-boundaries";
+import { retryWorkRead, workRetryDelay } from "@/lib/work-refresh";
 import { routeTree } from "@/routeTree.gen";
 
 // Query v5 observes visibility by default; also reconcile on native window focus.
@@ -17,7 +18,11 @@ focusManager.setEventListener((setFocused) => {
 
 export const osQueryClient = new QueryClient({
 	defaultOptions: {
-		queries: { staleTime: 30_000, retry: 2 },
+		queries: {
+			staleTime: 30_000,
+			retry: retryWorkRead,
+			retryDelay: workRetryDelay,
+		},
 	},
 });
 
