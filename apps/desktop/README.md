@@ -61,6 +61,12 @@ The app is not signed or notarized yet and has been run on macOS only.
   The app waits 30 minutes for this, also across a restart. If the sign-in
   cannot finish, the app says why and offers to start again. Once you are
   signed in, the menu shows who is signed in instead.
+- **First run.** On a Mac where the app was never set up, the setup opens
+  before the Tedix window, which comes next when the setup closes. Without
+  a coding tool, setup is only signing in to this app and adding Tedix to
+  the Claude or ChatGPT app (found in Applications): no command-line tool,
+  project folder or sessions. Claude Code inside the Claude app's Code tab
+  counts as Claude Code.
 - **Set up this Mac.** **Settings → General → Setup guide** opens it, and it opens by itself until
   this Mac is signed in, and from a `tedix://setup` link. Five short
   screens, with dashes at the bottom left to move between them (Welcome,

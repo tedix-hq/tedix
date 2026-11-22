@@ -1,4 +1,4 @@
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openLocalTedix, reloadLocalTedix } from "./local-mode";
 import { bundledLocalAvailable } from "./local-service";
@@ -99,8 +99,8 @@ function osOrigin(): string {
 	return `https://${isOsHost(host) ? host : "os.tedix.dev"}`;
 }
 const PANEL_LINKS: Record<PanelLink, string> = {
-	"claude-connectors": "https://claude.ai/settings/connectors",
-	chatgpt: "https://chatgpt.com/",
+	"claude-connectors": "https://claude.ai/customize/connectors",
+	chatgpt: "https://chatgpt.com/plugins",
 	"install-claude-code": "https://claude.com/product/claude-code",
 	"install-codex": "https://openai.com/codex/",
 };
@@ -916,6 +916,14 @@ function finishSignIn(link: string): void {
  * has its own, so the copy run from source never moves the installed one).
  */
 const windowFile = () => join(app.getPath("userData"), "window.json");
+/** There once the person has been through the first-run setup. */
+const setUpFile = () => join(app.getPath("userData"), "set-up");
+/**
+ * A first run: this app has never been set up here and never kept a window
+ * size (an install from before this marker always did). The setup opens
+ * before the main window, which shows when the setup closes.
+ */
+const firstRun = () => !existsSync(setUpFile()) && !existsSync(windowFile());
 
 /** The last size and place, when they still fit on a screen that is connected now. */
 function savedBounds(): Rectangle | undefined {
@@ -1195,7 +1203,13 @@ function openSetup(): void {
 	});
 	setupWindow = window;
 	window.setMenuBarVisibility(false);
-	window.on("closed", updateDock);
+	window.on("closed", () => {
+		writeFileSync(setUpFile(), new Date().toISOString());
+		// After the first-run setup the Tedix window comes next.
+		if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible())
+			showMain();
+		updateDock();
+	});
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	// Coming back from the browser shows the new state at once.
@@ -1745,8 +1759,12 @@ else if (process.argv.includes("--local-model")) {
 		setMenu();
 		// Opened at login, Tedix starts in the menu bar without a window.
 		const atLogin = await openedAtLogin();
-		createMainWindow(!atLogin);
-		if (atLogin) app.dock?.hide();
+		const first = firstRun();
+		createMainWindow(!atLogin && !first);
+		if (first) {
+			log("start: first run; the setup opens first");
+			openSetup();
+		} else if (atLogin) app.dock?.hide();
 		createTray();
 		openAppLink(startLink);
 
@@ -1951,7 +1969,12 @@ else if (process.argv.includes("--local-model")) {
 		});
 		// Tedix stays in the menu bar with no window open; only Quit ends it.
 		app.on("window-all-closed", () => {});
-		app.on("activate", showMain);
+		// While the first-run setup is open, it stays in front of the Tedix window.
+		app.on("activate", () => {
+			if (setupWindow && !setupWindow.isDestroyed() && !existsSync(setUpFile()))
+				return setupWindow.show();
+			showMain();
+		});
 		process.on("SIGTERM", () => quitFrom("a TERM signal"));
 		powerMonitor.on("shutdown", () => {
 			quitSource = "macOS shutting down";

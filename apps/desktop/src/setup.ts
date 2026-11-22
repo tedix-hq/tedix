@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
@@ -187,6 +193,70 @@ const TOOLS: Tool[] = [
 	},
 ];
 
+/**
+ * The Claude desktop app brings its own Claude Code for its Code tab, in
+ * ~/Library/Application Support/Claude/claude-code/<version>/<id>/claude.app.
+ * The newest one counts as Claude Code when none is on the PATH.
+ */
+function bundledClaudeCode(): string | undefined {
+	const root = join(
+		home,
+		"Library",
+		"Application Support",
+		"Claude",
+		"claude-code",
+	);
+	try {
+		const versions = readdirSync(root)
+			.filter((name) => /^\d+\.\d+\.\d+$/.test(name))
+			.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+			.reverse();
+		for (const version of versions)
+			for (const id of readdirSync(join(root, version))) {
+				const file = join(
+					root,
+					version,
+					id,
+					"claude.app",
+					"Contents",
+					"MacOS",
+					"claude",
+				);
+				if (existsSync(file)) return file;
+			}
+	} catch {
+		/* No Claude app, or no Code tab yet. */
+	}
+	return undefined;
+}
+
+/** The command that runs a tool: on the PATH, else one an app brings along. */
+function commandFor(tool: Tool): string | undefined {
+	return (
+		findCommand(tool.binary) ??
+		(tool.id === "claude" ? bundledClaudeCode() : undefined)
+	);
+}
+
+/** The chat desktop apps on this Mac; they need no terminal. */
+export interface ChatApps {
+	claude: boolean;
+	chatgpt: boolean;
+}
+function appInstalled(names: string[]): boolean {
+	return names.some((name) =>
+		[join("/Applications", name), join(home, "Applications", name)].some(
+			(path) => existsSync(path),
+		),
+	);
+}
+export function chatApps(): ChatApps {
+	return {
+		claude: appInstalled(["Claude.app"]),
+		chatgpt: appInstalled(["ChatGPT.app"]),
+	};
+}
+
 export interface ToolRow {
 	id: string;
 	name: string;
@@ -289,6 +359,7 @@ export interface SetupState {
 	steps: Record<string, StepRun>;
 	/** True while the command-line tool or the sign-in is still to do. */
 	open: boolean;
+	chatApps: ChatApps;
 	/**
 	 * Which tool takes which tasks, one plain sentence per rule, and the file
 	 * runners read it from. Undefined when the command-line tool cannot say.
@@ -591,7 +662,7 @@ async function readToolFacts(): Promise<void> {
 	const facts: typeof toolFacts = {};
 	await Promise.all(
 		TOOLS.map(async (tool) => {
-			const command = findCommand(tool.binary);
+			const command = commandFor(tool);
 			if (!command) return;
 			const [hasTedix, connection, signInWorks] = await Promise.all([
 				tool.hasTedix?.(command) ?? false,
@@ -606,7 +677,7 @@ async function readToolFacts(): Promise<void> {
 
 function toolRows(): ToolRow[] {
 	return TOOLS.map((tool) => {
-		const command = findCommand(tool.binary);
+		const command = commandFor(tool);
 		const found = command
 			? "found"
 			: existsSync(tool.folder)
@@ -716,6 +787,7 @@ export function setupState(): SetupState {
 		repo: settings().repo ?? "",
 		steps,
 		open: cli.kind === "missing" || !signedIn,
+		chatApps: chatApps(),
 	};
 }
 
@@ -1041,7 +1113,7 @@ export async function setupAction(
 		return;
 	}
 	if (!tool) return;
-	const command = findCommand(tool.binary);
+	const command = commandFor(tool);
 	if (action === "trust-hooks" && tool.id === "codex" && command) {
 		await step("hooks:codex", async (say) => {
 			// Open the real TUI view; trust remains a click made by the person.

@@ -178,10 +178,23 @@ const orgName = (id: string) => id.replace(/^org_/, "");
 const person = ({ name, email }: { name: string; email: string }) =>
 	name || email || "your account";
 
+/**
+ * A coding tool is on this Mac (or runs tasks here). Without one, setup is
+ * only signing in to this app and adding Tedix to the Claude or ChatGPT
+ * app: no command-line tool, no project folder, no sessions.
+ */
+const coding = (now: PanelState) =>
+	foundTools(now).length > 0 || now.status.runners.length > 0;
+
 /** The one thing that still needs the person, and the screen that has it. */
-function attention({
-	setup,
-}: PanelState): { text: string; step: StepId } | undefined {
+function attention(
+	now: PanelState,
+): { text: string; step: StepId } | undefined {
+	const { setup } = now;
+	if (!coding(now))
+		return setup.app.state === "out"
+			? { text: "Sign in to Tedix in this app.", step: "mac" }
+			: undefined;
 	const failed = (prefix: string) =>
 		Object.entries(setup.steps).some(
 			([key, ran]) => key.startsWith(prefix) && ran.error,
@@ -209,7 +222,7 @@ const allSet = (now: PanelState) => !attention(now) && now.setup.reach === "ok";
 function firstOpen(now: PanelState): StepId {
 	const { setup } = now;
 	if (setup.cli.kind === "missing" && setup.cli.problem) return "mac";
-	if (!setup.signedIn) return "welcome";
+	if (!setup.signedIn || setup.app.state !== "in") return "welcome";
 	return attention(now)?.step ?? "ready";
 }
 
@@ -231,14 +244,65 @@ function go(id: StepId): void {
 	current = id;
 	draw();
 }
+/** The steps this Mac needs: Sessions only with a coding tool. */
+const shown = (step: StepId) =>
+	step !== "sessions" || (state !== undefined && coding(state));
 const next = () => {
-	const at = current ? position(current) : 0;
-	if (at < STEPS.length - 1) go(STEPS[at + 1]![0]);
+	let at = current ? position(current) : 0;
+	do at++;
+	while (at < STEPS.length && !shown(STEPS[at]![0]));
+	if (at < STEPS.length) go(STEPS[at]![0]);
 };
 const back = () => {
-	const at = current ? position(current) : 0;
-	if (at > 0) go(STEPS[at - 1]![0]);
+	let at = current ? position(current) : 0;
+	do at--;
+	while (at > 0 && !shown(STEPS[at]![0]));
+	if (at >= 0) go(STEPS[at]![0]);
 };
+
+/**
+ * The Claude and ChatGPT apps, the ones on this Mac first. Adding Tedix is
+ * one step in each app; nothing here does it for the person.
+ */
+function chatRows(now: PanelState): HTMLElement[] {
+	const apps = now.setup.chatApps;
+	const claude = row({
+		key: "chat:claude",
+		icon: "bubble",
+		title: "Claude",
+		sub: apps.claude
+			? "Add Tedix in Claude under Connectors"
+			: "Add Tedix under Connectors on claude.ai",
+		control: el(
+			"span",
+			"controls",
+			button(
+				"Copy address",
+				"plain",
+				() => void tedixShell.copy(CONNECTOR_URL),
+			),
+			button(
+				"Open Connectors",
+				"quiet",
+				() => void tedixShell.open("claude-connectors"),
+			),
+		),
+	});
+	const chatgpt = row({
+		key: "chat:chatgpt",
+		icon: "bubble-spark",
+		title: "ChatGPT",
+		sub: apps.chatgpt
+			? "Turn on Tedix in ChatGPT under Plugins"
+			: "Turn on Tedix under Plugins on chatgpt.com",
+		control: button(
+			"Open Plugins",
+			"plain",
+			() => void tedixShell.open("chatgpt"),
+		),
+	});
+	return apps.chatgpt && !apps.claude ? [chatgpt, claude] : [claude, chatgpt];
+}
 
 const appIcon = () =>
 	Object.assign(el("img"), { src: "assets/icon.png", alt: "" });
@@ -255,7 +319,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			centre: {
 				mark: appIcon(),
 				lines: [
-					el("p", "", "Connect your coding tools to Tedix."),
+					el("p", "", "Use Tedix here and in the apps you already use."),
 					now.app.localWorkspace &&
 						button(
 							"Start on this Mac",
@@ -281,10 +345,14 @@ function screenFor(id: StepId, now: PanelState): Screen {
 		const app = setup.app;
 		const signInApp = () => act("app-sign-in");
 		const signInCli = () => act("sign-in");
+		const devTools = coding(now);
+		// The command-line tool's sign-in matters only for coding tools.
 		const cliNeeded =
+			devTools &&
 			cli.kind !== "missing" &&
 			(!setup.signedIn || setup.reach === "signed-out");
-		const signedIn = app.state === "in" && !cliNeeded && setup.signedIn;
+		const signedIn =
+			app.state === "in" && !cliNeeded && (setup.signedIn || !devTools);
 		// One row for both sign-ins: this app first, then the command-line tool.
 		const signIn: RowView =
 			app.state === "out"
@@ -386,10 +454,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 		return {
 			label: "This Mac",
 			headline: "Sign in on this Mac",
-			sentence: "Once for this app, once for the command-line tool.",
+			sentence: devTools
+				? "Once for this app, once for the command-line tool."
+				: "Sign in to Tedix in this app.",
 			rows: [
 				row(signIn),
-				row(tool),
+				devTools && row(tool),
 				now.openAtLogin !== undefined &&
 					row({
 						key: "login",
@@ -445,82 +515,25 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				waiting: view.working,
 			});
 		});
+		if (!found.length)
+			return {
+				label: "Your apps",
+				headline: "Use Tedix in Claude or ChatGPT",
+				sentence:
+					"Add Tedix once in each app you use. You can also use Tedix right here.",
+				rows: chatRows(now),
+				primary: continueButton,
+			};
 		return {
 			label: "Coding tools",
 			headline: "Choose your tools",
 			sentence: el(
 				"span",
 				"",
-				found.length
-					? "Switch on the tools Tedix may use for tasks, then sign in only those. "
-					: "Use Tedix from the Claude or ChatGPT app. ",
+				"Switch on the tools Tedix may use for tasks, then sign in only those. ",
 				button("Check again", "link", () => act("check")),
 			),
-			rows: [
-				row({
-					key: "chat:claude",
-					icon: "bubble",
-					title: "Claude app",
-					sub: "Add Tedix as a custom connector",
-					control: el(
-						"span",
-						"controls",
-						button(
-							"Copy address",
-							"plain",
-							() => void tedixShell.copy(CONNECTOR_URL),
-						),
-						button(
-							"Open settings",
-							"quiet",
-							() => void tedixShell.open("claude-connectors"),
-						),
-					),
-				}),
-				row({
-					key: "chat:chatgpt",
-					icon: "bubble-spark",
-					title: "ChatGPT app",
-					sub: "Turn on Tedix in the Plugins Directory",
-					control: button(
-						"Open ChatGPT",
-						"plain",
-						() => void tedixShell.open("chatgpt"),
-					),
-				}),
-				...tools,
-				found.length === 0 &&
-					row({
-						key: "none",
-						icon: "terminal",
-						title: "Coding tools: none found",
-						sub: "Install one to run tasks on this Mac",
-						control: el(
-							"span",
-							"controls",
-							button(
-								"Get Claude Code",
-								"quiet",
-								() => void tedixShell.open("install-claude-code"),
-							),
-							button(
-								"Get Codex",
-								"quiet",
-								() => void tedixShell.open("install-codex"),
-							),
-						),
-					}),
-				found.length > 0 &&
-					row({
-						key: "folder",
-						icon: "folder",
-						title: "Project folder",
-						sub: setup.repo
-							? setup.repo.split("/").at(-1) || setup.repo
-							: "Asked when you switch a tool on",
-						control: button("Choose…", "quiet", () => act("choose-folder")),
-					}),
-			],
+			rows: [...chatRows(now), ...tools],
 			primary: continueButton,
 		};
 	}
@@ -567,6 +580,21 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				],
 			},
 			headline: "Finish setting up this Mac",
+			primary: openTedix,
+		};
+	if (!coding(now))
+		return {
+			centre: {
+				mark: el("span", "check", icon("check", 56)),
+				lines: [
+					el(
+						"p",
+						"",
+						"Ask Tedix here, or in Claude and ChatGPT once you added it there.",
+					),
+				],
+			},
+			headline: "You're all set",
 			primary: openTedix,
 		};
 	if (setup.reach !== "ok")
@@ -711,6 +739,7 @@ function draw(): void {
 	const at = position(id);
 	backButton.hidden = at === 0;
 	dashes.forEach((dash, index) => {
+		dash.hidden = !shown(STEPS[index]![0]);
 		if (index === at) dash.setAttribute("aria-current", "step");
 		else dash.removeAttribute("aria-current");
 	});
