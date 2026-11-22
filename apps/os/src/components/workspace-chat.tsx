@@ -486,12 +486,14 @@ export function WorkspaceChat({
 			text: string,
 			attachments?: Array<{ outputId: string }>,
 			tediId?: string,
+			retryOfTurnId?: string,
 		) => {
 			const trimmed = text.trim();
 			if (!trimmed || !client || viewOnly) return;
 			notePost(trimmed);
 			return client.sendTurn({
 				text: trimmed,
+				...(retryOfTurnId ? { retryOfTurnId } : {}),
 				...answererFields(pinnedTediId, tediId),
 				...(sentModelId ? { modelId: sentModelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
@@ -722,7 +724,13 @@ export function WorkspaceChat({
 				onRetry={
 					viewOnly || running || state.pendingSend
 						? null
-						: (text, attachments) => void send(text, attachments)
+						: (turn) =>
+								void send(
+									turn.text,
+									turn.attachments?.map(({ outputId }) => ({ outputId })),
+									undefined,
+									turn.turnId,
+								)
 				}
 				onStarter={
 					viewOnly || connection.phase === "unavailable"
@@ -918,7 +926,7 @@ function Thread({
 	models: ReadonlyArray<{ id: string; label: string }>;
 	/** Sent while the agent works; it has not read them yet. */
 	queued: WorkspaceChatState["queued"];
-	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
+	pendingSend: WorkspaceChatState["pendingSend"];
 	catchingUp: boolean;
 	hasEarlier: boolean;
 	onLoadEarlier: () => void;
@@ -1011,12 +1019,27 @@ function Thread({
 					</Empty>
 				) : null}
 				{visibleTurns.map((turn, index) => {
+					const previous = visibleTurns[index - 1];
+					const repeatedPrompt =
+						previous &&
+						turn.retryOfTurnId === previous.turnId &&
+						previous.authorId === turn.authorId &&
+						previous.authorKind === turn.authorKind &&
+						previous.text === turn.text &&
+						(previous.attachments ?? []).length ===
+							(turn.attachments ?? []).length &&
+						(previous.attachments ?? []).every(
+							(file, i) =>
+								file.revisionId === turn.attachments?.[i]?.revisionId &&
+								file.outputId === turn.attachments?.[i]?.outputId,
+						);
 					const last = index === visibleTurns.length - 1;
 					const stopped =
 						turn.status === "cancelled" || turn.status === "error";
 					return (
 						<TurnView
 							reports={reports}
+							showPrompt={!repeatedPrompt}
 							key={turn.turnId}
 							workspaceId={workspaceId}
 							viewerId={viewerId}
@@ -1040,7 +1063,10 @@ function Thread({
 				/>
 				{pendingSend ? (
 					<div className="workspace-chat-turn" data-pending="true">
-						<UserBubble text={pendingSend.text} />
+						{(!pendingSend.retryOfTurnId ||
+							pendingSend.retryOfTurnId !== visibleTurns.at(-1)?.turnId) && (
+							<UserBubble text={pendingSend.text} />
+						)}
 						<Working label="Sending" since={pendingSend.sentAt} />
 					</div>
 				) : null}
@@ -1067,10 +1093,7 @@ function Thread({
 /** Approves every listed proposal of one reply together. */
 type ApproveAll = (approvalIds: string[]) => void;
 
-type RetryTurn = (
-	text: string,
-	attachments?: Array<{ outputId: string }>,
-) => void;
+type RetryTurn = (turn: ChatTurn) => void;
 
 /** What Continue sends after a stopped or interrupted turn. */
 const CONTINUE_TEXT =
@@ -1106,6 +1129,7 @@ function launchedRuns(turn: ChatTurn) {
 }
 
 function TurnView({
+	showPrompt,
 	reports,
 	workspaceId,
 	viewerId,
@@ -1117,6 +1141,7 @@ function TurnView({
 	onContinue,
 	onRetry,
 }: {
+	showPrompt: boolean;
 	reports: ReadonlyMap<string, ChatTurn[]>;
 	workspaceId: string;
 	/** The person reading; their own messages carry no name. */
@@ -1145,11 +1170,7 @@ function TurnView({
 	const thought = running ? null : thoughtMs(turn);
 	const sendAgain =
 		onRetry && turn.text && !turn.handedFrom && !turn.runReport
-			? () =>
-					onRetry(
-						turn.text,
-						turn.attachments?.map((file) => ({ outputId: file.outputId })),
-					)
+			? () => onRetry(turn)
 			: null;
 	return (
 		<article
@@ -1162,7 +1183,7 @@ function TurnView({
 				<Text role="caption" tone="secondary">
 					{turn.text}
 				</Text>
-			) : turn.text ? (
+			) : showPrompt && turn.text ? (
 				<>
 					{turn.authorId && !own ? (
 						<WorkspaceChatAuthor
@@ -1177,7 +1198,7 @@ function TurnView({
 					) : null}
 				</>
 			) : null}
-			{turn.attachments?.length ? (
+			{showPrompt && turn.attachments?.length ? (
 				<ul aria-label="Message files" className="m-0 grid list-none gap-1 p-0">
 					{turn.attachments.map((file) => (
 						<li key={file.outputId}>
@@ -1531,7 +1552,7 @@ function AskedFromApp({
 function UserBubble({ text }: { text: string }) {
 	return (
 		<div className="workspace-chat-user">
-			<div className="max-w-[min(680px,78%)] rounded-[24px] rounded-br-lg bg-kumo-fill px-4 py-2.5">
+			<div className="chat-user-bubble bg-kumo-fill">
 				<ChatMarkdown content={text} preserveLineBreaks />
 			</div>
 		</div>

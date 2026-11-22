@@ -1,6 +1,10 @@
 @import "./kumo-tedix.css";
 @import "tailwindcss";
 
+@utility chat-user-bubble {
+	@apply min-w-0 max-w-[min(680px,78%)] rounded-[24px] rounded-br-lg px-4 py-2.5;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /*

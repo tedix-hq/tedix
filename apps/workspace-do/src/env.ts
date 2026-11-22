@@ -17,6 +17,7 @@ export interface WorkspaceScope {
 export interface TurnRequest {
 	/** Caller-supplied for idempotent retries; generated when absent. */
 	turnId?: string;
+	retryOfTurnId?: string;
 	/** Conversation to continue; null or absent creates one. */
 	conversationId?: string | null;
 	actorId: string;

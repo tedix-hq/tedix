@@ -58,6 +58,7 @@ export type WireEventBody =
 	| {
 			type: "turn.started";
 			turnId: string;
+			retryOfTurnId?: string;
 			text: string;
 			displayText?: string;
 			attachments?: Array<{
@@ -470,6 +471,7 @@ export type ClientFrame =
 	| {
 			type: "send_turn";
 			clientTurnId: string;
+			retryOfTurnId?: string;
 			conversationId: string | null;
 			text: string;
 			tediId?: string;

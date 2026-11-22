@@ -101,6 +101,7 @@ export type WorkspaceChatClient = {
 	subscribe(listener: () => void): () => void;
 	/** Returns the client turn id; the object echoes it in `turn.accepted`. */
 	sendTurn(input: {
+		retryOfTurnId?: string;
 		text: string;
 		newConversation?: boolean;
 		tediId?: string;
@@ -668,6 +669,7 @@ export function createWorkspaceChatClient(
 				clientTurnId,
 				text: input.text,
 				sentAt: nowFn(),
+				...(input.retryOfTurnId ? { retryOfTurnId: input.retryOfTurnId } : {}),
 			});
 			publish();
 			const message: Extract<
@@ -676,6 +678,7 @@ export function createWorkspaceChatClient(
 			> = {
 				type: "send_turn",
 				clientTurnId,
+				...(input.retryOfTurnId ? { retryOfTurnId: input.retryOfTurnId } : {}),
 				conversationId,
 				text: input.text,
 				tediId: input.tediId,

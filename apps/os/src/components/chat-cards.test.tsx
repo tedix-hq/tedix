@@ -1315,11 +1315,11 @@ describe("RunControls", () => {
 		expect(kernelOnly).toBe("");
 	});
 
-	it("offers Try again for a routing failure and disables it while pending", () => {
+	it("offers Retry for a routing failure and disables it while pending", () => {
 		const html = renderToStaticMarkup(
 			<RunControls status="failed" routeRetryable pending />,
 		);
-		expect(html).toContain("Try again");
+		expect(html).toContain("Retry");
 		expect(html).toContain('disabled=""');
 	});
 

@@ -955,7 +955,7 @@ describe("WorkspaceChat", () => {
 		);
 	});
 
-	it("retries a failed turn by sending its own message again", () => {
+	it("keeps one prompt on retry and replay, and shows deliberate repeat messages", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
 		act(() =>
@@ -980,8 +980,21 @@ describe("WorkspaceChat", () => {
 		act(() => retry?.click());
 		expect(fake.calls).toContainEqual([
 			"sendTurn",
-			expect.objectContaining({ text: "How many challenges are open?" }),
+			expect.objectContaining({
+				text: started.text,
+				retryOfTurnId: started.turnId,
+			}),
 		]);
+		const retried = {
+			...started,
+			seq: 3,
+			turnId: "t2",
+			retryOfTurnId: started.turnId,
+		};
+		act(() => fake.feed([retried]));
+		expect(host.querySelectorAll(".workspace-chat-user")).toHaveLength(1);
+		act(() => fake.feed([{ ...started, seq: 4, turnId: "t3" }]));
+		expect(host.querySelectorAll(".workspace-chat-user")).toHaveLength(2);
 	});
 
 	it("calls a step the agent recovered from a retry, and only an unrecovered last step a failure", () => {

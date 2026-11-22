@@ -110,6 +110,7 @@ export type ChatQueuedMessage = {
 };
 
 export type ChatTurn = {
+	retryOfTurnId?: string;
 	turnId: string;
 	conversationId: string;
 	/** Set while the turn is only known locally (sent, not yet accepted). */
@@ -240,7 +241,12 @@ export type WorkspaceChatState = {
 	 */
 	returned: ChatQueuedMessage[];
 	/** A turn sent from this tab, not yet echoed by the object. */
-	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
+	pendingSend: {
+		retryOfTurnId?: string;
+		clientTurnId: string;
+		text: string;
+		sentAt: number;
+	} | null;
 	lastError: { code: string; message: string; clientTurnId?: string } | null;
 	/** Seqs already folded; shared between successive states, grows only. */
 	seen: Set<number>;
@@ -304,6 +310,7 @@ function newTurn(
 		...(event.answererNote ? { answererNote: event.answererNote } : {}),
 		...(event.handedFrom ? { handedFrom: event.handedFrom } : {}),
 		...(event.runReport ? { runReport: event.runReport } : {}),
+		retryOfTurnId: event.retryOfTurnId,
 		text: event.displayText ?? event.text,
 		...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 		attachments: event.attachments,
@@ -539,6 +546,7 @@ export function applyWorkspaceChatEvent(
 				(turn) => ({
 					...turn,
 					startedAt: event.at,
+					retryOfTurnId: event.retryOfTurnId,
 					text: event.displayText ?? event.text,
 					...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 					...(event.runReport ? { runReport: event.runReport } : {}),
@@ -1004,7 +1012,7 @@ export function applyWorkspaceChatEvents(
 
 export function markPendingSend(
 	state: WorkspaceChatState,
-	send: { clientTurnId: string; text: string; sentAt: number },
+	send: NonNullable<WorkspaceChatState["pendingSend"]>,
 ): WorkspaceChatState {
 	return { ...state, pendingSend: send, lastError: null };
 }

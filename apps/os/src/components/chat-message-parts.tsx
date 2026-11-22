@@ -167,9 +167,7 @@ export function ChatMessageBubble({
 			<div
 				className={cn(
 					"flex min-w-0 flex-col gap-1",
-					isUser
-						? "max-w-[min(680px,78%)] rounded-[24px] rounded-br-lg bg-kumo-fill px-4 py-2.5"
-						: "max-w-full py-0.5",
+					isUser ? "chat-user-bubble bg-kumo-fill" : "max-w-full py-0.5",
 				)}
 			>
 				{isUser && seat.success ? (
@@ -462,7 +460,7 @@ export function ProvisionalUserBubble({
 			aria-busy={pending || undefined}
 			className="flex w-full min-w-0 max-w-full justify-end"
 		>
-			<div className="flex min-w-0 max-w-[min(680px,78%)] flex-col gap-1 rounded-[24px] rounded-br-lg border border-kumo-hairline border-dashed bg-kumo-tint px-4 py-2.5">
+			<div className="chat-user-bubble flex min-w-0 flex-col gap-1 border border-kumo-hairline border-dashed bg-kumo-tint">
 				<Text
 					role="body"
 					tone="secondary"

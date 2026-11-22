@@ -1732,6 +1732,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 		const startEvent = {
 			type: "turn.started" as const,
+			...(input.retryOfTurnId ? { retryOfTurnId: input.retryOfTurnId } : {}),
 			turnId,
 			text,
 			...(displayText ? { displayText } : {}),
@@ -3475,6 +3476,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					await assertWorkspaceGuestTedi(this.env.DB, attachment, frame.tediId);
 					const started = await this.sendTurn(scope, {
 						turnId: frame.clientTurnId,
+						...(typeof frame.retryOfTurnId === "string"
+							? { retryOfTurnId: frame.retryOfTurnId }
+							: {}),
 						conversationId: frame.conversationId,
 						actorId: attachment.actorId,
 						actorKind: "user",

@@ -6,7 +6,7 @@ import { WorkspaceChatAuthor } from "./workspace-chat-author";
 
 function Bubble({ message }: { message: ChatQueuedMessage }) {
 	return (
-		<div className="max-w-[min(680px,78%)] rounded-[24px] rounded-br-lg bg-kumo-fill px-4 py-2.5">
+		<div className="chat-user-bubble bg-kumo-fill">
 			<ChatMarkdown content={message.text} preserveLineBreaks />
 		</div>
 	);

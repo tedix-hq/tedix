@@ -71,6 +71,7 @@ export type WorkspaceChatClientMessage =
 	| {
 			type: "send_turn";
 			clientTurnId: string;
+			retryOfTurnId?: string;
 			conversationId: string | null;
 			text: string;
 			tediId?: string;
@@ -228,6 +229,7 @@ export type WorkspaceChatLedgerEvent =
 	| (Stamped & {
 			type: "turn.started";
 			turnId: string;
+			retryOfTurnId?: string;
 			displayText?: string;
 			attachments?: Array<{
 				outputId: string;

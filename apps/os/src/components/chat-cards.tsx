@@ -1875,7 +1875,7 @@ export function RunControls({
 				disabled={pending}
 				onClick={() => onRetry?.()}
 			>
-				{routeRetryable ? "Try again" : "Retry"}
+				Retry
 			</Button>
 		</div>
 	);

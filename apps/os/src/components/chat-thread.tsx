@@ -2705,20 +2705,14 @@ export function ChatThread({
 											onClick={() => attachmentInputRef.current?.click()}
 										>
 											<Paperclip size={18} aria-hidden="true" />
-											<span className="min-w-0 text-left">
-												<span className="block">Attach files</span>
-												<span className="block whitespace-nowrap text-xs text-kumo-subtle">
-													Add files to your message.
-												</span>
+											<span className="min-w-0 whitespace-normal">
+												Attach files
 											</span>
 										</DropdownMenuItem>
 										<DropdownMenuItem onClick={() => setDirectReadOpen(true)}>
 											<MagnifyingGlass size={18} aria-hidden="true" />
-											<span className="min-w-0 text-left">
-												<span className="block">Read from connected app</span>
-												<span className="block whitespace-nowrap text-xs text-kumo-subtle">
-													Choose an app and read its data.
-												</span>
+											<span className="min-w-0 whitespace-normal">
+												Read from connected app
 											</span>
 										</DropdownMenuItem>
 									</DropdownMenuGroup>
@@ -2734,11 +2728,8 @@ export function ChatThread({
 												}}
 											>
 												<Sparkle size={18} aria-hidden="true" />
-												<span className="min-w-0 text-left">
-													<span className="block">Use a skill…</span>
-													<span className="block whitespace-nowrap text-xs text-kumo-subtle">
-														Find and use an available skill.
-													</span>
+												<span className="min-w-0 whitespace-normal">
+													Use a skill…
 												</span>
 											</DropdownMenuItem>
 										) : null}
@@ -2755,7 +2746,7 @@ export function ChatThread({
 												<item.icon size={18} aria-hidden="true" />
 												<span className="min-w-0 text-left">
 													<span className="block">{item.command}</span>
-													<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+													<span className="block whitespace-normal break-words text-xs text-kumo-subtle">
 														{item.description}
 													</span>
 												</span>
@@ -2779,7 +2770,7 @@ export function ChatThread({
 													<option.icon size={18} aria-hidden="true" />
 													<span className="min-w-0 text-left">
 														<span className="block">Create {format}</span>
-														<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+														<span className="block whitespace-normal break-words text-xs text-kumo-subtle">
 															{option.description}
 														</span>
 													</span>
