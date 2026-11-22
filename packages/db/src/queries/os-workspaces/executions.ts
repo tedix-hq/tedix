@@ -1,10 +1,21 @@
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	ne,
+	notExists,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
 import {
 	type NewOsGadgetExecutionRow,
 	type OsGadgetExecutionRow,
 	osGadgetExecutions,
+	osWorkspaces,
 } from "../../schema/os-workspaces";
 
 export interface OsGadgetExecutionScopeParams {
@@ -114,15 +125,28 @@ export async function cutOverOsGadgetExecutionOutput(
 	db: DbQueryClient,
 	row: OsGadgetExecutionRow & { output: string; completedAt: string },
 	sha256: string,
-	phase: "publish" | "clear",
+	phase: "publish" | "clear" | "archiveDetached",
 ): Promise<boolean> {
+	const archiveDetached = phase === "archiveDetached";
+	const attachableWorkspace = db
+		.select({ id: osWorkspaces.id })
+		.from(osWorkspaces)
+		.where(
+			and(
+				eq(osWorkspaces.organizationId, row.organizationId),
+				eq(osWorkspaces.id, row.workspaceId),
+				or(
+					ne(osWorkspaces.status, "archived"),
+					ne(osWorkspaces.visibility, "private"),
+				),
+			),
+		);
 	const [updated] = await db
 		.update(osGadgetExecutions)
-		.set(
-			phase === "publish"
-				? { workspaceOutputSha256: sha256 }
-				: { output: null },
-		)
+		.set({
+			workspaceOutputSha256: phase === "clear" ? undefined : sha256,
+			output: phase === "publish" ? undefined : null,
+		})
 		.where(
 			and(
 				eq(osGadgetExecutions.organizationId, row.organizationId),
@@ -137,7 +161,21 @@ export async function cutOverOsGadgetExecutionOutput(
 				isNull(osGadgetExecutions.workflowInstanceId),
 				phase === "publish"
 					? isNull(osGadgetExecutions.workspaceOutputSha256)
-					: eq(osGadgetExecutions.workspaceOutputSha256, sha256),
+					: or(
+							eq(osGadgetExecutions.workspaceOutputSha256, sha256),
+							archiveDetached
+								? isNull(osGadgetExecutions.workspaceOutputSha256)
+								: undefined,
+						),
+				archiveDetached
+					? and(
+							eq(
+								osGadgetExecutions.runtimeEnvironment,
+								row.runtimeEnvironment ?? "",
+							),
+							notExists(attachableWorkspace),
+						)
+					: undefined,
 			),
 		)
 		.returning({ id: osGadgetExecutions.id });

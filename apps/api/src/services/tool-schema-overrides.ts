@@ -230,6 +230,8 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/executions/list": "list_os_gadget_executions",
 	"osWorkspaces/executions/get": "get_os_gadget_execution",
 	"osWorkspaces/executions/copyOutput": "copy_os_gadget_execution_output",
+	"osWorkspaces/executions/archiveDetachedOutputs":
+		"archive_detached_os_gadget_execution_outputs",
 	"osWorkspaces/collaboration/list": "list_os_collaboration_proposals",
 	"osWorkspaces/collaboration/get": "get_os_collaboration_proposal",
 	"osWorkspaces/collaboration/create": "create_os_collaboration_proposal",
@@ -375,6 +377,7 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/executions/list": "read",
 	"osWorkspaces/executions/get": "read",
 	"osWorkspaces/executions/copyOutput": "write",
+	"osWorkspaces/executions/archiveDetachedOutputs": "write",
 	"osWorkspaces/collaboration/list": "read",
 	"osWorkspaces/collaboration/get": "read",
 	"osWorkspaces/collaboration/create": "write",

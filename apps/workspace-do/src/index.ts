@@ -1,3 +1,7 @@
+import {
+	copyGadgetExecutionBody,
+	readGadgetExecutionBody,
+} from "./gadget-execution-archive";
 import type {
 	OsWorkspaceChangeRecordsQuery,
 	OsWorkspaceChangeRecordsExport,
@@ -169,6 +173,23 @@ export class InternalEntrypoint
 			executionId,
 			output,
 		);
+	}
+	async archiveDetachedGadgetExecutionOutput(
+		scope: WorkspaceScope,
+		executionId: string,
+		output: string | null,
+		sha256: string,
+	) {
+		const bucket = this.env.R2_BUCKET;
+		if (output === null) {
+			await readGadgetExecutionBody(bucket, scope, executionId, sha256);
+		} else if (
+			(await copyGadgetExecutionBody(bucket, scope, executionId, output))
+				.sha256 !== sha256
+		) {
+			throw new Error("Workspace execution output digest changed");
+		}
+		return sha256;
 	}
 	prepareDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
 		return stubFor(this.env, scope).prepareDocumentTransfer(scope, transfer);

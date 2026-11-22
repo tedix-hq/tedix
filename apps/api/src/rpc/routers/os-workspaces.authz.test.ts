@@ -16,6 +16,8 @@ import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
 	osBlueprintRevisions,
 	osBlueprints,
+	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osGadgetRevisions,
 	osGadgets,
@@ -48,6 +50,8 @@ function createEnv(): CloudflareEnv {
 			osWorkspaceSummaries,
 			osGadgets,
 			osGadgetRevisions,
+			osGadgetCode,
+			osGadgetCodeBlobs,
 			osGadgetExecutions,
 			osBlueprints,
 			osBlueprintRevisions,
@@ -233,6 +237,7 @@ describe("os-workspaces verb matrix", () => {
 		await expect(reader.outputs.list({})).resolves.toEqual({
 			items: [],
 			truncated: false,
+			nextOffset: null,
 		});
 		// Dependency preflight is a read: it resolves rows, never mints authority.
 		const blueprintId = await seedBlueprint(env);
@@ -844,4 +849,21 @@ describe("workspace icon", () => {
 			images.restore();
 		}
 	});
+});
+
+it("requires a verified machine agent for detached output archiving", async () => {
+	const env = createEnv();
+	const input = {
+		workItemId: WORKSPACE_ID,
+		attemptId: WORKSPACE_ID,
+		executionIds: [WORKSPACE_ID],
+	};
+	for (const client of [
+		userClient(env, ["settings:manage"]),
+		apiKeyClient(env, ["mcp:apps.admin"]),
+	]) {
+		await expect(
+			client.executions.archiveDetachedOutputs(input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	}
 });

@@ -1,3 +1,8 @@
+import {
+	copyGadgetExecutionBody,
+	gadgetExecutionOutputKey,
+	readGadgetExecutionBody,
+} from "./gadget-execution-archive";
 import type { ActionClass } from "@tedix/api-contract/utils/approval-holds";
 import { matchingChatSentence } from "@tedix/api-contract/utils/markdown-plain-text";
 import type {
@@ -747,14 +752,6 @@ function sameDocumentTransfer(a: DocumentTransfer, b: DocumentTransfer) {
 	);
 }
 
-function gadgetExecutionOutputKey(
-	scope: WorkspaceScope,
-	executionId: string,
-	sha256: string,
-) {
-	return `workspace-gadget-execution-outputs/v1/${encodeURIComponent(scope.organizationId)}/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(executionId)}/${sha256}.json`;
-}
-
 export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #store: WorkspaceStorage;
 	readonly #memory: SqlMemoryAdapter;
@@ -1024,45 +1021,37 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		executionId: string,
 		output: string,
-	): Promise<{ executionId: string; sha256: string; bytes: number }> {
+	) {
 		this.bindScope(scope);
-		const body = new TextEncoder().encode(output);
-		const sha256 = await sha256Hex(body);
-		const key = gadgetExecutionOutputKey(scope, executionId, sha256);
-		const bucket = this.env.R2_BUCKET;
-		await bucket.put(key, body, {
-			onlyIf: { etagDoesNotMatch: "*" },
-			sha256,
-			httpMetadata: { contentType: "application/json" },
-		});
-		const verified = await this.readGadgetExecutionOutput(
+		const { sha256, bytes } = await copyGadgetExecutionBody(
+			this.env.R2_BUCKET,
 			scope,
 			executionId,
-			sha256,
+			output,
 		);
-		if (verified !== output)
-			throw new Error("Workspace execution output verification failed");
-		this.#store.put(`gadget-execution-output:${executionId}:${sha256}`, key);
-		return { executionId, sha256, bytes: body.byteLength };
+		this.#store.put(
+			`gadget-execution-output:${executionId}:${sha256}`,
+			gadgetExecutionOutputKey(scope, executionId, sha256),
+		);
+		return {
+			executionId,
+			sha256,
+			bytes,
+		};
 	}
 
 	async readGadgetExecutionOutput(
 		scope: WorkspaceScope,
 		executionId: string,
 		sha256: string,
-	): Promise<string> {
+	) {
 		this.bindScope(scope);
-		if (!/^[a-f0-9]{64}$/.test(sha256))
-			throw new Error("Invalid workspace output digest");
-		// Derive the location from the shared receipt so reads survive recovery
-		// of a workspace object whose local index predates the copy.
-		const key = gadgetExecutionOutputKey(scope, executionId, sha256);
-		const stored = await this.env.R2_BUCKET.get(key);
-		if (!stored) throw new Error("Workspace execution output not found");
-		const output = await stored.text();
-		if ((await sha256Hex(output)) !== sha256)
-			throw new Error("Workspace execution output verification failed");
-		return output;
+		return readGadgetExecutionBody(
+			this.env.R2_BUCKET,
+			scope,
+			executionId,
+			sha256,
+		);
 	}
 
 	async outputQuery<K extends OutputQuery["op"]>(

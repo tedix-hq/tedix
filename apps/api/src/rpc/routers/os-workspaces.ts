@@ -1,3 +1,6 @@
+import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
+import { WorkFactoryError } from "@tedix/db/queries/work-items/factory-state";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { verifiedExternalAgent } from "./work-items-principal";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { env } from "cloudflare:workers";
@@ -161,6 +164,7 @@ import {
 	createError,
 	ErrorCodes,
 	withAuth,
+	withAuthorization,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import { readGalleryBlueprintPage } from "../../lib/blueprint-landing";
@@ -1121,6 +1125,12 @@ type ExecutionWorkspaceScope = Pick<
 function executionWorkspaceRuntime(context: BaseContext) {
 	const { WORKSPACE_RUNTIME: runtime } = context.env as unknown as {
 		WORKSPACE_RUNTIME?: {
+			archiveDetachedGadgetExecutionOutput(
+				scope: ExecutionWorkspaceScope,
+				executionId: string,
+				output: string | null,
+				sha256: string,
+			): Promise<string>;
 			copyGadgetExecutionOutput(
 				scope: ExecutionWorkspaceScope,
 				executionId: string,
@@ -1334,6 +1344,131 @@ const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 		return copy;
 	},
 );
+
+const archiveDetachedOutputs = authed.executions.archiveDetachedOutputs
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Storage maintenance requires a verified machine agent",
+			},
+			"mcp:apps.admin",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const agent = await verifiedExternalAgent(context, organizationId);
+		if (
+			!agent ||
+			agent.ownerBound ||
+			context.serviceBindingAuthorization?.toolId !==
+				"archive_detached_os_gadget_execution_outputs"
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Detached output archiving requires a machine app-admin tool call",
+			);
+		}
+		const db = queryDb(context);
+		try {
+			await getAuthoritativeWorkItemAttempt(db, {
+				orgId: organizationId,
+				workItemId: input.workItemId,
+				attemptId: input.attemptId,
+				executor: agent.executor,
+				sessionId: agent.executor.sessionId,
+				externalSessionKey: agent.externalSessionKey,
+			});
+		} catch (error) {
+			if (
+				!(error instanceof WorkFactoryError) ||
+				error.code !== "STALE_ATTEMPT"
+			)
+				throw error;
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Detached output archiving requires a current Work attempt",
+			);
+		}
+		const runtime = executionWorkspaceRuntime(context);
+		const verifiedExecutionIds: string[] = [];
+		for (const executionId of new Set(input.executionIds)) {
+			const row = await getOsGadgetExecution(db, {
+				organizationId,
+				executionId,
+			});
+			if (!row)
+				throw createError(ErrorCodes.NOT_FOUND, "OS app execution not found");
+			if (
+				!row.completedAt ||
+				row.status !== "completed" ||
+				row.runId !== null ||
+				row.workflowInstanceId !== null ||
+				row.createdById === "workspace-app-host" ||
+				row.runtimeEnvironment !== context.env.ENVIRONMENT ||
+				!JSON.parse(row.grantedCapabilities).includes("app.call")
+			) {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Only settled direct app calls in this environment are eligible",
+				);
+			}
+			const scope = { organizationId, workspaceId: row.workspaceId };
+			const workspace = await getOsWorkspace(db, scope);
+			if (
+				workspace &&
+				(workspace.status !== "archived" || workspace.visibility !== "private")
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Execution still has an ordinary workspace destination",
+				);
+			}
+			const digest =
+				row.output === null
+					? row.workspaceOutputSha256
+					: await sha256Hex(row.output);
+			if (
+				!digest ||
+				row.output === "" ||
+				(row.workspaceOutputSha256 && row.workspaceOutputSha256 !== digest)
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Execution has no verifiable output version",
+				);
+			}
+			if (
+				(await runtime.archiveDetachedGadgetExecutionOutput(
+					scope,
+					executionId,
+					row.output,
+					digest,
+				)) !== digest
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Archive did not verify the execution output version",
+				);
+			}
+			if (
+				row.output !== null &&
+				!(await cutOverOsGadgetExecutionOutput(
+					db,
+					{ ...row, output: row.output, completedAt: row.completedAt },
+					digest,
+					"archiveDetached",
+				))
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The execution or its workspace changed during archiving",
+				);
+			}
+			verifiedExecutionIds.push(executionId);
+		}
+		return { verifiedExecutionIds };
+	});
 
 const executionsGet = readOs.executions.get.handler(
 	async ({ input, context }) => ({
@@ -2740,6 +2875,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		list: executionsList,
 		get: executionsGet,
 		copyOutput: executionsCopyOutput,
+		archiveDetachedOutputs,
 		export: executionsExport,
 	},
 	collaboration: collaborationProcedures.osCollaborationProcedures,

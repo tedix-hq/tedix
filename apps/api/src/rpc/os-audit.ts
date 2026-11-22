@@ -572,6 +572,16 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			phase: fields(input.cutover).phase ?? "copy",
 		}),
 	},
+	"executions.archiveDetachedOutputs": {
+		action: "os.gadget_execution.detached_outputs_archived",
+		resourceType: EXECUTION_RESOURCE,
+		resourceId: ({ input }) => text(input.workItemId),
+		metadata: ({ input, output }) => ({
+			workItemId: input.workItemId,
+			attemptId: input.attemptId,
+			verifiedExecutionIds: output.verifiedExecutionIds,
+		}),
+	},
 	"executions.export": {
 		action: "os.gadget_execution.exported",
 		resourceType: EXECUTION_RESOURCE,

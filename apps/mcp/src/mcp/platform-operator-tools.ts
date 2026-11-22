@@ -264,6 +264,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "archive_detached_os_gadget_execution_outputs",
+		endpoint: "osWorkspaces/executions/archiveDetachedOutputs",
+		kind: "write",
+	},
+	{
 		toolId: "get_os_gadget_execution",
 		endpoint: "osWorkspaces/executions/get",
 		kind: "read",

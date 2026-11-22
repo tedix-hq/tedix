@@ -2189,6 +2189,23 @@ export const osWorkspacesContract = oc
 					}),
 				)
 				.output(OsGadgetExecutionOutputCopySchema),
+			archiveDetachedOutputs: oc
+				.route({
+					method: "POST",
+					path: "/gadget-executions/archive-detached-outputs",
+					summary:
+						"Archive completed direct app outputs for archived private or missing workspaces",
+					description:
+						"Requires a machine app-admin scope and a current Work attempt. Verifies each archived copy before clearing its inline body. Returns only the verified execution IDs.",
+				})
+				.input(
+					z.object({
+						workItemId: z.uuid(),
+						attemptId: z.uuid(),
+						executionIds: z.array(z.uuid()).min(1).max(10),
+					}),
+				)
+				.output(z.object({ verifiedExecutionIds: z.array(z.uuid()) })),
 			export: oc
 				.route({
 					method: "POST",

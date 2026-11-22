@@ -53,9 +53,15 @@ function fixture() {
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			completed_at TEXT
 		);
+		CREATE TABLE os_workspaces (
+			id TEXT PRIMARY KEY NOT NULL,
+			organization_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			visibility TEXT NOT NULL
+		);
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 	`);
-	return { db: createDbQueryClient(createD1Facade(sqlite)) };
+	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
 function executionParams(
@@ -504,6 +510,61 @@ it("publishes before clearing and refuses to clear a different source version", 
 	).toBe(false);
 	expect(
 		await cutOverOsGadgetExecutionOutput(db, archived, digest, "clear"),
+	).toBe(true);
+	expect(await getOsGadgetExecution(db, scope)).toMatchObject({
+		output: null,
+		workspaceOutputSha256: digest,
+	});
+});
+
+it("atomically archives detached output and keeps the inline body if the workspace is restored", async () => {
+	const { sqlite, db } = fixture();
+	sqlite.exec(
+		"INSERT INTO os_workspaces VALUES ('ws-1', 'org-1', 'archived', 'private')",
+	);
+	const output = '{"private":true}';
+	const completedAt = "2026-08-13T16:01:00.000Z";
+	const row = await createOsGadgetExecution(
+		db,
+		executionParams("detached", {
+			status: "completed",
+			output,
+			completedAt,
+			runtimeEnvironment: "production",
+		}),
+	);
+	const digest = "a".repeat(64);
+	const snapshot = { ...row, output, completedAt };
+	sqlite.exec("UPDATE os_workspaces SET status = 'active' WHERE id = 'ws-1'");
+	expect(
+		await cutOverOsGadgetExecutionOutput(
+			db,
+			snapshot,
+			digest,
+			"archiveDetached",
+		),
+	).toBe(false);
+	const scope = { organizationId: row.organizationId, executionId: row.id };
+	expect(await getOsGadgetExecution(db, scope)).toMatchObject({
+		output,
+		workspaceOutputSha256: null,
+	});
+	sqlite.exec("DELETE FROM os_workspaces WHERE id = 'ws-1'");
+	expect(
+		await cutOverOsGadgetExecutionOutput(
+			db,
+			{ ...snapshot, output: '{"stale":true}' },
+			digest,
+			"archiveDetached",
+		),
+	).toBe(false);
+	expect(
+		await cutOverOsGadgetExecutionOutput(
+			db,
+			snapshot,
+			digest,
+			"archiveDetached",
+		),
 	).toBe(true);
 	expect(await getOsGadgetExecution(db, scope)).toMatchObject({
 		output: null,
