@@ -99,8 +99,8 @@ export interface RegisterCodeModeToolsOptions {
 	/**
 	 * Optional token budget for the model-facing `code` result before it is
 	 * wrapped in the detectable truncation envelope (see `bounded-result.ts`).
-	 * Defaults to the @cloudflare/codemode default (6,000 tokens ≈ 24,000 chars
-	 * of indented JSON).
+	 * Defaults to `DEFAULT_CODEMODE_RESULT_MAX_TOKENS` (3,000 tokens ≈ 12,000
+	 * chars of compact JSON).
 	 */
 	resultMaxTokens?: number;
 	/**

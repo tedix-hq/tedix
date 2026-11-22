@@ -220,7 +220,7 @@ Paths must have non-empty segments and cannot contain prototype keys
 The gateway advertises this reserved argument in `discover.describe` and native
 input schemas and Code Mode stubs, without changing stored D1 tool schemas.
 It strips `_fields` before upstream dispatch. Selection runs after configured
-response shaping and full output validation, before the 6,000-token cap and
+response shaping and full output validation, before the 3,000-token cap and
 before result-handle storage in R2. Error results and transport metadata remain
 available. An omitted `_fields` preserves the normal response.
 
@@ -230,7 +230,7 @@ selected responses; existing input/output size slots retain their meaning.
 
 ## Result Bounds and Prompt Budget
 
-`shapeBoundedCodeModeResult()` passes results through up to 6,000 tokens
+`shapeBoundedCodeModeResult()` passes results through up to 3,000 tokens
 (override: `mcpConfig.codeModeResultMaxTokens`, per tedi `resultMaxTokens`).
 On the MCP gateway an over-budget result is kept whole
 (`apps/mcp/src/mcp/codemode-result-store.ts`: the `AGGREGATE_CACHE` R2 bucket,

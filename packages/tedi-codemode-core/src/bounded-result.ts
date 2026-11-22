@@ -14,15 +14,16 @@ import { truncateResult } from "@cloudflare/codemode";
 export const CODEMODE_TRUNCATION_MARKER = "--- TRUNCATED ---";
 
 /**
- * The dep's `DEFAULT_MAX_TOKENS`. Char budget = maxTokens * 4, applied to the
- * compact `JSON.stringify(value)` serialization (24,000 chars by default).
+ * Tedix default model-facing budget, half the dep's own 6,000. Char budget =
+ * maxTokens * 4, applied to the compact `JSON.stringify(value)` serialization
+ * (12,000 chars by default). Larger results stay readable through a handle.
  */
-export const DEFAULT_CODEMODE_RESULT_MAX_TOKENS = 6_000;
+export const DEFAULT_CODEMODE_RESULT_MAX_TOKENS = 3_000;
 
 export interface CodeModeTruncationOptions {
 	/** Char cap on the compact serialization. Defaults to `maxTokens * 4`. */
 	maxChars?: number;
-	/** Token budget deriving the default `maxChars`. Defaults to 6,000. */
+	/** Token budget deriving the default `maxChars`. Defaults to 3,000. */
 	maxTokens?: number;
 }
 
@@ -93,7 +94,7 @@ export function shapeBoundedCodeModeResult(
 	value: unknown,
 	options?: CodeModeTruncationOptions,
 ): unknown {
-	const shaped = truncateResult(value, options);
+	const shaped = truncateResult(value, resolveTruncateOptions(options));
 	// Upstream returns the same reference for complete or unserializable values.
 	if (Object.is(shaped, value)) return value;
 	const serialized = typeof value === "string" ? value : JSON.stringify(value);
@@ -113,6 +114,17 @@ export function shapeBoundedCodeModeResult(
 				? shaped.slice(0, resolveMaxChars(options))
 				: JSON.stringify(shaped),
 	} satisfies TruncatedCodeModeResult;
+}
+
+/** Always pass an explicit budget: the dep's own default is 6,000 tokens. */
+function resolveTruncateOptions(
+	options?: CodeModeTruncationOptions,
+): Required<CodeModeTruncationOptions> {
+	const maxChars = resolveMaxChars(options);
+	return {
+		maxChars,
+		maxTokens: options?.maxTokens ?? Math.ceil(maxChars / 4),
+	};
 }
 
 export function resolveMaxChars(options?: CodeModeTruncationOptions): number {
@@ -330,7 +342,7 @@ export function boundCodeModeLogs(
 	logs: string[],
 	options?: CodeModeTruncationOptions,
 ): string[] {
-	const bounded = truncateResult(logs, options);
+	const bounded = truncateResult(logs, resolveTruncateOptions(options));
 	return Array.isArray(bounded)
 		? (bounded as string[])
 		: [String(bounded).slice(0, resolveMaxChars(options))];
@@ -362,7 +374,7 @@ export function projectCodeModeOutputForModel(
 		) {
 			const { calls: _calls, ...rest } = output as Record<string, unknown>;
 			if (Array.isArray(rest.logs))
-				rest.logs = truncateResult(rest.logs, options);
+				rest.logs = truncateResult(rest.logs, resolveTruncateOptions(options));
 			projected = rest;
 		}
 		const serialized = JSON.stringify(projected, (_key, value) =>

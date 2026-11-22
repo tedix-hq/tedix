@@ -45,7 +45,7 @@ describe("Code Mode discovery helpers", () => {
 			includeParameters: false,
 			includeOutputSchema: false,
 			includeMetadata: false,
-			limit: 25,
+			limit: 10,
 			offset: 0,
 			query: "find skills",
 			namespace: "",

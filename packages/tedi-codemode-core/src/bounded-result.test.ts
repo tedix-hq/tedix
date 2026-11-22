@@ -66,11 +66,11 @@ describe("shapeBoundedCodeModeResult", () => {
 		expect(envelope.__tedix_truncated).toBe(true);
 		expect(envelope.marker).toBe(CODEMODE_TRUNCATION_MARKER);
 		expect(envelope.originalType).toBe("object");
-		expect(envelope.maxTokens).toBe(6_000);
-		expect(envelope.approxTokens).toBeGreaterThan(6_000);
+		expect(envelope.maxTokens).toBe(3_000);
+		expect(envelope.approxTokens).toBeGreaterThan(3_000);
 		expect(envelope.guidance).toContain("truncated");
 		// The upstream partial structure is retained as parseable compact JSON.
-		expect(envelope.preview.length).toBeLessThanOrEqual(24_000);
+		expect(envelope.preview.length).toBeLessThanOrEqual(12_000);
 		expect(envelope.preview).toContain(CODEMODE_TRUNCATION_MARKER);
 		expect(Array.isArray(JSON.parse(envelope.preview).data)).toBe(true);
 	});
@@ -89,7 +89,7 @@ describe("shapeBoundedCodeModeResult", () => {
 		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
 		const envelope = shaped as TruncatedCodeModeResult;
 		expect(envelope.originalType).toBe("string");
-		expect(envelope.preview.length).toBeLessThanOrEqual(24_000);
+		expect(envelope.preview.length).toBeLessThanOrEqual(12_000);
 	});
 
 	it("preserves legitimate marker text inside a clipped string", () => {
@@ -183,7 +183,7 @@ describe("model output projection", () => {
 		expect(JSON.stringify(projected.value)).not.toContain("audit-only");
 		expect(
 			JSON.stringify((projected.value as Record<string, unknown>).logs).length,
-		).toBeLessThanOrEqual(24_000);
+		).toBeLessThanOrEqual(12_000);
 		expect(output.calls).toEqual([{ result: "audit-only" }]);
 		expect(output.logs).toBe(logs);
 		expect(JSON.stringify(logs).length).toBeGreaterThan(24_000);
@@ -225,7 +225,7 @@ describe("model output projection", () => {
 		const logs = Array.from({ length: 200 }, () => '\"'.repeat(500));
 		const bounded = boundCodeModeLogs(logs);
 		expect(bounded.every((entry) => typeof entry === "string")).toBe(true);
-		expect(JSON.stringify(bounded).length).toBeLessThanOrEqual(24_000);
+		expect(JSON.stringify(bounded).length).toBeLessThanOrEqual(12_000);
 		expect(JSON.stringify(bounded)).toContain(CODEMODE_TRUNCATION_MARKER);
 		const small = ["ok"];
 		expect(boundCodeModeLogs(small)).toBe(small);
@@ -246,12 +246,12 @@ describe("result handles", () => {
 			originalType: "object",
 			keys: ["data"],
 			total: serialized.length,
-			maxTokens: 6_000,
+			maxTokens: 3_000,
 			expiresAt: handle.expiresAt,
 		});
-		expect(envelope.approxTokens).toBeGreaterThan(6_000);
+		expect(envelope.approxTokens).toBeGreaterThan(3_000);
 		// A quarter of the budget: the envelope must cost far less than the value.
-		expect(envelope.preview.length).toBe(6_000);
+		expect(envelope.preview.length).toBe(3_000);
 		expect(envelope.guidance).toContain("discover.read_result");
 		expect(isTruncatedCodeModeResult(envelope)).toBe(false);
 	});
@@ -276,7 +276,7 @@ describe("result handles", () => {
 			handle: "exec-1",
 			total: serialized.length,
 			offset: 0,
-			limit: 24_000,
+			limit: 12_000,
 			keys: ["messages", "nextCursor"],
 			value,
 			complete: true,

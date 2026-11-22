@@ -204,8 +204,8 @@ export async function registerCodeModeTools(
 		(mcpConfig?.codeModeTimeout as number | undefined) ??
 		TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS;
 	// Per-app override for the model-facing result token budget (D1
-	// mcpConfig.codeModeResultMaxTokens). Defaults to the @cloudflare/codemode
-	// 6,000-token cap; an oversized result is kept whole behind a
+	// mcpConfig.codeModeResultMaxTokens). Defaults to the Tedix 3,000-token cap
+	// (DEFAULT_CODEMODE_RESULT_MAX_TOKENS); an oversized result is kept whole behind a
 	// `__tedix_result_handle` envelope (paged via discover.read_result), or
 	// comes back as a detectable `__tedix_truncated` envelope when it cannot be
 	// stored — never a bare clipped string.

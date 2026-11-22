@@ -43,14 +43,14 @@ describe("shapeCodeModeResultForModel", () => {
 		expect(typeof shaped).not.toBe("string");
 		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
 		const envelope = shaped as TruncatedCodeModeResult;
-		expect(envelope.maxTokens).toBe(6_000);
-		expect(envelope.approxTokens).toBeGreaterThan(6_000);
+		expect(envelope.maxTokens).toBe(3_000);
+		expect(envelope.approxTokens).toBeGreaterThan(3_000);
 		expect(envelope.guidance).toContain("Narrow the projection");
 		expect(typeof envelope.preview).toBe("string");
 	});
 
 	it("honors the per-app codeModeResultMaxTokens override plumbing", () => {
-		const value = oversizedBoardPage(40);
+		const value = oversizedBoardPage(20);
 		// Under the default budget this page passes through untouched…
 		expect(shapeCodeModeResultForModel(value)).toBe(value);
 		// …but a stricter per-app budget truncates it detectably.

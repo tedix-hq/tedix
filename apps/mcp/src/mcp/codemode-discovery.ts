@@ -13,7 +13,7 @@ import {
 } from "./codemode-catalog-entries";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
-const DEFAULT_DISCOVERY_LIMIT = 25;
+const DEFAULT_DISCOVERY_LIMIT = 10;
 
 const MAX_DISCOVERY_LIMIT = 100;
 

@@ -1361,7 +1361,7 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		const compactDefault = (await tools.search?.execute?.({
 			query: "thing",
 		})) as CatalogSearchResult;
-		expect(resultMeta(compactDefault).pagination).toMatchObject({ limit: 25 });
+		expect(resultMeta(compactDefault).pagination).toMatchObject({ limit: 10 });
 	});
 });
 
@@ -1611,7 +1611,7 @@ describe("discover.search on a multi-organization surface", () => {
 			{ execute: (input: unknown) => Promise<unknown> }
 		>;
 		expect(await tools.search?.execute("list")).toEqual(
-			await runSearch(provider, "list", 25),
+			await runSearch(provider, "list", 10),
 		);
 	});
 
@@ -2388,7 +2388,7 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 			await runSearch(
 				buildCatalogProvider(skills, undefined),
 				"inspect work",
-				25,
+				10,
 				{ includeMetadata: true },
 			),
 		);
@@ -2416,7 +2416,7 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 				{ query: "", namespace: "app" },
 			),
 		).toEqual(
-			await runSearch(buildCatalogProvider(aliases, undefined), "", 25, {
+			await runSearch(buildCatalogProvider(aliases, undefined), "", 10, {
 				namespace: "app",
 				includeMetadata: true,
 			}),
@@ -2504,7 +2504,7 @@ it("keeps reviewed endpoint floors and denials identical in native discovery", a
 						{ query: "", namespace: "customer" },
 					),
 				).toEqual(
-					await runSearch(buildCatalogProvider(ctx, undefined), "", 25, {
+					await runSearch(buildCatalogProvider(ctx, undefined), "", 10, {
 						namespace: "customer",
 						includeMetadata: true,
 					}),
