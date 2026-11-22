@@ -1445,7 +1445,9 @@ async function nativeCompletionFixture(mutation?: string) {
 			"INSERT INTO policy_packs(id,organization_id,name,slug,status,version,definition) VALUES ('native-policy','org','Fixture','fixture','active',1,?)",
 		)
 		.run(JSON.stringify(policy));
-	const sourceMetadata = { settlement: { commitSha: "a".repeat(40) } };
+	const sourceMetadata = {
+		settlement: { mode: "commit", commitShas: ["a".repeat(40)] },
+	};
 	const at = new Date().toISOString();
 	const leaseExpiresAt = new Date(Date.now() + 600_000).toISOString();
 	f.sqlite.exec(

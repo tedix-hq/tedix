@@ -33,7 +33,7 @@ import {
 import type { WorkContext } from "./work";
 import {
 	buildAcceptanceContract,
-	buildSettlementMetadata,
+	resolveSettlementCommits,
 } from "./work-lifecycle";
 
 /**
@@ -662,10 +662,10 @@ async function settleDelegation(
 		throw new Error(
 			"Only the originating lead session can settle this delegation",
 		);
-	const settlement = buildSettlementMetadata(ctx.work.commit);
+	const commits = resolveSettlementCommits(ctx.work.commit);
 	const comment = await postComment(ctx, id, `Delegation settled: ${note}`, {
 		delegation: { settled: true },
-		...settlement,
+		...(commits ? { settlement: { mode: "commit", commitShas: commits } } : {}),
 	});
 	if (comment.error)
 		return fail(

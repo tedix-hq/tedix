@@ -1,3 +1,7 @@
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
 /**
  * Work Items — activity feed: the org-wide board event ledger joined to its
  * items, newest first.
@@ -57,17 +61,13 @@ export interface WorkActivityRow {
 function settlementFromMetadata(
 	md: Record<string, unknown>,
 ): WorkActivitySettlement | null {
-	const raw = md.settlement;
-	if (!raw || typeof raw !== "object") return null;
-	const record = raw as Record<string, unknown>;
-	if (typeof record.mode !== "string" || record.mode === "") return null;
-	return {
-		mode: record.mode,
-		commitSha:
-			typeof record.commitSha === "string" && record.commitSha !== ""
-				? record.commitSha
-				: null,
-	};
+	const settlement = WorkAttemptSettlementSchema.safeParse(md.settlement).data;
+	return settlement
+		? {
+				mode: settlement.mode,
+				commitSha: workSettlementCommits(settlement)[0] ?? null,
+			}
+		: null;
 }
 
 export interface ListWorkActivityParams {

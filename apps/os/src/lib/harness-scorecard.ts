@@ -1,7 +1,10 @@
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
 import type * as z from "zod";
 import type { WorkAttemptProjectionSchema } from "@tedix/api-contract/schemas/work-items";
 import type { DispatcherHealthReport } from "@tedix/api-contract/schemas/dispatcher-health";
-import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 export type ScorecardAttempt = z.infer<typeof WorkAttemptProjectionSchema>;
 export const SCORECARD_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -97,14 +100,12 @@ export function aggregateHarnessScorecard(
 			row.orphaned++;
 		// A declared laneResult SHA is not a landed-commit receipt. Existing-fix
 		// receipts also must not credit an old commit to a new Attempt.
-		const settlement = asRecord(attempt.metadata.settlement);
+		const settlement = WorkAttemptSettlementSchema.safeParse(
+			attempt.metadata.settlement,
+		).data;
 		if (attempt.metadata.lane === true && settlement?.mode === "commit") {
-			const shas = Array.isArray(settlement.commitShas)
-				? settlement.commitShas
-				: [settlement.commitSha];
-			for (const sha of shas)
-				if (typeof sha === "string" && /^[a-f0-9]{40}$/.test(sha))
-					row.commits.add(sha);
+			for (const sha of workSettlementCommits(settlement))
+				row.commits.add(sha.toLowerCase());
 		}
 	}
 	return [...runners.values()]

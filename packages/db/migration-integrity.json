@@ -1888,6 +1888,10 @@
 		{
 			"name": "20261122133041_gadget-execution-output-location/migration.sql",
 			"sha256": "ac7fe129b3a19db80ea54c5272230ec9592d5a0d720f0fe1c54669b5d9e476fb"
+		},
+		{
+			"name": "20261122133543_normalize_work_attempt_settlement/migration.sql",
+			"sha256": "476765e39950b0eb526f1709c2d0ba33695b2562527d5c2169c299f652d01779"
 		}
 	]
 }

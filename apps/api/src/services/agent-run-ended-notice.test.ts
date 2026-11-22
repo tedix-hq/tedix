@@ -105,7 +105,7 @@ describe("agent run ended notice", () => {
 				{
 					...attempt,
 					metadata: {
-						settlement: { commitShas: [sha, "not-a-sha"] },
+						settlement: { mode: "commit", commitShas: [sha] },
 						laneResult: { unverified: "Not tried on a phone" },
 					},
 				},

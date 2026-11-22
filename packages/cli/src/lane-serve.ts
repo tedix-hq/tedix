@@ -1,3 +1,8 @@
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+	type WorkAttemptCloseoutResultSchema,
+} from "@tedix/api-contract/schemas/work-items";
 import { laneActionLabel } from "@tedix/api-contract/utils/lane-runner-asker";
 import {
 	AppendWorkAttemptStepsResultSchema,
@@ -1252,7 +1257,7 @@ function laneHoldReason(row: Receipt): string | undefined {
 	if (row.verification || landedForVerification(row)) return;
 	if (!["settled", "deferred", "failed"].includes(row.phase)) return;
 	if (
-		row.phase === "settled" &&
+		(row.phase === "settled" || row.held) &&
 		row.outcome === "succeeded" &&
 		row.completionPending === false &&
 		row.completionError
@@ -5370,15 +5375,10 @@ export class LaneDispatcher {
 			);
 			if (result) {
 				const prior = LaneResultSchema.safeParse(result.metadata?.laneResult);
-				const settlement = result.metadata?.settlement;
-				const commits = z
-					.array(FullSha)
-					.min(1)
-					.safeParse(
-						isRecord(settlement)
-							? (settlement.commitShas ?? [settlement.commitSha])
-							: undefined,
-					);
+				const commits = workSettlementCommits(
+					WorkAttemptSettlementSchema.safeParse(result.metadata?.settlement)
+						.data,
+				);
 				// Recover a landed result if another dispatcher settled it.
 				if (
 					!receipt.verification &&
@@ -5389,12 +5389,12 @@ export class LaneDispatcher {
 					prior.data.workVersion === item.version &&
 					prior.data.contractVersion === item.acceptanceContract?.version &&
 					prior.data.outcomeText === item.acceptanceContract?.doneLooksLike &&
-					commits.success
+					commits.length
 				) {
 					receipt.phase = "settled";
 					receipt.outcome = "succeeded";
 					receipt.laneResult = prior.data;
-					receipt.commits = commits.data;
+					receipt.commits = commits;
 					receipt.completionPending = false;
 					return;
 				}
@@ -7729,11 +7729,38 @@ ${firstBrief}`;
 		}
 
 		const unlanded = recordUnlandedCommits(receipt);
+		const settlement: z.infer<typeof WorkAttemptSettlementSchema> | undefined =
+			receipt.localBranchProof
+				? { mode: "local_branch", ...receipt.localBranchProof }
+				: receipt.skillRevisionProof
+					? { mode: "skill_revision", ...receipt.skillRevisionProof }
+					: receipt.runtimeAppProof
+						? { mode: "runtime_app_revision", ...receipt.runtimeAppProof }
+						: receipt.existingCommitsProven && receipt.commits?.length
+							? {
+									mode: "existing_commits",
+									commitShas: receipt.commits,
+									repository: receipt.verification?.repository,
+								}
+							: (receipt.repositoryProof ??
+								receipt.existingProof ??
+								(receipt.commits?.length
+									? { mode: "commit", commitShas: receipt.commits }
+									: undefined));
+		const complete =
+			receipt.outcome === "succeeded" &&
+			(!receipt.verification || receipt.existingCommitsProven) &&
+			(receipt.laneResult?.outcome === "completed" ||
+				receipt.laneResult?.outcome === "already_satisfied")
+				? { expectedWorkItemVersion: receipt.version }
+				: undefined;
 		this.save(path, receipt);
 		// A renewal already waiting is sent before the settlement; none follows it.
 		lease.stop();
 		try {
-			await this.call(
+			const result = await this.call<
+				z.infer<typeof WorkAttemptCloseoutResultSchema>
+			>(
 				[
 					"work",
 					"settle",
@@ -7750,13 +7777,10 @@ ${firstBrief}`;
 						: receipt.outcome!,
 					"--note",
 					`Result:\n${unlanded}${receipt.note!}`,
-					// `--commit` records a commit this run shipped; earlier commits
-					// travel as `existing_commits` settlement evidence instead.
-					...(receipt.existingCommitsProven
-						? []
-						: (receipt.commits ?? []).flatMap((sha) => ["--commit", sha])),
 					"--input",
 					JSON.stringify({
+						...(settlement ? { settlement } : {}),
+						...(complete ? { complete } : {}),
 						metadata: {
 							dispatchVersion: receipt.version,
 							session: receipt.session,
@@ -7775,59 +7799,8 @@ ${firstBrief}`;
 							...(receipt.runQuestion
 								? { runQuestion: receipt.runQuestion }
 								: {}),
-							...(receipt.commits?.length
-								? {
-										settlement: {
-											mode: "commit",
-											commitSha: receipt.commits[0],
-											commitShas: receipt.commits,
-										},
-									}
-								: {}),
 							...(receipt.recoveredCommits?.length
 								? { recoveredCommits: receipt.recoveredCommits }
-								: {}),
-							...(receipt.existingProof
-								? { settlement: receipt.existingProof }
-								: {}),
-							...(receipt.repositoryProof
-								? { settlement: receipt.repositoryProof }
-								: {}),
-							...(receipt.existingCommitsProven
-								? {
-										settlement: {
-											mode: "existing_commits",
-											...(receipt.verification?.repository
-												? { repository: receipt.verification.repository }
-												: {}),
-											commitSha: receipt.commits?.[0],
-											commitShas: receipt.commits,
-										},
-									}
-								: {}),
-							...(receipt.runtimeAppProof
-								? {
-										settlement: {
-											mode: "runtime_app_revision",
-											...receipt.runtimeAppProof,
-										},
-									}
-								: {}),
-							...(receipt.skillRevisionProof
-								? {
-										settlement: {
-											mode: "skill_revision",
-											...receipt.skillRevisionProof,
-										},
-									}
-								: {}),
-							...(receipt.localBranchProof
-								? {
-										settlement: {
-											mode: "local_branch",
-											...receipt.localBranchProof,
-										},
-									}
 								: {}),
 						},
 					}),
@@ -7835,6 +7808,26 @@ ${firstBrief}`;
 				receipt.session,
 				receipt.executorKey,
 			);
+			if (complete) {
+				const work = result?.workItem;
+				if (
+					work?.id !== receipt.itemId ||
+					work.disposition !== "completed" ||
+					!work.completedAt
+				)
+					throw new Error(
+						"Closeout returned no completed Work. Read back the Attempt before retrying.",
+					);
+				recordDispatcherCompletion(
+					this.directory,
+					receipt.itemId,
+					work.completedAt,
+				);
+				receipt.completionPending = false;
+				delete receipt.completionError;
+				this.log("completed", receipt.itemId, "Work completion confirmed");
+			}
+
 			receipt.phase =
 				!receipt.verification &&
 				(["failed", "expired"].includes(receipt.outcome ?? "") ||
@@ -7850,10 +7843,23 @@ ${firstBrief}`;
 					: laneDeferralAt(receipt.laneResult);
 			else delete receipt.recheckAt;
 			this.log("settled", receipt.itemId, receipt.outcome);
-			if (receipt.outcome === "succeeded") {
+			if (!complete && receipt.outcome === "succeeded") {
 				await this.complete(receipt, !!receipt.existingProof);
 			}
 		} catch (error) {
+			if (
+				complete &&
+				error instanceof CliReadError &&
+				(error.status === 403 ||
+					/\b(FORBIDDEN|BAD_REQUEST):/.test(error.message) ||
+					error.code === "FORBIDDEN" ||
+					error.code === "BAD_REQUEST")
+			) {
+				receipt.phase = "deferred";
+				receipt.held = true;
+				receipt.completionPending = false;
+				receipt.completionError = error.message.slice(0, 600);
+			}
 			this.log("settlement-retained", receipt.itemId, String(error));
 		}
 		this.save(path, receipt);
@@ -8213,7 +8219,11 @@ ${firstBrief}`;
 		// A Work that already ended has nothing left to settle; reconcile the
 		// receipt once instead of retrying a write that can never land.
 		const detail = await this.call<{
-			workItem?: { disposition?: string };
+			workItem?: {
+				id: string;
+				disposition: string;
+				completedAt?: string | null;
+			};
 		}>(["work", "dispatch-get", receipt.itemId, "--input", "{}"]);
 		if (
 			["completed", "cancelled"].includes(detail.workItem?.disposition ?? "")
@@ -8221,6 +8231,17 @@ ${firstBrief}`;
 			receipt.phase = "settled";
 			receipt.outcome ??= "expired";
 			receipt.completionPending = false;
+			const work = detail.workItem;
+			if (
+				work?.id === receipt.itemId &&
+				work.disposition === "completed" &&
+				work.completedAt
+			)
+				recordDispatcherCompletion(
+					this.directory,
+					receipt.itemId,
+					work.completedAt,
+				);
 			this.save(path, receipt);
 			this.log(
 				"settlement-stopped",

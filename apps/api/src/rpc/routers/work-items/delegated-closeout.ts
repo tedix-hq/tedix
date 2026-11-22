@@ -1,3 +1,7 @@
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
 import { getPolicyPackById } from "@tedix/db/queries/control-plane/definitions";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { listSubmissionsByRun } from "@tedix/db/queries/runtime-submissions/read-models";
@@ -389,9 +393,9 @@ export async function prepareNativeStewardCloseout(
 			limit: 1,
 		})
 	).data[0];
-	const sourceCommit =
-		record(latest?.metadata?.settlement).commitSha ??
-		latest?.metadata?.sourceCommit;
+	const sourceCommit = workSettlementCommits(
+		WorkAttemptSettlementSchema.safeParse(latest?.metadata.settlement).data,
+	)[0];
 	if (
 		!latest ||
 		latest.runtimeState !== "finished" ||

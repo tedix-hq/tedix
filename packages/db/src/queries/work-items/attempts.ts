@@ -25,6 +25,8 @@ import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prepareLaneHandoff, laneHandoffStatements } from "./lane-handoffs";
 import { workAttemptFailureReason } from "./attempt-failure";
+import { lifecycleEventInsert } from "./crud";
+import { retireDecisionReviews } from "./decision-review-retirement";
 import {
 	rethrowWorkAdmissionWriteError,
 	type PreparedWorkAdmission,
@@ -49,6 +51,7 @@ import {
 	ACTIVE_ATTEMPT_STATES,
 	getScopedWorkItem,
 	WorkFactoryError,
+	type WorkActor,
 	type WorkExecutor,
 } from "./factory-state";
 
@@ -1125,6 +1128,7 @@ export async function settleWorkItemAttempt(
 		requestId?: string;
 		metadata?: Record<string, JsonValue>;
 		repositoryLifecycle?: WorkAttemptRepositoryLifecycle;
+		completion?: { actor: WorkActor; expectedWorkItemVersion: number };
 		/** Spend committed by this Attempt, in micros; replaces any running total. */
 		costMicros?: number;
 		settledAt?: string;
@@ -1137,6 +1141,20 @@ export async function settleWorkItemAttempt(
 	replayed?: true;
 }> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
+	const completion = params.completion;
+	if (completion && (params.outcome !== "succeeded" || params.needsUser))
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Closeout requires a succeeded Attempt without a handoff",
+		);
+	const completionFence = completion
+		? and(
+				eq(workItems.orgId, params.orgId),
+				eq(workItems.id, params.workItemId),
+				eq(workItems.version, completion.expectedWorkItemVersion),
+				eq(workItems.disposition, "accepted"),
+			)
+		: undefined;
 	if (params.needsUser) {
 		const [settled] = await db
 			.select()
@@ -1244,6 +1262,29 @@ export async function settleWorkItemAttempt(
 			attemptId: params.attemptId,
 			workItemId: params.workItemId,
 		});
+		const closeWork = completion
+			? [
+					db
+						.update(workItems)
+						.set({
+							disposition: "completed",
+							completedAt: settledAt,
+							updatedAt: settledAt,
+							version: sql`${workItems.version} + 1`,
+						})
+						.where(and(completionFence, sql`changes() = 1`)),
+					lifecycleEventInsert(db, {
+						orgId: params.orgId,
+						workItemId: params.workItemId,
+						disposition: "completed",
+						expectedVersion: completion.expectedWorkItemVersion + 1,
+						requiresPreviousWrite: true,
+						eventType: "work.completed",
+						actor: completion.actor,
+						occurredAt: settledAt,
+					}),
+				]
+			: [];
 		const settleMutation = db
 			.update(workAttempts)
 			.set({
@@ -1260,7 +1301,12 @@ export async function settleWorkItemAttempt(
 								requestId: params.requestId ?? null,
 							},
 						}
-					: settlementMetadata,
+					: completion
+						? {
+								...settlementMetadata,
+								closedWorkVersion: completion.expectedWorkItemVersion,
+							}
+						: settlementMetadata,
 				version: sql`${workAttempts.version} + 1`,
 			})
 			.where(
@@ -1278,6 +1324,18 @@ export async function settleWorkItemAttempt(
 						? eq(workAttempts.externalSessionKey, params.externalSessionKey)
 						: isNull(workAttempts.externalSessionKey),
 					inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+					completionFence
+						? sql`EXISTS (
+							SELECT 1 FROM ${workItems}
+							JOIN ${workAdmissions} ON ${workAdmissions.id} = ${workAttempts.admissionId}
+								AND ${workAdmissions.orgId} = ${workItems.orgId}
+								AND ${workAdmissions.workItemId} = ${workItems.id}
+								AND ${workAdmissions.workItemVersion} = ${workItems.version}
+								AND ${workAdmissions.admissionSpecRevision} = ${workItems.admissionSpecRevision}
+								AND ${workAdmissions.decision} = 'admitted'
+							WHERE ${completionFence}
+						)`
+						: undefined,
 					sql`${workAttempts.expiresAt} > ${settledAt}`,
 					sql`NOT EXISTS (SELECT 1 FROM work_attempts successor WHERE successor.org_id=${workAttempts.orgId} AND successor.work_item_id=${workAttempts.workItemId} AND successor.attempt_number>${workAttempts.attemptNumber})`,
 				),
@@ -1307,6 +1365,7 @@ export async function settleWorkItemAttempt(
 						eq(workAttempts.id, params.attemptId),
 						eq(workAttempts.version, prior.version + 1),
 						eq(workAttempts.runtimeState, runtimeState),
+						sql`changes() = 1`,
 					),
 				),
 		);
@@ -1426,10 +1485,12 @@ export async function settleWorkItemAttempt(
 				)
 			: undefined;
 		const [settledRows] = await db.batch([
+			// The event and optional completion each depend on the preceding write.
 			settleMutation,
+			settleEvent,
+			...closeWork,
 			releaseResources,
 			consumeBudgets,
-			settleEvent,
 			...childReportStatements(db, {
 				orgId: params.orgId,
 				workItemId: params.workItemId,
@@ -1453,6 +1514,12 @@ export async function settleWorkItemAttempt(
 		]);
 		const attempt = settledRows[0];
 		if (attempt) {
+			if (completion)
+				await retireDecisionReviews(db, {
+					orgId: params.orgId,
+					workItemId: params.workItemId,
+					now: settledAt,
+				});
 			if (handoff)
 				await recordPersistedCardCreationEdges(
 					db,
@@ -1465,11 +1532,38 @@ export async function settleWorkItemAttempt(
 				...(handoff ? { interactionId: handoff.interactionId } : {}),
 			};
 		}
-		if (tries >= SETTLE_VERSION_RETRIES)
+		if (completion) {
+			const current = await getScopedWorkItem(
+				db,
+				params.orgId,
+				params.workItemId,
+			);
+			if (
+				current.version !== completion.expectedWorkItemVersion ||
+				current.disposition !== "accepted"
+			)
+				throw new WorkFactoryError(
+					"NOT_READY",
+					"Work changed before closeout. Read its current revision before retrying.",
+				);
+		}
+		if (tries >= SETTLE_VERSION_RETRIES) {
+			if (completion) {
+				const admission = await getWorkAttemptRepositoryAdmission(db, prior);
+				if (
+					!admission ||
+					admission.workItemVersion !== completion.expectedWorkItemVersion
+				)
+					throw new WorkFactoryError(
+						"NOT_READY",
+						"Closeout requires admission for the current Work revision.",
+					);
+			}
 			throw new WorkFactoryError(
 				"STALE_ATTEMPT",
 				`Attempt ${params.attemptId} is no longer authoritative`,
 			);
+		}
 	}
 }
 
@@ -1478,6 +1572,7 @@ export function workAttemptCallerMetadata(
 ): Record<string, JsonValue> {
 	const {
 		taskContract: _reservedTaskContract,
+		closedWorkVersion: _reservedClosedWorkVersion,
 		repositoryCandidate: _reservedCandidate,
 		repositoryCandidatePublication: _reservedPublication,
 		...callerMetadata

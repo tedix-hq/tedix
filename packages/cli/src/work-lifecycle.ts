@@ -1,4 +1,7 @@
-import { workExecutorReference } from "@tedix/api-contract/schemas/work-items";
+import {
+	WorkAttemptSettlementSchema,
+	workExecutorReference,
+} from "@tedix/api-contract/schemas/work-items";
 import { setTimeout as sleep } from "node:timers/promises";
 import { resolveCommitFlag } from "./local-context";
 import { dim, errorText, green } from "./format";
@@ -425,46 +428,19 @@ export async function workAccept(
 	);
 }
 
-/**
- * Resolve every repeated `--commit <sha>` into the settlement metadata block.
- *
- * Under `decisions/minimal-gates-over-pre-proof.md` settling IS the
- * completion, and for repository coding work the commits on `main` are the
- * ledger entry — so the shas have to travel with the settlement rather than
- * through a separate evidence submission. The local dispatcher separately
- * recognizes Attempt-scoped evidence for versioned organization skill runs.
- *
- * Each value goes through `resolveCommitFlag`, which expands the short sha
- * `git push` prints and REFUSES one that names no object in this checkout.
- * That local refusal is the whole anti-fabrication story now that the digest
- * ceremony is gone: a fabricated sha fails at the terminal of the agent that
- * typed it, where the mistake is still fixable, instead of being recorded as a
- * pointer to nothing. It degrades rather than blocks outside a worktree.
- *
- * `commitSha` repeats the first entry so a consumer reading one sha does not
- * have to know about the array; duplicates collapse and order is preserved.
- */
-export function buildSettlementMetadata(
+/** Resolve abbreviated Git IDs and keep the input order without duplicates. */
+export function resolveSettlementCommits(
 	commits: readonly string[] | undefined,
 	cwd = process.cwd(),
-):
-	| { settlement: { mode: "commit"; commitSha: string; commitShas: string[] } }
-	| undefined {
-	if (!commits?.length) return undefined;
-	const resolved: string[] = [];
-	for (const value of commits) {
-		if (!value.trim()) continue;
-		const sha = resolveCommitFlag(value, cwd);
-		if (!resolved.includes(sha)) resolved.push(sha);
-	}
-	if (resolved.length === 0) return undefined;
-	return {
-		settlement: {
-			mode: "commit",
-			commitSha: resolved[0]!,
-			commitShas: resolved,
-		},
-	};
+): string[] | undefined {
+	const resolved = [
+		...new Set(
+			(commits ?? [])
+				.filter((value) => value.trim())
+				.map((value) => resolveCommitFlag(value, cwd)),
+		),
+	];
+	return resolved.length ? resolved : undefined;
 }
 
 export async function workSettle(
@@ -499,9 +475,25 @@ export async function workSettle(
 	const as = ctx.work.as?.trim();
 	// Resolve BEFORE the board call: a fabricated sha must fail locally, not
 	// land as a settled pointer to nothing.
-	const metadata = ctx.work.input ? workMetadataInput(ctx) : undefined;
-	const commits = buildSettlementMetadata(ctx.work.commit)?.settlement
-		.commitShas;
+	const input = ctx.work.input
+		? parseObjectArgument(ctx.work.input, "--input")
+		: {};
+	if (
+		Object.keys(input).some(
+			(key) => !["metadata", "settlement", "complete"].includes(key),
+		) ||
+		(input.metadata !== undefined && !isRecord(input.metadata))
+	)
+		throw new Error("settle --input accepts metadata, settlement and complete");
+	const metadata = input.metadata;
+	const commits = resolveSettlementCommits(ctx.work.commit);
+	if (commits && input.settlement !== undefined)
+		throw new Error("Use --commit or an input settlement, not both");
+	const settlement = commits
+		? { mode: "commit" as const, commitShas: commits }
+		: input.settlement === undefined
+			? undefined
+			: WorkAttemptSettlementSchema.parse(input.settlement);
 	const call = await boardCall(
 		ctx,
 		mutationCallable(as, "work.settle_work_item_attempt"),
@@ -512,7 +504,8 @@ export async function workSettle(
 			...(ctx.work.note?.trim() ? { summary: ctx.work.note.trim() } : {}),
 			...(ctx.work.needsUser ? { needsUser: ctx.work.needsUser } : {}),
 			...(ctx.work.requestId ? { requestId: ctx.work.requestId } : {}),
-			...(commits ? { commitShas: commits } : {}),
+			...(settlement ? { settlement } : {}),
+			...(input.complete !== undefined ? { complete: input.complete } : {}),
 			...(metadata ? { metadata } : {}),
 		}),
 	);

@@ -1,4 +1,8 @@
 import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
+import {
 	KernelRequestPolicySchema,
 	type KernelAcceptanceCheck,
 	type KernelAcceptanceObservation,
@@ -38,30 +42,13 @@ const SHA = /^[a-f0-9]{40}$/;
 /** A pushed observation older than this cannot prove or disprove a new delivery. */
 const PUSH_LOOKBACK_MS = 14 * 86_400_000;
 
-/**
- * Commit identities a lane-serve settlement reported. `commitShas` (full SHAs)
- * and `baseSha` (main when the lane started) are the agreed fields; `commits`
- * and a single `commitSha` are tolerated. Short SHAs are ignored, never padded.
- */
 export function settledCommitShas(metadata: Record<string, JsonValue>) {
+	const settlement = WorkAttemptSettlementSchema.safeParse(
+		metadata.settlement,
+	).data;
 	const commitShas = [
 		...new Set(
-			[metadata.commitShas, metadata.commits, metadata.commitSha]
-				.flatMap((value) =>
-					Array.isArray(value) ? value : value == null ? [] : [value],
-				)
-				.map((value) =>
-					typeof value === "string"
-						? value
-						: value &&
-							  typeof value === "object" &&
-							  !Array.isArray(value) &&
-							  typeof value.sha === "string"
-							? value.sha
-							: "",
-				)
-				.map((value) => value.trim().toLowerCase())
-				.filter((value) => SHA.test(value)),
+			workSettlementCommits(settlement).map((sha) => sha.toLowerCase()),
 		),
 	].slice(0, 20);
 	const base =

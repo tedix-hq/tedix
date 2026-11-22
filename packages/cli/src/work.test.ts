@@ -49,7 +49,7 @@ import {
 } from "./work";
 import {
 	buildAcceptanceContract,
-	buildSettlementMetadata,
+	resolveSettlementCommits,
 } from "./work-lifecycle";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import { setProcessTableReader } from "./host-ancestry";
@@ -2573,35 +2573,32 @@ describe("settle carries verified commits", () => {
 	afterAll(() => rmSync(repo, { force: true, recursive: true }));
 
 	test("omitting --commit sends no settlement metadata", () => {
-		expect(buildSettlementMetadata(undefined, repo)).toBeUndefined();
-		expect(buildSettlementMetadata([], repo)).toBeUndefined();
+		expect(resolveSettlementCommits(undefined, repo)).toBeUndefined();
+		expect(resolveSettlementCommits([], repo)).toBeUndefined();
 	});
 
 	// The short sha `git push` prints is a legal input, which is exactly what
 	// removes the motive to hand-extend one.
-	test("expands short shas and repeats the first as commitSha", () => {
-		expect(buildSettlementMetadata([head.slice(0, 8), head], repo)).toEqual({
-			settlement: { mode: "commit", commitSha: head, commitShas: [head] },
-		});
+	test("expands abbreviated commits and removes duplicates", () => {
+		expect(resolveSettlementCommits([head.slice(0, 8), head], repo)).toEqual([
+			head,
+		]);
 	});
 
 	test("preserves order across several distinct commits", () => {
 		git(["commit", "--quiet", "--allow-empty", "-m", "second"], repo);
 		const second = git(["rev-parse", "HEAD"], repo);
-		expect(buildSettlementMetadata([second, head.slice(0, 9)], repo)).toEqual({
-			settlement: {
-				mode: "commit",
-				commitSha: second,
-				commitShas: [second, head],
-			},
-		});
+		expect(resolveSettlementCommits([second, head.slice(0, 9)], repo)).toEqual([
+			second,
+			head,
+		]);
 	});
 
 	// The anti-fabrication property that replaces the digest ceremony: a made-up
 	// sha fails at the terminal that typed it, not silently downstream.
 	test("refuses a fabricated sha locally, before any board call", () => {
 		expect(() =>
-			buildSettlementMetadata([`${head.slice(0, 9)}${"0".repeat(31)}`], repo),
+			resolveSettlementCommits([`${head.slice(0, 9)}${"0".repeat(31)}`], repo),
 		).toThrow(/does not resolve to a commit/);
 	});
 

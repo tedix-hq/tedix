@@ -16,6 +16,7 @@ import {
 } from "@tedix/db/queries/work-items/purpose";
 import {
 	WorkAttemptCliRowSchema,
+	WorkAttemptSettlementSchema,
 	WorkEvidenceCliRowSchema,
 	WorkEventCliRowSchema,
 	ListWorkAttemptCliProjectionResultSchema,
@@ -25,6 +26,7 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import {
 	getAuthoritativeWorkItemAttempt,
+	getRecordedWorkItemAttempt,
 	heartbeatWorkItemAttempt,
 	listWorkItemAttempts,
 	recordWorkAttemptRepository,
@@ -97,6 +99,7 @@ import {
 	requireOwnerAdminWorkItemAuthor,
 	workItemAcceptanceActor,
 	workItemStewardActor,
+	ownAttemptCompletionProblem,
 	rethrowWorkItemWriteError,
 } from "./policy-helpers";
 import { admitWorkAttempt, previewWorkAttempt } from "./attempt-admission";
@@ -1138,6 +1141,42 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			workItem.orgId,
 		);
 		try {
+			const { complete, settlement } = input;
+			if (input.metadata && "settlement" in input.metadata)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Put result proof in the typed settlement field.",
+				);
+			if (complete && (input.outcome !== "succeeded" || input.needsUser))
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Closeout requires outcome succeeded without a handoff.",
+				);
+			if (complete && workItem.disposition === "completed") {
+				const prior = await getRecordedWorkItemAttempt(context.db, {
+					orgId: workItem.orgId,
+					workItemId: workItem.id,
+					attemptId: input.attemptId,
+				});
+				if (
+					prior?.outcome === "succeeded" &&
+					prior.executorType === executor.type &&
+					prior.executorId === executor.id &&
+					prior.executorSessionId === (external?.executor.sessionId ?? null) &&
+					prior.externalSessionKey === (external?.externalSessionKey ?? null) &&
+					prior.metadata.closedWorkVersion ===
+						complete.expectedWorkItemVersion &&
+					workItem.version === complete.expectedWorkItemVersion + 1 &&
+					prior.finishedAt === workItem.completedAt
+				)
+					return {
+						workItem,
+						attempt: prior,
+						settlement: WorkAttemptSettlementSchema.safeParse(
+							prior.metadata.settlement,
+						).data,
+					};
+			}
 			const attempt = await getAuthoritativeWorkItemAttempt(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
@@ -1149,27 +1188,53 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			});
 			const receiptMetadata = {
 				...input.metadata,
-				...(input.commitShas
-					? {
-							settlement: {
-								mode: "commit",
-								commitSha: input.commitShas[0],
-								commitShas: input.commitShas,
-							},
-						}
-					: {}),
+				...(settlement ? { settlement } : {}),
+			};
+			const mergedMetadata = {
+				...attempt.metadata,
+				...toJsonRecord(receiptMetadata),
 			};
 			if (
 				input.outcome === "succeeded" &&
-				!(await hasRecoveredCommitCustody(context, attempt, {
-					...attempt.metadata,
-					...toJsonRecord(receiptMetadata),
-				}))
+				!(await hasRecoveredCommitCustody(context, attempt, mergedMetadata))
 			) {
 				throw createError(
 					ErrorCodes.FORBIDDEN,
 					"Recovered commits require custody from an admitted Attempt of this Work and its recorded session",
 				);
+			}
+			let completion:
+				| { actor: WorkActor; expectedWorkItemVersion: number }
+				| undefined;
+			if (complete) {
+				if (
+					workItem.disposition !== "accepted" ||
+					workItem.version !== complete.expectedWorkItemVersion
+				)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Work changed before closeout. Read its current revision before retrying.",
+					);
+				if (external) {
+					const problem = await ownAttemptCompletionProblem(context, workItem, {
+						...attempt,
+						metadata: mergedMetadata,
+					});
+					if (problem) throw createError(ErrorCodes.FORBIDDEN, problem);
+					completion = {
+						actor: {
+							type: "external_agent",
+							id: executor.id,
+							sessionId: external.executor.sessionId,
+						},
+						expectedWorkItemVersion: complete.expectedWorkItemVersion,
+					};
+				} else {
+					completion = {
+						actor: await workItemStewardActor(context, workItem, "completion"),
+						expectedWorkItemVersion: complete.expectedWorkItemVersion,
+					};
+				}
 			}
 			const { summarizeFeedOutcome } =
 				await import("../../../services/feed-outcome-summary");
@@ -1203,6 +1268,7 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 					? toJsonRecord(stampExternalAgentMetadata(external, metadata))
 					: toJsonRecord(metadata),
 				repositoryLifecycle: input.repositoryLifecycle,
+				completion,
 				costMicros: input.costMicros,
 				settledAt,
 			});
@@ -1231,7 +1297,9 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				if (context.waitUntil) context.waitUntil(lesson);
 				else await lesson;
 			}
-			if (!agentNextStep) return settled;
+			if (completion)
+				await recordWorkCompletedLearning(context, settled.workItem);
+			if (!agentNextStep) return { ...settled, settlement };
 			const ask = await routeLaneNextStepToAgent(context.db, {
 				work: settled.workItem,
 				executor,
@@ -1240,7 +1308,7 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				summary: settled.attempt.summary ?? input.summary,
 				now: settledAt,
 			});
-			return { ...settled, interactionId: ask.id };
+			return { ...settled, settlement, interactionId: ask.id };
 		} catch (error) {
 			rethrowWorkItemWriteError(error);
 		}
@@ -1368,6 +1436,37 @@ export const listEventsProcedure = factoryOs.listEvents.handler(
 	},
 );
 
+async function recordWorkCompletedLearning(
+	context: BaseContext,
+	completed: Awaited<ReturnType<typeof assertWorkItemAccess>>,
+) {
+	await recordObservedLearningInteraction(context, {
+		organizationId: completed.orgId,
+		clientEventId: `work-outcome:${completed.id}:completed`,
+		eventKind: "accepted",
+		surface: "work_outcome",
+		targetType: "work_item",
+		targetId: completed.id,
+		metadata: {
+			decisionClass: completed.workKind,
+			projectId: completed.projectId,
+			outcome:
+				!completed.deadline || !completed.completedAt
+					? "completed"
+					: Date.parse(completed.completedAt) <=
+						  Date.parse(
+								completed.deadline.length === 10
+									? `${completed.deadline}T23:59:59.999Z`
+									: completed.deadline,
+						  )
+						? "completed_on_time"
+						: "completed_late",
+			deadline: completed.deadline,
+			completedAt: completed.completedAt,
+		},
+	});
+}
+
 export const completeProcedure = factoryOs.complete.handler(
 	async ({ input, context }) => {
 		const request =
@@ -1398,31 +1497,7 @@ export const completeProcedure = factoryOs.complete.handler(
 				closingComment: native?.closingComment ?? undefined,
 				completedAt: new Date().toISOString(),
 			});
-			await recordObservedLearningInteraction(context, {
-				organizationId: workItem.orgId,
-				clientEventId: `work-outcome:${workItem.id}:completed`,
-				eventKind: "accepted",
-				surface: "work_outcome",
-				targetType: "work_item",
-				targetId: workItem.id,
-				metadata: {
-					decisionClass: workItem.workKind,
-					projectId: workItem.projectId,
-					outcome:
-						!completed.deadline || !completed.completedAt
-							? "completed"
-							: Date.parse(completed.completedAt) <=
-								  Date.parse(
-										completed.deadline.length === 10
-											? `${completed.deadline}T23:59:59.999Z`
-											: completed.deadline,
-								  )
-								? "completed_on_time"
-								: "completed_late",
-					deadline: completed.deadline,
-					completedAt: completed.completedAt,
-				},
-			});
+			await recordWorkCompletedLearning(context, completed);
 			return completed;
 		} catch (error) {
 			rethrowWorkItemWriteError(error);

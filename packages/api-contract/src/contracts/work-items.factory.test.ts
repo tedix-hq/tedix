@@ -19,12 +19,21 @@ describe("Work Item factory contract", () => {
 			outcome: "succeeded",
 		};
 		expect(
-			schema.safeParse({ ...input, commitShas: ["a".repeat(40)] }).success,
+			schema.safeParse({
+				...input,
+				complete: { expectedWorkItemVersion: 2 },
+				settlement: { mode: "commit", commitShas: ["a".repeat(40)] },
+			}).success,
 		).toBe(true);
-		expect(schema.safeParse({ ...input, commitShas: ["abc"] }).success).toBe(
-			false,
-		);
-		expect(schema.safeParse({ ...input, commitShas: [] }).success).toBe(false);
+		expect(
+			schema.safeParse({
+				...input,
+				settlement: { mode: "commit", commitShas: ["abc"] },
+			}).success,
+		).toBe(false);
+		expect(
+			schema.safeParse({ ...input, commitShas: ["a".repeat(40)] }).success,
+		).toBe(false);
 	});
 
 	it("accepts project objective classification without accepting a client objective", () => {

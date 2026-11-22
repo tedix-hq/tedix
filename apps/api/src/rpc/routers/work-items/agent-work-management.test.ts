@@ -12,6 +12,7 @@ import {
 	workAttemptMessages,
 } from "@tedix/db/schema/work-items";
 import {
+	workAdmissions,
 	workResourceReservations,
 	workBudgetReservations,
 	workInteractions,
@@ -61,6 +62,7 @@ async function fixture({
 				workEvents,
 				workAttemptSteps,
 				workAttemptMessages,
+				workAdmissions,
 				workResourceReservations,
 				workBudgetReservations,
 				workInteractions,
@@ -268,6 +270,22 @@ describe("owner-granted external-agent Work management", () => {
 				startedAt: new Date(now).toISOString(),
 				metadata: { dispatchVersion: 1 },
 			});
+			await db.insert(workAdmissions).values({
+				id: "current-admission",
+				orgId: base.orgId,
+				workItemId: id,
+				workItemVersion: 1,
+				admissionSpecRevision:
+					(await getWorkItemById(db, id))?.admissionSpecRevision ?? "",
+				executorType: base.executorType,
+				executorId: base.executorId,
+				executorSessionId: base.executorSessionId,
+				externalSessionKey: base.externalSessionKey,
+				decision: "admitted",
+				createdAt: base.heartbeatAt,
+				decidedAt: base.heartbeatAt,
+				expiresAt: base.expiresAt,
+			});
 			const metadata = {
 				dispatchVersion: 1,
 				laneResult: {
@@ -286,18 +304,24 @@ describe("owner-granted external-agent Work management", () => {
 					},
 				],
 			};
-			const settle = () =>
+			const settle = (expectedWorkItemVersion = 1) =>
 				settleAttemptProcedure["~orpc"].handler!({
 					context,
 					input: {
 						id,
 						attemptId: "current",
 						outcome: "succeeded",
+						complete: { expectedWorkItemVersion },
 						metadata,
 						...(state === "missing settlement"
 							? {}
 							: {
-									commitShas: [state === "wrong commit" ? "b".repeat(40) : sha],
+									settlement: {
+										mode: "commit",
+										commitShas: [
+											state === "wrong commit" ? "b".repeat(40) : sha,
+										],
+									},
 								}),
 					},
 					path: [],
@@ -315,18 +339,49 @@ describe("owner-granted external-agent Work management", () => {
 					lastEventId: undefined,
 				});
 			if (["failed", "expired", "succeeded"].includes(state)) {
-				await expect(settle()).resolves.toMatchObject({
-					attempt: {
-						outcome: "succeeded",
-						metadata: { settlement: { commitSha: sha } },
-					},
-				});
-				await expect(complete()).resolves.toMatchObject({
-					disposition: "completed",
-				});
+				await expect(settle(2)).rejects.toMatchObject({ code: "CONFLICT" });
 				expect(await getWorkItemById(db, id)).toMatchObject({
-					disposition: "completed",
+					disposition: "accepted",
 				});
+				if (state === "failed") {
+					sqlite.exec(`CREATE TRIGGER reject_completion_event BEFORE INSERT ON work_events
+						WHEN NEW.event_type = 'work.completed'
+						BEGIN SELECT RAISE(ABORT, 'test completion event failure'); END;`);
+					await expect(settle()).rejects.toThrow();
+					expect(await getWorkItemById(db, id)).toMatchObject({
+						disposition: "accepted",
+						version: 1,
+					});
+					expect(
+						await db
+							.select({ outcome: workAttempts.outcome })
+							.from(workAttempts)
+							.where(eq(workAttempts.id, "current")),
+					).toEqual([{ outcome: null }]);
+					sqlite.exec("DROP TRIGGER reject_completion_event");
+				}
+				const result = await settle();
+				expect(result).toMatchObject({
+					workItem: { disposition: "completed", version: 2 },
+					attempt: { outcome: "succeeded", metadata: { closedWorkVersion: 1 } },
+					settlement: { mode: "commit", commitShas: [sha] },
+				});
+				await expect(settle()).resolves.toMatchObject({
+					workItem: { disposition: "completed", version: 2 },
+				});
+				const events = await db
+					.select({ eventType: workEvents.eventType })
+					.from(workEvents)
+					.where(eq(workEvents.workItemId, id))
+					.orderBy(workEvents.sequence);
+				expect(
+					events.filter(({ eventType }) =>
+						["attempt.settled", "work.completed"].includes(eventType),
+					),
+				).toEqual([
+					{ eventType: "attempt.settled" },
+					{ eventType: "work.completed" },
+				]);
 			} else {
 				await expect(settle()).rejects.toMatchObject({ code: "FORBIDDEN" });
 				// A retained or older server receipt must not bypass the completion check.

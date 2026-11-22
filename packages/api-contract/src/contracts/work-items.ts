@@ -99,9 +99,11 @@ import {
 	WorkGraphHealthReportSchema,
 	WorkGraphStewardOutcomeSchema,
 	WorkAttemptSchema,
+	WorkAttemptCloseoutResultSchema,
 	WorkAttemptSummarySchema,
 	WorkAttemptRepositoryRequestSchema,
 	WorkAttemptRepositorySchema,
+	WorkAttemptSettlementSchema,
 	WorkAttemptRepositoryLifecycleSchema,
 	WorkAttemptRepositoryReadRequestSchema,
 	WorkAttemptRepositoryReadResultSchema,
@@ -1428,7 +1430,7 @@ export const workItemsContract = oc
 				summary: "Settle Work Item attempt",
 			})
 			.input(
-				z.object({
+				z.strictObject({
 					id: z.uuid(),
 					attemptId: z.uuid(),
 					outcome: z.enum([
@@ -1455,14 +1457,17 @@ export const workItemsContract = oc
 							"Original private request-ledger row, when known. Must belong to the requesting user and this Work's project.",
 						),
 					summary: z.string().max(10_000).optional(),
-					commitShas: z
-						.array(z.string().regex(/^[a-f0-9]{40}$/i))
-						.min(1)
-						.max(100)
+					complete: z
+						.strictObject({
+							expectedWorkItemVersion: z.number().int().positive(),
+						})
 						.optional()
 						.describe(
-							"Full commit IDs for this Attempt's repository result, in order. The first is the primary commit.",
+							"Complete this Work revision in the same write as successful settlement.",
 						),
+					settlement: WorkAttemptSettlementSchema.optional().describe(
+						"Result delivered by the Attempt.",
+					),
 					metadata: JsonRecordSchema.optional(),
 					repositoryLifecycle:
 						WorkAttemptRepositoryLifecycleSchema.optional().describe(
@@ -1478,13 +1483,7 @@ export const workItemsContract = oc
 						),
 				}),
 			)
-			.output(
-				z.object({
-					workItem: WorkItemSchema,
-					attempt: WorkAttemptSchema,
-					interactionId: z.uuid().optional(),
-				}),
-			),
+			.output(WorkAttemptCloseoutResultSchema),
 
 		listAttempts: oc
 			.route({

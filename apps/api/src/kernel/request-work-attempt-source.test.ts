@@ -274,7 +274,7 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await f.push("push-a", sha("a"), 20);
 		expect((await f.run("attempt-one")).nextAction).toBe("ready_to_complete");
@@ -316,7 +316,7 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await f.push("push-a", sha("a"), 20);
 		await f.run("attempt-one");
@@ -346,7 +346,7 @@ describe("dispatcher Work Attempt request source", () => {
 			await f.attempt("attempt-one", {
 				outcome: "succeeded",
 				startedMinutesAgo: 30,
-				metadata: { commitShas: [sha("a")] },
+				metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 			});
 			await f.push("push-a", sha("a"), 20);
 			await f.run("attempt-one");
@@ -395,7 +395,7 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await f.push("push-a", sha("a"), 20);
 		ship.mockRejectedValue(new Error("Ship red"));
@@ -418,7 +418,7 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await f.push("push-a", sha("a"), 20);
 		await f.run("attempt-one");
@@ -441,19 +441,18 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await f.push("push-a", sha("a"), 20);
 		await f.push("push-b", sha("b"), 10);
 		expect((await f.run("attempt-one")).snapshot.outcome).toBe("unknown");
 	});
 
-	it("reads agreed and tolerated settlement fields, never short SHAs", () => {
+	it("reads typed commit receipts without crediting legacy fields", () => {
 		expect(
 			settledCommitShas({
-				commitShas: [sha("a"), "abc1234"],
-				commits: [{ sha: sha("B") }],
-				commitSha: sha("a"),
+				settlement: { mode: "commit", commitShas: [sha("a"), sha("B")] },
+				commitSha: sha("d"),
 				baseSha: sha("c"),
 			}),
 		).toEqual({ commitShas: [sha("a"), sha("b")], baseSha: sha("c") });
@@ -465,7 +464,10 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")], baseSha: sha("0") },
+			metadata: {
+				settlement: { mode: "commit", commitShas: [sha("a")] },
+				baseSha: sha("0"),
+			},
 		});
 		await f.push("push-a", sha("a"), 20);
 		const row = await f.run("attempt-one");
@@ -493,7 +495,7 @@ describe("dispatcher Work Attempt request source", () => {
 		await later.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await later.push("push-d", sha("d"), 20, {
 			commitShas: [sha("d"), sha("a")],
@@ -505,7 +507,7 @@ describe("dispatcher Work Attempt request source", () => {
 		await stale.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")] },
+			metadata: { settlement: { mode: "commit", commitShas: [sha("a")] } },
 		});
 		await stale.push("push-9", sha("9"), 40);
 		await stale.push("push-a", sha("a"), 20);
@@ -558,7 +560,10 @@ describe("dispatcher Work Attempt request source", () => {
 			await f.attempt("attempt-one", {
 				outcome: "succeeded",
 				startedMinutesAgo: 30,
-				metadata: { commitShas: [sha("a")], baseSha: sha("a") },
+				metadata: {
+					settlement: { mode: "commit", commitShas: [sha("a")] },
+					baseSha: sha("a"),
+				},
 			});
 			const row = await f.run("attempt-one");
 			expect(row.snapshot.outcome).toBe("failed");
@@ -575,7 +580,10 @@ describe("dispatcher Work Attempt request source", () => {
 		await f.attempt("attempt-one", {
 			outcome: "succeeded",
 			startedMinutesAgo: 30,
-			metadata: { commitShas: [sha("a")], baseSha: sha("b") },
+			metadata: {
+				settlement: { mode: "commit", commitShas: [sha("a")] },
+				baseSha: sha("b"),
+			},
 		});
 		await f.push("push-b", sha("b"), 20, { commitShas: [sha("b"), sha("a")] });
 		const row = await f.run("attempt-one");

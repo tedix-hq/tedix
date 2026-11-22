@@ -1,3 +1,7 @@
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
 import { getRecordedWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import type { WorkAttempt } from "@tedix/db/schema/work-items";
 import type { BaseContext } from "../../orpc";
@@ -11,13 +15,10 @@ export async function hasRecoveredCommitCustody(
 	const recovered = metadata.recoveredCommits;
 	if (recovered === undefined) return true;
 	if (!Array.isArray(recovered) || recovered.length === 0) return false;
-	const settlement = metadata.settlement;
-	if (
-		!settlement ||
-		typeof settlement !== "object" ||
-		Array.isArray(settlement)
-	)
-		return false;
+	const commits = workSettlementCommits(
+		WorkAttemptSettlementSchema.safeParse(metadata.settlement).data,
+	);
+	if (!commits.length) return false;
 	for (const row of recovered) {
 		if (
 			!row ||
@@ -27,11 +28,7 @@ export async function hasRecoveredCommitCustody(
 			!/^[a-f\d]{40}$/i.test(row.commitSha) ||
 			typeof row.attemptId !== "string" ||
 			typeof row.session !== "string" ||
-			(settlement.commitSha !== row.commitSha &&
-				!(
-					Array.isArray(settlement.commitShas) &&
-					settlement.commitShas.includes(row.commitSha)
-				))
+			!commits.includes(row.commitSha)
 		)
 			return false;
 		const original = await getRecordedWorkItemAttempt(context.db, {

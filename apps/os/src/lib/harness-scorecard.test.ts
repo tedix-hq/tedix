@@ -236,8 +236,7 @@ it("counts unique dispatcher commit receipts, excluding declared or recovered ex
 		lane: true,
 		settlement: {
 			mode: "commit",
-			commitSha: sha,
-			commitShas: [sha, sha, "b".repeat(40), "bad"],
+			commitShas: [sha, sha, "b".repeat(40)],
 		},
 	};
 	const rows = aggregateHarnessScorecard(

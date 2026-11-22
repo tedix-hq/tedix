@@ -1,3 +1,7 @@
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
 import { createRouterClient } from "@orpc/server";
 import { z } from "zod";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -223,8 +227,6 @@ async function sendWorkspaceReport(
 	return { status: "sent" };
 }
 
-const FULL_SHA = /^[a-f0-9]{40}$/;
-
 /** The report of a settled run started from a workspace conversation. */
 export function workspaceRunEndedReport(
 	work: NoticeWork,
@@ -234,10 +236,9 @@ export function workspaceRunEndedReport(
 	if (!origin || attempt.executorType !== "external_agent" || !attempt.outcome)
 		return null;
 	const metadata = isRecord(attempt.metadata) ? attempt.metadata : {};
-	const settlement = isRecord(metadata.settlement) ? metadata.settlement : {};
-	const shas = Array.isArray(settlement.commitShas)
-		? settlement.commitShas
-		: [settlement.commitSha];
+	const shas = workSettlementCommits(
+		WorkAttemptSettlementSchema.safeParse(metadata.settlement).data,
+	);
 	const lane = isRecord(metadata.laneResult) ? metadata.laneResult : {};
 	const unverified =
 		typeof lane.unverified === "string"
@@ -261,11 +262,7 @@ export function workspaceRunEndedReport(
 					? attempt.outcome
 					: "failed",
 			result: (attempt.summary ?? "").slice(0, 4_000),
-			commits: shas
-				.filter(
-					(sha): sha is string => typeof sha === "string" && FULL_SHA.test(sha),
-				)
-				.slice(0, 10),
+			commits: shas.slice(0, 10),
 			unverified: unverified?.slice(0, 1_800) ?? null,
 		},
 	};

@@ -9,6 +9,19 @@ vi.mock("@tedix/db/queries/work-items/attempts", () => ({
 	getRecordedWorkItemAttempt: vi.fn(),
 }));
 
+const artifact = vi.hoisted(() => ({
+	evidence: vi.fn(),
+	run: vi.fn(),
+	skill: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/work-items/evidence", () => ({
+	getWorkItemEvidence: artifact.evidence,
+}));
+vi.mock("@tedix/db/queries/skill-runs", () => ({ getSkillRun: artifact.run }));
+vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
+	getSkillEntry: artifact.skill,
+}));
+
 import {
 	canCompleteOwnSucceededAttempt,
 	workItemStewardActor,
@@ -50,7 +63,7 @@ function attempt(overrides: Record<string, unknown> = {}) {
 				contractVersion: 1,
 				outcomeText: DONE,
 			},
-			settlement: { mode: "commit", commitSha: SHA },
+			settlement: { mode: "commit", commitShas: [SHA] },
 		},
 		...overrides,
 	};
@@ -60,6 +73,10 @@ describe("canCompleteOwnSucceededAttempt", () => {
 	beforeEach(() => {
 		attempts.list.mockReset();
 		attempts.admission.mockReset();
+		attempts.admission.mockResolvedValue({
+			workItemVersion: 1,
+			admissionSpecRevision: "current-spec",
+		});
 		attempts.list.mockResolvedValue({ data: [attempt()], nextCursor: null });
 	});
 
@@ -87,7 +104,7 @@ describe("canCompleteOwnSucceededAttempt", () => {
 	});
 
 	it("allows a direct CLI coding settle against the current admission", async () => {
-		const settlement = { mode: "commit", commitSha: SHA };
+		const settlement = { mode: "commit", commitShas: [SHA] };
 		const directAttempt = attempt({ metadata: { settlement } });
 		attempts.list.mockResolvedValue({
 			data: [directAttempt],
@@ -119,12 +136,17 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		["a settle without a commit", { metadata: {} }],
 		[
 			"a malformed commit",
-			{ metadata: { settlement: { mode: "commit", commitSha: "abc" } } },
+			{ metadata: { settlement: { mode: "commit", commitShas: ["abc"] } } },
 		],
 		["a tedi attempt", { executorType: "tedi" }],
 		[
 			"an earlier Work revision",
-			{ metadata: { dispatchVersion: 2, settlement: { commitSha: SHA } } },
+			{
+				metadata: {
+					dispatchVersion: 2,
+					settlement: { mode: "commit", commitShas: [SHA] },
+				},
+			},
 		],
 	])("refuses %s", async (_label, overrides) => {
 		attempts.list.mockResolvedValue({
@@ -143,6 +165,10 @@ describe("canCompleteOwnSucceededAttempt", () => {
 					version: 1,
 					doneLooksLike: "The entire accepted result is verified.",
 				},
+			});
+			attempts.admission.mockResolvedValue({
+				workItemVersion: work.version,
+				admissionSpecRevision: work.admissionSpecRevision,
 			});
 			const result = {
 				outcome,
@@ -165,7 +191,7 @@ describe("canCompleteOwnSucceededAttempt", () => {
 							metadata: {
 								dispatchVersion: 2,
 								laneResult,
-								settlement: { commitSha: SHA },
+								settlement: { mode: "commit", commitShas: [SHA] },
 							},
 						}),
 					],
@@ -178,7 +204,7 @@ describe("canCompleteOwnSucceededAttempt", () => {
 						metadata: {
 							dispatchVersion: 2,
 							laneResult: result,
-							settlement: { commitSha: SHA },
+							settlement: { mode: "commit", commitShas: [SHA] },
 						},
 					}),
 				],
@@ -186,6 +212,62 @@ describe("canCompleteOwnSucceededAttempt", () => {
 			await expect(allowed(work)).resolves.toBe(true);
 		},
 	);
+	it("requires the configured organization skill result to belong to this Attempt", async () => {
+		const proof = {
+			mode: "skill_revision",
+			skillId: "skill",
+			skillRevision: 3,
+			skillRunId: "run",
+			evidenceId: AGENT,
+			evidenceUri: "skill://runs/run",
+		};
+		const work = item({
+			metadata: {
+				artifactKind: proof.mode,
+				artifactSkillId: proof.skillId,
+				artifactSkillRevision: 3,
+			},
+		});
+		const recorded = attempt();
+		attempts.list.mockResolvedValue({
+			data: [
+				{
+					...recorded,
+					id: "current",
+					metadata: { ...recorded.metadata, settlement: proof },
+				},
+			],
+		});
+		artifact.evidence.mockResolvedValue({
+			attemptId: "other",
+			kind: proof.mode,
+			uri: proof.evidenceUri,
+		});
+		const verify = () =>
+			canCompleteOwnSucceededAttempt(
+				{ ...context, env: { ENVIRONMENT: "development" } } as BaseContext,
+				work,
+				{ id: AGENT, sessionId: SESSION },
+			);
+		await expect(verify()).resolves.toBe(false);
+		artifact.evidence.mockResolvedValue({
+			attemptId: "current",
+			kind: proof.mode,
+			uri: proof.evidenceUri,
+		});
+		artifact.run.mockResolvedValue({
+			status: "completed",
+			skillId: "skill",
+			skillRevision: 3,
+			workItemId: work.id,
+		});
+		artifact.skill.mockResolvedValue({
+			lifecycleState: "active",
+			tediId: null,
+		});
+		await expect(verify()).resolves.toBe(true);
+	});
+
 	it("refuses an item that is not accepted, or a caller without a session", async () => {
 		await expect(allowed(item({ disposition: "proposed" }))).resolves.toBe(
 			false,

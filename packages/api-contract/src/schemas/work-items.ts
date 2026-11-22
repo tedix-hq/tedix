@@ -437,6 +437,86 @@ export type WorkRepositoryReviewResult = z.infer<
 	typeof WorkRepositoryReviewResultSchema
 >;
 
+const SettlementCommitSchema = z.string().regex(/^[a-f0-9]{40}$/i);
+const SettlementCommitsSchema = z.array(SettlementCommitSchema).min(1).max(100);
+const SettlementEvidence = {
+	evidenceId: z.uuid(),
+	evidenceUri: z.string().min(1).max(2000),
+};
+
+export const WorkAttemptSettlementSchema = z.discriminatedUnion("mode", [
+	z.strictObject({
+		mode: z.literal("commit"),
+		commitShas: SettlementCommitsSchema,
+	}),
+	z.strictObject({
+		mode: z.literal("existing_commits"),
+		commitShas: SettlementCommitsSchema,
+		repository: z.string().min(1).max(300).optional(),
+	}),
+	z.strictObject({
+		mode: z.literal("verified_existing"),
+		commitSha: SettlementCommitSchema,
+		runId: z.number().int().positive(),
+		runAttempt: z.number().int().positive(),
+		runCommitSha: SettlementCommitSchema,
+		evidenceUri: z.string().min(1).max(2000),
+		rootCause: z.string().min(1).max(2000),
+		ciApprovalId: z.uuid(),
+	}),
+	z.strictObject({
+		mode: z.literal("repository_commit"),
+		repository: z.string().min(1).max(300),
+		commitSha: SettlementCommitSchema,
+		runId: z.number().int().positive(),
+		runAttempt: z.number().int().positive(),
+		runCommitSha: SettlementCommitSchema,
+		evidenceUri: z.string().min(1).max(2000),
+	}),
+	z.strictObject({
+		mode: z.literal("runtime_app_revision"),
+		...SettlementEvidence,
+		workspaceId: z.uuid(),
+		gadgetId: z.uuid(),
+		revision: z.number().int().positive(),
+		revisionId: z.uuid(),
+	}),
+	z.strictObject({
+		mode: z.literal("skill_revision"),
+		...SettlementEvidence,
+		skillId: z.string().min(1),
+		skillRevision: z.number().int().positive(),
+		skillRunId: z.string().min(1),
+	}),
+	z.strictObject({
+		mode: z.literal("local_branch"),
+		...SettlementEvidence,
+		branch: z.string().min(1).max(200),
+		baseCommit: SettlementCommitSchema,
+		commitSha: SettlementCommitSchema,
+		commitShas: SettlementCommitsSchema,
+	}),
+]);
+
+export type WorkAttemptSettlement = z.infer<typeof WorkAttemptSettlementSchema>;
+
+export function workSettlementCommits(
+	settlement: WorkAttemptSettlement | undefined,
+): string[] {
+	if (!settlement) return [];
+	switch (settlement.mode) {
+		case "commit":
+		case "existing_commits":
+		case "local_branch":
+			return settlement.commitShas;
+		case "verified_existing":
+		case "repository_commit":
+			return [settlement.commitSha];
+		default:
+			return [];
+	}
+}
+
 /** Settlement-time claims that carry an Artifacts result into canonical review. */
 export const WorkAttemptRepositoryLifecycleSchema = z
 	.object({
@@ -1500,6 +1580,13 @@ export const WorkItemSchema = z.object({
 	cancelledAt: z.string().nullable(),
 	version: z.number().int().positive(),
 });
+export const WorkAttemptCloseoutResultSchema = z.object({
+	workItem: WorkItemSchema,
+	attempt: WorkAttemptSchema,
+	settlement: WorkAttemptSettlementSchema.optional(),
+	interactionId: z.uuid().optional(),
+});
+
 export type WorkItem = z.infer<typeof WorkItemSchema>;
 
 /** What an epic is for. `delivery` is a feature or other result due by a date. */

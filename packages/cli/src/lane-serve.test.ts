@@ -520,7 +520,17 @@ function fixture({
 				throw new Error("Transient settlement failure");
 			else if (verb === "settle" && control.settlementError)
 				throw control.settlementError;
-			else if (verb === "complete" && control.completeError)
+			else if (verb === "settle" && input?.complete) {
+				const work = items.find((row) => row.id === args[6])!;
+				if (control.deployments.length) work.disposition = "completed";
+				response = {
+					workItem: {
+						...work,
+						disposition: "completed",
+						completedAt: new Date().toISOString(),
+					},
+				};
+			} else if (verb === "complete" && control.completeError)
 				throw control.completeError;
 			else if (
 				verb === "complete" &&
@@ -770,6 +780,16 @@ async function withoutReadBackoff(run: () => Promise<void>) {
 	} finally {
 		wait.mockRestore();
 	}
+}
+
+function requestsCompletion(event: {
+	verb: string;
+	input?: Record<string, unknown>;
+}) {
+	return (
+		event.verb === "complete" ||
+		(event.verb === "settle" && !!event.input?.complete)
+	);
 }
 
 async function until(test: () => boolean, attempts = 100) {
@@ -1379,7 +1399,7 @@ describe("dispatcher admission", () => {
 			drained = true;
 		});
 		try {
-			await until(() => f.events.some((event) => event.verb === "complete"));
+			await until(() => f.events.some(requestsCompletion));
 			await new Promise((done) => setTimeout(done, 0));
 			expect(drained).toBe(false);
 			expect(existsSync(f.dir)).toBe(true);
@@ -1463,9 +1483,7 @@ describe("dispatcher admission", () => {
 		f.releases[0]!();
 		await f.dispatcher.drain();
 		expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(1);
-		expect(f.events.filter((event) => event.verb === "complete")).toHaveLength(
-			1,
-		);
+		expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 		expect(readFileSync(path, "utf8")).toBe("null");
 		writeFileSync(
 			path,
@@ -1871,7 +1889,7 @@ describe("dispatcher admission", () => {
 			];
 			await f.dispatcher.tick();
 			const completion = f.events.find(
-				(event) => event.verb === "complete" && event.args[6] === item(2).id,
+				(event) => requestsCompletion(event) && event.args[6] === item(2).id,
 			);
 			expect(completion?.env.TEDIX_AGENT_SESSION).toBe(
 				"codex:retained-session",
@@ -2130,7 +2148,7 @@ describe("dispatcher admission", () => {
 					expect(
 						f.events.filter(
 							(event) =>
-								event.verb === "complete" && event.args[6] === item(1).id,
+								requestsCompletion(event) && event.args[6] === item(1).id,
 						),
 					).toHaveLength(1);
 				}
@@ -2720,26 +2738,20 @@ describe("dispatcher admission", () => {
 					event.verb === "settle" && event.env.TEDIX_AGENT_SESSION === session,
 			)!;
 			expect(settlement.args).toContain("succeeded");
-			expect(settlement.args).toContain("--commit");
-			expect(settlement.input?.metadata).toMatchObject({
-				settlement: {
-					mode: "commit",
-					commitSha: control.commits[0],
-					commitShas: control.commits,
-				},
+			expect(settlement.input).toMatchObject({
+				settlement: { mode: "commit", commitShas: control.commits },
+				complete: { expectedWorkItemVersion: 2 },
 			});
-			const completion = events.find(
-				(event) =>
-					event.verb === "complete" &&
-					event.env.TEDIX_AGENT_SESSION === session,
-			)!;
-			expect(completion).toBeDefined();
-			expect(events.indexOf(completion)).toBeGreaterThan(
-				events.indexOf(settlement),
-			);
-			expect(completion.env.TEDIX_EXTERNAL_AGENT).toBe(
+			expect(settlement.env.TEDIX_EXTERNAL_AGENT).toBe(
 				start.env.TEDIX_EXTERNAL_AGENT,
 			);
+			expect(
+				events.some(
+					(event) =>
+						event.verb === "complete" &&
+						event.env.TEDIX_AGENT_SESSION === session,
+				),
+			).toBe(false);
 		}
 		expect(control.installed).toHaveLength(3);
 	});
@@ -3035,49 +3047,37 @@ describe("dispatcher admission", () => {
 			JSON.parse(readFileSync(join(dir, `${item(1).id}-2.json`), "utf8")).phase,
 		).toBe("settled");
 	});
-	it("completes a successful result under its original session and retains a denied completion for retry", async () => {
-		const { dispatcher, items, control, events, releases, dir } = fixture();
+	it("settles and completes in one call under the admitted session", async () => {
+		const { dispatcher, items, events, releases, dir } = fixture();
 		items.splice(1);
-		control.completeError = new Error("Completion unavailable");
 		await dispatcher.tick();
 		await until(() => releases.length === 1);
 		releases[0]!();
 		await dispatcher.drain();
-		const path = join(dir, `${item().id}-2.json`);
-		const saved = JSON.parse(readFileSync(path, "utf8"));
+		const saved = JSON.parse(
+			readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
+		);
+		const calls = events.filter(requestsCompletion);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toMatchObject({
+			verb: "settle",
+			input: { complete: { expectedWorkItemVersion: 2 } },
+			env: {
+				TEDIX_AGENT_SESSION: saved.session,
+				TEDIX_EXTERNAL_AGENT: saved.executorKey,
+			},
+		});
 		expect(saved).toMatchObject({
 			phase: "settled",
 			outcome: "succeeded",
-			completionPending: true,
-			completionRetries: 1,
+			completionPending: false,
 		});
-		const complete = events.find((e) => e.verb === "complete")!;
-		const settle = events.find((e) => e.verb === "settle")!;
-		expect(complete.env.TEDIX_AGENT_SESSION).toBe(
-			settle.env.TEDIX_AGENT_SESSION,
-		);
-		expect(events.indexOf(complete)).toBeGreaterThan(events.indexOf(settle));
-		control.completeError = undefined;
-		control.history.data = [
-			{
-				id: saved.attemptId,
-				externalSessionKey: saved.session,
-				outcome: "succeeded",
-			},
-		];
-		saved.completionRetryAt = 0;
-		writeFileSync(path, JSON.stringify(saved));
-		await dispatcher.tick();
-		expect(JSON.parse(readFileSync(path, "utf8")).completionPending).toBe(
-			false,
-		);
-		expect(releases).toHaveLength(1);
 	});
 
 	it("stops asking to complete once the server refuses this Attempt", async () => {
 		const { dispatcher, items, control, events, releases, dir } = fixture();
 		items.splice(1);
-		control.completeError = new CliReadError(
+		control.settlementError = new CliReadError(
 			'Tedix CLI read failed (exit 2): {"message":"MCP tool error: FORBIDDEN: Work Item completion requires its owner or steward"}',
 		);
 		await dispatcher.tick();
@@ -3087,7 +3087,8 @@ describe("dispatcher admission", () => {
 		const path = join(dir, `${item().id}-2.json`);
 		const saved = JSON.parse(readFileSync(path, "utf8"));
 		expect(saved).toMatchObject({
-			phase: "settled",
+			phase: "deferred",
+			held: true,
 			outcome: "succeeded",
 			completionPending: false,
 		});
@@ -3095,8 +3096,9 @@ describe("dispatcher admission", () => {
 		saved.completionRetryAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		const asks = () =>
-			events.filter((e) => ["complete", "dispatch-attempts"].includes(e.verb))
-				.length;
+			events.filter((e) =>
+				["settle", "complete", "dispatch-attempts"].includes(e.verb),
+			).length;
 		const before = asks();
 		for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
 		expect(asks()).toBe(before);
@@ -3146,6 +3148,7 @@ describe("dispatcher admission", () => {
 			saved.phase = phase;
 			saved.recheckAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
+			f.items[0]!.disposition = "completed";
 			f.control.history.data = [
 				{
 					id: saved.attemptId,
@@ -3160,8 +3163,9 @@ describe("dispatcher admission", () => {
 				outcome: "succeeded",
 				completionPending: false,
 			});
-			const completions = f.events.filter((event) => event.verb === "complete");
+			const completions = f.events.filter(requestsCompletion);
 			expect(completions).toHaveLength(1);
+			expect(completions[0]?.verb).toBe("settle");
 			expect(completions[0]!.env.TEDIX_AGENT_SESSION).toBe(saved.session);
 			expect(completions[0]!.env.TEDIX_EXTERNAL_AGENT).toBe(saved.executorKey);
 			expect(f.releases).toHaveLength(1);
@@ -3223,9 +3227,7 @@ describe("dispatcher admission", () => {
 			const before = reads();
 			await resumed.tick();
 			expect(reads()).toBe(before);
-			expect(
-				f.events.filter((event) => event.verb === "complete"),
-			).toHaveLength(0);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(0);
 			expect(f.releases).toHaveLength(0);
 		},
 	);
@@ -3241,13 +3243,14 @@ describe("dispatcher admission", () => {
 		const { dispatcher, restart, items, control, events, releases, dir } =
 			fixture();
 		items.splice(1);
-		control.completeError = new Error("Completion unavailable");
 		await dispatcher.tick();
 		await until(() => releases.length === 1);
 		releases[0]!();
 		await dispatcher.drain();
 		const path = join(dir, `${item().id}-2.json`);
 		const saved = JSON.parse(readFileSync(path, "utf8"));
+		saved.completionPending = true;
+		items[0]!.disposition = "accepted";
 		saved.completionRetries = 5;
 		saved.completionRetryAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
@@ -3882,7 +3885,7 @@ describe("dispatcher admission", () => {
 			expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
 				"failed",
 			);
-			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+			expect(f.events.some(requestsCompletion)).toBe(false);
 		},
 	);
 	it("reads Codex's result file instead of a conflicting telemetry declaration", async () => {
@@ -3910,7 +3913,7 @@ describe("dispatcher admission", () => {
 		expect(
 			f.events.find((event) => event.verb === "settle")!.input?.metadata,
 		).toMatchObject({ laneResult: result });
-		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+		expect(f.events.some(requestsCompletion)).toBe(true);
 	});
 	it("does not infer completion from a successful process exit", async () => {
 		const f = fixture();
@@ -3923,7 +3926,7 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
 	it.each([
 		"Pushed the fix; checks green.",
@@ -3958,7 +3961,9 @@ describe("dispatcher admission", () => {
 			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
 				"succeeded",
 			);
-			expect(settle.args).toContain(commitSha);
+			expect(settle.input).toMatchObject({
+				settlement: { mode: "commit", commitShas: [commitSha] },
+			});
 			expect(settle.input?.metadata).toMatchObject({
 				laneResult: {
 					outcome: "completed",
@@ -3968,7 +3973,7 @@ describe("dispatcher admission", () => {
 					outcomeText: item().acceptanceContract!.doneLooksLike,
 				},
 			});
-			expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+			expect(f.events.some(requestsCompletion)).toBe(true);
 		},
 	);
 	it.each([false, true])(
@@ -4016,7 +4021,7 @@ describe("dispatcher admission", () => {
 			expect(settle.args[settle.args.indexOf("--note") + 1]).not.toContain(
 				"1 landed commit",
 			);
-			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+			expect(f.events.some(requestsCompletion)).toBe(false);
 			const receipt = JSON.parse(
 				readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
 			);
@@ -4114,7 +4119,7 @@ describe("dispatcher admission", () => {
 		expect(settle.input?.metadata).toMatchObject({
 			laneResult: { outcome: "completed", workItemId: item().id },
 		});
-		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+		expect(f.events.some(requestsCompletion)).toBe(true);
 	});
 	// On 15 Nov 2026 three runs of one task ended "TypeError: undefined is not
 	// an object (evaluating 't.workItemId')": each cited the earlier commit
@@ -4175,7 +4180,9 @@ describe("dispatcher admission", () => {
 			"TypeError",
 		);
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
-		expect(settle.args).toContain(sha);
+		expect(settle.input).toMatchObject({
+			settlement: { mode: "commit", commitShas: [sha] },
+		});
 		expect(settle.input?.metadata).toMatchObject({
 			laneResult: { outcome: "completed", workItemId: item().id },
 			recoveredCommits: [{ commitSha: sha, attemptId: "original-attempt" }],
@@ -4303,7 +4310,7 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
 	it("keeps an explicitly incomplete coding result open despite its landed commit", async () => {
 		const f = fixture();
@@ -4317,8 +4324,10 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("rejected");
-		expect(settle.args).toContain("a".repeat(40));
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		expect(settle.input).toMatchObject({
+			settlement: { mode: "commit", commitShas: ["a".repeat(40)] },
+		});
+		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
 	it("bounds settlement notes after adding unlanded commit diagnostics", async () => {
 		const f = fixture();
@@ -4432,7 +4441,9 @@ describe("dispatcher admission", () => {
 			f.releases[0]!();
 			await f.dispatcher.drain();
 			const settle = f.events.find((event) => event.verb === "settle")!;
-			expect(settle.args).toContain(sha);
+			expect(settle.input).toMatchObject({
+				settlement: { mode: "commit", commitShas: [sha] },
+			});
 			expect(settle.input?.metadata).toMatchObject({
 				laneResult: { outcome: "landed_unverified" },
 			});
@@ -4487,9 +4498,9 @@ describe("dispatcher admission", () => {
 				await verifier.drain();
 				if (verdict !== "verified") await f.restart().tick();
 			}
-			expect(
-				f.events.filter((event) => event.verb === "complete"),
-			).toHaveLength(verdict === "verified" ? 1 : 0);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(
+				verdict === "verified" ? 1 : 0,
+			);
 			expect(work.disposition).toBe(
 				verdict === "verified" ? "completed" : "accepted",
 			);
@@ -4547,7 +4558,7 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		expect(f.events.some(requestsCompletion)).toBe(false);
 		await f.restart().tick();
 		expect(f.releases).toHaveLength(1);
 		const path = join(f.dir, `${item().id}-2.json`);
@@ -4589,8 +4600,8 @@ describe("dispatcher admission", () => {
 		expect(f.control.repositoryChecks).toEqual(["tedix-hq/tedix-cloud-ops"]);
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
-		expect(settle.args).toContain(commitSha);
-		expect(settle.input?.metadata).toMatchObject({
+		expect(settle.args).not.toContain("--commit");
+		expect(settle.input).toMatchObject({
 			settlement: {
 				mode: "repository_commit",
 				repository: "tedix-hq/tedix-cloud-ops",
@@ -4598,7 +4609,7 @@ describe("dispatcher admission", () => {
 				runId: 123,
 			},
 		});
-		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+		expect(f.events.some(requestsCompletion)).toBe(true);
 	});
 	it("settles a result that changed nothing as succeeded when the commits it cites are already on main", async () => {
 		const f = fixture();
@@ -4618,18 +4629,19 @@ describe("dispatcher admission", () => {
 		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
 			"No change was needed",
 		);
-		expect(settle.input?.metadata).toMatchObject({
-			laneResult: { outcome: "landed_unverified", existingCommits: cited },
+		expect(settle.input).toMatchObject({
+			metadata: {
+				laneResult: { outcome: "landed_unverified", existingCommits: cited },
+			},
 			settlement: {
 				mode: "existing_commits",
-				commitSha: cited[0],
 				commitShas: cited,
 			},
 		});
 		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
 		expect(f.control.deploymentChecks[0]).toEqual(cited);
 		expect(f.releases).toHaveLength(1);
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		expect(f.events.some(requestsCompletion)).toBe(false);
 		expect(f.events.some((event) => event.verb === "interaction-create")).toBe(
 			false,
 		);
@@ -4703,7 +4715,9 @@ describe("dispatcher admission", () => {
 				laneResult: result,
 				session: admitted.session,
 			});
-			expect(settle.args).toContain(commitSha);
+			expect(settle.input).toMatchObject({
+				settlement: { mode: "commit", commitShas: [commitSha] },
+			});
 			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
 				outcome === "completed" ? "succeeded" : "rejected",
 			);
@@ -4712,9 +4726,7 @@ describe("dispatcher admission", () => {
 					(event) => event.verb === "start" && event.args[4] === "work",
 				),
 			).toHaveLength(1);
-			expect(f.events.some((event) => event.verb === "complete")).toBe(
-				outcome === "completed",
-			);
+			expect(f.events.some(requestsCompletion)).toBe(outcome === "completed");
 		},
 	);
 	it("does not use a declared commit as verified landed proof", async () => {
@@ -4735,7 +4747,7 @@ describe("dispatcher admission", () => {
 		expect(settle.args).not.toContain("--commit");
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
 		expect(settle.input?.metadata).toMatchObject({ laneResult: result });
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
 	it.each([
 		{ workItemId: item(2).id },
@@ -4752,7 +4764,7 @@ describe("dispatcher admission", () => {
 			await until(() => f.releases.length === 1);
 			f.releases[0]!();
 			await f.dispatcher.drain();
-			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+			expect(f.events.some(requestsCompletion)).toBe(false);
 			expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
 				"failed",
 			);
@@ -5200,16 +5212,17 @@ describe("dispatcher admission", () => {
 			await until(() => releases.length === 1);
 			releases[0]!();
 			await dispatcher.drain();
-			const settlement = events.find((e) => e.verb === "settle")!.args;
-			expect(settlement[settlement.indexOf("--outcome") + 1]).toBe(
+			const settlement = events.find((e) => e.verb === "settle")!;
+			expect(settlement.args[settlement.args.indexOf("--outcome") + 1]).toBe(
 				proof === "landed" ? "succeeded" : "failed",
 			);
-			expect(settlement.filter((arg) => arg === "--commit")).toHaveLength(
-				control.commits.length,
-			);
-			for (const sha of control.commits) expect(settlement).toContain(sha);
-			if (proof === "landed")
+			if (proof === "landed") {
+				expect(settlement.input?.settlement).toEqual({
+					mode: "commit",
+					commitShas: control.commits,
+				});
 				expect(events.some((event) => event.verb === "evidence")).toBe(false);
+			} else expect(settlement.input?.settlement).toBeUndefined();
 			const receipt = JSON.parse(
 				readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
 			);
@@ -5439,20 +5452,17 @@ describe("dispatcher admission", () => {
 		if (scenario === "installed") {
 			expect(settlement!.args).not.toContain("--commit");
 			expect(settlement!.input).toMatchObject({
-				metadata: {
-					settlement: {
-						mode: "runtime_app_revision",
-						...app,
-						evidenceId,
-						evidenceUri: runtimeAppEvidenceUri(app),
-					},
+				settlement: {
+					mode: "runtime_app_revision",
+					...app,
+					evidenceId,
+					evidenceUri: runtimeAppEvidenceUri(app),
 				},
 			});
 			expect(briefs[0]).toContain("--evidence-kind runtime_app_revision");
-			expect(
-				events.find((event) => event.verb === "complete")?.env
-					.TEDIX_AGENT_SESSION,
-			).toBe(settlement!.env.TEDIX_AGENT_SESSION);
+			expect(events.find(requestsCompletion)?.env.TEDIX_AGENT_SESSION).toBe(
+				settlement!.env.TEDIX_AGENT_SESSION,
+			);
 		}
 		if (
 			["git", "noContract", "invalidContract", "incompleteResult"].includes(
@@ -5507,15 +5517,13 @@ describe("dispatcher admission", () => {
 		);
 		expect(settlement.args).not.toContain("--commit");
 		expect(settlement.input).toMatchObject({
-			metadata: {
-				settlement: {
-					mode: "skill_revision",
-					evidenceId: "55555555-5555-4555-8555-555555555555",
-					evidenceUri: `skill://runs/${runId}`,
-					skillId: "66666666-6666-4666-8666-666666666666",
-					skillRevision: 3,
-					skillRunId: runId,
-				},
+			settlement: {
+				mode: "skill_revision",
+				evidenceId: "55555555-5555-4555-8555-555555555555",
+				evidenceUri: `skill://runs/${runId}`,
+				skillId: "66666666-6666-4666-8666-666666666666",
+				skillRevision: 3,
+				skillRunId: runId,
 			},
 		});
 	});
@@ -9326,7 +9334,7 @@ describe("structured dispatcher outcomes", () => {
 		const metadata = settled[0]!.input?.metadata as Record<string, unknown>;
 		expect(metadata.recoveredCommits).toBeUndefined();
 		if (state === "proven") {
-			expect(metadata.settlement).toEqual({
+			expect(settled[0]!.input?.settlement).toEqual({
 				mode: "local_branch",
 				branch,
 				baseCommit: base,
@@ -9338,13 +9346,13 @@ describe("structured dispatcher outcomes", () => {
 			expect(f.briefs[0]).toContain(
 				`local branch ${branch} based on ${base}; do not push it`,
 			);
-			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 			// Nothing was pushed: the commit exists only on the retained branch.
 			expect(git(repo, ["rev-parse", `refs/heads/${branch}`])).toBe(sha);
 			expect(git(repo, ["remote"])).toBe("");
 		} else {
 			expect(metadata.settlement).toBeUndefined();
-			expect(f.events.some((e) => e.verb === "complete")).toBe(false);
+			expect(f.events.some(requestsCompletion)).toBe(false);
 			expect(receipt.note).toContain(
 				state === "unconfigured"
 					? "No landed commit SHA on origin/main"
@@ -9503,10 +9511,12 @@ describe("structured dispatcher outcomes", () => {
 					"interactiveOriginal",
 				].includes(state);
 				if (vouched) {
-					expect(settled[0]!.args).toContain(sha);
+					expect(settled[0]!.input?.settlement).toEqual({
+						mode: "commit",
+						commitShas: [sha],
+					});
 					expect(settled[0]!.input?.metadata).toMatchObject({
 						laneResult: result,
-						settlement: { mode: "commit", commitSha: sha, commitShas: [sha] },
 						recoveredCommits: [
 							{
 								commitSha: sha,
@@ -9519,7 +9529,7 @@ describe("structured dispatcher outcomes", () => {
 					expect(
 						settled[0]!.args[settled[0]!.args.indexOf("--outcome") + 1],
 					).toBe("succeeded");
-					expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+					expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 					await f.restart().tick();
 					await f.dispatcher.drain();
 					expect(f.events.filter((e) => e.verb === "settle")).toHaveLength(1);
@@ -9558,7 +9568,7 @@ describe("structured dispatcher outcomes", () => {
 			outcome: "cancelled",
 			laneResult: waiting(),
 		});
-		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(0);
+		expect(f.events.filter(requestsCompletion)).toHaveLength(0);
 		expect(
 			f.events.filter((e) => e.verb === "settle")[0]!.input?.metadata,
 		).toMatchObject({ laneResult: waiting() });
@@ -9597,7 +9607,7 @@ describe("structured dispatcher outcomes", () => {
 			),
 		).toHaveLength(2);
 		expect(
-			f.events.some((e) => e.verb === "complete" && e.args[6] === item(2).id),
+			f.events.some((e) => requestsCompletion(e) && e.args[6] === item(2).id),
 		).toBe(true);
 		expect(
 			f.events.some((e) =>
@@ -9673,7 +9683,7 @@ describe("structured dispatcher outcomes", () => {
 						e.args[6] === item().id,
 				),
 			).toHaveLength(2);
-			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 			await restarted.tick();
 			await restarted.drain();
 			expect(f.releases).toHaveLength(2);
@@ -9919,7 +9929,7 @@ describe("structured dispatcher outcomes", () => {
 		expect(starts[1]!.env.TEDIX_AGENT_SESSION).not.toBe(
 			starts[0]!.env.TEDIX_AGENT_SESSION,
 		);
-		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+		expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 		expect(f.releases).toHaveLength(2);
 	});
 	it.each(["timer", "answer", "approval"])(
@@ -9948,7 +9958,7 @@ describe("structured dispatcher outcomes", () => {
 				"Deferred: Waiting on production access",
 			);
 			expect(settle.input?.metadata).toMatchObject({ laneResult: deferred() });
-			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(0);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(0);
 			const path = join(f.dir, `${item().id}-2.json`);
 			const saved = JSON.parse(readFileSync(path, "utf8"));
 			expect(saved).toMatchObject({
@@ -9994,7 +10004,7 @@ describe("structured dispatcher outcomes", () => {
 			expect(
 				f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
 			).toHaveLength(2);
-			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 		},
 	);
 	it.each(["default", "until"])(
@@ -10325,7 +10335,7 @@ describe("structured dispatcher outcomes", () => {
 		expect(note).toContain("Already fixed on main");
 		expect(note).not.toContain("runner fault");
 		expect(f.events.some((e) => e.verb === "approval-audit-list")).toBe(false);
-		expect(f.events.some((e) => e.verb === "complete")).toBe(false);
+		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
 	it.each(["verified", "unavailable", "stale-session", "stale-version"])(
 		"fences preexisting completion: %s",
@@ -10364,25 +10374,17 @@ describe("structured dispatcher outcomes", () => {
 				expect(
 					f.events.find((e) => e.verb === "approval-audit-list")?.input,
 				).toEqual({ proposalId: existing().ciApprovalId, limit: 1 });
-				expect(settlements[0]!.input?.metadata).toMatchObject({
+				expect(settlements[0]!.input).toMatchObject({
 					settlement: {
 						mode: "verified_existing",
 						commitSha: "b".repeat(40),
 						ciApprovalId: existing().ciApprovalId,
 					},
 				});
-				// Completion rechecks the exact succeeded Attempt through the existing recovery path.
-				expect(
-					JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
-						.completionPending,
-				).toBe(true);
-				f.control.history.data[0]!.outcome = "succeeded";
-				const path = join(f.dir, `${item().id}-2.json`);
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				saved.completionRetryAt = 0;
-				writeFileSync(path, JSON.stringify(saved));
-				await f.restart().tick();
-				expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+				expect(settlements[0]?.input?.complete).toEqual({
+					expectedWorkItemVersion: 2,
+				});
+				expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 			} else {
 				expect(settlements).toHaveLength(0);
 				expect(
@@ -11522,9 +11524,7 @@ describe("watching and steering a run", () => {
 			expect(f.briefs[1]).toContain(approvalWait.id);
 			f.releases[1]!();
 			await restarted.drain();
-			expect(
-				f.events.filter((event) => event.verb === "complete"),
-			).toHaveLength(1);
+			expect(f.events.filter(requestsCompletion)).toHaveLength(1);
 		} finally {
 			kill.mockRestore();
 			flush.restore();

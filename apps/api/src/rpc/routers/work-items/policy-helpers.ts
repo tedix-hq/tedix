@@ -1,3 +1,4 @@
+import { artifactCloseoutProblem } from "./closeout-artifact";
 import { workItemOperatorAuthor } from "./operator-policy";
 import { implement } from "@orpc/server";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
@@ -5,7 +6,11 @@ import { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/sche
 import { getExternalAgentPrincipal } from "@tedix/db/queries/external-agent-identity/principals";
 import { LaneExecutionPolicySchema } from "@tedix/api-contract/schemas/lane-execution";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
-import type { WorkItem } from "@tedix/db/schema/work-items";
+import {
+	WorkAttemptSettlementSchema,
+	workSettlementCommits,
+} from "@tedix/api-contract/schemas/work-items";
+import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
 import {
 	getProjectById,
 	getProjectByIdForOrganization,
@@ -130,7 +135,7 @@ const OWNER_COMPLETION_CLASSES = new Set([
 /**
  * Whether an external agent may complete this Work Item itself: it is
  * accepted, its latest Attempt is this agent's own (same principal and
- * verified session) and settled succeeded. Coding Work requires a commit;
+ * verified session) and settled succeeded. Coding Work requires delivery proof;
  * accepted credential, payment or external-messaging actions stay owner-only.
  */
 export async function canCompleteOwnSucceededAttempt(
@@ -139,13 +144,7 @@ export async function canCompleteOwnSucceededAttempt(
 	actor: { id: string; sessionId?: string | null },
 ): Promise<boolean> {
 	if (item.disposition !== "accepted" || !actor.sessionId) return false;
-	// The accepted outcome defines the action; descriptions can contain past incidents.
-	const completionScope =
-		item.acceptanceContract?.doneLooksLike?.trim() || item.description || "";
-	const reserved = humanReservedActionClasses(
-		withoutNegatedClauses(`${item.title}\n${completionScope}`),
-	);
-	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id))) return false;
+
 	const { data } = await listWorkItemAttempts(context.db, {
 		orgId: item.orgId,
 		workItemId: item.id,
@@ -161,37 +160,58 @@ export async function canCompleteOwnSucceededAttempt(
 	)
 		return false;
 
-	const metadata = latest.metadata;
-	const settlement = metadata?.settlement;
-	const commitSha =
-		settlement && typeof settlement === "object" && !Array.isArray(settlement)
-			? settlement.commitSha
-			: undefined;
+	return (
+		!(await ownAttemptCompletionProblem(context, item, latest)) &&
+		(await hasRecoveredCommitCustody(context, latest))
+	);
+}
+
+export async function ownAttemptCompletionProblem(
+	context: BaseContext,
+	item: WorkItem,
+	attempt: WorkAttempt,
+): Promise<string | undefined> {
+	// The accepted outcome defines the action; descriptions can contain past incidents.
+	const completionScope =
+		item.acceptanceContract?.doneLooksLike?.trim() || item.description || "";
+	const reserved = humanReservedActionClasses(
+		withoutNegatedClauses(`${item.title}\n${completionScope}`),
+	);
+	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id)))
+		return "The accepted action requires the Work owner to complete it.";
+	const metadata = attempt.metadata;
+	const settlement = WorkAttemptSettlementSchema.safeParse(
+		metadata.settlement,
+	).data;
+	const artifact =
+		settlement?.mode === "skill_revision" ||
+		settlement?.mode === "runtime_app_revision";
 	if (
 		item.workKind === "coding" &&
-		(typeof commitSha !== "string" || !/^[a-f\d]{40}$/i.test(commitSha))
+		!artifact &&
+		!workSettlementCommits(settlement).length
 	)
-		return false;
+		return "Coding closeout requires full commit IDs or verified delivery of the configured artifact.";
+	const admission = await getWorkAttemptRepositoryAdmission(
+		context.db,
+		attempt,
+	);
+	if (
+		!admission ||
+		admission.workItemVersion !== item.version ||
+		admission.admissionSpecRevision !== item.admissionSpecRevision
+	)
+		return "The Attempt was admitted for a different Work revision. Read the current Work before retrying.";
 
 	const result = metadata?.laneResult;
 	if (
-		metadata?.lane !== true &&
-		metadata?.dispatchVersion === undefined &&
+		metadata.lane !== true &&
+		metadata.dispatchVersion === undefined &&
 		result === undefined
-	) {
-		if (item.workKind !== "coding") return false;
-		const admission = await getWorkAttemptRepositoryAdmission(
-			context.db,
-			latest,
-		);
-		if (
-			!admission ||
-			admission.workItemVersion !== item.version ||
-			admission.admissionSpecRevision !== item.admissionSpecRevision
-		)
-			return false;
-		return hasRecoveredCommitCustody(context, latest);
-	}
+	)
+		return item.workKind === "coding" && !artifact
+			? undefined
+			: "Non-coding closeout requires the Work owner or a declared dispatcher outcome.";
 
 	const declaredCompletion =
 		result &&
@@ -205,11 +225,10 @@ export async function canCompleteOwnSucceededAttempt(
 		result.contractVersion === item.acceptanceContract?.version &&
 		result.outcomeText ===
 			(item.acceptanceContract?.doneLooksLike ?? item.title);
-	return (
-		metadata?.dispatchVersion === item.version &&
-		Boolean(declaredCompletion) &&
-		(await hasRecoveredCommitCustody(context, latest))
-	);
+	if (metadata.dispatchVersion !== item.version || !declaredCompletion)
+		return "Closeout requires a completed or already-satisfied declaration for this Work revision and its accepted outcome.";
+	if (artifact)
+		return artifactCloseoutProblem(context, item, attempt, settlement);
 }
 
 export async function workItemStewardActor(
@@ -309,7 +328,7 @@ export async function workItemStewardActor(
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		action === "completion" && actor.type === "external_agent"
-			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires a commit; dispatched Work requires its full outcome declaration), and not accepted credentials, payment or messaging actions"
+			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires delivery proof; dispatched Work requires its full outcome declaration), and not accepted credentials, payment or messaging actions"
 			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }

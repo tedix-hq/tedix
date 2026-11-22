@@ -368,7 +368,7 @@ function nativeFixture() {
 		outcome: "succeeded",
 		finishedAt: "2026-11-04T20:00:00.000Z",
 		startedAt: "2026-11-04T19:00:00.000Z",
-		metadata: { settlement: { commitSha: sha } },
+		metadata: { settlement: { mode: "commit", commitShas: [sha] } },
 	};
 	const coordinator = {
 		id: "coordinator-attempt",
@@ -489,14 +489,13 @@ describe("native steward metadata closeout", () => {
 		);
 		expect(mocks.complete).not.toHaveBeenCalled();
 	});
-	it("uses the typed top-level sourceCommit for a genuinely succeeded source Attempt", async () => {
+	it("requires a canonical source commit receipt", async () => {
 		const f = nativeFixture();
 		Reflect.deleteProperty(f.latest.metadata, "settlement");
 		Object.assign(f.latest.metadata, { sourceCommit: sha });
-		expect(
-			(await prepareNativeStewardCloseout(context, nativeInput)).fence
-				?.sourceCommit,
-		).toBe(sha);
+		await expect(
+			prepareNativeStewardCloseout(context, nativeInput),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 	it.each([
 		"steward",
@@ -533,7 +532,8 @@ describe("native steward metadata closeout", () => {
 		if (kind === "coordinator")
 			mocks.coordinator.mockRejectedValue(new Error("expired"));
 		if (kind === "source failed") f.latest.outcome = "failed";
-		if (kind === "source short") f.latest.metadata.settlement.commitSha = "abc";
+		if (kind === "source short")
+			f.latest.metadata.settlement.commitShas = ["abc"];
 		if (kind === "policy asks")
 			mocks.policy.mockResolvedValue({
 				autonomy: {
