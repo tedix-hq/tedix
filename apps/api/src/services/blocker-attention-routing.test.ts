@@ -1,7 +1,18 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../rpc/orpc";
 import { blockerAttentionRouting } from "./blocker-attention-routing";
-const mocks = vi.hoisted(() => ({ work: vi.fn(), blockers: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	work: vi.fn(),
+	blockers: vi.fn(),
+	attempts: vi.fn(),
+	delegate: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/work-items/attempts", () => ({
+	listWorkItemAttempts: mocks.attempts,
+}));
+vi.mock("@tedix/db/queries/work-items/delegated-approvals", () => ({
+	preferredVerificationDelegate: mocks.delegate,
+}));
 vi.mock("@tedix/db/queries/work-items/crud", () => ({
 	getWorkItemById: mocks.work,
 }));
@@ -137,5 +148,74 @@ it.each([
 				metadata,
 			}),
 		).toBeNull();
+	},
+);
+
+it.each([
+	{ name: "no recorded verification", missing: true },
+	{ name: "an ordinary runner", metadata: { verificationRound: undefined } },
+	{ name: "a non-dispatcher Attempt", metadata: { lane: false } },
+	{ name: "an older Work revision", metadata: { dispatchVersion: 1 } },
+	{ name: "a cancelled verification", outcome: "cancelled" },
+	{ name: "a running verification", runtimeState: "running" },
+	{
+		name: "a foreign result",
+		metadata: { laneResult: { workItemId: "foreign" } },
+	},
+])(
+	"keeps the user recipient with $name despite a verification label",
+	async (invalid) => {
+		mocks.work.mockResolvedValue({
+			id: "work",
+			title: "Check result",
+			version: 3,
+			disposition: "accepted",
+			dispatchState: "held",
+			executorId: "codex",
+			accountableOwnerType: "user",
+			accountableOwnerId: "owner",
+		});
+		mocks.attempts.mockResolvedValue({
+			data: invalid.missing
+				? []
+				: [
+						{
+							runtimeState: invalid.runtimeState ?? "finished",
+							outcome: invalid.outcome ?? "landed_unverified",
+							metadata: {
+								lane: true,
+								dispatchVersion: 2,
+								verificationRound: 1,
+								laneResult: {
+									outcome: "landed_unverified",
+									workItemId: "work",
+									workVersion: 2,
+									outcomeText: "Check result",
+								},
+								...invalid.metadata,
+							},
+						},
+					],
+		});
+		expect(
+			await blockerAttentionRouting(
+				context,
+				"org",
+				{ type: "user", id: "owner" },
+				{
+					...input,
+					kind: "input",
+					metadata: {
+						source: "lane-dispatch-blocker",
+						laneBlocker: {
+							kind: "verification_check",
+							executor: "codex",
+							workVersion: 3,
+						},
+					},
+				},
+			),
+		).toBeNull();
+		expect(mocks.delegate).not.toHaveBeenCalled();
 	},
 );

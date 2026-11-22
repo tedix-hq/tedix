@@ -6,6 +6,7 @@ import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { queryWorkItemBlockers } from "@tedix/db/queries/work-items/relations";
 import type { BaseContext } from "../rpc/orpc";
 import type { VerifiedActiveWorkActor } from "../rpc/routers/work-items-principal";
@@ -23,8 +24,7 @@ export async function blockerAttentionRouting(
 		metadata?: Record<string, unknown>;
 	},
 ) {
-	if (actor.type === "user" || !["question", "input"].includes(input.kind))
-		return null;
+	if (!["question", "input"].includes(input.kind)) return null;
 	const m = input.metadata ?? {};
 	if (
 		m.source === "lane-dispatch-blocker" &&
@@ -32,12 +32,58 @@ export async function blockerAttentionRouting(
 		m.decisionDeck === undefined &&
 		m.approvalOperation === undefined &&
 		m.internalAction === undefined &&
+		m.decisionClass === undefined &&
+		!m.protected &&
+		!m.localImport &&
+		m.schema !== "tedix.outbound.v1" &&
+		!["high", "critical"].includes(String(m.riskLevel)) &&
+		(m.protectedEffects === undefined ||
+			(Array.isArray(m.protectedEffects) && m.protectedEffects.length === 0)) &&
 		(m.laneBlocker as { kind?: unknown } | undefined)?.kind ===
 			"verification_check" &&
 		input.workItemId
 	) {
 		const work = await getWorkItemById(context.db, input.workItemId, orgId);
-		if (!work?.accountableOwnerId) return null;
+		const blocker = m.laneBlocker as {
+			workVersion?: unknown;
+			executor?: unknown;
+		};
+		if (
+			!work?.accountableOwnerId ||
+			work.disposition !== "accepted" ||
+			work.dispatchState !== "held" ||
+			work.version !== blocker.workVersion ||
+			work.executorId !== blocker.executor
+		)
+			return null;
+		// The dispatcher uses an owner login to create the request after settling.
+		// Request metadata alone cannot turn an ordinary user ask into agent work.
+		const {
+			data: [attempt],
+		} = await listWorkItemAttempts(context.db, {
+			orgId,
+			workItemId: work.id,
+			limit: 1,
+		});
+		const result = attempt?.metadata.laneResult;
+		if (
+			attempt?.runtimeState !== "finished" ||
+			attempt.outcome !== "landed_unverified" ||
+			attempt.metadata.lane !== true ||
+			attempt.metadata.dispatchVersion !== work.version - 1 ||
+			!Number.isInteger(attempt.metadata.verificationRound) ||
+			Number(attempt.metadata.verificationRound) < 1 ||
+			!result ||
+			typeof result !== "object" ||
+			Array.isArray(result) ||
+			result.outcome !== "landed_unverified" ||
+			result.workItemId !== work.id ||
+			result.workVersion !== work.version - 1 ||
+			result.contractVersion !== work.acceptanceContract?.version ||
+			result.outcomeText !==
+				(work.acceptanceContract?.doneLooksLike ?? work.title)
+		)
+			return null;
 		const target =
 			work.accountableOwnerType === "user"
 				? ((await preferredVerificationDelegate(
@@ -57,6 +103,7 @@ export async function blockerAttentionRouting(
 				}
 			: null;
 	}
+	if (actor.type === "user") return null;
 	const text = `${input.subject}\n${input.prompt}`;
 	const decision = DecisionEnvelopeSchema.safeParse(m.decisionDeck);
 	const declaredClasses = [

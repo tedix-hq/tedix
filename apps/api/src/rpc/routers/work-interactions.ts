@@ -652,6 +652,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			}
 		}
 		const verificationTedi =
+			blockerRoute &&
 			creationMetadata.source === "lane-dispatch-blocker" &&
 			(creationMetadata.laneBlocker as { kind?: unknown } | undefined)?.kind ===
 				"verification_check" &&

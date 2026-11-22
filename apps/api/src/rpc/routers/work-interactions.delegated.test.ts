@@ -964,24 +964,19 @@ describe("standing approval delegation", () => {
 it.each(["lead", "own-tedi", "owner"] as const)(
 	"routes one landed verification check to %s",
 	async (recipient) => {
-		const { sqlite, db, base } = await fixture(false);
+		const { sqlite, db, owner, base } = await fixture(false);
+		const wakes: { text: string; session_key: string }[] = [];
+		Object.assign(base.env, {
+			TEDI_SERVICE: {
+				fetch: async (request: Request) => {
+					wakes.push(await request.json());
+					return Response.json({ accepted: true, run_id: "verification-wake" });
+				},
+			},
+		});
 		sqlite
 			.prepare("UPDATE tedis SET owner_user_id='requester' WHERE id=?")
 			.run(requesterTedi);
-		const delegate = createRouterClient(workInteractionsContractRouter, {
-			context: {
-				...base,
-				authType: "service-binding",
-				serviceBindingPrincipal: "mcp-edge",
-				headers: new Headers({
-					"X-Service-Binding": "true",
-					"X-Tedix-Tedi-Id": requesterTedi,
-					"X-Tedix-Tedi-Scopes": "mcp:work.write mcp:messaging.write",
-				}),
-				tediId: requesterTedi,
-				tediScopes: ["mcp:work.write", "mcp:messaging.write"],
-			} as BaseContext,
-		});
 		try {
 			if (recipient !== "lead")
 				sqlite
@@ -1004,7 +999,7 @@ it.each(["lead", "own-tedi", "owner"] as const)(
 			);
 			sqlite
 				.prepare(
-					"UPDATE work_items SET disposition='accepted', executor_id='codex', version=3 WHERE id=?",
+					"UPDATE work_items SET disposition='accepted', executor_id='codex', version=2 WHERE id=?",
 				)
 				.run(work);
 			sqlite
@@ -1017,6 +1012,44 @@ it.each(["lead", "own-tedi", "owner"] as const)(
 					"Delegation: codex work-version=3 Check the result.",
 					now(),
 				);
+			const at = now();
+			const expiresAt = new Date(Date.now() + 300_000).toISOString();
+			sqlite
+				.prepare(`INSERT INTO work_admissions
+				(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at)
+				SELECT 'admission',org_id,id,version,admission_spec_revision,'tedi',?,'admitted',?,?,? FROM work_items WHERE id=?`)
+				.run(requesterTedi, at, expiresAt, at, work);
+			sqlite
+				.prepare(`INSERT INTO work_attempts
+				(id,admission_id,org_id,work_item_id,executor_type,executor_id,expires_at,
+				runtime_state,outcome,attempt_number,started_at,heartbeat_at,finished_at,metadata)
+				VALUES ('verification','admission',?,?,'tedi',?, ?,
+				'finished','landed_unverified',1,?,?,?,?)`)
+				.run(
+					org,
+					work,
+					requesterTedi,
+					expiresAt,
+					at,
+					at,
+					at,
+					JSON.stringify({
+						lane: true,
+						dispatchVersion: 2,
+						verificationRound: 1,
+						laneResult: {
+							outcome: "landed_unverified",
+							workItemId: work,
+							workVersion: 2,
+							outcomeText: "Review boundary",
+						},
+					}),
+				);
+			sqlite
+				.prepare(
+					"UPDATE work_items SET dispatch_state='held', version=3 WHERE id=?",
+				)
+				.run(work);
 			const input = {
 				workItemId: work,
 				kind: "input" as const,
@@ -1035,8 +1068,8 @@ it.each(["lead", "own-tedi", "owner"] as const)(
 					},
 				},
 			};
-			const first = await delegate.create(input);
-			const second = await delegate.create(input);
+			const first = await owner.create(input);
+			const second = await owner.create(input);
 			expect(second.id).toBe(first.id);
 			const stored = await getWorkInteraction(db, {
 				orgId: org,
@@ -1047,6 +1080,18 @@ it.each(["lead", "own-tedi", "owner"] as const)(
 				targetId: expected?.id ?? "owner",
 			});
 			expect(stored?.metadata.decisionDeck).toBeUndefined();
+			expect(stored?.metadata.delegatedApproval).toBeUndefined();
+			expect(stored?.metadata.blockerRouting).toMatchObject({
+				ownerType: expected?.type ?? "user",
+				ownerId: expected?.id ?? "owner",
+			});
+			expect(wakes).toHaveLength(recipient === "own-tedi" ? 1 : 0);
+			if (recipient === "own-tedi") {
+				expect(wakes[0]?.session_key).toBe(`interaction:${first.id}`);
+				expect(wakes[0]?.text).toContain(
+					"This wake grants no access, consent, approval or execution authority.",
+				);
+			}
 		} finally {
 			sqlite.close();
 		}
