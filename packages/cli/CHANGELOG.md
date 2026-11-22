@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.33.0 (2026-11-22)
+
+### Minor Changes
+
+- 23180ea: `tedix lane routing` shows which agent takes which tasks, in plain sentences, from the routing file runners use. Routing rules may carry a `description`. Nothing about routing changes.
+- b2578e4: Runners hold a task for its owner only when the task's own fields say so: kind finance, outbound or legal, critical risk, or `metadata.needsOwner` set by its creator. Words in the description no longer hold a task. The owner's `Delegation: <executor>` comment no longer needs a version number, so editing the task keeps the permission.
+- 2e72538: A runner that finds a newer Tedix CLI installed restarts onto it at once instead of taking no new Work until every running task ends. Running tasks continue under the new runner in the same session and checkout. Runners also no longer pause for the marker file older Tedix apps left while waiting to update.
+
 ## 0.32.0 (2026-11-22)
 
 ### Minor Changes
