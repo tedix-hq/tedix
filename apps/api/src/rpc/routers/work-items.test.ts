@@ -1753,3 +1753,100 @@ it("accepts an executor set and forwards it to the paged SQL filter", async () =
 		"claude-code",
 	]);
 });
+
+it("reopens a recent epic for an owner, preserves proof, and enforces version and close-date bounds", async () => {
+	sqlite.prepare("INSERT INTO organizations(id) VALUES (?)").run(ORG_ID);
+	const caseId = "55555555-5555-4555-8555-555555555555";
+	const closedAt = new Date(Date.now() - 86_400_000).toISOString();
+	sqlite
+		.prepare(
+			"INSERT INTO work_cases(id,org_id,title,kind,stage,accountable_owner_type,accountable_owner_id,opened_at,created_at,closed_at,proof_ref) VALUES (?,?,'Orchard delivery','delivery','closed','user','owner-1',?,?,?,'Signed handover')",
+		)
+		.run(caseId, ORG_ID, closedAt, closedAt, closedAt);
+	const input = { caseId, expectedVersion: 1, stage: "executing" as const };
+	await expect(client("api").reopenCase(input)).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	sqlite.exec("UPDATE organization_members SET role='member' WHERE id='m1'");
+	await expect(client("owner").reopenCase(input)).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	sqlite.exec("UPDATE organization_members SET role='owner' WHERE id='m1'");
+	await expect(
+		client("owner").reopenCase({ ...input, expectedVersion: 2 }),
+	).rejects.toMatchObject({ code: "CONFLICT" });
+	const reopened = await client("owner").reopenCase(input);
+	expect(reopened).toMatchObject({
+		id: caseId,
+		stage: "executing",
+		closedAt: null,
+		proofRef: "Signed handover",
+		version: 2,
+	});
+	const expired = new Date(Date.now() - 31 * 86_400_000).toISOString();
+	sqlite
+		.prepare("UPDATE work_cases SET stage='closed', closed_at=? WHERE id=?")
+		.run(expired, caseId);
+	await expect(
+		client("owner").reopenCase({ ...input, expectedVersion: 2 }),
+	).rejects.toMatchObject({ code: "CONFLICT" });
+});
+
+it("moves an epic to a project in its organization without moving linked Work", async () => {
+	sqlite.prepare("INSERT INTO organizations(id) VALUES (?)").run(ORG_ID);
+	fileable();
+	const caseId = "55555555-5555-4555-8555-555555555555";
+	const targetId = "66666666-6666-4666-8666-666666666666";
+	const foreignId = "77777777-7777-4777-8777-777777777777";
+	const itemId = "88888888-8888-4888-8888-888888888888";
+	const now = new Date().toISOString();
+	sqlite
+		.prepare(
+			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?,?,'DEST','Orchard',?)",
+		)
+		.run(targetId, ORG_ID, now);
+	sqlite
+		.prepare(
+			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?,?,'OTHER','Other',?)",
+		)
+		.run(foreignId, OTHER_ORG_ID, now);
+	sqlite
+		.prepare(
+			"INSERT INTO work_cases(id,org_id,project_id,objective_id,title,kind,stage,accountable_owner_type,accountable_owner_id,opened_at,created_at) VALUES (?,?,?,?,'Orchard delivery','delivery','executing','user','owner-1',?,?)",
+		)
+		.run(caseId, ORG_ID, PROJECT_ID, OBJECTIVE_ID, now, now);
+	seed({ id: itemId, projectId: PROJECT_ID, objectiveId: OBJECTIVE_ID });
+	sqlite
+		.prepare(
+			"INSERT INTO work_case_items(id,org_id,case_id,work_item_id,discovered_at) VALUES ('link',?,?,?,?)",
+		)
+		.run(ORG_ID, caseId, itemId, now);
+	const input = { caseId, projectId: targetId, expectedVersion: 1 };
+	await expect(client("api").moveCase(input)).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	sqlite.exec("UPDATE organization_members SET role='member' WHERE id='m1'");
+	await expect(client("owner").moveCase(input)).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	sqlite.exec("UPDATE organization_members SET role='owner' WHERE id='m1'");
+	await expect(
+		client("owner").moveCase({ ...input, projectId: foreignId }),
+	).rejects.toMatchObject({ code: "NOT_FOUND" });
+	await expect(
+		client("owner").moveCase({ ...input, expectedVersion: 2 }),
+	).rejects.toMatchObject({ code: "CONFLICT" });
+	expect(await client("owner").moveCase(input)).toMatchObject({
+		projectId: targetId,
+		objectiveId: null,
+		version: 2,
+	});
+	expect(
+		sqlite.prepare("SELECT project_id FROM work_items WHERE id=?").get(itemId),
+	).toEqual({ project_id: PROJECT_ID });
+	expect(
+		sqlite
+			.prepare("SELECT work_item_id FROM work_case_items WHERE case_id=?")
+			.get(caseId),
+	).toEqual({ work_item_id: itemId });
+});

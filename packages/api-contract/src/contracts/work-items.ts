@@ -579,6 +579,41 @@ export const workItemsContract = oc
 			)
 			.output(WorkCaseSchema),
 
+		reopenCase: oc
+			.route({
+				method: "POST",
+				path: "/cases/{caseId}/reopen",
+				summary: "Reopen epic",
+				description:
+					"Owner/admin only, within 30 days of closing. Clears the close date and preserves proof and linked Work. Requires the current version.",
+			})
+			.input(
+				z.strictObject({
+					caseId: z.uuid(),
+					expectedVersion: z.number().int().positive(),
+					stage: z
+						.enum(["investigating", "planning", "executing", "monitoring"])
+						.default("investigating"),
+				}),
+			)
+			.output(WorkCaseSchema),
+		moveCase: oc
+			.route({
+				method: "POST",
+				path: "/cases/{caseId}/move",
+				summary: "Move epic to project",
+				description:
+					"Owner/admin only. Move to a non-archived project in this organization and inherit its objective. Linked Work Items retain their projects and history. Requires the current version.",
+			})
+			.input(
+				z.strictObject({
+					caseId: z.uuid(),
+					projectId: z.uuid(),
+					expectedVersion: z.number().int().positive(),
+				}),
+			)
+			.output(WorkCaseSchema),
+
 		attachCaseWorkItem: oc
 			.route({
 				method: "POST",

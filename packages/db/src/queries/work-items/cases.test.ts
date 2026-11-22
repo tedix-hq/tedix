@@ -79,9 +79,10 @@ describe("epic proof of delivery", () => {
 			caseId: epic.id,
 			expectedVersion: 3,
 			proofRef: null,
-			now: LATER,
+			now: "2026-11-17T12:00:00.000Z",
 		});
 		expect(cleared.proofRef).toBeNull();
+		expect(cleared.closedAt).toBe(LATER);
 		expect(
 			(await getWorkCase(db, { orgId: ORG, caseId: epic.id })).proofRef,
 		).toBeNull();

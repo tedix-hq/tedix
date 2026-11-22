@@ -1,5 +1,7 @@
 import {
 	addWorkCaseDependency,
+	reopenWorkCase,
+	moveWorkCase,
 	createWorkCase,
 	detachWorkItemFromCase,
 	getWorkCase,
@@ -31,6 +33,16 @@ const caseWriteOs = authOs.use(
 				"Case handlers derive owner/admin or active agent mutation authority from the authenticated credential and bind every write to its organization",
 		},
 		"mcp:messaging.write",
+	),
+);
+
+const caseManageOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Epic reopen and move require a verified active organization owner or admin",
+		},
+		"mcp:work.write",
 	),
 );
 
@@ -182,6 +194,42 @@ export const updateCaseProcedure = caseWriteOs.updateCase.handler(
 		try {
 			return caseOutput(
 				await updateWorkCase(context.db, {
+					...input,
+					orgId,
+					now: new Date().toISOString(),
+				}),
+			);
+		} catch (error) {
+			rethrowCaseError(error);
+		}
+	},
+);
+
+export const reopenCaseProcedure = caseManageOs.reopenCase.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		await requireOwnerAdminWorkItemAuthor(context, orgId, "Reopening an epic");
+		try {
+			return caseOutput(
+				await reopenWorkCase(context.db, {
+					...input,
+					orgId,
+					now: new Date().toISOString(),
+				}),
+			);
+		} catch (error) {
+			rethrowCaseError(error);
+		}
+	},
+);
+
+export const moveCaseProcedure = caseManageOs.moveCase.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		await requireOwnerAdminWorkItemAuthor(context, orgId, "Moving an epic");
+		try {
+			return caseOutput(
+				await moveWorkCase(context.db, {
 					...input,
 					orgId,
 					now: new Date().toISOString(),

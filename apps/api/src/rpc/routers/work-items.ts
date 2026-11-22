@@ -89,6 +89,8 @@ import {
 	getCaseProcedure,
 	listCasesProcedure,
 	updateCaseProcedure,
+	reopenCaseProcedure,
+	moveCaseProcedure,
 } from "./work-items/cases";
 import { inspectAttemptRepositoryProcedure } from "./work-items/workstation-inspection";
 import { readAttemptRepositoryProcedure } from "./work-items/repository-read";
@@ -123,6 +125,8 @@ export const workItemsContractRouter = workItemsOs.router({
 	listCases: listCasesProcedure,
 	getCase: getCaseProcedure,
 	updateCase: updateCaseProcedure,
+	reopenCase: reopenCaseProcedure,
+	moveCase: moveCaseProcedure,
 	attachCaseWorkItem: attachCaseWorkItemProcedure,
 	detachCaseWorkItem: detachCaseWorkItemProcedure,
 	addCaseDependency: addCaseDependencyProcedure,

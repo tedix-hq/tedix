@@ -204,6 +204,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	pause_factory: "mcp:work",
 	resume_factory: "mcp:work",
 	archive_factory: "mcp:work",
+	reopen_epic: "mcp:work",
+	move_epic: "mcp:work",
 	// Verb-first catalog operator tools miss the `catalog_` prefix rule. The API
 	// keeps requireCatalogOperatorAccess on every catalog mutation; this gate
 	// only names the capability family so the tools stop failing closed.
@@ -819,6 +821,8 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	archive_skill: "write",
 	archive_skills: "write",
 	restore_skill: "write",
+	reopen_epic: "write",
+	move_epic: "write",
 	remove_skill_schedule: "write",
 	pause_skill_schedule: "write",
 	resume_skill_schedule: "write",

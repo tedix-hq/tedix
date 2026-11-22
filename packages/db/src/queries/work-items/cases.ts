@@ -137,7 +137,8 @@ export async function updateWorkCase(
 				proofRef: p.proofRef,
 				stage,
 				metadata: p.metadata,
-				closedAt: stage === "closed" ? p.now : prior.closedAt,
+				closedAt:
+					stage === "closed" ? (prior.closedAt ?? p.now) : prior.closedAt,
 				updatedAt: p.now,
 				version: sql`${workCases.version} + 1`,
 			})
@@ -151,6 +152,85 @@ export async function updateWorkCase(
 			.returning()
 	)[0];
 	if (!row) throw new WorkControlError("CONFLICT", "Case version changed");
+	return row;
+}
+
+const WORK_CASE_REOPEN_DAYS = 30;
+
+export async function reopenWorkCase(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		caseId: string;
+		expectedVersion: number;
+		stage: Exclude<WorkCaseStage, "closed">;
+		now: string;
+	},
+): Promise<WorkCase> {
+	await requireWorkCase(db, p.orgId, p.caseId);
+	const cutoff = new Date(
+		Date.parse(p.now) - WORK_CASE_REOPEN_DAYS * 86_400_000,
+	).toISOString();
+	const [row] = await db
+		.update(workCases)
+		.set({
+			stage: p.stage,
+			closedAt: null,
+			updatedAt: p.now,
+			version: sql`${workCases.version} + 1`,
+		})
+		.where(
+			and(
+				eq(workCases.orgId, p.orgId),
+				eq(workCases.id, p.caseId),
+				eq(workCases.version, p.expectedVersion),
+				eq(workCases.stage, "closed"),
+				sql`${workCases.closedAt} >= ${cutoff} and ${workCases.closedAt} <= ${p.now}`,
+			),
+		)
+		.returning();
+	if (!row)
+		throw new WorkControlError(
+			"CONFLICT",
+			"Epic changed, is not closed, or is outside the 30-day reopen period",
+		);
+	return row;
+}
+
+export async function moveWorkCase(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		caseId: string;
+		projectId: string;
+		expectedVersion: number;
+		now: string;
+	},
+): Promise<WorkCase> {
+	await requireWorkCase(db, p.orgId, p.caseId);
+	const project = await requireProject(db, p.orgId, p.projectId);
+	if (project.status === "archived" || project.archivedAt)
+		throw new WorkControlError(
+			"INVALID_TRANSITION",
+			"Restore the destination project before moving an epic into it",
+		);
+	const [row] = await db
+		.update(workCases)
+		.set({
+			projectId: project.id,
+			objectiveId: project.objectiveId,
+			updatedAt: p.now,
+			version: sql`${workCases.version} + 1`,
+		})
+		.where(
+			and(
+				eq(workCases.orgId, p.orgId),
+				eq(workCases.id, p.caseId),
+				eq(workCases.version, p.expectedVersion),
+			),
+		)
+		.returning();
+	if (!row) throw new WorkControlError("CONFLICT", "Epic version changed");
 	return row;
 }
 
