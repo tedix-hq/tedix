@@ -974,6 +974,33 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return { seeded: true };
 	}
 
+	async copyGadgetExecutionOutput(
+		scope: WorkspaceScope,
+		executionId: string,
+		output: string,
+	): Promise<{ executionId: string; sha256: string; bytes: number }> {
+		this.bindScope(scope);
+		const body = new TextEncoder().encode(output);
+		const sha256 = await sha256Hex(body);
+		const key = `workspace-gadget-execution-outputs/v1/${encodeURIComponent(scope.organizationId)}/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(executionId)}/${sha256}.json`;
+		const bucket = this.env.R2_BUCKET;
+		await bucket.put(key, body, {
+			onlyIf: { etagDoesNotMatch: "*" },
+			sha256,
+			httpMetadata: { contentType: "application/json" },
+		});
+		const stored = await bucket.get(key);
+		if (
+			!stored ||
+			stored.size !== body.byteLength ||
+			(await sha256Hex(await stored.arrayBuffer())) !== sha256
+		) {
+			throw new Error("Workspace execution output verification failed");
+		}
+		this.#store.put(`gadget-execution-output:${executionId}:${sha256}`, key);
+		return { executionId, sha256, bytes: body.byteLength };
+	}
+
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
@@ -6165,6 +6192,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc extends DocumentTransferRuntime {
+	copyGadgetExecutionOutput(
+		scope: WorkspaceScope,
+		executionId: string,
+		output: string,
+	): Promise<{ executionId: string; sha256: string; bytes: number }>;
 	reportAgentRun(
 		scope: WorkspaceScope,
 		report: AgentRunReport,

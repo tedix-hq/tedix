@@ -54,6 +54,7 @@ import {
 	WorkspaceConversationChargesSchema,
 	OsGadgetExecutionSchema,
 	OsGadgetExecutionStatusSchema,
+	OsGadgetExecutionOutputCopySchema,
 	OsGadgetExportDescriptorSchema,
 	OsGadgetManifestWriteSchema,
 	OsGadgetRevisionSchema,
@@ -2115,6 +2116,17 @@ export const osWorkspacesContract = oc
 				})
 				.input(executionIdInput)
 				.output(z.object({ execution: OsGadgetExecutionSchema })),
+			copyOutput: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/executions/{executionId}/output-copy",
+					summary:
+						"Copy and verify one completed direct app call output in its workspace",
+					description:
+						"Copies the exact output bytes into storage owned by the workspace and verifies the copy. Leaves the shared execution receipt and output intact. Requires a machine agent session.",
+				})
+				.input(executionIdInput)
+				.output(OsGadgetExecutionOutputCopySchema),
 			export: oc
 				.route({
 					method: "POST",

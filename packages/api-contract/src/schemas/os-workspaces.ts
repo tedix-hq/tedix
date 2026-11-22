@@ -819,6 +819,12 @@ export const OsGadgetRevisionSchema = z.object({
 	createdAt: z.string(),
 });
 
+export const OsGadgetExecutionOutputCopySchema = z.object({
+	executionId: z.uuid(),
+	sha256: z.string().regex(/^[0-9a-f]{64}$/),
+	bytes: z.number().int().positive(),
+});
+
 export const OsGadgetExecutionStatusSchema = z.enum([
 	"denied",
 	"queued",

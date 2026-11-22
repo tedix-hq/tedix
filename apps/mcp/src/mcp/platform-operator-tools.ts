@@ -254,6 +254,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "read",
 	},
 	{
+		toolId: "copy_os_gadget_execution_output",
+		endpoint: "osWorkspaces/executions/copyOutput",
+		kind: "write",
+	},
+	{
 		toolId: "get_os_gadget_execution",
 		endpoint: "osWorkspaces/executions/get",
 		kind: "read",

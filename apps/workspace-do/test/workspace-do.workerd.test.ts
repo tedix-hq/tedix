@@ -8543,6 +8543,36 @@ describe("document transfer primitive", () => {
 	});
 });
 
+test("copies execution output idempotently and rejects another workspace", async () => {
+	const ws = workspace();
+	const executionId = crypto.randomUUID();
+	const output = '{"result":"résumé"}';
+	const first = await ws.copyGadgetExecutionOutput(scope, executionId, output);
+	const prefix = `workspace-gadget-execution-outputs/v1/${scope.organizationId}/${scope.workspaceId}/${executionId}/`;
+	expect(first).toMatchObject({
+		executionId,
+		bytes: new TextEncoder().encode(output).byteLength,
+	});
+	await evictDurableObject(ws);
+	expect(
+		await ws.copyGadgetExecutionOutput(scope, executionId, output),
+	).toEqual(first);
+	const listed = await testEnv.R2_BUCKET.list({ prefix });
+	expect(listed.objects.map(({ key }) => key)).toEqual([
+		`${prefix}${first.sha256}.json`,
+	]);
+	expect(
+		await (await testEnv.R2_BUCKET.get(listed.objects[0]!.key))?.text(),
+	).toBe(output);
+	await expect(() =>
+		ws.copyGadgetExecutionOutput(
+			{ ...scope, workspaceId: crypto.randomUUID() },
+			executionId,
+			output,
+		),
+	).rejects.toThrow();
+});
+
 describe("empty document owners", () => {
 	test("refuses files before initialization, then initializes once and survives eviction", async () => {
 		await seedCore();

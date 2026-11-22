@@ -1,3 +1,5 @@
+import { verifiedExternalAgent } from "./work-items-principal";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { env } from "cloudflare:workers";
 import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
 import { sumRunCredits } from "@tedix/db/queries/billing/spending";
@@ -1132,6 +1134,87 @@ const executionsList = readOs.executions.list.handler(
 			items: settledPage.map(mapGadgetExecution),
 			truncated: rows.length > input.limit,
 		};
+	},
+);
+
+const executionsCopyOutput = authorOs.executions.copyOutput.handler(
+	async ({ input, context }) => {
+		const execution = await requireExecution(context, input);
+		const agent = await verifiedExternalAgent(
+			context,
+			execution.organizationId,
+		);
+		if (!agent || agent.ownerBound) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"A machine agent session is required",
+			);
+		}
+		if (
+			execution.status !== "completed" ||
+			execution.runId !== null ||
+			execution.workflowInstanceId !== null ||
+			execution.runtimeEnvironment !== context.env.ENVIRONMENT ||
+			execution.createdById === "workspace-app-host" ||
+			!execution.completedAt ||
+			!execution.output ||
+			!JSON.parse(execution.grantedCapabilities).includes("app.call")
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Only settled direct app call outputs are eligible",
+			);
+		}
+
+		const scope = {
+			organizationId: execution.organizationId,
+			workspaceId: execution.workspaceId,
+		};
+		const { WORKSPACE_RUNTIME } = context.env as unknown as {
+			WORKSPACE_RUNTIME?: {
+				copyGadgetExecutionOutput(
+					workspace: typeof scope,
+					executionId: string,
+					output: string,
+				): Promise<{ executionId: string; sha256: string; bytes: number }>;
+			};
+		};
+		if (!WORKSPACE_RUNTIME) {
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Workspace storage is unavailable",
+			);
+		}
+		const copy = await WORKSPACE_RUNTIME.copyGadgetExecutionOutput(
+			scope,
+			execution.id,
+			execution.output,
+		);
+		if (
+			copy.executionId !== execution.id ||
+			copy.bytes !== new TextEncoder().encode(execution.output).byteLength ||
+			copy.sha256 !== (await sha256Hex(execution.output))
+		) {
+			throw createError(
+				ErrorCodes.INTERNAL_SERVER_ERROR,
+				"Workspace output copy did not match the execution",
+			);
+		}
+		const current = await getOsGadgetExecution(queryDb(context), {
+			organizationId: execution.organizationId,
+			executionId: execution.id,
+		});
+		if (
+			current?.status !== "completed" ||
+			current.completedAt !== execution.completedAt ||
+			current.output !== execution.output
+		) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Source changed while its workspace copy was verified",
+			);
+		}
+		return copy;
 	},
 );
 
@@ -2533,6 +2616,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	executions: {
 		list: executionsList,
 		get: executionsGet,
+		copyOutput: executionsCopyOutput,
 		export: executionsExport,
 	},
 	collaboration: collaborationProcedures.osCollaborationProcedures,

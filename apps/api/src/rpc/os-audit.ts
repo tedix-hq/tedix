@@ -540,6 +540,17 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			policyDecision: fields(output.execution).policyDecision ?? null,
 		}),
 	},
+	"executions.copyOutput": {
+		action: "os.gadget_execution.output_copied",
+		resourceType: EXECUTION_RESOURCE,
+		resourceId: ({ input }) => text(input.gadgetId),
+		metadata: ({ input, output }) => ({
+			workspaceId: input.workspaceId,
+			executionId: input.executionId,
+			sha256: output.sha256,
+			bytes: output.bytes,
+		}),
+	},
 	"executions.export": {
 		action: "os.gadget_execution.exported",
 		resourceType: EXECUTION_RESOURCE,
