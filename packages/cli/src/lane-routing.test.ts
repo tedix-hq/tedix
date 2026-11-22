@@ -486,3 +486,15 @@ describe("resume recovery before admission", () => {
 		expect(fresh).toBe(false);
 	});
 });
+
+describe("a tool's own limit message", () => {
+	it("backs off until the time the tool names", () => {
+		const now = new Date(2026, 10, 22, 19, 0).getTime();
+		const next = executorBackoff(
+			'{"message":"You’ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 23rd, 2026 12:18 AM.","codexErrorInfo":"usageLimitExceeded"}',
+			undefined,
+			now,
+		);
+		expect(next?.backoffUntil).toBe(new Date(2026, 10, 23, 0, 18).getTime());
+	});
+});

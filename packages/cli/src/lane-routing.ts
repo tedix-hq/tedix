@@ -229,7 +229,7 @@ export function executorBackoff(
 	now = Date.now(),
 ): BudgetSnapshot | undefined {
 	if (
-		!/\b429\b|rate.?limit|usage limit|quota exceeded|session limit|weekly limit|capacity exhausted/i.test(
+		!/\b429\b|rate.?limit|usage limit|usageLimitExceeded|quota exceeded|session limit|weekly limit|capacity exhausted|purchase more credits|out of credits/i.test(
 			message,
 		)
 	)
@@ -237,8 +237,21 @@ export function executorBackoff(
 	const consecutiveLimits = (previous?.consecutiveLimits ?? 0) + 1;
 	const retry = message.match(/retry[- ]after[\s:=]+(\d+)/i);
 	const retryMs = retry ? Number(retry[1]) * 1000 : 0;
+	// The tool's own "try again at <time>" (local time on this Mac) wins over
+	// the doubling guess, so a long outage is not retried every hour.
+	const againAt = message.match(
+		/try again (?:at|after) ([A-Z][a-z]{2,8} \d{1,2})(?:st|nd|rd|th)?,? (\d{4}),? (\d{1,2}:\d{2}(?: ?[AP]M)?)/,
+	);
+	const until = againAt
+		? Date.parse(`${againAt[1]}, ${againAt[2]} ${againAt[3]}`)
+		: Number.NaN;
+	const toolWait =
+		Number.isFinite(until) && until > now && until - now < 8 * 86_400_000
+			? until - now
+			: 0;
 	const duration = Math.max(
 		Number.isFinite(new Date(now + retryMs).getTime()) ? retryMs : 0,
+		toolWait,
 		Math.min(60 * 60_000, 60_000 * 2 ** Math.min(consecutiveLimits - 1, 6)),
 	);
 	return {
