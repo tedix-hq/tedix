@@ -3302,7 +3302,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				actorKind: "user",
 				scopes: null,
 			};
-			if (!(await workspaceSessionAllowed(this.env.DB, session)))
+			const access = await workspaceSessionAccess(this.env.DB, session);
+			if (access === "unknown")
+				return new Response(busyFrameText(undefined), { status: 503 });
+			if (access === "denied")
 				return new Response("Workspace access denied", { status: 403 });
 			if (url.pathname.endsWith("/search")) {
 				this.bindScope(scope);
@@ -3449,16 +3452,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			frame?.type !== "ping";
 		const access = await workspaceSessionAccess(this.env.DB, attachment, write);
 		if (access === "unknown" && !write) return this.#closeRetry(ws, "frame");
+		const sendReceipt =
+			frame?.type === "send_turn" && typeof frame.clientTurnId === "string"
+				? { clientTurnId: frame.clientTurnId }
+				: {};
 		if (access === "unknown") {
 			// Nothing was refused: the frame was not carried out, the socket stays.
 			this.#control(ws, {
 				type: "error",
 				code: "unavailable",
 				message: busyFrameText(frame?.type),
-				...(typeof (frame as { clientTurnId?: unknown })?.clientTurnId ===
-				"string"
-					? { clientTurnId: (frame as { clientTurnId: string }).clientTurnId }
-					: {}),
+				...sendReceipt,
 			});
 			return;
 		}
@@ -3469,6 +3473,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				type: "error",
 				code: "access_denied",
 				message: refusedFrameText(frame?.type, mayView),
+				...sendReceipt,
 			});
 			this.#closeDenied(ws, "frame");
 			return;

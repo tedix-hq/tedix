@@ -1221,6 +1221,21 @@ describe("WorkspaceChat", () => {
 			expect(host.textContent).not.toContain("last update");
 			expect(host.textContent).not.toContain("Live updates paused");
 
+			act(() =>
+				fake.set({
+					state: {
+						...fake.client.getSnapshot().state,
+						pendingSend: {
+							clientTurnId: "pending",
+							text: "Unconfirmed prompt",
+							sentAt: 0,
+						},
+					},
+				}),
+			);
+			expect(host.textContent).toContain("Waiting to confirm send");
+			expect(host.textContent).toContain(started.text);
+
 			// Moving to another conversation is not a drop.
 			const next = fakeClient("c2");
 			next.set({ connection: { phase: "connecting", attempt: 0 } });

@@ -36,6 +36,7 @@ import {
 	initialWorkspaceChatState,
 	markPendingSend,
 	markSendFailed,
+	messageAccepted,
 	removeConversation,
 	setConversations,
 	setHasEarlier,
@@ -617,20 +618,23 @@ export function createWorkspaceChatClient(
 			}
 			case "pong":
 				return;
-			case "error":
+			case "error": {
+				const error = { code: message.code, message: message.message };
 				if (message.clientTurnId) {
 					outbox.delete(message.clientTurnId);
 					if (
-						state.pendingSend &&
-						state.pendingSend.clientTurnId !== message.clientTurnId
+						messageAccepted(state, message.clientTurnId) ||
+						(state.pendingSend &&
+							state.pendingSend.clientTurnId !== message.clientTurnId)
 					)
 						return;
+					state = markSendFailed(state, {
+						...error,
+						clientTurnId: message.clientTurnId,
+					});
+				} else {
+					state = { ...state, lastError: error };
 				}
-				state = markSendFailed(state, {
-					code: message.code,
-					message: message.message,
-					clientTurnId: message.clientTurnId,
-				});
 				// An error that is not about a message may be the run's: the
 				// object answers a run it could not carry out with an error, so
 				// the tray must not keep showing one that will never finish.
@@ -640,6 +644,7 @@ export function createWorkspaceChatClient(
 				}
 				publish();
 				return;
+			}
 		}
 	}
 

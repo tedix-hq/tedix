@@ -25,6 +25,7 @@
 import {
 	callRpc,
 	type FetcherLike,
+	RpcCallError,
 	serviceBindingFetch,
 } from "@tedix/api-client/internal";
 import { validateToken } from "@tedix/auth/jwt";
@@ -1839,15 +1840,22 @@ async function handleWorkspaceChatUpgrade(
 				timeoutMs: 5_000,
 			},
 		);
-		if (presence.workspaceId !== workspaceId)
-			throw new Error("Workspace presence mismatch");
-	} catch {
+	} catch (error) {
 		if (!localDemo) {
-			console.warn("Workspace chat upgrade refused: authorization failed");
-			return refuse(403, "You do not have access to this workspace.");
+			if (
+				error instanceof RpcCallError &&
+				[401, 403, 404].includes(error.status)
+			)
+				return refuse(403, "You do not have access to this workspace.");
+			return refuse(
+				503,
+				"Tedix is busy. Workspace chat will try to reconnect.",
+			);
 		}
 		presence = { workspaceId, displayName: "Local owner", role: "owner" };
 	}
+	if (presence.workspaceId !== workspaceId)
+		return refuse(403, "You do not have access to this workspace.");
 	if (presence.role === "use") {
 		return refuse(403, "Workspace chat requires build access.");
 	}

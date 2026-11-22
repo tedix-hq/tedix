@@ -111,6 +111,33 @@ describe("workspace chat organization routing", () => {
 		},
 	);
 
+	it.each([
+		[503, 503, "Tedix is busy"],
+		[403, 403, "You do not have access"],
+	])(
+		"keeps a failed presence read (%i) distinct from an access denial",
+		async (apiStatus, expectedStatus, message) => {
+			const { env, objectRequests } = chatEnv();
+			const response = await handleOsRequest(
+				chatRequest(),
+				{
+					...env,
+					API_SERVICE: {
+						fetch: async () => new Response(null, { status: apiStatus }),
+					},
+				},
+				async () => ({
+					provisioned: true,
+					organizationId,
+					descopeTenantId: "auth-tenant-acme",
+				}),
+			);
+			expect(response.status).toBe(expectedStatus);
+			expect(await response.text()).toContain(message);
+			expect(objectRequests).toHaveLength(0);
+		},
+	);
+
 	it("asks the API about an inspection only when the browser opens one", async () => {
 		const { env, apiRequests, objectRequests } = chatEnv("inspect");
 		const request = new Request(

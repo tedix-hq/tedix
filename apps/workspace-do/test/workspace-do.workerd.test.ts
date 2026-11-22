@@ -6986,6 +6986,59 @@ describe("workspace transport authorization", () => {
 			expect(await ws.listConversations(privateScope)).toEqual([]);
 		},
 	);
+	test("a failed workspace access read preserves the conversation and refuses a send without recording it", async () => {
+		const { ws, privateScope } = await fixture();
+		await ws.scriptModel(privateScope, [{ text: "Existing answer" }]);
+		const existing = await ws.sendTurn(privateScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Existing question",
+		});
+		await ws.awaitTurn(privateScope, existing.turnId, 20_000);
+		const socket = await open(ws, privateScope, "u1");
+		const draft = "Unsent draft";
+		const clientTurnId = crypto.randomUUID();
+		await testEnv.DB.exec(
+			"ALTER TABLE os_workspaces RENAME TO offline_workspaces",
+		);
+		try {
+			const upgrade = await ws.fetch(
+				new Request("https://workspace.test/subscribe", {
+					headers: { ...headers(privateScope), Upgrade: "websocket" },
+				}),
+			);
+			expect(upgrade.status).toBe(503);
+			const refusal = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "error",
+			);
+			socket.send(
+				JSON.stringify({
+					type: "send_turn",
+					conversationId: existing.conversationId,
+					clientTurnId,
+					text: draft,
+				}),
+			);
+			expect((await refusal).at(-1)).toMatchObject({
+				code: "unavailable",
+				clientTurnId,
+				message:
+					"Your message was not sent: Tedix is busy right now. Try again in a moment.",
+			});
+			expect(await ws.readTurn(privateScope, clientTurnId)).toBeNull();
+		} finally {
+			socket.close(1000, "test complete");
+			await testEnv.DB.exec(
+				"ALTER TABLE offline_workspaces RENAME TO os_workspaces",
+			);
+		}
+		expect(await ws.readTurn(privateScope, existing.turnId)).toBeTruthy();
+		const recovered = await open(ws, privateScope, "u1");
+		recovered.accept();
+		recovered.close(1000, "test complete");
+	});
+
 	test.each(["u1", "fictional-builder"])(
 		"MCP and chat permit current owner/build access for %s",
 		async (actorId) => {

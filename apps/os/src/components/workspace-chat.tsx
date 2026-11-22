@@ -708,6 +708,7 @@ export function WorkspaceChat({
 				models={state.models}
 				queued={state.queued}
 				pendingSend={state.pendingSend}
+				sendConnectionOpen={connection.phase === "open"}
 				catchingUp={
 					catchingUp && state.turns.length === 0 && conversationId !== null
 				}
@@ -761,7 +762,9 @@ export function WorkspaceChat({
 						</Button>
 					</AlertAction>
 				</Alert>
-			) : state.lastError && !viewOnly ? (
+			) : state.lastError &&
+			  state.lastError.code !== "not_connected" &&
+			  !viewOnly ? (
 				<Alert className="workspace-chat-notice" variant="destructive">
 					<WarningCircle aria-hidden />
 					<AlertDescription>{state.lastError.message}</AlertDescription>
@@ -912,6 +915,7 @@ function Thread({
 	models,
 	queued,
 	pendingSend,
+	sendConnectionOpen,
 	catchingUp,
 	hasEarlier,
 	onLoadEarlier,
@@ -935,6 +939,7 @@ function Thread({
 	/** Sent while the agent works; it has not read them yet. */
 	queued: WorkspaceChatState["queued"];
 	pendingSend: WorkspaceChatState["pendingSend"];
+	sendConnectionOpen: boolean;
 	catchingUp: boolean;
 	hasEarlier: boolean;
 	onLoadEarlier: () => void;
@@ -1079,7 +1084,10 @@ function Thread({
 							pendingSend.retryOfTurnId !== visibleTurns.at(-1)?.turnId) && (
 							<UserBubble text={pendingSend.text} />
 						)}
-						<Working label="Sending" since={pendingSend.sentAt} />
+						<Working
+							label={sendConnectionOpen ? "Sending" : "Waiting to confirm send"}
+							since={pendingSend.sentAt}
+						/>
 					</div>
 				) : null}
 			</div>
