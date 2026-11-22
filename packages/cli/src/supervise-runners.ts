@@ -799,7 +799,7 @@ export class RunnerDuties {
 				at - entry.startedAt >= RUNNER_RESTART_BASE_MS
 			) {
 				this.log(
-					`${runner.executor} stopped with no task in progress to run the updated CLI; restarting`,
+					`${runner.executor} stopped to run the updated CLI; restarting, and its running tasks continue`,
 				);
 				this.record(runner, { state: "waiting", retryAt: null }, at);
 				return;

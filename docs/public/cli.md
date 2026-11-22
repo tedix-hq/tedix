@@ -170,11 +170,13 @@ logged once an hour instead of on every check, so a busy board's log stays
 small; a changed reason is logged right away.
 
 After `tedix update`, each runner in that file moves to the new version by
-itself. It notices the newer installed binary, takes no new Work, lets the
-Work it already has finish, and exits once nothing is in progress. The
-supervisor starts it again on its next check, without the usual wait, and
-logs `runner <executor> now on <version>`. No running Attempt is cancelled,
-so you do not need to stop runners by hand after an update.
+itself. On its next check it notices the newer installed binary and restarts
+at once; it does not wait for running tasks to end, so new Work never pauses
+for an update. The new runner continues each running Codex, Claude Code or
+OpenCode task in the same session and checkout under the same Attempt. The
+supervisor starts it without the usual wait and logs
+`runner <executor> now on <version>`. You do not need to stop runners by hand
+after an update.
 
 The same command includes saved duty status from `~/.tedix/supervisor-duties-status.json`: last start and exit, exit code when observed, executor, retry time and recent exits. This history survives supervisor restarts. A retained process whose identity cannot be verified stays unknown; the supervisor neither adopts nor stops it by its process number alone.
 After a reinstall, a new runner checks every 250 ms for its predecessor's lock to clear and logs one waiting notice per process while the predecessor finishes active Work.

@@ -825,46 +825,41 @@ describe("restarting onto an updated CLI", () => {
 			spyOn(LaneDispatcher.prototype, "nextTickDelayMs").mockReturnValue(5),
 			spyOn(process.stderr, "write").mockReturnValue(true),
 		];
-		const quiet = spyOn(LaneDispatcher.prototype, "quiet");
-		const hold = spyOn(LaneDispatcher.prototype, "holdAdmissions");
 		return {
 			tick: spies[0]!,
 			stderr: spies[2]!,
-			quiet,
-			hold,
 			running: runLaneServe(
 				["--executor", "codex", ...options.scope],
 				() => "99.0.0",
 			),
 			cleanup() {
-				for (const spy of [...spies, quiet, hold]) spy.mockRestore();
+				for (const spy of spies) spy.mockRestore();
 				if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 				else process.env.TEDIX_CONFIG_DIR = previous;
 			},
 		};
 	}
-	it("a supervised runner takes no new Work, waits until none is in progress, then exits for the supervisor to restart it", async () => {
+	it("a supervised runner restarts onto a newer CLI at once, without waiting for its tasks", async () => {
 		const f = serve(true);
-		f.quiet.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
-		f.quiet.mockResolvedValue(true);
 		try {
 			expect(await f.running).toBe(75);
-			expect(f.tick).toHaveBeenCalledTimes(3);
-			expect(f.hold).toHaveBeenCalled();
+			expect(f.tick).toHaveBeenCalledTimes(1);
 			expect(f.stderr.mock.calls.map(([line]) => String(line))).toEqual([
-				expect.stringContaining("found Tedix CLI 99.0.0 installed"),
-				"Dispatcher restarting onto Tedix CLI 99.0.0; no Work in progress\n",
+				expect.stringContaining(
+					"found Tedix CLI 99.0.0 installed while running",
+				),
 			]);
+			expect(String(f.stderr.mock.calls[0]![0])).toContain(
+				"Running tasks continue under the new runner",
+			);
 		} finally {
 			f.cleanup();
 		}
 	});
 	it("a runner the supervisor does not list keeps serving", async () => {
 		const f = serve(false);
-		f.quiet.mockResolvedValue(true);
 		try {
 			await until(() => f.tick.mock.calls.length >= 3);
-			expect(f.hold).not.toHaveBeenCalled();
 			process.emit("SIGTERM", "SIGTERM");
 			expect(await f.running).toBe(0);
 		} finally {
@@ -1157,7 +1152,7 @@ describe("dispatcher log", () => {
 });
 
 describe("dispatcher admission", () => {
-	it("keeps a start request while the runner waits to restart, and the next runner starts it without a pass", async () => {
+	it("keeps a start request while the runner stops to restart, and the next runner starts it without a pass", async () => {
 		const f = fixture();
 		const target = f.items[1]!;
 		const duty = runnerDutyFromServeOptions(f.config);
@@ -1168,7 +1163,7 @@ describe("dispatcher admission", () => {
 		mkdirSync(requests, { recursive: true });
 
 		const leaving = f.restart(directory);
-		leaving.holdAdmissions("9.9.9");
+		leaving.stop();
 		const stopLeaving = new AbortController();
 		void serveDispatchRequests(requests, stopLeaving.signal, (id) =>
 			leaving.startRequested(id),
@@ -4144,11 +4139,8 @@ describe("dispatcher admission", () => {
 					metadata: { dispatchVersion: 2 },
 				},
 			];
-			f.dispatcher.holdAdmissions();
-			expect(await f.dispatcher.quiet()).toBe(false);
 			await f.dispatcher.tick();
 			await f.dispatcher.drain();
-			expect(await f.dispatcher.quiet()).toBe(true);
 			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
 				`No process identity was recorded for process ${child.pid} at launch; not stopped`,
 			);
@@ -6191,142 +6183,6 @@ describe("dispatcher admission", () => {
 		const settle = f.events.filter((e) => e.verb === "settle");
 		expect(settle).toHaveLength(1);
 		expect(settle[0]!.args).toContain("cancelled");
-	});
-	it.each(["unrecorded", "matched", "mismatched"])(
-		"checks a retained live PID during an update drain (identity %s)",
-		async (identity) => {
-			const f = fixture({ executor: "opencode" });
-			f.items.splice(1);
-			Object.assign(f.items[0]!, { priority: "high" });
-			// Liveness probes the process group, so the receipt needs a group leader.
-			// This test process leads its group on a terminal but not on a CI runner.
-			const agent = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
-			const exited = once(agent, "exit");
-			const pid = agent.pid!;
-			try {
-				const session = "opencode:30";
-				const mismatch = identity === "mismatched";
-				let processIdentity = mismatch
-					? "recorded-before-pid-reuse"
-					: undefined;
-				if (identity === "matched")
-					await until(
-						() =>
-							(processIdentity = laneProcessIdentity(pid, session)) !==
-							undefined,
-					);
-				writeFileSync(
-					join(f.dir, `${item(99).id}-2.json`),
-					JSON.stringify({
-						itemId: item(99).id,
-						version: 2,
-						phase: "deferred",
-						outcome: "expired",
-						admissionState: "admitted",
-						attemptId: "historical-attempt",
-						session,
-						pid,
-						processIdentity,
-					}),
-				);
-				f.dispatcher.holdAdmissions("0.23.0");
-				expect(await f.dispatcher.quiet()).toBe(mismatch);
-				await f.dispatcher.tick();
-				await f.dispatcher.drain();
-				expect(await f.dispatcher.quiet()).toBe(mismatch);
-				expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
-					false,
-				);
-				expect(f.releases).toHaveLength(0);
-				const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
-				expect(log).toContain('"event":"admissions-held"');
-				expect(log).toContain("Waiting to restart onto Tedix CLI 0.23.0");
-				expect(log).toContain("0 running, 0 preparing");
-				expect(log.includes('"event":"restart-held"')).toBe(!mismatch);
-				if (!mismatch) {
-					expect(log).toContain(`PID ${pid}`);
-					expect(log).toContain("phase deferred, Attempt historical-attempt");
-				}
-				expect(agent.signalCode).toBeNull();
-				expect(agent.exitCode).toBeNull();
-			} finally {
-				agent.kill("SIGKILL");
-				await exited;
-			}
-		},
-	);
-	it("admits nothing while the Tedix app waits to update, and admits again once it stops waiting", async () => {
-		const f = fixture();
-		f.items.splice(1);
-		f.dispatcher.setAppUpdateHold(true);
-		await f.dispatcher.tick();
-		await f.dispatcher.drain();
-		const starts = () =>
-			f.events.filter((e) => e.verb === "start" && e.args[4] === "work");
-		expect(starts()).toHaveLength(0);
-		f.dispatcher.setAppUpdateHold(false);
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		expect(starts()).toHaveLength(1);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-	});
-	it("holding admissions for an update launches Work already admitted, cancels nothing and admits nothing new", async () => {
-		const f = fixture();
-		const waiting = f.items.splice(1);
-		const recall = f.deps.recall!;
-		let runner!: ReturnType<typeof f.restart>;
-		f.deps.recall = async (...args) => {
-			// The update is noticed after admission, while the brief is being built.
-			runner.holdAdmissions();
-			return recall(...args);
-		};
-		runner = f.restart();
-		expect(await runner.quiet()).toBe(true);
-		await runner.tick();
-		await until(() => f.releases.length === 1);
-		expect(await runner.quiet()).toBe(false);
-		f.items.push(...waiting);
-		f.releases[0]!();
-		await runner.drain();
-		await runner.tick();
-		await runner.drain();
-		expect(
-			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
-		).toHaveLength(1);
-		const settle = f.events.filter((e) => e.verb === "settle");
-		expect(settle).toHaveLength(1);
-		expect(settle[0]!.args).toContain("succeeded");
-		expect(await runner.quiet()).toBe(true);
-	});
-	it("is not quiet while a retained run's agent process is alive or its Attempt is unsettled", async () => {
-		const { dispatcher, dir } = fixture();
-		const receipt = {
-			itemId: item(1).id,
-			version: 2,
-			phase: "running",
-			admissionState: "admitted",
-			attemptId: "fictional-attempt",
-		};
-		const path = join(dir, `${item(1).id}-2.json`);
-		writeFileSync(path, JSON.stringify(receipt));
-		expect(await dispatcher.quiet()).toBe(false);
-		// Lane processes lead their own process group, like this one.
-		const agent = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
-		try {
-			writeFileSync(
-				path,
-				JSON.stringify({ ...receipt, phase: "deferred", pid: agent.pid }),
-			);
-			expect(await dispatcher.quiet()).toBe(false);
-		} finally {
-			agent.kill("SIGKILL");
-		}
-		writeFileSync(
-			path,
-			JSON.stringify({ ...receipt, phase: "settled", outcome: "succeeded" }),
-		);
-		expect(await dispatcher.quiet()).toBe(true);
 	});
 	it("cancels, not fails, an Attempt admitted on a revision that landed during start, then admits it", async () => {
 		const { restart, deps, items, events, releases } = fixture();

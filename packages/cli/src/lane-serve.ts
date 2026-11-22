@@ -2864,7 +2864,6 @@ export class LaneDispatcher {
 	private passes = 0;
 	private passRules?: { pass: number; rules: Promise<RunRules> };
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
-	private terminalRetainedAttempts = new WeakMap<Receipt, string>();
 	private releasedAttempts = new Map<string, Receipt>();
 	private cleanupCursor = 0;
 	private orphanCursor = 0;
@@ -2880,7 +2879,6 @@ export class LaneDispatcher {
 	> = {};
 	private queue = serialCalls(3);
 	private stopping = false;
-	private admissionsHeld: string | undefined;
 	private proposalsSweptAt = 0;
 	private ticking = false;
 	private delegationRequests = new Map<string, string>();
@@ -2978,70 +2976,6 @@ export class LaneDispatcher {
 		this.stopping = true;
 		this.dropAllWaiting();
 	};
-	/**
-	 * Stops admitting Work so this runner can empty and restart onto an updated
-	 * CLI. Unlike `stop`, Work already in preparation still launches and runs to
-	 * its own end, so no Attempt is cancelled.
-	 */
-	holdAdmissions(version?: string) {
-		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
-		this.dropAllWaiting();
-	}
-	/**
-	 * The Tedix app chose to update once this Mac's tasks end: no new Work
-	 * meanwhile, so the wait ends. Work in progress runs on; removing the
-	 * app's marker lets admissions resume.
-	 */
-	setAppUpdateHold(on: boolean) {
-		const reason = "Waiting for the Tedix app to update";
-		if (on && !this.admissionsHeld) {
-			this.admissionsHeld = reason;
-			this.dropAllWaiting();
-		} else if (!on && this.admissionsHeld === reason)
-			this.admissionsHeld = undefined;
-	}
-	/**
-	 * Read again right before each admission, not only once per pass: a start
-	 * already in preparation when the app begins to wait is handed back.
-	 */
-	private appUpdateWaiting(): boolean {
-		const on = existsSync(
-			join(this.directory, "..", "..", APP_UPDATE_WAITING_FILE),
-		);
-		if (on) this.setAppUpdateHold(true);
-		return on;
-	}
-	private async holdsRestart(row: Receipt): Promise<boolean> {
-		if (hasSettledOutcome(row)) return false;
-		const terminal =
-			!!row.attemptId &&
-			this.terminalRetainedAttempts.get(row) === row.attemptId;
-		if (!terminal && (row.phase === "admitted" || row.phase === "running"))
-			return true;
-		if (!row.pid || !alive(row.pid)) return false;
-		if (!row.processIdentity) return !terminal;
-		const cwd = row.processIdentity.startsWith("v2:") ? row.repo : undefined;
-		if (!row.session || (row.processIdentity.startsWith("v2:") && !cwd))
-			return true;
-		return (
-			(await laneProcessIdentityAsync(row.pid, row.session, cwd)) ===
-			row.processIdentity
-		);
-	}
-
-	/** True when a restart would interrupt neither local nor retained Work. */
-	async quiet(): Promise<boolean> {
-		if (this.running.size || this.preparing.size || this.maintenance.size)
-			return false;
-		try {
-			for (const row of readLaneReceipts(this.directory, this.receipts)) {
-				if (await this.holdsRestart(row)) return false;
-			}
-			return true;
-		} catch {
-			return false;
-		}
-	}
 	/**
 	 * A spawn can be reported before exec shows the session in argv on a busy
 	 * host. Without an identity the run could never be stopped as an orphan,
@@ -3361,8 +3295,7 @@ export class LaneDispatcher {
 		if (
 			requestedRun.getStore()?.direct ||
 			this.preparing.size < MAX_PREPARATIONS ||
-			this.stopping ||
-			this.admissionsHeld
+			this.stopping
 		) {
 			this.preparing.add(candidate.id);
 			this.preparationTurns.delete(candidate.id);
@@ -3546,14 +3479,11 @@ export class LaneDispatcher {
 	async startRequested(workItemId: string): Promise<boolean> {
 		return requestedRun.run({ direct: true }, async () => {
 			const leaving = () => {
-				const reason = this.stopping
-					? "Runner is stopping"
-					: this.admissionsHeld;
-				if (!reason) return false;
+				if (!this.stopping) return false;
 				this.log(
 					"request-held",
 					workItemId,
-					`${reason}; the request stays for the next runner`,
+					"Runner is stopping; the request stays for the next runner",
 				);
 				return true;
 			};
@@ -3664,7 +3594,7 @@ export class LaneDispatcher {
 					workItemId,
 					`${String(error)}; left to the next pass`,
 				);
-				return !(this.stopping || this.admissionsHeld);
+				return !this.stopping;
 			}
 			return true;
 		});
@@ -3811,13 +3741,6 @@ export class LaneDispatcher {
 			this.log("skipped-or-failed", undefined, error.message);
 			return;
 		}
-		if (this.admissionsHeld) {
-			this.log(
-				"admissions-held",
-				undefined,
-				`${this.admissionsHeld}; new Work is paused while draining: ${this.running.size} running, ${this.preparing.size} preparing, ${this.maintenance.size} maintenance tasks`,
-			);
-		}
 		for (const row of retained) {
 			if (hasSettledOutcome(row)) continue;
 			if (
@@ -3906,8 +3829,6 @@ export class LaneDispatcher {
 					orphanKey,
 					leaseEnds > Date.now() ? leaseEnds : undefined,
 				);
-				if (attempt?.externalSessionKey === row.session && attempt.outcome)
-					this.terminalRetainedAttempts.set(row, attempt.id);
 				if (
 					history.nextCursor === null &&
 					attempt?.externalSessionKey === row.session &&
@@ -3943,38 +3864,23 @@ export class LaneDispatcher {
 				}
 			}
 		}
-		if (this.admissionsHeld) {
-			for (const row of retained) {
-				if (await this.holdsRestart(row))
-					this.log(
-						"restart-held",
-						row.itemId,
-						`Work revision ${row.version}, phase ${row.phase}, Attempt ${row.attemptId ?? "unknown"}, session ${row.session ?? "unknown"}, PID ${row.pid ?? "unknown"}: retained process or unsettled Attempt prevents restart; PID liveness alone does not verify the agent identity`,
-					);
-			}
-		}
 		// Every ready Work Item this runner may take starts; leases, claims and
 		// per-item receipts, not a slot count, keep each item to one run.
 		const preflightFailed =
 			this.options.executor !== "any-local" &&
 			this.availability[this.options.executor].preflightFailed;
-		const admissionPause =
-			this.admissionsHeld ??
-			(diskLow
-				? "The runner is low on disk space"
-				: preflightFailed
-					? "The executor preflight check failed"
-					: undefined);
+		const admissionPause = diskLow
+			? "The runner is low on disk space"
+			: preflightFailed
+				? "The executor preflight check failed"
+				: undefined;
 		const healthSource = existsSync(join(this.directory, "health-source.json"));
 		// Owner-answer reads and previously unready starts must wait until the
 		// whole list is walked, so they cannot delay fresh starts on later pages.
 		const rechecks: DispatchItem[] = [];
 		let recheckRound = false;
 		const listed = new Set<string>();
-		while (
-			!this.stopping &&
-			(admissionPause ? healthSource : !this.admissionsHeld)
-		) {
+		while (!this.stopping && (admissionPause ? healthSource : true)) {
 			const page = recheckRound
 				? { data: rechecks.splice(0), pagination: { hasMore: false } }
 				: await this.call<{
@@ -4012,7 +3918,7 @@ export class LaneDispatcher {
 				if (this.stopping) break;
 				listed.add(item.id);
 				this.coordinatorSample.skips.delete(item.id);
-				const pause = admissionPause ?? this.admissionsHeld;
+				const pause = admissionPause;
 				if (pause) {
 					observeSkip(item, pause);
 					continue;
@@ -4526,7 +4432,6 @@ export class LaneDispatcher {
 		if (
 			executor === "any-local" ||
 			this.stopping ||
-			this.admissionsHeld ||
 			Date.now() - this.takeoverCheckedAt < 60_000
 		)
 			return;
@@ -5866,8 +5771,7 @@ export class LaneDispatcher {
 						item.version,
 						current.workItem?.version,
 					);
-				if (this.stopping || this.appUpdateWaiting())
-					throw new DispatcherStoppingError();
+				if (this.stopping) throw new DispatcherStoppingError();
 				const health = this.availability[executor];
 				if (health.preflightFailed)
 					throw new LocalExecutorPreflightError(health.reason);
@@ -8656,8 +8560,12 @@ ${firstBrief}`;
  */
 export const LANE_STOP_DRAIN_MS = RUNNER_STOP_DRAIN_MS;
 
-/** Under the config directory while the Tedix app waits to update. */
-const APP_UPDATE_WAITING_FILE = "app-update-waiting";
+/**
+ * How long a runner leaving for an update waits for in-flight work before it
+ * exits. Short: running tasks continue under the next runner, and each second
+ * here is a second no runner takes new Work.
+ */
+export const UPDATE_DRAIN_MS = 10_000;
 
 /** True when the supervisor's runner list has this runner enabled, so it is started again after it exits. */
 function supervised(key: string): boolean {
@@ -8788,25 +8696,17 @@ export async function runLaneServe(
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
 			if (options.once || stopping) break;
-			// The Tedix app writes this marker while it waits to update.
-			lane.setAppUpdateHold(
-				existsSync(join(configDirectory, APP_UPDATE_WAITING_FILE)),
-			);
 			// Only a runner the supervisor will start again leaves for an update.
+			// It does not wait for its tasks: the next runner continues each one
+			// in the same session and checkout, so new Work never pauses.
 			const newer = await installedVersion();
 			if (newer && supervised(key)) {
-				if (!updating)
-					process.stderr.write(
-						`Dispatcher found Tedix CLI ${newer} installed while running ${CLI_VERSION}; it takes no new Work and restarts once none is in progress\n`,
-					);
+				process.stderr.write(
+					`Dispatcher found Tedix CLI ${newer} installed while running ${CLI_VERSION}; restarting onto it now. Running tasks continue under the new runner.\n`,
+				);
 				updating = true;
-				dispatcher.holdAdmissions(newer);
-				if (await dispatcher.quiet()) {
-					process.stderr.write(
-						`Dispatcher restarting onto Tedix CLI ${newer}; no Work in progress\n`,
-					);
-					return RUNNER_UPDATE_EXIT_CODE;
-				}
+				dispatcher.stop();
+				break;
 			}
 			const delay = dispatcher.nextTickDelayMs();
 			recordDispatcherNextCheck(
@@ -8821,12 +8721,14 @@ export async function runLaneServe(
 			await dispatcher.drain();
 			return 0;
 		}
-		abandoned = !(await dispatcher.drain(LANE_STOP_DRAIN_MS));
+		abandoned = !(await dispatcher.drain(
+			updating ? UPDATE_DRAIN_MS : LANE_STOP_DRAIN_MS,
+		));
 		if (abandoned)
 			process.stderr.write(
-				`Dispatcher stopped after draining ${LANE_STOP_DRAIN_MS / 1000}s; left ${dispatcher.inFlight().join(", ")} running for the next runner to recover\n`,
+				`Dispatcher stopped after draining ${(updating ? UPDATE_DRAIN_MS : LANE_STOP_DRAIN_MS) / 1000}s; left ${dispatcher.inFlight().join(", ")} running for the next runner to continue\n`,
 			);
-		return 0;
+		return updating ? RUNNER_UPDATE_EXIT_CODE : 0;
 	} finally {
 		process.off("SIGTERM", stop);
 		process.off("SIGINT", stop);
@@ -8835,6 +8737,6 @@ export async function runLaneServe(
 		for (const lock of locks) lock.release();
 		// Lease and heartbeat timers of abandoned work would keep this process,
 		// and its stale heartbeats, alive after the lock is released.
-		if (abandoned) process.exit(0);
+		if (abandoned) process.exit(updating ? RUNNER_UPDATE_EXIT_CODE : 0);
 	}
 }
