@@ -52,7 +52,7 @@ export function isOsShellNavigationItemActive(
 }
 
 type RouteTitles = Partial<
-	Record<"output" | "skill" | "app" | "workspace", string>
+	Record<"output" | "skill" | "app" | "workspace" | "site", string>
 >;
 type RouteCrumb = { label: string; href?: string };
 

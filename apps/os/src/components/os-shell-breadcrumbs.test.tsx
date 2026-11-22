@@ -9,6 +9,7 @@ vi.mock("@/lib/os-query-options", () => ({
 	appDetailQueryOptions: (id: string) => ({ id }),
 	outputDetailQueryOptions: (id: string) => ({ id }),
 	skillDetailQueryOptions: (id: string) => ({ id }),
+	sitesQueryOptions: () => ({}),
 }));
 
 describe("shell page titles", () => {
@@ -29,18 +30,32 @@ describe("shell page titles", () => {
 			await act(async () => root.unmount());
 		}
 	});
-	it("keeps resolved resource titles on nested tabs", async () => {
-		query.mockReturnValue({ data: { app: { name: "Calendar" } } });
+	it.each([
+		[
+			"/apps/app-1/tools",
+			{ app: { name: "Calendar" } },
+			"Connections · Calendar · Tools",
+		],
+		[
+			"/sites/site-1",
+			{
+				sites: [
+					{ id: "other", name: "Other" },
+					{ id: "site-1", name: "Acme" },
+				],
+			},
+			"Websites · Acme",
+		],
+	])("resolves resource titles for %s", async (pathname, data, title) => {
+		query.mockReturnValue({ data });
 		const host = document.createElement("div");
 		const root = createRoot(host);
 		try {
 			await act(async () =>
-				root.render(<OsShellBreadcrumbs pathname="/apps/app-1/tools" />),
+				root.render(<OsShellBreadcrumbs pathname={pathname} />),
 			);
-			expect(host.textContent).toContain("Calendar");
-			expect(
-				document.title.startsWith("Connections · Calendar · Tools · "),
-			).toBe(true);
+			expect(host.textContent).toContain(title.split(" · ")[1]);
+			expect(document.title.startsWith(`${title} · `)).toBe(true);
 		} finally {
 			await act(async () => root.unmount());
 			query.mockReturnValue({});

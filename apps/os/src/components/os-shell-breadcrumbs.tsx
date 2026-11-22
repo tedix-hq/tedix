@@ -7,6 +7,7 @@ import {
 	appDetailQueryOptions,
 	outputDetailQueryOptions,
 	skillDetailQueryOptions,
+	sitesQueryOptions,
 } from "@/lib/os-query-options";
 
 function OutputBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
@@ -33,6 +34,14 @@ function AppBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
 	return <RouteBreadcrumbs context={context} pathname={pathname} />;
 }
 
+function SiteBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
+	const { data } = useQuery(sitesQueryOptions());
+	const context = resolveOsShellRouteContext(pathname, {
+		site: data?.sites.find((site) => site.id === id)?.name,
+	});
+	return <RouteBreadcrumbs context={context} pathname={pathname} />;
+}
+
 export function OsShellBreadcrumbs({ pathname }: { pathname: string }) {
 	const outputId = /^\/outputs\/([^/]+)/.exec(pathname)?.[1];
 	if (outputId) return <OutputBreadcrumbs pathname={pathname} id={outputId} />;
@@ -40,6 +49,8 @@ export function OsShellBreadcrumbs({ pathname }: { pathname: string }) {
 	if (skillId) return <SkillBreadcrumbs pathname={pathname} id={skillId} />;
 	const appId = /^\/apps\/([^/]+)/.exec(pathname)?.[1];
 	if (appId) return <AppBreadcrumbs pathname={pathname} id={appId} />;
+	const siteId = /^\/sites\/([^/]+)/.exec(pathname)?.[1];
+	if (siteId) return <SiteBreadcrumbs pathname={pathname} id={siteId} />;
 	const context = resolveOsShellRouteContext(pathname);
 	return <RouteBreadcrumbs context={context} pathname={pathname} />;
 }

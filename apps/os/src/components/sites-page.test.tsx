@@ -381,6 +381,37 @@ function siteTab(label: string) {
 	return host;
 }
 describe("Website actions", () => {
+	it("uses docs publication labels and hides CMS settings", () => {
+		readStates.siteType = "docs";
+		const buildId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		readStates.docs = {
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			isFetching: false,
+			refetch: vi.fn(),
+			data: {
+				site: { activeBuildId: "75" },
+				releases: [{ buildId: "75", createdAt: "2026-11-22T12:00:00Z" }],
+				builds: [
+					{ id: "75", createdAt: "2026-11-21T12:00:00Z", status: "complete" },
+					{
+						id: buildId,
+						createdAt: "2026-11-21T12:00:00Z",
+						status: "complete",
+					},
+				],
+			},
+		};
+		const host = renderPage(<SitePage siteId={siteId} />);
+		expect(
+			[...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent),
+		).not.toContain("Settings");
+		expect(host.textContent).toContain("2026");
+		act(() => button(host, "Versions").click());
+		expect(host.textContent).toContain("Version bbbbbbb");
+		expect(host.textContent).not.toContain(buildId);
+	});
 	it("explains an in-flight domain provisioning attempt and offers retry", () => {
 		domainClaim.current = {
 			claimId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",

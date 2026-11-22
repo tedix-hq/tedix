@@ -57,6 +57,12 @@ const PART_NAMES: Record<string, string> = {
 	hostname: "address",
 };
 
+function docsVersionLabel(id: string, publishedAt?: string | null) {
+	return publishedAt
+		? absoluteTime(normalizeD1Timestamp(publishedAt))
+		: id.slice(0, 7);
+}
+
 export function SitePage({ siteId }: { siteId: string }) {
 	useOsFormattingPreferences();
 	const navigate = useNavigate();
@@ -222,8 +228,10 @@ export function SitePage({ siteId }: { siteId: string }) {
 					{site.activeRevisionId ? (
 						<>
 							{site.status === "active" ? "Live" : "Last live"}: version{" "}
-							{site.activeRevisionId}
-							{publication ? (
+							{site.type === "docs"
+								? docsVersionLabel(site.activeRevisionId, publication)
+								: site.activeRevisionId}
+							{publication && site.type === "cms" ? (
 								<>
 									, published{" "}
 									<time dateTime={normalizeD1Timestamp(publication)}>
@@ -247,7 +255,9 @@ export function SitePage({ siteId }: { siteId: string }) {
 					<TabsTrigger value="overview">Overview</TabsTrigger>
 					<TabsTrigger value="versions">Versions</TabsTrigger>
 					<TabsTrigger value="domain">Domain</TabsTrigger>
-					<TabsTrigger value="settings">Settings</TabsTrigger>
+					{site.type === "cms" ? (
+						<TabsTrigger value="settings">Settings</TabsTrigger>
+					) : null}
 				</TabsList>
 				<TabsContent value="overview">
 					<PageSection>
@@ -268,8 +278,18 @@ export function SitePage({ siteId }: { siteId: string }) {
 										key={point.id}
 										className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
 									>
-										<span>Version {point.id}</span>
-										{point.createdAt ? (
+										<span>
+											Version{" "}
+											{site.type === "docs"
+												? docsVersionLabel(
+														point.id,
+														docs.data?.releases.find(
+															(release) => release.buildId === point.id,
+														)?.createdAt ?? point.createdAt,
+													)
+												: point.id}
+										</span>
+										{point.createdAt && site.type === "cms" ? (
 											<time
 												className="text-kumo-subtle"
 												dateTime={normalizeD1Timestamp(point.createdAt)}
@@ -360,7 +380,13 @@ export function SitePage({ siteId }: { siteId: string }) {
 												>
 													<div>
 														<Text role="body" className="break-all">
-															Version {build.id}
+															Version{" "}
+															{docsVersionLabel(
+																build.id,
+																docs.data.releases.find(
+																	(release) => release.buildId === build.id,
+																)?.createdAt,
+															)}
 														</Text>
 														<Text as="p" role="caption" tone="secondary">
 															{absoluteTime(
@@ -468,72 +494,74 @@ export function SitePage({ siteId }: { siteId: string }) {
 						)}
 					</PageSection>
 				</TabsContent>
-				<TabsContent value="settings">
-					<PageSection>
-						{site.type === "cms" && canManage ? (
-							<>
-								<Collapsible
-									open={healthOpen || (missing.length > 0 && !dismissedMissing)}
-									onOpenChange={(open) => {
-										setHealthOpen(open);
-										if (!open) setDismissedMissing(true);
-									}}
-								>
-									<CollapsibleTrigger>Health check</CollapsibleTrigger>
-									<CollapsibleContent>
-										{plan.isPending ? <ListSkeleton /> : null}
-										{plan.isError ? (
-											<LoadError
-												title="Health check is unavailable"
-												error={plan.error}
-												retrying={plan.isFetching}
-												onRetry={() => void plan.refetch()}
-											/>
-										) : null}
-										{missing.length ? (
-											<Collection>
-												{missing.map((part) => (
-													<li key={part.kind} className="px-4 py-3">
-														The site's {PART_NAMES[part.kind] ?? part.kind} is
-														missing.
-													</li>
-												))}
-											</Collection>
-										) : plan.isSuccess ? (
-											<Text role="body" tone="secondary">
-												No missing parts found.
-											</Text>
-										) : null}
-									</CollapsibleContent>
-								</Collapsible>
-								<PageSection>
-									<SectionTitle>Delete site</SectionTitle>
-									<Text role="body" tone="secondary">
-										Permanently delete this website and its content, images and
-										versions. Connected tool apps are kept.
-									</Text>
-									<div>
-										<Button
-											variant="destructive"
-											onClick={() => {
-												deletion.reset();
-												setDeleteOpen(true);
-											}}
-										>
-											Delete site
-										</Button>
-									</div>
-								</PageSection>
-							</>
-						) : (
-							<Text role="body" tone="secondary">
-								{site.type === "docs"
-									? "Edit documentation settings in the site's source project."
-									: "You need permission to manage this website's settings."}
-							</Text>
-						)}
-					</PageSection>
-				</TabsContent>
+				{site.type === "cms" ? (
+					<TabsContent value="settings">
+						<PageSection>
+							{canManage ? (
+								<>
+									<Collapsible
+										open={
+											healthOpen || (missing.length > 0 && !dismissedMissing)
+										}
+										onOpenChange={(open) => {
+											setHealthOpen(open);
+											if (!open) setDismissedMissing(true);
+										}}
+									>
+										<CollapsibleTrigger>Health check</CollapsibleTrigger>
+										<CollapsibleContent>
+											{plan.isPending ? <ListSkeleton /> : null}
+											{plan.isError ? (
+												<LoadError
+													title="Health check is unavailable"
+													error={plan.error}
+													retrying={plan.isFetching}
+													onRetry={() => void plan.refetch()}
+												/>
+											) : null}
+											{missing.length ? (
+												<Collection>
+													{missing.map((part) => (
+														<li key={part.kind} className="px-4 py-3">
+															The site's {PART_NAMES[part.kind] ?? part.kind} is
+															missing.
+														</li>
+													))}
+												</Collection>
+											) : plan.isSuccess ? (
+												<Text role="body" tone="secondary">
+													No missing parts found.
+												</Text>
+											) : null}
+										</CollapsibleContent>
+									</Collapsible>
+									<PageSection>
+										<SectionTitle>Delete site</SectionTitle>
+										<Text role="body" tone="secondary">
+											Permanently delete this website and its content, images
+											and versions. Connected tool apps are kept.
+										</Text>
+										<div>
+											<Button
+												variant="destructive"
+												onClick={() => {
+													deletion.reset();
+													setDeleteOpen(true);
+												}}
+											>
+												Delete site
+											</Button>
+										</div>
+									</PageSection>
+								</>
+							) : (
+								<Text role="body" tone="secondary">
+									You need permission to manage this website's settings.
+								</Text>
+							)}
+						</PageSection>
+					</TabsContent>
+				) : null}
 			</Tabs>
 			<TypedConfirmDialog
 				open={deleteOpen}

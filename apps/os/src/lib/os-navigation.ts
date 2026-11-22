@@ -217,7 +217,7 @@ export type OsPage = Readonly<{
 	settings?: true;
 	description?: string;
 	surfaceId?: OsSurfaceId;
-	titleKey?: "output" | "skill" | "app" | "workspace";
+	titleKey?: "output" | "skill" | "app" | "workspace" | "site";
 	// Existing resource tabs, Work views and tedi tabs keep their parent crumb.
 	breadcrumb?: "parent" | "section";
 }>;
@@ -443,6 +443,7 @@ export const OS_PAGES: readonly OsPage[] = [
 		path: "/sites/$siteId",
 		label: "Website",
 		parentId: "sites",
+		titleKey: "site",
 	},
 	{
 		id: "app",
