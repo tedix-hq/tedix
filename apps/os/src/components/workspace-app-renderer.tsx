@@ -29,6 +29,10 @@ import {
 	SystemMapConfigSchema,
 } from "@tedix/api-contract/schemas/os-system-map";
 import {
+	BROWSER_SIGN_IN_ENTRY,
+	BrowserSignInConfigSchema,
+} from "@tedix/api-contract/schemas/os-browser-sign-in";
+import {
 	WORK_MAP_ENTRY,
 	WorkMapConfigSchema,
 } from "@tedix/api-contract/schemas/os-work-map";
@@ -89,6 +93,11 @@ const ActivityFeedApp = lazy(() =>
 );
 const WorkMapApp = lazy(() =>
 	import("./work-map-app").then((m) => ({ default: m.WorkMapApp })),
+);
+const BrowserSignInApp = lazy(() =>
+	import("./browser-sign-in-app").then((m) => ({
+		default: m.BrowserSignInApp,
+	})),
 );
 const SystemMapApp = lazy(() =>
 	import("./system-map-app").then((m) => ({ default: m.SystemMapApp })),
@@ -226,6 +235,10 @@ function InstalledApp({
 	if (entry === SYSTEM_MAP_ENTRY) {
 		const config = SystemMapConfigSchema.safeParse(manifest.config);
 		if (config.success) return <SystemMapApp config={config.data} />;
+	}
+	if (entry === BROWSER_SIGN_IN_ENTRY) {
+		const config = BrowserSignInConfigSchema.safeParse(manifest.config);
+		if (config.success) return <BrowserSignInApp config={config.data} />;
 	}
 	if (entry === WORK_DISPATCH_ENTRY) {
 		const config = WorkDispatchConfigSchema.safeParse(manifest.config);

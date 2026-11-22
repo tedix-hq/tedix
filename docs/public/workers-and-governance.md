@@ -221,8 +221,11 @@ later turns use it without a new takeover. Tedix records who approved it, the
 tedi, the organization and the site hosts. `browser_session_status` shows it
 to the tedi; operators read it with `tediApprovals.getBrowserLoginSession`
 and end it with `tediApprovals.endBrowserLoginSession`, which closes the
-browser, discards its cookies and writes an audit event. A sign-in never
-moves to another tedi or organization. When it expires, or the browser has
+browser, discards its cookies and writes an audit event. To show it in Tedix
+OS, install a workspace app with entry `tedix:app/browser-sign-in` and config
+`{ "version": 1, "tediId": "<tedi id>" }`: it lists who approved the
+sign-in, the sites and the expiry, with an **End session** button. A sign-in
+never moves to another tedi or organization. When it expires, or the browser has
 gone, the tedi's next browser call reports that the sign-in ended and asks
 it to request a new takeover.
 
