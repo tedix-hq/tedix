@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.34.3 (2026-11-22)
+
+### Patch Changes
+
+- f411cf3: The checkout of a run that ended incomplete (for example, its push was refused) is now kept until the Work's retry uses it, instead of being cleaned up about 30 seconds after the run ends. Only the disk cap can still evict it, and then its commits are saved under a Git ref as before.
+
 ## 0.34.2 (2026-11-22)
 
 ### Patch Changes
