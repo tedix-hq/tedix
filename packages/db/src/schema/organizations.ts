@@ -148,6 +148,8 @@ export interface OrganizationMetadata {
 	webSearch?: OrganizationContractMetadata["webSearch"];
 	/** Org admin overrides of "check each person's access" per organization account. */
 	connectionAccessChecks?: OrganizationContractMetadata["connectionAccessChecks"];
+	/** The organization's own publishing channel named by owned-channel receipts. */
+	ownedChannel?: OrganizationContractMetadata["ownedChannel"];
 	/** Inbound human OAuth client admission; absent admits every verified client. */
 	mcpInboundClientPolicy?: OrganizationContractMetadata["mcpInboundClientPolicy"];
 	/** Organization-wide browser boundary; per-tedi policy may narrow it further. */

@@ -56,8 +56,15 @@ beforeEach(() => {
 	vi.resetAllMocks();
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		`CREATE TABLE work_events (project_id TEXT, objective_id TEXT, sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);`,
+		`CREATE TABLE work_events (project_id TEXT, objective_id TEXT, sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);
+		CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);`,
 	);
+	sqlite
+		.prepare("INSERT INTO organizations (id, metadata) VALUES (?, ?)")
+		.run(
+			orgId,
+			JSON.stringify({ ownedChannel: { channel: "example.com/blog" } }),
+		);
 	context = {
 		db: createDbClient(createD1Facade(sqlite)),
 		authType: "user",
@@ -73,6 +80,7 @@ beforeEach(() => {
 	});
 	mocks.member.mockResolvedValue({
 		userId: "canonical-user",
+		kind: "human",
 		status: "active",
 		role: "owner",
 	});
@@ -89,6 +97,7 @@ describe("owned-channel authorization", () => {
 		async (role) => {
 			mocks.member.mockResolvedValue({
 				userId: "canonical-user",
+				kind: "human",
 				status: "active",
 				role,
 			});
@@ -99,7 +108,7 @@ describe("owned-channel authorization", () => {
 			const body = event.payload.body as string;
 			expect(JSON.parse(body)).toMatchObject({
 				contentIds: ["draft-1"],
-				channel: "tedix.dev/blog",
+				channel: "example.com/blog",
 				contentRisk: "low",
 				allowedAction: "content_publish",
 			});
@@ -140,7 +149,11 @@ describe("owned-channel authorization", () => {
 		{ role: "member", status: "active" },
 		{ role: "owner", status: "inactive" },
 	])("rejects insufficient membership %j", async (membership) => {
-		mocks.member.mockResolvedValue({ userId: "canonical-user", ...membership });
+		mocks.member.mockResolvedValue({
+			userId: "canonical-user",
+			kind: "human",
+			...membership,
+		});
 		await expect(authorize()).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 	it("rejects a work item from another tenant", async () => {
@@ -168,7 +181,15 @@ describe("owned-channel authorization", () => {
 			).toEqual({ count: 0 });
 		},
 	);
-	it("writes signed revocation to the same event ledger", async () => {
+	it("refuses to authorize until the organization sets its owned channel", async () => {
+		sqlite.exec("UPDATE organizations SET metadata = '{}'");
+		await expect(authorize()).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(
+			sqlite.prepare("SELECT count(*) AS count FROM work_events").get(),
+		).toEqual({ count: 0 });
+	});
+	it("writes signed revocation to the same event ledger, even without a configured channel", async () => {
+		sqlite.exec("DELETE FROM organizations");
 		const event = await revoke();
 		expect(event.eventType).toBe("owned_channel_authorization_revoked");
 		const body = event.payload.body as string;

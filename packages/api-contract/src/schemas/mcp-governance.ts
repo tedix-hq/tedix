@@ -212,6 +212,9 @@ export const SetOrganizationAutoApprovalInputSchema = z.discriminatedUnion(
 	],
 );
 
+/** An organization's own publishing channel, for example `example.com/blog`. */
+export const OwnedChannelNameSchema = z.string().trim().min(1).max(200);
+
 /**
  * Server-attributed owner/admin user authorization attached to the exact Work
  * Item a tedi owns.
@@ -222,7 +225,8 @@ export const OwnedChannelAuthorizationReceiptSchema = z
 	.object({
 		version: z.literal(1),
 		campaignKey: z.string().trim().min(1).max(128),
-		channel: z.literal("tedix.dev/blog"),
+		/** The organization's configured `metadata.ownedChannel.channel`. */
+		channel: OwnedChannelNameSchema,
 		allowedAction: z.literal("content_publish"),
 		contentRisk: z.literal("low"),
 		collection: z.literal("posts"),

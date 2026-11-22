@@ -4,6 +4,7 @@ import {
 	OWNED_CHANNEL_AUTHORIZATION_EVENT,
 	OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
 	OWNED_CHANNEL_MAX_AUTHORIZATION_MS,
+	getOrganizationOwnedChannel,
 	recordOwnedChannelAuthorizationEvent,
 	signOwnedChannelAuthorizationProof,
 } from "@tedix/db/queries/mcp-governance";
@@ -35,7 +36,7 @@ async function writeReceipt(
 	eventType:
 		| typeof OWNED_CHANNEL_AUTHORIZATION_EVENT
 		| typeof OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
-	bodyForTime: (now: string) => string,
+	bodyForTime: (now: string, channel: string | null) => string,
 ) {
 	const item = await assertWorkItemAccess(context, input.id);
 	const actorId = await requireOwnerAdminWorkItemAuthor(
@@ -56,7 +57,10 @@ async function writeReceipt(
 		);
 	}
 	const occurredAt = new Date().toISOString();
-	const body = bodyForTime(occurredAt);
+	const body = bodyForTime(
+		occurredAt,
+		await getOrganizationOwnedChannel(context.db, item.orgId),
+	);
 	const id = crypto.randomUUID();
 	const signature = await signOwnedChannelAuthorizationProof(
 		context.env.SECRETS_MASTER_KEY,
@@ -86,31 +90,42 @@ async function writeReceipt(
 
 export const authorizeOwnedChannelProcedure =
 	ownedChannelOs.authorizeOwnedChannel.handler(async ({ input, context }) =>
-		writeReceipt(context, input, OWNED_CHANNEL_AUTHORIZATION_EVENT, (now) => {
-			const expiry = Date.parse(input.validUntil);
-			if (
-				!Number.isFinite(expiry) ||
-				expiry <= Date.parse(now) ||
-				expiry > Date.parse(now) + OWNED_CHANNEL_MAX_AUTHORIZATION_MS
-			) {
-				throw createError(
-					ErrorCodes.BAD_REQUEST,
-					"Owned-channel authorization must expire in the future and within 30 days",
+		writeReceipt(
+			context,
+			input,
+			OWNED_CHANNEL_AUTHORIZATION_EVENT,
+			(now, channel) => {
+				if (!channel) {
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"Set the organization's owned channel (metadata.ownedChannel.channel) before authorizing publishing",
+					);
+				}
+				const expiry = Date.parse(input.validUntil);
+				if (
+					!Number.isFinite(expiry) ||
+					expiry <= Date.parse(now) ||
+					expiry > Date.parse(now) + OWNED_CHANNEL_MAX_AUTHORIZATION_MS
+				) {
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"Owned-channel authorization must expire in the future and within 30 days",
+					);
+				}
+				return JSON.stringify(
+					OwnedChannelAuthorizationReceiptSchema.parse({
+						version: 1,
+						campaignKey: input.campaignKey,
+						channel,
+						allowedAction: "content_publish",
+						contentRisk: "low",
+						collection: "posts",
+						contentIds: [...new Set(input.contentIds)],
+						validUntil: input.validUntil,
+					}),
 				);
-			}
-			return JSON.stringify(
-				OwnedChannelAuthorizationReceiptSchema.parse({
-					version: 1,
-					campaignKey: input.campaignKey,
-					channel: "tedix.dev/blog",
-					allowedAction: "content_publish",
-					contentRisk: "low",
-					collection: "posts",
-					contentIds: [...new Set(input.contentIds)],
-					validUntil: input.validUntil,
-				}),
-			);
-		}),
+			},
+		),
 	);
 
 export const revokeOwnedChannelProcedure =
@@ -119,11 +134,13 @@ export const revokeOwnedChannelProcedure =
 			context,
 			input,
 			OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
-			() =>
+			// Revocation never depends on configuration: any verified revocation
+			// stops every earlier receipt, whatever channel it names.
+			(_now, channel) =>
 				JSON.stringify({
 					version: 1,
 					campaignKey: input.campaignKey,
-					channel: "tedix.dev/blog",
+					channel,
 					reason: input.reason,
 				}),
 		),

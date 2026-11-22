@@ -1896,6 +1896,10 @@
 		{
 			"name": "20261122142904_cloudflare_daily_costs/migration.sql",
 			"sha256": "890b5ff38e2155fd63592158f746942b7e7b2f7ff6344fbba8a731ebe8666f29"
+		},
+		{
+			"name": "20261122144736_owned_channel_org_setting/migration.sql",
+			"sha256": "ce98eb0eb2df0a13237a95d1a316579fd1a3e7306ed2271e4ca2459fbfd83b67"
 		}
 	]
 }

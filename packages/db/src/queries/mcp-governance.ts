@@ -25,6 +25,7 @@ import {
 	type McpToolApprovalGrantKind,
 	mcpToolApprovalGrants,
 } from "../schema/mcp-governance";
+import { organizations } from "../schema/organizations";
 import { projects } from "../schema/projects";
 import { tedis } from "../schema/tedis";
 import { workAttempts, workEvents, workItems } from "../schema/work-items";
@@ -718,6 +719,29 @@ async function verifyOwnedChannelAuthorizationProof(
 	);
 }
 
+/**
+ * The organization's configured owned channel, or null when none is set.
+ * Receipts name this channel and stop counting when it changes or is removed.
+ */
+export async function getOrganizationOwnedChannel(
+	db: DbClient,
+	organizationId: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({
+			channel: sql<
+				string | null
+			>`json_extract(${organizations.metadata}, '$.ownedChannel.channel')`.as(
+				"owned_channel",
+			),
+		})
+		.from(organizations)
+		.where(eq(organizations.id, organizationId))
+		.limit(1);
+	const channel = typeof row?.channel === "string" ? row.channel.trim() : "";
+	return channel.length > 0 ? channel : null;
+}
+
 export interface ResolveWorkItemAuthorizationResult {
 	approved: boolean;
 	reason: string;
@@ -785,6 +809,11 @@ export async function resolveWorkItemAuthorization(
 	) {
 		return denied("argument_scope_mismatch");
 	}
+	const ownedChannel = await getOrganizationOwnedChannel(
+		db,
+		input.organizationId,
+	);
+	if (!ownedChannel) return denied("owned_channel_not_configured");
 	const nowIso = input.nowIso ?? new Date().toISOString();
 
 	const activeAttempts = await db
@@ -968,6 +997,7 @@ export async function resolveWorkItemAuthorization(
 		}
 		const parsed = OwnedChannelAuthorizationReceiptSchema.safeParse(json);
 		if (!parsed.success) continue;
+		if (parsed.data.channel !== ownedChannel) continue;
 		if (!parsed.data.contentIds.includes(input.args.id as string)) continue;
 		const authorizationScope = authorizationScopes.find(
 			(scope) => scope.id === comment.workItemId,

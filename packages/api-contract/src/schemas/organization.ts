@@ -20,6 +20,7 @@ import { OrganizationPermissionSchema } from "./user-settings";
 import { PortableWebMcpProfileSchema } from "./portable-webmcp";
 import { WebSearchPolicySchema } from "./web-search";
 import { McpInboundClientPolicySchema } from "./mcp-grant";
+import { OwnedChannelNameSchema } from "./mcp-governance";
 import {
 	ApprovalModeSchema,
 	ReadOnlyCommandListSchema,
@@ -604,6 +605,13 @@ export const OrganizationMetadataSchema = z.object({
 		.optional()
 		.describe(
 			"Org admin overrides of 'check each person's access' per organization account; accounts without an entry use the provider default.",
+		),
+	ownedChannel: z
+		.strictObject({ channel: OwnedChannelNameSchema })
+		.nullable()
+		.optional()
+		.describe(
+			"The organization's own publishing channel, such as its blog address. Owned-channel publish authorizations name it and are honored only while it matches; absent means none can be issued.",
 		),
 	mcpInboundClientPolicy: McpInboundClientPolicySchema.optional().describe(
 		"Which OAuth clients members may connect to this organization's MCP servers. Absent admits every verified client; audit records allowlist misses; enforce admits listed clients only.",

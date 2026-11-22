@@ -101,6 +101,7 @@ CREATE TABLE work_events (
 	payload TEXT NOT NULL DEFAULT '{}',
 	occurred_at TEXT NOT NULL
 );
+CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 `;
 
 const sqliteByDb = new WeakMap<object, DatabaseSync>();
@@ -124,6 +125,7 @@ const APP = "shop";
 const TOOL = "delete_order";
 const NOW = "2026-07-25T12:00:00.000Z";
 const AUTHORIZATION_SIGNING_SECRET = "owned-channel-test-signing-key";
+const OWNED_CHANNEL = "example.com/blog";
 
 async function seedActiveTediLeaf(
 	db: DbClient,
@@ -143,6 +145,9 @@ async function seedActiveTediLeaf(
 			"INSERT OR IGNORE INTO tedis (id, organization_id, slug, status) VALUES (?, ?, 'cmo', 'active')",
 		)
 		.run(subjectId, ORG);
+	sqlite
+		.prepare("INSERT OR IGNORE INTO organizations (id, metadata) VALUES (?, ?)")
+		.run(ORG, JSON.stringify({ ownedChannel: { channel: OWNED_CHANNEL } }));
 	await db
 		.insert(projects)
 		.values({
@@ -195,7 +200,7 @@ function authorizationBody(overrides: Record<string, unknown> = {}): string {
 	return JSON.stringify({
 		version: 1,
 		campaignKey: "promptwatch-repositioning",
-		channel: "tedix.dev/blog",
+		channel: OWNED_CHANNEL,
 		allowedAction: "content_publish",
 		contentRisk: "low",
 		collection: "posts",
@@ -870,17 +875,25 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 		}
 	});
 
-	it("does not carry old-domain authorization receipts into the new lane", async () => {
+	it("honors a receipt only while it names the organization's configured channel", async () => {
 		const db = realDb();
 		const leafId = await seedActiveTediLeaf(db);
 		await seedAuthorization(db, leafId, {
-			body: authorizationBody({ channel: "blog.tedix.dev" }),
+			body: authorizationBody({ channel: "old.example.com/blog" }),
 		});
 		await expect(
 			resolveWorkItemAuthorization(db, ownedChannelCall),
 		).resolves.toMatchObject({
 			approved: false,
 			reason: "no_current_user_authorization",
+		});
+		await seedAuthorization(db, leafId);
+		sqliteByDb.get(db)?.exec("UPDATE organizations SET metadata = '{}'");
+		await expect(
+			resolveWorkItemAuthorization(db, ownedChannelCall),
+		).resolves.toMatchObject({
+			approved: false,
+			reason: "owned_channel_not_configured",
 		});
 	});
 
