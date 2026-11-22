@@ -322,6 +322,11 @@ export interface Routing {
 	 * words without the tool's name. Absent with older command-line tools.
 	 */
 	limits?: Record<string, string>;
+	/**
+	 * When Clef picks the tool for each task: what each tool is good at, by
+	 * executor id. Absent when the rules decide or no strengths are set.
+	 */
+	clef?: { tool: string; strengths: string }[];
 }
 
 export interface SessionProject {
@@ -582,7 +587,7 @@ async function readRouting(): Promise<void> {
 	try {
 		const parsed = JSON.parse(result.output) as {
 			path?: unknown;
-			policy?: { rules?: unknown };
+			policy?: { rules?: unknown; decide?: unknown; tools?: unknown };
 			tools?: unknown;
 		};
 		const limits = Array.isArray(parsed.tools)
@@ -625,7 +630,29 @@ async function readRouting(): Promise<void> {
 		} catch {
 			/* Not there. */
 		}
-		routing = rules.length ? { rules, file, changedAt, limits } : undefined;
+		const strengths = Object.entries(
+			parsed.policy?.tools && typeof parsed.policy.tools === "object"
+				? (parsed.policy.tools as Record<string, { strengths?: unknown }>)
+				: {},
+		)
+			.map(([tool, value]) => ({
+				tool,
+				strengths: Array.isArray(value?.strengths)
+					? value.strengths
+							.filter((s): s is string => typeof s === "string")
+							.join(", ")
+					: typeof value?.strengths === "string"
+						? value.strengths
+						: "",
+			}))
+			.filter((entry) => entry.strengths);
+		const clef =
+			parsed.policy?.decide !== "rules" && strengths.length >= 2
+				? strengths
+				: undefined;
+		routing = rules.length
+			? { rules, file, changedAt, limits, clef }
+			: undefined;
 	} catch {
 		routing = undefined;
 	}

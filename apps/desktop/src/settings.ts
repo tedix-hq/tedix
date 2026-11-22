@@ -283,11 +283,28 @@ function routingGroup(routing: Routing): Group {
 				month: "short",
 			})
 		: "";
+	const clef = routing.clef;
 	const items: Item[] = [
+		...(clef
+			? [
+					{
+						title: "Clef picks the tool; rules are the backup.",
+						plain: true,
+						words: "clef routing",
+					},
+					...clef.map((entry): Item => ({
+						title: `${EXECUTOR_NAMES[entry.tool] ?? entry.tool}: ${entry.strengths}`,
+						plain: true,
+						words: "clef strengths",
+					})),
+				]
+			: []),
 		{
 			title: same
-				? `Right now every task goes to ${toolNames(routing.rules[0]!.tools)}.`
-				: "Each kind of task goes to its own tool.",
+				? `${clef ? "Backup: every" : "Right now every"} task goes to ${toolNames(routing.rules[0]!.tools)}.`
+				: clef
+					? "Backup: each kind of task goes to its own tool."
+					: "Each kind of task goes to its own tool.",
 			plain: true,
 			sub: routing.file
 				? `Set on this Mac${changed ? ` on ${changed}` : ""}.`
