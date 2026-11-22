@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.31.0 (2026-11-22)
+
+### Minor Changes
+
+- 20642fd: `tedix setup agents context session-reporting` takes several projects at once (`--project <id>,<id>`) and `--harness claude-code|codex|devin|opencode` to choose which coding tool's sessions show in Tedix. A tool's own choice wins over the choice for every tool.
+
+### Patch Changes
+
+- 628d7ee: The Codex setup check says Codex is not signed in to Tedix any more instead of pointing to /mcp.
+- c844d5c: Give dispatcher checkouts unique Git metadata names and coordinate checkout creation with pruning so concurrent runs keep separate indexes and working trees.
+- 94aa62a: Retain verified landed commits in dispatcher settlement receipts so Devin and
+  other local runners can complete their own coding Work after settling it.
+
 ## 0.30.1 (2026-11-22)
 
 ### Patch Changes
