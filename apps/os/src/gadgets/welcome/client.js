@@ -67,7 +67,7 @@ async function setUpComputer(chip) {
 		state: "working",
 		text:
 			config.computer === "desktop-app"
-				? "Opening the setup window…"
+				? "Opening settings…"
 				: "Finding the latest version…",
 	};
 	render();
@@ -79,7 +79,7 @@ async function setUpComputer(chip) {
 				state: "done",
 				text:
 					result.state === "opened"
-						? "The setup window is open. Follow it, then continue here."
+						? "Tedix settings are open. Choose your coding tools, then continue here."
 						: `Download started (version ${result.version}). Open the file, move Tedix to Applications and open it. ${config.macFirstOpenNote}`,
 			};
 		}

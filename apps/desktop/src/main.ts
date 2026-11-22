@@ -851,7 +851,8 @@ async function finishBrowserSignIn(code: string): Promise<void> {
  * `tedix://sign-in?link=<emailed link>`: the Tedix OS sign-in page sends this
  * from the browser so the emailed link finishes in this window instead.
  * `tedix://sign-in?code=<code>` finishes a sign-in started with the browser.
- * `tedix://setup` opens the Set up this Mac window.
+ * `tedix://setup` opens Settings at Coding tools, or the first-run setup
+ * while this Mac is not set up yet.
  */
 function openAppLink(value: string | undefined): void {
 	const target = URL.parse(value ?? "");
@@ -867,8 +868,8 @@ function openAppLink(value: string | undefined): void {
 	showMain();
 	// `tedix://setup`: the Tedix OS page's "Set up this Mac" button.
 	if (target.host === "setup") {
-		log("link: setup window asked for");
-		return openSetup();
+		log("link: setup asked for");
+		return setupState().open ? openSetup() : openSettings("tools");
 	}
 	const code = target.searchParams.get("code");
 	if (code) {
@@ -1087,7 +1088,8 @@ function createMainWindow(show: boolean): void {
 
 	// Editors and other sites belong in the browser, outside the OS view.
 	view.webContents.setWindowOpenHandler(({ url }) => {
-		if (refusesAppWindows(url)) void signInWithBrowser();
+		if (url.startsWith("tedix:")) openAppLink(url);
+		else if (refusesAppWindows(url)) void signInWithBrowser();
 		else if (isOsPage(url)) void view.webContents.loadURL(url);
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 		return { action: "deny" };
@@ -1113,7 +1115,9 @@ function createMainWindow(show: boolean): void {
 	const leaveForBrowser = (event: Electron.Event, url: string) => {
 		if (mainPageAllowed(url)) return;
 		event.preventDefault();
-		if (refusesAppWindows(url)) void signInWithBrowser();
+		// The page's own buttons for this app, such as Set up this Mac.
+		if (url.startsWith("tedix:")) openAppLink(url);
+		else if (refusesAppWindows(url)) void signInWithBrowser();
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 	};
 	view.webContents.on("will-navigate", leaveForBrowser);

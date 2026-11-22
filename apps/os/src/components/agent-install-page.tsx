@@ -9,11 +9,6 @@ import {
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
-	Collapsible,
-	CollapsibleDefaultContent,
-	CollapsibleDefaultTrigger,
-} from "@/components/kumo/collapsible";
-import {
 	DESKTOP_SETUP_LINK,
 	latestMacDownload,
 	MAC_FIRST_OPEN_NOTE,
@@ -445,7 +440,7 @@ function MacDownloadHero() {
 			</div>
 			<ActionState>
 				{failed ? (
-					"The download is not available right now. Check your connection and retry, or use a terminal instead."
+					"The download is not available right now. Check your connection and try again."
 				) : started ? (
 					<>
 						<CheckCircle
@@ -473,44 +468,22 @@ function MacDownloadHero() {
 }
 
 function DesktopAppHero() {
-	const [opened, setOpened] = useState(false);
 	return (
 		<SetupHero
 			title="Set up this Mac"
-			lead="One window sets up Tedix on this Mac and asks before each step."
+			lead="Choose your coding tools in the Tedix app's settings."
 		>
 			<div>
-				<Button
-					onClick={() => setOpened(true)}
-					render={<a href={DESKTOP_SETUP_LINK} />}
-					size="lg"
-				>
+				<Button render={<a href={DESKTOP_SETUP_LINK} />} size="lg">
 					Set up this Mac
 				</Button>
 			</div>
-			<ActionState>
-				{opened ? (
-					<>
-						<CheckCircle
-							aria-hidden="true"
-							className="mt-0.5 shrink-0 text-kumo-success"
-							size={16}
-							weight="fill"
-						/>
-						<span>
-							The setup window is open. If you do not see it, update the Tedix
-							app and choose Set up this Mac again.
-						</span>
-					</>
-				) : null}
-			</ActionState>
 		</SetupHero>
 	);
 }
 
 export function AgentInstallPage() {
 	const computer = thisComputer();
-	const [terminalOpen, setTerminalOpen] = useState(false);
 	return (
 		<Page width="lg">
 			<PageHeader>
@@ -523,32 +496,15 @@ export function AgentInstallPage() {
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
-
-			{computer === "other" ? (
-				<TerminalSteps />
-			) : (
-				<>
-					<PageSection>
-						{computer === "desktop-app" ? (
-							<DesktopAppHero />
-						) : (
-							<MacDownloadHero />
-						)}
-					</PageSection>
-					<PageSection>
-						<Collapsible open={terminalOpen} onOpenChange={setTerminalOpen}>
-							<CollapsibleDefaultTrigger className="-ms-2 w-fit">
-								Use a terminal instead
-							</CollapsibleDefaultTrigger>
-							<CollapsibleDefaultContent>
-								<div className="grid gap-8 pt-4">
-									<TerminalSteps />
-								</div>
-							</CollapsibleDefaultContent>
-						</Collapsible>
-					</PageSection>
-				</>
-			)}
+			<PageSection>
+				{computer === "other" ? (
+					<TerminalSteps />
+				) : computer === "desktop-app" ? (
+					<DesktopAppHero />
+				) : (
+					<MacDownloadHero />
+				)}
+			</PageSection>
 		</Page>
 	);
 }
