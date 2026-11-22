@@ -83,7 +83,10 @@ it("schedules only a fast-forward change to the configured site's public docs", 
 	await expect(scheduleDocsRelease(env)).rejects.toThrow(
 		"Docs source check failed with HTTP 302",
 	);
-	expect(fetchSource.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+	expect(fetchSource).toHaveBeenCalledWith(
+		expect.any(String),
+		expect.objectContaining({ redirect: "manual" }),
+	);
 	expect(createBatch).not.toHaveBeenCalled();
 	fetchSource.mockClear();
 
