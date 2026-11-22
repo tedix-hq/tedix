@@ -7,9 +7,73 @@ import {
 	createContext,
 	createKernelRuntimeClient,
 	childRuntimeEvent,
+	grantRow,
 } from "./__tests__/kernel-runtime-db";
 
 describe("kernel runtime router: child-evidence", () => {
+	it("refuses a member without access to the parent conversation, then allows a read grant", async () => {
+		const db = createKernelRuntimeDb({
+			grantRows: [
+				grantRow({
+					conversationId: "home:private",
+					userId: "someone-else",
+					access: "owner",
+				}),
+			],
+		});
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "private-parent",
+				organizationId: ORG_ID,
+				conversationId: "home:private",
+				delegatedTediId: "tedi-cpo",
+				childRunId: "private-child",
+			}),
+		);
+		db.runtimeEvents.push(
+			childRuntimeEvent({
+				id: "private-event",
+				createdAt: "2026-06-06T08:00:00.000Z",
+				kind: "run.started",
+				runId: "private-child",
+				tediId: "tedi-cpo",
+			}),
+		);
+		const client = createKernelRuntimeClient({
+			...createContext(db, { userSub: "member-1" }),
+			apiKey: undefined,
+			authType: "user",
+			userRole: "member",
+			permissions: ["tedis:read"],
+		});
+		const input = { childRunId: "private-child", delegatedTediId: "tedi-cpo" };
+		await expect(client.readChildRunEvidence(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Access denied to Home conversation home:private",
+		});
+		db.grantRows.push(
+			grantRow({
+				conversationId: "home:private",
+				userId: "member-1",
+				access: "read",
+			}),
+		);
+		await expect(client.readChildRunEvidence(input)).resolves.toMatchObject({
+			evidence: { events: [{ id: "private-event" }] },
+		});
+	});
+
+	it("refuses child evidence without a parent run", async () => {
+		const db = createKernelRuntimeDb();
+		const client = createKernelRuntimeClient(createContext(db));
+		await expect(
+			client.readChildRunEvidence({
+				childRunId: "orphan-child",
+				delegatedTediId: "tedi-cpo",
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
 	it("reads delegated child run evidence from the runtime owner ledger", async () => {
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient(createContext(db));
@@ -155,6 +219,15 @@ describe("kernel runtime router: child-evidence", () => {
 	it("returns workstation process log artifact rows as child run evidence", async () => {
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient(createContext(db));
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "parent-workstation",
+				organizationId: ORG_ID,
+				conversationId: "home:test",
+				delegatedTediId: "tedi-cto",
+				childRunId: "child-run-workstation",
+			}),
+		);
 		db.artifacts.push(
 			{
 				conversationId: "cto:agent:main:main",
@@ -274,6 +347,15 @@ describe("kernel runtime router: child-evidence", () => {
 	it("keeps child run evidence readable when artifact reads flake", async () => {
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient(createContext(db));
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "parent-flaky-artifacts",
+				organizationId: ORG_ID,
+				conversationId: "home:test",
+				delegatedTediId: "tedi-cpo",
+				childRunId: "child-run-flaky-artifacts",
+			}),
+		);
 		db.controls.artifactSelectError = new Error(
 			"D1_ERROR: Failed to parse body as JSON, got: Error: Network connection lost.",
 		);

@@ -1205,29 +1205,21 @@ export const readChildRunEvidenceRoute = authed.readChildRunEvidence
 		}
 		const eventLimit = input.limit ?? 100;
 		const artifactLimit = input.artifactLimit ?? 25;
-		// T1.5: populated flag — cross-ref kernelRuntimeRuns to distinguish a
-		// known-dispatched run with 0 ledger rows (populated:false) from one that
-		// simply hasn't been indexed yet (populated:undefined). Uses the
-		// (delegatedTediId, childRunId) index (schema line 259-260).
-		// Looked up BEFORE readChildRunEvidenceRows so its id can be passed as
-		// kernelRunId: egress events are recorded with runId = this id (the
-		// kernel delegation row PK), not childRunId.
-		let dispatched:
-			| {
-					id: string;
-					metadata: KernelRuntimeRun["metadata"];
-					runtimeMetadata: KernelRuntimeRun["runtimeMetadata"];
-			  }
-			| undefined;
-		try {
-			dispatched = await findKernelRuntimeRunByChild(context.db, {
-				organizationId,
-				delegatedTediId: input.delegatedTediId,
-				childRunId: input.childRunId,
-			});
-		} catch {
-			// Fail-soft: leave dispatched undefined rather than blocking the read.
+		// The parent binds the child evidence to its conversation access rules.
+		// Its id also keys egress events recorded under the kernel delegation.
+		const dispatched = await findKernelRuntimeRunByChild(context.db, {
+			organizationId,
+			delegatedTediId: input.delegatedTediId,
+			childRunId: input.childRunId,
+		});
+		if (!dispatched) {
+			throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
 		}
+		await ensureHomeConversationAccess(context, {
+			conversationId: dispatched.conversationId,
+			organizationId,
+			required: "read",
+		});
 		let evidenceRows: ChildRunEvidenceRows & { eventReadAvailable: boolean };
 		try {
 			evidenceRows = await readChildRunEvidenceRows(context, {
