@@ -657,6 +657,7 @@ describe("live workspace access", () => {
 				role: "use",
 			}),
 		);
+		const openedAt = Date.now();
 		const restore = withWebSocketPair(() => [new FakeSocket(), socket]);
 		try {
 			await new CollabRoom(roomState, env)
@@ -667,9 +668,16 @@ describe("live workspace access", () => {
 		}
 		expect(socket.of("hello")).toHaveLength(1);
 		expect(roomState.storage.setAlarm).toHaveBeenCalledOnce();
+		const firstCheck = vi.mocked(roomState.storage.setAlarm).mock.calls[0]![0];
+		expect(firstCheck).toBeGreaterThanOrEqual(openedAt + 30_000);
+		expect(firstCheck).toBeLessThanOrEqual(Date.now() + 60_000);
 		const close = vi.spyOn(socket, "close");
+		const checkedAt = Date.now();
 		await new CollabRoom(roomState, env).alarm();
 		expect(close).not.toHaveBeenCalled();
+		const nextCheck = vi.mocked(roomState.storage.setAlarm).mock.calls[1]![0];
+		expect(nextCheck).toBeGreaterThanOrEqual(checkedAt + 30_000);
+		expect(nextCheck).toBeLessThanOrEqual(Date.now() + 60_000);
 		role = null;
 		await new CollabRoom(roomState, env).alarm();
 		expect(close).toHaveBeenCalledWith(

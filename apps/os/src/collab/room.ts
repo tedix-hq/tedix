@@ -130,7 +130,7 @@ interface SocketAttachment {
 	};
 }
 
-export const COLLAB_ACCESS_CHECK_MS = 3_000;
+export const COLLAB_ACCESS_CHECK_MS = 45_000;
 
 function parseAccess(value: unknown): SocketAttachment["access"] {
 	if (typeof value !== "object" || value === null) return undefined;
