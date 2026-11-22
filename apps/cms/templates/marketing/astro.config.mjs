@@ -358,6 +358,11 @@ export default defineConfig({
 					],
 					adminPages: [
 						{
+							path: "/back-to-tedix",
+							label: "Back to Tedix",
+							icon: "arrow-left",
+						},
+						{
 							path: "/development",
 							label: "Code and deployments",
 							icon: "code",
@@ -393,6 +398,13 @@ export default defineConfig({
 		},
 	],
 	vite: {
+		define: {
+			__TEDIX_OS_SITES_URL__: JSON.stringify(
+				cmsDatabaseName === "preview"
+					? "https://os.tedix.dev/sites"
+					: `https://${cmsDatabaseName}.os.tedix.dev/sites`,
+			),
+		},
 		plugins: [phosphorPerIconImports(), tailwindcss()],
 		optimizeDeps: {
 			exclude: ["@phosphor-icons/react"],

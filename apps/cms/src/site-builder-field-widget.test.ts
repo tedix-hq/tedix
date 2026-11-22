@@ -3,7 +3,7 @@ import {
 	createElement,
 	renderToStaticMarkup,
 } from "./test-utils/template-react";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	fields,
 	pages,
@@ -11,6 +11,7 @@ import {
 import { createPlugin } from "../templates/tedix/src/plugins/tedix-site-builder/index";
 
 vi.mock("emdash", () => ({ definePlugin: (plugin: unknown) => plugin }));
+afterEach(() => vi.unstubAllGlobals());
 
 describe("native generated search text widget", () => {
 	it("renders generated text collapsed and read-only without calling onChange", () => {
@@ -48,11 +49,13 @@ describe("native generated search text widget", () => {
 
 describe("native editing navigation", () => {
 	it("keeps code management separate from native preview and editing", () => {
+		vi.stubGlobal("__TEDIX_OS_SITES_URL__", "https://acme.os.tedix.dev/sites");
 		const markup = renderToStaticMarkup(createElement(pages["/development"]));
 		expect(markup).toContain("Code and deployments");
-		expect(markup).toContain("https://os.tedix.dev/sites");
+		expect(markup).toContain("https://acme.os.tedix.dev/sites");
 		expect(markup).not.toContain("<iframe");
 		expect(createPlugin().admin?.pages).toEqual([
+			{ path: "/back-to-tedix", label: "Back to Tedix", icon: "arrow-left" },
 			{ path: "/development", label: "Code and deployments", icon: "code" },
 		]);
 		expect(createPlugin().admin).not.toHaveProperty("widgets");

@@ -14,6 +14,7 @@ export function createPlugin() {
 				},
 			],
 			pages: [
+				{ path: "/back-to-tedix", label: "Back to Tedix", icon: "arrow-left" },
 				{ path: "/development", label: "Code and deployments", icon: "code" },
 			],
 		},

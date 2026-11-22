@@ -1,6 +1,15 @@
 import { apiFetch } from "emdash/plugin-utils";
 import { useEffect, useState, type ComponentType } from "react";
 
+declare const __TEDIX_OS_SITES_URL__: string;
+
+function BackToTedixPage() {
+	useEffect(() => {
+		window.location.replace(__TEDIX_OS_SITES_URL__);
+	}, []);
+	return <a href={__TEDIX_OS_SITES_URL__}>Back to Tedix</a>;
+}
+
 function SiteDevelopmentPage() {
 	return (
 		<section>
@@ -15,7 +24,7 @@ function SiteDevelopmentPage() {
 				workspace.
 			</p>
 			<a
-				href="https://os.tedix.dev/sites"
+				href={__TEDIX_OS_SITES_URL__}
 				target="_blank"
 				rel="noopener noreferrer"
 			>
@@ -142,6 +151,7 @@ export function PublishDeliveries() {
 }
 
 export const pages = {
+	"/back-to-tedix": BackToTedixPage,
 	"/development": SiteDevelopmentPage,
 } satisfies Record<string, ComponentType>;
 

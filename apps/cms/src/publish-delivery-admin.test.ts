@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { act, createElement, createRoot } from "./test-utils/template-react";
 import { afterEach, expect, it, vi } from "vite-plus/test";
-import { PublishDeliveries } from "../templates/tedix/src/plugins/tedix-site-builder/admin";
+import {
+	pages,
+	PublishDeliveries,
+} from "../templates/tedix/src/plugins/tedix-site-builder/admin";
 
 afterEach(() => vi.unstubAllGlobals());
 it("shows pending and failed totals and queues a CSRF-protected retry", async () => {
@@ -59,5 +62,34 @@ it("shows pending and failed totals and queues a CSRF-protected retry", async ()
 		await act(async () => {
 			root.unmount();
 		});
+	}
+});
+
+it("leaves a mounted editor for its pinned organization without using the public site host", async () => {
+	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+	vi.stubGlobal("__TEDIX_OS_SITES_URL__", "https://acme.os.tedix.dev/sites");
+	const replace = vi
+		.spyOn(window.location, "replace")
+		.mockImplementation(() => {});
+	window.history.replaceState(
+		{},
+		"",
+		"/blog/_emdash/admin/plugins/tedix-site-builder/back-to-tedix",
+	);
+	const container = document.createElement("div");
+	const root = createRoot(container);
+	try {
+		await act(async () => {
+			root.render(createElement(pages["/back-to-tedix"]));
+		});
+		expect(replace).toHaveBeenCalledExactlyOnceWith(
+			"https://acme.os.tedix.dev/sites",
+		);
+		expect(container.querySelector("a")?.href).toBe(
+			"https://acme.os.tedix.dev/sites",
+		);
+	} finally {
+		await act(async () => root.unmount());
+		replace.mockRestore();
 	}
 });
