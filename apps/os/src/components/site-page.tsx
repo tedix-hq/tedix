@@ -59,8 +59,8 @@ const PART_NAMES: Record<string, string> = {
 
 function docsVersionLabel(id: string, publishedAt?: string | null) {
 	return publishedAt
-		? absoluteTime(normalizeD1Timestamp(publishedAt))
-		: id.slice(0, 7);
+		? `Published ${absoluteTime(normalizeD1Timestamp(publishedAt))}`
+		: `Version ${id.slice(0, 7)}`;
 }
 
 export function SitePage({ siteId }: { siteId: string }) {
@@ -224,10 +224,13 @@ export function SitePage({ siteId }: { siteId: string }) {
 				<Text role="body" tone="secondary" className="min-w-0 break-words">
 					{site.activeRevisionId ? (
 						<>
-							{site.status === "active" ? "Live" : "Last live"}: version{" "}
+							{site.status === "active" ? "Live" : "Last live"}:{" "}
 							{site.type === "docs"
-								? docsVersionLabel(site.activeRevisionId, publication)
-								: site.activeRevisionId}
+								? docsVersionLabel(
+										site.activeRevisionId,
+										publication,
+									).toLowerCase()
+								: `version ${site.activeRevisionId}`}
 							{publication && site.type === "cms" ? (
 								<>
 									, published{" "}
@@ -276,7 +279,6 @@ export function SitePage({ siteId }: { siteId: string }) {
 										className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
 									>
 										<span>
-											Version{" "}
 											{site.type === "docs"
 												? docsVersionLabel(
 														point.id,
@@ -284,7 +286,7 @@ export function SitePage({ siteId }: { siteId: string }) {
 															(release) => release.buildId === point.id,
 														)?.createdAt ?? point.createdAt,
 													)
-												: point.id}
+												: `Version ${point.id}`}
 										</span>
 										{point.createdAt && site.type === "cms" ? (
 											<time
@@ -377,7 +379,6 @@ export function SitePage({ siteId }: { siteId: string }) {
 												>
 													<div>
 														<Text role="body" className="break-all">
-															Version{" "}
 															{docsVersionLabel(
 																build.id,
 																docs.data.releases.find(
@@ -386,6 +387,7 @@ export function SitePage({ siteId }: { siteId: string }) {
 															)}
 														</Text>
 														<Text as="p" role="caption" tone="secondary">
+															Built{" "}
 															{absoluteTime(
 																normalizeD1Timestamp(build.createdAt),
 															)}
