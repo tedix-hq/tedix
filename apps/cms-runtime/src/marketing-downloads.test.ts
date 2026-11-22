@@ -19,6 +19,7 @@ function object(key: string, body = "payload") {
 				controller.close();
 			},
 		}),
+		json: async () => JSON.parse(body),
 	} as unknown as R2ObjectBody;
 }
 
@@ -130,6 +131,64 @@ describe("serveCliDownload", () => {
 		);
 		expect(invalid?.status).toBe(416);
 		expect(invalid?.headers.get("Content-Range")).toBe("bytes */7");
+	});
+
+	it("redirects the stable desktop links to the release latest.json names", async () => {
+		const files = bucket({
+			"desktop/latest.json": object(
+				"desktop/latest.json",
+				JSON.stringify({ schemaVersion: 1, version: "0.1.33" }),
+			),
+			"desktop/releases/0.1.33/Tedix-0.1.33-darwin-arm64.zip": object(
+				"desktop/releases/0.1.33/Tedix-0.1.33-darwin-arm64.zip",
+			),
+			"desktop/releases/0.1.33/Tedix-0.1.33-darwin-x64.zip": object(
+				"desktop/releases/0.1.33/Tedix-0.1.33-darwin-x64.zip",
+			),
+		});
+		for (const arch of ["arm64", "x64"]) {
+			const response = await serveCliDownload(
+				new Request(
+					`https://downloads.tedix.dev/desktop/latest/Tedix-darwin-${arch}.zip`,
+				),
+				files,
+				"downloads.tedix.dev",
+			);
+			expect(response?.status).toBe(302);
+			expect(response?.headers.get("Location")).toBe(
+				`https://downloads.tedix.dev/desktop/releases/0.1.33/Tedix-0.1.33-darwin-${arch}.zip`,
+			);
+			expect(response?.headers.get("Cache-Control")).toBe("no-store");
+		}
+	});
+
+	it("answers 404 for a stable desktop link without a valid published release", async () => {
+		const request = () =>
+			new Request(
+				"https://downloads.tedix.dev/desktop/latest/Tedix-darwin-arm64.zip",
+			);
+		const pointer = (version: string) => ({
+			"desktop/latest.json": object(
+				"desktop/latest.json",
+				JSON.stringify({ version }),
+			),
+		});
+		for (const entries of [{}, pointer("../0.1.33"), pointer("0.1.33")]) {
+			const response = await serveCliDownload(
+				request(),
+				bucket(entries),
+				"downloads.tedix.dev",
+			);
+			expect(response?.status).toBe(404);
+		}
+		const other = await serveCliDownload(
+			new Request(
+				"https://downloads.tedix.dev/desktop/latest/Tedix-linux-x64.zip",
+			),
+			bucket(pointer("0.1.33")),
+			"downloads.tedix.dev",
+		);
+		expect(other?.status).toBe(404);
 	});
 
 	it("rejects listing, traversal, writes, and missing objects", async () => {

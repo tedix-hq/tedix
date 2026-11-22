@@ -20,8 +20,8 @@ no terminal is needed.
 
 ## Download
 
-- [Download for Mac with Apple chip](https://downloads.tedix.dev/desktop/releases/0.1.33/Tedix-0.1.33-darwin-arm64.zip)
-- [Download for Mac with Intel chip](https://downloads.tedix.dev/desktop/releases/0.1.33/Tedix-0.1.33-darwin-x64.zip)
+- [Download for Mac with Apple chip](https://downloads.tedix.dev/desktop/latest/Tedix-darwin-arm64.zip)
+- [Download for Mac with Intel chip](https://downloads.tedix.dev/desktop/latest/Tedix-darwin-x64.zip)
 
 Not sure which one? Open the Apple menu, choose **About This Mac**, and look
 at **Chip**.

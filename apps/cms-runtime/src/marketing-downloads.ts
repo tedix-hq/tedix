@@ -3,6 +3,12 @@ const DESKTOP_LATEST = "desktop/latest.json";
 const DESKTOP_RELEASE_PREFIX = "desktop/releases/";
 const MUTABLE_KEYS = new Set(["install.sh", "latest.json", "beta.json"]);
 
+// Stable links for the docs and the website: always the release that
+// desktop/latest.json names, so they move only when that pointer moves.
+const DESKTOP_LATEST_ASSET =
+	/^\/desktop\/latest\/Tedix-darwin-(arm64|x64)\.zip$/;
+const RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
 const isRelease = (key: string) =>
 	key.startsWith(RELEASE_PREFIX) || key.startsWith(DESKTOP_RELEASE_PREFIX);
 
@@ -70,6 +76,26 @@ function parseRange(
 	return { offset, length: end - offset + 1 };
 }
 
+/** The current release's zip for one architecture, or null when there is none. */
+async function latestDesktopAsset(
+	bucket: R2Bucket,
+	arch: string,
+): Promise<string | null> {
+	const pointer = await bucket.get(DESKTOP_LATEST);
+	if (!pointer || !("body" in pointer)) return null;
+	let version: unknown;
+	try {
+		version = ((await pointer.json()) as { version?: unknown }).version;
+	} catch {
+		return null;
+	}
+	if (typeof version !== "string" || !RELEASE_VERSION.test(version)) {
+		return null;
+	}
+	const key = `${DESKTOP_RELEASE_PREFIX}${version}/Tedix-${version}-darwin-${arch}.zip`;
+	return (await bucket.head(key)) ? key : null;
+}
+
 export async function serveCliDownload(
 	request: Request,
 	bucket: R2Bucket,
@@ -91,6 +117,19 @@ export async function serveCliDownload(
 		return new Response("Method Not Allowed", {
 			status: 405,
 			headers: { Allow: "GET, HEAD, OPTIONS" },
+		});
+	}
+	const latestAsset = DESKTOP_LATEST_ASSET.exec(url.pathname);
+	if (latestAsset?.[1]) {
+		const target = await latestDesktopAsset(bucket, latestAsset[1]);
+		if (!target) return new Response("Not Found", { status: 404 });
+		return new Response(null, {
+			status: 302,
+			headers: {
+				Location: `${url.origin}/${target}`,
+				"Cache-Control": "no-store",
+				"Access-Control-Allow-Origin": "*",
+			},
 		});
 	}
 	const key = objectKey(url.pathname);
