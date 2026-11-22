@@ -149,7 +149,9 @@ it("shows the canonical attempt fields and polls away completed attempts without
 		true,
 	);
 	await openScorecard();
-	expect(host.textContent).toContain("Runners up: 1 / 1");
+	// A running runner shows no status line; only the missing supervisor does.
+	expect(host.textContent).toContain("Supervisor not reporting");
+	expect(host.textContent).not.toContain("not running");
 	api.attempts.mockResolvedValue({
 		data: [],
 		hasMore: false,
@@ -182,9 +184,7 @@ it("ages fleet observations locally and marks elapsed leases without claiming he
 	expect(more?.getAttribute("href")).toBe("/work?view=feed&filter=queue");
 	await openScorecard();
 	await flush(75_010);
-	expect(host.textContent).toContain("Runners up: unknown");
-	expect(host.textContent).toContain("1 stale report");
-	expect(host.textContent).not.toContain("1 stale reports");
+	expect(host.textContent).toContain("No runner report since");
 });
 it("names records in task titles instead of printing their ids", async () => {
 	const named = row();
@@ -224,7 +224,7 @@ it("keeps failures distinct from a quiet fleet and exposes retry controls", asyn
 	expect(host.textContent).toContain("Runner health unavailable");
 	expect(host.textContent).toContain("Current activity is unknown.");
 	expect(host.textContent).not.toContain("No active attempts");
-	expect(host.textContent).not.toContain("Runners up: 0");
+	expect(host.textContent).not.toContain("No runner report since");
 	expect(host.querySelectorAll("button").length).toBeGreaterThan(0);
 });
 

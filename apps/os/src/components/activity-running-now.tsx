@@ -18,6 +18,8 @@ import { Button } from "./kumo/button";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { ActivityHarnessScorecard } from "./activity-harness-scorecard";
+import { Badge } from "./kumo/badge";
+import { runnerHealthProblems } from "@/lib/harness-scorecard";
 
 /** Uses the same canonical attempt and dispatcher projections as Work. */
 export function ActivityRunningNow({
@@ -85,25 +87,6 @@ export function ActivityRunningNow({
 	const failed = queries.some((query) => query.isError);
 	const pending = queries.some((query) => query.isPending);
 	const reports = health.data?.data ?? [];
-	const fresh = reports.filter(
-		(lane) =>
-			!lane.stale &&
-			now.getTime() - Date.parse(lane.duty?.observedAt ?? lane.observedAt) <=
-				lane.staleAfterSeconds * 1000,
-	);
-	// The supervisor reports its own lane; it is not a runner.
-	const supervisor = (lane: (typeof reports)[number]) =>
-		lane.lane === "supervisor" ||
-		lane.lane === "supervisor-lead" ||
-		lane.duty?.kind === "task";
-	const runners = fresh.filter((lane) => !supervisor(lane));
-	const up = runners.filter(
-		(lane) => lane.running && (!lane.duty || lane.duty.state === "running"),
-	);
-	const lastReport = reports
-		.map((lane) => lane.observedAt)
-		.sort()
-		.at(-1);
 	const healthFailed = health.isError || health.failureCount > 0;
 	return (
 		<>
@@ -199,29 +182,12 @@ export function ActivityRunningNow({
 							Runner scorecard · Last 24 h
 						</CollapsibleDefaultTrigger>
 						<CollapsibleDefaultContent>
-							<Text role="caption" aria-label="Runner health">
-								{healthFailed || !runners.length
-									? "Runners up: unknown"
-									: `Runners up: ${up.length} / ${runners.length}`}
-								{reports.length > fresh.length
-									? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
-									: ""}
-								{!healthFailed && fresh.some(supervisor)
-									? " · Supervisor reporting"
-									: " · Supervisor: unknown"}
-								{lastReport && (
-									<>
-										{" "}
-										· Last report{" "}
-										<time
-											dateTime={lastReport}
-											title={absoluteTime(lastReport)}
-										>
-											{relativeTime(lastReport, now)}
-										</time>
-									</>
-								)}
-							</Text>
+							{!healthFailed && health.data && (
+								<RunnerProblems
+									problems={runnerHealthProblems(reports, now.getTime())}
+									now={now}
+								/>
+							)}
 							{healthFailed && (
 								<WorkReadFailure
 									title="Runner health unavailable"
@@ -240,5 +206,40 @@ export function ActivityRunningNow({
 			</Card>
 			{(!pending || queries.some((query) => query.isPaused)) && children}
 		</>
+	);
+}
+
+/** Shows nothing while every runner and the supervisor are reporting. */
+function RunnerProblems({
+	problems,
+	now,
+}: {
+	problems: ReturnType<typeof runnerHealthProblems>;
+	now: Date;
+}) {
+	const { notRunning, supervisorSilent, silentSince } = problems;
+	if (!notRunning.length && !supervisorSilent && !silentSince) return null;
+	return (
+		<div
+			aria-label="Runner problems"
+			className="flex flex-wrap items-center gap-1.5"
+		>
+			{notRunning.map((runner) => (
+				<Badge key={runner} variant="destructive">
+					{runner} not running
+				</Badge>
+			))}
+			{supervisorSilent && (
+				<Badge variant="warning">Supervisor not reporting</Badge>
+			)}
+			{silentSince && (
+				<Badge variant="warning">
+					No runner report since{" "}
+					<time dateTime={silentSince} title={absoluteTime(silentSince)}>
+						{relativeTime(silentSince, now)}
+					</time>
+				</Badge>
+			)}
+		</div>
 	);
 }
