@@ -218,7 +218,7 @@ describe("private built theme preview", () => {
 		const render = vi.fn(
 			async () =>
 				new Response(
-					`<astro-island component-url="/_astro/new.js" renderer-url="/_astro/renderer.js" before-hydration-url="/_astro/setup.js" props='${props}'></astro-island>`,
+					`<astro-island component-url="/_astro/new.js" renderer-url="/_astro/renderer.js" before-hydration-url="/_astro/setup.js" props="${props.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"></astro-island>`,
 					{ headers: { "Content-Type": "text/html" } },
 				),
 		);

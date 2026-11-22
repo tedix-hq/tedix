@@ -161,19 +161,14 @@ export async function serveThemePreview(
 							}
 							const props = element.getAttribute("props");
 							if (element.tagName === "astro-island" && props) {
-								// Astro's tagged tuples retain their types; rewrite only asset URLs.
+								// HTMLRewriter returns encoded attributes. Preserve Astro's serialized
+								// tuples and entities while prefixing asset strings and srcset entries.
 								element.setAttribute(
 									"props",
-									JSON.stringify(
-										JSON.parse(props, (_key, value) =>
-											typeof value === "string"
-												? value.replace(
-														/(^|,\s+)(\/(?:_astro\/|_image\?|_emdash\/api\/media\/file\/)[^\s,]*)/g,
-														(_match, separator: string, asset: string) =>
-															`${separator}${rewrite(asset)}`,
-													)
-												: value,
-										),
+									props.replace(
+										/(&quot;|"|,\s+)(\/(?:_astro\/|_image\?|_emdash\/api\/media\/file\/))/g,
+										(_match, separator: string, path: string) =>
+											`${separator}${url.origin}${base}${path}`,
 									),
 								);
 							}
