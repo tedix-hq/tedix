@@ -1,4 +1,7 @@
-import { workAttemptLimitAvailable } from "./attempt-limit";
+import {
+	laneDispatchHasNoSettledResult,
+	workAttemptLimitAvailable,
+} from "./attempt-limit";
 import { getAdmittedTaskContract } from "./task-contract";
 import { validateTaskReturnedValue } from "@tedix/api-contract/utils/task-contract-terms";
 import {
@@ -401,6 +404,27 @@ export async function sweepElapsedWorkAttempts(
 	return result;
 }
 
+async function assertLaneHasNoSettledResult(
+	db: DbQueryClient,
+	params: { orgId: string; workItemId: string },
+) {
+	const [row] = await db
+		.select({ available: laneDispatchHasNoSettledResult().as("available") })
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				eq(workItems.id, params.workItemId),
+			),
+		)
+		.limit(1);
+	if (row && !row.available)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"This Work version already has a settled result. Close the Work or revise it to request another run.",
+		);
+}
+
 export async function startWorkItemAttempt(
 	db: DbQueryClient,
 	params: {
@@ -605,6 +629,9 @@ export async function startWorkItemAttempt(
 						eq(workItems.disposition, "accepted"),
 						rootAttemptBudgetAvailable(params.orgId, rootWork.id),
 						workAttemptLimitAvailable(),
+						params.metadata?.lane === true
+							? laneDispatchHasNoSettledResult()
+							: undefined,
 					),
 				),
 		)
@@ -659,6 +686,8 @@ export async function startWorkItemAttempt(
 		]);
 		attempt = (results[4 + admissionStatements.length] as WorkAttempt[])[0];
 	} catch (error) {
+		if (params.metadata?.lane === true)
+			await assertLaneHasNoSettledResult(db, params);
 		if (params.admission) rethrowWorkAdmissionWriteError(error);
 		const winner = (
 			await db
@@ -684,6 +713,8 @@ export async function startWorkItemAttempt(
 	}
 	if (!attempt) {
 		await releaseLosingReservations();
+		if (params.metadata?.lane === true)
+			await assertLaneHasNoSettledResult(db, params);
 		throw new WorkFactoryError(
 			"NOT_READY",
 			"Attempt does not match the current admission specification",

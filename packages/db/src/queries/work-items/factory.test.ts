@@ -247,6 +247,44 @@ function seed(sqlite: DatabaseSync, id: string, disposition = "accepted") {
 }
 
 describe("artifact-neutral work factory", () => {
+	it("fences a queued lane start after the same Work version settles", async () => {
+		const { sqlite, db } = fixture();
+		seed(sqlite, "work");
+		const first = await startWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "work",
+			admissionId: "admission-work-worker",
+			executor: { type: "tedi", id: "worker" },
+			startedAt: NOW,
+			expiresAt: "2026-08-20T13:00:00.000Z",
+		});
+		await settleWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "work",
+			attemptId: first.attempt.id,
+			executor: { type: "tedi", id: "worker" },
+			outcome: "succeeded",
+			settledAt: NOW,
+		});
+		const next = {
+			orgId: "org",
+			workItemId: "work",
+			admissionId: "admission-work-two",
+			executor: { type: "tedi" as const, id: "two" },
+			startedAt: NOW,
+			expiresAt: "2026-08-20T13:00:00.000Z",
+			metadata: { lane: true },
+		};
+		await expect(startWorkItemAttempt(db, next)).rejects.toThrow(
+			"already has a settled result",
+		);
+		expect(
+			await startWorkItemAttempt(db, { ...next, metadata: {} }),
+		).toMatchObject({
+			attempt: { attemptNumber: 2 },
+		});
+	});
+
 	it("persists a one-line failure reason in the attempt and settlement event", async () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "failure-detail");

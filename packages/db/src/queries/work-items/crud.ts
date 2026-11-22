@@ -1,4 +1,5 @@
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
+import { laneDispatchHasNoSettledResult } from "./attempt-limit";
 import { runtimeSubmissions } from "../../schema/runtime-submissions";
 import { organizationMembers } from "../../schema/organization-members";
 import { tedis } from "../../schema/tedis";
@@ -463,6 +464,7 @@ export async function listWorkItemsPage(
 		options.dispatchReadyOnly
 			? sql`${workItems.dispatchState} = 'ready'`
 			: undefined,
+		options.dispatchReadyOnly ? laneDispatchHasNoSettledResult() : undefined,
 		// Work whose start date is still ahead is not offered to a runner.
 		options.dispatchReadyOnly
 			? or(isNull(workItems.startAt), lte(workItems.startAt, dispatchNow))

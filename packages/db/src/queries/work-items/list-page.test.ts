@@ -33,6 +33,14 @@ CREATE TABLE work_items (
  metadata TEXT DEFAULT '{}',
  created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT, completed_at TEXT,
  cancelled_at TEXT, version INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE work_attempts (
+ id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL,
+ admission_id TEXT, outcome TEXT, attempt_number INTEGER NOT NULL, finished_at TEXT
+);
+CREATE TABLE work_admissions (
+ id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL,
+ work_item_version INTEGER NOT NULL, admission_spec_revision TEXT NOT NULL, decision TEXT NOT NULL
+);
 `;
 
 let sqlite: DatabaseSync;
@@ -103,6 +111,35 @@ beforeEach(() => {
 });
 
 describe("listWorkItemsPage filters and counts in SQL", () => {
+	it("does not dispatch a settled result again until the Work is revised", async () => {
+		insert({ id: "work", disposition: "accepted" });
+		sqlite.exec(`
+			UPDATE work_items SET executor_type='external_agent', executor_id='codex', dispatch_state='ready' WHERE id='work';
+			INSERT INTO work_admissions VALUES ('admission','org-1','work',1,'legacy','admitted');
+			INSERT INTO work_attempts VALUES ('attempt','org-1','work','admission','succeeded',1,'2026-11-20T00:00:00.000Z');
+		`);
+		const list = () =>
+			listWorkItemsPage(db, {
+				orgId: ORG,
+				executor: "codex",
+				dispatchReadyOnly: true,
+			});
+		expect((await list()).data).toEqual([]);
+		sqlite.exec("UPDATE work_attempts SET outcome='failed' WHERE id='attempt'");
+		expect((await list()).data.map((item) => item.id)).toEqual(["work"]);
+		sqlite.exec(
+			"UPDATE work_attempts SET outcome='landed_unverified' WHERE id='attempt'",
+		);
+		expect((await list()).data).toEqual([]);
+		sqlite.exec(
+			`UPDATE work_items SET metadata=json_set(metadata,'$.decisionContinuation.at','2026-11-21T00:00:00.000Z') WHERE id='work'`,
+		);
+		expect((await list()).data.map((item) => item.id)).toEqual(["work"]);
+		sqlite.exec("UPDATE work_items SET metadata='{}' WHERE id='work'");
+		sqlite.exec("UPDATE work_items SET version=2 WHERE id='work'");
+		expect((await list()).data.map((item) => item.id)).toEqual(["work"]);
+	});
+
 	it("counts and matches rows past the old 1,000-row prefetch window", async () => {
 		for (let index = 0; index < SCALE; index += 1) {
 			insert({

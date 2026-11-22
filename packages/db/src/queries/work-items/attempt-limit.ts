@@ -1,6 +1,24 @@
 import { sql } from "drizzle-orm";
 import { workItems, type WorkItem } from "../../schema/work-items";
 
+/** A successful run of this Work version must be closed or explicitly revised. */
+export function laneDispatchHasNoSettledResult() {
+	return sql<boolean>`${sql`NOT EXISTS (
+		SELECT 1 FROM work_attempts AS result
+		JOIN work_admissions AS admission ON admission.id = result.admission_id
+			AND admission.org_id = result.org_id AND admission.work_item_id = result.work_item_id
+		WHERE result.org_id = ${workItems.orgId} AND result.work_item_id = ${workItems.id}
+			AND result.outcome IN ('succeeded', 'landed_unverified')
+			AND admission.decision = 'admitted'
+			AND admission.work_item_version = ${workItems.version}
+			AND admission.admission_spec_revision = ${workItems.admissionSpecRevision}
+			AND coalesce(json_extract(${workItems.metadata}, '$.decisionContinuation.at'), '') <= coalesce(result.finished_at, '')
+			AND NOT EXISTS (SELECT 1 FROM work_attempts AS newer
+				WHERE newer.org_id = result.org_id AND newer.work_item_id = result.work_item_id
+				AND newer.attempt_number > result.attempt_number)
+	)`}`;
+}
+
 /** Shared by readiness, admission preview and the atomic Attempt INSERT. */
 export function workAttemptLimitAvailable() {
 	// Nest the expression so SELECT projections preserve correlated outer columns.
