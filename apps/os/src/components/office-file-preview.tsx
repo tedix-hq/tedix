@@ -59,12 +59,14 @@ export function OfficeFilePreview({
 	url,
 	filename,
 	format,
+	allowEditableCopy = true,
 }: {
 	workspaceId: string;
 	resourceId: string;
 	url: string;
 	filename: string;
 	format: OfficeFileFormat;
+	allowEditableCopy?: boolean;
 }) {
 	const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
 	// The signed link rotates while the file stays the same; read it once.
@@ -113,11 +115,13 @@ export function OfficeFilePreview({
 	const { content } = loaded;
 	return (
 		<div className="grid min-w-0 gap-3" data-office-preview={content.kind}>
-			<EditableCopy
-				workspaceId={workspaceId}
-				filename={filename}
-				content={content}
-			/>
+			{allowEditableCopy ? (
+				<EditableCopy
+					workspaceId={workspaceId}
+					filename={filename}
+					content={content}
+				/>
+			) : null}
 			{content.kind === "sheet" ? (
 				<SheetPreview content={content} />
 			) : content.kind === "document" ? (

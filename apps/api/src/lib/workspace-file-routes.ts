@@ -1,4 +1,8 @@
-import { workspaceFileKey } from "@tedix/api-contract/schemas/workspace-files";
+import {
+	WorkspaceChatFileLocationSchema,
+	workspaceFileReadAction,
+	workspaceFileKey,
+} from "@tedix/api-contract/schemas/workspace-files";
 import { createRouterClient, ORPCError } from "@orpc/server";
 import { createContext } from "../rpc/orpc";
 import { getFile } from "../rpc/routers/os-workspace-files";
@@ -111,10 +115,21 @@ export async function serveWorkspaceFile(
 	try {
 		const { organizationId: org, workspaceId, resourceId } = params;
 		const url = new URL(request.url);
+		const conversationId = url.searchParams.get("conversation");
+		const seq = url.searchParams.get("seq");
+		const chat =
+			conversationId !== null || seq !== null
+				? WorkspaceChatFileLocationSchema.safeParse({
+						conversationId,
+						seq: Number(seq),
+					})
+				: undefined;
+		if (chat && !chat.success)
+			return new Response("Not found", { status: 404 });
 		if (
 			!(await verifyWorkspaceFileSignature(
 				env.SECRETS_MASTER_KEY,
-				"read",
+				workspaceFileReadAction(chat?.data),
 				org,
 				workspaceId,
 				resourceId,
@@ -125,7 +140,7 @@ export async function serveWorkspaceFile(
 		// The ordinary API auth middleware rechecks membership, tenant host and private-workspace visibility on EVERY range/read.
 		const file = await createRouterClient(getFile, {
 			context: createContext(request, env),
-		})({ workspaceId, resourceId });
+		})({ workspaceId, resourceId, ...(chat?.data ? { chat: chat.data } : {}) });
 		if (new URL(file.url, request.url).pathname !== `/api${url.pathname}`)
 			return new Response("Not found", { status: 404 });
 		return streamWorkspaceFile(request, env, {

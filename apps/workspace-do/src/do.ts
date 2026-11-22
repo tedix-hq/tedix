@@ -148,6 +148,7 @@ import {
 	hydrateWorkspaceImages,
 	resolveAttachments,
 	workspaceImageAttachment,
+	workspaceChatUpload,
 	type WorkspaceImageAttachment,
 	type WorkspaceUserMessage,
 } from "./attachments";
@@ -1640,7 +1641,29 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const selected = await resolveAttachments(
 			this.#dataPort(scope, input.actorKind),
 			input.attachments,
-			(file) => workspaceImageAttachment(this.env.R2_BUCKET, scope, file),
+			(file, canReadChatUpload) =>
+				workspaceImageAttachment(
+					this.env.R2_BUCKET,
+					scope,
+					file,
+					canReadChatUpload,
+				),
+			async (resourceId) => {
+				const upload = await workspaceChatUpload(
+					this.env.R2_BUCKET,
+					scope,
+					resourceId,
+				);
+				if (!upload) return null;
+				if (
+					(upload.createdByKind === input.actorKind &&
+						upload.createdById === input.actorId) ||
+					(input.conversationId &&
+						this.#events.hasChatFile(input.conversationId, resourceId))
+				)
+					return upload;
+				return null;
+			},
 		);
 		// Resolving file bodies yields; a retried frame may have admitted this id.
 		const admitted = this.#turn(turnId);
@@ -4636,6 +4659,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return buildWorkspaceBindings({
 			memory: this.#memory,
 			data,
+			chatFile: (resourceId) =>
+				this.#events.hasChatFile(turn.conversationId, resourceId)
+					? workspaceChatUpload(this.env.R2_BUCKET, scope, resourceId)
+					: Promise.resolve(null),
 			runs: data,
 			accountActor,
 			accounts:

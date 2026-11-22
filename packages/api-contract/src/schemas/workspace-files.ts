@@ -6,6 +6,27 @@ export const WorkspaceFileReferenceSchema = z.object({
 	workspaceId: z.uuid(),
 	resourceId: z.uuid(),
 });
+export const WorkspaceChatFileLocationSchema = z.object({
+	conversationId: z.uuid(),
+	seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+});
+export const WorkspaceChatFileInputSchema = WorkspaceFileReferenceSchema.extend(
+	{
+		chat: WorkspaceChatFileLocationSchema,
+	},
+);
+
+export interface WorkspaceChatAttachmentInput {
+	outputId: string;
+	chatOnly?: true;
+}
+
+export interface WorkspaceChatAttachment extends WorkspaceChatAttachmentInput {
+	title: string;
+	revision: number;
+	revisionId: string;
+}
+
 export const WorkspaceFileMetadataSchema = z.object({
 	filename: z
 		.string()
@@ -42,6 +63,8 @@ export const WorkspaceFileManifestSchema = WorkspaceFileMetadataSchema.extend({
 	createdAt: z.iso.datetime(),
 	expiresAt: z.iso.datetime(),
 	mimeValidated: z.boolean().optional(),
+	chatOnly: z.boolean().optional(),
+	chatReady: z.boolean().optional(),
 });
 export type WorkspaceFileManifest = z.infer<typeof WorkspaceFileManifestSchema>;
 export function workspaceFileKey(
@@ -50,4 +73,15 @@ export function workspaceFileKey(
 	resource: string,
 ) {
 	return `workspace-files/${encodeURIComponent(org)}/${workspace}/${resource}`;
+}
+
+export type WorkspaceChatFileLocation = z.infer<
+	typeof WorkspaceChatFileLocationSchema
+>;
+export type WorkspaceChatFileInput = z.infer<
+	typeof WorkspaceChatFileInputSchema
+>;
+export type WorkspaceFilePart = z.infer<typeof WorkspaceFilePartSchema>;
+export function workspaceFileReadAction(chat?: WorkspaceChatFileLocation) {
+	return chat ? `read:chat:${chat.conversationId}:${chat.seq}` : "read";
 }

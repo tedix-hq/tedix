@@ -3,6 +3,7 @@ import { ChatMarkdown } from "@/components/chat-markdown";
 import { Text } from "@/components/kumo/text";
 import type { ChatQueuedMessage } from "@/lib/workspace-chat-state";
 import { WorkspaceChatAuthor } from "./workspace-chat-author";
+import { WorkspaceChatMessageFiles } from "./workspace-chat-message-files";
 
 function Bubble({ message }: { message: ChatQueuedMessage }) {
 	return (
@@ -25,11 +26,15 @@ function ownMessage(message: ChatQueuedMessage, viewerId: string | null) {
  */
 export function QueuedMessages({
 	messages,
+	workspaceId,
+	canSaveFiles,
 	tediNames,
 	viewerId = null,
 }: {
 	messages: readonly ChatQueuedMessage[];
 	tediNames: Record<string, string>;
+	workspaceId: string;
+	canSaveFiles: boolean;
 	/** The person reading; their own messages carry no name. */
 	viewerId?: string | null;
 }) {
@@ -48,6 +53,19 @@ export function QueuedMessages({
 					<div className="workspace-chat-queued-text">
 						<Bubble message={message} />
 					</div>
+					<WorkspaceChatMessageFiles
+						workspaceId={workspaceId}
+						files={message.attachments}
+						chat={
+							message.conversationId && message.attachmentSeq
+								? {
+										conversationId: message.conversationId,
+										seq: message.attachmentSeq,
+									}
+								: undefined
+						}
+						canSave={canSaveFiles}
+					/>
 					<Text as="span" role="caption" tone="secondary">
 						Not read yet
 					</Text>
@@ -60,11 +78,15 @@ export function QueuedMessages({
 /** Messages the agent read while it worked on a turn, under the turn's first one. */
 export function AddedMessages({
 	messages,
+	workspaceId,
+	canSaveFiles,
 	tediNames,
 	viewerId = null,
 }: {
 	messages: readonly ChatQueuedMessage[] | undefined;
 	tediNames: Record<string, string>;
+	workspaceId: string;
+	canSaveFiles: boolean;
 	viewerId?: string | null;
 }) {
 	if (!messages?.length) return null;
@@ -82,6 +104,19 @@ export function AddedMessages({
 					<div className="workspace-chat-user">
 						<Bubble message={message} />
 					</div>
+					<WorkspaceChatMessageFiles
+						workspaceId={workspaceId}
+						files={message.attachments}
+						chat={
+							message.conversationId && message.attachmentSeq
+								? {
+										conversationId: message.conversationId,
+										seq: message.attachmentSeq,
+									}
+								: undefined
+						}
+						canSave={canSaveFiles}
+					/>
 				</div>
 			))}
 		</>

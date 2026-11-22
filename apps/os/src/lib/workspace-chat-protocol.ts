@@ -1,3 +1,7 @@
+import type {
+	WorkspaceChatAttachment,
+	WorkspaceChatAttachmentInput,
+} from "@tedix/api-contract/schemas/workspace-files";
 /**
  * Wire format between the browser and a workspace object's chat lane.
  *
@@ -78,7 +82,7 @@ export type WorkspaceChatClientMessage =
 			/** The person chose the workspace agent: no default tedi answers. */
 			answerer?: "agent";
 			modelId?: string;
-			attachments?: Array<{ outputId: string }>;
+			attachments?: WorkspaceChatAttachmentInput[];
 			/** The workspace app the person asked from; shown under their message. */
 			fromAppId?: string;
 	  }
@@ -204,12 +208,7 @@ type QueuedMessage = Stamped & {
 	messageId: string;
 	text: string;
 	displayText?: string;
-	attachments?: Array<{
-		outputId: string;
-		title: string;
-		revision: number;
-		revisionId: string;
-	}>;
+	attachments?: WorkspaceChatAttachment[];
 	authorId: string;
 	authorKind: "person" | "tedi";
 };
@@ -231,12 +230,7 @@ export type WorkspaceChatLedgerEvent =
 			turnId: string;
 			retryOfTurnId?: string;
 			displayText?: string;
-			attachments?: Array<{
-				outputId: string;
-				title: string;
-				revision: number;
-				revisionId: string;
-			}>;
+			attachments?: WorkspaceChatAttachment[];
 			text: string;
 			respondingTediId?: string | null;
 			/** Why the workspace agent answers instead of the default tedi. */

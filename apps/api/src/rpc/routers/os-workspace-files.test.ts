@@ -30,6 +30,8 @@ import { osWorkspaceResourceProcedures } from "./os-workspace-resources";
 import {
 	requestFileUpload,
 	confirmFileUpload,
+	confirmChatFileUpload,
+	saveChatFile,
 	getFile,
 } from "./os-workspace-files";
 import {
@@ -181,7 +183,15 @@ function fixture() {
 	// The audit middleware resolves specs by call-path suffix; keep the
 	// `resources.` namespace on the client so the registry entries match.
 	const resources = createRouterClient(
-		{ resources: { requestFileUpload, confirmFileUpload, getFile } },
+		{
+			resources: {
+				requestFileUpload,
+				confirmFileUpload,
+				confirmChatFileUpload,
+				saveChatFile,
+				getFile,
+			},
+		},
 		{ context: caller },
 	);
 	const request = resources.resources.requestFileUpload;
@@ -192,12 +202,14 @@ function fixture() {
 		mimeType = "video/mp4",
 		bytes = new Uint8Array(size),
 		filename = "demo.mp4",
+		chatOnly?: true,
 	) {
 		const ticket = await request({
 			workspaceId: W,
 			filename,
 			mimeType,
 			size,
+			...(chatOnly ? { chatOnly } : {}),
 		});
 		const receipts = [];
 		for (const part of ticket.parts) {
@@ -232,6 +244,8 @@ function fixture() {
 		context,
 		request,
 		confirm,
+		confirmChat: resources.resources.confirmChatFileUpload,
+		saveChat: resources.resources.saveChatFile,
 		get,
 		upload,
 		objects,
@@ -240,6 +254,86 @@ function fixture() {
 }
 
 describe("workspace file uploads", () => {
+	it("keeps chat uploads out of Files and publishes a sent attachment only when saved", async () => {
+		const f = fixture();
+		const bytes = new TextEncoder().encode("Hello");
+		const { ticket, receipts } = await f.upload(
+			bytes.length,
+			"text/plain",
+			bytes,
+			"note.txt",
+			true,
+		);
+		const file = { workspaceId: W, resourceId: ticket.resourceId };
+		const scope = { organizationId: "fictional-a", workspaceId: W };
+		const chat = { conversationId: crypto.randomUUID(), seq: 19 };
+		const input = { ...file, chat };
+		const readEvents = vi.fn().mockResolvedValue([]);
+		f.env.WORKSPACE_RUNTIME = Object.assign(f.runtime, {
+			hasConversation: async () => true,
+			readEvents,
+		}) as unknown as CloudflareEnv["WORKSPACE_RUNTIME"];
+
+		await expect(
+			f.confirm({ ...file, parts: receipts, document: true }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			f.confirmChat({ ...file, parts: receipts }),
+		).resolves.toMatchObject({
+			resourceId: file.resourceId,
+			filename: "note.txt",
+			mimeType: "text/plain",
+		});
+		await f.confirmChat({ ...file, parts: receipts });
+		expect(listWorkspaceResourceSummaries(f.tenant, scope)).toEqual([]);
+		expect(
+			f.objectSql.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
+		).toBe(0);
+		await expect(f.get(file)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(f.get(input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(f.saveChat(input)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		readEvents.mockResolvedValue([
+			{
+				type: "turn.started",
+				seq: chat.seq,
+				conversationId: chat.conversationId,
+				attachments: [{ outputId: file.resourceId, chatOnly: true }],
+			},
+		]);
+		await expect(
+			f.get({ ...file, chat: { ...chat, seq: 20 } }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const { url } = await f.get(input);
+		expect(readEvents).toHaveBeenLastCalledWith(scope, {
+			conversationId: chat.conversationId,
+			after: 18,
+			limit: 1,
+		});
+		const media = new URL(url.replace(/^\/api/, ""), f.env.API_URL);
+		const params = { ...scope, resourceId: file.resourceId };
+		const response = await serveWorkspaceFile(
+			new Request(media),
+			f.env,
+			params,
+		);
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("Hello");
+		media.searchParams.set("seq", "20");
+		expect(
+			(await serveWorkspaceFile(new Request(media), f.env, params)).status,
+		).toBe(403);
+
+		const saved = { outputId: file.resourceId };
+		await expect(f.saveChat(input)).resolves.toEqual(saved);
+		await expect(f.saveChat(input)).resolves.toEqual(saved);
+		expect(
+			f.objectSql.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
+		).toBe(1);
+		await expect(f.get(file)).resolves.toMatchObject({ filename: "note.txt" });
+	});
+
 	it("makes a newly attached file visible to the agent, then removes it from that read", async () => {
 		const f = fixture();
 		const { ticket, receipts } = await f.upload();

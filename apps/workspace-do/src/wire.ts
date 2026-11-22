@@ -1,3 +1,7 @@
+import type {
+	WorkspaceChatAttachment,
+	WorkspaceChatAttachmentInput,
+} from "@tedix/api-contract/schemas/workspace-files";
 /**
  * The frames the chat UI reads and writes. Names follow the proposal from the
  * chat UI item (cc93f558): one reducer builds both history and live view.
@@ -42,12 +46,7 @@ export interface QueuedMessageBody {
 	messageId: string;
 	text: string;
 	displayText?: string;
-	attachments?: Array<{
-		outputId: string;
-		title: string;
-		revision: number;
-		revisionId: string;
-	}>;
+	attachments?: WorkspaceChatAttachment[];
 	authorId: string;
 	authorKind: AuthorKind;
 	/** The workspace app the person asked from. */
@@ -61,12 +60,7 @@ export type WireEventBody =
 			retryOfTurnId?: string;
 			text: string;
 			displayText?: string;
-			attachments?: Array<{
-				outputId: string;
-				title: string;
-				revision: number;
-				revisionId: string;
-			}>;
+			attachments?: WorkspaceChatAttachment[];
 			authorId: string;
 			authorKind: AuthorKind;
 			/** The workspace app the person asked from. */
@@ -478,7 +472,7 @@ export type ClientFrame =
 			/** The person chose the workspace agent: no default tedi answers. */
 			answerer?: "agent";
 			modelId?: string;
-			attachments?: Array<{ outputId: string }>;
+			attachments?: WorkspaceChatAttachmentInput[];
 			/** The workspace app the person asked from. */
 			fromAppId?: string;
 	  }

@@ -1,4 +1,5 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { WorkspaceChatFileLocation } from "@tedix/api-contract/schemas/workspace-files";
 import { LoadingArea } from "@/components/loading-area";
 import { formatBytes } from "@/components/run-detail-sections";
 import { useQuery } from "@tanstack/react-query";
@@ -39,25 +40,23 @@ function currentSourceLoaded(video: HTMLVideoElement) {
 export function WorkspaceFilePreview({
 	workspaceId,
 	resourceId,
+	chat,
 }: {
 	workspaceId: string;
 	resourceId: string;
+	chat?: WorkspaceChatFileLocation;
 }) {
-	const fileKey = `${workspaceId}/${resourceId}`;
-	const playback = useRef({ fileKey, time: 0, playing: false });
 	const query = useQuery({
 		...osQuery.osWorkspaces.resources.getFile.queryOptions({
-			input: { workspaceId, resourceId },
+			input: { workspaceId, resourceId, ...(chat ? { chat } : {}) },
 		}),
 		staleTime: 0,
 		refetchInterval: 240_000,
 	});
 	if (query.isPending) {
-		playback.current = { fileKey, time: 0, playing: false };
 		return <LoadingArea className="h-60" label="Loading file" />;
 	}
 	if (query.isError) {
-		playback.current = { fileKey, time: 0, playing: false };
 		return (
 			<LoadError
 				title="This file could not be loaded"
@@ -68,7 +67,57 @@ export function WorkspaceFilePreview({
 			/>
 		);
 	}
-	const file = query.data;
+	return (
+		<FilePreviewContent
+			workspaceId={workspaceId}
+			resourceId={resourceId}
+			file={query.data}
+			allowEditableCopy={!chat}
+		/>
+	);
+}
+
+export function WorkspaceLocalFilePreview({
+	workspaceId,
+	resourceId,
+	file,
+	mimeType,
+}: {
+	workspaceId: string;
+	resourceId: string;
+	file: File;
+	mimeType: string;
+}) {
+	const [source, setSource] = useState<string>();
+	useEffect(() => {
+		const url = URL.createObjectURL(file.slice(0, file.size, mimeType));
+		setSource(url);
+		return () => URL.revokeObjectURL(url);
+	}, [file, mimeType]);
+	if (!source) return <LoadingArea className="h-60" label="Loading file" />;
+	return (
+		<FilePreviewContent
+			workspaceId={workspaceId}
+			resourceId={resourceId}
+			file={{ filename: file.name, size: file.size, mimeType, url: source }}
+			allowEditableCopy={false}
+		/>
+	);
+}
+
+function FilePreviewContent({
+	workspaceId,
+	resourceId,
+	file,
+	allowEditableCopy,
+}: {
+	workspaceId: string;
+	resourceId: string;
+	file: { filename: string; size: number; mimeType: string; url: string };
+	allowEditableCopy: boolean;
+}) {
+	const fileKey = `${workspaceId}/${resourceId}`;
+	const playback = useRef({ fileKey, time: 0, playing: false });
 	const isVideo = VIDEO_MIME_TYPES.includes(file.mimeType);
 	// Playback survives a same-file URL rotation only: a different file or a
 	// non-video render starts fresh.
@@ -134,6 +183,7 @@ export function WorkspaceFilePreview({
 					url={src}
 					filename={file.filename}
 					format={officeFormat}
+					allowEditableCopy={allowEditableCopy}
 				/>
 			) : file.size <= TEXT_PREVIEW_MAX_BYTES &&
 			  !officeFileFormat(file.filename, file.mimeType) &&

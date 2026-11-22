@@ -1,3 +1,4 @@
+import type { WorkspaceChatAttachmentInput } from "@tedix/api-contract/schemas/workspace-files";
 import { LoadingArea } from "@/components/loading-area";
 import { ConversationUsageRing } from "@/components/chat-usage-line";
 import { localWorkersAiRouteLabel } from "@/lib/local-inference";
@@ -102,12 +103,13 @@ import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
 import { ConnectionRequestCard } from "@/components/workspace-chat-connect-card";
 import { TediApprovalCard } from "@/components/workspace-chat-tedi-approval-card";
-import { ChatImagePreview } from "@/components/chat-image-preview";
+import { WorkspaceChatMessageFiles } from "@/components/workspace-chat-message-files";
 import {
 	CHAT_FILE_LIMIT,
 	pastedFiles,
 	useWorkspaceChatFileDrop,
 	useWorkspaceChatUploads,
+	type WorkspaceChatComposerFile,
 	WorkspaceChatComposerFiles,
 	WorkspaceChatDropZone,
 } from "@/components/workspace-chat-attach";
@@ -484,7 +486,7 @@ export function WorkspaceChat({
 	const send = useCallback(
 		(
 			text: string,
-			attachments?: Array<{ outputId: string }>,
+			attachments?: WorkspaceChatAttachmentInput[],
 			tediId?: string,
 			retryOfTurnId?: string,
 		) => {
@@ -701,6 +703,7 @@ export function WorkspaceChat({
 				conversationId={conversationId}
 				emptyText={emptyText}
 				turns={state.turns}
+				canSaveFiles={!viewOnly}
 				viewerId={state.viewerId}
 				models={state.models}
 				queued={state.queued}
@@ -727,7 +730,10 @@ export function WorkspaceChat({
 						: (turn) =>
 								void send(
 									turn.text,
-									turn.attachments?.map(({ outputId }) => ({ outputId })),
+									turn.attachments?.map(({ outputId, chatOnly }) => ({
+										outputId,
+										...(chatOnly ? { chatOnly } : {}),
+									})),
 									undefined,
 									turn.turnId,
 								)
@@ -901,6 +907,7 @@ function Thread({
 	conversationId,
 	emptyText = "Ask about this workspace. The answer streams straight from it.",
 	turns,
+	canSaveFiles,
 	viewerId,
 	models,
 	queued,
@@ -918,6 +925,7 @@ function Thread({
 	conversationId: string | null;
 	emptyText?: string;
 	turns: ChatTurn[];
+	canSaveFiles: boolean;
 	/**
 	 * The id the object writes this person's turns under, from its hello. The
 	 * person's own messages carry no name; other people's and tedis' do.
@@ -1031,6 +1039,7 @@ function Thread({
 						(previous.attachments ?? []).every(
 							(file, i) =>
 								file.revisionId === turn.attachments?.[i]?.revisionId &&
+								file.chatOnly === turn.attachments?.[i]?.chatOnly &&
 								file.outputId === turn.attachments?.[i]?.outputId,
 						);
 					const last = index === visibleTurns.length - 1;
@@ -1042,6 +1051,7 @@ function Thread({
 							showPrompt={!repeatedPrompt}
 							key={turn.turnId}
 							workspaceId={workspaceId}
+							canSaveFiles={canSaveFiles}
 							viewerId={viewerId}
 							modelLabel={
 								models.find((model) => model.id === turn.model)?.label ??
@@ -1058,6 +1068,8 @@ function Thread({
 				})}
 				<QueuedMessages
 					messages={queued}
+					workspaceId={workspaceId}
+					canSaveFiles={canSaveFiles}
 					tediNames={tediNames}
 					viewerId={viewerId}
 				/>
@@ -1132,6 +1144,7 @@ function TurnView({
 	showPrompt,
 	reports,
 	workspaceId,
+	canSaveFiles,
 	viewerId,
 	turn,
 	tediNames,
@@ -1144,6 +1157,7 @@ function TurnView({
 	showPrompt: boolean;
 	reports: ReadonlyMap<string, ChatTurn[]>;
 	workspaceId: string;
+	canSaveFiles: boolean;
 	/** The person reading; their own messages carry no name. */
 	viewerId: string | null;
 	turn: ChatTurn;
@@ -1198,27 +1212,20 @@ function TurnView({
 					) : null}
 				</>
 			) : null}
-			{showPrompt && turn.attachments?.length ? (
-				<ul aria-label="Message files" className="m-0 grid list-none gap-1 p-0">
-					{turn.attachments.map((file) => (
-						<li key={file.outputId}>
-							<ChatImagePreview
-								workspaceId={workspaceId}
-								outputId={file.outputId}
-								title={file.title}
-							/>
-							<Link href={`/outputs/${encodeURIComponent(file.outputId)}`}>
-								{file.title}
-							</Link>{" "}
-							<Text as="span" role="caption">
-								· Revision {file.revision}
-							</Text>
-						</li>
-					))}
-				</ul>
-			) : null}
+			<WorkspaceChatMessageFiles
+				workspaceId={workspaceId}
+				files={showPrompt ? turn.attachments : undefined}
+				chat={
+					turn.attachmentSeq
+						? { conversationId: turn.conversationId, seq: turn.attachmentSeq }
+						: undefined
+				}
+				canSave={canSaveFiles}
+			/>
 			<AddedMessages
 				messages={turn.added}
+				workspaceId={workspaceId}
+				canSaveFiles={canSaveFiles}
 				tediNames={tediNames}
 				viewerId={viewerId}
 			/>
@@ -2130,7 +2137,7 @@ function Composer({
 	/** `answerer` is a tedi id, the workspace agent, or absent for the default. */
 	onSend: (
 		text: string,
-		attachments?: Array<{ outputId: string }>,
+		attachments?: WorkspaceChatAttachmentInput[],
 		answerer?: string,
 	) => string | undefined;
 	state: WorkspaceChatState;
@@ -2229,11 +2236,8 @@ function Composer({
 			writeWorkspaceChatDraft(workspaceId, draftConversationId, value);
 			return value;
 		});
-	const [selected, setSelected] = useState<
-		Array<{ outputId: string; title: string }>
-	>([]);
-	// Files dropped on the chat or pasted here are saved to the workspace, then
-	// join the files picked from it.
+	const [selected, setSelected] = useState<WorkspaceChatComposerFile[]>([]);
+	// New uploads join files picked from the workspace in the current draft.
 	const uploads = useWorkspaceChatUploads({
 		workspaceId,
 		attachedCount: selected.length,
@@ -2290,7 +2294,11 @@ function Composer({
 					.filter(
 						(file) => !files.some((item) => item.outputId === file.outputId),
 					)
-					.map(({ outputId, title }) => ({ outputId, title })),
+					.map(({ outputId, title, chatOnly }) => ({
+						outputId,
+						title,
+						...(chatOnly ? { chatOnly } : {}),
+					})),
 			].slice(0, 5),
 		);
 	});
@@ -2355,7 +2363,10 @@ function Composer({
 		);
 		const id = onSend(
 			draft,
-			selected.map(({ outputId }) => ({ outputId })),
+			selected.map(({ outputId, chatOnly }) => ({
+				outputId,
+				...(chatOnly ? { chatOnly } : {}),
+			})),
 			mentioned.length === 1
 				? mentioned[0]
 				: pickedTediId === WORKSPACE_AGENT

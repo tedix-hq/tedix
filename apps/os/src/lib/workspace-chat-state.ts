@@ -1,3 +1,4 @@
+import type { WorkspaceChatAttachment } from "@tedix/api-contract/schemas/workspace-files";
 /**
  * Pure fold of workspace-object events into the chat view model.
  *
@@ -107,6 +108,8 @@ export type ChatQueuedMessage = {
 	authorId: string;
 	authorKind: "person" | "tedi";
 	attachments?: ChatTurn["attachments"];
+	attachmentSeq?: number;
+	conversationId?: string;
 };
 
 export type ChatTurn = {
@@ -129,12 +132,8 @@ export type ChatTurn = {
 	text: string;
 	/** The workspace app the person asked from. */
 	fromAppId?: string;
-	attachments?: Array<{
-		outputId: string;
-		title: string;
-		revision: number;
-		revisionId: string;
-	}>;
+	attachments?: WorkspaceChatAttachment[];
+	attachmentSeq?: number;
 	/** Assistant prose so far; grows with every delta and settles on done. */
 	reply: string;
 	replyDeltas?: Array<{ seq: number; text: string }>;
@@ -314,6 +313,7 @@ function newTurn(
 		text: event.displayText ?? event.text,
 		...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 		attachments: event.attachments,
+		attachmentSeq: event.seq,
 		reply: "",
 		replyMessageId: null,
 		replyDone: false,
@@ -551,6 +551,7 @@ export function applyWorkspaceChatEvent(
 					...(event.fromAppId ? { fromAppId: event.fromAppId } : {}),
 					...(event.runReport ? { runReport: event.runReport } : {}),
 					attachments: event.attachments,
+					attachmentSeq: event.seq,
 					authorId: event.authorId,
 					authorKind: event.authorKind,
 				}),
@@ -973,7 +974,13 @@ function queuedMessage(
 		at: event.at,
 		authorId: event.authorId,
 		authorKind: event.authorKind,
-		...(event.attachments?.length ? { attachments: event.attachments } : {}),
+		...(event.attachments?.length
+			? {
+					attachments: event.attachments,
+					attachmentSeq: event.seq,
+					conversationId: event.conversationId,
+				}
+			: {}),
 	};
 }
 

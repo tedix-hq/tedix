@@ -11,6 +11,8 @@ import { baseErrors } from "../errors";
 import { FactoryCardPendingRevisionSchema } from "../schemas/card-revisions";
 import {
 	WorkspaceFileMetadataSchema,
+	WorkspaceChatFileInputSchema,
+	WorkspaceChatFileLocationSchema,
 	WorkspaceFileReferenceSchema,
 	WorkspaceFilePartSchema,
 } from "../schemas/workspace-files";
@@ -767,9 +769,14 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/files/upload",
 					summary: "Request a workspace file upload",
 					description:
-						"Upload any file up to 200 MiB without base64. PUT each binary slice to its signed URL, in order, and pass the returned partNumber/etag receipts to confirmFileUpload. URLs expire after 15 minutes.",
+						"Upload a file up to 200 MiB without base64. PUT each slice to its signed URL in order, then pass the part receipts to confirmFileUpload, or to confirmChatFileUpload when chatOnly is set. URLs expire after 15 minutes.",
 				})
-				.input(WorkspaceFileMetadataSchema.extend({ workspaceId: z.uuid() }))
+				.input(
+					WorkspaceFileMetadataSchema.extend({
+						workspaceId: z.uuid(),
+						chatOnly: z.literal(true).optional(),
+					}),
+				)
 				.output(
 					z.object({
 						resourceId: z.uuid(),
@@ -809,6 +816,26 @@ export const osWorkspacesContract = oc
 						outputId: z.uuid().optional(),
 					}),
 				),
+			confirmChatFileUpload: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/chat-files/confirm",
+					summary: "Confirm an upload for a workspace chat",
+				})
+				.input(
+					WorkspaceFileReferenceSchema.extend({
+						parts: z.array(WorkspaceFilePartSchema).min(1).max(25),
+					}),
+				)
+				.output(WorkspaceFileMetadataSchema.extend({ resourceId: z.uuid() })),
+			saveChatFile: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/chat-files/save",
+					summary: "Save a chat attachment to workspace Files",
+				})
+				.input(WorkspaceChatFileInputSchema)
+				.output(z.object({ outputId: z.uuid() })),
 			getFile: oc
 				.route({
 					method: "GET",
@@ -817,7 +844,11 @@ export const osWorkspacesContract = oc
 					description:
 						"Returns a five-minute URL. Every byte request also requires the caller's session or bearer credential and rechecks workspace access. Never a public share link.",
 				})
-				.input(WorkspaceFileReferenceSchema)
+				.input(
+					WorkspaceFileReferenceSchema.extend({
+						chat: WorkspaceChatFileLocationSchema.optional(),
+					}),
+				)
 				.output(
 					WorkspaceFileMetadataSchema.extend({
 						url: z.string(),

@@ -957,10 +957,18 @@ describe("WorkspaceChat", () => {
 
 	it("keeps one prompt on retry and replay, and shows deliberate repeat messages", () => {
 		const fake = fakeClient("c1");
+		const file = {
+			outputId: "00000000-0000-4000-8000-000000000101",
+			title: "note.txt",
+			revision: 1,
+			revisionId: "00000000-0000-4000-8000-000000000101",
+			chatOnly: true as const,
+		};
+		const original = { ...started, attachments: [file] };
 		mount(fake);
 		act(() =>
 			fake.feed([
-				started,
+				original,
 				{
 					seq: 2,
 					at,
@@ -983,16 +991,20 @@ describe("WorkspaceChat", () => {
 			expect.objectContaining({
 				text: started.text,
 				retryOfTurnId: started.turnId,
+				attachments: [{ outputId: file.outputId, chatOnly: true }],
 			}),
 		]);
 		const retried = {
-			...started,
+			...original,
 			seq: 3,
 			turnId: "t2",
 			retryOfTurnId: started.turnId,
 		};
 		act(() => fake.feed([retried]));
 		expect(host.querySelectorAll(".workspace-chat-user")).toHaveLength(1);
+		expect(host.querySelectorAll('[aria-label="Message files"]')).toHaveLength(
+			1,
+		);
 		act(() => fake.feed([{ ...started, seq: 4, turnId: "t3" }]));
 		expect(host.querySelectorAll(".workspace-chat-user")).toHaveLength(2);
 	});

@@ -413,6 +413,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	async readFileText(file: {
 		workspaceId: string;
 		resourceId: string;
+		chatOnly?: true;
 	}): Promise<WorkspaceFileText | null> {
 		if (file.workspaceId !== this.deps.workspaceId) return null;
 		const object = await this.deps.bucket.get(
@@ -420,6 +421,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				this.deps.organizationId,
 				file.workspaceId,
 				file.resourceId,
+				file.chatOnly,
 			),
 		);
 		if (!object) return null;

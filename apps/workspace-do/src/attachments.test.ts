@@ -54,6 +54,52 @@ test("inline budget counts UTF-8 bytes across files and deduplicates references"
 	expect(context).not.toContain("x".repeat(100));
 });
 
+test("a chat upload supplies its private text without becoming a workspace output", async () => {
+	const workspaceId = crypto.randomUUID();
+	const resourceId = crypto.randomUUID();
+	const manifest = {
+		organizationId: "org_test",
+		workspaceId,
+		resourceId,
+		uploadId: "fixture",
+		filename: "note.txt",
+		mimeType: "text/plain",
+		size: 4,
+		createdByKind: "user" as const,
+		createdById: "u1",
+		createdAt: new Date().toISOString(),
+		expiresAt: new Date().toISOString(),
+		chatOnly: true,
+		chatReady: true,
+		mimeValidated: true,
+	};
+	const data = {
+		listOutputs: () => {
+			throw new Error("No shared workspace file should be read");
+		},
+		readFileText: async (file: { resourceId: string; chatOnly?: true }) => {
+			expect(file).toEqual({ workspaceId, resourceId, chatOnly: true });
+			return { status: "text", text: "note" };
+		},
+	} as unknown as WorkspaceDataPort;
+	const { attachments, context } = await resolveAttachments(
+		data,
+		[{ outputId: resourceId, chatOnly: true }],
+		undefined,
+		async () => manifest,
+	);
+	expect(attachments).toEqual([
+		{
+			outputId: resourceId,
+			title: "note.txt",
+			revision: 1,
+			revisionId: resourceId,
+			chatOnly: true,
+		},
+	]);
+	expect(context).toContain('"fileText":"note"');
+});
+
 function fileOutput(
 	id: string,
 	file: { resourceId: string; extract?: unknown[] },

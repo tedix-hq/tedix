@@ -658,6 +658,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/resources/list": "mcp:apps.read",
 	"osWorkspaces/resources/requestFileUpload": "mcp:apps.write",
 	"osWorkspaces/resources/confirmFileUpload": "mcp:apps.write",
+	"osWorkspaces/resources/confirmChatFileUpload": "mcp:apps.write",
+	"osWorkspaces/resources/saveChatFile": "mcp:apps.write",
 	"osWorkspaces/resources/getFile": "mcp:apps.read",
 	"osWorkspaces/schedules/list": "mcp:apps.read",
 	"osWorkspaces/schedules/allowPersonalRead": "mcp:apps.write",

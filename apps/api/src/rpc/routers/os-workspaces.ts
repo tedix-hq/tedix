@@ -2593,6 +2593,8 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		...workspaceResources.osWorkspaceResourceProcedures,
 		requestFileUpload: workspaceFiles.requestFileUpload,
 		confirmFileUpload: workspaceFiles.confirmFileUpload,
+		confirmChatFileUpload: workspaceFiles.confirmChatFileUpload,
+		saveChatFile: workspaceFiles.saveChatFile,
 		getFile: workspaceFiles.getFile,
 	},
 	schedules: workspaceSchedules.osWorkspaceScheduleProcedures,

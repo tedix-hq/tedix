@@ -262,6 +262,7 @@ export interface WorkspaceDataPort {
 	readFileText(file: {
 		workspaceId: string;
 		resourceId: string;
+		chatOnly?: true;
 	}): Promise<WorkspaceFileText | null>;
 	createOutput(input: {
 		title: string;

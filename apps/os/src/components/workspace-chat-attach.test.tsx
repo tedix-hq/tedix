@@ -10,8 +10,8 @@ import {
 	vi,
 } from "vite-plus/test";
 
-const uploadWorkspaceFile = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/workspace-file-upload", () => ({ uploadWorkspaceFile }));
+const uploadWorkspaceChatFile = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/workspace-file-upload", () => ({ uploadWorkspaceChatFile }));
 vi.mock("@/lib/workspace-chat-notify", async (original) => ({
 	...(await original<typeof import("@/lib/workspace-chat-notify")>()),
 	notifyChatPosted: vi.fn(),
@@ -26,13 +26,13 @@ vi.mock("@/lib/use-chat-model-preference", async (original) => ({
 }));
 vi.mock("@/components/workspace-file-preview", async (original) => ({
 	...(await original<typeof import("@/components/workspace-file-preview")>()),
-	WorkspaceFilePreview: ({ resourceId }: { resourceId: string }) => (
+	WorkspaceLocalFilePreview: ({ resourceId }: { resourceId: string }) => (
 		<p data-testid="file-preview">{resourceId}</p>
 	),
 }));
+import { osQuery } from "@/lib/os-query-options";
 import { WorkspaceChat } from "./workspace-chat";
 import { fakeWorkspaceChatClient } from "./workspace-chat-test-client";
-import { osQuery } from "@/lib/os-query-options";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -55,8 +55,9 @@ let pending: Map<
 const file = (name: string, type = "text/plain") =>
 	new File(["data"], name, { type });
 const saved = (name: string) => ({
-	outputId: `out-${name}`,
-	resource: { name },
+	resourceId: `out-${name}`,
+	filename: name,
+	mimeType: "application/octet-stream",
 });
 
 async function settle() {
@@ -129,8 +130,8 @@ function mount(viewOnly = false) {
 beforeEach(() => {
 	window.sessionStorage.clear();
 	pending = new Map();
-	uploadWorkspaceFile.mockReset();
-	uploadWorkspaceFile.mockImplementation(
+	uploadWorkspaceChatFile.mockReset();
+	uploadWorkspaceChatFile.mockImplementation(
 		(_workspaceId: string, upload: File, progress: (n: number) => void) =>
 			new Promise((resolve, reject) => {
 				pending.set(upload.name, { progress, resolve, reject });
@@ -159,11 +160,10 @@ describe("attaching files in workspace chat", () => {
 		const dropped = drag("drop", [file("report.csv", "text/csv")]);
 		expect(dropped.defaultPrevented).toBe(true);
 		expect(dropTarget()).toBeNull();
-		expect(uploadWorkspaceFile).toHaveBeenCalledWith(
+		expect(uploadWorkspaceChatFile).toHaveBeenCalledWith(
 			"ws-1",
 			expect.any(File),
 			expect.any(Function),
-			{ document: true },
 		);
 		act(() => pending.get("report.csv")!.progress(40));
 		expect(chips()?.textContent).toBe("report.csvUploading 40%");
@@ -176,8 +176,62 @@ describe("attaching files in workspace chat", () => {
 		await act(async () => sendButton().click());
 		expect(fake.calls).toContainEqual([
 			"sendTurn",
-			{ text: "Total this", attachments: [{ outputId: "out-report.csv" }] },
+			{
+				text: "Total this",
+				attachments: [{ outputId: "out-report.csv", chatOnly: true }],
+			},
 		]);
+	});
+
+	it("offers Save to workspace on the sent attachment, not the draft", async () => {
+		const outputId = "out-note.txt";
+		const at = "2026-01-01T12:00:00.000Z";
+		const chat = { conversationId: "c1", seq: 1 };
+		const input = { workspaceId: "ws-1", resourceId: outputId };
+		queryClient.setQueryData(
+			osQuery.osWorkspaces.resources.getFile.queryOptions({
+				input: { ...input, chat },
+			}).queryKey,
+			{
+				url: "/note.txt",
+				filename: "note.txt",
+				mimeType: "text/plain",
+				size: 4,
+				expiresAt: at,
+			},
+		);
+		mount();
+		drag("drop", [file("note.txt")]);
+		act(() => pending.get("note.txt")!.resolve(saved("note.txt")));
+		await settle();
+		expect(chips()?.textContent).toBe("note.txt");
+		expect(host.querySelector('[aria-label="Message files"]')).toBeNull();
+		await act(async () =>
+			fake.feed([
+				{
+					type: "turn.started",
+					seq: chat.seq,
+					at,
+					conversationId: chat.conversationId,
+					turnId: "turn-one",
+					authorId: "u1",
+					authorKind: "person",
+					text: "Read the note",
+					attachments: [
+						{
+							outputId,
+							title: "note.txt",
+							revision: 1,
+							revisionId: outputId,
+							chatOnly: true,
+						},
+					],
+				},
+			]),
+		);
+		const sent = host.querySelector('[aria-label="Message files"]');
+		expect(sent?.textContent).toContain("Save to workspace");
+		expect(chips()?.textContent).not.toContain("Save to workspace");
 	});
 
 	it("leaves a drag without files, and a view-only chat, alone", () => {
@@ -186,7 +240,7 @@ describe("attaching files in workspace chat", () => {
 		expect(dropTarget()).toBeNull();
 		mount(true);
 		expect(drag("drop", [file("a.txt")]).defaultPrevented).toBe(false);
-		expect(uploadWorkspaceFile).not.toHaveBeenCalled();
+		expect(uploadWorkspaceChatFile).not.toHaveBeenCalled();
 	});
 
 	it("attaches a pasted file and lets pasted text through", async () => {
@@ -195,9 +249,9 @@ describe("attaching files in workspace chat", () => {
 		// A copied table cell carries its text and a picture of itself.
 		const picture = file("image.png", "image/png");
 		expect(paste([picture], "A1").defaultPrevented).toBe(false);
-		expect(uploadWorkspaceFile).not.toHaveBeenCalled();
+		expect(uploadWorkspaceChatFile).not.toHaveBeenCalled();
 		expect(paste([picture]).defaultPrevented).toBe(true);
-		expect(uploadWorkspaceFile).toHaveBeenCalledOnce();
+		expect(uploadWorkspaceChatFile).toHaveBeenCalledOnce();
 		act(() => pending.get("image.png")!.resolve(saved("image.png")));
 		await settle();
 		expect(chips()?.textContent).toBe("image.png");
@@ -210,7 +264,7 @@ describe("attaching files in workspace chat", () => {
 			"drop",
 			names.map((name) => file(name)),
 		);
-		expect(uploadWorkspaceFile).toHaveBeenCalledTimes(5);
+		expect(uploadWorkspaceChatFile).toHaveBeenCalledTimes(5);
 		expect(notice()).toBe(
 			"Messages are limited to 5 attachments; extra files were not added.",
 		);
@@ -219,7 +273,7 @@ describe("attaching files in workspace chat", () => {
 			"Messages are limited to 5 attachments",
 		);
 		drag("drop", [file("7.txt")]);
-		expect(uploadWorkspaceFile).toHaveBeenCalledTimes(5);
+		expect(uploadWorkspaceChatFile).toHaveBeenCalledTimes(5);
 		expect(notice()).toBe("Messages are limited to 5 attachments.");
 		act(() => {
 			for (const name of names.slice(0, 5))
@@ -228,7 +282,7 @@ describe("attaching files in workspace chat", () => {
 		await settle();
 		expect(chips()?.querySelectorAll("li")).toHaveLength(5);
 		paste([file("8.txt")]);
-		expect(uploadWorkspaceFile).toHaveBeenCalledTimes(5);
+		expect(uploadWorkspaceChatFile).toHaveBeenCalledTimes(5);
 	});
 
 	it("shows why one file failed, keeps the others, and removes either", async () => {
@@ -264,16 +318,6 @@ describe("attaching files in workspace chat", () => {
 	});
 
 	it("opens the file preview from a chip the preview can show", async () => {
-		const resource = (name: string, mimeType: string) => {
-			queryClient.setQueryData<unknown>(
-				osQuery.osWorkspaces.resources.get.queryOptions({
-					input: { workspaceId: "ws-1", resourceId: `out-${name}` },
-				}).queryKey,
-				{ resource: { resourceType: "file", name, metadata: { mimeType } } },
-			);
-		};
-		resource("plan.xlsx", "application/octet-stream");
-		resource("notes.zip", "application/zip");
 		mount();
 		drag("drop", [file("plan.xlsx"), file("notes.zip")]);
 		act(() => {

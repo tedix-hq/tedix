@@ -190,6 +190,9 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 		"request_os_workspace_file_upload",
 	"osWorkspaces/resources/confirmFileUpload":
 		"confirm_os_workspace_file_upload",
+	"osWorkspaces/resources/confirmChatFileUpload":
+		"confirm_os_workspace_chat_file_upload",
+	"osWorkspaces/resources/saveChatFile": "save_os_workspace_chat_file",
 	"osWorkspaces/resources/getFile": "get_os_workspace_file",
 	"osWorkspaces/resources/create": "create_os_workspace_resource",
 	"osWorkspaces/resources/get": "get_os_workspace_resource",
@@ -345,6 +348,8 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/workspaces/previewArchivedCleanup": "read",
 	"osWorkspaces/resources/requestFileUpload": "write",
 	"osWorkspaces/resources/confirmFileUpload": "write",
+	"osWorkspaces/resources/confirmChatFileUpload": "write",
+	"osWorkspaces/resources/saveChatFile": "write",
 	"osWorkspaces/resources/getFile": "read",
 	"osWorkspaces/resources/readPdf": "read",
 	"osWorkspaces/resources/listDriveFiles": "read",

@@ -1,3 +1,4 @@
+import type { WorkspaceChatAttachmentInput } from "@tedix/api-contract/schemas/workspace-files";
 import {
 	type ClipboardEvent,
 	type ComponentProps,
@@ -9,7 +10,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { FileText, Paperclip, X } from "@phosphor-icons/react";
 import { officeFileFormat } from "@tedix/api-contract/utils/office-file-read";
 import { ChatImagePreview } from "@/components/chat-image-preview";
@@ -25,11 +26,17 @@ import { Text } from "@/components/kumo/text";
 import {
 	IMAGE_MIME_TYPES,
 	WorkspaceFilePreview,
+	WorkspaceLocalFilePreview,
 } from "@/components/workspace-file-preview";
-import { refreshWorkspaceFileLists } from "@/components/workspace-file-upload";
 import { osQuery } from "@/lib/os-query-options";
 import { cn } from "@/lib/utils";
-import { uploadWorkspaceFile } from "@/lib/workspace-file-upload";
+import { uploadWorkspaceChatFile } from "@/lib/workspace-file-upload";
+
+export interface WorkspaceChatComposerFile extends WorkspaceChatAttachmentInput {
+	title: string;
+	localFile?: File;
+	mimeType?: string;
+}
 
 /** A message carries at most this many files. */
 export const CHAT_FILE_LIMIT = 5;
@@ -159,7 +166,7 @@ export type WorkspaceChatUpload = {
 };
 
 /**
- * Uploads dropped or pasted files to the workspace and hands each saved file
+ * Stages dropped or pasted files for the current chat and hands each upload
  * to `onAttached`. One file failing leaves the others alone.
  */
 export function useWorkspaceChatUploads({
@@ -170,9 +177,8 @@ export function useWorkspaceChatUploads({
 	workspaceId: string;
 	/** Files already on the message. */
 	attachedCount: number;
-	onAttached: (file: { outputId: string; title: string }) => void;
+	onAttached: (file: WorkspaceChatComposerFile) => void;
 }) {
-	const queryClient = useQueryClient();
 	const [uploads, setUploads] = useState<WorkspaceChatUpload[]>([]);
 	const [notice, setNotice] = useState<string | null>(null);
 	const latest = useRef({ attachedCount, onAttached });
@@ -212,22 +218,18 @@ export function useWorkspaceChatUploads({
 					items.map((item) => (item.id === id ? { ...item, ...change } : item)),
 				);
 			};
-			void uploadWorkspaceFile(
-				workspaceId,
-				file,
-				(progress) => patch({ progress }),
-				{ document: true },
+			void uploadWorkspaceChatFile(workspaceId, file, (progress) =>
+				patch({ progress }),
 			)
 				.then((result) => {
 					if (generation.current !== run || removed.current.has(id)) return;
-					if (!result.outputId) throw new Error("File upload failed.");
-					void refreshWorkspaceFileLists(queryClient, workspaceId).catch(
-						() => {},
-					);
 					setUploads((items) => items.filter((item) => item.id !== id));
 					latest.current.onAttached({
-						outputId: result.outputId,
-						title: result.resource.name,
+						outputId: result.resourceId,
+						title: result.filename,
+						chatOnly: true,
+						localFile: file,
+						mimeType: result.mimeType,
 					});
 				})
 				.catch((error: unknown) =>
@@ -273,16 +275,14 @@ export function WorkspaceChatComposerFiles({
 	onRemoveUpload,
 }: {
 	workspaceId: string;
-	files: Array<{ outputId: string; title: string }>;
+	files: WorkspaceChatComposerFile[];
 	uploads: WorkspaceChatUpload[];
 	notice: string | null;
 	onRemove: (outputId: string) => void;
 	onRemoveUpload: (id: number) => void;
 }) {
-	const [previewing, setPreviewing] = useState<{
-		outputId: string;
-		title: string;
-	} | null>(null);
+	const [previewing, setPreviewing] =
+		useState<WorkspaceChatComposerFile | null>(null);
 	return (
 		<>
 			{notice ? (
@@ -354,10 +354,19 @@ export function WorkspaceChatComposerFiles({
 						<DialogHeader>
 							<DialogTitle>{previewing.title}</DialogTitle>
 						</DialogHeader>
-						<WorkspaceFilePreview
-							workspaceId={workspaceId}
-							resourceId={previewing.outputId}
-						/>
+						{previewing.localFile && previewing.mimeType ? (
+							<WorkspaceLocalFilePreview
+								workspaceId={workspaceId}
+								resourceId={previewing.outputId}
+								file={previewing.localFile}
+								mimeType={previewing.mimeType}
+							/>
+						) : (
+							<WorkspaceFilePreview
+								workspaceId={workspaceId}
+								resourceId={previewing.outputId}
+							/>
+						)}
 					</DialogContent>
 				</Dialog>
 			) : null}
@@ -372,7 +381,7 @@ function AttachedFile({
 	onRemove,
 }: {
 	workspaceId: string;
-	file: { outputId: string; title: string };
+	file: WorkspaceChatComposerFile;
 	onOpen: () => void;
 	onRemove: () => void;
 }) {
@@ -382,27 +391,53 @@ function AttachedFile({
 		...osQuery.osWorkspaces.resources.get.queryOptions({
 			input: { workspaceId, resourceId: file.outputId },
 		}),
+		enabled: !file.chatOnly,
 		retry: false,
 		staleTime: Infinity,
 	}).data?.resource;
-	const mimeType =
-		resource?.resourceType === "file" &&
-		typeof resource.metadata.mimeType === "string"
+	const mimeType = file.chatOnly
+		? file.mimeType
+		: resource?.resourceType === "file" &&
+			  typeof resource.metadata.mimeType === "string"
 			? resource.metadata.mimeType
 			: undefined;
+	const localImage =
+		file.localFile && mimeType && IMAGE_MIME_TYPES.includes(mimeType)
+			? file.localFile
+			: null;
+	const [localUrl, setLocalUrl] = useState<string | null>(null);
+	useEffect(() => {
+		if (!localImage || !mimeType) return;
+		const url = URL.createObjectURL(
+			localImage.slice(0, localImage.size, mimeType),
+		);
+		setLocalUrl(url);
+		return () => URL.revokeObjectURL(url);
+	}, [localImage, mimeType]);
 	const canPreview =
-		resource?.resourceType === "file" &&
+		(file.localFile || resource?.resourceType === "file") &&
 		(mimeType === "application/pdf" ||
 			(mimeType !== undefined && IMAGE_MIME_TYPES.includes(mimeType)) ||
-			officeFileFormat(resource.name, mimeType) !== null);
+			officeFileFormat(file.title, mimeType) !== null);
 	return (
 		<li>
-			<ChatImagePreview
-				workspaceId={workspaceId}
-				outputId={file.outputId}
-				title={file.title}
-				size="chip"
-			/>
+			{file.chatOnly ? (
+				localUrl && localImage ? (
+					<img
+						src={localUrl}
+						alt={file.title}
+						className="workspace-chat-image-preview"
+						data-size="chip"
+					/>
+				) : null
+			) : (
+				<ChatImagePreview
+					workspaceId={workspaceId}
+					outputId={file.outputId}
+					title={file.title}
+					size="chip"
+				/>
+			)}
 			<FileText aria-hidden size={14} />
 			{canPreview ? (
 				<Button

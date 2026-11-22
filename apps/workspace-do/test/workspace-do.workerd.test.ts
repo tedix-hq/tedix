@@ -216,6 +216,7 @@ async function rejectedSocketTurn(
 	attachments: unknown,
 	turnId: string,
 	requestScope = scope,
+	actorId = "u1",
 ) {
 	const socket = (
 		await ws.fetch(
@@ -224,7 +225,7 @@ async function rejectedSocketTurn(
 					Upgrade: "websocket",
 					"X-Workspace-Org": requestScope.organizationId,
 					"X-Workspace-Id": requestScope.workspaceId,
-					"X-Workspace-Actor-Id": "u1",
+					"X-Workspace-Actor-Id": actorId,
 				},
 			}),
 		)
@@ -4784,114 +4785,145 @@ describe("WorkspaceDO", () => {
 		},
 	);
 
-	test("sends confirmed screenshots to the model and replays them by reference in a facet", async () => {
-		await seedCore();
-		const fileScope = { ...scope, workspaceId: crypto.randomUUID() };
-		await seedWorkspaceRows([fileScope]);
-		const ws = workspace(fileScope);
-		await seedOutputs(ws, fileScope);
-		const resourceId = crypto.randomUUID();
-		const png =
-			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+bAOcAAAAASUVORK5CYII=";
-		const bytes = Uint8Array.fromBase64(png);
-		const key = workspaceFileKey(
-			fileScope.organizationId,
-			fileScope.workspaceId,
-			resourceId,
-		);
-		await testEnv.R2_BUCKET.put(key, bytes);
-		await testEnv.R2_BUCKET.put(
-			`${key}.json`,
-			JSON.stringify({
-				...fileScope,
+	test.each([false, true])(
+		"sends confirmed screenshots to the model and replays them by reference in a facet (chat only: %s)",
+		async (chatOnly) => {
+			await seedCore();
+			const fileScope = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([fileScope]);
+			const ws = workspace(fileScope);
+			await seedOutputs(ws, fileScope);
+			const resourceId = crypto.randomUUID();
+			const png =
+				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+bAOcAAAAASUVORK5CYII=";
+			const bytes = Uint8Array.fromBase64(png);
+			const key = workspaceFileKey(
+				fileScope.organizationId,
+				fileScope.workspaceId,
 				resourceId,
-				uploadId: "fixture",
-				filename: "Screenshot.png",
-				mimeType: "image/png",
-				mimeValidated: true,
-				size: bytes.length,
-				createdByKind: "user",
-				createdById: "u1",
-				createdAt: new Date().toISOString(),
-				expiresAt: new Date().toISOString(),
-			}),
-		);
-		const body = await storeOutputBody(
-			testEnv.R2_BUCKET,
-			fileScope.organizationId,
-			JSON.stringify({
-				kind: "document",
-				blocks: [],
-				file: { workspaceId: fileScope.workspaceId, resourceId },
-			}),
-		);
-		await ws.outputQuery(fileScope, {
-			op: "create",
-			output: {
-				id: resourceId,
-				organizationId: fileScope.organizationId,
-				workspaceId: fileScope.workspaceId,
-				title: "Screenshot.png",
-				kind: "document",
-				currentRevisionId: resourceId,
-				createdByKind: "user",
-				createdById: "u1",
-			},
-			revision: {
-				id: resourceId,
-				organizationId: fileScope.organizationId,
-				outputId: resourceId,
-				revision: 1,
-				content: "",
-				...body,
-				createdByKind: "user",
-				createdById: "u1",
-				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-			},
-		});
-		await ws.scriptModel(fileScope, [
-			{ text: "I see it.", expectedImage: png },
-		]);
-		const sender = { actorId: "u1", actorKind: "user" as const };
-		const first = await ws.sendTurn(fileScope, {
-			...sender,
-			text: "Look at this screenshot",
-			attachments: [{ outputId: resourceId }],
-		});
-		expect(await ws.awaitTurn(fileScope, first.turnId, 20_000)).toMatchObject({
-			status: "finished",
-			text: "I see it.",
-		});
-		const events = await ws.readEvents(fileScope, {
-			conversationId: first.conversationId,
-		});
-		expect(events).toContainEqual(
-			expect.objectContaining({
-				type: "turn.started",
-				attachments: [
-					expect.objectContaining({
-						outputId: resourceId,
-						revisionId: resourceId,
+			);
+			await testEnv.R2_BUCKET.put(key, bytes);
+			await testEnv.R2_BUCKET.put(
+				`${key}.json`,
+				JSON.stringify({
+					...fileScope,
+					resourceId,
+					uploadId: "fixture",
+					filename: "Screenshot.png",
+					mimeType: "image/png",
+					mimeValidated: true,
+					...(chatOnly ? { chatOnly: true, chatReady: true } : {}),
+					size: bytes.length,
+					createdByKind: "user",
+					createdById: "u1",
+					createdAt: new Date().toISOString(),
+					expiresAt: new Date().toISOString(),
+				}),
+			);
+			if (!chatOnly) {
+				const body = await storeOutputBody(
+					testEnv.R2_BUCKET,
+					fileScope.organizationId,
+					JSON.stringify({
+						kind: "document",
+						blocks: [],
+						file: { workspaceId: fileScope.workspaceId, resourceId },
 					}),
-				],
-			}),
-		);
-		const saved = await ws.readMessages(fileScope, first.conversationId);
-		expect(JSON.stringify(saved)).not.toContain(png);
+				);
+				await ws.outputQuery(fileScope, {
+					op: "create",
+					output: {
+						id: resourceId,
+						organizationId: fileScope.organizationId,
+						workspaceId: fileScope.workspaceId,
+						title: "Screenshot.png",
+						kind: "document",
+						currentRevisionId: resourceId,
+						createdByKind: "user",
+						createdById: "u1",
+					},
+					revision: {
+						id: resourceId,
+						organizationId: fileScope.organizationId,
+						outputId: resourceId,
+						revision: 1,
+						content: "",
+						...body,
+						createdByKind: "user",
+						createdById: "u1",
+						accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+					},
+				});
+			}
+			await ws.scriptModel(fileScope, [
+				{ text: "I see it.", expectedImage: png },
+			]);
+			const sender = { actorId: "u1", actorKind: "user" as const };
+			const attachment = {
+				outputId: resourceId,
+				...(chatOnly ? { chatOnly: true as const } : {}),
+			};
+			if (chatOnly) {
+				await testEnv.DB.prepare(
+					"INSERT OR REPLACE INTO organization_members (id, organization_id, descope_user_id, email, role, status, kind) VALUES (?, ?, 'other', 'other@example.test', 'admin', 'active', 'human')",
+				)
+					.bind(
+						`fixture-other-${fileScope.organizationId}`,
+						fileScope.organizationId,
+					)
+					.run();
+				const denied = await rejectedSocketTurn(
+					ws,
+					[attachment],
+					crypto.randomUUID(),
+					fileScope,
+					"other",
+				);
+				expect(denied.message).toContain("An attachment is unavailable");
+			}
+			const first = await ws.sendTurn(fileScope, {
+				...sender,
+				text: "Look at this screenshot",
+				attachments: [attachment],
+			});
+			expect(await ws.awaitTurn(fileScope, first.turnId, 20_000)).toMatchObject(
+				{
+					status: "finished",
+					text: "I see it.",
+				},
+			);
+			const events = await ws.readEvents(fileScope, {
+				conversationId: first.conversationId,
+			});
+			expect(events).toContainEqual(
+				expect.objectContaining({
+					type: "turn.started",
+					attachments: [
+						expect.objectContaining({
+							...attachment,
+							revisionId: resourceId,
+						}),
+					],
+				}),
+			);
+			const saved = await ws.readMessages(fileScope, first.conversationId);
+			expect(JSON.stringify(saved)).not.toContain(png);
 
-		const followUp = await ws.sendTurn(fileScope, {
-			...sender,
-			conversationId: first.conversationId,
-			text: "Look again",
-			isolate: true,
-		});
-		expect(
-			await ws.awaitTurn(fileScope, followUp.turnId, 20_000),
-		).toMatchObject({
-			status: "finished",
-			text: "I see it.",
-		});
-	});
+			const followUp = await ws.sendTurn(fileScope, {
+				...sender,
+				...(chatOnly ? { actorId: "other", attachments: [attachment] } : {}),
+				conversationId: first.conversationId,
+				text: "Look again",
+				isolate: true,
+			});
+			expect(
+				await ws.awaitTurn(fileScope, followUp.turnId, 20_000),
+			).toMatchObject({
+				status: "finished",
+				text: "I see it.",
+			});
+		},
+	);
 
 	test("the agent answers from the end of a long attached file by reading on in parts", async () => {
 		await seedCore();

@@ -1,3 +1,4 @@
+import type { WorkspaceChatAttachmentInput } from "@tedix/api-contract/schemas/workspace-files";
 /**
  * The browser side of a workspace object's chat lane.
  *
@@ -108,7 +109,7 @@ export type WorkspaceChatClient = {
 		/** The person chose the workspace agent over the default tedi. */
 		answerer?: "agent";
 		modelId?: string;
-		attachments?: Array<{ outputId: string }>;
+		attachments?: WorkspaceChatAttachmentInput[];
 		/** The workspace app the person asked from. */
 		fromAppId?: string;
 	}): string;

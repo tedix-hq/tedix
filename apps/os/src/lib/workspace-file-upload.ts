@@ -1,11 +1,11 @@
 import { WORKSPACE_FILE_MAX_BYTES } from "@tedix/api-contract/schemas/workspace-files";
 import { osApi } from "./api";
 
-export async function uploadWorkspaceFile(
+async function uploadParts(
 	workspaceId: string,
 	file: File,
 	onProgress?: (percent: number) => void,
-	options?: { document?: boolean },
+	chatOnly?: true,
 ) {
 	if (file.size < 1 || file.size > WORKSPACE_FILE_MAX_BYTES)
 		throw new Error("Choose a file between 1 byte and 200 MiB.");
@@ -15,6 +15,7 @@ export async function uploadWorkspaceFile(
 		filename: file.name,
 		mimeType,
 		size: file.size,
+		...(chatOnly ? { chatOnly } : {}),
 	});
 	const parts: { partNumber: number; etag: string }[] = [];
 	for (const part of upload.parts) {
@@ -32,15 +33,10 @@ export async function uploadWorkspaceFile(
 		parts.push((await response.json()) as { partNumber: number; etag: string });
 		onProgress?.(Math.round(((offset + part.size) / file.size) * 100));
 	}
-	const confirm = () =>
-		osApi.osWorkspaces.resources.confirmFileUpload({
-			workspaceId,
-			resourceId: upload.resourceId,
-			parts,
-			...(options?.document === undefined
-				? {}
-				: { document: options.document }),
-		});
+	return { resourceId: upload.resourceId, parts };
+}
+
+async function confirmUpload<T>(confirm: () => Promise<T>): Promise<T> {
 	// Confirming the same upload again returns the file already saved, so a
 	// busy server is retried here instead of the person uploading a copy.
 	for (const delayMs of [1_000, 3_000]) {
@@ -54,4 +50,47 @@ export async function uploadWorkspaceFile(
 		}
 	}
 	return confirm();
+}
+
+export async function uploadWorkspaceFile(
+	workspaceId: string,
+	file: File,
+	onProgress?: (percent: number) => void,
+	options?: { document?: boolean },
+) {
+	const { resourceId, parts } = await uploadParts(
+		workspaceId,
+		file,
+		onProgress,
+	);
+	return confirmUpload(() =>
+		osApi.osWorkspaces.resources.confirmFileUpload({
+			workspaceId,
+			resourceId,
+			parts,
+			...(options?.document === undefined
+				? {}
+				: { document: options.document }),
+		}),
+	);
+}
+
+export async function uploadWorkspaceChatFile(
+	workspaceId: string,
+	file: File,
+	onProgress?: (percent: number) => void,
+) {
+	const { resourceId, parts } = await uploadParts(
+		workspaceId,
+		file,
+		onProgress,
+		true,
+	);
+	return confirmUpload(() =>
+		osApi.osWorkspaces.resources.confirmChatFileUpload({
+			workspaceId,
+			resourceId,
+			parts,
+		}),
+	);
 }

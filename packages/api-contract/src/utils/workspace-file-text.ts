@@ -32,8 +32,9 @@ export function workspaceFileTextKey(
 	organizationId: string,
 	workspaceId: string,
 	resourceId: string,
+	chatOnly?: true,
 ) {
-	return `workspace-file-text/v1/${encodeURIComponent(organizationId)}/${workspaceId}/${resourceId}.json`;
+	return `${chatOnly ? "workspace-chat-file-text" : "workspace-file-text"}/v1/${encodeURIComponent(organizationId)}/${workspaceId}/${resourceId}.json`;
 }
 
 const CUT_NOTE =

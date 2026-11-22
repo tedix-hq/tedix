@@ -303,6 +303,7 @@ export async function storeWorkspaceFileText(
 	env: Pick<CloudflareEnv, "R2_BUCKET">,
 	file: { organizationId: string; workspaceId: string; resourceId: string },
 	text: WorkspaceFileText,
+	chatOnly?: true,
 ) {
 	try {
 		await env.R2_BUCKET.put(
@@ -310,6 +311,7 @@ export async function storeWorkspaceFileText(
 				file.organizationId,
 				file.workspaceId,
 				file.resourceId,
+				chatOnly,
 			),
 			JSON.stringify(text),
 		);

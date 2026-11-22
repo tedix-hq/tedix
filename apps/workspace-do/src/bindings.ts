@@ -66,6 +66,11 @@ import type {
 
 export interface BindingDeps {
 	data: WorkspaceDataPort;
+	chatFile?: (resourceId: string) => Promise<{
+		resourceId: string;
+		workspaceId: string;
+		filename: string;
+	} | null>;
 	runs?: WorkspaceRunPort;
 	compliance: ComplianceAdapter;
 	accountability: AccountabilityAdapter;
@@ -144,15 +149,29 @@ export function buildWorkspaceBindings(
 		if (typeof input?.outputId !== "string" || !input.outputId)
 			throw new Error("Name the file by its outputId");
 		const output = await data.getOutput(input.outputId);
-		if (!output?.content) throw new Error("File not found or unavailable");
-		const file =
-			output.content.kind === "document" ? output.content.file : undefined;
+		const chatFile = output?.content
+			? null
+			: await deps.chatFile?.(input.outputId);
+		if (!output?.content && !chatFile)
+			throw new Error("File not found or unavailable");
+		const file = chatFile
+			? {
+					workspaceId: chatFile.workspaceId,
+					resourceId: chatFile.resourceId,
+					chatOnly: true as const,
+				}
+			: output?.content?.kind === "document"
+				? output.content.file
+				: undefined;
 		if (!file)
 			throw new Error(
 				"This is not an uploaded file. Read it with env.outputs.get(outputId).",
 			);
 		const stored = await data.readFileText(file);
-		const named = { outputId: output.id, title: output.title };
+		const named = {
+			outputId: input.outputId,
+			title: output?.title ?? chatFile?.filename ?? input.outputId,
+		};
 		return stored?.status === "text"
 			? { named, lines: fileTextLines(stored.text) }
 			: { named, reason: fileTextUnavailable(stored) };

@@ -2,6 +2,9 @@ import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	WORKSPACE_FILE_PART_BYTES,
+	workspaceFileReadAction,
+	type WorkspaceChatFileInput,
+	type WorkspaceFilePart,
 	workspaceFileKey,
 	type WorkspaceFileManifest,
 } from "@tedix/api-contract/schemas/workspace-files";
@@ -75,6 +78,7 @@ async function readAndKeepFileText(
 	context: BaseContext,
 	file: { organizationId: string; workspaceId: string; resourceId: string },
 	manifest: WorkspaceFileManifest,
+	chatOnly?: true,
 ) {
 	const content = await readWorkspaceFileContent(
 		context.env,
@@ -82,7 +86,7 @@ async function readAndKeepFileText(
 		manifest,
 		pdfConverter(context, file.organizationId),
 	);
-	await storeWorkspaceFileText(context.env, file, content.text);
+	await storeWorkspaceFileText(context.env, file, content.text, chatOnly);
 	return content.blocks;
 }
 
@@ -275,162 +279,289 @@ function attachFileDocumentEditor(
 	});
 }
 
+async function validateUploadedFile(
+	context: BaseContext,
+	manifest: WorkspaceFileManifest,
+	parts: WorkspaceFilePart[],
+) {
+	const key = workspaceFileKey(
+		manifest.organizationId,
+		manifest.workspaceId,
+		manifest.resourceId,
+	);
+	if (manifest.chatOnly && manifest.mimeValidated) return;
+	if (Date.parse(manifest.expiresAt) <= Date.now())
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Upload expired; request a new upload",
+		);
+	const count = Math.ceil(manifest.size / WORKSPACE_FILE_PART_BYTES);
+	if (
+		parts.length !== count ||
+		parts.some((part, index) => part.partNumber !== index + 1)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Supply one ordered receipt for each part",
+		);
+	let head = await context.env.SKILL_ARTIFACTS.head(key);
+	if (!head) {
+		try {
+			await context.env.SKILL_ARTIFACTS.resumeMultipartUpload(
+				key,
+				manifest.uploadId,
+			).complete(parts);
+		} catch (error) {
+			// A concurrent confirmation may have completed the same immutable upload.
+			if (!(await context.env.SKILL_ARTIFACTS.head(key))) throw error;
+		}
+		head = await context.env.SKILL_ARTIFACTS.head(key);
+	}
+	if (!head || head.size !== manifest.size)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Uploaded size does not match the requested file",
+		);
+	const prefix = await context.env.SKILL_ARTIFACTS.get(key, {
+		range: { offset: 0, length: Math.min(manifest.size, 512) },
+	});
+	if (!prefix) missing();
+	manifest.mimeType = workspaceFileMimeMatches(
+		manifest.mimeType,
+		new Uint8Array(await prefix.arrayBuffer()),
+	)
+		? manifest.mimeType
+		: "application/octet-stream";
+	manifest.mimeValidated = true;
+	await context.env.SKILL_ARTIFACTS.put(
+		`${key}.json`,
+		JSON.stringify(manifest),
+	);
+}
+
+async function publishWorkspaceFile(
+	context: BaseContext,
+	manifest: WorkspaceFileManifest,
+	document: boolean,
+	parts?: WorkspaceFilePart[],
+) {
+	const { organizationId, workspaceId, resourceId } = manifest;
+	const existing = await getOsWorkspaceResource(queryDb(context), {
+		organizationId: organizationId,
+		workspaceId: workspaceId,
+		resourceId: resourceId,
+	});
+	if (existing) {
+		if (
+			existing.status !== "active" ||
+			existing.providerId !== "tedix" ||
+			existing.resourceType !== "file"
+		)
+			missing();
+		await ensureResourceProjection(queryDb(context), existing);
+		return {
+			resource: mapWorkspaceResource(existing),
+			...(document
+				? {
+						outputId: await ensureWorkspaceFileDocument(
+							context,
+							workspaceId,
+							manifest,
+							existing.id,
+						),
+					}
+				: {}),
+		};
+	}
+	if (parts) await validateUploadedFile(context, manifest, parts);
+	const creator = {
+		organizationId: organizationId,
+		createdByKind: manifest.createdByKind,
+		createdById: manifest.createdById,
+		createdAt: manifest.createdAt,
+	};
+	const { pendingProjection } = await confirmOsWorkspaceFile(queryDb(context), {
+		resource: {
+			...creator,
+			id: resourceId,
+			workspaceId: workspaceId,
+			providerId: "tedix",
+			connectionScope: "tenant",
+			requiredScopes: "[]",
+			resourceType: "file",
+			providerResourceId: resourceId,
+			name: manifest.filename,
+			metadata: JSON.stringify({
+				mimeType: manifest.mimeType,
+				size: manifest.size,
+			}),
+			status: "active",
+			updatedAt: manifest.createdAt,
+		},
+		...(document
+			? fileDocumentRows(
+					creator,
+					workspaceId,
+					resourceId,
+					manifest.filename,
+					await readAndKeepFileText(
+						context,
+						{
+							organizationId,
+							workspaceId: workspaceId,
+							resourceId: resourceId,
+						},
+						manifest,
+					),
+				)
+			: {}),
+	});
+	const resource = await getOsWorkspaceResource(queryDb(context), {
+		organizationId: organizationId,
+		workspaceId: workspaceId,
+		resourceId: resourceId,
+	});
+	if (!resource) missing();
+	if (pendingProjection)
+		context.waitUntil?.(
+			retryResourceProjection(queryDb(context), pendingProjection),
+		);
+	if (document)
+		await attachFileDocumentEditor(
+			context,
+			organizationId,
+			workspaceId,
+			resourceId,
+		);
+	return {
+		resource: mapWorkspaceResource(resource),
+		...(document ? { outputId: resourceId } : {}),
+	};
+}
+
 export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 	async ({ input, context }) => {
 		const workspace = await requireWorkspace(context, input.workspaceId);
-		const organizationId = workspace.organizationId;
 		const manifest = await readWorkspaceFileManifest(
 			context.env,
-			organizationId,
+			workspace.organizationId,
 			workspace.id,
 			input.resourceId,
 		);
-		if (!manifest) missing();
-		const key = workspaceFileKey(
-			organizationId,
+		if (!manifest || manifest.chatOnly) missing();
+		return publishWorkspaceFile(
+			context,
+			manifest,
+			input.document === true,
+			input.parts,
+		);
+	},
+);
+
+export const confirmChatFileUpload =
+	author.resources.confirmChatFileUpload.handler(async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const uploader = resolveCreator(context);
+		const manifest = await readWorkspaceFileManifest(
+			context.env,
+			workspace.organizationId,
 			workspace.id,
 			input.resourceId,
 		);
-		const existing = await getOsWorkspaceResource(queryDb(context), {
-			organizationId: organizationId,
-			workspaceId: workspace.id,
-			resourceId: input.resourceId,
-		});
-		if (existing) {
-			if (
-				existing.status !== "active" ||
-				existing.providerId !== "tedix" ||
-				existing.resourceType !== "file"
-			)
-				missing();
-			await ensureResourceProjection(queryDb(context), existing);
-			return {
-				resource: mapWorkspaceResource(existing),
-				...(input.document
-					? {
-							outputId: await ensureWorkspaceFileDocument(
-								context,
-								workspace.id,
-								manifest,
-								existing.id,
-							),
-						}
-					: {}),
-			};
-		}
-		if (Date.parse(manifest.expiresAt) <= Date.now())
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Upload expired; request a new upload",
-			);
-		const count = Math.ceil(manifest.size / WORKSPACE_FILE_PART_BYTES);
 		if (
-			input.parts.length !== count ||
-			input.parts.some((part, index) => part.partNumber !== index + 1)
+			!manifest?.chatOnly ||
+			manifest.createdByKind !== uploader.kind ||
+			manifest.createdById !== uploader.id
 		)
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Supply one ordered receipt for each part",
+			missing();
+		if (!manifest.chatReady) {
+			await validateUploadedFile(context, manifest, input.parts);
+			await readAndKeepFileText(context, manifest, manifest, true);
+			manifest.chatReady = true;
+			const key = workspaceFileKey(
+				manifest.organizationId,
+				manifest.workspaceId,
+				manifest.resourceId,
 			);
-		let head = await context.env.SKILL_ARTIFACTS.head(key);
-		if (!head) {
-			try {
-				await context.env.SKILL_ARTIFACTS.resumeMultipartUpload(
-					key,
-					manifest.uploadId,
-				).complete(input.parts);
-			} catch (error) {
-				// A concurrent confirmation may have completed the same immutable upload.
-				if (!(await context.env.SKILL_ARTIFACTS.head(key))) throw error;
-			}
-			head = await context.env.SKILL_ARTIFACTS.head(key);
+			await context.env.SKILL_ARTIFACTS.put(
+				`${key}.json`,
+				JSON.stringify(manifest),
+			);
 		}
-		if (!head || head.size !== manifest.size)
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Uploaded size does not match the requested file",
-			);
-		const creator = {
-			organizationId: organizationId,
-			createdByKind: manifest.createdByKind,
-			createdById: manifest.createdById,
-			createdAt: manifest.createdAt,
-		};
-		const prefix = await context.env.SKILL_ARTIFACTS.get(key, {
-			range: { offset: 0, length: Math.min(manifest.size, 512) },
-		});
-		if (!prefix) missing();
-		manifest.mimeType = workspaceFileMimeMatches(
-			manifest.mimeType,
-			new Uint8Array(await prefix.arrayBuffer()),
-		)
-			? manifest.mimeType
-			: "application/octet-stream";
-		manifest.mimeValidated = true;
-		await context.env.SKILL_ARTIFACTS.put(
-			`${key}.json`,
-			JSON.stringify(manifest),
-		);
-		const { pendingProjection } = await confirmOsWorkspaceFile(
-			queryDb(context),
-			{
-				resource: {
-					...creator,
-					id: input.resourceId,
-					workspaceId: workspace.id,
-					providerId: "tedix",
-					connectionScope: "tenant",
-					requiredScopes: "[]",
-					resourceType: "file",
-					providerResourceId: input.resourceId,
-					name: manifest.filename,
-					metadata: JSON.stringify({
-						mimeType: manifest.mimeType,
-						size: manifest.size,
-					}),
-					status: "active",
-					updatedAt: manifest.createdAt,
-				},
-				...(input.document
-					? fileDocumentRows(
-							creator,
-							workspace.id,
-							input.resourceId,
-							manifest.filename,
-							await readAndKeepFileText(
-								context,
-								{
-									organizationId,
-									workspaceId: workspace.id,
-									resourceId: input.resourceId,
-								},
-								manifest,
-							),
-						)
-					: {}),
-			},
-		);
-		const resource = await getOsWorkspaceResource(queryDb(context), {
-			organizationId: organizationId,
-			workspaceId: workspace.id,
-			resourceId: input.resourceId,
-		});
-		if (!resource) missing();
-		if (pendingProjection)
-			context.waitUntil?.(
-				retryResourceProjection(queryDb(context), pendingProjection),
-			);
-		if (input.document)
-			await attachFileDocumentEditor(
-				context,
-				organizationId,
-				workspace.id,
-				input.resourceId,
-			);
 		return {
-			resource: mapWorkspaceResource(resource),
-			...(input.document ? { outputId: input.resourceId } : {}),
+			resourceId: manifest.resourceId,
+			filename: manifest.filename,
+			mimeType: manifest.mimeType,
+			size: manifest.size,
 		};
+	});
+
+/** A file ID is not sufficient to read or publish a chat upload. */
+async function requireChatFile(
+	context: BaseContext,
+	organizationId: string,
+	input: WorkspaceChatFileInput,
+) {
+	const scope = { organizationId, workspaceId: input.workspaceId };
+	const { conversationId, seq } = input.chat;
+	const runtime = context.env.WORKSPACE_RUNTIME as unknown as {
+		hasConversation(
+			scope: { organizationId: string; workspaceId: string },
+			id: string,
+		): Promise<boolean>;
+		readEvents(
+			scope: { organizationId: string; workspaceId: string },
+			input: { conversationId: string; after: number; limit: number },
+		): Promise<unknown[]>;
+	};
+	if (!(await runtime.hasConversation(scope, conversationId))) missing();
+	const events = await runtime.readEvents(scope, {
+		conversationId,
+		after: seq - 1,
+		limit: 1,
+	});
+	const event = events[0] as
+		| {
+				conversationId?: string;
+				seq?: number;
+				type?: string;
+				attachments?: Array<{ outputId: string; chatOnly?: boolean }>;
+		  }
+		| undefined;
+	if (
+		event?.seq !== seq ||
+		event.conversationId !== conversationId ||
+		![
+			"turn.started",
+			"message.queued",
+			"message.read",
+			"message.returned",
+		].includes(event.type ?? "") ||
+		!event.attachments?.some(
+			(file) => file.chatOnly && file.outputId === input.resourceId,
+		)
+	)
+		missing();
+	const manifest = await readWorkspaceFileManifest(
+		context.env,
+		organizationId,
+		input.workspaceId,
+		input.resourceId,
+	);
+	if (!manifest?.chatOnly || !manifest.chatReady) missing();
+	return manifest;
+}
+
+export const saveChatFile = author.resources.saveChatFile.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const manifest = await requireChatFile(
+			context,
+			workspace.organizationId,
+			input,
+		);
+		await publishWorkspaceFile(context, manifest, true);
+		return { outputId: manifest.resourceId };
 	},
 );
 
@@ -439,40 +570,56 @@ export const getFile = read.resources.getFile
 	.handler(async ({ input, context }) => {
 		const organizationId = context.organizationId;
 		await requireWorkspace(context, input.workspaceId);
-		const resource = await getResourceListCopy(queryDb(context), {
-			organizationId: organizationId,
-			...input,
-		});
-		if (
-			!resource ||
-			resource.status !== "active" ||
-			resource.providerId !== "tedix" ||
-			resource.resourceType !== "file"
-		)
-			missing();
-		const manifest = await readWorkspaceFileManifest(
-			context.env,
-			organizationId,
-			input.workspaceId,
-			input.resourceId,
-		);
-		if (!manifest) missing();
+		const { workspaceId, resourceId, chat } = input;
+		let manifest: WorkspaceFileManifest | null;
+		if (chat) {
+			manifest = await requireChatFile(context, organizationId, {
+				workspaceId,
+				resourceId,
+				chat,
+			});
+		} else {
+			const resource = await getResourceListCopy(queryDb(context), {
+				organizationId,
+				workspaceId,
+				resourceId,
+			});
+			if (
+				!resource ||
+				resource.status !== "active" ||
+				resource.providerId !== "tedix" ||
+				resource.resourceType !== "file"
+			)
+				missing();
+			manifest = await readWorkspaceFileManifest(
+				context.env,
+				organizationId,
+				workspaceId,
+				resourceId,
+			);
+			if (!manifest) missing();
+		}
 		const exp = Math.floor(Date.now() / 1000) + 300;
 		const sig = await workspaceFileSignature(
 			context.env.SECRETS_MASTER_KEY,
-			"read",
+			workspaceFileReadAction(chat),
 			organizationId,
 			input.workspaceId,
 			input.resourceId,
 			exp,
 		);
+		const query = new URLSearchParams({ exp: String(exp), sig });
+		if (chat) {
+			query.set("conversation", chat.conversationId);
+			query.set("seq", String(chat.seq));
+		}
 		return {
 			filename: manifest.filename,
 			mimeType: manifest.mimeValidated
 				? manifest.mimeType
 				: "application/octet-stream",
 			size: manifest.size,
-			url: `/api/workspace-files/${encodeURIComponent(organizationId)}/${input.workspaceId}/${input.resourceId}/media?exp=${exp}&sig=${sig}`,
+			url: `/api/workspace-files/${encodeURIComponent(organizationId)}/${input.workspaceId}/${input.resourceId}/media?${query}`,
 			expiresAt: new Date(exp * 1000).toISOString(),
 		};
 	});

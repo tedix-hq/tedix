@@ -337,6 +337,16 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_workspace_resource",
 		resourceId: ({ output }) => nestedId(output, "resource"),
 	},
+	"resources.confirmChatFileUpload": {
+		action: "os.workspace_chat_file.upload_confirmed",
+		resourceType: "os_workspace_chat_file",
+		resourceId: ({ output }) => text(output.resourceId),
+	},
+	"resources.saveChatFile": {
+		action: "os.workspace_chat_file.saved_to_workspace",
+		resourceType: "os_workspace_output",
+		resourceId: ({ output }) => text(output.outputId),
+	},
 	"resources.create": {
 		action: "os.workspace_resource.created",
 		resourceType: "os_workspace_resource",

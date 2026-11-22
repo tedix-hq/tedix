@@ -182,6 +182,20 @@ export class SqlEventLedger {
 			.map(rowToEvent);
 	}
 
+	hasChatFile(conversationId: string, resourceId: string): boolean {
+		return (
+			this.storage.exec<{ present: number }>(
+				`SELECT 1 AS present FROM events, json_each(events.body, '$.attachments') AS file
+			 WHERE events.conversation_id = ? AND events.type IN ('turn.started', 'message.queued', 'message.read', 'message.returned')
+			   AND json_extract(file.value, '$.chatOnly') = 1
+			   AND json_extract(file.value, '$.outputId') = ?
+			 LIMIT 1`,
+				conversationId,
+				resourceId,
+			).length > 0
+		);
+	}
+
 	latestSeq(): number {
 		const [row] = this.storage.exec<{ seq: number | null }>(
 			"SELECT MAX(seq) AS seq FROM events",

@@ -1,3 +1,4 @@
+import type { WorkspaceChatAttachmentInput } from "@tedix/api-contract/schemas/workspace-files";
 import type { WorkspaceModelEnv } from "./model";
 
 /** Bindings this worker runs with; `worker-configuration.d.ts` is the generated truth. */
@@ -25,7 +26,7 @@ export interface TurnRequest {
 	text: string;
 	/** Must name a deployment supported by this runtime. */
 	modelId?: string;
-	attachments?: Array<{ outputId: string }>;
+	attachments?: WorkspaceChatAttachmentInput[];
 	/** Run as this tedi: its persona and recall come from its own object. */
 	tediId?: string;
 	/**
