@@ -3,10 +3,19 @@ import {
 	open,
 	readFile,
 	readdir,
+	realpath,
 	rename,
 	writeFile,
 } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+	sep,
+} from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -250,6 +259,99 @@ export interface ReviewedLedgerContinuation {
 }
 const LEGACY_INDETERMINATE_CLI_ERROR =
 	"Tedix CLI evaluation did not complete; inspect the normal authorization, approval or transport result before continuing";
+
+function isLegacyQualificationReceipt(receipt: RecordResult): boolean {
+	return (
+		receipt.denied === true &&
+		!receipt.interrupted &&
+		!receipt.cliFailure &&
+		receipt.state === "completed" &&
+		receipt.grade?.passed === false &&
+		receipt.error === LEGACY_INDETERMINATE_CLI_ERROR
+	);
+}
+
+export async function inspectQualificationReceipts(directory: string) {
+	const receipts: Array<{
+		file: string;
+		sha256: string;
+		evaluationId: string;
+		legacy: boolean;
+	}> = [];
+	for (const file of (await readdir(directory)).sort()) {
+		if (!/^[a-f0-9]{64}\.json$/.test(file)) continue;
+		const bytes = await readFile(join(directory, file));
+		const receipt = JSON.parse(bytes.toString("utf8")) as RecordResult;
+		await validateStoredReceipt(receipt, file);
+		receipts.push({
+			file,
+			sha256: createHash("sha256").update(bytes).digest("hex"),
+			evaluationId: receipt.evaluationId,
+			legacy:
+				receipt.error === LEGACY_INDETERMINATE_CLI_ERROR && !receipt.cliFailure,
+		});
+	}
+	return {
+		total: receipts.length,
+		legacy: receipts.filter((receipt) => receipt.legacy).length,
+		receipts,
+	};
+}
+
+/** Offline copy migration: retain original evidence and require review of the new hashes. */
+export async function migrateQualificationReceipts(
+	directory: string,
+	destination: string,
+) {
+	const source = await realpath(directory);
+	const absoluteTarget = resolve(destination);
+	const target = join(
+		await realpath(dirname(absoluteTarget)),
+		basename(absoluteTarget),
+	);
+	const targetRelative = relative(source, target);
+	if (
+		!targetRelative ||
+		(targetRelative !== ".." &&
+			!targetRelative.startsWith(`..${sep}`) &&
+			!isAbsolute(targetRelative))
+	)
+		throw new Error("Migration destination must be outside the source journal");
+	const before = await inspectQualificationReceipts(source);
+	const files = new Map<string, Buffer>();
+	for (const entry of await readdir(source, { withFileTypes: true })) {
+		if (!entry.isFile())
+			throw new Error(
+				"Offline receipt migration requires a flat journal without symlinks",
+			);
+		files.set(entry.name, await readFile(join(source, entry.name)));
+	}
+	for (const receipt of before.receipts) {
+		const bytes = files.get(receipt.file)!;
+		if (createHash("sha256").update(bytes).digest("hex") !== receipt.sha256)
+			throw new Error(
+				"Source journal changed during migration; stop qualification first",
+			);
+		if (!receipt.legacy) continue;
+		const migrated = JSON.parse(bytes.toString("utf8")) as RecordResult;
+		if (!isLegacyQualificationReceipt(migrated))
+			throw new Error(
+				"Old receipt does not prove a completed indeterminate failure",
+			);
+		delete migrated.denied;
+		migrated.interrupted = true;
+		// The old receipt retained no transport evidence. Do not infer a denial or a replay permission.
+		migrated.cliFailure = cliFailureEvidence(null);
+		files.set(receipt.file, Buffer.from(JSON.stringify(migrated, null, 2)));
+	}
+	// mkdir is exclusive: never merge into or overwrite an existing journal.
+	await mkdir(target, { mode: 0o700 });
+	for (const [file, bytes] of files)
+		await writeFile(join(target, file), bytes, { flag: "wx", mode: 0o600 });
+	const after = await inspectQualificationReceipts(target);
+	return { source, destination: target, before, after };
+}
+
 async function validateContinuation(
 	directory: string,
 	review: ReviewedLedgerContinuation,
@@ -1096,6 +1198,29 @@ async function main(args: string[]) {
 		throw new Error(
 			"Pass --out <local-artifact-directory> and --organization <authorized-organization>",
 		);
+	if (
+		args.includes("--inspect-receipts") ||
+		args.includes("--migrate-receipts-to")
+	) {
+		if (
+			args.includes("--inspect-receipts") &&
+			args.includes("--migrate-receipts-to")
+		)
+			throw new Error("Choose receipt inspection or migration");
+		const destination = option("--migrate-receipts-to");
+		if (args.includes("--migrate-receipts-to") && !destination)
+			throw new Error("Pass --migrate-receipts-to <new-journal-directory>");
+		console.log(
+			JSON.stringify(
+				destination
+					? await migrateQualificationReceipts(directory, destination)
+					: await inspectQualificationReceipts(directory),
+				null,
+				2,
+			),
+		);
+		return;
+	}
 	const maximum = Number(option("--max-calls") ?? 12);
 	if (!Number.isInteger(maximum) || maximum < 1 || maximum > 1000)
 		throw new Error("--max-calls must be 1..1000 (default12)");

@@ -349,3 +349,26 @@ or a compiled model list. An admitted run retains its validated catalog snapshot
 across restarts; provider dispatch still performs current admission checks.
 Bootstrap this policy in your own database before switching inference to this
 version. This source checkout contains no Tedix Cloud model deployment list.
+
+## Qualification receipt migration
+
+Stop qualification before migrating an old ledger-model evaluation journal. From
+the repository root, inspect the receipts, then copy them to a new directory:
+
+```sh
+bun packages/context-core/scripts/qualify-ledger-models.ts -w connect --organization <organization> --out <original-journal> --inspect-receipts
+bun packages/context-core/scripts/qualify-ledger-models.ts -w connect --organization <organization> --out <original-journal> --migrate-receipts-to <new-journal>
+bun packages/context-core/scripts/qualify-ledger-models.ts -w connect --organization <organization> --out <new-journal> --inspect-receipts
+```
+
+These commands are offline and make no provider calls. The migration copies every
+file, preserves the original journal, and converts completed old indeterminate
+CLI failures into interrupted receipts with unavailable transport details. It
+refuses an existing destination, nested directories, symlinks, and unsettled old
+receipts. Keep the returned before/after counts and hashes as migration evidence;
+the new journal must have the same receipt count and `legacy: 0`.
+
+Interrupted receipts still block qualification. Review the new receipt hashes
+before creating a continuation manifest for the new journal; a manifest bound to
+the original bytes cannot authorize the migrated receipt. Authorization denials
+remain denied, and migration never permits replay of a possibly billed call.
