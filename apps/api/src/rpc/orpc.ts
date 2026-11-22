@@ -1924,7 +1924,10 @@ async function authenticateUserJwt(
 						userIdentity: descopeUserIdentityForContext(context, payload),
 						reviewProjectId: agentReviewProjectId(context.env),
 					}),
-				{ attempts: 3, timeoutMs: 5_000 },
+				// D1 answers "overloaded" while a heavy statement runs, for
+				// several seconds at a time. Spread the tries across the
+				// budget instead of giving up after 350 ms.
+				{ attempts: 5, delayMs: 1_000, timeoutMs: 5_000 },
 			);
 			(context.serverTiming ??= []).push(
 				`auth-identity;dur=${(performance.now() - identityStartedAt).toFixed(1)}`,
