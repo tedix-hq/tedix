@@ -1,3 +1,4 @@
+import { APP_RUNTIME_ENTRY } from "../schemas/os-app-runtime";
 import type { DecisionLearningModel } from "../schemas/decision-learning";
 import type { DeckNotUsefulReason } from "../schemas/deck-pipeline";
 import {
@@ -64,7 +65,18 @@ export function factorySourcesFromManifest(manifest: unknown): {
 	sources: CardReviewSource[];
 } | null {
 	if (!manifest || typeof manifest !== "object") return null;
-	const { entry, config } = manifest as { entry?: unknown; config?: unknown };
+	const { entry, config } = manifest as {
+		entry?: unknown;
+		config?: { settings?: { workView?: unknown; workConfig?: unknown } };
+	};
+	if (entry === APP_RUNTIME_ENTRY && config?.settings?.workView === "deck") {
+		const parsed = DecisionDeckConfigSchema.safeParse(
+			config.settings.workConfig,
+		);
+		return parsed.success
+			? { path: "factorySources", sources: parsed.data.factorySources }
+			: null;
+	}
 	if (entry === CARD_REVIEW_ENTRY) {
 		const parsed = CardReviewConfigSchema.safeParse(config);
 		return parsed.success

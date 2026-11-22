@@ -1,3 +1,8 @@
+import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
+import { parseStoredOsBlueprintDefinition } from "@tedix/api-contract/schemas/os-workspaces";
+import { installWorkspaceApp } from "./workspace-resource-storage";
+import { buildWorkView } from "@tedix/api-contract/assets/work-view-blueprint";
+import { appRuntimeCodeLength } from "@tedix/api-contract/utils/app-runtime";
 import { initializeWorkspaceDocumentOwner } from "./workspace-document-owner";
 import { ORPCError } from "@orpc/server";
 import {
@@ -5,7 +10,10 @@ import {
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { instantiateOsBlueprint } from "./os-workspace-outputs";
-import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
+import {
+	createOsGadgetRevision,
+	listOsWorkApps,
+} from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	getOsWorkspace,
 	getOsWorkspaceByName,
@@ -15,6 +23,11 @@ import type { OsCreatedByKind } from "@tedix/api-contract/schemas/os-workspaces"
 import { canonicalDigest } from "../lib/blueprint-digest";
 import { getWorkOnboarding } from "@tedix/db/queries/work-onboarding";
 
+async function workId(parts: string[]) {
+	const digest = await canonicalDigest(parts);
+	return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
 /** Install a tenant-owned, pinned blueprint using the ordinary atomic install path. */
 export async function installDefaultWorkApps(
 	db: DbQueryClient,
@@ -23,35 +36,139 @@ export async function installDefaultWorkApps(
 ) {
 	// Tenant-scoped deterministic identity makes concurrent creation/onboarding
 	// converge without treating an unrelated workspace named Work as ours.
-	const digest = await canonicalDigest(["default-work-apps", organizationId]);
-	const workspaceId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+	const workspaceId = await workId(["default-work-apps", organizationId]);
 	const scope = { organizationId, workspaceId };
 	const existing = await getOsWorkspace(db, scope);
 	if (existing) {
-		await initializeWorkspaceDocumentOwner(existing);
-		return { workspaceId: existing.id };
-	}
-
-	const installed = await listOsWorkApps(
-		db,
-		organizationId,
-		{ userIds: [] },
-		200,
-	);
-	const roles = new Set(
-		installed.map((row) => {
+		const installed = await listOsWorkApps(
+			db,
+			organizationId,
+			{ userIds: [] },
+			201,
+			workspaceId,
+		);
+		if (installed.length > 200)
+			throw new ORPCError("CONFLICT", {
+				message: "The list of Work apps is incomplete.",
+			});
+		const rolesHere = new Set<string>();
+		for (const { gadget, revision } of installed) {
 			const manifest = OsGadgetManifestSchema.parse(
-				JSON.parse(row.revision.manifest),
+				JSON.parse(revision.manifest),
 			);
-			return manifest.navigation?.work;
-		}),
-	);
-	if (roles.has("feed") && roles.has("deck")) {
-		const id = installed[0]!.gadget.workspaceId;
-		await initializeWorkspaceDocumentOwner({ organizationId, id });
-		return { workspaceId: id };
+			if (manifest.navigation?.work) rolesHere.add(manifest.navigation.work);
+			if (
+				gadget.sourceBlueprintRevisionId !== existing.sourceBlueprintRevisionId
+			)
+				continue;
+			const view = buildWorkView(manifest);
+			if (!view) continue;
+			const result = await createOsGadgetRevision(db, {
+				organizationId,
+				gadgetId: gadget.id,
+				id: crypto.randomUUID(),
+				manifest: JSON.stringify(view.manifest),
+				expectedRevision: revision.revision,
+				createdByKind: creator.kind,
+				createdById: creator.id,
+				code: {
+					files: JSON.stringify(view.files),
+					codeLength: appRuntimeCodeLength(view.files),
+				},
+			});
+			if (!result.ok)
+				throw new ORPCError("CONFLICT", {
+					message:
+						"The Work gadget changed. Open it again to see the latest revision.",
+				});
+		}
+		// Earlier installations omitted a role when a separate workspace already had it.
+		if (rolesHere.size < 2 && existing.sourceBlueprintRevisionId) {
+			const pinned = await getOsBlueprintRevision(db, {
+				organizationId,
+				revisionId: existing.sourceBlueprintRevisionId,
+			});
+			if (pinned)
+				for (const app of parseStoredOsBlueprintDefinition(pinned.definition)
+					.gadgets) {
+					if (app.manifest.navigation?.work)
+						rolesHere.add(app.manifest.navigation.work);
+				}
+		}
+		if (rolesHere.size < 2) {
+			const config = await getWorkOnboarding(db);
+			const definition = OsBlueprintDefinitionSchema.parse(config.definition);
+			for (const app of definition.gadgets) {
+				const role = app.manifest.navigation?.work;
+				if (!role || rolesHere.has(role)) continue;
+				const view = buildWorkView(app.manifest);
+				if (!view) continue;
+				const ids = await Promise.all(
+					["blueprint", "template", "gadget", "revision"].map((key) =>
+						workId([workspaceId, role, key]),
+					),
+				);
+				const [blueprintId, templateId, gadgetId, id] = ids as [
+					string,
+					string,
+					string,
+					string,
+				];
+				const now = new Date().toISOString();
+				const base = {
+					organizationId,
+					createdByKind: creator.kind,
+					createdById: creator.id,
+					createdAt: now,
+				};
+				await installWorkspaceApp(db, {
+					templateVersion: 1,
+					blueprint: {
+						...base,
+						id: blueprintId,
+						name: app.name,
+						status: "published",
+						currentRevisionId: templateId,
+						updatedAt: now,
+					},
+					blueprintRevision: {
+						...base,
+						id: templateId,
+						blueprintId,
+						definition: JSON.stringify({
+							...definition,
+							gadgets: [{ ...app, ...view }],
+						}),
+					},
+					gadget: {
+						...base,
+						id: gadgetId,
+						workspaceId,
+						name: app.name,
+						currentRevisionId: id,
+						sourceBlueprintRevisionId: templateId,
+						updatedAt: now,
+					},
+					revision: {
+						...base,
+						id,
+						gadgetId,
+						revision: 1,
+						manifest: JSON.stringify(view.manifest),
+					},
+					code: {
+						...base,
+						revisionId: id,
+						gadgetId,
+						files: JSON.stringify(view.files),
+						codeLength: appRuntimeCodeLength(view.files),
+					},
+				});
+			}
+		}
+		await initializeWorkspaceDocumentOwner(existing);
+		return { workspaceId };
 	}
-
 	const configured = await getWorkOnboarding(db).catch((cause: unknown) => {
 		throw new ORPCError("SERVICE_UNAVAILABLE", {
 			message: "Work app defaults are not configured for this installation",
@@ -59,9 +176,10 @@ export async function installDefaultWorkApps(
 		});
 	});
 	const definition = OsBlueprintDefinitionSchema.parse(configured.definition);
-	definition.gadgets = definition.gadgets.filter(
-		(app) => !roles.has(app.manifest.navigation?.work),
-	);
+	definition.gadgets = definition.gadgets.map((app) => ({
+		...app,
+		...(app.files ? {} : buildWorkView(app.manifest)),
+	}));
 	const now = new Date().toISOString();
 	const base = {
 		organizationId,
@@ -132,6 +250,20 @@ export async function installDefaultWorkApps(
 				}),
 			},
 			gadgets,
+			code: gadgets.flatMap((gadget, index) => {
+				const files = definition.gadgets[index]!.files;
+				return files
+					? [
+							{
+								...base,
+								revisionId: gadget.currentRevisionId,
+								gadgetId: gadget.id,
+								files: JSON.stringify(files),
+								codeLength: appRuntimeCodeLength(files),
+							},
+						]
+					: [];
+			}),
 			revisions: gadgets.map((gadget, index) => ({
 				...base,
 				id: gadget.currentRevisionId,

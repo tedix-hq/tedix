@@ -1,3 +1,4 @@
+import { workSourceManifest } from "@tedix/api-contract/assets/work-view-blueprint";
 import type { DbClient } from "@tedix/db/client";
 import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
 import { getOsOutput } from "../../../services/workspace-output-storage";
@@ -20,6 +21,7 @@ export async function readSavedToday(
 		.map((app) =>
 			OsGadgetManifestSchema.parse(JSON.parse(app.revision.manifest)),
 		)
+		.map(workSourceManifest)
 		.find((manifest) => manifest.entry === "tedix:app/activity-feed");
 	const config = ActivityFeedConfigSchema.safeParse(feed?.config);
 	const today = config.success ? config.data.today : undefined;

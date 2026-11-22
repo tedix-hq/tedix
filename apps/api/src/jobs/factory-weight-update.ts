@@ -1,3 +1,5 @@
+import { APP_RUNTIME_ENTRY } from "@tedix/api-contract/schemas/os-app-runtime";
+import { getOsGadgetCode } from "@tedix/db/queries/os-workspaces/gadgets";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type {
 	CardReviewSource,
@@ -62,6 +64,7 @@ export type WeightUnit = {
 	organizationId: string;
 	gadgetId: string;
 	revision: number;
+	revisionId?: string;
 	manifest: Manifest;
 	path: SourcePath;
 	index: number;
@@ -93,7 +96,7 @@ export function factoryKey(
 export function weightUnits(
 	rows: readonly {
 		gadget: { id: string; organizationId: string };
-		revision: { revision: number; manifest: string };
+		revision: { id?: string; revision: number; manifest: string };
 	}[],
 ): WeightUnit[] {
 	return rows.flatMap((row) => {
@@ -113,6 +116,7 @@ export function weightUnits(
 							organizationId: row.gadget.organizationId,
 							gadgetId: row.gadget.id,
 							revision: row.revision.revision,
+							revisionId: row.revision.id,
 							manifest,
 							path: found.path,
 							index,
@@ -156,7 +160,12 @@ export function manifestWithWeights(
 ): Manifest | null {
 	const next = structuredClone(manifest);
 	for (const unit of units) {
-		const list = next.config?.[unit.path];
+		const config =
+			next.entry === APP_RUNTIME_ENTRY
+				? (next.config?.settings as { workConfig?: Record<string, unknown> })
+						?.workConfig
+				: next.config;
+		const list = config?.[unit.path];
 		const raw = Array.isArray(list)
 			? (list[unit.index] as Record<string, unknown> | undefined)
 			: undefined;
@@ -282,7 +291,17 @@ async function applyProposal(
 		const first = own[0]!;
 		const manifest = manifestWithWeights(first.manifest, own, proposal);
 		if (!manifest) return { status: "stale" as const, appliedTo };
+		const runtime = manifest.entry === APP_RUNTIME_ENTRY;
+		const code =
+			runtime && first.revisionId
+				? await getOsGadgetCode(db, {
+						organizationId: first.organizationId,
+						revisionId: first.revisionId,
+					})
+				: undefined;
+		if (runtime && !code) return { status: "stale" as const, appliedTo };
 		const result = await createOsGadgetRevision(db, {
+			code: code && { files: code.files, codeLength: code.codeLength },
 			id: crypto.randomUUID(),
 			organizationId: first.organizationId,
 			gadgetId,

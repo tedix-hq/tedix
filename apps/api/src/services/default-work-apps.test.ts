@@ -1,3 +1,7 @@
+import {
+	workViewRole,
+	workSourceManifest,
+} from "@tedix/api-contract/assets/work-view-blueprint";
 import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import { createOsOutput } from "./workspace-output-storage";
 import blueprint from "../../../os/dev/demo-pack/work-blueprint.json";
@@ -18,6 +22,8 @@ import {
 	osWorkspaces,
 	osGadgets,
 	osGadgetRevisions,
+	osGadgetCode,
+	osGadgetCodeBlobs,
 	osBlueprints,
 	osBlueprintRevisions,
 } from "@tedix/db/schema/os-workspaces";
@@ -47,6 +53,8 @@ function fixture() {
 			osOutputRevisions,
 			osGadgets,
 			osGadgetRevisions,
+			osGadgetCode,
+			osGadgetCodeBlobs,
 			osBlueprints,
 			osBlueprintRevisions,
 		),
@@ -131,7 +139,10 @@ describe("default Work blueprint installation", () => {
 			const manifests = apps.map((row) =>
 				OsGadgetManifestSchema.parse(JSON.parse(row.revision.manifest)),
 			);
-			expect(manifests).toEqual(
+			expect(
+				sqlite.prepare("SELECT count(*) AS n FROM os_gadget_code").get(),
+			).toEqual({ n: 2 });
+			expect(manifests.map(workSourceManifest)).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
 						entry: "tedix:app/activity-feed",
@@ -165,7 +176,66 @@ describe("default Work blueprint installation", () => {
 		}
 	});
 
-	it("preserves a manually installed Feed and installs only the missing Deck on retry", async () => {
+	it("upgrades an old Work workspace that originally contained only Decisions", async () => {
+		const { db, sqlite } = fixture();
+		try {
+			const deck = blueprint.gadgets.find((app) => app.name === "Decisions")!;
+			const configure = (definition: unknown) =>
+				sqlite
+					.prepare("UPDATE policy_packs SET definition=?")
+					.run(JSON.stringify({ workOnboarding: { version: 1, definition } }));
+			configure({ ...blueprint, gadgets: [deck] });
+			const { workspaceId } = await installDefaultWorkApps(
+				db,
+				"pine-studio",
+				owner,
+			);
+			const [before] = await listOsWorkApps(
+				db,
+				"pine-studio",
+				{ userIds: [] },
+				10,
+			);
+			await createOsGadgetRevision(db, {
+				organizationId: "pine-studio",
+				gadgetId: before!.gadget.id,
+				id: crypto.randomUUID(),
+				manifest: JSON.stringify(deck.manifest),
+				createdByKind: "user",
+				createdById: owner.id,
+			});
+			configure(blueprint);
+			await installDefaultWorkApps(db, "pine-studio", owner);
+			const after = await listOsWorkApps(
+				db,
+				"pine-studio",
+				{ userIds: [] },
+				10,
+			);
+			expect(after.map((app) => app.gadget.workspaceId)).toEqual([
+				workspaceId,
+				workspaceId,
+			]);
+			expect(
+				after.find((app) => app.gadget.id === before!.gadget.id)?.revision
+					.revision,
+			).toBe(3);
+			for (const app of after)
+				expect(
+					workViewRole(
+						OsGadgetManifestSchema.parse(JSON.parse(app.revision.manifest)),
+					),
+				).toBeTruthy();
+			await installDefaultWorkApps(db, "pine-studio", owner);
+			expect(
+				await listOsWorkApps(db, "pine-studio", { userIds: [] }, 10),
+			).toEqual(after);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("installs both Work gadgets and preserves a manually installed feed in another workspace", async () => {
 		const { db, sqlite } = fixture();
 		try {
 			const workspaceId = crypto.randomUUID();
@@ -211,7 +281,7 @@ describe("default Work blueprint installation", () => {
 				{ userIds: [] },
 				100,
 			);
-			expect(apps).toHaveLength(2);
+			expect(apps).toHaveLength(3);
 			expect(
 				JSON.parse(
 					apps.find((row) => row.gadget.id === gadgetId)!.revision.manifest,

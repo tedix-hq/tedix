@@ -1,3 +1,7 @@
+import {
+	workSourceManifest,
+	workViewRole,
+} from "@tedix/api-contract/assets/work-view-blueprint";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { timelineItems } from "@tedix/api-contract/utils/feed-story";
 import { deckDisplayCard } from "@tedix/api-contract/utils/attention-app-view";
@@ -158,6 +162,11 @@ function appManifest(
 							? "tedix:app/decision-deck"
 							: "tedix:app/activity-feed"))),
 	);
+	const editable = candidates.filter(
+		(app) => workViewRole(app.currentRevision.manifest) === role,
+	);
+	if (editable.length === 1)
+		return workSourceManifest(editable[0]!.currentRevision.manifest);
 	if (optional && candidates.length !== 1) return null;
 	if (candidates.length !== 1)
 		throw createError(
@@ -166,7 +175,7 @@ function appManifest(
 				? "Choose a Work app with gadgetId"
 				: "No visible Work app has that role",
 		);
-	return candidates[0]!.currentRevision.manifest;
+	return workSourceManifest(candidates[0]!.currentRevision.manifest);
 }
 
 async function factoryAutonomyHistory(

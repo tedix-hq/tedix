@@ -1,3 +1,9 @@
+import { z } from "zod";
+import {
+	workSourceManifest,
+	workViewRole,
+} from "@tedix/api-contract/assets/work-view-blueprint";
+import { WorkspaceAppRenderer } from "./workspace-app-renderer";
 import type {
 	OsGadget,
 	OsGadgetManifest,
@@ -76,6 +82,13 @@ import {
 	type AppRuntimeFiles,
 	type AppRuntimeRole,
 } from "@tedix/api-contract/schemas/os-app-runtime";
+
+const feedDisplay = z.strictObject({
+	postsPerPage: z.number().int().min(1).max(50).optional(),
+});
+const deckDisplay = z.strictObject({
+	cardLayout: z.enum(["compact", "full"]).optional(),
+});
 
 const FileOutputView = lazy(async () => ({
 	default: (await import("./output-content")).FileOutputView,
@@ -377,6 +390,11 @@ export function AppRuntimeSandbox({
 	);
 	useEffect(() => () => clearTimeout(listRefresh.current), []);
 
+	const [workOptions, setWorkOptions] = useState<{
+		postsPerPage?: number;
+		cardLayout?: "compact" | "full";
+	} | null>(null);
+	const workRole = workViewRole(manifest);
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>
 			handleAppRuntimeCall(
@@ -690,8 +708,17 @@ export function AppRuntimeSandbox({
 			}
 			html={html}
 			title={title}
-			onCall={onCall}
-			layout={layout}
+			onCall={async (method, args) => {
+				if (method !== "work.display") return onCall(method, args);
+				if (!workRole) return { ok: false, error: "not_permitted" };
+				const parsed = (
+					workRole === "feed" ? feedDisplay : deckDisplay
+				).safeParse(args);
+				if (!parsed.success) return { ok: false, error: "bad_arguments" };
+				setWorkOptions(parsed.data);
+				return { ok: true, value: null };
+			}}
+			layout={workRole ? "content" : layout}
 			loadingContent={
 				context.settings.readySignal === true &&
 				legacyResource &&
@@ -719,6 +746,15 @@ export function AppRuntimeSandbox({
 	);
 	return (
 		<>
+			{workOptions && workRole && (
+				<WorkspaceAppRenderer
+					workspaceId={workspaceId}
+					manifest={{
+						...workSourceManifest(manifest),
+						config: { ...workSourceManifest(manifest).config, ...workOptions },
+					}}
+				/>
+			)}
 			{attachedFile && (
 				<Suspense fallback={<AppLoading />}>
 					<FileOutputView {...attachedFile} />

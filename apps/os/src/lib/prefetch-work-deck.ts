@@ -1,3 +1,4 @@
+import { workSourceManifest } from "@tedix/api-contract/assets/work-view-blueprint";
 import type { QueryClient } from "@tanstack/react-query";
 import {
 	ACTIVITY_FEED_ENTRY,
@@ -58,13 +59,17 @@ export function prefetchWorkDeck(client: QueryClient, view?: "feed" | "deck") {
 							(item) => item.currentRevision.manifest.navigation?.workDefault,
 						)));
 			if (feed && landsOnFeed)
-				prefetchActivityFeed(client, feed.currentRevision.manifest.config);
+				prefetchActivityFeed(
+					client,
+					workSourceManifest(feed.currentRevision.manifest).config,
+				);
 			const deck = items.find(
 				(item) =>
-					item.currentRevision.manifest.entry === "tedix:app/decision-deck",
+					workSourceManifest(item.currentRevision.manifest).entry ===
+					"tedix:app/decision-deck",
 			);
 			const parsed = DecisionDeckConfigSchema.safeParse(
-				deck?.currentRevision.manifest.config,
+				deck && workSourceManifest(deck.currentRevision.manifest).config,
 			);
 			if (!parsed.success) return;
 			const config = parsed.data;

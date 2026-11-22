@@ -1,3 +1,4 @@
+import { workViewRole } from "@tedix/api-contract/assets/work-view-blueprint";
 import { LoadingArea } from "@/components/loading-area";
 import { lazy, Suspense } from "react";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
@@ -22,6 +23,9 @@ import { WorkGadgetPresentation } from "./work-gadget-presentation";
 import { WorkHomeOverview } from "@/components/work-home-overview";
 import "./feed-deck.css";
 
+const WorkRuntime = lazy(() =>
+	import("./app-runtime-panel").then((m) => ({ default: m.AppRuntimePreview })),
+);
 const Portfolio = lazy(() =>
 	import("./organization-portfolio-app").then((m) => ({
 		default: m.OrganizationPortfolioApp,
@@ -140,14 +144,15 @@ export function WorkHome({
 	) : (
 		content
 	);
+	const editable = selected && workViewRole(selected.revision.manifest);
 	const presentationId = selected?.manifest.config?.presentationGadgetId;
 	const usePresentation =
 		selected?.role &&
-		typeof presentationId === "string" &&
 		!search.project &&
 		(!search.filter || search.filter === "all") &&
 		!search.day &&
-		!search.source;
+		!search.source &&
+		(typeof window === "undefined" || !window.location.hash);
 	return (
 		<Page width="full" className="fd-work-home">
 			{/* The page heading comes first, so overview sections sit under it. */}
@@ -160,7 +165,15 @@ export function WorkHome({
 						!pending &&
 						!failed &&
 						!truncated && <InstallWorkAppearance />}
-					{selected?.role &&
+					{editable && canCustomize && (
+						<Link
+							href={`/workspace/${selected.gadget.workspaceId}?workpiece=gadget:${selected.gadget.id}&pane=workpiece`}
+						>
+							Edit gadget
+						</Link>
+					)}
+					{!editable &&
+						selected?.role &&
 						selected.manifest.entry === defaultWorkApps[selected.role].entry &&
 						canCustomize && (
 							<WorkAppearance
@@ -172,7 +185,17 @@ export function WorkHome({
 						)}
 				</div>
 			)}
-			{usePresentation ? (
+			{usePresentation && editable ? (
+				<Suspense fallback={<LoadingArea />}>
+					<WorkRuntime
+						key={selected.revision.id}
+						workspaceId={selected.gadget.workspaceId}
+						gadget={selected.gadget}
+						revision={selected.revision}
+						layout="content"
+					/>
+				</Suspense>
+			) : usePresentation && typeof presentationId === "string" ? (
 				<WorkGadgetPresentation
 					key={presentationId}
 					workspaceId={selected.gadget.workspaceId}

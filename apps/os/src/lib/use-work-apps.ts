@@ -1,3 +1,7 @@
+import {
+	workSourceManifest,
+	workViewRole,
+} from "@tedix/api-contract/assets/work-view-blueprint";
 import { useQuery } from "@tanstack/react-query";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
@@ -27,12 +31,21 @@ function workAppRole(manifest: OsGadgetManifest): "feed" | "deck" | null {
 /** One viewer-scoped read replaces workspace → list → revision waterfalls. */
 export function useWorkApps() {
 	const query = useQuery({ ...workAppsQueryOptions(), ...workRefreshOptions });
-	const apps = (query.data?.items ?? []).map((data) => ({
-		gadget: data.gadget,
-		revision: data.currentRevision,
-		manifest: data.currentRevision.manifest,
-		role: workAppRole(data.currentRevision.manifest),
-	}));
+	const apps = (query.data?.items ?? [])
+		.map((data) => {
+			const manifest = workSourceManifest(data.currentRevision.manifest);
+			return {
+				gadget: data.gadget,
+				revision: data.currentRevision,
+				manifest,
+				role: workAppRole(manifest),
+			};
+		})
+		.sort(
+			(a, b) =>
+				Number(Boolean(workViewRole(b.revision.manifest))) -
+				Number(Boolean(workViewRole(a.revision.manifest))),
+		);
 	return {
 		apps,
 		pending: query.isPending,

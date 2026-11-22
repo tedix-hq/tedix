@@ -429,6 +429,7 @@ export async function listOsWorkApps(
 	organizationId: string,
 	viewer: OsWorkspaceViewer,
 	limit: number,
+	workspaceId?: string,
 ) {
 	return db
 		.select({
@@ -455,6 +456,7 @@ export async function listOsWorkApps(
 			and(
 				eq(osGadgets.organizationId, organizationId),
 				eq(osGadgets.status, "active"),
+				workspaceId ? eq(osGadgets.workspaceId, workspaceId) : undefined,
 				eq(osWorkspaces.status, "active"),
 				osWorkspaceVisibleToPredicate(viewer),
 				sql`(json_extract(${osGadgetRevisions.manifest}, '$.navigation.work') IN ('deck', 'feed') OR json_extract(${osGadgetRevisions.manifest}, '$.navigation.board') = 1)`,
@@ -499,7 +501,7 @@ export async function listCardSourceApps(
 					? eq(osGadgets.organizationId, params.organizationId)
 					: undefined,
 				eq(osGadgets.status, "active"),
-				sql`json_extract(${osGadgetRevisions.manifest}, '$.entry') IN ('tedix:app/card-review', 'tedix:app/decision-deck')`,
+				sql`(json_extract(${osGadgetRevisions.manifest}, '$.entry') IN ('tedix:app/card-review', 'tedix:app/decision-deck') OR (json_extract(${osGadgetRevisions.manifest}, '$.entry') = 'tedix:runtime/v1' AND json_extract(${osGadgetRevisions.manifest}, '$.config.settings.workView') = 'deck'))`,
 				params.weightUpdateOnly
 					? sql`instr(${osGadgetRevisions.manifest}, '"weightUpdate"') > 0`
 					: undefined,
