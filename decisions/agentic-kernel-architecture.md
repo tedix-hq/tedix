@@ -43,16 +43,15 @@ would be four in-loop cognitive processes, each a decision-maker.
 The kernel is the organization-scoped, identity-less, non-blocking control plane
 that schedules and routes. It:
 
-- owns the process table: one human turn becomes one `homeRunId` that fans out
-  into branches;
-- picks exactly one of a closed set of typed routes per turn;
-- dispatches work to other Durable Objects (tedis) and returns immediately;
-- reconciles their terminal events through an inbox and wake alarm, not polling;
+- gives each human turn one `homeRunId` before it fans out into branches.
+- picks one of a closed set of typed routes per turn.
+- dispatches work to tedis and acknowledges turns that continue in the background.
+- reconciles terminal events through wake delivery and checks for missed events.
 - synthesizes results back into one linear conversation.
 
-It must not have a free tool loop, a `tediId` (`subject_kind='kernel'`), memory
-writes, a skills engine, or an free in-loop agent. It keeps track of many
-concurrent work streams because it never does the cognitive work itself. See
+It owns routing and synthesis. Tedis own provider tool calls, memory, and
+skills under their own identities. The kernel has its own actor kind
+(`subject_kind='kernel'`). See
 [Kernel execution model](../docs/engineering/cognition/kernel-execution-model.md).
 
 The kernel is singular by definition. Where a proposed "kernel" holds state and
@@ -62,8 +61,8 @@ cadence it is a plane; where it needs an identity it is a tedi.
 
 | Domain                         | Owner                                                                                                  | Layer           |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------- |
-| Orchestration (delegation)     | Kernel/Home — `apps/api/src/workflows/kernel-goal-loop-workflow.ts`, one facet per conversation        | Kernel          |
-| Synthesis                      | Kernel/Home — child results rendered as prose, graded mechanically                                     | Kernel          |
+| Orchestration (delegation)     | Kernel/Home — `apps/api/src/kernel/kernel-do.ts` coordinates turns and delegates work to tedis         | Kernel          |
+| Synthesis                      | Kernel/Home — relays child results and synthesizes them when needed                                    | Kernel          |
 | Coordination-as-governance     | Kernel — proposer ≠ approver keyed on `context.tediId`                                                 | Kernel          |
 | Memory (facts)                 | Brain — D1 facts, `apps/tedi-runtime/src/brain`, admission and disposal                                | Memory plane    |
 | Tasks (work items)             | Work-item ledger and `mcp_tasks`                                                                       | Work plane      |
@@ -107,18 +106,16 @@ transaction. At a plane boundary it is one rejection.
 - Safe self-improvement needs separated identities, and the fleet plus humans
   already provide them. A peer learning kernel that approves is a verifier
   bureaucracy, not separation.
-- One thin kernel produces one append-only transcript, which is what users of
-  Claude Code, Codex and ChatGPT expect: inline tool and route calls, a
-  work-card checklist, collapsible sub-agent rows showing synthesized summaries,
-  and resumable sessions. Planes and the fleet surface only as activity rows and
-  work cards inside that thread. Peer kernels would fragment it.
+- One thin kernel keeps the conversation in one transcript. People can follow
+  delegated work, approvals, and results in that thread as they happen. Peer
+  kernels would fragment the record.
 
 Reliability comes from:
 
-- completion only on proof — silence is never completion;
-- persisting the `homeRunId` before calling the Durable Object;
-- non-blocking dispatch, so concurrency does not time-slice the loop;
-- mechanical conformance grading, with no model verdicts in the loop;
+- recording an explicit terminal result before claiming completion.
+- persisting the `homeRunId` before calling the Durable Object.
+- letting delegated work continue after the kernel acknowledges the turn.
+- checking output contracts and using explicit evaluators for governed goals.
 - hard write-path rejections at plane boundaries.
 
 ## Invariants
@@ -134,8 +131,9 @@ Reliability comes from:
    channels, and delegation chains stay short.
 5. Fleet fan-out is for independent, read-heavy work. Writes and decisions stay
    single-threaded through the kernel.
-6. Verification is structural (linked records, mechanical checks), not a
-   verifier agent.
+6. Keep linked records and structural checks for verification. A governed goal
+   loop can also use a separate model evaluator within its turn and cost
+   limits (`apps/api/src/rpc/routers/kernel/goal-loop.ts`).
 7. Each tedi carries its own full control loop — local control, reflection,
    adaptation and identity — so "below the kernel" never means subordinated.
 

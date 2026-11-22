@@ -2,7 +2,7 @@
 summary: "ADR: a check earns its place only after a real failure it would have caught; detect-and-correct beats prevent-by-proof; the cheapest way to make a gate green must never be to lower it"
 read_when:
   - Proposing a new gate, verifier, reviewer, certification, or required receipt
-  - Wondering why settling a Work Item completes it without an evidence count or review
+  - Distinguishing Attempt settlement from Work Item completion
   - Deciding whether a claim needs pre-proof or can be corrected when someone notices
   - Finding legacy acceptance-contract fields (`claims`, `evidenceKinds`, `requiresIndependentReview`) that no gate reads
 title: "Minimal gates over pre-proof"
@@ -12,8 +12,8 @@ date: 2026-09-07
 
 # ADR: Minimal gates over pre-proof
 
-**Status:** Accepted and implemented. Settlement records the outcome; completion
-does not wait on an evidence review.
+**Status:** Accepted and implemented. Settlement records what happened in an
+Attempt. Completion changes the Work Item's disposition.
 
 Scope: every mechanism that requires proof _before_ an action is permitted —
 build checks, acceptance contracts, evidence kinds, independent review, readback
@@ -57,9 +57,10 @@ claim's truth.
    than treating a successful process exit or partial commit as that outcome.
    Partial, missing and stale declarations leave Work open; this adds no review
    or evidence-count requirement to completion.
-6. **Settled means done.** A Work Item is accepted with a plain-language "done
-   looks like"; an Attempt settles with an outcome, a summary, and its commit
-   shas; completion carries no evidence count and no review requirement. Legacy
+6. **Completion follows settlement.** An Attempt settles with an outcome, a
+   summary, and any commit SHAs. The separate Work Item completion check
+   verifies who can close the item and applies the accepted outcome rules.
+   Completion requires no evidence count or separate evidence review. Legacy
    acceptance-contract fields stay parseable so existing items deserialize, but
    nothing consults them. A wrong claim is corrected when noticed: a second
    principal records a contradiction in `work_item_corroborations`

@@ -43,7 +43,7 @@ Gate the mutation class with an allowlist of caller types.
 
 - Fields that carry lasting capability or spend —
   `AGENT_UNREACHABLE_CAPABILITY_FIELDS` in
-  `apps/api/src/rpc/routers/tedis/crud.ts` (capability profile, tool policy,
+  `apps/api/src/rpc/routers/tedis/update.ts` (capability profile, tool policy,
   repo config, cron jobs, budgets, runtime profile and overrides) — may be
   changed only by a caller whose `authType` proves a human (`user`) or an
   operator-issued API key (`apikey`).

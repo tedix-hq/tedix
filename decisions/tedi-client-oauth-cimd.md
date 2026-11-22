@@ -14,7 +14,8 @@ date: 2026-07-25
 **Status:** Accepted. The catalog gate, issuer pinning, the RFC 9207 validator,
 the hosted CIMD document, registration-mode selection, the API callback with
 encrypted PKCE state, token exchange and tenant-vault storage are implemented.
-Moving existing providers from DCR to CIMD is ongoing.
+Check each provider's registration mode before treating its migration as
+complete. Discovery reports legacy clients where CIMD is available.
 
 Scope: how a tedi's connection to an external (non-Tedix) MCP server is
 authorized — allowlisting, OAuth client registration, authorization-response
@@ -69,9 +70,10 @@ For a catalog app that declares `OAUTH`:
    advertises `client_id_metadata_document_supported`: Tedix identifies itself
    with one platform-hosted metadata document whose `redirect_uris` point at the
    `apps/api` callback (`apps/api/src/oauth-client-metadata.ts`). CIMD
-   identifies the software client (Tedix); the granting organization is carried
-   by consent and token storage. Otherwise fall back to the Descope outbound-app
-   path with DCR, keyed per issuer.
+   identifies the software client (Tedix). Consent and token storage record the
+   granting organization. Providers without CIMD use the configured
+   outbound client. Dynamic Client Registration (DCR) is an exception keyed per
+   issuer.
 4. **Authorization code** — PKCE, RFC 8707 `resource` bound to the canonical
    server URI, expected issuer stored with the PKCE verifier, and RFC 9207
    validation (`packages/auth/src/oauth-iss.ts`) before the code reaches a token
@@ -107,7 +109,8 @@ For a catalog app that declares `OAUTH`:
 
 ## Consequences
 
-- DCR is deprecated, not removed. `classifyMcpClientRegistrationMethod`
+- DCR is deprecated. Provider discovery flags missing or overdue DCR
+  exceptions. `classifyMcpClientRegistrationMethod`
   (`packages/auth/src/oauth-client-registration.ts`) classifies inbound
   sessions as `pre_registered`, `cimd` or `dcr` so retirement can be decided
   from real usage.

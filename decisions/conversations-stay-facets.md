@@ -44,5 +44,4 @@ Why:
   the platform. Watch the turn-admission and alarm metrics per tedi.
 - Revisit when either happens: the tool registry moves out of the tedi object
   (which makes a routed child cheap), or measured alarm or placement
-  contention on a busy tedi affects users. Either reopens this record; neither
-  is expected before the Reddit pilot ships.
+  contention on a busy tedi affects users. Either condition reopens this record.
