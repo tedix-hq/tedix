@@ -242,7 +242,14 @@ function fixture({
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
 		startResponseError: undefined as Error | undefined,
-		readiness: { ready: true, reasons: [] as Array<{ detail: string }> },
+		readiness: {
+			ready: true,
+			reasons: [],
+		} as {
+			ready: boolean;
+			reasons: Array<{ detail: string }>;
+			gates?: Array<{ gate: string; evaluation: string }>;
+		},
 		completeError: undefined as Error | undefined,
 		cooldownUntil: 0,
 		cooldownWorkspaces: [] as Array<string | undefined>,
@@ -9970,6 +9977,50 @@ describe("structured dispatcher outcomes", () => {
 			).toHaveLength(2);
 		},
 	);
+	it("releases a saved wait only when canonical readiness clears its deferral gate", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({
+			...common(),
+			outcome: "deferred",
+			reason: "Waiting on publication",
+		})}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const path = join(f.dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = {
+			dispatchVersion: 2,
+			laneResult: saved.laneResult,
+		};
+		f.control.readiness = {
+			ready: false,
+			reasons: [{ detail: "Deferred: Waiting on publication" }],
+			gates: [{ gate: "not_before", evaluation: "failed" }],
+		};
+		await f.restart().tick();
+		expect(f.releases).toHaveLength(1);
+		expect(JSON.parse(readFileSync(path, "utf8")).recheckAt).toBe(
+			saved.recheckAt,
+		);
+		// A dependency or approval change clears the durable gate even though
+		// this runner's saved one-hour timer has not elapsed.
+		f.control.readiness = {
+			ready: true,
+			reasons: [],
+			gates: [{ gate: "not_before", evaluation: "passed" }],
+		};
+		const restarted = f.restart();
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.control.finalMessage = "Publication completed; result recorded.";
+		f.releases[1]!();
+		await restarted.drain();
+	});
 	it("wakes shared deferrals without waiting for a refused admission's back-off", async () => {
 		const f = fixture();
 		f.items.splice(1);

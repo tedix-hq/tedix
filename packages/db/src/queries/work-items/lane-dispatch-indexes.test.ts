@@ -305,9 +305,9 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 	const sqlite = createMigratedSqlite({ foreignKeys: false });
 	try {
 		const db = createDbQueryClient(createD1Facade(sqlite));
-		const start = "2026-11-22T01:00:00.000Z";
-		const finish = "2026-11-22T01:05:00.000Z";
-		const now = "2026-11-22T01:06:00.000Z";
+		let start = "2026-11-22T01:00:00.000Z";
+		let finish = "2026-11-22T01:05:00.000Z";
+		let now = "2026-11-22T01:06:00.000Z";
 		sqlite.exec(`INSERT INTO tedis(id,organization_id,name,slug) VALUES('fictional','o','Executor','executor');
 			INSERT INTO work_items(id,org_id,title,disposition,created_at,admission_spec_revision,work_class,purpose_exception_expires_at)
 			VALUES('deferred','o','Waiting task','accepted','2026-01-01','r','maintenance','2026-11-30T00:00:00.000Z'),
@@ -325,13 +325,17 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 				workItemId: "deferred",
 				derivedAt: at,
 			});
+		let nextStartAt = start;
 		for (const [n, hours] of [
 			[1, 1],
-			[2, 1],
-			[3, 4],
+			[2, 4],
+			[3, 24],
 			[4, 24],
 			[5, 24],
 		] as const) {
+			start = nextStartAt;
+			finish = new Date(Date.parse(start) + 300_000).toISOString();
+			now = new Date(Date.parse(finish) + 60_000).toISOString();
 			admission.run(`admission-${n}`, start, start);
 			attempt.run(
 				`attempt-${n}`,
@@ -351,7 +355,18 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 			expect(result.state).toBe("not_before");
 			expect(result.reasons[0]?.detail).toContain("Waiting on publication");
 			expect(result.reasons[0]?.detail).toContain(retryAt);
+			expect(
+				(await readiness(new Date(Date.parse(retryAt) - 1).toISOString()))
+					.ready,
+			).toBe(false);
 			expect((await readiness(retryAt)).ready).toBe(true);
+			nextStartAt = retryAt;
+			// Recreating the client models a new process reading durable history.
+			const restarted = await deriveWorkItemReadiness(
+				createDbQueryClient(createD1Facade(sqlite)),
+				{ orgId: "o", workItemId: "deferred", derivedAt: now },
+			);
+			expect(restarted.reasons).toEqual(result.reasons);
 		}
 		const projection = await listWorkItemReadinessProjection(db, {
 			orgId: "o",
@@ -361,6 +376,7 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 			projection.data.find((row) => row.workItem.id === "deferred")?.readiness
 				.state,
 		).toBe("not_before");
+		// Changed prose is not evidence that the underlying wait resolved.
 		admission.run("different-reason", start, start);
 		attempt.run(
 			"different-reason",
@@ -372,33 +388,39 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 			JSON.stringify({
 				laneResult: {
 					outcome: "deferred",
-					reason: "Waiting on production access",
+					reason: "Publication is still pending; see the latest progress note",
 				},
 			}),
 		);
 		expect((await readiness()).reasons[0]?.detail).toContain(
-			"2026-11-22T02:05:00.000Z",
+			new Date(Date.parse(finish) + 24 * 3_600_000).toISOString(),
 		);
 		// Runner heartbeats and its own progress do not wake a parked task.
 		sqlite.exec(
-			`UPDATE work_items SET updated_at='2026-11-22T01:06:00.000Z' WHERE id='deferred'`,
+			`UPDATE work_items SET updated_at='${now}' WHERE id='deferred';
+			INSERT INTO work_items(id,org_id,title,disposition,created_at,admission_spec_revision)
+			VALUES('unrelated','o','Another task','accepted','${now}','r');
+			INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,body,created_at)
+			VALUES('note','o','unrelated','system','Another task changed','${now}');
+			INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,rationale,expires_at,created_at)
+			VALUES('unrelated-approval','o','unrelated',1,'publication','publish','{}','system','tedix','tedi','fictional','Another approval','2026-11-30','${now}')`,
 		);
 		expect((await readiness()).ready).toBe(false);
 		sqlite.exec(
-			`UPDATE work_items SET updated_at='2026-11-22T01:06:00.000Z' WHERE id='dependency'`,
+			`UPDATE work_items SET updated_at='${now}' WHERE id='dependency'`,
 		);
 		expect((await readiness()).ready).toBe(true);
 		sqlite.exec(`UPDATE work_items SET updated_at=NULL WHERE id='dependency';
-			UPDATE work_items SET metadata=json_set(metadata,'$.decisionContinuation.at','2026-11-22T01:06:00.000Z') WHERE id='deferred'`);
+			UPDATE work_items SET metadata=json_set(metadata,'$.decisionContinuation.at','${now}') WHERE id='deferred'`);
 		expect((await readiness()).ready).toBe(true);
 		sqlite.exec(`UPDATE work_items SET metadata='{}' WHERE id='deferred';
 			INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,rationale,expires_at,created_at)
-			VALUES('p','o','deferred',1,'publication','publish','{}','system','tedix','tedi','fictional','Review publication','2026-11-30','2026-11-22T01:06:00.000Z')`);
+			VALUES('p','o','deferred',1,'publication','publish','{}','system','tedix','tedi','fictional','Review publication','2026-11-30','${now}')`);
 		expect((await readiness()).ready).toBe(true);
 		// A run after that change starts a fresh streak.
-		const nextStart = "2026-11-22T01:07:00.000Z";
-		const nextFinish = "2026-11-22T01:08:00.000Z";
-		const nextNow = "2026-11-22T01:09:00.000Z";
+		const nextStart = new Date(Date.parse(now) + 60_000).toISOString();
+		const nextFinish = new Date(Date.parse(nextStart) + 60_000).toISOString();
+		const nextNow = new Date(Date.parse(nextFinish) + 60_000).toISOString();
 		admission.run("admission-6", nextStart, nextStart);
 		attempt.run(
 			"attempt-7",
@@ -412,7 +434,7 @@ it("backs off repeated deferrals and wakes when the task, a dependency or an app
 			}),
 		);
 		expect((await readiness(nextNow)).reasons[0]?.detail).toContain(
-			"2026-11-22T02:08:00.000Z",
+			new Date(Date.parse(nextFinish) + 3_600_000).toISOString(),
 		);
 		sqlite.exec(
 			`UPDATE work_items SET version=2,admission_spec_revision='r2' WHERE id='deferred'`,

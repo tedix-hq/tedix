@@ -4080,6 +4080,36 @@ export class LaneDispatcher {
 				}
 
 				if (
+					previous?.phase === "deferred" &&
+					previous.laneResult?.outcome === "deferred" &&
+					!previous.laneResult.notBefore &&
+					!previous.held &&
+					!previous.approvalWait &&
+					!waitsForRunAnswer(previous) &&
+					Date.now() < (previous.recheckAt ?? 0)
+				) {
+					const key = `deferral:${item.id}:${item.version}`;
+					if (Date.now() >= (this.recheckAfter.get(key) ?? 0)) {
+						const readiness = await this.call<{
+							ready: boolean;
+							gates?: Array<{ gate: string; evaluation: string }>;
+						}>(["work", "readiness", item.id]);
+						// Only canonical readiness can release a saved wait after a
+						// dependency or approval change; a restart is not a change.
+						if (
+							readiness.ready &&
+							readiness.gates?.some(
+								(gate) =>
+									gate.gate === "not_before" && gate.evaluation === "passed",
+							)
+						) {
+							previous.recheckAt = 0;
+							this.save(this.path(item), previous);
+						} else this.holdRecheck(key, previous.recheckAt);
+					}
+				}
+
+				if (
 					previous?.phase === "settled" &&
 					!previous.verification &&
 					previous.outcome === "failed" &&

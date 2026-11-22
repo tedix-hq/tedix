@@ -60,6 +60,8 @@ export async function workDeferralWait(
 	)`);
 	const changedAt = change?.at ?? "";
 	if (changedAt > latest.startedAt) return;
+	// Free-form explanations can paraphrase the same blocker on every run.
+	// Only a relevant state change resets consecutive deferred Attempts.
 	let count = 0;
 	for (const attempt of attempts) {
 		const previous = attempt.metadata.laneResult;
@@ -72,13 +74,12 @@ export async function workDeferralWait(
 			Array.isArray(previous) ||
 			previous.outcome !== "deferred" ||
 			typeof previous.reason !== "string" ||
-			previous.reason.trim().replace(/\s+/g, " ") !== reason
+			!previous.reason.trim()
 		)
 			break;
 		count++;
 	}
-	// The first repeat waits one hour, then four, then 24 at the ceiling.
-	const hours = count <= 2 ? 1 : count === 3 ? 4 : 24;
+	const hours = count <= 1 ? 1 : count === 2 ? 4 : 24;
 	const declared =
 		typeof result.notBefore === "string" ? result.notBefore : result.until;
 	const declaredAt = typeof declared === "string" ? Date.parse(declared) : NaN;
@@ -90,5 +91,5 @@ export async function workDeferralWait(
 					Number.isFinite(declaredAt) ? declaredAt : 0,
 				);
 	if (retryAt <= Date.parse(now)) return;
-	return `Deferred${count > 1 ? ` ${count} times for the same reason` : ""}: ${reason.slice(0, 1700)}. Recheck at ${new Date(retryAt).toISOString()}; task, dependency or approval changes wake it sooner.`;
+	return `Deferred${count > 1 ? ` ${count} times without a task, dependency or approval change` : ""}: ${reason.slice(0, 1700)}. Recheck at ${new Date(retryAt).toISOString()}; task, dependency or approval changes wake it sooner.`;
 }
