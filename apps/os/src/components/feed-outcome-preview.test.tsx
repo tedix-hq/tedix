@@ -373,3 +373,13 @@ it.each([{ kind: "signal" }, { workItemId: null }])(
 		expect(api.previewEvidence).not.toHaveBeenCalled();
 	},
 );
+
+it("keeps evidence from another attempt out of a result post", async () => {
+	api.listEvidence.mockResolvedValue({
+		data: [{ ...imageRow, attemptId: evidenceId }],
+		nextCursor: null,
+	});
+	await mount(true, { id: "attempt:" + workId });
+	await shows("No preview in the first five evidence records");
+	expect(api.previewEvidence).not.toHaveBeenCalled();
+});

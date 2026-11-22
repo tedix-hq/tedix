@@ -27,8 +27,14 @@ export function FeedOutcomePreview({
 		}),
 		enabled,
 	});
+	const attemptId = item.id.startsWith("attempt:")
+		? item.id.slice("attempt:".length)
+		: null;
 	const rows = (enabled ? (evidence.data?.data ?? []) : []).filter(
-		(row) => row.disposition !== "rejected" && row.disposition !== "superseded",
+		(row) =>
+			(!attemptId || row.attemptId === attemptId) &&
+			row.disposition !== "rejected" &&
+			row.disposition !== "superseded",
 	);
 	const image = rows.find(
 		(row) =>
