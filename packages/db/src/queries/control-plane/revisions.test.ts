@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
@@ -46,6 +47,116 @@ function setup(): DbClient {
 }
 
 describe("immutable control-plane revisions", () => {
+	it("migrates all stored Auto slots with recovery values and keeps a later Auto choice", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		try {
+			sqlite.exec(schemaDdl(organizations, runtimeProfiles));
+			const auto = "cloudflare/auto";
+			const terra = "azure-openai/gpt-6.1-terra";
+			const configs = [
+				{
+					modelPolicy: {
+						chatModelRef: auto,
+						cronModelRef: auto,
+						observerModelRef: auto,
+					},
+				},
+				{
+					modelPolicy: {
+						chatModelRef: auto,
+						cronModelRef: "chosen/cron",
+						observerModelRef: null,
+						temperature: 0.7,
+					},
+					channelPolicy: { enabled: true },
+				},
+				{ modelPolicy: { chatModelRef: "chosen/chat", cronModelRef: auto } },
+				{ modelPolicy: { chatModelRef: terra, observerModelRef: auto } },
+				{ modelPolicy: { chatModelRef: "chosen/chat", cronModelRef: null } },
+				{ channelPolicy: { enabled: true } },
+			];
+			const insert = sqlite.prepare(`INSERT INTO runtime_profiles
+				(id, name, slug, scope, status, version, config)
+				VALUES (?, 'Profile', ?, 'system', ?, ?, ?)`);
+			for (const [index, config] of configs.entries()) {
+				insert.run(
+					`rp-${index}`,
+					`profile-${index}`,
+					index === 0 ? "archived" : "active",
+					index + 1,
+					JSON.stringify(config),
+				);
+			}
+			sqlite.exec(
+				readFileSync(
+					new URL(
+						"../../../drizzle/20261122091911_runtime_profile_auto_to_terra/migration.sql",
+						import.meta.url,
+					),
+					"utf8",
+				),
+			);
+			const db = createDbClient(createD1Facade(sqlite));
+			for (const [index, config] of configs.entries()) {
+				const migrated = await getRuntimeProfileById(db, `rp-${index}`);
+				if (index < 4) {
+					const policy: Record<string, string | number | null | undefined> = {
+						...config.modelPolicy,
+					};
+					for (const slot of [
+						"chatModelRef",
+						"cronModelRef",
+						"observerModelRef",
+					] as const) {
+						if (policy[slot] === auto) policy[slot] = terra;
+					}
+					expect(migrated?.config).toEqual({
+						...config,
+						modelPolicy: policy,
+						modelPolicyBeforeAutoToTerra20261122: config.modelPolicy,
+					});
+				} else {
+					expect(migrated?.config).toEqual(config);
+				}
+			}
+
+			// Publication uses the normal write path after the one-time migration.
+			const chosen = await publishRuntimeProfileRevision(db, {
+				revisionId: "rp-3",
+				config: {
+					modelPolicy: {
+						chatModelRef: auto,
+						cronModelRef: auto,
+						observerModelRef: auto,
+					},
+				},
+			});
+			if (!chosen.ok) throw new Error("expected Auto publication");
+			expect(
+				(await getRuntimeProfileById(db, chosen.revision.id))?.config
+					.modelPolicy,
+			).toEqual({
+				chatModelRef: auto,
+				cronModelRef: auto,
+				observerModelRef: auto,
+			});
+
+			// An operator can restore the saved policy without touching other config.
+			sqlite.exec(`UPDATE runtime_profiles
+				SET config = json_remove(json_set(config, '$.modelPolicy',
+					json_extract(config, '$.modelPolicyBeforeAutoToTerra20261122')),
+					'$.modelPolicyBeforeAutoToTerra20261122')
+				WHERE json_type(config, '$.modelPolicyBeforeAutoToTerra20261122') = 'object'`);
+			for (const [index, config] of configs.entries()) {
+				expect(
+					(await getRuntimeProfileById(db, `rp-${index}`))?.config,
+				).toEqual(config);
+			}
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("publishes a successor without mutating the pinned source revision", async () => {
 		const db = setup();
 		const result = await publishRuntimeProfileRevision(db, {
