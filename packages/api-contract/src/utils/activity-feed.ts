@@ -223,10 +223,16 @@ export function machineText(text: string) {
  * colon ("Blocked measurement handoff: … authorized=false").
  */
 export function readableLead(body: string, copy: FeedCopy = DEFAULT_FEED_COPY) {
-	const readable = (text: string) => {
+	const readable = (raw: string) => {
+		// "Landed 03417c956 on main." reads as "Landed on main."
+		const text = raw
+			.replace(/\s*\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b/g, "")
+			.replace(/\s+([.,;:!?])/g, "$1");
 		if (machineText(text)) return undefined;
+		if (text !== raw && (text.match(/\p{L}+/gu) ?? []).length < 3)
+			return undefined;
 		const plain = plainFeedText(text, copy);
-		return plain && /\p{L}/u.test(plain) && plain.length <= 200
+		return plain && /\p{L}/u.test(plain) && plain.length <= 240
 			? plain
 			: undefined;
 	};
@@ -243,7 +249,7 @@ export function readableLead(body: string, copy: FeedCopy = DEFAULT_FEED_COPY) {
 	if (!first) return undefined;
 	const whole = readable(first);
 	if (whole) return whole;
-	const label = /^([^:]{6,100}):\s/.exec(first)?.[1];
+	const label = /^([^:]{6,160}):\s/.exec(first)?.[1];
 	const lead = label && readable(label);
 	return lead && lead.includes(" ") ? `${lead}.` : undefined;
 }

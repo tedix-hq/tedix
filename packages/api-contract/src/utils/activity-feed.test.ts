@@ -16,7 +16,15 @@ it.each([
 		"Live API serves c80547767, which contains f3858f2a2. Should I rerun the drill?",
 		"Should I rerun the drill?",
 	],
+	[
+		"Landed 03417c956 on main. Live case: comment on 887d68b3 (authorized false).",
+		"Landed on main.",
+	],
 	["Deploy c80547767 contains f3858f2a2.", undefined],
+	[
+		'Decision recorded for “What should happen with "Preview a staged CMS theme build before activating it" ” answered: Give it to Claude Code: Claude Code takes the task over and starts it on its next check.',
+		'Decision recorded for “What should happen with "Preview a staged CMS theme build before activating it" ” answered: Give it to Claude Code: Claude Code takes the task over and starts it on its next check.',
+	],
 ])("readableLead(%j)", (body, lead) => {
 	expect(readableLead(body)).toBe(lead);
 });
