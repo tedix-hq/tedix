@@ -25,6 +25,12 @@ describe("quietConversations", () => {
 			[
 				message("lead:agent:main:fresh", 5, "message.received", "Still here"),
 				message("lead:telegram:42", 40, "message.received", "Remember this"),
+				message(
+					"lead:agent:main:repository-observer:obs-1",
+					40,
+					"message.received",
+					"Check this push",
+				),
 				message("lead:agent:main:chat-7", 40, "message.completed", "Done."),
 				message("lead:agent:main:chat-7", 41, "message.received", "Ship it"),
 				message("lead:agent:main:old", 200, "message.received", "Long ago"),

@@ -71,7 +71,14 @@ export function quietConversations(
 			conversationId: event.conversationId,
 			tediRef: slug,
 		});
-		if (!sessionKey.toLowerCase().startsWith("agent:")) continue;
+		const key = sessionKey.toLowerCase();
+		// A repository observer wake reads like a chat but no person wrote it;
+		// it was 142 of the CTO's 162 reflections on 21-22 Nov 2026.
+		if (
+			!key.startsWith("agent:") ||
+			key.startsWith("agent:main:repository-observer:")
+		)
+			continue;
 		const list = byConversation.get(event.conversationId) ?? [];
 		list.push(event);
 		byConversation.set(event.conversationId, list);

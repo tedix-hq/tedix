@@ -647,7 +647,7 @@ export function durableObjectReference(host: RuntimeCronHost): string {
  * the tediId from persisted DO state (a zombie keeps its own SQLite across a
  * rebind), reads the canonical id from D1, and only reports orphan on a
  * definite mismatch. A successful lookup with no row proves the tedi was
- * deleted and is also definitive. Missing local identity, a present row with
+ * deleted, and a retired row proves it is out of service; both are definitive. Missing local identity, a present row with
  * no canonical id, and lookup errors remain fail-safe (`false`).
  */
 export async function isOrphanedIsolateForCron(
@@ -656,6 +656,9 @@ export async function isOrphanedIsolateForCron(
 	const tediId = host.identityValue(host.state.tediId);
 	if (!tediId) throw new Error("Canonical runtime identity is missing");
 	const row = await getTediRuntimeCanonicalIsolateId(host.env.DB, tediId);
+	// A retired tedi keeps its row, but nothing should wake it: five retired
+	// tedis still ran maintenance every five minutes on 22 Nov 2026.
+	if (row.retired) return true;
 	if (row.exists && !row.isolateAgentId)
 		throw new Error("Canonical runtime custody is unresolved");
 	// A successful query with no row proves this persisted DO outlived a hard

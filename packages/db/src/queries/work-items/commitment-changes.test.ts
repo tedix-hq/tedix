@@ -150,6 +150,19 @@ describe("member commitment changes", () => {
 			await listCommitmentChanges(db, after, through, "production"),
 		).toEqual([]);
 	});
+
+	it("wakes a tedi for an approval a person resolved, not for a policy decision", async () => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(`UPDATE work_items SET accepted_at='${after}';
+		INSERT INTO tedi_approval_requests(id,tedi_id,org_id,action_type,description,payload,status,created_at,expires_at,resolved_at,resolved_by)
+		VALUES ('by-person','personal','org-one','mcp.tool_call','Send email','{}','approved','${after}','${through}','${due}','human'),
+		('by-policy','personal','org-one','mcp.tool_call','Report status','{}','approved','${due}','${through}','${due}','policy');`);
+		expect(
+			await listCommitmentChanges(db, after, through, "production"),
+		).toEqual([
+			expect.objectContaining({ kind: "approval", objectId: "by-person" }),
+		]);
+	});
 });
 
 describe("existing follow-up cards", () => {

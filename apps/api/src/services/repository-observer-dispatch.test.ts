@@ -36,9 +36,7 @@ vi.mock("@tedix/db/queries/repository-observer", () => ({
 	getRepositoryObservation: deps.get,
 	settleRecoveredRepositoryCiObservations: deps.settleCi,
 	settleRecoveredRepositoryShipObservations: deps.settleShip,
-	// Wake-slot accounting is covered in repository-observer-wake.test.ts.
 	claimRepositoryObserverWake: async () => true,
-	deferRepositoryObserverWake: async () => {},
 }));
 vi.mock("@tedix/db/queries/skill-schedules", () => ({
 	getSkillSchedule: deps.schedule,
@@ -195,8 +193,8 @@ it.each([{ enabled: false }, undefined])(
 	async (schedule) => {
 		const project = await configurePolicy(false);
 		deps.schedule.mockResolvedValue(schedule);
-		const push = { ...event, kind: "push" as const };
-		const first = await observeRepositoryEvent(context, "org-example", push);
+		const red = { ...event, kind: "ci_red" as const };
+		const first = await observeRepositoryEvent(context, "org-example", red);
 		expect(deps.create).toHaveBeenCalledTimes(1);
 		expect(deps.enqueue).toHaveBeenCalledTimes(1);
 		expect(deps.enqueue).toHaveBeenCalledWith(
@@ -205,7 +203,7 @@ it.each([{ enabled: false }, undefined])(
 				idempotencyKey: first.observationId,
 			}),
 		);
-		const second = await observeRepositoryEvent(context, "org-example", push);
+		const second = await observeRepositoryEvent(context, "org-example", red);
 		expect(second.observationId).toBe(first.observationId);
 		expect(deps.enqueue.mock.calls[1]?.[0]?.idempotencyKey).toBe(
 			first.observationId,

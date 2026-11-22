@@ -1,12 +1,10 @@
-import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, sql, type SQL } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
 import { projects } from "../schema/projects";
 import {
-	deferredRepositoryWake,
 	openRepositoryObservation,
-	wokenRepositoryObservation,
 	workAttempts,
 	workItemComments,
 	workItems,
@@ -306,41 +304,11 @@ export async function claimRepositoryRetryDelivery(
 	return rows[0]?.evidenceUrl ?? null;
 }
 
-/** How long a woken, unreported observation holds one of its owner's wake slots. */
-export const REPOSITORY_OBSERVER_WAKE_WINDOW_MINUTES = 30;
-
-/**
- * Atomically take a wake slot for an observation. Each wake is a full turn on
- * the owner tedi, and one tedi's Durable Object shares one isolate's memory, so
- * a busy branch must not start a turn per push. The slot is taken only while
- * fewer than `limit` other observations of the project were woken within the
- * wake window and are still unreported; `limit: null` always takes it (red
- * incidents). A redelivery of an already-woken observation keeps its slot.
- * One UPDATE decides, so concurrent deliveries cannot both pass the count.
- */
+/** Record that the owner tedi was woken for an observation. */
 export async function claimRepositoryObserverWake(
 	db: DbQueryClient,
-	p: {
-		orgId: string;
-		projectId: string;
-		id: string;
-		now: string;
-		limit: number | null;
-	},
+	p: { orgId: string; id: string; now: string },
 ): Promise<boolean> {
-	const since = new Date(
-		Date.parse(p.now) - REPOSITORY_OBSERVER_WAKE_WINDOW_MINUTES * 60_000,
-	).toISOString();
-	const capacity =
-		p.limit === null
-			? sql`1 = 1`
-			: // The slot holders are the project's woken, unreported observations
-				// whose wake is recent. The count states the condition of
-				// idx_work_items_woken_repository_observation_columns word for word and
-				// so reads those few rows, not every Work Item of the project
-				// (about 3,200 rows per call in production, 10 to 17 Nov 2026).
-				// A recent wake is a wake, so the condition changes no count.
-				sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND ${wokenRepositoryObservation} AND active.observer_woken_at >= ${since}) < ${p.limit}`;
 	const rows = await db
 		.update(workItems)
 		.set({
@@ -351,119 +319,23 @@ export async function claimRepositoryObserverWake(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.id, p.id),
 				sql`${workItems.repositoryObserver} = 1`,
-				sql`(${workItems.observerWokenAt} >= ${since} OR ${capacity})`,
 			),
 		)
 		.returning({ id: workItems.id });
 	return rows.length === 1;
 }
 
-/** Give back a slot whose wake never reached the owner, keeping it deferred. */
+/** Forget a wake that never reached the owner, so the retried event wakes it again. */
 export async function releaseRepositoryObserverWake(
 	db: DbQueryClient,
-	p: { orgId: string; id: string; now: string },
+	p: { orgId: string; id: string },
 ) {
 	await db
 		.update(workItems)
 		.set({
-			metadata: sql`json_set(json_remove(${workItems.metadata}, '$.observerWokenAt'), '$.observerWakeDeferredAt', ${p.now})`,
+			metadata: sql`json_remove(${workItems.metadata}, '$.observerWokenAt')`,
 		})
 		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, p.id)));
-}
-
-/** Record that a push observation is waiting for a free wake slot. */
-export async function deferRepositoryObserverWake(
-	db: DbQueryClient,
-	p: { orgId: string; id: string; now: string },
-) {
-	await db
-		.update(workItems)
-		.set({
-			metadata: sql`json_set(${workItems.metadata}, '$.observerWakeDeferredAt', ${p.now})`,
-		})
-		.where(
-			and(
-				eq(workItems.orgId, p.orgId),
-				eq(workItems.id, p.id),
-				sql`${workItems.observerWokenAt} IS NULL`,
-			),
-		);
-}
-
-/**
- * How far back the recent half of the deferred read seeks. Settled advisory
- * pushes stay pending for 24 hours; the extra two days cover a creation time
- * written with any UTC offset, so the seek never drops a row the 24-hour check
- * would keep. It relies on creation times starting with an ISO date, which
- * every writer of Work Items produces.
- */
-const DEFERRED_PUSH_SEEK_DAYS = 3;
-
-/**
- * Deferred push observations still worth a turn, newest first: on a
- * fast-forward branch the newest push carries the freshest state, and pushes
- * that never get a slot stop receiving advisory reviews after 24 hours.
- *
- * Runs on every maintenance tick across all organizations. Both halves use a
- * partial index and state its WHERE word for word: recent observations of any
- * disposition through the deferred-wake index, and older ones, which are
- * pending only while still open, through the open-observation index.
- */
-export async function deferredRepositoryPushObservations(
-	db: DbQueryClient,
-	limit = 20,
-) {
-	const recentFrom = new Date(
-		Date.now() - DEFERRED_PUSH_SEEK_DAYS * 24 * 60 * 60_000,
-	)
-		.toISOString()
-		.slice(0, 10);
-	const newest = (half: SQL | undefined) =>
-		db
-			.select({
-				id: workItems.id,
-				orgId: workItems.orgId,
-				projectId: workItems.projectId,
-				metadata: workItems.metadata,
-				createdAt: workItems.createdAt,
-			})
-			.from(workItems)
-			.where(
-				and(
-					half,
-					sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
-					pendingObservation(),
-				),
-			)
-			.orderBy(desc(workItems.createdAt), desc(workItems.id))
-			.limit(limit);
-	const recent = newest(
-		and(deferredRepositoryWake, gte(workItems.createdAt, recentFrom)),
-	).as("recent_deferred");
-	// The same deferred check, written with a unary plus so this half cannot
-	// be planned onto the deferred-wake index, which also holds every settled
-	// push that never got a slot.
-	const olderOpen = newest(
-		and(
-			openRepositoryObservation,
-			lt(workItems.createdAt, recentFrom),
-			sql`+json_extract(${workItems.metadata}, '$.observerWakeDeferredAt') IS NOT NULL`,
-			sql`${workItems.observerWokenAt} IS NULL`,
-			sql`${workItems.report} IS NULL`,
-		),
-	).as("older_open_deferred");
-	const rows = await db
-		.select()
-		.from(recent)
-		.unionAll(db.select().from(olderOpen))
-		.orderBy(desc(recent.createdAt), desc(recent.id))
-		.limit(limit);
-	return rows.map(({ id, orgId, projectId, metadata }) => ({
-		id,
-		orgId,
-		projectId,
-		metadata,
-	}));
 }
 
 /** Dedicated human-authorized route; generic project metadata edits preserve this key atomically. */

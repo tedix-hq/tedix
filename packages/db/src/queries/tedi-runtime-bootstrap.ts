@@ -359,12 +359,20 @@ export async function updateTediRuntimeApprovalResolution(
 export async function getTediRuntimeCanonicalIsolateId(
 	db: RuntimeD1Read,
 	tediId: string,
-): Promise<{ exists: boolean; isolateAgentId: string | null }> {
+): Promise<{
+	exists: boolean;
+	isolateAgentId: string | null;
+	retired: boolean;
+}> {
 	const row = await db
 		.prepare(
-			"SELECT isolate_agent_id AS isolateAgentId FROM tedis WHERE id = ? LIMIT 1",
+			"SELECT isolate_agent_id AS isolateAgentId, retired_at AS retiredAt FROM tedis WHERE id = ? LIMIT 1",
 		)
 		.bind(tediId)
-		.first<{ isolateAgentId: string | null }>();
-	return { exists: row != null, isolateAgentId: row?.isolateAgentId ?? null };
+		.first<{ isolateAgentId: string | null; retiredAt: string | null }>();
+	return {
+		exists: row != null,
+		isolateAgentId: row?.isolateAgentId ?? null,
+		retired: row?.retiredAt != null,
+	};
 }

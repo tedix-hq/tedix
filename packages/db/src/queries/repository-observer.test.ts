@@ -21,10 +21,6 @@ import {
 	settleAgedRepositoryPushObservations,
 	settleRecoveredRepositoryShipObservations,
 	pendingRepositoryObservations,
-	claimRepositoryObserverWake,
-	deferRepositoryObserverWake,
-	deferredRepositoryPushObservations,
-	releaseRepositoryObserverWake,
 } from "./repository-observer";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -495,84 +491,6 @@ it("skips legacy escalations without closing unresolved red Work", async () => {
 	).toBe("proposed");
 });
 
-it("bounds concurrent push wakes per project, atomically and across redeliveries", async () => {
-	const { db } = fixture();
-	const now = "2026-10-25T16:00:00.000Z";
-	const later = "2026-10-25T16:10:00.000Z";
-	for (const id of ["push-a", "push-b", "push-c"])
-		await createRepositoryObservation(db, {
-			...event,
-			id,
-			now: new Date().toISOString(),
-			deadline: null,
-			metadata: pushMetadata,
-		});
-	const claim = (id: string, at = now, limit: number | null = 2) =>
-		claimRepositoryObserverWake(db, {
-			orgId: event.orgId,
-			projectId: event.projectId,
-			id,
-			now: at,
-			limit,
-		});
-	const [a, b, c] = await Promise.all([
-		claim("push-a"),
-		claim("push-b"),
-		claim("push-c"),
-	]);
-	expect([a, b, c].filter(Boolean)).toHaveLength(2);
-	const waiting = !a ? "push-a" : !b ? "push-b" : "push-c";
-	const holder = waiting === "push-a" ? "push-b" : "push-a";
-	// A redelivery of a woken observation keeps its slot.
-	expect(await claim(holder, later)).toBe(true);
-	expect(await claim(waiting, later)).toBe(false);
-	await deferRepositoryObserverWake(db, {
-		orgId: event.orgId,
-		id: waiting,
-		now: later,
-	});
-	expect(
-		(await deferredRepositoryPushObservations(db)).map((row) => row.id),
-	).toEqual([waiting]);
-	// Red incidents are never deferred, and their turns take a slot too.
-	await createRepositoryObservation(db, { ...event, id: "red" });
-	expect(await claim("red", later, null)).toBe(true);
-	await reportRepositoryObservation(db, reportInput(holder, {}));
-	expect(await claim(waiting, later)).toBe(false);
-	// A report frees the slot for the deferred push.
-	await reportRepositoryObservation(db, reportInput("red", { stillRed: true }));
-	expect(await claim(waiting, later)).toBe(true);
-	expect(await deferredRepositoryPushObservations(db)).toEqual([]);
-	// Slots of turns that never reported expire after the wake window.
-	await createRepositoryObservation(db, {
-		...event,
-		id: "push-d",
-		now: new Date().toISOString(),
-		deadline: null,
-		metadata: pushMetadata,
-	});
-	expect(await claim("push-d", later)).toBe(false);
-	expect(await claim("push-d", "2026-10-25T16:41:00.000Z")).toBe(true);
-	// A wake that never reached the owner gives its slot back and stays deferred.
-	await releaseRepositoryObserverWake(db, {
-		orgId: event.orgId,
-		id: "push-d",
-		now: later,
-	});
-	expect(
-		(await deferredRepositoryPushObservations(db)).map((row) => row.id),
-	).toEqual(["push-d"]);
-	expect(
-		await claimRepositoryObserverWake(db, {
-			orgId: "other-org",
-			projectId: event.projectId,
-			id: "push-d",
-			now: later,
-			limit: 2,
-		}),
-	).toBe(false);
-});
-
 it.each(["completed", "cancelled"])(
 	"ages a push after its red follow-up is %s",
 	async (disposition) => {
@@ -694,12 +612,6 @@ it.each(["applied", "not_applicable", "unknown", "not_applied"])(
 it("does not revive manually cancelled pushes or review expired advisory records", async () => {
 	const { db, sqlite } = fixture();
 	await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
-	await deferRepositoryObserverWake(db, {
-		orgId: event.orgId,
-		id: event.id,
-		now: event.now,
-	});
-	expect(await deferredRepositoryPushObservations(db)).toEqual([]);
 	expect(
 		await pendingRepositoryObservations(db, event.orgId, event.projectId),
 	).toEqual([]);

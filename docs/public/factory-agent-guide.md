@@ -530,9 +530,10 @@ missing links. Blueprint setup uses its exact published revision and
 A repository observer is advisory. Store its repository, branch, owner tedi,
 lesson-trigger instructions and repair recipes in the factory project's
 `metadata.repositoryObserver` through `configure_repository_observer`.
-The owner matches approved memory lessons using the same trigger matcher as
-situational recall. It records one commit-watch comment with the lesson revision,
-verdict, evidence and proposed fix through `report_repository_observation`.
+For a red CI or Ship event, the owner matches approved memory lessons using the
+same trigger matcher as situational recall. It records one comment with the
+lesson revision, verdict, evidence and proposed fix through
+`report_repository_observation`.
 A claimed lesson application remains unverified until its evidence is checked.
 
 The optional `.github/workflows/tedix-observer.yml` reports main pushes when the
@@ -543,14 +544,10 @@ readable by anyone. GitHub's
 short-lived OIDC identity must match the configured repository, workflow,
 branch and pushed SHA. No stored API key is needed. A private release repository
 can be separately configured to report Ship outcomes from its own workflow.
-Events wake the owner through the existing tedi dispatcher; repeated delivery
-reuses the observation and comment.
-Each wake is a turn on the owner tedi. Push watches share
-`maxActivePushWakes` slots (default 2) per project. A push that arrives while
-the slots are taken waits. The 2-minute platform tick wakes waiting pushes,
-newest first, as reports free the slots. A slot whose turn has not reported
-frees itself after 30 minutes. Red incidents always wake, and they also hold a
-slot until reported.
+A push is recorded as delivery evidence for Work closeout and does not wake
+the owner. Red CI, red Ship and green Ship events wake the owner through the
+existing tedi dispatcher; each wake is a turn on the owner tedi, and repeated
+delivery reuses the observation and comment.
 By default, pausing the linked factory schedule rejects new observer events;
 a missing schedule also rejects them. A human administrator can explicitly set
 `pauseWithFactorySchedule: false` through `configure_repository_observer` when

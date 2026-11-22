@@ -4,9 +4,8 @@ const deps = vi.hoisted(() => ({
 	enqueue: vi.fn(),
 	create: vi.fn(),
 	claim: vi.fn(),
-	defer: vi.fn(),
 	release: vi.fn(),
-	deferred: vi.fn(),
+	lessons: vi.fn(async () => []),
 }));
 vi.mock("@orpc/server", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@orpc/server")>()),
@@ -30,20 +29,15 @@ vi.mock("@tedix/db/queries/projects", () => ({
 	}),
 }));
 vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
-	listApprovedAgentLessons: async () => [],
+	listApprovedAgentLessons: deps.lessons,
 }));
 vi.mock("@tedix/db/queries/repository-observer", () => ({
 	getRepositoryObservation: async () => null,
 	createRepositoryObservation: deps.create,
 	claimRepositoryObserverWake: deps.claim,
-	deferRepositoryObserverWake: deps.defer,
 	releaseRepositoryObserverWake: deps.release,
-	deferredRepositoryPushObservations: deps.deferred,
 }));
-import {
-	observeRepositoryEvent,
-	wakeDeferredRepositoryObservations,
-} from "./repository-observer";
+import { observeRepositoryEvent } from "./repository-observer";
 
 const context = { db: {} } as Parameters<typeof observeRepositoryEvent>[0];
 const push = {
@@ -68,72 +62,35 @@ beforeEach(() => {
 	deps.enqueue.mockResolvedValue({ status: "queued" });
 });
 
-it("defers a push watch when the owner has no free wake slot", async () => {
-	deps.claim.mockResolvedValue(false);
-	const result = await observeRepositoryEvent(context, "org-example", push);
-	expect(result.status).toBe("deferred");
-	expect(deps.claim).toHaveBeenCalledWith(
-		{},
-		expect.objectContaining({ limit: 2, projectId: "project-example" }),
-	);
-	expect(deps.defer).toHaveBeenCalledTimes(1);
-	expect(deps.enqueue).not.toHaveBeenCalled();
-});
-
-it("wakes a push watch that took a slot, and never defers a red Ship", async () => {
-	deps.claim.mockResolvedValue(true);
+it("records a push without a tedi turn, and wakes the owner for a red Ship", async () => {
 	expect(
 		(await observeRepositoryEvent(context, "org-example", push)).status,
-	).toBe("queued");
-	expect(deps.enqueue).toHaveBeenCalledTimes(1);
+	).toBe("recorded");
+	expect(deps.create).toHaveBeenCalledTimes(1);
+	expect(deps.lessons).not.toHaveBeenCalled();
+	expect(deps.enqueue).not.toHaveBeenCalled();
 
-	await observeRepositoryEvent(context, "org-example", {
-		...push,
-		kind: "ship_red",
-		surface: "api",
-	});
-	expect(deps.claim).toHaveBeenLastCalledWith(
-		{},
-		expect.objectContaining({ limit: null }),
-	);
-	expect(deps.defer).not.toHaveBeenCalled();
-});
-
-it("wakes deferred pushes into free slots and releases a slot whose wake failed", async () => {
-	const row = (id: string) => ({
-		id,
-		orgId: "org-example",
-		projectId: "project-example",
-		metadata: { event: push, lessons: [] },
-	});
-	deps.deferred.mockResolvedValue([row("newest"), row("older"), row("oldest")]);
-	deps.claim
-		.mockResolvedValueOnce(true)
-		.mockResolvedValueOnce(false)
-		.mockResolvedValue(true);
 	expect(
-		await wakeDeferredRepositoryObservations(context, Date.now() + 10_000),
-	).toBe(1);
-	// The project ran out of slots after the newest push; older rows wait.
-	expect(deps.claim).toHaveBeenCalledTimes(2);
+		(
+			await observeRepositoryEvent(context, "org-example", {
+				...push,
+				kind: "ship_red",
+				surface: "api",
+			})
+		).status,
+	).toBe("queued");
+	expect(deps.claim).toHaveBeenCalledTimes(1);
 	expect(deps.enqueue).toHaveBeenCalledTimes(1);
-
-	deps.claim.mockReset().mockResolvedValue(true);
-	deps.enqueue.mockReset().mockRejectedValue(new Error("runtime down"));
-	await expect(
-		wakeDeferredRepositoryObservations(context, Date.now() + 10_000),
-	).rejects.toThrow("runtime down");
-	expect(deps.release).toHaveBeenCalledWith(
-		{},
-		expect.objectContaining({ id: "newest" }),
-	);
 });
 
-it("releases the slot of a live event whose wake failed, so a retry can claim it", async () => {
-	deps.claim.mockResolvedValue(true);
+it("forgets the wake of a red Ship whose turn never started, so a retry wakes again", async () => {
 	deps.enqueue.mockRejectedValue(new Error("runtime down"));
 	await expect(
-		observeRepositoryEvent(context, "org-example", push),
+		observeRepositoryEvent(context, "org-example", {
+			...push,
+			kind: "ship_red",
+			surface: "api",
+		}),
 	).rejects.toThrow("runtime down");
 	expect(deps.release).toHaveBeenCalledWith(
 		{},

@@ -5,7 +5,6 @@ import { createD1Facade } from "../test/d1-facade";
 import { createMigratedSqlite } from "../test/migrated-sqlite";
 import {
 	claimRepositoryObserverWake,
-	deferredRepositoryPushObservations,
 	getRepositoryObservation,
 	overdueRepositoryObservations,
 	pendingRepositoryObservations,
@@ -21,15 +20,7 @@ const ADVISORY = "advisory push observation";
 const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
 
-/** The three sweeps as they were before they stated an index condition. */
-const LEGACY_DEFERRED = `SELECT id FROM work_items
-	WHERE json_extract(metadata, '$.repositoryObserver') = 1
-		AND json_extract(metadata, '$.event.kind') = 'push'
-		AND json_extract(metadata, '$.observerWakeDeferredAt') IS NOT NULL
-		AND json_extract(metadata, '$.observerWokenAt') IS NULL
-		AND json_extract(metadata, '$.report') IS NULL
-		AND (disposition IN ('proposed','accepted') OR (disposition = 'cancelled' AND json_extract(metadata, '$.settleReason') = '${ADVISORY}' AND julianday(created_at) >= julianday('now', '-24 hours')))
-	ORDER BY created_at DESC, id DESC LIMIT ?`;
+/** The sweeps as they were before they stated an index condition. */
 const LEGACY_OVERDUE = `SELECT id FROM work_items
 	WHERE json_extract(metadata, '$.repositoryObserver') = 1
 		AND json_extract(metadata, '$.event.kind') = 'ship_red'
@@ -371,47 +362,6 @@ describe.each<{ statistics: Statistics }>([
 	{ statistics: "analysed before the indexes" },
 	{ statistics: "analysed" },
 ])("repository observer sweeps, statistics: $statistics", ({ statistics }) => {
-	it("reads deferred pushes through the two partial indexes and returns what the table walk returned", async () => {
-		const { sqlite, db, plans } = fixture(statistics);
-		const all = ids(sqlite, LEGACY_DEFERRED, "500");
-		// Recent settled pushes, open pushes of any age; nothing settled
-		// longer than a day, woken, reported, owner-cancelled or not a push.
-		expect(all).toEqual([
-			"open-deferred-1h",
-			"deferred-1h",
-			"deferred-2h-other-org",
-			"deferred-tie-b",
-			"deferred-tie-a",
-			"deferred-seconds-only",
-			"deferred-23h",
-			"open-deferred-2d",
-			"open-deferred-10d",
-		]);
-		for (const limit of [1, 3, 5, 8, 20, 500]) {
-			plans.length = 0;
-			const rows = await deferredRepositoryPushObservations(db, limit);
-			expect(rows.map((row) => row.id)).toEqual(all.slice(0, limit));
-			expect(plans).toHaveLength(1);
-			expect(plans[0]).toContain(
-				`SEARCH work_items USING INDEX ${DEFERRED} (created_at>?)`,
-			);
-			expect(plans[0]).toContain(
-				`SEARCH work_items USING INDEX ${OPEN} (created_at<?)`,
-			);
-			expectOnlyThroughNewIndexes(plans);
-		}
-		const [first] = await deferredRepositoryPushObservations(db, 1);
-		expect(first).toEqual({
-			id: "open-deferred-1h",
-			orgId: ORG,
-			projectId: PROJECT,
-			metadata: expect.objectContaining({
-				repositoryObserver: 1,
-				event: expect.objectContaining({ kind: "push" }),
-			}),
-		});
-	});
-
 	it("claims overdue red incidents through the open-observation index, the same rows as before", async () => {
 		const { sqlite, db, plans, at } = fixture(statistics);
 		const now = at(0);
@@ -466,10 +416,8 @@ describe.each<{ statistics: Statistics }>([
 		await pendingRepositoryObservations(db, ORG, PROJECT);
 		await claimRepositoryObserverWake(db, {
 			orgId: ORG,
-			projectId: PROJECT,
 			id: "deferred-1h",
 			now: at(0),
-			limit: 2,
 		});
 		expect(plans.length).toBeGreaterThanOrEqual(3);
 		for (const plan of plans) {
@@ -493,9 +441,6 @@ describe.each<{ statistics: Statistics }>([
 it("answers the same on a database that does not have the indexes yet", async () => {
 	const { sqlite, db, at } = fixture("analysed", false);
 	const now = at(0);
-	expect(
-		(await deferredRepositoryPushObservations(db, 500)).map((row) => row.id),
-	).toEqual(ids(sqlite, LEGACY_DEFERRED, "500"));
 	const overdue = ids(sqlite, LEGACY_OVERDUE, now);
 	expect(
 		(await overdueRepositoryObservations(db, now)).map((row) => row.id).sort(),

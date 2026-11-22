@@ -3,7 +3,6 @@ import {
 	RepositoryObserverConfigSchema,
 	RepositoryEventSchema,
 	type RepositoryEvent,
-	type RepositoryObserverConfig,
 } from "@tedix/api-contract/schemas/repository-observer";
 import { AGENT_LESSON_TOPIC_PREFIX } from "@tedix/api-contract/schemas/agent-session-lessons";
 import {
@@ -179,12 +178,15 @@ export async function observeRepositoryEvent(
 		return { observationId: id, workItemId: id, status: "recovery_queued" };
 	}
 	const now = new Date().toISOString();
+	// Only a woken owner reads lessons; a push is recorded without a wake.
 	const lessons = (
-		await listApprovedAgentLessons(
-			context.db,
-			{ organizationId: orgId },
-			AGENT_LESSON_TOPIC_PREFIX,
-		)
+		event.kind === "push"
+			? []
+			: await listApprovedAgentLessons(
+					context.db,
+					{ organizationId: orgId },
+					AGENT_LESSON_TOPIC_PREFIX,
+				)
 	).map((r) => ({
 		id: r.id,
 		text: r.content,
@@ -246,123 +248,40 @@ export async function observeRepositoryEvent(
 		},
 	});
 	if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-	let deferred = false;
-	if (!row.metadata?.report || event.kind === "ship_red") {
-		// Red incidents always wake. Advisory push watches share a bounded number
-		// of slots: every wake is a turn on the same owner tedi, whose Durable
-		// Object reset repeatedly under one concurrent turn per push (25 Oct).
-		const now = new Date().toISOString();
-		const woken = await observations.claimRepositoryObserverWake(context.db, {
-			orgId,
-			projectId: project.id,
-			id,
-			now,
-			limit: event.kind === "push" ? config.maxActivePushWakes : null,
-		});
-		if (woken) {
-			try {
-				await wakeObserver(
-					context,
-					config.ownerTediId,
-					id,
-					event.kind === "push" || event.kind === "ci_red"
-						? id
-						: await observerId(`${id}:${JSON.stringify(event)}`),
-					config.instructions,
-					{ observationId: id, event, lessons: row.metadata?.lessons },
-				);
-			} catch (error) {
-				// A wake that never reached the owner must not hold a slot for the
-				// whole wake window; the retried event or the tick claims it again.
-				await observations.releaseRepositoryObserverWake(context.db, {
-					orgId,
-					id,
-					now: new Date().toISOString(),
-				});
-				throw error;
-			}
-		} else {
-			await observations.deferRepositoryObserverWake(context.db, {
-				orgId,
-				id,
-				now,
-			});
-			deferred = true;
-		}
-	}
-	return {
+	const receipt = {
 		observationId: id,
 		workItemId: String(row.metadata?.targetWorkItemId ?? id),
-		status: row.metadata?.report
-			? "reported"
-			: deferred
-				? "deferred"
-				: "queued",
 	};
+	// A push is recorded as delivery evidence for Work closeout. Its advisory
+	// review turn was dropped on 22 Nov 2026: in two weeks 724 reports landed
+	// on already-settled items that nobody opened, .
+	if (event.kind === "push") return { ...receipt, status: "recorded" };
+	if (row.metadata?.report && event.kind !== "ship_red")
+		return { ...receipt, status: "reported" };
+	await observations.claimRepositoryObserverWake(context.db, {
+		orgId,
+		id,
+		now: new Date().toISOString(),
+	});
+	try {
+		await wakeObserver(
+			context,
+			config.ownerTediId,
+			id,
+			event.kind === "ci_red"
+				? id
+				: await observerId(`${id}:${JSON.stringify(event)}`),
+			config.instructions,
+			{ observationId: id, event, lessons: row.metadata?.lessons },
+		);
+	} catch (error) {
+		// The retried event wakes the owner again.
+		await observations.releaseRepositoryObserverWake(context.db, { orgId, id });
+		throw error;
+	}
+	return { ...receipt, status: "queued" };
 }
 
-/**
- * Wake deferred push observations into free slots, newest first. Called from
- * the 2-minute maintenance tick; returns how many were woken.
- */
-export async function wakeDeferredRepositoryObservations(
-	context: BaseContext,
-	deadline: number,
-): Promise<number> {
-	const configs = new Map<string, RepositoryObserverConfig | null>();
-	let woken = 0;
-	for (const row of await observations.deferredRepositoryPushObservations(
-		context.db,
-	)) {
-		if (Date.now() >= deadline || !row.projectId) break;
-		const key = `${row.orgId}:${row.projectId}`;
-		if (!configs.has(key)) {
-			const loaded = await observerConfig(
-				context,
-				row.orgId,
-				row.projectId,
-			).catch(() => null);
-			configs.set(key, loaded?.config ?? null);
-		}
-		const config = configs.get(key);
-		if (!config) continue;
-		const claimed = await observations.claimRepositoryObserverWake(context.db, {
-			orgId: row.orgId,
-			projectId: row.projectId,
-			id: row.id,
-			now: new Date().toISOString(),
-			limit: config.maxActivePushWakes,
-		});
-		// Slots are per project; a full project skips its older rows too.
-		if (!claimed) {
-			configs.set(key, null);
-			continue;
-		}
-		try {
-			await wakeObserver(
-				context,
-				config.ownerTediId,
-				row.id,
-				row.id,
-				config.instructions,
-				{
-					observationId: row.id,
-					event: row.metadata?.event,
-					lessons: row.metadata?.lessons,
-				},
-			);
-			woken++;
-		} catch (error) {
-			await observations.releaseRepositoryObserverWake(context.db, {
-				orgId: row.orgId,
-				id: row.id,
-				now: new Date().toISOString(),
-			});
-			throw error;
-		}
-	}
-	return woken;
-}
 async function wakeObserver(
 	context: BaseContext,
 	tediId: string,

@@ -291,7 +291,9 @@ export async function listCommitmentChanges(
 			SELECT 'tedi-approval:' || p.id || ':' || p.status, p.org_id, t.id, t.slug,
 				'approval', p.id, p.status, p.resolved_at
 			FROM resolved_tedi_approvals p JOIN tedis t ON t.id = p.tedi_id AND t.organization_id = p.org_id AND t.status = 'active'
-			WHERE p.resolved_at > ${after} AND p.resolved_at <= ${through} AND p.resolved_by != t.id AND p.status IN ('approved', 'rejected') AND p.workflow_id IS NULL
+			-- A policy decision is recorded already resolved; nothing waited on it.
+			-- Waking for those sent builder about 580 empty turns a day (22 Nov 2026).
+			WHERE p.resolved_at > ${after} AND p.resolved_at <= ${through} AND p.resolved_by NOT IN (t.id, 'policy') AND p.status IN ('approved', 'rejected') AND p.workflow_id IS NULL
 		)
 		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes
 	`,

@@ -741,7 +741,7 @@ for (const [error, expected] of [
 // --- orphaned-DO self-heal ---
 function orphanProbe(options: {
 	state?: Record<string, unknown>;
-	canonical?: { isolateAgentId: string } | null;
+	canonical?: { isolateAgentId: string; retiredAt?: string } | null;
 	name?: string;
 	cancel?: (id: string) => Promise<boolean>;
 	remaining?: string[];
@@ -808,6 +808,14 @@ function orphanProbe(options: {
 	// A rebind to another DO is also proof.
 	const probe = orphanProbe({ canonical: { isolateAgentId: "isolate-new" } });
 	assert.equal((await probe.agent.cleanupOrphanSchedules()).orphaned, true);
+}
+{
+	// A retired tedi keeps its row and DO name, but its schedules still go.
+	const probe = orphanProbe({
+		canonical: { isolateAgentId: "isolate-acme", retiredAt: "2026-11-01" },
+	});
+	assert.equal((await probe.agent.cleanupOrphanSchedules()).orphaned, true);
+	assert.deepEqual(probe.cancelled, ["cron-row", "maintenance-row"]);
 }
 {
 	// Missing identity and a slug outside the operator allowlist are skipped
