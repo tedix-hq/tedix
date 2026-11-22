@@ -316,13 +316,13 @@ export function stringifyBoundedCodeModeResult(
 	options?: CodeModeTruncationOptions,
 ): string {
 	if (typeof value === "string") return value;
-	const text = JSON.stringify(value, null, 2) ?? "undefined";
+	const text = JSON.stringify(value) ?? "undefined";
 	const paddedChars = resolveMaxChars(options) * 2 + 4_000;
 	if (text.length <= paddedChars) return text;
 	const shaped = shapeBoundedCodeModeResult(text, { maxChars: paddedChars });
 	return typeof shaped === "string"
 		? shaped
-		: (JSON.stringify(shaped, null, 2) ?? "undefined");
+		: (JSON.stringify(shaped) ?? "undefined");
 }
 
 /** Bound model-facing logs without changing the raw execution/audit record. */

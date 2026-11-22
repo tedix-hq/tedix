@@ -132,11 +132,9 @@ describe("isTruncatedCodeModeResult", () => {
 });
 
 describe("stringifyBoundedCodeModeResult", () => {
-	it("serializes a small output byte-identically to JSON.stringify(value, null, 2)", () => {
+	it("serializes a small output byte-identically to compact JSON.stringify(value)", () => {
 		const output = { executionId: "e-1", result: { ok: true } };
-		expect(stringifyBoundedCodeModeResult(output)).toBe(
-			JSON.stringify(output, null, 2),
-		);
+		expect(stringifyBoundedCodeModeResult(output)).toBe(JSON.stringify(output));
 	});
 
 	it("never re-clips an output whose inner result is an already-shaped envelope", () => {
@@ -145,7 +143,7 @@ describe("stringifyBoundedCodeModeResult", () => {
 		const output = { executionId: "e-2", result: inner };
 		const text = stringifyBoundedCodeModeResult(output);
 		// The full envelope (including the whole preview) survives serialization.
-		expect(text).toBe(JSON.stringify(output, null, 2));
+		expect(text).toBe(JSON.stringify(output));
 		expect(JSON.parse(text).result.__tedix_truncated).toBe(true);
 	});
 

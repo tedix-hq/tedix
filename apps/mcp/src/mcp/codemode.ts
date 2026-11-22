@@ -999,7 +999,7 @@ export async function registerCodeModeTools(
 				// Serialized ONCE: this exact text is both the returned content and
 				// the measured response size, so telemetry can never drift from what
 				// the model was actually sent.
-				const outputText = JSON.stringify(output, null, 2);
+				const outputText = JSON.stringify(output);
 				emitExecTelemetry(true, undefined, {
 					resultChars: outputText.length,
 					// Same chars-per-token heuristic as the truncation budget.
@@ -1031,6 +1031,8 @@ export async function registerCodeModeTools(
 						: {}),
 				};
 
+				// MCP 2025-06-18: structured results SHOULD also carry the serialized
+				// JSON as text, for clients that only read `content`.
 				return {
 					content: [
 						{

@@ -77,7 +77,7 @@ export function stringifyModelResult(
 	if (budget !== null) return stringifyBoundedCodeModeResult(value, budget);
 	return typeof value === "string"
 		? value
-		: (JSON.stringify(value, null, 2) ?? "undefined");
+		: (JSON.stringify(value) ?? "undefined");
 }
 
 function logContext(
