@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.35.1 (2026-11-22)
+
+### Patch Changes
+
+- f73baea: A Devin run that had one tool call refused in headless mode but still finished and reported success is no longer marked failed. Its reported result now goes through delivery and settlement like any other run. A Devin run that reports nothing after a refused tool call still fails, as before.
+- 7720b6f: Moving a task to another tool (fall-over or idle takeover) now works: the runner sent the target as `executorReference`, which the server's reassignment refuses.
+
 ## 0.35.0 (2026-11-22)
 
 ### Minor Changes
