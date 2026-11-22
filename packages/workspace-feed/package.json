@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/workspace-feed",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Change feed from workspace objects to the Tedix core: event contract, per-workspace ledger, queue producer and consumer, and the drift reconciler.",
 	"license": "AGPL-3.0-only",

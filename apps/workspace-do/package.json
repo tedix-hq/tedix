@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/workspace-do",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "One Durable Object per workspace that owns the workspace's data and runs the agent turn beside it.",
 	"license": "AGPL-3.0-only",

@@ -29,7 +29,7 @@
     },
     "apps/api": {
       "name": "@tedix/api",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@ai-sdk/azure": "catalog:",
         "@block65/webcrypto-web-push": "2",
@@ -97,7 +97,7 @@
     },
     "apps/cms": {
       "name": "@tedix/cms",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@cloudflare/sandbox": "catalog:",
         "@modelcontextprotocol/client": "catalog:",
@@ -138,7 +138,7 @@
     },
     "apps/cms-runtime": {
       "name": "@tedix/cms-runtime",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@emdash-cms/cloudflare": "catalog:",
         "@orpc/client": "catalog:",
@@ -180,7 +180,7 @@
     },
     "apps/docs": {
       "name": "@tedix/docs",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/auth": "workspace:*",
@@ -206,7 +206,7 @@
     },
     "apps/docs-runtime": {
       "name": "@tedix/docs-runtime",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@tedix/auth": "workspace:*",
         "@tedix/db": "workspace:*",
@@ -227,7 +227,7 @@
     },
     "apps/mcp": {
       "name": "@tedix/mcp",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@cloudflare/codemode": "catalog:",
         "@json-render/core": "catalog:",
@@ -404,7 +404,7 @@
     },
     "apps/skill-runtime": {
       "name": "@tedix/skill-runtime",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@cloudflare/dynamic-workflows": "^0.1.1",
         "@noble/hashes": "2.4.0",
@@ -433,7 +433,7 @@
     },
     "apps/tedi": {
       "name": "@tedix/tedi",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@cloudflare/sandbox": "catalog:",
         "@tedix/api-client": "workspace:*",
@@ -459,7 +459,7 @@
     },
     "apps/tedi-runtime": {
       "name": "@tedix/tedi-runtime",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@ai-sdk/azure": "catalog:",
         "@ai-sdk/provider": "catalog:",
@@ -573,7 +573,7 @@
     },
     "apps/workspace-do": {
       "name": "@tedix/workspace-do",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@earendil-works/pi-ai": "catalog:",
         "@earendil-works/pi-schema": "catalog:",
@@ -706,7 +706,7 @@
     },
     "packages/cli": {
       "name": "@tedix/cli",
-      "version": "0.29.19",
+      "version": "0.29.20",
       "bin": {
         "tedix": "./src/index.ts",
       },
@@ -761,7 +761,7 @@
     },
     "packages/db": {
       "name": "@tedix/db",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "dependencies": {
         "@babel/parser": "^8.1.2",
         "@tedix/agent-governance": "workspace:*",
@@ -1045,7 +1045,7 @@
     },
     "packages/workspace-feed": {
       "name": "@tedix/workspace-feed",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/db": "workspace:*",

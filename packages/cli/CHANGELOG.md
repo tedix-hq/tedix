@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.20 — 2026-11-22
+
+### Patch Changes
+
+- 47c8c92: Wait four hours after a task's second consecutive deferral and 24 hours after its third. Keep the streak when an agent rewords its explanation; reset it when the task, a dependency or its approval changes. Let runners release saved waits when readiness confirms such a change, and show the next start time in readiness.
+- 247e666: Add a non-interactive per-project session reporting command for desktop setup, with switches that enable and disable status reports and decision capture together.
+
 ## 0.29.19 — 2026-11-22
 
 ### Patch Changes
