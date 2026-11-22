@@ -913,6 +913,32 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		rpcEndpoint: "skills/runWorkflowCancel",
 	},
 	{
+		name: "start_work_item_watch",
+		remoteName: "start_work_item_watch",
+		description:
+			"Start a durable watch on one Work Item's status (flow.watch): checks every N seconds until the until rule matches, maxChecks is reached or the deadline passes. Returns { runId } at once; read the outcome with get_skill_workflow_status. Caps: every >= 15 s, maxChecks <= 100, deadline <= 24 h, 20 open watches per organization.",
+		inputSchema: withoutTediId(
+			zodToToolInputJsonSchema(
+				procedureInputSchema(skillsContract.startWorkItemWatch),
+			),
+		),
+		annotations: MUTATING,
+		rpcEndpoint: "skills/startWorkItemWatch",
+	},
+	{
+		name: "check_work_item_watch",
+		remoteName: "check_work_item_watch",
+		description:
+			"Internal status read for a running flow.watch: returns the watched Work Item's disposition after re-checking the starter's access. Only a flow.watch run can call it.",
+		inputSchema: withoutTediId(
+			zodToToolInputJsonSchema(
+				procedureInputSchema(skillsContract.checkWorkItemWatch),
+			),
+		),
+		annotations: READ_ONLY,
+		rpcEndpoint: "skills/checkWorkItemWatch",
+	},
+	{
 		name: "pause_skill_workflow",
 		remoteName: "pause_skill_workflow",
 		description: "Pause an active skill run at a durable boundary.",

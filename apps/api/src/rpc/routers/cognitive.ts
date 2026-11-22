@@ -90,6 +90,10 @@ import {
 	skillsRunWorkflowStatus,
 } from "./cognitive-skill-runs/run-reads";
 import { skillsGetWorkflowStepTediActivity } from "./cognitive-skill-runs/tedi-activity";
+import {
+	skillsCheckWorkItemWatch,
+	skillsStartWorkItemWatch,
+} from "./cognitive-skill-runs/watch";
 import { skillsRunWorkflow } from "./cognitive-skill-runs/run-start";
 import {
 	skillsClearRunSensitiveDataLatch,
@@ -160,6 +164,8 @@ export const skillsContractRouter = skillsOs.router({
 	getRunUsefulness: skillsGetRunUsefulness,
 	runWorkflowStatus: skipOutputValidation(skillsRunWorkflowStatus),
 	runWorkflowCancel: skillsRunWorkflowCancel,
+	startWorkItemWatch: skillsStartWorkItemWatch,
+	checkWorkItemWatch: skillsCheckWorkItemWatch,
 	runWorkflowSendEvent: skillsRunWorkflowSendEvent,
 	runWorkflowHistory: skillsRunWorkflowHistory,
 	listWorkflowRetryCandidates: skillsListWorkflowRetryCandidates,

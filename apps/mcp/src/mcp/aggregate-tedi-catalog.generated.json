@@ -3259,6 +3259,149 @@
 			"rpcEndpoint": "skills/runWorkflowCancel"
 		},
 		{
+			"name": "start_work_item_watch",
+			"remoteName": "start_work_item_watch",
+			"description": "Start a durable watch on one Work Item's status (flow.watch): checks every N seconds until the until rule matches, maxChecks is reached or the deadline passes. Returns { runId } at once; read the outcome with get_skill_workflow_status. Caps: every >= 15 s, maxChecks <= 100, deadline <= 24 h, 20 open watches per organization.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"watch": {
+						"type": "object",
+						"properties": {
+							"check": {
+								"type": "object",
+								"properties": {
+									"callable": {
+										"type": "string",
+										"enum": ["work.item_status"]
+									},
+									"args": {
+										"type": "object",
+										"properties": {
+											"workItemId": {
+												"type": "string",
+												"format": "uuid",
+												"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+											}
+										},
+										"required": ["workItemId"],
+										"additionalProperties": false
+									}
+								},
+								"required": ["callable", "args"],
+								"additionalProperties": false
+							},
+							"until": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 64,
+										"pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$",
+										"description": "Dot path into the status result, e.g. \"disposition\""
+									},
+									"in": {
+										"minItems": 1,
+										"maxItems": 20,
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{
+													"type": "string",
+													"maxLength": 200
+												},
+												{
+													"type": "number"
+												},
+												{
+													"type": "boolean"
+												}
+											]
+										}
+									},
+									"eq": {
+										"anyOf": [
+											{
+												"type": "string",
+												"maxLength": 200
+											},
+											{
+												"type": "number"
+											},
+											{
+												"type": "boolean"
+											}
+										]
+									},
+									"gte": {
+										"type": "number"
+									}
+								},
+								"required": ["path"],
+								"additionalProperties": false
+							},
+							"every": {
+								"anyOf": [
+									{
+										"type": "number"
+									},
+									{
+										"type": "string",
+										"maxLength": 32
+									}
+								],
+								"description": "Seconds as a number, or a string like \"30 s\", \"5 minutes\", \"2h\""
+							},
+							"maxChecks": {
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 100
+							},
+							"deadline": {
+								"anyOf": [
+									{
+										"type": "number"
+									},
+									{
+										"type": "string",
+										"maxLength": 32
+									}
+								],
+								"description": "Seconds as a number, or a string like \"30 s\", \"5 minutes\", \"2h\""
+							}
+						},
+						"required": ["check", "until", "every"],
+						"additionalProperties": false
+					},
+					"reason": {
+						"type": "string",
+						"maxLength": 500
+					}
+				},
+				"required": ["watch"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/startWorkItemWatch"
+		},
+		{
+			"name": "check_work_item_watch",
+			"remoteName": "check_work_item_watch",
+			"description": "Internal status read for a running flow.watch: returns the watched Work Item's disposition after re-checking the starter's access. Only a flow.watch run can call it.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {},
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "skills/checkWorkItemWatch"
+		},
+		{
 			"name": "pause_skill_workflow",
 			"remoteName": "pause_skill_workflow",
 			"description": "Pause an active skill run at a durable boundary.",
@@ -6959,6 +7102,147 @@
 			"inputSchema": {
 				"type": "object",
 				"properties": {
+					"taskContract": {
+						"type": "object",
+						"properties": {
+							"version": {
+								"type": "number",
+								"const": 2
+							},
+							"goal": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 10000
+							},
+							"successCriterion": {
+								"minItems": 1,
+								"maxItems": 100,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"path": {
+											"maxItems": 20,
+											"type": "array",
+											"items": {
+												"anyOf": [
+													{
+														"type": "string",
+														"minLength": 1
+													},
+													{
+														"type": "integer",
+														"minimum": 0,
+														"maximum": 9007199254740991
+													}
+												]
+											}
+										},
+										"equals": {
+											"$ref": "#/$defs/__schema0"
+										}
+									},
+									"required": ["path", "equals"],
+									"additionalProperties": false
+								}
+							},
+							"budget": {
+								"type": "object",
+								"properties": {
+									"maxTokens": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 9007199254740991
+									},
+									"maxCostUsd": {
+										"type": "number",
+										"minimum": 0
+									}
+								},
+								"required": ["maxTokens", "maxCostUsd"],
+								"additionalProperties": false
+							},
+							"remainingDepth": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 10
+							},
+							"errorAllowance": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 19
+							},
+							"returnFormat": {
+								"type": "object",
+								"properties": {
+									"type": {
+										"type": "string",
+										"const": "object"
+									},
+									"properties": {
+										"type": "object",
+										"propertyNames": {
+											"type": "string",
+											"minLength": 1
+										},
+										"additionalProperties": {
+											"type": "object",
+											"properties": {
+												"type": {
+													"type": "string",
+													"enum": [
+														"string",
+														"number",
+														"boolean",
+														"object",
+														"array",
+														"null"
+													]
+												}
+											},
+											"required": ["type"],
+											"additionalProperties": false
+										}
+									},
+									"required": {
+										"maxItems": 100,
+										"type": "array",
+										"items": {
+											"type": "string",
+											"minLength": 1
+										}
+									},
+									"additionalProperties": {
+										"type": "boolean",
+										"const": false
+									}
+								},
+								"required": [
+									"type",
+									"properties",
+									"required",
+									"additionalProperties"
+								],
+								"additionalProperties": false
+							},
+							"deadline": {
+								"type": "string",
+								"format": "date-time",
+								"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+							}
+						},
+						"required": [
+							"version",
+							"goal",
+							"successCriterion",
+							"budget",
+							"remainingDepth",
+							"errorAllowance",
+							"returnFormat",
+							"deadline"
+						],
+						"additionalProperties": false
+					},
 					"executor": {
 						"type": "string",
 						"enum": [
@@ -7192,6 +7476,16 @@
 						"type": "string",
 						"format": "uuid",
 						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"blockedByWorkItemIds": {
+						"description": "For child Work, queue it until these predecessors finish; dependencies are stored before dispatch.",
+						"maxItems": 20,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"format": "uuid",
+							"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+						}
 					},
 					"sourceSessionKey": {
 						"type": "string",
@@ -7490,7 +7784,14 @@
 					},
 					"outcome": {
 						"type": "string",
-						"enum": ["succeeded", "failed", "rejected", "cancelled", "expired"]
+						"enum": [
+							"landed_unverified",
+							"succeeded",
+							"failed",
+							"rejected",
+							"cancelled",
+							"expired"
+						]
 					},
 					"needsUser": {
 						"description": "Exact next click the requesting person must take. Creates one Needs-you ask atomically with settlement when the click names an owner-only act (money, legal or tax, consent or credentials, access, deletion, publishing or messaging); any other next step is filed with the Work's agent steward or this lane instead. Does not complete the Work.",
@@ -7507,6 +7808,16 @@
 					"summary": {
 						"type": "string",
 						"maxLength": 10000
+					},
+					"commitShas": {
+						"description": "Full commit IDs for this Attempt's repository result, in order. The first is the primary commit.",
+						"minItems": 1,
+						"maxItems": 100,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"pattern": "^[a-f0-9]{40}$"
+						}
 					},
 					"metadata": {
 						"type": "object",
@@ -8727,6 +9038,147 @@
 			"inputSchema": {
 				"type": "object",
 				"properties": {
+					"taskContract": {
+						"type": "object",
+						"properties": {
+							"version": {
+								"type": "number",
+								"const": 2
+							},
+							"goal": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 10000
+							},
+							"successCriterion": {
+								"minItems": 1,
+								"maxItems": 100,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"path": {
+											"maxItems": 20,
+											"type": "array",
+											"items": {
+												"anyOf": [
+													{
+														"type": "string",
+														"minLength": 1
+													},
+													{
+														"type": "integer",
+														"minimum": 0,
+														"maximum": 9007199254740991
+													}
+												]
+											}
+										},
+										"equals": {
+											"$ref": "#/$defs/__schema0"
+										}
+									},
+									"required": ["path", "equals"],
+									"additionalProperties": false
+								}
+							},
+							"budget": {
+								"type": "object",
+								"properties": {
+									"maxTokens": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 9007199254740991
+									},
+									"maxCostUsd": {
+										"type": "number",
+										"minimum": 0
+									}
+								},
+								"required": ["maxTokens", "maxCostUsd"],
+								"additionalProperties": false
+							},
+							"remainingDepth": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 10
+							},
+							"errorAllowance": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 19
+							},
+							"returnFormat": {
+								"type": "object",
+								"properties": {
+									"type": {
+										"type": "string",
+										"const": "object"
+									},
+									"properties": {
+										"type": "object",
+										"propertyNames": {
+											"type": "string",
+											"minLength": 1
+										},
+										"additionalProperties": {
+											"type": "object",
+											"properties": {
+												"type": {
+													"type": "string",
+													"enum": [
+														"string",
+														"number",
+														"boolean",
+														"object",
+														"array",
+														"null"
+													]
+												}
+											},
+											"required": ["type"],
+											"additionalProperties": false
+										}
+									},
+									"required": {
+										"maxItems": 100,
+										"type": "array",
+										"items": {
+											"type": "string",
+											"minLength": 1
+										}
+									},
+									"additionalProperties": {
+										"type": "boolean",
+										"const": false
+									}
+								},
+								"required": [
+									"type",
+									"properties",
+									"required",
+									"additionalProperties"
+								],
+								"additionalProperties": false
+							},
+							"deadline": {
+								"type": "string",
+								"format": "date-time",
+								"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+							}
+						},
+						"required": [
+							"version",
+							"goal",
+							"successCriterion",
+							"budget",
+							"remainingDepth",
+							"errorAllowance",
+							"returnFormat",
+							"deadline"
+						],
+						"additionalProperties": false
+					},
 					"executor": {
 						"type": "string",
 						"enum": [
@@ -8960,6 +9412,16 @@
 						"type": "string",
 						"format": "uuid",
 						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"blockedByWorkItemIds": {
+						"description": "For child Work, queue it until these predecessors finish; dependencies are stored before dispatch.",
+						"maxItems": 20,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"format": "uuid",
+							"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+						}
 					},
 					"sourceSessionKey": {
 						"type": "string",
@@ -12849,6 +13311,149 @@
 				"destructiveHint": true
 			},
 			"rpcEndpoint": "skills/runWorkflowCancel"
+		},
+		{
+			"name": "start_work_item_watch",
+			"remoteName": "start_work_item_watch",
+			"description": "Start a durable watch on one Work Item's status (flow.watch): checks every N seconds until the until rule matches, maxChecks is reached or the deadline passes. Returns { runId } at once; read the outcome with get_skill_workflow_status. Caps: every >= 15 s, maxChecks <= 100, deadline <= 24 h, 20 open watches per organization.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"watch": {
+						"type": "object",
+						"properties": {
+							"check": {
+								"type": "object",
+								"properties": {
+									"callable": {
+										"type": "string",
+										"enum": ["work.item_status"]
+									},
+									"args": {
+										"type": "object",
+										"properties": {
+											"workItemId": {
+												"type": "string",
+												"format": "uuid",
+												"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+											}
+										},
+										"required": ["workItemId"],
+										"additionalProperties": false
+									}
+								},
+								"required": ["callable", "args"],
+								"additionalProperties": false
+							},
+							"until": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 64,
+										"pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$",
+										"description": "Dot path into the status result, e.g. \"disposition\""
+									},
+									"in": {
+										"minItems": 1,
+										"maxItems": 20,
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{
+													"type": "string",
+													"maxLength": 200
+												},
+												{
+													"type": "number"
+												},
+												{
+													"type": "boolean"
+												}
+											]
+										}
+									},
+									"eq": {
+										"anyOf": [
+											{
+												"type": "string",
+												"maxLength": 200
+											},
+											{
+												"type": "number"
+											},
+											{
+												"type": "boolean"
+											}
+										]
+									},
+									"gte": {
+										"type": "number"
+									}
+								},
+								"required": ["path"],
+								"additionalProperties": false
+							},
+							"every": {
+								"anyOf": [
+									{
+										"type": "number"
+									},
+									{
+										"type": "string",
+										"maxLength": 32
+									}
+								],
+								"description": "Seconds as a number, or a string like \"30 s\", \"5 minutes\", \"2h\""
+							},
+							"maxChecks": {
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 100
+							},
+							"deadline": {
+								"anyOf": [
+									{
+										"type": "number"
+									},
+									{
+										"type": "string",
+										"maxLength": 32
+									}
+								],
+								"description": "Seconds as a number, or a string like \"30 s\", \"5 minutes\", \"2h\""
+							}
+						},
+						"required": ["check", "until", "every"],
+						"additionalProperties": false
+					},
+					"reason": {
+						"type": "string",
+						"maxLength": 500
+					}
+				},
+				"required": ["watch"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "skills/startWorkItemWatch"
+		},
+		{
+			"name": "check_work_item_watch",
+			"remoteName": "check_work_item_watch",
+			"description": "Internal status read for a running flow.watch: returns the watched Work Item's disposition after re-checking the starter's access. Only a flow.watch run can call it.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {},
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "skills/checkWorkItemWatch"
 		},
 		{
 			"name": "pause_skill_workflow",

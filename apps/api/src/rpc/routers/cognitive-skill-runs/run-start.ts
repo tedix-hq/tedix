@@ -48,6 +48,22 @@ import {
 	type SkillRuntimeStatusResponse,
 } from "./shared";
 
+/**
+ * Who started a run. Only a real human wins the `user:` prefix; every other
+ * caller records its own class and never attests as an operator.
+ */
+export function skillRunCreatedBy(context: BaseContext): string {
+	return context.authType === "user" && context.user?.sub
+		? `user:${context.user.sub}`
+		: context.gatewayEndUserId
+			? `user:${context.gatewayEndUserId}`
+			: context.externalAgentPrincipalId
+				? `agent:${context.externalAgentPrincipalId}`
+				: context.tediId
+					? `tedi:${context.tediId}`
+					: (context.authType ?? "unknown");
+}
+
 export const skillsRunWorkflow = authedSkills.runWorkflow
 	.use(AUTHZ.tedisWrite)
 	.use(withOrg)
@@ -133,16 +149,7 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 		// gateway-forwarded end user. Everything else records its own class and
 		// therefore never attests as an operator (the fail-closed negative
 		// control for agent/M2M-started runs).
-		const createdBy =
-			context.authType === "user" && context.user?.sub
-				? `user:${context.user.sub}`
-				: context.gatewayEndUserId
-					? `user:${context.gatewayEndUserId}`
-					: context.externalAgentPrincipalId
-						? `agent:${context.externalAgentPrincipalId}`
-						: context.tediId
-							? `tedi:${context.tediId}`
-							: (context.authType ?? "unknown");
+		const createdBy = skillRunCreatedBy(context);
 		// The MCP edge forwards the turn binding as a header on its trusted
 		// Worker-to-Worker hop. It is attribution only, never execution authority.
 		// A direct API call or a different tedi cannot assign itself another

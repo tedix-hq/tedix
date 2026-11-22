@@ -176,6 +176,10 @@ function makeGroups(
 				"cto.list_skill_workflow_history",
 				overrides.list ?? (async () => ({ runs: [] })),
 			),
+			start_work_item_watch: track("cto.start_work_item_watch", async () => ({
+				runId: "watch-run-1",
+				status: "queued",
+			})),
 		},
 		schemas: {},
 	});
@@ -520,6 +524,54 @@ describe("flow.save", () => {
 	});
 });
 
+const WORK_ITEM_ID = "de8da3ab-2755-4c57-a351-9bb50e09abbc";
+
+describe("flow.watch", () => {
+	it("refuses a check outside the watch manifest, or below the caps, before anything starts", async () => {
+		const { groups, calls } = makeGroups();
+		const watch = tools(groups).watch!;
+		const valid = {
+			check: {
+				callable: "work.item_status",
+				args: { workItemId: WORK_ITEM_ID },
+			},
+			until: { path: "disposition", in: ["completed"] },
+			every: "15 s",
+		};
+		await expect(
+			watch.execute({
+				...valid,
+				check: {
+					callable: "tedix_unified_tedix.get_work_items_by_id",
+					args: { id: WORK_ITEM_ID },
+				},
+			}),
+		).rejects.toThrow(/cannot run .*supported checks are work\.item_status/);
+		await expect(watch.execute({ ...valid, every: 5 })).rejects.toThrow(
+			/at least 15 seconds/,
+		);
+		await expect(watch.execute({ ...valid, maxChecks: 101 })).rejects.toThrow(
+			/maxChecks/,
+		);
+		await expect(
+			watch.execute({ ...valid, until: { path: "disposition" } }),
+		).rejects.toThrow(/exactly one of in, eq or gte/);
+		expect(calls).toEqual([]);
+
+		await expect(watch.execute({ ...valid, maxChecks: 4 })).resolves.toEqual({
+			runId: "watch-run-1",
+			status: "queued",
+			tediSlug: "cto",
+		});
+		expect(calls).toEqual([
+			{
+				callable: "cto.start_work_item_watch",
+				args: { watch: { ...valid, maxChecks: 4 } },
+			},
+		]);
+	});
+});
+
 describe("flow.status", () => {
 	it("returns the bounded projection so a poll stays small by construction", async () => {
 		const { groups } = makeGroups();
@@ -569,6 +621,7 @@ describe("flow.tools", () => {
 				"inspect_skill_workflow_run",
 				"list_skill_workflow_history",
 				"run_skill_workflow",
+				"start_work_item_watch",
 			],
 			manifest: {
 				mcp: {
@@ -577,6 +630,7 @@ describe("flow.tools", () => {
 						"inspect_skill_workflow_run",
 						"list_skill_workflow_history",
 						"run_skill_workflow",
+						"start_work_item_watch",
 					],
 				},
 			},

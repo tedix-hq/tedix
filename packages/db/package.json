@@ -151,6 +151,7 @@
 		"./queries/cognitive/muscle-memory": "./src/queries/cognitive/muscle-memory.ts",
 		"./queries/cognitive/skill-catalog": "./src/queries/cognitive/skill-catalog.ts",
 		"./queries/cognitive/skill-crud": "./src/queries/cognitive/skill-crud.ts",
+		"./queries/cognitive/platform-skills": "./src/queries/cognitive/platform-skills.ts",
 		"./queries/cognitive/skill-improvement-cleanup": "./src/queries/cognitive/skill-improvement-cleanup.ts",
 		"./queries/cognitive/skill-users": "./src/queries/cognitive/skill-users.ts",
 		"./queries/cognitive/skill-folders": "./src/queries/cognitive/skill-folders.ts",

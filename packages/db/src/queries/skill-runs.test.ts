@@ -6,6 +6,7 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	cancelSkillRun,
 	createPinnedSkillRun,
+	createPinnedSkillRunWithinCap,
 	createSkillRun,
 	getLatestReportedSkillRun,
 	getSkillRun,
@@ -1063,4 +1064,82 @@ it("never resolves a missing source from a different skill", async () => {
 		(await getSkillRun(db, "missing-source", "org-1", "production"))
 			?.workflowSource,
 	).toBeNull();
+});
+
+it("refuses the run that would exceed the open-run cap of a skill", async () => {
+	const { db, sqlite, insert, insertSkill } = fixture();
+	insertSkill("watch-skill", []);
+	const since = "2026-07-11T00:00:00.000Z";
+	for (let i = 1; i <= 19; i++)
+		insert({
+			id: `open-${i}`,
+			skillId: "watch-skill",
+			status: i % 2 ? "running" : "queued",
+			runtimeEnvironment: "production",
+		});
+	// Ended, other-org, pre-window and retired runs hold no slot.
+	insert({
+		id: "done",
+		skillId: "watch-skill",
+		status: "completed",
+		runtimeEnvironment: "production",
+	});
+	insert({
+		id: "other-org",
+		organizationId: "org-2",
+		skillId: "watch-skill",
+		runtimeEnvironment: "production",
+	});
+	insert({
+		id: "stale",
+		skillId: "watch-skill",
+		startedAt: "2026-07-01T00:00:00.000Z",
+		runtimeEnvironment: "production",
+	});
+	insert({
+		id: "retired",
+		skillId: "watch-skill",
+		workflowRetiredAt: "2026-07-12T01:00:00.000Z",
+		runtimeEnvironment: "production",
+	});
+	const watch = (n: number) => ({
+		runId: `watch-${n}`,
+		workflowInstanceId: `watch-instance-${n}`,
+		skillId: "watch-skill",
+		tediId: "tedi-1",
+		orgId: "org-1",
+		params: { workItemId: "item" },
+		workflowSource: "export default { run() {} }",
+		runtimeEnvironment: "production" as const,
+	});
+	// The 20th open run fits; it is still pending engine admission and so
+	// keeps its slot. The 21st is refused and leaves no row.
+	await expect(
+		createPinnedSkillRunWithinCap(db, watch(20), { max: 20, since }),
+	).resolves.toBe(true);
+	await expect(
+		createPinnedSkillRunWithinCap(db, watch(21), { max: 20, since }),
+	).resolves.toBe(false);
+	expect(
+		sqlite
+			.prepare("SELECT count(*) AS n FROM skill_runs WHERE id = 'watch-21'")
+			.get(),
+	).toEqual({ n: 0 });
+	expect(
+		sqlite
+			.prepare(
+				"SELECT status, error, params FROM skill_runs WHERE id = 'watch-20'",
+			)
+			.get(),
+	).toEqual({
+		status: "failed",
+		error: "WORKFLOW_ADMISSION_PENDING: workflow create not yet observed",
+		params: JSON.stringify({ workItemId: "item" }),
+	});
+	sqlite
+		.prepare("UPDATE skill_runs SET status = 'canceled' WHERE id = 'open-1'")
+		.run();
+	await expect(
+		createPinnedSkillRunWithinCap(db, watch(22), { max: 20, since }),
+	).resolves.toBe(true);
 });

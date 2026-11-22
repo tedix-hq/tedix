@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import { logRuntimeFailure } from "../control-log";
 import {
 	createSkillRun,
+	createSkillRunWithinCap,
 	getSkillRun,
 	reconcileSkillRun,
 	skillRunEnvironment,
@@ -66,6 +67,7 @@ export function registerRunRoutes(app: Hono<AppEnv>) {
 			createdBy,
 			workItemId,
 			originTediRunId,
+			openRunCap,
 		} = parsed.data;
 		const requestedRunId =
 			explicitRunId ??
@@ -234,7 +236,7 @@ export function registerRunRoutes(app: Hono<AppEnv>) {
 		});
 
 		try {
-			await createSkillRun(c.env.DB, {
+			const runRow = {
 				runId,
 				skillId,
 				tediId,
@@ -252,7 +254,31 @@ export function registerRunRoutes(app: Hono<AppEnv>) {
 				workItemId: workItemId ?? null,
 				originTediRunId: originTediRunId ?? null,
 				runtimeEnvironment: skillRunEnvironment(c.env.ENVIRONMENT),
-			});
+			};
+			if (!openRunCap) await createSkillRun(c.env.DB, runRow);
+			else if (
+				!(await createSkillRunWithinCap(c.env.DB, runRow, {
+					max: openRunCap.max,
+					since: new Date(
+						Date.now() - openRunCap.windowHours * 3_600_000,
+					).toISOString(),
+				}))
+			) {
+				if (ownsImplicitReservation && implicitFingerprint)
+					await releaseImplicitWorkflowAdmission({
+						db: c.env.DB,
+						fingerprint: implicitFingerprint,
+						runId,
+					});
+				return c.json(
+					{
+						error: "open_run_cap_reached",
+						message: `${openRunCap.max} runs of this skill are already open in this organization`,
+						retryable: false,
+					},
+					429,
+				);
+			}
 		} catch (err) {
 			// Close the create race for every reserved admission identity. A matching
 			// row is a deduplicated success; any mismatch remains a hard conflict.

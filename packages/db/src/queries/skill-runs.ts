@@ -15,6 +15,8 @@ import {
 	getColumns,
 	inArray,
 	isNull,
+	like,
+	lt,
 	ne,
 	notExists,
 	notInArray,
@@ -147,6 +149,163 @@ export async function createPinnedSkillRun(
 			run,
 		]);
 	} else await run;
+}
+
+/**
+ * Open runs hold a slot under a per-skill cap: live statuses plus a pending or
+ * ambiguous engine admission. `since` bounds the scan so a row stuck in
+ * admission cannot hold a slot forever.
+ */
+function openSkillRunCondition(input: {
+	organizationId: string;
+	skillId: string;
+	runtimeEnvironment: SkillRunRuntimeEnvironment;
+	since: string;
+}): SQL {
+	return and(
+		eq(skillRuns.organizationId, input.organizationId),
+		eq(skillRuns.skillId, input.skillId),
+		skillRunEnvironmentCondition(input.runtimeEnvironment),
+		gt(skillRuns.startedAt, input.since),
+		isNull(skillRuns.workflowRetiredAt),
+		or(
+			inArray(skillRuns.status, ["queued", "running", "paused"]),
+			and(
+				eq(skillRuns.status, "failed"),
+				or(
+					like(skillRuns.error, "WORKFLOW_ADMISSION_PENDING:%"),
+					like(skillRuns.error, "WORKFLOW_ADMISSION_CREATE_FAILED:%"),
+				),
+			),
+		),
+	)!;
+}
+
+/**
+ * Insert a pinned run only while fewer than `cap.max` runs of the same skill
+ * are open in the organization. The count and the insert are one SQL
+ * statement, so concurrent admissions cannot both take the last slot.
+ * Returns false when the cap refused the run.
+ */
+export async function createPinnedSkillRunWithinCap(
+	db: DbClient,
+	input: CreatePinnedSkillRunParams,
+	cap: { max: number; since: string },
+): Promise<boolean> {
+	const hash = input.workflowSource
+		? await sha256Hex(input.workflowSource)
+		: null;
+	if (hash && input.workflowSource)
+		await db
+			.insert(skillWorkflowSources)
+			.values({
+				skillId: input.skillId,
+				sha256: hash,
+				workflowSource: input.workflowSource,
+			})
+			.onConflictDoNothing();
+	const json = (value: unknown) =>
+		value == null ? null : JSON.stringify(toJsonValue(value));
+	const bound = (value: unknown, column: string) => sql`${value}`.as(column);
+	// insert ... select from the run's own skill row: the open-run count and
+	// the insert are one statement.
+	await db.insert(skillRuns).select(
+		db
+			.select({
+				id: bound(input.runId, "id"),
+				skillId: bound(input.skillId, "skill_id"),
+				tediId: bound(input.tediId, "tedi_id"),
+				organizationId: bound(input.orgId, "organization_id"),
+				workflowInstanceId: bound(
+					input.workflowInstanceId,
+					"workflow_instance_id",
+				),
+				params: bound(json(input.params ?? {}), "params"),
+				status: bound("failed", "status"),
+				error: bound(
+					"WORKFLOW_ADMISSION_PENDING: workflow create not yet observed",
+					"error",
+				),
+				startedAt: bound(new Date().toISOString(), "started_at"),
+				workflowSourceHash: bound(hash, "workflow_source_hash"),
+				skillDoc: bound(input.skillDoc ?? null, "skill_doc"),
+				skillRevision: bound(input.skillRevision ?? null, "skill_revision"),
+				skillSlug: bound(input.skillSlug ?? null, "skill_slug"),
+				capabilityManifest: bound(
+					json(input.capabilityManifest),
+					"capability_manifest",
+				),
+				runtimeEnvironment: bound(
+					input.runtimeEnvironment,
+					"runtime_environment",
+				),
+				certification: bound(input.certification ? 1 : 0, "certification"),
+				createdBy: bound(input.createdBy ?? null, "created_by"),
+				workItemId: bound(input.workItemId ?? null, "work_item_id"),
+				originTediRunId: bound(
+					input.originTediRunId ?? null,
+					"origin_tedi_run_id",
+				),
+				resourceAccessEnvelope: bound(
+					json(input.resourceAccessEnvelope),
+					"resource_access_envelope",
+				),
+			})
+			.from(skillEntries)
+			.where(
+				and(
+					eq(skillEntries.id, input.skillId),
+					eq(skillEntries.organizationId, input.orgId),
+					lt(
+						db.$count(
+							skillRuns,
+							openSkillRunCondition({
+								organizationId: input.orgId,
+								skillId: input.skillId,
+								runtimeEnvironment: input.runtimeEnvironment,
+								since: cap.since,
+							}),
+						),
+						cap.max,
+					),
+				),
+			),
+	);
+	const [row] = await db
+		.select({ id: skillRuns.id })
+		.from(skillRuns)
+		.where(eq(skillRuns.id, input.runId))
+		.limit(1);
+	return row !== undefined;
+}
+
+/** Open runs of one skill, newest first, for a cap refusal. */
+export async function listOpenSkillRunsForSkill(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		skillId: string;
+		runtimeEnvironment: SkillRunRuntimeEnvironment;
+		since: string;
+		limit: number;
+	},
+): Promise<
+	Array<{
+		openRunId: string;
+		openRunTediId: string;
+		openRunStartedAt: string | null;
+	}>
+> {
+	return db
+		.select({
+			openRunId: skillRuns.id,
+			openRunTediId: skillRuns.tediId,
+			openRunStartedAt: skillRuns.startedAt,
+		})
+		.from(skillRuns)
+		.where(openSkillRunCondition(input))
+		.orderBy(desc(skillRuns.startedAt))
+		.limit(boundedRunLimit(input.limit, 20));
 }
 
 export interface CreateSkillRunArgs {

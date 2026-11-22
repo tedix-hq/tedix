@@ -9,6 +9,7 @@
 		"./utils/approval-holds": "./src/utils/approval-holds.ts",
 		"./utils/delegated-approvals": "./src/utils/delegated-approvals.ts",
 		"./schemas/delegated-approvals": "./src/schemas/delegated-approvals.ts",
+		"./schemas/flow-watch": "./src/schemas/flow-watch.ts",
 		"./schemas/task-contract-terms": "./src/schemas/task-contract-terms.ts",
 		"./utils/task-contract-terms": "./src/utils/task-contract-terms.ts",
 		"./schemas/os-workspace-inspections": "./src/schemas/os-workspace-inspections.ts",

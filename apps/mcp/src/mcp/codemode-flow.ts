@@ -4,10 +4,15 @@ import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { recordFrom } from "./codemode-ui";
 import { jsonSchemaToInputSchema } from "./utils/schema";
 import { type ToolJsonSchema } from "@tedix/api-contract/schemas/tools";
+import {
+	FlowWatchInputSchema,
+	WATCH_CHECK_CALLABLES,
+	normalizeFlowWatchInput,
+} from "@tedix/api-contract/schemas/flow-watch";
 
 export const FLOW_NAMESPACE = "flow";
 
-export const FLOW_TOOL_COUNT = 6;
+export const FLOW_TOOL_COUNT = 8;
 
 /**
  * One vocabulary for the skill-workflow lifecycle across canonical providers
@@ -46,6 +51,9 @@ export const SKILL_WORKFLOW_SURFACE_BY_TEDI_TOOL = new Map<
 	]),
 );
 
+const WATCH_START_TOOL = "start_work_item_watch";
+const WATCH_CANCEL_TOOL = "cancel_skill_workflow";
+
 const FLOW_PROVIDER_TYPES = [
 	"declare namespace flow {",
 	'  type WorkspaceContextRef = { kind: "file" | "resource" | "output" | "link" | "structured"; uri: string; revision?: string; label?: string };',
@@ -61,6 +69,10 @@ const FLOW_PROVIDER_TYPES = [
 	"  function list(input?: { limit?: number; tediSlug?: string }): Promise<unknown>;",
 	"  /** List the exact env.MCP.tedi methods reachable by an automation on this gateway. Call this before authoring a manifest instead of guessing from the broader Code Mode catalog. */",
 	"  function tools(input?: { tediSlug?: string }): Promise<{ tediSlug: string; namespace: string; methods: string[]; manifest: { mcp: { tedi: string[] } } }>;",
+	'  /** Wait for a Work Item status OFF your context: a durable watch checks it every `every` (>= 15 s) until `until` matches, maxChecks (<= 100) is used or the deadline (<= 24 h) passes. Returns { runId } at once; end your turn and read the outcome later with flow.status (output.outcome: matched | max_checks | deadline | check_failed). At most 20 open watches per organization. until is a rule, not code: { path: "disposition", in: ["completed"] } | { path, eq } | { path, gte }. */',
+	'  function watch(input: { check: { callable: "work.item_status"; args: { workItemId: string } }; until: { path: string; in?: Array<string | number | boolean>; eq?: string | number | boolean; gte?: number }; every: number | string; maxChecks?: number; deadline?: number | string; tediSlug?: string; reason?: string }): Promise<{ runId: string; status: string; tediSlug: string; workItemId: string; everySeconds: number; maxChecks: number; deadlineAt: string }>;',
+	"  /** Stop a flow run (a watch or any flow.run job). */",
+	"  function cancel(input: { runId: string; tediSlug?: string; reason?: string }): Promise<unknown>;",
 	"}",
 ].join("\n");
 
@@ -527,6 +539,59 @@ export function buildFlowProvider(
 					});
 				},
 			},
+			watch: {
+				description:
+					"Durable status watch: checks one Work Item's status every N seconds (>= 15 s) off your context until a JSON until rule matches, maxChecks (<= 100) is used or the deadline (<= 24 h) passes. Returns { runId } at once; read the outcome with flow.status.",
+				execute: async (rawInput: unknown) => {
+					const input = recordFrom(rawInput) ?? {};
+					const { tediSlug: _tediSlug, reason, ...watchInput } = input;
+					const callable = recordFrom(watchInput.check)?.callable;
+					if (!(WATCH_CHECK_CALLABLES as readonly unknown[]).includes(callable))
+						throw new Error(
+							`flow.watch cannot run ${JSON.stringify(callable ?? null)}: the supported checks are ${WATCH_CHECK_CALLABLES.map((name) => `${name} (args { workItemId })`).join(", ")}`,
+						);
+					const parsed = FlowWatchInputSchema.safeParse(watchInput);
+					if (!parsed.success)
+						throw new Error(
+							`flow.watch input invalid: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ")}`,
+						);
+					// Same caps the server enforces, reported before anything starts.
+					normalizeFlowWatchInput(parsed.data, new Date());
+					const tediNs = resolveTediNamespace(input, WATCH_START_TOOL);
+					assertAuthorized(tediNs, WATCH_START_TOOL);
+					const started = recordFrom(
+						await call(tediNs, WATCH_START_TOOL, {
+							watch: parsed.data,
+							...(typeof reason === "string" && reason.trim()
+								? { reason: reason.trim().slice(0, 500) }
+								: {}),
+						}),
+					);
+					if (typeof started?.runId !== "string")
+						throw new Error("flow.watch: the watch did not return a runId");
+					return { ...started, tediSlug: tediNs };
+				},
+			},
+			cancel: {
+				description:
+					"Stop a flow run (a watch or a flow.run job) through cancel_skill_workflow.",
+				execute: async (rawInput: unknown) => {
+					const input = recordFrom(rawInput) ?? {};
+					const runId = typeof input.runId === "string" ? input.runId : "";
+					if (!runId) throw new Error("flow.cancel requires `runId`");
+					const tediNs = resolveTediNamespace(input, WATCH_CANCEL_TOOL);
+					assertAuthorized(tediNs, WATCH_CANCEL_TOOL);
+					return call(tediNs, WATCH_CANCEL_TOOL, {
+						runId,
+						// Destructive-governed: stateless callers authorize explicitly.
+						confirmDestructive: true,
+						reason:
+							typeof input.reason === "string" && input.reason.trim()
+								? input.reason.trim()
+								: "flow.cancel: stop a flow run",
+					});
+				},
+			},
 			list: {
 				description:
 					"Recent flow-authored automation runs for the selected tedi. Persistent and scheduled skill runs are intentionally excluded.",
@@ -638,6 +703,51 @@ export const FLOW_CATALOG_TOOLS = {
 			properties: {
 				runId: { type: "string" },
 				tediSlug: { type: "string" },
+			},
+			required: ["runId"],
+		},
+	},
+	watch: {
+		name: "Watch Work Item Status",
+		description:
+			"Durable status watch off your context: checks one Work Item's status every N seconds (>= 15 s) until an until rule matches, maxChecks (<= 100) is used or the deadline (<= 24 h) passes. Returns { runId } at once; read the outcome with flow.status.",
+		parameters: {
+			type: "object",
+			properties: {
+				check: {
+					type: "object",
+					description:
+						'{ callable: "work.item_status", args: { workItemId } }. No other checks are supported yet.',
+				},
+				until: {
+					type: "object",
+					description:
+						"JSON rule on the status { workItemId, disposition, updatedAt }: { path, in } | { path, eq } | { path, gte }.",
+				},
+				every: {
+					type: ["number", "string"],
+					description: 'Seconds, or e.g. "30 s", "5 minutes". At least 15 s.',
+				},
+				maxChecks: { type: "number", description: "1 to 100 (default 100)." },
+				deadline: {
+					type: ["number", "string"],
+					description: "Up to 24 hours (default every x maxChecks).",
+				},
+				tediSlug: { type: "string" },
+				reason: { type: "string" },
+			},
+			required: ["check", "until", "every"],
+		},
+	},
+	cancel: {
+		name: "Cancel Flow Run",
+		description: "Stop a flow run (a watch or a flow.run job).",
+		parameters: {
+			type: "object",
+			properties: {
+				runId: { type: "string" },
+				tediSlug: { type: "string" },
+				reason: { type: "string" },
 			},
 			required: ["runId"],
 		},

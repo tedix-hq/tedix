@@ -11,6 +11,7 @@ import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-wor
 import { createDbClient } from "@tedix/db/client";
 import {
 	createPinnedSkillRun,
+	createPinnedSkillRunWithinCap,
 	getPinnedSkillWorkflowSource,
 	listSkillRunsAwaitingReconcile,
 	type CreatePinnedSkillRunParams,
@@ -73,6 +74,15 @@ export async function createSkillRun(
 	input: CreatePinnedSkillRunParams,
 ): Promise<void> {
 	await createPinnedSkillRun(createDbClient(db), input);
+}
+
+/** Same snapshot insert, refused (false) once `cap.max` runs of the skill are open. */
+export function createSkillRunWithinCap(
+	db: D1Database,
+	input: CreatePinnedSkillRunParams,
+	cap: { max: number; since: string },
+): Promise<boolean> {
+	return createPinnedSkillRunWithinCap(createDbClient(db), input, cap);
 }
 
 /**

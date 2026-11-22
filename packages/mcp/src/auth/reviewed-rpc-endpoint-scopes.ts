@@ -767,6 +767,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"skills/recordRunEffectObservation": "mcp:skills.write",
 	"skills/runWorkflow": "mcp:skills.write",
 	"skills/runWorkflowCancel": "mcp:skills.admin",
+	"skills/startWorkItemWatch": "mcp:skills.write",
+	"skills/checkWorkItemWatch": "mcp:skills.read",
 	"skills/runWorkflowHistory": "mcp:skills.read",
 	"skills/runWorkflowSendEvent": "mcp:skills.admin",
 	"skills/runWorkflowStatus": "mcp:skills.read",

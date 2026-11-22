@@ -56,6 +56,12 @@ import {
 } from "../schemas/cognitive";
 import { JsonValueSchema } from "../schemas/common";
 import {
+	CheckWorkItemWatchInputSchema,
+	StartWorkItemWatchInputSchema,
+	StartWorkItemWatchOutputSchema,
+	WorkItemWatchStatusSchema,
+} from "../schemas/flow-watch";
+import {
 	ClearRunSensitiveDataLatchResultSchema,
 	RunSensitiveDataLatchQuerySchema,
 	RunSensitiveDataLatchStateSchema,
@@ -1770,6 +1776,24 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 					),
 			}),
 		),
+
+	startWorkItemWatch: oc
+		.route({
+			method: "POST",
+			path: "/skills/start-work-item-watch",
+			tags: ["cognitive"],
+		})
+		.input(StartWorkItemWatchInputSchema)
+		.output(StartWorkItemWatchOutputSchema),
+
+	checkWorkItemWatch: oc
+		.route({
+			method: "POST",
+			path: "/skills/check-work-item-watch",
+			tags: ["cognitive"],
+		})
+		.input(CheckWorkItemWatchInputSchema)
+		.output(WorkItemWatchStatusSchema),
 
 	runWorkflowSendEvent: oc
 		.route({

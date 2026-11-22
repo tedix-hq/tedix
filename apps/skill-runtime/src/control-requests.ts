@@ -22,6 +22,14 @@ export const RunRequestSchema = z.object({
 	createdBy: z.string().min(1).max(128).optional(),
 	workItemId: z.string().uuid().optional(),
 	originTediRunId: z.string().uuid().optional(),
+	// Per-skill ceiling on open runs in the organization (flow.watch). The
+	// count and the run insert are one statement; a full cap returns 429.
+	openRunCap: z
+		.object({
+			max: z.number().int().min(1).max(100),
+			windowHours: z.number().int().min(1).max(48),
+		})
+		.optional(),
 });
 
 export const StatusRequestSchema = z.object({
