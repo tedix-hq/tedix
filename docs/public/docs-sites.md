@@ -152,8 +152,9 @@ Publishing one site does not change the other.
 
 Tedix operates a dedicated release policy for its own public documentation.
 Changes to `docs/public` on `main` go live there after the documentation checks
-and build pass. The release history attributes those publishes to the Docs
-release service. A manual rollback pauses that site's scheduled publishes
+and build pass. If a newer docs change lands during a build, the service waits
+for a build of that change. The release history attributes these publishes to
+the Docs release service. A manual rollback pauses scheduled publishes
 until a maintainer publishes again.
 
 ## Validate the tenant boundary
