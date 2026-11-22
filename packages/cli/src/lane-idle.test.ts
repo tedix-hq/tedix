@@ -270,7 +270,7 @@ it.each(["unreachable", "held", "retained worktree", "quota", "free donor"])(
 			if (state === "unreachable")
 				expect(assignments).toEqual([
 					expect.objectContaining({
-						executorReference: { type: "external_agent", id: "opencode" },
+						executor: "opencode",
 						expectedWorkItemVersion: 3,
 						idleReassignment: expect.objectContaining({
 							fromExecutor: "codex",
