@@ -55,8 +55,9 @@ export interface PanelApi {
 	answerQuestion(response: number, checked: boolean): Promise<void>;
 	/** Tells the app how tall the question is, so the window fits it. */
 	questionSize(height: number): Promise<void>;
-	/** The next two are for the menu bar's input bar only. */
+	/** For the New Chat launcher only. */
 	newChat(text: string): Promise<void>;
+	openLocalChat(): Promise<void>;
 	closeInputBar(): Promise<void>;
 }
 

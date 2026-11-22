@@ -25,7 +25,11 @@ test("discovers LM Studio models through the OpenAI-compatible endpoint", async 
 		async (url) => {
 			expect(url).toBe("http://127.0.0.1:1234/v1/models");
 			return Response.json({
-				data: [{ id: "local-chat-model" }, { id: "local-chat-model" }],
+				data: [
+					{ id: "local-chat-model" },
+					{ id: "local-chat-model" },
+					{ id: "text-embedding-nomic-embed-text-v1.5" },
+				],
 			});
 		},
 	);

@@ -6,7 +6,7 @@
 			http-equiv="Content-Security-Policy"
 			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"
 		/>
-		<title>Local Model Chat</title>
+		<title>Chat on This Mac</title>
 		<link rel="stylesheet" href="ui.css" />
 		<style>
 			body {
@@ -19,28 +19,42 @@
 			}
 			header {
 				border-bottom: 1px solid var(--border);
+				display: flex;
+				flex-wrap: wrap;
+				justify-content: space-between;
+				gap: 8px 16px;
+				align-items: baseline;
 			}
 			h1 {
-				margin: 0 0 12px;
+				margin: 0;
 				font-size: 20px;
 			}
-			.controls,
 			.actions {
 				display: flex;
 				flex-wrap: wrap;
 				gap: 8px;
 				align-items: end;
 			}
-			.controls label {
-				display: grid;
-				gap: 4px;
+			details {
+				max-width: 100%;
 			}
-			#port {
+			summary {
+				cursor: pointer;
+				color: var(--muted-foreground);
+			}
+			.server {
+				display: grid;
+				grid-template-columns: minmax(120px, auto) 82px;
+				align-items: center;
+				gap: 4px 10px;
+				margin-block: 8px;
+			}
+			.server input {
 				width: 82px;
 			}
-			.model-control {
-				flex: 1 1 168px;
-				min-width: 0;
+			.server span {
+				grid-column: 1 / -1;
+				color: var(--muted-foreground);
 			}
 			select,
 			input,
@@ -53,7 +67,9 @@
 				padding: 7px 10px;
 			}
 			#model {
+				flex: 1 1 165px;
 				min-width: 0;
+				max-width: 100%;
 			}
 			button {
 				min-height: 34px;
@@ -73,9 +89,11 @@
 				border-color: var(--primary);
 			}
 			#connection {
-				margin: 8px 0 0;
-				min-height: 1.45em;
+				margin: 6px 0 0;
 				color: var(--muted-foreground);
+			}
+			#connection:empty {
+				display: none;
 			}
 			main {
 				overflow-y: auto;
@@ -128,10 +146,6 @@
 				justify-content: space-between;
 				align-items: center;
 			}
-			#active-model {
-				color: var(--muted-foreground);
-				overflow-wrap: anywhere;
-			}
 			#notice {
 				color: var(--muted-foreground);
 				margin: 8px 0 0;
@@ -141,30 +155,37 @@
 	</head>
 	<body>
 		<header>
-			<h1>Local Model Chat</h1>
-			<div class="controls">
-				<label
-					>Server
-					<select id="provider">
-						<option value="ollama">Ollama</option>
-						<option value="lmstudio">LM Studio</option>
-					</select>
-				</label>
-				<label
-					>Port
-					<input id="port" type="number" min="1" max="65535" value="11434"
-				/></label>
-				<label class="model-control"
-					>Model
-					<select id="model" disabled></select
-				></label>
+			<h1>Chat on This Mac</h1>
+			<details>
+				<summary>Connections</summary>
+				<div class="server">
+					<label for="ollama-port">Ollama port</label>
+					<input
+						id="ollama-port"
+						type="number"
+						min="1"
+						max="65535"
+						value="11434"
+					/>
+					<span id="ollama-status"></span>
+				</div>
+				<div class="server">
+					<label for="lmstudio-port">LM Studio port</label>
+					<input
+						id="lmstudio-port"
+						type="number"
+						min="1"
+						max="65535"
+						value="1234"
+					/>
+					<span id="lmstudio-status"></span>
+				</div>
 				<button id="refresh" type="button">Refresh models</button>
-			</div>
-			<p id="connection" role="status"></p>
+			</details>
 		</header>
 		<main aria-label="Conversation" id="conversation">
 			<div id="messages"></div>
-			<p id="empty">Choose a model on this Mac to start chatting.</p>
+			<p id="empty">What would you like to talk about?</p>
 		</main>
 		<footer>
 			<form id="composer">
@@ -175,13 +196,14 @@
 					placeholder="Message the local model…"
 				></textarea>
 				<div class="actions">
-					<span id="active-model"></span>
+					<select id="model" aria-label="Model on this Mac" disabled></select>
 					<div>
 						<button id="new-chat" type="button">New chat</button>
 						<button id="stop" type="button" hidden>Stop</button>
 						<button id="send" type="submit" disabled>Send</button>
 					</div>
 				</div>
+				<p id="connection" role="status"></p>
 				<p id="notice" role="status"></p>
 			</form>
 		</footer>

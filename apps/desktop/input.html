@@ -63,21 +63,35 @@
 				outline: 2px solid Highlight;
 				outline-offset: 2px;
 			}
+			label {
+				font-size: 13px;
+				font-weight: 600;
+			}
+			#local {
+				width: auto;
+				border: 1px solid light-dark(#d4d4d8, #52525b);
+				border-radius: 7px;
+				padding: 0 10px;
+				background: transparent;
+				color: inherit;
+				font-size: 13px;
+			}
 		</style>
 	</head>
 	<body>
 		<form id="bar">
+			<label for="message">Tedix Cloud</label>
 			<input
 				id="message"
 				type="text"
-				aria-label="Message for a new chat"
-				placeholder="Start a new chat with Tedix"
+				placeholder="Message…"
 				autocomplete="off"
 				maxlength="20000"
 			/>
-			<button id="send" type="submit" aria-label="Start chat" disabled>
+			<button id="send" type="submit" aria-label="Send to Tedix Cloud" disabled>
 				↑
 			</button>
+			<button id="local" type="button">On This Mac</button>
 		</form>
 		<script src="out/input-bar.js"></script>
 	</body>

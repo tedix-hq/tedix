@@ -1257,6 +1257,21 @@ async function checkForUpdates(asked: boolean): Promise<void> {
 	});
 }
 
+function newChatItem(): MenuItemConstructorOptions {
+	return {
+		label: "New Chat…",
+		accelerator: "CmdOrCtrl+N",
+		click: () => openInputBar(),
+	};
+}
+
+function developerItem(): MenuItemConstructorOptions {
+	return {
+		label: "Developer",
+		submenu: [{ label: "Open Local Workspace", click: () => openLocalTedix() }],
+	};
+}
+
 function setMenu(): void {
 	const thisMac: MenuItemConstructorOptions = {
 		label: "This Mac…",
@@ -1274,11 +1289,11 @@ function setMenu(): void {
 				label: mac ? app.name : "Tedix",
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
+					newChatItem(),
 					thisMac,
 					setUp,
 					runnersItem(),
-					{ label: "Open Local Tedix", click: () => openLocalTedix() },
-					{ label: "Open Local Model Chat", click: openLocalModelChat },
+					developerItem(),
 					// Offered only while it is needed: signing in again when already
 					// signed in opens a browser page that leads nowhere.
 					appSignIn.state === "in"
@@ -1442,9 +1457,7 @@ let tray: Tray | undefined;
 function trayMenu(): Menu {
 	return Menu.buildFromTemplate([
 		{ label: "Open Tedix", click: showMain },
-		{ label: "Open Local Tedix", click: () => openLocalTedix() },
-		{ label: "Open Local Model Chat", click: openLocalModelChat },
-		{ label: "New Chat…", click: () => openInputBar() },
+		newChatItem(),
 		{ type: "separator" },
 		// A line on the runners only when something is off: paused, stopped or failing.
 		...(runnersPaused() || !runnersRunning()
@@ -1452,6 +1465,7 @@ function trayMenu(): Menu {
 			: []),
 		{ label: "This Mac…", click: openPanel },
 		runnersItem(),
+		developerItem(),
 		{ type: "separator" },
 		{ label: "Check for Updates…", click: () => void checkForUpdates(true) },
 		...(app.isPackaged
@@ -1861,6 +1875,11 @@ else if (process.argv.includes("--local-model")) {
 			if (!fromInputBar(event)) throw new Error("Not allowed");
 			if (typeof text === "string" && text.trim())
 				return newChat(text.trim().slice(0, 20_000));
+		});
+		ipcMain.handle("open-local-chat", (event) => {
+			if (!fromInputBar(event)) throw new Error("Not allowed");
+			inputBar?.hide();
+			openLocalModelChat();
 		});
 		ipcMain.handle("input-close", (event) => {
 			if (!fromInputBar(event)) throw new Error("Not allowed");

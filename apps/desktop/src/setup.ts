@@ -9,6 +9,7 @@ import {
 	restartSupervisor,
 	restoreCli,
 } from "./cli";
+import type { LocalModelPreferences } from "./local-model-client";
 import { log } from "./log";
 import { runnersPath } from "./runners-file";
 import {
@@ -261,6 +262,7 @@ export interface SetupState {
 interface Settings {
 	host?: string;
 	repo?: string;
+	localModels?: LocalModelPreferences;
 }
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 export function settings(): Settings {

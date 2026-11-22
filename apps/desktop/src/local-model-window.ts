@@ -2,10 +2,14 @@ import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { join } from "node:path";
 import {
 	listLocalModels,
+	localModelProviders,
 	streamLocalModelReply,
+	type LocalModelPreferences,
 	type LocalModelRequest,
 	type LocalModelServer,
+	validModelPort,
 } from "./local-model-client";
+import { saveSettings, settings } from "./setup";
 
 let window: BrowserWindow | undefined;
 let handlersInstalled = false;
@@ -26,7 +30,25 @@ function modelServerKey(server: LocalModelServer): string {
 	return `${server.provider}:${server.port}`;
 }
 
+function localPreferences(
+	candidate?: LocalModelPreferences,
+): LocalModelPreferences {
+	const { ports, modelKey } = candidate ?? {};
+	return {
+		ports: {
+			ollama: validModelPort(ports?.ollama)
+				? ports.ollama
+				: localModelProviders.ollama.port,
+			lmstudio: validModelPort(ports?.lmstudio)
+				? ports.lmstudio
+				: localModelProviders.lmstudio.port,
+		},
+		modelKey: typeof modelKey === "string" ? modelKey.slice(0, 544) : "",
+	};
+}
+
 export function openLocalModelChat(): void {
+	void app.dock?.show();
 	if (window && !window.isDestroyed()) {
 		window.show();
 		window.focus();
@@ -34,6 +56,17 @@ export function openLocalModelChat(): void {
 	}
 	if (!handlersInstalled) {
 		handlersInstalled = true;
+		ipcMain.handle("local-model:preferences", (event) => {
+			fromModelWindow(event);
+			return localPreferences(settings().localModels);
+		});
+		ipcMain.handle(
+			"local-model:save-preferences",
+			(event, preferences: LocalModelPreferences) => {
+				fromModelWindow(event);
+				saveSettings({ localModels: localPreferences(preferences) });
+			},
+		);
 		ipcMain.handle(
 			"local-model:models",
 			async (event, server: LocalModelServer) => {
@@ -77,7 +110,7 @@ export function openLocalModelChat(): void {
 
 	const root = app.getAppPath();
 	window = new BrowserWindow({
-		title: "Local Model Chat",
+		title: "Chat on This Mac",
 		width: 820,
 		height: 720,
 		minWidth: 440,

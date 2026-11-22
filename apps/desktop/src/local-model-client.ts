@@ -5,6 +5,10 @@ export const localModelProviders = {
 
 export type LocalModelProvider = keyof typeof localModelProviders;
 export type LocalModelServer = { provider: LocalModelProvider; port: number };
+export type LocalModelPreferences = {
+	ports: Record<LocalModelProvider, number>;
+	modelKey: string;
+};
 export type LocalModelMessage = { role: "user" | "assistant"; content: string };
 export type LocalModelRequest = LocalModelServer & {
 	model: string;
@@ -12,6 +16,8 @@ export type LocalModelRequest = LocalModelServer & {
 };
 
 export interface LocalModelChatApi {
+	preferences(): Promise<LocalModelPreferences>;
+	savePreferences(preferences: LocalModelPreferences): Promise<void>;
 	models(server: LocalModelServer): Promise<string[]>;
 	reply(request: LocalModelRequest): Promise<string>;
 	stop(): Promise<void>;
@@ -20,12 +26,19 @@ export interface LocalModelChatApi {
 
 type LocalFetch = (url: string, init: RequestInit) => Promise<Response>;
 
+export function validModelPort(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isInteger(value) &&
+		value >= 1 &&
+		value <= 65535
+	);
+}
+
 function serverOrigin(server: LocalModelServer): string {
 	if (
 		!Object.hasOwn(localModelProviders, server?.provider) ||
-		!Number.isInteger(server.port) ||
-		server.port < 1 ||
-		server.port > 65535
+		!validModelPort(server.port)
 	)
 		throw new Error("Choose a provider and a port between 1 and 65535.");
 	return `http://127.0.0.1:${server.port}`;
@@ -92,7 +105,7 @@ export async function listLocalModels(
 					typeof id === "string" &&
 					id.length > 0 &&
 					id.length <= 512 &&
-					(!ollama || !ollamaCloudModel(id)),
+					(ollama ? !ollamaCloudModel(id) : !id.startsWith("text-embedding-")),
 			),
 		),
 	].sort();

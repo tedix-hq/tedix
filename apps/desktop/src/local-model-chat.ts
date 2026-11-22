@@ -2,7 +2,9 @@ import {
 	localModelProviders,
 	type LocalModelChatApi,
 	type LocalModelMessage,
+	type LocalModelPreferences,
 	type LocalModelProvider,
+	type LocalModelServer,
 } from "./local-model-client";
 
 declare global {
@@ -12,8 +14,6 @@ declare global {
 }
 
 const api = window.localModelChat;
-const provider = document.querySelector<HTMLSelectElement>("#provider")!;
-const port = document.querySelector<HTMLInputElement>("#port")!;
 const model = document.querySelector<HTMLSelectElement>("#model")!;
 const refresh = document.querySelector<HTMLButtonElement>("#refresh")!;
 const connection = document.querySelector("#connection")!;
@@ -22,16 +22,21 @@ const messages = document.querySelector("#messages")!;
 const empty = document.querySelector<HTMLElement>("#empty")!;
 const composer = document.querySelector<HTMLFormElement>("#composer")!;
 const prompt = document.querySelector<HTMLTextAreaElement>("#prompt")!;
-const activeModel = document.querySelector("#active-model")!;
 const notice = document.querySelector("#notice")!;
 const send = document.querySelector<HTMLButtonElement>("#send")!;
 const stop = document.querySelector<HTMLButtonElement>("#stop")!;
 const newChat = document.querySelector<HTMLButtonElement>("#new-chat")!;
 
-const selection = () => {
-	const value = provider.value as LocalModelProvider;
-	return { provider: value, port: port.valueAsNumber };
-};
+const providers = (
+	Object.keys(localModelProviders) as LocalModelProvider[]
+).map((provider) => ({
+	provider,
+	label: localModelProviders[provider].label,
+	port: document.querySelector<HTMLInputElement>(`#${provider}-port`)!,
+	status: document.querySelector(`#${provider}-status`)!,
+}));
+const choices = new Map<string, LocalModelServer & { id: string }>();
+let preferredModel = "";
 const history: LocalModelMessage[] = [];
 let discovery = 0;
 let pending = false;
@@ -40,11 +45,11 @@ let stopped = false;
 let replyText: HTMLElement | undefined;
 
 function updateControls() {
-	const label = localModelProviders[selection().provider].label;
-	activeModel.textContent = model.value ? `${label} · ${model.value}` : "";
-	send.disabled = busy || pending || !model.value || !prompt.value.trim();
-	provider.disabled = port.disabled = refresh.disabled = busy;
-	model.disabled = busy || pending || !model.options.length;
+	send.disabled =
+		busy || pending || !choices.has(model.value) || !prompt.value.trim();
+	refresh.disabled = busy || pending;
+	for (const entry of providers) entry.port.disabled = busy || pending;
+	model.disabled = busy || pending || choices.size === 0;
 	newChat.disabled = busy || messages.childElementCount === 0;
 	stop.hidden = !busy;
 	stop.disabled = stopped;
@@ -62,29 +67,51 @@ function messageForError(error: unknown) {
 
 async function loadModels() {
 	const current = ++discovery;
-	const previous = model.value;
-	const server = selection();
-	const label = localModelProviders[server.provider].label;
-	model.replaceChildren();
+	const previous = preferredModel || model.value;
+	choices.clear();
+	model.replaceChildren(new Option("Finding models…", ""));
 	pending = true;
-	connection.textContent = `Checking ${label}…`;
 	updateControls();
-	try {
-		const found = await api.models(server);
-		if (current !== discovery) return;
-		for (const id of found) model.add(new Option(id, id));
-		if (found.includes(previous)) model.value = previous;
-		connection.textContent = found.length
-			? ""
-			: `No models available. Add a model to ${label}, then refresh.`;
-	} catch (error) {
-		if (current === discovery) connection.textContent = messageForError(error);
-	} finally {
-		if (current === discovery) {
-			pending = false;
-			updateControls();
+	for (const entry of providers) entry.status.textContent = "Checking…";
+	const results = await Promise.allSettled(
+		providers.map((entry) =>
+			api.models({ provider: entry.provider, port: entry.port.valueAsNumber }),
+		),
+	);
+	if (current !== discovery) return;
+	model.replaceChildren(new Option("Choose a model", ""));
+	for (const [index, entry] of providers.entries()) {
+		const result = results[index]!;
+		if (result.status === "rejected") {
+			entry.status.textContent = messageForError(result.reason);
+			continue;
+		}
+		entry.status.textContent = result.value.length
+			? "Connected"
+			: "Connected. Add a chat model, then refresh.";
+		for (const id of result.value) {
+			const port = entry.port.valueAsNumber;
+			const key = `${entry.provider}:${port}:${id}`;
+			choices.set(key, { provider: entry.provider, port, id });
+			model.add(new Option(`${entry.label} · ${id}`, key));
 		}
 	}
+	if (choices.has(previous)) model.value = previous;
+	else if (!previous && choices.size) model.selectedIndex = 1;
+	connection.textContent = !choices.size
+		? "Start Ollama or LM Studio with a chat model, then refresh in Connections."
+		: previous && !choices.has(previous)
+			? "The last model is unavailable. Choose an available model."
+			: "";
+	pending = false;
+	updateControls();
+}
+
+function savePreferences() {
+	const ports = Object.fromEntries(
+		providers.map((entry) => [entry.provider, entry.port.valueAsNumber]),
+	) as LocalModelPreferences["ports"];
+	void api.savePreferences({ ports, modelKey: preferredModel }).catch(() => {});
 }
 
 function addMessage(role: "user" | "assistant", author: string, text = "") {
@@ -105,9 +132,12 @@ function scrollToReply() {
 
 async function sendMessage() {
 	if (send.disabled) return;
+	const selected = choices.get(model.value);
+	if (!selected) return;
 	const text = prompt.value.trim();
-	const server = selection();
-	const id = model.value;
+	const { id, ...server } = selected;
+	preferredModel = model.value;
+	savePreferences();
 	const turn = { role: "user" as const, content: text };
 	const user = addMessage("user", "You", text);
 	const reply = addMessage("assistant", id);
@@ -155,12 +185,18 @@ api.onText((text) => {
 	if (nearBottom) scrollToReply();
 });
 
-provider.onchange = () => {
-	port.value = String(localModelProviders[selection().provider].port);
-	void loadModels();
+for (const entry of providers)
+	entry.port.onchange = () => {
+		savePreferences();
+		void loadModels();
+	};
+refresh.onclick = () => void loadModels();
+model.onchange = () => {
+	preferredModel = model.value;
+	savePreferences();
+	updateControls();
 };
-port.onchange = refresh.onclick = () => void loadModels();
-model.onchange = prompt.oninput = updateControls;
+prompt.oninput = updateControls;
 composer.onsubmit = (event) => {
 	event.preventDefault();
 	void sendMessage();
@@ -184,4 +220,14 @@ newChat.onclick = () => {
 	prompt.focus();
 };
 
-void loadModels();
+void api
+	.preferences()
+	.then(
+		(preferences) => {
+			preferredModel = preferences.modelKey;
+			for (const entry of providers)
+				entry.port.value = String(preferences.ports[entry.provider]);
+		},
+		() => {},
+	)
+	.then(loadModels);

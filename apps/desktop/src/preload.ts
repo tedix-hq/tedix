@@ -28,6 +28,7 @@ const api: PanelApi = {
 		ipcRenderer.invoke("question-answer", response, checked),
 	questionSize: (height) => ipcRenderer.invoke("question-size", height),
 	newChat: (text) => ipcRenderer.invoke("new-chat", text),
+	openLocalChat: () => ipcRenderer.invoke("open-local-chat"),
 	closeInputBar: () => ipcRenderer.invoke("input-close"),
 };
 contextBridge.exposeInMainWorld("tedixShell", api);
