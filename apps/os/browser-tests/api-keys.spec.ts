@@ -40,6 +40,34 @@ try {
 	assert.equal(await title.innerText(), "Keys (60)", label);
 
 	assert.equal(await section.locator("table tbody tr").count(), 25);
+	await page.setViewportSize({ width: 960, height: 650 });
+	await page.getByRole("button", { name: "Create key", exact: true }).click();
+	const createDialog = page.getByRole("dialog", { name: "Create API key" });
+	const nameField = await createDialog
+		.getByRole("textbox", { name: "Name", exact: true })
+		.boundingBox();
+	const environment = await createDialog
+		.getByRole("combobox", { name: "Environment" })
+		.boundingBox();
+	assert(
+		nameField &&
+			environment &&
+			Math.abs(nameField.y - environment.y) <= 1 &&
+			environment.x > nameField.x,
+		"key identity fields share one aligned row",
+	);
+	const cancel = createDialog.getByRole("button", {
+		name: "Cancel",
+		exact: true,
+	});
+	const footerButton = await cancel.boundingBox();
+	assert(
+		footerButton && footerButton.y + footerButton.height <= 650,
+		"Cancel fits on a short desktop display",
+	);
+	await cancel.click();
+	await createDialog.waitFor({ state: "hidden" });
+
 	await page.setViewportSize({ width: 375, height: 900 });
 	const rows = section.locator('ul[aria-label="API keys"] > li');
 	await rows.first().waitFor();

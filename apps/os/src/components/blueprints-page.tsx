@@ -457,7 +457,7 @@ function CreateBlueprintForm({
 	return (
 		<Surface
 			render={<form />}
-			className="grid gap-3 p-4"
+			className="grid w-full max-w-2xl min-w-0 gap-4 p-4"
 			onSubmit={(event) => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -485,12 +485,12 @@ function CreateBlueprintForm({
 					/>
 				)}
 			</FormField>
-			<div className="flex items-center gap-2">
-				<Button size="sm" disabled={create.isPending} type="submit">
-					{create.isPending ? "Creating…" : "Create template"}
-				</Button>
-				<Button size="sm" variant="ghost" onClick={onCancel}>
+			<div className="flex flex-wrap items-center justify-end gap-2">
+				<Button type="button" variant="outline" onClick={onCancel}>
 					Cancel
+				</Button>
+				<Button disabled={create.isPending} type="submit">
+					{create.isPending ? "Creating…" : "Create template"}
 				</Button>
 			</div>
 			{create.isError && (

@@ -1039,48 +1039,78 @@ function CreateKeyDialog({
 						</Surface>
 					) : (
 						<>
-							<FormField form={form} name="name" label="Name">
-								{(field, meta) => (
-									<FormInput
-										field={field}
-										{...meta}
-										placeholder="e.g. CI/CD Pipeline"
-									/>
-								)}
-							</FormField>
-
-							<div className="space-y-2">
-								<Label htmlFor="key-expiry">Expiration date (optional)</Label>
-								<Popover
-									open={expirationPickerOpen}
-									onOpenChange={setExpirationPickerOpen}
-								>
-									<PopoverTrigger
-										render={
-											<Button
-												aria-label="Expiration date"
-												className="w-full justify-start"
-												id="key-expiry"
-												icon={<CalendarDots aria-hidden className="size-4" />}
-												variant="outline"
-											/>
-										}
-									>
-										{values.expirationDate
-											? apiKeyExpirationDateLabel(values.expirationDate)
-											: "No expiration"}
-									</PopoverTrigger>
-									<PopoverContent align="start" className="w-auto p-3">
-										<DatePicker
-											mode="single"
-											selected={values.expirationDate}
-											onChange={(date) => {
-												form.setFieldValue("expirationDate", date);
-												if (date) setExpirationPickerOpen(false);
-											}}
+							<div className="grid min-w-0 items-start gap-4 sm:grid-cols-2">
+								<FormField form={form} name="name" label="Name">
+									{(field, meta) => (
+										<FormInput
+											field={field}
+											{...meta}
+											placeholder="e.g. CI/CD Pipeline"
 										/>
-									</PopoverContent>
-								</Popover>
+									)}
+								</FormField>
+
+								<FormField form={form} name="environment" label="Environment">
+									{(field, meta) => (
+										<FormSelect field={field} {...meta}>
+											<SelectItem value="test">Test</SelectItem>
+											<SelectItem value="live">Live</SelectItem>
+										</FormSelect>
+									)}
+								</FormField>
+
+								<FormField
+									form={form}
+									name="expirationDate"
+									label="Expiration date"
+									optional
+								>
+									{(_field, meta) => (
+										<Popover
+											open={expirationPickerOpen}
+											onOpenChange={setExpirationPickerOpen}
+										>
+											<PopoverTrigger
+												render={
+													<Button
+														aria-label="Expiration date"
+														className="w-full justify-start"
+														id={meta.id}
+														icon={
+															<CalendarDots aria-hidden className="size-4" />
+														}
+														variant="outline"
+													/>
+												}
+											>
+												{values.expirationDate
+													? apiKeyExpirationDateLabel(values.expirationDate)
+													: "No expiration"}
+											</PopoverTrigger>
+											<PopoverContent align="start" className="w-auto p-3">
+												<DatePicker
+													mode="single"
+													selected={values.expirationDate}
+													onChange={(date) => {
+														form.setFieldValue("expirationDate", date);
+														if (date) setExpirationPickerOpen(false);
+													}}
+												/>
+											</PopoverContent>
+										</Popover>
+									)}
+								</FormField>
+
+								<FormField
+									form={form}
+									name="rotationScheduleDays"
+									label="Rotation reminder (days)"
+									optional
+								>
+									{(field, meta) => (
+										<FormInput field={field} {...meta} min="1" type="number" />
+									)}
+								</FormField>
 							</div>
 
 							<FormField
@@ -1101,17 +1131,6 @@ function CreateKeyDialog({
 
 							<FormField
 								form={form}
-								name="rotationScheduleDays"
-								label="Rotation reminder (days)"
-								optional
-							>
-								{(field, meta) => (
-									<FormInput field={field} {...meta} min="1" type="number" />
-								)}
-							</FormField>
-
-							<FormField
-								form={form}
 								name="description"
 								label="Description"
 								optional
@@ -1122,15 +1141,6 @@ function CreateKeyDialog({
 										{...meta}
 										placeholder="What is this key for?"
 									/>
-								)}
-							</FormField>
-
-							<FormField form={form} name="environment" label="Environment">
-								{(field, meta) => (
-									<FormSelect field={field} {...meta}>
-										<SelectItem value="test">Test</SelectItem>
-										<SelectItem value="live">Live</SelectItem>
-									</FormSelect>
 								)}
 							</FormField>
 

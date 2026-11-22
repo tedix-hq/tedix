@@ -155,13 +155,14 @@ export function OrganizationProfileForm({
 			</SectionHeader>
 			<SettingsSectionContent>
 				<form
+					className="w-full max-w-2xl"
 					onSubmit={(event) => {
 						event.preventDefault();
 						event.stopPropagation();
 						form.handleSubmit();
 					}}
 				>
-					<div className="space-y-8 sm:[&>[data-orientation]]:grid-cols-2 sm:[&>[data-orientation]]:gap-x-6 sm:[&>[data-orientation]]:gap-y-1 sm:[&>[data-orientation]>label]:col-start-1 sm:[&>[data-orientation]>label]:row-start-1 sm:[&>[data-orientation]>:nth-child(2)]:col-start-2 sm:[&>[data-orientation]>:nth-child(2)]:row-span-2 sm:[&>[data-orientation]>:nth-child(2)]:row-start-1 sm:[&>[data-orientation]>:last-child]:col-span-1 sm:[&>[data-orientation]>:last-child]:col-start-1 sm:[&>[data-orientation]>:last-child]:row-start-2">
+					<div className="grid min-w-0 gap-5">
 						<FormField
 							form={form}
 							name="name"
@@ -196,7 +197,7 @@ export function OrganizationProfileForm({
 							)}
 						</FormField>
 
-						<div className="grid gap-3 sm:grid-cols-2 sm:gap-6">
+						<div className="grid min-w-0 gap-2">
 							<Text weight="medium">Logo</Text>
 							<OrganizationLogoUpload
 								organizationId={organizationId}
@@ -403,8 +404,12 @@ export function OrganizationLogoUpload({
 
 	return (
 		<div className="space-y-2">
-			<div className="flex items-center gap-4">
-				<Avatar className={isPending ? "size-16 opacity-60" : "size-16"}>
+			<div className="flex flex-wrap items-center gap-3">
+				<Avatar
+					className={
+						isPending ? "size-16 shrink-0 opacity-60" : "size-16 shrink-0"
+					}
+				>
 					{displayUrl ? (
 						<AvatarImage src={displayUrl} alt={fallbackText || "Logo"} />
 					) : null}
@@ -418,7 +423,7 @@ export function OrganizationLogoUpload({
 						)}
 					</AvatarFallback>
 				</Avatar>
-				<div className="flex items-center gap-2">
+				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					<Button
 						type="button"
 						variant="outline"

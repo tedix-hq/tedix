@@ -234,7 +234,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 			<SectionHeader>
 				<SectionTitle>{title}</SectionTitle>
 			</SectionHeader>
-			<SettingsSectionContent className="grid items-start gap-4 sm:grid-cols-2">
+			<SettingsSectionContent className="grid items-start gap-4 @min-[30rem]/widget-fields:grid-cols-2">
 				{children}
 			</SettingsSectionContent>
 		</SettingsSection>
@@ -296,16 +296,6 @@ export function ExperienceEditor({
 	const [starters, setStarters] = useState(starterText(config));
 	const [saved, setSaved] = useState(false);
 	const [previewOpen, setPreviewOpen] = useState(false);
-	const [wide, setWide] = useState(
-		() => window.matchMedia("(min-width: 1024px)").matches,
-	);
-	useEffect(() => {
-		const media = window.matchMedia("(min-width: 1024px)");
-		const update = () => setWide(media.matches);
-		media.addEventListener("change", update);
-		return () => media.removeEventListener("change", update);
-	}, []);
-
 	const candidate = withStarters(draft, starters);
 	const dirty = !same(base, candidate);
 	useEffect(() => {
@@ -432,7 +422,7 @@ export function ExperienceEditor({
 		</div>
 	);
 	return (
-		<div className="grid gap-8 [&_input]:scroll-mt-24 [&_textarea]:scroll-mt-24 [&_button]:scroll-mt-24">
+		<div className="@container/widget-editor grid min-w-0 gap-8 [&_input]:scroll-mt-24 [&_textarea]:scroll-mt-24 [&_button]:scroll-mt-24">
 			<Surface
 				tier="panel"
 				className="sticky top-0 z-10 flex flex-wrap items-center gap-3 px-4 py-3"
@@ -526,22 +516,31 @@ export function ExperienceEditor({
 			<p className="font-normal text-kumo-subtle type-tedix-body">
 				Applies to all your customer apps on their next widget load.
 			</p>
-			<div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-				<aside className="order-first lg:order-last lg:sticky lg:top-20">
+			<div className="grid min-w-0 items-start gap-8 @min-[55rem]/widget-editor:grid-cols-[minmax(0,1fr)_340px]">
+				<aside className="order-first grid gap-3 @min-[55rem]/widget-editor:sticky @min-[55rem]/widget-editor:top-20 @min-[55rem]/widget-editor:order-last">
 					<Button
 						variant="secondary"
-						className="lg:hidden"
+						className="justify-self-start @min-[55rem]/widget-editor:hidden"
 						aria-expanded={previewOpen}
 						onClick={() => setPreviewOpen((value) => !value)}
 					>
 						{previewOpen ? "Hide preview" : "Preview"}
 					</Button>
-					{(wide || previewOpen) && (
+					<div
+						className={
+							previewOpen
+								? undefined
+								: "hidden @min-[55rem]/widget-editor:block"
+						}
+					>
 						<WidgetAppearancePreview config={candidate} />
-					)}
+					</div>
 				</aside>
 				<div className="grid gap-8">
-					<fieldset disabled={pending} className="grid min-w-0 gap-8">
+					<fieldset
+						disabled={pending}
+						className="@container/widget-fields grid min-w-0 gap-8"
+					>
 						<Group title="Appearance">
 							{field("title", "Assistant name")}
 							{field("product", "Product name")}
@@ -582,7 +581,7 @@ export function ExperienceEditor({
 								Advanced appearance
 							</CollapsibleDefaultTrigger>
 							<CollapsibleDefaultContent>
-								<div className="grid gap-4 pt-4 sm:grid-cols-2">
+								<div className="grid items-start gap-4 pt-4 @min-[30rem]/widget-fields:grid-cols-2">
 									{field("assistantLogoUrl", "Assistant logo URL")}
 									{field("launcherIconUrl", "Chat button image URL")}
 									{field("assistantLogoUrlDark", "Assistant logo URL · dark")}
@@ -649,7 +648,7 @@ export function ExperienceEditor({
 									}
 								/>
 							</div>
-							<div className="grid gap-1 sm:col-span-2">
+							<div className="col-span-full grid gap-1">
 								<Label htmlFor={`${ids}-welcomeBody`}>Welcome message</Label>
 								<Textarea
 									id={`${ids}-welcomeBody`}
@@ -663,7 +662,7 @@ export function ExperienceEditor({
 									}
 								/>
 							</div>
-							<div className="grid gap-1 sm:col-span-2">
+							<div className="col-span-full grid gap-1">
 								<Label htmlFor={`${ids}-starters`}>Suggested questions</Label>
 								<Textarea
 									id={`${ids}-starters`}
@@ -863,6 +862,7 @@ export function WidgetAppearancePreview({
 							<img
 								src={logo}
 								alt="Assistant logo"
+								loading="lazy"
 								className="size-9 object-contain"
 							/>
 						) : (
@@ -927,6 +927,7 @@ export function WidgetAppearancePreview({
 							<img
 								src={launcher}
 								alt="Launcher icon"
+								loading="lazy"
 								className="size-8 object-contain"
 							/>
 						) : (

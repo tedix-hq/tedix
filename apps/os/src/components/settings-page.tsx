@@ -32,6 +32,7 @@ import {
 } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { CardFooter } from "@/components/kumo/card";
 import { CodeInline } from "@/components/kumo/code";
 import {
 	Collapsible,
@@ -781,24 +782,24 @@ export function SettingsPage({
 								</SettingsRow>
 							</>
 						)}
+						{draft && (
+							<CardFooter className="justify-end px-4! py-3">
+								{state === "clean" && (
+									<Text role="label" tone="secondary">
+										No unsaved changes
+									</Text>
+								)}
+								<Button
+									disabled={!dirty || save.isPending}
+									loading={save.isPending}
+									onClick={() => save.mutate(draft)}
+									size="sm"
+								>
+									{save.isPending ? "Saving…" : "Save preferences"}
+								</Button>
+							</CardFooter>
+						)}
 					</SettingsRows>
-					{draft && (
-						<div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-							{state === "clean" && (
-								<Text role="label" tone="secondary">
-									No unsaved changes
-								</Text>
-							)}
-							<Button
-								disabled={!dirty || save.isPending}
-								loading={save.isPending}
-								onClick={() => save.mutate(draft)}
-								size="sm"
-							>
-								{save.isPending ? "Saving…" : "Save preferences"}
-							</Button>
-						</div>
-					)}
 				</div>
 			</PageSection>
 

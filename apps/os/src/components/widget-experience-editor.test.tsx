@@ -40,7 +40,7 @@ const organization = {
 	name: "Acme",
 	metadata: { tediWidget: base },
 } as Organization;
-async function mount(config = base, showPreview = true) {
+async function mount(config = base) {
 	const client = new QueryClient({
 		defaultOptions: { mutations: { retry: false } },
 	});
@@ -56,12 +56,6 @@ async function mount(config = base, showPreview = true) {
 			);
 		});
 	await render();
-	if (showPreview)
-		await act(async () => {
-			Array.from(host.querySelectorAll("button"))
-				.find((button) => button.textContent === "Preview")
-				?.click();
-		});
 	cleanups.push(() => {
 		act(() => root.unmount());
 		host.remove();
@@ -256,19 +250,6 @@ it("renders an existing non-Intl locale without crashing", async () => {
 	expect(host.textContent).toContain("en-12");
 });
 
-it("keeps the preview collapsed on a narrow screen until requested", async () => {
-	vi.spyOn(window, "matchMedia").mockReturnValue({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	} as unknown as MediaQueryList);
-	const { host, button } = await mount(base, false);
-	expect(host.querySelector('[aria-label="Assistant name"]')).not.toBeNull();
-	expect(host.querySelector('[aria-label="Preview"]')).toBeNull();
-	expect(button("Preview").getAttribute("aria-expanded")).toBe("false");
-	await act(async () => button("Preview").click());
-	expect(host.querySelector('[aria-label="Preview"]')).not.toBeNull();
-});
 it("isolates preview surface and ink colors from an opposite OS theme", async () => {
 	const { host, button } = await mount();
 	const canvas = host.querySelector<HTMLElement>('[data-mode="light"]')!;

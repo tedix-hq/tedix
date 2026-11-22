@@ -161,6 +161,34 @@ try {
 		console.log(`PASS settings-sidebar ${width} ${theme}`);
 		await page.close();
 	}
+
+	const editor = await browser.newPage({
+		viewport: { width: 1100, height: 800 },
+	});
+	await editor.goto(`${server.origin}/admin`);
+	await editor
+		.locator('nav[aria-label="Settings sections"]')
+		.getByRole("link", { name: "Website chat", exact: true })
+		.click();
+	const nameField = editor.getByRole("textbox", { name: "Assistant name" });
+	await nameField.waitFor();
+	const toggle = editor.getByRole("button", { name: "Preview", exact: true });
+	const preview = editor.getByRole("region", { name: "Preview", exact: true });
+	assert.equal(await preview.isVisible(), false);
+	assert(
+		(await nameField.boundingBox())!.width > 200,
+		"the preview leaves room for the form",
+	);
+	await toggle.click();
+	await preview.waitFor();
+	await editor
+		.getByRole("button", { name: "Hide preview", exact: true })
+		.click();
+	await preview.waitFor({ state: "hidden" });
+	await editor.setViewportSize({ width: 1600, height: 900 });
+	await preview.waitFor();
+	assert.equal(await toggle.isVisible(), false);
+	await editor.close();
 } finally {
 	await browser?.close();
 	await server.stop();
