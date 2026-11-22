@@ -193,7 +193,9 @@ export function parseOptions(argv: string[]): {
 			case "--": {
 				const remainder = args.slice(index + 1);
 				if (!command && remainder.length > 0) command = remainder.shift();
-				positional.push(...remainder);
+				if (command === "work" && positional[0] === "run")
+					options.workCommand = remainder;
+				else positional.push(...remainder);
 				index = args.length;
 				break;
 			}

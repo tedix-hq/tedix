@@ -59,7 +59,11 @@ function workMetadataInput(ctx: WorkContext): Record<string, unknown> {
 	return input.metadata;
 }
 
-export async function workStart(ctx: WorkContext, id: string): Promise<number> {
+export async function workStart(
+	ctx: WorkContext,
+	id: string,
+	onStarted?: (attempt: Record<string, unknown>) => void,
+): Promise<number> {
 	if (!id) throw new Error("work start requires a work item id");
 	const { as } = ctx.work;
 	id = await resolveWorkItemId(ctx, id);
@@ -172,6 +176,7 @@ export async function workStart(ctx: WorkContext, id: string): Promise<number> {
 			);
 		}
 	}
+	if (isRecord(attempt)) onStarted?.(attempt);
 	const output =
 		worktree && isRecord(call.value)
 			? { ...call.value, localWorktree: worktree }

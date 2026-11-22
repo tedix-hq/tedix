@@ -943,6 +943,7 @@ export async function main() {
 	const commandAbort = new AbortController();
 	const onSignal = () => {
 		commandAbort.abort(new DOMException("Command interrupted", "AbortError"));
+		if (command === "work" && options.positionals?.[0] === "run") return;
 		void teardown().finally(() => process.exit(130));
 	};
 	process.once("SIGINT", onSignal);
@@ -1337,6 +1338,7 @@ export async function main() {
 					organizationContext.workspace,
 				),
 				work: {
+					...(options.workCommand ? { command: options.workCommand } : {}),
 					...(options.flowWatch !== undefined
 						? { watch: options.flowWatch }
 						: {}),

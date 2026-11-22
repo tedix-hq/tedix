@@ -130,6 +130,7 @@ export interface CliOptions {
 	oauthScopeProfile?: InteractiveOAuthScopeProfile;
 	all?: boolean;
 	// `tedix work` verb-group flags (parsed in work-options.ts, consumed by runWork).
+	workCommand?: string[];
 	workAs?: string;
 	workRepoKey?: string;
 	workPaths?: string[];

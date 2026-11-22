@@ -4399,6 +4399,7 @@ describe("native dispatcher coverage", () => {
 			accept: { work: { doneWhen: "Example result" } },
 			readiness: {},
 			start: {},
+			run: { work: { command: [process.execPath, "-e", "process.exit(0)"] } },
 			handoff: { work: { host: "codex" } },
 			comment: { args: `${ITEM} An observed result` },
 			"not-before": { args: `${ITEM} 2026-12-01` },
@@ -4534,6 +4535,7 @@ describe("native dispatcher coverage", () => {
 						return {
 							attempt: {
 								id: ATTEMPT,
+								expiresAt: new Date(Date.now() + 60_000).toISOString(),
 								externalSessionKey:
 									"codex:33333333-3333-4333-8333-333333333333",
 							},
@@ -4583,7 +4585,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(78);
+		expect(covered).toHaveLength(79);
 	});
 });
 
@@ -5539,4 +5541,98 @@ test("accept forwards task terms from a file, while malformed terms fail before 
 		"--task-contract requires complete task contract terms",
 	);
 	expect(invalid.sources).toHaveLength(0);
+});
+
+describe("work run command lifecycle", () => {
+	function commandFixture(
+		script: string,
+		response?: (source: string) => unknown,
+	) {
+		return makeContext(
+			{ command: [process.execPath, "-e", script], note: "Command result" },
+			undefined,
+			(source) => {
+				if (source.includes("start_work_item_attempt"))
+					return {
+						attempt: {
+							id: ATTEMPT,
+							expiresAt: new Date(Date.now() + 600).toISOString(),
+						},
+					};
+				if (response) return response(source);
+				if (source.includes("heartbeat_work_item_attempt"))
+					return { expiresAt: new Date(Date.now() + 600).toISOString() };
+				return { id: ITEM };
+			},
+		);
+	}
+
+	test("renews across the initial lease and completes only after successful settlement", async () => {
+		const fixture = commandFixture("await Bun.sleep(900)");
+		const start = Date.now();
+		expect((await capture(`run ${ITEM}`, fixture.ctx)).code).toBe(0);
+		expect(Date.now() - start).toBeGreaterThan(600);
+		const renewals = fixture.sources.filter((source) =>
+			source.includes("heartbeat_work_item_attempt"),
+		);
+		expect(renewals.length).toBeGreaterThanOrEqual(3);
+		for (const source of renewals)
+			expect(source).toContain(`"attemptId":"${ATTEMPT}"`);
+		expect(fixture.sources.at(-2)).toContain('"outcome":"succeeded"');
+		expect(fixture.sources.at(-2)).toContain('"summary":"Command result"');
+		expect(fixture.sources.at(-1)).toContain("complete_work_item");
+	});
+
+	test("settles nonzero and spawn errors as failed without completing Work", async () => {
+		for (const command of [
+			[process.execPath, "-e", "process.exit(7)"],
+			["/no-such-command"],
+		]) {
+			const fixture = commandFixture("");
+			fixture.ctx.work.command = command;
+			const result = await capture(`run ${ITEM}`, fixture.ctx);
+			expect(result.code).toBe(command.length === 1 ? 1 : 7);
+			expect(fixture.sources.at(-1)).toContain('"outcome":"failed"');
+			expect(fixture.sources.join(" ")).not.toContain("complete_work_item");
+		}
+	});
+
+	test("stale renewal kills the command before it can write its result", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "work-run-"));
+		const marker = join(directory, "finished");
+		try {
+			const fixture = commandFixture(
+				`await Bun.sleep(900); await Bun.write(${JSON.stringify(marker)}, 'done')`,
+				() => ({
+					defined: true,
+					code: "CONFLICT",
+					status: 409,
+					message: "stale attempt",
+				}),
+			);
+			expect((await capture(`run ${ITEM}`, fixture.ctx)).code).toBe(
+				WORK_EXIT_FAIL,
+			);
+			await Bun.sleep(950);
+			expect(() => readFileSync(marker)).toThrow();
+			expect(fixture.sources.join(" ")).not.toContain(
+				"settle_work_item_attempt",
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("interrupt releases the Attempt as cancelled", async () => {
+		const fixture = commandFixture("await Bun.sleep(900)");
+		const controller = new AbortController();
+		fixture.ctx.signal = controller.signal;
+		const timer = setTimeout(() => controller.abort(), 100);
+		try {
+			expect((await capture(`run ${ITEM}`, fixture.ctx)).code).toBe(130);
+			expect(fixture.sources.at(-1)).toContain('"outcome":"cancelled"');
+		} finally {
+			clearTimeout(timer);
+		}
+	});
 });

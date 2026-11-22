@@ -89,3 +89,29 @@ test.each(["create", "delegate"])("parses --parent for work %s", (verb) => {
 	expect(options.workParent).toBe("11111111-1111-4111-8111-111111111111");
 	expect(() => parseOptions(["work", verb, "Child", "--parent"])).toThrow();
 });
+
+test("work run preserves literal command arguments after the separator", () => {
+	const { options } = parseOptions([
+		"work",
+		"run",
+		"task-id",
+		"--note",
+		"Result text",
+		"--",
+		"tool",
+		"argument with spaces",
+		"",
+		"--json",
+		"$(literal)",
+	]);
+	expect(options.prompt).toBe("run task-id");
+	expect(options.workNote).toBe("Result text");
+	expect(options.workCommand).toEqual([
+		"tool",
+		"argument with spaces",
+		"",
+		"--json",
+		"$(literal)",
+	]);
+	expect(options.json).toBe(false);
+});

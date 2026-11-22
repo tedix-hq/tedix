@@ -380,6 +380,15 @@ results; it does not prove that a remote write stopped. Ambiguous writes are not
 replayed. Explicit user-authored `tedix code` and the decision-capture hook retain
 their separate transport purposes.
 
+`work run <id> [--note "result text"] -- <command> [args...]` starts an
+Attempt and runs the command with its arguments unchanged. It renews after a
+third of the remaining lease, for as long as the command runs. Renewal refusal
+or lease expiry stops the command and exits nonzero. Exit code 0 settles the
+Attempt successfully and completes the Work; other codes settle it as failed.
+Ctrl-C stops the command and releases the Attempt as cancelled, leaving the
+Work open. Coding results can include repeatable `--commit <sha>` options
+before `--`; normal server settlement and completion rules still apply.
+
 `work start <id> --worktree` creates an isolated checkout under the primary
 repository's ignored `.worktrees/<work-prefix>-<attempt-prefix>` directory.
 `--worktree-root <path>` overrides its parent directory. A successful

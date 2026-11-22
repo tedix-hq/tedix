@@ -31,6 +31,7 @@ import type {
 	cleanupAttemptWorktrees,
 	WorktreeRequest,
 } from "./worktree-adapter";
+import { workRun } from "./work-run";
 import { WORK_EXIT_FAIL } from "./work-identity";
 import { nativeCommands } from "./work-native";
 import {
@@ -72,6 +73,7 @@ import {
 } from "./work-factory";
 
 export interface WorkOptions {
+	command?: string[];
 	/** `claim-files`: stable repository namespace and repeatable literal paths. */
 	repoKey?: string;
 	paths?: string[];
@@ -245,6 +247,7 @@ Lifecycle:
   readiness <id>
   start <id> [--lane] [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
+  run <id> [--note <result text>] [--commit <sha> ...] -- <command> [args...]
   heartbeat <id> [--watch [seconds]]
   settle <id> --outcome succeeded|landed_unverified|failed|cancelled|expired [--note <summary>]
               [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
@@ -366,6 +369,7 @@ const VERBS: Record<string, VerbHandler> = {
 	accept: (ctx, id) => workAccept(ctx, id),
 	readiness: (ctx, id) => workReadiness(ctx, id),
 	start: (ctx, id) => workStart(ctx, id),
+	run: (ctx, id) => workRun(ctx, id),
 	handoff: (ctx, id, text) => workHandoff(ctx, id, text),
 	comment: (ctx, id, text) => workComment(ctx, id, text),
 	"authorize-blog": (ctx, id) => workAuthorizeBlog(ctx, id),
