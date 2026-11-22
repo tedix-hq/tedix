@@ -11,6 +11,7 @@ vi.mock("@tedix/db/queries/model-catalog", () => ({
 		modelCatalogConfig([
 			modelCatalogEntry("cloudflare/auto"),
 			modelCatalogEntry("azure-openai/sample-model"),
+			modelCatalogEntry("azure-openai/gpt-6.1-terra"),
 		]),
 }));
 vi.mock("@tedix/db/queries/control-plane/definitions", async (original) => ({
@@ -37,6 +38,34 @@ const context = {
 } as unknown as BaseContext;
 const client = createRouterClient({ read: getModelPolicy }, { context });
 describe("runtime profile model ownership", () => {
+	it.each([undefined, "cloudflare/auto"])(
+		"uses the default only for an unchosen model (%s)",
+		async (chosen) => {
+			records.profile.mockResolvedValue(
+				chosen
+					? {
+							organizationId: "org-caller",
+							config: {
+								modelPolicy: {
+									chatModelRef: chosen,
+									cronModelRef: chosen,
+									observerModelRef: chosen,
+								},
+							},
+						}
+					: null,
+			);
+			const policy = await client.read({
+				tediId: "11111111-1111-4111-8111-111111111111",
+			});
+			expect(policy).toEqual({
+				chatModelRef: chosen ?? "azure-openai/gpt-6.1-terra",
+				cronModelRef: chosen ?? "azure-openai/gpt-6.1-terra",
+				observerModelRef: chosen ?? "azure-openai/gpt-6.1-terra",
+			});
+		},
+	);
+
 	it.each([null, "org-caller", "org-other"])(
 		"reads profile model/generation only for owner %s",
 		async (owner) => {
@@ -55,7 +84,9 @@ describe("runtime profile model ownership", () => {
 				tediId: "11111111-1111-4111-8111-111111111111",
 			});
 			expect(policy.chatModelRef).toBe(
-				owner === "org-other" ? "cloudflare/auto" : "azure-openai/sample-model",
+				owner === "org-other"
+					? "azure-openai/gpt-6.1-terra"
+					: "azure-openai/sample-model",
 			);
 			expect(policy.generation).toEqual(
 				owner === "org-other" ? undefined : { chat: { maxOutputTokens: 2048 } },

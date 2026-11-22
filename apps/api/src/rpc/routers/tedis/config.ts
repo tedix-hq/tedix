@@ -1,6 +1,6 @@
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
-	CLOUDFLARE_AUTO_MODEL_REF,
+	PLATFORM_DEFAULT_MODEL_REF,
 	findCatalogEntry,
 	type ModelCatalogEntry,
 } from "@tedix/api-contract/schemas/model-catalog";
@@ -113,7 +113,7 @@ function policyRefOrNull(
  *      normalized to a canonical catalog ref (Tedix OS model setting).
  *   2. Runtime profile policy —
  *      `runtime_profile_id → runtime_profiles.config.modelPolicy.chatModelRef`.
- *   3. `null` → the runtime's env default deployment.
+ *   3. The platform default, Azure terra, when it is in the published catalog.
  *
  * The per-surface refs come from the runtime profile. A whole-tedi model pin
  * takes precedence over each explicit surface choice.
@@ -132,7 +132,7 @@ export const getModelPolicy = authedTedisOs.getModelPolicy
 			catalog.entries,
 		);
 		const defaultRef = policyRefOrNull(
-			CLOUDFLARE_AUTO_MODEL_REF,
+			PLATFORM_DEFAULT_MODEL_REF,
 			catalog.entries,
 		);
 		const runtimeProfile = tedi.runtimeProfileId

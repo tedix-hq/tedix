@@ -23,7 +23,7 @@ import {
 	AGENT_RUNTIME_AVAILABLE_PROVIDERS,
 	type ModelCatalogEntry,
 	findCatalogEntry,
-	CLOUDFLARE_AUTO_MODEL_REF,
+	PLATFORM_DEFAULT_MODEL_REF,
 	type ModelProviderId,
 } from "@tedix/api-contract/schemas/model-catalog";
 import {
@@ -260,7 +260,7 @@ async function buildSelections(args: {
 	// ── org default ──────────────────────────────────────────────────────────
 	// The platform default is deployment-scoped, not an organization setting.
 	const orgDefaultRef =
-		findCatalogEntry(CLOUDFLARE_AUTO_MODEL_REF, args.catalog)?.ref ?? null;
+		findCatalogEntry(PLATFORM_DEFAULT_MODEL_REF, args.catalog)?.ref ?? null;
 	selections.push({
 		kind: "org_default",
 		slot: "chat",
@@ -269,7 +269,7 @@ async function buildSelections(args: {
 		modelRef: orgDefaultRef,
 		source: MODEL_CATALOG_SOURCES.orgDefault,
 		detail:
-			"Auto is the platform default for compatible ordinary inference. Governed exceptions fall back to the fixed deployment configured by the serving runtime.",
+			"Azure terra is the platform default when no model has been chosen.",
 		...verdictFor(args.models, orgDefaultRef),
 	});
 

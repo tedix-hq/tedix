@@ -52,6 +52,7 @@ const catalog = [
 	modelCatalogEntry("azure-openai/sample-frontier", { tier: "frontier" }),
 	modelCatalogEntry("workers-ai/@cf/sample/model", { tier: "economy" }),
 	modelCatalogEntry("cloudflare/auto", { label: "Auto" }),
+	modelCatalogEntry("azure-openai/gpt-6.1-terra", { label: "Terra" }),
 ];
 let sqlite: DatabaseSync;
 
@@ -429,7 +430,7 @@ describe("modelCatalog.list — tier policy matches the enforcer", () => {
 });
 
 describe("modelCatalog.list — selection kinds are distinguished", () => {
-	it("reports the adaptive platform default and unsupported user preference", async () => {
+	it("reports the terra platform default and unsupported user preference", async () => {
 		seedOrganization(ORG);
 		seedPlanAndAccount(ORG);
 		const result = await client(ORG).list({ includeDenied: true });
@@ -442,13 +443,11 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			kind: "org_default",
 			scope: "deployment",
 			status: "set",
-			modelRef: "cloudflare/auto",
+			modelRef: "azure-openai/gpt-6.1-terra",
 			selectable: true,
 		});
 		expect(orgDefault?.detail).toContain("platform default");
-		expect(orgDefault?.detail).toMatch(/^Auto is the platform default/);
-		expect(orgDefault?.detail).not.toMatch(/Cloudflare|azure-openai/i);
-		expect(result.routing.detail).toContain("Auto");
+		expect(result.routing.detail).toContain("Terra");
 		expect(result.routing.detail).not.toMatch(/cloudflare/i);
 		expect(result.selections[1]).toMatchObject({
 			kind: "user_conversational",
@@ -459,47 +458,52 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 		});
 	});
 
-	it("distinguishes tedi explicit from tedi inherited, and marks the inherited one overridden", async () => {
-		seedOrganization(ORG);
-		seedPlanAndAccount(ORG);
-		seedRuntimeProfile({
-			id: PROFILE,
-			organizationId: ORG,
-			config: { modelPolicy: { chatModelRef: "azure-openai/sample-frontier" } },
-		});
-		seedTedi({
-			id: TEDI,
-			organizationId: ORG,
-			runtimeProfileId: PROFILE,
-			runtimeOverrides: modelOverride("azure-openai/sample-balanced"),
-		});
-		const result = await client(ORG).list({
-			tediId: TEDI,
-			includeDenied: true,
-		});
-		const byKind = (kind: string, slot?: string) =>
-			result.selections.find(
-				(selection) =>
-					selection.kind === kind && (slot ? selection.slot === slot : true),
-			);
-		expect(byKind("tedi_explicit")).toMatchObject({
-			status: "set",
-			modelRef: "azure-openai/sample-balanced",
-			scope: "tedi",
-		});
-		expect(byKind("tedi_inherited")).toMatchObject({
-			status: "set",
-			modelRef: "azure-openai/sample-frontier",
-		});
-		expect(byKind("tedi_inherited")?.detail).toContain("OVERRIDDEN");
-		expect(result.routing).toMatchObject({
-			slot: "chat",
-			modelRef: "azure-openai/sample-balanced",
-			selectedBy: "tedi_explicit",
-			allowed: true,
-			selectable: false,
-		});
-	});
+	it.each(["azure-openai/sample-balanced", "cloudflare/auto"])(
+		"keeps explicit %s ahead of the inherited model and platform default",
+		async (ref) => {
+			seedOrganization(ORG);
+			seedPlanAndAccount(ORG);
+			seedRuntimeProfile({
+				id: PROFILE,
+				organizationId: ORG,
+				config: {
+					modelPolicy: { chatModelRef: "azure-openai/sample-frontier" },
+				},
+			});
+			seedTedi({
+				id: TEDI,
+				organizationId: ORG,
+				runtimeProfileId: PROFILE,
+				runtimeOverrides: modelOverride(ref),
+			});
+			const result = await client(ORG).list({
+				tediId: TEDI,
+				includeDenied: true,
+			});
+			const byKind = (kind: string, slot?: string) =>
+				result.selections.find(
+					(selection) =>
+						selection.kind === kind && (slot ? selection.slot === slot : true),
+				);
+			expect(byKind("tedi_explicit")).toMatchObject({
+				status: "set",
+				modelRef: ref,
+				scope: "tedi",
+			});
+			expect(byKind("tedi_inherited")).toMatchObject({
+				status: "set",
+				modelRef: "azure-openai/sample-frontier",
+			});
+			expect(byKind("tedi_inherited")?.detail).toContain("OVERRIDDEN");
+			expect(result.routing).toMatchObject({
+				slot: "chat",
+				modelRef: ref,
+				selectedBy: "tedi_explicit",
+				allowed: true,
+				selectable: ref === "cloudflare/auto",
+			});
+		},
+	);
 
 	it("routes via the runtime profile when no per-tedi pin is set", async () => {
 		seedOrganization(ORG);
@@ -534,7 +538,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 		expect(utility.every((selection) => selection.status === "set")).toBe(true);
 	});
 
-	it("falls back to the adaptive platform default when the tedi has no profile", async () => {
+	it("falls back to terra when the tedi has no profile", async () => {
 		seedOrganization(ORG);
 		seedPlanAndAccount(ORG);
 		seedTedi({ id: TEDI, organizationId: ORG });
@@ -543,7 +547,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			includeDenied: true,
 		});
 		expect(result.routing).toMatchObject({
-			modelRef: "cloudflare/auto",
+			modelRef: "azure-openai/gpt-6.1-terra",
 			selectedBy: "org_default",
 		});
 	});
@@ -611,7 +615,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 		expect(inherited?.modelRef).toBeNull();
 		expect(inherited?.detail).toContain("different organization");
 		// And the row's ref never leaks into the routing answer.
-		expect(result.routing.modelRef).toBe("cloudflare/auto");
+		expect(result.routing.modelRef).toBe("azure-openai/gpt-6.1-terra");
 	});
 
 	it("projects an ownerless (NULL organization_id) system profile", async () => {

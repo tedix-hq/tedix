@@ -35,6 +35,9 @@ export const MODEL_REF_SEPARATOR = "/";
 /** Protocol identity for Cloudflare adaptive routing. */
 export const CLOUDFLARE_AUTO_MODEL_REF = "cloudflare/auto";
 
+/** Deployment default when no person or tedi has chosen a model. */
+export const PLATFORM_DEFAULT_MODEL_REF = "azure-openai/gpt-6.1-terra";
+
 export interface ParsedModelRef {
 	provider: ModelProviderId;
 	/** Opaque model id — for Azure this is the DEPLOYMENT name, not a v1 model id. */

@@ -14,6 +14,7 @@ const catalog = modelCatalogConfig(
 	[
 		"cloudflare/auto",
 		"azure-openai/gpt-6.1-sol",
+		"azure-openai/gpt-6.1-terra",
 		"azure-openai/gpt-6-luna",
 		"azure-openai/gpt-5.6-luna",
 		"workers-ai/@cf/meta/llama-3.1-8b-instruct-fast",
@@ -67,18 +68,21 @@ describe("kernelModel provider selection", () => {
 		expect(headers.get("x-test")).toBe("kept");
 	});
 
-	it("builds the Auto Router model by default", () => {
-		const model = kernelModel(AZURE_ENV);
-		expect(model).not.toBeNull();
-		expect(
-			typeof model === "object" &&
-				typeof model?.model === "object" &&
-				model.model.provider,
-		).toBe("cloudflare-auto");
-	});
+	it.each([undefined, "", "   "])(
+		"defaults Home to terra when KERNEL_MODEL_REF is %s",
+		(ref) => {
+			const model = kernelModel({ ...AZURE_ENV, KERNEL_MODEL_REF: ref });
+			expect(model?.pricingIdentity).toMatchObject({
+				requestModel: "gpt-6.1-terra",
+				deployment: "gpt-6.1-terra",
+				apiKind: "azure-responses",
+			});
+		},
+	);
 
 	it("builds Auto Router from authenticated Gateway without a provider key", () => {
 		const model = kernelModel({
+			KERNEL_MODEL_REF: "cloudflare/auto",
 			AZURE_OPENAI_RESOURCE: "tedix-resource",
 			AZURE_CHAT_DEPLOYMENT: "gpt-5.6-luna",
 			AI_GATEWAY_ACCOUNT_ID: "account",
@@ -150,8 +154,8 @@ describe("kernelModel provider selection", () => {
 		expect(
 			typeof selected === "object" &&
 				typeof selected?.model === "object" &&
-				selected.model.provider,
-		).toBe("cloudflare-auto");
+				selected.model.modelId,
+		).toBe("gpt-6.1-terra");
 	});
 
 	it("routes authority-bearing planning through the authorized default", () => {
@@ -161,8 +165,8 @@ describe("kernelModel provider selection", () => {
 		expect(
 			typeof selected === "object" &&
 				typeof selected?.model === "object" &&
-				selected.model.provider,
-		).toBe("cloudflare-auto");
+				selected.model.modelId,
+		).toBe("gpt-6.1-terra");
 	});
 
 	it("still returns null when Azure is unconfigured and nothing is forced", () => {

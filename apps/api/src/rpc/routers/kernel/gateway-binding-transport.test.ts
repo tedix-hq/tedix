@@ -278,7 +278,7 @@ describe("operation-scoped attempt observations", () => {
 					AI_GATEWAY_LLM_ID: "test-llm-gateway",
 					CF_AI_GATEWAY_TOKEN: "aig-token",
 				} as KernelEnv,
-				undefined,
+				{ modelRef: "cloudflare/auto" },
 				{ organizationId: "org", source: "kernel:conversation-title" },
 			);
 			if (!selected) throw new Error("Expected model");

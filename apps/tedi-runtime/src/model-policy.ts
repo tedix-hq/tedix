@@ -12,7 +12,7 @@
  * the runtime resolves per turn. Everything here is pure so it can be asserted
  * without booting a Durable Object.
  *
- * Fallback chains (`cloudflare/auto` is the canonical default; a `null` ref is
+ * Fallback chains (Azure terra is the canonical default; a `null` ref is
  * reserved for a deliberate fixed-runtime fallback):
  *
  * | surface    | chain                                             |
@@ -30,11 +30,11 @@
  * is the acceptance criterion, so the observer only moves when an operator sets
  * `observerModelRef` explicitly.
  *
- * `cloudflare/auto` is NOT an explicit observer choice. The default policy and
- * the D1 backfill both carry it, and the Auto Router cannot answer the
- * observer's JSON-mode call inside the post-turn bridge budget (every call
- * timed out, so no facts were written). The observer surface therefore treats
- * `cloudflare/auto` (and a missing policy) as unset → `AZURE_OBSERVER_DEPLOYMENT`.
+ * The historical D1 backfill stored `cloudflare/auto`, and the Auto Router
+ * cannot answer the observer's JSON-mode call inside the post-turn bridge
+ * budget (every call timed out, so no facts were written). The observer treats
+ * `cloudflare/auto` as unset → `AZURE_OBSERVER_DEPLOYMENT`.
+ * A missing policy selects Azure terra on every surface.
  * Chat and cron are unaffected.
  */
 
@@ -42,7 +42,10 @@ import {
 	type TurnModelSelection,
 	TurnModelSelectionSchema,
 } from "@tedix/api-contract/schemas/automation-events";
-import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
+import {
+	CLOUDFLARE_AUTO_MODEL_REF,
+	PLATFORM_DEFAULT_MODEL_REF,
+} from "@tedix/api-contract/schemas/model-catalog";
 import {
 	TediModelPolicyResponseSchema,
 	type TediModelPolicyResponse,
@@ -75,9 +78,9 @@ export interface TediModelPolicy {
 
 /** Canonical policy when no control-plane response is available. */
 export const DEFAULT_TEDI_MODEL_POLICY: TediModelPolicy = Object.freeze({
-	chatModelRef: CLOUDFLARE_AUTO_MODEL_REF,
-	cronModelRef: CLOUDFLARE_AUTO_MODEL_REF,
-	observerModelRef: CLOUDFLARE_AUTO_MODEL_REF,
+	chatModelRef: PLATFORM_DEFAULT_MODEL_REF,
+	cronModelRef: PLATFORM_DEFAULT_MODEL_REF,
+	observerModelRef: PLATFORM_DEFAULT_MODEL_REF,
 });
 
 /**
@@ -119,13 +122,13 @@ export function resolveSurfaceModelRef(
 	policy: TediModelPolicy | null | undefined,
 	surface: ModelPolicySurface,
 ): string | null {
+	if (!policy) return PLATFORM_DEFAULT_MODEL_REF;
 	if (surface === "observer") {
 		// Observer-only by design, and never the Auto Router — see the module
 		// docblock. `null` selects the observer's env default deployment.
-		const ref = policy?.observerModelRef ?? null;
+		const ref = policy.observerModelRef;
 		return ref === CLOUDFLARE_AUTO_MODEL_REF ? null : ref;
 	}
-	if (!policy) return CLOUDFLARE_AUTO_MODEL_REF;
 	switch (surface) {
 		case "synthesis":
 			return policy.synthesisModelRef ?? policy.chatModelRef;

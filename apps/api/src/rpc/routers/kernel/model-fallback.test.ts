@@ -158,6 +158,7 @@ it("selects the organization's next configured route model and records it before
 				AI_GATEWAY_ACCOUNT_ID: "fictional-account",
 				AI_GATEWAY_LLM_ID: "fictional-gateway",
 				CF_AI_GATEWAY_TOKEN: "fictional-token",
+				KERNEL_MODEL_REF: "cloudflare/auto",
 			},
 			null,
 			{ organizationId: "fictional-org", runId: "fictional-run" },

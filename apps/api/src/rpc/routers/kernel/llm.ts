@@ -20,6 +20,7 @@ import {
 	buildModelRef,
 	findCatalogEntry,
 	CLOUDFLARE_AUTO_MODEL_REF,
+	PLATFORM_DEFAULT_MODEL_REF,
 	type ModelOverride,
 	type ModelProviderId,
 	resolveModelSelection,
@@ -128,7 +129,7 @@ export interface KernelEnv {
 	AI?: Ai;
 	/** Explicit Workers AI model ID; otherwise use the published installation default. */
 	KERNEL_WORKERS_AI_MODEL?: string;
-	/** Explicit provider/model ref; absent selects cloudflare/auto. */
+	/** Explicit provider/model ref; absent selects Azure terra. */
 	KERNEL_MODEL_REF?: string;
 	/**
 	 * Route-pass hedge deadline (ms without a first partial before one identical
@@ -414,7 +415,7 @@ export function kernelModel(
 	const primaryRef =
 		typeof override?.modelRef === "string"
 			? override.modelRef
-			: env.KERNEL_MODEL_REF?.trim() || CLOUDFLARE_AUTO_MODEL_REF;
+			: env.KERNEL_MODEL_REF?.trim() || PLATFORM_DEFAULT_MODEL_REF;
 	const hooks = kernelFallbackHooks(
 		env.DB,
 		{
@@ -511,7 +512,7 @@ function selectKernelModel(
 		executionAttempts: attempts,
 	};
 	const effectiveOverride = override ?? {
-		modelRef: env.KERNEL_MODEL_REF?.trim() || CLOUDFLARE_AUTO_MODEL_REF,
+		modelRef: env.KERNEL_MODEL_REF?.trim() || PLATFORM_DEFAULT_MODEL_REF,
 	};
 	const registered =
 		typeof effectiveOverride.modelRef === "string"

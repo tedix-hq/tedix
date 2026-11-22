@@ -6,6 +6,7 @@ const fixtureCatalog = modelCatalogConfig([
 	modelCatalogEntry("azure-openai/gpt-5.6-luna", {}),
 	modelCatalogEntry("azure-openai/gpt-5.6-terra", {}),
 	modelCatalogEntry("azure-openai/gpt-6-luna", {}),
+	modelCatalogEntry("azure-openai/gpt-6.1-terra", {}),
 	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b", {
 		maxOutputTokens: 16000,
 	}),
@@ -36,36 +37,29 @@ const CHAT_REF = "azure-openai/gpt-5.6-terra";
 const CRON_REF = "azure-openai/gpt-5.6-luna";
 const OBSERVER_REF = "azure-openai/gpt-5.6-luna";
 
-for (const surface of ["chat", "cron"] as const) {
-	assert.equal(
-		resolveSurfaceModelRef(undefined, surface),
-		CLOUDFLARE_AUTO_MODEL_REF,
-	);
-	assert.deepEqual(modelOverrideForSurface(undefined, surface), {
-		modelRef: CLOUDFLARE_AUTO_MODEL_REF,
-	});
-	assert.equal(
-		resolveSurfaceModelRef(DEFAULT_TEDI_MODEL_POLICY, surface),
-		CLOUDFLARE_AUTO_MODEL_REF,
-	);
+for (const surface of ["chat", "cron", "observer", "synthesis"] as const) {
+	for (const policy of [undefined, DEFAULT_TEDI_MODEL_POLICY]) {
+		assert.equal(
+			resolveSurfaceModelRef(policy, surface),
+			"azure-openai/gpt-6.1-terra",
+		);
+		assert.deepEqual(modelOverrideForSurface(policy, surface), {
+			modelRef: "azure-openai/gpt-6.1-terra",
+		});
+	}
 }
 
-// The observer never runs on the Auto Router: a missing policy, the default
-// policy, and a stored (D1-backfilled) `cloudflare/auto` observer ref all
-// resolve to "unset", i.e. the observer's own env default deployment.
+// Stored Auto retains the observer's fixed-deployment compatibility behavior.
 const storedAutoObserver = normalizeModelPolicy({
 	chatModelRef: CLOUDFLARE_AUTO_MODEL_REF,
 	cronModelRef: CLOUDFLARE_AUTO_MODEL_REF,
 	observerModelRef: CLOUDFLARE_AUTO_MODEL_REF,
 });
-for (const observerPolicy of [
+assert.equal(resolveSurfaceModelRef(storedAutoObserver, "observer"), null);
+assert.equal(
+	modelOverrideForSurface(storedAutoObserver, "observer"),
 	undefined,
-	DEFAULT_TEDI_MODEL_POLICY,
-	storedAutoObserver,
-]) {
-	assert.equal(resolveSurfaceModelRef(observerPolicy, "observer"), null);
-	assert.equal(modelOverrideForSurface(observerPolicy, "observer"), undefined);
-}
+);
 // Chat and cron keep `cloudflare/auto` from the same stored policy.
 assert.equal(
 	resolveSurfaceModelRef(storedAutoObserver, "chat"),
@@ -123,7 +117,7 @@ assert.deepEqual(modelOverrideForSurface(pinned, "cron"), {
 assert.equal(
 	selectAzureDeployment(
 		{ AZURE_CHAT_DEPLOYMENT: "gpt-5.6-luna" },
-		modelOverrideForSurface(DEFAULT_TEDI_MODEL_POLICY, "chat"),
+		modelOverrideForSurface(storedAutoObserver, "chat"),
 	),
 	"gpt-5.6-luna",
 );
@@ -151,6 +145,10 @@ assert.equal(
 	undefined,
 );
 assert.equal(turnModelForInject(undefined), undefined);
+assert.deepEqual(
+	turnModelForInject({ turnModel: { modelRef: "cloudflare/auto" } }, true),
+	{ modelRef: "cloudflare/auto" },
+);
 
 const reviewPolicy = normalizeModelPolicy({
 	chatModelRef: CHAT_REF,

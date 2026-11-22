@@ -23,7 +23,11 @@ const env = {
 } as unknown as KernelEnv;
 describe("selected kernel provider lane", () => {
 	it("does not assign Auto Router the legacy small Workers AI window", () => {
-		expect(kernelServesWorkersAiLane(kernelModel(env))).toBe(false);
+		expect(
+			kernelServesWorkersAiLane(
+				kernelModel(env, { modelRef: "cloudflare/auto" }),
+			),
+		).toBe(false);
 	});
 	it("sizes an explicitly selected Workers AI model in its own lane", () => {
 		expect(
