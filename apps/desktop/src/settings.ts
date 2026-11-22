@@ -82,6 +82,8 @@ const go = (id: SettingsSection) => {
 	search.value = "";
 	draw();
 	page.scrollTop = 0;
+	// Each section shows what is true now, not what was sent a while ago.
+	void tedixShell.state().then(receive);
 };
 
 function fail(text: string | undefined, retry?: () => void): Child {
@@ -766,9 +768,21 @@ document.addEventListener("keydown", (event) => {
 tedixShell.onSection((next) => {
 	if (SECTIONS.some((entry) => entry.id === next)) go(next);
 });
-const receive = (incoming: PanelState) => {
+/** Draws the newest state; one that fails to draw is logged, not left half drawn. */
+function receive(incoming: PanelState): void {
 	state = incoming;
-	redraw();
-};
-tedixShell.onState(receive);
-void tedixShell.state().then(receive);
+	try {
+		redraw();
+	} catch (error) {
+		console.error("settings: could not draw", error);
+	}
+}
+// The state the app pushes is newer than an answer asked for before it.
+let pushed = false;
+tedixShell.onState((incoming) => {
+	pushed = true;
+	receive(incoming);
+});
+void tedixShell.state().then((incoming) => {
+	if (!pushed) receive(incoming);
+});
