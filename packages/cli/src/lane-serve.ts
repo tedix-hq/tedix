@@ -8711,7 +8711,9 @@ export async function runLaneServe(
 					`Dispatcher found Tedix CLI ${newer} installed while running ${CLI_VERSION}; restarting onto it now. Running tasks continue under the new runner.\n`,
 				);
 				updating = true;
-				dispatcher.stop();
+				// The same stop as SIGTERM: it also ends the start-request watcher,
+				// which otherwise keeps this process alive after it returns.
+				stop();
 				break;
 			}
 			const delay = dispatcher.nextTickDelayMs();
