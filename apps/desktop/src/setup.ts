@@ -12,12 +12,39 @@ import {
 import { log } from "./log";
 import { runnersPath } from "./runners-file";
 import {
+	configDir,
 	findCommand,
 	findTedix,
 	lastLine,
 	refreshShellPath,
 	run,
 } from "./shell";
+
+/**
+ * Tools that cannot say whether they are signed in to Tedix (Devin) are
+ * remembered as signed in once their own sign-in finished here.
+ */
+const signInsPath = () => join(configDir(), "desktop-sign-ins.json");
+function signedInHere(): Record<string, string> {
+	try {
+		return JSON.parse(readFileSync(signInsPath(), "utf8")) as Record<
+			string,
+			string
+		>;
+	} catch {
+		return {};
+	}
+}
+function rememberSignIn(toolId: string): void {
+	try {
+		writeFileSync(
+			signInsPath(),
+			JSON.stringify({ ...signedInHere(), [toolId]: new Date().toISOString() }),
+		);
+	} catch (error) {
+		log(`setup: could not remember the ${toolId} sign-in: ${String(error)}`);
+	}
+}
 
 const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
 
@@ -514,6 +541,13 @@ function toolRows(): ToolRow[] {
 			return row;
 		}
 		if (host?.signedIn === true) row.connection = "signed-in";
+		// A Tedix read that worked, or a finished sign-in for a tool that
+		// cannot report one, proves the connection.
+		if (
+			row.readVerified ||
+			(row.connection === "unknown" && signedInHere()[tool.id])
+		)
+			row.connection = "signed-in";
 		if (row.account === "signed-out") return row;
 		if (row.connection === "signed-in") return row;
 		row.canSignIn = Boolean(tool.signIn) && facts.signInWorks;
@@ -879,8 +913,14 @@ export async function setupAction(
 						timeoutMs: 60_000,
 					}),
 				);
+			// Claude Code refuses to sign in without a terminal. On a Mac,
+			// `script` gives it one; the sign-in itself happens in the browser.
+			const [file, args] =
+				tool.id === "claude" && process.platform === "darwin"
+					? ["/usr/bin/script", ["-q", "/dev/null", command, ...tool.signIn!]]
+					: [command, tool.signIn!];
 			await must(
-				run(command, tool.signIn!, {
+				run(file, args, {
 					onLine: say,
 					onStart: (stop) => {
 						stops[`connect:${tool.id}`] = stop;
@@ -888,6 +928,7 @@ export async function setupAction(
 					timeoutMs: 15 * 60_000,
 				}),
 			);
+			rememberSignIn(tool.id);
 			return `${tool.name} is connected to Tedix.`;
 		});
 		return readAgentStatus();
