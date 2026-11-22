@@ -46,6 +46,55 @@ const fixtures = [
 ];
 
 describe("aggregate contract parity for raw router outputs", () => {
+	it("validates project rows with saved archive status across project tools", () => {
+		const project = {
+			id: "project-1",
+			orgId: "org-fictional",
+			key: "example",
+			name: "Example",
+			description: null,
+			status: "active",
+			leadTediId: null,
+			ownerUserId: null,
+			objectiveId: null,
+			targetDate: null,
+			metadata: {},
+			createdAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: null,
+			archivedAt: null,
+			archivedFromStatus: null,
+		};
+		const archived = {
+			...project,
+			status: "archived",
+			archivedAt: "2026-01-02T00:00:00.000Z",
+			archivedFromStatus: "paused",
+		};
+		const outputs = [
+			{
+				endpoint: "projects/list",
+				output: {
+					data: [project, archived, { ...archived, archivedFromStatus: null }],
+					pagination: { limit: 50, offset: 0, total: 3, hasMore: false },
+				},
+			},
+			{ endpoint: "projects/get", output: { ...archived, objective: null } },
+			{ endpoint: "projects/create", output: project },
+			{ endpoint: "projects/update", output: archived },
+			{ endpoint: "projects/archive", output: archived },
+			{ endpoint: "projects/restore", output: project },
+		];
+		for (const { endpoint, output } of outputs) {
+			const schema = zodToStructuredOutputJsonSchema(
+				resolveContractEndpoint(endpoint)?.outputSchema,
+			);
+			expect(schema, endpoint).not.toBeNull();
+			expect(() =>
+				validateStructuredContentAgainstOutputSchema(schema, output, endpoint),
+			).not.toThrow();
+		}
+	});
+
 	it.each(fixtures)(
 		"validates $endpoint with a closed object schema",
 		({ endpoint, output }) => {

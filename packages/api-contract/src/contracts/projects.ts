@@ -68,6 +68,7 @@ export const ProjectSchema = z.object({
 	createdAt: z.string(),
 	updatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	archivedFromStatus: ProjectStatusSchema.exclude(["archived"]).nullable(),
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
