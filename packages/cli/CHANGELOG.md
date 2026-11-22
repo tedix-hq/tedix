@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.36.0 (2026-11-22)
+
+### Minor Changes
+
+- 9e58d32: Clef can pick the coding tool for each task. With `"decide": "clef"` (the default) and tool strengths in the routing file, runners ask Clef once per task revision which available tool fits best, write the pick and confidence on the task, and move it when the pick differs. When Clef is slow, unsure or unavailable the routing rules decide and the task says so. `tedix lane routing` shows who decides.
+
+### Patch Changes
+
+- d1fb80b: Runners read each tool's own reset time (Claude Code "resets 9pm" or "limit reached|<time>", Codex "try again at …", or an ISO "resets at" time) and also recognise overload, insufficient-quota and low-credit messages. A tool counts as back by itself at that time. When every tool in a task's rule is unavailable, the task waits with one plain comment naming the first tool due back.
+- 0e9e2b7: `tedix lane routing` and Settings › Coding tools now show each coding tool's plan or credit source and each usage limit the tool itself reports — share used and reset time — for Codex session records, Claude Code run reports, configured budget files and OpenCode's daily cost. Tools that expose no quota say so plainly. Routing already withholds an executor at the near-limit threshold; it now sees these proactive windows instead of learning limits only from failed runs.
+
 ## 0.35.2 (2026-11-22)
 
 ### Patch Changes
