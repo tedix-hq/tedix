@@ -1,0 +1,211 @@
+name: Hosted tests after deploy and nightly
+
+# Tests that never gate a deploy. `deploy-watch.yml` dispatches one run per
+# live commit (the plan re-reads api/os/builder health before testing);
+# the schedule runs every workspace suite at main's tip each night. Both run
+# on free GitHub-hosted Ubuntu only, outside the main-certification group,
+# and certify nothing: Ship still requires the push gate's `Main CI`.
+# Failures reach repair Work through tedix-observer.yml.
+
+run-name: ${{ github.event_name == 'schedule' && format('Nightly full suite @ {0}', github.sha) || inputs.full && format('Full hosted suite @ {0}', inputs.sha || github.sha) || format('Post-deploy tests @ {0}', inputs.sha) }}
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Live commit to test (40 hex characters); empty with full for main's tip"
+        required: false
+        type: string
+        default: ""
+      full:
+        description: "Run every workspace suite instead of the tests affected since the last passing post-deploy run"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # Waiting post-deploy runs coalesce: the newest one re-tests every change
+  # since the last passing run. Nightly runs have their own lane.
+  group: hosted-suite-${{ (github.event_name == 'schedule' || inputs.full) && 'full' || 'deployed' }}
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  BUN_VERSION: "1.4.5"
+
+jobs:
+  plan:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      workspace: ${{ steps.plan.outputs.workspace }}
+      repository: ${{ steps.plan.outputs.repository }}
+      checks: ${{ steps.plan.outputs.checks }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_FULL: ${{ inputs.full }}
+          HEALTH_URLS: https://api.tedix.dev/health https://os.tedix.dev/health https://builder.tedix.dev/health
+        run: node scripts/ci/hosted-suite.mjs plan
+
+  workspace:
+    name: Workspace ${{ matrix.workspace }}${{ matrix.testScript && format(' / {0}', matrix.testScript) || '' }}${{ matrix.shard && format(' [{0}]', matrix.shard) || '' }}
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.workspace == 'true' }}
+    # Never the self-hosted Mac runners: the runner variable is not read here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Provide the Vite+ package manager
+        uses: ./.github/actions/vite-plus-package-manager
+      - name: Install ripgrep
+        if: matrix.workspace == 'apps/tedi-runtime'
+        uses: ./.github/actions/ripgrep
+      - name: Install Playwright browsers
+        if: matrix.browsers
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: ${{ matrix.browsers }}
+      - name: Test suite
+        if: matrix.test
+        env:
+          WORKSPACE: ${{ matrix.workspace }}
+          TEST_SCRIPT: ${{ matrix.testScript }}
+          TEST_SHARD: ${{ matrix.shard }}
+          BROWSERS: ${{ matrix.browsers }}
+          TEDIX_SCREENSHOT_DIR: ${{ runner.temp }}/browser-evidence
+        run: |
+          script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
+          command=(bun run --cwd "$WORKSPACE" "$script")
+          if [ -n "$TEST_SHARD" ]; then command+=(--shard "$TEST_SHARD"); fi
+          if [ -n "$BROWSERS" ]; then
+            node scripts/ci/rerun-on-infrastructure.mjs -- "${command[@]}"
+          else
+            "${command[@]}"
+          fi
+      - name: Retain browser failure traces
+        if: ${{ failure() && matrix.workspace == 'apps/os' && matrix.browsers }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: browser-diagnostics-${{ needs.plan.outputs.sha }}-${{ github.run_attempt }}-job${{ strategy.job-index }}
+          path: apps/os/browser-tests/.cache
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Type-check
+        if: ${{ !cancelled() && matrix.types }}
+        env:
+          WORKSPACE: ${{ matrix.workspace }}
+        run: bun run --cwd "$WORKSPACE" type-check
+
+  repository:
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.repository == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: ${{ fromJSON(needs.plan.outputs.checks) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Provide the Vite+ package manager
+        uses: ./.github/actions/vite-plus-package-manager
+      - name: Local onboarding smoke
+        if: matrix.check == 'onboarding'
+        run: bun run-local --smoke --no-install
+      - if: matrix.check == 'scripts'
+        run: bun run test:scripts
+      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
+        run: bun run docs:public:check
+      - name: Fetch canonical main for the migration order gate
+        if: ${{ !cancelled() && matrix.check == 'policy' }}
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+      - if: ${{ !cancelled() && matrix.check == 'policy' }}
+        run: bun run verify --all --ci-policy
+
+  aggregate:
+    # Not `Main CI`: Ship and the push gate never read this result.
+    name: Hosted suite
+    needs: [plan, workspace, repository]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected job
+        env:
+          PLAN: ${{ needs.plan.result }}
+          WORKSPACE_REQUIRED: ${{ needs.plan.outputs.workspace }}
+          REPOSITORY_REQUIRED: ${{ needs.plan.outputs.repository }}
+          WORKSPACE: ${{ needs.workspace.result }}
+          REPOSITORY: ${{ needs.repository.result }}
+        run: |
+          test "$PLAN" = success
+          for lane in WORKSPACE REPOSITORY; do
+            required="${lane}_REQUIRED"
+            if [ "${!required}" = true ]; then
+              test "${!lane}" = success
+            else
+              test "${!required}" = false
+              test "${!lane}" = skipped
+            fi
+          done

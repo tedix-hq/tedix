@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { ciObservation, githubRequest } from "./full-suite-hourly.mjs";
+import { HOSTED_WORKFLOW, hostedObservation } from "./hosted-suite.mjs";
 
 const git = (...args) =>
 	execFileSync("git", args, { encoding: "utf8", maxBuffer: 2_000_000 }).trim();
@@ -164,6 +165,33 @@ async function main(env, url) {
 	let payload;
 	if (env.GITHUB_EVENT_NAME === "workflow_run") {
 		const run = event.workflow_run;
+		const jobsOf = async () => {
+			const jobs = [];
+			for (let page = 1; ; page++) {
+				const result = await githubRequest(
+					`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100&page=${page}`,
+				);
+				jobs.push(...result.jobs);
+				if (result.jobs.length < 100) break;
+			}
+			return jobs;
+		};
+		if (run.path === `.github/workflows/${HOSTED_WORKFLOW}`) {
+			// The tested commit is live or nightly, not main's tip: no superseded
+			// check. The observation is the repair Work; no commit Work is
+			// targeted because a range failure need not belong to its tip commit.
+			const tested = run.display_title.match(/ @ ([0-9a-f]{40})$/)?.[1];
+			payload = hostedObservation({
+				projectId,
+				repository: env.GITHUB_REPOSITORY,
+				run,
+				jobs: await jobsOf(),
+				message: tested ? git("show", "-s", "--format=%B", tested) : "",
+			});
+			const receipt = await notifyObserver(url, payload);
+			console.log(JSON.stringify(receipt));
+			return;
+		}
 		const tip = await githubRequest(
 			`/repos/${env.GITHUB_REPOSITORY}/commits/main`,
 		);
@@ -171,19 +199,11 @@ async function main(env, url) {
 			console.log("Superseded red tip; no new incident");
 			return;
 		}
-		const jobs = [];
-		for (let page = 1; ; page++) {
-			const result = await githubRequest(
-				`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100&page=${page}`,
-			);
-			jobs.push(...result.jobs);
-			if (result.jobs.length < 100) break;
-		}
 		payload = ciObservation({
 			projectId,
 			repository: env.GITHUB_REPOSITORY,
 			run,
-			jobs,
+			jobs: await jobsOf(),
 		});
 		const message = git("show", "-s", "--format=%B", run.head_sha);
 		const work = message.match(/^Work-Item:\s*([0-9a-f-]{36})\s*$/m)?.[1];

@@ -64,3 +64,26 @@ A green aggregate, a queued Ship, and a live revision are separate receipts.
 `label` that becomes the run title). It runs outside the `main-certification`
 group and certifies nothing. A repair agent can use it to reproduce a failed
 shard or check a focused fix.
+
+## Tests after deploy and nightly
+
+`hosted-suite.yml` runs tests that never block a deploy. It runs on free
+GitHub-hosted `ubuntu-latest` only (it ignores `FULL_SUITE_RUNNER_LABELS`),
+outside the `main-certification` group. Its `Hosted suite` aggregate is not
+`Main CI`, so neither Ship nor the push gate reads it.
+
+- After deploy: every 10 minutes `deploy-watch.yml` reads `deployedSha` from
+  the api, os and builder `/health` endpoints. Ship deploys only the services
+  a commit changes, so the live commit is the newest report that the other
+  reports are ancestors of. The watcher dispatches one `Post-deploy tests @
+  <sha>` run per live commit. That run checks health again, then tests the
+  workspaces affected since the last passing post-deploy run. A failed range
+  is therefore tested again until a later run passes.
+- Nightly: at 02:17 UTC, `Nightly full suite @ <sha>` runs every workspace
+  suite and the repository checks at main's tip. To run the full suite on
+  demand, dispatch the workflow with `full` set.
+
+`tedix-observer.yml` reports completed runs to the repository observer.
+Failures on the `post-deploy` or `hosted-full` surface become `Red CI` repair
+Work for the observer tedi. A later passing run on the same surface settles
+those failures.

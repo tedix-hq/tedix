@@ -8,7 +8,9 @@ on:
       - "docs/**"
       - ".changeset/**"
   workflow_run:
-    workflows: [Deploy gate (push) and full test run]
+    workflows:
+      - Deploy gate (push) and full test run
+      - Hosted tests after deploy and nightly
     branches: [main]
     types: [completed]
 
