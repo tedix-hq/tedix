@@ -4,7 +4,7 @@ import type { SessionProject, StepRun, ToolRow } from "./setup";
 import type { RunnerRow } from "./status";
 
 /**
- * What the Settings window and the first-run setup share: small element
+ * What Settings and the first-run setup share: small element
  * helpers, the coding tool rows and the Sessions list. Both pages are
  * plain DOM drawn from the state the app sends.
  */
@@ -244,7 +244,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 				? "Runners are paused"
 				: (runner.problem ?? "Starting…"),
 		};
-	return { ...base, ready: true, tone: "good", sub: "Ready" };
+	return { ...base, ready: true, sub: "Running tasks" };
 }
 
 /** Switches a tool's tasks on or off; only that tool's runner changes. */

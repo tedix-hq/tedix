@@ -29,7 +29,7 @@ import {
 } from "./ui-parts";
 
 /**
- * The Settings window: every setting of the app in one place. A sidebar
+ * Settings, inside the main window: every setting of the app. A sidebar
  * with search, the account and the sections; on the right, grouped cards
  * with the title on the left and the control on the right. It speaks only
  * about problems and actions.
@@ -631,28 +631,6 @@ function about(now: PanelState): Group[] {
 				},
 			],
 		},
-		{
-			items: [
-				{
-					title: "Guides",
-					control: [
-						button("Open", "quiet", () => void tedixShell.open("docs")),
-					],
-					words: "docs help",
-				},
-				{
-					title: "What is available today",
-					control: [
-						button(
-							"Open",
-							"quiet",
-							() => void tedixShell.open("release-status"),
-						),
-					],
-					words: "release status",
-				},
-			],
-		},
 	];
 }
 
@@ -846,15 +824,20 @@ function redraw(): void {
 }
 
 search.oninput = () => draw();
+document.getElementById("done")!.onclick = () =>
+	void tedixShell.action("close-settings");
 document.addEventListener("keydown", (event) => {
 	if (event.key === "f" && (event.metaKey || event.ctrlKey)) {
 		event.preventDefault();
 		search.focus();
 		search.select();
 	}
-	if (event.key === "Escape" && search.value) {
-		search.value = "";
-		draw();
+	// Escape clears the search first, then goes back to Tedix.
+	if (event.key === "Escape") {
+		if (search.value) {
+			search.value = "";
+			draw();
+		} else void tedixShell.action("close-settings");
 	}
 	if (
 		(event.key === "ArrowDown" || event.key === "ArrowUp") &&

@@ -29,7 +29,7 @@ export interface PanelState {
 	};
 }
 
-/** The sections of the Settings window. */
+/** The sections of Settings. */
 export type SettingsSection =
 	| "general"
 	| "tools"
@@ -55,16 +55,15 @@ export type PanelAction =
 	| "apply-update"
 	| "local-workspace"
 	| "local-model"
-	| "open-logs";
+	| "open-logs"
+	| "close-settings";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
 export type PanelLink =
 	| "claude-connectors"
 	| "chatgpt"
 	| "install-claude-code"
-	| "install-codex"
-	| "docs"
-	| "release-status";
+	| "install-codex";
 
 /** The only functions the app's own windows can call; the Tedix OS page gets none. */
 export interface PanelApi {
@@ -86,7 +85,7 @@ export interface PanelApi {
 	/** Restarts one runner; the others and their tasks keep running. */
 	restartRunner(index: number): Promise<void>;
 	appearance(mode: Appearance): Promise<void>;
-	/** The Settings window is asked to show a section. */
+	/** Settings is asked to show a section. */
 	onSection(listener: (section: SettingsSection) => void): void;
 	/** The next three are for the update entry in the main window only. */
 	applyUpdate(): Promise<void>;

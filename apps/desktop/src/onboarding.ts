@@ -16,7 +16,7 @@ import {
 
 /**
  * The Set up this Mac window: the first-run screens, drawn from the state
- * the app sends. Every setting here is also in the Settings window. Two shapes only: a centred mark with a headline (Welcome, Ready),
+ * the app sends. Every setting here is also in Settings. Two shapes only: a centred mark with a headline (Welcome, Ready),
  * and a headline on the left with a plain list of rows on the right.
  */
 declare const tedixShell: PanelApi;

@@ -139,7 +139,8 @@ The app is not signed or notarized yet and has been run on macOS only.
   use the new version after **Restart runners** in Settings or the next
   start of the app.
 - **Change every setting in one place.** **Tedix → Settings…** (`Cmd+,`),
-  or **This Mac…** in the menu bar icon's menu, opens Settings: search,
+  or **This Mac…** in the menu bar icon's menu, shows Settings inside the
+  main window; **Done** or Escape goes back to the page. It has search,
   the account, and the sections General (open at login, appearance),
   Coding tools (the Claude and ChatGPT apps; one row per coding tool with
   its next step, **Ready** only after a Tedix read worked inside it, and a
@@ -353,6 +354,6 @@ to, such as Applications. The first install is still by hand.
 | `src/runners.ts`       | Starts and stops `tedix supervise` as a child process |
 | `input.html`           | The menu bar's input bar (`src/input-bar.ts`)         |
 | `src/shell.ts`         | Finds and runs `tedix`                                |
-| `settings.html`        | The Settings window (`src/settings.ts`)               |
+| `settings.html`        | Settings, inside the main window (`src/settings.ts`)  |
 | `src/ui-parts.ts`      | Rows and the Sessions list shared with setup          |
 | `src/preload.ts`       | The few functions the app's own two windows may call  |

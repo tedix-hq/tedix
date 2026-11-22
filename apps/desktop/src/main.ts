@@ -103,8 +103,6 @@ const PANEL_LINKS: Record<PanelLink, string> = {
 	chatgpt: "https://chatgpt.com/",
 	"install-claude-code": "https://claude.com/product/claude-code",
 	"install-codex": "https://openai.com/codex/",
-	docs: "https://docs.tedix.dev",
-	"release-status": "https://docs.tedix.dev/release-status",
 };
 /** The app folder: this package in dev, the packed app otherwise. */
 const root = app.getAppPath();
@@ -123,7 +121,8 @@ const localPage = {
 
 let mainWindow: BrowserWindow | undefined;
 let os: WebContentsView | undefined;
-let settingsWindow: BrowserWindow | undefined;
+/** Settings, shown over the Tedix OS page inside the main window. */
+let settingsView: WebContentsView | undefined;
 let setupWindow: BrowserWindow | undefined;
 let status: Status | undefined;
 let lastOutput = "";
@@ -164,9 +163,8 @@ async function publish(): Promise<void> {
 		setMenu();
 	}
 	const current = await state();
-	for (const window of [settingsWindow, setupWindow])
-		if (window && !window.isDestroyed())
-			window.webContents.send("state", current);
+	for (const contents of [settingsView?.webContents, setupWindow?.webContents])
+		if (contents && !contents.isDestroyed()) contents.send("state", current);
 	publishUpdate();
 }
 
@@ -1032,7 +1030,7 @@ function showMain(): void {
 /** Without a visible window, Tedix lives in the menu bar only. */
 function updateDock(): void {
 	if (process.platform !== "darwin" || quitting) return;
-	const shown = [mainWindow, settingsWindow, setupWindow].some(
+	const shown = [mainWindow, setupWindow].some(
 		(window) => window && !window.isDestroyed() && window.isVisible(),
 	);
 	if (!shown) app.dock?.hide();
@@ -1091,8 +1089,13 @@ function createMainWindow(show: boolean): void {
 		if (window.isDestroyed()) return;
 		const { width, height } = window.getContentBounds();
 		view.setBounds({ x: 0, y: 0, width, height });
+		settingsView?.setBounds({ x: 0, y: 0, width, height });
 		const { kind, place } = updateView();
-		const shown = kind !== "hidden" && updateSize.width > 0 && !sidebarMoving;
+		const shown =
+			kind !== "hidden" &&
+			updateSize.width > 0 &&
+			!sidebarMoving &&
+			!settingsView?.getVisible();
 		button.setVisible(shown);
 		if (!shown) return;
 		const entry = 32;
@@ -1181,44 +1184,39 @@ const windowColour = () =>
 	nativeTheme.shouldUseDarkColors ? "#0b0b0c" : "#fafafa";
 
 /**
- * The Settings window: every setting of the app in one place. Cmd+, opens
- * it, and the menu bar icon's This Mac… opens it at This Mac.
+ * Settings: every setting of the app in one place, shown inside the main
+ * window over the Tedix OS page, the way chat apps show theirs. Cmd+, opens
+ * it, the menu bar icon's This Mac… opens it at This Mac, and Escape or
+ * Done goes back to the page.
  */
 function openSettings(section?: SettingsSection): void {
-	void app.dock?.show();
-	if (settingsWindow && !settingsWindow.isDestroyed()) {
-		if (section) settingsWindow.webContents.send("section", section);
-		settingsWindow.show();
-		settingsWindow.focus();
-		return;
-	}
-	const window = new BrowserWindow({
-		width: 820,
-		height: 600,
-		minWidth: 680,
-		minHeight: 440,
-		title: "Settings",
-		minimizable: false,
-		fullscreenable: false,
-		titleBarStyle: "hiddenInset",
-		trafficLightPosition: { x: 14, y: 14 },
-		backgroundColor: windowColour(),
-		webPreferences: localPage,
-	});
-	settingsWindow = window;
-	window.setMenuBarVisibility(false);
-	window.on("closed", updateDock);
-	window.webContents.on("will-navigate", (event) => event.preventDefault());
-	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-	window.on("focus", () => {
-		void refreshSetup(false);
-		void readAppSignIn();
-	});
-	void window.loadFile(join(root, "settings.html"), {
-		hash: section ?? "general",
-	});
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	showMain();
+	let view = settingsView;
+	if (!view) {
+		view = new WebContentsView({ webPreferences: localPage });
+		settingsView = view;
+		view.setBackgroundColor(windowColour());
+		view.webContents.on("will-navigate", (event) => event.preventDefault());
+		view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+		mainWindow.contentView.addChildView(view);
+		void view.webContents.loadFile(join(root, "settings.html"), {
+			hash: section ?? "general",
+		});
+	} else if (section) view.webContents.send("section", section);
+	view.setVisible(true);
+	layoutMain();
+	view.webContents.focus();
 	void refresh();
 	void refreshSetup(true);
+	void readAppSignIn();
+}
+
+function closeSettings(): void {
+	if (!settingsView?.getVisible()) return;
+	settingsView.setVisible(false);
+	layoutMain();
+	os?.webContents.focus();
 }
 
 /**
@@ -1257,7 +1255,9 @@ function openSetup(): void {
 }
 
 function fromLocalPage(event: IpcMainInvokeEvent): BrowserWindow {
-	const window = [settingsWindow, setupWindow].find(
+	if (settingsView && event.sender === settingsView.webContents && mainWindow)
+		return mainWindow;
+	const window = [setupWindow].find(
 		(candidate) =>
 			candidate &&
 			!candidate.isDestroyed() &&
@@ -1661,6 +1661,7 @@ function openInputBar(prepare = false): void {
 /** Shows a Tedix OS page in the Tedix window, in the organization open now. */
 async function openOsPage(path: string): Promise<void> {
 	showMain();
+	closeSettings();
 	const view = os;
 	if (!view || view.webContents.isDestroyed()) return;
 	const current = URL.parse(view.webContents.getURL());
@@ -1864,6 +1865,7 @@ else if (process.argv.includes("--local-model")) {
 			if (name === "local-workspace") return openLocalTedix();
 			if (name === "local-model") return openLocalModelChat();
 			if (name === "open-logs") return void shell.openPath(configDir());
+			if (name === "close-settings") return closeSettings();
 			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
 				if (name === "done-setup") return;
