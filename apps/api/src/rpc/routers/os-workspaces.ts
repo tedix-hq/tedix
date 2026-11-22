@@ -2138,6 +2138,7 @@ const blueprintsInstantiateFromGallery =
 						? source.blueprint.name
 						: `${source.blueprint.name} (${attempt + 1})`;
 				const copyBlueprint: OsBlueprintRow = {
+					archivedFrom: null,
 					id: blueprintId,
 					organizationId,
 					name,

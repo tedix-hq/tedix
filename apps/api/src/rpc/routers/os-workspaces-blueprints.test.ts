@@ -2,6 +2,7 @@ import {
 	modelCatalogConfig,
 	modelCatalogEntry,
 } from "@tedix/api-contract/test/model-catalog";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { policyPacks } from "@tedix/db/schema/control-plane";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import * as calendarAccounts from "../../services/calendar-coordinator/credentials";
@@ -287,11 +288,32 @@ describe("blueprints", () => {
 		await expect(
 			c.org2.blueprints.archive({ blueprintId: blueprint.id }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await c.org1.blueprints.setVisibility({
+			blueprintId: blueprint.id,
+			visibility: "catalog",
+		});
 		await expect(
 			c.org1.blueprints.archive({ blueprintId: blueprint.id }),
 		).resolves.toMatchObject({
 			blueprint: { status: "archived", visibility: "org" },
 		});
+		await expect(
+			c.org1.blueprints.restore({ blueprintId: blueprint.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await createDbQueryClient(c.env.DB)
+			.update(organizationMembers)
+			.set({ role: "owner", userId: "human-1", kind: "human" })
+			.where(eq(organizationMembers.id, "member-1"));
+		await c.org1.blueprints.archive({ blueprintId: blueprint.id });
+		expect(
+			(await c.org1.blueprints.restore({ blueprintId: blueprint.id }))
+				.blueprint,
+		).toMatchObject({
+			status: "published",
+			visibility: "catalog",
+			currentRevisionId: revised.revision.id,
+		});
+		await c.org1.blueprints.archive({ blueprintId: blueprint.id });
 		await expect(
 			c.org1.blueprints.delete({ blueprintId: blueprint.id }),
 		).resolves.toEqual({ deleted: true });

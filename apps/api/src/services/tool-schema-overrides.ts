@@ -248,6 +248,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/blueprints/export": "export_os_blueprint",
 	"osWorkspaces/blueprints/import": "import_os_blueprint",
 	"osWorkspaces/blueprints/archive": "archive_os_blueprint",
+	"osWorkspaces/blueprints/restore": "restore_os_blueprint",
 	"osWorkspaces/blueprints/delete": "delete_os_blueprint",
 	"osWorkspaces/workspaces/previewBlueprintUpgrade":
 		"preview_os_blueprint_upgrade",
@@ -394,6 +395,7 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/blueprints/export": "read",
 	"osWorkspaces/blueprints/import": "write",
 	"osWorkspaces/blueprints/archive": "write",
+	"osWorkspaces/blueprints/restore": "write",
 	"osWorkspaces/blueprints/delete": "destructive",
 	"osWorkspaces/workspaces/previewBlueprintUpgrade": "read",
 	// Both branches write: an apply re-pins and reconciles gadgets, and staying

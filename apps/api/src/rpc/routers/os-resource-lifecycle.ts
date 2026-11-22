@@ -7,6 +7,7 @@ import {
 	deleteOsBlueprint,
 	getOsBlueprint,
 	updateOsBlueprint,
+	restoreOsBlueprint,
 } from "@tedix/db/queries/os-workspaces/blueprints";
 import { listOsCollaborationProposals } from "@tedix/db/queries/os-workspaces/collaboration";
 import {
@@ -32,6 +33,8 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
+
+import { requireOwnerAdminWorkItemAuthor } from "./work-items/policy-helpers";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -82,6 +85,30 @@ const archiveBlueprint = authorOs.blueprints.archive.handler(
 			{ status: "archived", visibility: "org" },
 		);
 		if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS blueprint not found");
+		return { blueprint: mapBlueprint(row) };
+	},
+);
+
+const restoreBlueprint = authorOs.blueprints.restore.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		await requireOwnerAdminWorkItemAuthor(
+			context,
+			organizationId,
+			"Restoring a blueprint",
+		);
+		const blueprint = await requireBlueprint(context, input.blueprintId);
+		if (blueprint.status !== "archived")
+			return { blueprint: mapBlueprint(blueprint) };
+		const row = await restoreOsBlueprint(queryDb(context), {
+			organizationId,
+			blueprintId: input.blueprintId,
+		});
+		if (!row)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Blueprint archive has no saved state or changed; re-read the blueprint",
+			);
 		return { blueprint: mapBlueprint(row) };
 	},
 );
@@ -179,6 +206,7 @@ const deleteGadget = adminOs.gadgets.delete.handler(
 
 export const osBlueprintLifecycleProcedures = {
 	archive: archiveBlueprint,
+	restore: restoreBlueprint,
 	delete: deleteBlueprint,
 };
 

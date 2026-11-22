@@ -2478,6 +2478,16 @@ export const osWorkspacesContract = oc
 				})
 				.input(blueprintIdInput)
 				.output(z.object({ blueprint: OsBlueprintWithVisibilitySchema })),
+			restore: oc
+				.route({
+					method: "POST",
+					path: "/blueprints/{blueprintId}/restore",
+					summary: "Restore an archived blueprint",
+					description:
+						"Owner/admin only. Restore the saved status and catalog visibility. Refuses old archives without saved state.",
+				})
+				.input(blueprintIdInput)
+				.output(z.object({ blueprint: OsBlueprintWithVisibilitySchema })),
 			delete: oc
 				.route({
 					method: "DELETE",

@@ -754,6 +754,11 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_blueprint",
 		resourceId: ({ output }) => nestedId(output, "blueprint"),
 	},
+	"blueprints.restore": {
+		action: "os.blueprint.restored",
+		resourceType: "os_blueprint",
+		resourceId: ({ output }) => nestedId(output, "blueprint"),
+	},
 	"blueprints.delete": {
 		action: "os.blueprint.deleted",
 		resourceType: "os_blueprint",

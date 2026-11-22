@@ -421,6 +421,10 @@ export const osBlueprints = sqliteTable(
 		visibility: text("visibility", { enum: ["org", "catalog"] })
 			.notNull()
 			.default("org"),
+		archivedFrom: text("archived_from", { mode: "json" }).$type<{
+			status: "draft" | "published";
+			visibility: "org" | "catalog";
+		}>(),
 		/** Pointer to the serving `os_blueprint_revisions.id`; no FK (circular), queries maintain it. */
 		currentRevisionId: text("current_revision_id"),
 		/**

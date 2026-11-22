@@ -710,6 +710,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	restore_os_app_revision: "write",
 	preview_os_app_draft: "write",
 	revise_os_blueprint: "write",
+	restore_os_blueprint: "write",
 	// Requesting admission does not grant it; the designated approver decides.
 	propose_work_approval: "write",
 	// `status` would otherwise classify this upsert as a read.

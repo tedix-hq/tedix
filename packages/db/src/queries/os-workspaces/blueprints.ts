@@ -130,11 +130,43 @@ export async function updateOsBlueprint(
 ): Promise<OsBlueprintRow | undefined> {
 	const [row] = await db
 		.update(osBlueprints)
-		.set({ ...patch, updatedAt: new Date().toISOString() })
+		.set({
+			...patch,
+			updatedAt: new Date().toISOString(),
+			...(patch.status === "archived"
+				? {
+						archivedFrom: sql`case when ${osBlueprints.status} <> 'archived' then json_object('status', ${osBlueprints.status}, 'visibility', ${osBlueprints.visibility}) else ${osBlueprints.archivedFrom} end`,
+					}
+				: {}),
+		})
 		.where(
 			and(
 				eq(osBlueprints.organizationId, params.organizationId),
 				eq(osBlueprints.id, params.blueprintId),
+			),
+		)
+		.returning();
+	return row;
+}
+
+export async function restoreOsBlueprint(
+	db: DbQueryClient,
+	params: OsBlueprintScopeParams,
+): Promise<OsBlueprintRow | undefined> {
+	const [row] = await db
+		.update(osBlueprints)
+		.set({
+			status: sql`json_extract(${osBlueprints.archivedFrom}, '$.status')`,
+			visibility: sql`json_extract(${osBlueprints.archivedFrom}, '$.visibility')`,
+			archivedFrom: null,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(osBlueprints.organizationId, params.organizationId),
+				eq(osBlueprints.id, params.blueprintId),
+				eq(osBlueprints.status, "archived"),
+				sql`${osBlueprints.archivedFrom} is not null`,
 			),
 		)
 		.returning();

@@ -1,0 +1,1 @@
+ALTER TABLE `os_blueprints` ADD `archived_from` text;
