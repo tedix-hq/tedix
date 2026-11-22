@@ -30,7 +30,10 @@ vi.mock("@/lib/api", () => ({
 		},
 	},
 }));
-import { canvasOutputsQueryOptions } from "@/lib/os-query-options";
+import {
+	CANVAS_RESOURCE_LIST_LIMIT,
+	canvasOutputsQueryOptions,
+} from "@/lib/os-query-options";
 import { NewResourceMenu } from "./create-document-dialog";
 import {
 	documentFromTemplate,
@@ -253,16 +256,19 @@ describe("document creation", () => {
 		client.setQueryData(key, {
 			items: [existing],
 			truncated: true,
+			nextOffset: CANVAS_RESOURCE_LIST_LIMIT,
 		});
 		client.setQueryData(otherKey, {
 			items: [other],
 			truncated: false,
+			nextOffset: null,
 		});
 		invalidate.mockImplementation(() => new Promise(() => {}));
 		onCreated.mockImplementation(() => {
 			expect(client.getQueryData(key)).toEqual({
 				items: [output, existing],
 				truncated: true,
+				nextOffset: CANVAS_RESOURCE_LIST_LIMIT,
 			});
 		});
 		click("New");
@@ -275,6 +281,7 @@ describe("document creation", () => {
 		expect(client.getQueryData(otherKey)).toEqual({
 			items: [other],
 			truncated: false,
+			nextOffset: null,
 		});
 	});
 

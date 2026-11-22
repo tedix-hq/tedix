@@ -269,6 +269,7 @@ async function mount(
 				createdAt: "2026-10-19T00:00:00.000Z",
 				updatedAt: null,
 				archivedAt: null,
+				archivedFromStatus: null,
 			},
 		);
 	client.setQueryData(userProfileQueryOptions().queryKey, {

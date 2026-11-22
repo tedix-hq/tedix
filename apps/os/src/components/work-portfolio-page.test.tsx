@@ -64,6 +64,7 @@ function projectRow(
 		createdAt: "2026-09-01T00:00:00.000Z",
 		updatedAt: "2026-09-02T00:00:00.000Z",
 		archivedAt: null,
+		archivedFromStatus: null,
 		...overrides,
 	};
 }
@@ -85,7 +86,11 @@ const PROJECTS = [
 		5,
 		"Old shop",
 		{ portfolioBucket: "Active" },
-		{ status: "archived", archivedAt: "2026-09-03T00:00:00.000Z" },
+		{
+			status: "archived",
+			archivedAt: "2026-09-03T00:00:00.000Z",
+			archivedFromStatus: "active",
+		},
 	),
 	projectRow(
 		6,

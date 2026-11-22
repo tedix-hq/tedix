@@ -47,6 +47,7 @@ describe("Work project page", () => {
 			createdAt: "2026-08-20T00:00:00.000Z",
 			updatedAt: null,
 			archivedAt: null,
+			archivedFromStatus: null,
 		});
 		client.setQueryData(projectRollupQueryOptions(PROJECT_ID).queryKey, {
 			projectId: PROJECT_ID,

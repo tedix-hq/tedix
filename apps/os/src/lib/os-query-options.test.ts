@@ -164,7 +164,11 @@ describe("canonical OS Query definitions", () => {
 			input: { workspaceId: "00000000-0000-4000-8000-000000000001" },
 		}).queryKey;
 		queryClient.setQueryData(libraryKey, { items: [], truncated: false });
-		queryClient.setQueryData(canvasKey, { items: [], truncated: false });
+		queryClient.setQueryData(canvasKey, {
+			items: [],
+			truncated: false,
+			nextOffset: null,
+		});
 
 		await queryClient.invalidateQueries({
 			queryKey: osQueryKeys.outputs(),

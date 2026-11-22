@@ -78,6 +78,7 @@ const baseProject: Project = {
 	createdAt: "2026-08-20T00:00:00.000Z",
 	updatedAt: null,
 	archivedAt: null,
+	archivedFromStatus: null,
 };
 const linkFields = {
 	organizationId: "org",

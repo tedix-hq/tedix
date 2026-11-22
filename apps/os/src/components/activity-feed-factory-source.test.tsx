@@ -24,6 +24,7 @@ it("projects an existing fictional factory sheet with its revision and the same 
 	client.setQueryData(canvasOutputsQueryOptions(workspaceId).queryKey, {
 		items: [output(outputId)],
 		truncated: false,
+		nextOffset: null,
 	});
 	client.setQueryData(
 		outputDetailQueryOptions(outputId).queryKey,
@@ -199,6 +200,7 @@ function factoryHarness() {
 	client.setQueryData(canvasOutputsQueryOptions(workspaceId).queryKey, {
 		items: [output(siblingId), output(recoveringId)],
 		truncated: false,
+		nextOffset: null,
 	});
 	client.setQueryData(
 		outputDetailQueryOptions(siblingId).queryKey,

@@ -76,6 +76,7 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 	client.setQueryData(canvasOutputsQueryOptions(workspaceId).queryKey, {
 		items: outputs,
 		truncated: false,
+		nextOffset: null,
 	});
 	for (const output of outputs)
 		client.setQueryData(outputDetailQueryOptions(output.id).queryKey, {
