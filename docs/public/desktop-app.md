@@ -33,7 +33,14 @@ at **Chip**.
    Tedix account.
 3. Choose the coding tools you use and sign each one in to Tedix.
 
-The app updates itself. You can change everything later in **Settings**
-(⌘,).
+You can change everything later in **Settings** (⌘,).
+
+## Quitting and updating
+
+If you quit Tedix while tasks are running on your Mac, they continue where
+they stopped when you open Tedix again.
+
+When a new version is available, **Update Tedix** appears in the app menu
+and the menu bar menu. It installs only when you click it.
 
 Tedix Cloud is open by invitation; see [Release status](./release-status.md).
