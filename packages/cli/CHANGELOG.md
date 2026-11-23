@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.3 (2026-11-23)
+
+### Patch Changes
+
+- 8b156c7: Coordinated Auto assignment now respects each harness's `maxRunning` cap on the fallback path too: a preferred tool already at its cap is skipped for the sole eligible alternate, and when every tool is full the task stays unassigned until capacity returns instead of being assigned over the cap.
+- 874aa54: Check the Tedix connection in Codex before approving hooks. Codex still requires a separate approval before untrusted hooks can run.
+- b7b4ade: `tedix learn` names a new personal space after you, such as "Robin", without "(private)". Who can open it is shown as a setting.
+
 ## 0.37.2 (2026-11-23)
 
 ### Patch Changes
