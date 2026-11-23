@@ -1924,6 +1924,10 @@
 		{
 			"name": "20261123110701_audit_action_retention_index/migration.sql",
 			"sha256": "10c22a53cb28b86d0785884f8d7e7fa73c15eb02ea828f61c5c443f3c69286b7"
+		},
+		{
+			"name": "20261123124830_delegated_owner_indexes/migration.sql",
+			"sha256": "6563becd451c8a7d56bb06564edfbb2df12a2c98d56d12f67e44e741ad5a2ea5"
 		}
 	]
 }

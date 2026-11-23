@@ -1,0 +1,4 @@
+ALTER TABLE `work_interactions` ADD `delegated_owner_id` text GENERATED ALWAYS AS (CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.delegatedApproval.ownerId') END) VIRTUAL;--> statement-breakpoint
+ALTER TABLE `tedi_approval_requests` ADD `delegated_owner_id` text GENERATED ALWAYS AS (CASE WHEN json_valid("payload") THEN json_extract("payload", '$.delegatedApproval.ownerId') END) VIRTUAL;--> statement-breakpoint
+CREATE INDEX `idx_work_interactions_delegated_owner` ON `work_interactions` (`org_id`,`delegated_owner_id`) WHERE delegated_owner_id IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `idx_approval_requests_delegated_owner` ON `tedi_approval_requests` (`org_id`,`delegated_owner_id`,`resolved_at`) WHERE delegated_owner_id IS NOT NULL;

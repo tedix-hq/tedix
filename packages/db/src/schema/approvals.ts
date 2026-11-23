@@ -102,6 +102,11 @@ export const tediApprovalRequests = sqliteTable(
 			sql`CASE WHEN json_valid("payload") THEN json_extract("payload", '$.consumedAt') END`,
 			{ mode: "virtual" },
 		),
+		/** Owner a delegate decided this request for (listDecidedForYou). */
+		delegatedOwnerId: text("delegated_owner_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("payload") THEN json_extract("payload", '$.delegatedApproval.ownerId') END`,
+			{ mode: "virtual" },
+		),
 
 		/** Current status: pending, approved, rejected, expired */
 		status: text("status", { enum: APPROVAL_STATUS_VALUES })
@@ -147,6 +152,13 @@ export const tediApprovalRequests = sqliteTable(
 			table.expiresAt,
 		),
 		index("idx_approval_requests_resolved").on(table.resolvedAt),
+		// The owner's decided-for-you list. Filtering on the payload JSON read
+		// every approved or rejected request of the organization (203k rows,
+		// 4-5 s cold) and stalled main D1 on every Activity open on 23 Nov 2026.
+		// Partial: only delegated requests carry an owner.
+		index("idx_approval_requests_delegated_owner")
+			.on(table.orgId, table.delegatedOwnerId, table.resolvedAt)
+			.where(sql`delegated_owner_id IS NOT NULL`),
 		index("idx_approval_requests_tedi_status").on(table.tediId, table.status),
 		// The expiry sweep walks pending requests in expiry order and stops at
 		// the first that is still open. Almost every request is long resolved.
@@ -170,12 +182,17 @@ export const {
 	executionStatus: _executionStatus,
 	executionDismissedAt: _executionDismissedAt,
 	consumedAt: _consumedAt,
+	delegatedOwnerId: _delegatedOwnerId,
 	...approvalRequestStoredColumns
 } = getColumns(tediApprovalRequests);
 
 export type TediApprovalRequest = Omit<
 	typeof tediApprovalRequests.$inferSelect,
-	"workItemId" | "executionStatus" | "executionDismissedAt" | "consumedAt"
+	| "workItemId"
+	| "executionStatus"
+	| "executionDismissedAt"
+	| "consumedAt"
+	| "delegatedOwnerId"
 >;
 export type NewTediApprovalRequest = typeof tediApprovalRequests.$inferInsert;
 

@@ -357,7 +357,7 @@ export async function listDecidedForYou(
 		.where(
 			and(
 				eq(workInteractions.orgId, p.orgId),
-				sql`json_extract(${workInteractions.metadata},'$.delegatedApproval.ownerId')=${p.ownerId}`,
+				eq(workInteractions.delegatedOwnerId, p.ownerId),
 				p.before
 					? sql`${workInteractionResponses.respondedAt} || ':' || ${workInteractionResponses.id} < ${p.before}`
 					: undefined,
@@ -400,7 +400,7 @@ export async function listDecidedForYou(
 			and(
 				eq(tediApprovalRequests.orgId, p.orgId),
 				sql`(${tediApprovalRequests.status} IN ('approved','rejected') OR (${tediApprovalRequests.status}='cancelled' AND json_type(${tediApprovalRequests.payload},'$.delegatedApprovalUndoneAt') IS NOT NULL))`,
-				sql`json_extract(${tediApprovalRequests.payload},'$.delegatedApproval.ownerId')=${p.ownerId}`,
+				eq(tediApprovalRequests.delegatedOwnerId, p.ownerId),
 				p.before
 					? sql`${tediApprovalRequests.resolvedAt} || ':runtime:' || ${tediApprovalRequests.id} < ${p.before}`
 					: undefined,

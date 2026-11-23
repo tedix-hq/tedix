@@ -409,6 +409,11 @@ export const workInteractions = sqliteTable(
 			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.source') END`,
 			{ mode: "virtual" },
 		),
+		/** Owner a delegate answered this request for (listDecidedForYou). */
+		delegatedOwnerId: text("delegated_owner_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.delegatedApproval.ownerId') END`,
+			{ mode: "virtual" },
+		),
 		metadata: text("metadata", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.notNull()
@@ -438,6 +443,10 @@ export const workInteractions = sqliteTable(
 			table.createdAt,
 		),
 		index("idx_work_interactions_due").on(table.dueAt),
+		// The owner's decided-for-you list; partial, only delegated requests.
+		index("idx_work_interactions_delegated_owner")
+			.on(table.orgId, table.delegatedOwnerId)
+			.where(sql`delegated_owner_id IS NOT NULL`),
 		index("idx_work_interactions_target_status").on(
 			table.orgId,
 			table.targetType,
@@ -1110,12 +1119,15 @@ export type WorkApprovalDecision = typeof workApprovalDecisions.$inferSelect;
  * WHERE, ORDER BY and indexes only: select and `returning()` through this, never
  * the whole table, so they do not reach a caller or an API response.
  */
-export const { source: _source, ...workInteractionStoredColumns } =
-	getColumns(workInteractions);
+export const {
+	source: _source,
+	delegatedOwnerId: _interactionDelegatedOwnerId,
+	...workInteractionStoredColumns
+} = getColumns(workInteractions);
 
 export type WorkInteraction = Omit<
 	typeof workInteractions.$inferSelect,
-	"source"
+	"source" | "delegatedOwnerId"
 >;
 export type WorkInteractionResponse =
 	typeof workInteractionResponses.$inferSelect;
