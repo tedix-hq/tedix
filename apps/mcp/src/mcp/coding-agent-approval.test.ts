@@ -373,3 +373,52 @@ it.each(["add_member", "assign_role", "invite_member"])(
 		expect(resolve).not.toHaveBeenCalled();
 	},
 );
+
+it.each(["tedi", "external_agent"])(
+	"keeps %s policy evidence without approval queue writes for runner bookkeeping",
+	async (authType) => {
+		for (const endpoint of [
+			"workAgentSessions/report",
+			"dispatcherHealth/report",
+			"workItems/updateSpecification",
+			"agentTurnTriage/recordSessionFeedback",
+			"workAgentSessions/recordEvents",
+			"machines/claimToolCalls",
+			"workItems/addComment",
+		]) {
+			const ctx = context("external_agent");
+			if (authType === "tedi") {
+				Object.assign(ctx, {
+					callerIdentity: {
+						authType: "tedi",
+						tediId: "fictional-tedi",
+						organizationId: "fictional-org",
+					},
+				});
+			}
+			const record = vi.fn(async () => ({ approvalRequestId: "approval-1" }));
+			Object.assign(ctx.apiClient.mcpGovernance, {
+				recordPolicyToolApproval: record,
+			});
+			const binding = tool("runner_write", endpoint);
+			const onApprovalEvidence = vi.fn();
+			expect(
+				await requireDestructiveToolApproval(
+					ctx,
+					binding,
+					resolveToolAnnotations(binding),
+					{ onApprovalEvidence },
+				),
+			).toBeNull();
+			expect(onApprovalEvidence).toHaveBeenCalledWith(
+				expect.objectContaining({
+					kind: "policy",
+					policy: expect.objectContaining({ ruleId: expect.any(String) }),
+				}),
+			);
+			expect(record).toHaveBeenCalledTimes(
+				endpoint === "workItems/addComment" ? 1 : 0,
+			);
+		}
+	},
+);

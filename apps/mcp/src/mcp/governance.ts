@@ -1312,9 +1312,23 @@ export async function requireDestructiveToolApproval(
 					);
 		}
 		if (!ruleId) return null;
+		// Runner bookkeeping keeps the gateway audit event and policy evidence;
+		// nobody reviews an approval queue row for each status update.
+		const runnerBookkeeping =
+			tool.config?.transport === "rpc" &&
+			typeof tool.config.endpoint === "string" &&
+			[
+				"workAgentSessions/report",
+				"dispatcherHealth/report",
+				"workItems/updateSpecification",
+				"agentTurnTriage/recordSessionFeedback",
+				"workAgentSessions/recordEvents",
+				"machines/claimToolCalls",
+			].includes(tool.config.endpoint);
 		let policyApprovalRequestId: string | undefined;
 		try {
 			if (
+				!runnerBookkeeping &&
 				agent.app?.organizationId &&
 				agent.apiClient?.mcpGovernance?.recordPolicyToolApproval
 			) {
