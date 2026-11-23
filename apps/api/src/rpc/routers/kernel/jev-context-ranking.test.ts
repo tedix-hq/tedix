@@ -31,7 +31,8 @@ vi.mock("@tedix/workers-ai/jev", () => ({
 		}
 	},
 }));
-vi.mock("./billing-reservation", () => ({
+vi.mock("./billing-reservation", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./billing-reservation")>()),
 	reserveKernelBilling: mocks.reserve,
 }));
 vi.mock("../../../services/provider-model-pricing", () => ({

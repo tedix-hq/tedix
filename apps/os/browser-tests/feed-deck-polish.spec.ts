@@ -896,6 +896,7 @@ try {
 	);
 	let olderFails = true;
 	let approvalFails = true;
+	let approvalRetry: Promise<void> | undefined;
 	let olderReads = 0;
 	let approvalReads = 0;
 	const existingQuestion = WorkInteractionInboxRowSchema.parse({
@@ -940,6 +941,7 @@ try {
 					: (request.postDataJSON()?.json ?? {});
 			if (input.cursor) olderReads++;
 			if (input.decisionKind) approvalReads++;
+			if (input.decisionKind && approvalFails) await approvalRetry;
 			if ((input.cursor && olderFails) || (input.decisionKind && approvalFails))
 				return route.fulfill({ status: 503, body: "Temporary source failure" });
 			return route.fulfill({
@@ -976,6 +978,10 @@ try {
 			path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-error-before-retry.png`,
 		});
 	olderFails = false;
+	let releaseApprovalRetry!: () => void;
+	approvalRetry = new Promise((resolve) => {
+		releaseApprovalRetry = resolve;
+	});
 	const partialRetry = retry.waitForResponse(
 		(response) =>
 			response.url().includes("/workInteractions/listInbox") &&
@@ -985,6 +991,7 @@ try {
 	await banner
 		.getByRole("button", { name: "Retry" })
 		.waitFor({ state: "hidden" });
+	releaseApprovalRetry();
 	await (await partialRetry).finished();
 	await banner.getByRole("button", { name: "Retry" }).waitFor();
 	if (olderReads < 2 || approvalReads < 1 || !(await banner.isVisible()))

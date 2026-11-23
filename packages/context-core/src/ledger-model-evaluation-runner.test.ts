@@ -6,10 +6,14 @@ import {
 	rm,
 	stat,
 } from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { expect, it, vi } from "vite-plus/test";
+vi.mock("node:fs/promises", async (importOriginal) => ({
+	...(await importOriginal<typeof import("node:fs/promises")>()),
+}));
 import * as evaluationModule from "./ledger-model-evaluation";
 import { StatelessMcpTransport } from "../../mcp/src/transport";
 import {
@@ -937,6 +941,15 @@ it("unwraps only exact native MCP results and stops on ambiguity, errors and app
 
 it("selects one whole fixed cohort and schedules all three fresh repetitions after its screen passes", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "ledger-single-cohort-"));
+	// Exercise all 123 receipts without benchmarking the host's disk flushes.
+	// Other receipt tests retain real syncs; this case checks orchestration.
+	const sync = vi.fn(async () => {});
+	const open = fs.open;
+	const opened = vi.spyOn(fs, "open").mockImplementation(async (...args) => {
+		const file = await open(...args);
+		file.sync = sync;
+		return file;
+	});
 	// This verifies orchestration, not model accuracy; grade synthetic responses
 	// as passing while leaving every real prompt and input hash unchanged.
 	const original = evaluationModule.getLedgerEvaluationCase;
@@ -985,6 +998,7 @@ it("selects one whole fixed cohort and schedules all three fresh repetitions aft
 			qualified: true,
 		});
 		expect(summary.dispatched).toBe(123);
+		expect(sync).toHaveBeenCalledTimes(123);
 		expect(new Set(inputs.map((input) => input.evaluationId)).size).toBe(123);
 		for (const row of cases)
 			expect(
@@ -1003,6 +1017,7 @@ it("selects one whole fixed cohort and schedules all three fresh repetitions aft
 		).toBe(true);
 	} finally {
 		grader.mockRestore();
+		opened.mockRestore();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
