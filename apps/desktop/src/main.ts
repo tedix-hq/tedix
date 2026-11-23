@@ -135,6 +135,7 @@ let os: WebContentsView | undefined;
 /** Settings, shown over the Tedix OS page inside the main window. */
 let settingsView: WebContentsView | undefined;
 let setupWindow: BrowserWindow | undefined;
+let routingLaunch = false;
 let status: Status | undefined;
 let lastOutput = "";
 let busy = false;
@@ -1178,6 +1179,33 @@ function showMain(): void {
 	window.focus();
 }
 
+async function showLaunchWindow(): Promise<void> {
+	// Saved window bounds and a closed setup window do not prove sign-in.
+	const browserSession = os?.webContents.session;
+	let hasSession = false;
+	try {
+		const response = await browserSession?.fetch(
+			`${osOrigin()}/auth/session-broker/status`,
+			{
+				cache: "no-store",
+				credentials: "include",
+				redirect: "error",
+				signal: AbortSignal.timeout(2500),
+			},
+		);
+		const status = (await response?.json()) as
+			| { authenticated?: boolean; renewalRequired?: boolean }
+			| undefined;
+		hasSession =
+			status?.authenticated === true || status?.renewalRequired === true;
+	} catch {
+		// The welcome screen still offers the demo when the network is down.
+	}
+	if (quitting || mainWindow?.isVisible() || setupWindow?.isVisible()) return;
+	if (hasSession || appSignIn.state === "in") showMain();
+	else openSetup();
+}
+
 /** Without a visible window, Tedix lives in the menu bar only. */
 function updateDock(): void {
 	if (process.platform !== "darwin" || quitting) return;
@@ -1187,10 +1215,10 @@ function updateDock(): void {
 	if (!shown) app.dock?.hide();
 }
 
-function createMainWindow(show: boolean): void {
+function createMainWindow(): void {
 	const window = new BrowserWindow({
 		...(savedBounds() ?? defaultBounds()),
-		show,
+		show: false,
 		minWidth: 720,
 		minHeight: 520,
 		title: "Tedix",
@@ -2106,11 +2134,17 @@ else if (process.argv.includes("--local-model")) {
 		// Opened at login, Tedix starts in the menu bar without a window.
 		const atLogin = await openedAtLogin();
 		const first = firstRun();
-		createMainWindow(!atLogin && !first);
+		createMainWindow();
 		if (first) {
 			log("start: first run; the setup opens first");
 			openSetup();
 		} else if (atLogin) app.dock?.hide();
+		else {
+			routingLaunch = true;
+			void showLaunchWindow().finally(() => {
+				routingLaunch = false;
+			});
+		}
 		createTray();
 		openAppLink(startLink);
 
@@ -2340,8 +2374,10 @@ else if (process.argv.includes("--local-model")) {
 		app.on("window-all-closed", () => {});
 		// While the first-run setup is open, it stays in front of the Tedix window.
 		app.on("activate", () => {
-			if (setupWindow && !setupWindow.isDestroyed() && !existsSync(setUpFile()))
-				return setupWindow.show();
+			if (routingLaunch || localChosen) return;
+			if (setupWindow && !setupWindow.isDestroyed()) return setupWindow.show();
+			if (appSignIn.state === "out" && !mainWindow?.isVisible())
+				return openSetup();
 			showMain();
 		});
 		process.on("SIGTERM", () => quitFrom("a TERM signal"));

@@ -149,7 +149,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			sub: "Use Tedix with your own account.",
 			click: () => {
 				go(app.state === "in" ? "tools" : "mac");
-				if (app.state === "out") act("app-sign-in");
+				if (app.state !== "in") act("app-sign-in");
 			},
 		};
 		return {
