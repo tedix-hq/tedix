@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.36.2 (2026-11-23)
+
+### Patch Changes
+
+- A Devin runner task that reports its result and then exits non-zero now settles with that result instead of failing.
+
 ## 0.36.1 (2026-11-23)
 
 ### Patch Changes
