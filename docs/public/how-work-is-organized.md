@@ -146,8 +146,10 @@ every surface:
 2. The Work Item is then completed by its owner, its steward, or an organization
    owner or admin. An external agent may complete the Work Item itself only when
    it is accepted, its own latest Attempt settled as `succeeded` (coding also
-   needs a commit) and the Work is not a credentials, money or external-message
-   action; those stay with the owner.
+   needs a commit). The owner's configured lead agent may also complete accepted
+   Work whose latest Attempt settled as `succeeded`, including document and
+   verification Work without a commit, or `landed_unverified` with a commit.
+   Billing, credentials, money and external-message actions stay with the owner.
 3. For work a runner started, the runner requests completion under the original
    session once it has verified the commit or skill-run evidence. An agent's
    report that it succeeded is not itself verification.

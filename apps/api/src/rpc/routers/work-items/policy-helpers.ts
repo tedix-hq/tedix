@@ -168,15 +168,17 @@ export async function canCompleteOwnSucceededAttempt(
 	);
 }
 
-/** Accepted credential, payment or messaging actions stay owner-only. */
+/** Accepted billing, credential, payment or messaging actions stay owner-only. */
 function ownerOnlyCompletionProblem(item: WorkItem): string | undefined {
 	// The accepted outcome defines the action; descriptions can contain past incidents.
 	const completionScope =
 		item.acceptanceContract?.doneLooksLike?.trim() || item.description || "";
-	const reserved = humanReservedActionClasses(
-		withoutNegatedClauses(`${item.title}\n${completionScope}`),
-	);
-	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id)))
+	const scope = withoutNegatedClauses(`${item.title}\n${completionScope}`);
+	const reserved = humanReservedActionClasses(scope);
+	if (
+		/\bbilling\b/i.test(scope) ||
+		reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id))
+	)
 		return "The accepted action requires the Work owner to complete it.";
 	return undefined;
 }
@@ -208,7 +210,7 @@ async function workItemDelegationOwnerId(
 /**
  * Whether the calling agent is the Work owner's configured lead agent under
  * the organization's delegated-approvals policy, completing Work whose latest
- * Attempt settled succeeded or landed_unverified with a commit on main. The
+ * Attempt settled succeeded, or landed_unverified with a commit on main. The
  * returned proof fences `completeWorkItem` to that Attempt and records the
  * owner the agent acts for.
  */
@@ -246,7 +248,11 @@ export async function leadAgentCompletion(
 	const settlement = WorkAttemptSettlementSchema.safeParse(
 		latest.metadata?.settlement,
 	).data;
-	if (!workSettlementCommits(settlement).length) return null;
+	if (
+		latest.outcome === "landed_unverified" &&
+		!workSettlementCommits(settlement).length
+	)
+		return null;
 	const admission = await getWorkAttemptRepositoryAdmission(context.db, latest);
 	if (
 		!admission ||
@@ -427,7 +433,7 @@ export async function workItemStewardActor(
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		action === "completion" && actor.type === "external_agent"
-			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires delivery proof; dispatched Work requires its full outcome declaration) or, as the owner's configured lead agent, verified landed Work with a settled commit, and not accepted credentials, payment or messaging actions"
+			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires delivery proof; dispatched Work requires its full outcome declaration) or, as the owner's configured lead agent, Work whose latest Attempt settled succeeded (with or without a commit) or landed_unverified with a commit, and not accepted credentials, payment or messaging actions"
 			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }

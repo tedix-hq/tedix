@@ -1782,10 +1782,27 @@ describe("delegated lead-agent completion", () => {
 		return { sqlite, db, params };
 	}
 
-	it.each(["succeeded", "landed_unverified"])(
-		"completes a %s settle on behalf of the owner, attributed to the lead agent",
-		async (outcome) => {
-			const f = delegatedFixture({ outcome });
+	it.each([
+		{ outcome: "succeeded" },
+		{ outcome: "landed_unverified" },
+		{ outcome: "succeeded", metadata: {} },
+		{
+			outcome: "succeeded",
+			metadata: {
+				settlement: {
+					mode: "skill_revision",
+					skillId: "skill",
+					skillRevision: 1,
+					skillRunId: "run",
+					evidenceId: "evidence",
+					evidenceUri: "skill://runs/run",
+				},
+			},
+		},
+	])(
+		"completes $outcome with $metadata on behalf of the owner, attributed to the lead agent",
+		async (options) => {
+			const f = delegatedFixture(options);
 			const result = await completeWorkItem(f.db, f.params);
 			expect(result.disposition).toBe("completed");
 			const event = f.sqlite
@@ -1804,10 +1821,15 @@ describe("delegated lead-agent completion", () => {
 
 	it.each([
 		["an unknown Attempt", { attemptId: "missing-attempt" }],
-		["a non-commit settlement", { metadata: {} }],
+		["a failed settlement", { outcome: "failed", metadata: {} }],
 		[
-			"an artifact settlement",
+			"an unverified non-commit settlement",
+			{ outcome: "landed_unverified", metadata: {} },
+		],
+		[
+			"an unverified artifact settlement",
 			{
+				outcome: "landed_unverified",
 				metadata: {
 					settlement: {
 						mode: "skill_revision",
@@ -1824,11 +1846,13 @@ describe("delegated lead-agent completion", () => {
 		"denies %s",
 		async (
 			_label,
-			patch: { attemptId?: string; metadata?: Record<string, unknown> },
+			patch: {
+				attemptId?: string;
+				outcome?: string;
+				metadata?: Record<string, unknown>;
+			},
 		) => {
-			const f = delegatedFixture(
-				patch.metadata ? { metadata: patch.metadata } : {},
-			);
+			const f = delegatedFixture(patch);
 			const params = patch.attemptId
 				? {
 						...f.params,

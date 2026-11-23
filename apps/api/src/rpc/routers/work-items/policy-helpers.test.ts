@@ -43,6 +43,19 @@ vi.mock("../work-items-principal", async (importOriginal) => ({
 	verifiedActiveWorkActor: principal.actor,
 }));
 
+const completion = vi.hoisted(() => ({ get: vi.fn(), complete: vi.fn() }));
+vi.mock("@tedix/db/queries/work-items/crud", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/work-items/crud")
+	>()),
+	getWorkItemById: completion.get,
+	completeWorkItem: completion.complete,
+}));
+vi.mock("../../../services/learning-interaction-recorder", () => ({
+	recordObservedLearningInteraction: vi.fn(),
+}));
+
+import { completeProcedure } from "./factory-lifecycle";
 import {
 	canCompleteOwnSucceededAttempt,
 	leadAgentCompletion,
@@ -566,8 +579,11 @@ describe("leadAgentCompletion", () => {
 			},
 		],
 		[
-			"a settle without a commit",
-			{ data: [settledAttempt({ metadata: {} })], nextCursor: null },
+			"a landed_unverified settle without a commit",
+			{
+				data: [settledAttempt({ outcome: "landed_unverified", metadata: {} })],
+				nextCursor: null,
+			},
 		],
 	])("refuses %s", async (_label, list) => {
 		if (list) attempts.list.mockResolvedValue(list);
@@ -575,15 +591,76 @@ describe("leadAgentCompletion", () => {
 		await expect(lead()).resolves.toBeNull();
 	});
 
-	it("keeps reserved actions owner-only and refuses unowned items", async () => {
+	it.each(["coding", "research", "design", "operations"] as const)(
+		"completes succeeded %s Work without a commit through the completion procedure",
+		async (workKind) => {
+			attempts.list.mockResolvedValue({
+				data: [settledAttempt({ metadata: {} })],
+				nextCursor: null,
+			});
+			principal.actor.mockResolvedValue({
+				type: "external_agent",
+				id: AGENT,
+				sessionId: SESSION,
+			});
+			const work = owned({ workKind });
+			completion.get.mockResolvedValue(work);
+			completion.complete.mockResolvedValue({
+				...work,
+				disposition: "completed",
+			});
+			await expect(
+				completeProcedure["~orpc"].handler!({
+					input: { id: work.id },
+					context: { ...context, organizationId: work.orgId },
+					path: ["workItems", "complete"],
+					procedure: completeProcedure,
+					signal: undefined,
+					lastEventId: undefined,
+				}),
+			).resolves.toMatchObject({ disposition: "completed" });
+			expect(completion.complete).toHaveBeenLastCalledWith(
+				context.db,
+				expect.objectContaining({
+					workItemId: work.id,
+					expectedWorkItemVersion: work.version,
+					actor: {
+						type: "external_agent",
+						id: AGENT,
+						delegatedCompletion: {
+							onBehalfOf: { type: "user", id: OWNER },
+							attemptId: ATTEMPT_ID,
+						},
+						sessionId: SESSION,
+					},
+				}),
+			);
+			await expect(lead(owned({ version: 2 }))).resolves.toBeNull();
+		},
+	);
+
+	it.each([
+		"Rotate the provider API key",
+		"Change billing settings",
+		"Send a payment",
+		"Send an email to the customer",
+	])("keeps %s owner-only without a commit", async (title) => {
+		attempts.list.mockResolvedValue({
+			data: [settledAttempt({ metadata: {} })],
+			nextCursor: null,
+		});
 		await expect(
 			lead(
 				owned({
-					title: "Rotate the provider API key",
+					title,
 					acceptanceContract: { version: 1, doneLooksLike: DONE },
 				}),
 			),
 		).resolves.toBeNull();
+		expect(delegation.approver).not.toHaveBeenCalled();
+	});
+
+	it("refuses unowned items", async () => {
 		await expect(
 			lead(
 				owned({ accountableOwnerType: "system", accountableOwnerId: "ops" }),
