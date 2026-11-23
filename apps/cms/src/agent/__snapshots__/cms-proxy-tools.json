@@ -3627,6 +3627,21 @@
 																					"items": {
 																						"type": "string"
 																					}
+																				},
+																				"validation": {
+																					"type": "object",
+																					"properties": {
+																						"allowedMimeTypes": {
+																							"minItems": 1,
+																							"maxItems": 64,
+																							"type": "array",
+																							"items": {
+																								"type": "string",
+																								"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+																							}
+																						}
+																					},
+																					"additionalProperties": false
 																				}
 																			},
 																			"required": ["slug", "type", "label"],
@@ -3922,6 +3937,21 @@
 																				"items": {
 																					"type": "string"
 																				}
+																			},
+																			"validation": {
+																				"type": "object",
+																				"properties": {
+																					"allowedMimeTypes": {
+																						"minItems": 1,
+																						"maxItems": 64,
+																						"type": "array",
+																						"items": {
+																							"type": "string",
+																							"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+																						}
+																					}
+																				},
+																				"additionalProperties": false
 																			}
 																		},
 																		"required": ["slug", "type", "label"],
@@ -4167,6 +4197,21 @@
 													"items": {
 														"type": "string"
 													}
+												},
+												"validation": {
+													"type": "object",
+													"properties": {
+														"allowedMimeTypes": {
+															"minItems": 1,
+															"maxItems": 64,
+															"type": "array",
+															"items": {
+																"type": "string",
+																"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+															}
+														}
+													},
+													"additionalProperties": false
 												}
 											},
 											"required": ["slug", "type", "label"],
@@ -4373,6 +4418,21 @@
 																				"items": {
 																					"type": "string"
 																				}
+																			},
+																			"validation": {
+																				"type": "object",
+																				"properties": {
+																					"allowedMimeTypes": {
+																						"minItems": 1,
+																						"maxItems": 64,
+																						"type": "array",
+																						"items": {
+																							"type": "string",
+																							"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+																						}
+																					}
+																				},
+																				"additionalProperties": false
 																			}
 																		},
 																		"required": ["slug", "type", "label"],
@@ -4622,6 +4682,21 @@
 													"items": {
 														"type": "string"
 													}
+												},
+												"validation": {
+													"type": "object",
+													"properties": {
+														"allowedMimeTypes": {
+															"minItems": 1,
+															"maxItems": 64,
+															"type": "array",
+															"items": {
+																"type": "string",
+																"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+															}
+														}
+													},
+													"additionalProperties": false
 												}
 											},
 											"required": ["slug", "type", "label"],
@@ -4831,6 +4906,21 @@
 																				"items": {
 																					"type": "string"
 																				}
+																			},
+																			"validation": {
+																				"type": "object",
+																				"properties": {
+																					"allowedMimeTypes": {
+																						"minItems": 1,
+																						"maxItems": 64,
+																						"type": "array",
+																						"items": {
+																							"type": "string",
+																							"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+																						}
+																					}
+																				},
+																				"additionalProperties": false
 																			}
 																		},
 																		"required": ["slug", "type", "label"],
@@ -5132,6 +5222,21 @@
 																				"items": {
 																					"type": "string"
 																				}
+																			},
+																			"validation": {
+																				"type": "object",
+																				"properties": {
+																					"allowedMimeTypes": {
+																						"minItems": 1,
+																						"maxItems": 64,
+																						"type": "array",
+																						"items": {
+																							"type": "string",
+																							"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+																						}
+																					}
+																				},
+																				"additionalProperties": false
 																			}
 																		},
 																		"required": ["slug", "type", "label"],
@@ -5645,6 +5750,21 @@
 												"items": {
 													"type": "string"
 												}
+											},
+											"validation": {
+												"type": "object",
+												"properties": {
+													"allowedMimeTypes": {
+														"minItems": 1,
+														"maxItems": 64,
+														"type": "array",
+														"items": {
+															"type": "string",
+															"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+														}
+													}
+												},
+												"additionalProperties": false
 											}
 										},
 										"required": ["slug", "type", "label"],
@@ -5868,6 +5988,21 @@
 												"items": {
 													"type": "string"
 												}
+											},
+											"validation": {
+												"type": "object",
+												"properties": {
+													"allowedMimeTypes": {
+														"minItems": 1,
+														"maxItems": 64,
+														"type": "array",
+														"items": {
+															"type": "string",
+															"pattern": "^[a-z0-9][a-z0-9!#$&^_+\\-.]*\\/[a-z0-9!#$&^_+\\-.]*$"
+														}
+													}
+												},
+												"additionalProperties": false
 											}
 										},
 										"required": ["slug", "type", "label"],
@@ -10702,6 +10837,14 @@
 							"additionalProperties": false,
 							"description": "Native Emdash site-wide fallback social image. EmDashHead emits it as og:image, twitter:image, and BlogPosting image when a page has no own image."
 						},
+						"additionalSitemaps": {
+							"maxItems": 20,
+							"type": "array",
+							"items": {
+								"type": "string",
+								"pattern": "^\\/sitemap-[a-z0-9][a-z0-9_-]*\\.xml$"
+							}
+						},
 						"robotsTxt": {
 							"type": "string"
 						},
@@ -10710,14 +10853,6 @@
 						},
 						"bingVerification": {
 							"type": "string"
-						},
-						"additionalSitemaps": {
-							"type": "array",
-							"items": {
-								"type": "string",
-								"pattern": "^\\/sitemap-[a-z0-9][a-z0-9_-]*\\.xml$"
-							},
-							"maxItems": 20
 						}
 					},
 					"additionalProperties": false

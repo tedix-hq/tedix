@@ -63,6 +63,11 @@ const dockerfile = readFileSync(
 	new URL("../../../docs/Dockerfile", import.meta.url),
 	"utf8",
 );
+/** npm's latest defaults to the runtime pin, so only the older theme is behind. */
+const runtimeEmdash = productPackageVersions(manifest, dockerfile).runtime
+	.emdash!;
+/** A release newer than every pin, so runtime and theme are both behind. */
+const newerEmdash = "99.0.0";
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -164,7 +169,7 @@ describe("site version check", () => {
 		expect(first!.sites).toHaveLength(2);
 		expect(first!.alerts).toEqual([
 			{
-				message: "Upgrade example: theme to EmDash 1.5.0",
+				message: `Upgrade example: theme to EmDash ${runtimeEmdash}`,
 				workItemId: expect.any(String),
 			},
 		]);
@@ -195,7 +200,7 @@ describe("site version check", () => {
 			{ id: "cms-two", slug: "second", organizationId: "org" },
 		]);
 		const params = input(false, {
-			emdash: "1.6.0",
+			emdash: newerEmdash,
 			"@emdash-cms/plugin-forms": "0.3.0",
 		});
 		const [first] = await checkSiteVersions(params);
@@ -203,14 +208,15 @@ describe("site version check", () => {
 		expect(mocks.create).toHaveBeenCalledTimes(4);
 		expect(first!.alerts).toHaveLength(2);
 		expect(first!.alerts.map((alert) => alert.message)).toEqual([
-			"Upgrade example: runtime to EmDash 1.6.0; theme to EmDash 1.6.0",
-			"Upgrade second: runtime to EmDash 1.6.0; theme to EmDash 1.6.0",
+			`Upgrade example: runtime to EmDash ${newerEmdash}; theme to EmDash ${newerEmdash}`,
+			`Upgrade second: runtime to EmDash ${newerEmdash}; theme to EmDash ${newerEmdash}`,
 		]);
 		expect(second!.alerts).toEqual(first!.alerts);
 		const items = mocks.create.mock.calls.map((call) => call[1]);
 		expect(new Set(items.map((item) => item.sourceIntentId)).size).toBe(4);
 		const theme = items.find(
-			(item) => item.title === "Upgrade the example theme to EmDash 1.6.0",
+			(item) =>
+				item.title === `Upgrade the example theme to EmDash ${newerEmdash}`,
 		);
 		const details = JSON.parse(theme.description.split("\n\n")[1]);
 		expect(details).toMatchObject({
@@ -224,7 +230,7 @@ describe("site version check", () => {
 				expect.objectContaining({
 					package: "emdash",
 					installed: "1.4.0",
-					latest: "1.6.0",
+					latest: newerEmdash,
 				}),
 				expect.objectContaining({
 					package: "@emdash-cms/plugin-forms",
@@ -258,7 +264,7 @@ describe("site version check", () => {
 			expect.objectContaining({
 				workItemId: id,
 				body: expect.stringContaining(
-					"Upgrade the example theme to EmDash 1.5.0",
+					`Upgrade the example theme to EmDash ${runtimeEmdash}`,
 				),
 			}),
 		);

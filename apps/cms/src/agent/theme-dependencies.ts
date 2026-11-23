@@ -1,5 +1,4 @@
 import { parse, type ParseError } from "jsonc-parser";
-import platform from "../../../../package.json";
 import { snapshotForTemplate } from "./template-sync";
 
 /** Resolved build inputs, including bundled plugins, rather than tenant requests. */
@@ -23,7 +22,12 @@ export function themePackageVersions(lock: string): Record<string, string[]> {
 	return versions;
 }
 
-/** Locked starter dependencies and patches belong to the platform release. */
+/**
+ * Locked starter dependencies and patches belong to the platform release.
+ * Themes build from the starter's own lock and patches, not the shared
+ * runtime's catalog: the two can pin different EmDash releases, and a
+ * catalog version would leave the starter's version-keyed patches unapplied.
+ */
 export function platformThemeManifest(templateSlug: string): string {
 	const { snapshot } = snapshotForTemplate(templateSlug);
 	const manifest = JSON.parse(snapshot["package.json"]!);
@@ -31,8 +35,7 @@ export function platformThemeManifest(templateSlug: string): string {
 	for (const [name, versions] of Object.entries(pins)) {
 		if (versions.length !== 1)
 			throw new Error(`Ambiguous platform theme pin: ${name}`);
-		const version =
-			(platform.catalog as Record<string, string>)[name] ?? versions[0]!;
+		const version = versions[0]!;
 		if (manifest.dependencies?.[name]) manifest.dependencies[name] = version;
 		if (manifest.devDependencies?.[name])
 			manifest.devDependencies[name] = version;
