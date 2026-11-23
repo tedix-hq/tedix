@@ -293,23 +293,30 @@ export async function listUnattendedObjectives(
 	orgId: string,
 	since: string,
 ) {
+	// Seek one heartbeat per linked Work Item, regardless of its Attempt history.
+	const lastAttentionAt = sql<
+		string | null
+	>`max((select a.heartbeat_at from work_attempts a where a.org_id = ${orgId} and a.work_item_id = ${workItems.id} order by a.heartbeat_at desc limit 1))`;
 	return db
 		.select({
 			id: tediObjectives.id,
 			title: tediObjectives.title,
-			lastAttentionAt: sql<
-				string | null
-			>`(select max(a.heartbeat_at) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.objective_id = tedi_objectives.id)`.as(
-				"objective_last_attention_at",
-			),
+			lastAttentionAt: lastAttentionAt.as("objective_last_attention_at"),
 		})
 		.from(tediObjectives)
-		.where(
+		.leftJoin(
+			workItems,
 			and(
-				eq(tediObjectives.orgId, orgId),
-				eq(tediObjectives.status, "active"),
-				sql`not exists (select 1 from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.objective_id = tedi_objectives.id and a.heartbeat_at >= ${since})`,
+				eq(workItems.orgId, orgId),
+				eq(workItems.objectiveId, tediObjectives.id),
 			),
+		)
+		.where(
+			and(eq(tediObjectives.orgId, orgId), eq(tediObjectives.status, "active")),
+		)
+		.groupBy(tediObjectives.id)
+		.having(
+			sql`objective_last_attention_at is null or objective_last_attention_at < ${since}`,
 		)
 		.orderBy(tediObjectives.priority)
 		.limit(100);

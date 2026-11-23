@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_attempt_org_item_heartbeat` ON `work_attempts` (`org_id`,`work_item_id`,`heartbeat_at`);

@@ -735,6 +735,11 @@ export const workAttempts = sqliteTable(
 		),
 		index("idx_work_attempt_expiry").on(table.runtimeState, table.expiresAt),
 		index("idx_work_attempt_org_started").on(table.orgId, table.startedAt),
+		index("idx_work_attempt_org_item_heartbeat").on(
+			table.orgId,
+			table.workItemId,
+			table.heartbeatAt,
+		),
 		index("idx_work_attempt_org_item_started").on(
 			table.orgId,
 			table.workItemId,

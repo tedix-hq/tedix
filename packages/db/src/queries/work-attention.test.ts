@@ -19,6 +19,7 @@ import {
 	readAttentionSources,
 	attentionProjectBriefs,
 	attentionProjectExists,
+	listUnattendedObjectives,
 } from "./work-attention";
 it("scopes Attention reads and project matches to the organization through the D1 facade", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -137,6 +138,112 @@ it("scopes Attention reads and project matches to the organization through the D
 		(await readAttentionSources(db, "org-example", "2026-10-16T00:00:00Z"))
 			.backlog[0]?.id,
 	).toBe("old-red");
+});
+
+it("seeks latest heartbeats per Work Item without scanning Attempt history", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	try {
+		for (const table of [tediObjectives, workItems, workAttempts])
+			sqlite.exec(schemaDdl(table));
+		let query = "";
+		const db = createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare: (statement) => {
+					query = statement;
+				},
+			}),
+		);
+		const old = "2026-11-20T00:00:00.000Z";
+		const since = "2026-11-22T00:00:00.000Z";
+		for (const [id, orgId, priority, status] of [
+			["empty", "org-example", 0, "active"],
+			["no-attempt", "org-example", 1, "active"],
+			["old", "org-example", 2, "active"],
+			["boundary", "org-example", 3, "active"],
+			["paused", "org-example", 4, "paused"],
+			["foreign", "other-org", 0, "active"],
+		] as const) {
+			await db.insert(tediObjectives).values({
+				id,
+				orgId,
+				priority,
+				status,
+				title: id,
+				tediId: "tedi-example",
+				createdAt: old,
+			});
+			if (id !== "empty")
+				await db.insert(workItems).values({
+					id: `item-${id}`,
+					orgId,
+					objectiveId: id,
+					title: id,
+					createdAt: old,
+				});
+		}
+		await db.insert(workItems).values({
+			id: "second-old",
+			orgId: "org-example",
+			objectiveId: "old",
+			title: "Second item",
+			createdAt: old,
+		});
+		const insert = sqlite.prepare(`INSERT INTO work_attempts
+			(id, org_id, work_item_id, executor_type, executor_id, attempt_number,
+			started_at, heartbeat_at, runtime_state, outcome, finished_at)
+			VALUES (?, ?, ?, 'tedi', 'tedi-example', ?, ?, ?, 'finished', 'succeeded', ?)`);
+		for (let i = 1; i <= 1000; i++) {
+			// The most recently started Attempt need not have the latest heartbeat.
+			insert.run(
+				`history-${i}`,
+				"org-example",
+				"item-old",
+				i,
+				i === 1 ? "2026-11-19T00:00:00.000Z" : old,
+				i === 1 ? "2026-11-21T00:00:00.000Z" : old,
+				since,
+			);
+		}
+		insert.run("second", "org-example", "second-old", 1, old, old, since);
+		insert.run(
+			"boundary",
+			"org-example",
+			"item-boundary",
+			1,
+			old,
+			since,
+			since,
+		);
+		// Even a foreign Work Item linked to this objective must not affect it.
+		await db.insert(workItems).values({
+			id: "foreign-link",
+			orgId: "other-org",
+			objectiveId: "old",
+			title: "Foreign",
+			createdAt: old,
+		});
+		insert.run("foreign", "other-org", "foreign-link", 1, old, since, since);
+		expect(await listUnattendedObjectives(db, "org-example", since)).toEqual([
+			{ id: "empty", title: "empty", lastAttentionAt: null },
+			{ id: "no-attempt", title: "no-attempt", lastAttentionAt: null },
+			{ id: "old", title: "old", lastAttentionAt: "2026-11-21T00:00:00.000Z" },
+		]);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all("org-example", "org-example", "org-example", "active", since, 100)
+			.map((row) => String(row.detail))
+			.join(" | ");
+		expect(plan).toContain(
+			"SEARCH a USING COVERING INDEX idx_work_attempt_org_item_heartbeat (org_id=? AND work_item_id=?)",
+		);
+		expect(plan).toContain("idx_work_items_org_objective");
+		expect(plan).not.toMatch(
+			/SCAN a\b|USE TEMP B-TREE FOR ORDER BY.*CORRELATED/,
+		);
+	} finally {
+		sqlite.close();
+	}
 });
 
 it("keeps factory links tenant-scoped and private-workspace names owner-only", async () => {

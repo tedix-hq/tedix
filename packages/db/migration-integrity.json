@@ -1912,6 +1912,10 @@
 		{
 			"name": "20261122152501_owned_channel_publisher_settings/migration.sql",
 			"sha256": "3a1d19f23ff9b9fce02d60d4efef267ab3612198204040c41e2dfc22eeb5df21"
+		},
+		{
+			"name": "20261123090253_unattended-objective-heartbeat/migration.sql",
+			"sha256": "98424013ad6df0f5433bdfd6205196199333abe24e9fc736acd0af4bd504c97e"
 		}
 	]
 }
