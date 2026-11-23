@@ -4562,7 +4562,7 @@ export class LaneDispatcher {
 					continue;
 				}
 				// Clef picks the tool once per revision; a move hands it away.
-				if (await this.chooseTool(item)) continue;
+				if (await this.chooseTool(item, previous)) continue;
 				// A capacity pause is never held, so it would cost a Work read on
 				// every retry; routing is local and preparation routes again.
 				const paused = (() => {
@@ -5619,7 +5619,10 @@ export class LaneDispatcher {
 	 * answering outside the offer leaves the routing rules in charge; the
 	 * task says which happened.
 	 */
-	private async chooseTool(item: DispatchItem): Promise<boolean> {
+	private async chooseTool(
+		item: DispatchItem,
+		previous?: Receipt,
+	): Promise<boolean> {
 		const from = String(assignedExecutor(item));
 		const receipt = item.metadata?.idleReassignment as
 			| { reason?: string; version?: number }
@@ -5628,7 +5631,11 @@ export class LaneDispatcher {
 			!clefDecides(this.policy) ||
 			keepsItsTool(item) ||
 			verificationPlan(item) ||
-			(receipt?.reason === "chosen" && receipt.version === item.version)
+			(receipt?.reason === "chosen" && receipt.version === item.version) ||
+			// This revision's last start was refused as not startable (approval,
+			// purpose, budget): another tool cannot start it either. Asked again
+			// once a start gets past admission. No extra board read.
+			/Admission not ready|not startable/i.test(previous?.note ?? "")
 		)
 			return false;
 		const key = `${item.id}:${item.version}`;
@@ -5763,7 +5770,7 @@ export class LaneDispatcher {
 			const why =
 				answer.status !== "ok"
 					? `Clef did not answer (${answer.reason ?? "unavailable"})`
-					: `Clef rated its pick only ${Math.round(likely * 100)}% likely`;
+					: `Clef would pick ${AGENT_NAMES[answer.executor ?? ""] ?? answer.executor} but rates it only ${Math.round(likely * 100)}% likely (threshold ${Math.round(minimum * 100)}%)`;
 			const body = `${why}, so the routing rules decide${from === "any-local" ? "" : ` and the task stays with ${fromName}`}.`;
 			this.log("tool-choice", item.id, body);
 			await comment(body);

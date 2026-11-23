@@ -5117,6 +5117,7 @@ describe("dispatcher admission", () => {
 	it.each([
 		["picks another tool", true],
 		["is unavailable", false],
+		["is unsure", "unsure"],
 	] as const)(
 		"asks Clef once per revision; when Clef %s the task says so",
 		async (_name, answers) => {
@@ -5140,6 +5141,16 @@ describe("dispatcher admission", () => {
 			deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
 				if (args[5] !== "choose-tool") return base<T>(args, env);
 				asked.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+				if (answers === "unsure")
+					return {
+						status: "ok",
+						executor: "opencode",
+						confidence: 0.08,
+						probabilities: { codex: 0.29, opencode: 0.3 },
+						model: "@cf/cloudflare/clef-flash",
+						latencyMs: 400,
+						reason: null,
+					} as T;
 				return (
 					answers
 						? {
@@ -5182,7 +5193,20 @@ describe("dispatcher admission", () => {
 				(event) =>
 					event.verb === "dispatch-reassign" && event.input?.idleReassignment,
 			);
-			if (answers) {
+			if (answers === "unsure") {
+				expect(moves).toHaveLength(0);
+				expect(
+					events.some(
+						(event) =>
+							event.verb === "comment" &&
+							event.args.some((arg) =>
+								arg.startsWith(
+									"Clef would pick OpenCode but rates it only 30% likely (threshold 35%), so the routing rules decide and the task stays with Codex.",
+								),
+							),
+					),
+				).toBe(true);
+			} else if (answers) {
 				expect(moves).toHaveLength(1);
 				expect(moves[0]!.input).toMatchObject({
 					executor: "opencode",
@@ -5210,6 +5234,47 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+
+	it("does not ask Clef about a revision whose last start was refused as not startable", async () => {
+		const { restart, deps, items, dir, config, releases } = fixture();
+		const routing = join(dir, "routing.json");
+		writeFileSync(
+			routing,
+			JSON.stringify({
+				...testRoutingPolicy,
+				decide: "clef",
+				tools: {
+					codex: { strengths: "large changes" },
+					opencode: { strengths: "small edits" },
+				},
+			}),
+		);
+		config.routingConfig = routing;
+		items.splice(1);
+		writeFileSync(
+			join(dir, `${item().id}-2.json`),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				admissionState: "rejected",
+				note: 'Error: Admission not ready: [{"code":"approval_blocked"}]',
+			}),
+		);
+		let asked = 0;
+		const base = deps.cli!;
+		deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+			if (args[5] === "choose-tool") asked++;
+			return base<T>(args, env);
+		};
+		const dispatcher = restart();
+		await dispatcher.tick();
+		expect(asked).toBe(0);
+		// The fixture lets the start through; end the run it launched.
+		await until(() => releases.length >= 1);
+		for (const release of releases) release();
+		await dispatcher.drain();
+	});
 
 	it("lets waiting Work wait with one plain note when every tool in its rule is unavailable", async () => {
 		const { restart, deps, items, events, dir, config } = fixture();
