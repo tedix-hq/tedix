@@ -620,9 +620,9 @@ right now fits a task best:
 }
 ```
 
-The task gets a comment such as "Clef chose OpenCode (82% sure): small routine
+The task gets a comment such as "Clef chose OpenCode (82% likely): small routine
 edits and docs", and moves to that tool when it differs. When Clef does not
-answer within 2 seconds, is less sure than `clefMinConfidence` (default 0.5), or
+answer within 2 seconds, rates its pick below `clefMinConfidence` (default 0.35, the pick's probability among the offered tools), or
 fewer than two described tools are available, the rules decide and the task says
 so. Tasks kept on their tool (`metadata.onlyExecutor`) are never asked about.
 Set `"decide": "rules"` to switch Clef off.

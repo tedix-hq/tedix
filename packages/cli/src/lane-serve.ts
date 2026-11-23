@@ -5664,7 +5664,14 @@ export class LaneDispatcher {
 				(this.budgets[executor]?.backoffUntil ?? 0) <= now &&
 				!this.unavailable.has(executor) &&
 				(tool.maxRunning === undefined ||
-					load[executor].running < tool.maxRunning)
+					load[executor].running < tool.maxRunning) &&
+				// Nearly spent: the decision model weighs load only weakly, so a
+				// tool at the routing file's near-limit is not offered at all.
+				!(
+					(this.budgets[executor]?.remainingPercent ?? 100) <=
+						this.policy.nearLimitPercent &&
+					(this.budgets[executor]?.resetAt ?? Infinity) > now
+				)
 			);
 		});
 		if (offered.length < 2) {
@@ -5680,6 +5687,7 @@ export class LaneDispatcher {
 			status: "ok" | "unavailable";
 			executor: LocalExecutor | null;
 			confidence: number | null;
+			probabilities?: Record<string, number> | null;
 			model: string;
 			latencyMs: number;
 			reason: string | null;
@@ -5739,18 +5747,23 @@ export class LaneDispatcher {
 			};
 		}
 		remember();
-		const minimum = this.policy.clefMinConfidence ?? 0.5;
+		// How likely the model rates its own pick among the offered tools; its
+		// separate confidence figure stays near 0.1 even for clear picks.
+		const likely = answer.executor
+			? (answer.probabilities?.[answer.executor] ?? answer.confidence ?? 0)
+			: 0;
+		const minimum = this.policy.clefMinConfidence ?? 0.35;
 		const fromName = AGENT_NAMES[from] ?? from;
 		if (
 			answer.status !== "ok" ||
 			!answer.executor ||
 			!offered.includes(answer.executor) ||
-			(answer.confidence ?? 0) < minimum
+			likely < minimum
 		) {
 			const why =
 				answer.status !== "ok"
 					? `Clef did not answer (${answer.reason ?? "unavailable"})`
-					: `Clef was only ${Math.round((answer.confidence ?? 0) * 100)}% sure`;
+					: `Clef rated its pick only ${Math.round(likely * 100)}% likely`;
 			const body = `${why}, so the routing rules decide${from === "any-local" ? "" : ` and the task stays with ${fromName}`}.`;
 			this.log("tool-choice", item.id, body);
 			await comment(body);
@@ -5758,7 +5771,7 @@ export class LaneDispatcher {
 		}
 		const name = AGENT_NAMES[answer.executor] ?? answer.executor;
 		const decider = answer.model.includes("jev") ? "Jev" : "Clef";
-		const detail = `${decider} chose ${name} (${Math.round(answer.confidence! * 100)}% sure): ${this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
+		const detail = `${decider} chose ${name} (${Math.round(likely * 100)}% likely): ${this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
 		const receiptLine = `Model ${answer.model}, ${answer.latencyMs} ms, billed as Workers AI usage.`;
 		if (answer.executor === from) {
 			this.log("tool-choice", item.id, detail);

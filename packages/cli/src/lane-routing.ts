@@ -55,7 +55,10 @@ export const routingPolicySchema = z.strictObject({
 		.optional(),
 	/** The decision model: Clef (default: the organization's) or Jev. */
 	decideModel: DecisionModelSchema.optional(),
-	/** Below this Clef confidence the rules decide. Default 0.5. */
+	/**
+	 * Below this probability for its pick (among the offered tools) the rules
+	 * decide. Default 0.35; four tools at random would be 0.25 each.
+	 */
 	clefMinConfidence: z.number().min(0).max(1).optional(),
 	opencodeModel: z
 		.string()
