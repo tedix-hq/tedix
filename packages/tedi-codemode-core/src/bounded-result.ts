@@ -44,18 +44,6 @@ export interface TruncatedCodeModeResult {
 	preview: string;
 }
 
-export function isTruncatedCodeModeResult(
-	value: unknown,
-): value is TruncatedCodeModeResult {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		!Array.isArray(value) &&
-		(value as Record<string, unknown>).__tedix_truncated === true &&
-		typeof (value as Record<string, unknown>).preview === "string"
-	);
-}
-
 function originalTypeOf(
 	value: unknown,
 ): TruncatedCodeModeResult["originalType"] {

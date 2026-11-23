@@ -6,7 +6,6 @@ import {
 	prepareTenantIdentityProfileMount,
 	prepareTenantNativePolicyMount,
 	acceptsEmptyProfileArguments,
-	tenantPolicyLogicalToolDigest,
 	tenantPolicyCrossMountDigest,
 	tenantPolicyEffectiveToolDigest,
 	tenantPolicyMountDescriptor,
@@ -811,54 +810,6 @@ describe("tenant policy mount descriptor", () => {
 		});
 		mocks.resolve.mockResolvedValue({ tools: [{ ...rpc, enabled: false }] });
 		expect(await prepareTenantNativePolicyMount(request)).toBeNull();
-	});
-
-	it("binds a replay to the same source, arguments schema and verified account across mount aliases", async () => {
-		const credential = {
-			organizationId: "org",
-			providerId: "provider",
-			scope: "tenant" as const,
-			connectionInstanceId: instance,
-		};
-		const call = {
-			organizationId: "org",
-			sourceAppId: "source",
-			sourceToolId: "edit",
-			tool: base,
-			credential,
-			accountRevisionDigest: "a".repeat(64),
-		};
-		const initial = await tenantPolicyLogicalToolDigest(call);
-		const replay = {
-			...base,
-			toolId: "other__edit",
-			config: {
-				...base.config,
-				_aggregateNamespace: "different",
-				_multiOrgOrganizationId: "org",
-			},
-		};
-		expect(await tenantPolicyLogicalToolDigest({ ...call, tool: replay })).toBe(
-			initial,
-		);
-		expect(
-			await tenantPolicyLogicalToolDigest({
-				...call,
-				credential: {
-					...credential,
-					connectionInstanceId: "00000000-0000-4000-8000-000000000002",
-				},
-			}),
-		).not.toBe(initial);
-		expect(
-			await tenantPolicyLogicalToolDigest({
-				...call,
-				credential: { ...credential, connectionInstanceId: undefined },
-			}),
-		).toBeNull();
-		expect(
-			await tenantPolicyLogicalToolDigest({ ...call, sourceAppId: "other" }),
-		).toBeNull();
 	});
 
 	it("prepares a hybrid profile snapshot without disclosing its endpoint or granting policy authority", async () => {

@@ -408,15 +408,13 @@ function validateNativeInput(
 	);
 }
 
-/** Explain why a catalog row cannot be called, keeping the row's alias and scope details. */
+/** Explain why a catalog row cannot be called, keeping the row's scope details. */
 function catalogRowRefusal(
 	ctx: NativeToolContext,
 	callable: string,
 	row: unknown,
 ): string {
 	if (!isRecord(row)) return `Native Work callable ${callable} is malformed`;
-	if (typeof row.aliasOf === "string" && row.aliasOf)
-		return `Native Work callable ${callable} is an alias of ${row.aliasOf}; the CLI only calls canonical tools.`;
 	const scopes = (value: unknown) =>
 		Array.isArray(value)
 			? value.filter((s): s is string => typeof s === "string")
@@ -524,7 +522,7 @@ export async function boardCall(
 					`Native Work callable ${callable} is absent or ambiguous`,
 				);
 			const row = matches[0];
-			if (!isRecord(row) || row.aliasOf || row.authorized !== true)
+			if (!isRecord(row) || row.authorized !== true)
 				throw new Error(catalogRowRefusal(ctx, callable, row));
 			const selected = usableDescriptor(row.native);
 			if (!expectedEndpoint || selected.endpoint !== expectedEndpoint)
@@ -532,7 +530,6 @@ export async function boardCall(
 			if (
 				!isRecord(detail) ||
 				detail.callable !== callable ||
-				detail.aliasOf ||
 				detail.authorized !== true
 			)
 				throw new Error("Native Work catalog description mismatch");

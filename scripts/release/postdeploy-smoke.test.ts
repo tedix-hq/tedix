@@ -81,7 +81,6 @@ function healthyClient(overrides: Partial<SmokeClient> = {}): SmokeClient {
 				return {
 					callable: WORK_LIST_CALLABLE,
 					authorized: true,
-					aliasOf: null,
 					native: workNative,
 					parameters: { type: "object" },
 				};

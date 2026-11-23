@@ -4288,12 +4288,8 @@ describe("native Work transport", () => {
 				);
 		}
 	});
-	test("explains alias and missing-scope catalog rows instead of a generic refusal", async () => {
+	test("explains missing-scope catalog rows instead of a generic refusal", async () => {
 		const rows: Array<[Record<string, unknown>, string[]]> = [
-			[
-				{ aliasOf: "tedix.accept_work_item" },
-				["is an alias of tedix.accept_work_item"],
-			],
 			[
 				{
 					authorized: false,

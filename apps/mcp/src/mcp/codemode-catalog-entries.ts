@@ -66,13 +66,6 @@ export interface CatalogToolEntry {
 	native?: NativeZ.infer<typeof McpNativeDescriptorSchema>;
 	equivalentTediOwners?: Array<{ namespace: string; callable: string }>;
 	/**
-	 * Set on the dual-mounted peer-alias copy (SEAM B) to the canonical
-	 * namespace it mirrors. Aliases resolve but never enumerate: entries with
-	 * aliasOf are excluded from unfiltered search/browse and list_namespaces,
-	 * and served only under an explicit { namespace } filter on the alias form.
-	 */
-	aliasOf?: string;
-	/**
 	 * Caller-relative authorization, computed per request through
 	 * `evaluateMcpToolScopeAuthorization` — the same seam the dispatch gates
 	 * use, so discovery and enforcement cannot drift. Absent on host-owned
@@ -304,7 +297,6 @@ export function tediNativeInterfaceGroups(
 		const tools = catalog[namespace]!;
 		for (const toolName in tools) {
 			const meta = tools[toolName]!;
-			if (meta.aliasOf) continue;
 			if (!isTediNativeInterfaceTool(meta)) continue;
 			// Skill-workflow mirrors already collapse onto their platform
 			// canonical callable; leave them to that machinery.

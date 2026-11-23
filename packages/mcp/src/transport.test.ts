@@ -144,41 +144,6 @@ function buildServer() {
 	);
 
 	server.registerTool(
-		"paid",
-		{
-			title: "paid",
-			description: "Requires x402 payment",
-			inputSchema: {},
-		},
-		async () =>
-			buildPaymentRequiredResult({
-				protocol: "x402",
-				toolId: "paid",
-				requirementId: "req_test_123",
-				requirements: {
-					x402Version: 1,
-					accepts: [
-						{
-							scheme: "exact",
-							network: "solana-devnet",
-							maxAmountRequired: "0.01",
-							resource: "mcp://parity-test/tools/paid#req_test_123",
-							description: "Pay 0.01 USDC to call paid",
-							mimeType: "application/json",
-							payTo: "TestRecipient111111111111111111111111111111",
-							maxTimeoutSeconds: 300,
-							asset: "USDC",
-							extra: {
-								requirementId: "req_test_123",
-								toolId: "paid",
-							},
-						},
-					],
-				},
-			}),
-	);
-
-	server.registerTool(
 		"paid_v2",
 		{
 			title: "paid_v2",
@@ -1189,7 +1154,7 @@ describe("transport — MCP protocol", () => {
 			result: { resultType: string; tools: Array<{ name: string }> };
 		};
 		const names = body.result.tools.map((t) => t.name).sort();
-		expect(names).toEqual(["boom", "echo", "meta_echo", "paid", "paid_v2"]);
+		expect(names).toEqual(["boom", "echo", "meta_echo", "paid_v2"]);
 		expect(body.result).toMatchObject({
 			resultType: "complete",
 			ttlMs: 60_000,
@@ -1694,42 +1659,6 @@ describe("transport — MCP protocol", () => {
 		expect(body.result?.structuredContent).toMatchObject({
 			error: "input_validation_error",
 			tool: "echo",
-		});
-	});
-
-	it("tools/call payment-required result becomes JSON-RPC 402", async () => {
-		const res = await call(
-			postRpc({
-				jsonrpc: "2.0",
-				id: 402,
-				method: "tools/call",
-				params: { name: "paid", arguments: {} },
-			}),
-		);
-		expect(res.status).toBe(200);
-		const body = (await res.json()) as {
-			id: number;
-			error: {
-				code: number;
-				message: string;
-				data: {
-					x402Version: number;
-					accepts: Array<{
-						network: string;
-						maxAmountRequired: string;
-						extra?: { requirementId?: string };
-					}>;
-				};
-			};
-		};
-		expect(body.id).toBe(402);
-		expect(body.error.code).toBe(402);
-		expect(body.error.message).toBe("Payment Required");
-		expect(body.error.data.x402Version).toBe(1);
-		expect(body.error.data.accepts[0]).toMatchObject({
-			network: "solana-devnet",
-			maxAmountRequired: "0.01",
-			extra: { requirementId: "req_test_123" },
 		});
 	});
 

@@ -48,11 +48,9 @@ import {
 	toolToScope, // "invoice_create" -> "mcp:invoice.create"
 	buildScopesSupported,
 	hasScope,
-	enforceScopes,
 	CAPABILITY_SCOPES, // "platform:admin" | "mcp:tedis" | "mcp:apps" | ...
 	CAPABILITY_PROFILES, // { standard, platform_admin }
 	resolveTediScopes, // resolve a tedi's mcp_capability_profile -> scopes
-	DEFAULT_TEDI_SCOPES,
 	TEDI_MCP_SCOPES, // tedi:channel.read, tedi:brain.write, ...
 } from "@tedix/mcp-shared/auth/scopes";
 ```
@@ -103,7 +101,7 @@ const metadata = buildProtectedResourceMetadata({
 ### Tasks, payments, and schema normalization
 
 - `./tasks` — MCP task-extension helpers (`clientSupportsTasks`, `McpTaskError`, `McpTaskHandlers`) for long-running tool calls.
-- `./payment` — x402 payment-required types (`X402ExactPaymentRequirements`, `TedixPaymentRequiredResult`) shared by any MCP server that gates tools behind payment.
+- `./payment` — x402 payment-required types (`X402PaymentRequiredResponse`, `TedixPaymentRequiredResult`) shared by any MCP server that gates tools behind payment.
 - `./schema-normalization` — normalizes the JSON-Schema subset used for MCP tool inputs into a dependency-free field map (`NormalizedToolInputSchema`) so runtime adapters can convert to Zod/TypeBox/etc.
 - `./codemode` — availability check for Code Mode (`isCodeModeAvailable`, gated
   on a `LOADER` WorkerLoader binding). `@tedix/tedi-codemode-core` owns the

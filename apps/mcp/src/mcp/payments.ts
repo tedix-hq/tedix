@@ -325,9 +325,6 @@ export async function checkToolPayment(params: {
 				requirementId,
 				paymentRequestId,
 			});
-			if (challenge.x402Version !== 2) {
-				throw new Error("Facilitator challenge did not negotiate x402 v2");
-			}
 			const verified = await verifyFacilitatorPayment({
 				challenge: challenge as CorePaymentRequired,
 				facilitatorUrl: policy.facilitatorUrl,

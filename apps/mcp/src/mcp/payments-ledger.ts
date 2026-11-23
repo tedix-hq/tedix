@@ -29,7 +29,6 @@ import {
 } from "./payments-policy";
 import {
 	type PaymentProof,
-	getRequirementsResource,
 	redactedPaymentProof,
 } from "./payments-requirements";
 import { stableStringify } from "@tedix/api-contract/utils/stable-json";
@@ -276,9 +275,9 @@ export async function recordPaymentEvent(params: {
 		currency: params.policy.currency ?? "USDC",
 		amount: params.policy.amount,
 		recipient: params.policy.recipient,
-		resource: params.requirements
-			? getRequirementsResource(params.requirements)
-			: `mcp://${params.agent.appSlug}/tools/${params.tool.toolId}#${params.requirementId}`,
+		resource:
+			params.requirements?.resource.url ??
+			`mcp://${params.agent.appSlug}/tools/${params.tool.toolId}#${params.requirementId}`,
 		appId: params.agent.appId,
 		appSlug: params.agent.appSlug,
 		organizationId: paymentOrganizationId(params.agent) ?? null,
@@ -395,7 +394,7 @@ export async function reservePaymentRequirement(params: {
 			currency: params.policy.currency ?? "USDC",
 			amount: params.policy.amount,
 			recipient: params.policy.recipient,
-			resource: getRequirementsResource(params.requirements),
+			resource: params.requirements.resource.url,
 			expiresAt,
 			metadata: toJsonRecord({
 				paymentRequestId: params.paymentRequestId,

@@ -238,9 +238,6 @@ function discoveryLiteralValue(node: Expression, depth = 0): unknown {
 function literalDiscoveryNamespaces(
 	code: string,
 	masked: string,
-	// Set when the caller can serve namespace-free discovery from compact
-	// shards; records whether the program needs it.
-	unscoped?: { needed: boolean },
 ): Set<string> | null {
 	const namespaces = new Set<string>();
 	const callStart = /\bdiscover\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
@@ -249,14 +246,6 @@ function literalDiscoveryNamespaces(
 		const method = match[1];
 		const argument = balancedArgument(code, callStart.lastIndex);
 		if (argument === null) return null;
-		if (
-			unscoped &&
-			(method === "list_namespaces" || method === "read_result")
-		) {
-			unscoped.needed ||= method === "list_namespaces";
-			match = callStart.exec(masked);
-			continue;
-		}
 		let input: unknown;
 		try {
 			const program = parse(`(${argument}\n)`, { ecmaVersion: "latest" });
@@ -266,16 +255,6 @@ function literalDiscoveryNamespaces(
 				statement?.type !== "ExpressionStatement"
 			)
 				return null;
-			if (
-				unscoped &&
-				method === "search" &&
-				isUnscopedSearchArgument(statement.expression)
-			) {
-				// Shard rows carry no schemas; ranking at shard scale never reads them.
-				unscoped.needed = true;
-				match = callStart.exec(masked);
-				continue;
-			}
 			input = discoveryLiteralValue(statement.expression);
 		} catch {
 			return null;
@@ -312,29 +291,6 @@ function literalDiscoveryNamespaces(
 	const calls =
 		masked.match(/\bdiscover\s*\.\s*[A-Za-z_$][\w$]*\s*\(/g)?.length ?? 0;
 	return references === calls ? namespaces : null;
-}
-
-const SHARD_UNSAFE_SEARCH_KEYS = new Set(["namespace"]);
-
-/**
- * A search a shard catalog answers like the full one: a query string, or an
- * object literal whose values may vary (a query from a loop) but whose keys
- * name no namespace. Schemas are hydrated only after pagination.
- */
-function isUnscopedSearchArgument(node: Expression): boolean {
-	if (node.type === "Literal") return typeof node.value === "string";
-	if (node.type === "TemplateLiteral") return true;
-	if (node.type !== "ObjectExpression") return false;
-	return node.properties.every((property) => {
-		if (property.type !== "Property" || property.computed) return false;
-		const key =
-			property.key.type === "Identifier"
-				? property.key.name
-				: property.key.type === "Literal"
-					? String(property.key.value)
-					: null;
-		return key !== null && !SHARD_UNSAFE_SEARCH_KEYS.has(key);
-	});
 }
 
 /** Text between an opening parenthesis (already consumed) and its match. */
@@ -411,33 +367,6 @@ export function extractCodeModeProviderNamespacesFromCode(
 			slug = slugPattern.exec(code);
 		}
 	}
-	return namespaces;
-}
-
-/**
- * Namespaces to hydrate in full when a program's only unbounded discovery is a
- * namespace-free search or list_namespaces with constant arguments; the rest of
- * the catalog can then come from compact discovery shards. Null when the
- * program is already bounded (use the normal targeting) or cannot be bounded.
- */
-export function extractCodeModeShardDiscoveryNamespaces(
-	code: string,
-): Set<string> | null {
-	const { masked, dynamicTemplate } = maskCodeModeLiterals(code, true);
-	// flow resolves runners from mounted rows at run time; shard rows are not
-	// executable, so it keeps the full catalog.
-	if (
-		dynamicTemplate ||
-		hasOpaqueNamespaceCalls(masked, CODEMODE_BUILTIN_GLOBALS) ||
-		/\b(?:globalThis|eval|Function|flow)\b/.test(masked)
-	)
-		return null;
-	const unscoped = { needed: false };
-	const discovery = literalDiscoveryNamespaces(code, masked, unscoped);
-	if (!discovery || !unscoped.needed) return null;
-	const namespaces = extractCodeModeProviderNamespacesFromCode(code, false);
-	if (!namespaces) return null;
-	for (const namespace of discovery) namespaces.add(namespace);
 	return namespaces;
 }
 

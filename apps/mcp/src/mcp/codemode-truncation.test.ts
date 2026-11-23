@@ -9,10 +9,7 @@
  * within-budget result passes through byte-identical.
  */
 
-import {
-	isTruncatedCodeModeResult,
-	type TruncatedCodeModeResult,
-} from "@tedix/tedi-codemode-core/bounded-result";
+import { type TruncatedCodeModeResult } from "@tedix/tedi-codemode-core/bounded-result";
 import { describe, expect, it } from "vite-plus/test";
 import { shapeCodeModeResultForModel } from "./codemode-results";
 
@@ -41,7 +38,7 @@ describe("shapeCodeModeResultForModel", () => {
 		const shaped = shapeCodeModeResultForModel(value);
 		// The silent failure mode: typeof === "string" with clipped JSON inside.
 		expect(typeof shaped).not.toBe("string");
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 		const envelope = shaped as TruncatedCodeModeResult;
 		expect(envelope.maxTokens).toBe(3_000);
 		expect(envelope.approxTokens).toBeGreaterThan(3_000);
@@ -55,7 +52,7 @@ describe("shapeCodeModeResultForModel", () => {
 		expect(shapeCodeModeResultForModel(value)).toBe(value);
 		// …but a stricter per-app budget truncates it detectably.
 		const shaped = shapeCodeModeResultForModel(value, { maxTokens: 200 });
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 		expect((shaped as TruncatedCodeModeResult).maxTokens).toBe(200);
 	});
 });

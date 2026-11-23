@@ -36,7 +36,6 @@
 		"./tasks": "./src/tasks.ts",
 		"./tool-result": "./src/tool-result.ts",
 		"./trace-context": "./src/observability/trace-context.ts",
-		"./observability/slo": "./src/observability/slo.ts",
 		"./transport": "./src/transport.ts",
 		"./well-known": "./src/well-known/protected-resource.ts",
 		"./well-known/oauth": "./src/well-known/oauth.ts"

@@ -132,15 +132,14 @@ export function paginateCatalog(
 	includeParameters: boolean,
 	includeOutputSchema: boolean,
 	extraMeta?: Record<string, unknown>,
-	keepAliasEntries = false,
+	namespaceFiltered = false,
 	preferredTediNamespace?: string,
 	includeMetadata = false,
 ): CatalogDiscoveryResult {
 	const tediOwners = workflowTediOwners(catalog);
-	// keepAliasEntries doubles as the "explicitly namespace-filtered" signal:
-	// filtered browsing shows a worker's own rows; unfiltered browsing
+	// Filtered browsing shows a worker's own rows; unfiltered browsing
 	// collapses repeated role verbs onto one representative row.
-	const roleGroups = keepAliasEntries
+	const roleGroups = namespaceFiltered
 		? null
 		: tediNativeInterfaceGroups(catalog, preferredTediNamespace);
 	// localeCompare per comparison dominated this sort at catalog scale; a
@@ -153,7 +152,6 @@ export function paginateCatalog(
 	const entries = Object.entries(catalog)
 		.flatMap(([namespace, tools]) =>
 			Object.entries(tools).flatMap(([tool, meta]) => {
-				if (meta.aliasOf && !keepAliasEntries) return [];
 				const roleGroup = roleGroups?.get(tool);
 				const isGroupedRoleVerb =
 					roleGroup !== undefined && isTediNativeInterfaceTool(meta);

@@ -1,9 +1,8 @@
 import { convertToTokenAmount } from "@x402/core/utils";
 import {
 	X402_PAYMENT_META_KEY,
-	type X402ExactPaymentRequirementsV2,
+	type X402ExactPaymentRequirements,
 	type X402PaymentRequiredResponse,
-	type X402PaymentRequirementsResponseV2,
 } from "@tedix/mcp-shared/payment";
 import type { AppTool, ServerContext } from "./server-context";
 import {
@@ -49,7 +48,7 @@ function buildMockRequirements(params: {
 	policy: TedixToolPaymentPolicy;
 	requirementId: string;
 	paymentRequestId?: string;
-}): X402PaymentRequirementsResponseV2 {
+}): X402PaymentRequiredResponse {
 	if (!/^\d+(?:\.\d{1,6})?$/.test(params.policy.amount)) {
 		throw new Error("Mock x402 v2 amount must have at most six decimal places");
 	}
@@ -62,7 +61,7 @@ function buildMockRequirements(params: {
 		ethereum: "eip155:1",
 		sepolia: "eip155:11155111",
 	};
-	const requirement: X402ExactPaymentRequirementsV2 = {
+	const requirement: X402ExactPaymentRequirements = {
 		scheme: "exact",
 		network:
 			legacyNetworks[params.policy.network] ??
@@ -187,14 +186,6 @@ export function isMockPaymentValid(params: {
 		return false;
 	}
 	return true;
-}
-
-export function getRequirementsResource(
-	requirements: X402PaymentRequiredResponse,
-): string | null {
-	if (requirements.x402Version === 2) return requirements.resource.url;
-	const first = requirements.accepts[0];
-	return typeof first?.resource === "string" ? first.resource : null;
 }
 
 export async function redactedPaymentProof(

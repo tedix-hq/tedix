@@ -187,12 +187,6 @@ export function resolveTediScopes(
 	return [...CAPABILITY_PROFILES.standard, "connections.execute"];
 }
 
-/**
- * Default scopes assigned to authenticated tedi identities (standard profile).
- * Worker read/write capabilities and connections.execute; no admin/settings scopes.
- */
-export const DEFAULT_TEDI_SCOPES = resolveTediScopes("standard");
-
 // =============================================================================
 // TEDI-SPECIFIC SCOPES (for apps/tedi runtime MCP server)
 // =============================================================================
@@ -391,32 +385,4 @@ export function delegatedMachineScopes(grantedScopes: string[]): string[] {
 		}
 	}
 	return [...machine].sort();
-}
-
-/**
- * Check if a set of granted scopes satisfies all required scopes.
- */
-export function hasAllScopes(
-	grantedScopes: string[],
-	requiredScopes: string[],
-): boolean {
-	return requiredScopes.every((scope) => hasScope(grantedScopes, scope));
-}
-
-/**
- * Enforce that granted scopes satisfy required scopes.
- * Returns an error message if enforcement fails, null if OK.
- */
-export function enforceScopes(
-	grantedScopes: string[],
-	requiredScopes: string[],
-): string | null {
-	if (requiredScopes.length === 0) return null;
-
-	const missing = requiredScopes.filter(
-		(scope) => !hasScope(grantedScopes, scope),
-	);
-	if (missing.length === 0) return null;
-
-	return `Missing required scopes: ${missing.join(", ")}`;
 }

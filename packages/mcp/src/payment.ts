@@ -1,4 +1,3 @@
-import type { JSONRPCMessage } from "@modelcontextprotocol/server";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 export const TEDIX_PAYMENT_REQUIRED_META_KEY = "x-tedix/payment-required";
@@ -9,25 +8,6 @@ export const X402_PAYMENT_RESPONSE_META_KEY = "x402/payment-response";
 export interface X402ExactPaymentRequirements {
 	scheme: "exact";
 	network: string;
-	maxAmountRequired: string;
-	resource: string;
-	description: string;
-	mimeType?: string;
-	payTo: string;
-	maxTimeoutSeconds?: number;
-	asset?: string;
-	extra?: Record<string, unknown>;
-}
-
-export interface X402PaymentRequirementsResponse {
-	x402Version: 1;
-	accepts: X402ExactPaymentRequirements[];
-	error?: string;
-}
-
-export interface X402ExactPaymentRequirementsV2 {
-	scheme: "exact";
-	network: string;
 	asset: string;
 	amount: string;
 	payTo: string;
@@ -35,7 +15,7 @@ export interface X402ExactPaymentRequirementsV2 {
 	extra: Record<string, unknown>;
 }
 
-export interface X402PaymentRequirementsResponseV2 {
+export interface X402PaymentRequiredResponse {
 	x402Version: 2;
 	error?: string;
 	resource: {
@@ -43,13 +23,9 @@ export interface X402PaymentRequirementsResponseV2 {
 		description?: string;
 		mimeType?: string;
 	};
-	accepts: X402ExactPaymentRequirementsV2[];
+	accepts: X402ExactPaymentRequirements[];
 	extensions?: Record<string, unknown>;
 }
-
-export type X402PaymentRequiredResponse =
-	| X402PaymentRequirementsResponse
-	| X402PaymentRequirementsResponseV2;
 
 export interface TedixPaymentRequiredMeta {
 	protocol: "x402";
@@ -64,7 +40,7 @@ export interface TedixPaymentRequiredResult {
 	isError: true;
 	_meta: {
 		[TEDIX_PAYMENT_REQUIRED_META_KEY]: TedixPaymentRequiredMeta;
-		[X402_PAYMENT_ERROR_META_KEY]?: X402PaymentRequirementsResponseV2;
+		[X402_PAYMENT_ERROR_META_KEY]: X402PaymentRequiredResponse;
 	};
 }
 
@@ -81,9 +57,7 @@ export function buildPaymentRequiredResult(
 		isError: true,
 		_meta: {
 			[TEDIX_PAYMENT_REQUIRED_META_KEY]: meta,
-			...(meta.requirements.x402Version === 2
-				? { [X402_PAYMENT_ERROR_META_KEY]: meta.requirements }
-				: {}),
+			[X402_PAYMENT_ERROR_META_KEY]: meta.requirements,
 		},
 	};
 }
@@ -118,26 +92,6 @@ export function getPaymentRequiredMeta(
 		protocol: "x402",
 		toolId: extra.toolId,
 		requirementId: extra.requirementId,
-		requirements: challenge as unknown as X402PaymentRequirementsResponseV2,
+		requirements: challenge as unknown as X402PaymentRequiredResponse,
 	};
-}
-
-export function toPaymentRequiredErrorMessage(
-	message: JSONRPCMessage,
-): JSONRPCMessage {
-	const meta = getPaymentRequiredMeta(message);
-	if (!meta || !isRecord(message) || !("id" in message)) return message;
-	// x402 v2 clients read the challenge from the CallToolResult metadata.
-	// Keep the legacy JSON-RPC 402 conversion for existing v1 challenges.
-	if (meta.requirements.x402Version === 2) return message;
-
-	return {
-		jsonrpc: "2.0",
-		id: message.id as string | number | null,
-		error: {
-			code: 402,
-			message: "Payment Required",
-			data: meta.requirements,
-		},
-	} as JSONRPCMessage;
 }

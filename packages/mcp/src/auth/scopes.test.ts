@@ -7,9 +7,7 @@ import { MCP_GRANULAR_CAPABILITY_SCOPES } from "../../../api-contract/src/schema
 import {
 	CAPABILITY_PROFILES,
 	CAPABILITY_SCOPES,
-	DEFAULT_TEDI_SCOPES,
 	delegatedMachineScopes,
-	hasAllScopes,
 	hasScope,
 	isTediMcpToolReadOnly,
 	requiredTediMcpToolScope,
@@ -45,21 +43,13 @@ describe("MCP scope implication", () => {
 		expect(hasScope(["tedi:brain"], "tedi:email.read")).toBe(false);
 	});
 
-	it("applies implication when enforcing multiple scopes", () => {
-		expect(
-			hasAllScopes(
-				["mcp:apps.write", "mcp:observe.read"],
-				["mcp:apps.write", "mcp:observe.read"],
-			),
-		).toBe(true);
-	});
-
 	it("grants skills to standard tedi identities without admin/settings", () => {
-		expect(DEFAULT_TEDI_SCOPES).toContain("mcp:skills.read");
-		expect(DEFAULT_TEDI_SCOPES).toContain("mcp:skills.write");
-		expect(DEFAULT_TEDI_SCOPES).not.toContain("mcp:skills.admin");
-		expect(DEFAULT_TEDI_SCOPES).not.toContain("platform:admin");
-		expect(DEFAULT_TEDI_SCOPES).not.toContain("mcp:settings.read");
+		const standard = resolveTediScopes("standard");
+		expect(standard).toContain("mcp:skills.read");
+		expect(standard).toContain("mcp:skills.write");
+		expect(standard).not.toContain("mcp:skills.admin");
+		expect(standard).not.toContain("platform:admin");
+		expect(standard).not.toContain("mcp:settings.read");
 	});
 });
 

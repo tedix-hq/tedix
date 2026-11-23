@@ -26,7 +26,7 @@ export const MAX_SERVER_INSTRUCTIONS_CHARS = 4_096;
 const MAX_NAMESPACE_SUMMARY_CHARS = 500;
 
 const PAID_TOOL_GUIDANCE =
-	'Payments: paid inner tools may return payment requirements; return that object directly. An x402 v2 challenge is an error result with _meta["x402/error"] and _meta["x-tedix/payment-required"]. Retry with _meta["x402/payment"] or the code tool\'s top-level payment argument. Legacy v1 challenges may still use JSON-RPC 402.';
+	'Payments: paid inner tools may return payment requirements; return that object directly. An x402 v2 challenge is an error result with _meta["x402/error"] and _meta["x-tedix/payment-required"]. Retry with _meta["x402/payment"] or the code tool\'s top-level payment argument.';
 
 /**
  * Longer Code Mode guidance for server instructions. `connectionAppSlug` is

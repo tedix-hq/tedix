@@ -204,7 +204,7 @@ export function checkBootstrap(info: unknown, organizationId: string) {
 	return { search: search.name, describe: describe.name };
 }
 
-/** Search must return exactly one authorized, canonical row for the callable. */
+/** Search must return exactly one authorized row for the callable. */
 export function checkSearchResult(result: unknown, callable: string) {
 	if (!isRecord(result) || !Array.isArray(result.results))
 		throw new Error("catalog search returned no results array");
@@ -214,8 +214,8 @@ export function checkSearchResult(result: unknown, callable: string) {
 	if (rows.length !== 1)
 		throw new Error(`catalog search found ${rows.length} rows for ${callable}`);
 	const row = rows[0] as Record<string, unknown>;
-	if (row.authorized !== true || row.aliasOf)
-		throw new Error(`${callable} is not an authorized canonical row`);
+	if (row.authorized !== true)
+		throw new Error(`${callable} is not an authorized row`);
 	if (!isRecord(row.native) || typeof row.native.name !== "string")
 		throw new Error(`${callable} has no native descriptor`);
 	return row.native.name;
@@ -230,7 +230,7 @@ export function checkDescribeResult(
 	if (!isRecord(result)) throw new Error("catalog describe returned nothing");
 	if (result.callable !== callable)
 		throw new Error(`catalog describe answered for ${String(result.callable)}`);
-	if (result.authorized !== true || result.aliasOf)
+	if (result.authorized !== true)
 		throw new Error(`${callable} is not authorized in describe`);
 	if (!isRecord(result.native) || result.native.name !== nativeName)
 		throw new Error("describe and search disagree on the native tool");

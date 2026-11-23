@@ -8,7 +8,6 @@ export type McpNamespaceClass =
 export interface McpNamespaceGovernance {
 	owner: string;
 	class: McpNamespaceClass;
-	aliases: readonly string[];
 	requiredScopes: readonly string[];
 	visibility: "internal" | "tenant";
 	freshness: "build" | "request" | "d1_config";
@@ -38,10 +37,6 @@ const RESERVED = {
 	]
 >;
 
-export const RESERVED_MCP_NAMESPACES: ReadonlySet<string> = new Set(
-	Object.keys(RESERVED),
-);
-
 /** Metadata for discovery output and collision enforcement. */
 export function namespaceGovernanceFor(
 	namespace: string,
@@ -51,7 +46,6 @@ export function namespaceGovernanceFor(
 		return {
 			owner: reserved[0],
 			class: reserved[1],
-			aliases: [],
 			requiredScopes: [],
 			visibility: reserved[2],
 			freshness: reserved[3],
@@ -61,7 +55,6 @@ export function namespaceGovernanceFor(
 	return {
 		owner: "app-config",
 		class: "tenant_app",
-		aliases: [],
 		requiredScopes: [],
 		visibility: "tenant",
 		freshness: "d1_config",

@@ -50,7 +50,6 @@ import {
 	decodeMcpHeaderValue,
 	validateInboundMcpParamHeaders,
 } from "./mcp-param-headers";
-import { toPaymentRequiredErrorMessage } from "./payment";
 import {
 	MCP_CLIENT_CAPABILITIES_META_KEY,
 	MCP_METHOD_HEADER,
@@ -694,7 +693,6 @@ export class StatelessMcpTransport implements Transport {
 		message: JSONRPCMessage,
 		options?: TransportSendOptions,
 	): Promise<void> {
-		message = toPaymentRequiredErrorMessage(message);
 		const id =
 			isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)
 				? (message as { id: string | number }).id

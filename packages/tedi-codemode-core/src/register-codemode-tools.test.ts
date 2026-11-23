@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vite-plus/test";
-import { isTruncatedCodeModeResult } from "./bounded-result";
 import {
 	shapeModelResult,
 	stringifyModelResult,
@@ -16,9 +15,9 @@ const transcript = {
 
 describe("code tool result budget", () => {
 	it("clips an oversized result for a model-facing caller", () => {
-		expect(
-			isTruncatedCodeModeResult(shapeModelResult(transcript, undefined)),
-		).toBe(true);
+		expect(shapeModelResult(transcript, undefined)).toMatchObject({
+			__tedix_truncated: true,
+		});
 	});
 
 	it("returns the full result to a skill workflow caller", () => {

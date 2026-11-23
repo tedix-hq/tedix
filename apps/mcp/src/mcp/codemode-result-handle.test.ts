@@ -8,7 +8,6 @@ import { selectResponseFields } from "./field-selection";
 
 import {
 	isCodeModeResultHandle,
-	isTruncatedCodeModeResult,
 	type CodeModeResultHandle,
 } from "@tedix/tedi-codemode-core/bounded-result";
 import { describe, expect, it } from "vite-plus/test";
@@ -148,7 +147,7 @@ describe("Code Mode result handles", () => {
 			store: createCodeModeResultStore(ctx.env, codeModeResultOwner(ctx)),
 			executionId: EXECUTION_ID,
 		});
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 
 		// No bucket bound, or no caller identity to bind the handle to.
 		expect(

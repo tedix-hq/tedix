@@ -5,7 +5,6 @@ import {
 	buildCodeModeResultHandle,
 	isCodeModeResultHandle,
 	projectCodeModeOutputForModel,
-	isTruncatedCodeModeResult,
 	readCodeModeResultPage,
 	serializeCodeModeResultForHandle,
 	shapeBoundedCodeModeResult,
@@ -61,7 +60,7 @@ describe("shapeBoundedCodeModeResult", () => {
 
 		const shaped = shapeBoundedCodeModeResult(value);
 		expect(typeof shaped).not.toBe("string");
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 		const envelope = shaped as TruncatedCodeModeResult;
 		expect(envelope.__tedix_truncated).toBe(true);
 		expect(envelope.marker).toBe(CODEMODE_TRUNCATION_MARKER);
@@ -77,7 +76,7 @@ describe("shapeBoundedCodeModeResult", () => {
 
 	it("marks an oversized array with originalType array", () => {
 		const shaped = shapeBoundedCodeModeResult(oversizedPage().data);
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 		expect((shaped as TruncatedCodeModeResult).originalType).toBe("array");
 		expect(
 			Array.isArray(JSON.parse((shaped as TruncatedCodeModeResult).preview)),
@@ -86,7 +85,7 @@ describe("shapeBoundedCodeModeResult", () => {
 
 	it("wraps an oversized plain string too", () => {
 		const shaped = shapeBoundedCodeModeResult("x".repeat(30_000));
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 		const envelope = shaped as TruncatedCodeModeResult;
 		expect(envelope.originalType).toBe("string");
 		expect(envelope.preview.length).toBeLessThanOrEqual(12_000);
@@ -115,19 +114,10 @@ describe("shapeBoundedCodeModeResult", () => {
 		const value = { note: "n".repeat(1_000) };
 		expect(shapeBoundedCodeModeResult(value)).toBe(value);
 		const shaped = shapeBoundedCodeModeResult(value, { maxTokens: 100 });
-		expect(isTruncatedCodeModeResult(shaped)).toBe(true);
+		expect(shaped).toMatchObject({ __tedix_truncated: true });
 		const envelope = shaped as TruncatedCodeModeResult;
 		expect(envelope.maxTokens).toBe(100);
 		expect(envelope.preview.length).toBeLessThanOrEqual(400);
-	});
-});
-
-describe("isTruncatedCodeModeResult", () => {
-	it("rejects lookalikes without the discriminant or preview", () => {
-		expect(isTruncatedCodeModeResult({ truncated: true })).toBe(false);
-		expect(isTruncatedCodeModeResult({ __tedix_truncated: true })).toBe(false);
-		expect(isTruncatedCodeModeResult("--- TRUNCATED ---")).toBe(false);
-		expect(isTruncatedCodeModeResult(null)).toBe(false);
 	});
 });
 
@@ -139,7 +129,7 @@ describe("stringifyBoundedCodeModeResult", () => {
 
 	it("never re-clips an output whose inner result is an already-shaped envelope", () => {
 		const inner = shapeBoundedCodeModeResult(oversizedPage());
-		expect(isTruncatedCodeModeResult(inner)).toBe(true);
+		expect(inner).toMatchObject({ __tedix_truncated: true });
 		const output = { executionId: "e-2", result: inner };
 		const text = stringifyBoundedCodeModeResult(output);
 		// The full envelope (including the whole preview) survives serialization.
@@ -253,7 +243,7 @@ describe("result handles", () => {
 		// A quarter of the budget: the envelope must cost far less than the value.
 		expect(envelope.preview.length).toBe(3_000);
 		expect(envelope.guidance).toContain("discover.read_result");
-		expect(isTruncatedCodeModeResult(envelope)).toBe(false);
+		expect(envelope).not.toHaveProperty("__tedix_truncated");
 	});
 
 	it("reports array length for array results", () => {
