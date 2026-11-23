@@ -612,6 +612,7 @@ export async function getDeckDecisionContexts(
 			and(
 				eq(decisionEdges.orgId, orgId),
 				or(
+					// bound-params: CTE subquery; its rows add no bound parameters.
 					inArray(
 						decisionEdges.fromId,
 						db.select({ id: subjects.id }).from(subjects),
@@ -619,6 +620,7 @@ export async function getDeckDecisionContexts(
 					and(
 						eq(decisionEdges.toKind, "deck_card"),
 						inArray(decisionEdges.kind, ["same_as", "supersedes"]),
+						// bound-params: CTE subquery; all card IDs use one JSON parameter.
 						inArray(
 							decisionEdges.toId,
 							db.select({ id: input.id }).from(input),
