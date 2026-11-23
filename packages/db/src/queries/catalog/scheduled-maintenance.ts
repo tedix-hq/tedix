@@ -26,7 +26,7 @@ import type { Database } from "./tool-source-policy";
 
 /**
  * Count discoverable apps that have been unhealthy for more than the given number of days.
- * Uses the raw `health_checked_at` D1 column (not in Drizzle schema).
+ * Uses the health check timestamp stored by the catalog scanner.
  * Used by the scheduled cron to detect stale unhealthy apps.
  */
 export async function getStaleUnhealthyAppCount(
@@ -41,7 +41,7 @@ export async function getStaleUnhealthyAppCount(
 		.where(
 			and(
 				eq(appCatalog.healthStatus, "unhealthy"),
-				sql`health_checked_at < datetime('now', ${`-${days} days`})`,
+				sql`datetime(json_extract(${appCatalog.healthData}, '$.lastCheckedAt')) < datetime('now', ${`-${days} days`})`,
 				eq(appCatalog.isDiscoverable, true),
 			),
 		)
@@ -52,7 +52,7 @@ export async function getStaleUnhealthyAppCount(
 
 /**
  * Auto-hide apps that have been unhealthy for more than the given number of days.
- * Uses the raw `health_checked_at` D1 column (not in Drizzle schema).
+ * Uses the health check timestamp stored by the catalog scanner.
  * Sets `is_discoverable = 0`. Returns the number of apps hidden.
  */
 export async function autoHideUnhealthyCatalogApps(
@@ -69,7 +69,7 @@ export async function autoHideUnhealthyCatalogApps(
 		.where(
 			and(
 				eq(appCatalog.healthStatus, "unhealthy"),
-				sql`health_checked_at < datetime('now', ${`-${days} days`})`,
+				sql`datetime(json_extract(${appCatalog.healthData}, '$.lastCheckedAt')) < datetime('now', ${`-${days} days`})`,
 				eq(appCatalog.isDiscoverable, true),
 			),
 		);

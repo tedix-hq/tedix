@@ -7,6 +7,8 @@ import { schemaDdl } from "../../test/schema-ddl";
 import {
 	autoDelistStaleCatalogApps,
 	autoDelistStaleCatalogAppsWithStats,
+	autoHideUnhealthyCatalogApps,
+	getStaleUnhealthyAppCount,
 	listEnabledCatalogAppsForVectorSync,
 } from "./scheduled-maintenance";
 import { markCatalogListingsSeen } from "./store-listings";
@@ -16,6 +18,39 @@ function realDb() {
 	sqlite.exec(schemaDdl(appCatalog, appCatalogStoreListings));
 	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
 }
+
+describe("unhealthy catalog lifecycle", () => {
+	it("counts and hides only discoverable unhealthy apps with an old health check", async () => {
+		const { db, sqlite } = realDb();
+		const insert = sqlite.prepare(
+			"INSERT INTO app_catalog (id, slug, name, connector_type, last_synced_at, health_status, is_discoverable, health_data) VALUES (?, ?, ?, 'MCP', '2000-01-01T00:00:00.000Z', ?, ?, ?)",
+		);
+		const old = JSON.stringify({ lastCheckedAt: "2000-01-01T00:00:00.000Z" });
+		insert.run("old", "old", "Old", "unhealthy", 1, old);
+		insert.run(
+			"fresh",
+			"fresh",
+			"Fresh",
+			"unhealthy",
+			1,
+			JSON.stringify({ lastCheckedAt: new Date().toISOString() }),
+		);
+		insert.run("healthy", "healthy", "Healthy", "healthy", 1, old);
+		insert.run("hidden", "hidden", "Hidden", "unhealthy", 0, old);
+		insert.run("unknown", "unknown", "Unknown", "unhealthy", 1, null);
+
+		expect(await getStaleUnhealthyAppCount(db, 14)).toBe(1);
+		expect(await autoHideUnhealthyCatalogApps(db, 30)).toBe(1);
+		expect(await getStaleUnhealthyAppCount(db, 14)).toBe(0);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id FROM app_catalog WHERE is_discoverable = 1 ORDER BY id",
+				)
+				.all(),
+		).toEqual([{ id: "fresh" }, { id: "healthy" }, { id: "unknown" }]);
+	});
+});
 
 describe("listEnabledCatalogAppsForVectorSync", () => {
 	it("returns deterministic bounded pages and excludes disabled apps", async () => {
