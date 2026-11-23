@@ -723,10 +723,15 @@ export class HttpPlatformClient implements PlatformClient {
 	// ── API methods ──────────────────────────────────────────────────────────
 
 	async getTurnMemory(references: string[]): Promise<TurnMemory> {
-		return this.rpc("cognitiveRuntime", "getTurnMemory", {
-			tediId: this.tediId,
-			references,
-		});
+		// A read: retry once when the database is briefly overloaded, so the
+		// turn keeps its task state.
+		return this.rpc(
+			"cognitiveRuntime",
+			"getTurnMemory",
+			{ tediId: this.tediId, references },
+			RPC_TIMEOUT_MS,
+			[503],
+		);
 	}
 
 	async memorySearch(
@@ -1160,7 +1165,7 @@ export class HttpPlatformClient implements PlatformClient {
 	async readTediCoreMemory(params: {
 		tediId: string;
 	}): Promise<TediCoreMemory> {
-		return this.rpc("tediMemory", "readCore", params);
+		return this.rpc("tediMemory", "readCore", params, RPC_TIMEOUT_MS, [503]);
 	}
 
 	async editTediCoreMemory(params: {
