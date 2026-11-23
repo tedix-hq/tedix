@@ -33,7 +33,6 @@ import {
 	Collection,
 	Page,
 	PageActions,
-	PageDescription,
 	PageHeader,
 	PageHeading,
 	PageTitle,
@@ -139,9 +138,6 @@ export function WorkspaceLibraryPage({
 				<PageHeader>
 					<PageHeading>
 						<PageTitle>Workspaces</PageTitle>
-						<PageDescription>
-							Keep your conversations, work, and resources together.
-						</PageDescription>
 					</PageHeading>
 					<PageActions>
 						<CanvasWorkspaceControls
