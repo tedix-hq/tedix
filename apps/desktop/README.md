@@ -67,9 +67,11 @@ The app is not signed or notarized yet and has been run on macOS only.
 - **Connect an app.** Tedix looks for Mac apps and command-line tools
   separately. Choose **Connect** to add Tedix to a detected coding tool and
   start its browser sign-in. Claude Code and Codex can check the connection
-  with a Tedix read. ChatGPT opens its own app for plugin setup, and Claude
-  chat uses a custom connector. Local tasks and session sharing are set up
-  separately in **Settings → Agents**.
+  with a Tedix read. Fresh ChatGPT Work and Claude Code installs use the
+  bundled native plugin marketplace, with hook review in the host. For
+  Claude chat and Cowork, save the bundled plugin ZIP for Claude's upload
+  screen. Local tasks and session sharing are set up separately in
+  **Settings → Agents**.
 - **The command-line tool.** With no `tedix` installed, the app links its own
   copy and adds `~/.local/bin` to your shell profile if it is missing. A
   separate install is left alone until you choose **Let the app manage it**:

@@ -8,7 +8,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { app } from "electron";
 import { type CliState, manageCli, readCli, restoreCli } from "./cli";
@@ -253,21 +253,20 @@ export function desktopAppPath(app: DesktopApp): string | undefined {
 	);
 }
 
+const BUNDLED_COMMANDS = {
+	codex: ["chatgpt", "codex-cli/bin/codex"],
+	devin: ["devin", "app/extensions/windsurf/devin/bin/devin"],
+	opencode: ["opencode", "opencode-cli"],
+} as const;
+
 function bundledCommand(tool: Tool): string | undefined {
 	if (tool.id === "claude") return bundledClaudeCode();
-	const app =
-		tool.id === "codex"
-			? desktopAppPath("chatgpt")
-			: tool.id === "opencode"
-				? desktopAppPath("opencode")
-				: undefined;
+	if (!Object.hasOwn(BUNDLED_COMMANDS, tool.id)) return;
+	const [desktop, relative] =
+		BUNDLED_COMMANDS[tool.id as keyof typeof BUNDLED_COMMANDS];
+	const app = desktopAppPath(desktop);
 	if (!app) return;
-	const binary = join(
-		app,
-		"Contents",
-		"Resources",
-		tool.id === "codex" ? "codex-cli/bin/codex" : "opencode-cli",
-	);
+	const binary = join(app, "Contents", "Resources", relative);
 	try {
 		accessSync(binary, constants.X_OK);
 		return binary;
@@ -278,6 +277,48 @@ function bundledCommand(tool: Tool): string | undefined {
 
 function commandFor(tool: Tool): string | undefined {
 	return findCommand(tool.binary) ?? bundledCommand(tool);
+}
+
+async function installDesktopPlugin(
+	host: "claude" | "codex",
+	command: string,
+	options: Parameters<typeof run>[2],
+): Promise<void> {
+	const directory = app.isPackaged
+		? join(process.resourcesPath, "tedix-plugin", host)
+		: join(app.getAppPath(), "out", "tedix-plugin", host);
+	const marketplace = host === "codex" ? "tedix-repo" : "tedix";
+	const output = await must(
+		run(command, ["plugin", "marketplace", "list", "--json"], {
+			timeoutMs: 30_000,
+		}),
+	);
+	const response = JSON.parse(output);
+	const entries = host === "codex" ? response.marketplaces : response;
+	const existing = entries.find(
+		(entry: { name?: string }) => entry.name === marketplace,
+	);
+	if (existing) {
+		const source =
+			host === "codex"
+				? existing.marketplaceSource?.sourceType === "local" &&
+					existing.marketplaceSource.source
+				: existing.source === "directory" && existing.path;
+		if (typeof source !== "string" || resolve(source) !== directory)
+			throw new Error(
+				"A different Tedix plugin source is configured. Review it in the app before trying again.",
+			);
+	} else {
+		await must(
+			run(command, ["plugin", "marketplace", "add", directory], options),
+		);
+	}
+	const plugin = `tedix@${marketplace}`;
+	const install =
+		host === "codex"
+			? ["plugin", "add", plugin]
+			: ["plugin", "install", plugin, "--scope", "user"];
+	await must(run(command, install, options));
 }
 
 async function prepareDevinConnection(command: string): Promise<void> {
@@ -514,7 +555,7 @@ function tedix(args: string[], options: Parameters<typeof run>[2] = {}) {
 	if (args[0] === "setup" || args[2] === "setup")
 		for (const tool of TOOLS) {
 			// The setup helper invokes these tools by command name.
-			if (tool.id !== "claude" && tool.id !== "codex") continue;
+			if (tool.id === "opencode") continue;
 			const command = commandFor(tool);
 			if (command) path.push(dirname(command));
 		}
@@ -840,8 +881,8 @@ function toolRows(): ToolRow[] {
 		const row: ToolRow = {
 			id: tool.id,
 			name:
-				tool.id === "claude" && command && !standalone
-					? "Claude Code in Claude"
+				tool.id === "codex" && command && desktopAppPath("chatgpt")
+					? "ChatGPT Work"
 					: tool.name,
 			executor: tool.executor,
 			found,
@@ -1398,14 +1439,21 @@ export async function setupAction(
 				await prepareDevinConnection(command);
 			} else if (row?.canAdd && tool.add) {
 				say(`Adding Tedix to ${tool.name}…`);
-				await must(
-					tedix(["-w", "connect", "setup", "agents", tool.add, "--yes"], {
-						onStart: (stop) => {
-							stops[`connect:${tool.id}`] = stop;
-						},
-						timeoutMs: 120_000,
-					}),
-				);
+				const options = {
+					onStart: (stop: () => void) => {
+						stops[key] = stop;
+					},
+					timeoutMs: 120_000,
+				};
+				if (tool.id === "codex" || tool.id === "claude")
+					await installDesktopPlugin(tool.id, command, options);
+				else
+					await must(
+						tedix(
+							["-w", "connect", "setup", "agents", tool.add, "--yes"],
+							options,
+						),
+					);
 			}
 			const host =
 				agentStatus && "hosts" in agentStatus

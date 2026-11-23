@@ -35,10 +35,20 @@ at **Chip**.
 3. Choose **Open Tedix**, or choose **Connect an app** to add Tedix to an app
    you already use. Tedix opens a sign-in page when the app needs one.
 
-You can connect an app later in **Settings → Agents**. Some apps have their
-own setup. ChatGPT uses its Plugins screen, and Claude chat uses a custom
-connector. To let an agent run tasks on your Mac, use **Use for tasks** in
-Settings.
+You can connect an app later in **Settings → Agents**.
+
+- **ChatGPT Work and Claude Code.** Choose **Connect** to install the Tedix
+  plugin supplied with the Mac app. For ChatGPT Work, review the hooks in
+  **Settings → Hooks** in ChatGPT. In Claude Desktop, open the **Code** tab
+  once and choose **Look again** in Tedix if Claude Code does not appear.
+- **Claude Chat and Cowork.** Choose **Save Tedix plugin** and **Open Claude**.
+  In Claude, choose **Customize → Plugins → Add → Upload plugin** and select
+  the saved ZIP. For local hooks, use the **Claude Code** connection.
+  Plugin availability depends on your Claude account settings.
+- **Devin and OpenCode.** Choose **Connect** and finish browser sign-in.
+  Open the app to try the connection.
+
+To let an agent run tasks on your Mac, use **Use for tasks** in Settings.
 
 ## Quitting and updating
 

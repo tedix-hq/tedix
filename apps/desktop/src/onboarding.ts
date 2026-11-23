@@ -1,9 +1,12 @@
 import type { PanelApi, PanelState } from "./api";
 import { icon, type IconName } from "./icons";
 import {
+	CLAUDE_PLUGIN_STEPS,
+	claudePluginButtons,
 	foundTools,
 	keepFocus,
 	onButtonsChange,
+	openAgentApp,
 	TOOL_ICONS,
 	toolView,
 } from "./ui-parts";
@@ -207,60 +210,60 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				icon: TOOL_ICONS[tool.id] ?? "bubble",
 				title: tool.name,
 				sub: view.sub,
-				control: view.ready ? done("Connected") : view.action,
+				control:
+					view.ready ||
+					(!view.working && tool.connection === "signed-in" && !view.action)
+						? el(
+								"span",
+								"controls",
+								view.ready && done("Connected"),
+								openAgentApp(now, tool),
+							)
+						: view.action,
 				working: view.working,
 				failed: view.error,
 				retry: view.retry,
 				cancel: view.cancel,
 			});
 		});
-	if (desktopApps.chatgpt)
-		rows.unshift(
-			row({
-				key: "chat:chatgpt",
-				icon: "bubble",
-				title: "ChatGPT",
-				sub: "Turn on Tedix in Plugins, then start a Work chat.",
-				control: button(
-					"Open ChatGPT",
-					"plain",
-					() => void tedixShell.open("chatgpt-app"),
-				),
-			}),
-		);
 	if (desktopApps.claude)
 		rows.unshift(
 			row({
 				key: "chat:claude",
 				icon: "bubble",
-				title: "Claude app",
-				sub: "Claude requires a custom connector. Setup is in Settings → Agents.",
+				title: "Claude Chat and Cowork",
+				sub: now.setup.tools.some(
+					(tool) => tool.id === "claude" && tool.found === "found",
+				)
+					? CLAUDE_PLUGIN_STEPS
+					: `${CLAUDE_PLUGIN_STEPS} For Claude Code, open the Code tab, then choose Look again.`,
+				control: el("span", "controls", ...claudePluginButtons()),
 			}),
 		);
-	if (desktopApps.devin)
-		rows.push(
-			row({
-				key: "app:devin",
-				icon: "bubble",
-				title: "Devin app",
-				sub: "Tedix doesn’t have automatic setup for this app yet.",
-			}),
-		);
-	if (
-		desktopApps.opencode &&
-		!now.setup.tools.some(
-			(tool) => tool.id === "opencode" && tool.found === "found",
+	for (const [app, id, name] of [
+		["chatgpt", "codex", "ChatGPT"],
+		["devin", "devin", "Devin"],
+		["opencode", "opencode", "OpenCode"],
+	] as const) {
+		if (
+			!desktopApps[app] ||
+			now.setup.tools.some((tool) => tool.id === id && tool.found === "found")
 		)
-	)
+			continue;
 		rows.push(
 			row({
-				key: "app:opencode",
+				key: `app:${app}`,
 				icon: "bubble",
-				title: "OpenCode",
-				sub: "Could not find OpenCode’s helper. Open OpenCode, then look again.",
-				control: button("Look again", "quiet", () => act("check")),
+				title: name,
+				sub: `Open and sign in to ${name}, then choose Look again.`,
+				control: button(
+					`Open ${name}`,
+					"plain",
+					() => void tedixShell.open(`${app}-app`),
+				),
 			}),
 		);
+	}
 	return {
 		label: "Your apps",
 		headline: "Connect an app you use",

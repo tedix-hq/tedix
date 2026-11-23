@@ -102,9 +102,16 @@ function osOrigin(): string {
 	const host = settings().host ?? "";
 	return `https://${isOsHost(host) ? host : "os.tedix.dev"}`;
 }
-const PANEL_LINKS: Record<Exclude<PanelLink, "chatgpt-app">, string> = {
-	"claude-connectors": "https://claude.ai/customize/connectors",
-	chatgpt: "https://chatgpt.com/plugins",
+const APP_LINKS = {
+	"claude-app": "claude",
+	"chatgpt-app": "chatgpt",
+	"devin-app": "devin",
+	"opencode-app": "opencode",
+} as const;
+const PANEL_LINKS: Record<
+	Exclude<PanelLink, keyof typeof APP_LINKS>,
+	string
+> = {
 	"install-claude-code": "https://claude.com/product/claude-code",
 	"install-codex": "https://openai.com/codex/",
 };
@@ -1403,6 +1410,26 @@ function openSetup(): void {
 	void refreshSetup(true);
 }
 
+async function saveClaudePlugin(window: BrowserWindow): Promise<void> {
+	const filename = "Tedix-Claude.zip";
+	try {
+		const bytes = readFileSync(join(root, "out", filename));
+		const choice = await dialog.showSaveDialog(window, {
+			title: "Save the Tedix plugin for Claude",
+			defaultPath: join(app.getPath("downloads"), filename),
+			filters: [{ name: "Plugin ZIP", extensions: ["zip"] }],
+		});
+		if (choice.canceled || !choice.filePath) return;
+		writeFileSync(choice.filePath, bytes);
+	} catch (error) {
+		await dialog.showMessageBox(window, {
+			type: "warning",
+			message: "Could not save the Claude plugin",
+			detail: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 function fromLocalPage(event: IpcMainInvokeEvent): BrowserWindow {
 	if (settingsView && event.sender === settingsView.webContents && mainWindow)
 		return mainWindow;
@@ -2087,7 +2114,8 @@ else if (process.argv.includes("--local-model")) {
 			},
 		);
 		ipcMain.handle("action", (event, name: PanelAction) => {
-			fromLocalPage(event);
+			const asking = fromLocalPage(event);
+			if (name === "save-claude-plugin") return saveClaudePlugin(asking);
 			if (name === "restart") return restartRunners(true);
 			if (name === "pause") return pauseAsked();
 			if (name === "cli-back") return void goBackCli();
@@ -2146,21 +2174,22 @@ else if (process.argv.includes("--local-model")) {
 		});
 		ipcMain.handle("open", async (event, link: PanelLink) => {
 			fromLocalPage(event);
-			if (link === "chatgpt-app") {
-				const path = desktopAppPath("chatgpt");
+			if (Object.hasOwn(APP_LINKS, link)) {
+				const desktop = APP_LINKS[link as keyof typeof APP_LINKS];
+				const path = desktopAppPath(desktop);
 				const failure = path
 					? await shell.openPath(path)
-					: "ChatGPT was not found.";
+					: "The app was not found.";
 				if (failure)
 					await dialog.showMessageBox({
 						type: "warning",
-						message: "Could not open ChatGPT",
+						message: "Could not open the app",
 						detail: failure,
 					});
 				return;
 			}
 			if (Object.hasOwn(PANEL_LINKS, link))
-				await shell.openExternal(PANEL_LINKS[link]);
+				await shell.openExternal(PANEL_LINKS[link as keyof typeof PANEL_LINKS]);
 		});
 		ipcMain.handle("open-work", (event, itemId: unknown) => {
 			fromLocalPage(event);

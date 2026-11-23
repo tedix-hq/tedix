@@ -11,7 +11,8 @@ import {
 	button,
 	type Child,
 	checkAgain,
-	CONNECTOR_URL,
+	CLAUDE_PLUGIN_STEPS,
+	claudePluginButtons,
 	EXECUTOR_NAMES,
 	el,
 	foundTools,
@@ -346,49 +347,17 @@ function tools(now: PanelState): Group[] {
 	const found = foundTools(now);
 	const chat: Group = {
 		title: "Chat apps",
-		items: [
-			{
-				title: "Claude",
-				glyph: "bubble",
-				sub: "Claude requires a manual custom connector.",
-				control: [
-					button(
-						"Copy address",
-						"plain",
-						() => tedixShell.copy(CONNECTOR_URL),
-						false,
-						{ done: "Copied" },
-					),
-					button(
-						"Open",
-						"quiet",
-						() => void tedixShell.open("claude-connectors"),
-						false,
-						{ key: "open-claude" },
-					),
-				],
-				words: "claude app connector",
-			},
-			{
-				title: "ChatGPT",
-				glyph: "bubble-spark",
-				sub: "Turn on Tedix in Plugins, then start a Work chat.",
-				control: [
-					button(
-						"Open",
-						"plain",
-						() =>
-							void tedixShell.open(
-								now.setup.desktopApps.chatgpt ? "chatgpt-app" : "chatgpt",
-							),
-						false,
-						{
-							key: "open-chatgpt",
-						},
-					),
-				],
-			},
-		],
+		items: now.setup.desktopApps.claude
+			? [
+					{
+						title: "Claude Chat and Cowork",
+						glyph: "bubble",
+						sub: CLAUDE_PLUGIN_STEPS,
+						control: claudePluginButtons(),
+						words: "claude app plugin",
+					},
+				]
+			: [],
 	};
 	const rows: Item[] = found.map((tool) => {
 		const view = toolView(now, tool);
@@ -451,7 +420,7 @@ function tools(now: PanelState): Group[] {
 	const again = checkAgain();
 	if (!found.length && !rows.length)
 		return [
-			chat,
+			...(chat.items.length ? [chat] : []),
 			{
 				title: "Agents",
 				items: [
@@ -475,7 +444,7 @@ function tools(now: PanelState): Group[] {
 			},
 		];
 	return [
-		chat,
+		...(chat.items.length ? [chat] : []),
 		{ title: "Agents", column: "Use for tasks", items: rows },
 		...(now.setup.routing ? [routingGroup(now.setup.routing)] : []),
 		{

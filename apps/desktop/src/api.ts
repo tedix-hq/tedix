@@ -60,13 +60,15 @@ export type PanelAction =
 	| "local-model"
 	| "open-logs"
 	| "open-routing"
-	| "close-settings";
+	| "close-settings"
+	| "save-claude-plugin";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
 export type PanelLink =
-	| "claude-connectors"
-	| "chatgpt"
 	| "chatgpt-app"
+	| "claude-app"
+	| "devin-app"
+	| "opencode-app"
 	| "install-claude-code"
 	| "install-codex";
 

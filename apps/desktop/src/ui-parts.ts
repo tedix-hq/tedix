@@ -133,7 +133,36 @@ export const TOOL_ICONS: Record<string, IconName> = {
 	devin: "cube",
 	opencode: "braces",
 };
-export const CONNECTOR_URL = "https://connect.mcp.tedix.dev/mcp";
+export const CLAUDE_PLUGIN_STEPS =
+	"In Claude, choose Customize → Plugins → Add → Upload plugin, select Tedix-Claude.zip, then sign in.";
+
+export function claudePluginButtons() {
+	return [
+		button("Save Tedix plugin", "plain", () =>
+			tedixShell.action("save-claude-plugin"),
+		),
+		button("Open Claude", "quiet", () => tedixShell.open("claude-app")),
+	];
+}
+
+export function openAgentApp(state: PanelState, tool: ToolRow) {
+	const app = tool.id === "codex" ? "chatgpt" : tool.id;
+	if (
+		app !== "claude" &&
+		app !== "chatgpt" &&
+		app !== "devin" &&
+		app !== "opencode"
+	)
+		return;
+	if (!state.setup.desktopApps[app]) return;
+	return button(
+		app === "chatgpt" && tool.hookTrust !== "trusted"
+			? "Review hooks in ChatGPT"
+			: `Open ${tool.name}`,
+		"quiet",
+		() => tedixShell.open(`${app}-app`),
+	);
+}
 
 export const orgName = (id: string) => id.replace(/^org_/, "");
 export const person = ({ name, email }: { name: string; email: string }) =>
@@ -178,6 +207,10 @@ export function toolView(
 ): ToolView {
 	const steps = state.setup.steps;
 	const runner = view === "tasks" ? runnerFor(state, tool) : undefined;
+	const reviewInChatGPT =
+		tool.id === "codex" &&
+		state.setup.desktopApps.chatgpt &&
+		tool.hookTrust !== "trusted";
 	const keys = [
 		"account",
 		"add",
@@ -260,7 +293,11 @@ export function toolView(
 		return {
 			...base,
 			ready: false,
-			sub: tool.canSignIn ? "" : tool.note,
+			sub: tool.canSignIn
+				? tool.id === "codex" || tool.id === "claude"
+					? "Install the Tedix plugin with hooks."
+					: ""
+				: tool.note,
 			action:
 				tool.canAdd && tool.canSignIn
 					? plain("Connect", "connect", "Connecting…")
@@ -306,14 +343,22 @@ export function toolView(
 					? plain("Check connection", "verify", "Checking…")
 					: undefined,
 		};
-	if (view === "connection") return { ready: true, sub: "" };
+	if (view === "connection")
+		return {
+			ready: true,
+			sub: reviewInChatGPT
+				? "Review the Tedix hooks in ChatGPT under Settings → Hooks."
+				: "",
+		};
 	if (runner?.enabled && tool.id === "codex" && tool.hookTrust !== "trusted")
 		return {
 			...base,
 			ready: false,
 			tone: "warn",
 			sub: "Connected. Task setup needs your approval in Codex.",
-			action: plain("Review in Codex", "trust-hooks", "Opening…"),
+			action: reviewInChatGPT
+				? openAgentApp(state, tool)
+				: plain("Review in Codex", "trust-hooks", "Opening…"),
 		};
 	if (!runner?.enabled) return { ...base, ready: false, sub: "Connected" };
 	if (!runner.running)
