@@ -240,7 +240,7 @@ function NeedsYou({
 				/>
 			) : total === 0 ? (
 				<WorkEmpty
-					title="You're all caught up"
+					title="No requests awaiting approval"
 					description="When an agent needs your approval, the request will appear here."
 				/>
 			) : (

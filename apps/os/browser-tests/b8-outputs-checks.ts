@@ -277,7 +277,7 @@ export async function runB8OutputsChecks(
 					await page.close();
 					page = await context.newPage();
 					observePage();
-					search = page.getByRole("searchbox", { name: "Search documents" });
+					search = page.getByRole("searchbox", { name: "Search files" });
 				}
 				await run();
 				console.log(`PASS ${label} ${name}`);
@@ -291,7 +291,7 @@ export async function runB8OutputsChecks(
 				});
 			}
 		}
-		let search = page.getByRole("searchbox", { name: "Search documents" });
+		let search = page.getByRole("searchbox", { name: "Search files" });
 		const cards = () => page.locator('li[aria-label^="Open "]');
 		const ready = async () => {
 			await visible(search);
@@ -409,13 +409,11 @@ export async function runB8OutputsChecks(
 					),
 				);
 				assert.equal(
-					await page.getByText("No documents yet", { exact: true }).count(),
+					await page.getByText("No files yet", { exact: true }).count(),
 					0,
 				);
 				assert.equal(
-					await page
-						.getByText("No matching documents", { exact: true })
-						.count(),
+					await page.getByText("No matching files", { exact: true }).count(),
 					0,
 				);
 				await inspect(page, `${label}-pending`, phone);
@@ -428,11 +426,9 @@ export async function runB8OutputsChecks(
 			await scenario("retry", async () => {
 				mode = "error";
 				await page.goto(`${origin}/outputs`);
-				await visible(
-					page.getByText("Documents are unavailable", { exact: true }),
-				);
+				await visible(page.getByText("Files are unavailable", { exact: true }));
 				assert.equal(
-					await page.getByText("No documents yet", { exact: true }).count(),
+					await page.getByText("No files yet", { exact: true }).count(),
 					0,
 				);
 				await inspect(page, `${label}-error`, phone, [
@@ -462,13 +458,11 @@ export async function runB8OutputsChecks(
 						.first(),
 				);
 				assert.equal(
-					await page.getByText("No documents yet", { exact: true }).count(),
+					await page.getByText("No files yet", { exact: true }).count(),
 					0,
 				);
 				assert.equal(
-					await page
-						.getByText("No matching documents", { exact: true })
-						.count(),
+					await page.getByText("No matching files", { exact: true }).count(),
 					0,
 				);
 				await inspect(page, `${label}-retry-pending`, phone);
@@ -478,7 +472,7 @@ export async function runB8OutputsChecks(
 				assert(reads > previousReads);
 				assert.equal(
 					await page
-						.getByText("Documents are unavailable", { exact: true })
+						.getByText("Files are unavailable", { exact: true })
 						.count(),
 					0,
 				);
@@ -504,7 +498,7 @@ export async function runB8OutputsChecks(
 					page.getByText("Showing 20 of 200 items", { exact: true }),
 				);
 				await visible(
-					page.getByText("Showing the 200 most recently updated documents.", {
+					page.getByText("Showing the 200 most recently updated files.", {
 						exact: true,
 					}),
 				);
@@ -516,7 +510,7 @@ export async function runB8OutputsChecks(
 					.click();
 				assert.equal(await cards().count(), 40);
 				await search.fill("no-such-output-b8");
-				await visible(page.getByText("No matching documents", { exact: true }));
+				await visible(page.getByText("No matching files", { exact: true }));
 				assert.equal(await cards().count(), 0);
 				await search.fill("Bounded output 200 ");
 				await visible(cards().first());

@@ -211,7 +211,7 @@ export async function runOutputsChecks(size: OutputsSize, theme: OutputsTheme) {
 			await card.locator("time").isVisible(),
 			"updated time is visible in grid",
 		);
-		const search = library.getByRole("searchbox", { name: "Search documents" });
+		const search = library.getByRole("searchbox", { name: "Search files" });
 		assert(await search.isVisible(), "output search is visible");
 		const scope = library.getByRole("button", {
 			name: width < 640 ? "All sharing" : "Yours and shared",

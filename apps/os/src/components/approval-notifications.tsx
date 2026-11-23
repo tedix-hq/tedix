@@ -214,15 +214,22 @@ export function ActivityPanel({
 				<header className="sticky top-0 z-10 grid gap-2 border-b border-kumo-hairline bg-kumo-base px-4 pt-3">
 					<div className="grid min-w-0 gap-0.5">
 						{heading(
-							shown.count === 0
-								? here
-									? "Nothing is waiting for you in this workspace."
-									: "Nothing is waiting for you."
-								: `${shown.count} waiting for your decision${here ? " in this workspace" : ""}`,
+							tab === "history"
+								? "Review recent decisions and app actions."
+								: tab === "unread"
+									? "Updates you haven’t read."
+									: tab === "auto"
+										? "Manage rules for automatic approval."
+										: tab === "workspace"
+											? "Activity in this workspace."
+											: shown.loading
+												? "Checking for approval requests…"
+												: shown.count === 0
+													? here
+														? "No requests awaiting approval in this workspace."
+														: "No requests awaiting approval."
+													: `${shown.count} waiting for your decision${here ? " in this workspace" : ""}`,
 						)}
-						<Text as="p" className="m-0" role="caption" tone="secondary">
-							{WORK_COUNT_DEFINITIONS.approvals}
-						</Text>
 					</div>
 					<TabsList aria-label="Activity and approvals sections" variant="line">
 						<TabsTrigger className="px-2!" value="review">

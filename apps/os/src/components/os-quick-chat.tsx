@@ -229,7 +229,7 @@ const routeDescriptions: Record<
 	},
 	chat: { title: "Chat", description: "The native OS conversation workbench." },
 	outputs: {
-		title: "Documents",
+		title: "Files",
 		description:
 			"Documents, sheets, and presentations available in this organization.",
 	},

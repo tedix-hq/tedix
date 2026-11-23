@@ -29,7 +29,7 @@ import {
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
-import { errorMessage } from "@/lib/orpc-error";
+import { errorMessage, orpcErrorCode } from "@/lib/orpc-error";
 
 export type HistoryFilter = "all" | "approvals" | "actions" | "automatic";
 
@@ -108,6 +108,7 @@ export function approvalHistoryEntries(
 		const automatic = isAutomaticApproval(approval);
 		const payload = approval.payload as Record<string, unknown>;
 		const conversationId = payloadString(payload, "conversationId");
+		const workItemId = payloadString(payload, "workItemId");
 		const executionRecord = parseOwnerToolExecution(payload.execution);
 		const open = Date.parse(approval.expiresAt) > Date.now();
 		const where = appLabel(payloadString(payload, "appSlug"));
@@ -117,7 +118,15 @@ export function approvalHistoryEntries(
 		});
 		const execution =
 			executionDirection(nextStep, { who, where }) ??
-			ownerToolExecutionOutcome(executionRecord);
+			(executionRecord?.status === "failed" &&
+			executionRecord.error?.includes("was re-published as read-only")
+				? "The tool changed to read-only after approval. The action did not run."
+				: executionRecord?.status === "failed" &&
+					  executionRecord.error?.includes(
+							"approving owner must execute with their own verified",
+					  )
+					? "Only the person who approved this action can run it with their connection. The app received no request."
+					: ownerToolExecutionOutcome(executionRecord));
 		// Retry only where the server accepts it; the rest can be dismissed.
 		const retry =
 			open && nextStep === "retry" ? { approvalId: approval.id } : undefined;
@@ -133,7 +142,7 @@ export function approvalHistoryEntries(
 			: automatic
 				? /^auto-approved by rule\b/i.test(approval.resolution ?? "")
 					? "A saved rule approved it"
-					: "Approved automatically"
+					: null
 				: approval.status === "expired"
 					? "No one answered in time, so it did not run"
 					: approval.status === "approved"
@@ -170,7 +179,12 @@ export function approvalHistoryEntries(
 							label: "Open conversation",
 							to: `/chat?conversation=${encodeURIComponent(conversationId)}`,
 						}
-					: null,
+					: workItemId
+						? {
+								label: "Open work item",
+								to: `/work/items/${encodeURIComponent(workItemId)}`,
+							}
+						: null,
 				...(retry ? { retry } : {}),
 				...(dismiss ? { dismiss } : {}),
 			},
@@ -282,7 +296,11 @@ export function ActivityHistory({
 	const filter =
 		only ?? (chosen === "actions" && !showActions ? "all" : chosen);
 	const [offset, setOffset] = useState(0);
+	const readApprovals = attentionOnly || filter !== "actions";
+	const readActions = showActions && (filter === "all" || filter === "actions");
 	const approvals = useQuery({
+		enabled: readApprovals,
+		staleTime: 15_000,
 		...(attentionOnly
 			? approvalExecutionAttentionQueryOptions(offset)
 			: approvalHistoryQueryOptions(workspaceId ?? undefined)),
@@ -293,7 +311,8 @@ export function ActivityHistory({
 	const actions = useQuery({
 		...recentToolActivityQueryOptions(),
 		retry: false,
-		enabled: showActions,
+		staleTime: 15_000,
+		enabled: readActions,
 	});
 	const history = filterHistory(
 		[
@@ -305,17 +324,13 @@ export function ActivityHistory({
 	const entries = attentionOnly
 		? history.filter((entry) => entry.needsAttention)
 		: history;
-	const includeApprovals = attentionOnly || filter !== "actions";
-	const includeActions =
-		showActions && (filter === "all" || filter === "actions");
-	const loadingApprovals = includeApprovals && approvals.isPending;
-	const loadingActions = includeActions && actions.isPending;
+	const loadingApprovals = readApprovals && approvals.isPending;
+	const loadingActions = readActions && actions.isPending;
 	const loading = loadingApprovals || loadingActions;
-	const approvalsHidden = includeApprovals && approvals.isError;
-	const actionsHidden = includeActions && actions.isError;
+	const approvalsHidden = readApprovals && approvals.isError;
+	const actionsHidden = readActions && actions.isError;
 	const failed =
-		(!includeApprovals || approvals.isError) &&
-		(!includeActions || actions.isError);
+		(!readApprovals || approvals.isError) && (!readActions || actions.isError);
 	if (
 		attentionOnly &&
 		!approvals.isPending &&
@@ -329,13 +344,13 @@ export function ActivityHistory({
 			{!attentionOnly ? (
 				<Text as="p" className="m-0 px-4 pt-3" role="caption" tone="secondary">
 					{workspaceId === null
-						? "Recent decisions and app tool calls across your organization. For steps in a workspace conversation, open that conversation."
+						? "Approval decisions and app actions across your organization."
 						: "Recent decisions on requests made in this workspace. App tool calls are listed under Everywhere."}
 				</Text>
 			) : null}
 			{attentionOnly ? (
 				<Text as="h2" className="m-0 px-4 pt-3" role="label" tone="strong">
-					Approved calls waiting or failed
+					Approved actions that need attention
 				</Text>
 			) : null}
 			<div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3">
@@ -428,9 +443,9 @@ export function ActivityHistory({
 			) : null}
 			{actionsHidden && !failed ? (
 				<Text className="m-0 px-4 pb-3" role="label" tone="secondary">
-					App activity could not be loaded. Your role may not have access, or
-					the service may be unavailable. Reload to try again. Available
-					decisions are shown.
+					{orpcErrorCode(actions.error) === "FORBIDDEN"
+						? "Your role can’t view app actions."
+						: "App actions could not be loaded."}
 				</Text>
 			) : null}
 		</div>
