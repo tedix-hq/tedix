@@ -20,6 +20,13 @@ import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
  * tedi answers every message; with none picked the workspace's own answerer
  * replies.
  */
+/** What an empty chat offers to ask, away from any one workspace. */
+const CHAT_STARTERS = [
+	{ label: "Plan my week", text: "Plan my week: " },
+	{ label: "Draft an email…", text: "Draft an email to " },
+	{ label: "Make a sheet to track…", text: "Make a sheet to track " },
+];
+
 export function ChatTediThread({
 	workspaceId,
 	conversationId,
@@ -71,6 +78,9 @@ export function ChatTediThread({
 				modelDefault="personChat"
 				placeholder={chatComposerPlaceholder(conversationId !== null)}
 				emptyText="Ask a question, or ask for a doc, sheet or deck."
+				// Outside a workspace: nothing here is "this workspace".
+				starters={CHAT_STARTERS}
+				composerLabel="Message Tedix"
 				// With no tedi pinned, the workspace chat offers its own choice of
 				// who replies to each message.
 				composerSlot={

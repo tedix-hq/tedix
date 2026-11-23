@@ -254,6 +254,10 @@ export type WorkspaceChatProps = {
 	placeholder?: string;
 	/** The line an empty thread shows. */
 	emptyText?: string;
+	/** What an empty thread offers to ask; workspace starters when absent. */
+	starters?: readonly Starter[];
+	/** What the message box is called for screen readers. */
+	composerLabel?: string;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
@@ -298,6 +302,8 @@ export function WorkspaceChat({
 	embedded = false,
 	placeholder,
 	emptyText,
+	starters,
+	composerLabel,
 	createClient,
 }: WorkspaceChatProps) {
 	const queryClient = useQueryClient();
@@ -610,6 +616,7 @@ export function WorkspaceChat({
 					pinnedTediId={pinnedTediId}
 					slot={composerSlot}
 					placeholder={placeholder}
+					label={composerLabel}
 					onSend={(text, attachments, tediId) => {
 						if (viewOnly) return undefined;
 						onSelectConversation(null);
@@ -703,6 +710,7 @@ export function WorkspaceChat({
 				workspaceId={workspaceId}
 				conversationId={conversationId}
 				emptyText={emptyText}
+				starters={starters}
 				turns={state.turns}
 				canSaveFiles={!viewOnly}
 				viewerId={state.viewerId}
@@ -802,6 +810,7 @@ export function WorkspaceChat({
 				pinnedTediId={pinnedTediId}
 				slot={composerSlot}
 				placeholder={placeholder}
+				label={composerLabel}
 				onSend={send}
 				fillRef={fillComposer}
 				disabledReason={
@@ -894,8 +903,13 @@ function ConnectionChip({
 /** Below this share of the month's credits the usage ring stays hidden. */
 const USAGE_RING_MIN_PERCENT = 10;
 
+export interface Starter {
+	label: string;
+	text: string;
+}
+
 /** Starter prompts an empty conversation offers; a pick fills the message box. */
-const STARTER_PROMPTS = [
+const STARTER_PROMPTS: readonly Starter[] = [
 	{
 		label: "Summarise the files in this workspace",
 		text: "Summarise the files in this workspace.",
@@ -905,12 +919,13 @@ const STARTER_PROMPTS = [
 		label: "What changed here this week?",
 		text: "What changed here this week?",
 	},
-] as const;
+];
 
 function Thread({
 	workspaceId,
 	conversationId,
 	emptyText = "Ask about this workspace. The answer streams straight from it.",
+	starters = STARTER_PROMPTS,
 	turns,
 	canSaveFiles,
 	viewerId,
@@ -930,6 +945,7 @@ function Thread({
 	workspaceId: string;
 	conversationId: string | null;
 	emptyText?: string;
+	starters?: readonly Starter[];
 	turns: ChatTurn[];
 	canSaveFiles: boolean;
 	/**
@@ -1018,7 +1034,7 @@ function Thread({
 					>
 						{onStarter ? (
 							<div className="flex flex-wrap justify-center gap-2">
-								{STARTER_PROMPTS.map((starter) => (
+								{starters.map((starter) => (
 									<Button
 										key={starter.label}
 										onClick={() => onStarter(starter.text)}
@@ -2126,6 +2142,7 @@ function Composer({
 	pinnedTediId,
 	slot,
 	placeholder = "Ask this workspace…",
+	label = "Message the workspace",
 	onSend,
 	disabledReason,
 	autoFocus,
@@ -2141,6 +2158,8 @@ function Composer({
 	pinnedTediId: string | null;
 	slot?: ReactNode;
 	placeholder?: string;
+	/** What the message box is called for screen readers. */
+	label?: string;
 	/** This conversation's usage ring, beside the model control. */
 	usage?: ReactNode;
 	workspaceId: string;
@@ -2581,7 +2600,7 @@ function Composer({
 					<DictationCapture dictation={dictation} className="px-0" />
 				) : null}
 				<Textarea
-					aria-label="Message the workspace"
+					aria-label={label}
 					className="workspace-chat-composer-input"
 					disabled={disabledReason !== null}
 					onChange={(event) => {

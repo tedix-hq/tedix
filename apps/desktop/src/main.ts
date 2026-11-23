@@ -1667,7 +1667,7 @@ async function newChat(text: string): Promise<void> {
 				for (let tries = 0; tries < 75; tries++) {
 					if (location.pathname === "/login") return "sign-in";
 					// The chat with a picked tedi and the workspace chat name their field differently.
-					const field = document.querySelector('textarea[aria-label="Message"], textarea[aria-label="Message the workspace"]');
+					const field = document.querySelector('textarea[aria-label^="Message"]');
 					if (field && !field.readOnly) {
 						const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
 						set.call(field, text);
@@ -1767,11 +1767,26 @@ else if (process.argv.includes("--local-model")) {
 		openAppLink(url);
 	});
 	openAppLink(appLink(process.argv));
-	// A page's "leave this page?" guard (an unsent draft, say) would cancel
-	// the quit silently and leave the app running without runners.
+	// A page's "leave this page?" guard (an unsent draft, say). Electron
+	// shows nothing and cancels the reload or quit silently, so Reload in
+	// Tedix OS did nothing. A browser asks; so does the app. Quitting never
+	// waits on it: that would leave the app running without runners.
 	app.on("web-contents-created", (_event, contents) => {
 		contents.on("will-prevent-unload", (event) => {
-			if (quitting) event.preventDefault();
+			if (quitting) return event.preventDefault();
+			const options = {
+				type: "question" as const,
+				message: "Leave this page?",
+				detail: "Changes you made may not be saved.",
+				buttons: ["Leave", "Stay"],
+				defaultId: 0,
+				cancelId: 1,
+			};
+			const owner = BrowserWindow.fromWebContents(contents) ?? mainWindow;
+			const answer = owner
+				? dialog.showMessageBoxSync(owner, options)
+				: dialog.showMessageBoxSync(options);
+			if (answer === 0) event.preventDefault();
 		});
 	});
 	void app.whenReady().then(async () => {

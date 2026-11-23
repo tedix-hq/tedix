@@ -767,3 +767,12 @@
 		opacity: 0.25;
 	}
 }
+
+/*
+ * Kumo keeps toasts in the bottom-right corner, where the message box and
+ * its Send button are. While a chat's message box is on screen, the toast
+ * stack sits above it instead of covering it.
+ */
+body:has(.workspace-chat-composer-input) [data-os-toast-outlet] > div {
+	bottom: 10rem;
+}
