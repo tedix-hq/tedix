@@ -24,10 +24,9 @@ import {
 	getColumns,
 	inArray,
 	notInArray,
-	or,
 	sql,
 } from "drizzle-orm";
-import { union } from "drizzle-orm/sqlite-core";
+import { alias, union } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { type DecisionEdgeRow, decisionEdges } from "../schema/decision-graph";
 import { workItems } from "../schema/work-items";
@@ -548,8 +547,10 @@ export async function getDeckDecisionContexts(
 						id: sql<string>`${decisionEdges.toId}`.as("id"),
 					})
 					.from(previous)
-					.innerJoin(
-						decisionEdges,
+					// CROSS JOIN fixes the loop order: each hop node seeks its edges
+					// instead of the planner scanning every edge in the organization.
+					.crossJoin(decisionEdges)
+					.where(
 						and(
 							eq(decisionEdges.orgId, orgId),
 							eq(decisionEdges.fromId, previous.id),
@@ -576,8 +577,8 @@ export async function getDeckDecisionContexts(
 			db
 				.select({ id: decisionEdges.toId })
 				.from(input)
-				.innerJoin(
-					decisionEdges,
+				.crossJoin(decisionEdges)
+				.where(
 					and(
 						eq(decisionEdges.orgId, orgId),
 						eq(decisionEdges.fromId, input.id),
@@ -588,8 +589,8 @@ export async function getDeckDecisionContexts(
 			db
 				.select({ id: decisionEdges.fromId })
 				.from(input)
-				.innerJoin(
-					decisionEdges,
+				.crossJoin(decisionEdges)
+				.where(
 					and(
 						eq(decisionEdges.orgId, orgId),
 						eq(decisionEdges.toId, input.id),
@@ -600,6 +601,7 @@ export async function getDeckDecisionContexts(
 			db.select({ id: reachable.id }).from(reachable),
 		),
 	);
+	const matched = alias(decisionEdges, "matched");
 	const rows = await db
 		.with(input, ...hops, reachable, subjects)
 		.select({
@@ -620,21 +622,34 @@ export async function getDeckDecisionContexts(
 		)
 		.where(
 			and(
-				eq(decisionEdges.orgId, orgId),
-				or(
-					// bound-params: CTE subquery; its rows add no bound parameters.
-					inArray(
-						decisionEdges.fromId,
-						db.select({ id: subjects.id }).from(subjects),
-					),
-					and(
-						eq(decisionEdges.toKind, "deck_card"),
-						inArray(decisionEdges.kind, ["same_as", "supersedes"]),
-						// bound-params: CTE subquery; all card IDs use one JSON parameter.
-						inArray(
-							decisionEdges.toId,
-							db.select({ id: input.id }).from(input),
-						),
+				// The id list below is already organization-scoped; the unary plus
+				// keeps the planner on the primary key instead of the org prefix.
+				sql`+${decisionEdges.orgId} = ${orgId}`,
+				// One seek per subject and per card; an OR across from_id and to_id
+				// made the planner scan every edge in the organization.
+				// bound-params: CTE subquery; all card IDs use one JSON parameter.
+				inArray(
+					decisionEdges.id,
+					union(
+						db
+							.select({ id: matched.id })
+							.from(subjects)
+							.crossJoin(matched)
+							.where(
+								and(eq(matched.orgId, orgId), eq(matched.fromId, subjects.id)),
+							),
+						db
+							.select({ id: matched.id })
+							.from(input)
+							.crossJoin(matched)
+							.where(
+								and(
+									eq(matched.orgId, orgId),
+									eq(matched.toId, input.id),
+									eq(matched.toKind, "deck_card"),
+									inArray(matched.kind, ["same_as", "supersedes"]),
+								),
+							),
 					),
 				),
 			),
