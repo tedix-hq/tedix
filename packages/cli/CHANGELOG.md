@@ -3,6 +3,15 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.2 (2026-11-23)
+
+### Patch Changes
+
+- 991ab1c: Route Auto tasks through coordinated runners using the configured policy, and keep project-specific runner scopes isolated.
+- 57c5d5c: Store readable outcome text in lane session summaries before truncating them.
+- 3a83b80: Renew a stored login during macOS dark wake instead of refusing, and record whether each renewal ran in dark wake in the renewal journal.
+- a4fb354: Allow a machine CI job log read to search for a test name, file or revision and return matching log lines.
+
 ## 0.37.1 (2026-11-23)
 
 ### Patch Changes
