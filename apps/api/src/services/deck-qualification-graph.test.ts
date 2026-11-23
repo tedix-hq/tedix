@@ -1,59 +1,36 @@
-import { beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
 import { deckQualificationGraph } from "./deck-qualification-graph";
 
-const mocks = vi.hoisted(() => ({
-	context: vi.fn(),
-	prior: vi.fn(),
-	blocked: vi.fn(),
-}));
+const mocks = vi.hoisted(() => ({ contexts: vi.fn() }));
 vi.mock("@tedix/db/queries/decision-graph", () => ({
-	getDecisionContext: mocks.context,
-	findPriorDecision: mocks.prior,
-	countBlocked: mocks.blocked,
+	getDeckDecisionContexts: mocks.contexts,
 }));
-const db = {} as DbClient;
-beforeEach(() => {
-	vi.clearAllMocks();
-	mocks.context.mockImplementation(async (_db, _org, cardId) => ({
-		cardId,
-		chain: [],
-		duplicates: [],
-		blocksCount: 0,
-	}));
-	mocks.blocked.mockResolvedValue(2);
-	mocks.prior.mockResolvedValue({
-		node: { kind: "decision", id: "answered" },
-		edge: { evidenceRef: "owner-response:answered" },
-	});
-});
-it("does not spread a Work answer to five separate recipient asks", async () => {
-	const cards = Array.from({ length: 5 }, (_, i) => ({
-		id: `recipient-${i}`,
-		workItemId: "shared-outreach",
-	}));
-	const facts = await deckQualificationGraph(db, "orchard", cards);
-	expect(mocks.prior).not.toHaveBeenCalled();
-	expect([...facts.values()].map((c) => c.priorDecision)).toEqual(
-		Array(5).fill(undefined),
+
+it("enriches the grouped D1 snapshot with graph reach and duplicates", async () => {
+	const db = {} as DbClient;
+	const cards = [{ id: "ask", workItemId: "source" }];
+	mocks.contexts.mockResolvedValue(
+		new Map([
+			[
+				"ask",
+				{
+					cardId: "ask",
+					chain: [],
+					duplicates: ["original"],
+					blocksCount: 2,
+				},
+			],
+		]),
 	);
-	expect([...facts.values()].map((c) => c.blocksCount)).toEqual(
-		Array(5).fill(2),
-	);
-});
-it("inherits an answer only through explicit duplicate identity", async () => {
-	mocks.context.mockResolvedValue({
-		cardId: "reminder",
-		chain: [],
-		duplicates: ["original"],
-		blocksCount: 0,
+	const facts = await deckQualificationGraph(db, "orchard", cards, {
+		blocksReach: async () => new Map([["ask", 5]]),
+		duplicateCommunities: async () => new Map([["ask", ["reminder"]]]),
 	});
-	const facts = await deckQualificationGraph(db, "orchard", [
-		{ id: "reminder", workItemId: "shared-outreach" },
-	]);
-	expect(mocks.prior).toHaveBeenCalledExactlyOnceWith(db, "orchard", [
-		"reminder",
-		"original",
-	]);
-	expect(facts.get("reminder")?.priorDecision?.node.id).toBe("answered");
+	expect(mocks.contexts).toHaveBeenCalledExactlyOnceWith(db, "orchard", cards);
+	expect(facts.get("ask")).toMatchObject({
+		blocksCount: 2,
+		blocksReach: 5,
+		duplicates: ["original", "reminder"],
+	});
 });

@@ -4,7 +4,7 @@
  * credential metadata and other cards.
  *
  * Every read is bounded: at most DECISION_GRAPH_MAX_HOPS traversal rounds,
- * at most FRONTIER_LIMIT ids per `IN (...)` and a LIMIT on every statement.
+ * per-card frontiers and edge limits. Deck reads share one reachable snapshot.
  */
 
 import {
@@ -17,7 +17,17 @@ import {
 	type DecisionGraphLink,
 	type DecisionGraphNode,
 } from "@tedix/api-contract/schemas/decision-graph";
-import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	getColumns,
+	inArray,
+	notInArray,
+	or,
+	sql,
+} from "drizzle-orm";
+import { union } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { type DecisionEdgeRow, decisionEdges } from "../schema/decision-graph";
 import { workItems } from "../schema/work-items";
@@ -499,6 +509,244 @@ export async function getDecisionContext(
 		duplicates,
 		blocksCount,
 	};
+}
+
+/** Qualify a whole deck from one canonical, organization-scoped snapshot. */
+export async function getDeckDecisionContexts(
+	db: DbQueryClient,
+	orgId: string,
+	cards: readonly { id: string; workItemId?: string | null }[],
+): Promise<Map<string, DecisionContext>> {
+	const contexts = new Map<string, DecisionContext>();
+	if (!cards.length) return contexts;
+	// JSON binds the set once, including decks larger than D1's parameter limit.
+	const input = db.$with("deck_cards").as(
+		db
+			.select({
+				id: sql<string>`json_extract(value, '$.id')`.as("id"),
+				workId: sql<string>`json_extract(value, '$.workItemId')`.as("work_id"),
+			})
+			.from(sql`json_each(${JSON.stringify(cards)})`),
+	);
+	const seed = db.$with<string>("deck_hop_0").as(
+		db
+			.selectDistinct({
+				kind: sql<string>`'deck_card'`.as("kind"),
+				id: sql<string>`${input.id}`.as("id"),
+			})
+			.from(input),
+	);
+	const hops = [seed];
+	// Shared nodes are read once per depth, even when many cards reach them.
+	for (let depth = 1; depth <= 4; depth++) {
+		const previous = hops[depth - 1]!;
+		hops.push(
+			db.$with(`deck_hop_${depth}`).as(
+				db
+					.selectDistinct({
+						kind: sql<string>`${decisionEdges.toKind}`.as("kind"),
+						id: sql<string>`${decisionEdges.toId}`.as("id"),
+					})
+					.from(previous)
+					.innerJoin(
+						decisionEdges,
+						and(
+							eq(decisionEdges.orgId, orgId),
+							eq(decisionEdges.fromId, previous.id),
+							eq(decisionEdges.fromKind, previous.kind),
+							inArray(decisionEdges.kind, CHAIN_EDGE_KINDS),
+						),
+					),
+			),
+		);
+	}
+	const subjects = db.$with("deck_subjects").as(
+		union(
+			db.select({ id: input.workId }).from(input),
+			db
+				.select({ id: decisionEdges.toId })
+				.from(input)
+				.innerJoin(
+					decisionEdges,
+					and(
+						eq(decisionEdges.orgId, orgId),
+						eq(decisionEdges.fromId, input.id),
+						eq(decisionEdges.fromKind, "deck_card"),
+						eq(decisionEdges.kind, "same_as"),
+					),
+				),
+			db
+				.select({ id: decisionEdges.fromId })
+				.from(input)
+				.innerJoin(
+					decisionEdges,
+					and(
+						eq(decisionEdges.orgId, orgId),
+						eq(decisionEdges.toId, input.id),
+						eq(decisionEdges.toKind, "deck_card"),
+						eq(decisionEdges.kind, "same_as"),
+					),
+				),
+			...hops.map((hop) => db.select({ id: hop.id }).from(hop)),
+		),
+	);
+	const rows = await db
+		.with(input, ...hops, subjects)
+		.select({
+			edge: getColumns(decisionEdges),
+			workTitle: sql<string | null>`${workItems.title}`.as("work_title"),
+			workDisposition: sql<string | null>`${workItems.disposition}`.as(
+				"work_disposition",
+			),
+		})
+		.from(decisionEdges)
+		.leftJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, decisionEdges.orgId),
+				eq(workItems.id, decisionEdges.toId),
+				eq(decisionEdges.toKind, "work_item"),
+			),
+		)
+		.where(
+			and(
+				eq(decisionEdges.orgId, orgId),
+				or(
+					inArray(
+						decisionEdges.fromId,
+						db.select({ id: subjects.id }).from(subjects),
+					),
+					and(
+						eq(decisionEdges.toKind, "deck_card"),
+						inArray(decisionEdges.kind, ["same_as", "supersedes"]),
+						inArray(
+							decisionEdges.toId,
+							db.select({ id: input.id }).from(input),
+						),
+					),
+				),
+			),
+		)
+		.orderBy(desc(decisionEdges.occurredAt), decisionEdges.id);
+	const outgoing = new Map<string, typeof rows>();
+	const incoming = new Map<string, typeof rows>();
+	for (const row of rows) {
+		const from = outgoing.get(row.edge.fromId) ?? [];
+		from.push(row);
+		outgoing.set(row.edge.fromId, from);
+		const to = incoming.get(row.edge.toId) ?? [];
+		to.push(row);
+		incoming.set(row.edge.toId, to);
+	}
+	const fromIds = (ids: readonly string[]) =>
+		boundedIds(ids).flatMap((id) => outgoing.get(id) ?? []);
+	const newest = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
+		b.edge.occurredAt.localeCompare(a.edge.occurredAt) ||
+		a.edge.id.localeCompare(b.edge.id);
+	const blocked = (ids: readonly string[]) =>
+		new Set(
+			fromIds(ids)
+				.filter(
+					(row) =>
+						row.edge.kind === "blocks" &&
+						row.edge.toKind === "work_item" &&
+						row.workDisposition !== null &&
+						!["completed", "cancelled"].includes(row.workDisposition),
+				)
+				.map((row) => row.edge.toId),
+		).size;
+	for (const card of cards) {
+		const chain: DecisionGraphChainStep[] = [];
+		const seen = new Set([`deck_card:${card.id}`]);
+		let frontier: DecisionGraphNode[] = [{ kind: "deck_card", id: card.id }];
+		for (let hop = 1; hop <= 4 && frontier.length; hop++) {
+			const keys = new Set(frontier.map((node) => `${node.kind}:${node.id}`));
+			// Apply the original per-card row limit before endpoint-kind filtering.
+			const candidates = fromIds(frontier.map((node) => node.id))
+				.filter((row) => CHAIN_EDGE_KINDS.includes(row.edge.kind))
+				.sort(newest)
+				.slice(0, EDGE_READ_LIMIT);
+			const next: DecisionGraphNode[] = [];
+			for (const row of candidates) {
+				if (!keys.has(`${row.edge.fromKind}:${row.edge.fromId}`)) continue;
+				const edge = toEdge(row.edge);
+				const key = `${edge.to.kind}:${edge.to.id}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				if (edge.kind === "card_from_work" && edge.source === "backfill")
+					edge.note = row.workTitle;
+				chain.push({ node: edge.to, edge, hop });
+				next.push(edge.to);
+			}
+			frontier = next;
+		}
+		const direct = outgoing.get(card.id) ?? [];
+		const reverse = incoming.get(card.id) ?? [];
+		const duplicates = [
+			...new Set([
+				...direct
+					.filter(
+						(row) =>
+							row.edge.kind === "same_as" && row.edge.fromKind === "deck_card",
+					)
+					.slice(0, EDGE_READ_LIMIT)
+					.map((row) => row.edge.toId),
+				...reverse
+					.filter(
+						(row) =>
+							row.edge.kind === "same_as" && row.edge.toKind === "deck_card",
+					)
+					.slice(0, EDGE_READ_LIMIT)
+					.map((row) => row.edge.fromId),
+			]),
+		]
+			.filter((id) => id !== card.id)
+			.sort();
+		// Only explicit same_as identity inherits an answer, never a shared Work.
+		const prior = fromIds([card.id, ...duplicates])
+			.filter((row) => DECISION_EDGE_KINDS.includes(row.edge.kind))
+			.sort(
+				(a, b) =>
+					b.edge.occurredAt.localeCompare(a.edge.occurredAt) ||
+					b.edge.confidence - a.edge.confidence,
+			)[0];
+		const superseding = reverse.find(
+			(row) =>
+				row.edge.kind === "supersedes" && row.edge.toKind === "deck_card",
+		);
+		const subjects = [
+			card.id,
+			...chain
+				.filter((step) => step.node.kind === "work_item")
+				.map((step) => step.node.id),
+		];
+		contexts.set(card.id, {
+			cardId: card.id,
+			chain,
+			duplicates,
+			blocksCount: Math.max(
+				blocked(subjects),
+				card.workItemId ? blocked([card.workItemId]) : 0,
+			),
+			...(prior
+				? {
+						priorDecision: {
+							node: toEdge(prior.edge).to,
+							edge: toEdge(prior.edge),
+						},
+					}
+				: {}),
+			...(superseding
+				? {
+						supersededBy: {
+							node: toEdge(superseding.edge).from,
+							edge: toEdge(superseding.edge),
+						},
+					}
+				: {}),
+		});
+	}
+	return contexts;
 }
 
 const MONTHS = [

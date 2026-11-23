@@ -22,6 +22,7 @@ import {
 	findDuplicateCards,
 	findPriorDecision,
 	getDecisionContext,
+	getDeckDecisionContexts,
 	terminalWorkItemIds,
 	upsertDecisionEdges,
 } from "./decision-graph";
@@ -29,7 +30,7 @@ import {
 const ORG = "fictional-lighthouse";
 const OTHER_ORG = "fictional-harbor";
 
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		schemaDdl(
@@ -49,7 +50,7 @@ function fixture() {
 			('work-release-train','${ORG}','Release train','accepted','2026-10-21T08:00:00.000Z'),
 			('work-ci-runners','${ORG}','CI runners','accepted','2026-10-21T08:00:00.000Z')
 	`);
-	const db = createDbQueryClient(createD1Facade(sqlite));
+	const db = createDbQueryClient(createD1Facade(sqlite, { onPrepare }));
 	const count = () =>
 		Number(
 			(
@@ -113,6 +114,136 @@ const githubCardEdges: DecisionEdgeInput[] = [
 ];
 
 describe("decision graph", () => {
+	it("qualifies a full deck in one read with the same decisions, chains and blocked counts", async () => {
+		let statements = 0;
+		const f = fixture(() => {
+			statements++;
+		});
+		try {
+			const cards = Array.from({ length: 86 }, (_, i) => ({
+				id: `ask-${i}`,
+				workItemId: "work-github-audit",
+			}));
+			await upsertDecisionEdges(f.db, ORG, githubCardEdges);
+			await upsertDecisionEdges(
+				f.db,
+				ORG,
+				cards.map((c) => ({
+					kind: "card_from_work",
+					from: card(c.id),
+					to: work("work-github-audit"),
+					source: "backfill",
+				})),
+			);
+			await upsertDecisionEdges(f.db, ORG, [
+				{
+					kind: "same_as",
+					from: card("ask-0"),
+					to: card("answered"),
+					source: "deck",
+				},
+				{
+					kind: "same_as",
+					from: card("answered"),
+					to: card("ask-1"),
+					source: "deck",
+				},
+				{
+					kind: "card_answers",
+					from: card("answered"),
+					to: { kind: "decision", id: "yes" },
+					source: "deck",
+				},
+				{
+					kind: "supersedes",
+					from: card("replacement"),
+					to: card("ask-2"),
+					source: "deck",
+				},
+				{
+					kind: "card_from_work",
+					from: card("lagging"),
+					to: work("work-ci-runners"),
+					source: "deck",
+				},
+				{
+					kind: "blocks",
+					from: card("lagging"),
+					to: work("work-release-train"),
+					source: "deck",
+				},
+				// A cycle and a Work answer must not retire the separate asks.
+				{
+					kind: "evidence",
+					from: work("work-github-audit"),
+					to: work("work-ci-runners"),
+					source: "deck",
+				},
+				{
+					kind: "evidence",
+					from: work("work-ci-runners"),
+					to: work("work-github-audit"),
+					source: "deck",
+				},
+			]);
+			await upsertDecisionEdges(f.db, OTHER_ORG, [
+				{
+					kind: "card_answers",
+					from: card("ask-3"),
+					to: { kind: "decision", id: "private" },
+					source: "deck",
+				},
+			]);
+			f.sqlite.exec(
+				"UPDATE work_items SET disposition='completed' WHERE id='work-ci-runners'",
+			);
+			cards.push({ id: "lagging", workItemId: "work-github-audit" });
+			const expected = new Map();
+			statements = 0;
+			const beforeStart = performance.now();
+			for (const c of cards) {
+				const context = await getDecisionContext(f.db, ORG, c.id, {
+					maxHops: 4,
+				});
+				if (context.duplicates.length)
+					context.priorDecision =
+						(await findPriorDecision(f.db, ORG, [
+							c.id,
+							...context.duplicates,
+						])) ?? context.priorDecision;
+				context.blocksCount = Math.max(
+					context.blocksCount,
+					await countBlocked(f.db, ORG, c.workItemId),
+				);
+				expected.set(c.id, context);
+			}
+			const before = {
+				statements,
+				durationMs: performance.now() - beforeStart,
+			};
+			statements = 0;
+			const afterStart = performance.now();
+			const actual = await getDeckDecisionContexts(f.db, ORG, cards);
+			const after = { statements, durationMs: performance.now() - afterStart };
+			expect(statements).toBe(1);
+			expect(actual).toEqual(expected);
+			expect(actual.get("ask-0")?.priorDecision?.node.id).toBe("yes");
+			expect(actual.get("ask-1")?.priorDecision?.node.id).toBe("yes");
+			expect(actual.get("ask-3")?.priorDecision).toBeUndefined();
+			expect(actual.get("ask-3")?.blocksCount).toBe(1);
+			console.info("deck qualification local comparison", {
+				cards: cards.length,
+				before,
+				after,
+			});
+			statements = 0;
+			expect(await getDeckDecisionContexts(f.db, ORG, [])).toEqual(new Map());
+			expect(statements).toBe(0);
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
 	it("resolves backfilled Work titles at read time without leaking other organizations", async () => {
 		const f = fixture();
 		try {

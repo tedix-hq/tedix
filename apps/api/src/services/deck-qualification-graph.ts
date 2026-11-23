@@ -1,10 +1,5 @@
 import type { DbClient } from "@tedix/db/client";
-import {
-	countBlocked,
-	findPriorDecision,
-	getDecisionContext,
-} from "@tedix/db/queries/decision-graph";
-import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph";
+import { getDeckDecisionContexts } from "@tedix/db/queries/decision-graph";
 import {
 	type DecisionGraphReader,
 	enrichDecisionContexts,
@@ -21,30 +16,7 @@ export async function deckQualificationGraph(
 	cards: readonly { id: string; workItemId?: string | null }[],
 	graph: DecisionGraphReader | null = null,
 ) {
-	const facts = new Map<string, DecisionContext>();
-	for (let offset = 0; offset < cards.length; offset += 4) {
-		await Promise.all(
-			cards.slice(offset, offset + 4).map(async (card) => {
-				const context = await getDecisionContext(db, orgId, card.id, {
-					maxHops: 4,
-				});
-				// An answered same_as card carries the same decision; a shared Work does not.
-				if (context.duplicates.length) {
-					context.priorDecision =
-						(await findPriorDecision(db, orgId, [
-							card.id,
-							...context.duplicates,
-						])) ?? context.priorDecision;
-				}
-				if (card.workItemId)
-					context.blocksCount = Math.max(
-						context.blocksCount,
-						await countBlocked(db, orgId, card.workItemId),
-					);
-				facts.set(card.id, context);
-			}),
-		);
-	}
+	const facts = await getDeckDecisionContexts(db, orgId, cards);
 	await enrichDecisionContexts(graph, orgId, cards, facts);
 	return facts;
 }
