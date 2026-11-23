@@ -560,6 +560,16 @@ export async function getDeckDecisionContexts(
 			),
 		);
 	}
+	// D1 permits at most five SELECT terms in each compound statement.
+	const reachable = db
+		.$with("deck_reachable")
+		.as(
+			union(
+				db.select({ id: seed.id }).from(seed),
+				db.select({ id: hops[1]!.id }).from(hops[1]!),
+				...hops.slice(2).map((hop) => db.select({ id: hop.id }).from(hop)),
+			),
+		);
 	const subjects = db.$with("deck_subjects").as(
 		union(
 			db.select({ id: input.workId }).from(input),
@@ -587,11 +597,11 @@ export async function getDeckDecisionContexts(
 						eq(decisionEdges.kind, "same_as"),
 					),
 				),
-			...hops.map((hop) => db.select({ id: hop.id }).from(hop)),
+			db.select({ id: reachable.id }).from(reachable),
 		),
 	);
 	const rows = await db
-		.with(input, ...hops, subjects)
+		.with(input, ...hops, reachable, subjects)
 		.select({
 			edge: getColumns(decisionEdges),
 			workTitle: sql<string | null>`${workItems.title}`.as("work_title"),

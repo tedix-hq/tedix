@@ -13,6 +13,7 @@ export default defineConfig({
 			miniflare: {
 				compatibilityDate: "2026-05-14",
 				compatibilityFlags: ["nodejs_compat"],
+				d1Databases: ["DB"],
 				durableObjects: {
 					TENANT_STORE: { className: "TenantStore", useSQLite: true },
 					TENANT_STORE_FIXTURE: {
