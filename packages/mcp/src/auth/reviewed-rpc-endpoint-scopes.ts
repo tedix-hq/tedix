@@ -147,6 +147,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"apps/updateByIdOrSlug": "mcp:apps.write",
 	"audit/appendChangeRecord": "platform:admin",
 	"audit/createEvent": "platform:admin",
+	"audit/createTelemetryBatch": "platform:admin",
 	"audit/export": "mcp:observe.read",
 	"audit/getByResource": "mcp:observe.read",
 	"audit/getChangeRecord": "platform:admin",
