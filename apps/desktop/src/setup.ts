@@ -681,12 +681,31 @@ async function readRouting(): Promise<void> {
 	}
 }
 
-async function readAgentStatus(): Promise<void> {
+/** The running read of the tools' status, so two refreshes share one. */
+let readingStatus: Promise<void> | undefined;
+function readAgentStatus(): Promise<void> {
+	readingStatus ??= readAgentStatusNow().finally(() => {
+		readingStatus = undefined;
+	});
+	return readingStatus;
+}
+
+async function readAgentStatusNow(): Promise<void> {
+	const from = Date.now();
+	// A failed read of the facts or the routing must not keep every row on
+	// "Checking…": the tools' own status still arrives.
 	const [result] = await Promise.all([
 		tedix(["setup", "agents", "--status", "--json"], { timeoutMs: 150_000 }),
-		readToolFacts(),
-		readRouting(),
+		readToolFacts().catch((error: unknown) =>
+			log(`setup: tool facts not read (${String(error)})`),
+		),
+		readRouting().catch((error: unknown) =>
+			log(`setup: routing not read (${String(error)})`),
+		),
 	]);
+	log(
+		`setup: coding tools checked in ${Math.round((Date.now() - from) / 1000)} s${result.ok ? "" : ` (${lastLine(safe(result.output)).slice(0, 160)})`}`,
+	);
 	try {
 		const parsed = JSON.parse(result.output) as {
 			hosts?: Record<string, unknown>[];
@@ -760,7 +779,12 @@ function toolRows(): ToolRow[] {
 			row.note = tool.say ?? "";
 			return row;
 		}
-		const facts = toolFacts[tool.id];
+		// A tool found after the last read of the facts still shows its status.
+		const facts =
+			toolFacts[tool.id] ??
+			(agentStatus
+				? { hasTedix: false, connection: "unknown" as const, signInWorks: true }
+				: undefined);
 		if (!agentStatus || !facts) {
 			row.tedix = "checking";
 			row.connection = "checking";

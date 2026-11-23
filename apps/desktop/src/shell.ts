@@ -136,10 +136,16 @@ export function run(
 			env: { ...personEnv(), ...options.env, PATH: toolPath() },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
+		// A process the command left behind can hold its output open, so the
+		// end never comes: a timeout ends the wait whatever happens.
 		const timer = options.timeoutMs
 			? setTimeout(() => {
 					output += "\nStopped: it did not finish in time.";
 					child.kill();
+					setTimeout(() => {
+						child.kill("SIGKILL");
+						finish(false);
+					}, 2000).unref();
 				}, options.timeoutMs)
 			: undefined;
 		options.onStart?.(() => child.kill());
@@ -159,6 +165,14 @@ export function run(
 		child.on("close", (code) => {
 			clearTimeout(timer);
 			finish(code === 0);
+		});
+		// Once the command itself has exited, its output gets one second to
+		// arrive, even if something it started still holds the output open.
+		child.on("exit", (code) => {
+			setTimeout(() => {
+				clearTimeout(timer);
+				finish(code === 0);
+			}, 1000).unref();
 		});
 	});
 }
