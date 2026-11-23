@@ -1,3 +1,4 @@
+import { routeWorkOwnershipRequest } from "./route-ownership-request";
 import { retireStaleLaneDelegationRequests } from "./lane-delegation-requests";
 import {
 	externalAgentPrincipals,
@@ -360,6 +361,64 @@ describe("question delegation", () => {
 		tediId: "worker",
 		now: NOW,
 	};
+	it("hands an ownerless proposal to an active human admin on the original open request", async () => {
+		const { db, sqlite } = question();
+		sqlite.exec(schemaDdl(workInteractionCardRevisions));
+		sqlite.exec(`UPDATE work_items SET steward_type='tedi',steward_id='worker' WHERE id='work';
+			UPDATE work_interactions SET kind='coordination',target_type='tedi',target_id='worker' WHERE id='mine';`);
+		armInteractionGuards(sqlite);
+		const request = {
+			requestId: "mine",
+			expectedRequestVersion: 1,
+			orgId: "org",
+			actor: { type: "tedi" as const, id: "worker" },
+			now: NOW,
+		};
+		await expect(
+			routeWorkOwnershipRequest(db, {
+				...request,
+				actor: { type: "tedi", id: "other" },
+			}),
+		).rejects.toThrow("Only the requester");
+		await expect(routeWorkOwnershipRequest(db, request)).rejects.toThrow(
+			"No eligible",
+		);
+		sqlite.exec(
+			"UPDATE organization_members SET role='admin' WHERE user_id='human'",
+		);
+		const routed = await routeWorkOwnershipRequest(db, request);
+		expect(routed).toMatchObject({
+			id: "mine",
+			status: "open",
+			targetType: "user",
+			targetId: "human",
+			version: 2,
+			metadata: {
+				ownershipRoute: {
+					recipientRole: "admin",
+					workLink: "/work/items/work",
+				},
+			},
+		});
+		expect(await routeWorkOwnershipRequest(db, request)).toEqual(routed);
+		const inbox = await listWorkInteractionInbox(db, {
+			orgId: "org",
+			targetType: "user",
+			targetId: "human",
+			states: ["open"],
+			observedAt: NOW,
+		});
+		expect(inbox.data.filter((row) => row.request.id === "mine")).toHaveLength(
+			1,
+		);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT disposition,accountable_owner_id FROM work_items WHERE id='work'",
+				)
+				.get(),
+		).toMatchObject({ disposition: "proposed", accountable_owner_id: null });
+	});
 	it("ledgers an answer sent with delivery none as needing no delivery", async () => {
 		const { db, sqlite } = question();
 		const response = await respondToWorkInteraction(db, {

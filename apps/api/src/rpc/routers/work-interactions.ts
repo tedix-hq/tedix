@@ -87,6 +87,7 @@ import {
 	LANE_DELEGATION_SOURCE,
 	settleLaneDelegationRequests,
 } from "@tedix/db/queries/work-items/lane-delegation-requests";
+import { routeWorkOwnershipRequest } from "@tedix/db/queries/work-items/route-ownership-request";
 import { reviewWorkInteraction } from "@tedix/db/queries/work-items/interaction-reviews";
 import {
 	listUndeliveredWorkInteractionResponses,
@@ -350,6 +351,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
 	const {
+		ownershipRoute: _untrustedOwnershipRoute,
 		delegatedApproval: _untrustedDelegatedApproval,
 		curation: _untrustedCuration,
 		internalRouting: _untrustedRouting,
@@ -2369,6 +2371,24 @@ export const workInteractionsContractRouter = interactionsOs.router({
 		}
 	}),
 	respond: respondProcedure,
+	routeOwnershipRequest: writeOs.routeOwnershipRequest.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const actor = await verifiedActiveWorkActor(context, orgId);
+			try {
+				return requestOutput(
+					await routeWorkOwnershipRequest(context.db, {
+						orgId,
+						actor,
+						...input,
+						now: new Date().toISOString(),
+					}),
+				);
+			} catch (error) {
+				rethrowInteractionError(error);
+			}
+		},
+	),
 	delegate: delegateProcedure,
 	delegateToSteward: delegateToStewardProcedure,
 	cancel: cancelProcedure,

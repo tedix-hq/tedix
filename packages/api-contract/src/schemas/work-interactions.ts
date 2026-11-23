@@ -115,6 +115,11 @@ export const WorkInteractionUrgencySchema = z.enum(["now", "later"]);
 
 export const WorkInteractionCursorSchema = WorkFactoryProjectionCursorSchema;
 
+export const RouteWorkOwnershipRequestInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedRequestVersion: z.number().int().positive(),
+});
+
 export const DelegateWorkInteractionInputSchema = z.strictObject({
 	requestId: z.uuid(),
 	expectedRequestVersion: z.number().int().positive(),

@@ -33,6 +33,7 @@ import {
 	CreateWorkInteractionInputSchema,
 	DismissCommitmentRemindersInputSchema,
 	DismissCommitmentRemindersResultSchema,
+	RouteWorkOwnershipRequestInputSchema,
 	DelegateWorkInteractionInputSchema,
 	DelegateWorkInteractionToStewardInputSchema,
 	DelegateWorkInteractionToStewardResultSchema,
@@ -128,6 +129,17 @@ export const workInteractionsContract = oc
 			})
 			.input(ListWorkInteractionCliInboxInputSchema)
 			.output(ListWorkInteractionCliInboxResultSchema),
+		routeOwnershipRequest: oc
+			.route({
+				method: "POST",
+				path: "/{requestId}/route-ownership",
+				summary:
+					"Send an existing ownership request to a person who can choose the first owner",
+				description:
+					"Use the original open coordination request for a proposed Work Item with no owner. Its creator or addressed steward can send it to an active organization owner or admin. Returns the same request, recipient and next action. Leaves ownership and acceptance unchanged.",
+			})
+			.input(RouteWorkOwnershipRequestInputSchema)
+			.output(WorkInteractionRequestSchema),
 		delegate: oc
 			.route({
 				method: "POST",

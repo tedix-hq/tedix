@@ -359,7 +359,8 @@ export function interactionDeckRoute(
 	if (
 		route.destination === "feed" &&
 		(r.requestedFromType ?? r.targetType) === "user" &&
-		PERSON_ASK_KINDS.has(r.kind)
+		(PERSON_ASK_KINDS.has(r.kind) ||
+			(r.kind === "coordination" && Boolean(m.ownershipRoute)))
 	)
 		return {
 			decision,
@@ -423,7 +424,10 @@ export function projectDeckCards(input: {
 		cards.push({
 			id: r.id,
 			kind,
-			label: r.subject,
+			label:
+				m.ownershipRoute && row.workItem
+					? `Choose an owner for “${row.workItem.title}”`
+					: r.subject,
 			project,
 			urgency,
 			decision,

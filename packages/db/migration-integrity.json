@@ -1980,6 +1980,10 @@
 		{
 			"name": "20261123215754_drop_objective_cost_caps/migration.sql",
 			"sha256": "71bbffc931d3a32d259ea391b53a241cbcc32a6e830f3ef31432e0bb28c4143c"
+		},
+		{
+			"name": "20261123234153_route_missing_owner/migration.sql",
+			"sha256": "a7770ab2fa85002da073b05ba6005edf3ed43f29c15cb654b3ab6e80b6ef7eb6"
 		}
 	]
 }

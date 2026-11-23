@@ -500,6 +500,7 @@
 		"./queries/work-items/stewardship": "./src/queries/work-items/stewardship.ts",
 		"./queries/work-items/triage": "./src/queries/work-items/triage.ts",
 		"./queries/work-items/work-routing": "./src/queries/work-items/work-routing.ts",
+		"./queries/work-items/route-ownership-request": "./src/queries/work-items/route-ownership-request.ts",
 		"./queries/work-items/interaction-deliveries": "./src/queries/work-items/interaction-deliveries.ts",
 		"./queries/work-items/interactions": "./src/queries/work-items/interactions.ts",
 		"./queries/work-items/lane-delegation-requests": "./src/queries/work-items/lane-delegation-requests.ts",
