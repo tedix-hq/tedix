@@ -33,6 +33,7 @@ const tables: [string, SQLiteTable, Record<string, SQLiteColumn>, string[]][] =
 				"observerWokenAt",
 				"metadataExecutor",
 				"metadataSource",
+				"delegationRootId",
 			],
 		],
 		[
@@ -45,13 +46,19 @@ const tables: [string, SQLiteTable, Record<string, SQLiteColumn>, string[]][] =
 			"tediApprovalRequests",
 			tediApprovalRequests,
 			approvalRequestStoredColumns,
-			["workItemId", "executionStatus", "executionDismissedAt", "consumedAt"],
+			[
+				"workItemId",
+				"executionStatus",
+				"executionDismissedAt",
+				"consumedAt",
+				"delegatedOwnerId",
+			],
 		],
 		[
 			"workInteractions",
 			workInteractions,
 			workInteractionStoredColumns,
-			["source"],
+			["source", "delegatedOwnerId"],
 		],
 	];
 
