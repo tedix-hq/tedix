@@ -374,7 +374,8 @@ export async function getRecentCompletedByCategory(
 			and(
 				eq(tediRationaleRecords.tediId, tediId),
 				eq(tediRationaleRecords.category, category),
-				ne(tediRationaleRecords.outcomeStatus, "pending"),
+				// A literal lets SQLite prove the partial-index predicate at prepare time.
+				sql`${tediRationaleRecords.outcomeStatus} <> 'pending'`,
 			),
 		)
 		.orderBy(desc(tediRationaleRecords.createdAt))

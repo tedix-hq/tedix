@@ -13,6 +13,7 @@ import {
 	type RationaleProofRefKind,
 } from "@tedix/api-contract/constants/enums";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
+import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
@@ -153,6 +154,9 @@ export const tediRationaleRecords = sqliteTable(
 			table.createdAt,
 		),
 		index("idx_rationale_category").on(table.tediId, table.category),
+		index("idx_rationale_completed_category_created")
+			.on(table.tediId, table.category, table.createdAt)
+			.where(sql`outcome_status <> 'pending'`),
 		index("idx_rationale_outcome").on(table.tediId, table.outcomeStatus),
 		index("idx_rationale_run").on(table.runId),
 		index("idx_rationale_work_item").on(table.workItemId),

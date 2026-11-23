@@ -1956,6 +1956,10 @@
 		{
 			"name": "20261123165022_credit_budgets_need_no_attempt_reservation/migration.sql",
 			"sha256": "8150ed55b8c306996e2c582868602a6b9a42ccf5237512889511599baa2765f2"
+		},
+		{
+			"name": "20261123165852_completed_category_seek/migration.sql",
+			"sha256": "d71bfccace55539c7c99b60b6a6c7f5123fc1fff219ecb84d64b7628ef5e7ad5"
 		}
 	]
 }

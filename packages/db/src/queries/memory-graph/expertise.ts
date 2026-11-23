@@ -186,10 +186,11 @@ export async function recalculateExpertise(
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const result = await db
 		.select({
-			factCount: count(memoryFacts.id),
+			factCount: count(),
 			avgConf: sql<number>`COALESCE(avg(${memoryFacts.confidence}), 0)`,
 		})
-		.from(memoryFacts)
+		// Keep the exact recount on the covering live-fact index, even with stale statistics.
+		.from(sql`${memoryFacts} INDEXED BY idx_memory_facts_expertise_live`)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, organizationId),

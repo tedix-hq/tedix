@@ -1,0 +1,1 @@
+CREATE INDEX `idx_rationale_completed_category_created` ON `tedi_rationale_records` (`tedi_id`,`category`,`created_at`) WHERE outcome_status <> 'pending';
