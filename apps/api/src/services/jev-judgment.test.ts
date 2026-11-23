@@ -1,5 +1,12 @@
 import { JevResponseError } from "@tedix/workers-ai/jev";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import { executeJevJudgment } from "./jev-judgment";
 import type { KernelExecutionAttempt } from "../rpc/routers/kernel/gateway-attribution";
 const mocks = vi.hoisted(() => ({
@@ -27,9 +34,15 @@ vi.mock("@tedix/workers-ai/jev", () => ({
 		}
 	},
 }));
-vi.mock("../rpc/routers/kernel/billing-reservation", () => ({
-	reserveKernelBilling: mocks.reserve,
-}));
+vi.mock(
+	"../rpc/routers/kernel/billing-reservation",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("../rpc/routers/kernel/billing-reservation")
+		>()),
+		reserveKernelBilling: mocks.reserve,
+	}),
+);
 vi.mock("./provider-model-pricing", () => ({
 	resolveProviderModelRate: mocks.rate,
 	priceProviderUsage: mocks.price,
@@ -123,6 +136,8 @@ beforeEach(() => {
 	});
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("shared Jev execution", () => {
 	it("defaults to Cloudflare without consulting experimental tenant ranking opt-ins", async () => {
 		expect(await execute()).not.toBeNull();
@@ -146,12 +161,35 @@ describe("shared Jev execution", () => {
 		expect(mocks.call).not.toHaveBeenCalled();
 	});
 	it("requires governed rate and admission even for default adopted purposes", async () => {
-		mocks.rate.mockResolvedValue({ status: "unresolved" });
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		mocks.rate.mockResolvedValue({
+			status: "unpriced",
+			reason: "missing_rate",
+		});
 		expect(await execute()).toBeNull();
+		expect(warn.mock.calls[0]![0]).toBe(
+			"[jev-judgment] judgment unavailable reason=rate_missing_rate",
+		);
 		expect(mocks.reserve).not.toHaveBeenCalled();
 		expect(mocks.insert).not.toHaveBeenCalled();
 	});
+	it("logs the billing denial code without leaking its detail or retrying inference", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		mocks.reserve.mockRejectedValueOnce(
+			new Error(
+				"Inference blocked by billing policy: model_tier_not_allowed — private detail",
+			),
+		);
+		expect(await execute()).toBeNull();
+		expect(warn.mock.calls[0]![0]).toBe(
+			"[jev-judgment] judgment unavailable reason=billing_model_tier_not_allowed",
+		);
+		expect(JSON.stringify(warn.mock.calls)).not.toContain("private detail");
+		expect(mocks.call).toHaveBeenCalledTimes(1);
+		expect(mocks.insert).not.toHaveBeenCalled();
+	});
 	it("retains actual usage on rejected answers without replaying inference", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		mocks.call.mockImplementation(async (client) => {
 			await client.authorize({ execution: identity, body: "{}" });
 			throw new JevResponseError("invalid", {
@@ -166,6 +204,9 @@ describe("shared Jev execution", () => {
 			}),
 		).toBeNull();
 		expect(attempts[0]!.usage!.inputTokens).toBe(100);
+		expect(warn.mock.calls[0]![0]).toBe(
+			"[jev-judgment] judgment unavailable reason=invalid_provider_response",
+		);
 		expect(mocks.insert).toHaveBeenCalledTimes(1);
 		expect(
 			mocks.insert.mock.calls[0]![1][0].callDurationMs,

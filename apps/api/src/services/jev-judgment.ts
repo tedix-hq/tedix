@@ -8,7 +8,10 @@ import {
 	computeCostMicros,
 	type ProviderTokenRates,
 } from "@tedix/db/utils/model-pricing";
-import { reserveKernelBilling } from "../rpc/routers/kernel/billing-reservation";
+import {
+	billingPolicyDenialCode,
+	reserveKernelBilling,
+} from "../rpc/routers/kernel/billing-reservation";
 import {
 	kernelGatewayMetadata,
 	type KernelGatewayContext,
@@ -68,6 +71,7 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 	if (!context.organizationId || signal?.aborted) return null;
 	let admitted: KernelGatewayContext | undefined;
 	let admittedRate: (ProviderTokenRates & { id: string }) | undefined;
+	let failureReason = "transport_configuration_or_request";
 	const attempts: KernelExecutionAttempt[] = [];
 	const billingContext = {
 		...context,
@@ -80,15 +84,19 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 			execution,
 			body,
 		}: Parameters<Parameters<typeof callJev>[0]["authorize"]>[0]) => {
+			failureReason = "rate_lookup_failed";
 			const rate = await resolveProviderModelRate(env, {
 				provider: execution.provider,
 				modelId: execution.requestModel,
 				deploymentScope: providerDeploymentScope(execution),
 				occurredAt: new Date().toISOString(),
 			});
-			if (rate.status !== "resolved")
+			if (rate.status !== "resolved") {
+				failureReason = `rate_${rate.reason}`;
 				throw new Error("Jev judgment requires a governed provider rate");
+			}
 			admittedRate = rate.rate;
+			failureReason = "billing_admission_failed";
 			admitted = await reserveKernelBilling(env, {
 				context: billingContext,
 				source: billingSource,
@@ -112,6 +120,7 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 			});
 			context.executionAttempts?.push(...attempts);
 			onExecutionAttempts?.(attempts);
+			failureReason = "dispatch_failed";
 			return { attribution: kernelGatewayMetadata(admitted) };
 		},
 	};
@@ -236,7 +245,20 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 				input.holdUsagePersistence(persistence.catch(() => undefined));
 			else await persistence;
 		}
-		console.warn("[jev-judgment] judgment unavailable", {
+		const denial = billingPolicyDenialCode(error);
+		let reason = failureReason;
+		if (error instanceof JevResponseError)
+			reason = error.status
+				? `provider_http_${error.status}`
+				: "invalid_provider_response";
+		else if (denial) reason = `billing_${denial}`;
+		else if (
+			error instanceof Error &&
+			(error.message === "Jev request timed out" ||
+				["AbortError", "TimeoutError"].includes(error.name))
+		)
+			reason = "aborted_or_timeout";
+		console.warn(`[jev-judgment] judgment unavailable reason=${reason}`, {
 			executionId: admitted?.executionId ?? null,
 			failure:
 				error instanceof JevResponseError
