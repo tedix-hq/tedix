@@ -350,7 +350,7 @@ function tools(now: PanelState): Group[] {
 			{
 				title: "Claude",
 				glyph: "bubble",
-				sub: "Add Tedix as a connector.",
+				sub: "Claude requires a manual custom connector.",
 				control: [
 					button(
 						"Copy address",
@@ -372,12 +372,15 @@ function tools(now: PanelState): Group[] {
 			{
 				title: "ChatGPT",
 				glyph: "bubble-spark",
-				sub: "Turn on Tedix in the Plugins Directory.",
+				sub: "Turn on Tedix in Plugins, then start a Work chat.",
 				control: [
 					button(
 						"Open",
 						"plain",
-						() => void tedixShell.open("chatgpt"),
+						() =>
+							void tedixShell.open(
+								now.setup.desktopApps.chatgpt ? "chatgpt-app" : "chatgpt",
+							),
 						false,
 						{
 							key: "open-chatgpt",
@@ -421,7 +424,7 @@ function tools(now: PanelState): Group[] {
 					: view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
-				!view.working && (view.ready && !limit ? READY_MARK() : view.action),
+				view.ready && !limit ? READY_MARK() : view.action,
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,

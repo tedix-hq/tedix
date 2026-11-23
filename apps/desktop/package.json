@@ -14,6 +14,7 @@
 		"type-check": "tsc --noEmit"
 	},
 	"devDependencies": {
+		"@tedix/auth": "workspace:*",
 		"@tedix/tsconfig": "workspace:*",
 		"@types/node": "catalog:",
 		"electron": "45.2.0",

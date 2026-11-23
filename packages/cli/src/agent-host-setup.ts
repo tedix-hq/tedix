@@ -355,7 +355,6 @@ async function hostStatus(
 				status.account === "signed-in" &&
 				status.signedIn !== false &&
 				status.protocolEnabled !== false &&
-				(host !== "codex" || status.hookTrust === "trusted") &&
 				age >= 0 &&
 				age < 24 * 60 * 60_000 &&
 				proof.fingerprint === proofFingerprint(host, status)
@@ -459,7 +458,9 @@ async function codexSetup(
 			pending.delete(event.id);
 			if (event.error)
 				item.reject(
-					new Error("Codex could not run the setup read; check /mcp in Codex."),
+					new Error(
+						"Codex could not check the connection. Try signing in to Tedix from Codex again.",
+					),
 				);
 			else item.resolve(event.result);
 		} catch {
@@ -482,24 +483,26 @@ async function codexSetup(
 			capabilities: { experimentalApi: true, explicitGatewayOauth: true },
 		});
 		child.stdin.write('{"method":"initialized"}\n');
-		const listed = asRecord(await request("hooks/list", { cwds: [homedir()] }));
-		const entries = records(listed?.data);
-		const hooks = entries
-			.flatMap((entry) => records(entry.hooks))
-			.filter(
-				(hook) =>
-					(typeof hook.pluginId === "string" &&
-						/^tedix@/.test(hook.pluginId)) ||
-					(typeof hook.command === "string" &&
-						/(?:^|[\s/])tedix['"]?\s+hooks\s/.test(hook.command)),
+		if (!verify) {
+			const listed = asRecord(
+				await request("hooks/list", { cwds: [homedir()] }),
 			);
-		const trust =
-			!hooks.length ||
-			entries.some(
-				(entry) =>
-					(Array.isArray(entry.errors) && entry.errors.length) ||
-					(Array.isArray(entry.warnings) && entry.warnings.length),
-			)
+			const entries = records(listed?.data);
+			const hooks = entries
+				.flatMap((entry) => records(entry.hooks))
+				.filter(
+					(hook) =>
+						(typeof hook.pluginId === "string" &&
+							/^tedix@/.test(hook.pluginId)) ||
+						(typeof hook.command === "string" &&
+							/(?:^|[\s/])tedix['"]?\s+hooks\s/.test(hook.command)),
+				);
+			return !hooks.length ||
+				entries.some(
+					(entry) =>
+						(Array.isArray(entry.errors) && entry.errors.length) ||
+						(Array.isArray(entry.warnings) && entry.warnings.length),
+				)
 				? "unknown"
 				: hooks.every(
 							(hook) =>
@@ -509,11 +512,7 @@ async function codexSetup(
 					  )
 					? "trusted"
 					: "untrusted";
-		if (!verify) return trust;
-		if (trust !== "trusted")
-			throw new Error(
-				"In Codex /hooks, review and trust the Tedix hooks, then check again.",
-			);
+		}
 		const started = asRecord(
 			await request("thread/start", {
 				cwd: homedir(),
@@ -562,7 +561,7 @@ async function codexSetup(
 			throw new Error(
 				"Tedix did not return a successful profile read inside Codex.",
 			);
-		return trust;
+		return "unknown";
 	} finally {
 		clearTimeout(timer);
 		lines.close();
@@ -637,7 +636,7 @@ async function verifyHost(
 		throw new Error(`Enable the Tedix plugin in ${host}, then check again.`);
 	if (status.account !== "signed-in")
 		throw new Error(
-			`Sign in to ${host} first: ${host === "codex" ? "codex login" : "claude auth login"}.`,
+			`Sign in to your ${host === "codex" ? "Codex" : "Claude Code"} account, then check again.`,
 		);
 	if (host === "codex") await codexSetup(true);
 	else {
@@ -656,7 +655,7 @@ async function verifyHost(
 		]);
 		if (result.status !== 0 || !claudeSetupReadSucceeded(result.stdout))
 			throw new Error(
-				"Tedix did not return a successful profile read inside Claude Code; open /mcp and authenticate Tedix, then check again.",
+				"Claude Code could not read your Tedix profile. Sign in to Tedix in Claude Code and try again.",
 			);
 	}
 	const at = new Date().toISOString();

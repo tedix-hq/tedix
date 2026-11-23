@@ -133,7 +133,7 @@ export function run(
 			resolve({ ok, output: output || extra });
 		};
 		const child = spawn(command, args, {
-			env: { ...personEnv(), ...options.env, PATH: toolPath() },
+			env: { ...personEnv(), PATH: toolPath(), ...options.env },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		// A process the command left behind can hold its output open, so the

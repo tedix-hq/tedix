@@ -63,6 +63,7 @@ import {
 	setAppSignIn,
 	type SetupAction,
 	settings,
+	desktopAppPath,
 	setupAction,
 	setupState,
 } from "./setup";
@@ -101,7 +102,7 @@ function osOrigin(): string {
 	const host = settings().host ?? "";
 	return `https://${isOsHost(host) ? host : "os.tedix.dev"}`;
 }
-const PANEL_LINKS: Record<PanelLink, string> = {
+const PANEL_LINKS: Record<Exclude<PanelLink, "chatgpt-app">, string> = {
 	"claude-connectors": "https://claude.ai/customize/connectors",
 	chatgpt: "https://chatgpt.com/plugins",
 	"install-claude-code": "https://claude.com/product/claude-code",
@@ -2134,6 +2135,7 @@ else if (process.argv.includes("--local-model")) {
 					log("sign-in: chosen in Set up this Mac or Settings");
 					return signInWithBrowser();
 				},
+				openSignIn: (url) => shell.openExternal(url),
 				startRunnersIfStopped,
 			});
 			await refresh();
@@ -2142,10 +2144,23 @@ else if (process.argv.includes("--local-model")) {
 			fromLocalPage(event);
 			if (typeof text === "string") clipboard.writeText(text.slice(0, 20_000));
 		});
-		ipcMain.handle("open", (event, link: PanelLink) => {
+		ipcMain.handle("open", async (event, link: PanelLink) => {
 			fromLocalPage(event);
-			const url = PANEL_LINKS[link];
-			if (url) return shell.openExternal(url);
+			if (link === "chatgpt-app") {
+				const path = desktopAppPath("chatgpt");
+				const failure = path
+					? await shell.openPath(path)
+					: "ChatGPT was not found.";
+				if (failure)
+					await dialog.showMessageBox({
+						type: "warning",
+						message: "Could not open ChatGPT",
+						detail: failure,
+					});
+				return;
+			}
+			if (Object.hasOwn(PANEL_LINKS, link))
+				await shell.openExternal(PANEL_LINKS[link]);
 		});
 		ipcMain.handle("open-work", (event, itemId: unknown) => {
 			fromLocalPage(event);
@@ -2287,12 +2302,9 @@ else if (process.argv.includes("--local-model")) {
 			// While a browser sign-in is waiting, notice when it ends.
 			if (appSignIn.waiting) void readAppSignIn();
 		}, 5000);
-		// The checklist opens by itself while the command-line tool or the
-		// sign-in on this Mac is still to do.
 		onSetupChange(() => void publish());
 		onCliChange(() => void refreshSetup(false).then(refresh));
 		void refreshSetup(true).then(async () => {
-			if (setupState().open) openSetup();
 			// The second half of the click that restarted the app. It runs
 			// before the runners start, so they start on the new tool.
 			if (clicked) {

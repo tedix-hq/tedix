@@ -146,8 +146,7 @@ export const connected = (tool: ToolRow) =>
 	tool.enabled &&
 	tool.account === "signed-in" &&
 	tool.connection === "signed-in" &&
-	tool.readVerified &&
-	(tool.id !== "codex" || tool.hookTrust === "trusted");
+	tool.readVerified;
 
 /** The tools on this Mac that Tedix can work with; absent ones are hidden. */
 export const foundTools = (state: PanelState) =>
@@ -164,7 +163,7 @@ export interface ToolView {
 	tone?: "good" | "warn" | "bad";
 	/** The one next step, as a button. */
 	action?: HTMLButtonElement;
-	/** True only when added, signed in, a read worked and its runner runs. */
+	/** Connection verified, with a running runner when showing tasks. */
 	ready: boolean;
 	working?: string;
 	error?: string;
@@ -172,29 +171,43 @@ export interface ToolView {
 	cancel?: () => void;
 }
 
-export function toolView(state: PanelState, tool: ToolRow): ToolView {
+export function toolView(
+	state: PanelState,
+	tool: ToolRow,
+	view: "connection" | "tasks" = "tasks",
+): ToolView {
 	const steps = state.setup.steps;
-	const runner = runnerFor(state, tool);
-	const keys = ["account", "add", "connect", "verify", "hooks"].map(
-		(kind) => [kind, steps[`${kind}:${tool.id}`]] as const,
-	);
-	const running = state.setup.steps[`run:${tool.executor}`];
+	const runner = view === "tasks" ? runnerFor(state, tool) : undefined;
+	const keys = [
+		"account",
+		"add",
+		"connect",
+		"verify",
+		...(runner?.enabled ? ["hooks"] : []),
+	].map((kind) => [kind, steps[`${kind}:${tool.id}`]] as const);
+	const running = view === "tasks" ? steps[`run:${tool.executor}`] : undefined;
 	const busy =
 		keys.find(([, ran]) => ran?.working) ??
 		(running?.working ? (["run", running] as const) : undefined);
 	if (busy) {
 		const [kind, ran] = busy;
 		const stoppable = ["account", "connect", "verify", "hooks"].includes(kind);
+		const browser =
+			(kind === "account" || kind === "connect") &&
+			(ran as StepRun).address?.startsWith("https://");
 		return {
 			sub: "",
 			ready: false,
 			working:
-				kind === "account" || kind === "connect"
-					? "Waiting for your browser…"
+				kind === "account"
+					? "Finish signing in in your browser…"
 					: (ran as StepRun).working,
-			cancel: stoppable
-				? () => act("cancel", `${kind === "hooks" ? "hooks" : kind}:${tool.id}`)
+			action: browser
+				? button("Open sign-in again", "plain", () =>
+						act("open-sign-in", `${kind}:${tool.id}`),
+					)
 				: undefined,
+			cancel: stoppable ? () => act("cancel", `${kind}:${tool.id}`) : undefined,
 		};
 	}
 	const failed =
@@ -247,8 +260,11 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 		return {
 			...base,
 			ready: false,
-			sub: "Tedix is not added yet",
-			action: tool.canAdd ? plain("Add", "add", "Adding…") : undefined,
+			sub: tool.canSignIn ? "" : tool.note,
+			action:
+				tool.canAdd && tool.canSignIn
+					? plain("Connect", "connect", "Connecting…")
+					: undefined,
 		};
 	if (tool.tedix === "unknown")
 		return {
@@ -266,43 +282,40 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			sub: `Tedix is turned off in ${tool.name}`,
 			action: checkAgain(),
 		};
-	if (tool.id === "codex" && tool.hookTrust !== "trusted")
+	const checkable = tool.id === "codex" || tool.id === "claude";
+	if (tool.connection !== "signed-in" && tool.canSignIn)
 		return {
 			...base,
 			ready: false,
-			tone: "warn",
-			sub: "Needs one approval in Codex",
-			action: plain("Open Codex", "trust-hooks", "Opening…"),
+			sub: "",
+			action: plain("Connect", "connect", "Connecting…"),
 		};
-	if (tool.connection === "signed-out")
+	if (!connected(tool))
 		return {
 			...base,
 			ready: false,
-			tone: "warn",
-			sub: "Not signed in to Tedix",
-			action: tool.canSignIn
-				? plain("Sign in", "connect", "Signing in…")
-				: undefined,
-		};
-	if (!connected(tool)) {
-		const checkable = tool.id === "codex" || tool.id === "claude";
-		return {
-			...base,
-			ready: false,
-			// Nothing to say until a Check: its button is the next step.
 			sub: checkable
-				? ""
+				? tool.connection === "signed-out"
+					? tool.note
+					: "Check that Tedix works in this app."
 				: tool.connection === "signed-in"
-					? "Signed in to Tedix"
-					: "Sign in to Tedix once",
-			action: checkable
-				? plain("Check", "verify", "Checking…")
-				: tool.canSignIn && tool.connection !== "signed-in"
-					? plain("Sign in", "connect", "Signing in…")
+					? "Signed in. Connection check unavailable."
+					: tool.note,
+			action:
+				checkable && tool.connection !== "signed-out"
+					? plain("Check connection", "verify", "Checking…")
 					: undefined,
 		};
-	}
-	if (!runner?.enabled) return { ...base, ready: false, sub: "" };
+	if (view === "connection") return { ready: true, sub: "" };
+	if (runner?.enabled && tool.id === "codex" && tool.hookTrust !== "trusted")
+		return {
+			...base,
+			ready: false,
+			tone: "warn",
+			sub: "Connected. Task setup needs your approval in Codex.",
+			action: plain("Review in Codex", "trust-hooks", "Opening…"),
+		};
+	if (!runner?.enabled) return { ...base, ready: false, sub: "Connected" };
 	if (!runner.running)
 		return {
 			...base,

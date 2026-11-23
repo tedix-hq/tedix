@@ -29,11 +29,16 @@ at **Chip**.
 ## Set it up
 
 1. Open the downloaded file and move **Tedix** to your Applications folder.
-2. Open Tedix and choose **Sign in**. Your browser opens; sign in with your
-   Tedix account.
-3. Choose the agents you use and sign each one in to Tedix.
+2. Open Tedix and choose **Try a demo** to explore a sample on your Mac, or
+   **Sign in** to use your Tedix account. Finish signing in in your browser
+   and return to Tedix.
+3. Choose **Open Tedix**, or choose **Connect an app** to add Tedix to an app
+   you already use. Tedix opens a sign-in page when the app needs one.
 
-You can change everything later in **Settings** (⌘,).
+You can connect an app later in **Settings → Agents**. Some apps have their
+own setup. ChatGPT uses its Plugins screen, and Claude chat uses a custom
+connector. To let an agent run tasks on your Mac, use **Use for tasks** in
+Settings.
 
 ## Quitting and updating
 

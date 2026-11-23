@@ -61,37 +61,15 @@ The app is not signed or notarized yet and has been run on macOS only.
   The app waits 30 minutes for this, also across a restart. If the sign-in
   cannot finish, the app says why and offers to start again. Once you are
   signed in, the menu shows who is signed in instead.
-- **First run.** On a Mac where the app was never set up, the setup opens
-  before the Tedix window, which comes next when the setup closes. Without
-  an agent, setup is only signing in to this app and adding Tedix to
-  the Claude or ChatGPT app (found in Applications): no command-line tool,
-  project folder or sessions. Claude Code inside the Claude app's Code tab
-  counts as Claude Code.
-- **Set up this Mac.** **Settings → General → Setup guide** opens it, and it opens by itself until
-  this Mac is signed in, and from a `tedix://setup` link. Five short
-  screens, with dashes at the bottom left to move between them (Welcome,
-  This Mac, Agents, Sessions, Ready); Settings → General → Set up
-  this Mac opens them again:
-  - **Welcome.**
-  - **This Mac:** the sign-in (first Tedix in this app, then this Mac's
-    command-line tool with `tedix -w connect login`, started by the app),
-    the command-line tool and its version, and opening at login.
-  - **Agents:** the Claude and ChatGPT apps first, then one row per
-    tool found (Claude Code, Codex, Devin, OpenCode) with a **Use for
-    tasks** switch and its next step inline (**Add**, **Sign in**, **Check
-    read**), **Ready** once that is done; and the project folder. With no
-    agent installed, one line with links to get one.
-  - **Sessions:** whether your sessions show in Tedix, on for every
-    project unless you change it, with a tab and a list per tool.
-  - **Ready:** one line on what is connected after one live check that the
-    command-line tool reaches Tedix, or the one thing that still needs you
-    with a link to its screen.
-
-  A row shows one short line and one control. Versions, places and what a
-  failure said are behind **Details**; a failed step shows its reason and
-  **Retry** under the row. The window changes other tools only through
-  `tedix setup agents` and the tool's own commands.
-
+- **First run.** Choose **Try a demo** for the bundled sample or **Sign in**
+  to use a Tedix account. After sign-in, choose **Open Tedix** or
+  **Connect an app**. The setup guide is also in **Settings → General**.
+- **Connect an app.** Tedix looks for Mac apps and command-line tools
+  separately. Choose **Connect** to add Tedix to a detected coding tool and
+  start its browser sign-in. Claude Code and Codex can check the connection
+  with a Tedix read. ChatGPT opens its own app for plugin setup, and Claude
+  chat uses a custom connector. Local tasks and session sharing are set up
+  separately in **Settings → Agents**.
 - **The command-line tool.** With no `tedix` installed, the app links its own
   copy and adds `~/.local/bin` to your shell profile if it is missing. A
   separate install is left alone until you choose **Let the app manage it**:
