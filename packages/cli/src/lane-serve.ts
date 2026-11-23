@@ -1295,6 +1295,7 @@ interface Receipt {
 	laneResult?: LaneResult;
 	verification?: LandedVerification;
 	verificationDeadline?: number;
+	deploymentWaitReason?: string;
 	verificationRecorded?: boolean;
 	verificationRefuted?: boolean;
 	/** The verifier could not reach what proves the result; a person checks it. */
@@ -1362,7 +1363,8 @@ const DeploymentSchema = z.object({ url: z.url(), sha: FullSha });
 const LandedVerificationSchema = z.object({
 	round: z.number().int().min(1).max(MAX_VERIFICATION_ROUNDS),
 	commits: z.array(FullSha).min(1),
-	deployments: z.array(DeploymentSchema).min(1),
+	// CLI and documentation commits have no product deployment to wait for.
+	deployments: z.array(DeploymentSchema),
 	unverified: z.string(),
 	repository: z
 		.string()
@@ -2823,6 +2825,51 @@ async function checkoutRepository(repo: string): Promise<string | undefined> {
 	}
 }
 
+const deployedApps = {
+	api: "apps/api",
+	os: "apps/os",
+	builder: "apps/cms",
+	mcp: "apps/mcp",
+} as const;
+
+function deploymentPaths(repo: string): Map<string, Set<string>> {
+	const manifests = new Map<string, { path: string; dependencies: string[] }>();
+	for (const parent of ["apps", "packages"]) {
+		if (!existsSync(join(repo, parent))) continue;
+		for (const entry of readdirSync(join(repo, parent))) {
+			const path = `${parent}/${entry}`;
+			const file = join(repo, path, "package.json");
+			if (!existsSync(file)) continue;
+			const manifest = JSON.parse(readFileSync(file, "utf8"));
+			manifests.set(manifest.name, {
+				path,
+				dependencies: Object.keys({
+					...manifest.dependencies,
+					...manifest.devDependencies,
+				}),
+			});
+		}
+	}
+	return new Map(
+		Object.entries(deployedApps).map(([service, app]) => {
+			const paths = new Set([`${app}/`]);
+			const visited = new Set<string>();
+			const visit = (name: string) => {
+				if (visited.has(name)) return;
+				visited.add(name);
+				const manifest = manifests.get(name);
+				if (!manifest) return;
+				const path = `${manifest.path}/`;
+				paths.add(path);
+				for (const dependency of manifest.dependencies) visit(dependency);
+			};
+			for (const [name, manifest] of manifests)
+				if (manifest.path === app) visit(name);
+			return [service, paths];
+		}),
+	);
+}
+
 export async function landedDeployments(
 	repo: string,
 	commits: string[],
@@ -2850,8 +2897,10 @@ export async function landedDeployments(
 	}
 	if ((await mainLaneCommits(repo, commits)).length !== commits.length)
 		throw new Error("A commit is no longer on origin/main");
-	const urls = new Set(
-		process.env.TEDIX_LANE_VERIFY_HEALTH_URLS?.split(/\s+/).filter(Boolean),
+	const urls = new Map<string, string[]>(
+		process.env.TEDIX_LANE_VERIFY_HEALTH_URLS?.split(/\s+/)
+			.filter(Boolean)
+			.map((url) => [url, commits]),
 	);
 	if (!urls.size) {
 		const { options } = parseOptions(scope);
@@ -2859,13 +2908,60 @@ export async function landedDeployments(
 		const workspaceUrl = options.urlExplicit
 			? undefined
 			: readWorkspaceCredentials(resolveWorkspaceName(options))?.mcpUrl;
-		for (const baseUrl of [resolveCliApiUrl(), workspaceUrl ?? options.url])
-			urls.add(new URL("/health", baseUrl).href);
+		const bases: Record<keyof typeof deployedApps, string> = {
+			api: resolveCliApiUrl(),
+			os: process.env.TEDIX_OS_URL || "https://os.tedix.dev",
+			builder: process.env.TEDIX_BUILDER_URL || "https://builder.tedix.dev",
+			mcp: workspaceUrl ?? options.url,
+		};
+		const paths = deploymentPaths(repo);
+		for (const commit of commits) {
+			const changed = (
+				await gitOutput(repo, [
+					"diff-tree",
+					"--root",
+					"--first-parent",
+					"-m",
+					"--no-commit-id",
+					"--name-only",
+					"-r",
+					"--no-renames",
+					"-z",
+					commit,
+				])
+			)
+				.split("\0")
+				.filter(Boolean);
+			for (const service of Object.keys(
+				deployedApps,
+			) as (keyof typeof deployedApps)[]) {
+				if (
+					!changed.some(
+						(path) =>
+							["package.json", "bun.lock", "bun.lockb", "bunfig.toml"].includes(
+								path,
+							) ||
+							path.startsWith("patches/") ||
+							[...paths.get(service)!].some((prefix) =>
+								path.startsWith(prefix),
+							),
+					)
+				)
+					continue;
+				const url = new URL("/health", bases[service]).href;
+				urls.set(url, [...(urls.get(url) ?? []), commit]);
+			}
+		}
+		if (!urls.size && source) {
+			const workflowId = await shipWorkflowId(source, api);
+			if (workflowId !== undefined)
+				return shipDeployments(source, commits, workflowId, api);
+		}
 	}
 	try {
 		// Health revisions belong to the product, even when delivery proof names ops.
 		return await Promise.all(
-			[...urls].map(async (url) => {
+			[...urls].map(async ([url, serviceCommits]) => {
 				const response = await readHealth(url, {
 					cache: "no-store",
 					redirect: "error",
@@ -2877,7 +2973,7 @@ export async function landedDeployments(
 				);
 				if (!sha.success)
 					throw new Error(`${url} did not report a full deployedSha`);
-				for (const commit of commits) {
+				for (const commit of serviceCommits) {
 					if (
 						!(await gitSucceeds(repo, [
 							"cat-file",
@@ -7454,6 +7550,23 @@ ${firstBrief}`;
 					if (Date.now() < row.verificationDeadline) {
 						this.holdRecheck(key);
 						this.log("verification-awaiting-deploy", row.itemId, detail);
+						if (row.deploymentWaitReason !== detail) {
+							row.deploymentWaitReason = detail;
+							this.save(path, row);
+							await this.call([
+								"work",
+								"comment",
+								row.itemId,
+								"--body",
+								`Waiting for deployment: ${detail}`,
+							]).catch((error) =>
+								this.log(
+									"deployment-wait-comment-failed",
+									row.itemId,
+									String(error),
+								),
+							);
+						}
 						return true;
 					}
 					next = {

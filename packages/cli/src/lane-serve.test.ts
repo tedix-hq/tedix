@@ -4631,7 +4631,7 @@ describe("dispatcher admission", () => {
 		f.releases[1]!();
 		await dispatcher.drain();
 	});
-	it("logs an inconclusive deployment reason on one line and backs off", async () => {
+	it("records an inconclusive deployment reason on Work once and backs off", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		const work = f.items[0]!;
@@ -4665,7 +4665,37 @@ describe("dispatcher admission", () => {
 		expect(waiting[0].reason).toBe(
 			"Error: Deployed commit is missing after fetching origin/main",
 		);
+		await f.restart().tick();
+		expect(checks).toBe(2);
+		const comments = f.events.filter((event) => event.verb === "comment");
+		expect(
+			comments.filter((event) =>
+				event.args.includes(
+					"Waiting for deployment: Error: Deployed commit is missing after fetching origin/main",
+				),
+			),
+		).toHaveLength(1);
 		expect(work.version).toBe(2);
+	});
+	it("dispatches verification when the commit needs no product deployment", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const work = f.items[0]!;
+		work.workKind = "coding";
+		f.control.commits = ["a".repeat(40)];
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(work), outcome: "landed_unverified", unverified: "CLI readback remains open" })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		f.deps.landedDeployments = async () => [];
+		await f.restart().tick();
+		const verifier = f.restart();
+		await verifier.tick();
+		await until(() => f.releases.length === 2);
+		expect(f.briefs[1]).toContain("Verify-only Attempt");
+		f.releases[1]!();
+		await verifier.drain();
 	});
 	// On 21 Nov 2026 verifiers without a browser or connections.admin reported
 	// landed_unverified; each was settled failed and verified again, twice.
@@ -7527,6 +7557,10 @@ it("requires product deployment ancestry for the checkout's own repository", asy
 	const { root, repo, git } = gitFixture(true);
 	const previous = git(["rev-parse", "HEAD"]);
 	const commit = (message: string) => {
+		const path = message === "first landed commit" ? "apps/api" : "apps/mcp";
+		mkdirSync(join(repo, path), { recursive: true });
+		writeFileSync(join(repo, path, "source.ts"), message);
+		git(["add", "."]);
 		git([
 			"-c",
 			"commit.gpgsign=false",
@@ -7576,6 +7610,24 @@ it("requires product deployment ancestry for the checkout's own repository", asy
 		{ url: "https://api.example.test:8443/health", sha: descendant },
 		{ url: "https://gateway.example.test/health", sha: descendant },
 	]);
+	const read = async (url: string) =>
+		Response.json({
+			deployedSha: url.includes("api.example") ? first : second,
+		});
+	await expect(
+		landedDeployments(repo, [first], undefined, options.scope, async (url) => {
+			expect(url).toBe("https://api.example.test:8443/health");
+			return read(url);
+		}),
+	).resolves.toEqual([
+		{ url: "https://api.example.test:8443/health", sha: first },
+	]);
+	await expect(
+		landedDeployments(repo, [first, second], undefined, options.scope, read),
+	).resolves.toEqual([
+		{ url: "https://api.example.test:8443/health", sha: first },
+		{ url: "https://gateway.example.test/health", sha: second },
+	]);
 
 	const url = "https://live.example.test/custom-health";
 	process.env.TEDIX_LANE_VERIFY_HEALTH_URLS = `  ${url}  ${url}  `;
@@ -7594,6 +7646,67 @@ it("requires product deployment ancestry for the checkout's own repository", asy
 			async () => Response.json({ deployedSha: descendant }),
 		),
 	).rejects.toThrow("requires the checkout's GitHub origin");
+});
+
+it("selects OS, builder and transitive package consumers and skips CLI and docs health", async () => {
+	const { repo, git } = gitFixture(true);
+	const env = {
+		TEDIX_LANE_VERIFY_HEALTH_URLS: undefined,
+		TEDIX_OS_URL: "https://os.example.test",
+		TEDIX_BUILDER_URL: "https://builder.example.test",
+	};
+	const previousEnv = Object.keys(env).map(
+		(key) => [key, process.env[key]] as const,
+	);
+	fixtureCleanup.push(async () => {
+		for (const [key, value] of previousEnv) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	});
+	for (const [key, value] of Object.entries(env)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	const write = (path: string, content: string) => {
+		mkdirSync(dirname(join(repo, path)), { recursive: true });
+		writeFileSync(join(repo, path), content);
+	};
+	for (const [path, name, dependencies] of [
+		["apps/os", "@fixture/os", { "@fixture/ui": "workspace:*" }],
+		["apps/cms", "@fixture/cms", {}],
+		["packages/ui", "@fixture/ui", { "@fixture/core": "workspace:*" }],
+		["packages/core", "@fixture/core", {}],
+	] as const)
+		write(`${path}/package.json`, JSON.stringify({ name, dependencies }));
+	git(["add", "."]);
+	git(["-c", "commit.gpgsign=false", "commit", "-m", "workspace manifests"]);
+	for (const [path, hosts] of [
+		["apps/os/src/view.ts", ["os.example.test"]],
+		["apps/cms/src/builder.ts", ["builder.example.test"]],
+		["packages/core/src/core.ts", ["os.example.test"]],
+		["packages/cli/src/cli.ts", []],
+		["docs/public/guide.md", []],
+	] as const) {
+		write(path, path);
+		git(["add", "."]);
+		git(["-c", "commit.gpgsign=false", "commit", "-m", path]);
+		const sha = git(["rev-parse", "HEAD"]);
+		git(["push", "origin", "main"]);
+		const urls: string[] = [];
+		const deployments = await landedDeployments(
+			repo,
+			[sha],
+			undefined,
+			options.scope,
+			async (url) => {
+				urls.push(new URL(url).host);
+				return Response.json({ deployedSha: sha });
+			},
+		);
+		expect(urls).toEqual([...hosts]);
+		expect(deployments).toHaveLength(hosts.length);
+	}
 });
 
 const shipApiFixture = (target: string, main: string, ship: string) => {
