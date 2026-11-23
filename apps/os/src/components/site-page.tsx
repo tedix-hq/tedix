@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Breadcrumbs } from "@/components/kumo/breadcrumbs";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { LoadError } from "@/components/kumo/alert";
@@ -187,9 +186,6 @@ export function SitePage({ siteId }: { siteId: string }) {
 		<Page width="xl">
 			<PageHeader>
 				<PageHeading>
-					<Breadcrumbs
-						items={[{ label: "Sites", href: "/sites" }, { label: site.name }]}
-					/>
 					<PageTitle>{site.name}</PageTitle>
 				</PageHeading>
 				<PageActions>
