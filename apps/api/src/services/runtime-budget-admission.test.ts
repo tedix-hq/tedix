@@ -204,7 +204,9 @@ describe("runtime entitlement inference admission", () => {
 			nowMs,
 		});
 		expect(result).toMatchObject({ allowed: false, code });
-		expect(mocks.insertExecution).not.toHaveBeenCalled();
+		// The fence may already be written (it runs beside the hold); no hold
+		// exists, so nothing is released.
+		expect(mocks.wallet).toHaveBeenCalledTimes(1);
 	});
 
 	it.each([
@@ -351,13 +353,14 @@ describe("managed execution fence", () => {
 		sendBefore: "2026-08-02T12:00:30.000Z",
 	} as never;
 	const guard = { kind: "provider_execution_admission" as const };
-	const admit = () =>
+	const admit = (executionPersisted = false) =>
 		authorizeRuntimeBudget({
 			db: {} as never,
 			env: managedEnv,
 			request: request("managed"),
 			execution,
 			executionGuard: guard,
+			executionPersisted,
 			nowMs,
 		});
 
@@ -375,7 +378,7 @@ describe("managed execution fence", () => {
 		expect(mocks.wallet).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not fence or release again when the wallet replays an earlier hold", async () => {
+	it("writes no second fence and releases nothing when a retry's fence exists", async () => {
 		mocks.wallet.mockResolvedValueOnce({
 			allowed: true,
 			holdId: "earlier-hold",
@@ -383,7 +386,7 @@ describe("managed execution fence", () => {
 			expiresAt: "2026-08-02T12:00:20.000Z",
 			replayed: true,
 		});
-		expect(await admit()).toMatchObject({
+		expect(await admit(true)).toMatchObject({
 			allowed: true,
 			reservationId: "earlier-hold",
 		});

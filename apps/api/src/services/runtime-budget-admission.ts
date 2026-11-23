@@ -82,6 +82,8 @@ export async function authorizeRuntimeBudget(input: {
 	};
 	execution?: NewProviderExecutionAttemptRow;
 	executionGuard?: ProviderExecutionAdmissionGuard;
+	/** The execution's dispatch fence already exists (a retry): write no second one. */
+	executionPersisted?: boolean;
 	nowMs?: number;
 	preflightOnly?: boolean;
 }): Promise<RuntimeBudgetDecision> {
@@ -276,59 +278,66 @@ export async function authorizeRuntimeBudget(input: {
 	}
 	const wallet = walletRpc(input.env);
 	const holdId = input.execution?.billingReservationId ?? crypto.randomUUID();
+	// The hold and the dispatch fence are independent writes, so they run
+	// together. A retry whose fence already exists writes no second one. A
+	// fence left behind by a credit refusal sends nothing; a retry reuses it.
 	const holdAt = Date.now();
-	const hold = (await wallet.wallet(input.request.organizationId, "hold", {
-		organizationId: input.request.organizationId,
-		holdId,
-		idempotencyKey: input.request.idempotencyKey,
-		tediId: input.request.tediId ?? null,
-		userId: input.request.userId ?? null,
-		credits,
-		runId: input.request.runId ?? null,
-		metadata:
-			input.request.metadata === undefined
-				? undefined
-				: toJsonRecord(input.request.metadata),
-		expiresAt:
-			input.execution?.sendBefore ??
-			new Date(nowMs + 10 * 60 * 1_000).toISOString(),
-	} satisfies WalletHoldInput)) as WalletHoldResult;
-	holdMs = Date.now() - holdAt;
+	const holdRequest = wallet
+		.wallet(input.request.organizationId, "hold", {
+			organizationId: input.request.organizationId,
+			holdId,
+			idempotencyKey: input.request.idempotencyKey,
+			tediId: input.request.tediId ?? null,
+			userId: input.request.userId ?? null,
+			credits,
+			runId: input.request.runId ?? null,
+			metadata:
+				input.request.metadata === undefined
+					? undefined
+					: toJsonRecord(input.request.metadata),
+			expiresAt:
+				input.execution?.sendBefore ??
+				new Date(nowMs + 10 * 60 * 1_000).toISOString(),
+		} satisfies WalletHoldInput)
+		.then((result) => {
+			holdMs = Date.now() - holdAt;
+			return result as WalletHoldResult;
+		});
+	const fenceRequest =
+		input.execution && !input.executionPersisted
+			? settle(
+					buildProviderExecutionInsertStatement(
+						input.db,
+						input.execution,
+						input.executionGuard,
+					).then((result) => {
+						fenceMs = Date.now() - holdAt;
+						return (result.meta?.changes ?? 0) > 0;
+					}),
+				)
+			: null;
+	const [hold, fence] = await Promise.all([holdRequest, fenceRequest]);
 	if (!hold.allowed) {
 		reserveMs = Date.now() - reserveAt;
 		done(hold.code);
 		return { allowed: false, code: hold.code, entitlement };
 	}
-	if (input.execution && !hold.replayed) {
-		// The fence proves the dispatch identity; without it the held credits
-		// have no call to settle against, so give them back.
-		let fenced = false;
-		const fenceAt = Date.now();
-		try {
-			const result = await buildProviderExecutionInsertStatement(
-				input.db,
-				input.execution,
-				input.executionGuard,
+	if (fence && !(fence.ok && fence.value)) {
+		// Without its fence the held credits have no call to settle against.
+		await wallet
+			.wallet(input.request.organizationId, "release", {
+				holdId: hold.holdId,
+			})
+			.catch((error: unknown) =>
+				// The hold expires on its own; keep the admission error.
+				console.error("[runtime-budget] hold release failed", {
+					exception: error instanceof Error ? error.name : typeof error,
+				}),
 			);
-			fenced = (result.meta?.changes ?? 0) > 0;
-		} finally {
-			fenceMs = Date.now() - fenceAt;
-			if (!fenced)
-				await wallet
-					.wallet(input.request.organizationId, "release", {
-						holdId: hold.holdId,
-					})
-					.catch((error: unknown) =>
-						// The hold expires on its own; keep the admission error.
-						console.error("[runtime-budget] hold release failed", {
-							exception: error instanceof Error ? error.name : typeof error,
-						}),
-					);
-		}
-		if (!fenced) {
-			done("execution_refused");
-			throw new Error("Execution admission refused by its dispatch guard");
-		}
+		reserveMs = Date.now() - reserveAt;
+		done("execution_refused");
+		if (!fence.ok) throw fence.error;
+		throw new Error("Execution admission refused by its dispatch guard");
 	}
 	reserveMs = Date.now() - reserveAt;
 	done(hold.replayed ? "allowed_replay" : "allowed");
