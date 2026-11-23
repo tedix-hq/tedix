@@ -39,6 +39,15 @@ function devinDeclaredSuccess(message: string): boolean {
 	}
 }
 
+/** Whether the turn's last line is a Work exchange envelope, whatever its outcome. */
+function devinDeclaredExchange(message: string): boolean {
+	const last = message.trim().split("\n").at(-1) ?? "";
+	return (
+		last.startsWith("TEDIX_WORK_RESULT ") ||
+		last.startsWith("TEDIX_WORK_VERIFIED ")
+	);
+}
+
 export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
   [--model <id>] [--reasoning <effort>] [--rate-scope <scope>] [--work-item <id>]
   [--transcript <file>] [--telemetry <file>] -- <command> [args...]
@@ -623,6 +632,7 @@ async function runLaneProcessWithReporter(
 		let child: ReturnType<typeof spawn> | undefined;
 		let appServer: CodexLaneServer | undefined;
 		let turnClosed = false;
+		let turnChecksFailed = false;
 		let stallKillTimer: ReturnType<typeof setTimeout> | undefined;
 		function receiveStderr(chunk: Buffer) {
 			process.stderr.write(chunk);
@@ -1004,16 +1014,23 @@ async function runLaneProcessWithReporter(
 				} catch {}
 			}
 		} catch (error) {
-			if (deps.sessionKey || devin) exitCode = 1;
+			if (deps.sessionKey || devin) {
+				exitCode = 1;
+				turnChecksFailed = true;
+			}
 			process.stderr.write(`Lane transcript: ${String(error)}\n`);
 		}
 		await heartbeat;
+		// Devin can exit non-zero after printing its result envelopes; a
+		// reported result is still delivered. The transcript and session checks
+		// above stay fatal: they prove the turns ran in the admitted session.
 		if (
 			devin &&
 			!bridge &&
-			exitCode === 0 &&
 			!signal &&
-			options.has("--work-item")
+			options.has("--work-item") &&
+			(exitCode === 0 ||
+				(!turnChecksFailed && devinDeclaredExchange(telemetry.finalMessage)))
 		) {
 			try {
 				if (!deps.admitted || !deps.sessionKey || !deps.deliverWorkNote)
@@ -1026,18 +1043,26 @@ async function runLaneProcessWithReporter(
 					deps.deliverWorkNote,
 				);
 				// The dispatcher needs the scoped declaration outside the delivery note.
-				if (result.outcome !== "succeeded") exitCode = 1;
+				exitCode = result.outcome === "succeeded" ? 0 : 1;
 			} catch (error) {
 				exitCode = 1;
 				telemetry.finalMessage = `Devin Work result delivery failed: ${String(error)}\n${telemetry.finalMessage}`;
 			}
 		}
 
-		if (bridge && exitCode === 0 && !signal) {
+		if (
+			bridge &&
+			!signal &&
+			!turnChecksFailed &&
+			(exitCode === 0 || devinDeclaredExchange(telemetry.finalMessage))
+		) {
 			if (turn === 0) devinDelivery = telemetry.finalMessage;
 			try {
 				if (turn === 0) {
 					const readback = await bridge.deliver(telemetry.finalMessage);
+					// Delivery accepted the reported result; the verify turn and
+					// its own exit code decide the run from here.
+					exitCode = 0;
 					// The readback turn confirms the note, not the separate lane declaration.
 					devinDeclaration = telemetry.finalMessage
 						.split("\n")
@@ -1054,7 +1079,7 @@ async function runLaneProcessWithReporter(
 					telemetry.shas = [
 						...new Set(telemetry.finalMessage.match(/\b[a-f0-9]{40}\b/g) ?? []),
 					].slice(0, 100);
-					if (result.outcome !== "succeeded") exitCode = 1;
+					exitCode = result.outcome === "succeeded" ? 0 : 1;
 				}
 			} catch (error) {
 				// A passing server or network fault while saving or reading back the

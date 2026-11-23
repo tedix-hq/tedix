@@ -1286,6 +1286,60 @@ test.each([
 	},
 );
 
+test("a Devin result is delivered even when Devin exits non-zero", async () => {
+	const dir = temporary();
+	const binary = fakeDevin(dir);
+	const note =
+		"The actual README paragraph.\nEvidence: https://example.invalid/readme";
+	writeFileSync(
+		binary,
+		readFileSync(binary, "utf8").replace(
+			"console.log('Fake Devin completed the brief.');",
+			`console.log('Landed on main.\\nTEDIX_WORK_RESULT ' + JSON.stringify({ outcome: 'succeeded', note: ${JSON.stringify(note)} })); process.exitCode = 1;`,
+		),
+	);
+	const brief = join(dir, "brief.txt");
+	writeFileSync(brief, "Read README and post the first paragraph.");
+	const notes: string[] = [];
+	let last: { outcome?: string; finalMessage?: string } | undefined;
+	const exit = await runLaneProcess(
+		[
+			"run",
+			"--executor",
+			"devin",
+			"--project",
+			"11111111-1111-4111-8111-111111111111",
+			"--work-item",
+			"22222222-2222-4222-8222-222222222222",
+			"--brief",
+			brief,
+			"--",
+			binary,
+		],
+		{
+			cwd: dir,
+			sessionKey: "quiet-river",
+			admitted: true,
+			deliverWorkNote: async (value) => {
+				notes.push(value);
+			},
+			report: async (value) => {
+				last = value.telemetry as typeof last;
+				return {};
+			},
+		},
+	);
+	expect(exit).toBe(0);
+	expect(notes).toEqual([note]);
+	expect(last).toMatchObject({ outcome: "succeeded" });
+	const invocation = JSON.parse(
+		readFileSync(join(dir, "invocation.json"), "utf8"),
+	);
+	directories.push(
+		dirname(invocation.args[invocation.args.indexOf("--export") + 1]),
+	);
+});
+
 test.each([
 	"verified",
 	"november-5",
@@ -1295,6 +1349,7 @@ test.each([
 	"delivery-reset",
 	"verification-reset",
 	"delivery-denied",
+	"nonzero-exit",
 ])("bounded two-turn Devin runner: %s", async (mode) => {
 	const dir = temporary();
 	const binary = fakeDevin(dir);
@@ -1402,6 +1457,7 @@ test.each([
   if (context.work.id !== ${JSON.stringify(binding.workItemId)} || context.attempt.externalSessionKey !== 'devin:quiet-river') process.exit(2);
   console.log(${JSON.stringify(firstMessage)});
  }
+ if (${JSON.stringify(mode)} === 'nonzero-exit') process.exitCode = 1;
 `,
 		),
 	);
@@ -1448,7 +1504,8 @@ test.each([
 	const verified =
 		mode === "verified" ||
 		mode === "november-5" ||
-		mode === "duplicate-declarations";
+		mode === "duplicate-declarations" ||
+		mode === "nonzero-exit";
 	const delivered = !mode.startsWith("delivery-");
 	// A rare CI run saw no output from the first turn; show what the run reported.
 	if (exit !== (verified || retained ? 0 : 1) || writes !== (delivered ? 1 : 0))
