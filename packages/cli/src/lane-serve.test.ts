@@ -5662,30 +5662,65 @@ describe("dispatcher admission", () => {
 			fixture();
 		items.splice(1);
 		const path = join(dir, `${item().id}-2.json`);
+		const budgetPath = join(dir, "budgets.state");
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
 		control.threadError = new DOMException(
 			"The operation timed out.",
 			"TimeoutError",
 		);
-		for (let n = 1; n <= 3; n++) {
-			await dispatcher.tick();
-			await dispatcher.drain();
-			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.held).not.toBe(true);
-			expect(saved.attemptId).toBeUndefined();
-			expect(saved.recheckAt).toBeUndefined();
-			saved.recheckAt = 0;
-			saved.identicalFailures = 3;
-			saved.held = n === 3;
-			writeFileSync(path, JSON.stringify(saved));
+		try {
+			for (const [index, delay] of [60_000, 120_000, 240_000].entries()) {
+				await dispatcher.tick();
+				await dispatcher.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved.held).not.toBe(true);
+				expect(saved.attemptId).toBeUndefined();
+				expect(saved.recheckAt).toBeUndefined();
+				expect(control.threadSessions).toHaveLength(index + 1);
+				expect(
+					JSON.parse(readFileSync(budgetPath, "utf8")).codex,
+				).toMatchObject({
+					backoffKind: "preparation",
+					backoffUntil: now + delay,
+				});
+				now += delay;
+			}
+			const legacy = JSON.parse(readFileSync(path, "utf8"));
+			writeFileSync(
+				path,
+				JSON.stringify({
+					...legacy,
+					held: true,
+					identicalFailures: 3,
+					recheckAt: 0,
+				}),
+			);
+			control.threadError = undefined;
+			now--;
+			const recovered = restart();
+			await recovered.tick();
+			await recovered.drain();
+			expect(control.threadSessions).toHaveLength(3);
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				0,
+			);
+			now++;
+			await recovered.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await recovered.drain();
+			expect(control.threadSessions).toHaveLength(4);
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				1,
+			);
+			expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
+			expect(
+				JSON.parse(readFileSync(budgetPath, "utf8")).codex.backoffUntil,
+			).toBeUndefined();
+		} finally {
+			clock.mockRestore();
 		}
-		control.threadError = undefined;
-		const recovered = restart();
-		await recovered.tick();
-		await until(() => releases.length === 1);
-		releases[0]!();
-		await recovered.drain();
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
-		expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
 	});
 	it("reconciles bootstrap admission without holding while owner approval is pending", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
