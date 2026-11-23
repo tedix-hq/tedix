@@ -3630,6 +3630,7 @@ describe("WorkspaceDO", () => {
 
 	test("a person starts a read-only run from a private workspace in a project it does not link", async () => {
 		await seedCore();
+		await testEnv.DB.prepare(ddl(workItemComments)).run();
 		const own = { ...scope, workspaceId: crypto.randomUUID() };
 		await seedWorkspaceRows([own]);
 		const projectId = crypto.randomUUID();
@@ -3681,7 +3682,7 @@ describe("WorkspaceDO", () => {
 		]);
 		await ws.scriptModel(own, [
 			{
-				code: `export default async (env) => ({ projects: await env.work.listProjects(), run: await env.work.startRun({ title: "Explain paging", brief: "Say how paging works", doneWhen: "A short answer", executor: "codex", changesCode: false, projectId: ${JSON.stringify(projectId)} }) })`,
+				code: `export default async (env) => ({ projects: await env.work.listProjects(), run: await env.work.startRun({ title: "Explain paging", brief: "Say how paging works", doneWhen: "A short answer", executor: "any-local", changesCode: false, projectId: ${JSON.stringify(projectId)} }) })`,
 			},
 			{ text: "Run requested." },
 		]);
@@ -3699,16 +3700,22 @@ describe("WorkspaceDO", () => {
 				result: expect.stringMatching(`"id":\\s*"${projectId}"`),
 			}),
 		);
+		expect(steps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ tool: "work.startRun", status: "ok" }),
+			]),
+		);
 		const run = JSON.parse(
 			steps.find((step) => step.tool === "work.startRun")?.result ?? "{}",
 		) as { workItemId: string };
 		expect(
 			await testEnv.DB.prepare(
-				"SELECT project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source, json_extract(metadata, '$.approvalMode') AS approval_mode FROM work_items WHERE id = ?",
+				"SELECT executor_id, project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source, json_extract(metadata, '$.approvalMode') AS approval_mode FROM work_items WHERE id = ?",
 			)
 				.bind(run.workItemId)
 				.first(),
 		).toEqual({
+			executor_id: "any-local",
 			project_id: projectId,
 			work_kind: "research",
 			accountable_owner_id: "u1",
@@ -3723,7 +3730,7 @@ describe("WorkspaceDO", () => {
 			call: {
 				machine: "Studio",
 				tool: "dispatch_work_item",
-				input: { workItemId: run.workItemId, projectId, executor: "codex" },
+				input: { workItemId: run.workItemId, projectId, executor: "any-local" },
 			},
 		});
 		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")

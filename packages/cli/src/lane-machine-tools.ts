@@ -31,6 +31,7 @@ import { parseOptions } from "./options";
 import { resolveOrganizationTarget } from "./organization-target";
 import {
 	readRunnerDuties,
+	runnersForWork,
 	RUNNER_UPDATE_EXIT_CODE,
 	runnerKey,
 	type RunnerDuty,
@@ -680,13 +681,21 @@ export function machineToolHandlers(options: {
 		},
 
 		async dispatch_work_item({ workItemId, projectId, executor }) {
-			const duties = readRunnerDuties(options.env ?? process.env).filter(
-				(duty) =>
-					duty.enabled &&
-					duty.organization === options.organization &&
-					(!duty.project || duty.project === projectId),
+			const duties = runnersForWork(
+				readRunnerDuties(options.env ?? process.env),
+				options.organization!,
+				String(projectId),
 			);
-			for (const wanted of [executor, "any-local"]) {
+			const wantedExecutors =
+				executor === "any-local"
+					? [
+							"any-local",
+							...duties
+								.filter((duty) => duty.coordinated)
+								.map((duty) => duty.executor),
+						]
+					: [executor, "any-local"];
+			for (const wanted of wantedExecutors) {
 				for (const duty of duties) {
 					if (duty.executor !== wanted) continue;
 					const directory = join(

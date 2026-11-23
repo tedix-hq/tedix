@@ -254,7 +254,16 @@ export function workspaceMachine(deps: {
 					eligible.find((machine) =>
 						machine.executors.includes(input.executor),
 					) ??
-					eligible.find((machine) => machine.executors.includes("any-local"));
+					eligible.find((machine) => machine.executors.includes("any-local")) ??
+					(input.executor === "any-local"
+						? eligible.find((machine) =>
+								machine.executors.some((executor) =>
+									["codex", "claude-code", "opencode", "devin"].includes(
+										executor,
+									),
+								),
+							)
+						: undefined);
 				if (!target) return;
 				const queued = await deps.api.useMachine({
 					...acting,

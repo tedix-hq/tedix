@@ -12,6 +12,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	runnerKey,
+	writeRunnerDuty,
+	type RunnerDuty,
+} from "./supervise-runners";
+import { dispatchRequestsDirectory } from "./lane-dispatch-wake";
 import { refusedMachineCommand } from "./lane-machine-refused";
 import { runShellCommand } from "./lane-machine-workspaces";
 import {
@@ -392,4 +398,68 @@ test("the runner state lists only runs a running runner is starting or has a pro
 	expect(state).toContain(
 		"Runner off (CLI unknown, not running)\n  Live runs: 0",
 	);
+});
+
+test("Auto wakes a coordinated product runner and project duties keep their own wake", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tedix-auto-wake-"));
+	roots.push(root);
+	const env = { TEDIX_CONFIG_DIR: root };
+	const projectId = "11111111-1111-4111-8111-111111111111";
+	const workItemId = "22222222-2222-4222-8222-222222222222";
+	const product: RunnerDuty = {
+		workspace: "acme",
+		organization: "org_acme",
+		executor: "codex",
+		repo: join(root, "product"),
+		coordinated: true,
+		enabled: true,
+		acceptProposed: false,
+	};
+	const ops: RunnerDuty = {
+		...product,
+		executor: "any-local",
+		project: "33333333-3333-4333-8333-333333333333",
+		repo: join(root, "ops"),
+		coordinated: false,
+	};
+	for (const duty of [product, ops]) {
+		writeRunnerDuty(env, duty);
+		mkdirSync(
+			dispatchRequestsDirectory(join(root, "dispatchers", runnerKey(duty))),
+			{ recursive: true },
+		);
+	}
+	const handlers = machineToolHandlers({
+		checkout: product.repo,
+		configDir: root,
+		organization: "org_acme",
+		env,
+	});
+	const request = { workItemId, projectId, executor: "any-local" };
+	expect(
+		(await answerMachineToolCall(handlers, "dispatch_work_item", request)).ok,
+	).toBe(true);
+	const productRequest = join(
+		dispatchRequestsDirectory(join(root, "dispatchers", runnerKey(product))),
+		workItemId,
+	);
+	expect(existsSync(productRequest)).toBe(true);
+	rmSync(productRequest);
+	expect(
+		(
+			await answerMachineToolCall(handlers, "dispatch_work_item", {
+				...request,
+				projectId: ops.project,
+			})
+		).ok,
+	).toBe(true);
+	expect(existsSync(productRequest)).toBe(false);
+	expect(
+		existsSync(
+			join(
+				dispatchRequestsDirectory(join(root, "dispatchers", runnerKey(ops))),
+				workItemId,
+			),
+		),
+	).toBe(true);
 });

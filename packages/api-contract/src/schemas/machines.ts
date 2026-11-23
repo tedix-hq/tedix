@@ -260,7 +260,7 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 	dispatch_work_item: z.strictObject({
 		workItemId: z.uuid().transform((id) => id.toLowerCase()),
 		projectId: z.uuid(),
-		executor: z.enum(["codex", "claude-code"]),
+		executor: z.enum(["codex", "claude-code", "any-local"]),
 	}),
 	open_workspace: z.strictObject({
 		name: z

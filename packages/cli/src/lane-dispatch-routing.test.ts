@@ -14,6 +14,7 @@ import {
 	type ServeOptions,
 } from "./lane-serve";
 import type { ExecutorBudgets, LocalExecutor } from "./lane-routing";
+import type { RunnerDuty } from "./supervise-runners";
 import { testRoutingPolicy } from "./lane-routing.fixture";
 const dirs: string[] = [];
 afterEach(() => {
@@ -64,9 +65,15 @@ function fixture(configured = true) {
 		launches: [] as string[][],
 		events: [] as string[],
 	};
+	const duties: RunnerDuty[] = [];
 	let sequence = 0;
-	const create = () =>
-		new LaneDispatcher(options, dir, {
+	const create = (overrides: Partial<ServeOptions> = {}) => {
+		if (overrides.executor)
+			mkdirSync(join(dir, overrides.executor), { recursive: true });
+		const config = { ...options, ...overrides };
+		const directory = overrides.executor ? join(dir, overrides.executor) : dir;
+		return new LaneDispatcher(config, directory, {
+			runners: () => duties,
 			createHeartbeat: () => async () => ({
 				expiresAt: new Date(Date.now() + 300_000).toISOString(),
 			}),
@@ -106,8 +113,35 @@ function fixture(configured = true) {
 				const verb = args[5]!;
 				control.events.push(verb);
 				let response: unknown = {};
-				if (verb === "dispatch-list")
-					response = { data: [item], pagination: { hasMore: false } };
+				if (verb === "dispatch-list") {
+					const query = JSON.parse(args[args.indexOf("--input") + 1]!);
+					const executors = Array.isArray(query.executor)
+						? query.executor
+						: [query.executor];
+					response = {
+						data: executors.includes(item.executorId ?? item.metadata?.executor)
+							? [item]
+							: [],
+						pagination: { hasMore: false },
+					};
+				}
+				if (verb === "dispatch-reassign") {
+					const input = JSON.parse(args[args.indexOf("--input") + 1]!);
+					if (
+						(item.executorId ?? item.metadata?.executor) !==
+						input.idleReassignment.fromExecutor
+					)
+						throw new Error("Stale assignment");
+					item.executorId = input.executor;
+					item.metadata = {
+						...item.metadata,
+						idleReassignment: {
+							reason: "chosen",
+							version: item.version,
+							detail: input.idleReassignment.detail,
+						},
+					};
+				}
 				if (verb === "dispatch-get")
 					response = { workItem: item, comments: [] };
 				if (verb === "dispatch-attempts")
@@ -175,6 +209,7 @@ function fixture(configured = true) {
 				return control.exit;
 			},
 		});
+	};
 	const receiptPath = join(dir, `${item.id}-1.json`);
 	const retry = () => {
 		const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
@@ -182,7 +217,7 @@ function fixture(configured = true) {
 		writeFileSync(receiptPath, JSON.stringify(receipt));
 		return receipt;
 	};
-	return { dir, item, control, create, receiptPath, retry };
+	return { dir, item, control, create, receiptPath, retry, duties, options };
 }
 it("retains unconfigured automatic Work without native allocation or admission", async () => {
 	const { control, create, receiptPath } = fixture(false);
@@ -408,4 +443,77 @@ it("a stopping drain gives up at its deadline instead of holding the lane for a 
 	expect(dispatcher.inFlight()).toEqual([id]);
 	running.clear();
 	expect(await dispatcher.drain(20)).toBe(true);
+});
+
+it.each([false, true])(
+	"coordinated runners select Auto once and admit only on the chosen runner (first preflight fails: %s)",
+	async (preflightFails) => {
+		const f = fixture();
+		f.item.executorType = "external_agent";
+		f.item.executorId = "any-local";
+		f.item.dispatchState = "ready";
+		for (const executor of ["codex", "claude-code"] as const)
+			f.duties.push({
+				workspace: "acme",
+				organization: "org_acme",
+				executor,
+				repo: f.dir,
+				coordinated: true,
+				enabled: true,
+				acceptProposed: false,
+			});
+		if (preflightFails)
+			f.control.preflightFailures.codex = "network check failed";
+		const chosen = preflightFails ? "claude-code" : "codex";
+		const codex = f.create({ executor: "codex", coordinated: true });
+		const claude = f.create({ executor: "claude-code", coordinated: true });
+		await Promise.all([codex.tick(), claude.tick()]);
+		expect(f.item.executorId).toBe(chosen);
+		expect(f.item.metadata?.idleReassignment).toMatchObject({
+			detail: expect.stringContaining("general"),
+		});
+		expect(
+			f.control.events.filter((event) => event === "dispatch-reassign"),
+		).toHaveLength(1);
+		await Promise.all([codex.tick(), claude.tick()]);
+		await Promise.all([codex.drain(), claude.drain()]);
+		expect(f.control.launches).toHaveLength(1);
+		expect(f.control.threads.map((thread) => thread.executor)).toEqual([
+			chosen,
+		]);
+	},
+);
+
+it("leaves Auto work to its project duty in another repository", async () => {
+	const f = fixture();
+	f.item.executorType = "external_agent";
+	f.item.executorId = "any-local";
+	f.item.dispatchState = "ready";
+	f.duties.push(
+		{
+			workspace: "acme",
+			organization: "org_acme",
+			executor: "codex",
+			repo: f.dir,
+			coordinated: true,
+			enabled: true,
+			acceptProposed: false,
+		},
+		{
+			workspace: "acme",
+			organization: "org_acme",
+			executor: "any-local",
+			project: f.item.projectId!,
+			repo: join(f.dir, "ops"),
+			coordinated: false,
+			enabled: true,
+			acceptProposed: false,
+		},
+	);
+	const runner = f.create({ executor: "codex", coordinated: true });
+	await runner.tick();
+	await runner.startRequested(f.item.id);
+	await runner.drain();
+	expect(f.control.events).not.toContain("dispatch-reassign");
+	expect(f.control.launches).toHaveLength(0);
 });

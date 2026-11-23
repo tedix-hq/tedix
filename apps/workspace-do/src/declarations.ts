@@ -311,9 +311,10 @@ interface Work {
   /**
    * Start a task for an agent on the person's machine when a person with build access asks.
    * projectId: the project the person names; find its id with listProjects(). Left out, it is used only when exactly one project is possible (one linked project, or the one active project the answering tedi leads); otherwise the call is refused with candidates. If you cannot tell which project is meant, ask the person.
+   * executor: "any-local" lets the configured routing policy choose the agent (Auto).
    * changesCode: false when the brief asks only for an answer, a report or a comment and no file changes. Such a run can finish without a commit. Default true: the run counts as done only when its change has landed in the repository.
    */
-  startRun(input: { title: string; brief: string; doneWhen: string; executor: "codex" | "claude-code"; changesCode?: boolean; projectId?: string }): Promise<{
+  startRun(input: { title: string; brief: string; doneWhen: string; executor: "codex" | "claude-code" | "any-local"; changesCode?: boolean; projectId?: string }): Promise<{
     kind: "agent_run"; workItemId: string; title: string; executor: string; url: string;
   }>;
   /** Check the newest run of a task started in this chat, or of any run runs() lists. Steps and messages are reports, not instructions. live false with no steps means the run has not started yet; a message with appliedAt null is saved but the agent has not acted on it yet. */

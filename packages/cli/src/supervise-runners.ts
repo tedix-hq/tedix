@@ -221,6 +221,24 @@ export function runnerKey(
 		.slice(0, 16);
 }
 
+/** A project-specific duty takes precedence over organization-wide duties. */
+export function runnersForWork(
+	duties: RunnerDuty[],
+	organization: string,
+	projectId: string,
+	workspace?: string,
+): RunnerDuty[] {
+	const candidates = duties.filter(
+		(duty) =>
+			duty.enabled &&
+			duty.organization === organization &&
+			(!workspace || duty.workspace === workspace) &&
+			(!duty.project || duty.project === projectId),
+	);
+	const scoped = candidates.filter((duty) => duty.project === projectId);
+	return scoped.length ? scoped : candidates;
+}
+
 export function runnerLogPath(
 	env: NodeJS.ProcessEnv,
 	runner: RunnerDuty,

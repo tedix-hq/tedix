@@ -125,6 +125,7 @@ import { kernelProcessCwd, kernelProcessTable } from "./process-facts";
 import { beginFileLock } from "./local-file-lock";
 import {
 	readRunnerDuties,
+	runnersForWork,
 	RUNNER_STOP_DRAIN_MS,
 	runnerKey,
 	RUNNER_UPDATE_EXIT_CODE,
@@ -269,7 +270,10 @@ export function dispatchSkip(
 	coordinated = false,
 ): string | undefined {
 	if (item.disposition !== "accepted") return "Work is not accepted";
-	if (!matchesLaneAssignment(item, executor))
+	if (
+		!matchesLaneAssignment(item, executor) &&
+		!(coordinated && isLocalAssignment(item, "any-local"))
+	)
 		return `Work is not assigned to ${executor}`;
 	if (!item.projectId) return "Work has no project";
 	if (coordinated) {
@@ -3063,6 +3067,7 @@ export async function installLaneDependencies(repo: string) {
 }
 
 interface DispatcherDeps {
+	runners: typeof readRunnerDuties;
 	health: typeof collectDispatcherHealth;
 	cli: typeof cli;
 	createHeartbeat: typeof createLaneHeartbeat;
@@ -3130,6 +3135,7 @@ interface DispatcherDeps {
 	confirmLogin: typeof confirmStoredAccess;
 }
 const defaultDeps: DispatcherDeps = {
+	runners: readRunnerDuties,
 	health: collectDispatcherHealth,
 	cli,
 	createHeartbeat: createLaneHeartbeat,
@@ -3849,7 +3855,11 @@ export class LaneDispatcher {
 								disposition: "accepted",
 								...(this.options.executor === "any-local"
 									? { executor: [...localExecutors, "any-local"] }
-									: { executor: this.options.executor }),
+									: {
+											executor: this.options.coordinated
+												? [this.options.executor, "any-local"]
+												: this.options.executor,
+										}),
 								dispatchReadyOnly: true,
 								...(this.options.project
 									? { projectId: this.options.project }
@@ -3918,6 +3928,7 @@ export class LaneDispatcher {
 					);
 					return true;
 				}
+				if (await this.selectAuto(item, record)) return true;
 				this.route(item);
 				if (waiting) {
 					this.log(
@@ -4242,7 +4253,11 @@ export class LaneDispatcher {
 							disposition: "accepted",
 							...(this.options.executor === "any-local"
 								? { executor: [...localExecutors, "any-local"] }
-								: { executor: this.options.executor }),
+								: {
+										executor: this.options.coordinated
+											? [this.options.executor, "any-local"]
+											: this.options.executor,
+									}),
 							dispatchReadyOnly: true,
 							...(this.options.project
 								? { projectId: this.options.project }
@@ -4561,6 +4576,7 @@ export class LaneDispatcher {
 					rechecks.push(item);
 					continue;
 				}
+				if (await this.selectAuto(item, previous)) continue;
 				// Clef picks the tool once per revision; a move hands it away.
 				if (await this.chooseTool(item, previous)) continue;
 				// A capacity pause is never held, so it would cost a Work read on
@@ -5590,6 +5606,89 @@ export class LaneDispatcher {
 			}
 		}
 	}
+	private async selectAuto(
+		item: DispatchItem,
+		previous?: Receipt,
+	): Promise<boolean> {
+		if (
+			!this.options.coordinated ||
+			this.options.executor === "any-local" ||
+			assignedExecutor(item) !== "any-local"
+		)
+			return false;
+		const scope = this.options.scope;
+		const duties = runnersForWork(
+			this.deps.runners(this.ownerEnv),
+			scope[scope.indexOf("--organization") + 1]!,
+			item.projectId!,
+			scope[scope.indexOf("--workspace") + 1]!,
+		);
+		const eligible = duties
+			.filter(
+				(duty) =>
+					duty.coordinated &&
+					duty.executor !== "any-local" &&
+					!this.unavailable.has(duty.executor) &&
+					resolve(duty.repo) === resolve(this.options.repo),
+			)
+			.map((duty) => duty.executor as LocalExecutor);
+		if (!eligible.includes(this.options.executor)) return true;
+		try {
+			await Promise.all(
+				eligible.map(async (executor) => {
+					const reason = await this.preflight(executor);
+					if (reason)
+						this.availability[executor] = {
+							available: false,
+							preflightFailed: true,
+							reason,
+						};
+					if (executor === "devin") {
+						const status = await this.devinStatus();
+						if (!status.available)
+							this.availability[executor] = {
+								available: false,
+								reason: status.reason,
+							};
+					}
+				}),
+			);
+			const selection = this.route(item, "any-local", {
+				...this.policy,
+				rules: this.policy.rules.map((rule) => ({
+					...rule,
+					routes: rule.routes.filter((route) =>
+						eligible.includes(route.executor),
+					),
+				})),
+			});
+			// Only the policy's first eligible runner selects; the server fences competing moves.
+			if (selection.executor !== this.options.executor) return true;
+			if (await this.chooseTool(item, previous, eligible)) return true;
+			await this.call([
+				"work",
+				"dispatch-reassign",
+				item.id,
+				"--input",
+				JSON.stringify({
+					executor: selection.executor,
+					expectedWorkItemVersion: item.version,
+					idleReassignment: {
+						fromExecutor: "any-local",
+						unavailableSince: new Date().toISOString(),
+						minimumIdleMinutes: 1,
+						reason: "chosen",
+						detail: routingPickNote(selection),
+					},
+				}),
+			]);
+			this.log("auto-selected", item.id, routingPickNote(selection));
+		} catch (error) {
+			this.log("auto-selection-retained", item.id, String(error));
+		}
+		return true;
+	}
+
 	private route(
 		item: DispatchItem,
 		executor = String(assignedExecutor(item)),
@@ -5622,6 +5721,7 @@ export class LaneDispatcher {
 	private async chooseTool(
 		item: DispatchItem,
 		previous?: Receipt,
+		eligible: readonly LocalExecutor[] = localExecutors,
 	): Promise<boolean> {
 		const from = String(assignedExecutor(item));
 		const receipt = item.metadata?.idleReassignment as
@@ -5663,7 +5763,7 @@ export class LaneDispatcher {
 			now,
 			basename(dirname(this.directory)) !== "dispatchers",
 		);
-		const offered = localExecutors.filter((executor) => {
+		const offered = eligible.filter((executor) => {
 			const tool = this.policy.tools?.[executor];
 			return (
 				!!tool &&

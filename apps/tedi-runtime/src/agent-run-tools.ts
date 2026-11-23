@@ -6,7 +6,7 @@ import { AGENT_RUN_SUPERVISION_SESSION_PREFIX } from "@tedix/api-contract/schema
 import type { PlatformClient } from "./brain/platform-client";
 import { failureTraceId, safeFailureReason } from "./delegated-work-tools";
 
-const AGENT_RUN_EXECUTORS = ["codex", "claude-code"] as const;
+const AGENT_RUN_EXECUTORS = ["codex", "claude-code", "any-local"] as const;
 const STEP_PAGE = 500;
 const STEP_PAGES = 4;
 const STEPS_SHOWN = 40;
@@ -27,7 +27,14 @@ async function wakeAgentRunner(
 		);
 		const target =
 			eligible.find((machine) => machine.executors.includes(executor)) ??
-			eligible.find((machine) => machine.executors.includes("any-local"));
+			eligible.find((machine) => machine.executors.includes("any-local")) ??
+			(executor === "any-local"
+				? eligible.find((machine) =>
+						machine.executors.some((tool) =>
+							["codex", "claude-code", "opencode", "devin"].includes(tool),
+						),
+					)
+				: undefined);
 		if (!target || Date.now() >= deadline) return;
 		const { callId } = await platform.requestMachineToolCall({
 			machine: target.machineName,
@@ -139,7 +146,7 @@ export function agentRunTools(input: {
 	const all = {
 		start_agent_run: tool({
 			description:
-				"Start a Codex or Claude task on one of the organization's machines for work needing many steps or a long test run. For a small change in a few files with a quick check, use the machine tools to read, edit and run commands yourself. Creates the task with your brief, assigns it to the chosen agent and accepts it, so a connected machine picks it up and works in the project's repository. Give a brief the agent can act on without this chat, and say what done looks like. A run counts as done only when its change has landed in the repository, so set changesCode to false when the brief asks only for an answer, a report or a comment. Needs the project the task belongs to; ask the person which project if you do not know it. A brief that asks for a sign-in, consent, a payment or sending a message for someone is not picked up until a person who owns the task allows it.",
+				"Start an agent task (any-local for Auto, or choose Codex or Claude) on one of the organization's machines for work needing many steps or a long test run. For a small change in a few files with a quick check, use the machine tools to read, edit and run commands yourself. Creates the task with your brief, assigns it to the chosen agent and accepts it, so a connected machine picks it up and works in the project's repository. Give a brief the agent can act on without this chat, and say what done looks like. A run counts as done only when its change has landed in the repository, so set changesCode to false when the brief asks only for an answer, a report or a comment. Needs the project the task belongs to; ask the person which project if you do not know it. A brief that asks for a sign-in, consent, a payment or sending a message for someone is not picked up until a person who owns the task allows it.",
 			inputSchema: z.strictObject({
 				title: z.string().trim().min(1).max(500),
 				brief: z

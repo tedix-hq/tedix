@@ -209,7 +209,7 @@ export interface StartRunInput {
 	title: string;
 	brief: string;
 	doneWhen: string;
-	executor: "codex" | "claude-code";
+	executor: "codex" | "claude-code" | "any-local";
 	/** False when the run changes no files and only reports back. */
 	changesCode?: boolean;
 	projectId?: string;

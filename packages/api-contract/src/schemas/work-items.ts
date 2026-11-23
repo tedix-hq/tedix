@@ -1989,6 +1989,7 @@ export type WorkExecutor = z.infer<typeof WorkExecutorSchema>;
 
 /** Executors whose assigned Work is ready to dispatch without a planner. */
 export const LANE_READY_EXECUTORS = [
+	"any-local",
 	"codex",
 	"claude-code",
 	"opencode",

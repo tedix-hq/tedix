@@ -311,7 +311,7 @@ const StartRunInputSchema = z.strictObject({
 	title: z.string().trim().min(1).max(500),
 	brief: z.string().trim().min(1).max(10_000),
 	doneWhen: z.string().trim().min(1).max(2_000),
-	executor: z.enum(["codex", "claude-code"]),
+	executor: z.enum(["codex", "claude-code", "any-local"]),
 	changesCode: z.boolean().optional(),
 	projectId: z.uuid().optional(),
 });
