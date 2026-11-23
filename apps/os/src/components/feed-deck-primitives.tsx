@@ -1,3 +1,5 @@
+import { HarnessMark } from "@/assets/harness-marks";
+import type { ComponentProps } from "react";
 import {
 	DecisionContextSection,
 	DecisionRailContext,
@@ -135,6 +137,8 @@ export const ProposerContext = createContext<{
 	projectId?: string;
 	/** When known, the card links to its Work item record. */
 	workItemId?: string;
+	workItemTitle?: string;
+	requestingHarness?: ComponentProps<typeof HarnessMark>["harness"];
 	actor?: WorkActorReference;
 	source?: WorkContributionSource;
 }>({});
@@ -155,15 +159,29 @@ export function ProposerChip({
 	const resolved = resolveWorkContributor(identity, name, directory);
 	return (
 		<div className="fd-proposer">
-			<WorkActorAvatar
-				actor={identity}
-				name={name}
-				className="fd-avatar"
-				detail={`${resolved.name}${identity?.harness ? " session" : ""}${project ? ` · ${project}` : ""}`}
-			/>
+			{context.requestingHarness ? (
+				<span className="work-actor fd-avatar" aria-hidden="true">
+					<span
+						className="work-actor-mark"
+						data-harness={context.requestingHarness}
+					>
+						<HarnessMark harness={context.requestingHarness} />
+					</span>
+				</span>
+			) : (
+				<WorkActorAvatar
+					actor={identity}
+					name={name}
+					className="fd-avatar"
+					detail={`${resolved.name}${identity?.harness ? " session" : ""}${project ? ` · ${project}` : ""}`}
+				/>
+			)}
 			<div>
-				<Text weight="medium" title={resolved.label}>
-					{resolved.label}
+				<Text
+					weight="medium"
+					title={context.requestingHarness ? name : resolved.label}
+				>
+					{context.requestingHarness ? name : resolved.label}
 				</Text>
 				{(detail || project || context.workItemId) && (
 					<Text role="label" tone="secondary">
@@ -186,7 +204,7 @@ export function ProposerChip({
 									href={`/work/items/${context.workItemId}`}
 									variant="record"
 								>
-									{OS_COPY.workHome.openWork}
+									{context.workItemTitle ?? OS_COPY.workHome.openWork}
 								</Link>
 							</>
 						)}

@@ -427,6 +427,7 @@ export function WorkDecisionCard({
 	const deckCuration = useContext(DeckCurationContext);
 	const deckNotice = useContext(DeckNoticeContext);
 	const proposer = useContext(ProposerContext);
+	const askedAt = at ?? proposer.source?.capturedAt;
 	const submittingActor = actor ?? proposer.actor;
 	const contributionSource = source ?? proposer.source;
 	const footer = useRef<HTMLDivElement>(null);
@@ -1036,21 +1037,14 @@ export function WorkDecisionCard({
 							<>
 								<CardHeader>
 									<CardDescription className="flex flex-wrap items-center gap-2">
-										<span className="flex min-w-0 items-center">
-											{faceState ? (
-												<span>{asker}</span>
-											) : (
-												<ProposerChip
-													name={asker}
-													actor={askerActor ?? actor}
-												/>
-											)}
-											{at ? (
-												<time dateTime={at} title={absoluteTime(at)}>
-													&nbsp;· {relativeTime(at)}
+										<div className="flex min-w-0 items-center flex-wrap gap-1">
+											<ProposerChip name={asker} actor={askerActor ?? actor} />
+											{askedAt ? (
+												<time dateTime={askedAt} title={absoluteTime(askedAt)}>
+													&nbsp;· {relativeTime(askedAt)}
 												</time>
 											) : null}
-										</span>
+										</div>
 									</CardDescription>
 									<CardTitle className="text-xl leading-snug">
 										<DecisionProposalHeading title={heading} />
@@ -1107,18 +1101,29 @@ export function WorkDecisionCard({
 															{whyNow && <InlineMarkdown text={whyNow} />}
 														</p>
 													)}
-													{face && "whyMe" in face && face.whyMe && (
-														<Text data-why-me>
-															<strong>{decisionText("Why you:")}</strong>{" "}
-															<InlineMarkdown text={face.whyMe} />
-														</Text>
-													)}
-													{face && (
-														<Text className="fd-recommendation">
-															<strong>{decisionText("Recommended:")}</strong>{" "}
-															<InlineMarkdown text={face.recommendation} />
-														</Text>
-													)}
+													{face &&
+														"whyMe" in face &&
+														face.whyMe &&
+														!/^you own this task[.!]?$/i.test(
+															face.whyMe.trim(),
+														) && (
+															<Text data-why-me>
+																<strong>{decisionText("Why you:")}</strong>{" "}
+																<InlineMarkdown text={face.whyMe} />
+															</Text>
+														)}
+													{face &&
+														!/^review scope before allowing[.!]?$/i.test(
+															face.recommendation.trim(),
+														) &&
+														!face.recommendation.startsWith(
+															"Read the task before allowing",
+														) && (
+															<Text className="fd-recommendation">
+																<strong>{decisionText("Recommended:")}</strong>{" "}
+																<InlineMarkdown text={face.recommendation} />
+															</Text>
+														)}
 													{faceContent}
 													{!face && (
 														// No summary yet: the original ask, as written, right away.

@@ -275,6 +275,12 @@ export function FeedCard({
 				detail: "",
 			}
 		: activityHeadline(item, RECEIPT_NOTES);
+	const headline =
+		!item.needsAction &&
+		identity?.type !== "user" &&
+		item.presentation?.version === 2
+			? item.presentation.title
+			: story.headline;
 	const status = activityStatus(item);
 	const options = feedDisplayCard(item).options;
 	const quote =
@@ -352,7 +358,7 @@ export function FeedCard({
 											: `Open ${item.attachment?.title ?? item.sentence}`
 									}
 								>
-									<span className="ft-sentence">{story.headline}</span>
+									<span className="ft-sentence">{headline}</span>
 								</Link>
 							</>
 						),
@@ -505,7 +511,7 @@ export function FeedCard({
 									<PostDiscussion
 										key={item.workItemId}
 										itemId={item.workItemId}
-										headline={story.headline}
+										headline={headline}
 										open={discussion}
 										onOpenChange={setDiscussion}
 										trigger={discussionTrigger}

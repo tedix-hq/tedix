@@ -311,7 +311,9 @@ async function mount(
 }
 async function click(text: string) {
 	const button = [...document.querySelectorAll("button")].find(
-		(button) => button.textContent?.trim() === text,
+		(button) =>
+			(button.getAttribute("aria-label") ?? button.textContent?.trim()) ===
+			text,
 	);
 	expect(button).toBeDefined();
 	await act(async () => button!.click());

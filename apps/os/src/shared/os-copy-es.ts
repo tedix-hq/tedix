@@ -553,6 +553,7 @@ export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 		"Tus preferencias y últimas 10 aprobaciones",
 	"Why now:": "Por qué ahora:",
 	"Recommended:": "Recomendado:",
+	"Edit permission": "Editar permiso",
 	"What the agent may do": "Qué puede hacer el agente",
 	"Confidence:": "Confianza:",
 	"not assessed": "sin evaluar",

@@ -101,7 +101,7 @@ it("lets the owner narrow a delegation's scope sentence and sends it with Allow"
 			),
 		);
 		const field = host.querySelector<HTMLTextAreaElement>(
-			'textarea[aria-label="What the agent may do"]',
+			'textarea[aria-label="Edit permission"]',
 		)!;
 		expect(field.value).toBe(decision.preview.body);
 		expect(host.querySelector("[data-risk]")?.textContent).toContain(
@@ -168,7 +168,7 @@ it("gives a stopped task three answers and asks before closing it", async () => 
 			root.render(
 				<DecisionEnvelopeCard
 					decision={decision}
-					askedBy="Claude Code runner"
+					askedBy="Claude Code"
 					onDecision={onDecision}
 				/>,
 			),
@@ -242,7 +242,7 @@ it.each(["execution_hold", "result_unverified", "accountable_owner"] as const)(
 					>
 						<DecisionEnvelopeCard
 							decision={laneHoldDecision(filed)!}
-							askedBy="Claude Code runner"
+							askedBy="Claude Code"
 							onDecision={onDecision}
 						/>
 					</CardFaceContext.Provider>,

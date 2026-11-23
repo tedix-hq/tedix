@@ -174,9 +174,7 @@ it("shows the lane runner as asker and keeps its user carrier in source details"
 			</QueryClientProvider>,
 		),
 	);
-	expect(host.querySelector(".fd-proposer")?.textContent).toContain(
-		"Codex runner",
-	);
+	expect(host.querySelector(".fd-proposer")?.textContent).toContain("Codex");
 	expect(host.querySelector(".fd-proposer")?.textContent).not.toContain(
 		"Morgan",
 	);
@@ -279,7 +277,7 @@ it("answers a runner's stopped task with one click wherever the request is opene
 		),
 	);
 	expect(host.querySelector(".fd-proposer")?.textContent).toContain(
-		"Claude Code runner",
+		"Claude Code",
 	);
 	expect(host.querySelector("textarea")).toBeNull();
 	const buttons = [

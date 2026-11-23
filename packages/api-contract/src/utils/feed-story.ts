@@ -35,6 +35,7 @@ export function feedStoryActor(
 	if (item.actorIdentity?.harness === "codex") return "Codex";
 	if (item.actorIdentity?.harness === "claude-code") return "Claude Code";
 	if (item.actorIdentity?.harness === "devin") return "Devin";
+	if (item.actorIdentity?.harness === "opencode") return "OpenCode";
 	if (item.tediId && tedis[item.tediId]) return tedis[item.tediId]!;
 	return item.actor || "Tedix";
 }

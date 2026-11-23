@@ -46,6 +46,9 @@ export function DecisionEnvelopeCard({
 	);
 	const defaultScope = decision.preview?.body ?? "";
 	const [scope, setScope] = useState(defaultScope);
+	const [permission, excerpt] = scope.split(
+		/\n\s*Matched task sentences:\s*([\s\S]*)/i,
+	);
 	const reversibility = decisionText(
 		decision.reversibility === "two_way"
 			? "Easy to undo"
@@ -78,20 +81,37 @@ export function DecisionEnvelopeCard({
 			}
 			faceContent={
 				<>
+					{decision.expiresAt && (
+						<Text>
+							{OS_COPY.decisionDeck.expires(
+								Math.ceil(
+									(Date.parse(decision.expiresAt) - Date.now()) / 60_000,
+								),
+							)}
+						</Text>
+					)}
 					{delegation && (
-						<label className="grid gap-1">
-							<Text weight="semibold">
-								{decisionText("What the agent may do")}
-							</Text>
-							<Textarea
-								aria-label={decisionText("What the agent may do")}
-								rows={2}
-								maxLength={500}
-								value={scope}
-								disabled={disabled}
-								onChange={(event) => setScope(event.target.value)}
-							/>
-						</label>
+						<div className="grid gap-2">
+							{excerpt?.trim() && (
+								<blockquote className="border-l-2 border-kumo-line pl-3 whitespace-pre-line">
+									{excerpt.trim()}
+								</blockquote>
+							)}
+							<Text className="whitespace-pre-line">{permission}</Text>
+							<details>
+								<summary className="cursor-pointer">
+									{decisionText("Edit permission")}
+								</summary>
+								<Textarea
+									aria-label={decisionText("Edit permission")}
+									rows={4}
+									maxLength={500}
+									value={scope}
+									disabled={disabled}
+									onChange={(event) => setScope(event.target.value)}
+								/>
+							</details>
+						</div>
 					)}
 					<Text className="fd-stakes" data-risk>
 						<strong>{reversibility}</strong> ·{" "}
@@ -136,15 +156,6 @@ export function DecisionEnvelopeCard({
 							{renderCardDateText(decision.costOfWaiting)}
 						</Text>
 					</FeedDeckDisclosure>
-					{decision.expiresAt && (
-						<Text>
-							{OS_COPY.decisionDeck.expires(
-								Math.ceil(
-									(Date.parse(decision.expiresAt) - Date.now()) / 60_000,
-								),
-							)}
-						</Text>
-					)}
 					{decision.nobodyOn && <Text>{OS_COPY.decisionDeck.nobodyOn}</Text>}
 				</div>
 			}

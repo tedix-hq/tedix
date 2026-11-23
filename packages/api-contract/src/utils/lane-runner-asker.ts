@@ -8,16 +8,21 @@ const laneRequest = z.object({
 });
 
 const names = {
-	codex: "Codex runner",
-	"claude-code": "Claude Code runner",
-	opencode: "OpenCode runner",
-	devin: "Devin runner",
+	codex: "Codex",
+	"claude-code": "Claude Code",
+	opencode: "OpenCode",
+	devin: "Devin",
 };
 
 /** Runner provenance is separate from the authenticated carrier and grants no authority. */
-export function laneRunnerAsker(metadata: unknown): string | undefined {
+export function laneRequestHarness(metadata: unknown) {
 	const parsed = laneRequest.safeParse(metadata);
-	return parsed.success ? names[parsed.data.laneBlocker.executor] : undefined;
+	return parsed.success ? parsed.data.laneBlocker.executor : undefined;
+}
+
+export function laneRunnerAsker(metadata: unknown): string | undefined {
+	const harness = laneRequestHarness(metadata);
+	return harness && names[harness];
 }
 
 /** What the person is asked to allow, in plain words. */

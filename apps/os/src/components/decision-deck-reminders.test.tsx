@@ -1,13 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-const api = vi.hoisted(() => ({ dismissReminders: vi.fn() }));
-vi.mock("@/lib/api", () => ({ osApi: { workInteractions: api } }));
-vi.mock("@/lib/os-query-options", () => ({
-	osQuery: { workInteractions: { key: () => ["wi"] } },
-}));
 import { openCommitmentReminders } from "@/lib/commitment-reminders";
 import { DeckReminders } from "./decision-deck-reminders";
 
@@ -64,23 +58,19 @@ describe("DeckReminders", () => {
 	afterEach(async () => {
 		if (root) await act(async () => root!.unmount());
 		host?.remove();
-		api.dismissReminders.mockReset();
 	});
 	async function mount(rows: Row[]) {
 		host = document.createElement("div");
 		document.body.append(host);
 		root = createRoot(host);
-		const client = new QueryClient({
-			defaultOptions: { mutations: { retry: false } },
-		});
 		await act(async () =>
 			root!.render(
-				<QueryClientProvider client={client}>
+				<>
 					<DeckReminders
 						reminders={openCommitmentReminders(rows)}
 						now={new Date("2026-11-07T12:00:00.000Z")}
 					/>
-				</QueryClientProvider>,
+				</>,
 			),
 		);
 		return host;
@@ -90,8 +80,7 @@ describe("DeckReminders", () => {
 		expect((await mount([])).textContent).toBe("");
 	});
 
-	it("shows one collapsed row with the count and dismisses all at once", async () => {
-		api.dismissReminders.mockResolvedValue({ dismissed: [] });
+	it("shows one collapsed row with the count and opens each source individually", async () => {
 		const rows = Array.from({ length: 3 }, (_, i) =>
 			row(String(i + 1), `2026-11-0${5 + i}T08:00:00.000Z`),
 		);
@@ -105,12 +94,5 @@ describe("DeckReminders", () => {
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		const titles = [...view.querySelectorAll("li a")].map((a) => a.textContent);
 		expect(titles).toEqual(["Work 3", "Work 2", "Work 1"]);
-		const dismiss = [...view.querySelectorAll("button")].find(
-			(b) => b.textContent === "Dismiss all",
-		)!;
-		await act(async () => dismiss.click());
-		expect(api.dismissReminders).toHaveBeenCalledWith({
-			requestIds: ["3", "2", "1"],
-		});
 	});
 });

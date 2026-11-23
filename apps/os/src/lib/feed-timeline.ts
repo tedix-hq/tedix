@@ -49,6 +49,8 @@ export function activityStatus(
 	const status = OS_COPY.feed.timeline.status;
 	if (item.kind === "result")
 		switch (item.resultOutcome) {
+			case "landed_unverified":
+				return { tone: "warning", label: "Awaiting verification" };
 			case "partial":
 				return { tone: "warning", label: status.partial };
 			case "expired":

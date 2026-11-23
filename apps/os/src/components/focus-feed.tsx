@@ -52,7 +52,11 @@ import {
 } from "@/lib/feed-timeline";
 import { osLocale } from "@/lib/format";
 import { osApi } from "@/lib/api";
-import { osQuery, userPreferencesQueryOptions } from "@/lib/os-query-options";
+import {
+	osQuery,
+	projectListQueryOptions,
+	userPreferencesQueryOptions,
+} from "@/lib/os-query-options";
 import {
 	approvalFeedItems,
 	correctionFeedItems,
@@ -129,6 +133,10 @@ export function FocusFeed({
 		id: crypto.randomUUID(),
 		openedAt: Date.now(),
 	}));
+	const projectList = useQuery(projectListQueryOptions(100));
+	const projectLabel = (id: string | null) =>
+		config.projects.find((p) => p.id === id)?.label ??
+		projectList.data?.data.find((p) => p.id === id)?.name;
 	const model = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		...workRefreshOptions,
@@ -660,7 +668,7 @@ export function FocusFeed({
 			key={item.id}
 			item={item}
 			actor={feedStoryActor(item, names)}
-			project={config.projects.find((p) => p.id === item.projectId)?.label}
+			project={projectLabel(item.projectId)}
 			busy={busy}
 			onReact={react}
 			onWork={work}
@@ -694,10 +702,7 @@ export function FocusFeed({
 						<StalledCauseRow
 							group={group}
 							actor={feedStoryActor(group.items[0]!, names)}
-							project={
-								config.projects.find((p) => p.id === group.items[0]!.projectId)
-									?.label
-							}
+							project={projectLabel(group.items[0]!.projectId)}
 							open={openGroups.has(group.key)}
 							onToggle={() => toggleGroup(group.key)}
 						/>

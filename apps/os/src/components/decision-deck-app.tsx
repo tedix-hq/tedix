@@ -1,3 +1,5 @@
+import { laneRequestHarness } from "@tedix/api-contract/utils/lane-runner-asker";
+import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 import { DecisionOutputSources } from "./cited-output";
 import { recordDeckChoice } from "./deck-learning-events";
 import { decisionOutcome } from "@/lib/decision-outcome";
@@ -245,8 +247,16 @@ function DecisionDeckContent({
 			shortcut={direction === "next" ? "→" : "←"}
 			keyshortcuts={direction === "next" ? "ArrowRight" : "ArrowLeft"}
 		>
-			<Button variant="ghost" onClick={direction === "next" ? next : previous}>
-				{decisionText(direction === "next" ? "Next" : "Previous")}
+			<Button
+				variant="ghost"
+				aria-label={decisionText(direction === "next" ? "Next" : "Previous")}
+				onClick={direction === "next" ? next : previous}
+			>
+				{direction === "next" ? (
+					<ArrowRight aria-hidden="true" />
+				) : (
+					<ArrowLeft aria-hidden="true" />
+				)}
 			</Button>
 		</ShortcutTooltip>
 	);
@@ -268,12 +278,8 @@ function DecisionDeckContent({
 			aria-label={paging.label}
 			data-focus-ring="inset"
 		>
-			<Button variant="ghost" onClick={previous}>
-				{decisionText("Previous")}
-			</Button>
-			<Button variant="ghost" onClick={next}>
-				{decisionText("Next")}
-			</Button>
+			{pageButton("previous")}
+			{pageButton("next")}
 		</nav>
 	);
 	const content = createElement(
@@ -600,6 +606,10 @@ function DecisionDeckContent({
 											projectId: projectNames.has(selected.project)
 												? selected.project
 												: undefined,
+											requestingHarness: laneRequestHarness(
+												selected.row?.request.metadata,
+											),
+											workItemTitle: selected.row?.workItem?.title,
 											workItemId:
 												selected.row?.workItem?.id ??
 												selected.row?.request.workItemId ??
@@ -781,12 +791,8 @@ function DecisionDeckContent({
 						{phonePaging}
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
-								<Button variant="ghost" onClick={previous}>
-									{decisionText("Previous")}
-								</Button>
-								<Button variant="ghost" onClick={next}>
-									{decisionText("Next")}
-								</Button>
+								{pageButton("previous")}
+								{pageButton("next")}
 							</div>
 						) : null}
 					</div>

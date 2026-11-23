@@ -617,10 +617,10 @@ describe("Work interaction canonical actor projections", () => {
 		}
 	});
 	it.each([
-		["codex", "Codex runner"],
-		["claude-code", "Claude Code runner"],
-		["opencode", "OpenCode runner"],
-		["devin", "Devin runner"],
+		["codex", "Codex"],
+		["claude-code", "Claude Code"],
+		["opencode", "OpenCode"],
+		["devin", "Devin"],
 	])(
 		"attributes a %s lane ask separately from its user carrier",
 		async (executor, label) => {

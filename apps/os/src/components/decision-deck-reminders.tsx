@@ -1,6 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/kumo/badge";
-import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
 	CollapsibleDefaultContent,
@@ -8,8 +6,6 @@ import {
 } from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
-import { osApi } from "@/lib/api";
-import { osQuery } from "@/lib/os-query-options";
 import { relativeTime } from "@/lib/time";
 import { decisionText } from "@/shared/os-copy";
 import type { openCommitmentReminders } from "@/lib/commitment-reminders";
@@ -19,7 +15,7 @@ type Reminder = ReturnType<typeof openCommitmentReminders>[number];
 /**
  * Automatic "Follow up" reminders sit in one collapsed row above the decision
  * card, newest first. They never count as decisions; the person can open the
- * Work behind each one or close them all at once.
+ * Work behind each one for more context.
  */
 export function DeckReminders({
 	reminders,
@@ -28,18 +24,6 @@ export function DeckReminders({
 	reminders: readonly Reminder[];
 	now: Date;
 }) {
-	const client = useQueryClient();
-	const dismiss = useMutation({
-		mutationFn: async () => {
-			const ids = reminders.map((row) => row.request.id);
-			for (let at = 0; at < ids.length; at += 200)
-				await osApi.workInteractions.dismissReminders({
-					requestIds: ids.slice(at, at + 200),
-				});
-		},
-		onSettled: () =>
-			client.invalidateQueries({ queryKey: osQuery.workInteractions.key() }),
-	});
 	if (!reminders.length) return null;
 	return (
 		<Collapsible data-deck-reminders>
@@ -50,19 +34,7 @@ export function DeckReminders({
 						<Badge variant="secondary">{reminders.length}</Badge>
 					</span>
 				</CollapsibleDefaultTrigger>
-				<Button
-					variant="ghost"
-					loading={dismiss.isPending}
-					onClick={() => dismiss.mutate()}
-				>
-					{decisionText("Dismiss all")}
-				</Button>
 			</div>
-			{dismiss.isError && (
-				<Text role="caption" tone="error">
-					{decisionText("Could not dismiss the reminders. Try again.")}
-				</Text>
-			)}
 			<CollapsibleDefaultContent>
 				<Text role="caption" tone="secondary">
 					{decisionText(

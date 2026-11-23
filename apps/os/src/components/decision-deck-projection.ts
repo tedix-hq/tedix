@@ -107,10 +107,8 @@ export function projectDecisionDeck({
 							? {
 									...original,
 									proposal:
-										laneApprovalTitle(
-											row.request.metadata,
-											row.workItem?.title,
-										) ?? original.proposal,
+										laneApprovalTitle(row.request.metadata) ??
+										original.proposal,
 								}
 							: original;
 					const presentation = DecisionCardPresentationSchema.safeParse(
