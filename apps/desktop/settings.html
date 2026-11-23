@@ -277,6 +277,14 @@
 			.item + .item {
 				border-top: 1px solid var(--border);
 			}
+			/* A group without a heading continues the one above it, split by a
+			   hairline like any other row instead of an empty gap. */
+			#page > section + section:not(:has(> .heading)) {
+				margin-top: -28px;
+			}
+			#page > section + section:not(:has(> .heading)) > .group:not(:empty) {
+				border-top: 1px solid var(--border);
+			}
 			.item .title {
 				font-size: 14px;
 				font-weight: 450;

@@ -163,6 +163,28 @@ function general(now: PanelState): Group[] {
 	];
 }
 
+/**
+ * The tool's own usage report, cut to what a person can act on: how much of
+ * each limit is used and when it resets, e.g. "8% of weekly limit used ·
+ * resets Nov 30". Plan names, credits, costs and notes about what a tool
+ * does not report are left out; with nothing left, there is no line.
+ */
+function plainUsage(text: string, toolName: string): string {
+	const prefix = new RegExp(`^${toolName.replace(/[^\w]/g, "\\$&")}\\s+`, "i");
+	const windows = [
+		...text.matchAll(
+			/([A-Za-z0-9][\w -]*?): (\d+)% used(?: \([^)]*\))?(?:, resets ([A-Z][a-z]{2} \d{1,2}))?/g,
+		),
+	].map(([, name = "", used, reset]) => {
+		const period = name.trim().replace(prefix, "").toLowerCase();
+		const label = /^\d+h$/.test(period)
+			? `${period.slice(0, -1)}-hour`
+			: period;
+		return `${used}% of ${label} limit used${reset ? ` · resets ${reset}` : ""}`;
+	});
+	return windows.slice(0, 2).join(" · ");
+}
+
 function tools(now: PanelState): Group[] {
 	const found = foundTools(now);
 	const chat: Group = {
@@ -203,7 +225,11 @@ function tools(now: PanelState): Group[] {
 		// Held back by its own limit, such as out of credits until a time.
 		const limit = on ? now.setup.routing?.limits?.[tool.executor] : undefined;
 		// What the tool itself reports: plan, each limit used and its reset.
-		const usage = on ? now.setup.routing?.usage?.[tool.executor] : undefined;
+		const report = on ? now.setup.routing?.usage?.[tool.executor] : undefined;
+		const usageText = report ? plainUsage(report.text, tool.name) : "";
+		const usage = usageText
+			? { text: usageText, near: report?.near }
+			: undefined;
 		return {
 			title: tool.name,
 			glyph: TOOL_ICONS[tool.id] ?? "terminal",
@@ -566,9 +592,10 @@ function about(now: PanelState): Group[] {
 					],
 					words: "version update",
 				},
-				{
-					title: problems.length ? problems[0]! : "Everything works",
-					tone: problems.length ? "warn" : "good",
+				// Only a problem earns a row; when all is well there is nothing to say.
+				problems.length > 0 && {
+					title: problems[0]!,
+					tone: "warn",
 					sub: problems.length > 1 ? problems.slice(1).join(" ") : undefined,
 					control: [
 						button(
@@ -579,7 +606,7 @@ function about(now: PanelState): Group[] {
 					],
 					words: "diagnostics health problem",
 				},
-			],
+			].filter(Boolean) as Item[],
 		},
 	];
 }
