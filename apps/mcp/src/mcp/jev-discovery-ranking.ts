@@ -2,6 +2,8 @@
 export interface DiscoveryRankingEntry {
 	namespace: string;
 	tool: string;
+	/** Lexical relevance from codemode-discovery; rows arrive sorted by it. */
+	score?: number;
 	meta: unknown;
 }
 
@@ -18,6 +20,70 @@ export type DiscoveryRanker = (input: {
 
 const MAX_JEV_CANDIDATES = 12;
 const MAX_DESCRIPTION_CHARS = 400;
+// A lexical leader this far ahead of the runner-up already answers the query.
+const CLEAR_WINNER_RATIO = 1.5;
+const CACHE_TTL_MS = 10 * 60_000;
+const CACHE_MAX_ENTRIES = 500;
+
+// Isolate-level memo of validated judgments. The key binds the organization,
+// the normalized query and the exact candidate list, so a hit replays the
+// same permutation of the same rows. Failures are never stored.
+const judgmentCache = new Map<
+	string,
+	{ rankedIds: string[]; expiresAt: number }
+>();
+
+async function judgmentKey(
+	organizationId: string,
+	query: string,
+	candidates: DiscoveryRankingCandidate[],
+): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			JSON.stringify(candidates.map((c) => [c.id, c.kind, c.description])),
+		),
+	);
+	const hash = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	return JSON.stringify([
+		organizationId,
+		query.toLowerCase().replace(/\s+/g, " ").trim(),
+		hash,
+	]);
+}
+
+function cachedJudgment(key: string): string[] | null {
+	const hit = judgmentCache.get(key);
+	if (!hit) return null;
+	if (hit.expiresAt <= Date.now()) {
+		judgmentCache.delete(key);
+		return null;
+	}
+	return hit.rankedIds;
+}
+
+function storeJudgment(key: string, rankedIds: string[]): void {
+	judgmentCache.delete(key);
+	judgmentCache.set(key, {
+		rankedIds: [...rankedIds],
+		expiresAt: Date.now() + CACHE_TTL_MS,
+	});
+	while (judgmentCache.size > CACHE_MAX_ENTRIES) {
+		const oldest = judgmentCache.keys().next().value;
+		if (oldest === undefined) break;
+		judgmentCache.delete(oldest);
+	}
+}
+
+function hasClearWinner(scores: (number | undefined)[]): boolean {
+	const [top, second] = scores;
+	if (typeof top !== "number" || typeof second !== "number") return false;
+	if (!Number.isFinite(top) || !Number.isFinite(second) || top <= 0)
+		return false;
+	return top >= second * CLEAR_WINNER_RATIO;
+}
 
 function record(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)
@@ -42,12 +108,14 @@ export async function rerankDiscoveryShortlist<T extends DiscoveryRankingEntry>(
 	entries: T[],
 	query: string,
 	rank: DiscoveryRanker | undefined,
+	organizationId?: string,
 ): Promise<{ entries: T[]; usedJev: boolean }> {
 	if (!rank || query.length < 10 || query.length > 2000)
 		return { entries, usedJev: false };
 	const candidates: DiscoveryRankingCandidate[] = [];
 	const positions: number[] = [];
 	const byId = new Map<string, T>();
+	const scores: (number | undefined)[] = [];
 	for (let index = 0; index < entries.length; index++) {
 		const entry = entries[index]!;
 		const meta = record(entry.meta);
@@ -79,12 +147,17 @@ export async function rerankDiscoveryShortlist<T extends DiscoveryRankingEntry>(
 		positions.push(index);
 		byId.set(id, entry);
 		candidates.push({ id, kind, description });
+		scores.push(entry.score);
 		if (candidates.length === MAX_JEV_CANDIDATES) break;
 	}
-	if (candidates.length < 2) return { entries, usedJev: false };
+	if (candidates.length < 2 || hasClearWinner(scores))
+		return { entries, usedJev: false };
 	try {
-		const result = await rank({ query, candidates });
-		const rankedIds = result.rankedIds;
+		const key = organizationId
+			? await judgmentKey(organizationId, query, candidates)
+			: undefined;
+		const cached = key ? cachedJudgment(key) : null;
+		const rankedIds = cached ?? (await rank({ query, candidates })).rankedIds;
 		if (!rankedIds?.length || rankedIds.length > candidates.length)
 			return { entries, usedJev: false };
 		const seen = new Set<string>();
@@ -92,6 +165,7 @@ export async function rerankDiscoveryShortlist<T extends DiscoveryRankingEntry>(
 			if (!byId.has(id) || seen.has(id)) return { entries, usedJev: false };
 			seen.add(id);
 		}
+		if (key && !cached) storeJudgment(key, rankedIds);
 		const reordered = [
 			...rankedIds.map((id) => byId.get(id)!),
 			...candidates

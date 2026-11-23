@@ -1028,6 +1028,8 @@ export function buildCatalogProvider(
 							serverCtx.callerIdentity?.organizationId
 							? rankDiscovery
 							: undefined,
+						serverCtx.app?.organizationId ||
+							serverCtx.callerIdentity?.organizationId,
 					);
 					return annotateDiscovery(
 						paginateCatalogEntries(

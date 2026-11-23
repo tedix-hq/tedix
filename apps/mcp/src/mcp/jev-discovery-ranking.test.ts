@@ -108,4 +108,59 @@ describe("Jev Code Mode discovery ordering", () => {
 		);
 		expect(result).toEqual({ entries: rows, usedJev: false });
 	});
+
+	it("replays a cached judgment per organization and never caches failures", async () => {
+		const rank = vi.fn(async () => ({ rankedIds: ["work.get_item"] }));
+		const first = await rerankDiscoveryShortlist(
+			rows,
+			"Find   my work items",
+			rank,
+			"org-cache-a",
+		);
+		const second = await rerankDiscoveryShortlist(
+			rows,
+			"find my work items",
+			rank,
+			"org-cache-a",
+		);
+		expect(rank).toHaveBeenCalledTimes(1);
+		expect(second).toEqual(first);
+		expect(second.usedJev).toBe(true);
+		await rerankDiscoveryShortlist(
+			rows,
+			"find my work items",
+			rank,
+			"org-cache-b",
+		);
+		expect(rank).toHaveBeenCalledTimes(2);
+
+		const failing = vi.fn(async () => {
+			throw new Error("unavailable");
+		});
+		for (let attempt = 0; attempt < 2; attempt++) {
+			await rerankDiscoveryShortlist(
+				rows,
+				"failing work query",
+				failing,
+				"org-cache-a",
+			);
+		}
+		expect(failing).toHaveBeenCalledTimes(2);
+	});
+
+	it("skips judgment when the lexical leader clearly wins", async () => {
+		const rank = vi.fn(async () => ({ rankedIds: ["work.get_item"] }));
+		const scored = rows.map((row, index) => ({
+			...row,
+			score: [60, 50, 39, 20][index],
+		}));
+		const result = await rerankDiscoveryShortlist(
+			scored,
+			"list my work items",
+			rank,
+			"org-clear",
+		);
+		expect(result).toEqual({ entries: scored, usedJev: false });
+		expect(rank).not.toHaveBeenCalled();
+	});
 });
