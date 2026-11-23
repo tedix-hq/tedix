@@ -271,6 +271,43 @@ export async function searchFactsWithVisibility(
 		.offset(params.offset ?? 0);
 }
 
+/**
+ * Content of the organization's confirmed, active, org-visible facts, for
+ * request-ledger lesson novelty. It reads only the partial
+ * idx_memory_facts_org_confirmed_lessons range, so its predicates are stated
+ * as literals. The general visibility search sorted every org fact (about
+ * 28k rows, 1-3 s on a busy D1) to return 200 and then dropped the
+ * unconfirmed ones; on 23 Nov 2026 that read stalled main D1 every few
+ * minutes.
+ */
+export async function listConfirmedOrgFactContents(
+	db: DbClient,
+	tenantScope: TenantScope,
+	limit = 200,
+): Promise<string[]> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
+	const rows = await db
+		.select({ content: memoryFacts.content })
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, organizationId),
+				sql`${memoryFacts.reviewStatus} = 'confirmed'`,
+				sql`${memoryFacts.status} = 'active'`,
+				isNull(memoryFacts.archivedAt),
+				isNull(memoryFacts.validTo),
+				or(
+					eq(memoryFacts.visibility, "org"),
+					eq(memoryFacts.visibility, "shared"),
+				),
+				not(eq(memoryFacts.memoryScope, "graph")),
+				not(eq(memoryFacts.usePolicy, "do_not_inject_automatically")),
+			),
+		)
+		.limit(boundedLimit(limit));
+	return rows.map((row) => row.content);
+}
+
 // ============================================================================
 // Tedi Expertise
 // ============================================================================

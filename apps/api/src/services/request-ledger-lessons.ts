@@ -6,7 +6,7 @@ import {
 	recordLearningInteraction,
 } from "@tedix/db/queries/learning-feedback";
 import { listApprovedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
-import { searchFactsWithVisibility } from "@tedix/db/queries/memory-graph/fact-search";
+import { listConfirmedOrgFactContents } from "@tedix/db/queries/memory-graph/fact-search";
 import * as z from "zod";
 import type { JevQuestion } from "@tedix/workers-ai/jev";
 import { executeJevJudgment } from "./jev-judgment";
@@ -130,10 +130,7 @@ export async function recordLedgerLessonCandidates(
 				viewerUserId: scope.ownerUserId,
 			},
 		),
-		searchFactsWithVisibility(db, {
-			organizationId: scope.organizationId,
-			limit: 200,
-		}),
+		listConfirmedOrgFactContents(db, { organizationId: scope.organizationId }),
 		listLearningImprovementProposals(db, {
 			organizationId: scope.organizationId,
 			personalScopeId: scope.ownerUserId,
@@ -142,11 +139,7 @@ export async function recordLedgerLessonCandidates(
 	]);
 	const existing = [
 		...approved.map((row) => row.content),
-		...memory
-			.filter(
-				(row) => row.reviewStatus === "confirmed" && row.status === "active",
-			)
-			.map((row) => row.content),
+		...memory,
 		...proposals
 			.filter((row) => row.subjectKind === "memory_fact")
 			.map((row) => row.recommendation),
