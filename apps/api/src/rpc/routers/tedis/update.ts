@@ -351,11 +351,23 @@ export const updateTediProcedure = authedTedisOs.update
 		//  - Upgrade / lateral / no-op only adds scope (or none), and the live D1
 		//    profile already governs the MCP edge, so its re-sync stays
 		//    best-effort + non-blocking and never gates the response.
-		if (data.mcpCapabilityProfile !== undefined) {
-			const isDowngrade = isTediCapabilityDowngrade(
-				existingTedi.mcpCapabilityProfile,
-				tedi.mcpCapabilityProfile,
-			);
+		// Tags pick the managed assignment role too (an app rule can require
+		// `gateway:operator`), so a tag change re-syncs the same way; removing
+		// a tag may remove access and counts as a downgrade.
+		const nextTags = new Set(tedi.tags ?? []);
+		const removedTag = (existingTedi.tags ?? []).some(
+			(tag) => !nextTags.has(tag),
+		);
+		const tagsChanged =
+			data.tags !== undefined &&
+			(removedTag || nextTags.size !== (existingTedi.tags ?? []).length);
+		if (data.mcpCapabilityProfile !== undefined || tagsChanged) {
+			const isDowngrade =
+				removedTag ||
+				isTediCapabilityDowngrade(
+					existingTedi.mcpCapabilityProfile,
+					tedi.mcpCapabilityProfile,
+				);
 			if (isDowngrade) {
 				try {
 					await materializeManagedAppAssignments(context, tedi);
