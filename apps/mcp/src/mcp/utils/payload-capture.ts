@@ -238,6 +238,22 @@ export function payloadCaptureAllowed(
 	return readPayloadCaptureEnv(env, "MCP_PAYLOAD_CAPTURE_DEFAULT") !== "off";
 }
 
+/**
+ * True only when a capture would actually be sent: the payload stream is
+ * configured and the app/org consents. Check this before serializing and
+ * redacting payloads, which is the expensive part of a capture.
+ */
+export function payloadCaptureActive(
+	env: PayloadCaptureEnv,
+	capturePayloads: boolean | undefined,
+): boolean {
+	return Boolean(
+		readPayloadCaptureEnv(env, "MCP_PAYLOAD_STREAM_ENDPOINT") &&
+		readPayloadCaptureEnv(env, "MCP_PAYLOAD_STREAM_TOKEN") &&
+		payloadCaptureAllowed(env, capturePayloads),
+	);
+}
+
 /** Minimal ctx surface — `waitUntil` is used when available. */
 interface PayloadCaptureCtx {
 	waitUntil?: (promise: Promise<unknown>) => void;
@@ -258,11 +274,10 @@ export function capturePayloadRecord(
 	record: PayloadCaptureRecord,
 	capturePayloads?: boolean,
 ): void {
-	const endpoint = readPayloadCaptureEnv(env, "MCP_PAYLOAD_STREAM_ENDPOINT");
-	const token = readPayloadCaptureEnv(env, "MCP_PAYLOAD_STREAM_TOKEN");
-	if (!endpoint || !token) return;
 	// P1.6 consent gate: skip payload bodies for non-consenting orgs/apps.
-	if (!payloadCaptureAllowed(env, capturePayloads)) return;
+	if (!payloadCaptureActive(env, capturePayloads)) return;
+	const endpoint = readPayloadCaptureEnv(env, "MCP_PAYLOAD_STREAM_ENDPOINT")!;
+	const token = readPayloadCaptureEnv(env, "MCP_PAYLOAD_STREAM_TOKEN")!;
 
 	writePayload(
 		() =>

@@ -120,6 +120,7 @@ import { normalizeOpenApiExternalArgs } from "./utils/openapi-args";
 import { normalizeOpenApiStructuredContent } from "./utils/openapi-output";
 import {
 	capturePayloadRecord,
+	payloadCaptureActive,
 	redactAndTruncate,
 } from "./utils/payload-capture";
 import { getWidgetVersion } from "./utils/register-widget";
@@ -454,39 +455,41 @@ export async function executeTool(
 		} as McpEvent;
 		trackMcpEvent(agent.env, event);
 		emitMcpAuditEvent(agent.env, event, waitUntil);
-		// A masked response keeps the caller's arguments out of the capture too.
-		const inputCap = redactAndTruncate(
-			result._meta?.["tedix/personalDataRedaction"]
-				? redactPersonalDataValue(args)
-				: args,
-		);
-		const outputCap = redactAndTruncate(result);
-		capturePayloadRecord(
-			agent.env,
-			agent.ctx,
-			{
-				traceId: agent.traceId ?? "",
-				executionId: options.executionId ?? "",
-				appId: agent.appId ?? "",
-				appSlug: agent.appSlug ?? "",
-				organizationId: agent.app?.organizationId ?? "",
-				toolName: tool.toolId,
-				eventType: "tool_call",
-				success: result.isError ? 0 : 1,
-				errorCode: "",
-				durationMs: event.durationMs ?? 0,
-				timestamp: event.timestamp,
-				userId: event.userId ?? "",
-				tediId: event.tediId ?? "",
-				authType: event.authType ?? "",
-				inputArgs: inputCap.json,
-				inputBytes: inputCap.bytes,
-				outputBody: outputCap.json,
-				outputBytes: outputCap.bytes,
-				truncated: inputCap.truncated || outputCap.truncated ? 1 : 0,
-			},
-			capturePayloads,
-		);
+		if (payloadCaptureActive(agent.env, capturePayloads)) {
+			// A masked response keeps the caller's arguments out of the capture too.
+			const inputCap = redactAndTruncate(
+				result._meta?.["tedix/personalDataRedaction"]
+					? redactPersonalDataValue(args)
+					: args,
+			);
+			const outputCap = redactAndTruncate(result);
+			capturePayloadRecord(
+				agent.env,
+				agent.ctx,
+				{
+					traceId: agent.traceId ?? "",
+					executionId: options.executionId ?? "",
+					appId: agent.appId ?? "",
+					appSlug: agent.appSlug ?? "",
+					organizationId: agent.app?.organizationId ?? "",
+					toolName: tool.toolId,
+					eventType: "tool_call",
+					success: result.isError ? 0 : 1,
+					errorCode: "",
+					durationMs: event.durationMs ?? 0,
+					timestamp: event.timestamp,
+					userId: event.userId ?? "",
+					tediId: event.tediId ?? "",
+					authType: event.authType ?? "",
+					inputArgs: inputCap.json,
+					inputBytes: inputCap.bytes,
+					outputBody: outputCap.json,
+					outputBytes: outputCap.bytes,
+					truncated: inputCap.truncated || outputCap.truncated ? 1 : 0,
+				},
+				capturePayloads,
+			);
+		}
 		return result;
 	} catch (error) {
 		const event: McpEvent = {
@@ -500,39 +503,41 @@ export async function executeTool(
 		} as McpEvent;
 		trackMcpEvent(agent.env, event);
 		emitMcpAuditEvent(agent.env, event, waitUntil);
-		const inputCap = redactAndTruncate(
-			capturePayloads &&
-				tool.sensitiveData === true &&
-				(await personalDataRedactionEnabled(agent))
-				? redactPersonalDataValue(args)
-				: args,
-		);
-		capturePayloadRecord(
-			agent.env,
-			agent.ctx,
-			{
-				traceId: agent.traceId ?? "",
-				executionId: options.executionId ?? "",
-				appId: agent.appId ?? "",
-				appSlug: agent.appSlug ?? "",
-				organizationId: agent.app?.organizationId ?? "",
-				toolName: tool.toolId,
-				eventType: "tool_call",
-				success: 0,
-				errorCode: normalizeMcpErrorCode(error),
-				durationMs: event.durationMs ?? 0,
-				timestamp: event.timestamp,
-				userId: event.userId ?? "",
-				tediId: event.tediId ?? "",
-				authType: event.authType ?? "",
-				inputArgs: inputCap.json,
-				inputBytes: inputCap.bytes,
-				outputBody: "",
-				outputBytes: 0,
-				truncated: inputCap.truncated ? 1 : 0,
-			},
-			capturePayloads,
-		);
+		if (payloadCaptureActive(agent.env, capturePayloads)) {
+			const inputCap = redactAndTruncate(
+				capturePayloads &&
+					tool.sensitiveData === true &&
+					(await personalDataRedactionEnabled(agent))
+					? redactPersonalDataValue(args)
+					: args,
+			);
+			capturePayloadRecord(
+				agent.env,
+				agent.ctx,
+				{
+					traceId: agent.traceId ?? "",
+					executionId: options.executionId ?? "",
+					appId: agent.appId ?? "",
+					appSlug: agent.appSlug ?? "",
+					organizationId: agent.app?.organizationId ?? "",
+					toolName: tool.toolId,
+					eventType: "tool_call",
+					success: 0,
+					errorCode: normalizeMcpErrorCode(error),
+					durationMs: event.durationMs ?? 0,
+					timestamp: event.timestamp,
+					userId: event.userId ?? "",
+					tediId: event.tediId ?? "",
+					authType: event.authType ?? "",
+					inputArgs: inputCap.json,
+					inputBytes: inputCap.bytes,
+					outputBody: "",
+					outputBytes: 0,
+					truncated: inputCap.truncated ? 1 : 0,
+				},
+				capturePayloads,
+			);
+		}
 		throw error;
 	}
 }

@@ -37,6 +37,7 @@ import {
 } from "../utils/analytics";
 import {
 	capturePayloadRecord,
+	payloadCaptureActive,
 	redactAndTruncate,
 } from "../utils/payload-capture";
 
@@ -180,35 +181,37 @@ export function wrapToolCallTelemetry(
 			} as McpEvent;
 			trackMcpEvent(serverCtx.env, event);
 			emitMcpAuditEvent(serverCtx.env, event, waitUntil);
-			const inputCap = redactAndTruncate(args);
-			const outputCap = redactAndTruncate(result);
-			capturePayloadRecord(
-				serverCtx.env,
-				serverCtx.ctx,
-				{
-					traceId: serverCtx.traceId ?? "",
-					executionId: "",
-					appId: serverCtx.appId ?? "",
-					appSlug: serverCtx.appSlug ?? "",
-					organizationId:
-						selectedOrganizationId ?? serverCtx.app?.organizationId ?? "",
-					toolName,
-					eventType: "tool_call",
-					success: success ? 1 : 0,
-					errorCode: "",
-					durationMs: event.durationMs ?? 0,
-					timestamp: event.timestamp,
-					userId: event.userId ?? "",
-					tediId: event.tediId ?? "",
-					authType: event.authType ?? "",
-					inputArgs: inputCap.json,
-					inputBytes: inputCap.bytes,
-					outputBody: outputCap.json,
-					outputBytes: outputCap.bytes,
-					truncated: inputCap.truncated || outputCap.truncated ? 1 : 0,
-				},
-				capturePayloads,
-			);
+			if (payloadCaptureActive(serverCtx.env, capturePayloads)) {
+				const inputCap = redactAndTruncate(args);
+				const outputCap = redactAndTruncate(result);
+				capturePayloadRecord(
+					serverCtx.env,
+					serverCtx.ctx,
+					{
+						traceId: serverCtx.traceId ?? "",
+						executionId: "",
+						appId: serverCtx.appId ?? "",
+						appSlug: serverCtx.appSlug ?? "",
+						organizationId:
+							selectedOrganizationId ?? serverCtx.app?.organizationId ?? "",
+						toolName,
+						eventType: "tool_call",
+						success: success ? 1 : 0,
+						errorCode: "",
+						durationMs: event.durationMs ?? 0,
+						timestamp: event.timestamp,
+						userId: event.userId ?? "",
+						tediId: event.tediId ?? "",
+						authType: event.authType ?? "",
+						inputArgs: inputCap.json,
+						inputBytes: inputCap.bytes,
+						outputBody: outputCap.json,
+						outputBytes: outputCap.bytes,
+						truncated: inputCap.truncated || outputCap.truncated ? 1 : 0,
+					},
+					capturePayloads,
+				);
+			}
 			if (!success && callToolResult && serverCtx.traceId)
 				return {
 					...callToolResult,
@@ -231,34 +234,36 @@ export function wrapToolCallTelemetry(
 			} as McpEvent;
 			trackMcpEvent(serverCtx.env, event);
 			emitMcpAuditEvent(serverCtx.env, event, waitUntil);
-			const inputCap = redactAndTruncate(args);
-			capturePayloadRecord(
-				serverCtx.env,
-				serverCtx.ctx,
-				{
-					traceId: serverCtx.traceId ?? "",
-					executionId: "",
-					appId: serverCtx.appId ?? "",
-					appSlug: serverCtx.appSlug ?? "",
-					organizationId:
-						selectedOrganizationId ?? serverCtx.app?.organizationId ?? "",
-					toolName,
-					eventType: "tool_call",
-					success: 0,
-					errorCode,
-					durationMs: event.durationMs ?? 0,
-					timestamp: event.timestamp,
-					userId: event.userId ?? "",
-					tediId: event.tediId ?? "",
-					authType: event.authType ?? "",
-					inputArgs: inputCap.json,
-					inputBytes: inputCap.bytes,
-					outputBody: "",
-					outputBytes: 0,
-					truncated: inputCap.truncated ? 1 : 0,
-				},
-				capturePayloads,
-			);
+			if (payloadCaptureActive(serverCtx.env, capturePayloads)) {
+				const inputCap = redactAndTruncate(args);
+				capturePayloadRecord(
+					serverCtx.env,
+					serverCtx.ctx,
+					{
+						traceId: serverCtx.traceId ?? "",
+						executionId: "",
+						appId: serverCtx.appId ?? "",
+						appSlug: serverCtx.appSlug ?? "",
+						organizationId:
+							selectedOrganizationId ?? serverCtx.app?.organizationId ?? "",
+						toolName,
+						eventType: "tool_call",
+						success: 0,
+						errorCode,
+						durationMs: event.durationMs ?? 0,
+						timestamp: event.timestamp,
+						userId: event.userId ?? "",
+						tediId: event.tediId ?? "",
+						authType: event.authType ?? "",
+						inputArgs: inputCap.json,
+						inputBytes: inputCap.bytes,
+						outputBody: "",
+						outputBytes: 0,
+						truncated: inputCap.truncated ? 1 : 0,
+					},
+					capturePayloads,
+				);
+			}
 			throw error;
 		}
 	};
