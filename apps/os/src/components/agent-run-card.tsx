@@ -390,7 +390,12 @@ export function AgentRunCard({
 		enabled: waiting,
 		staleTime: 0,
 		refetchInterval: (query) =>
-			pollingBackoff(query, waiting ? 3_000 : false, 30_000),
+			pollingBackoff(
+				query,
+				waiting && !document.hidden ? 120_000 : false,
+				300_000,
+				query.state.data?.data,
+			),
 	});
 	const hold = requests.data?.data.find(
 		({ request }) => request.metadata?.source === "lane-dispatch-blocker",

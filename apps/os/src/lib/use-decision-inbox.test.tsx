@@ -8,6 +8,7 @@ import { osQuery } from "./os-query-options";
 
 const clock = vi.hoisted(() => ({ now: new Date("2026-10-18T12:00:00Z") }));
 const listInbox = vi.hoisted(() => vi.fn());
+const workInbox = vi.hoisted(() => vi.fn(async () => ({ data: [] })));
 const refreshDecisionSources = vi.hoisted(() => vi.fn());
 vi.mock("./use-card-schedule", () => ({
 	useCardSchedule: () => ({ now: clock.now, timeZone: "Europe/Berlin" }),
@@ -31,7 +32,7 @@ vi.mock("./api", async (original) => {
 				key === "workInteractions"
 					? { listInbox, refreshDecisionSources }
 					: key === "workApprovals"
-						? { listInbox: async () => ({ data: [] }) }
+						? { listInbox: workInbox }
 						: key === "tediApprovals"
 							? {
 									list: async () => ({
@@ -39,7 +40,9 @@ vi.mock("./api", async (original) => {
 										pagination: { hasMore: false },
 									}),
 								}
-							: Reflect.get(target, key),
+							: key === "learningFeedback"
+								? { model: async () => null }
+								: Reflect.get(target, key),
 		}),
 	};
 });
@@ -213,4 +216,49 @@ it("invalidates the inbox after a refresh retires support cards without creating
 		queryKey: osQuery.attention.listDeckCards.key(),
 	});
 	expect(refreshDecisionSources).toHaveBeenCalledWith({});
+});
+
+it("keeps the shell's combined idle inbox reads below one a minute", async () => {
+	vi.useFakeTimers();
+	listInbox.mockImplementation(async () => ({
+		data: [],
+		hasMore: false,
+		nextCursor: null,
+		observedAt: new Date().toISOString(),
+	}));
+	refreshDecisionSources.mockResolvedValue({ created: 0, superseded: 0 });
+	workInbox.mockClear();
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.body.appendChild(document.createElement("div"));
+	root = createRoot(host);
+	try {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<Probe />
+				</QueryClientProvider>,
+			),
+		);
+		await act(() => vi.advanceTimersByTimeAsync(100));
+		expect(listInbox).toHaveBeenCalledTimes(2);
+		expect(workInbox).toHaveBeenCalledOnce();
+		for (let minute = 0; minute < 60; minute++)
+			await act(() => vi.advanceTimersByTimeAsync(60_000));
+		expect(
+			listInbox.mock.calls.length + workInbox.mock.calls.length,
+		).toBeLessThan(45);
+		const reads = listInbox.mock.calls.length;
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: osQuery.workInteractions.listInbox.key(),
+			});
+		});
+		expect(listInbox).toHaveBeenCalledTimes(reads + 2);
+	} finally {
+		await act(async () => root.unmount());
+		client.clear();
+		vi.useRealTimers();
+	}
 });

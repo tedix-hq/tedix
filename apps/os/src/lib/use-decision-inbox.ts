@@ -1,4 +1,5 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
+import { pollingBackoff } from "@/lib/polling-backoff";
 import { cardScheduleDates } from "@tedix/api-contract/utils/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import {
@@ -33,6 +34,13 @@ export function useDecisionInbox(
 		...firstDecisionPageOptions(config?.projectId, config?.limit),
 		enabled: Boolean(config),
 		...workRefreshOptions,
+		refetchInterval: (query) =>
+			pollingBackoff(
+				query,
+				document.hidden ? false : 120_000,
+				300_000,
+				query.state.data?.data,
+			),
 	});
 	// Let one small inbox read finish before competing database work starts.
 	const loadMore =
@@ -68,6 +76,13 @@ export function useDecisionInbox(
 		}),
 		enabled: earlierEnabled,
 		...workRefreshOptions,
+		refetchInterval: (query) =>
+			pollingBackoff(
+				query,
+				document.hidden ? false : 120_000,
+				300_000,
+				JSON.stringify(query.state.data?.pages.map((page) => page.data)),
+			),
 	});
 	useEffect(() => {
 		if (
@@ -98,6 +113,13 @@ export function useDecisionInbox(
 		}),
 		enabled: loadMore,
 		...workRefreshOptions,
+		refetchInterval: (query) =>
+			pollingBackoff(
+				query,
+				document.hidden ? false : 120_000,
+				300_000,
+				query.state.data?.data,
+			),
 	});
 	const approvals = useQuery({
 		...pendingApprovalsQueryOptions(),
@@ -114,6 +136,13 @@ export function useDecisionInbox(
 		}),
 		enabled: Boolean(config),
 		...workRefreshOptions,
+		refetchInterval: (query) =>
+			pollingBackoff(
+				query,
+				document.hidden ? false : 120_000,
+				300_000,
+				query.state.data?.data,
+			),
 	});
 	const candidates = [
 		...new Map(

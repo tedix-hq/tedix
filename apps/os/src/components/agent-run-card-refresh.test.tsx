@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 import { AgentRunCard } from "./agent-run-card";
+import { osQuery } from "@/lib/os-query-options";
 
 const api = vi.hoisted(() => ({
 	steps: vi.fn(),
@@ -139,4 +140,58 @@ it("moves from waiting to running to failed without a reload", async () => {
 	client.clear();
 	host.remove();
 	vi.useRealTimers();
+});
+
+it("backs off an idle pickup inbox despite changing read timestamps and accepts invalidation", async () => {
+	vi.useFakeTimers();
+	api.steps.mockResolvedValue({
+		attemptId: null,
+		live: false,
+		steps: [],
+		messages: [],
+	});
+	api.attempts.mockResolvedValue({ data: [], nextCursor: null });
+	api.inbox.mockReset().mockImplementation(async () => ({
+		data: [],
+		observedAt: new Date().toISOString(),
+	}));
+	const host = document.body.appendChild(document.createElement("div"));
+	const root = createRoot(host);
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	try {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<ul>
+						<AgentRunCard
+							agentRun={{
+								workItemId: "11111111-1111-4111-8111-111111111111",
+								title: "Fix paging",
+								executor: "codex",
+							}}
+						/>
+					</ul>
+				</QueryClientProvider>,
+			),
+		);
+		await act(() => vi.advanceTimersByTimeAsync(100));
+		for (let minute = 0; minute < 60; minute++)
+			await act(() => vi.advanceTimersByTimeAsync(60_000));
+		expect(api.inbox.mock.calls.length).toBeGreaterThan(0);
+		expect(api.inbox.mock.calls.length).toBeLessThan(15);
+		const reads = api.inbox.mock.calls.length;
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: osQuery.workInteractions.listInbox.key(),
+			});
+		});
+		expect(api.inbox).toHaveBeenCalledTimes(reads + 1);
+	} finally {
+		act(() => root.unmount());
+		client.clear();
+		host.remove();
+		vi.useRealTimers();
+	}
 });
