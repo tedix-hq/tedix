@@ -82,14 +82,6 @@ function claudeCode(): string | undefined {
 	}
 }
 
-export function selectedHarnessCommand(
-	desktopInstalled: boolean,
-	bundled: string | undefined,
-	standalone: string | undefined,
-): string | undefined {
-	return desktopInstalled ? bundled : standalone;
-}
-
 export function harnessTarget(host: Harness) {
 	const spec = HOSTS[host];
 	const app = desktopAppPath(spec.app);
@@ -104,8 +96,12 @@ export function harnessTarget(host: Harness) {
 			!bundled || realpathSync(candidate) !== realpathSync(bundled),
 	);
 	return {
-		command: selectedHarnessCommand(Boolean(app), bundled, standalone),
-		desktop: app ? spec.name : undefined,
+		// A Mac app without its own executable leaves the standalone command.
+		command: bundled || standalone,
+		/** The Mac app's name when setup uses its executable. */
+		desktop: bundled ? spec.name : undefined,
+		/** The Mac app's name when it is installed. */
+		app: app ? spec.name : undefined,
 		standaloneFound: Boolean(standalone),
 	};
 }

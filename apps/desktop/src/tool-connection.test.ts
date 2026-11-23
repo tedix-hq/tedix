@@ -1,30 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { selectedHarnessCommand } from "./harness-target";
 import {
 	devinConnection,
 	opencodeConnection,
 	toolConnection,
 } from "./tool-connection";
-
-test("setup stays on the desktop executable when both installs are present", () => {
-	assert.equal(
-		selectedHarnessCommand(true, "/desktop/codex", "/standalone/codex"),
-		"/desktop/codex",
-	);
-	assert.equal(
-		selectedHarnessCommand(true, "/desktop/codex", undefined),
-		"/desktop/codex",
-	);
-	assert.equal(
-		selectedHarnessCommand(false, undefined, "/standalone/codex"),
-		"/standalone/codex",
-	);
-	assert.equal(
-		selectedHarnessCommand(true, undefined, "/standalone/codex"),
-		undefined,
-	);
-});
 
 test("a current sign-in rejection wins over an earlier read", () => {
 	assert.equal(toolConnection("signed-in", false), "signed-in");

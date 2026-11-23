@@ -436,7 +436,37 @@ let toolFacts: Record<
 		signInWorks: boolean;
 	}
 > = {};
-const verifiedCommands = new Map<Harness, string>();
+/** The executable whose Tedix check passed, kept for a day across restarts. */
+const verifiedPath = () => join(configDir(), "desktop-verified.json");
+type Verified = Partial<Record<Harness, { command: string; at: string }>>;
+let verified: Verified | undefined;
+function readVerified(): Verified {
+	if (!verified)
+		try {
+			verified = JSON.parse(readFileSync(verifiedPath(), "utf8")) as Verified;
+		} catch {
+			verified = {};
+		}
+	return verified;
+}
+function setVerified(id: Harness, command?: string): void {
+	const next = { ...readVerified() };
+	if (command) next[id] = { command, at: new Date().toISOString() };
+	else if (!next[id]) return;
+	else delete next[id];
+	verified = next;
+	try {
+		writeFileSync(verifiedPath(), JSON.stringify(next));
+	} catch (error) {
+		log(`setup: could not save the ${id} check: ${String(error)}`);
+	}
+}
+function isVerified(id: Harness, command: string): boolean {
+	const entry = readVerified()[id];
+	if (entry?.command !== command) return false;
+	const age = Date.now() - Date.parse(entry.at);
+	return age >= 0 && age < 24 * 60 * 60_000;
+}
 const steps: Record<string, StepRun> = {};
 const stops: Record<string, () => void> = {};
 /** Steps the person stopped; they end without an error. */
@@ -792,10 +822,10 @@ async function readToolFacts(): Promise<void> {
 
 function toolRows(): ToolRow[] {
 	return TOOLS.map((tool) => {
-		const { command, desktop, standaloneFound } = harnessTarget(tool.id);
+		const { command, desktop, app, standaloneFound } = harnessTarget(tool.id);
 		const found = command
 			? "found"
-			: desktop || existsSync(tool.folder)
+			: app || existsSync(tool.folder)
 				? "no-command"
 				: "absent";
 		const row: ToolRow = {
@@ -818,10 +848,10 @@ function toolRows(): ToolRow[] {
 		};
 		if (found === "absent") return row;
 		if (found === "no-command") {
-			row.note = desktop
+			row.note = app
 				? tool.id === "claude"
 					? "Open the Code tab in Claude, then choose Look again."
-					: `Open ${desktop} and check for updates, then choose Look again.`
+					: `Open ${app} and check for updates, then choose Look again.`
 				: `Install ${tool.name}, then choose Look again.`;
 			return row;
 		}
@@ -846,7 +876,7 @@ function toolRows(): ToolRow[] {
 			(host?.account === "signed-in" || host?.account === "signed-out"
 				? host.account
 				: "unknown");
-		row.readVerified = verifiedCommands.get(tool.id) === command;
+		row.readVerified = isVerified(tool.id, command);
 		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
 			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
@@ -1006,6 +1036,7 @@ const ACTIONS = [
 	"cancel",
 	"connect",
 	"verify",
+	"trust-hooks",
 	"run-tasks",
 	"choose-folder",
 	"sessions-on",
@@ -1245,6 +1276,40 @@ export async function setupAction(
 	const probeEnv = command
 		? { PATH: [dirname(command), harnessPath()].join(delimiter) }
 		: undefined;
+	if (action === "trust-hooks" && tool.id === "codex" && command) {
+		await step("hooks:codex", async (say) => {
+			// Standalone Codex reviews hooks in its own terminal view; trust
+			// remains a click made by the person.
+			const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+			const navigation =
+				'set timeout 60\nspawn -noecho -- $env(TEDIX_SETUP_CODEX) -C $env(HOME) -a on-request -s read-only\nexpect {\n-re {state=idle:app=codex} {send -- "/hooks\\r"}\ntimeout {}\neof {exit}\n}\ninteract';
+			const launch = `TEDIX_SETUP_CODEX=${quote(command)} /usr/bin/expect -c ${quote(navigation)}`;
+			const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(launch)}\nend tell`;
+			await must(
+				run("/usr/bin/osascript", ["-e", script], { timeoutMs: 15_000 }),
+			);
+			say("In Codex /hooks, select each Tedix hook and choose Trust.");
+			let stopped = false;
+			stops["hooks:codex"] = () => {
+				stopped = true;
+			};
+			const until = Date.now() + 15 * 60_000;
+			while (!stopped && Date.now() < until) {
+				await readAgentStatus();
+				if (
+					agentStatus &&
+					"hosts" in agentStatus &&
+					agentStatus.hosts.codex?.hookTrust === "trusted"
+				)
+					return "Codex reports the Tedix hooks are trusted.";
+				await new Promise((resolve) => setTimeout(resolve, 3000));
+			}
+			throw new Error(
+				"Hook review is still waiting. Trust the Tedix hooks in Codex, then choose Check again.",
+			);
+		});
+		return readAgentStatus();
+	}
 	if (action === "account-sign-in" && tool.accountSignIn && command) {
 		await step(`account:${tool.id}`, async (say) => {
 			// Claude Code wants a terminal for its sign-in; `script` gives it one.
@@ -1270,7 +1335,7 @@ export async function setupAction(
 	}
 	const verify = () =>
 		step(`verify:${tool.id}`, async (say) => {
-			verifiedCommands.delete(tool.id);
+			setVerified(tool.id);
 			if (!command) throw new Error(`Open ${toolName} once, then check again.`);
 			if (tool.id === "devin" || tool.id === "opencode") {
 				say(`Checking Tedix in ${toolName}…`);
@@ -1295,7 +1360,7 @@ export async function setupAction(
 					throw new Error(
 						`${toolName} could not confirm the connection. Try again in a moment.`,
 					);
-				verifiedCommands.set(tool.id, command);
+				setVerified(tool.id, command);
 				return `${toolName} confirmed the Tedix connection.`;
 			}
 			say(`Checking a read inside ${tool.name}…`);
@@ -1311,7 +1376,7 @@ export async function setupAction(
 					},
 				),
 			);
-			verifiedCommands.set(tool.id, command);
+			setVerified(tool.id, command);
 			return `A Tedix read succeeded inside ${toolName}.`;
 		});
 	if (action === "verify") {
@@ -1328,7 +1393,7 @@ export async function setupAction(
 		const key = `connect:${tool.id}`;
 		if (steps[key]?.working || steps[`verify:${tool.id}`]?.working) return;
 		await step(key, async (say) => {
-			verifiedCommands.delete(tool.id);
+			setVerified(tool.id);
 			delete steps[`verify:${tool.id}`];
 			const row = toolRows().find((row) => row.id === tool.id);
 			const version = toolFacts[tool.id]?.version;
