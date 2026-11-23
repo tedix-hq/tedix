@@ -631,6 +631,7 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 });
 
 export const ListWorkInteractionInboxInputSchema = z.strictObject({
+	subjectSearch: z.string().trim().min(1).max(200).optional(),
 	decisionKind: z
 		.literal("approval")
 		.optional()

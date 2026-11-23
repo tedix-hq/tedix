@@ -80,7 +80,7 @@ export function DecisionDeckToolbar({
 									: value === "waiting"
 										? decisionText("Everything waiting")
 										: value === "history"
-											? decisionText("What you decided")
+											? decisionText("Decision history")
 											: decisionText("Try examples"),
 						}))}
 					/>
@@ -169,6 +169,7 @@ export function DecisionDeckToolbar({
 						<Input
 							aria-label={decisionText("Find decisions")}
 							placeholder={decisionText("Find a decision")}
+							maxLength={200}
 							value={search}
 							onChange={(event) => {
 								setSearch(event.target.value);

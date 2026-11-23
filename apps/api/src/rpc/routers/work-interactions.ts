@@ -1447,6 +1447,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 		const observedAt = new Date().toISOString();
 		const page = await listWorkInteractionInbox(context.db, {
 			orgId,
+			subjectSearch: input.subjectSearch,
 			states: input.states,
 			kinds: input.kinds,
 			decisionKind: input.decisionKind,

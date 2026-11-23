@@ -96,6 +96,12 @@ export function useDecisionDeck(
 	const [urgency, setUrgency] = useState("all");
 	const [band, setBand] = useState<DeckBandFilter>("all");
 	const [search, setSearch] = useState("");
+	const [historySearch, setHistorySearch] = useState("");
+	useEffect(() => {
+		if (mode !== "history") return;
+		const timer = setTimeout(() => setHistorySearch(search.trim()), 200);
+		return () => clearTimeout(timer);
+	}, [mode, search]);
 	const [index, setIndex] = useState(0);
 	const [focusCard, setFocusCard] = useState(() =>
 		new URLSearchParams(globalThis.location.hash.slice(1)).get("card"),
@@ -122,7 +128,8 @@ export function useDecisionDeck(
 			input: {
 				projectId: config.projectId,
 				limit: config.limit,
-				states: ["resolved", "cancelled"],
+				states: ["resolved", "cancelled", "expired"],
+				subjectSearch: historySearch || undefined,
 			},
 		}),
 		enabled: mode === "history",

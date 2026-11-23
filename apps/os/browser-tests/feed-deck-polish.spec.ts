@@ -90,7 +90,7 @@ try {
 				geometry.rowHeight !== (width < 640 ? 44 : 32)
 			)
 				throw new Error(`Filter geometry: ${JSON.stringify(geometry)}`);
-			if (await popup.getByRole("button", { name: "What you decided" }).count())
+			if (await popup.getByRole("button", { name: "Decision history" }).count())
 				throw new Error("Deck view toggle is inside the Kind filter");
 			await page.keyboard.type("Answer");
 			await page.keyboard.press("Enter");
@@ -165,7 +165,7 @@ try {
 			if (width === 390) await page.keyboard.press("Escape");
 			const url = page.url();
 			await page
-				.getByRole("button", { name: "What you decided", exact: true })
+				.getByRole("button", { name: "Decision history", exact: true })
 				.click();
 			if (page.url() !== url)
 				throw new Error("View toggle changed route state");

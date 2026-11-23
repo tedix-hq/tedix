@@ -153,5 +153,19 @@ it("pages the inbox without related history and evaluates history only for reque
 	).toBe(true);
 	expect(statements).toHaveLength(1);
 	expect(returned).toEqual([50]);
+	insert.run("old-slide", "expired", "2025-12-01");
+	sqlite.exec(
+		"UPDATE work_interactions SET subject='Keep the slide preview?' WHERE id='old-slide'",
+	);
+	const matches = await listWorkInteractionInbox(db, {
+		orgId: "org",
+		targetType: "tedi",
+		targetId: "cto",
+		states: ["resolved", "expired"],
+		subjectSearch: "SLIDE preview",
+		observedAt: "2026-01-03",
+		limit: 1,
+	});
+	expect(matches.data.map((row) => row.request.id)).toEqual(["old-slide"]);
 	sqlite.close();
 });

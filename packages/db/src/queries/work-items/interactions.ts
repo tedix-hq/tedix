@@ -2237,6 +2237,7 @@ export async function listWorkInteractionInbox(
 	db: DbQueryClient,
 	p: {
 		orgId: string;
+		subjectSearch?: string;
 		/** Organization audits must not select private captured session content. */
 		excludeSessionCapture?: boolean;
 		states?: Array<"open" | "resolved" | "cancelled" | "expired">;
@@ -2292,6 +2293,9 @@ export async function listWorkInteractionInbox(
 						? sql`json_extract(${workInteractions.metadata},'$.schema') IS NOT 'tedix.decision-capture.v1'`
 						: undefined,
 					sql`(${workInteractions.status}<>'open' OR NOT ${staleLaneReminder(p.observedAt)})`,
+					p.subjectSearch
+						? sql`instr(lower(${workInteractions.subject}), lower(${p.subjectSearch})) > 0`
+						: undefined,
 					// bound-params: states is a closed four-value interaction-state enum
 					p.states?.length ? inArray(effective, p.states) : undefined,
 					// bound-params: kinds is a closed five-value interaction-kind enum

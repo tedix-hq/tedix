@@ -49,7 +49,7 @@ function RegressionDeck() {
 						>
 							<div className="fd-deck-toolbar">
 								<Button>For you</Button>
-								<Button>What you decided</Button>
+								<Button>Decision history</Button>
 							</div>
 						</FeedDeckDisclosure>
 					</div>

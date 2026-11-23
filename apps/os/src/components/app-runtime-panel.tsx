@@ -173,6 +173,17 @@ export function AppRuntimePreview({
 			: null;
 	useEffect(() => callsServer?.prime(), [callsServer]);
 	if (code.isPending) return <AppLoading />;
+	if (!code.data?.code && renderWork && workViewRole(revision.manifest))
+		return <>{renderWork(workSourceManifest(revision.manifest))}</>;
+	if (code.isError && !code.data)
+		return (
+			<Alert variant="warning">
+				<AlertTitle>Couldn’t load {gadget.name}</AlertTitle>
+				<Button variant="outline" onClick={() => void code.refetch()}>
+					Try again
+				</Button>
+			</Alert>
+		);
 	if (!code.data?.code)
 		return (
 			<Alert variant="warning">

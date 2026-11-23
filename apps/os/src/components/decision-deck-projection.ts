@@ -96,6 +96,7 @@ export function projectDecisionDeck({
 					? history.filter(
 							(row) =>
 								row.effectiveState === "resolved" ||
+								row.effectiveState === "expired" ||
 								notUsefulAnswer(row.request.metadata) !== null,
 						)
 					: decisions.requests

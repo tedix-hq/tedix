@@ -202,7 +202,7 @@ try {
 		exact: true,
 	});
 	await deckViews.waitFor();
-	for (const name of ["For you", "Everything waiting", "What you decided"])
+	for (const name of ["For you", "Everything waiting", "Decision history"])
 		assert.equal(
 			await deckViews.getByRole("button", { name, exact: true }).count(),
 			1,

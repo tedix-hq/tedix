@@ -1,3 +1,4 @@
+import { DecisionOutputSources } from "./cited-output";
 import { recordDeckChoice } from "./deck-learning-events";
 import { decisionOutcome } from "@/lib/decision-outcome";
 import { respondConfirmed } from "@/lib/respond-confirmed";
@@ -358,6 +359,18 @@ function DecisionDeckContent({
 				{mode === "decide" && (
 					<DeckReminders reminders={decisions.reminders} now={now} />
 				)}
+				{search.trim() && mode !== "history" && !filtered.length && (
+					<Button
+						variant="ghost"
+						onClick={() => {
+							clearFocusCard();
+							setMode("history");
+							setIndex(0);
+						}}
+					>
+						{decisionText("Search decision history")}
+					</Button>
+				)}
 				{(counting ||
 					(progress.total > 0 &&
 						!waitingMode &&
@@ -631,6 +644,14 @@ function DecisionDeckContent({
 															selected.row?.askedBy ?? decisionText("Your tedi")
 														}
 														body={selected.row?.request.prompt}
+														citedSources={
+															<DecisionOutputSources
+																sources={current?.sources}
+																requestSources={
+																	selected.row?.request.metadata.decisionSources
+																}
+															/>
+														}
 														why={
 															<>
 																{selected.row && (

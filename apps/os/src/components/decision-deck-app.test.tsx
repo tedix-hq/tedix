@@ -385,12 +385,12 @@ it("does not announce All clear while decision history is loading", async () => 
 			input: {
 				projectId: undefined,
 				limit: 50,
-				states: ["resolved", "cancelled"],
+				states: ["resolved", "cancelled", "expired"],
 			},
 		}).queryKey,
 		exact: true,
 	});
-	await click("What you decided");
+	await click("Decision history");
 	expect(host.querySelector(".fd-closure")).toBeNull();
 	expect(
 		client.getQueryState(
@@ -398,7 +398,7 @@ it("does not announce All clear while decision history is loading", async () => 
 				input: {
 					projectId: undefined,
 					limit: 50,
-					states: ["resolved", "cancelled"],
+					states: ["resolved", "cancelled", "expired"],
 				},
 			}).queryKey,
 		)?.status,
