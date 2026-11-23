@@ -290,6 +290,9 @@ export async function loadDeckProjection(
 	context: BaseContext,
 	input: ViewInput,
 ) {
+	// Settings reads do not depend on the app inventory; start them together.
+	const basics = deckReadBasics(context);
+	basics.catch(() => undefined);
 	const apps = await workAppInventory(context);
 	const manifest = appManifest(apps, "deck", input.gadgetId);
 	return loadConfiguredDeckProjection(
@@ -299,7 +302,17 @@ export async function loadDeckProjection(
 			DecisionDeckConfigSchema.parse(manifest!.config),
 			apps,
 		),
+		"deck",
+		undefined,
+		basics,
 	);
+}
+
+function deckReadBasics(context: BaseContext) {
+	return Promise.all([
+		call(userSettingsContractRouter.getPreferences, {}, { context }),
+		getDecisionLearningConfig(context.db, requireOrgId(context)),
+	]);
 }
 
 async function loadConfiguredDeckProjection(
@@ -308,24 +321,21 @@ async function loadConfiguredDeckProjection(
 	config: z.infer<typeof DecisionDeckConfigSchema>,
 	destination: "deck" | "all" = "deck",
 	onRoute?: (route: DeckRoutingReceipt) => void,
+	basics: ReturnType<typeof deckReadBasics> = deckReadBasics(context),
 ) {
-	const preferences = await call(
-		userSettingsContractRouter.getPreferences,
-		{},
-		{ context },
-	);
+	const [preferences, learningConfig] = await basics;
 	const timeZone = input.timeZone ?? preferences.preferences.timezone ?? "UTC";
 	const projectId = input.projectId ?? config.projectId;
 	const now = new Date();
-	const qualification = (
-		await getDecisionLearningConfig(context.db, requireOrgId(context))
-	).deckPipeline.qualification;
+	const qualification = learningConfig.deckPipeline.qualification;
+	// Every open request is read; full pages keep the sequential page reads few.
+	const inboxPage = 100;
 	const [model, first, work, runtime, factories, autonomyHistory] =
 		await Promise.all([
 			call(learningFeedbackContractRouter.model, {}, { context }),
 			call(
 				workInteractionsContractRouter.listInbox,
-				{ projectId, limit: config.limit, states: ["open"] },
+				{ projectId, limit: inboxPage, states: ["open"] },
 				{ context },
 			),
 			call(
@@ -349,7 +359,7 @@ async function loadConfiguredDeckProjection(
 	for (let page = 1; cursor && page < 100; page++) {
 		const next = await call(
 			workInteractionsContractRouter.listInbox,
-			{ projectId, limit: config.limit, states: ["open"], cursor },
+			{ projectId, limit: inboxPage, states: ["open"], cursor },
 			{ context },
 		);
 		requests.push(...next.data);

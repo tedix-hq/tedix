@@ -1020,6 +1020,8 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 		} = await import("@tedix/db/queries/work-attention");
 		const { buildAttention } = await import("../../lib/work-attention");
 		const { readContinuity } = await import("../../lib/stall-attention");
+		const { readFilingReview } =
+			await import("../../services/request-filing-review");
 		const [
 			sources,
 			sessions,
@@ -1027,6 +1029,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			factoryLinks,
 			unattendedObjectives,
 			continuity,
+			review,
 		] = await Promise.all([
 			readAttentionSources(
 				context.db,
@@ -1064,14 +1067,12 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				owner.userId,
 				context.env.ENVIRONMENT,
 			),
+			readFilingReview(
+				context.db,
+				{ ...owner, learningOwnerId: owner.descopeUserId },
+				now.toISOString(),
+			),
 		]);
-		const { readFilingReview } =
-			await import("../../services/request-filing-review");
-		const review = await readFilingReview(
-			context.db,
-			{ ...owner, learningOwnerId: owner.descopeUserId },
-			now.toISOString(),
-		);
 		const result = {
 			...review,
 			...buildAttention(
