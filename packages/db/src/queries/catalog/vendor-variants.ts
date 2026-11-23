@@ -218,6 +218,7 @@ export function buildRefreshCatalogShadowedVariantsStatements(
 	if (catalogAppIds.length > REFRESH_PAGE_SIZE) {
 		throw new Error("Catalog shadow refresh exceeds its 80-row page");
 	}
+	// bound-params: the guard caps IDs at 80; flag/clear add two booleans (82 total).
 	const scope = inArray(appCatalog.id, catalogAppIds);
 	const vendorKey = catalogVendorKeySql(appCatalog);
 	const keys = db
@@ -316,13 +317,18 @@ export async function buildRefreshCatalogVendorGroupsStatements(
 	db: Database,
 	catalogAppIds: string[],
 ) {
+	if (catalogAppIds.length > 2) {
+		throw new Error("Catalog vendor refresh supports at most two anchors");
+	}
+	// bound-params: at most two guarded IDs, plus at most four old/fresh vendor keys.
+	const anchorScope = inArray(appCatalog.id, catalogAppIds);
 	const anchors = await db
 		.select({
 			key: appCatalog.vendorKey,
 			freshKey: catalogVendorKeySql(appCatalog).as("fresh_key"),
 		})
 		.from(appCatalog)
-		.where(inArray(appCatalog.id, catalogAppIds));
+		.where(anchorScope);
 	const vendorKeys = [
 		...new Set(anchors.flatMap((row) => [row.key, row.freshKey])),
 	].filter((key): key is string => typeof key === "string");
@@ -331,11 +337,8 @@ export async function buildRefreshCatalogVendorGroupsStatements(
 		.from(appCatalog)
 		.where(
 			vendorKeys.length > 0
-				? or(
-						inArray(appCatalog.id, catalogAppIds),
-						inArray(appCatalog.vendorKey, vendorKeys),
-					)
-				: inArray(appCatalog.id, catalogAppIds),
+				? or(anchorScope, inArray(appCatalog.vendorKey, vendorKeys))
+				: anchorScope,
 		);
 	const pages = [];
 	for (let offset = 0; offset < rows.length; offset += REFRESH_PAGE_SIZE) {
