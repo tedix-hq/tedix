@@ -1963,7 +1963,7 @@
 		},
 		{
 			"name": "20261123181318_human-release-attempts/migration.sql",
-			"sha256": "504f11783ccbc6d2a7bf37ba96df6aeb84450d8aa583eac6dd52d0a033d128b0"
+			"sha256": "6d55017481cdd9eb061bd500a05a880764daae34960dbd12dca380a3f1d74f1f"
 		},
 		{
 			"name": "20261123182424_human-release-guards/migration.sql",
