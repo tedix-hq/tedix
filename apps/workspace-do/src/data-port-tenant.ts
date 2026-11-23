@@ -313,6 +313,7 @@ const StartRunInputSchema = z.strictObject({
 	doneWhen: z.string().trim().min(1).max(2_000),
 	executor: z.enum(["codex", "claude-code", "any-local"]),
 	changesCode: z.boolean().optional(),
+	requiresRepository: z.boolean().optional(),
 	projectId: z.uuid().optional(),
 });
 
@@ -1867,8 +1868,15 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 
 	async startRun(input: StartRunInput) {
 		const { actor, sourceSessionKey, agentTurnId } = await this.#runActor();
-		const { title, brief, doneWhen, executor, changesCode, projectId } =
-			StartRunInputSchema.parse(input);
+		const {
+			title,
+			brief,
+			doneWhen,
+			executor,
+			changesCode,
+			requiresRepository,
+			projectId,
+		} = StartRunInputSchema.parse(input);
 		const project = await this.#runProject(actor.id, projectId);
 		// A runner fails a coding run that ends without a landed commit; a
 		// research task is done when the agent says so.
@@ -1902,6 +1910,8 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			// The ready list puts a task with this marker first.
 			metadata: {
 				source: WORKSPACE_RUN_SOURCE,
+				requiresRepository:
+					changesCode !== false || requiresRepository === true,
 				// The chat's mode, for the run's own approvals.
 				...(this.deps.approvalMode
 					? { approvalMode: this.deps.approvalMode }
@@ -1917,6 +1927,8 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				existing.title !== title ||
 				existing.description !== brief ||
 				existing.workKind !== workKind ||
+				(existing.metadata?.requiresRepository ?? true) !==
+					(changesCode !== false || requiresRepository === true) ||
 				existing.executorId !== executor ||
 				existing.projectId !== project.id ||
 				(existing.acceptanceContract &&

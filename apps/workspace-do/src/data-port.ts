@@ -219,6 +219,8 @@ export interface StartRunInput {
 	executor: "codex" | "claude-code" | "any-local";
 	/** False when the run changes no files and only reports back. */
 	changesCode?: boolean;
+	/** True when an answer or report needs the project repository. */
+	requiresRepository?: boolean;
 	projectId?: string;
 }
 

@@ -3749,115 +3749,123 @@ describe("WorkspaceDO", () => {
 		}
 	});
 
-	test("a person starts a read-only run from a private workspace in a project it does not link", async () => {
-		await seedCore();
-		await testEnv.DB.prepare(ddl(workItemComments)).run();
-		const own = { ...scope, workspaceId: crypto.randomUUID() };
-		await seedWorkspaceRows([own]);
-		const projectId = crypto.randomUUID();
-		const now = new Date().toISOString();
-		await testEnv.DB.batch([
-			testEnv.DB.prepare(
-				"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ?",
-			).bind(own.workspaceId),
-			testEnv.DB.prepare(
-				"UPDATE organization_members SET role = 'owner' WHERE organization_id = ? AND descope_user_id = 'u1'",
-			).bind(own.organizationId),
-			testEnv.DB.prepare(
-				"INSERT INTO projects (id, org_id, key, name, status, created_at, updated_at) VALUES (?, ?, ?, 'Unlinked', 'active', ?, ?)",
-			).bind(
-				projectId,
-				own.organizationId,
-				`U${projectId.slice(0, 6)}`,
-				now,
-				now,
-			),
-		]);
-		const ws = workspace(own);
-		const callId = crypto.randomUUID();
-		await ws.scriptMachine(own, [
-			{
-				status: "machines",
-				machines: [
-					{
-						machineName: "Studio",
-						executors: ["codex"],
-						lastSeenAt: now,
-						cliVersion: null,
-						machineTools: ["dispatch_work_item"],
-						online: true,
+	test.each([false, true])(
+		"a person starts a read-only run from a private workspace in a project it does not link (repository: %s)",
+		async (requiresRepository) => {
+			await seedCore();
+			await testEnv.DB.prepare(ddl(workItemComments)).run();
+			const own = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([own]);
+			const projectId = crypto.randomUUID();
+			const now = new Date().toISOString();
+			await testEnv.DB.batch([
+				testEnv.DB.prepare(
+					"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ?",
+				).bind(own.workspaceId),
+				testEnv.DB.prepare(
+					"UPDATE organization_members SET role = 'owner' WHERE organization_id = ? AND descope_user_id = 'u1'",
+				).bind(own.organizationId),
+				testEnv.DB.prepare(
+					"INSERT INTO projects (id, org_id, key, name, status, created_at, updated_at) VALUES (?, ?, ?, 'Unlinked', 'active', ?, ?)",
+				).bind(
+					projectId,
+					own.organizationId,
+					`U${projectId.slice(0, 6)}`,
+					now,
+					now,
+				),
+			]);
+			const ws = workspace(own);
+			const callId = crypto.randomUUID();
+			await ws.scriptMachine(own, [
+				{
+					status: "machines",
+					machines: [
+						{
+							machineName: "Studio",
+							executors: ["codex"],
+							lastSeenAt: now,
+							cliVersion: null,
+							machineTools: ["dispatch_work_item"],
+							online: true,
+						},
+					],
+				},
+				{ status: "queued", callId, callStatus: "pending" },
+				{
+					status: "call",
+					call: {
+						callId,
+						machine: "Studio",
+						tool: "dispatch_work_item",
+						status: "done",
+						createdAt: now,
 					},
-				],
-			},
-			{ status: "queued", callId, callStatus: "pending" },
-			{
-				status: "call",
+				},
+			]);
+			await ws.scriptModel(own, [
+				{
+					code: `export default async (env) => ({ projects: await env.work.listProjects(), run: await env.work.startRun({ title: "Explain paging", brief: "Say how paging works", doneWhen: "A short answer", executor: "any-local", changesCode: false, ${requiresRepository ? "requiresRepository: true," : ""} projectId: ${JSON.stringify(projectId)} }) })`,
+				},
+				{ text: "Run requested." },
+			]);
+			const sent = await ws.sendTurn(own, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Explain paging in the unlinked project",
+			});
+			await ws.awaitTurn(own, sent.turnId, 20_000);
+			const steps = (
+				await ws.readEvents(own, { conversationId: sent.conversationId })
+			).flatMap((event) => (event.type === "step.finished" ? [event] : []));
+			expect(steps).toContainEqual(
+				expect.objectContaining({
+					result: expect.stringMatching(`"id":\\s*"${projectId}"`),
+				}),
+			);
+			expect(steps).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ tool: "work.startRun", status: "ok" }),
+				]),
+			);
+			const run = JSON.parse(
+				steps.find((step) => step.tool === "work.startRun")?.result ?? "{}",
+			) as { workItemId: string };
+			expect(
+				await testEnv.DB.prepare(
+					"SELECT executor_id, project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source, json_extract(metadata, '$.approvalMode') AS approval_mode, json_extract(metadata, '$.requiresRepository') AS requires_repository FROM work_items WHERE id = ?",
+				)
+					.bind(run.workItemId)
+					.first(),
+			).toEqual({
+				executor_id: "any-local",
+				project_id: projectId,
+				work_kind: "research",
+				accountable_owner_id: "u1",
+				disposition: "accepted",
+				dispatch_state: "ready",
+				source: "os.workspace.start_run",
+				approval_mode: "ask_for_changes",
+				requires_repository: requiresRepository ? 1 : 0,
+			});
+			expect((await ws.readMachineCalls(own))[1]).toMatchObject({
+				userId: "u1",
+				op: "call",
 				call: {
-					callId,
 					machine: "Studio",
 					tool: "dispatch_work_item",
-					status: "done",
-					createdAt: now,
+					input: {
+						workItemId: run.workItemId,
+						projectId,
+						executor: "any-local",
+					},
 				},
-			},
-		]);
-		await ws.scriptModel(own, [
-			{
-				code: `export default async (env) => ({ projects: await env.work.listProjects(), run: await env.work.startRun({ title: "Explain paging", brief: "Say how paging works", doneWhen: "A short answer", executor: "any-local", changesCode: false, projectId: ${JSON.stringify(projectId)} }) })`,
-			},
-			{ text: "Run requested." },
-		]);
-		const sent = await ws.sendTurn(own, {
-			actorId: "u1",
-			actorKind: "user",
-			text: "Explain paging in the unlinked project",
-		});
-		await ws.awaitTurn(own, sent.turnId, 20_000);
-		const steps = (
-			await ws.readEvents(own, { conversationId: sent.conversationId })
-		).flatMap((event) => (event.type === "step.finished" ? [event] : []));
-		expect(steps).toContainEqual(
-			expect.objectContaining({
-				result: expect.stringMatching(`"id":\\s*"${projectId}"`),
-			}),
-		);
-		expect(steps).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ tool: "work.startRun", status: "ok" }),
-			]),
-		);
-		const run = JSON.parse(
-			steps.find((step) => step.tool === "work.startRun")?.result ?? "{}",
-		) as { workItemId: string };
-		expect(
-			await testEnv.DB.prepare(
-				"SELECT executor_id, project_id, work_kind, accountable_owner_id, disposition, dispatch_state, json_extract(metadata, '$.source') AS source, json_extract(metadata, '$.approvalMode') AS approval_mode FROM work_items WHERE id = ?",
-			)
+			});
+			await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
 				.bind(run.workItemId)
-				.first(),
-		).toEqual({
-			executor_id: "any-local",
-			project_id: projectId,
-			work_kind: "research",
-			accountable_owner_id: "u1",
-			disposition: "accepted",
-			dispatch_state: "ready",
-			source: "os.workspace.start_run",
-			approval_mode: "ask_for_changes",
-		});
-		expect((await ws.readMachineCalls(own))[1]).toMatchObject({
-			userId: "u1",
-			op: "call",
-			call: {
-				machine: "Studio",
-				tool: "dispatch_work_item",
-				input: { workItemId: run.workItemId, projectId, executor: "any-local" },
-			},
-		});
-		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
-			.bind(run.workItemId)
-			.run();
-	});
+				.run();
+		},
+	);
 
 	test("work detail distinguishes a queued assignment, a held stale lease and shipped test evidence", async () => {
 		await seedCore();
@@ -3963,6 +3971,7 @@ describe("WorkspaceDO", () => {
 		const code = `export default async (env) => ({
 			found: (await env.work.listOpen({ query: "elsewhere" })).items.map((item) => item.id),
 			accept: await env.work.accept({ workItemId: ${JSON.stringify(itemId)}, doneWhen: "Done" }).then(() => "accepted", (error) => error.message),
+			start: await env.work.startRun({ title: "Write a sentence", brief: "Write one sentence about rain", doneWhen: "A sentence is returned", executor: "any-local", changesCode: false, projectId: ${JSON.stringify(projectId)} }).then(() => "started", (error) => error.message),
 		})`;
 		const ask = async (workspaceScope: WorkspaceScope) => {
 			const ws = workspace(workspaceScope);
@@ -3986,15 +3995,19 @@ describe("WorkspaceDO", () => {
 				finished?.type === "step.finished"
 					? (finished.result ?? "").replace("return value:\n", "")
 					: "{}",
-			) as { found: string[]; accept: string };
+			) as { found: string[]; accept: string; start: string };
 		};
 		// The shared workspace stays on its linked project.
-		expect((await ask(scope)).found).toEqual([]);
+		expect(await ask(scope)).toMatchObject({
+			found: [],
+			start: expect.stringContaining("not linked to this workspace"),
+		});
 		// The person's own workspace reaches the project, but a member the
 		// project does not name as an operator may not accept there.
 		expect(await ask(own)).toMatchObject({
 			found: [itemId],
 			accept: expect.stringContaining("needs an organization owner or admin"),
+			start: expect.stringContaining("needs an organization owner or admin"),
 		});
 		expect(
 			await testEnv.DB.prepare(

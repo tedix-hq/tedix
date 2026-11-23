@@ -568,9 +568,13 @@ function fixture({
 			const work = items.find(
 				(row) => row.id === args[args.indexOf("--work-item") + 1],
 			)!;
+			const repoFree =
+				work.workKind === "research" &&
+				work.metadata?.requiresRepository === false;
+			const workDirectory = repoFree ? "task" : "repo";
 			expect(deps?.label).toBe(work.title);
 			expect(deps?.cwd).toBe(
-				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+				join(dirname(args[args.indexOf("--brief") + 1]!), workDirectory),
 			);
 			expect(deps?.detachedOutputDirectory).toBe(
 				join(
@@ -592,7 +596,10 @@ function fixture({
 								"opencode",
 								"run",
 								"--dir",
-								join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+								join(
+									dirname(args[args.indexOf("--brief") + 1]!),
+									workDirectory,
+								),
 								"--format",
 								"json",
 								"--model",
@@ -617,8 +624,12 @@ function fixture({
 									"codex",
 									"exec",
 									"-C",
-									join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+									join(
+										dirname(args[args.indexOf("--brief") + 1]!),
+										workDirectory,
+									),
 									"resume",
+									...(repoFree ? ["--skip-git-repo-check"] : []),
 									expect.any(String),
 									"--output-schema",
 									expect.any(String),
@@ -644,7 +655,7 @@ function fixture({
 			)
 				expect(brief).toContain("--evidence-kind skill_revision");
 			else expect(brief).not.toContain("--evidence-kind skill_revision");
-			if (!followUp && !brief.includes("Verify-only Attempt.")) {
+			if (!followUp && !repoFree && !brief.includes("Verify-only Attempt.")) {
 				// One trailer paragraph with this lane's exact ids, so the pre-push
 				// secret scan accepts the lane's commits.
 				expect(brief).toMatch(
@@ -776,6 +787,64 @@ function fixture({
 		briefs,
 	};
 }
+it("admits and settles a repo-free task without Git, retaining its output in the archive", async () => {
+	const f = fixture();
+	f.items.splice(1);
+	f.items[0]!.metadata = { ...f.items[0]!.metadata, requiresRepository: false };
+	const noGit = () => {
+		throw new Error("No Git repository or remote exists");
+	};
+	f.deps.provision = noGit;
+	f.deps.baseCommit = noGit;
+	f.deps.landedCommits = noGit;
+	f.deps.mainCommits = noGit;
+	f.deps.evictedWork = noGit;
+	f.deps.unpushedCommits = noGit;
+	f.deps.cleanup = noGit;
+	f.config.repo = join(f.dir, "no-repository");
+	mkdirSync(f.config.repo);
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	const receiptPath = join(f.dir, `${item(1).id}-2.json`);
+	const admitted = JSON.parse(readFileSync(receiptPath, "utf8"));
+	expect(admitted.attemptId).toBeTruthy();
+	expect(admitted.repoFree).toBe(true);
+	expect(existsSync(join(admitted.repo, ".git"))).toBe(false);
+	writeFileSync(join(admitted.repo, "draft.txt"), "A short answer.");
+	f.releases[0]!();
+	await dispatcher.drain();
+	const settled = JSON.parse(readFileSync(receiptPath, "utf8"));
+	expect(settled.outcome).toBe("succeeded");
+	expect(f.events.filter(requestsCompletion)).toHaveLength(1);
+	expect(f.briefs[0]).toContain("no repository is provided");
+	expect(f.briefs[0]).not.toContain("To land a change");
+	const archived = readdirSync(join(f.dir, "archive"))[0]!;
+	expect(
+		readFileSync(join(f.dir, "archive", archived, "task", "draft.txt"), "utf8"),
+	).toBe("A short answer.");
+});
+
+it.each(["research", "coding"])(
+	"keeps repository provisioning for %s when repository access is required",
+	async (kind) => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = kind;
+		f.items[0]!.metadata = {
+			...f.items[0]!.metadata,
+			requiresRepository: kind === "research",
+		};
+		const provision = spyOn(f.deps, "provision");
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		expect(provision).toHaveBeenCalledTimes(1);
+		f.releases[0]!();
+		await dispatcher.drain();
+	},
+);
+
 async function withoutReadBackoff(run: () => Promise<void>) {
 	const wait = spyOn(retryTimers, "setTimeout").mockResolvedValue(undefined);
 	try {
