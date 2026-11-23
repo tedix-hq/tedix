@@ -191,6 +191,7 @@ function tidy(): void {
 
 let tidied = false;
 let insideVersion: Promise<string> | undefined;
+let firstInstall: Promise<void> | undefined;
 /** The newest published version the app has seen; it only reads the release list. */
 let published = "";
 let lastUpdate: CliState["update"];
@@ -312,11 +313,19 @@ export async function readCli(): Promise<CliState> {
 			tidied = true;
 		}
 		if (!existsSync(staged()) && !updateRun) {
-			const want = await versionOf(source);
-			if (!want)
-				throw new Error("The command-line tool inside the app did not start.");
-			await install(readFileSync(source), want);
-			log(`cli: copied version ${want} from the app`);
+			// Setup and the main window can both refresh during the first launch.
+			firstInstall ??= (async () => {
+				const want = await versionOf(source);
+				if (!want)
+					throw new Error(
+						"The command-line tool inside the app did not start.",
+					);
+				await install(readFileSync(source), want);
+				log(`cli: copied version ${want} from the app`);
+			})().finally(() => {
+				firstInstall = undefined;
+			});
+			await firstInstall;
 		}
 		if (!linkExists()) {
 			linkToApp();
