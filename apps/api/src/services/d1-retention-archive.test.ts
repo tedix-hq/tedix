@@ -304,7 +304,7 @@ describe("runD1Retention", () => {
 						!query.includes('"d1_retention_policies"'),
 				);
 				expect(dataReads).toHaveLength(1);
-				expect(dataReads[0]).toContain('as "retention_age"');
+				expect(dataReads[0]).toContain('select 1 as "found"');
 				expect(dataReads[0]).toContain("limit ?");
 			}
 		},
@@ -323,7 +323,7 @@ describe("runD1Retention", () => {
 		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
 		const prepare = d1.prepare.bind(d1);
 		d1.prepare = (query) => {
-			if (query.includes('as "retention_age"')) clock += 1;
+			if (query.includes('select 1 as "found"')) clock += 1;
 			else if (query.includes("__rowid")) clock += 2;
 			else if (/^delete/i.test(query)) clock += 3;
 			return prepare(query);
@@ -727,9 +727,9 @@ describe("runD1Retention", () => {
 				scanAfterRowid: -1,
 			});
 			expect(first.tables[0]?.timings.pages).toBe(3);
-			expect(reads.filter((query) => query.includes("+rowid >"))).toHaveLength(
-				1,
-			);
+			expect(
+				reads.filter((query) => query.includes('as "next_rowid"')),
+			).toHaveLength(1);
 			expect(count()).toBe(1000);
 		} finally {
 			mocked.mockRestore();
@@ -859,7 +859,7 @@ describe("runD1Retention", () => {
 		const prepare = d1.prepare.bind(d1);
 		let skips = 0;
 		d1.prepare = (query) => {
-			if (query.includes("+rowid >")) skips += 1;
+			if (query.includes('as "next_rowid"')) skips += 1;
 			return prepare(query);
 		};
 		const result = await runD1Retention({
@@ -1503,7 +1503,7 @@ describe("runD1Retention", () => {
 		// old 50-row pages took ten reads per page alone.
 		expect(main.batches).toBe(3);
 		const probes = ageProbe.mock.calls.filter(([query]) =>
-			query.includes('as "retention_age"'),
+			query.includes('select 1 as "found"'),
 		);
 		// The initial probe admits work; the final probe confirms no backlog remains.
 		expect(probes).toHaveLength(2);
