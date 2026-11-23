@@ -144,26 +144,31 @@ export async function executeMeteredCodeMode<T>(input: {
 				now: settledAt,
 			});
 		} else {
-			for (const [index, call] of calls.entries()) {
+			// One provider row per load identity (in practice one per run): the
+			// daily allocation weights rows by quantity, so a per-load row only
+			// costs D1 round trips.
+			for (const identity of ["anonymous", "named"] as const) {
+				const loads = calls.filter((call) => call.identity === identity);
+				if (loads.length === 0) continue;
 				await recordBillingProviderUsage(db, {
 					id: crypto.randomUUID(),
 					organizationId: settledOrganizationId,
 					tediId,
 					reservationId,
-					providerUsageId: `dynamic-worker:${input.executionId}:${index}`,
+					providerUsageId: `dynamic-worker:${input.executionId}:${identity}`,
 					provider: DYNAMIC_WORKER_PROVIDER,
 					model: "dynamic-worker",
 					usageKind: "other",
 					unit: "units",
-					quantity: 1,
-					providerCostMicros: DYNAMIC_WORKER_COST_USD_MICROS,
+					quantity: loads.length,
+					providerCostMicros: loads.length * DYNAMIC_WORKER_COST_USD_MICROS,
 					providerCostQuality: "estimated",
-					occurredAt: call.occurredAt,
+					occurredAt: loads[0]!.occurredAt,
 					now: settledAt,
 					metadata: {
 						surface: "gateway_model_code",
-						identity: call.identity,
-						method: call.method,
+						identity,
+						methods: [...new Set(loads.map((call) => call.method))],
 					},
 				});
 			}

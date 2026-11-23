@@ -592,8 +592,10 @@ export async function getWorkstationCostCoverage(
 
 /**
  * Allocate in one statement: tens of thousands of daily loads must not require
- * one D1 subrequest per row. The windowed share key keeps the count and
- * ordered remainder split on the same snapshot, including during late arrivals.
+ * one D1 subrequest per row. A row carries `quantity` loads (one row per run
+ * and identity), so shares are per load unit, not per row. The windowed share
+ * key keeps the count and ordered remainder split on the same snapshot,
+ * including during late arrivals.
  */
 export async function applyDynamicWorkerCostAllocation(
 	db: DbClient,
@@ -618,23 +620,32 @@ export async function applyDynamicWorkerCostAllocation(
 			"Dynamic Worker allocation exceeds safe monetary precision",
 		);
 
+	// A bound JS number can arrive as REAL, which would turn the integer share
+	// split into fractions; cast the validated safe integers back.
+	const billedSql = sql`CAST(${billed} AS INTEGER)`;
+	const totalSql = sql`CAST(${input.totalCostMicros} AS INTEGER)`;
+	const unitSql = sql`CAST(${DYNAMIC_WORKER_COST_USD_MICROS} AS INTEGER)`;
 	const usage = billingProviderUsage;
 	const targets = db.$with("worker_targets").as(
 		db
 			.select({
 				id: usage.id,
 				metadata: usage.metadata,
-				ordinal: sql<number>`ROW_NUMBER() OVER (ORDER BY ${usage.id})`.as(
-					"ordinal",
-				),
-				n: sql<number>`COUNT(*) OVER ()`.as("n"),
+				quantity: usage.quantity,
+				// Units through this row in id order; the row owns load units
+				// (cumulative - quantity, cumulative].
+				cumulative:
+					sql<number>`SUM(${usage.quantity}) OVER (ORDER BY ${usage.id} ROWS UNBOUNDED PRECEDING)`.as(
+						"cumulative",
+					),
+				n: sql<number>`SUM(${usage.quantity}) OVER ()`.as("n"),
 			})
 			.from(usage)
 			.where(
 				and(
 					eq(usage.provider, DYNAMIC_WORKER_PROVIDER),
 					sql`${usage.organizationId} IS NOT NULL`,
-					eq(usage.quantity, 1),
+					sql`${usage.quantity} > 0`,
 					sql`json_extract(${usage.metadata}, '$.identity') = 'anonymous'`,
 					gte(usage.occurredAt, input.periodStart),
 					lt(usage.occurredAt, input.periodEnd),
@@ -646,10 +657,11 @@ export async function applyDynamicWorkerCostAllocation(
 			.select({
 				id: targets.id,
 				metadata: targets.metadata,
-				ordinal: targets.ordinal,
+				quantity: targets.quantity,
+				cumulative: targets.cumulative,
 				n: targets.n,
 				allocated:
-					sql<number>`CASE WHEN ${billed} IS NULL THEN 0 ELSE ${input.totalCostMicros} * MIN(${targets.n}, ${billed}) / ${billed} END`.as(
+					sql<number>`CASE WHEN ${billedSql} IS NULL THEN 0 ELSE ${totalSql} * MIN(${targets.n}, ${billedSql}) / ${billedSql} END`.as(
 						"allocated",
 					),
 			})
@@ -659,21 +671,24 @@ export async function applyDynamicWorkerCostAllocation(
 		db
 			.select({
 				id: totals.id,
-				cost: sql<number>`CASE WHEN ${billed} IS NULL THEN ${DYNAMIC_WORKER_COST_USD_MICROS}
-   ELSE ${totals.allocated} / ${totals.n} + CASE WHEN ${totals.ordinal} <= ${totals.allocated} % ${totals.n} THEN 1 ELSE 0 END END`.as(
+				// Each load unit gets allocated / n; the first allocated % n units
+				// in id order get one extra micro.
+				cost: sql<number>`CASE WHEN ${billedSql} IS NULL THEN ${unitSql} * ${totals.quantity}
+   ELSE ${totals.quantity} * (${totals.allocated} / ${totals.n})
+    + MAX(0, MIN(${totals.cumulative}, ${totals.allocated} % ${totals.n}) - (${totals.cumulative} - ${totals.quantity})) END`.as(
 					"cost",
 				),
 				quality: sql<
 					BillingProviderUsage["providerCostQuality"]
-				>`CASE WHEN ${billed} IS NULL THEN 'estimated' ELSE 'provider_reconciled' END`.as(
+				>`CASE WHEN ${billedSql} IS NULL THEN 'estimated' ELSE 'provider_reconciled' END`.as(
 					"quality",
 				),
 				evidence: sql<
 					Record<string, JsonValue>
-				>`json_set(${totals.metadata}, '$.pricingStatus', CASE WHEN ${billed} IS NULL THEN 'pending' ELSE 'allocated' END, '$.allocation', json_object(
+				>`json_set(${totals.metadata}, '$.pricingStatus', CASE WHEN ${billedSql} IS NULL THEN 'pending' ELSE 'allocated' END, '$.allocation', json_object(
    'basis', 'anonymous_worker_load_share', 'chargePeriod', ${`${input.periodStart}..${input.periodEnd}`},
-   'chargeSourceRef', ${input.evidenceRef}, 'chargeTotalMicros', ${input.totalCostMicros},
-   'billedQuantity', ${billed}, 'recordedQuantity', ${totals.n}
+   'chargeSourceRef', ${input.evidenceRef}, 'chargeTotalMicros', ${totalSql},
+   'billedQuantity', ${billedSql}, 'recordedQuantity', ${totals.n}
   ))`.as("evidence"),
 			})
 			.from(totals),

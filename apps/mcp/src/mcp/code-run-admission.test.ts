@@ -185,21 +185,25 @@ describe("Code Mode load billing", () => {
 						}),
 					);
 					onLoad({ method: "load", identity: "anonymous" });
+					onLoad({ method: "get", identity: "anonymous" });
 					throw new Error("user code failed");
 				},
 			}),
 		).rejects.toThrow("user code failed");
+		// One provider row per run carries every load, not one row per load.
+		expect(recordBillingProviderUsage).toHaveBeenCalledTimes(1);
 		expect(recordBillingProviderUsage).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
 				organizationId: "org-1",
 				reservationId: "reservation-1",
-				quantity: 1,
-				providerCostMicros: 2000,
+				providerUsageId: "dynamic-worker:exec-metered:anonymous",
+				quantity: 2,
+				providerCostMicros: 4000,
 				metadata: {
 					surface: "gateway_model_code",
 					identity: "anonymous",
-					method: "load",
+					methods: ["load", "get"],
 				},
 			}),
 		);
@@ -207,7 +211,7 @@ describe("Code Mode load billing", () => {
 			expect.anything(),
 			expect.objectContaining({
 				provider: "cloudflare-dynamic-workers",
-				providerCostMicros: 2000,
+				providerCostMicros: 4000,
 				inputTokens: 0,
 				outputTokens: 0,
 			}),

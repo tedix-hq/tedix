@@ -83,3 +83,49 @@ it("allocates a full day across organizations, retains missing identities, and r
 		sqlite.close();
 	}
 });
+
+it("shares cost per load when one row carries a run's loads", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec(schemaDdl(billingProviderUsage));
+	const db = createDbClient(createD1Facade(sqlite));
+	const period = {
+		periodStart: "2026-11-01T00:00:00.000Z",
+		periodEnd: "2026-11-02T00:00:00.000Z",
+		totalCostMicros: 1_000_003,
+		billedQuantity: 4,
+		evidenceRef: "fixture:daily-worker-charge",
+	};
+	const insert = sqlite.prepare(`INSERT INTO billing_provider_usage
+  (id, organization_id, provider, model, usage_kind, unit, quantity, occurred_at, metadata, created_at)
+  VALUES (?, ?, 'cloudflare-dynamic-workers', 'dynamic-worker', 'other', 'units', ?, ?, '{"identity":"anonymous"}', '2026-11-01T00:00:00.000Z')`);
+	const costs = () =>
+		sqlite
+			.prepare(
+				"SELECT id, provider_cost_micros AS cost FROM billing_provider_usage ORDER BY id",
+			)
+			.all();
+	try {
+		insert.run("run-a", "org-a", 3, period.periodStart);
+		insert.run("run-b", "org-b", 1, period.periodStart);
+		await allocateDynamicWorkerCostForPeriod(db, {
+			...period,
+			billedQuantity: null,
+		});
+		expect(costs()).toEqual([
+			{ id: "run-a", cost: 6000 },
+			{ id: "run-b", cost: 2000 },
+		]);
+		expect(await allocateDynamicWorkerCostForPeriod(db, period)).toEqual({
+			allocatedMicros: 1_000_003,
+			unallocatedMicros: 0,
+			rows: 2,
+		});
+		// The three remainder micros go to the first three load units.
+		expect(costs()).toEqual([
+			{ id: "run-a", cost: 750_003 },
+			{ id: "run-b", cost: 250_000 },
+		]);
+	} finally {
+		sqlite.close();
+	}
+});
