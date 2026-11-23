@@ -23,15 +23,16 @@ export function FocusRowActions({ actions }: { actions: FocusRowAction[] }) {
 	return (
 		<div className="focus-row-tools">
 			<div className="focus-actions">
-				{actions
-					.slice(0, 2)
-					.map(({ label, Icon, onClick, disabled, expanded, controls }) => (
+				{actions.map(
+					({ label, Icon, onClick, disabled, expanded, controls }, index) => (
 						<Tooltip key={label}>
 							<TooltipTrigger
 								render={
 									<Button
 										variant="ghost"
 										size="icon-sm"
+										// Row shortcuts still dispatch actions whose visible control is in More.
+										className={index >= 2 ? "hidden" : undefined}
 										aria-label={label}
 										disabled={disabled}
 										aria-expanded={expanded}
@@ -44,7 +45,8 @@ export function FocusRowActions({ actions }: { actions: FocusRowAction[] }) {
 							</TooltipTrigger>
 							<TooltipContent>{label}</TooltipContent>
 						</Tooltip>
-					))}
+					),
+				)}
 			</div>
 			<DropdownMenu>
 				<Tooltip>

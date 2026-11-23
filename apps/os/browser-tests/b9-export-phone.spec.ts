@@ -106,46 +106,49 @@ try {
 	});
 	let calls = 0;
 	let reply: { message?: string; release: Promise<void> };
-	await context.route("**/api/**", async (route) => {
-		assert.equal(
-			new URL(route.request().url()).pathname,
-			"/api/rpc/osWorkspaces/outputs/export",
-		);
-		assert.equal(route.request().method(), "POST");
-		assert.deepEqual(route.request().postDataJSON(), {
-			json: {
-				outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-				format: "pdf",
-			},
-		});
-		calls++;
-		const { message, release } = reply;
-		await release;
-		await route.fulfill(
-			message
-				? {
-						status: 500,
-						json: {
+	await context.route(
+		"**/api/rpc/osWorkspaces/outputs/export",
+		async (route) => {
+			assert.equal(
+				new URL(route.request().url()).pathname,
+				"/api/rpc/osWorkspaces/outputs/export",
+			);
+			assert.equal(route.request().method(), "POST");
+			assert.deepEqual(route.request().postDataJSON(), {
+				json: {
+					outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					format: "pdf",
+				},
+			});
+			calls++;
+			const { message, release } = reply;
+			await release;
+			await route.fulfill(
+				message
+					? {
+							status: 500,
 							json: {
-								defined: false,
-								code: "INTERNAL_SERVER_ERROR",
-								message,
+								json: {
+									defined: false,
+									code: "INTERNAL_SERVER_ERROR",
+									message,
+								},
+							},
+						}
+					: {
+							json: {
+								json: {
+									key: "fixture/rev-2.pdf",
+									format: "pdf",
+									revision: 2,
+									sizeBytes: 0,
+									url: "https://api.example.test/os-exports/fixture/rev-2.pdf?fixture=1",
+								},
 							},
 						},
-					}
-				: {
-						json: {
-							json: {
-								key: "fixture/rev-2.pdf",
-								format: "pdf",
-								revision: 2,
-								sizeBytes: 0,
-								url: "https://api.example.test/os-exports/fixture/rev-2.pdf?fixture=1",
-							},
-						},
-					},
-		);
-	});
+			);
+		},
+	);
 	await context.route(/^https?:\/\/(?!127\.0\.0\.1:)/, (route) =>
 		route.abort(),
 	);

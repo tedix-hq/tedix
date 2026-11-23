@@ -131,6 +131,7 @@ try {
 					`${origin}/browser-tests/members.html?view=feed&locale=${locale}&theme=${theme}`,
 				);
 				// Factory stories are app activity; the Apps chip shows their full timeline.
+				await page.getByText("Feed options", { exact: true }).click();
 				await page.getByRole("button", { name: "Apps", exact: true }).click();
 				await page.locator("article").first().waitFor();
 				const feed = await page.locator("body").innerText();

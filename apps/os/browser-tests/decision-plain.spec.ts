@@ -31,8 +31,9 @@ try {
 				`${width}: no raw identifiers or jargon on the card`,
 			);
 			assert.match(visible, /3 days overdue/, `${width}: relative due date`);
+			await card.getByText("What each choice does", { exact: true }).click();
 			assert.match(
-				visible,
+				await card.innerText(),
 				/Give access:?\s*Codex opens the research folder/,
 				`${width}: the primary option says what happens`,
 			);

@@ -148,13 +148,14 @@ client.setQueryData(
 );
 const event = (id: number, title: string, body: string, small = false) => ({
 	id: `event-${id}`,
-	workItemId: projectId,
+	workItemId: `11111111-1111-4111-8111-${String(id).padStart(12, "0")}`,
 	workItemTitle: title,
 	body,
 	eventType: small ? "work.created" : "work.completed",
 	workItemDisposition: "completed",
 	agentHarness: "codex",
 	authorType: "external_agent",
+	authorId: "codex",
 	createdAt: new Date(today.getTime() - id * step).toISOString(),
 });
 const options = {
@@ -196,7 +197,14 @@ client.setQueryData(
 	osQuery.workItems.listAttemptProjection.infiniteOptions({
 		input: () => ({
 			...input,
-			outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
+			outcomes: [
+				"succeeded",
+				"landed_unverified",
+				"failed",
+				"rejected",
+				"expired",
+				"cancelled",
+			],
 		}),
 		...options,
 	}).queryKey,
@@ -300,7 +308,14 @@ if (params.has("stalled")) {
 		osQuery.workItems.listAttemptProjection.infiniteOptions({
 			input: () => ({
 				...input,
-				outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
+				outcomes: [
+					"succeeded",
+					"landed_unverified",
+					"failed",
+					"rejected",
+					"expired",
+					"cancelled",
+				],
 			}),
 			...options,
 		}).queryKey,

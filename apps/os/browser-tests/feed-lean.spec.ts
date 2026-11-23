@@ -28,9 +28,13 @@ try {
 			);
 		});
 		const metadata = await row.locator(".ft-byline").evaluate((node) => ({
-			size: parseFloat(getComputedStyle(node.firstElementChild!).fontSize),
+			size: parseFloat(
+				getComputedStyle(node.querySelector("span.font-semibold")!).fontSize,
+			),
 			clipped: Array.from(node.children).some(
-				(child) => child.scrollWidth > child.clientWidth + 1,
+				(child) =>
+					child.matches("span,time") &&
+					child.scrollWidth > child.clientWidth + 1,
 			),
 		}));
 		if (metadata.size > 13 || metadata.clipped)
@@ -84,13 +88,13 @@ try {
 							node.getBoundingClientRect().width > 0,
 					).length,
 			);
-		if (inlineActions !== (width > 640 ? 3 : 0))
+		if (inlineActions !== (width > 640 ? 2 : 0))
 			throw new Error("Feed exposed too many inline actions");
 		await row
 			.getByRole("button", { name: "More actions", exact: true })
 			.click();
 		await page
-			.getByRole("menuitem", { name: "Comment", exact: true })
+			.getByRole("menuitem", { name: "Private note", exact: true })
 			.waitFor();
 		await page.keyboard.press("Escape");
 		await page.getByRole("button", { name: /finished without you/ }).click();

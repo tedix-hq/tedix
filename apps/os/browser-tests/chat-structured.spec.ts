@@ -67,10 +67,11 @@ try {
 	await failure.waitFor();
 	await page.evaluate(() => document.documentElement.classList.add("dark"));
 	const text = await failure.innerText();
-	assert.match(
-		text,
-		/^Couldn't create the output: Action "tedix__create_os_output" requires approval\./,
+	assert.equal(
+		await failure.locator("p").innerText(),
+		"Couldn't create the output.",
 	);
+	assert.doesNotMatch(text, /tedix__create_os_output/);
 	assert.doesNotMatch(text, /"type"/);
 	if (screenshots)
 		await page.screenshot({

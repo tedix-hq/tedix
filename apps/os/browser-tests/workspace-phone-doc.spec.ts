@@ -27,7 +27,8 @@ try {
 	// One open file: its tab fits, so nothing offers to scroll the tabs and a
 	// tap on Close reaches Close. The tab row settles after the title loads.
 	const openTabs = page.getByRole("tablist", { name: "Open workpieces" });
-	const close = page.getByRole("button", { name: /^Close Doc/ });
+	const closeName = `Close ${await openTabs.getByRole("tab").getAttribute("aria-label")}`;
+	const close = openTabs.getByRole("button", { name: closeName, exact: true });
 	await close.waitFor();
 	assert.equal(await openTabs.getByRole("tab").count(), 1);
 	assert.equal(
@@ -41,7 +42,7 @@ try {
 		closeBox.width >= 44 && closeBox.height >= 44,
 		"the tab's Close is thumb-sized",
 	);
-	assert.match(
+	assert.equal(
 		await page.evaluate(
 			([x, y]) =>
 				document
@@ -50,7 +51,7 @@ try {
 					?.getAttribute("aria-label") ?? "",
 			[closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2],
 		),
-		/^Close Doc/,
+		closeName,
 		"a tap on the tab's Close reaches it",
 	);
 

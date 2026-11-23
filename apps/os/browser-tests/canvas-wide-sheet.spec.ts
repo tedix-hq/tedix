@@ -47,6 +47,16 @@ const wideWorkbook = (rows: number) => ({
 });
 
 async function widenSheet(page: Page, rows: number) {
+	await page.route("**/api/rpc/userSettings/getContext*", async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		const context = body.json ?? body;
+		context.authority.permissions = context.authority.permissions.filter(
+			(permission: string) =>
+				!["os:author", "settings:manage"].includes(permission),
+		);
+		await route.fulfill({ response, json: body });
+	});
 	await page.route("**/api/rpc/osWorkspaces/outputs/get*", async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();

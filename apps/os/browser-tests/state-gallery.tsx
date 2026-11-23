@@ -4,9 +4,9 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StatusLine } from "../src/components/account-list";
 import {
-	ConversationRow,
+	ConversationListView,
 	ConversationsEmpty,
-} from "../src/components/chat-sidebar";
+} from "../src/components/conversation-list";
 import {
 	DeckCardSkeleton,
 	DeckCompletion,
@@ -207,27 +207,21 @@ const surfaces: {
 		name: "Chat list",
 		empty: <ConversationsEmpty />,
 		partial: (
-			<ul>
-				<ConversationRow
-					conversation={{
+			<ConversationListView
+				rows={[
+					{
 						id: "sample-chat",
-						organizationId: "22222222-2222-4222-8222-222222222222",
 						title: "Morning review",
-						status: "active",
-						channel: "home",
-						lastMessageAt: FRAME_NOW,
-						messageCount: 2,
-						createdAt: FRAME_NOW,
-						updatedAt: FRAME_NOW,
-						pinnedAt: null,
-						origin: "human",
-					}}
-					optimistic
-					now={new Date(FRAME_NOW)}
-				/>
-			</ul>
+						at: FRAME_NOW,
+						pending: true,
+					},
+				]}
+				activeId={null}
+				onSelect={() => {}}
+				now={new Date(FRAME_NOW)}
+			/>
 		),
-		gap: "Chat list queries require router context; fixed optimistic ConversationRow, ConversationsEmpty and shared loading/error components are shown.",
+		gap: "Chat list queries require router context; a fixed optimistic conversation, ConversationsEmpty and shared loading/error components are shown.",
 	},
 ];
 const states = ["empty", "loading", "error", "partial"] as const;

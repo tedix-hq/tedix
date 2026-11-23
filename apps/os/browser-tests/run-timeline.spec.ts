@@ -559,7 +559,7 @@ try {
 		.focus();
 	await page.keyboard.press("Enter");
 	await drawer
-		.getByText("Loading parent step details…", { exact: true })
+		.getByLabel("Loading parent step details", { exact: true })
 		.waitFor();
 	assert.equal(
 		await drawer

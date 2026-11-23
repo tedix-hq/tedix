@@ -31,6 +31,7 @@ const tabs = await startEditorTabs({ kind: "document", content });
 try {
 	const { page, frame } = await tabs.open();
 	await page.setViewportSize({ width: 2200, height: 900 });
+	await page.getByRole("button", { name: "Focus", exact: true }).click();
 	const outline = frame.locator(".doc-outline");
 	await outline.waitFor({ state: "visible" });
 	assert.equal(await outline.getByRole("button").count(), 3);
