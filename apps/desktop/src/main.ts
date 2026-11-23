@@ -320,6 +320,11 @@ function updateView(): UpdateView {
 		const text = `Downloading update… ${percent}%`;
 		return { ...view, kind: "working", text, label: text };
 	}
+	// Check for Updates… shows on the entry at once, not only in the menu.
+	if (checking && !readyVersion() && !cliOffer()) {
+		const text = "Checking for updates…";
+		return { ...view, kind: "working", text, label: text };
+	}
 	if (updatedTo) {
 		const text = `Updated to ${updatedTo}`;
 		return { ...view, kind: "done", text, label: text };
@@ -1390,6 +1395,7 @@ async function checkForUpdates(asked: boolean): Promise<void> {
 	let failed = false;
 	if (asked) {
 		checking = true;
+		fetchFailure = undefined;
 		publishUpdate();
 	}
 	try {
@@ -1402,9 +1408,14 @@ async function checkForUpdates(asked: boolean): Promise<void> {
 		log(`update: ${problem}`);
 	}
 	try {
+		// The app downloads while the command-line tool is looked up.
+		const fetched =
+			found && readyVersion() !== found.version
+				? download()
+				: Promise.resolve(true);
 		await lookForCliUpdate(asked);
 		await refreshSetup(false);
-		if (found && readyVersion() !== found.version && !(await download())) {
+		if (!(await fetched)) {
 			problem ||= "The update did not download. Try again later.";
 			failed = true;
 		}
