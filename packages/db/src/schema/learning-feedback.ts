@@ -93,6 +93,9 @@ export const learningInteractionEvents = sqliteTable(
 			table.organizationId,
 			table.occurredAt,
 		),
+		index("idx_learning_event_shared_occurred")
+			.on(table.organizationId, table.occurredAt)
+			.where(sql`scope_kind <> 'personal'`),
 		index("idx_learning_event_tedi_occurred").on(
 			table.tediId,
 			table.occurredAt,

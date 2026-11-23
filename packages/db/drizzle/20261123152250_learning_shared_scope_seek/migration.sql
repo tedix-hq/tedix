@@ -1,0 +1,1 @@
+CREATE INDEX `idx_learning_event_shared_occurred` ON `learning_interaction_events` (`organization_id`,`occurred_at`) WHERE scope_kind <> 'personal';

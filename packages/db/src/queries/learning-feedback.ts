@@ -213,17 +213,6 @@ export async function listLearningInteractions(
 	const conditions = [
 		eq(learningInteractionEvents.organizationId, input.organizationId),
 	];
-	conditions.push(
-		input.personalScopeId
-			? (or(
-					ne(learningInteractionEvents.scopeKind, "personal"),
-					and(
-						eq(learningInteractionEvents.scopeKind, "personal"),
-						eq(learningInteractionEvents.scopeId, input.personalScopeId),
-					),
-				) as (typeof conditions)[number])
-			: ne(learningInteractionEvents.scopeKind, "personal"),
-	);
 	if (input.tediId) {
 		conditions.push(eq(learningInteractionEvents.tediId, input.tediId));
 	}
@@ -261,6 +250,58 @@ export async function listLearningInteractions(
 	if (input.until) {
 		conditions.push(lte(learningInteractionEvents.occurredAt, input.until));
 	}
+	if (
+		!input.tediId &&
+		!input.eventKind &&
+		!input.scopeKind &&
+		!input.scopeId &&
+		!input.issueKey &&
+		!input.withIssueKey &&
+		!input.surfaces &&
+		!input.excludeFeedImpressions
+	) {
+		// Limit each visible scope before merging. A tenant-time walk can read
+		// every other person's private event before finding this person's history.
+		const newest = (scope: SQL, source: SQL) =>
+			db
+				.select(prefixedColumns(learningInteractionEvents, "history"))
+				.from(source)
+				.where(and(...conditions, scope))
+				.orderBy(desc(learningInteractionEvents.occurredAt))
+				.limit(input.limit);
+		// Literal predicate implies the partial index; hints keep production
+		// statistics from choosing a tenant-wide index for either branch.
+		const shared = newest(
+			sql`scope_kind <> 'personal'`,
+			sql`${learningInteractionEvents} INDEXED BY idx_learning_event_shared_occurred`,
+		);
+		if (!input.personalScopeId) return shared;
+		const sharedHistory = shared.as("shared_history");
+		const personalHistory = newest(
+			and(
+				eq(learningInteractionEvents.scopeKind, "personal"),
+				eq(learningInteractionEvents.scopeId, input.personalScopeId),
+			)!,
+			sql`${learningInteractionEvents} INDEXED BY idx_learning_event_scope_occurred`,
+		).as("personal_history");
+		return db
+			.select()
+			.from(sharedHistory)
+			.unionAll(db.select().from(personalHistory))
+			.orderBy(desc(sharedHistory.occurredAt))
+			.limit(input.limit);
+	}
+	conditions.push(
+		input.personalScopeId
+			? (or(
+					ne(learningInteractionEvents.scopeKind, "personal"),
+					and(
+						eq(learningInteractionEvents.scopeKind, "personal"),
+						eq(learningInteractionEvents.scopeId, input.personalScopeId),
+					),
+				) as (typeof conditions)[number])
+			: ne(learningInteractionEvents.scopeKind, "personal"),
+	);
 	const rows = await db
 		.select()
 		.from(learningInteractionEvents)

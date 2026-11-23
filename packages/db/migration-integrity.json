@@ -1940,6 +1940,10 @@
 		{
 			"name": "20261123150711_app-trigger-seek/migration.sql",
 			"sha256": "b39467aa5199326ee4d902a868d3f472b894995f6f8eef45695052adab2e1314"
+		},
+		{
+			"name": "20261123152250_learning_shared_scope_seek/migration.sql",
+			"sha256": "fb85f489d31f2b5de52a5232842fdc3dbae5e152f98f3b6a9382cc037848b0bb"
 		}
 	]
 }
