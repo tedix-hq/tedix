@@ -1,5 +1,7 @@
 import { call } from "@orpc/server";
 import type { DeckNotUsefulReason } from "@tedix/api-contract/schemas/deck-pipeline";
+import { CREDIT_NOTICE_CARD_SCHEMA } from "@tedix/db/queries/billing/credit-notice-deliveries";
+import { CREDIT_BUDGET_ALERT_CARD_SCHEMA } from "@tedix/db/queries/work-items/budgets";
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
 import {
 	getWorkItemById,
@@ -63,6 +65,11 @@ export function answerSentence(subject: string, answer: BoardAnswer) {
 	);
 }
 
+const SELF_CONTAINED_NOTICE_SCHEMAS = new Set([
+	CREDIT_NOTICE_CARD_SCHEMA,
+	CREDIT_BUDGET_ALERT_CARD_SCHEMA,
+]);
+
 /**
  * The person's answer takes effect on the board when they give it, without the
  * asking agent being alive: it is recorded on the card's Work, or on a Work
@@ -78,7 +85,10 @@ export async function recordDecisionAnswerOnBoard(
 	if (
 		request.targetType !== "user" ||
 		!personId ||
-		request.kind === "coordination"
+		request.kind === "coordination" ||
+		// Tedix's own credit notices: "Got it" needs no Work, and a raise is
+		// already recorded on the card and the budget.
+		SELF_CONTAINED_NOTICE_SCHEMAS.has(String(request.metadata.schema))
 	)
 		return null;
 	try {

@@ -224,6 +224,21 @@ describe("recordDecisionAnswerOnBoard", () => {
 		expect(answerDisposition({ ...yes, choice: "later" })).toBe("propose");
 	});
 
+	it("files no Work for Tedix's own credit notices", async () => {
+		for (const schema of [
+			"tedix.credit-notice.v1",
+			"tedix.credit-budget-alert.v1",
+		])
+			expect(
+				await recordDecisionAnswerOnBoard(context, {
+					orgId,
+					request: { ...card, metadata: { schema } },
+					answer: yes,
+				}),
+			).toBeNull();
+		expect(mocks.call).not.toHaveBeenCalled();
+	});
+
 	it("skips cards with nowhere to land, and never throws", async () => {
 		expect(
 			await recordDecisionAnswerOnBoard(context, {
