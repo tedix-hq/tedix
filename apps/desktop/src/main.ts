@@ -378,7 +378,10 @@ async function findSidebar(): Promise<void> {
 	if (!contents || contents.isDestroyed()) return;
 	const shown = updateView().kind !== "hidden";
 	makeRoom(shown);
-	if (!shown) return;
+	if (!shown) {
+		sidebarSpot = null;
+		return;
+	}
 	const spot = (await contents
 		.executeJavaScript(
 			`(() => {
@@ -413,11 +416,13 @@ const SIDEBAR_MOVE_MS = 300;
 const SIDEBAR_CHANGE = `new Promise((resolve) => {
 	const sidebar = document.querySelector('[data-sidebar="sidebar"]:not([data-mobile])');
 	if (!sidebar) return resolve(false);
-	const observer = new MutationObserver(() => {
+	// A re-render that writes the same state is not a move.
+	const observer = new MutationObserver((changes) => {
+		if (changes.every((change) => change.oldValue === sidebar.getAttribute("data-state"))) return;
 		observer.disconnect();
 		resolve(true);
 	});
-	observer.observe(sidebar, { attributes: true, attributeFilter: ["data-state"] });
+	observer.observe(sidebar, { attributes: true, attributeOldValue: true, attributeFilter: ["data-state"] });
 	// A new page replaces the sidebar; the next watch finds the new one.
 	setTimeout(() => {
 		observer.disconnect();
@@ -443,9 +448,16 @@ async function watchSidebar(): Promise<void> {
 	}
 }
 
+let findingSidebar = false;
 function publishUpdate(): void {
 	refreshMenu();
 	const view = updateView();
+	if (view.kind !== "hidden" && !sidebarSpot && !findingSidebar) {
+		findingSidebar = true;
+		void findSidebar().finally(() => {
+			findingSidebar = false;
+		});
+	}
 	if (`${view.kind}|${view.text}` !== panelUpdate) {
 		panelUpdate = `${view.kind}|${view.text}`;
 		void publish();
@@ -454,6 +466,25 @@ function publishUpdate(): void {
 	if (contents && !contents.isDestroyed())
 		contents.send("update", updateView());
 	layoutMain();
+}
+
+/** Logs once when the entry shows, and once when something holds it back. */
+let entryNote = "";
+function noteEntry(
+	kind: UpdateView["kind"],
+	text: string,
+	place: UpdateView["place"],
+	held: string,
+): void {
+	const note =
+		kind === "hidden"
+			? ""
+			: held
+				? `held back while ${held}`
+				: `shown (${kind === "working" ? text.replace(/\s*\d+%$/, "") : text}, ${place})`;
+	if (note === entryNote) return;
+	entryNote = note;
+	if (note) log(`update: entry ${note}`);
 }
 
 function sayDone(line: string): void {
@@ -1219,22 +1250,32 @@ function createMainWindow(show: boolean): void {
 		view.setBounds({ x: 0, y: 0, width, height });
 		settingsView?.setBounds({ x: 0, y: 0, width, height });
 		restartingView?.setBounds({ x: 0, y: 0, width, height });
-		const { kind, place } = updateView();
-		const shown =
-			kind !== "hidden" &&
-			updateSize.width > 0 &&
-			!sidebarMoving &&
-			!settingsView?.getVisible();
+		const { kind, place, text } = updateView();
+		// The entry's place comes from the sidebar, or its own width in the
+		// corner; until its page reports that width the corner uses a fair
+		// guess, so a download shows from its first moment.
+		const held =
+			kind === "hidden"
+				? ""
+				: settingsView?.getVisible()
+					? "Settings is open"
+					: sidebarMoving
+						? "the sidebar is moving"
+						: "";
+		const shown = kind !== "hidden" && !held;
 		button.setVisible(shown);
+		noteEntry(kind, text, place, held);
 		if (!shown) return;
 		const entry = 32;
 		const spot = sidebarSpot;
+		const fits =
+			spot && spot.y + 8 + entry <= height && spot.x + spot.width <= width;
 		button.setBounds(
-			place === "corner" || !spot
+			place === "corner" || !spot || !fits
 				? {
 						x: 12,
 						y: height - 12 - entry,
-						width: Math.min(updateSize.width, width - 24),
+						width: Math.min(updateSize.width || 240, width - 24),
 						height: entry,
 					}
 				: place === "rail"
