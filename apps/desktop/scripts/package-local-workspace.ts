@@ -34,10 +34,25 @@ function run(executable: string, args: string[], cwd = work) {
 	execFileSync(executable, args, { cwd, stdio: "inherit" });
 }
 
-async function download(url: string) {
-	const response = await fetch(url);
-	if (!response.ok) throw new Error(`${response.status} downloading ${url}`);
-	return Buffer.from(await response.arrayBuffer());
+async function download(url: string): Promise<Buffer> {
+	for (let attempt = 1; ; attempt++) {
+		let response: Response | undefined;
+		try {
+			response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
+			if (response.ok) return Buffer.from(await response.arrayBuffer());
+			await response.body?.cancel();
+		} catch (error) {
+			if (attempt === 3)
+				throw new Error(`Could not download ${url}`, { cause: error });
+		}
+		if (response && !response.ok) {
+			const { status } = response;
+			if (attempt === 3 || (status !== 408 && status !== 429 && status < 500))
+				throw new Error(`HTTP ${status} downloading ${url}`);
+		}
+		console.warn(`Retrying download of ${url} (${attempt + 1}/3)`);
+		await Bun.sleep(attempt * 2_000);
+	}
 }
 
 try {
@@ -71,12 +86,10 @@ try {
 	cpSync(join(work, nodeName, "LICENSE"), join(bin, "node.LICENSE"));
 
 	const bunArchive = `${bunName}.zip`;
-	const bunRelease = await fetch(
+	const bunRelease = await download(
 		`https://api.github.com/repos/oven-sh/bun/releases/tags/bun-v${bunVersion}`,
 	);
-	if (!bunRelease.ok)
-		throw new Error("Couldn’t verify the released Bun binary.");
-	const metadata = (await bunRelease.json()) as {
+	const metadata = JSON.parse(bunRelease.toString()) as {
 		assets: { name: string; digest?: string; browser_download_url: string }[];
 	};
 	const asset = metadata.assets.find((item) => item.name === bunArchive);
