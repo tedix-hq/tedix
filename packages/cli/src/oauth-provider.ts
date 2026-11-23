@@ -899,7 +899,6 @@ export type SessionRefreshOutcome =
 	| "invalidated"
 	| "uncertain"
 	| "scope-expanded"
-	| "deferred-dark-wake"
 	| "failed";
 
 /**
@@ -913,13 +912,12 @@ const REFRESH_FAMILY_INVALIDATED =
 	/E064006|(?:refresh[- ]token )?family(?: ID| was)? invalidated/i;
 
 /**
- * A sleeping Mac wakes in the dark (no display) every few minutes for about
- * five seconds, and background agents keep running then. A renewal sent in
- * that window can reach Descope, which rotates the token, and then freeze
- * until the next full wake; by then the reply is gone, and the next renewal
- * replays the superseded token. All three logouts on 2026-10-13 match this.
- * Power assertions do not keep a battery-powered Mac in dark wake, so the
- * renewal is not started there at all.
+ * A sleeping Mac wakes in the dark (no display) every few minutes, and
+ * background agents keep running then. The three logouts on 2026-10-13 matched
+ * a renewal that reached Descope in that window and froze before its reply
+ * arrived. Renewal used to be refused in dark wake; since 2026-11-23 it runs,
+ * and each journal entry records `darkWake` so a renewal followed by a family
+ * invalidation can be traced back to it.
  */
 export async function inDarkWake(): Promise<boolean> {
 	if (process.platform !== "darwin") return false;
@@ -1005,7 +1003,8 @@ export async function refreshStoredSession(
 	const started = Date.now();
 	let lockWaitMs = 0;
 	let outcome = "failed" as SessionRefreshOutcome;
-	let phase: "lock" | "dark-wake" | "sent" | "received" | "saved" = "lock";
+	let phase: "lock" | "sent" | "received" | "saved" = "lock";
+	let darkWake: boolean | undefined;
 	let correlationId: string | undefined;
 	let httpStatus: number | undefined;
 	let oauthError: string | undefined;
@@ -1046,10 +1045,7 @@ export async function refreshStoredSession(
 			provider.discoveryState()?.authorizationServerUrl;
 		if (!refreshToken || !clientInformation || !authorizationServerUrl)
 			return finish("unavailable");
-		if (await (options.isDarkWake ?? inDarkWake)()) {
-			phase = "dark-wake";
-			return finish("deferred-dark-wake");
-		}
+		darkWake = await (options.isDarkWake ?? inDarkWake)();
 		const resource = provider.resourceUrl();
 		const fetchFn = options.fetchFn ?? fetch;
 		// One deadline for the whole exchange, response body included: a body that
@@ -1346,6 +1342,7 @@ export async function refreshStoredSession(
 			workspace: workspace ?? (process.env.NODE_ENV === "test" ? "test" : null),
 			result: outcome,
 			phase,
+			darkWake,
 			lockWaitMs,
 			elapsedMs: Date.now() - started,
 			correlationId,
@@ -1374,7 +1371,6 @@ const SESSION_REFRESH_OUTCOMES = new Set<string>([
 	"invalidated",
 	"uncertain",
 	"scope-expanded",
-	"deferred-dark-wake",
 	"failed",
 ]);
 

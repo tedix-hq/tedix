@@ -1135,35 +1135,6 @@ describe("proactive session refresh", () => {
 		expect(provider.tokens()?.refresh_token).toBe("refresh-token");
 	});
 
-	test("dark wake defers without sending a request or changing tokens", async () => {
-		const provider = new WorkspaceOAuthProvider({
-			mcpUrl: MCP_URL,
-			credential: {
-				loginId: "user-1",
-				oauthTokens: {
-					access_token: "expired",
-					refresh_token: "rotating",
-					token_type: "Bearer",
-				},
-				oauthClientInformation: { client_id: "client-1" },
-				oauthDiscoveryState: { authorizationServerUrl: ISSUER },
-			},
-		});
-		const before = provider.credential();
-		let requests = 0;
-		expect(
-			await refreshStoredSession(provider, {
-				isDarkWake: () => true,
-				fetchFn: async () => {
-					requests++;
-					throw new Error("unexpected request");
-				},
-			}),
-		).toBe("deferred-dark-wake");
-		expect(requests).toBe(0);
-		expect(provider.credential()).toEqual(before);
-	});
-
 	test("rejects a refresh response that widens the saved grant", async () => {
 		const provider = new WorkspaceOAuthProvider({
 			mcpUrl: MCP_URL,

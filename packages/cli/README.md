@@ -225,7 +225,6 @@ the exact unsupported requirement when a compatible CLI workflow is needed.
   browser. A call that outlives its token is retried once only when the API
   returns its exact expired-forwarded-token rejection and renewal succeeds.
   Interactive authorization requires a human terminal outside an agent harness.
-  During macOS dark wake, renewal is deferred; wake the Mac fully and retry.
   Select the active workspace via
   `-w/--workspace`, `TEDIX_WORKSPACE`, or `tedix use <name>`. An explicit
   `TEDIX_MCP_BEARER_TOKEN`/`TEDIX_MCP_API_KEY` can replace the stored login;

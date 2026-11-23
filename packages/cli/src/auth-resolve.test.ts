@@ -274,7 +274,6 @@ describe("stored login renewal", () => {
 			"invalidated",
 			"uncertain",
 			"failed",
-			"deferred-dark-wake",
 		] as const) {
 			const result = await resolveStoredLoginAuth("tedix", {
 				credential: {
@@ -294,11 +293,6 @@ describe("stored login renewal", () => {
 				verifyAccess: async () => "rejected",
 			});
 			expect(result.auth, outcome).toBeNull();
-			if (outcome === "deferred-dark-wake") {
-				expect(result.loginError).toContain("Wake the Mac fully and retry");
-				expect(result.loginError).not.toContain("tedix login");
-				continue;
-			}
 			if (outcome === "invalidated") {
 				expect(result.loginError).toContain("is invalidated");
 				expect(result.loginError).not.toContain("tedix login");
