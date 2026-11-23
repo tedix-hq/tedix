@@ -95,10 +95,7 @@ export function WorkspaceAccessBoundary({
 		);
 	if (!verified && retainedWorkspace.current !== workspaceId)
 		return (
-			<div role="status" aria-busy={access.isPending}>
-				Workspace access is being verified. Your workspace will open when
-				verification succeeds.
-			</div>
+			<LoadingArea className="min-h-dvh" label="Checking workspace access" />
 		);
 	// Editing, chat and live sync carry on; only repository saves read this
 	// and wait for a fresh check.
