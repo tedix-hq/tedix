@@ -3,7 +3,7 @@
  *
  * A chat started from /chat is a plain Home conversation. When it is asked for
  * a document, sheet or deck, the output goes to the member's own private
- * workspace (created once as "Chats (private)" when they have none), never to a
+ * workspace (created once as "Chats" when they have none), never to a
  * new workspace per chat. A turn with no single member behind it uses the
  * organization's "General" workspace, also created once and reused.
  */
@@ -18,7 +18,7 @@ import {
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 
 export const DEFAULT_OS_WORKSPACE_NAME = "General";
-const PERSONAL_OS_WORKSPACE_NAME = "Chats (private)";
+const PERSONAL_OS_WORKSPACE_NAME = "Chats";
 
 const DEFAULT_OS_WORKSPACE_DESCRIPTION =
 	"Documents, sheets and decks made in chats that have no workspace of their own.";

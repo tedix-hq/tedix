@@ -1444,7 +1444,7 @@ describe("publishDocSource", () => {
 		};
 		const user = { get_mine: async () => ({ id: "member-robin" }) };
 		const source = publishDocSource({
-			spaceName: "Robin (private)",
+			spaceName: "Robin",
 			blocks: [],
 		});
 		const program = new Function("os", "user", `return (${source})();`);
@@ -1455,7 +1455,7 @@ describe("publishDocSource", () => {
 		const { calls, result } = run(null);
 		await expect(result).resolves.toMatchObject({ workspaceId: "ws-new" });
 		expect(calls.find(([name]) => name === "create")?.[1]).toMatchObject({
-			name: "Robin (private)",
+			name: "Robin",
 			visibility: "private",
 		});
 	});
@@ -1472,7 +1472,7 @@ describe("publishDocSource", () => {
 			calls.filter(([name]) => name === "update").map(([, i]) => i),
 		).toEqual([
 			{ workspaceId: "ws-old", visibility: "private" },
-			{ workspaceId: "ws-old", name: "Robin (private)" },
+			{ workspaceId: "ws-old", name: "Robin" },
 		]);
 	});
 });

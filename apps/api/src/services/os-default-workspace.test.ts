@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { listOsWorkspaces } from "@tedix/db/queries/os-workspaces/workspaces";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import { userConfigs } from "@tedix/db/schema/user-configs";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceShareLinks,
@@ -30,6 +31,7 @@ function fixture() {
 			osWorkspaceShareLinks,
 			osOutputs,
 			osOutputRevisions,
+			userConfigs,
 		),
 	);
 	workspaceOutputFixture(sqlite, { uninitialized: true });
@@ -57,7 +59,7 @@ describe("default chat workspace", () => {
 		const second = await ensureDefaultOsWorkspace(db, member);
 		const third = await ensureDefaultOsWorkspace(db, member);
 		expect(first).toMatchObject({
-			name: "Chats (private)",
+			name: "Chats",
 			visibility: "private",
 			ownerUserId: "user-1",
 		});
@@ -93,7 +95,7 @@ describe("default chat workspace", () => {
 			visibility: "private",
 			ownerUserId: "user-2",
 		});
-		expect(second?.name).toMatch(/^Chats \(private\) · [0-9a-f]{8}$/);
+		expect(second?.name).toMatch(/^Chats · [0-9a-f]{8}$/);
 	});
 
 	it("uses one shared General when no single member is behind the turn", async () => {

@@ -606,7 +606,7 @@ export async function runProfile(
 						options.space && options.space !== state.space?.workspaceId
 							? undefined
 							: state.space?.outputId,
-					spaceName: `${(me?.name || "My").split(/\s+/)[0]} (private)`,
+					spaceName: (me?.name ?? "").split(/\s+/)[0] || "Personal",
 					blocks,
 				}),
 			);
