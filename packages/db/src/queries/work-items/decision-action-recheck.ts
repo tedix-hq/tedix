@@ -7,6 +7,7 @@ import {
 	workInteractionResponses,
 	workInteractions,
 } from "../../schema/work-factory";
+import { creditBudgetCardCurrent } from "./budgets";
 import { getWorkItemById } from "./crud";
 import { decisionRelevantWorkComment } from "./comments";
 import {
@@ -90,6 +91,11 @@ export async function decisionActionChangeDetail(
 	const text = (value: string | null) => (value ? { text: value } : null);
 	if (request.targetType !== "user" || request.kind === "coordination")
 		return null;
+	const budgetCard = await creditBudgetCardCurrent(db, orgId, request.metadata);
+	if (budgetCard !== undefined)
+		return budgetCard
+			? null
+			: text("This budget's limit changed since the card was made.");
 	const envelope = DecisionEnvelopeSchema.safeParse(
 		request.metadata.decisionDeck,
 	);

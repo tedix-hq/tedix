@@ -41,6 +41,7 @@ import {
 } from "./attempts";
 import {
 	createWorkBudgetEnvelope,
+	creditBudgetCardCurrent,
 	findSessionWorkItem,
 	getCreditBudgetsForWorkItem,
 	listWorkBudgetEnvelopes,
@@ -1263,11 +1264,23 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		expect(await deliverCreditBudgetAlert(db, alert)).toBe(1);
 		const cards = sqlite
 			.prepare(
-				"SELECT target_id AS target, metadata FROM work_interactions WHERE work_item_id='spend'",
+				"SELECT target_id AS target, project_id AS project, work_item_id AS work, metadata FROM work_interactions WHERE json_extract(metadata,'$.envelopeId')='00000000-0000-4000-8000-00000000b0d6'",
 			)
-			.all() as Array<{ target: string; metadata: string }>;
+			.all() as Array<{
+			target: string;
+			project: string;
+			work: string | null;
+			metadata: string;
+		}>;
 		expect(cards).toHaveLength(1);
-		expect(cards[0]!.target).toBe("user");
+		// On the project: an ended Attempt or finished Work must not withdraw it.
+		expect(cards[0]).toMatchObject({
+			target: "user",
+			project: "project",
+			work: null,
+		});
+		const cardMetadata = JSON.parse(cards[0]!.metadata);
+		expect(await creditBudgetCardCurrent(db, "org", cardMetadata)).toBe(true);
 		expect(
 			JSON.parse(cards[0]!.metadata).decisionDeck.options[0].effect,
 		).toEqual({
@@ -1287,6 +1300,8 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			now,
 		});
 		expect(raised.alertedPercent).toBe(0);
+		// The card for the old limit is now stale, so the Deck retires it.
+		expect(await creditBudgetCardCurrent(db, "org", cardMetadata)).toBe(false);
 		expect(await state()).not.toBe("budget_blocked");
 		expect(await deliverCreditBudgetAlert(db, alert)).toBe(0);
 		sqlite.close();

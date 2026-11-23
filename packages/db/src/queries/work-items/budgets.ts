@@ -483,3 +483,31 @@ export async function findSpentCreditBudget(
 		) ?? null
 	);
 }
+
+/** `metadata.schema` of a credit budget alert Deck card. */
+export const CREDIT_BUDGET_ALERT_CARD_SCHEMA = "tedix.credit-budget-alert.v1";
+
+/**
+ * Whether a credit budget alert card still describes its budget: enabled, at
+ * the limit the card was made for. Undefined for every other card. Its raise
+ * is fenced on that limit, so Work comments or wording never make it stale.
+ */
+export async function creditBudgetCardCurrent(
+	db: DbQueryClient,
+	orgId: string,
+	metadata: Record<string, unknown>,
+): Promise<boolean | undefined> {
+	if (metadata.schema !== CREDIT_BUDGET_ALERT_CARD_SCHEMA) return undefined;
+	if (
+		typeof metadata.envelopeId !== "string" ||
+		typeof metadata.limitMicros !== "number"
+	)
+		return false;
+	const envelope = await getWorkBudgetEnvelopeById(db, {
+		orgId,
+		envelopeId: metadata.envelopeId,
+	});
+	return Boolean(
+		envelope?.enabled && envelope.limitMicros === metadata.limitMicros,
+	);
+}

@@ -9,6 +9,7 @@ import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-p
 import type { DbQueryClient } from "../../query-client";
 import { auditEvents } from "../../schema/audit-events";
 import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
+import { creditBudgetCardCurrent } from "./budgets";
 import { getWorkItemById } from "./crud";
 import { decisionRelevantWorkComment } from "./comments";
 import { workItemComments, workItems } from "../../schema/work-items";
@@ -159,6 +160,8 @@ export async function decisionSourcesReview(
 	)
 		return current;
 	if (informationalCapture(request.metadata)) return changed;
+	const budgetCard = await creditBudgetCardCurrent(db, orgId, request.metadata);
+	if (budgetCard !== undefined) return budgetCard ? current : changed;
 	const envelope = DecisionEnvelopeSchema.safeParse(
 		request.metadata.decisionDeck,
 	);

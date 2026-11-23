@@ -21,11 +21,12 @@ import {
 	listCreditNoticeRecipients,
 	noticeProjectId,
 } from "../billing/credit-notice-deliveries";
-import { getWorkBudgetEnvelopeById, markCreditBudgetAlerted } from "./budgets";
+import {
+	CREDIT_BUDGET_ALERT_CARD_SCHEMA,
+	getWorkBudgetEnvelopeById,
+	markCreditBudgetAlerted,
+} from "./budgets";
 import { createWorkInteraction, getWorkInteraction } from "./interactions";
-
-/** `metadata.schema` of the credit budget Deck card. */
-export const CREDIT_BUDGET_ALERT_CARD_SCHEMA = "tedix.credit-budget-alert.v1";
 
 const CARD_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const MICROS_PER_CREDIT = 1_000_000;
@@ -218,12 +219,25 @@ export async function deliverCreditBudgetAlert(
 		listCreditNoticeRecipients(db, alert.orgId),
 		scopeName(db, envelope),
 	]);
-	const container = alert.workItemId
-		? { workItemId: alert.workItemId }
-		: envelope.scopeType === "project"
-			? { projectId: envelope.scopeId }
-			: { projectId: await noticeProjectId(db, alert.orgId) };
-	if (!container.workItemId && !container.projectId) return 0;
+	// Filed on the project, not the Work: the budget outlives the Work, and an
+	// ended Attempt or finished Work must not withdraw the raise card.
+	const [work] = alert.workItemId
+		? await db
+				.select({ projectId: workItems.projectId })
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.orgId, alert.orgId),
+						eq(workItems.id, alert.workItemId),
+					),
+				)
+				.limit(1)
+		: [];
+	const projectId =
+		envelope.scopeType === "project"
+			? envelope.scopeId
+			: (work?.projectId ?? (await noticeProjectId(db, alert.orgId)));
+	if (!projectId) return 0;
 	const { subject, story, decision } = alertDecision(envelope, alert, name);
 	const expiresAt = new Date(Date.parse(alert.now) + CARD_TTL_MS).toISOString();
 	let cards = 0;
@@ -238,7 +252,7 @@ export async function deliverCreditBudgetAlert(
 				await createWorkInteraction(db, {
 					id,
 					orgId: alert.orgId,
-					...container,
+					projectId,
 					kind: "question",
 					subject,
 					prompt: story,
@@ -250,6 +264,7 @@ export async function deliverCreditBudgetAlert(
 						schema: CREDIT_BUDGET_ALERT_CARD_SCHEMA,
 						envelopeId: envelope.id,
 						limitMicros: alert.limitMicros,
+						workItemId: alert.workItemId,
 						percent: alert.percent,
 						triage: { status: "ok", urgency: "now" },
 						decisionDeck: decision,
