@@ -70,8 +70,24 @@ try {
 					failures.push("stack leaves empty space below card");
 				if (boundary.bottom > card.getBoundingClientRect().bottom + 1)
 					failures.push("footer outside card");
-				if (bodyRect.bottom > boundary.top + 1)
+				// The Decisions layout places the actions above or below the request.
+				const actionsLead = Boolean(
+					footer.compareDocumentPosition(body) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+				);
+				const cardRect = card.getBoundingClientRect();
+				if (
+					actionsLead
+						? bodyRect.top < boundary.bottom - 1
+						: bodyRect.bottom > boundary.top + 1
+				)
 					failures.push("body overlaps footer");
+				if (bodyRect.bottom > cardRect.bottom + 1)
+					failures.push("body runs past the card");
+				// Body content must scroll fully into view, clear of the actions.
+				const visibleBottom = actionsLead
+					? Math.min(bodyRect.bottom, cardRect.bottom)
+					: boundary.top;
 				const heading = card.querySelector('[data-slot="card-header"]')!;
 				if (heading.getBoundingClientRect().bottom > bodyRect.top + 1)
 					failures.push("body overlaps heading");
@@ -81,7 +97,12 @@ try {
 					if (!node.getClientRects().length) continue;
 					node.scrollIntoView({ block: "end" });
 					const rect = node.getBoundingClientRect();
-					if (rect.bottom > boundary.top + 1)
+					if (
+						rect.bottom > visibleBottom + 1 ||
+						(actionsLead &&
+							rect.height <= bodyRect.height &&
+							rect.top < boundary.bottom - 1)
+					)
 						failures.push(node.textContent ?? node.tagName);
 					if (
 						node.matches("button, input") &&

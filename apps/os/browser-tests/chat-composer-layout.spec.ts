@@ -7,8 +7,15 @@ import { startFixtureServer } from "./fixture-server";
 // from 280px up: no control may overlap another, leave the row, or paint its
 // label over its own icon. It sizes from its own width (a container query),
 // so a phone gets the same compact row. The workspace chat pane has its own
-// composer, fed by the workspace object, and is covered by its own tests.
-const surfaces = [{ name: "chat page", path: "/chat" }] as const;
+// composer, fed by the workspace object, and is covered by its own tests;
+// a bare /chat opens that workspace chat, so the Home composer is checked on
+// an open Home conversation.
+const surfaces = [
+	{
+		name: "chat page",
+		path: "/chat?conversation=00000060-0000-4000-8000-000000000001",
+	},
+] as const;
 // A fixture conversation whose Home run is still running.
 const runningConversation = "00000060-0000-4000-8000-000000000009";
 const runningSurfaces = [

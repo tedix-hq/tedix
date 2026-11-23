@@ -99,7 +99,7 @@ try {
 	await page.getByText("Recent workspaces", { exact: true }).waitFor();
 	await page.getByRole("option").first().click();
 	await page.waitForURL(`**/workspace/${latest.workspaceId}*`);
-	await page.getByText("Search workspace").first().waitFor();
+	await page.getByLabel("Search workspace", { exact: true }).first().waitFor();
 	console.log("The workspace opened last leads the empty palette");
 
 	// Inside a workspace a new file is created there without asking where.

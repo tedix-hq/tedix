@@ -144,23 +144,29 @@ try {
 			`${label}: view tabs on wide screens, a view menu on a phone`,
 		);
 
-		// One control per job: a single chat toggle and a single Files toggle,
-		// both in the top bar, and nothing named Resources or Outputs.
-		for (const name of [/^(Hide|Show) files$/, /^(Hide|Show) chat$/]) {
-			const toggles = page.getByRole("button", { name });
-			assert.equal(
-				await toggles.count(),
-				narrow ? 0 : 1,
-				`${label}: one ${name} toggle on wide screens, none on narrow ones`,
+		// One control per job: a single Files toggle in the top bar, and
+		// nothing named Resources or Outputs. The chat is the centre column,
+		// so it has no toggle at all.
+		const filesToggle = page.getByRole("button", {
+			name: /^(Hide|Show) files$/,
+		});
+		assert.equal(
+			await filesToggle.count(),
+			narrow ? 0 : 1,
+			`${label}: one Files toggle on wide screens, none on narrow ones`,
+		);
+		if (!narrow)
+			assert(
+				await filesToggle.evaluate(
+					(button) => !!button.closest(".canvas-workspace-header"),
+				),
+				`${label}: the Files toggle sits in the top bar`,
 			);
-			if (!narrow)
-				assert(
-					await toggles.evaluate(
-						(button) => !!button.closest(".canvas-workspace-header"),
-					),
-					`${label}: ${name} sits in the top bar`,
-				);
-		}
+		assert.equal(
+			await page.getByRole("button", { name: /^(Hide|Show) chat$/ }).count(),
+			0,
+			`${label}: no chat toggle`,
+		);
 
 		// Who is here shows once, in the top bar, as tall as its icon buttons.
 		const roster = page.getByRole("button", {
@@ -270,10 +276,11 @@ try {
 				`${label}: no "${stale}" control`,
 			);
 		}
+		// Focus sits with the pane toggles, which only a wide workbench shows.
 		assert.equal(
 			await page.getByRole("button", { name: "Focus", exact: true }).count(),
-			phone ? 0 : 1,
-			`${label}: one Focus control, none on a phone`,
+			narrow ? 0 : 1,
+			`${label}: one Focus control on a wide screen, none when one pane shows`,
 		);
 		// The top bar shares the workspace; the open app's own header shares
 		// that app. Both open the same dialog, on what was clicked.

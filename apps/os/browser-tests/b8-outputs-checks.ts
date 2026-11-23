@@ -230,6 +230,19 @@ export async function runB8OutputsChecks(
 				await route.abort();
 				return;
 			}
+			// Browse as a reader: an author's open attaches the file's editor
+			// app, and this check reads the file without changing the workspace.
+			if (url.pathname === "/api/rpc/userSettings/getContext") {
+				const response = await route.fetch();
+				const body = await response.json();
+				body.json.authority.permissions =
+					body.json.authority.permissions.filter(
+						(permission: string) =>
+							permission !== "os:author" && permission !== "settings:manage",
+					);
+				await route.fulfill({ response, json: body });
+				return;
+			}
 			// Keep this native-output fixture independent of sample workspace apps.
 			if (url.pathname === "/api/rpc/osWorkspaces/gadgets/list") {
 				await route.fulfill({

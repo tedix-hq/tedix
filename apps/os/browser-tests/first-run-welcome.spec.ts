@@ -11,6 +11,14 @@ try {
 		const context = await browser.newContext({
 			viewport: { width, height: 812 },
 		});
+		// The computer step differs by platform: a Mac can skip installing the
+		// app, other computers only continue. Pin a Mac so the walk below is
+		// the same on Linux CI and a developer's Mac.
+		await context.addInitScript(() =>
+			Object.defineProperty(Navigator.prototype, "platform", {
+				get: () => "MacIntel",
+			}),
+		);
 		let completed = true;
 		let writes = 0;
 		let failSave = false;
@@ -137,7 +145,10 @@ try {
 		await guest.getByRole("heading", { name: "Pick a model" }).waitFor();
 		await next();
 		await guest
-			.getByRole("heading", { name: /^Set up this (computer|Mac)$/ })
+			.getByRole("heading", { name: "Set up this computer", exact: true })
+			.waitFor();
+		await guest
+			.getByRole("button", { name: "Download the Tedix app for Mac" })
 			.waitFor();
 		await guest.getByRole("button", { name: "Skip for now" }).click();
 		await guest.getByRole("heading", { name: "Start chatting" }).waitFor();

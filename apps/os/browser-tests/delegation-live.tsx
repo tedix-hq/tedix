@@ -7,7 +7,10 @@ import {
 	delegationFromRun,
 } from "../src/components/chat-cards";
 import { delegationLiveState } from "../src/lib/delegation-activity";
-import { billingOverviewQueryOptions } from "../src/lib/os-query-options";
+import {
+	billingOverviewQueryOptions,
+	operationalContextQueryOptions,
+} from "../src/lib/os-query-options";
 import "../src/styles.css";
 
 // The delegation card in its three shapes against the app's real CSS: working
@@ -129,10 +132,14 @@ function Card({ run, slot }: { run: typeof working; slot: string }) {
 }
 
 // The finished line shows its charge as a share of this month's credits:
-// 40 of 1,000 is 4%. Nothing is fetched; the monthly total is seeded.
+// 40 of 1,000 is 4%. Nothing is fetched; the monthly total is seeded, and
+// so is the viewer's billing:read permission the share requires.
 const client = new QueryClient({
 	defaultOptions: { queries: { enabled: false, retry: false } },
 });
+client.setQueryData(operationalContextQueryOptions().queryKey, {
+	authority: { permissions: ["billing:read"] },
+} as never);
 client.setQueryData(billingOverviewQueryOptions().queryKey, {
 	credits: {
 		includedCredits: 1_000,

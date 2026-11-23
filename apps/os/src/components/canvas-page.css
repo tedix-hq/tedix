@@ -609,8 +609,9 @@
 
 .canvas-workpiece-tabs {
 	display: flex;
-	/* The open tabs give way first, so the view tabs, Share and Close stay put. */
-	min-width: 96px;
+	/* The open tabs give way first, so the view tabs, Share and Close stay put
+	   in the default 560px side panel even when a view adds its actions. */
+	min-width: 72px;
 	min-height: 48px;
 	flex: 1 1 auto;
 	align-items: center;

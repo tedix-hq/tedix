@@ -64,76 +64,49 @@ try {
 				},
 			}),
 		);
+		// A new chat runs in the person's private workspace with the
+		// organization chat's own box (0d286fef9), not the Home composer.
 		await page.goto(`${origin}/chat`);
-		await composer(page).waitFor();
+		const fresh = page.getByRole("textbox", {
+			name: "Message Tedix",
+			exact: true,
+		});
+		await fresh.waitFor();
 		assert.equal(
-			await composer(page).getAttribute("placeholder"),
+			await fresh.getAttribute("placeholder"),
 			"Ask a question or hand off a task…",
 			`new conversation placeholder at ${width}px`,
 		);
-		// The fixture catalog has no selectable models: the organization picks.
-		const model = page.getByRole("button", {
-			name: "Model: Auto",
+		// With no tedi picked, the workspace's own agent replies. The choice
+		// sits behind the composer's settings gear.
+		const settings = page.locator('summary[aria-label="Chat settings"]');
+		await settings.click();
+		const agent = page.getByRole("combobox", {
+			name: "Replying agent",
 			exact: true,
 		});
-		assert.equal(await model.innerText(), "Auto");
-		assert.equal(await model.isDisabled(), true);
+		assert.equal(await agent.innerText(), "Workspace agent");
+		await settings.click();
+		await agent.waitFor({ state: "hidden" });
 		assert.equal(await page.getByRole("menu").count(), 0);
 
-		// Starters: icon, a title that fits on one line, one line of context.
-		const starters = page.locator(".chat-starter-prompts button");
+		// Starters: one line each, inside the page, and a pick fills the box.
+		const starters = page.locator(".workspace-chat-empty button");
 		assert.equal(await starters.count(), 3);
 		for (const starter of await starters.all()) {
-			assert.equal(await starter.locator("svg").count(), 1);
-			const lines = starter.locator("span.block");
-			assert.equal(await lines.count(), 2);
-			for (const line of await lines.all()) {
-				assert(
-					await line.evaluate(
-						(el) =>
-							el.scrollWidth <= el.clientWidth &&
-							el.getClientRects().length === 1,
-					),
-					`${await line.innerText()} fits on one line at ${width}px`,
-				);
-			}
+			assert(
+				await starter.evaluate(
+					(el) =>
+						el.scrollWidth <= el.clientWidth &&
+						el.getBoundingClientRect().right <= innerWidth,
+				),
+				`${await starter.innerText()} fits at ${width}px`,
+			);
 		}
 		if (shots)
 			await page.screenshot({ path: `${shots}/new-chat-${width}.png` });
 		await starters.nth(0).click();
-		assert.equal(
-			await composer(page).inputValue(),
-			"Create a doc titled Weekly update with three short sections.",
-		);
-		// "More ideas" swaps in three other suggestions, each still on one line.
-		const titles = () =>
-			starters.locator("span.block.font-medium").allInnerTexts();
-		const firstTitles = await titles();
-		await page.getByRole("button", { name: "More ideas", exact: true }).click();
-		const nextTitles = await titles();
-		assert.equal(nextTitles.length, 3);
-		assert(
-			nextTitles.every((title) => !firstTitles.includes(title)),
-			`More ideas shows other suggestions at ${width}px`,
-		);
-		for (const line of await starters.locator("span.block").all()) {
-			assert(
-				await line.evaluate(
-					(el) =>
-						el.scrollWidth <= el.clientWidth &&
-						el.getClientRects().length === 1,
-				),
-				`${await line.innerText()} fits on one line at ${width}px`,
-			);
-		}
-		// The next new chat opens on suggestions the person has not seen yet.
-		await page.reload();
-		await composer(page).waitFor();
-		const seen = [...firstTitles, ...nextTitles];
-		assert(
-			(await titles()).every((title) => !seen.includes(title)),
-			`a new chat rotates the suggestions at ${width}px`,
-		);
+		assert.equal(await fresh.inputValue(), "Plan my week: ");
 
 		await page.goto(`${origin}${thread}`);
 		await page.getByText("Two of the four flagged", { exact: false }).waitFor();

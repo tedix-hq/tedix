@@ -8,7 +8,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import { Button } from "@/components/kumo/button";
+import { Button, buttonVariants } from "@/components/kumo/button";
 import { Label } from "@/components/kumo/label";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import { Loader } from "@/components/kumo/loader";
@@ -262,19 +262,16 @@ export function AgentRunCardView({
 					/>
 				) : null}
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<Button
-						variant="link"
-						size="sm"
-						render={
-							<LinkComponent
-								to="/work/items/$workItemId"
-								params={{ workItemId: agentRun.workItemId }}
-							/>
-						}
+					{/* Link-styled, but a real link: Button would announce it as a
+					    button (role="button") although it navigates. */}
+					<LinkComponent
+						to="/work/items/$workItemId"
+						params={{ workItemId: agentRun.workItemId }}
+						className={buttonVariants({ variant: "link", size: "sm" })}
 					>
 						Open task
 						<CaretRight size={11} aria-hidden />
-					</Button>
+					</LinkComponent>
 					{canInterrupt && onInterrupt && !composingInterrupt ? (
 						<Button
 							type="button"

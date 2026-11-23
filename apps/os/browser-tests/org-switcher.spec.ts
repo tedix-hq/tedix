@@ -177,9 +177,16 @@ try {
 					path: `${evidenceDir}/org-switcher-${engine.name()}-${width}-${theme}.png`,
 				});
 
-			// A row opens that organization's OS.
+			// A row opens that organization's OS. The menu stays open while
+			// the switch navigates away; this fixture never navigates, so
+			// Escape closes it.
 			await menu.getByRole("menuitem", { name: /Birch Studio/ }).click();
 			assert.deepEqual(await switches(page), ["birch:os"]);
+			assert(
+				await menu.isVisible(),
+				`${label}: menu stays open while switching`,
+			);
+			await page.keyboard.press("Escape");
 			await menu.waitFor({ state: "hidden" });
 
 			// Keyboard: open, search, arrow, Enter.
@@ -216,6 +223,7 @@ try {
 				"juniper:os",
 				`${label}: Enter opens the highlighted org's OS`,
 			);
+			await page.keyboard.press("Escape");
 			await menu.waitFor({ state: "hidden" });
 
 			// The clear button brings every row back.

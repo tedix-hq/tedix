@@ -159,6 +159,24 @@ export function SettingsSectionNavigation({
 		};
 	}, [firstSection, items]);
 
+	/*
+	 * A focused link scrolls fully into the rail, clear of the scroll buttons.
+	 * WebKit's own focus scroll ignores scroll-padding and can leave the link
+	 * under a button or a pixel past the edge. Only the rail scrolls
+	 * sideways; the page keeps its place.
+	 */
+	const revealInRail = (link: HTMLElement) => {
+		const viewport = viewportRef.current;
+		if (!viewport) return;
+		const style = getComputedStyle(viewport);
+		const box = viewport.getBoundingClientRect();
+		const start = box.left + (parseFloat(style.scrollPaddingLeft) || 0);
+		const end = box.right - (parseFloat(style.scrollPaddingRight) || 0);
+		const target = link.getBoundingClientRect();
+		if (target.left < start) viewport.scrollLeft -= start - target.left;
+		else if (target.right > end) viewport.scrollLeft += target.right - end;
+	};
+
 	const scrollRail = (direction: -1 | 1) => {
 		const viewport = viewportRef.current;
 		if (!viewport) return;
@@ -189,6 +207,7 @@ export function SettingsSectionNavigation({
 							onClick={(event) => {
 								keyboardFocusTarget.current = event.detail === 0 ? id : null;
 							}}
+							onFocus={(event) => revealInRail(event.currentTarget)}
 							variant="section"
 						>
 							{label}

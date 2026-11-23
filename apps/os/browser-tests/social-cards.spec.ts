@@ -8,6 +8,31 @@ import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 
 const cwd = new URL("../", import.meta.url).pathname;
+
+// The Activity overview shows posts only. Factory cards are app activity: the
+// Apps chip behind the closed Feed options disclosure shows their timeline.
+async function openAppActivity(page: Page) {
+	await page.goto(`${origin}/work?view=feed`);
+	await page.getByText("Feed options", { exact: true }).click();
+	await page.getByRole("button", { name: "Apps", exact: true }).click();
+}
+
+// The Deck keeps the first card it shows in place while factory sources are
+// still loading, so the fresh native question can lead. Step to a card.
+async function openDeckCard(page: Page, name: RegExp) {
+	await page.goto(`${origin}/work?view=deck`);
+	const card = page.getByRole("region", { name });
+	const next = page
+		.getByRole("navigation", { name: "Move between cards" })
+		.getByRole("button", { name: "Next", exact: true });
+	const deadline = Date.now() + 30_000;
+	while (!(await card.isVisible())) {
+		assert(Date.now() < deadline, `Deck never showed ${name}`);
+		if ((await next.isVisible()) && (await next.isEnabled()))
+			await next.click();
+		else await page.waitForTimeout(250);
+	}
+}
 const probe = createServer();
 await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
 const address = probe.address();
@@ -501,7 +526,7 @@ try {
 			await decided.getByRole("button", { name: /^Reopen:/ }).click();
 			await reopened;
 			await review.locator("[data-card-review-card]").waitFor();
-			await page.goto(`${origin}/work?view=feed`);
+			await openAppActivity(page);
 			await page
 				.getByRole("link", {
 					name: /Review the fictional social opportunity/,
@@ -533,12 +558,10 @@ try {
 				});
 			}
 			// Open the ordinary batch, without a factory deep link.
-			await page.goto(`${origin}/work?view=deck`);
-			await page
-				.getByRole("region", {
-					name: /Review the fictional (inbox|social) opportunity/,
-				})
-				.waitFor();
+			await openDeckCard(
+				page,
+				/Review the fictional (inbox|social) opportunity/,
+			);
 			assert(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth,
@@ -554,7 +577,7 @@ try {
 		}
 	const page = await browser.newPage();
 	await fixture(page);
-	await page.goto(`${origin}/work?view=feed`);
+	await openAppActivity(page);
 	await page
 		.getByRole("link", {
 			name: /Review the fictional social opportunity/,
@@ -596,7 +619,7 @@ try {
 		"",
 		"Useful does not authorize an action",
 	);
-	await page.goto(`${origin}/work?view=feed`);
+	await openAppActivity(page);
 	await page
 		.getByRole("link", {
 			name: /Review the fictional inbox opportunity/,
@@ -611,10 +634,7 @@ try {
 		0,
 		"decided Social row leaves Feed's needs-you links",
 	);
-	await page.goto(`${origin}/work?view=deck`);
-	await page
-		.getByRole("region", { name: /Review the fictional inbox opportunity/ })
-		.waitFor();
+	await openDeckCard(page, /Review the fictional inbox opportunity/);
 	rejectNextVerdict = true;
 	await page.getByRole("button", { name: "Useful", exact: true }).click();
 	await page

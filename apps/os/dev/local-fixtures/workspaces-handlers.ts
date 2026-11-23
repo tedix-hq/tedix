@@ -39,6 +39,9 @@ import { state } from "./state";
 import { FIXTURE_SCHEDULED_SKILLS, fixtureSkillLinks, SKILLS } from "./tedis";
 import { localProject } from "./work";
 
+// The dev operator's private workspace, created on first request.
+let personalWorkspaceId: string | null = null;
+
 export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 	// Sample data has one signed-in person, so nothing is ever unread.
 	"workspaceUnread/summary": () => ({ total: 0, workspaces: [] }),
@@ -134,10 +137,21 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"osWorkspaces/workspaces/create": createLocalWorkspace,
-	"osWorkspaces/workspaces/personal": () => ({
-		workspace: null,
-		created: false,
-	}),
+	// New /chat conversations run in the person's private workspace, so the
+	// local lane creates it on first request like the API does.
+	"osWorkspaces/workspaces/personal": (input?: { create?: boolean }) => {
+		const existing = state.workspaces.find(
+			(row) => row.id === personalWorkspaceId,
+		);
+		if (existing || !input?.create)
+			return { workspace: existing ?? null, created: false };
+		const { workspace } = createLocalWorkspace({
+			name: "Private",
+			visibility: "private",
+		});
+		personalWorkspaceId = workspace.id;
+		return { workspace, created: true };
+	},
 	"osWorkspaces/workspaces/createFromConversation": (input: {
 		conversationId: string;
 		name: string;

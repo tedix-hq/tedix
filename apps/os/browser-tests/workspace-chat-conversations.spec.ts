@@ -107,9 +107,9 @@ try {
 	);
 	const today = page.getByRole("region", { name: "Today" });
 	await today.getByText("Plan the launch").waitFor();
-	await today.getByText("Needs approval").waitFor();
+	await today.getByText("Needs you", { exact: true }).waitFor();
 	await page
-		.getByRole("region", { name: "Earlier", exact: true })
+		.getByRole("region", { name: "Older", exact: true })
 		.getByRole("img", { name: "Working" })
 		.waitFor();
 	assert.equal(await page.getByText("Old notes").count(), 0);

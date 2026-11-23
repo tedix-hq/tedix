@@ -213,6 +213,13 @@
 	}
 }
 
+/* As the phone's Files tab, every row is a 44px touch target. */
+@media (max-width: 639px) {
+	.workspace-outputs-row.workspace-outputs-row {
+		min-height: 44px;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.workspace-outputs-panel,
 	.workspace-outputs-label,

@@ -36,8 +36,19 @@ function measure(page: Page) {
 			failures.push(
 				`footer ${footerBox.top}-${footerBox.bottom} outside card ${cardBox.top}-${cardBox.bottom}`,
 			);
-		if (body.getBoundingClientRect().bottom > footerBox.top + 1)
+		// The Decisions layout places the actions above or below the request.
+		const bodyBox = body.getBoundingClientRect();
+		const actionsLead = Boolean(
+			footer.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		if (
+			actionsLead
+				? bodyBox.top < footerBox.bottom - 1
+				: bodyBox.bottom > footerBox.top + 1
+		)
 			failures.push("card body runs into the footer");
+		if (bodyBox.bottom > cardBox.bottom + 1)
+			failures.push("card body runs past the card");
 		// "Tedix · 19h ago", "Details", the actions and "Not useful" never overlap.
 		const pieces = [
 			...card.querySelectorAll<HTMLElement>(

@@ -159,6 +159,8 @@ try {
 			await page.goto(
 				`${server.origin}/browser-tests/workspace-chat.html?theme=${theme}`,
 			);
+			// Agent, approval mode and model sit together behind the gear.
+			await page.locator('summary[aria-label="Chat settings"]').click();
 			const picker = page.getByRole("combobox", {
 				name: "Model",
 			});
@@ -183,6 +185,8 @@ try {
 			);
 			await page.getByRole("option", { name: "Operations Tedi" }).click();
 			assert.match(await agentPicker.innerText(), /Operations Tedi/);
+			await page.locator('summary[aria-label="Chat settings"]').click();
+			await agentPicker.waitFor({ state: "hidden" });
 			await page
 				.getByRole("button", { name: "Add files", exact: true })
 				.click();
@@ -234,21 +238,28 @@ return focusClipAudit();
 				0,
 			);
 			assert.equal(await page.getByText(/unavailable/i).count(), 0);
+			// The time sits in the reply's hover row, hidden until hover or focus.
 			const time = page.getByTestId("workspace-chat-turn-time");
+			const hoverRow = page.getByTestId("workspace-chat-reply-actions-hover");
 			assert.equal(
-				await time.evaluate((node) => getComputedStyle(node).opacity),
+				await hoverRow.evaluate((node) => getComputedStyle(node).opacity),
 				"0",
 			);
 			await time.focus();
 			await page.waitForFunction(
 				() =>
 					getComputedStyle(
-						document.querySelector("[data-testid=workspace-chat-turn-time]")!,
+						document.querySelector(
+							"[data-testid=workspace-chat-reply-actions-hover]",
+						)!,
 					).opacity === "1",
 			);
 			await time.hover();
-			const footer = page.getByRole("tooltip");
-			await footer.getByText(/provider-model-snapshot/).waitFor();
+			// Other controls' closed tooltips can still be in the DOM.
+			const footer = page
+				.getByRole("tooltip")
+				.filter({ hasText: /provider-model-snapshot/ });
+			await footer.waitFor();
 			assert.equal(sent.length, 2);
 			assert.equal(
 				await page
@@ -286,8 +297,11 @@ return focusClipAudit();
 				),
 				`${width} ${theme}: horizontal overflow`,
 			);
+			await page.locator('summary[aria-label="Chat settings"]').click();
 			const box = await picker.boundingBox();
 			assert(box && box.x >= 0 && box.x + box.width <= width);
+			await page.locator('summary[aria-label="Chat settings"]').click();
+			await picker.waitFor({ state: "hidden" });
 
 			// Two other chats ask for changes: the tray lists them above the
 			// composer, grouped by file and marked as asked elsewhere.
@@ -555,9 +569,9 @@ return focusClipAudit();
 		assert.match(await status.innerText(), /^Finished.*: succeeded$/);
 		assert.ok(finishReport);
 		finishReport();
-		await report
-			.getByText("The saved heading is # Tedix desktop app.")
-			.waitFor();
+		// A finished report folds into the card of the run that produced it.
+		await card.getByText("The saved heading is # Tedix desktop app.").waitFor();
+		await report.waitFor({ state: "detached" });
 		await retrying.waitFor({ state: "detached" });
 		assert.match(await status.innerText(), /^Finished.*: succeeded$/);
 		assert.deepEqual(sends, []);

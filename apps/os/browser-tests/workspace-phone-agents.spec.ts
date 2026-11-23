@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import { chromium, type Page } from "playwright";
+import { chromium, type Locator, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
 /*
  * Agents from the chat page of a workspace on a phone (375 x 812):
  * - the conversation list keeps what people started; a conversation an agent
  *   started is not in it;
- * - the list's Agents button says how many agent runs need the person and
- *   opens the Agents view, where that run is listed and Review opens it;
+ * - Files opens Agents, where that run is listed as needing the person and
+ *   Review opens it;
  * - a list that is empty only because agents started every conversation says
- *   so and offers Agents;
+ *   the agents' ones are under Agents;
  * - every control on the way is at least 44px, and nothing scrolls sideways.
  */
 const workspaceId = "00000030-0000-4000-8000-000000000001";
@@ -67,8 +67,13 @@ async function chatWith(page: Page, conversations: Row[]) {
 	);
 }
 
-async function thumbSized(page: Page, name: string | RegExp, where: string) {
-	const control = page.getByRole("button", { name }).first();
+async function thumbSized(
+	page: Page,
+	name: string | RegExp,
+	where: string,
+	scope: Page | Locator = page,
+) {
+	const control = scope.getByRole("button", { name }).first();
 	await control.waitFor();
 	const box = await control.boundingBox();
 	assert(
@@ -76,6 +81,28 @@ async function thumbSized(page: Page, name: string | RegExp, where: string) {
 		`${where}: "${name}" is at least 44px: ${JSON.stringify(box)}`,
 	);
 	return control;
+}
+
+/** Files is the one entry to Agents; both steps are thumb-sized. */
+async function openAgents(page: Page) {
+	await (
+		await thumbSized(
+			page,
+			"Files",
+			"workspace pane tabs",
+			page.getByRole("group", { name: "Workspace pane" }),
+		)
+	).tap();
+	await page.waitForURL(/pane=files/);
+	const entry = page.locator("[data-workspace-outputs-agents]");
+	await entry.waitFor();
+	const box = await entry.boundingBox();
+	assert(
+		box && box.width >= 44 && box.height >= 44,
+		`Files: "Agents" is at least 44px: ${JSON.stringify(box)}`,
+	);
+	await entry.tap();
+	await page.waitForURL(/pane=agents/);
 }
 
 const noSidewaysScroll = async (page: Page, where: string) =>
@@ -122,16 +149,9 @@ try {
 		["Chat", "Files"],
 	);
 	await noSidewaysScroll(page, "conversation list");
-	const agentsEntry = await thumbSized(
-		page,
-		"Agents, 1 run needs you",
-		"conversation list",
-	);
-	assert.equal((await agentsEntry.innerText()).replace(/\s+/g, ""), "Agents1");
+	await openAgents(page);
 
 	// Agents lists the run under its agent; Review opens it in the chat.
-	await agentsEntry.tap();
-	await page.waitForURL(/pane=agents/);
 	const agents = page.getByRole("region", { name: "Workspace agents" });
 	const agent = agents.locator('[data-workspace-agent="agent:app:import"]');
 	await agent.getByText("1 needs you").waitFor();
@@ -165,17 +185,11 @@ try {
 		waitUntil: "domcontentloaded",
 	});
 	await quiet.getByRole("button", { name: "All conversations" }).tap();
-	await quiet
-		.getByText(
-			"No conversations of your own here. The ones agents started are under Agents.",
-		)
-		.waitFor();
+	await quiet.getByText("No conversations of your own here").waitFor();
+	await quiet.getByText("The ones agents started are under Agents.").waitFor();
 	assert.equal(await quiet.getByText("Nightly import").count(), 0);
-	// Nothing waits, so the Agents button carries no count.
-	await thumbSized(quiet, "Agents", "empty list");
 	await noSidewaysScroll(quiet, "empty list");
-	await (await thumbSized(quiet, "Open Agents", "empty list")).tap();
-	await quiet.waitForURL(/pane=agents/);
+	await openAgents(quiet);
 	await quiet
 		.getByRole("region", { name: "Workspace agents" })
 		.locator('[data-workspace-agent="agent:app:import"]')
@@ -183,7 +197,7 @@ try {
 
 	await context.close();
 	console.log(
-		"PASS agents from the phone chat page: own list, counted Agents button, Review, empty list",
+		"PASS agents from the phone chat page: own list, Agents from Files, Review, empty list",
 	);
 } finally {
 	await browser.close();

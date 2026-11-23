@@ -55,9 +55,12 @@ try {
 		});
 	}
 
-	await card.getByRole("button", { name: "Show all 9 steps" }).click();
-	assert.equal(await entries.count(), 9);
-	assert.equal(await overflow(), false, `open card overflows at 375px`);
+	// The launch step heads the card, so all eight remaining steps show.
+	await card.getByText("The agent started working on this task.").waitFor();
+	assert.equal(
+		await card.getByRole("button", { name: /^Show all/ }).count(),
+		0,
+	);
 
 	// Stopping asks first; declining leaves the run as it was.
 	await card.getByRole("button", { name: "Stop run" }).click();
@@ -83,6 +86,11 @@ try {
 	await asks.getByRole("button", { name: "Answer" }).click();
 	await asks.waitFor({ state: "detached" });
 	await card.getByText("You: Leave it out, please").waitFor();
+	// The question and answer pass eight steps: the oldest are one click away.
+	assert.equal(await entries.count(), 8);
+	await card.getByRole("button", { name: "Show all 11 steps" }).click();
+	assert.equal(await entries.count(), 11);
+	assert.equal(await overflow(), false, `open card overflows at 375px`);
 	console.log("Chat run card on a phone passed");
 } finally {
 	await browser?.close();

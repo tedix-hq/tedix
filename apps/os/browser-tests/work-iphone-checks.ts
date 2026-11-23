@@ -60,7 +60,8 @@ const PAGES: Array<[string, string]> = [
 	["/work/capacity", "[data-slot=card] strong"],
 	["/work/capacity?view=budgets", "[data-slot=card] strong"],
 	["/work/approvals", "[role=tablist][aria-label=Approvals]"],
-	["/work/interactions", "[aria-labelledby=interaction-urgent-title]"],
+	// The sample requests carry no urgency, so "Needs you now" stays hidden.
+	["/work/interactions", "[data-mobile-interaction-row]"],
 	[PROJECT, "[data-contributor-state]"],
 	[ITEM, "textarea"],
 	[REQUEST, "textarea"],
@@ -427,7 +428,8 @@ export async function runWorkIphone(
 			pending.clear();
 			const trace =
 				shots &&
-				ready === ".focus-today" &&
+				part === "flows" &&
+				path === "/work?view=feed" &&
 				!process.env.TEDIX_BROWSER_EVIDENCE_DIR;
 			if (trace)
 				await context.tracing.start({ snapshots: true, screenshots: true });
@@ -587,7 +589,10 @@ export async function runWorkIphone(
 				"epic field",
 			);
 
-			await check("/work?view=feed", ".focus-today");
+			await check("/work?view=feed", ".fd-feed");
+			// The daily digest sits behind the closed Feed options disclosure.
+			await page.getByText("Feed options", { exact: true }).click();
+			await page.locator(".focus-today").first().waitFor();
 			await targets(
 				"Today",
 				page.locator(".focus-today a[data-link-role=record]"),
@@ -631,10 +636,7 @@ export async function runWorkIphone(
 			);
 
 			// Requests read as a list on phones, not a sideways table of UUIDs.
-			await check(
-				"/work/interactions",
-				"[aria-labelledby=interaction-urgent-title]",
-			);
+			await check("/work/interactions", "[data-mobile-interaction-row]");
 			if (await page.locator("table:visible").count())
 				failures.push("/work/interactions: a table on a phone");
 			const rows = page.locator("[data-mobile-interaction-row]");
