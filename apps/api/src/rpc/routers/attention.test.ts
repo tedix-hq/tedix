@@ -126,6 +126,7 @@ function envelope() {
 function client(
 	scopes: string[] = ["mcp:messaging.read", "mcp:messaging.write"],
 	user = false,
+	waitUntil?: BaseContext["waitUntil"],
 ) {
 	return createRouterClient(attentionContractRouter, {
 		context: {
@@ -136,6 +137,7 @@ function client(
 			headers: new Headers(),
 			env: { ENVIRONMENT: "test", OS_URL: "https://os.example.test" },
 			db: {},
+			waitUntil,
 			url: new URL("https://api.tedix.test/rpc/attention"),
 		} as BaseContext,
 	});
@@ -200,6 +202,24 @@ it("stored-only Deck reads preserve projection metadata without preparing card f
 it("keeps presentation generation as the default Deck read behavior", async () => {
 	await client().listDeckCards({});
 	expect(mocks.prepareFaces).toHaveBeenCalledTimes(1);
+});
+it("returns cards while face preparation is still waiting, retaining it as background work", async () => {
+	let finish!: (cards: []) => void;
+	mocks.prepareFaces.mockReturnValue(
+		new Promise((resolve) => {
+			finish = resolve;
+		}),
+	);
+	const jobs: Promise<unknown>[] = [];
+	try {
+		expect(
+			await client(undefined, false, (job) => jobs.push(job)).listDeckCards({}),
+		).toMatchObject({ cards: [], complete: true });
+		expect(jobs).toHaveLength(1);
+	} finally {
+		finish([]);
+		await Promise.all(jobs);
+	}
 });
 it("does not call a missing card absent when its inventory is incomplete", async () => {
 	mocks.loadDeckProjection.mockResolvedValue({

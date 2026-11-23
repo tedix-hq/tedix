@@ -426,6 +426,7 @@ async function loadConfiguredDeckProjection(
 		qualification,
 	});
 	if (qualification.enabled) {
+		const qualificationStarted = performance.now();
 		const { createDecisionGraphReader } =
 			await import("./decision-graph-reads");
 		const graph = await deckQualificationGraph(
@@ -437,6 +438,11 @@ async function loadConfiguredDeckProjection(
 			})),
 			createDecisionGraphReader(context.env, context.db),
 		);
+		console.info("deck_read_phase", {
+			event: "deck_read_qualification_graph",
+			durationMs: performance.now() - qualificationStarted,
+			count: cards.length,
+		});
 		const sourceWork = new Map(
 			cards.map((card) => [
 				card.id,

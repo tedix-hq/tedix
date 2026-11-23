@@ -235,7 +235,7 @@ const historyOwner = (orgId: string, id: string) => JSON.stringify([orgId, id]);
  * time only among timestamps of one shape, and these columns hold two:
  * `2026-11-17T09:00:00.000Z` from the API and `2026-11-17 09:00:00` from SQL
  * defaults. Both begin with the UTC date, so the last text names the last day,
- * and the rows of that day are compared as times.
+ * and the latest timestamp of each format on that day is compared as a time.
  */
 function latestInIndex<
 	Column extends string,
@@ -258,11 +258,26 @@ function latestInIndex<
 		.where(and(scope(top), indexed))
 		.orderBy(desc(top[column]))
 		.limit(1);
-	const latest = db
-		.select({ latest: sql`max(julianday(${rows[column]}))`.as("latest") })
-		.from(rows as SQLiteTable)
-		.where(and(scope(rows), indexed, gte(rows[column], sql`(${lastDay})`)));
-	return sql`(${latest})`;
+	// Aggregating the whole last day can still read hundreds of thousands of
+	// rows. Each format sorts chronologically, so seek its last row instead.
+	const latest = (separator: string, end: string) =>
+		db
+			.select({ value: rows[column] })
+			.from(rows as SQLiteTable)
+			.where(
+				and(
+					scope(rows),
+					indexed,
+					gte(rows[column], sql`(${lastDay}) || ${separator}`),
+					lt(rows[column], sql`(${lastDay}) || ${end}`),
+				),
+			)
+			.orderBy(desc(rows[column]))
+			.limit(1);
+	return sql`(SELECT max(julianday(value)) FROM (
+		SELECT (${latest("T", "U")}) AS value
+		UNION ALL SELECT (${latest(" ", "!")}) AS value
+	))`;
 }
 
 /**

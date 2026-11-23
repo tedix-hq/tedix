@@ -1,8 +1,15 @@
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
+import { schemaDdl } from "../../test/schema-ddl";
+import { workAgentSessions } from "../../schema/work-agent-sessions";
+import {
+	osGadgetExecutions,
+	osWorkspaceProjects,
+} from "../../schema/os-workspaces";
+import { tediTasks } from "../../schema/tedi-objectives";
 import {
 	CONTINUITY_SCOPE_BATCH_SIZE,
 	CONTINUITY_SCOPES_PER_STATEMENT,
@@ -514,8 +521,7 @@ describe.each([
 				expect(plan.join("\n")).not.toContain(table);
 		// ...but by a statement of its own, which reads only the end of an
 		// index per history: first the last day that has a timestamp, then
-		// that day's timestamps. No history row is read from its table, and
-		// the condition that keeps each index to this statement bounds nothing.
+		// the last timestamp of each format. These are covering index reads.
 		const history = explain(sqlite, statements.find(isHistory)!);
 		const sessions =
 			"USING COVERING INDEX idx_work_agent_sessions_org_project_last_event (organization_id=? AND project_id=?";
@@ -525,18 +531,21 @@ describe.each([
 			"USING COVERING INDEX idx_tasks_org_objective_latest (org_id=? AND objective_id=?";
 		expect(
 			history.filter((line) => /^SEARCH (?:l|g|o|k|n)(?:_top)? /.test(line)),
-		).toEqual([
-			`SEARCH l ${sessions} AND last_event_at>?)`,
-			`SEARCH l_top ${sessions})`,
-			`SEARCH g ${executions} AND completed_at>?)`,
-			`SEARCH g_top ${executions})`,
-			`SEARCH o ${executions} AND completed_at=? AND created_at>?)`,
-			`SEARCH o_top ${executions} AND completed_at=?)`,
-			`SEARCH k ${tasks} AND updated_at>?)`,
-			`SEARCH k_top ${tasks})`,
-			`SEARCH n ${tasks} AND updated_at=? AND created_at>?)`,
-			`SEARCH n_top ${tasks} AND updated_at=?)`,
-		]);
+		).toEqual(
+			[
+				["l", sessions, "last_event_at", ""],
+				["g", executions, "completed_at", ""],
+				["o", executions, "created_at", " AND completed_at=?"],
+				["k", tasks, "updated_at", ""],
+				["n", tasks, "created_at", " AND updated_at=?"],
+			].flatMap(([name, index, column, extra]) =>
+				Array.from({ length: 2 }, () => [
+					`SEARCH ${name} ${index}${extra} AND ${column}>? AND ${column}<?)`,
+					`SEARCH ${name}_top ${index}${extra})`,
+					`SEARCH ${name}_top ${index}${extra})`,
+				]).flat(),
+			),
+		);
 		expect(history).toContain(
 			"SEARCH p USING INDEX os_workspace_projects_org_project_status_idx (organization_id=? AND project_id=? AND status=?)",
 		);
@@ -590,6 +599,56 @@ describe.each([
 });
 
 describe("continuity inventory results", () => {
+	it("compares only the two latest timestamps even with 203k reports on the last day", async () => {
+		const { db, statements, bound } = fixture(true);
+		await listAll(db, ORG);
+		const sqlite = new DatabaseSync(":memory:");
+		try {
+			sqlite.exec("PRAGMA foreign_keys = OFF");
+			sqlite.exec(
+				schemaDdl(
+					workAgentSessions,
+					osWorkspaceProjects,
+					osGadgetExecutions,
+					tediTasks,
+				),
+			);
+			sqlite.exec(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<203000)
+				INSERT INTO work_agent_sessions(id,organization_id,user_id,harness,session_key,project_id,state,state_since,created_at,updated_at,last_event_at)
+				SELECT 's-'||i, '${ORG}', 'ada', 'codex', 's-'||i, 'p-06', 'working', '${CREATED}', '${CREATED}', '${CREATED}',
+				CASE WHEN i%2=0 THEN '2026-11-13 23:30:00' ELSE '2026-11-13T11:00:00.000Z' END FROM n`);
+			let timestampsCompared = 0;
+			sqlite.function("julianday", (value) => {
+				if (typeof value !== "string") return null;
+				timestampsCompared++;
+				return (
+					Date.parse(
+						value.includes("T") ? value : `${value.replace(" ", "T")}Z`,
+					) /
+						86400000 +
+					2440587.5
+				);
+			});
+			const index = statements.findIndex(isHistory);
+			sqlite
+				.prepare(`SELECT max(julianday(last_event_at)) FROM work_agent_sessions
+				WHERE organization_id=? AND project_id=? AND +last_event_at >= '' AND last_event_at >=
+				(SELECT substr(last_event_at,1,10) FROM work_agent_sessions WHERE organization_id=? AND project_id=? AND +last_event_at >= '' ORDER BY last_event_at DESC LIMIT 1)`)
+				.get(ORG, "p-06", ORG, "p-06");
+			expect(timestampsCompared).toBe(203000);
+			timestampsCompared = 0;
+			const rows = sqlite
+				.prepare(statements[index]!)
+				.all(...(bound[index] as string[]));
+			expect(rows.find((row) => row.key === "project:p-06")).toMatchObject({
+				activity: "2026-11-13T23:30:00.000Z",
+			});
+			expect(timestampsCompared).toBe(2);
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("returns the same scopes with or without an organization filter", async () => {
 		const { db } = fixture(true);
 		const mine = await listAll(db, ORG);

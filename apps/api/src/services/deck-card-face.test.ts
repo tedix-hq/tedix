@@ -35,7 +35,9 @@ import {
 	prepareDeckCardFaces,
 	deckCardWritingSource,
 	displayDeckCard,
+	storedDeckCardFaces,
 } from "./deck-card-face";
+import { bindCardPresentationSource } from "./card-presentation-source";
 const context = {
 	organizationId: "fictional-org",
 	userId: "fictional-person",
@@ -452,6 +454,34 @@ it("withholds source secrets before generation and secret-bearing cached output"
 	mocks.generate.mockResolvedValue({ ...copy, context: secret });
 	expect(await prepareDeckCardFace(context, card)).toBeNull();
 	expect(await prepareDeckCardFace(context, card, false)).toBeNull();
+});
+
+it("renders current stored copy without reads, hiding it after the request changes", async () => {
+	const stored = {
+		...card,
+		interaction: {
+			request: {
+				id: card.id,
+				version: 1,
+				subject: card.label,
+				prompt: "Workshop news is ready.",
+				metadata: {},
+			},
+		},
+	} as DeckCard;
+	const request = stored.interaction!.request;
+	request.metadata.cardPresentation = await bindCardPresentationSource(
+		copy,
+		request,
+	);
+	expect((await storedDeckCardFaces([stored]))[0]?.faceText).toContain(
+		copy.story,
+	);
+	request.version++;
+	expect((await storedDeckCardFaces([stored]))[0]?.presentation).toBeNull();
+	expect(mocks.get).not.toHaveBeenCalled();
+	expect(mocks.preferences).not.toHaveBeenCalled();
+	expect(mocks.generate).not.toHaveBeenCalled();
 });
 
 it("renders the generated story on the next read without changing the source", async () => {

@@ -14,6 +14,7 @@ import {
 	asc,
 	eq,
 	exists,
+	gte,
 	inArray,
 	isNull,
 	ne,
@@ -405,19 +406,29 @@ export interface ProjectPortfolioEntry {
 	/** Oldest accepted top-level item, else the oldest proposed one. */
 	next: { id: string; title: string } | null;
 	health: (typeof workProjectHealthJudgments.$inferSelect)["status"] | null;
-	/** Newest attempt heartbeat or agent-session report on the project. */
+	/** Newest heartbeat from recent Attempts (since yesterday UTC), or session report. */
 	lastActivityAt: string | null;
 }
 
 /**
  * The whole Portfolio in one D1 round trip: projects ordered by key, each with
- * what its card shows. Aggregates join through `projects` so every statement
- * walks the per-project indexes instead of the organization's whole Work table.
+ * what its card shows. Work aggregates join through `projects`; heartbeat
+ * activity reads recent Attempts rather than the organization's entire history.
  */
 export async function listProjectPortfolio(
 	db: DbQueryClient,
-	params: { orgId: string; limit: number; excludeProjectId?: string },
+	params: {
+		orgId: string;
+		limit: number;
+		excludeProjectId?: string;
+		now?: Date;
+	},
 ): Promise<{ data: ProjectPortfolioEntry[] }> {
+	const since = new Date(
+		(params.now ?? new Date()).getTime() - 24 * 60 * 60 * 1000,
+	)
+		.toISOString()
+		.slice(0, 10);
 	const projectScope = and(
 		eq(projects.orgId, params.orgId),
 		params.excludeProjectId
@@ -536,7 +547,12 @@ export async function listProjectPortfolio(
 				),
 			)
 			.innerJoin(projects, orgProject)
-			.where(eq(workAttempts.orgId, params.orgId))
+			.where(
+				and(
+					eq(workAttempts.orgId, params.orgId),
+					gte(workAttempts.startedAt, since),
+				),
+			)
 			.groupBy(workItems.projectId),
 		db
 			.select({

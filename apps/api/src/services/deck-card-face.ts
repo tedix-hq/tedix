@@ -64,6 +64,29 @@ export function displayDeckCard(
 	};
 }
 
+/** Stored recipient copy can render without preferences, cache reads or model calls. */
+export async function storedDeckCardFaces(cards: DeckCard[]) {
+	return Promise.all(
+		cards.map(async (card) => {
+			const request = card.interaction?.request;
+			const source = deckCardWritingSource(card);
+			const copy = DecisionCardPresentationSchema.safeParse(
+				request?.metadata.cardPresentation,
+			).data;
+			const valid =
+				request &&
+				copy?.version === 2 &&
+				!containsCardSecret(source) &&
+				!containsCardSecret(copy) &&
+				copy.sourceFingerprint ===
+					(await cardPresentationSourceFingerprint(request)) &&
+				!checkDecisionCardCopy(copy).length &&
+				faceKeepsSubject(copy, source);
+			return displayDeckCard(card, valid ? copy : null);
+		}),
+	);
+}
+
 export async function prepareDeckCardFaces(
 	context: BaseContext,
 	cards: DeckCard[],

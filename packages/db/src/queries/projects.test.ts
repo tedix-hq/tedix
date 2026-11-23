@@ -2,7 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { createD1Facade, type D1FacadeOptions } from "../test/d1-facade";
-import { workItems } from "../schema/work-items";
+import { workItems, workAttempts } from "../schema/work-items";
+import { schemaDdl } from "../test/schema-ddl";
 import {
 	archiveProject,
 	restoreProject,
@@ -499,12 +500,61 @@ describe("getProjectRollup", () => {
 
 const PORTFOLIO_DDL = `
 CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT);
-CREATE TABLE work_attempts (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, heartbeat_at TEXT NOT NULL);
+CREATE TABLE work_attempts (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, heartbeat_at TEXT NOT NULL, started_at TEXT NOT NULL DEFAULT '2026-07-18T00:00:00.000Z');
+CREATE INDEX idx_work_attempt_org_started ON work_attempts(org_id, started_at);
 CREATE TABLE work_project_health_judgments (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, project_id TEXT NOT NULL, status TEXT NOT NULL, observed_at TEXT NOT NULL);
 CREATE TABLE work_agent_sessions (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, project_id TEXT, last_event_at TEXT NOT NULL);
 `;
 
 describe("listProjectPortfolio", () => {
+	it("seeks recent Attempts without walking the organization's old history", async () => {
+		const statements: string[] = [];
+		const { db, sqlite } = fixture({
+			onPrepare: (query) => statements.push(query),
+		});
+		sqlite.exec(PORTFOLIO_DDL);
+		sqlite.exec("PRAGMA foreign_keys = OFF; DROP TABLE work_attempts");
+		sqlite.exec(schemaDdl(workAttempts));
+		await createProject(db, {
+			id: "recent-project",
+			orgId: ORG,
+			key: "RECENT",
+			name: "Recent",
+			createdAt: NOW,
+		});
+		await db.insert(workItems).values({
+			id: "recent-work",
+			orgId: ORG,
+			projectId: "recent-project",
+			title: "Example",
+			createdAt: NOW,
+		});
+		sqlite.exec(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<102000)
+			INSERT INTO work_attempts(id,org_id,work_item_id,attempt_number,executor_type,executor_id,started_at,heartbeat_at,finished_at,runtime_state,outcome)
+			SELECT 'old-'||i, '${ORG}', 'recent-work', i, 'agent', 'fictional', '${NOW}', '${NOW}', '${NOW}', 'finished', 'succeeded' FROM n;
+			INSERT INTO work_attempts(id,org_id,work_item_id,attempt_number,executor_type,executor_id,started_at,heartbeat_at) VALUES
+			('recent', '${ORG}', 'recent-work', 102001, 'agent', 'fictional', '${LATER}', '${LATER}'),
+			('foreign', 'org-2', 'recent-work', 1, 'agent', 'fictional', '${LATER}', '2026-07-20T00:00:00.000Z');
+			ANALYZE;`);
+		const { data } = await listProjectPortfolio(db, {
+			orgId: ORG,
+			limit: 100,
+			now: new Date("2026-07-19T12:00:00.000Z"),
+		});
+		expect(data[0]?.lastActivityAt).toBe(LATER);
+		const query = statements.find((query) =>
+			query.includes('"attempt_project_id"'),
+		)!;
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(ORG, ORG, "2026-07-18")
+			.map((row) => row.detail);
+		expect(plan).toContain(
+			"SEARCH work_attempts USING INDEX idx_work_attempt_org_started (org_id=? AND started_at>?)",
+		);
+		expect(plan.join("\n")).not.toMatch(/SCAN work_attempts/);
+	});
+
 	it("returns each project's card facts in one batch, scoped to the org", async () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(PORTFOLIO_DDL);
@@ -550,7 +600,7 @@ describe("listProjectPortfolio", () => {
 		await item("Done", "completed", NOW);
 		sqlite.exec(`
 			INSERT INTO tedis VALUES ('tedi-nova', '${ORG}', 'nova', 'Nova');
-			INSERT INTO work_attempts VALUES ('a-1', '${ORG}', '${boat}', '2026-07-19T00:00:00.000Z');
+			INSERT INTO work_attempts (id,org_id,work_item_id,heartbeat_at) VALUES ('a-1', '${ORG}', '${boat}', '2026-07-19T00:00:00.000Z');
 			INSERT INTO work_project_health_judgments VALUES
 				('h-1', '${ORG}', '${tours.id}', 'on_track', '${NOW}'),
 				('h-2', '${ORG}', '${tours.id}', 'at_risk', '${LATER}');
@@ -613,7 +663,9 @@ describe("listProjectPortfolio", () => {
 				.prepare("INSERT INTO work_project_health_judgments VALUES (?,?,?,?,?)")
 				.run(nextId("health"), ORG, project.id, "at_risk", NOW);
 			sqlite
-				.prepare("INSERT INTO work_attempts VALUES (?,?,?,?)")
+				.prepare(
+					"INSERT INTO work_attempts (id,org_id,work_item_id,heartbeat_at) VALUES (?,?,?,?)",
+				)
 				.run(nextId("attempt"), ORG, itemId, NOW);
 			sqlite
 				.prepare("INSERT INTO work_agent_sessions VALUES (?,?,?,?)")

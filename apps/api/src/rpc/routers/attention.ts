@@ -134,24 +134,57 @@ export const attentionContractRouter = os.router({
 		return rankCurrentDeck(context, input);
 	}),
 	listDeckCards: read.listDeckCards.handler(async ({ input, context }) => {
+		const started = performance.now();
 		const { loadDeckProjection } =
 			await import("../../services/attention-projection");
 		const { cards, count, complete, observedAt, model } =
 			await loadDeckProjection(context, input);
+		const projectionMs = performance.now() - started;
 		const { loadDeckPipelineStatus } =
 			await import("../../services/deck-pipeline-status");
+		const pipelineStarted = performance.now();
+		const pipeline = loadDeckPipelineStatus(context, model?.config).then(
+			(status) => {
+				console.info("deck_read_phase", {
+					event: "deck_read_pipeline",
+					durationMs: performance.now() - pipelineStarted,
+				});
+				return status;
+			},
+		);
 		let visible = cards.slice(0, input.limit);
+		const { prepareDeckCardFaces, storedDeckCardFaces } =
+			await import("../../services/deck-card-face");
+		const facesStarted = performance.now();
 		if (input.presentation !== "stored") {
-			const { prepareDeckCardFaces } =
-				await import("../../services/deck-card-face");
-			visible = await prepareDeckCardFaces(context, visible, model);
-		}
+			const preparation = prepareDeckCardFaces(context, visible, model).finally(
+				() => {
+					console.info("deck_read_phase", {
+						event: "deck_prepare_faces",
+						durationMs: performance.now() - facesStarted,
+					});
+				},
+			);
+			if (context.waitUntil) {
+				context.waitUntil(preparation);
+				visible = await storedDeckCardFaces(visible);
+			} else visible = await preparation;
+		} else visible = await storedDeckCardFaces(visible);
+		const facesMs = performance.now() - facesStarted;
+		const status = await pipeline;
+		console.info("deck_read", {
+			event: "deck_read",
+			projectionMs,
+			facesMs,
+			totalMs: performance.now() - started,
+			count: visible.length,
+		});
 		return {
 			cards: visible,
 			count,
 			complete,
 			observedAt,
-			pipeline: await loadDeckPipelineStatus(context, model?.config),
+			pipeline: status,
 		};
 	}),
 	getDeckCard: read.getDeckCard.handler(async ({ input, context, errors }) => {
