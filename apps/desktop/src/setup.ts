@@ -693,17 +693,32 @@ async function readAgentStatusNow(): Promise<void> {
 	const from = Date.now();
 	// A failed read of the facts or the routing must not keep every row on
 	// "Checking…": the tools' own status still arrives.
+	// Each part's time, so a slow check says which part was slow.
+	const took: string[] = [];
+	const timed = <T>(name: string, work: Promise<T>) =>
+		work.finally(() =>
+			took.push(`${name} ${Math.round((Date.now() - from) / 1000)} s`),
+		);
 	const [result] = await Promise.all([
-		tedix(["setup", "agents", "--status", "--json"], { timeoutMs: 150_000 }),
-		readToolFacts().catch((error: unknown) =>
-			log(`setup: tool facts not read (${String(error)})`),
+		timed(
+			"status",
+			tedix(["setup", "agents", "--status", "--json"], { timeoutMs: 150_000 }),
 		),
-		readRouting().catch((error: unknown) =>
-			log(`setup: routing not read (${String(error)})`),
+		timed(
+			"tools",
+			readToolFacts().catch((error: unknown) =>
+				log(`setup: tool facts not read (${String(error)})`),
+			),
+		),
+		timed(
+			"routing",
+			readRouting().catch((error: unknown) =>
+				log(`setup: routing not read (${String(error)})`),
+			),
 		),
 	]);
 	log(
-		`setup: agents checked in ${Math.round((Date.now() - from) / 1000)} s${result.ok ? "" : ` (${lastLine(safe(result.output)).slice(0, 160)})`}`,
+		`setup: agents checked in ${Math.round((Date.now() - from) / 1000)} s (${took.join(", ")})${result.ok ? "" : ` (${lastLine(safe(result.output)).slice(0, 160)})`}`,
 	);
 	try {
 		const parsed = JSON.parse(result.output) as {
@@ -802,7 +817,10 @@ function toolRows(): ToolRow[] {
 			typeof host?.readVerifiedAt === "string"
 				? Date.now() - Date.parse(host.readVerifiedAt)
 				: NaN;
-		row.readVerified = readAge >= 0 && readAge < 24 * 60 * 60_000;
+		// A Check that just passed counts before the status read catches up.
+		row.readVerified =
+			(readAge >= 0 && readAge < 24 * 60 * 60_000) ||
+			Boolean(steps[`verify:${tool.id}`]?.done);
 		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
 			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
@@ -1256,7 +1274,10 @@ export async function setupAction(
 			);
 			return `A Tedix read succeeded inside ${tool.name}.`;
 		});
-		return readAgentStatus();
+		// The row is Ready from the step itself; the full status read can
+		// take a while and need not hold the button.
+		void readAgentStatus();
+		return;
 	}
 	if (action === "add" && tool.add) {
 		await step(`add:${tool.id}`, async (say) => {

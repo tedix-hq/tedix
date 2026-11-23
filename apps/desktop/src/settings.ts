@@ -217,7 +217,6 @@ function versionItem(now: PanelState): Item {
 /** Only a problem earns a row; when all is well there is nothing to say. */
 function problemItem(now: PanelState): Item | undefined {
 	const { cli } = now.setup;
-	const enabled = now.status.runners.filter((runner) => runner.enabled);
 	const problems = [
 		cli.kind === "missing" &&
 			"Tedix's helper is missing. Install the app again.",
@@ -225,9 +224,7 @@ function problemItem(now: PanelState): Item | undefined {
 		now.setup.reach !== "ok" &&
 			now.setup.reach !== "checking" &&
 			"Tedix could not be reached.",
-		!now.app.paused &&
-			enabled.some((runner) => !runner.running) &&
-			"Tasks are not running.",
+		tasksStopped(now) && "Tasks are not running.",
 	].filter((line): line is string => Boolean(line));
 	if (!problems.length) return undefined;
 	const details = [
@@ -253,6 +250,21 @@ function problemItem(now: PanelState): Item | undefined {
 		words: "diagnostics health problem",
 	};
 }
+
+/**
+ * The runners are down for a reason, not still starting: right after the app
+ * starts, they are off with no problem for a few seconds.
+ */
+const tasksStopped = (now: PanelState) =>
+	!now.app.paused &&
+	(Boolean(now.app.problem) ||
+		now.status.runners.some(
+			(runner) => runner.enabled && !runner.running && runner.problem,
+		));
+const tasksStarting = (now: PanelState) =>
+	!now.app.paused &&
+	!tasksStopped(now) &&
+	now.status.runners.some((runner) => runner.enabled && !runner.running);
 
 function general(now: PanelState): Group[] {
 	const appearance = el(
@@ -576,10 +588,8 @@ function mac(now: PanelState): Group[] {
 				name.value.trim() || undefined,
 			);
 	};
-	const enabled = status.runners.filter((runner) => runner.enabled);
-	const stopped =
-		!now.app.paused &&
-		(!now.app.running || enabled.some((runner) => !runner.running));
+	const stopped = tasksStopped(now);
+	const starting = tasksStarting(now);
 	const runs = status.activeRuns;
 	return [
 		{
@@ -606,34 +616,38 @@ function mac(now: PanelState): Group[] {
 						? "Tasks are paused"
 						: stopped
 							? "Tasks are not running"
-							: runs
-								? `${runs} ${runs === 1 ? "task" : "tasks"} running`
-								: "Ready for tasks",
+							: starting
+								? "Starting tasks…"
+								: runs
+									? `${runs} ${runs === 1 ? "task" : "tasks"} running`
+									: "Ready for tasks",
 					tone: stopped ? "warn" : undefined,
 					control: [
-						now.app.paused
-							? button(
-									"Resume",
-									"plain",
-									() => tedixShell.action("restart"),
-									now.busy,
-									{ pending: "Resuming…", key: "runners" },
-								)
-							: stopped
+						starting
+							? undefined
+							: now.app.paused
 								? button(
-										"Restart",
+										"Resume",
 										"plain",
 										() => tedixShell.action("restart"),
 										now.busy,
-										{ pending: "Restarting…", key: "runners" },
+										{ pending: "Resuming…", key: "runners" },
 									)
-								: button(
-										"Pause",
-										"plain",
-										() => tedixShell.action("pause"),
-										now.busy,
-										{ pending: "Pausing…", key: "runners" },
-									),
+								: stopped
+									? button(
+											"Restart",
+											"plain",
+											() => tedixShell.action("restart"),
+											now.busy,
+											{ pending: "Restarting…", key: "runners" },
+										)
+									: button(
+											"Pause",
+											"plain",
+											() => tedixShell.action("pause"),
+											now.busy,
+											{ pending: "Pausing…", key: "runners" },
+										),
 					],
 					words: "pause resume restart tasks",
 				},
@@ -710,10 +724,7 @@ function needs(now: PanelState, id: SettingsSection): boolean {
 			now.app.update.kind === "failed" ||
 			Boolean(now.app.updateReady || now.app.cliOffer)
 		);
-	if (id === "mac")
-		return (
-			!now.app.paused && now.status.runners.some((r) => r.enabled && !r.running)
-		);
+	if (id === "mac") return tasksStopped(now);
 	return false;
 }
 

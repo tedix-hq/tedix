@@ -519,8 +519,11 @@ function updateNow(): Promise<void> {
 				hideRestarting();
 				throw error;
 			}
-			// The app quits now; the entry keeps saying so until it does.
-			return new Promise(() => {});
+			// The app quits now; the entry keeps saying so until it does. If
+			// it is still running a minute later, the update did not happen.
+			await new Promise((done) => setTimeout(done, 60_000).unref());
+			quitSource = "the Dock or macOS";
+			throw new Error("Tedix did not restart. Try again.");
 		}
 		await applyCommandLineTool(false);
 	});
@@ -604,6 +607,15 @@ async function ask(
 			}),
 		);
 		void window.loadFile(join(root, "question.html"));
+		// The page sizes and shows the window; if it never does, show it
+		// anyway, so a question can never wait unseen.
+		setTimeout(() => {
+			if (answered || window.isDestroyed() || window.isVisible()) return;
+			log("question: shown before its page reported a size");
+			app.focus({ steal: true });
+			window.show();
+			window.focus();
+		}, 3000);
 	});
 }
 
@@ -1706,7 +1718,16 @@ let quitAgreed = false;
  * the work on this Mac. Updates and TERM signals quit without asking.
  */
 async function askToQuit(): Promise<void> {
+	// Quit again while the question is open: the person means it.
+	if (quitAsking) {
+		log("quit: asked again while the question was open; quitting");
+		quitAgreed = true;
+		question?.settle({ response: 1, checkboxChecked: false });
+		return;
+	}
 	const runs = status?.activeRuns ?? 0;
+	log(`quit: asking first, ${runs} running`);
+	quitAsking = true;
 	const { response } = await ask({
 		message: `${runs === 1 ? "1 task is" : `${runs} tasks are`} running. Quit Tedix?`,
 		detail: `${runs === 1 ? "It continues" : "They continue"} where ${runs === 1 ? "it" : "they"} stopped when you open Tedix again.`,
@@ -1714,10 +1735,13 @@ async function askToQuit(): Promise<void> {
 		defaultId: 0,
 		cancelId: 0,
 	});
+	quitAsking = false;
+	if (quitting) return;
 	if (response !== 1) return log("quit: cancelled, tasks keep running");
 	quitAgreed = true;
 	app.quit();
 }
+let quitAsking = false;
 
 let tray: Tray | undefined;
 
@@ -1987,9 +2011,13 @@ else if (process.argv.includes("--local-model")) {
 				cancelId: 1,
 			};
 			const owner = BrowserWindow.fromWebContents(contents) ?? mainWindow;
-			const answer = owner
-				? dialog.showMessageBoxSync(owner, options)
-				: dialog.showMessageBoxSync(options);
+			// A modal box on a window nobody sees blocks the menus, Quit
+			// included, until it is answered: then the page just leaves.
+			if (!owner || owner.isDestroyed() || !owner.isVisible()) {
+				log("page: left a page that asked to stay, with no window shown");
+				return event.preventDefault();
+			}
+			const answer = dialog.showMessageBoxSync(owner, options);
 			if (answer === 0) event.preventDefault();
 		});
 	});
