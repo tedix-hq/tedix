@@ -444,6 +444,60 @@ it("routes global workspace options to a preview without making a live call", as
 	).toBe(0);
 });
 
+it("stores outcome text before truncation while preserving structured telemetry", async () => {
+	const { out } = fixture();
+	const path = join(out, "..", "session.jsonl");
+	const finalMessage = JSON.stringify({
+		workItemId: "fictional-work",
+		outcomeText: "The editor is ready. ".repeat(20),
+		outcome: "completed",
+	});
+	writeFileSync(
+		path,
+		[
+			{
+				type: "session_meta",
+				timestamp: "2026-11-22T10:00:00Z",
+				payload: { id: "fictional-session" },
+			},
+			{
+				type: "event_msg",
+				timestamp: "2026-11-22T10:01:00Z",
+				payload: { type: "agent_message", message: finalMessage },
+			},
+		]
+			.map((row) => JSON.stringify(row))
+			.join("\n"),
+	);
+	const reports: Record<string, unknown>[] = [];
+	expect(
+		await runLaneProcess(
+			[
+				"import",
+				"--executor",
+				"codex",
+				"--project",
+				"00000000-0000-4000-8000-000000000001",
+				"--transcript",
+				path,
+				"--apply",
+			],
+			{
+				report: async (input) => {
+					reports.push(input);
+					return {};
+				},
+			},
+		),
+	).toBe(0);
+	expect(reports[0]?.summary).toBe(
+		JSON.parse(finalMessage).outcomeText.slice(0, 200),
+	);
+	expect((reports[0]?.telemetry as { finalMessage: string }).finalMessage).toBe(
+		finalMessage,
+	);
+});
+
 it("pins the child's organization and workspace without inheriting a launcher Attempt", async () => {
 	const { args, out } = fixture();
 	expect(

@@ -16,6 +16,7 @@ import {
 	ReportWorkAgentSessionStatusInputSchema,
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
+import { activityOutcomeText } from "@tedix/api-contract/utils/activity-feed";
 import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatcher-health";
 import type { CodexLaneServer } from "./codex-lane-thread";
 import type { DevinWorkBridge } from "./devin-work-bridge";
@@ -388,7 +389,9 @@ async function runLaneProcessWithReporter(
 					? "done"
 					: "working",
 		label,
-		summary: observed.finalMessage.replace(/\s+/g, " ").slice(0, 200),
+		summary: activityOutcomeText(observed.finalMessage)
+			.replace(/\s+/g, " ")
+			.slice(0, 200),
 		telemetry: LaneTelemetryInputSchema.parse(observed),
 	});
 	const report = (key: string, observed: LaneObservation) =>

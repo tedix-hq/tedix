@@ -8,6 +8,7 @@ import {
 	WorkAttemptStepSchema,
 	type WorkAttemptStep,
 } from "@tedix/api-contract/schemas/work-attempt-steps";
+import { activityOutcomeText } from "@tedix/api-contract/utils/activity-feed";
 import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructions";
 import {
 	RuntimeAppArtifactSchema,
@@ -7306,7 +7307,7 @@ ${firstBrief}`;
 				/\b(?:stream disconnected before completion|broken pipe|connection reset by peer|socket hang up|ECONNRESET|EPIPE)\b/i.test(
 					finalMessage,
 				);
-			receipt.note = finalMessage.slice(0, 1800);
+			receipt.note = activityOutcomeText(finalMessage).slice(0, 1800);
 			if (receipt.outcome !== "expired")
 				receipt.pendingCommitProof = finalMessage;
 			if (run.stop) {

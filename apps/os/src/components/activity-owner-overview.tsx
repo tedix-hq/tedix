@@ -231,7 +231,7 @@ export function ActivityOwnerOverview({
 								{area.health?.replaceAll("_", " ") ?? area.project.status}
 								{" · Today: "}
 								{reportToday
-									? area.report!.changed
+									? plainFeedText(area.report!.changed)
 									: latest
 										? plainFeedText(latest.note || latest.title)
 										: attention.isPending || attention.isError

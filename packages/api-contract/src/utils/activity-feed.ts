@@ -160,6 +160,20 @@ const NAMED_UUID = new RegExp(`\\b${UUID}\\s*\\(([^()]+)\\)`, "gi");
 const BARE_UUID = new RegExp(`\\s*\\b${UUID}\\b`, "gi");
 const ANY_CODE = new RegExp(`\\b${CODE}\\b`, "gi");
 
+/** Recover outcome text even from older summaries cut off inside the JSON string. */
+export function activityOutcomeText(text: string): string {
+	const envelope = text
+		.trim()
+		.replace(/^Result:\s*/, "")
+		.replace(/^TEDIX_LANE_RESULT\s+/, "");
+	if (!envelope.startsWith("{")) return text;
+	const outcome =
+		/"outcomeText"\s*:\s*"((?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[\da-fA-F]{4}))*)/.exec(
+			envelope,
+		);
+	return outcome ? JSON.parse(`"${outcome[1]}"`) : text;
+}
+
 /**
  * People-facing Activity text: known outcome codes become words; ids and
  * other `snake_case` tokens are dropped. Older stored events still carry them,
@@ -171,7 +185,7 @@ export function plainFeedText(
 ) {
 	const word = (code: string) => copy.codes[code.toLowerCase()] ?? "";
 	return (
-		text
+		activityOutcomeText(text)
 			// Agents write Markdown; a one-line preview shows its words, not its marks.
 			.replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, "$1")
 			.replace(/`([^`\n]+)`/g, "$1")

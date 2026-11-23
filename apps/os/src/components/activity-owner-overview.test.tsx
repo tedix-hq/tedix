@@ -135,7 +135,10 @@ it("groups Claude and Codex in their area and never calls finished work deployed
 				title: "Completed source",
 				column: "done",
 				finishedAt: "2026-11-22T11:00:00Z",
-				note: "The source landed.",
+				note: JSON.stringify({
+					workItemId: "",
+					outcomeText: "The source landed.",
+				}).slice(0, -2),
 			},
 		],
 	});
@@ -175,7 +178,10 @@ it("groups Claude and Codex in their area and never calls finished work deployed
 						metadata: {
 							activityOverview: {
 								observedAt: "2026-11-22T12:00:00Z",
-								changed: "Editor released",
+								changed: JSON.stringify({
+									workItemId: "",
+									outcomeText: "Editor released",
+								}),
 								next: "Check adoption",
 								releases: [
 									{
@@ -201,5 +207,11 @@ it("groups Claude and Codex in their area and never calls finished work deployed
 	).toContain(
 		"Held · Product · Editor update · Waiting for compatibility review",
 	);
+	expect(page.querySelector('[aria-label="By area"]')?.textContent).toContain(
+		"Today: Editor released · Next: Check adoption",
+	);
+	expect(
+		page.querySelector('[aria-label="By area"]')?.textContent,
+	).not.toContain("outcomeText");
 	client.clear();
 });

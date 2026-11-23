@@ -4188,6 +4188,10 @@ describe("dispatcher admission", () => {
 		expect(
 			f.events.find((event) => event.verb === "settle")!.input?.metadata,
 		).toMatchObject({ laneResult: result });
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toBe(
+			`Result:\n${result.outcomeText}`,
+		);
 		expect(f.events.some(requestsCompletion)).toBe(true);
 	});
 	it("does not infer completion from a successful process exit", async () => {

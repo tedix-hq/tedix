@@ -45,6 +45,20 @@ it.each([
 	],
 	["Failed: partial_result", ""],
 	[
+		JSON.stringify({ workItemId: "", outcomeText: 'Released "the editor".' }),
+		'Released "the editor".',
+	],
+	['{"workItemId":"","outcomeText":"The source landed.', "The source landed."],
+	[
+		'TEDIX_LANE_RESULT {"outcomeText":"Ready\\nfor review","outcome":"completed"}',
+		"Ready\nfor review",
+	],
+	['{"outcomeText":"Ready\\u00', "Ready"],
+	[
+		'Result:\n{"workItemId":"","outcomeText":"The source landed."}',
+		"The source landed.",
+	],
+	[
 		"Copy skill 4f1c2a90-3b7d-4e21-9a55-0c8e7d6b1f42 (Reddit Operator) into the workspace",
 		"Copy skill Reddit Operator into the workspace",
 	],
