@@ -27,6 +27,8 @@ type SegmentedControlProps<Value extends string> = {
 	compact?: boolean;
 	/** Stretch to the container width with equal-width segments. */
 	fill?: boolean;
+	/** Marks the row for the `tab-bar` utility (styles.css) in `className`. */
+	tabBar?: boolean;
 } & (
 	| { iconOnly?: false; options: readonly SegmentedOption<Value>[] }
 	/**
@@ -60,6 +62,7 @@ function SegmentedControl<Value extends string>({
 	className,
 	compact = false,
 	fill = false,
+	tabBar = false,
 	iconOnly = false,
 }: SegmentedControlProps<Value>) {
 	const groupRef = useRef<HTMLDivElement>(null);
@@ -89,6 +92,7 @@ function SegmentedControl<Value extends string>({
 			data-kumo-component="SegmentedControl"
 			data-focus-ring="inset"
 			data-compact={compact || undefined}
+			data-tab-bar={tabBar || undefined}
 			className={cn(
 				"flex max-w-full min-w-0 items-stretch gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg bg-kumo-recessed p-0.5 ring ring-kumo-hairline/70 [scrollbar-gutter:stable] [scrollbar-width:thin]",
 				fill ? "w-full" : "w-fit",

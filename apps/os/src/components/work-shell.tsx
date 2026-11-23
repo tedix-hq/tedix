@@ -14,6 +14,7 @@ import { defaultWorkApps, useWorkApps } from "@/lib/use-work-apps";
 import { todayShortcut } from "@/lib/today-digest";
 import { WorkMoreViewsMenu } from "@/components/work-more-views-menu";
 import { WorkAgentNavigation } from "@/components/work-agent-navigation";
+import { TabBarContent } from "@/components/tab-bar-content";
 import { workAgentNavigation } from "@/lib/work-agent-navigation";
 // The shell's own bar (.fd-work-bar, .fd-work-navigation) is styled here. A
 // Work page that loads no Feed or Deck component (Approvals, opened directly)
@@ -106,8 +107,9 @@ export function WorkShell() {
 					<nav
 						data-slot="bottom-nav"
 						data-focus-ring="inset"
+						data-tab-bar
 						aria-label={OS_COPY.workHome.views}
-						className="fd-work-navigation sticky bottom-0"
+						className="fd-work-navigation sticky bottom-0 max-sm:tab-bar"
 					>
 						<Link
 							href="/work?view=feed"
@@ -115,13 +117,10 @@ export function WorkShell() {
 							aria-current={feed ? "page" : undefined}
 							className="flex-1 justify-center sm:flex-none"
 						>
-							<Pulse
-								data-tab-icon
-								size={24}
-								weight={feed ? "bold" : "regular"}
-								aria-hidden="true"
+							<TabBarContent
+								icon={<Pulse size={24} weight={feed ? "bold" : "regular"} />}
+								label={OS_COPY.workHome.feed}
 							/>
-							<span data-tab-label>{OS_COPY.workHome.feed}</span>
 						</Link>
 						<Link
 							href="/work?view=deck"
@@ -129,42 +128,26 @@ export function WorkShell() {
 							aria-current={deck ? "page" : undefined}
 							className="flex-1 justify-center sm:flex-none"
 						>
-							<span data-tab-icon className="relative">
-								<Stack
-									size={24}
-									weight={deck ? "fill" : "regular"}
-									aria-hidden="true"
-								/>
-								{decisionCount !== null && decisionCount > 0 && (
-									<span data-tab-badge aria-hidden="true">
-										{decisionCount > 99 ? "99+" : decisionCount}
-										{decisionCount <= 99 && decisions.more ? "+" : ""}
-									</span>
-								)}
-							</span>
-							<span data-tab-label>
-								{feed &&
-								decisions.count > 0 &&
-								!decisions.pending &&
-								!decisions.failed ? (
-									<>
-										<span className="max-sm:hidden">Needs your answer</span>
-										<span className="sm:hidden">{OS_COPY.workHome.deck}</span>
-									</>
-								) : (
-									OS_COPY.workHome.deck
-								)}
-							</span>
-							{decisionCount !== null && (
-								<span
-									data-tab-count
-									title={WORK_COUNT_DEFINITIONS.decisions}
-									className="type-tedix-label tabular-nums text-kumo-subtle"
-								>
-									{decisionCount}
-									{decisions.more ? "+" : ""}
-								</span>
-							)}
+							<TabBarContent
+								icon={<Stack size={24} weight={deck ? "fill" : "regular"} />}
+								label={
+									feed &&
+									decisions.count > 0 &&
+									!decisions.pending &&
+									!decisions.failed ? (
+										<>
+											<span className="max-sm:hidden">Needs your answer</span>
+											<span className="sm:hidden">{OS_COPY.workHome.deck}</span>
+										</>
+									) : (
+										OS_COPY.workHome.deck
+									)
+								}
+								count={decisionCount}
+								more={decisions.more}
+								countTitle={WORK_COUNT_DEFINITIONS.decisions}
+								countClassName="type-tedix-label tabular-nums text-kumo-subtle"
+							/>
 						</Link>
 						<WorkMoreViewsMenu apps={apps} agentNavigation={agentNavigation} />
 					</nav>

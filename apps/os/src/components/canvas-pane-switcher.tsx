@@ -1,5 +1,7 @@
 import "./canvas-pane-switcher.css";
+import { ChatCircle, Folder } from "@phosphor-icons/react";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { TabBarContent } from "@/components/tab-bar-content";
 import type { CanvasMobilePane } from "@/lib/canvas-search";
 
 /**
@@ -11,11 +13,6 @@ export type CanvasPhoneTab = "chat" | "files";
 
 export function canvasPhoneTab(pane: CanvasMobilePane): CanvasPhoneTab {
 	return pane === "chat" ? "chat" : "files";
-}
-
-/** "Chat (2)" when something is unread, the plain label otherwise. */
-function countedLabel(label: string, count: number | undefined): string {
-	return count ? `${label} (${count > 99 ? "99+" : count})` : label;
 }
 
 export function CanvasPaneSwitcher({
@@ -32,13 +29,42 @@ export function CanvasPaneSwitcher({
 	return (
 		<SegmentedControl
 			ariaLabel="Workspace pane"
-			className="canvas-pane-switcher"
+			className="canvas-pane-switcher tab-bar"
 			compact
 			fill
+			tabBar
 			onValueChange={onChange}
 			options={[
-				{ value: "chat", label: countedLabel("Chat", unreadChat) },
-				{ value: "files", label: countedLabel("Files", unreadFiles) },
+				{
+					value: "chat",
+					label: (
+						<TabBarContent
+							icon={
+								<ChatCircle
+									size={24}
+									weight={tab === "chat" ? "fill" : "regular"}
+								/>
+							}
+							label="Chat"
+							count={unreadChat || null}
+						/>
+					),
+				},
+				{
+					value: "files",
+					label: (
+						<TabBarContent
+							icon={
+								<Folder
+									size={24}
+									weight={tab === "files" ? "fill" : "regular"}
+								/>
+							}
+							label="Files"
+							count={unreadFiles || null}
+						/>
+					),
+				},
 			]}
 			value={tab}
 		/>

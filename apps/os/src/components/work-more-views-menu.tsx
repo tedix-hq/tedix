@@ -12,6 +12,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { Text } from "@/components/kumo/text";
+import { TabBarContent } from "@/components/tab-bar-content";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
 	openableWorkViews,
@@ -92,14 +93,16 @@ export function WorkMoreViewsMenu({
 						data-active={activeView ? "true" : undefined}
 						className="shrink-0 text-kumo-subtle data-[active]:bg-kumo-tint data-[active]:text-kumo-default data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
 					>
-						<DotsThree size={20} weight="bold" aria-hidden="true" />
-						{activeView ? (
-							<span data-tab-label>{activeView.label}</span>
-						) : (
-							<span data-tab-label className="sm:hidden">
-								{OS_COPY.workHome.more}
-							</span>
-						)}
+						<TabBarContent
+							icon={<DotsThree size={20} weight="bold" />}
+							label={
+								activeView ? (
+									activeView.label
+								) : (
+									<span className="sm:hidden">{OS_COPY.workHome.more}</span>
+								)
+							}
+						/>
 					</Button>
 				}
 			/>
