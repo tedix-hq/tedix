@@ -63,13 +63,14 @@ export function ActivityOwnerOverview({
 		...workRefreshOptions,
 	});
 	// The decisions read is slow enough to push reads beside it past the
-	// request timeout, so it starts once the area reads have settled.
+	// request timeout, so it starts once the areas read has settled; it does
+	// not wait for running work, whose retries would hold back owner questions.
 	const deck = useQuery({
 		...osQuery.attention.listDeckCards.queryOptions({
 			input: { limit: 100, presentation: "stored" },
 		}),
 		...workRefreshOptions,
-		enabled: !portfolio.isPending && !attention.isPending,
+		enabled: !portfolio.isPending,
 	});
 	const questions = (deck.data?.cards ?? []).filter(ownerQuestion);
 	const projects = (portfolio.data?.data ?? []).filter(
