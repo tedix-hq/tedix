@@ -1279,6 +1279,7 @@ export async function requireDestructiveToolApproval(
 		reason = "automatic approval eligibility check",
 		ruleId?: string,
 		metadata?: Record<string, unknown>,
+		queueRow?: { inWorkHistory?: boolean },
 	): Promise<CallToolResult | null> => {
 		const lookup = await sensitiveLatch();
 		const decision = decideAutoApproval({
@@ -1312,23 +1313,26 @@ export async function requireDestructiveToolApproval(
 					);
 		}
 		if (!ruleId) return null;
-		// Runner bookkeeping keeps the gateway audit event and policy evidence;
-		// nobody reviews an approval queue row for each status update.
-		const runnerBookkeeping =
-			tool.config?.transport === "rpc" &&
-			typeof tool.config.endpoint === "string" &&
-			[
-				"workAgentSessions/report",
-				"dispatcherHealth/report",
-				"workItems/updateSpecification",
-				"agentTurnTriage/recordSessionFeedback",
-				"workAgentSessions/recordEvents",
-				"machines/claimToolCalls",
-			].includes(tool.config.endpoint);
+		// Runner bookkeeping and Work Item changes allowed by platform default
+		// keep the gateway audit event and policy evidence; nobody reviews an
+		// approval queue row for each status update or comment, and Work keeps
+		// its own history. One organization had written 204k such rows.
+		const skipQueueRow =
+			queueRow?.inWorkHistory === true ||
+			(tool.config?.transport === "rpc" &&
+				typeof tool.config.endpoint === "string" &&
+				[
+					"workAgentSessions/report",
+					"dispatcherHealth/report",
+					"workItems/updateSpecification",
+					"agentTurnTriage/recordSessionFeedback",
+					"workAgentSessions/recordEvents",
+					"machines/claimToolCalls",
+				].includes(tool.config.endpoint));
 		let policyApprovalRequestId: string | undefined;
 		try {
 			if (
-				!runnerBookkeeping &&
+				!skipQueueRow &&
 				agent.app?.organizationId &&
 				agent.apiClient?.mcpGovernance?.recordPolicyToolApproval
 			) {
@@ -2473,7 +2477,9 @@ export async function requireDestructiveToolApproval(
 				classId: `tool:${agent.appSlug ?? ""}:${tool.toolId}`,
 			});
 			if (decision.autoApprove)
-				return automaticApproval(decision.reason, decision.ruleId!);
+				return automaticApproval(decision.reason, decision.ruleId!, undefined, {
+					inWorkHistory: decision.ruleId === "work_items",
+				});
 		} catch {
 			// Without the policy the normal gates below decide; nothing has run.
 		}

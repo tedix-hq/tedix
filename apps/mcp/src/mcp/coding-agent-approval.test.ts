@@ -416,8 +416,12 @@ it.each(["tedi", "external_agent"])(
 					policy: expect.objectContaining({ ruleId: expect.any(String) }),
 				}),
 			);
+			// A tedi's Work comment is a platform default and stays in Work
+			// history; an outside agent's is an autonomy decision and keeps a row.
 			expect(record).toHaveBeenCalledTimes(
-				endpoint === "workItems/addComment" ? 1 : 0,
+				endpoint === "workItems/addComment" && authType === "external_agent"
+					? 1
+					: 0,
 			);
 		}
 	},

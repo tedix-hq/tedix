@@ -657,9 +657,9 @@ describe("recording a sensitive read", () => {
 
 describe("platform automatic approval records", () => {
 	const tool = {
-		toolId: "create_work_item",
-		title: "Create Work item",
-		config: { transport: "rpc", endpoint: "workItems/create" },
+		toolId: "patch_os_document",
+		title: "Patch document",
+		config: { transport: "rpc", endpoint: "osOutputs/patchDocument" },
 		meta: {
 			"com.tedix/policy": {
 				riskTier: "bounded_write",
@@ -695,7 +695,7 @@ describe("platform automatic approval records", () => {
 		).toBeNull();
 		expect(recordPolicyToolApproval).toHaveBeenCalledWith(
 			expect.objectContaining({
-				operationId: "work_items",
+				operationId: "workspace_management",
 				reason: expect.stringContaining("platform default"),
 			}),
 		);
