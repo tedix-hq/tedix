@@ -577,7 +577,11 @@ async function loadArtifactPins(db: DbQueryClient): Promise<D1ArtifactPins> {
 			source: memoryFacts.source,
 		})
 		.from(memoryFacts)
-		.where(sql`substr(${memoryFacts.source}, 1, 8) = 'skill://'`);
+		// A binary prefix range seeks idx_memory_facts_source; substr scanned
+		// every organization's facts on each retention page and delete recheck.
+		.where(
+			sql`${memoryFacts.source} >= 'skill://' AND ${memoryFacts.source} < 'skill:/0'`,
+		);
 	for (const fact of facts) {
 		for (const runId of skillUriRunIds(fact.source))
 			pins.runs.add(pinKey(fact.organizationId, runId));

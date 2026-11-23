@@ -593,7 +593,10 @@ describe("artifact retention references", () => {
 				osGadgetExecutions,
 			),
 		);
-		const db = createDbQueryClient(createD1Facade(sqlite));
+		const prepared: string[] = [];
+		const db = createDbQueryClient(
+			createD1Facade(sqlite, { onPrepare: (query) => prepared.push(query) }),
+		);
 		const spec = getD1RetentionTableSpec("skill_run_artifacts")!;
 		const seed = (
 			id: string,
@@ -624,11 +627,11 @@ describe("artifact retention references", () => {
 				VALUES (?, 'work-example', ?, 'result', 'artifact', ?, 'user', 'user-example', '2026-10-01')`)
 				.run(id, org, `artifact://${id}`);
 		};
-		return { sqlite, db, spec, seed, fact, evidence };
+		return { sqlite, db, spec, seed, fact, evidence, prepared };
 	}
 
 	it("retains run and path memory sources, Work evidence, open and missing runs", async () => {
-		const { sqlite, db, spec, seed, fact, evidence } = artifacts();
+		const { sqlite, db, spec, seed, fact, evidence, prepared } = artifacts();
 		for (const id of [
 			"run-fact",
 			"path-fact",
@@ -658,6 +661,16 @@ describe("artifact retention references", () => {
 			spec,
 			page,
 			"9999-12-31",
+		);
+		const pinRead = prepared.find((query) =>
+			query.includes('from "memory_facts"'),
+		)!;
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${pinRead}`)
+			.all()
+			.map((row) => String(row.detail));
+		expect(plan.join("\n")).toContain(
+			"SEARCH memory_facts USING INDEX idx_memory_facts_source (source>? AND source<?)",
 		);
 		expect(filtered.rows.map((row) => row.id)).toEqual([
 			"free",
