@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
@@ -10,6 +10,7 @@ import {
 	buildInsertAuditEventStatement,
 	getAuditEventsByResource,
 	insertAuditEvent,
+	insertMcpAuditEventsBatch,
 	searchAuditEvents,
 } from "./audit";
 import {
@@ -48,6 +49,49 @@ const event = {
 };
 
 describe("optional audit log store", () => {
+	it("writes 100 telemetry rows in one batch without dictionary access and retains inline metadata", async () => {
+		const main = store();
+		const logs = store();
+		const batch = vi.spyOn(logs.binding, "batch");
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		// A missing dictionary makes any accidental read or dictionary write fail.
+		logs.sqlite.exec("DROP TABLE audit_metadata_refs");
+		const occurredAt = new Date("2026-11-23T15:00:00Z");
+		await insertMcpAuditEventsBatch(
+			main.db,
+			Array.from({ length: 100 }, (_, i) => ({
+				...event,
+				id: `event-${i}`,
+				occurredAt,
+			})),
+		);
+		expect(batch).toHaveBeenCalledTimes(1);
+		expect(
+			logs.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get(),
+		).toEqual({ n: 100 });
+		expect(
+			main.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get(),
+		).toEqual({ n: 0 });
+		const rows = await getAuditEventsByResource(
+			main.db,
+			event.organizationId,
+			event.resourceType,
+			event.resourceId,
+		);
+		expect(rows[0]!.metadata).toEqual({
+			appId: "app-example",
+			clientId: "client-example",
+		});
+		expect(rows[0]!.timestamp).toEqual(occurredAt);
+		await expect(
+			insertMcpAuditEventsBatch(main.db, [
+				{ ...event, action: "mcp.access.denied" },
+			]),
+		).rejects.toThrow("Only MCP execution telemetry");
+		main.sqlite.close();
+		logs.sqlite.close();
+	});
+
 	it("redirects execution telemetry while retaining authority, payments and batch audit in main", async () => {
 		const main = store();
 		const logs = store();

@@ -16,7 +16,7 @@ import {
 const { createEvent } = vi.hoisted(() => ({ createEvent: vi.fn() }));
 
 vi.mock("../../lib/api-client", () => ({
-	getApiClient: () => ({ audit: { createEvent } }),
+	getApiClient: () => ({ audit: { createTelemetryBatch: createEvent } }),
 }));
 
 const endpoint = "https://payload.example/ingest";
@@ -55,6 +55,7 @@ function requestContext(
 		appMetadata: { mcpConfig: { capturePayloads } },
 		ctx: { waitUntil: (promise: Promise<unknown>) => pending.push(promise) },
 		env: {
+			API_SERVICE: { fetch: vi.fn() },
 			ANALYTICS: { writeDataPoint },
 			MCP_PAYLOAD_CAPTURE_DEFAULT: defaultCapture,
 			...(sink === "configured" || sink === "endpoint-only"
@@ -70,7 +71,10 @@ function requestContext(
 		identity,
 		writeDataPoint,
 		pending,
-		drain: () => Promise.all(pending),
+		drain: async () => {
+			await vi.runAllTimersAsync();
+			return Promise.all(pending);
+		},
 	};
 }
 
@@ -115,6 +119,7 @@ let records: PayloadCaptureRecord[];
 let sinkFetch: ReturnType<typeof vi.fn<typeof fetch>>;
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	createEvent.mockReset().mockResolvedValue(undefined);
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	records = [];
@@ -136,6 +141,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });
@@ -199,12 +205,16 @@ describe.each([false, true])("prompt payload capture (throws=%s)", (fails) => {
 			expect(request.writeDataPoint).toHaveBeenCalled();
 			expect(createEvent).toHaveBeenCalledWith(
 				expect.objectContaining({
-					organizationId: request.identity.organizationId,
-					actorId: request.identity.userId,
-					action: fails ? "mcp.prompt.error" : "mcp.prompt.execute",
-					metadata: expect.objectContaining({
-						traceId: request.identity.traceId,
-					}),
+					events: [
+						expect.objectContaining({
+							organizationId: request.identity.organizationId,
+							actorId: request.identity.userId,
+							action: fails ? "mcp.prompt.error" : "mcp.prompt.execute",
+							metadata: expect.objectContaining({
+								traceId: request.identity.traceId,
+							}),
+						}),
+					],
 				}),
 			);
 			expect(request.pending).toHaveLength(allowed ? 2 : 1);
@@ -235,8 +245,12 @@ describe.each([false, true])("prompt payload capture (throws=%s)", (fails) => {
 			expect(request.writeDataPoint).toHaveBeenCalled();
 			expect(createEvent).toHaveBeenCalledWith(
 				expect.objectContaining({
-					organizationId: request.identity.organizationId,
-					action: fails ? "mcp.prompt.error" : "mcp.prompt.execute",
+					events: [
+						expect.objectContaining({
+							organizationId: request.identity.organizationId,
+							action: fails ? "mcp.prompt.error" : "mcp.prompt.execute",
+						}),
+					],
 				}),
 			);
 		},
@@ -302,11 +316,15 @@ it.each([false, true])(
 			expect(request.writeDataPoint).toHaveBeenCalled();
 			expect(createEvent).toHaveBeenCalledWith(
 				expect.objectContaining({
-					organizationId: request.identity.organizationId,
-					actorId: request.identity.userId,
-					metadata: expect.objectContaining({
-						traceId: request.identity.traceId,
-					}),
+					events: [
+						expect.objectContaining({
+							organizationId: request.identity.organizationId,
+							actorId: request.identity.userId,
+							metadata: expect.objectContaining({
+								traceId: request.identity.traceId,
+							}),
+						}),
+					],
 				}),
 			);
 		}

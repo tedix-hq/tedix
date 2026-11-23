@@ -167,6 +167,35 @@ export async function insertAuditEventsBatch(
 	await db.batch([first, ...rest]);
 }
 
+/** Inline metadata avoids a dictionary read and up to two inserts per event. */
+export async function insertMcpAuditEventsBatch(
+	db: DbClient,
+	events: InsertAuditEventParams[],
+): Promise<void> {
+	if (events.some((event) => !MCP_TELEMETRY_ACTIONS.has(event.action)))
+		throw new Error("Only MCP execution telemetry may use the log batch");
+	const target = getLogStores(db)?.logs ?? db;
+	// Eleven bound columns per row; eight rows stay below D1's 100-param cap.
+	const [first, ...rest] = chunkForBoundParams(events, 8).map((chunk) =>
+		target.insert(auditEvents).values(
+			chunk.map((event) => ({
+				id: event.id ?? crypto.randomUUID(),
+				organizationId: event.organizationId,
+				actorId: event.actorId,
+				actorType: event.actorType,
+				action: event.action,
+				resourceType: event.resourceType,
+				resourceId: event.resourceId ?? null,
+				metadata: compactAuditMetadata(event),
+				ipAddress: event.ipAddress ?? null,
+				userAgent: event.userAgent ?? null,
+				timestamp: event.occurredAt ?? new Date(),
+			})),
+		),
+	);
+	if (first) await target.batch([first, ...rest]);
+}
+
 /**
  * MCP telemetry (`mcp.*`) carries about 98% of audit metadata bytes, in rows of
  * about 500 bytes, and most of them repeat two identifiers: `subjectUserId`

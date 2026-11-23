@@ -1,11 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	beforeEach,
+	afterEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import type { ServerContext } from "../server-context";
 import { wrapToolCallTelemetry } from "./telemetry";
 import { wrapPromptGetTelemetry } from "./prompts-telemetry";
 
 const { audit } = vi.hoisted(() => ({ audit: vi.fn() }));
 vi.mock("../../lib/api-client", () => ({
-	getApiClient: () => ({ audit: { createEvent: audit } }),
+	getApiClient: () => ({ audit: { createTelemetryBatch: audit } }),
 }));
 vi.mock("cloudflare:workers", () => ({
 	tracing: {
@@ -18,7 +25,10 @@ vi.mock("cloudflare:workers", () => ({
 	},
 }));
 
+beforeEach(() => vi.useFakeTimers());
+
 afterEach(() => {
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
@@ -46,6 +56,7 @@ describe("gateway telemetry failure isolation", () => {
 			const pending: Promise<unknown>[] = [];
 			const ctx = {
 				env: {
+					API_SERVICE: { fetch: vi.fn() },
 					ANALYTICS: { writeDataPoint: sink },
 					MCP_PAYLOAD_STREAM_ENDPOINT: "https://sink.example/ingest",
 					MCP_PAYLOAD_STREAM_TOKEN: "fixture-token",
@@ -75,11 +86,12 @@ describe("gateway telemetry failure isolation", () => {
 			await expect(
 				wrapPromptGetTelemetry("fixture", ctx, prompt)({}, {} as never),
 			).resolves.toEqual({ messages: [] });
+			await vi.runAllTimersAsync();
 			await Promise.all(pending);
 			expect(tool).toHaveBeenCalledTimes(1);
 			expect(prompt).toHaveBeenCalledTimes(1);
 			expect(sink).toHaveBeenCalled();
-			expect(audit).toHaveBeenCalledTimes(2);
+			expect(audit).toHaveBeenCalledTimes(1);
 		},
 	);
 
@@ -89,7 +101,9 @@ describe("gateway telemetry failure isolation", () => {
 		});
 		audit.mockRejectedValue(new Error("audit unavailable"));
 		const ctx = {
-			env: {},
+			env: {
+				API_SERVICE: { fetch: vi.fn() },
+			},
 			ctx: { waitUntil: () => {} },
 			appId: "fixture",
 			appSlug: "fixture",

@@ -1,11 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 
 const createEvent = vi.fn();
+const createTelemetryBatch = vi.fn();
 const recordVerifiedMcpExecution = vi.fn();
 
 vi.mock("../../lib/api-client", () => ({
 	getApiClient: vi.fn(() => ({
-		audit: { createEvent },
+		audit: { createEvent, createTelemetryBatch },
 		externalAgentIdentity: { recordVerifiedMcpExecution },
 	})),
 }));
@@ -106,6 +114,12 @@ describe("optional analytics", () => {
 	});
 });
 
+beforeEach(() => vi.useFakeTimers());
+afterEach(async () => {
+	await vi.runAllTimersAsync();
+	vi.useRealTimers();
+});
+
 async function emit(event: McpEvent) {
 	const pending: Promise<unknown>[] = [];
 	emitMcpAuditEvent(
@@ -113,13 +127,80 @@ async function emit(event: McpEvent) {
 		event,
 		(promise) => pending.push(promise),
 	);
+	await vi.runAllTimersAsync();
 	await Promise.all(pending);
 }
+
+describe("MCP audit batching", () => {
+	it("bounds a burst and drains the next window after a failed flush", async () => {
+		createTelemetryBatch
+			.mockReset()
+			.mockRejectedValueOnce(new Error("audit unavailable"));
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const env = { API_SERVICE: { fetch: vi.fn() } } as unknown as CloudflareEnv;
+		const pending: Promise<unknown>[] = [];
+		try {
+			for (let i = 0; i < 101; i++)
+				emitMcpAuditEvent(env, baseEvent({}), (p) => pending.push(p));
+			await vi.advanceTimersByTimeAsync(1000);
+			await Promise.all(pending);
+			expect(createTelemetryBatch).toHaveBeenCalledTimes(1);
+			expect(createTelemetryBatch.mock.calls[0]![0].events).toHaveLength(100);
+			expect(warning).toHaveBeenCalledWith(
+				JSON.stringify({
+					event: "mcp.audit.batch_overflow",
+					organizationId: "org-1",
+					dropped: 1,
+				}),
+			);
+			emitMcpAuditEvent(env, baseEvent({}), (p) => pending.push(p));
+			await vi.advanceTimersByTimeAsync(1000);
+			await Promise.all(pending);
+			expect(createTelemetryBatch).toHaveBeenCalledTimes(2);
+			expect(createTelemetryBatch.mock.calls[1]![0].events).toHaveLength(1);
+		} finally {
+			warning.mockRestore();
+		}
+	});
+
+	it("coalesces a burst per organization while denials bypass the buffer", async () => {
+		createEvent.mockReset();
+		createTelemetryBatch.mockReset();
+		const pending: Promise<unknown>[] = [];
+		const env = { API_SERVICE: { fetch: vi.fn() } } as unknown as CloudflareEnv;
+		for (let i = 0; i < 18; i++)
+			emitMcpAuditEvent(env, baseEvent({ userId: `user-${i}` }), (p) =>
+				pending.push(p),
+			);
+		emitMcpAuditEvent(env, baseEvent({ organizationId: "org-2" }), (p) =>
+			pending.push(p),
+		);
+		emitMcpAuditEvent(
+			env,
+			baseEvent({ eventType: "access_denied", success: false }),
+			(p) => pending.push(p),
+		);
+		expect(createEvent).toHaveBeenCalledTimes(1);
+		expect(createTelemetryBatch).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(1000);
+		await Promise.all(pending);
+		expect(createTelemetryBatch).toHaveBeenCalledTimes(2);
+		const batch = createTelemetryBatch.mock.calls.find(
+			([input]) => input.organizationId === "org-1",
+		)![0];
+		expect(batch.events).toHaveLength(18);
+		expect(
+			batch.events.map((event: { actorId: string }) => event.actorId),
+		).toEqual(Array.from({ length: 18 }, (_, i) => `user-${i}`));
+		expect(batch.events[0].occurredAt).toBe("2026-05-18T15:38:05.000Z");
+	});
+});
 
 describe("MCP audit actor mapping", () => {
 	beforeEach(() => {
 		vi.mocked(getApiClient).mockClear();
 		createEvent.mockReset();
+		createTelemetryBatch.mockReset();
 		recordVerifiedMcpExecution.mockReset();
 	});
 
@@ -129,13 +210,16 @@ describe("MCP audit actor mapping", () => {
 			serviceFetch,
 			orgId: "org-1",
 		});
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				organizationId: "org-1",
-				actorId: "user-1",
-				action: "mcp.tool.execute",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					organizationId: "org-1",
+					actorId: "user-1",
+					action: "mcp.tool.execute",
+				}),
+			],
+		});
 	});
 
 	it.each([{ appId: undefined }, { organizationId: undefined }])(
@@ -144,6 +228,7 @@ describe("MCP audit actor mapping", () => {
 			await emit(baseEvent(missing));
 			expect(getApiClient).not.toHaveBeenCalled();
 			expect(createEvent).not.toHaveBeenCalled();
+			expect(createTelemetryBatch).not.toHaveBeenCalled();
 			expect(recordVerifiedMcpExecution).not.toHaveBeenCalled();
 		},
 	);
@@ -154,6 +239,7 @@ describe("MCP audit actor mapping", () => {
 		});
 		await expect(emit(baseEvent({}))).resolves.toBeUndefined();
 		expect(createEvent).not.toHaveBeenCalled();
+		expect(createTelemetryBatch).not.toHaveBeenCalled();
 	});
 
 	it("records AIH tedi M2M calls as tedi actors, not human users", async () => {
@@ -165,13 +251,16 @@ describe("MCP audit actor mapping", () => {
 			}),
 		);
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actorId: "TPA3Du4US8AKCN0AM3YQz29X3ePIQ0",
-				actorType: "tedi",
-				action: "mcp.tool.execute",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					actorId: "TPA3Du4US8AKCN0AM3YQz29X3ePIQ0",
+					actorType: "tedi",
+					action: "mcp.tool.execute",
+				}),
+			],
+		});
 	});
 
 	it("keeps human OAuth calls as user actors", async () => {
@@ -183,12 +272,15 @@ describe("MCP audit actor mapping", () => {
 			}),
 		);
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actorId: "U-human",
-				actorType: "user",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					actorId: "U-human",
+					actorType: "user",
+				}),
+			],
+		});
 	});
 
 	it("records external agents under their stable principal and execution session", async () => {
@@ -205,12 +297,15 @@ describe("MCP audit actor mapping", () => {
 			}),
 		);
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actorId: "00000000-0000-4000-8000-000000000002",
-				actorType: "external_agent",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					actorId: "00000000-0000-4000-8000-000000000002",
+					actorType: "external_agent",
+				}),
+			],
+		});
 		expect(recordVerifiedMcpExecution).toHaveBeenCalledWith(
 			expect.objectContaining({
 				principalId: "00000000-0000-4000-8000-000000000002",
@@ -225,12 +320,15 @@ describe("MCP audit actor mapping", () => {
 	it("uses service actor metadata for infrastructure calls", async () => {
 		await emit(baseEvent({ authType: "service", clientId: "mcp-service" }));
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actorId: "mcp-service",
-				actorType: "service",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					actorId: "mcp-service",
+					actorType: "service",
+				}),
+			],
+		});
 	});
 
 	it("records kernel calls as kernel actors with the acting human as actorId", async () => {
@@ -247,16 +345,19 @@ describe("MCP audit actor mapping", () => {
 			}),
 		);
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actorId: "U-human",
-				actorType: "kernel",
-				metadata: expect.objectContaining({
-					delegationMode: "kernel",
-					subjectUserId: "U-human",
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					actorId: "U-human",
+					actorType: "kernel",
+					metadata: expect.objectContaining({
+						delegationMode: "kernel",
+						subjectUserId: "U-human",
+					}),
 				}),
-			}),
-		);
+			],
+		});
 	});
 
 	it("falls back to the literal kernel actorId for unattended kernel calls", async () => {
@@ -267,12 +368,15 @@ describe("MCP audit actor mapping", () => {
 			}),
 		);
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actorId: "kernel",
-				actorType: "kernel",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					actorId: "kernel",
+					actorType: "kernel",
+				}),
+			],
+		});
 	});
 
 	it("emits resource_read audit rows with stable resource identity", async () => {
@@ -289,13 +393,16 @@ describe("MCP audit actor mapping", () => {
 		delete event.toolName;
 		await emit(event);
 
-		expect(createEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				action: "mcp.resource.read",
-				resourceType: "mcp_resource",
-				resourceId: "ui://widgets/mcp-app/tedix/r/abc.html",
-			}),
-		);
+		expect(createTelemetryBatch).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			events: [
+				expect.objectContaining({
+					action: "mcp.resource.read",
+					resourceType: "mcp_resource",
+					resourceId: "ui://widgets/mcp-app/tedix/r/abc.html",
+				}),
+			],
+		});
 	});
 
 	it("records pre-dispatch security decisions as request denials", async () => {

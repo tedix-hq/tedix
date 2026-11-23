@@ -11,12 +11,14 @@ import {
 const mocks = vi.hoisted(() => ({
 	getAuditEventsByResource: vi.fn(),
 	insertAuditEvent: vi.fn(),
+	insertMcpAuditEventsBatch: vi.fn(),
 	searchAuditEvents: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/audit", () => ({
 	getAuditEventsByResource: mocks.getAuditEventsByResource,
 	insertAuditEvent: mocks.insertAuditEvent,
+	insertMcpAuditEventsBatch: mocks.insertMcpAuditEventsBatch,
 	searchAuditEvents: mocks.searchAuditEvents,
 }));
 
@@ -136,5 +138,49 @@ it("returns a continuation cursor from the last visible row and ignores offset w
 	);
 	await expect(client.search({ cursor: "invalid" })).rejects.toMatchObject({
 		code: "BAD_REQUEST",
+	});
+});
+
+describe("MCP audit batch", () => {
+	const input = {
+		organizationId: "00000000-0000-4000-8000-000000000001",
+		events: [
+			{
+				actorId: "caller",
+				actorType: "user" as const,
+				action: "mcp.tool.execute",
+				resourceType: "mcp_tool",
+				occurredAt: "2026-11-23T15:00:00.000Z",
+				metadata: { appId: "example" },
+			},
+		],
+	};
+	it("rejects direct HTTP and accepts bounded service-binding telemetry", async () => {
+		const context = createContext([]);
+		await expect(
+			createClient(context).createTelemetryBatch(input),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		context.headers.set("X-Service-Binding", "true");
+		await createClient(context).createTelemetryBatch(input);
+		expect(mocks.insertMcpAuditEventsBatch).toHaveBeenCalledWith(context.db, [
+			expect.objectContaining({
+				organizationId: input.organizationId,
+				actorId: "caller",
+				occurredAt: new Date(input.events[0].occurredAt),
+				metadata: { appId: "example" },
+			}),
+		]);
+		await expect(
+			createClient(context).createTelemetryBatch({
+				...input,
+				events: [{ ...input.events[0], action: "mcp.access.denied" }],
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			createClient(context).createTelemetryBatch({
+				...input,
+				events: Array(101).fill(input.events[0]),
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 });

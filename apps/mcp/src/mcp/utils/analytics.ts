@@ -13,6 +13,7 @@ import {
 	type McpClientRegistrationMethod,
 } from "@tedix/auth/oauth-client-registration";
 import { getApiClient } from "../../lib/api-client";
+import { enqueueMcpAuditEvent } from "./audit-batch";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	buildCallerAuditMetadata,
@@ -241,10 +242,8 @@ export function trackMcpEvent(env: CloudflareEnv, event: McpEvent): void {
 }
 
 /**
- * Write MCP tool call to the audit_events system via API.
- * This bridges MCP telemetry with the platform audit trail.
- *
- * Only emits for tool_call events with an identified caller (not anonymous).
+ * Batch MCP execution telemetry through the API; security denials write immediately.
+ * The caller registers the flush with waitUntil so sparse batches also drain.
  */
 export function emitMcpAuditEvent(
 	env: CloudflareEnv,
@@ -328,7 +327,7 @@ async function writeAuditEventViaApi(
 				event.eventType,
 		);
 	const actor = getAuditActor(event);
-	await client.audit.createEvent({
+	const auditEvent = {
 		organizationId: event.organizationId!,
 		actorId: actor.actorId,
 		actorType: actor.actorType,
@@ -344,8 +343,8 @@ async function writeAuditEventViaApi(
 		resourceId,
 		metadata: {
 			appId: event.appId,
-			sessionId: event.sessionId,
-			durationMs: event.durationMs,
+			...(event.sessionId && { sessionId: event.sessionId }),
+			...(event.durationMs !== undefined && { durationMs: event.durationMs }),
 			...(event.traceId && { traceId: event.traceId }),
 			...(event.executionId && { executionId: event.executionId }),
 			...(event.tediId && { tediId: event.tediId }),
@@ -353,7 +352,14 @@ async function writeAuditEventViaApi(
 			...(event.clientId && { clientId: event.clientId }),
 			...event.metadata,
 		},
-	});
+	};
+	if (event.eventType === "access_denied")
+		await client.audit.createEvent(auditEvent);
+	else
+		await enqueueMcpAuditEvent(env.API_SERVICE, event.organizationId, {
+			...auditEvent,
+			occurredAt: event.timestamp,
+		});
 	if (
 		event.authType === "external_agent" &&
 		externalAgentPrincipalId &&

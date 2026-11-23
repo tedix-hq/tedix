@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { JsonValueSchema } from "./common";
 
 // "kernel" = tenant control-plane actor (kernel direct tool calls) —
 // distinguishes "Home used a tool for this turn" from generic internal service
@@ -15,6 +16,29 @@ export const AuditActorTypeSchema = z.enum([
 ]);
 
 export type AuditActorType = z.infer<typeof AuditActorTypeSchema>;
+
+export const McpAuditBatchInputSchema = z.object({
+	organizationId: z.uuid(),
+	events: z
+		.array(
+			z.object({
+				actorId: z.string(),
+				actorType: AuditActorTypeSchema,
+				action: z
+					.string()
+					.regex(
+						/^mcp\.(?:(?:tool|code|prompt)\.(?:execute|error)|resource\.(?:read|error))$/,
+					),
+				resourceType: z.string(),
+				resourceId: z.string().optional(),
+				metadata: z.record(z.string(), JsonValueSchema).optional(),
+				occurredAt: z.string().datetime(),
+			}),
+		)
+		.min(1)
+		.max(100),
+});
+export type McpAuditBatchInput = z.infer<typeof McpAuditBatchInputSchema>;
 
 export const AuditSearchFiltersSchema = z.object({
 	actorId: z.string().optional(),

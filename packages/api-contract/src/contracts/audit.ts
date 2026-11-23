@@ -15,6 +15,7 @@ import {
 } from "../schemas/common";
 import {
 	AuditActorTypeSchema,
+	McpAuditBatchInputSchema,
 	GatewayChangeRecordAppendedSchema,
 	GatewayChangeRecordInputSchema,
 	GatewayChangeRecordCheckpointsExportSchema,
@@ -186,6 +187,16 @@ export const auditContract = oc
 					data: z.array(AuditEventSchema),
 				}),
 			),
+
+		createTelemetryBatch: oc
+			.route({
+				method: "POST",
+				path: "/telemetry-batch",
+				tags: ["internal"],
+				summary: "Create MCP audit telemetry batch",
+			})
+			.input(McpAuditBatchInputSchema)
+			.output(SuccessResponseSchema),
 
 		/**
 		 * Create an audit event (internal service use)

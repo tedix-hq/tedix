@@ -19,6 +19,7 @@ import {
 import {
 	getAuditEventsByResource as getAuditEventsByResourceQuery,
 	insertAuditEvent,
+	insertMcpAuditEventsBatch,
 	searchAuditEvents as searchAuditEventsQuery,
 } from "@tedix/db/queries/audit";
 import * as organizationLog from "../../services/organization-log";
@@ -288,6 +289,32 @@ export const createAuditEvent = auditOs.createEvent
 		return { success: true as const };
 	});
 
+export const createMcpAuditBatch = auditOs.createTelemetryBatch
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		const events = await Promise.all(
+			input.events.map(async (event) => {
+				const id = crypto.randomUUID();
+				return {
+					...event,
+					id,
+					organizationId: input.organizationId,
+					occurredAt: new Date(event.occurredAt),
+					metadata:
+						event.metadata === undefined
+							? undefined
+							: await spillAuditMetadata(toJsonRecord(event.metadata), {
+									bucket: context.env.TEDI_R2_BUCKET,
+									organizationId: input.organizationId,
+									auditId: id,
+								}),
+				};
+			}),
+		);
+		await insertMcpAuditEventsBatch(context.db, events);
+		return { success: true as const };
+	});
+
 /**
  * The gateway's change-record ledger: service binding only, and only from the
  * MCP gateway's own entrypoint. The organization is the one the gateway put
@@ -457,4 +484,5 @@ export const auditContractRouter = auditOs.router({
 	export: exportAuditEvents,
 	getByResource: getAuditEventsByResource,
 	createEvent: createAuditEvent,
+	createTelemetryBatch: createMcpAuditBatch,
 });

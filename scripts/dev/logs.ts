@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 
 const gatewayNeedle =
-	"mcp_grant_timing|resolveSessionAuth|recordVerifiedMcpExecution|recordPolicyToolApproval|/audit/createEvent";
+	"mcp_grant_timing|resolveSessionAuth|recordVerifiedMcpExecution|recordPolicyToolApproval|/audit/createEvent|/audit/createTelemetryBatch";
 
 export function buildQuery(args: string[], now = Date.now()) {
 	const { values } = parseArgs({
