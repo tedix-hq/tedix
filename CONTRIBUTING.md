@@ -130,6 +130,13 @@ bun changeset   # pick @tedix/cli, patch or minor, one plain-language line
 
 To cut a CLI release, a maintainer, deliberately and not as part of a fix:
 
+Create dedicated operations Work whose accepted outcome names the release,
+and obtain a live Attempt for it. This also applies to personal maintainer
+pushes. Keep that Attempt live through both the version commit push and the
+tag push; never copy trailers from a previous release or finished task.
+The release commit's final paragraph must contain `Work-Item: <release work uuid>`,
+`Release-Work-Item: <same uuid>` and `Agent-Session: <admitted session>`.
+
 1. `bun changeset status` lists what is pending.
 2. `bun run release:version` bumps `packages/cli/package.json`, moves every
    pending note into `packages/cli/CHANGELOG.md`, and runs `bun install` so
@@ -139,6 +146,25 @@ To cut a CLI release, a maintainer, deliberately and not as part of a fix:
    `packages/cli/CHANGELOG.md`, the consumed `.changeset/` files, and
    `bun.lock` — as `chore(cli): release X.Y.Z`, push, tag `cli-vX.Y.Z` on
    that commit, and push the tag.
+
+Canonical pushes read Tedix Work and the newest Attempt before validation and
+again before sending refs. Every pushed commit must name an accepted Work
+with an unexpired running Attempt matching its session and the authenticated
+external-agent principal. Merge and bot commits have the same requirement.
+CLI version changes, release commit subjects and `cli-v` tags also require
+the dedicated operations Work and release trailer. Keep ordinary source
+changes on their own Work; the release Work covers the release cut.
+
+Set `tedix.pushOrganization` and `tedix.pushWorkspace` in local Git config,
+or supply `TEDIX_PUSH_ORGANIZATION` and `TEDIX_PUSH_WORKSPACE`. The guard runs
+the installed CLI from the home directory with both selectors. Missing tools,
+unavailable Tedix, incomplete responses and expired Attempts refuse the push.
+It never starts or renews an Attempt. A tag push checks its target commit even
+when that commit is already on main; release tags cannot be moved or deleted.
+
+These are local hooks. GitHub direct writes, disabled hooks and private
+publisher dispatches require separate hosted enforcement. A local receipt
+does not prove those entry points enforce Tedix authorization.
 
 The CLI publishes to `downloads.tedix.dev`: `latest.json` is the stable channel
 and `beta.json` the beta channel, which alone receives prereleases. Each tagged

@@ -5,10 +5,10 @@
 # sets it up). Git feeds "<localRef> <localSha> <remoteRef> <remoteSha>" lines on
 # stdin, one per ref being pushed.
 #
-# Runs scripts/ci/preflight-gates.mjs for the pushed ranges when Bun is available.
+# Runs authorization and validation for the exact pushed refs.
 set -uo pipefail
 
-command -v bun >/dev/null 2>&1 || exit 0
+command -v bun >/dev/null 2>&1 || { echo "pre-push: Bun is required; push refused." >&2; exit 1; }
 
 root="$(git rev-parse --show-toplevel)"
 # Git exports its location to hooks (GIT_DIR, GIT_INDEX_FILE, ...). Every

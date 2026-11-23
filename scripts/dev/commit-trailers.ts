@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const PROVENANCE_TRAILER =
-	/^(?:Work-Item|Agent-Session|Co-Authored-By|Claude-Session|Signed-off-by|Ops-Overlay):[ \t]*\S/i;
+	/^(?:Work-Item|Release-Work-Item|Agent-Session|Co-Authored-By|Claude-Session|Signed-off-by|Ops-Overlay):[ \t]*\S/i;
 
 /** Git's own comment lines (`#`) end the message it keeps; leave them as they are. */
 export function joinTrailerParagraphs(message: string): string {
