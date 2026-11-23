@@ -22,6 +22,10 @@ it.each([
 	],
 	["Deploy c80547767 contains f3858f2a2.", undefined],
 	[
+		"Full-day check (tedix-mcp Workers Logs, loader_call lines / 2; matched billing within 1% on 21 Nov). 22 Nov total: 25,916 loads.",
+		"Full-day check.",
+	],
+	[
 		'Decision recorded for “What should happen with "Preview a staged CMS theme build before activating it" ” answered: Give it to Claude Code: Claude Code takes the task over and starts it on its next check.',
 		'Decision recorded for “What should happen with "Preview a staged CMS theme build before activating it" ” answered: Give it to Claude Code: Claude Code takes the task over and starts it on its next check.',
 	],

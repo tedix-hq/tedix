@@ -228,11 +228,15 @@ export function readableLead(body: string, copy: FeedCopy = DEFAULT_FEED_COPY) {
 		const text = raw
 			.replace(/\s*\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b/g, "")
 			.replace(/\s+([.,;:!?])/g, "$1");
-		if (machineText(text)) return undefined;
+		// Fields and paths disqualify a sentence; stray codes are cleaned out.
+		if (MACHINE_FIELD.test(text)) return undefined;
 		if (text !== raw && (text.match(/\p{L}+/gu) ?? []).length < 3)
 			return undefined;
 		const plain = plainFeedText(text, copy);
-		return plain && /\p{L}/u.test(plain) && plain.length <= 240
+		return plain &&
+			/\p{L}/u.test(plain) &&
+			plain.length <= 240 &&
+			!machineText(plain)
 			? plain
 			: undefined;
 	};
@@ -366,7 +370,8 @@ export function workFeedItems(
 						)
 					: e.body !== e.eventType &&
 						  e.body.length <= 180 &&
-						  (e.authorType === "user" || !machineText(e.body)) &&
+						  ((e.authorType === "user" && !e.agentHarness) ||
+								!machineText(e.body)) &&
 						  /\p{L}/u.test(sentence(e.body)) &&
 						  !/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
 								e.body,

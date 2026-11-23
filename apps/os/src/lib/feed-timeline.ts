@@ -88,7 +88,8 @@ export function activityHeadline(
 		value.toLowerCase().replace(/\s+/g, " ").trim();
 	const sentence = normalized(plainSentence);
 	// A person's own words stay as written; machine fields stay behind More.
-	const person = PEOPLE.has(item.actorIdentity?.type ?? "");
+	const person =
+		PEOPLE.has(item.actorIdentity?.type ?? "") && !item.actorIdentity?.harness;
 	const extra = item.explanation
 		.split(/\n{2,}/)
 		.filter((part) => person || !machineText(plain(part)))
