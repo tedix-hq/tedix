@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.1 (2026-11-23)
+
+### Patch Changes
+
+- 9eda966: Runners no longer ask Clef about a task whose last start was refused as not startable, and when Clef is below the threshold the task shows Clef's pick and its percentage next to the routing rules' choice.
+- 5a554f8: Debounce failed recall catalog reads, retain concurrent Work tool resolutions, and reduce dispatcher scan requests. Record MCP operation names in local gateway traffic counts.
+
 ## 0.37.0 (2026-11-23)
 
 ### Minor Changes
