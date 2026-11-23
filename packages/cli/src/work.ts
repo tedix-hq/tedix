@@ -258,6 +258,8 @@ Lifecycle:
               runners are not handed the Work before it and readiness reports not_before)
   trailers <id>
   authorize-blog <id> · revoke-blog <id>
+  authorize-release <id> --input '{"commitSha":"<sha>","version":"X.Y.Z","ref":"refs/heads/main"}'
+              (read-only personal release Attempt check)
 
 Delegation (a lead session's hand-offs; open ones appear in its prompt context):
   delegate "<title>" --done-when "<what done looks like>" --via subagent|session

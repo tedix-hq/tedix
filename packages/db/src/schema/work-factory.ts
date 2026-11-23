@@ -961,7 +961,7 @@ export const workAdmissions = sqliteTable(
 		workItemVersion: integer("work_item_version").notNull(),
 		admissionSpecRevision: text("admission_spec_revision").notNull(),
 		executorType: text("executor_type", {
-			enum: ["tedi", "external_agent"] as const,
+			enum: ["human", "tedi", "external_agent"] as const,
 		}).notNull(),
 		executorId: text("executor_id").notNull(),
 		executorSessionId: text("executor_session_id"),
@@ -1005,7 +1005,7 @@ export const workAdmissions = sqliteTable(
 		),
 		check(
 			"chk_work_admission_identity",
-			sql`(${table.executorType} = 'tedi' AND ${table.executorSessionId} IS NULL AND ${table.externalSessionKey} IS NULL) OR (${table.executorType} = 'external_agent' AND ${table.executorSessionId} IS NOT NULL AND ${table.externalSessionKey} IS NOT NULL)`,
+			sql`(${table.executorType} IN ('human', 'tedi') AND ${table.executorSessionId} IS NULL AND ${table.externalSessionKey} IS NULL) OR (${table.executorType} = 'external_agent' AND ${table.executorSessionId} IS NOT NULL AND ${table.externalSessionKey} IS NOT NULL)`,
 		),
 		check(
 			"chk_work_admission_decision",

@@ -766,7 +766,7 @@ export const workAttempts = sqliteTable(
 		),
 		check(
 			"chk_work_attempt_identity",
-			sql`(${table.executorType} = 'tedi' AND ${table.executorSessionId} IS NULL AND ${table.externalSessionKey} IS NULL) OR (${table.executorType} = 'external_agent' AND ${table.executorSessionId} IS NOT NULL AND ${table.externalSessionKey} IS NOT NULL)`,
+			sql`(${table.executorType} IN ('human', 'tedi') AND ${table.executorSessionId} IS NULL AND ${table.externalSessionKey} IS NULL) OR (${table.executorType} = 'external_agent' AND ${table.executorSessionId} IS NOT NULL AND ${table.externalSessionKey} IS NOT NULL)`,
 		),
 		check(
 			"chk_work_attempt_terminal_state",

@@ -1960,6 +1960,14 @@
 		{
 			"name": "20261123165852_completed_category_seek/migration.sql",
 			"sha256": "d71bfccace55539c7c99b60b6a6c7f5123fc1fff219ecb84d64b7628ef5e7ad5"
+		},
+		{
+			"name": "20261123181318_human-release-attempts/migration.sql",
+			"sha256": "504f11783ccbc6d2a7bf37ba96df6aeb84450d8aa583eac6dd52d0a033d128b0"
+		},
+		{
+			"name": "20261123182424_human-release-guards/migration.sql",
+			"sha256": "192337a7f5c22d3a4ff43f4a6d6255fe7bc19db8701e994272f77ac88bcc85b1"
 		}
 	]
 }

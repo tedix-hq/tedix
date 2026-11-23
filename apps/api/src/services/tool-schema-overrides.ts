@@ -880,6 +880,7 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workItems/updateSpecification": "update_work_item_specification",
 	"workItems/accept": "accept_work_item",
 	"workItems/authorizeOwnedChannel": "authorize_owned_channel",
+	"workItems/authorizePersonalCliRelease": "authorize_personal_cli_release",
 	"workItems/revokeOwnedChannel": "revoke_owned_channel",
 	"workItems/getReadiness": "get_work_item_readiness",
 	"workItems/startAttempt": "start_work_item_attempt",
@@ -1066,6 +1067,7 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workItems/runWorkGraphSteward": "destructive",
 	// Org graph health: a read-only recursive-CTE dependency report.
 	"workItems/getOrgGraphHealth": "read",
+	"workItems/authorizePersonalCliRelease": "read",
 	// Public-channel authority changes are owner/admin decisions and must trip
 	// explicit destructive confirmation when invoked through MCP.
 	"workItems/authorizeOwnedChannel": "destructive",

@@ -276,7 +276,7 @@ export const WorkResourcePoolProjectionSchema = z.object({
 				attemptId: z.uuid(),
 				workItemId: z.uuid(),
 				workTitle: z.string(),
-				executorType: z.enum(["tedi", "external_agent"]),
+				executorType: z.enum(["human", "tedi", "external_agent"]),
 				executorId: z.string(),
 				externalSessionKey: z.string().nullable(),
 				quantity: z.number().int().positive(),
@@ -1173,7 +1173,7 @@ export const ListWorkAttemptProjectionInputSchema =
 				"Optional settled-outcome filter; omission includes settled and active attempts.",
 			),
 		executorType: z
-			.enum(["tedi", "external_agent"])
+			.enum(["human", "tedi", "external_agent"])
 			.optional()
 			.describe(
 				"Optional executor-kind filter; omission includes every supported executor.",
@@ -2260,7 +2260,7 @@ export const WorkGraphNamingFindingSchema = z.object({
 export const WorkGraphExpiredAttemptFindingSchema = z.object({
 	workItemId: z.string(),
 	attemptId: z.string(),
-	executorType: WorkItemExecutorTypeSchema,
+	executorType: z.enum(["human", "tedi", "external_agent"]),
 	executorId: z.string(),
 	executorSessionId: z
 		.string()
@@ -2956,3 +2956,23 @@ export const ListWorkItemAttemptsResultSchema = z.object({
 export type ListWorkItemAttemptsResult = z.infer<
 	typeof ListWorkItemAttemptsResultSchema
 >;
+
+/** An immutable release target recorded when a personal maintainer starts an Attempt. */
+export const PersonalCliReleaseTargetSchema = z.strictObject({
+	commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+	version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+});
+export const PersonalCliReleaseAuthorizationInputSchema = z.strictObject({
+	id: z.uuid(),
+	commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+	ref: z.string().min(1).max(300),
+	version: z.string().min(1).max(100),
+});
+export const PersonalCliReleaseAuthorizationSchema = z.strictObject({
+	userId: z.string().min(1),
+	orgId: z.uuid(),
+	attemptId: z.uuid(),
+	expiresAt: z.iso.datetime(),
+	commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+	ref: z.string().min(1),
+});

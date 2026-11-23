@@ -32,7 +32,7 @@ export type WorkActor = {
 };
 
 export type WorkExecutor = {
-	type: "tedi" | "external_agent";
+	type: "human" | "tedi" | "external_agent";
 	id: string;
 };
 

@@ -112,7 +112,7 @@ export interface EvaluateWorkAdmissionParams {
 	workItemId: string;
 	expectedWorkItemVersion: number;
 	expectedAdmissionSpecRevision: string;
-	executorType: "tedi" | "external_agent";
+	executorType: "human" | "tedi" | "external_agent";
 	executorId: string;
 	executorSessionId?: string;
 	externalSessionKey?: string;
@@ -489,7 +489,9 @@ async function evaluate(
 		.where(
 			and(
 				eq(capabilityLinks.organizationId, p.orgId),
-				eq(capabilityLinks.entityKind, p.executorType),
+				p.executorType === "human"
+					? sql`0`
+					: eq(capabilityLinks.entityKind, p.executorType),
 				eq(capabilityLinks.entityId, p.executorId),
 			),
 		)
@@ -546,7 +548,10 @@ async function evaluate(
 	// An approval counts only from a second party: not the executor itself
 	// (such as a designated approval tedi admitting its own run), and not the
 	// owner whose owner-host agent then executes the Work.
-	const executor = { type: p.executorType, id: p.executorId };
+	const executor = {
+		type: p.executorType === "human" ? "user" : p.executorType,
+		id: p.executorId,
+	};
 	const parties =
 		p.executorType === "external_agent"
 			? await resolveCanonicalWorkParties(db, {
@@ -789,7 +794,7 @@ export async function previewWorkAdmission(
 ): Promise<Eligibility> {
 	await requireActivePrincipal(db, {
 		orgId: p.orgId,
-		type: p.executorType,
+		type: p.executorType === "human" ? "user" : p.executorType,
 		id: p.executorId,
 	});
 	if (p.executorType === "external_agent") {
@@ -1059,7 +1064,7 @@ function buildWorkAdmissionStatements(
 				orgId: p.orgId,
 				workItemId: p.workItemId,
 				eventType: "admission.task_contract",
-				actorType: p.executorType,
+				actorType: p.executorType === "human" ? "user" : p.executorType,
 				actorId: p.executorId,
 				payload: {
 					taskContract: terms,
@@ -1109,7 +1114,7 @@ export function rethrowWorkAdmissionWriteError(error: unknown): never {
 			"Required approval is no longer valid",
 		],
 		[
-			/stale admission|active admission|expired admission|inactive .*executor|NOT NULL constraint failed: work_events.org_id/i,
+			/stale admission|admission receipt is not current|active admission|expired admission|inactive .*executor|NOT NULL constraint failed: work_events.org_id/i,
 			"stale_specification",
 			"Work or executor eligibility changed before Attempt start",
 		],

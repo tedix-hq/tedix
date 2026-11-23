@@ -25,6 +25,11 @@ interface StructuredFactoryVerb {
 }
 
 export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
+	"authorize-release": {
+		tool: "authorize_personal_cli_release",
+		write: false,
+		pathField: "id",
+	},
 	wait: {
 		tool: "wait_work_items",
 		write: false,

@@ -103,6 +103,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	add_work_case_dependency: "workItems/addCaseDependency",
 	attach_work_case_item: "workItems/attachCaseWorkItem",
 	authorize_owned_channel: "workItems/authorizeOwnedChannel",
+	authorize_personal_cli_release: "workItems/authorizePersonalCliRelease",
 	cancel_work_interaction: "workInteractions/cancel",
 	cancel_work_items: "workItems/cancel",
 	complete_work_item: "workItems/complete",
@@ -4452,6 +4453,15 @@ describe("native dispatcher coverage", () => {
 			handoff: { work: { host: "codex" } },
 			comment: { args: `${ITEM} An observed result` },
 			"not-before": { args: `${ITEM} 2026-12-01` },
+			"authorize-release": {
+				work: {
+					input: JSON.stringify({
+						commitSha: "a".repeat(40),
+						version: "1.0.1",
+						ref: "refs/heads/main",
+					}),
+				},
+			},
 			"authorize-blog": {
 				work: {
 					campaign: "example",
@@ -4483,6 +4493,7 @@ describe("native dispatcher coverage", () => {
 			trailers: {},
 		};
 		const pathVerbs = new Set([
+			"authorize-release",
 			"case-get",
 			"case-stage",
 			"case-close",
@@ -4634,7 +4645,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(80);
+		expect(covered).toHaveLength(81);
 	});
 });
 

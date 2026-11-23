@@ -50,13 +50,15 @@ export function authorizePush(
 	now = Date.now,
 ): string[] {
 	const auth = row(read(["auth", "status", "--json"]));
-	const identity = row(auth.externalAgent);
-	const currentSession = row(identity.currentSession);
+	const personal = auth.wouldUse === "stored-login";
+	const identity = personal ? {} : row(auth.externalAgent);
+	const currentSession = personal ? {} : row(identity.currentSession);
 	if (
-		!identity.configured ||
-		!identity.principalId ||
-		!identity.organizationId ||
-		auth.wouldUse !== `external-agent:${identity.key}`
+		!personal &&
+		(!identity.configured ||
+			!identity.principalId ||
+			!identity.organizationId ||
+			auth.wouldUse !== `external-agent:${identity.key}`)
 	)
 		throw new Error("Push requires authenticated external-agent credentials");
 	const receipts: string[] = [];
@@ -100,6 +102,64 @@ export function authorizePush(
 			const session = trailer(root, sha, "Agent-Session");
 			if (!UUID.test(workId) || !/^[a-z][a-z0-9-]*:\S+$/.test(session))
 				throw new Error(`${sha}: invalid Work or session trailer`);
+			const version = (revision: string) => {
+				const result = spawnSync(
+					"git",
+					["show", `${revision}:packages/cli/package.json`],
+					{
+						cwd: root,
+						env: detachedGitEnv(),
+						encoding: "utf8",
+					},
+				);
+				return result.status === 0
+					? row(JSON.parse(result.stdout)).version
+					: undefined;
+			};
+			const release =
+				update.ref.startsWith("refs/tags/cli-v") ||
+				/^chore\(cli\): release\b/.test(
+					git(root, ["show", "-s", "--format=%s", sha]),
+				) ||
+				version(sha) !== version(`${sha}^`);
+			if (personal) {
+				if (!release || trailer(root, sha, "Release-Work-Item") !== workId)
+					throw new Error(
+						"Personal pushes require a dedicated CLI release Work",
+					);
+				const authorization = row(
+					read([
+						"work",
+						"authorize-release",
+						workId,
+						"--input",
+						JSON.stringify({
+							commitSha: sha,
+							ref: update.ref,
+							version: version(sha),
+						}),
+						"--json",
+					]),
+				);
+				if (
+					authorization.commitSha !== sha ||
+					authorization.ref !== update.ref ||
+					!UUID.test(String(authorization.attemptId)) ||
+					!UUID.test(String(authorization.orgId)) ||
+					typeof authorization.userId !== "string" ||
+					!authorization.userId.trim() ||
+					session !== `human:${workId}` ||
+					!(Date.parse(String(authorization.expiresAt)) > now())
+				)
+					throw new Error(
+						"Personal release requires a live matching Work Attempt for this human and release",
+					);
+				expiries.push(Date.parse(String(authorization.expiresAt)));
+				receipts.push(
+					`${update.ref} ${sha}: authorized personal CLI release by Attempt ${authorization.attemptId}`,
+				);
+				continue;
+			}
 			const work = row(read(["work", "context", workId, "--json"]));
 			const ledger = row(
 				read(["work", "attempts", workId, "--limit", "1", "--json"]),
@@ -123,26 +183,6 @@ export function authorizePush(
 				throw new Error(
 					`${workId}: push requires a live matching Work Attempt for ${session}`,
 				);
-			const version = (revision: string) => {
-				const result = spawnSync(
-					"git",
-					["show", `${revision}:packages/cli/package.json`],
-					{
-						cwd: root,
-						env: detachedGitEnv(),
-						encoding: "utf8",
-					},
-				);
-				return result.status === 0
-					? row(JSON.parse(result.stdout)).version
-					: undefined;
-			};
-			const release =
-				update.ref.startsWith("refs/tags/cli-v") ||
-				/^chore\(cli\): release\b/.test(
-					git(root, ["show", "-s", "--format=%s", sha]),
-				) ||
-				version(sha) !== version(`${sha}^`);
 			if (
 				release &&
 				(work.workKind !== "operations" ||

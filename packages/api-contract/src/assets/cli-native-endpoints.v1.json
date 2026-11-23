@@ -39,6 +39,7 @@
 		"workItems/appendAttemptSteps",
 		"workItems/attachCaseWorkItem",
 		"workItems/authorizeOwnedChannel",
+		"workItems/authorizePersonalCliRelease",
 		"workItems/cancel",
 		"workItems/complete",
 		"workItems/corroborate",

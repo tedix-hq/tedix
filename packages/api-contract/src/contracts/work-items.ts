@@ -1,4 +1,8 @@
 import {
+	PersonalCliReleaseAuthorizationInputSchema,
+	PersonalCliReleaseAuthorizationSchema,
+} from "../schemas/work-items";
+import {
 	WorkWaitInputSchema,
 	WorkWaitResultSchema,
 } from "../schemas/work-wait";
@@ -1378,6 +1382,17 @@ export const workItemsContract = oc
 				}),
 			)
 			.output(WorkItemRelationSchema),
+
+		authorizePersonalCliRelease: oc
+			.route({
+				method: "POST",
+				path: "/{id}/personal-cli-release-authorization",
+				summary: "Check personal CLI release authority",
+				description:
+					"Read-only check of the signed-in person's live release Attempt for an exact commit, version and ref.",
+			})
+			.input(PersonalCliReleaseAuthorizationInputSchema)
+			.output(PersonalCliReleaseAuthorizationSchema),
 
 		startAttempt: oc
 			.route({

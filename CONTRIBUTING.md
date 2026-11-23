@@ -131,9 +131,9 @@ bun changeset   # pick @tedix/cli, patch or minor, one plain-language line
 To cut a CLI release, a maintainer, deliberately and not as part of a fix:
 
 Create dedicated operations Work whose accepted outcome names the release,
-and obtain a live Attempt for it. This also applies to personal maintainer
-pushes. Keep that Attempt live through both the version commit push and the
-tag push; never copy trailers from a previous release or finished task.
+and obtain a live Attempt for the push. Keep that Attempt live through both
+the version commit push and the tag push; never copy trailers from a previous
+release or finished task.
 The release commit's final paragraph must contain `Work-Item: <release work uuid>`,
 `Release-Work-Item: <same uuid>` and `Agent-Session: <admitted session>`.
 
@@ -150,11 +150,46 @@ The release commit's final paragraph must contain `Work-Item: <release work uuid
 Canonical pushes read Tedix Work and the newest Attempt before validation and
 again before sending refs. Every pushed commit must name an accepted Work
 with an unexpired running Attempt matching its session and the authenticated
-external-agent principal and current session. Push trains group only tickets
-from the same session. Merge and bot commits have the same requirement.
+external-agent principal and current session. Personal releases use the human
+path below. Push trains group only tickets from the same session. Merge and
+bot commits have the same requirement.
 CLI version changes, release commit subjects and `cli-v` tags also require
 the dedicated operations Work and release trailer. Keep ordinary source
 changes on their own Work; the release Work covers the release cut.
+
+For a personal release, use your signed-in CLI from your own terminal, without
+an external-agent selector or owner-host agent session. Prepare the release
+candidate under existing admitted preparation Work. Give its final paragraph
+`Work-Item: <release work uuid>`, `Release-Work-Item: <same uuid>` and
+`Agent-Session: human:<same uuid>`. The human marker identifies the release
+session; the server obtains your identity from your active organization
+membership, never from a trailer, email address or Git author.
+
+Once the candidate's full commit SHA is known, admit the dedicated operations
+Work as yourself, pinning that SHA and package version:
+
+```sh
+tedix --organization <org> -w <profile> work start <release-work-uuid> \
+  --session cli:<release-work-uuid> \
+  --input '{"metadata":{"cliRelease":{"commitSha":"<full-commit-sha>","version":"X.Y.Z"}}}'
+```
+
+Keep the same `--session` on heartbeat and settlement commands. Use
+`work heartbeat <release-work-uuid> --session cli:<release-work-uuid> --watch`
+while pushing the prepared commit to main and its `cli-vX.Y.Z` tag. The hook's
+`work authorize-release` read checks the current login, newest live human
+Attempt and immutable target before and after validation. It accepts only
+that commit on main or that exact tag. A different commit, version, tag,
+human, settled Attempt or expired lease is refused. Settle the release Attempt
+after both pushes. This path requires the matching API migration, tool catalog
+sync and CLI version; unavailable authorization fails closed.
+
+The isolated integration proof uses a fictional human with an opaque user ID,
+real membership/admission handlers, the migrated database and actual disposable
+Git refs. Its CLI transport is replaced locally and source gates are checked
+in the source checkout. It does not verify production login, hosted repository
+permissions or publication. Live repository permission changes require the
+repository owner's separate decision.
 
 Set `tedix.pushOrganization` and `tedix.pushWorkspace` in local Git config,
 or supply `TEDIX_PUSH_ORGANIZATION` and `TEDIX_PUSH_WORKSPACE`. The guard runs

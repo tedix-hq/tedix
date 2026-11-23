@@ -28,7 +28,7 @@ type AttemptAdmissionParams = {
 	now: string;
 } & (
 	| {
-			executor: { type: "tedi"; id: string };
+			executor: { type: "human" | "tedi"; id: string };
 			externalSessionKey?: never;
 	  }
 	| {

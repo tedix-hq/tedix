@@ -299,9 +299,10 @@ function buildAttemptExpiryStatements(
 					.mapWith(workAttempts.id)
 					.as("attempt_id"),
 				eventType: sql<string>`'attempt.expired'`.as("event_type"),
-				actorType: sql`${workAttempts.executorType}`
-					.mapWith(workAttempts.executorType)
-					.as("actor_type"),
+				actorType:
+					sql`CASE WHEN ${workAttempts.executorType}='human' THEN 'user' ELSE ${workAttempts.executorType} END`
+						.mapWith(workAttempts.executorType)
+						.as("actor_type"),
 				actorId: sql`${workAttempts.executorId}`
 					.mapWith(workAttempts.executorId)
 					.as("actor_id"),
@@ -570,7 +571,7 @@ export async function startWorkItemAttempt(
 						.as("work_item_id"),
 					orgId: sql`${workItems.orgId}`.mapWith(workItems.orgId).as("org_id"),
 					executorType: sql<
-						"tedi" | "external_agent"
+						"human" | "tedi" | "external_agent"
 					>`${params.executor.type}`.as("executor_type"),
 					executorId: sql<string>`${params.executor.id}`.as("executor_id"),
 					executorSessionId: sql<string | null>`${params.sessionId ?? null}`.as(
@@ -647,7 +648,11 @@ export async function startWorkItemAttempt(
 				workItemId: workAttempts.workItemId,
 				attemptId: workAttempts.id,
 				eventType: sql<string>`'attempt.started'`.as("event_type"),
-				actorType: workAttempts.executorType,
+				actorType: sql<
+					"user" | "tedi" | "external_agent"
+				>`CASE WHEN ${workAttempts.executorType}='human' THEN 'user' ELSE ${workAttempts.executorType} END`.as(
+					"actor_type",
+				),
 				actorId: workAttempts.executorId,
 				actorSessionId: workAttempts.executorSessionId,
 				payload: sql<
@@ -671,7 +676,8 @@ export async function startWorkItemAttempt(
 					workItemId: params.workItemId,
 					attemptId,
 					eventType: "attempt.started",
-					actorType: params.executor.type,
+					actorType:
+						params.executor.type === "human" ? "user" : params.executor.type,
 					actorId: params.executor.id,
 					actorSessionId: params.sessionId,
 					payload: { runtimeState: "running" },
@@ -799,6 +805,7 @@ export async function getWorkAttemptRepositoryAdmission(
 	attempt: WorkAttempt,
 ) {
 	if (
+		attempt.executorType !== "human" &&
 		attempt.executorType !== "tedi" &&
 		attempt.executorType !== "external_agent"
 	)
@@ -1349,7 +1356,11 @@ export async function settleWorkItemAttempt(
 					workItemId: workAttempts.workItemId,
 					attemptId: workAttempts.id,
 					eventType: sql<string>`'attempt.settled'`.as("event_type"),
-					actorType: workAttempts.executorType,
+					actorType: sql<
+						"user" | "tedi" | "external_agent"
+					>`CASE WHEN ${workAttempts.executorType}='human' THEN 'user' ELSE ${workAttempts.executorType} END`.as(
+						"actor_type",
+					),
 					actorId: workAttempts.executorId,
 					actorSessionId: workAttempts.executorSessionId,
 					payload: sql<

@@ -4,6 +4,7 @@ import {
 	getManyProcedure,
 } from "./work-items/creation-reads";
 import {
+	authorizePersonalCliReleaseProcedure,
 	listAttemptCliProjectionProcedure,
 	listEvidenceCliProjectionProcedure,
 	listEventCliProjectionProcedure,
@@ -166,6 +167,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	corroborate: corroborateProcedure,
 	listCorroborations: listCorroborationsProcedure,
 	addRelation: addRelationProcedure,
+	authorizePersonalCliRelease: authorizePersonalCliReleaseProcedure,
 	startAttempt: startAttemptProcedure,
 	heartbeatAttempt: heartbeatAttemptProcedure,
 	appendAttemptSteps: appendAttemptStepsProcedure,

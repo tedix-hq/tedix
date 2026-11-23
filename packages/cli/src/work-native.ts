@@ -215,6 +215,7 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	respond_work_interaction: "workInteractions/respond",
 	revoke_owned_channel: "workItems/revokeOwnedChannel",
 	settle_work_item_attempt: "workItems/settleAttempt",
+	authorize_personal_cli_release: "workItems/authorizePersonalCliRelease",
 	start_work_item_attempt: "workItems/startAttempt",
 	submit_work_item_evidence: "workItems/submitEvidence",
 	update_work_case: "workItems/updateCase",

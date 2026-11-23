@@ -2873,3 +2873,55 @@ describe("atomic admission and Attempt start", () => {
 		},
 	);
 });
+
+it("human release migration preserves reservations, Attempt links and guards", () => {
+	const boundary = migrations.findIndex((m) =>
+		m.name.endsWith("_human-release-attempts"),
+	);
+	const sqlite = migrated(boundary);
+	seedCore(sqlite);
+	seedTedi(sqlite);
+	admitWithCapacity(sqlite);
+	sqlite.exec(`INSERT INTO work_attempts(id,admission_id,work_item_id,org_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at)
+ VALUES('attempt','admission','work','org','tedi','tedi','running',1,'2026-08-20T01:00:00.000Z','2026-08-20T01:00:00.000Z','2026-08-20T02:00:00.000Z');
+ INSERT INTO work_events(id,org_id,work_item_id,attempt_id,event_type,actor_type,actor_id,occurred_at) VALUES('event','org','work','attempt','proof','user','user','2026-08-20T01:00:00.000Z');
+ INSERT INTO work_evidence(id,work_item_id,org_id,attempt_id,claim_key,kind,uri,submitted_by_type,submitted_by_id,submitted_at) VALUES('evidence','work','org','attempt','proof','test_report','artifact://fixture','user','user','2026-08-20T01:00:00.000Z');`);
+	const tables = [
+		"work_attempts",
+		"work_admissions",
+		"work_events",
+		"work_evidence",
+		"work_resource_reservations",
+		"work_budget_reservations",
+	];
+	const before = tables.map((table) =>
+		sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all(),
+	);
+	const triggers = sqlite
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
+		)
+		.all();
+	sqlite.exec("BEGIN");
+	for (const migration of migrations.slice(boundary))
+		sqlite.exec(migration.sql);
+	sqlite.exec("COMMIT");
+	expect(
+		tables.map((table) =>
+			sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all(),
+		),
+	).toEqual(before);
+	expect(
+		sqlite
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
+			)
+			.all(),
+	).toEqual(triggers);
+	expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+	expect(() =>
+		sqlite.exec(
+			"UPDATE work_admissions SET executor_id='other' WHERE id='admission'",
+		),
+	).toThrow("immutable");
+});

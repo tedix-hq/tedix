@@ -949,6 +949,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"workItems/detachCaseWorkItem": "mcp:work.write",
 	"workItems/restoreFiling": "mcp:work.write",
 	"workItems/authorizeOwnedChannel": "mcp:work.write",
+	"workItems/authorizePersonalCliRelease": "mcp:work.read",
 	"workItems/recordDelegationAutonomyFeedback": "mcp:work.write",
 	"workItems/createCase": "mcp:work.write",
 	"workItems/decline": "mcp:work.write",

@@ -124,7 +124,7 @@ export async function listOrgWorkAttempts(
 		workItemId?: string;
 		runtimeStates?: WorkAttemptRuntimeState[];
 		outcomes?: WorkAttemptOutcome[];
-		executorType?: "tedi" | "external_agent";
+		executorType?: "human" | "tedi" | "external_agent";
 		cursor?: WorkFactoryProjectionCursor;
 		limit?: number;
 	},

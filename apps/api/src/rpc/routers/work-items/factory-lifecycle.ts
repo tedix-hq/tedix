@@ -18,6 +18,7 @@ import {
 	WorkItemPurposeError,
 } from "@tedix/db/queries/work-items/purpose";
 import {
+	PersonalCliReleaseTargetSchema,
 	WorkAttemptCliRowSchema,
 	WorkAttemptSettlementSchema,
 	WorkEvidenceCliRowSchema,
@@ -30,6 +31,7 @@ import {
 import {
 	getAuthoritativeWorkItemAttempt,
 	getRecordedWorkItemAttempt,
+	getWorkAttemptRepositoryAdmission,
 	heartbeatWorkItemAttempt,
 	listWorkItemAttempts,
 	recordWorkAttemptRepository,
@@ -94,6 +96,7 @@ import {
 	corroborationPrincipal,
 	stampExternalAgentMetadata,
 	verifiedExternalAgent,
+	verifiedActiveUserMembership,
 } from "../work-items-principal";
 import {
 	assertWorkItemAccess,
@@ -239,6 +242,13 @@ export async function resolveAttemptIdentity(
 ) {
 	const external = await verifiedExternalAgent(context, orgId);
 	if (external) return { executor: external.executor, external };
+	if (!context.tediId && context.authType === "user") {
+		const member = await verifiedActiveUserMembership(context, orgId);
+		return {
+			executor: { type: "human" as const, id: member.userId },
+			external: null,
+		};
+	}
 	if (!context.tediId) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
@@ -754,6 +764,17 @@ export const startAttemptProcedure = factoryOs.startAttempt.handler(
 			context,
 			workItem.orgId,
 		);
+		if (executor.type === "human") {
+			if (
+				workItem.workKind !== "operations" ||
+				!PersonalCliReleaseTargetSchema.safeParse(input.metadata?.cliRelease)
+					.success
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Human Attempts require operations Work and an exact cliRelease target (commitSha and version)",
+				);
+		}
 		const startedAt = new Date().toISOString();
 		if (input.metadata?.delegatedAssignedWorkItem === true) {
 			// Home may already have admitted this actor without changing ownership.
@@ -772,6 +793,7 @@ export const startAttemptProcedure = factoryOs.startAttempt.handler(
 				if (active) return { workItem, attempt: active, resumed: true };
 			}
 			if (
+				executor.type === "human" ||
 				!isAssignedTediExecutor({
 					accountableOwnerType: workItem.accountableOwnerType,
 					accountableOwnerId: workItem.accountableOwnerId,
@@ -1277,7 +1299,9 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			const { laneNextStepNeedsPerson, routeLaneNextStepToAgent } =
 				await import("../../../services/lane-handoff-routing");
 			const agentNextStep =
-				input.needsUser && !laneNextStepNeedsPerson(input.needsUser)
+				executor.type !== "human" &&
+				input.needsUser &&
+				!laneNextStepNeedsPerson(input.needsUser)
 					? input.needsUser
 					: undefined;
 			const settledAt = new Date().toISOString();
@@ -1328,7 +1352,8 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			}
 			if (completion)
 				await recordWorkCompletedLearning(context, settled.workItem);
-			if (!agentNextStep) return { ...settled, settlement };
+			if (!agentNextStep || executor.type === "human")
+				return { ...settled, settlement };
 			const ask = await routeLaneNextStepToAgent(context.db, {
 				work: settled.workItem,
 				executor,
@@ -1638,3 +1663,62 @@ export const listEventCliProjectionProcedure =
 			nextSequence: rows.length === input.limit ? rows.at(-1)!.sequence : null,
 		});
 	});
+
+/** A personal login authorizes only its own live, dedicated release Attempt. */
+export const authorizePersonalCliReleaseProcedure =
+	cliLedgerOs.authorizePersonalCliRelease.handler(
+		async ({ input, context }) => {
+			const work = await assertWorkItemAccess(context, input.id);
+			if ((await verifiedExternalAgent(context, work.orgId)) || context.tediId)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Personal release authorization requires a human login",
+				);
+			const member = await verifiedActiveUserMembership(context, work.orgId);
+			const page = await listWorkItemAttempts(context.db, {
+				orgId: work.orgId,
+				workItemId: work.id,
+				limit: 1,
+			});
+			const attempt = page.data[0];
+			const admission = attempt
+				? await getWorkAttemptRepositoryAdmission(context.db, attempt)
+				: null;
+			const target = PersonalCliReleaseTargetSchema.safeParse(
+				attempt?.metadata.cliRelease,
+			);
+			if (
+				work.disposition !== "accepted" ||
+				work.workKind !== "operations" ||
+				!attempt ||
+				!admission ||
+				admission.workItemVersion !== work.version ||
+				admission.admissionSpecRevision !== work.admissionSpecRevision ||
+				attempt.executorType !== "human" ||
+				attempt.executorId !== member.userId ||
+				attempt.runtimeState !== "running" ||
+				attempt.outcome !== null ||
+				attempt.finishedAt !== null ||
+				!attempt.expiresAt ||
+				!(Date.parse(attempt.expiresAt) > Date.now()) ||
+				!target.success ||
+				target.data.commitSha !== input.commitSha ||
+				target.data.version !== input.version ||
+				!["refs/heads/main", `refs/tags/cli-v${input.version}`].includes(
+					input.ref,
+				)
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Personal release requires a live matching Work Attempt for the exact release",
+				);
+			return {
+				userId: member.userId,
+				orgId: work.orgId,
+				attemptId: attempt.id,
+				expiresAt: attempt.expiresAt,
+				commitSha: input.commitSha,
+				ref: input.ref,
+			};
+		},
+	);
