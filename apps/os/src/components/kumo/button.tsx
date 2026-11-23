@@ -107,6 +107,13 @@ const COARSE_TOUCH_TARGET =
 const MULTILINE_HEIGHT = "h-auto min-h-11";
 
 /*
+ * Kumo's text buttons set no main-axis alignment, so a stretched button
+ * (`w-full`, `flex-1`) shows its label at the left edge. Center it, as other
+ * apps do; a row meant to read left passes `justify-start`.
+ */
+const CENTERED_LABEL = "justify-center";
+
+/*
  * Kumo has no link variant. A link-styled action reads as text, so it drops
  * the ghost fill and the pill padding: it lines up with the words around it
  * without call-site `px-0` overrides.
@@ -191,6 +198,7 @@ function buttonVariants({
 		textSizeClass(size),
 		variant === "link" && !iconSize && LINK_CLASS,
 		multiline && !iconSize && MULTILINE_HEIGHT,
+		!multiline && !iconSize && CENTERED_LABEL,
 		className,
 	);
 }
@@ -393,6 +401,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 					textSizeClass(size),
 					variant === "link" && LINK_CLASS,
 					multiline && MULTILINE_HEIGHT,
+					!multiline && CENTERED_LABEL,
 					className,
 				)}
 				data-slot="button"

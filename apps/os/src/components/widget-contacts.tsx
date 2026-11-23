@@ -218,7 +218,7 @@ export function WidgetContacts({
 													<TableCell>
 														<Button
 															variant="ghost"
-															className="h-auto whitespace-normal text-left underline"
+															className="h-auto justify-start whitespace-normal text-left underline"
 															onClick={() =>
 																setProfile({
 																	installationId: user.installationId,

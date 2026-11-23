@@ -236,7 +236,7 @@ export function ReadinessOverview({
 										{onSelect ? (
 											<Button
 												variant="ghost"
-												className="min-h-11 max-w-full whitespace-normal text-left"
+												className="min-h-11 max-w-full justify-start whitespace-normal text-left"
 												onClick={() => onSelect(workItem.id)}
 											>
 												{workItem.title}

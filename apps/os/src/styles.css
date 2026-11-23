@@ -901,11 +901,6 @@ a {
 	background: var(--border);
 }
 
-.identity-provider-button {
-	justify-content: flex-start;
-	padding-inline: 14px;
-}
-
 .identity-provider-button svg {
 	flex: 0 0 auto;
 }

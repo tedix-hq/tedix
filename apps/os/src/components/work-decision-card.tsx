@@ -1555,7 +1555,7 @@ export function WorkDecisionCard({
 																kind === "decision" ||
 																kind === "adr" ||
 																action.description
-																	? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
+																	? "h-auto min-h-20 w-full min-w-0 justify-start whitespace-normal text-left"
 																	: "min-h-11 grow sm:grow-0"
 															}
 															data-suggested={action === suggested || undefined}
