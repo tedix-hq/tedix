@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	continueRun: vi.fn(),
 	queue: vi.fn(),
 	requeueStale: vi.fn(),
+	failConsumedStale: vi.fn(),
 	listDue: vi.fn(),
 	record: vi.fn(),
 	receipt: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	continueOwnerToolApprovalExecution: mocks.continueRun,
 	queueOwnerToolApprovalExecution: mocks.queue,
 	requeueStaleContinuableOwnerToolApprovals: mocks.requeueStale,
+	failConsumedStaleOwnerToolRuns: mocks.failConsumedStale,
 	listDueOwnerToolApprovals: mocks.listDue,
 	recordOwnerToolApprovalExecution: mocks.record,
 }));
@@ -115,6 +117,7 @@ beforeEach(() => {
 	mocks.continueRun.mockResolvedValue(true);
 	mocks.queue.mockResolvedValue(true);
 	mocks.requeueStale.mockResolvedValue(0);
+	mocks.failConsumedStale.mockResolvedValue(0);
 	mocks.listDue.mockResolvedValue([]);
 	mocks.record.mockImplementation(async (_db, input) => input.execution);
 	mocks.receipt.mockResolvedValue({});

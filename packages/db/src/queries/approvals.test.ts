@@ -33,6 +33,7 @@ import {
 	findPendingOwnerToolApproval,
 	getApprovalRequestById,
 	listApprovalRequests,
+	failConsumedStaleOwnerToolRuns,
 	listDueOwnerToolApprovals,
 	reclaimOwnerToolApprovalExecution,
 	listProvisionalOutcomes,
@@ -924,6 +925,67 @@ describe("exact owner tool approval consumption", () => {
 		).toHaveLength(1);
 		expect(await consumeOwnerToolApproval(db, consume)).toBe(true);
 		expect(await consumeOwnerToolApproval(db, consume)).toBe(false);
+	});
+
+	it("makes a cut-off run due again, or ends it when the gateway already consumed it", async () => {
+		const { db } = setup();
+		for (const id of ["cut-1", "cut-2"]) {
+			await createApprovalRequest(db, {
+				id,
+				orgId: "org-1",
+				tediId: "tedi-1",
+				actionType: "mcp.tool_call",
+				description: "Commit theme files",
+				payload: {
+					kind: "mcp_tool_call",
+					fingerprint: "exact-input",
+					target: { transport: "mcp", endpoint: null },
+					args: {},
+				},
+				createdAt: "2026-01-01T00:00:00.000Z",
+				expiresAt: "2099-01-02T00:00:00.000Z",
+			});
+			await resolveApprovalRequest(db, id, {
+				status: "approved",
+				resolvedBy: "owner-1",
+			});
+			const claim = {
+				id,
+				organizationId: "org-1",
+				now: "2026-01-01T01:00:00.000Z",
+			};
+			expect(await claimOwnerToolApprovalExecution(db, claim)).toBe(true);
+		}
+		await consumeOwnerToolApproval(db, {
+			id: "cut-2",
+			organizationId: "org-1",
+			fingerprint: "exact-input",
+			now: "2026-01-01T01:00:01.000Z",
+		});
+		const later = "2026-01-01T01:30:00.000Z";
+		// Run inside the approving request, so no nextAttemptAt: still due once stale.
+		expect(
+			await listDueOwnerToolApprovals(db, "2026-01-01T01:05:00.000Z"),
+		).toHaveLength(0);
+		expect(
+			(await listDueOwnerToolApprovals(db, later)).map((row) => row.id),
+		).toEqual(["cut-1"]);
+		expect(
+			await failConsumedStaleOwnerToolRuns(db, {
+				now: later,
+				staleBefore: "2026-01-01T01:20:00.000Z",
+			}),
+		).toBe(1);
+		expect((await getApprovalRequestById(db, "cut-2"))?.payload).toMatchObject({
+			execution: {
+				status: "failed",
+				retryable: false,
+				startedAt: "2026-01-01T01:00:00.000Z",
+			},
+		});
+		expect((await getApprovalRequestById(db, "cut-1"))?.payload).toMatchObject({
+			execution: { status: "running" },
+		});
 	});
 
 	it("queues an approved purge for the queue and re-queues only stale deleting purge runs", async () => {

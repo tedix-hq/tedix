@@ -1366,6 +1366,41 @@ export async function getApprovalAnchor(
 }
 
 /** Installation sweep: only explicitly deferred, unconsumed approved calls. */
+/**
+ * End runs that were cut off after the gateway consumed the approval. The
+ * call may have changed the target, so it is never run again; the record
+ * says the outcome is unknown instead of staying "running" forever.
+ */
+export async function failConsumedStaleOwnerToolRuns(
+	db: DbClient,
+	input: { now: string; staleBefore: string },
+): Promise<number> {
+	const execution: OwnerToolApprovalExecution = {
+		status: "failed",
+		startedAt: input.now,
+		finishedAt: input.now,
+		error:
+			"The run was cut off after the call started, so it may or may not have taken effect. Check the result before requesting it again.",
+		retryable: false,
+	};
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(json_set(${JSON.stringify(execution)}, '$.startedAt', json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt'))))`,
+		})
+		.where(
+			and(
+				openOwnerToolRun,
+				sql`${ownerToolRunStatus} = 'running'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore}`,
+				sql`${tediApprovalRequests.consumedAt} IS NOT NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length;
+}
+
 export async function listDueOwnerToolApprovals(
 	db: DbClient,
 	now: string,
@@ -1383,7 +1418,9 @@ export async function listDueOwnerToolApprovals(
 				sql`${ownerToolRunStatus} IN ('queued', 'running')`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
 				sql`(${tediApprovalRequests.executionStatus} = 'queued' OR (${tediApprovalRequests.executionStatus} = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now}`,
+				// A stale run is due whether or not a deferral scheduled it: a call run
+				// inside the approving request has no nextAttemptAt when that request is cut off.
+				sql`(${tediApprovalRequests.executionStatus} = 'running' OR json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now})`,
 				sql`${tediApprovalRequests.consumedAt} IS NULL`,
 			),
 		)

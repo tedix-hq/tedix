@@ -42,6 +42,7 @@ import {
 	queueOwnerToolApprovalExecution,
 	type OwnerToolApprovalExecution,
 	reclaimOwnerToolApprovalExecution,
+	failConsumedStaleOwnerToolRuns,
 	requeueStaleContinuableOwnerToolApprovals,
 	recordOwnerToolApprovalExecution,
 } from "@tedix/db/queries/approvals";
@@ -879,6 +880,12 @@ export async function runQueuedOwnerToolApprovals(
 		now: new Date(startedAt).toISOString(),
 		staleBefore: new Date(startedAt - STALE_OWNER_TOOL_RUN_MS).toISOString(),
 		endpoints: [...CONTINUABLE_OWNER_TOOL_ENDPOINTS],
+	});
+	// A cut-off run the gateway already consumed can't run again; end it so it
+	// stops showing as running. Unconsumed cut-off runs are due below and rerun.
+	await failConsumedStaleOwnerToolRuns(context.db, {
+		now: new Date(startedAt).toISOString(),
+		staleBefore: new Date(startedAt - STALE_OWNER_TOOL_RUN_MS).toISOString(),
 	});
 	// The first due call always runs; later ones only while time is left.
 	const mayStart = () => tick.executed === 0 || now() < deadline;
