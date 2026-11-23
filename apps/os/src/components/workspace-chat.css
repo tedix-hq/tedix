@@ -749,6 +749,29 @@
 	overscroll-behavior: contain;
 }
 
+/* An empty list is a quiet note in the open space above the composer, not a box. */
+.workspace-chat-list [data-slot="empty"][data-appearance="quiet"] {
+	flex: 1 1 auto;
+	justify-content: center;
+	border: 0 !important;
+	background: none !important;
+	animation: workspace-chat-empty-in var(--duration-tedix-standard, 200ms)
+		var(--ease-tedix-standard, ease-out);
+}
+
+@keyframes workspace-chat-empty-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-chat-list [data-slot="empty"][data-appearance="quiet"] {
+		animation: none;
+	}
+}
+
 .workspace-chat-list ul {
 	display: flex;
 	flex-direction: column;

@@ -1053,7 +1053,6 @@ describe("Workspace row actions in the list", () => {
 			workspaceId: SECOND_WORKSPACE_ID,
 			favorite: true,
 		});
-		expect(container.textContent).toContain("Favorite saved.");
 		act(() => root.unmount());
 	});
 
@@ -1195,7 +1194,6 @@ describe("Workspace library recovery", () => {
 		const pending = deferred<{ items: [] }>();
 		api.workspacePreferences.list.mockReturnValue(pending.promise);
 		const { container, root } = await renderPage();
-		expect(container.textContent).toContain("Loading favorites");
 		expect(
 			container.querySelector(`a[href="/workspace/${WORKSPACE_ID}"]`),
 		).not.toBeNull();
@@ -1342,7 +1340,6 @@ describe("Workspace library recovery", () => {
 		expect(pendingToggle.disabled).toBe(true);
 		click(pendingToggle);
 		expect(api.workspacePreferences.setFavorite).toHaveBeenCalledTimes(1);
-		expect(container.textContent).toContain("Saving favorite");
 		act(() => root.unmount());
 		api.workspacePreferences.setFavorite.mockRejectedValue(
 			new Error("write refused"),

@@ -403,7 +403,7 @@ export function ConversationListView({
 	/** Null or absent: no row can be renamed. */
 	onRename?: ((conversationId: string, title: string) => void) | null;
 	maxTitleLength?: number;
-	/** With `onQueryChange`, a search field sits above the list. */
+	/** With `onQueryChange`, a search field sits above a list that has rows or a query. */
 	query?: string;
 	onQueryChange?: (query: string) => void;
 	/** The search is still loading. */
@@ -432,7 +432,8 @@ export function ConversationListView({
 			data-active-conversation={activeId ?? "new"}
 		>
 			{toolbar}
-			{onQueryChange ? (
+			{/* Nothing to search yet: the empty state stands alone. */}
+			{onQueryChange && (rows.length > 0 || query) ? (
 				<SearchInput
 					aria-busy={searching}
 					aria-label="Search conversations"

@@ -55,6 +55,8 @@ type Props = {
 	workspaceId?: string;
 	onCreated: (output: OsOutput) => void;
 	onAppCreated?: (gadget: OsGadget) => void;
+	/** A side panel uses a quiet button; a page keeps the filled one. */
+	variant?: "default" | "ghost";
 };
 
 type CreationKind = "document" | "sheet" | "presentation";
@@ -65,7 +67,9 @@ export function NewResourceMenu(props: Props) {
 	return (
 		<>
 			<DropdownMenu>
-				<DropdownMenuTrigger render={<Button size="sm" />}>
+				<DropdownMenuTrigger
+					render={<Button size="sm" variant={props.variant ?? "default"} />}
+				>
 					<Plus size={16} />
 					New
 				</DropdownMenuTrigger>

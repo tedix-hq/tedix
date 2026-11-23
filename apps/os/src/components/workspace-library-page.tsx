@@ -220,18 +220,8 @@ export function WorkspaceLibraryPage({
 				/>
 			) : null}
 			{view === "active" &&
-			(preferences.isPending ||
-				preferences.isError ||
-				favoriteRefreshFailed ||
-				favorite.isPending ||
-				favorite.isError ||
-				favorite.isSuccess) ? (
+			(preferences.isError || favoriteRefreshFailed || favorite.isError) ? (
 				<div className="grid gap-4" aria-live="polite">
-					{preferences.isPending ? (
-						<Text role="body" tone="secondary">
-							Loading favorites… Workspace browsing is available.
-						</Text>
-					) : null}
 					{preferences.isError || favoriteRefreshFailed ? (
 						<LoadError
 							title={
@@ -247,11 +237,6 @@ export function WorkspaceLibraryPage({
 							help="Favorite state is unverified. You can still open workspaces."
 						/>
 					) : null}
-					{favorite.isPending ? (
-						<Text role="body" tone="secondary">
-							Saving favorite…
-						</Text>
-					) : null}
 					{favorite.isError ? (
 						<Alert variant="destructive">
 							<AlertTitle>Could not save favorite</AlertTitle>
@@ -259,11 +244,6 @@ export function WorkspaceLibraryPage({
 								{favorite.error.message}
 							</AlertDescription>
 						</Alert>
-					) : null}
-					{favorite.isSuccess && !favoriteRefreshFailed ? (
-						<Text role="body" tone="secondary">
-							Favorite saved.
-						</Text>
 					) : null}
 				</div>
 			) : null}

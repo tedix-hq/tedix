@@ -445,6 +445,7 @@ export function WorkspaceOutputsPanel({
 				{expanded && workspaceId && (
 					<div className="ml-auto flex items-center gap-1">
 						<NewResourceMenu
+							variant="ghost"
 							workspaceId={workspaceId}
 							onCreated={(output) =>
 								list.onSelect({ type: "output", id: output.id })

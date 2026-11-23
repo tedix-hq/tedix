@@ -213,7 +213,8 @@ export function ConversationList({
 				Archived
 			</Text>
 		</div>
-	) : (
+	) : conversations.length === 0 ? null : (
+		// An empty workspace is already a new conversation: the composer is below.
 		<div className="flex items-center justify-between gap-2">
 			<Button onClick={() => onSelect(null)} size="sm" variant="secondary">
 				New conversation
