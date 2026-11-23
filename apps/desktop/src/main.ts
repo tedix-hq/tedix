@@ -1201,7 +1201,13 @@ async function showLaunchWindow(): Promise<void> {
 	} catch {
 		// The welcome screen still offers the demo when the network is down.
 	}
-	if (quitting || mainWindow?.isVisible() || setupWindow?.isVisible()) return;
+	if (
+		quitting ||
+		localChosen ||
+		mainWindow?.isVisible() ||
+		setupWindow?.isVisible()
+	)
+		return;
 	if (hasSession || appSignIn.state === "in") showMain();
 	else openSetup();
 }
@@ -1455,6 +1461,7 @@ function openSetup(): void {
 	setupWindow = window;
 	window.setMenuBarVisibility(false);
 	window.on("closed", () => {
+		setupWindow = undefined;
 		writeFileSync(setUpFile(), new Date().toISOString());
 		// After the first-run setup the Tedix window comes next, unless the
 		// person chose to try Tedix on this Mac without an account.
