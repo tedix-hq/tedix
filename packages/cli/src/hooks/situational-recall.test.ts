@@ -97,6 +97,10 @@ describe("pre-tool recall", () => {
 			offline = false;
 			lessonText = "Updated companion edit.";
 			await runSituationalRecall(deps);
+			expect(calls.filter((a) => a.includes("code"))).toHaveLength(2);
+			expect(output).toHaveLength(3);
+			now = new Date(+now + CACHE_TTLS_MS["recall-failure"] + 1);
+			await runSituationalRecall(deps);
 			expect(calls.filter((a) => a.includes("code"))).toHaveLength(3);
 			expect(
 				JSON.parse(output.at(-1)!).hookSpecificOutput.additionalContext,
@@ -129,7 +133,9 @@ it("isolates recall catalogs by owner, organization, gateway, repository and har
 	let credentialOrganizationId = org;
 	let responseOrg = org;
 	let requests = 0;
+	let now = new Date("2026-11-23T00:00:00Z");
 	const deps: HookDeps = {
+		now: () => now,
 		cwd: dir,
 		env: { TEDIX_CONFIG_DIR: dir },
 		stdin: "{}",
@@ -183,6 +189,7 @@ it("isolates recall catalogs by owner, organization, gateway, repository and har
 		credentialOrganizationId = "22222222-2222-4222-8222-222222222222";
 		await expect(recall()).rejects.toThrow("organization differs");
 		responseOrg = credentialOrganizationId;
+		now = new Date(+now + CACHE_TTLS_MS["recall-failure"] + 1);
 		await recall();
 		expect(requests).toBe(8);
 		// A mismatched response was not cached; a later correct read recovers.

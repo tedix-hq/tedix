@@ -314,7 +314,10 @@ headers are refused.
 The CLI keeps seven days of local HTTP request counts in
 `~/.tedix/mcp-traffic/YYYY-MM-DD.ndjson` (or under `TEDIX_CONFIG_DIR`).
 Each row records the UTC time, HTTP method and component: `supervisor`,
-`dispatcher`, `runner-heartbeat`, `runner-steps`, or `cli` for other calls.
+`dispatcher`, `runner-heartbeat`, `runner-steps`, `hook:<name>`, or `cli` for other calls.
+New rows also record `rpcMethod` and `target` from the MCP routing headers,
+when present. Group by these fields to find repeated catalog or Work calls;
+older rows without them still count toward the component's total.
 Count rows by the first 13 characters of `at` and by `component` to compare
 requests per hour. These are HTTP attempts, including retries and protocol
 setup, rather than tool invocation counts. Request bodies and credentials
@@ -326,6 +329,8 @@ supervisor answer reads back off to two minutes. A shared admission deferral
 is checked at most once per five minutes for an unchanged Work revision.
 Lease renewals keep their existing cadence. Compare complete hours after all
 local runners have updated; older CLI processes do not write these counts.
+Failed lesson catalog reads share a 30-second retry window and never supply
+expired lessons. Dispatcher scans request up to 100 items per page.
 
 ### Factories
 

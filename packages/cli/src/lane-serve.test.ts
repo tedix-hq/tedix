@@ -1270,6 +1270,35 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 
+	it("walks every dispatch page with fewer list calls and leaves live Attempts alone", async () => {
+		const f = fixture();
+		f.items.splice(
+			0,
+			f.items.length,
+			...Array.from({ length: 205 }, (_, n) => ({
+				...item(n + 1),
+				activeAttempt: {},
+			})),
+		);
+		const cli = f.deps.cli!;
+		const offsets: number[] = [];
+		f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+			const result = await cli<T>(args, env);
+			if (args[5] !== "dispatch-list") return result;
+			const input = JSON.parse(args[args.indexOf("--input") + 1]!);
+			offsets.push(input.offset);
+			return {
+				data: f.items.slice(input.offset, input.offset + input.limit),
+				pagination: { hasMore: input.offset + input.limit < f.items.length },
+			} as T;
+		};
+		await f.restart().tick();
+		expect(offsets).toEqual([0, 100, 200]);
+		expect(f.events.some((event) => event.verb === "start")).toBe(false);
+		const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+		expect(log).toContain(f.items.at(-1)!.id);
+	});
+
 	it("retries unready starts after fresh starts across pages following a restart", async () => {
 		const f = fixture();
 		const blocked = f.items.slice();

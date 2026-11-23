@@ -3566,6 +3566,33 @@ describe("native Work bootstrap cache", () => {
 		]);
 	});
 
+	test("concurrent commands retain both resolutions instead of repeating catalog reads", async () => {
+		const { cache } = memoryCache();
+		const fixture = makeContext({}, undefined, () => ({ data: [] }));
+		fixture.ctx.bootstrapCache = cache;
+		await callConfiguredNativeTool(fixture.ctx, "work.list_work_items", {});
+		fixture.nativeCalls.length = 0;
+		const callables = [
+			"work.list_work_item_attempts",
+			"dispatcher.get_runner_rules",
+		];
+		await Promise.all(
+			callables.map((callable) =>
+				callConfiguredNativeTool({ ...fixture.ctx }, callable, {}),
+			),
+		);
+		fixture.nativeCalls.length = 0;
+		await Promise.all(
+			callables.map((callable) =>
+				callConfiguredNativeTool({ ...fixture.ctx }, callable, {}),
+			),
+		);
+		expect(names(fixture.nativeCalls)).toEqual([
+			"configured_work__list_work_item_attempts",
+			"configured_dispatcher__get_runner_rules",
+		]);
+	});
+
 	test("a stale cached tool name is discarded and the resolved tool is called", async () => {
 		const { cache, entries } = memoryCache();
 		const fixture = makeContext({}, undefined, () => ({ data: [] }));

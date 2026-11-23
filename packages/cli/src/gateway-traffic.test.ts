@@ -29,7 +29,11 @@ it("counts failed HTTP attempts without storing request secrets and expires old 
 		);
 		const input = {
 			method: "POST",
-			headers: { Authorization: "secret" },
+			headers: {
+				Authorization: "secret",
+				"Mcp-Method": "tools/call",
+				"Mcp-Name": "catalog_describe",
+			},
 			body: "private",
 		};
 		await expect(measured("https://example.test/mcp", input)).rejects.toThrow(
@@ -48,6 +52,8 @@ it("counts failed HTTP attempts without storing request secrets and expires old 
 				at: "2026-01-20T12:00:00.000Z",
 				component: "runner-steps",
 				method: "POST",
+				rpcMethod: "tools/call",
+				target: "catalog_describe",
 			}),
 		);
 	} finally {

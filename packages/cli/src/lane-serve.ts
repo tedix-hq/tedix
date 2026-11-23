@@ -4247,7 +4247,7 @@ export class LaneDispatcher {
 							...(this.options.project
 								? { projectId: this.options.project }
 								: {}),
-							limit: 25,
+							limit: 100,
 							offset,
 						}),
 					]).catch((error: unknown) => {

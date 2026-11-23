@@ -264,6 +264,14 @@ test("four sessions share one catalog read per window and retry failures", async
 				() => new Date(now),
 			),
 		).rejects.toThrow("offline");
+		const failures = await Promise.allSettled(
+			Array.from({ length: 8 }, () =>
+				readRecallCache(env, keys[0], load, () => new Date(now)),
+			),
+		);
+		expect(failures.every((result) => result.status === "rejected")).toBe(true);
+		expect(requests).toBe(3);
+		now += CACHE_TTLS_MS["recall-failure"] + 1;
 		await readRecallCache(env, keys[0], load, () => new Date(now));
 		expect(requests).toBe(4);
 	} finally {

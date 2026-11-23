@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { credentialDirectory } from "./credential-store";
+import { MCP_METHOD_HEADER, MCP_NAME_HEADER } from "@tedix/mcp-shared/protocol";
 
 const components = [
 	"cli",
@@ -49,6 +50,12 @@ export function gatewayTrafficFetch(
 			) {
 				const at = new Date((options.now ?? Date.now)()).toISOString();
 				const day = at.slice(0, 10);
+				const headers = new Headers(
+					init?.headers ??
+						(input instanceof Request ? input.headers : undefined),
+				);
+				const rpcMethod = headers.get(MCP_METHOD_HEADER) ?? undefined;
+				const target = headers.get(MCP_NAME_HEADER) ?? undefined;
 				mkdirSync(directory, { recursive: true, mode: 0o700 });
 				if (cleanedDay !== day) {
 					const cutoff = new Date(Date.parse(at) - 7 * 86_400_000)
@@ -71,6 +78,8 @@ export function gatewayTrafficFetch(
 						component: source,
 						method:
 							init?.method ?? (input instanceof Request ? input.method : "GET"),
+						rpcMethod,
+						target,
 					})}\n`,
 					{ mode: 0o600 },
 				);

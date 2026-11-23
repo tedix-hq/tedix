@@ -14,6 +14,7 @@ export type CacheKind =
 	| "lessons"
 	| "next-work"
 	| "recall"
+	| "recall-failure"
 	| "recall-last";
 
 /**
@@ -27,6 +28,7 @@ export const CACHE_TTLS_MS: Record<CacheKind, number> = {
 	lessons: 2 * 60_000,
 	"next-work": 2 * 60_000,
 	recall: 5 * 60_000,
+	"recall-failure": 30_000,
 	/** One session repeating the same tool situation reuses its last answer. */
 	"recall-last": 60_000,
 };
@@ -104,7 +106,17 @@ export async function readRecallCache(
 		}
 		const shared = readCache(env, kind, key, now());
 		if (shared) return shared.value;
-		const value = await load();
+		const failureKey = `${kind}:${key}`;
+		if (readCache(env, "recall-failure", failureKey, now()))
+			throw new Error("Catalog read recently failed");
+		let value: JsonObject;
+		try {
+			value = await load();
+		} catch (error) {
+			// Coalesce failures too, so queued hooks cannot each retry an outage.
+			writeCache(env, "recall-failure", failureKey, {}, now());
+			throw error;
+		}
 		writeCache(env, kind, key, value, now());
 		return value;
 	} finally {

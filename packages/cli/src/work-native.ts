@@ -335,7 +335,11 @@ function recordNativeTool(
 	if (!key || !state.context || state.tools?.[callable] === name) return;
 	state.tools = { ...state.tools, [callable]: name };
 	const cached = ctx.bootstrapCache!.read(key);
-	if (cached) ctx.bootstrapCache!.write(key, { ...cached, tools: state.tools });
+	if (cached)
+		ctx.bootstrapCache!.write(key, {
+			...cached,
+			tools: { ...cached.tools, ...state.tools },
+		});
 }
 
 /** Drop a cached bootstrap that failed to resolve; the next read fetches it fresh. */
@@ -567,10 +571,17 @@ export async function boardCall(
 				throw new Error("Native Work output schema is absent");
 			z.fromJSONSchema(row.outputSchema);
 			if (!cachedResolution && key && entry) {
+				// Other commands may have resolved another callable during our reads.
+				const latest = ctx.bootstrapCache!.read(key);
+				const current =
+					latest &&
+					JSON.stringify(latest.bootstrap) === JSON.stringify(entry.bootstrap)
+						? latest
+						: entry;
 				ctx.bootstrapCache!.write(key, {
-					...entry,
+					...current,
 					resolutions: {
-						...entry.resolutions,
+						...current.resolutions,
 						[callable]: {
 							at: Date.now(),
 							catalogHash:
