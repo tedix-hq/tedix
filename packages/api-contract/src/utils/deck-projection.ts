@@ -12,6 +12,7 @@ import type { ApprovalRequest } from "../contracts/tedi-approvals";
 import type { DecisionLearningModel } from "../schemas/decision-learning";
 import { DecisionCardPresentationSchema } from "../schemas/decision-card-presentation";
 import type { DeckCard } from "../schemas/attention";
+import { informationalCapture } from "./deck-ask";
 import { cardIsDue } from "./card-schedule";
 import { deckAsk } from "./deck-ask";
 import {
@@ -395,14 +396,7 @@ export function projectDeckCards(input: {
 			continue;
 		// Automatic follow-up reminders are listed apart, never as decisions.
 		if (isCommitmentReminder(m)) continue;
-		if (
-			m.schema === "tedix.decision-capture.v1" &&
-			typeof m.attention === "object" &&
-			m.attention &&
-			"kind" in m.attention &&
-			m.attention.kind === "fyi"
-		)
-			continue;
+		if (informationalCapture(m) && input.destination !== "all") continue;
 		if (
 			m.schema === "tedix.outbound.v1" &&
 			["reviewing", "feedback"].includes(String(m.outboundStatus))
@@ -479,7 +473,7 @@ export function projectDeckCards(input: {
 	}
 	for (const row of input.runtime) {
 		if (row.status !== "pending" || !cardIsDue(row, now, timeZone)) continue;
-		const route = classifyDeckCard(
+		const classified = classifyDeckCard(
 			{
 				kind: "approval",
 				classId: `approval.${row.actionType}`,
@@ -495,6 +489,12 @@ export function projectDeckCards(input: {
 			routing,
 			now,
 		);
+		const route =
+			classified.destination === "feed" &&
+			row.payload.kind === "mcp_machine_tool_call" &&
+			row.review.decisionMode === "approve_or_reject"
+				? { ...classified, destination: "deck" as const, reason: "person_ask" }
+				: classified;
 		input.onRoute?.({ id: `approval:${row.id}`, ...route });
 		if (route.destination !== "deck" && input.destination !== "all") continue;
 		cards.push({
@@ -523,7 +523,11 @@ export function projectDeckCards(input: {
 		staleDraftHours: input.staleDraftHours,
 	});
 	applyDeckPriority(cards, now, timeZone);
-	return sortByDecisionFreshness(cards, now, timeZone);
+	return sortByDecisionFreshness(
+		cards.filter((card) => !card.handled && !card.expired),
+		now,
+		timeZone,
+	);
 }
 
 type FreshnessCard = Parameters<typeof compareDecisionFreshness>[0];

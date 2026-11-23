@@ -8,6 +8,7 @@ import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import {
 	MachineApprovalReview,
 	machineApprovalData,
+	exactFileQuestion,
 	redactMachineApproval,
 } from "@/components/machine-approval-review";
 import { useEffect, useRef, useState } from "react";
@@ -86,7 +87,16 @@ export function ApprovalManifestActions({
 						render={<li />}
 						className="grid gap-3 px-3 py-3"
 					>
-						<ApprovalDecisionCopy approval={request} />
+						{machineApprovalData(request.payload) ? (
+							<>
+								<Text weight="semibold">
+									{request.review.summary || request.description}
+								</Text>
+								<MachineApprovalReview payload={request.payload} />
+							</>
+						) : (
+							<ApprovalDecisionCopy approval={request} />
+						)}
 						<div className="flex flex-wrap gap-2">
 							<Badge variant="outline">
 								{action.inclusion === "requested"
@@ -174,7 +184,6 @@ export function ApprovalManifestActions({
 							<BrowserTakeoverLiveView approvalId={request.id} />
 						) : null}
 						<ApprovalProvenanceDisclosure approvalRequestId={request.id} />
-						<MachineApprovalReview payload={request.payload} />
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
 							<SegmentedControl
 								ariaLabel={`Decision for ${request.description}`}
@@ -244,14 +253,14 @@ export function ApprovalManifestReview({
 	}, [query.data?.manifestHash]);
 	const resolve = useMutation({
 		retry: false,
-		mutationFn: async () => {
+		mutationFn: async (choices: Record<string, Decision>) => {
 			if (!query.data)
 				throw new Error("Load the exact requests before deciding.");
 			return osApi.tediApprovals.resolveReviewManifest({
 				approvalRequestIds,
 				expectedManifestHash: query.data.manifestHash,
 				decisions: query.data.actions.flatMap((action) => {
-					const decision = decisions[action.approval.id];
+					const decision = choices[action.approval.id];
 					return decision
 						? [
 								{
@@ -277,18 +286,63 @@ export function ApprovalManifestReview({
 		const next = await query.refetch();
 		if (!next.isError) setSubmitted(false);
 	};
+	const single =
+		query.data?.actions.length === 1 ? query.data.actions[0] : undefined;
+	const fileQuestion =
+		single &&
+		!single.dependencies.length &&
+		!single.vetoCascadeApprovalRequestIds.length &&
+		single.approval.id === approvalRequestIds[0] &&
+		approvalRequestIds.length === 1 &&
+		exactFileQuestion(single.approval.payload);
+	if (
+		single &&
+		fileQuestion &&
+		!submitted &&
+		!query.isError &&
+		!resolve.isError &&
+		single.approval.status === "pending" &&
+		single.approval.review.decisionMode === "approve_or_reject" &&
+		!single.approval.review.timeout.expired &&
+		Date.parse(single.approval.expiresAt) > Date.now()
+	) {
+		const submit = (choice: Decision) => {
+			setSubmitted(true);
+			resolve.mutate({ [single.approval.id]: choice });
+		};
+		return (
+			<section
+				aria-label="Review exact files"
+				className="grid gap-3 rounded-xl border border-kumo-line p-4"
+			>
+				<Text as="h3" weight="semibold">
+					{fileQuestion}
+				</Text>
+				<Text>{single.approval.description}</Text>
+				<MachineApprovalReview payload={single.approval.payload} />
+				<div className="flex flex-wrap gap-2">
+					<Button disabled={query.isFetching} onClick={() => submit("approve")}>
+						Allow once
+					</Button>
+					<Button
+						variant="outline"
+						disabled={query.isFetching}
+						onClick={() => submit("veto")}
+					>
+						Decline
+					</Button>
+				</div>
+			</section>
+		);
+	}
 	return (
 		<section aria-label="Review selected exact requests" className="grid gap-3">
-			<Text as="h3" role="section">
-				Review selected requests
-			</Text>
-			<Text as="p" role="body" className="m-0">
-				The server includes every action in each selected request's hard
-				dependency graph. Each request keeps its own authority, and every
-				decision is explicit. Vetoes and their dependent cancellations happen
-				first; independent approvals follow the displayed order. Actions without
-				a choice stay pending.
-			</Text>
+			{query.data && query.data.actions.length > 1 && (
+				<Text>
+					Choose which linked requests to allow. Unanswered requests stay
+					pending.
+				</Text>
+			)}
 			{query.isPending ? (
 				<LoadingArea className="h-24" label="Loading exact requests" />
 			) : null}
@@ -377,7 +431,7 @@ export function ApprovalManifestReview({
 					}
 					onClick={() => {
 						setSubmitted(true);
-						resolve.mutate();
+						resolve.mutate(decisions);
 					}}
 				>
 					Submit explicit decisions

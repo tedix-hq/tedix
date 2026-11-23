@@ -240,7 +240,7 @@ describe("projection and ranking", () => {
 		expect(cards.find((card) => card.id === "later")?.overdue).toBe(false);
 	});
 
-	it("shows handled and expired asks as such, never overdue, and ranks them last", () => {
+	it("omits handled and expired asks while keeping an overdue open decision", () => {
 		const handled = row("handled", {}, "2026-10-18T09:00:00.000Z");
 		handled.workItem = {
 			id: "11111111-1111-4111-8111-111111111111",
@@ -266,20 +266,14 @@ describe("projection and ranking", () => {
 			now,
 			timeZone: "Europe/Berlin",
 		});
-		expect(cards.map((card) => card.id)).toEqual([
-			"late",
-			"handled",
-			"expired",
-		]);
+		expect(cards.map((card) => card.id)).toEqual(["late"]);
 		expect(cards[0]).toMatchObject({ overdue: true });
-		expect(cards[1]).toMatchObject({ overdue: false, handled: true });
-		expect(cards[2]).toMatchObject({ overdue: false, expired: true });
 		const text = attentionMarkdown(
 			cards.map((card, index) => deckDisplayCard(card, index)),
 			true,
 		);
-		expect(text).toContain("Handled");
-		expect(text).toContain("Expired");
+		expect(text).not.toContain("Handled");
+		expect(text).not.toContain("Expired");
 		expect(text.match(/Overdue/g)).toHaveLength(1);
 	});
 

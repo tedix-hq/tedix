@@ -105,6 +105,44 @@ describe("canonical Deck projection", () => {
 			]).map((card) => card.id),
 		).toEqual(["critical", "customer", "opportunity"]);
 	});
+	it("removes completed work, expired permission and optional-only requests without hiding mixed scope", () => {
+		const removed = row(
+			"done",
+			{ riskLevel: "critical" },
+			{
+				workItem: {
+					id: "a",
+					title: "Finished",
+					projectId: null,
+					disposition: "completed",
+				},
+			},
+		);
+		const expired = row("expired", { riskLevel: "critical" });
+		expired.request.expiresAt = now.toISOString();
+		const lane = (sentences: string[]) => ({
+			source: "lane-dispatch-blocker",
+			riskLevel: "critical",
+			laneBlocker: {
+				kind: "owner_delegation",
+				matchedActions: sentences.map((sentence) => ({
+					action: "delete_data",
+					sentence,
+				})),
+			},
+		});
+		expect(
+			project([
+				removed,
+				expired,
+				row("optional", lane(["Optional: archive the exports."])),
+				row(
+					"mixed",
+					lane(["Optional: archive the exports.", "Remove the approved file."]),
+				),
+			]).map((c) => c.id),
+		).toEqual(["mixed"]);
+	});
 	it("preserves the complete draft and the canonical response version", () => {
 		const original = row("customer", { decisionDeck: decision });
 		original.request.version = 7;

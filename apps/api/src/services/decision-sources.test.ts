@@ -401,7 +401,11 @@ it("detects delayed email even when thread timestamps have not advanced", async 
 it("keeps a runner's permission card while its task version is unchanged", async () => {
 	const { sqlite } = fixture();
 	const db = createDbClient(createD1Facade(sqlite));
-	const card = (workVersion: number, executor = "claude-code") =>
+	const card = (
+		workVersion: number,
+		executor = "claude-code",
+		matchedActions?: { sentence: string }[],
+	) =>
 		decisionSourcesCurrent(db, orgId, {
 			workItemId: id,
 			creatorType: "user",
@@ -414,7 +418,12 @@ it("keeps a runner's permission card while its task version is unchanged", async
 				"Claude Code paused this task because it asks the agent to publish something publicly, which needs your permission.",
 			metadata: {
 				source: "lane-dispatch-blocker",
-				laneBlocker: { kind: "owner_delegation", executor, workVersion },
+				laneBlocker: {
+					kind: "owner_delegation",
+					executor,
+					workVersion,
+					matchedActions,
+				},
 			},
 		});
 	try {
@@ -430,6 +439,11 @@ it("keeps a runner's permission card while its task version is unchanged", async
 			)
 			.run(orgId, id, "2026-10-22T10:00:00.000Z");
 		expect(await card(6)).toBe(true);
+		expect(
+			await card(6, "claude-code", [
+				{ sentence: "Optional: delete the old exports." },
+			]),
+		).toBe(false);
 		expect(await card(5)).toBe(false);
 		expect(await card(6, "codex")).toBe(false);
 		sqlite

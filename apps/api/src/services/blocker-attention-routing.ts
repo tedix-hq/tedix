@@ -132,10 +132,21 @@ export async function blockerAttentionRouting(
 			(!decision.success ||
 				decision.data.protectedEffects.length > 0 ||
 				decision.data.tasteOrStrategy ||
+				decision.data.options.some((option) => option.effect) ||
 				["approval", "outbound"].includes(decision.data.kind)))
 	)
 		return null;
-	if (!new RegExp(routing.routineSubjectPattern, "i").test(input.subject))
+	const attention = m.attention;
+	const asksForFacts =
+		input.kind === "question" &&
+		attention &&
+		typeof attention === "object" &&
+		"kind" in attention &&
+		attention.kind === "fact_check";
+	if (
+		!asksForFacts &&
+		!new RegExp(routing.routineSubjectPattern, "i").test(input.subject)
+	)
 		return null;
 	let work = input.workItemId
 		? await getWorkItemById(context.db, input.workItemId, orgId)

@@ -289,6 +289,25 @@ it.each([false, true])(
 	},
 );
 
+it("routes fact gathering to the Work agent without granting a requested operation", async () => {
+	mocks.work.mockResolvedValue({
+		id: workItemId,
+		stewardType: "tedi",
+		stewardId: "researcher",
+	});
+	await client.create({
+		...input,
+		subject: "Is the figure in slide 2 current?",
+		reason: "The release notes depend on the published figure.",
+		prompt: "Read slide 2 and compare its figure with the source sheet.",
+		metadata: { attention: { kind: "fact_check" } },
+	});
+	expect(mocks.create.mock.calls[0]![1]).toMatchObject({
+		targetType: "tedi",
+		targetId: "researcher",
+	});
+});
+
 it("keeps a real human action with its reason, exact instruction and Work evidence", async () => {
 	await client.create({
 		...input,

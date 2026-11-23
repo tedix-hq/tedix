@@ -149,6 +149,44 @@ export function deckCardExpired(
 	});
 }
 
+/** A captured update has no executable choice. Its author can mark optional work explicitly. */
+export function informationalCapture(metadata: Record<string, unknown>) {
+	const lane = metadata.laneBlocker;
+	// Older dispatchers attached the sentences that triggered the hold. Require an explicit optional marker on every match.
+	if (
+		metadata.source === "lane-dispatch-blocker" &&
+		lane &&
+		typeof lane === "object" &&
+		"kind" in lane &&
+		lane.kind === "owner_delegation" &&
+		"matchedActions" in lane &&
+		Array.isArray(lane.matchedActions) &&
+		lane.matchedActions.length > 0 &&
+		lane.matchedActions.every(
+			(match) =>
+				match &&
+				typeof match.sentence === "string" &&
+				/^optional\s*:\s*\S/i.test(match.sentence.trim()),
+		)
+	)
+		return true;
+	const attention = metadata.attention;
+	if (
+		metadata.schema !== "tedix.decision-capture.v1" ||
+		typeof attention !== "object" ||
+		!attention ||
+		!("kind" in attention)
+	)
+		return false;
+	return (
+		attention.kind === "fyi" ||
+		(attention.kind === "optional" &&
+			!metadata.approvalOperation &&
+			!metadata.localImport &&
+			!metadata.decisionDeck)
+	);
+}
+
 /** The card's Work Item finished or was cancelled, so the ask was handled. */
 export function deckCardHandled(card: {
 	workItem?: { disposition?: string | null } | null;

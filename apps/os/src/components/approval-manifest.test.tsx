@@ -210,6 +210,42 @@ describe("Ordered exact approval review", () => {
 		expect(button("Choose approval").disabled).toBe(true);
 		expect(button("Choose veto").disabled).toBe(true);
 	});
+	it("binds a one-click file permission to the displayed manifest and input", async () => {
+		api.getReviewManifest.mockResolvedValue({
+			...manifest,
+			actions: [
+				{
+					...manifest.actions[0],
+					vetoCascadeApprovalRequestIds: [],
+					approval: {
+						...approval,
+						payload: {
+							kind: "mcp_machine_tool_call",
+							descriptor: { mount: { sourceToolId: "read_files" } },
+							args: { paths: ["budget.xlsx", "milestones.pdf"] },
+						},
+					},
+				},
+			],
+		});
+		api.resolveReviewManifest.mockResolvedValue({ results: [] });
+		await mount();
+		expect(host.textContent).toContain("Read these 2 files?");
+		expect(host.textContent).toContain("milestones.pdf");
+		await act(async () => button("Allow once").click());
+		expect(api.resolveReviewManifest).toHaveBeenCalledTimes(1);
+		expect(api.resolveReviewManifest.mock.calls[0]?.[0]).toEqual({
+			approvalRequestIds: [id],
+			expectedManifestHash: hash,
+			decisions: [
+				{
+					approvalRequestId: id,
+					expectedCanonicalInputHash: hash,
+					decision: "approve",
+				},
+			],
+		});
+	});
 	it("submits only explicit hash-bound choices and shows per-request results", async () => {
 		api.getReviewManifest.mockResolvedValue(manifest);
 		api.resolveReviewManifest.mockResolvedValue({

@@ -1,3 +1,4 @@
+import { ApprovalManifestReview } from "./approval-manifest";
 import { Text } from "@/components/kumo/text";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import {
@@ -7,6 +8,7 @@ import {
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { DeckCardSkeleton } from "@/components/deck-progress";
 import {
+	ApprovalFileTargets,
 	MachineApprovalReview,
 	machineApprovalData,
 } from "@/components/machine-approval-review";
@@ -116,10 +118,16 @@ export function ApprovalDecisionCard({
 				{notice}
 				<section aria-label="Machine approval">
 					<Text as="h3" role="section" weight="semibold" tone="strong">
-						Review machine action
+						{approval.review.operatorQuestion || approval.description}
 					</Text>
-					<MachineApprovalReview payload={approval.payload} />
-					<Link href="/work/approvals">Review and decide in Approvals</Link>
+					{active ? (
+						<ApprovalManifestReview
+							approvalRequestIds={[id]}
+							onClose={onNext}
+						/>
+					) : (
+						<MachineApprovalReview payload={approval.payload} />
+					)}
 				</section>
 			</>
 		);
@@ -134,6 +142,7 @@ export function ApprovalDecisionCard({
 				actor={{ type: "tedi", id: approval.tediId }}
 				at={approval.createdAt}
 				body={approval.review.summary}
+				faceContent={<ApprovalFileTargets args={approval.payload.args} />}
 				why={
 					<div className="grid gap-2">
 						<p>{approval.description}</p>

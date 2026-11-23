@@ -1,3 +1,4 @@
+import { informationalCapture } from "./deck-ask";
 import { cardIsDue } from "./card-schedule";
 import { technicalCopyIssues } from "./decision-card-copy";
 import type { WorkActorReference } from "../schemas/os-work-actor";
@@ -547,6 +548,7 @@ export function decisionFeedItems(
 		)
 		.map(({ request: r, effectiveState, workItem, askedBy }) => {
 			const decision = decisionEnvelope(r.metadata);
+			const update = informationalCapture(r.metadata);
 			return {
 				...base(
 					`decision:${r.id}`,
@@ -554,7 +556,7 @@ export function decisionFeedItems(
 					r.projectId ?? workItem?.projectId ?? null,
 					r.workItemId,
 				),
-				kind: "decision",
+				kind: update ? "signal" : "decision",
 				classId:
 					decision?.classId ??
 					(typeof r.metadata?.decisionClass === "string"
@@ -565,14 +567,18 @@ export function decisionFeedItems(
 					typeof r.metadata?.proposerTediId === "string"
 						? r.metadata.proposerTediId
 						: null,
-				sentence: sentence(decision?.proposal ?? r.subject),
+				sentence: sentence(
+					update && r.metadata.source === "lane-dispatch-blocker"
+						? "Optional step left for later"
+						: (decision?.proposal ?? r.subject),
+				),
 				source: `/work/interactions/${r.id}`,
-				needsAction: effectiveState === "open",
+				needsAction: !update && effectiveState === "open",
 				done: effectiveState !== "open",
 				dueAt: r.dueAt,
-				importance: effectiveState === "open" ? "high" : "normal",
+				importance: !update && effectiveState === "open" ? "high" : "normal",
 				explanation: decision?.reasoning ?? r.prompt,
-				decision: decision ?? undefined,
+				decision: update ? undefined : (decision ?? undefined),
 			};
 		});
 }

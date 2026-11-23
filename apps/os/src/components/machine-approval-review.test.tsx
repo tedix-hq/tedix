@@ -44,6 +44,21 @@ describe("machine approval review", () => {
 			"abcdefghijklmnopqrstuvwxyz",
 		);
 	});
+	it("shows each parked file argument in full before technical details", () => {
+		const longPath = "reports/" + "a".repeat(90) + ".pdf";
+		const markup = renderToStaticMarkup(
+			<MachineApprovalReview
+				payload={{
+					...payload,
+					args: { paths: ["reports/one.pdf", longPath], token: "secret-value" },
+				}}
+			/>,
+		);
+		const first = markup.split("<details")[0]!;
+		expect(first).toContain("reports/one.pdf");
+		expect(first).toContain(longPath);
+		expect(markup).not.toContain("secret-value");
+	});
 	it("never combines distinct machine requests into one bulk approval", () => {
 		const item = {
 			key: "a",

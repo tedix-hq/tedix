@@ -1,3 +1,4 @@
+import { informationalCapture } from "@tedix/api-contract/utils/deck-ask";
 import { and, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import {
 	DecisionEnvelopeSchema,
@@ -157,6 +158,7 @@ export async function decisionSourcesReview(
 		request.kind === "coordination"
 	)
 		return current;
+	if (informationalCapture(request.metadata)) return changed;
 	const envelope = DecisionEnvelopeSchema.safeParse(
 		request.metadata.decisionDeck,
 	);
