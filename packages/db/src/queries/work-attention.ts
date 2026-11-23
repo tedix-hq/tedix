@@ -63,17 +63,20 @@ export async function readAttentionSources(
 				name: projects.name,
 				status: projects.status,
 				objectiveId: projects.objectiveId,
+				// Drive from the project's Work Items and seek each item's Attempts on
+				// idx_work_attempt_org_item_heartbeat; scanning every org Attempt per
+				// project read 18M rows and held main D1 for 18 s.
 				lastAttentionAt: sql<
 					string | null
-				>`(select max(a.heartbeat_at) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.project_id = projects.id)`.as(
+				>`(select max((select a.heartbeat_at from work_attempts a where a.org_id = ${orgId} and a.work_item_id = w.id order by a.heartbeat_at desc limit 1)) from work_items w where w.org_id = ${orgId} and w.project_id = projects.id)`.as(
 					"project_last_attention_at",
 				),
 				active:
-					sql<number>`(select count(*) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.project_id = projects.id and a.outcome is null and a.expires_at > ${new Date().toISOString()})`.mapWith(
+					sql<number>`(select count(*) from work_items w join work_attempts a on a.org_id = w.org_id and a.work_item_id = w.id where w.org_id = ${orgId} and w.project_id = projects.id and a.outcome is null and a.expires_at > ${new Date().toISOString()})`.mapWith(
 						Number,
 					),
 				recent:
-					sql<number>`(select count(*) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.project_id = projects.id and a.heartbeat_at >= ${since})`.mapWith(
+					sql<number>`(select count(*) from work_items w join work_attempts a on a.org_id = w.org_id and a.work_item_id = w.id and a.heartbeat_at >= ${since} where w.org_id = ${orgId} and w.project_id = projects.id)`.mapWith(
 						Number,
 					),
 			})

@@ -246,6 +246,117 @@ it("seeks latest heartbeats per Work Item without scanning Attempt history", asy
 	}
 });
 
+it("reads project attention per Work Item instead of scanning every org Attempt", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	try {
+		for (const table of [
+			projects,
+			workItems,
+			workAttempts,
+			skillRuns,
+			kernelRuntimeRuns,
+			kernelConversations,
+			kernelConversationGrants,
+			tedis,
+		])
+			sqlite.exec(schemaDdl(table));
+		const statements: string[] = [];
+		const db = createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare: (statement) => {
+					statements.push(statement);
+				},
+			}),
+		);
+		await db.insert(projects).values({
+			id: "project-example",
+			orgId: "org-example",
+			key: "DOCS",
+			name: "Documentation",
+			status: "active",
+			createdAt: "2026-11-20T00:00:00Z",
+		});
+		await db.insert(workItems).values({
+			id: "item-example",
+			orgId: "org-example",
+			title: "Improve guides",
+			projectId: "project-example",
+			createdAt: "2026-11-20T00:00:00Z",
+		});
+		const since = "2026-11-22T00:00:00.000Z";
+		const later = new Date(Date.now() + 300_000).toISOString();
+		const insert = sqlite.prepare(`INSERT INTO work_attempts
+			(id, org_id, work_item_id, executor_type, executor_id, attempt_number,
+			started_at, heartbeat_at, expires_at, runtime_state, outcome)
+			VALUES (?, ?, ?, 'tedi', 'tedi-example', ?, ?, ?, ?, ?, ?)`);
+		insert.run(
+			"old",
+			"org-example",
+			"item-example",
+			1,
+			since,
+			"2026-11-21T00:00:00.000Z",
+			since,
+			"finished",
+			"succeeded",
+		);
+		insert.run(
+			"live",
+			"org-example",
+			"item-example",
+			2,
+			since,
+			"2026-11-23T00:00:00.000Z",
+			later,
+			"running",
+			null,
+		);
+		// Another organization's Attempt on a same-named item must not count.
+		insert.run(
+			"foreign",
+			"other-org",
+			"item-example",
+			1,
+			since,
+			"2026-11-23T01:00:00.000Z",
+			later,
+			"running",
+			null,
+		);
+		statements.length = 0;
+		const { projects: rows } = await readAttentionSources(
+			db,
+			"org-example",
+			since,
+		);
+		expect(rows[0]).toMatchObject({
+			id: "project-example",
+			lastAttentionAt: "2026-11-23T00:00:00.000Z",
+			active: 1,
+			recent: 1,
+		});
+		const query = statements.find((s) =>
+			s.includes("project_last_attention_at"),
+		);
+		expect(query).toBeDefined();
+		const params = Array.from(
+			{ length: (query!.match(/\?/g) ?? []).length },
+			() => "org-example",
+		);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...params)
+			.map((row) => String(row.detail))
+			.join(" | ");
+		expect(plan).toContain("idx_work_attempt_org_item_heartbeat");
+		expect(plan).toMatch(/idx_work_items_org_project/);
+		expect(plan).not.toMatch(/SCAN a\b/);
+	} finally {
+		sqlite.close();
+	}
+});
+
 it("keeps factory links tenant-scoped and private-workspace names owner-only", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
