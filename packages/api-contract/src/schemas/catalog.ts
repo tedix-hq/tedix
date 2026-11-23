@@ -97,7 +97,16 @@ export type HealthStatus = z.infer<typeof HealthStatusSchema>;
 // Store Listing Schema
 // ============================================================
 
+export const CatalogSearchObservationSchema = z.object({
+	checkedAt: z.iso.datetime({ offset: true }),
+	matchedCount: z.number().int().nonnegative(),
+	queryCount: z.number().int().positive(),
+	pluginId: z.string().nullable(),
+	tier: z.string().nullable(),
+});
+
 export const CatalogStoreListingSchema = z.object({
+	catalogSearchObservation: CatalogSearchObservationSchema.optional(),
 	id: z.string(),
 	source: SourceSchema,
 	sourceAppId: z.string(),

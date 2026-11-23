@@ -26,6 +26,7 @@ import {
 	listCatalogVendorVariants,
 } from "@tedix/db/queries/catalog/vendor-variants";
 import {
+	CatalogSearchObservationSchema,
 	type CatalogAppVariant,
 	SourceSchema,
 } from "@tedix/api-contract/schemas/catalog";
@@ -395,18 +396,30 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 			sourceCreatedAt: result.sourceCreatedAt,
 			// Relations
 			storeListings: result.storeListings.map(
-				(listing: (typeof result.storeListings)[number]) => ({
-					id: listing.id,
-					source: listing.source,
-					sourceAppId: listing.sourceAppId,
-					regions: listing.regions,
-					storeUrl: listing.storeUrl,
-					reviewStatus: listing.reviewStatus,
-					authRequired: listing.authRequired,
-					storeLogoUrl: publicLogoUrl(listing.storeLogoUrl),
-					storeDescription: sanitizePublicText(listing.storeDescription),
-					lastSyncedAt: listing.lastSyncedAt,
-				}),
+				(listing: (typeof result.storeListings)[number]) => {
+					const feed = listing.rawData?.catalogFeed;
+					const observation =
+						listing.source === "chatgpt" &&
+						feed &&
+						typeof feed === "object" &&
+						!Array.isArray(feed)
+							? CatalogSearchObservationSchema.safeParse(feed.searchObservation)
+									.data
+							: undefined;
+					return {
+						...(observation && { catalogSearchObservation: observation }),
+						id: listing.id,
+						source: listing.source,
+						sourceAppId: listing.sourceAppId,
+						regions: listing.regions,
+						storeUrl: listing.storeUrl,
+						reviewStatus: listing.reviewStatus,
+						authRequired: listing.authRequired,
+						storeLogoUrl: publicLogoUrl(listing.storeLogoUrl),
+						storeDescription: sanitizePublicText(listing.storeDescription),
+						lastSyncedAt: listing.lastSyncedAt,
+					};
+				},
 			),
 			tools: result.tools.map((tool: (typeof result.tools)[number]) => ({
 				id: tool.id,
