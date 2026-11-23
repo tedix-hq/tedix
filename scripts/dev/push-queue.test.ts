@@ -13,8 +13,6 @@ import {
 	recordTrain,
 	recordRetry,
 	chargeRejection,
-	retryFailures,
-	retryRefusal,
 	selectTrain,
 	ticketKey,
 	tryAcquire,
@@ -209,7 +207,7 @@ describe("wait estimate", () => {
 	});
 });
 
-describe("gate retry budget", () => {
+describe("gate failure history", () => {
 	test("excludes only missing-module preflight startup crashes", () => {
 		const crash =
 			"error: Cannot find package 'jsonc-parser' from '/repo/scripts/ci/preflight-gates.mjs'";
@@ -228,82 +226,18 @@ describe("gate retry budget", () => {
 			"pre-push gates",
 		);
 	});
-	test("refuses a third failure, resets on pass, and leaves another lane alone", () => {
+	test("records failures diagnostically and leaves a red main uncharged", () => {
 		const file = join(tmp(), "retries.jsonl");
-		const now = Date.now();
-		recordRetry(file, {
-			key: "lane-a|work-a",
-			gate: "lint:repo",
-			result: "failed",
-			at: now - 1000,
-		});
-		recordRetry(file, {
-			key: "lane-a|work-a",
-			gate: "type-check",
-			result: "failed",
-			at: now,
-		});
-		expect(retryRefusal(file, "lane-a|work-a", now)).toContain(
-			"lint:repo, type-check",
-		);
-		expect(retryRefusal(file, "lane-b|work-b", now)).toBeNull();
-		recordRetry(file, {
-			key: "lane-a|work-a",
-			gate: "pass",
-			result: "passed",
-			at: now + 1,
-		});
-		expect(retryRefusal(file, "lane-a|work-a", now + 1)).toBeNull();
-	});
-
-	test("override bypasses the budget while priority does not", () => {
-		const file = join(tmp(), "retries.jsonl");
-		const now = Date.now();
-		for (const gate of ["docs:public:check", "lint:repo"])
-			recordRetry(file, { key: "lane|work", gate, result: "failed", at: now });
-		expect(retryRefusal(file, "lane|work", now)).not.toBeNull();
-		process.env.TEDIX_PUSH_RETRY_OVERRIDE = "1";
-		try {
-			expect(retryRefusal(file, "lane|work", now)).toBeNull();
-		} finally {
-			delete process.env.TEDIX_PUSH_RETRY_OVERRIDE;
+		for (let i = 0; i < 8; i++) {
+			expect(
+				chargeRejection(file, "lane|work", {
+					kind: "change",
+					gate: "type-check",
+				}),
+			).toContain("fix what it reports");
 		}
-	});
-
-	test("timeouts are counted apart from the change's two attempts, and a red main not at all", () => {
-		const file = join(tmp(), "retries.jsonl");
-		const now = Date.now();
-		const timeout = {
-			kind: "infrastructure",
-			gate: "tests (apps/api)",
-		} as const;
-		for (let i = 0; i < 5; i++)
-			chargeRejection(file, "lane|work", timeout, now);
-		chargeRejection(
-			file,
-			"lane|work",
-			{ kind: "main", gate: "type-check" },
-			now,
-		);
-		expect(retryRefusal(file, "lane|work", now)).toBeNull();
-		expect(retryFailures(file, "lane|work", now)).toEqual([]);
-		// The loop still ends: a sixth timeout refuses, and so do two real failures.
-		chargeRejection(file, "lane|work", timeout, now);
-		expect(retryRefusal(file, "lane|work", now)).toContain(
-			"timed out or hit machine errors 6 times",
-		);
-		const other = join(tmp(), "retries.jsonl");
-		chargeRejection(other, "lane|work", timeout, now);
-		for (const gate of ["lint:repo", "type-check"])
-			chargeRejection(other, "lane|work", { kind: "change", gate }, now);
-		expect(retryRefusal(other, "lane|work", now)).toContain(
-			"(lint:repo, type-check)",
-		);
-		expect(readRetryHistory(other).map((record) => record.kind)).toEqual([
-			"infrastructure",
-			"change",
-			"change",
-		]);
+		chargeRejection(file, "lane|work", { kind: "main", gate: "type-check" });
+		expect(readRetryHistory(file)).toHaveLength(8);
 	});
 
 	test("keeps retry history trimmed to fifty entries", () => {
@@ -434,8 +368,6 @@ AssertionError: expected 1 to be 2 // Object.is equality
 			{ reason: "gate", verdict: { kind: "change", gate } },
 			{ reason: "gate", verdict: { kind: "infrastructure", gate } },
 			{ reason: "gate", verdict: { kind: "main", gate } },
-			{ reason: "change-budget", gates: [gate, "lint:repo"] },
-			{ reason: "infrastructure-budget", gate },
 			{ reason: "dependencies" },
 			{ reason: "fetch" },
 			{ reason: "conflict" },

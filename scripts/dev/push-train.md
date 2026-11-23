@@ -71,14 +71,16 @@ the push and what to do next, and can be copied onto the Work Item as it is.
 A failed gate always blocks the push. What differs is whose failure it is,
 which the gate runner decides and prints as its `pre-push-verdict:` line:
 
-| The gate                                                       | Counts against the change               | Next step                      |
-| -------------------------------------------------------------- | --------------------------------------- | ------------------------------ |
-| rejected the change (an assertion, a type error, a lint rule)  | yes: 2 in 2 hours, then hand off        | fix it, push again             |
-| was killed, or only timed out or ran out of memory             | separately: 6 in 2 hours, then hand off | push again                     |
-| fails on the push base too, in files the change does not touch | no                                      | wait for main, then push again |
+| The gate                                                       | Counts against the change           | Next step                      |
+| -------------------------------------------------------------- | ----------------------------------- | ------------------------------ |
+| rejected the change (an assertion, a type error, a lint rule)  | yes, diagnostic history only        | fix it, push again             |
+| was killed, or only timed out or ran out of memory             | separately, diagnostic history only | push again                     |
+| fails on the push base too, in files the change does not touch | no                                  | wait for main, then push again |
 
 A timeout beside a failed assertion is the change's failure. A gate that
 prints nothing recognizable is the change's failure. To learn whether main
 fails too, the runner re-runs up to two failed tree-wide gates in a temporary
 checkout of the push base under `.worktrees/push-base-*` and removes it.
-`TEDIX_PUSH_RETRY_OVERRIDE=1` is for a person, not for an agent.
+Previous failures never block a new gate run or require an override. A stack
+that passes its current gates may push. Report failures on the Work Item and
+fix forward.

@@ -17,12 +17,9 @@
  * single ticket keeps the original rebase/push path. Waiting sessions print
  * their place and an estimate from recent lock holds (push-queue-history.jsonl).
  *
- * A change whose gates fail twice in two hours is refused until a person
- * overrides: that stops a session looping on a change that cannot pass. Only
- * failures of the change count. A gate that timed out or was killed counts on
- * a separate, larger allowance, and a gate that origin/main fails too is never
- * counted (push-gate-failure.ts). Every refusal ends with one sentence that
- * says what stopped the push and what to do next.
+ * Previous failures are diagnostic history, never a reason to skip new gates.
+ * Every refusal ends with one sentence that says what stopped this push and
+ * what to do next.
  *
  * Dead holders and tickets are removed. A living holder never expires: its
  * pre-push gates may still be running. No daemon.
@@ -53,11 +50,8 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { runCurrentQueue } from "./push-bootstrap";
 import {
-	CHANGE_FAILURE_LIMIT,
-	INFRASTRUCTURE_FAILURE_LIMIT,
 	pushRejection,
 	refusalSentence,
-	RETRY_WINDOW_MS,
 	type GateFailureKind,
 	type GateVerdict,
 } from "./push-gate-failure";
@@ -179,47 +173,6 @@ export function recordRetry(file: string, record: RetryRecord) {
 		[...kept, record].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
 	);
 	renameSync(`${file}.tmp`, file);
-}
-
-/** This key's failures of one kind since its last pass, within the window. */
-export function retryFailures(
-	file: string,
-	key: string,
-	now = Date.now(),
-	kind: GateFailureKind = "change",
-): RetryRecord[] {
-	const cutoff = now - RETRY_WINDOW_MS;
-	let failures: RetryRecord[] = [];
-	for (const record of readRetryHistory(file)) {
-		if (record.key !== key || record.at < cutoff) continue;
-		if (record.result === "passed") failures = [];
-		else if ((record.kind ?? "change") === kind) failures.push(record);
-	}
-	return failures;
-}
-
-/** The sentence that refuses another attempt, or null while the budget lasts. */
-export function retryRefusal(
-	file: string,
-	key: string,
-	now = Date.now(),
-): string | null {
-	if (process.env.TEDIX_PUSH_RETRY_OVERRIDE === "1") return null;
-	const failures = retryFailures(file, key, now);
-	if (failures.length >= CHANGE_FAILURE_LIMIT)
-		return refusalSentence({
-			reason: "change-budget",
-			gates: failures
-				.slice(-CHANGE_FAILURE_LIMIT)
-				.map((failure) => failure.gate),
-		});
-	const stalled = retryFailures(file, key, now, "infrastructure");
-	if (stalled.length >= INFRASTRUCTURE_FAILURE_LIMIT)
-		return refusalSentence({
-			reason: "infrastructure-budget",
-			gate: stalled.at(-1)!.gate,
-		});
-	return null;
 }
 
 /**
@@ -482,11 +435,6 @@ async function main() {
 	mkdirSync(resultsDir, { recursive: true });
 	const retryFile = join(commonDir, "push-queue-retries.jsonl");
 	const key = ticketKey(process.cwd());
-	const refusal = retryRefusal(retryFile, key);
-	if (refusal) {
-		console.error(refusal);
-		process.exit(1);
-	}
 	const resultTicket = join(resultsDir, ticket.slice(queueDir.length + 1));
 	writeFileSync(ticket, lane ? JSON.stringify(lane) : "");
 

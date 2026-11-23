@@ -29,7 +29,7 @@ export type Lane = {
 export type TrainTicket = { file: string; result: string; lane: Lane };
 export type TrainResult = { code: number; sha?: string; message: string };
 export type RetryHooks = {
-	/** Charges the lane's retry budget as the verdict warrants; returns its refusal sentence. */
+	/** Records the lane's failure as the verdict warrants; returns its refusal sentence. */
 	onFailure: (cwd: string, verdict: GateVerdict) => string;
 	onPass: (cwd: string) => void;
 };

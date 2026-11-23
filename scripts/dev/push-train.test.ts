@@ -493,7 +493,7 @@ describe("push train with real repositories and hooks", () => {
 	}
 });
 
-test("startup dependency crashes leave the single-lane retry budget available", () => {
+test("failed pushes report the current gate and a corrected stack can push without an override", () => {
 	const f = fixture(1);
 	const hook = join(f.common, "hooks/pre-push");
 	missingPreflightDependency(f);
@@ -515,7 +515,7 @@ test("startup dependency crashes leave the single-lane retry budget available", 
 	for (let i = 0; i < 3; i++) {
 		const result = run();
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain("the retry budget is unchanged");
+		expect(result.stderr).toContain("could not load their dependencies");
 	}
 	expect(existsSync(join(f.common, "push-queue-retries.jsonl"))).toBe(false);
 	writeFileSync(
@@ -525,8 +525,11 @@ test("startup dependency crashes leave the single-lane retry budget available", 
 	const failed = 'the pre-push gate "type-check" failed on this change';
 	expect(run().stderr).toContain(failed);
 	expect(run().stderr).toContain(failed);
-	expect(run().stderr).toContain(
-		"already failed pre-push gates 2 times in 2 hours (type-check, type-check)",
+	expect(run().stderr).toContain(failed);
+	writeFileSync(hook, "#!/bin/sh\nexit 0\n");
+	expect(run().status).toBe(0);
+	expect(git(f.remote, "rev-parse", "main")).toBe(
+		git(f.tickets[0]!.lane.cwd, "rev-parse", "HEAD"),
 	);
 }, 20_000);
 
@@ -555,33 +558,28 @@ function pushAlone(f: TrainFixture) {
 }
 const lastLine = (text: string) => text.trim().split("\n").at(-1)!;
 
-test("a gate that timed out blocks the push without spending the change's two attempts", () => {
+test("past timeouts and assertion failures never replace the current gate verdict", () => {
 	const f = fixture(1);
 	verdictHook(f, "infrastructure", "procedure parity API registries");
 	const base = git(f.remote, "rev-parse", "main");
-	// The 15 Nov stranding: the third run was refused outright. Now six runs
-	// are each told to try again, and only the seventh stops the loop.
-	for (let i = 0; i < 6; i++) {
+	// Cross the former infrastructure limit; every run still reports its gate.
+	for (let i = 0; i < 7; i++) {
 		const result = pushAlone(f);
 		expect(result.status).toBe(1);
 		expect(lastLine(result.stderr)).toBe(
 			'Push refused: the pre-push gate "procedure parity API registries" timed out or hit a machine error instead of failing an assertion, so the change is not blamed; run bun run push again.',
 		);
 	}
-	expect(lastLine(pushAlone(f).stderr)).toContain(
-		"timed out or hit machine errors 6 times in 2 hours",
-	);
 	expect(git(f.remote, "rev-parse", "main")).toBe(base);
-	// A real failure after the timeouts still has its own two attempts, no more.
+	// Assertion failures also keep reporting their current verdict.
 	const g = fixture(1);
 	verdictHook(g, "infrastructure", "tests (apps/api)");
 	expect(pushAlone(g).status).toBe(1);
 	verdictHook(g, "change", "type-check apps/os");
-	for (let i = 0; i < 2; i++)
+	for (let i = 0; i < 3; i++)
 		expect(lastLine(pushAlone(g).stderr)).toContain(
 			'"type-check apps/os" failed on this change',
 		);
-	expect(lastLine(pushAlone(g).stderr)).toContain("hand off");
 }, 60_000);
 
 test("a gate that origin/main fails too blocks the push and is never charged", () => {
@@ -643,7 +641,7 @@ test("startup dependency crashes do not charge train lanes or split the batch", 
 	for (const ticket of f.tickets) {
 		expect(readResult(ticket.result)).toMatchObject({ code: 1 });
 		expect(readResult(ticket.result)!.message).toContain(
-			"the retry budget is unchanged",
+			"could not load their dependencies",
 		);
 	}
 }, 20_000);

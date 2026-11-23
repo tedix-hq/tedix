@@ -1,18 +1,11 @@
 /**
  * What a failed pre-push run means for the change being pushed.
  *
- * The retry budget in push-queue.ts exists to stop a session looping on a
- * change that keeps failing. On 15 Nov 2026 it stranded a finished commit
- * instead: one gate failed because a test fixture timed out on a starved
- * machine, and that spent the budget like a failed assertion would. A day
- * later another push was refused for a type error that origin/main already
- * had. So a failure now has a kind, decided by the gate runner
- * (scripts/ci/preflight-gates.mjs) and read by the queue:
+ * Failures are classified by the gate runner and retained as diagnostics:
  *
- * - "change": the gate ran and rejected this change. Blocks and counts.
+ * - "change": the gate ran and rejected this change. Blocks.
  * - "infrastructure": the gate was killed, or every failure in it was a test
- *   runner timeout or the machine running out of something. Blocks, counted
- *   on a separate, larger allowance.
+ *   runner timeout or the machine running out of something. Blocks.
  * - "main": the same gate fails on the push base without this change. Blocks,
  *   never counted.
  *
@@ -32,7 +25,7 @@ const TIMED_OUT =
 /**
  * A rejection no timeout explains, whatever else the output holds. A change
  * that makes a test hang reads as a timeout; it still blocks, and the
- * infrastructure allowance still ends the loop.
+ * failed push ends the attempt.
  */
 const REJECTED =
 	/AssertionError|\berror TS\d+|^error: expect\(|Unhandled (?:Rejection|Error)|Snapshot .* mismatched/m;
@@ -131,15 +124,8 @@ export function pushRejection(output: string): GateVerdict | null {
 	return gate === null ? null : { kind: "change", gate };
 }
 
-/** How many gate failures of each kind one checkout and Work Item gets in the window. */
-export const RETRY_WINDOW_MS = 2 * 60 * 60 * 1000;
-export const CHANGE_FAILURE_LIMIT = 2;
-export const INFRASTRUCTURE_FAILURE_LIMIT = 6;
-
 export type PushRefusal =
 	| { reason: "gate"; verdict: GateVerdict }
-	| { reason: "change-budget"; gates: string[] }
-	| { reason: "infrastructure-budget"; gate: string }
 	| { reason: "dependencies" }
 	| { reason: "fetch" }
 	| { reason: "conflict" }
@@ -163,12 +149,8 @@ export function refusalSentence(refusal: PushRefusal): string {
 				return "Push refused: the pre-push hook or the remote rejected this change without naming a gate; fix what the output above reports, then run bun run push again.";
 			return `Push refused: ${gate} failed on this change; fix what it reports, then run bun run push again.`;
 		}
-		case "change-budget":
-			return `Push refused: this change already failed pre-push gates ${CHANGE_FAILURE_LIMIT} times in 2 hours (${refusal.gates.join(", ")}), so post that on the Work Item and hand off; only a person may override with TEDIX_PUSH_RETRY_OVERRIDE=1.`;
-		case "infrastructure-budget":
-			return `Push refused: pre-push gates timed out or hit machine errors ${INFRASTRUCTURE_FAILURE_LIMIT} times in 2 hours (last: ${refusal.gate}), so the machine is too loaded to check this change; post that on the Work Item and hand off.`;
 		case "dependencies":
-			return "Push refused: the pre-push checks could not load their dependencies, and the retry budget is unchanged; run bun install --frozen-lockfile, then bun run push again.";
+			return "Push refused: the pre-push checks could not load their dependencies; run bun install --frozen-lockfile, then bun run push again.";
 		case "fetch":
 			return "Push refused: origin/main could not be fetched or checked out; check the network, then run bun run push again.";
 		case "conflict":
