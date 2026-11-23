@@ -11,6 +11,9 @@ const SHARED_CACHE_ORIGIN = "https://gateway-read-cache.tedix.internal";
 const READ_PATHS = new Set([
 	GRANT_PATH,
 	"/rpc/mcpGovernance/resolveAgentTransportPolicy",
+	// Whether the organization has any policy fence, read up to twice per MCP
+	// call; the same ten seconds a transport policy change already waits.
+	"/rpc/mcpGovernance/resolveTenantPolicyOrganizationPresence",
 	"/rpc/externalAgentIdentity/resolveSessionAuth",
 ]);
 

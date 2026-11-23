@@ -109,6 +109,16 @@ describe("gateway authority read cache", () => {
 		expect(fetch).toHaveBeenCalledOnce();
 	});
 
+	it("reuses an organization's policy presence read for ten seconds", async () => {
+		const fetch = vi.fn(async () => Response.json({ json: { fenced: false } }));
+		const cached = gatewayReadBinding({ fetch });
+		const path = "mcpGovernance/resolveTenantPolicyOrganizationPresence";
+		await cached.fetch(request(path, "a", { organizationId: "org" }));
+		await cached.fetch(request(path, "a", { organizationId: "org" }));
+		await cached.fetch(request(path, "a", { organizationId: "other" }));
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("separates inputs, authority headers and service bindings, and bypasses writes", async () => {
 		const fetch = vi.fn(async () => Response.json({ json: {} }));
 		const first = gatewayReadBinding({ fetch });
