@@ -1,4 +1,5 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { serializeException } from "@tedix/worker-kit/logger";
 import type { ChatTurnParams } from "./chat-turn-input";
 import { buildCronGovernanceAnalyticsDataPoint } from "@tedix/api-contract/schemas/mcp-analytics";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
@@ -262,7 +263,7 @@ export async function loadPolicyPackCronTemplates(
 		const error = err instanceof Error ? err.message : String(err);
 		console.warn(
 			`[isolate.cron-reconcile] load templates failed for ${tediId}`,
-			{ exception: exceptionTopology(error) },
+			{ exception: serializeException(err) },
 		);
 		// Unknown policy cannot authorize additions OR removals. Reinstalling
 		// defaults here revives explicitly disabled cognitive jobs on a read

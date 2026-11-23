@@ -1,5 +1,6 @@
 import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { serializeException } from "@tedix/worker-kit/logger";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { encodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -511,7 +512,7 @@ export const runtimeParentTurns = {
 		} catch (error) {
 			console.error(
 				`[isolate.governance] failed to load policy/budgets for ${tediId}; using fail-safe defaults`,
-				{ exception: exceptionTopology(error) },
+				{ exception: serializeException(error) },
 			);
 			return failClosed;
 		}

@@ -154,15 +154,45 @@ const policyDb = (first: () => Promise<unknown>) => ({
 });
 
 {
+	const failure = new Error("d1 down", {
+		cause: new Error("D1_ERROR: database is overloaded: 7429"),
+	});
 	const agent = tediDo({
 		env: {
 			DB: policyDb(async () => {
-				throw new Error("d1 down");
+				throw failure;
 			}),
 		},
 	});
-	const load = await agent.loadPolicyPackCronTemplates("tedi-1");
-	assert.deepEqual(load, { ok: false, templates: [], error: "d1 down" });
+	const warnings: unknown[][] = [];
+	const errors: unknown[][] = [];
+	const originalWarn = console.warn;
+	const originalError = console.error;
+	console.warn = (...args) => warnings.push(args);
+	console.error = (...args) => errors.push(args);
+	try {
+		const load = await agent.loadPolicyPackCronTemplates("tedi-1");
+		assert.deepEqual(load, { ok: false, templates: [], error: "d1 down" });
+		const governance = await agent.loadTediGovernance("tedi-1");
+		assert.equal(governance.budgets.browserBudgetDaily, 0);
+		assert.equal(governance.toolPolicy.browser, "always-approve");
+		for (const calls of [warnings, errors]) {
+			assert.equal(calls.length, 1);
+			assert.partialDeepStrictEqual(calls[0]?.[1], {
+				exception: {
+					type: "Error",
+					message: "d1 down",
+					cause: {
+						type: "Error",
+						message: "D1_ERROR: database is overloaded: 7429",
+					},
+				},
+			});
+		}
+	} finally {
+		console.warn = originalWarn;
+		console.error = originalError;
+	}
 }
 
 // --- an update mints a fresh schedule id (opts out of cron idempotency) ---
