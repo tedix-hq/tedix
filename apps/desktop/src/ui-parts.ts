@@ -168,12 +168,14 @@ export const orgName = (id: string) => id.replace(/^org_/, "");
 export const person = ({ name, email }: { name: string; email: string }) =>
 	name || email || "your account";
 
-/** Tedix is in the tool, signed in, and a read inside the tool worked. */
+/** The tool confirmed its connection to Tedix. */
 export const connected = (tool: ToolRow) =>
 	tool.found === "found" &&
 	tool.tedix === "added" &&
 	tool.enabled &&
-	tool.account === "signed-in" &&
+	(tool.account === "signed-in" ||
+		(tool.account === "unknown" &&
+			(tool.id === "devin" || tool.id === "opencode"))) &&
 	tool.connection === "signed-in" &&
 	tool.readVerified;
 
@@ -257,7 +259,13 @@ export function toolView(
 	const base = failed
 		? {
 				error: (failed[1] as StepRun).error,
-				retry: () => act(again[failed[0]]!, tool.id),
+				retry: () =>
+					act(
+						failed[0] === "verify" && tool.connection === "signed-out"
+							? "connect"
+							: again[failed[0]]!,
+						tool.id,
+					),
 			}
 		: {};
 	const plain = (
@@ -319,8 +327,11 @@ export function toolView(
 			sub: `Tedix is turned off in ${tool.name}`,
 			action: checkAgain(),
 		};
-	const checkable = tool.id === "codex" || tool.id === "claude";
-	if (tool.connection !== "signed-in" && tool.canSignIn)
+	const needsConnection =
+		tool.connection === "signed-out" ||
+		(tool.connection === "unknown" &&
+			(tool.id === "claude" || tool.id === "codex"));
+	if (needsConnection && tool.canSignIn)
 		return {
 			...base,
 			ready: false,
@@ -331,15 +342,12 @@ export function toolView(
 		return {
 			...base,
 			ready: false,
-			sub: checkable
-				? tool.connection === "signed-out"
+			sub:
+				tool.connection === "signed-out"
 					? tool.note
-					: "Check that Tedix works in this app."
-				: tool.connection === "signed-in"
-					? "Signed in. Connection check unavailable."
-					: tool.note,
+					: "Check that Tedix works in this app.",
 			action:
-				checkable && tool.connection !== "signed-out"
+				tool.connection !== "signed-out"
 					? plain("Check connection", "verify", "Checking…")
 					: undefined,
 		};

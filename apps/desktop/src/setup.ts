@@ -12,6 +12,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { app } from "electron";
 import { type CliState, manageCli, readCli, restoreCli } from "./cli";
+import { checkDevinConnection } from "./devin-connection";
 import type { LocalModelPreferences } from "./local-model-client";
 import { log } from "./log";
 import { runnersPath } from "./runners-file";
@@ -24,7 +25,11 @@ import {
 	run,
 	toolPath,
 } from "./shell";
-import { type Connection, toolConnection } from "./tool-connection";
+import {
+	type Connection,
+	opencodeConnection,
+	toolConnection,
+} from "./tool-connection";
 
 /**
  * Tools that cannot say whether they are signed in to Tedix (Devin) are
@@ -167,7 +172,6 @@ const TOOLS: Tool[] = [
 		},
 		signIn: ["mcp", "login", "tedix"],
 		accountSignIn: ["auth", "login"],
-		say: "Devin does not say whether it is signed in to Tedix. Sign in once; if Tedix already answers in Devin, you are done.",
 	},
 	{
 		id: "opencode",
@@ -177,22 +181,7 @@ const TOOLS: Tool[] = [
 		executor: "opencode",
 		status: "opencode",
 		add: "--opencode",
-		connection: async (command) => {
-			const { output } = await run(command, ["mcp", "list"], {
-				timeoutMs: 45_000,
-			});
-			// One block per server: "●  ✓ tedix connected", or "✗ tedix failed" and its error.
-			const block =
-				output
-					.replace(/\x1b\[[0-9;]*m/g, "")
-					.split("●")
-					.find((part) => /^\s*\S+\s+tedix\s/.test(part)) ?? "";
-			if (/\bconnected\b/.test(block)) return "signed-in";
-			// A refused sign-in (401/403) is fixed by signing in again.
-			return /needs auth|\b40[13]\b/i.test(block) ? "signed-out" : "unknown";
-		},
 		signIn: ["mcp", "auth", "tedix"],
-		say: "Signing in replaces the Tedix sign-in OpenCode saved before. Tedix cannot check a read inside OpenCode from here; ask OpenCode about your Tedix work to try it.",
 	},
 ];
 
@@ -321,7 +310,7 @@ async function installDesktopPlugin(
 	await must(run(command, install, options));
 }
 
-async function prepareDevinConnection(command: string): Promise<void> {
+async function hasDevinConnection(command: string): Promise<boolean> {
 	const output = await must(
 		run(command, ["mcp", "list", "--json"], { timeoutMs: 45_000 }),
 	);
@@ -336,8 +325,13 @@ async function prepareDevinConnection(command: string): Promise<void> {
 			throw new Error(
 				"Devin already has a different or disabled Tedix connection. Review it in Devin.",
 			);
-		return;
+		return true;
 	}
+	return false;
+}
+
+async function prepareDevinConnection(command: string): Promise<void> {
+	if (await hasDevinConnection(command)) return;
 	await must(
 		run(
 			command,
@@ -354,6 +348,26 @@ async function prepareDevinConnection(command: string): Promise<void> {
 			{ timeoutMs: 45_000 },
 		),
 	);
+}
+
+async function checkOpenCode(
+	command: string,
+	key: string,
+): Promise<Connection> {
+	// OpenCode 2 can answer before its background service has loaded plugins.
+	for (let attempt = 0; attempt < 4 && !cancelled.has(key); attempt++) {
+		const result = await run(command, ["mcp", "list"], {
+			onStart: (stop) => {
+				stops[key] = stop;
+			},
+			timeoutMs: 30_000,
+		});
+		if (!result.ok) return "unknown";
+		if (result.output.trim() !== "No MCP servers configured")
+			return opencodeConnection(result.output);
+		if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1000));
+	}
+	return "unknown";
 }
 
 export interface ToolRow {
@@ -1389,9 +1403,35 @@ export async function setupAction(
 		});
 		return readAgentStatus();
 	}
-	const canVerify = tool.id === "codex" || tool.id === "claude";
 	const verify = () =>
 		step(`verify:${tool.id}`, async (say) => {
+			if (!command)
+				throw new Error(`Open ${tool.name} once, then check again.`);
+			if (tool.id === "devin" || tool.id === "opencode") {
+				say(`Checking Tedix in ${tool.name}…`);
+				const onStart = (stop: () => void) => {
+					const key = `verify:${tool.id}`;
+					stops[key] = stop;
+					if (cancelled.has(key)) stop();
+				};
+				let status: Connection;
+				if (tool.id === "devin") {
+					if (!(await hasDevinConnection(command)))
+						throw new Error("Choose Connect to add Tedix to Devin first.");
+					status = await checkDevinConnection(command, CONNECT_URL, onStart);
+				} else {
+					status = await checkOpenCode(command, `verify:${tool.id}`);
+				}
+				if (status === "signed-out")
+					throw new Error(
+						`Sign in to Tedix from ${tool.name}, then check again.`,
+					);
+				if (status !== "signed-in")
+					throw new Error(
+						`${tool.name} could not confirm the connection. Try again in a moment.`,
+					);
+				return `${tool.name} confirmed the Tedix connection.`;
+			}
 			say(`Checking a read inside ${tool.name}…`);
 			await must(
 				tedix(
@@ -1407,7 +1447,7 @@ export async function setupAction(
 			);
 			return `A Tedix read succeeded inside ${tool.name}.`;
 		});
-	if (action === "verify" && canVerify) {
+	if (action === "verify") {
 		await verify();
 		void readAgentStatus();
 		return;
@@ -1474,6 +1514,16 @@ export async function setupAction(
 				row.connection === "signed-out"
 			)
 				await run(command, ["mcp", "logout", "tedix"], { timeoutMs: 30_000 });
+			if (tool.id === "opencode" && row?.tedix === "missing") {
+				say("Checking that OpenCode can see Tedix…");
+				const state = await checkOpenCode(command, key);
+				if (state === "unknown")
+					throw new Error(
+						"OpenCode could not find Tedix. Open OpenCode, then try again.",
+					);
+				if (state === "signed-in")
+					return "OpenCode is already signed in to Tedix.";
+			}
 			say("Finish signing in in your browser…");
 			// Claude Code refuses to sign in without a terminal. On a Mac,
 			// `script` gives it one; the sign-in itself happens in the browser.
@@ -1494,7 +1544,7 @@ export async function setupAction(
 			delete steps[`verify:${tool.id}`];
 			return `Signed in to Tedix from ${tool.name}.`;
 		});
-		if (canVerify && steps[key]?.done) await verify();
+		if (steps[key]?.done) await verify();
 		return readAgentStatus();
 	}
 	if (action === "run-tasks") {
