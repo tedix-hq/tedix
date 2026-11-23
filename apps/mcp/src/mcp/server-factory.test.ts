@@ -1098,7 +1098,12 @@ it("keeps interleaved factory-built caller catalogs isolated on the shared handl
 	const barrier = new Promise<void>((resolve) => {
 		release = resolve;
 	});
+	let entered!: () => void;
+	const rankingStarted = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
 	const rankAlpha = vi.fn(async () => {
+		entered();
 		await barrier;
 		return {
 			rankedIds: ["alpha.get_item"],
@@ -1140,6 +1145,10 @@ it("keeps interleaved factory-built caller catalogs isolated on the shared handl
 			slug + "__get_item",
 			catalogRow({
 				toolId: slug + "__get_item",
+				// Both rows must match equally so the clear-winner shortcut cannot
+				// bypass the pending semantic ranking this test interleaves.
+				title: "Manage items",
+				description: "Manage items",
 				config: {
 					transport: "rpc",
 					endpoint: "apps/get",
@@ -1196,12 +1205,28 @@ it("keeps interleaved factory-built caller catalogs isolated on the shared handl
 			import("@tedix/api-contract/schemas/tools").ToolConfig
 		>);
 	const alphaPending = rankedCall(alpha);
-	const betaResult = await rankedCall(beta);
-	expect(JSON.stringify(betaResult.data)).not.toContain("alpha.get_item");
-	expect(rankBeta).not.toHaveBeenCalled();
-	release();
+	try {
+		await rankingStarted;
+		const betaResult = await rankedCall(beta);
+		expect(JSON.stringify(betaResult.data)).toContain("beta.get_item");
+		expect(JSON.stringify(betaResult.data)).not.toContain("alpha.get_item");
+		expect(JSON.stringify(betaResult.data)).toContain('"authorized":false');
+		expect(rankBeta).not.toHaveBeenCalled();
+	} finally {
+		release();
+	}
 	const alphaResult = await alphaPending;
 	expect(rankAlpha).toHaveBeenCalledOnce();
+	expect(rankAlpha.mock.calls[0]).toEqual([
+		expect.objectContaining({
+			candidates: [
+				expect.objectContaining({ id: "alpha.get_item" }),
+				expect.objectContaining({ id: "alpha.list_items" }),
+			],
+		}),
+	]);
+	expect(JSON.stringify(alphaResult.data)).toContain('"order":"jev"');
+	expect(JSON.stringify(alphaResult.data)).toContain('"authorized":true');
 	expect(JSON.stringify(alphaResult.data)).not.toContain("beta.get_item");
 });
 
