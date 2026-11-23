@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, expect, it, spyOn } from "bun:test";
 import {
 	mkdtempSync,
 	mkdirSync,
@@ -67,11 +67,15 @@ function fixture(configured = true) {
 	};
 	const duties: RunnerDuty[] = [];
 	let sequence = 0;
-	const create = (overrides: Partial<ServeOptions> = {}) => {
-		if (overrides.executor)
-			mkdirSync(join(dir, overrides.executor), { recursive: true });
+	const create = (
+		overrides: Partial<ServeOptions> = {},
+		directoryOverride?: string,
+	) => {
 		const config = { ...options, ...overrides };
-		const directory = overrides.executor ? join(dir, overrides.executor) : dir;
+		const directory =
+			directoryOverride ??
+			(overrides.executor ? join(dir, overrides.executor) : dir);
+		mkdirSync(directory, { recursive: true });
 		return new LaneDispatcher(config, directory, {
 			runners: () => duties,
 			createHeartbeat: () => async () => ({
@@ -404,6 +408,72 @@ it("records native allocation limits before any Work admission", async () => {
 			.backoffUntil,
 	).toBeGreaterThan(Date.now());
 	expect(control.events).not.toContain("start");
+});
+
+it("shares failed native setup with Auto selection and permits recovery after backoff", async () => {
+	const f = fixture();
+	autoItem(f.item);
+	for (const executor of ["codex", "claude-code"] as const)
+		f.duties.push(autoDuty(executor, f.dir));
+	const root = join(f.dir, "dispatchers");
+	const codexDirectory = join(root, "codex");
+	const claudeDirectory = join(root, "claude");
+	const codex = f.create(
+		{ executor: "codex", coordinated: true },
+		codexDirectory,
+	);
+	const claude = f.create(
+		{ executor: "claude-code", coordinated: true },
+		claudeDirectory,
+	);
+	await codex.tick();
+	expect(f.item.executorId).toBe("codex");
+	f.control.nativeError = new SyntaxError("Unexpected token < in JSON");
+	await codex.tick();
+	await codex.drain();
+	expect(f.control.events).not.toContain("start");
+	const state = JSON.parse(
+		readFileSync(join(codexDirectory, "budgets.state"), "utf8"),
+	);
+	expect(state.codex.backoffKind).toBe("preparation");
+	expect(state.codex.backoffUntil).toBeGreaterThan(Date.now());
+	const failedAt = state.codex.observedAt;
+	const clock = spyOn(Date, "now");
+	try {
+		for (const seconds of [61, 182, 301]) {
+			clock.mockReturnValue(failedAt + seconds * 1000);
+			const path = join(codexDirectory, `${f.item.id}-1.json`);
+			const receipt = JSON.parse(readFileSync(path, "utf8"));
+			receipt.recheckAt = 0;
+			writeFileSync(path, JSON.stringify(receipt));
+			await codex.tick();
+			await codex.drain();
+		}
+		expect(f.item.executorId).toBe("claude-code");
+		expect(f.control.events).not.toContain("start");
+		f.control.nativeError = undefined;
+		await claude.tick();
+		await claude.drain();
+		expect(f.control.launches).toHaveLength(1);
+		expect(f.control.threads.map((thread) => thread.executor)).toEqual([
+			"claude-code",
+		]);
+		const latest = JSON.parse(
+			readFileSync(join(codexDirectory, "budgets.state"), "utf8"),
+		);
+		clock.mockReturnValue(latest.codex.backoffUntil + 1);
+		// A later Work is eligible for the recovered executor again.
+		f.item.id = "44444444-4444-4444-8444-444444444444";
+		f.item.executorId = "any-local";
+		const recovered = f.create(
+			{ executor: "codex", coordinated: true },
+			codexDirectory,
+		);
+		await recovered.tick();
+		expect(f.item.executorId).toBe("codex");
+	} finally {
+		clock.mockRestore();
+	}
 });
 
 it("does not back off a successful result merely mentioning rate-limit handling", async () => {

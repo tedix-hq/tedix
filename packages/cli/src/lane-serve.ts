@@ -102,6 +102,7 @@ import {
 	type RoutingPolicy,
 } from "./lane-routing";
 import { cachedExecutorProbe } from "./lane-executor-probe";
+import { toolAvailability } from "./lane-routing-command";
 import { cachedExecutorPreflight } from "./lane-executor-preflight";
 import {
 	createCodexLaneThread,
@@ -3366,8 +3367,17 @@ export class LaneDispatcher {
 		writeFileSync(`${path}.tmp`, JSON.stringify(this.budgets), { mode: 0o600 });
 		renameSync(`${path}.tmp`, path);
 	}
-	private recordLimit(executor: LocalExecutor, message: string) {
-		const next = executorBackoff(message, this.budgets[executor]);
+	private recordLimit(
+		executor: LocalExecutor,
+		message: string,
+		preparationFailed = false,
+	) {
+		const next = executorBackoff(
+			message,
+			this.budgets[executor],
+			Date.now(),
+			preparationFailed,
+		);
 		if (next) {
 			this.budgets[executor] = next;
 			this.saveBudgets();
@@ -4078,12 +4088,32 @@ export class LaneDispatcher {
 						? {
 								backoffUntil: prior.backoffUntil,
 								consecutiveLimits: prior.consecutiveLimits,
+								backoffKind: prior.backoffKind,
 							}
 						: {}),
 				};
 			}),
 		);
 		this.saveBudgets();
+		// A sibling's failed native setup must also exclude idle takeover and Auto.
+		const shared = toolAvailability(this.ownerEnv, Date.now(), {
+			root:
+				basename(dirname(this.directory)) === "dispatchers"
+					? dirname(this.directory)
+					: this.directory,
+			single: basename(dirname(this.directory)) !== "dispatchers",
+		});
+		for (const tool of shared) {
+			if (
+				!tool.available &&
+				(this.budgets[tool.executor]?.backoffUntil ?? 0) <= Date.now()
+			)
+				this.availability[tool.executor] = {
+					available: false,
+					transient: true,
+					reason: tool.description,
+				};
+		}
 		const freeDisk = this.deps.freeDiskBytes(this.directory);
 		const diskLow = freeDisk < MIN_FREE_DISK_BYTES;
 		if (diskLow)
@@ -4602,7 +4632,6 @@ export class LaneDispatcher {
 					else await this.failOver(item, paused);
 					continue;
 				}
-				this.ownToolUnavailableSince = undefined;
 				const task = this.execute(item, previous)
 					.catch((error) => this.log("failed", item.id, String(error)))
 					.finally(() => {
@@ -6557,10 +6586,20 @@ export class LaneDispatcher {
 								}, fresh)
 							: fresh()
 			).catch((error) => {
-				this.recordLimit(executor, String(error));
+				if (!adopted && !continuingQuestion) {
+					this.recordLimit(executor, String(error), true);
+					this.ownToolUnavailableSince ??= Date.now();
+				}
 				throw error;
 			});
 			codexServer = thread.codexServer;
+			this.ownToolUnavailableSince = undefined;
+			if (this.budgets[executor]?.backoffKind === "preparation") {
+				delete this.budgets[executor]!.backoffUntil;
+				delete this.budgets[executor]!.backoffKind;
+				delete this.budgets[executor]!.consecutiveLimits;
+				this.saveBudgets();
+			}
 			if (sessionRecovery) this.log("session-busy", item.id, sessionRecovery);
 			const resumed = thread.thread.id === previousSession;
 			if (continuingQuestion && !resumed)

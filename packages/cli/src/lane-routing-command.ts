@@ -21,21 +21,22 @@ const NAMES: Record<LocalExecutor, string> = {
 
 /**
  * Each tool's availability as this Mac's runners last saw it, from the
- * back-off they record when a tool reports a usage limit or no credits.
+ * back-off they record for native setup failures and usage limits.
  */
 export function toolAvailability(
 	env: NodeJS.ProcessEnv = process.env,
 	now = Date.now(),
+	directory?: { root: string; single: boolean },
 ) {
-	const root = join(
-		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
-		"dispatchers",
-	);
+	const root =
+		directory?.root ??
+		join(env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"), "dispatchers");
 	const until: Partial<Record<LocalExecutor, number>> = {};
 	const snapshots: Partial<Record<LocalExecutor, BudgetSnapshot>> = {};
+	const blocked: Partial<Record<LocalExecutor, BudgetSnapshot>> = {};
 	let names: string[] = [];
 	try {
-		names = readdirSync(root);
+		names = directory?.single ? [""] : readdirSync(root);
 	} catch {}
 	for (const name of names) {
 		try {
@@ -45,7 +46,10 @@ export function toolAvailability(
 			for (const executor of localExecutors) {
 				const snapshot = budgets[executor];
 				const end = snapshot?.backoffUntil ?? 0;
-				if (end > now && end > (until[executor] ?? 0)) until[executor] = end;
+				if (end > now && end > (until[executor] ?? 0)) {
+					until[executor] = end;
+					blocked[executor] = snapshot;
+				}
 				if (
 					snapshot &&
 					(snapshot.observedAt ?? 0) > (snapshots[executor]?.observedAt ?? -1)
@@ -62,7 +66,7 @@ export function toolAvailability(
 			available: !end,
 			until: end ? new Date(end).toISOString() : null,
 			description: end
-				? `${NAMES[executor]}: out of credits or at its usage limit, back around ${new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+				? `${NAMES[executor]}: ${blocked[executor]?.backoffKind === "preparation" ? "native setup failed" : "out of credits or at its usage limit"}, back around ${new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
 				: `${NAMES[executor]}: available`,
 			usage: usage || undefined,
 			nearLimit: nearUsageLimit(snapshots[executor]),

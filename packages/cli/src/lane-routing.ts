@@ -205,6 +205,7 @@ export interface BudgetSnapshot {
 	resetAt?: number;
 	estimatedCostUsd?: number;
 	backoffUntil?: number;
+	backoffKind?: "preparation";
 	consecutiveLimits?: number;
 	/** The plan or credit source the tool reported, e.g. "pro" or "azure". */
 	plan?: string;
@@ -455,8 +456,10 @@ export function executorBackoff(
 	message: string,
 	previous?: BudgetSnapshot,
 	now = Date.now(),
+	preparationFailed = false,
 ): BudgetSnapshot | undefined {
 	if (
+		!preparationFailed &&
 		!/\b429\b|\b529\b|overloaded|rate.?limit|usage limit|usageLimitExceeded|limit reached|hit your limit|quota exceeded|insufficient_quota|resource_exhausted|session limit|weekly limit|capacity exhausted|purchase more credits|out of credits|credit balance is too low/i.test(
 			message,
 		)
@@ -483,6 +486,7 @@ export function executorBackoff(
 		source: "error",
 		observedAt: now,
 		consecutiveLimits,
+		backoffKind: preparationFailed ? "preparation" : undefined,
 		backoffUntil: Math.max(previous?.backoffUntil ?? 0, now + duration),
 	};
 }
@@ -600,7 +604,7 @@ export function routeLocalWork(
 		if ((budget?.backoffUntil ?? 0) > now) {
 			capacityPaused = true;
 			rejected.push(
-				`${route.executor}: budget backoff until ${new Date(budget!.backoffUntil!).toISOString()}`,
+				`${route.executor}: ${budget?.backoffKind === "preparation" ? "native setup" : "budget"} backoff until ${new Date(budget!.backoffUntil!).toISOString()}`,
 			);
 			continue;
 		}
