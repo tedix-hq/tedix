@@ -360,8 +360,6 @@ export async function estimateAiCredits(
 export async function reserveBillingUsage(
 	db: DbClient,
 	input: {
-		execution?: NewProviderExecutionAttemptRow;
-		executionGuard?: ProviderExecutionAdmissionGuard;
 		preflight?: BillingReservationPreflight;
 		id: string;
 		organizationId: string;
@@ -383,24 +381,6 @@ export async function reserveBillingUsage(
 		credits?: number;
 	},
 ): Promise<BillingReservationDecision> {
-	if (
-		input.execution &&
-		(input.execution.billingReservationId !== input.id ||
-			input.execution.organizationId !== input.organizationId ||
-			input.execution.idempotencyKey !== input.idempotencyKey)
-	)
-		throw new Error("Execution/reservation identity mismatch");
-	if (input.executionGuard && !input.execution)
-		throw new Error("Guarded reservation requires execution identity");
-	const capturedPredicate = input.execution
-		? providerExecutionGuardPredicate(input.execution, input.executionGuard)
-		: sql`1=1`;
-	const eligibility = input.executionGuard
-		? sql`__provider_eligibility(eligible) AS MATERIALIZED ${capturedPredicate},`
-		: sql``;
-	const executionPredicate = input.executionGuard
-		? sql`(SELECT eligible FROM __provider_eligibility)`
-		: capturedPredicate;
 	const estimatedTokens =
 		input.estimatedInputTokens + input.estimatedOutputTokens;
 	if (
@@ -418,8 +398,7 @@ export async function reserveBillingUsage(
 	if (
 		preflight &&
 		(preflight.organizationId !== input.organizationId ||
-			preflight.idempotencyKey !== input.idempotencyKey ||
-			preflight.executionGuard !== input.executionGuard)
+			preflight.idempotencyKey !== input.idempotencyKey)
 	)
 		throw new Error("Reservation preflight scope mismatch");
 	// Caller-owned preflight comes from this admission's policy batch, never a cache.
@@ -454,7 +433,6 @@ export async function reserveBillingUsage(
 			creditFx: plan?.creditFx ?? null,
 			provider: input.provider,
 			model: input.model,
-			execution: input.execution,
 			deploymentScope: input.deploymentScope,
 			estimatedInputTokens: input.estimatedInputTokens,
 			estimatedOutputTokens: input.estimatedOutputTokens,
@@ -481,7 +459,7 @@ export async function reserveBillingUsage(
 	// Raw: the eligibility CTE is AS MATERIALIZED, which Drizzle $with cannot
 	// emit; the pool and capacity CTEs are the shared credit-admission builders.
 	const reservationStatement = db.all(sql`
-		WITH ${eligibility} pool AS ${poolQuery},
+		WITH pool AS ${poolQuery},
 		capacity AS ${capacityQuery}
 		INSERT INTO billing_usage_reservations (
 			id, organization_id, plan_version_id, tedi_id, user_id, status, source,
@@ -503,7 +481,6 @@ export async function reserveBillingUsage(
 		WHERE capacity.plan_version_id = ${plan?.id ?? null}
 			AND ${input.expiresAt} > ${input.now}
 			AND ${creditAdmissionPredicate(capacity, { now: input.now, credits })}
-			AND ${executionPredicate}
 		ON CONFLICT(idempotency_key) DO NOTHING
 		RETURNING
 			id,
@@ -511,20 +488,7 @@ export async function reserveBillingUsage(
 			expires_at AS expiresAt,
 			credits
 	`);
-	const inserted = (
-		input.execution
-			? (
-					await db.batch([
-						reservationStatement,
-						buildProviderExecutionInsertStatement(
-							db,
-							input.execution,
-							input.executionGuard,
-						),
-					])
-				)[0]
-			: await reservationStatement
-	) as Array<
+	const inserted = (await reservationStatement) as Array<
 		Pick<
 			BillingUsageReservation,
 			"id" | "planVersionId" | "expiresAt" | "credits"

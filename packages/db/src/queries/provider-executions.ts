@@ -41,15 +41,11 @@ export function buildProviderExecutionInsertStatement(
 	const predicate = guard
 		? sql`(SELECT eligible FROM __provider_eligibility)`
 		: capturedPredicate;
-	const reservation = sql`EXISTS (SELECT 1 FROM billing_usage_reservations WHERE id = ${input.billingReservationId ?? null} AND organization_id = ${input.organizationId} AND idempotency_key = ${input.idempotencyKey} AND status = 'reserved' AND provider = ${identity.provider} AND model = ${identity.requestModel} AND source = ${input.source} AND tedi_id IS ${input.tediId ?? null} AND run_id IS ${input.runId ?? null} AND trace_id IS ${input.traceId ?? null})`;
-	// A second-statement refusal after reserving aborts the actual D1 batch instead of committing an orphan hold.
-	const finalPredicate =
-		guard && input.billingReservationId
-			? sql`CASE WHEN ${reservation} THEN CASE WHEN ${predicate} THEN 1 ELSE json('provider_admission_refused') END ELSE 0 END`
-			: sql`${predicate} AND (${input.billingReservationId ?? null} IS NULL OR ${reservation})`;
+	// Managed credits are held by the organization wallet before this insert;
+	// the fence only proves the dispatch identity and policy guard.
 	return db.run(sql`${eligibility} INSERT INTO provider_execution_attempts (id, organization_id, tedi_id, source, run_id, work_item_id, trace_id, idempotency_key, settlement_mode, billing_reservation_id, provider, request_model, gateway_account_id, gateway_id, transport_kind, api_kind, provider_resource, provider_origin, deployment, deployment_scope, authorized_at, send_before, origin, origin_hash, policy, policy_hash)
  SELECT ${input.id}, ${input.organizationId}, ${input.tediId ?? null}, ${input.source}, ${input.runId ?? null}, ${input.workItemId ?? null}, ${input.traceId ?? null}, ${input.idempotencyKey}, ${input.settlementMode}, ${input.billingReservationId ?? null}, ${identity.provider}, ${identity.requestModel}, ${identity.gatewayAccountId}, ${identity.gatewayId}, ${identity.transportKind}, ${identity.apiKind}, ${identity.providerResource}, ${identity.providerOrigin}, ${identity.deployment}, ${input.deploymentScope}, ${input.authorizedAt}, ${input.sendBefore}, ${input.origin ? JSON.stringify(input.origin) : null}, ${input.originHash ?? null}, ${input.policy ? JSON.stringify(input.policy) : null}, ${input.policyHash ?? null}
- WHERE ${finalPredicate}`);
+ WHERE ${predicate}`);
 }
 
 export async function findProviderExecutionAdmission(

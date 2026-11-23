@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const billingMocks = vi.hoisted(() => ({
 	settleBillingUsage: vi.fn(),
+	recordWalletUsageCharge: vi.fn(),
 	recordBillingProviderUsage: vi.fn(),
 	recordBillingUsageQuarantines: vi.fn(),
 	claimStripeMeterOutbox: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("@tedix/db/queries/billing/provider-usage", () => ({
 }));
 vi.mock("@tedix/db/queries/billing/settlement", () => ({
 	settleBillingUsage: billingMocks.settleBillingUsage,
+	recordWalletUsageCharge: billingMocks.recordWalletUsageCharge,
 }));
 const storageMocks = vi.hoisted(() => ({
 	results: [] as Array<Array<{ call: unknown }>>,
@@ -167,6 +169,48 @@ describe("settleUnbilledGatewayCosts", () => {
 			expect(result).toMatchObject({ failed: 0, quarantined: 1, settled: 0 });
 		});
 	}
+	it("settles wallet holds in the wallet and falls back to D1 for pre-wallet reservations", async () => {
+		const wallet = {
+			wallet: vi.fn(async (_org: string, _route: string, body: unknown) =>
+				(body as { holdId: string }).holdId === "wallet-hold"
+					? {
+							found: true,
+							credits: 3,
+							periodStart: "2026-11-01T00:00:00.000Z",
+							periodEnd: "2026-12-01T00:00:00.000Z",
+						}
+					: { found: false },
+			),
+		};
+		billingMocks.settleBillingUsage.mockResolvedValueOnce({ id: "legacy" });
+		const result = await settleUnbilledGatewayCosts(
+			fakeDb(
+				[
+					{ call: call("gateway-wallet", "wallet-hold") },
+					{ call: call("gateway-legacy", "d1-reservation") },
+				],
+				[],
+			) as never,
+			"live",
+			wallet,
+		);
+		expect(result).toMatchObject({ settled: 2, failed: 0 });
+		expect(billingMocks.recordWalletUsageCharge).toHaveBeenCalledTimes(1);
+		expect(billingMocks.recordWalletUsageCharge).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				holdId: "wallet-hold",
+				gatewayLogId: "gateway-wallet",
+				credits: 3,
+				periodStart: "2026-11-01T00:00:00.000Z",
+			}),
+		);
+		expect(billingMocks.settleBillingUsage).toHaveBeenCalledTimes(1);
+		expect(billingMocks.settleBillingUsage).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ reservationId: "d1-reservation" }),
+		);
+	});
 	it("prioritizes reserved usage, quarantines deterministic rows, and aggregates transient logs", async () => {
 		const current = [
 			{ call: call("gateway-ok", "reservation-ok") },

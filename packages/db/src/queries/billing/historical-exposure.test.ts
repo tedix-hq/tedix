@@ -5,7 +5,6 @@ import {
 	buildProviderExecutionInsertStatement,
 	findProviderExecutionAdmission,
 } from "../provider-executions";
-import { reserveBillingUsage } from "./reservations";
 import {
 	ProviderExecutionOriginSchema,
 	providerDeploymentScope,
@@ -1307,22 +1306,6 @@ async function finiteProviderFixture(
 		f.origin,
 		grant,
 	);
-	const inputReservation = {
-		id: "reservation",
-		organizationId: org,
-		tediId: tedi,
-		source: "kernel" as const,
-		runId: "run",
-		provider: "workers-ai",
-		model: "@cf/test",
-		estimatedInputTokens: 1,
-		estimatedOutputTokens: 1,
-		idempotencyKey: "finite-provider",
-		expiresAt: prepared.execution.sendBefore,
-		now: prepared.execution.authorizedAt,
-		execution: prepared.execution,
-		executionGuard: prepared.guard,
-	};
 	f.sqlite.exec(
 		`UPDATE billing_plan_versions SET included_monthly_credits=100000, credit_fx='{"microUsdPerEur":1000000,"source":"https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml","asOf":"2026-01-01"}'`,
 	);
@@ -1344,15 +1327,15 @@ async function finiteProviderFixture(
 		publishedBy: "test",
 		changeReason: "fixture",
 	});
+	// Managed credits are held by the organization wallet; the D1 fence is
+	// where the finite permit guard is enforced, in every settlement mode.
 	const insert = () =>
-		mode === "managed"
-			? reserveBillingUsage(f.db, inputReservation)
-			: buildProviderExecutionInsertStatement(
-					f.db,
-					prepared.execution,
-					prepared.guard,
-				);
-	return { ...f, grant, prepared, inputReservation, insert };
+		buildProviderExecutionInsertStatement(
+			f.db,
+			prepared.execution,
+			prepared.guard,
+		);
+	return { ...f, grant, prepared, insert };
 }
 describe("actual finite provider SQL admission and immutable retries", () => {
 	it.each(["managed", "external", "disabled"] as const)(
@@ -1386,15 +1369,7 @@ describe("actual finite provider SQL admission and immutable retries", () => {
 		async (change) => {
 			const f = await finiteProviderFixture();
 			await changeFiniteProvider(f, change);
-			const result = await f.insert().catch(() => null);
-			expect(result && "allowed" in result ? result.allowed : false).toBe(
-				false,
-			);
-			expect(
-				f.sqlite
-					.prepare("SELECT count(*) n FROM billing_usage_reservations")
-					.get(),
-			).toEqual({ n: 0 });
+			await f.insert().catch(() => null);
 			expect(
 				f.sqlite
 					.prepare("SELECT count(*) n FROM provider_execution_attempts")
@@ -1450,58 +1425,39 @@ async function changeFiniteProvider(
 		expect(await recordFiniteExecutionRevocation(f.db, p)).not.toBeNull();
 	}
 }
-it.each(["reserved", "settled"] as const)(
-	"finite %s retries revalidate all current policy pins without reallocating",
-	async (status) => {
-		for (const change of [
-			"member",
-			"funding",
-			"custody",
-			"set",
-			"revocation",
-			"expiry",
-		]) {
-			const f = await finiteProviderFixture();
-			expect(
-				(await reserveBillingUsage(f.db, f.inputReservation)).allowed,
-			).toBe(true);
-			f.sqlite
-				.prepare("UPDATE billing_usage_reservations SET status=?")
-				.run(status);
-			expect(
-				(await reserveBillingUsage(f.db, f.inputReservation)).allowed,
-			).toBe(true);
-			const before = f.sqlite
-				.prepare("SELECT * FROM billing_usage_reservations")
-				.all();
-			await changeFiniteProvider(f, change);
-			const retry = await reserveBillingUsage(f.db, f.inputReservation).catch(
-				() => null,
+it("finite retries revalidate all current policy pins without reallocating", async () => {
+	for (const change of [
+		"member",
+		"funding",
+		"custody",
+		"set",
+		"revocation",
+		"expiry",
+	]) {
+		const f = await finiteProviderFixture();
+		await f.insert();
+		const guarded = () =>
+			findProviderExecutionAdmission(
+				f.db,
+				org,
+				"finite-provider",
+				f.prepared.guard,
 			);
-			expect(retry?.allowed ?? false, change).toBe(false);
-			expect(
-				await findProviderExecutionAdmission(
-					f.db,
-					org,
-					"finite-provider",
-					f.prepared.guard,
-				),
-				change,
-			).toBeNull();
-			expect(
-				f.sqlite.prepare("SELECT * FROM billing_usage_reservations").all(),
-			).toEqual(before);
-			expect(
-				f.sqlite
-					.prepare("SELECT count(*) n FROM provider_execution_attempts")
-					.get(),
-			).toEqual({ n: 1 });
-		}
-	},
-);
+		expect(await guarded(), change).not.toBeNull();
+		await changeFiniteProvider(f, change);
+		// A retry finds no admission under the changed pins and writes nothing new.
+		expect(await guarded(), change).toBeNull();
+		await f.insert().catch(() => null);
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) n FROM provider_execution_attempts")
+				.get(),
+		).toEqual({ n: 1 });
+	}
+});
 it("guarded retry cannot replace its original provider, origin or deadline", async () => {
 	const f = await finiteProviderFixture();
-	await reserveBillingUsage(f.db, f.inputReservation);
+	await f.insert();
 	for (const column of [
 		"provider",
 		"request_model",

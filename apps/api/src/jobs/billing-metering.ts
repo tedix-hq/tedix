@@ -17,7 +17,14 @@ import {
 	recordBillingProviderUsage,
 	recordBillingUsageQuarantines,
 } from "@tedix/db/queries/billing/provider-usage";
-import { settleBillingUsage } from "@tedix/db/queries/billing/settlement";
+import {
+	recordWalletUsageCharge,
+	settleBillingUsage,
+} from "@tedix/db/queries/billing/settlement";
+import type {
+	WalletRpc,
+	WalletSettleHoldResult,
+} from "@tedix/api-contract/schemas/billing-wallet";
 import {
 	commitUnsettledBillableGatewayScan,
 	scanUnreservedGatewayCalls,
@@ -162,6 +169,7 @@ async function holdUnpricedUsage(
 export async function settleUnbilledGatewayCosts(
 	db: DbClient,
 	stripeEnvironment: StripeEnvironment = "live",
+	wallet?: WalletRpc,
 ): Promise<BillingSettlementResult> {
 	const now = new Date().toISOString();
 	const scan = await scanUnsettledBillableGatewayCalls(db, {
@@ -183,6 +191,72 @@ export async function settleUnbilledGatewayCosts(
 				quarantined += await holdUnpricedUsage(db, call, holdReason, now);
 				continue;
 			}
+			const providerCostMicros = Math.round(call.estimatedCostUsd! * 1_000_000);
+			const usageQuality = [
+				"provider-response:kernel:context-ranking",
+				"provider-response:runtime:skill-ranking",
+				"provider-response:kernel:action-selection",
+				"provider-response:system:tool-output-quality",
+				"provider-response:catalog:category",
+				"provider-response:memory:graph-link",
+			].includes(call.source ?? "")
+				? ("provider_reported" as const)
+				: ("gateway_reported" as const);
+			const providerCostQuality =
+				call.provider === "workers-ai"
+					? ("gateway_reported" as const)
+					: ("estimated" as const);
+			const metadata = {
+				gatewayId: call.gatewayId,
+				providerResource: call.providerResource,
+				deployment: call.deployment,
+				dataQuality: call.dataQuality,
+				cacheReadTokens: call.cacheReadTokens,
+				cacheWriteTokens: call.cacheWriteTokens,
+				runId: call.runId,
+				workItemId: call.workItemId,
+			};
+			// Wallet first: a retried call settles the hold once and re-inserts
+			// nothing; a hold the wallet does not know is a pre-wallet D1
+			// reservation and settles the old way.
+			const held =
+				wallet && call.billingReservationId && call.gatewayLogId
+					? ((await wallet.wallet(call.orgId, "settle-hold", {
+							holdId: call.billingReservationId,
+							providerCostMicros,
+						})) as WalletSettleHoldResult)
+					: { found: false as const };
+			if (held.found) {
+				await recordWalletUsageCharge(db, {
+					id: crypto.randomUUID(),
+					organizationId: call.orgId,
+					tediId: call.tediId,
+					holdId: call.billingReservationId!,
+					gatewayLogId: call.gatewayLogId!,
+					provider: call.provider ?? "unknown",
+					model: call.model,
+					source: billingSource(call),
+					inputTokens: call.inputTokens,
+					outputTokens: call.outputTokens,
+					providerCostMicros,
+					credits: held.credits,
+					periodStart: held.periodStart,
+					periodEnd: held.periodEnd,
+					usageQuality,
+					providerCostQuality,
+					meteringReady: call.totalTokens > 0,
+					rateCardVersion: call.rateVersionId ?? "gateway-reported",
+					occurredAt: call.snapshotAt,
+					metadata: {
+						...metadata,
+						runId: held.runId ?? call.runId,
+						reservation: held.metadata,
+					} as never,
+					now,
+				});
+				settled++;
+				continue;
+			}
 			await settleBillingUsage(db, {
 				stripeEnvironment,
 				id: crypto.randomUUID(),
@@ -195,32 +269,13 @@ export async function settleUnbilledGatewayCosts(
 				source: billingSource(call),
 				inputTokens: call.inputTokens,
 				outputTokens: call.outputTokens,
-				providerCostMicros: Math.round(call.estimatedCostUsd! * 1_000_000),
-				usageQuality: [
-					"provider-response:kernel:context-ranking",
-					"provider-response:runtime:skill-ranking",
-					"provider-response:kernel:action-selection",
-					"provider-response:system:tool-output-quality",
-					"provider-response:catalog:category",
-					"provider-response:memory:graph-link",
-				].includes(call.source ?? "")
-					? "provider_reported"
-					: "gateway_reported",
-				providerCostQuality:
-					call.provider === "workers-ai" ? "gateway_reported" : "estimated",
+				providerCostMicros,
+				usageQuality,
+				providerCostQuality,
 				meteringReady: call.totalTokens > 0,
 				rateCardVersion: call.rateVersionId ?? "gateway-reported",
 				occurredAt: call.snapshotAt,
-				metadata: {
-					gatewayId: call.gatewayId,
-					providerResource: call.providerResource,
-					deployment: call.deployment,
-					dataQuality: call.dataQuality,
-					cacheReadTokens: call.cacheReadTokens,
-					cacheWriteTokens: call.cacheWriteTokens,
-					runId: call.runId,
-					workItemId: call.workItemId,
-				},
+				metadata,
 				now,
 			});
 			settled++;

@@ -4,6 +4,7 @@ import type {
 	AuthorizeWorkspaceInferenceInput,
 	ReleaseInferenceReservationInput,
 } from "@tedix/api-contract/schemas/runtime-entitlements";
+import type { WalletRpc } from "@tedix/api-contract/schemas/billing-wallet";
 import { releaseBillingReservation } from "@tedix/db/queries/billing/reservations";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
 import { authorizeRuntimeInference } from "./runtime-entitlement-admission";
@@ -50,9 +51,19 @@ export function authorizeWorkspaceInference(input: {
 /** Return the held credits of a reservation whose call never used them. */
 export async function releaseInferenceReservation(input: {
 	db: DbClient;
+	wallet?: WalletRpc;
 	request: ReleaseInferenceReservationInput;
 	nowMs?: number;
 }): Promise<{ released: boolean }> {
+	if (input.wallet) {
+		const result = (await input.wallet.wallet(
+			input.request.organizationId,
+			"release",
+			{ holdId: input.request.reservationId },
+		)) as { released: boolean };
+		if (result.released) return result;
+	}
+	// A pre-wallet D1 reservation.
 	const row = await releaseBillingReservation(input.db, {
 		reservationId: input.request.reservationId,
 		organizationId: input.request.organizationId,

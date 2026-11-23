@@ -6,7 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
 	getInferenceAdmissionReads: vi.fn(),
-	reserveBillingUsage: vi.fn(),
+	estimateAiCredits: vi.fn(),
+	insertExecution: vi.fn(),
+	wallet: vi.fn(),
 	resolveStripeEnvironment: vi.fn(() => "test"),
 }));
 
@@ -34,7 +36,10 @@ function admissionReads(
 	return { entitlement: entitlementValue, policies };
 }
 vi.mock("@tedix/db/queries/billing/reservations", () => ({
-	reserveBillingUsage: mocks.reserveBillingUsage,
+	estimateAiCredits: mocks.estimateAiCredits,
+}));
+vi.mock("@tedix/db/queries/provider-executions", () => ({
+	buildProviderExecutionInsertStatement: mocks.insertExecution,
 }));
 vi.mock("../lib/stripe-environment", () => ({
 	resolveStripeEnvironment: mocks.resolveStripeEnvironment,
@@ -74,13 +79,36 @@ function request(settlementMode: "managed" | "external" | "disabled") {
 	};
 }
 
+const plan = { id: "plan-1", creditFx: { microUsdPerEur: 1 } };
+/** Managed admission talks to the organization wallet over this binding. */
+const managedEnv = {
+	TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+	MCP_SERVICE: { wallet: mocks.wallet },
+};
+
 beforeEach(() => {
-	for (const mock of Object.values(mocks)) mock.mockClear();
-	mocks.getInferenceAdmissionReads.mockResolvedValue(
-		admissionReads(entitlement, {
+	for (const mock of Object.values(mocks)) mock.mockReset();
+	mocks.resolveStripeEnvironment.mockReturnValue("test");
+	mocks.getInferenceAdmissionReads.mockResolvedValue({
+		...admissionReads(entitlement, {
 			organization: { dailyTokenLimit: 20_000 },
 			tediFound: true,
 		}),
+		reservationPreflight: { existing: undefined, plan },
+	});
+	mocks.estimateAiCredits.mockResolvedValue(3);
+	mocks.insertExecution.mockResolvedValue({ meta: { changes: 1 } });
+	mocks.wallet.mockImplementation(
+		async (_org: string, route: string, body: any) =>
+			route === "hold"
+				? {
+						allowed: true,
+						holdId: body.holdId,
+						credits: body.credits,
+						expiresAt: body.expiresAt,
+						replayed: false,
+					}
+				: { released: true },
 	);
 });
 
@@ -102,82 +130,20 @@ describe("runtime entitlement inference admission", () => {
 				settlementMode: mode,
 				reservationId: null,
 			});
-			expect(mocks.reserveBillingUsage).not.toHaveBeenCalled();
+			expect(mocks.wallet).not.toHaveBeenCalled();
 			expect(mocks.resolveStripeEnvironment).not.toHaveBeenCalled();
 		},
 	);
 
-	it("preserves managed budget reservation behavior", async () => {
-		mocks.reserveBillingUsage.mockResolvedValue({
-			allowed: true,
-			reservation: {
-				id: "reservation-1",
-				expiresAt: "2026-08-02T12:10:00.000Z",
-				estimatedChargeMicros: 0,
-			},
-		});
-		const result = await authorizeRuntimeBudget({
-			db: {} as never,
-			env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
-			request: request("managed"),
-			nowMs,
-		});
-		expect(result).toMatchObject({
-			allowed: true,
-			settlementMode: "managed",
-			reservationId: "reservation-1",
-		});
-		expect(mocks.reserveBillingUsage).toHaveBeenCalledTimes(1);
-	});
-
-	it("reuses reservation reads from the same managed policy batch", async () => {
-		const reservationPreflight = {
-			organizationId: "org-1",
-			idempotencyKey: "inference:test",
-		};
-		mocks.getInferenceAdmissionReads.mockResolvedValueOnce({
-			...admissionReads(entitlement, { organization: {}, tediFound: true }),
-			reservationPreflight,
-		});
-		mocks.reserveBillingUsage.mockResolvedValueOnce({
-			allowed: true,
-			reservation: {
-				id: "reservation-1",
-				expiresAt: null,
-				estimatedChargeMicros: 0,
-			},
-		});
-		await authorizeRuntimeBudget({
-			db: {} as never,
-			env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
-			request: request("managed"),
-			nowMs,
-		});
-		expect(mocks.getInferenceAdmissionReads).toHaveBeenCalledWith(
-			{},
-			"org-1",
-			undefined,
-			{ idempotencyKey: "inference:test", executionGuard: undefined },
-		);
-		expect(mocks.reserveBillingUsage).toHaveBeenCalledWith(
-			{},
-			expect.objectContaining({ preflight: reservationPreflight }),
-		);
-	});
-
 	it.each([
 		["a member started the turn", "user-1", "user-1"],
-		["no member (scheduled or autonomous)", undefined, undefined],
+		["no member (scheduled or autonomous)", undefined, null],
 	] as const)(
-		"reserves against the member cap only when %s",
+		"holds plan-priced credits for the tedi and member when %s",
 		async (_label, userId, expected) => {
-			mocks.reserveBillingUsage.mockResolvedValueOnce({
-				allowed: true,
-				reservation: { id: "reservation-1", expiresAt: null, credits: 2 },
-			});
-			await authorizeRuntimeBudget({
+			const result = await authorizeRuntimeBudget({
 				db: {} as never,
-				env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+				env: managedEnv,
 				request: {
 					...request("managed"),
 					tediId: "tedi-1",
@@ -185,10 +151,39 @@ describe("runtime entitlement inference admission", () => {
 				},
 				nowMs,
 			});
-			expect(mocks.reserveBillingUsage).toHaveBeenCalledWith(
+			expect(mocks.getInferenceAdmissionReads).toHaveBeenCalledWith(
 				{},
-				expect.objectContaining({ tediId: "tedi-1", userId: expected }),
+				"org-1",
+				"tedi-1",
+				{ idempotencyKey: "inference:test", executionGuard: undefined },
 			);
+			expect(mocks.estimateAiCredits).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({ creditFx: plan.creditFx }),
+			);
+			const hold = mocks.wallet.mock.calls[0];
+			expect(hold).toEqual([
+				"org-1",
+				"hold",
+				{
+					organizationId: "org-1",
+					holdId: expect.any(String),
+					idempotencyKey: "inference:test",
+					tediId: "tedi-1",
+					userId: expected,
+					credits: 3,
+					runId: null,
+					metadata: undefined,
+					expiresAt: "2026-08-02T12:10:00.000Z",
+				},
+			]);
+			expect(result).toEqual({
+				allowed: true,
+				settlementMode: "managed",
+				reservationId: hold[2].holdId,
+				expiresAt: "2026-08-02T12:10:00.000Z",
+				estimatedCredits: 3,
+			});
 		},
 	);
 
@@ -196,20 +191,47 @@ describe("runtime entitlement inference admission", () => {
 		"member_monthly_credit_cap_reached",
 		"tedi_monthly_credit_cap_reached",
 		"monthly_credit_limit_reached",
-	] as const)("refuses with the standard code %s", async (code) => {
-		mocks.reserveBillingUsage.mockResolvedValueOnce({
-			allowed: false,
-			code,
-			snapshot: null,
-		});
+	] as const)("returns the wallet refusal %s unchanged", async (code) => {
+		mocks.wallet.mockResolvedValueOnce({ allowed: false, code });
 		const result = await authorizeRuntimeBudget({
 			db: {} as never,
-			env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+			env: managedEnv,
 			request: { ...request("managed"), userId: "user-1" },
+			execution: { billingReservationId: "hold-1" } as never,
 			nowMs,
 		});
 		expect(result).toMatchObject({ allowed: false, code });
+		expect(mocks.insertExecution).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		["reserved and unexpired", "reserved", "2026-08-02T12:05:00.000Z", true],
+		["settled", "settled", "2026-08-02T11:00:00.000Z", true],
+		["reserved but expired", "reserved", "2026-08-02T11:00:00.000Z", false],
+	] as const)(
+		"replays a pre-wallet D1 reservation that is %s without holding again",
+		async (_label, status, expiresAt, allowed) => {
+			mocks.getInferenceAdmissionReads.mockResolvedValueOnce({
+				...admissionReads(entitlement, { organization: {}, tediFound: true }),
+				reservationPreflight: {
+					existing: { id: "legacy-1", status, expiresAt, credits: 4 },
+					plan,
+				},
+			});
+			const result = await authorizeRuntimeBudget({
+				db: {} as never,
+				env: managedEnv,
+				request: request("managed"),
+				nowMs,
+			});
+			expect(result).toMatchObject(
+				allowed
+					? { allowed: true, reservationId: "legacy-1", estimatedCredits: 4 }
+					: { allowed: false, code: "monthly_credit_limit_reached" },
+			);
+			expect(mocks.wallet).not.toHaveBeenCalled();
+		},
+	);
 
 	it("fails closed on missing or mismatched deployment mode", async () => {
 		await expect(
@@ -228,7 +250,7 @@ describe("runtime entitlement inference admission", () => {
 				nowMs,
 			}),
 		).rejects.toThrow(/mode mismatch/);
-		expect(mocks.reserveBillingUsage).not.toHaveBeenCalled();
+		expect(mocks.wallet).not.toHaveBeenCalled();
 	});
 
 	it("denies a model outside the intersected D1 tier boundary", async () => {
@@ -252,7 +274,7 @@ describe("runtime entitlement inference admission", () => {
 			allowed: false,
 			code: "model_tier_not_allowed",
 		});
-		expect(mocks.reserveBillingUsage).not.toHaveBeenCalled();
+		expect(mocks.wallet).not.toHaveBeenCalled();
 	});
 
 	// Hoisting the reads into one batch makes both results available at once. If
@@ -299,7 +321,7 @@ describe("runtime entitlement inference admission", () => {
 				nowMs,
 			});
 			expect(result).toMatchObject({ allowed: false, code });
-			expect(mocks.reserveBillingUsage).not.toHaveBeenCalled();
+			expect(mocks.wallet).not.toHaveBeenCalled();
 		},
 	);
 
@@ -320,34 +342,65 @@ describe("runtime entitlement inference admission", () => {
 		).rejects.toThrow(/does not resolve in D1/);
 	});
 });
-it("passes the original execution guard and deadline through managed reservation retries", async () => {
+describe("managed execution fence", () => {
 	const execution = {
-		billingReservationId: "original-reservation",
+		billingReservationId: "original-hold",
 		sendBefore: "2026-08-02T12:00:30.000Z",
 	} as never;
 	const guard = { kind: "provider_execution_admission" as const };
-	mocks.reserveBillingUsage.mockResolvedValue({
-		allowed: true,
-		reservation: {
-			id: "original-reservation",
+	const admit = () =>
+		authorizeRuntimeBudget({
+			db: {} as never,
+			env: managedEnv,
+			request: request("managed"),
+			execution,
+			executionGuard: guard,
+			nowMs,
+		});
+
+	it("holds under the execution's hold id and deadline, then writes its guarded fence", async () => {
+		expect(await admit()).toMatchObject({
+			allowed: true,
+			reservationId: "original-hold",
 			expiresAt: "2026-08-02T12:00:30.000Z",
-			estimatedChargeMicros: 0,
+		});
+		expect(mocks.wallet.mock.calls[0][2]).toMatchObject({
+			holdId: "original-hold",
+			expiresAt: "2026-08-02T12:00:30.000Z",
+		});
+		expect(mocks.insertExecution).toHaveBeenCalledWith({}, execution, guard);
+		expect(mocks.wallet).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not fence or release again when the wallet replays an earlier hold", async () => {
+		mocks.wallet.mockResolvedValueOnce({
+			allowed: true,
+			holdId: "earlier-hold",
+			credits: 2,
+			expiresAt: "2026-08-02T12:00:20.000Z",
+			replayed: true,
+		});
+		expect(await admit()).toMatchObject({
+			allowed: true,
+			reservationId: "earlier-hold",
+		});
+		expect(mocks.insertExecution).not.toHaveBeenCalled();
+		expect(mocks.wallet).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		["refuses the fence", () => Promise.resolve({ meta: { changes: 0 } })],
+		["throws", () => Promise.reject(new Error("D1 unavailable"))],
+	] as const)(
+		"releases the hold when the guarded insert %s",
+		async (_label, insert) => {
+			mocks.insertExecution.mockImplementationOnce(insert);
+			await admit().catch(() => undefined);
+			expect(mocks.wallet).toHaveBeenLastCalledWith("org-1", "release", {
+				holdId: "original-hold",
+			});
 		},
-	});
-	await authorizeRuntimeBudget({
-		db: {} as never,
-		env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
-		request: request("managed"),
-		execution,
-		executionGuard: guard,
-		nowMs,
-	});
-	expect(mocks.reserveBillingUsage.mock.calls[0][1]).toMatchObject({
-		id: "original-reservation",
-		execution,
-		executionGuard: guard,
-		expiresAt: "2026-08-02T12:00:30.000Z",
-	});
+	);
 });
 
 it("refuses an unregistered model before reserving spend even without tier restrictions", async () => {
@@ -361,5 +414,5 @@ it("refuses an unregistered model before reserving spend even without tier restr
 		allowed: false,
 		code: "model_tier_not_allowed",
 	});
-	expect(mocks.reserveBillingUsage).not.toHaveBeenCalled();
+	expect(mocks.wallet).not.toHaveBeenCalled();
 });

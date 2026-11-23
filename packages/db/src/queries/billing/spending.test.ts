@@ -27,26 +27,24 @@ function fixture() {
 	 VALUES('hold','own','plan','kernel','fictional','fictional-model','${from}','${to}','own-run','hold','${to}','${from}','${from}'),
 	 ('second-hold','own','plan','kernel','fictional','fictional-model','${from}','${to}','second-run','second','${to}','${from}','${from}'),
 	 ('foreign-hold','other','plan','kernel','fictional','fictional-model','${from}','${to}','other-run','foreign','${to}','${from}','${from}');`);
-	/** A settled charge and, unless `consumed` is false, its AI consumption. */
+	/**
+	 * A settled charge. A pre-wallet charge names its run through its D1 hold;
+	 * a wallet-settled one (`hold: null`) carries the run and request metadata.
+	 */
 	function charge(
 		id: string,
 		credits: number,
 		{
 			org = "own",
 			hold = "hold" as string | null,
-			consumed = true,
-			kind = "ai",
+			metadata = {} as Record<string, unknown>,
+			occurredAt = from,
 		} = {},
 	) {
 		sqlite
-			.prepare(`INSERT INTO billing_usage_charges(id,organization_id,reservation_id,usage_period_id,provider,model,source,credit_applied_micros,customer_charge_micros,provider_cost_micros,rate_card_version,occurred_at,metadata,created_at)
-		 VALUES(?,?,?,'period','fictional','fictional-model','kernel',999,999,999,'price-1','${from}','{}','${from}')`)
-			.run(id, org, hold);
-		if (!consumed) return;
-		sqlite
-			.prepare(`INSERT INTO billing_credit_consumptions(id,organization_id,kind,source_ref,period_start,period_end,credits,included_credits,top_up_credits,payg_credits,payg_charge_micros,created_at)
-		 VALUES(?,?,?,?,'${from}','${to}',?,?,0,0,0,'${from}')`)
-			.run(`consumption-${id}`, org, kind, id, credits, credits);
+			.prepare(`INSERT INTO billing_usage_charges(id,organization_id,reservation_id,usage_period_id,provider,model,source,credit_applied_micros,customer_charge_micros,provider_cost_micros,credits,rate_card_version,occurred_at,metadata,created_at)
+		 VALUES(?,?,?,'period','fictional','fictional-model','kernel',999,999,999,?,'price-1',?,?,'${from}')`)
+			.run(id, org, hold, credits, occurredAt, JSON.stringify(metadata));
 	}
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)), charge };
 }
@@ -74,54 +72,73 @@ describe("credits per run", () => {
 				"second-hold",
 			);
 			f.charge("own-charge", 3);
-			f.charge("outside-period", 4);
-			f.charge("unsettled-charge", 20, { consumed: false });
+			f.charge("outside-period", 4, {
+				occurredAt: "2026-09-01T00:00:00.000Z",
+			});
 			f.charge("other-workspace", 100, { hold: "second-hold" });
-			f.sqlite
-				.prepare(
-					"UPDATE billing_credit_consumptions SET period_start = ? WHERE source_ref = ?",
-				)
-				.run("2026-09-01T00:00:00.000Z", "outside-period");
+			// Wallet-settled turns carry the hold's request metadata themselves.
+			f.charge("wallet-turn", 5, {
+				hold: null,
+				metadata: {
+					runId: "own-run",
+					reservation: {
+						source: "workspace_chat",
+						workspaceId: "own-workspace",
+					},
+				},
+			});
+			f.charge("wallet-other-workspace", 50, {
+				hold: null,
+				metadata: {
+					runId: "own-run",
+					reservation: {
+						source: "workspace_chat",
+						workspaceId: "other-workspace",
+					},
+				},
+			});
 			const input = {
 				organizationId: "own",
 				runIds: ["own-run", "second-run"],
 				workspaceChat,
 			};
 			expect(await sumRunCredits(f.db, input)).toEqual({
-				credits: 3,
-				chargeCount: 1,
+				credits: 8,
+				chargeCount: 2,
 			});
 			setMetadata.run(
 				JSON.stringify({ source: "home_chat", workspaceId: "own-workspace" }),
 				"hold",
 			);
 			expect(await sumRunCredits(f.db, input)).toEqual({
-				credits: 0,
-				chargeCount: 0,
+				credits: 5,
+				chargeCount: 1,
 			});
 		} finally {
 			f.sqlite.close();
 		}
 	});
 
-	it("sums AI credit consumptions per run and leaves runs without any out", async () => {
+	it("sums AI credits per run from pre-wallet and wallet charges and leaves runs without any out", async () => {
 		const f = fixture();
 		try {
 			f.charge("first", 3);
 			f.charge("second", 4);
 			f.charge("other-run-call", 7, { hold: "second-hold" });
-			// A charge with no consumption is not a credit draw.
-			f.charge("unconsumed", 50, { consumed: false });
-			// A code-run consumption never matches a charge's run.
-			f.charge("code", 9, { kind: "code_run" });
+			f.charge("wallet", 6, { hold: null, metadata: { runId: "second-run" } });
 			f.charge("foreign", 11, { org: "other", hold: "foreign-hold" });
+			f.charge("foreign-wallet", 13, {
+				org: "other",
+				hold: null,
+				metadata: { runId: "own-run" },
+			});
 			const byRun = await sumRunCreditsByRun(f.db, {
 				organizationId: "own",
 				runIds: ["own-run", "second-run", "other-run", "no-such-run"],
 			});
 			expect(Object.fromEntries(byRun)).toEqual({
 				"own-run": { credits: 7, chargeCount: 2 },
-				"second-run": { credits: 7, chargeCount: 1 },
+				"second-run": { credits: 13, chargeCount: 2 },
 			});
 			expect(
 				(await sumRunCreditsByRun(f.db, { organizationId: "own", runIds: [] }))

@@ -24,6 +24,24 @@ vi.mock("@tedix/db/queries/provider-executions", async (original) => ({
 	findProviderExecutionAdmission: mocks.find,
 	buildProviderExecutionInsertStatement: mocks.insert,
 }));
+// Only the actual budget admission the native fixture runs reads these two.
+vi.mock("@tedix/db/queries/model-catalog", async () => {
+	const { modelCatalogConfig, modelCatalogEntry } =
+		await import("@tedix/api-contract/test/model-catalog");
+	return {
+		getModelCatalogConfig: async () =>
+			modelCatalogConfig([
+				modelCatalogEntry("azure-openai/custom"),
+				modelCatalogEntry("cloudflare/auto"),
+			]),
+	};
+});
+vi.mock("@tedix/db/queries/billing/reservations", async (original) => ({
+	...(await original<
+		typeof import("@tedix/db/queries/billing/reservations")
+	>()),
+	estimateAiCredits: async () => 1,
+}));
 vi.mock("./data-residency", async (original) => ({
 	...(await original<typeof import("./data-residency")>()),
 	authorizeDataResidency: vi.fn().mockResolvedValue(null),
@@ -374,7 +392,51 @@ import {
 	signRuntimeInferenceOrigin,
 	verifyRuntimeInferenceOrigin,
 } from "@tedix/auth/runtime-inference-origin";
-import { reserveBillingUsage } from "@tedix/db/queries/billing/reservations";
+import type {
+	WalletHoldInput,
+	WalletHoldResult,
+} from "@tedix/api-contract/schemas/billing-wallet";
+/**
+ * The organization wallet Durable Object, as the API reaches it over
+ * `MCP_SERVICE`: holds dedupe by idempotency key and release deletes them.
+ */
+function fakeWallet() {
+	const holds = new Map<string, WalletHoldInput>();
+	const released: string[] = [];
+	const wallet = {
+		holds,
+		released,
+		/** Runs inside the hold call, before admission writes its fence. */
+		onHold: undefined as (() => void) | undefined,
+		live: () => holds.size,
+		wallet: vi.fn(
+			async (_org: string, route: string, body: unknown): Promise<unknown> => {
+				if (route === "release") {
+					const { holdId } = body as { holdId: string };
+					released.push(holdId);
+					for (const [key, hold] of holds)
+						if (hold.holdId === holdId) holds.delete(key);
+					return { released: true };
+				}
+				const input = body as WalletHoldInput;
+				const known = holds.get(input.idempotencyKey);
+				if (!known) {
+					holds.set(input.idempotencyKey, input);
+					wallet.onHold?.();
+				}
+				const hold = known ?? input;
+				return {
+					allowed: true,
+					holdId: hold.holdId,
+					credits: hold.credits,
+					expiresAt: hold.expiresAt,
+					replayed: Boolean(known),
+				} satisfies WalletHoldResult;
+			},
+		),
+	};
+	return wallet;
+}
 const zeroOrigin = () => ({
 	kind: "unselected_native" as const,
 	root: {
@@ -423,41 +485,21 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 	>("@tedix/db/queries/provider-executions");
 	mocks.find.mockImplementation(owner.findProviderExecutionAdmission);
 	mocks.insert.mockImplementation(owner.buildProviderExecutionInsertStatement);
-	mocks.budget.mockImplementation(async (input) => {
-		if (mode !== "managed")
-			return {
-				allowed: true,
-				settlementMode: mode,
-				reservationId: null,
-				expiresAt: null,
-				estimatedCredits: null,
-			};
-		const result = await reserveBillingUsage(db, {
-			id: input.execution.billingReservationId,
-			execution: input.execution,
-			executionGuard: input.executionGuard,
-			organizationId: input.request.organizationId,
-			tediId: input.request.tediId,
-			runId: input.request.runId,
-			source: "kernel",
-			provider: input.execution.provider,
-			model: input.execution.requestModel,
-			estimatedInputTokens: 10,
-			estimatedOutputTokens: 20,
-			idempotencyKey: "attempt-key",
-			expiresAt: input.execution.sendBefore,
-			now: new Date().toISOString(),
-			credits: 1,
-		});
-		if (!result.allowed) throw new Error(result.code);
-		return {
-			allowed: true,
-			settlementMode: mode,
-			reservationId: result.reservation.id,
-			expiresAt: result.reservation.expiresAt,
-			estimatedCredits: result.reservation.credits,
-		};
-	});
+	const wallet = fakeWallet();
+	const { authorizeRuntimeBudget } = await vi.importActual<
+		typeof import("./runtime-budget-admission")
+	>("./runtime-budget-admission");
+	mocks.budget.mockImplementation(async (input) =>
+		mode === "managed"
+			? authorizeRuntimeBudget(input)
+			: {
+					allowed: true,
+					settlementMode: mode,
+					reservationId: null,
+					expiresAt: null,
+					estimatedCredits: null,
+				},
+	);
 	const projection = { ...request(mode), tediId: "tedi" };
 	const token = await signRuntimeInferenceOrigin({
 		secret: "secret",
@@ -468,11 +510,13 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 		sqlite,
 		db,
 		owner,
+		wallet,
 		input: {
 			db,
 			env: {
 				TEDIX_BILLING_SETTLEMENT_MODE: mode,
 				SECRETS_MASTER_KEY: "secret",
+				MCP_SERVICE: wallet,
 			},
 			plane: "remote_runtime" as const,
 			request: { ...projection, originToken: token },
@@ -523,48 +567,39 @@ describe("native admission owning D1 guard", () => {
 			).toEqual({ n: 0 });
 		},
 	);
-	it("rolls the managed hold back if custody changes inside the reservation batch", async () => {
+	it("releases the managed wallet hold if custody changes before the fence insert", async () => {
 		const f = await nativeFixture("managed");
-		f.sqlite.exec(
-			"CREATE TRIGGER mutate_custody AFTER INSERT ON billing_usage_reservations BEGIN UPDATE tedis SET isolate_agent_id='changed'; END",
+		f.wallet.onHold = () =>
+			f.sqlite.exec("UPDATE tedis SET isolate_agent_id='changed'");
+		await expect(authorizeRuntimeInference(f.input)).rejects.toThrow(
+			/refused by its dispatch guard/,
 		);
-		await expect(authorizeRuntimeInference(f.input)).rejects.toThrow();
 		expect(
 			f.sqlite
 				.prepare("SELECT count(*) n FROM provider_execution_attempts")
 				.get(),
 		).toEqual({ n: 0 });
-		expect(
-			f.sqlite
-				.prepare("SELECT count(*) n FROM billing_usage_reservations")
-				.get(),
-		).toEqual({ n: 0 });
-		expect(
-			f.sqlite.prepare("SELECT isolate_agent_id FROM tedis").get(),
-		).toEqual({ isolate_agent_id: "root" });
+		expect(f.wallet.live()).toBe(0);
+		expect(f.wallet.released).toHaveLength(1);
 	});
 });
 
-it.each(["reserved", "settled"] as const)(
-	"managed %s retry stays linked and cannot promote legacy provenance",
-	async (status) => {
-		const f = await nativeFixture("managed");
-		const first = await authorizeRuntimeInference(f.input);
-		f.sqlite
-			.prepare("UPDATE billing_usage_reservations SET status=?")
-			.run(status);
-		expect(await authorizeRuntimeInference(f.input)).toEqual(first);
-		f.sqlite.exec(
-			"UPDATE provider_execution_attempts SET origin=NULL,origin_hash=NULL",
-		);
-		await expect(authorizeRuntimeInference(f.input)).rejects.toThrow(
-			/provenance/,
-		);
-		expect(
-			f.sqlite.prepare("SELECT origin FROM provider_execution_attempts").get(),
-		).toEqual({ origin: null });
-	},
-);
+it("managed retry replays its wallet hold, stays linked and cannot promote legacy provenance", async () => {
+	const f = await nativeFixture("managed");
+	const first = await authorizeRuntimeInference(f.input);
+	expect(await authorizeRuntimeInference(f.input)).toEqual(first);
+	expect(f.wallet.live()).toBe(1);
+	expect(f.wallet.released).toEqual([]);
+	f.sqlite.exec(
+		"UPDATE provider_execution_attempts SET origin=NULL,origin_hash=NULL",
+	);
+	await expect(authorizeRuntimeInference(f.input)).rejects.toThrow(
+		/provenance/,
+	);
+	expect(
+		f.sqlite.prepare("SELECT origin FROM provider_execution_attempts").get(),
+	).toEqual({ origin: null });
+});
 
 it.each(["managed", "external", "disabled"] as const)(
 	"positive native generation in %s cannot claim gen0 or bypass a finite permit",
@@ -605,11 +640,7 @@ it.each(["managed", "external", "disabled"] as const)(
 				.prepare("SELECT count(*) n FROM provider_execution_attempts")
 				.get(),
 		).toEqual({ n: 0 });
-		expect(
-			f.sqlite
-				.prepare("SELECT count(*) n FROM billing_usage_reservations")
-				.get(),
-		).toEqual({ n: 0 });
+		expect(f.wallet.live()).toBe(0);
 	},
 );
 
@@ -800,8 +831,7 @@ it.each(["member", "funding", "set", "revocation"] as const)(
 	"denies finite %s race after preparation without any hold or receipt",
 	async (change) => {
 		const f = await finiteFixture("managed");
-		const reserve = mocks.budget.getMockImplementation()!;
-		mocks.budget.mockImplementation(async (input) => {
+		f.wallet.onHold = () => {
 			if (change === "member")
 				f.sqlite.exec("UPDATE organization_members SET status='inactive'");
 			if (change === "funding")
@@ -814,19 +844,14 @@ it.each(["member", "funding", "set", "revocation"] as const)(
 				f.sqlite.exec(
 					"UPDATE billing_historical_decisions SET kind='revocation'",
 				);
-			return reserve(input);
-		});
+		};
 		await expect(authorizeRuntimeInference(f.input)).rejects.toThrow();
 		expect(
 			f.sqlite
 				.prepare("SELECT count(*) n FROM provider_execution_attempts")
 				.get(),
 		).toEqual({ n: 0 });
-		expect(
-			f.sqlite
-				.prepare("SELECT count(*) n FROM billing_usage_reservations")
-				.get(),
-		).toEqual({ n: 0 });
+		expect(f.wallet.live()).toBe(0);
 	},
 );
 it("does not select an older valid permit beneath a malformed latest decision", async () => {
@@ -952,31 +977,6 @@ describe("bounded admission failure diagnostics", () => {
 			);
 		},
 	);
-	it("reports managed rollback as a JSON category without claiming policy refusal", async () => {
-		const log = vi.spyOn(console, "error").mockImplementation(() => {});
-		const f = await nativeFixture("managed");
-		f.sqlite.exec(
-			"CREATE TRIGGER diagnostic_race AFTER INSERT ON billing_usage_reservations BEGIN UPDATE tedis SET isolate_agent_id='private-changed'; END",
-		);
-		await expect(authorizeRuntimeInference(f.input)).rejects.toThrow();
-		expect(log.mock.calls[0][1]).toMatchObject({
-			phase: "budget_admission",
-			messageClass: ["malformed JSON"],
-		});
-		expect(JSON.stringify(log.mock.calls)).not.toMatch(
-			/private-changed|provider_admission_refused|policy_refusal/,
-		);
-		expect(
-			f.sqlite
-				.prepare("SELECT count(*) n FROM billing_usage_reservations")
-				.get(),
-		).toEqual({ n: 0 });
-		expect(
-			f.sqlite
-				.prepare("SELECT count(*) n FROM provider_execution_attempts")
-				.get(),
-		).toEqual({ n: 0 });
-	});
 	it.each(["console", "classification"] as const)(
 		"cannot mask the original failure when %s throws",
 		async (failure) => {
@@ -1024,7 +1024,7 @@ it("reports an accepted claim and finite authorization without exposing their pa
 		/private|requestHash|inputHash|objectId|objectName|authorizationId|originToken|sha256/,
 	);
 });
-it("distinguishes an actual original guarded replay read from the reservation batch", async () => {
+it("distinguishes an actual original guarded replay read from budget admission", async () => {
 	const log = vi.spyOn(console, "error").mockImplementation(() => {});
 	const f = await nativeFixture("managed");
 	await authorizeRuntimeInference(f.input);
@@ -1044,9 +1044,7 @@ it("distinguishes an actual original guarded replay read from the reservation ba
 		phase: "replay_guard_read",
 		messageClass: ["D1_ERROR"],
 	});
-	expect(
-		f.sqlite.prepare("SELECT count(*) n FROM billing_usage_reservations").get(),
-	).toEqual({ n: 1 });
+	expect(f.wallet.live()).toBe(1);
 	expect(
 		f.sqlite
 			.prepare("SELECT count(*) n FROM provider_execution_attempts")

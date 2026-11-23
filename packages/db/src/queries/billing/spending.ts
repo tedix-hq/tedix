@@ -1,7 +1,7 @@
+import { DYNAMIC_WORKER_PROVIDER } from "@tedix/api-contract/utils/credit-pricing";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
-	billingCreditConsumptions,
 	billingUsageCharges,
 	billingUsageReservations,
 } from "../../schema/billing";
@@ -16,10 +16,11 @@ type RunCreditParams = {
 };
 
 /**
- * Tedix credits recorded for AI calls whose reservation belongs to one of
- * `runIds`, per run. An AI consumption's `source_ref` is its settled charge,
- * and the charge's reservation carries the run. Runs with no consumption are
- * left out: absent is never a known zero.
+ * Tedix credits recorded for AI calls of `runIds`, per run, from each call's
+ * settled charge. A pre-wallet charge names its run through its D1
+ * reservation; a wallet-settled charge carries the run and the hold's request
+ * metadata itself. Runs with no charge are left out: absent is never a known
+ * zero.
  */
 export async function sumRunCreditsByRun(
 	db: DbClient,
@@ -27,53 +28,44 @@ export async function sumRunCreditsByRun(
 ): Promise<Map<string, RunCreditTotal>> {
 	const byRun = new Map<string, RunCreditTotal>();
 	const workspaceChat = input.workspaceChat;
+	const charge = billingUsageCharges;
+	const reservation = billingUsageReservations;
+	const runId = sql<
+		string | null
+	>`COALESCE(${reservation.runId}, json_extract(${charge.metadata}, '$.runId'))`;
+	const requestField = (field: string) =>
+		sql`COALESCE(json_extract(${reservation.metadata}, ${`$.${field}`}), json_extract(${charge.metadata}, ${`$.reservation.${field}`}))`;
 	// Leave room for the organization and any workspace and period filters.
 	for (const runIds of chunkForBoundParams([...new Set(input.runIds)], 90)) {
 		const rows = await db
 			.select({
-				runId: billingUsageReservations.runId,
-				credits: sql<number>`coalesce(sum(${billingCreditConsumptions.credits}), 0)`,
-				chargeCount: sql<number>`count(${billingCreditConsumptions.id})`,
+				runId: runId.as("run_id"),
+				credits: sql<number>`coalesce(sum(${charge.credits}), 0)`.as("credits"),
+				chargeCount: sql<number>`count(${charge.id})`.as("charge_count"),
 			})
-			.from(billingCreditConsumptions)
-			.innerJoin(
-				billingUsageCharges,
+			.from(charge)
+			.leftJoin(
+				reservation,
 				and(
-					eq(billingUsageCharges.id, billingCreditConsumptions.sourceRef),
-					eq(
-						billingUsageCharges.organizationId,
-						billingCreditConsumptions.organizationId,
-					),
-				),
-			)
-			.innerJoin(
-				billingUsageReservations,
-				and(
-					eq(billingUsageReservations.id, billingUsageCharges.reservationId),
-					eq(
-						billingUsageReservations.organizationId,
-						billingUsageCharges.organizationId,
-					),
+					eq(reservation.id, charge.reservationId),
+					eq(reservation.organizationId, charge.organizationId),
 				),
 			)
 			.where(
 				and(
-					eq(billingCreditConsumptions.organizationId, input.organizationId),
-					eq(billingCreditConsumptions.kind, "ai"),
-					inArray(billingUsageReservations.runId, runIds),
+					eq(charge.organizationId, input.organizationId),
+					sql`${charge.provider} <> ${DYNAMIC_WORKER_PROVIDER}`,
+					inArray(runId, runIds),
 					workspaceChat
 						? and(
-								eq(
-									billingCreditConsumptions.periodStart,
-									workspaceChat.periodStart,
-								),
-								sql`json_extract(${billingUsageReservations.metadata}, '$.source') = 'workspace_chat'`,
-								sql`json_extract(${billingUsageReservations.metadata}, '$.workspaceId') = ${workspaceChat.workspaceId}`,
+								sql`${charge.occurredAt} >= ${workspaceChat.periodStart}`,
+								sql`${requestField("source")} = 'workspace_chat'`,
+								sql`${requestField("workspaceId")} = ${workspaceChat.workspaceId}`,
 							)
 						: undefined,
 				),
 			)
-			.groupBy(billingUsageReservations.runId);
+			.groupBy(runId);
 		for (const row of rows) {
 			if (!row.runId) continue;
 			byRun.set(row.runId, {

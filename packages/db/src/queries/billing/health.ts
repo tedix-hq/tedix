@@ -11,6 +11,7 @@ import {
 	isNotNull,
 	isNull,
 	lt,
+	or,
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -19,6 +20,7 @@ import {
 	reviewedCostMicros,
 	sourceRetiredProjection,
 } from "./provider-cost-evidence";
+import { providerExecutionAttempts } from "../../schema/provider-executions";
 import { tediCallCosts } from "../../schema/tedis";
 import {
 	anyBillingReservation,
@@ -56,6 +58,15 @@ export async function getBillingSettlementHealth(
 				gte(billingUsageReservations.createdAt, unsettledSince),
 			),
 		);
+	const recentWalletHolds = db
+		.select({ id: providerExecutionAttempts.billingReservationId })
+		.from(providerExecutionAttempts)
+		.where(
+			and(
+				gte(providerExecutionAttempts.authorizedAt, unsettledSince),
+				isNotNull(providerExecutionAttempts.billingReservationId),
+			),
+		);
 	// One D1 batch reads every figure from the same snapshot.
 	const [calls, charges, quarantines] = await db.batch([
 		db
@@ -78,8 +89,13 @@ export async function getBillingSettlementHealth(
 			)
 			.where(
 				and(
-					// bound-params: a subquery, not a list of values
-					inArray(tediCallCosts.billingReservationId, recentReservations),
+					// Pre-wallet D1 reservations, plus wallet holds proven by their
+					// dispatch fence (the wallet keeps holds in a Durable Object).
+					// bound-params: subqueries, not lists of values
+					or(
+						inArray(tediCallCosts.billingReservationId, recentReservations),
+						inArray(tediCallCosts.billingReservationId, recentWalletHolds),
+					),
 					eq(tediCallCosts.success, true),
 					isNotNull(tediCallCosts.orgId),
 					isNull(billingUsageCharges.id),
@@ -481,17 +497,36 @@ export async function getRecentProviderAttributionHealth(
 					sql<string>`CASE WHEN ${call.dataQuality} = 'ok' AND ${call.costBasis} <> 'unknown' AND ${call.estimatedCostUsd} >= 0 THEN 'priced' ELSE 'incomplete' END`.as(
 						"pricing",
 					),
-				reservationMatch: exists(
-					db
-						.select({ one: sql`1` })
-						.from(billingUsageReservations)
-						.where(
-							and(
-								eq(billingUsageReservations.id, call.billingReservationId),
-								eq(billingUsageReservations.organizationId, call.orgId),
+				// A wallet hold lives in a Durable Object; its dispatch fence is the
+				// D1 proof that the call and the hold belong together.
+				reservationMatch: or(
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(billingUsageReservations)
+							.where(
+								and(
+									eq(billingUsageReservations.id, call.billingReservationId),
+									eq(billingUsageReservations.organizationId, call.orgId),
+								),
 							),
-						),
-				).as("reservation_match"),
+					),
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(providerExecutionAttempts)
+							.where(
+								and(
+									eq(providerExecutionAttempts.id, call.executionId),
+									eq(
+										providerExecutionAttempts.billingReservationId,
+										call.billingReservationId,
+									),
+									eq(providerExecutionAttempts.organizationId, call.orgId),
+								),
+							),
+					),
+				)!.as("reservation_match"),
 				expiredMatch: exists(
 					db
 						.select({ one: sql`1` })

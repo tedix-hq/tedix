@@ -180,73 +180,6 @@ describe("immutable provider execution admission", () => {
 				.get(),
 		).toEqual({ n: 0 });
 	});
-	it("atomically writes a managed reservation and execution", async () => {
-		const { db } = await setup();
-		const execution = receipt({
-			settlementMode: "managed",
-			billingReservationId: "reservation",
-		});
-		const result = await reserveBillingUsage(db, {
-			credits: 1,
-			id: "reservation",
-			organizationId: "org",
-			source: "kernel",
-			provider: "azure-openai",
-			model: "custom",
-			estimatedInputTokens: 10,
-			estimatedOutputTokens: 20,
-			idempotencyKey: "attempt-key",
-			expiresAt: execution.sendBefore,
-			now,
-			execution,
-		});
-		expect(result.allowed).toBe(true);
-		expect(
-			(await findProviderExecutionAdmission(db, "org", "attempt-key"))
-				?.billingReservationId,
-		).toBe("reservation");
-	});
-	it("rolls reservation back if receipt persistence fails", async () => {
-		const { db, sqlite } = await setup();
-		sqlite.exec(
-			"CREATE TRIGGER reject_receipt BEFORE INSERT ON provider_execution_attempts BEGIN SELECT RAISE(ABORT,'receipt unavailable'); END;",
-		);
-		const execution = receipt({
-			settlementMode: "managed",
-			billingReservationId: "reservation",
-		});
-		await expect(
-			reserveBillingUsage(db, {
-				credits: 1,
-				id: "reservation",
-				organizationId: "org",
-				source: "kernel",
-				provider: "azure-openai",
-				model: "custom",
-				estimatedInputTokens: 10,
-				estimatedOutputTokens: 20,
-				idempotencyKey: "attempt-key",
-				expiresAt: execution.sendBefore,
-				now,
-				execution,
-			}),
-		).rejects.toThrow();
-		expect(
-			sqlite
-				.prepare("SELECT count(*) AS n FROM billing_usage_reservations")
-				.get(),
-		).toEqual({ n: 0 });
-	});
-	it("cannot insert a managed receipt without its admitted reservation", async () => {
-		const { db } = await setup();
-		await buildProviderExecutionInsertStatement(
-			db,
-			receipt({ settlementMode: "managed", billingReservationId: "absent" }),
-		);
-		expect(
-			await findProviderExecutionAdmission(db, "org", "attempt-key"),
-		).toBeNull();
-	});
 	it("actual migration CHECK rejects null Azure deployment and unknown transports", async () => {
 		const { db, sqlite } = await setup();
 		await buildProviderExecutionInsertStatement(db, receipt());
@@ -390,30 +323,6 @@ describe("populated canonical cost migration", () => {
 		});
 		sqlite.close();
 	});
-});
-
-it("does not attach a receipt to a reservation for a different model", async () => {
-	const { db } = await setup();
-	await reserveBillingUsage(db, {
-		credits: 1,
-		id: "reservation",
-		organizationId: "org",
-		source: "kernel",
-		provider: "azure-openai",
-		model: "other",
-		estimatedInputTokens: 10,
-		estimatedOutputTokens: 20,
-		idempotencyKey: "attempt-key",
-		expiresAt: "2026-09-20T07:10:00.000Z",
-		now,
-	});
-	await buildProviderExecutionInsertStatement(
-		db,
-		receipt({ settlementMode: "managed", billingReservationId: "reservation" }),
-	);
-	expect(
-		await findProviderExecutionAdmission(db, "org", "attempt-key"),
-	).toBeNull();
 });
 
 it("persists direct TypeSafe admission without invented Cloudflare fields", async () => {
@@ -609,111 +518,6 @@ it("refuses provenance writes without private preparation and pins cloned eviden
 		buildProviderExecutionInsertStatement(f.db, p.execution, p.guard),
 	).toThrow(/changed/);
 });
-it("fails a second managed guard inside the batch and rolls back its first reservation", async () => {
-	const f = await setup();
-	// Move the actual billing period to the live window; ordinary funds remain the normal owning predicate.
-	f.sqlite
-		.prepare("UPDATE billing_accounts SET period_start=?,period_end=?")
-		.run(
-			new Date(Date.now() - 86400000).toISOString(),
-			new Date(Date.now() + 86400000).toISOString(),
-		);
-	const p = await prepareProviderExecutionAdmission(
-		f.db,
-		receipt({
-			...originalWindow(),
-			tediId: "tedi",
-			settlementMode: "managed",
-			billingReservationId: "reservation",
-		}),
-		zeroOrigin(),
-	);
-	f.sqlite.exec(
-		"CREATE TRIGGER hold_between_statements AFTER INSERT ON billing_usage_reservations BEGIN UPDATE tedis SET isolate_agent_id='held'; END;",
-	);
-	await expect(
-		reserveBillingUsage(f.db, {
-			id: "reservation",
-			organizationId: "org",
-			tediId: "tedi",
-			source: "kernel",
-			provider: "azure-openai",
-			model: "custom",
-			estimatedInputTokens: 10,
-			estimatedOutputTokens: 20,
-			idempotencyKey: "attempt-key",
-			expiresAt: p.execution.sendBefore,
-			now: p.execution.authorizedAt,
-			execution: p.execution,
-			executionGuard: p.guard,
-			credits: 1,
-		}),
-	).rejects.toThrow();
-	expect(
-		f.sqlite.prepare("SELECT count(*) n FROM billing_usage_reservations").get(),
-	).toEqual({ n: 0 });
-	expect(
-		f.sqlite
-			.prepare("SELECT count(*) n FROM provider_execution_attempts")
-			.get(),
-	).toEqual({ n: 0 });
-	expect(
-		f.sqlite.prepare("SELECT isolate_agent_id name FROM tedis").get(),
-	).toEqual({ name: "root" });
-});
-it.each(["reserved", "settled"] as const)(
-	"guarded %s reservation retries require the original execution and reservation link",
-	async (status) => {
-		const f = await setup();
-		f.sqlite
-			.prepare("UPDATE billing_accounts SET period_start=?,period_end=?")
-			.run(
-				new Date(Date.now() - 86400000).toISOString(),
-				new Date(Date.now() + 86400000).toISOString(),
-			);
-		const p = await prepareProviderExecutionAdmission(
-			f.db,
-			receipt({
-				...originalWindow(),
-				tediId: "tedi",
-				settlementMode: "managed",
-				billingReservationId: "reservation",
-			}),
-			zeroOrigin(),
-		);
-		const input = {
-			id: "reservation",
-			organizationId: "org",
-			tediId: "tedi",
-			source: "kernel" as const,
-			provider: "azure-openai",
-			model: "custom",
-			estimatedInputTokens: 10,
-			estimatedOutputTokens: 20,
-			idempotencyKey: "attempt-key",
-			expiresAt: p.execution.sendBefore,
-			now: p.execution.authorizedAt,
-			execution: p.execution,
-			executionGuard: p.guard,
-			credits: 1,
-		};
-		expect((await reserveBillingUsage(f.db, input)).allowed).toBe(true);
-		f.sqlite
-			.prepare("UPDATE billing_usage_reservations SET status=?")
-			.run(status);
-		expect((await reserveBillingUsage(f.db, input)).allowed).toBe(true);
-		f.sqlite.exec(
-			"UPDATE provider_execution_attempts SET billing_reservation_id='wrong'",
-		);
-		const result = await reserveBillingUsage(f.db, input).catch(() => null);
-		expect(result?.allowed ?? false).toBe(false);
-		expect(
-			f.sqlite
-				.prepare("SELECT count(*) n FROM billing_usage_reservations")
-				.get(),
-		).toEqual({ n: 1 });
-	},
-);
 
 it.each([
 	"run_id",
@@ -1021,6 +825,9 @@ it.each(["gen0", "root", "leaf"] as const)(
 						return statement;
 					},
 					raw: async () => [],
+					run: async () => {
+						throw stop;
+					},
 				};
 				return statement;
 			},
@@ -1040,34 +847,8 @@ it.each(["gen0", "root", "leaf"] as const)(
 			p.guard,
 		);
 		await expect(
-			reserveBillingUsage(client, {
-				credits: 1,
-				id: "reservation",
-				organizationId: p.execution.organizationId,
-				tediId: p.execution.tediId!,
-				source: "kernel",
-				provider: p.execution.provider,
-				model: p.execution.requestModel,
-				estimatedInputTokens: 10,
-				estimatedOutputTokens: 20,
-				runId: p.execution.runId ?? undefined,
-				idempotencyKey: p.execution.idempotencyKey,
-				expiresAt: p.execution.sendBefore,
-				now: p.execution.authorizedAt,
-				execution: p.execution,
-				executionGuard: p.guard,
-			}),
-		).rejects.toBe(stop);
-		// Includes the pricing-mode lookup added before reserving funds. Every
-		// captured statement below is still prepared under D1's depth limit.
-		expect(queries).toHaveLength(5);
-		// The pricing preflight reads the plan once; the reservation's credit
-		// pool joins it again inside the admitting INSERT.
-		expect(
-			queries.filter((query) =>
-				/inner join "billing_plan_versions"/i.test(query.sql),
-			),
-		).toHaveLength(2);
+			buildProviderExecutionInsertStatement(client, p.execution, p.guard),
+		).rejects.toMatchObject({ cause: stop });
 		const schema = fixture.sqlite
 			.prepare(
 				"SELECT sql FROM sqlite_master WHERE type IN ('table','index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END",

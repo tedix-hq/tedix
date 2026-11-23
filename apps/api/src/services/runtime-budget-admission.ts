@@ -11,11 +11,14 @@ import type { ProviderExecutionAdmissionGuard } from "@tedix/db/queries/provider
 import type { NewProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
 import type { DbClient } from "@tedix/db/client";
 import { getInferenceAdmissionReads } from "@tedix/db/queries/billing/inference-admission";
-import {
-	estimateAiCredits,
-	reserveBillingUsage,
-} from "@tedix/db/queries/billing/reservations";
+import { estimateAiCredits } from "@tedix/db/queries/billing/reservations";
 import { runtimeEntitlementIsActive } from "@tedix/db/queries/runtime-entitlements";
+import { buildProviderExecutionInsertStatement } from "@tedix/db/queries/provider-executions";
+import type {
+	WalletHoldInput,
+	WalletHoldResult,
+	WalletRpc,
+} from "@tedix/api-contract/schemas/billing-wallet";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
 import {
@@ -60,7 +63,9 @@ function markAdmission(input: {
 
 export async function authorizeRuntimeBudget(input: {
 	db: DbClient;
-	env: CloudflareEnv | { TEDIX_BILLING_SETTLEMENT_MODE?: string };
+	env:
+		| CloudflareEnv
+		| { TEDIX_BILLING_SETTLEMENT_MODE?: string; MCP_SERVICE?: unknown };
 	request: Omit<
 		AuthorizeRuntimeInferenceInput,
 		"execution" | "workItemId" | "originToken"
@@ -205,45 +210,115 @@ export async function authorizeRuntimeBudget(input: {
 		};
 	}
 	const reserveAt = Date.now();
-	const decision = await reserveBillingUsage(input.db, {
-		id: input.execution?.billingReservationId ?? crypto.randomUUID(),
-		execution: input.execution,
-		executionGuard: input.executionGuard,
-		preflight: reservationPreflight,
-		organizationId: input.request.organizationId,
-		tediId: input.request.tediId,
-		userId: input.request.userId,
-		source: input.request.source,
+	const now = new Date(nowMs).toISOString();
+	const legacy = reservationPreflight?.existing;
+	if (legacy) {
+		// A D1 reservation from before the wallet: replay it, never renew it.
+		reserveMs = Date.now() - reserveAt;
+		const live =
+			(legacy.status === "reserved" && legacy.expiresAt > now) ||
+			legacy.status === "settled";
+		done(live ? "allowed_replay" : "monthly_credit_limit_reached");
+		if (!live)
+			return {
+				allowed: false,
+				code: "monthly_credit_limit_reached",
+				entitlement,
+			};
+		return {
+			allowed: true,
+			settlementMode: mode,
+			reservationId: legacy.id,
+			expiresAt: legacy.expiresAt,
+			estimatedCredits: legacy.credits,
+		};
+	}
+	const plan = reservationPreflight?.plan;
+	if (!plan) {
+		done("billing_not_configured");
+		return { allowed: false, code: "billing_not_configured", entitlement };
+	}
+	const credits = await estimateAiCredits(input.db, {
+		creditFx: plan.creditFx,
 		provider: input.request.provider,
 		model: input.request.model,
+		execution: input.execution,
 		estimatedInputTokens: input.request.estimatedInputTokens,
 		estimatedOutputTokens: input.request.estimatedOutputTokens,
-		runId: input.request.runId,
-		traceId: input.request.traceId,
+		now,
+	});
+	if (credits === null || !Number.isSafeInteger(credits) || credits < 0) {
+		done("pricing_unavailable");
+		return { allowed: false, code: "pricing_unavailable", entitlement };
+	}
+	const wallet = walletRpc(input.env);
+	const holdId = input.execution?.billingReservationId ?? crypto.randomUUID();
+	const hold = (await wallet.wallet(input.request.organizationId, "hold", {
+		organizationId: input.request.organizationId,
+		holdId,
 		idempotencyKey: input.request.idempotencyKey,
-		expiresAt:
-			input.execution?.sendBefore ??
-			new Date(nowMs + 10 * 60 * 1_000).toISOString(),
+		tediId: input.request.tediId ?? null,
+		userId: input.request.userId ?? null,
+		credits,
+		runId: input.request.runId ?? null,
 		metadata:
 			input.request.metadata === undefined
 				? undefined
 				: toJsonRecord(input.request.metadata),
-		now: new Date(nowMs).toISOString(),
-	});
-	reserveMs = Date.now() - reserveAt;
-	if (!decision.allowed) {
-		done(decision.code);
-		return { allowed: false, code: decision.code, entitlement };
+		expiresAt:
+			input.execution?.sendBefore ??
+			new Date(nowMs + 10 * 60 * 1_000).toISOString(),
+	} satisfies WalletHoldInput)) as WalletHoldResult;
+	if (!hold.allowed) {
+		reserveMs = Date.now() - reserveAt;
+		done(hold.code);
+		return { allowed: false, code: hold.code, entitlement };
 	}
-	done("allowed");
+	if (input.execution && !hold.replayed) {
+		// The fence proves the dispatch identity; without it the held credits
+		// have no call to settle against, so give them back.
+		let fenced = false;
+		try {
+			const result = await buildProviderExecutionInsertStatement(
+				input.db,
+				input.execution,
+				input.executionGuard,
+			);
+			fenced = (result.meta?.changes ?? 0) > 0;
+		} finally {
+			if (!fenced)
+				await wallet
+					.wallet(input.request.organizationId, "release", {
+						holdId: hold.holdId,
+					})
+					.catch((error: unknown) =>
+						// The hold expires on its own; keep the admission error.
+						console.error("[runtime-budget] hold release failed", {
+							exception: error instanceof Error ? error.name : typeof error,
+						}),
+					);
+		}
+		if (!fenced) {
+			done("execution_refused");
+			throw new Error("Execution admission refused by its dispatch guard");
+		}
+	}
+	reserveMs = Date.now() - reserveAt;
+	done(hold.replayed ? "allowed_replay" : "allowed");
 	return {
 		allowed: true,
 		settlementMode: mode,
-
-		reservationId: decision.reservation.id,
-		expiresAt: decision.reservation.expiresAt,
-		estimatedCredits: decision.reservation.credits,
+		reservationId: hold.holdId,
+		expiresAt: hold.expiresAt,
+		estimatedCredits: hold.credits,
 	};
+}
+
+/** The MCP worker's wallet RPC over the existing internal service binding. */
+function walletRpc(env: { MCP_SERVICE?: unknown }): WalletRpc {
+	if (!env.MCP_SERVICE)
+		throw new Error("Managed billing needs the MCP_SERVICE wallet binding");
+	return env.MCP_SERVICE as WalletRpc;
 }
 
 export type RuntimeBudgetDecision =
