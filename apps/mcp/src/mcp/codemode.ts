@@ -823,6 +823,8 @@ export async function registerCodeModeTools(
 										organizationId,
 										executionId,
 										caller: serverCtx.callerIdentity,
+										agentSessionId:
+											executionRefs.ownerHostSession?.sessionId ?? null,
 										execute: async (onLoad) =>
 											new DynamicWorkerExecutor({
 												loader: withModelAuthoredCodeIsolation(

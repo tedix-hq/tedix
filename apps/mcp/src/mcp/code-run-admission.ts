@@ -86,6 +86,8 @@ export async function executeMeteredCodeMode<T>(input: {
 	organizationId: string | null | undefined;
 	executionId: string;
 	caller: CallerIdentity | undefined;
+	/** The verified agent session this run acts in, when the caller named one. */
+	agentSessionId?: string | null;
 	execute: (onLoad: (call: ModelAuthoredLoaderCall) => void) => Promise<T>;
 }): Promise<T> {
 	const mode = BillingSettlementModeSchema.safeParse(
@@ -118,6 +120,8 @@ export async function executeMeteredCodeMode<T>(input: {
 		userId:
 			input.caller?.authType !== "tedi" ? (input.caller?.userId ?? null) : null,
 		workItemId: input.caller?.requestWorkItemId ?? null,
+		agentSessionId:
+			input.agentSessionId ?? input.caller?.externalAgentSessionId ?? null,
 	};
 	const decision = await call<WalletChargeResult>("charge", charge);
 	if (!decision.allowed) throw new Error(codeRunRefusalMessage(decision.code));

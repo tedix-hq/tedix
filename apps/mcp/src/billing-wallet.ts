@@ -27,7 +27,10 @@ import {
 	postWalletFlush,
 	type WalletFlushGroup,
 } from "@tedix/db/queries/billing/wallet-flush";
-import { getCreditBudgetsForWorkItem } from "@tedix/db/queries/work-items/budgets";
+import {
+	findSessionWorkItem,
+	getCreditBudgetsForWorkItem,
+} from "@tedix/db/queries/work-items/budgets";
 import type {
 	WalletBudgetScope,
 	WalletRefusalCode,
@@ -58,6 +61,8 @@ export interface WalletChargeInput {
 	userId: string | null;
 	/** Spend counts against this Work Item's credit budgets. */
 	workItemId?: string | null;
+	/** Without a Work Item: the agent session whose one active Attempt names it. */
+	agentSessionId?: string | null;
 }
 
 const BUDGET_TTL_MS = 60_000;
@@ -106,6 +111,10 @@ type EventRow = {
 export class BillingWallet {
 	readonly #storage: DurableObjectStorage;
 	readonly #env: { DB?: D1Database };
+	readonly #sessionWork = new Map<
+		string,
+		{ workItemId: string | null; fetchedAt: number }
+	>();
 	readonly #budgetCache = new Map<
 		string,
 		{ budgets: WalletBudget[]; fetchedAt: number }
@@ -496,18 +505,40 @@ export class BillingWallet {
 
 	/** The Work Item's credit budgets, cached briefly; none without a Work Item. */
 	async #budgets(
-		input: { organizationId: string; workItemId?: string | null },
+		input: {
+			organizationId: string;
+			workItemId?: string | null;
+			agentSessionId?: string | null;
+		},
 		nowMs: number,
 	): Promise<WalletBudget[]> {
-		if (!input.workItemId || !this.#env.DB) return [];
-		const cached = this.#budgetCache.get(input.workItemId);
+		if (!this.#env.DB) return [];
+		const db = createDbClient(this.#env.DB);
+		let workItemId = input.workItemId ?? null;
+		if (!workItemId && input.agentSessionId) {
+			const known = this.#sessionWork.get(input.agentSessionId);
+			if (known && nowMs - known.fetchedAt < BUDGET_TTL_MS)
+				workItemId = known.workItemId;
+			else {
+				workItemId = await findSessionWorkItem(db, {
+					orgId: input.organizationId,
+					sessionId: input.agentSessionId,
+				});
+				this.#sessionWork.set(input.agentSessionId, {
+					workItemId,
+					fetchedAt: nowMs,
+				});
+			}
+		}
+		if (!workItemId) return [];
+		const cached = this.#budgetCache.get(workItemId);
 		if (cached && nowMs - cached.fetchedAt < BUDGET_TTL_MS)
 			return cached.budgets;
-		const budgets = await getCreditBudgetsForWorkItem(
-			createDbClient(this.#env.DB),
-			{ orgId: input.organizationId, workItemId: input.workItemId },
-		);
-		this.#budgetCache.set(input.workItemId, { budgets, fetchedAt: nowMs });
+		const budgets = await getCreditBudgetsForWorkItem(db, {
+			orgId: input.organizationId,
+			workItemId,
+		});
+		this.#budgetCache.set(workItemId, { budgets, fetchedAt: nowMs });
 		return budgets;
 	}
 

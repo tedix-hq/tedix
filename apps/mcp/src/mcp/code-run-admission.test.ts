@@ -182,6 +182,7 @@ describe("Code Mode load billing", () => {
 								userId: "member-1",
 								// Counts against the Work Item's credit budgets.
 								workItemId: "work-1",
+								agentSessionId: null,
 							},
 						},
 					]);

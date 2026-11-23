@@ -1,3 +1,5 @@
+import { CREDIT_BUDGET_CURRENCY } from "@tedix/db/schema/work-factory";
+import type { WalletRpc } from "@tedix/api-contract/schemas/billing-wallet";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { grantLaneAttempt } from "@tedix/db/queries/work-items/lane-attempt-grants";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
@@ -1106,14 +1108,29 @@ export const listBudgetEnvelopesProcedure =
 			cursor: input?.cursor,
 			limit,
 		});
+		// A credit budget's spend lives in the organization wallet.
+		const creditIds = page.data
+			.filter((row) => row.currency === CREDIT_BUDGET_CURRENCY)
+			.map((row) => row.id);
+		const walletSpend = creditIds.length
+			? ((await (context.env.MCP_SERVICE as unknown as WalletRpc).wallet(
+					orgId,
+					"budget-spend",
+					{ budgetIds: creditIds },
+				)) as Record<string, number>)
+			: {};
 		return {
-			data: page.data.map((row) =>
-				WorkBudgetEnvelopeProjectionSchema.parse({
+			data: page.data.map((row) => {
+				const committedMicros =
+					row.currency === CREDIT_BUDGET_CURRENCY
+						? (walletSpend[row.id] ?? 0)
+						: row.committedMicros;
+				return WorkBudgetEnvelopeProjectionSchema.parse({
 					envelope: budgetEnvelopeOutput(row),
-					committedMicros: row.committedMicros,
-					availableMicros: Math.max(0, row.limitMicros - row.committedMicros),
-				}),
-			),
+					committedMicros,
+					availableMicros: Math.max(0, row.limitMicros - committedMicros),
+				});
+			}),
 			nextCursor: page.nextCursor,
 			observedAt,
 		};

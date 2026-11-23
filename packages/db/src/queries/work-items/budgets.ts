@@ -1,7 +1,8 @@
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { tediObjectives } from "../../schema/tedi-objectives";
-import { workItems } from "../../schema/work-items";
+import { workAttempts, workItems } from "../../schema/work-items";
+import { ACTIVE_ATTEMPT_STATES } from "./factory-state";
 import {
 	CREDIT_BUDGET_CURRENCY,
 	workCaseItems,
@@ -357,4 +358,27 @@ export async function getCreditBudgetsForWorkItem(
 				),
 			),
 		);
+}
+
+/**
+ * The Work Item an external agent session is working on: its one active
+ * Attempt's item. A session holding no active Attempt, or several, is not
+ * attributed, so spend is never counted against the wrong Work.
+ */
+export async function findSessionWorkItem(
+	db: DbQueryClient,
+	p: { orgId: string; sessionId: string },
+): Promise<string | null> {
+	const rows = await db
+		.select({ workItemId: workAttempts.workItemId })
+		.from(workAttempts)
+		.where(
+			and(
+				eq(workAttempts.orgId, p.orgId),
+				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+				eq(workAttempts.executorSessionId, p.sessionId),
+			),
+		)
+		.limit(2);
+	return rows.length === 1 ? rows[0]!.workItemId : null;
 }

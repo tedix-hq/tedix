@@ -30,8 +30,12 @@ const getCreditBudgetsForWorkItem = vi.fn(
 			limitMicros: number;
 		}>,
 );
+const findSessionWorkItem = vi.fn(
+	async (_db: unknown, _input: unknown): Promise<string | null> => null,
+);
 vi.mock("@tedix/db/queries/work-items/budgets", () => ({
 	getCreditBudgetsForWorkItem,
+	findSessionWorkItem,
 }));
 vi.mock("@tedix/db/queries/billing/wallet-flush", () => ({
 	postWalletFlush,
@@ -308,5 +312,37 @@ describe("billing wallet", () => {
 		});
 		getCreditPoolSnapshot.mockResolvedValue(snapshot);
 		getCreditBudgetsForWorkItem.mockResolvedValue([]);
+	});
+	it("counts an external agent's run against the Work its session's one active Attempt names", async () => {
+		getCreditPoolSnapshot.mockResolvedValue({
+			...snapshot,
+			availableCredits: 100,
+		});
+		findSessionWorkItem.mockResolvedValue("work-1");
+		getCreditBudgetsForWorkItem.mockImplementation(async (_db, input) =>
+			(input as { workItemId: string }).workItemId === "work-1"
+				? [
+						{
+							id: "budget-work",
+							scopeType: "work_item",
+							scopeId: "work-1",
+							limitMicros: 1_000_000,
+						},
+					]
+				: [],
+		);
+		wallet = new BillingWallet(fakeStorage(), { DB: {} as D1Database });
+		const run = (eventId: string) =>
+			wallet.charge({ ...member(eventId), agentSessionId: "session-1" });
+		expect(await run("run-1")).toMatchObject({ allowed: true });
+		expect(await run("run-2")).toMatchObject({ code: "work_budget_exhausted" });
+		expect(findSessionWorkItem).toHaveBeenCalledWith(expect.anything(), {
+			orgId: "org-1",
+			sessionId: "session-1",
+		});
+		getCreditPoolSnapshot.mockResolvedValue(snapshot);
+		getCreditBudgetsForWorkItem.mockReset();
+		getCreditBudgetsForWorkItem.mockResolvedValue([]);
+		findSessionWorkItem.mockResolvedValue(null);
 	});
 });

@@ -41,6 +41,7 @@ import {
 } from "./attempts";
 import {
 	createWorkBudgetEnvelope,
+	findSessionWorkItem,
 	getCreditBudgetsForWorkItem,
 	listWorkBudgetEnvelopes,
 	updateWorkBudgetEnvelope,
@@ -1177,6 +1178,42 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			"work_item-child",
 			"work_item-parent",
 		]);
+		// An agent session's Work is its one active Attempt's item, never a guess.
+		// Credit budgets need no Attempt reservation; the USD budget would.
+		sqlite.exec(
+			"UPDATE work_budget_envelopes SET enabled=0, version=version+1 WHERE id='organization-org'",
+		);
+		sqlite.exec(
+			"INSERT INTO external_agent_principals(id,organization_id,key,display_name,credential_binding_type,credential_binding_id,created_by_type,created_by_id) VALUES('agent','org','agent','Agent','api_key','binding','system','tedix'); INSERT INTO external_agent_sessions(id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,started_at,last_seen_at) VALUES('session','org','agent','claude-code:session','claude-code','1','anthropic','claude','1','verified','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z')",
+		);
+		const attempt = (id: string, item: string) => {
+			const { version, revision } = sqlite
+				.prepare(
+					"SELECT version, admission_spec_revision AS revision FROM work_items WHERE id = ?",
+				)
+				.get(item) as { version: number; revision: string };
+			sqlite
+				.prepare(
+					"INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,executor_session_id,external_session_key,decision,decided_at,expires_at,created_at) VALUES(?,'org',?,?,?,'external_agent','agent','session','claude-code:session','admitted','2026-08-20T00:00:00.000Z','2026-08-20T02:00:00.000Z','2026-08-20T00:00:00.000Z')",
+				)
+				.run(`admission-${id}`, item, version, revision);
+			sqlite
+				.prepare(
+					"INSERT INTO work_attempts(id,admission_id,work_item_id,org_id,attempt_number,executor_type,executor_id,executor_session_id,external_session_key,runtime_state,started_at,heartbeat_at,expires_at) VALUES(?,?,?,'org',1,'external_agent','agent','session','claude-code:session','running','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z','2026-08-20T02:00:00.000Z')",
+				)
+				.run(id, `admission-${id}`, item);
+		};
+		expect(
+			await findSessionWorkItem(db, { orgId: "org", sessionId: "session" }),
+		).toBeNull();
+		attempt("attempt-1", "child");
+		expect(
+			await findSessionWorkItem(db, { orgId: "org", sessionId: "session" }),
+		).toBe("child");
+		attempt("attempt-2", "parent");
+		expect(
+			await findSessionWorkItem(db, { orgId: "org", sessionId: "session" }),
+		).toBeNull();
 		sqlite.close();
 	});
 

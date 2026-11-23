@@ -1952,6 +1952,10 @@
 		{
 			"name": "20261123160347_credit_budget_envelopes/migration.sql",
 			"sha256": "8a05c5f85375f18b708b097e269628a9e8d8d18bf3de3a92577990a1944defd2"
+		},
+		{
+			"name": "20261123165022_credit_budgets_need_no_attempt_reservation/migration.sql",
+			"sha256": "8150ed55b8c306996e2c582868602a6b9a42ccf5237512889511599baa2765f2"
 		}
 	]
 }
