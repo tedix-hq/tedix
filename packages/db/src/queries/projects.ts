@@ -12,6 +12,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	and,
 	asc,
+	desc,
 	eq,
 	exists,
 	gte,
@@ -23,14 +24,18 @@ import {
 } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { workAgentSessions } from "../schema/work-agent-sessions";
-import { workProjectHealthJudgments } from "../schema/work-factory";
 import {
 	type NewProject,
 	type Project,
 	type ProjectStatus,
 	projects,
 } from "../schema/projects";
+import { alias } from "drizzle-orm/sqlite-core";
+import {
+	anyWorkAgentSessionReport,
+	workAgentSessions,
+} from "../schema/work-agent-sessions";
+import { workProjectHealthJudgments } from "../schema/work-factory";
 import { tedis } from "../schema/tedis";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import {
@@ -436,56 +441,54 @@ export async function listProjectPortfolio(
 			: undefined,
 	);
 	const orgProject = and(eq(projects.id, workItems.projectId), projectScope);
-	const nextRanked = db
+	// Each project seeks its own next item, health and latest report from an
+	// index; grouping over the organization read every open item, judgment and
+	// session on every Activity open.
+	const nextRow = alias(workItems, "next_row");
+	const judged = alias(workProjectHealthJudgments, "judged");
+	const report = alias(workAgentSessions, "report");
+	const next = sql<string | null>`(${db
 		.select({
-			projectId: sql<string>`${workItems.projectId}`.as("next_project_id"),
-			id: sql<string>`${workItems.id}`.as("next_id"),
-			title: sql<string>`${workItems.title}`.as("next_title"),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${workItems.projectId} ORDER BY (${workItems.disposition} = 'accepted') DESC, ${workItems.createdAt} ASC, ${workItems.id} ASC)`.as(
-				"next_rank",
-			),
+			value: sql`json_object('id', ${nextRow.id}, 'title', ${nextRow.title})`,
 		})
-		.from(workItems)
-		.innerJoin(projects, orgProject)
+		.from(nextRow)
 		.where(
 			and(
-				eq(workItems.orgId, params.orgId),
-				isNull(workItems.parentWorkItemId),
-				inArray(workItems.disposition, ["accepted", "proposed"]),
+				eq(nextRow.orgId, projects.orgId),
+				eq(nextRow.projectId, projects.id),
+				inArray(nextRow.disposition, ["accepted", "proposed"]),
+				isNull(nextRow.parentWorkItemId),
 			),
 		)
-		.as("portfolio_next");
-	const healthRanked = db
-		.select({
-			projectId: sql<string>`${workProjectHealthJudgments.projectId}`.as(
-				"health_project_id",
-			),
-			status: sql<
-				ProjectPortfolioEntry["health"]
-			>`${workProjectHealthJudgments.status}`.as("health_status"),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${workProjectHealthJudgments.projectId} ORDER BY ${workProjectHealthJudgments.observedAt} DESC, ${workProjectHealthJudgments.id} DESC)`.as(
-				"health_rank",
-			),
-		})
-		.from(workProjectHealthJudgments)
+		.orderBy(
+			desc(sql`${nextRow.disposition} = 'accepted'`),
+			asc(nextRow.createdAt),
+			asc(nextRow.id),
+		)
+		.limit(1)})`.as("next_item");
+	const health = sql<ProjectPortfolioEntry["health"]>`(${db
+		.select({ value: judged.status })
+		.from(judged)
+		.where(
+			and(eq(judged.orgId, projects.orgId), eq(judged.projectId, projects.id)),
+		)
+		.orderBy(desc(judged.observedAt), desc(judged.id))
+		.limit(1)})`.as("health_status");
+	// The partial index's own condition, stated so the read is given it.
+	const reportAt = sql<string | null>`(${db
+		.select({ value: report.lastEventAt })
+		.from(report)
 		.where(
 			and(
-				eq(workProjectHealthJudgments.orgId, params.orgId),
-				params.excludeProjectId
-					? ne(workProjectHealthJudgments.projectId, params.excludeProjectId)
-					: undefined,
+				eq(report.organizationId, projects.orgId),
+				eq(report.projectId, projects.id),
+				anyWorkAgentSessionReport,
 			),
 		)
-		.as("portfolio_health");
+		.orderBy(desc(report.lastEventAt))
+		.limit(1)})`.as("report_at");
 
-	const [
-		projectRows,
-		countRows,
-		nextRows,
-		healthRows,
-		attemptRows,
-		reportRows,
-	] = await db.batch([
+	const [projectRows, countRows, attemptRows] = await db.batch([
 		db
 			.select({
 				project: projects,
@@ -494,6 +497,9 @@ export async function listProjectPortfolio(
 				>`coalesce(nullif(${tedis.displayName}, ''), ${tedis.name})`.as(
 					"lead_tedi_name",
 				),
+				next,
+				health,
+				reportAt,
 			})
 			.from(projects)
 			.leftJoin(
@@ -518,21 +524,6 @@ export async function listProjectPortfolio(
 			.groupBy(workItems.projectId, workItems.disposition),
 		db
 			.select({
-				projectId: nextRanked.projectId,
-				id: nextRanked.id,
-				title: nextRanked.title,
-			})
-			.from(nextRanked)
-			.where(eq(nextRanked.rank, 1)),
-		db
-			.select({
-				projectId: healthRanked.projectId,
-				status: healthRanked.status,
-			})
-			.from(healthRanked)
-			.where(eq(healthRanked.rank, 1)),
-		db
-			.select({
 				projectId: sql<string>`${workItems.projectId}`.as("attempt_project_id"),
 				at: sql<string | null>`max(${workAttempts.heartbeatAt})`.as(
 					"attempt_at",
@@ -554,26 +545,6 @@ export async function listProjectPortfolio(
 				),
 			)
 			.groupBy(workItems.projectId),
-		db
-			.select({
-				projectId: sql<string>`${workAgentSessions.projectId}`.as(
-					"report_project_id",
-				),
-				at: sql<string | null>`max(${workAgentSessions.lastEventAt})`.as(
-					"report_at",
-				),
-			})
-			.from(workAgentSessions)
-			.where(
-				and(
-					eq(workAgentSessions.organizationId, params.orgId),
-					sql`${workAgentSessions.projectId} IS NOT NULL`,
-					params.excludeProjectId
-						? ne(workAgentSessions.projectId, params.excludeProjectId)
-						: undefined,
-				),
-			)
-			.groupBy(workAgentSessions.projectId),
 	]);
 
 	const counts = new Map<string, Record<string, number>>();
@@ -582,29 +553,28 @@ export async function listProjectPortfolio(
 		byDisposition[row.disposition] = Number(row.count);
 		counts.set(row.projectId, byDisposition);
 	}
-	const next = new Map(
-		nextRows.map((row) => [row.projectId, { id: row.id, title: row.title }]),
-	);
-	const health = new Map(healthRows.map((row) => [row.projectId, row.status]));
-	const activity = new Map<string, string>();
-	for (const row of [...attemptRows, ...reportRows]) {
-		const current = activity.get(row.projectId);
-		if (row.at && (!current || row.at > current))
-			activity.set(row.projectId, row.at);
-	}
+	const attemptAt = new Map(attemptRows.map((row) => [row.projectId, row.at]));
 	return {
-		data: projectRows.map(({ project, leadTediName }) => {
-			const byDisposition = counts.get(project.id) ?? {};
-			return {
-				project,
-				leadTediName: leadTediName ?? null,
-				total: Object.values(byDisposition).reduce((sum, n) => sum + n, 0),
-				byDisposition,
-				next: next.get(project.id) ?? null,
-				health: health.get(project.id) ?? null,
-				lastActivityAt: activity.get(project.id) ?? null,
-			};
-		}),
+		data: projectRows.map(
+			({ project, leadTediName, next, health, reportAt }) => {
+				const byDisposition = counts.get(project.id) ?? {};
+				const attempt = attemptAt.get(project.id) ?? null;
+				return {
+					project,
+					leadTediName: leadTediName ?? null,
+					total: Object.values(byDisposition).reduce((sum, n) => sum + n, 0),
+					byDisposition,
+					next: next
+						? (JSON.parse(next) as { id: string; title: string })
+						: null,
+					health: health ?? null,
+					lastActivityAt:
+						attempt && (!reportAt || attempt > reportAt)
+							? attempt
+							: (reportAt ?? null),
+				};
+			},
+		),
 	};
 }
 
