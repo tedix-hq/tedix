@@ -177,15 +177,21 @@ export interface RuntimeCronHost {
 }
 
 /**
- * Trigger the policy-pack cron reconcile at most once per DO instance, off the
- * hot path (fire-and-forget). No-ops until `tediId` is resolved, then runs on
- * the next call. Never throws into the turn.
+ * Trigger policy-pack cron reconciliation off the hot path, once successfully
+ * per DO instance. A failed pass leaves the next call able to retry.
  */
 export function maybeReconcileCrons(host: RuntimeCronHost): void {
 	if (host.cronReconcileDone) return;
 	if (!host.identityValue(host.state.tediId)) return;
 	host.cronReconcileDone = true;
-	void host.reconcilePolicyPackCrons();
+	void host.reconcilePolicyPackCrons().then(
+		(receipt) => {
+			if (!receipt.ok) host.cronReconcileDone = false;
+		},
+		() => {
+			host.cronReconcileDone = false;
+		},
+	);
 }
 
 /**

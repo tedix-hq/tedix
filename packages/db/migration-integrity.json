@@ -1920,6 +1920,10 @@
 		{
 			"name": "20261123091513_related_decision_history/migration.sql",
 			"sha256": "f460ff263c0738fa1c16b6a6bd2e544f5e10ca79e3fb3a472bb740f8adec39fb"
+		},
+		{
+			"name": "20261123110701_audit_action_retention_index/migration.sql",
+			"sha256": "10c22a53cb28b86d0785884f8d7e7fa73c15eb02ea828f61c5c443f3c69286b7"
 		}
 	]
 }

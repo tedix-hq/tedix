@@ -113,6 +113,35 @@ const cronSync = (search = "") =>
 	assert.equal(agent.cronReconcileDone, false);
 }
 
+// --- a failed startup pass retries on the next wake, without parallel passes ---
+{
+	let passes = 0;
+	let finish!: (receipt: { ok: boolean }) => void;
+	const agent = tediDo({
+		state: { tediId: "tedi-1" },
+		cronReconcileDone: false,
+		reconcilePolicyPackCrons() {
+			passes++;
+			return new Promise((resolve) => {
+				finish = resolve;
+			});
+		},
+	});
+	agent.maybeReconcileCrons();
+	agent.maybeReconcileCrons();
+	assert.equal(passes, 1);
+	finish({ ok: false });
+	await Promise.resolve();
+	assert.equal(agent.cronReconcileDone, false);
+	agent.maybeReconcileCrons();
+	assert.equal(passes, 2);
+	finish({ ok: true });
+	await Promise.resolve();
+	agent.maybeReconcileCrons();
+	assert.equal(passes, 2);
+	assert.equal(agent.cronReconcileDone, true);
+}
+
 // --- reconcile passes serialize through one per-DO queue ---
 {
 	const events: string[] = [];

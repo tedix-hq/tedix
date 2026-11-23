@@ -272,9 +272,12 @@ function retentionExpiredPredicate(
 ): SQL {
 	if (typeof cutoff !== "object")
 		return sql`${tableSpec.timestamp} < ${cutoff}`;
-	return sql`${tableSpec.timestamp} < ${cutoff.telemetry} AND
-		(${tableSpec.timestamp} < ${cutoff.standard} OR ${auditEvents.action} IN
-		(SELECT value FROM json_each(${JSON.stringify([...MCP_TELEMETRY_ACTIONS])})))`;
+	// Separate ranges let SQLite use timestamp for the standard window and
+	// action/timestamp for telemetry instead of scanning retained audit rows.
+	return sql`(${tableSpec.timestamp} < ${Math.min(cutoff.standard, cutoff.telemetry)} OR
+		(${auditEvents.action} IN
+		(SELECT value FROM json_each(${JSON.stringify([...MCP_TELEMETRY_ACTIONS])}))
+		AND ${tableSpec.timestamp} < ${cutoff.telemetry}))`;
 }
 
 /** The exclusive cutoff value in the table's own timestamp representation. */
@@ -395,7 +398,6 @@ export async function hasD1RetentionExpiredRows(
 		.select({ age: sql`${tableSpec.timestamp}`.as("retention_age") })
 		.from(tableSpec.table)
 		.where(retentionExpiredPredicate(tableSpec, cutoff))
-		.orderBy(tableSpec.timestamp)
 		.limit(1);
 	return rows.length > 0;
 }

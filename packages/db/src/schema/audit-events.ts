@@ -42,6 +42,12 @@ export const auditEvents = sqliteTable(
 		// Retention (queries/d1-retention.ts) walks the rowid b-tree; this index
 		// still serves cross-org time-window reads with timestamp leading.
 		index("idx_audit_events_timestamp").on(table.timestamp),
+		// Mixed retention windows must seek telemetry by action and age without
+		// visiting security and payment rows still inside their keep window.
+		index("idx_audit_events_action_timestamp").on(
+			table.action,
+			table.timestamp,
+		),
 		// getAuditEventsByResource pins all three columns. Without this it fell back
 		// to the org/timestamp index and scanned every event in the organization,
 		// filtering resource_type/resource_id row by row (measured 338,510 rows to

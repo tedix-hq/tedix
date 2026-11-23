@@ -8,6 +8,8 @@ import {
 	type D1RetentionCutoff,
 	type D1RetentionTableSpec,
 	d1RetentionCutoff,
+	d1RetentionPolicyCutoff,
+	hasD1RetentionExpiredRows,
 	isD1RetentionExpired,
 	mayBeOlderThanD1RetentionCutoff,
 	nextD1RetentionOldRowid,
@@ -170,6 +172,55 @@ describe("the next row older than a retention cutoff", () => {
 				),
 			).toBeNull();
 		}
+	});
+
+	it("seeks both audit retention windows without scanning retained actions", async () => {
+		const { sqlite, insertAudit } = fixture();
+		insertAudit.run("retained-payment", SECONDS - 30 * 86_400);
+		sqlite.exec("UPDATE audit_events SET action = 'payment.captured'");
+		sqlite.exec(`ANALYZE;
+			DELETE FROM sqlite_stat1;
+			INSERT INTO sqlite_stat1(tbl,idx,stat) VALUES
+				('audit_events','idx_audit_events_timestamp','1550000 2'),
+				('audit_events','idx_audit_events_action_timestamp','1550000 50000 2');
+			ANALYZE sqlite_schema;`);
+		const statements: string[] = [];
+		const db = createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare(query) {
+					statements.push(query);
+				},
+			}),
+		);
+		const cutoff = d1RetentionPolicyCutoff(audit, NOW, { keepDays: 90 });
+		expect(await hasD1RetentionExpiredRows(db, audit, cutoff)).toBe(false);
+		expect(await nextD1RetentionOldRowid(db, audit, cutoff, 0)).toBeNull();
+		for (const query of statements) {
+			const plan = sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${query}`)
+				.all(
+					...Array.from(
+						{ length: (query.match(/\?/g) ?? []).length },
+						() => null,
+					),
+				)
+				.map((row) => String(row.detail))
+				.join("\n");
+			expect(plan).toContain("MULTI-INDEX OR");
+			expect(plan).toContain("idx_audit_events_timestamp (timestamp<?)");
+			expect(plan).toContain(
+				"idx_audit_events_action_timestamp (action=? AND timestamp<?)",
+			);
+			expect(plan).not.toMatch(/SCAN audit_events|TEMP B-TREE/);
+		}
+		insertAudit.run("expired-telemetry", SECONDS - 15 * 86_400);
+		expect(await hasD1RetentionExpiredRows(db, audit, cutoff)).toBe(true);
+		expect(await nextD1RetentionOldRowid(db, audit, cutoff, 0)).toBe(2);
+		insertAudit.run("expired-payment", SECONDS - 91 * 86_400);
+		sqlite.exec(
+			"UPDATE audit_events SET action = 'payment.captured' WHERE id = 'expired-payment'",
+		);
+		expect(await nextD1RetentionOldRowid(db, audit, cutoff, 2)).toBe(3);
 	});
 
 	it.each([
