@@ -162,6 +162,19 @@ button.btn.quiet:hover:not(:disabled) {
 button.btn:disabled {
 	opacity: 0.5;
 }
+/* Working after a click: readable, with a spinner, until the action settles. */
+button.btn[aria-busy="true"]:disabled {
+	opacity: 0.8;
+	cursor: progress;
+}
+button[aria-busy="true"] .spinner {
+	width: 10px;
+	height: 10px;
+}
+button.btn.primary .spinner {
+	border-color: color-mix(in srgb, var(--primary-foreground) 35%, transparent);
+	border-top-color: var(--primary-foreground);
+}
 button.link {
 	all: unset;
 	color: var(--primary);

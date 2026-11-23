@@ -29,18 +29,17 @@ export interface PanelState {
 		checked?: string;
 		/** Why the last update did not finish. */
 		updateFailure?: string;
+		/** When the last look for updates ended, in ms. */
+		checkedAt?: number;
+		/** What the update entry in the sidebar says now. */
+		update: Pick<UpdateView, "kind" | "text">;
 		appearance: Appearance;
 		localWorkspace: boolean;
 	};
 }
 
 /** The sections of Settings. */
-export type SettingsSection =
-	| "general"
-	| "tools"
-	| "sessions"
-	| "mac"
-	| "about";
+export type SettingsSection = "general" | "tools" | "mac";
 
 /**
  * `cli-back` puts the kept command-line tool back and restarts the

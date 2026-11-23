@@ -5,6 +5,7 @@ import {
 	CONNECTOR_URL,
 	foundTools,
 	keepFocus,
+	onButtonsChange,
 	READY_MARK,
 	runnerFor,
 	type SessionsUi,
@@ -839,5 +840,6 @@ const receive = (incoming: PanelState) => {
 	state = incoming;
 	draw();
 };
+onButtonsChange(() => keepFocus(draw));
 tedixShell.onState(receive);
 void tedixShell.state().then(receive);

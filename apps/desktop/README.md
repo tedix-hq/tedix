@@ -120,7 +120,7 @@ The app is not signed or notarized yet and has been run on macOS only.
     in the entry and fades out.
   - If a download, a check you asked for or an update fails, the entry and
     the menus say "Update failed · Try again"; a click tries again, and
-    Settings › About says why.
+    Settings › General says why.
 - **Nothing is replaced without a click.** Replacing the command-line
   tool stops tasks running on this Mac. So the app never
   replaces the tool and never restarts the runners by itself.
@@ -132,7 +132,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   nothing. This stays so until the tool is signed with an identity that
   does not change between versions.
 - **Go back, and see what is wrong.** The app keeps the command-line tool
-  from before. **Settings → About** offers **Go back** after an update that failed, which swaps the two and restarts the runners. The
+  from before. **Settings → General** offers **Go back** after an update that failed, which swaps the two and restarts the runners. The
   app never goes back by itself. If `tedix supervise` or every runner stays
   down after a restart, the app says that this Mac's
   runners are down, shows one notification, and offers **Restart runners**.
@@ -146,20 +146,25 @@ The app is not signed or notarized yet and has been run on macOS only.
 - **Change every setting in one place.** **Tedix → Settings…** (`Cmd+,`)
   shows Settings as a panel over the dimmed Tedix window; the close button,
   a click beside the panel or Escape goes back. It has search, the account,
-  and five sections: General (open at login, appearance, setup guide), Coding
-  tools (the Claude and ChatGPT apps, and
-  one row per coding tool with its next step and a **Use for tasks**
-  switch; **Ready** only after Tedix worked inside it), Sessions (one
-  switch, a tab per coding tool, a searchable project list), This Mac
-  (name, "Let tedis edit files and run commands", the tasks running now,
-  a model on this Mac, a sample workspace) and About (version, updates,
-  and whether everything works). A tool's switch starts or stops only that
+  three sections: General (version and updates, a problem when there is
+  one, open at login, appearance, setup guide), This Mac (name, "Let tedis
+  edit files and run commands", the tasks running now, a model on this
+  Mac, a sample workspace, and the coding sessions: one switch, a tab per
+  coding tool, a searchable project list) and Coding tools (the Claude and
+  ChatGPT apps, and one row per coding tool with its next step and a
+  **Use for tasks** switch; **Ready** only after Tedix worked inside it).
+  Every button answers at once: it shows a spinner and what it is doing
+  ("Checking…", "Signing in…") until it finishes, and the row then shows
+  the result. The version row says what the update entry says: checking,
+  downloading with its percent, ready with **Restart to update**, failed
+  with **Try again**, or up to date and when it was checked. A tool's switch starts or stops only that
   tool's runner: the supervisor reads `~/.tedix/supervisor-runners.json`
   by itself, so other tools keep their tasks.
 - **Update when you choose.** While an update is ready, **Update Tedix**
   also shows in the app menu and the menu bar menu. **Check for Updates…**
-  updates at once when one is found, else opens Settings › About with the
-  result.
+  in the menu updates at once when one is found, else opens Settings ›
+  General with the result. **Check for updates** in Settings only checks
+  and shows the result in its row.
 - The app reads `https://downloads.tedix.dev/latest.json` and remembers the
   version. That is all it does by itself. The update entry appears for
   the newer of that version and the copy inside the app when it is newer

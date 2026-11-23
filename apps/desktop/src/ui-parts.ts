@@ -22,21 +22,75 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 	return node;
 }
 
+/** Buttons whose action still runs, by key: the words they show meanwhile. */
+const running = new Map<string, string>();
+/** Buttons that just finished, by key: a short result such as "Copied". */
+const finished = new Map<string, string>();
+let ranChanged = () => {};
+/** The page redraws when a button starts or stops working. */
+export function onButtonsChange(redraw: () => void): void {
+	ranChanged = redraw;
+}
+
+export interface ButtonOptions {
+	/** Shown with a spinner from the click until the action settles, e.g. "Checking…". */
+	pending?: string;
+	/** Shown for a moment after the action succeeds, e.g. "Copied". */
+	done?: string;
+	/** Tells apart buttons with the same words, such as each row's "Open". */
+	key?: string;
+}
+
+/**
+ * A button. When its action returns a promise and `pending` is given, it
+ * shows a spinner and those words at once and stays disabled until the
+ * action settles, across redraws; the row then shows the result.
+ */
 export function button(
 	label: string,
 	kind: "primary" | "plain" | "quiet" | "link",
-	click: () => void,
+	click: () => unknown,
 	disabled = false,
+	options: ButtonOptions = {},
 ): HTMLButtonElement {
+	const key = options.key ?? label;
+	const busy = running.get(key);
+	const result = finished.get(key);
 	const node = el(
 		"button",
 		kind === "link" ? "link" : `btn ${kind === "plain" ? "" : kind}`,
-		label,
+		busy !== undefined && el("span", "spinner"),
+		busy ?? result ?? label,
 	);
 	node.type = "button";
-	node.disabled = disabled;
-	node.dataset.key = label;
-	node.onclick = click;
+	node.disabled = disabled || busy !== undefined;
+	if (busy !== undefined) node.setAttribute("aria-busy", "true");
+	node.dataset.key = key;
+	node.onclick = () => {
+		const outcome = click();
+		if (!(outcome instanceof Promise)) return;
+		if (options.pending) {
+			running.set(key, options.pending);
+			ranChanged();
+		}
+		void outcome.then(
+			() => {
+				running.delete(key);
+				if (options.done) {
+					finished.set(key, options.done);
+					setTimeout(() => {
+						finished.delete(key);
+						ranChanged();
+					}, 1500);
+				}
+				ranChanged();
+			},
+			() => {
+				running.delete(key);
+				ranChanged();
+			},
+		);
+	};
 	return node;
 }
 
@@ -59,7 +113,12 @@ export function toggle(
 }
 
 export const act = (action: Parameters<PanelApi["setup"]>[0], id?: string) =>
-	void tedixShell.setup(action, id);
+	tedixShell.setup(action, id);
+
+const CHECKING = { pending: "Checking…", key: "check" };
+/** Looks for coding tools and their state again. */
+export const checkAgain = (label = "Check again") =>
+	button(label, "quiet", () => act("check"), false, CHECKING);
 
 export const EXECUTOR_NAMES: Record<string, string> = {
 	codex: "Codex",
@@ -155,8 +214,15 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 				retry: () => act(again[failed[0]]!, tool.id),
 			}
 		: {};
-	const plain = (label: string, action: Parameters<typeof act>[0]) =>
-		button(label, "plain", () => act(action, tool.id));
+	const plain = (
+		label: string,
+		action: Parameters<typeof act>[0],
+		pending: string,
+	) =>
+		button(label, "plain", () => act(action, tool.id), false, {
+			pending,
+			key: `${tool.id}:${action}`,
+		});
 
 	if (tool.found === "no-command")
 		return {
@@ -174,7 +240,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			tone: "warn",
 			sub: `Not signed in to ${tool.name}`,
 			action: tool.canSignInAccount
-				? plain("Sign in", "account-sign-in")
+				? plain("Sign in", "account-sign-in", "Signing in…")
 				: undefined,
 		};
 	if (tool.tedix === "missing")
@@ -182,7 +248,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			...base,
 			ready: false,
 			sub: "Tedix is not added yet",
-			action: tool.canAdd ? plain("Add", "add") : undefined,
+			action: tool.canAdd ? plain("Add", "add", "Adding…") : undefined,
 		};
 	if (tool.tedix === "unknown")
 		return {
@@ -190,7 +256,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			ready: false,
 			tone: "warn",
 			sub: "Could not check right now",
-			action: button("Check again", "quiet", () => act("check")),
+			action: checkAgain(),
 		};
 	if (!tool.enabled)
 		return {
@@ -198,7 +264,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			ready: false,
 			tone: "warn",
 			sub: `Tedix is turned off in ${tool.name}`,
-			action: button("Check again", "quiet", () => act("check")),
+			action: checkAgain(),
 		};
 	if (tool.id === "codex" && tool.hookTrust !== "trusted")
 		return {
@@ -206,7 +272,7 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			ready: false,
 			tone: "warn",
 			sub: "Needs one approval in Codex",
-			action: plain("Open Codex", "trust-hooks"),
+			action: plain("Open Codex", "trust-hooks", "Opening…"),
 		};
 	if (tool.connection === "signed-out")
 		return {
@@ -214,7 +280,9 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 			ready: false,
 			tone: "warn",
 			sub: "Not signed in to Tedix",
-			action: tool.canSignIn ? plain("Sign in", "connect") : undefined,
+			action: tool.canSignIn
+				? plain("Sign in", "connect", "Signing in…")
+				: undefined,
 		};
 	if (!connected(tool)) {
 		const checkable = tool.id === "codex" || tool.id === "claude";
@@ -227,9 +295,9 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 					? "Signed in to Tedix"
 					: "Sign in to Tedix once",
 			action: checkable
-				? plain("Check", "verify")
+				? plain("Check", "verify", "Checking…")
 				: tool.canSignIn && tool.connection !== "signed-in"
-					? plain("Sign in", "connect")
+					? plain("Sign in", "connect", "Signing in…")
 					: undefined,
 		};
 	}
@@ -328,7 +396,7 @@ export function sessionsPanel(
 							"fail",
 							ran.error,
 							" ",
-							button("Retry", "link", () => act("check")),
+							button("Retry", "link", () => act("check"), false, CHECKING),
 						)
 					: "No projects yet.",
 		);
@@ -469,17 +537,27 @@ export function sessionsPanel(
 				"bar",
 				search,
 				el("small", "count", `${count} of ${projects.length}`),
-				button("All", "quiet", () =>
-					set(
-						matching.filter((project) => !project.on[tab]).map((p) => p.id),
-						true,
-					),
+				button(
+					"All",
+					"quiet",
+					() =>
+						set(
+							matching.filter((project) => !project.on[tab]).map((p) => p.id),
+							true,
+						),
+					Boolean(ran?.working),
+					{ pending: "All", key: "sessions-all" },
 				),
-				button("None", "quiet", () =>
-					set(
-						matching.filter((project) => project.on[tab]).map((p) => p.id),
-						false,
-					),
+				button(
+					"None",
+					"quiet",
+					() =>
+						set(
+							matching.filter((project) => project.on[tab]).map((p) => p.id),
+							false,
+						),
+					Boolean(ran?.working),
+					{ pending: "None", key: "sessions-none" },
 				),
 			),
 			list,

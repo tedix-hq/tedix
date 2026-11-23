@@ -133,8 +133,12 @@ let busy = false;
 /** A `tedix://` link that arrived before the window existed. */
 let startLink: string | undefined;
 
+/** What Settings last heard about updates, so it hears only of changes. */
+let panelUpdate = "";
 async function state(): Promise<PanelState> {
 	status ??= await loadStatus();
+	const update = updateView();
+	panelUpdate = `${update.kind}|${update.text}`;
 	return {
 		status,
 		setup: setupState(),
@@ -152,7 +156,9 @@ async function state(): Promise<PanelState> {
 			updateReady: readyVersion(),
 			cliOffer: cliOffer(),
 			checked: lastCheck,
+			checkedAt: lastCheckAt,
 			updateFailure: failure ?? fetchFailure,
+			update: { kind: update.kind, text: update.text },
 			appearance: settings().appearance ?? "system",
 			localWorkspace: bundledLocalAvailable(),
 		},
@@ -202,6 +208,7 @@ function updateItems(withCheck: boolean): MenuItemConstructorOptions[] {
 
 /** How the last look for updates ended: "Up to date" or why it failed. */
 let lastCheck: string | undefined;
+let lastCheckAt: number | undefined;
 
 async function publish(): Promise<void> {
 	refreshMenu();
@@ -430,6 +437,11 @@ async function watchSidebar(): Promise<void> {
 
 function publishUpdate(): void {
 	refreshMenu();
+	const view = updateView();
+	if (`${view.kind}|${view.text}` !== panelUpdate) {
+		panelUpdate = `${view.kind}|${view.text}`;
+		void publish();
+	}
 	const contents = updateButton?.webContents;
 	if (contents && !contents.isDestroyed())
 		contents.send("update", updateView());
@@ -1404,7 +1416,10 @@ function navigate(action: "back" | "forward" | "reload"): void {
  * "Update ready" entry. `asked`: the person chose Check for Updates…, so it
  * updates like a click on the entry, or says Tedix is up to date.
  */
-async function checkForUpdates(asked: boolean): Promise<void> {
+async function checkForUpdates(
+	asked: boolean,
+	inSettings = false,
+): Promise<void> {
 	if (checking) return;
 	let problem = "";
 	let failed = false;
@@ -1438,15 +1453,16 @@ async function checkForUpdates(asked: boolean): Promise<void> {
 		checking = false;
 	}
 	lastCheck = problem || "Up to date";
+	lastCheckAt = Date.now();
 	// A failed look the person asked for shows on the entry, like a failed
 	// download; a failed look by itself waits for the next one.
 	if (failed && asked) fetchFailure ??= problem;
 	if (!problem) fetchFailure = undefined;
 	publishUpdate();
-	if (!asked || failed) return;
-	// Chosen by the person: update at once, or show the result in Settings.
+	if (!asked || failed || inSettings) return void publish();
+	// Chosen from the menu: update at once, or show the result in Settings.
 	if (readyVersion() || cliOffer()) return applyUpdate();
-	openSettings("about");
+	openSettings("general");
 	void publish();
 }
 
@@ -2026,7 +2042,7 @@ else if (process.argv.includes("--local-model")) {
 			if (name === "pause") return pauseAsked();
 			if (name === "cli-back") return void goBackCli();
 			if (name === "setup-window") return openSetup();
-			if (name === "check-updates") return checkForUpdates(true);
+			if (name === "check-updates") return checkForUpdates(true, true);
 			if (name === "apply-update") return applyUpdate();
 			if (name === "local-workspace") return openLocalTedix();
 			if (name === "start-local-workspace") {

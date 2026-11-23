@@ -10,11 +10,13 @@ import {
 	act,
 	button,
 	type Child,
+	checkAgain,
 	CONNECTOR_URL,
 	EXECUTOR_NAMES,
 	el,
 	foundTools,
 	keepFocus,
+	onButtonsChange,
 	orgName,
 	otherRunners,
 	person,
@@ -44,8 +46,17 @@ search.before(icon("search", 16));
 done.append(icon("close", 18));
 
 let state: PanelState | undefined;
-let section: SettingsSection =
-	(location.hash.slice(1) as SettingsSection) || "general";
+/** Sections that were merged open where their rows went. */
+const MOVED: Record<string, SettingsSection> = {
+	about: "general",
+	sessions: "mac",
+};
+const known = (id: string): SettingsSection =>
+	MOVED[id] ??
+	((["general", "mac", "tools"].includes(id)
+		? id
+		: "general") as SettingsSection);
+let section: SettingsSection = known(location.hash.slice(1));
 let nameDraft: string | undefined;
 const sessionsUi: SessionsUi = { query: "" };
 /** The rules file row shows only after the person asks for it. */
@@ -112,6 +123,137 @@ function fail(text: string | undefined, retry?: () => void): Child {
 	);
 }
 
+/** "just now", "5 min ago", "at 14:02": when the last look for updates ended. */
+function when(at: number | undefined): string {
+	if (!at) return "";
+	const minutes = Math.floor((Date.now() - at) / 60_000);
+	if (minutes < 1) return "checked just now";
+	if (minutes < 60) return `checked ${minutes} min ago`;
+	return `checked at ${new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+/**
+ * The version row says what the sidebar entry says: checking, downloading
+ * with its percent, ready, failed with Try again, or up to date and when.
+ */
+function versionItem(now: PanelState): Item {
+	const { cli } = now.setup;
+	const { update } = now.app;
+	const failedCli = cli.update?.ok === false && !cli.updating;
+	const working = cli.updating
+		? "Updating…"
+		: update.kind === "working"
+			? update.text
+			: "";
+	const ready = now.app.updateReady || now.app.cliOffer;
+	const apply = (label: string, kind: "primary" | "plain") =>
+		button(label, kind, () => tedixShell.action("apply-update"), false, {
+			pending: "Updating…",
+			key: "apply-update",
+		});
+	const check = (label: string) =>
+		button(label, "plain", () => tedixShell.action("check-updates"), false, {
+			pending: "Checking…",
+			key: "check-updates",
+		});
+	const sub: Child = working
+		? el("span", "live", el("span", "spinner"), working)
+		: update.kind === "failed"
+			? now.app.updateFailure || "The update did not finish."
+			: update.kind === "done"
+				? update.text
+				: ready
+					? `Update ready · ${now.app.updateReady ?? `command-line tool ${now.app.cliOffer}`}`
+					: now.app.checked && now.app.checked !== "Up to date"
+						? now.app.checked
+						: ["Up to date", when(now.app.checkedAt)]
+								.filter(Boolean)
+								.join(" · ");
+	return {
+		title: `Tedix ${now.app.version}`,
+		sub,
+		tone:
+			update.kind === "failed"
+				? "bad"
+				: !working &&
+					  !ready &&
+					  now.app.checked &&
+					  now.app.checked !== "Up to date"
+					? "warn"
+					: update.kind === "done"
+						? "good"
+						: undefined,
+		control: [
+			working
+				? button(
+						working.replace(/ \d+%$/, "").replace(/ for updates…$/, "…"),
+						"plain",
+						() => undefined,
+						true,
+						{ key: "update-working" },
+					)
+				: update.kind === "failed"
+					? apply("Try again", "plain")
+					: ready
+						? apply(
+								now.app.updateReady ? "Restart to update" : "Update",
+								"primary",
+							)
+						: check("Check for updates"),
+			failedCli &&
+				cli.other &&
+				button(
+					"Go back",
+					"quiet",
+					() => tedixShell.action("cli-back"),
+					now.busy,
+					{ pending: "Going back…" },
+				),
+		],
+		words: "version update about",
+	};
+}
+
+/** Only a problem earns a row; when all is well there is nothing to say. */
+function problemItem(now: PanelState): Item | undefined {
+	const { cli } = now.setup;
+	const enabled = now.status.runners.filter((runner) => runner.enabled);
+	const problems = [
+		cli.kind === "missing" &&
+			"Tedix's helper is missing. Install the app again.",
+		!(now.setup.signedIn && now.setup.app.state === "in") && "Not signed in.",
+		now.setup.reach !== "ok" &&
+			now.setup.reach !== "checking" &&
+			"Tedix could not be reached.",
+		!now.app.paused &&
+			enabled.some((runner) => !runner.running) &&
+			"Tasks are not running.",
+	].filter((line): line is string => Boolean(line));
+	if (!problems.length) return undefined;
+	const details = [
+		`Tedix ${now.app.version}`,
+		now.app.updateFailure,
+		`Command-line tool ${cli.version || "not found"} (${cli.kind})`,
+		now.summary,
+		cli.update?.text,
+		...problems,
+		now.setup.reachDetail,
+	]
+		.filter(Boolean)
+		.join("\n");
+	return {
+		title: problems[0]!,
+		tone: "warn",
+		sub: problems.length > 1 ? problems.slice(1).join(" ") : undefined,
+		control: [
+			button("Copy details", "quiet", () => tedixShell.copy(details), false, {
+				done: "Copied",
+			}),
+		],
+		words: "diagnostics health problem",
+	};
+}
+
 function general(now: PanelState): Group[] {
 	const appearance = el(
 		"div",
@@ -129,10 +271,12 @@ function general(now: PanelState): Group[] {
 	);
 	return [
 		{
+			items: [versionItem(now), problemItem(now)].filter(Boolean) as Item[],
+		},
+		{
 			items: [
 				now.openAtLogin !== undefined && {
 					title: "Open at login",
-					sub: "Start Tedix and this Mac's tasks when you log in.",
 					control: [
 						toggle(
 							"Open at login",
@@ -148,15 +292,16 @@ function general(now: PanelState): Group[] {
 				},
 				{
 					title: "Setup guide",
-					sub: "Sign in, add coding tools and choose sessions.",
 					control: [
 						button(
 							"Open",
 							"plain",
 							() => void tedixShell.action("setup-window"),
+							false,
+							{ key: "setup-window" },
 						),
 					],
-					words: "set up onboarding welcome",
+					words: "set up onboarding welcome sign in",
 				},
 			].filter(Boolean) as Item[],
 		},
@@ -198,12 +343,16 @@ function tools(now: PanelState): Group[] {
 					button(
 						"Copy address",
 						"plain",
-						() => void tedixShell.copy(CONNECTOR_URL),
+						() => tedixShell.copy(CONNECTOR_URL),
+						false,
+						{ done: "Copied" },
 					),
 					button(
 						"Open",
 						"quiet",
 						() => void tedixShell.open("claude-connectors"),
+						false,
+						{ key: "open-claude" },
 					),
 				],
 				words: "claude app connector",
@@ -213,7 +362,15 @@ function tools(now: PanelState): Group[] {
 				glyph: "bubble-spark",
 				sub: "Turn on Tedix in the Plugins Directory.",
 				control: [
-					button("Open", "plain", () => void tedixShell.open("chatgpt")),
+					button(
+						"Open",
+						"plain",
+						() => void tedixShell.open("chatgpt"),
+						false,
+						{
+							key: "open-chatgpt",
+						},
+					),
 				],
 			},
 		],
@@ -276,7 +433,7 @@ function tools(now: PanelState): Group[] {
 				),
 			],
 		});
-	const again = button("Check again", "quiet", () => act("check"));
+	const again = checkAgain();
 	if (!found.length && !rows.length)
 		return [
 			chat,
@@ -311,12 +468,17 @@ function tools(now: PanelState): Group[] {
 				{
 					title: "Project folder",
 					sub: now.setup.repo.split("/").at(-1) || undefined,
-					control: [button("Choose…", "plain", () => act("choose-folder"))],
+					control: [
+						button("Choose…", "plain", () => act("choose-folder"), false, {
+							pending: "Choosing…",
+						}),
+					],
 					words: "repository repo",
 				},
 				{
-					title: "Look for tools again",
+					title: "Look for coding tools again",
 					control: [again],
+					words: "check refresh",
 				},
 			],
 		},
@@ -349,11 +511,6 @@ function routingGroup(routing: Routing): Group {
 						plain: true,
 						words: "clef routing",
 					},
-					...clef.map((entry): Item => ({
-						title: `${EXECUTOR_NAMES[entry.tool] ?? entry.tool}: ${entry.strengths}`,
-						plain: true,
-						words: "clef strengths",
-					})),
 				]
 			: []),
 		{
@@ -398,15 +555,6 @@ function routingGroup(routing: Routing): Group {
 	return { title: "Who takes which tasks", items };
 }
 
-function sessions(now: PanelState): Group[] {
-	return [
-		{
-			items: [],
-			body: sessionsPanel(now, sessionsUi, () => keepFocus(draw), false),
-		},
-	];
-}
-
 function mac(now: PanelState): Group[] {
 	const { status } = now;
 	const serving = status.servingIndex;
@@ -439,7 +587,6 @@ function mac(now: PanelState): Group[] {
 				serving !== undefined && { title: "Name", control: [name] },
 				serving !== undefined && {
 					title: "Let tedis edit files and run commands",
-					sub: "Without this, tedis can only read on this Mac.",
 					control: [
 						toggle(
 							"Let tedis edit files and run commands",
@@ -468,21 +615,24 @@ function mac(now: PanelState): Group[] {
 							? button(
 									"Resume",
 									"plain",
-									() => void tedixShell.action("restart"),
+									() => tedixShell.action("restart"),
 									now.busy,
+									{ pending: "Resuming…", key: "runners" },
 								)
 							: stopped
 								? button(
 										"Restart",
 										"plain",
-										() => void tedixShell.action("restart"),
+										() => tedixShell.action("restart"),
 										now.busy,
+										{ pending: "Restarting…", key: "runners" },
 									)
 								: button(
 										"Pause",
 										"plain",
-										() => void tedixShell.action("pause"),
+										() => tedixShell.action("pause"),
 										now.busy,
+										{ pending: "Pausing…", key: "runners" },
 									),
 					],
 					words: "pause resume restart tasks",
@@ -495,6 +645,8 @@ function mac(now: PanelState): Group[] {
 							"Open",
 							"quiet",
 							() => void tedixShell.openWork(task.itemId),
+							false,
+							{ key: `task:${task.itemId}` },
 						),
 					],
 				})),
@@ -508,7 +660,9 @@ function mac(now: PanelState): Group[] {
 						button(
 							"Open",
 							"plain",
-							() => void tedixShell.action("local-model"),
+							() => tedixShell.action("local-model"),
+							false,
+							{ pending: "Opening…", key: "local-model" },
 						),
 					],
 					words: "local model ollama lm studio",
@@ -519,94 +673,19 @@ function mac(now: PanelState): Group[] {
 						button(
 							"Open",
 							"plain",
-							() => void tedixShell.action("local-workspace"),
+							() => tedixShell.action("local-workspace"),
+							false,
+							{ pending: "Opening…", key: "local-workspace" },
 						),
 					],
 					words: "sample offline local workspace",
 				},
 			],
 		},
-	];
-}
-
-function about(now: PanelState): Group[] {
-	const { cli } = now.setup;
-	const enabled = now.status.runners.filter((runner) => runner.enabled);
-	const failedUpdate = cli.update?.ok === false && !cli.updating;
-	const problems = [
-		cli.kind === "missing" &&
-			"Tedix's helper is missing. Install the app again.",
-		!(now.setup.signedIn && now.setup.app.state === "in") && "Not signed in.",
-		now.setup.reach !== "ok" &&
-			now.setup.reach !== "checking" &&
-			"Tedix could not be reached.",
-		!now.app.paused &&
-			enabled.some((runner) => !runner.running) &&
-			"Tasks are not running.",
-		(now.app.updateFailure || failedUpdate) &&
-			"The last update did not finish.",
-	].filter((line): line is string => Boolean(line));
-	const details = [
-		`Tedix ${now.app.version}`,
-		now.app.updateFailure,
-		`Command-line tool ${cli.version || "not found"} (${cli.kind})`,
-		now.summary,
-		cli.update?.text,
-		...problems,
-		now.setup.reachDetail,
-	]
-		.filter(Boolean)
-		.join("\n");
-	const ready = now.app.updateReady || now.app.cliOffer;
-	return [
 		{
-			items: [
-				{
-					title: "Tedix",
-					glyph: undefined,
-					sub: cli.updating
-						? el("span", "live", el("span", "spinner"), "Updating…")
-						: [`Version ${now.app.version}`, now.app.checked]
-								.filter(Boolean)
-								.join(" · "),
-					control: [
-						ready
-							? button(
-									"Update",
-									"primary",
-									() => void tedixShell.action("apply-update"),
-								)
-							: button(
-									"Check for updates",
-									"plain",
-									() => void tedixShell.action("check-updates"),
-								),
-						failedUpdate &&
-							cli.other &&
-							button(
-								"Go back",
-								"quiet",
-								() => void tedixShell.action("cli-back"),
-								now.busy,
-							),
-					],
-					words: "version update",
-				},
-				// Only a problem earns a row; when all is well there is nothing to say.
-				problems.length > 0 && {
-					title: problems[0]!,
-					tone: "warn",
-					sub: problems.length > 1 ? problems.slice(1).join(" ") : undefined,
-					control: [
-						button(
-							"Copy details",
-							"quiet",
-							() => void tedixShell.copy(details),
-						),
-					],
-					words: "diagnostics health problem",
-				},
-			].filter(Boolean) as Item[],
+			title: "Coding sessions",
+			items: [],
+			body: sessionsPanel(now, sessionsUi, () => keepFocus(draw), false),
 		},
 	];
 }
@@ -614,15 +693,7 @@ function about(now: PanelState): Group[] {
 const SECTIONS: Section[] = [
 	{ id: "general", name: "General", glyph: "window", groups: general },
 	{ id: "mac", name: "This Mac", glyph: "laptop", groups: mac },
-	{
-		id: "tools",
-		name: "Coding tools",
-		glyph: "terminal",
-		groups: tools,
-		split: true,
-	},
-	{ id: "sessions", name: "Sessions", glyph: "bubble", groups: sessions },
-	{ id: "about", name: "About", glyph: "flag", groups: about, split: true },
+	{ id: "tools", name: "Coding tools", glyph: "terminal", groups: tools },
 ];
 
 /** A section in the sidebar shows a dot when something there needs the person. */
@@ -632,10 +703,11 @@ function needs(now: PanelState, id: SettingsSection): boolean {
 			const view = toolView(now, tool);
 			return Boolean(view.error) || (view.tone === "warn" && !view.working);
 		});
-	if (id === "about")
+	if (id === "general")
 		return (
 			now.setup.cli.kind === "missing" ||
 			now.setup.cli.update?.ok === false ||
+			now.app.update.kind === "failed" ||
 			Boolean(now.app.updateReady || now.app.cliOffer)
 		);
 	if (id === "mac")
@@ -862,8 +934,9 @@ document.addEventListener("keydown", (event) => {
 	}
 });
 
+onButtonsChange(() => keepFocus(draw));
 tedixShell.onSection((next) => {
-	if (SECTIONS.some((entry) => entry.id === next)) go(next);
+	go(known(next));
 });
 /** Draws the newest state; one that fails to draw is logged, not left half drawn. */
 function receive(incoming: PanelState): void {
