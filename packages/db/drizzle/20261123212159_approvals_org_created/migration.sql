@@ -1,0 +1,2 @@
+CREATE INDEX `idx_approval_requests_org_created` ON `tedi_approval_requests` (`org_id`,`created_at`);--> statement-breakpoint
+CREATE INDEX `idx_approval_requests_org_status_created` ON `tedi_approval_requests` (`org_id`,`status`,`created_at`);

@@ -159,6 +159,16 @@ export const tediApprovalRequests = sqliteTable(
 		index("idx_approval_requests_delegated_owner")
 			.on(table.orgId, table.delegatedOwnerId, table.resolvedAt)
 			.where(sql`delegated_owner_id IS NOT NULL`),
+		// The organization's approvals list, newest first. Without it the list
+		// sorted every request of the organization (204k rows, ~0.7 s) per page.
+		// The status index keeps a filtered list (pending is rare) from walking
+		// that order to find a page.
+		index("idx_approval_requests_org_created").on(table.orgId, table.createdAt),
+		index("idx_approval_requests_org_status_created").on(
+			table.orgId,
+			table.status,
+			table.createdAt,
+		),
 		index("idx_approval_requests_tedi_status").on(table.tediId, table.status),
 		// The expiry sweep walks pending requests in expiry order and stops at
 		// the first that is still open. Almost every request is long resolved.
