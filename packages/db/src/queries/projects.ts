@@ -457,7 +457,9 @@ export async function listProjectPortfolio(
 				eq(nextRow.orgId, projects.orgId),
 				eq(nextRow.projectId, projects.id),
 				inArray(nextRow.disposition, ["accepted", "proposed"]),
-				isNull(nextRow.parentWorkItemId),
+				// Unary plus: with production statistics the planner otherwise seeks
+				// every top-level item in the database through idx_work_items_parent.
+				sql`+${nextRow.parentWorkItemId} IS NULL`,
 			),
 		)
 		.orderBy(
