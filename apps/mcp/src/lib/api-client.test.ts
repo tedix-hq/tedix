@@ -123,7 +123,9 @@ describe("gateway authority read cache", () => {
 		expect(fetch).toHaveBeenCalledTimes(6);
 	});
 
-	it("never retains failed reads, unavailable grants, or rejected fetches", async () => {
+	it("holds an unavailable grant for five seconds and never retains denials or rejected fetches", async () => {
+		let now = Date.now();
+		vi.spyOn(Date, "now").mockImplementation(() => now);
 		const fetch = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -135,19 +137,47 @@ describe("gateway authority read cache", () => {
 					json: { allowed: false, reason: "provider_unavailable" },
 				}),
 			)
+			.mockResolvedValueOnce(
+				Response.json({ json: { allowed: false, reason: "consent_revoked" } }),
+			)
 			.mockResolvedValue(Response.json({ json: { allowed: true } }));
 		const cached = gatewayReadBinding({ fetch });
 		const path = "organizations/verifyMultiOrgMcpGrant";
 		expect((await cached.fetch(request(path))).status).toBe(503);
+		// A busy D1 answers once per key per five seconds, not once per caller.
+		expect((await cached.fetch(request(path))).status).toBe(503);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		now += 5_000;
 		await expect(cached.fetch(request(path))).rejects.toThrow(
 			"binding unavailable",
 		);
 		expect(await (await cached.fetch(request(path))).json()).toMatchObject({
-			json: { allowed: false },
+			json: { allowed: false, reason: "provider_unavailable" },
+		});
+		await cached.fetch(request(path));
+		expect(fetch).toHaveBeenCalledTimes(3);
+		now += 5_000;
+		expect(await (await cached.fetch(request(path))).json()).toMatchObject({
+			json: { reason: "consent_revoked" },
 		});
 		await cached.fetch(request(path));
 		await cached.fetch(request(path));
-		expect(fetch).toHaveBeenCalledTimes(4);
+		expect(fetch).toHaveBeenCalledTimes(5);
+	});
+
+	it("keeps an allowed grant for two minutes", async () => {
+		let now = Date.now();
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		const fetch = vi.fn(async () => Response.json({ json: { allowed: true } }));
+		const cached = gatewayReadBinding({ fetch });
+		const path = "organizations/verifyMultiOrgMcpGrant";
+		await cached.fetch(request(path));
+		now += 119_999;
+		await cached.fetch(request(path));
+		expect(fetch).toHaveBeenCalledOnce();
+		now += 1;
+		await cached.fetch(request(path));
+		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("evicts old authority keys during a burst of fresh callers", async () => {

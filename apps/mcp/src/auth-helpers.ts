@@ -294,9 +294,10 @@ export async function resolveHumanMcpSelection(
 	let attempts = 0;
 	let failureKind: string | undefined;
 	let decision: HumanMcpGrantDecision | null = null;
-	// The check is a read, so a fast transient failure (a 5xx from a D1 or
-	// provider hiccup, a dropped binding fetch) is retried once inside the
-	// same budget. Timeouts and 4xx answers are not retried.
+	// Only a dropped binding fetch is retried, once, inside the same budget.
+	// A 5xx or provider_unavailable answer means D1 or the provider is busy:
+	// retrying adds load, and the gateway read cache holds that answer for
+	// five seconds anyway. Timeouts and 4xx answers are not retried either.
 	while (true) {
 		attempts += 1;
 		({ decision, failureKind } = await withStepBudget(
@@ -314,9 +315,7 @@ export async function resolveHumanMcpSelection(
 				failureKind: grantFailureKind(error),
 			}),
 		));
-		const transient = decision
-			? !decision.allowed && decision.reason === "provider_unavailable"
-			: failureKind !== "timeout" && !failureKind?.startsWith("http_4");
+		const transient = !decision && failureKind === "fetch_error";
 		if (
 			!transient ||
 			attempts >= HUMAN_MCP_GRANT_ATTEMPTS ||

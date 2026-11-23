@@ -165,7 +165,7 @@ describe("multi-organization MCP consent", () => {
 		},
 	);
 
-	it("refreshes the grant for the exact selected organizations after ten seconds", async () => {
+	it("refreshes the grant for the exact selected organizations after two minutes", async () => {
 		let now = Date.now();
 		vi.spyOn(Date, "now").mockImplementation(() => now);
 		const fetch = vi.fn(async (request: Request) => {
@@ -216,7 +216,12 @@ describe("multi-organization MCP consent", () => {
 			validateHumanMcpSelection(payload, env, config),
 		).resolves.not.toBeNull();
 		expect(fetch).toHaveBeenCalledTimes(1);
-		now += 10_000;
+		now += 119_999;
+		await expect(
+			validateHumanMcpSelection(payload, env, config),
+		).resolves.not.toBeNull();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		now += 1;
 		await expect(
 			validateHumanMcpSelection(payload, env, config),
 		).resolves.toBeNull();
@@ -292,16 +297,16 @@ describe("multi-organization MCP consent", () => {
 					organizations: [],
 				},
 			});
-		// Each unavailable answer is retried once before it is reported.
-		fetch
-			.mockResolvedValueOnce(providerDown())
-			.mockResolvedValueOnce(providerDown());
+		// A busy provider is reported at once, not retried.
+		fetch.mockResolvedValueOnce(providerDown());
 		const provider = await resolveHumanMcpSelection(payload, env, config);
 		expect(provider).toEqual({
 			ok: false,
 			unavailable: true,
 			reason: "provider_unavailable",
 		});
+		// The gateway cache holds the unavailable answer for five seconds.
+		vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5_000);
 		fetch
 			.mockRejectedValueOnce(new Error("service binding down"))
 			.mockRejectedValueOnce(new Error("service binding down"));
@@ -333,7 +338,7 @@ describe("multi-organization MCP consent", () => {
 			unavailable: false,
 			reason: "token_claims_invalid",
 		});
-		expect(fetch).toHaveBeenCalledTimes(5);
+		expect(fetch).toHaveBeenCalledTimes(4);
 	});
 
 	describe("transient grant-check failures", () => {
@@ -375,28 +380,11 @@ describe("multi-organization MCP consent", () => {
 			vi.useRealTimers();
 		});
 
-		it.each([
-			["a 503 from the API", apiUnavailable],
-			[
-				"a dropped service-binding fetch",
-				() => Promise.reject(new Error("Network connection lost")),
-			],
-			[
-				"a provider_unavailable decision",
-				() =>
-					Response.json({
-						json: {
-							allowed: false,
-							reason: "provider_unavailable",
-							organizations: [],
-						},
-					}),
-			],
-		])("retries once after %s and records the recovery", async (_, fail) => {
+		it("retries a dropped service-binding fetch once and records the recovery", async () => {
 			const log = vi.spyOn(console, "log").mockImplementation(() => {});
 			const fetch = vi
 				.fn()
-				.mockImplementationOnce(fail)
+				.mockRejectedValueOnce(new Error("Network connection lost"))
 				.mockResolvedValueOnce(allowed());
 			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
 			const result = await resolveHumanMcpSelection(payload, env, config);
@@ -417,7 +405,29 @@ describe("multi-organization MCP consent", () => {
 			]);
 		});
 
-		it("reports grant_check_failed with its failure class after the retry also fails", async () => {
+		it("does not retry when the API or provider is busy", async () => {
+			vi.spyOn(console, "log").mockImplementation(() => {});
+			const fetch = vi.fn(async () =>
+				Response.json({
+					json: {
+						allowed: false,
+						reason: "provider_unavailable",
+						organizations: [],
+					},
+				}),
+			);
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			expect(await resolveHumanMcpSelection(payload, env, config)).toEqual({
+				ok: false,
+				unavailable: true,
+				reason: "provider_unavailable",
+			});
+			// A second caller within five seconds reuses the answer instead of D1.
+			await resolveHumanMcpSelection(payload, env, config);
+			expect(fetch).toHaveBeenCalledTimes(1);
+		});
+
+		it("reports grant_check_failed with its failure class without retrying a 503", async () => {
 			const log = vi.spyOn(console, "log").mockImplementation(() => {});
 			const fetch = vi.fn(async () => apiUnavailable());
 			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
@@ -426,14 +436,14 @@ describe("multi-organization MCP consent", () => {
 				unavailable: true,
 				reason: "grant_check_failed",
 			});
-			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(fetch).toHaveBeenCalledTimes(1);
 			expect(grantMetrics(log)).toEqual([
 				expect.objectContaining({
 					success: false,
 					errorCode: "grant_check_failed",
 					metadata: expect.objectContaining({
 						grantOutcome: "grant_check_failed",
-						attempts: 2,
+						attempts: 1,
 						failureKind: "http_503",
 					}),
 				}),
@@ -549,7 +559,7 @@ describe("multi-organization MCP consent", () => {
 		fetch.mockResolvedValueOnce(
 			Response.json({ json: { allowed: false, organizations: [] } }),
 		);
-		vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
+		vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
 		await expect(
 			validateHumanMcpSelection(admin, env, config),
 		).resolves.toBeNull();
