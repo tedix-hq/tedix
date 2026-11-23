@@ -22,7 +22,13 @@ export class D1ReadTimeoutError extends Error {
 }
 
 export function isTransientD1ReadError(value: unknown): boolean {
-	const message = errorMessage(value);
+	let message: string;
+	try {
+		message = errorMessage(value);
+	} catch {
+		// An unreadable error is not evidence that retrying is safe.
+		return false;
+	}
 	return (
 		message.includes("D1_ERROR") &&
 		(message.includes("Network connection lost") ||

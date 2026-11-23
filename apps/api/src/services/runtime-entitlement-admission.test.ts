@@ -585,6 +585,65 @@ describe("native admission owning D1 guard", () => {
 	});
 });
 
+describe("workspace-object admission read retry", () => {
+	it("recovers from D1 overload and reserves credit only once", async () => {
+		const f = await nativeFixture("managed");
+		try {
+			mocks.find.mockRejectedValueOnce(
+				new Error("Failed query", {
+					cause: new Error(
+						"D1_ERROR: D1 DB is overloaded. Please try again later.",
+					),
+				}),
+			);
+			const result = await authorizeRuntimeInference({
+				...f.input,
+				plane: "workspace_object",
+				request: { ...request("managed"), source: "operator" },
+			});
+			expect(result).toMatchObject({ allowed: true });
+			expect(mocks.find).toHaveBeenCalledTimes(3);
+			expect(mocks.find.mock.calls[1]).toEqual(mocks.find.mock.calls[0]);
+			expect(mocks.budget).toHaveBeenCalledOnce();
+			expect(f.wallet.wallet).toHaveBeenCalledOnce();
+			expect(f.wallet.live()).toBe(1);
+			expect(f.wallet.released).toEqual([]);
+			expect(
+				f.sqlite
+					.prepare(
+						"SELECT id, billing_reservation_id FROM provider_execution_attempts",
+					)
+					.all(),
+			).toEqual([
+				{
+					id: result.executionId,
+					billing_reservation_id: result.reservationId,
+				},
+			]);
+		} finally {
+			f.sqlite.close();
+		}
+	});
+	it.each([
+		["D1_ERROR: D1 DB is overloaded", 2],
+		["D1_ERROR: no such table: provider_execution_attempts", 1],
+	] as const)("fails closed for %s after %i reads", async (message, reads) => {
+		const error = new Error(message);
+		mocks.find.mockRejectedValue(error);
+		await expect(
+			authorizeRuntimeInference({
+				plane: "workspace_object",
+				db: {} as never,
+				env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+				request: request("managed"),
+			}),
+		).rejects.toBe(error);
+		expect(mocks.find).toHaveBeenCalledTimes(reads);
+		expect(mocks.budget).not.toHaveBeenCalled();
+		expect(mocks.insert).not.toHaveBeenCalled();
+	});
+});
+
 it("managed retry replays its wallet hold, stays linked and cannot promote legacy provenance", async () => {
 	const f = await nativeFixture("managed");
 	const first = await authorizeRuntimeInference(f.input);

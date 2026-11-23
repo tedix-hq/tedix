@@ -1,4 +1,5 @@
 import { createDbClient } from "@tedix/db/client";
+import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import {
 	captureCloudflareAutoRouting,
 	type AiGatewayTransportEnv,
@@ -134,10 +135,14 @@ export async function authorizeRuntimeInference(
 		// The raw binding reads the primary rather than a caller-supplied request bookmark.
 		const residencyDb = input.env.DB ? createDbClient(input.env.DB) : input.db;
 		// Residency and grant failures take precedence over a parallel replay-read failure.
-		const existingRead = findProviderExecutionAdmission(
-			input.db,
-			input.request.organizationId,
-			input.request.idempotencyKey,
+		const existingRead = withTransientD1ReadRetry(
+			"inference_admission_replay",
+			() =>
+				findProviderExecutionAdmission(
+					input.db,
+					input.request.organizationId,
+					input.request.idempotencyKey,
+				),
 		).then(
 			(value) => ({ ok: true, value }) as const,
 			(error: unknown) => ({ ok: false, error }) as const,
