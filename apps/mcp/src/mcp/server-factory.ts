@@ -699,6 +699,7 @@ export function buildServerContext(
 		appMetadata: cachedData.metadata,
 		appCapabilities: cachedData.capabilities,
 		apiClient,
+		apiOrganizationId: cachedData.organizationId,
 		toolHandler,
 		callerIdentity,
 		traceId: traceId || crypto.randomUUID(),

@@ -1,3 +1,4 @@
+import { getCachedOrgSkillDiscovery } from "./skill-discovery-cache";
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
@@ -79,8 +80,9 @@ import { readSkillToolRefs } from "@tedix/api-contract/utils/skill-manifest";
  * surface so a task query ("run measurement loop") surfaces the recorded
  * procedure above raw verbs, instead of requiring agents to already know the
  * skills.* namespace exists. Rows are summary-projected (never full SKILL.md)
- * and fetched lazily on the first ranked search of a request, cached per
- * ServerContext. Fetch failure degrades to tools-only discovery.
+ * and fetched lazily on the first ranked search, cached per org for one minute
+ * with a five-second skill-write invalidation fence. Fetch failure degrades to
+ * tools-only discovery.
  */
 interface SkillDiscoveryRow {
 	kind: "skill";
@@ -196,10 +198,10 @@ function getSkillDiscoveryRows(
 	const loaded = (async (): Promise<SkillDiscoveryRow[]> => {
 		if (!serverCtx.apiClient?.skills?.listByOrg) return [];
 		try {
-			const result = await serverCtx.apiClient.skills.listByOrg({
-				visibility: "org",
-				summary: true,
-				limit: 200,
+			const result = await getCachedOrgSkillDiscovery({
+				apiClient: serverCtx.apiClient,
+				orgId: serverCtx.apiOrganizationId,
+				env: serverCtx.env,
 			});
 			const rows: SkillDiscoveryRow[] = [];
 			for (const entry of result.entries ?? []) {

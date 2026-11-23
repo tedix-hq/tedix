@@ -14,7 +14,7 @@ import {
 	getSkillEntryForMcp,
 	updateSkillEntry,
 } from "@tedix/db/queries/cognitive/skill-crud";
-import { invalidateKernelContextCache } from "../../kernel/context-cache";
+import { invalidateSkillCaches } from "../../services/skill-cache-invalidation";
 import {
 	listAllSkillsForOrg,
 	listSkillPromotionCandidates,
@@ -485,7 +485,7 @@ export const skillsDelete = authedSkills.delete
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		await deleteSkillEntry(context.db, input.id, orgId);
-		invalidateKernelContextCache(context, orgId, "skill.deleted");
+		invalidateSkillCaches(context, orgId, "skill.deleted");
 		return { success: true };
 	});
 
@@ -510,6 +510,7 @@ export const skillsMove = authedSkills.move
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		await moveSkillToFolder(context.db, orgId, input.id, input.folderPath);
+		invalidateSkillCaches(context, orgId, "skill.moved");
 		const entry = await getSkillEntry(context.db, input.id, orgId);
 		if (!entry) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		return { entry };
@@ -565,6 +566,7 @@ export const skillsListByOrg = authedSkills.listByOrg
 			: undefined;
 
 		const page = await listAllSkillsForOrg(context.db, orgId, {
+			summary: input.summary,
 			limit: input.limit,
 			offset: input.offset,
 			visibility: input.visibility,
@@ -768,6 +770,7 @@ export const skillsAuditLowQuality = authedSkills.auditLowQuality
 						? `${existingReasoning}\n${note}`
 						: note,
 				});
+				invalidateSkillCaches(context, orgId, "skill.archived");
 				archivedCount += 1;
 			}
 		}
@@ -822,6 +825,7 @@ export const skillsSweepDraftTtl = authedSkills.sweepDraftTtl
 			dryRun: input.dryRun,
 		});
 		if (!input.dryRun && result.archived > 0) {
+			invalidateSkillCaches(context, orgId, "skill.archived");
 			console.log(
 				`[Skills] draft-TTL sweep archived ${result.archived} zero-use draft(s) for org ${orgId}: ${result.entries
 					.map((entry) => entry.slug ?? entry.id)
@@ -1142,7 +1146,7 @@ export const skillsRepair = authedSkills.repair
 
 		if (hasPatch) {
 			await updateSkillEntry(context.db, existing.id, patch);
-			invalidateKernelContextCache(context, orgId, "skill.updated");
+			invalidateSkillCaches(context, orgId, "skill.updated");
 		}
 		const updated = hasPatch
 			? ((await getSkillEntry(context.db, existing.id, orgId)) ??

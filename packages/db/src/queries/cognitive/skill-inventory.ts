@@ -2,6 +2,7 @@ import {
 	and,
 	desc,
 	eq,
+	getColumns,
 	gte,
 	inArray,
 	isNull,
@@ -22,6 +23,32 @@ import {
 import type { SkillLifecycleState } from "../skill-lifecycle";
 import { readableSkillCondition } from "./skill-crud";
 
+// Summary listings retain frontmatter for tool links, never procedure bodies or files.
+const {
+	content: _content,
+	files: _files,
+	inputSchema: _inputSchema,
+	agentSkillsFormat: _agentSkillsFormat,
+	archivedFrom: _archivedFrom,
+	revisionReasoning: _revisionReasoning,
+	...skillSummaryColumns
+} = getColumns(skillEntries);
+const skillSummaryProjection = {
+	...skillSummaryColumns,
+	content: sql<string>`CASE
+		WHEN (substr(${skillEntries.content}, 1, 4) = '---' || char(10) OR substr(${skillEntries.content}, 1, 5) = '---' || char(13) || char(10))
+			AND instr(${skillEntries.content}, char(10) || '---') > 0
+		THEN substr(${skillEntries.content}, 1, instr(${skillEntries.content}, char(10) || '---') + 3)
+		ELSE '' END || char(10) || '[summary view — fetch this skill by id or slug for the full SKILL.md]'`.as(
+		"content",
+	),
+	files: sql<null>`NULL`.as("files"),
+	inputSchema: sql<null>`NULL`.as("input_schema"),
+	agentSkillsFormat: sql<null>`NULL`.as("agent_skills_format"),
+	archivedFrom: sql<null>`NULL`.as("archived_from"),
+	revisionReasoning: sql<null>`NULL`.as("revision_reasoning"),
+};
+
 const improvementTag = sql`EXISTS (SELECT 1 FROM json_each(${skillEntries.tags}) WHERE value = 'workflow-improvement')`;
 
 export async function listAllSkillsForOrg(
@@ -41,6 +68,7 @@ export async function listAllSkillsForOrg(
 		recursive?: boolean;
 		tediId?: string;
 		visibility?: CognitiveVisibility;
+		summary?: boolean;
 	},
 ): Promise<{ entries: SkillEntry[]; total: number }> {
 	const conditions = [eq(skillEntries.organizationId, orgId)];
@@ -126,7 +154,9 @@ export async function listAllSkillsForOrg(
 	const whereClause = and(...conditions);
 	const [entries, total] = await Promise.all([
 		db
-			.select()
+			.select(
+				options?.summary ? skillSummaryProjection : getColumns(skillEntries),
+			)
 			.from(skillEntries)
 			.where(whereClause)
 			// id breaks ties so offset pages never repeat or skip a skill.

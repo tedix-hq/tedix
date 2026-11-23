@@ -17,7 +17,7 @@ import {
 	listSkillUsers,
 	skillUsersBlockingArchive,
 } from "@tedix/db/queries/cognitive/skill-users";
-import { invalidateKernelContextCache } from "../../kernel/context-cache";
+import { invalidateSkillCaches } from "../../services/skill-cache-invalidation";
 import { listSkillsForAdjacency } from "@tedix/db/queries/cognitive/skill-search";
 import { resolveToolSlugsForApp } from "@tedix/db/queries/cognitive/skill-tool-metadata";
 import {
@@ -663,7 +663,7 @@ export async function createSkillFromInput(
 			),
 		);
 	}
-	invalidateKernelContextCache(context, orgId, "skill.created");
+	invalidateSkillCaches(context, orgId, "skill.created");
 	return {
 		entry,
 		// Near-misses that did not cross the block floor are reported, never

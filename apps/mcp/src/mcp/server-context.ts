@@ -208,6 +208,8 @@ export interface ServerContext {
 
 	// API & handler
 	readonly apiClient: ApiClient;
+	/** Exact organization header used to construct apiClient. */
+	readonly apiOrganizationId: string | undefined;
 	readonly toolHandler: ToolHandler;
 	readonly catalogTransport?: CatalogueTransportCallback;
 	/** Resolve a compact shard row after discovery has selected its page. */

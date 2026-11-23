@@ -997,6 +997,9 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 
 	it("ranks recorded org skills alongside tools in unfiltered search", async () => {
 		const ctx = {
+			env: {},
+			apiOrganizationId: "catalog-skill-discovery-fixture",
+			callerIdentity: { organizationId: "different-login-tenant" },
 			loadedTools: new Map<string, AppTool>([
 				[
 					"work__list_work_items",
@@ -1021,7 +1024,7 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			]),
 			apiClient: {
 				skills: {
-					listByOrg: async () => ({
+					listByOrg: vi.fn(async () => ({
 						entries: [
 							{
 								id: "s1",
@@ -1044,7 +1047,7 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 							},
 						],
 						total: 2,
-					}),
+					})),
 				},
 			},
 		} as unknown as ServerContext;
@@ -1063,6 +1066,10 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		expect(skillRow?.load).toBe(
 			'skills.get_skills_for_mcp({ slug: "gateway-measurement-loop" })',
 		);
+
+		const freshRequest = buildCatalogProvider({ ...ctx }, undefined);
+		await runSearch(freshRequest, "measurement loop", 10);
+		expect(ctx.apiClient.skills.listByOrg).toHaveBeenCalledTimes(1);
 
 		// Archived skills never enumerate.
 		expect(

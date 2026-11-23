@@ -142,6 +142,13 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
   revalidations and cold isolates do not reload every schema row from D1.
   A traversal that needs fresh rows passes `cacheable: false` and bypasses it.
 
+Org-visible skill discovery uses `src/mcp/skill-discovery-cache.ts`: one minute,
+300 organizations, concurrent reads coalesced, keyed by the API client's exact
+organization header. API skill writes update an org generation in the existing
+R2 bucket; isolates check it every five seconds. Failed invalidations fall back
+to the one-minute TTL. Caller authorization and tool projections stay local to
+the request. The full-content registration snapshot remains a separate cache.
+
 Gateway grant verification, ordinary external-agent session checks and transport
 policy reads use `src/lib/gateway-read-cache.ts`: ten seconds from request start,
 500 entries per service binding, keyed by the full request inputs and authority

@@ -1,3 +1,4 @@
+import { invalidateOrgSkillDiscovery } from "./mcp/skill-discovery-cache";
 import { gatewayReadBinding } from "./lib/gateway-read-cache";
 import { requestPhaseTimings } from "./mcp/phase-timings";
 import { toolCallCountStub } from "./tool-call-counts";
@@ -490,6 +491,27 @@ const worker = {
 				{ method: "POST" },
 			);
 			return Response.json({ day, ...((await report.json()) as object) });
+		}
+
+		if (
+			request.method === "POST" &&
+			url.pathname === "/__internal/invalidate-skill-discovery-cache"
+		) {
+			if (!isServiceBinding(request.headers))
+				return Response.json({ error: "Forbidden" }, { status: 403 });
+			const body = (await request.json()) as { organizationId?: unknown };
+			if (
+				typeof body.organizationId !== "string" ||
+				!body.organizationId ||
+				body.organizationId.length > 200
+			) {
+				return Response.json(
+					{ error: "organizationId required" },
+					{ status: 400 },
+				);
+			}
+			await invalidateOrgSkillDiscovery(env, body.organizationId);
+			return Response.json({ ok: true });
 		}
 
 		// Internal scope cache invalidation after syncTediAihClientForAssignment.

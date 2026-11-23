@@ -1,3 +1,4 @@
+import { readSkillToolRefs } from "@tedix/api-contract/utils/skill-manifest";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
@@ -61,6 +62,43 @@ describe("skill inventory search", () => {
 				 'skill-4', '2026-08-30T12:00:00.000Z');
 		`);
 		db = createDbClient(createD1Facade(sqlite));
+	});
+
+	it("projects summary rows without loading bodies, file JSON, or archived content", async () => {
+		const frontmatter =
+			"---\r\nname: weekly-digest\r\ntools: [mail.search_messages, work]\r\n---";
+		const body = "private-procedure-body".repeat(10_000);
+		sqlite
+			.prepare(
+				"UPDATE skill_entries SET content = ?, files = ?, agent_skills_format = ?, archived_from = ? WHERE id = 'skill-1'",
+			)
+			.run(
+				`${frontmatter}\r\n${body}`,
+				"invalid JSON must not be decoded",
+				body,
+				JSON.stringify({ content: body }),
+			);
+		const page = await listAllSkillsForOrg(db, "org-1", {
+			summary: true,
+			visibility: "org",
+			query: "weekly",
+			limit: 1,
+		});
+		expect(page.total).toBe(1);
+		expect(page.entries.map((row) => row.id)).toEqual(["skill-1"]);
+		const row = page.entries[0]!;
+		expect(row.content).not.toContain("private-procedure-body");
+		expect(row.content).toContain("[summary view");
+		expect(readSkillToolRefs(row.content)).toEqual([
+			"mail.search_messages",
+			"work",
+		]);
+		expect(row.files).toBeNull();
+		expect(row.agentSkillsFormat).toBeNull();
+		expect(row.archivedFrom).toBeNull();
+		await expect(
+			listAllSkillsForOrg(db, "org-1", { query: "weekly" }),
+		).rejects.toThrow();
 	});
 
 	it("filters canonical fields before counting and paginating", async () => {

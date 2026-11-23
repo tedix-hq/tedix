@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	purgeMcpAggregateCache,
+	invalidateMcpSkillDiscovery,
 	publishMcpCatalogInventoryEvents,
 	publishMcpListChangedEvents,
 	publishMcpListChangedEventsSoon,
@@ -489,4 +490,20 @@ describe("MCP service call deadlines", () => {
 			expect(signals[0]?.aborted).toBe(true);
 		}
 	});
+});
+
+it("invalidates only the changed organization through the trusted skill cache route", async () => {
+	let received: Request | undefined;
+	await invalidateMcpSkillDiscovery(
+		makeEnv(async (request) => {
+			received = request;
+			return Response.json({ ok: true });
+		}),
+		"fictional-org",
+	);
+	expect(received?.url).toBe(
+		"https://mcp/__internal/invalidate-skill-discovery-cache",
+	);
+	expect(received?.headers.get("X-Service-Binding")).toBe("true");
+	expect(await received?.json()).toEqual({ organizationId: "fictional-org" });
 });

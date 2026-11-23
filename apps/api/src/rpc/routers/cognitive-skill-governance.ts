@@ -15,7 +15,7 @@ import {
 	getSkillEntryBySlug,
 	updateSkillEntry,
 } from "@tedix/db/queries/cognitive/skill-crud";
-import { invalidateKernelContextCache } from "../../kernel/context-cache";
+import { invalidateSkillCaches } from "../../services/skill-cache-invalidation";
 import { listAllSkillsForOrg } from "@tedix/db/queries/cognitive/skill-inventory";
 import {
 	computeSkillPromotion,
@@ -227,11 +227,7 @@ export async function updateSkillEntryGated(
 	try {
 		await updateSkillEntry(context.db, id, patch, options);
 		if (context.organizationId)
-			invalidateKernelContextCache(
-				context,
-				context.organizationId,
-				"skill.updated",
-			);
+			invalidateSkillCaches(context, context.organizationId, "skill.updated");
 	} catch (error) {
 		if (
 			error instanceof SkillLifecycleTransitionError ||
@@ -782,6 +778,7 @@ export const skillsActivateWorkflowImprovement =
 					ErrorCodes.CONFLICT,
 					"The skill or improvement changed during adoption. Review it again.",
 				);
+			invalidateSkillCaches(context, orgId, "skill.updated");
 			const activatedBaseline = await getSkillEntry(
 				context.db,
 				baseline.id,
@@ -979,6 +976,7 @@ export const skillsReviseWorkshop = authedSkills.reviseWorkshop
 			revision: existing.revision + 1,
 		});
 
+		invalidateSkillCaches(context, orgId, "skill.updated");
 		const updated = await getSkillEntry(context.db, input.id, orgId);
 		if (updated) {
 			await syncSkillScheduleProjection(
@@ -1114,6 +1112,7 @@ export const skillsRejectWorkshop = authedSkills.rejectWorkshop
 					ErrorCodes.CONFLICT,
 					"This improvement was kept because it was adopted, has a run in progress, or its main skill is unavailable.",
 				);
+			invalidateSkillCaches(context, orgId, "skill.deleted");
 			return { entry: null, removedId: existing.id };
 		}
 		await updateSkillEntry(context.db, existing.id, {
@@ -1124,6 +1123,7 @@ export const skillsRejectWorkshop = authedSkills.rejectWorkshop
 				`Rejected Skill Workshop proposal: ${input.reason}`,
 			),
 		});
+		invalidateSkillCaches(context, orgId, "skill.updated");
 		const updated = await getSkillEntry(context.db, existing.id, orgId);
 		if (updated) {
 			await syncSkillScheduleProjection(context, updated, null);
@@ -1147,6 +1147,7 @@ export const skillsQuarantineWorkshop = authedSkills.quarantineWorkshop
 				`Quarantined Skill Workshop proposal: ${input.reason}`,
 			),
 		});
+		invalidateSkillCaches(context, orgId, "skill.updated");
 		const updated = await getSkillEntry(context.db, existing.id, orgId);
 		if (updated) {
 			await syncSkillScheduleProjection(context, updated, null);

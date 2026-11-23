@@ -227,6 +227,38 @@ async function invalidateMcpInventory(
 	}
 }
 
+/** Invalidate org discovery after a committed skill mutation; TTL bounds failed notifications. */
+export async function invalidateMcpSkillDiscovery(
+	env: CloudflareEnv,
+	organizationId: string,
+): Promise<void> {
+	if (!env.MCP_SERVICE) return;
+	try {
+		await withMcpServiceDeadline(async (signal) => {
+			const response = await env.MCP_SERVICE.fetch(
+				new Request("https://mcp/__internal/invalidate-skill-discovery-cache", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Service-Binding": "true",
+					},
+					body: JSON.stringify({ organizationId }),
+					signal,
+				}),
+			);
+			if (!response.ok)
+				throw new Error(
+					`Skill discovery invalidation failed: ${response.status}`,
+				);
+			await response.body?.cancel();
+		});
+	} catch (error) {
+		console.warn("[MCP skill discovery] invalidation unavailable", {
+			exception: safeExceptionTopology(error),
+		});
+	}
+}
+
 /**
  * Best-effort invalidation for durable aggregate surfaces after an app's
  * aggregateApps configuration changes. The MCP Worker owns every cache layer;

@@ -20,7 +20,7 @@ import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { App } from "@tedix/db/schema/apps";
 import type { SkillEntry } from "@tedix/db/schema/cognitive";
 import type { Tedi } from "@tedix/db/schema/tedis";
-import { invalidateKernelContextCache } from "../../kernel/context-cache";
+import { invalidateSkillCaches } from "../../services/skill-cache-invalidation";
 import {
 	appAccessCheck,
 	personalResourcesCheck,
@@ -313,7 +313,7 @@ export const skillsMoveToTedi = authedSkills.moveToTedi
 				"SKILL_MOVE_CONFLICT: the skill's owner changed while it was being moved; nothing changed. Run the dry run again.",
 				{ code: "SKILL_MOVE_CONFLICT", skillId: skill.id },
 			);
-		invalidateKernelContextCache(context, orgId, "skill.owner_moved");
+		invalidateSkillCaches(context, orgId, "skill.owner_moved");
 		return {
 			...base,
 			status: "moved",
