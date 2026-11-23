@@ -1,5 +1,31 @@
 export type Connection = "signed-in" | "signed-out" | "unknown";
 
+export type VerificationTarget = {
+	command: string;
+	version: string;
+	user: string;
+	org: string;
+};
+export type VerifiedConnection = VerificationTarget & { at: number };
+
+export function recentConnectionCheck(
+	entry: VerifiedConnection | undefined,
+	target: VerificationTarget | undefined,
+	now: number,
+): boolean {
+	if (
+		!entry ||
+		!target ||
+		entry.command !== target.command ||
+		entry.version !== target.version ||
+		entry.user !== target.user ||
+		entry.org !== target.org
+	)
+		return false;
+	const age = now - entry.at;
+	return age >= 0 && age < 24 * 60 * 60_000;
+}
+
 export function opencodeConnection(output: string): Connection {
 	const status = output
 		.replace(/\x1b\[[0-9;]*m/g, "")

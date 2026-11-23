@@ -37,7 +37,7 @@ at **Chip**.
 
 You can connect an app later in **Settings → Agents**.
 If you installed both the Mac app and a separate coding tool for the same
-provider, Tedix connects the Mac app.
+provider, Tedix uses the Mac app when its coding tool is ready.
 
 - **ChatGPT Work and Claude Code.** Choose **Connect** to install the Tedix
   plugin supplied with the Mac app. For ChatGPT Work, review the hooks in

@@ -155,6 +155,7 @@ export function openAgentApp(state: PanelState, tool: ToolRow) {
 	)
 		return;
 	if (!state.setup.desktopApps[app]) return;
+	if (tool.found === "found" && !tool.desktop) return;
 	return button(
 		app === "chatgpt" && tool.readVerified && tool.hookTrust !== "trusted"
 			? "Review hooks in ChatGPT"
@@ -210,15 +211,10 @@ export function toolView(
 	const steps = state.setup.steps;
 	const runner = view === "tasks" ? runnerFor(state, tool) : undefined;
 	const reviewInChatGPT =
-		tool.id === "codex" &&
-		state.setup.desktopApps.chatgpt &&
-		tool.hookTrust !== "trusted";
-	const keys = [
-		"account",
-		"connect",
-		"verify",
-		...(runner?.enabled ? ["hooks"] : []),
-	].map((kind) => [kind, steps[`${kind}:${tool.id}`]] as const);
+		tool.id === "codex" && tool.desktop && tool.hookTrust !== "trusted";
+	const keys = ["account", "connect", "verify"].map(
+		(kind) => [kind, steps[`${kind}:${tool.id}`]] as const,
+	);
 	const running = view === "tasks" ? steps[`run:${tool.executor}`] : undefined;
 	const busy =
 		keys.find(([, ran]) => ran?.working) ??
@@ -251,7 +247,6 @@ export function toolView(
 		account: "account-sign-in",
 		connect: "connect",
 		verify: "verify",
-		hooks: "trust-hooks",
 		run: "run-tasks",
 	};
 	const base = failed
@@ -364,10 +359,14 @@ export function toolView(
 			tone: "warn",
 			sub: reviewInChatGPT
 				? "Review the Tedix hooks in ChatGPT under Settings → Hooks."
-				: "Review the Tedix hooks in Codex to let it run tasks on this Mac.",
+				: "Open ChatGPT Work to review the Tedix hooks before running tasks.",
 			action: reviewInChatGPT
 				? openAgentApp(state, tool)
-				: plain("Review in Codex", "trust-hooks", "Opening…"),
+				: state.setup.desktopApps.chatgpt
+					? button("Open ChatGPT", "quiet", () =>
+							tedixShell.open("chatgpt-app"),
+						)
+					: undefined,
 		};
 	if (!runner?.enabled) return { ...base, ready: false, sub: "Connected" };
 	if (!runner.running)

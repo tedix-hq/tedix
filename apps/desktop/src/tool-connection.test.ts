@@ -3,8 +3,42 @@ import { test } from "node:test";
 import {
 	devinConnection,
 	opencodeConnection,
+	recentConnectionCheck,
 	toolConnection,
 } from "./tool-connection";
+
+test("a saved read only applies to the account and executable that passed it", () => {
+	const target = {
+		command: "/Applications/Example.app/tool",
+		version: "1.0",
+		user: "user_a",
+		org: "org_a",
+	};
+	const proof = JSON.parse(JSON.stringify({ ...target, at: 0 }));
+	assert.equal(recentConnectionCheck(proof, target, 60_000), true);
+	assert.equal(
+		recentConnectionCheck(proof, { ...target, user: "user_b" }, 60_000),
+		false,
+	);
+	assert.equal(
+		recentConnectionCheck(proof, { ...target, org: "org_b" }, 60_000),
+		false,
+	);
+	assert.equal(
+		recentConnectionCheck(
+			proof,
+			{ ...target, command: "/usr/local/bin/tool" },
+			60_000,
+		),
+		false,
+	);
+	assert.equal(
+		recentConnectionCheck(proof, { ...target, version: "1.1" }, 60_000),
+		false,
+	);
+	assert.equal(recentConnectionCheck(proof, undefined, 60_000), false);
+	assert.equal(recentConnectionCheck(proof, target, 24 * 60 * 60_000), false);
+});
 
 test("a current sign-in rejection wins over an earlier read", () => {
 	assert.equal(toolConnection("signed-in", false), "signed-in");

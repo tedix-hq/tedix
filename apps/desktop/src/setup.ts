@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
@@ -27,7 +33,10 @@ import {
 import {
 	type Connection,
 	opencodeConnection,
+	recentConnectionCheck,
 	toolConnection,
+	type VerificationTarget,
+	type VerifiedConnection,
 } from "./tool-connection";
 
 const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
@@ -154,6 +163,10 @@ const TOOLS: Tool[] = [
 		executor: "opencode",
 		status: "opencode",
 		add: "--opencode",
+		connection: async (command) => {
+			const result = await run(command, ["mcp", "list"], { timeoutMs: 10_000 });
+			return result.ok ? opencodeConnection(result.output) : "unknown";
+		},
 		signIn: ["mcp", "auth", "tedix"],
 	},
 ];
@@ -278,6 +291,7 @@ export interface ToolRow {
 	/** Whether the tool's own connection to Tedix is signed in. */
 	connection: Connection | "checking";
 	account: Connection;
+	desktop: boolean;
 	/** Both versions can be installed, but setup uses the desktop app's executable. */
 	bothInstalled: boolean;
 	readVerified: boolean;
@@ -410,6 +424,7 @@ let appSignIn: AppSignIn = {
 	waiting: false,
 };
 let signedIn = false;
+let loginIdentity = "";
 let organizations: string[] = [];
 let tenant = "";
 let sessionProjects: SetupState["sessionProjects"] = [];
@@ -436,36 +451,51 @@ let toolFacts: Record<
 		signInWorks: boolean;
 	}
 > = {};
-/** The executable whose Tedix check passed, kept for a day across restarts. */
+/** A recent check for the selected executable and Tedix sign-in. */
 const verifiedPath = () => join(configDir(), "desktop-verified.json");
-type Verified = Partial<Record<Harness, { command: string; at: string }>>;
+type Verified = Partial<Record<Harness, VerifiedConnection>>;
 let verified: Verified | undefined;
 function readVerified(): Verified {
 	if (!verified)
 		try {
-			verified = JSON.parse(readFileSync(verifiedPath(), "utf8")) as Verified;
+			const value: unknown = JSON.parse(readFileSync(verifiedPath(), "utf8"));
+			verified =
+				value && typeof value === "object" && !Array.isArray(value)
+					? (value as Verified)
+					: {};
 		} catch {
 			verified = {};
 		}
 	return verified;
 }
-function setVerified(id: Harness, command?: string): void {
+function verificationTarget(
+	id: Harness,
+	command: string,
+): VerificationTarget | undefined {
+	const org = organization();
+	if (!signedIn || !loginIdentity || !org) return;
+	const fact = toolFacts[id];
+	return {
+		command,
+		version: fact?.command === command ? fact.version : "",
+		user: loginIdentity,
+		org,
+	};
+}
+function setVerified(id: Harness, target?: VerificationTarget): void {
 	const next = { ...readVerified() };
-	if (command) next[id] = { command, at: new Date().toISOString() };
+	if (target) next[id] = { ...target, at: Date.now() };
 	else if (!next[id]) return;
 	else delete next[id];
 	verified = next;
 	try {
-		writeFileSync(verifiedPath(), JSON.stringify(next));
+		const path = verifiedPath();
+		const pending = `${path}.${process.pid}.tmp`;
+		writeFileSync(pending, JSON.stringify(next), { mode: 0o600 });
+		renameSync(pending, path);
 	} catch (error) {
 		log(`setup: could not save the ${id} check: ${String(error)}`);
 	}
-}
-function isVerified(id: Harness, command: string): boolean {
-	const entry = readVerified()[id];
-	if (entry?.command !== command) return false;
-	const age = Date.now() - Date.parse(entry.at);
-	return age >= 0 && age < 24 * 60 * 60_000;
 }
 const steps: Record<string, StepRun> = {};
 const stops: Record<string, () => void> = {};
@@ -573,8 +603,13 @@ async function readSignIn(): Promise<void> {
 		timeoutMs: 20_000,
 	});
 	interface Login {
+		loginId?: string;
 		refreshExpiresAt?: string;
-		accessToken?: { dct?: string; selectedOrganizations?: string[] };
+		accessToken?: {
+			sub?: string;
+			dct?: string;
+			selectedOrganizations?: string[];
+		};
 	}
 	let now = false;
 	let login: Login | undefined;
@@ -592,6 +627,7 @@ async function readSignIn(): Promise<void> {
 		/* Not signed in, or no command-line tool. */
 	}
 	signedIn = now;
+	loginIdentity = now ? (login?.accessToken?.sub ?? login?.loginId ?? "") : "";
 	tenant = login?.accessToken?.dct ?? "";
 	organizations = login?.accessToken?.selectedOrganizations ?? [];
 }
@@ -838,6 +874,7 @@ function toolRows(): ToolRow[] {
 			enabled: true,
 			connection: "unknown",
 			account: "unknown",
+			desktop: Boolean(desktop),
 			bothInstalled: Boolean(desktop && standaloneFound),
 			readVerified: false,
 			hookTrust: "unknown",
@@ -876,7 +913,11 @@ function toolRows(): ToolRow[] {
 			(host?.account === "signed-in" || host?.account === "signed-out"
 				? host.account
 				: "unknown");
-		row.readVerified = isVerified(tool.id, command);
+		row.readVerified = recentConnectionCheck(
+			readVerified()[tool.id],
+			verificationTarget(tool.id, command),
+			Date.now(),
+		);
 		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
 			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
@@ -1036,7 +1077,6 @@ const ACTIONS = [
 	"cancel",
 	"connect",
 	"verify",
-	"trust-hooks",
 	"run-tasks",
 	"choose-folder",
 	"sessions-on",
@@ -1276,40 +1316,6 @@ export async function setupAction(
 	const probeEnv = command
 		? { PATH: [dirname(command), harnessPath()].join(delimiter) }
 		: undefined;
-	if (action === "trust-hooks" && tool.id === "codex" && command) {
-		await step("hooks:codex", async (say) => {
-			// Standalone Codex reviews hooks in its own terminal view; trust
-			// remains a click made by the person.
-			const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
-			const navigation =
-				'set timeout 60\nspawn -noecho -- $env(TEDIX_SETUP_CODEX) -C $env(HOME) -a on-request -s read-only\nexpect {\n-re {state=idle:app=codex} {send -- "/hooks\\r"}\ntimeout {}\neof {exit}\n}\ninteract';
-			const launch = `TEDIX_SETUP_CODEX=${quote(command)} /usr/bin/expect -c ${quote(navigation)}`;
-			const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(launch)}\nend tell`;
-			await must(
-				run("/usr/bin/osascript", ["-e", script], { timeoutMs: 15_000 }),
-			);
-			say("In Codex /hooks, select each Tedix hook and choose Trust.");
-			let stopped = false;
-			stops["hooks:codex"] = () => {
-				stopped = true;
-			};
-			const until = Date.now() + 15 * 60_000;
-			while (!stopped && Date.now() < until) {
-				await readAgentStatus();
-				if (
-					agentStatus &&
-					"hosts" in agentStatus &&
-					agentStatus.hosts.codex?.hookTrust === "trusted"
-				)
-					return "Codex reports the Tedix hooks are trusted.";
-				await new Promise((resolve) => setTimeout(resolve, 3000));
-			}
-			throw new Error(
-				"Hook review is still waiting. Trust the Tedix hooks in Codex, then choose Check again.",
-			);
-		});
-		return readAgentStatus();
-	}
 	if (action === "account-sign-in" && tool.accountSignIn && command) {
 		await step(`account:${tool.id}`, async (say) => {
 			// Claude Code wants a terminal for its sign-in; `script` gives it one.
@@ -1337,6 +1343,7 @@ export async function setupAction(
 		step(`verify:${tool.id}`, async (say) => {
 			setVerified(tool.id);
 			if (!command) throw new Error(`Open ${toolName} once, then check again.`);
+			const target = verificationTarget(tool.id, command);
 			if (tool.id === "devin" || tool.id === "opencode") {
 				say(`Checking Tedix in ${toolName}…`);
 				const onStart = (stop: () => void) => {
@@ -1360,7 +1367,7 @@ export async function setupAction(
 					throw new Error(
 						`${toolName} could not confirm the connection. Try again in a moment.`,
 					);
-				setVerified(tool.id, command);
+				setVerified(tool.id, target);
 				return `${toolName} confirmed the Tedix connection.`;
 			}
 			say(`Checking a read inside ${tool.name}…`);
@@ -1376,7 +1383,7 @@ export async function setupAction(
 					},
 				),
 			);
-			setVerified(tool.id, command);
+			setVerified(tool.id, target);
 			return `A Tedix read succeeded inside ${toolName}.`;
 		});
 	if (action === "verify") {
