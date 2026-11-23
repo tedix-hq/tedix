@@ -1,7 +1,10 @@
 import type { SiteRoutingPolicy } from "@tedix/api-contract/schemas/site-routing";
 import { runtimePermitOwnerId } from "./runtime-permit-owner";
 import { createDbClient } from "@tedix/db/client";
-import { listPublicCatalogSitemapSlugs } from "@tedix/db/queries/catalog/list-apps";
+import {
+	listPublicCatalogSitemapSlugs,
+	listPublicChatgptObservations,
+} from "@tedix/db/queries/catalog/list-apps";
 import { getSiteRoutingPolicy } from "@tedix/db/queries/site-routing";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
@@ -477,6 +480,21 @@ export async function marketingResponse(
 	if (!path.startsWith("/api/catalog/")) return null;
 	const q = url.searchParams;
 	try {
+		if (path === "/api/catalog/discoverability") {
+			const offset = Number(q.get("offset") ?? 0);
+			if (!Number.isSafeInteger(offset) || offset < 0)
+				return json({ error: "Invalid offset" }, 400);
+			const rows = await listPublicChatgptObservations(db, offset, 201);
+			return Response.json(
+				{
+					listings: rows.slice(0, 200),
+					nextOffset: rows.length > 200 ? offset + 200 : null,
+				},
+				{
+					headers: { "Cache-Control": "public, max-age=300" },
+				},
+			);
+		}
 		if (path === "/api/catalog/sitemap-slugs")
 			return Response.json({ slugs: await listPublicCatalogSitemapSlugs(db) });
 		const client = getCatalogClient(env);

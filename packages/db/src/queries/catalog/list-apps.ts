@@ -21,6 +21,7 @@ import {
 import {
 	appCatalog,
 	appCatalogBrowseTotals,
+	appCatalogStoreListings,
 	appCatalogMcpTools,
 	type CatalogApp,
 	type Category,
@@ -434,6 +435,43 @@ export async function listCatalogApps(
 		.offset(offset);
 
 	return { apps, total };
+}
+
+/** Dated observations on publicly visible ChatGPT listings. Counts belong to
+ * individual sweeps and cannot be summed into a shared query population. */
+export async function listPublicChatgptObservations(
+	db: Database,
+	offset: number,
+	limit: number,
+) {
+	const listings = appCatalogStoreListings;
+	const observation = sql`json_extract(${listings.rawData}, '$.catalogFeed.searchObservation')`;
+	const matchedCount = sql<number>`json_extract(${observation}, '$.matchedCount')`;
+	const checkedAt = sql<string>`json_extract(${observation}, '$.checkedAt')`;
+	const queryCount = sql<number>`json_extract(${observation}, '$.queryCount')`;
+	return db
+		.select({
+			name: appCatalog.name,
+			slug: appCatalog.slug,
+			sourceAppId: listings.sourceAppId,
+			checkedAt: checkedAt.as("checkedAt"),
+			matchedCount: matchedCount.as("matchedCount"),
+			queryCount: queryCount.as("queryCount"),
+		})
+		.from(listings)
+		.innerJoin(appCatalog, eq(appCatalog.id, listings.catalogAppId))
+		.where(
+			and(
+				eq(listings.source, "chatgpt"),
+				...catalogVisibilityConditions(appCatalog),
+				sql`typeof(${matchedCount}) = 'integer' AND ${matchedCount} >= 0`,
+				sql`typeof(${queryCount}) = 'integer' AND ${queryCount} > 0`,
+				sql`datetime(${checkedAt}) IS NOT NULL`,
+			),
+		)
+		.orderBy(desc(matchedCount), asc(listings.sourceAppId))
+		.limit(limit)
+		.offset(offset);
 }
 
 export async function listPublicCatalogSitemapSlugs(
