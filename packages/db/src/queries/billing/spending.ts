@@ -67,6 +67,7 @@ export async function sumRunCreditsByRun(
 					// branches seek by reservation or wallet run, never the whole org.
 					sql`+${charge.organizationId} = ${input.organizationId}`,
 					or(
+						// bound-params: SQL subquery; its run IDs use the 28-value chunk above.
 						inArray(charge.reservationId, reservations),
 						and(
 							eq(charge.organizationId, input.organizationId),
