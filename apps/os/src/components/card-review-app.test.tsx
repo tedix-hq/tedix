@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { retryWorkRead, workRetryDelay } from "@/lib/work-refresh";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -58,7 +59,7 @@ vi.mock("@/lib/work-refresh", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/work-refresh")>();
 	return {
 		...actual,
-		workRefreshOptions: { ...actual.workRefreshOptions, retryDelay: 10 },
+		workRetryDelay: () => 10,
 	};
 });
 
@@ -168,7 +169,12 @@ beforeEach(() => {
 	);
 	client = new QueryClient({
 		defaultOptions: {
-			queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
+			queries: {
+				retry: retryWorkRead,
+				retryDelay: workRetryDelay,
+				staleTime: Infinity,
+				gcTime: Infinity,
+			},
 		},
 	});
 	host = document.createElement("div");

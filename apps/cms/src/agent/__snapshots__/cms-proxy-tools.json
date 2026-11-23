@@ -10710,6 +10710,14 @@
 						},
 						"bingVerification": {
 							"type": "string"
+						},
+						"additionalSitemaps": {
+							"type": "array",
+							"items": {
+								"type": "string",
+								"pattern": "^\\/sitemap-[a-z0-9][a-z0-9_-]*\\.xml$"
+							},
+							"maxItems": 20
 						}
 					},
 					"additionalProperties": false

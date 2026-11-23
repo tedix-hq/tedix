@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	parseSpecShard,
 	shardSpecs,
@@ -77,6 +85,46 @@ test("every multi-shard OS script's files accept --shard, or vitest does it", ()
 		if (count < 2) continue;
 		const command: string = manifest.scripts[script];
 		if (/\bvp test\b/.test(command)) continue;
+		if (command === "bun scripts/test-unit.ts") {
+			const dir = mkdtempSync(join(tmpdir(), "os-unit-shard-"));
+			try {
+				const calls = join(dir, "calls");
+				const bun = join(dir, "bun");
+				writeFileSync(
+					bun,
+					'#!/bin/sh\nprintf "%s\\n" "$*" >> "$SHARD_COMMANDS"\n',
+				);
+				chmodSync(bun, 0o755);
+				for (const shard of ["1/4", "2/4"]) {
+					writeFileSync(calls, "");
+					const result = Bun.spawnSync(
+						[
+							process.execPath,
+							new URL("scripts/test-unit.ts", osRoot).pathname,
+							"--shard",
+							shard,
+						],
+						{
+							env: {
+								...process.env,
+								PATH: `${dir}:${process.env.PATH}`,
+								SHARD_COMMANDS: calls,
+							},
+						},
+					);
+					expect(result.exitCode).toBe(0);
+					expect(readFileSync(calls, "utf8").trim().split("\n")).toEqual([
+						...(shard === "1/4"
+							? ["run doc:check", "run sheet:check", "run slides:check"]
+							: []),
+						`x vp test run --shard ${shard}`,
+					]);
+				}
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+			continue;
+		}
 		const files = command
 			.split(/\s+/)
 			.filter((part) => /\.(?:[cm]?[jt]s|[jt]sx)$/.test(part));

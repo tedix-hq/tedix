@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	afterEach,
 	beforeEach,
@@ -37,6 +38,7 @@ import { SessionBoundary } from "./session-boundary";
 
 let container: HTMLDivElement;
 let root: Root;
+let queryClient: QueryClient;
 let replaceSpy: ReturnType<typeof vi.spyOn>;
 
 function stubBrokerStatus(body: unknown) {
@@ -55,14 +57,16 @@ function stubBrokerStatus(body: unknown) {
 async function renderBoundary() {
 	await act(async () => {
 		root.render(
-			<SessionBoundary renderLogin={() => <div data-descope-flow />}>
-				<div data-authenticated-child />
-			</SessionBoundary>,
+			<QueryClientProvider client={queryClient}>
+				<SessionBoundary renderLogin={() => <div data-descope-flow />}>
+					<div data-authenticated-child />
+				</SessionBoundary>
+			</QueryClientProvider>,
 		);
 	});
 	// One more turn so the status effect commits and the resume effect runs.
 	await act(async () => {
-		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 }
 
@@ -75,10 +79,12 @@ beforeEach(() => {
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container);
+	queryClient = new QueryClient();
 });
 
 afterEach(() => {
 	act(() => root.unmount());
+	queryClient.clear();
 	container.remove();
 	replaceSpy.mockRestore();
 	vi.unstubAllGlobals();
@@ -184,9 +190,11 @@ describe("SessionBoundary silent session resume", () => {
 				container.querySelector("button")?.click();
 			});
 			expect(fetchStatus).toHaveBeenCalledTimes(2);
-			expect(
-				container.querySelector("[data-authenticated-child]"),
-			).not.toBeNull();
+			await vi.waitFor(() =>
+				expect(
+					container.querySelector("[data-authenticated-child]"),
+				).not.toBeNull(),
+			);
 			expect(replaceSpy).not.toHaveBeenCalled();
 		},
 	);

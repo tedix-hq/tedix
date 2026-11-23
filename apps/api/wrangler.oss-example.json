@@ -98,6 +98,10 @@
 		{
 			"tag": "v12",
 			"new_sqlite_classes": ["KernelVoiceInputDO"]
+		},
+		{
+			"tag": "v13",
+			"new_sqlite_classes": ["MachineConnectionDO"]
 		}
 	],
 	"ratelimits": [

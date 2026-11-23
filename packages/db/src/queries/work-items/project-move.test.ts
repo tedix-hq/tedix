@@ -58,6 +58,8 @@ it("moves Work to another project and audits it", async () => {
 		.get() as { payload: string };
 	expect(JSON.parse(event.payload)).toEqual({
 		projectMove: { from: "project-a", to: "project-b" },
+		ownerStarted: false,
+		workItemVersion: 2,
 	});
 
 	const proposed = await updateWorkItemSpecification(db, {

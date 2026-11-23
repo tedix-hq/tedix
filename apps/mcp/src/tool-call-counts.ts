@@ -1,7 +1,9 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 
 const log = createMcpLogger("mcp.tool_counts");
+const writeCount = createTelemetryWriter("mcp.tool_counts");
 const COUNTER_PREFIX = "tool-count:";
 
 export function toolCallCountStub(env: CloudflareEnv, day: string) {
@@ -19,24 +21,22 @@ export function countToolCall(
 	toolName: string,
 ): void {
 	const day = new Date().toISOString().slice(0, 10);
-	ctx.waitUntil(
-		(async () => {
-			try {
-				const response = await toolCallCountStub(env, day).fetch(
-					"https://tool-counts.internal/tool-counts/increment",
-					{ method: "POST", body: JSON.stringify({ toolName }) },
-				);
-				if (!response.ok) throw new Error(`Counter status ${response.status}`);
-			} catch (error) {
-				// Counting must not turn a successful provider action into a retry.
-				log.error("Tool call counter unavailable", {
-					event: "mcp.tool_counts.failed",
-					resourceKey: day,
-					error: contentFreeMcpException(error),
-				});
-			}
-		})(),
-	);
+	writeCount(async () => {
+		try {
+			const response = await toolCallCountStub(env, day).fetch(
+				"https://tool-counts.internal/tool-counts/increment",
+				{ method: "POST", body: JSON.stringify({ toolName }) },
+			);
+			if (!response.ok) throw new Error(`Counter status ${response.status}`);
+		} catch (error) {
+			// Counting must not turn a successful provider action into a retry.
+			log.error("Tool call counter unavailable", {
+				event: "mcp.tool_counts.failed",
+				resourceKey: day,
+				error: contentFreeMcpException(error),
+			});
+		}
+	}, ctx.waitUntil.bind(ctx));
 }
 
 /** Only reached through the internal Durable Object binding, on dedicated day objects. */

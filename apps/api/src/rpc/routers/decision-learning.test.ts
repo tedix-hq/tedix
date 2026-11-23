@@ -5,6 +5,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { organizations } from "@tedix/db/schema/organizations";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
+import {
+	memoryFactCitations,
+	memoryFactCitationBackfills,
+} from "@tedix/db/schema/memory-fact-citations";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -23,7 +27,14 @@ function fixture() {
 	installOrganizationLogFixture();
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
-		schemaDdl(organizations, tedis, memoryFacts, learningInteractionEvents),
+		schemaDdl(
+			organizations,
+			tedis,
+			memoryFacts,
+			memoryFactCitations,
+			memoryFactCitationBackfills,
+			learningInteractionEvents,
+		),
 	);
 	const db = createDbClient(createD1Facade(sqlite));
 	sqlite

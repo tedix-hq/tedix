@@ -15,7 +15,13 @@ const members = vi.hoisted(
 	() =>
 		new Map<
 			string,
-			{ userId: string; status: string; descopeUserId: string; role: string }
+			{
+				userId: string;
+				status: string;
+				descopeUserId: string;
+				role: string;
+				kind: string;
+			}
 		>(),
 );
 
@@ -118,6 +124,7 @@ beforeEach(() => {
 		members.set(`${organizationId}:${userId}`, {
 			userId,
 			status: "active",
+			kind: "human",
 			descopeUserId: `descope-${userId}`,
 			role: "member",
 		});

@@ -136,7 +136,9 @@ describe("unread list", () => {
 		expect(label?.className).toContain("truncate");
 		expect(label?.getAttribute("title")).toBe(`${title} was changed`);
 		expect(host.querySelector("li a")?.className).toContain("min-w-0");
-		expect(host.querySelector("h3")?.className).toContain("wrap-anywhere");
+		expect(host.querySelector("h3 > span")?.className).toContain(
+			"wrap-anywhere",
+		);
 		const actions = host.querySelector("button")?.parentElement;
 		expect(actions?.className).toContain("flex-wrap");
 	});

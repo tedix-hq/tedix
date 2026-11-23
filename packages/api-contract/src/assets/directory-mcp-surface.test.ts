@@ -6,6 +6,7 @@ const expectedTools = [
 	"get_connection_info",
 	"list_work_items",
 	"get_work_item",
+	"wait_work_item",
 	"list_work_item_events",
 	"list_work_item_evidence",
 	"list_workspaces",

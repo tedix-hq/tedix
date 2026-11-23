@@ -294,8 +294,12 @@ describe("Agents board", () => {
 	it("explains how to turn reporting on when no session reports", async () => {
 		const doc = await render([session(5, "ended", "Closed")]);
 		expect(doc.body.textContent).toContain("No agent sessions reporting");
-		expect(doc.body.textContent).toContain("~/.tedix/agent-status.json");
-		expect(doc.body.textContent).toContain('"enabled": true');
+		expect(doc.body.textContent).toContain(
+			"Tedix → Set up this Mac… → Coding tools",
+		);
+		expect(doc.body.textContent).toContain(
+			"Show my Codex and Claude sessions in Tedix",
+		);
 		expect(doc.querySelector("section[aria-label]")).toBeNull();
 	});
 });

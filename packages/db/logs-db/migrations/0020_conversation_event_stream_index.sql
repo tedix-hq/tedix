@@ -1,0 +1,1 @@
+CREATE INDEX `idx_kernel_runtime_events_conversation_run_created` ON `kernel_runtime_events` (`organization_id`,`conversation_id`,`run_id`,`created_at`,`id`);

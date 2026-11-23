@@ -194,6 +194,13 @@ export const tenantKernelRuntimeEvents = sqliteTable(
 			table.conversationId,
 			table.createdAt,
 		),
+		index("idx_kernel_runtime_events_conversation_run_created").on(
+			table.organizationId,
+			table.conversationId,
+			table.runId,
+			table.createdAt,
+			table.id,
+		),
 		index("idx_kernel_runtime_events_run_created").on(
 			table.organizationId,
 			table.runId,

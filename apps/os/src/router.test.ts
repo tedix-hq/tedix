@@ -28,7 +28,7 @@ it.each(["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "BAD_REQUEST", "CONFLICT"])(
 	},
 );
 
-it("retries a 503 read twice with jittered backoff", async () => {
+it("retries a 503 read three times with jittered backoff", async () => {
 	vi.useFakeTimers();
 	vi.spyOn(Math, "random").mockReturnValue(0.5);
 	const error = { code: "SERVICE_UNAVAILABLE", status: 503 };
@@ -43,7 +43,7 @@ it("retries a 503 read twice with jittered backoff", async () => {
 			},
 		})
 		.catch((failure: unknown) => failure);
-	await vi.advanceTimersByTimeAsync(4500);
+	await vi.advanceTimersByTimeAsync(10500);
 	expect(await result).toBe(error);
-	expect(attempts).toEqual([0, 1500, 4500]);
+	expect(attempts).toEqual([0, 1500, 4500, 10500]);
 });

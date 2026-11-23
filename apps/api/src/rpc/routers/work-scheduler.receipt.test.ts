@@ -51,6 +51,7 @@ function receipt(verbosity: "compact" | "full", count: number) {
 				"approval_blocked",
 				"budget_blocked",
 				"resource_blocked",
+				"task_contract_blocked",
 				"evaluation_required",
 				"coordination_parent",
 				"cost_blocked",

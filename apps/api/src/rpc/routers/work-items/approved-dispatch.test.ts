@@ -12,6 +12,7 @@ import {
 	workResourceRequirements,
 	workBudgetEnvelopes,
 	workCaseItems,
+	workAdmissions,
 } from "@tedix/db/schema/work-factory";
 import {
 	workItems,
@@ -67,6 +68,7 @@ it.each([
 					workResourceRequirements,
 					workBudgetEnvelopes,
 					workCaseItems,
+					workAdmissions,
 				),
 			);
 			sqlite

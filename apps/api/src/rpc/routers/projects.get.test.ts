@@ -30,6 +30,7 @@ const project = {
 	name: "Orchard research",
 	description: null,
 	status: "active",
+	archivedFromStatus: null,
 	leadTediId: null,
 	ownerUserId: null,
 	objectiveId,

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { externalAgentPrincipals } from "../../schema/external-agent-identity";
 import { organizationMembers } from "../../schema/organization-members";
 import { tedis } from "../../schema/tedis";
 import {
@@ -20,6 +21,7 @@ function fixture(
 	sqlite.exec(
 		canonicalWorkFactoryDdl() +
 			schemaDdl(
+				externalAgentPrincipals,
 				workInteractions,
 				workInteractionCardRevisions,
 				workInteractionResponses,

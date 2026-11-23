@@ -56,7 +56,7 @@ function armInteractionGuards(sqlite: DatabaseSync) {
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses, workInteractionAttention, workInteractionDeliveries, auditEvents, platformCronCheckpoints)}`,
+		`${canonicalWorkFactoryDdl()}\n${schemaDdl(externalAgentPrincipals, workInteractions, workInteractionResponses, workInteractionAttention, workInteractionDeliveries, auditEvents, platformCronCheckpoints)}`,
 	);
 	sqlite
 		.prepare(
@@ -1132,7 +1132,7 @@ describe("obsolete Work interactions", () => {
 			await tick(f);
 			await tick(f, 1);
 			const receipt = (await listInteractionExpiryReceipts(f.db, "org"))[0]!;
-			f.sqlite.exec(schemaDdl(externalAgentPrincipals, externalAgentSessions));
+			f.sqlite.exec(schemaDdl(externalAgentSessions));
 			for (const guard of deployedWorkInteractionGuards("insert"))
 				f.sqlite.exec(guard);
 			const restored = await createWorkInteraction(f.db, {

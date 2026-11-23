@@ -96,7 +96,11 @@ it("declines only a proposal, and only with a reason", async () => {
 	).toEqual([
 		{
 			type: "work.cancelled",
-			payload: { reason: "Not this quarter", triageExit: "declined" },
+			payload: {
+				reason: "Not this quarter",
+				triageExit: "declined",
+				workItemVersion: 2,
+			},
 		},
 	]);
 	sqlite.close();
@@ -167,6 +171,7 @@ it("marks a duplicate by recording the relation and cancelling together", async 
 		reason: 'Duplicate of "original"',
 		triageExit: "duplicate",
 		duplicateOfWorkItemId: "original",
+		workItemVersion: 2,
 	});
 	sqlite.close();
 });

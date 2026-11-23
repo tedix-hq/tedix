@@ -195,7 +195,11 @@ it.each(["projects", "organization"] as const)(
 			expect(host.querySelector(".ft-post-link")?.getAttribute("href")).toBe(
 				row.source,
 			);
-			expect(host.querySelector(".ft-byline")?.textContent).toMatch(
+			expect(
+				[...host.querySelectorAll(".ft-byline > span, .ft-byline > time")]
+					.map((node) => node.textContent)
+					.join(""),
+			).toMatch(
 				scope === "organization" ? /^Cedar· / : /^Cedar· Pine Studio· /,
 			);
 			expect(host.querySelector(".ft-details")).toBeNull();

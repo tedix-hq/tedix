@@ -9952,12 +9952,18 @@
 						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
 					},
 					"idleReassignment": {
-						"description": "Owner/admin dispatcher reassignment. Preserves the Work revision and failure hold; cannot accompany specification edits.",
+						"description": "Owner/admin dispatcher reassignment when the assigned tool is unreachable or unavailable (out of credits, at its limit, signed out). Preserves the Work revision and failure hold; cannot accompany specification edits. Work with metadata.onlyExecutor stays on its tool.",
 						"type": "object",
 						"properties": {
 							"fromExecutor": {
 								"type": "string",
-								"enum": ["codex", "claude-code", "opencode", "devin"]
+								"enum": [
+									"codex",
+									"claude-code",
+									"opencode",
+									"devin",
+									"any-local"
+								]
 							},
 							"unavailableSince": {
 								"type": "string",
@@ -9972,7 +9978,14 @@
 							},
 							"reason": {
 								"type": "string",
-								"const": "unreachable"
+								"enum": ["unreachable", "unavailable", "chosen"],
+								"description": "unreachable/unavailable: the tool cannot take Work; chosen: the decision model picked another available tool (no waiting time)"
+							},
+							"detail": {
+								"description": "Why the assigned tool cannot take Work, in plain words; written on the item.",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 300
 							}
 						},
 						"required": ["fromExecutor", "unavailableSince", "reason"],

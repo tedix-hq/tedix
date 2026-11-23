@@ -73,6 +73,10 @@ describe("TenantStore", () => {
 			"20261118165953_memory_facts_current_sample_index",
 			"20261120154142_memory_fact_index_parity",
 			"20261120155410_memory_edge_org_totals",
+			"20261120173446_workspace_default_tedi",
+			"20261120201535_workspace_agent_access",
+			"20261121103432_drop_unused_memory_runtime_indexes",
+			"20261123072228_conversation-event-stream-index",
 		]);
 		// A second call is served by the same object and keeps its identity.
 		const again = await tenantStoreStub(
