@@ -496,9 +496,17 @@ function updateNow(): Promise<void> {
 			// The next start reopens this page and looks the same until it has.
 			const page = os?.webContents.getURL();
 			noteUpdateClick(page && isOsPage(page) ? page : undefined, pageDark);
-			showRestarting(pageDark);
+			await showRestarting(pageDark);
+			const before = quitSource;
 			quitSource = "an update";
-			restartToUpdate();
+			try {
+				await restartToUpdate();
+			} catch (error) {
+				quitSource = before;
+				takeUpdateClick();
+				hideRestarting();
+				throw error;
+			}
 			// The app quits now; the entry keeps saying so until it does.
 			return new Promise(() => {});
 		}
@@ -1054,9 +1062,11 @@ let restarted = () => {};
 const pageBack = new Promise<void>((settle) => {
 	restarted = settle;
 });
-function showRestarting(dark: boolean): void {
+/** Settles once the screen has painted, or after a second at most. */
+function showRestarting(dark: boolean): Promise<void> {
 	const window = mainWindow;
-	if (!window || window.isDestroyed() || restartingView) return;
+	if (!window || window.isDestroyed() || restartingView)
+		return Promise.resolve();
 	const view = new WebContentsView({ webPreferences: localPage });
 	restartingView = view;
 	view.setBackgroundColor(dark ? "#0b0b0c" : "#fafafa");
@@ -1064,10 +1074,15 @@ function showRestarting(dark: boolean): void {
 	const { width, height } = window.getContentBounds();
 	view.setBounds({ x: 0, y: 0, width, height });
 	window.contentView.addChildView(view);
+	const painted = new Promise<void>((done) => {
+		view.webContents.once("did-finish-load", () => setTimeout(done, 100));
+		setTimeout(done, 1000);
+	});
 	void view.webContents.loadFile(
 		join(root, "restarting.html"),
 		dark ? { hash: "dark" } : {},
 	);
+	return painted;
 }
 function hideRestarting(): void {
 	restarted();
@@ -1264,7 +1279,7 @@ function createMainWindow(show: boolean): void {
 	// until it has loaded.
 	const page = restoring?.page;
 	if (restoring) {
-		showRestarting(restoring.dark);
+		void showRestarting(restoring.dark);
 		view.webContents.once("did-finish-load", hideRestarting);
 		view.webContents.once("did-fail-load", hideRestarting);
 		setTimeout(hideRestarting, 20_000);

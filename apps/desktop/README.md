@@ -113,7 +113,9 @@ The app is not signed or notarized yet and has been run on macOS only.
     version and puts the newest command-line tool in place before it
     starts the runners; with only a newer command-line tool, it does that
     without a restart. Running tasks keep going. While it restarts, the
-    window shows "Restarting Tedix…" instead of going blank, the new start
+    window shows "Restarting Tedix…" instead of going blank. The new
+    version is copied next to the installed app before the old one quits,
+    so only a quick swap happens with no window open. The new start
     reopens the page that was open, and "Updated to <version>" shows once
     in the entry and fades out.
   - If a download, a check you asked for or an update fails, the entry and

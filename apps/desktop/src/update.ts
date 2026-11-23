@@ -6,9 +6,10 @@ import {
 	createWriteStream,
 	existsSync,
 	mkdtempSync,
+	renameSync,
 	rmSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { app } from "electron";
@@ -233,25 +234,50 @@ export function readyVersion(): string | undefined {
 // Waits for the app to exit, copies the new app next to the installed one,
 // swaps them, and puts the old one back if the swap fails. The copies have
 // hidden names, so Spotlight and launchers never list them as apps.
-const REPLACE = `
-while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
-next="$(dirname "$2")/.$(basename "$2").update"
+/**
+ * Run once the app has quit: swaps the copy waiting next to the installed
+ * app into place and opens it. Two renames, so the gap without a window is
+ * short; it puts the old app back if the swap fails.
+ */
+const SWAP = `
+while kill -0 "$1" 2>/dev/null; do sleep 0.1; done
 old="$(dirname "$2")/.$(basename "$2").previous"
-rm -rf "$next" "$old" "$2.update" "$2.previous"
-/usr/bin/ditto "$3" "$next" && mv "$2" "$old" && mv "$next" "$2"
+rm -rf "$old"
+mv "$2" "$old" && mv "$3" "$2"
 [ -d "$2" ] || mv "$old" "$2"
-rm -rf "$next" "$old" "$(dirname "$3")"
+rm -rf "$old" "$3"
 open "$2"
 `;
 
-/** Quits, replaces the installed app with the ready one, and opens it again. */
-export function restartToUpdate(): void {
+/**
+ * Puts the ready app next to the installed one, then quits so a small
+ * script can swap them and open the new one. The copy happens while this
+ * app still shows its window; a copy that fails leaves the app running.
+ */
+export async function restartToUpdate(): Promise<void> {
 	if (!ready) return;
+	const installed = installedBundle();
+	const next = join(dirname(installed), `.${basename(installed)}.update`);
+	if (ready.bundle !== next) {
+		rmSync(next, { recursive: true, force: true });
+		const started = Date.now();
+		try {
+			renameSync(ready.bundle, next);
+		} catch {
+			await new Promise<void>((done, failed) =>
+				execFile("/usr/bin/ditto", [ready!.bundle, next], (error) =>
+					error ? failed(error) : done(),
+				),
+			);
+		}
+		rmSync(dirname(ready.bundle), { recursive: true, force: true });
+		ready = { ...ready, bundle: next };
+		log(`update: ${ready.version} placed in ${Date.now() - started} ms`);
+	}
 	log(`update: restarting into ${ready.version}`);
-	spawn(
-		"/bin/sh",
-		["-c", REPLACE, "sh", String(process.pid), installedBundle(), ready.bundle],
-		{ detached: true, stdio: "ignore" },
-	).unref();
+	spawn("/bin/sh", ["-c", SWAP, "sh", String(process.pid), installed, next], {
+		detached: true,
+		stdio: "ignore",
+	}).unref();
 	app.quit();
 }
