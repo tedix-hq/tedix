@@ -3,13 +3,14 @@
  *
  * A chat started from /chat is a plain Home conversation. When it is asked for
  * a document, sheet or deck, the output goes to the member's own private
- * workspace (created once as "Chats" when they have none), never to a
- * new workspace per chat. A turn with no single member behind it uses the
+ * workspace (created once, named after them, when they have none), never to
+ * a new workspace per chat. A turn with no single member behind it uses the
  * organization's "General" workspace, also created once and reused.
  */
 import { createInitializedWorkspace } from "./workspace-document-owner";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { getMemberNameByUserId } from "@tedix/db/queries/organization-members";
 import {
 	createOsWorkspace,
 	getOsWorkspaceByName,
@@ -18,16 +19,17 @@ import {
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 
 export const DEFAULT_OS_WORKSPACE_NAME = "General";
+/** The name of a member's own space when their name is unknown. */
 const PERSONAL_OS_WORKSPACE_NAME = "Chats";
 
 const DEFAULT_OS_WORKSPACE_DESCRIPTION =
 	"Documents, sheets and decks made in chats that have no workspace of their own.";
 
-/** A name unique to this member, for when another member took the plain one. */
-function personalNameFallback(ownerUserId: string): string {
+/** A name unique to this member, for when another workspace took the plain one. */
+function personalNameFallback(base: string, ownerUserId: string): string {
 	let hash = 0;
 	for (const char of ownerUserId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-	return `${PERSONAL_OS_WORKSPACE_NAME} · ${hash.toString(16).padStart(8, "0")}`;
+	return `${base} · ${hash.toString(16).padStart(8, "0")}`;
 }
 
 async function createOrReuseByName(
@@ -91,16 +93,23 @@ export async function ensureDefaultOsWorkspace(
 				ownerUserId,
 			});
 			if (personal) return personal;
-			// A workspace of that name is reused only when it is a personal
-			// space too (a concurrent first use made it); one the member shared
-			// is not, so the next name is tried.
+			// Named after the member, like "Robin". A workspace of that name is
+			// reused only when it is this member's personal space too (a
+			// concurrent first use made it); any other is not, so the next
+			// name is tried.
+			const memberName = await getMemberNameByUserId(
+				db,
+				input.organizationId,
+				ownerUserId,
+			);
+			const name = memberName?.split(/\s+/)[0] || PERSONAL_OS_WORKSPACE_NAME;
 			return createOrReuseByName(
 				db,
 				{ ...base, visibility: "private", ownerUserId },
 				[
-					PERSONAL_OS_WORKSPACE_NAME,
-					personalNameFallback(ownerUserId),
-					`${PERSONAL_OS_WORKSPACE_NAME} · ${crypto.randomUUID().slice(0, 8)}`,
+					name,
+					personalNameFallback(name, ownerUserId),
+					`${name} · ${crypto.randomUUID().slice(0, 8)}`,
 				],
 				async (existing) =>
 					(

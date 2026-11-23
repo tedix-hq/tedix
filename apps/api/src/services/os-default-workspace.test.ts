@@ -5,6 +5,7 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import { listOsWorkspaces } from "@tedix/db/queries/os-workspaces/workspaces";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceShareLinks,
@@ -32,10 +33,25 @@ function fixture() {
 			osOutputs,
 			osOutputRevisions,
 			userConfigs,
+			organizationMembers,
 		),
 	);
 	workspaceOutputFixture(sqlite, { uninitialized: true });
 	return createDbQueryClient(createD1Facade(sqlite));
+}
+
+async function addMember(
+	db: ReturnType<typeof fixture>,
+	descopeUserId: string,
+	name: string,
+) {
+	await db.insert(organizationMembers).values({
+		id: `member-${descopeUserId}`,
+		organizationId: "org-1",
+		descopeUserId,
+		email: `${descopeUserId}@example.test`,
+		name,
+	});
 }
 
 const member = {
@@ -53,13 +69,14 @@ const service = {
 const EVERYONE = { userIds: ["user-1", "user-2"] };
 
 describe("default chat workspace", () => {
-	it("gives a member one private space, reused for every later chat", async () => {
+	it("gives a member one private space named after them, reused for every later chat", async () => {
 		const db = fixture();
+		await addMember(db, "user-1", "Robin Lee");
 		const first = await ensureDefaultOsWorkspace(db, member);
 		const second = await ensureDefaultOsWorkspace(db, member);
 		const third = await ensureDefaultOsWorkspace(db, member);
 		expect(first).toMatchObject({
-			name: "Chats",
+			name: "Robin",
 			visibility: "private",
 			ownerUserId: "user-1",
 		});
@@ -82,8 +99,15 @@ describe("default chat workspace", () => {
 		expect((await ensureDefaultOsWorkspace(db, member))?.id).toBe("ws-mine");
 	});
 
-	it("gives a second member their own private space", async () => {
+	it("names a space Chats when the member has no name", async () => {
 		const db = fixture();
+		expect((await ensureDefaultOsWorkspace(db, member))?.name).toBe("Chats");
+	});
+
+	it("gives a second member with the same first name their own private space", async () => {
+		const db = fixture();
+		await addMember(db, "user-1", "Robin Lee");
+		await addMember(db, "user-2", "Robin Park");
 		const first = await ensureDefaultOsWorkspace(db, member);
 		const second = await ensureDefaultOsWorkspace(db, {
 			...member,
@@ -95,7 +119,7 @@ describe("default chat workspace", () => {
 			visibility: "private",
 			ownerUserId: "user-2",
 		});
-		expect(second?.name).toMatch(/^Chats · [0-9a-f]{8}$/);
+		expect(second?.name).toMatch(/^Robin · [0-9a-f]{8}$/);
 	});
 
 	it("uses one shared General when no single member is behind the turn", async () => {

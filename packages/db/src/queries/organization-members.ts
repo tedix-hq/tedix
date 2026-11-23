@@ -91,6 +91,25 @@ export async function getMemberAccessByUserId(
 	return rows[0];
 }
 
+/** A member's display name, when they have one. */
+export async function getMemberNameByUserId(
+	db: DbQueryClient,
+	organizationId: string,
+	descopeUserId: string,
+): Promise<string | null> {
+	const rows = await db
+		.select({ name: organizationMembers.name })
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, organizationId),
+				eq(organizationMembers.descopeUserId, descopeUserId),
+			),
+		)
+		.limit(1);
+	return rows[0]?.name?.trim() || null;
+}
+
 /**
  * Active member of an organization by normalized email. Used by inbound email
  * sender trust: a verified member address is a trusted correspondent.
