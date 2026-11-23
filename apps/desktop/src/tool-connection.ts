@@ -5,7 +5,8 @@ export function opencodeConnection(output: string): Connection {
 		.replace(/\x1b\[[0-9;]*m/g, "")
 		.match(/^\s*(?:●\s+)?[✓✗⚠○]\s+tedix[ \t]+([^\r\n]+)/m)?.[1]
 		?.trim();
-	if (status === "connected") return "signed-in";
+	if (status === "connected" || status === "connected (OAuth)")
+		return "signed-in";
 	return /^(?:needs auth|failed:.*\b40[13]\b)/i.test(status ?? "")
 		? "signed-out"
 		: "unknown";

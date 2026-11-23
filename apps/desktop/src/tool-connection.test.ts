@@ -19,7 +19,7 @@ test("a current tool response wins over a remembered sign-in or earlier read", (
 test("OpenCode's terminal and desktop status formats identify the Tedix connection", () => {
 	assert.equal(
 		opencodeConnection(
-			"●  ✓ tedix \x1b[90mconnected\n│      https://connect.mcp.tedix.dev/mcp",
+			"●  ✓ tedix \x1b[90mconnected (OAuth)\n│      https://connect.mcp.tedix.dev/mcp",
 		),
 		"signed-in",
 	);
