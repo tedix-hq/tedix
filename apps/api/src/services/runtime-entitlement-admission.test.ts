@@ -41,6 +41,7 @@ vi.mock("@tedix/db/queries/billing/reservations", async (original) => ({
 		typeof import("@tedix/db/queries/billing/reservations")
 	>()),
 	estimateAiCredits: async () => 1,
+	prepareAiCreditEstimate: async () => () => 1,
 }));
 vi.mock("./data-residency", async (original) => ({
 	...(await original<typeof import("./data-residency")>()),

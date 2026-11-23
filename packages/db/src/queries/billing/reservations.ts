@@ -255,7 +255,7 @@ const AUTO_ROUTER_MODEL = "cloudflare/auto";
  * Credits for one priced call, or null when no single governed rate applies
  * at `now` (none published yet, or ambiguous).
  */
-async function governedAiCredits(
+async function governedAiCostMicros(
 	db: DbClient,
 	input: {
 		provider: string;
@@ -264,12 +264,11 @@ async function governedAiCredits(
 		estimatedInputTokens: number;
 		estimatedOutputTokens: number;
 		now: string;
-		microUsdPerEur: number;
 	},
 ): Promise<number | null> {
 	if (!input.deploymentScope) return null;
 	try {
-		const cost = await estimateProviderCostMicros(db, {
+		return await estimateProviderCostMicros(db, {
 			provider: input.provider,
 			modelId: input.modelId,
 			deploymentScope: input.deploymentScope,
@@ -277,7 +276,6 @@ async function governedAiCredits(
 			estimatedOutputTokens: input.estimatedOutputTokens,
 			now: input.now,
 		});
-		return aiCreditsForProviderCost(cost, input.microUsdPerEur);
 	} catch {
 		return null;
 	}
@@ -296,32 +294,44 @@ async function governedAiCredits(
  */
 export async function estimateAiCredits(
 	db: DbClient,
-	input: {
-		creditFx: unknown;
-		provider: string;
-		model: string;
-		execution?: NewProviderExecutionAttemptRow;
-		deploymentScope?: string;
-		estimatedInputTokens: number;
-		estimatedOutputTokens: number;
-		now: string;
-	},
+	input: AiCreditEstimateInput & { creditFx: unknown },
 ): Promise<number | null> {
-	const fx = parseCreditFx(input.creditFx);
-	if (!fx) return null;
+	return (await prepareAiCreditEstimate(db, input))(input.creditFx);
+}
+
+export interface AiCreditEstimateInput {
+	provider: string;
+	model: string;
+	execution?: NewProviderExecutionAttemptRow;
+	deploymentScope?: string;
+	estimatedInputTokens: number;
+	estimatedOutputTokens: number;
+	now: string;
+}
+
+/**
+ * Read the call's governed rates before the plan's FX rate is known, so an
+ * admission can price it alongside its other reads. The returned function
+ * applies the FX rate: credits to hold, or null when the call cannot be priced.
+ */
+export async function prepareAiCreditEstimate(
+	db: DbClient,
+	input: AiCreditEstimateInput,
+): Promise<(creditFx: unknown) => number | null> {
+	type Hold = { costMicros: number } | { credits: number } | null;
 	const priced = (
 		modelId: string,
 		deploymentScope: string | null | undefined,
 	) =>
-		governedAiCredits(db, {
+		governedAiCostMicros(db, {
 			provider: input.model === AUTO_ROUTER_MODEL ? WORKERS_AI : input.provider,
 			modelId,
 			deploymentScope,
 			estimatedInputTokens: input.estimatedInputTokens,
 			estimatedOutputTokens: input.estimatedOutputTokens,
 			now: input.now,
-			microUsdPerEur: fx.microUsdPerEur,
 		});
+	let holds: Hold[];
 	if (input.model === AUTO_ROUTER_MODEL) {
 		let identity: ReturnType<typeof readProviderExecutionIdentity> | null =
 			null;
@@ -333,27 +343,47 @@ export async function estimateAiCredits(
 			identity = null;
 		}
 		const allowed = identity?.autoRouting?.allowedModels ?? null;
-		if (!identity || !allowed?.length) return UNPRICED_WORKERS_AI_HOLD_CREDITS;
-		const holds = await Promise.all(
-			allowed.map(async (modelId) => {
-				const routed = autoRoutedPricingIdentity(identity, modelId);
-				return (
-					(routed
-						? await priced(routed.modelId, routed.deploymentScope)
-						: null) ?? UNPRICED_WORKERS_AI_HOLD_CREDITS
-				);
-			}),
+		holds =
+			!identity || !allowed?.length
+				? [{ credits: UNPRICED_WORKERS_AI_HOLD_CREDITS }]
+				: await Promise.all(
+						allowed.map(async (modelId): Promise<Hold> => {
+							const routed = autoRoutedPricingIdentity(identity, modelId);
+							const cost = routed
+								? await priced(routed.modelId, routed.deploymentScope)
+								: null;
+							return cost === null
+								? { credits: UNPRICED_WORKERS_AI_HOLD_CREDITS }
+								: { costMicros: cost };
+						}),
+					);
+	} else {
+		const cost = await priced(
+			input.model,
+			input.execution?.deploymentScope ?? input.deploymentScope,
 		);
-		return Math.max(...holds);
+		holds = [
+			cost !== null
+				? { costMicros: cost }
+				: input.provider === WORKERS_AI
+					? { credits: UNPRICED_WORKERS_AI_HOLD_CREDITS }
+					: null,
+		];
 	}
-	const credits = await priced(
-		input.model,
-		input.execution?.deploymentScope ?? input.deploymentScope,
-	);
-	if (credits !== null) return credits;
-	return input.provider === WORKERS_AI
-		? UNPRICED_WORKERS_AI_HOLD_CREDITS
-		: null;
+	return (creditFx) => {
+		const fx = parseCreditFx(creditFx);
+		if (!fx) return null;
+		let most: number | null = null;
+		for (const hold of holds) {
+			if (!hold) return null;
+			const credits =
+				"credits" in hold
+					? hold.credits
+					: aiCreditsForProviderCost(hold.costMicros, fx.microUsdPerEur);
+			most = most === null ? credits : Math.max(most, credits);
+		}
+		return most;
+	};
 }
 
 /** Atomically checks the credit pool and reserves one provider inference. */

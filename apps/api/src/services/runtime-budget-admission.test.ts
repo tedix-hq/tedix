@@ -37,6 +37,9 @@ function admissionReads(
 }
 vi.mock("@tedix/db/queries/billing/reservations", () => ({
 	estimateAiCredits: mocks.estimateAiCredits,
+	// Managed admission reads rates first and applies the plan's FX rate after.
+	prepareAiCreditEstimate: async (db: unknown) => (creditFx: unknown) =>
+		mocks.estimateAiCredits(db, { creditFx }),
 }));
 vi.mock("@tedix/db/queries/provider-executions", () => ({
 	buildProviderExecutionInsertStatement: mocks.insertExecution,
@@ -96,7 +99,7 @@ beforeEach(() => {
 		}),
 		reservationPreflight: { existing: undefined, plan },
 	});
-	mocks.estimateAiCredits.mockResolvedValue(3);
+	mocks.estimateAiCredits.mockReturnValue(3);
 	mocks.insertExecution.mockResolvedValue({ meta: { changes: 1 } });
 	mocks.wallet.mockImplementation(
 		async (_org: string, route: string, body: any) =>

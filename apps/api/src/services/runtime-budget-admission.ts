@@ -11,7 +11,10 @@ import type { ProviderExecutionAdmissionGuard } from "@tedix/db/queries/provider
 import type { NewProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
 import type { DbClient } from "@tedix/db/client";
 import { getInferenceAdmissionReads } from "@tedix/db/queries/billing/inference-admission";
-import { estimateAiCredits } from "@tedix/db/queries/billing/reservations";
+import {
+	estimateAiCredits,
+	prepareAiCreditEstimate,
+} from "@tedix/db/queries/billing/reservations";
 import { runtimeEntitlementIsActive } from "@tedix/db/queries/runtime-entitlements";
 import { buildProviderExecutionInsertStatement } from "@tedix/db/queries/provider-executions";
 import type {
@@ -52,6 +55,10 @@ function markAdmission(input: {
 	outcome: string;
 	readMs: number;
 	reserveMs: number;
+	/** Inside reserveMs: the rate read still pending after the reads, the wallet hold, the fence write. */
+	estimateMs: number;
+	holdMs: number;
+	fenceMs: number;
 	totalMs: number;
 }): void {
 	try {
@@ -88,6 +95,9 @@ export async function authorizeRuntimeBudget(input: {
 	const admissionAt = Date.now();
 	let readMs = 0;
 	let reserveMs = 0;
+	let estimateMs = 0;
+	let holdMs = 0;
+	let fenceMs = 0;
 	const done = (outcome: string) =>
 		markAdmission({
 			runId: input.request.runId ?? null,
@@ -96,6 +106,9 @@ export async function authorizeRuntimeBudget(input: {
 			outcome,
 			readMs,
 			reserveMs,
+			estimateMs,
+			holdMs,
+			fenceMs,
 			totalMs: Date.now() - admissionAt,
 		});
 	// The reads are hoisted into one batch; the CHECKS below keep their original
@@ -104,6 +117,22 @@ export async function authorizeRuntimeBudget(input: {
 	// the `policy_unresolved` throw, which the runtime maps to a
 	// billing_service_error — a 500 class where a denial belongs.
 	const readAt = Date.now();
+	// Independent of the reads: the catalog, and the managed call's rate lookup
+	// (the plan's FX rate is applied once the reads return it).
+	const catalogRead = settle(getModelCatalogConfig(input.db));
+	const estimateRead =
+		mode === "managed" && !input.preflightOnly
+			? settle(
+					prepareAiCreditEstimate(input.db, {
+						provider: input.request.provider,
+						model: input.request.model,
+						execution: input.execution,
+						estimatedInputTokens: input.request.estimatedInputTokens,
+						estimatedOutputTokens: input.request.estimatedOutputTokens,
+						now: new Date(nowMs).toISOString(),
+					}),
+				)
+			: null;
 	const {
 		entitlement,
 		policies: policySources,
@@ -147,7 +176,7 @@ export async function authorizeRuntimeBudget(input: {
 		throw new Error("AI Gateway policy attribution does not resolve in D1");
 	}
 	const aiGatewayPolicy = resolveAiGatewayAdmissionPolicy(policySources);
-	const catalog = await getModelCatalogConfig(input.db);
+	const catalog = unwrap(await catalogRead);
 	if (
 		!aiGatewayModelTierAllowed(
 			input.request.provider,
@@ -238,21 +267,16 @@ export async function authorizeRuntimeBudget(input: {
 		done("billing_not_configured");
 		return { allowed: false, code: "billing_not_configured", entitlement };
 	}
-	const credits = await estimateAiCredits(input.db, {
-		creditFx: plan.creditFx,
-		provider: input.request.provider,
-		model: input.request.model,
-		execution: input.execution,
-		estimatedInputTokens: input.request.estimatedInputTokens,
-		estimatedOutputTokens: input.request.estimatedOutputTokens,
-		now,
-	});
+	const estimateAt = Date.now();
+	const credits = unwrap(await estimateRead!)(plan.creditFx);
+	estimateMs = Date.now() - estimateAt;
 	if (credits === null || !Number.isSafeInteger(credits) || credits < 0) {
 		done("pricing_unavailable");
 		return { allowed: false, code: "pricing_unavailable", entitlement };
 	}
 	const wallet = walletRpc(input.env);
 	const holdId = input.execution?.billingReservationId ?? crypto.randomUUID();
+	const holdAt = Date.now();
 	const hold = (await wallet.wallet(input.request.organizationId, "hold", {
 		organizationId: input.request.organizationId,
 		holdId,
@@ -269,6 +293,7 @@ export async function authorizeRuntimeBudget(input: {
 			input.execution?.sendBefore ??
 			new Date(nowMs + 10 * 60 * 1_000).toISOString(),
 	} satisfies WalletHoldInput)) as WalletHoldResult;
+	holdMs = Date.now() - holdAt;
 	if (!hold.allowed) {
 		reserveMs = Date.now() - reserveAt;
 		done(hold.code);
@@ -278,6 +303,7 @@ export async function authorizeRuntimeBudget(input: {
 		// The fence proves the dispatch identity; without it the held credits
 		// have no call to settle against, so give them back.
 		let fenced = false;
+		const fenceAt = Date.now();
 		try {
 			const result = await buildProviderExecutionInsertStatement(
 				input.db,
@@ -286,6 +312,7 @@ export async function authorizeRuntimeBudget(input: {
 			);
 			fenced = (result.meta?.changes ?? 0) > 0;
 		} finally {
+			fenceMs = Date.now() - fenceAt;
 			if (!fenced)
 				await wallet
 					.wallet(input.request.organizationId, "release", {
@@ -312,6 +339,23 @@ export async function authorizeRuntimeBudget(input: {
 		expiresAt: hold.expiresAt,
 		estimatedCredits: hold.credits,
 	};
+}
+
+/** Start a read early without leaving an unhandled rejection if its result is never used. */
+function settle<T>(
+	promise: Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+	return promise.then(
+		(value) => ({ ok: true as const, value }),
+		(error: unknown) => ({ ok: false as const, error }),
+	);
+}
+
+function unwrap<T>(
+	result: { ok: true; value: T } | { ok: false; error: unknown },
+): T {
+	if (!result.ok) throw result.error;
+	return result.value;
 }
 
 /** The MCP worker's wallet RPC over the existing internal service binding. */
