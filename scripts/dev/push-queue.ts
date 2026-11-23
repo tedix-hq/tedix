@@ -121,6 +121,8 @@ export function selectTrain<T extends { lane: Lane | null }>(
 		if (train.length >= max) break;
 		const lane = entry.lane;
 		if (!lane || lane.dryRun !== dryRun || !unchanged(lane)) continue;
+		if (train.length && lane.agentSession !== train[0]!.lane.agentSession)
+			continue;
 		train.push({ ...entry, lane });
 	}
 	return train;

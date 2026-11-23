@@ -24,6 +24,7 @@ export type Lane = {
 	base: string;
 	branch: string;
 	dryRun: boolean;
+	agentSession?: string;
 };
 export type TrainTicket = { file: string; result: string; lane: Lane };
 export type TrainResult = { code: number; sha?: string; message: string };
@@ -71,6 +72,7 @@ export function snapshotLane(cwd: string, dryRun: boolean): Lane | null {
 		base: base.out,
 		branch: branch.out,
 		dryRun,
+		agentSession: process.env.TEDIX_AGENT_SESSION,
 	};
 }
 

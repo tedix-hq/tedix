@@ -110,6 +110,10 @@ describe("train selection", () => {
 			{ file: "dry", lane: lane("c", true) },
 			{ file: "moved", lane: lane("d") },
 			{ file: "e", lane: lane("e") },
+			{
+				file: "other-session",
+				lane: { ...lane("f"), agentSession: "codex:other" },
+			},
 		];
 		const unchanged = (l: Lane) => l.cwd !== "/lanes/d";
 		expect(

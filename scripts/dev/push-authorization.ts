@@ -51,6 +51,7 @@ export function authorizePush(
 ): string[] {
 	const auth = row(read(["auth", "status", "--json"]));
 	const identity = row(auth.externalAgent);
+	const currentSession = row(identity.currentSession);
 	if (
 		!identity.configured ||
 		!identity.principalId ||
@@ -116,6 +117,7 @@ export function authorizePush(
 				attempt.executorType !== "external_agent" ||
 				attempt.executorId !== identity.principalId ||
 				attempt.externalSessionKey !== session ||
+				currentSession.externalSessionKey !== session ||
 				!(Date.parse(String(attempt.expiresAt)) > now())
 			)
 				throw new Error(

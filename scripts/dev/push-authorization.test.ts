@@ -75,6 +75,7 @@ function fixture(release = false, marker = release) {
 			key: "fixture",
 			principalId: principal,
 			organizationId: org,
+			currentSession: { externalSessionKey: session },
 		},
 	};
 	const work = {
@@ -252,6 +253,7 @@ test("wrong Work, organization, holder or session cannot authorize a commit", ()
 		[f.work, "orgId", principal],
 		[f.work, "disposition", "completed"],
 		[f.attempt, "externalSessionKey", "codex:other"],
+		[f.auth.externalAgent.currentSession, "externalSessionKey", "codex:other"],
 		[f.attempt, "executorId", org],
 		[f.attempt, "outcome", "succeeded"],
 		[f.attempt, "expiresAt", "invalid"],

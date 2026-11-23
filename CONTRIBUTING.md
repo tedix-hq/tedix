@@ -150,7 +150,8 @@ The release commit's final paragraph must contain `Work-Item: <release work uuid
 Canonical pushes read Tedix Work and the newest Attempt before validation and
 again before sending refs. Every pushed commit must name an accepted Work
 with an unexpired running Attempt matching its session and the authenticated
-external-agent principal. Merge and bot commits have the same requirement.
+external-agent principal and current session. Push trains group only tickets
+from the same session. Merge and bot commits have the same requirement.
 CLI version changes, release commit subjects and `cli-v` tags also require
 the dedicated operations Work and release trailer. Keep ordinary source
 changes on their own Work; the release Work covers the release cut.
