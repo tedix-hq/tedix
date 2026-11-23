@@ -46,6 +46,7 @@ import {
 	listWorkBudgetEnvelopes,
 	updateWorkBudgetEnvelope,
 } from "./budgets";
+import { deliverCreditBudgetAlert } from "./credit-budget-alerts";
 import {
 	delegateWorkInteraction,
 	respondToWorkInteraction,
@@ -558,7 +559,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				.get(orgId) as Record<string, unknown>,
 			budget = db
 				.prepare(
-					"SELECT id,org_id,scope_type,scope_id,currency,limit_micros,reservation_micros,created_at,updated_at,version FROM work_budget_envelopes WHERE org_id=?",
+					"SELECT id,org_id,scope_type,scope_id,currency,mode,alerted_percent,limit_micros,reservation_micros,created_at,updated_at,version FROM work_budget_envelopes WHERE org_id=?",
 				)
 				.get(orgId) as Record<string, unknown>;
 		expect(
@@ -581,6 +582,8 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				scopeType: budget.scope_type,
 				scopeId: budget.scope_id,
 				currency: budget.currency,
+				mode: budget.mode,
+				alertedPercent: budget.alerted_percent,
 				limitMicros: budget.limit_micros,
 				reservationMicros: budget.reservation_micros,
 				createdAt: budget.created_at,
@@ -1214,6 +1217,78 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		expect(
 			await findSessionWorkItem(db, { orgId: "org", sessionId: "session" }),
 		).toBeNull();
+		sqlite.close();
+	});
+
+	it("holds new Attempts on a used-up stop credit budget until its limit is raised, telling owners once", async () => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		sqlite.exec(`
+			UPDATE organization_members SET role='owner';
+			INSERT INTO work_items(id,org_id,title,disposition,project_id,work_class,purpose_exception_expires_at,admission_spec_revision,created_at)
+			VALUES('spend','org','Spend','accepted','project','hygiene','${LIVE_PURPOSE_EXCEPTION}','spend-revision','2026-08-20T00:00:00.000Z');
+		`);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const now = "2026-08-20T00:00:00.000Z";
+		const envelope = await createWorkBudgetEnvelope(db, {
+			id: "00000000-0000-4000-8000-00000000b0d6",
+			orgId: "org",
+			scopeType: "project",
+			scopeId: "project",
+			limitMicros: 2_000_000,
+			reservationMicros: 0,
+			currency: "credits",
+			now,
+		});
+		const state = async () =>
+			(
+				await deriveWorkItemReadiness(db, {
+					orgId: "org",
+					workItemId: "spend",
+					derivedAt: now,
+				})
+			).state;
+		expect(await state()).not.toBe("budget_blocked");
+		const alert = {
+			orgId: "org",
+			envelopeId: envelope.id,
+			limitMicros: 2_000_000,
+			percent: 100 as const,
+			spentMicros: 2_000_000,
+			workItemId: "spend",
+			now,
+		};
+		expect(await deliverCreditBudgetAlert(db, alert)).toBe(1);
+		// The wallet's retry after a lost result adds no second card.
+		expect(await deliverCreditBudgetAlert(db, alert)).toBe(1);
+		const cards = sqlite
+			.prepare(
+				"SELECT target_id AS target, metadata FROM work_interactions WHERE work_item_id='spend'",
+			)
+			.all() as Array<{ target: string; metadata: string }>;
+		expect(cards).toHaveLength(1);
+		expect(cards[0]!.target).toBe("user");
+		expect(
+			JSON.parse(cards[0]!.metadata).decisionDeck.options[0].effect,
+		).toEqual({
+			kind: "raise_budget_limit",
+			envelopeId: "00000000-0000-4000-8000-00000000b0d6",
+			expectedLimitMicros: 2_000_000,
+			limitMicros: 4_000_000,
+		});
+		expect(await state()).toBe("budget_blocked");
+		// An alert measured against an older limit tells nobody.
+		const raised = await updateWorkBudgetEnvelope(db, {
+			orgId: "org",
+			envelopeId: envelope.id,
+			// Recording the alert moved the version, as the raise effect rereads.
+			expectedVersion: envelope.version + 1,
+			limitMicros: 4_000_000,
+			now,
+		});
+		expect(raised.alertedPercent).toBe(0);
+		expect(await state()).not.toBe("budget_blocked");
+		expect(await deliverCreditBudgetAlert(db, alert)).toBe(0);
 		sqlite.close();
 	});
 

@@ -28,6 +28,8 @@ const getCreditBudgetsForWorkItem = vi.fn(
 			scopeType: string;
 			scopeId: string;
 			limitMicros: number;
+			mode: "stop" | "alert";
+			alertedPercent: number;
 		}>,
 );
 const findSessionWorkItem = vi.fn(
@@ -39,6 +41,12 @@ vi.mock("@tedix/db/queries/work-items/budgets", () => ({
 }));
 vi.mock("@tedix/db/queries/billing/wallet-flush", () => ({
 	postWalletFlush,
+}));
+const deliverCreditBudgetAlert = vi.fn(
+	async (_db: unknown, _alert: { envelopeId: string; percent: number }) => 1,
+);
+vi.mock("@tedix/db/queries/work-items/credit-budget-alerts", () => ({
+	deliverCreditBudgetAlert,
 }));
 
 const { BillingWallet } = await import("./billing-wallet");
@@ -262,6 +270,8 @@ describe("billing wallet", () => {
 				scopeType: "project",
 				scopeId: "project-1",
 				limitMicros: 2_000_000,
+				mode: "stop",
+				alertedPercent: 0,
 			},
 		]);
 		const run = (eventId: string) =>
@@ -313,6 +323,69 @@ describe("billing wallet", () => {
 		getCreditPoolSnapshot.mockResolvedValue(snapshot);
 		getCreditBudgetsForWorkItem.mockResolvedValue([]);
 	});
+	it("tells owners once per crossing; an alert-only budget never stops spend", async () => {
+		getCreditPoolSnapshot.mockResolvedValue({
+			...snapshot,
+			availableCredits: 100,
+		});
+		getCreditBudgetsForWorkItem.mockResolvedValue([
+			{
+				id: "budget-stop",
+				scopeType: "work_item",
+				scopeId: "work-1",
+				limitMicros: 1_250_000,
+				mode: "stop",
+				alertedPercent: 0,
+			},
+			{
+				id: "budget-alert",
+				scopeType: "project",
+				scopeId: "project-1",
+				limitMicros: 1_000_000,
+				mode: "alert",
+				alertedPercent: 0,
+			},
+		]);
+		wallet = new BillingWallet(fakeStorage(), { DB: {} as D1Database });
+		const run = (eventId: string) =>
+			wallet.charge({ ...member(eventId), workItemId: "work-1" });
+		// 1 of 1.25 on the stop budget (80%); 1 of 1 on the alert budget (100%).
+		expect(await run("run-1")).toMatchObject({ allowed: true });
+		// The stop budget refuses; its refusal is its 100% crossing.
+		expect(await run("run-2")).toMatchObject({
+			code: "work_budget_exhausted",
+			budget: { scopeType: "work_item", scopeId: "work-1" },
+		});
+		expect(await run("run-3")).toMatchObject({ allowed: false });
+		// A failed delivery is retried on the next alarm, not dropped.
+		deliverCreditBudgetAlert.mockRejectedValueOnce(new Error("D1 down"));
+		await wallet.alarm();
+		await wallet.alarm();
+		await wallet.alarm();
+		const told = deliverCreditBudgetAlert.mock.calls.map(
+			([, alert]) => `${alert.envelopeId}:${alert.percent}`,
+		);
+		expect(new Set(told)).toEqual(
+			new Set(["budget-stop:80", "budget-alert:100", "budget-stop:100"]),
+		);
+		expect(told).toHaveLength(4);
+		// Spend without the stop budget runs past the alert budget's limit.
+		getCreditBudgetsForWorkItem.mockResolvedValue([
+			{
+				id: "budget-alert",
+				scopeType: "project",
+				scopeId: "project-1",
+				limitMicros: 1_000_000,
+				mode: "alert",
+				alertedPercent: 100,
+			},
+		]);
+		wallet = new BillingWallet(fakeStorage(), { DB: {} as D1Database });
+		expect(await run("run-4")).toMatchObject({ allowed: true });
+		expect(await run("run-5")).toMatchObject({ allowed: true });
+		getCreditPoolSnapshot.mockResolvedValue(snapshot);
+		getCreditBudgetsForWorkItem.mockResolvedValue([]);
+	});
 	it("counts an external agent's run against the Work its session's one active Attempt names", async () => {
 		getCreditPoolSnapshot.mockResolvedValue({
 			...snapshot,
@@ -327,6 +400,8 @@ describe("billing wallet", () => {
 							scopeType: "work_item",
 							scopeId: "work-1",
 							limitMicros: 1_000_000,
+							mode: "stop",
+							alertedPercent: 0,
 						},
 					]
 				: [],

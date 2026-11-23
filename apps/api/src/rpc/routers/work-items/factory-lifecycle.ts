@@ -226,6 +226,8 @@ function budgetEnvelopeOutput(row: {
 	scopeType: "organization" | "project" | "case" | "work_item" | "objective";
 	scopeId: string;
 	currency: string;
+	mode: "stop" | "alert";
+	alertedPercent: number;
 	limitMicros: number;
 	reservationMicros: number;
 	createdAt: string;
@@ -1013,6 +1015,11 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 				ErrorCodes.BAD_REQUEST,
 				"An objective budget is a credit budget: set currency to credits",
 			);
+		if (input.mode === "alert" && input.currency === "USD")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Only a credit budget can be alert-only",
+			);
 		const now = new Date().toISOString();
 		try {
 			const current = await getWorkBudgetEnvelopeByScope(context.db, {
@@ -1033,6 +1040,11 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 						ErrorCodes.CONFLICT,
 						"A budget envelope keeps its currency; disable it and create a new one",
 					);
+				if (input.mode && current.currency !== CREDIT_BUDGET_CURRENCY)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"Only a credit budget can be alert-only",
+					);
 				return budgetEnvelopeOutput(
 					await updateWorkBudgetEnvelope(context.db, {
 						orgId,
@@ -1040,6 +1052,7 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 						expectedVersion: input.expectedVersion,
 						limitMicros: input.limitMicros,
 						reservationMicros: input.reservationMicros,
+						mode: input.mode,
 						now,
 					}),
 				);
@@ -1060,6 +1073,7 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 					reservationMicros:
 						input.currency === "credits" ? 0 : input.reservationMicros,
 					currency: input.currency ?? "USD",
+					mode: input.mode,
 					now,
 				}),
 			);

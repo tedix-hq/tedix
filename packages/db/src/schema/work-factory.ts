@@ -122,6 +122,11 @@ export const WORK_BUDGET_SCOPE_VALUES = [
  */
 export const CREDIT_BUDGET_CURRENCY = "credits";
 export type WorkBudgetScope = (typeof WORK_BUDGET_SCOPE_VALUES)[number];
+/** stop: the wallet refuses spend past the limit. alert: spend goes on; only notices. */
+export const WORK_BUDGET_MODE_VALUES = ["stop", "alert"] as const;
+export type WorkBudgetMode = (typeof WORK_BUDGET_MODE_VALUES)[number];
+/** Percent of a credit budget's limit at which its owner is told, once per limit. */
+export const CREDIT_BUDGET_ALERT_PERCENTS = [80, 100] as const;
 
 export const workCases = sqliteTable(
 	"work_cases",
@@ -929,6 +934,11 @@ export const workBudgetEnvelopes = sqliteTable(
 		limitMicros: integer("limit_micros").notNull(),
 		reservationMicros: integer("reservation_micros").notNull(),
 		currency: text("currency").notNull().default("USD"),
+		mode: text("mode", { enum: WORK_BUDGET_MODE_VALUES })
+			.notNull()
+			.default("stop"),
+		/** Highest alert percent already announced for the current limit; 0 after a limit change. */
+		alertedPercent: integer("alerted_percent").notNull().default(0),
 		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at"),

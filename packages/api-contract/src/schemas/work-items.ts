@@ -257,6 +257,18 @@ export const WorkBudgetEnvelopeSchema = z.object({
 		.describe(
 			"credits: a Tedix credit budget the organization wallet enforces as Code Mode runs and model calls spend; limitMicros is millionths of a credit. USD: the per-Attempt reservation budget.",
 		),
+	mode: z
+		.enum(["stop", "alert"])
+		.describe(
+			"Credit budgets only. stop: spend past the limit is refused and new Attempts wait until the limit is raised. alert: spend continues; owners are only told.",
+		),
+	alertedPercent: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe(
+			"Highest notice (80 or 100) already sent for the current limit; 0 after the limit changes.",
+		),
 	limitMicros: z.number().int().nonnegative(),
 	reservationMicros: z.number().int().nonnegative(),
 	createdAt: z.iso.datetime(),

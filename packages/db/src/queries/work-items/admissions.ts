@@ -4,6 +4,7 @@ import {
 } from "./attempt-limit";
 import type { TaskContractTerms } from "@tedix/api-contract/schemas/task-contract-terms";
 import { taskContractRefusal } from "./task-contract";
+import { findSpentCreditBudget } from "./budgets";
 import {
 	workDelegationAncestors,
 	inheritedChildAuthority,
@@ -758,6 +759,20 @@ async function evaluate(
 			rejection: {
 				code: "budget_blocked",
 				reason: `Budget ${blockedBudget.id} lacks capacity`,
+			},
+		};
+	const spentCredits = await findSpentCreditBudget(db, {
+		orgId: item.orgId,
+		workItemId: item.id,
+	});
+	if (spentCredits)
+		return {
+			item,
+			requirements,
+			envelopes,
+			rejection: {
+				code: "budget_blocked",
+				reason: `The ${spentCredits.scopeType.replace("_", " ")} credit budget is used up; raise its limit to continue`,
 			},
 		};
 	const eligibility = evaluateWorkAdmissionEligibility(item, {

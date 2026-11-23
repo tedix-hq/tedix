@@ -316,6 +316,40 @@ async function dispatchEffect(
 				state: "published",
 			};
 		}
+		case "raise_budget_limit": {
+			const { getWorkBudgetEnvelopeById } =
+				await import("@tedix/db/queries/work-items/budgets");
+			const envelope = await getWorkBudgetEnvelopeById(context.db, {
+				orgId: requireOrgId(context),
+				envelopeId: effect.envelopeId,
+			});
+			if (!envelope?.enabled)
+				throw createError(ErrorCodes.NOT_FOUND, "This budget was removed");
+			if (envelope.limitMicros !== effect.expectedLimitMicros)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"This budget's limit already changed; check it under Work › Capacity",
+				);
+			// The budget API's own owner/admin check applies.
+			const { putBudgetEnvelopeProcedure } =
+				await import("../rpc/routers/work-items/factory-lifecycle");
+			const raised = await call(
+				putBudgetEnvelopeProcedure,
+				{
+					scopeType: envelope.scopeType,
+					scopeId: envelope.scopeId,
+					limitMicros: effect.limitMicros,
+					reservationMicros: envelope.reservationMicros,
+					expectedVersion: envelope.version,
+				},
+				{ context },
+			);
+			return {
+				kind: effect.kind,
+				targetId: raised.id,
+				state: "raised",
+			};
+		}
 		case "publish_support": {
 			const { supportContractRouter } = await import("../rpc/routers/support");
 			const { supportReplyPublishVersion } =

@@ -510,6 +510,7 @@
 		"./queries/work-items/reply-examples": "./src/queries/work-items/reply-examples.ts",
 		"./queries/work-items/resources": "./src/queries/work-items/resources.ts",
 		"./queries/work-items/budgets": "./src/queries/work-items/budgets.ts",
+		"./queries/work-items/credit-budget-alerts": "./src/queries/work-items/credit-budget-alerts.ts",
 		"./queries/work-items/admissions": "./src/queries/work-items/admissions.ts",
 		"./queries/work-items/fleet": "./src/queries/work-items/fleet.ts",
 		"./queries/work-items/scheduler": "./src/queries/work-items/scheduler.ts",

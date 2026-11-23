@@ -383,7 +383,7 @@ export async function markCreditNoticeDeliveryFailed(
 }
 
 /** A UUID-shaped id derived from the delivery id, stable across retries. */
-async function creditNoticeCardId(deliveryId: string): Promise<string> {
+export async function creditNoticeCardId(deliveryId: string): Promise<string> {
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
 		new TextEncoder().encode(deliveryId),
@@ -395,7 +395,7 @@ async function creditNoticeCardId(deliveryId: string): Promise<string> {
 }
 
 /** The organization's oldest active project; a Deck card needs one. */
-async function noticeProjectId(
+export async function noticeProjectId(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<string | null> {

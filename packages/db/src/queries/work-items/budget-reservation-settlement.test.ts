@@ -97,7 +97,7 @@ CREATE TABLE work_resource_reservations (
 );
 CREATE TABLE work_budget_envelopes (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, scope_type TEXT NOT NULL, scope_id TEXT NOT NULL,
- limit_micros INTEGER NOT NULL, reservation_micros INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'USD',
+ limit_micros INTEGER NOT NULL, reservation_micros INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'USD', mode TEXT NOT NULL DEFAULT 'stop', alerted_percent INTEGER NOT NULL DEFAULT 0,
  enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, version INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE work_budget_reservations (

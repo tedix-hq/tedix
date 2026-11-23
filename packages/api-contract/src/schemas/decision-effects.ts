@@ -71,6 +71,13 @@ export const DecisionEffectSchema = z.discriminatedUnion("kind", [
 		workItemId: z.uuid(),
 		workVersion: z.number().int().positive(),
 	}),
+	// Raises a spent credit budget; fenced on the limit the card was made for.
+	z.strictObject({
+		kind: z.literal("raise_budget_limit"),
+		envelopeId: z.uuid(),
+		expectedLimitMicros: z.number().int().nonnegative(),
+		limitMicros: z.number().int().positive(),
+	}),
 	z.strictObject({
 		kind: z.literal("publish_support"),
 		ticketId: z.uuid(),

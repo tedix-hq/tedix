@@ -28,9 +28,11 @@ import {
 	type WalletFlushGroup,
 } from "@tedix/db/queries/billing/wallet-flush";
 import {
+	type CreditBudget,
 	findSessionWorkItem,
 	getCreditBudgetsForWorkItem,
 } from "@tedix/db/queries/work-items/budgets";
+import { deliverCreditBudgetAlert } from "@tedix/db/queries/work-items/credit-budget-alerts";
 import type {
 	WalletBudgetScope,
 	WalletRefusalCode,
@@ -67,12 +69,14 @@ export interface WalletChargeInput {
 
 const BUDGET_TTL_MS = 60_000;
 const MICROS_PER_CREDIT = 1_000_000;
+/** An 80% or 100% crossing is told within seconds, not at the next flush. */
+const ALERT_DELAY_MS = 5_000;
 
-type WalletBudget = {
-	id: string;
-	scopeType: WalletBudgetScope["scopeType"];
-	scopeId: string;
-	limitMicros: number;
+type WalletBudget = CreditBudget;
+type Refusal = {
+	code: WalletRefusalCode;
+	budget?: WalletBudget;
+	spentMicros?: number;
 };
 
 export interface WalletSettleInput {
@@ -181,6 +185,18 @@ export class BillingWallet {
 			budget_id TEXT PRIMARY KEY,
 			micro_credits INTEGER NOT NULL
 		)`);
+		// 80% and 100% crossings waiting for the alarm to tell owners, once
+		// per budget, limit and percent.
+		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_budget_alerts (
+			budget_id TEXT NOT NULL,
+			limit_micros INTEGER NOT NULL,
+			percent INTEGER NOT NULL,
+			spent_micros INTEGER NOT NULL,
+			work_item_id TEXT,
+			at INTEGER NOT NULL,
+			delivered_at INTEGER,
+			PRIMARY KEY (budget_id, limit_micros, percent)
+		)`);
 		storage.sql.exec(
 			"CREATE UNIQUE INDEX IF NOT EXISTS wallet_events_idempotency ON wallet_events (idempotency_key)",
 		);
@@ -220,13 +236,13 @@ export class BillingWallet {
 		const snapshot = await this.#snapshot(input, nowMs);
 		if (!snapshot?.creditFx)
 			return { allowed: false, code: "billing_not_configured" };
-		const budgets = await this.#budgets(input, nowMs);
+		const { workItemId, budgets } = await this.#budgets(input, nowMs);
 		const credits = aiCreditsForProviderCost(
 			DYNAMIC_WORKER_COST_USD_MICROS,
 			snapshot.creditFx.microUsdPerEur,
 		);
 		const refusal = this.#refusal(snapshot, input, credits, nowMs, budgets);
-		if (refusal) return { allowed: false, ...refusal };
+		if (refusal) return this.#refuse(input, refusal, workItemId, nowMs);
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#countAgainst(input.eventId, budgets);
 		this.#storage.sql.exec(
@@ -241,7 +257,11 @@ export class BillingWallet {
 			snapshot.periodEnd,
 			nowMs,
 		);
-		await this.#scheduleFlush(nowMs + FLUSH_DELAY_MS);
+		await this.#scheduleFlush(
+			this.#noteCrossings(budgets, workItemId, nowMs)
+				? nowMs + ALERT_DELAY_MS
+				: nowMs + FLUSH_DELAY_MS,
+		);
 		return { allowed: true, replayed: false, credits };
 	}
 
@@ -254,7 +274,7 @@ export class BillingWallet {
 		const snapshot = await this.#snapshot(input, nowMs);
 		if (!snapshot?.creditFx)
 			return { allowed: false, code: "billing_not_configured" };
-		const budgets = await this.#budgets(input, nowMs);
+		const { workItemId, budgets } = await this.#budgets(input, nowMs);
 		// A concurrent retry may have held while the reads ran.
 		const raced = this.#heldFor(input);
 		if (raced) return raced;
@@ -265,7 +285,7 @@ export class BillingWallet {
 			nowMs,
 			budgets,
 		);
-		if (refusal) return { allowed: false, ...refusal };
+		if (refusal) return this.#refuse(input, refusal, workItemId, nowMs);
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#countAgainst(input.holdId, budgets);
 		this.#storage.sql.exec(
@@ -286,7 +306,11 @@ export class BillingWallet {
 				metadata: input.metadata ?? {},
 			}),
 		);
-		await this.#scheduleFlush(nowMs + FLUSH_DELAY_MS);
+		await this.#scheduleFlush(
+			this.#noteCrossings(budgets, workItemId, nowMs)
+				? nowMs + ALERT_DELAY_MS
+				: nowMs + FLUSH_DELAY_MS,
+		);
 		return {
 			allowed: true,
 			holdId: input.holdId,
@@ -412,7 +436,7 @@ export class BillingWallet {
 		credits: number,
 		nowMs: number,
 		budgets: WalletBudget[],
-	): { code: WalletRefusalCode; budget?: WalletBudgetScope } | null {
+	): Refusal | null {
 		const live =
 			"flushed_at IS NULL AND (kind = 'code_run' OR settled = 1 OR expires_at > ?)";
 		const pending = (filter: string, ...args: unknown[]) =>
@@ -438,41 +462,110 @@ export class BillingWallet {
 		);
 		if (pool) return { code: pool };
 		for (const budget of budgets) {
-			const spent =
-				this.#flushedSpend(budget.id) +
-				pending(
-					" AND event_id IN (SELECT event_id FROM wallet_event_budgets WHERE budget_id = ?)",
-					budget.id,
-				) *
-					MICROS_PER_CREDIT;
-			if (spent + credits * MICROS_PER_CREDIT > budget.limitMicros)
-				return {
-					code: "work_budget_exhausted",
-					budget: { scopeType: budget.scopeType, scopeId: budget.scopeId },
-				};
+			// An alert-only budget never refuses; it is only told about.
+			if (budget.mode !== "stop") continue;
+			const spentMicros = this.#spent(budget.id, nowMs);
+			if (spentMicros + credits * MICROS_PER_CREDIT > budget.limitMicros)
+				return { code: "work_budget_exhausted", budget, spentMicros };
 		}
 		return null;
+	}
+
+	/** A budget refusal is also its 100% crossing: its owners are asked to raise the limit. */
+	async #refuse(
+		input: { organizationId: string },
+		refusal: Refusal,
+		workItemId: string | null,
+		nowMs: number,
+	): Promise<{
+		allowed: false;
+		code: WalletRefusalCode;
+		budget?: WalletBudgetScope;
+	}> {
+		const { budget, spentMicros } = refusal;
+		if (!budget) return { allowed: false, code: refusal.code };
+		if (
+			budget.alertedPercent < 100 &&
+			this.#queueAlert(budget, 100, spentMicros ?? 0, workItemId, nowMs)
+		) {
+			this.#storage.kv.put(ORG_KEY, input.organizationId);
+			await this.#scheduleFlush(nowMs + ALERT_DELAY_MS);
+		}
+		return {
+			allowed: false,
+			code: refusal.code,
+			budget: { scopeType: budget.scopeType, scopeId: budget.scopeId },
+		};
+	}
+
+	/** Queue the highest new 80% or 100% crossing of each budget; true if any. */
+	#noteCrossings(
+		budgets: WalletBudget[],
+		workItemId: string | null,
+		nowMs: number,
+	): boolean {
+		let queued = false;
+		for (const budget of budgets) {
+			if (budget.limitMicros <= 0 || budget.alertedPercent >= 100) continue;
+			const spentMicros = this.#spent(budget.id, nowMs);
+			const percent =
+				spentMicros >= budget.limitMicros
+					? 100
+					: spentMicros >= budget.limitMicros * 0.8
+						? 80
+						: 0;
+			if (percent !== 0 && percent > budget.alertedPercent)
+				queued =
+					this.#queueAlert(budget, percent, spentMicros, workItemId, nowMs) ||
+					queued;
+		}
+		return queued;
+	}
+
+	#queueAlert(
+		budget: WalletBudget,
+		percent: 80 | 100,
+		spentMicros: number,
+		workItemId: string | null,
+		nowMs: number,
+	): boolean {
+		return (
+			this.#storage.sql.exec(
+				`INSERT OR IGNORE INTO wallet_budget_alerts (budget_id, limit_micros, percent, spent_micros, work_item_id, at)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+				budget.id,
+				budget.limitMicros,
+				percent,
+				Math.round(spentMicros),
+				workItemId,
+				nowMs,
+			).rowsWritten > 0
+		);
+	}
+
+	/** Millionths of a credit a budget has spent: flushed plus unflushed live charges. */
+	#spent(budgetId: string, nowMs: number): number {
+		return (
+			this.#flushedSpend(budgetId) +
+			(this.#storage.sql
+				.exec<{ total: number | null }>(
+					`SELECT SUM(e.credits) AS total FROM wallet_events e
+					 JOIN wallet_event_budgets b ON b.event_id = e.event_id
+					 WHERE b.budget_id = ? AND e.flushed_at IS NULL
+					   AND (e.kind = 'code_run' OR e.settled = 1 OR e.expires_at > ?)`,
+					budgetId,
+					nowMs,
+				)
+				.one().total ?? 0) *
+				MICROS_PER_CREDIT
+		);
 	}
 
 	/** Millionths of a credit each budget has spent: flushed plus unflushed live charges. */
 	budgetSpend(input: { budgetIds: string[] }): Record<string, number> {
 		const nowMs = Date.now();
 		return Object.fromEntries(
-			input.budgetIds.slice(0, 100).map((id) => [
-				id,
-				this.#flushedSpend(id) +
-					(this.#storage.sql
-						.exec<{ total: number | null }>(
-							`SELECT SUM(e.credits) AS total FROM wallet_events e
-							 JOIN wallet_event_budgets b ON b.event_id = e.event_id
-							 WHERE b.budget_id = ? AND e.flushed_at IS NULL
-							   AND (e.kind = 'code_run' OR e.settled = 1 OR e.expires_at > ?)`,
-							id,
-							nowMs,
-						)
-						.one().total ?? 0) *
-						MICROS_PER_CREDIT,
-			]),
+			input.budgetIds.slice(0, 100).map((id) => [id, this.#spent(id, nowMs)]),
 		);
 	}
 
@@ -511,8 +604,8 @@ export class BillingWallet {
 			agentSessionId?: string | null;
 		},
 		nowMs: number,
-	): Promise<WalletBudget[]> {
-		if (!this.#env.DB) return [];
+	): Promise<{ workItemId: string | null; budgets: WalletBudget[] }> {
+		if (!this.#env.DB) return { workItemId: null, budgets: [] };
 		const db = createDbClient(this.#env.DB);
 		let workItemId = input.workItemId ?? null;
 		if (!workItemId && input.agentSessionId) {
@@ -530,16 +623,16 @@ export class BillingWallet {
 				});
 			}
 		}
-		if (!workItemId) return [];
+		if (!workItemId) return { workItemId: null, budgets: [] };
 		const cached = this.#budgetCache.get(workItemId);
 		if (cached && nowMs - cached.fetchedAt < BUDGET_TTL_MS)
-			return cached.budgets;
+			return { workItemId, budgets: cached.budgets };
 		const budgets = await getCreditBudgetsForWorkItem(db, {
 			orgId: input.organizationId,
 			workItemId,
 		});
 		this.#budgetCache.set(workItemId, { budgets, fetchedAt: nowMs });
-		return budgets;
+		return { workItemId, budgets };
 	}
 
 	/** Zero loads refunds the charge; otherwise price the actual loads, rounded per run. */
@@ -575,6 +668,7 @@ export class BillingWallet {
 		const organizationId = this.#storage.kv.get<string>(ORG_KEY);
 		if (!organizationId || !this.#env.DB) return;
 		const nowMs = Date.now();
+		const alertsLeft = await this.#deliverAlerts(organizationId, nowMs);
 		// Claim a batch once; a failed flush retries the same flush id, so the
 		// consumption source refs dedupe in D1.
 		this.#storage.sql.exec(
@@ -639,6 +733,15 @@ export class BillingWallet {
 		this.#storage.sql.exec(
 			"DELETE FROM wallet_event_budgets WHERE event_id NOT IN (SELECT event_id FROM wallet_events)",
 		);
+		this.#storage.sql.exec(
+			// Undelivered ones too: an alert that fails for two days is dropped.
+			"DELETE FROM wallet_budget_alerts WHERE COALESCE(delivered_at, at) < ?",
+			nowMs - EVENT_RETENTION_MS,
+		);
+		if (alertsLeft) {
+			await this.#storage.setAlarm(nowMs + RETRY_DELAY_MS);
+			return;
+		}
 		const next = this.#storage.sql
 			.exec<{ at: number | null; flushed: number | null }>(
 				`SELECT MIN(CASE WHEN flushed_at IS NULL THEN at END) AS at,
@@ -654,6 +757,53 @@ export class BillingWallet {
 			);
 		else if (next.flushed !== null)
 			await this.#storage.setAlarm(next.flushed + EVENT_RETENTION_MS);
+	}
+
+	/** Tell owners about queued crossings; true when some must be retried. */
+	async #deliverAlerts(organizationId: string, nowMs: number) {
+		const alerts = this.#storage.sql
+			.exec<{
+				budget_id: string;
+				limit_micros: number;
+				percent: 80 | 100;
+				spent_micros: number;
+				work_item_id: string | null;
+			}>(
+				"SELECT budget_id, limit_micros, percent, spent_micros, work_item_id FROM wallet_budget_alerts WHERE delivered_at IS NULL ORDER BY at LIMIT 20",
+			)
+			.toArray();
+		if (alerts.length === 0) return false;
+		const db = createDbClient(this.#env.DB!);
+		let left = false;
+		for (const alert of alerts) {
+			try {
+				await deliverCreditBudgetAlert(db, {
+					orgId: organizationId,
+					envelopeId: alert.budget_id,
+					limitMicros: alert.limit_micros,
+					percent: alert.percent,
+					spentMicros: alert.spent_micros,
+					workItemId: alert.work_item_id,
+					now: new Date(nowMs).toISOString(),
+				});
+				this.#storage.sql.exec(
+					"UPDATE wallet_budget_alerts SET delivered_at = ? WHERE budget_id = ? AND limit_micros = ? AND percent = ?",
+					nowMs,
+					alert.budget_id,
+					alert.limit_micros,
+					alert.percent,
+				);
+			} catch (error) {
+				left = true;
+				console.error("[billing-wallet] budget alert failed", {
+					exception: error instanceof Error ? error.name : typeof error,
+					percent: alert.percent,
+				});
+			}
+		}
+		// The envelope now records the alert; reread it on the next charge.
+		this.#budgetCache.clear();
+		return left;
 	}
 
 	async #snapshot(

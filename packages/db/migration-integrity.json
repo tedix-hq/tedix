@@ -1968,6 +1968,10 @@
 		{
 			"name": "20261123182424_human-release-guards/migration.sql",
 			"sha256": "192337a7f5c22d3a4ff43f4a6d6255fe7bc19db8701e994272f77ac88bcc85b1"
+		},
+		{
+			"name": "20261123210322_credit_budget_alert_mode/migration.sql",
+			"sha256": "adff9f6c23127d86f39396b849cca9d6bb4707df9174925490f2d553dec76555"
 		}
 	]
 }

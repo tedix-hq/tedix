@@ -1053,6 +1053,12 @@ export const workItemsContract = oc
 							.describe(
 								"Set when creating: credits for a Tedix credit budget (limitMicros in millionths of a credit, reservationMicros 0), USD (default) for a per-Attempt reservation budget. An envelope keeps its currency.",
 							),
+						mode: z
+							.enum(["stop", "alert"])
+							.optional()
+							.describe(
+								"Credit budgets only. stop (default): spend past the limit is refused and the Work waits for a raise. alert: spend continues; owners get 80% and 100% notices.",
+							),
 						limitMicros: z.number().int().nonnegative(),
 						reservationMicros: z.number().int().nonnegative(),
 						expectedVersion: z

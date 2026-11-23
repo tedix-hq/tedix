@@ -13,6 +13,7 @@ import {
 	ownerWorkDelegation,
 } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
+import { findSpentCreditBudget } from "./budgets";
 import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -112,6 +113,8 @@ interface ReadinessFacts {
 	availableCapabilities?: string[];
 	approvalReceipts?: readonly WorkAdmissionApprovalReceipt[];
 	budgetAdmissible?: boolean;
+	/** A stop-mode credit budget of this Work that is used up. */
+	spentCreditBudget?: { scopeType: string; scopeId: string } | null;
 	resourcesAvailable?: boolean;
 }
 
@@ -190,11 +193,13 @@ function evaluateWorkItemReadiness(
 				: facts.resourcesAvailable
 					? null
 					: "required",
-		budgetBlocked: !hasBudgetEnvelope
-			? false
-			: facts.budgetAdmissible === undefined
-				? undefined
-				: !facts.budgetAdmissible,
+		budgetBlocked: facts.spentCreditBudget
+			? true
+			: !hasBudgetEnvelope
+				? false
+				: facts.budgetAdmissible === undefined
+					? undefined
+					: !facts.budgetAdmissible,
 	});
 	const gates: WorkItemReadinessGate[] = [
 		{
@@ -282,20 +287,24 @@ function evaluateWorkItemReadiness(
 		},
 		{
 			gate: "budget",
-			evaluation: !hasBudgetEnvelope
-				? "passed"
-				: facts.budgetAdmissible === undefined
-					? "unknown"
-					: facts.budgetAdmissible
-						? "passed"
-						: "failed",
-			detail: !hasBudgetEnvelope
-				? "No applicable budget envelope"
-				: facts.budgetAdmissible === undefined
-					? "Applicable budget envelope was not evaluated"
-					: facts.budgetAdmissible
-						? "Budget is admissible"
-						: "Budget is inadmissible",
+			evaluation: facts.spentCreditBudget
+				? "failed"
+				: !hasBudgetEnvelope
+					? "passed"
+					: facts.budgetAdmissible === undefined
+						? "unknown"
+						: facts.budgetAdmissible
+							? "passed"
+							: "failed",
+			detail: facts.spentCreditBudget
+				? `The ${facts.spentCreditBudget.scopeType.replace("_", " ")} credit budget is used up; raise its limit to continue`
+				: !hasBudgetEnvelope
+					? "No applicable budget envelope"
+					: facts.budgetAdmissible === undefined
+						? "Applicable budget envelope was not evaluated"
+						: facts.budgetAdmissible
+							? "Budget is admissible"
+							: "Budget is inadmissible",
 		},
 		{
 			gate: "resources",
@@ -403,6 +412,7 @@ export async function deriveWorkItemReadiness(
 		resourceRequirement,
 		budgetEnvelope,
 		approvalReceipts,
+		spentCreditBudget,
 	] = await Promise.all([
 		db
 			.select({ id: workAttempts.id })
@@ -516,6 +526,10 @@ export async function deriveWorkItemReadiness(
 				),
 			)
 			.limit(1000),
+		findSpentCreditBudget(db, {
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+		}),
 	]);
 	return evaluateWorkItemReadiness({
 		deferralWait: await workDeferralWait(db, item, derivedAt),
@@ -532,6 +546,7 @@ export async function deriveWorkItemReadiness(
 		availableCapabilities: params.availableCapabilities,
 		approvalReceipts,
 		budgetAdmissible: params.budgetAdmissible,
+		spentCreditBudget,
 		resourcesAvailable: params.resourcesAvailable,
 	});
 }

@@ -78,6 +78,9 @@ const microsToUsd = (micros: number) => String(micros / 1_000_000);
 const usd = (micros: number) =>
 	`$${(micros / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
+const creditAmount = (micros: number) =>
+	(micros / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 });
+
 const resourcePoolSchema = z.object({
 	resourceKey: z.string().trim().min(1, "Enter a resource key."),
 	allocationMode: z.enum(["exclusive", "capacity"]),
@@ -688,8 +691,18 @@ export function WorkCapacityPage({
 																availableMicros <= 0 ? "destructive" : "outline"
 															}
 														>
-															{availableMicros <= 0 ? "Exhausted" : "Available"}
+															{availableMicros > 0
+																? "Available"
+																: envelope.mode === "alert"
+																	? "Over limit"
+																	: "Exhausted"}
 														</Badge>
+														{envelope.currency === "credits" ? (
+															<Text as="span" role="label" tone="secondary">
+																{" "}
+																{`${creditAmount(committedMicros)} of ${creditAmount(envelope.limitMicros)} credits spent`}
+															</Text>
+														) : null}
 														<Collapsible>
 															<CollapsibleDefaultTrigger>
 																Budget details
@@ -697,7 +710,9 @@ export function WorkCapacityPage({
 															<CollapsibleDefaultContent>
 																<Text as="span" role="label" tone="secondary">
 																	{envelope.currency === "credits"
-																		? `Credit budget of ${(envelope.limitMicros / 1_000_000).toLocaleString()} credits, enforced as Code Mode runs and model calls spend · version `
+																		? envelope.mode === "alert"
+																			? "Alert only: owners are told at 80% and 100%, and spending continues past the limit · version "
+																			: "Code Mode runs and model calls stop at the limit; owners are told at 80% and asked to raise it at 100% · version "
 																		: `${usd(committedMicros)} committed · ${usd(availableMicros)} available · version `}
 																	{envelope.version}
 																</Text>

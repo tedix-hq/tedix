@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { tediObjectives } from "../../schema/tedi-objectives";
 import { workAttempts, workItems } from "../../schema/work-items";
@@ -8,6 +8,7 @@ import {
 	workCaseItems,
 	workBudgetEnvelopes,
 	type WorkBudgetEnvelope,
+	type WorkBudgetMode,
 	type WorkBudgetScope,
 } from "../../schema/work-factory";
 import {
@@ -57,6 +58,7 @@ export interface CreateWorkBudgetEnvelopeParams {
 	limitMicros: number;
 	reservationMicros: number;
 	currency?: string;
+	mode?: WorkBudgetMode;
 	now: string;
 }
 export async function createWorkBudgetEnvelope(
@@ -112,6 +114,7 @@ export async function updateWorkBudgetEnvelope(
 		expectedVersion: number;
 		limitMicros?: number;
 		reservationMicros?: number;
+		mode?: WorkBudgetMode;
 		enabled?: boolean;
 		now: string;
 	},
@@ -135,7 +138,13 @@ export async function updateWorkBudgetEnvelope(
 		.set({
 			limitMicros: p.limitMicros,
 			reservationMicros: p.reservationMicros,
+			mode: p.mode,
 			enabled: p.enabled,
+			// A new limit gets its own 80% and 100% notices.
+			alertedPercent:
+				p.limitMicros !== undefined && p.limitMicros !== prior.limitMicros
+					? 0
+					: undefined,
 			updatedAt: p.now,
 			version: sql`${workBudgetEnvelopes.version}+1`,
 		})
@@ -215,6 +224,60 @@ export async function getWorkBudgetEnvelopeByScope(
 		)[0] ?? null
 	);
 }
+export async function getWorkBudgetEnvelopeById(
+	db: DbQueryClient,
+	p: { orgId: string; envelopeId: string },
+) {
+	return (
+		(
+			await db
+				.select()
+				.from(workBudgetEnvelopes)
+				.where(
+					and(
+						eq(workBudgetEnvelopes.orgId, p.orgId),
+						eq(workBudgetEnvelopes.id, p.envelopeId),
+					),
+				)
+				.limit(1)
+		)[0] ?? null
+	);
+}
+
+/**
+ * Record that a credit budget reached `percent` of `limitMicros`. Returns the
+ * envelope only the first time for that limit; null when it was already
+ * recorded, the limit changed since, or the budget is disabled.
+ */
+export async function markCreditBudgetAlerted(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		envelopeId: string;
+		limitMicros: number;
+		percent: number;
+	},
+) {
+	const [row] = await db
+		.update(workBudgetEnvelopes)
+		.set({
+			alertedPercent: p.percent,
+			version: sql`${workBudgetEnvelopes.version}+1`,
+		})
+		.where(
+			and(
+				eq(workBudgetEnvelopes.orgId, p.orgId),
+				eq(workBudgetEnvelopes.id, p.envelopeId),
+				eq(workBudgetEnvelopes.enabled, true),
+				eq(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
+				eq(workBudgetEnvelopes.limitMicros, p.limitMicros),
+				lt(workBudgetEnvelopes.alertedPercent, p.percent),
+			),
+		)
+		.returning();
+	return row ?? null;
+}
+
 export async function listWorkBudgetEnvelopes(
 	db: DbQueryClient,
 	p: {
@@ -237,6 +300,8 @@ export async function listWorkBudgetEnvelopes(
 			limitMicros: workBudgetEnvelopes.limitMicros,
 			reservationMicros: workBudgetEnvelopes.reservationMicros,
 			currency: workBudgetEnvelopes.currency,
+			mode: workBudgetEnvelopes.mode,
+			alertedPercent: workBudgetEnvelopes.alertedPercent,
 			enabled: workBudgetEnvelopes.enabled,
 			createdAt: workBudgetEnvelopes.createdAt,
 			updatedAt: workBudgetEnvelopes.updatedAt,
@@ -278,6 +343,9 @@ export interface CreditBudget {
 	scopeId: string;
 	/** Millionths of a credit. */
 	limitMicros: number;
+	mode: WorkBudgetMode;
+	/** Highest alert percent already announced for this limit. */
+	alertedPercent: number;
 }
 
 /**
@@ -324,6 +392,8 @@ export async function getCreditBudgetsForWorkItem(
 			scopeType: workBudgetEnvelopes.scopeType,
 			scopeId: workBudgetEnvelopes.scopeId,
 			limitMicros: workBudgetEnvelopes.limitMicros,
+			mode: workBudgetEnvelopes.mode,
+			alertedPercent: workBudgetEnvelopes.alertedPercent,
 		})
 		.from(workBudgetEnvelopes)
 		.where(
@@ -381,4 +451,35 @@ export async function findSessionWorkItem(
 		)
 		.limit(2);
 	return rows.length === 1 ? rows[0]!.workItemId : null;
+}
+
+/**
+ * A stop-mode credit budget of this Work Item that is used up, or null. New
+ * Attempts wait on it until someone raises the limit. Most organizations have
+ * none, so one indexed read usually settles it before the budget chain walk.
+ */
+export async function findSpentCreditBudget(
+	db: DbQueryClient,
+	p: { orgId: string; workItemId: string },
+): Promise<CreditBudget | null> {
+	const [any] = await db
+		.select({ id: workBudgetEnvelopes.id })
+		.from(workBudgetEnvelopes)
+		.where(
+			and(
+				eq(workBudgetEnvelopes.orgId, p.orgId),
+				eq(workBudgetEnvelopes.enabled, true),
+				eq(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
+				eq(workBudgetEnvelopes.mode, "stop"),
+				gte(workBudgetEnvelopes.alertedPercent, 100),
+			),
+		)
+		.limit(1);
+	if (!any) return null;
+	const budgets = await getCreditBudgetsForWorkItem(db, p);
+	return (
+		budgets.find(
+			(budget) => budget.mode === "stop" && budget.alertedPercent >= 100,
+		) ?? null
+	);
 }
