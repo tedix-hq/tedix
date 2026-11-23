@@ -3731,6 +3731,84 @@ describe("WorkspaceDO", () => {
 			.run();
 	});
 
+	test("work detail distinguishes a queued assignment, a held stale lease and shipped test evidence", async () => {
+		await seedCore();
+		const db = testEnv.DB;
+		await db.batch([
+			db.prepare(ddl(workAttempts)),
+			db.prepare(ddl(workItemComments)),
+		]);
+		await db.batch([
+			db.prepare(
+				"UPDATE work_items SET executor_id = 'any-local', dispatch_state = 'ready' WHERE id = 'w1'",
+			),
+			db
+				.prepare(
+					"UPDATE work_items SET dispatch_state = 'held', steward_type = 'tedi', steward_id = 'tedi1', metadata = ? WHERE id = 'w2'",
+				)
+				.bind(
+					JSON.stringify({
+						laneDispatch: { reason: "Verification needs access" },
+					}),
+				),
+			db
+				.prepare(
+					"INSERT INTO work_attempts (id, work_item_id, org_id, executor_type, executor_id, runtime_state, attempt_number, started_at, heartbeat_at, expires_at) VALUES ('elapsed', 'w2', ?, 'external_agent', 'codex', 'running', 1, '1999-12-31', '1999-12-31', '2000-01-01T00:00:00Z')",
+				)
+				.bind(scope.organizationId),
+			db
+				.prepare(
+					"INSERT INTO work_evidence (id, org_id, work_item_id, claim_key, kind, uri, label, disposition, submitted_by_type, submitted_by_id, submitted_at) VALUES ('test-proof', ?, 'w4', 'isolation', 'test', 'https://example.test/job/7', 'Isolation test at revision abc1234', 'pending', 'user', 'u1', '2026-11-01')",
+				)
+				.bind(scope.organizationId),
+		]);
+		const ws = workspace(scope);
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => {
+			const queued = await env.work.get("w1");
+			const held = await env.work.get("w2");
+			const shipped = await env.work.get("w4");
+			return {executor:queued.executor, admission:queued.latestRun, reason:held.holdReason, steward:held.steward, live:held.latestRun.hasLiveLease, evidence:shipped.evidence};
+		}`,
+			},
+			{ text: "Checked." },
+		]);
+		const sent = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Who owns the next action and what proves it?",
+		});
+		await ws.awaitTurn(scope, sent.turnId, 20000);
+		const steps = await ws.readEvents(scope, {
+			conversationId: sent.conversationId,
+		});
+		const result = steps.find(
+			(event) =>
+				event.type === "step.finished" && event.stepId.startsWith("tool:"),
+		);
+		expect(
+			JSON.parse(
+				result?.type === "step.finished"
+					? (result.result ?? "").replace("return value:\n", "")
+					: "{}",
+			),
+		).toMatchObject({
+			executor: "any-local",
+			admission: null,
+			reason: expect.stringContaining("Verification needs access"),
+			steward: "tedi:tedi1",
+			live: false,
+			evidence: [
+				{
+					id: "test-proof",
+					uri: "https://example.test/job/7",
+					disposition: "pending",
+				},
+			],
+		});
+	});
+
 	test("Work reaches the person's other projects only in a workspace nobody else can open, and accepting still needs their right", async () => {
 		await seedCore();
 		const own = { ...scope, workspaceId: crypto.randomUUID() };

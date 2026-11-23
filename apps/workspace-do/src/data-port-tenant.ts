@@ -91,7 +91,11 @@ import {
 	queueWorkItemFollowUp,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
-import { listLatestWorkAttemptSummaries } from "@tedix/db/queries/work-items/attempts";
+import {
+	LIVE_WORK_ATTEMPT_RUNTIME_STATES,
+	listWorkItemAttempts,
+} from "@tedix/db/queries/work-items/attempts";
+import { listWorkItemEvidence } from "@tedix/db/queries/work-items/evidence";
 import {
 	addWorkItemComment,
 	listRecentWorkItemComments,
@@ -1440,7 +1444,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	async getWork(workItemId: string): Promise<WorkItemDetail> {
 		await this.#runActor();
 		const item = await this.#reachableWork(workItemId);
-		const [project, comments, latest] = await Promise.all([
+		const [project, comments, attempts, evidence] = await Promise.all([
 			item.projectId
 				? getProjectByIdForOrganization(
 						this.deps.core,
@@ -1453,23 +1457,81 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				workItemId: item.id,
 				limit: 10,
 			}),
-			listLatestWorkAttemptSummaries(this.deps.core, {
+			listWorkItemAttempts(this.deps.core, {
 				orgId: item.orgId,
-				workItemIds: [item.id],
+				workItemId: item.id,
+				limit: 1,
+			}),
+			listWorkItemEvidence(this.deps.core, {
+				orgId: item.orgId,
+				workItemId: item.id,
+				limit: 10,
 			}),
 		]);
-		const run = latest.get(item.id);
+		const run = attempts.data[0];
+		const lane = item.metadata?.laneDispatch;
+		const hold =
+			item.dispatchState === "held" &&
+			lane &&
+			typeof lane === "object" &&
+			!Array.isArray(lane)
+				? lane
+				: null;
 		return {
 			...workSummary(item),
 			description: item.description
 				? wrapUntrustedInput(item.description.slice(0, 4000), "work_item")
 				: null,
 			project: project?.name ?? null,
-			executor: item.executorId ?? null,
+			executor:
+				item.executorId ??
+				(typeof item.metadata?.executor === "string"
+					? item.metadata.executor
+					: null),
+			dispatchState: item.dispatchState,
+			holdReason:
+				typeof hold?.reason === "string"
+					? wrapUntrustedInput(hold.reason.slice(0, 300), "dispatch_reason")
+					: null,
+			holdNote:
+				typeof hold?.note === "string"
+					? wrapUntrustedInput(hold.note.slice(0, 2000), "dispatch_note")
+					: null,
+			steward: item.stewardId ? `${item.stewardType}:${item.stewardId}` : null,
+			evidence: evidence.data.map(
+				({ id, attemptId, claimKey, kind, uri, label, disposition }) => ({
+					id,
+					attemptId,
+					claimKey,
+					kind,
+					uri,
+					label,
+					disposition,
+				}),
+			),
+			moreEvidence: evidence.nextCursor !== null,
 			accountableOwner: item.accountableOwnerId
 				? `${item.accountableOwnerType}:${item.accountableOwnerId}`
 				: null,
-			latestRun: run ? { state: run.runtimeState, outcome: run.outcome } : null,
+			latestRun: run
+				? {
+						id: run.id,
+						state: run.runtimeState,
+						outcome: run.outcome,
+						executor: `${run.executorType}:${run.executorId}`,
+						session: run.externalSessionKey,
+						expiresAt: run.expiresAt,
+						hasLiveLease:
+							LIVE_WORK_ATTEMPT_RUNTIME_STATES.some(
+								(state) => state === run.runtimeState,
+							) &&
+							!!run.expiresAt &&
+							Date.parse(run.expiresAt) > Date.now(),
+						report: run.summary
+							? wrapUntrustedInput(run.summary.slice(0, 4000), "attempt_report")
+							: null,
+					}
+				: null,
 			comments: comments.map((comment) => ({
 				author: `${comment.authorType}:${comment.authorId}`,
 				createdAt: comment.createdAt,

@@ -165,7 +165,30 @@ export interface WorkItemDetail extends WorkItemSummary {
 	project: string | null;
 	executor: string | null;
 	accountableOwner: string | null;
-	latestRun: { state: string; outcome: string | null } | null;
+	dispatchState: string | null;
+	holdReason: string | null;
+	holdNote: string | null;
+	steward: string | null;
+	evidence: Array<{
+		id: string;
+		attemptId: string | null;
+		claimKey: string;
+		kind: string;
+		uri: string;
+		label: string | null;
+		disposition: string;
+	}>;
+	moreEvidence: boolean;
+	latestRun: {
+		id: string;
+		state: string;
+		outcome: string | null;
+		executor: string;
+		session: string | null;
+		expiresAt: string | null;
+		hasLiveLease: boolean;
+		report: string | null;
+	} | null;
 	comments: Array<{ author: string; createdAt: string; body: string }>;
 	url: string;
 }
