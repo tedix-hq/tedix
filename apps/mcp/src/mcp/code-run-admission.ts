@@ -1,24 +1,16 @@
 /** Credit admission for stored code tools and metered gateway Worker loads. */
 
 import { BillingSettlementModeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
-import {
-	CODE_RUN_CREDITS,
-	DYNAMIC_WORKER_COST_USD_MICROS,
-	DYNAMIC_WORKER_PROVIDER,
-	aiCreditsForProviderCost,
-} from "@tedix/api-contract/utils/credit-pricing";
+import { CODE_RUN_CREDITS } from "@tedix/api-contract/utils/credit-pricing";
 import { createDbClient } from "@tedix/db/client";
-import {
-	admitCodeRun,
-	getCreditPoolSnapshot,
-} from "@tedix/db/queries/billing/credit-pool";
+import { admitCodeRun } from "@tedix/db/queries/billing/credit-pool";
 import type { ModelAuthoredLoaderCall } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import {
-	reserveBillingUsage,
-	releaseBillingReservation,
-} from "@tedix/db/queries/billing/reservations";
-import { recordBillingProviderUsage } from "@tedix/db/queries/billing/provider-usage";
-import { settleBillingUsage } from "@tedix/db/queries/billing/settlement";
+	type WalletChargeInput,
+	type WalletChargeResult,
+	type WalletSettleInput,
+	walletStub,
+} from "../billing-wallet";
 import type { CallerIdentity } from "./caller-identity";
 
 export type CodeRunAdmission =
@@ -82,13 +74,16 @@ export async function admitCodeModeRun(input: {
 	return decision.allowed ? { allowed: true } : refuse(decision.code);
 }
 
-/** Reserve before the SDK runs; settle returned loader calls even if user code fails. */
+/** Charge the organization wallet before the SDK runs; settle returned loader calls even if user code fails. */
 export async function executeMeteredCodeMode<T>(input: {
-	env: { DB?: D1Database; TEDIX_BILLING_SETTLEMENT_MODE?: string };
+	env: {
+		DB?: D1Database;
+		MCP_SUBSCRIPTIONS?: DurableObjectNamespace;
+		TEDIX_BILLING_SETTLEMENT_MODE?: string;
+	};
 	organizationId: string | null | undefined;
 	executionId: string;
 	caller: CallerIdentity | undefined;
-	timeoutMs: number;
 	execute: (onLoad: (call: ModelAuthoredLoaderCall) => void) => Promise<T>;
 }): Promise<T> {
 	const mode = BillingSettlementModeSchema.safeParse(
@@ -98,121 +93,49 @@ export async function executeMeteredCodeMode<T>(input: {
 		throw new Error(codeRunRefusalMessage("billing_settlement_mode_missing"));
 	if (mode.data !== "managed") return input.execute(() => {});
 	const organizationId = input.organizationId ?? input.caller?.organizationId;
-	if (!organizationId || !input.env.DB)
+	if (!organizationId || !input.env.MCP_SUBSCRIPTIONS)
 		throw new Error(codeRunRefusalMessage("billing_not_configured"));
-	const db = createDbClient(input.env.DB);
-	const now = new Date().toISOString();
-	const tediId = input.caller?.authType === "tedi" ? input.caller.tediId : null;
-	const userId =
-		input.caller?.authType !== "tedi" ? input.caller?.userId : null;
-	const pool = await getCreditPoolSnapshot(db, {
-		organizationId,
-		now,
-		subject: { tediId, userId },
-	});
-	if (!pool?.creditFx)
-		throw new Error(codeRunRefusalMessage("billing_not_configured"));
-	const decision = await reserveBillingUsage(db, {
-		id: crypto.randomUUID(),
-		organizationId,
-		tediId,
-		userId,
-		source: "system",
-		provider: DYNAMIC_WORKER_PROVIDER,
-		model: "dynamic-worker",
-		estimatedInputTokens: 0,
-		estimatedOutputTokens: 0,
-		credits: aiCreditsForProviderCost(
-			DYNAMIC_WORKER_COST_USD_MICROS,
-			pool.creditFx.microUsdPerEur,
-		),
-		idempotencyKey: `dynamic-worker:${input.executionId}`,
-		expiresAt: new Date(Date.now() + input.timeoutMs + 60_000).toISOString(),
-		now,
-	});
-	if (!decision.allowed) throw new Error(codeRunRefusalMessage(decision.code));
-	const calls: (ModelAuthoredLoaderCall & { occurredAt: string })[] = [];
-	const reservationId = decision.reservation.id;
-	const settledOrganizationId = organizationId;
-	const settleCodeRun = async () => {
-		const settledAt = new Date().toISOString();
-		if (calls.length === 0) {
-			await releaseBillingReservation(db, {
-				reservationId,
-				organizationId: settledOrganizationId,
-				reason: "no_worker_loaded",
-				now: settledAt,
-			});
-		} else {
-			// One provider row per load identity (in practice one per run): the
-			// daily allocation weights rows by quantity, so a per-load row only
-			// costs D1 round trips.
-			for (const identity of ["anonymous", "named"] as const) {
-				const loads = calls.filter((call) => call.identity === identity);
-				if (loads.length === 0) continue;
-				await recordBillingProviderUsage(db, {
-					id: crypto.randomUUID(),
-					organizationId: settledOrganizationId,
-					tediId,
-					reservationId,
-					providerUsageId: `dynamic-worker:${input.executionId}:${identity}`,
-					provider: DYNAMIC_WORKER_PROVIDER,
-					model: "dynamic-worker",
-					usageKind: "other",
-					unit: "units",
-					quantity: loads.length,
-					providerCostMicros: loads.length * DYNAMIC_WORKER_COST_USD_MICROS,
-					providerCostQuality: "estimated",
-					occurredAt: loads[0]!.occurredAt,
-					now: settledAt,
-					metadata: {
-						surface: "gateway_model_code",
-						identity,
-						methods: [...new Set(loads.map((call) => call.method))],
-					},
-				});
-			}
-			await settleBillingUsage(db, {
-				id: `dynamic-worker:${input.executionId}`,
-				organizationId: settledOrganizationId,
-				tediId,
-				reservationId,
-				providerUsageId: `dynamic-worker:${input.executionId}`,
-				provider: DYNAMIC_WORKER_PROVIDER,
-				model: "dynamic-worker",
-				source: "system",
-				inputTokens: 0,
-				outputTokens: 0,
-				providerCostMicros: calls.length * DYNAMIC_WORKER_COST_USD_MICROS,
-				usageQuality: "gateway_reported",
-				providerCostQuality: "estimated",
-				meteringReady: true,
-				occurredAt: calls[0]!.occurredAt,
-				now: settledAt,
-				metadata: { surface: "gateway_model_code", loads: calls.length },
-			});
-		}
-	};
-	try {
-		return await input.execute((call) =>
-			calls.push({ ...call, occurredAt: new Date().toISOString() }),
+	const wallet = walletStub(input.env, organizationId);
+	const eventId = `dynamic-worker:${input.executionId}`;
+	const call = async <R>(route: string, body: unknown): Promise<R> => {
+		const response = await wallet.fetch(
+			`https://wallet.internal/wallet/${route}`,
+			{
+				method: "POST",
+				body: JSON.stringify(body),
+			},
 		);
+		if (!response.ok) throw new Error(`Wallet status ${response.status}`);
+		return (await response.json()) as R;
+	};
+	const charge: WalletChargeInput = {
+		organizationId,
+		eventId,
+		tediId:
+			input.caller?.authType === "tedi" ? (input.caller.tediId ?? null) : null,
+		userId:
+			input.caller?.authType !== "tedi" ? (input.caller?.userId ?? null) : null,
+	};
+	const decision = await call<WalletChargeResult>("charge", charge);
+	if (!decision.allowed) throw new Error(codeRunRefusalMessage(decision.code));
+	const calls: ModelAuthoredLoaderCall[] = [];
+	try {
+		return await input.execute((loaded) => calls.push(loaded));
 	} finally {
-		// A finished run keeps its result when this bookkeeping write hits a
-		// busy database: every write is idempotent, so retry once, then let the
-		// hold expire uncharged rather than replace the result with the error.
+		const settle: WalletSettleInput = {
+			eventId,
+			anonymousLoads: calls.filter((c) => c.identity === "anonymous").length,
+			namedLoads: calls.filter((c) => c.identity === "named").length,
+		};
+		// A finished run keeps its result when settlement fails: the wallet
+		// flushes an unsettled charge as one load after its grace period.
 		try {
-			await settleCodeRun();
-		} catch {
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			try {
-				await settleCodeRun();
-			} catch (error) {
-				console.error("[code-run-admission] settlement failed", {
-					exception: error instanceof Error ? error.name : typeof error,
-					loads: calls.length,
-				});
-			}
+			await call("settle", settle);
+		} catch (error) {
+			console.error("[code-run-admission] wallet settlement failed", {
+				exception: error instanceof Error ? error.name : typeof error,
+				loads: calls.length,
+			});
 		}
 	}
 }

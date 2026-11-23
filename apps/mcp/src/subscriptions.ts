@@ -1,5 +1,6 @@
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { handleToolCallCounts } from "./tool-call-counts";
+import { BillingWallet } from "./billing-wallet";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 import {
 	InteractionEventSubscriptions,
@@ -297,6 +298,7 @@ export class McpSubscriptionDurableObject {
 	readonly state: DurableObjectState;
 	env: CloudflareEnv;
 	#subscriptions = new Map<string, ActiveSubscription>();
+	#wallet: BillingWallet | undefined;
 
 	constructor(state: DurableObjectState, env: CloudflareEnv) {
 		this.state = state;
@@ -311,6 +313,9 @@ export class McpSubscriptionDurableObject {
 		const url = new URL(request.url);
 		if (url.pathname.startsWith("/tool-counts/")) {
 			return handleToolCallCounts(request, this.state.storage);
+		}
+		if (url.pathname.startsWith("/wallet/")) {
+			return this.#billingWallet().handle(request);
 		}
 		if (url.pathname.startsWith("/events/")) {
 			try {
@@ -369,7 +374,16 @@ export class McpSubscriptionDurableObject {
 		return this.openSubscription(input, request.signal);
 	}
 
+	/** One wallet per object, so its pool snapshot cache survives between runs. */
+	#billingWallet(): BillingWallet {
+		this.#wallet ??= new BillingWallet(this.state.storage, this.env);
+		return this.#wallet;
+	}
+
 	async alarm(): Promise<void> {
+		// Wallet objects (`wallet:v1:<org>`) never hold subscriptions.
+		if (BillingWallet.isWallet(this.state.storage))
+			return this.#billingWallet().alarm();
 		await new InteractionEventSubscriptions(
 			this.state.storage,
 			this.env,

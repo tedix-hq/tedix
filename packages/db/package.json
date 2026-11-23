@@ -420,6 +420,7 @@
 		"./queries/billing/provider-usage": "./src/queries/billing/provider-usage.ts",
 		"./queries/billing/reservations": "./src/queries/billing/reservations.ts",
 		"./queries/billing/settlement": "./src/queries/billing/settlement.ts",
+		"./queries/billing/wallet-flush": "./src/queries/billing/wallet-flush.ts",
 		"./queries/billing/stripe-webhooks": "./src/queries/billing/stripe-webhooks.ts",
 		"./queries/billing-service-credits": "./src/queries/billing-service-credits.ts",
 		"./queries/kernel-conversation-access": "./src/queries/kernel-conversation-access.ts",
