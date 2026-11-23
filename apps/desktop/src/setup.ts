@@ -20,6 +20,7 @@ import {
 	refreshShellPath,
 	run,
 } from "./shell";
+import { type Connection, toolConnection } from "./tool-connection";
 
 /**
  * Tools that cannot say whether they are signed in to Tedix (Devin) are
@@ -48,8 +49,6 @@ function rememberSignIn(toolId: string): void {
 }
 
 const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
-
-type Connection = "signed-in" | "signed-out" | "unknown";
 
 /**
  * One coding tool the checklist knows. Adding a tool is one entry here.
@@ -819,19 +818,15 @@ function toolRows(): ToolRow[] {
 		if (row.tedix !== "added") return row;
 		row.version = typeof host?.version === "string" ? host.version : "";
 		row.enabled = host?.enabled !== false;
-		row.connection = host?.signedIn === false ? "signed-out" : facts.connection;
+		row.connection = toolConnection(
+			tool.connection ? facts.connection : undefined,
+			host?.signedIn,
+			row.readVerified || Boolean(signedInHere()[tool.id]),
+		);
 		if (!row.enabled) {
 			row.note = `Switch the Tedix plugin on in ${tool.name}, then choose Check again.`;
 			return row;
 		}
-		if (host?.signedIn === true) row.connection = "signed-in";
-		// A Tedix read that worked, or a finished sign-in for a tool that
-		// cannot report one, proves the connection.
-		if (
-			row.readVerified ||
-			(row.connection === "unknown" && signedInHere()[tool.id])
-		)
-			row.connection = "signed-in";
 		// A tool can keep a stored sign-in that Tedix no longer accepts (Codex
 		// lists it as signed in). When the read check says to sign in, the
 		// sign-in it has does not work: offer Sign in again.
