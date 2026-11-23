@@ -183,6 +183,17 @@ export const ObjectiveSchema = z.object({
 
 export type Objective = z.infer<typeof ObjectiveSchema>;
 
+/** Run limits only; an objective's money limit is its credit budget. */
+const ObjectiveBudgetConfigInputSchema = z
+	.record(z.string(), z.unknown())
+	.refine(
+		(config) => !("maxCostCents" in config),
+		"maxCostCents is no longer used: set an objective credit budget with put_work_budget_envelope (scopeType objective, currency credits)",
+	)
+	.describe(
+		"Run limits such as maxTokens, maxTimeMs and maxActions. Money limits are objective credit budgets (put_work_budget_envelope), which the organization wallet enforces.",
+	);
+
 export const TaskSchema = z.object({
 	id: z.string(),
 	objectiveId: z.string().nullable(),
@@ -197,7 +208,6 @@ export const TaskSchema = z.object({
 	estimatedCost: z.record(z.string(), JsonValueSchema).nullable(),
 	result: z.string().nullable(),
 	actualCost: z.record(z.string(), JsonValueSchema).nullable(),
-	budgetUsed: z.record(z.string(), JsonValueSchema).nullable(),
 	failCount: z.number(),
 	createdAt: z.string(),
 	updatedAt: z.string().nullable(),
@@ -238,7 +248,7 @@ export const tediObjectivesContract = oc
 					riskLevel: ObjectiveRiskLevelSchema.default("medium"),
 					priority: z.number().min(0).max(999).default(0),
 					gateConfig: z.record(z.string(), z.unknown()).optional(),
-					budgetConfig: z.record(z.string(), z.unknown()).optional(),
+					budgetConfig: ObjectiveBudgetConfigInputSchema.optional(),
 				}),
 			)
 			.output(ObjectiveSchema),
@@ -299,7 +309,7 @@ export const tediObjectivesContract = oc
 					riskLevel: ObjectiveRiskLevelSchema.optional(),
 					priority: z.number().min(0).max(999).optional(),
 					gateConfig: z.record(z.string(), z.unknown()).optional(),
-					budgetConfig: z.record(z.string(), z.unknown()).optional(),
+					budgetConfig: ObjectiveBudgetConfigInputSchema.optional(),
 					progress: z.record(z.string(), z.unknown()).optional(),
 				}),
 			)
@@ -387,7 +397,6 @@ export const tediObjectivesContract = oc
 					estimatedCost: z.record(z.string(), z.unknown()).optional(),
 					result: z.string().max(5000).optional(),
 					actualCost: z.record(z.string(), z.unknown()).optional(),
-					budgetUsed: z.record(z.string(), z.unknown()).optional(),
 					failCount: z.number().min(0).optional(),
 				}),
 			)

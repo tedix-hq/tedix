@@ -1976,6 +1976,10 @@
 		{
 			"name": "20261123212159_approvals_org_created/migration.sql",
 			"sha256": "108f8a10d3e810adfd05e45ed837df4779dba2d446ec3f397f8fa9874c8987e7"
+		},
+		{
+			"name": "20261123215754_drop_objective_cost_caps/migration.sql",
+			"sha256": "71bbffc931d3a32d259ea391b53a241cbcc32a6e830f3ef31432e0bb28c4143c"
 		}
 	]
 }

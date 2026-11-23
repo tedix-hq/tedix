@@ -307,13 +307,13 @@ export function buildDecisionRightsMatrix(): DecisionRightsRow[] {
 				},
 				{
 					surface:
-						"Objective budget caps (tedi_objectives.budgetConfig: maxTokens/maxTimeMs/maxCostCents/maxActions)",
+						"Objective run limits (tedi_objectives.budgetConfig: maxTokens/maxTimeMs/maxActions)",
 					decide: [],
 					propose: [],
 					enforcedBy: null,
 					status: "declared_unenforced",
 					notes:
-						"Written by objective create/update and mission-os templates; no code path enforces these caps mechanically today.",
+						"Written by objective create/update and mission-os templates; no code path enforces these limits mechanically today. An objective's money limit is its credit budget (work_budget_envelopes, scope objective), which the organization wallet enforces.",
 				},
 				{
 					surface: "Paid MCP tool spend (x402 payment gating on tools/call)",

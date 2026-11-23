@@ -117,7 +117,6 @@ export interface UpdateTaskParams {
 	estimatedCost?: Record<string, JsonValue>;
 	result?: string;
 	actualCost?: Record<string, JsonValue>;
-	budgetUsed?: Record<string, JsonValue>;
 	failCount?: number;
 	updatedAt: string;
 	completedAt?: string;
@@ -436,7 +435,6 @@ export async function updateTask(
 		set.estimatedCost = params.estimatedCost;
 	if (params.result !== undefined) set.result = params.result;
 	if (params.actualCost !== undefined) set.actualCost = params.actualCost;
-	if (params.budgetUsed !== undefined) set.budgetUsed = params.budgetUsed;
 	if (params.failCount !== undefined) set.failCount = params.failCount;
 	if (params.completedAt !== undefined) set.completedAt = params.completedAt;
 

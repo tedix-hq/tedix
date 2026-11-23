@@ -387,7 +387,6 @@ const updateTaskProcedure = authOs.updateTask
 			estimatedCost: optionalJsonRecord(input.estimatedCost),
 			result: input.result,
 			actualCost: optionalJsonRecord(input.actualCost),
-			budgetUsed: optionalJsonRecord(input.budgetUsed),
 			failCount: input.failCount,
 			updatedAt: now,
 			completedAt,

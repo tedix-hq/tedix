@@ -126,7 +126,7 @@ export const tediObjectives = sqliteTable(
 			.$type<Record<string, JsonValue>>()
 			.default({}),
 
-		/** JSON: { maxTokens, maxTimeMs, maxCostCents, maxActions } */
+		/** JSON run limits: { maxTokens, maxTimeMs, maxActions }. Money limits are objective credit budgets. */
 		budgetConfig: text("budget_config", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.default({}),
@@ -222,11 +222,6 @@ export const tediTasks = sqliteTable(
 
 		/** JSON: actual tokens / time / cost */
 		actualCost: text("actual_cost", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.default({}),
-
-		/** JSON: { tokens, timeMs, costCents, actions } */
-		budgetUsed: text("budget_used", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.default({}),
 
