@@ -51,6 +51,9 @@ import {
 	workCases,
 	workResourcePools,
 	workResourceRequirements,
+	workInteractionResponses,
+	workInteractionDecisionHistory,
+	WORK_INTERACTION_DECISION_HISTORY_TRIGGERS,
 } from "../schema/work-factory";
 
 let indexDialect: SQLiteDialect | undefined;
@@ -199,6 +202,14 @@ export function schemaDdl(
 		.flatMap((table) => [
 			...tableDdl(table, options),
 			...maintainedTotalDdl(table, list),
+			...(table === workInteractionResponses
+				? [
+						...(list.includes(workInteractionDecisionHistory)
+							? []
+							: tableDdl(workInteractionDecisionHistory, options)),
+						...WORK_INTERACTION_DECISION_HISTORY_TRIGGERS,
+					]
+				: []),
 		])
 		.join("\n");
 }

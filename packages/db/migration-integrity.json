@@ -1916,6 +1916,10 @@
 		{
 			"name": "20261123090253_unattended-objective-heartbeat/migration.sql",
 			"sha256": "98424013ad6df0f5433bdfd6205196199333abe24e9fc736acd0af4bd504c97e"
+		},
+		{
+			"name": "20261123091513_related_decision_history/migration.sql",
+			"sha256": "f460ff263c0738fa1c16b6a6bd2e544f5e10ca79e3fb3a472bb740f8adec39fb"
 		}
 	]
 }

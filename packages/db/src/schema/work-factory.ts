@@ -576,6 +576,89 @@ export const workInteractionResponses = sqliteTable(
 	],
 );
 
+/** Indexed relation keys for resolved answers, maintained with their source rows. */
+export const workInteractionDecisionHistory = sqliteTable(
+	"work_interaction_decision_history",
+	{
+		orgId: text("org_id").notNull(),
+		interactionId: text("interaction_id").notNull(),
+		responseId: text("response_id")
+			.notNull()
+			.references(() => workInteractionResponses.id, { onDelete: "cascade" }),
+		targetType: text("target_type").notNull(),
+		targetId: text("target_id").notNull(),
+		relationKey: text("relation_key").notNull(),
+		respondedAt: text("responded_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.orgId,
+				table.interactionId,
+				table.responseId,
+				table.relationKey,
+			],
+		}),
+		foreignKey({
+			columns: [table.orgId, table.interactionId],
+			foreignColumns: [workInteractions.orgId, workInteractions.id],
+		}).onDelete("cascade"),
+		index("idx_work_interaction_decision_history_latest").on(
+			table.orgId,
+			table.targetType,
+			table.targetId,
+			table.relationKey,
+			table.respondedAt,
+			table.responseId,
+			table.interactionId,
+		),
+	],
+);
+
+const decisionHistorySources = `coalesce(nullif(i.metadata -> '$.decisionSources', 'null'), i.metadata -> '$.decisionDeck.sources')`;
+/** Used by both the migration backfill and the write triggers. */
+export const WORK_INTERACTION_DECISION_HISTORY_SELECT = `
+SELECT i.org_id, i.id, a.id, i.target_type, i.target_id,
+ json_array('work', i.work_item_id), a.responded_at
+FROM work_interactions i JOIN work_interaction_responses a
+ ON a.org_id=i.org_id AND a.interaction_id=i.id AND a.resolves_request=1
+WHERE i.status='resolved' AND i.target_type IS NOT NULL AND i.target_id IS NOT NULL
+ AND i.work_item_id IS NOT NULL
+UNION
+SELECT i.org_id, i.id, a.id, i.target_type, i.target_id,
+ json_array('source', json_extract(${decisionHistorySources}, s.fullkey || '.kind'),
+ json_extract(${decisionHistorySources}, s.fullkey || '.id'), json_extract(${decisionHistorySources}, s.fullkey || '.tediId')), a.responded_at
+FROM work_interactions i JOIN work_interaction_responses a
+ ON a.org_id=i.org_id AND a.interaction_id=i.id AND a.resolves_request=1
+CROSS JOIN json_each(${decisionHistorySources}) s
+WHERE i.status='resolved' AND i.target_type IS NOT NULL AND i.target_id IS NOT NULL
+ AND json_type(${decisionHistorySources})='array'
+ AND json_extract(${decisionHistorySources}, s.fullkey || '.kind') IS NOT NULL
+ AND json_extract(${decisionHistorySources}, s.fullkey || '.id') IS NOT NULL`;
+
+const refreshDecisionHistory = (org: string, interaction: string) => `
+DELETE FROM work_interaction_decision_history WHERE org_id=${org} AND interaction_id=${interaction};
+INSERT INTO work_interaction_decision_history
+SELECT * FROM (${WORK_INTERACTION_DECISION_HISTORY_SELECT.replaceAll("WHERE i.status=", `WHERE i.org_id=${org} AND i.id=${interaction} AND i.status=`)});`;
+
+export const WORK_INTERACTION_DECISION_HISTORY_TRIGGERS = [
+	`CREATE TRIGGER work_interaction_decision_history_request_update
+AFTER UPDATE OF org_id, id, work_item_id, target_type, target_id, status, metadata ON work_interactions
+BEGIN
+DELETE FROM work_interaction_decision_history WHERE org_id=OLD.org_id AND interaction_id=OLD.id;
+${refreshDecisionHistory("NEW.org_id", "NEW.id")}
+END;`,
+	`CREATE TRIGGER work_interaction_decision_history_response_insert
+AFTER INSERT ON work_interaction_responses BEGIN
+${refreshDecisionHistory("NEW.org_id", "NEW.interaction_id")}
+END;`,
+	`CREATE TRIGGER work_interaction_decision_history_response_update
+AFTER UPDATE OF org_id, id, interaction_id, resolves_request, responded_at ON work_interaction_responses BEGIN
+DELETE FROM work_interaction_decision_history WHERE response_id=OLD.id;
+${refreshDecisionHistory("NEW.org_id", "NEW.interaction_id")}
+END;`,
+];
+
 /**
  * Append-only tedi-drafted replies to a human's open decision-capture
  * question. A draft is a proposal only: it never answers the question. The

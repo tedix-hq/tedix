@@ -37,6 +37,7 @@ import {
 	workInteractionAttention,
 	workInteractionDeliveries,
 	workInteractionResponses,
+	workInteractionDecisionHistory,
 	workInteractions,
 	workInteractionStoredColumns,
 	type WorkInteraction,
@@ -2478,191 +2479,49 @@ export async function listLastRelatedDecisions(
 	const sources = (metadata: SQLWrapper) => sql<string | null>`coalesce(
 		nullif(${metadata} -> '$.decisionSources', 'null'),
 		${metadata} -> '$.decisionDeck.sources')`;
-	for (const ids of chunkForBoundParams(interactionIds, 50)) {
-		const cards = db.$with("cards").as(
-			db
-				.select({
-					id: workInteractions.id,
-					workItemId: workInteractions.workItemId,
-					targetType: workInteractions.targetType,
-					targetId: workInteractions.targetId,
-					sources: sources(workInteractions.metadata).as("sources"),
-				})
-				.from(workInteractions)
-				.where(
-					and(
-						eq(workInteractions.orgId, orgId),
-						inArray(workInteractions.id, ids),
-					),
-				),
-		);
-		const workKeys = db.$with("work_keys").as(
-			db
-				.selectDistinct({
-					workItemId: cards.workItemId,
-					targetType: cards.targetType,
-					targetId: cards.targetId,
-				})
-				.from(cards)
-				.where(sql`${cards.workItemId} IS NOT NULL`),
-		);
-		const sourceValue = sql`CASE WHEN s.type = 'object' THEN s.value ELSE '{}' END`;
-		const cardSources = db.$with("card_sources").as(
-			db
-				.selectDistinct({
-					cardId: cards.id,
-					targetType: cards.targetType,
-					targetId: cards.targetId,
-					kind: sql<string>`json_extract(${sourceValue}, '$.kind')`.as("kind"),
-					sourceId: sql<string>`json_extract(${sourceValue}, '$.id')`.as(
-						"source_id",
-					),
-					tediId: sql<
-						string | null
-					>`json_extract(${sourceValue}, '$.tediId')`.as("tedi_id"),
-				})
-				.from(cards)
-				.crossJoin(sql`json_each(CASE WHEN json_type(${cards.sources}) = 'array'
-			THEN ${cards.sources} ELSE '[]' END) s`)
-				.where(sql`json_extract(${sourceValue}, '$.kind') IS NOT NULL
-			AND json_extract(${sourceValue}, '$.id') IS NOT NULL`),
-		);
-		const sourceRecipients = db.$with("source_recipients").as(
-			db
-				.selectDistinct({
-					targetType: cardSources.targetType,
-					targetId: cardSources.targetId,
-				})
-				.from(cardSources),
-		);
-		const projection = {
-			id: sql<string>`${prior.id}`.as("id"),
-			workItemId: sql<string | null>`${prior.workItemId}`.as("work_item_id"),
-			targetType: sql<WorkInteractionTargetType | null>`${prior.targetType}`.as(
-				"target_type",
+	const cards = alias(workInteractions, "c");
+	const candidateAnswer = alias(workInteractionResponses, "candidate_answer");
+	const history = workInteractionDecisionHistory;
+	const cardSources = sources(cards.metadata);
+	const sourceValue = sql`CASE WHEN s.type = 'object' THEN s.value ELSE '{}' END`;
+	const keys = sql`(
+		SELECT json_array('work', ${cards.workItemId}) AS relation_key
+		WHERE ${cards.workItemId} IS NOT NULL
+		UNION
+		SELECT json_array('source', json_extract(${sourceValue}, '$.kind'),
+			json_extract(${sourceValue}, '$.id'), json_extract(${sourceValue}, '$.tediId'))
+		FROM json_each(CASE WHEN json_type(${cardSources}) = 'array' THEN ${cardSources} ELSE '[]' END) s
+		WHERE json_extract(${sourceValue}, '$.kind') IS NOT NULL AND json_extract(${sourceValue}, '$.id') IS NOT NULL
+	) relation_keys`;
+	// Seek one answer per key, then compare only those winners by answer time.
+	const latestForKey = db
+		.select({ id: history.responseId })
+		.from(history)
+		.where(
+			and(
+				eq(history.orgId, orgId),
+				eq(history.targetType, cards.targetType),
+				eq(history.targetId, cards.targetId),
+				eq(history.relationKey, sql`relation_keys.relation_key`),
+				sql`${history.interactionId} <> ${cards.id}`,
 			),
-			targetId: sql<string | null>`${prior.targetId}`.as("target_id"),
-			sources: sources(prior.metadata).as("sources"),
-		};
-		// CROSS JOIN keeps page keys outside the indexed history/response lookups.
-		const sourceHistory = db.$with("source_history").as(
-			db
-				.select(projection)
-				.from(sourceRecipients)
-				.crossJoin(
-					sql`${workInteractions} p INDEXED BY idx_work_interactions_target_status`,
-				)
-				.where(
-					and(
-						eq(prior.orgId, orgId),
-						eq(prior.targetType, sourceRecipients.targetType),
-						eq(prior.targetId, sourceRecipients.targetId),
-						eq(prior.status, "resolved"),
-					),
-				),
-		);
-		const sameSource = (priorSources: SQLWrapper, scope: SQLWrapper) =>
-			exists(
-				db.select({ one: sql`1` }).from(cardSources)
-					.crossJoin(sql`json_each(CASE WHEN json_type(${priorSources}) = 'array'
-				THEN ${priorSources} ELSE '[]' END) ps`).where(sql`${scope}
-				AND ${cardSources.kind} = json_extract(CASE WHEN ps.type = 'object' THEN ps.value ELSE '{}' END, '$.kind')
-				AND ${cardSources.sourceId} = json_extract(CASE WHEN ps.type = 'object' THEN ps.value ELSE '{}' END, '$.id')
-				AND ${cardSources.tediId} IS json_extract(CASE WHEN ps.type = 'object' THEN ps.value ELSE '{}' END, '$.tediId')`),
-			);
-		const candidates = db.$with("candidates").as(
-			db
-				.select(projection)
-				.from(workKeys)
-				.crossJoin(
-					sql`${workInteractions} p INDEXED BY idx_work_interactions_work`,
-				)
-				.where(
-					and(
-						eq(prior.orgId, orgId),
-						eq(prior.workItemId, workKeys.workItemId),
-						eq(prior.targetType, workKeys.targetType),
-						eq(prior.targetId, workKeys.targetId),
-						eq(prior.status, "resolved"),
-					),
-				)
-				.union(
-					db
-						.select({
-							id: sourceHistory.id,
-							workItemId: sourceHistory.workItemId,
-							targetType: sourceHistory.targetType,
-							targetId: sourceHistory.targetId,
-							sources: sourceHistory.sources,
-						})
-						.from(sourceHistory)
-						.where(
-							sameSource(
-								sourceHistory.sources,
-								sql`${cardSources.targetType} = ${sourceHistory.targetType} AND ${cardSources.targetId} = ${sourceHistory.targetId}`,
-							),
-						),
-				),
-		);
-		// Request creation time cannot bound history: an older request can have
-		// the newest answer. Rank matching answers before fetching their bodies.
-		const ranked = db.$with("ranked").as(
-			db
-				.select({
-					cardId: sql<string>`${cards.id}`.as("card_id"),
-					requestId: sql<string>`${candidates.id}`.as("request_id"),
-					answerId: sql<string>`${answer.id}`.as("answer_id"),
-					rank: sql<number>`row_number() OVER (PARTITION BY ${cards.id}
-				ORDER BY ${answer.respondedAt} DESC, ${answer.id} DESC)`.as(
-						"answer_rank",
-					),
-				})
-				.from(candidates)
-				.crossJoin(
-					sql`${workInteractionResponses} a INDEXED BY idx_work_interaction_responses_cursor`,
-				)
-				.innerJoin(
-					cards,
-					and(
-						eq(candidates.targetType, cards.targetType),
-						eq(candidates.targetId, cards.targetId),
-						sql`${candidates.id} <> ${cards.id}`,
-					),
-				)
-				.where(
-					and(
-						eq(answer.orgId, orgId),
-						eq(answer.interactionId, candidates.id),
-						eq(answer.resolvesRequest, true),
-						or(
-							eq(candidates.workItemId, cards.workItemId),
-							sameSource(candidates.sources, eq(cardSources.cardId, cards.id)),
-						),
-					),
-				),
-		);
-		const chosen = db.$with("chosen").as(
-			db
-				.select({
-					cardId: ranked.cardId,
-					requestId: ranked.requestId,
-					answerId: ranked.answerId,
-				})
-				.from(ranked)
-				.where(eq(ranked.rank, 1))
-				.limit(ids.length),
-		);
+		)
+		.orderBy(desc(history.respondedAt), desc(history.responseId))
+		.limit(1);
+	const chosen = db
+		.select({ id: candidateAnswer.id })
+		.from(keys)
+		.innerJoin(
+			candidateAnswer,
+			and(
+				eq(candidateAnswer.orgId, orgId),
+				eq(candidateAnswer.id, sql`(${latestForKey})`),
+			),
+		)
+		.orderBy(desc(candidateAnswer.respondedAt), desc(candidateAnswer.id))
+		.limit(1);
+	for (const ids of chunkForBoundParams(interactionIds, 50)) {
 		const rows = await db
-			.with(
-				cards,
-				workKeys,
-				cardSources,
-				sourceRecipients,
-				sourceHistory,
-				candidates,
-				ranked,
-				chosen,
-			)
 			.select({
 				interactionId: sql<string>`${cards.id}`.as("interaction_id"),
 				requestId: sql<string | null>`${prior.id}`.as("request_id"),
@@ -2671,15 +2530,15 @@ export async function listLastRelatedDecisions(
 				decidedAt: sql<string | null>`${answer.respondedAt}`.as("decided_at"),
 			})
 			.from(cards)
-			.leftJoin(chosen, eq(chosen.cardId, cards.id))
-			.leftJoin(
-				prior,
-				and(eq(prior.orgId, orgId), eq(prior.id, chosen.requestId)),
-			)
 			.leftJoin(
 				answer,
-				and(eq(answer.orgId, orgId), eq(answer.id, chosen.answerId)),
+				and(eq(answer.orgId, orgId), eq(answer.id, sql`(${chosen})`)),
 			)
+			.leftJoin(
+				prior,
+				and(eq(prior.orgId, orgId), eq(prior.id, answer.interactionId)),
+			)
+			.where(and(eq(cards.orgId, orgId), inArray(cards.id, ids)))
 			.limit(ids.length);
 		decisions.push(
 			...rows.map((row) => ({

@@ -1636,6 +1636,33 @@ it("returns the latest resolved related answer only within the same tenant and r
 			.run(JSON.stringify(previous));
 		expect(await read()).toBe(expected);
 	}
+	sqlite.exec(`UPDATE work_interactions
+		SET metadata='{"decisionSources":[{"kind":"email_thread","id":"thread"}]}'
+		WHERE id IN ('mine','previous')`);
+	expect(await read()).toBe("previous");
+	for (const [change, expected] of [
+		["UPDATE work_interactions SET status='open' WHERE id='previous'", null],
+		[
+			"UPDATE work_interactions SET status='resolved' WHERE id='previous'",
+			"previous",
+		],
+		["UPDATE work_interactions SET target_id='cfo' WHERE id='previous'", null],
+		[
+			"UPDATE work_interactions SET target_id='cto' WHERE id='previous'",
+			"previous",
+		],
+		[
+			"UPDATE work_interaction_responses SET resolves_request=0 WHERE id='answer'",
+			null,
+		],
+		[
+			"UPDATE work_interaction_responses SET resolves_request=1 WHERE id='answer'",
+			"previous",
+		],
+	] as const) {
+		sqlite.exec(change);
+		expect(await read()).toBe(expected);
+	}
 	sqlite.close();
 });
 

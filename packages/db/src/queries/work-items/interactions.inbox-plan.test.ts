@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
@@ -8,7 +9,7 @@ import {
 	workInteractions,
 } from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
-import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
+import { canonicalWorkFactoryDdl, tableDdl } from "../../test/schema-ddl";
 import {
 	listLastRelatedDecisions,
 	listWorkInteractionInbox,
@@ -17,7 +18,7 @@ import {
 it("pages the inbox without related history and evaluates history only for requested cards", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses, workInteractionAttention, workInteractionDeliveries)}`,
+		`${canonicalWorkFactoryDdl()}\n${[workInteractions, workInteractionResponses, workInteractionAttention, workInteractionDeliveries].flatMap((table) => tableDdl(table)).join("\n")}`,
 	);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -33,6 +34,16 @@ it("pages the inbox without related history and evaluates history only for reque
 	sqlite.exec(`INSERT INTO work_interaction_responses
 		(id,org_id,interaction_id,response_kind,body,responder_type,responder_id,resolves_request,responded_at,resolved_request_version,resolution_fence)
 		VALUES ('answer','org','previous','answer','Keep the service','tedi','cto',1,'2026-01-01',1,'fence')`);
+	// Apply the actual migration over existing answers, then exercise its write triggers below.
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../../drizzle/20261123091513_related_decision_history/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const plans: string[] = [];
 	const statements: string[] = [];
 	const returned: number[] = [];
@@ -94,19 +105,14 @@ it("pages the inbox without related history and evaluates history only for reque
 	expect(returned).toEqual([50]);
 	expect(plans).toContainEqual(
 		expect.stringMatching(
-			/SEARCH p USING INDEX idx_work_interactions_work \(org_id=\? AND work_item_id=\?\)/,
+			/SEARCH work_interaction_decision_history USING COVERING INDEX idx_work_interaction_decision_history_latest \(org_id=\? AND target_type=\? AND target_id=\? AND relation_key=\?\)/,
 		),
 	);
-	expect(plans).toContainEqual(
-		expect.stringMatching(
-			/SEARCH p USING INDEX idx_work_interactions_target_status \(org_id=\? AND target_type=\? AND target_id=\? AND status=\?\)/,
+	expect(
+		plans.some((plan) =>
+			/SCAN (?:p|work_interaction_decision_history)\b/.test(plan),
 		),
-	);
-	expect(plans).toContainEqual(
-		expect.stringMatching(
-			/SEARCH a USING INDEX idx_work_interaction_responses_cursor \(org_id=\? AND interaction_id=\?\)/,
-		),
-	);
+	).toBe(false);
 	expect(plans).toContainEqual(
 		expect.stringMatching(
 			/(?:CO-ROUTINE|MATERIALIZE) work_interaction_inbox_page/,
