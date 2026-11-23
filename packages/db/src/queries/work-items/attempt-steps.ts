@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { externalAgentSessions } from "../../schema/external-agent-identity";
 import {
 	type WorkAttempt,
 	type WorkAttemptMessageKind,
@@ -536,34 +537,64 @@ export async function sendWorkAttemptMessage(
  */
 export async function listLiveWorkRuns(
 	db: DbQueryClient,
-	params: { orgId: string; at?: string; limit?: number },
+	params: {
+		orgId: string;
+		projectIds?: string[] | null;
+		at?: string;
+		limit?: number;
+	},
 ) {
 	const at = params.at ?? new Date().toISOString();
 	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 50), 1), 50);
-	const attempts = await db
+	const candidates = await db
 		.select({
 			attemptId: workAttempts.id,
 			workItemId: workAttempts.workItemId,
 			runtimeState: workAttempts.runtimeState,
 			attemptExecutorType: workAttempts.executorType,
 			attemptExecutorId: workAttempts.executorId,
+			executorSessionId: workAttempts.executorSessionId,
+			externalSessionKey: workAttempts.externalSessionKey,
+			verifiedSessionId: sql<string>`${externalAgentSessions.id}`.as(
+				"verified_session_id",
+			),
+			harness: externalAgentSessions.harness,
+			harnessVersion: externalAgentSessions.harnessVersion,
+			expiresAt: workAttempts.expiresAt,
 			startedAt: workAttempts.startedAt,
 			heartbeatAt: workAttempts.heartbeatAt,
 		})
 		.from(workAttempts)
+		.leftJoin(
+			externalAgentSessions,
+			and(
+				eq(workAttempts.executorType, "external_agent"),
+				eq(externalAgentSessions.id, workAttempts.executorSessionId),
+				eq(externalAgentSessions.organizationId, workAttempts.orgId),
+				eq(externalAgentSessions.principalId, workAttempts.executorId),
+				eq(
+					externalAgentSessions.externalSessionKey,
+					workAttempts.externalSessionKey,
+				),
+			),
+		)
 		.where(
 			and(
 				eq(workAttempts.orgId, params.orgId),
 				inArray(workAttempts.runtimeState, [...ACTIVE_ATTEMPT_STATES]),
 				isNull(workAttempts.outcome),
 				gt(workAttempts.expiresAt, at),
+				// Apply chat visibility before the limit; hidden projects cannot crowd out visible runs.
+				sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.id} = ${workAttempts.workItemId} AND ${workItems.orgId} = ${params.orgId} ${params.projectIds == null ? sql`` : sql`AND ${workItems.projectId} IN (SELECT value FROM json_each(${JSON.stringify(params.projectIds)}))`})`,
 			),
 		)
 		// See listLiveWorkAttemptHolders: `+started_at` keeps the planner on
 		// the state index instead of walking every Attempt by start time.
-		.orderBy(sql`+${workAttempts.startedAt} desc`)
-		.limit(limit);
-	if (attempts.length === 0) return [];
+		.orderBy(sql`+${workAttempts.startedAt} desc`, desc(workAttempts.id))
+		.limit(limit + 1);
+	const complete = candidates.length <= limit;
+	const attempts = candidates.slice(0, limit);
+	if (attempts.length === 0) return { complete, limit, runs: [] };
 	const [items, steps] = await db.batch([
 		db
 			.select({
@@ -611,7 +642,7 @@ export async function listLiveWorkRuns(
 	]);
 	const byId = new Map(items.map((item) => [item.id, item]));
 	const lastStep = new Map(steps.map((step) => [step.stepAttemptId, step]));
-	return attempts.flatMap((attempt) => {
+	const runs = attempts.flatMap((attempt) => {
 		const item = byId.get(attempt.workItemId);
 		if (!item) return [];
 		const step = lastStep.get(attempt.attemptId);
@@ -630,4 +661,5 @@ export async function listLiveWorkRuns(
 			},
 		];
 	});
+	return { complete, limit, runs };
 }

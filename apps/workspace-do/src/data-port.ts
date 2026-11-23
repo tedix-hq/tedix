@@ -148,6 +148,13 @@ export interface LiveRunSummary {
 	projectId: string | null;
 	project: string | null;
 	executor: string;
+	requestedExecutor: string | null;
+	actualExecutor: { type: string; id: string };
+	attemptId: string;
+	executorSessionId: string | null;
+	externalSessionKey: string | null;
+	verifiedHarness: { name: string; version: string } | null;
+	expiresAt: string | null;
 	/** The Attempt's state: queued, running, waiting or retrying. */
 	state: string;
 	startedAt: string;
@@ -260,7 +267,11 @@ export interface WorkspaceRunPort {
 		workItemId: string;
 	}>;
 	/** Runs in progress in the projects this turn's Work reaches. */
-	listRuns(): Promise<LiveRunSummary[]>;
+	listRuns(): Promise<{
+		runs: LiveRunSummary[];
+		complete: boolean;
+		limit: number;
+	}>;
 	getWork(workItemId: string): Promise<WorkItemDetail>;
 	commentOnWork(input: { workItemId: string; body: string }): Promise<{
 		id: string;

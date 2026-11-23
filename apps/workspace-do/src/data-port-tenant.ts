@@ -1606,11 +1606,18 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		);
 	}
 
-	async listRuns(): Promise<LiveRunSummary[]> {
+	async listRuns(): Promise<{
+		runs: LiveRunSummary[];
+		complete: boolean;
+		limit: number;
+	}> {
 		const { actor, sourceSessionKey } = await this.#runActor();
-		const [projectIds, rows, projects, operates] = await Promise.all([
-			this.#workProjectIds(),
-			listLiveWorkRuns(this.deps.core, { orgId: this.deps.organizationId }),
+		const projectIds = await this.#workProjectIds();
+		const [page, projects, operates] = await Promise.all([
+			listLiveWorkRuns(this.deps.core, {
+				orgId: this.deps.organizationId,
+				projectIds,
+			}),
 			listActiveProjectsForOrganization(
 				this.deps.core,
 				this.deps.organizationId,
@@ -1619,47 +1626,55 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		]);
 		const byId = new Map(projects.map((project) => [project.id, project]));
 		const now = Date.now();
-		return rows
-			.filter(
-				(row) =>
-					!projectIds ||
-					(row.projectId !== null && projectIds.includes(row.projectId)),
-			)
-			.map((row) => {
-				const project = row.projectId ? byId.get(row.projectId) : undefined;
-				const startedInThisChat = row.sourceSessionKey === sourceSessionKey;
-				return {
-					workItemId: row.workItemId,
-					title: row.title,
-					projectId: row.projectId,
-					project: project?.name ?? null,
-					executor: row.itemExecutorId ?? row.attemptExecutorId,
-					state: row.runtimeState,
-					startedAt: row.startedAt,
-					minutesRunning: Math.max(
-						0,
-						Math.round((now - Date.parse(row.startedAt)) / 60_000),
-					),
-					lastHeartbeatAt: row.heartbeatAt,
-					lastStep: row.lastStep
-						? {
-								at: new Date(row.lastStep.at).toISOString(),
-								kind: row.lastStep.kind,
-								text: wrapUntrustedInput(
-									row.lastStep.text.slice(0, 300),
-									"agent_run",
-								),
-							}
+		const runs = page.runs.map((row) => {
+			const project = row.projectId ? byId.get(row.projectId) : undefined;
+			const startedInThisChat = row.sourceSessionKey === sourceSessionKey;
+			return {
+				workItemId: row.workItemId,
+				title: row.title,
+				projectId: row.projectId,
+				project: project?.name ?? null,
+				executor: row.attemptExecutorId,
+				requestedExecutor: row.itemExecutorId,
+				actualExecutor: {
+					type: row.attemptExecutorType,
+					id: row.attemptExecutorId,
+				},
+				attemptId: row.attemptId,
+				executorSessionId: row.executorSessionId,
+				externalSessionKey: row.externalSessionKey,
+				verifiedHarness:
+					row.verifiedSessionId && row.harness && row.harnessVersion
+						? { name: row.harness, version: row.harnessVersion }
 						: null,
-					startedInThisChat,
-					canSteer:
-						(startedInThisChat &&
-							row.accountableOwnerType === actor.type &&
-							row.accountableOwnerId === actor.id) ||
-						(!!project && operates(project)),
-					url: "/work/items/" + row.workItemId,
-				};
-			});
+				expiresAt: row.expiresAt,
+				state: row.runtimeState,
+				startedAt: row.startedAt,
+				minutesRunning: Math.max(
+					0,
+					Math.round((now - Date.parse(row.startedAt)) / 60_000),
+				),
+				lastHeartbeatAt: row.heartbeatAt,
+				lastStep: row.lastStep
+					? {
+							at: new Date(row.lastStep.at).toISOString(),
+							kind: row.lastStep.kind,
+							text: wrapUntrustedInput(
+								row.lastStep.text.slice(0, 300),
+								"agent_run",
+							),
+						}
+					: null,
+				startedInThisChat,
+				canSteer:
+					(startedInThisChat &&
+						row.accountableOwnerType === actor.type &&
+						row.accountableOwnerId === actor.id) ||
+					(!!project && operates(project)),
+				url: "/work/items/" + row.workItemId,
+			};
+		});
+		return { complete: page.complete, limit: page.limit, runs };
 	}
 
 	async createWork(

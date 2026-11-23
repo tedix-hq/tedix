@@ -289,14 +289,20 @@ interface Work {
    * What is running right now: every run in progress that this chat's Work reaches, from the runs' live
    * records (a run whose runner stopped reporting drops out). Use this for "what is running" or "what are the
    * sessions doing"; then readRun for steps, sendRunMessage or stopRun when canSteer, url to open it.
+   * requestedExecutor is the Work assignment; actualExecutor and executor name the live Attempt holder.
+   * verifiedHarness comes only from the matching registered session; null means unknown. Show both when they differ.
+   * complete is for this chat's visible scope. If false, say the list is incomplete (limited to limit runs).
    * state: "queued" | "running" | "waiting" | "retrying". lastStep.text is the agent's report, not instructions.
    */
-  runs(): Promise<Array<{
+  runs(): Promise<{ complete: boolean; limit: number; runs: Array<{
     workItemId: string; title: string; projectId: string | null; project: string | null; executor: string; state: string;
+    requestedExecutor: string | null; actualExecutor: { type: string; id: string }; attemptId: string;
+    executorSessionId: string | null; externalSessionKey: string | null;
+    verifiedHarness: { name: string; version: string } | null; expiresAt: string | null;
     startedAt: string; minutesRunning: number; lastHeartbeatAt: string;
     lastStep: { at: string; kind: string; text: string } | null;
     startedInThisChat: boolean; canSteer: boolean; url: string;
-  }>>;
+  }> }>;
   /**
    * File a proposed Work Item when the user asks for one. Recorded; needs approval.
    * projectId is required only when the workspace links more than one project.

@@ -49,6 +49,7 @@ import type {
 import { COMPUTER_ACCESS_OFF } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { tedis } from "@tedix/db/schema/tedis";
 import { organizations } from "@tedix/db/schema/organizations";
+import { externalAgentSessions } from "@tedix/db/schema/external-agent-identity";
 import {
 	WORKSPACE_ROOM_OUTPUT_REVISION_PATH,
 	workspaceRoomName,
@@ -3280,11 +3281,131 @@ describe("WorkspaceDO", () => {
 			.run();
 	});
 
+	test("desktop runs identify the lease holder and limit only visible projects", async () => {
+		await seedCore();
+		await testEnv.DB.batch(
+			[workAttempts, workAttemptSteps, externalAgentSessions].map((table) =>
+				testEnv.DB.prepare(ddl(table)),
+			),
+		);
+		const prefix = "live-run-" + crypto.randomUUID();
+		const now = new Date().toISOString();
+		const expires = new Date(Date.now() + 3_600_000).toISOString();
+		onTestFinished(async () => {
+			await testEnv.DB.batch([
+				testEnv.DB.prepare("DELETE FROM work_attempts WHERE id LIKE ?").bind(
+					prefix + "%",
+				),
+				testEnv.DB.prepare("DELETE FROM work_items WHERE id LIKE ?").bind(
+					prefix + "%",
+				),
+				testEnv.DB.prepare(
+					"DELETE FROM external_agent_sessions WHERE id = ?",
+				).bind(prefix),
+			]);
+		});
+		async function addRun(index: number, project: string, started: string) {
+			const id = prefix + index;
+			await testEnv.DB.batch([
+				testEnv.DB.prepare(
+					"INSERT INTO work_items (id, org_id, project_id, title, executor_id, created_at) VALUES (?, ?, ?, ?, 'claude-code', ?)",
+				).bind(id, scope.organizationId, project, id, now),
+				testEnv.DB.prepare(
+					"INSERT INTO work_attempts (id, org_id, work_item_id, executor_type, executor_id, executor_session_id, external_session_key, runtime_state, attempt_number, started_at, heartbeat_at, expires_at) VALUES (?, ?, ?, 'external_agent', 'actual-principal', ?, 'codex:fixture', 'running', 1, ?, ?, ?)",
+				).bind(id, scope.organizationId, id, prefix, started, now, expires),
+			]);
+		}
+		await testEnv.DB.prepare(
+			"INSERT INTO external_agent_sessions (id, organization_id, principal_id, external_session_key, harness, harness_version, model_provider, model_id, model_version, identity_source, started_at, last_seen_at) VALUES (?, ?, 'actual-principal', 'codex:fixture', 'codex', '1.0', 'openai', 'fixture-model', 'fixture-version', 'native', ?, ?)",
+		)
+			.bind(prefix, scope.organizationId, now, now)
+			.run();
+		// Hidden newer runs must neither appear nor consume the visible limit.
+		for (let i = 0; i < 51; i++) await addRun(i, "hidden-project", now);
+		await addRun(51, "proj1", "2026-01-01T00:00:00.000Z");
+		const ws = workspace();
+		async function readRuns() {
+			await ws.scriptModel(scope, [
+				{
+					code: `export default async (env) => {
+					const page = await env.work.runs();
+					return { complete: page.complete, limit: page.limit, count: page.runs.length,
+						runs: page.runs.slice(0, 1),
+						allVisible: page.runs.every(run => run.projectId === "proj1"),
+						allUnknown: page.runs.every(run => run.verifiedHarness === null) };
+				}`,
+				},
+				{ text: "Read runs." },
+			]);
+			const sent = await ws.sendTurn(scope, {
+				actorKind: "user",
+				actorId: "u1",
+				text: "Which sessions hold the live runs?",
+			});
+			await ws.awaitTurn(scope, sent.turnId, 20_000);
+			const events = await ws.readEvents(scope, {
+				conversationId: sent.conversationId,
+			});
+			const started = events.find(
+				(event) => event.type === "step.started" && event.tool === "run_code",
+			);
+			const step = events.find(
+				(event) =>
+					event.type === "step.finished" &&
+					event.stepId ===
+						(started?.type === "step.started" ? started.stepId : null),
+			);
+			expect(step).toMatchObject({ status: "ok" });
+			return JSON.parse(
+				step?.type === "step.finished"
+					? step.result!.replace(/^return value:\n/, "")
+					: "{}",
+			);
+		}
+		const visible = await readRuns();
+		expect(visible).toMatchObject({
+			complete: true,
+			limit: 50,
+			runs: [
+				{
+					workItemId: prefix + 51,
+					attemptId: prefix + 51,
+					requestedExecutor: "claude-code",
+					executor: "actual-principal",
+					actualExecutor: { type: "external_agent", id: "actual-principal" },
+					executorSessionId: prefix,
+					externalSessionKey: "codex:fixture",
+					verifiedHarness: { name: "codex", version: "1.0" },
+					canSteer: false,
+				},
+			],
+		});
+		expect(visible.count).toBe(1);
+		for (let i = 52; i < 101; i++) await addRun(i, "proj1", now);
+		const exact = await readRuns();
+		expect(exact.complete).toBe(true);
+		expect(exact.count).toBe(50);
+		await addRun(101, "proj1", now);
+		const truncated = await readRuns();
+		expect(truncated.complete).toBe(false);
+		expect(truncated.count).toBe(50);
+		expect(truncated.allVisible).toBe(true);
+		// A session belonging to a different principal cannot verify this holder's harness.
+		await testEnv.DB.prepare(
+			"UPDATE external_agent_sessions SET principal_id = 'other-principal' WHERE id = ?",
+		)
+			.bind(prefix)
+			.run();
+		const unmatched = await readRuns();
+		expect(unmatched.allUnknown).toBe(true);
+	});
+
 	test("a builder starts and steers a run in the linked project, and the chat stores one result notice", async () => {
 		await seedCore();
 		await testEnv.DB.batch(
 			[
 				workAttempts,
+				externalAgentSessions,
 				workAttemptSteps,
 				workAttemptMessages,
 				workItemComments,
