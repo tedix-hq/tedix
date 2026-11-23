@@ -1075,7 +1075,7 @@ function hideRestarting(): void {
 }
 
 /** How long "Updated to …" stays after the restart; the entry fades out before. */
-const UPDATED_MS = 6000;
+const UPDATED_MS = 10_000;
 async function sayUpdated(): Promise<void> {
 	await pageBack;
 	updatedTo = app.getVersion();
@@ -1119,12 +1119,20 @@ function createMainWindow(show: boolean): void {
 	mainWindow = window;
 	// Closing the window leaves Tedix in the menu bar, with its runners;
 	// only Quit ends the app.
-	window.on("close", (event) => {
+	// Kept whenever it changes: an update or a quit can end the app before
+	// the window gets to close.
+	const keepBounds = () => {
+		if (window.isDestroyed() || window.isFullScreen()) return;
 		try {
 			writeFileSync(windowFile(), JSON.stringify(window.getNormalBounds()));
 		} catch (error) {
 			log(`window: size not kept (${(error as Error).message})`);
 		}
+	};
+	window.on("resized", keepBounds);
+	window.on("moved", keepBounds);
+	window.on("close", (event) => {
+		keepBounds();
 		if (quitting) return;
 		event.preventDefault();
 		if (window.isFullScreen()) {
