@@ -328,6 +328,7 @@ export async function markStaleFeedStoreListingsAsRemoved(
 		const result = await db.delete(appCatalogStoreListings).where(
 			and(
 				eq(appCatalogStoreListings.source, source),
+				// bound-params: the subquery binds no caller-supplied ID list.
 				inArray(
 					appCatalogStoreListings.catalogAppId,
 					db
