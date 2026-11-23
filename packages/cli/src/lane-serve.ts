@@ -5654,13 +5654,24 @@ export class LaneDispatcher {
 					}
 				}),
 			);
+			const now = Date.now();
+			const load = this.toolLoad(now);
+			const roomy = eligible.filter((executor) =>
+				this.hasToolCapacity(executor, load, now),
+			);
+			if (!roomy.length) {
+				this.log(
+					"auto-selection-waiting",
+					item.id,
+					"Every eligible harness is at its running cap; Auto stays unassigned until capacity returns",
+				);
+				return true;
+			}
 			const selection = this.route(item, "any-local", {
 				...this.policy,
 				rules: this.policy.rules.map((rule) => ({
 					...rule,
-					routes: rule.routes.filter((route) =>
-						eligible.includes(route.executor),
-					),
+					routes: rule.routes.filter((route) => roomy.includes(route.executor)),
 				})),
 			});
 			// Only the policy's first eligible runner selects; the server fences competing moves.
@@ -5712,6 +5723,37 @@ export class LaneDispatcher {
 			this.budgets,
 		);
 	}
+	// Every runner on this Mac keeps its records beside this one.
+	private toolLoad(now: number) {
+		return readToolLoad(
+			basename(dirname(this.directory)) === "dispatchers"
+				? dirname(this.directory)
+				: this.directory,
+			now,
+			basename(dirname(this.directory)) !== "dispatchers",
+		);
+	}
+	private hasToolCapacity(
+		executor: LocalExecutor,
+		load: Record<LocalExecutor, ToolLoad>,
+		now: number,
+	): boolean {
+		const tool = this.policy.tools?.[executor];
+		return (
+			this.availability[executor]?.available &&
+			(this.budgets[executor]?.backoffUntil ?? 0) <= now &&
+			!this.unavailable.has(executor) &&
+			(tool?.maxRunning === undefined ||
+				load[executor].running < tool.maxRunning) &&
+			// Nearly spent: the decision model weighs load only weakly, so a
+			// tool at the routing file's near-limit is not offered at all.
+			!(
+				(this.budgets[executor]?.remainingPercent ?? 100) <=
+					this.policy.nearLimitPercent &&
+				(this.budgets[executor]?.resetAt ?? Infinity) > now
+			)
+		);
+	}
 	/**
 	 * Clef picks the tool for Work that is not kept on one, from the tools
 	 * available now, once per Work revision. True when the Work moved to
@@ -5756,32 +5798,12 @@ export class LaneDispatcher {
 			});
 		};
 		const now = Date.now();
-		// Every runner on this Mac keeps its records beside this one.
-		const load = readToolLoad(
-			basename(dirname(this.directory)) === "dispatchers"
-				? dirname(this.directory)
-				: this.directory,
-			now,
-			basename(dirname(this.directory)) !== "dispatchers",
+		const load = this.toolLoad(now);
+		const offered = eligible.filter(
+			(executor) =>
+				!!this.policy.tools?.[executor] &&
+				this.hasToolCapacity(executor, load, now),
 		);
-		const offered = eligible.filter((executor) => {
-			const tool = this.policy.tools?.[executor];
-			return (
-				!!tool &&
-				this.availability[executor]?.available &&
-				(this.budgets[executor]?.backoffUntil ?? 0) <= now &&
-				!this.unavailable.has(executor) &&
-				(tool.maxRunning === undefined ||
-					load[executor].running < tool.maxRunning) &&
-				// Nearly spent: the decision model weighs load only weakly, so a
-				// tool at the routing file's near-limit is not offered at all.
-				!(
-					(this.budgets[executor]?.remainingPercent ?? 100) <=
-						this.policy.nearLimitPercent &&
-					(this.budgets[executor]?.resetAt ?? Infinity) > now
-				)
-			);
-		});
 		if (offered.length < 2) {
 			remember();
 			return false;

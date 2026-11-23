@@ -484,6 +484,121 @@ it.each([false, true])(
 	},
 );
 
+const autoDuty = (executor: LocalExecutor, repo: string): RunnerDuty => ({
+	workspace: "acme",
+	organization: "org_acme",
+	executor,
+	repo,
+	coordinated: true,
+	enabled: true,
+	acceptProposed: false,
+});
+const markAtCap = (directory: string, executor: LocalExecutor) =>
+	writeFileSync(
+		join(directory, `at-cap-${executor}.json`),
+		JSON.stringify({
+			itemId: "99999999-9999-4999-8999-999999999999",
+			version: 1,
+			phase: "running",
+			session: `${executor}:33333333-3333-4333-8333-999999999999`,
+		}),
+	);
+const autoItem = (item: DispatchItem) => {
+	item.executorType = "external_agent";
+	item.executorId = "any-local";
+	item.dispatchState = "ready";
+};
+
+it("routes Auto to the sole eligible alternate when the preferred harness is at its cap", async () => {
+	const f = fixture();
+	autoItem(f.item);
+	for (const executor of ["codex", "claude-code"] as const)
+		f.duties.push(autoDuty(executor, f.dir));
+	writeFileSync(
+		join(f.dir, "routing.json"),
+		JSON.stringify({
+			...testRoutingPolicy,
+			tools: {
+				codex: { strengths: "large multi-file changes", maxRunning: 1 },
+				"claude-code": { strengths: "careful edits" },
+			},
+		}),
+	);
+	const codex = f.create({ executor: "codex", coordinated: true });
+	const claude = f.create({ executor: "claude-code", coordinated: true });
+	for (const directory of [join(f.dir, "codex"), join(f.dir, "claude-code")])
+		markAtCap(directory, "codex");
+	await Promise.all([codex.tick(), claude.tick()]);
+	expect(f.item.executorId).toBe("claude-code");
+	expect(
+		f.control.events.filter((event) => event === "dispatch-reassign"),
+	).toHaveLength(1);
+	await Promise.all([codex.tick(), claude.tick()]);
+	await Promise.all([codex.drain(), claude.drain()]);
+	expect(f.control.launches).toHaveLength(1);
+	expect(f.control.threads.map((thread) => thread.executor)).toEqual([
+		"claude-code",
+	]);
+});
+
+it("keeps Auto unassigned while every eligible harness is at its cap", async () => {
+	const f = fixture();
+	autoItem(f.item);
+	for (const executor of ["codex", "claude-code"] as const)
+		f.duties.push(autoDuty(executor, f.dir));
+	writeFileSync(
+		join(f.dir, "routing.json"),
+		JSON.stringify({
+			...testRoutingPolicy,
+			tools: {
+				codex: { strengths: "large multi-file changes", maxRunning: 1 },
+				"claude-code": { strengths: "careful edits", maxRunning: 1 },
+			},
+		}),
+	);
+	const codex = f.create({ executor: "codex", coordinated: true });
+	const claude = f.create({ executor: "claude-code", coordinated: true });
+	for (const directory of [join(f.dir, "codex"), join(f.dir, "claude-code")]) {
+		markAtCap(directory, "codex");
+		markAtCap(directory, "claude-code");
+	}
+	await Promise.all([codex.tick(), claude.tick()]);
+	await Promise.all([codex.tick(), claude.tick()]);
+	expect(f.item.executorId).toBe("any-local");
+	expect(f.control.events).not.toContain("dispatch-reassign");
+	expect(f.control.events).not.toContain("choose-tool");
+	expect(f.control.launches).toHaveLength(0);
+	expect(f.control.threads).toHaveLength(0);
+});
+
+it("enforces the running cap on the fallback when tool selection fails", async () => {
+	const f = fixture();
+	autoItem(f.item);
+	for (const executor of ["codex", "claude-code", "opencode"] as const)
+		f.duties.push(autoDuty(executor, f.dir));
+	writeFileSync(
+		join(f.dir, "routing.json"),
+		JSON.stringify({
+			...testRoutingPolicy,
+			tools: {
+				codex: { strengths: "large multi-file changes", maxRunning: 1 },
+				"claude-code": { strengths: "careful edits" },
+				opencode: { strengths: "small routine edits" },
+			},
+		}),
+	);
+	const codex = f.create({ executor: "codex", coordinated: true });
+	const claude = f.create({ executor: "claude-code", coordinated: true });
+	for (const directory of [join(f.dir, "codex"), join(f.dir, "claude-code")])
+		markAtCap(directory, "codex");
+	await Promise.all([codex.tick(), claude.tick()]);
+	expect(f.control.events).toContain("choose-tool");
+	expect(f.item.executorId).toBe("claude-code");
+	expect(
+		f.control.events.filter((event) => event === "dispatch-reassign"),
+	).toHaveLength(1);
+});
+
 it("leaves Auto work to its project duty in another repository", async () => {
 	const f = fixture();
 	f.item.executorType = "external_agent";
