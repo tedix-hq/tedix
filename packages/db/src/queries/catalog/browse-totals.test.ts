@@ -75,7 +75,7 @@ describe("catalog browse totals", () => {
 	it("serves the public stats total from its primary key and detects drift and missing counters", async () => {
 		const { sqlite, insert } = fixture();
 		sqlite.exec(
-			"CREATE TABLE app_catalog_store_listings (catalog_app_id TEXT, source TEXT)",
+			"CREATE TABLE app_catalog_store_listings (id TEXT PRIMARY KEY, catalog_app_id TEXT, source TEXT)",
 		);
 		const queries: string[] = [];
 		const db = createDbClient(

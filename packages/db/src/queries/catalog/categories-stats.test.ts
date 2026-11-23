@@ -64,6 +64,77 @@ function fixture() {
 }
 
 describe("public catalog statistics", () => {
+	it("counts listings across indexed pages, including an entirely hidden first page", async () => {
+		const { sqlite, insertApp, insertListing } = fixture();
+		for (const [id, discoverable] of [
+			["public", 1],
+			["hidden", 0],
+		] as const) {
+			insertApp.run(
+				id,
+				id,
+				"MCP",
+				"OAI",
+				"ENABLED",
+				"RELEASED",
+				discoverable,
+				"BUSINESS",
+				0,
+				0,
+			);
+		}
+		for (let i = 0; i < 2505; i++) {
+			insertListing.run(
+				String(i).padStart(5, "0"),
+				i < 1000 ? "hidden" : "public",
+				i < 1000 ? "claude" : i < 2000 ? "chatgpt" : "official",
+			);
+		}
+		insertListing.run("orphan", "missing", "orphan");
+		const plans: string[] = [];
+		const db = createDbClient(
+			createD1Facade({
+				exec: (query) => sqlite.exec(query),
+				prepare(query) {
+					if (query.startsWith('with "listing_page"')) {
+						plans.push(
+							sqlite
+								.prepare(`EXPLAIN QUERY PLAN ${query}`)
+								.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+								.map((row) => row.detail)
+								.join(" "),
+						);
+					}
+					return sqlite.prepare(query);
+				},
+			}),
+		);
+		for (const includeUntrusted of [false, true]) {
+			plans.length = 0;
+			expect(
+				(await getCatalogStats(db, includeUntrusted)).sourceBreakdown,
+			).toEqual([
+				{ source: "chatgpt", count: 1000 },
+				...(includeUntrusted ? [{ source: "claude", count: 1000 }] : []),
+				{ source: "official", count: 505 },
+			]);
+			expect(plans).toHaveLength(4);
+			for (const plan of plans) {
+				expect(plan).toMatch(/(?:MATERIALIZE|CO-ROUTINE) listing_page/);
+				expect(plan).toMatch(
+					/SEARCH app_catalog USING (?:COVERING )?INDEX sqlite_autoindex_app_catalog_1 \(id=\?\) LEFT-JOIN/,
+				);
+				expect(plan).not.toContain("SCAN app_catalog ");
+			}
+			for (const plan of plans.slice(1)) {
+				expect(plan).toContain(
+					"SEARCH app_catalog_store_listings USING INDEX sqlite_autoindex_app_catalog_store_listings_1 (id>?)",
+				);
+			}
+		}
+		sqlite.close();
+	});
+
 	it("counts only the enabled, discoverable, released public catalog cohort", async () => {
 		const { db, insertApp, insertListing } = fixture();
 		insertApp.run(

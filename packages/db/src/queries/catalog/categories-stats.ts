@@ -91,7 +91,7 @@ export async function getCatalogStats(
 }> {
 	const baseCondition = includeUntrusted ? undefined : publicCatalogCondition;
 
-	const [totalResult, capabilityResult, sourceResult] = await db.batch([
+	const [totalResult, capabilityResult] = await db.batch([
 		includeUntrusted
 			? db.select({ count: count() }).from(appCatalog)
 			: db
@@ -114,23 +114,55 @@ export async function getCatalogStats(
 			})
 			.from(appCatalog)
 			.where(baseCondition),
-		// Get per-source counts from store listings
-		db
-			.select({
-				source: appCatalogStoreListings.source,
-				count: count(),
-			})
-			.from(appCatalogStoreListings)
-			.innerJoin(
-				appCatalog,
-				eq(appCatalogStoreListings.catalogAppId, appCatalog.id),
-			)
-			.where(baseCondition)
-			.groupBy(appCatalogStoreListings.source),
 	]);
 
 	if (!includeUntrusted && !totalResult[0]) {
 		throw new Error("Catalog browse totals migration is missing");
+	}
+
+	const sourceCounts = new Map<string, number>();
+	let cursor: string | undefined;
+	for (;;) {
+		// Limit before joining/filtering so even a page of hidden apps is bounded.
+		const listingPage = db.$with("listing_page").as(
+			db
+				.select({
+					id: appCatalogStoreListings.id,
+					catalogAppId: appCatalogStoreListings.catalogAppId,
+					source: appCatalogStoreListings.source,
+				})
+				.from(appCatalogStoreListings)
+				.where(
+					cursor === undefined
+						? undefined
+						: gt(appCatalogStoreListings.id, cursor),
+				)
+				.orderBy(appCatalogStoreListings.id)
+				.limit(1000),
+		);
+		const page = await db
+			.with(listingPage)
+			.select({
+				source: listingPage.source,
+				count:
+					sql<number>`count(${appCatalog.id}) FILTER (WHERE ${baseCondition ?? sql`1`})`.as(
+						"count",
+					),
+				cursor: sql<string>`max(max(${listingPage.id})) over ()`.as("cursor"),
+			})
+			.from(listingPage)
+			.leftJoin(appCatalog, eq(listingPage.catalogAppId, appCatalog.id))
+			.groupBy(listingPage.source);
+		if (page.length === 0) break;
+		cursor = page[0]!.cursor;
+		for (const row of page) {
+			if (row.count > 0) {
+				sourceCounts.set(
+					row.source,
+					(sourceCounts.get(row.source) ?? 0) + row.count,
+				);
+			}
+		}
 	}
 
 	return {
@@ -138,10 +170,9 @@ export async function getCatalogStats(
 		mcp: capabilityResult[0]?.mcp ?? 0,
 		withInteractive: capabilityResult[0]?.withInteractive ?? 0,
 		withWrites: capabilityResult[0]?.withWrites ?? 0,
-		sourceBreakdown: sourceResult.map((r) => ({
-			source: r.source,
-			count: r.count,
-		})),
+		sourceBreakdown: [...sourceCounts]
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+			.map(([source, count]) => ({ source, count })),
 	};
 }
 
