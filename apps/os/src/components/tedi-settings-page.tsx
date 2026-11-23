@@ -343,6 +343,43 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				/>
 			</SettingsSection>
 
+			<SettingsSection title="Who can use it">
+				<div className="flex flex-wrap items-center gap-3">
+					<Select
+						value={tedi.data.scope ?? "organization"}
+						items={{
+							personal: "Only the owner",
+							organization: "Everyone in the organization",
+						}}
+						disabled={!canManage || update.isPending}
+						onValueChange={(value) =>
+							value &&
+							value !== tedi.data.scope &&
+							update.mutate({
+								tediId,
+								scope: value as "personal" | "organization",
+							})
+						}
+					>
+						<SelectTrigger className="w-64" aria-label="Who can use it">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="personal">Only the owner</SelectItem>
+							<SelectItem value="organization">
+								Everyone in the organization
+							</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+				<Text role="label" tone="secondary">
+					{tedi.data.scope === "personal"
+						? "Only the owner can chat with this tedi or pick it in a workspace."
+						: "Every member can chat with this tedi and pick it in the workspaces they can open."}{" "}
+					Only the owner or an organization admin can change this.
+				</Text>
+			</SettingsSection>
+
 			<SettingsSection title="Model & runtime">
 				<ModelSettingsForm
 					value={selectedModel}

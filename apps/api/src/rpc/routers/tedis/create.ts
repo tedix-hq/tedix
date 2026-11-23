@@ -284,6 +284,13 @@ async function createTediResources(
 			"Destination identity configuration is unavailable for portable import",
 		);
 	}
+	const ownerUserId = request?.ownerUserId ?? context.user?.sub ?? null;
+	if (input.scope === "personal" && !ownerUserId) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"A personal tedi needs a signed-in person to own it",
+		);
+	}
 	const tedi = await createTedi(context.db, {
 		id: crypto.randomUUID(),
 		organizationId: orgId,
@@ -297,8 +304,8 @@ async function createTediResources(
 		timezone: input.timezone ?? null,
 		language: input.language ?? null,
 		status: portableImport ? "paused" : "active",
-		scope: "organization",
-		ownerUserId: request?.ownerUserId ?? context.user?.sub ?? null,
+		scope: input.scope ?? "organization",
+		ownerUserId,
 		ownerTeam: request?.ownerTeam ?? null,
 		justification: request?.justification ?? null,
 		dataSensitivity: request?.dataSensitivity ?? null,

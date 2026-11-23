@@ -480,6 +480,9 @@ export const CreateTediInputSchema = z.object({
 		.describe(
 			"Opt in to creating a per-tedi Descope AIH MCP server for standalone OAuth or cross-tedi M2M.",
 		),
+	scope: TediScopeSchema.optional().describe(
+		"Who can use the tedi: organization (every member, the default) or personal (only the person creating it).",
+	),
 });
 export type CreateTediInput = z.infer<typeof CreateTediInputSchema>;
 
@@ -514,6 +517,9 @@ export const UpdateTediInputSchema = z.object({
 	mcpCapabilityProfile: z
 		.enum(["standard", "content_admin", "org_admin", "platform_admin"])
 		.optional(),
+	scope: TediScopeSchema.optional().describe(
+		"Who can use the tedi: personal (only its owner) or organization (every member). Only the owner or an organization admin may change it.",
+	),
 });
 export type UpdateTediInput = z.infer<typeof UpdateTediInputSchema>;
 

@@ -112,8 +112,31 @@ export const updateTediProcedure = authedTedisOs.update
 			);
 		}
 
+		// Who can use the tedi is the owner's call, or an organization admin's.
+		// Only a signed-in person may change it; a personal tedi needs an owner.
+		if (data.scope !== undefined && data.scope !== existingTedi.scope) {
+			const isOwner =
+				!!existingTedi.ownerUserId &&
+				context.user?.sub === existingTedi.ownerUserId;
+			const isAdmin =
+				context.userRole === "owner" || context.userRole === "admin";
+			if (context.authType !== "user" || !(isOwner || isAdmin)) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only the tedi's owner or an organization admin can change who can use it",
+				);
+			}
+			if (data.scope === "personal" && !existingTedi.ownerUserId) {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"A tedi without an owner cannot be made personal",
+				);
+			}
+		}
+
 		// Serialize JSON fields for D1 storage
 		const updateData: Record<string, unknown> = {};
+		if (data.scope !== undefined) updateData.scope = data.scope;
 		let runtimeProfileRebind: string | undefined;
 		if (data.name !== undefined) updateData.name = data.name;
 		if (data.displayName !== undefined)
