@@ -9,6 +9,7 @@ import {
 	Files,
 	Lightning,
 	Pulse,
+	Plug,
 	ShieldCheck,
 	SquaresFour,
 } from "@phosphor-icons/react";
@@ -26,8 +27,8 @@ export const SURFACE_ICONS: Record<
 	outputs: Files,
 	team: CirclesThreePlus,
 	skills: Lightning,
-	gateways: AppWindow,
-	sites: Files,
+	gateways: Plug,
+	sites: AppWindow,
 	brain: Brain,
 	audit: ShieldCheck,
 	widget: ChatCenteredText,

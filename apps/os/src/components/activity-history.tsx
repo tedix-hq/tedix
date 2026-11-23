@@ -136,11 +136,13 @@ export function approvalHistoryEntries(
 					: "Approved automatically"
 				: approval.status === "expired"
 					? "No one answered in time, so it did not run"
-					: approval.status === "approved" || approval.status === "rejected"
-						? /^decide for me\b/i.test(approval.resolution ?? "")
-							? "Decided by the suggestion a person accepted"
-							: "Decided by a person"
-						: null;
+					: approval.status === "approved"
+						? conversationId
+							? "Approved. Open the conversation to check what happened next."
+							: "Approved. Completion has not been recorded here."
+						: approval.status === "rejected"
+							? "Rejected. Ask the requester to change the request before sending it again."
+							: "Cancelled. A new request is needed to continue.";
 		return [
 			{
 				key: `approval:${approval.id}`,
@@ -217,10 +219,10 @@ export function actionHistoryEntries(
 			who: (item.agent ?? item.subject ?? item.actor).label || null,
 			where: item.app?.label ?? item.tool?.appLabel ?? null,
 			how: denied
-				? (item.securityDecision.denialReason ?? "Stopped before it ran")
+				? `Stopped before it ran: ${item.securityDecision.denialReason ?? "access was not allowed"}. Ask the requester to check access before trying again.`
 				: item.success
 					? null
-					: "It failed",
+					: `The call failed${item.errorCode ? ` (${item.errorCode})` : ""}. Check the app activity before asking the agent to try again.`,
 			at: item.timestamp,
 			href: item.app?.id
 				? { label: "Open app", to: `/apps/${item.app.id}/analytics` }
@@ -303,11 +305,17 @@ export function ActivityHistory({
 	const entries = attentionOnly
 		? history.filter((entry) => entry.needsAttention)
 		: history;
-	const loading =
-		approvals.isPending ||
-		(showActions && filter === "actions" && actions.isPending);
-	const actionsHidden =
-		showActions && actions.isError && filter !== "approvals";
+	const includeApprovals = attentionOnly || filter !== "actions";
+	const includeActions =
+		showActions && (filter === "all" || filter === "actions");
+	const loadingApprovals = includeApprovals && approvals.isPending;
+	const loadingActions = includeActions && actions.isPending;
+	const loading = loadingApprovals || loadingActions;
+	const approvalsHidden = includeApprovals && approvals.isError;
+	const actionsHidden = includeActions && actions.isError;
+	const failed =
+		(!includeApprovals || approvals.isError) &&
+		(!includeActions || actions.isError);
 	if (
 		attentionOnly &&
 		!approvals.isPending &&
@@ -352,14 +360,17 @@ export function ActivityHistory({
 					role="label"
 					tone="secondary"
 				>
-					{loading ? "Loading…" : `${entries.length} shown`}
+					{`${entries.length} shown`}
+					{loading
+						? ` · Loading ${loadingApprovals && loadingActions ? "decisions and actions" : loadingApprovals ? "decisions" : "actions"}…`
+						: ""}
 				</Text>
 			</div>
-			{approvals.isError && (!showActions || actions.isError) ? (
+			{failed && entries.length === 0 ? (
 				<Text className="m-0 px-4 py-6" role="label" tone="error">
 					History could not be loaded. Reload and try again.
 				</Text>
-			) : loading ? (
+			) : loading && entries.length === 0 ? (
 				<LoadingArea label="Loading history" />
 			) : entries.length === 0 ? (
 				<Empty
@@ -409,9 +420,17 @@ export function ActivityHistory({
 					</Button>
 				</div>
 			) : null}
-			{actionsHidden ? (
+			{approvalsHidden && !failed ? (
 				<Text className="m-0 px-4 pb-3" role="label" tone="secondary">
-					Tool actions are hidden: your role cannot read app activity.
+					Decisions could not be loaded. Reload to try again. Available actions
+					are shown.
+				</Text>
+			) : null}
+			{actionsHidden && !failed ? (
+				<Text className="m-0 px-4 pb-3" role="label" tone="secondary">
+					App activity could not be loaded. Your role may not have access, or
+					the service may be unavailable. Reload to try again. Available
+					decisions are shown.
 				</Text>
 			) : null}
 		</div>

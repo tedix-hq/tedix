@@ -40,7 +40,7 @@ const ENGLISH_COPY = {
 		work: "Work",
 		chat: "Chat",
 		workspaces: "Workspaces",
-		outputs: "Documents",
+		outputs: "Files",
 		team: "Team",
 		skills: "Skills",
 		gateways: "Connections",

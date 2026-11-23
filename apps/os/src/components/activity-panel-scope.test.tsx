@@ -168,6 +168,44 @@ describe("activity panel scope", () => {
 		expect(scopeButton("Actions")).toBeDefined();
 	});
 
+	it.each(["decisions", "actions"] as const)(
+		"shows available history while %s are still loading",
+		async (pending) => {
+			vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+			client.setQueryData<unknown>(recentToolActivityQueryOptions().queryKey, {
+				items: [
+					{
+						timestamp: "2026-11-08T10:05:00Z",
+						action: "mcp.tool.execute",
+						toolName: "crm.add_note",
+						success: true,
+						actor: { label: "Example agent" },
+						securityDecision: { disposition: "executed" },
+					},
+				],
+			});
+			const pendingKey =
+				pending === "decisions"
+					? approvalHistoryQueryOptions().queryKey
+					: recentToolActivityQueryOptions().queryKey;
+			client.removeQueries({ queryKey: pendingKey, exact: true });
+			await render("history", null);
+			expect(host.textContent).toContain(
+				pending === "decisions" ? "Add note" : "Archive the old brief",
+			);
+			expect(host.textContent).toContain(`Loading ${pending}…`);
+			expect(host.textContent).not.toContain("No activity yet");
+			await act(async () => {
+				client.setQueryData<unknown>(
+					pendingKey,
+					pending === "decisions" ? { data: [] } : { items: [] },
+				);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			});
+			expect(host.textContent).not.toContain(`Loading ${pending}…`);
+		},
+	);
+
 	it("says so when nothing waits in this workspace", async () => {
 		client.setQueryData<unknown>(
 			pendingApprovalsQueryOptions(WORKSPACE).queryKey,

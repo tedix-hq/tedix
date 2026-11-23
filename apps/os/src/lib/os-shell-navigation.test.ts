@@ -150,7 +150,7 @@ describe("navigation translations", () => {
 	);
 	it("updates existing navigation items when Spanish preferences arrive", () => {
 		setOsLocale("es-ES");
-		expect(getOsSurface("outputs").label).toBe("Documentos");
+		expect(getOsSurface("outputs").label).toBe("Archivos");
 		expect(getOsSurface("gateways").description).toBe(
 			"Apps y herramientas que Tedix puede usar por ti.",
 		);

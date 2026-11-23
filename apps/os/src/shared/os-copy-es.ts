@@ -32,7 +32,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		work: "Trabajo",
 		chat: "Chat",
 		workspaces: "Espacios de trabajo",
-		outputs: "Documentos",
+		outputs: "Archivos",
 		team: "Equipo",
 		skills: "Habilidades",
 		gateways: "Conexiones",

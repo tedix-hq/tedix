@@ -832,7 +832,7 @@ export function OutputsPage() {
 						/>
 						<SearchInput
 							containerClassName="min-w-0 flex-1 sm:w-60 sm:flex-none"
-							aria-label="Search documents"
+							aria-label="Search files"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							placeholder="Search"
@@ -853,7 +853,7 @@ export function OutputsPage() {
 			{outputs.isPending ? <ListSkeleton /> : null}
 			{outputs.isError ? (
 				<LoadError
-					title="Documents are unavailable"
+					title="Files are unavailable"
 					error={outputs.error}
 					onRetry={() => void outputs.refetch()}
 					retrying={outputs.isFetching}
@@ -876,16 +876,16 @@ export function OutputsPage() {
 						</EmptyMedia>
 						<EmptyTitle>
 							{allItems.length > 0
-								? "No matching documents"
+								? "No matching files"
 								: kind === "archived"
-									? "No archived documents"
-									: "No documents yet"}
+									? "No archived files"
+									: "No files yet"}
 						</EmptyTitle>
 						<EmptyDescription>
 							{allItems.length > 0
 								? "Try another search, format, or sharing scope."
 								: kind === "archived"
-									? "Documents you archive appear here, and you can restore them from the ⋯ menu."
+									? "Files you archive appear here, and you can restore them from the ⋯ menu."
 									: "Create a document from a blank page or a template. Documents, sheets, and presentations created with your tedi also appear here."}
 						</EmptyDescription>
 					</EmptyHeader>
@@ -965,7 +965,7 @@ export function OutputsPage() {
 			) : null}
 			{outputs.data?.truncated ? (
 				<Text role="label" tone="secondary" className="text-center">
-					Showing the 200 most recently updated documents.
+					Showing the 200 most recently updated files.
 				</Text>
 			) : null}
 			<RenameDialog

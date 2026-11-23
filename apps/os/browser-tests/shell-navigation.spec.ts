@@ -233,7 +233,7 @@ await runShellSpec(
 				"Work36",
 				"Chat",
 				"Workspaces",
-				"Documents",
+				"Files",
 				"Inbox",
 				"Team",
 				"Skills",

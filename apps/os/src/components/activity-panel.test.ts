@@ -146,7 +146,9 @@ describe("activity history", () => {
 		expect(failed?.how).toBe(
 			"Failed: Tool is no longer available on example-unified",
 		);
-		expect(waiting?.how).toBe("Decided by a person");
+		expect(waiting?.how).toBe(
+			"Approved. Completion has not been recorded here.",
+		);
 	});
 
 	it("shows failed and blocked tool calls as actions", () => {
@@ -182,7 +184,7 @@ describe("activity history", () => {
 			title: "Add note",
 			who: "CFO",
 			where: "Example CRM",
-			how: "It failed",
+			how: "The call failed (TIMEOUT). Check the app activity before asking the agent to try again.",
 		});
 		expect(blocked?.status.label).toBe("Blocked");
 	});

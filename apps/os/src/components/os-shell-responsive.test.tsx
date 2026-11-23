@@ -390,7 +390,7 @@ describe("OS shell chrome", () => {
 		const primary = container.querySelector('[aria-label="Primary"]')!;
 		expect(
 			[...primary.querySelectorAll("a")].map((a) => a.textContent),
-		).toEqual(["Work", "Chat", "Workspaces", "Documents", "Inbox"]);
+		).toEqual(["Work", "Chat", "Workspaces", "Files", "Inbox"]);
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Setup"]')).toBeNull();
 		expect(container.querySelector('[data-sidebar="group-label"]')).toBeNull();

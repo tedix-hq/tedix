@@ -261,7 +261,7 @@ describe("OutputsPage", () => {
 		const toolbar = container.querySelector('[data-slot="page-toolbar"]');
 		expect(toolbar?.querySelector('[role="tablist"]')).not.toBeNull();
 		expect(
-			toolbar?.querySelector('[aria-label="Search documents"]'),
+			toolbar?.querySelector('[aria-label="Search files"]'),
 		).not.toBeNull();
 		expect(
 			Array.from(toolbar?.querySelectorAll("button") ?? []).some((button) =>
@@ -415,7 +415,7 @@ describe("OutputsPage", () => {
 		await flush();
 		expect(container.querySelector('[data-slot="page"]')).not.toBeNull();
 
-		expect(container.textContent).toContain("Documents are unavailable");
+		expect(container.textContent).toContain("Files are unavailable");
 		expect(container.textContent).toContain(
 			"API request timed out after 15000ms",
 		);
