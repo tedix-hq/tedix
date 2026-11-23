@@ -43,6 +43,7 @@ vi.mock("@/lib/api", () => ({
 			listEvidence: vi.fn().mockResolvedValue({ data: [] }),
 			previewEvidence: vi.fn(),
 		},
+		projects: { list: vi.fn().mockResolvedValue({ data: [] }) },
 		dispatcherHealth: { list: vi.fn().mockResolvedValue({ data: [] }) },
 		tedis: { list: vi.fn().mockResolvedValue({ data: [] }) },
 		members: { listMembers: vi.fn().mockResolvedValue({ data: [] }) },

@@ -197,13 +197,22 @@ describe("partition-aware query callers", () => {
 		).toContain("written");
 	});
 
-	it("reads and writes a logs database that has no identifier dictionary yet", async () => {
+	it("reads historical dictionary references alongside inline identifiers across partitions", async () => {
 		const { main, old, active } = await split();
 		// Main and one logs database are migrated; the sealed partition is not.
 		for (const migrated of [main, active])
 			migrated.sqlite.exec(
 				tableDdl(auditMetadataRefs, { foreignKeys: false }).join("\n"),
 			);
+		await active.db.insert(auditMetadataRefs).values([
+			{ organizationId: ORG, ref: "a1", kind: "app", value: "app-example" },
+			{
+				organizationId: ORG,
+				ref: "c1",
+				kind: "client",
+				value: "client-example",
+			},
+		]);
 		await insertAuditEvent(main.db, {
 			id: "compact",
 			organizationId: ORG,
@@ -213,7 +222,7 @@ describe("partition-aware query callers", () => {
 			resourceType: "mcp_tool",
 			resourceId: "compact",
 			occurredAt: new Date("2026-02-02"),
-			metadata: { appId: "app-example", clientId: "client-example" },
+			metadata: { _r: { a: "a1", c: "c1" } },
 		});
 		expect(
 			active.sqlite

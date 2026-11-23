@@ -206,7 +206,7 @@ describe("the next row older than a retention cutoff", () => {
 				)
 				.map((row) => String(row.detail))
 				.join("\n");
-			expect(plan).toContain("MULTI-INDEX OR");
+			expect(plan).toContain("UNION ALL");
 			expect(plan).toContain("idx_audit_events_timestamp (timestamp<?)");
 			expect(plan).toContain(
 				"idx_audit_events_action_timestamp (action=? AND timestamp<?)",

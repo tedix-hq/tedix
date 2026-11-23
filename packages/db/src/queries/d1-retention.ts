@@ -266,18 +266,42 @@ export function d1RetentionPolicyCutoff(
 		: standard;
 }
 
+function auditRetentionRanges(cutoff: {
+	standard: number;
+	telemetry: number;
+}): [SQL, SQL] {
+	return [
+		sql`${auditEvents.timestamp} < ${Math.min(cutoff.standard, cutoff.telemetry)}`,
+		sql`${auditEvents.action} IN (SELECT value FROM json_each(${JSON.stringify([...MCP_TELEMETRY_ACTIONS])}))
+			AND ${auditEvents.timestamp} < ${cutoff.telemetry}`,
+	];
+}
+
 function retentionExpiredPredicate(
 	tableSpec: D1RetentionTableSpec,
 	cutoff: D1RetentionPolicyCutoff,
 ): SQL {
 	if (typeof cutoff !== "object")
 		return sql`${tableSpec.timestamp} < ${cutoff}`;
-	// Separate ranges let SQLite use timestamp for the standard window and
-	// action/timestamp for telemetry instead of scanning retained audit rows.
-	return sql`(${tableSpec.timestamp} < ${Math.min(cutoff.standard, cutoff.telemetry)} OR
-		(${auditEvents.action} IN
-		(SELECT value FROM json_each(${JSON.stringify([...MCP_TELEMETRY_ACTIONS])}))
-		AND ${tableSpec.timestamp} < ${cutoff.telemetry}))`;
+	return sql`(${sql.join(auditRetentionRanges(cutoff), sql` OR `)})`;
+}
+
+// Plan each window independently so SQLite can seek the standard cutoff once,
+// even on versions that choose a skip-scan across every action for OR.
+function expiredRowids(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionPolicyCutoff,
+) {
+	const select = (predicate: SQL) =>
+		db
+			.select({ candidate: sql<number>`rowid`.as("candidate") })
+			.from(tableSpec.table)
+			.where(predicate);
+	if (typeof cutoff !== "object")
+		return select(retentionExpiredPredicate(tableSpec, cutoff)).as("expired");
+	const [standard, telemetry] = auditRetentionRanges(cutoff);
+	return select(standard).unionAll(select(telemetry)).as("expired");
 }
 
 /** The exclusive cutoff value in the table's own timestamp representation. */
@@ -395,9 +419,8 @@ export async function hasD1RetentionExpiredRows(
 	cutoff: D1RetentionPolicyCutoff,
 ): Promise<boolean> {
 	const rows = await db
-		.select({ age: sql`${tableSpec.timestamp}`.as("retention_age") })
-		.from(tableSpec.table)
-		.where(retentionExpiredPredicate(tableSpec, cutoff))
+		.select({ found: sql`1`.as("found") })
+		.from(expiredRowids(db, tableSpec, cutoff))
 		.limit(1);
 	return rows.length > 0;
 }
@@ -458,12 +481,15 @@ export async function nextD1RetentionOldRowid(
 	cutoff: D1RetentionPolicyCutoff,
 	afterRowid: number,
 ): Promise<number | null> {
+	const expired = expiredRowids(db, tableSpec, cutoff);
 	const [row] = await db
-		.select({ nextRowid: sql<number | null>`min(+rowid)`.as("next_rowid") })
-		.from(tableSpec.table)
-		.where(
-			sql`${retentionExpiredPredicate(tableSpec, cutoff)} AND +rowid > ${afterRowid}`,
-		);
+		.select({
+			nextRowid: sql<number | null>`min(+${expired.candidate})`.as(
+				"next_rowid",
+			),
+		})
+		.from(expired)
+		.where(sql`+${expired.candidate} > ${afterRowid}`);
 	return row?.nextRowid === null || row?.nextRowid === undefined
 		? null
 		: Number(row.nextRowid);
