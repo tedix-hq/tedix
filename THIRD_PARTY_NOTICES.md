@@ -48,6 +48,8 @@ License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 Includes a patch to @emdash-cms/plugin-forms 0.2.13 that excludes raw visitor IPs from stored submissions, defaults new forms to 30-day retention, keeps form and submission routes admin-only and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
 
+Includes a patch to @emdash-cms/plugin-forms 0.2.14 that excludes raw visitor IPs from stored submissions, defaults new forms to 30-day retention, keeps form and submission routes admin-only and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
+
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-native-marketing-scaffold
