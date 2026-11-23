@@ -134,6 +134,7 @@ import {
 	awaitRebuiltFacetRegistry,
 	FACET_REGISTRY_REBUILD_WAIT_MS,
 } from "./facet-registry-rebuild";
+import { isStateChangeSession } from "./cognitive-addenda";
 import { facetTurnBudgetClass, inferenceSource } from "./inference-guardrails";
 import { JudgeSessionFacet } from "./judge-session-facet";
 import {
@@ -1503,8 +1504,8 @@ export const runtimeFacetTurns = {
 			/** Trusted skill-run id for gateway cost attribution only. */
 			gatewayAttributionRunId?: string;
 			/**
-			 * Cron turns rebuild continuity from canonical Tedix state and must not
-			 * replay the prior fire's derived Pi transcript.
+			 * Source notifications rebuild continuity from canonical Tedix state and
+			 * must not replay the prior wake's derived Pi transcript.
 			 */
 			freshHistory?: boolean;
 			durableSubmissionId?: string;
@@ -2787,7 +2788,12 @@ export const runtimeFacetTurns = {
 		};
 		try {
 			facetTurn = await this.runConversationFacetTurn({
-				freshHistory: isCronTurn,
+				// Source notifications rebuild from canonical state, not earlier wakes.
+				// A command continuation still needs the transcript of its current run.
+				freshHistory:
+					isCronTurn ||
+					(isStateChangeSession(input.sessionKey) &&
+						!input.computerContinuation),
 				// A scheduled maintenance cycle has no member behind it.
 				...(input.actingUserId && !isCronTurn
 					? { actingUserId: input.actingUserId }

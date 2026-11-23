@@ -6,6 +6,7 @@
  * and durations, never source text.
  */
 
+import { TEDI_MEMORY_REFLECTION_SESSION_PREFIX } from "@tedix/api-contract/schemas/tedi-memory";
 import { logTediContextFailure } from "./context-failure-log";
 import { isLeanContextSession } from "@tedix/api-contract/utils/runtime-identity";
 import {
@@ -38,6 +39,18 @@ export interface CognitiveAddendaSources {
 	 * `skillGuidance`, so Home delegation work orders keep it.
 	 */
 	retrievedSkills: () => Promise<string>;
+}
+
+/** These notifications carry a source record or exact canonical references. */
+export function isStateChangeSession(
+	sessionKey: string | null | undefined,
+): boolean {
+	return Boolean(
+		sessionKey?.startsWith("commitments:") ||
+		sessionKey?.startsWith("interaction-review:") ||
+		sessionKey?.startsWith("agent:main:repository-observer:") ||
+		sessionKey?.startsWith(TEDI_MEMORY_REFLECTION_SESSION_PREFIX),
+	);
 }
 
 /**
@@ -140,7 +153,7 @@ export async function composeCognitiveAddenda(input: {
 	const turnKind = classifyContextTurn({
 		isLeanContextSession: isLeanContextSession(input.sessionKey),
 		isHomeDelegationWorkOrder: input.homeWorkOrder === true,
-		isCommitmentWake: input.sessionKey?.startsWith("commitments:") === true,
+		isStateChangeWake: isStateChangeSession(input.sessionKey),
 	});
 	const blocks = contextSegmentsForTurn(turnKind);
 	type BuiltBlock = {

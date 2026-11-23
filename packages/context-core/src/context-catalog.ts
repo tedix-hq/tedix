@@ -43,8 +43,8 @@ export type ContextSegmentId = (typeof CONTEXT_SEGMENT_IDS)[number];
  * - `home-delegation-work-order` — an explicit, bounded operator work order.
  *   Keeps identity, memory and operational guidance, but withholds learned
  *   preferences so a loosely matching directive cannot redirect the order.
- * - `commitment-wake` — read the changed canonical objects supplied by the
- *   scheduler. Keeps guidance without recalling unrelated memory and tasks.
+ * - `state-change-wake` — read the source record or changed canonical objects
+ *   supplied by a notification. Keeps guidance without unrelated memory and tasks.
  * - `lean` — blind verification (an evidence judge that must receive NO
  *   accumulated belief, or the verdict is contaminated) and lean workflow
  *   synthesis (self-contained summarization whose whole input is already in the
@@ -53,7 +53,7 @@ export type ContextSegmentId = (typeof CONTEXT_SEGMENT_IDS)[number];
 export const CONTEXT_TURN_KINDS = [
 	"standard",
 	"home-delegation-work-order",
-	"commitment-wake",
+	"state-change-wake",
 	"lean",
 ] as const;
 
@@ -90,9 +90,9 @@ export const CONTEXT_SEGMENT_CATALOG: readonly ContextSegmentDefinition[] = [
 			"Cached top-K brain digest — the tedi's accumulated beliefs about its world.",
 		withheldFrom: [
 			{
-				kind: "commitment-wake",
+				kind: "state-change-wake",
 				because:
-					"A commitment wake supplies changed canonical objects to read, not a reason to recall the tedi's entire brain and task history.",
+					"A state-change wake supplies its source record or canonical objects to read, not a reason to recall unrelated memory and task history.",
 			},
 			{
 				kind: "lean",
@@ -154,10 +154,10 @@ export function contextSegmentsForTurn(
 export function classifyContextTurn(input: {
 	isLeanContextSession: boolean;
 	isHomeDelegationWorkOrder: boolean;
-	isCommitmentWake?: boolean;
+	isStateChangeWake?: boolean;
 }): ContextTurnKind {
 	if (input.isLeanContextSession) return "lean";
 	if (input.isHomeDelegationWorkOrder) return "home-delegation-work-order";
-	if (input.isCommitmentWake) return "commitment-wake";
+	if (input.isStateChangeWake) return "state-change-wake";
 	return "standard";
 }

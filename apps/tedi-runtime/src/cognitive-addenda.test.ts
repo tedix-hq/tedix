@@ -425,8 +425,7 @@ for (const sessionKey of [
 	assert.match(text, /reask once/);
 }
 
-// A background commitment notification must not search memory or expand the
-// whole task history. Its prompt already names the canonical objects to read.
+// Source notifications must not expand unrelated memory and task history.
 {
 	let memoryReads = 0;
 	const sources: CognitiveAddendaSources = {
@@ -444,9 +443,14 @@ for (const sessionKey of [
 		onComposition: () => {},
 	});
 	assert.equal(memoryReads, 1);
-	for (let wake = 0; wake < 2; wake++) {
+	for (const sessionKey of [
+		"commitments:worker",
+		"interaction-review:answer",
+		"agent:main:repository-observer:push",
+		"core-memory-reflection:worker",
+	]) {
 		const text = await composeCognitiveAddenda({
-			sessionKey: "commitments:worker",
+			sessionKey,
 			sources,
 			onComposition: (report) => {
 				assert.equal(
@@ -455,7 +459,11 @@ for (const sessionKey of [
 				);
 			},
 		});
-		assert.equal(memoryReads, 1, "neither wake invokes memory retrieval");
+		assert.equal(
+			memoryReads,
+			1,
+			"source notifications do not invoke memory retrieval",
+		);
 		assert.ok(!text.includes("Unrelated remembered task"));
 		assert.ok(text.includes("Applicable directive"));
 		assert.ok(text.includes("Operational guidance"));

@@ -1,3 +1,4 @@
+import { estimateInferenceTokens } from "./inference-guardrails";
 import {
 	recordRestrictedProviderCall,
 	resolveTurnExecutionRestriction,
@@ -624,6 +625,21 @@ export class ConversationFacet extends PiAgent<
 		models.setProvider(
 			createTedixPiProvider<ConversationProviderReceipt>({
 				beforeDispatch: async (call, receipt) => {
+					console.log({
+						event: "tedi.context.request",
+						runId: receipt?.runId ?? this.state.runId,
+						stepNumber: receipt?.ordinal ?? null,
+						estimatedSystemTokens: estimateSdkPromptTokens(
+							call.prompt.filter((message) => message.role === "system"),
+						),
+						estimatedConversationTokens: estimateSdkPromptTokens(
+							call.prompt.filter((message) => message.role !== "system"),
+						),
+						estimatedToolTokens: call.tools?.length
+							? estimateInferenceTokens(call.tools)
+							: 0,
+						toolCount: call.tools?.length ?? 0,
+					});
 					if (!this.state.executionRestriction) return;
 					if (
 						!receipt ||

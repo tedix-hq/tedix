@@ -354,6 +354,28 @@ for (const stream of [false, true]) {
 	assert.deepEqual(probe.commits[0]?.facetUsage, { totalTokens: 9 });
 }
 
+// A new source notification omits prior wakes; command completion keeps the
+// current run's tool history so it can resume rather than repeat the command.
+for (const sessionKey of [
+	"commitments:worker",
+	"interaction-review:answer",
+	"agent:main:repository-observer:push",
+	"core-memory-reflection:worker",
+]) {
+	for (const computerContinuation of [0, 1]) {
+		const probe = facetWorkflowTurnProbe({
+			async facetTurn() {
+				return { assistantText: "Checked source.", turnError: null };
+			},
+		});
+		await probe.run({ sessionKey, computerContinuation });
+		assert.equal(
+			probe.facetInputs[0]?.freshHistory,
+			computerContinuation === 0,
+		);
+	}
+}
+
 // ── the durable workflow turn ────────────────────────────────────────────────
 {
 	// Settled fast-path: a re-driven step returns the committed row, no turn.

@@ -1,3 +1,4 @@
+import { measurePromptComposition } from "@tedix/context-core/prompt-composition";
 import {
 	type RetrievedSkillMatch,
 	type RetrievableSkill,
@@ -446,6 +447,16 @@ export async function brainDigestAddendum(
 			if (!platform) throw new Error("Task-state platform unavailable");
 			return platform.getTurnMemory(references);
 		},
+	});
+	console.log({
+		event: "tedi.context.memory",
+		runId: this.activeTurnBinding?.runId ?? null,
+		sessionKey: sessionKey ?? DEFAULT_SESSION_KEY,
+		...measurePromptComposition([
+			{ name: "digest", text: digest },
+			{ name: "recall", text: recall },
+			{ name: "taskState", text: current },
+		]),
 	});
 	return [digest, recall, current].filter(Boolean).join("\n\n");
 }
