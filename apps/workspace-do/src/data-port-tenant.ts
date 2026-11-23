@@ -95,6 +95,7 @@ import {
 	LIVE_WORK_ATTEMPT_RUNTIME_STATES,
 	listWorkItemAttempts,
 } from "@tedix/db/queries/work-items/attempts";
+import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { listWorkItemEvidence } from "@tedix/db/queries/work-items/evidence";
 import {
 	addWorkItemComment,
@@ -1444,7 +1445,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	async getWork(workItemId: string): Promise<WorkItemDetail> {
 		await this.#runActor();
 		const item = await this.#reachableWork(workItemId);
-		const [project, comments, attempts, evidence] = await Promise.all([
+		const [project, comments, attempts, evidence, tedis] = await Promise.all([
 			item.projectId
 				? getProjectByIdForOrganization(
 						this.deps.core,
@@ -1466,6 +1467,17 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				orgId: item.orgId,
 				workItemId: item.id,
 				limit: 10,
+			}),
+			listTediDisplayNamesByIds(this.deps.core, {
+				organizationId: item.orgId,
+				ids: [
+					...(item.accountableOwnerType === "tedi" && item.accountableOwnerId
+						? [item.accountableOwnerId]
+						: []),
+					...(item.stewardType === "tedi" && item.stewardId
+						? [item.stewardId]
+						: []),
+				],
 			}),
 		]);
 		const run = attempts.data[0];
@@ -1497,6 +1509,9 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				typeof hold?.note === "string"
 					? wrapUntrustedInput(hold.note.slice(0, 2000), "dispatch_note")
 					: null,
+			tediNames: Object.fromEntries(
+				tedis.map((tedi) => [tedi.id, tedi.displayName || tedi.name]),
+			),
 			steward: item.stewardId ? `${item.stewardType}:${item.stewardId}` : null,
 			evidence: evidence.data.map(
 				({ id, attemptId, claimKey, kind, uri, label, disposition }) => ({

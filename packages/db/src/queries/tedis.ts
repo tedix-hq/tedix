@@ -20,6 +20,7 @@ import {
 	type SQL,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import { runtimeProfiles } from "../schema/control-plane";
 import { tediRoleAssignments } from "../schema/earned-delegation";
 import {
@@ -281,7 +282,7 @@ export async function listRetiredTedisByOrganization(
 
 /** Bounded identity/display projection for an org-scoped set of tedis. */
 export async function listTediDisplayNamesByIds(
-	db: DbClient,
+	db: DbQueryClient,
 	input: { organizationId: string; ids: string[] },
 ): Promise<Array<Pick<Tedi, "id" | "name" | "displayName" | "slug">>> {
 	if (input.ids.length === 0) return [];

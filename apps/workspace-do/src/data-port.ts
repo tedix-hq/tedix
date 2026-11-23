@@ -169,6 +169,7 @@ export interface WorkItemDetail extends WorkItemSummary {
 	holdReason: string | null;
 	holdNote: string | null;
 	steward: string | null;
+	tediNames: Record<string, string>;
 	evidence: Array<{
 		id: string;
 		attemptId: string | null;

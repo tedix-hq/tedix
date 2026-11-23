@@ -3769,7 +3769,7 @@ describe("WorkspaceDO", () => {
 			const queued = await env.work.get("w1");
 			const held = await env.work.get("w2");
 			const shipped = await env.work.get("w4");
-			return {executor:queued.executor, admission:queued.latestRun, reason:held.holdReason, steward:held.steward, live:held.latestRun.hasLiveLease, evidence:shipped.evidence};
+			return {executor:queued.executor, admission:queued.latestRun, reason:held.holdReason, steward:held.steward, names:held.tediNames, live:held.latestRun.hasLiveLease, evidence:shipped.evidence};
 		}`,
 			},
 			{ text: "Checked." },
@@ -3798,6 +3798,7 @@ describe("WorkspaceDO", () => {
 			admission: null,
 			reason: expect.stringContaining("Verification needs access"),
 			steward: "tedi:tedi1",
+			names: { tedi1: "Guest" },
 			live: false,
 			evidence: [
 				{
