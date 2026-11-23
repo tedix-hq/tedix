@@ -1,7 +1,7 @@
-diff --git a/dist/adapters-DFsc9XjW.d.mts b/dist/adapters-DFsc9XjW.d.mts
-index 040a213..7cf25ce 100644
---- a/dist/adapters-DFsc9XjW.d.mts
-+++ b/dist/adapters-DFsc9XjW.d.mts
+diff --git a/dist/adapters-CMuwJgdX.d.mts b/dist/adapters-CMuwJgdX.d.mts
+index 5e57840b5..4e0f8044e 100644
+--- a/dist/adapters-CMuwJgdX.d.mts
++++ b/dist/adapters-CMuwJgdX.d.mts
 @@ -31,6 +31,11 @@ type CollectionDeletionGuardInput = {
    collectionSlug: string;
    leaseToken: string;
@@ -24,21 +24,21 @@ index 040a213..7cf25ce 100644
    outcome: "dropped";
  };
 diff --git a/dist/astro/middleware/auth.mjs b/dist/astro/middleware/auth.mjs
-index 7087c1f..913b14e 100644
+index 4287cbaef..bc20916a1 100644
 --- a/dist/astro/middleware/auth.mjs
 +++ b/dist/astro/middleware/auth.mjs
-@@ -417,9 +417,7 @@ async function handleExternalAuth(context, next, authMode, _isApiRoute) {
+@@ -429,9 +429,7 @@ async function handleExternalAuth(context, next, emdash, authMode, _isApiRoute)
  					...MW_CACHE_HEADERS
  				}
  			});
 -			const userCount = await emdash.db.selectFrom("users").select(emdash.db.fn.count("id").as("count")).executeTakeFirst();
 -			const isFirstUser = Number(userCount?.count ?? 0) === 0;
--			const role = isFirstUser ? ROLE_ADMIN : authResult.role;
-+			const role = authResult.role;
+-			const role = isFirstUser ? ROLE_ADMIN : toRoleLevel(authResult.role);
++			const role = toRoleLevel(authResult.role);
  			const now = (/* @__PURE__ */ new Date()).toISOString();
  			const newUser = {
  				id: ulid(),
-@@ -430,10 +428,14 @@ async function handleExternalAuth(context, next, authMode, _isApiRoute) {
+@@ -442,10 +440,14 @@ async function handleExternalAuth(context, next, emdash, authMode, _isApiRoute)
  				created_at: now,
  				updated_at: now
  			};
@@ -57,10 +57,10 @@ index 7087c1f..913b14e 100644
  			let newName;
  			let newRole;
 diff --git a/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs b/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
-index 55b066f..32c4057 100644
+index be3aea870..940b81096 100644
 --- a/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
 +++ b/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
-@@ -61,8 +61,9 @@ const POST = async ({ params, request, locals }) => {
+@@ -62,8 +62,9 @@ const POST = async ({ params, request, locals }) => {
  		if (!previousState) return apiError("UPDATE_FAILED", "Failed to update plugin", 500);
  		await finalizePluginUpdate({
  			pluginId: id,
@@ -72,7 +72,7 @@ index 55b066f..32c4057 100644
  			runRollbackLifecycle: () => previousState.status === "active" ? emdash.runPluginActivateLifecycle(id) : Promise.resolve()
  		});
 diff --git a/dist/astro/routes/api/admin/plugins/registry/install.mjs b/dist/astro/routes/api/admin/plugins/registry/install.mjs
-index 4ab41b2..5cec4fc 100644
+index be1d21743..abff52281 100644
 --- a/dist/astro/routes/api/admin/plugins/registry/install.mjs
 +++ b/dist/astro/routes/api/admin/plugins/registry/install.mjs
 @@ -63,8 +63,9 @@ const POST = async ({ request, locals }) => {
@@ -87,7 +87,7 @@ index 4ab41b2..5cec4fc 100644
  		});
  		return unwrapResult(result, 201);
 diff --git a/dist/astro/routes/api/content/_collection_/index.mjs b/dist/astro/routes/api/content/_collection_/index.mjs
-index c07ca6d..c75ec70 100644
+index fcd2b1070..8c9950d16 100644
 --- a/dist/astro/routes/api/content/_collection_/index.mjs
 +++ b/dist/astro/routes/api/content/_collection_/index.mjs
 @@ -21,9 +21,11 @@ const GET = async ({ params, url, locals }) => {
@@ -105,10 +105,18 @@ index c07ca6d..c75ec70 100644
  	return unwrapResult(await emdash.handleContentList(collection, params_));
  };
 diff --git a/dist/astro/routes/api/mcp.mjs b/dist/astro/routes/api/mcp.mjs
-index 3046214..fe5cf09 100644
+index ff25a2350..71e78043b 100644
 --- a/dist/astro/routes/api/mcp.mjs
 +++ b/dist/astro/routes/api/mcp.mjs
-@@ -924,7 +924,8 @@ function createMcpServer(pluginTools = [], request) {
+@@ -429,6 +429,7 @@ const settingsSocialSchema = z.object({
+ const settingsSeoSchema = z.object({
+ 	titleSeparator: z.string().max(10).optional().describe("Separator between page title and site title (e.g. ' | ')"),
+ 	defaultOgImage: settingsMediaReferenceSchema.nullable().optional().describe("Default Open Graph image when content has none; null removes it"),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional().describe("Custom robots.txt body. Leave unset for the EmDash default. Changes are rejected when the site serves its own src/pages/robots.txt."),
+ 	disallowAiTraining: z.boolean().optional().describe("Add robots.txt rules asking AI crawlers not to use the site for training. Changes are rejected when the site serves its own src/pages/robots.txt."),
+ 	googleVerification: z.string().max(100).optional().describe("Google Search Console verification token"),
+@@ -925,7 +926,8 @@ function createMcpServer(pluginTools = [], request) {
  			cursor: args.cursor,
  			orderBy: args.orderBy,
  			order: args.order,
@@ -118,17 +126,17 @@ index 3046214..fe5cf09 100644
  		});
  		if (result.success && args.markdown) {
  			const payload = result.data;
-@@ -945,7 +946,7 @@ function createMcpServer(pluginTools = [], request) {
+@@ -946,7 +948,7 @@ function createMcpServer(pluginTools = [], request) {
  	}, async (args, extra) => {
  		requireScope(extra, "content:read");
  		const ec = getEmDash(extra);
 -		const result = await ec.handleContentGet(args.collection, args.id, args.locale);
 +		const result = await ec.handleContentGet(args.collection, args.id, args.locale, { includeDrafts: canReadDrafts(extra) });
- 		if (result.success && !canReadDrafts(extra)) {
- 			const data = result.data && typeof result.data === "object" ? result.data : void 0;
- 			const item = data?.item && typeof data.item === "object" ? data.item : void 0;
+ 		if (!result.success) return unwrap(result);
+ 		let item = result.data.item;
+ 		if (!canReadDrafts(extra)) {
 diff --git a/dist/astro/routes/api/menus/_name_/items.d.mts b/dist/astro/routes/api/menus/_name_/items.d.mts
-index dda3123..1adfbed 100644
+index dda31238c..1adfbed42 100644
 --- a/dist/astro/routes/api/menus/_name_/items.d.mts
 +++ b/dist/astro/routes/api/menus/_name_/items.d.mts
 @@ -3,6 +3,7 @@ import { APIRoute } from "astro";
@@ -142,18 +150,18 @@ index dda3123..1adfbed 100644
  //# sourceMappingURL=items.d.mts.map
 \ No newline at end of file
 diff --git a/dist/astro/routes/api/menus/_name_/items.mjs b/dist/astro/routes/api/menus/_name_/items.mjs
-index cc4c181..db8d4ae 100644
+index 817843a78..66c9d7f81 100644
 --- a/dist/astro/routes/api/menus/_name_/items.mjs
 +++ b/dist/astro/routes/api/menus/_name_/items.mjs
 @@ -1,5 +1,5 @@
  import { t as menuTag } from "../../../../../chrome-tags-BocDVqqx.mjs";
--import { i as handleMenuItemCreate } from "../../../../../menus--MSfZ5Eu.mjs";
-+import { i as handleMenuItemCreate, d as menuHandlers } from "../../../../../menus--MSfZ5Eu.mjs";
- import { a as unwrapResult, r as handleError } from "../../../../../error-DcDNU7hZ.mjs";
- import { i as parseQuery, n as parseBody, t as isParseError } from "../../../../../parse-B1E5cdyD.mjs";
- import { b as localeFilterQuery } from "../../../../../redirects-dFPJ0HrD.mjs";
-@@ -7,6 +7,18 @@ import { n as createMenuItemBody } from "../../../../../menus-C8h6Jtpu.mjs";
- import { o as requirePerm } from "../../../../../authorize-B-4ogCQG.mjs";
+-import { i as handleMenuItemCreate } from "../../../../../menus-DoVbs2sn.mjs";
++import { i as handleMenuItemCreate, d as menuHandlers } from "../../../../../menus-DoVbs2sn.mjs";
+ import { i as unwrapResult, r as handleError, t as apiError } from "../../../../../error-0Y0dFPxm.mjs";
+ import { i as parseQuery, n as parseBody, t as isParseError } from "../../../../../parse-BTfkfMuL.mjs";
+ import { b as localeFilterQuery } from "../../../../../redirects-Yo8YTJMV.mjs";
+@@ -7,6 +7,18 @@ import { n as createMenuItemBody } from "../../../../../menus-CnEw5nz8.mjs";
+ import { o as requirePerm } from "../../../../../authorize-6a0h5NN5.mjs";
  import { t as invalidateRouteCache } from "../../../../../route-cache-DkhMwAIC.mjs";
  
 +import { z } from "zod";
@@ -171,7 +179,7 @@ index cc4c181..db8d4ae 100644
  //#region src/astro/routes/api/menus/[name]/items.ts
  const prerender = false;
  const POST = async ({ params, request, locals, cache }) => {
-@@ -28,6 +40,34 @@ const POST = async ({ params, request, locals, cache }) => {
+@@ -29,6 +41,34 @@ const POST = async ({ params, request, locals, cache }) => {
  	}
  };
  
@@ -209,7 +217,7 @@ index cc4c181..db8d4ae 100644
  //# sourceMappingURL=items.mjs.map
 \ No newline at end of file
 diff --git a/dist/astro/routes/sitemap-_collection_.xml.mjs b/dist/astro/routes/sitemap-_collection_.xml.mjs
-index fd4d826..3ef7fac 100644
+index eac1ce770..33ad0eb9c 100644
 --- a/dist/astro/routes/sitemap-_collection_.xml.mjs
 +++ b/dist/astro/routes/sitemap-_collection_.xml.mjs
 @@ -71,7 +71,13 @@ const GET = async ({ params, locals, url }) => {
@@ -235,13 +243,41 @@ index fd4d826..3ef7fac 100644
  				"Cache-Control": "public, max-age=3600"
  			}
  		});
-diff --git a/dist/config-B4F2ttAZ.d.mts b/dist/config-B4F2ttAZ.d.mts
-index a0d46d9..6997dca 100644
---- a/dist/config-B4F2ttAZ.d.mts
-+++ b/dist/config-B4F2ttAZ.d.mts
-@@ -3348,8 +3348,8 @@ declare class EmDashRuntime {
+diff --git a/dist/astro/routes/sitemap.xml.mjs b/dist/astro/routes/sitemap.xml.mjs
+index 18080da71..b80bd88ef 100644
+--- a/dist/astro/routes/sitemap.xml.mjs
++++ b/dist/astro/routes/sitemap.xml.mjs
+@@ -25,14 +25,23 @@ const GET = async ({ locals, url }) => {
+ 		});
+ 		const { sitemaps } = result.data;
+ 		const lines = ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"];
++		const listed = new Set();
+ 		for (const sitemap of sitemaps) {
+ 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
+ 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
++			listed.add(loc);
+ 			lines.push("  <sitemap>");
+ 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
+ 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
+ 			lines.push("  </sitemap>");
+ 		}
++		for (const path of settings.seo?.additionalSitemaps ?? []) {
++			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
++			const loc = `${siteUrl}${path}`;
++			if (listed.has(loc)) continue;
++			listed.add(loc);
++			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
++		}
+ 		lines.push("</sitemapindex>");
+ 		return new Response(lines.join("\n"), {
+ 			status: 200,
+diff --git a/dist/config-B27hvMjf.d.mts b/dist/config-B27hvMjf.d.mts
+index 02b0c8042..ae6f2cc9f 100644
+--- a/dist/config-B27hvMjf.d.mts
++++ b/dist/config-B27hvMjf.d.mts
+@@ -3413,8 +3413,8 @@ declare class EmDashRuntime {
    }>;
-   /** Dispatch teardown lifecycle while the runtime-installed isolate is still loaded. */
+   /** Run teardown before bundle deletion, including plugins already disabled in this isolate. */
    runPluginUninstallLifecycle(pluginId: string, deleteData: boolean): Promise<void>;
 -  runPluginInstallLifecycle(pluginId: string): Promise<void>;
 -  runPluginActivateLifecycle(pluginId: string): Promise<void>;
@@ -250,11 +286,11 @@ index a0d46d9..6997dca 100644
    /**
     * Run install → activate once for each loaded plugin registered in the
     * integration config that has no `_plugin_state` row.
-diff --git a/dist/emdash-runtime-CXsdCQnM.mjs b/dist/emdash-runtime-CXsdCQnM.mjs
-index 8971824..4993189 100644
---- a/dist/emdash-runtime-CXsdCQnM.mjs
-+++ b/dist/emdash-runtime-CXsdCQnM.mjs
-@@ -1808,12 +1808,22 @@ var EmDashRuntime = class EmDashRuntime {
+diff --git a/dist/emdash-runtime-CF6KAut9.mjs b/dist/emdash-runtime-CF6KAut9.mjs
+index db1aa25cb..2d42c6de5 100644
+--- a/dist/emdash-runtime-CF6KAut9.mjs
++++ b/dist/emdash-runtime-CF6KAut9.mjs
+@@ -1989,12 +1989,22 @@ var EmDashRuntime = class EmDashRuntime {
  			console.error(`EmDash: Plugin ${pluginId} uninstall hook failed:`, error);
  		}
  	}
@@ -280,31 +316,44 @@ index 8971824..4993189 100644
  	}
  	/**
  	* Run install → activate once for each loaded plugin registered in the
-@@ -1993,6 +2003,7 @@ var EmDashRuntime = class EmDashRuntime {
- 				}
- 				const bundle = await loadBundleFromR2(this.storage, pluginId, version, source);
- 				if (!bundle) {
-+					if (source === "registry") throw new Error(`EmDash: registry plugin ${pluginId}@${version} not found in R2`);
- 					console.warn(`EmDash: ${source} plugin ${pluginId}@${version} not found in R2`);
- 					continue;
- 				}
-@@ -2025,6 +2036,7 @@ var EmDashRuntime = class EmDashRuntime {
- 			if (pipelineChanged) await this.rebuildHookPipeline();
+@@ -2096,12 +2106,18 @@ var EmDashRuntime = class EmDashRuntime {
+ 	/** Reconcile locally committed registry mutations through the shared state lock. */
+ 	async syncRegistryPlugins() {
+ 		if (!getRegistryConfigInput(this.config.registry)) return;
+-		await this.syncPluginState();
++		await this.syncPluginState(true);
++		for (const state of this.pluginStateSnapshot?.states ?? []) {
++			if (state.source === "registry" && state.status === "active") {
++				const failure = this.pluginRefreshFailures.get(state.pluginId);
++				if (failure) throw failure.error;
++			}
++		}
+ 	}
+ 	withPluginStateLock(run) {
+ 		return initWithLock(this.pluginStateLock, () => null, run, { anchor: (promise) => after(() => promise) });
+ 	}
+-	async syncPluginState() {
++	async syncPluginState(strict = false) {
+ 		const repo = new PluginStateRepository(this.db);
+ 		const writtenGeneration = repo.getLastWrittenGeneration();
+ 		if (!this.runtimeDeps.sandboxBypassed && sandboxRunner) this.installedPluginSandboxAvailable = sandboxRunner.isAvailable();
+@@ -2117,6 +2133,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 			});
  		} catch (error) {
- 			console.error(`EmDash: Failed to sync ${source} plugins:`, error);
-+			if (source === "registry") throw error;
+ 			console.error("EmDash: Failed to synchronize plugin state:", error);
++			if (strict) throw error;
  		}
  	}
- 	/**
-@@ -2326,6 +2338,7 @@ var EmDashRuntime = class EmDashRuntime {
- 					const { validateSeed } = await import("./validate-BNupiQtz.mjs").then((n) => n.r);
+ 	/** Whether route lookup may need runtime-installed plugin state. Does no I/O. */
+@@ -2608,6 +2625,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 					const { validateSeed } = await import("./validate-DBnEN6hU.mjs").then((n) => n.r);
  					const seed = await loadSeed();
  					if (!validateSeed(seed).valid) return false;
 +					await (await assertSiteWriteAllowed(db))();
  					const seedResult = await applySeed(db, seed, { onConflict: "skip" });
  					await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
  					console.log("Auto-seeded default collections");
-@@ -3170,13 +3183,44 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -3439,13 +3457,44 @@ var EmDashRuntime = class EmDashRuntime {
  		} catch {}
  	}
  	async handleContentList(collection, params) {
@@ -350,8 +399,8 @@ index 8971824..4993189 100644
  		return this.hydrateDraftData(result, draftOptions);
  	}
  	async handleContentGetIncludingTrashed(collection, id, locale) {
-@@ -3876,10 +3920,8 @@ var EmDashRuntime = class EmDashRuntime {
- 				message: "Revision precondition did not match"
+@@ -4153,10 +4202,8 @@ var EmDashRuntime = class EmDashRuntime {
+ 				message: "Content is no longer scheduled to publish"
  			}
  		};
 -		if (!this.hooks.hasHooks(name)) return {
@@ -363,7 +412,7 @@ index 8971824..4993189 100644
  		if (name !== "content:beforeUnpublish") try {
  			current = await this.hydrateDraftData(current, {
  				includeStagedSlug: true,
-@@ -3896,6 +3938,40 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -4173,6 +4220,40 @@ var EmDashRuntime = class EmDashRuntime {
  				}
  			};
  		}
@@ -404,7 +453,7 @@ index 8971824..4993189 100644
  		const origin = options.origin ?? { source: "system" };
  		const actor = options.actor && (origin.source === "api" || origin.source === "mcp" || origin.source === "visual-editor") ? {
  			...options.actor,
-@@ -4326,7 +4402,39 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -4617,7 +4698,39 @@ var EmDashRuntime = class EmDashRuntime {
  	async restoreRevision(revisionId, revision, callerUserId, role) {
  		const revisionRepo = new RevisionRepository(this.db);
  		if (revision.kind === "recovery") return this.restoreRecoveryRevision(revision, callerUserId, role);
@@ -445,10 +494,89 @@ index 8971824..4993189 100644
  			const result = await handleRevisionRestore(this.db, revisionId, callerUserId);
  			if (result.success) await this.refreshContentUsageAfterSuccessfulWrite(revision.collection, [revision.entryId]);
  			return this.hydrateDraftData(result);
-diff --git a/dist/install-finalization-CIl610wT.mjs b/dist/install-finalization-CIl610wT.mjs
-index 9ccd49c..35d6643 100644
---- a/dist/install-finalization-CIl610wT.mjs
-+++ b/dist/install-finalization-CIl610wT.mjs
+diff --git a/dist/entry-lock-DJgDNfMf.mjs b/dist/entry-lock-DJgDNfMf.mjs
+index 877ca9250..81aa8c548 100644
+--- a/dist/entry-lock-DJgDNfMf.mjs
++++ b/dist/entry-lock-DJgDNfMf.mjs
+@@ -991,6 +991,7 @@ const socialSettings = z.object({
+ const seoSettingsInput = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceInput.nullable().optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+@@ -1020,6 +1021,7 @@ const mediaReferenceResponse = z.object({
+ const seoSettingsResponse = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceResponse.optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+diff --git a/dist/hreflang-DaMRoUor.mjs b/dist/hreflang-DaMRoUor.mjs
+index 927a3693b..dc2494e36 100644
+--- a/dist/hreflang-DaMRoUor.mjs
++++ b/dist/hreflang-DaMRoUor.mjs
+@@ -9,15 +9,15 @@ import { s as getSiteSettingsWithDb } from "./settings-BApLX_aS.mjs";
+ //#region src/seo/hreflang.ts
+ const ABSOLUTE_URL_RE = /^https?:\/\//i;
+ /**
+-* IDs of variants flagged `noindex` in the SEO panel. Entries without
++* SEO metadata for published locale variants. Entries without
+ * an `_emdash_seo` row are indexable by default (same as the sitemap).
+ * The id list is bounded by the number of configured locales, so no
+ * chunking is needed.
+ */
+-async function findNoindexIds(db, collection, ids) {
+-	if (ids.length === 0) return /* @__PURE__ */ new Set();
+-	const rows = await db.selectFrom("_emdash_seo").select("content_id").where("collection", "=", collection).where("content_id", "in", ids).where("seo_no_index", "=", 1).execute();
+-	return new Set(rows.map((r) => r.content_id));
++async function findVariantSeo(db, collection, ids) {
++	if (ids.length === 0) return /* @__PURE__ */ new Map();
++	const rows = await db.selectFrom("_emdash_seo").select(["content_id", "seo_no_index", "seo_canonical"]).where("collection", "=", collection).where("content_id", "in", ids).execute();
++	return new Map(rows.map((r) => [r.content_id, r]));
+ }
+ /**
+ * Resolve hreflang alternates for a content entry.
+@@ -63,9 +63,9 @@ async function getHreflangAlternatesWithDb(db, collection, entryId, options = {}
+ 	if (variants.length === 0) variants = [item];
+ 	let published = variants.filter((v) => v.status === "published");
+ 	if (published.length === 0) return [];
+-	const noindexIds = await findNoindexIds(db, collection, published.map((v) => v.id));
+-	if (noindexIds.has(item.id)) return [];
+-	published = published.filter((v) => !noindexIds.has(v.id));
++	const variantSeo = await findVariantSeo(db, collection, published.map((v) => v.id));
++	if (variantSeo.get(item.id)?.seo_no_index === 1) return [];
++	published = published.filter((v) => variantSeo.get(v.id)?.seo_no_index !== 1);
+ 	const urlPattern = (await getCollectionInfoWithDb(db, collection))?.urlPattern ?? null;
+ 	const resolved = [];
+ 	for (const variant of published) {
+@@ -80,10 +80,16 @@ async function getHreflangAlternatesWithDb(db, collection, entryId, options = {}
+ 			trailingSlash: options.trailingSlash
+ 		});
+ 		if (path === null) continue;
+-		resolved.push({
+-			locale,
+-			href: `${siteUrl}${path}`
+-		});
++		let href = `${siteUrl}${path}`;
++		const override = variantSeo.get(variant.id)?.seo_canonical;
++		if (override) {
++			try {
++				const canonical = new URL(override, siteUrl);
++				if (canonical.origin !== new URL(siteUrl).origin || !["https:", "http:"].includes(canonical.protocol) || canonical.hash || canonical.username || canonical.password) continue;
++				href = canonical.href;
++			} catch { /* Invalid overrides retain the native route, as in the sitemap. */ }
++		}
++		resolved.push({ locale, href });
+ 	}
+ 	if (resolved.length === 0) return [];
+ 	resolved.sort((a, b) => a.locale.localeCompare(b.locale));
+diff --git a/dist/install-finalization-B02IcpqW.mjs b/dist/install-finalization-B02IcpqW.mjs
+index cf8950aa8..2f4ae47a1 100644
+--- a/dist/install-finalization-B02IcpqW.mjs
++++ b/dist/install-finalization-B02IcpqW.mjs
 @@ -1,8 +1,15 @@
  //#region src/plugins/install-finalization.ts
 +function requireSuccessfulLifecycleHook(pluginId, result) {
@@ -476,18 +604,18 @@ index 9ccd49c..35d6643 100644
  	} catch (updateError) {
  		const failures = [updateError];
  		let rollbackSucceeded = false;
-diff --git a/dist/loader-CSEfTKzr.mjs b/dist/loader-CSEfTKzr.mjs
-index 3ce8b9f..0bc9717 100644
---- a/dist/loader-CSEfTKzr.mjs
-+++ b/dist/loader-CSEfTKzr.mjs
-@@ -2,7 +2,7 @@ import { m as __exportAll } from "./runner-4BfB04Rg.mjs";
+diff --git a/dist/loader-DF6J1Fpd.mjs b/dist/loader-DF6J1Fpd.mjs
+index 033c4df02..a2adeb32d 100644
+--- a/dist/loader-DF6J1Fpd.mjs
++++ b/dist/loader-DF6J1Fpd.mjs
+@@ -2,7 +2,7 @@ import { m as __exportAll } from "./runner-Nv0yWP-G.mjs";
  import { n as isMissingColumnError, r as isMissingTableError, t as getMissingColumnIdentifier } from "./db-errors-unnO6yiZ.mjs";
  import { t as validateIdentifier } from "./validate-DANX1-Qi.mjs";
- import { n as buildStatusCondition, u as isPostgres } from "./dialect-helpers-DqUMP9fJ.mjs";
+ import { n as buildStatusCondition, u as isPostgres } from "./dialect-helpers-DRe1Y08G.mjs";
 -import { i as getLocaleCandidates, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
 +import { i as getLocaleCandidates, n as getFallbackChain, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
  import { getRequestContext } from "./request-context.mjs";
- import { t as after } from "./after-B3AvMfBQ.mjs";
+ import { t as after } from "./after-B8cG5P6f.mjs";
  import { n as invalidateSingleFlightCache, r as singleFlightCached, t as createSingleFlightCache } from "./single-flight-cache-BCP1Tvcm.mjs";
 @@ -1074,14 +1074,28 @@ function isIndexedPivotSort(orderBy) {
  * to tell a few dozen assignments from thousands.
@@ -550,17 +678,17 @@ index 3ce8b9f..0bc9717 100644
  						)`), sql` `)}` : sql``;
  					const bylineCond = bylineFilter ? sql`AND EXISTS (
  							SELECT 1 FROM _emdash_content_bylines cb
-diff --git a/dist/media-usage-work-BxHWfbKq.mjs b/dist/media-usage-work-BxHWfbKq.mjs
-index 3df69e3..751331a 100644
---- a/dist/media-usage-work-BxHWfbKq.mjs
-+++ b/dist/media-usage-work-BxHWfbKq.mjs
+diff --git a/dist/media-usage-work-C5HHgfEU.mjs b/dist/media-usage-work-C5HHgfEU.mjs
+index 1e7d1d252..bd720c10e 100644
+--- a/dist/media-usage-work-C5HHgfEU.mjs
++++ b/dist/media-usage-work-C5HHgfEU.mjs
 @@ -2,7 +2,6 @@ import { r as isMissingTableError } from "./db-errors-unnO6yiZ.mjs";
  import { t as validateIdentifier } from "./validate-DANX1-Qi.mjs";
- import { u as isPostgres } from "./dialect-helpers-DqUMP9fJ.mjs";
+ import { u as isPostgres } from "./dialect-helpers-DRe1Y08G.mjs";
  import { l as decodeCursor, u as encodeCursor } from "./types-BBH-w_KS.mjs";
--import { t as withTransaction } from "./transaction-SKrr6u84.mjs";
- import { n as verifyMediaUsageCaptureTriggers } from "./capture-triggers-BZmIEdX2.mjs";
- import { t as FTSManager } from "./fts-manager-B3iLXCGz.mjs";
+-import { t as withTransaction } from "./transaction-D5Kq7MTL.mjs";
+ import { n as verifyMediaUsageCaptureTriggers } from "./capture-triggers-BK2pp_kZ.mjs";
+ import { t as FTSManager } from "./fts-manager-m8GPxogO.mjs";
  import { sql } from "kysely";
 @@ -198,16 +197,7 @@ var MediaUsageCollectionDeletionRepository = class {
  		}).where("collection_id", "=", input.collectionId).where("state", "=", "leased").where("lease_token", "=", input.leaseToken).where(liveLease(this.db)).executeTakeFirst();
@@ -628,10 +756,10 @@ index 3df69e3..751331a 100644
  	if (isPostgres(trx)) return await trx.selectFrom("_emdash_media_usage_collection_deletions").select("collection_id").where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", phase).where("lease_token", "=", input.leaseToken).where(liveLease(trx)).forUpdate().executeTakeFirst() !== void 0;
  	const locked = await trx.updateTable("_emdash_media_usage_collection_deletions").set({ updated_at: sql`updated_at` }).where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", phase).where("lease_token", "=", input.leaseToken).where(liveLease(trx)).executeTakeFirst();
  	return Number(locked.numUpdatedRows ?? 0) === 1;
-diff --git a/dist/registry-Cf9vkVxW.mjs b/dist/registry-Cf9vkVxW.mjs
-index f06dd02..cba379a 100644
---- a/dist/registry-Cf9vkVxW.mjs
-+++ b/dist/registry-Cf9vkVxW.mjs
+diff --git a/dist/registry-COR9pjyi.mjs b/dist/registry-COR9pjyi.mjs
+index 391af435e..a94dd33d3 100644
+--- a/dist/registry-COR9pjyi.mjs
++++ b/dist/registry-COR9pjyi.mjs
 @@ -903,6 +903,7 @@ async function handleRegistryInstall(db, storage, sandboxRunner, registryConfigI
  			success: true,
  			data: result
@@ -648,10 +776,10 @@ index f06dd02..cba379a 100644
  		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
  		const displayProfile = packageView.cid === records.profile.cid ? profile : packageView.profile;
  		await stateRepo.upsert(pluginId, newVersion, "active", {
-diff --git a/dist/revision-D7EedSdU.mjs b/dist/revision-D7EedSdU.mjs
-index 8559ef3..6ba7721 100644
---- a/dist/revision-D7EedSdU.mjs
-+++ b/dist/revision-D7EedSdU.mjs
+diff --git a/dist/revision-Dk9VI8Vf.mjs b/dist/revision-Dk9VI8Vf.mjs
+index 6636a4e68..3ddb82b36 100644
+--- a/dist/revision-Dk9VI8Vf.mjs
++++ b/dist/revision-Dk9VI8Vf.mjs
 @@ -252,6 +252,12 @@ var RevisionRepository = class {
  	findRow(id) {
  		return this.db.selectFrom("revisions").selectAll().where("id", "=", id).executeTakeFirst();
@@ -665,20 +793,40 @@ index 8559ef3..6ba7721 100644
  	/** Shallow-merge `patch` into a stored revision's data. */
  	async mergeData(id, patch) {
  		const row = await this.db.selectFrom("revisions").select("data").where("id", "=", id).executeTakeFirst();
-diff --git a/dist/seo-DPW6k5_-.mjs b/dist/seo-DPW6k5_-.mjs
-index 1ee60ce..5bf5165 100644
---- a/dist/seo-DPW6k5_-.mjs
-+++ b/dist/seo-DPW6k5_-.mjs
-@@ -133,7 +133,7 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
+diff --git a/dist/rooms-B2P1xIS_.d.mts b/dist/rooms-B2P1xIS_.d.mts
+index 4355c6772..d3e1d6bfb 100644
+--- a/dist/rooms-B2P1xIS_.d.mts
++++ b/dist/rooms-B2P1xIS_.d.mts
+@@ -3807,6 +3807,7 @@ declare const settingsUpdateBody: z.ZodObject<{
+       mediaId: z.ZodString;
+       alt: z.ZodOptional<z.ZodString>;
+     }, z.core.$strip>>>;
++    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     robotsTxt: z.ZodOptional<z.ZodString>;
+     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
+     googleVerification: z.ZodOptional<z.ZodString>;
+@@ -3855,6 +3856,7 @@ declare const siteSettingsSchema: z.ZodObject<{
+       width: z.ZodOptional<z.ZodNumber>;
+       height: z.ZodOptional<z.ZodNumber>;
+     }, z.core.$strip>>;
++    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     robotsTxt: z.ZodOptional<z.ZodString>;
+     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
+     googleVerification: z.ZodOptional<z.ZodString>;
+diff --git a/dist/seo-Ie7B6cud.mjs b/dist/seo-Ie7B6cud.mjs
+index 83175a016..93005293f 100644
+--- a/dist/seo-Ie7B6cud.mjs
++++ b/dist/seo-Ie7B6cud.mjs
+@@ -139,7 +139,7 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
  						LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
  					)
  					SELECT c.slug, c.id, c.updated_at, c.published_at, c.locale, c.translation_group,
--						s.seo_image,
-+						s.seo_image, s.seo_canonical,
+-						s.seo_image, s.updated_at AS seo_updated_at,
++						s.seo_image, s.seo_canonical, s.updated_at AS seo_updated_at,
  						CASE WHEN c.id IN (SELECT id FROM page) THEN 1 ELSE 0 END AS on_page
  					${from}
  					AND (
-@@ -152,7 +152,8 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
+@@ -158,7 +158,8 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
  					publishedAt: row.published_at ?? null,
  					locale: row.locale,
  					translationGroup: row.translation_group,
@@ -688,10 +836,10 @@ index 1ee60ce..5bf5165 100644
  				};
  				(Number(row.on_page) === 1 ? entries : translations).push(entry);
  			}
-diff --git a/dist/transaction-SKrr6u84.mjs b/dist/transaction-SKrr6u84.mjs
-index 31dffef..d51b2d3 100644
---- a/dist/transaction-SKrr6u84.mjs
-+++ b/dist/transaction-SKrr6u84.mjs
+diff --git a/dist/transaction-D5Kq7MTL.mjs b/dist/transaction-D5Kq7MTL.mjs
+index 5bf6281f9..d6fd98104 100644
+--- a/dist/transaction-D5Kq7MTL.mjs
++++ b/dist/transaction-D5Kq7MTL.mjs
 @@ -24,6 +24,7 @@ async function withTransaction(db, fn) {
  	return withRoomNotificationQueue(() => runTransaction(db, fn));
  }
@@ -700,10 +848,10 @@ index 31dffef..d51b2d3 100644
  	if (transactionsSupported === true) return deferObjectCacheInvalidations(() => db.transaction().execute(fn));
  	if (transactionsSupported === false) return fn(db);
  	try {
-diff --git a/dist/transfer-B3CsI5MG.mjs b/dist/transfer-B3CsI5MG.mjs
-index daf2c37..22a694f 100644
---- a/dist/transfer-B3CsI5MG.mjs
-+++ b/dist/transfer-B3CsI5MG.mjs
+diff --git a/dist/transfer-BwKpOrTV.mjs b/dist/transfer-BwKpOrTV.mjs
+index f3c03cc64..8eece1ffa 100644
+--- a/dist/transfer-BwKpOrTV.mjs
++++ b/dist/transfer-BwKpOrTV.mjs
 @@ -7995,6 +7995,7 @@ async function reserve(context) {
  		stage: "clear_scaffold",
  		step: 0
@@ -712,8 +860,21 @@ index daf2c37..22a694f 100644
  }
  async function assertMappedUsersExist(context) {
  	const mappings = Object.entries(context.plan.decisions.principalMappings);
+diff --git a/dist/types-CeknTiV0.d.mts b/dist/types-CeknTiV0.d.mts
+index eb60acb42..04b7e9f5d 100644
+--- a/dist/types-CeknTiV0.d.mts
++++ b/dist/types-CeknTiV0.d.mts
+@@ -43,6 +43,8 @@ interface SeoSettings {
+   defaultOgImage?: MediaReference;
+   /** Custom robots.txt content. If unset, a default is generated. */
+   robotsTxt?: string;
++	/** Additional same-site child sitemap paths listed by the native index. */
++	additionalSitemaps?: string[];
+   /** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
+   disallowAiTraining?: boolean;
+   /** Google Search Console verification meta tag content */
 diff --git a/src/api/handlers/registry.ts b/src/api/handlers/registry.ts
-index 8918156..5ed04d2 100644
+index 8918156eb..5ed04d291 100644
 --- a/src/api/handlers/registry.ts
 +++ b/src/api/handlers/registry.ts
 @@ -1035,6 +1035,11 @@ export async function handleRegistryInstall(
@@ -740,11 +901,31 @@ index 8918156..5ed04d2 100644
  		// Store new bundle. R2 prefix is deterministic per (pluginId, version),
  		// so a retry of the same update is idempotent.
  		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
+diff --git a/src/api/schemas/settings.ts b/src/api/schemas/settings.ts
+index cdd6c05ba..3cda5b6b1 100644
+--- a/src/api/schemas/settings.ts
++++ b/src/api/schemas/settings.ts
+@@ -28,6 +28,7 @@ const socialSettings = z.object({
+ const seoSettingsInput = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceInput.nullable().optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5000).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+@@ -76,6 +77,7 @@ const mediaReferenceResponse = z.object({
+ const seoSettingsResponse = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceResponse.optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5000).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
 diff --git a/src/astro/middleware/auth.ts b/src/astro/middleware/auth.ts
-index 4dd0a23..3a4b495 100644
+index 59f0a7798..56b131ee1 100644
 --- a/src/astro/middleware/auth.ts
 +++ b/src/astro/middleware/auth.ts
-@@ -572,14 +572,8 @@ async function handleExternalAuth(
+@@ -579,14 +579,7 @@ async function handleExternalAuth(
  				});
  			}
  
@@ -755,13 +936,12 @@ index 4dd0a23..3a4b495 100644
 -				.executeTakeFirst();
 -
 -			const isFirstUser = Number(userCount?.count ?? 0) === 0;
--			const role = isFirstUser ? ROLE_ADMIN : authResult.role;
-+			// External identity roles are authoritative, including for the first user.
-+			const role = authResult.role;
+-			const role = isFirstUser ? ROLE_ADMIN : toRoleLevel(authResult.role);
++			const role = toRoleLevel(authResult.role);
  
  			// Create user
  			const now = new Date().toISOString();
-@@ -593,15 +587,19 @@ async function handleExternalAuth(
+@@ -600,15 +593,19 @@ async function handleExternalAuth(
  				updated_at: now,
  			};
  
@@ -786,7 +966,7 @@ index 4dd0a23..3a4b495 100644
  			let newName: string | undefined;
  			let newRole: RoleLevel | undefined;
 diff --git a/src/astro/routes/api/admin/plugins/registry/[id]/update.ts b/src/astro/routes/api/admin/plugins/registry/[id]/update.ts
-index 267e823..fa981da 100644
+index 267e8233d..fa981da79 100644
 --- a/src/astro/routes/api/admin/plugins/registry/[id]/update.ts
 +++ b/src/astro/routes/api/admin/plugins/registry/[id]/update.ts
 @@ -88,8 +88,9 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
@@ -801,7 +981,7 @@ index 267e823..fa981da 100644
  				rollbackPluginUpdate(
  					emdash.db,
 diff --git a/src/astro/routes/api/admin/plugins/registry/install.ts b/src/astro/routes/api/admin/plugins/registry/install.ts
-index 1eef303..910eecd 100644
+index 1eef3038b..910eecdfe 100644
 --- a/src/astro/routes/api/admin/plugins/registry/install.ts
 +++ b/src/astro/routes/api/admin/plugins/registry/install.ts
 @@ -118,8 +118,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
@@ -816,7 +996,7 @@ index 1eef303..910eecd 100644
  				handleRegistryUninstall(emdash.db, emdash.storage, result.data.pluginId, {
  					rollbackInstall: true,
 diff --git a/src/astro/routes/api/content/[collection]/index.ts b/src/astro/routes/api/content/[collection]/index.ts
-index c539643..843d0b3 100644
+index c539643e0..843d0b304 100644
 --- a/src/astro/routes/api/content/[collection]/index.ts
 +++ b/src/astro/routes/api/content/[collection]/index.ts
 @@ -29,9 +29,12 @@ export const GET: APIRoute = async ({ params, url, locals }) => {
@@ -836,23 +1016,17 @@ index c539643..843d0b3 100644
  	const result = await emdash.handleContentList(collection, params_);
  
 diff --git a/src/astro/routes/api/menus/[name]/items.ts b/src/astro/routes/api/menus/[name]/items.ts
-index b4cf6c1..265dde8 100644
+index c2fef4d77..d60f60ae3 100644
 --- a/src/astro/routes/api/menus/[name]/items.ts
 +++ b/src/astro/routes/api/menus/[name]/items.ts
-@@ -1,19 +1,31 @@
- /**
-- * Menu items create endpoint
-+ * Menu item endpoints
-  *
-  * POST /_emdash/api/menus/:name/items[?locale=xx] - Create a new menu item
-+ * PUT /_emdash/api/menus/:name/items[?locale=xx] - Atomically replace menu items
+@@ -5,15 +5,18 @@
   */
  
  import type { APIRoute } from "astro";
 +import { z } from "zod";
  
  import { requirePerm } from "#api/authorize.js";
- import { handleError, unwrapResult } from "#api/error.js";
+ import { apiError, handleError, unwrapResult } from "#api/error.js";
 -import { handleMenuItemCreate } from "#api/handlers/menus.js";
 +import { handleMenuItemCreate, handleMenuSetItems } from "#api/handlers/menus.js";
  import { isParseError, parseBody, parseQuery } from "#api/parse.js";
@@ -860,20 +1034,12 @@ index b4cf6c1..265dde8 100644
  import { menuTag } from "#cache/chrome-tags.js";
  import { invalidateRouteCache } from "#cache/route-cache.js";
  
-+const setMenuItemsBody = z
-+	.object({
-+		items: z.array(
-+			createMenuItemBody.omit({ parentId: true, sortOrder: true }).extend({
-+				parentIndex: z.number().int().nonnegative().optional(),
-+			}),
-+		),
-+	})
-+	.strict();
++const setMenuItemsBody = z.object({ items: z.array(createMenuItemBody.omit({ parentId: true, sortOrder: true }).extend({ parentIndex: z.number().int().nonnegative().optional() })) }).strict();
 +
  export const prerender = false;
  
  export const POST: APIRoute = async ({ params, request, locals, cache }) => {
-@@ -38,3 +50,28 @@ export const POST: APIRoute = async ({ params, request, locals, cache }) => {
+@@ -41,3 +44,28 @@ export const POST: APIRoute = async ({ params, request, locals, cache }) => {
  		return handleError(error, "Failed to create menu item", "MENU_ITEM_CREATE_ERROR");
  	}
  };
@@ -902,8 +1068,38 @@ index b4cf6c1..265dde8 100644
 +		);
 +	}
 +};
+diff --git a/src/astro/routes/sitemap.xml.ts b/src/astro/routes/sitemap.xml.ts
+index e3998c721..64e629fc6 100644
+--- a/src/astro/routes/sitemap.xml.ts
++++ b/src/astro/routes/sitemap.xml.ts
+@@ -53,15 +53,25 @@ export const GET: APIRoute = async ({ locals, url }) => {
+ 			'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+ 		];
+ 
++		const listed = new Set<string>();
+ 		for (const sitemap of sitemaps) {
+ 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
+ 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
++			listed.add(loc);
+ 			lines.push("  <sitemap>");
+ 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
+ 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
+ 			lines.push("  </sitemap>");
+ 		}
+ 
++		for (const path of settings.seo?.additionalSitemaps ?? []) {
++			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
++			const loc = `${siteUrl}${path}`;
++			if (listed.has(loc)) continue;
++			listed.add(loc);
++			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
++		}
++
+ 		lines.push("</sitemapindex>");
+ 
+ 		return new Response(lines.join("\n"), {
 diff --git a/src/database/repositories/revision.ts b/src/database/repositories/revision.ts
-index 69f6c29..3bd6c3b 100644
+index 2f38beef6..dbcaebd4e 100644
 --- a/src/database/repositories/revision.ts
 +++ b/src/database/repositories/revision.ts
 @@ -199,6 +199,17 @@ export class RevisionRepository {
@@ -925,7 +1121,7 @@ index 69f6c29..3bd6c3b 100644
  	async mergeData(id: string, patch: Record<string, unknown>): Promise<void> {
  		const row = await this.db
 diff --git a/src/database/transaction.ts b/src/database/transaction.ts
-index 1043a23..8a8b257 100644
+index 1043a2373..8a8b25734 100644
 --- a/src/database/transaction.ts
 +++ b/src/database/transaction.ts
 @@ -62,6 +62,11 @@ async function runTransaction<DB, T>(
@@ -941,7 +1137,7 @@ index 1043a23..8a8b257 100644
  	if (transactionsSupported === true) {
  		return deferObjectCacheInvalidations(() => db.transaction().execute(fn));
 diff --git a/src/db/adapters.ts b/src/db/adapters.ts
-index 1f98d07..7b4ece3 100644
+index 1f98d07ec..7b4ece3c7 100644
 --- a/src/db/adapters.ts
 +++ b/src/db/adapters.ts
 @@ -34,6 +34,12 @@ export type CollectionDeletionGuardInput =
@@ -966,10 +1162,10 @@ index 1f98d07..7b4ece3 100644
  
  export type ExecuteCollectionDeletionGuard = (
 diff --git a/src/emdash-runtime.ts b/src/emdash-runtime.ts
-index 375c75f..c58c6e9 100644
+index 2faff456f..97c338ed8 100644
 --- a/src/emdash-runtime.ts
 +++ b/src/emdash-runtime.ts
-@@ -1426,13 +1426,26 @@ export class EmDashRuntime {
+@@ -1709,13 +1709,26 @@ export class EmDashRuntime {
  		}
  	}
  
@@ -999,23 +1195,39 @@ index 375c75f..c58c6e9 100644
  	}
  
  	/**
-@@ -1728,6 +1741,7 @@ export class EmDashRuntime {
+@@ -1896,7 +1909,13 @@ export class EmDashRuntime {
+ 	/** Reconcile locally committed registry mutations through the shared state lock. */
+ 	async syncRegistryPlugins(): Promise<void> {
+ 		if (!getRegistryConfigInput(this.config.registry)) return;
+-		await this.syncPluginState();
++		await this.syncPluginState(true);
++		for (const state of this.pluginStateSnapshot?.states ?? []) {
++			if (state.source === "registry" && state.status === "active") {
++				const failure = this.pluginRefreshFailures.get(state.pluginId);
++				if (failure) throw failure.error;
++			}
++		}
+ 	}
  
- 				const bundle = await loadBundleFromR2(this.storage, pluginId, version, source);
- 				if (!bundle) {
-+					if (source === "registry") throw new Error(`EmDash: registry plugin ${pluginId}@${version} not found in R2`);
- 					console.warn(`EmDash: ${source} plugin ${pluginId}@${version} not found in R2`);
- 					continue;
- 				}
-@@ -1770,6 +1784,7 @@ export class EmDashRuntime {
- 			}
+ 	private withPluginStateLock<T>(run: (isCurrentClaim: () => boolean) => Promise<T>): Promise<T> {
+@@ -1905,7 +1924,7 @@ export class EmDashRuntime {
+ 		});
+ 	}
+ 
+-	private async syncPluginState(): Promise<void> {
++	private async syncPluginState(strict = false): Promise<void> {
+ 		const repo = new PluginStateRepository(this.db);
+ 		const writtenGeneration = repo.getLastWrittenGeneration();
+ 		if (!this.runtimeDeps.sandboxBypassed && sandboxRunner) {
+@@ -1927,6 +1946,7 @@ export class EmDashRuntime {
+ 			});
  		} catch (error) {
- 			console.error(`EmDash: Failed to sync ${source} plugins:`, error);
-+			if (source === "registry") throw error;
+ 			console.error("EmDash: Failed to synchronize plugin state:", error);
++			if (strict) throw error;
  		}
  	}
  
-@@ -2277,6 +2292,8 @@ export class EmDashRuntime {
+@@ -2704,6 +2724,8 @@ export class EmDashRuntime {
  						const validation = validateSeed(seed);
  						if (!validation.valid) return false;
  
@@ -1024,7 +1236,7 @@ index 375c75f..c58c6e9 100644
  						const seedResult = await applySeed(db, seed, { onConflict: "skip" });
  						await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
  						console.log("Auto-seeded default collections");
-@@ -3827,9 +3844,47 @@ export class EmDashRuntime {
+@@ -4234,9 +4256,47 @@ export class EmDashRuntime {
  			bylinesNone?: boolean;
  			includeInferredBylines?: boolean;
  			fieldFilters?: ContentFieldFilters;
@@ -1073,7 +1285,7 @@ index 375c75f..c58c6e9 100644
  	}
  
  	async handleContentAuthors(collection: string) {
-@@ -3844,6 +3899,15 @@ export class EmDashRuntime {
+@@ -4251,6 +4311,15 @@ export class EmDashRuntime {
  		draftOptions?: { includeStagedSlug?: boolean },
  	) {
  		const result = await handleContentGet(this.db, collection, id, locale, referenceOptions);
@@ -1089,7 +1301,7 @@ index 375c75f..c58c6e9 100644
  		return this.hydrateDraftData(result, draftOptions);
  	}
  
-@@ -5111,7 +5175,8 @@ export class EmDashRuntime {
+@@ -5530,7 +5599,8 @@ export class EmDashRuntime {
  			};
  		}
  
@@ -1099,7 +1311,7 @@ index 375c75f..c58c6e9 100644
  		if (name !== "content:beforeUnpublish") {
  			try {
  				current = await this.hydrateDraftData(current, {
-@@ -5128,6 +5193,40 @@ export class EmDashRuntime {
+@@ -5547,6 +5617,40 @@ export class EmDashRuntime {
  			}
  		}
  
@@ -1140,7 +1352,7 @@ index 375c75f..c58c6e9 100644
  		const origin = options.origin ?? { source: "system" };
  		const actor =
  			options.actor &&
-@@ -5876,6 +5975,37 @@ export class EmDashRuntime {
+@@ -6307,6 +6411,37 @@ export class EmDashRuntime {
  		}
  
  		const collectionInfo = await this.schemaRegistry.getCollectionWithFields(revision.collection);
@@ -1179,7 +1391,7 @@ index 375c75f..c58c6e9 100644
  
  		// Non-revision collections: keep the legacy behavior of writing the
 diff --git a/src/loader.ts b/src/loader.ts
-index 8d9813b..2e14b41 100644
+index 8d9813bae..2e14b41ba 100644
 --- a/src/loader.ts
 +++ b/src/loader.ts
 @@ -24,7 +24,7 @@ import {
@@ -1358,10 +1570,18 @@ index 8d9813b..2e14b41 100644
  									),
  									sql` `,
 diff --git a/src/mcp/server.ts b/src/mcp/server.ts
-index 03d68e5..946e439 100644
+index 83b095d8f..69a049df3 100644
 --- a/src/mcp/server.ts
 +++ b/src/mcp/server.ts
-@@ -1108,6 +1108,7 @@ export function createMcpServer(
+@@ -172,6 +172,7 @@ const settingsSocialSchema = z.object({
+ });
+ 
+ const settingsSeoSchema = z.object({
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	titleSeparator: z
+ 		.string()
+ 		.max(10)
+@@ -1113,6 +1114,7 @@ export function createMcpServer(
  				orderBy: args.orderBy,
  				order: args.order,
  				locale: args.locale,
@@ -1369,19 +1589,17 @@ index 03d68e5..946e439 100644
  			});
  			if (result.success && args.markdown) {
  				const payload = result.data;
-@@ -1154,7 +1155,9 @@ export function createMcpServer(
+@@ -1159,7 +1161,7 @@ export function createMcpServer(
  		async (args, extra) => {
  			requireScope(extra, "content:read");
  			const ec = getEmDash(extra);
 -			const result = await ec.handleContentGet(args.collection, args.id, args.locale);
-+			const result = await ec.handleContentGet(args.collection, args.id, args.locale, {
-+				includeDrafts: canReadDrafts(extra),
-+			});
++			const result = await ec.handleContentGet(args.collection, args.id, args.locale, { includeDrafts: canReadDrafts(extra) });
+ 			if (!result.success) return unwrap(result);
+ 			let item: Omit<ContentItem, "liveData" | "draftRevisionId"> = result.data.item;
  			// Hide non-published items from users without draft access. Return a
- 			// not-found error so subscribers can't enumerate draft IDs by status.
- 			if (result.success && !canReadDrafts(extra)) {
 diff --git a/src/media/usage/collection-deletion.ts b/src/media/usage/collection-deletion.ts
-index a7b1a1b..d54cf20 100644
+index a7b1a1bf3..d54cf2037 100644
 --- a/src/media/usage/collection-deletion.ts
 +++ b/src/media/usage/collection-deletion.ts
 @@ -8,7 +8,6 @@ import {
@@ -1507,7 +1725,7 @@ index a7b1a1b..d54cf20 100644
  		const row = await trx
  			.selectFrom("_emdash_media_usage_collection_deletions")
 diff --git a/src/plugins/install-finalization.ts b/src/plugins/install-finalization.ts
-index 00446a2..6094388 100644
+index 00446a233..6094388df 100644
 --- a/src/plugins/install-finalization.ts
 +++ b/src/plugins/install-finalization.ts
 @@ -3,12 +3,22 @@ import type { ApiResult } from "../api/types.js";
@@ -1555,90 +1773,11 @@ index 00446a2..6094388 100644
  	} catch (updateError) {
  		const failures: unknown[] = [updateError];
  		let rollbackSucceeded = false;
-diff --git a/src/transfer/import/advance.ts b/src/transfer/import/advance.ts
-index 4ed2e74..c2f1f35 100644
---- a/src/transfer/import/advance.ts
-+++ b/src/transfer/import/advance.ts
-@@ -15,6 +15,7 @@ import type { Kysely } from "kysely";
- import type { z } from "zod";
- 
- import { isPostgres } from "../../database/dialect-helpers.js";
-+import { OptionsRepository } from "../../database/repositories/options.js";
- import type { Database } from "../../database/types.js";
- import type { Storage } from "../../storage/types.js";
- import { chunks, SQL_BATCH_SIZE } from "../../utils/chunks.js";
-@@ -437,6 +438,9 @@ async function reserve(context: ImportContext): Promise<void> {
- 		});
- 	}
- 	await checkpoint(context, { stage: "clear_scaffold", step: 0 }, { markMutationStarted: true });
-+	// The import now owns this site. A cold runtime must not restore the
-+	// starter seed after clear_scaffold temporarily removes all collections.
-+	await new OptionsRepository(context.db).set("emdash:seed_complete", true);
- }
- 
- async function assertMappedUsersExist(context: ImportContext): Promise<void> {
-diff --git a/dist/hreflang-Bzvlo9Ci.mjs b/dist/hreflang-Bzvlo9Ci.mjs
---- a/dist/hreflang-Bzvlo9Ci.mjs
-+++ b/dist/hreflang-Bzvlo9Ci.mjs
-@@ -9,15 +9,15 @@
- //#region src/seo/hreflang.ts
- const ABSOLUTE_URL_RE = /^https?:\/\//i;
- /**
--* IDs of variants flagged `noindex` in the SEO panel. Entries without
-+* SEO metadata for published locale variants. Entries without
- * an `_emdash_seo` row are indexable by default (same as the sitemap).
- * The id list is bounded by the number of configured locales, so no
- * chunking is needed.
- */
--async function findNoindexIds(db, collection, ids) {
--	if (ids.length === 0) return /* @__PURE__ */ new Set();
--	const rows = await db.selectFrom("_emdash_seo").select("content_id").where("collection", "=", collection).where("content_id", "in", ids).where("seo_no_index", "=", 1).execute();
--	return new Set(rows.map((r) => r.content_id));
-+async function findVariantSeo(db, collection, ids) {
-+	if (ids.length === 0) return /* @__PURE__ */ new Map();
-+	const rows = await db.selectFrom("_emdash_seo").select(["content_id", "seo_no_index", "seo_canonical"]).where("collection", "=", collection).where("content_id", "in", ids).execute();
-+	return new Map(rows.map((r) => [r.content_id, r]));
- }
- /**
- * Resolve hreflang alternates for a content entry.
-@@ -63,9 +63,9 @@
- 	if (variants.length === 0) variants = [item];
- 	let published = variants.filter((v) => v.status === "published");
- 	if (published.length === 0) return [];
--	const noindexIds = await findNoindexIds(db, collection, published.map((v) => v.id));
--	if (noindexIds.has(item.id)) return [];
--	published = published.filter((v) => !noindexIds.has(v.id));
-+	const variantSeo = await findVariantSeo(db, collection, published.map((v) => v.id));
-+	if (variantSeo.get(item.id)?.seo_no_index === 1) return [];
-+	published = published.filter((v) => variantSeo.get(v.id)?.seo_no_index !== 1);
- 	const urlPattern = (await getCollectionInfoWithDb(db, collection))?.urlPattern ?? null;
- 	const resolved = [];
- 	for (const variant of published) {
-@@ -80,10 +80,16 @@
- 			trailingSlash: options.trailingSlash
- 		});
- 		if (path === null) continue;
--		resolved.push({
--			locale,
--			href: `${siteUrl}${path}`
--		});
-+		let href = `${siteUrl}${path}`;
-+		const override = variantSeo.get(variant.id)?.seo_canonical;
-+		if (override) {
-+			try {
-+				const canonical = new URL(override, siteUrl);
-+				if (canonical.origin !== new URL(siteUrl).origin || !["https:", "http:"].includes(canonical.protocol) || canonical.hash || canonical.username || canonical.password) continue;
-+				href = canonical.href;
-+			} catch { /* Invalid overrides retain the native route, as in the sitemap. */ }
-+		}
-+		resolved.push({ locale, href });
- 	}
- 	if (resolved.length === 0) return [];
- 	resolved.sort((a, b) => a.locale.localeCompare(b.locale));
 diff --git a/src/seo/hreflang.ts b/src/seo/hreflang.ts
+index f50951adf..31d224861 100644
 --- a/src/seo/hreflang.ts
 +++ b/src/seo/hreflang.ts
-@@ -36,25 +36,24 @@
+@@ -36,25 +36,24 @@ import { getSiteSettingsWithDb } from "../settings/index.js";
  const ABSOLUTE_URL_RE = /^https?:\/\//i;
  
  /**
@@ -1670,7 +1809,7 @@ diff --git a/src/seo/hreflang.ts b/src/seo/hreflang.ts
  }
  
  /** A single alternate link, ready to render as `<link rel="alternate">`. */
-@@ -151,13 +150,13 @@
+@@ -151,13 +150,13 @@ export async function getHreflangAlternatesWithDb(
  	// discoverable. When the requested entry itself is noindex, emit
  	// nothing: a page opting out of indexing shouldn't announce an
  	// hreflang set.
@@ -1687,7 +1826,7 @@ diff --git a/src/seo/hreflang.ts b/src/seo/hreflang.ts
  
  	const info = await getCollectionInfoWithDb(db, collection);
  	const urlPattern = info?.urlPattern ?? null;
-@@ -175,7 +174,16 @@
+@@ -175,7 +174,16 @@ export async function getHreflangAlternatesWithDb(
  			trailingSlash: options.trailingSlash,
  		});
  		if (path === null) continue;
@@ -1705,71 +1844,11 @@ diff --git a/src/seo/hreflang.ts b/src/seo/hreflang.ts
  	}
  	if (resolved.length === 0) return [];
  
-diff --git a/dist/entry-lock-DsVhZcJN.mjs b/dist/entry-lock-DsVhZcJN.mjs
---- a/dist/entry-lock-DsVhZcJN.mjs
-+++ b/dist/entry-lock-DsVhZcJN.mjs
-@@ -989,6 +989,7 @@
- const seoSettingsInput = z.object({
- 	titleSeparator: z.string().max(10).optional(),
- 	defaultOgImage: mediaReferenceInput.nullable().optional(),
-+	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
- 	robotsTxt: z.string().max(5e3).optional(),
- 	disallowAiTraining: z.boolean().optional(),
- 	googleVerification: z.string().max(100).optional(),
-@@ -1018,6 +1019,7 @@
- const seoSettingsResponse = z.object({
- 	titleSeparator: z.string().max(10).optional(),
- 	defaultOgImage: mediaReferenceResponse.optional(),
-+	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
- 	robotsTxt: z.string().max(5e3).optional(),
- 	disallowAiTraining: z.boolean().optional(),
- 	googleVerification: z.string().max(100).optional(),
-diff --git a/src/api/schemas/settings.ts b/src/api/schemas/settings.ts
---- a/src/api/schemas/settings.ts
-+++ b/src/api/schemas/settings.ts
-@@ -28,6 +28,7 @@
- const seoSettingsInput = z.object({
- 	titleSeparator: z.string().max(10).optional(),
- 	defaultOgImage: mediaReferenceInput.nullable().optional(),
-+	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
- 	robotsTxt: z.string().max(5000).optional(),
- 	disallowAiTraining: z.boolean().optional(),
- 	googleVerification: z.string().max(100).optional(),
-@@ -76,6 +77,7 @@
- const seoSettingsResponse = z.object({
- 	titleSeparator: z.string().max(10).optional(),
- 	defaultOgImage: mediaReferenceResponse.optional(),
-+	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
- 	robotsTxt: z.string().max(5000).optional(),
- 	disallowAiTraining: z.boolean().optional(),
- 	googleVerification: z.string().max(100).optional(),
-diff --git a/dist/astro/routes/api/mcp.mjs b/dist/astro/routes/api/mcp.mjs
---- a/dist/astro/routes/api/mcp.mjs
-+++ b/dist/astro/routes/api/mcp.mjs
-@@ -428,6 +428,7 @@
- const settingsSeoSchema = z.object({
- 	titleSeparator: z.string().max(10).optional().describe("Separator between page title and site title (e.g. ' | ')"),
- 	defaultOgImage: settingsMediaReferenceSchema.nullable().optional().describe("Default Open Graph image when content has none; null removes it"),
-+	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
- 	robotsTxt: z.string().max(5e3).optional().describe("Custom robots.txt body. Leave unset for the EmDash default. Changes are rejected when the site serves its own src/pages/robots.txt."),
- 	disallowAiTraining: z.boolean().optional().describe("Add robots.txt rules asking AI crawlers not to use the site for training. Changes are rejected when the site serves its own src/pages/robots.txt."),
- 	googleVerification: z.string().max(100).optional().describe("Google Search Console verification token"),
-diff --git a/dist/types-DLKviL1s.d.mts b/dist/types-DLKviL1s.d.mts
---- a/dist/types-DLKviL1s.d.mts
-+++ b/dist/types-DLKviL1s.d.mts
-@@ -43,6 +43,8 @@
-   defaultOgImage?: MediaReference;
-   /** Custom robots.txt content. If unset, a default is generated. */
-   robotsTxt?: string;
-+	/** Additional same-site child sitemap paths listed by the native index. */
-+	additionalSitemaps?: string[];
-   /** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
-   disallowAiTraining?: boolean;
-   /** Google Search Console verification meta tag content */
 diff --git a/src/settings/types.ts b/src/settings/types.ts
+index 6fda24551..823d27f5a 100644
 --- a/src/settings/types.ts
 +++ b/src/settings/types.ts
-@@ -44,6 +44,8 @@
+@@ -44,6 +44,8 @@ export interface SeoSettings {
  	defaultOgImage?: MediaReference;
  	/** Custom robots.txt content. If unset, a default is generated. */
  	robotsTxt?: string;
@@ -1778,86 +1857,25 @@ diff --git a/src/settings/types.ts b/src/settings/types.ts
  	/** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
  	disallowAiTraining?: boolean;
  	/** Google Search Console verification meta tag content */
-diff --git a/dist/astro/routes/sitemap.xml.mjs b/dist/astro/routes/sitemap.xml.mjs
---- a/dist/astro/routes/sitemap.xml.mjs
-+++ b/dist/astro/routes/sitemap.xml.mjs
-@@ -25,13 +25,22 @@
+diff --git a/src/transfer/import/advance.ts b/src/transfer/import/advance.ts
+index 4ed2e7468..c2f1f3597 100644
+--- a/src/transfer/import/advance.ts
++++ b/src/transfer/import/advance.ts
+@@ -15,6 +15,7 @@ import type { Kysely } from "kysely";
+ import type { z } from "zod";
+ 
+ import { isPostgres } from "../../database/dialect-helpers.js";
++import { OptionsRepository } from "../../database/repositories/options.js";
+ import type { Database } from "../../database/types.js";
+ import type { Storage } from "../../storage/types.js";
+ import { chunks, SQL_BATCH_SIZE } from "../../utils/chunks.js";
+@@ -437,6 +438,9 @@ async function reserve(context: ImportContext): Promise<void> {
  		});
- 		const { sitemaps } = result.data;
- 		const lines = ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"];
-+		const listed = new Set();
- 		for (const sitemap of sitemaps) {
- 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
- 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
-+			listed.add(loc);
- 			lines.push("  <sitemap>");
- 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
- 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
- 			lines.push("  </sitemap>");
-+		}
-+		for (const path of settings.seo?.additionalSitemaps ?? []) {
-+			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
-+			const loc = `${siteUrl}${path}`;
-+			if (listed.has(loc)) continue;
-+			listed.add(loc);
-+			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
- 		}
- 		lines.push("</sitemapindex>");
- 		return new Response(lines.join("\n"), {
-diff --git a/src/mcp/server.ts b/src/mcp/server.ts
---- a/src/mcp/server.ts
-+++ b/src/mcp/server.ts
-@@ -167,6 +167,7 @@
- });
+ 	}
+ 	await checkpoint(context, { stage: "clear_scaffold", step: 0 }, { markMutationStarted: true });
++	// The import now owns this site. A cold runtime must not restore the
++	// starter seed after clear_scaffold temporarily removes all collections.
++	await new OptionsRepository(context.db).set("emdash:seed_complete", true);
+ }
  
- const settingsSeoSchema = z.object({
-+	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
- 	titleSeparator: z
- 		.string()
- 		.max(10)
-diff --git a/src/astro/routes/sitemap.xml.ts b/src/astro/routes/sitemap.xml.ts
---- a/src/astro/routes/sitemap.xml.ts
-+++ b/src/astro/routes/sitemap.xml.ts
-@@ -53,13 +53,23 @@
- 			'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
- 		];
- 
-+		const listed = new Set<string>();
- 		for (const sitemap of sitemaps) {
- 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
- 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
-+			listed.add(loc);
- 			lines.push("  <sitemap>");
- 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
- 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
- 			lines.push("  </sitemap>");
-+		}
-+
-+		for (const path of settings.seo?.additionalSitemaps ?? []) {
-+			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
-+			const loc = `${siteUrl}${path}`;
-+			if (listed.has(loc)) continue;
-+			listed.add(loc);
-+			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
- 		}
- 
- 		lines.push("</sitemapindex>");
-diff --git a/dist/rooms-CyXG83RZ.d.mts b/dist/rooms-CyXG83RZ.d.mts
---- a/dist/rooms-CyXG83RZ.d.mts
-+++ b/dist/rooms-CyXG83RZ.d.mts
-@@ -3682,6 +3682,7 @@
-       mediaId: z.ZodString;
-       alt: z.ZodOptional<z.ZodString>;
-     }, z.core.$strip>>>;
-+    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
-     robotsTxt: z.ZodOptional<z.ZodString>;
-     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
-     googleVerification: z.ZodOptional<z.ZodString>;
-@@ -3730,6 +3731,7 @@
-       width: z.ZodOptional<z.ZodNumber>;
-       height: z.ZodOptional<z.ZodNumber>;
-     }, z.core.$strip>>;
-+    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
-     robotsTxt: z.ZodOptional<z.ZodString>;
-     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
-     googleVerification: z.ZodOptional<z.ZodString>;
+ async function assertMappedUsersExist(context: ImportContext): Promise<void> {

@@ -15,7 +15,7 @@ import { CMS_TEMPLATE_SLUGS } from "../template-policy";
 
 const lock = `{ "packages": {
 // ignored request range
-"emdash": ["emdash@1.5.0"], "forms": ["@emdash-cms/plugin-forms@0.2.13"],
+"emdash": ["emdash@1.6.0"], "forms": ["@emdash-cms/plugin-forms@0.2.14"],
 }, }`;
 
 const declaration = {
@@ -43,8 +43,8 @@ describe("theme release identity", () => {
 				if (manifest.dependencies[name])
 					expect(manifest.dependencies[name]).toBe(versions[0]);
 			}
-			expect(manifest.patchedDependencies["emdash@1.5.0"]).toBe(
-				"patches/emdash@1.5.0.patch",
+			expect(manifest.patchedDependencies["emdash@1.6.0"]).toBe(
+				"patches/emdash@1.6.0.patch",
 			);
 		},
 	);
@@ -63,7 +63,7 @@ describe("theme release identity", () => {
 		expect(first).toMatchObject({
 			...declaration,
 			dependencyLockHash: await sha256Hex(lock),
-			packages: { emdash: ["1.5.0"], "@emdash-cms/plugin-forms": ["0.2.13"] },
+			packages: { emdash: ["1.6.0"], "@emdash-cms/plugin-forms": ["0.2.14"] },
 		});
 		expect(first.lockedTemplateSnapshotHash).toMatch(/^[a-f0-9]{64}$/);
 		expect(await identifyThemeRelease(sandbox, "marketing", "/build")).toEqual(

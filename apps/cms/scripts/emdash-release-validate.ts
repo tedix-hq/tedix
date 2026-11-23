@@ -257,7 +257,7 @@ const checks: Check[] = [
 					),
 			) &&
 			cmsRuntimeEntry.includes(
-				"this.stub().executeCollectionDeletionGuard(input)",
+				"this.stub().executeCollectionDeletionGuardWithRestorePermit(",
 			),
 		detail:
 			"root and both starters should install the same versioned Emdash patches (marketing may add only its layout-prefetch hunk), export the registry guard through the parent WorkerEntrypoint, and checkpoint inside the owning DO transaction.",

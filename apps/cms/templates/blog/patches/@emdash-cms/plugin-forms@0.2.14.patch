@@ -1,21 +1,30 @@
 diff --git a/package.json b/package.json
-index 240f5b2..baee8bb 100644
+index a1d5cfb..cb2f4c4 100644
 --- a/package.json
 +++ b/package.json
 @@ -26,7 +26,7 @@
    "author": "Matt Kane",
    "license": "MIT",
    "peerDependencies": {
--    "@cloudflare/kumo": "2.15.0",
-+    "@cloudflare/kumo": "^2.15.0",
+-    "@cloudflare/kumo": "2.19.0",
++    "@cloudflare/kumo": "^2.19.0",
      "@lingui/react": "^5.9.4",
      "@phosphor-icons/react": "^2.1.10",
      "astro": ">=6.0.0-beta.0",
 diff --git a/src/admin.tsx b/src/admin.tsx
-index 6217dc8..bc34d5f 100644
+index 6217dc8..c12f250 100644
 --- a/src/admin.tsx
 +++ b/src/admin.tsx
-@@ -614,7 +614,7 @@ function FormEditor({
+@@ -130,6 +130,8 @@ interface FormSettings {
+ 	webhookUrl?: string;
+ 	retentionDays: number;
+ 	spamProtection: "none" | "honeypot" | "turnstile";
++	rateLimitPerHour?: number;
++	spamKeywords?: string[];
+ 	submitLabel: string;
+ }
+ 
+@@ -614,7 +616,7 @@ function FormEditor({
  						notifyEmails: [],
  						digestEnabled: false,
  						digestHour: 9,
@@ -24,7 +33,7 @@ index 6217dc8..bc34d5f 100644
  						spamProtection: "honeypot",
  						submitLabel: "Submit",
  						...savedSettings,
-@@ -750,7 +750,7 @@ function FormEditor({
+@@ -750,7 +752,7 @@ function FormEditor({
  					<Input
  						label="Retention (days, 0 = forever)"
  						type="number"
@@ -33,7 +42,7 @@ index 6217dc8..bc34d5f 100644
  						onChange={(e) =>
  							setSettings((s) => ({
  								...s,
-@@ -818,6 +818,19 @@ function FormEditor({
+@@ -818,6 +820,19 @@ function FormEditor({
  							onChange={(e) => setSettings((s) => ({ ...s, webhookUrl: e.target.value }))}
  						/>
  					</div>
@@ -197,17 +206,17 @@ index 3ceb14f..e5eeac2 100644
  		const { http, log } = ctx;
  		const url = settings.webhookUrl;
 diff --git a/src/index.ts b/src/index.ts
-index 00e69b5..289e86b 100644
+index 00e69b5..69c4fc8 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -43,6 +43,7 @@ import {
- 	definitionSchema,
+@@ -44,6 +44,7 @@ import {
  	exportSchema,
  	formCreateSchema,
-+	formsListSchema,
  	formDeleteSchema,
++	formsListSchema,
  	formDuplicateSchema,
  	formUpdateSchema,
+ 	submissionDeleteSchema,
 @@ -137,18 +138,20 @@ export function createPlugin(_options: FormsPluginOptions = {}): ResolvedPlugin
  			},
  
