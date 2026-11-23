@@ -103,6 +103,26 @@ describe("slow D1 observation", () => {
 		});
 	});
 
+	it("identifies a large read without a statement duration and preserves its result", async () => {
+		const { db, database, result, log } = fixture(5);
+		const large = { ...result, meta: { rows_read: 687_203 } };
+		database.batch.mockImplementation(async () => [result, large] as never);
+		expect(
+			await db.batch([
+				db.prepare("SELECT 1"),
+				db.prepare('SELECT ? FROM "items"').bind("private-binding"),
+			]),
+		).toEqual([result, large]);
+		expect(log).toHaveBeenCalledOnce();
+		expect(log.mock.calls.at(0)![0]).toMatchObject({
+			event: "db.query.large_read",
+			sqlShape: 'SELECT ? FROM "items"',
+			rowsRead: 687_203,
+			durationSource: "unavailable",
+		});
+		expect(JSON.stringify(log.mock.calls)).not.toContain("private-binding");
+	});
+
 	it("reports a batch without per-statement durations once, not once per statement", async () => {
 		const { db, database, log } = fixture(1_500);
 		database.batch.mockImplementation(async (batch: unknown[]) => {

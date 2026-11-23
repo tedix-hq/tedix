@@ -8,7 +8,7 @@ import { createLogger } from "@tedix/worker-kit/logger";
 const logger = createLogger<{
 	sqlShape: string;
 	caller: string;
-	durationMs: number;
+	durationMs: number | undefined;
 	durationSource: string;
 	operation: string;
 	rowsRead: number;
@@ -41,25 +41,29 @@ function report(
 	sql: string,
 	origin: string,
 	operation: string,
-	durationMs: number,
+	durationMs: number | undefined,
 	durationSource: string,
 	result?: D1Result,
 	statementCount?: number,
 ): void {
-	if (durationMs <= 1_000) return;
-	logger.warn("D1 operation exceeded 1 s", {
-		event: "db.query.slow",
-		sqlShape: sql.replace(SQL_TOKENS, (token) =>
-			/^["`\[]/.test(token) ? token : "?",
-		),
-		caller: origin,
-		durationMs,
-		durationSource,
-		operation,
-		rowsRead: result?.meta?.rows_read,
-		statementCount,
-		sampleRate: 1,
-	});
+	const slow = durationMs !== undefined && durationMs > 1_000;
+	if (!slow && (result?.meta?.rows_read ?? 0) <= 100_000) return;
+	logger.warn(
+		slow ? "D1 operation exceeded 1 s" : "D1 operation read over 100k rows",
+		{
+			event: slow ? "db.query.slow" : "db.query.large_read",
+			sqlShape: sql.replace(SQL_TOKENS, (token) =>
+				/^["`\[]/.test(token) ? token : "?",
+			),
+			caller: origin,
+			durationMs,
+			durationSource,
+			operation,
+			rowsRead: result?.meta?.rows_read,
+			statementCount,
+			sampleRate: 1,
+		},
+	);
 }
 
 /** Observe native execution without changing SQL, bindings, results or errors. */
@@ -138,15 +142,14 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 							const result = results?.[index];
 							const duration = result?.meta?.duration;
 							if (duration === undefined) untimed += 1;
-							else
-								report(
-									sqlOf(statement),
-									origin,
-									"batch",
-									duration,
-									"d1",
-									result,
-								);
+							report(
+								sqlOf(statement),
+								origin,
+								"batch",
+								duration,
+								duration === undefined ? "unavailable" : "d1",
+								result,
+							);
 						});
 						// A batch's wall time cannot be attributed to one statement.
 						if (untimed > 0)
