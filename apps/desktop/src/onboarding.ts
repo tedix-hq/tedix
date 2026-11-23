@@ -27,7 +27,7 @@ const foot = document.getElementById("foot")!;
 const STEPS = [
 	["welcome", "Welcome"],
 	["mac", "This Mac"],
-	["tools", "Coding tools"],
+	["tools", "Agents"],
 	["sessions", "Sessions"],
 	["ready", "Ready"],
 ] as const;
@@ -556,12 +556,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			}
 		};
 		return {
-			label: "Coding tools",
-			headline: "Choose your tools",
+			label: "Agents",
+			headline: "Choose your agents",
 			sentence: el(
 				"span",
 				"",
-				"Switch on the tools Tedix may use for tasks, then sign in only those. ",
+				"Switch on the agents Tedix may use for tasks, then sign in only those. ",
 				button("Check again", "link", () => act("check")),
 			),
 			rows: [...chatRows(now), ...tools],
@@ -668,8 +668,8 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			el(
 				"p",
 				"",
-				"Turn on a tool to run tasks here. ",
-				button("Choose tools", "link", () => go("tools")),
+				"Turn on an agent to run tasks here. ",
+				button("Choose agents", "link", () => go("tools")),
 			),
 		);
 	else if (enabled.length > running)
@@ -677,8 +677,8 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			el(
 				"p",
 				"",
-				`${running} of ${enabled.length} tools are running. `,
-				button("Check tools", "link", () => go("tools")),
+				`${running} of ${enabled.length} agents are running. `,
+				button("Check agents", "link", () => go("tools")),
 			),
 		);
 	if (tool)
@@ -687,7 +687,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				"p",
 				"",
 				`To use Tedix inside ${tool.name}, finish connecting it. `,
-				button("Open coding tools", "link", () => go("tools")),
+				button("Open Agents", "link", () => go("tools")),
 			),
 		);
 	return {

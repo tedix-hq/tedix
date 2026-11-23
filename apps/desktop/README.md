@@ -6,7 +6,7 @@ Mac's runners while it is open.
 
 The app includes the `tedix` command-line tool. It copies it to
 `cli/tedix` in its own data folder and links `~/.local/bin/tedix` to that
-copy, so coding tools find it on your shell's `PATH`. The Tedix OS page runs
+copy, so agents find it on your shell's `PATH`. The Tedix OS page runs
 without access to the app or the computer.
 
 The app is not signed or notarized yet and has been run on macOS only.
@@ -63,25 +63,25 @@ The app is not signed or notarized yet and has been run on macOS only.
   signed in, the menu shows who is signed in instead.
 - **First run.** On a Mac where the app was never set up, the setup opens
   before the Tedix window, which comes next when the setup closes. Without
-  a coding tool, setup is only signing in to this app and adding Tedix to
+  an agent, setup is only signing in to this app and adding Tedix to
   the Claude or ChatGPT app (found in Applications): no command-line tool,
   project folder or sessions. Claude Code inside the Claude app's Code tab
   counts as Claude Code.
 - **Set up this Mac.** **Settings → General → Setup guide** opens it, and it opens by itself until
   this Mac is signed in, and from a `tedix://setup` link. Five short
   screens, with dashes at the bottom left to move between them (Welcome,
-  This Mac, Coding tools, Sessions, Ready); Settings → General → Set up
+  This Mac, Agents, Sessions, Ready); Settings → General → Set up
   this Mac opens them again:
   - **Welcome.**
   - **This Mac:** the sign-in (first Tedix in this app, then this Mac's
     command-line tool with `tedix -w connect login`, started by the app),
     the command-line tool and its version, and opening at login.
-  - **Coding tools:** the Claude and ChatGPT apps first, then one row per
+  - **Agents:** the Claude and ChatGPT apps first, then one row per
     tool found (Claude Code, Codex, Devin, OpenCode) with a **Use for
     tasks** switch and its next step inline (**Add**, **Sign in**, **Check
     read**), **Ready** once that is done; and the project folder. With no
-    coding tool installed, one line with links to get one.
-  - **Sessions:** whether your coding sessions show in Tedix, on for every
+    agent installed, one line with links to get one.
+  - **Sessions:** whether your sessions show in Tedix, on for every
     project unless you change it, with a tab and a list per tool.
   - **Ready:** one line on what is connected after one live check that the
     command-line tool reaches Tedix, or the one thing that still needs you
@@ -149,9 +149,9 @@ The app is not signed or notarized yet and has been run on macOS only.
   three sections: General (version and updates, a problem when there is
   one, open at login, appearance, setup guide), This Mac (name, "Let tedis
   edit files and run commands", the tasks running now, a model on this
-  Mac, a sample workspace, and the coding sessions: one switch, a tab per
-  coding tool, a searchable project list) and Coding tools (the Claude and
-  ChatGPT apps, and one row per coding tool with its next step and a
+  Mac, a sample workspace, and the sessions: one switch, a tab per
+  agent, a searchable project list) and Agents (the Claude and
+  ChatGPT apps, and one row per agent with its next step and a
   **Use for tasks** switch; **Ready** only after Tedix worked inside it).
   Every button answers at once: it shows a spinner and what it is doing
   ("Checking…", "Signing in…") until it finishes, and the row then shows
@@ -208,7 +208,7 @@ to, such as Applications. The first install is still by hand.
 | File                   | What it does                                          |
 | ---------------------- | ----------------------------------------------------- |
 | `src/main.ts`          | Windows, menu, sign-in, and the two windows' commands |
-| `src/setup.ts`         | The setup steps: coding tools, sign-in, running tasks |
+| `src/setup.ts`         | The setup steps: agents, sign-in, running tasks       |
 | `src/cli.ts`           | Copies, links and updates the app's command-line tool |
 | `setup.html`           | The Set up this Mac window (`src/onboarding.ts`)      |
 | `ui.css`               | Colours, buttons, switches and cards of both windows  |

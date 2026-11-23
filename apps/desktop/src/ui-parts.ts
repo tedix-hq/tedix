@@ -125,7 +125,7 @@ export const EXECUTOR_NAMES: Record<string, string> = {
 	"claude-code": "Claude Code",
 	devin: "Devin",
 	opencode: "OpenCode",
-	"any-local": "Any coding tool",
+	"any-local": "Any agent",
 };
 export const TOOL_ICONS: Record<string, IconName> = {
 	claude: "prompt",
@@ -289,8 +289,9 @@ export function toolView(state: PanelState, tool: ToolRow): ToolView {
 		return {
 			...base,
 			ready: false,
+			// Nothing to say until a Check: its button is the next step.
 			sub: checkable
-				? "Not checked yet"
+				? ""
 				: tool.connection === "signed-in"
 					? "Signed in to Tedix"
 					: "Sign in to Tedix once",
@@ -382,8 +383,7 @@ export function sessionsPanel(
 	)?.[1];
 	if (!setup.signedIn)
 		return el("p", "empty", "Sign in on this Mac to choose projects.");
-	if (!tools.length)
-		return el("p", "empty", "No coding tool was found on this Mac.");
+	if (!tools.length) return el("p", "empty", "No agent was found on this Mac.");
 	if (!projects.length)
 		return el(
 			"div",
@@ -410,13 +410,13 @@ export function sessionsPanel(
 		el(
 			"div",
 			"item",
-			el("div", "text", el("div", "title", "Show my coding sessions in Tedix")),
+			el("div", "text", el("div", "title", "Show my sessions in Tedix")),
 			el(
 				"div",
 				"control",
 				ran?.working && el("span", "spinner"),
 				toggle(
-					"Show my coding sessions in Tedix",
+					"Show my sessions in Tedix",
 					pending || anyOn,
 					(on) =>
 						act(on ? "sessions-on" : "sessions-off", `*|${all.join(",")}`),

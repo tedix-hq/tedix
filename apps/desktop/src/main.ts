@@ -1427,6 +1427,9 @@ async function checkForUpdates(
 		checking = true;
 		fetchFailure = undefined;
 		publishUpdate();
+		// Settings covers the sidebar entry; its version row says the same.
+		if (!inSettings && settingsView?.getVisible())
+			settingsView.webContents.send("section", "general");
 	}
 	try {
 		const result = await findUpdate();

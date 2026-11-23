@@ -703,7 +703,7 @@ async function readAgentStatusNow(): Promise<void> {
 		),
 	]);
 	log(
-		`setup: coding tools checked in ${Math.round((Date.now() - from) / 1000)} s${result.ok ? "" : ` (${lastLine(safe(result.output)).slice(0, 160)})`}`,
+		`setup: agents checked in ${Math.round((Date.now() - from) / 1000)} s${result.ok ? "" : ` (${lastLine(safe(result.output)).slice(0, 160)})`}`,
 	);
 	try {
 		const parsed = JSON.parse(result.output) as {

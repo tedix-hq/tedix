@@ -438,7 +438,7 @@ function tools(now: PanelState): Group[] {
 		return [
 			chat,
 			{
-				title: "Coding tools",
+				title: "Agents",
 				items: [
 					{
 						title: "None found",
@@ -461,7 +461,7 @@ function tools(now: PanelState): Group[] {
 		];
 	return [
 		chat,
-		{ title: "Coding tools", column: "Use for tasks", items: rows },
+		{ title: "Agents", column: "Use for tasks", items: rows },
 		...(now.setup.routing ? [routingGroup(now.setup.routing)] : []),
 		{
 			items: [
@@ -476,7 +476,7 @@ function tools(now: PanelState): Group[] {
 					words: "repository repo",
 				},
 				{
-					title: "Look for coding tools again",
+					title: "Look for agents again",
 					control: [again],
 					words: "check refresh",
 				},
@@ -507,7 +507,7 @@ function routingGroup(routing: Routing): Group {
 		...(clef
 			? [
 					{
-						title: "Clef picks the tool; rules are the backup.",
+						title: "Clef picks the agent; rules are the backup.",
 						plain: true,
 						words: "clef routing",
 					},
@@ -683,7 +683,7 @@ function mac(now: PanelState): Group[] {
 			],
 		},
 		{
-			title: "Coding sessions",
+			title: "Sessions",
 			items: [],
 			body: sessionsPanel(now, sessionsUi, () => keepFocus(draw), false),
 		},
@@ -693,7 +693,7 @@ function mac(now: PanelState): Group[] {
 const SECTIONS: Section[] = [
 	{ id: "general", name: "General", glyph: "window", groups: general },
 	{ id: "mac", name: "This Mac", glyph: "laptop", groups: mac },
-	{ id: "tools", name: "Coding tools", glyph: "terminal", groups: tools },
+	{ id: "tools", name: "Agents", glyph: "terminal", groups: tools },
 ];
 
 /** A section in the sidebar shows a dot when something there needs the person. */
