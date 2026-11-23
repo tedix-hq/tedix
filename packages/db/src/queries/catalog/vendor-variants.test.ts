@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
 import {
@@ -15,6 +15,7 @@ import {
 } from "./endpoint-normalization";
 import { listCatalogApps } from "./list-apps";
 import {
+	buildRefreshCatalogShadowedVariantsStatements,
 	catalogVendorKeySql,
 	listCatalogVendorVariants,
 	refreshCatalogShadowedVariants,
@@ -271,6 +272,38 @@ describe("catalog vendor variants", () => {
 			"twin-ride-2",
 		]);
 		expect(await listedIds(db, true)).toEqual(liveVisible);
+	});
+
+	it("seeks indexed siblings and preserves window ranking after vendor keys change", async () => {
+		const { sqlite, db } = seededSqlite();
+		sqlite.exec(`
+			WITH RECURSIVE n(i) AS (VALUES(0) UNION ALL SELECT i+1 FROM n WHERE i<59)
+			INSERT INTO app_catalog (id, slug, name, website, connector_type, mcp_tool_count,
+				mcp_endpoint_normalized, developer_type, is_discoverable, status, review_status,
+				last_synced_at, vendor_key, explore_shadowed)
+			SELECT 'rank-' || i, CASE WHEN i%7=0 THEN NULL WHEN i%3=0 THEN 'rank-' || i ELSE 'plain' || i END,
+				'Vendor ' || (i%10), 'https://vendor' || (i%10) || '.example',
+				CASE WHEN i%4=0 THEN 'FIRST_PARTY_ECOSYSTEM' ELSE 'MCP' END, i%5,
+				'https://mcp.example', 'THIRD_PARTY', 1,
+				CASE WHEN i%13=0 THEN NULL ELSE 'ENABLED' END, 'RELEASED',
+				'2026-01-01T00:00:00Z', 'stale-key', 1 FROM n;
+		`);
+		const expected = await listedIds(db, true, { includeUnreleased: true });
+		await refreshCatalogShadowedVariants(db);
+		expect(await listedIds(db, true)).toEqual(expected);
+		const [, flag, clear] = buildRefreshCatalogShadowedVariantsStatements(db);
+		for (const statement of [flag, clear]) {
+			const { sql, params } = statement.toSQL();
+			const plan = sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+				.all(...(params as SQLInputValue[]))
+				.map((row) => String(row.detail));
+			expect(plan).toContainEqual(
+				expect.stringContaining(
+					"SEARCH vendor_sibling USING INDEX app_catalog_vendor_key_idx (vendor_key=?)",
+				),
+			);
+		}
 	});
 
 	it("is idempotent", async () => {

@@ -14,7 +14,7 @@
  * growth) and detail reads agree with the list about which row is canonical.
  */
 
-import { and, eq, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, exists, ne, or, type SQL, sql } from "drizzle-orm";
 import { alias, type SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { appCatalog } from "../../schema/catalog";
 import type { Database } from "./tool-source-policy";
@@ -192,40 +192,62 @@ export interface RefreshCatalogShadowedVariantsResult {
 
 /**
  * The unexecuted statements that recompute `explore_shadowed` against
- * public visibility: flag newly shadowed rows, then clear rows that are no
- * longer shadowed; then store each row's vendor key. Only rows whose value
+ * public visibility: store fresh vendor keys, then flag newly shadowed rows
+ * and clear rows that are no longer shadowed. Only rows whose value
  * changes are written, and `updated_at` is left alone: both are derived list
  * state, not an app edit. Append them
  * to a write batch that changes vendor grouping, runnability, inventory or
  * visibility so the flag commits with the write.
  */
 export function buildRefreshCatalogShadowedVariantsStatements(db: Database) {
-	const flag = db
-		.update(appCatalog)
-		.set({ exploreShadowed: true })
-		.where(
-			and(
-				eq(appCatalog.exploreShadowed, false),
-				sql`${appCatalog.id} IN ${shadowedCatalogIdsQuery(db)}`,
-			),
-		)
-		.returning({ id: appCatalog.id });
-	const clear = db
-		.update(appCatalog)
-		.set({ exploreShadowed: false })
-		.where(
-			and(
-				eq(appCatalog.exploreShadowed, true),
-				sql`${appCatalog.id} NOT IN ${shadowedCatalogIdsQuery(db)}`,
-			),
-		)
-		.returning({ id: appCatalog.id });
 	const vendorKey = catalogVendorKeySql(appCatalog);
 	const keys = db
 		.update(appCatalog)
 		.set({ vendorKey })
 		.where(sql`${appCatalog.vendorKey} IS NOT ${vendorKey}`);
-	return [flag, clear, keys] as const;
+	const sibling = alias(appCatalog, "vendor_sibling");
+	const inventory = catalogInventorySql(appCatalog);
+	const siblingInventory = catalogInventorySql(sibling);
+	// SQLite orders NULL before false for the nullable slug's GLOB result.
+	const slugRank = sql`coalesce(${appCatalog.slug} GLOB '*-[0-9]*', -1)`;
+	const siblingSlugRank = sql`coalesce(${sibling.slug} GLOB '*-[0-9]*', -1)`;
+	// The old two window scans read 393k rows for a 12k-row catalog. Seek only
+	// this row's vendor group and stop at the first sibling that outranks it.
+	const shadowed = sql`coalesce((${and(...catalogVisibilityConditions(appCatalog))}), 0) AND ${exists(
+		db
+			.select({ present: sql`1` })
+			.from(
+				sql`${appCatalog} AS "vendor_sibling" INDEXED BY app_catalog_vendor_key_idx`,
+			)
+			.where(
+				and(
+					eq(sibling.vendorKey, appCatalog.vendorKey),
+					...catalogVisibilityConditions(sibling),
+					sql`(
+						(NOT ${catalogRunnableSql(appCatalog)} AND ${catalogRunnableSql(sibling)})
+						OR (${inventory} <= 0 AND ${siblingInventory} > 0)
+						OR (${inventory} > 0 AND ${siblingInventory} > 0 AND (
+							${siblingSlugRank} < ${slugRank}
+							OR (${siblingSlugRank} = ${slugRank} AND (
+								${siblingInventory} > ${inventory}
+								OR (${siblingInventory} = ${inventory} AND ${sibling.id} < ${appCatalog.id})
+							))
+						))
+					)`,
+				),
+			),
+	)}`;
+	const flag = db
+		.update(appCatalog)
+		.set({ exploreShadowed: true })
+		.where(and(eq(appCatalog.exploreShadowed, false), sql`(${shadowed})`))
+		.returning({ id: appCatalog.id });
+	const clear = db
+		.update(appCatalog)
+		.set({ exploreShadowed: false })
+		.where(and(eq(appCatalog.exploreShadowed, true), sql`NOT (${shadowed})`))
+		.returning({ id: appCatalog.id });
+	return [keys, flag, clear] as const;
 }
 
 /**
@@ -235,7 +257,7 @@ export function buildRefreshCatalogShadowedVariantsStatements(db: Database) {
 export async function refreshCatalogShadowedVariants(
 	db: Database,
 ): Promise<RefreshCatalogShadowedVariantsResult> {
-	const [flagged, cleared] = await db.batch(
+	const [, flagged, cleared] = await db.batch(
 		buildRefreshCatalogShadowedVariantsStatements(db),
 	);
 	return { flagged: flagged.length, cleared: cleared.length };

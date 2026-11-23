@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../../query-client";
+import { createDbClient } from "../../client";
 import { memoryDomains, memoryFacts } from "../../schema/memory-graph";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -13,7 +13,7 @@ it("reads only confirmed, active, org-visible facts through an index seek", asyn
 		for (const table of [memoryDomains, memoryFacts])
 			sqlite.exec(schemaDdl(table));
 		let query = "";
-		const db = createDbQueryClient(
+		const db = createDbClient(
 			createD1Facade(sqlite, {
 				onPrepare: (statement) => {
 					query = statement;
