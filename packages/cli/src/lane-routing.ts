@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { DecisionModelSchema } from "@tedix/api-contract/schemas/jev";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -43,9 +44,17 @@ export const routingPolicySchema = z.strictObject({
 	tools: z
 		.partialRecord(
 			executorSchema,
-			z.strictObject({ strengths: z.string().min(1).max(300) }),
+			z.strictObject({
+				strengths: z.string().min(1).max(300),
+				/** Titles of tasks this tool did well, shown to the decision model. */
+				examples: z.array(z.string().min(1).max(200)).max(5).optional(),
+				/** Never offered while it runs this many tasks on this Mac. */
+				maxRunning: z.number().int().positive().optional(),
+			}),
 		)
 		.optional(),
+	/** The decision model: Clef (default: the organization's) or Jev. */
+	decideModel: DecisionModelSchema.optional(),
 	/** Below this Clef confidence the rules decide. Default 0.5. */
 	clefMinConfidence: z.number().min(0).max(1).optional(),
 	opencodeModel: z

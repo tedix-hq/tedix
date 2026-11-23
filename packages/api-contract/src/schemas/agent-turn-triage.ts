@@ -12,6 +12,7 @@
  */
 
 import * as z from "zod";
+import { DecisionModelSchema } from "./jev";
 import { DecisionClassPoliciesSchema } from "./os-decision-deck";
 import { TediCareerStageSchema } from "./earned-delegation";
 
@@ -864,11 +865,36 @@ export const ChooseWorkToolInputSchema = z.strictObject({
 					.min(1)
 					.max(300)
 					.describe("What this tool is good at, in the owner's words"),
+				examples: z
+					.array(z.string().min(1).max(200))
+					.max(5)
+					.default([])
+					.describe("Tasks this tool did well, as titles"),
+				load: z
+					.strictObject({
+						running: z.number().int().nonnegative(),
+						waiting: z.number().int().nonnegative(),
+						allowanceLeftPercent: z.number().min(0).max(100).nullable(),
+						resetsAt: z.iso.datetime().nullable(),
+						recent: z
+							.strictObject({
+								finished: z.number().int().nonnegative(),
+								failed: z.number().int().nonnegative(),
+								total: z.number().int().nonnegative(),
+							})
+							.nullable()
+							.describe("Results on its tasks in the last 14 days"),
+					})
+					.optional()
+					.describe("What this tool is doing now and how it did lately"),
 			}),
 		)
 		.min(2)
 		.max(4)
 		.describe("Only the tools available right now"),
+	model: DecisionModelSchema.optional().describe(
+		"Decision model: Clef (default, the organization's configured one) or typesafe/jev",
+	),
 });
 export type ChooseWorkToolInput = z.infer<typeof ChooseWorkToolInputSchema>;
 

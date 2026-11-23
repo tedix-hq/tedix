@@ -182,6 +182,7 @@ import {
 	type LocalDispatcherHealth,
 	recordDispatcherRules,
 } from "./dispatcher-health";
+import { readToolLoad, type ToolLoad } from "./lane-tool-load";
 import {
 	observeUnavailableRunners,
 	idleReason,
@@ -338,6 +339,31 @@ export function withoutExecutor(
 			routes: rule.routes.filter((route) => route.executor !== executor),
 		})),
 	};
+}
+
+/**
+ * The load facts behind a pick, in plain words: the busiest other tool
+ * offered and the chosen tool's recent record.
+ */
+export function loadNote(
+	chosen: LocalExecutor,
+	offered: LocalExecutor[],
+	load: Record<LocalExecutor, ToolLoad>,
+): string {
+	const parts: string[] = [];
+	const busiest = offered
+		.filter((executor) => executor !== chosen)
+		.sort((a, b) => load[b].running - load[a].running)[0];
+	if (busiest && load[busiest].running > load[chosen].running)
+		parts.push(
+			`${AGENT_NAMES[busiest] ?? busiest} is running ${load[busiest].running} tasks, ${AGENT_NAMES[chosen] ?? chosen} ${load[chosen].running}`,
+		);
+	const recent = load[chosen].recent;
+	if (recent.total)
+		parts.push(
+			`${AGENT_NAMES[chosen] ?? chosen} finished ${recent.finished} of ${recent.total} tasks in 14 days`,
+		);
+	return parts.length ? `. ${parts.join("; ")}` : "";
 }
 
 /** "Taken by Claude Code …": the rules' pick for Work that names no tool. */
@@ -5526,13 +5552,25 @@ export class LaneDispatcher {
 			});
 		};
 		const now = Date.now();
-		const offered = localExecutors.filter(
-			(executor) =>
-				!!this.policy.tools?.[executor] &&
+		// Every runner on this Mac keeps its records beside this one.
+		const load = readToolLoad(
+			basename(dirname(this.directory)) === "dispatchers"
+				? dirname(this.directory)
+				: this.directory,
+			now,
+			basename(dirname(this.directory)) !== "dispatchers",
+		);
+		const offered = localExecutors.filter((executor) => {
+			const tool = this.policy.tools?.[executor];
+			return (
+				!!tool &&
 				this.availability[executor]?.available &&
 				(this.budgets[executor]?.backoffUntil ?? 0) <= now &&
-				!this.unavailable.has(executor),
-		);
+				!this.unavailable.has(executor) &&
+				(tool.maxRunning === undefined ||
+					load[executor].running < tool.maxRunning)
+			);
+		});
 		if (offered.length < 2) {
 			remember();
 			return false;
@@ -5566,10 +5604,32 @@ export class LaneDispatcher {
 								.filter((tag): tag is string => typeof tag === "string")
 								.slice(0, 20)
 						: [],
-					tools: offered.map((executor) => ({
-						executor,
-						strengths: this.policy.tools![executor]!.strengths,
-					})),
+					tools: offered.map((executor) => {
+						const budget = this.budgets[executor];
+						return {
+							executor,
+							strengths: this.policy.tools![executor]!.strengths,
+							examples: this.policy.tools![executor]!.examples ?? [],
+							load: {
+								running: load[executor].running,
+								waiting: load[executor].waiting,
+								allowanceLeftPercent:
+									budget?.remainingPercent !== undefined
+										? Math.max(0, Math.min(100, budget.remainingPercent))
+										: null,
+								resetsAt:
+									budget?.resetAt && budget.resetAt > now
+										? new Date(budget.resetAt).toISOString()
+										: null,
+								recent: load[executor].recent.total
+									? load[executor].recent
+									: null,
+							},
+						};
+					}),
+					...(this.policy.decideModel
+						? { model: this.policy.decideModel }
+						: {}),
 				}),
 			]);
 		} catch (error) {
@@ -5601,7 +5661,8 @@ export class LaneDispatcher {
 			return false;
 		}
 		const name = AGENT_NAMES[answer.executor] ?? answer.executor;
-		const detail = `Clef chose ${name} (${Math.round(answer.confidence! * 100)}% sure): ${this.policy.tools![answer.executor]!.strengths}`;
+		const decider = answer.model.includes("jev") ? "Jev" : "Clef";
+		const detail = `${decider} chose ${name} (${Math.round(answer.confidence! * 100)}% sure): ${this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
 		const receiptLine = `Model ${answer.model}, ${answer.latencyMs} ms, billed as Workers AI usage.`;
 		if (answer.executor === from) {
 			this.log("tool-choice", item.id, detail);
