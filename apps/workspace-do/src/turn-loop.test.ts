@@ -10,7 +10,7 @@ import {
 	AssistantMessageEventStream,
 	type AssistantMessage,
 } from "@earendil-works/pi-ai";
-import type { Context, Usage } from "@earendil-works/pi-ai";
+import type { Context, Message, Usage } from "@earendil-works/pi-ai";
 import type { ModelPort } from "./model";
 import { RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult } from "./runtime";
@@ -318,7 +318,133 @@ describe("runTurn", () => {
 		});
 		expect(result.compaction?.droppedMessages).toBe(42);
 	});
+
+	test("compacts between a call and its results, then replays the saved history", async () => {
+		const call = (id: string) =>
+			fauxToolCall(RUN_CODE_TOOL, { code: "read status" }, { id });
+		const resultMessage = (id: string): Message => ({
+			role: "toolResult",
+			toolCallId: id,
+			toolName: RUN_CODE_TOOL,
+			content: [{ type: "text", text: "3 open items" }],
+			isError: false,
+			timestamp: 0,
+		});
+		let stored: Message[] = Array.from({ length: 60 }, (_, i) =>
+			i % 2
+				? fauxAssistantMessage(fauxText("x".repeat(9_000)))
+				: { role: "user", content: "x".repeat(9_000), timestamp: i },
+		);
+		stored[41] = fauxAssistantMessage([call("a"), call("b")]);
+		stored[42] = resultMessage("a");
+		stored[43] = resultMessage("b");
+		stored[47] = fauxAssistantMessage(call("kept"));
+		stored[48] = resultMessage("kept");
+		stored[0] = resultMessage("lost-a");
+		stored[1] = resultMessage("lost-b");
+		// An interrupted older turn also needs repair, without shifting row deletion.
+		stored[5] = fauxAssistantMessage(call("interrupted"));
+		const model = measuredModel([
+			fauxAssistantMessage(fauxText("3 open items")),
+			fauxAssistantMessage(fauxText("Still 3 open items")),
+		]);
+		let summaries = 0;
+		const ports = {
+			model: {
+				...model,
+				stream(context: Context) {
+					expectValidToolPairs(context.messages);
+					expect(context.messages).toContainEqual(resultMessage("kept"));
+					return model.stream(context);
+				},
+			},
+			runCode: async () => ({ ok: true, logs: [], durationMs: 0 }),
+			emit: () => {},
+			summarize: async (messages: Message[]) => {
+				summaries += 1;
+				expectValidToolPairs(messages);
+				expect(messages).toContainEqual(resultMessage("a"));
+				expect(messages).toContainEqual(resultMessage("b"));
+				return { summary: "Earlier status reads", usage: null };
+			},
+			save: (progress: TurnProgress) => {
+				if (progress.compaction)
+					stored = stored.slice(progress.compaction.droppedMessages);
+				stored.push(...progress.messages);
+			},
+		};
+		const first = await runTurn(ports, {
+			turnId: "compact",
+			systemPrompt: "sys",
+			history: stored,
+			userText: "Status?",
+		});
+		expect(first.text).toBe("3 open items");
+		expect(first.compaction?.droppedMessages).toBe(44);
+		expectValidToolPairs(stored);
+		const second = await runTurn(ports, {
+			turnId: "replay",
+			systemPrompt: "sys",
+			history: stored,
+			userText: "And now?",
+		});
+		expect(second.text).toBe("Still 3 open items");
+		expect(summaries).toBe(1);
+	});
+
+	test("answers again when persisted history contains an orphan tool result", async () => {
+		const orphan: Message = {
+			role: "toolResult",
+			toolCallId: "lost-call",
+			toolName: RUN_CODE_TOOL,
+			content: [{ type: "text", text: "old status" }],
+			isError: false,
+			timestamp: 0,
+		};
+		const model = measuredModel([
+			fauxAssistantMessage(fauxText("Status read succeeded")),
+		]);
+		const result = await runTurn(
+			{
+				model: {
+					...model,
+					stream(context: Context) {
+						expectValidToolPairs(context.messages);
+						expect(context.messages).not.toContainEqual(orphan);
+						return model.stream(context);
+					},
+				},
+				runCode: async () => ({ ok: true, logs: [], durationMs: 0 }),
+				emit: () => {},
+				summarize: async () => {
+					throw new Error("Short history needs no compaction");
+				},
+			},
+			{
+				turnId: "recovered",
+				systemPrompt: "sys",
+				history: [orphan, { role: "user", content: "Status?", timestamp: 1 }],
+				userText: "Try the status read again",
+			},
+		);
+		expect(result.text).toBe("Status read succeeded");
+	});
 });
+
+function expectValidToolPairs(messages: Message[]) {
+	const pending = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "toolResult") {
+			expect(pending.delete(message.toolCallId)).toBe(true);
+		} else {
+			expect(pending.size).toBe(0);
+			if (message.role === "assistant")
+				for (const block of message.content)
+					if (block.type === "toolCall") pending.add(block.id);
+		}
+	}
+	expect(pending.size).toBe(0);
+}
 
 function measuredModel(messages: AssistantMessage[]): ModelPort {
 	return {
