@@ -99,7 +99,7 @@ The app is not signed or notarized yet and has been run on macOS only.
   and restarts the runners. **Use the separate install again**
   reverses it.
 - **Updates.** The app and the command-line tool update together as one
-  thing, "Tedix". The app looks for updates when it starts, every four hours,
+  thing, "Tedix". The app looks for updates when it starts, every hour,
   and from **Tedix → Check for Updates…**:
   - It downloads a newer app in the background and refuses one whose
     SHA-256 differs from the manifest. After Check for Updates…, the sidebar

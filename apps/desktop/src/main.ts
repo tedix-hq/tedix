@@ -1421,6 +1421,10 @@ async function checkForUpdates(
 	inSettings = false,
 ): Promise<void> {
 	if (checking) return;
+	const from = Date.now();
+	log(
+		`update: checking (${!asked ? "on a timer" : inSettings ? "asked in Settings" : "asked from the menu"})`,
+	);
 	let problem = "";
 	let failed = false;
 	if (asked) {
@@ -1432,31 +1436,43 @@ async function checkForUpdates(
 			settingsView.webContents.send("section", "general");
 	}
 	try {
-		const result = await findUpdate();
-		if (result.kind === "unavailable") problem = result.reason;
-		found = result.kind === "found" ? result.update : undefined;
-	} catch (error) {
-		problem = `Could not check for updates: ${error instanceof Error ? error.message : String(error)}. Try again later.`;
-		failed = true;
-		log(`update: ${problem}`);
-	}
-	try {
-		// The app downloads while the command-line tool is looked up.
+		try {
+			const result = await findUpdate();
+			if (result.kind === "unavailable") problem = result.reason;
+			found = result.kind === "found" ? result.update : undefined;
+		} catch (error) {
+			problem = `Could not check for updates: ${error instanceof Error ? error.message : String(error)}. Try again later.`;
+			failed = true;
+		}
+		// The app downloads while the command-line tool is looked up; the
+		// download shows its own percent, so the check does not wait on it.
 		const fetched =
 			found && readyVersion() !== found.version
 				? download()
 				: Promise.resolve(true);
-		await lookForCliUpdate(asked);
-		await refreshSetup(false);
+		// A step that hangs must not keep "Checking…" up for good.
+		const settled = await Promise.race([
+			Promise.all([lookForCliUpdate(asked), refreshSetup(false)]).then(
+				() => true,
+			),
+			new Promise<false>((done) => setTimeout(() => done(false), CHECK_MS)),
+		]);
+		if (!settled) log("update: the command-line tool check is still running");
 		if (!(await fetched)) {
 			problem ||= "The update did not download. Try again later.";
 			failed = true;
 		}
+	} catch (error) {
+		problem ||= `Could not check for updates: ${error instanceof Error ? error.message : String(error)}. Try again later.`;
+		failed = true;
 	} finally {
 		checking = false;
 	}
 	lastCheck = problem || "Up to date";
 	lastCheckAt = Date.now();
+	log(
+		`update: check ended in ${Math.round((Date.now() - from) / 1000)} s: ${problem || (readyVersion() ? `${readyVersion()} is ready` : "up to date")}`,
+	);
 	// A failed look the person asked for shows on the entry, like a failed
 	// download; a failed look by itself waits for the next one.
 	if (failed && asked) fetchFailure ??= problem;
@@ -1468,6 +1484,8 @@ async function checkForUpdates(
 	openSettings("general");
 	void publish();
 }
+/** How long a check waits for the command-line tool and setup state. */
+const CHECK_MS = 60_000;
 
 function newChatItem(): MenuItemConstructorOptions {
 	return {
@@ -2265,7 +2283,7 @@ else if (process.argv.includes("--local-model")) {
 		// the app at most asks, downloads a newer app and reads which
 		// command-line tool is published; applying either takes a click.
 		setTimeout(() => void checkForUpdates(false), 10_000);
-		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
+		setInterval(() => void checkForUpdates(false), 60 * 60_000);
 		void refresh();
 	});
 }
