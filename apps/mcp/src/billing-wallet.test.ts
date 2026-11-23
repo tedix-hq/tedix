@@ -21,6 +21,18 @@ vi.mock("@tedix/db/queries/billing/credit-pool", async (importOriginal) => ({
 	).creditRefusalReason,
 	getCreditPoolSnapshot,
 }));
+const getCreditBudgetsForWorkItem = vi.fn(
+	async (_db: unknown, _input: unknown) =>
+		[] as Array<{
+			id: string;
+			scopeType: string;
+			scopeId: string;
+			limitMicros: number;
+		}>,
+);
+vi.mock("@tedix/db/queries/work-items/budgets", () => ({
+	getCreditBudgetsForWorkItem,
+}));
 vi.mock("@tedix/db/queries/billing/wallet-flush", () => ({
 	postWalletFlush,
 }));
@@ -238,5 +250,63 @@ describe("billing wallet", () => {
 				expiresAt: "2000-01-01T00:00:00.000Z",
 			}),
 		).toEqual({ allowed: false, code: "monthly_credit_limit_reached" });
+	});
+	it("stops Work spend at a credit budget across runs and model calls, and keeps flushed spend", async () => {
+		getCreditBudgetsForWorkItem.mockResolvedValue([
+			{
+				id: "budget-project",
+				scopeType: "project",
+				scopeId: "project-1",
+				limitMicros: 2_000_000,
+			},
+		]);
+		const run = (eventId: string) =>
+			wallet.charge({ ...member(eventId), workItemId: "work-1" });
+		const call = (key: string) =>
+			wallet.hold({
+				organizationId: "org-1",
+				holdId: `hold-${key}`,
+				idempotencyKey: key,
+				tediId: null,
+				userId: "member-1",
+				credits: 1,
+				expiresAt: "2099-01-01T00:00:00.000Z",
+				workItemId: "work-1",
+			});
+		// The pool has 2 credits too, so widen it: the budget must be what stops spend.
+		getCreditPoolSnapshot.mockResolvedValue({
+			...snapshot,
+			availableCredits: 100,
+		});
+		wallet = new BillingWallet(fakeStorage(), { DB: {} as D1Database });
+		expect(await run("run-1")).toMatchObject({ allowed: true });
+		expect(await call("call-1")).toMatchObject({ allowed: true });
+		expect(await run("run-2")).toEqual({
+			allowed: false,
+			code: "work_budget_exhausted",
+			budget: { scopeType: "project", scopeId: "project-1" },
+		});
+		// Spend without a Work Item is not counted against Work budgets.
+		expect(await wallet.charge(member("run-other"))).toMatchObject({
+			allowed: true,
+		});
+		// A run that loaded no Worker gives its budget back.
+		wallet.settle({ eventId: "run-1", anonymousLoads: 0, namedLoads: 0 });
+		expect(await run("run-3")).toMatchObject({ allowed: true });
+		expect(wallet.budgetSpend({ budgetIds: ["budget-project"] })).toEqual({
+			"budget-project": 2_000_000,
+		});
+		// Flushed spend still counts: the budget stays spent after the flush.
+		wallet.settle({ eventId: "run-3", anonymousLoads: 1, namedLoads: 0 });
+		await wallet.settleHold({ holdId: "hold-call-1", providerCostMicros: 1 });
+		await wallet.alarm();
+		expect(wallet.budgetSpend({ budgetIds: ["budget-project"] })).toEqual({
+			"budget-project": 2_000_000,
+		});
+		expect(await call("call-2")).toMatchObject({
+			code: "work_budget_exhausted",
+		});
+		getCreditPoolSnapshot.mockResolvedValue(snapshot);
+		getCreditBudgetsForWorkItem.mockResolvedValue([]);
 	});
 });

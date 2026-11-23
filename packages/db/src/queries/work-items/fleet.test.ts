@@ -36,7 +36,8 @@ CREATE TABLE work_resource_reservations (
 );
 CREATE TABLE work_budget_envelopes (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, scope_type TEXT NOT NULL,
- limit_micros INTEGER NOT NULL, enabled INTEGER NOT NULL
+ limit_micros INTEGER NOT NULL, enabled INTEGER NOT NULL,
+ currency TEXT NOT NULL DEFAULT 'USD'
 );
 CREATE TABLE work_budget_reservations (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, envelope_id TEXT NOT NULL,

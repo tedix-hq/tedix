@@ -283,6 +283,7 @@ export async function authorizeRuntimeInference(
 			execution: mode === "managed" ? execution : undefined,
 			executionGuard: prepared?.guard,
 			executionPersisted: Boolean(existing),
+			workItemId: input.request.workItemId ?? null,
 		});
 		if (!decision.allowed) return decision;
 		if (!existing && mode !== "managed") {

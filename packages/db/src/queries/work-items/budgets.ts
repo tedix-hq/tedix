@@ -1,7 +1,10 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { tediObjectives } from "../../schema/tedi-objectives";
 import { workItems } from "../../schema/work-items";
 import {
+	CREDIT_BUDGET_CURRENCY,
+	workCaseItems,
 	workBudgetEnvelopes,
 	type WorkBudgetEnvelope,
 	type WorkBudgetScope,
@@ -27,7 +30,23 @@ async function validateScope(
 		await requireProject(db, p.orgId, p.scopeId);
 	else if (p.scopeType === "case")
 		await requireWorkCase(db, p.orgId, p.scopeId);
-	else await requireWorkItem(db, p.orgId, p.scopeId);
+	else if (p.scopeType === "objective") {
+		const [objective] = await db
+			.select({ id: tediObjectives.id })
+			.from(tediObjectives)
+			.where(
+				and(
+					eq(tediObjectives.orgId, p.orgId),
+					eq(tediObjectives.id, p.scopeId),
+				),
+			)
+			.limit(1);
+		if (!objective)
+			throw new WorkControlError(
+				"NOT_FOUND",
+				`Objective ${p.scopeId} was not found`,
+			);
+	} else await requireWorkItem(db, p.orgId, p.scopeId);
 }
 export interface CreateWorkBudgetEnvelopeParams {
 	id: string;
@@ -247,4 +266,95 @@ export async function listWorkBudgetEnvelopes(
 		nextCursor: hasMore ? data.at(-1)!.id : null,
 		observedAt: p.at,
 	};
+}
+
+/** Parent links followed when collecting a Work Item's budgets; deeper trees are cut off. */
+const CREDIT_BUDGET_ANCESTOR_DEPTH = 16;
+
+export interface CreditBudget {
+	id: string;
+	scopeType: WorkBudgetScope;
+	scopeId: string;
+	/** Millionths of a credit. */
+	limitMicros: number;
+}
+
+/**
+ * Every enabled credit budget that spend on `workItemId` counts against: the
+ * item and its parents, their projects, cases and objectives, and the
+ * organization. One read; the wallet caches the result briefly.
+ */
+export async function getCreditBudgetsForWorkItem(
+	db: DbQueryClient,
+	p: { orgId: string; workItemId: string },
+): Promise<CreditBudget[]> {
+	const items: string[] = [];
+	const projects = new Set<string>();
+	const objectives = new Set<string>();
+	let next: string | null = p.workItemId;
+	while (next && items.length <= CREDIT_BUDGET_ANCESTOR_DEPTH) {
+		if (items.includes(next)) break;
+		const [row] = await db
+			.select({
+				parentId: workItems.parentWorkItemId,
+				projectId: workItems.projectId,
+				objectiveId: workItems.objectiveId,
+			})
+			.from(workItems)
+			.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, next)))
+			.limit(1);
+		if (!row) break;
+		items.push(next);
+		if (row.projectId) projects.add(row.projectId);
+		if (row.objectiveId) objectives.add(row.objectiveId);
+		next = row.parentId;
+	}
+	const scope = (type: WorkBudgetScope, ids: string[]) =>
+		ids.length
+			? and(
+					eq(workBudgetEnvelopes.scopeType, type),
+					// bound-params: at most CREDIT_BUDGET_ANCESTOR_DEPTH + 1 ids
+					inArray(workBudgetEnvelopes.scopeId, ids),
+				)
+			: undefined;
+	return db
+		.select({
+			id: workBudgetEnvelopes.id,
+			scopeType: workBudgetEnvelopes.scopeType,
+			scopeId: workBudgetEnvelopes.scopeId,
+			limitMicros: workBudgetEnvelopes.limitMicros,
+		})
+		.from(workBudgetEnvelopes)
+		.where(
+			and(
+				eq(workBudgetEnvelopes.orgId, p.orgId),
+				eq(workBudgetEnvelopes.enabled, true),
+				eq(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
+				or(
+					scope("organization", [p.orgId]),
+					scope("work_item", items),
+					scope("project", [...projects]),
+					scope("objective", [...objectives]),
+					items.length
+						? and(
+								eq(workBudgetEnvelopes.scopeType, "case"),
+								// bound-params: a subquery over the bounded ancestor chain
+								inArray(
+									workBudgetEnvelopes.scopeId,
+									db
+										.select({ caseId: workCaseItems.caseId })
+										.from(workCaseItems)
+										.where(
+											and(
+												eq(workCaseItems.orgId, p.orgId),
+												// bound-params: at most CREDIT_BUDGET_ANCESTOR_DEPTH + 1 ids
+												inArray(workCaseItems.workItemId, items),
+											),
+										),
+								),
+							)
+						: undefined,
+				),
+			),
+		);
 }

@@ -113,7 +113,14 @@ export const WORK_BUDGET_SCOPE_VALUES = [
 	"project",
 	"case",
 	"work_item",
+	"objective",
 ] as const;
+/**
+ * Envelope currency for a credit budget. The organization wallet enforces it
+ * as credits are spent; `limit_micros` holds millionths of a credit. Other
+ * currencies keep the per-Attempt reservation model.
+ */
+export const CREDIT_BUDGET_CURRENCY = "credits";
 export type WorkBudgetScope = (typeof WORK_BUDGET_SCOPE_VALUES)[number];
 
 export const workCases = sqliteTable(

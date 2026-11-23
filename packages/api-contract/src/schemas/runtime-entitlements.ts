@@ -125,6 +125,7 @@ export const RuntimeEntitlementDenialCodeSchema = z.enum([
 	"member_monthly_credit_cap_reached",
 	"pricing_unavailable",
 	"model_tier_not_allowed",
+	"work_budget_exhausted",
 ]);
 
 export type RuntimeEntitlementDenialCode = z.infer<
@@ -154,6 +155,8 @@ const RUNTIME_INFERENCE_DENIAL_REASONS: Record<
 		"You reached the monthly credit cap an admin set for you.",
 	pricing_unavailable: "Model pricing is not available yet.",
 	model_tier_not_allowed: "This model tier is not allowed by the current plan.",
+	work_budget_exhausted:
+		"This Work's credit budget is used up. An owner can raise the budget on the Work Item, its project, case or objective.",
 };
 
 /** Shared by turn notices and the billing console; the code identifies the exact gate. */

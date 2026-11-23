@@ -27,6 +27,7 @@ import {
 	workCaseItems,
 	workResourcePools,
 	workResourceRequirements,
+	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
 import {
 	WorkControlError,
@@ -471,6 +472,8 @@ export async function listReadyWork(
 				and(
 					eq(workBudgetEnvelopes.orgId, p.orgId),
 					eq(workBudgetEnvelopes.enabled, true),
+					// Credit budgets are enforced by the organization wallet as credits are spent.
+					ne(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
 				),
 			)
 			.limit(HARD_FACT_LIMIT + 1)

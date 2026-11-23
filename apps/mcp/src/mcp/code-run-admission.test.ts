@@ -161,7 +161,11 @@ describe("Code Mode load billing", () => {
 		env,
 		organizationId: "org-1",
 		executionId: "exec-metered",
-		caller: { authType: "user" as const, userId: "member-1" },
+		caller: {
+			authType: "user" as const,
+			userId: "member-1",
+			requestWorkItemId: "work-1",
+		},
 	};
 	it("charges the wallet before loading and settles loads even when user code fails", async () => {
 		await expect(
@@ -176,6 +180,8 @@ describe("Code Mode load billing", () => {
 								eventId: "dynamic-worker:exec-metered",
 								tediId: null,
 								userId: "member-1",
+								// Counts against the Work Item's credit budgets.
+								workItemId: "work-1",
 							},
 						},
 					]);

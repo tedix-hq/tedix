@@ -30,6 +30,7 @@ import {
 	workBudgetEnvelopes,
 	workCaseItems,
 	workResourceRequirements,
+	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
 import { ACTIVE_ATTEMPT_STATES, getScopedWorkItem } from "./factory-state";
 import { normalizeWorkItemRow } from "./normalization";
@@ -452,6 +453,8 @@ export async function deriveWorkItemReadiness(
 				and(
 					eq(workBudgetEnvelopes.orgId, params.orgId),
 					eq(workBudgetEnvelopes.enabled, true),
+					// Credit budgets are enforced by the organization wallet as credits are spent.
+					ne(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
 					or(
 						and(
 							eq(workBudgetEnvelopes.scopeType, "organization"),

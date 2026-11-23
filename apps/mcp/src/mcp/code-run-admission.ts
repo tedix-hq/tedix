@@ -32,6 +32,8 @@ const REFUSAL_MESSAGES: Record<string, string> = {
 		"This tedi reached the monthly credit cap an admin set for it.",
 	member_monthly_credit_cap_reached:
 		"You reached the monthly credit cap an admin set for you.",
+	work_budget_exhausted:
+		"This Work's credit budget is used up. An owner can raise the budget on the Work Item, its project, case or objective.",
 };
 
 export function codeRunRefusalMessage(code: string): string {
@@ -115,6 +117,7 @@ export async function executeMeteredCodeMode<T>(input: {
 			input.caller?.authType === "tedi" ? (input.caller.tediId ?? null) : null,
 		userId:
 			input.caller?.authType !== "tedi" ? (input.caller?.userId ?? null) : null,
+		workItemId: input.caller?.requestWorkItemId ?? null,
 	};
 	const decision = await call<WalletChargeResult>("charge", charge);
 	if (!decision.allowed) throw new Error(codeRunRefusalMessage(decision.code));

@@ -696,39 +696,47 @@ export function WorkCapacityPage({
 															</CollapsibleDefaultTrigger>
 															<CollapsibleDefaultContent>
 																<Text as="span" role="label" tone="secondary">
-																	{usd(committedMicros)} committed ·{" "}
-																	{usd(availableMicros)} available · version{" "}
+																	{envelope.currency === "credits"
+																		? `Credit budget of ${(envelope.limitMicros / 1_000_000).toLocaleString()} credits, enforced as Code Mode runs and model calls spend · version `
+																		: `${usd(committedMicros)} committed · ${usd(availableMicros)} available · version `}
 																	{envelope.version}
 																</Text>
 															</CollapsibleDefaultContent>
 														</Collapsible>
 													</div>
-													<Button
-														size="sm"
-														variant="outline"
-														onClick={() => {
-															budgetForm.setFieldValue(
-																"scopeType",
-																envelope.scopeType,
-															);
-															budgetForm.setFieldValue(
-																"scopeId",
-																envelope.scopeId,
-															);
-															budgetForm.setFieldValue(
-																"limitUsd",
-																microsToUsd(envelope.limitMicros),
-															);
-															budgetForm.setFieldValue(
-																"reservationUsd",
-																microsToUsd(envelope.reservationMicros),
-															);
-															setBudgetVersion(envelope.version);
-															setBudgetFormOpen(true);
-														}}
-													>
-														Edit
-													</Button>
+													{envelope.currency === "USD" &&
+													envelope.scopeType !== "objective" ? (
+														<Button
+															size="sm"
+															variant="outline"
+															onClick={() => {
+																budgetForm.setFieldValue(
+																	"scopeType",
+																	// Shown only for USD budgets, which have no objective scope.
+																	envelope.scopeType as Exclude<
+																		typeof envelope.scopeType,
+																		"objective"
+																	>,
+																);
+																budgetForm.setFieldValue(
+																	"scopeId",
+																	envelope.scopeId,
+																);
+																budgetForm.setFieldValue(
+																	"limitUsd",
+																	microsToUsd(envelope.limitMicros),
+																);
+																budgetForm.setFieldValue(
+																	"reservationUsd",
+																	microsToUsd(envelope.reservationMicros),
+																);
+																setBudgetVersion(envelope.version);
+																setBudgetFormOpen(true);
+															}}
+														>
+															Edit
+														</Button>
+													) : null}
 												</li>
 											),
 										)}

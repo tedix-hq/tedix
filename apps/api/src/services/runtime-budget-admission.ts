@@ -84,6 +84,8 @@ export async function authorizeRuntimeBudget(input: {
 	executionGuard?: ProviderExecutionAdmissionGuard;
 	/** The execution's dispatch fence already exists (a retry): write no second one. */
 	executionPersisted?: boolean;
+	/** Spend counts against this Work Item's credit budgets. */
+	workItemId?: string | null;
 	nowMs?: number;
 	preflightOnly?: boolean;
 }): Promise<RuntimeBudgetDecision> {
@@ -290,6 +292,7 @@ export async function authorizeRuntimeBudget(input: {
 			tediId: input.request.tediId ?? null,
 			userId: input.request.userId ?? null,
 			credits,
+			workItemId: input.workItemId ?? null,
 			runId: input.request.runId ?? null,
 			metadata:
 				input.request.metadata === undefined

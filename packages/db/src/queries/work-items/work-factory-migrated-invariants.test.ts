@@ -6,6 +6,7 @@ import {
 	WorkResourcePoolSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { describe, expect, it, vi } from "vite-plus/test";
+import type { WorkBudgetScope } from "../../schema/work-factory";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
@@ -40,6 +41,7 @@ import {
 } from "./attempts";
 import {
 	createWorkBudgetEnvelope,
+	getCreditBudgetsForWorkItem,
 	listWorkBudgetEnvelopes,
 	updateWorkBudgetEnvelope,
 } from "./budgets";
@@ -1124,6 +1126,58 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		db.exec(
 			`INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,rejection_code,rejection_reason,rejection_key,decided_at,expires_at,created_at) SELECT 'reject-2','org',id,version,admission_spec_revision,'tedi','tedi','rejected','budget_blocked','No budget','window-2','2026-08-20T00:01:00.000Z','2026-08-20T00:02:00.000Z','2026-08-20T00:01:00.000Z' FROM work_items WHERE id='work'`,
 		);
+	});
+
+	it("finds a Work Item's credit budgets through its parents, project, case and objective", async () => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		seedTedi(sqlite);
+		sqlite.exec(`
+			INSERT INTO tedi_objectives(id,tedi_id,org_id,title,priority,created_at) VALUES('objective','tedi','org','Goal',1,'2026-08-20T00:00:00.000Z');
+			INSERT INTO projects(id,org_id,key,name,created_at) VALUES('other-project','org','OTHER','Other','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_items(id,org_id,title,disposition,project_id,objective_id,work_class,purpose_exception_expires_at,admission_spec_revision,created_at)
+			VALUES('parent','org','Parent','accepted','project','objective','hygiene','${LIVE_PURPOSE_EXCEPTION}','parent-revision','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_items(id,org_id,title,disposition,parent_work_item_id,work_class,purpose_exception_expires_at,admission_spec_revision,created_at)
+			VALUES('child','org','Child','accepted','parent','hygiene','${LIVE_PURPOSE_EXCEPTION}','child-revision','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_cases(id,org_id,project_id,title,kind,stage,accountable_owner_type,accountable_owner_id,opened_at,created_at) VALUES('case','org','project','Case','incident','investigating','system','tedix','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_case_items(id,org_id,case_id,work_item_id,discovered_at) VALUES('case-link','org','case','parent','2026-08-20T00:00:00.000Z');
+		`);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const budget = (
+			scopeType: WorkBudgetScope,
+			scopeId: string,
+			currency = "credits",
+		) =>
+			createWorkBudgetEnvelope(db, {
+				id: `${scopeType}-${scopeId}`,
+				orgId: "org",
+				scopeType,
+				scopeId,
+				limitMicros: 1_000_000,
+				reservationMicros: 0,
+				currency,
+				now: "2026-08-20T00:00:00.000Z",
+			});
+		await budget("work_item", "child");
+		await budget("work_item", "parent");
+		await budget("project", "project");
+		await budget("case", "case");
+		await budget("objective", "objective");
+		// Not this Work: another project. Not a credit budget: USD reservations.
+		await budget("project", "other-project");
+		await budget("organization", "org", "USD");
+		const found = await getCreditBudgetsForWorkItem(db, {
+			orgId: "org",
+			workItemId: "child",
+		});
+		expect(found.map((b) => b.id).sort()).toEqual([
+			"case-case",
+			"objective-objective",
+			"project-project",
+			"work_item-child",
+			"work_item-parent",
+		]);
+		sqlite.close();
 	});
 
 	it("filters the scheduler project before the candidate bound", async () => {

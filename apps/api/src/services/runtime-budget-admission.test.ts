@@ -175,6 +175,7 @@ describe("runtime entitlement inference admission", () => {
 					tediId: "tedi-1",
 					userId: expected,
 					credits: 3,
+					workItemId: null,
 					runId: null,
 					metadata: undefined,
 					expiresAt: "2026-08-02T12:10:00.000Z",
@@ -361,6 +362,7 @@ describe("managed execution fence", () => {
 			execution,
 			executionGuard: guard,
 			executionPersisted,
+			workItemId: "work-1",
 			nowMs,
 		});
 
@@ -371,6 +373,8 @@ describe("managed execution fence", () => {
 			expiresAt: "2026-08-02T12:00:30.000Z",
 		});
 		expect(mocks.wallet.mock.calls[0][2]).toMatchObject({
+			// Counts against the Work Item's credit budgets.
+			workItemId: "work-1",
 			holdId: "original-hold",
 			expiresAt: "2026-08-02T12:00:30.000Z",
 		});

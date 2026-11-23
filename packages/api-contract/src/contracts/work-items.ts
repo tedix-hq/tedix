@@ -1035,8 +1035,20 @@ export const workItemsContract = oc
 			.input(
 				z
 					.object({
-						scopeType: z.enum(["organization", "project", "case", "work_item"]),
+						scopeType: z.enum([
+							"organization",
+							"project",
+							"case",
+							"work_item",
+							"objective",
+						]),
 						scopeId: z.uuid(),
+						currency: z
+							.enum(["USD", "credits"])
+							.optional()
+							.describe(
+								"Set when creating: credits for a Tedix credit budget (limitMicros in millionths of a credit, reservationMicros 0), USD (default) for a per-Attempt reservation budget. An envelope keeps its currency.",
+							),
 						limitMicros: z.number().int().nonnegative(),
 						reservationMicros: z.number().int().nonnegative(),
 						expectedVersion: z

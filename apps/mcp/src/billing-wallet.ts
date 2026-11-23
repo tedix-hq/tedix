@@ -20,7 +20,6 @@ import {
 import { createDbClient } from "@tedix/db/client";
 import {
 	type CreditPoolSnapshot,
-	type CreditRefusalCode,
 	creditRefusalReason,
 	getCreditPoolSnapshot,
 } from "@tedix/db/queries/billing/credit-pool";
@@ -28,7 +27,10 @@ import {
 	postWalletFlush,
 	type WalletFlushGroup,
 } from "@tedix/db/queries/billing/wallet-flush";
+import { getCreditBudgetsForWorkItem } from "@tedix/db/queries/work-items/budgets";
 import type {
+	WalletBudgetScope,
+	WalletRefusalCode,
 	WalletHoldInput,
 	WalletHoldResult,
 	WalletSettleHoldInput,
@@ -47,14 +49,26 @@ const EVENT_RETENTION_MS = 48 * 60 * 60_000;
 
 export type WalletChargeResult =
 	| { allowed: true; replayed: boolean; credits: number }
-	| { allowed: false; code: CreditRefusalCode };
+	| { allowed: false; code: WalletRefusalCode; budget?: WalletBudgetScope };
 
 export interface WalletChargeInput {
 	organizationId: string;
 	eventId: string;
 	tediId: string | null;
 	userId: string | null;
+	/** Spend counts against this Work Item's credit budgets. */
+	workItemId?: string | null;
 }
+
+const BUDGET_TTL_MS = 60_000;
+const MICROS_PER_CREDIT = 1_000_000;
+
+type WalletBudget = {
+	id: string;
+	scopeType: WalletBudgetScope["scopeType"];
+	scopeId: string;
+	limitMicros: number;
+};
 
 export interface WalletSettleInput {
 	eventId: string;
@@ -92,6 +106,10 @@ type EventRow = {
 export class BillingWallet {
 	readonly #storage: DurableObjectStorage;
 	readonly #env: { DB?: D1Database };
+	readonly #budgetCache = new Map<
+		string,
+		{ budgets: WalletBudget[]; fetchedAt: number }
+	>();
 	readonly #snapshots = new Map<
 		string,
 		{ snapshot: CreditPoolSnapshot | null; fetchedAt: number }
@@ -140,6 +158,20 @@ export class BillingWallet {
 		storage.sql.exec(
 			"CREATE INDEX IF NOT EXISTS wallet_events_pending ON wallet_events (flushed_at, at)",
 		);
+		// Which credit budgets each charge counts against, and what each budget
+		// has spent once flushed. Budgets of a Work tree outlive the 48 h events.
+		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_event_budgets (
+			event_id TEXT NOT NULL,
+			budget_id TEXT NOT NULL,
+			PRIMARY KEY (event_id, budget_id)
+		)`);
+		storage.sql.exec(
+			"CREATE INDEX IF NOT EXISTS wallet_event_budgets_budget ON wallet_event_budgets (budget_id)",
+		);
+		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_budget_spend (
+			budget_id TEXT PRIMARY KEY,
+			micro_credits INTEGER NOT NULL
+		)`);
 		storage.sql.exec(
 			"CREATE UNIQUE INDEX IF NOT EXISTS wallet_events_idempotency ON wallet_events (idempotency_key)",
 		);
@@ -162,6 +194,8 @@ export class BillingWallet {
 			return Response.json(this.release(body as never));
 		if (path === "/wallet/settle-hold")
 			return Response.json(await this.settleHold(body as never));
+		if (path === "/wallet/budget-spend")
+			return Response.json(this.budgetSpend(body as never));
 		return Response.json({ error: "Unknown wallet route" }, { status: 404 });
 	}
 
@@ -177,13 +211,15 @@ export class BillingWallet {
 		const snapshot = await this.#snapshot(input, nowMs);
 		if (!snapshot?.creditFx)
 			return { allowed: false, code: "billing_not_configured" };
+		const budgets = await this.#budgets(input, nowMs);
 		const credits = aiCreditsForProviderCost(
 			DYNAMIC_WORKER_COST_USD_MICROS,
 			snapshot.creditFx.microUsdPerEur,
 		);
-		const refusal = this.#refusal(snapshot, input, credits, nowMs);
-		if (refusal) return { allowed: false, code: refusal };
+		const refusal = this.#refusal(snapshot, input, credits, nowMs, budgets);
+		if (refusal) return { allowed: false, ...refusal };
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
+		this.#countAgainst(input.eventId, budgets);
 		this.#storage.sql.exec(
 			`INSERT INTO wallet_events (event_id, tedi_id, user_id, credits, micro_usd_per_eur, period_start, period_end, at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -209,12 +245,20 @@ export class BillingWallet {
 		const snapshot = await this.#snapshot(input, nowMs);
 		if (!snapshot?.creditFx)
 			return { allowed: false, code: "billing_not_configured" };
-		// A concurrent retry may have held while the snapshot was read.
+		const budgets = await this.#budgets(input, nowMs);
+		// A concurrent retry may have held while the reads ran.
 		const raced = this.#heldFor(input);
 		if (raced) return raced;
-		const refusal = this.#refusal(snapshot, input, input.credits, nowMs);
-		if (refusal) return { allowed: false, code: refusal };
+		const refusal = this.#refusal(
+			snapshot,
+			input,
+			input.credits,
+			nowMs,
+			budgets,
+		);
+		if (refusal) return { allowed: false, ...refusal };
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
+		this.#countAgainst(input.holdId, budgets);
 		this.#storage.sql.exec(
 			`INSERT INTO wallet_events (event_id, kind, idempotency_key, tedi_id, user_id, credits, micro_usd_per_eur, period_start, period_end, at, expires_at, hold_context)
 			 VALUES (?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -249,6 +293,7 @@ export class BillingWallet {
 			"DELETE FROM wallet_events WHERE event_id = ? AND kind = 'ai' AND settled = 0",
 			input.holdId,
 		).rowsWritten;
+		if (released > 0) this.#uncount(input.holdId);
 		return { released: released > 0 };
 	}
 
@@ -281,6 +326,11 @@ export class BillingWallet {
 				"UPDATE wallet_events SET event_id = ?, expires_at = ? WHERE event_id = ?",
 				input.holdId,
 				expiresAt,
+				row.event_id,
+			);
+			this.#storage.sql.exec(
+				"UPDATE wallet_event_budgets SET event_id = ? WHERE event_id = ?",
+				input.holdId,
 				row.event_id,
 			);
 			return {
@@ -352,17 +402,19 @@ export class BillingWallet {
 		subject: { tediId: string | null; userId: string | null },
 		credits: number,
 		nowMs: number,
-	): CreditRefusalCode | null {
+		budgets: WalletBudget[],
+	): { code: WalletRefusalCode; budget?: WalletBudgetScope } | null {
+		const live =
+			"flushed_at IS NULL AND (kind = 'code_run' OR settled = 1 OR expires_at > ?)";
 		const pending = (filter: string, ...args: unknown[]) =>
 			this.#storage.sql
 				.exec<{ total: number | null }>(
-					`SELECT SUM(credits) AS total FROM wallet_events
-					 WHERE flushed_at IS NULL AND (kind = 'code_run' OR settled = 1 OR expires_at > ?)${filter}`,
+					`SELECT SUM(credits) AS total FROM wallet_events WHERE ${live}${filter}`,
 					nowMs,
 					...args,
 				)
 				.one().total ?? 0;
-		return creditRefusalReason(
+		const pool = creditRefusalReason(
 			{
 				...snapshot,
 				availableCredits: snapshot.availableCredits - pending(""),
@@ -375,16 +427,99 @@ export class BillingWallet {
 			},
 			{ now: new Date(nowMs).toISOString(), credits },
 		);
+		if (pool) return { code: pool };
+		for (const budget of budgets) {
+			const spent =
+				this.#flushedSpend(budget.id) +
+				pending(
+					" AND event_id IN (SELECT event_id FROM wallet_event_budgets WHERE budget_id = ?)",
+					budget.id,
+				) *
+					MICROS_PER_CREDIT;
+			if (spent + credits * MICROS_PER_CREDIT > budget.limitMicros)
+				return {
+					code: "work_budget_exhausted",
+					budget: { scopeType: budget.scopeType, scopeId: budget.scopeId },
+				};
+		}
+		return null;
+	}
+
+	/** Millionths of a credit each budget has spent: flushed plus unflushed live charges. */
+	budgetSpend(input: { budgetIds: string[] }): Record<string, number> {
+		const nowMs = Date.now();
+		return Object.fromEntries(
+			input.budgetIds.slice(0, 100).map((id) => [
+				id,
+				this.#flushedSpend(id) +
+					(this.#storage.sql
+						.exec<{ total: number | null }>(
+							`SELECT SUM(e.credits) AS total FROM wallet_events e
+							 JOIN wallet_event_budgets b ON b.event_id = e.event_id
+							 WHERE b.budget_id = ? AND e.flushed_at IS NULL
+							   AND (e.kind = 'code_run' OR e.settled = 1 OR e.expires_at > ?)`,
+							id,
+							nowMs,
+						)
+						.one().total ?? 0) *
+						MICROS_PER_CREDIT,
+			]),
+		);
+	}
+
+	#flushedSpend(budgetId: string): number {
+		return (
+			this.#storage.sql
+				.exec<{ micro_credits: number }>(
+					"SELECT micro_credits FROM wallet_budget_spend WHERE budget_id = ?",
+					budgetId,
+				)
+				.toArray()[0]?.micro_credits ?? 0
+		);
+	}
+
+	#countAgainst(eventId: string, budgets: WalletBudget[]) {
+		for (const budget of budgets)
+			this.#storage.sql.exec(
+				"INSERT OR IGNORE INTO wallet_event_budgets (event_id, budget_id) VALUES (?, ?)",
+				eventId,
+				budget.id,
+			);
+	}
+
+	#uncount(eventId: string) {
+		this.#storage.sql.exec(
+			"DELETE FROM wallet_event_budgets WHERE event_id = ?",
+			eventId,
+		);
+	}
+
+	/** The Work Item's credit budgets, cached briefly; none without a Work Item. */
+	async #budgets(
+		input: { organizationId: string; workItemId?: string | null },
+		nowMs: number,
+	): Promise<WalletBudget[]> {
+		if (!input.workItemId || !this.#env.DB) return [];
+		const cached = this.#budgetCache.get(input.workItemId);
+		if (cached && nowMs - cached.fetchedAt < BUDGET_TTL_MS)
+			return cached.budgets;
+		const budgets = await getCreditBudgetsForWorkItem(
+			createDbClient(this.#env.DB),
+			{ orgId: input.organizationId, workItemId: input.workItemId },
+		);
+		this.#budgetCache.set(input.workItemId, { budgets, fetchedAt: nowMs });
+		return budgets;
 	}
 
 	/** Zero loads refunds the charge; otherwise price the actual loads, rounded per run. */
 	settle(input: WalletSettleInput): { ok: boolean } {
 		const loads = input.anonymousLoads + input.namedLoads;
 		if (loads === 0) {
-			this.#storage.sql.exec(
+			const refunded = this.#storage.sql.exec(
 				"DELETE FROM wallet_events WHERE event_id = ? AND kind = 'code_run' AND flush_id IS NULL",
 				input.eventId,
-			);
+			).rowsWritten;
+			if (refunded > 0) this.#uncount(input.eventId);
 			return { ok: true };
 		}
 		const row = this.#storage.sql
@@ -440,6 +575,17 @@ export class BillingWallet {
 				await this.#storage.setAlarm(nowMs + RETRY_DELAY_MS);
 				return;
 			}
+			// Same synchronous block as marking the events flushed, so a budget's
+			// spend moves from pending to flushed exactly once.
+			this.#storage.sql.exec(
+				`INSERT INTO wallet_budget_spend (budget_id, micro_credits)
+				 SELECT b.budget_id, SUM(e.credits) * ${MICROS_PER_CREDIT}
+				 FROM wallet_event_budgets b JOIN wallet_events e ON e.event_id = b.event_id
+				 WHERE e.flush_id = ? AND e.flushed_at IS NULL
+				 GROUP BY b.budget_id
+				 ON CONFLICT (budget_id) DO UPDATE SET micro_credits = micro_credits + excluded.micro_credits`,
+				rows[0]!.flush_id,
+			);
 			this.#storage.sql.exec(
 				"UPDATE wallet_events SET flushed_at = ? WHERE flush_id = ? AND flushed_at IS NULL",
 				nowMs,
@@ -458,6 +604,9 @@ export class BillingWallet {
 		this.#storage.sql.exec(
 			"DELETE FROM wallet_events WHERE kind = 'ai' AND settled = 0 AND expires_at < ?",
 			nowMs - EVENT_RETENTION_MS,
+		);
+		this.#storage.sql.exec(
+			"DELETE FROM wallet_event_budgets WHERE event_id NOT IN (SELECT event_id FROM wallet_events)",
 		);
 		const next = this.#storage.sql
 			.exec<{ at: number | null; flushed: number | null }>(

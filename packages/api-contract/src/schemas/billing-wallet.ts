@@ -10,7 +10,15 @@ export type WalletRefusalCode =
 	| "billing_period_inactive"
 	| "monthly_credit_limit_reached"
 	| "tedi_monthly_credit_cap_reached"
-	| "member_monthly_credit_cap_reached";
+	| "member_monthly_credit_cap_reached"
+	/** A credit budget of the Work Item, a parent, its project, case or objective is spent. */
+	| "work_budget_exhausted";
+
+/** The budget that refused spend. */
+export interface WalletBudgetScope {
+	scopeType: "organization" | "project" | "case" | "work_item" | "objective";
+	scopeId: string;
+}
 
 /** Hold estimated credits for one model call before it is sent. */
 export interface WalletHoldInput {
@@ -22,6 +30,8 @@ export interface WalletHoldInput {
 	userId: string | null;
 	credits: number;
 	expiresAt: string;
+	/** Spend counts against this Work Item's credit budgets. */
+	workItemId?: string | null;
 	/** Returned on settlement and kept on the call's charge (e.g. workspace chat). */
 	runId?: string | null;
 	metadata?: Record<string, unknown>;
@@ -36,7 +46,7 @@ export type WalletHoldResult =
 			/** An earlier admission with the same key already holds these credits. */
 			replayed: boolean;
 	  }
-	| { allowed: false; code: WalletRefusalCode };
+	| { allowed: false; code: WalletRefusalCode; budget?: WalletBudgetScope };
 
 /** Turn a hold into a charge for the call's actual provider cost. */
 export interface WalletSettleHoldInput {
@@ -60,7 +70,11 @@ export type WalletSettleHoldResult =
 export interface WalletRpc {
 	wallet(
 		organizationId: string,
-		route: "hold" | "release" | "settle-hold",
-		body: WalletHoldInput | { holdId: string } | WalletSettleHoldInput,
+		route: "hold" | "release" | "settle-hold" | "budget-spend",
+		body:
+			| WalletHoldInput
+			| { holdId: string }
+			| WalletSettleHoldInput
+			| { budgetIds: string[] },
 	): Promise<unknown>;
 }

@@ -218,7 +218,7 @@ function resourcePoolOutput(row: {
 function budgetEnvelopeOutput(row: {
 	id: string;
 	orgId: string;
-	scopeType: "organization" | "project" | "case" | "work_item";
+	scopeType: "organization" | "project" | "case" | "work_item" | "objective";
 	scopeId: string;
 	currency: string;
 	limitMicros: number;
@@ -984,6 +984,11 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 			orgId,
 			"Work budget envelope configuration",
 		);
+		if (input.scopeType === "objective" && input.currency !== "credits")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"An objective budget is a credit budget: set currency to credits",
+			);
 		const now = new Date().toISOString();
 		try {
 			const current = await getWorkBudgetEnvelopeByScope(context.db, {
@@ -999,6 +1004,11 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 						"expectedVersion is required to update an existing budget envelope",
 					);
 				}
+				if (input.currency && input.currency !== current.currency)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"A budget envelope keeps its currency; disable it and create a new one",
+					);
 				return budgetEnvelopeOutput(
 					await updateWorkBudgetEnvelope(context.db, {
 						orgId,
@@ -1023,8 +1033,9 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 					scopeType: input.scopeType,
 					scopeId: input.scopeId,
 					limitMicros: input.limitMicros,
-					reservationMicros: input.reservationMicros,
-					currency: "USD",
+					reservationMicros:
+						input.currency === "credits" ? 0 : input.reservationMicros,
+					currency: input.currency ?? "USD",
 					now,
 				}),
 			);

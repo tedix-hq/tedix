@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workItems } from "../../schema/work-items";
@@ -8,6 +8,7 @@ import {
 	workBudgetEnvelopes,
 	workInteractions,
 	workResourcePools,
+	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
 
 type CountRow = { key: string; count: number };
@@ -190,6 +191,8 @@ export async function getWorkFleetProjection(
 				and(
 					eq(workBudgetEnvelopes.orgId, p.orgId),
 					eq(workBudgetEnvelopes.enabled, true),
+					// Credit budgets are enforced by the organization wallet as credits are spent.
+					ne(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
 				),
 			)
 			.limit(5000),

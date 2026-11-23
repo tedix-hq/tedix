@@ -244,9 +244,19 @@ export const WorkResourcePoolSchema = z.object({
 export const WorkBudgetEnvelopeSchema = z.object({
 	id: z.uuid(),
 	orgId: z.uuid(),
-	scopeType: z.enum(["organization", "project", "case", "work_item"]),
+	scopeType: z.enum([
+		"organization",
+		"project",
+		"case",
+		"work_item",
+		"objective",
+	]),
 	scopeId: z.uuid(),
-	currency: z.literal("USD"),
+	currency: z
+		.enum(["USD", "credits"])
+		.describe(
+			"credits: a Tedix credit budget the organization wallet enforces as Code Mode runs and model calls spend; limitMicros is millionths of a credit. USD: the per-Attempt reservation budget.",
+		),
 	limitMicros: z.number().int().nonnegative(),
 	reservationMicros: z.number().int().nonnegative(),
 	createdAt: z.iso.datetime(),

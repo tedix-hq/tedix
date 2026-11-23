@@ -2150,7 +2150,7 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	/** Organization wallet calls from other Tedix Workers (model-call holds). */
 	async wallet(
 		organizationId: string,
-		route: "hold" | "release" | "settle-hold",
+		route: "hold" | "release" | "settle-hold" | "budget-spend",
 		body: unknown,
 	): Promise<unknown> {
 		const response = await walletStub(this.env, organizationId).fetch(
