@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it, vi } from "vite-plus/test";
+// The handler maps provider roles through the installed auth package.
+import { toRoleLevel } from "../templates/tedix/node_modules/@emdash-cms/auth/dist/index.mjs";
 
 // Execute Emdash's installed middleware rather than a copy of the role
 // expression. Astro's virtual auth/config modules prevent importing the
@@ -77,6 +79,9 @@ async function provisionFirstExternalUser(providerRole: number) {
 		name: "First Editor",
 		role: providerRole,
 	}));
+	const startUserSession = vi.fn(
+		async (_db: unknown, _session: unknown, _userId: string) => {},
+	);
 	const createKyselyAdapter = () => ({
 		getUserByEmail: async (email: string) =>
 			users.find((user) => user.email === email),
@@ -89,6 +94,8 @@ async function provisionFirstExternalUser(providerRole: number) {
 		"ulid",
 		"MW_CACHE_HEADERS",
 		"resolveSessionUser",
+		"toRoleLevel",
+		"startUserSession",
 		`${middleware.slice(handlerStart, handlerEnd)}\nreturn handleExternalAuth;`,
 	) as (
 		provider: Authenticate,
@@ -96,6 +103,8 @@ async function provisionFirstExternalUser(providerRole: number) {
 		ulid: () => string,
 		cacheHeaders: Record<string, string>,
 		resolveSessionUser: () => Promise<undefined>,
+		roleLevel: typeof toRoleLevel,
+		startSession: typeof startUserSession,
 	) => (
 		context: {
 			locals: { emdash: { db: typeof db }; user?: ProvisionedUser };
@@ -103,6 +112,7 @@ async function provisionFirstExternalUser(providerRole: number) {
 			session: { set: (key: string, value: unknown) => void };
 		},
 		next: () => Promise<Response>,
+		emdash: { db: typeof db },
 		authMode: { entrypoint: string; config: { autoProvision: boolean } },
 		isApiRoute: boolean,
 	) => Promise<Response>;
@@ -112,6 +122,8 @@ async function provisionFirstExternalUser(providerRole: number) {
 		() => "first-user-id",
 		{ "Cache-Control": "private, no-store" },
 		async () => undefined,
+		toRoleLevel,
+		startUserSession,
 	);
 	const context = {
 		locals: { emdash: { db } } as {
@@ -127,10 +139,11 @@ async function provisionFirstExternalUser(providerRole: number) {
 		const response = await handleExternalAuth(
 			context,
 			next,
+			context.locals.emdash,
 			{ entrypoint: "descope", config: { autoProvision: true } },
 			true,
 		);
-		return { response, users, context, next, db };
+		return { response, users, context, next, db, startUserSession };
 	} finally {
 		log.mockRestore();
 	}
@@ -142,13 +155,18 @@ describe("Emdash external-auth patch", () => {
 		["editor", 40],
 		["admin", 50],
 	])("provisions the first %s with the provider role", async (_name, role) => {
-		const { response, users, context, next, db } =
+		const { response, users, context, next, db, startUserSession } =
 			await provisionFirstExternalUser(role);
 		expect(response.status).toBe(200);
 		expect(users).toHaveLength(1);
 		expect(users[0]?.role).toBe(role);
 		expect(context.locals.user?.role).toBe(role);
 		expect(next).toHaveBeenCalledOnce();
+		expect(startUserSession).toHaveBeenCalledWith(
+			db,
+			context.session,
+			"first-user-id",
+		);
 		expect(db.selectFrom).not.toHaveBeenCalled();
 	});
 });

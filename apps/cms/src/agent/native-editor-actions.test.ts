@@ -373,22 +373,28 @@ describe("native editor descriptor registration", () => {
 
 describe("installed native browser draft capture", () => {
 	it("captures only title and description from a homepage larger than the API bound", () => {
-		// The admin ships its private helpers in the source map. Execute those
-		// installed functions rather than recreate selection/capture in this test.
-		const map = JSON.parse(
-			readFileSync(
-				new URL(
-					"../../templates/tedix/node_modules/@emdash-cms/admin/dist/index.js.map",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		) as { sources: string[]; sourcesContent: string[] };
+		// The admin ships its private helpers in its chunks' source maps. Execute
+		// those installed functions rather than recreate selection/capture here.
+		const dist = new URL(
+			"../../templates/tedix/node_modules/@emdash-cms/admin/dist/",
+			import.meta.url,
+		);
+		const maps = readdirSync(dist)
+			.filter((name) => name.endsWith(".js.map"))
+			.map(
+				(name) =>
+					JSON.parse(readFileSync(new URL(name, dist), "utf8")) as {
+						sources: string[];
+						sourcesContent?: string[];
+					},
+			);
 		const source = (suffix: string) => {
-			const index = map.sources.findIndex((path) => path.endsWith(suffix));
-			if (index < 0 || !map.sourcesContent[index])
-				throw new Error(`Installed admin source missing: ${suffix}`);
-			return map.sourcesContent[index]!;
+			for (const map of maps) {
+				const index = map.sources.findIndex((path) => path.endsWith(suffix));
+				if (index >= 0 && map.sourcesContent?.[index])
+					return map.sourcesContent[index]!;
+			}
+			throw new Error(`Installed admin source missing: ${suffix}`);
 		};
 		const nativeRequire = createRequire(
 			new URL("../../templates/tedix/package.json", import.meta.url),

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { settingsUpdateBody } from "emdash/api/schemas";
 import { describe, expect, it } from "vite-plus/test";
 import { CMS_PROXY_TOOL_SCHEMAS } from "./agent/cms-proxy-schemas";
@@ -97,10 +97,13 @@ describe("Native sitemap canonical overrides", () => {
 	});
 });
 
-const hreflangSource = readFileSync(
-	new URL("../node_modules/emdash/dist/hreflang-Bzvlo9Ci.mjs", import.meta.url),
-	"utf8",
+// The bundler hashes this chunk's name, so locate it per EmDash release.
+const emdashDist = new URL("../node_modules/emdash/dist/", import.meta.url);
+const hreflangChunk = readdirSync(emdashDist).find((name) =>
+	/^hreflang-[\w-]+\.mjs$/.test(name),
 );
+if (!hreflangChunk) throw new Error("EmDash hreflang chunk not found");
+const hreflangSource = readFileSync(new URL(hreflangChunk, emdashDist), "utf8");
 const loadHreflang = new Function(
 	"ContentRepository",
 	"getCollectionInfoWithDb",
