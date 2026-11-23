@@ -271,6 +271,10 @@ export const osGadgets = sqliteTable(
 			.default("active"),
 		/** Pointer to the serving `os_gadget_revisions.id`; no FK (circular), queries maintain it. */
 		currentRevisionId: text("current_revision_id"),
+		/** Maintained with the current revision so the platform tick never parses unrelated manifests. */
+		hasRuntimeTriggers: integer("has_runtime_triggers", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		/** A person's switch per trigger id, with the trigger definition it was made for: it survives revisions that leave the trigger unchanged; a changed or reused id falls back to its default (schedules off). */
 		triggerEnabled: text("trigger_enabled", { mode: "json" })
 			.$type<Record<string, { enabled: boolean; definition: string }>>()
@@ -302,6 +306,12 @@ export const osGadgets = sqliteTable(
 			table.id,
 		),
 		index("os_gadgets_status_created_idx").on(
+			table.status,
+			table.createdAt,
+			table.id,
+		),
+		index("os_gadgets_triggers_status_created_idx").on(
+			table.hasRuntimeTriggers,
 			table.status,
 			table.createdAt,
 			table.id,

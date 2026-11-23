@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import { getOsWorkspace } from "./workspaces";
 import { recordWorkRelationEdges } from "../decision-graph-writers";
 import {
@@ -79,7 +80,7 @@ export interface InstantiateOsBlueprintResult {
 }
 
 /**
- * D1 caps a statement at 100 bound parameters; a gadget row binds 14 columns
+ * D1 caps a statement at 100 bound parameters; a gadget row binds 15 columns
  * and a revision row 9, so multi-row inserts are chunked well under the cap.
  * The chunks stay inside one `db.batch()`, which D1 rolls back as a unit.
  */
@@ -146,8 +147,16 @@ export async function instantiateOsBlueprint(
 		throw new Error(
 			"Blueprint document writes require the workspace object service",
 		);
+	const revisionsById = new Map(
+		params.revisions.map((revision) => [revision.id, revision]),
+	);
 	const gadgetChunks = chunkForBoundParams(
-		params.gadgets,
+		params.gadgets.map((gadget) => ({
+			...gadget,
+			hasRuntimeTriggers: osGadgetHasRuntimeTriggers(
+				revisionsById.get(gadget.currentRevisionId ?? "")?.manifest ?? "{}",
+			),
+		})),
 		GADGETS_PER_STATEMENT,
 	);
 	const revisionChunks = chunkForBoundParams(

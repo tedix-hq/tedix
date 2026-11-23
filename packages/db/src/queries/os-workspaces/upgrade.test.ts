@@ -144,7 +144,11 @@ describe("os blueprint upgrade application", () => {
 	it("re-pins, reconciles gadgets, and retains the rollback reference in one batch", async () => {
 		const { db, sqlite } = fixture();
 
-		const result = await applyOsBlueprintUpgrade(db, plan());
+		const input = plan();
+		const manifest = '{"entry":"tedix:runtime/v1","config":{"triggers":[]}}';
+		input.added[0]!.revision.manifest = manifest;
+		input.synced[0]!.append!.manifest = manifest;
+		const result = await applyOsBlueprintUpgrade(db, input);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -175,6 +179,7 @@ describe("os blueprint upgrade application", () => {
 		).toMatchObject({
 			name: "New",
 			current_revision_id: "gdrev-new-1",
+			has_runtime_triggers: 1,
 			source_blueprint_revision_id: CANDIDATE_REVISION,
 			status: "active",
 		});
@@ -191,12 +196,13 @@ describe("os blueprint upgrade application", () => {
 			),
 		).toEqual([
 			{ revision: 1, manifest: '{"entry":"keep.ts"}' },
-			{ revision: 2, manifest: '{"entry":"keep-v2.ts"}' },
+			{ revision: 2, manifest },
 		]);
 		expect(
 			rows(sqlite, "SELECT * FROM os_gadgets WHERE id = 'gd-keep'")[0],
 		).toMatchObject({
 			current_revision_id: "gdrev-keep-2",
+			has_runtime_triggers: 1,
 			source_blueprint_revision_id: CANDIDATE_REVISION,
 			status: "active",
 		});

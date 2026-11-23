@@ -21,6 +21,7 @@ import { type OsOutputRevisionRow } from "../../tenant-store/outputs-schema";
 import { normalizeStoredJsonText } from "../../utils/json";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
 import { getOsGadgetRevision } from "./gadgets";
+import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -685,6 +686,7 @@ async function mergeOsCollaborationProposalUnannounced(
 			.update(osGadgets)
 			.set({
 				currentRevisionId: params.revisionId,
+				hasRuntimeTriggers: osGadgetHasRuntimeTriggers(manifest),
 				updatedAt: now,
 				...(sourceBlueprintRevisionId
 					? {

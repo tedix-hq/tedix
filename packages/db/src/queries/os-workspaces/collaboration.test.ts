@@ -80,6 +80,7 @@ function fixture() {
 			description TEXT,
 			status TEXT NOT NULL DEFAULT 'active',
 			current_revision_id TEXT,
+			has_runtime_triggers INTEGER NOT NULL DEFAULT 0,
 			trigger_enabled TEXT NOT NULL DEFAULT '{}',
 			created_by_kind TEXT NOT NULL,
 			created_by_id TEXT NOT NULL,
@@ -747,7 +748,11 @@ describe("OS collaboration proposals", () => {
 
 	it("merges a runtime app draft into a revision and a separate code row", async () => {
 		const { db, sqlite } = fixture();
-		const manifest = { entry: "tedix:runtime/v1", capabilities: [] };
+		const manifest = {
+			entry: "tedix:runtime/v1",
+			capabilities: [],
+			config: { triggers: [] },
+		};
 		const files = {
 			"server.js": "export class App {}",
 			"client.js": "render()",
@@ -782,6 +787,13 @@ describe("OS collaboration proposals", () => {
 				.prepare("SELECT manifest FROM os_gadget_revisions WHERE id = ?")
 				.get("gadget-rev-2"),
 		).toEqual({ manifest: JSON.stringify(manifest) });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT has_runtime_triggers FROM os_gadgets WHERE id = 'gadget-1'",
+				)
+				.get(),
+		).toEqual({ has_runtime_triggers: 1 });
 		expect(
 			sqlite
 				.prepare(

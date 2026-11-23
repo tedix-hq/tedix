@@ -375,6 +375,8 @@ describe("workspace app installation", () => {
 	});
 	it("installs the template, code and capability atomically and retries by stable identity", async () => {
 		const { db, params } = fixture();
+		params.revision.manifest =
+			'{"entry":"tedix:runtime/v1","config":{"triggers":[]}}';
 		await db.insert(osWorkspaces).values({
 			id: "workspace",
 			organizationId: "org",
@@ -384,7 +386,9 @@ describe("workspace app installation", () => {
 		});
 		await installWorkspaceApp(db, params);
 		await installWorkspaceApp(db, params);
-		expect(await db.select().from(osGadgets)).toHaveLength(1);
+		expect(await db.select().from(osGadgets)).toMatchObject([
+			{ hasRuntimeTriggers: true },
+		]);
 		expect(await db.select().from(osGadgetCode)).toHaveLength(1);
 		expect(await db.select().from(osBlueprintRevisions)).toHaveLength(1);
 		expect(await db.select().from(osWorkspaceResources)).toHaveLength(1);

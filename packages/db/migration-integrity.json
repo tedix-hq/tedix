@@ -1936,6 +1936,10 @@
 		{
 			"name": "20261123150040_work_events_item_lifecycle/migration.sql",
 			"sha256": "927bada60ad1a2f381e8f2f8a23f68d78e92021595ad3ea64ec86abbacebe176"
+		},
+		{
+			"name": "20261123150711_app-trigger-seek/migration.sql",
+			"sha256": "b39467aa5199326ee4d902a868d3f472b894995f6f8eef45695052adab2e1314"
 		}
 	]
 }

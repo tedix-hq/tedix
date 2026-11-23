@@ -141,6 +141,7 @@ async function fixture(
 			}),
 		),
 		currentRevisionId: revisionId,
+		hasRuntimeTriggers: true,
 		createdByKind: "user",
 		createdById: "user-1",
 	});

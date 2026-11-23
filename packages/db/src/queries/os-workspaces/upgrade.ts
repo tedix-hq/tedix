@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
+import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import {
 	type NewOsGadgetRevisionRow,
 	type NewOsGadgetRow,
@@ -130,6 +131,10 @@ export async function applyOsBlueprintUpgrade(
 							currentRevisionId: sql<
 								string | null
 							>`${gadget.currentRevisionId ?? null}`.as("current_revision_id"),
+							hasRuntimeTriggers:
+								sql<boolean>`${osGadgetHasRuntimeTriggers(revision.manifest) ? 1 : 0}`.as(
+									"has_runtime_triggers",
+								),
 							sourceBlueprintRevisionId: sql<
 								string | null
 							>`${gadget.sourceBlueprintRevisionId ?? null}`.as(
@@ -234,7 +239,14 @@ export async function applyOsBlueprintUpgrade(
 			db
 				.update(osGadgets)
 				.set({
-					...(sync.append ? { currentRevisionId: sync.append.revisionId } : {}),
+					...(sync.append
+						? {
+								currentRevisionId: sync.append.revisionId,
+								hasRuntimeTriggers: osGadgetHasRuntimeTriggers(
+									sync.append.manifest,
+								),
+							}
+						: {}),
 					sourceBlueprintRevisionId: params.nextRevisionId,
 					status: "active",
 					updatedAt: params.now,

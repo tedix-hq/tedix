@@ -145,7 +145,10 @@ describe("os blueprint instantiation", () => {
 	it("materializes workspace, gadgets, and revision-1 rows atomically with provenance", async () => {
 		const { db } = fixture();
 		// 15 gadgets forces multiple chunked statements inside the batch.
-		const result = await instantiateOsBlueprint(db, params(15));
+		const input = params(15);
+		input.revisions[3]!.manifest =
+			'{"entry":"tedix:runtime/v1","config":{"triggers":[]}}';
+		const result = await instantiateOsBlueprint(db, input);
 		expect(result.workspace).toMatchObject({
 			name: "Sales Pod",
 			sourceBlueprintId: "bp-1",
@@ -159,6 +162,7 @@ describe("os blueprint instantiation", () => {
 		expect(result.gadgets[3]).toMatchObject({
 			name: "Gadget 3",
 			currentRevisionId: "rev-3",
+			hasRuntimeTriggers: true,
 		});
 		expect(result.revisions[3]).toMatchObject({
 			gadgetId: "gd-3",

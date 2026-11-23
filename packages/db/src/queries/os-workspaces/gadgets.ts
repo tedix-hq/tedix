@@ -22,6 +22,7 @@ import {
 	type OsWorkspaceViewer,
 } from "./workspaces";
 import { getAffectedRows } from "../../utils/d1-result";
+import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 
 export interface OsGadgetScopeParams {
 	organizationId: string;
@@ -384,6 +385,7 @@ export async function createOsGadgetRevision(
 		.update(osGadgets)
 		.set({
 			currentRevisionId: params.id,
+			hasRuntimeTriggers: osGadgetHasRuntimeTriggers(params.manifest),
 			updatedAt: now,
 			...(params.sourceBlueprintRevisionId
 				? { sourceBlueprintRevisionId: params.sourceBlueprintRevisionId }
@@ -538,15 +540,15 @@ export async function listTriggeredRuntimeApps(
 			and(
 				eq(osGadgetRevisions.id, osGadgets.currentRevisionId),
 				eq(osGadgetRevisions.organizationId, osGadgets.organizationId),
-				eq(osGadgetRevisions.gadgetId, osGadgets.id),
+				// Keep the revision-id seek: an app's revision history is unbounded.
+				sql`+${osGadgetRevisions.gadgetId} = ${osGadgets.id}`,
 			),
 		)
 		.where(
 			and(
 				eq(osGadgets.status, "active"),
 				eq(osWorkspaces.status, "active"),
-				sql`json_extract(${osGadgetRevisions.manifest}, '$.entry') = 'tedix:runtime/v1'`,
-				sql`json_type(${osGadgetRevisions.manifest}, '$.config.triggers') = 'array'`,
+				eq(osGadgets.hasRuntimeTriggers, true),
 			),
 		)
 		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))

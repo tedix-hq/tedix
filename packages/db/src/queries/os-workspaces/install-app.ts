@@ -1,5 +1,6 @@
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import {
 	osBlueprints,
 	osBlueprintRevisions,
@@ -200,7 +201,12 @@ export async function installWorkspaceApp(
 		...templateStatements(db, params),
 		db
 			.insert(osGadgets)
-			.values(params.gadget)
+			.values({
+				...params.gadget,
+				hasRuntimeTriggers: osGadgetHasRuntimeTriggers(
+					params.revision.manifest,
+				),
+			})
 			.onConflictDoNothing({ target: osGadgets.id }),
 		db
 			.insert(osGadgetRevisions)
