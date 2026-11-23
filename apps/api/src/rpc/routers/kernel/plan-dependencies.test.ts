@@ -85,6 +85,7 @@ CREATE TABLE work_items (
  observer_woken_at TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.observerWokenAt') END) VIRTUAL,
  metadata_executor TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.executor') END) VIRTUAL,
  metadata_source TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.source') END) VIRTUAL,
+ delegation_root_id TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.childDelegation.rootId') END) VIRTUAL,
  metadata TEXT NOT NULL DEFAULT '{}',
 	created_at TEXT NOT NULL,
 	updated_at TEXT,

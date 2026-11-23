@@ -356,6 +356,11 @@ export const workItems = sqliteTable(
 			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.source') END`,
 			{ mode: "virtual" },
 		),
+		/** Root of a delegated child's tree (the root attempt budget check). */
+		delegationRootId: text("delegation_root_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.childDelegation.rootId') END`,
+			{ mode: "virtual" },
+		),
 		metadata: text("metadata", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.default({}),
@@ -437,6 +442,10 @@ export const workItems = sqliteTable(
 			table.disposition,
 		),
 		index("idx_work_items_parent").on(table.parentWorkItemId),
+		// Delegated children by root; partial, only delegated items.
+		index("idx_work_items_delegation_root")
+			.on(table.orgId, table.delegationRootId)
+			.where(sql`delegation_root_id IS NOT NULL`),
 		index("idx_work_items_accountable_owner").on(
 			table.orgId,
 			table.accountableOwnerType,
@@ -533,6 +542,7 @@ export const {
 	observerWokenAt: _observerWokenAt,
 	metadataExecutor: _metadataExecutor,
 	metadataSource: _metadataSource,
+	delegationRootId: _delegationRootId,
 	...workItemStoredColumns
 } = getColumns(workItems);
 
@@ -544,6 +554,7 @@ export type WorkItem = Omit<
 	| "observerWokenAt"
 	| "metadataExecutor"
 	| "metadataSource"
+	| "delegationRootId"
 >;
 export type NewWorkItem = Omit<
 	typeof workItems.$inferInsert,

@@ -1928,6 +1928,10 @@
 		{
 			"name": "20261123124830_delegated_owner_indexes/migration.sql",
 			"sha256": "6563becd451c8a7d56bb06564edfbb2df12a2c98d56d12f67e44e741ad5a2ea5"
+		},
+		{
+			"name": "20261123143544_delegation_root_index/migration.sql",
+			"sha256": "15b7d6cf6cef608afa78b65d70944493a86dce6ba3b7a26e4d6379dc5d6f7bf7"
 		}
 	]
 }

@@ -489,7 +489,7 @@ export async function inheritedChildAuthority(
 }
 
 export function rootAttemptBudgetAvailable(orgId: string, rootId: string) {
-	return sql`((NOT EXISTS (SELECT 1 FROM work_items delegated WHERE delegated.org_id=${orgId} AND json_extract(delegated.metadata, '$.childDelegation.rootId')=${rootId})) OR ((SELECT COUNT(*) FROM work_attempts root_attempt
+	return sql`((NOT EXISTS (SELECT 1 FROM work_items delegated WHERE delegated.org_id=${orgId} AND delegated.delegation_root_id=${rootId})) OR ((SELECT COUNT(*) FROM work_attempts root_attempt
 		WHERE root_attempt.org_id=${orgId} AND ${workTreeContains(orgId, rootId, sql`root_attempt.work_item_id`)}
 		AND (root_attempt.outcome IS NULL OR root_attempt.outcome NOT IN ('cancelled','rejected')))
 		< COALESCE((SELECT max_attempts FROM work_items WHERE org_id=${orgId} AND id=${rootId}),${WORK_DELEGATION_DEFAULTS.maxAttempts})

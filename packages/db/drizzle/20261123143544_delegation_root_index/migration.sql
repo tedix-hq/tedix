@@ -1,0 +1,2 @@
+ALTER TABLE `work_items` ADD `delegation_root_id` text GENERATED ALWAYS AS (CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.childDelegation.rootId') END) VIRTUAL;--> statement-breakpoint
+CREATE INDEX `idx_work_items_delegation_root` ON `work_items` (`org_id`,`delegation_root_id`) WHERE delegation_root_id IS NOT NULL;
