@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.0 (2026-11-23)
+
+### Minor Changes
+
+- c6c0eb6: The tool decision now balances work. Runners send the decision model each available tool's strengths, example tasks, runs in progress, starts waiting, allowance left and its results over the last 14 days, skip a tool at its `maxRunning` cap, and write the deciding facts on the task ("Codex is running 9 tasks, Claude Code 3; Claude Code finished 134 of 222 tasks in 14 days"). `decideModel` in the routing file chooses Clef or Jev.
+
+### Patch Changes
+
+- e086c3a: The tool decision's threshold now uses how likely the model rates its pick among the offered tools (default 35%), since its separate confidence figure stays near 0.1 even for clear picks. A tool at or below the routing file's near-limit allowance is not offered to the decision model.
+- 29875a6: Runner deployment verification checks only services affected by the landed commits and records the reason for a deployment wait on the Work Item.
+
 ## 0.36.2 (2026-11-23)
 
 ### Patch Changes
