@@ -11,15 +11,9 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
+import { harnessPath } from "./harness-target";
 import { log } from "./log";
-import {
-	configDir,
-	findTedix,
-	personEnv,
-	type RunResult,
-	run,
-	toolPath,
-} from "./shell";
+import { configDir, findTedix, personEnv, type RunResult, run } from "./shell";
 
 /**
  * This Mac's runners run under `tedix supervise`. On a Mac with the app, the
@@ -180,10 +174,10 @@ async function stopRunnerProcesses(): Promise<void> {
 			}
 }
 
-/** The supervisor's environment: the person's shell PATH finds their coding tools. */
+/** The supervisor uses the same desktop executables as setup. */
 function supervisorEnv(): NodeJS.ProcessEnv {
 	const env = personEnv();
-	env.PATH = toolPath();
+	env.PATH = harnessPath();
 	// The supervisor stops when this app is gone, also after a crash.
 	env.TEDIX_SUPERVISOR_PARENT = String(process.pid);
 	return env;

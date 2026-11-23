@@ -1,19 +1,36 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { selectedHarnessCommand } from "./harness-target";
 import {
 	devinConnection,
 	opencodeConnection,
 	toolConnection,
 } from "./tool-connection";
 
-test("a current tool response wins over a remembered sign-in or earlier read", () => {
-	assert.equal(toolConnection("signed-in", undefined, true), "signed-in");
-	assert.equal(toolConnection("signed-in", false, true), "signed-out");
-	assert.equal(toolConnection("signed-out", true, true), "signed-out");
-	assert.equal(toolConnection("unknown", true, true), "unknown");
-	assert.equal(toolConnection(undefined, false, true), "signed-out");
-	assert.equal(toolConnection(undefined, undefined, true), "signed-in");
-	assert.equal(toolConnection(undefined, undefined, false), "unknown");
+test("setup stays on the desktop executable when both installs are present", () => {
+	assert.equal(
+		selectedHarnessCommand(true, "/desktop/codex", "/standalone/codex"),
+		"/desktop/codex",
+	);
+	assert.equal(
+		selectedHarnessCommand(true, "/desktop/codex", undefined),
+		"/desktop/codex",
+	);
+	assert.equal(
+		selectedHarnessCommand(false, undefined, "/standalone/codex"),
+		"/standalone/codex",
+	);
+	assert.equal(
+		selectedHarnessCommand(true, undefined, "/standalone/codex"),
+		undefined,
+	);
+});
+
+test("a current sign-in rejection wins over an earlier read", () => {
+	assert.equal(toolConnection("signed-in", false), "signed-in");
+	assert.equal(toolConnection("signed-out", true), "signed-out");
+	assert.equal(toolConnection("unknown", false), "unknown");
+	assert.equal(toolConnection(undefined, true), "signed-in");
 });
 
 test("OpenCode's terminal and desktop status formats identify the Tedix connection", () => {

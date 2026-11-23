@@ -385,7 +385,9 @@ function tools(now: PanelState): Group[] {
 								el("div", "", usage.text),
 								view.sub ? el("div", "", view.sub) : null,
 							)
-						: view.sub,
+						: [tool.bothInstalled ? "Connects the desktop app." : "", view.sub]
+								.filter(Boolean)
+								.join(" "),
 			tone: view.working
 				? undefined
 				: limit || usage?.near

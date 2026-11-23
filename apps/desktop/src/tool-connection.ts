@@ -26,13 +26,8 @@ export function devinConnection(line: string): Connection | undefined {
 
 export function toolConnection(
 	live: Connection | undefined,
-	reported: unknown,
-	remembered: boolean,
+	verified: boolean,
 ): Connection {
-	// A tool that reports its state must not be masked by an earlier sign-in.
-	if (live === "signed-out" || reported === false) return "signed-out";
-	if (live !== undefined) return live;
-	if (typeof reported === "boolean")
-		return reported ? "signed-in" : "signed-out";
-	return remembered ? "signed-in" : "unknown";
+	if (live === "signed-out") return live;
+	return verified || live === "signed-in" ? "signed-in" : "unknown";
 }

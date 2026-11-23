@@ -209,7 +209,9 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				key: `tool:${tool.id}`,
 				icon: TOOL_ICONS[tool.id] ?? "bubble",
 				title: tool.name,
-				sub: view.sub,
+				sub: [tool.bothInstalled ? "Connects the desktop app." : "", view.sub]
+					.filter(Boolean)
+					.join(" "),
 				control:
 					view.ready ||
 					(!view.working && tool.connection === "signed-in" && !view.action)

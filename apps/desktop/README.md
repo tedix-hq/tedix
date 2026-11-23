@@ -65,7 +65,8 @@ The app is not signed or notarized yet and has been run on macOS only.
   to use a Tedix account. After sign-in, choose **Open Tedix** or
   **Connect an app**. The setup guide is also in **Settings → General**.
 - **Connect an app.** Tedix looks for Mac apps and command-line tools
-  separately. Choose **Connect** to add Tedix to a detected coding tool and
+  separately. If both are installed for the same provider, Tedix uses the
+  Mac app's executable. Choose **Connect** to add Tedix to a detected coding tool and
   start its browser sign-in. Claude Code and Codex can check the connection
   with a Tedix read. Fresh ChatGPT Work and Claude Code installs use the
   bundled native plugin marketplace, with hook review in the host. For

@@ -87,12 +87,16 @@ export function toolPath(): string {
 }
 
 /** The full path of a command, or undefined when it is in none of the folders. */
-export function findCommand(name: string): string | undefined {
+export function findCommand(
+	name: string,
+	accept: (path: string) => boolean = () => true,
+): string | undefined {
 	const file = process.platform === "win32" ? `${name}.exe` : name;
 	for (const folder of toolPath().split(delimiter)) {
 		try {
-			accessSync(join(folder, file), constants.X_OK);
-			return join(folder, file);
+			const path = join(folder, file);
+			accessSync(path, constants.X_OK);
+			if (accept(path)) return path;
 		} catch {
 			/* Not here. */
 		}

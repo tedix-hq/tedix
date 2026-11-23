@@ -63,10 +63,10 @@ import {
 	setAppSignIn,
 	type SetupAction,
 	settings,
-	desktopAppPath,
 	setupAction,
 	setupState,
 } from "./setup";
+import { desktopAppPath } from "./harness-target";
 import { lastLine, run } from "./shell";
 import { loadStatus, type Status, summary } from "./status";
 import { bindTrayMenu } from "./tray-menu";

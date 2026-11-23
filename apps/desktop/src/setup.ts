@@ -1,24 +1,23 @@
-import {
-	accessSync,
-	constants,
-	existsSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { app } from "electron";
 import { type CliState, manageCli, readCli, restoreCli } from "./cli";
+import { codexAccount } from "./codex-account";
 import { checkDevinConnection } from "./devin-connection";
+import {
+	desktopAppPath,
+	type DesktopApp,
+	type Harness,
+	harnessPath,
+	harnessTarget,
+} from "./harness-target";
 import type { LocalModelPreferences } from "./local-model-client";
 import { log } from "./log";
 import { runnersPath } from "./runners-file";
 import {
 	configDir,
-	findCommand,
 	findTedix,
 	lastLine,
 	refreshShellPath,
@@ -31,32 +30,6 @@ import {
 	toolConnection,
 } from "./tool-connection";
 
-/**
- * Tools that cannot say whether they are signed in to Tedix (Devin) are
- * remembered as signed in once their own sign-in finished here.
- */
-const signInsPath = () => join(configDir(), "desktop-sign-ins.json");
-function signedInHere(): Record<string, string> {
-	try {
-		return JSON.parse(readFileSync(signInsPath(), "utf8")) as Record<
-			string,
-			string
-		>;
-	} catch {
-		return {};
-	}
-}
-function rememberSignIn(toolId: string): void {
-	try {
-		writeFileSync(
-			signInsPath(),
-			JSON.stringify({ ...signedInHere(), [toolId]: new Date().toISOString() }),
-		);
-	} catch (error) {
-		log(`setup: could not remember the ${toolId} sign-in: ${String(error)}`);
-	}
-}
-
 const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
 
 /**
@@ -68,7 +41,7 @@ const CONNECT_URL = "https://connect.mcp.tedix.dev/mcp";
  * happens instead when that only works on the tool's own screen.
  */
 interface Tool {
-	id: string;
+	id: Harness;
 	name: string;
 	binary: string;
 	folder: string;
@@ -184,89 +157,6 @@ const TOOLS: Tool[] = [
 		signIn: ["mcp", "auth", "tedix"],
 	},
 ];
-
-/**
- * The Claude desktop app brings its own Claude Code for its Code tab, in
- * ~/Library/Application Support/Claude/claude-code/<version>/<id>/claude.app.
- * The newest one counts as Claude Code when none is on the PATH.
- */
-function bundledClaudeCode(): string | undefined {
-	const root = join(
-		home,
-		"Library",
-		"Application Support",
-		"Claude",
-		"claude-code",
-	);
-	try {
-		const versions = readdirSync(root)
-			.filter((name) => /^\d+\.\d+\.\d+$/.test(name))
-			.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-			.reverse();
-		for (const version of versions)
-			for (const id of readdirSync(join(root, version))) {
-				const file = join(
-					root,
-					version,
-					id,
-					"claude.app",
-					"Contents",
-					"MacOS",
-					"claude",
-				);
-				try {
-					accessSync(file, constants.X_OK);
-					return file;
-				} catch {
-					// Keep looking for an installed executable.
-				}
-			}
-	} catch {
-		/* No Claude app, or no Code tab yet. */
-	}
-	return undefined;
-}
-
-const DESKTOP_APPS = {
-	claude: "Claude.app",
-	chatgpt: "ChatGPT.app",
-	devin: "Devin.app",
-	opencode: "OpenCode.app",
-} as const;
-type DesktopApp = keyof typeof DESKTOP_APPS;
-
-export function desktopAppPath(app: DesktopApp): string | undefined {
-	const name = DESKTOP_APPS[app];
-	return [join("/Applications", name), join(home, "Applications", name)].find(
-		(path) => existsSync(path),
-	);
-}
-
-const BUNDLED_COMMANDS = {
-	codex: ["chatgpt", "codex-cli/bin/codex"],
-	devin: ["devin", "app/extensions/windsurf/devin/bin/devin"],
-	opencode: ["opencode", "opencode-cli"],
-} as const;
-
-function bundledCommand(tool: Tool): string | undefined {
-	if (tool.id === "claude") return bundledClaudeCode();
-	if (!Object.hasOwn(BUNDLED_COMMANDS, tool.id)) return;
-	const [desktop, relative] =
-		BUNDLED_COMMANDS[tool.id as keyof typeof BUNDLED_COMMANDS];
-	const app = desktopAppPath(desktop);
-	if (!app) return;
-	const binary = join(app, "Contents", "Resources", relative);
-	try {
-		accessSync(binary, constants.X_OK);
-		return binary;
-	} catch {
-		return undefined;
-	}
-}
-
-function commandFor(tool: Tool): string | undefined {
-	return findCommand(tool.binary) ?? bundledCommand(tool);
-}
 
 async function installDesktopPlugin(
 	host: "claude" | "codex",
@@ -388,6 +278,8 @@ export interface ToolRow {
 	/** Whether the tool's own connection to Tedix is signed in. */
 	connection: Connection | "checking";
 	account: Connection;
+	/** Both versions can be installed, but setup uses the desktop app's executable. */
+	bothInstalled: boolean;
 	readVerified: boolean;
 	hookTrust: "trusted" | "untrusted" | "unknown";
 	/** Tedix can be added to this tool from here. */
@@ -535,8 +427,16 @@ let agentStatus:
 /** What each tool itself said, by tool id. Absent while it is being asked. */
 let toolFacts: Record<
 	string,
-	{ hasTedix: boolean; connection: Connection; signInWorks: boolean }
+	{
+		command: string;
+		version: string;
+		hasTedix: boolean;
+		connection: Connection;
+		providerAccount?: Connection;
+		signInWorks: boolean;
+	}
 > = {};
+const verifiedCommands = new Map<Harness, string>();
 const steps: Record<string, StepRun> = {};
 const stops: Record<string, () => void> = {};
 /** Steps the person stopped; they end without an error. */
@@ -565,17 +465,10 @@ function tedix(args: string[], options: Parameters<typeof run>[2] = {}) {
 			ok: false,
 			output: "The Tedix command-line tool is not installed.",
 		});
-	const path = [toolPath()];
-	if (args[0] === "setup" || args[2] === "setup")
-		for (const tool of TOOLS) {
-			// The setup helper invokes these tools by command name.
-			if (tool.id === "opencode") continue;
-			const command = commandFor(tool);
-			if (command) path.push(dirname(command));
-		}
+	const path = args.includes("setup") ? harnessPath() : toolPath();
 	return run(file, args, {
 		...options,
-		env: { ...options.env, PATH: path.join(delimiter) },
+		env: { PATH: path, ...options.env },
 	});
 }
 
@@ -870,14 +763,28 @@ async function readToolFacts(): Promise<void> {
 	const facts: typeof toolFacts = {};
 	await Promise.all(
 		TOOLS.map(async (tool) => {
-			const command = commandFor(tool);
+			const { command, desktop } = harnessTarget(tool.id);
 			if (!command) return;
-			const [hasTedix, connection, signInWorks] = await Promise.all([
-				tool.hasTedix?.(command) ?? false,
-				tool.connection?.(command) ?? ("unknown" as const),
-				tool.signInWorks?.(command) ?? true,
-			]);
-			facts[tool.id] = { hasTedix, connection, signInWorks };
+			const [hasTedix, connection, signInWorks, version, providerAccount] =
+				await Promise.all([
+					tool.hasTedix?.(command) ?? false,
+					tool.connection?.(command) ?? ("unknown" as const),
+					tool.signInWorks?.(command) ?? true,
+					run(command, ["--version"], { timeoutMs: 10_000 }),
+					tool.id === "codex"
+						? codexAccount(command, Boolean(desktop))
+						: undefined,
+				]);
+			facts[tool.id] = {
+				command,
+				hasTedix,
+				connection,
+				signInWorks,
+				providerAccount,
+				version: version.ok
+					? (version.output.match(/\b\d+\.\d+\.\d+(?:-[\w.]+)?\b/)?.[0] ?? "")
+					: "",
+			};
 		}),
 	);
 	toolFacts = facts;
@@ -885,19 +792,15 @@ async function readToolFacts(): Promise<void> {
 
 function toolRows(): ToolRow[] {
 	return TOOLS.map((tool) => {
-		const standalone = findCommand(tool.binary);
-		const command = standalone ?? bundledCommand(tool);
+		const { command, desktop, standaloneFound } = harnessTarget(tool.id);
 		const found = command
 			? "found"
-			: existsSync(tool.folder)
+			: desktop || existsSync(tool.folder)
 				? "no-command"
 				: "absent";
 		const row: ToolRow = {
 			id: tool.id,
-			name:
-				tool.id === "codex" && command && desktopAppPath("chatgpt")
-					? "ChatGPT Work"
-					: tool.name,
+			name: desktop ?? tool.name,
 			executor: tool.executor,
 			found,
 			tedix: "unknown",
@@ -905,6 +808,7 @@ function toolRows(): ToolRow[] {
 			enabled: true,
 			connection: "unknown",
 			account: "unknown",
+			bothInstalled: Boolean(desktop && standaloneFound),
 			readVerified: false,
 			hookTrust: "unknown",
 			canAdd: false,
@@ -914,7 +818,11 @@ function toolRows(): ToolRow[] {
 		};
 		if (found === "absent") return row;
 		if (found === "no-command") {
-			row.note = `Its settings folder is here, but the ${tool.binary} command was not found. Install ${tool.name} again, then choose Check again.`;
+			row.note = desktop
+				? tool.id === "claude"
+					? "Open the Code tab in Claude, then choose Look again."
+					: `Open ${desktop} and check for updates, then choose Look again.`
+				: `Install ${tool.name}, then choose Look again.`;
 			return row;
 		}
 		if (!tool.status) {
@@ -922,13 +830,8 @@ function toolRows(): ToolRow[] {
 			row.note = tool.say ?? "";
 			return row;
 		}
-		// A tool found after the last read of the facts still shows its status.
-		const facts =
-			toolFacts[tool.id] ??
-			(agentStatus
-				? { hasTedix: false, connection: "unknown" as const, signInWorks: true }
-				: undefined);
-		if (!agentStatus || !facts) {
+		const facts = toolFacts[tool.id];
+		if (!agentStatus || !facts || facts.command !== command) {
 			row.tedix = "checking";
 			row.connection = "checking";
 			return row;
@@ -939,17 +842,11 @@ function toolRows(): ToolRow[] {
 		}
 		const host = agentStatus.hosts[tool.status];
 		row.account =
-			host?.account === "signed-in" || host?.account === "signed-out"
+			facts.providerAccount ??
+			(host?.account === "signed-in" || host?.account === "signed-out"
 				? host.account
-				: "unknown";
-		const readAge =
-			typeof host?.readVerifiedAt === "string"
-				? Date.now() - Date.parse(host.readVerifiedAt)
-				: NaN;
-		// A Check that just passed counts before the status read catches up.
-		row.readVerified =
-			(readAge >= 0 && readAge < 24 * 60 * 60_000) ||
-			Boolean(steps[`verify:${tool.id}`]?.done);
+				: "unknown");
+		row.readVerified = verifiedCommands.get(tool.id) === command;
 		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
 			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
@@ -969,8 +866,7 @@ function toolRows(): ToolRow[] {
 		row.enabled = host?.enabled !== false;
 		row.connection = toolConnection(
 			tool.connection ? facts.connection : undefined,
-			host?.signedIn,
-			row.readVerified || Boolean(signedInHere()[tool.id]),
+			row.readVerified,
 		);
 		if (!row.enabled) {
 			row.note = `Switch the Tedix plugin on in ${tool.name}, then choose Check again.`;
@@ -1108,10 +1004,8 @@ const ACTIONS = [
 	"sign-in",
 	"app-sign-in",
 	"cancel",
-	"add",
 	"connect",
 	"verify",
-	"trust-hooks",
 	"run-tasks",
 	"choose-folder",
 	"sessions-on",
@@ -1346,40 +1240,11 @@ export async function setupAction(
 		return;
 	}
 	if (!tool) return;
-	const command = commandFor(tool);
-	if (action === "trust-hooks" && tool.id === "codex" && command) {
-		await step("hooks:codex", async (say) => {
-			// Open the real TUI view; trust remains a click made by the person.
-			const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
-			const navigation =
-				'set timeout 60\nspawn -noecho -- $env(TEDIX_SETUP_CODEX) -C $env(HOME) -a on-request -s read-only\nexpect {\n-re {state=idle:app=codex} {send -- "/hooks\\r"}\ntimeout {}\neof {exit}\n}\ninteract';
-			const launch = `TEDIX_SETUP_CODEX=${quote(command)} /usr/bin/expect -c ${quote(navigation)}`;
-			const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(launch)}\nend tell`;
-			await must(
-				run("/usr/bin/osascript", ["-e", script], { timeoutMs: 15_000 }),
-			);
-			say("In Codex /hooks, select each Tedix hook and choose Trust.");
-			let stopped = false;
-			stops["hooks:codex"] = () => {
-				stopped = true;
-			};
-			const until = Date.now() + 15 * 60_000;
-			while (!stopped && Date.now() < until) {
-				await readAgentStatus();
-				if (
-					agentStatus &&
-					"hosts" in agentStatus &&
-					agentStatus.hosts.codex?.hookTrust === "trusted"
-				)
-					return "Codex reports the Tedix hooks are trusted; choose Check read next.";
-				await new Promise((resolve) => setTimeout(resolve, 3000));
-			}
-			throw new Error(
-				"Hook trust is still waiting; open /hooks in Codex and trust the Tedix hooks, then choose Check again.",
-			);
-		});
-		return readAgentStatus();
-	}
+	const { command, desktop } = harnessTarget(tool.id);
+	const toolName = desktop ?? tool.name;
+	const probeEnv = command
+		? { PATH: [dirname(command), harnessPath()].join(delimiter) }
+		: undefined;
 	if (action === "account-sign-in" && tool.accountSignIn && command) {
 		await step(`account:${tool.id}`, async (say) => {
 			// Claude Code wants a terminal for its sign-in; `script` gives it one.
@@ -1405,10 +1270,10 @@ export async function setupAction(
 	}
 	const verify = () =>
 		step(`verify:${tool.id}`, async (say) => {
-			if (!command)
-				throw new Error(`Open ${tool.name} once, then check again.`);
+			verifiedCommands.delete(tool.id);
+			if (!command) throw new Error(`Open ${toolName} once, then check again.`);
 			if (tool.id === "devin" || tool.id === "opencode") {
-				say(`Checking Tedix in ${tool.name}…`);
+				say(`Checking Tedix in ${toolName}…`);
 				const onStart = (stop: () => void) => {
 					const key = `verify:${tool.id}`;
 					stops[key] = stop;
@@ -1424,20 +1289,21 @@ export async function setupAction(
 				}
 				if (status === "signed-out")
 					throw new Error(
-						`Sign in to Tedix from ${tool.name}, then check again.`,
+						`Sign in to Tedix from ${toolName}, then check again.`,
 					);
 				if (status !== "signed-in")
 					throw new Error(
-						`${tool.name} could not confirm the connection. Try again in a moment.`,
+						`${toolName} could not confirm the connection. Try again in a moment.`,
 					);
-				return `${tool.name} confirmed the Tedix connection.`;
+				verifiedCommands.set(tool.id, command);
+				return `${toolName} confirmed the Tedix connection.`;
 			}
 			say(`Checking a read inside ${tool.name}…`);
 			await must(
 				tedix(
 					["-w", "connect", "setup", "agents", `--${tool.id}`, "--verify"],
 					{
-						onLine: say,
+						env: probeEnv,
 						onStart: (stop) => {
 							stops[`verify:${tool.id}`] = stop;
 						},
@@ -1445,24 +1311,13 @@ export async function setupAction(
 					},
 				),
 			);
-			return `A Tedix read succeeded inside ${tool.name}.`;
+			verifiedCommands.set(tool.id, command);
+			return `A Tedix read succeeded inside ${toolName}.`;
 		});
 	if (action === "verify") {
 		await verify();
 		void readAgentStatus();
 		return;
-	}
-	if (action === "add" && tool.add) {
-		await step(`add:${tool.id}`, async (say) => {
-			await must(
-				tedix(["setup", "agents", tool.add!, "--yes"], {
-					onLine: say,
-					timeoutMs: 20 * 60_000,
-				}),
-			);
-			return `Start a new ${tool.name} session to see Tedix.`;
-		});
-		return readAgentStatus();
 	}
 	if (
 		action === "connect" &&
@@ -1473,27 +1328,36 @@ export async function setupAction(
 		const key = `connect:${tool.id}`;
 		if (steps[key]?.working || steps[`verify:${tool.id}`]?.working) return;
 		await step(key, async (say) => {
+			verifiedCommands.delete(tool.id);
+			delete steps[`verify:${tool.id}`];
 			const row = toolRows().find((row) => row.id === tool.id);
-			if (tool.id === "devin") {
-				say("Adding Tedix to Devin…");
-				await prepareDevinConnection(command);
-			} else if (row?.canAdd && tool.add) {
-				say(`Adding Tedix to ${tool.name}…`);
-				const options = {
-					onStart: (stop: () => void) => {
-						stops[key] = stop;
-					},
-					timeoutMs: 120_000,
-				};
-				if (tool.id === "codex" || tool.id === "claude")
-					await installDesktopPlugin(tool.id, command, options);
-				else
-					await must(
-						tedix(
-							["-w", "connect", "setup", "agents", tool.add, "--yes"],
-							options,
-						),
-					);
+			const version = toolFacts[tool.id]?.version;
+			const source = `${toolName}${version ? ` ${version}` : ""} (${desktop ? "desktop app" : "standalone"})`;
+			say(`Adding Tedix to ${source}…`);
+			try {
+				if (tool.id === "devin") await prepareDevinConnection(command);
+				else if (row?.canAdd && tool.add) {
+					const options = {
+						env: probeEnv,
+						onStart: (stop: () => void) => {
+							stops[key] = stop;
+						},
+						timeoutMs: 120_000,
+					};
+					if (tool.id === "codex" || tool.id === "claude")
+						await installDesktopPlugin(tool.id, command, options);
+					else
+						await must(
+							tedix(
+								["-w", "connect", "setup", "agents", tool.add, "--yes"],
+								options,
+							),
+						);
+				}
+			} catch {
+				throw new Error(
+					`Couldn't add Tedix to ${source}. Open the app and check its plugin settings, then try again.`,
+				);
 			}
 			const host =
 				agentStatus && "hosts" in agentStatus
@@ -1501,25 +1365,22 @@ export async function setupAction(
 					: undefined;
 			// Codex needs this setting on before it can talk to Tedix.
 			if (tool.id === "codex" && host?.protocolEnabled === false)
-				await must(
-					run(command, ["features", "enable", "mcp_2026_07_28"], {
-						onLine: say,
-						timeoutMs: 60_000,
-					}),
-				);
-			// OpenCode asks in a terminal before replacing a saved sign-in; clear it first.
-			if (
-				tool.id === "opencode" &&
-				row?.tedix === "added" &&
-				row.connection === "signed-out"
-			)
-				await run(command, ["mcp", "logout", "tedix"], { timeoutMs: 30_000 });
-			if (tool.id === "opencode" && row?.tedix === "missing") {
-				say("Checking that OpenCode can see Tedix…");
-				const state = await checkOpenCode(command, key);
-				if (state === "unknown")
+				if (
+					!(
+						await run(command, ["features", "enable", "mcp_2026_07_28"], {
+							timeoutMs: 60_000,
+						})
+					).ok
+				)
 					throw new Error(
-						"OpenCode could not find Tedix. Open OpenCode, then try again.",
+						`Couldn't enable Tedix connections in ${source}. Check for an app update, then try again.`,
+					);
+			if (tool.id === "opencode") {
+				say(`Checking that ${source} can see Tedix…`);
+				const state = await checkOpenCode(command, key);
+				if (state === "unknown" && row?.tedix === "missing")
+					throw new Error(
+						`${source} could not confirm that Tedix is ready for sign-in. Open OpenCode, then try again.`,
 					);
 				if (state === "signed-in")
 					return "OpenCode is already signed in to Tedix.";
@@ -1531,24 +1392,27 @@ export async function setupAction(
 				tool.id === "claude" && process.platform === "darwin"
 					? ["/usr/bin/script", ["-q", "/dev/null", command, ...tool.signIn!]]
 					: [command, tool.signIn!];
-			await must(
-				run(file, args, {
-					onLine: say,
-					onStart: (stop) => {
-						stops[`connect:${tool.id}`] = stop;
-					},
-					timeoutMs: 15 * 60_000,
-				}),
-			);
-			rememberSignIn(tool.id);
-			delete steps[`verify:${tool.id}`];
-			return `Signed in to Tedix from ${tool.name}.`;
+			const login = await run(file, args, {
+				onLine: (line) => {
+					if (line.startsWith("https://")) say(line);
+				},
+				onStart: (stop) => {
+					stops[`connect:${tool.id}`] = stop;
+				},
+				timeoutMs: 15 * 60_000,
+			});
+			if (!login.ok)
+				throw new Error(
+					`Tedix sign-in did not finish in ${source}. Choose Connect to try again.`,
+				);
+			return `Signed in to Tedix from ${toolName}.`;
 		});
 		if (steps[key]?.done) await verify();
 		return readAgentStatus();
 	}
 	if (action === "run-tasks") {
 		await step(`run:${tool.executor}`, async (say) => {
+			if (!command) throw new Error(`Open ${toolName}, then check again.`);
 			if (!signedIn) throw new Error("Sign in on this Mac first.");
 			const org = organization();
 			if (!org)
@@ -1593,7 +1457,7 @@ export async function setupAction(
 						repo,
 						...(earlier.rules ? ["--rules", earlier.rules] : []),
 					],
-					{ onLine: say, timeoutMs: 60_000 },
+					{ env: probeEnv, onLine: say, timeoutMs: 60_000 },
 				),
 			);
 			// A running supervisor reads the new entry by itself and starts only

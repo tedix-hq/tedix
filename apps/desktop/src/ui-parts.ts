@@ -156,7 +156,7 @@ export function openAgentApp(state: PanelState, tool: ToolRow) {
 		return;
 	if (!state.setup.desktopApps[app]) return;
 	return button(
-		app === "chatgpt" && tool.hookTrust !== "trusted"
+		app === "chatgpt" && tool.readVerified && tool.hookTrust !== "trusted"
 			? "Review hooks in ChatGPT"
 			: `Open ${tool.name}`,
 		"quiet",
@@ -213,20 +213,16 @@ export function toolView(
 		tool.id === "codex" &&
 		state.setup.desktopApps.chatgpt &&
 		tool.hookTrust !== "trusted";
-	const keys = [
-		"account",
-		"add",
-		"connect",
-		"verify",
-		...(runner?.enabled ? ["hooks"] : []),
-	].map((kind) => [kind, steps[`${kind}:${tool.id}`]] as const);
+	const keys = ["account", "connect", "verify"].map(
+		(kind) => [kind, steps[`${kind}:${tool.id}`]] as const,
+	);
 	const running = view === "tasks" ? steps[`run:${tool.executor}`] : undefined;
 	const busy =
 		keys.find(([, ran]) => ran?.working) ??
 		(running?.working ? (["run", running] as const) : undefined);
 	if (busy) {
 		const [kind, ran] = busy;
-		const stoppable = ["account", "connect", "verify", "hooks"].includes(kind);
+		const stoppable = kind !== "run";
 		const browser =
 			(kind === "account" || kind === "connect") &&
 			(ran as StepRun).address?.startsWith("https://");
@@ -250,10 +246,8 @@ export function toolView(
 		(running?.error ? (["run", running] as const) : undefined);
 	const again: Record<string, Parameters<typeof act>[0]> = {
 		account: "account-sign-in",
-		add: "add",
 		connect: "connect",
 		verify: "verify",
-		hooks: "trust-hooks",
 		run: "run-tasks",
 	};
 	const base = failed
@@ -283,7 +277,8 @@ export function toolView(
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: `Install ${tool.name} again.`,
+			sub: tool.note,
+			action: openAgentApp(state, tool),
 		};
 	if (tool.tedix === "checking")
 		return { ...base, ready: false, sub: "Checking…" };
@@ -292,9 +287,9 @@ export function toolView(
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: `Not signed in to ${tool.name}`,
+			sub: `Sign in to your ${tool.name} account first.`,
 			action: tool.canSignInAccount
-				? plain("Sign in", "account-sign-in", "Signing in…")
+				? plain(`Sign in to ${tool.name}`, "account-sign-in", "Signing in…")
 				: undefined,
 		};
 	if (tool.tedix === "missing")
@@ -363,10 +358,10 @@ export function toolView(
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: "Connected. Task setup needs your approval in Codex.",
-			action: reviewInChatGPT
-				? openAgentApp(state, tool)
-				: plain("Review in Codex", "trust-hooks", "Opening…"),
+			sub: reviewInChatGPT
+				? "Review the Tedix hooks in ChatGPT under Settings → Hooks."
+				: "Review the Tedix hooks in Codex to let it run tasks on this Mac.",
+			action: reviewInChatGPT ? openAgentApp(state, tool) : undefined,
 		};
 	if (!runner?.enabled) return { ...base, ready: false, sub: "Connected" };
 	if (!runner.running)
