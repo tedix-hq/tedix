@@ -7,6 +7,15 @@ import { icon } from "./icons";
  */
 declare const tedixShell: PanelApi;
 const root = document.getElementById("update")!;
+const workingLine = document.createElement("div");
+workingLine.className = "entry working";
+workingLine.setAttribute("role", "status");
+const workingText = document.createElement("span");
+workingText.className = "text";
+workingLine.append(
+	Object.assign(document.createElement("span"), { className: "spinner" }),
+	workingText,
+);
 let drawn = "";
 
 function draw(view: UpdateView): void {
@@ -17,22 +26,13 @@ function draw(view: UpdateView): void {
 	root.dataset.place = view.place;
 	const nodes: Node[] = [];
 	if (view.kind === "working") {
-		const line = document.createElement("div");
-		line.className = "entry working";
-		line.setAttribute("role", "status");
-		line.title = view.label;
-		line.append(
-			Object.assign(document.createElement("span"), { className: "spinner" }),
-		);
-		if (view.place !== "rail")
-			line.append(
-				Object.assign(document.createElement("span"), {
-					className: "text",
-					textContent: view.text,
-				}),
-			);
-		else line.setAttribute("aria-label", view.label);
-		nodes.push(line);
+		workingLine.title = view.label;
+		workingText.textContent = view.text;
+		workingText.hidden = view.place === "rail";
+		if (view.place === "rail")
+			workingLine.setAttribute("aria-label", view.label);
+		else workingLine.removeAttribute("aria-label");
+		nodes.push(workingLine);
 	} else if (view.kind === "done") {
 		const line = document.createElement("div");
 		line.className = "entry done";
@@ -66,7 +66,9 @@ function draw(view: UpdateView): void {
 		entry.onclick = () => void tedixShell.applyUpdate();
 		nodes.push(entry);
 	}
-	root.replaceChildren(...nodes);
+	// Leaving the spinner attached preserves its animation during progress updates.
+	if (view.kind !== "working" || workingLine.parentElement !== root)
+		root.replaceChildren(...nodes);
 	const box = root.getBoundingClientRect();
 	void tedixShell.updateSize(Math.ceil(box.width), Math.ceil(box.height));
 }
