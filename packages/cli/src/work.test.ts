@@ -3343,6 +3343,19 @@ describe("heartbeat watch rate-pressure recovery", () => {
 	test.each([
 		["HTTP 503", { code: "SERVICE_UNAVAILABLE", status: 503, message: "down" }],
 		["a call timeout", new Error("Native call deadline elapsed")],
+		[
+			"a dropped socket",
+			Object.assign(
+				new Error(
+					"read ECONNRESET: The socket connection was closed unexpectedly",
+				),
+				{ code: "ECONNRESET" },
+			),
+		],
+		[
+			"a coded timeout",
+			Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" }),
+		],
 	])("retries %s after a confirmed renewal", async (_label, failure) => {
 		let now = 0,
 			calls = 0;

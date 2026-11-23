@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { resolveCommitFlag } from "./local-context";
 import { dim, errorText, green } from "./format";
 import { isRateLimitError, rateLimitRetryAfterMs } from "./home-rate-limit";
+import { transientReadFailure } from "./read-retry";
 import {
 	cleanupAttemptWorktrees,
 	provisionAttemptWorktree,
@@ -269,7 +270,7 @@ export async function workHeartbeat(
 		}
 		const touch = await boardCall(ctx, callable, { id, attemptId });
 		if (touch.error) {
-			const { status, code } = touch.error;
+			const { status } = touch.error;
 			// The gateway can revoke a credential before its cached expiry. Drop it
 			// once so the next call exchanges a fresh one for the same session and
 			// Attempt; a second consecutive rejection still stops the watch.
@@ -289,10 +290,12 @@ export async function workHeartbeat(
 				status === 429 ||
 				(status === undefined && isRateLimitError(touch.error.message));
 			// A timeout, dropped connection or 5xx says nothing about the lease.
+			// Coded socket failures (ECONNRESET, ETIMEDOUT) and deadline errors
+			// arrive with a code or message, so the bare no-code/no-status check
+			// alone would mistake them for a refusal.
 			const transient =
-				status === 408 ||
-				(status !== undefined && status >= 500) ||
-				(status === undefined && code === undefined);
+				transientReadFailure(touch.error) ||
+				(touch.error.status === undefined && touch.error.code === undefined);
 			// Retry only after a confirmed renewal and inside that lease; a guessed
 			// lease never grants permission to keep trying.
 			if (
