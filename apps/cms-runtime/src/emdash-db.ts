@@ -56,6 +56,10 @@ import {
 	readRecoveryAuthority,
 } from "./cms-recovery-workflow";
 import { type Env } from "./env";
+
+/** A preview copy lives this long after its last request, capped by the candidate's expiry. */
+const THEME_PREVIEW_DATABASE_TTL_MS = 30 * 60_000;
+
 interface CmsSiteDrillDigestProof extends CmsSiteDrillProof {
 	databaseDigest: string;
 	schedulerHeartbeatValue: string | null;
@@ -236,22 +240,52 @@ export class EmDashDB extends EmdashSqlDB {
 			throw new Error("Not a disposable theme preview database");
 	}
 
+	private themePreviewCopyPresent(): boolean {
+		return (
+			this.ctx.storage.sql
+				.exec(
+					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_tedix_theme_preview'",
+				)
+				.toArray().length > 0
+		);
+	}
+
+	/** The marker row and the copied rows commit in one transaction, so two
+	 * first requests at once cannot double-load; live edits after the snapshot
+	 * stay invisible until the copy expires. */
 	async initializeThemePreviewDatabase(
 		name: string,
 		statements: DoQueryStatement[],
 	): Promise<void> {
 		this.requireThemePreviewDatabase(name);
-		await this.ctx.storage.put("themePreview", true);
-		// A killed render still expires its copy; the live database never gets this marker.
-		await this.ctx.storage.setAlarm(Date.now() + 5 * 60_000);
 		this.ctx.storage.transactionSync(() => {
+			if (this.themePreviewCopyPresent()) return;
 			this.ctx.storage.sql.exec("PRAGMA defer_foreign_keys = ON");
 			for (const statement of statements)
 				this.ctx.storage.sql.exec(
 					statement.sql,
 					...((statement.params ?? []) as SqlStorageValue[]),
 				);
+			this.ctx.storage.sql.exec(
+				"CREATE TABLE _tedix_theme_preview (id INTEGER PRIMARY KEY)",
+			);
 		});
+	}
+
+	async themePreviewDatabaseInitialized(name: string): Promise<boolean> {
+		this.requireThemePreviewDatabase(name);
+		return this.themePreviewCopyPresent();
+	}
+
+	/** Every preview request pushes expiry out, never past the candidate's own expiry. */
+	async touchThemePreviewDatabase(
+		name: string,
+		expiresAt: number,
+	): Promise<void> {
+		this.requireThemePreviewDatabase(name);
+		await this.ctx.storage.setAlarm(
+			Math.min(Date.now() + THEME_PREVIEW_DATABASE_TTL_MS, expiresAt),
+		);
 	}
 
 	async deleteThemePreviewDatabase(name: string): Promise<void> {
@@ -261,8 +295,7 @@ export class EmDashDB extends EmdashSqlDB {
 	}
 
 	async alarm(): Promise<void> {
-		if (await this.ctx.storage.get("themePreview"))
-			await this.ctx.storage.deleteAll();
+		if (this.themePreviewCopyPresent()) await this.ctx.storage.deleteAll();
 	}
 
 	private databasePermits = new PublicRestorePermits();
@@ -1300,6 +1333,8 @@ export interface EmDashDBStub {
 		name: string,
 		statements: DoQueryStatement[],
 	): Promise<void>;
+	themePreviewDatabaseInitialized(name: string): Promise<boolean>;
+	touchThemePreviewDatabase(name: string, expiresAt: number): Promise<void>;
 	deleteThemePreviewDatabase(name: string): Promise<void>;
 	closeCmsSiteRestoreFence(input: CmsSiteRestoreIdentity): Promise<boolean>;
 	executeCollectionDeletionGuardWithRestorePermit(

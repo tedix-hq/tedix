@@ -300,7 +300,8 @@ describe("private built theme preview", () => {
 		});
 		const source = `export default { async fetch(request, env) {
    if (process.env.EMDASH_MIGRATIONS_MODE !== 'auto' || env.EMDASH_MIGRATIONS_MODE !== 'auto') return new Response('Database migrations are required', {status: 503});
-   await env.DB_DO.batchQuery([{sql: 'ALTER TABLE users ADD COLUMN last_login_at TEXT'}, {sql: "INSERT INTO migrations VALUES ('098_user_last_login')"}]);
+   const applied = await env.DB_DO.query("SELECT name FROM migrations WHERE name = '098_user_last_login'");
+   if (applied.rows.length === 0) await env.DB_DO.batchQuery([{sql: 'ALTER TABLE users ADD COLUMN last_login_at TEXT'}, {sql: "INSERT INTO migrations VALUES ('098_user_last_login')"}]);
    const {rows} = await env.DB_DO.query('SELECT name, last_login_at FROM users');
    const byline = await env.DB_DO.query('SELECT upper_author, hex(body) AS body FROM byline');
    if (byline.rows[0].body !== '0102' || byline.rows[0].upper_author !== 'PUBLISHED AUTHOR') throw new Error('byline copy changed');
@@ -359,19 +360,35 @@ describe("private built theme preview", () => {
 				"Published author:null:Published author",
 			);
 		}
-		expect(new Set(copies).size).toBe(2);
-		for (const name of copies) {
-			const copy = env.DB_DO.get(
-				env.DB_DO.idFromName(name),
-			) as unknown as DurableObjectStub<EmDashDB>;
-			expect(
-				await runInDurableObject(copy, (_instance, state) =>
-					state.storage.sql
-						.exec("SELECT name FROM sqlite_master WHERE name = 'users'")
+		expect(copies).toHaveLength(1);
+		const copy = env.DB_DO.get(
+			env.DB_DO.idFromName(copies[0]!),
+		) as unknown as DurableObjectStub<EmDashDB>;
+		const copyState = await runInDurableObject(
+			copy,
+			async (instance, state) => {
+				expect(await instance.themePreviewDatabaseInitialized(copies[0]!)).toBe(
+					true,
+				);
+				// Re-initializing skips the marker instead of double-loading rows.
+				await instance.initializeThemePreviewDatabase(copies[0]!, [
+					{ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" },
+				]);
+				return {
+					rows: state.storage.sql
+						.exec("SELECT name, last_login_at FROM users")
 						.toArray(),
-				),
-			).toEqual([]);
-		}
+					alarm: await state.storage.getAlarm(),
+				};
+			},
+		);
+		expect(copyState.rows).toEqual([
+			{ name: "Published author", last_login_at: null },
+		]);
+		expect(copyState.alarm).toBeGreaterThan(Date.now());
+		expect(copyState.alarm).toBeLessThanOrEqual(
+			Date.parse(candidate.expiresAt),
+		);
 		expect(
 			await runInDurableObject(live, (_instance, state) =>
 				digestCmsSiteSqlite(state.storage.sql),
