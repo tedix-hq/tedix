@@ -330,6 +330,17 @@ const workerTypesTouched = touched(
 		f.endsWith("/worker-configuration.d.ts") ||
 		f === "scripts/generate-worker-types.ts",
 );
+/**
+ * The tracked `wrangler.oss-example*.json` files are rendered from each
+ * Worker's `wrangler.jsonc` and the sanitized installation manifest. Selecting
+ * tests by import graph misses a `wrangler.jsonc` edit, so the drift otherwise
+ * surfaces only in the nightly installation-manifest suite.
+ */
+const ossExampleInputsTouched = touched(
+	(f) =>
+		/^apps\/[^/]+\/wrangler\.(jsonc|oss-example(\.secrets)?\.json)$/.test(f) ||
+		f.startsWith("packages/installation-manifest/"),
+);
 // Deferred until the workspace graph below is built: type-checking only the
 // workspace that OWNS a changed file has the same blind spot the test gate had.
 // A consumer-only break — renaming an export nothing inside the package uses —
@@ -559,6 +570,12 @@ const gates = [
 		when: workerTypesTouched,
 		cmd: ["bun", "run", "types:check"],
 		fix: "bun run types:generate",
+	},
+	{
+		name: "generated Wrangler OSS examples are current",
+		when: ossExampleInputsTouched,
+		cmd: ["bun", "run", "installation-manifest:overlay:check"],
+		fix: "bun run installation-manifest:overlay",
 	},
 	{
 		name: "D1 schema, history, chain, destructive-DDL",

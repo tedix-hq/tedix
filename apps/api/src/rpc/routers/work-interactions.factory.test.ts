@@ -152,6 +152,8 @@ describe("Work interactions router", () => {
 			"snooze",
 			"dismissReminders",
 			"regenerateCard",
+			"listDecidedForYou",
+			"reopenDelegatedApproval",
 			"create",
 			"review",
 			"respond",

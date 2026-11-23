@@ -2,7 +2,10 @@ import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import { env } from "cloudflare:workers";
 import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { describe, expect, it } from "vite-plus/test";
-import { withLegacyNamespaceAliases } from "./codemode-execution";
+import {
+	withInnerErrorTransport,
+	withLegacyNamespaceAliases,
+} from "./codemode-execution";
 
 describe("Code Mode sandbox catalog memory", () => {
 	it("repeats one tool without pinning a function copy for every catalog row and alias", async () => {
@@ -20,6 +23,7 @@ describe("Code Mode sandbox catalog memory", () => {
 		fns.failed = async () => {
 			throw new Error("fictional provider failure");
 		};
+		// Production attaches structured-error transport on sandbox entry.
 		const providers = withLegacyNamespaceAliases(
 			[
 				{
@@ -35,7 +39,7 @@ describe("Code Mode sandbox catalog memory", () => {
 				},
 			],
 			new Map([["legacy", fns]]),
-		);
+		).map(withInnerErrorTransport);
 		const executor = new DynamicWorkerExecutor({
 			loader: withModelAuthoredCodeIsolation(
 				(env as unknown as { LOADER: WorkerLoader }).LOADER,

@@ -625,6 +625,7 @@ describe("owner policy against a real local D1 facade", () => {
 				transport: "mcp",
 				endpoint: null,
 				mcpToolName: "write",
+				mcpServerUrl: "https://fictional.example.invalid/mcp",
 				providerId: "fictional-provider",
 				configHash: await sha256Hex(JSON.stringify(mounted!.tool.config ?? {})),
 				tenantPolicyBinding: policyBinding,

@@ -24,6 +24,7 @@ import {
 } from "@tedix/api-contract/test/model-catalog";
 import type { HarnessSubjectTraceBundle } from "@tedix/api-contract/schemas/harness-version";
 import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
+import { PLATFORM_DEFAULT_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import type { DbClient } from "@tedix/db/client";
 import { policyPacks } from "@tedix/db/schema/control-plane";
 import { organizations } from "@tedix/db/schema/organizations";
@@ -2466,6 +2467,7 @@ describe("runKernelTurnWork inbox-wake synthesis", () => {
 					modelCatalog: modelCatalogConfig([
 						modelCatalogEntry("cloudflare/auto"),
 						modelCatalogEntry("azure-openai/gpt-test"),
+						modelCatalogEntry(PLATFORM_DEFAULT_MODEL_REF),
 					]),
 				}),
 			);

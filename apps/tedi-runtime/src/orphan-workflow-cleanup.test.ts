@@ -7,7 +7,7 @@ const workflowId = buildWorkflowInstanceId("request-1");
 const cutoff = Date.parse("2026-10-31T12:00:00Z");
 
 async function probe(options: {
-	context?: { runId: string; admittedAt: number };
+	context?: { runId: string; admittedAt: number; sessionKey?: string };
 	status?: string;
 	runId?: string;
 	cutoff?: string;
@@ -16,6 +16,7 @@ async function probe(options: {
 	if (options.context)
 		await storage.put(`wfctx:${workflowId}`, options.context);
 	let terminated = 0;
+	const stoppedTurns: string[] = [];
 	const abort = new AbortController();
 	const agent = tediDo({
 		state: { tediId: "tedi-1", orgId: "org-1" },
@@ -25,6 +26,13 @@ async function probe(options: {
 			return { terminated: [] };
 		},
 		async clearWorkflowDispatch() {},
+		async subAgent(_facetClass: unknown, name: string) {
+			return {
+				async stopConversationTurn(id: string) {
+					stoppedTurns.push(`${name}:${id}`);
+				},
+			};
+		},
 		env: {
 			CHAT_TURN_WORKFLOW: {
 				async get(id: string) {
@@ -53,7 +61,7 @@ async function probe(options: {
 			}),
 		}),
 	);
-	return { response, terminated, abort, storage };
+	return { response, terminated, stoppedTurns, abort, storage };
 }
 
 for (const context of [
@@ -84,10 +92,13 @@ for (const status of ["complete", "errored", "terminated"]) {
 	assert.equal(result.terminated, 0);
 	assert.equal(result.storage.data.has(`wfcancel:${runId}`), false);
 }
-const result = await probe({ context: { runId, admittedAt: cutoff - 1000 } });
+const result = await probe({
+	context: { runId, admittedAt: cutoff - 1000, sessionKey: "chat:thread-1" },
+});
 assert.equal(result.response.status, 200);
 assert.equal(result.terminated, 1);
 assert.equal(result.abort.signal.aborted, true);
+assert.deepEqual(result.stoppedTurns, [`chat_thread-1:${runId}`]);
 console.log(
 	"PASS: orphan cleanup preserves newer/unknown dispatches and fences exact old work before terminating",
 );

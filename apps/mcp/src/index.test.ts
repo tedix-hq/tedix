@@ -1545,8 +1545,9 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 					describe: { name: describeRow.toolId },
 				},
 			});
-			// The CLI searches without includeMetadata and resolves rows by `native`.
-			const found = await invoke(search.toolId, { query: "" });
+			// The CLI searches without includeMetadata, asks for limit 100 and
+			// resolves rows by `native`; the default page is only 10 rows.
+			const found = await invoke(search.toolId, { query: "", limit: 100 });
 			expect(found.status, await found.clone().text()).toBe(200);
 			const result = (await found.json()) as {
 				result: {

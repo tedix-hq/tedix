@@ -18,6 +18,8 @@ vi.mock("cloudflare:workers", () => ({
 	// reads this. Empty selects the wrapper's own no-op tracer, so calls pass
 	// through to the AI SDK untraced — spans are a Worker-runtime concern.
 	tracing: {},
+	// Artifact ownership reads its bucket name from deployment bindings at import.
+	env: { TEDI_R2_BUCKET_NAME: "test-tedi-artifacts" },
 }));
 
 import {

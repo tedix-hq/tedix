@@ -3491,10 +3491,7 @@ describe("<ChatThread> skill picker", () => {
 	function skillMenuItem() {
 		return [
 			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-		].find(
-			(item) =>
-				item.querySelector("span.block")?.textContent === "Use a skill…",
-		);
+		].find((item) => item.textContent?.trim() === "Use a skill…");
 	}
 
 	it("lists data commands with builtins and sends a write command through Home", async () => {

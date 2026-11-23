@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { createDbClient } from "@tedix/db/client";
+import { createDbClient, type DbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { workEvents } from "@tedix/db/schema/work-items";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -10,8 +10,6 @@ import type { BaseContext } from "../../orpc";
 import { afterEach, expect, it } from "vite-plus/test";
 import { createProcedure } from "./creation-reads";
 import { workItemSpecificationActor } from "./specification-policy";
-import { updateSpecificationProcedure } from "./factory-lifecycle";
-import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { applyInboundTrustHeaderHygiene } from "@tedix/worker-kit/request-auth";
 
 const org = "11111111-1111-4111-8111-111111111111";
@@ -85,26 +83,25 @@ async function create(context: BaseContext) {
 	});
 }
 
-it.each([
-	{ subject: "subject", bound: false },
-	{ subject: "member", bound: false },
-	{ subject: "subject", bound: true },
-	{ subject: "member", bound: true },
-])(
-	"records the initiating member ($subject, primary worker bound=$bound) and permits their subsequent bounded edit",
-	async ({ subject, bound }) => {
+async function bindPrimaryWorker(context: BaseContext, db: DbClient) {
+	await db.insert(tedis).values({
+		id: "primary",
+		organizationId: org,
+		name: "Worker",
+		slug: "worker",
+	});
+	context.tediId = "primary";
+}
+
+// Home Work stays attributed to its tedi so a member's chat request is never
+// recorded as that member's own human action (owner start approval counts it).
+it.each(["subject", "member"])(
+	"attributes Home creation to the bound tedi for a %s member claim, not to the member",
+	async (subject) => {
 		const { context, sqlite, db } = fixture();
 		context.headers.set("X-Tedix-Acting-User", subject);
 		context.descopeUserId = subject;
-		if (bound) {
-			await db.insert(tedis).values({
-				id: "primary",
-				organizationId: org,
-				name: "Worker",
-				slug: "worker",
-			});
-			context.tediId = "primary";
-		}
+		await bindPrimaryWorker(context, db);
 		const item = await create(context);
 		expect(
 			sqlite
@@ -112,7 +109,7 @@ it.each([
 					"SELECT actor_type,actor_id FROM work_events WHERE work_item_id=? AND event_type='work.created'",
 				)
 				.get(item.id),
-		).toEqual({ actor_type: "user", actor_id: "member" });
+		).toEqual({ actor_type: "tedi", actor_id: "primary" });
 		const member = {
 			...context,
 			authType: "user" as const,
@@ -120,28 +117,11 @@ it.each([
 			tediId: undefined,
 			headers: new Headers(),
 		} as BaseContext;
-		const input = {
-			id: item.id,
-			description: "Verified member update",
-			expectedWorkItemVersion: item.version,
-		};
-		await updateSpecificationProcedure["~orpc"].handler!({
-			context: member,
-			input,
-			path: [],
-			procedure: updateSpecificationProcedure,
-			signal: undefined,
-			lastEventId: undefined,
-		});
-		expect((await getWorkItemById(db, item.id, org))?.description).toBe(
-			input.description,
-		);
 		await expect(
-			workItemSpecificationActor(
-				{ ...member, user: { sub: "stranger" } } as BaseContext,
-				item,
-				input,
-			),
+			workItemSpecificationActor(member, item, {
+				id: item.id,
+				description: "Edit as if the member had created it",
+			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	},
 );
@@ -149,7 +129,8 @@ it.each([
 it.each(["deactivated", "foreign", "viewer"])(
 	"does not create a Work under a %s member claim",
 	async (state) => {
-		const { context, sqlite } = fixture();
+		const { context, sqlite, db } = fixture();
+		await bindPrimaryWorker(context, db);
 		if (state === "deactivated")
 			sqlite.exec("UPDATE organization_members SET status='deactivated'");
 		if (state === "foreign")

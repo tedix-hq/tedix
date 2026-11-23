@@ -99,6 +99,8 @@ describe("recordExternalAgentValidation", () => {
 				"",
 				"",
 				"",
+				"",
+				"",
 			],
 			doubles: [1, 17, 0, 0, 0],
 			indexes: ["app-1"],
