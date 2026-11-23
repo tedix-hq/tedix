@@ -8,7 +8,6 @@ import { and, desc, eq, gte, inArray, lte, lt, or } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
-import { isMissingAuditMetadataRefsTable } from "../utils/audit-metadata-refs";
 import { chunkForBoundParams } from "../utils/batch";
 import { MCP_TELEMETRY_ACTIONS } from "../utils/audit-telemetry";
 import {
@@ -96,62 +95,9 @@ export async function insertAuditEvent(
 	const target = MCP_TELEMETRY_ACTIONS.has(event.action)
 		? (getLogStores(db)?.logs ?? db)
 		: db;
-	const compacted = compactAuditMetadata(event);
-	const referenced = event.action.startsWith("mcp.")
-		? await compactAuditMetadataRefs(target, event.organizationId, compacted)
-		: { metadata: compacted, refs: [] };
-	const { id, statement } = buildInsertAuditEventStatement(target, {
-		...event,
-		metadata: referenced.metadata,
-	});
-	if (referenced.refs.length === 0) await statement;
-	else {
-		let existing: (typeof auditMetadataRefs.$inferSelect)[];
-		try {
-			existing = await target
-				.select()
-				.from(auditMetadataRefs)
-				.where(
-					and(
-						eq(auditMetadataRefs.organizationId, event.organizationId),
-						// bound-params: one app ref and one client ref per audit event
-						inArray(
-							auditMetadataRefs.ref,
-							referenced.refs.map((entry) => entry.ref),
-						),
-					),
-				);
-		} catch (error) {
-			if (!isMissingAuditMetadataRefsTable(error)) throw error;
-			// This store has not received the dictionary table yet: keep the
-			// identifiers inline, where every reader already looks first.
-			await buildInsertAuditEventStatement(target, { ...event, id }).statement;
-			return id;
-		}
-		for (const row of existing) {
-			const expected = referenced.refs.find((entry) => entry.ref === row.ref);
-			if (
-				!expected ||
-				expected.kind !== row.kind ||
-				expected.value !== row.value
-			)
-				throw new Error(`Audit metadata reference collision: ${row.ref}`);
-		}
-		const [firstRef, ...restRefs] = referenced.refs;
-		await target.batch([
-			target
-				.insert(auditMetadataRefs)
-				.values({ organizationId: event.organizationId, ...firstRef! })
-				.onConflictDoNothing(),
-			...restRefs.map((entry) =>
-				target
-					.insert(auditMetadataRefs)
-					.values({ organizationId: event.organizationId, ...entry })
-					.onConflictDoNothing(),
-			),
-			statement,
-		]);
-	}
+	// Keep attribution inline: a dictionary lookup must not block the audit write.
+	const { id, statement } = buildInsertAuditEventStatement(target, event);
+	await statement;
 	return id;
 }
 
@@ -207,55 +153,6 @@ export async function insertMcpAuditEventsBatch(
 const AUDIT_SUBJECT_IS_ACTOR = "subjectIsActor";
 const AUDIT_TEDI_IS_AGENT = "tediIsAgent";
 const AUDIT_METADATA_REFS = "_r";
-
-type AuditMetadataRefKind = "app" | "client";
-
-async function auditMetadataRef(
-	organizationId: string,
-	kind: AuditMetadataRefKind,
-	value: string,
-): Promise<string> {
-	const input = new TextEncoder().encode(
-		`${organizationId}\0${kind}\0${value}`,
-	);
-	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
-	let binary = "";
-	for (const byte of digest.subarray(0, 16))
-		binary += String.fromCharCode(byte);
-	return btoa(binary)
-		.replaceAll("+", "-")
-		.replaceAll("/", "_")
-		.replaceAll("=", "");
-}
-
-async function compactAuditMetadataRefs(
-	db: DbClient,
-	organizationId: string,
-	metadata: Record<string, JsonValue> | null,
-): Promise<{
-	metadata: Record<string, JsonValue> | null;
-	refs: { ref: string; kind: AuditMetadataRefKind; value: string }[];
-}> {
-	if (!metadata) return { metadata, refs: [] };
-	const compacted = { ...metadata };
-	if (compacted[AUDIT_METADATA_REFS] !== undefined)
-		return { metadata: compacted, refs: [] };
-	const refs: { ref: string; kind: AuditMetadataRefKind; value: string }[] = [];
-	const metadataRefs: Record<string, JsonValue> = {};
-	for (const [key, refKey, kind] of [
-		["appId", "a", "app"],
-		["clientId", "c", "client"],
-	] as const) {
-		const value = compacted[key];
-		if (typeof value !== "string") continue;
-		const ref = await auditMetadataRef(organizationId, kind, value);
-		delete compacted[key];
-		metadataRefs[refKey] = ref;
-		refs.push({ ref, kind, value });
-	}
-	if (refs.length > 0) compacted[AUDIT_METADATA_REFS] = metadataRefs;
-	return { metadata: compacted, refs };
-}
 
 function compactAuditMetadata(
 	event: InsertAuditEventParams,

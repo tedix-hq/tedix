@@ -240,37 +240,34 @@ describe("compact MCP telemetry metadata", () => {
 			).metadata,
 		);
 
-	it("stores short refs and repeated-id flags, then restores every reader", async () => {
-		await insertAuditEvent(db, { ...mcp, id: "mcp" });
-		const stored = storedMetadata("mcp");
-		expect(stored).toEqual({
-			agentTediId: "tedi-1",
-			delegationMode: "human_to_tedi",
-			subjectIsActor: true,
-			tediIsAgent: true,
-			_r: { a: expect.any(String), c: expect.any(String) },
-		});
-		expect(stored._r.a).toHaveLength(22);
-		expect(stored._r.c).toHaveLength(22);
-		expect(
-			(await db.select().from(auditMetadataRefs))
-				.map(({ kind, value }) => ({ kind, value }))
-				.sort((a, b) => a.kind.localeCompare(b.kind)),
-		).toEqual([
-			{ kind: "app", value: mcp.metadata?.appId },
-			{ kind: "client", value: mcp.metadata?.clientId },
+	it("restores historical dictionary refs and repeated-id flags in every reader", async () => {
+		await db.insert(auditMetadataRefs).values([
+			{
+				organizationId: "org-first",
+				ref: "app-ref",
+				kind: "app",
+				value: String(mcp.metadata?.appId),
+			},
+			{
+				organizationId: "org-first",
+				ref: "client-ref",
+				kind: "client",
+				value: String(mcp.metadata?.clientId),
+			},
 		]);
-		const inlineBytes = Buffer.byteLength(
-			JSON.stringify({
-				appId: mcp.metadata?.appId,
-				clientId: mcp.metadata?.clientId,
-				agentTediId: "tedi-1",
-				delegationMode: "human_to_tedi",
-				subjectIsActor: true,
-				tediIsAgent: true,
-			}),
-		);
-		expect(Buffer.byteLength(JSON.stringify(stored))).toBeLessThan(inlineBytes);
+		await db.batch([
+			buildInsertAuditEventStatement(db, {
+				...mcp,
+				id: "mcp",
+				metadata: {
+					agentTediId: "tedi-1",
+					delegationMode: "human_to_tedi",
+					subjectIsActor: true,
+					tediIsAgent: true,
+					_r: { a: "app-ref", c: "client-ref" },
+				},
+			}).statement,
+		]);
 		const [searched] = (
 			await searchAuditEvents(db, { organizationId: "org-first" })
 		).data;
@@ -317,7 +314,7 @@ describe("compact MCP telemetry metadata", () => {
 			subjectUserId: "someone-else",
 			tediId: "tedi-1",
 			agentTediId: "tedi-2",
-			_r: { a: expect.any(String) },
+			appId: "app-1",
 		});
 		expect(storedMetadata("approval")).toEqual(mcp.metadata);
 		const [restored] = (

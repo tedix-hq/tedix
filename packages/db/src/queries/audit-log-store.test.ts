@@ -92,6 +92,41 @@ describe("optional audit log store", () => {
 		logs.sqlite.close();
 	});
 
+	it("persists access denials with full attribution when the dictionary is overloaded", async () => {
+		const main = store();
+		const logs = store();
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const prepare = main.binding.prepare.bind(main.binding);
+		vi.spyOn(main.binding, "prepare").mockImplementation((query) => {
+			if (query.includes("audit_metadata_refs"))
+				throw new Error("D1_ERROR: database is overloaded");
+			return prepare(query);
+		});
+		await insertAuditEvent(main.db, {
+			...event,
+			id: "denied",
+			action: "mcp.access.denied",
+		});
+		expect(
+			main.sqlite
+				.prepare(
+					"SELECT action, metadata FROM audit_events WHERE id = 'denied'",
+				)
+				.get(),
+		).toEqual({
+			action: "mcp.access.denied",
+			metadata: JSON.stringify({
+				appId: "app-example",
+				clientId: "client-example",
+			}),
+		});
+		expect(
+			logs.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get(),
+		).toEqual({ n: 0 });
+		main.sqlite.close();
+		logs.sqlite.close();
+	});
+
 	it("redirects execution telemetry while retaining authority, payments and batch audit in main", async () => {
 		const main = store();
 		const logs = store();
