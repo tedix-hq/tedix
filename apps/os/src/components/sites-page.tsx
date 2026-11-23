@@ -45,7 +45,14 @@ import {
 } from "@/components/kumo/page";
 import { SearchInput } from "@/components/kumo/search-input";
 import { Surface } from "@/components/kumo/surface";
-import { Table, TableBody, TableCell, TableRow } from "@/components/kumo/table";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/kumo/table";
 import { Empty } from "@/components/kumo/empty";
 import { toast } from "@/components/kumo/toast";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -344,6 +351,17 @@ export function SitesPage() {
 				) : null}
 				{filteredSites?.length ? (
 					<Table scrollLabel="Sites">
+						<TableHeader variant="compact">
+							<TableRow>
+								<TableHead scope="col">Site</TableHead>
+								<TableHead scope="col" className="text-right">
+									Last changed
+								</TableHead>
+								<TableHead scope="col">
+									<span className="sr-only">Actions</span>
+								</TableHead>
+							</TableRow>
+						</TableHeader>
 						<TableBody>
 							{filteredSites.map((site) => (
 								<TableRow
