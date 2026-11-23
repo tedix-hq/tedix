@@ -246,7 +246,7 @@ it("seeks latest heartbeats per Work Item without scanning Attempt history", asy
 	}
 });
 
-it("reads project attention per Work Item instead of scanning every org Attempt", async () => {
+it("reads project attention from one bounded grouped Attempt read", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	try {
@@ -284,7 +284,10 @@ it("reads project attention per Work Item instead of scanning every org Attempt"
 			projectId: "project-example",
 			createdAt: "2026-11-20T00:00:00Z",
 		});
-		const since = "2026-11-22T00:00:00.000Z";
+		const hour = 3_600_000;
+		const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+		const since = at(-24 * hour);
+		const liveHeartbeat = at(-hour);
 		const later = new Date(Date.now() + 300_000).toISOString();
 		const insert = sqlite.prepare(`INSERT INTO work_attempts
 			(id, org_id, work_item_id, executor_type, executor_id, attempt_number,
@@ -296,7 +299,7 @@ it("reads project attention per Work Item instead of scanning every org Attempt"
 			"item-example",
 			1,
 			since,
-			"2026-11-21T00:00:00.000Z",
+			at(-30 * hour),
 			since,
 			"finished",
 			"succeeded",
@@ -307,7 +310,7 @@ it("reads project attention per Work Item instead of scanning every org Attempt"
 			"item-example",
 			2,
 			since,
-			"2026-11-23T00:00:00.000Z",
+			liveHeartbeat,
 			later,
 			"running",
 			null,
@@ -319,7 +322,7 @@ it("reads project attention per Work Item instead of scanning every org Attempt"
 			"item-example",
 			1,
 			since,
-			"2026-11-23T01:00:00.000Z",
+			at(-hour / 2),
 			later,
 			"running",
 			null,
@@ -332,13 +335,11 @@ it("reads project attention per Work Item instead of scanning every org Attempt"
 		);
 		expect(rows[0]).toMatchObject({
 			id: "project-example",
-			lastAttentionAt: "2026-11-23T00:00:00.000Z",
+			lastAttentionAt: liveHeartbeat,
 			active: 1,
 			recent: 1,
 		});
-		const query = statements.find((s) =>
-			s.includes("project_last_attention_at"),
-		);
+		const query = statements.find((s) => s.includes("sum(case when"));
 		expect(query).toBeDefined();
 		const params = Array.from(
 			{ length: (query!.match(/\?/g) ?? []).length },
@@ -349,9 +350,9 @@ it("reads project attention per Work Item instead of scanning every org Attempt"
 			.all(...params)
 			.map((row) => String(row.detail))
 			.join(" | ");
-		expect(plan).toContain("idx_work_attempt_org_item_heartbeat");
-		expect(plan).toMatch(/idx_work_items_org_project/);
-		expect(plan).not.toMatch(/SCAN a\b/);
+		// One range seek over the week's Attempts, never every org Attempt.
+		expect(plan).toContain("idx_work_attempt_org_started");
+		expect(plan).not.toMatch(/SCAN work_attempts\b/);
 	} finally {
 		sqlite.close();
 	}
