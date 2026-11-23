@@ -693,6 +693,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/workspaces/createFromConversation": "mcp:apps.write",
 	"osWorkspaces/workspaces/decideBlueprintUpgrade": "mcp:apps.write",
 	"osWorkspaces/workspaces/personal": "mcp:apps.write",
+	"osWorkspaces/workspaces/choosePersonal": "mcp:apps.write",
 	"osWorkspaces/workspaces/delete": "mcp:apps.admin",
 	// Admin tier, like deleting one workspace; the API also requires the
 	// tedis:update right before it deletes Home conversations.

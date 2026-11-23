@@ -31,6 +31,7 @@ import {
 	deleteOsWorkspace,
 	getOsWorkspace,
 	getOsWorkspaceByName,
+	choosePersonalOsWorkspace,
 	getPersonalOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	listOsWorkspaces,
@@ -443,6 +444,7 @@ describe("save a conversation as a workspace", () => {
 				kernelRuntimeRuns,
 				kernelConversations,
 				workspaceOutputIndex,
+				userConfigs,
 			),
 		);
 		return createDbQueryClient(createD1Facade(sqlite));
@@ -635,6 +637,40 @@ describe("save a conversation as a workspace", () => {
 		expect(
 			await getPersonalOsWorkspace(db, { ...lookup, ownerUserId: "u-3" }),
 		).toBeUndefined();
+	});
+
+	it("runs chats in the private workspace the member chose while it qualifies", async () => {
+		const db = conversationFixture();
+		const privateTo = (id: string, owner: string, createdAt: string) => ({
+			...workspace,
+			id,
+			name: id,
+			visibility: "private" as const,
+			ownerUserId: owner,
+			createdAt,
+		});
+		await createOsWorkspace(db, privateTo("ws-books", "u-1", "2026-10-01"));
+		await createOsWorkspace(db, privateTo("ws-chats", "u-1", "2026-10-02"));
+		await createOsWorkspace(db, privateTo("ws-theirs", "u-2", "2026-10-03"));
+		const lookup = { organizationId: "org-1", ownerUserId: "u-1" };
+		expect(
+			await choosePersonalOsWorkspace(db, {
+				...lookup,
+				workspaceId: "ws-theirs",
+			}),
+		).toBeUndefined();
+		expect((await getPersonalOsWorkspace(db, lookup))?.id).toBe("ws-books");
+		await choosePersonalOsWorkspace(db, { ...lookup, workspaceId: "ws-chats" });
+		expect((await getPersonalOsWorkspace(db, lookup))?.id).toBe("ws-chats");
+		// Shared with someone else, it stops holding private chats.
+		await db.insert(osWorkspaceShareLinks).values({
+			id: "link-1",
+			organizationId: "org-1",
+			workspaceId: "ws-chats",
+			creatorUserId: "u-1",
+			role: "use",
+		});
+		expect((await getPersonalOsWorkspace(db, lookup))?.id).toBe("ws-books");
 	});
 
 	it("keeps a Workspace only for chats opened inside it", async () => {

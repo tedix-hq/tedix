@@ -143,14 +143,30 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 		const existing = state.workspaces.find(
 			(row) => row.id === personalWorkspaceId,
 		);
+		const choices = () =>
+			state.workspaces.filter((row) => row.visibility === "private");
 		if (existing || !input?.create)
-			return { workspace: existing ?? null, created: false };
+			return {
+				workspace: existing ?? null,
+				created: false,
+				choices: choices(),
+			};
 		const { workspace } = createLocalWorkspace({
 			name: "Private",
 			visibility: "private",
 		});
 		personalWorkspaceId = workspace.id;
-		return { workspace, created: true };
+		return { workspace, created: true, choices: choices() };
+	},
+	"osWorkspaces/workspaces/choosePersonal": (input: {
+		workspaceId: string;
+	}) => {
+		const workspace = state.workspaces.find(
+			(row) => row.id === input.workspaceId && row.visibility === "private",
+		);
+		if (!workspace) throw new Error("Not one of your private workspaces");
+		personalWorkspaceId = workspace.id;
+		return { workspace };
 	},
 	"osWorkspaces/workspaces/createFromConversation": (input: {
 		conversationId: string;

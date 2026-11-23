@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
+import { getUserConfig, upsertUserConfig } from "../user-configs";
 import {
 	kernelConversations,
 	kernelRuntimeRuns,
@@ -177,57 +178,125 @@ export async function getOsWorkspaceByName(
 	return row;
 }
 
+/** Where a member's choice of private workspace for new chats is kept. */
+const PERSONAL_CHOICE_KEY = "chat";
+const personalChoiceNamespace = (organizationId: string) =>
+	`tedix-os-personal-workspace:${organizationId}`;
+
 /**
- * The member's personal space: their oldest active private workspace that
- * nobody else can open. One they shared with a person or a tedi, or with a
- * share link that is not revoked, is skipped: the rule `workspaceOnlyOpenableBy`
- * applies before personal memory is read in it.
+ * An active private workspace of the member that nobody else can open. One
+ * they shared with a person or a tedi, or with a share link that is not
+ * revoked, does not qualify: the rule `workspaceOnlyOpenableBy` applies
+ * before personal memory is read in it.
  */
-export async function getPersonalOsWorkspace(
+function personalWorkspaceWhere(
 	db: DbQueryClient,
 	params: { organizationId: string; ownerUserId: string },
+) {
+	return and(
+		eq(osWorkspaces.organizationId, params.organizationId),
+		eq(osWorkspaces.visibility, "private"),
+		eq(osWorkspaces.ownerUserId, params.ownerUserId),
+		eq(osWorkspaces.status, "active"),
+		notExists(
+			db
+				.select({ id: osWorkspaceAccessEdges.id })
+				.from(osWorkspaceAccessEdges)
+				.where(
+					and(
+						eq(osWorkspaceAccessEdges.organizationId, params.organizationId),
+						eq(osWorkspaceAccessEdges.workspaceId, osWorkspaces.id),
+						ne(osWorkspaceAccessEdges.targetUserId, params.ownerUserId),
+					),
+				),
+		),
+		notExists(
+			db
+				.select({ id: osWorkspaceShareLinks.id })
+				.from(osWorkspaceShareLinks)
+				.where(
+					and(
+						eq(osWorkspaceShareLinks.organizationId, params.organizationId),
+						eq(osWorkspaceShareLinks.workspaceId, osWorkspaces.id),
+						isNull(osWorkspaceShareLinks.revokedAt),
+					),
+				),
+		),
+	);
+}
+
+/** The member's private workspaces that can hold their chats, oldest first. */
+export async function listPersonalOsWorkspaces(
+	db: DbQueryClient,
+	params: { organizationId: string; ownerUserId: string; limit?: number },
+): Promise<OsWorkspaceRow[]> {
+	return db
+		.select()
+		.from(osWorkspaces)
+		.where(personalWorkspaceWhere(db, params))
+		.orderBy(asc(osWorkspaces.createdAt), asc(osWorkspaces.id))
+		.limit(params.limit ?? 100);
+}
+
+async function getQualifyingPersonalOsWorkspace(
+	db: DbQueryClient,
+	params: { organizationId: string; ownerUserId: string; workspaceId: string },
 ): Promise<OsWorkspaceRow | undefined> {
 	const [row] = await db
 		.select()
 		.from(osWorkspaces)
 		.where(
 			and(
-				eq(osWorkspaces.organizationId, params.organizationId),
-				eq(osWorkspaces.visibility, "private"),
-				eq(osWorkspaces.ownerUserId, params.ownerUserId),
-				eq(osWorkspaces.status, "active"),
-				notExists(
-					db
-						.select({ id: osWorkspaceAccessEdges.id })
-						.from(osWorkspaceAccessEdges)
-						.where(
-							and(
-								eq(
-									osWorkspaceAccessEdges.organizationId,
-									params.organizationId,
-								),
-								eq(osWorkspaceAccessEdges.workspaceId, osWorkspaces.id),
-								ne(osWorkspaceAccessEdges.targetUserId, params.ownerUserId),
-							),
-						),
-				),
-				notExists(
-					db
-						.select({ id: osWorkspaceShareLinks.id })
-						.from(osWorkspaceShareLinks)
-						.where(
-							and(
-								eq(osWorkspaceShareLinks.organizationId, params.organizationId),
-								eq(osWorkspaceShareLinks.workspaceId, osWorkspaces.id),
-								isNull(osWorkspaceShareLinks.revokedAt),
-							),
-						),
-				),
+				eq(osWorkspaces.id, params.workspaceId),
+				personalWorkspaceWhere(db, params),
 			),
 		)
-		.orderBy(asc(osWorkspaces.createdAt), asc(osWorkspaces.id))
 		.limit(1);
 	return row;
+}
+
+/**
+ * The member's personal space, where their chats run: the private workspace
+ * they chose for it while it still qualifies, otherwise their oldest one.
+ */
+export async function getPersonalOsWorkspace(
+	db: DbQueryClient,
+	params: { organizationId: string; ownerUserId: string },
+): Promise<OsWorkspaceRow | undefined> {
+	const choice = await getUserConfig(db, {
+		userId: params.ownerUserId,
+		namespace: personalChoiceNamespace(params.organizationId),
+		key: PERSONAL_CHOICE_KEY,
+	});
+	const chosenId = choice?.value.workspaceId;
+	if (typeof chosenId === "string") {
+		const chosen = await getQualifyingPersonalOsWorkspace(db, {
+			...params,
+			workspaceId: chosenId,
+		});
+		if (chosen) return chosen;
+	}
+	const [row] = await listPersonalOsWorkspaces(db, { ...params, limit: 1 });
+	return row;
+}
+
+/**
+ * Makes one of the member's private workspaces the one their chats run in.
+ * Returns undefined, and saves nothing, when it does not qualify.
+ */
+export async function choosePersonalOsWorkspace(
+	db: DbQueryClient,
+	params: { organizationId: string; ownerUserId: string; workspaceId: string },
+): Promise<OsWorkspaceRow | undefined> {
+	const workspace = await getQualifyingPersonalOsWorkspace(db, params);
+	if (!workspace) return undefined;
+	await upsertUserConfig(db, {
+		userId: params.ownerUserId,
+		namespace: personalChoiceNamespace(params.organizationId),
+		key: PERSONAL_CHOICE_KEY,
+		value: { workspaceId: workspace.id },
+	});
+	return workspace;
 }
 
 export interface SaveConversationAsOsWorkspaceParams {

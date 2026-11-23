@@ -8,6 +8,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
+import { ChatWorkspacePicker } from "@/components/chat-workspace-picker";
 import { WorkspaceChat } from "@/components/workspace-chat";
 import { usePickableTedis, useTediName } from "@/lib/use-tedi-names";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
@@ -81,41 +82,47 @@ export function ChatTediThread({
 				// Outside a workspace: nothing here is "this workspace".
 				starters={CHAT_STARTERS}
 				composerLabel="Message Tedix"
-				// With no tedi pinned, the workspace chat offers its own choice of
-				// who replies to each message.
+				// Where the chat runs; with no tedi pinned, the workspace chat
+				// offers its own choice of who replies to each message.
 				composerSlot={
-					tediId ? (
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										type="button"
-										size="sm"
-										variant="ghost"
-										className="workspace-chat-meta-button"
-										aria-label={`Send to ${name ?? "the workspace agent"}`}
-									>
-										<span className="truncate">
-											{name ?? "Workspace agent"}
-										</span>
-									</Button>
-								}
-							/>
-							<DropdownMenuContent>
-								<DropdownMenuItem onClick={() => setPicked({ tediId: null })}>
-									Workspace agent
-								</DropdownMenuItem>
-								{tedis.map((tedi) => (
-									<DropdownMenuItem
-										key={tedi.id}
-										onClick={() => setPicked({ tediId: tedi.id })}
-									>
-										{tedi.name}
+					<>
+						<ChatWorkspacePicker
+							workspaceId={workspaceId}
+							isNewChat={conversationId === null}
+						/>
+						{tediId ? (
+							<DropdownMenu>
+								<DropdownMenuTrigger
+									render={
+										<Button
+											type="button"
+											size="sm"
+											variant="ghost"
+											className="workspace-chat-meta-button"
+											aria-label={`Send to ${name ?? "the workspace agent"}`}
+										>
+											<span className="truncate">
+												{name ?? "Workspace agent"}
+											</span>
+										</Button>
+									}
+								/>
+								<DropdownMenuContent>
+									<DropdownMenuItem onClick={() => setPicked({ tediId: null })}>
+										Workspace agent
 									</DropdownMenuItem>
-								))}
-							</DropdownMenuContent>
-						</DropdownMenu>
-					) : undefined
+									{tedis.map((tedi) => (
+										<DropdownMenuItem
+											key={tedi.id}
+											onClick={() => setPicked({ tediId: tedi.id })}
+										>
+											{tedi.name}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						) : null}
+					</>
 				}
 			/>
 		</div>

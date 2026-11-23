@@ -22,7 +22,9 @@ import { hasProviderInstallationForWorkspace } from "@tedix/db/queries/provider-
 import {
 	getOsWorkspace,
 	getOsWorkspaceByName,
+	choosePersonalOsWorkspace,
 	getPersonalOsWorkspace,
+	listPersonalOsWorkspaces,
 	listOsWorkspaces,
 	updateOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -314,15 +316,16 @@ const personal = authorOs.workspaces.personal.handler(
 		const ownerUserId = input.create
 			? await requirePrivateOwner(context)
 			: await resolveOsWorkspaceOwnerCandidate(context);
-		if (!ownerUserId) return { workspace: null, created: false };
-		const existing = await getPersonalOsWorkspace(db, {
-			organizationId,
-			ownerUserId,
-		});
+		if (!ownerUserId) return { workspace: null, created: false, choices: [] };
+		const [existing, choices] = await Promise.all([
+			getPersonalOsWorkspace(db, { organizationId, ownerUserId }),
+			listPersonalOsWorkspaces(db, { organizationId, ownerUserId }),
+		]);
 		if (existing || !input.create)
 			return {
 				workspace: existing ? mapWorkspace(existing) : null,
 				created: false,
+				choices: choices.map((row) => mapWorkspace(row)),
 			};
 		const accountable = creator(context);
 		const workspace = await ensureDefaultOsWorkspace(db, {
@@ -336,7 +339,27 @@ const personal = authorOs.workspaces.personal.handler(
 				ErrorCodes.CONFLICT,
 				"Your private workspace could not be created",
 			);
-		return { workspace: mapWorkspace(workspace), created: true };
+		return {
+			workspace: mapWorkspace(workspace),
+			created: true,
+			choices: [mapWorkspace(workspace)],
+		};
+	},
+);
+
+const choosePersonal = authorOs.workspaces.choosePersonal.handler(
+	async ({ input, context }) => {
+		const workspace = await choosePersonalOsWorkspace(queryDb(context), {
+			organizationId: requireOrgId(context),
+			ownerUserId: requirePersonalUser(context),
+			workspaceId: input.workspaceId,
+		});
+		if (!workspace)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Chats can only run in one of your own private workspaces that nobody else can open",
+			);
+		return { workspace: mapWorkspace(workspace) };
 	},
 );
 
@@ -931,6 +954,7 @@ export const osWorkspaceProcedures = {
 	create,
 	createFromConversation,
 	personal,
+	choosePersonal,
 	get,
 	update,
 	setIcon,

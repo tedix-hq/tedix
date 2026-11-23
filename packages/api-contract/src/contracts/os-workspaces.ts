@@ -503,8 +503,23 @@ export const osWorkspacesContract = oc
 						workspace: OsWorkspaceSchema.nullable(),
 						/** True when this call made the workspace. */
 						created: z.boolean(),
+						choices: z
+							.array(OsWorkspaceSchema)
+							.describe(
+								"The member's private workspaces nobody else can open, oldest first: the ones choosePersonal accepts.",
+							),
 					}),
 				),
+			choosePersonal: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/personal/choose",
+					summary: "Choose the private workspace new chats run in",
+					description:
+						"Makes one of the member's own private workspaces the one their new chats run in and where outputs of chats without a workspace go. It must be active, private and opened by nobody else; once it is shared or archived, the oldest qualifying workspace is used again.",
+				})
+				.input(z.object({ workspaceId: z.uuid() }))
+				.output(z.object({ workspace: OsWorkspaceSchema })),
 			createFromConversation: oc
 				.route({
 					method: "POST",

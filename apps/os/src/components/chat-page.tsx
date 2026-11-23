@@ -314,7 +314,7 @@ export function ChatPage() {
 					{showTediChat ? (
 						tediWorkspaceId ? (
 							<ChatTediThread
-								key={newConversationKey}
+								key={`${newConversationKey}:${tediWorkspaceId}`}
 								workspaceId={tediWorkspaceId}
 								conversationId={tediChat?.conversationId ?? null}
 								onOpenList={() => setMobileListOpen(true)}
@@ -347,7 +347,7 @@ export function ChatPage() {
 							<LoadError
 								title="This chat couldn't be opened"
 								error={personal.error ?? ensurePersonal.error}
-								help="Your private workspace, where new chats run, is not available."
+								help="The private workspace your new chats run in is not available."
 								onRetry={() => {
 									ensurePersonal.reset();
 									void personal.refetch();
