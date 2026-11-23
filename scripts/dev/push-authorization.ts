@@ -51,6 +51,9 @@ export function authorizePush(
 ): string[] {
 	const auth = row(read(["auth", "status", "--json"]));
 	const personal = auth.wouldUse === "stored-login";
+	const loginId = personal ? row(auth.storedLogin).loginId : null;
+	if (personal && (typeof loginId !== "string" || !loginId.trim()))
+		throw new Error("Push requires an authenticated stored login");
 	const identity = personal ? {} : row(auth.externalAgent);
 	const currentSession = personal ? {} : row(identity.currentSession);
 	if (
@@ -122,10 +125,10 @@ export function authorizePush(
 					git(root, ["show", "-s", "--format=%s", sha]),
 				) ||
 				version(sha) !== version(`${sha}^`);
-			if (personal) {
-				if (!release || trailer(root, sha, "Release-Work-Item") !== workId)
+			if (personal && release) {
+				if (trailer(root, sha, "Release-Work-Item") !== workId)
 					throw new Error(
-						"Personal pushes require a dedicated CLI release Work",
+						"CLI release requires matching Release-Work-Item trailer",
 					);
 				const authorization = row(
 					read([
@@ -167,17 +170,25 @@ export function authorizePush(
 			if (!Array.isArray(ledger.data) || ledger.data.length !== 1)
 				throw new Error(`${workId}: no current Attempt`);
 			const attempt = row(ledger.data[0]);
+			// Stored-login reads use the selected organization and its Work access rules.
+			const matchesExecutor = personal
+				? (attempt.executorType === "external_agent" &&
+						attempt.externalSessionKey === session) ||
+					(attempt.executorType === "human" &&
+						attempt.executorId === loginId &&
+						session === `human:${workId}`)
+				: attempt.executorType === "external_agent" &&
+					attempt.executorId === identity.principalId &&
+					attempt.externalSessionKey === session &&
+					currentSession.externalSessionKey === session;
 			if (
 				work.id !== workId ||
-				work.orgId !== identity.organizationId ||
+				(!personal && work.orgId !== identity.organizationId) ||
 				work.disposition !== "accepted" ||
 				attempt.runtimeState !== "running" ||
 				attempt.outcome !== null ||
 				attempt.finishedAt !== null ||
-				attempt.executorType !== "external_agent" ||
-				attempt.executorId !== identity.principalId ||
-				attempt.externalSessionKey !== session ||
-				currentSession.externalSessionKey !== session ||
+				!matchesExecutor ||
 				!(Date.parse(String(attempt.expiresAt)) > now())
 			)
 				throw new Error(

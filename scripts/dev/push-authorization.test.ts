@@ -70,6 +70,7 @@ function fixture(release = false, marker = release) {
 	const head = git("rev-parse", "HEAD");
 	const auth = {
 		wouldUse: "external-agent:fixture",
+		storedLogin: { loginId: "fixture-user" },
 		externalAgent: {
 			configured: true,
 			key: "fixture",
@@ -115,10 +116,11 @@ function fixture(release = false, marker = release) {
 	};
 }
 
-test.each(["ordinary", "release-main", "release-tag"])(
+test.each(["ordinary", "stored-login", "release-main", "release-tag"])(
 	"actual pre-push guard on disposable refs: %s settled, expired and live",
 	(path) => {
-		const f = fixture(path !== "ordinary");
+		const f = fixture(path.startsWith("release-"));
+		if (path === "stored-login") f.auth.wouldUse = "stored-login";
 		const { root, repo, git, env } = f;
 		for (const file of [
 			".githooks/pre-push",
@@ -222,7 +224,7 @@ test.each(["ordinary", "release-main", "release-tag"])(
 		).toBe(true);
 		expect(logged.every((call) => call.cwd !== repo)).toBe(true);
 		// A lease that expires while checks run refuses a subsequent candidate.
-		if (path === "ordinary") {
+		if (path === "ordinary" || path === "stored-login") {
 			git(
 				"commit",
 				"--allow-empty",
@@ -328,4 +330,40 @@ test("CLI release Work and marker are required for version commits and tags", ()
 			marked.read,
 		),
 	).toThrow("deleting published refs");
+});
+
+test("stored-login fixes require attributable live Work and a known login", () => {
+	const f = fixture();
+	f.auth.wouldUse = "stored-login";
+	const updates = [{ ref: "refs/heads/main", before: f.base, after: f.head }];
+	expect(authorizePush(f.repo, updates, f.read)[0]).toContain(
+		"authorized push",
+	);
+	f.attempt.externalSessionKey = "codex:other";
+	expect(() => authorizePush(f.repo, updates, f.read)).toThrow(
+		"live matching Work Attempt",
+	);
+	f.git(
+		"commit",
+		"--amend",
+		"-qm",
+		`fix behavior
+
+Work-Item: ${workId}
+Agent-Session: human:${workId}`,
+	);
+	updates[0]!.after = f.git("rev-parse", "HEAD");
+	f.attempt.executorType = "human";
+	f.attempt.executorId = f.auth.storedLogin.loginId;
+	expect(authorizePush(f.repo, updates, f.read)[0]).toContain(
+		"authorized push",
+	);
+	f.auth.storedLogin.loginId = "another-user";
+	expect(() => authorizePush(f.repo, updates, f.read)).toThrow(
+		"live matching Work Attempt",
+	);
+	f.auth.storedLogin.loginId = "";
+	expect(() => authorizePush(f.repo, updates, f.read)).toThrow(
+		"authenticated stored login",
+	);
 });
