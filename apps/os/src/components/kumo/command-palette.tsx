@@ -1,3 +1,4 @@
+import { DialogTitle as CommandPaletteTitle } from "@cloudflare/kumo/components/dialog";
 import { CommandPalette as KumoCommandPalette } from "@cloudflare/kumo/components/command-palette";
 
 /**
@@ -6,4 +7,4 @@ import { CommandPalette as KumoCommandPalette } from "@cloudflare/kumo/component
  */
 const CommandPalette = KumoCommandPalette;
 
-export { CommandPalette };
+export { CommandPalette, CommandPaletteTitle };

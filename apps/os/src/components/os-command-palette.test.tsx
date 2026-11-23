@@ -422,6 +422,16 @@ describe("mounted palette resource states", () => {
 		});
 	}
 
+	it("names the quick search dialog for screen readers", async () => {
+		await mount();
+		await openPalette();
+		const dialog = document.querySelector('[role="dialog"]');
+		const labelId = dialog?.getAttribute("aria-labelledby");
+		expect(labelId && document.getElementById(labelId)?.textContent).toBe(
+			"Quick search",
+		);
+	});
+
 	it("lists recently opened workspaces first, newest first, before anything is typed", async () => {
 		reads.workspaces.mockResolvedValue({ items: workspaceRows });
 		reads.preferences.mockResolvedValue({ items: openedRows });

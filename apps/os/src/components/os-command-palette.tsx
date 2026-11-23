@@ -25,7 +25,10 @@ import { CreateOutputAppDialog } from "@/components/create-doc-app-dialog";
 import { WorkspaceFormDialog } from "@/components/workspace-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import { CommandPalette } from "@/components/kumo/command-palette";
+import {
+	CommandPalette,
+	CommandPaletteTitle,
+} from "@/components/kumo/command-palette";
 import { Kbd } from "@/components/kumo/kbd";
 import {
 	appListQueryOptions,
@@ -636,6 +639,9 @@ export function OsCommandPalette({
 			open={open}
 			value={query}
 		>
+			<CommandPaletteTitle className="sr-only">
+				Quick search
+			</CommandPaletteTitle>
 			<CommandPalette.Input
 				aria-label="Search OS pages and resources"
 				autoComplete="off"
