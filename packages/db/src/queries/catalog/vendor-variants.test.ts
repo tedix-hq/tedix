@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
 import {
@@ -16,6 +17,7 @@ import {
 import { listCatalogApps } from "./list-apps";
 import {
 	buildRefreshCatalogShadowedVariantsStatements,
+	buildRefreshCatalogVendorGroupsStatements,
 	catalogVendorKeySql,
 	listCatalogVendorVariants,
 	refreshCatalogShadowedVariants,
@@ -277,7 +279,7 @@ describe("catalog vendor variants", () => {
 	it("seeks indexed siblings and preserves window ranking after vendor keys change", async () => {
 		const { sqlite, db } = seededSqlite();
 		sqlite.exec(`
-			WITH RECURSIVE n(i) AS (VALUES(0) UNION ALL SELECT i+1 FROM n WHERE i<59)
+			WITH RECURSIVE n(i) AS (VALUES(0) UNION ALL SELECT i+1 FROM n WHERE i<159)
 			INSERT INTO app_catalog (id, slug, name, website, connector_type, mcp_tool_count,
 				mcp_endpoint_normalized, developer_type, is_discoverable, status, review_status,
 				last_synced_at, vendor_key, explore_shadowed)
@@ -291,19 +293,49 @@ describe("catalog vendor variants", () => {
 		const expected = await listedIds(db, true, { includeUnreleased: true });
 		await refreshCatalogShadowedVariants(db);
 		expect(await listedIds(db, true)).toEqual(expected);
-		const [, flag, clear] = buildRefreshCatalogShadowedVariantsStatements(db);
-		for (const statement of [flag, clear]) {
+		const statements = buildRefreshCatalogShadowedVariantsStatements(
+			db,
+			Array.from({ length: 80 }, (_, i) => `rank-${i}`),
+		);
+		for (const [index, statement] of statements.entries()) {
 			const { sql, params } = statement.toSQL();
 			const plan = sqlite
 				.prepare(`EXPLAIN QUERY PLAN ${sql}`)
 				.all(...(params as SQLInputValue[]))
 				.map((row) => String(row.detail));
+			expect(plan.some((detail) => /\bSCAN\b/.test(detail))).toBe(false);
+			expect(plan).toContainEqual(
+				expect.stringContaining(
+					"SEARCH app_catalog USING INDEX sqlite_autoindex_app_catalog_1 (id=?)",
+				),
+			);
+			if (index === 0) continue;
 			expect(plan).toContainEqual(
 				expect.stringContaining(
 					"SEARCH vendor_sibling USING INDEX app_catalog_vendor_key_idx (vendor_key=?)",
 				),
 			);
 		}
+	});
+
+	it("refreshes the deleted anchor's siblings without touching other vendors", async () => {
+		const { sqlite, db } = seededSqlite();
+		await refreshCatalogShadowedVariants(db);
+		sqlite.exec(
+			"UPDATE app_catalog SET explore_shadowed = 1 WHERE id = 'lonely-listing'",
+		);
+		const statements = await buildRefreshCatalogVendorGroupsStatements(db, [
+			"acme-mcp",
+		]);
+		await db.batch([
+			db.delete(appCatalog).where(eq(appCatalog.id, "acme-mcp")),
+			...statements,
+		]);
+		expect(flaggedIds(sqlite)).toEqual([
+			"duo-empty",
+			"lonely-listing",
+			"twin-ride-2",
+		]);
 	});
 
 	it("is idempotent", async () => {

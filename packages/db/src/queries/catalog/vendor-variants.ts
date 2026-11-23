@@ -10,11 +10,21 @@
  * are different companies and never match.
  *
  * The identity and runnability are expressed in SQL so the shadowed-variant
- * refresh is one set-based statement (no per-row queries, no bound-param
- * growth) and detail reads agree with the list about which row is canonical.
+ * refresh uses bounded pages rather than per-row queries, and detail reads
+ * agree with the list about which row is canonical.
  */
 
-import { and, eq, exists, ne, or, type SQL, sql } from "drizzle-orm";
+import {
+	and,
+	eq,
+	exists,
+	gt,
+	inArray,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import { alias, type SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { appCatalog } from "../../schema/catalog";
 import type { Database } from "./tool-source-policy";
@@ -183,6 +193,8 @@ export function buildHideShadowedVariantsCondition(
 	return sql`${appCatalog.id} NOT IN ${shadowedCatalogIdsQuery(db, options)}`;
 }
 
+const REFRESH_PAGE_SIZE = 80;
+
 export interface RefreshCatalogShadowedVariantsResult {
 	/** Rows newly flagged as shadowed. */
 	flagged: number;
@@ -199,12 +211,19 @@ export interface RefreshCatalogShadowedVariantsResult {
  * to a write batch that changes vendor grouping, runnability, inventory or
  * visibility so the flag commits with the write.
  */
-export function buildRefreshCatalogShadowedVariantsStatements(db: Database) {
+export function buildRefreshCatalogShadowedVariantsStatements(
+	db: Database,
+	catalogAppIds: string[],
+) {
+	if (catalogAppIds.length > REFRESH_PAGE_SIZE) {
+		throw new Error("Catalog shadow refresh exceeds its 80-row page");
+	}
+	const scope = inArray(appCatalog.id, catalogAppIds);
 	const vendorKey = catalogVendorKeySql(appCatalog);
 	const keys = db
 		.update(appCatalog)
 		.set({ vendorKey })
-		.where(sql`${appCatalog.vendorKey} IS NOT ${vendorKey}`);
+		.where(and(scope, sql`${appCatalog.vendorKey} IS NOT ${vendorKey}`));
 	const sibling = alias(appCatalog, "vendor_sibling");
 	const inventory = catalogInventorySql(appCatalog);
 	const siblingInventory = catalogInventorySql(sibling);
@@ -240,27 +259,97 @@ export function buildRefreshCatalogShadowedVariantsStatements(db: Database) {
 	const flag = db
 		.update(appCatalog)
 		.set({ exploreShadowed: true })
-		.where(and(eq(appCatalog.exploreShadowed, false), sql`(${shadowed})`))
+		.where(
+			and(scope, eq(appCatalog.exploreShadowed, false), sql`(${shadowed})`),
+		)
 		.returning({ id: appCatalog.id });
 	const clear = db
 		.update(appCatalog)
 		.set({ exploreShadowed: false })
-		.where(and(eq(appCatalog.exploreShadowed, true), sql`NOT (${shadowed})`))
+		.where(
+			and(scope, eq(appCatalog.exploreShadowed, true), sql`NOT (${shadowed})`),
+		)
 		.returning({ id: appCatalog.id });
 	return [keys, flag, clear] as const;
 }
 
 /**
- * Recompute `explore_shadowed` for the whole catalog in one batch. Run after
+ * Recompute `explore_shadowed` in separate bounded batches. Run after
  * store sync and MCP scan runs, and from scheduled maintenance as a safety net.
  */
 export async function refreshCatalogShadowedVariants(
 	db: Database,
 ): Promise<RefreshCatalogShadowedVariantsResult> {
-	const [, flagged, cleared] = await db.batch(
-		buildRefreshCatalogShadowedVariantsStatements(db),
-	);
-	return { flagged: flagged.length, cleared: cleared.length };
+	const pages: string[][] = [];
+	let afterId = "";
+	for (;;) {
+		const rows = await db
+			.select({ id: appCatalog.id })
+			.from(appCatalog)
+			.where(gt(appCatalog.id, afterId))
+			.orderBy(appCatalog.id)
+			.limit(REFRESH_PAGE_SIZE);
+		if (rows.length === 0) break;
+		pages.push(rows.map((row) => row.id));
+		afterId = rows[rows.length - 1]!.id;
+	}
+	// Refresh every key before any flags: a sibling can lie on a later page.
+	for (const ids of pages) {
+		const [keys] = buildRefreshCatalogShadowedVariantsStatements(db, ids);
+		await db.batch([keys]);
+	}
+	const result = { flagged: 0, cleared: 0 };
+	for (const ids of pages) {
+		const [, flag, clear] = buildRefreshCatalogShadowedVariantsStatements(
+			db,
+			ids,
+		);
+		const [flagged, cleared] = await db.batch([flag, clear]);
+		result.flagged += flagged.length;
+		result.cleared += cleared.length;
+	}
+	return result;
+}
+
+/** Capture affected siblings before a merge can delete their anchor row. */
+export async function buildRefreshCatalogVendorGroupsStatements(
+	db: Database,
+	catalogAppIds: string[],
+) {
+	const anchors = await db
+		.select({
+			key: appCatalog.vendorKey,
+			freshKey: catalogVendorKeySql(appCatalog).as("fresh_key"),
+		})
+		.from(appCatalog)
+		.where(inArray(appCatalog.id, catalogAppIds));
+	const vendorKeys = [
+		...new Set(anchors.flatMap((row) => [row.key, row.freshKey])),
+	].filter((key): key is string => typeof key === "string");
+	const rows = await db
+		.select({ id: appCatalog.id })
+		.from(appCatalog)
+		.where(
+			vendorKeys.length > 0
+				? or(
+						inArray(appCatalog.id, catalogAppIds),
+						inArray(appCatalog.vendorKey, vendorKeys),
+					)
+				: inArray(appCatalog.id, catalogAppIds),
+		);
+	const pages = [];
+	for (let offset = 0; offset < rows.length; offset += REFRESH_PAGE_SIZE) {
+		pages.push(
+			buildRefreshCatalogShadowedVariantsStatements(
+				db,
+				rows.slice(offset, offset + REFRESH_PAGE_SIZE).map((row) => row.id),
+			),
+		);
+	}
+	return [
+		...pages.map(([keys]) => keys),
+		...pages.flatMap(([, flag, clear]) => [flag, clear]),
+	];
 }
 
 export interface CatalogVendorVariantRow {
