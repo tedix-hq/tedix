@@ -216,12 +216,14 @@ describe("deck pipeline sweep", () => {
 				source: "fictional-test",
 			},
 		]);
-		const human = await card(db, {
+		const expiredHumanDecision = await card(db, {
 			creatorType: "user",
 			creatorId: USER,
 			metadata: expiredDecision,
 		});
-		const gone = await card(db, { expiresAt: "2026-10-20T00:00:00.000Z" });
+		const expiredRequest = await card(db, {
+			expiresAt: "2026-10-20T00:00:00.000Z",
+		});
 		const receipt = await sweepOrganizationDeck(db, ORG, now);
 		expect(receipt).toMatchObject({
 			mode: "enforce",
@@ -244,12 +246,13 @@ describe("deck pipeline sweep", () => {
 			reason: "Already decided.",
 			retirement: { reason: "already_decided", workItemId: WORK_DONE },
 		});
-		for (const id of [overdue, newer, human, gone])
+		for (const id of [overdue, newer, expiredHumanDecision, expiredRequest])
 			expect((await status(db, id)).status).toBe("open");
 		expect(await getDeckSweepReceipt(db, ORG)).toMatchObject({
 			at: now.toISOString(),
-			// Every open question to the person counts: none routes to the Feed.
-			metrics: [{ recipientId: USER, liveCards: 3, removals: 3 }],
+			// The overdue question and surviving duplicate are live. Both expired
+			// requests stay open in storage but are excluded from the Deck.
+			metrics: [{ recipientId: USER, liveCards: 2, removals: 3 }],
 		});
 	});
 
