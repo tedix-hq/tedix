@@ -111,17 +111,6 @@ function recordSkippedInference(
 
 type LedgerEnv = DistillEnv & LedgerGatewayEnv;
 
-/**
- * Length of the rows block that opens status and intake prompts. Rows change
- * slowly between turns of one session; the message, activity and turn after
- * them are new every call.
- */
-function ledgerStablePrefixLength(prompt: string): number {
-	if (!/^(?:OPEN|KNOWN) ROWS:/.test(prompt)) return 0;
-	const variable = /\n\n(?:ORIGINAL REQUEST SCOPES:|USER MESSAGE)/.exec(prompt);
-	return variable?.index ?? 0;
-}
-
 async function reflectWithGateway(
 	env: LedgerEnv,
 	owner: { organizationId: string; userId?: string },
@@ -139,7 +128,6 @@ async function reflectWithGateway(
 			sessionKey: session
 				? `${session.harness}:${session.sessionKey}`
 				: undefined,
-			stablePrefixLength: ledgerStablePrefixLength(prompt),
 			source: surface,
 			billingSource: "system",
 			model: TERRA_SURFACES.has(surface)
