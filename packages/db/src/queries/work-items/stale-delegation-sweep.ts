@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workItems } from "../../schema/work-items";
 import { cancelWorkItem } from "./crud";
@@ -98,7 +98,7 @@ export async function sweepUncontractedChildWorkItems(
 		.where(
 			and(
 				inArray(workItems.disposition, ["accepted", "proposed"]),
-				sql`json_type(${workItems.metadata}, '$.childDelegation')='object'`,
+				isNotNull(workItems.delegationRootId),
 				sql`NOT EXISTS (SELECT 1 FROM work_events allocation WHERE allocation.org_id=${workItems.orgId} AND allocation.work_item_id=${workItems.id} AND allocation.id=${workItems.id} AND json_type(allocation.payload, '$.taskContract')='object')`,
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id=${workItems.orgId} AND active_attempt.work_item_id=${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying'))`,
 			),

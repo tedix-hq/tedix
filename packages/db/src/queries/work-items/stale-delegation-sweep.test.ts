@@ -9,8 +9,9 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
-import { schemaDdl } from "../../test/schema-ddl";
+import { schemaDdl, tableDdl } from "../../test/schema-ddl";
 import { workInteractions } from "../../schema/work-factory";
+import { workItems } from "../../schema/work-items";
 import {
 	STALE_FAILED_DELEGATION_REASON,
 	sweepStaleFailedDelegationWorkItems,
@@ -240,11 +241,37 @@ describe("sweepStaleFailedDelegationWorkItems", () => {
 	});
 });
 
+it("scans only the delegation-root index when ordinary Work dominates", async () => {
+	sqlite.exec(tableDdl(workItems).slice(1).join("\n"));
+	sqlite.exec(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<10000)
+		INSERT INTO work_items(id,org_id,title,disposition,created_at)
+		SELECT 'ordinary-'||i, 'org-1', 'Ordinary', 'accepted', '${EIGHT_DAYS_AGO}' FROM n;
+		ANALYZE;`);
+	const statements: string[] = [];
+	db = createDbQueryClient(
+		createD1Facade(sqlite, {
+			onPrepare: (query) => statements.push(query),
+		}),
+	);
+	expect(await sweepUncontractedChildWorkItems(db, { now: NOW })).toEqual({
+		observed: 0,
+		cancelled: 0,
+		skipped: 0,
+	});
+	const plan = sqlite
+		.prepare(`EXPLAIN QUERY PLAN ${statements[0]}`)
+		.all("accepted", "proposed", 100)
+		.map((row) => row.detail);
+	expect(plan).toContain(
+		"SCAN work_items USING INDEX idx_work_items_delegation_root",
+	);
+});
+
 it("cancels legacy children with a reason, preserving allocated children, ordinary Work and active runs", async () => {
 	for (const id of ["legacy", "allocated", "active", "ordinary"])
 		seedItem({ id });
 	sqlite.exec(
-		`UPDATE work_items SET metadata='{"childDelegation":{"parentAttemptId":"parent"}}' WHERE id <> 'ordinary';`,
+		`UPDATE work_items SET metadata='{"childDelegation":{"parentAttemptId":"parent","rootId":"root"}}' WHERE id <> 'ordinary';`,
 	);
 	sqlite
 		.prepare(
