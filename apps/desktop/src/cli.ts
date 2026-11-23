@@ -212,29 +212,46 @@ export function cliProgress() {
 const CLICK_WAIT_MS = 5 * 60_000;
 const clickFile = () =>
 	join(app.getPath("userData"), "update-after-restart.json");
-export function noteUpdateClick(): void {
+export function noteUpdateClick(page?: string, dark?: boolean): void {
 	writeFileSync(
 		clickFile(),
-		JSON.stringify({ until: Date.now() + CLICK_WAIT_MS }),
+		JSON.stringify({
+			until: Date.now() + CLICK_WAIT_MS,
+			from: app.getVersion(),
+			page,
+			dark,
+		}),
 	);
 }
 /**
- * True when this start follows that click. The note is deleted before it is
+ * What the start that follows the click needs: the old version, the page to
+ * reopen, and whether that page was dark, so the restart looks the same.
+ */
+export interface UpdateClick {
+	from?: string;
+	page?: string;
+	dark: boolean;
+}
+/**
+ * The note, when this start follows that click. It is deleted before it is
  * read into anything, so no later start can use it again.
  */
-export function takeUpdateClick(): boolean {
-	let until: unknown;
+export function takeUpdateClick(): UpdateClick | undefined {
+	let note: { until?: unknown; from?: unknown; page?: unknown; dark?: unknown };
 	try {
-		until = (
-			JSON.parse(readFileSync(clickFile(), "utf8")) as { until?: unknown }
-		).until;
+		note = JSON.parse(readFileSync(clickFile(), "utf8"));
 	} catch {
-		return false;
+		return undefined;
 	} finally {
 		rmSync(clickFile(), { force: true });
 	}
-	const left = typeof until === "number" ? until - Date.now() : 0;
-	return left > 0 && left <= CLICK_WAIT_MS;
+	const left = typeof note.until === "number" ? note.until - Date.now() : 0;
+	if (left <= 0 || left > CLICK_WAIT_MS) return undefined;
+	return {
+		from: typeof note.from === "string" ? note.from : undefined,
+		page: typeof note.page === "string" ? note.page : undefined,
+		dark: note.dark === true,
+	};
 }
 
 /** The newer of the copy inside the app and the published one, when newer than `have`. */

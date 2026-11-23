@@ -217,6 +217,13 @@ export function downloadUpdate(
 	return done;
 }
 
+/** How far the running download is, as a whole percent; nothing when none runs. */
+export function downloadPercent(): number | undefined {
+	if (!downloading) return undefined;
+	const { received, total } = downloading.progress;
+	return total > 0 ? Math.min(99, Math.floor((received / total) * 100)) : 0;
+}
+
 /** The version waiting for a restart, if any. */
 export function readyVersion(): string | undefined {
 	return ready?.version;

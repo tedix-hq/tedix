@@ -102,8 +102,8 @@ The app is not signed or notarized yet and has been run on macOS only.
   thing, "Tedix". The app looks for updates when it starts, every four hours,
   and from **Tedix → Check for Updates…**:
   - It downloads a newer app in the background and refuses one whose
-    SHA-256 differs from the manifest. Nothing appears by itself until it is
-    ready.
+    SHA-256 differs from the manifest. While it downloads, the sidebar entry
+    and the menus show "Downloading update… 40%".
   - Then **Update ready** appears at the bottom of the Tedix OS sidebar,
     above the account row (in the bottom-left corner without a sidebar). The
     app draws it over the page and moves the account row up while it is
@@ -111,8 +111,12 @@ The app is not signed or notarized yet and has been run on macOS only.
   - One click updates, with no question: the app restarts into the new
     version and puts the newest command-line tool in place before it
     starts the runners; with only a newer command-line tool, it does that
-    without a restart. Running tasks keep going.
-  - If an update fails, the entry says so; a click tries again, and
+    without a restart. Running tasks keep going. While it restarts, the
+    window shows "Restarting Tedix…" instead of going blank, the new start
+    reopens the page that was open, and "Updated to <version>" shows once
+    in the entry and fades out.
+  - If a download, a check you asked for or an update fails, the entry and
+    the menus say "Update failed · Try again"; a click tries again, and
     Settings › About says why.
 - **Nothing is replaced without a click.** Replacing the command-line
   tool stops tasks running on this Mac. So the app never

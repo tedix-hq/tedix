@@ -40,6 +40,7 @@ import {
 	onCliChange,
 	restartSupervisor,
 	takeUpdateClick,
+	type UpdateClick,
 	updateCli,
 } from "./cli";
 import { log } from "./log";
@@ -70,9 +71,11 @@ import { loadStatus, type Status, summary } from "./status";
 import { bindTrayMenu } from "./tray-menu";
 import { isOsHost, isOsPage, mainPageAllowed } from "./navigation";
 import {
+	downloadPercent,
 	downloadUpdate,
 	type FoundUpdate,
 	findUpdate,
+	isNewer,
 	readyVersion,
 	restartToUpdate,
 } from "./update";
@@ -149,7 +152,7 @@ async function state(): Promise<PanelState> {
 			updateReady: readyVersion(),
 			cliOffer: cliOffer(),
 			checked: lastCheck,
-			updateFailure: failure,
+			updateFailure: failure ?? fetchFailure,
 			appearance: settings().appearance ?? "system",
 			localWorkspace: bundledLocalAvailable(),
 		},
@@ -159,16 +162,41 @@ async function state(): Promise<PanelState> {
 /** What the menus show that can change, so they are rebuilt only then. */
 let menuKey: string | undefined;
 function refreshMenu(): void {
-	const key = `${runnersItem().label}|${updateItems().length}`;
+	const key = `${runnersItem().label}|${updateItems(true)
+		.map((item) => `${item.label}${item.enabled}`)
+		.join()}`;
 	if (key === menuKey || !app.isReady()) return;
 	menuKey = key;
 	setMenu();
 }
 
-/** "Update Tedix" in the menus while an update is ready; a click updates at once. */
-function updateItems(): MenuItemConstructorOptions[] {
-	return readyVersion() || cliOffer()
-		? [{ label: "Update Tedix", click: () => void applyUpdate() }]
+/**
+ * The update line of the menus, like other Mac apps: "Update Tedix" while an
+ * update is ready (a click updates at once), a greyed-out line saying what
+ * is happening while it checks, downloads or updates, "Update Failed · Try
+ * Again" after a failure, and otherwise Check for Updates… (`withCheck`: the
+ * Tedix menu only; the menu bar icon's menu shows nothing then).
+ */
+function updateItems(withCheck: boolean): MenuItemConstructorOptions[] {
+	const busy = (label: string) => [{ label, enabled: false }];
+	if (applying)
+		return busy(applying === "Updating…" ? "Updating Tedix…" : applying);
+	if (readyVersion() || cliOffer())
+		return [{ label: "Update Tedix", click: () => void applyUpdate() }];
+	const percent = downloadPercent();
+	if (percent !== undefined) return busy(`Downloading Update… ${percent}%`);
+	if (checking) return busy("Checking for Updates…");
+	if (failure || fetchFailure)
+		return [
+			{ label: "Update Failed · Try Again", click: () => void applyUpdate() },
+		];
+	return withCheck
+		? [
+				{
+					label: "Check for Updates…",
+					click: () => void checkForUpdates(true),
+				},
+			]
 		: [];
 }
 
@@ -242,7 +270,14 @@ let updateButton: WebContentsView | undefined;
 /** How much room the entry's page asked for. */
 let updateSize = { width: 0, height: 0 };
 let applying: string | undefined;
+/** Why applying an update did not finish. */
 let failure: string | undefined;
+/** Why the last download, or a check the person asked for, failed. */
+let fetchFailure: string | undefined;
+/** Check for Updates… is looking now. */
+let checking = false;
+/** The version this start updated to, for the one-time "Updated to …" line. */
+let updatedTo: string | undefined;
 let pageDark = nativeTheme.shouldUseDarkColors;
 let layoutMain = () => {};
 /** A newer published app, found by the last check, maybe not downloaded yet. */
@@ -273,13 +308,22 @@ function updateView(): UpdateView {
 		const text = /^(Restarting|Waiting)/.test(step) ? "Restarting…" : applying;
 		return { ...view, kind: "working", text, label: text };
 	}
-	if (failure)
+	if (failure || fetchFailure)
 		return {
 			...view,
 			kind: "failed",
-			text: "Update did not finish",
-			label: "Update did not finish. Try again",
+			text: "Update failed · Try again",
+			label: "Update failed. Try again",
 		};
+	const percent = downloadPercent();
+	if (percent !== undefined && !readyVersion()) {
+		const text = `Downloading update… ${percent}%`;
+		return { ...view, kind: "working", text, label: text };
+	}
+	if (updatedTo) {
+		const text = `Updated to ${updatedTo}`;
+		return { ...view, kind: "done", text, label: text };
+	}
 	if (!readyVersion() && !cliOffer())
 		return { ...view, kind: "hidden", text: "", label: "" };
 	return {
@@ -444,7 +488,10 @@ async function working(text: string, job: () => Promise<void>): Promise<void> {
 function updateNow(): Promise<void> {
 	return working("Updating…", async () => {
 		if (readyVersion()) {
-			noteUpdateClick();
+			// The next start reopens this page and looks the same until it has.
+			const page = os?.webContents.getURL();
+			noteUpdateClick(page && isOsPage(page) ? page : undefined, pageDark);
+			showRestarting(pageDark);
 			quitSource = "an update";
 			restartToUpdate();
 			// The app quits now; the entry keeps saying so until it does.
@@ -541,6 +588,12 @@ async function ask(
  */
 async function applyUpdate(): Promise<void> {
 	if (applying) return;
+	// After a failed download or check, a click looks and downloads again,
+	// then updates.
+	if (fetchFailure && !failure) {
+		fetchFailure = undefined;
+		return checkForUpdates(true);
+	}
 	// After a failed update, a click tries again; runners that stayed down
 	// are started again first.
 	if (failure) {
@@ -564,12 +617,16 @@ async function applyUpdate(): Promise<void> {
 async function download(): Promise<boolean> {
 	if (!found) return false;
 	try {
-		await downloadUpdate(found, () => {});
+		// The menus and the entry show how far it is, about ten times a second.
+		await downloadUpdate(found, publishUpdate);
+		fetchFailure = undefined;
 		publishUpdate();
 		return true;
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
 		log(`update: download failed (${reason})`);
+		fetchFailure = `The update did not download: ${reason}`;
+		publishUpdate();
 		return false;
 	}
 }
@@ -979,6 +1036,56 @@ function defaultBounds(): Rectangle {
 /** Quit was chosen: windows really close now instead of hiding. */
 let quitting = false;
 
+/** This start follows a click to update: what it reopens and how it looks. */
+let restoring: UpdateClick | undefined;
+/**
+ * "Restarting Tedix…" over the whole main window while an update restarts
+ * the app, instead of an empty window: shown by the app that quits, and by
+ * the start that follows until its page has loaded.
+ */
+let restartingView: WebContentsView | undefined;
+let restarted = () => {};
+/** Settles once the start after an update shows its page again. */
+const pageBack = new Promise<void>((settle) => {
+	restarted = settle;
+});
+function showRestarting(dark: boolean): void {
+	const window = mainWindow;
+	if (!window || window.isDestroyed() || restartingView) return;
+	const view = new WebContentsView({ webPreferences: localPage });
+	restartingView = view;
+	view.setBackgroundColor(dark ? "#0b0b0c" : "#fafafa");
+	view.webContents.on("will-navigate", (event) => event.preventDefault());
+	const { width, height } = window.getContentBounds();
+	view.setBounds({ x: 0, y: 0, width, height });
+	window.contentView.addChildView(view);
+	void view.webContents.loadFile(
+		join(root, "restarting.html"),
+		dark ? { hash: "dark" } : {},
+	);
+}
+function hideRestarting(): void {
+	restarted();
+	const view = restartingView;
+	restartingView = undefined;
+	if (!view) return;
+	if (mainWindow && !mainWindow.isDestroyed())
+		mainWindow.contentView.removeChildView(view);
+	view.webContents.close();
+}
+
+/** How long "Updated to …" stays after the restart; the entry fades out before. */
+const UPDATED_MS = 6000;
+async function sayUpdated(): Promise<void> {
+	await pageBack;
+	updatedTo = app.getVersion();
+	publishUpdate();
+	setTimeout(() => {
+		updatedTo = undefined;
+		publishUpdate();
+	}, UPDATED_MS);
+}
+
 /** Shows the main window and puts Tedix back in the Dock. */
 function showMain(): void {
 	const window = mainWindow;
@@ -1007,7 +1114,7 @@ function createMainWindow(show: boolean): void {
 		titleBarStyle: "hiddenInset",
 		// Centres the buttons in the page's 56 px top bar.
 		trafficLightPosition: { x: 20, y: 20 },
-		backgroundColor: "#0a0a0a",
+		backgroundColor: restoring && !restoring.dark ? "#fafafa" : "#0a0a0a",
 	});
 	mainWindow = window;
 	// Closing the window leaves Tedix in the menu bar, with its runners;
@@ -1051,6 +1158,7 @@ function createMainWindow(show: boolean): void {
 		const { width, height } = window.getContentBounds();
 		view.setBounds({ x: 0, y: 0, width, height });
 		settingsView?.setBounds({ x: 0, y: 0, width, height });
+		restartingView?.setBounds({ x: 0, y: 0, width, height });
 		const { kind, place } = updateView();
 		const shown =
 			kind !== "hidden" &&
@@ -1139,7 +1247,18 @@ function createMainWindow(show: boolean): void {
 	view.webContents.setUserAgent(
 		`${view.webContents.getUserAgent()} TedixDesktop/${app.getVersion()}`,
 	);
-	void view.webContents.loadURL(`${osOrigin()}/chat`);
+	// After an update, the page that was open, behind "Restarting Tedix…"
+	// until it has loaded.
+	const page = restoring?.page;
+	if (restoring) {
+		showRestarting(restoring.dark);
+		view.webContents.once("did-finish-load", hideRestarting);
+		view.webContents.once("did-fail-load", hideRestarting);
+		setTimeout(hideRestarting, 20_000);
+	}
+	void view.webContents.loadURL(
+		page && isOsPage(page) ? page : `${osOrigin()}/chat`,
+	);
 	view.webContents.focus();
 }
 
@@ -1258,22 +1377,39 @@ function navigate(action: "back" | "forward" | "reload"): void {
  * updates like a click on the entry, or says Tedix is up to date.
  */
 async function checkForUpdates(asked: boolean): Promise<void> {
+	if (checking) return;
 	let problem = "";
+	let failed = false;
+	if (asked) {
+		checking = true;
+		publishUpdate();
+	}
 	try {
 		const result = await findUpdate();
 		if (result.kind === "unavailable") problem = result.reason;
 		found = result.kind === "found" ? result.update : undefined;
 	} catch (error) {
 		problem = `Could not check for updates: ${error instanceof Error ? error.message : String(error)}. Try again later.`;
+		failed = true;
 		log(`update: ${problem}`);
 	}
-	await lookForCliUpdate(asked);
-	await refreshSetup(false);
-	if (found && readyVersion() !== found.version && !(await download()))
-		problem ||= "The update did not download. Try again later.";
+	try {
+		await lookForCliUpdate(asked);
+		await refreshSetup(false);
+		if (found && readyVersion() !== found.version && !(await download())) {
+			problem ||= "The update did not download. Try again later.";
+			failed = true;
+		}
+	} finally {
+		checking = false;
+	}
 	lastCheck = problem || "Up to date";
+	// A failed look the person asked for shows on the entry, like a failed
+	// download; a failed look by itself waits for the next one.
+	if (failed && asked) fetchFailure ??= problem;
+	if (!problem) fetchFailure = undefined;
 	publishUpdate();
-	if (!asked) return;
+	if (!asked || failed) return;
 	// Chosen by the person: update at once, or show the result in Settings.
 	if (readyVersion() || cliOffer()) return applyUpdate();
 	openSettings("about");
@@ -1302,11 +1438,7 @@ function setMenu(): void {
 				// Short, like other Mac apps: everything else is in Settings.
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
-					...updateItems(),
-					{
-						label: "Check for Updates…",
-						click: () => void checkForUpdates(true),
-					},
+					...updateItems(true),
 					{ type: "separator" },
 					settingsItem,
 					{ type: "separator" },
@@ -1530,7 +1662,7 @@ function trayMenu(): Menu {
 			: []),
 		runnersItem(),
 		{ type: "separator" },
-		...updateItems(),
+		...updateItems(false),
 		{ label: "Settings…", click: () => openSettings() },
 		{ type: "separator" },
 		{ label: "Quit Tedix", click: () => quitFrom("the menu bar icon") },
@@ -1798,6 +1930,7 @@ else if (process.argv.includes("--local-model")) {
 		// Read and deleted before anything else: only a start that follows a
 		// click on the update button may replace the command-line tool.
 		const clicked = takeUpdateClick();
+		restoring = clicked;
 		// A wait for tasks does not outlive the app that chose it.
 		rmSync(updateWaitingFile(), { force: true });
 		setMenu();
@@ -2070,6 +2203,8 @@ else if (process.argv.includes("--local-model")) {
 					await refreshSetup(false);
 					await applyCommandLineTool(true);
 				});
+				if (!failure && clicked.from && isNewer(app.getVersion(), clicked.from))
+					void sayUpdated();
 			}
 			await takeOverRunners();
 		});

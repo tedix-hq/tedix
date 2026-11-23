@@ -111,11 +111,13 @@ export interface PanelApi {
 /**
  * What the update entry at the bottom left of the main window shows.
  * `ready`: something can be applied; a click applies it at once, never
- * anything by itself. `working`: `text` says what it is doing. `failed`: a
- * click tries again; Settings › About says why it failed.
+ * anything by itself. `working`: `text` says what it is doing, such as
+ * downloading. `failed`: a click tries again; Settings › About says why it
+ * failed. `done`: a one-time "Updated to …" line after the restart that
+ * fades out by itself.
  */
 export interface UpdateView {
-	kind: "hidden" | "ready" | "working" | "failed";
+	kind: "hidden" | "ready" | "working" | "failed" | "done";
 	text: string;
 	/** What a screen reader says for the button; longer than `text`. */
 	label: string;

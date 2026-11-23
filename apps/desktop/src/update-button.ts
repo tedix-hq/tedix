@@ -33,6 +33,21 @@ function draw(view: UpdateView): void {
 			);
 		else line.setAttribute("aria-label", view.label);
 		nodes.push(line);
+	} else if (view.kind === "done") {
+		const line = document.createElement("div");
+		line.className = "entry done";
+		line.setAttribute("role", "status");
+		line.title = view.label;
+		line.append(icon("check", 16));
+		if (view.place !== "rail")
+			line.append(
+				Object.assign(document.createElement("span"), {
+					className: "text",
+					textContent: view.text,
+				}),
+			);
+		else line.setAttribute("aria-label", view.label);
+		nodes.push(line);
 	} else if (view.kind !== "hidden") {
 		const entry = document.createElement("button");
 		entry.type = "button";
