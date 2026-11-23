@@ -293,10 +293,7 @@
 }
 /* On the position line the buttons are as tall as its text, so the card keeps its height. */
 @media (min-width: 40rem) {
-	.feed-deck
-		.fd-deck-meta
-		[data-deck-paging]
-		[data-kumo-component="Button"].bg-inherit {
+	.feed-deck .fd-deck-meta [data-deck-paging] [data-kumo-component="Button"] {
 		height: 1.25rem;
 		min-height: 0;
 		padding-block: 0;

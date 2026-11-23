@@ -1447,6 +1447,9 @@ export function WorkDecisionCard({
 												inline
 												className="fd-agent-details"
 												title={decisionText("Details for agents")}
+												onOpenChange={(open) => {
+													if (open) rail?.openSection("details");
+												}}
 											>
 												<div className="grid min-w-0 gap-3 [overflow-wrap:anywhere]">
 													{submittingActor && (

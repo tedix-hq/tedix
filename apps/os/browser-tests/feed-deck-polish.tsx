@@ -19,6 +19,7 @@ import { WorkspaceAppRenderer } from "../src/components/workspace-app-renderer";
 import { WorkDecisionCard } from "../src/components/work-decision-card";
 import { ActivityFeedApp } from "../src/components/activity-feed-app";
 import {
+	firstDecisionPageOptions,
 	osQuery,
 	pendingApprovalsQueryOptions,
 	projectListQueryOptions,
@@ -84,6 +85,12 @@ for (const state of ["open", "resolved"] as const)
 		}).queryKey,
 		{ data: [], hasMore: false },
 	);
+client.setQueryData(firstDecisionPageOptions().queryKey, {
+	data: [],
+	hasMore: false,
+	nextCursor: null,
+	observedAt: new Date().toISOString(),
+});
 client.setQueryData(pendingApprovalsQueryOptions().queryKey, {
 	data: [],
 	pagination: { limit: 50, offset: 0, total: 0, hasMore: false },
@@ -568,9 +575,7 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 }
 
 if (params.has("retry")) {
-	const inboxKey = osQuery.workInteractions.listInbox.queryOptions({
-		input: { projectId: undefined, limit: 50, states: ["open"] },
-	}).queryKey;
+	const inboxKey = firstDecisionPageOptions().queryKey;
 	const known = client.getQueryData(inboxKey);
 	const approvalKey = osQuery.workInteractions.listInbox.queryOptions({
 		input: {
@@ -647,17 +652,12 @@ if (feedFace) {
 		responseCount: 0,
 		askedBy: "Robin",
 	};
-	client.setQueryData(
-		osQuery.workInteractions.listInbox.queryOptions({
-			input: { projectId: undefined, limit: 50, states: ["open"] },
-		}).queryKey,
-		{
-			data: [row],
-			hasMore: false,
-			nextCursor: null,
-			observedAt: today.toISOString(),
-		},
-	);
+	client.setQueryData(firstDecisionPageOptions().queryKey, {
+		data: [row],
+		hasMore: false,
+		nextCursor: null,
+		observedAt: today.toISOString(),
+	});
 	client.setQueryData(
 		osQuery.attention.getDeckCard.queryOptions({
 			input: { cardId: feedRequestId, limit: 100 },

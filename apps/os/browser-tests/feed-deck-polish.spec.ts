@@ -243,10 +243,10 @@ try {
 				.waitFor();
 			await page.keyboard.press("Escape");
 			await dialog.waitFor({ state: "hidden" });
-			await page.getByRole("button", { name: "Details", exact: true }).click();
-			await dialog
-				.getByRole("heading", { name: "Details", exact: true })
-				.waitFor();
+			await page
+				.getByRole("button", { name: "Details for agents", exact: true })
+				.click();
+			await dialog.waitFor();
 		}
 		await page.close();
 	}
@@ -385,7 +385,9 @@ try {
 				throw new Error("Typed approval regressed to a free-text question");
 			if (await page.getByText("Prepared args:", { exact: false }).isVisible())
 				throw new Error("Raw approval arguments leaked outside Details");
-			await page.getByRole("button", { name: "Details", exact: true }).click();
+			await page
+				.getByRole("button", { name: "Details for agents", exact: true })
+				.click();
 			await page.getByText("Prepared args:", { exact: false }).waitFor();
 			await page.keyboard.press("Escape");
 			await settleAnimations(page);
@@ -482,7 +484,7 @@ try {
 			.getByRole("button", { name: "More actions", exact: true })
 			.click();
 		for (const name of [
-			"Comment",
+			"Private note",
 			"Why this update",
 			"Turn into Work",
 			"Pin",
@@ -494,7 +496,7 @@ try {
 		await page.keyboard.press("Escape");
 		if (width > 640) {
 			const receipt = actions.getByRole("button", {
-				name: "Comment",
+				name: "Pin",
 				exact: true,
 			});
 			const before = await receipt.boundingBox();
@@ -547,7 +549,7 @@ try {
 				.getByRole("button", { name: "More actions", exact: true })
 				.click();
 			await page
-				.getByRole("menuitem", { name: "Comment", exact: true })
+				.getByRole("menuitem", { name: "Private note", exact: true })
 				.click();
 			await everythingStory
 				.getByRole("textbox", { name: "Your correction", exact: true })
@@ -686,11 +688,10 @@ try {
 				`Decision attention ${width}/${theme}: ${JSON.stringify(attention)}`,
 			);
 		await page.keyboard.press("Escape");
-		await page.getByRole("button", { name: "Details", exact: true }).click();
 		await page
-			.getByRole("heading", { name: "Details", exact: true })
-			.first()
-			.waitFor();
+			.getByRole("button", { name: "Details for agents", exact: true })
+			.click();
+		await page.locator("[data-decision-context]:visible").waitFor();
 		await page.close();
 	}
 
@@ -716,7 +717,7 @@ try {
 		if (delegate === approve || approve === active)
 			throw new Error(`Approve must be the only primary action in ${theme}`);
 		await preferred
-			.getByRole("button", { name: "Details", exact: true })
+			.getByRole("button", { name: "Details for agents", exact: true })
 			.click();
 		const context = preferred.locator("[data-decision-context]:visible");
 		await context.getByRole("button", { name: /Decide for me/ }).waitFor();
