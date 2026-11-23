@@ -219,32 +219,12 @@ const linkRel = (item: MenuItem) => (linkTarget(item) ? "noopener noreferrer" : 
 //      override is set (e.g. local dev, orgs without publicSiteUrl).
 const canonicalOverride = (settings as Record<string, unknown>)?.url as string | undefined;
 const envPublicSiteUrl = (workerEnv as Record<string, string | undefined>).PUBLIC_SITE_URL;
-const isTedixLandingCanonical =
-	(workerEnv as Record<string, string | undefined>).ORG_SLUG === "tedix-landing" &&
-	envPublicSiteUrl &&
-	new URL(envPublicSiteUrl).hostname === "tedix.dev";
-const canonicalPathFromRequest =
+// Canonical is the URL as served. Never append a trailing slash: public
+// hosts 301 /blog/<post>/ to /blog/<post>.
+const canonicalPath =
 	publicPathPrefix && publicPathPrefix !== "/" && currentPath === "/"
 		? `${publicPathPrefix}/`
 		: currentPath;
-const withTedixTrailingSlash = (value: string): string => {
-	if (!isTedixLandingCanonical) return value;
-	let url: URL;
-	try {
-		url = new URL(value, envPublicSiteUrl);
-	} catch {
-		return value;
-	}
-	if (url.hostname !== "tedix.dev") return value;
-	const lastSegment = url.pathname.split("/").pop() ?? "";
-	if (!url.pathname.endsWith("/") && !lastSegment.includes(".")) {
-		url.pathname += "/";
-	}
-	return url.toString();
-};
-const canonicalPath = isTedixLandingCanonical
-	? new URL(withTedixTrailingSlash(canonicalPathFromRequest), envPublicSiteUrl).pathname
-	: canonicalPathFromRequest;
 const canonicalBase = canonicalOverride ?? envPublicSiteUrl;
 // String-concat canonical so route helpers control path emission exactly.
 // Collection path segments come from native Emdash urlPattern.
