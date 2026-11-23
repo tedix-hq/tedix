@@ -170,7 +170,7 @@
     },
     "apps/desktop": {
       "name": "@tedix/desktop",
-      "version": "0.1.1",
+      "version": "0.1.0",
       "devDependencies": {
         "@tedix/tsconfig": "workspace:*",
         "@types/node": "catalog:",
@@ -707,7 +707,7 @@
     },
     "packages/cli": {
       "name": "@tedix/cli",
-      "version": "0.36.0",
+      "version": "0.36.1",
       "bin": {
         "tedix": "./src/index.ts",
       },

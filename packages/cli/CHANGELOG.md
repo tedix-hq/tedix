@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.36.1 (2026-11-23)
+
+### Patch Changes
+
+- 39f72d8: Runners now check finished work in the repository it was pushed to. Work landed in the ops repository is confirmed by that repository's latest successful Ship run, instead of waiting forever for the product to report a commit it will never contain.
+
 ## 0.36.0 (2026-11-22)
 
 ### Minor Changes
