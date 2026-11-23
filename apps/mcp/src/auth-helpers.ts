@@ -142,7 +142,7 @@ type HumanMcpSelectionConfig = {
 /**
  * Accept only a human token for this one resource, then resolve its signed
  * selected tenant IDs through the API's live consent and membership check.
- * This check is repeated for every MCP request, including discovery.
+ * Successful checks may be reused for up to ten seconds, including discovery.
  */
 export async function validateHumanMcpSelection(
 	payload: JWTPayload,
@@ -689,7 +689,7 @@ export interface ResolvedExternalAgentSessionAuth {
 }
 
 const AIH_M2M_CLIENT_SCOPE_CACHE_MAX_ENTRIES = 100;
-const AIH_M2M_CLIENT_SCOPE_CACHE_TTL_MS = 5 * 60 * 1000;
+const AIH_M2M_CLIENT_SCOPE_CACHE_TTL_MS = 10_000;
 /**
  * Short TTL for genuine misses (search succeeded, no matching client): a
  * freshly CLI-minted M2M client may not be visible to Descope search yet
@@ -699,10 +699,10 @@ const AIH_M2M_CLIENT_SCOPE_CACHE_TTL_MS = 5 * 60 * 1000;
  * (see lib/tenant-match.ts OrgTenantLookup for the same resolved/unresolved
  * pattern).
  */
-const AIH_M2M_CLIENT_SCOPE_MISS_TTL_MS = 20 * 1000;
+const AIH_M2M_CLIENT_SCOPE_MISS_TTL_MS = 2_000;
 const aihM2mClientScopeCache = new Map<
 	string,
-	{ value: AihM2mClientScopeContext | null; expiresAt: number }
+	{ value: Promise<AihM2mClientScopeContext | null>; expiresAt: number }
 >();
 
 interface AihMcpClientRecord {
@@ -959,7 +959,7 @@ export async function resolveFreshExternalAgentAihAuthority(
  * Returns the count of deleted entries.
  *
  * NOTE: This invalidates the in-process cache only. The service-binding call
- * from apps/api reaches one MCP isolate; the 5-min TTL covers remaining isolates.
+ * from apps/api reaches one MCP isolate; the 10-second TTL covers remaining isolates.
  */
 export function invalidateAihM2mClientScopeCache(filter?: {
 	mcpServerId?: string;
@@ -1072,58 +1072,59 @@ export async function resolveAihM2mClientScopeContext(
 	const cached = aihM2mClientScopeCache.get(cacheKey);
 	const now = Date.now();
 	if (cached && cached.expiresAt > now) {
-		return boundTediClientScopesToLiveProfile(cached.value, options);
+		return boundTediClientScopesToLiveProfile(await cached.value, options);
 	}
 
-	let value: AihM2mClientScopeContext | null = null;
-	try {
-		// Descope's unfiltered search is windowed. Once a busy MCP resource has
-		// enough registrations, a freshly issued external-agent client can fall
-		// outside that window and be misclassified as ordinary OAuth. Filter by
-		// the validated token's exact client id so catalog size cannot affect
-		// authentication. `azp` is canonical for AIH client credentials;
-		// `client_id` is the SDK-normalized equivalent used by some issuers.
-		const clientId = authorizedParty ?? subject!;
-		const clients = await searchAihMcpServerClientsViaApi(
-			env,
-			mcpServerId,
-			clientId,
-		);
-		const client = clients.find((candidate) => {
-			const clientId = getMcpClientId(candidate);
-			return (
-				!!subject &&
-				candidate.id === subject &&
-				!!authorizedParty &&
-				clientId === authorizedParty
-			);
-		});
-		value = client ? normalizeAihM2mClientScopeContext(client) : null;
-	} catch (error) {
-		aihLog.warn("Failed to hydrate M2M client scopes", {
-			event: "aih.m2m_scope_hydration_failed",
-			mcpServerId,
-			outcome: "unavailable",
-			error,
-		});
-		// A failed lookup is not a human credential. Propagate without caching so
-		// the edge refuses before dispatch instead of validating a human grant.
-		throw error;
-	}
+	// Cache the pending lookup before yielding, retaining raw registration scopes.
+	const entry: {
+		value: Promise<AihM2mClientScopeContext | null>;
+		expiresAt: number;
+	} = {
+		expiresAt: now + AIH_M2M_CLIENT_SCOPE_CACHE_TTL_MS,
+		value: Promise.resolve().then(async () => {
+			let value: AihM2mClientScopeContext | null = null;
+			try {
+				// Descope's unfiltered search is windowed. Once a busy MCP resource has
+				// enough registrations, a freshly issued external-agent client can fall
+				// outside that window and be misclassified as ordinary OAuth. Filter by
+				// the validated token's exact client id so catalog size cannot affect
+				// authentication. `azp` is canonical for AIH client credentials;
+				// `client_id` is the SDK-normalized equivalent used by some issuers.
+				const clientId = authorizedParty ?? subject!;
+				const clients = await searchAihMcpServerClientsViaApi(
+					env,
+					mcpServerId,
+					clientId,
+				);
+				const client = clients.find((candidate) => {
+					const clientId = getMcpClientId(candidate);
+					return (
+						!!subject &&
+						candidate.id === subject &&
+						!!authorizedParty &&
+						clientId === authorizedParty
+					);
+				});
+				value = client ? normalizeAihM2mClientScopeContext(client) : null;
+			} catch (error) {
+				aihLog.warn("Failed to hydrate M2M client scopes", {
+					event: "aih.m2m_scope_hydration_failed",
+					mcpServerId,
+					outcome: "unavailable",
+					error,
+				});
+				// A failed lookup is not a human credential. Propagate without caching so
+				// the edge refuses before dispatch instead of validating a human grant.
+				if (aihM2mClientScopeCache.get(cacheKey) === entry)
+					aihM2mClientScopeCache.delete(cacheKey);
+				throw error;
+			}
 
-	// A hit keeps the full TTL; a genuine miss caches only briefly to tolerate
-	// the Descope client create→search propagation race. The cached value is the
-	// raw client context (never the live-profile-intersected copy) so a profile
-	// change is reflected on the very next request even while the client lookup
-	// is served from cache.
-	aihM2mClientScopeCache.set(cacheKey, {
-		value,
-		expiresAt:
-			now +
-			(value
-				? AIH_M2M_CLIENT_SCOPE_CACHE_TTL_MS
-				: AIH_M2M_CLIENT_SCOPE_MISS_TTL_MS),
-	});
+			if (!value) entry.expiresAt = now + AIH_M2M_CLIENT_SCOPE_MISS_TTL_MS;
+			return value;
+		}),
+	};
+	aihM2mClientScopeCache.set(cacheKey, entry);
 	if (aihM2mClientScopeCache.size > AIH_M2M_CLIENT_SCOPE_CACHE_MAX_ENTRIES) {
 		for (const [key, entry] of aihM2mClientScopeCache) {
 			if (entry.expiresAt <= now) aihM2mClientScopeCache.delete(key);
@@ -1139,7 +1140,7 @@ export async function resolveAihM2mClientScopeContext(
 		}
 	}
 
-	return boundTediClientScopesToLiveProfile(value, options);
+	return boundTediClientScopesToLiveProfile(await entry.value, options);
 }
 
 /**

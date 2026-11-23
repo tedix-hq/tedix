@@ -1,3 +1,4 @@
+import { gatewayReadBinding } from "./lib/gateway-read-cache";
 import { requestPhaseTimings } from "./mcp/phase-timings";
 import { toolCallCountStub } from "./tool-call-counts";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
@@ -1264,7 +1265,10 @@ const worker = {
 							>;
 							try {
 								externalAgent = await resolveExternalAgentSessionAuth(
-									env,
+									{
+										...env,
+										API_SERVICE: gatewayReadBinding(env.API_SERVICE) as Fetcher,
+									},
 									aihM2mClient.externalAgent,
 									aihM2mClient.clientRecordId,
 									aihM2mClient.scopes,

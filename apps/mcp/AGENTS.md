@@ -142,6 +142,16 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
   revalidations and cold isolates do not reload every schema row from D1.
   A traversal that needs fresh rows passes `cacheable: false` and bypasses it.
 
+Gateway grant verification, ordinary external-agent session checks and transport
+policy reads use `src/lib/gateway-read-cache.ts`: ten seconds from request start,
+500 entries per service binding, keyed by the full request inputs and authority
+headers, with concurrent reads coalesced. Failed reads and denied grants are not
+retained. Registration lookups coalesce only while pending; their existing
+100-entry cache retains hits for ten seconds and misses for two seconds.
+Explicit fresh-authority checks and federated workload validation bypass this
+cache. Policy or membership changes can take up to ten seconds to reach ordinary
+gateway reads; execution-time authorization and audit writes remain separate.
+
 ## Sensitive-data latch
 
 `src/mcp/sensitive-data-latch.ts` records a sensitive read on the calling

@@ -67,10 +67,18 @@ describe("multi-organization MCP consent", () => {
 
 	it("bounds a wedged grant check and permits a fresh request afterward", async () => {
 		vi.useFakeTimers();
-		const fetch = vi.fn().mockImplementationOnce(() => new Promise(() => {}));
+		let markStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
+		const fetch = vi.fn().mockImplementationOnce(() => {
+			markStarted();
+			return new Promise(() => {});
+		});
 		const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
 		try {
 			const pending = resolveHumanMcpSelection(payload, env, config);
+			await started;
 			await vi.advanceTimersByTimeAsync(15_000);
 			expect(await pending).toEqual({
 				ok: false,
@@ -157,7 +165,9 @@ describe("multi-organization MCP consent", () => {
 		},
 	);
 
-	it("requires a live grant for the exact selected organizations on every request", async () => {
+	it("refreshes the grant for the exact selected organizations after ten seconds", async () => {
+		let now = Date.now();
+		vi.spyOn(Date, "now").mockImplementation(() => now);
 		const fetch = vi.fn(async (request: Request) => {
 			const input = (await request.json()) as {
 				json?: Record<string, unknown>;
@@ -202,6 +212,11 @@ describe("multi-organization MCP consent", () => {
 		fetch.mockResolvedValueOnce(
 			Response.json({ json: { allowed: false, organizations: [] } }),
 		);
+		await expect(
+			validateHumanMcpSelection(payload, env, config),
+		).resolves.not.toBeNull();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		now += 10_000;
 		await expect(
 			validateHumanMcpSelection(payload, env, config),
 		).resolves.toBeNull();
@@ -458,14 +473,19 @@ describe("multi-organization MCP consent", () => {
 		it("does not retry once too little of the budget is left", async () => {
 			vi.useFakeTimers();
 			vi.spyOn(console, "log").mockImplementation(() => {});
-			const fetch = vi.fn(
-				() =>
-					new Promise<Response>((resolve) =>
-						setTimeout(() => resolve(apiUnavailable()), 14_000),
-					),
-			);
+			let markStarted!: () => void;
+			const started = new Promise<void>((resolve) => {
+				markStarted = resolve;
+			});
+			const fetch = vi.fn(() => {
+				markStarted();
+				return new Promise<Response>((resolve) =>
+					setTimeout(() => resolve(apiUnavailable()), 14_000),
+				);
+			});
 			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
 			const pending = resolveHumanMcpSelection(payload, env, config);
+			await started;
 			await vi.advanceTimersByTimeAsync(15_000);
 			expect(await pending).toMatchObject({ reason: "grant_check_failed" });
 			expect(fetch).toHaveBeenCalledTimes(1);
@@ -529,6 +549,7 @@ describe("multi-organization MCP consent", () => {
 		fetch.mockResolvedValueOnce(
 			Response.json({ json: { allowed: false, organizations: [] } }),
 		);
+		vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
 		await expect(
 			validateHumanMcpSelection(admin, env, config),
 		).resolves.toBeNull();
@@ -1694,7 +1715,7 @@ describe("shouldEnforceTenantMatchForOAuth", () => {
 });
 
 // NOTE: This invalidates the in-process cache only. The service-binding call
-// from apps/api reaches one MCP isolate; the 5-min TTL covers remaining isolates.
+// from apps/api reaches one MCP isolate; the 10-second TTL covers remaining isolates.
 describe("invalidateAihM2mClientScopeCache", () => {
 	it.each([true, false])(
 		"bounds fresh cache entries including hits=%s",
@@ -1863,6 +1884,29 @@ describe("invalidateAihM2mClientScopeCache", () => {
 });
 
 describe("resolveAihM2mClientScopeContext", () => {
+	it("shares one registration lookup across twenty concurrent calls", async () => {
+		const env = envWithClients([
+			{
+				id: "burst-record",
+				clientId: "burst-client",
+				scopes: ["mcp:observe"],
+				tags: ["ci:release-smoke"],
+			},
+		]);
+		const results = await Promise.all(
+			Array.from({ length: 20 }, () =>
+				resolveAihM2mClientScopeContext(
+					env,
+					{ sub: "burst-record", azp: "burst-client" },
+					"burst-server",
+				),
+			),
+		);
+		for (const result of results)
+			expect(result?.scopes).toEqual(["mcp:observe"]);
+		expect(env.API_SERVICE.fetch).toHaveBeenCalledOnce();
+	});
+
 	it("does not classify an email-less human as a registered machine by azp alone", async () => {
 		const env = envWithClients([
 			{
@@ -2082,7 +2126,7 @@ describe("resolveAihM2mClientScopeContext", () => {
 		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
-	it("preserves machine identity lookup failure after five-minute cache expiry", async () => {
+	it("preserves machine identity lookup failure after ten-second cache expiry", async () => {
 		let now = Date.now();
 		vi.spyOn(Date, "now").mockImplementation(() => now);
 		const env = envWithClients([
@@ -2105,7 +2149,7 @@ describe("resolveAihM2mClientScopeContext", () => {
 		expect(active?.externalAgent?.sessionId).toBe(
 			"33333333-3333-4333-8333-333333333333",
 		);
-		now += 299_999;
+		now += 9_999;
 		expect(await read()).toEqual(active);
 		expect(env.API_SERVICE.fetch).toHaveBeenCalledTimes(1);
 		now += 1;
@@ -2138,9 +2182,9 @@ describe("resolveAihM2mClientScopeContext", () => {
 		expect(second).toBeNull();
 		expect(env.API_SERVICE.fetch).toHaveBeenCalledTimes(1);
 
-		// Past the ~20s miss TTL the client is looked up again (tolerates the
+		// Past the two-second miss TTL the client is looked up again (tolerates the
 		// Descope create→search propagation race).
-		vi.spyOn(Date, "now").mockReturnValue(t0 + 21_000);
+		vi.spyOn(Date, "now").mockReturnValue(t0 + 2_001);
 		await resolveAihM2mClientScopeContext(
 			env,
 			{ sub: "missing-record", client_id: "client-miss" },
@@ -2149,7 +2193,7 @@ describe("resolveAihM2mClientScopeContext", () => {
 		expect(env.API_SERVICE.fetch).toHaveBeenCalledTimes(2);
 	});
 
-	it("keeps hits cached past the short miss TTL (full 5-minute TTL)", async () => {
+	it("keeps hits cached past the two-second miss TTL", async () => {
 		const env = envWithClients([
 			{
 				id: "client-record-hit",
@@ -2168,7 +2212,7 @@ describe("resolveAihM2mClientScopeContext", () => {
 		);
 		expect(first?.clientRecordId).toBe("client-record-hit");
 
-		vi.spyOn(Date, "now").mockReturnValue(t0 + 21_000);
+		vi.spyOn(Date, "now").mockReturnValue(t0 + 2_001);
 		const second = await resolveAihM2mClientScopeContext(
 			env,
 			{ sub: "client-record-hit", client_id: "client-hit" },

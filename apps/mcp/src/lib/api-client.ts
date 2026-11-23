@@ -5,6 +5,7 @@
  * Uses @tedix/api-client adapters for authentication.
  */
 
+import { gatewayReadBinding } from "./gateway-read-cache";
 import {
 	getInternalApiClient,
 	type InternalApiClient,
@@ -53,7 +54,7 @@ export function getApiClient(options?: {
 		);
 	}
 	return getInternalApiClient(
-		{ API_SERVICE: options.serviceFetch },
+		{ API_SERVICE: gatewayReadBinding(options.serviceFetch) },
 		{
 			headers: options.headers,
 			organizationId: options.orgId,

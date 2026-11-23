@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { gatewayReadBinding } from "./gateway-read-cache";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	getApiClient,
 	getTediProfileApiClient,
@@ -48,5 +49,115 @@ describe("MCP edge API service role", () => {
 			tediId: "00000000-0000-4000-8000-000000000001",
 		});
 		expect(fetch).toHaveBeenCalledOnce();
+	});
+});
+
+describe("gateway authority read cache", () => {
+	afterEach(() => vi.restoreAllMocks());
+	const policyPath = "mcpGovernance/resolveAgentTransportPolicy";
+	const request = (path = policyPath, session = "session", input = {}) =>
+		new Request(`https://api/rpc/${path}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Tedix-External-Agent-Session-Id": session,
+			},
+			body: JSON.stringify({ json: input }),
+		});
+
+	it("coalesces twenty sessions independently and refreshes authority at ten seconds", async () => {
+		let now = Date.now();
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		let allowed = true;
+		const fetch = vi.fn(async () => Response.json({ json: { allowed } }));
+		const cached = gatewayReadBinding({ fetch });
+		const burst = () =>
+			Promise.all(
+				Array.from({ length: 100 }, async (_, index) =>
+					(
+						await cached.fetch(request(policyPath, `session-${index % 20}`))
+					).json(),
+				),
+			);
+		expect(await burst()).toHaveLength(100);
+		expect(fetch).toHaveBeenCalledTimes(20);
+		allowed = false;
+		now += 9_999;
+		for (const value of await burst())
+			expect(value).toEqual({ json: { allowed: true } });
+		expect(fetch).toHaveBeenCalledTimes(20);
+		now += 1;
+		for (const value of await burst())
+			expect(value).toEqual({ json: { allowed: false } });
+		expect(fetch).toHaveBeenCalledTimes(40);
+	});
+
+	it("reuses policy reads across newly constructed typed API clients", async () => {
+		const fetch = vi.fn(async () =>
+			Response.json({ json: { requireExplicitApprovalPolicy: true } }),
+		);
+		const serviceFetch = { fetch } as unknown as Fetcher;
+		const read = () =>
+			getApiClient({
+				serviceFetch,
+				orgId: "org",
+			}).mcpGovernance.resolveAgentTransportPolicy({
+				organizationId: "00000000-0000-4000-8000-000000000001",
+			});
+		expect(await read()).toEqual({ requireExplicitApprovalPolicy: true });
+		expect(await read()).toEqual({ requireExplicitApprovalPolicy: true });
+		expect(fetch).toHaveBeenCalledOnce();
+	});
+
+	it("separates inputs, authority headers and service bindings, and bypasses writes", async () => {
+		const fetch = vi.fn(async () => Response.json({ json: {} }));
+		const first = gatewayReadBinding({ fetch });
+		await first.fetch(request());
+		await first.fetch(request(policyPath, "other"));
+		await first.fetch(
+			request(policyPath, "session", { organizationId: "other" }),
+		);
+		await gatewayReadBinding({ fetch }).fetch(request());
+		await first.fetch(request("audit/createEvent"));
+		await first.fetch(request("audit/createEvent"));
+		expect(fetch).toHaveBeenCalledTimes(6);
+	});
+
+	it("never retains failed reads, unavailable grants, or rejected fetches", async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({ error: "unavailable" }, { status: 503 }),
+			)
+			.mockRejectedValueOnce(new Error("binding unavailable"))
+			.mockResolvedValueOnce(
+				Response.json({
+					json: { allowed: false, reason: "provider_unavailable" },
+				}),
+			)
+			.mockResolvedValue(Response.json({ json: { allowed: true } }));
+		const cached = gatewayReadBinding({ fetch });
+		const path = "organizations/verifyMultiOrgMcpGrant";
+		expect((await cached.fetch(request(path))).status).toBe(503);
+		await expect(cached.fetch(request(path))).rejects.toThrow(
+			"binding unavailable",
+		);
+		expect(await (await cached.fetch(request(path))).json()).toMatchObject({
+			json: { allowed: false },
+		});
+		await cached.fetch(request(path));
+		await cached.fetch(request(path));
+		expect(fetch).toHaveBeenCalledTimes(4);
+	});
+
+	it("evicts old authority keys during a burst of fresh callers", async () => {
+		const fetch = vi.fn(async () => Response.json({ json: {} }));
+		const cached = gatewayReadBinding({ fetch });
+		for (let index = 0; index <= 500; index++)
+			await cached.fetch(request(policyPath, `${index}`));
+		await cached.fetch(request(policyPath, "500"));
+		expect(fetch).toHaveBeenCalledTimes(501);
+		await cached.fetch(request(policyPath, "0"));
+		expect(fetch).toHaveBeenCalledTimes(502);
 	});
 });
