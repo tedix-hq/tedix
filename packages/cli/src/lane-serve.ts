@@ -6555,7 +6555,7 @@ export class LaneDispatcher {
 					TEDIX_LANE_LOG: "1",
 				});
 			const fresh = () => prepareThread();
-			const thread = await (
+			let thread = await (
 				adopted
 					? prepareThread(previousSession)
 							.catch(async (error: unknown) => {
@@ -6601,7 +6601,7 @@ export class LaneDispatcher {
 				this.saveBudgets();
 			}
 			if (sessionRecovery) this.log("session-busy", item.id, sessionRecovery);
-			const resumed = thread.thread.id === previousSession;
+			let resumed = thread.thread.id === previousSession;
 			if (continuingQuestion && !resumed)
 				throw new Error("The question's native session could not be resumed");
 			if (adopted && !resumed)
@@ -6622,26 +6622,53 @@ export class LaneDispatcher {
 					item.id,
 					`Retained ${executor} session ${previousSession} is gone; started a fresh session before admission`,
 				);
-			receipt.session = `${executor}:${thread.thread.id}`;
-			this.save(path, receipt);
-			const identity = await this.call<{ principalKey: string }>(
-				[
-					"agent",
-					"start",
-					"--agent-harness",
-					executor,
-					"--agent-harness-version",
-					thread.thread.cliVersion,
-					"--model-provider",
-					thread.modelProvider,
-					"--model-id",
-					thread.model,
-					"--model-version",
-					`unpinned:${thread.model}@${executor}/${thread.thread.cliVersion}`,
-				],
-				receipt.session,
-			);
-			if (typeof identity.principalKey !== "string")
+			const registerSession = () => {
+				receipt.session = `${executor}:${thread.thread.id}`;
+				this.save(path, receipt);
+				return this.call<{ principalKey: string }>(
+					[
+						"agent",
+						"start",
+						"--agent-harness",
+						executor,
+						"--agent-harness-version",
+						thread.thread.cliVersion,
+						"--model-provider",
+						thread.modelProvider,
+						"--model-id",
+						thread.model,
+						"--model-version",
+						`unpinned:${thread.model}@${executor}/${thread.thread.cliVersion}`,
+					],
+					receipt.session,
+				);
+			};
+			const identity = await registerSession().catch(async (error: unknown) => {
+				// The child CLI can report this refusal as a diagnostic on stderr.
+				if (
+					executor !== "devin" ||
+					!(error instanceof CliReadError) ||
+					(error.code !== "immutable_session_conflict" &&
+						!error.message.includes("A session key is immutable:"))
+				)
+					throw error;
+				if (adopted)
+					throw new RestartResumeFallback(
+						"Devin's CLI version or model changed for the admitted session",
+					);
+				if (continuingQuestion) throw error;
+				if (this.stopping) throw new DispatcherStoppingError();
+				// The permission policy and Work bridge both bind to the native ID.
+				// Allocate a new native session without changing the old identity.
+				const replacement = await fresh();
+				if (replacement.thread.id === thread.thread.id) throw error;
+				sessionRecovery = `Devin session ${thread.thread.id} was registered with a different CLI version or model. Started a fresh session in the same checkout before admission.`;
+				this.log("session-replaced", item.id, sessionRecovery);
+				thread = replacement;
+				resumed = false;
+				return registerSession();
+			});
+			if (!receipt.session || typeof identity.principalKey !== "string")
 				throw new Error("No verified executor principal");
 			receipt.executorKey = identity.principalKey;
 			if (adopted && receipt.executorKey !== adopted.executorKey)

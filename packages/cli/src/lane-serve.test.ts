@@ -2806,6 +2806,83 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
+	it.each([
+		[
+			"immutable conflict",
+			"A session key is immutable: pass the registered flags",
+			true,
+		],
+		[
+			"credential refusal",
+			"External-agent credential does not match the registered principal",
+			false,
+		],
+	] as const)(
+		"starts a fresh Devin session only after an immutable registration refusal: %s",
+		async (_scenario, message, recover) => {
+			const f = fixture({ executor: "devin" });
+			f.items.splice(1);
+			f.control.uniqueAttempts = true;
+			const work = f.items[0]!;
+			const repo = join(f.dir, "runs", `${work.id}-${work.version}`, "repo");
+			mkdirSync(repo, { recursive: true });
+			const checkpoint = join(repo, "checkpoint.txt");
+			writeFileSync(checkpoint, "unfinished work");
+			const oldKey = "devin:mellow-brook";
+			writeFileSync(
+				join(f.dir, "old.json"),
+				JSON.stringify({
+					itemId: work.id,
+					version: 1,
+					phase: "settled",
+					outcome: "failed",
+					attemptId: "old-attempt",
+					session: oldKey,
+					repo,
+				}),
+			);
+			f.control.history.data = [{ id: "old-attempt", outcome: "failed" }];
+			const registrations: string[] = [];
+			const cli = f.deps.cli!;
+			f.deps.cli = async (args, env) => {
+				if (args[4] === "agent" && args[5] === "start") {
+					registrations.push(env.TEDIX_AGENT_SESSION!);
+					if (env.TEDIX_AGENT_SESSION === oldKey)
+						throw new CliReadError(
+							`Tedix CLI read failed (exit 1): ${message}`,
+						);
+				}
+				return cli(args, env);
+			};
+
+			const runner = f.restart();
+			await runner.tick();
+			if (!recover) {
+				await runner.drain();
+				expect(registrations).toEqual([oldKey]);
+				expect(f.control.threadSessions).toEqual(["mellow-brook"]);
+				expect(f.events.some((event) => event.verb === "start")).toBe(false);
+				return;
+			}
+			await until(() => f.releases.length === 1);
+			const admissions = f.events.filter(
+				(event) => event.args[4] === "work" && event.verb === "start",
+			);
+			expect(admissions).toHaveLength(1);
+			const newKey = admissions[0]!.env.TEDIX_AGENT_SESSION!;
+			expect(newKey).not.toBe(oldKey);
+			expect(registrations).toEqual([oldKey, newKey]);
+			expect(f.control.threadSessions).toEqual(["mellow-brook", undefined]);
+			expect(readFileSync(checkpoint, "utf8")).toBe("unfinished work");
+
+			f.releases[0]!();
+			await runner.drain();
+			const settlements = f.events.filter((event) => event.verb === "settle");
+			expect(settlements).toHaveLength(1);
+			expect(settlements[0]!.env.TEDIX_AGENT_SESSION).toBe(newKey);
+			expect(settlements[0]!.args).toContain("succeeded");
+		},
+	);
 	it("settles Devin commits under each native session before completing Work", async () => {
 		const { dispatcher, events, releases, control, items, briefs } = fixture({
 			executor: "devin",
