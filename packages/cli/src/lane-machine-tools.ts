@@ -657,6 +657,19 @@ export function machineToolHandlers(options: {
 						.trimEnd(),
 				)
 				.filter(Boolean);
+			if (typeof input.contains === "string") {
+				const needle = input.contains;
+				const matches = lines.filter((line) => line.includes(needle));
+				const shown = matches.slice(-30);
+				const extent = overflowed(log) ? "partial log" : "log";
+				return [
+					`${matches.length} matching lines in the ${extent}; showing the last ${shown.length}`,
+					...shown.map((line) => {
+						const start = Math.max(0, line.indexOf(needle) - 120);
+						return line.slice(start, start + 500);
+					}),
+				].join("\n");
+			}
 			const failures = lines.filter((line) => FAILURE_LINE.test(line));
 			const shown = failures.length ? failures : lines.slice(-30);
 			return `${

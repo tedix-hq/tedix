@@ -253,6 +253,7 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 	}),
 	read_ci_job_log: z.strictObject({
 		jobId: z.string().regex(/^\d{1,20}$/, "Use the job's number"),
+		contains: z.string().trim().min(1).max(200).optional(),
 	}),
 	read_runner_state: z.strictObject({}),
 	list_folder: z.strictObject({ path: HomePathSchema }),
@@ -365,7 +366,7 @@ export const RequestMachineToolCallInputSchema = z.object({
 		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 		.default({})
 		.describe(
-			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}; dispatch_work_item {workItemId, projectId, executor} wakes the runner to check one Work Item. On a machine that accepts the write tools: list_folder {path} lists a folder under the owner's home folder, such as ~/Downloads, and read_file also takes such a path; open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {command, workspace?, timeoutSeconds?} runs in the home folder unless a workspace is given",
+			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId, contains?}; read_runner_state {}; dispatch_work_item {workItemId, projectId, executor} wakes the runner to check one Work Item. On a machine that accepts the write tools: list_folder {path} lists a folder under the owner's home folder, such as ~/Downloads, and read_file also takes such a path; open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {command, workspace?, timeoutSeconds?} runs in the home folder unless a workspace is given",
 		),
 });
 

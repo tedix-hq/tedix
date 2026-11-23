@@ -250,15 +250,19 @@ export function machineTools(input: {
 			execute: ({ machine, ...rest }) => call(machine, "read_ci_runs", rest),
 		}),
 		read_machine_ci_job_log: tool({
-			description: `Read the lines of one CI job's log that look like failures, through a machine. Take the job's number from read_machine_ci_runs.${about}`,
+			description: `Read failure lines from a CI job log, or pass contains to find lines mentioning a test or revision. Take the job's number from read_machine_ci_runs.${about}`,
 			inputSchema: z.strictObject({
 				machine,
 				jobId: z
 					.union([z.string().regex(/^\d{1,20}$/), z.number().int().min(1)])
 					.describe("The job's number."),
+				contains: z.string().trim().min(1).max(200).optional(),
 			}),
-			execute: ({ machine, jobId }) =>
-				call(machine, "read_ci_job_log", { jobId: String(jobId) }),
+			execute: ({ machine, jobId, contains }) =>
+				call(machine, "read_ci_job_log", {
+					jobId: String(jobId),
+					...(contains ? { contains } : {}),
+				}),
 		}),
 		read_machine_runner_state: tool({
 			description: `Read the state of the runners on a machine: which agents run there, their live runs and how long each has run, runs that are held and why, and the failures of the last 15 minutes with their reasons.${about}`,

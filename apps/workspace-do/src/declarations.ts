@@ -379,7 +379,7 @@ interface Machine {
    * input by tool: read_file {path, startLine?, endLine?, workspace?} where path is inside the repository (main branch, or
    * the workspace when given) or under the home folder ("~/..."); list_folder {path} under the home folder;
    * search_code {pattern, pathPrefix?, maxResults?, workspace?};
-   * list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {};
+   * list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId, contains?} (literal test name, file or revision); read_runner_state {};
    * open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content};
    * edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {command, workspace?, timeoutSeconds?}.
    * Waits a short while. status "pending" or "claimed" means the machine has not answered: read it later.
