@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_events_item_lifecycle` ON `work_events` (`org_id`,`work_item_id`,`occurred_at`) WHERE event_type IN ('work.created', 'work.accepted', 'work.specification_updated');

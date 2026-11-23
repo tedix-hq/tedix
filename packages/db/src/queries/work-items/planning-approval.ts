@@ -18,10 +18,12 @@ export function planningApprovalVersion(item: ApprovalWork | typeof workItems) {
 		SELECT json_extract(e.payload, '$.planningApproval.fromVersion')
 		FROM work_events e
 		WHERE e.org_id=${item.orgId} AND e.work_item_id=${item.id}
+		AND e.event_type IN ('work.created', 'work.accepted', 'work.specification_updated')
 		AND e.event_type='work.specification_updated'
 		AND json_extract(e.payload, '$.planningApproval.toVersion')=${item.version}
 		AND json_extract(e.payload, '$.planningApproval.admissionSpecRevision')=${item.admissionSpecRevision}
-		ORDER BY e.sequence DESC LIMIT 1
+		-- Sorting the few lifecycle rows beats walking the item's whole history.
+		ORDER BY +e.sequence DESC LIMIT 1
 	), ${item.version})`;
 }
 
@@ -44,6 +46,7 @@ export function ownerWorkDelegation(
 	return sql<boolean>`${sql`(${item.accountableOwnerType}='user' AND EXISTS (
 		SELECT 1 FROM work_events delegation
 		WHERE delegation.org_id=${item.orgId} AND delegation.work_item_id=${item.id}
+		AND delegation.event_type IN ('work.created', 'work.accepted', 'work.specification_updated')
 		AND julianday(delegation.occurred_at)>julianday(${now})-1
 		AND julianday(delegation.occurred_at)<=julianday(${now})
 		AND json_extract(delegation.payload, '$.workItemVersion')

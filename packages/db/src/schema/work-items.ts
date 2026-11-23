@@ -916,6 +916,13 @@ export const workEvents = sqliteTable(
 			table.workItemId,
 			table.sequence,
 		),
+		// Owner delegation and planning receipts read only these lifecycle events
+		// of one item; the item index walked every event it ever had.
+		index("idx_work_events_item_lifecycle")
+			.on(table.orgId, table.workItemId, table.occurredAt)
+			.where(
+				sql`event_type IN ('work.created', 'work.accepted', 'work.specification_updated')`,
+			),
 		index("idx_work_events_attempt_sequence").on(
 			table.attemptId,
 			table.sequence,

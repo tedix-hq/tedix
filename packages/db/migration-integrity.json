@@ -1932,6 +1932,10 @@
 		{
 			"name": "20261123143544_delegation_root_index/migration.sql",
 			"sha256": "15b7d6cf6cef608afa78b65d70944493a86dce6ba3b7a26e4d6379dc5d6f7bf7"
+		},
+		{
+			"name": "20261123150040_work_events_item_lifecycle/migration.sql",
+			"sha256": "927bada60ad1a2f381e8f2f8a23f68d78e92021595ad3ea64ec86abbacebe176"
 		}
 	]
 }

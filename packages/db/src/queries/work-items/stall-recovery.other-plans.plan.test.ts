@@ -168,10 +168,15 @@ async function otherStatements() {
 	// The inventory's own history statement is the one meant to change.
 	await listContinuityScopes(db, "", ORG);
 	const history = statements.filter((query) => query.includes('"l_top"'));
+	// The portfolio seeks each project's latest report from the same index.
+	const intended = statements.filter((query) => query.includes('"report_at"'));
 	return {
 		history,
 		others: [...new Set(statements)].filter(
-			(query) => TABLES.test(query) && !history.includes(query),
+			(query) =>
+				TABLES.test(query) &&
+				!history.includes(query) &&
+				!intended.includes(query),
 		),
 	};
 }
