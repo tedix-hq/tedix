@@ -1,11 +1,12 @@
 /**
- * Per-organization wallet for Code Mode Dynamic Worker loads.
+ * Per-organization wallet for Code Mode Dynamic Worker loads and model calls.
  *
- * A run is admitted and charged inside one Durable Object (`wallet:v1:<org>`)
- * instead of a D1 reservation plus settlement. The wallet checks the D1 credit
- * pool snapshot (cached for a minute) minus its own unflushed charges, records
- * the charge in DO SQLite, and settles it with the actual load count after the
- * run. An alarm flushes settled charges to D1 every few minutes as one credit
+ * Spend is admitted inside one Durable Object (`wallet:v1:<org>`) instead of
+ * D1 reservations. The wallet checks the D1 credit pool snapshot (cached for a
+ * minute) minus its own unflushed charges and live holds, records the charge
+ * or hold in DO SQLite, and settles it afterwards: a Code Mode run with its
+ * actual load count, a model call with its actual provider cost. An alarm
+ * flushes settled charges to D1 every few minutes as one credit
  * consumption per subject and period, through the same statements every other
  * meter uses, so the funding split, notices, Stripe export and the pool figure
  * other spenders read are unchanged. Unflushed spend is invisible to other
@@ -24,9 +25,15 @@ import {
 	getCreditPoolSnapshot,
 } from "@tedix/db/queries/billing/credit-pool";
 import {
-	postWalletCodeRunFlush,
+	postWalletFlush,
 	type WalletFlushGroup,
 } from "@tedix/db/queries/billing/wallet-flush";
+import type {
+	WalletHoldInput,
+	WalletHoldResult,
+	WalletSettleHoldInput,
+	WalletSettleHoldResult,
+} from "@tedix/api-contract/schemas/billing-wallet";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 
 const ORG_KEY = "wallet:organization";
@@ -68,6 +75,7 @@ export function walletStub(
 
 type EventRow = {
 	event_id: string;
+	kind: "code_run" | "ai";
 	tedi_id: string | null;
 	user_id: string | null;
 	credits: number;
@@ -107,8 +115,33 @@ export class BillingWallet {
 			flush_id TEXT,
 			flushed_at INTEGER
 		)`);
+		const columns = new Set(
+			storage.sql
+				.exec<{ name: string }>("PRAGMA table_info(wallet_events)")
+				.toArray()
+				.map((column) => column.name),
+		);
+		if (!columns.has("kind"))
+			storage.sql.exec(
+				"ALTER TABLE wallet_events ADD COLUMN kind TEXT NOT NULL DEFAULT 'code_run'",
+			);
+		if (!columns.has("expires_at"))
+			storage.sql.exec(
+				"ALTER TABLE wallet_events ADD COLUMN expires_at INTEGER",
+			);
+		if (!columns.has("hold_context"))
+			storage.sql.exec(
+				"ALTER TABLE wallet_events ADD COLUMN hold_context TEXT",
+			);
+		if (!columns.has("idempotency_key"))
+			storage.sql.exec(
+				"ALTER TABLE wallet_events ADD COLUMN idempotency_key TEXT",
+			);
 		storage.sql.exec(
 			"CREATE INDEX IF NOT EXISTS wallet_events_pending ON wallet_events (flushed_at, at)",
+		);
+		storage.sql.exec(
+			"CREATE UNIQUE INDEX IF NOT EXISTS wallet_events_idempotency ON wallet_events (idempotency_key)",
 		);
 	}
 
@@ -123,6 +156,12 @@ export class BillingWallet {
 			return Response.json(await this.charge(body as never));
 		if (path === "/wallet/settle")
 			return Response.json(this.settle(body as never));
+		if (path === "/wallet/hold")
+			return Response.json(await this.hold(body as never));
+		if (path === "/wallet/release")
+			return Response.json(this.release(body as never));
+		if (path === "/wallet/settle-hold")
+			return Response.json(await this.settleHold(body as never));
 		return Response.json({ error: "Unknown wallet route" }, { status: 404 });
 	}
 
@@ -135,7 +174,6 @@ export class BillingWallet {
 			.toArray()[0];
 		if (known) return { allowed: true, replayed: true, credits: known.credits };
 		const nowMs = Date.now();
-		const now = new Date(nowMs).toISOString();
 		const snapshot = await this.#snapshot(input, nowMs);
 		if (!snapshot?.creditFx)
 			return { allowed: false, code: "billing_not_configured" };
@@ -143,28 +181,7 @@ export class BillingWallet {
 			DYNAMIC_WORKER_COST_USD_MICROS,
 			snapshot.creditFx.microUsdPerEur,
 		);
-		// Recomputed after the await, synchronously before the insert, so two
-		// concurrent charges cannot both spend the same last credit.
-		const pending = (filter: string, ...args: unknown[]) =>
-			this.#storage.sql
-				.exec<{ total: number | null }>(
-					`SELECT SUM(credits) AS total FROM wallet_events WHERE flushed_at IS NULL${filter}`,
-					...args,
-				)
-				.one().total ?? 0;
-		const refusal = creditRefusalReason(
-			{
-				...snapshot,
-				availableCredits: snapshot.availableCredits - pending(""),
-				tediUsedCredits:
-					snapshot.tediUsedCredits +
-					(input.tediId ? pending(" AND tedi_id = ?", input.tediId) : 0),
-				memberUsedCredits:
-					snapshot.memberUsedCredits +
-					(input.userId ? pending(" AND user_id = ?", input.userId) : 0),
-			},
-			{ now, credits },
-		);
+		const refusal = this.#refusal(snapshot, input, credits, nowMs);
 		if (refusal) return { allowed: false, code: refusal };
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#storage.sql.exec(
@@ -183,19 +200,196 @@ export class BillingWallet {
 		return { allowed: true, replayed: false, credits };
 	}
 
+	/** Hold a model call's estimated credits until its actual cost settles it. */
+	async hold(input: WalletHoldInput): Promise<WalletHoldResult> {
+		const known = this.#heldFor(input);
+		if (known) return known;
+		const nowMs = Date.now();
+		const expiresAtMs = Date.parse(input.expiresAt);
+		const snapshot = await this.#snapshot(input, nowMs);
+		if (!snapshot?.creditFx)
+			return { allowed: false, code: "billing_not_configured" };
+		// A concurrent retry may have held while the snapshot was read.
+		const raced = this.#heldFor(input);
+		if (raced) return raced;
+		const refusal = this.#refusal(snapshot, input, input.credits, nowMs);
+		if (refusal) return { allowed: false, code: refusal };
+		this.#storage.kv.put(ORG_KEY, input.organizationId);
+		this.#storage.sql.exec(
+			`INSERT INTO wallet_events (event_id, kind, idempotency_key, tedi_id, user_id, credits, micro_usd_per_eur, period_start, period_end, at, expires_at, hold_context)
+			 VALUES (?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			input.holdId,
+			input.idempotencyKey,
+			input.tediId,
+			input.userId,
+			input.credits,
+			snapshot.creditFx.microUsdPerEur,
+			snapshot.periodStart,
+			snapshot.periodEnd,
+			nowMs,
+			expiresAtMs,
+			JSON.stringify({
+				runId: input.runId ?? null,
+				metadata: input.metadata ?? {},
+			}),
+		);
+		await this.#scheduleFlush(nowMs + FLUSH_DELAY_MS);
+		return {
+			allowed: true,
+			holdId: input.holdId,
+			credits: input.credits,
+			expiresAt: input.expiresAt,
+			replayed: false,
+		};
+	}
+
+	/** Return a hold whose call was never sent. */
+	release(input: { holdId: string }): { released: boolean } {
+		const released = this.#storage.sql.exec(
+			"DELETE FROM wallet_events WHERE event_id = ? AND kind = 'ai' AND settled = 0",
+			input.holdId,
+		).rowsWritten;
+		return { released: released > 0 };
+	}
+
+	/**
+	 * The existing hold for this admission key, if any. The same hold id is a
+	 * retry of the same admission: replay it while unexpired or settled, as the
+	 * D1 reservation did. A different id under the same key means the earlier
+	 * admission never wrote its dispatch fence (the fence keeps the hold id, and
+	 * a retry reuses it), so an unsettled hold moves to the new id and the
+	 * caller writes the fence.
+	 */
+	#heldFor(input: WalletHoldInput): WalletHoldResult | null {
+		const row = this.#storage.sql
+			.exec<{
+				event_id: string;
+				credits: number;
+				expires_at: number;
+				settled: number;
+				flush_id: string | null;
+			}>(
+				"SELECT event_id, credits, expires_at, settled, flush_id FROM wallet_events WHERE idempotency_key = ?",
+				input.idempotencyKey,
+			)
+			.toArray()[0];
+		if (!row) return null;
+		const nowMs = Date.now();
+		if (row.event_id !== input.holdId && !row.settled && !row.flush_id) {
+			const expiresAt = Date.parse(input.expiresAt);
+			this.#storage.sql.exec(
+				"UPDATE wallet_events SET event_id = ?, expires_at = ? WHERE event_id = ?",
+				input.holdId,
+				expiresAt,
+				row.event_id,
+			);
+			return {
+				allowed: true,
+				holdId: input.holdId,
+				credits: row.credits,
+				expiresAt: input.expiresAt,
+				replayed: false,
+			};
+		}
+		if (!row.settled && row.expires_at <= nowMs)
+			return { allowed: false, code: "monthly_credit_limit_reached" };
+		return {
+			allowed: true,
+			holdId: row.event_id,
+			credits: row.credits,
+			expiresAt: new Date(row.expires_at).toISOString(),
+			replayed: true,
+		};
+	}
+
+	/** Charge a model call's actual provider cost, rounded per call; replays return the first result. */
+	async settleHold(
+		input: WalletSettleHoldInput,
+	): Promise<WalletSettleHoldResult> {
+		const row = this.#storage.sql
+			.exec<{
+				credits: number;
+				fx: number;
+				settled: number;
+				period_start: string;
+				period_end: string;
+				hold_context: string | null;
+			}>(
+				"SELECT credits, micro_usd_per_eur AS fx, settled, period_start, period_end, hold_context FROM wallet_events WHERE event_id = ? AND kind = 'ai'",
+				input.holdId,
+			)
+			.toArray()[0];
+		if (!row) return { found: false };
+		const context = JSON.parse(row.hold_context ?? "{}") as {
+			runId?: string | null;
+			metadata?: Record<string, unknown>;
+		};
+		const period = {
+			periodStart: row.period_start,
+			periodEnd: row.period_end,
+			runId: context.runId ?? null,
+			metadata: context.metadata ?? {},
+		};
+		if (row.settled) return { found: true, credits: row.credits, ...period };
+		const credits = aiCreditsForProviderCost(input.providerCostMicros, row.fx);
+		this.#storage.sql.exec(
+			"UPDATE wallet_events SET credits = ?, settled = 1 WHERE event_id = ?",
+			credits,
+			input.holdId,
+		);
+		await this.#scheduleFlush(Date.now() + FLUSH_DELAY_MS);
+		return { found: true, credits, ...period };
+	}
+
+	/**
+	 * Refusal for `credits` more against the pool minus unflushed charges and
+	 * live holds. Synchronous, so after the snapshot await no other request can
+	 * interleave before the caller's insert: two admissions cannot both spend
+	 * the same last credit.
+	 */
+	#refusal(
+		snapshot: CreditPoolSnapshot,
+		subject: { tediId: string | null; userId: string | null },
+		credits: number,
+		nowMs: number,
+	): CreditRefusalCode | null {
+		const pending = (filter: string, ...args: unknown[]) =>
+			this.#storage.sql
+				.exec<{ total: number | null }>(
+					`SELECT SUM(credits) AS total FROM wallet_events
+					 WHERE flushed_at IS NULL AND (kind = 'code_run' OR settled = 1 OR expires_at > ?)${filter}`,
+					nowMs,
+					...args,
+				)
+				.one().total ?? 0;
+		return creditRefusalReason(
+			{
+				...snapshot,
+				availableCredits: snapshot.availableCredits - pending(""),
+				tediUsedCredits:
+					snapshot.tediUsedCredits +
+					(subject.tediId ? pending(" AND tedi_id = ?", subject.tediId) : 0),
+				memberUsedCredits:
+					snapshot.memberUsedCredits +
+					(subject.userId ? pending(" AND user_id = ?", subject.userId) : 0),
+			},
+			{ now: new Date(nowMs).toISOString(), credits },
+		);
+	}
+
 	/** Zero loads refunds the charge; otherwise price the actual loads, rounded per run. */
 	settle(input: WalletSettleInput): { ok: boolean } {
 		const loads = input.anonymousLoads + input.namedLoads;
 		if (loads === 0) {
 			this.#storage.sql.exec(
-				"DELETE FROM wallet_events WHERE event_id = ? AND flush_id IS NULL",
+				"DELETE FROM wallet_events WHERE event_id = ? AND kind = 'code_run' AND flush_id IS NULL",
 				input.eventId,
 			);
 			return { ok: true };
 		}
 		const row = this.#storage.sql
 			.exec<{ fx: number }>(
-				"SELECT micro_usd_per_eur AS fx FROM wallet_events WHERE event_id = ? AND flush_id IS NULL",
+				"SELECT micro_usd_per_eur AS fx FROM wallet_events WHERE event_id = ? AND kind = 'code_run' AND flush_id IS NULL",
 				input.eventId,
 			)
 			.toArray()[0];
@@ -221,7 +415,7 @@ export class BillingWallet {
 			`UPDATE wallet_events SET flush_id = ?
 			 WHERE flush_id IS NULL AND flushed_at IS NULL
 			   AND NOT EXISTS (SELECT 1 FROM wallet_events WHERE flush_id IS NOT NULL AND flushed_at IS NULL)
-			   AND (settled = 1 OR at < ?)`,
+			   AND (settled = 1 OR (kind = 'code_run' AND at < ?))`,
 			`${organizationId}:${nowMs}`,
 			nowMs - UNSETTLED_GRACE_MS,
 		);
@@ -232,7 +426,7 @@ export class BillingWallet {
 			.toArray();
 		if (rows.length > 0) {
 			try {
-				await postWalletCodeRunFlush(createDbClient(this.#env.DB), {
+				await postWalletFlush(createDbClient(this.#env.DB), {
 					organizationId,
 					flushId: rows[0]!.flush_id!,
 					groups: flushGroups(rows),
@@ -259,6 +453,12 @@ export class BillingWallet {
 			"DELETE FROM wallet_events WHERE flushed_at IS NOT NULL AND flushed_at < ?",
 			nowMs - EVENT_RETENTION_MS,
 		);
+		// A model call never settled within the retention window is not
+		// charged; its usage still reaches the provider ledger for review.
+		this.#storage.sql.exec(
+			"DELETE FROM wallet_events WHERE kind = 'ai' AND settled = 0 AND expires_at < ?",
+			nowMs - EVENT_RETENTION_MS,
+		);
 		const next = this.#storage.sql
 			.exec<{ at: number | null; flushed: number | null }>(
 				`SELECT MIN(CASE WHEN flushed_at IS NULL THEN at END) AS at,
@@ -276,7 +476,14 @@ export class BillingWallet {
 			await this.#storage.setAlarm(next.flushed + EVENT_RETENTION_MS);
 	}
 
-	async #snapshot(input: WalletChargeInput, nowMs: number) {
+	async #snapshot(
+		input: {
+			organizationId: string;
+			tediId: string | null;
+			userId: string | null;
+		},
+		nowMs: number,
+	) {
 		const key = `${input.tediId ?? ""}|${input.userId ?? ""}`;
 		const cached = this.#snapshots.get(key);
 		if (cached && nowMs - cached.fetchedAt < SNAPSHOT_TTL_MS)
@@ -297,11 +504,12 @@ export class BillingWallet {
 	}
 }
 
-/** Aggregate claimed events per subject and period; never-settled runs count as one anonymous load. */
+/** Aggregate claimed events per kind, subject and period; never-settled runs count as one anonymous load. */
 function flushGroups(rows: EventRow[]): WalletFlushGroup[] {
 	const groups = new Map<string, WalletFlushGroup>();
 	for (const row of rows) {
 		const key = [
+			row.kind,
 			row.period_start,
 			row.period_end,
 			row.tedi_id ?? "",
@@ -309,6 +517,7 @@ function flushGroups(rows: EventRow[]): WalletFlushGroup[] {
 		].join("|");
 		const group = groups.get(key) ?? {
 			key,
+			kind: row.kind,
 			tediId: row.tedi_id,
 			userId: row.user_id,
 			periodStart: row.period_start,
@@ -320,7 +529,8 @@ function flushGroups(rows: EventRow[]): WalletFlushGroup[] {
 			firstAt: new Date(row.at).toISOString(),
 		};
 		group.credits += row.credits;
-		group.anonymousLoads += row.settled ? row.anonymous_loads : 1;
+		if (row.kind === "code_run")
+			group.anonymousLoads += row.settled ? row.anonymous_loads : 1;
 		group.namedLoads += row.named_loads;
 		group.runs += 1;
 		const at = new Date(row.at).toISOString();

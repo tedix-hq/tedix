@@ -12,6 +12,7 @@ import type { DbClient } from "../../client";
 import {
 	type BillingUsageCharge,
 	type BillingUsageSource,
+	billingAccounts,
 	billingCreditConsumptions,
 	billingPlanVersions,
 	billingUsageCharges,
@@ -297,4 +298,83 @@ export async function settleBillingUsage(
 	throw new Error(
 		`Billing reservation ${reservationId} is no longer settleable or its billing account is missing`,
 	);
+}
+
+/**
+ * The per-call evidence row for a model call the organization wallet settled.
+ * Credits were drawn by the wallet, which posts them to the pool in its
+ * aggregated flush; this row records tokens and provider cost and marks the
+ * Gateway call settled. Idempotent on the Gateway log id.
+ */
+export async function recordWalletUsageCharge(
+	db: DbClient,
+	input: {
+		id: string;
+		organizationId: string;
+		tediId?: string | null;
+		holdId: string;
+		gatewayLogId: string;
+		provider: string;
+		model: string;
+		source: BillingUsageSource;
+		inputTokens: number;
+		outputTokens: number;
+		providerCostMicros: number;
+		credits: number;
+		periodStart: string;
+		periodEnd: string;
+		usageQuality: BillingUsageCharge["usageQuality"];
+		providerCostQuality: BillingUsageCharge["providerCostQuality"];
+		meteringReady: boolean;
+		rateCardVersion?: string | null;
+		occurredAt: string;
+		metadata?: Record<string, JsonValue>;
+		now: string;
+	},
+): Promise<void> {
+	const periodId = `${input.organizationId}:${input.periodStart}`;
+	await db.batch([
+		db
+			.insert(billingUsagePeriods)
+			.select(
+				db
+					.select({
+						id: sql<string>`${periodId}`.as("id"),
+						organizationId: billingAccounts.organizationId,
+						planVersionId: billingAccounts.planVersionId,
+						periodStart: sql<string>`${input.periodStart}`.as("period_start"),
+						periodEnd: sql<string>`${input.periodEnd}`.as("period_end"),
+						createdAt: sql<string>`${input.now}`.as("created_at"),
+						updatedAt: sql<string>`${input.now}`.as("updated_at"),
+					})
+					.from(billingAccounts)
+					.where(eq(billingAccounts.organizationId, input.organizationId)),
+			)
+			.onConflictDoNothing(),
+		db
+			.insert(billingUsageCharges)
+			.values({
+				id: input.id,
+				organizationId: input.organizationId,
+				tediId: input.tediId ?? null,
+				reservationId: null,
+				usagePeriodId: periodId,
+				gatewayLogId: input.gatewayLogId,
+				provider: input.provider,
+				model: input.model,
+				source: input.source,
+				inputTokens: input.inputTokens,
+				outputTokens: input.outputTokens,
+				providerCostMicros: input.providerCostMicros,
+				credits: input.credits,
+				usageQuality: input.usageQuality,
+				providerCostQuality: input.providerCostQuality,
+				meteringReady: input.meteringReady,
+				rateCardVersion: input.rateCardVersion ?? null,
+				occurredAt: input.occurredAt,
+				metadata: { ...input.metadata, walletHoldId: input.holdId },
+				createdAt: input.now,
+			})
+			.onConflictDoNothing(),
+	]);
 }

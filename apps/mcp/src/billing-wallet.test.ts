@@ -13,9 +13,7 @@ const snapshot = {
 	memberUsedCredits: 0,
 };
 const getCreditPoolSnapshot = vi.fn(async () => snapshot);
-const postWalletCodeRunFlush = vi.fn(
-	async (_db: unknown, _input: unknown) => {},
-);
+const postWalletFlush = vi.fn(async (_db: unknown, _input: unknown) => {});
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/billing/credit-pool", async (importOriginal) => ({
 	creditRefusalReason: (
@@ -24,7 +22,7 @@ vi.mock("@tedix/db/queries/billing/credit-pool", async (importOriginal) => ({
 	getCreditPoolSnapshot,
 }));
 vi.mock("@tedix/db/queries/billing/wallet-flush", () => ({
-	postWalletCodeRunFlush,
+	postWalletFlush,
 }));
 
 const { BillingWallet } = await import("./billing-wallet");
@@ -38,10 +36,12 @@ function fakeStorage() {
 		sql: {
 			exec: (query: string, ...args: unknown[]) => {
 				const statement = db.prepare(query);
-				const rows = /^\s*(SELECT|WITH)/i.test(query)
-					? statement.all(...(args as never[]))
-					: (statement.run(...(args as never[])), []);
-				return { toArray: () => rows, one: () => rows[0] };
+				const select = /^\s*(SELECT|WITH|PRAGMA)/i.test(query);
+				const rows = select ? statement.all(...(args as never[])) : [];
+				const rowsWritten = select
+					? 0
+					: Number(statement.run(...(args as never[])).changes);
+				return { toArray: () => rows, one: () => rows[0], rowsWritten };
 			},
 		},
 		kv: {
@@ -103,10 +103,10 @@ describe("billing wallet", () => {
 		wallet.settle({ eventId: "run-1", anonymousLoads: 1, namedLoads: 0 });
 		// 3 loads at USD 0.002 = USD 0.006 -> EUR 0.00556 x 2 -> 2 credits, rounded per run.
 		wallet.settle({ eventId: "run-2", anonymousLoads: 2, namedLoads: 1 });
-		postWalletCodeRunFlush.mockRejectedValueOnce(new Error("D1 busy"));
+		postWalletFlush.mockRejectedValueOnce(new Error("D1 busy"));
 		await wallet.alarm();
 		await wallet.alarm();
-		const [failed, retried] = postWalletCodeRunFlush.mock.calls.map(
+		const [failed, retried] = postWalletFlush.mock.calls.map(
 			([, call]) => call as { flushId: string; groups: object[] },
 		);
 		expect(retried!.flushId).toBe(failed!.flushId);
@@ -126,9 +126,117 @@ describe("billing wallet", () => {
 		]);
 		// Flushed credits are in D1 now; the wallet stops counting them.
 		await wallet.alarm();
-		expect(postWalletCodeRunFlush).toHaveBeenCalledTimes(2);
+		expect(postWalletFlush).toHaveBeenCalledTimes(2);
 		expect(await wallet.charge(member("run-3"))).toMatchObject({
 			allowed: true,
 		});
+	});
+	it("holds a model call once per key, counts it until it expires, and settles the actual cost", async () => {
+		const hold = (key: string, expiresAt = "2099-01-01T00:00:00.000Z") =>
+			wallet.hold({
+				organizationId: "org-1",
+				holdId: `hold-${key}`,
+				idempotencyKey: key,
+				tediId: null,
+				userId: "member-1",
+				credits: 1,
+				expiresAt,
+			});
+		expect(await hold("call-1")).toMatchObject({
+			allowed: true,
+			replayed: false,
+		});
+		// A retried admission gets the same hold, not a second one.
+		expect(await hold("call-1")).toMatchObject({
+			holdId: "hold-call-1",
+			replayed: true,
+		});
+		// An expired hold no longer counts against the pool.
+		await hold("call-2", "2000-01-01T00:00:00.000Z");
+		expect(await hold("call-3")).toMatchObject({ allowed: true });
+		expect(await hold("call-4")).toEqual({
+			allowed: false,
+			code: "monthly_credit_limit_reached",
+		});
+		// A hold whose call was never sent goes back to the pool.
+		expect(wallet.release({ holdId: "hold-call-3" })).toEqual({
+			released: true,
+		});
+		// USD 0.025 -> EUR 0.0231 x 2 -> 5 credits; a replayed settlement returns the first result.
+		expect(
+			await wallet.settleHold({
+				holdId: "hold-call-1",
+				providerCostMicros: 25_000,
+			}),
+		).toMatchObject({ found: true, credits: 5 });
+		expect(
+			await wallet.settleHold({ holdId: "hold-call-1", providerCostMicros: 1 }),
+		).toMatchObject({ found: true, credits: 5 });
+		expect(
+			await wallet.settleHold({
+				holdId: "d1-reservation",
+				providerCostMicros: 1,
+			}),
+		).toEqual({ found: false });
+		await wallet.alarm();
+		expect(postWalletFlush).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				groups: [
+					expect.objectContaining({
+						kind: "ai",
+						credits: 5,
+						userId: "member-1",
+					}),
+				],
+			}),
+		);
+	});
+	it("moves a never-fenced hold to the retry's id and refuses an expired replay", async () => {
+		const hold = (holdId: string, expiresAt = "2099-01-01T00:00:00.000Z") =>
+			wallet.hold({
+				organizationId: "org-1",
+				holdId,
+				idempotencyKey: "call",
+				tediId: null,
+				userId: null,
+				credits: 1,
+				expiresAt,
+			});
+		await hold("first-attempt");
+		// The first attempt crashed before its fence: the retry owns the hold.
+		expect(await hold("second-attempt")).toMatchObject({
+			holdId: "second-attempt",
+			replayed: false,
+		});
+		expect(
+			await wallet.settleHold({
+				holdId: "first-attempt",
+				providerCostMicros: 1,
+			}),
+		).toEqual({ found: false });
+		// Only one hold exists, so the pool still has room for one more call.
+		expect(
+			await wallet.hold({
+				organizationId: "org-1",
+				holdId: "other",
+				idempotencyKey: "other-call",
+				tediId: null,
+				userId: null,
+				credits: 1,
+				expiresAt: "2000-01-01T00:00:00.000Z",
+			}),
+		).toMatchObject({ allowed: true });
+		expect(
+			await wallet.hold({
+				organizationId: "org-1",
+				holdId: "other",
+				idempotencyKey: "other-call",
+				tediId: null,
+				userId: null,
+				credits: 1,
+				expiresAt: "2000-01-01T00:00:00.000Z",
+			}),
+		).toEqual({ allowed: false, code: "monthly_credit_limit_reached" });
 	});
 });

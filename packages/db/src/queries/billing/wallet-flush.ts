@@ -1,4 +1,4 @@
-/** Posts a wallet's aggregated Code Mode charges to the D1 credit pool. */
+/** Posts a wallet's aggregated charges to the D1 credit pool. */
 
 import {
 	DYNAMIC_WORKER_COST_USD_MICROS,
@@ -9,8 +9,9 @@ import { buildCreditConsumptionStatements } from "./credit-pool";
 import { recordBillingProviderUsage } from "./provider-usage";
 
 export interface WalletFlushGroup {
-	/** Stable within one flush: (period, tedi, member). */
+	/** Stable within one flush: (kind, period, tedi, member). */
 	key: string;
+	kind: "code_run" | "ai";
 	tediId: string | null;
 	userId: string | null;
 	periodStart: string;
@@ -27,7 +28,7 @@ export interface WalletFlushGroup {
  * identity for the daily Cloudflare reconciliation. Every source ref derives
  * from the flush id, so a retried flush records nothing twice.
  */
-export async function postWalletCodeRunFlush(
+export async function postWalletFlush(
 	db: DbClient,
 	input: {
 		organizationId: string;
@@ -40,7 +41,7 @@ export async function postWalletCodeRunFlush(
 		buildCreditConsumptionStatements(db, {
 			id: crypto.randomUUID(),
 			organizationId: input.organizationId,
-			kind: "code_run",
+			kind: group.kind,
 			sourceRef: `wallet:${input.flushId}:${group.key}`,
 			tediId: group.tediId,
 			userId: group.userId,

@@ -67,6 +67,7 @@ import {
 	stripServiceBindingMarker,
 } from "@tedix/worker-kit/request-auth";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { walletStub } from "./billing-wallet";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -2144,6 +2145,20 @@ const worker = {
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	override async fetch(request: Request): Promise<Response> {
 		return fetchWithCorrelation(request, this.env, this.ctx);
+	}
+
+	/** Organization wallet calls from other Tedix Workers (model-call holds). */
+	async wallet(
+		organizationId: string,
+		route: "hold" | "release" | "settle-hold",
+		body: unknown,
+	): Promise<unknown> {
+		const response = await walletStub(this.env, organizationId).fetch(
+			`https://wallet.internal/wallet/${route}`,
+			{ method: "POST", body: JSON.stringify(body) },
+		);
+		if (!response.ok) throw new Error(`Wallet status ${response.status}`);
+		return response.json();
 	}
 }
 

@@ -54,8 +54,11 @@ import {
 	reserveBillingUsage,
 	UNPRICED_WORKERS_AI_HOLD_CREDITS,
 } from "./billing/reservations";
-import { settleBillingUsage } from "./billing/settlement";
-import { postWalletCodeRunFlush } from "./billing/wallet-flush";
+import {
+	recordWalletUsageCharge,
+	settleBillingUsage,
+} from "./billing/settlement";
+import { postWalletFlush } from "./billing/wallet-flush";
 import {
 	applyStripeBillingWebhook,
 	claimStripeWebhookEvent,
@@ -328,6 +331,50 @@ it("groups recorded credits by UTC day and kind within the tenant and the reques
 });
 
 describe("organization credit pool", () => {
+	it("records a wallet-settled model call once, without a D1 reservation", async () => {
+		const { db, sqlite, now } = setup();
+		const snapshot = await getCreditPoolSnapshot(db, {
+			organizationId: "org-1",
+			now,
+		});
+		const charge = {
+			id: "charge-1",
+			organizationId: "org-1",
+			holdId: "hold-1",
+			gatewayLogId: "gateway-1",
+			provider: "azure-openai",
+			model: "gpt",
+			source: "operator" as const,
+			inputTokens: 100,
+			outputTokens: 20,
+			providerCostMicros: 25_000,
+			credits: 5,
+			periodStart: snapshot!.periodStart,
+			periodEnd: snapshot!.periodEnd,
+			usageQuality: "gateway_reported" as const,
+			providerCostQuality: "estimated" as const,
+			meteringReady: true,
+			occurredAt: now,
+			now,
+		};
+		await recordWalletUsageCharge(db, charge);
+		await recordWalletUsageCharge(db, { ...charge, id: "charge-retry" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id, reservation_id, credits, json_extract(metadata, '$.walletHoldId') AS hold FROM billing_usage_charges",
+				)
+				.all(),
+		).toEqual([
+			{ id: "charge-1", reservation_id: null, credits: 5, hold: "hold-1" },
+		]);
+		// The wallet posts the credits; this row must not draw them a second time.
+		expect(
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now }))!
+				.availableCredits,
+		).toBe(snapshot!.availableCredits);
+	});
+
 	it("posts a wallet flush once, even when the flush is retried", async () => {
 		const { db, now } = setup();
 		const before = await getCreditPoolSnapshot(db, {
@@ -341,6 +388,7 @@ describe("organization credit pool", () => {
 			groups: [
 				{
 					key: "member-1",
+					kind: "code_run" as const,
 					tediId: null,
 					userId: "user-1",
 					periodStart: before!.periodStart,
@@ -353,8 +401,8 @@ describe("organization credit pool", () => {
 				},
 			],
 		};
-		await postWalletCodeRunFlush(db, flush);
-		await postWalletCodeRunFlush(db, flush);
+		await postWalletFlush(db, flush);
+		await postWalletFlush(db, flush);
 		const after = await getCreditPoolSnapshot(db, {
 			organizationId: "org-1",
 			now,
