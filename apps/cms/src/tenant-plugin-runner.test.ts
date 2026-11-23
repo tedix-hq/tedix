@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import type { PluginManifest, SerializedRequest } from "emdash";
+import type {
+	PluginManifest,
+	SerializedRequest,
+} from "../templates/tedix/node_modules/emdash";
 import { POST } from "emdash/internal/routes/api/plugins/_pluginId_/_...path_";
+import { EmDashRuntime } from "emdash/internal/plugin-test-runtime";
+
+vi.mock("virtual:emdash/config", () => ({ default: {} }));
 
 // Emdash source is stricter than this app's tsc settings allow; load it by
 // runtime specifier so the type-check stays on Tedix code.
@@ -271,4 +277,21 @@ test("registry finalization accepts one successful install hook result", async (
 		rollback,
 	});
 	expect(rollback).not.toHaveBeenCalled();
+});
+
+test("registry reconciliation exposes snapshot load failures to mutation rollback", async () => {
+	const error = new Error("Plugin bundle unavailable: kv-canary@2.0.0");
+	const runtime = {
+		config: { registry: {} },
+		syncPluginState: vi.fn().mockResolvedValue(undefined),
+		pluginStateSnapshot: {
+			states: [{ pluginId: "kv-canary", source: "registry", status: "active" }],
+		},
+		pluginRefreshFailures: new Map([["kv-canary", { error }]]),
+	};
+	const reconcile = () =>
+		Reflect.apply(EmDashRuntime.prototype.syncRegistryPlugins, runtime, []);
+	await expect(reconcile()).rejects.toThrow(error);
+	runtime.pluginRefreshFailures.clear();
+	await expect(reconcile()).resolves.toBeUndefined();
 });

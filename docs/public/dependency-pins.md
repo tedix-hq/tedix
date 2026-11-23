@@ -64,18 +64,19 @@ Review these pins against upstream security releases when upgrading callers.
 The root `patchedDependencies` currently names `agents`, EmDash and its
 Cloudflare adapter; `bun.lock` records the same patch paths:
 
-- `patches/emdash@1.5.0.patch` handles the Worker Loader transaction path,
+- `patches/emdash@1.6.0.patch` handles the Worker Loader transaction path,
   guarded collection deletion, registry bundle validation and required plugin
   lifecycle hooks, external-auth roles, import/seed fencing, locale-aware
   taxonomy archives, and atomic menu replacement.
-- `patches/@emdash-cms/cloudflare@1.5.0.patch` implements the collection-deletion
-  registry guard using D1 batches or Durable Object `transactionSync`, and
-  relaxes the Kumo peer dependency to a compatible range.
+- `patches/@emdash-cms/cloudflare@1.6.0.patch` implements the collection-deletion
+  registry guard using D1 batches or Durable Object `transactionSync`.
 - `patches/agents@0.33.0.patch` routes facet Lifecycle alarms through registered
   parent-owned native jobs, preserves facet class and path identity, and adds
   a policy hook before facet initialization and alarm dispatch.
 
-The CMS starters carry matching copies under `apps/cms/templates/*/patches/`.
+The shared runtime uses EmDash 1.6.0. The independently built CMS starters
+remain on 1.5.0 and carry that version's patches under
+`apps/cms/templates/*/patches/`; the root retains their canonical 1.5.0 patches.
 Their manifests also apply `@emdash-cms/plugin-forms@0.2.13.patch`, which excludes
 raw visitor IPs from stored submissions and defaults new forms to 30-day
 retention. Each patched dependency has an entry in `THIRD_PARTY_NOTICES.md`,

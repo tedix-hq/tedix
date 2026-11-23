@@ -1,0 +1,1881 @@
+diff --git a/dist/adapters-CMuwJgdX.d.mts b/dist/adapters-CMuwJgdX.d.mts
+index 5e57840b5..4e0f8044e 100644
+--- a/dist/adapters-CMuwJgdX.d.mts
++++ b/dist/adapters-CMuwJgdX.d.mts
+@@ -31,6 +31,11 @@ type CollectionDeletionGuardInput = {
+   collectionSlug: string;
+   leaseToken: string;
+   forceDelete: boolean;
++} | {
++  action: "registry";
++  collectionId: string;
++  collectionSlug: string;
++  leaseToken: string;
+ } | {
+   action: "drop";
+   collectionId: string;
+@@ -43,6 +48,8 @@ type CollectionDeletionGuardResult = {
+   outcome: "has_content";
+ } | {
+   outcome: "stale";
++} | {
++  outcome: "registry_deleted";
+ } | {
+   outcome: "dropped";
+ };
+diff --git a/dist/astro/middleware/auth.mjs b/dist/astro/middleware/auth.mjs
+index 4287cbaef..bc20916a1 100644
+--- a/dist/astro/middleware/auth.mjs
++++ b/dist/astro/middleware/auth.mjs
+@@ -429,9 +429,7 @@ async function handleExternalAuth(context, next, emdash, authMode, _isApiRoute)
+ 					...MW_CACHE_HEADERS
+ 				}
+ 			});
+-			const userCount = await emdash.db.selectFrom("users").select(emdash.db.fn.count("id").as("count")).executeTakeFirst();
+-			const isFirstUser = Number(userCount?.count ?? 0) === 0;
+-			const role = isFirstUser ? ROLE_ADMIN : toRoleLevel(authResult.role);
++			const role = toRoleLevel(authResult.role);
+ 			const now = (/* @__PURE__ */ new Date()).toISOString();
+ 			const newUser = {
+ 				id: ulid(),
+@@ -442,10 +440,14 @@ async function handleExternalAuth(context, next, emdash, authMode, _isApiRoute)
+ 				created_at: now,
+ 				updated_at: now
+ 			};
+-			await emdash.db.insertInto("users").values(newUser).execute();
++			// Concurrent first requests may provision the same verified external email.
++			// Only that unique-email conflict is safe to ignore; other DB errors still fail.
++			await emdash.db.insertInto("users").values(newUser)
++				.onConflict((conflict) => conflict.column("email").doNothing()).execute();
+ 			user = await adapter.getUserByEmail(authResult.email);
+-			console.log(`[external-auth] Provisioned user: ${authResult.email} (role: ${role}, first: ${isFirstUser})`);
+-		} else {
++			console.log(`[external-auth] Provisioned user: ${authResult.email} (role: ${role})`);
++		}
++		if (user) {
+ 			const updates = {};
+ 			let newName;
+ 			let newRole;
+diff --git a/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs b/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
+index be3aea870..940b81096 100644
+--- a/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
++++ b/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
+@@ -62,8 +62,9 @@ const POST = async ({ params, request, locals }) => {
+ 		if (!previousState) return apiError("UPDATE_FAILED", "Failed to update plugin", 500);
+ 		await finalizePluginUpdate({
+ 			pluginId: id,
++			requireLifecycleHook: true,
+ 			syncRuntime: () => emdash.syncRegistryPlugins(),
+-			runLifecycle: () => emdash.runPluginActivateLifecycle(id),
++			runLifecycle: () => emdash.runPluginActivateLifecycle(id, true),
+ 			rollback: () => rollbackPluginUpdate(emdash.db, emdash.storage, previousState, result.data.newVersion, "registry"),
+ 			runRollbackLifecycle: () => previousState.status === "active" ? emdash.runPluginActivateLifecycle(id) : Promise.resolve()
+ 		});
+diff --git a/dist/astro/routes/api/admin/plugins/registry/install.mjs b/dist/astro/routes/api/admin/plugins/registry/install.mjs
+index be1d21743..abff52281 100644
+--- a/dist/astro/routes/api/admin/plugins/registry/install.mjs
++++ b/dist/astro/routes/api/admin/plugins/registry/install.mjs
+@@ -63,8 +63,9 @@ const POST = async ({ request, locals }) => {
+ 		if (!result.success) return unwrapResult(result);
+ 		await finalizePluginInstall({
+ 			pluginId: result.data.pluginId,
++			requireLifecycleHook: true,
+ 			syncRuntime: () => emdash.syncRegistryPlugins(),
+-			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId),
++			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId, true),
+ 			rollback: () => handleRegistryUninstall(emdash.db, emdash.storage, result.data.pluginId, { rollbackInstall: true })
+ 		});
+ 		return unwrapResult(result, 201);
+diff --git a/dist/astro/routes/api/content/_collection_/index.mjs b/dist/astro/routes/api/content/_collection_/index.mjs
+index fcd2b1070..8c9950d16 100644
+--- a/dist/astro/routes/api/content/_collection_/index.mjs
++++ b/dist/astro/routes/api/content/_collection_/index.mjs
+@@ -21,9 +21,11 @@ const GET = async ({ params, url, locals }) => {
+ 	const collection = params.collection;
+ 	const query = parseQuery(url, contentListQuery);
+ 	if (isParseError(query)) return query;
+-	const params_ = hasPermission(user, "content:read_drafts") ? query : {
++	const includeDrafts = hasPermission(user, "content:read_drafts");
++	const params_ = {
+ 		...query,
+-		status: "published"
++		...(includeDrafts ? {} : { status: "published" }),
++		includeDrafts
+ 	};
+ 	return unwrapResult(await emdash.handleContentList(collection, params_));
+ };
+diff --git a/dist/astro/routes/api/mcp.mjs b/dist/astro/routes/api/mcp.mjs
+index ff25a2350..71e78043b 100644
+--- a/dist/astro/routes/api/mcp.mjs
++++ b/dist/astro/routes/api/mcp.mjs
+@@ -429,6 +429,7 @@ const settingsSocialSchema = z.object({
+ const settingsSeoSchema = z.object({
+ 	titleSeparator: z.string().max(10).optional().describe("Separator between page title and site title (e.g. ' | ')"),
+ 	defaultOgImage: settingsMediaReferenceSchema.nullable().optional().describe("Default Open Graph image when content has none; null removes it"),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional().describe("Custom robots.txt body. Leave unset for the EmDash default. Changes are rejected when the site serves its own src/pages/robots.txt."),
+ 	disallowAiTraining: z.boolean().optional().describe("Add robots.txt rules asking AI crawlers not to use the site for training. Changes are rejected when the site serves its own src/pages/robots.txt."),
+ 	googleVerification: z.string().max(100).optional().describe("Google Search Console verification token"),
+@@ -925,7 +926,8 @@ function createMcpServer(pluginTools = [], request) {
+ 			cursor: args.cursor,
+ 			orderBy: args.orderBy,
+ 			order: args.order,
+-			locale: args.locale
++			locale: args.locale,
++			includeDrafts: canReadDrafts(extra)
+ 		});
+ 		if (result.success && args.markdown) {
+ 			const payload = result.data;
+@@ -946,7 +948,7 @@ function createMcpServer(pluginTools = [], request) {
+ 	}, async (args, extra) => {
+ 		requireScope(extra, "content:read");
+ 		const ec = getEmDash(extra);
+-		const result = await ec.handleContentGet(args.collection, args.id, args.locale);
++		const result = await ec.handleContentGet(args.collection, args.id, args.locale, { includeDrafts: canReadDrafts(extra) });
+ 		if (!result.success) return unwrap(result);
+ 		let item = result.data.item;
+ 		if (!canReadDrafts(extra)) {
+diff --git a/dist/astro/routes/api/menus/_name_/items.d.mts b/dist/astro/routes/api/menus/_name_/items.d.mts
+index dda31238c..1adfbed42 100644
+--- a/dist/astro/routes/api/menus/_name_/items.d.mts
++++ b/dist/astro/routes/api/menus/_name_/items.d.mts
+@@ -3,6 +3,7 @@ import { APIRoute } from "astro";
+ //#region src/astro/routes/api/menus/[name]/items.d.ts
+ declare const prerender = false;
+ declare const POST: APIRoute;
++declare const PUT: APIRoute;
+ //#endregion
+-export { POST, prerender };
++export { POST, PUT, prerender };
+ //# sourceMappingURL=items.d.mts.map
+\ No newline at end of file
+diff --git a/dist/astro/routes/api/menus/_name_/items.mjs b/dist/astro/routes/api/menus/_name_/items.mjs
+index 817843a78..66c9d7f81 100644
+--- a/dist/astro/routes/api/menus/_name_/items.mjs
++++ b/dist/astro/routes/api/menus/_name_/items.mjs
+@@ -1,5 +1,5 @@
+ import { t as menuTag } from "../../../../../chrome-tags-BocDVqqx.mjs";
+-import { i as handleMenuItemCreate } from "../../../../../menus-DoVbs2sn.mjs";
++import { i as handleMenuItemCreate, d as menuHandlers } from "../../../../../menus-DoVbs2sn.mjs";
+ import { i as unwrapResult, r as handleError, t as apiError } from "../../../../../error-0Y0dFPxm.mjs";
+ import { i as parseQuery, n as parseBody, t as isParseError } from "../../../../../parse-BTfkfMuL.mjs";
+ import { b as localeFilterQuery } from "../../../../../redirects-Yo8YTJMV.mjs";
+@@ -7,6 +7,18 @@ import { n as createMenuItemBody } from "../../../../../menus-CnEw5nz8.mjs";
+ import { o as requirePerm } from "../../../../../authorize-6a0h5NN5.mjs";
+ import { t as invalidateRouteCache } from "../../../../../route-cache-DkhMwAIC.mjs";
+ 
++import { z } from "zod";
++
++const setMenuItemsBody = z
++	.object({
++		items: z.array(
++			createMenuItemBody.omit({ parentId: true, sortOrder: true }).extend({
++				parentIndex: z.number().int().nonnegative().optional(),
++			}),
++		),
++	})
++	.strict();
++
+ //#region src/astro/routes/api/menus/[name]/items.ts
+ const prerender = false;
+ const POST = async ({ params, request, locals, cache }) => {
+@@ -29,6 +41,34 @@ const POST = async ({ params, request, locals, cache }) => {
+ 	}
+ };
+ 
++const PUT = async ({ params, request, locals, cache }) => {
++	const { emdash, user } = locals;
++	const denied = requirePerm(user, "menus:manage");
++	if (denied) return denied;
++	const name = params.name;
++	const localeQ = parseQuery(new URL(request.url), localeFilterQuery);
++	if (isParseError(localeQ)) return localeQ;
++	try {
++		const body = await parseBody(request, setMenuItemsBody);
++		if (isParseError(body)) return body;
++		const result = await menuHandlers.handleMenuSetItems(
++			emdash.db,
++			name,
++			body.items,
++			{ locale: localeQ.locale },
++		);
++		if (!result.success) return unwrapResult(result);
++		await invalidateRouteCache(cache, [menuTag(name)]);
++		return unwrapResult(result);
++	} catch (error) {
++		return handleError(
++			error,
++			"Failed to set menu items",
++			"MENU_SET_ITEMS_ERROR",
++		);
++	}
++};
++
+ //#endregion
+-export { POST, prerender };
++export { POST, PUT, prerender };
+ //# sourceMappingURL=items.mjs.map
+\ No newline at end of file
+diff --git a/dist/astro/routes/sitemap-_collection_.xml.mjs b/dist/astro/routes/sitemap-_collection_.xml.mjs
+index eac1ce770..33ad0eb9c 100644
+--- a/dist/astro/routes/sitemap-_collection_.xml.mjs
++++ b/dist/astro/routes/sitemap-_collection_.xml.mjs
+@@ -71,7 +71,13 @@ const GET = async ({ params, locals, url }) => {
+ 				locale: entry.locale,
+ 				trailingSlash: virtualConfig?.trailingSlash
+ 			});
+-			const absolute = absolutePath === null ? null : `${siteUrl}${absolutePath}`;
++			let absolute = absolutePath === null ? null : `${siteUrl}${absolutePath}`;
++ if (absolute !== null && entry.canonical) {
++  try {
++   const canonical = new URL(entry.canonical, siteUrl);
++   absolute = canonical.origin === new URL(siteUrl).origin && ["https:", "http:"].includes(canonical.protocol) && !canonical.hash && !canonical.username && !canonical.password ? canonical.href : null;
++  } catch { /* Invalid overrides retain the native route. */ }
++ }
+ 			urlByEntry.set(entry.id, absolute);
+ 			return absolute;
+ 		};
+@@ -121,6 +127,7 @@ const GET = async ({ params, locals, url }) => {
+ 			status: 200,
+ 			headers: {
+ 				"Content-Type": "application/xml; charset=utf-8",
++            "X-EmDash-Sitemap-Canonical": "1",
+ 				"Cache-Control": "public, max-age=3600"
+ 			}
+ 		});
+diff --git a/dist/astro/routes/sitemap.xml.mjs b/dist/astro/routes/sitemap.xml.mjs
+index 18080da71..b80bd88ef 100644
+--- a/dist/astro/routes/sitemap.xml.mjs
++++ b/dist/astro/routes/sitemap.xml.mjs
+@@ -25,14 +25,23 @@ const GET = async ({ locals, url }) => {
+ 		});
+ 		const { sitemaps } = result.data;
+ 		const lines = ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"];
++		const listed = new Set();
+ 		for (const sitemap of sitemaps) {
+ 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
+ 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
++			listed.add(loc);
+ 			lines.push("  <sitemap>");
+ 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
+ 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
+ 			lines.push("  </sitemap>");
+ 		}
++		for (const path of settings.seo?.additionalSitemaps ?? []) {
++			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
++			const loc = `${siteUrl}${path}`;
++			if (listed.has(loc)) continue;
++			listed.add(loc);
++			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
++		}
+ 		lines.push("</sitemapindex>");
+ 		return new Response(lines.join("\n"), {
+ 			status: 200,
+diff --git a/dist/config-B27hvMjf.d.mts b/dist/config-B27hvMjf.d.mts
+index 02b0c8042..ae6f2cc9f 100644
+--- a/dist/config-B27hvMjf.d.mts
++++ b/dist/config-B27hvMjf.d.mts
+@@ -3413,8 +3413,8 @@ declare class EmDashRuntime {
+   }>;
+   /** Run teardown before bundle deletion, including plugins already disabled in this isolate. */
+   runPluginUninstallLifecycle(pluginId: string, deleteData: boolean): Promise<void>;
+-  runPluginInstallLifecycle(pluginId: string): Promise<void>;
+-  runPluginActivateLifecycle(pluginId: string): Promise<void>;
++  runPluginInstallLifecycle(pluginId: string, requireInstallHook?: boolean): Promise<Array<{ success: boolean; error?: Error }>>;
++  runPluginActivateLifecycle(pluginId: string, requireInstallHook?: boolean): Promise<Array<{ success: boolean; error?: Error }>>;
+   /**
+    * Run install → activate once for each loaded plugin registered in the
+    * integration config that has no `_plugin_state` row.
+diff --git a/dist/emdash-runtime-CF6KAut9.mjs b/dist/emdash-runtime-CF6KAut9.mjs
+index db1aa25cb..2d42c6de5 100644
+--- a/dist/emdash-runtime-CF6KAut9.mjs
++++ b/dist/emdash-runtime-CF6KAut9.mjs
+@@ -1989,12 +1989,22 @@ var EmDashRuntime = class EmDashRuntime {
+ 			console.error(`EmDash: Plugin ${pluginId} uninstall hook failed:`, error);
+ 		}
+ 	}
+-	async runPluginInstallLifecycle(pluginId) {
+-		await this._hooks.runPluginInstall(pluginId);
++	async requirePluginInstallHook(pluginId) {
++		const results = await this._hooks.runPluginInstall(pluginId);
++		if (results.length !== 1 || !results[0]?.success) {
++			throw results[0]?.error ?? new Error(`Plugin ${pluginId} install hook did not complete`);
++		}
++		return results;
++	}
++	async runPluginInstallLifecycle(pluginId, requireInstallHook = false) {
++		const results = requireInstallHook ? await this.requirePluginInstallHook(pluginId) : await this._hooks.runPluginInstall(pluginId);
+ 		await this._hooks.runPluginActivate(pluginId);
++		return results;
+ 	}
+-	async runPluginActivateLifecycle(pluginId) {
++	async runPluginActivateLifecycle(pluginId, requireInstallHook = false) {
++		const results = requireInstallHook ? await this.requirePluginInstallHook(pluginId) : [];
+ 		await this._hooks.runPluginActivate(pluginId);
++		return results;
+ 	}
+ 	/**
+ 	* Run install → activate once for each loaded plugin registered in the
+@@ -2096,12 +2106,18 @@ var EmDashRuntime = class EmDashRuntime {
+ 	/** Reconcile locally committed registry mutations through the shared state lock. */
+ 	async syncRegistryPlugins() {
+ 		if (!getRegistryConfigInput(this.config.registry)) return;
+-		await this.syncPluginState();
++		await this.syncPluginState(true);
++		for (const state of this.pluginStateSnapshot?.states ?? []) {
++			if (state.source === "registry" && state.status === "active") {
++				const failure = this.pluginRefreshFailures.get(state.pluginId);
++				if (failure) throw failure.error;
++			}
++		}
+ 	}
+ 	withPluginStateLock(run) {
+ 		return initWithLock(this.pluginStateLock, () => null, run, { anchor: (promise) => after(() => promise) });
+ 	}
+-	async syncPluginState() {
++	async syncPluginState(strict = false) {
+ 		const repo = new PluginStateRepository(this.db);
+ 		const writtenGeneration = repo.getLastWrittenGeneration();
+ 		if (!this.runtimeDeps.sandboxBypassed && sandboxRunner) this.installedPluginSandboxAvailable = sandboxRunner.isAvailable();
+@@ -2117,6 +2133,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 			});
+ 		} catch (error) {
+ 			console.error("EmDash: Failed to synchronize plugin state:", error);
++			if (strict) throw error;
+ 		}
+ 	}
+ 	/** Whether route lookup may need runtime-installed plugin state. Does no I/O. */
+@@ -2608,6 +2625,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 					const { validateSeed } = await import("./validate-DBnEN6hU.mjs").then((n) => n.r);
+ 					const seed = await loadSeed();
+ 					if (!validateSeed(seed).valid) return false;
++					await (await assertSiteWriteAllowed(db))();
+ 					const seedResult = await applySeed(db, seed, { onConflict: "skip" });
+ 					await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
+ 					console.log("Auto-seeded default collections");
+@@ -3439,13 +3457,44 @@ var EmDashRuntime = class EmDashRuntime {
+ 		} catch {}
+ 	}
+ 	async handleContentList(collection, params) {
+-		return handleContentList(this.db, collection, params);
++		const result = await handleContentList(this.db, collection, params);
++		if (!result.success) return result;
++		if (!params.includeDrafts) return {
++			...result,
++			data: {
++				...result.data,
++				items: result.data.items.map((item) => ({ ...item, draftRevisionId: null, liveData: void 0 }))
++			}
++		};
++		const ids = result.data.items.map((item) => item.draftRevisionId).filter((id) => typeof id === "string");
++		if (ids.length === 0) return result;
++		const revisions = await new RevisionRepository(this.db).findManyByIds(ids);
++		const byId = new Map(revisions.map((revision) => [revision.id, revision]));
++		return {
++			...result,
++			data: {
++				...result.data,
++				items: result.data.items.map((item) => {
++					const revision = item.draftRevisionId ? byId.get(item.draftRevisionId) : null;
++					if (!revision || revision.entryId !== item.id || revision.collection !== collection) return item;
++					const draftData = Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_")));
++					return { ...item, data: { ...item.data, ...draftData }, liveData: item.data };
++				})
++			}
++		};
+ 	}
+ 	async handleContentAuthors(collection) {
+ 		return handleContentAuthors(this.db, collection);
+ 	}
+ 	async handleContentGet(collection, id, locale, referenceOptions, draftOptions) {
+ 		const result = await handleContentGet(this.db, collection, id, locale, referenceOptions);
++		if (referenceOptions?.includeDrafts === false && result.success) return {
++			...result,
++			data: {
++				...result.data,
++				item: { ...result.data.item, draftRevisionId: null, liveData: void 0 }
++			}
++		};
+ 		return this.hydrateDraftData(result, draftOptions);
+ 	}
+ 	async handleContentGetIncludingTrashed(collection, id, locale) {
+@@ -4153,10 +4202,8 @@ var EmDashRuntime = class EmDashRuntime {
+ 				message: "Content is no longer scheduled to publish"
+ 			}
+ 		};
+-		if (!this.hooks.hasHooks(name)) return {
+-			allowed: true,
+-			revision
+-		};
++		const hasPolicyHooks = this.hooks.hasHooks(name);
++		if (!hasPolicyHooks && name !== "content:beforePublish") return { allowed: true, revision };
+ 		if (name !== "content:beforeUnpublish") try {
+ 			current = await this.hydrateDraftData(current, {
+ 				includeStagedSlug: true,
+@@ -4173,6 +4220,40 @@ var EmDashRuntime = class EmDashRuntime {
+ 				}
+ 			};
+ 		}
++		if (name === "content:beforePublish") {
++			try {
++				const collectionInfo =
++					await this.schemaRegistry.getCollectionWithFields(collection);
++				if (collectionInfo?.fields.some((field) => field.type === "blocks")) {
++					const data = current.data.item.data;
++					await normalizeBlocksData(this.db, collectionInfo, data, data, {
++						restoreBlocks: true,
++					}, false);
++				}
++			} catch (error) {
++				if (error instanceof SchemaError)
++					return {
++						allowed: false,
++						revision,
++						error: {
++							code: error.code,
++							message: error.message,
++							details: error.details,
++						},
++					};
++				console.error("[content-policy] Block validation failed:", error);
++				return {
++					allowed: false,
++					revision,
++					error: {
++						code: failureCode,
++						message: "Failed to validate content blocks",
++					},
++				};
++			}
++		}
++		if (!hasPolicyHooks) return { allowed: true, revision };
++
+ 		const origin = options.origin ?? { source: "system" };
+ 		const actor = options.actor && (origin.source === "api" || origin.source === "mcp" || origin.source === "visual-editor") ? {
+ 			...options.actor,
+@@ -4617,7 +4698,39 @@ var EmDashRuntime = class EmDashRuntime {
+ 	async restoreRevision(revisionId, revision, callerUserId, role) {
+ 		const revisionRepo = new RevisionRepository(this.db);
+ 		if (revision.kind === "recovery") return this.restoreRecoveryRevision(revision, callerUserId, role);
+-		if (!((await this.schemaRegistry.getCollectionWithFields(revision.collection))?.supports?.includes("revisions") ?? false)) {
++		const collectionInfo = await this.schemaRegistry.getCollectionWithFields(revision.collection);
++		try {
++			if (collectionInfo?.fields.some((field) => field.type === "blocks")) {
++				await normalizeBlocksData(
++					this.db,
++					collectionInfo,
++					revision.data,
++					revision.data,
++					{ restoreBlocks: true },
++     false,
++				);
++			}
++		} catch (error) {
++			if (error instanceof SchemaError)
++				return {
++					success: false,
++					error: {
++						code: error.code,
++						message: error.message,
++						details: error.details,
++					},
++				};
++			console.error("[revisions] Block validation failed:", error);
++			return {
++				success: false,
++				error: {
++					code: "REVISION_RESTORE_ERROR",
++					message: "Failed to validate revision blocks",
++				},
++			};
++		}
++
++		if (!(collectionInfo?.supports?.includes("revisions") ?? false)) {
+ 			const result = await handleRevisionRestore(this.db, revisionId, callerUserId);
+ 			if (result.success) await this.refreshContentUsageAfterSuccessfulWrite(revision.collection, [revision.entryId]);
+ 			return this.hydrateDraftData(result);
+diff --git a/dist/entry-lock-DJgDNfMf.mjs b/dist/entry-lock-DJgDNfMf.mjs
+index 877ca9250..81aa8c548 100644
+--- a/dist/entry-lock-DJgDNfMf.mjs
++++ b/dist/entry-lock-DJgDNfMf.mjs
+@@ -991,6 +991,7 @@ const socialSettings = z.object({
+ const seoSettingsInput = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceInput.nullable().optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+@@ -1020,6 +1021,7 @@ const mediaReferenceResponse = z.object({
+ const seoSettingsResponse = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceResponse.optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5e3).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+diff --git a/dist/hreflang-DaMRoUor.mjs b/dist/hreflang-DaMRoUor.mjs
+index 927a3693b..dc2494e36 100644
+--- a/dist/hreflang-DaMRoUor.mjs
++++ b/dist/hreflang-DaMRoUor.mjs
+@@ -9,15 +9,15 @@ import { s as getSiteSettingsWithDb } from "./settings-BApLX_aS.mjs";
+ //#region src/seo/hreflang.ts
+ const ABSOLUTE_URL_RE = /^https?:\/\//i;
+ /**
+-* IDs of variants flagged `noindex` in the SEO panel. Entries without
++* SEO metadata for published locale variants. Entries without
+ * an `_emdash_seo` row are indexable by default (same as the sitemap).
+ * The id list is bounded by the number of configured locales, so no
+ * chunking is needed.
+ */
+-async function findNoindexIds(db, collection, ids) {
+-	if (ids.length === 0) return /* @__PURE__ */ new Set();
+-	const rows = await db.selectFrom("_emdash_seo").select("content_id").where("collection", "=", collection).where("content_id", "in", ids).where("seo_no_index", "=", 1).execute();
+-	return new Set(rows.map((r) => r.content_id));
++async function findVariantSeo(db, collection, ids) {
++	if (ids.length === 0) return /* @__PURE__ */ new Map();
++	const rows = await db.selectFrom("_emdash_seo").select(["content_id", "seo_no_index", "seo_canonical"]).where("collection", "=", collection).where("content_id", "in", ids).execute();
++	return new Map(rows.map((r) => [r.content_id, r]));
+ }
+ /**
+ * Resolve hreflang alternates for a content entry.
+@@ -63,9 +63,9 @@ async function getHreflangAlternatesWithDb(db, collection, entryId, options = {}
+ 	if (variants.length === 0) variants = [item];
+ 	let published = variants.filter((v) => v.status === "published");
+ 	if (published.length === 0) return [];
+-	const noindexIds = await findNoindexIds(db, collection, published.map((v) => v.id));
+-	if (noindexIds.has(item.id)) return [];
+-	published = published.filter((v) => !noindexIds.has(v.id));
++	const variantSeo = await findVariantSeo(db, collection, published.map((v) => v.id));
++	if (variantSeo.get(item.id)?.seo_no_index === 1) return [];
++	published = published.filter((v) => variantSeo.get(v.id)?.seo_no_index !== 1);
+ 	const urlPattern = (await getCollectionInfoWithDb(db, collection))?.urlPattern ?? null;
+ 	const resolved = [];
+ 	for (const variant of published) {
+@@ -80,10 +80,16 @@ async function getHreflangAlternatesWithDb(db, collection, entryId, options = {}
+ 			trailingSlash: options.trailingSlash
+ 		});
+ 		if (path === null) continue;
+-		resolved.push({
+-			locale,
+-			href: `${siteUrl}${path}`
+-		});
++		let href = `${siteUrl}${path}`;
++		const override = variantSeo.get(variant.id)?.seo_canonical;
++		if (override) {
++			try {
++				const canonical = new URL(override, siteUrl);
++				if (canonical.origin !== new URL(siteUrl).origin || !["https:", "http:"].includes(canonical.protocol) || canonical.hash || canonical.username || canonical.password) continue;
++				href = canonical.href;
++			} catch { /* Invalid overrides retain the native route, as in the sitemap. */ }
++		}
++		resolved.push({ locale, href });
+ 	}
+ 	if (resolved.length === 0) return [];
+ 	resolved.sort((a, b) => a.locale.localeCompare(b.locale));
+diff --git a/dist/install-finalization-B02IcpqW.mjs b/dist/install-finalization-B02IcpqW.mjs
+index cf8950aa8..2f4ae47a1 100644
+--- a/dist/install-finalization-B02IcpqW.mjs
++++ b/dist/install-finalization-B02IcpqW.mjs
+@@ -1,8 +1,15 @@
+ //#region src/plugins/install-finalization.ts
++function requireSuccessfulLifecycleHook(pluginId, result) {
++	if (!Array.isArray(result) || result.length !== 1 || result[0]?.success !== true) {
++		const error = Array.isArray(result) ? result[0]?.error : void 0;
++		throw error instanceof Error ? error : new Error(`Plugin ${pluginId} install hook did not complete`);
++	}
++}
+ async function finalizePluginInstall(options) {
+ 	try {
+ 		await options.syncRuntime();
+-		await options.runLifecycle();
++		const lifecycleResult = await options.runLifecycle();
++		if (options.requireLifecycleHook) requireSuccessfulLifecycleHook(options.pluginId, lifecycleResult);
+ 	} catch (installError) {
+ 		const failures = [installError];
+ 		try {
+@@ -27,7 +34,8 @@ async function finalizePluginInstall(options) {
+ async function finalizePluginUpdate(options) {
+ 	try {
+ 		await options.syncRuntime();
+-		await options.runLifecycle();
++		const lifecycleResult = await options.runLifecycle();
++		if (options.requireLifecycleHook) requireSuccessfulLifecycleHook(options.pluginId, lifecycleResult);
+ 	} catch (updateError) {
+ 		const failures = [updateError];
+ 		let rollbackSucceeded = false;
+diff --git a/dist/loader-DF6J1Fpd.mjs b/dist/loader-DF6J1Fpd.mjs
+index 033c4df02..a2adeb32d 100644
+--- a/dist/loader-DF6J1Fpd.mjs
++++ b/dist/loader-DF6J1Fpd.mjs
+@@ -2,7 +2,7 @@ import { m as __exportAll } from "./runner-Nv0yWP-G.mjs";
+ import { n as isMissingColumnError, r as isMissingTableError, t as getMissingColumnIdentifier } from "./db-errors-unnO6yiZ.mjs";
+ import { t as validateIdentifier } from "./validate-DANX1-Qi.mjs";
+ import { n as buildStatusCondition, u as isPostgres } from "./dialect-helpers-DRe1Y08G.mjs";
+-import { i as getLocaleCandidates, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
++import { i as getLocaleCandidates, n as getFallbackChain, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
+ import { getRequestContext } from "./request-context.mjs";
+ import { t as after } from "./after-B8cG5P6f.mjs";
+ import { n as invalidateSingleFlightCache, r as singleFlightCached, t as createSingleFlightCache } from "./single-flight-cache-BCP1Tvcm.mjs";
+@@ -1074,14 +1074,28 @@ function isIndexedPivotSort(orderBy) {
+ * to tell a few dozen assignments from thousands.
+ */
+ async function resolveTermGroups(db, name, slugs, locale, probeCollection, countCollection) {
+-	let query = db.selectFrom("taxonomies").select("translation_group").distinct().where("name", "=", name).where(taxonomyValuesCondition(db, "slug", slugs)).$if(probeCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group").limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large"))).$if(countCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom(eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", countCollection).whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group").limit(LARGE_TERM_ASSIGNMENTS).as("capped")).select((inner) => inner.fn.countAll().as("n")).as("assignments")));
+-	if (locale) query = query.where(localeMatches("locale", locale));
+-	const rows = await query.execute();
+ 	const counts = /* @__PURE__ */ new Map();
+ 	let large = false;
+-	for (const row of rows) {
+-		if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
+-		if (row.large != null) large = true;
++	const withProbes = (qb, groupRef) => qb.$if(probeCollection !== void 0, (q) => q.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", groupRef).limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large"))).$if(countCollection !== void 0, (q) => q.select((eb) => eb.selectFrom(eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", countCollection).whereRef("content_taxonomies.taxonomy_id", "=", groupRef).limit(LARGE_TERM_ASSIGNMENTS).as("capped")).select((inner) => inner.fn.countAll().as("n")).as("assignments")));
++	const record = (rows) => {
++		for (const row of rows) {
++			if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
++			if (row.large != null) large = true;
++		}
++	};
++	if (!locale) record(await withProbes(db.selectFrom("taxonomies").select("translation_group").distinct().where("name", "=", name).where(taxonomyValuesCondition(db, "slug", slugs)), "taxonomies.translation_group").execute());
++	else {
++		const unresolved = new Set(slugs);
++		const preferredLocales = [];
++		for (const termLocale of getFallbackChain(locale)) {
++			if (unresolved.size === 0) break;
++			let query = withProbes(db.selectFrom("taxonomies as term").select(["term.slug", "term.translation_group"]).distinct().where("term.name", "=", name).where(taxonomyValuesCondition(db, "term.slug", [...unresolved])).where(localeMatches("term.locale", termLocale)), "term.translation_group");
++			if (preferredLocales.length > 0) query = query.where((eb) => eb.not(eb.exists(eb.selectFrom("taxonomies as preferred").select("preferred.id").whereRef("preferred.translation_group", "=", "term.translation_group").where("preferred.locale", "in", preferredLocales))));
++			const rows = await query.execute();
++			record(rows);
++			for (const row of rows) if (row.translation_group) unresolved.delete(row.slug);
++			preferredLocales.push(termLocale);
++		}
+ 	}
+ 	let assignments = 0;
+ 	for (const n of counts.values()) assignments += n;
+@@ -1362,14 +1376,20 @@ function emdashLoader() {
+ 					const taxonomySlugsAsJson = taxonomyFilters.reduce((sum, taxFilter) => sum + taxFilter.slugs.length, 0) + Object.values(fieldFilters).reduce((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0) > SQL_BATCH_SIZE;
+ 					const fieldConds = buildFieldConditions(db, fieldFilters);
+ 					const fieldCondsSQL = fieldConds.length > 0 ? sql`${sql.join(fieldConds, sql` AND `)}` : null;
+-					const taxonomyCond = taxonomyFilters.length > 0 ? sql`${sql.join(taxonomyFilters.map((f) => sql`AND EXISTS (
++					const groupSets = [];
++					for (const taxFilter of taxonomyFilters) {
++						const { groups } = await resolveTermGroups(db, taxFilter.name, taxFilter.slugs, locale);
++						if (groups.length === 0) return {
++							entries: [],
++							cacheHint: { tags: [type] }
++						};
++						groupSets.push(groups);
++					}
++					const taxonomyCond = groupSets.length > 0 ? sql`${sql.join(groupSets.map((groups) => sql`AND EXISTS (
+ 							SELECT 1 FROM content_taxonomies ct
+-							INNER JOIN taxonomies t ON t.translation_group = ct.taxonomy_id
+ 							WHERE ct.collection = ${type}
+ 								AND ct.entry_id = ${sql.ref(tableName)}.translation_group
+-								AND t.name = ${f.name}
+-								AND ${taxonomyValuesCondition(db, "t.slug", f.slugs, taxonomySlugsAsJson)}
+-							${locale ? sql`AND ${localeMatches("t.locale", locale)}` : sql``}
++								AND ${taxonomyValuesCondition(db, "ct.taxonomy_id", groups, taxonomySlugsAsJson)}
+ 						)`), sql` `)}` : sql``;
+ 					const bylineCond = bylineFilter ? sql`AND EXISTS (
+ 							SELECT 1 FROM _emdash_content_bylines cb
+diff --git a/dist/media-usage-work-C5HHgfEU.mjs b/dist/media-usage-work-C5HHgfEU.mjs
+index 1e7d1d252..bd720c10e 100644
+--- a/dist/media-usage-work-C5HHgfEU.mjs
++++ b/dist/media-usage-work-C5HHgfEU.mjs
+@@ -2,7 +2,6 @@ import { r as isMissingTableError } from "./db-errors-unnO6yiZ.mjs";
+ import { t as validateIdentifier } from "./validate-DANX1-Qi.mjs";
+ import { u as isPostgres } from "./dialect-helpers-DRe1Y08G.mjs";
+ import { l as decodeCursor, u as encodeCursor } from "./types-BBH-w_KS.mjs";
+-import { t as withTransaction } from "./transaction-D5Kq7MTL.mjs";
+ import { n as verifyMediaUsageCaptureTriggers } from "./capture-triggers-BK2pp_kZ.mjs";
+ import { t as FTSManager } from "./fts-manager-m8GPxogO.mjs";
+ import { sql } from "kysely";
+@@ -198,16 +197,7 @@ var MediaUsageCollectionDeletionRepository = class {
+ 		}).where("collection_id", "=", input.collectionId).where("state", "=", "leased").where("lease_token", "=", input.leaseToken).where(liveLease(this.db)).executeTakeFirst();
+ 		return Number(result.numUpdatedRows ?? 0) === 1;
+ 	}
+-	async deleteRegistryAndCheckpoint(input) {
+-		return withTransaction(this.db, async (trx) => {
+-			await trx.deleteFrom("_emdash_collections").where("id", "=", input.collectionId).where("slug", "=", input.collectionSlug).where((eb) => eb.exists(eb.selectFrom("_emdash_media_usage_collection_deletions as deletion").select("deletion.collection_id").where("deletion.collection_id", "=", input.collectionId).where("deletion.collection_slug", "=", input.collectionSlug).where("deletion.state", "=", "leased").where("deletion.phase", "=", "registry").where("deletion.lease_token", "=", input.leaseToken).where(liveLease(trx, "deletion.lease_expires_at")))).execute();
+-			const checkpoint = await trx.updateTable("_emdash_media_usage_collection_deletions").set({
+-				phase: "table",
+-				updated_at: timestampOffset(trx, 0)
+-			}).where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", "registry").where("lease_token", "=", input.leaseToken).where(liveLease(trx)).executeTakeFirst();
+-			return Number(checkpoint.numUpdatedRows ?? 0) === 1;
+-		});
+-	}
++
+ };
+ async function deleteActivatedMediaUsageCollection(db, input, options = {}) {
+ 	const frontPhaseLimit = options.frontPhaseLimit ?? 3;
+@@ -281,10 +271,12 @@ async function deleteActivatedMediaUsageCollection(db, input, options = {}) {
+ 		}
+ 	}
+ 	if (phase === "registry") {
+-		if (!await repository.deleteRegistryAndCheckpoint({
+-			...lease,
+-			collectionSlug: claim.collectionSlug
+-		})) throw new Error("Collection deletion lost its registry checkpoint");
++		if ((await executeCollectionDeletionGuard(db, {
++		action: "registry",
++		collectionId: claim.collectionId,
++		collectionSlug: claim.collectionSlug,
++		leaseToken: claim.leaseToken
++		})).outcome !== "registry_deleted") throw new Error("Collection deletion lost its registry checkpoint");
+ 		phase = "table";
+ 		processedFrontPhases++;
+ 		if (processedFrontPhases >= frontPhaseLimit) {
+@@ -351,11 +343,21 @@ async function executeLocalCollectionDeletionGuard(db, input) {
+ 	return db.transaction().execute(async (trx) => {
+ 		if (!await lockLiveTombstone(trx, input)) return { outcome: "stale" };
+ 		if (input.action === "fence") return fenceCollection(trx, input);
++		if (input.action === "registry") return deleteRegistryAndCheckpoint(trx, input);
+ 		await new FTSManager(trx).dropFtsTable(input.collectionSlug);
+ 		await sql`DROP TABLE IF EXISTS ${sql.ref(`ec_${input.collectionSlug}`)}`.execute(trx);
+ 		return { outcome: "dropped" };
+ 	});
+ }
++async function deleteRegistryAndCheckpoint(trx, input) {
++	const checkpoint = await trx.updateTable("_emdash_media_usage_collection_deletions").set({
++		phase: "table",
++		updated_at: timestampOffset(trx, 0)
++	}).where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", "registry").where("lease_token", "=", input.leaseToken).where(liveLease(trx)).returning("collection_id").execute();
++	if (checkpoint.length !== 1) return { outcome: "stale" };
++	await trx.deleteFrom("_emdash_collections").where("id", "=", input.collectionId).where("slug", "=", input.collectionSlug).execute();
++	return { outcome: "registry_deleted" };
++}
+ async function fenceCollection(trx, input) {
+ 	const tableName = `ec_${input.collectionSlug}`;
+ 	validateIdentifier(tableName, "content table");
+@@ -374,7 +376,7 @@ async function fenceCollection(trx, input) {
+ 	return Number(result.numUpdatedRows ?? 0) === 1 ? { outcome: "fenced" } : { outcome: "stale" };
+ }
+ async function lockLiveTombstone(trx, input) {
+-	const phase = input.action === "fence" ? "fence" : "table";
++	const phase = input.action;
+ 	if (isPostgres(trx)) return await trx.selectFrom("_emdash_media_usage_collection_deletions").select("collection_id").where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", phase).where("lease_token", "=", input.leaseToken).where(liveLease(trx)).forUpdate().executeTakeFirst() !== void 0;
+ 	const locked = await trx.updateTable("_emdash_media_usage_collection_deletions").set({ updated_at: sql`updated_at` }).where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", phase).where("lease_token", "=", input.leaseToken).where(liveLease(trx)).executeTakeFirst();
+ 	return Number(locked.numUpdatedRows ?? 0) === 1;
+diff --git a/dist/registry-COR9pjyi.mjs b/dist/registry-COR9pjyi.mjs
+index 391af435e..a94dd33d3 100644
+--- a/dist/registry-COR9pjyi.mjs
++++ b/dist/registry-COR9pjyi.mjs
+@@ -903,6 +903,7 @@ async function handleRegistryInstall(db, storage, sandboxRunner, registryConfigI
+ 			success: true,
+ 			data: result
+ 		};
++		await sandboxRunner.validateBundle?.(bundle.manifest, bundle.backendCode);
+ 		await storeBundleInR2(storage, pluginId, version, bundle, "registry");
+ 		const displayProfile = packageView.cid === records.profile.cid ? profile : packageView.profile;
+ 		try {
+@@ -1296,6 +1297,7 @@ async function handleRegistryUpdate(db, storage, sandboxRunner, registryConfigIn
+ 				}
+ 			}
+ 		};
++		await sandboxRunner.validateBundle?.(bundle.manifest, bundle.backendCode);
+ 		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
+ 		const displayProfile = packageView.cid === records.profile.cid ? profile : packageView.profile;
+ 		await stateRepo.upsert(pluginId, newVersion, "active", {
+diff --git a/dist/revision-Dk9VI8Vf.mjs b/dist/revision-Dk9VI8Vf.mjs
+index 6636a4e68..3ddb82b36 100644
+--- a/dist/revision-Dk9VI8Vf.mjs
++++ b/dist/revision-Dk9VI8Vf.mjs
+@@ -252,6 +252,12 @@ var RevisionRepository = class {
+ 	findRow(id) {
+ 		return this.db.selectFrom("revisions").selectAll().where("id", "=", id).executeTakeFirst();
+ 	}
++	/** Fetch the draft revisions for one content-list page in a single query. */
++	async findManyByIds(ids) {
++		if (ids.length === 0) return [];
++		const rows = await this.db.selectFrom("revisions").selectAll().where("id", "in", ids).execute();
++		return Promise.all(rows.map((row) => this.normalizeRow(row)));
++	}
+ 	/** Shallow-merge `patch` into a stored revision's data. */
+ 	async mergeData(id, patch) {
+ 		const row = await this.db.selectFrom("revisions").select("data").where("id", "=", id).executeTakeFirst();
+diff --git a/dist/rooms-B2P1xIS_.d.mts b/dist/rooms-B2P1xIS_.d.mts
+index 4355c6772..d3e1d6bfb 100644
+--- a/dist/rooms-B2P1xIS_.d.mts
++++ b/dist/rooms-B2P1xIS_.d.mts
+@@ -3807,6 +3807,7 @@ declare const settingsUpdateBody: z.ZodObject<{
+       mediaId: z.ZodString;
+       alt: z.ZodOptional<z.ZodString>;
+     }, z.core.$strip>>>;
++    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     robotsTxt: z.ZodOptional<z.ZodString>;
+     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
+     googleVerification: z.ZodOptional<z.ZodString>;
+@@ -3855,6 +3856,7 @@ declare const siteSettingsSchema: z.ZodObject<{
+       width: z.ZodOptional<z.ZodNumber>;
+       height: z.ZodOptional<z.ZodNumber>;
+     }, z.core.$strip>>;
++    additionalSitemaps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     robotsTxt: z.ZodOptional<z.ZodString>;
+     disallowAiTraining: z.ZodOptional<z.ZodBoolean>;
+     googleVerification: z.ZodOptional<z.ZodString>;
+diff --git a/dist/seo-Ie7B6cud.mjs b/dist/seo-Ie7B6cud.mjs
+index 83175a016..93005293f 100644
+--- a/dist/seo-Ie7B6cud.mjs
++++ b/dist/seo-Ie7B6cud.mjs
+@@ -139,7 +139,7 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
+ 						LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+ 					)
+ 					SELECT c.slug, c.id, c.updated_at, c.published_at, c.locale, c.translation_group,
+-						s.seo_image, s.updated_at AS seo_updated_at,
++						s.seo_image, s.seo_canonical, s.updated_at AS seo_updated_at,
+ 						CASE WHEN c.id IN (SELECT id FROM page) THEN 1 ELSE 0 END AS on_page
+ 					${from}
+ 					AND (
+@@ -158,7 +158,8 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
+ 					publishedAt: row.published_at ?? null,
+ 					locale: row.locale,
+ 					translationGroup: row.translation_group,
+-					image: row.seo_image ?? null
++					image: row.seo_image ?? null,
++					canonical: row.seo_canonical ?? null
+ 				};
+ 				(Number(row.on_page) === 1 ? entries : translations).push(entry);
+ 			}
+diff --git a/dist/transaction-D5Kq7MTL.mjs b/dist/transaction-D5Kq7MTL.mjs
+index 5bf6281f9..d6fd98104 100644
+--- a/dist/transaction-D5Kq7MTL.mjs
++++ b/dist/transaction-D5Kq7MTL.mjs
+@@ -24,6 +24,7 @@ async function withTransaction(db, fn) {
+ 	return withRoomNotificationQueue(() => runTransaction(db, fn));
+ }
+ async function runTransaction(db, fn) {
++	if (db.getExecutor().adapter.supportsTransactions === false) return fn(db);
+ 	if (transactionsSupported === true) return deferObjectCacheInvalidations(() => db.transaction().execute(fn));
+ 	if (transactionsSupported === false) return fn(db);
+ 	try {
+diff --git a/dist/transfer-BwKpOrTV.mjs b/dist/transfer-BwKpOrTV.mjs
+index f3c03cc64..8eece1ffa 100644
+--- a/dist/transfer-BwKpOrTV.mjs
++++ b/dist/transfer-BwKpOrTV.mjs
+@@ -7995,6 +7995,7 @@ async function reserve(context) {
+ 		stage: "clear_scaffold",
+ 		step: 0
+ 	}, { markMutationStarted: true });
++	await new OptionsRepository(context.db).set("emdash:seed_complete", true);
+ }
+ async function assertMappedUsersExist(context) {
+ 	const mappings = Object.entries(context.plan.decisions.principalMappings);
+diff --git a/dist/types-CeknTiV0.d.mts b/dist/types-CeknTiV0.d.mts
+index eb60acb42..04b7e9f5d 100644
+--- a/dist/types-CeknTiV0.d.mts
++++ b/dist/types-CeknTiV0.d.mts
+@@ -43,6 +43,8 @@ interface SeoSettings {
+   defaultOgImage?: MediaReference;
+   /** Custom robots.txt content. If unset, a default is generated. */
+   robotsTxt?: string;
++	/** Additional same-site child sitemap paths listed by the native index. */
++	additionalSitemaps?: string[];
+   /** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
+   disallowAiTraining?: boolean;
+   /** Google Search Console verification meta tag content */
+diff --git a/src/api/handlers/registry.ts b/src/api/handlers/registry.ts
+index 8918156eb..5ed04d291 100644
+--- a/src/api/handlers/registry.ts
++++ b/src/api/handlers/registry.ts
+@@ -1035,6 +1035,11 @@ export async function handleRegistryInstall(
+ 		};
+ 		if (opts?.verifyOnly) return { success: true, data: result };
+ 
++		// The host must reject unsupported access before any bundle or state write.
++		await (sandboxRunner as SandboxRunner & {
++			validateBundle?: (manifest: typeof bundle.manifest, code: string) => Promise<void>;
++		}).validateBundle?.(bundle.manifest, bundle.backendCode);
++
+ 		// Step 7: store in R2 under the registry prefix.
+ 		await storeBundleInR2(storage, pluginId, version, bundle, "registry");
+ 
+@@ -1664,6 +1669,11 @@ export async function handleRegistryUpdate(
+ 			};
+ 		}
+ 
++		// The host must reject unsupported access before any bundle or state write.
++		await (sandboxRunner as SandboxRunner & {
++			validateBundle?: (manifest: typeof bundle.manifest, code: string) => Promise<void>;
++		}).validateBundle?.(bundle.manifest, bundle.backendCode);
++
+ 		// Store new bundle. R2 prefix is deterministic per (pluginId, version),
+ 		// so a retry of the same update is idempotent.
+ 		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
+diff --git a/src/api/schemas/settings.ts b/src/api/schemas/settings.ts
+index cdd6c05ba..3cda5b6b1 100644
+--- a/src/api/schemas/settings.ts
++++ b/src/api/schemas/settings.ts
+@@ -28,6 +28,7 @@ const socialSettings = z.object({
+ const seoSettingsInput = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceInput.nullable().optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5000).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+@@ -76,6 +77,7 @@ const mediaReferenceResponse = z.object({
+ const seoSettingsResponse = z.object({
+ 	titleSeparator: z.string().max(10).optional(),
+ 	defaultOgImage: mediaReferenceResponse.optional(),
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	robotsTxt: z.string().max(5000).optional(),
+ 	disallowAiTraining: z.boolean().optional(),
+ 	googleVerification: z.string().max(100).optional(),
+diff --git a/src/astro/middleware/auth.ts b/src/astro/middleware/auth.ts
+index 59f0a7798..56b131ee1 100644
+--- a/src/astro/middleware/auth.ts
++++ b/src/astro/middleware/auth.ts
+@@ -579,14 +579,7 @@ async function handleExternalAuth(
+ 				});
+ 			}
+ 
+-			// Check if this is the first user (they become admin)
+-			const userCount = await emdash.db
+-				.selectFrom("users")
+-				.select(emdash.db.fn.count("id").as("count"))
+-				.executeTakeFirst();
+-
+-			const isFirstUser = Number(userCount?.count ?? 0) === 0;
+-			const role = isFirstUser ? ROLE_ADMIN : toRoleLevel(authResult.role);
++			const role = toRoleLevel(authResult.role);
+ 
+ 			// Create user
+ 			const now = new Date().toISOString();
+@@ -600,15 +593,19 @@ async function handleExternalAuth(
+ 				updated_at: now,
+ 			};
+ 
+-			await emdash.db.insertInto("users").values(newUser).execute();
++			// Concurrent first requests may provision the same verified external email.
++			// Only that unique-email conflict is safe to ignore; other DB errors still fail.
++			await emdash.db.insertInto("users").values(newUser)
++				.onConflict((conflict) => conflict.column("email").doNothing()).execute();
+ 
+ 			user = await adapter.getUserByEmail(authResult.email);
+ 
+ 			console.log(
+-				`[external-auth] Provisioned user: ${authResult.email} (role: ${role}, first: ${isFirstUser})`,
++				`[external-auth] Provisioned user: ${authResult.email} (role: ${role})`,
+ 			);
+-		} else {
+-			// User exists - check if we need to sync anything
++		}
++		if (user) {
++			// Apply authoritative provider attributes also when a concurrent provisioner won.
+ 			const updates: Record<string, unknown> = {};
+ 			let newName: string | undefined;
+ 			let newRole: RoleLevel | undefined;
+diff --git a/src/astro/routes/api/admin/plugins/registry/[id]/update.ts b/src/astro/routes/api/admin/plugins/registry/[id]/update.ts
+index 267e8233d..fa981da79 100644
+--- a/src/astro/routes/api/admin/plugins/registry/[id]/update.ts
++++ b/src/astro/routes/api/admin/plugins/registry/[id]/update.ts
+@@ -88,8 +88,9 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
+ 
+ 		await finalizePluginUpdate({
+ 			pluginId: id,
++			requireLifecycleHook: true,
+ 			syncRuntime: () => emdash.syncRegistryPlugins(),
+-			runLifecycle: () => emdash.runPluginActivateLifecycle(id),
++			runLifecycle: () => emdash.runPluginActivateLifecycle(id, true),
+ 			rollback: () =>
+ 				rollbackPluginUpdate(
+ 					emdash.db,
+diff --git a/src/astro/routes/api/admin/plugins/registry/install.ts b/src/astro/routes/api/admin/plugins/registry/install.ts
+index 1eef3038b..910eecdfe 100644
+--- a/src/astro/routes/api/admin/plugins/registry/install.ts
++++ b/src/astro/routes/api/admin/plugins/registry/install.ts
+@@ -118,8 +118,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
+ 
+ 		await finalizePluginInstall({
+ 			pluginId: result.data.pluginId,
++			requireLifecycleHook: true,
+ 			syncRuntime: () => emdash.syncRegistryPlugins(),
+-			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId),
++			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId, true),
+ 			rollback: () =>
+ 				handleRegistryUninstall(emdash.db, emdash.storage, result.data.pluginId, {
+ 					rollbackInstall: true,
+diff --git a/src/astro/routes/api/content/[collection]/index.ts b/src/astro/routes/api/content/[collection]/index.ts
+index c539643e0..843d0b304 100644
+--- a/src/astro/routes/api/content/[collection]/index.ts
++++ b/src/astro/routes/api/content/[collection]/index.ts
+@@ -29,9 +29,12 @@ export const GET: APIRoute = async ({ params, url, locals }) => {
+ 	// Subscribers must only see published content; force the status filter
+ 	// regardless of caller-supplied value. Any user with content:read_drafts
+ 	// (CONTRIBUTOR+) keeps the requested filter.
+-	const params_ = hasPermission(user, "content:read_drafts")
+-		? query
+-		: { ...query, status: "published" };
++	const includeDrafts = hasPermission(user, "content:read_drafts");
++	const params_ = {
++		...query,
++		...(includeDrafts ? {} : { status: "published" }),
++		includeDrafts,
++	};
+ 
+ 	const result = await emdash.handleContentList(collection, params_);
+ 
+diff --git a/src/astro/routes/api/menus/[name]/items.ts b/src/astro/routes/api/menus/[name]/items.ts
+index c2fef4d77..d60f60ae3 100644
+--- a/src/astro/routes/api/menus/[name]/items.ts
++++ b/src/astro/routes/api/menus/[name]/items.ts
+@@ -5,15 +5,18 @@
+  */
+ 
+ import type { APIRoute } from "astro";
++import { z } from "zod";
+ 
+ import { requirePerm } from "#api/authorize.js";
+ import { apiError, handleError, unwrapResult } from "#api/error.js";
+-import { handleMenuItemCreate } from "#api/handlers/menus.js";
++import { handleMenuItemCreate, handleMenuSetItems } from "#api/handlers/menus.js";
+ import { isParseError, parseBody, parseQuery } from "#api/parse.js";
+ import { createMenuItemBody, localeFilterQuery } from "#api/schemas.js";
+ import { menuTag } from "#cache/chrome-tags.js";
+ import { invalidateRouteCache } from "#cache/route-cache.js";
+ 
++const setMenuItemsBody = z.object({ items: z.array(createMenuItemBody.omit({ parentId: true, sortOrder: true }).extend({ parentIndex: z.number().int().nonnegative().optional() })) }).strict();
++
+ export const prerender = false;
+ 
+ export const POST: APIRoute = async ({ params, request, locals, cache }) => {
+@@ -41,3 +44,28 @@ export const POST: APIRoute = async ({ params, request, locals, cache }) => {
+ 		return handleError(error, "Failed to create menu item", "MENU_ITEM_CREATE_ERROR");
+ 	}
+ };
++
++export const PUT: APIRoute = async ({ params, request, locals, cache }) => {
++	const { emdash, user } = locals;
++	const denied = requirePerm(user, "menus:manage");
++	if (denied) return denied;
++	const name = params.name!;
++	const localeQ = parseQuery(new URL(request.url), localeFilterQuery);
++	if (isParseError(localeQ)) return localeQ;
++	try {
++		const body = await parseBody(request, setMenuItemsBody);
++		if (isParseError(body)) return body;
++		const result = await handleMenuSetItems(emdash.db, name, body.items, {
++			locale: localeQ.locale,
++		});
++		if (!result.success) return unwrapResult(result);
++		await invalidateRouteCache(cache, [menuTag(name)]);
++		return unwrapResult(result);
++	} catch (error) {
++		return handleError(
++			error,
++			"Failed to set menu items",
++			"MENU_SET_ITEMS_ERROR",
++		);
++	}
++};
+diff --git a/src/astro/routes/sitemap.xml.ts b/src/astro/routes/sitemap.xml.ts
+index e3998c721..64e629fc6 100644
+--- a/src/astro/routes/sitemap.xml.ts
++++ b/src/astro/routes/sitemap.xml.ts
+@@ -53,15 +53,25 @@ export const GET: APIRoute = async ({ locals, url }) => {
+ 			'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+ 		];
+ 
++		const listed = new Set<string>();
+ 		for (const sitemap of sitemaps) {
+ 			const suffix = sitemap.page === 1 ? "" : `-${sitemap.page}`;
+ 			const loc = `${siteUrl}/sitemap-${encodeURIComponent(sitemap.collection)}${suffix}.xml`;
++			listed.add(loc);
+ 			lines.push("  <sitemap>");
+ 			lines.push(`    <loc>${escapeXml(loc)}</loc>`);
+ 			lines.push(`    <lastmod>${escapeXml(sitemap.lastmod)}</lastmod>`);
+ 			lines.push("  </sitemap>");
+ 		}
+ 
++		for (const path of settings.seo?.additionalSitemaps ?? []) {
++			if (typeof path !== "string" || !/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/.test(path)) continue;
++			const loc = `${siteUrl}${path}`;
++			if (listed.has(loc)) continue;
++			listed.add(loc);
++			lines.push("  <sitemap>", `    <loc>${escapeXml(loc)}</loc>`, "  </sitemap>");
++		}
++
+ 		lines.push("</sitemapindex>");
+ 
+ 		return new Response(lines.join("\n"), {
+diff --git a/src/database/repositories/revision.ts b/src/database/repositories/revision.ts
+index 2f38beef6..dbcaebd4e 100644
+--- a/src/database/repositories/revision.ts
++++ b/src/database/repositories/revision.ts
+@@ -199,6 +199,17 @@ export class RevisionRepository {
+ 		return this.db.selectFrom("revisions").selectAll().where("id", "=", id).executeTakeFirst();
+ 	}
+ 
++	/** Fetch the draft revisions for one content-list page in a single query. */
++	async findManyByIds(ids: string[]): Promise<Revision[]> {
++		if (ids.length === 0) return [];
++		const rows = await this.db
++			.selectFrom("revisions")
++			.selectAll()
++			.where("id", "in", ids)
++			.execute();
++		return Promise.all(rows.map((row) => this.normalizeRow(row)));
++	}
++
+ 	/** Shallow-merge `patch` into a stored revision's data. */
+ 	async mergeData(id: string, patch: Record<string, unknown>): Promise<void> {
+ 		const row = await this.db
+diff --git a/src/database/transaction.ts b/src/database/transaction.ts
+index 1043a2373..8a8b25734 100644
+--- a/src/database/transaction.ts
++++ b/src/database/transaction.ts
+@@ -62,6 +62,11 @@ async function runTransaction<DB, T>(
+ 	db: Kysely<DB>,
+ 	fn: (trx: Kysely<DB> | Transaction<DB>) => Promise<T>,
+ ): Promise<T> {
++	// The Worker Loader DO dialect cannot probe beginTransaction across RPC contexts.
++	const adapter = db.getExecutor().adapter as { supportsTransactions?: boolean };
++	if (adapter.supportsTransactions === false) {
++		return fn(db);
++	}
+ 	// Fast path: we already know transactions work
+ 	if (transactionsSupported === true) {
+ 		return deferObjectCacheInvalidations(() => db.transaction().execute(fn));
+diff --git a/src/db/adapters.ts b/src/db/adapters.ts
+index 1f98d07ec..7b4ece3c7 100644
+--- a/src/db/adapters.ts
++++ b/src/db/adapters.ts
+@@ -34,6 +34,12 @@ export type CollectionDeletionGuardInput =
+ 			leaseToken: string;
+ 			forceDelete: boolean;
+ 	  }
++	| {
++			action: "registry";
++			collectionId: string;
++			collectionSlug: string;
++			leaseToken: string;
++	  }
+ 	| {
+ 			action: "drop";
+ 			collectionId: string;
+@@ -45,6 +51,7 @@ export type CollectionDeletionGuardResult =
+ 	| { outcome: "fenced" }
+ 	| { outcome: "has_content" }
+ 	| { outcome: "stale" }
++	| { outcome: "registry_deleted" }
+ 	| { outcome: "dropped" };
+ 
+ export type ExecuteCollectionDeletionGuard = (
+diff --git a/src/emdash-runtime.ts b/src/emdash-runtime.ts
+index 2faff456f..97c338ed8 100644
+--- a/src/emdash-runtime.ts
++++ b/src/emdash-runtime.ts
+@@ -1709,13 +1709,26 @@ export class EmDashRuntime {
+ 		}
+ 	}
+ 
+-	async runPluginInstallLifecycle(pluginId: string): Promise<void> {
+-		await this._hooks.runPluginInstall(pluginId);
++	private async requirePluginInstallHook(pluginId: string) {
++		const results = await this._hooks.runPluginInstall(pluginId);
++		if (results.length !== 1 || !results[0]?.success) {
++			throw results[0]?.error ?? new Error(`Plugin ${pluginId} install hook did not complete`);
++		}
++		return results;
++	}
++
++	async runPluginInstallLifecycle(pluginId: string, requireInstallHook = false) {
++		const results = requireInstallHook
++			? await this.requirePluginInstallHook(pluginId)
++			: await this._hooks.runPluginInstall(pluginId);
+ 		await this._hooks.runPluginActivate(pluginId);
++		return results;
+ 	}
+ 
+-	async runPluginActivateLifecycle(pluginId: string): Promise<void> {
++	async runPluginActivateLifecycle(pluginId: string, requireInstallHook = false) {
++		const results = requireInstallHook ? await this.requirePluginInstallHook(pluginId) : [];
+ 		await this._hooks.runPluginActivate(pluginId);
++		return results;
+ 	}
+ 
+ 	/**
+@@ -1896,7 +1909,13 @@ export class EmDashRuntime {
+ 	/** Reconcile locally committed registry mutations through the shared state lock. */
+ 	async syncRegistryPlugins(): Promise<void> {
+ 		if (!getRegistryConfigInput(this.config.registry)) return;
+-		await this.syncPluginState();
++		await this.syncPluginState(true);
++		for (const state of this.pluginStateSnapshot?.states ?? []) {
++			if (state.source === "registry" && state.status === "active") {
++				const failure = this.pluginRefreshFailures.get(state.pluginId);
++				if (failure) throw failure.error;
++			}
++		}
+ 	}
+ 
+ 	private withPluginStateLock<T>(run: (isCurrentClaim: () => boolean) => Promise<T>): Promise<T> {
+@@ -1905,7 +1924,7 @@ export class EmDashRuntime {
+ 		});
+ 	}
+ 
+-	private async syncPluginState(): Promise<void> {
++	private async syncPluginState(strict = false): Promise<void> {
+ 		const repo = new PluginStateRepository(this.db);
+ 		const writtenGeneration = repo.getLastWrittenGeneration();
+ 		if (!this.runtimeDeps.sandboxBypassed && sandboxRunner) {
+@@ -1927,6 +1946,7 @@ export class EmDashRuntime {
+ 			});
+ 		} catch (error) {
+ 			console.error("EmDash: Failed to synchronize plugin state:", error);
++			if (strict) throw error;
+ 		}
+ 	}
+ 
+@@ -2704,6 +2724,8 @@ export class EmDashRuntime {
+ 						const validation = validateSeed(seed);
+ 						if (!validation.valid) return false;
+ 
++						// Bootstrap is a site write and must respect an active import fence.
++						await (await assertSiteWriteAllowed(db))();
+ 						const seedResult = await applySeed(db, seed, { onConflict: "skip" });
+ 						await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
+ 						console.log("Auto-seeded default collections");
+@@ -4234,9 +4256,47 @@ export class EmDashRuntime {
+ 			bylinesNone?: boolean;
+ 			includeInferredBylines?: boolean;
+ 			fieldFilters?: ContentFieldFilters;
++			/** Only an authorized caller may opt into unpublished revision values. */
++			includeDrafts?: boolean;
+ 		},
+ 	) {
+-		return handleContentList(this.db, collection, params);
++		const result = await handleContentList(this.db, collection, params);
++		if (!result.success) return result;
++		if (!params.includeDrafts) {
++			return {
++				...result,
++				data: {
++					...result.data,
++					items: result.data.items.map((item) => ({
++						...item,
++						draftRevisionId: null,
++						liveData: undefined,
++					})),
++				},
++			};
++		}
++		const ids = result.data.items
++			.map((item) => item.draftRevisionId)
++			.filter((id): id is string => typeof id === "string");
++		if (ids.length === 0) return result;
++		const revisions = await new RevisionRepository(this.db).findManyByIds(ids);
++		const byId = new Map(revisions.map((revision) => [revision.id, revision]));
++		return {
++			...result,
++			data: {
++				...result.data,
++				items: result.data.items.map((item) => {
++					const revision = item.draftRevisionId ? byId.get(item.draftRevisionId) : null;
++					if (!revision || revision.entryId !== item.id || revision.collection !== collection) {
++						return item;
++					}
++					const draftData = Object.fromEntries(
++						Object.entries(revision.data).filter(([key]) => !key.startsWith("_")),
++					);
++					return { ...item, data: { ...item.data, ...draftData }, liveData: item.data };
++				}),
++			},
++		};
+ 	}
+ 
+ 	async handleContentAuthors(collection: string) {
+@@ -4251,6 +4311,15 @@ export class EmDashRuntime {
+ 		draftOptions?: { includeStagedSlug?: boolean },
+ 	) {
+ 		const result = await handleContentGet(this.db, collection, id, locale, referenceOptions);
++		if (referenceOptions?.includeDrafts === false && result.success) {
++			return {
++				...result,
++				data: {
++					...result.data,
++					item: { ...result.data.item, draftRevisionId: null, liveData: undefined },
++				},
++			};
++		}
+ 		return this.hydrateDraftData(result, draftOptions);
+ 	}
+ 
+@@ -5530,7 +5599,8 @@ export class EmDashRuntime {
+ 			};
+ 		}
+ 
+-		if (!this.hooks.hasHooks(name)) return { allowed: true, revision };
++		const hasPolicyHooks = this.hooks.hasHooks(name);
++		if (!hasPolicyHooks && name !== "content:beforePublish") return { allowed: true, revision };
+ 		if (name !== "content:beforeUnpublish") {
+ 			try {
+ 				current = await this.hydrateDraftData(current, {
+@@ -5547,6 +5617,40 @@ export class EmDashRuntime {
+ 			}
+ 		}
+ 
++		if (name === "content:beforePublish") {
++			try {
++				const collectionInfo =
++					await this.schemaRegistry.getCollectionWithFields(collection);
++				if (collectionInfo?.fields.some((field) => field.type === "blocks")) {
++					const data = current.data.item.data;
++					await normalizeBlocksData(this.db, collectionInfo, data, data, {
++						restoreBlocks: true,
++					}, false);
++				}
++			} catch (error) {
++				if (error instanceof SchemaError)
++					return {
++						allowed: false,
++						revision,
++						error: {
++							code: error.code,
++							message: error.message,
++							details: error.details,
++						},
++					};
++				console.error("[content-policy] Block validation failed:", error);
++				return {
++					allowed: false,
++					revision,
++					error: {
++						code: failureCode,
++						message: "Failed to validate content blocks",
++					},
++				};
++			}
++		}
++		if (!hasPolicyHooks) return { allowed: true, revision };
++
+ 		const origin = options.origin ?? { source: "system" };
+ 		const actor =
+ 			options.actor &&
+@@ -6307,6 +6411,37 @@ export class EmDashRuntime {
+ 		}
+ 
+ 		const collectionInfo = await this.schemaRegistry.getCollectionWithFields(revision.collection);
++		try {
++			if (collectionInfo?.fields.some((field) => field.type === "blocks")) {
++				await normalizeBlocksData(
++					this.db,
++					collectionInfo,
++					revision.data,
++					revision.data,
++					{ restoreBlocks: true },
++     false,
++				);
++			}
++		} catch (error) {
++			if (error instanceof SchemaError)
++				return {
++					success: false as const,
++					error: {
++						code: error.code,
++						message: error.message,
++						details: error.details,
++					},
++				};
++			console.error("[revisions] Block validation failed:", error);
++			return {
++				success: false as const,
++				error: {
++					code: "REVISION_RESTORE_ERROR",
++					message: "Failed to validate revision blocks",
++				},
++			};
++		}
++
+ 		const usesDraftRevisions = collectionInfo?.supports?.includes("revisions") ?? false;
+ 
+ 		// Non-revision collections: keep the legacy behavior of writing the
+diff --git a/src/loader.ts b/src/loader.ts
+index 8d9813bae..2e14b41ba 100644
+--- a/src/loader.ts
++++ b/src/loader.ts
+@@ -24,7 +24,7 @@ import {
+ import type { BylineSummary, ContentBylineCredit } from "./database/repositories/types.js";
+ import { decodeCursor, encodeCursor, InvalidCursorError } from "./database/repositories/types.js";
+ import { validateIdentifier } from "./database/validate.js";
+-import { getI18nConfig, getLocaleCandidates, type I18nConfig } from "./i18n/config.js";
++import { getFallbackChain, getI18nConfig, getLocaleCandidates, type I18nConfig } from "./i18n/config.js";
+ import {
+ 	canonicalLocaleColumn,
+ 	storedLocaleOrder,
+@@ -1294,47 +1294,91 @@ async function resolveTermGroups(
+ 	probeCollection?: string,
+ 	countCollection?: string,
+ ): Promise<{ groups: string[]; large: boolean; assignments: number }> {
+-	let query = db
+-		.selectFrom("taxonomies")
+-		.select("translation_group")
+-		.distinct()
+-		.where("name", "=", name)
+-		.where(taxonomyValuesCondition(db, "slug", slugs))
+-		.$if(probeCollection !== undefined, (qb) =>
+-			qb.select((eb) =>
+-				eb
+-					.selectFrom("content_taxonomies")
+-					.select(sql<number>`1`.as("hit"))
+-					.where("content_taxonomies.collection", "=", probeCollection!)
+-					.whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group")
+-					.limit(1)
+-					.offset(LARGE_TERM_ASSIGNMENTS - 1)
+-					.as("large"),
+-			),
+-		)
+-		.$if(countCollection !== undefined, (qb) =>
+-			qb.select((eb) =>
+-				eb
+-					.selectFrom(
+-						eb
+-							.selectFrom("content_taxonomies")
+-							.select(sql<number>`1`.as("hit"))
+-							.where("content_taxonomies.collection", "=", countCollection!)
+-							.whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group")
+-							.limit(LARGE_TERM_ASSIGNMENTS)
+-							.as("capped"),
+-					)
+-					.select((inner) => inner.fn.countAll<number>().as("n"))
+-					.as("assignments"),
+-			),
+-		);
+-	if (locale) query = query.where(localeMatches("locale", locale));
+-	const rows = await query.execute();
++	// Tedix: resolve each slug in locale fallback order. A fallback group counts
++	// only when it has no term in a preferred locale, so a translated term with a
++	// new slug never matches its old slug.
+ 	const counts = new Map<string, number>();
+ 	let large = false;
+-	for (const row of rows) {
+-		if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
+-		if (row.large != null) large = true;
++	const withProbes = (qb: any, groupRef: string) =>
++		qb
++			.$if(probeCollection !== undefined, (q: any) =>
++				q.select((eb: any) =>
++					eb
++						.selectFrom("content_taxonomies")
++						.select(sql<number>`1`.as("hit"))
++						.where("content_taxonomies.collection", "=", probeCollection!)
++						.whereRef("content_taxonomies.taxonomy_id", "=", groupRef)
++						.limit(1)
++						.offset(LARGE_TERM_ASSIGNMENTS - 1)
++						.as("large"),
++				),
++			)
++			.$if(countCollection !== undefined, (q: any) =>
++				q.select((eb: any) =>
++					eb
++						.selectFrom(
++							eb
++								.selectFrom("content_taxonomies")
++								.select(sql<number>`1`.as("hit"))
++								.where("content_taxonomies.collection", "=", countCollection!)
++								.whereRef("content_taxonomies.taxonomy_id", "=", groupRef)
++								.limit(LARGE_TERM_ASSIGNMENTS)
++								.as("capped"),
++						)
++						.select((inner: any) => inner.fn.countAll().as("n"))
++						.as("assignments"),
++				),
++			);
++	const record = (rows: Array<{ translation_group: string | null; large?: unknown; assignments?: unknown }>) => {
++		for (const row of rows) {
++			if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
++			if (row.large != null) large = true;
++		}
++	};
++	if (!locale) {
++		const query = withProbes(
++			db
++				.selectFrom("taxonomies")
++				.select("translation_group")
++				.distinct()
++				.where("name", "=", name)
++				.where(taxonomyValuesCondition(db, "slug", slugs)),
++			"taxonomies.translation_group",
++		);
++		record(await query.execute());
++	} else {
++		const unresolved = new Set(slugs);
++		const preferredLocales: string[] = [];
++		for (const termLocale of getFallbackChain(locale)) {
++			if (unresolved.size === 0) break;
++			let query = withProbes(
++				db
++					.selectFrom("taxonomies as term")
++					.select(["term.slug", "term.translation_group"])
++					.distinct()
++					.where("term.name", "=", name)
++					.where(taxonomyValuesCondition(db, "term.slug", [...unresolved]))
++					.where(localeMatches("term.locale", termLocale)),
++				"term.translation_group",
++			);
++			if (preferredLocales.length > 0) {
++				query = query.where((eb: any) =>
++					eb.not(
++						eb.exists(
++							eb
++								.selectFrom("taxonomies as preferred")
++								.select("preferred.id")
++								.whereRef("preferred.translation_group", "=", "term.translation_group")
++								.where("preferred.locale", "in", preferredLocales),
++						),
++					),
++				);
++			}
++			const rows = await query.execute();
++			record(rows);
++			for (const row of rows) if (row.translation_group) unresolved.delete(row.slug);
++			preferredLocales.push(termLocale);
++		}
+ 	}
+ 	let assignments = 0;
+ 	for (const n of counts.values()) assignments += n;
+@@ -2016,20 +2060,25 @@ export function emdashLoader(): LiveLoader<EntryData, EntryFilter, LoaderCollect
+ 
+ 					// One `EXISTS` per taxonomy, AND'd together: an entry must be
+ 					// tagged with a matching term in *every* requested taxonomy.
+-					// Each clause pins its own `t.name`, so slugs never pool
+-					// across taxonomies (they're only unique within one).
++					// Tedix: slugs resolve through the locale fallback chain first,
++					// so each set holds one taxonomy's translation groups.
++					const groupSets: string[][] = [];
++					for (const taxFilter of taxonomyFilters) {
++						const { groups } = await resolveTermGroups(db, taxFilter.name, taxFilter.slugs, locale);
++						if (groups.length === 0) {
++							return { entries: [], cacheHint: { tags: [type] } };
++						}
++						groupSets.push(groups);
++					}
+ 					const taxonomyCond =
+-						taxonomyFilters.length > 0
++						groupSets.length > 0
+ 							? sql`${sql.join(
+-									taxonomyFilters.map(
+-										(f) => sql`AND EXISTS (
++									groupSets.map(
++										(groups) => sql`AND EXISTS (
+ 							SELECT 1 FROM content_taxonomies ct
+-							INNER JOIN taxonomies t ON t.translation_group = ct.taxonomy_id
+ 							WHERE ct.collection = ${type}
+ 								AND ct.entry_id = ${sql.ref(tableName)}.translation_group
+-								AND t.name = ${f.name}
+-								AND ${taxonomyValuesCondition(db, "t.slug", f.slugs, taxonomySlugsAsJson)}
+-							${locale ? sql`AND ${localeMatches("t.locale", locale)}` : sql``}
++								AND ${taxonomyValuesCondition(db, "ct.taxonomy_id", groups, taxonomySlugsAsJson)}
+ 						)`,
+ 									),
+ 									sql` `,
+diff --git a/src/mcp/server.ts b/src/mcp/server.ts
+index 83b095d8f..69a049df3 100644
+--- a/src/mcp/server.ts
++++ b/src/mcp/server.ts
+@@ -172,6 +172,7 @@ const settingsSocialSchema = z.object({
+ });
+ 
+ const settingsSeoSchema = z.object({
++	additionalSitemaps: z.array(z.string().regex(/^\/sitemap-[a-z0-9][a-z0-9_-]*\.xml$/)).max(20).optional(),
+ 	titleSeparator: z
+ 		.string()
+ 		.max(10)
+@@ -1113,6 +1114,7 @@ export function createMcpServer(
+ 				orderBy: args.orderBy,
+ 				order: args.order,
+ 				locale: args.locale,
++				includeDrafts: canReadDrafts(extra),
+ 			});
+ 			if (result.success && args.markdown) {
+ 				const payload = result.data;
+@@ -1159,7 +1161,7 @@ export function createMcpServer(
+ 		async (args, extra) => {
+ 			requireScope(extra, "content:read");
+ 			const ec = getEmDash(extra);
+-			const result = await ec.handleContentGet(args.collection, args.id, args.locale);
++			const result = await ec.handleContentGet(args.collection, args.id, args.locale, { includeDrafts: canReadDrafts(extra) });
+ 			if (!result.success) return unwrap(result);
+ 			let item: Omit<ContentItem, "liveData" | "draftRevisionId"> = result.data.item;
+ 			// Hide non-published items from users without draft access. Return a
+diff --git a/src/media/usage/collection-deletion.ts b/src/media/usage/collection-deletion.ts
+index a7b1a1bf3..d54cf2037 100644
+--- a/src/media/usage/collection-deletion.ts
++++ b/src/media/usage/collection-deletion.ts
+@@ -8,7 +8,6 @@ import {
+ 	encodeCursor,
+ 	type FindManyResult,
+ } from "../../database/repositories/types.js";
+-import { withTransaction } from "../../database/transaction.js";
+ import type { Database, MediaUsageCollectionDeletionTable } from "../../database/types.js";
+ import { validateIdentifier } from "../../database/validate.js";
+ import type {
+@@ -373,44 +372,7 @@ export class MediaUsageCollectionDeletionRepository {
+ 		return Number(result.numUpdatedRows ?? 0) === 1;
+ 	}
+ 
+-	async deleteRegistryAndCheckpoint(input: {
+-		collectionId: string;
+-		collectionSlug: string;
+-		leaseToken: string;
+-	}): Promise<boolean> {
+-		return withTransaction(this.db, async (trx) => {
+-			await trx
+-				.deleteFrom("_emdash_collections")
+-				.where("id", "=", input.collectionId)
+-				.where("slug", "=", input.collectionSlug)
+-				.where((eb) =>
+-					eb.exists(
+-						eb
+-							.selectFrom("_emdash_media_usage_collection_deletions as deletion")
+-							.select("deletion.collection_id")
+-							.where("deletion.collection_id", "=", input.collectionId)
+-							.where("deletion.collection_slug", "=", input.collectionSlug)
+-							.where("deletion.state", "=", "leased")
+-							.where("deletion.phase", "=", "registry")
+-							.where("deletion.lease_token", "=", input.leaseToken)
+-							.where(liveLease(trx, "deletion.lease_expires_at")),
+-					),
+-				)
+-				.execute();
+-
+-			const checkpoint = await trx
+-				.updateTable("_emdash_media_usage_collection_deletions")
+-				.set({ phase: "table", updated_at: timestampOffset(trx, 0) })
+-				.where("collection_id", "=", input.collectionId)
+-				.where("collection_slug", "=", input.collectionSlug)
+-				.where("state", "=", "leased")
+-				.where("phase", "=", "registry")
+-				.where("lease_token", "=", input.leaseToken)
+-				.where(liveLease(trx))
+-				.executeTakeFirst();
+-			return Number(checkpoint.numUpdatedRows ?? 0) === 1;
+-		});
+-	}
++
+ }
+ 
+ export type ActivatedCollectionDeletionOutcome =
+@@ -531,12 +493,13 @@ export async function deleteActivatedMediaUsageCollection(
+ 	}
+ 
+ 	if (phase === "registry") {
+-		if (
+-			!(await repository.deleteRegistryAndCheckpoint({
+-				...lease,
+-				collectionSlug: claim.collectionSlug,
+-			}))
+-		) {
++		const result = await executeCollectionDeletionGuard(db, {
++			action: "registry",
++			collectionId: claim.collectionId,
++			collectionSlug: claim.collectionSlug,
++			leaseToken: claim.leaseToken,
++		});
++		if (result.outcome !== "registry_deleted") {
+ 			throw new Error("Collection deletion lost its registry checkpoint");
+ 		}
+ 		phase = "table";
+@@ -663,6 +626,7 @@ export async function executeLocalCollectionDeletionGuard(
+ 	return db.transaction().execute(async (trx) => {
+ 		if (!(await lockLiveTombstone(trx, input))) return { outcome: "stale" };
+ 		if (input.action === "fence") return fenceCollection(trx, input);
++		if (input.action === "registry") return deleteRegistryAndCheckpoint(trx, input);
+ 
+ 		const fts = new FTSManager(trx);
+ 		await fts.dropFtsTable(input.collectionSlug);
+@@ -671,6 +635,30 @@ export async function executeLocalCollectionDeletionGuard(
+ 	});
+ }
+ 
++async function deleteRegistryAndCheckpoint(
++	trx: Transaction<Database>,
++	input: Extract<CollectionDeletionGuardInput, { action: "registry" }>,
++): Promise<CollectionDeletionGuardResult> {
++	const checkpoint = await trx
++		.updateTable("_emdash_media_usage_collection_deletions")
++		.set({ phase: "table", updated_at: timestampOffset(trx, 0) })
++		.where("collection_id", "=", input.collectionId)
++		.where("collection_slug", "=", input.collectionSlug)
++		.where("state", "=", "leased")
++		.where("phase", "=", "registry")
++		.where("lease_token", "=", input.leaseToken)
++		.where(liveLease(trx))
++		.returning("collection_id")
++		.execute();
++	if (checkpoint.length !== 1) return { outcome: "stale" };
++	await trx
++		.deleteFrom("_emdash_collections")
++		.where("id", "=", input.collectionId)
++		.where("slug", "=", input.collectionSlug)
++		.execute();
++	return { outcome: "registry_deleted" };
++}
++
+ async function fenceCollection(
+ 	trx: Transaction<Database>,
+ 	input: Extract<CollectionDeletionGuardInput, { action: "fence" }>,
+@@ -715,7 +703,7 @@ async function lockLiveTombstone(
+ 	trx: Transaction<Database>,
+ 	input: CollectionDeletionGuardInput,
+ ): Promise<boolean> {
+-	const phase = input.action === "fence" ? "fence" : "table";
++	const phase = input.action;
+ 	if (isPostgres(trx)) {
+ 		const row = await trx
+ 			.selectFrom("_emdash_media_usage_collection_deletions")
+diff --git a/src/plugins/install-finalization.ts b/src/plugins/install-finalization.ts
+index 00446a233..6094388df 100644
+--- a/src/plugins/install-finalization.ts
++++ b/src/plugins/install-finalization.ts
+@@ -3,12 +3,22 @@ import type { ApiResult } from "../api/types.js";
+ export interface PluginInstallFinalizationOptions {
+ 	pluginId: string;
+ 	syncRuntime(): Promise<void>;
+-	runLifecycle(): Promise<void>;
++	runLifecycle(): Promise<unknown>;
++	requireLifecycleHook?: boolean;
+ 	rollback(): Promise<ApiResult<unknown>>;
+ }
+ 
+ export interface PluginUpdateFinalizationOptions extends PluginInstallFinalizationOptions {
+-	runRollbackLifecycle(): Promise<void>;
++	runRollbackLifecycle(): Promise<unknown>;
++}
++
++function requireSuccessfulLifecycleHook(pluginId: string, result: unknown): void {
++	if (!Array.isArray(result) || result.length !== 1 || result[0]?.success !== true) {
++		const error = Array.isArray(result) ? result[0]?.error : undefined;
++		throw error instanceof Error
++			? error
++			: new Error(`Plugin ${pluginId} install hook did not complete`);
++	}
+ }
+ 
+ export async function finalizePluginInstall(
+@@ -16,7 +26,8 @@ export async function finalizePluginInstall(
+ ): Promise<void> {
+ 	try {
+ 		await options.syncRuntime();
+-		await options.runLifecycle();
++		const lifecycleResult = await options.runLifecycle();
++		if (options.requireLifecycleHook) requireSuccessfulLifecycleHook(options.pluginId, lifecycleResult);
+ 	} catch (installError) {
+ 		const failures: unknown[] = [installError];
+ 		try {
+@@ -47,7 +58,8 @@ export async function finalizePluginUpdate(
+ ): Promise<void> {
+ 	try {
+ 		await options.syncRuntime();
+-		await options.runLifecycle();
++		const lifecycleResult = await options.runLifecycle();
++		if (options.requireLifecycleHook) requireSuccessfulLifecycleHook(options.pluginId, lifecycleResult);
+ 	} catch (updateError) {
+ 		const failures: unknown[] = [updateError];
+ 		let rollbackSucceeded = false;
+diff --git a/src/seo/hreflang.ts b/src/seo/hreflang.ts
+index f50951adf..31d224861 100644
+--- a/src/seo/hreflang.ts
++++ b/src/seo/hreflang.ts
+@@ -36,25 +36,24 @@ import { getSiteSettingsWithDb } from "../settings/index.js";
+ const ABSOLUTE_URL_RE = /^https?:\/\//i;
+ 
+ /**
+- * IDs of variants flagged `noindex` in the SEO panel. Entries without
++ * SEO metadata for published locale variants. Entries without
+  * an `_emdash_seo` row are indexable by default (same as the sitemap).
+  * The id list is bounded by the number of configured locales, so no
+  * chunking is needed.
+  */
+-async function findNoindexIds(
++async function findVariantSeo(
+ 	db: Kysely<Database>,
+ 	collection: string,
+ 	ids: string[],
+-): Promise<Set<string>> {
+-	if (ids.length === 0) return new Set();
++): Promise<Map<string, { seo_no_index: number | null; seo_canonical: string | null }>> {
++	if (ids.length === 0) return new Map();
+ 	const rows = await db
+ 		.selectFrom("_emdash_seo")
+-		.select("content_id")
++		.select(["content_id", "seo_no_index", "seo_canonical"])
+ 		.where("collection", "=", collection)
+ 		.where("content_id", "in", ids)
+-		.where("seo_no_index", "=", 1)
+ 		.execute();
+-	return new Set(rows.map((r) => r.content_id));
++	return new Map(rows.map((r) => [r.content_id, r]));
+ }
+ 
+ /** A single alternate link, ready to render as `<link rel="alternate">`. */
+@@ -151,13 +150,13 @@ export async function getHreflangAlternatesWithDb(
+ 	// discoverable. When the requested entry itself is noindex, emit
+ 	// nothing: a page opting out of indexing shouldn't announce an
+ 	// hreflang set.
+-	const noindexIds = await findNoindexIds(
++	const variantSeo = await findVariantSeo(
+ 		db,
+ 		collection,
+ 		published.map((v) => v.id),
+ 	);
+-	if (noindexIds.has(item.id)) return [];
+-	published = published.filter((v) => !noindexIds.has(v.id));
++	if (variantSeo.get(item.id)?.seo_no_index === 1) return [];
++	published = published.filter((v) => variantSeo.get(v.id)?.seo_no_index !== 1);
+ 
+ 	const info = await getCollectionInfoWithDb(db, collection);
+ 	const urlPattern = info?.urlPattern ?? null;
+@@ -175,7 +174,16 @@ export async function getHreflangAlternatesWithDb(
+ 			trailingSlash: options.trailingSlash,
+ 		});
+ 		if (path === null) continue;
+-		resolved.push({ locale, href: `${siteUrl}${path}` });
++		let href = `${siteUrl}${path}`;
++		const override = variantSeo.get(variant.id)?.seo_canonical;
++		if (override) {
++			try {
++				const canonical = new URL(override, siteUrl);
++				if (canonical.origin !== new URL(siteUrl).origin || !["https:", "http:"].includes(canonical.protocol) || canonical.hash || canonical.username || canonical.password) continue;
++				href = canonical.href;
++			} catch { /* Invalid overrides retain the native route, as in the sitemap. */ }
++		}
++		resolved.push({ locale, href });
+ 	}
+ 	if (resolved.length === 0) return [];
+ 
+diff --git a/src/settings/types.ts b/src/settings/types.ts
+index 6fda24551..823d27f5a 100644
+--- a/src/settings/types.ts
++++ b/src/settings/types.ts
+@@ -44,6 +44,8 @@ export interface SeoSettings {
+ 	defaultOgImage?: MediaReference;
+ 	/** Custom robots.txt content. If unset, a default is generated. */
+ 	robotsTxt?: string;
++	/** Additional same-site child sitemap paths listed by the native index. */
++	additionalSitemaps?: string[];
+ 	/** Add rules to robots.txt that ask AI crawlers not to use the site for training. */
+ 	disallowAiTraining?: boolean;
+ 	/** Google Search Console verification meta tag content */
+diff --git a/src/transfer/import/advance.ts b/src/transfer/import/advance.ts
+index 4ed2e7468..c2f1f3597 100644
+--- a/src/transfer/import/advance.ts
++++ b/src/transfer/import/advance.ts
+@@ -15,6 +15,7 @@ import type { Kysely } from "kysely";
+ import type { z } from "zod";
+ 
+ import { isPostgres } from "../../database/dialect-helpers.js";
++import { OptionsRepository } from "../../database/repositories/options.js";
+ import type { Database } from "../../database/types.js";
+ import type { Storage } from "../../storage/types.js";
+ import { chunks, SQL_BATCH_SIZE } from "../../utils/chunks.js";
+@@ -437,6 +438,9 @@ async function reserve(context: ImportContext): Promise<void> {
+ 		});
+ 	}
+ 	await checkpoint(context, { stage: "clear_scaffold", step: 0 }, { markMutationStarted: true });
++	// The import now owns this site. A cold runtime must not restore the
++	// starter seed after clear_scaffold temporarily removes all collections.
++	await new OptionsRepository(context.db).set("emdash:seed_complete", true);
+ }
+ 
+ async function assertMappedUsersExist(context: ImportContext): Promise<void> {
