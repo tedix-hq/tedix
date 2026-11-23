@@ -23,30 +23,35 @@
 	--warn-soft: #fbefd3;
 	--bad: #b42318;
 	--bad-soft: #fdecea;
+	--hover: rgb(0 0 0 / 4%);
+	--selected: rgb(0 0 0 / 7%);
 	--shadow: 0 1px 2px rgb(0 0 0 / 5%);
+	--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 	--radius: 12px;
 	--radius-small: 8px;
 }
 @media (prefers-color-scheme: dark) {
 	:root {
-		--background: #0b0b0c;
-		--rail: #111113;
+		--background: #1a1a1c;
+		--rail: #161618;
 		--foreground: #f4f4f5;
-		--card: #151517;
-		--muted: #232326;
+		--card: #222225;
+		--muted: #2a2a2e;
 		--muted-foreground: #a9a9b1;
 		--faint: #7b7b84;
 		--primary: #a78bfa;
 		--primary-soft: #251c40;
 		--primary-foreground: #0b0b0c;
-		--border: #26262a;
-		--input: #45454b;
+		--border: #2e2e33;
+		--input: #4a4a51;
 		--good: #4cc38a;
 		--good-soft: #12261d;
 		--warn: #e8b23a;
 		--warn-soft: #2a2110;
 		--bad: #f2776b;
 		--bad-soft: #2c1513;
+		--hover: rgb(255 255 255 / 5%);
+		--selected: rgb(255 255 255 / 9%);
 		--shadow: none;
 	}
 }
@@ -113,7 +118,7 @@ button.btn {
 	line-height: 1;
 	height: 26px;
 	padding: 0 10px;
-	border-radius: 6px;
+	border-radius: 7px;
 	box-sizing: border-box;
 	border: 1px solid var(--border);
 	background: var(--card);
@@ -124,15 +129,17 @@ button.btn {
 	gap: 6px;
 	white-space: nowrap;
 	transition:
-		background 120ms,
-		border-color 120ms,
-		opacity 120ms;
+		background 140ms,
+		border-color 140ms,
+		color 140ms,
+		opacity 140ms,
+		transform 80ms;
 }
 button.btn:hover:not(:disabled) {
 	background: var(--muted);
 }
 button.btn:active:not(:disabled) {
-	transform: translateY(0.5px);
+	transform: scale(0.98);
 }
 button.btn.primary {
 	background: var(--primary);
@@ -328,31 +335,36 @@ label.switch small {
 }
 label.switch input {
 	appearance: none;
-	width: 36px;
-	height: 22px;
-	border-radius: 11px;
+	flex: none;
+	width: 40px;
+	height: 24px;
+	border-radius: 12px;
 	background: var(--input);
 	position: relative;
 	margin: 0;
-	transition: background 150ms;
+	transition: background 180ms var(--ease);
 }
 label.switch input::after {
 	content: "";
 	position: absolute;
 	top: 2px;
 	left: 2px;
-	width: 18px;
-	height: 18px;
+	width: 20px;
+	height: 20px;
 	border-radius: 50%;
 	background: #fff;
-	box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
-	transition: transform 150ms;
+	box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+	transition: transform 200ms var(--ease);
 }
 label.switch input:checked {
 	background: var(--primary);
 }
 label.switch input:checked::after {
-	transform: translateX(14px);
+	transform: translateX(16px);
+}
+label.switch input:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
 }
 label.switch input:disabled {
 	opacity: 0.5;
@@ -400,18 +412,22 @@ input.field {
 	font-size: 13px;
 	height: 26px;
 	padding: 0 8px;
-	border-radius: 6px;
+	border-radius: 7px;
 	border: 1px solid var(--border);
 	background: var(--card);
 	color: var(--foreground);
 	outline: none;
+	transition:
+		border-color 140ms,
+		background 140ms,
+		box-shadow 140ms;
 	min-width: 0;
 	user-select: text;
 }
 input.search:focus,
 input.field:focus {
 	border-color: var(--primary);
-	box-shadow: 0 0 0 2px var(--primary-soft);
+	box-shadow: 0 0 0 3px var(--primary-soft);
 }
 .group {
 	border: 1px solid var(--border);
@@ -500,6 +516,9 @@ input.field:focus {
 }
 .segmented .seg {
 	all: unset;
+	transition:
+		background 140ms,
+		color 140ms;
 	height: 22px;
 	padding: 0 10px;
 	border-radius: 6px;
@@ -556,7 +575,7 @@ input.field:focus {
 	padding: 0 12px;
 }
 .pick:hover {
-	background: color-mix(in srgb, var(--foreground) 4%, transparent);
+	background: var(--hover);
 }
 .pick .name {
 	font-weight: 400;

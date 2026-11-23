@@ -1145,13 +1145,13 @@ function createMainWindow(show: boolean): void {
 
 /** The background of the app's own two windows, so they do not flash while loading. */
 const windowColour = () =>
-	nativeTheme.shouldUseDarkColors ? "#0b0b0c" : "#fafafa";
+	nativeTheme.shouldUseDarkColors ? "#1a1a1c" : "#fafafa";
 
 /**
- * Settings: every setting of the app in one place, shown inside the main
- * window over the Tedix OS page, the way chat apps show theirs. Cmd+, opens
- * it, and so does Settings… in the menu bar icon's menu; Escape or
- * Done goes back to the page.
+ * Settings: every setting of the app in one place, a panel over the
+ * dimmed Tedix OS page, the way chat apps show theirs. Cmd+, opens it, and
+ * so does Settings… in the menu bar icon's menu; Escape, the close button
+ * or a click beside the panel goes back to the page.
  */
 function openSettings(section?: SettingsSection): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1160,7 +1160,8 @@ function openSettings(section?: SettingsSection): void {
 	if (!view) {
 		view = new WebContentsView({ webPreferences: localPage });
 		settingsView = view;
-		view.setBackgroundColor(windowColour());
+		// Clear, so the Tedix page shows dimmed around the Settings panel.
+		view.setBackgroundColor("#00000000");
 		view.webContents.on("will-navigate", (event) => event.preventDefault());
 		view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 		mainWindow.contentView.addChildView(view);

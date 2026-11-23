@@ -137,9 +137,10 @@ The app is not signed or notarized yet and has been run on macOS only.
   use the new version after **Restart** in Settings → This Mac or the next
   start of the app.
 - **Change every setting in one place.** **Tedix → Settings…** (`Cmd+,`)
-  shows Settings inside the main window; **Done** or Escape goes back. It
-  has search, the account, and five sections: General (open at login,
-  appearance, setup guide), Coding tools (the Claude and ChatGPT apps, and
+  shows Settings as a panel over the dimmed Tedix window; the close button,
+  a click beside the panel or Escape goes back. It has search, the account,
+  and five sections: General (open at login, appearance, setup guide), Coding
+  tools (the Claude and ChatGPT apps, and
   one row per coding tool with its next step and a **Use for tasks**
   switch; **Ready** only after Tedix worked inside it), Sessions (one
   switch, a tab per coding tool, a searchable project list), This Mac

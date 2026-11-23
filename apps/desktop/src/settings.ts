@@ -29,16 +29,19 @@ import {
 } from "./ui-parts";
 
 /**
- * Settings, inside the main window: every setting of the app. A sidebar
- * with search, the account and the sections; on the right, grouped cards
- * with the title on the left and the control on the right. It speaks only
- * about problems and actions.
+ * Settings, a panel over the main window: every setting of the app. A
+ * sidebar with search, the sections in groups and the account; on the
+ * right, rows with the title on the left and the control on the right.
+ * It speaks only about problems and actions.
  */
 declare const tedixShell: PanelApi;
 const nav = document.getElementById("nav")!;
 const account = document.getElementById("account")!;
 const page = document.getElementById("page")!;
 const search = document.getElementById("search") as HTMLInputElement;
+const done = document.getElementById("done")!;
+search.before(icon("search", 16));
+done.append(icon("close", 18));
 
 let state: PanelState | undefined;
 let section: SettingsSection =
@@ -75,13 +78,24 @@ interface Section {
 	name: string;
 	glyph: IconName;
 	groups: (now: PanelState) => Group[];
+	/** Starts a new group in the sidebar, under a thin line. */
+	split?: boolean;
+}
+
+/** Plays the short fade-in of the section pane. */
+function enter(): void {
+	page.classList.remove("enter");
+	void page.offsetWidth;
+	page.classList.add("enter");
 }
 
 const go = (id: SettingsSection) => {
+	const moved = id !== section;
 	section = id;
 	search.value = "";
 	draw();
-	page.scrollTop = 0;
+	if (moved) enter();
+	page.parentElement!.scrollTop = 0;
 	// Each section shows what is true now, not what was sent a while ago.
 	void tedixShell.state().then(receive);
 };
@@ -118,6 +132,7 @@ function general(now: PanelState): Group[] {
 			items: [
 				now.openAtLogin !== undefined && {
 					title: "Open at login",
+					sub: "Start Tedix and this Mac's tasks when you log in.",
 					control: [
 						toggle(
 							"Open at login",
@@ -133,6 +148,7 @@ function general(now: PanelState): Group[] {
 				},
 				{
 					title: "Setup guide",
+					sub: "Sign in, add coding tools and choose sessions.",
 					control: [
 						button(
 							"Open",
@@ -397,6 +413,7 @@ function mac(now: PanelState): Group[] {
 				serving !== undefined && { title: "Name", control: [name] },
 				serving !== undefined && {
 					title: "Let tedis edit files and run commands",
+					sub: "Without this, tedis can only read on this Mac.",
 					control: [
 						toggle(
 							"Let tedis edit files and run commands",
@@ -569,10 +586,16 @@ function about(now: PanelState): Group[] {
 
 const SECTIONS: Section[] = [
 	{ id: "general", name: "General", glyph: "window", groups: general },
-	{ id: "tools", name: "Coding tools", glyph: "terminal", groups: tools },
-	{ id: "sessions", name: "Sessions", glyph: "bubble", groups: sessions },
 	{ id: "mac", name: "This Mac", glyph: "laptop", groups: mac },
-	{ id: "about", name: "About", glyph: "flag", groups: about },
+	{
+		id: "tools",
+		name: "Coding tools",
+		glyph: "terminal",
+		groups: tools,
+		split: true,
+	},
+	{ id: "sessions", name: "Sessions", glyph: "bubble", groups: sessions },
+	{ id: "about", name: "About", glyph: "flag", groups: about, split: true },
 ];
 
 /** A section in the sidebar shows a dot when something there needs the person. */
@@ -706,7 +729,7 @@ function draw(): void {
 		: [];
 
 	nav.replaceChildren(
-		...SECTIONS.map((entry) => {
+		...SECTIONS.flatMap((entry) => {
 			const node = el(
 				"button",
 				"navitem",
@@ -722,7 +745,7 @@ function draw(): void {
 			if (current) node.setAttribute("aria-current", "page");
 			if (query && !current) node.classList.add("dim");
 			node.onclick = () => go(entry.id);
-			return node;
+			return entry.split ? [el("hr"), node] : [node];
 		}),
 	);
 
@@ -754,9 +777,24 @@ function redraw(): void {
 	keepFocus(draw);
 }
 
-search.oninput = () => draw();
-document.getElementById("done")!.onclick = () =>
-	void tedixShell.action("close-settings");
+search.oninput = () => {
+	draw();
+	enter();
+};
+const close = () => void tedixShell.action("close-settings");
+done.onclick = close;
+document.getElementById("backdrop")!.onclick = close;
+// Opening Settings again plays its opening once more.
+document.addEventListener("visibilitychange", () => {
+	if (document.visibilityState !== "visible") return;
+	for (const node of document.querySelectorAll<HTMLElement>(
+		".backdrop, .dialog",
+	)) {
+		node.style.animation = "none";
+		void node.offsetWidth;
+		node.style.animation = "";
+	}
+});
 document.addEventListener("keydown", (event) => {
 	if (event.key === "f" && (event.metaKey || event.ctrlKey)) {
 		event.preventDefault();
