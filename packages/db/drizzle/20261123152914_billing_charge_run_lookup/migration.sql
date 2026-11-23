@@ -1,0 +1,1 @@
+CREATE INDEX `idx_billing_charge_org_run` ON `billing_usage_charges` (`organization_id`,json_extract("metadata", '$.runId'));

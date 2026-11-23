@@ -482,6 +482,10 @@ export const billingUsageCharges = sqliteTable(
 				sql`json_extract(metadata,'$.monetaryQuote.schemaVersion')=1 AND json_extract(metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR'`,
 			),
 		index("idx_billing_charge_reservation").on(table.reservationId),
+		index("idx_billing_charge_org_run").on(
+			table.organizationId,
+			sql`json_extract(${table.metadata}, '$.runId')`,
+		),
 	],
 );
 

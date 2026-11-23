@@ -13,11 +13,12 @@ import { sumRunCredits, sumRunCreditsByRun } from "./spending";
 
 const from = "2026-10-01T00:00:00.000Z";
 const to = "2026-11-01T00:00:00.000Z";
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
 		schemaDdl(
+			{ expressionIndexes: true },
 			billingUsageReservations,
 			billingUsageCharges,
 			billingCreditConsumptions,
@@ -46,7 +47,11 @@ function fixture() {
 		 VALUES(?,?,?,'period','fictional','fictional-model','kernel',999,999,999,?,'price-1',?,?,'${from}')`)
 			.run(id, org, hold, credits, occurredAt, JSON.stringify(metadata));
 	}
-	return { sqlite, db: createDbClient(createD1Facade(sqlite)), charge };
+	return {
+		sqlite,
+		db: createDbClient(createD1Facade(sqlite, { onPrepare })),
+		charge,
+	};
 }
 
 describe("credits per run", () => {
@@ -122,7 +127,8 @@ describe("credits per run", () => {
 	it("sums AI credits per run from pre-wallet and wallet charges and leaves runs without any out", async () => {
 		const f = fixture();
 		try {
-			f.charge("first", 3);
+			// The reservation's run wins over conflicting charge metadata.
+			f.charge("first", 3, { metadata: { runId: "second-run" } });
 			f.charge("second", 4);
 			f.charge("other-run-call", 7, { hold: "second-hold" });
 			f.charge("wallet", 6, { hold: null, metadata: { runId: "second-run" } });
@@ -178,6 +184,37 @@ describe("credits per run", () => {
 					],
 				}),
 			).toEqual({ credits: 7, chargeCount: 2 });
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
+	it("seeks reservation and wallet runs instead of scanning organization charges", async () => {
+		const queries: string[] = [];
+		const f = fixture((query) => queries.push(query));
+		try {
+			await sumRunCreditsByRun(f.db, {
+				organizationId: "own",
+				runIds: Array.from({ length: 28 }, (_, i) => `run-${i}`),
+				workspaceChat: { workspaceId: "workspace", periodStart: from },
+			});
+			const query = queries.at(-1)!;
+			const plan = f.sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${query}`)
+				.all(...Array.from(query.matchAll(/\?/g), () => "own"))
+				.map((row) => String(row.detail))
+				.join("\n");
+			expect(plan).toContain("MULTI-INDEX OR");
+			expect(plan).toContain(
+				"idx_billing_charge_reservation (reservation_id=?)",
+			);
+			expect(plan).toContain(
+				"idx_billing_reservation_org_run (organization_id=? AND run_id=?)",
+			);
+			expect(plan).toContain(
+				"idx_billing_charge_org_run (organization_id=? AND <expr>=?)",
+			);
+			expect(plan).not.toContain("idx_billing_charge_org_occurred");
 		} finally {
 			f.sqlite.close();
 		}

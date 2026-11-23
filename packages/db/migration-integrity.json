@@ -1944,6 +1944,10 @@
 		{
 			"name": "20261123152250_learning_shared_scope_seek/migration.sql",
 			"sha256": "fb85f489d31f2b5de52a5232842fdc3dbae5e152f98f3b6a9382cc037848b0bb"
+		},
+		{
+			"name": "20261123152914_billing_charge_run_lookup/migration.sql",
+			"sha256": "88c627881fdcc3287ba1b4ae13f6a002955b60f478be7f09d4ce303d3f066920"
 		}
 	]
 }

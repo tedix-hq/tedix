@@ -1,5 +1,5 @@
 import { DYNAMIC_WORKER_PROVIDER } from "@tedix/api-contract/utils/credit-pricing";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	billingUsageCharges,
@@ -35,8 +35,18 @@ export async function sumRunCreditsByRun(
 	>`COALESCE(${reservation.runId}, json_extract(${charge.metadata}, '$.runId'))`;
 	const requestField = (field: string) =>
 		sql`COALESCE(json_extract(${reservation.metadata}, ${`$.${field}`}), json_extract(${charge.metadata}, ${`$.reservation.${field}`}))`;
-	// Leave room for the organization and any workspace and period filters.
-	for (const runIds of chunkForBoundParams([...new Set(input.runIds)], 90)) {
+	const chargeRunId = sql<string>`json_extract(${charge.metadata}, '$.runId')`;
+	// Each run ID is bound in both candidate branches and the effective-run check.
+	for (const runIds of chunkForBoundParams([...new Set(input.runIds)], 28)) {
+		const reservations = db
+			.select({ id: reservation.id })
+			.from(reservation)
+			.where(
+				and(
+					eq(reservation.organizationId, input.organizationId),
+					inArray(reservation.runId, runIds),
+				),
+			);
 		const rows = await db
 			.select({
 				runId: runId.as("run_id"),
@@ -53,12 +63,22 @@ export async function sumRunCreditsByRun(
 			)
 			.where(
 				and(
-					eq(charge.organizationId, input.organizationId),
+					// Keep the outer tenant guard out of index selection: the OR
+					// branches seek by reservation or wallet run, never the whole org.
+					sql`+${charge.organizationId} = ${input.organizationId}`,
+					or(
+						inArray(charge.reservationId, reservations),
+						and(
+							eq(charge.organizationId, input.organizationId),
+							inArray(chargeRunId, runIds),
+						),
+					),
 					sql`${charge.provider} <> ${DYNAMIC_WORKER_PROVIDER}`,
 					inArray(runId, runIds),
 					workspaceChat
 						? and(
-								sql`${charge.occurredAt} >= ${workspaceChat.periodStart}`,
+								// Filter the period after seeking runs, not via an org-period scan.
+								sql`+${charge.occurredAt} >= ${workspaceChat.periodStart}`,
 								sql`${requestField("source")} = 'workspace_chat'`,
 								sql`${requestField("workspaceId")} = ${workspaceChat.workspaceId}`,
 							)
