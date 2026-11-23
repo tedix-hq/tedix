@@ -1,4 +1,8 @@
 import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
+import {
+	themePreviewSnapshot,
+	THEME_PREVIEW_DATABASE_NAME,
+} from "./theme-preview-sqlite";
 import { PublicRestorePermits } from "./public-restore-permits";
 import { createHash } from "node:crypto";
 import { EmDashDB as EmdashSqlDB } from "@emdash-cms/cloudflare/db/do-sql";
@@ -207,6 +211,60 @@ export function digestCmsRecoverySqlite(
 /** Tenant data is the whole slug-named object. Delete its storage atomically
  * through the platform API; dropping tables individually violates foreign keys. */
 export class EmDashDB extends EmdashSqlDB {
+	async captureThemePreviewSnapshot(
+		identity: CmsRestoreFenceIdentity,
+	): Promise<DoQueryStatement[]> {
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
+		).primary;
+		if (primary) return primary.captureThemePreviewSnapshot(identity);
+		return this.withDatabasePermit(identity, async () =>
+			themePreviewSnapshot(this.ctx.storage.sql),
+		);
+	}
+
+	private requireThemePreviewDatabase(name: string) {
+		if (
+			!THEME_PREVIEW_DATABASE_NAME.test(name) ||
+			this.ctx.id.toString() !==
+				durableObjectIdFromName(
+					this.siteDrillEnv().DB_DO,
+					this.env,
+					name,
+				).toString()
+		)
+			throw new Error("Not a disposable theme preview database");
+	}
+
+	async initializeThemePreviewDatabase(
+		name: string,
+		statements: DoQueryStatement[],
+	): Promise<void> {
+		this.requireThemePreviewDatabase(name);
+		await this.ctx.storage.put("themePreview", true);
+		// A killed render still expires its copy; the live database never gets this marker.
+		await this.ctx.storage.setAlarm(Date.now() + 5 * 60_000);
+		this.ctx.storage.transactionSync(() => {
+			this.ctx.storage.sql.exec("PRAGMA defer_foreign_keys = ON");
+			for (const statement of statements)
+				this.ctx.storage.sql.exec(
+					statement.sql,
+					...((statement.params ?? []) as SqlStorageValue[]),
+				);
+		});
+	}
+
+	async deleteThemePreviewDatabase(name: string): Promise<void> {
+		this.requireThemePreviewDatabase(name);
+		await this.ctx.storage.deleteAll();
+		await this.ctx.storage.deleteAlarm();
+	}
+
+	async alarm(): Promise<void> {
+		if (await this.ctx.storage.get("themePreview"))
+			await this.ctx.storage.deleteAll();
+	}
+
 	private databasePermits = new PublicRestorePermits();
 	private activeWrites = new Set<Promise<void>>();
 	private closingRestore?: { key: string; result: Promise<boolean> };
@@ -1235,6 +1293,14 @@ export interface DoQueryStatement {
 }
 
 export interface EmDashDBStub {
+	captureThemePreviewSnapshot(
+		identity: CmsRestoreFenceIdentity,
+	): Promise<DoQueryStatement[]>;
+	initializeThemePreviewDatabase(
+		name: string,
+		statements: DoQueryStatement[],
+	): Promise<void>;
+	deleteThemePreviewDatabase(name: string): Promise<void>;
 	closeCmsSiteRestoreFence(input: CmsSiteRestoreIdentity): Promise<boolean>;
 	executeCollectionDeletionGuardWithRestorePermit(
 		identity: CmsRestoreFenceIdentity,

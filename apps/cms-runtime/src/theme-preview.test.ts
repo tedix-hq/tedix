@@ -2,6 +2,9 @@ import {
 	env as workerEnv,
 	exports as runtimeExports,
 } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
+import type { EmDashDB } from "./emdash-db";
+import { digestCmsSiteSqlite } from "./emdash-db";
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import {
 	signThemePreview,
@@ -13,11 +16,11 @@ import {
 import { COMPRESSED_CMS_BUNDLE_KEY } from "@tedix/provisioning/cms-bundle";
 import { serveThemePreview, cleanupThemeCandidates } from "./theme-preview";
 import { themePreviewEntrypoint } from "./theme-preview-entrypoint";
-import { ThemePreviewDatabase } from "./theme-preview-bindings";
 import { lookupOrg } from "./public-proxy";
 import { getCmsRestoreEpoch } from "@tedix/db/queries/cms-restore-fences";
 import type { Env } from "./env";
 import type { OrgInfo } from "./public-proxy";
+import type { ThemePreviewProps } from "./theme-preview-bindings";
 
 vi.mock("./public-proxy", async (original) => ({
 	...(await original<typeof import("./public-proxy")>()),
@@ -82,7 +85,7 @@ function fixture() {
 	};
 	const org = {
 		siteId: candidate.siteId,
-		slug: "acme",
+		slug: candidate.slug,
 		publicSiteUrl: "https://acme.test",
 		r2BucketName: "media",
 		publicPathPrefix: "",
@@ -93,6 +96,7 @@ function fixture() {
 	vi.mocked(getCmsRestoreEpoch).mockResolvedValue(2);
 	const env = {
 		LOADER: (workerEnv as unknown as Env).LOADER,
+		DB_DO: (workerEnv as unknown as Env).DB_DO,
 		TENANT_BUNDLES: bucket,
 		CMS_INTERNAL_AUTH_TOKEN: secret,
 		ENVIRONMENT: "production",
@@ -102,11 +106,29 @@ function fixture() {
 	return { candidate, bucket, objects, env, org, url };
 }
 
+async function liveDatabase(env: Env, candidate: CmsThemeCandidate) {
+	const stub = env.DB_DO.get(
+		env.DB_DO.idFromName(candidate.slug),
+	) as unknown as DurableObjectStub<EmDashDB>;
+	await runInDurableObject(stub, async (instance, state) => {
+		await state.storage.deleteAll();
+		// Admission itself is covered by the restore-permit tests; keep the SQLite copy real.
+		Object.assign(instance, {
+			withDatabasePermit: async (
+				_identity: unknown,
+				run: () => Promise<unknown>,
+			) => run(),
+		});
+	});
+	return stub;
+}
+
 beforeEach(() => vi.clearAllMocks());
 
 describe("private built theme preview", () => {
 	test("renders the retained bundle in its own loader and keeps assets and links private", async () => {
 		const { candidate, objects, env, url } = fixture();
+		await liveDatabase(env, candidate);
 		const source = `export default {fetch(request, env) { if (request.headers.has('cookie') || new URL(request.url).searchParams.has('_preview')) throw new Error('draft auth leaked'); return new Response('<html><head><title>Candidate 7</title><link rel="canonical" href="https://acme.test/"><link rel="stylesheet" href="/_astro/app.css"></head><body>Published content<a href="/about">About</a></body></html>', {headers:{'Content-Type':'text/html'}}); }}`;
 		const pack = JSON.stringify({
 			mainModule: "entry.mjs",
@@ -249,19 +271,130 @@ describe("private built theme preview", () => {
 		expect(render).toHaveBeenCalledOnce();
 	});
 
-	test("rejects writes before issuing any database RPC", async () => {
-		const db = Object.create(
-			ThemePreviewDatabase.prototype,
-		) as ThemePreviewDatabase;
-		await expect(
-			db.query("UPDATE content SET status = 'published'"),
-		).rejects.toThrow("read-only");
-		await expect(
-			db.batchQuery([{ sql: "SELECT 1" }, { sql: "DELETE FROM content" }]),
-		).rejects.toThrow("read-only");
-		await expect(db.query("SELECT 1; DELETE FROM content")).rejects.toThrow(
-			"read-only",
+	test("migrates a throwaway copy, renders 200 and leaves every live row and schema unchanged", async () => {
+		const { candidate, objects, env, org, url } = fixture();
+		const live = await liveDatabase(env, candidate);
+		const before = await runInDurableObject(live, (_instance, state) => {
+			state.storage.sql.exec(
+				"CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+			);
+			state.storage.sql.exec(
+				"INSERT INTO users VALUES ('owner', 'Published author')",
+			);
+			state.storage.sql.exec("CREATE TABLE migrations (name TEXT PRIMARY KEY)");
+			state.storage.sql.exec("CREATE VIRTUAL TABLE search USING fts5(body)");
+			state.storage.sql.exec(
+				"INSERT INTO search (rowid, body) VALUES (42, 'Published author')",
+			);
+			state.storage.sql.exec("CREATE UNIQUE INDEX users_name ON users(name)");
+			state.storage.sql.exec(
+				"CREATE TABLE byline (author TEXT REFERENCES users(name), body BLOB, upper_author TEXT GENERATED ALWAYS AS (upper(author)) STORED)",
+			);
+			state.storage.sql.exec(
+				"INSERT INTO byline (author, body) VALUES ('Published author', X'0102')",
+			);
+			state.storage.sql.exec(
+				"CREATE TRIGGER prevent_duplicate_copy AFTER INSERT ON users BEGIN INSERT INTO migrations VALUES ('unexpected trigger'); END",
+			);
+			return digestCmsSiteSqlite(state.storage.sql);
+		});
+		const source = `export default { async fetch(request, env) {
+   if (process.env.EMDASH_MIGRATIONS_MODE !== 'auto' || env.EMDASH_MIGRATIONS_MODE !== 'auto') return new Response('Database migrations are required', {status: 503});
+   await env.DB_DO.batchQuery([{sql: 'ALTER TABLE users ADD COLUMN last_login_at TEXT'}, {sql: "INSERT INTO migrations VALUES ('098_user_last_login')"}]);
+   const {rows} = await env.DB_DO.query('SELECT name, last_login_at FROM users');
+   const byline = await env.DB_DO.query('SELECT upper_author, hex(body) AS body FROM byline');
+   if (byline.rows[0].body !== '0102' || byline.rows[0].upper_author !== 'PUBLISHED AUTHOR') throw new Error('byline copy changed');
+   const search = await env.DB_DO.query("SELECT body FROM search WHERE search MATCH 'Published' AND rowid = 42");
+   return new Response(rows[0].name + ':' + rows[0].last_login_at + ':' + search.rows[0].body, {headers: {'Content-Type': 'text/html'}});
+  }};`;
+		const modules = { "entry.mjs": { js: source } };
+		candidate.etag = await themeCandidateEtag(modules);
+		objects.set(
+			themeCandidateKey(candidate.slug, candidate.id),
+			JSON.stringify(candidate),
 		);
+		objects.set(
+			`${candidate.r2Prefix}${COMPRESSED_CMS_BUNDLE_KEY}`,
+			await new Response(
+				new Blob([JSON.stringify({ mainModule: "entry.mjs", modules })])
+					.stream()
+					.pipeThrough(new CompressionStream("gzip")),
+			).arrayBuffer(),
+		);
+		const copies: string[] = [];
+		const exports = {
+			...runtimeExports,
+			ThemePreviewDatabase(options: {
+				props: ThemePreviewProps & { databaseName: string };
+			}) {
+				copies.push(options.props.databaseName);
+				return (
+					runtimeExports as unknown as {
+						ThemePreviewDatabase(options: {
+							props: ThemePreviewProps & { databaseName: string };
+						}): Fetcher;
+					}
+				).ThemePreviewDatabase(options);
+			},
+		};
+		const render = (
+			_candidate: CmsThemeCandidate,
+			_org: OrgInfo,
+			request: Request,
+		) =>
+			themePreviewEntrypoint(
+				env,
+				{ exports } as unknown as ExecutionContext,
+				candidate,
+				org,
+			).fetch(request);
+		for (let request = 0; request < 2; request++) {
+			const response = await serveThemePreview(
+				new Request(await url()),
+				env,
+				render,
+			);
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe(
+				"Published author:null:Published author",
+			);
+		}
+		expect(new Set(copies).size).toBe(2);
+		for (const name of copies) {
+			const copy = env.DB_DO.get(
+				env.DB_DO.idFromName(name),
+			) as unknown as DurableObjectStub<EmDashDB>;
+			expect(
+				await runInDurableObject(copy, (_instance, state) =>
+					state.storage.sql
+						.exec("SELECT name FROM sqlite_master WHERE name = 'users'")
+						.toArray(),
+				),
+			).toEqual([]);
+		}
+		expect(
+			await runInDurableObject(live, (_instance, state) =>
+				digestCmsSiteSqlite(state.storage.sql),
+			),
+		).toBe(before);
+		const rejected = await runInDurableObject(live, async (instance) => {
+			const errors: string[] = [];
+			for (const operation of [
+				() => instance.initializeThemePreviewDatabase(candidate.slug, []),
+				() => instance.deleteThemePreviewDatabase(copies[0]!),
+			]) {
+				try {
+					await operation();
+				} catch (cause) {
+					errors.push((cause as Error).message);
+				}
+			}
+			return errors;
+		});
+		expect(rejected).toEqual([
+			"Not a disposable theme preview database",
+			"Not a disposable theme preview database",
+		]);
 	});
 
 	test("expires candidates and removes only their isolated inputs", async () => {
