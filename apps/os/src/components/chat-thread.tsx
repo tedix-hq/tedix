@@ -14,6 +14,7 @@ import {
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import {
+	desktopDemoChatOff,
 	isLocalAiUnavailable,
 	isLocalWorkersAi,
 	localWorkersAiRouteLabel,
@@ -2407,10 +2408,14 @@ export function ChatThread({
 				<Alert variant="info">
 					<AlertTitle>Local exploration mode</AlertTitle>
 					<AlertDescription>
-						{LOCAL_AI_UNAVAILABLE}{" "}
-						<a href="https://docs.tedix.dev/getting-started/">
-							Set up local inference
-						</a>
+						{desktopDemoChatOff() ?? (
+							<>
+								{LOCAL_AI_UNAVAILABLE}{" "}
+								<a href="https://docs.tedix.dev/getting-started/">
+									Set up local inference
+								</a>
+							</>
+						)}
 					</AlertDescription>
 				</Alert>
 			) : null}

@@ -1,7 +1,12 @@
 import type { WorkspaceChatAttachmentInput } from "@tedix/api-contract/schemas/workspace-files";
 import { LoadingArea } from "@/components/loading-area";
 import { ConversationUsageRing } from "@/components/chat-usage-line";
-import { localWorkersAiRouteLabel } from "@/lib/local-inference";
+import {
+	desktopDemoChatOff,
+	isLocalAiUnavailable,
+	localWorkersAiRouteLabel,
+	LOCAL_AI_UNAVAILABLE,
+} from "@/lib/local-inference";
 import "./workspace-chat.css";
 import { RegisteredAppSchedule } from "./workspace-app-connections";
 import {
@@ -489,6 +494,9 @@ export function WorkspaceChat({
 		}
 	}, [client, conversationId, onConversationCreated, state.conversationId]);
 
+	const chatOff = isLocalAiUnavailable()
+		? (desktopDemoChatOff() ?? LOCAL_AI_UNAVAILABLE)
+		: null;
 	const send = useCallback(
 		(
 			text: string,
@@ -497,7 +505,7 @@ export function WorkspaceChat({
 			retryOfTurnId?: string,
 		) => {
 			const trimmed = text.trim();
-			if (!trimmed || !client || viewOnly) return;
+			if (!trimmed || !client || viewOnly || chatOff) return;
 			notePost(trimmed);
 			return client.sendTurn({
 				text: trimmed,
@@ -507,14 +515,14 @@ export function WorkspaceChat({
 				...(attachments?.length ? { attachments } : {}),
 			});
 		},
-		[client, sentModelId, notePost, pinnedTediId, viewOnly],
+		[client, sentModelId, notePost, pinnedTediId, viewOnly, chatOff],
 	);
 	// A workspace app asks the agent for the person using it: sent at once as
 	// their own message, in a new conversation or the one shown here. Only the
 	// workspace's own chat takes asks, never a chat with a pinned tedi.
 	const takeAsk = useRef<((ask: WorkspaceChatAsk) => string) | null>(null);
 	takeAsk.current =
-		client && !viewOnly && !pinnedTediId && !embedded
+		client && !chatOff && !viewOnly && !pinnedTediId && !embedded
 			? (ask) => {
 					const fresh = ask.conversation === "new" || conversationId === null;
 					if (fresh) onSelectConversation(null);
@@ -618,7 +626,7 @@ export function WorkspaceChat({
 					placeholder={placeholder}
 					label={composerLabel}
 					onSend={(text, attachments, tediId) => {
-						if (viewOnly) return undefined;
+						if (viewOnly || chatOff) return undefined;
 						onSelectConversation(null);
 						notePost(text);
 						return client?.sendTurn({
@@ -629,7 +637,7 @@ export function WorkspaceChat({
 							...(attachments?.length ? { attachments } : {}),
 						});
 					}}
-					disabledReason={viewOnly ? VIEW_ONLY_CHAT_REASON : null}
+					disabledReason={viewOnly ? VIEW_ONLY_CHAT_REASON : chatOff}
 					autoFocus={autoFocusComposer}
 					busy={false}
 					onStop={null}
@@ -816,9 +824,10 @@ export function WorkspaceChat({
 				disabledReason={
 					viewOnly
 						? VIEW_ONLY_CHAT_REASON
-						: connection.phase === "unavailable"
-							? "Workspace chat is unavailable on this origin. Use Home chat for now."
-							: null
+						: (chatOff ??
+							(connection.phase === "unavailable"
+								? "Workspace chat is unavailable on this origin. Use Home chat for now."
+								: null))
 				}
 				autoFocus={autoFocusComposer}
 				busy={running !== null || state.pendingSend !== null}

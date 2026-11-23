@@ -10,6 +10,14 @@ export function isLocalSession(): boolean {
 export const LOCAL_AI_UNAVAILABLE =
 	"AI replies are off. You can still use your workspaces and saved content. To enable Workers AI, restart Local Tedix with --inference and your Cloudflare account ID. AI Gateway is optional.";
 
+export function desktopDemoChatOff(): string | undefined {
+	if (
+		typeof navigator !== "undefined" &&
+		navigator.userAgent.includes("TedixDesktop/")
+	)
+		return "AI replies are off in this demo. Choose Demo and chat options above to set up chat.";
+}
+
 /** Build mode only: enabling inference does not prove provider connectivity. */
 export function isLocalAiUnavailable(): boolean {
 	return (

@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as localInference from "@/lib/local-inference";
 import {
 	afterEach,
 	beforeEach,
@@ -255,6 +256,26 @@ function mount(
 }
 
 describe("WorkspaceChat", () => {
+	it("turns off demo chat before a request can fail for lack of a model", () => {
+		const unavailable = vi
+			.spyOn(localInference, "isLocalAiUnavailable")
+			.mockReturnValue(true);
+		const demoMessage = vi
+			.spyOn(localInference, "desktopDemoChatOff")
+			.mockReturnValue("Choose Demo and chat options above to set up chat.");
+		try {
+			const fake = fakeClient("c1");
+			mount(fake);
+			const composer = host.querySelector("textarea");
+			expect(composer?.disabled).toBe(true);
+			expect(composer?.placeholder).toContain("Demo and chat options");
+			expect(fake.calls).not.toContainEqual(["sendTurn", expect.anything()]);
+		} finally {
+			unavailable.mockRestore();
+			demoMessage.mockRestore();
+		}
+	});
+
 	it.each(["Enter", "Tab"])(
 		"picks a highlighted tedi with %s without sending",
 		async (key) => {

@@ -1593,6 +1593,7 @@ function setMenu(): void {
 					...updateItems(true),
 					{ type: "separator" },
 					settingsItem,
+					{ label: "Set up this Mac…", click: () => openSetup() },
 					{ type: "separator" },
 					...(mac
 						? [
@@ -2163,16 +2164,21 @@ else if (process.argv.includes("--local-model")) {
 			if (name === "setup-window") return openSetup();
 			if (name === "check-updates") return checkForUpdates(true, true);
 			if (name === "apply-update") return applyUpdate();
-			if (name === "local-workspace") return openLocalTedix();
+			const returnToSetup = () => {
+				if (quitting) return;
+				localChosen = false;
+				openSetup();
+			};
+			if (name === "local-workspace") return openLocalTedix([], returnToSetup);
 			if (name === "start-local-workspace") {
 				if (
 					event.sender !== setupWindow?.webContents ||
 					!bundledLocalAvailable()
 				)
 					return;
-				openLocalTedix([], true);
 				// Trying it on this Mac: the Cloud window waits until asked for.
 				localChosen = true;
+				openLocalTedix([], returnToSetup);
 				setupWindow.close();
 				return;
 			}

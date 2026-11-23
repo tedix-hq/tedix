@@ -46,9 +46,33 @@ You can connect an app later in **Settings → Agents**.
   the saved ZIP. For local hooks, use the **Claude Code** connection.
   Plugin availability depends on your Claude account settings.
 - **Devin and OpenCode.** Choose **Connect** and finish browser sign-in.
-  Open the app to try the connection.
+  Tedix checks the connection after sign-in. Choose **Check connection** to
+  check an app you already connected.
 
 To let an agent run tasks on your Mac, use **Use for tasks** in Settings.
+
+## Try the demo
+
+Choose **Explore sample** to browse the demo project and files. It runs on
+this Mac without an account. Tedix shows what it is getting ready while the
+workspace opens.
+
+- **Chat on this Mac** opens a separate chat with a model running in Ollama
+  or LM Studio. Tedix looks for models automatically. Start either app with
+  a chat model if Tedix cannot find one.
+- **Connect Cloudflare** enables chat inside the demo workspace. Sign in to
+  Cloudflare, pick an account with Workers AI access, and enter your AI
+  Gateway name if you use one. Cloudflare may charge that account for demo
+  chat requests. Prompts and content used for the reply go to Cloudflare.
+
+Choose **Back to setup** or close the demo window to return to sign-in.
+
+## Run setup again
+
+Choose **Tedix → Set up this Mac…**. Replacing the app in Applications keeps
+your saved setup, including the local demo. To test the first launch from
+scratch, create a separate macOS user in **System Settings → Users & Groups**
+and open Tedix there. Your current macOS user keeps its demo and sign-ins.
 
 ## Quitting and updating
 
