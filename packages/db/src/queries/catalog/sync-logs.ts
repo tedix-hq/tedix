@@ -325,17 +325,19 @@ export async function markStaleFeedStoreListingsAsRemoved(
 
 	let totalDeleted = 0;
 	for (let i = 0; i < staleIds.length; i += 50) {
-		const result = await db
-			.delete(appCatalogStoreListings)
-			.where(
-				and(
-					eq(appCatalogStoreListings.source, source),
-					inArray(
-						appCatalogStoreListings.sourceAppId,
-						staleIds.slice(i, i + 50),
-					),
+		const result = await db.delete(appCatalogStoreListings).where(
+			and(
+				eq(appCatalogStoreListings.source, source),
+				inArray(
+					appCatalogStoreListings.catalogAppId,
+					db
+						.select({ id: appCatalog.id })
+						.from(appCatalog)
+						.where(sql`${appCatalog.status} != 'SUPPRESSED'`),
 				),
-			);
+				inArray(appCatalogStoreListings.sourceAppId, staleIds.slice(i, i + 50)),
+			),
+		);
 		totalDeleted += getAffectedRows(result);
 	}
 	return totalDeleted;

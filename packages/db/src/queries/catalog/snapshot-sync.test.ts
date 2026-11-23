@@ -16,7 +16,7 @@ import {
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		"CREATE TABLE app_catalog (id TEXT PRIMARY KEY, status TEXT DEFAULT 'ENABLED'); INSERT INTO app_catalog (id) VALUES ('app');",
+		"CREATE TABLE app_catalog (id TEXT PRIMARY KEY, status TEXT DEFAULT 'ENABLED'); INSERT INTO app_catalog (id) VALUES ('app'); INSERT INTO app_catalog VALUES ('hidden', 'SUPPRESSED');",
 	);
 	sqlite.exec(schemaDdl(appCatalogSyncLogs));
 	sqlite.exec(schemaDdl(appCatalogStoreListings));
@@ -69,6 +69,14 @@ describe("catalog snapshot persistence", () => {
 				rawData: { registry: { id: "official" } },
 			},
 			{
+				id: "hidden",
+				catalogAppId: "hidden",
+				lastSyncedAt: "2026-09-19T00:00:00Z",
+				source: "claude",
+				sourceAppId: "hidden-legacy-key",
+				rawData: { supplier: { id: "hidden" } },
+			},
+			{
 				id: "other-store",
 				catalogAppId: "app",
 				lastSyncedAt: "2026-09-19T00:00:00Z",
@@ -86,7 +94,7 @@ describe("catalog snapshot persistence", () => {
 			(await db.select().from(appCatalogStoreListings))
 				.map((row) => row.id)
 				.sort(),
-		).toEqual(["current", "official", "other-store"]);
+		).toEqual(["current", "hidden", "official", "other-store"]);
 		expect(
 			await markStaleFeedStoreListingsAsRemoved(db, "claude", "supplier", []),
 		).toBe(0);
