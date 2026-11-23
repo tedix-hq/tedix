@@ -4,10 +4,11 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
 	type AuthType,
 	appCatalog,
+	appCatalogStoreListings,
 	type CatalogApp,
 	type CatalogStoreListing,
 	type Category,
@@ -193,6 +194,56 @@ export async function syncCatalogAppFromStore(
 } | null> {
 	const now = new Date().toISOString();
 	const allowCreate = options.allowCreate ?? true;
+
+	// The catalog feed coalesces listings from multiple platforms into one row. Older
+	// imports used its merged row ID for Claude as well as ChatGPT.
+	const feed = input.rawData?.catalogFeed;
+	if (
+		input.source === "claude" &&
+		input.rawData?.snapshotFeed === "catalogFeed" &&
+		feed &&
+		typeof feed === "object" &&
+		!Array.isArray(feed) &&
+		typeof feed.id === "string" &&
+		feed.id !== input.sourceAppId &&
+		feed.directoryId === input.sourceAppId
+	) {
+		const legacy = await getCatalogStoreListingBySourceId(
+			db,
+			"claude",
+			feed.id,
+		);
+		const native = await getCatalogStoreListingBySourceId(
+			db,
+			"claude",
+			input.sourceAppId,
+		);
+		if (
+			legacy &&
+			(await getCatalogAppById(db, legacy.catalogAppId))?.status ===
+				"SUPPRESSED"
+		)
+			return null;
+		if (native) {
+			const app = await getCatalogAppById(db, native.catalogAppId);
+			if (!app || app.status === "SUPPRESSED") return null;
+			// A direct registry listing keeps its original metadata and owner.
+			if (native.rawData?.snapshotFeed !== "catalogFeed")
+				return { app, storeListing: native, created: false };
+		} else if (legacy?.rawData?.snapshotFeed === "catalogFeed") {
+			// Keep the original listing row and app association. A concurrent
+			// native insert can retry through the native branch above.
+			await db
+				.update(appCatalogStoreListings)
+				.set({ sourceAppId: input.sourceAppId })
+				.where(
+					and(
+						eq(appCatalogStoreListings.id, legacy.id),
+						eq(appCatalogStoreListings.sourceAppId, feed.id),
+					),
+				);
+		}
+	}
 
 	// Compute endpoint normalization for MCP apps
 	let mcpEndpointNormalized: string | null = null;

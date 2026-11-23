@@ -36,6 +36,32 @@ describe("catalog removal-request suppression", () => {
 		db = migratedDb();
 	});
 
+	it("preserves direct Claude metadata and a suppressed legacy key on catalog feed rekey", async () => {
+		const native = {
+			...listing,
+			source: "claude" as const,
+			sourceAppId: "native-id",
+		};
+		const saved = await syncCatalogAppFromStore(db, native);
+		const imported = {
+			...native,
+			description: "Imported description",
+			rawData: {
+				snapshotFeed: "catalogFeed",
+				feed: { id: "old-key", directoryId: native.sourceAppId },
+			},
+		};
+		const replay = await syncCatalogAppFromStore(db, imported);
+		expect(replay?.storeListing).toEqual(saved?.storeListing);
+		const legacy = await syncCatalogAppFromStore(db, {
+			...native,
+			sourceAppId: "old-key",
+			baseUrl: "https://legacy.test/mcp",
+		});
+		await updateCatalogApp(db, legacy.app.id, { status: "SUPPRESSED" });
+		expect(await syncCatalogAppFromStore(db, imported)).toBeNull();
+	});
+
 	it("scrubs personal fields from the app and its store listings", async () => {
 		const seeded = await syncCatalogAppFromStore(db, listing);
 		const id = seeded.app.id;
