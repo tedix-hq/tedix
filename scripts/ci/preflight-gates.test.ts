@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -137,6 +138,29 @@ test("a branch push base cannot hide a newer canonical migration", () =>
 		).toBe(1);
 	}));
 
+test("check-order rejects a commit that renames a canonical migration", () =>
+	fixture((dir, git) => {
+		const base = git("rev-parse", "HEAD");
+		rmSync(join(dir, "packages/db/drizzle", latest), {
+			recursive: true,
+			force: true,
+		});
+		addMigration(dir, "20260104000000_renamed");
+		git("add", ".");
+		git("commit", "-m", "rename");
+		const result = check(
+			dir,
+			"--check-order",
+			"--base",
+			base,
+			"--head",
+			"HEAD",
+		);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(`${latest}/migration.sql`);
+		expect(result.stderr).toContain("renamed or removed");
+	}));
+
 test("restamp refuses dirty trees and multiple unpublished commits without touching migration names", () =>
 	fixture((dir, git) => {
 		addMigration(dir, old);
@@ -204,6 +228,54 @@ test(
 				).toContain('"id":"stable"');
 			}
 			expect(check(dir, "--restamp", latest).status).toBe(1);
+		}),
+	30000,
+);
+
+test(
+	"restamp run from packages/db in a worktree never renames canonical migrations",
+	() =>
+		fixture((dir, git) => {
+			addMigration(dir, old);
+			writeFileSync(
+				join(dir, "packages/db/migration-integrity.json"),
+				JSON.stringify({
+					version: 1,
+					migrations: [old, latest].map((name) => ({
+						name: `${name}/migration.sql`,
+						sha256: "a".repeat(64),
+					})),
+				}),
+			);
+			git("add", ".");
+			git("commit", "-m", "draft");
+			const worktree = join(dir, "linked");
+			git("worktree", "add", "--detach", worktree, "HEAD");
+
+			const result = check(join(worktree, "packages/db"), "--restamp", old);
+			expect(result.status).toBe(0);
+			expect(existsSync(join(worktree, "packages/db/drizzle", latest))).toBe(
+				true,
+			);
+			expect(existsSync(join(worktree, "packages/db/drizzle", old))).toBe(
+				false,
+			);
+			const updated = JSON.parse(
+				readFileSync(
+					join(worktree, "packages/db/migration-integrity.json"),
+					"utf8",
+				),
+			) as { migrations: { name: string }[] };
+			expect(
+				updated.migrations.some(
+					(entry) => entry.name === `${latest}/migration.sql`,
+				),
+			).toBe(true);
+			expect(
+				updated.migrations.some(
+					(entry) => entry.name === `${old}/migration.sql`,
+				),
+			).toBe(false);
 		}),
 	30000,
 );

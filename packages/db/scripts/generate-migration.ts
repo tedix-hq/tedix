@@ -42,15 +42,23 @@ function git(args: string[], cwd = process.cwd()): string {
 	return result.stdout.trim();
 }
 
-function canonicalMain(): string {
-	const remotes = git(["remote"]).split("\n");
+function gitOk(args: string[], cwd: string): boolean {
+	const result = spawnSync("git", args, {
+		cwd,
+		encoding: "utf8",
+		env: detachedGitEnv(),
+	});
+	return result.status === 0;
+}
+
+function canonicalMain(repoRoot: string): string {
+	const remotes = git(["remote"], repoRoot).split("\n");
 	for (const remote of remotes) {
-		if (pushesToCanonicalRepo(git(["remote", "get-url", remote]))) {
-			return git([
-				"rev-parse",
-				"--verify",
-				`refs/remotes/${remote}/main^{commit}`,
-			]);
+		if (pushesToCanonicalRepo(git(["remote", "get-url", remote], repoRoot))) {
+			return git(
+				["rev-parse", "--verify", `refs/remotes/${remote}/main^{commit}`],
+				repoRoot,
+			);
 		}
 	}
 	throw new Error(
@@ -58,9 +66,12 @@ function canonicalMain(): string {
 	);
 }
 
-function migrationNamesAt(revision: string): string[] {
+function migrationNamesAt(repoRoot: string, revision: string): string[] {
 	if (revision === NULL_SHA) return [];
-	return git(["ls-tree", "--name-only", `${revision}:${migrationDirectory}`])
+	return git(
+		["ls-tree", "--name-only", `${revision}:${migrationDirectory}`],
+		repoRoot,
+	)
 		.split("\n")
 		.filter((name) => /^\d{14}_[^/]+$/.test(name))
 		.map((name) => `${name}/migration.sql`)
@@ -68,14 +79,30 @@ function migrationNamesAt(revision: string): string[] {
 }
 
 function checkMigrationPushOrder(argv: string[]): void {
-	const main = canonicalMain();
-	const canonical = migrationNamesAt(main);
+	const root = git(["rev-parse", "--show-toplevel"]);
+	const main = canonicalMain(root);
+	const canonical = new Set(migrationNamesAt(root, main));
 	const ranges = parsePushRanges(argv);
 	if (!ranges.length) ranges.push({ base: main, head: "HEAD" });
 	for (const { base, head } of ranges) {
-		const before = migrationNamesAt(base);
-		const known = new Set(before);
-		const added = migrationNamesAt(head).filter((name) => !known.has(name));
+		const before = migrationNamesAt(root, base);
+		const after = migrationNamesAt(root, head);
+		const beforeNames = new Set(before);
+		const afterNames = new Set(after);
+		if (
+			base !== NULL_SHA &&
+			gitOk(["merge-base", "--is-ancestor", base, head], root)
+		) {
+			const removedPublished = before.filter(
+				(name) => !afterNames.has(name) && canonical.has(name),
+			);
+			if (removedPublished.length) {
+				throw new Error(
+					`${removedPublished.join(", ")}: migration(s) already on canonical main were renamed or removed. Published migrations are append-only; restore the canonical name and add a new migration instead.`,
+				);
+			}
+		}
+		const added = after.filter((name) => !beforeNames.has(name));
 		// The hook's base can be a branch or a new ref. Neither may hide a
 		// migration already landed on canonical main.
 		assertMigrationOrder(added, [...new Set([...canonical, ...before])].sort());
@@ -89,7 +116,7 @@ function restampMigration(name: string): void {
 	if (!/^\d{14}_[a-zA-Z0-9_-]+$/.test(name))
 		throw new Error("Expected a migration directory name");
 	const root = git(["rev-parse", "--show-toplevel"]);
-	const main = canonicalMain();
+	const main = canonicalMain(root);
 	if (git(["status", "--porcelain"], root))
 		throw new Error(
 			"Restamp requires a clean worktree; commit your changes first.",
@@ -100,7 +127,7 @@ function restampMigration(name: string): void {
 			"Restamp amends only a single unpublished commit. Squash your unpublished commits, then retry; published commits are never amended.",
 		);
 	}
-	const recorded = migrationNamesAt(main);
+	const recorded = migrationNamesAt(root, main);
 	if (recorded.includes(`${name}/migration.sql`))
 		throw new Error(
 			`${name}: already on canonical main; applied history cannot be restamped`,
