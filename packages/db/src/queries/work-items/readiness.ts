@@ -299,7 +299,7 @@ function evaluateWorkItemReadiness(
 			detail: facts.spentCreditBudget
 				? `The ${facts.spentCreditBudget.scopeType.replace("_", " ")} credit budget is used up; raise its limit to continue`
 				: !hasBudgetEnvelope
-					? "No applicable budget envelope"
+					? "No credit budget is used up and no per-Attempt budget applies"
 					: facts.budgetAdmissible === undefined
 						? "Applicable budget envelope was not evaluated"
 						: facts.budgetAdmissible

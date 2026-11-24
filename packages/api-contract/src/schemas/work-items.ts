@@ -271,6 +271,9 @@ export const WorkBudgetEnvelopeSchema = z.object({
 		),
 	limitMicros: z.number().int().nonnegative(),
 	reservationMicros: z.number().int().nonnegative(),
+	enabled: z
+		.boolean()
+		.describe("false when the budget was turned off and no longer applies."),
 	createdAt: z.iso.datetime(),
 	updatedAt: z.iso
 		.datetime()

@@ -191,6 +191,7 @@ function alertDecision(
 					? "None; spending continues."
 					: "None until the budget is used up.",
 			reasoning: story,
+			informational: !stopped,
 			options,
 		}),
 	};

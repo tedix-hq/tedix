@@ -563,7 +563,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				.get(orgId) as Record<string, unknown>,
 			budget = db
 				.prepare(
-					"SELECT id,org_id,scope_type,scope_id,currency,mode,alerted_percent,limit_micros,reservation_micros,created_at,updated_at,version FROM work_budget_envelopes WHERE org_id=?",
+					"SELECT id,org_id,scope_type,scope_id,currency,mode,alerted_percent,limit_micros,reservation_micros,enabled,created_at,updated_at,version FROM work_budget_envelopes WHERE org_id=?",
 				)
 				.get(orgId) as Record<string, unknown>;
 		expect(
@@ -590,6 +590,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				alertedPercent: budget.alerted_percent,
 				limitMicros: budget.limit_micros,
 				reservationMicros: budget.reservation_micros,
+				enabled: budget.enabled === 1,
 				createdAt: budget.created_at,
 				updatedAt: budget.updated_at,
 				version: budget.version,

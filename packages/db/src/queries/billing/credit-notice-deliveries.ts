@@ -458,6 +458,7 @@ export async function deliverCreditNoticeDeckCard(
 				? "Tedis and code runs stay paused until the month resets."
 				: "At 100%, tedis and code runs pause until the month resets.",
 		reasoning: copy.story,
+		informational: true,
 		options: [
 			{
 				id: "seen",

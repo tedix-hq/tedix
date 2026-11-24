@@ -230,6 +230,7 @@ function budgetEnvelopeOutput(row: {
 	alertedPercent: number;
 	limitMicros: number;
 	reservationMicros: number;
+	enabled: boolean;
 	createdAt: string;
 	updatedAt: string | null;
 	version: number;
@@ -1053,10 +1054,16 @@ export const putBudgetEnvelopeProcedure = factoryOs.putBudgetEnvelope.handler(
 						limitMicros: input.limitMicros,
 						reservationMicros: input.reservationMicros,
 						mode: input.mode,
+						enabled: input.enabled,
 						now,
 					}),
 				);
 			}
+			if (input.enabled === false)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"There is no budget to turn off at this scope",
+				);
 			if (input.expectedVersion !== undefined) {
 				throw createError(
 					ErrorCodes.CONFLICT,
@@ -1143,6 +1150,7 @@ export const listBudgetEnvelopesProcedure =
 			at: observedAt,
 			cursor: input?.cursor,
 			limit,
+			includeDisabled: input?.includeDisabled,
 		});
 		// A credit budget's spend lives in the organization wallet.
 		const creditIds = page.data

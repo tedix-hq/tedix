@@ -1061,6 +1061,12 @@ export const workItemsContract = oc
 							),
 						limitMicros: z.number().int().nonnegative(),
 						reservationMicros: z.number().int().nonnegative(),
+						enabled: z
+							.boolean()
+							.optional()
+							.describe(
+								"false turns an existing budget off: nothing counts against it or waits on it. true turns it back on. Omit to leave it as it is.",
+							),
 						expectedVersion: z
 							.number()
 							.int()
@@ -1122,6 +1128,10 @@ export const workItemsContract = oc
 			.input(
 				z
 					.object({
+						includeDisabled: z
+							.boolean()
+							.optional()
+							.describe("true also lists budgets that were turned off."),
 						cursor: z
 							.uuid()
 							.optional()

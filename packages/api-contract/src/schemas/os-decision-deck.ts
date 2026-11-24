@@ -57,81 +57,96 @@ export const DecisionSourcesSchema = z
 	);
 
 /** Display and learning context; never an execution or consent grant. */
-export const DecisionEnvelopeSchema = z.strictObject({
-	version: z.literal(1),
-	kind: DecisionKindSchema,
-	classId: z.string().trim().min(1).max(100),
-	proposal: z.string().trim().min(1).max(500),
-	whyNow: z.string().min(1).max(2000),
-	recommendation: z.string().min(1).max(4000),
-	preview: z.strictObject({ body: z.string().min(1).max(40000) }).optional(),
-	reversibility: z.enum(["one_way", "two_way", "unknown"]),
-	sources: DecisionSourcesSchema.optional(),
-	tasteOrStrategy: z.boolean().default(false),
-	protectedEffects: z.array(ProtectedEffectSchema).max(7).default([]),
-	blastRadius: z.string().min(1).max(1000),
-	confidence: z.number().min(0).max(1).nullable(),
-	costOfWaiting: z.string().min(1).max(1000),
-	expiresAt: z.iso.datetime().optional(),
-	nobodyOn: z.boolean().optional(),
-	reasoning: z.string().min(1).max(8000),
-	lessons: z
-		.array(
-			z.strictObject({
-				id: z.string().min(1).max(200),
-				text: z.string().min(1).max(2000),
-			}),
+export const DecisionEnvelopeSchema = z
+	.strictObject({
+		version: z.literal(1),
+		kind: DecisionKindSchema,
+		classId: z.string().trim().min(1).max(100),
+		proposal: z.string().trim().min(1).max(500),
+		whyNow: z.string().min(1).max(2000),
+		recommendation: z.string().min(1).max(4000),
+		preview: z.strictObject({ body: z.string().min(1).max(40000) }).optional(),
+		reversibility: z.enum(["one_way", "two_way", "unknown"]),
+		sources: DecisionSourcesSchema.optional(),
+		tasteOrStrategy: z.boolean().default(false),
+		protectedEffects: z.array(ProtectedEffectSchema).max(7).default([]),
+		blastRadius: z.string().min(1).max(1000),
+		confidence: z.number().min(0).max(1).nullable(),
+		costOfWaiting: z.string().min(1).max(1000),
+		expiresAt: z.iso.datetime().optional(),
+		nobodyOn: z.boolean().optional(),
+		reasoning: z.string().min(1).max(8000),
+		lessons: z
+			.array(
+				z.strictObject({
+					id: z.string().min(1).max(200),
+					text: z.string().min(1).max(2000),
+				}),
+			)
+			.max(20)
+			.default([]),
+		options: z
+			.array(
+				z.strictObject({
+					id: z
+						.string()
+						.min(1)
+						.max(100)
+						.refine(
+							(id) => id !== "change",
+							"change is reserved for the editor",
+						),
+					label: z.string().min(1).max(120),
+					intent: z.enum(["approve", "reject", "delegate", "later"]),
+					consequence: z.string().min(1).max(2000),
+					cost: z.string().min(1).max(1000),
+					effect: DecisionEffectSchema.optional(),
+				}),
+			)
+			.min(2)
+			.max(5)
+			.refine(
+				(options) =>
+					options.length < 5 ||
+					options.some((option) => option.intent === "reject"),
+				"A fifth option must include a decline action",
+			)
+			.refine(
+				(options) =>
+					new Set(options.map((option) => option.id)).size === options.length,
+				"Option ids must be unique",
+			),
+		informational: z
+			.boolean()
+			.optional()
+			.describe(
+				"A notice with nothing to approve or decline; it keeps only its own options.",
+			),
+	})
+	.transform((decision) => {
+		const { options } = decision;
+		if (
+			decision.informational ||
+			options.some((option) => option.intent === "reject")
 		)
-		.max(20)
-		.default([]),
-	options: z
-		.array(
-			z.strictObject({
-				id: z
-					.string()
-					.min(1)
-					.max(100)
-					.refine((id) => id !== "change", "change is reserved for the editor"),
-				label: z.string().min(1).max(120),
-				intent: z.enum(["approve", "reject", "delegate", "later"]),
-				consequence: z.string().min(1).max(2000),
-				cost: z.string().min(1).max(1000),
-				effect: DecisionEffectSchema.optional(),
-			}),
-		)
-		.min(2)
-		.max(5)
-		.refine(
-			(options) =>
-				options.length < 5 ||
-				options.some((option) => option.intent === "reject"),
-			"A fifth option must include a decline action",
-		)
-		.refine(
-			(options) =>
-				new Set(options.map((option) => option.id)).size === options.length,
-			"Option ids must be unique",
-		)
-		.transform((options) => {
-			if (options.some((option) => option.intent === "reject")) return options;
-			let id = "not-needed";
-			while (options.some((option) => option.id === id)) id += "-no";
-			const withDecline = [...options];
-			withDecline.splice(
-				options.findIndex((option) => option.intent === "approve") + 1,
-				0,
-				{
-					id,
-					label: "No / Not needed",
-					intent: "reject",
-					consequence:
-						"Declines this request without approving its proposed action.",
-					cost: "No proposed action is authorized.",
-				},
-			);
-			return withDecline;
-		}),
-});
+			return decision;
+		let id = "not-needed";
+		while (options.some((option) => option.id === id)) id += "-no";
+		const withDecline = [...options];
+		withDecline.splice(
+			options.findIndex((option) => option.intent === "approve") + 1,
+			0,
+			{
+				id,
+				label: "No / Not needed",
+				intent: "reject",
+				consequence:
+					"Declines this request without approving its proposed action.",
+				cost: "No proposed action is authorized.",
+			},
+		);
+		return { ...decision, options: withDecline };
+	});
 export type DecisionEnvelope = z.infer<typeof DecisionEnvelopeSchema>;
 
 export function decisionNeedsPerson(decision: DecisionEnvelope): boolean {
