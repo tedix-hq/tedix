@@ -7,6 +7,7 @@ const markAttempted = vi.hoisted(() => vi.fn());
 const deleteClients = vi.hoisted(() => vi.fn());
 const deleteClient = vi.hoisted(() => vi.fn());
 const searchClients = vi.hoisted(() => vi.fn());
+const loadServers = vi.hoisted(() => vi.fn());
 
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("../rpc/routers/descope-aih-env", () => ({
@@ -19,6 +20,7 @@ vi.mock("@tedix/auth/aih-client", () => ({
 	deleteDescopeMcpServerClients: deleteClients,
 	deleteDescopeMcpServerClient: deleteClient,
 	searchDescopeMcpServerClients: searchClients,
+	loadAllDescopeMcpServers: loadServers,
 }));
 vi.mock("@tedix/db/queries/external-agent-identity/mcp-credentials", () => ({
 	listReapableExternalAgentMcpCredentials: listReapable,
@@ -168,6 +170,7 @@ describe("external-agent MCP client reaper", () => {
 				? Promise.reject(new Error("list timeout"))
 				: Promise.resolve([]),
 		);
+		loadServers.mockResolvedValue([{ id: "srv-a" }, { id: "srv-b" }]);
 		deleteClients.mockResolvedValue(undefined);
 		reapCounts();
 
@@ -179,6 +182,93 @@ describe("external-agent MCP client reaper", () => {
 			listFailures: 2,
 			missingMarkedDone: 0,
 			deleted: 2,
+		});
+	});
+
+	it("marks every candidate of a server Descope no longer has as done, loading servers once", async () => {
+		listReapable.mockResolvedValue([
+			...rows("MS-dead", "d1", "d2"),
+			...rows("MS-dead-too", "e1"),
+			...rows("RS-live", "l1", "l-gone"),
+		]);
+		searchClients.mockImplementation((_env, { mcpServerId }) =>
+			Promise.resolve(mcpServerId === "RS-live" ? listed("l1") : []),
+		);
+		loadServers.mockResolvedValue([{ id: "RS-live" }, { id: "RS-other" }]);
+		deleteClients.mockResolvedValue(undefined);
+		reapCounts();
+
+		const result = await tick();
+
+		expect(loadServers).toHaveBeenCalledTimes(1);
+		expect(deleteClients).toHaveBeenCalledTimes(1);
+		expect(deleteClients).toHaveBeenCalledWith(expect.anything(), {
+			ids: ["l1"],
+			mcpServerId: "RS-live",
+		});
+		expect(reapedIds()).toEqual(["d1", "d2", "e1", "l-gone", "l1"]);
+		expect(result).toMatchObject({
+			serverGoneMarkedDone: 3,
+			missingMarkedDone: 4,
+			listFailures: 0,
+			deleted: 1,
+			managementCalls: 5,
+		});
+	});
+
+	it("keeps the guarded fallback when the server list fails", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		listReapable.mockResolvedValue(rows("MS-maybe", "m1"));
+		searchClients.mockResolvedValue([]);
+		loadServers.mockRejectedValue(new Error("servers [500 Server Error]"));
+		deleteClients.mockResolvedValue(undefined);
+		reapCounts();
+
+		const result = await tick();
+
+		expect(deleteClients).toHaveBeenCalledWith(expect.anything(), {
+			ids: ["m1"],
+			mcpServerId: "MS-maybe",
+		});
+		expect(result).toMatchObject({
+			serverGoneMarkedDone: 0,
+			listFailures: 1,
+			deleted: 1,
+		});
+	});
+
+	it("gives each server a share of the call budget", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const stuck = Array.from({ length: 100 }, (_, i) => `s${i}`);
+		listReapable.mockResolvedValue([
+			...rows("srv-stuck", ...stuck),
+			...rows("srv-live", "l1"),
+		]);
+		searchClients.mockImplementation((_env, { mcpServerId }) =>
+			Promise.resolve(
+				mcpServerId === "srv-stuck" ? listed(...stuck) : listed("l1"),
+			),
+		);
+		deleteClients.mockImplementation((_env, { mcpServerId }) =>
+			mcpServerId === "srv-stuck"
+				? Promise.reject(new Error("batch [500 Server Error]"))
+				: Promise.resolve(),
+		);
+		deleteClient.mockRejectedValue(new Error("single [500 Server Error]"));
+		reapCounts();
+
+		const result = await tick();
+
+		// srv-stuck spends its 30 calls; srv-live still gets its list and delete.
+		expect(deleteClients).toHaveBeenCalledWith(expect.anything(), {
+			ids: ["l1"],
+			mcpServerId: "srv-live",
+		});
+		expect(reapedIds()).toEqual(["l1"]);
+		expect(result).toMatchObject({
+			deleteFailures: 28,
+			deferred: 72,
+			managementCalls: 32,
 		});
 	});
 

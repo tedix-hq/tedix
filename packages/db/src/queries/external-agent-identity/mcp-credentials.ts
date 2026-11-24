@@ -238,39 +238,69 @@ export async function revokeExternalAgentMcpCredential(
  * List credentials whose Descope client should be deleted: expired active
  * ones, and revoked ones whose deletion never finished. Only clients minted
  * for a credential row qualify, never an M2M principal's binding client.
- * Rows that never failed come first, then the longest-ago failure, so a batch
- * Descope keeps rejecting cannot block the rest of the queue. Bounded so
- * cleanup drains over successive reaper ticks.
+ *
+ * The run is shared fairly across MCP servers: each server with pending rows
+ * gets an equal part of `limit`, and a part a small server does not need goes
+ * to the others, so one server's backlog cannot hide the rest. Within a
+ * server, rows that never failed come first, then the longest-ago failure,
+ * then the oldest expiry, so a batch Descope keeps rejecting cannot block the
+ * queue. Bounded so cleanup drains over successive reaper ticks.
  */
 export async function listReapableExternalAgentMcpCredentials(
 	db: DbClient,
 	params: { expiredBefore: string; limit: number },
 ): Promise<Array<{ clientRecordId: string; mcpServerId: string }>> {
-	return db
+	const reapable = and(
+		isNull(externalAgentMcpCredentials.providerCleanupAt),
+		or(
+			and(
+				eq(externalAgentMcpCredentials.status, "active"),
+				lt(externalAgentMcpCredentials.expiresAt, params.expiredBefore),
+			),
+			eq(externalAgentMcpCredentials.status, "revoked"),
+		),
+		sql`NOT EXISTS (SELECT 1 FROM ${externalAgentPrincipals} AS binding_principal WHERE binding_principal.organization_id = ${externalAgentMcpCredentials.organizationId} AND binding_principal.credential_binding_type = 'aih_m2m' AND binding_principal.credential_binding_id = ${externalAgentMcpCredentials.clientRecordId})`,
+	);
+	const pendingByServer = await db
 		.select({
-			clientRecordId: externalAgentMcpCredentials.clientRecordId,
 			mcpServerId: externalAgentMcpCredentials.mcpServerId,
+			pending: sql<number>`count(*)`,
 		})
 		.from(externalAgentMcpCredentials)
-		.where(
-			and(
-				isNull(externalAgentMcpCredentials.providerCleanupAt),
-				or(
+		.where(reapable)
+		.groupBy(externalAgentMcpCredentials.mcpServerId);
+	// Smallest backlog first, so its unused share passes to the larger ones.
+	pendingByServer.sort((left, right) => left.pending - right.pending);
+	const rows: Array<{ clientRecordId: string; mcpServerId: string }> = [];
+	let serversLeft = pendingByServer.length;
+	for (const { mcpServerId, pending } of pendingByServer) {
+		const share = Math.min(
+			pending,
+			Math.floor((params.limit - rows.length) / serversLeft--),
+		);
+		if (share <= 0) continue;
+		rows.push(
+			...(await db
+				.select({
+					clientRecordId: externalAgentMcpCredentials.clientRecordId,
+					mcpServerId: externalAgentMcpCredentials.mcpServerId,
+				})
+				.from(externalAgentMcpCredentials)
+				.where(
 					and(
-						eq(externalAgentMcpCredentials.status, "active"),
-						lt(externalAgentMcpCredentials.expiresAt, params.expiredBefore),
+						eq(externalAgentMcpCredentials.mcpServerId, mcpServerId),
+						reapable,
 					),
-					eq(externalAgentMcpCredentials.status, "revoked"),
-				),
-				sql`NOT EXISTS (SELECT 1 FROM ${externalAgentPrincipals} AS binding_principal WHERE binding_principal.organization_id = ${externalAgentMcpCredentials.organizationId} AND binding_principal.credential_binding_type = 'aih_m2m' AND binding_principal.credential_binding_id = ${externalAgentMcpCredentials.clientRecordId})`,
-			),
-		)
-		.orderBy(
-			sql`${externalAgentMcpCredentials.providerCleanupAttemptedAt} IS NOT NULL`,
-			externalAgentMcpCredentials.providerCleanupAttemptedAt,
-			externalAgentMcpCredentials.expiresAt,
-		)
-		.limit(params.limit);
+				)
+				.orderBy(
+					sql`${externalAgentMcpCredentials.providerCleanupAttemptedAt} IS NOT NULL`,
+					externalAgentMcpCredentials.providerCleanupAttemptedAt,
+					externalAgentMcpCredentials.expiresAt,
+				)
+				.limit(share)),
+		);
+	}
+	return rows;
 }
 
 /**

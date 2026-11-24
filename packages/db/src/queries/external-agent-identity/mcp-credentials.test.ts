@@ -229,9 +229,10 @@ describe("listReapableExternalAgentMcpCredentials", () => {
 			limit: 10,
 		});
 
+		// The smaller server comes first; within srv-a the failed row is last.
 		expect(reapable.map((r) => r.clientRecordId)).toEqual([
-			"revoked-unfinished",
 			"expired-new",
+			"revoked-unfinished",
 			"expired-old",
 		]);
 		expect(reapable[2]).toEqual({
@@ -256,6 +257,48 @@ describe("listReapableExternalAgentMcpCredentials", () => {
 			limit: 2,
 		});
 		expect(reapable).toHaveLength(2);
+	});
+
+	it("shares the limit across servers so one backlog cannot hide another", async () => {
+		const { sqlite, db } = fixture();
+		// The dead server's rows are all older than the live server's.
+		for (let i = 0; i < 8; i++)
+			insert(sqlite, {
+				id: `dead-${i}`,
+				client: `dead-${i}`,
+				server: "MS-dead",
+				status: "revoked",
+				expiresAt: `2026-07-0${i + 1}T00:00:00.000Z`,
+				revokedAt: "2026-07-10T00:00:00.000Z",
+			});
+		for (let i = 0; i < 8; i++)
+			insert(sqlite, {
+				id: `live-${i}`,
+				client: `live-${i}`,
+				server: "RS-live",
+				status: "active",
+				expiresAt: `2026-08-0${i + 1}T00:00:00.000Z`,
+			});
+		insert(sqlite, {
+			id: "small",
+			client: "small",
+			server: "RS-small",
+			status: "active",
+			expiresAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const reapable = await listReapableExternalAgentMcpCredentials(db, {
+			expiredBefore: NOW,
+			limit: 9,
+		});
+
+		const perServer = (server: string) =>
+			reapable.filter((row) => row.mcpServerId === server).length;
+		expect(reapable).toHaveLength(9);
+		// RS-small needs 1 of its 3; the other two split the rest 4 and 4.
+		expect(perServer("RS-small")).toBe(1);
+		expect(perServer("RS-live")).toBe(4);
+		expect(perServer("MS-dead")).toBe(4);
 	});
 });
 

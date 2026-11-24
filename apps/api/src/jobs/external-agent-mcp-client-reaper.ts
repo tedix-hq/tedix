@@ -20,7 +20,9 @@
  * Descope fails a whole batch delete when one id no longer exists (400
  * E113118), so each run first lists each server's clients once. Candidates
  * missing from that list are recorded as cleaned without a Descope call; only
- * the rest are batch-deleted. A batch that still fails is retried one client
+ * the rest are batch-deleted. An empty list is trusted only when the
+ * project's MCP server list (loaded once a run) no longer has that server;
+ * then every candidate of the server is recorded as cleaned. A batch that still fails is retried one client
  * at a time. Rows left unresolved, or deferred by the call budget, are marked
  * so they move to the back of the queue and the rest keeps draining. A
  * cleanup timestamp is recorded only after deletion succeeds or Descope shows
@@ -71,6 +73,7 @@ export async function runExternalAgentMcpClientReaperTick(
 	const {
 		deleteDescopeMcpServerClient,
 		deleteDescopeMcpServerClients,
+		loadAllDescopeMcpServers,
 		searchDescopeMcpServerClients,
 	} = await import("@tedix/auth/aih-client");
 	const {
@@ -116,6 +119,9 @@ export async function runExternalAgentMcpClientReaperTick(
 	}
 
 	let calls = 0;
+	// Each server gets an equal share of what is left of the call budget, so
+	// one server's backlog cannot starve the others.
+	let budget = MAX_CALLS_PER_TICK;
 	const call = async <T>(operation: () => Promise<T>): Promise<T> => {
 		if (calls > 0) await sleep(CALL_INTERVAL_MS);
 		calls++;
@@ -126,13 +132,41 @@ export async function runExternalAgentMcpClientReaperTick(
 	const unresolvedClientRecordIds: string[] = [];
 	let listed = 0;
 	let listFailures = 0;
+	let serverGoneMarkedDone = 0;
+	// Loaded at most once a run, and only when a client list comes back empty.
+	let liveServerIds: Promise<Set<string> | null> | undefined;
+	const serverStillExists = async (
+		mcpServerId: string,
+	): Promise<boolean | null> => {
+		liveServerIds ??= call(() => loadAllDescopeMcpServers(aihEnv)).then(
+			(servers) => {
+				const ids = new Set(servers.map((server) => server.id));
+				// An empty answer is not trusted to mean every server is gone.
+				return ids.size ? ids : null;
+			},
+			(error) => {
+				console.error(
+					log({ event: "server_list_failed", ...describeDescopeError(error) }),
+				);
+				return null;
+			},
+		);
+		const ids = await liveServerIds;
+		return ids ? ids.has(mcpServerId) : null;
+	};
 	let batchFailures = 0;
 	let alreadyGone = 0;
 	let deleteFailures = 0;
 	let deferred = 0;
+	let serversLeft = idsByServer.size;
 	for (const [mcpServerId, ids] of idsByServer) {
+		budget = Math.min(
+			MAX_CALLS_PER_TICK,
+			calls +
+				Math.max(1, Math.floor((MAX_CALLS_PER_TICK - calls) / serversLeft--)),
+		);
 		let pending = ids;
-		if (calls < MAX_CALLS_PER_TICK) {
+		if (calls < budget) {
 			try {
 				const existing = new Set(
 					(
@@ -148,9 +182,16 @@ export async function runExternalAgentMcpClientReaperTick(
 						)
 					).map((client) => client.id),
 				);
-				// An empty answer is not trusted to mean every candidate is gone.
-				if (existing.size === 0)
+				if (existing.size === 0) {
+					// No clients at all: either the server is gone, and so are all
+					// its clients, or the answer is not trusted.
+					if ((await serverStillExists(mcpServerId)) === false) {
+						serverGoneMarkedDone += ids.length;
+						missingClientRecordIds.push(...ids);
+						continue;
+					}
 					throw new Error("MCP server client list came back empty");
+				}
 				listed += existing.size;
 				pending = ids.filter((id) => existing.has(id));
 				missingClientRecordIds.push(...ids.filter((id) => !existing.has(id)));
@@ -168,7 +209,7 @@ export async function runExternalAgentMcpClientReaperTick(
 		}
 		for (let i = 0; i < pending.length; i += DELETE_CHUNK) {
 			const chunk = pending.slice(i, i + DELETE_CHUNK);
-			if (calls >= MAX_CALLS_PER_TICK) {
+			if (calls >= budget) {
 				deferred += chunk.length;
 				unresolvedClientRecordIds.push(...chunk);
 				continue;
@@ -192,7 +233,7 @@ export async function runExternalAgentMcpClientReaperTick(
 			}
 			// One bad id must not hold back the others: delete one by one.
 			for (const id of chunk) {
-				if (calls >= MAX_CALLS_PER_TICK) {
+				if (calls >= budget) {
 					deferred++;
 					unresolvedClientRecordIds.push(id);
 					continue;
@@ -259,6 +300,7 @@ export async function runExternalAgentMcpClientReaperTick(
 		candidates: reapable.length,
 		listed,
 		listFailures,
+		serverGoneMarkedDone,
 		missingMarkedDone: missingClientRecordIds.length,
 		deleted: deletedClientRecordIds.length,
 		alreadyGone,
