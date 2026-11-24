@@ -28,6 +28,9 @@ a page and the code disagree, the code wins; fix or delete the page.
   migration gates.
 - [Shared core database](core-database-decision.md): why the core stays on
   D1 for now, and the measured triggers that would move it to Postgres.
+- [Core Postgres cutover](platform/core-postgres-cutover.md): the Hyperdrive
+  latency proof, what moves where, the Drizzle port lanes, data copy,
+  switch window and rollback.
 
 ## MCP
 
