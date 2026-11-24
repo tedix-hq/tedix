@@ -57,10 +57,12 @@ export async function discoverWorkspaceConnections(
 		inventories
 			.flatMap((inventory) => inventory.rows)
 			.map(async (row) => ({
+				// An organization account is the same for every member, so its id
+				// must be too; only a personal account belongs to one person.
 				id: await sha256Hex(
 					JSON.stringify([
 						context.organizationId,
-						context.user?.sub,
+						row.scope === "user" ? context.user?.sub : null,
 						row.provider.appId,
 						row.scope,
 						row.connectionInstanceId ?? "default",

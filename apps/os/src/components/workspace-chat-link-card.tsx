@@ -57,11 +57,10 @@ export function ConnectionLinkCard({
 				added: [...previous.added, ...next.added],
 				failed: next.failed,
 			}));
-		} catch (failure) {
+		} catch {
+			// Server and network errors can carry internals; show a fixed text.
 			setError(
-				failure instanceof Error
-					? failure.message
-					: "The connections could not be added",
+				"The connections could not be added. Check your access and try again.",
 			);
 		} finally {
 			inFlight.current = false;

@@ -457,18 +457,16 @@ test("connection proposals validate all choices without linking any source", asy
 		...adapters,
 		actor: { id: "u", kind: "user", organizationId: "o" },
 		source: { surface: "workspace_object", traceId: "t" },
-		availableConnections: async (providerId) =>
-			providerId
-				? [
-						{
-							...choices[0]!,
-							id: "new",
-							providerId,
-							service: "New service",
-							connectedForYou: false,
-						},
-					]
-				: choices,
+		availableConnections: async () => [
+			...choices,
+			{
+				...choices[0]!,
+				id: "new",
+				providerId: "new-service",
+				service: "New service",
+				connectedForYou: false,
+			},
+		],
 		requestLink: (proposal) => void proposals.push(proposal),
 		requestConnection: (request) => void asks.push(request),
 	}).resources as {

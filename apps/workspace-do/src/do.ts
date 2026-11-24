@@ -131,6 +131,7 @@ import {
 import { readOnlyCommandList } from "./read-only-commands";
 import { actionClass, READ_ONLY_REFUSAL } from "./approval-modes";
 import { buildWorkspaceBindings, type ConnectionRequest } from "./bindings";
+import type { AvailableWorkspaceConnection } from "@tedix/api-contract/schemas/workspace-available-connections";
 import {
 	AccountReadHeld,
 	listLinkedAccounts,
@@ -791,6 +792,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	/** The default tedi's profile, fetched before its turn started. */
 	readonly #guestProfiles = new Map<string, GuestProfile>();
 	readonly #running = new Map<string, AbortController>();
+	readonly #connectionInventories = new Map<
+		string,
+		Promise<AvailableWorkspaceConnection[]>
+	>();
 	/** The code run each running turn is waiting for; no entry between runs. */
 	readonly #codeRuns = new Map<
 		string,
@@ -1890,6 +1895,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 		this.#running.delete(turn.turn_id);
 		this.#codeRuns.delete(turn.turn_id);
+		this.#forgetTurnConnections(turn.turn_id);
 		this.#turnPolicies.delete(turn.turn_id);
 		this.#store.delete(`approve-all:${turn.turn_id}`);
 		for (const wake of this.#waiters.get(turn.turn_id) ?? []) wake();
@@ -4591,6 +4597,33 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		};
 	}
 
+	/**
+	 * The sender's connection inventory, read once per turn and shared by
+	 * resources.list(), available(), requestLink() and requestConnection().
+	 * A failed read is not kept, so a later call in the turn may retry.
+	 */
+	#turnConnections(scope: WorkspaceScope, turnId: string, userId: string) {
+		const key = `${turnId}:${userId}`;
+		let read = this.#connectionInventories.get(key);
+		if (!read) {
+			const api = this.accountService();
+			if (!api.availableConnections)
+				return Promise.reject(new Error("Connection discovery is unavailable"));
+			read = Promise.resolve(api.availableConnections({ ...scope, userId }));
+			this.#connectionInventories.set(key, read);
+			read.catch(() => {
+				if (this.#connectionInventories.get(key) === read)
+					this.#connectionInventories.delete(key);
+			});
+		}
+		return read;
+	}
+
+	#forgetTurnConnections(turnId: string) {
+		for (const key of this.#connectionInventories.keys())
+			if (key.startsWith(`${turnId}:`)) this.#connectionInventories.delete(key);
+	}
+
 	#dataPort(
 		scope: WorkspaceScope,
 		actorKind: ActorKind,
@@ -4608,16 +4641,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			actorKind,
 			actingUserId: started?.actor_kind === "user" ? started.actor_id : null,
 			availableConnections:
-				started?.actor_kind === "user"
-					? () => {
-							const api = this.accountService();
-							if (!api.availableConnections)
-								throw new Error("Connection discovery is unavailable");
-							return api.availableConnections({
-								...scope,
-								userId: started.actor_id,
-							});
-						}
+				turn && started?.actor_kind === "user"
+					? () => this.#turnConnections(scope, turn.turnId, started.actor_id)
 					: undefined,
 			// The person sent it and nobody else can open the workspace.
 			personScope: policy ? !policy.shared : false,
@@ -4800,16 +4825,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			accountActor,
 			availableConnections:
 				accountActor && policy.personSent
-					? (providerId) => {
-							const api = this.accountService();
-							if (!api.availableConnections)
-								throw new Error("Connection discovery is unavailable");
-							return api.availableConnections({
-								...scope,
-								userId: accountActor.id,
-								...(providerId ? { providerId } : {}),
-							});
-						}
+					? () => this.#turnConnections(scope, turn.turnId, accountActor.id)
 					: undefined,
 			requestLink:
 				accountActor && policy.personSent
@@ -6326,6 +6342,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		} finally {
 			this.#running.delete(turnId);
 			this.#codeRuns.delete(turnId);
+			this.#forgetTurnConnections(turnId);
 			this.#viewsShown.delete(turnId);
 			this.#turnPolicies.delete(turnId);
 			this.#store.delete(`approve-all:${turnId}`);

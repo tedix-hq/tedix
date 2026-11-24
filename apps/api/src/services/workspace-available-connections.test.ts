@@ -68,7 +68,7 @@ vi.mock("../rpc/routers/connections/policy-resolution", () => ({
 	},
 }));
 
-it("uses the Connections page inventory while keeping personal accounts and opaque choices bound to the sender", async () => {
+it("uses the Connections page inventory, shares organization ids and keeps personal accounts bound to the sender", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(schemaDdl(connectionInstances));
 	const env = { DB: createD1Facade(sqlite) } as CloudflareEnv;
@@ -109,9 +109,9 @@ it("uses the Connections page inventory while keeping personal accounts and opaq
 	expect(alice[0]?.access).toEqual([
 		{ label: "Read records", riskTier: "read" },
 	]);
-	expect(alice.some((row) => bob.some((other) => other.id === row.id))).toBe(
-		false,
-	);
+	// One shared account, one id for every member; personal ids stay per person.
+	expect(alice[0]?.id).toBe(bob[0]?.id);
+	expect(alice[1]?.id).not.toBe(bob[1]?.id);
 	const json = JSON.stringify(alice);
 	for (const secret of [
 		"private-token",

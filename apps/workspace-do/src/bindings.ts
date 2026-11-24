@@ -88,9 +88,8 @@ export interface BindingDeps {
 	web?: WebPort;
 	/** Shows a "Connect" card in the running turn's answer; absent outside a chat turn. */
 	requestConnection?: (request: ConnectionRequest) => void;
-	availableConnections?: (
-		providerId?: string,
-	) => Promise<AvailableWorkspaceConnection[]>;
+	/** The sender's connection inventory, read at most once per turn. */
+	availableConnections?: () => Promise<AvailableWorkspaceConnection[]>;
 	requestLink?: (request: {
 		connections: AvailableWorkspaceConnection[];
 		reason: string;
@@ -494,7 +493,9 @@ export function buildWorkspaceBindings(
 					throw new Error(
 						"A connection can be asked for only in a chat turn the person sent",
 					);
-				const choices = await deps.availableConnections(input.providerId);
+				const choices = (await deps.availableConnections()).filter(
+					(choice) => choice.providerId === input.providerId,
+				);
 				const connection = choices.find(
 					(choice) =>
 						choice.providerId === input.providerId &&

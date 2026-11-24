@@ -186,4 +186,20 @@ it("pins a default personal login only on add and preserves a named organization
 		connectionInstanceId: "00000000-0000-4000-8000-000000000005",
 		connectionScope: "tenant",
 	});
+	// The default login and its named account are one account: no second source.
+	const again = await c.org1.resources.linkConnections({
+		workspaceId: workspace.id,
+		connections: ["github-choice", "crm-choice", "missing"],
+	});
+	expect(again.failed).toEqual([
+		{
+			id: "missing",
+			message: "This account is unavailable. Check Connections and try again.",
+		},
+	]);
+	const after = (await c.org1.resources.list({ workspaceId: workspace.id }))
+		.items;
+	expect(after.filter((source) => source.providerId === "github")).toHaveLength(
+		1,
+	);
 });

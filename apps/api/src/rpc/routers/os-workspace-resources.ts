@@ -473,6 +473,15 @@ const availableConnections = readOs.resources.availableConnections.handler(
 	},
 );
 
+/** The only texts a failed link shows; provider and database errors stay in logs. */
+const LINK_FAILURE = {
+	unavailable: "This account is unavailable. Check Connections and try again.",
+	identityChanged: "The account changed while it was being added. Try again.",
+	failed: "This account could not be added. Try again later.",
+} as const;
+
+class LinkFailure extends Error {}
+
 const linkConnections = authorOs.resources.linkConnections.handler(
 	async ({ input, context }) => {
 		if (context.authType !== "user" || !context.user?.sub || context.tediId)
@@ -489,39 +498,49 @@ const linkConnections = authorOs.resources.linkConnections.handler(
 			status: "active",
 			limit: 1000,
 		});
+		// One source per account: the account is its provider, scope, owner and
+		// named instance (none for the default account), whatever id chose it.
+		const accounts = linked
+			.filter((row) => row.resourceType === "account")
+			.map((row) => ({
+				providerId: row.providerId,
+				scope: row.connectionScope,
+				owner: row.personalOwnerUserId ?? null,
+				instanceId: row.connectionInstanceId ?? null,
+				providerResourceId: row.providerResourceId,
+			}));
 		const added: Array<{ id: string; name: string }> = [];
 		const failed: Array<{ id: string; message: string }> = [];
 		for (const id of new Set(input.connections)) {
 			try {
 				const connection = available.find((item) => item.id === id);
 				if (!connection?.connectedForYou)
-					throw new Error(
-						"This account is unavailable. Check Connections and try again.",
+					throw new LinkFailure(LINK_FAILURE.unavailable);
+				const scope =
+					connection.connectionScope === "personal" ? "user" : "tenant";
+				const owner = scope === "user" ? userId : null;
+				const sameAccount = (instanceId: string | null) =>
+					accounts.some(
+						(account) =>
+							account.providerId === connection.providerId &&
+							account.scope === scope &&
+							account.owner === owner &&
+							(account.providerResourceId === id ||
+								account.instanceId === instanceId),
 					);
-				if (
-					linked.some(
-						(row) =>
-							row.providerId === connection.providerId &&
-							row.connectionScope ===
-								(connection.connectionScope === "personal"
-									? "user"
-									: "tenant") &&
-							row.resourceType === "account" &&
-							row.providerResourceId === id,
-					)
-				) {
+				let instanceId = connection.connectionInstanceId ?? null;
+				if (sameAccount(instanceId)) {
 					added.push({ id, name: connection.label });
 					continue;
 				}
-				let instanceId = connection.connectionInstanceId;
-				if (connection.connectionScope === "personal" && !instanceId) {
+				if (scope === "user" && !instanceId) {
 					const grant = await adoptDefaultPersonalConnection(context, {
 						userId,
 						providerId: connection.providerId,
 					});
-					const owner = { userId };
+					const instanceOwner = { userId };
 					const existing = (
-						await listConnectionInstances(context.db, owner)
+						await listConnectionInstances(context.db, instanceOwner)
 					).find(
 						(row) =>
 							row.providerId === connection.providerId &&
@@ -539,7 +558,7 @@ const linkConnections = authorOs.resources.linkConnections.handler(
 						!existing &&
 						!(
 							await recordConnectionGrant(context.db, {
-								owner,
+								owner: instanceOwner,
 								id: instance.id,
 								providerId: connection.providerId,
 								tokenId: grant.tokenId,
@@ -547,15 +566,19 @@ const linkConnections = authorOs.resources.linkConnections.handler(
 							})
 						).length
 					)
-						throw new Error("The account identity changed. Try again.");
+						throw new LinkFailure(LINK_FAILURE.identityChanged);
 					instanceId = instance.id;
+					// The default login may already be linked as its named account.
+					if (sameAccount(instanceId)) {
+						added.push({ id, name: connection.label });
+						continue;
+					}
 				}
 				await createWorkspaceSource(context, {
 					workspaceId: input.workspaceId,
 					selection: {
 						providerId: connection.providerId,
-						connectionScope:
-							connection.connectionScope === "personal" ? "user" : "tenant",
+						connectionScope: scope,
 						...(instanceId ? { connectionInstanceId: instanceId } : {}),
 						resourceType: "account",
 						providerResourceId: id,
@@ -564,14 +587,25 @@ const linkConnections = authorOs.resources.linkConnections.handler(
 						metadata: {},
 					},
 				});
+				accounts.push({
+					providerId: connection.providerId,
+					scope,
+					owner,
+					instanceId,
+					providerResourceId: id,
+				});
 				added.push({ id, name: connection.label });
 			} catch (error) {
+				if (!(error instanceof LinkFailure))
+					console.error("Workspace connection link failed", {
+						workspaceId: input.workspaceId,
+						connection: id,
+						error,
+					});
 				failed.push({
 					id,
 					message:
-						error instanceof Error
-							? error.message
-							: "The connection could not be added",
+						error instanceof LinkFailure ? error.message : LINK_FAILURE.failed,
 				});
 			}
 		}
