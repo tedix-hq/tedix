@@ -1251,6 +1251,57 @@ describe("WorkspaceDO", () => {
 		);
 	});
 
+	test("asking to publish a draft the chat kept no record of shows its card", async () => {
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		const appId = crypto.randomUUID();
+		await seedEditableApp(own, appId);
+		await privateTo(own, "u1");
+		const ws = workspace(own);
+		await ws.setApprovalMode(own, { userId: "u1", mode: "ask_for_changes" });
+		await ws.scriptModel(own, [
+			{
+				code: `export default async env => {
+			const file = await env.apps.readFile({appId:"${appId}",path:"client.js"});
+			await env.apps.writeFile({appId:"${appId}",path:"client.js",expectedRevisionId:file.revisionId,content:"export default () => 'After';"});
+			return "staged";
+		}`,
+			},
+			{
+				code: `export default async env => {
+			const file = await env.apps.readFile({appId:"${appId}",path:"client.js"});
+			return env.apps.publishDraft({appId:"${appId}",proposalId:file.proposalId,expectedSequence:file.sequence,rationale:"Publish it"});
+		}`,
+			},
+		]);
+		const staged = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Update the app",
+		});
+		await ws.awaitTurn(own, staged.turnId, 20000);
+		// As for a draft staged before chats kept draft cards.
+		await runInDurableObject(ws, async (_instance, state) => {
+			for (const [key] of state.storage.kv.list({ prefix: "app-draft" }))
+				state.storage.kv.delete(key);
+		});
+		const asked = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			conversationId: staged.conversationId,
+			text: "Publish it",
+		});
+		await ws.awaitTurn(own, asked.turnId, 20000);
+		const events = await ws.readEvents(own, {
+			conversationId: staged.conversationId,
+		});
+		expect(
+			events.filter(
+				(event) =>
+					event.type === "app_draft.staged" && event.turnId === asked.turnId,
+			),
+		).toHaveLength(1);
+	});
+
 	test("chat file edits share one pinned draft, reject without publishing, merge once and preserve revision history", async () => {
 		const { db, files } = await seedEditableApp();
 		const data = new TenantDataPort({

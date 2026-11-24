@@ -847,26 +847,50 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		const files = OsAppDraftContentSchema.parse(
 			JSON.parse(proposal.content),
 		).files;
-		const base = await this.getAppCode({
-			appId: current.id,
-			revisionId: current.revisionId,
-		});
-		this.deps.appDraftStaged?.({
-			appId: current.id,
-			name: current.name,
-			proposalId: proposal.id,
-			sequence: proposal.sequence,
-			baseRevisionId: current.revisionId,
-			files: [...new Set([...Object.keys(base.files), ...Object.keys(files)])]
-				.filter((path) => base.files[path] !== files[path])
-				.sort(),
-		});
-		return {
+		const staged = {
 			...current,
 			files,
 			proposalId: proposal.id,
 			sequence: proposal.sequence,
 		};
+		this.deps.appDraftStaged?.(await this.stagedAppDraft(staged));
+		return staged;
+	}
+
+	private async stagedAppDraft(
+		draft: AppCode & { proposalId: string; sequence: number },
+	): Promise<StagedAppDraft> {
+		const base = await this.getAppCode({
+			appId: draft.id,
+			revisionId: draft.revisionId,
+		});
+		return {
+			appId: draft.id,
+			name: draft.name,
+			proposalId: draft.proposalId,
+			sequence: draft.sequence,
+			baseRevisionId: draft.revisionId,
+			files: [
+				...new Set([...Object.keys(base.files), ...Object.keys(draft.files)]),
+			]
+				.filter((path) => base.files[path] !== draft.files[path])
+				.sort(),
+		};
+	}
+
+	/**
+	 * This conversation's undecided draft of an app, read from the proposal
+	 * itself. The chat uses it when it holds no record of the draft, as for
+	 * one staged before chats kept draft cards.
+	 */
+	async openAppDraft(appId: string): Promise<StagedAppDraft | undefined> {
+		const current = await this.getAppCode({ appId });
+		if (!current.proposalId || current.sequence === undefined) return undefined;
+		return this.stagedAppDraft({
+			...current,
+			proposalId: current.proposalId,
+			sequence: current.sequence,
+		});
 	}
 
 	async publishAppDraft(input: PublishAppDraft): Promise<CreatedApp> {

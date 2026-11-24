@@ -4680,9 +4680,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			publishAppDraft: async (input) => {
 				if (!turn || !started || !policy?.personSent || policy.mode !== "auto")
 					throw new Error("Accept and publish this draft on its chat card.");
-				const draft = this.#store.get<StagedAppDraft>(
-					`app-draft:${turn.conversationId}:${input.proposalId}`,
-				);
+				const draft = await this.#knownAppDraft(scope, turn, input);
 				if (
 					!draft ||
 					draft.appId !== input.appId ||
@@ -5048,9 +5046,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					? READ_ONLY_REFUSAL
 					: callFailureText(error);
 			if (binding === "apps" && method === "publishDraft") {
-				const input = args[0] as { proposalId?: string } | undefined;
-				const draft = this.#store.get<StagedAppDraft>(
-					`app-draft:${turn.conversationId}:${input?.proposalId}`,
+				const draft = await this.#knownAppDraft(
+					scope,
+					turn,
+					args[0] as { appId?: unknown; proposalId?: unknown } | undefined,
 				);
 				if (draft) {
 					this.#store.put(`app-draft-card:${draft.proposalId}`, true);
@@ -6119,6 +6118,31 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	 * Before a turn ends: the card for each app draft it staged in Auto and did
 	 * not publish, so the person can accept or discard it from the chat.
 	 */
+	/**
+	 * The draft a publish names, as this conversation staged it. A draft staged
+	 * before chats kept draft cards has no record here, so it is read from its
+	 * proposal and kept: the publish can then show its card.
+	 */
+	async #knownAppDraft(
+		scope: WorkspaceScope,
+		turn: { conversationId: string; turnId: string },
+		input: { appId?: unknown; proposalId?: unknown } | undefined,
+	): Promise<StagedAppDraft | undefined> {
+		if (typeof input?.proposalId !== "string") return undefined;
+		const key = `app-draft:${turn.conversationId}:${input.proposalId}`;
+		const kept = this.#store.get<StagedAppDraft>(key);
+		if (kept || typeof input.appId !== "string") return kept;
+		const open = await this.#dataPort(scope, "user", {
+			conversationId: turn.conversationId,
+			turnId: turn.turnId,
+		})
+			.openAppDraft(input.appId)
+			.catch(() => undefined);
+		if (open?.proposalId !== input.proposalId) return undefined;
+		this.#store.put(key, open);
+		return open;
+	}
+
 	#showOpenAppDrafts(conversationId: string, turnId: string) {
 		const openKey = `app-draft-open:${turnId}`;
 		const open = this.#store.get<StagedAppDraft[]>(openKey);
