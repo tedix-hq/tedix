@@ -1922,8 +1922,11 @@ async function issueMcpCredentialForOrganization(
 					searchDescopeMcpServerClients(
 						aihEnv,
 						{ mcpServerId },
-						// Read-only retries fit inside the CLI's 30s exchange budget.
-						{ deadline: Date.now() + 6_000, timeoutMs: 2_000 },
+						// A large client list needs more than 2s to arrive; 2s attempts
+						// aborted every search from 24 Nov 17:40 UTC. Give each attempt
+						// 10s, as before 811a27fc0, and keep the whole search inside the
+						// CLI's 30s exchange budget.
+						{ deadline: Date.now() + 20_000, timeoutMs: 10_000 },
 					),
 			);
 			if (!fresh)
