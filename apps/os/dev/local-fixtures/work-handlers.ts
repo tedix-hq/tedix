@@ -509,6 +509,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 				// The second sample is a used-up credit budget.
 				currency: index === 0 ? "USD" : "credits",
 				mode: "stop",
+				enabled: true,
 				alertedPercent: index === 0 ? 0 : 100,
 				limitMicros: 10_000_000,
 				reservationMicros: index === 0 ? 1_000_000 : 0,
