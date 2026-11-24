@@ -12,6 +12,8 @@ import { parseOptions } from "./options";
 import { resolveOrganizationTarget } from "./organization-target";
 
 const TURN_DEADLINE_MS = 60 * 60_000;
+/** Tries per gateway call: pauses of 5, 10, 15 and 20 seconds between them. */
+const CALL_ATTEMPTS = 5;
 
 export async function runTediLaneTurn(scope: string[], args: string[]) {
 	const fields = ["--tedi", "--session", "--workspace", "--machine"];
@@ -81,6 +83,21 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 		}
 	};
 	/**
+	 * A turn lasts minutes, so one refused gateway call must not fail the task:
+	 * a call is tried again a few times with a growing pause. Sending a turn is
+	 * safe to repeat because it carries the same client request id.
+	 */
+	const patient = async <T>(call: () => Promise<T>): Promise<T> => {
+		for (let attempt = 1; ; attempt += 1) {
+			try {
+				return await call();
+			} catch (error) {
+				if (attempt >= CALL_ATTEMPTS || signal.aborted) throw error;
+				await sleep(attempt * 5_000, undefined, { signal });
+			}
+		}
+	};
+	/**
 	 * The newest message of the conversation. One gateway answer carries about
 	 * 3,000 tokens and cannot be narrowed, so the whole conversation, which
 	 * holds the brief, does not fit: only the last message is read. An answer
@@ -97,15 +114,18 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 	let runId: string | undefined;
 	try {
 		// A follow-up turn must not take the previous turn's reply for its own.
-		const earlier = await latest();
+		const earlier = await patient(latest);
 		const before = isRecord(earlier) ? earlier.ts : undefined;
-		const accepted = await run(
-			"run_tedi_turn",
-			`async () => await ${namespace}.run_tedi_turn(${codeModeLiteral({
-				session_key: sessionKey,
-				client_request_id: randomUUID(),
-				text,
-			})})`,
+		const clientRequestId = randomUUID();
+		const accepted = await patient(() =>
+			run(
+				"run_tedi_turn",
+				`async () => await ${namespace}.run_tedi_turn(${codeModeLiteral({
+					session_key: sessionKey,
+					client_request_id: clientRequestId,
+					text,
+				})})`,
+			),
 		);
 		if (
 			!isRecord(accepted) ||
@@ -119,7 +139,7 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 		runId = accepted.run_id;
 		for (let delay = 3_000; ; delay = Math.min(delay * 1.5, 10_000)) {
 			await sleep(delay, undefined, { signal });
-			const reply = await latest();
+			const reply = await patient(latest);
 			if (reply === "long-reply")
 				throw new Error(
 					`Tedi ${slug} turn ${runId} ended with a reply too long to read back`,
