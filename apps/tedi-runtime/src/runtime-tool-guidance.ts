@@ -153,7 +153,7 @@ export function workspaceToolGuidance(input: {
 	return [
 		...(input.supervised ? [SUPERVISED_NOTE] : []),
 		WORKSPACE_NOTE,
-		"When a proposed Work Item needs its first owner, use route_work_ownership_request on the existing coordination request addressed to its steward. Read back the same request and tell the person who received it, link the Work Item, and say what still needs doing. Routing leaves ownership and acceptance pending.",
+		"When a proposed Work Item needs its first owner, use route_work_ownership_request on the existing coordination request addressed to its steward. Use the returned request as the delivery receipt. Report its ID and version, and use metadata.ownershipRoute for the recipient, Work link and next action. If the result was lost, retry the same routing call with the original ID and version. A separate interaction audit read is unnecessary. Routing leaves ownership and acceptance pending.",
 		input.repositoryMode === "checkout"
 			? CHECKOUT_NOTE
 			: GENERAL_REPOSITORY_NOTE,

@@ -136,7 +136,7 @@ export const workInteractionsContract = oc
 				summary:
 					"Send an existing ownership request to a person who can choose the first owner",
 				description:
-					"Use the original open coordination request for a proposed Work Item with no owner. Its creator or addressed steward can send it to an active organization owner or admin. Returns the same request, recipient and next action. Leaves ownership and acceptance unchanged.",
+					"Use the original open coordination request for a proposed Work Item with no owner. Its creator or addressed steward can send it to an active organization owner or admin. The response is the delivery receipt. Report its id and version and the recipientName, workLink and nextAction from metadata.ownershipRoute. Retry the same call if the receipt was lost. No separate audit read is needed. Ownership and acceptance stay unchanged.",
 			})
 			.input(RouteWorkOwnershipRequestInputSchema)
 			.output(WorkInteractionRequestSchema),
