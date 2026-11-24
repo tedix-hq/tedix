@@ -8703,6 +8703,87 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 	await expect(landedLaneCommits(repo, "f".repeat(40), "")).rejects.toThrow();
 });
 
+it("keeps foreign upstream commits out of two-Work rebase settlement and deployment proof", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const base = git(["rev-parse", "HEAD"]);
+	const commit = (path: string, work: string) => {
+		mkdirSync(join(repo, path), { recursive: true });
+		writeFileSync(join(repo, path, "source.ts"), path);
+		git(["add", "."]);
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"-m",
+			`Fix ${path}\n\nWork-Item: ${work}\nAgent-Session: codex:test-session`,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	};
+	git(["checkout", "-b", "own-work"]);
+	commit("apps/api", item().id);
+	git(["checkout", "main"]);
+	const foreign = commit("apps/cms", item(2).id);
+	git(["push", "origin", "main"]);
+	git(["checkout", "own-work"]);
+	git(["-c", "commit.gpgsign=false", "rebase", "main"]);
+	const first = git(["rev-parse", "HEAD"]);
+	const second = commit("apps/os", item().id);
+	git(["push", "origin", "HEAD:main"]);
+	const commits = await landedLaneCommits(
+		repo,
+		base,
+		`${first} ${foreign}`,
+		undefined,
+		{
+			workItemId: item().id,
+		},
+	);
+	expect(new Set(commits)).toEqual(new Set([first, second]));
+
+	const env = {
+		TEDIX_CONFIG_DIR: join(root, "config"),
+		TEDIX_API_URL: "https://api.example.test",
+		TEDIX_OS_URL: "https://os.example.test",
+		TEDIX_LANE_VERIFY_HEALTH_URLS: undefined,
+	};
+	const previous = Object.keys(env).map(
+		(key) => [key, process.env[key]] as const,
+	);
+	fixtureCleanup.push(async () => {
+		for (const [key, value] of previous) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	});
+	for (const [key, value] of Object.entries(env)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	const checked: string[] = [];
+	const check = (apiSha: string, osSha: string) =>
+		landedDeployments(repo, commits, undefined, options.scope, async (url) => {
+			checked.push(url);
+			if (url === "https://api.example.test/health")
+				return Response.json({ deployedSha: apiSha });
+			if (url === "https://os.example.test/health")
+				return Response.json({ deployedSha: osSha });
+			throw new Error(`Unrelated service checked: ${url}`);
+		});
+	await expect(check(first, second)).resolves.toHaveLength(2);
+	expect(new Set(checked)).toEqual(
+		new Set([
+			"https://api.example.test/health",
+			"https://os.example.test/health",
+		]),
+	);
+	await expect(check(base, second)).rejects.toThrow(
+		`does not prove deployment of ${first}`,
+	);
+	await expect(check(first, first)).rejects.toThrow(
+		`does not prove deployment of ${second}`,
+	);
+}, 30_000);
+
 it("rechecks collected commit reachability and retains unknown proof on Git failure", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const landed = git(["rev-parse", "HEAD"]);

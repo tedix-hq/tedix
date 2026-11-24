@@ -2616,9 +2616,9 @@ export async function landedLaneCommits(
 		},
 		sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 	},
-	recovery?: {
+	attribution?: {
 		workItemId: string;
-		verifySession: (
+		verifySession?: (
 			session: string,
 			commitSha: string,
 			committedAt: number,
@@ -2653,12 +2653,10 @@ export async function landedLaneCommits(
 	}> = [];
 	for (const sha of candidates) {
 		if (!(await isAncestor(sha, "refs/remotes/origin/main"))) continue;
-		if (!(await isAncestor(sha, base))) {
-			landed.push(sha);
+		if (!attribution) {
+			if (!(await isAncestor(sha, base))) landed.push(sha);
 			continue;
 		}
-		// Historical proof must retain its original Work and executor custody.
-		if (!recovery) continue;
 		const [committed, ...trailers] = (
 			await gitOutput(repo, [
 				"show",
@@ -2668,23 +2666,27 @@ export async function landedLaneCommits(
 			])
 		).split("\n");
 		const work = trailers.filter((line) => /^Work-Item:/i.test(line));
-		const sessions = trailers.filter((line) => /^Agent-Session:/i.test(line));
-		if (
-			work.length !== 1 ||
-			work[0] !== `Work-Item: ${recovery.workItemId}` ||
-			sessions.length !== 1
-		)
+		// Rebasing adds upstream commits to base..HEAD, not to this Work.
+		if (work.length !== 1 || work[0] !== `Work-Item: ${attribution.workItemId}`)
 			continue;
+		if (!(await isAncestor(sha, base))) {
+			landed.push(sha);
+			continue;
+		}
+		// Historical proof must retain its original Work and executor custody.
+		if (!attribution.verifySession) continue;
+		const sessions = trailers.filter((line) => /^Agent-Session:/i.test(line));
+		if (sessions.length !== 1) continue;
 		const session = sessions[0]!.slice("Agent-Session:".length).trim();
 		const committedAt = Date.parse(committed!);
 		if (session) historical.push({ sha, session, committedAt });
 	}
-	if (!recovery) return landed;
+	if (!attribution?.verifySession) return landed;
 	// Finish reading the checkout before yielding to a remote custody check. A
 	// timed-out caller may remove the checkout while that check is in flight.
 	for (const candidate of historical)
 		if (
-			await recovery.verifySession(
+			await attribution.verifySession(
 				candidate.session,
 				candidate.sha,
 				candidate.committedAt,
@@ -8774,16 +8776,17 @@ ${firstBrief}`;
 						receipt.baseCommit!,
 						receipt.pendingCommitProof,
 						undefined,
-						receipt.outcome === "succeeded" &&
-							(receipt.laneResult?.outcome === "completed" ||
-								receipt.laneResult?.outcome === "landed_unverified" ||
-								receipt.laneResult === undefined)
-							? {
-									workItemId: receipt.itemId,
-									verifySession: (session, sha, at) =>
-										this.checkCommitCustody(receipt, session, sha, at),
-								}
-							: undefined,
+						{
+							workItemId: receipt.itemId,
+							verifySession:
+								receipt.outcome === "succeeded" &&
+								(receipt.laneResult?.outcome === "completed" ||
+									receipt.laneResult?.outcome === "landed_unverified" ||
+									receipt.laneResult === undefined)
+									? (session, sha, at) =>
+											this.checkCommitCustody(receipt, session, sha, at)
+									: undefined,
+						},
 					);
 					// Recheck reachability at settlement before recovery can call a
 					// collected commit landed or use it to complete the Work.
