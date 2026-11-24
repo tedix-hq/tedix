@@ -201,14 +201,22 @@ export function statusDir(env: NodeJS.ProcessEnv): string {
 	return join(baseDir(env), "agent-status");
 }
 
+/** The log's path, after moving a full log aside. One older log is kept. */
+function rotatedLog(directory: string): string {
+	const path = join(directory, "report.log");
+	if (existsSync(path) && statSync(path).size > LOG_LIMIT)
+		renameSync(path, join(directory, "report.log.1"));
+	return path;
+}
+
 export function statusLog(env: NodeJS.ProcessEnv, message: string): void {
 	try {
 		const directory = statusDir(env);
 		if (!existsSync(directory)) return;
-		const path = join(directory, "report.log");
-		if (existsSync(path) && statSync(path).size > LOG_LIMIT)
-			renameSync(path, join(directory, "report.log.1"));
-		appendFileSync(path, `${isoSeconds(new Date(), true)} ${message}\n`);
+		appendFileSync(
+			rotatedLog(directory),
+			`${isoSeconds(new Date(), true)} ${message}\n`,
+		);
 	} catch {
 		// Logging is best effort.
 	}
@@ -724,12 +732,14 @@ function detachedSpawner(env: NodeJS.ProcessEnv) {
 	return (args: string[], options: DetachedOptions): void => {
 		const [command, prefix] =
 			args[0] === "tedix" ? selfCommand() : [args[0]!, [] as string[]];
-		const output = openSync(join(statusDir(env), "report.log"), "a");
+		// Only what went wrong is kept: these commands print the whole session
+		// they reported, which had grown this log to hundreds of megabytes.
+		const output = openSync(rotatedLog(statusDir(env)), "a");
 		try {
 			spawn(command, [...prefix, ...args.slice(1)], {
 				env: { ...(options.env ?? env) },
 				detached: options.detached,
-				stdio: [options.stdin, output, output],
+				stdio: [options.stdin, "ignore", output],
 			}).unref();
 		} finally {
 			closeSync(output);

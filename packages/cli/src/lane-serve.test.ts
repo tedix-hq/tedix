@@ -11,6 +11,7 @@ import {
 	readdirSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -30,6 +31,7 @@ import {
 	MIN_FREE_DISK_BYTES,
 	MAX_PREPARATIONS,
 	cleanupLaneWorktree,
+	dropCheckoutDependencies,
 	installLaneDependencies,
 	laneLandingBrief,
 	provisionLaneWorktree,
@@ -12887,4 +12889,28 @@ describe("watching and steering a run", () => {
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
 	});
+});
+
+it("drops a kept checkout's dependencies but never its work or committed folders", async () => {
+	const repo = mkdtempSync(join(tmpdir(), "lane-drop-deps-"));
+	try {
+		spawnSync("git", ["-C", repo, "init", "-q"]);
+		mkdirSync(join(repo, "node_modules", "left-pad"), { recursive: true });
+		mkdirSync(join(repo, "apps", "web", "node_modules"), { recursive: true });
+		writeFileSync(join(repo, "notes.txt"), "uncommitted work");
+		// Not ignored: these could be the only copy of committed files.
+		expect(await dropCheckoutDependencies(repo)).toBe(false);
+		expect(existsSync(join(repo, "node_modules"))).toBe(true);
+		writeFileSync(join(repo, ".gitignore"), "node_modules\n");
+		utimesSync(repo, 1000, 1000);
+		expect(await dropCheckoutDependencies(repo)).toBe(true);
+		expect(existsSync(join(repo, "node_modules"))).toBe(false);
+		expect(existsSync(join(repo, "apps", "web", "node_modules"))).toBe(false);
+		expect(readFileSync(join(repo, "notes.txt"), "utf8")).toBe(
+			"uncommitted work",
+		);
+		expect(statSync(repo).mtimeMs).toBe(1_000_000);
+	} finally {
+		rmSync(repo, { recursive: true, force: true });
+	}
 });
