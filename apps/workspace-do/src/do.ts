@@ -1880,6 +1880,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (status === "cancelled")
 			for (const message of this.#queuedMessages(turn.conversation_id))
 				this.#returnQueuedMessage(message);
+		this.#showOpenAppDrafts(turn.conversation_id, turn.turn_id);
 		this.#events.append(turn.conversation_id, {
 			type: "turn.finished",
 			turnId: turn.turn_id,
@@ -4638,7 +4639,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 								turnId: turn.turnId,
 								draft,
 							});
+							return;
 						}
+						// In Auto the agent publishes next, so no card yet. The turn
+						// shows one when it ends with this draft still unpublished.
+						const openKey = `app-draft-open:${turn.turnId}`;
+						this.#store.put(openKey, [
+							...(this.#store.get<StagedAppDraft[]>(openKey) ?? []).filter(
+								(open) => open.proposalId !== draft.proposalId,
+							),
+							draft,
+						]);
 					}
 				: undefined,
 			publishAppDraft: async (input) => {
@@ -4655,13 +4666,21 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					throw new Error(
 						"Draft changed or was not staged by this conversation",
 					);
-				return this.publishAppDraft({
+				const published = await this.publishAppDraft({
 					...input,
 					...scope,
 					conversationId: turn.conversationId,
 					turnId: turn.turnId,
 					userId: started.actor_id,
 				});
+				const openKey = `app-draft-open:${turn.turnId}`;
+				this.#store.put(
+					openKey,
+					(this.#store.get<StagedAppDraft[]>(openKey) ?? []).filter(
+						(open) => open.proposalId !== input.proposalId,
+					),
+				);
+				return published;
 			},
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
@@ -6080,6 +6099,27 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.env.API_SERVICE as unknown as PersonService;
 	}
 
+	/**
+	 * Before a turn ends: the card for each app draft it staged in Auto and did
+	 * not publish, so the person can accept or discard it from the chat.
+	 */
+	#showOpenAppDrafts(conversationId: string, turnId: string) {
+		const openKey = `app-draft-open:${turnId}`;
+		const open = this.#store.get<StagedAppDraft[]>(openKey);
+		if (!open) return;
+		this.#store.delete(openKey);
+		for (const draft of open) {
+			const cardKey = `app-draft-card:${draft.proposalId}`;
+			if (this.#store.get<boolean>(cardKey)) continue;
+			this.#store.put(cardKey, true);
+			this.#events.append(conversationId, {
+				type: "app_draft.staged",
+				turnId,
+				draft,
+			});
+		}
+	}
+
 	protected publishAppDraft(
 		input: WorkspacePublishAppDraft,
 	): Promise<CreatedApp> {
@@ -6222,6 +6262,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				model: result.model,
 				...(usage ? { usage } : {}),
 			});
+			this.#showOpenAppDrafts(conversationId, turnId);
 			this.#events.append(conversationId, {
 				type: "turn.finished",
 				turnId,
@@ -6273,6 +6314,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				!cancelled &&
 				isRunReportOverload(message) &&
 				(await this.#queueRunReportRetry(turn));
+			if (!retrying) this.#showOpenAppDrafts(conversationId, turnId);
 			if (!retrying)
 				this.#events.append(conversationId, {
 					type: "turn.finished",

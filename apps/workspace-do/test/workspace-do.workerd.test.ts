@@ -1218,6 +1218,39 @@ describe("WorkspaceDO", () => {
 		},
 	);
 
+	test("an Auto turn that stages an app draft and ends without publishing shows its card", async () => {
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		const appId = crypto.randomUUID();
+		await seedEditableApp(own, appId);
+		await privateTo(own, "u1");
+		const ws = workspace(own);
+		await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });
+		await ws.scriptModel(own, [
+			{
+				code: `export default async env => {
+			const file = await env.apps.readFile({appId:"${appId}",path:"client.js"});
+			await env.apps.writeFile({appId:"${appId}",path:"client.js",expectedRevisionId:file.revisionId,content:"export default () => 'After';"});
+			return "staged";
+		}`,
+			},
+		]);
+		const started = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Update the app",
+		});
+		await ws.awaitTurn(own, started.turnId, 20000);
+		const events = await ws.readEvents(own, {
+			conversationId: started.conversationId,
+		});
+		const cards = events.filter((event) => event.type === "app_draft.staged");
+		expect(cards).toHaveLength(1);
+		// The card is in the transcript before the turn is marked finished.
+		expect(events.indexOf(cards[0]!)).toBeLessThan(
+			events.findIndex((event) => event.type === "turn.finished"),
+		);
+	});
+
 	test("chat file edits share one pinned draft, reject without publishing, merge once and preserve revision history", async () => {
 		const { db, files } = await seedEditableApp();
 		const data = new TenantDataPort({

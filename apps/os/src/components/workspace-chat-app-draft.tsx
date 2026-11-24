@@ -29,10 +29,15 @@ export function WorkspaceChatAppDraft({
 		...osQuery.osWorkspaces.collaboration.get.queryOptions({
 			input: { proposalId: draft.proposalId },
 		}),
+		// A decision made in the app pane or by someone else reaches the card on
+		// the next look at the window, and at most half a minute later while it
+		// is in front. Every undecided card in an open chat polls, so a short
+		// interval multiplies into steady load on the main database.
+		refetchOnWindowFocus: true,
 		refetchInterval: (query) =>
 			["merged", "rejected"].includes(query.state.data?.proposal.status ?? "")
 				? false
-				: 5000,
+				: 30_000,
 	});
 	const proposal = proposalQuery.data?.proposal;
 	useEffect(() => {
