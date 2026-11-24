@@ -177,6 +177,12 @@ export default defineConfig(({ mode }) => {
 					namespace: "1011",
 					simple: { limit: 60, period: 60 },
 				}),
+				// Public catalog searches that miss the edge cache read main D1, which
+				// the app shares. Per-colo bound per visitor IP, not accounting.
+				CATALOG_SEARCH_RATE_LIMITER: bindings.rateLimit({
+					namespace: "1012",
+					simple: { limit: 30, period: 60 },
+				}),
 				...(!local
 					? {
 							API_SERVICE: bindings.worker({

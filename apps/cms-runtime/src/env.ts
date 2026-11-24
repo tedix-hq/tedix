@@ -20,6 +20,7 @@ export interface Env
 	SESSION: KVNamespace;
 	AI_SEARCH: TenantAiSearchNamespace;
 	WEBMCP_RATE_LIMITER: RateLimit;
+	CATALOG_SEARCH_RATE_LIMITER?: RateLimit;
 	/**
 	 * Native Cloudflare Images binding — parent-Worker-only. Never forwarded
 	 * into a Worker Loader-dispatched tenant isolate (native bindings can't be

@@ -240,6 +240,7 @@ export interface MarketingEnv {
 	TENANT_BUNDLES: R2Bucket;
 	CLI_DOWNLOAD_HOST: string;
 	MARKETING_SITE_SLUG: string;
+	CATALOG_SEARCH_RATE_LIMITER?: RateLimit;
 	MARKETING_DOMAINS: string;
 	GIT_SHA?: string;
 	TEDIX_MARKETING_ORG_ID: string;
@@ -478,9 +479,11 @@ export async function marketingResponse(
 	if (path === "/docs" || path.startsWith("/docs/"))
 		return redirect("https://docs.tedix.dev" + (path.slice(5) || "/"));
 	if (!path.startsWith("/api/catalog/")) return null;
-	if (request.method !== "GET") return catalogApiResponse(url, path, env, db);
+	const visitor = request.headers.get("cf-connecting-ip");
+	if (request.method !== "GET")
+		return catalogApiResponse(url, path, env, db, visitor);
 	return cachedCatalogResponse(url, () =>
-		catalogApiResponse(url, path, env, db),
+		catalogApiResponse(url, path, env, db, visitor),
 	);
 }
 
@@ -525,6 +528,7 @@ async function catalogApiResponse(
 	path: string,
 	env: MarketingEnv,
 	db: ReturnType<typeof createDbClient>,
+	visitor: string | null,
 ): Promise<Response> {
 	const q = url.searchParams;
 	try {
@@ -549,6 +553,18 @@ async function catalogApiResponse(
 		let result: unknown;
 		switch (path) {
 			case "/api/catalog/apps": {
+				// One or two letters match most of the catalog; wait for a third.
+				const search = catalogSearchTerm(q.get("search") || q.get("q"));
+				if (search && visitor && env.CATALOG_SEARCH_RATE_LIMITER) {
+					const { success } = await env.CATALOG_SEARCH_RATE_LIMITER.limit({
+						key: visitor,
+					});
+					if (!success)
+						return json(
+							{ error: "Too many searches. Try again in a minute." },
+							429,
+						);
+				}
 				const oneOf = <const T extends readonly string[]>(
 					key: string,
 					values: T,
@@ -563,8 +579,7 @@ async function catalogApiResponse(
 						: fallback;
 				};
 				result = await client.catalog.list({
-					// One or two letters match most of the catalog; wait for a third.
-					search: catalogSearchTerm(q.get("search") || q.get("q")),
+					search,
 					category: q.get("category") || undefined,
 					connectorType: oneOf("connectorType", [
 						"MCP",

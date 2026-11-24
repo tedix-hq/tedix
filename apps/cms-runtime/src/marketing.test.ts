@@ -263,6 +263,22 @@ describe("public marketing adapters", () => {
 			expect.objectContaining({ search: undefined }),
 		);
 	});
+	it("refuses a visitor's searches past the rate limit without reading D1", async () => {
+		mocks.list.mockClear();
+		const limit = vi.fn(async () => ({ success: false }));
+		const response = await marketingResponse(
+			new Request("https://landing.tedix.dev/api/catalog/apps/?search=butter", {
+				headers: { "cf-connecting-ip": "203.0.113.7" },
+			}),
+			{
+				...env,
+				CATALOG_SEARCH_RATE_LIMITER: { limit } as unknown as RateLimit,
+			},
+		);
+		expect(response?.status).toBe(429);
+		expect(limit).toHaveBeenCalledWith({ key: "203.0.113.7" });
+		expect(mocks.list).not.toHaveBeenCalled();
+	});
 	it("keeps missing app URLs as honest 404s", async () => {
 		mocks.getBySlug.mockRejectedValue({ code: "NOT_FOUND" });
 		expect(
