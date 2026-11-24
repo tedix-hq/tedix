@@ -132,6 +132,9 @@ export async function descopeFetch(
 		let response: Response;
 		try {
 			response = await fetchImpl(url, { ...init, signal: controller.signal });
+			// Keep the deadline active while a bounded caller reads the body.
+			if (deadline !== undefined && response.body)
+				response = new Response(await response.arrayBuffer(), response);
 		} catch (error) {
 			// Network error or abort (timeout). Retry only for idempotent calls.
 			lastThrown = error;
@@ -208,6 +211,7 @@ export interface DescopeManagementRequest {
 	errorPrefix: string;
 	/** See {@link DescopeFetchOptions.deadline}. */
 	deadline?: number;
+	timeoutMs?: number;
 }
 
 /**
@@ -232,7 +236,11 @@ export async function descopeManagementFetch(
 			body:
 				request.body === undefined ? undefined : JSON.stringify(request.body),
 		},
-		{ idempotent: request.idempotent, deadline: request.deadline },
+		{
+			idempotent: request.idempotent,
+			deadline: request.deadline,
+			timeoutMs: request.timeoutMs,
+		},
 	);
 
 	if (!response.ok) {

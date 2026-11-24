@@ -1919,9 +1919,12 @@ async function issueMcpCredentialForOrganization(
 			registeredClients = await measureMcpIssuancePhase(
 				"searchDescopeMcpServerClients",
 				() =>
-					searchDescopeMcpServerClients(aihEnv, {
-						mcpServerId,
-					}),
+					searchDescopeMcpServerClients(
+						aihEnv,
+						{ mcpServerId },
+						// Read-only retries fit inside the CLI's 30s exchange budget.
+						{ deadline: Date.now() + 6_000, timeoutMs: 2_000 },
+					),
 			);
 			if (!fresh)
 				rememberMcpServerClients(

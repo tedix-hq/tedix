@@ -365,6 +365,22 @@ describe("enrollment-bounded MCP credential issuance", () => {
 });
 
 describe("provider answers kept between renewals", () => {
+	it("keeps the existing credential when the bounded search fails", async () => {
+		await client().issueMcpCredential(INPUT);
+		mocks.search.mockRejectedValueOnce(new Error("search deadline"));
+		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
+			code: "INTERNAL_SERVER_ERROR",
+		});
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(mocks.remove).not.toHaveBeenCalled();
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS total FROM external_agent_mcp_credentials")
+				.get(),
+		).toEqual({ total: 1 });
+		// The failed issuance releases the lease, so the next exchange can recover.
+		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(120);
+	});
 	it("asks the provider for the registration and client once per few seconds", async () => {
 		await client().issueMcpCredential(INPUT);
 		await client().issueMcpCredential(INPUT);

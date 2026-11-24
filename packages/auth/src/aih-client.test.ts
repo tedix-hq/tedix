@@ -6,9 +6,11 @@ import {
 	exchangeAihClientCredentials,
 	hardenDescopeMcpServerRegistration,
 	registerDescopeMcpResource,
+	searchDescopeMcpServerClients,
 } from "./aih-client";
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });
@@ -335,4 +337,61 @@ describe("measured AIH token lifetime", () => {
 			).resolves.toEqual({ accessToken: "fixture-token", expiresIn });
 		},
 	);
+});
+
+describe("bounded MCP client search", () => {
+	it("retries a stalled read and succeeds within the caller budget", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi
+			.fn()
+			.mockImplementationOnce(
+				(_url, init) =>
+					new Promise((_resolve, reject) => {
+						init.signal.addEventListener("abort", () =>
+							reject(new Error("aborted")),
+						);
+					}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({ clients: [{ id: "existing-client" }] }),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		const started = Date.now();
+		const pending = searchDescopeMcpServerClients(
+			{ ...env, DESCOPE_MANAGEMENT_KEY: "fixture" },
+			{ mcpServerId: "fixture" },
+			{ deadline: started + 6_000, timeoutMs: 2_000 },
+		);
+		await vi.runAllTimersAsync();
+		expect(await pending).toEqual([{ id: "existing-client" }]);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(Date.now() - started).toBeLessThan(6_000);
+	});
+	it("aborts stalled response bodies and exhausts retries by the deadline", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn(
+			async (_url, init) =>
+				new Response(
+					new ReadableStream({
+						start(controller) {
+							init.signal.addEventListener("abort", () =>
+								controller.error(new Error("aborted body")),
+							);
+						},
+					}),
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const started = Date.now();
+		const pending = searchDescopeMcpServerClients(
+			{ ...env, DESCOPE_MANAGEMENT_KEY: "fixture" },
+			{ mcpServerId: "fixture" },
+			{ deadline: started + 6_000, timeoutMs: 2_000 },
+		);
+		const assertion = expect(pending).rejects.toThrow("aborted body");
+		await vi.runAllTimersAsync();
+		await assertion;
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(Date.now() - started).toBe(6_000);
+	});
 });
