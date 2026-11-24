@@ -152,9 +152,9 @@ background programs out of Documents, Desktop and Downloads, so keep checkouts
 somewhere else, for example `~/Developer`.
 
 The supervisor also runs your runners: the processes on this machine that
-pick up accepted Work for one executor each (Codex, Claude Code, OpenCode or
-Devin) and carry it out. `tedix lane serve --install` no longer creates a
-background service of its own; it adds the runner to
+pick up accepted Work for one executor each (Codex, Claude Code, OpenCode,
+Devin or a tedi) and carry it out. `tedix lane serve --install` no longer
+creates a background service of its own; it adds the runner to
 `~/.tedix/supervisor-runners.json`, and the supervisor starts it within a
 minute, restarts it when it exits (waiting a minute, then longer after
 repeated exits, at most 15 minutes), stops it when you remove it from the
