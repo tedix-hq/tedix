@@ -4602,6 +4602,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			workspaceFiles: this.env.SKILL_ARTIFACTS,
 			actorKind,
 			actingUserId: started?.actor_kind === "user" ? started.actor_id : null,
+			availableConnections:
+				started?.actor_kind === "user"
+					? () => {
+							const api = this.accountService();
+							if (!api.availableConnections)
+								throw new Error("Connection discovery is unavailable");
+							return api.availableConnections({
+								...scope,
+								userId: started.actor_id,
+							});
+						}
+					: undefined,
 			// The person sent it and nobody else can open the workspace.
 			personScope: policy ? !policy.shared : false,
 			approvalMode: policy?.mode,
@@ -4724,6 +4736,33 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					: Promise.resolve(null),
 			runs: data,
 			accountActor,
+			availableConnections:
+				accountActor && policy.personSent
+					? (providerId) => {
+							const api = this.accountService();
+							if (!api.availableConnections)
+								throw new Error("Connection discovery is unavailable");
+							return api.availableConnections({
+								...scope,
+								userId: accountActor.id,
+								...(providerId ? { providerId } : {}),
+							});
+						}
+					: undefined,
+			requestLink:
+				accountActor && policy.personSent
+					? ({ connections, reason }) => {
+							// Shared chat history carries opaque choices only. Labels and account metadata
+							// are resolved again for the viewer, never replayed to another person.
+							this.#events.append(turn.conversationId, {
+								type: "connections.proposed",
+								turnId: turn.turnId,
+								requestId: `${turn.turnId}:connections`,
+								connections: connections.map((connection) => connection.id),
+								reason,
+							});
+						}
+					: undefined,
 			accounts:
 				accountActor &&
 				workspaceAccounts({

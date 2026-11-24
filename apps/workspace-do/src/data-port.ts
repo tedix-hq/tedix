@@ -85,6 +85,7 @@ export interface CreatedApp {
  * credential: whose account a personal source uses is never shown.
  */
 export interface ResourceSummary {
+	providerResourceId?: string;
 	id: string;
 	name: string;
 	kind: string;

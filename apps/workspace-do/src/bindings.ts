@@ -1,3 +1,4 @@
+import type { AvailableWorkspaceConnection } from "@tedix/api-contract/schemas/workspace-available-connections";
 /**
  * The objects the sandbox `env` exposes. Each is a plain object over the
  * data port, then wrapped with `wrapBinding`, so every call is checked,
@@ -86,6 +87,13 @@ export interface BindingDeps {
 	web?: WebPort;
 	/** Shows a "Connect" card in the running turn's answer; absent outside a chat turn. */
 	requestConnection?: (request: ConnectionRequest) => void;
+	availableConnections?: (
+		providerId?: string,
+	) => Promise<AvailableWorkspaceConnection[]>;
+	requestLink?: (request: {
+		connections: AvailableWorkspaceConnection[];
+		reason: string;
+	}) => void;
 	scheduleRegistered?: (run: {
 		gadgetId: string;
 		triggerId: string;
@@ -403,16 +411,129 @@ export function buildWorkspaceBindings(
 				actorId: deps.actor.id,
 			}),
 	};
+	const available = async () => {
+		if (!deps.availableConnections)
+			throw new Error(
+				"Connection discovery is available only in a turn the person sent",
+			);
+		const [connections, linked] = await Promise.all([
+			deps.availableConnections(),
+			data.listResources(),
+		]);
+		return connections.filter(
+			(connection) =>
+				(connection.connectedForYou !== false ||
+					connection.connectionInstanceId) &&
+				!linked.some(
+					(source) =>
+						source.status === "active" &&
+						source.providerId === connection.providerId &&
+						source.connectionScope === connection.connectionScope &&
+						(source.providerResourceId === connection.id ||
+							(connection.connectionInstanceId
+								? source.connectionInstanceId ===
+									connection.connectionInstanceId
+								: !source.connectionInstanceId)),
+				),
+		);
+	};
 	const resources = {
 		list: () => data.listResources(),
+		available,
+		requestLink: async (input: { connections: string[]; reason: string }) => {
+			if (
+				!Array.isArray(input?.connections) ||
+				!input.connections.length ||
+				input.connections.length > 50 ||
+				input.connections.some((id) => typeof id !== "string")
+			)
+				throw new Error(
+					"Choose up to 50 connection ids from env.resources.available()",
+				);
+			if (typeof input.reason !== "string" || !input.reason.trim())
+				throw new Error(
+					"Explain why these connections are needed in one sentence",
+				);
+			if (!deps.requestLink)
+				throw new Error("Connections can be proposed only in a chat turn");
+			const choices = await available();
+			const connections = [...new Set(input.connections)].map((id) => {
+				const connection = choices.find((choice) => choice.id === id);
+				if (!connection?.connectedForYou)
+					throw new Error(
+						"Choose a connected account from env.resources.available()",
+					);
+				return connection;
+			});
+			deps.requestLink({
+				connections,
+				reason: input.reason.trim().slice(0, CONNECTION_REASON_MAX_CHARS),
+			});
+			return {
+				requested: true,
+				message:
+					"The chat shows one card with the proposed connections. Nothing is added until the person clicks Add to workspace. The next turn can see added sources in env.resources.list().",
+			};
+		},
 		// Changes nothing: it only puts a card in the chat. A request that
 		// cannot lead anywhere shows no card and says what to do instead.
 		requestConnection: async (input: {
 			resourceId?: unknown;
+			providerId?: unknown;
+			connectionScope?: "personal" | "organization";
 			reason?: unknown;
 		}) => {
-			if (typeof input?.resourceId !== "string" || !input.resourceId)
-				throw new Error("Name the source by its resourceId");
+			if (typeof input?.resourceId !== "string" || !input.resourceId) {
+				if (typeof input?.providerId !== "string" || !input.providerId)
+					throw new Error(
+						"Name the source by its resourceId or the service by providerId",
+					);
+				if (!deps.availableConnections || !deps.requestConnection)
+					throw new Error(
+						"A connection can be asked for only in a chat turn the person sent",
+					);
+				const choices = await deps.availableConnections(input.providerId);
+				const connection = choices.find(
+					(choice) =>
+						choice.providerId === input.providerId &&
+						(!input.connectionScope ||
+							choice.connectionScope === input.connectionScope),
+				);
+				if (!connection)
+					throw new Error("This provider or connection scope is unavailable");
+				if (
+					choices.some(
+						(choice) =>
+							choice.providerId === connection.providerId &&
+							choice.connectionScope === connection.connectionScope &&
+							choice.connectedForYou,
+					)
+				)
+					return {
+						requested: false,
+						message:
+							"That service is already connected. Use env.resources.available() and propose linking its account.",
+					};
+				deps.requestConnection({
+					resourceId: `provider:${connection.id}`,
+					resourceName: connection.service,
+					providerId: connection.providerId,
+					service: connection.service,
+					connectionScope: connection.connectionScope,
+					...(typeof input.reason === "string"
+						? {
+								reason: input.reason
+									.trim()
+									.slice(0, CONNECTION_REASON_MAX_CHARS),
+							}
+						: {}),
+				});
+				return {
+					requested: true,
+					message:
+						"The chat shows a Connect card. Sign-in and consent belong to the person.",
+				};
+			}
 			const resource = (await data.listResources()).find(
 				(item) => item.id === input.resourceId,
 			);
@@ -765,6 +886,8 @@ export function buildWorkspaceBindings(
 			resource: "resource",
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
+				available: { riskTier: "read", blastRadius: "none" },
+				requestLink: { riskTier: "read", blastRadius: "none" },
 				requestConnection: { riskTier: "read", blastRadius: "none" },
 			},
 		}),

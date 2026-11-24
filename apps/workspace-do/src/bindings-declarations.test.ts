@@ -432,3 +432,75 @@ describe("workspace bindings", () => {
 		expect(record?.decision.riskTier).toBe("bounded_write");
 	});
 });
+
+test("connection proposals validate all choices without linking any source", async () => {
+	const data = fakeData();
+	data.listResources = async () => [];
+	const adapters = createInMemoryAdapters();
+	const proposals: unknown[] = [];
+	const asks: ConnectionRequest[] = [];
+	const choices = ["mail", "calendar"].map((id) => ({
+		id,
+		providerId: id,
+		service: id,
+		label: id,
+		connectionScope: "personal" as const,
+		hybrid: true,
+		connectedForYou: true,
+		access: [],
+	}));
+	const resources = buildWorkspaceBindings({
+		data,
+		...adapters,
+		actor: { id: "u", kind: "user", organizationId: "o" },
+		source: { surface: "workspace_object", traceId: "t" },
+		availableConnections: async (providerId) =>
+			providerId
+				? [
+						{
+							...choices[0]!,
+							id: "new",
+							providerId,
+							service: "New service",
+							connectedForYou: false,
+						},
+					]
+				: choices,
+		requestLink: (proposal) => void proposals.push(proposal),
+		requestConnection: (request) => void asks.push(request),
+	}).resources as {
+		available(): Promise<unknown[]>;
+		requestLink(input: {
+			connections: string[];
+			reason: string;
+		}): Promise<unknown>;
+		requestConnection(input: { providerId: string }): Promise<unknown>;
+	};
+	expect(await resources.available()).toEqual(choices);
+	await expect(
+		resources.requestLink({
+			connections: ["mail", "unknown"],
+			reason: "Read the schedule.",
+		}),
+	).rejects.toThrow("Choose a connected account");
+	expect(proposals).toEqual([]);
+	await resources.requestLink({
+		connections: ["mail", "calendar"],
+		reason: "Read the schedule.",
+	});
+	expect(proposals).toEqual([
+		{ connections: choices, reason: "Read the schedule." },
+	]);
+	expect(await data.listResources()).toEqual([]);
+	await resources.requestConnection({ providerId: "new-service" });
+	expect(asks[0]).toMatchObject({
+		providerId: "new-service",
+		service: "New service",
+		connectionScope: "personal",
+	});
+	expect(
+		(await adapters.accountability.list({})).every(
+			(record) => record.decision.riskTier === "read",
+		),
+	).toBe(true);
+});

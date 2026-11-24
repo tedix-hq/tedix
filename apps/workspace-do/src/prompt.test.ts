@@ -60,7 +60,7 @@ describe("prompt", () => {
 			"connectedForYou",
 		])
 			expect(declared).toContain(`${field}:`);
-		expect(declared).toContain("requestConnection(input: { resourceId");
+		expect(declared).toContain("requestConnection(input: { resourceId?");
 		expect(declared).not.toContain("personalOwnerUserId");
 		expect(STATIC_RULES).toContain("env.resources.requestConnection");
 		expect(STATIC_RULES).toContain("env.accounts.describe(resourceId)");

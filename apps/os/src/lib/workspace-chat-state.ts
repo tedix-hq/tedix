@@ -153,6 +153,11 @@ export type ChatTurn = {
 	schedules?: Array<{ gadgetId: string; triggerId: string; name: string }>;
 	/** Accounts the agent asked for in this turn, one per source. */
 	connectionRequests?: ChatConnectionRequest[];
+	connectionProposals?: Array<{
+		requestId: string;
+		connections: string[];
+		reason: string;
+	}>;
 	/** A tedi's tool calls this turn sent to Tedix's approvals. */
 	tediApprovals?: ChatTediApproval[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
@@ -706,6 +711,21 @@ export function applyWorkspaceChatEvent(
 							],
 						},
 			);
+			break;
+		case "connections.proposed":
+			turns = place(event.turnId)((turn) => ({
+				...turn,
+				connectionProposals: [
+					...(turn.connectionProposals ?? []).filter(
+						(proposal) => proposal.requestId !== event.requestId,
+					),
+					{
+						requestId: event.requestId,
+						connections: event.connections,
+						reason: event.reason,
+					},
+				],
+			}));
 			break;
 		case "connection.requested":
 			turns = place(event.turnId)((turn) =>

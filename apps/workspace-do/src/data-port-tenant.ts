@@ -278,6 +278,9 @@ export interface TenantDataPortDeps {
 	 * personal accounts count as connected; never written anywhere.
 	 */
 	actingUserId?: string | null;
+	availableConnections?: () => Promise<
+		import("@tedix/api-contract/schemas/workspace-available-connections").AvailableWorkspaceConnection[]
+	>;
 	/**
 	 * The acting person sent the turn themself and nobody else can open the
 	 * workspace: its Work reaches every project that person may use, not
@@ -1167,7 +1170,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		);
 		// Workspace files and the like need no account and no lookup.
 		const providerIds = rows
-			.filter((row) => row.connectionInstanceId)
+			.filter((row) => row.connectionInstanceId || row.kind === "account")
 			.map((row) => row.providerId);
 		const person = this.deps.actingUserId ?? undefined;
 		const [accounts, names] = providerIds.length
@@ -1183,8 +1186,24 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		// The same rule a workspace app's read follows: an organization source
 		// uses its one shared account; a personal source uses the reader's own
 		// account, never its owner's on someone else's behalf.
+		const defaults =
+			rows.some((row) => row.kind === "account" && !row.connectionInstanceId) &&
+			this.deps.availableConnections
+				? await this.deps.availableConnections()
+				: [];
 		const connected = (row: (typeof rows)[number]) => {
-			if (!row.connectionInstanceId) return null;
+			if (!row.connectionInstanceId)
+				return row.kind === "account"
+					? (defaults.find(
+							(connection) =>
+								connection.providerId === row.providerId &&
+								connection.connectionScope ===
+									(row.connectionScope === "user"
+										? "personal"
+										: "organization") &&
+								!connection.connectionInstanceId,
+						)?.connectedForYou ?? false)
+					: null;
 			const scope = row.connectionScope;
 			const ofProvider = accounts.filter(
 				(account) =>
@@ -1197,6 +1216,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		};
 		return rows.map((row) => ({
 			id: row.id,
+			providerResourceId: row.providerResourceId,
 			name: row.name,
 			kind: row.kind,
 			status: row.status,

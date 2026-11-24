@@ -360,6 +360,13 @@ export type WorkspaceChatLedgerEvent =
 			toolResult: Record<string, unknown>;
 	  })
 	| (Stamped & {
+			type: "connections.proposed";
+			turnId: string;
+			requestId: string;
+			connections: string[];
+			reason: string;
+	  })
+	| (Stamped & {
 			/**
 			 * The agent asked for an account a connected source needs. Shown as a
 			 * "Connect" card; nothing changed and nothing waits on it.
@@ -518,6 +525,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"view.shown",
 	"schedule.registered",
 	"connection.requested",
+	"connections.proposed",
 	"tedi_approval.requested",
 	"turn.retrying",
 	"turn.finished",

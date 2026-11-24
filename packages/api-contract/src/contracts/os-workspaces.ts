@@ -1,4 +1,9 @@
 import {
+	AvailableWorkspaceConnectionSchema,
+	LinkWorkspaceConnectionsInputSchema,
+	LinkWorkspaceConnectionsResultSchema,
+} from "../schemas/workspace-available-connections";
+import {
 	OsWorkspaceChangeRecordsInputSchema,
 	OsWorkspaceChangeRecordsExportSchema,
 } from "../schemas/os-workspace-change-records";
@@ -792,6 +797,22 @@ export const osWorkspacesContract = oc
 				.output(z.object({ preference: OsWorkspacePreferenceSchema })),
 		}),
 		resources: oc.router({
+			availableConnections: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/resources/available-connections",
+					summary: "List the signed-in person's connection choices",
+				})
+				.input(workspaceIdInput)
+				.output(z.array(AvailableWorkspaceConnectionSchema)),
+			linkConnections: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/resources/link-connections",
+					summary: "Add selected connected accounts to a workspace",
+				})
+				.input(LinkWorkspaceConnectionsInputSchema)
+				.output(LinkWorkspaceConnectionsResultSchema),
 			requestFileUpload: oc
 				.route({
 					method: "POST",

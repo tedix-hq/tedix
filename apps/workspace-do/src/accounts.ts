@@ -12,6 +12,11 @@ import type { WorkspaceScope } from "./env";
 import type { ConnectionRequest } from "./bindings";
 
 export interface AccountService {
+	availableConnections?(
+		input: import("@tedix/api-contract/schemas/workspace-available-connections").WorkspaceConnectionDiscoveryInput,
+	): Promise<
+		import("@tedix/api-contract/schemas/workspace-available-connections").AvailableWorkspaceConnection[]
+	>;
 	readLinkedAccount(
 		input: WorkspaceConnectionReadInput,
 	): Promise<WorkspaceConnectionReadResult>;

@@ -14,6 +14,7 @@ export function listWorkspaceResourceSummaries(
 	return db
 		.select({
 			id: tenantOsWorkspaceResources.id,
+			providerResourceId: tenantOsWorkspaceResources.providerResourceId,
 			name: tenantOsWorkspaceResources.name,
 			kind: tenantOsWorkspaceResources.resourceType,
 			status: tenantOsWorkspaceResources.status,

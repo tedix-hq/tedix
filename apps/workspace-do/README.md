@@ -37,12 +37,21 @@ its code runs beside the data.
    `env.resources.list()` shows each connected source with its slot, service,
    whether it reads through each person's own account or one the organization
    shares, the access it grants, and whether the person the turn acts for has
-   that account connected. It names no owner and holds no credential. The
-   agent cannot read from or write to a connected source yet.
+   that account connected. It names no owner and holds no credential.
+   `env.accounts` reads a source through its reviewed read tools.
+   `env.resources.available()` lists the sending person's unlinked accounts
+   using the Connections page inventory. `env.resources.requestLink({
+   connections: [id, ...], reason })` proposes relevant accounts together in
+   one card. It adds nothing until the person selects the accounts and clicks
+   "Add to workspace". That action requires workspace build or owner access
+   and uses the source attachment path; the next turn sees the added sources.
+   Shared chat events hold opaque choices, not personal-account labels.
    `env.resources.requestConnection({ resourceId, reason })` is a read that
    changes nothing: for a source the person has not connected it records a
    `connection.requested` event, which the chat shows as a "Connect" card
    linking to the person's own accounts or the organization's connections.
+   Pass `providerId` and `connectionScope` instead of `resourceId` to ask for
+   a service not connected yet. Sign-in and consent stay with the person.
    `env.web.fetch(url)` reads a public https page from this object, not the
    sandbox (`src/web.ts`): private, local and internal addresses are refused,
    also after a redirect; size and time are bounded and HTML comes back as

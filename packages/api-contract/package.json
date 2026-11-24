@@ -16,6 +16,7 @@
 		"./schemas/task-contract-terms": "./src/schemas/task-contract-terms.ts",
 		"./utils/task-contract-terms": "./src/utils/task-contract-terms.ts",
 		"./schemas/os-workspace-inspections": "./src/schemas/os-workspace-inspections.ts",
+		"./schemas/workspace-available-connections": "./src/schemas/workspace-available-connections.ts",
 		"./schemas/workspace-connection-read": "./src/schemas/workspace-connection-read.ts",
 		"./schemas/workspace-machine": "./src/schemas/workspace-machine.ts",
 		"./schemas/workspace-agent-access": "./src/schemas/workspace-agent-access.ts",

@@ -225,7 +225,19 @@ interface ConnectedSource {
   /** Whether the person you act for has the account this source needs. null: the source needs no account. */
   connectedForYou: boolean | null;
 }
+interface AvailableConnection {
+  id: string; providerId: string; service: string; label: string;
+  connectionScope: "personal" | "organization"; hybrid: boolean;
+  connectionInstanceId?: string; connectedForYou: boolean | null;
+  grantedScopes?: string[];
+  /** Recorded tool capabilities; empty means unknown. These do not grant authority. */
+  access: Array<{ label: string; riskTier: string }>;
+}
 interface Resources {
+  /** Unlinked accounts visible to the sending person. Never needs approval; no credentials or other people's personal accounts. null status means unknown. */
+  available(): Promise<AvailableConnection[]>;
+  /** One card with all relevant connection ids preselected. Changes nothing until the person selects Add to workspace. */
+  requestLink(input: { connections: string[]; reason: string }): Promise<{ requested: boolean; message: string }>;
   /** Every active source, by name. Never needs approval. */
   list(): Promise<ConnectedSource[]>;
   /**
@@ -233,7 +245,7 @@ interface Resources {
    * reason: one short sentence on what the account is needed for, shown on the card.
    * requested: false means no card was shown; message says why.
    */
-  requestConnection(input: { resourceId: string; reason?: string }): Promise<{ requested: boolean; message: string }>;
+  requestConnection(input: { resourceId?: string; providerId?: string; connectionScope?: "personal" | "organization"; reason?: string }): Promise<{ requested: boolean; message: string }>;
 }`.trim(),
 	accounts: `
 /** Read linked accounts in a turn a person started. */

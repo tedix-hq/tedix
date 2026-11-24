@@ -204,6 +204,13 @@ export type WireEventBody =
 			toolResult: Record<string, unknown>;
 	  }
 	| {
+			type: "connections.proposed";
+			turnId: string;
+			requestId: string;
+			connections: string[];
+			reason: string;
+	  }
+	| {
 			/**
 			 * The agent asked for an account a connected source needs. The chat
 			 * shows a "Connect" card; nothing changed and nothing waits on it.
@@ -672,6 +679,8 @@ export function stepLabel(
 		},
 		resources: {
 			list: "Checking connections",
+			available: "Finding available connections",
+			requestLink: "Proposing workspace connections",
 			requestConnection: "Asking for a connected account",
 		},
 		accounts: {

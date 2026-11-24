@@ -1,3 +1,4 @@
+import { WorkspaceConnectionLinkCard } from "@/components/workspace-chat-link-card";
 import type { WorkspaceChatAttachmentInput } from "@tedix/api-contract/schemas/workspace-files";
 import { LoadingArea } from "@/components/loading-area";
 import { ConversationUsageRing } from "@/components/chat-usage-line";
@@ -1368,6 +1369,13 @@ function TurnView({
 						))}
 					</ul>
 				) : null}
+				{turn.connectionProposals?.map((request) => (
+					<WorkspaceConnectionLinkCard
+						key={request.requestId}
+						workspaceId={workspaceId}
+						request={request}
+					/>
+				))}
 				{turn.connectionRequests?.map((request) => (
 					<ConnectionRequestCard request={request} key={request.requestId} />
 				))}

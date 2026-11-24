@@ -1,3 +1,13 @@
+import {
+	discoverWorkspaceConnections,
+	requireConnectionSender,
+} from "../../services/workspace-available-connections";
+import { adoptDefaultPersonalConnection } from "./connections/policy-resolution";
+import {
+	createConnectionInstance,
+	listConnectionInstances,
+	recordConnectionGrant,
+} from "@tedix/db/queries/connection-instances";
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { scopesGrantingConsent } from "@tedix/api-contract/utils/provider-capability-profiles";
 import { fetchNamedConnection } from "./connections/policy-resolution";
@@ -120,8 +130,22 @@ async function personalAccountBinding(
 	providerId: string,
 	instanceId?: string,
 ) {
-	if (scope === "tenant")
-		return { personalOwnerUserId: null, connectionInstanceId: null };
+	if (scope === "tenant") {
+		if (!instanceId)
+			return { personalOwnerUserId: null, connectionInstanceId: null };
+		const instance = await getConnectionInstance(
+			context.db,
+			{ organizationId: requireOrgId(context) },
+			instanceId,
+			providerId,
+		);
+		if (!instance?.tokenSub || !instance.tokenIds.length)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"The organization account is unavailable",
+			);
+		return { personalOwnerUserId: null, connectionInstanceId: instance.id };
+	}
 	if (
 		context.authType !== "user" ||
 		!context.user?.sub ||
@@ -344,7 +368,14 @@ async function restoreRemovedTenantResource(
 	}
 }
 
-const create = authorOs.resources.create.handler(async ({ input, context }) => {
+async function createWorkspaceSource(
+	context: BaseContext,
+	input: {
+		workspaceId: string;
+		selection: OsWorkspaceResourceSelection;
+		slot?: string;
+	},
+) {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const creator = resolveCreator(context);
 	if (
@@ -427,7 +458,126 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 		}
 		throw error;
 	}
-});
+}
+
+const create = authorOs.resources.create.handler(({ input, context }) =>
+	createWorkspaceSource(context, input),
+);
+
+const availableConnections = readOs.resources.availableConnections.handler(
+	async ({ input, context }) => {
+		if (context.authType !== "user" || !context.user?.sub || context.tediId)
+			throw createError(ErrorCodes.FORBIDDEN, "A signed-in person is required");
+		await requireConnectionSender(context, input.workspaceId, context.user.sub);
+		return discoverWorkspaceConnections(context);
+	},
+);
+
+const linkConnections = authorOs.resources.linkConnections.handler(
+	async ({ input, context }) => {
+		if (context.authType !== "user" || !context.user?.sub || context.tediId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a signed-in person can add these connections",
+			);
+		const userId = context.user.sub;
+		await requireConnectionSender(context, input.workspaceId, userId);
+		const available = await discoverWorkspaceConnections(context);
+		const linked = await listOsWorkspaceResources(queryDb(context), {
+			organizationId: requireOrgId(context),
+			workspaceId: input.workspaceId,
+			status: "active",
+			limit: 1000,
+		});
+		const added: Array<{ id: string; name: string }> = [];
+		const failed: Array<{ id: string; message: string }> = [];
+		for (const id of new Set(input.connections)) {
+			try {
+				const connection = available.find((item) => item.id === id);
+				if (!connection?.connectedForYou)
+					throw new Error(
+						"This account is unavailable. Check Connections and try again.",
+					);
+				if (
+					linked.some(
+						(row) =>
+							row.providerId === connection.providerId &&
+							row.connectionScope ===
+								(connection.connectionScope === "personal"
+									? "user"
+									: "tenant") &&
+							row.resourceType === "account" &&
+							row.providerResourceId === id,
+					)
+				) {
+					added.push({ id, name: connection.label });
+					continue;
+				}
+				let instanceId = connection.connectionInstanceId;
+				if (connection.connectionScope === "personal" && !instanceId) {
+					const grant = await adoptDefaultPersonalConnection(context, {
+						userId,
+						providerId: connection.providerId,
+					});
+					const owner = { userId };
+					const existing = (
+						await listConnectionInstances(context.db, owner)
+					).find(
+						(row) =>
+							row.providerId === connection.providerId &&
+							row.tokenIds.includes(grant.tokenId),
+					);
+					const instance =
+						existing ??
+						(await createConnectionInstance(context.db, {
+							id: crypto.randomUUID(),
+							ownerUserId: userId,
+							providerId: connection.providerId,
+							label: connection.label,
+						}));
+					if (
+						!existing &&
+						!(
+							await recordConnectionGrant(context.db, {
+								owner,
+								id: instance.id,
+								providerId: connection.providerId,
+								tokenId: grant.tokenId,
+								tokenSub: grant.tokenSub,
+							})
+						).length
+					)
+						throw new Error("The account identity changed. Try again.");
+					instanceId = instance.id;
+				}
+				await createWorkspaceSource(context, {
+					workspaceId: input.workspaceId,
+					selection: {
+						providerId: connection.providerId,
+						connectionScope:
+							connection.connectionScope === "personal" ? "user" : "tenant",
+						...(instanceId ? { connectionInstanceId: instanceId } : {}),
+						resourceType: "account",
+						providerResourceId: id,
+						name: connection.label,
+						requiredScopes: [],
+						metadata: {},
+					},
+				});
+				added.push({ id, name: connection.label });
+			} catch (error) {
+				failed.push({
+					id,
+					message:
+						error instanceof Error
+							? error.message
+							: "The connection could not be added",
+				});
+			}
+		}
+		return { added, failed };
+	},
+);
 
 const get = readOs.resources.get.handler(async ({ input, context }) => ({
 	resource: await projectWorkspaceResource(
@@ -650,6 +800,8 @@ const remove = authorOs.resources.remove.handler(async ({ input, context }) => {
 });
 
 export const osWorkspaceResourceProcedures = {
+	availableConnections,
+	linkConnections,
 	list,
 	create,
 	get,
