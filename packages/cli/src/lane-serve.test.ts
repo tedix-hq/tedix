@@ -11,7 +11,6 @@ import {
 	readdirSync,
 	realpathSync,
 	rmSync,
-	statSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -31,7 +30,6 @@ import {
 	MIN_FREE_DISK_BYTES,
 	MAX_PREPARATIONS,
 	cleanupLaneWorktree,
-	dropCheckoutDependencies,
 	installLaneDependencies,
 	laneLandingBrief,
 	provisionLaneWorktree,
@@ -9478,6 +9476,33 @@ it("keeps even an empty pending-proof marker fenced from retry and cleanup", asy
 	expect(existsSync(repo)).toBe(true);
 });
 
+it("evicts an expired run's checkout over the cap while its result still waits", async () => {
+	const { dispatcher, dir, items, control } = fixture({ capBytes: 1 });
+	items.splice(0);
+	const rows = ["expired", "failed"].map((outcome, n) => {
+		const repo = join(dir, "runs", `${item(n + 1).id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(dir, `${item(n + 1).id}-2.json`),
+			JSON.stringify({
+				itemId: item(n + 1).id,
+				version: 2,
+				phase: "deferred",
+				outcome,
+				admissionState: "admitted",
+				pendingCommitProof: "",
+				repo,
+			}),
+		);
+		return repo;
+	});
+	control.runSize = 2;
+	control.cleanupRemoves = true;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(rows.map((repo) => existsSync(repo))).toEqual([false, true]);
+});
+
 it("sweeps every settled run and keeps each Work item's latest receipt", async () => {
 	const { dispatcher, dir, items, control } = fixture();
 	items.splice(0);
@@ -12884,28 +12909,4 @@ describe("watching and steering a run", () => {
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
 	});
-});
-
-it("drops a kept checkout's dependencies but never its work or committed folders", async () => {
-	const repo = mkdtempSync(join(tmpdir(), "lane-drop-deps-"));
-	try {
-		spawnSync("git", ["-C", repo, "init", "-q"]);
-		mkdirSync(join(repo, "node_modules", "left-pad"), { recursive: true });
-		mkdirSync(join(repo, "apps", "web", "node_modules"), { recursive: true });
-		writeFileSync(join(repo, "notes.txt"), "uncommitted work");
-		// Not ignored: these could be the only copy of committed files.
-		expect(await dropCheckoutDependencies(repo)).toBe(false);
-		expect(existsSync(join(repo, "node_modules"))).toBe(true);
-		writeFileSync(join(repo, ".gitignore"), "node_modules\n");
-		utimesSync(repo, 1000, 1000);
-		expect(await dropCheckoutDependencies(repo)).toBe(true);
-		expect(existsSync(join(repo, "node_modules"))).toBe(false);
-		expect(existsSync(join(repo, "apps", "web", "node_modules"))).toBe(false);
-		expect(readFileSync(join(repo, "notes.txt"), "utf8")).toBe(
-			"uncommitted work",
-		);
-		expect(statSync(repo).mtimeMs).toBe(1_000_000);
-	} finally {
-		rmSync(repo, { recursive: true, force: true });
-	}
 });

@@ -62,7 +62,6 @@ import {
 	statSync,
 	unlinkSync,
 	writeFileSync,
-	utimesSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -3062,46 +3061,6 @@ export async function existingLaneCommits(
 	if (await gitOutput(repo, ["status", "--porcelain", "--untracked-files=no"]))
 		return "the checkout has uncommitted changes to tracked files";
 }
-
-/**
- * Deletes the dependency folders of a checkout that has to stay, because
- * its result is still to be reported or its work is not pushed. An install
- * rebuilds them; source files, commits and uncommitted work are untouched.
- * Returns whether anything was deleted.
- */
-export async function dropCheckoutDependencies(repo: string): Promise<boolean> {
-	try {
-		// Only where Git ignores them: a repository may commit its dependencies.
-		await promisify(execFile)(
-			"git",
-			["-C", repo, "check-ignore", "-q", "node_modules"],
-			{ timeout: 10_000 },
-		);
-	} catch {
-		return false;
-	}
-	const at = statSync(repo);
-	const folders = [
-		repo,
-		...["apps", "packages"].flatMap((group) => {
-			try {
-				return readdirSync(join(repo, group)).map((name) =>
-					join(repo, group, name),
-				);
-			} catch {
-				return [];
-			}
-		}),
-	]
-		.map((folder) => join(folder, "node_modules"))
-		.filter((folder) => existsSync(folder));
-	for (const folder of folders)
-		await rm(folder, { recursive: true, force: true });
-	// The folder's age decides when its work may be evicted; keep it.
-	if (folders.length) utimesSync(repo, at.atime, at.mtime);
-	return folders.length > 0;
-}
-
 export async function installLaneDependencies(repo: string) {
 	await promisify(execFile)("bun", ["install", "--frozen-lockfile"], {
 		cwd: repo,
@@ -5362,9 +5321,6 @@ export class LaneDispatcher {
 		const held = new Map<string, { itemId: string; reason: string }>();
 		const hold = (name: string, itemId: string, reason: string) =>
 			held.set(name, { itemId, reason });
-		/** Kept run folders that no process uses, oldest first after sorting. */
-		const idle: Array<{ name: string; run: string; at: number; size: number }> =
-			[];
 		for (const name of names) {
 			if (this.stopping) return;
 			const run = join(runs, name);
@@ -5382,15 +5338,6 @@ export class LaneDispatcher {
 			const itemId = name.slice(0, 36);
 			if (row) {
 				if (!this.checkoutCleanupReady(row, true)) {
-					if (
-						["settled", "deferred", "failed"].includes(row.phase) &&
-						!(row.pid && alive(row.pid)) &&
-						!this.running.has(itemId) &&
-						!this.preparing.has(itemId) &&
-						!this.maintenance.has(itemId) &&
-						Date.now() - at > STALE_CHECKOUT_MS
-					)
-						idle.push({ name, run, at, size });
 					hold(
 						name,
 						itemId,
@@ -5481,28 +5428,6 @@ export class LaneDispatcher {
 			undefined,
 			`runs/ holds ${(total / 1024 ** 3).toFixed(1)} GB, above the ${(cap / 1024 ** 3).toFixed(1)} GB retained-checkout cap; ${candidates.length} of ${names.length} run folders may be evicted, oldest first`,
 		);
-		// A kept checkout is mostly dependencies. Dropping those loses nothing,
-		// so it comes before evicting a checkout a retry could still reuse.
-		idle.sort((a, b) => a.at - b.at);
-		for (const { name, run, size } of idle) {
-			if (this.stopping || total <= cap) break;
-			let dropped = false;
-			for (const entry of readdirSync(run))
-				if (/^repo(-\d+)?$/.test(entry))
-					dropped =
-						(await dropCheckoutDependencies(join(run, entry)).catch(
-							() => false,
-						)) || dropped;
-			if (!dropped) continue;
-			delete this.runSizes[name];
-			const left = await this.deps.directoryBytes(run).catch(() => size);
-			total -= size - left;
-			this.log(
-				"checkout-dependencies-dropped",
-				name.slice(0, 36),
-				`${((size - left) / 1024 ** 3).toFixed(1)} GB of dependency folders deleted from a kept checkout; its files and commits stay`,
-			);
-		}
 		candidates.sort((a, b) => a.at - b.at);
 		for (const candidate of candidates) {
 			if (this.stopping || total <= cap) break;
@@ -8286,8 +8211,12 @@ ${firstBrief}`;
 			(retained ||
 				(!retainsInterruptedWork(receipt) && !waitsForRunAnswer(receipt))) &&
 			receipt.admissionState !== "unknown" &&
-			receipt.pendingCommitProof === undefined &&
-			!receipt.pendingObservation &&
+			// A result waiting to be reported keeps its checkout, except under the
+			// cap once its Attempt has expired: eviction saves the work as a Git
+			// ref, and a later run of the Work restores it from there.
+			((retained && receipt.outcome === "expired") ||
+				(receipt.pendingCommitProof === undefined &&
+					!receipt.pendingObservation)) &&
 			!!receipt.repo &&
 			resolve(receipt.repo).startsWith(resolve(this.directory, "runs") + sep) &&
 			(!receipt.pid || !alive(receipt.pid))
