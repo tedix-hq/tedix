@@ -92,6 +92,15 @@ const FactoryCards = lazy(() =>
 	})),
 );
 
+/**
+ * The coding tool whose mark a runner's question shows. A tedi runner has no
+ * such mark: its card shows the asker's own avatar and name.
+ */
+function codingToolMark(metadata: unknown) {
+	const runner = laneRequestHarness(metadata);
+	return runner === "tedi" ? undefined : runner;
+}
+
 export function DecisionDeckApp(props: {
 	config: DecisionDeckConfig;
 	workspaceId?: string;
@@ -606,7 +615,7 @@ function DecisionDeckContent({
 											projectId: projectNames.has(selected.project)
 												? selected.project
 												: undefined,
-											requestingHarness: laneRequestHarness(
+											requestingHarness: codingToolMark(
 												selected.row?.request.metadata,
 											),
 											workItemTitle: selected.row?.workItem?.title,
