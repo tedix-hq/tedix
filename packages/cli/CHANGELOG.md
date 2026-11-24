@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.5 (2026-11-24)
+
+### Patch Changes
+
+- 86d6122: Start a fresh Devin session in the same checkout when an update changes the CLI version or model registered to its old session.
+- fb953fd: Keep upstream commits from other Work Items out of dispatcher settlement and deployment proofs after a rebase. Continue checking deployment of every commit attributed to the current Work.
+- cb83149: Allow signed-in maintainers to authorize an exact CLI release with their own live release Attempt.
+- b547d25: Back off executors whose native session setup fails before Work admission, so Auto and idle takeover can use a healthy runner. Retry eligibility returns after the existing backoff window.
+- 2aa0019: Skip dispatcher checkout and native session preparation while dependency readiness reports an open blocker. Resume normal identity-bound admission when it clears.
+
 ## 0.37.4 (2026-11-23)
 
 ### Patch Changes
