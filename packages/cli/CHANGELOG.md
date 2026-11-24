@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.11 (2026-11-24)
+
+### Patch Changes
+
+- eaf9f3b: Fix the tedi runner failing on a normal task: reading the tedi's reply no longer breaks when the task brief is long.
+
 ## 0.37.10 (2026-11-24)
 
 ### Patch Changes
