@@ -187,6 +187,7 @@ function inferStatus(
 			"create_work_interaction",
 			"cancel_work_interaction",
 			"review_work_interaction",
+			"route_work_ownership_request",
 		].includes(operation) &&
 		z.uuid().safeParse(record.id).success &&
 		z.uuid().safeParse(record.orgId).success &&

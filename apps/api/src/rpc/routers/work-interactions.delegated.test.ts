@@ -21,6 +21,7 @@ import {
 	delegatedCardAllowed,
 	delegatedClassAllowed,
 } from "@tedix/api-contract/utils/delegated-approvals";
+import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { describe, expect, it } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
@@ -210,6 +211,69 @@ async function fixture(enabled = true) {
 }
 
 describe("standing approval delegation", () => {
+	it("verifies delivery as the former steward without reading the recipient's history", async () => {
+		const { db, sqlite, delegate, base } = await fixture();
+		try {
+			const id = crypto.randomUUID();
+			await createWorkItem(db, {
+				id,
+				orgId: org,
+				title: "Choose a first owner",
+				stewardType: "tedi",
+				stewardId: tedi,
+				createdAt: now(),
+			});
+			const question = await createWorkInteraction(db, {
+				id: crypto.randomUUID(),
+				orgId: org,
+				workItemId: id,
+				kind: "coordination",
+				subject: "Choose an owner",
+				prompt: "Who should own this?",
+				creator: { type: "tedi", id: requesterTedi },
+				targetType: "tedi",
+				targetId: tedi,
+				now: now(),
+			});
+			const args = {
+				requestId: question.id,
+				expectedRequestVersion: question.version,
+			};
+			const result = await delegate.routeOwnershipRequest(args);
+			const receipt = await verifyAction({
+				operation: "route_work_ownership_request",
+				args,
+				result,
+				actor: tedi,
+				origin: "https://os.example.test",
+				read: async (tool, params) => {
+					expect(tool).toBe("get_work_ownership_delivery");
+					expect(params).toEqual({ requestId: question.id });
+					return delegate.readOwnershipDelivery({ requestId: question.id });
+				},
+			});
+			expect(receipt).toMatchObject({
+				verified: true,
+				url: `https://os.example.test/work/items/${id}`,
+			});
+			await expect(delegate.get({ requestId: question.id })).rejects.toThrow();
+			const unrelated = createRouterClient(workInteractionsContractRouter, {
+				context: {
+					...base,
+					authType: "user",
+					userId: "requester",
+					userRole: "member",
+					user: { sub: "requester-sub" } as BaseContext["user"],
+				},
+			});
+			await expect(
+				unrelated.readOwnershipDelivery({ requestId: question.id }),
+			).rejects.toThrow("Ownership delivery receipt not found");
+			expect(await delegate.routeOwnershipRequest(args)).toEqual(result);
+		} finally {
+			sqlite.close();
+		}
+	});
 	it.each([false, undefined])(
 		"preserves legacy runtime machine deciders when delegation is %s",
 		async (enabled) => {

@@ -48,6 +48,7 @@ describe("execution evidence", () => {
 		["create_work_interaction", "open"],
 		["cancel_work_interaction", "cancelled"],
 		["review_work_interaction", "resolved"],
+		["route_work_ownership_request", "open"],
 	])(
 		"separates %s resource state %s from operation completion",
 		(operation, state) => {

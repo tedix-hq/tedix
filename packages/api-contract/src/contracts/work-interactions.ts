@@ -33,6 +33,8 @@ import {
 	CreateWorkInteractionInputSchema,
 	DismissCommitmentRemindersInputSchema,
 	DismissCommitmentRemindersResultSchema,
+	ReadOwnershipDeliveryInputSchema,
+	OwnershipDeliverySchema,
 	RouteWorkOwnershipRequestInputSchema,
 	DelegateWorkInteractionInputSchema,
 	DelegateWorkInteractionToStewardInputSchema,
@@ -129,6 +131,16 @@ export const workInteractionsContract = oc
 			})
 			.input(ListWorkInteractionCliInboxInputSchema)
 			.output(ListWorkInteractionCliInboxResultSchema),
+		readOwnershipDelivery: oc
+			.route({
+				method: "GET",
+				path: "/{requestId}/ownership-delivery",
+				summary: "Read the delivery receipt for an ownership request",
+				description:
+					"Read who received the existing request and what they can do next. Available to its requester, forwarding steward and recipient.",
+			})
+			.input(ReadOwnershipDeliveryInputSchema)
+			.output(OwnershipDeliverySchema),
 		routeOwnershipRequest: oc
 			.route({
 				method: "POST",
@@ -136,7 +148,7 @@ export const workInteractionsContract = oc
 				summary:
 					"Send an existing ownership request to a person who can choose the first owner",
 				description:
-					"Use the original open coordination request for a proposed Work Item with no owner. Its creator or addressed steward can send it to an active organization owner or admin. The response is the delivery receipt. Report its id and version and the recipientName, workLink and nextAction from metadata.ownershipRoute. Retry the same call if the receipt was lost. No separate audit read is needed. Ownership and acceptance stay unchanged.",
+					"Use the original open coordination request for a proposed Work Item with no owner. Its creator or addressed steward can send it to an active organization owner or admin. The response is the delivery receipt. Report its id and version and the recipientName, workLink and nextAction from metadata.ownershipRoute. Retry the same call if the receipt was lost. Verify delivery using get_work_ownership_delivery with the same request ID. Ownership and acceptance stay unchanged.",
 			})
 			.input(RouteWorkOwnershipRequestInputSchema)
 			.output(WorkInteractionRequestSchema),

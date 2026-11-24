@@ -120,6 +120,19 @@ export const RouteWorkOwnershipRequestInputSchema = z.strictObject({
 	expectedRequestVersion: z.number().int().positive(),
 });
 
+export const ReadOwnershipDeliveryInputSchema =
+	RouteWorkOwnershipRequestInputSchema.pick({ requestId: true });
+export const OwnershipDeliverySchema = z.object({
+	requestId: z.uuid(),
+	workItemId: z.uuid(),
+	version: z.number().int().positive(),
+	recipientId: z.string().min(1),
+	recipientName: z.string().nullable(),
+	recipientRole: z.enum(["owner", "admin"]),
+	routedAt: z.string().datetime(),
+	nextAction: z.string().min(1),
+});
+
 export const DelegateWorkInteractionInputSchema = z.strictObject({
 	requestId: z.uuid(),
 	expectedRequestVersion: z.number().int().positive(),

@@ -18,6 +18,7 @@ import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/per
 import {
 	ListWorkInteractionCliInboxResultSchema,
 	LastRelatedDecisionSchema,
+	OwnershipDeliverySchema,
 	WORK_PROPOSAL_SCHEMA,
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
@@ -2371,6 +2372,45 @@ export const workInteractionsContractRouter = interactionsOs.router({
 		}
 	}),
 	respond: respondProcedure,
+	readOwnershipDelivery: readOs.readOwnershipDelivery.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const actor = await verifiedActiveWorkActor(context, orgId);
+			const row = await getWorkInteraction(context.db, {
+				orgId,
+				interactionId: input.requestId,
+			});
+			const route = row?.metadata.ownershipRoute;
+			if (
+				!row ||
+				row.kind !== "coordination" ||
+				row.targetType !== "user" ||
+				!route ||
+				typeof route !== "object" ||
+				Array.isArray(route) ||
+				route.recipientId !== row.targetId ||
+				!(
+					(actor.type === "user" && actor.id === row.targetId) ||
+					(actor.type === "tedi" && actor.id === route.fromTediId) ||
+					(actor.type === row.creatorType &&
+						actor.id === row.creatorId &&
+						(actor.type !== "external_agent" ||
+							(actor.sessionId === row.creatorSessionId &&
+								actor.externalSessionKey === row.creatorExternalSessionKey)))
+				)
+			)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Ownership delivery receipt not found",
+				);
+			return OwnershipDeliverySchema.parse({
+				...route,
+				requestId: row.id,
+				workItemId: row.workItemId,
+				version: row.version,
+			});
+		},
+	),
 	routeOwnershipRequest: writeOs.routeOwnershipRequest.handler(
 		async ({ input, context }) => {
 			const orgId = requireOrgId(context);

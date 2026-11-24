@@ -26,6 +26,34 @@ export function actionReadbackPlan(
 	const name = operation.split(/\.|__/).at(-1) ?? operation;
 	const output = asRecord(data?.output);
 	if (
+		endpoint === "workInteractions/routeOwnershipRequest" ||
+		(!endpoint && name === "route_work_ownership_request")
+	) {
+		const route = asRecord(asRecord(data?.metadata)?.ownershipRoute);
+		if (
+			typeof data?.id === "string" &&
+			data.id === args.requestId &&
+			typeof data.workItemId === "string" &&
+			typeof data.version === "number" &&
+			data.requestedFromType === "user" &&
+			typeof route?.recipientId === "string" &&
+			route.recipientId === data.requestedFromId &&
+			typeof route.routedAt === "string"
+		) {
+			return {
+				kind: "ownershipDelivery" as const,
+				tool: "get_work_ownership_delivery",
+				readEndpoint: "workInteractions/readOwnershipDelivery",
+				args: { requestId: data.id },
+				id: data.id,
+				version: data.version,
+				workItemId: data.workItemId,
+				recipientId: route.recipientId,
+				routedAt: route.routedAt,
+			};
+		}
+	}
+	if (
 		endpoint === "skills/proposeWorkshop" ||
 		endpoint === "skills/create" ||
 		endpoint === "skills/improve" ||
@@ -193,6 +221,23 @@ export async function verifyAction(input: {
 			await input.read(plan.tool, plan.args, plan.readEndpoint),
 		);
 		if (read?.ok === false || read?.isError === true) return receipt;
+		if (plan.kind === "ownershipDelivery") {
+			if (
+				read?.requestId !== plan.id ||
+				read.version !== plan.version ||
+				read.workItemId !== plan.workItemId ||
+				read.recipientId !== plan.recipientId ||
+				read.routedAt !== plan.routedAt
+			)
+				return receipt;
+			receipt.verified = true;
+			receipt.url = new URL(
+				`/work/items/${plan.workItemId}`,
+				input.origin,
+			).href;
+			receipt.state = `Delivered request ${plan.id} (version ${plan.version}) to ${read.recipientName || plan.recipientId}. ${read.nextAction}`;
+			return receipt;
+		}
 		if (plan.kind === "skill") {
 			const entry = asRecord(read?.entry);
 			if (
