@@ -353,6 +353,7 @@ describe("workspace file uploads", () => {
 				status: "active",
 				slot: null,
 				providerId: "tedix",
+				providerResourceId: resource.id,
 				connectionScope: "tenant",
 				connectionInstanceId: null,
 				personalOwnerUserId: null,

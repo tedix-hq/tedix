@@ -236,9 +236,9 @@ describe("workspace agent data storage", () => {
 				connectedForYou: null,
 			};
 			expect(await data.listResources()).toEqual([
-				{ id: "first", name: "First", ...native },
-				{ id: "a", name: "Same", ...native },
-				{ id: "z", name: "Same", ...native },
+				{ id: "first", name: "First", providerResourceId: "first", ...native },
+				{ id: "a", name: "Same", providerResourceId: "a", ...native },
+				{ id: "z", name: "Same", providerResourceId: "z", ...native },
 			]);
 		});
 	});
@@ -354,6 +354,7 @@ describe("workspace agent data storage", () => {
 				status: "active",
 				slot: "notes",
 				providerId: "drive",
+				providerResourceId: "1-own",
 				service: "Example Drive",
 				connectionScope: "personal",
 				connectionInstanceId: "ana-drive",

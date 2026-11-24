@@ -3060,11 +3060,17 @@ it("human release migration preserves reservations, Attempt links and guards", (
 	const before = tables.map((table) =>
 		sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all(),
 	);
-	const triggers = sqlite
-		.prepare(
-			"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
-		)
-		.all();
+	// Later migrations keep every guard; the title search adds its own three.
+	const triggers = [
+		...sqlite
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
+			)
+			.all(),
+		{ name: "work_item_title_search_delete" },
+		{ name: "work_item_title_search_insert" },
+		{ name: "work_item_title_search_update" },
+	].sort((a, b) => (String(a.name) < String(b.name) ? -1 : 1));
 	sqlite.exec("BEGIN");
 	for (const migration of migrations.slice(boundary))
 		sqlite.exec(migration.sql);

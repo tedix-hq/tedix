@@ -26,6 +26,12 @@ const workspaceTables = [
  */
 const EXPRESSION_INDEX = "os_workspace_resources_provider_object_unique";
 
+/**
+ * Serves the core's sweep of quiet delegated runs across organizations, which
+ * never reads a workspace store.
+ */
+const CORE_SWEEP_INDEX = "idx_kernel_runtime_runs_quiet_delegated";
+
 describe("workspace table contract", () => {
 	it("matches the core columns and indexes so rows copy by name", () => {
 		const platform = createMigratedSqlite();
@@ -48,7 +54,7 @@ describe("workspace table contract", () => {
 			const indexes = (db: DatabaseSync) =>
 				db
 					.prepare(
-						`SELECT name, sql FROM sqlite_schema AS s WHERE type='index' AND tbl_name=? AND name NOT IN (?)
+						`SELECT name, sql FROM sqlite_schema AS s WHERE type='index' AND tbl_name=? AND name NOT IN (?, ?)
 							AND NOT EXISTS (
 								SELECT 1 FROM pragma_index_info(s.name) AS i
 								JOIN pragma_table_xinfo(s.tbl_name) AS c ON c.name = i.name
@@ -56,7 +62,7 @@ describe("workspace table contract", () => {
 							)
 							ORDER BY name`,
 					)
-					.all(table, EXPRESSION_INDEX);
+					.all(table, EXPRESSION_INDEX, CORE_SWEEP_INDEX);
 			expect(indexes(local), table).toEqual(indexes(platform));
 		}
 	});

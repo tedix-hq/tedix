@@ -5,7 +5,10 @@ import {
 	workCases,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
-import { workItems } from "@tedix/db/schema/work-items";
+import {
+	WORK_ITEM_TITLE_SEARCH_DDL,
+	workItems,
+} from "@tedix/db/schema/work-items";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -145,6 +148,8 @@ beforeEach(() => {
 	sqlite.exec(DDL);
 	// The unfiltered list total is read from the trigger-maintained row.
 	sqlite.exec(maintainedTotalsDdl(workItems));
+	// Title filters read candidates from the trigram index.
+	sqlite.exec(WORK_ITEM_TITLE_SEARCH_DDL.join("\n"));
 	sqlite.exec(schemaDdl(workInteractions));
 	sqlite.exec(schemaDdl(workCases));
 	sqlite.exec(schemaDdl(workCaseItems));

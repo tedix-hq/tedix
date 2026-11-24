@@ -73,6 +73,7 @@ import {
 	workEvents,
 	workItemComments,
 	workItems,
+	WORK_ITEM_TITLE_SEARCH_DDL,
 } from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -293,6 +294,15 @@ async function seedCore() {
 	];
 	await testEnv.DB.batch([
 		...tables.map((table) => testEnv.DB.prepare(ddl(table))),
+		// A Work title search reads its candidates from the trigram index.
+		...WORK_ITEM_TITLE_SEARCH_DDL.map((statement) =>
+			testEnv.DB.prepare(
+				statement.replace(
+					/^CREATE (VIRTUAL TABLE|TRIGGER)/,
+					"CREATE $1 IF NOT EXISTS",
+				),
+			),
+		),
 		testEnv.DB.prepare(
 			"CREATE UNIQUE INDEX IF NOT EXISTS os_workspace_collaborators_workspace_user_unique ON os_workspace_collaborators(workspace_id, user_id)",
 		),

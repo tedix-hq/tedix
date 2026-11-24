@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { projectsContractRouter } from "./projects";
 
-const mocks = vi.hoisted(() => ({ readContinuity: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	readContinuity: vi.fn(),
+	CONTINUITY_INVENTORY_REUSE_MS: 60_000,
+}));
 vi.mock("../../lib/stall-attention", () => mocks);
 
 function client(
@@ -49,6 +52,7 @@ describe("coordinator continuity report", () => {
 			"project:previous",
 			undefined,
 			"test",
+			60_000,
 		);
 	});
 	it("rejects missing read permission", async () => {

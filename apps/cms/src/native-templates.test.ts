@@ -47,9 +47,10 @@ describe("native site scaffolds", () => {
 		},
 	);
 	it("keeps native portfolio source distinct from the existing tenant scaffolds", () => {
-		expect(TEMPLATE_SNAPSHOTS.portfolio!["src/pages/index.astro"]).toContain(
-			'"projects"',
-		);
+		// The home page reads its projects through the selected-work helper.
+		expect(
+			TEMPLATE_SNAPSHOTS.portfolio!["src/utils/selected-work.ts"],
+		).toContain('"projects"');
 		expect(TEMPLATE_SNAPSHOTS.portfolio!["src/pages/index.astro"]).not.toBe(
 			TEMPLATE_SNAPSHOTS.tedix!["src/pages/index.astro"],
 		);
