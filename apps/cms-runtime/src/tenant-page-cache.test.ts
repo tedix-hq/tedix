@@ -159,6 +159,22 @@ describe("tenant page cache key", () => {
 		expect(urls.size).toBe(variants.length + 1);
 		expect(new URL(base.url).host).toBe("acme.example");
 	});
+	it("renders and caches the app directory by its selected filters", async () => {
+		const request = new Request(
+			"https://acme.example/apps/?source=claude&sortBy=name&sortDir=asc&health=requires_auth&category=PRODUCTIVITY&utm_source=x",
+		);
+		const filtered = anonymousPageRequest(request, "tedix");
+		expect(new URL(filtered.url).search).toBe(
+			"?category=PRODUCTIVITY&health=requires_auth&sortBy=name&sortDir=asc&source=claude",
+		);
+		const key = (r: Request) =>
+			pageCacheKey(r, new URL(r.url), identity, "tedix");
+		expect((await key(request)).url).toBe((await key(filtered)).url);
+		expect((await key(request)).url).not.toBe(
+			(await key(new Request("https://acme.example/apps/"))).url,
+		);
+	});
+
 	it("uses the same allowlisted search params for keying and rendering", async () => {
 		const key = (search: string) =>
 			pageCacheKey(

@@ -105,8 +105,19 @@ export function pageCacheEligible(request: Request, pathname: string): boolean {
 	);
 }
 
-// The marketing templates render pagination and search on the server.
 const PUBLIC_PAGE_QUERY_PARAMS = new Set(["page", "q"]);
+const APP_DIRECTORY_QUERY_PARAMS = new Set([
+	...PUBLIC_PAGE_QUERY_PARAMS,
+	"search",
+	"category",
+	"type",
+	"health",
+	"healthStatus",
+	"source",
+	"sortBy",
+	"sortDir",
+	"limit",
+]);
 
 export function usesPublicPageQueryAllowlist(templateSlug: string): boolean {
 	return templateSlug === "tedix" || templateSlug === "marketing";
@@ -114,9 +125,13 @@ export function usesPublicPageQueryAllowlist(templateSlug: string): boolean {
 
 function publicPageUrl(url: URL, templateSlug: string): URL {
 	if (!usesPublicPageQueryAllowlist(templateSlug) || !url.search) return url;
+	const allowed =
+		url.pathname === "/apps" || url.pathname === "/apps/"
+			? APP_DIRECTORY_QUERY_PARAMS
+			: PUBLIC_PAGE_QUERY_PARAMS;
 	const canonical = new URL(url);
 	for (const key of url.searchParams.keys()) {
-		if (!PUBLIC_PAGE_QUERY_PARAMS.has(key)) canonical.searchParams.delete(key);
+		if (!allowed.has(key)) canonical.searchParams.delete(key);
 	}
 	canonical.searchParams.sort();
 	return canonical;
