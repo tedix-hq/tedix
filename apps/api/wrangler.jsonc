@@ -647,6 +647,14 @@
 						"class_name": "CollabRoom",
 						"script_name": "public-installation-os",
 					},
+					// Production only: the organization wallet, called directly instead
+					// of through the MCP Worker (lib/wallet-rpc.ts). Other lanes use
+					// MCP_SERVICE.
+					{
+						"name": "WALLET",
+						"class_name": "McpSubscriptionDurableObject",
+						"script_name": "public-installation-mcp",
+					},
 				],
 			},
 			"ratelimits": [

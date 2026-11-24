@@ -238,8 +238,6 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	async releaseInferenceReservation(
 		input: import("@tedix/api-contract/schemas/runtime-entitlements").ReleaseInferenceReservationInput,
 	): Promise<{ released: boolean }> {
-		type WalletRpc =
-			import("@tedix/api-contract/schemas/billing-wallet").WalletRpc;
 		const [{ ReleaseInferenceReservationInputSchema }, { createDbClient }] =
 			await Promise.all([
 				import("@tedix/api-contract/schemas/runtime-entitlements"),
@@ -249,7 +247,7 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 			await import("./services/workspace-inference-admission");
 		return releaseInferenceReservation({
 			db: createDbClient(this.env.DB),
-			wallet: this.env.MCP_SERVICE as unknown as WalletRpc,
+			wallet: (await import("./lib/wallet-rpc")).walletRpc(this.env),
 			request: ReleaseInferenceReservationInputSchema.parse(input),
 		});
 	}

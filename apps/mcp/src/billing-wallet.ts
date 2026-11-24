@@ -70,6 +70,7 @@ import type {
 	WalletSettleHoldInput,
 	WalletSettleHoldResult,
 } from "@tedix/api-contract/schemas/billing-wallet";
+import { walletObjectName } from "@tedix/api-contract/utils/wallet-object";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 
 const ORG_KEY = "wallet:organization";
@@ -121,7 +122,7 @@ export function walletStub(
 	return durableObjectStubByName(
 		env.MCP_SUBSCRIPTIONS!,
 		env,
-		`wallet:v1:${organizationId}`,
+		walletObjectName(organizationId),
 	);
 }
 

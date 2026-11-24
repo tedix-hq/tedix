@@ -1,4 +1,5 @@
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import { walletRpc } from "../lib/wallet-rpc";
 import { isolateColo } from "@tedix/worker-kit/colo";
 import {
 	creditRefusalReason,
@@ -21,7 +22,6 @@ import { buildProviderExecutionInsertStatement } from "@tedix/db/queries/provide
 import type {
 	WalletHoldInput,
 	WalletHoldResult,
-	WalletRpc,
 } from "@tedix/api-contract/schemas/billing-wallet";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
@@ -375,13 +375,6 @@ function unwrap<T>(
 ): T {
 	if (!result.ok) throw result.error;
 	return result.value;
-}
-
-/** The MCP worker's wallet RPC over the existing internal service binding. */
-function walletRpc(env: { MCP_SERVICE?: unknown }): WalletRpc {
-	if (!env.MCP_SERVICE)
-		throw new Error("Managed billing needs the MCP_SERVICE wallet binding");
-	return env.MCP_SERVICE as WalletRpc;
 }
 
 export type RuntimeBudgetDecision =

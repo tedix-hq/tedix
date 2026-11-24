@@ -4,7 +4,7 @@
  * owned by this module.
  */
 
-import type { WalletRpc } from "@tedix/api-contract/schemas/billing-wallet";
+import { boundWalletRpc } from "../lib/wallet-rpc";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
 async function measurePhase<T>(
@@ -81,11 +81,7 @@ export async function runBillingAndGatewayCostTick(
 			const stripeEnvironment = resolveStripeEnvironment(env);
 			const stripeConfig = getStripeEnvironmentConfig(env, stripeEnvironment);
 			const settlement = await measurePhase("gateway_settlement", () =>
-				settleUnbilledGatewayCosts(
-					db,
-					stripeEnvironment,
-					env.MCP_SERVICE as unknown as WalletRpc,
-				),
+				settleUnbilledGatewayCosts(db, stripeEnvironment, boundWalletRpc(env)),
 			);
 			if (
 				settlement.failed > 0 ||

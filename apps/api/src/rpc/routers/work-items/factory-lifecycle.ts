@@ -1,5 +1,5 @@
 import { CREDIT_BUDGET_CURRENCY } from "@tedix/db/schema/work-factory";
-import type { WalletRpc } from "@tedix/api-contract/schemas/billing-wallet";
+import { walletRpc } from "../../../lib/wallet-rpc";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { grantLaneAttempt } from "@tedix/db/queries/work-items/lane-attempt-grants";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
@@ -1157,11 +1157,9 @@ export const listBudgetEnvelopesProcedure =
 			.filter((row) => row.currency === CREDIT_BUDGET_CURRENCY)
 			.map((row) => row.id);
 		const walletSpend = creditIds.length
-			? ((await (context.env.MCP_SERVICE as unknown as WalletRpc).wallet(
-					orgId,
-					"budget-spend",
-					{ budgetIds: creditIds },
-				)) as Record<string, number>)
+			? ((await walletRpc(context.env).wallet(orgId, "budget-spend", {
+					budgetIds: creditIds,
+				})) as Record<string, number>)
 			: {};
 		return {
 			data: page.data.map((row) => {

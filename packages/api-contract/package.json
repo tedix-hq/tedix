@@ -291,6 +291,7 @@
 		"./schemas/workspace-feed": "./src/schemas/workspace-feed.ts",
 		"./schemas/billing": "./src/schemas/billing.ts",
 		"./schemas/billing-wallet": "./src/schemas/billing-wallet.ts",
+		"./utils/wallet-object": "./src/utils/wallet-object.ts",
 		"./schemas/body-certification": "./src/schemas/body-certification.ts",
 		"./schemas/browser": "./src/schemas/browser.ts",
 		"./schemas/catalog": "./src/schemas/catalog.ts",
