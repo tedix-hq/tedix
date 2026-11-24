@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	purpose: vi.fn(),
 	comment: vi.fn(),
+	lastComment: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/site-versions", () => ({
 	listSiteVersionProjects: mocks.projects,
@@ -48,6 +49,7 @@ vi.mock("@tedix/db/queries/work-items/crud", () => ({
 }));
 vi.mock("@tedix/db/queries/work-items/comments", () => ({
 	addWorkItemComment: mocks.comment,
+	getLatestWorkItemCommentByAuthor: mocks.lastComment,
 }));
 vi.mock("@tedix/db/queries/work-items/purpose", () => ({
 	resolveWorkItemPurpose: mocks.purpose,
@@ -91,6 +93,15 @@ beforeEach(() => {
 	});
 	mocks.getItem.mockResolvedValue(null);
 	mocks.matching.mockResolvedValue(null);
+	const commentBodies = new Map<string, string>();
+	mocks.comment.mockImplementation(async (_db, params) => {
+		commentBodies.set(params.workItemId, params.body);
+		return { id: params.id };
+	});
+	mocks.lastComment.mockImplementation(async (_db, { workItemId }) => {
+		const body = commentBodies.get(workItemId);
+		return body ? { body } : null;
+	});
 	const items = new Map<string, { id: string }>();
 	mocks.byIntent.mockImplementation(
 		async (_db, { sourceIntentId }) => items.get(sourceIntentId) ?? null,
@@ -239,6 +250,42 @@ describe("site version check", () => {
 				}),
 			]),
 		);
+	});
+
+	it("files one shared item for docs sites on the same release and skips unchanged comments", async () => {
+		mocks.cms.mockResolvedValue([]);
+		mocks.docs.mockResolvedValue([
+			{ id: "docs", slug: "guide" },
+			{ id: "docs-two", slug: "internal" },
+		]);
+		const params = input(false, {
+			"@cloudflare/nimbus-docs": "99.0.0",
+			"@cloudflare/create-nimbus-docs": "99.0.0",
+		});
+		const [first] = await checkSiteVersions(params);
+		const [second] = await checkSiteVersions(params);
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		const item = mocks.create.mock.calls[0]![1];
+		expect(item.title).toBe("Upgrade the docs image to Nimbus 99.0.0");
+		const details = JSON.parse(item.description.split("\n\n")[1]);
+		expect(details.sites.map((site: { slug: string }) => site.slug)).toEqual([
+			"guide",
+			"internal",
+		]);
+		expect(first!.alerts).toHaveLength(2);
+		expect(first!.alerts.map((alert) => alert.workItemId)).toEqual([
+			item.id,
+			item.id,
+		]);
+		expect(second!.alerts).toEqual(first!.alerts);
+		expect(mocks.comment).toHaveBeenCalledTimes(1);
+		await checkSiteVersions(
+			input(false, {
+				"@cloudflare/nimbus-docs": "99.1.0",
+				"@cloudflare/create-nimbus-docs": "99.1.0",
+			}),
+		);
+		expect(mocks.comment).toHaveBeenCalledTimes(2);
 	});
 
 	it("updates configured upgrade Work instead of creating a duplicate", async () => {

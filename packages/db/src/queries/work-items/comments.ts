@@ -302,6 +302,32 @@ export async function listRecentWorkItemComments(
 		.limit(p.limit);
 }
 
+/** Newest comment by one author on a Work Item, used to skip reposting an identical notice. */
+export async function getLatestWorkItemCommentByAuthor(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		workItemId: string;
+		authorType: WorkItemCommentAuthorType;
+		authorId: string;
+	},
+) {
+	const [row] = await db
+		.select({ body: workItemComments.body })
+		.from(workItemComments)
+		.where(
+			and(
+				eq(workItemComments.orgId, p.orgId),
+				eq(workItemComments.workItemId, p.workItemId),
+				eq(workItemComments.authorType, p.authorType),
+				eq(workItemComments.authorId, p.authorId),
+			),
+		)
+		.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
+		.limit(1);
+	return row ?? null;
+}
+
 /** Identifier-only projection for the MCP comment event feed. */
 export type WorkCommentEventRow = Pick<
 	WorkItemComment,

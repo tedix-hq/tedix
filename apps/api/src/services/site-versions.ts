@@ -5,7 +5,10 @@ import {
 	type SiteVersionReport,
 } from "@tedix/api-contract/schemas/site-versions";
 import type { DbClient } from "@tedix/db/client";
-import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
+import {
+	addWorkItemComment,
+	getLatestWorkItemCommentByAuthor,
+} from "@tedix/db/queries/work-items/comments";
 import { listCmsSitesByOrganization } from "@tedix/db/queries/cms-sites";
 import { listDocsSites } from "@tedix/db/queries/docs-sites/sites";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
@@ -208,7 +211,7 @@ export async function checkSiteVersions(input: {
 			}
 			report.sites.push(entry);
 		}
-		const groups = report.sites.flatMap((site) =>
+		const siteGroups = report.sites.flatMap((site) =>
 			(["runtime", "theme", "docs image"] as const).flatMap((source) => {
 				const packages = site.packages.filter(
 					(pkg) => pkg.source === source && pkg.behind && pkg.latest,
@@ -225,24 +228,63 @@ export async function checkSiteVersions(input: {
 				return [{ site, source, packages, target }];
 			}),
 		);
+		// Docs sites share one image, so a single release files one shared item.
+		const docsImage = siteGroups.filter(
+			(group) => group.source === "docs image",
+		);
+		const groups = [
+			...siteGroups
+				.filter((group) => group.source !== "docs image")
+				.map((group) => ({
+					sites: [group.site],
+					source: group.source,
+					packages: group.packages,
+					target: group.target,
+				})),
+			...(docsImage.length
+				? [
+						{
+							sites: docsImage.map((group) => group.site),
+							source: "docs image" as const,
+							packages: docsImage.flatMap((group) => group.packages),
+							target: docsImage[0]!.target,
+						},
+					]
+				: []),
+		];
 		const alerts = new Map<string, SiteVersionReport["alerts"][number]>();
 		for (const group of groups) {
-			const { site, source, packages, target } = group;
-			const key = `${site.siteId}:${source}`;
+			const { sites, source, packages, target } = group;
+			const shared = source === "docs image";
+			const site = sites[0]!;
+			const key = shared ? source : `${site.siteId}:${source}`;
 			const targets = [
 				...new Set(packages.map((pkg) => `${pkg.package}@${pkg.latest}`)),
 			].sort();
 			const sourceIntentId = `site-upgrade:${project.id}:${key}:${targets.join(",")}`;
 			const existingId = config.upgradeWorkItems?.[key];
-			const title = `Upgrade the ${site.slug} ${source} to ${target}`;
+			const title = shared
+				? `Upgrade the ${source} to ${target}`
+				: `Upgrade the ${site.slug} ${source} to ${target}`;
 			const description = `${title}\n\n${JSON.stringify(
-				{
-					siteId: site.siteId,
-					slug: site.slug,
-					source,
-					themeRevision: site.themeRevision,
-					packages,
-				},
+				shared
+					? {
+							source,
+							sites: sites.map((entry) => ({
+								siteId: entry.siteId,
+								slug: entry.slug,
+								packages: entry.packages.filter(
+									(pkg) => pkg.source === source && pkg.behind && pkg.latest,
+								),
+							})),
+						}
+					: {
+							siteId: site.siteId,
+							slug: site.slug,
+							source,
+							themeRevision: site.themeRevision,
+							packages,
+						},
 				null,
 				2,
 			)}`;
@@ -309,23 +351,32 @@ export async function checkSiteVersions(input: {
 				});
 			}
 			if (!item) throw new Error("Upgrade Work could not be read back");
-			await addWorkItemComment(input.db, {
-				id: crypto.randomUUID(),
+			const last = await getLatestWorkItemCommentByAuthor(input.db, {
 				orgId: project.orgId,
 				workItemId: item.id,
 				authorType: "system",
 				authorId: "site-version-check",
-				createdAt: report.checkedAt,
-				body: description,
 			});
-			const message = `${source} to ${target}`;
-			const alert = alerts.get(site.siteId);
-			if (alert) alert.message += `; ${message}`;
-			else
-				alerts.set(site.siteId, {
-					message: `Upgrade ${site.slug}: ${message}`,
+			if (last?.body !== description)
+				await addWorkItemComment(input.db, {
+					id: crypto.randomUUID(),
+					orgId: project.orgId,
 					workItemId: item.id,
+					authorType: "system",
+					authorId: "site-version-check",
+					createdAt: report.checkedAt,
+					body: description,
 				});
+			const message = `${source} to ${target}`;
+			for (const entry of sites) {
+				const alert = alerts.get(entry.siteId);
+				if (alert) alert.message += `; ${message}`;
+				else
+					alerts.set(entry.siteId, {
+						message: `Upgrade ${entry.slug}: ${message}`,
+						workItemId: item.id,
+					});
+			}
 		}
 		report.alerts = [...alerts.values()];
 		await saveSiteVersionReport(input.db, project.id, project.orgId, report);
