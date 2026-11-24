@@ -1,7 +1,14 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	readdir,
+	rename,
+	rm,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { app } from "electron";
@@ -63,8 +70,17 @@ function prepareRuntime(): Promise<string> {
 	return (preparingRuntime ??= (async () => {
 		const state = localData();
 		await mkdir(state, { recursive: true, mode: 0o700 });
-		const runtime = join(state, `runtime-${app.getVersion()}`);
+		const current = `runtime-${app.getVersion()}`;
+		const runtime = join(state, current);
 		await unpack(runtime);
+		// Each version unpacks about 3 GB. Drop earlier versions and anything
+		// an interrupted unpack left behind.
+		for (const name of await readdir(state))
+			if (
+				(name.startsWith("runtime-") && name !== current) ||
+				name.startsWith("install-")
+			)
+				await rm(join(state, name), { recursive: true, force: true });
 		shutdown.signal.throwIfAborted();
 		return runtime;
 	})().finally(() => {
