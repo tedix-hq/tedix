@@ -17,6 +17,12 @@ import {
 const workspaceId = "00000030-0000-4000-8000-000000000001";
 const gadgetId = "00000031-0000-4000-8000-00000000000e";
 const appPath = `/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`;
+/** While a change waits, the code is folded away behind this button. */
+const showCode = (page: Page) =>
+	page
+		.getByRole("button", { name: "Show the app's code" })
+		.click({ timeout: 3000 })
+		.catch(() => {});
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ?? join(tmpdir(), "tedix-app-runtime-panel");
 await mkdir(evidence, { recursive: true });
@@ -229,6 +235,7 @@ try {
 
 		// Edit: builders can edit the revision files into a draft.
 		await showWorkpieceView(page, /^Code/);
+		await showCode(page);
 		const files = page.getByRole("complementary", { name: "Code files" });
 		await files.getByRole("button", { name: "client.js", exact: true }).click();
 		const viewer = page.locator("[data-canvas-app-code-file]");
@@ -349,6 +356,7 @@ try {
 		});
 		const tabs = appView(page);
 		await tabs.getByRole("button", { name: /^Code/ }).click();
+		await showCode(page);
 		await page
 			.getByRole("complementary", { name: "Code files" })
 			.getByRole("button", { name: "client.js", exact: true })

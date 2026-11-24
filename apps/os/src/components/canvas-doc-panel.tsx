@@ -341,9 +341,17 @@ export function CanvasDocPanel({
 		"preview" | "source" | "drafts" | "runs"
 	>("preview");
 	const [codeFile, setCodeFile] = useState<string>("manifest.json");
+	// While a change waits, the review comes first and the code stays folded
+	// away until someone asks for it.
+	const [codeShown, setCodeShown] = useState(false);
 	const isRuntimeApp = isAppRuntimeManifest(builtinManifestEarly);
 	// Drafts of a runtime app: the tab exists only while there is one to review.
 	const appDrafts = useAppDrafts(workspaceId, doc.id, isRuntimeApp);
+	const codeHidden =
+		isRuntimeApp &&
+		gadgetViewOverride === "source" &&
+		appDrafts.length > 0 &&
+		!codeShown;
 	const effectiveGadgetView =
 		gadgetViewOverride ??
 		(gadgetView === "drafts" && appDrafts.length === 0
@@ -1046,11 +1054,26 @@ export function CanvasDocPanel({
 												onAppDraftMerged?.();
 											}}
 										/>
+										{!codeShown && (
+											<div className="flex flex-wrap items-center gap-2 pt-3">
+												<Button
+													size="sm"
+													variant="secondary"
+													onClick={() => setCodeShown(true)}
+												>
+													Show the app's code
+												</Button>
+												<Text as="span" role="label" tone="secondary">
+													Only needed to edit the app by hand.
+												</Text>
+											</div>
+										)}
 									</div>
 								)}
 							<Surface
 								className="canvas-code-workbench"
 								data-canvas-code-workbench
+								style={codeHidden ? { display: "none" } : undefined}
 							>
 								<CanvasCodeFiles
 									files={codeFiles}
@@ -1090,6 +1113,7 @@ export function CanvasDocPanel({
 												selectedFile={codeFile}
 												onTextsChange={setEditedCodeTexts}
 												onSaved={() => {
+													setCodeShown(true);
 													setGadgetView("drafts");
 													onAppDraftSaved?.();
 												}}
