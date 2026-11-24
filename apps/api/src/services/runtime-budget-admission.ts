@@ -1,4 +1,5 @@
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import { isolateColo } from "@tedix/worker-kit/colo";
 import {
 	creditRefusalReason,
 	getCreditPoolSnapshot,
@@ -62,7 +63,13 @@ function markAdmission(input: {
 	totalMs: number;
 }): void {
 	try {
-		console.log(JSON.stringify({ _tr: "authorize_inference_api", ...input }));
+		console.log(
+			JSON.stringify({
+				_tr: "authorize_inference_api",
+				...input,
+				colo: isolateColo() ?? "pending",
+			}),
+		);
 	} catch {
 		/* marker is best-effort */
 	}

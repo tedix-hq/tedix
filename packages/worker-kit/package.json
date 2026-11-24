@@ -8,6 +8,7 @@
 	"exports": {
 		"./artifacts-git-push": "./src/artifacts-git-push.ts",
 		"./capped-body": "./src/capped-body.ts",
+		"./colo": "./src/colo.ts",
 		"./cors": "./src/cors.ts",
 		"./crypto": "./src/crypto.ts",
 		"./durable-objects": "./src/durable-objects.ts",

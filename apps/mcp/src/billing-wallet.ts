@@ -13,6 +13,7 @@
  * spenders for at most one flush window; that bounded overdraft is accepted.
  */
 
+import { isolateColo } from "@tedix/worker-kit/colo";
 import {
 	DYNAMIC_WORKER_COST_USD_MICROS,
 	aiCreditsForProviderCost,
@@ -127,6 +128,10 @@ export class BillingWallet {
 		string,
 		{ snapshot: CreditPoolSnapshot | null; fetchedAt: number }
 	>();
+	/** D1 reads in flight; concurrent cache misses share one. */
+	readonly #loads = new Map<string, Promise<unknown>>();
+	/** Bumped by each flush: a snapshot read before it must not be cached after it. */
+	#flushes = 0;
 
 	constructor(storage: DurableObjectStorage, env: { DB?: D1Database }) {
 		this.#storage = storage;
@@ -233,16 +238,23 @@ export class BillingWallet {
 			.toArray()[0];
 		if (known) return { allowed: true, replayed: true, credits: known.credits };
 		const nowMs = Date.now();
+		const timing = this.#timing("charge", nowMs);
 		const snapshot = await this.#snapshot(input, nowMs);
+		timing.snapshot();
 		if (!snapshot?.creditFx)
-			return { allowed: false, code: "billing_not_configured" };
+			return timing.done({
+				allowed: false,
+				code: "billing_not_configured" as const,
+			});
 		const { workItemId, budgets } = await this.#budgets(input, nowMs);
+		timing.budgets();
 		const credits = aiCreditsForProviderCost(
 			DYNAMIC_WORKER_COST_USD_MICROS,
 			snapshot.creditFx.microUsdPerEur,
 		);
 		const refusal = this.#refusal(snapshot, input, credits, nowMs, budgets);
-		if (refusal) return this.#refuse(input, refusal, workItemId, nowMs);
+		if (refusal)
+			return timing.done(await this.#refuse(input, refusal, workItemId, nowMs));
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#countAgainst(input.eventId, budgets);
 		this.#storage.sql.exec(
@@ -262,7 +274,7 @@ export class BillingWallet {
 				? nowMs + ALERT_DELAY_MS
 				: nowMs + FLUSH_DELAY_MS,
 		);
-		return { allowed: true, replayed: false, credits };
+		return timing.done({ allowed: true, replayed: false, credits });
 	}
 
 	/** Hold a model call's estimated credits until its actual cost settles it. */
@@ -271,10 +283,16 @@ export class BillingWallet {
 		if (known) return known;
 		const nowMs = Date.now();
 		const expiresAtMs = Date.parse(input.expiresAt);
+		const timing = this.#timing("hold", nowMs);
 		const snapshot = await this.#snapshot(input, nowMs);
+		timing.snapshot();
 		if (!snapshot?.creditFx)
-			return { allowed: false, code: "billing_not_configured" };
+			return timing.done({
+				allowed: false,
+				code: "billing_not_configured" as const,
+			});
 		const { workItemId, budgets } = await this.#budgets(input, nowMs);
+		timing.budgets();
 		// A concurrent retry may have held while the reads ran.
 		const raced = this.#heldFor(input);
 		if (raced) return raced;
@@ -285,7 +303,8 @@ export class BillingWallet {
 			nowMs,
 			budgets,
 		);
-		if (refusal) return this.#refuse(input, refusal, workItemId, nowMs);
+		if (refusal)
+			return timing.done(await this.#refuse(input, refusal, workItemId, nowMs));
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#countAgainst(input.holdId, budgets);
 		this.#storage.sql.exec(
@@ -311,13 +330,57 @@ export class BillingWallet {
 				? nowMs + ALERT_DELAY_MS
 				: nowMs + FLUSH_DELAY_MS,
 		);
-		return {
+		return timing.done({
 			allowed: true,
 			holdId: input.holdId,
 			credits: input.credits,
 			expiresAt: input.expiresAt,
 			replayed: false,
+		});
+	}
+
+	/** Logs where a charge or hold spent its time: D1 reads on a cache miss, or the rest. */
+	#timing(route: "charge" | "hold", startMs: number) {
+		let snapshotMs = 0;
+		let budgetsMs = 0;
+		let mark = startMs;
+		const lap = () => {
+			const now = Date.now();
+			const ms = now - mark;
+			mark = now;
+			return ms;
 		};
+		return {
+			snapshot: () => {
+				snapshotMs = lap();
+			},
+			budgets: () => {
+				budgetsMs = lap();
+			},
+			done: <T extends { allowed: boolean; code?: string }>(result: T): T => {
+				console.log(
+					JSON.stringify({
+						_tr: "wallet_admission",
+						route,
+						outcome: result.allowed ? "allowed" : result.code,
+						snapshotMs,
+						budgetsMs,
+						totalMs: Date.now() - startMs,
+						colo: isolateColo() ?? "pending",
+					}),
+				);
+				return result;
+			},
+		};
+	}
+
+	/** One D1 read per key at a time; later callers wait for the same result. */
+	#once<T>(key: string, load: () => Promise<T>): Promise<T> {
+		const running = this.#loads.get(key);
+		if (running) return running as Promise<T>;
+		const started = load().finally(() => this.#loads.delete(key));
+		this.#loads.set(key, started);
+		return started;
 	}
 
 	/** Return a hold whose call was never sent. */
@@ -613,10 +676,13 @@ export class BillingWallet {
 			if (known && nowMs - known.fetchedAt < BUDGET_TTL_MS)
 				workItemId = known.workItemId;
 			else {
-				workItemId = await findSessionWorkItem(db, {
-					orgId: input.organizationId,
-					sessionId: input.agentSessionId,
-				});
+				const sessionId = input.agentSessionId;
+				workItemId = await this.#once(`session:${sessionId}`, () =>
+					findSessionWorkItem(db, {
+						orgId: input.organizationId,
+						sessionId,
+					}),
+				);
 				this.#sessionWork.set(input.agentSessionId, {
 					workItemId,
 					fetchedAt: nowMs,
@@ -627,10 +693,13 @@ export class BillingWallet {
 		const cached = this.#budgetCache.get(workItemId);
 		if (cached && nowMs - cached.fetchedAt < BUDGET_TTL_MS)
 			return { workItemId, budgets: cached.budgets };
-		const budgets = await getCreditBudgetsForWorkItem(db, {
-			orgId: input.organizationId,
-			workItemId,
-		});
+		const id = workItemId;
+		const budgets = await this.#once(`budgets:${id}`, () =>
+			getCreditBudgetsForWorkItem(db, {
+				orgId: input.organizationId,
+				workItemId: id,
+			}),
+		);
 		this.#budgetCache.set(workItemId, { budgets, fetchedAt: nowMs });
 		return { workItemId, budgets };
 	}
@@ -719,6 +788,7 @@ export class BillingWallet {
 			// The D1 pool now includes these credits; a cached snapshot would
 			// count them twice.
 			this.#snapshots.clear();
+			this.#flushes += 1;
 		}
 		this.#storage.sql.exec(
 			"DELETE FROM wallet_events WHERE flushed_at IS NOT NULL AND flushed_at < ?",
@@ -818,13 +888,19 @@ export class BillingWallet {
 		const cached = this.#snapshots.get(key);
 		if (cached && nowMs - cached.fetchedAt < SNAPSHOT_TTL_MS)
 			return cached.snapshot;
-		if (!this.#env.DB) return null;
-		const snapshot = await getCreditPoolSnapshot(createDbClient(this.#env.DB), {
-			organizationId: input.organizationId,
-			now: new Date(nowMs).toISOString(),
-			subject: { tediId: input.tediId, userId: input.userId },
-		});
-		this.#snapshots.set(key, { snapshot, fetchedAt: nowMs });
+		const DB = this.#env.DB;
+		if (!DB) return null;
+		const flushes = this.#flushes;
+		const snapshot = await this.#once(`snapshot:${flushes}:${key}`, () =>
+			getCreditPoolSnapshot(createDbClient(DB), {
+				organizationId: input.organizationId,
+				now: new Date(nowMs).toISOString(),
+				subject: { tediId: input.tediId, userId: input.userId },
+			}),
+		);
+		// A flush while this read ran: D1 now counts credits the read missed.
+		if (flushes === this.#flushes)
+			this.#snapshots.set(key, { snapshot, fetchedAt: nowMs });
 		return snapshot;
 	}
 
