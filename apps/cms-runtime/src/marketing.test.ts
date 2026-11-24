@@ -233,6 +233,36 @@ describe("public marketing adapters", () => {
 			)?.status,
 		).toBe(404);
 	});
+	it("shares one catalog read between identical concurrent searches", async () => {
+		mocks.list.mockClear();
+		let release: (value: unknown) => void = () => undefined;
+		mocks.list.mockReturnValue(
+			new Promise((resolve) => {
+				release = resolve;
+			}),
+		);
+		const url =
+			"https://landing.tedix.dev/api/catalog/apps/?search=butter&healthStatus=healthy";
+		const first = marketingResponse(new Request(url), env);
+		const second = marketingResponse(new Request(url), env);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		release({ apps: [], total: 0 });
+		const responses = await Promise.all([first, second]);
+		expect(responses.map((r) => r?.status)).toEqual([200, 200]);
+		expect(await responses[1]!.json()).toEqual({ apps: [], total: 0 });
+		expect(mocks.list).toHaveBeenCalledTimes(1);
+	});
+	it("ignores a search term shorter than three letters", async () => {
+		mocks.list.mockClear();
+		mocks.list.mockResolvedValue({ apps: [], total: 0 });
+		await marketingResponse(
+			new Request("https://landing.tedix.dev/api/catalog/apps/?search=bu"),
+			env,
+		);
+		expect(mocks.list).toHaveBeenCalledWith(
+			expect.objectContaining({ search: undefined }),
+		);
+	});
 	it("keeps missing app URLs as honest 404s", async () => {
 		mocks.getBySlug.mockRejectedValue({ code: "NOT_FOUND" });
 		expect(

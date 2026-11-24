@@ -478,6 +478,54 @@ export async function marketingResponse(
 	if (path === "/docs" || path.startsWith("/docs/"))
 		return redirect("https://docs.tedix.dev" + (path.slice(5) || "/"));
 	if (!path.startsWith("/api/catalog/")) return null;
+	if (request.method !== "GET") return catalogApiResponse(url, path, env, db);
+	return cachedCatalogResponse(url, () =>
+		catalogApiResponse(url, path, env, db),
+	);
+}
+
+// Public catalog reads share main D1 with the app. A visitor typing into the
+// site search sends a request per keystroke and retries failures; on
+// 24 Nov 2026 one visitor throttled D1 for everyone. Repeats are served from
+// the edge cache (for as long as each response's Cache-Control allows) and
+// identical concurrent requests share one read.
+const catalogInFlight = new Map<string, Promise<Response>>();
+
+async function cachedCatalogResponse(
+	url: URL,
+	build: () => Promise<Response>,
+): Promise<Response> {
+	const key = url.toString();
+	const cache = (globalThis as { caches?: { default?: Cache } }).caches
+		?.default;
+	const hit = await cache?.match(key).catch(() => undefined);
+	if (hit) return hit;
+	let pending = catalogInFlight.get(key);
+	if (!pending) {
+		pending = build().then(async (response) => {
+			if (response.ok)
+				await cache?.put(key, response.clone()).catch(() => undefined);
+			return response;
+		});
+		catalogInFlight.set(key, pending);
+		void pending
+			.finally(() => catalogInFlight.delete(key))
+			.catch(() => undefined);
+	}
+	return (await pending).clone();
+}
+
+function catalogSearchTerm(value: string | null): string | undefined {
+	const term = value?.trim();
+	return term && term.length >= 3 ? term : undefined;
+}
+
+async function catalogApiResponse(
+	url: URL,
+	path: string,
+	env: MarketingEnv,
+	db: ReturnType<typeof createDbClient>,
+): Promise<Response> {
 	const q = url.searchParams;
 	try {
 		if (path === "/api/catalog/discoverability") {
@@ -515,7 +563,8 @@ export async function marketingResponse(
 						: fallback;
 				};
 				result = await client.catalog.list({
-					search: q.get("search") || q.get("q") || undefined,
+					// One or two letters match most of the catalog; wait for a third.
+					search: catalogSearchTerm(q.get("search") || q.get("q")),
 					category: q.get("category") || undefined,
 					connectorType: oneOf("connectorType", [
 						"MCP",
