@@ -101,6 +101,8 @@ const EXPECTED_THEME_CONTROL_TOOLS = [
 	"theme_write_file",
 	"theme_write_files",
 	"theme_diff_template",
+	"theme_starter_diff",
+	"theme_starter_apply",
 	"theme_fleet_status",
 	"theme_resync_template",
 	"theme_preview_start",

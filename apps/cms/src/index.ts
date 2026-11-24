@@ -679,6 +679,7 @@ async function buildSiteBuilderContext(
 		artifacts: env.ARTIFACTS,
 		artifactsAccountId: env.CF_ACCOUNT_ID,
 		artifactsNamespace: THEME_ARTIFACTS_NAMESPACE,
+		gitSha: env.GIT_SHA,
 		environment: env.ENVIRONMENT || "production",
 		forwardedAuth: undefined,
 		humanAuthRequired,

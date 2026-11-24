@@ -264,8 +264,14 @@ export async function sendArtifactsCommit(input: {
 		refs.set(name, match[1]!);
 	}
 	check(capabilities.includes("report-status"), "report_status_required");
-	if (refs.get(input.targetRef) !== input.expectedOldOid)
-		return { kind: "rejected", reason: "base_changed" };
+	const advertisedOid = refs.get(input.targetRef);
+	// Ref creation advertises no old oid; the all-zero old oid is the only
+	// acceptable base for a ref the server does not list yet.
+	const baseMatches =
+		advertisedOid === undefined
+			? input.expectedOldOid === "0".repeat(40)
+			: advertisedOid === input.expectedOldOid;
+	if (!baseMatches) return { kind: "rejected", reason: "base_changed" };
 	const update = packet(
 		`${input.expectedOldOid} ${input.commitOid} ${input.targetRef}\0report-status\n`,
 	);

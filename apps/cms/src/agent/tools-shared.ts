@@ -364,6 +364,8 @@ export interface SiteBuilderToolContext {
 	artifacts?: import("../types").ArtifactsBinding;
 	artifactsAccountId: string;
 	artifactsNamespace: string;
+	/** Deploy commit this Worker was built from; recorded in starter markers. */
+	gitSha?: string;
 	startDeploy(
 		orgSlug: string,
 		summary?: string,

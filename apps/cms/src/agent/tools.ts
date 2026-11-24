@@ -32,6 +32,7 @@ import { schema, forbidden, type SiteBuilderToolContext } from "./tools-shared";
 import { registerThemeTools } from "./tools-theme";
 import { registerHotThemeTools } from "./tools-hot-theme";
 import { registerTemplateSyncTools } from "./tools-template-sync";
+import { registerStarterTools } from "./tools-starter";
 import { registerPreviewTools } from "./tools-preview";
 import { registerDeployTools } from "./tools-deploy";
 import { registerPropagateTools } from "./tools-propagate";
@@ -71,6 +72,7 @@ export function buildSiteBuilderMcpServer(
 	registerBuilderRecoveryTool(server, ctx);
 	registerHotThemeTools(server, ctx);
 	registerTemplateSyncTools(server, ctx);
+	registerStarterTools(server, ctx);
 	registerPreviewTools(server, ctx);
 	registerDeployTools(server, ctx);
 	registerPropagateTools(server, ctx);

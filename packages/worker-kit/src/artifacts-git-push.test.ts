@@ -62,6 +62,53 @@ it.each([
 	},
 );
 
+it("creates an unadvertised ref when the old oid is all zeros", async () => {
+	const zeros = "0".repeat(40);
+	const fetcher = vi.fn<typeof fetch>(async (_url, init = {}) => {
+		if (init.method === "GET")
+			return new Response(
+				packet("# service=git-receive-pack\n") +
+					"0000" +
+					packet(`${base} HEAD\0report-status\n`) +
+					packet(`${base} refs/heads/main\n`) +
+					"0000",
+				{
+					headers: {
+						"Content-Type": "application/x-git-receive-pack-advertisement",
+					},
+				},
+			);
+		return new Response(
+			packet("unpack ok\n") + packet(`ok refs/heads/topic\n`) + "0000",
+			{
+				headers: {
+					"Content-Type": "application/x-git-receive-pack-result",
+				},
+			},
+		);
+	});
+	const pack = new Uint8Array(32);
+	pack.set(new TextEncoder().encode("PACK"));
+	const result = await sendArtifactsCommit({
+		remote: `https://${"a".repeat(32)}.artifacts.cloudflare.net/git/test/theme.git`,
+		targetRef: "refs/heads/topic",
+		expectedOldOid: zeros,
+		commitOid: next,
+		pack,
+		maxPackBytes: 32,
+		authorization: "Bearer fixture",
+		deadlineAt: Date.now() + 20_000,
+		fetcher,
+	});
+	expect(result).toEqual({
+		kind: "acknowledged",
+		ref: "refs/heads/topic",
+		oldOid: zeros,
+		newOid: next,
+	});
+	expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
 it.each([
 	[`${base} refs/heads/main\0report-status\n`, `${next} refs/heads/main\n`],
 	[`${base} HEAD\0report-status\n`, `invalid refs/heads/main\n`],

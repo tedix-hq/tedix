@@ -11,37 +11,55 @@ import {
 const branch = "main";
 const maxPackBytes = 24 * 1024 * 1024;
 const dir = "/theme";
+const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+export const ARTIFACTS_ZERO_OID = "0".repeat(40);
 export type ThemeArtifactFileChange =
 	| { path: string; content: string }
 	| { path: string; delete: true };
 
-async function mainHead(repo: ArtifactsRepo) {
-	const [commit] = await repo.log({ ref: branch, limit: 1 });
-	if (!commit || !/^[a-f0-9]{40}$/.test(commit.hash))
-		throw new Error("Artifacts main branch unavailable");
-	return commit.hash;
+export type RepoCommitResult =
+	| { committed: true; commit: string; branch: string; deletedPaths: string[] }
+	| { committed: false; unchanged: true; commit: string }
+	| { committed: false; conflict: true; remoteHead: string | null };
+
+async function refHead(repo: ArtifactsRepo, ref: string) {
+	const [commit] = await repo.log({ ref, limit: 1 });
+	return commit && /^[a-f0-9]{40}$/.test(commit.hash) ? commit.hash : null;
 }
 
-export async function commitThemeArtifactFiles(input: {
+async function mainHead(repo: ArtifactsRepo) {
+	const head = await refHead(repo, branch);
+	if (!head) throw new Error("Artifacts main branch unavailable");
+	return head;
+}
+
+/**
+ * Commit file changes on top of an arbitrary base commit and CAS-push them to
+ * an arbitrary ref. Pass `baseCommit: null` plus `expectedOldOid` set to
+ * ARTIFACTS_ZERO_OID to create a new ref (orphan root commit).
+ */
+export async function commitRepoFiles(input: {
 	repo: ArtifactsRepo;
 	remote: string;
-	expectedHead: string;
+	ref: string;
+	targetRef?: string;
+	baseCommit: string | null;
+	expectedOldOid: string;
 	files: ThemeArtifactFileChange[];
 	message: string;
-}) {
-	const { repo, expectedHead } = input;
-	const head = await mainHead(repo);
-	const conflict = (remoteHead: string) => ({
+}): Promise<RepoCommitResult> {
+	const { repo } = input;
+	const resolveHead = () => refHead(repo, input.ref);
+	const conflict = (remoteHead: string | null): RepoCommitResult => ({
 		committed: false,
 		conflict: true,
 		remoteHead,
 	});
-	if (head !== expectedHead) return conflict(head);
 
 	// Rebuild only directories on edited paths, preserving all other entry IDs and modes.
 	const { default: git } = await import("isomorphic-git");
 	const fs = new GitMemoryFs(32 * 1024 * 1024, 16_384);
-	await git.init({ fs, dir, defaultBranch: branch });
+	await git.init({ fs, dir, defaultBranch: input.ref });
 	const objects = new Set<string>();
 	async function updateTree(
 		oldOid: string | undefined,
@@ -119,12 +137,23 @@ export async function commitThemeArtifactFiles(input: {
 		return { oid, empty: updated.size === 0 };
 	}
 
-	const baseTree = await readThemeArtifactTree(repo, expectedHead);
-	const { oid: tree } = await updateTree(baseTree, input.files);
+	const baseTree = input.baseCommit
+		? await readThemeArtifactTree(repo, input.baseCommit)
+		: EMPTY_TREE_OID;
+	const { oid: tree } = await updateTree(
+		input.baseCommit ? baseTree : undefined,
+		input.files,
+	);
 	if (tree === baseTree) {
-		const current = await mainHead(repo);
-		return current === expectedHead
-			? { committed: false, unchanged: true, commit: expectedHead }
+		const current = await resolveHead();
+		const expected =
+			input.expectedOldOid === ARTIFACTS_ZERO_OID ? null : input.expectedOldOid;
+		return current === expected
+			? {
+					committed: false,
+					unchanged: true,
+					commit: input.baseCommit ?? ARTIFACTS_ZERO_OID,
+				}
 			: conflict(current);
 	}
 
@@ -138,7 +167,7 @@ export async function commitThemeArtifactFiles(input: {
 		dir,
 		commit: {
 			tree,
-			parent: [expectedHead],
+			parent: input.baseCommit ? [input.baseCommit] : [],
 			message: input.message,
 			author,
 			committer: author,
@@ -157,8 +186,8 @@ export async function commitThemeArtifactFiles(input: {
 	const token = await repo.createToken("write", 600);
 	const sent = await sendArtifactsCommit({
 		remote: input.remote,
-		targetRef: `refs/heads/${branch}`,
-		expectedOldOid: expectedHead,
+		targetRef: input.targetRef ?? `refs/heads/${input.ref}`,
+		expectedOldOid: input.expectedOldOid,
 		commitOid: commit,
 		pack: packfile,
 		maxPackBytes,
@@ -180,17 +209,46 @@ export async function commitThemeArtifactFiles(input: {
 					);
 			}
 		}
-		return { committed: true, commit, branch, deletedPaths };
+		return {
+			committed: true as const,
+			commit,
+			branch: input.ref,
+			deletedPaths,
+		};
 	}
 	if (sent.kind === "acknowledged") return confirmedCommit();
 
-	const current = await mainHead(repo);
+	const current = await resolveHead();
 	if (current === commit) return confirmedCommit();
 	if (sent.kind === "rejected") {
-		if (current !== expectedHead) return conflict(current);
+		const expected =
+			input.expectedOldOid === ARTIFACTS_ZERO_OID ? null : input.expectedOldOid;
+		if (current !== expected) return conflict(current);
 		throw new Error("Artifacts rejected the theme commit");
 	}
 	throw new Error(
-		`Artifacts did not confirm theme commit ${commit}. Read main before retrying.`,
+		`Artifacts did not confirm theme commit ${commit}. Read ${input.ref} before retrying.`,
 	);
+}
+
+export async function commitThemeArtifactFiles(input: {
+	repo: ArtifactsRepo;
+	remote: string;
+	expectedHead: string;
+	files: ThemeArtifactFileChange[];
+	message: string;
+}) {
+	const { repo, expectedHead } = input;
+	const head = await mainHead(repo);
+	if (head !== expectedHead)
+		return { committed: false, conflict: true, remoteHead: head };
+	return commitRepoFiles({
+		repo,
+		remote: input.remote,
+		ref: branch,
+		baseCommit: expectedHead,
+		expectedOldOid: expectedHead,
+		files: input.files,
+		message: input.message,
+	});
 }
