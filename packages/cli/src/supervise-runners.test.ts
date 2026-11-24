@@ -150,7 +150,12 @@ describe("the runners file", () => {
 							PROJECT,
 							"--accept-proposed",
 						],
-						{ TEDIX_WORKSPACE: "fixture", TEDIX_ORGANIZATION: "org_fixture" },
+						{
+							TEDIX_WORKSPACE: "fixture",
+							TEDIX_ORGANIZATION: "org_fixture",
+							// Keep the machine's own routing file out of the parsed options.
+							TEDIX_CONFIG_DIR: config,
+						},
 					),
 					env,
 					false,
@@ -261,7 +266,7 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 				calls.push(args);
 				return { status: 0 };
 			},
-			(args) => parseServeOptions(args, {}),
+			(args) => parseServeOptions(args, { TEDIX_CONFIG_DIR: config }),
 			{ home, domain: "gui/501" },
 		);
 		expect(result.adopted).toEqual([runner()]);
