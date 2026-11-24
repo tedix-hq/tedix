@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { describe, it, expect } from "vite-plus/test";
+import { describe, it, expect, vi } from "vite-plus/test";
+import { createDbSession } from "../client";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
 import {
@@ -49,6 +50,50 @@ const member = {
 	},
 };
 describe("organization residency persistence", () => {
+	it("shares pending reads across fresh sessions, expires them and invalidates local writes", async () => {
+		const { sqlite, db } = fixture();
+		const clock = vi.spyOn(Date, "now");
+		try {
+			const prepare = vi.spyOn(sqlite, "prepare");
+			await Promise.all(
+				Array.from({ length: 16 }, () =>
+					getOrganizationResidencyPolicy(
+						createDbSession(db.$client).db,
+						"org_lark",
+					),
+				),
+			);
+			expect(prepare).toHaveBeenCalledTimes(1);
+			await setOrganizationResidencyPolicy(db, {
+				organizationId: "org_lark",
+				mode: "eu",
+				expectedRevision: 0,
+				actorId: "owner_lark",
+				now: "2026-10-18T00:00:00.000Z",
+			});
+			expect(
+				await getOrganizationResidencyPolicy(
+					createDbSession(db.$client).db,
+					"org_lark",
+				),
+			).toMatchObject({ mode: "eu" });
+			sqlite.exec(
+				"UPDATE organization_residency_policies SET mode='unrestricted'",
+			);
+			expect(
+				await getOrganizationResidencyPolicy(db, "org_lark"),
+			).toMatchObject({ mode: "eu" });
+			clock.mockReturnValue(Date.now() + 60_000);
+			expect(
+				await getOrganizationResidencyPolicy(db, "org_lark"),
+			).toMatchObject({ mode: "unrestricted" });
+			expect(await getOrganizationResidencyPolicy(db, "org_elm")).toBeNull();
+		} finally {
+			clock.mockRestore();
+			sqlite.close();
+		}
+	});
+
 	it("defaults without a row and changes only the selected organization, with CAS and atomic audit", async () => {
 		const { sqlite, db } = fixture();
 		try {

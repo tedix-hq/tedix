@@ -164,6 +164,16 @@ const logger = createLogger<{
 const SQL_TOKENS =
 	/"(?:""|[^"])*"|`(?:``|[^`])*`|\[(?:[^\]])*\]|(?:x)?'(?:''|[^'])*'|--[^\r\n]*|\/\*[\s\S]*?\*\/|\b(?:0x[\da-f]+|\d+(?:\.\d*)?(?:e[+-]?\d+)?)\b/gi;
 const observed = new WeakMap<object, object>();
+const bindingKeys = new WeakMap<object, object>();
+
+/** Cache identity survives observation and per-request session wrappers. */
+export function getD1BindingKey(client: object): object {
+	return bindingKeys.get(client) ?? client;
+}
+
+export function registerD1BindingKey(client: object, binding: object): void {
+	bindingKeys.set(client, getD1BindingKey(binding));
+}
 const statements = new WeakMap<
 	D1PreparedStatement,
 	{ native: D1PreparedStatement; sql: string }
@@ -213,6 +223,7 @@ function report(
 /** Observe native execution without changing SQL, bindings, results or errors. */
 export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 	database: T,
+	binding: object = database,
 ): T {
 	// A missing binding keeps failing on first use, inside the caller's error handling.
 	if (typeof database !== "object" || database === null) return database;
@@ -281,6 +292,7 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 							target,
 							args,
 						),
+						database,
 					);
 			if (key === "batch")
 				return async (batch: D1PreparedStatement[]) => {
@@ -344,6 +356,8 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 			return typeof value === "function" ? value.bind(target) : value;
 		},
 	});
+	registerD1BindingKey(database, binding);
+	registerD1BindingKey(proxy, binding);
 	observed.set(database, proxy);
 	observed.set(proxy, proxy);
 	return proxy;

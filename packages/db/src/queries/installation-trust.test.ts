@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { createDbClient } from "../client";
+import { createDbClient, createDbSession } from "../client";
 import { policyPacks } from "../schema/control-plane";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -41,18 +41,23 @@ function fixture() {
 			definition: { installationTrust: policy },
 			...overrides,
 		} as typeof policyPacks.$inferInsert);
-	return { db, insert };
+	return { db, insert, sqlite };
 }
 
 describe("installation trust authority", () => {
 	it("shares all system heads across clients and slugs, then observes revocation after 60 seconds", async () => {
-		const { db, insert } = fixture();
+		const { db, insert, sqlite } = fixture();
 		await insert();
 		await insert({ id: "other", slug: "other" });
-		const select = vi.spyOn(db, "select");
-		const another = createDbClient(db.$client);
+		const select = vi.spyOn(sqlite, "prepare");
+		const another = createDbSession(db.$client).db;
 		expect(await getInstallationTrustPolicy(db)).toEqual(policy);
 		expect(await getActiveSystemPolicy(another, "other")).not.toBeNull();
+		await Promise.all(
+			Array.from({ length: 16 }, () =>
+				getActiveSystemPolicy(createDbSession(db.$client).db, "other"),
+			),
+		);
 		expect(select).toHaveBeenCalledTimes(1);
 		await insert({ id: "revoked", version: 2, status: "archived" });
 		expect(await getInstallationTrustPolicy(another)).toEqual(policy);

@@ -6,7 +6,7 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema/index";
 import { relations } from "./schema/relations";
-import { observeD1 } from "./slow-query";
+import { observeD1, registerD1BindingKey } from "./slow-query";
 
 export function createDbClient(d1: D1Database) {
 	return drizzle(observeD1(d1), { relations });
@@ -133,7 +133,7 @@ export function createDbSession(
 ): DbSession {
 	// A bookmark is strictly more specific than a constraint — prefer it when the
 	// caller supplied one, so the session resumes rather than restarting.
-	const session = observeD1(d1.withSession(bookmark?.trim() || constraint));
+	const session = observeD1(d1.withSession(bookmark?.trim() || constraint), d1);
 	const metrics = { queries: 0, rowsRead: 0, rowsWritten: 0, withoutMeta: 0 };
 	const statements = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
 	const record = (result: D1Result) => {
@@ -197,6 +197,7 @@ export function createDbSession(
 			return typeof value === "function" ? value.bind(target) : value;
 		},
 	});
+	registerD1BindingKey(measured, d1);
 	return {
 		metrics,
 		// Cast is confined to the `$client` escape hatch: a session-backed Drizzle

@@ -1,3 +1,4 @@
+import { getD1BindingKey } from "../slow-query";
 import { and, eq, desc, sql } from "drizzle-orm";
 import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import {
@@ -11,17 +12,43 @@ import {
 	type ResidencyProvider,
 } from "@tedix/api-contract/schemas/data-residency";
 
+type ResidencyPolicyRow = typeof organizationResidencyPolicies.$inferSelect;
+const policySnapshots = new WeakMap<
+	object,
+	Map<string, { expiresAt: number; row: Promise<ResidencyPolicyRow | null> }>
+>();
+
 export async function getOrganizationResidencyPolicy(
 	db: DbQueryClient | D1Database,
 	organizationId: string,
 ) {
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
-	const [row] = await query
-		.select()
-		.from(organizationResidencyPolicies)
-		.where(eq(organizationResidencyPolicies.organizationId, organizationId))
-		.limit(1);
-	return row ?? null;
+	const key = getD1BindingKey(query.$client);
+	let policies = policySnapshots.get(key);
+	if (!policies) {
+		policies = new Map();
+		policySnapshots.set(key, policies);
+	}
+	let snapshot = policies.get(organizationId);
+	if (!snapshot || snapshot.expiresAt <= Date.now()) {
+		snapshot = {
+			expiresAt: Date.now() + 60_000,
+			row: query
+				.select()
+				.from(organizationResidencyPolicies)
+				.where(eq(organizationResidencyPolicies.organizationId, organizationId))
+				.limit(1)
+				.then((rows) => rows[0] ?? null),
+		};
+		policies.set(organizationId, snapshot);
+	}
+	try {
+		return await snapshot.row;
+	} catch (error) {
+		if (policies.get(organizationId) === snapshot)
+			policies.delete(organizationId);
+		throw error;
+	}
 }
 
 export async function setOrganizationResidencyPolicy(
@@ -104,6 +131,7 @@ export async function setOrganizationResidencyPolicy(
 	const [result] = await db.batch([update, audit]);
 	if (result.length !== 1)
 		throw new Error("Residency policy revision conflict");
+	policySnapshots.get(getD1BindingKey(db.$client))?.delete(organizationId);
 	return {
 		mode,
 		revision: expectedRevision + 1,

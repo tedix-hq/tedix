@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { createDbSession } from "../../client";
 import { createDbQueryClient } from "../../query-client";
 import { type NewProviderModelRateVersionRow } from "../../schema/provider-model-rates";
 import { createD1Facade } from "../../test/d1-facade";
@@ -159,6 +160,13 @@ describe("immutable provider rates", () => {
 			{ ...lookup, provider: "other" },
 		];
 		const cachedRows = await Promise.all(inputs.map((input) => cached(input)));
+		const native = vi.spyOn(sqlite, "prepare");
+		await Promise.all(
+			Array.from({ length: 18 }, () =>
+				createProviderModelRateLookup(createDbSession(db.$client).db)(lookup),
+			),
+		);
+		expect(native).not.toHaveBeenCalled();
 		expect(select).toHaveBeenCalledTimes(1);
 		for (const [i, input] of inputs.entries())
 			expect(cachedRows[i]).toEqual(await findProviderModelRates(db, input));

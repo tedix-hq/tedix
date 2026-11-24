@@ -2,6 +2,7 @@
 
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import { createDbQueryClient, type DbQueryClient } from "../../query-client";
+import { getD1BindingKey } from "../../slow-query";
 import {
 	providerModelRateVersions,
 	type NewProviderModelRateVersionRow,
@@ -139,6 +140,7 @@ const rateSnapshots = new WeakMap<
 
 /** Share the complete rate table for 60 seconds across ingestion calls in this isolate. */
 export function createProviderModelRateLookup(db: DbQueryClient) {
+	const key = getD1BindingKey(db.$client);
 	return async (input: Parameters<typeof findProviderModelRates>[1]) => {
 		const tokens = input.inputTokens ?? 0;
 		if (
@@ -148,7 +150,7 @@ export function createProviderModelRateLookup(db: DbQueryClient) {
 		)
 			return [];
 		const occurredAt = new Date(input.occurredAt).toISOString();
-		let snapshot = rateSnapshots.get(db.$client);
+		let snapshot = rateSnapshots.get(key);
 		if (!snapshot || snapshot.expiresAt <= Date.now()) {
 			snapshot = {
 				expiresAt: Date.now() + 60_000,
@@ -157,14 +159,13 @@ export function createProviderModelRateLookup(db: DbQueryClient) {
 					.from(providerModelRateVersions)
 					.then((rows) => rows),
 			};
-			rateSnapshots.set(db.$client, snapshot);
+			rateSnapshots.set(key, snapshot);
 		}
 		let allRows;
 		try {
 			allRows = await snapshot.rows;
 		} catch (error) {
-			if (rateSnapshots.get(db.$client) === snapshot)
-				rateSnapshots.delete(db.$client);
+			if (rateSnapshots.get(key) === snapshot) rateSnapshots.delete(key);
 			throw error;
 		}
 		const rows = allRows.filter(

@@ -1,3 +1,4 @@
+import { getD1BindingKey } from "../../slow-query";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
@@ -27,7 +28,8 @@ const snapshots = new WeakMap<
 
 /** Ownerless system heads share a 60-second snapshot, including revocations and drafts. */
 export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
-	let snapshot = snapshots.get(db.$client);
+	const key = getD1BindingKey(db.$client);
+	let snapshot = snapshots.get(key);
 	if (!snapshot || snapshot.expiresAt <= Date.now()) {
 		snapshot = {
 			expiresAt: Date.now() + 60_000,
@@ -51,13 +53,13 @@ export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
 				.orderBy(desc(policyPacks.version))
 				.then((rows) => rows),
 		};
-		snapshots.set(db.$client, snapshot);
+		snapshots.set(key, snapshot);
 	}
 	let allRows;
 	try {
 		allRows = await snapshot.rows;
 	} catch (error) {
-		if (snapshots.get(db.$client) === snapshot) snapshots.delete(db.$client);
+		if (snapshots.get(key) === snapshot) snapshots.delete(key);
 		throw error;
 	}
 	const rows = allRows.filter((row) => row.slug === slug).slice(0, 2);
