@@ -131,12 +131,14 @@ export async function findProviderModelRates(
 		.limit(2);
 }
 
-/** One ingestion run's snapshot, scoped to one authority database. */
+type RateRows = Awaited<ReturnType<typeof findProviderModelRates>>;
+const rateSnapshots = new WeakMap<
+	object,
+	{ expiresAt: number; rows: Promise<RateRows> }
+>();
+
+/** Share the complete rate table for 60 seconds across ingestion calls in this isolate. */
 export function createProviderModelRateLookup(db: DbQueryClient) {
-	const cache = new Map<
-		string,
-		Promise<Awaited<ReturnType<typeof findProviderModelRates>>>
-	>();
 	return async (input: Parameters<typeof findProviderModelRates>[1]) => {
 		const tokens = input.inputTokens ?? 0;
 		if (
@@ -146,39 +148,31 @@ export function createProviderModelRateLookup(db: DbQueryClient) {
 		)
 			return [];
 		const occurredAt = new Date(input.occurredAt).toISOString();
-		const key = JSON.stringify([
-			input.provider,
-			input.modelId,
-			input.deploymentScope,
-		]);
-		let pending = cache.get(key);
-		if (!pending) {
-			pending = db
-				.select()
-				.from(providerModelRateVersions)
-				.where(
-					and(
-						eq(providerModelRateVersions.provider, input.provider),
-						eq(providerModelRateVersions.modelId, input.modelId),
-						eq(
-							providerModelRateVersions.deploymentScope,
-							input.deploymentScope,
-						),
-					),
-				)
-				.limit(101)
-				.then((rows) => rows);
-			cache.set(key, pending);
+		let snapshot = rateSnapshots.get(db.$client);
+		if (!snapshot || snapshot.expiresAt <= Date.now()) {
+			snapshot = {
+				expiresAt: Date.now() + 60_000,
+				rows: db
+					.select()
+					.from(providerModelRateVersions)
+					.then((rows) => rows),
+			};
+			rateSnapshots.set(db.$client, snapshot);
 		}
-		let rows;
+		let allRows;
 		try {
-			rows = await pending;
+			allRows = await snapshot.rows;
 		} catch (error) {
-			cache.delete(key);
+			if (rateSnapshots.get(db.$client) === snapshot)
+				rateSnapshots.delete(db.$client);
 			throw error;
 		}
-		// Do not resolve from a truncated history; the indexed lookup stays exact.
-		if (rows.length > 100) return findProviderModelRates(db, input);
+		const rows = allRows.filter(
+			(row) =>
+				row.provider === input.provider &&
+				row.modelId === input.modelId &&
+				row.deploymentScope === input.deploymentScope,
+		);
 		const superseded = new Set(
 			rows
 				.filter((row) => row.effectiveFrom <= occurredAt)

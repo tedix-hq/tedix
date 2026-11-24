@@ -10,7 +10,7 @@ import {
 	type FiniteExecutionAuthorization,
 } from "@tedix/api-contract/schemas/billing";
 import { nativeExecutionEligibilityPredicate } from "./billing/historical-exposure";
-import { and, eq, inArray, sql, SQL, Param } from "drizzle-orm";
+import { and, eq, sql, SQL, Param } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import {
@@ -119,16 +119,13 @@ export async function getProviderExecutionsByIds(
 		getProviderExecutionsByIds(store, ids),
 	);
 	if (pages) return mergeLogStoreRows(pages);
-	const rows: ProviderExecutionAttemptRow[] = [];
-	const unique = [...new Set(ids)];
-	for (let i = 0; i < unique.length; i += 50)
-		rows.push(
-			...(await db
-				.select()
-				.from(providerExecutionAttempts)
-				.where(inArray(providerExecutionAttempts.id, unique.slice(i, i + 50)))),
+	// Bind the bounded ingestion ID set as one value rather than one parameter per ID.
+	return db
+		.select()
+		.from(providerExecutionAttempts)
+		.where(
+			sql`${providerExecutionAttempts.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(ids)])}))`,
 		);
-	return rows;
 }
 
 /** Private typed preparation; never serialized or supplied as arbitrary request SQL. */

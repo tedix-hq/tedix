@@ -84,7 +84,30 @@ const lookup = {
 };
 
 describe("immutable provider rates", () => {
-	it("uses the exact lookup when a model's correction history exceeds the snapshot bound", async () => {
+	it("does not retain a failed table read or share a snapshot with another database", async () => {
+		const { db, sqlite } = fixture();
+		const other = fixture();
+		try {
+			await publishProviderModelRate(db, rate({ id: "first-database" }));
+			await publishProviderModelRate(other.db, rate({ id: "second-database" }));
+			vi.spyOn(sqlite, "prepare").mockImplementationOnce(() => {
+				throw new Error("temporary read failure");
+			});
+			const cached = createProviderModelRateLookup(db);
+			await expect(cached(lookup)).rejects.toMatchObject({
+				cause: { message: "temporary read failure" },
+			});
+			expect((await cached(lookup))[0]?.id).toBe("first-database");
+			expect(
+				(await createProviderModelRateLookup(other.db)(lookup))[0]?.id,
+			).toBe("second-database");
+		} finally {
+			sqlite.close();
+			other.sqlite.close();
+		}
+	});
+
+	it("keeps the complete correction history in one snapshot", async () => {
 		const { db, sqlite } = fixture();
 		let previous: string | null = null;
 		for (let i = 0; i < 101; i++) {
@@ -104,15 +127,15 @@ describe("immutable provider rates", () => {
 		const cached = createProviderModelRateLookup(db);
 		const select = vi.spyOn(db, "select");
 		expect((await cached(lookup))[0]?.id).toBe("version-000");
-		expect(select).toHaveBeenCalledTimes(2);
+		expect(select).toHaveBeenCalledTimes(1);
 		expect(
 			(await cached({ ...lookup, occurredAt: "2027-10-01T00:00:00.000Z" }))[0]
 				?.id,
 		).toBe("version-100");
-		expect(select).toHaveBeenCalledTimes(3);
+		expect(select).toHaveBeenCalledTimes(1);
 		sqlite.close();
 	});
-	it("reuses a snapshot across event times and token tiers, then sees corrections next run", async () => {
+	it("reuses a snapshot across event times and token tiers, then sees corrections after 60 seconds", async () => {
 		const { sqlite, db } = fixture();
 		const original = await publishProviderModelRate(
 			db,
@@ -135,9 +158,8 @@ describe("immutable provider rates", () => {
 			{ ...lookup, modelId: "tiered", inputTokens: 100 },
 			{ ...lookup, provider: "other" },
 		];
-		const cachedRows = [];
-		for (const input of inputs) cachedRows.push(await cached(input));
-		expect(select).toHaveBeenCalledTimes(3);
+		const cachedRows = await Promise.all(inputs.map((input) => cached(input)));
+		expect(select).toHaveBeenCalledTimes(1);
 		for (const [i, input] of inputs.entries())
 			expect(cachedRows[i]).toEqual(await findProviderModelRates(db, input));
 		expect(cachedRows[0]).toEqual([original]);
@@ -150,9 +172,18 @@ describe("immutable provider rates", () => {
 			}),
 		);
 		expect((await cached(inputs[1]!))[0]?.id).toBe("corrected");
-		expect((await createProviderModelRateLookup(db)(inputs[1]!))[0]?.id).toBe(
-			"new-correction",
-		);
+		const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+		try {
+			expect(
+				(
+					await createProviderModelRateLookup(createDbQueryClient(db.$client))(
+						inputs[1]!,
+					)
+				)[0]?.id,
+			).toBe("new-correction");
+		} finally {
+			clock.mockRestore();
+		}
 		sqlite.close();
 	});
 	it("migrates a populated correction chain without losing fields or references", async () => {

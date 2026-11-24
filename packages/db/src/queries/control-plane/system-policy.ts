@@ -10,27 +10,57 @@ export async function getActiveSystemPolicyDefinition(
 	return (await getActiveSystemPolicy(db, slug))?.definition ?? null;
 }
 
-/** The same publication with the version that was read. */
+type PolicyRow = Pick<
+	typeof policyPacks.$inferSelect,
+	| "slug"
+	| "version"
+	| "target"
+	| "status"
+	| "publishedAt"
+	| "publishedBy"
+	| "definition"
+>;
+const snapshots = new WeakMap<
+	object,
+	{ expiresAt: number; rows: Promise<PolicyRow[]> }
+>();
+
+/** Ownerless system heads share a 60-second snapshot, including revocations and drafts. */
 export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
-	const rows = await db
-		.select({
-			version: policyPacks.version,
-			target: policyPacks.target,
-			status: policyPacks.status,
-			publishedAt: policyPacks.publishedAt,
-			publishedBy: policyPacks.publishedBy,
-			definition: policyPacks.definition,
-		})
-		.from(policyPacks)
-		.where(
-			and(
-				eq(policyPacks.scope, "system"),
-				isNull(policyPacks.organizationId),
-				eq(policyPacks.slug, slug),
-			),
-		)
-		.orderBy(desc(policyPacks.version))
-		.limit(2);
+	let snapshot = snapshots.get(db.$client);
+	if (!snapshot || snapshot.expiresAt <= Date.now()) {
+		snapshot = {
+			expiresAt: Date.now() + 60_000,
+			rows: db
+				.select({
+					slug: policyPacks.slug,
+					version: policyPacks.version,
+					target: policyPacks.target,
+					status: policyPacks.status,
+					publishedAt: policyPacks.publishedAt,
+					publishedBy: policyPacks.publishedBy,
+					definition: policyPacks.definition,
+				})
+				.from(policyPacks)
+				.where(
+					and(
+						eq(policyPacks.scope, "system"),
+						isNull(policyPacks.organizationId),
+					),
+				)
+				.orderBy(desc(policyPacks.version))
+				.then((rows) => rows),
+		};
+		snapshots.set(db.$client, snapshot);
+	}
+	let allRows;
+	try {
+		allRows = await snapshot.rows;
+	} catch (error) {
+		if (snapshots.get(db.$client) === snapshot) snapshots.delete(db.$client);
+		throw error;
+	}
+	const rows = allRows.filter((row) => row.slug === slug).slice(0, 2);
 	const head = rows[0];
 	if (
 		!head ||

@@ -1053,6 +1053,7 @@ describe("ingestGatewayLogCosts — cursor holds on total write failure", () => 
 	);
 
 	it("applies the smaller catch-up page cap and preserves a tie across its lookahead", async () => {
+		cacheExecutions.mockClear();
 		const state: CursorDbState = {
 			upserts: [],
 			cursor: {
@@ -1075,6 +1076,7 @@ describe("ingestGatewayLogCosts — cursor holds on total write failure", () => 
 					: page <= 10
 						? Array.from({ length: 50 }, (_, index) =>
 								row({
+									...validLog(),
 									id: `catchup-${page}-${index}`,
 									created_at: pageTimestamp(page),
 								}),
@@ -1095,6 +1097,8 @@ describe("ingestGatewayLogCosts — cursor holds on total write failure", () => 
 		});
 		expect(state.upserts.at(-1)?.lastLogCreatedAt).toBe(pageTimestamp(9));
 		expect(vi.mocked(fetch)).toHaveBeenCalledTimes(12);
+		expect(cacheExecutions).toHaveBeenCalledTimes(2);
+		expect(cacheExecutions.mock.calls[0]?.[1]).toHaveLength(500);
 	});
 
 	it("holds the page-40 timestamp when page-41 lookahead fetch fails", async () => {

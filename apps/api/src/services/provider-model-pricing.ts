@@ -115,7 +115,7 @@ export async function priceProviderUsage(
 	};
 }
 
-/** Discard the rate snapshot after this ingestion, so later corrections are seen. */
+/** Rate snapshots are shared per authority binding and expire after 60 seconds. */
 export function createProviderUsagePricer(env: FleetAuthorityEnv) {
 	let cached: ReturnType<typeof createProviderModelRateLookup> | undefined;
 	const lookup: typeof findProviderModelRates = (db, input) => {

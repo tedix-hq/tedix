@@ -658,6 +658,7 @@ async function ingestGateway(
 	let failure: string | null = null;
 	let contended = false;
 
+	const pages: AiGatewayLogsResponse[] = [];
 	for (let page = 1; page <= maxPages; page++) {
 		let body: AiGatewayLogsResponse;
 		try {
@@ -667,12 +668,36 @@ async function ingestGateway(
 			// persistent auth/network failure cannot masquerade as "nothing new".
 			failure = error instanceof Error ? error.message : String(error);
 			console.error(
-				`[gateway-cost-ingestion] ${gatewayId} page ${page} fetch FAILED — no rows will be ingested this tick`,
+				`[gateway-cost-ingestion] ${gatewayId} page ${page} fetch FAILED — retaining previously fetched pages`,
 				{ exception: safeExceptionTopology(error) },
 			);
 			break;
 		}
 
+		pages.push(body);
+		if ((body.result?.length ?? 0) < PER_PAGE) break;
+	}
+	const executions = await getProviderExecutionsByIds(
+		db,
+		pages.flatMap((body) =>
+			(body.result ?? []).flatMap((row) => {
+				if (
+					row.model === "typesafe/jev" ||
+					["web-search", "ceramic", "exa", "linkup"].includes(row.provider)
+				)
+					return [];
+				const id = decodeAiGatewayAttribution(
+					row.metadata?.attribution,
+				)?.executionId;
+				return id ? [id] : [];
+			}),
+		),
+	);
+	const executionMap = new Map(
+		executions.map((execution) => [execution.id, execution]),
+	);
+	for (const [index, body] of pages.entries()) {
+		const page = index + 1;
 		const rows = body.result ?? [];
 		// A short page closes its final timestamp. A full page does not: more
 		// rows with that timestamp may be on the following page, in any ID order.
@@ -706,18 +731,6 @@ async function ingestGateway(
 		const searchIds = new Set(searchRows.map((row) => row.id));
 		const costRows = rows.filter(
 			(row) => row.model !== "typesafe/jev" && !searchIds.has(row.id),
-		);
-		const executions = await getProviderExecutionsByIds(
-			db,
-			costRows.flatMap((row) => {
-				const id = decodeAiGatewayAttribution(
-					row.metadata?.attribution,
-				)?.executionId;
-				return id ? [id] : [];
-			}),
-		);
-		const executionMap = new Map(
-			executions.map((execution) => [execution.id, execution]),
 		);
 		const reservationEstimates = new Map(
 			(

@@ -1,9 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { policyPacks } from "../schema/control-plane";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
+import { getActiveSystemPolicy } from "./control-plane/system-policy";
 import { getInstallationTrustPolicy } from "./installation-trust";
 
 const databases: DatabaseSync[] = [];
@@ -44,6 +45,25 @@ function fixture() {
 }
 
 describe("installation trust authority", () => {
+	it("shares all system heads across clients and slugs, then observes revocation after 60 seconds", async () => {
+		const { db, insert } = fixture();
+		await insert();
+		await insert({ id: "other", slug: "other" });
+		const select = vi.spyOn(db, "select");
+		const another = createDbClient(db.$client);
+		expect(await getInstallationTrustPolicy(db)).toEqual(policy);
+		expect(await getActiveSystemPolicy(another, "other")).not.toBeNull();
+		expect(select).toHaveBeenCalledTimes(1);
+		await insert({ id: "revoked", version: 2, status: "archived" });
+		expect(await getInstallationTrustPolicy(another)).toEqual(policy);
+		const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+		try {
+			expect(await getInstallationTrustPolicy(another)).toBeNull();
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it("requires an exact ownerless system publication", async () => {
 		for (const overrides of [
 			{ organizationId: "org-publisher" },

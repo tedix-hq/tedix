@@ -8,7 +8,7 @@ import {
 import { historicalRequestHash } from "./billing/historical-exposure";
 import { is, Param, sql } from "drizzle-orm";
 import { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import * as billing from "../schema/billing";
 import type { NewProviderExecutionAttemptRow } from "../schema/provider-executions";
@@ -21,6 +21,7 @@ import {
 	buildProviderExecutionInsertStatement,
 	compactAdmissionPredicate,
 	findProviderExecutionAdmission,
+	getProviderExecutionsByIds,
 	prepareProviderExecutionAdmission,
 	prepareKernelAutoRoutingAdmission,
 } from "./provider-executions";
@@ -120,6 +121,26 @@ async function setup() {
 	return { sqlite, db };
 }
 describe("immutable provider execution admission", () => {
+	it("correlates more than 100 execution IDs in one bound query without matching other IDs", async () => {
+		const { db, sqlite } = await setup();
+		const ids = Array.from(
+			{ length: 105 },
+			(_, index) => `execution-'${index}`,
+		);
+		for (const id of [...ids, "unrequested"])
+			await buildProviderExecutionInsertStatement(
+				db,
+				receipt({ id, idempotencyKey: id }),
+			);
+		const select = vi.spyOn(db, "select");
+		const rows = await getProviderExecutionsByIds(db, [...ids, ids[0]!]);
+		expect(new Set(rows.map((row) => row.id))).toEqual(new Set(ids));
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(await getProviderExecutionsByIds(db, [])).toEqual([]);
+		expect(select).toHaveBeenCalledTimes(1);
+		sqlite.close();
+	});
+
 	it("preserves SQLite Param codec values in a compacted admission predicate", async () => {
 		const sqlite = createMigratedSqlite();
 		const db = createDbClient(createD1Facade(sqlite));
