@@ -5,14 +5,14 @@
  * and placement moves neither them nor a loopback call to this Worker's own
  * fetch handler (measured 24 Nov: relayed work stayed in San Jose, Seattle,
  * Atlanta), so that work paid a cross-ocean round trip on every D1 call and
- * wallet hold. The handler now hands its event to a fresh `PlacedJobRunner`
- * Durable Object created near D1 (location hint `weur`) and waits for the
- * result. Only this Worker can reach that object.
+ * wallet hold. The handler now hands its event to one of a few warm
+ * `PlacedJobRunner` Durable Objects created near D1 (location hint `weur`) and
+ * waits for the result. Only this Worker can reach them.
  */
 
 import {
+	durableObjectIdFromName,
 	durableObjectNamespace,
-	durableObjectNewUniqueId,
 } from "@tedix/worker-kit/durable-objects";
 
 export type RelayKind = "scheduled" | "queue";
@@ -47,15 +47,26 @@ type QueueRun = (
 
 type Outcome = "ack" | "retry" | null;
 
-/** A fresh runner near D1 for one cron run or queue batch; none without the binding. */
+/**
+ * Jobs share this many named runners. A runner that keeps getting work stays
+ * on its machine with warm isolates, including, we expect, the MCP Worker its
+ * wallet holds go through: with a fresh object per job the hold p90 was
+ * 779 ms while D1 reads stayed at 73 ms. Several runners keep one CPU-heavy
+ * job from delaying the rest, since an object runs one JavaScript thread.
+ */
+export const PLACED_JOB_RUNNERS = 8;
+
+/** One of the warm runners near D1 for a job; none without the binding. */
 function runner(ctx: ExecutionContext, env: CloudflareEnv) {
 	const namespace = (ctx as RelayContext).exports?.PlacedJobRunner;
 	if (!namespace) return undefined;
-	// The jurisdiction helper keeps env.DO_JURISDICTION authoritative.
-	const scoped = durableObjectNamespace(namespace, env);
-	return scoped.get(durableObjectNewUniqueId(namespace, env), {
-		locationHint: PLACED_JOB_LOCATION,
-	});
+	const slot = Math.floor(Math.random() * PLACED_JOB_RUNNERS);
+	// The jurisdiction helper keeps env.DO_JURISDICTION authoritative. The
+	// hint only applies when a runner is first created; it then stays there.
+	return durableObjectNamespace(namespace, env).get(
+		durableObjectIdFromName(namespace, env, `placed-job-runner:${slot}`),
+		{ locationHint: PLACED_JOB_LOCATION },
+	);
 }
 
 /** The job a runner request asks for, from its path. */

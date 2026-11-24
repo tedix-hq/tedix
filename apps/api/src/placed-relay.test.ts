@@ -23,7 +23,7 @@ function loopbackCtx(
 		...plainCtx(),
 		exports: {
 			PlacedJobRunner: {
-				newUniqueId: () => ({}),
+				idFromName: (name: string) => ({ name }),
 				get: (_id: unknown, options: { locationHint: string }) => {
 					hints.push(options.locationHint);
 					return {

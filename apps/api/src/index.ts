@@ -339,9 +339,9 @@ async function runQueue(
 }
 
 /**
- * Runs one cron event or queue batch near D1 for `placed-relay.ts`. Each run
- * gets a fresh object created with a Western Europe location hint; it stores
- * nothing and only this Worker can reach it.
+ * Runs cron events and queue batches near D1 for `placed-relay.ts`: one of
+ * PLACED_JOB_RUNNERS named objects created with a Western Europe location
+ * hint. It stores nothing and only this Worker can reach it.
  */
 export class PlacedJobRunner extends DurableObject<CloudflareEnv> {
 	override async fetch(request: Request): Promise<Response> {
