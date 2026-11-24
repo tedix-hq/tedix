@@ -1568,7 +1568,9 @@ export async function setupAction(
 					: [command, tool.signIn!];
 			const login = await run(file, args, {
 				onLine: (line) => {
-					if (line.startsWith("https://")) say(line);
+					// OpenCode draws a border before the address.
+					const address = line.match(/https:\/\/\S+/)?.[0];
+					if (address) say(address);
 				},
 				onStart: (stop) => {
 					stops[`connect:${tool.id}`] = stop;
