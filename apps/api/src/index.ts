@@ -20,6 +20,12 @@ import { bindMcpServicePrincipal } from "./service-principal";
 import { releaseManifest } from "@tedix/api-contract/utils/release-manifest";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import {
+	relayKind,
+	runQueuePlaced,
+	runScheduledPlaced,
+	serveRelay,
+} from "./placed-relay";
+import {
 	WorkerEntrypoint,
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -300,12 +306,49 @@ export class McpEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	}
 }
 
+/** Cron work, inside the D1 query ledger; runs where placed-relay.ts sends it. */
+async function runScheduled(
+	controller: ScheduledController,
+	env: CloudflareEnv,
+	ctx: ExecutionContext,
+): Promise<void> {
+	const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
+		loadApp(),
+		import("@tedix/db/slow-query"),
+	]);
+	await withD1Ledger(`cron ${controller.cron}`, async () =>
+		handlers.scheduled(controller, env, ctx),
+	);
+}
+
+/** Queue work, inside the D1 query ledger; runs where placed-relay.ts sends it. */
+async function runQueue(
+	batch: { queue: string; messages: readonly unknown[] },
+	env: CloudflareEnv,
+	ctx: { waitUntil: (p: Promise<unknown>) => void },
+): Promise<void> {
+	const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
+		loadApp(),
+		import("@tedix/db/slow-query"),
+	]);
+	await withD1Ledger(`queue ${batch.queue}`, async () =>
+		handlers.queue(batch, env, ctx),
+	);
+}
+
 export default {
 	fetch(
 		request: Request,
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<Response> {
+		// Cron and queue work this Worker relayed to itself (placed-relay.ts).
+		const relay = relayKind(ctx);
+		if (relay)
+			return serveRelay(relay, request, env, ctx, {
+				scheduled: runScheduled,
+				queue: runQueue,
+			});
 		return serveFetch(stripServiceBindingMarker(request), env, ctx);
 	},
 	async scheduled(
@@ -313,26 +356,14 @@ export default {
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<void> {
-		const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
-			loadApp(),
-			import("@tedix/db/slow-query"),
-		]);
-		await withD1Ledger(`cron ${controller.cron}`, async () =>
-			handlers.scheduled(controller, env, ctx),
-		);
+		await runScheduledPlaced(controller, env, ctx, runScheduled);
 	},
 	async queue(
-		batch: { queue: string; messages: readonly unknown[] },
+		batch: Parameters<typeof runQueuePlaced>[0],
 		env: CloudflareEnv,
-		ctx: { waitUntil: (p: Promise<unknown>) => void },
+		ctx: ExecutionContext,
 	): Promise<void> {
-		const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
-			loadApp(),
-			import("@tedix/db/slow-query"),
-		]);
-		await withD1Ledger(`queue ${batch.queue}`, async () =>
-			handlers.queue(batch, env, ctx),
-		);
+		await runQueuePlaced(batch, env, ctx, runQueue);
 	},
 };
 
