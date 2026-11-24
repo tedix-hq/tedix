@@ -138,6 +138,15 @@ export const learningInteractionEvents = sqliteTable(
 			table.scopeId,
 			table.occurredAt,
 		),
+		// A person's events on one surface; the scope index walked all of a
+		// person's events (58k rows per call) to find a rare surface.
+		index("idx_learning_event_scope_surface_occurred").on(
+			table.organizationId,
+			table.scopeKind,
+			table.scopeId,
+			table.surface,
+			table.occurredAt,
+		),
 		// Filing history is private to its ledger owner, including shared corrections.
 		index("idx_learning_event_filing_owner_occurred").on(
 			table.organizationId,

@@ -96,3 +96,49 @@ it("seeks shared and personal history past a large private backlog", async () =>
 		sqlite.close();
 	}
 });
+
+it("seeks a person's rare surface without walking their other events", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec("PRAGMA foreign_keys=OFF");
+		sqlite.exec(schemaDdl(learningInteractionEvents));
+		const insert = sqlite.prepare(`INSERT INTO learning_interaction_events
+			(id, organization_id, actor_type, client_event_id, event_kind, scope_kind, scope_id, surface, occurred_at, created_at)
+			VALUES (?, 'org-example', 'user', ?, 'accepted', 'personal', 'ada', ?, ?, ?)`);
+		sqlite.exec("BEGIN");
+		for (let i = 0; i < 20_000; i++) {
+			const at = new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString();
+			insert.run(
+				`event-${i}`,
+				`event-${i}`,
+				i % 1000 === 0 ? "decision_deck" : "request_filing",
+				at,
+				at,
+			);
+		}
+		sqlite.exec("COMMIT; ANALYZE");
+		const statements: string[] = [];
+		const db = createDbClient(
+			createD1Facade(sqlite, {
+				onPrepare: (statement) => statements.push(statement),
+			}),
+		);
+		const rows = await listLearningInteractions(db, {
+			organizationId: "org-example",
+			personalScopeId: "ada",
+			scopeKind: "personal",
+			scopeId: "ada",
+			surfaces: ["decision_deck"],
+			limit: 200,
+		});
+		expect(rows).toHaveLength(20);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${statements[0]}`)
+			.all(...Array((statements[0]!.match(/\?/g) ?? []).length).fill(null))
+			.map((row) => String(row.detail))
+			.join(" | ");
+		expect(plan).toContain("idx_learning_event_scope_surface_occurred");
+	} finally {
+		sqlite.close();
+	}
+});
