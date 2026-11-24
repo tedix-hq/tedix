@@ -23,7 +23,10 @@
  */
 
 import type { DbClient } from "@tedix/db/client";
-import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import {
+	safeErrorClassification,
+	safeExceptionTopology,
+} from "../lib/safe-log-metadata";
 import { withOverloadBackoff } from "../services/d1-retention-archive";
 
 export interface WorkGraphStewardSummary {
@@ -164,6 +167,7 @@ export async function runRetentionSteps(
 					event: "retention_cleanup.step_failed",
 					step: step.id,
 					exception: safeExceptionTopology(stepError),
+					...safeErrorClassification(stepError),
 				}),
 			);
 		}

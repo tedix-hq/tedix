@@ -296,6 +296,41 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 });
 
 describe("retention step runner", () => {
+	it("classifies a failed D1 step without logging SQL or stopping later steps", async () => {
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+		const result = await runRetentionSteps(
+			[
+				{
+					id: "platform-cron-abandoned",
+					run: async () => {
+						throw new Error("Failed query: select private_table token=secret", {
+							cause: new Error("D1_ERROR: operation failed", {
+								cause: new Error("D1 DB is overloaded [code: 7429] secret"),
+							}),
+						});
+					},
+				},
+				{ id: "next", run: async () => ({ nextDeleted: 1 }) },
+			],
+			{ deadlineMs: Date.now() + 100, minStepMs: 0, pauseMs: 0 },
+		);
+		expect(result.counts).toMatchObject({
+			stepsFailed: 1,
+			stepsCompleted: 1,
+			nextDeleted: 1,
+		});
+		const entry = JSON.parse(logged.mock.calls[0]![0] as string);
+		expect(entry).toMatchObject({
+			event: "retention_cleanup.step_failed",
+			step: "platform-cron-abandoned",
+			causeChain: [
+				{ messageClass: ["D1_ERROR"] },
+				{ messageClass: ["overloaded"], numericCode: "7429" },
+			],
+		});
+		expect(JSON.stringify(entry)).not.toMatch(/private_table|secret|select/);
+	});
+
 	it("finishes on a hung step, records what did not run and resumes there next time", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		let clock = 0;
