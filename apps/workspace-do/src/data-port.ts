@@ -3,6 +3,7 @@
  * it sees this port. Outputs use the activated workspace object; core
  * directories and Work use the shared database.
  */
+import type { PublishAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
@@ -324,6 +325,7 @@ export interface WorkspaceDataPort {
 	editAppFiles(
 		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode>;
+	publishAppDraft(input: PublishAppDraft): Promise<CreatedApp>;
 	/** Checks a new app's name, files and the files it asks to read; saves nothing. */
 	checkNewApp(input: CreateAppInput): Promise<void>;
 	/** Creates an app in this workspace with revision 1. It may read only `reads`. */

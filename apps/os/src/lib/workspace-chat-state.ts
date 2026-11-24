@@ -1,3 +1,4 @@
+import type { StagedAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type { WorkspaceChatAttachment } from "@tedix/api-contract/schemas/workspace-files";
 /**
  * Pure fold of workspace-object events into the chat view model.
@@ -158,6 +159,7 @@ export type ChatTurn = {
 		connections: string[];
 		reason: string;
 	}>;
+	appDrafts?: StagedAppDraft[];
 	/** A tedi's tool calls this turn sent to Tedix's approvals. */
 	tediApprovals?: ChatTediApproval[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
@@ -727,6 +729,25 @@ export function applyWorkspaceChatEvent(
 				],
 			}));
 			break;
+		case "app_draft.staged": {
+			const owner = turns.find((turn) =>
+				turn.appDrafts?.some(
+					(draft) => draft.proposalId === event.draft.proposalId,
+				),
+			);
+			turns = place(owner?.turnId ?? event.turnId)((turn) => ({
+				...turn,
+				appDrafts: owner
+					? turn.appDrafts?.map((draft) =>
+							draft.proposalId === event.draft.proposalId &&
+							draft.sequence <= event.draft.sequence
+								? event.draft
+								: draft,
+						)
+					: [...(turn.appDrafts ?? []), event.draft],
+			}));
+			break;
+		}
 		case "connection.requested":
 			turns = place(event.turnId)((turn) =>
 				turn.connectionRequests?.some(

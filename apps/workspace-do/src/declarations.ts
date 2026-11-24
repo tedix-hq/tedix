@@ -186,8 +186,10 @@ interface Apps {
   editFile(input: {appId:string; path:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number; before:string; after:string}): Promise<AppCode>;
   /** Stage a new file or replace a file in full. Prefer editFile for small changes. Does not publish. */
   writeFile(input: {appId:string; path:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number; content:string}): Promise<AppCode>;
-  /** Stage an earlier version's files as this chat's draft, replacing the whole file set; settings and access stay as they are now. The person accepts it like any draft, which saves a new version; history is kept. */
+  /** Stage an earlier version's files as this chat's draft, replacing the whole file set; settings and access stay as they are now. Publishing it saves a new version; history is kept. */
   restoreVersion(input: {appId:string; revisionId:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number}): Promise<AppCode>;
+  /** Publish only this conversation's staged draft at the exact sequence last written. Auto runs for a person's own message within the workspace's configured limit; other modes wait for Accept and publish on the draft card. Read only refuses. After success, say plainly which app and changes you published and the new version. */
+  publishDraft(input: {appId:string; proposalId:string; expectedSequence:number; rationale:string}): Promise<{id:string; name:string; revision:number; revisionId:string}>;
   list(): Promise<Array<{ id: string; name: string; description: string | null; status: string; updatedAt: string }>>;
   /**
    * Create a new app with its first revision. Always needs the person's approval; the name and files are checked first.

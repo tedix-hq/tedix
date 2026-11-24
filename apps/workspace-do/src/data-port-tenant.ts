@@ -3,6 +3,10 @@
  * gzip objects in R2 addressed by digest. Resources use the workspace object;
  * apps and Work items use the core database.
  */
+import type {
+	PublishAppDraft,
+	StagedAppDraft,
+} from "@tedix/api-contract/schemas/workspace-app-draft";
 import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { createDbClient } from "@tedix/db/client";
@@ -298,6 +302,8 @@ export interface TenantDataPortDeps {
 	 * offer to undo an agent's change made on a person's behalf.
 	 */
 	agentTurnId?: string;
+	appDraftStaged?: (draft: StagedAppDraft) => void;
+	publishAppDraft?: (input: PublishAppDraft) => Promise<CreatedApp>;
 	assertWorkspaceAuthority: () => Promise<void>;
 	validateAppSource: (
 		files: Record<string, string>,
@@ -838,12 +844,35 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 					content.manifest.config?.compatibilityDate,
 				),
 		);
+		const files = OsAppDraftContentSchema.parse(
+			JSON.parse(proposal.content),
+		).files;
+		const base = await this.getAppCode({
+			appId: current.id,
+			revisionId: current.revisionId,
+		});
+		this.deps.appDraftStaged?.({
+			appId: current.id,
+			name: current.name,
+			proposalId: proposal.id,
+			sequence: proposal.sequence,
+			baseRevisionId: current.revisionId,
+			files: [...new Set([...Object.keys(base.files), ...Object.keys(files)])]
+				.filter((path) => base.files[path] !== files[path])
+				.sort(),
+		});
 		return {
 			...current,
-			files: OsAppDraftContentSchema.parse(JSON.parse(proposal.content)).files,
+			files,
 			proposalId: proposal.id,
 			sequence: proposal.sequence,
 		};
+	}
+
+	async publishAppDraft(input: PublishAppDraft): Promise<CreatedApp> {
+		if (!this.deps.publishAppDraft)
+			throw new Error("Publishing requires a workspace conversation");
+		return this.deps.publishAppDraft(input);
 	}
 
 	private async checkedNewApp(input: CreateAppInput) {

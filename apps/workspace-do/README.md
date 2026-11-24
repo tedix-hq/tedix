@@ -20,8 +20,14 @@ its code runs beside the data.
    own create or edit of a doc, sheet or deck applies at once (see below).
    Other canonical writes hold for approval. App file tools stage changes in
    one conversation draft on a pinned revision. The draft files and sequence
-   let clients preview edits while the turn runs. The existing app decision API validates and
-   saves one revision on acceptance, or discards the draft on rejection.
+   let clients preview edits while the turn runs. When approval is needed,
+   one draft card in chat offers Review, Accept and publish, and Discard.
+   `env.apps.publishDraft` publishes the conversation's exact last-written
+   sequence in Auto for the signed-in person's own message, within the
+   workspace's configured limit. Other modes use that same card; Read only refuses. The existing
+   app decision API checks build access and validates and saves one revision
+   on acceptance, or discards the draft on rejection. Decisions in the app
+   pane also resolve the chat card, which stays in the transcript.
    Restoring a previous revision preserves history; a moved base requires
    rebasing before acceptance.
    `env.apps.create({ name, files })` makes a new app. Its name and files

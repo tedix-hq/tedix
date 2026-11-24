@@ -108,6 +108,7 @@ import { agentRunFromToolResult } from "@/lib/agent-run-result";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
 import { ConnectionRequestCard } from "@/components/workspace-chat-connect-card";
+import { WorkspaceChatAppDraft } from "@/components/workspace-chat-app-draft";
 import { TediApprovalCard } from "@/components/workspace-chat-tedi-approval-card";
 import { WorkspaceChatMessageFiles } from "@/components/workspace-chat-message-files";
 import {
@@ -1374,6 +1375,13 @@ function TurnView({
 						key={request.requestId}
 						workspaceId={workspaceId}
 						request={request}
+					/>
+				))}
+				{turn.appDrafts?.map((draft) => (
+					<WorkspaceChatAppDraft
+						key={draft.proposalId}
+						workspaceId={workspaceId}
+						draft={draft}
 					/>
 				))}
 				{turn.connectionRequests?.map((request) => (

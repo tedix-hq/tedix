@@ -76,6 +76,9 @@ function fixture(ask = false) {
 		editAppFiles: async () => {
 			throw new Error("unused");
 		},
+		publishAppDraft: async () => {
+			throw new Error("unused");
+		},
 		checkNewApp: async () => {
 			throw new Error("unused");
 		},

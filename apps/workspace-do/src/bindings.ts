@@ -5,6 +5,7 @@ import type { AvailableWorkspaceConnection } from "@tedix/api-contract/schemas/w
  * executed and written to the change record exactly as a gateway tool call
  * would be. Nothing here knows about the model or the Durable Object.
  */
+import type { PublishAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type {
 	AccountabilityAdapter,
 	Actor,
@@ -361,6 +362,7 @@ export function buildWorkspaceBindings(
 			}
 			return { revisionId: app.revisionId, matches, truncated };
 		},
+		publishDraft: (input: PublishAppDraft) => data.publishAppDraft(input),
 		editFile: (input: {
 			appId: string;
 			path: string;
@@ -863,7 +865,12 @@ export function buildWorkspaceBindings(
 					riskTier: "read",
 					blastRadius: "none",
 				},
-				// Proposals cannot advance the app revision. The person reviews all files once.
+				publishDraft: {
+					resource: "app_draft",
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+				// File writes stage; publication has its own approval policy.
 				editFile: {
 					resource: "app_draft",
 					riskTier: "bounded_write",

@@ -583,7 +583,9 @@ export function createOsAppRuntimeRouter() {
 			proposalId: proposal.id,
 			expectedSequence: proposal.sequence,
 			rationale: input.rationale,
-			evidenceRefs: [],
+			evidenceRefs: context.workspaceAgentTurnId
+				? [`workspace-turn:${context.workspaceAgentTurnId}`]
+				: [],
 		};
 		const accepted =
 			proposal.status !== "open"

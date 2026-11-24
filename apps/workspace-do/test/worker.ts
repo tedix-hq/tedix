@@ -1,3 +1,4 @@
+import type { WorkspacePublishAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type { DocumentTransferPackage } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import type { ChangeRecord } from "@tedix/agent-governance/types";
 import type { WorkspaceChangeInput } from "@tedix/api-contract/schemas/workspace-feed";
@@ -253,6 +254,19 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 	}
 
 	#personCalls: WorkspacePersonMemoryInput[] = [];
+
+	protected override async publishAppDraft(input: WorkspacePublishAppDraft) {
+		const calls =
+			(await this.ctx.storage.get<unknown[]>("test:appDraftPublishes")) ?? [];
+		calls.push(input);
+		await this.ctx.storage.put("test:appDraftPublishes", calls);
+		return {
+			id: input.appId,
+			name: "Fixture app",
+			revision: 2,
+			revisionId: "published-version",
+		};
+	}
 
 	readPersonCalls(scope: WorkspaceScope) {
 		this.bindScope(scope);

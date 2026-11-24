@@ -3030,3 +3030,93 @@ describe("workspace app live Work board reads", () => {
 		expect(await f.db.select().from(osGadgetExecutions)).toHaveLength(0);
 	});
 });
+
+describe("workspace chat app draft publication", () => {
+	it("publishes only the sender's exact conversation draft and records the agent turn as its source", async () => {
+		const f = await fixture();
+		await f.db
+			.update(osWorkspaces)
+			.set({ visibility: "private", ownerUserId: "user-1" })
+			.where(eq(osWorkspaces.id, workspaceId));
+		const conversationId = "55555555-5555-4555-8555-555555555555";
+		const turnId = "66666666-6666-4666-8666-666666666666";
+		const proposal = await proposeOsAppFileEdits(
+			f.db,
+			{
+				organizationId: "org-1",
+				workspaceId,
+				gadgetId,
+				sourceKind: "chat",
+				sourceId: conversationId,
+				baseRevisionId: revisionId,
+				baseRevision: 1,
+				content: {
+					manifest: {
+						entry: "tedix:runtime/v1",
+						capabilities: [],
+						config: { version: 1, settings: { tags: ["Relevant"] } },
+						resourceGrants: [{ slot: "sheet", operations: ["outputs.read"] }],
+					},
+					files: { "server.js": "export class App {}", "client.js": "" },
+				},
+				edits: [
+					{ path: "client.js", after: "export default () => 'Updated';" },
+				],
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+			async () => {},
+		);
+		const { publishWorkspaceAppDraft } =
+			await import("../../services/workspace-app-draft");
+		const input = {
+			organizationId: "org-1",
+			workspaceId,
+			appId: gadgetId,
+			proposalId: proposal.id,
+			expectedSequence: proposal.sequence,
+			rationale: "Updated the screen",
+			conversationId,
+			turnId,
+			userId: "user-1",
+		};
+		await expect(
+			publishWorkspaceAppDraft(f.env, { ...input, conversationId: turnId }),
+		).rejects.toThrow("not staged by this conversation");
+		await expect(
+			publishWorkspaceAppDraft(f.env, {
+				...input,
+				expectedSequence: proposal.sequence + 1,
+			}),
+		).rejects.toThrow("not staged by this conversation");
+		await f.db
+			.update(osWorkspaces)
+			.set({ highestApprovalMode: "ask_for_changes" })
+			.where(eq(osWorkspaces.id, workspaceId));
+		await expect(publishWorkspaceAppDraft(f.env, input)).rejects.toThrow(
+			"chat card",
+		);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+		await f.db
+			.update(osWorkspaces)
+			.set({ highestApprovalMode: "auto", visibility: "org" })
+			.where(eq(osWorkspaces.id, workspaceId));
+		const published = await publishWorkspaceAppDraft(f.env, input);
+		expect(published).toMatchObject({ id: gadgetId, revision: 2 });
+		const [record] = await f.db.select().from(osCollaborationProposals);
+		expect(record).toMatchObject({
+			status: "merged",
+			decidedByKind: "user",
+			decidedById: "user-1",
+			mergedByKind: "user",
+			mergedById: "user-1",
+			resultRevisionId: published.revisionId,
+		});
+		expect(JSON.parse(record.decisionEvidenceRefs!)).toEqual([
+			`workspace-turn:${turnId}`,
+		]);
+		expect(JSON.parse(record.mergeEvidenceRefs!)).toEqual([
+			`workspace-turn:${turnId}`,
+		]);
+	});
+});

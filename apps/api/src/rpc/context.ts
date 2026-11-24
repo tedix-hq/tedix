@@ -111,6 +111,8 @@ export interface BaseContext {
 	 * Present when authenticated via Descope SSO (Tedix OS and user-facing endpoints)
 	 */
 	user?: JWTPayload;
+	/** Trusted workspace-store source for an automatic app draft decision. */
+	workspaceAgentTurnId?: string;
 	/** Set only after an exact saved human factory approval is verified server-side. */
 	factoryOperatorApproval?: { requestId: string; userId: string };
 	/** Stable Tedix user id resolved from the external identity mapping. */

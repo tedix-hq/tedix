@@ -1,3 +1,7 @@
+import type {
+	StagedAppDraft,
+	WorkspacePublishAppDraft,
+} from "@tedix/api-contract/schemas/workspace-app-draft";
 import {
 	copyGadgetExecutionBody,
 	gadgetExecutionOutputKey,
@@ -147,7 +151,7 @@ import {
 } from "@tedix/api-contract/schemas/tedi-guest-turn";
 import { SqlMemoryAdapter } from "./memory-adapter";
 import { callFailureText, unsavableTextError } from "./call-failure";
-import type { WorkspaceSnapshot } from "./data-port";
+import type { CreatedApp, WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
 import {
 	createWebPort,
@@ -4620,6 +4624,45 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			answeringTediId: started?.tedi_id ?? null,
 			conversationId: turn?.conversationId,
 			agentTurnId: turn?.turnId,
+			appDraftStaged: turn
+				? (draft) => {
+						this.#store.put(
+							`app-draft:${turn.conversationId}:${draft.proposalId}`,
+							draft,
+						);
+						const cardKey = `app-draft-card:${draft.proposalId}`;
+						if (policy?.mode !== "auto" || this.#store.get<boolean>(cardKey)) {
+							this.#store.put(cardKey, true);
+							this.#events.append(turn.conversationId, {
+								type: "app_draft.staged",
+								turnId: turn.turnId,
+								draft,
+							});
+						}
+					}
+				: undefined,
+			publishAppDraft: async (input) => {
+				if (!turn || !started || !policy?.personSent || policy.mode !== "auto")
+					throw new Error("Accept and publish this draft on its chat card.");
+				const draft = this.#store.get<StagedAppDraft>(
+					`app-draft:${turn.conversationId}:${input.proposalId}`,
+				);
+				if (
+					!draft ||
+					draft.appId !== input.appId ||
+					draft.sequence !== input.expectedSequence
+				)
+					throw new Error(
+						"Draft changed or was not staged by this conversation",
+					);
+				return this.publishAppDraft({
+					...input,
+					...scope,
+					conversationId: turn.conversationId,
+					turnId: turn.turnId,
+					userId: started.actor_id,
+				});
+			},
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {
@@ -4969,6 +5012,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				error.decision.reason === READ_ONLY_REASON
 					? READ_ONLY_REFUSAL
 					: callFailureText(error);
+			if (binding === "apps" && method === "publishDraft") {
+				const input = args[0] as { proposalId?: string } | undefined;
+				const draft = this.#store.get<StagedAppDraft>(
+					`app-draft:${turn.conversationId}:${input?.proposalId}`,
+				);
+				if (draft) {
+					this.#store.put(`app-draft-card:${draft.proposalId}`, true);
+					this.#events.append(turn.conversationId, {
+						type: "app_draft.staged",
+						turnId: turn.turnId,
+						draft,
+					});
+				}
+			}
 			if (error instanceof AccountReadHeld) {
 				const requestArgs = args.slice(0, 3);
 				const [inserted] = this.#store.exec<{ approval_id: string }>(
@@ -5015,6 +5072,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						durationMs: Date.now() - started,
 						...(outcome.error ? stepFailure(outcome.error) : {}),
 					});
+				// The staged draft already owns the decision card and its sequence.
+				if (binding === "apps" && method === "publishDraft") {
+					const message =
+						"Approval required: accept and publish the staged app draft on its chat card. It is not published yet.";
+					finishStep({ ok: false, error: message });
+					return { ok: false, error: message };
+				}
 				// The same change asked for again gets no second card.
 				const [waiting] = this.#store.exec<{ approval_id: string }>(
 					"SELECT approval_id FROM approvals WHERE conversation_id = ? AND binding = ? AND method = ? AND args_hash = ? AND status = 'pending' LIMIT 1",
@@ -6016,6 +6080,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.env.API_SERVICE as unknown as PersonService;
 	}
 
+	protected publishAppDraft(
+		input: WorkspacePublishAppDraft,
+	): Promise<CreatedApp> {
+		const api = this.env.API_SERVICE as unknown as {
+			publishWorkspaceAppDraft(
+				input: WorkspacePublishAppDraft,
+			): Promise<CreatedApp>;
+		};
+		return api.publishWorkspaceAppDraft(input);
+	}
+
 	/** Whether this is the person's own private workspace; unreadable counts as no. */
 	async #privateTo(scope: WorkspaceScope, userId: string) {
 		const workspace = await getOsWorkspace(
@@ -6788,6 +6863,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	editFile(...args: unknown[]) {
 		return this.#call("editFile", args);
+	}
+	publishDraft(...args: unknown[]) {
+		return this.#call("publishDraft", args);
 	}
 	writeFile(...args: unknown[]) {
 		return this.#call("writeFile", args);

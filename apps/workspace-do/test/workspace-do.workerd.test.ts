@@ -1099,8 +1099,14 @@ describe("WorkspaceDO", () => {
 		},
 	);
 
-	test("chat file edits share one pinned draft, reject without publishing, merge once and preserve revision history", async () => {
+	async function seedEditableApp(appScope = scope, appId = "editable") {
 		await seedCore();
+		if (appScope.workspaceId !== scope.workspaceId)
+			await testEnv.DB.prepare(
+				"INSERT INTO os_workspaces (id, organization_id, name, status, visibility, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, 'Draft test', 'active', 'org', 'user', 'u1', 'now', 'now')",
+			)
+				.bind(appScope.workspaceId, appScope.organizationId)
+				.run();
 		await testEnv.DB.batch(
 			[osGadgetRevisions, osGadgetCode, osGadgetCodeBlobs].map((table) =>
 				testEnv.DB.prepare(ddl(table)),
@@ -1110,9 +1116,9 @@ describe("WorkspaceDO", () => {
 			"CREATE UNIQUE INDEX IF NOT EXISTS test_app_blob_key ON os_gadget_code_blobs (organization_id, sha256)",
 		).run();
 		await testEnv.DB.prepare(
-			"INSERT INTO os_gadgets (id, organization_id, workspace_id, name, status, created_by_kind, created_by_id, created_at, updated_at) VALUES ('editable', ?, ?, 'Fixture app', 'active', 'user', 'u1', 'now', 'now')",
+			"INSERT INTO os_gadgets (id, organization_id, workspace_id, name, status, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, ?, 'Fixture app', 'active', 'user', 'u1', 'now', 'now')",
 		)
-			.bind(scope.organizationId, scope.workspaceId)
+			.bind(appId, appScope.organizationId, appScope.workspaceId)
 			.run();
 		const files = {
 			"server.js": "export class App {}",
@@ -1120,9 +1126,9 @@ describe("WorkspaceDO", () => {
 		};
 		const db = createDbQueryClient(testEnv.DB);
 		const initial = await createOsGadgetRevision(db, {
-			id: "app-before",
-			organizationId: scope.organizationId,
-			gadgetId: "editable",
+			id: appId === "editable" ? "app-before" : crypto.randomUUID(),
+			organizationId: appScope.organizationId,
+			gadgetId: appId,
 			manifest: JSON.stringify({
 				entry: "tedix:runtime/v1",
 				capabilities: [],
@@ -1134,6 +1140,86 @@ describe("WorkspaceDO", () => {
 			code: { files: JSON.stringify(files), codeLength: 1 },
 		});
 		expect(initial.ok).toBe(true);
+		return { db, files };
+	}
+
+	test.each([
+		{ mode: "auto", actorKind: "user", publish: true },
+		{ mode: "ask_for_changes", actorKind: "user", publish: false },
+		{ mode: "ask_every_time", actorKind: "user", publish: false },
+		{ mode: "auto", actorKind: "user", fromAppId: "editable", publish: false },
+		{ mode: "auto", actorKind: "service", publish: false },
+		{ mode: "auto", actorKind: "tedi", publish: false },
+		{ mode: "auto", actorKind: "user", shared: true, publish: false },
+		{
+			mode: "auto",
+			actorKind: "user",
+			shared: true,
+			raised: true,
+			publish: true,
+		},
+		{ mode: "read_only", actorKind: "user", publish: false },
+	] as const)(
+		"app draft publication follows the sender and approval mode: %j",
+		async (scenario) => {
+			const own = { ...scope, workspaceId: crypto.randomUUID() };
+			const appId = crypto.randomUUID();
+			await seedEditableApp(own, appId);
+			if (!("shared" in scenario)) await privateTo(own, "u1");
+			if ("raised" in scenario)
+				await testEnv.DB.prepare(
+					"UPDATE os_workspaces SET highest_approval_mode = 'auto' WHERE id = ?",
+				)
+					.bind(own.workspaceId)
+					.run();
+			const ws = workspace(own);
+			await ws.setApprovalMode(own, { userId: "u1", mode: scenario.mode });
+			await ws.scriptModel(own, [
+				{
+					code: `export default async env => {
+			if (${scenario.mode === "read_only"}) return env.apps.publishDraft({appId:"${appId}",proposalId:"${appId}",expectedSequence:0,rationale:"Publish the app"});
+			const file = await env.apps.readFile({appId:"${appId}",path:"client.js"});
+			const draft = await env.apps.writeFile({appId:"${appId}",path:"client.js",expectedRevisionId:file.revisionId,content:"export default () => 'After';"});
+			return env.apps.publishDraft({appId:"${appId}",proposalId:draft.proposalId,expectedSequence:draft.sequence,rationale:"Updated the screen"});
+		}`,
+				},
+			]);
+			const started = await ws.sendTurn(own, {
+				actorId: scenario.actorKind === "tedi" ? "tedi1" : "u1",
+				actorKind: scenario.actorKind,
+				text: "Update and publish the app",
+				...("fromAppId" in scenario ? { fromAppId: appId } : {}),
+			});
+			await ws.awaitTurn(own, started.turnId, 20000);
+			const events = await ws.readEvents(own, {
+				conversationId: started.conversationId,
+			});
+			const publishes = await runInDurableObject(
+				ws,
+				async (_instance, state) =>
+					(await state.storage.get<unknown[]>("test:appDraftPublishes")) ?? [],
+			);
+			expect(publishes).toHaveLength(scenario.publish ? 1 : 0);
+			if (scenario.publish)
+				expect(publishes[0]).toMatchObject({
+					userId: "u1",
+					conversationId: started.conversationId,
+					turnId: started.turnId,
+					expectedSequence: 0,
+				});
+			expect(
+				events.filter((event) => event.type === "approval.requested"),
+			).toHaveLength(0);
+			expect(
+				events.filter((event) => event.type === "app_draft.staged"),
+			).toHaveLength(scenario.publish || scenario.mode === "read_only" ? 0 : 2);
+			if (scenario.mode === "read_only")
+				expect(JSON.stringify(events)).toContain("Read only");
+		},
+	);
+
+	test("chat file edits share one pinned draft, reject without publishing, merge once and preserve revision history", async () => {
+		const { db, files } = await seedEditableApp();
 		const data = new TenantDataPort({
 			...scope,
 			tenant: {} as TenantStoreDb,

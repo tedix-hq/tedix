@@ -821,3 +821,51 @@ describe("messages sent while a turn works", () => {
 		expect(state.turns[0]!.added).toHaveLength(1);
 	});
 });
+
+it("updates one app draft card in its original turn across edits, replay and later turns", () => {
+	const started = turn[0] as Extract<
+		WorkspaceChatLedgerEvent,
+		{ type: "turn.started" }
+	>;
+	const draft = {
+		appId: "app",
+		name: "Cards",
+		proposalId: "draft",
+		sequence: 0,
+		baseRevisionId: "base",
+		files: ["client.js"],
+	};
+	const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+		turn[0]!,
+		{
+			type: "app_draft.staged",
+			conversationId: "c1",
+			turnId: "t1",
+			seq: 2,
+			at: at(1),
+			draft,
+		},
+		{ ...started, turnId: "t2", seq: 3 },
+		{
+			type: "app_draft.staged",
+			conversationId: "c1",
+			turnId: "t2",
+			seq: 4,
+			at: at(2),
+			draft: { ...draft, sequence: 1, files: ["client.js", "README.md"] },
+		},
+		{
+			type: "app_draft.staged",
+			conversationId: "c1",
+			turnId: "t2",
+			seq: 5,
+			at: at(3),
+			draft: { ...draft, sequence: 1, files: ["client.js", "README.md"] },
+		},
+	]);
+	expect(state.turns.flatMap((entry) => entry.appDrafts ?? [])).toEqual([
+		{ ...draft, sequence: 1, files: ["client.js", "README.md"] },
+	]);
+	expect(state.turns[0]!.appDrafts).toHaveLength(1);
+	expect(state.turns[1]!.appDrafts).toBeUndefined();
+});

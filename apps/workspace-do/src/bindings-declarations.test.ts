@@ -69,6 +69,9 @@ function fakeData(): WorkspaceDataPort {
 		editAppFiles: async () => {
 			throw new Error("unused");
 		},
+		publishAppDraft: async () => {
+			throw new Error("unused");
+		},
 		checkNewApp: async () => {
 			throw new Error("unused");
 		},

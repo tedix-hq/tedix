@@ -1,3 +1,4 @@
+import type { StagedAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type {
 	WorkspaceChatAttachment,
 	WorkspaceChatAttachmentInput,
@@ -54,6 +55,7 @@ export interface QueuedMessageBody {
 }
 
 export type WireEventBody =
+	| { type: "app_draft.staged"; turnId: string; draft: StagedAppDraft }
 	| {
 			type: "turn.started";
 			turnId: string;
@@ -674,6 +676,7 @@ export function stepLabel(
 			allowRead: "Letting an app read workspace files",
 			registerSchedule: "Registering a scheduled run",
 			editFile: "Editing an app draft",
+			publishDraft: "Publishing an app draft",
 			writeFile: "Writing an app draft file",
 			restoreVersion: "Staging an earlier app version",
 		},
@@ -731,6 +734,7 @@ export function stepLabel(
 				"editFile",
 				"writeFile",
 				"restoreVersion",
+				"publishDraft",
 				"registerSchedule",
 				"allowRead",
 			].includes(method)) ||

@@ -1,3 +1,4 @@
+import type { StagedAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type {
 	WorkspaceChatAttachment,
 	WorkspaceChatAttachmentInput,
@@ -215,6 +216,11 @@ type QueuedMessage = Stamped & {
 
 /** Events the object writes to its ledger; each one carries a `seq`. */
 export type WorkspaceChatLedgerEvent =
+	| (Stamped & {
+			type: "app_draft.staged";
+			turnId: string;
+			draft: StagedAppDraft;
+	  })
 	/**
 	 * Sent while `turnId` was working: it waits for that turn's next step.
 	 * `message.read`, `message.returned` or a `turn.started` whose `turnId` is
@@ -526,6 +532,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"schedule.registered",
 	"connection.requested",
 	"connections.proposed",
+	"app_draft.staged",
 	"tedi_approval.requested",
 	"turn.retrying",
 	"turn.finished",

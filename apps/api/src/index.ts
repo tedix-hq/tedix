@@ -271,10 +271,16 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 		return useWorkspaceMachine(this.env, input);
 	}
 
-	/**
-	 * Read the personal memory of the person who sent a workspace chat turn,
-	 * only in a workspace nobody but them can open.
-	 */
+	/** Publish the sender's conversation draft through the app author procedures. */
+	async publishWorkspaceAppDraft(
+		input: import("@tedix/api-contract/schemas/workspace-app-draft").WorkspacePublishAppDraft,
+	) {
+		const { publishWorkspaceAppDraft } =
+			await import("./services/workspace-app-draft");
+		return publishWorkspaceAppDraft(this.env, input);
+	}
+
+	/** Read personal memory only in a workspace nobody but the sender can open. */
 	async readPersonMemory(
 		input: import("@tedix/api-contract/schemas/workspace-person-memory").WorkspacePersonMemoryInput,
 	): Promise<

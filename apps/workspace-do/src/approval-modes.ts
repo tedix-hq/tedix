@@ -125,6 +125,7 @@ export function actionClass(call: {
 	)
 		return "always";
 	if (HELD_READS.has(call.resource)) return "read";
+	// Publishing a conversation app draft is a bounded workspace change.
 	return call.riskTier === "bounded_write" ? "change" : "outside";
 }
 
