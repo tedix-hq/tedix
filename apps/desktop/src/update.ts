@@ -12,7 +12,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { app } from "electron";
+import { app, net } from "electron";
 import { log } from "./log";
 
 /**
@@ -90,7 +90,9 @@ async function get(
 	stop?: AbortSignal,
 ): Promise<Response> {
 	const timeout = AbortSignal.timeout(timeoutMs);
-	const response = await fetch(url, {
+	// The app's pages load through this same network code, so a check works
+	// whenever they do: after sleep, on a VPN or behind a proxy.
+	const response = await net.fetch(url, {
 		redirect: "error",
 		cache: "no-store",
 		signal: stop ? AbortSignal.any([timeout, stop]) : timeout,

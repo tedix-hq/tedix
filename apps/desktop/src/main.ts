@@ -1590,7 +1590,10 @@ async function checkForUpdates(
 		`update: check ended in ${Math.round((Date.now() - from) / 1000)} s: ${problem || (readyVersion() ? `${readyVersion()} is ready` : "up to date")}`,
 	);
 	// A failed look the person asked for shows on the entry, like a failed
-	// download; a failed look by itself waits for the next one.
+	// download; a failed look by itself is tried again in a few minutes.
+	clearTimeout(checkAgain);
+	if (failed)
+		checkAgain = setTimeout(() => void checkForUpdates(false), 5 * 60_000);
 	if (failed && asked) fetchFailure ??= problem;
 	if (!problem) fetchFailure = undefined;
 	publishUpdate();
@@ -1600,6 +1603,8 @@ async function checkForUpdates(
 	openSettings("general");
 	void publish();
 }
+/** The sooner look after one that failed; the hourly one stays as it is. */
+let checkAgain: ReturnType<typeof setTimeout> | undefined;
 /** How long a check waits for the command-line tool and setup state. */
 const CHECK_MS = 60_000;
 

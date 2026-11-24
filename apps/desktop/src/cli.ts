@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { app, Notification } from "electron";
+import { app, net, Notification } from "electron";
 import { log } from "./log";
 import {
 	configDir,
@@ -471,7 +471,7 @@ export async function restoreCli(say: (line: string) => void): Promise<string> {
 }
 
 async function download(path: string, timeoutMs: number): Promise<Response> {
-	const response = await fetch(`${DOWNLOADS}/${path}`, {
+	const response = await net.fetch(`${DOWNLOADS}/${path}`, {
 		redirect: "error",
 		cache: "no-store",
 		signal: AbortSignal.timeout(timeoutMs),
