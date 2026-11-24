@@ -125,6 +125,11 @@ function fixture(
 							options.settled ? { content: "settled response" } : null,
 					},
 					assertChatTurnActive: async () => {},
+					// The runtime ledger has no terminal event for this run yet.
+					getPlatformClient: async () => ({
+						listRuntimeEvents: async () => ({ events: [] }),
+						recordRuntimeEvent: async () => {},
+					}),
 					runFacetWorkflowTurnImpl: model,
 				});
 				return parent.runFacetWorkflowTurn(input);

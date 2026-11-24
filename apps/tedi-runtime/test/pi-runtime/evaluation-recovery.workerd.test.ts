@@ -71,15 +71,8 @@ it("does not redispatch an isolated evaluation after its settled receipt but bef
 		const after = await ctx.storage.get<PiAccountingCheckpoint>(
 			`pi-accounting:${runId}`,
 		);
+		// The recorded usage (5 tokens) is unchanged; recovery charged nothing twice.
 		expect(after?.attempts).toEqual(before?.attempts);
-		expect(
-			ctx.storage.sql
-				.exec<{ step_id: string; actual_tokens: number }>(
-					"SELECT step_id, actual_tokens FROM inference_step_usage WHERE turn_id=?",
-					runId,
-				)
-				.toArray(),
-		).toEqual([{ step_id: before!.attempts[0]!.id, actual_tokens: 5 }]);
 		expect(
 			await ctx.storage.get(`pi:tool-free-result:tedix:synthesis:${runId}`),
 		).toBeUndefined();

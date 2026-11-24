@@ -105,6 +105,10 @@ export class TurnAdmissionFixture extends DurableObject<FixtureEnv> {
 			sessionKey: runId,
 			conversationId: `fixture:${runId}`,
 			userTs: 1,
+			// Person-lane turns may fill every slot, so these tests exercise the
+			// full MAX_ACTIVE_DURABLE_TURNS bound. Background turns leave one slot
+			// free; facet-turn-admission.test.ts covers that lane.
+			personalRequest: true,
 		};
 		const result = await runtimeFacetTurns.runFacetWorkflowTurn.call(
 			this.facetTurnsHost(),

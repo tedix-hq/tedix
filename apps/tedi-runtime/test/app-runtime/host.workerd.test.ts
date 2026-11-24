@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
@@ -560,12 +561,20 @@ describe("proposal facet lifecycle", () => {
 					.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
 					.replace(/CREATE INDEX /g, "CREATE INDEX IF NOT EXISTS "),
 			).run();
-		const store = (revision: string, code: Record<string, string>) =>
-			DB.prepare(
-				"INSERT INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-			)
-				.bind(revision, "fictional-org", gadgetId, JSON.stringify(code), 1)
-				.run();
+		// Files are stored once per organization and content; the code row
+		// points at them by SHA-256, as revisions are written.
+		const store = async (revision: string, code: Record<string, string>) => {
+			const files = JSON.stringify(code);
+			const sha256 = await sha256Hex(files);
+			await DB.batch([
+				DB.prepare(
+					"INSERT OR IGNORE INTO os_gadget_code_blobs (organization_id, sha256, files, code_length, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+				).bind("fictional-org", sha256, files, files.length),
+				DB.prepare(
+					"INSERT INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, created_at, files_sha256) VALUES (?, ?, ?, '', ?, datetime('now'), ?)",
+				).bind(revision, "fictional-org", gadgetId, files.length, sha256),
+			]);
+		};
 		const stub = createHost();
 		const revision = crypto.randomUUID();
 		await store(revision, files("stored"));
@@ -580,8 +589,11 @@ describe("proposal facet lifecycle", () => {
 		const other = crypto.randomUUID();
 		await store(other, files("tampered"));
 		const signed = await mint(tampered, files("signed"), { revision: other });
+		// Through an async function, as call() does: matchers that inspect a raw
+		// RPC promise start pipelined calls nobody awaits.
 		await expect(
-			tampered.call({ session: signed.token, method: "count", args: [] }),
+			(async () =>
+				tampered.call({ session: signed.token, method: "count", args: [] }))(),
 		).rejects.toThrow();
 
 		// A draft always arrives with its files.
@@ -589,7 +601,8 @@ describe("proposal facet lifecycle", () => {
 			previewId: crypto.randomUUID(),
 		});
 		await expect(
-			stub.call({ session: draft.token, method: "count", args: [] }),
+			(async () =>
+				stub.call({ session: draft.token, method: "count", args: [] }))(),
 		).rejects.toThrow("App code does not match the signed revision");
 	});
 });

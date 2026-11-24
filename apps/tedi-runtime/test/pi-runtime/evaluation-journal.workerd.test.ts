@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { beforeAll, expect, it } from "vite-plus/test";
+import { beforeAll, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { tableDdl } from "@tedix/db/test/schema-ddl";
 import { skillRuns, skillWorkflowSources } from "@tedix/db/schema/cognitive";
@@ -21,6 +21,28 @@ import {
 } from "../../src/evaluation-context";
 import type { ChatTurnParams } from "../../src/chat-turn-input";
 import type { PiSynthesisFixture } from "./worker";
+
+// The tedi's instructions live only in its Artifacts repo; serve AGENTS.md
+// from a stubbed repo read instead of cloning one.
+vi.mock("../../src/artifacts-git", async (load) => ({
+	...(await load<typeof import("../../src/artifacts-git")>()),
+	readFilesFromExistingRepoWithStatus: async (
+		_artifacts: unknown,
+		_accountId: string,
+		_namespace: string,
+		_tediId: string,
+		paths: string[],
+	) => ({
+		repoFound: true,
+		cloneOk: true,
+		files: paths.map((path) => ({
+			path,
+			content:
+				path === "AGENTS.md" ? "Keep organization information private." : null,
+			fileFound: path === "AGENTS.md",
+		})),
+	}),
+}));
 
 const DB = (env as unknown as { DB: D1Database }).DB;
 beforeAll(async () => {
@@ -134,7 +156,8 @@ for (const failure of [
 				DB,
 				ENVIRONMENT: "production",
 				GIT_SHA: "fixture-source",
-				TEDI_STORAGE: { get: async () => ({ text: async () => agents }) },
+				ARTIFACTS: {} as Artifacts,
+				CF_ACCOUNT_ID: "fixture",
 			};
 			expect(
 				ctx.storage.sql
