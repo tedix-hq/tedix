@@ -157,6 +157,8 @@ describe("Work interactions router", () => {
 			"create",
 			"review",
 			"respond",
+			"readOwnershipDelivery",
+			"routeOwnershipRequest",
 			"delegate",
 			"delegateToSteward",
 			"cancel",

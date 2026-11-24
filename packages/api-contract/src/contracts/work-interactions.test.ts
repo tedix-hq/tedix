@@ -109,6 +109,8 @@ describe("Work interactions contract", () => {
 			"refreshDecisionSources",
 			"regenerateCard",
 			"listCliInboxProjection",
+			"readOwnershipDelivery",
+			"routeOwnershipRequest",
 			"delegate",
 			"delegateToSteward",
 			"create",
