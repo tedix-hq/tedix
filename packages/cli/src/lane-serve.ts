@@ -5246,11 +5246,16 @@ export class LaneDispatcher {
 		for (const row of retained) {
 			if (
 				row.version >= (latestVersions.get(row.itemId) ?? row.version) ||
-				!hasSettledOutcome(row) ||
+				// An expired run of an older revision is over too: its Attempt
+				// cannot report, and the Work moved on to a newer revision.
+				!(
+					hasSettledOutcome(row) ||
+					(row.phase === "deferred" && row.outcome === "expired")
+				) ||
 				this.running.has(row.itemId) ||
 				this.preparing.has(row.itemId) ||
 				(!!row.pid && alive(row.pid)) ||
-				row.pendingCommitProof !== undefined ||
+				(row.pendingCommitProof !== undefined && row.outcome !== "expired") ||
 				row.pendingObservation !== undefined ||
 				row.completionPending === true ||
 				existsSync(

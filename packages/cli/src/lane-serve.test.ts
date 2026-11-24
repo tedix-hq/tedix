@@ -9575,6 +9575,25 @@ it("sweeps every settled run and keeps each Work item's latest receipt", async (
 	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
 });
 
+it("deletes the record of an expired run once its Work has a newer revision", async () => {
+	const { dispatcher, dir, items } = fixture();
+	items.splice(0);
+	const rows = ["expired", "failed"].map((outcome, n) => {
+		const work = item(n + 1);
+		const record = (version: number, extra: object) =>
+			writeFileSync(
+				join(dir, `${work.id}-${version}.json`),
+				JSON.stringify({ itemId: work.id, version, ...extra }),
+			);
+		record(1, { phase: "deferred", outcome, pendingCommitProof: "" });
+		record(2, { phase: "settled", outcome: "succeeded" });
+		return join(dir, `${work.id}-1.json`);
+	});
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(rows.map((path) => existsSync(path))).toEqual([false, true]);
+});
+
 it.each([0, 3, 9])(
 	"deletes only unprotected settled receipts from older Work revisions (cursor %i)",
 	async (cursor) => {
