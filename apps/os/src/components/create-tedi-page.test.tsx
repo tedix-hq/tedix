@@ -187,7 +187,7 @@ describe("CreateTediPage", () => {
 			...container.querySelectorAll<HTMLElement>('[role="combobox"]'),
 		][0]!;
 		// The routed default is denied, so the picker seeds the first allowed model.
-		expect(trigger.textContent).toContain("workers-ai/allowed");
+		expect(trigger.textContent).toBe("Allowed");
 		await act(async () => {
 			trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 			trigger.click();

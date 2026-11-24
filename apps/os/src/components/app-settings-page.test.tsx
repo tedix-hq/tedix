@@ -192,7 +192,9 @@ describe("AppSettingsPage", () => {
 		expect(input(host, "Slug").value).toBe(detail.app.slug);
 		expect(host.querySelector("textarea")?.value).toBe(detail.app.description);
 		expect(input(host, "Primary domain").value).toBe(detail.app.primaryDomain);
-		expect(host.textContent).toContain("private");
+		expect(host.querySelector('[role="combobox"]')?.textContent).toBe(
+			"Private",
+		);
 		expect(api.update).not.toHaveBeenCalled();
 	});
 	it("saves edited details with the original slug, domain, description and visibility", async () => {
