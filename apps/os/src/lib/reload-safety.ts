@@ -14,6 +14,9 @@ export const OS_FRAME_DIRTY_ATTRIBUTE = "data-os-dirty";
 /** Marks a frame that holds no person-authored state unless it reports dirty. */
 export const OS_FRAME_RELOAD_SAFE_ATTRIBUTE = "data-os-reload-safe";
 
+/** The one toast that asks for a reload; the route error panel replaces it. */
+export const OS_RELOAD_NOTICE_ID = "os-version-reload";
+
 export function trackOsInput(doc: Document): () => void {
 	const edited = new Set<Element>();
 	editedControls.set(doc, edited);

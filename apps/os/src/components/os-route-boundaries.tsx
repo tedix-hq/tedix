@@ -1,4 +1,4 @@
-import { WarningCircle } from "@phosphor-icons/react";
+import { ArrowsClockwise, WarningCircle } from "@phosphor-icons/react";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -13,9 +13,14 @@ import {
 } from "@/components/kumo/empty";
 import { Loader } from "@/components/kumo/loader";
 import { Page } from "@/components/kumo/page";
+import { osToastManager } from "@/components/kumo/toast";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import { getOsSurface } from "@/lib/os-navigation";
-import { hasUnsavedOsInput, isOsDocumentLeaving } from "@/lib/reload-safety";
+import {
+	hasUnsavedOsInput,
+	isOsDocumentLeaving,
+	OS_RELOAD_NOTICE_ID,
+} from "@/lib/reload-safety";
 import { OS_COPY } from "@/shared/os-copy";
 
 /**
@@ -194,11 +199,19 @@ export function clearOsChunkReloadGuard(win: {
 export function OsRouteError({ error, reset }: ErrorComponentProps) {
 	const router = useRouter();
 	const queryErrorResetBoundary = useQueryErrorResetBoundary();
+	// After an update the files this view needs are gone from the server, so
+	// Retry cannot work: the panel offers the reload instead. The same import
+	// error appears with no network, where a reload would not help.
+	const updated = isStaleChunkError(error) && navigator.onLine;
+	const [confirmingReload, setConfirmingReload] = useState(false);
 
 	useEffect(() => {
 		// A tab open across a deploy fails its next lazy import against retired
 		// asset URLs; Retry cannot fix that, only a reload onto the new manifest.
 		if (reloadOnceForStaleChunk(window, error)) return;
+		// The panel now carries the reload itself; a toast asking for the same
+		// thing beside it is noise.
+		if (isStaleChunkError(error)) osToastManager.close(OS_RELOAD_NOTICE_ID);
 		// This component is both the router's `defaultErrorComponent` and the
 		// per-route `errorComponent`, so one capture site covers every React
 		// boundary in the app. The "react" mechanism keeps a caught render
@@ -210,30 +223,62 @@ export function OsRouteError({ error, reset }: ErrorComponentProps) {
 		queryErrorResetBoundary.reset();
 	}, [error, queryErrorResetBoundary]);
 
+	const reload = () => {
+		if (!confirmingReload && hasUnsavedOsInput(document)) {
+			setConfirmingReload(true);
+			return;
+		}
+		window.location.reload();
+	};
+	const retry = () => {
+		queryErrorResetBoundary.reset();
+		reset();
+		void router.invalidate();
+	};
+
 	return (
 		<Page className="min-h-dvh items-center justify-center" role="alert">
 			<Empty className="min-h-64">
 				<EmptyHeader>
 					<EmptyMedia variant="icon">
-						<WarningCircle aria-hidden="true" />
+						{updated ? (
+							<ArrowsClockwise aria-hidden="true" />
+						) : (
+							<WarningCircle aria-hidden="true" />
+						)}
 					</EmptyMedia>
-					<EmptyTitle>This view could not be loaded</EmptyTitle>
+					<EmptyTitle>
+						{updated ? "Tedix OS was updated" : "This view could not be loaded"}
+					</EmptyTitle>
 					<EmptyDescription>
-						Something went wrong loading this view. You can retry without
-						reloading the app.
+						{confirmingReload
+							? "Drafts and unsaved changes on this page may be lost."
+							: updated
+								? "This view needs the new version. Reload to keep working."
+								: "Retry first. If it keeps failing, reload Tedix OS."}
 					</EmptyDescription>
 				</EmptyHeader>
-				<EmptyContent>
-					<Button
-						variant="outline"
-						onClick={() => {
-							queryErrorResetBoundary.reset();
-							reset();
-							void router.invalidate();
-						}}
-					>
-						Retry
-					</Button>
+				<EmptyContent className="flex-row justify-center gap-2">
+					{confirmingReload ? (
+						<>
+							<Button onClick={reload}>Reload anyway</Button>
+							<Button
+								variant="outline"
+								onClick={() => setConfirmingReload(false)}
+							>
+								Cancel
+							</Button>
+						</>
+					) : updated ? (
+						<Button onClick={reload}>Reload</Button>
+					) : (
+						<>
+							<Button onClick={retry}>Retry</Button>
+							<Button variant="outline" onClick={reload}>
+								Reload
+							</Button>
+						</>
+					)}
 				</EmptyContent>
 			</Empty>
 		</Page>

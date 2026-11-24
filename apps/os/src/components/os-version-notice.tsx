@@ -3,11 +3,10 @@ import { reloadOnceForStaleChunk } from "@/components/os-route-boundaries";
 import { installOsVersionChecks } from "@/lib/os-version";
 import {
 	hasUnsavedOsInput,
+	OS_RELOAD_NOTICE_ID as NOTICE_ID,
 	trackOsDeparture,
 	trackOsInput,
 } from "@/lib/reload-safety";
-
-const NOTICE_ID = "os-version-reload";
 
 export function installOsVersionNotice(): () => void {
 	const stopTracking = trackOsInput(document);
