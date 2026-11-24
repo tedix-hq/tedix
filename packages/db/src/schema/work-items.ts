@@ -507,6 +507,25 @@ export const workItemOrgCounts = sqliteTable("work_item_org_counts", {
 	total: integer("total").notNull().default(0),
 });
 
+/** Contentless substring index; only candidates are read from it, never titles. */
+export const WORK_ITEM_TITLE_SEARCH_DDL = [
+	`CREATE VIRTUAL TABLE work_item_title_search USING fts5(title, content='', tokenize='trigram case_sensitive 1');`,
+	`CREATE TRIGGER work_item_title_search_insert AFTER INSERT ON work_items
+BEGIN
+  INSERT INTO work_item_title_search(rowid, title) VALUES (NEW.rowid, lower(NEW.title));
+END;`,
+	`CREATE TRIGGER work_item_title_search_delete AFTER DELETE ON work_items
+BEGIN
+  INSERT INTO work_item_title_search(work_item_title_search, rowid, title) VALUES ('delete', OLD.rowid, lower(OLD.title));
+END;`,
+	`CREATE TRIGGER work_item_title_search_update AFTER UPDATE ON work_items
+WHEN OLD.title != NEW.title OR OLD.rowid != NEW.rowid
+BEGIN
+  INSERT INTO work_item_title_search(work_item_title_search, rowid, title) VALUES ('delete', OLD.rowid, lower(OLD.title));
+  INSERT INTO work_item_title_search(rowid, title) VALUES (NEW.rowid, lower(NEW.title));
+END;`,
+] as const;
+
 /**
  * The triggers behind `work_item_org_counts`, as their migration created
  * them. Drizzle does not model triggers: tests that build `work_items` from

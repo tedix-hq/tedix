@@ -1,7 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { workItems } from "../../schema/work-items";
+import { workItems, WORK_ITEM_TITLE_SEARCH_DDL } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { maintainedTotalsDdl } from "../../test/schema-ddl";
 import { listWorkItemsPage } from "./crud";
@@ -108,10 +109,64 @@ beforeEach(() => {
 	sqlite.exec(DDL);
 	// The unfiltered total is read from the trigger-maintained row.
 	sqlite.exec(maintainedTotalsDdl(workItems));
+	sqlite.exec(WORK_ITEM_TITLE_SEARCH_DDL.join("\n"));
 	db = createDbQueryClient(createD1Facade(sqlite));
 });
 
 describe("listWorkItemsPage filters and counts in SQL", () => {
+	it("keeps substring candidates current after backfill, title edits, moves and deletion", async () => {
+		sqlite.exec(`DROP TRIGGER work_item_title_search_insert;
+			DROP TRIGGER work_item_title_search_update;
+			DROP TRIGGER work_item_title_search_delete;
+			DROP TABLE work_item_title_search;`);
+		insert({
+			id: "match",
+			title: 'Before "quoted" 100% café',
+			projectId: PROJECT,
+		});
+		insert({
+			id: "other",
+			orgId: OTHER_ORG,
+			title: 'Before "quoted" 100% café',
+		});
+		// Found by name: a migration's timestamp changes when it is restamped.
+		const migrations = new URL("../../../drizzle/", import.meta.url);
+		const migration = readdirSync(migrations).find((name) =>
+			name.endsWith("_work_title_search"),
+		);
+		sqlite.exec(
+			readFileSync(new URL(`${migration}/migration.sql`, migrations), "utf8"),
+		);
+		const search = (titleContains: string) =>
+			listWorkItemsPage(db, {
+				orgId: ORG,
+				projectId: PROJECT,
+				titleContains,
+			});
+		expect(
+			(await search('"QUOTED" 100% café')).data.map((row) => row.id),
+		).toEqual(["match"]);
+		sqlite.exec(
+			"UPDATE work_items SET title='After replacement' WHERE id='match'",
+		);
+		expect((await search('"quoted"')).total).toBe(0);
+		expect((await search("replacement")).total).toBe(1);
+		sqlite.exec("UPDATE work_items SET project_id=NULL WHERE id='match'");
+		expect((await search("replacement")).total).toBe(0);
+		sqlite.exec(
+			"UPDATE work_items SET org_id='org-2', project_id='project-1' WHERE id='match'",
+		);
+		expect((await search("replacement")).total).toBe(0);
+		sqlite.exec("DELETE FROM work_items WHERE id='match'");
+		expect(
+			sqlite
+				.prepare(
+					"SELECT rowid FROM work_item_title_search WHERE work_item_title_search MATCH ?",
+				)
+				.all('"replacement"'),
+		).toEqual([]);
+	});
+
 	it("does not dispatch a settled result again until the Work is revised", async () => {
 		insert({ id: "work", disposition: "accepted" });
 		sqlite.exec(`

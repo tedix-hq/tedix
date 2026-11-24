@@ -37,6 +37,7 @@ import {
 } from "../schema/memory-graph";
 import {
 	WORK_ITEM_ORG_COUNT_TRIGGERS,
+	WORK_ITEM_TITLE_SEARCH_DDL,
 	workAttempts,
 	workItemComments,
 	workItemOrgCounts,
@@ -202,6 +203,7 @@ export function schemaDdl(
 		.flatMap((table) => [
 			...tableDdl(table, options),
 			...maintainedTotalDdl(table, list),
+			...(table === workItems ? WORK_ITEM_TITLE_SEARCH_DDL : []),
 			...(table === workInteractionResponses
 				? [
 						...(list.includes(workInteractionDecisionHistory)

@@ -429,6 +429,21 @@ export interface ListWorkItemsPageResult {
 	total: number;
 }
 
+function titleSubstringFilter(titleContains: string | undefined) {
+	if (!titleContains) return undefined;
+	// MATCH phrases escape quotes, not LIKE wildcards, and have no D1 LIKE
+	// length cap. Trigrams cannot find strings shorter than three code points.
+	const indexed =
+		[...titleContains].length >= 3 && !titleContains.includes("\0");
+	return and(
+		indexed
+			? sql`${workItems}.rowid IN (SELECT rowid FROM work_item_title_search WHERE work_item_title_search MATCH ${`"${titleContains.replaceAll('"', '""')}"`})`
+			: undefined,
+		// Keep SQLite's existing lower/instr semantics, including literal % and _.
+		sql`instr(lower(${workItems.title}), ${titleContains}) > 0`,
+	);
+}
+
 /**
  * One board page with EVERY filter applied in SQL and an exact count.
  *
@@ -519,13 +534,7 @@ export async function listWorkItemsPage(
 						lt(workItems.id, prefixUpperBound(idPrefix)),
 					)
 			: undefined,
-		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a
-		// substring of 48+ characters (every delegation title the CLI searches
-		// for before creating one) made the whole page a D1_ERROR. `instr` takes
-		// the bound substring at any length and needs no wildcard escaping.
-		titleContains
-			? sql`instr(lower(${workItems.title}), ${titleContains}) > 0`
-			: undefined,
+		titleSubstringFilter(titleContains),
 		options.customerVisiblePreFilter
 			? and(
 					sql`json_extract(${workItems.metadata}, '$.agentSession') IS NULL`,
@@ -1707,9 +1716,7 @@ export async function listOpenWorkItemsAcrossProjects(
 		// bound-params: at most 80 projects, checked above.
 		inArray(workItems.projectId, params.projectIds),
 		inArray(workItems.disposition, ["proposed", "accepted"]),
-		titleContains
-			? sql`instr(lower(${workItems.title}), ${titleContains}) > 0`
-			: undefined,
+		titleSubstringFilter(titleContains),
 	);
 	const [rows, counts] = await db.batch([
 		db
