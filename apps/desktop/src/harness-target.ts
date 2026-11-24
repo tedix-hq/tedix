@@ -10,13 +10,14 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
-import { findCommand, toolPath } from "./shell";
+import { findCommand, run, toolPath } from "./shell";
 
+/** Each Mac app's usual file name and the identifier it keeps when renamed or moved. */
 const APPS = {
-	chatgpt: "ChatGPT.app",
-	claude: "Claude.app",
-	devin: "Devin.app",
-	opencode: "OpenCode.app",
+	chatgpt: { file: "ChatGPT.app", bundle: "com.openai.codex" },
+	claude: { file: "Claude.app", bundle: "com.anthropic.claudefordesktop" },
+	devin: { file: "Devin.app", bundle: "com.exafunction.windsurf" },
+	opencode: { file: "OpenCode.app", bundle: "ai.opencode.desktop" },
 } as const;
 
 export type DesktopApp = keyof typeof APPS;
@@ -42,12 +43,67 @@ const HOSTS = {
 
 export type Harness = keyof typeof HOSTS;
 
-export function desktopAppPath(app: DesktopApp): string | undefined {
-	return [
-		join("/Applications", APPS[app]),
-		join(homedir(), "Applications", APPS[app]),
-	].find((path) => existsSync(path));
+/** Apps Spotlight found by identifier, with the version each one states. */
+let located: Partial<Record<DesktopApp, { path: string; version: string }>> =
+	{};
+
+const applicationFolders = () => [
+	"/Applications",
+	join(homedir(), "Applications"),
+];
+
+/**
+ * Finds the Mac apps by identifier, so a renamed app or one kept outside the
+ * Applications folders is still found. Copies in the Trash or on a mounted
+ * disk image do not count.
+ */
+export async function locateDesktopApps(): Promise<void> {
+	if (process.platform !== "darwin") return;
+	const next: typeof located = {};
+	await Promise.all(
+		(Object.keys(APPS) as DesktopApp[]).map(async (app) => {
+			const found = await run(
+				"/usr/bin/mdfind",
+				[`kMDItemCFBundleIdentifier == "${APPS[app].bundle}"`],
+				{ timeoutMs: 10_000 },
+			);
+			const inFolders = (path: string) =>
+				applicationFolders().includes(dirname(path)) ? 0 : 1;
+			const path =
+				(found.ok ? found.output.split("\n") : [])
+					.filter(
+						(line) =>
+							line.endsWith(".app") &&
+							!line.startsWith("/Volumes/") &&
+							!line.includes("/.Trash/") &&
+							existsSync(line),
+					)
+					.sort((a, b) => inFolders(a) - inFolders(b))[0] ?? byName(app);
+			if (!path) return;
+			const version = await run(
+				"/usr/bin/defaults",
+				["read", join(path, "Contents", "Info"), "CFBundleShortVersionString"],
+				{ timeoutMs: 5_000 },
+			);
+			next[app] = { path, version: version.ok ? version.output.trim() : "" };
+		}),
+	);
+	located = next;
 }
+
+const byName = (app: DesktopApp) =>
+	applicationFolders()
+		.map((folder) => join(folder, APPS[app].file))
+		.find((path) => existsSync(path));
+
+export function desktopAppPath(app: DesktopApp): string | undefined {
+	const found = located[app]?.path;
+	return found && existsSync(found) ? found : byName(app);
+}
+
+/** The app's version, once `locateDesktopApps` has read it. */
+export const desktopAppVersion = (app: DesktopApp): string =>
+	located[app]?.version ?? "";
 
 function executable(path: string): string | undefined {
 	try {
@@ -102,7 +158,12 @@ export function harnessTarget(host: Harness) {
 		desktop: bundled ? spec.name : undefined,
 		/** The Mac app's name when it is installed. */
 		app: app ? spec.name : undefined,
-		standaloneFound: Boolean(standalone),
+		appPath: app,
+		/** The Mac app's own executable, when it has one. */
+		bundled: bundled || undefined,
+		/** The command installed outside the Mac app, when there is one. */
+		standalone,
+		desktopApp: spec.app as DesktopApp,
 	};
 }
 

@@ -14,10 +14,12 @@ import { codexAccount } from "./codex-account";
 import { checkDevinConnection } from "./devin-connection";
 import {
 	desktopAppPath,
+	desktopAppVersion,
 	type DesktopApp,
 	type Harness,
 	harnessPath,
 	harnessTarget,
+	locateDesktopApps,
 } from "./harness-target";
 import type { LocalModelPreferences } from "./local-model-client";
 import { log } from "./log";
@@ -67,6 +69,11 @@ interface Tool {
 	say?: string;
 	/** The tool's own sign-in to its account, through the browser. */
 	accountSignIn?: string[];
+	/**
+	 * Its Mac app and its standalone command each keep their own Tedix
+	 * sign-in. The other tools share one between both.
+	 */
+	separateSignIns?: boolean;
 }
 const home = homedir();
 /**
@@ -168,6 +175,7 @@ const TOOLS: Tool[] = [
 			return result.ok ? opencodeConnection(result.output) : "unknown";
 		},
 		signIn: ["mcp", "auth", "tedix"],
+		separateSignIns: true,
 	},
 ];
 
@@ -380,6 +388,8 @@ export interface SetupState {
 	reachDetail: string;
 	organization: string;
 	tools: ToolRow[];
+	/** What setup found on this Mac, in plain text, for "Copy setup details". */
+	report: string;
 	/** Tedix projects; `on` says, per coding tool, whether its sessions show there. */
 	sessionProjects: SessionProject[];
 	/** True once session reporting was ever chosen on this Mac. */
@@ -449,6 +459,8 @@ let toolFacts: Record<
 		connection: Connection;
 		providerAccount?: Connection;
 		signInWorks: boolean;
+		/** The standalone command, when Tedix uses the Mac app's own tool. */
+		other?: { command: string; version: string; connection?: Connection };
 	}
 > = {};
 /** A recent check for the selected executable and Tedix sign-in. */
@@ -827,29 +839,51 @@ async function readAgentStatusNow(): Promise<void> {
 /** Asks each tool that is here what it knows about its own Tedix connection. */
 async function readToolFacts(): Promise<void> {
 	const facts: typeof toolFacts = {};
+	await locateDesktopApps();
+	const versionOf = async (command: string) => {
+		const version = await run(command, ["--version"], { timeoutMs: 10_000 });
+		return version.ok
+			? (version.output.match(/\b\d+\.\d+\.\d+(?:-[\w.]+)?\b/)?.[0] ?? "")
+			: "";
+	};
 	await Promise.all(
 		TOOLS.map(async (tool) => {
-			const { command, desktop } = harnessTarget(tool.id);
+			const { command, desktop, standalone } = harnessTarget(tool.id);
 			if (!command) return;
-			const [hasTedix, connection, signInWorks, version, providerAccount] =
-				await Promise.all([
-					tool.hasTedix?.(command) ?? false,
-					tool.connection?.(command) ?? ("unknown" as const),
-					tool.signInWorks?.(command) ?? true,
-					run(command, ["--version"], { timeoutMs: 10_000 }),
-					tool.id === "codex"
-						? codexAccount(command, Boolean(desktop))
-						: undefined,
-				]);
+			const other = desktop ? standalone : undefined;
+			const [
+				hasTedix,
+				connection,
+				signInWorks,
+				version,
+				providerAccount,
+				otherVersion,
+				otherConnection,
+			] = await Promise.all([
+				tool.hasTedix?.(command) ?? false,
+				tool.connection?.(command) ?? ("unknown" as const),
+				tool.signInWorks?.(command) ?? true,
+				versionOf(command),
+				tool.id === "codex"
+					? codexAccount(command, Boolean(desktop))
+					: undefined,
+				other ? versionOf(other) : "",
+				other && tool.separateSignIns ? tool.connection?.(other) : undefined,
+			]);
 			facts[tool.id] = {
 				command,
 				hasTedix,
 				connection,
 				signInWorks,
 				providerAccount,
-				version: version.ok
-					? (version.output.match(/\b\d+\.\d+\.\d+(?:-[\w.]+)?\b/)?.[0] ?? "")
-					: "",
+				version,
+				other: other
+					? {
+							command: other,
+							version: otherVersion,
+							connection: otherConnection,
+						}
+					: undefined,
 			};
 		}),
 	);
@@ -858,7 +892,7 @@ async function readToolFacts(): Promise<void> {
 
 function toolRows(): ToolRow[] {
 	return TOOLS.map((tool) => {
-		const { command, desktop, app, standaloneFound } = harnessTarget(tool.id);
+		const { command, desktop, app, standalone } = harnessTarget(tool.id);
 		const found = command
 			? "found"
 			: app || existsSync(tool.folder)
@@ -875,7 +909,7 @@ function toolRows(): ToolRow[] {
 			connection: "unknown",
 			account: "unknown",
 			desktop: Boolean(desktop),
-			bothInstalled: Boolean(desktop && standaloneFound),
+			bothInstalled: Boolean(desktop && standalone),
 			readVerified: false,
 			hookTrust: "unknown",
 			canAdd: false,
@@ -948,8 +982,74 @@ function toolRows(): ToolRow[] {
 		// sign-in it has does not work: offer Sign in again.
 		if (/sign in/i.test(steps[`verify:${tool.id}`]?.error ?? ""))
 			row.connection = "signed-out";
+		// A sign-in made with the standalone command does not reach the Mac app.
+		if (
+			desktop &&
+			row.connection !== "signed-in" &&
+			facts.other?.connection === "signed-in"
+		)
+			row.note = `The ${tool.binary} command is signed in to Tedix, but ${desktop} keeps its own sign-in. Choose Connect to sign in ${desktop} too.`;
 		return row;
 	});
+}
+
+/**
+ * What setup found on this Mac, for "Copy setup details": every installation
+ * of each agent, which one Tedix uses and what each check last said. Holds no
+ * addresses, emails or keys, and writes the home folder as `~`.
+ */
+function setupReport(tools: ToolRow[]): string {
+	const short = (path: string) =>
+		path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+	const clean = (text: string) =>
+		safe(text)
+			.replace(/\S+@\S+\.\S+/g, "(email)")
+			.replaceAll(home, "~");
+	const lines = [
+		`Tedix ${app.getVersion()} on macOS ${process.getSystemVersion?.() ?? ""} (${process.arch})`,
+		`Command-line tool: ${cli.version || "not found"} (${cli.kind}) · signed in: ${signedIn ? "yes" : "no"} · reaches Tedix: ${reach}`,
+		`Signed in to Tedix in the app: ${appSignIn.state === "in" ? "yes" : "no"}${organization() ? ` · organization: ${organization()}` : ""}`,
+	];
+	for (const tool of TOOLS) {
+		const row = tools.find((item) => item.id === tool.id);
+		const target = harnessTarget(tool.id);
+		const facts = toolFacts[tool.id];
+		const usesApp = Boolean(target.desktop);
+		const usedVersion =
+			facts && facts.command === target.command ? facts.version : "";
+		lines.push("", `${tool.name}${target.app ? ` (${target.app})` : ""}`);
+		lines.push(
+			target.appPath
+				? `  Mac app: ${short(target.appPath)} ${desktopAppVersion(target.desktopApp)} · its own tool: ${target.bundled ? `${short(target.bundled)} ${usesApp ? usedVersion : ""}`.trim() : "not found"}`
+				: "  Mac app: not found",
+			target.standalone
+				? `  Command: ${short(target.standalone)} ${usesApp ? (facts?.other?.version ?? "") : usedVersion}`.trimEnd()
+				: "  Command: not found",
+		);
+		if (!row || row.found === "absent") continue;
+		lines.push(
+			`  Tedix uses: ${target.command ? (usesApp ? "the Mac app's own tool" : "the command") : "nothing yet"}`,
+			`  Tedix plugin: ${row.tedix}${row.version ? ` ${row.version}` : ""}${row.enabled ? "" : " (switched off)"} · Tedix sign-in: ${row.connection} · ${tool.name} account: ${row.account} · checked in the last day: ${row.readVerified ? "yes" : "no"} · hooks: ${row.hookTrust}`,
+		);
+		if (facts?.other?.connection)
+			lines.push(
+				`  The command's own Tedix sign-in: ${facts.other.connection}`,
+			);
+		if (row.note) lines.push(`  Says: ${row.note}`);
+		for (const kind of ["account", "connect", "verify"]) {
+			const ran = steps[`${kind}:${tool.id}`];
+			if (ran?.error) lines.push(`  Last ${kind} failed: ${clean(ran.error)}`);
+			if (ran?.error && ran.details)
+				lines.push(
+					...clean(ran.details)
+						.trim()
+						.split(/\r?\n/)
+						.slice(-8)
+						.map((line) => `    ${line}`),
+				);
+		}
+	}
+	return lines.join("\n");
 }
 
 export function setupState(): SetupState {
@@ -962,6 +1062,7 @@ export function setupState(): SetupState {
 		reachDetail,
 		organization: organization(),
 		tools,
+		report: setupReport(tools),
 		sessionProjects,
 		sessionsChosen,
 		routing,

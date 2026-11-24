@@ -343,6 +343,22 @@ function plainUsage(text: string, toolName: string): string {
 	return windows.slice(0, 2).join(" · ");
 }
 
+/** What setup found on this Mac, to send when an agent will not connect. */
+const setupDetails = (now: PanelState): Item => ({
+	title: "Setup details",
+	sub: "What Tedix found on this Mac. Send it to us when an agent will not connect.",
+	control: [
+		button(
+			"Copy setup details",
+			"quiet",
+			() => tedixShell.copy(now.setup.report),
+			false,
+			{ done: "Copied" },
+		),
+	],
+	words: "diagnostics support report copy",
+});
+
 function tools(now: PanelState): Group[] {
 	const found = foundTools(now);
 	const chat: Group = {
@@ -442,6 +458,7 @@ function tools(now: PanelState): Group[] {
 							again,
 						],
 					},
+					setupDetails(now),
 				],
 			},
 		];
@@ -466,6 +483,7 @@ function tools(now: PanelState): Group[] {
 					control: [again],
 					words: "check refresh",
 				},
+				setupDetails(now),
 			],
 		},
 	];
