@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.6 (2026-11-24)
+
+### Patch Changes
+
+- b16d0a0: Let the Claude Code connection check pass when the Tedix connector from claude.ai takes the place of the plugin connection. Claude Code loads one Tedix connection per address, so the check now accepts a profile read through either one.
+
 ## 0.37.5 (2026-11-24)
 
 ### Patch Changes
