@@ -91,6 +91,7 @@ function fixture(configured = true) {
 			baseCommit: () => "a".repeat(40),
 			landedCommits: async () => [],
 			cleanup: () => false,
+			hasRepository: () => true,
 			provision: (_source, destination) => {
 				mkdirSync(destination, { recursive: true });
 				return destination;

@@ -472,7 +472,9 @@ function tools(now: PanelState): Group[] {
 			items: [
 				{
 					title: "Project folder",
-					sub: now.setup.repo.split("/").at(-1) || undefined,
+					sub:
+						now.setup.repo.split("/").at(-1) ||
+						"Only for code tasks. Other tasks need no folder.",
 					control: [
 						button("Choose…", "plain", () => act("choose-folder"), false, {
 							pending: "Choosing…",

@@ -3071,6 +3071,8 @@ export async function installLaneDependencies(repo: string) {
 }
 
 interface DispatcherDeps {
+	/** Whether the runner's folder is a Git repository it can make checkouts of. */
+	hasRepository: (folder: string) => boolean;
 	runners: typeof readRunnerDuties;
 	health: typeof collectDispatcherHealth;
 	cli: typeof cli;
@@ -3139,6 +3141,8 @@ interface DispatcherDeps {
 	confirmLogin: typeof confirmStoredAccess;
 }
 const defaultDeps: DispatcherDeps = {
+	hasRepository: (folder) =>
+		existsSync(join(folder, ".git")) || existsSync(join(folder, "HEAD")),
 	runners: readRunnerDuties,
 	health: collectDispatcherHealth,
 	cli,
@@ -4319,12 +4323,14 @@ export class LaneDispatcher {
 					observeSkip(item, pause);
 					continue;
 				}
-				let reason = dispatchSkip(
-					item,
-					[],
-					this.options.executor,
-					this.options.coordinated,
-				);
+				let reason =
+					this.needsProjectFolder(item) ??
+					dispatchSkip(
+						item,
+						[],
+						this.options.executor,
+						this.options.coordinated,
+					);
 				let current = item;
 				// The owner's answer arrives as a comment, which only the per-item
 				// read shows; an unanswered item is read again after the window.
@@ -6324,12 +6330,13 @@ export class LaneDispatcher {
 			// The adopted Attempt is the live one dispatchSkip would refuse.
 			const reason = adopted
 				? undefined
-				: dispatchSkip(
+				: (this.needsProjectFolder(item) ??
+					dispatchSkip(
 						item,
 						detail.comments ?? [],
 						this.options.executor,
 						this.options.coordinated,
-					);
+					));
 			if (reason || item.version !== candidate.version)
 				throw new Error(reason ?? "Work changed before admission");
 			const history = await this.call<{
@@ -6453,8 +6460,9 @@ export class LaneDispatcher {
 						);
 			const wantsRepoFree =
 				!receipt.verification &&
-				item.workKind === "research" &&
-				item.metadata?.requiresRepository === false;
+				(!this.deps.hasRepository(this.options.repo) ||
+					(item.workKind === "research" &&
+						item.metadata?.requiresRepository === false));
 			const previousLane =
 				retainedLane?.repoFree && !wantsRepoFree ? undefined : retainedLane;
 			for (const repo of missing) {
@@ -8197,6 +8205,16 @@ ${firstBrief}`;
 			)
 			.finally(() => this.maintenance.delete(receipt.itemId));
 		this.maintenance.set(receipt.itemId, task);
+	}
+	/**
+	 * A runner whose folder is no Git repository gives every task an empty
+	 * folder, so it can write documents and answers but not change code.
+	 */
+	private needsProjectFolder(item: DispatchItem): string | undefined {
+		return item.workKind === "coding" &&
+			!this.deps.hasRepository(this.options.repo)
+			? "This computer has no project folder; code tasks need one"
+			: undefined;
 	}
 	/**
 	 * A checkout may be removed once its run is terminal, admission is resolved,

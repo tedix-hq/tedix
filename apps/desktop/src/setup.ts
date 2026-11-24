@@ -1,5 +1,6 @@
 import {
 	existsSync,
+	mkdirSync,
 	readFileSync,
 	renameSync,
 	statSync,
@@ -1617,16 +1618,19 @@ export async function setupAction(
 			} catch {
 				/* No runners yet. */
 			}
-			let repo = settings().repo || earlier.repo;
-			if (!repo) {
-				repo = await chooseFolder();
-				if (!repo) throw new Error("No folder was chosen.");
-			}
-			if (!existsSync(join(repo, ".git")) && !existsSync(join(repo, "HEAD")))
-				throw new Error(
-					`${repo} is not a Git repository. Choose the folder of the project Tedix should work on.`,
-				);
-			saveSettings({ repo });
+			// A project folder is only for code. Without one the runner starts
+			// from an empty folder of its own and gives each task an empty folder.
+			const empty = join(configDir(), "no-project");
+			const chosen =
+				settings().repo || (earlier.repo === empty ? "" : earlier.repo);
+			const repo = chosen || empty;
+			if (chosen) {
+				if (!existsSync(join(repo, ".git")) && !existsSync(join(repo, "HEAD")))
+					throw new Error(
+						`${repo} is not a code project (it has no Git repository). Choose a code project's folder in Settings.`,
+					);
+				saveSettings({ repo });
+			} else mkdirSync(repo, { recursive: true });
 			await must(
 				tedix(
 					[

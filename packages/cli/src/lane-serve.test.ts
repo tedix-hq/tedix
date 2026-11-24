@@ -279,6 +279,7 @@ function fixture({
 		checkoutCapBytes: capBytes,
 	};
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
+		hasRepository: (folder) => !folder.endsWith("no-repository"),
 		health: () => [],
 		createHeartbeat: (scope) => (receipt) =>
 			deps.cli!<{ expiresAt: string }>(
@@ -569,8 +570,9 @@ function fixture({
 				(row) => row.id === args[args.indexOf("--work-item") + 1],
 			)!;
 			const repoFree =
-				work.workKind === "research" &&
-				work.metadata?.requiresRepository === false;
+				config.repo.endsWith("no-repository") ||
+				(work.workKind === "research" &&
+					work.metadata?.requiresRepository === false);
 			const workDirectory = repoFree ? "task" : "repo";
 			expect(deps?.label).toBe(work.title);
 			expect(deps?.cwd).toBe(
@@ -839,6 +841,26 @@ it.each(["research", "coding"])(
 		await dispatcher.drain();
 	},
 );
+
+it("runs tasks in an empty folder and leaves code tasks when its folder has no repository", async () => {
+	const f = fixture();
+	f.items.splice(2);
+	f.items[1]!.workKind = "coding";
+	f.config.repo = join(f.dir, "no-repository");
+	mkdirSync(f.config.repo);
+	const provision = spyOn(f.deps, "provision");
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await dispatcher.drain();
+	expect(provision).not.toHaveBeenCalled();
+	const done = JSON.parse(
+		readFileSync(join(f.dir, `${item(1).id}-2.json`), "utf8"),
+	);
+	expect(done.repoFree).toBe(true);
+	expect(existsSync(join(f.dir, `${item(2).id}-2.json`))).toBe(false);
+});
 
 async function withoutReadBackoff(run: () => Promise<void>) {
 	const wait = spyOn(retryTimers, "setTimeout").mockResolvedValue(undefined);
