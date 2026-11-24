@@ -1,0 +1,379 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "a099c5e4-1dd5-4e0f-b70b-ac8a65a64517",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "wallet_budget_alerts",
+			"entityType": "tables"
+		},
+		{
+			"name": "wallet_budget_spend",
+			"entityType": "tables"
+		},
+		{
+			"name": "wallet_event_budgets",
+			"entityType": "tables"
+		},
+		{
+			"name": "wallet_events",
+			"entityType": "tables"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "budget_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "limit_micros",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "percent",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "spent_micros",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "work_item_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "at",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "delivered_at",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_spend",
+			"name": "budget_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_budget_spend",
+			"name": "micro_credits",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_event_budgets",
+			"name": "event_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_event_budgets",
+			"name": "budget_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "event_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "tedi_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "user_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "credits",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "micro_usd_per_eur",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "anonymous_loads",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "named_loads",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "settled",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "false",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "period_start",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "period_end",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "at",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "flush_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "flushed_at",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'code_run'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "expires_at",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "hold_context",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_events",
+			"name": "idempotency_key",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "wallet_event_budgets",
+			"name": "wallet_event_budgets_budget",
+			"columns": [
+				{
+					"value": "budget_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "wallet_events",
+			"name": "wallet_events_pending",
+			"columns": [
+				{
+					"value": "flushed_at",
+					"isExpression": false
+				},
+				{
+					"value": "at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "wallet_events",
+			"name": "wallet_events_idempotency",
+			"columns": [
+				{
+					"value": "idempotency_key",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "wallet_budget_alerts",
+			"name": "wallet_budget_alerts_pk",
+			"columns": ["budget_id", "limit_micros", "percent"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "wallet_event_budgets",
+			"name": "wallet_event_budgets_pk",
+			"columns": ["event_id", "budget_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "wallet_budget_spend",
+			"name": "wallet_budget_spend_pk",
+			"columns": ["budget_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "wallet_events",
+			"name": "wallet_events_pk",
+			"columns": ["event_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		}
+	],
+	"renames": []
+}

@@ -34,6 +34,34 @@ import {
 	getCreditBudgetsForWorkItem,
 } from "@tedix/db/queries/work-items/budgets";
 import { deliverCreditBudgetAlert } from "@tedix/db/queries/work-items/credit-budget-alerts";
+import {
+	type WalletEvent,
+	claimWalletFlush,
+	countWalletEventAgainst,
+	deleteUnflushedCodeRun,
+	deleteUnsettledHold,
+	findUnflushedCodeRunFx,
+	findWalletEventByIdempotencyKey,
+	findWalletEventCredits,
+	findWalletHold,
+	insertWalletEvent,
+	listUndeliveredWalletBudgetAlerts,
+	markWalletBudgetAlertDelivered,
+	moveWalletHold,
+	pendingWalletCredits,
+	pruneWalletStore,
+	queueWalletBudgetAlert,
+	recordWalletFlush,
+	settleWalletCodeRun,
+	settleWalletHold,
+	uncountWalletEvent,
+	walletAlarmMarks,
+	walletBudgetSpent,
+} from "@tedix/db/queries/durable-sqlite/billing-wallet";
+import {
+	type WalletStoreDb,
+	openWalletStore,
+} from "@tedix/db/wallet-store/store";
 import type {
 	WalletBudgetScope,
 	WalletRefusalCode,
@@ -97,25 +125,11 @@ export function walletStub(
 	);
 }
 
-type EventRow = {
-	event_id: string;
-	kind: "code_run" | "ai";
-	tedi_id: string | null;
-	user_id: string | null;
-	credits: number;
-	anonymous_loads: number;
-	named_loads: number;
-	settled: number;
-	period_start: string;
-	period_end: string;
-	at: number;
-	flush_id: string | null;
-};
-
 /** Runs inside the Durable Object; one instance per organization. */
 export class BillingWallet {
 	readonly #storage: DurableObjectStorage;
 	readonly #env: { DB?: D1Database };
+	readonly #db: WalletStoreDb;
 	readonly #sessionWork = new Map<
 		string,
 		{ workItemId: string | null; fetchedAt: number }
@@ -136,75 +150,7 @@ export class BillingWallet {
 	constructor(storage: DurableObjectStorage, env: { DB?: D1Database }) {
 		this.#storage = storage;
 		this.#env = env;
-		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_events (
-			event_id TEXT PRIMARY KEY,
-			tedi_id TEXT,
-			user_id TEXT,
-			credits INTEGER NOT NULL,
-			micro_usd_per_eur INTEGER NOT NULL,
-			anonymous_loads INTEGER NOT NULL DEFAULT 0,
-			named_loads INTEGER NOT NULL DEFAULT 0,
-			settled INTEGER NOT NULL DEFAULT 0,
-			period_start TEXT NOT NULL,
-			period_end TEXT NOT NULL,
-			at INTEGER NOT NULL,
-			flush_id TEXT,
-			flushed_at INTEGER
-		)`);
-		const columns = new Set(
-			storage.sql
-				.exec<{ name: string }>("PRAGMA table_info(wallet_events)")
-				.toArray()
-				.map((column) => column.name),
-		);
-		if (!columns.has("kind"))
-			storage.sql.exec(
-				"ALTER TABLE wallet_events ADD COLUMN kind TEXT NOT NULL DEFAULT 'code_run'",
-			);
-		if (!columns.has("expires_at"))
-			storage.sql.exec(
-				"ALTER TABLE wallet_events ADD COLUMN expires_at INTEGER",
-			);
-		if (!columns.has("hold_context"))
-			storage.sql.exec(
-				"ALTER TABLE wallet_events ADD COLUMN hold_context TEXT",
-			);
-		if (!columns.has("idempotency_key"))
-			storage.sql.exec(
-				"ALTER TABLE wallet_events ADD COLUMN idempotency_key TEXT",
-			);
-		storage.sql.exec(
-			"CREATE INDEX IF NOT EXISTS wallet_events_pending ON wallet_events (flushed_at, at)",
-		);
-		// Which credit budgets each charge counts against, and what each budget
-		// has spent once flushed. Budgets of a Work tree outlive the 48 h events.
-		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_event_budgets (
-			event_id TEXT NOT NULL,
-			budget_id TEXT NOT NULL,
-			PRIMARY KEY (event_id, budget_id)
-		)`);
-		storage.sql.exec(
-			"CREATE INDEX IF NOT EXISTS wallet_event_budgets_budget ON wallet_event_budgets (budget_id)",
-		);
-		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_budget_spend (
-			budget_id TEXT PRIMARY KEY,
-			micro_credits INTEGER NOT NULL
-		)`);
-		// 80% and 100% crossings waiting for the alarm to tell owners, once
-		// per budget, limit and percent.
-		storage.sql.exec(`CREATE TABLE IF NOT EXISTS wallet_budget_alerts (
-			budget_id TEXT NOT NULL,
-			limit_micros INTEGER NOT NULL,
-			percent INTEGER NOT NULL,
-			spent_micros INTEGER NOT NULL,
-			work_item_id TEXT,
-			at INTEGER NOT NULL,
-			delivered_at INTEGER,
-			PRIMARY KEY (budget_id, limit_micros, percent)
-		)`);
-		storage.sql.exec(
-			"CREATE UNIQUE INDEX IF NOT EXISTS wallet_events_idempotency ON wallet_events (idempotency_key)",
-		);
+		this.#db = openWalletStore(storage);
 	}
 
 	static isWallet(storage: DurableObjectStorage): boolean {
@@ -230,13 +176,9 @@ export class BillingWallet {
 	}
 
 	async charge(input: WalletChargeInput): Promise<WalletChargeResult> {
-		const known = this.#storage.sql
-			.exec<{ credits: number }>(
-				"SELECT credits FROM wallet_events WHERE event_id = ?",
-				input.eventId,
-			)
-			.toArray()[0];
-		if (known) return { allowed: true, replayed: true, credits: known.credits };
+		const known = findWalletEventCredits(this.#db, input.eventId);
+		if (known !== undefined)
+			return { allowed: true, replayed: true, credits: known };
 		const nowMs = Date.now();
 		const timing = this.#timing("charge", nowMs);
 		const snapshot = await this.#snapshot(input, nowMs);
@@ -257,18 +199,16 @@ export class BillingWallet {
 			return timing.done(await this.#refuse(input, refusal, workItemId, nowMs));
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#countAgainst(input.eventId, budgets);
-		this.#storage.sql.exec(
-			`INSERT INTO wallet_events (event_id, tedi_id, user_id, credits, micro_usd_per_eur, period_start, period_end, at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			input.eventId,
-			input.tediId,
-			input.userId,
+		insertWalletEvent(this.#db, {
+			eventId: input.eventId,
+			tediId: input.tediId,
+			userId: input.userId,
 			credits,
-			snapshot.creditFx.microUsdPerEur,
-			snapshot.periodStart,
-			snapshot.periodEnd,
-			nowMs,
-		);
+			microUsdPerEur: snapshot.creditFx.microUsdPerEur,
+			periodStart: snapshot.periodStart,
+			periodEnd: snapshot.periodEnd,
+			at: nowMs,
+		});
 		await this.#scheduleFlush(
 			this.#noteCrossings(budgets, workItemId, nowMs)
 				? nowMs + ALERT_DELAY_MS
@@ -307,24 +247,23 @@ export class BillingWallet {
 			return timing.done(await this.#refuse(input, refusal, workItemId, nowMs));
 		this.#storage.kv.put(ORG_KEY, input.organizationId);
 		this.#countAgainst(input.holdId, budgets);
-		this.#storage.sql.exec(
-			`INSERT INTO wallet_events (event_id, kind, idempotency_key, tedi_id, user_id, credits, micro_usd_per_eur, period_start, period_end, at, expires_at, hold_context)
-			 VALUES (?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			input.holdId,
-			input.idempotencyKey,
-			input.tediId,
-			input.userId,
-			input.credits,
-			snapshot.creditFx.microUsdPerEur,
-			snapshot.periodStart,
-			snapshot.periodEnd,
-			nowMs,
-			expiresAtMs,
-			JSON.stringify({
+		insertWalletEvent(this.#db, {
+			eventId: input.holdId,
+			kind: "ai",
+			idempotencyKey: input.idempotencyKey,
+			tediId: input.tediId,
+			userId: input.userId,
+			credits: input.credits,
+			microUsdPerEur: snapshot.creditFx.microUsdPerEur,
+			periodStart: snapshot.periodStart,
+			periodEnd: snapshot.periodEnd,
+			at: nowMs,
+			expiresAt: expiresAtMs,
+			holdContext: {
 				runId: input.runId ?? null,
 				metadata: input.metadata ?? {},
-			}),
-		);
+			},
+		});
 		await this.#scheduleFlush(
 			this.#noteCrossings(budgets, workItemId, nowMs)
 				? nowMs + ALERT_DELAY_MS
@@ -385,12 +324,9 @@ export class BillingWallet {
 
 	/** Return a hold whose call was never sent. */
 	release(input: { holdId: string }): { released: boolean } {
-		const released = this.#storage.sql.exec(
-			"DELETE FROM wallet_events WHERE event_id = ? AND kind = 'ai' AND settled = 0",
-			input.holdId,
-		).rowsWritten;
-		if (released > 0) this.#uncount(input.holdId);
-		return { released: released > 0 };
+		const released = deleteUnsettledHold(this.#db, input.holdId);
+		if (released) uncountWalletEvent(this.#db, input.holdId);
+		return { released };
 	}
 
 	/**
@@ -402,33 +338,15 @@ export class BillingWallet {
 	 * caller writes the fence.
 	 */
 	#heldFor(input: WalletHoldInput): WalletHoldResult | null {
-		const row = this.#storage.sql
-			.exec<{
-				event_id: string;
-				credits: number;
-				expires_at: number;
-				settled: number;
-				flush_id: string | null;
-			}>(
-				"SELECT event_id, credits, expires_at, settled, flush_id FROM wallet_events WHERE idempotency_key = ?",
-				input.idempotencyKey,
-			)
-			.toArray()[0];
+		const row = findWalletEventByIdempotencyKey(this.#db, input.idempotencyKey);
 		if (!row) return null;
 		const nowMs = Date.now();
-		if (row.event_id !== input.holdId && !row.settled && !row.flush_id) {
-			const expiresAt = Date.parse(input.expiresAt);
-			this.#storage.sql.exec(
-				"UPDATE wallet_events SET event_id = ?, expires_at = ? WHERE event_id = ?",
-				input.holdId,
-				expiresAt,
-				row.event_id,
-			);
-			this.#storage.sql.exec(
-				"UPDATE wallet_event_budgets SET event_id = ? WHERE event_id = ?",
-				input.holdId,
-				row.event_id,
-			);
+		if (row.eventId !== input.holdId && !row.settled && !row.flushId) {
+			moveWalletHold(this.#db, {
+				fromId: row.eventId,
+				toId: input.holdId,
+				expiresAtMs: Date.parse(input.expiresAt),
+			});
 			return {
 				allowed: true,
 				holdId: input.holdId,
@@ -437,13 +355,15 @@ export class BillingWallet {
 				replayed: false,
 			};
 		}
-		if (!row.settled && row.expires_at <= nowMs)
+		// A hold always has an expiry; a missing one is treated as expired.
+		const expiresAt = row.expiresAt ?? 0;
+		if (!row.settled && expiresAt <= nowMs)
 			return { allowed: false, code: "monthly_credit_limit_reached" };
 		return {
 			allowed: true,
-			holdId: row.event_id,
+			holdId: row.eventId,
 			credits: row.credits,
-			expiresAt: new Date(row.expires_at).toISOString(),
+			expiresAt: new Date(expiresAt).toISOString(),
 			replayed: true,
 		};
 	}
@@ -452,37 +372,17 @@ export class BillingWallet {
 	async settleHold(
 		input: WalletSettleHoldInput,
 	): Promise<WalletSettleHoldResult> {
-		const row = this.#storage.sql
-			.exec<{
-				credits: number;
-				fx: number;
-				settled: number;
-				period_start: string;
-				period_end: string;
-				hold_context: string | null;
-			}>(
-				"SELECT credits, micro_usd_per_eur AS fx, settled, period_start, period_end, hold_context FROM wallet_events WHERE event_id = ? AND kind = 'ai'",
-				input.holdId,
-			)
-			.toArray()[0];
+		const row = findWalletHold(this.#db, input.holdId);
 		if (!row) return { found: false };
-		const context = JSON.parse(row.hold_context ?? "{}") as {
-			runId?: string | null;
-			metadata?: Record<string, unknown>;
-		};
 		const period = {
-			periodStart: row.period_start,
-			periodEnd: row.period_end,
-			runId: context.runId ?? null,
-			metadata: context.metadata ?? {},
+			periodStart: row.periodStart,
+			periodEnd: row.periodEnd,
+			runId: row.holdContext?.runId ?? null,
+			metadata: row.holdContext?.metadata ?? {},
 		};
 		if (row.settled) return { found: true, credits: row.credits, ...period };
 		const credits = aiCreditsForProviderCost(input.providerCostMicros, row.fx);
-		this.#storage.sql.exec(
-			"UPDATE wallet_events SET credits = ?, settled = 1 WHERE event_id = ?",
-			credits,
-			input.holdId,
-		);
+		settleWalletHold(this.#db, { holdId: input.holdId, credits });
 		await this.#scheduleFlush(Date.now() + FLUSH_DELAY_MS);
 		return { found: true, credits, ...period };
 	}
@@ -500,26 +400,18 @@ export class BillingWallet {
 		nowMs: number,
 		budgets: WalletBudget[],
 	): Refusal | null {
-		const live =
-			"flushed_at IS NULL AND (kind = 'code_run' OR settled = 1 OR expires_at > ?)";
-		const pending = (filter: string, ...args: unknown[]) =>
-			this.#storage.sql
-				.exec<{ total: number | null }>(
-					`SELECT SUM(credits) AS total FROM wallet_events WHERE ${live}${filter}`,
-					nowMs,
-					...args,
-				)
-				.one().total ?? 0;
+		const pending = (filter: { tediId?: string; userId?: string } = {}) =>
+			pendingWalletCredits(this.#db, { nowMs, ...filter });
 		const pool = creditRefusalReason(
 			{
 				...snapshot,
-				availableCredits: snapshot.availableCredits - pending(""),
+				availableCredits: snapshot.availableCredits - pending(),
 				tediUsedCredits:
 					snapshot.tediUsedCredits +
-					(subject.tediId ? pending(" AND tedi_id = ?", subject.tediId) : 0),
+					(subject.tediId ? pending({ tediId: subject.tediId }) : 0),
 				memberUsedCredits:
 					snapshot.memberUsedCredits +
-					(subject.userId ? pending(" AND user_id = ?", subject.userId) : 0),
+					(subject.userId ? pending({ userId: subject.userId }) : 0),
 			},
 			{ now: new Date(nowMs).toISOString(), credits },
 		);
@@ -592,36 +484,19 @@ export class BillingWallet {
 		workItemId: string | null,
 		nowMs: number,
 	): boolean {
-		return (
-			this.#storage.sql.exec(
-				`INSERT OR IGNORE INTO wallet_budget_alerts (budget_id, limit_micros, percent, spent_micros, work_item_id, at)
-				 VALUES (?, ?, ?, ?, ?, ?)`,
-				budget.id,
-				budget.limitMicros,
-				percent,
-				Math.round(spentMicros),
-				workItemId,
-				nowMs,
-			).rowsWritten > 0
-		);
+		return queueWalletBudgetAlert(this.#db, {
+			budgetId: budget.id,
+			limitMicros: budget.limitMicros,
+			percent,
+			spentMicros: Math.round(spentMicros),
+			workItemId,
+			at: nowMs,
+		});
 	}
 
 	/** Millionths of a credit a budget has spent: flushed plus unflushed live charges. */
 	#spent(budgetId: string, nowMs: number): number {
-		return (
-			this.#flushedSpend(budgetId) +
-			(this.#storage.sql
-				.exec<{ total: number | null }>(
-					`SELECT SUM(e.credits) AS total FROM wallet_events e
-					 JOIN wallet_event_budgets b ON b.event_id = e.event_id
-					 WHERE b.budget_id = ? AND e.flushed_at IS NULL
-					   AND (e.kind = 'code_run' OR e.settled = 1 OR e.expires_at > ?)`,
-					budgetId,
-					nowMs,
-				)
-				.one().total ?? 0) *
-				MICROS_PER_CREDIT
-		);
+		return walletBudgetSpent(this.#db, { budgetId, nowMs });
 	}
 
 	/** Millionths of a credit each budget has spent: flushed plus unflushed live charges. */
@@ -632,31 +507,11 @@ export class BillingWallet {
 		);
 	}
 
-	#flushedSpend(budgetId: string): number {
-		return (
-			this.#storage.sql
-				.exec<{ micro_credits: number }>(
-					"SELECT micro_credits FROM wallet_budget_spend WHERE budget_id = ?",
-					budgetId,
-				)
-				.toArray()[0]?.micro_credits ?? 0
-		);
-	}
-
 	#countAgainst(eventId: string, budgets: WalletBudget[]) {
-		for (const budget of budgets)
-			this.#storage.sql.exec(
-				"INSERT OR IGNORE INTO wallet_event_budgets (event_id, budget_id) VALUES (?, ?)",
-				eventId,
-				budget.id,
-			);
-	}
-
-	#uncount(eventId: string) {
-		this.#storage.sql.exec(
-			"DELETE FROM wallet_event_budgets WHERE event_id = ?",
+		countWalletEventAgainst(this.#db, {
 			eventId,
-		);
+			budgetIds: budgets.map((budget) => budget.id),
+		});
 	}
 
 	/** The Work Item's credit budgets, cached briefly; none without a Work Item. */
@@ -708,28 +563,21 @@ export class BillingWallet {
 	settle(input: WalletSettleInput): { ok: boolean } {
 		const loads = input.anonymousLoads + input.namedLoads;
 		if (loads === 0) {
-			const refunded = this.#storage.sql.exec(
-				"DELETE FROM wallet_events WHERE event_id = ? AND kind = 'code_run' AND flush_id IS NULL",
-				input.eventId,
-			).rowsWritten;
-			if (refunded > 0) this.#uncount(input.eventId);
+			if (deleteUnflushedCodeRun(this.#db, input.eventId))
+				uncountWalletEvent(this.#db, input.eventId);
 			return { ok: true };
 		}
-		const row = this.#storage.sql
-			.exec<{ fx: number }>(
-				"SELECT micro_usd_per_eur AS fx FROM wallet_events WHERE event_id = ? AND kind = 'code_run' AND flush_id IS NULL",
-				input.eventId,
-			)
-			.toArray()[0];
-		if (!row) return { ok: false };
-		this.#storage.sql.exec(
-			`UPDATE wallet_events SET anonymous_loads = ?, named_loads = ?, settled = 1, credits = ?
-			 WHERE event_id = ?`,
-			input.anonymousLoads,
-			input.namedLoads,
-			aiCreditsForProviderCost(loads * DYNAMIC_WORKER_COST_USD_MICROS, row.fx),
-			input.eventId,
-		);
+		const fx = findUnflushedCodeRunFx(this.#db, input.eventId);
+		if (fx === undefined) return { ok: false };
+		settleWalletCodeRun(this.#db, {
+			eventId: input.eventId,
+			anonymousLoads: input.anonymousLoads,
+			namedLoads: input.namedLoads,
+			credits: aiCreditsForProviderCost(
+				loads * DYNAMIC_WORKER_COST_USD_MICROS,
+				fx,
+			),
+		});
 		return { ok: true };
 	}
 
@@ -740,24 +588,15 @@ export class BillingWallet {
 		const alertsLeft = await this.#deliverAlerts(organizationId, nowMs);
 		// Claim a batch once; a failed flush retries the same flush id, so the
 		// consumption source refs dedupe in D1.
-		this.#storage.sql.exec(
-			`UPDATE wallet_events SET flush_id = ?
-			 WHERE flush_id IS NULL AND flushed_at IS NULL
-			   AND NOT EXISTS (SELECT 1 FROM wallet_events WHERE flush_id IS NOT NULL AND flushed_at IS NULL)
-			   AND (settled = 1 OR (kind = 'code_run' AND at < ?))`,
-			`${organizationId}:${nowMs}`,
-			nowMs - UNSETTLED_GRACE_MS,
-		);
-		const rows = this.#storage.sql
-			.exec<EventRow>(
-				"SELECT * FROM wallet_events WHERE flush_id IS NOT NULL AND flushed_at IS NULL",
-			)
-			.toArray();
+		const rows = claimWalletFlush(this.#db, {
+			flushId: `${organizationId}:${nowMs}`,
+			unsettledBeforeMs: nowMs - UNSETTLED_GRACE_MS,
+		});
 		if (rows.length > 0) {
 			try {
 				await postWalletFlush(createDbClient(this.#env.DB), {
 					organizationId,
-					flushId: rows[0]!.flush_id!,
+					flushId: rows[0]!.flushId!,
 					groups: flushGroups(rows),
 					now: new Date(nowMs).toISOString(),
 				});
@@ -769,79 +608,34 @@ export class BillingWallet {
 				await this.#storage.setAlarm(nowMs + RETRY_DELAY_MS);
 				return;
 			}
-			// Same synchronous block as marking the events flushed, so a budget's
-			// spend moves from pending to flushed exactly once.
-			this.#storage.sql.exec(
-				`INSERT INTO wallet_budget_spend (budget_id, micro_credits)
-				 SELECT b.budget_id, SUM(e.credits) * ${MICROS_PER_CREDIT}
-				 FROM wallet_event_budgets b JOIN wallet_events e ON e.event_id = b.event_id
-				 WHERE e.flush_id = ? AND e.flushed_at IS NULL
-				 GROUP BY b.budget_id
-				 ON CONFLICT (budget_id) DO UPDATE SET micro_credits = micro_credits + excluded.micro_credits`,
-				rows[0]!.flush_id,
-			);
-			this.#storage.sql.exec(
-				"UPDATE wallet_events SET flushed_at = ? WHERE flush_id = ? AND flushed_at IS NULL",
-				nowMs,
-				rows[0]!.flush_id,
-			);
+			recordWalletFlush(this.#db, { flushId: rows[0]!.flushId!, nowMs });
 			// The D1 pool now includes these credits; a cached snapshot would
 			// count them twice.
 			this.#snapshots.clear();
 			this.#flushes += 1;
 		}
-		this.#storage.sql.exec(
-			"DELETE FROM wallet_events WHERE flushed_at IS NOT NULL AND flushed_at < ?",
-			nowMs - EVENT_RETENTION_MS,
-		);
-		// A model call never settled within the retention window is not
-		// charged; its usage still reaches the provider ledger for review.
-		this.#storage.sql.exec(
-			"DELETE FROM wallet_events WHERE kind = 'ai' AND settled = 0 AND expires_at < ?",
-			nowMs - EVENT_RETENTION_MS,
-		);
-		this.#storage.sql.exec(
-			"DELETE FROM wallet_event_budgets WHERE event_id NOT IN (SELECT event_id FROM wallet_events)",
-		);
-		this.#storage.sql.exec(
-			// Undelivered ones too: an alert that fails for two days is dropped.
-			"DELETE FROM wallet_budget_alerts WHERE COALESCE(delivered_at, at) < ?",
-			nowMs - EVENT_RETENTION_MS,
-		);
+		// A model call never settled within the retention window is not charged,
+		// and an alert that fails for two days is dropped.
+		pruneWalletStore(this.#db, nowMs - EVENT_RETENTION_MS);
 		if (alertsLeft) {
 			await this.#storage.setAlarm(nowMs + RETRY_DELAY_MS);
 			return;
 		}
-		const next = this.#storage.sql
-			.exec<{ at: number | null; flushed: number | null }>(
-				`SELECT MIN(CASE WHEN flushed_at IS NULL THEN at END) AS at,
-				        MIN(flushed_at) AS flushed FROM wallet_events`,
-			)
-			.one();
-		if (next.at !== null)
+		const next = walletAlarmMarks(this.#db);
+		if (next.unflushedAt !== null)
 			await this.#storage.setAlarm(
 				Math.max(
 					nowMs + 1_000,
-					Math.min(next.at + FLUSH_DELAY_MS, nowMs + FLUSH_DELAY_MS),
+					Math.min(next.unflushedAt + FLUSH_DELAY_MS, nowMs + FLUSH_DELAY_MS),
 				),
 			);
-		else if (next.flushed !== null)
-			await this.#storage.setAlarm(next.flushed + EVENT_RETENTION_MS);
+		else if (next.flushedAt !== null)
+			await this.#storage.setAlarm(next.flushedAt + EVENT_RETENTION_MS);
 	}
 
 	/** Tell owners about queued crossings; true when some must be retried. */
 	async #deliverAlerts(organizationId: string, nowMs: number) {
-		const alerts = this.#storage.sql
-			.exec<{
-				budget_id: string;
-				limit_micros: number;
-				percent: 80 | 100;
-				spent_micros: number;
-				work_item_id: string | null;
-			}>(
-				"SELECT budget_id, limit_micros, percent, spent_micros, work_item_id FROM wallet_budget_alerts WHERE delivered_at IS NULL ORDER BY at LIMIT 20",
-			)
-			.toArray();
+		const alerts = listUndeliveredWalletBudgetAlerts(this.#db, 20);
 		if (alerts.length === 0) return false;
 		const db = createDbClient(this.#env.DB!);
 		let left = false;
@@ -849,20 +643,19 @@ export class BillingWallet {
 			try {
 				await deliverCreditBudgetAlert(db, {
 					orgId: organizationId,
-					envelopeId: alert.budget_id,
-					limitMicros: alert.limit_micros,
+					envelopeId: alert.budgetId,
+					limitMicros: alert.limitMicros,
 					percent: alert.percent,
-					spentMicros: alert.spent_micros,
-					workItemId: alert.work_item_id,
+					spentMicros: alert.spentMicros,
+					workItemId: alert.workItemId,
 					now: new Date(nowMs).toISOString(),
 				});
-				this.#storage.sql.exec(
-					"UPDATE wallet_budget_alerts SET delivered_at = ? WHERE budget_id = ? AND limit_micros = ? AND percent = ?",
+				markWalletBudgetAlertDelivered(this.#db, {
+					budgetId: alert.budgetId,
+					limitMicros: alert.limitMicros,
+					percent: alert.percent,
 					nowMs,
-					alert.budget_id,
-					alert.limit_micros,
-					alert.percent,
-				);
+				});
 			} catch (error) {
 				left = true;
 				console.error("[billing-wallet] budget alert failed", {
@@ -911,35 +704,35 @@ export class BillingWallet {
 }
 
 /** Aggregate claimed events per kind, subject and period; never-settled runs count as one anonymous load. */
-function flushGroups(rows: EventRow[]): WalletFlushGroup[] {
+function flushGroups(rows: WalletEvent[]): WalletFlushGroup[] {
 	const groups = new Map<string, WalletFlushGroup>();
 	for (const row of rows) {
 		const key = [
 			row.kind,
-			row.period_start,
-			row.period_end,
-			row.tedi_id ?? "",
-			row.user_id ?? "",
+			row.periodStart,
+			row.periodEnd,
+			row.tediId ?? "",
+			row.userId ?? "",
 		].join("|");
+		const at = new Date(row.at).toISOString();
 		const group = groups.get(key) ?? {
 			key,
 			kind: row.kind,
-			tediId: row.tedi_id,
-			userId: row.user_id,
-			periodStart: row.period_start,
-			periodEnd: row.period_end,
+			tediId: row.tediId,
+			userId: row.userId,
+			periodStart: row.periodStart,
+			periodEnd: row.periodEnd,
 			credits: 0,
 			anonymousLoads: 0,
 			namedLoads: 0,
 			runs: 0,
-			firstAt: new Date(row.at).toISOString(),
+			firstAt: at,
 		};
 		group.credits += row.credits;
 		if (row.kind === "code_run")
-			group.anonymousLoads += row.settled ? row.anonymous_loads : 1;
-		group.namedLoads += row.named_loads;
+			group.anonymousLoads += row.settled ? row.anonymousLoads : 1;
+		group.namedLoads += row.namedLoads;
 		group.runs += 1;
-		const at = new Date(row.at).toISOString();
 		if (at < group.firstAt) group.firstAt = at;
 		groups.set(key, group);
 	}

@@ -117,6 +117,7 @@ export function createDurableSqliteFixture(
 				if (
 					verb === "SELECT" ||
 					verb === "WITH" ||
+					verb === "PRAGMA" ||
 					/\bRETURNING\b/i.test(query)
 				) {
 					const rows = statement.all(...bound) as Record<

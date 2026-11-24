@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createDurableSqliteFixture } from "@tedix/db/test/durable-sqlite-fixture";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const snapshot = {
@@ -51,23 +52,11 @@ vi.mock("@tedix/db/queries/work-items/credit-budget-alerts", () => ({
 
 const { BillingWallet } = await import("./billing-wallet");
 
-/** DO SQLite and KV over a real in-memory SQLite database. */
-function fakeStorage() {
-	const db = new DatabaseSync(":memory:");
+/** DO SQLite, KV and alarm over a real in-memory SQLite database. */
+function fakeStorage(db = new DatabaseSync(":memory:")) {
 	const kv = new Map<string, unknown>();
 	let alarm: number | null = null;
-	return {
-		sql: {
-			exec: (query: string, ...args: unknown[]) => {
-				const statement = db.prepare(query);
-				const select = /^\s*(SELECT|WITH|PRAGMA)/i.test(query);
-				const rows = select ? statement.all(...(args as never[])) : [];
-				const rowsWritten = select
-					? 0
-					: Number(statement.run(...(args as never[])).changes);
-				return { toArray: () => rows, one: () => rows[0], rowsWritten };
-			},
-		},
+	return Object.assign(createDurableSqliteFixture(db), {
 		kv: {
 			get: (key: string) => kv.get(key),
 			put: (key: string, value: unknown) => kv.set(key, value),
@@ -76,7 +65,7 @@ function fakeStorage() {
 		setAlarm: async (at: number) => {
 			alarm = at;
 		},
-	} as unknown as DurableObjectStorage;
+	}) as unknown as DurableObjectStorage;
 }
 
 const member = (eventId: string) => ({
@@ -419,5 +408,41 @@ describe("billing wallet", () => {
 		getCreditBudgetsForWorkItem.mockReset();
 		getCreditBudgetsForWorkItem.mockResolvedValue([]);
 		findSessionWorkItem.mockResolvedValue(null);
+	});
+	it("adopts the migration chain in wallets made before it, keeping their charges", async () => {
+		// A wallet from 23 Nov before the model-call columns, with one
+		// unsettled run, and its budget spend as the old constructor made them.
+		const db = new DatabaseSync(":memory:");
+		db.exec(`CREATE TABLE wallet_events (
+			event_id TEXT PRIMARY KEY, tedi_id TEXT, user_id TEXT,
+			credits INTEGER NOT NULL, micro_usd_per_eur INTEGER NOT NULL,
+			anonymous_loads INTEGER NOT NULL DEFAULT 0, named_loads INTEGER NOT NULL DEFAULT 0,
+			settled INTEGER NOT NULL DEFAULT 0, period_start TEXT NOT NULL, period_end TEXT NOT NULL,
+			at INTEGER NOT NULL, flush_id TEXT, flushed_at INTEGER);
+			CREATE TABLE wallet_budget_spend (budget_id TEXT PRIMARY KEY, micro_credits INTEGER NOT NULL);
+			INSERT INTO wallet_events (event_id, user_id, credits, micro_usd_per_eur, period_start, period_end, at)
+			VALUES ('old-run', 'member-1', 1, 1100000, '2026-11-01', '2026-12-01', ${Date.now()});
+			INSERT INTO wallet_budget_spend VALUES ('budget-1', 2000000);`);
+		const adopted = new BillingWallet(fakeStorage(db), {
+			DB: {} as D1Database,
+		});
+		expect(
+			adopted.settle({ eventId: "old-run", anonymousLoads: 1, namedLoads: 0 }),
+		).toEqual({ ok: true });
+		expect(adopted.budgetSpend({ budgetIds: ["budget-1"] })).toEqual({
+			"budget-1": 2000000,
+		});
+		expect(
+			db
+				.prepare(
+					"SELECT kind, settled FROM wallet_events WHERE event_id = 'old-run'",
+				)
+				.get(),
+		).toEqual({ kind: "code_run", settled: 1 });
+		// Waking again runs no migration twice.
+		new BillingWallet(fakeStorage(db), { DB: {} as D1Database });
+		expect(
+			db.prepare("SELECT count(*) AS n FROM __drizzle_migrations").get(),
+		).toEqual({ n: 1 });
 	});
 });

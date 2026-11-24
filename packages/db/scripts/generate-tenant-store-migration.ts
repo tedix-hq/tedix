@@ -1,13 +1,13 @@
 /**
- * Generate or check the TenantStore Durable Object migration chain.
+ * Generate or check the Durable Object store migration chains (TenantStore, wallet).
  *
  * Drizzle Kit's durable-sqlite output imports each `migration.sql` from a
  * `migrations.js`, which needs a Text-module bundler rule in every Worker and
  * test pool that loads it. This script renders the same chain into
- * `src/tenant-store/migrations.ts` with the SQL inlined instead.
+ * each store's `migrations.ts` with the SQL inlined instead.
  *
- *   bun scripts/generate-tenant-store-migration.ts --name <change>
- *   bun scripts/generate-tenant-store-migration.ts --check
+ *   bun scripts/generate-tenant-store-migration.ts [--store wallet-store] --name <change>
+ *   bun scripts/generate-tenant-store-migration.ts --check   (every store)
  */
 import { rmSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -25,49 +25,81 @@ import {
 } from "./tenant-store-migrations";
 
 const dbRoot = fileURLToPath(new URL("../", import.meta.url));
-const config = "drizzle.tenant-store.config.ts";
-const migrationDir = path.join(dbRoot, "tenant-store-drizzle");
-const modulePath = path.join(dbRoot, "src/tenant-store/migrations.ts");
 
-async function generate(argv: string[]): Promise<void> {
-	const check = argv.includes("--check");
-	const args = argv.filter((arg) => arg !== "--check");
+/** Durable Object stores whose schema chain this script generates and checks. */
+const STORES = {
+	"tenant-store": {
+		config: "drizzle.tenant-store.config.ts",
+		folder: "tenant-store-drizzle",
+		module: "src/tenant-store/migrations.ts",
+		exportName: "tenantStoreMigrations",
+		label: "TenantStore",
+	},
+	"wallet-store": {
+		config: "drizzle.wallet-store.config.ts",
+		folder: "wallet-store-drizzle",
+		module: "src/wallet-store/migrations.ts",
+		exportName: "walletStoreMigrations",
+		label: "wallet store",
+	},
+} as const;
+type StoreName = keyof typeof STORES;
+
+async function generateStore(name: StoreName, args: string[], check: boolean) {
+	const store = STORES[name];
+	const migrationDir = path.join(dbRoot, store.folder);
+	const modulePath = path.join(dbRoot, store.module);
 	const response = runDrizzleKit([
 		"generate",
 		"--config",
-		config,
+		store.config,
 		...args,
 		...(check ? ["--explain"] : []),
 	]);
 	if (check) {
-		requireNoChanges(response, "TenantStore schema snapshot check");
-		const { tenantStoreMigrations } = await import(modulePath);
+		requireNoChanges(response, `${store.label} schema snapshot check`);
+		const generated = (await import(modulePath))[store.exportName];
 		if (
-			!isDeepStrictEqual(
-				tenantStoreMigrations,
-				readTenantStoreMigrationFiles(migrationDir),
-			)
+			!isDeepStrictEqual(generated, readTenantStoreMigrationFiles(migrationDir))
 		) {
 			throw new DrizzleKitCommandError(
-				"src/tenant-store/migrations.ts is stale; run bun run db:tenant-store:generate",
+				`${store.module} is stale; run bun run db:${name}:generate`,
 			);
 		}
 		console.log(
-			"TenantStore schema snapshot and migrations module are current",
+			`${store.label} schema snapshot and migrations module are current`,
 		);
 		return;
 	}
 	if (response.status === "error" || response.status === "missing_hints") {
-		requireNoChanges(response, "TenantStore migration generation");
+		requireNoChanges(response, `${store.label} migration generation`);
 	}
-	writeFileSync(modulePath, renderTenantStoreMigrations(migrationDir));
+	writeFileSync(modulePath, renderTenantStoreMigrations(migrationDir, store));
 	// Drizzle Kit rewrites this on every run; the inlined module replaces it.
 	rmSync(path.join(migrationDir, "migrations.js"), { force: true });
 	console.log(
 		response.status === "ok"
-			? `Generated ${response.migration_path}; review the SQL, then run bun run format on src/tenant-store/migrations.ts`
-			: "No TenantStore schema changes; migrations module refreshed",
+			? `Generated ${response.migration_path}; review the SQL, then run bun run format on ${store.module}`
+			: `No ${store.label} schema changes; migrations module refreshed`,
 	);
+}
+
+async function generate(argv: string[]): Promise<void> {
+	const check = argv.includes("--check");
+	const storeAt = argv.indexOf("--store");
+	const named = storeAt >= 0 ? argv[storeAt + 1] : undefined;
+	if (named !== undefined && !(named in STORES))
+		throw new DrizzleKitCommandError(
+			`--store must be one of: ${Object.keys(STORES).join(", ")}`,
+		);
+	const args = argv.filter(
+		(arg, i) => arg !== "--check" && i !== storeAt && i !== storeAt + 1,
+	);
+	// --check covers every store; generation targets one (TenantStore by default).
+	const stores = check
+		? (Object.keys(STORES) as StoreName[])
+		: [(named ?? "tenant-store") as StoreName];
+	for (const name of stores) await generateStore(name, args, check);
 }
 
 if (import.meta.main) {
