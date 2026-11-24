@@ -542,18 +542,17 @@ export function CreateTediPage({
 									onValueChange={(value) =>
 										form.setFieldValue("model", value ?? "")
 									}
-								>
-									{models.map((model) => (
-										<KumoSelect.Option
-											key={model.ref}
-											value={model.ref}
-											disabled={!model.allowed}
-										>
-											{model.label}
-											{model.allowed ? "" : " — unavailable"}
-										</KumoSelect.Option>
-									))}
-								</KumoSelect>
+									items={Object.fromEntries(
+										models.map((model) => [
+											model.ref,
+											{
+												label:
+													model.label + (model.allowed ? "" : " — unavailable"),
+												disabled: !model.allowed,
+											},
+										]),
+									)}
+								/>
 								{modelCatalog.isPending ? (
 									<Text role="label" tone="secondary">
 										Loading the model catalog…
@@ -582,17 +581,12 @@ export function CreateTediPage({
 										form.setFieldValue("channel", next);
 										onChannelChange(next);
 									}}
-								>
-									<KumoSelect.Option value="telegram">
-										Telegram
-									</KumoSelect.Option>
-									<KumoSelect.Option value="webchat">
-										Webchat only
-									</KumoSelect.Option>
-									<KumoSelect.Option value="none">
-										Connect later
-									</KumoSelect.Option>
-								</KumoSelect>
+									items={{
+										telegram: "Telegram",
+										webchat: "Webchat only",
+										none: "Connect later",
+									}}
+								/>
 							</div>
 						</div>
 
@@ -807,16 +801,8 @@ export function CreateTediPage({
 											onValueChange={(value) =>
 												value && form.setFieldValue("language", value)
 											}
-										>
-											{LANGUAGES.map((language) => (
-												<KumoSelect.Option
-													key={language.value}
-													value={language.value}
-												>
-													{language.label}
-												</KumoSelect.Option>
-											))}
-										</KumoSelect>
+											items={LANGUAGES}
+										/>
 										<KumoSelect<string>
 											label="Timezone"
 											description="Local-time context for schedules and coordination."

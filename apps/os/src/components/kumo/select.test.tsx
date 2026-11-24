@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("@cloudflare/kumo/primitives/select", () => {
+vi.mock("@cloudflare/kumo/primitives/select", async () => {
+	const { Select: primitive } = await vi.importActual<
+		typeof import("@cloudflare/kumo/primitives/select")
+	>("@cloudflare/kumo/primitives/select");
 	type PartProps = {
 		children?: ReactNode;
 		className?: string;
@@ -18,20 +21,12 @@ vi.mock("@cloudflare/kumo/primitives/select", () => {
 		return <div className={className}>{children}</div>;
 	}
 
-	function Root({ children }: PartProps) {
-		return <div>{children}</div>;
-	}
-
 	function Trigger({ children, className, ...props }: PartProps) {
 		return (
 			<button className={className} type="button" {...props}>
 				{children}
 			</button>
 		);
-	}
-
-	function Value({ className, placeholder }: PartProps) {
-		return <span className={className}>{placeholder}</span>;
 	}
 
 	function Popup({ children, className, ...props }: PartProps) {
@@ -52,9 +47,9 @@ vi.mock("@cloudflare/kumo/primitives/select", () => {
 
 	return {
 		Select: {
-			Root,
+			Root: primitive.Root,
 			Trigger,
-			Value,
+			Value: primitive.Value,
 			Icon: Part,
 			Portal: Part,
 			Positioner: Part,
@@ -81,6 +76,23 @@ import {
 } from "./select";
 
 describe("Kumo Select adapter", () => {
+	it("shows the matching option label in the closed trigger", () => {
+		const markup = renderToStaticMarkup(
+			<Select value="skill-123">
+				<SelectTrigger>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{[{ id: "skill-123", name: "Calendar review" }].map((skill) => (
+						<SelectItem key={skill.id} value={skill.id}>
+							{skill.name}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>,
+		);
+		expect(markup.split("</button>")[0]).toContain(">Calendar review<");
+	});
 	it("names the trigger, forwards its size, and renders options with Kumo's part semantics", () => {
 		const trigger = renderToStaticMarkup(
 			<Select>

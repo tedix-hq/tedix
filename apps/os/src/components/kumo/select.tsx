@@ -8,14 +8,46 @@ import {
 	CaretUpIcon,
 	CheckIcon,
 } from "@phosphor-icons/react";
-import type * as React from "react";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
 // Kumo's Select is intentionally a batteries-included component. OS call sites
 // use the shadcn-style compound API, so this adapter keeps Base UI's
 // behavior while applying Kumo's semantic tokens and visual language.
-const Select = SelectPrimitive.Root;
+function optionLabels(children: React.ReactNode) {
+	const items: { value: unknown; label: React.ReactNode }[] = [];
+	function visit(child: React.ReactNode) {
+		if (
+			!React.isValidElement<{ value?: unknown; children?: React.ReactNode }>(
+				child,
+			)
+		)
+			return;
+		if (child.type === SelectItem) {
+			items.push({ value: child.props.value, label: child.props.children });
+		} else if (child.type === SelectContent || child.type === React.Fragment) {
+			React.Children.forEach(child.props.children, visit);
+		}
+	}
+	React.Children.forEach(children, visit);
+	return items;
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>({
+	items,
+	children,
+	...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+	return (
+		<SelectPrimitive.Root<Value, Multiple>
+			{...props}
+			items={items ?? optionLabels(children)}
+		>
+			{children}
+		</SelectPrimitive.Root>
+	);
+}
 
 function SelectValue({
 	className,
