@@ -19,7 +19,11 @@ import {
 } from "./supervise-runners";
 import { dispatchRequestsDirectory } from "./lane-dispatch-wake";
 import { refusedMachineCommand } from "./lane-machine-refused";
-import { runShellCommand } from "./lane-machine-workspaces";
+import {
+	adoptMachineWorkspace,
+	releaseMachineWorkspace,
+	runShellCommand,
+} from "./lane-machine-workspaces";
 import {
 	answerMachineToolCall,
 	createMachineToolsLoop,
@@ -289,6 +293,55 @@ test("with the write tools on, a tedi edits files and runs commands in its own w
 	expect((await call("close_workspace", { workspace })).ok).toBe(true);
 	expect(existsSync(folder)).toBe(false);
 }, 60_000);
+
+test("linked workspaces edit the lane checkout and release only the link", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tedix-machine-lane-"));
+	roots.push(root);
+	const checkout = join(root, "source");
+	const configDir = join(root, "config");
+	const repo = join(root, "run");
+	execFileSync("git", ["init", "-q", checkout]);
+	mkdirSync(repo);
+	const call = (tool: string, input: Record<string, unknown>) =>
+		answerMachineToolCall(
+			machineToolHandlers({ checkout, configDir, write: true }),
+			tool,
+			input,
+		);
+	const workspace = await adoptMachineWorkspace(configDir, repo);
+	const registration = (id: string) =>
+		join(configDir, "machine-workspaces", id);
+	const path = "result.txt";
+	expect(
+		await call("write_file", { workspace, path, content: "result" }),
+	).toMatchObject({ ok: true });
+	expect(await call("read_file", { workspace, path })).toMatchObject({
+		ok: true,
+		result: expect.stringContaining("result"),
+	});
+	symlinkSync(root, join(repo, "outside"));
+	expect(
+		await call("write_file", {
+			workspace,
+			path: "outside/escape",
+			content: "bad",
+		}),
+	).toMatchObject({ ok: false });
+	expect(await call("close_workspace", { workspace })).toMatchObject({
+		ok: true,
+	});
+	expect(existsSync(registration(workspace))).toBe(false);
+
+	const idle = await adoptMachineWorkspace(configDir, repo);
+	utimesSync(registration(idle), new Date(0), new Date(0));
+	// Opening a workspace reaps idle entries before trying to resolve its base.
+	expect(await call("open_workspace", {})).toMatchObject({ ok: false });
+	expect(existsSync(registration(idle))).toBe(false);
+	const released = await adoptMachineWorkspace(configDir, repo);
+	expect(await releaseMachineWorkspace(configDir, released)).toBe(true);
+	expect(existsSync(registration(released))).toBe(false);
+	expect(readFileSync(join(repo, path), "utf8")).toBe("result");
+});
 
 test("a tedi reads the owner's folders but never credential locations or anything outside the home folder", async () => {
 	const root = mkdtempSync(join(tmpdir(), "tedix-machine-home-"));

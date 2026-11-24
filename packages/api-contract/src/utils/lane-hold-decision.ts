@@ -10,7 +10,7 @@ const holdRequest = z.object({
 	source: z.literal("lane-dispatch-blocker"),
 	laneBlocker: z.object({
 		kind: z.enum(["execution_hold", "result_unverified", "accountable_owner"]),
-		executor: z.enum(["codex", "claude-code", "opencode", "devin"]),
+		executor: z.enum(["codex", "claude-code", "opencode", "devin", "tedi"]),
 		workVersion: z.number().int().positive(),
 	}),
 });
@@ -20,6 +20,7 @@ const AGENTS = {
 	"claude-code": "Claude Code",
 	opencode: "OpenCode",
 	devin: "Devin",
+	tedi: "Tedi",
 };
 
 const later = {

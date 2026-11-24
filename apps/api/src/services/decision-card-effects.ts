@@ -285,7 +285,12 @@ async function dispatchEffect(
 											// agent only needs the runner's hold lifted.
 											...(effect.executor === work.executorId
 												? {}
-												: { executor: effect.executor }),
+												: {
+														executorReference: {
+															type: "external_agent" as const,
+															id: effect.executor,
+														},
+													}),
 											laneDispatch: { state: "ready" as const },
 										}),
 							},

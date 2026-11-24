@@ -3,7 +3,7 @@ import { z } from "zod";
 const laneRequest = z.object({
 	source: z.literal("lane-dispatch-blocker"),
 	laneBlocker: z.object({
-		executor: z.enum(["codex", "claude-code", "opencode", "devin"]),
+		executor: z.enum(["codex", "claude-code", "opencode", "devin", "tedi"]),
 	}),
 });
 
@@ -12,6 +12,7 @@ const names = {
 	"claude-code": "Claude Code",
 	opencode: "OpenCode",
 	devin: "Devin",
+	tedi: "Tedi",
 };
 
 /** Runner provenance is separate from the authenticated carrier and grants no authority. */

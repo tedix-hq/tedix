@@ -1,4 +1,13 @@
-import { open, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import {
+	open,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import {
@@ -158,6 +167,42 @@ export function machineToolsIdentity(
 				}
 			: {}),
 	};
+}
+
+function machineServingPath(env: NodeJS.ProcessEnv) {
+	return join(
+		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
+		"machine-tools",
+		"serving.json",
+	);
+}
+
+export function machineWriteUnavailable(
+	env: NodeJS.ProcessEnv,
+	scope?: { workspace: string; organization: string },
+	now = Date.now(),
+): string | undefined {
+	const identity = machineToolsIdentity(env);
+	if (!identity.write)
+		return 'Set machineWriteMode to "allow" on the runner that serves machine tools';
+	if (
+		scope &&
+		(identity.serving?.organization !== scope.organization ||
+			identity.serving?.workspace !== scope.workspace)
+	)
+		return "Machine tools are serving a different workspace or organization";
+	try {
+		const status = JSON.parse(readFileSync(machineServingPath(env), "utf8"));
+		if (
+			status.identity === JSON.stringify(identity) &&
+			Number.isSafeInteger(status.pid) &&
+			status.pid > 0 &&
+			now - status.at <= MACHINE_TOOL_CONNECTED_MS + 30_000 &&
+			alive(status.pid)
+		)
+			return;
+	} catch {}
+	return "The machine-tools connection is not serving";
 }
 
 /** Cuts an answer to the stored limit and says so when it did. */
@@ -1068,10 +1113,36 @@ export async function serveMachineTools(
 		process.stderr.write(
 			`${JSON.stringify({ at: new Date().toISOString(), event, reason })}\n`,
 		);
+	const claim = createMachineToolClaimer(serve.scope);
+	const servingPath = machineServingPath(env);
+	const clearServing = () => rm(servingPath, { force: true }).catch(() => {});
+	let claimed = false;
 	const loop = createMachineToolsLoop({
 		reporterId: dispatcherReporterId(env),
 		machineName: identity.machineName,
-		claim: createMachineToolClaimer(serve.scope),
+		claim: async (input) => {
+			claimed = true;
+			try {
+				const result = await claim(input);
+				if (isRecord(result) && Array.isArray(result.calls)) {
+					await writeFile(
+						`${servingPath}.tmp`,
+						JSON.stringify({
+							pid: process.pid,
+							identity: saved,
+							at: Date.now(),
+						}),
+						{ mode: 0o600 },
+					)
+						.then(() => rename(`${servingPath}.tmp`, servingPath))
+						.catch(() => {});
+				} else await clearServing();
+				return result;
+			} catch (error) {
+				await clearServing();
+				throw error;
+			}
+		},
 		handlers: machineToolHandlers({
 			checkout: serve.repo,
 			configDir,
@@ -1118,6 +1189,7 @@ export async function serveMachineTools(
 		process.off("SIGTERM", stop);
 		process.off("SIGINT", stop);
 		loop.close();
+		if (claimed) await clearServing();
 		lock.release();
 	}
 }

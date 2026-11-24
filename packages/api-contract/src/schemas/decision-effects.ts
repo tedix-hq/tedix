@@ -58,7 +58,7 @@ export const DecisionEffectSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
 		kind: z.literal("restart_work"),
 		workItemId: z.uuid(),
-		executor: z.enum(["codex", "claude-code", "opencode", "devin"]),
+		executor: z.enum(["codex", "claude-code", "opencode", "devin", "tedi"]),
 		workVersion: z.number().int().positive(),
 	}),
 	z.strictObject({

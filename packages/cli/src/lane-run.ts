@@ -314,6 +314,7 @@ async function runLaneProcessWithReporter(
 	if (!projectId) throw new Error("--project is required");
 	const devin = executor === "devin";
 	const opencode = executor === "opencode";
+	const tedi = executor === "tedi";
 	if (devin) {
 		const { assertDevinProjectHooks } = await import("./devin-lane-security");
 		await assertDevinProjectHooks(deps.cwd ?? process.cwd());
@@ -351,7 +352,9 @@ async function runLaneProcessWithReporter(
 					? "anthropic"
 					: opencode
 						? (options.get("--model")?.split("/")[0] ?? null)
-						: null,
+						: tedi
+							? "tedix"
+							: null,
 		reasoningEffort: options.get("--reasoning") ?? null,
 		brief: options.has("--brief")
 			? readFileSync(options.get("--brief")!, "utf8").slice(0, 24000)
@@ -664,7 +667,7 @@ async function runLaneProcessWithReporter(
 					stdio: [
 						"pipe",
 						stdout?.fd ??
-							(codexJson || claudeJson || opencode || devin
+							(codexJson || claudeJson || opencode || devin || tedi
 								? "pipe"
 								: "inherit"),
 						stderr?.fd ?? "pipe",
@@ -681,7 +684,7 @@ async function runLaneProcessWithReporter(
 			});
 		function receiveStdout(chunk: Buffer) {
 			process.stdout.write(chunk);
-			if (devin) {
+			if (devin || tedi) {
 				telemetry.finalMessage = (
 					telemetry.finalMessage + chunk.toString()
 				).slice(-24000);

@@ -847,6 +847,7 @@ export const LocalToolSchema = z.enum([
 	"claude-code",
 	"opencode",
 	"devin",
+	"tedi",
 ]);
 
 export const ChooseWorkToolInputSchema = z.strictObject({
@@ -890,7 +891,7 @@ export const ChooseWorkToolInputSchema = z.strictObject({
 			}),
 		)
 		.min(2)
-		.max(4)
+		.max(LocalToolSchema.options.length)
 		.describe("Only the tools available right now"),
 	model: DecisionModelSchema.optional().describe(
 		"Decision model: Clef (default, the organization's configured one) or typesafe/jev",

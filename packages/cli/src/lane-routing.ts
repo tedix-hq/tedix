@@ -8,9 +8,14 @@ export const localExecutors = [
 	"claude-code",
 	"opencode",
 	"devin",
+	"tedi",
 ] as const;
 export type LocalExecutor = (typeof localExecutors)[number];
 const executorSchema = z.enum(localExecutors);
+export const tediSlugSchema = z
+	.string()
+	.trim()
+	.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 export const routingPolicySchema = z.strictObject({
 	version: z.literal(1),
 	nearLimitPercent: z.number().min(0).max(100),
@@ -64,6 +69,7 @@ export const routingPolicySchema = z.strictObject({
 		.string()
 		.regex(/^[^/\s]+\/[^\s]+$/)
 		.optional(),
+	tedi: tediSlugSchema.optional(),
 });
 export type RoutingPolicy = z.infer<typeof routingPolicySchema>;
 export const defaultRoutingPolicy: RoutingPolicy = {
@@ -103,6 +109,7 @@ const AGENT_NAMES: Record<LocalExecutor, string> = {
 	"claude-code": "Claude Code",
 	opencode: "OpenCode",
 	devin: "Devin",
+	tedi: "Tedi",
 };
 
 /** True when Clef picks the tool: switched on and at least two tools described. */
@@ -630,11 +637,13 @@ export function routeLocalWork(
 			/** Earlier tools in the rule that could not take it, and why. */
 			skipped: rejected,
 			model:
-				route.executor === "opencode"
-					? (policy.opencodeModel ??
-						route.model ??
-						rule.routes.find((r) => r.executor === "opencode")?.model)
-					: route.model,
+				route.executor === "tedi"
+					? policy.tedi
+					: route.executor === "opencode"
+						? (policy.opencodeModel ??
+							route.model ??
+							rule.routes.find((r) => r.executor === "opencode")?.model)
+						: route.model,
 			rule: rule.name,
 		};
 	}

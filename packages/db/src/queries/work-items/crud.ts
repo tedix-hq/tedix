@@ -390,6 +390,7 @@ export async function listWorkItemTitlesByShortIds(
 export interface ListWorkItemsPageOptions {
 	orgId: string;
 	executor?: string | string[];
+	executorType?: WorkExecutorReference["type"];
 	dispatchReadyOnly?: boolean;
 	/** The instant `dispatchReadyOnly` compares start dates with; defaults to now. */
 	now?: string;
@@ -488,9 +489,16 @@ export async function listWorkItemsPage(
 		options.excludeDisposition
 			? ne(workItems.disposition, options.excludeDisposition)
 			: undefined,
+		// One clause per executor, each on type and id, so a type filter keeps
+		// the shape the dispatch index already serves.
 		executors
 			? or(
 					...executors.map((executor) => {
+						if (options.executorType)
+							return and(
+								eq(workItems.executorType, options.executorType),
+								eq(workItems.executorId, executor),
+							);
 						const reference = workExecutorReference(executor);
 						if (executor === "human" || executor === "tedi")
 							return eq(workItems.executorType, reference.type);
@@ -500,7 +508,9 @@ export async function listWorkItemsPage(
 						);
 					}),
 				)
-			: undefined,
+			: options.executorType
+				? eq(workItems.executorType, options.executorType)
+				: undefined,
 		options.dispatchReadyOnly
 			? sql`${workItems.dispatchState} = 'ready'`
 			: undefined,

@@ -1,6 +1,7 @@
 import { laneCommand } from "./lane-command";
 import { laneChildEnv } from "./lane-child-env";
 import type { ExecutorAvailability, LocalExecutor } from "./lane-routing";
+import { machineWriteUnavailable } from "./lane-machine-tools";
 
 /** The first `<binary> --version` probe gets this long before it is tried again. */
 export const EXECUTOR_PROBE_TIMEOUT_MS = 5_000;
@@ -13,6 +14,18 @@ export const EXECUTOR_PROBE_TIMEOUT_CACHE_MS = 30_000;
 
 export function executorBinary(executor: LocalExecutor) {
 	return executor === "claude-code" ? "claude" : executor;
+}
+
+export function probeTediLane(
+	tedi: string | undefined,
+	env: NodeJS.ProcessEnv,
+	scope?: { workspace: string; organization: string },
+	now?: number,
+): ExecutorAvailability {
+	const reason = tedi
+		? machineWriteUnavailable(env, scope, now)
+		: "Choose a tedi slug with --tedi or in lane-routing.json";
+	return reason ? { available: false, reason } : { available: true };
 }
 
 /**

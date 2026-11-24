@@ -114,6 +114,28 @@ beforeEach(() => {
 });
 
 describe("listWorkItemsPage filters and counts in SQL", () => {
+	it("distinguishes the local tedi runner from cloud tedi assignments", async () => {
+		insert({ id: idFor(1) });
+		insert({ id: idFor(2) });
+		sqlite
+			.prepare(
+				"UPDATE work_items SET executor_type = ?, executor_id = ? WHERE id = ?",
+			)
+			.run("external_agent", "tedi", idFor(1));
+		sqlite
+			.prepare(
+				"UPDATE work_items SET executor_type = ?, executor_id = ? WHERE id = ?",
+			)
+			.run("tedi", "cloud-agent", idFor(2));
+		const local = await listWorkItemsPage(db, {
+			orgId: ORG,
+			executor: ["codex", "tedi"],
+			executorType: "external_agent",
+		});
+		expect(local.data.map((row) => row.id)).toEqual([idFor(1)]);
+		const cloud = await listWorkItemsPage(db, { orgId: ORG, executor: "tedi" });
+		expect(cloud.data.map((row) => row.id)).toEqual([idFor(2)]);
+	});
 	it("keeps substring candidates current after backfill, title edits, moves and deletion", async () => {
 		sqlite.exec(`DROP TRIGGER work_item_title_search_insert;
 			DROP TRIGGER work_item_title_search_update;

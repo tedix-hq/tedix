@@ -305,6 +305,11 @@ export const workItemsContract = oc
 								z.array(WorkExecutorSchema).min(1).max(10),
 							])
 							.optional(),
+						executorType: WorkExecutorReferenceSchema.shape.type
+							.optional()
+							.describe(
+								"Match this executor type. When provided, executor names match exact IDs within the type.",
+							),
 						dispatchReadyOnly: z.boolean().optional(),
 						workKind: WorkItemKindSchema.optional(),
 						objectiveId: z.uuid().optional(),
@@ -831,6 +836,7 @@ export const workItemsContract = oc
 								"claude-code",
 								"opencode",
 								"devin",
+								"tedi",
 								"any-local",
 							]),
 							unavailableSince: z.iso.datetime(),

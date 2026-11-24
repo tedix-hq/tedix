@@ -17,6 +17,7 @@ const available = {
 	"claude-code": { available: true },
 	opencode: { available: true },
 	devin: { available: true },
+	tedi: { available: false },
 };
 describe("local capability routing", () => {
 	it("uses the first configured route for small mechanical work", () => {
@@ -239,6 +240,7 @@ describe("local capability routing", () => {
 					},
 					"claude-code": { available: true },
 					opencode: { available: true },
+					tedi: { available: false },
 					devin: {
 						available: false,
 						reason: "devin --version timed out after 5000 ms",

@@ -8,6 +8,7 @@ import {
 	realpath,
 	rm,
 	stat,
+	symlink,
 	utimes,
 	writeFile,
 } from "node:fs/promises";
@@ -26,10 +27,9 @@ import {
 
 /**
  * Machine workspaces: a tedi's own checkout of the repository on a machine,
- * where it may write and edit files and run commands. Each is a Git worktree
- * of the runner's source checkout under `machine-workspaces/<id>/repo` in the
- * Tedix settings folder, never a person's working folder and never the source
- * checkout itself.
+ * where it may write and edit files and run commands. The entry under
+ * `machine-workspaces/<id>/repo` is either a Git worktree created here or a
+ * link to a checkout already owned by a lane run.
  *
  * These handlers exist only on a machine whose saved runner settings say
  * `machineWriteMode: "allow"`. File paths stay inside the workspace. A command
@@ -49,6 +49,37 @@ const OUTPUT_HEAD_CHARS = 9_000;
 const OUTPUT_TAIL_CHARS = 9_000;
 /** Where the commits of a removed workspace stay reachable. */
 const RESCUE_REF = "refs/tedix/machine-workspaces";
+
+export async function adoptMachineWorkspace(
+	configDir: string,
+	checkout: string,
+) {
+	const target = await realpath(checkout);
+	const id = `lane-${randomBytes(12).toString("hex")}`;
+	const directory = join(configDir, "machine-workspaces", id);
+	await mkdir(dirname(directory), { recursive: true, mode: 0o700 });
+	await mkdir(directory, { mode: 0o700 });
+	try {
+		await symlink(target, join(directory, "repo"), "dir");
+	} catch (error) {
+		await rm(directory, { recursive: true, force: true });
+		throw error;
+	}
+	return id;
+}
+
+/** Remove only the registration for a checkout owned by a lane. */
+export async function releaseMachineWorkspace(configDir: string, id: string) {
+	const directory = join(configDir, "machine-workspaces", id);
+	if (
+		!(
+			await lstat(join(directory, "repo")).catch(() => undefined)
+		)?.isSymbolicLink()
+	)
+		return false;
+	await rm(directory, { recursive: true, force: true });
+	return true;
+}
 
 export interface MachineWorkspaces {
 	handlers: Record<WriteToolName, Handler>;
@@ -104,6 +135,7 @@ export function machineWorkspaces(options: {
 
 	/** Keeps commits that exist nowhere else, then removes the checkout. */
 	async function remove(id: string): Promise<string> {
+		if (await releaseMachineWorkspace(options.configDir, id)) return "";
 		const repo = join(root, id, "repo");
 		let kept = "";
 		const head = await laneCommand("git", ["-C", repo, "rev-parse", "HEAD"], {

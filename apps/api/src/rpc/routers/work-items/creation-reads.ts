@@ -332,6 +332,7 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 		disposition: input?.disposition,
 		excludeDisposition: input?.excludeDisposition,
 		executor: input?.executor,
+		executorType: input?.executorType,
 		dispatchReadyOnly: input?.dispatchReadyOnly,
 		workKind: input?.workKind,
 		projectId: input?.projectId,

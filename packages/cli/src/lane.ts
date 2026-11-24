@@ -47,7 +47,7 @@ export async function prefixLaneBrief(
 	}
 }
 
-export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--project <id>] [--coordinated] [--accept-proposed] [--rules <skill-id|slug>] [--repo <path>] [--routing-config <file>] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install]
+export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode|devin|tedi|any-local [--tedi <slug>] [--project <id>] [--coordinated] [--accept-proposed] [--rules <skill-id|slug>] [--repo <path>] [--routing-config <file>] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install]
 
 ${laneRunUsage}
 
@@ -135,7 +135,20 @@ export async function runLane(
 	}
 	if (args[verbIndex] === "routing") {
 		const { runLaneRouting } = await import("./lane-routing-command");
-		return runLaneRouting(args.slice(verbIndex + 1), options);
+		const { parseOptions } = await import("./options");
+		const { options: scope } = parseOptions([
+			...args.slice(0, verbIndex),
+			"code",
+		]);
+		return runLaneRouting(args.slice(verbIndex + 1), {
+			...options,
+			workspace: scope.workspace,
+			organization: scope.organization,
+		});
+	}
+	if (args[verbIndex] === "tedi-turn") {
+		const { runTediLaneTurn } = await import("./tedi-lane-turn");
+		return runTediLaneTurn(args.slice(0, verbIndex), args.slice(verbIndex + 1));
 	}
 	if (args[verbIndex] === "serve") {
 		const { runLaneServe } = await import("./lane-serve");

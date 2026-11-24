@@ -29,8 +29,9 @@ export const LaneExecutorSchema = z
 	.strict()
 	.superRefine((value, ctx) => {
 		if (
+			value.kind !== "tedi" &&
 			["codex", "claude", "opencode", "devin"].includes(value.kind) !==
-			(value.principalType === "external_agent")
+				(value.principalType === "external_agent")
 		)
 			ctx.addIssue({
 				code: "custom",

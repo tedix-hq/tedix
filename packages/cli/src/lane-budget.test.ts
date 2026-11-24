@@ -121,6 +121,7 @@ it("does not select an automatic executor without an operator policy, while reta
 		"claude-code": { available: true },
 		opencode: { available: true },
 		devin: { available: true },
+		tedi: { available: false },
 	};
 	expect(policy.rules.flatMap((rule) => rule.routes)).toEqual([]);
 	expect(() =>
@@ -160,6 +161,7 @@ it("uses explicit choices without merging managed preferences and fails closed o
 				"claude-code": { available: true },
 				opencode: { available: true },
 				devin: { available: true },
+				tedi: { available: false },
 			},
 			{},
 		).executor,

@@ -5972,7 +5972,14 @@ describe("dispatcher admission", () => {
 		await until(() => releases.length === 3);
 		expect(
 			events.find((e) => e.verb === "dispatch-list")?.input?.executor,
-		).toEqual(["codex", "claude-code", "opencode", "devin", "any-local"]);
+		).toEqual([
+			"codex",
+			"claude-code",
+			"opencode",
+			"devin",
+			"tedi",
+			"any-local",
+		]);
 		for (const release of releases) release();
 		await dispatcher.drain();
 	});
@@ -7812,7 +7819,7 @@ it("defers a future planned start and reuses only a canonically failed Work's re
 	);
 });
 
-it("any-local accepts either native executor but never human or tedi Work", () => {
+it("any-local accepts local assignments and excludes human and cloud tedi Work", () => {
 	const parsed = parseServeOptions([
 		"--executor",
 		"any-local",
@@ -7830,6 +7837,19 @@ it("any-local accepts either native executor but never human or tedi Work", () =
 		expect(
 			dispatchSkip({ ...item(), metadata: { executor } }, [], "any-local"),
 		).toContain("not assigned");
+	for (const executor of ["any-local", "tedi"] as const) {
+		const assigned = { ...item(), executorId: "tedi" };
+		expect(
+			dispatchSkip(
+				{ ...assigned, executorType: "external_agent" },
+				[],
+				executor,
+			),
+		).toBeUndefined();
+		expect(
+			dispatchSkip({ ...assigned, executorType: "tedi" }, [], executor),
+		).toContain("not assigned");
+	}
 	expect(
 		dispatchSkip(
 			{

@@ -10,7 +10,7 @@ import { workInteractions } from "../../schema/work-factory";
 import { getScopedWorkItem, WorkFactoryError } from "./factory-state";
 import { normalizeWorkItemRow } from "./normalization";
 
-const runners = ["codex", "claude-code", "opencode", "devin"];
+const runners = ["codex", "claude-code", "opencode", "devin", "tedi"];
 
 /** Assignment bookkeeping must never create a fresh revision that clears a hold. */
 export async function reassignIdleWork(

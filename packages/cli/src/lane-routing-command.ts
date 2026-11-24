@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { probeTediLane } from "./lane-executor-probe";
+import { readRunnerDuties } from "./supervise-runners";
 import {
 	describeRoutingPolicy,
 	describeUsage,
@@ -17,6 +19,7 @@ const NAMES: Record<LocalExecutor, string> = {
 	"claude-code": "Claude Code",
 	opencode: "OpenCode",
 	devin: "Devin",
+	tedi: "Tedi",
 };
 
 /**
@@ -93,12 +96,38 @@ export function routingConfigPath(
 /** `tedix lane routing`: shows the routing file and what it does. Changes nothing. */
 export async function runLaneRouting(
 	args: string[],
-	options: { json?: boolean } = {},
+	options: { json?: boolean; workspace?: string; organization?: string } = {},
 ): Promise<number> {
 	const path = routingConfigPath(args);
 	const policy = readRoutingPolicy(path);
 	const description = describeRoutingPolicy(policy);
-	const tools = toolAvailability();
+	const env = process.env;
+	const tools = toolAvailability().map((tool) => {
+		if (tool.executor !== "tedi") return tool;
+		const scope =
+			options.workspace && options.organization
+				? { workspace: options.workspace, organization: options.organization }
+				: undefined;
+		let slug = policy.tedi;
+		if (!slug) {
+			try {
+				slug = readRunnerDuties(env).find(
+					(duty) =>
+						duty.enabled &&
+						duty.tedi &&
+						(!scope ||
+							(duty.workspace === scope.workspace &&
+								duty.organization === scope.organization)),
+				)?.tedi;
+			} catch {}
+		}
+		const status = probeTediLane(slug, env, scope);
+		return {
+			...tool,
+			available: tool.available && status.available,
+			description: `${status.available ? tool.description : `Tedi: unavailable — ${status.reason}`}. Runs Work through a cloud tedi using this Mac's machine tools.`,
+		};
+	});
 	if (options.json || args.includes("--json")) {
 		console.log(
 			JSON.stringify({ path: path ?? null, policy, description, tools }),

@@ -24,6 +24,13 @@ interface StructuredFactoryVerb {
 	) => Record<string, unknown>;
 }
 
+function localTediFilter(input: Record<string, unknown>) {
+	const ids = Array.isArray(input.executor) ? input.executor : [input.executor];
+	return ids.includes("tedi")
+		? { ...input, executorType: "external_agent" }
+		: input;
+}
+
 export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 	"authorize-release": {
 		tool: "authorize_personal_cli_release",
@@ -47,8 +54,16 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		write: true,
 		pathField: "id",
 	},
-	"dispatch-idle-list": { tool: "list_work_items", write: false },
-	"dispatch-list": { tool: "list_work_items", write: false },
+	"dispatch-idle-list": {
+		tool: "list_work_items",
+		write: false,
+		transform: localTediFilter,
+	},
+	"dispatch-list": {
+		tool: "list_work_items",
+		write: false,
+		transform: localTediFilter,
+	},
 	"dispatch-get": {
 		tool: "get_work_items_by_id",
 		write: false,

@@ -70,6 +70,7 @@ const USAGE_EXPOSURE: Record<LocalExecutor, (policy: RoutingPolicy) => string> =
 		},
 		devin: () =>
 			"Devin CLI exposes usage only inside a session (`/usage`); there is no scriptable account read.",
+		tedi: () => "Tedi exposes no plan quota.",
 	};
 
 function tail(path: string) {

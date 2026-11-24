@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { laneChildEnv } from "./lane-child-env";
+import { localExecutors, tediSlugSchema } from "./lane-routing";
 import { selfCommand } from "./shared";
 import { alive, configDir, supervisorLog } from "./supervise-drivers";
 import {
@@ -156,7 +157,8 @@ const text = z.string().trim().min(1);
 const runnerSchema = z.object({
 	workspace: text,
 	organization: text,
-	executor: z.enum(["codex", "claude-code", "opencode", "devin", "any-local"]),
+	executor: z.enum([...localExecutors, "any-local"]),
+	tedi: tediSlugSchema.optional(),
 	rules: text.optional(),
 	repo: text.refine(isAbsolute, "repo must be an absolute path"),
 	project: text.optional(),
@@ -191,6 +193,7 @@ export interface ServeLike {
 	acceptProposed: boolean;
 	project?: string;
 	routingConfig?: string;
+	tedi?: string;
 	idleTakeoverMinutes?: number;
 	checkoutCapBytes?: number;
 	rules?: string;
@@ -298,6 +301,7 @@ export function runnerServeArgs(runner: RunnerDuty): string[] {
 		runner.repo,
 		...(runner.project ? ["--project", runner.project] : []),
 		...(runner.routingConfig ? ["--routing-config", runner.routingConfig] : []),
+		...(runner.tedi ? ["--tedi", runner.tedi] : []),
 		...(runner.idleTakeoverMinutes
 			? ["--idle-takeover-minutes", String(runner.idleTakeoverMinutes)]
 			: []),
@@ -324,6 +328,7 @@ export function runnerDutyFromServeOptions(options: ServeLike): RunnerDuty {
 		repo: options.repo,
 		...(options.project ? { project: options.project } : {}),
 		...(options.routingConfig ? { routingConfig: options.routingConfig } : {}),
+		...(options.tedi ? { tedi: options.tedi } : {}),
 		...(options.idleTakeoverMinutes
 			? { idleTakeoverMinutes: options.idleTakeoverMinutes }
 			: {}),
