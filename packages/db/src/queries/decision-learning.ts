@@ -399,9 +399,14 @@ export async function listUnlabelledDecisionApprovals(
 				decidedFrom === null
 					? undefined
 					: gte(tediApprovalRequests.resolvedAt, decidedFrom),
-				eq(tediApprovalRequests.orgId, decisionExposures.organizationId),
-				sql`${decisionExposures.cardId} = ('approval:' || ${tediApprovalRequests.id})`,
-				eq(tediApprovalRequests.resolvedBy, decisionExposures.actorId),
+				// Correlate the index lookup so SQLite cannot build a Bloom filter
+				// by reading every exposure before examining recent approvals.
+				sql`${decisionExposures}.rowid IN (
+					SELECT rowid FROM decision_exposures candidates
+					WHERE candidates.organization_id = ${tediApprovalRequests.orgId}
+					AND candidates.actor_id = ${tediApprovalRequests.resolvedBy}
+					AND candidates.card_id = ('approval:' || ${tediApprovalRequests.id})
+				)`,
 				inArray(tediApprovalRequests.status, ["approved", "rejected"]),
 				sql`${tediApprovalRequests.resolvedAt}>=${decisionExposures.occurredAt}`,
 				gt(decisionExposures.expiresAt, now),

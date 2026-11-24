@@ -60,6 +60,14 @@ it("looks up exposures by tenant, actor and card for each resolved approval", as
 		expiry,
 	);
 	exposure.run(
+		"match-again",
+		"org-lighthouse",
+		"river",
+		"approval:target",
+		earlier,
+		expiry,
+	);
+	exposure.run(
 		"other-tenant",
 		"org-harbor",
 		"river",
@@ -116,7 +124,7 @@ it("looks up exposures by tenant, actor and card for each resolved approval", as
 	);
 	expect(
 		(await listUnlabelledDecisionApprovals(db, now)).map((r) => r.exposureId),
-	).toEqual(["match"]);
+	).toEqual(["match", "match-again"]);
 	const plan = sqlite
 		.prepare(`EXPLAIN QUERY PLAN ${query}`)
 		.all("approved", "rejected", now, 50)
@@ -124,7 +132,7 @@ it("looks up exposures by tenant, actor and card for each resolved approval", as
 	expect(
 		plan.some((line) =>
 			line.includes(
-				"SEARCH decision_exposures USING INDEX idx_decision_exposure_org_actor_card (organization_id=? AND actor_id=? AND card_id=?)",
+				"SEARCH candidates USING COVERING INDEX idx_decision_exposure_org_actor_card (organization_id=? AND actor_id=? AND card_id=?)",
 			),
 		),
 	).toBe(true);
@@ -136,7 +144,7 @@ it("looks up exposures by tenant, actor and card for each resolved approval", as
 		(await listUnlabelledDecisionApprovals(db, now, 50, now)).map(
 			(r) => r.exposureId,
 		),
-	).toEqual(["match"]);
+	).toEqual(["match", "match-again"]);
 	expect(await listUnlabelledDecisionApprovals(db, now, 50, expiry)).toEqual(
 		[],
 	);
