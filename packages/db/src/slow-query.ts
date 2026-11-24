@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { AsyncLocalStorage } from "node:async_hooks";
 import type {
 	D1Database,
