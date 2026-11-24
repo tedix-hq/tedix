@@ -106,7 +106,8 @@ export const DECISION_GRAPH_MAX_REACH_PATHS = 500;
  *
  * `paths` lists each walk's node keys so the reader can drop walks through
  * Work that D1 records as completed or cancelled: graph WorkItem nodes are
- * not guaranteed to exist or to carry a current disposition.
+ * not guaranteed to exist or to carry a current disposition. The walk does
+ * not look them up per node; that lookup timed out every deck read.
  */
 export function blocksReachQuery() {
 	return {
@@ -121,10 +122,6 @@ export function blocksReachQuery() {
 				UNWIND starts AS origin
 				OPTIONAL MATCH path = (origin)-[:DG_BLOCKS*1..${DECISION_GRAPH_WALK_HOPS}]->(blocked:DecisionNode {orgId: $orgId})
 				WHERE NOT blocked IN starts
-					AND all(node IN nodes(path) WHERE node.kind <> 'work_item' OR NOT EXISTS {
-						MATCH (work:WorkItem {orgId: $orgId, id: node.id})
-						WHERE work.disposition IN ['completed', 'cancelled']
-					})
 				RETURN count(DISTINCT blocked) AS reach,
 					collect(DISTINCT [node IN nodes(path) | node.key])[0..${DECISION_GRAPH_MAX_REACH_PATHS}] AS paths
 			}

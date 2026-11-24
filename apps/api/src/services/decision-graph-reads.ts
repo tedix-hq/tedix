@@ -201,6 +201,11 @@ export async function enrichDecisionContexts(
 		console.warn("[decision-graph] graph read failed; using D1 only", {
 			reach: reach.status,
 			communities: communities.status,
+			reason: [reach, communities].flatMap((result) =>
+				result.status === "rejected" && result.reason instanceof Error
+					? [result.reason.message.slice(0, 120)]
+					: [],
+			),
 		});
 	}
 	for (const card of cards) {
