@@ -17,6 +17,8 @@ export interface PanelState {
 		version: string;
 		/** The person paused the runners. */
 		paused: boolean;
+		/** Running on battery: macOS then sleeps when the lid closes, whatever Tedix asks. */
+		onBattery: boolean;
 		/** This app's supervisor process runs. */
 		running: boolean;
 		/** Why the runners are not running, when they are not. */

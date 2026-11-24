@@ -616,6 +616,12 @@ function mac(now: PanelState): Group[] {
 									? `${runs} ${runs === 1 ? "task" : "tasks"} running`
 									: "Ready for tasks",
 					tone: stopped ? "warn" : undefined,
+					// Tedix keeps the Mac awake, but on battery macOS still sleeps
+					// when the lid closes and running tasks wait until it opens.
+					sub:
+						now.app.onBattery && !now.app.paused && !stopped
+							? "On battery, tasks pause when you close the lid. Plug this Mac in to keep them running."
+							: undefined,
 					control: [
 						starting
 							? undefined

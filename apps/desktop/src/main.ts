@@ -160,6 +160,7 @@ async function state(): Promise<PanelState> {
 		app: {
 			version: app.getVersion(),
 			paused: runnersPaused(),
+			onBattery: powerMonitor.isOnBatteryPower(),
 			running: runnersRunning(),
 			problem: runnersProblem(),
 			updateReady: readyVersion(),
@@ -2393,6 +2394,8 @@ else if (process.argv.includes("--local-model")) {
 			showMain();
 		});
 		process.on("SIGTERM", () => quitFrom("a TERM signal"));
+		powerMonitor.on("on-battery", () => void publish());
+		powerMonitor.on("on-ac", () => void publish());
 		powerMonitor.on("shutdown", () => {
 			quitSource = "macOS shutting down";
 		});
