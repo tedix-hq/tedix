@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.12 (2026-11-24)
+
+### Patch Changes
+
+- 7812876: A runner now deletes its record of an expired run once the Work has a newer revision. Before, such a record stayed forever when the run's result was still waiting to be reported.
+- 895d658: Small files the hooks write for each session and answer (in `hook-cache`, `session-scopes` and `feedback-outbox`) are now deleted once they are 30 days old. Before, nothing removed them and they grew to tens of thousands of files.
+
 ## 0.37.11 (2026-11-24)
 
 ### Patch Changes
