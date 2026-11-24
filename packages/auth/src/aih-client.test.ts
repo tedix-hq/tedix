@@ -394,4 +394,23 @@ describe("bounded MCP client search", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(Date.now() - started).toBe(6_000);
 	});
+	it("asks for one client by OAuth client id instead of the server-wide list", async () => {
+		const fetchMock = vi.fn(async () =>
+			Response.json({ clients: [{ id: "existing-client" }] }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		await searchDescopeMcpServerClients(
+			{ ...env, DESCOPE_MANAGEMENT_KEY: "fixture" },
+			{ mcpServerId: "fixture", clientId: "fixture-client" },
+		);
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toMatch(/\/v1\/mgmt\/mcp\/server\/clients\/search$/);
+		expect(JSON.parse(String(init.body))).toEqual({
+			mcpServerId: "fixture",
+			clientId: "fixture-client",
+		});
+	});
 });

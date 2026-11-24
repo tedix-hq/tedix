@@ -74,7 +74,7 @@ CREATE UNIQUE INDEX uniq_external_agent_session_key
  ON external_agent_sessions (organization_id, harness, external_session_key);
 CREATE TABLE external_agent_mcp_credentials (
  id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, principal_id TEXT NOT NULL,
- session_id TEXT NOT NULL, client_record_id TEXT NOT NULL,
+ session_id TEXT NOT NULL, client_record_id TEXT NOT NULL, client_id TEXT,
  mcp_server_id TEXT NOT NULL, mcp_server_url TEXT NOT NULL,
  status TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL,
  revoked_at TEXT, provider_cleanup_at TEXT

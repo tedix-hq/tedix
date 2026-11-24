@@ -226,6 +226,12 @@ export const externalAgentMcpCredentials = sqliteTable(
 		expiresAt: text("expires_at").notNull(),
 		revokedAt: text("revoked_at"),
 		providerCleanupAt: text("provider_cleanup_at"),
+		/**
+		 * OAuth client id of the Descope client, so the reuse check can search
+		 * that one client. Null on rows minted before it was recorded and on
+		 * federated (`wif:`) credentials, which own no Descope client.
+		 */
+		clientId: text("client_id"),
 	},
 	(table) => [
 		foreignKey({

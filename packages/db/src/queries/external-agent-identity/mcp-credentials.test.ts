@@ -19,6 +19,7 @@ function fixture() {
 			principal_id TEXT NOT NULL,
 			session_id TEXT NOT NULL,
 			client_record_id TEXT NOT NULL,
+			client_id TEXT,
 			mcp_server_id TEXT NOT NULL,
 			mcp_server_url TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'active',

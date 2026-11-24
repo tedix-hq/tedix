@@ -122,6 +122,8 @@ export async function recordExternalAgentMcpCredential(
 		principalId: string;
 		sessionId: string;
 		clientRecordId: string;
+		/** OAuth client id of the Descope client; null for federated credentials. */
+		clientId?: string | null;
 		mcpServerId: string;
 		mcpServerUrl: string;
 		issuedAt: string;
@@ -141,6 +143,9 @@ export async function recordExternalAgentMcpCredential(
 					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
 					clientRecordId: sql<string>`${input.clientRecordId}`.as(
 						"client_record_id",
+					),
+					clientId: sql<string | null>`${input.clientId ?? null}`.as(
+						"client_id",
 					),
 					mcpServerId: sql<string>`${input.mcpServerId}`.as("mcp_server_id"),
 					mcpServerUrl: sql<string>`${input.mcpServerUrl}`.as("mcp_server_url"),
@@ -406,6 +411,8 @@ export async function refreshExternalAgentMcpCredentialUnderLease(
 		principalId: string;
 		sessionId: string;
 		clientRecordId: string;
+		/** Fills a row minted before client ids were recorded; never overwrites. */
+		clientId?: string;
 		issuedAt: string;
 		expiresAt: string;
 		mcpServerId: string;
@@ -416,7 +423,15 @@ export async function refreshExternalAgentMcpCredentialUnderLease(
 	const issuanceLease = alias(externalAgentMcpIssuanceLeases, "issuance_lease");
 	const rows = await db
 		.update(externalAgentMcpCredentials)
-		.set({ issuedAt: params.issuedAt, expiresAt: params.expiresAt })
+		.set({
+			issuedAt: params.issuedAt,
+			expiresAt: params.expiresAt,
+			...(params.clientId
+				? {
+						clientId: sql`coalesce(${externalAgentMcpCredentials.clientId}, ${params.clientId})`,
+					}
+				: {}),
+		})
 		.where(
 			and(
 				eq(externalAgentMcpCredentials.organizationId, params.organizationId),
@@ -503,6 +518,9 @@ export async function recordExternalAgentMcpCredentialUnderLease(
 					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
 					clientRecordId: sql<string>`${input.clientRecordId}`.as(
 						"client_record_id",
+					),
+					clientId: sql<string | null>`${input.clientId ?? null}`.as(
+						"client_id",
 					),
 					mcpServerId: sql<string>`${input.mcpServerId}`.as("mcp_server_id"),
 					mcpServerUrl: sql<string>`${input.mcpServerUrl}`.as("mcp_server_url"),

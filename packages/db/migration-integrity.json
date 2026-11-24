@@ -2008,6 +2008,10 @@
 		{
 			"name": "20261124140110_work_title_search/migration.sql",
 			"sha256": "838bc35d4d2ae933a644c5a99017e365e519397ec054308af36b173841f17afa"
+		},
+		{
+			"name": "20261124184248_external_agent_mcp_credential_client_id/migration.sql",
+			"sha256": "78170fae2f212fdc7ee4bafc039ea647c81b3631cde97e5e95cef56def4d97c1"
 		}
 	]
 }

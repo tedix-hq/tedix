@@ -13,6 +13,7 @@ import {
 	getDescopeMcpServerClientSecret,
 	searchDescopeMcpServerClients,
 	type McpServerApprovedScopes,
+	type McpServerClientRecord,
 } from "@tedix/auth/aih-client";
 import { descopeIssuer } from "@tedix/auth/principal-identity";
 import {
@@ -1723,6 +1724,97 @@ async function measureMcpIssuancePhase<T>(
 	}
 }
 
+/** Newest client-id rows searched one by one before giving up on reuse. */
+const TARGETED_CLIENT_SEARCH_LIMIT = 8;
+const TARGETED_CLIENT_SEARCH_CONCURRENCY = 4;
+
+/**
+ * Look up each client by its OAuth client id, a few at a time, stopping once
+ * `done` accepts what was found. One failed lookup fails the whole search.
+ */
+async function searchExternalAgentMcpClientsByClientId(
+	aihEnv: ReturnType<typeof requireAihEnv>,
+	mcpServerId: string,
+	clientIds: readonly string[],
+	deadline: number,
+	done: (found: McpServerClientRecord[]) => boolean,
+): Promise<McpServerClientRecord[]> {
+	const found: McpServerClientRecord[] = [];
+	for (
+		let i = 0;
+		i < clientIds.length;
+		i += TARGETED_CLIENT_SEARCH_CONCURRENCY
+	) {
+		const batch = await Promise.all(
+			clientIds
+				.slice(i, i + TARGETED_CLIENT_SEARCH_CONCURRENCY)
+				.map((clientId) =>
+					searchDescopeMcpServerClients(
+						aihEnv,
+						{ mcpServerId, clientId },
+						{ deadline, timeoutMs: 3_000 },
+					),
+				),
+		);
+		for (const client of batch.flat())
+			if (!found.some((known) => known.id === client.id)) found.push(client);
+		if (done(found)) break;
+	}
+	return found;
+}
+
+/**
+ * Delete clients a fresh client just replaced and revoke their rows. A failed
+ * delete leaves the row active, so the hourly reaper removes it at expiry.
+ */
+async function supersedeDriftedExternalAgentMcpClients(
+	context: BaseContext,
+	aihEnv: ReturnType<typeof requireAihEnv>,
+	input: {
+		organizationId: string;
+		principalId: string;
+		sessionId: string;
+		mcpServerId: string;
+		replacementClientRecordId: string;
+		clientRecordIds: string[];
+	},
+): Promise<void> {
+	const ids = input.clientRecordIds.filter((id) => !id.startsWith("wif:"));
+	const outcome = { deleted: 0, revoked: 0, failed: false };
+	try {
+		await deleteDescopeMcpServerClients(aihEnv, {
+			ids,
+			mcpServerId: input.mcpServerId,
+		});
+		outcome.deleted = ids.length;
+		for (const id of ids) forgetMcpServerClients(input.mcpServerId, id);
+		outcome.revoked = await markExternalAgentMcpCredentialsReaped(context.db, {
+			clientRecordIds: ids,
+			revokedAt: new Date().toISOString(),
+		});
+	} catch (error) {
+		outcome.failed = true;
+		console.error(
+			"[ExternalAgentIdentity] superseded MCP client cleanup failed",
+			{
+				exception: safeExceptionTopology(error),
+			},
+		);
+	}
+	console.warn(
+		JSON.stringify({
+			event: "external-agent-mcp-client-superseded",
+			organizationId: input.organizationId,
+			principalId: input.principalId,
+			sessionId: input.sessionId,
+			mcpServerId: input.mcpServerId,
+			replacementClientRecordId: input.replacementClientRecordId,
+			supersededClientRecordIds: ids,
+			...outcome,
+		}),
+	);
+}
+
 async function issueMcpCredentialForOrganization(
 	input: {
 		organizationId?: string;
@@ -1914,21 +2006,70 @@ async function issueMcpCredentialForOrganization(
 			desiredScopes,
 			identityTags,
 		);
+		// The server-wide client list grows with every client ever minted on
+		// it, so rows that know their OAuth client id look up just those
+		// clients; only rows minted before client ids were recorded fall back
+		// to the server-wide list. Any failed search throws: never mint on one.
+		let searchMode: "client_id" | "server" | "client_id+server" | null = null;
 		if (!reusable && activeCredentials.length) {
 			const mark = mcpServerClientsMark();
-			registeredClients = await measureMcpIssuancePhase(
-				"searchDescopeMcpServerClients",
-				() =>
-					searchDescopeMcpServerClients(
-						aihEnv,
-						{ mcpServerId },
-						// A large client list needs more than 2s to arrive; 2s attempts
-						// aborted every search from 24 Nov 17:40 UTC. Give each attempt
-						// 10s, as before 811a27fc0, and keep the whole search inside the
-						// CLI's 30s exchange budget.
-						{ deadline: Date.now() + 20_000, timeoutMs: 10_000 },
-					),
-			);
+			// Both searches share the CLI's 30s exchange budget.
+			const searchDeadline = Date.now() + 20_000;
+			const targetedClientIds = activeCredentials
+				.flatMap((credential) =>
+					credential.clientId ? [credential.clientId] : [],
+				)
+				.slice(0, TARGETED_CLIENT_SEARCH_LIMIT);
+			registeredClients = [];
+			if (targetedClientIds.length) {
+				searchMode = "client_id";
+				registeredClients = await measureMcpIssuancePhase(
+					"searchDescopeMcpServerClientsByClientId",
+					() =>
+						searchExternalAgentMcpClientsByClientId(
+							aihEnv,
+							mcpServerId,
+							targetedClientIds,
+							Math.min(Date.now() + 8_000, searchDeadline),
+							(found) =>
+								selectReusableExternalAgentMcpCredential(
+									activeCredentials,
+									found,
+									desiredScopes,
+									identityTags,
+								) !== null,
+						),
+				);
+				reusable = selectReusableExternalAgentMcpCredential(
+					activeCredentials,
+					registeredClients,
+					desiredScopes,
+					identityTags,
+				);
+			}
+			if (
+				!reusable &&
+				activeCredentials.some((credential) => !credential.clientId)
+			) {
+				searchMode = searchMode ? "client_id+server" : "server";
+				const serverClients = await measureMcpIssuancePhase(
+					"searchDescopeMcpServerClients",
+					() =>
+						searchDescopeMcpServerClients(
+							aihEnv,
+							{ mcpServerId },
+							// A large client list needs more than 2s to arrive; 2s attempts
+							// aborted every search from 24 Nov 17:40 UTC. Give each attempt
+							// 10s, as before 811a27fc0.
+							{ deadline: searchDeadline, timeoutMs: 10_000 },
+						),
+				);
+				const known = new Set(registeredClients.map((client) => client.id));
+				registeredClients = [
+					...registeredClients,
+					...serverClients.filter((client) => !known.has(client.id)),
+				];
+			}
 			if (!fresh)
 				rememberMcpServerClients(
 					mcpServerId,
@@ -1943,6 +2084,18 @@ async function issueMcpCredentialForOrganization(
 				identityTags,
 			);
 		}
+
+		// A verified client of this session that was not reusable differs only
+		// in scopes or tags. The client minted below replaces it.
+		const driftedCredentials = reusable
+			? []
+			: activeCredentials.filter((credential) =>
+					registeredClients.some(
+						(candidate) =>
+							candidate.id === credential.clientRecordId &&
+							candidate.status === "verified",
+					),
+				);
 
 		// Reuse-miss telemetry: when the session already has active credentials
 		// but none were reusable, a fresh client is about to be minted — the
@@ -1963,6 +2116,8 @@ async function issueMcpCredentialForOrganization(
 					mcpServerId,
 					activeCredentials: activeCredentials.length,
 					registeredClients: registeredClients.length,
+					searchMode,
+					driftedClients: driftedCredentials.length,
 					desiredScopes,
 					newestClientRecordId: newestActive.clientRecordId,
 					newestRegistered: Boolean(registered),
@@ -1988,7 +2143,8 @@ async function issueMcpCredentialForOrganization(
 			const registered = registeredClients.find(
 				(candidate) => candidate.id === reusable.clientRecordId,
 			);
-			const clientId = registered?.clientId ?? registered?.client_id;
+			const clientId =
+				registered?.clientId ?? registered?.client_id ?? reusable.clientId;
 			if (!clientId)
 				throw baseErrorConstructors.BAD_GATEWAY({
 					message: "Reusable AIH MCP client is missing its client id",
@@ -2022,6 +2178,7 @@ async function issueMcpCredentialForOrganization(
 						principalId: input.principalId,
 						sessionId: input.sessionId,
 						clientRecordId: reusable.clientRecordId,
+						clientId,
 						mcpServerId,
 						leaseOwnerToken,
 						leaseNow: issuedAt.toISOString(),
@@ -2100,6 +2257,7 @@ async function issueMcpCredentialForOrganization(
 					principalId: input.principalId,
 					sessionId: input.sessionId,
 					clientRecordId: issuedClient.id,
+					clientId: issuedClient.clientId,
 					mcpServerId,
 					mcpServerUrl,
 					leaseOwnerToken,
@@ -2108,6 +2266,24 @@ async function issueMcpCredentialForOrganization(
 					expiresAt: lifetime.expiresAt,
 				}),
 		);
+		if (driftedCredentials.length) {
+			const superseding = supersedeDriftedExternalAgentMcpClients(
+				context,
+				aihEnv,
+				{
+					organizationId,
+					principalId: input.principalId,
+					sessionId: input.sessionId,
+					mcpServerId,
+					replacementClientRecordId: issuedClient.id,
+					clientRecordIds: driftedCredentials.map(
+						(credential) => credential.clientRecordId,
+					),
+				},
+			);
+			if (context.waitUntil) context.waitUntil(superseding);
+			else await superseding;
+		}
 		await measureMcpIssuancePhase("invalidateMcpClientCache", () =>
 			invalidateMcpClientCache(context.env, mcpServerId),
 		).catch((error) =>

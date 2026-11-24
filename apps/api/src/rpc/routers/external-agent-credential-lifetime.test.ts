@@ -21,6 +21,7 @@ import type { BaseContext } from "../orpc";
 const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	remove: vi.fn(),
+	removeMany: vi.fn(),
 	load: vi.fn(),
 	search: vi.fn(),
 	secret: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@tedix/auth/aih-client", async (load) => ({
 	...(await load<typeof import("@tedix/auth/aih-client")>()),
 	createDescopeMcpServerClient: mocks.create,
 	deleteDescopeMcpServerClient: mocks.remove,
+	deleteDescopeMcpServerClients: mocks.removeMany,
 	loadDescopeMcpServer: mocks.load,
 	searchDescopeMcpServerClients: mocks.search,
 	getDescopeMcpServerClientSecret: mocks.secret,
@@ -120,6 +122,7 @@ beforeEach(async () => {
 		clientSecret: "fixture-secret",
 	});
 	mocks.remove.mockResolvedValue(undefined);
+	mocks.removeMany.mockResolvedValue(undefined);
 	mocks.secret.mockResolvedValue("fixture-secret");
 	mocks.search.mockResolvedValue([
 		{
@@ -430,5 +433,129 @@ describe("provider answers kept between renewals", () => {
 			.catch(() => undefined);
 		expect(mocks.search).toHaveBeenCalledTimes(2);
 		expect(mocks.secret).not.toHaveBeenCalled();
+	});
+});
+
+describe("client lookups without the server-wide list", () => {
+	const registered = (scopes: string[]) => ({
+		id: "fixture-client-record",
+		clientId: "fixture-client",
+		mcpServerId: "fixture-resource",
+		status: "verified",
+		scopes,
+		tags: [
+			"external-agent",
+			`external-agent-org:${ORG}`,
+			`external-agent-principal:${PRINCIPAL}`,
+			`external-agent-session:${SESSION}`,
+		],
+	});
+	const rows = () =>
+		sqlite
+			.prepare(
+				"SELECT client_record_id, client_id, status FROM external_agent_mcp_credentials ORDER BY issued_at, id",
+			)
+			.all();
+
+	it("records the OAuth client id and renews by searching that one client", async () => {
+		await client().issueMcpCredential(INPUT);
+		expect(rows()).toEqual([
+			{
+				client_record_id: "fixture-client-record",
+				client_id: "fixture-client",
+				status: "active",
+			},
+		]);
+		await client().issueMcpCredential(INPUT);
+		expect(mocks.search).toHaveBeenCalledTimes(1);
+		expect(mocks.search.mock.calls[0]?.[1]).toEqual({
+			mcpServerId: "fixture-resource",
+			clientId: "fixture-client",
+		});
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+	});
+
+	it("falls back to the server-wide list for a row without a client id and fills it in", async () => {
+		await client().issueMcpCredential(INPUT);
+		sqlite
+			.prepare("UPDATE external_agent_mcp_credentials SET client_id = NULL")
+			.run();
+		await client().issueMcpCredential(INPUT);
+		expect(mocks.search.mock.calls[0]?.[1]).toEqual({
+			mcpServerId: "fixture-resource",
+		});
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(rows()).toEqual([
+			{
+				client_record_id: "fixture-client-record",
+				client_id: "fixture-client",
+				status: "active",
+			},
+		]);
+	});
+
+	it("never mints when a client lookup fails", async () => {
+		await client().issueMcpCredential(INPUT);
+		mocks.search.mockRejectedValueOnce(new Error("search deadline"));
+		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
+			code: "INTERNAL_SERVER_ERROR",
+		});
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+	});
+
+	it("replaces a client whose scopes drifted and revokes the old one", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		await client().issueMcpCredential(INPUT);
+		mocks.search.mockResolvedValue([registered(["mcp:work.write"])]);
+		mocks.create.mockResolvedValueOnce({
+			id: "replacement-client-record",
+			clientId: "replacement-client",
+			clientSecret: "fixture-secret",
+		});
+		vi.setSystemTime(new Date("2030-01-01T00:00:01.000Z"));
+		const second = await client().issueMcpCredential(INPUT);
+		await Promise.all(pending);
+		expect(second.clientRecordId).toBe("replacement-client-record");
+		expect(mocks.removeMany).toHaveBeenCalledWith(expect.anything(), {
+			ids: ["fixture-client-record"],
+			mcpServerId: "fixture-resource",
+		});
+		expect(rows()).toEqual([
+			{
+				client_record_id: "fixture-client-record",
+				client_id: "fixture-client",
+				status: "revoked",
+			},
+			{
+				client_record_id: "replacement-client-record",
+				client_id: "replacement-client",
+				status: "active",
+			},
+		]);
+		expect(
+			warn.mock.calls.some((call) =>
+				String(call[0]).includes("external-agent-mcp-client-superseded"),
+			),
+		).toBe(true);
+	});
+
+	it("keeps the old client active for the reaper when deleting it fails", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		await client().issueMcpCredential(INPUT);
+		mocks.search.mockResolvedValue([registered(["mcp:work.write"])]);
+		mocks.removeMany.mockRejectedValueOnce(new Error("provider down"));
+		mocks.create.mockResolvedValueOnce({
+			id: "replacement-client-record",
+			clientId: "replacement-client",
+			clientSecret: "fixture-secret",
+		});
+		vi.setSystemTime(new Date("2030-01-01T00:00:01.000Z"));
+		await client().issueMcpCredential(INPUT);
+		await Promise.all(pending);
+		expect(rows().map((row) => (row as { status: string }).status)).toEqual([
+			"active",
+			"active",
+		]);
 	});
 });

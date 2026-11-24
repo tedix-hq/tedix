@@ -216,7 +216,7 @@ describe("external-agent switch off", () => {
 		for (let i = 0; i < 120; i++)
 			sqlite
 				.prepare(
-					"INSERT INTO external_agent_mcp_credentials SELECT ?, organization_id, principal_id, session_id, ?, mcp_server_id, mcp_server_url, status, issued_at, expires_at, revoked_at, provider_cleanup_at FROM external_agent_mcp_credentials WHERE id='fixture-credential'",
+					"INSERT INTO external_agent_mcp_credentials (id, organization_id, principal_id, session_id, client_record_id, mcp_server_id, mcp_server_url, status, issued_at, expires_at, revoked_at, provider_cleanup_at) SELECT ?, organization_id, principal_id, session_id, ?, mcp_server_id, mcp_server_url, status, issued_at, expires_at, revoked_at, provider_cleanup_at FROM external_agent_mcp_credentials WHERE id='fixture-credential'",
 				)
 				.run(`credential-${i}`, `client-${i}`);
 		expect(
