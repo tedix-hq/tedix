@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.8 (2026-11-24)
+
+### Patch Changes
+
+- e43f9c6: Run tasks in OpenCode 2. Its local server moved to `/api/...`, `opencode run` no longer takes `--dir`, and session export is `opencode session export`, so every task start failed with a JSON parse error. OpenCode 1 is told to update.
+
 ## 0.37.7 (2026-11-24)
 
 ### Patch Changes
