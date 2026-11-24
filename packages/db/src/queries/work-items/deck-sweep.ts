@@ -127,7 +127,9 @@ export async function listDeckSourceStates(
 			.from(workItems)
 			.where(
 				and(
-					eq(workItems.orgId, orgId),
+					// Unary plus: prod statistics otherwise walk every Work item of the
+					// organization through a covering org index (30k rows per page).
+					sql`+${workItems.orgId} = ${orgId}`,
 					inArray(workItems.id, unique.slice(offset, offset + 50)),
 				),
 			)
