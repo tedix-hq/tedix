@@ -597,11 +597,6 @@ function fixture({
 						? [
 								"opencode",
 								"run",
-								"--dir",
-								join(
-									dirname(args[args.indexOf("--brief") + 1]!),
-									workDirectory,
-								),
 								"--format",
 								"json",
 								"--model",

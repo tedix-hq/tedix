@@ -7254,8 +7254,6 @@ ${firstBrief}`;
 							? [
 									"opencode",
 									"run",
-									"--dir",
-									repo,
 									"--format",
 									"json",
 									"--model",

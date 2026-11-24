@@ -89,20 +89,25 @@ export function openCodeExportHasNoToolAction(
 	const info = exported.info as Record<string, unknown> | undefined;
 	if (info?.id !== sessionKey || !Array.isArray(exported.messages))
 		return false;
-	const message = exported.messages.find((candidate) => {
-		if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
-			return false;
-		return (candidate as { info?: { id?: unknown } }).info?.id === messageId;
-	}) as { info?: { role?: unknown }; parts?: unknown[] } | undefined;
+	const message = exported.messages.find(
+		(candidate) =>
+			!!candidate &&
+			typeof candidate === "object" &&
+			!Array.isArray(candidate) &&
+			(candidate as { id?: unknown }).id === messageId,
+	) as { type?: unknown; content?: unknown[] } | undefined;
+	// Only text and reasoning are known to be free of side effects.
 	return (
-		message?.info?.role === "assistant" &&
-		Array.isArray(message.parts) &&
-		!message.parts.some(
+		message?.type === "assistant" &&
+		Array.isArray(message.content) &&
+		message.content.every(
 			(part) =>
 				!!part &&
 				typeof part === "object" &&
 				!Array.isArray(part) &&
-				(part as { type?: unknown }).type === "tool",
+				["text", "reasoning"].includes(
+					String((part as { type?: unknown }).type),
+				),
 		)
 	);
 }
@@ -113,7 +118,7 @@ async function confirmOpenCodeStallSafe(
 	messageId: string,
 ): Promise<boolean> {
 	return await new Promise((resolve) => {
-		const child = spawn(executable, ["export", sessionKey], {
+		const child = spawn(executable, ["session", "export", sessionKey], {
 			stdio: ["ignore", "pipe", "ignore"],
 		});
 		let output = "";
@@ -589,8 +594,6 @@ async function runLaneProcessWithReporter(
 		command.push(
 			"opencode",
 			"run",
-			"--dir",
-			deps.cwd ?? process.cwd(),
 			"--format",
 			"json",
 			"--model",

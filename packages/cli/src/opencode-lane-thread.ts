@@ -5,7 +5,11 @@ import { laneChildEnv } from "./lane-child-env";
 
 const MODEL = /^[^/\s]+\/[^\s]+$/;
 export const opencodeSessionId = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
-/** Allocate or recover native state using metadata requests, before any model turn. */
+/**
+ * Allocate or recover native state using metadata requests, before any model
+ * turn. Speaks the local API of OpenCode 2 (`/api/...`); OpenCode 1 answered
+ * other addresses and is told to update.
+ */
 export async function createOpenCodeLaneThread(
 	cwd: string,
 	model: string,
@@ -55,7 +59,7 @@ export async function createOpenCodeLaneThread(
 		});
 		const request = async (path: string, method = "GET", body?: object) => {
 			const response = await fetch(
-				`${endpoint}${path}${path.includes("?") ? "&" : "?"}directory=${encodeURIComponent(cwd)}`,
+				`${endpoint}${path}?location[directory]=${encodeURIComponent(cwd)}`,
 				{
 					method,
 					headers: {
@@ -74,49 +78,64 @@ export async function createOpenCodeLaneThread(
 				);
 			return response.json();
 		};
-		const health = (await request("/global/health")) as {
-			healthy?: boolean;
-			version?: string;
-		};
-		if (!health.healthy || !health.version)
-			throw new Error("OpenCode backend unavailable");
+		const info = (await request("/api/info").catch(() => undefined)) as
+			| { version?: unknown }
+			| undefined;
+		if (typeof info?.version !== "string" || !info.version)
+			throw new Error(
+				"This OpenCode is too old for Tedix tasks: update OpenCode to version 2 or newer",
+			);
 		// No model from Tedix: use the one OpenCode itself is set to, else the
 		// default of the first provider it is signed in to.
 		if (!MODEL.test(model)) {
-			const config = (await request("/config")) as { model?: unknown };
-			const providers = (await request("/config/providers").catch(
-				() => ({}),
-			)) as { default?: Record<string, string> };
-			const defaults = Object.entries(providers.default ?? {}).sort(
-				([a], [b]) => Number(a === "opencode") - Number(b === "opencode"),
-			);
-			model =
-				typeof config.model === "string" && MODEL.test(config.model)
-					? config.model
-					: defaults[0]
-						? `${defaults[0][0]}/${defaults[0][1]}`
-						: "";
+			// Config documents come lowest priority first, so the last one that
+			// names a model is the one OpenCode uses.
+			const chosen = (
+				(await request("/api/config")) as {
+					info?: { model?: { providerID?: unknown; model?: unknown } };
+				}[]
+			)
+				.map((entry) => entry?.info?.model)
+				.filter((entry) => entry?.providerID && entry.model)
+				.at(-1);
+			const fallback = chosen
+				? undefined
+				: (
+						(await request("/api/model/default").catch(() => ({}))) as {
+							data?: { providerID?: unknown; modelID?: unknown } | null;
+						}
+					).data;
+			model = chosen
+				? `${String(chosen.providerID)}/${String(chosen.model)}`
+				: fallback?.providerID && fallback.modelID
+					? `${String(fallback.providerID)}/${String(fallback.modelID)}`
+					: "";
 			if (!MODEL.test(model))
 				throw new Error(
 					"OpenCode has no model to use: open OpenCode, connect a provider and choose a model",
 				);
 		}
-		const session = (await request(
-			resume ? `/session/${resume}` : "/session",
-			resume ? "GET" : "POST",
-			resume ? undefined : {},
-		)) as { id: string; directory: string };
+		const session = (
+			(await request(
+				resume ? `/api/session/${resume}` : "/api/session",
+				resume ? "GET" : "POST",
+				resume ? undefined : { location: { directory: cwd } },
+			)) as { data?: { id?: unknown; location?: { directory?: unknown } } }
+		).data;
+		const directory = session?.location?.directory;
 		if (
+			typeof session?.id !== "string" ||
+			typeof directory !== "string" ||
 			!opencodeSessionId.test(session.id) ||
 			(resume && session.id !== resume) ||
-			realpathSync(session.directory) !== realpathSync(cwd)
+			realpathSync(directory) !== realpathSync(cwd)
 		)
 			throw new Error(
 				"OpenCode did not return this worktree's persistent native session",
 			);
 		const slash = model.indexOf("/");
 		return {
-			thread: { id: session.id, cliVersion: health.version },
+			thread: { id: session.id, cliVersion: info.version },
 			model: model.slice(slash + 1),
 			modelProvider: model.slice(0, slash),
 		};

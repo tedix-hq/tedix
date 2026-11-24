@@ -33,9 +33,9 @@ import { appendFileSync } from 'node:fs';
 const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request) {
  const url = new URL(request.url); appendFileSync(${JSON.stringify(requests)}, JSON.stringify({path:url.pathname,method:request.method})+'\\n');
  if (!request.headers.get('authorization')?.startsWith('Basic ')) return new Response('',{status:401});
- if (url.pathname === '/global/health') return Response.json({healthy:true,version:'1.2.3'});
- if (url.pathname === '/config') return Response.json({model:'azure/fictional-default'});
- if (url.pathname === '/session' || url.pathname === '/session/${id}') return Response.json({id:${JSON.stringify(id)},directory:${JSON.stringify(dir)}});
+ if (url.pathname === '/api/info') return Response.json({version:'2.3.4'});
+ if (url.pathname === '/api/config') return Response.json([{type:'document',info:{model:{providerID:'other',model:'lower-priority'}}},{type:'directory'},{type:'document',info:{model:{providerID:'azure',model:'fictional-default'}}}]);
+ if (url.pathname === '/api/session' || url.pathname === '/api/session/${id}') return Response.json({data:{id:${JSON.stringify(id)},location:{directory:${JSON.stringify(dir)}}}});
  return new Response('',{status:404});
 }}); console.log('opencode server listening on '+server.url.origin);`,
 	);
@@ -193,17 +193,16 @@ it("requires persisted proof that the stalled assistant message has no tool part
 		info: { id },
 		messages: [
 			{
-				info: { id: "safe", role: "assistant" },
-				parts: [{ type: "text", text: "starting" }],
+				id: "safe",
+				type: "assistant",
+				content: [{ type: "text", text: "starting" }],
 			},
 			{
-				info: { id: "unsafe", role: "assistant" },
-				parts: [
-					{
-						type: "tool",
-						tool: "shell",
-						state: { status: "running", input: {} },
-					},
+				id: "unsafe",
+				type: "assistant",
+				content: [
+					{ type: "text", text: "running a command" },
+					{ type: "tool", tool: "shell" },
 				],
 			},
 		],
