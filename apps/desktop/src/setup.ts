@@ -159,6 +159,10 @@ const TOOLS: Tool[] = [
 				return false;
 			}
 		},
+		// Devin lists Tedix whether or not it is signed in; only starting its
+		// connection says which. Without this the row trusted a day-old check.
+		connection: (command) =>
+			checkDevinConnection(command, CONNECT_URL, () => {}),
 		signIn: ["mcp", "login", "tedix"],
 		accountSignIn: ["auth", "login"],
 	},
