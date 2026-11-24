@@ -1,3 +1,4 @@
+import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
@@ -131,6 +132,10 @@ export async function applyOsBlueprintUpgrade(
 							currentRevisionId: sql<
 								string | null
 							>`${gadget.currentRevisionId ?? null}`.as("current_revision_id"),
+							hasWorkNavigation:
+								sql<boolean>`${osGadgetHasWorkNavigation(revision.manifest) ? 1 : 0}`.as(
+									"has_work_navigation",
+								),
 							hasRuntimeTriggers:
 								sql<boolean>`${osGadgetHasRuntimeTriggers(revision.manifest) ? 1 : 0}`.as(
 									"has_runtime_triggers",
@@ -243,6 +248,9 @@ export async function applyOsBlueprintUpgrade(
 						? {
 								currentRevisionId: sync.append.revisionId,
 								hasRuntimeTriggers: osGadgetHasRuntimeTriggers(
+									sync.append.manifest,
+								),
+								hasWorkNavigation: osGadgetHasWorkNavigation(
 									sync.append.manifest,
 								),
 							}

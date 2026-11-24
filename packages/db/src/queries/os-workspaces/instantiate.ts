@@ -1,3 +1,4 @@
+import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import { and, eq } from "drizzle-orm";
 import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import { getOsWorkspace } from "./workspaces";
@@ -154,6 +155,9 @@ export async function instantiateOsBlueprint(
 		params.gadgets.map((gadget) => ({
 			...gadget,
 			hasRuntimeTriggers: osGadgetHasRuntimeTriggers(
+				revisionsById.get(gadget.currentRevisionId ?? "")?.manifest ?? "{}",
+			),
+			hasWorkNavigation: osGadgetHasWorkNavigation(
 				revisionsById.get(gadget.currentRevisionId ?? "")?.manifest ?? "{}",
 			),
 		})),

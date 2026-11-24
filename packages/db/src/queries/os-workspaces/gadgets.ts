@@ -1,3 +1,4 @@
+import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -386,6 +387,7 @@ export async function createOsGadgetRevision(
 		.set({
 			currentRevisionId: params.id,
 			hasRuntimeTriggers: osGadgetHasRuntimeTriggers(params.manifest),
+			hasWorkNavigation: osGadgetHasWorkNavigation(params.manifest),
 			updatedAt: now,
 			...(params.sourceBlueprintRevisionId
 				? { sourceBlueprintRevisionId: params.sourceBlueprintRevisionId }
@@ -433,35 +435,28 @@ export async function listOsWorkApps(
 	limit: number,
 	workspaceId?: string,
 ) {
+	// CROSS JOIN keeps the ordered gadget seek ahead of workspace and revision lookups.
 	return db
 		.select({
 			gadget: prefixedColumns(osGadgets, "gadget"),
 			revision: prefixedColumns(osGadgetRevisions, "revision"),
 		})
 		.from(osGadgets)
-		.innerJoin(
-			osWorkspaces,
+		.crossJoin(osWorkspaces)
+		.crossJoin(osGadgetRevisions)
+		.where(
 			and(
 				eq(osWorkspaces.id, osGadgets.workspaceId),
 				eq(osWorkspaces.organizationId, organizationId),
-			),
-		)
-		.innerJoin(
-			osGadgetRevisions,
-			and(
 				eq(osGadgetRevisions.id, osGadgets.currentRevisionId),
-				eq(osGadgetRevisions.organizationId, organizationId),
-				eq(osGadgetRevisions.gadgetId, osGadgets.id),
-			),
-		)
-		.where(
-			and(
+				sql`+${osGadgetRevisions.organizationId} = ${organizationId}`,
+				sql`+${osGadgetRevisions.gadgetId} = ${osGadgets.id}`,
 				eq(osGadgets.organizationId, organizationId),
 				eq(osGadgets.status, "active"),
 				workspaceId ? eq(osGadgets.workspaceId, workspaceId) : undefined,
 				eq(osWorkspaces.status, "active"),
 				osWorkspaceVisibleToPredicate(viewer),
-				sql`(json_extract(${osGadgetRevisions.manifest}, '$.navigation.work') IN ('deck', 'feed') OR json_extract(${osGadgetRevisions.manifest}, '$.navigation.board') = 1)`,
+				eq(osGadgets.hasWorkNavigation, true),
 			),
 		)
 		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))

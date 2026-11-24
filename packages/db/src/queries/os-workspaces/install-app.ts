@@ -1,3 +1,4 @@
+import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
@@ -206,6 +207,7 @@ export async function installWorkspaceApp(
 				hasRuntimeTriggers: osGadgetHasRuntimeTriggers(
 					params.revision.manifest,
 				),
+				hasWorkNavigation: osGadgetHasWorkNavigation(params.revision.manifest),
 			})
 			.onConflictDoNothing({ target: osGadgets.id }),
 		db

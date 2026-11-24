@@ -81,6 +81,7 @@ function fixture() {
 			status TEXT NOT NULL DEFAULT 'active',
 			current_revision_id TEXT,
 			has_runtime_triggers INTEGER NOT NULL DEFAULT 0,
+			has_work_navigation INTEGER NOT NULL DEFAULT 0,
 			trigger_enabled TEXT NOT NULL DEFAULT '{}',
 			created_by_kind TEXT NOT NULL,
 			created_by_id TEXT NOT NULL,

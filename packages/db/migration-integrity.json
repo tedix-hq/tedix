@@ -2020,6 +2020,10 @@
 		{
 			"name": "20261124192517_agent_session_events_kind_order/migration.sql",
 			"sha256": "488bda272d4a5b3e898de3a0678a92dddd44aa0cca1d17dc91f58ace89b5bbd6"
+		},
+		{
+			"name": "20261124210653_work-app-navigation/migration.sql",
+			"sha256": "c52fea2928907bcdb4eaec6989c47f93576083b1cf628ec35b044a3a11dd58e0"
 		}
 	]
 }

@@ -1,3 +1,4 @@
+import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import {
 	OsAppDraftContentSchema,
 	type OsAppDraftContent,
@@ -687,6 +688,7 @@ async function mergeOsCollaborationProposalUnannounced(
 			.set({
 				currentRevisionId: params.revisionId,
 				hasRuntimeTriggers: osGadgetHasRuntimeTriggers(manifest),
+				hasWorkNavigation: osGadgetHasWorkNavigation(manifest),
 				updatedAt: now,
 				...(sourceBlueprintRevisionId
 					? {

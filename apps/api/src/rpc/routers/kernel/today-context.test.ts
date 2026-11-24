@@ -1,13 +1,13 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
-import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
+import { readWorkApps } from "../../../services/work-apps";
 import { getOsOutput } from "../../../services/workspace-output-storage";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import { readSavedToday } from "./today-context";
 
-vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
-	listOsWorkApps: vi.fn(),
+vi.mock("../../../services/work-apps", () => ({
+	readWorkApps: vi.fn(),
 }));
 vi.mock("../../../services/workspace-output-storage", () => ({
 	getOsOutput: vi.fn(),
@@ -55,7 +55,7 @@ const content = {
 };
 beforeEach(() => {
 	vi.resetAllMocks();
-	vi.mocked(listOsWorkApps).mockResolvedValue([
+	vi.mocked(readWorkApps).mockResolvedValue([
 		{
 			revision: {
 				manifest: JSON.stringify({
@@ -98,7 +98,7 @@ it("reads the saved Feed edition without recomputing progress, retaining its dat
 	expect(text).toContain("[Website](/work/projects/website)");
 	expect(text).toContain("[1 task finished.](/work?view=feed&project=website)");
 	expect(text).toContain("6 projects quiet");
-	expect(listOsWorkApps).toHaveBeenCalledWith(
+	expect(readWorkApps).toHaveBeenCalledWith(
 		db,
 		"fictional-org",
 		{ userIds: [] },

@@ -1,3 +1,4 @@
+import { readWorkApps } from "../../services/work-apps";
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import { WorkFactoryError } from "@tedix/db/queries/work-items/factory-state";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -86,7 +87,6 @@ import {
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	listOsGadgets,
-	listOsWorkApps,
 	restoreOsGadget,
 	updateOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
@@ -291,7 +291,7 @@ const installWorkDefaults = authorOs.gadgets.installWorkDefaults.handler(
 const workApps = readOs.gadgets.workApps.handler(async ({ input, context }) => {
 	const { resolveOsWorkspaceViewer } =
 		await import("../../services/os-workspace-visibility");
-	const rows = await listOsWorkApps(
+	const rows = await readWorkApps(
 		queryDb(context),
 		requireOrgId(context),
 		await resolveOsWorkspaceViewer(context),

@@ -1,6 +1,6 @@
 import { workSourceManifest } from "@tedix/api-contract/assets/work-view-blueprint";
 import type { DbClient } from "@tedix/db/client";
-import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
+import { readWorkApps } from "../../../services/work-apps";
 import { getOsOutput } from "../../../services/workspace-output-storage";
 import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -15,7 +15,7 @@ export async function readSavedToday(
 	organizationId: string,
 	personId: string,
 ) {
-	const apps = await listOsWorkApps(db, organizationId, { userIds: [] }, 201);
+	const apps = await readWorkApps(db, organizationId, { userIds: [] }, 201);
 	if (apps.length > 200) return null;
 	const feed = apps
 		.map((app) =>
