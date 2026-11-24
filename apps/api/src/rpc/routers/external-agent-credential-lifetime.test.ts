@@ -185,6 +185,48 @@ function client() {
 	});
 }
 describe("enrollment-bounded MCP credential issuance", () => {
+	it("names a pending provider call without logging credentials and preserves failure cleanup", async () => {
+		const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+		let rejectProvider!: (error: Error) => void;
+		let providerStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			providerStarted = resolve;
+		});
+		mocks.create.mockImplementationOnce(() => {
+			providerStarted();
+			return new Promise((_resolve, reject) => {
+				rejectProvider = reject;
+			});
+		});
+		const issuing = client().issueMcpCredential(INPUT);
+		await started;
+		expect(logs.mock.calls.at(-1)?.[0]).toEqual({
+			event: "external_agent_mcp_issuance_phase",
+			phase: "createDescopeMcpServerClient",
+			status: "started",
+			elapsedMs: 0,
+		});
+		vi.setSystemTime(new Date(Date.parse(NOW) + 7_000));
+		const rejected = expect(issuing).rejects.toMatchObject({
+			code: "INTERNAL_SERVER_ERROR",
+			message: expect.stringContaining("private-provider-error"),
+		});
+		rejectProvider(new Error("private-provider-error"));
+		await rejected;
+		expect(logs).toHaveBeenCalledWith({
+			event: "external_agent_mcp_issuance_phase",
+			phase: "createDescopeMcpServerClient",
+			status: "failed",
+			elapsedMs: 7_000,
+		});
+		// A failed provider call must still release the lease for the next issuance.
+		expect((await client().issueMcpCredential(INPUT)).accessToken).toBe(
+			"fixture-bearer",
+		);
+		expect(JSON.stringify(logs.mock.calls)).not.toMatch(
+			/private-provider-error|fixture-secret|fixture-management|fixture-bearer/,
+		);
+	});
 	it("caps both initial issuance and renewal to the two-minute enrollment deadline", async () => {
 		const first = await client().issueMcpCredential(INPUT);
 		expect(first.expiresIn).toBe(120);

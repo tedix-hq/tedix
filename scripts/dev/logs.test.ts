@@ -42,12 +42,14 @@ test("compact rows preserve both timing formats and RPC elapsed messages without
 			timestamp: 0,
 			source: {
 				event: "save",
+				phase: "exchangeAihClientCredentials",
+				status: "started",
 				handlerMs: 431,
 				total_ms: 300,
 				message: "--> POST /rpc/audit/createEvent \u001b[32m200\u001b[0m 113ms",
 				body: "private payload",
 			},
-			$workers: { wallTimeMs: 809 },
+			$workers: { wallTimeMs: 809, outcome: "canceled" },
 			$metadata: { traceId: "example" },
 		}),
 	);
@@ -55,6 +57,9 @@ test("compact rows preserve both timing formats and RPC elapsed messages without
 		handlerMs: 431,
 		total_ms: 300,
 		wallTimeMs: 809,
+		workerOutcome: "canceled",
+		phase: "exchangeAihClientCredentials",
+		status: "started",
 		trace: "example",
 		message: "--> POST /rpc/audit/createEvent 200 113ms",
 	});

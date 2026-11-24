@@ -64,7 +64,12 @@ type LogEvent = {
 	timestamp: number;
 	source?: Record<string, unknown>;
 	$metadata?: { service?: string; traceId?: string; requestId?: string };
-	$workers?: { wallTimeMs?: number; cpuTimeMs?: number };
+	$workers?: {
+		wallTimeMs?: number;
+		cpuTimeMs?: number;
+		outcome?: string;
+		event?: { response?: { status?: number } };
+	};
 };
 
 export function compactRow(event: LogEvent) {
@@ -82,6 +87,11 @@ export function compactRow(event: LogEvent) {
 		event: source.event ?? source._tr ?? source.eventType,
 		level: source.level,
 		outcome: source.outcome,
+		phase: source.phase,
+		status: source.status,
+		procedure: source.procedure,
+		workerOutcome: event.$workers?.outcome,
+		httpStatus: event.$workers?.event?.response?.status,
 		message:
 			typeof source.message === "string"
 				? source.message.replace(/\x1b\[[0-9;]*m/g, "")

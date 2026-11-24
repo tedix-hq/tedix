@@ -1693,6 +1693,36 @@ async function resolveIssuedMcpLifetime(
 	};
 }
 
+// Emit the start before awaiting: a canceled Worker cannot log a final duration.
+// Cloudflare supplies request/trace IDs; never include arguments, results or errors.
+async function measureMcpIssuancePhase<T>(
+	phase: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const startedAt = Date.now();
+	const emit = (status: "started" | "succeeded" | "failed") => {
+		try {
+			console.info({
+				event: "external_agent_mcp_issuance_phase",
+				phase,
+				status,
+				elapsedMs: Date.now() - startedAt,
+			});
+		} catch {
+			// Logging must not change credential issuance or cleanup.
+		}
+	};
+	emit("started");
+	try {
+		const result = await operation();
+		emit("succeeded");
+		return result;
+	} catch (error) {
+		emit("failed");
+		throw error;
+	}
+}
+
 async function issueMcpCredentialForOrganization(
 	input: {
 		organizationId?: string;
@@ -1706,20 +1736,26 @@ async function issueMcpCredentialForOrganization(
 	organizationId: string,
 	federation?: FederatedWorkloadToken,
 ) {
-	const active = await resolveActiveExternalAgentSession(context.db, {
-		organizationId,
-		principalId: input.principalId,
-		sessionId: input.sessionId,
-	});
+	const active = await measureMcpIssuancePhase(
+		"resolveActiveExternalAgentSession",
+		() =>
+			resolveActiveExternalAgentSession(context.db, {
+				organizationId,
+				principalId: input.principalId,
+				sessionId: input.sessionId,
+			}),
+	);
 	if (!active) {
 		throw createError(ErrorCodes.NOT_FOUND, "Active session not found");
 	}
 	if (
-		!(await consumeExternalAgentExchangeBudget(context.db, {
-			organizationId,
-			principalId: input.principalId,
-			nowMs: Date.now(),
-		}))
+		!(await measureMcpIssuancePhase("consumeExternalAgentExchangeBudget", () =>
+			consumeExternalAgentExchangeBudget(context.db, {
+				organizationId,
+				principalId: input.principalId,
+				nowMs: Date.now(),
+			}),
+		))
 	) {
 		throw createError(
 			ErrorCodes.TOO_MANY_REQUESTS,
@@ -1728,10 +1764,10 @@ async function issueMcpCredentialForOrganization(
 	}
 
 	const aihEnv = requireAihEnv(context.env);
-	const { mcpServerId, mcpServerUrl } = await resolveMcpCredentialTarget(
-		context,
-		organizationId,
-		input.mcpServerUrl,
+	const { mcpServerId, mcpServerUrl } = await measureMcpIssuancePhase(
+		"resolveMcpCredentialTarget",
+		() =>
+			resolveMcpCredentialTarget(context, organizationId, input.mcpServerUrl),
 	);
 	const config = workloadFederationConfig(active.principal.metadata);
 	// Platform administration always asks the provider; everything else may use
@@ -1759,28 +1795,35 @@ async function issueMcpCredentialForOrganization(
 			throw createError(ErrorCodes.UNAUTHORIZED, "Invalid federated bearer");
 		const tokenScopes = extractJwtScopes(tokenPayload);
 		resolveFederatedWorkloadScopes(tokenScopes, input.scopes);
-		const server = await loadMcpServerRegistration(aihEnv, mcpServerId, {
-			fresh,
-		});
+		const server = await measureMcpIssuancePhase(
+			"loadMcpServerRegistration",
+			() =>
+				loadMcpServerRegistration(aihEnv, mcpServerId, {
+					fresh,
+				}),
+		);
 		resolveExternalAgentMcpClientScopes(tokenScopes, server.approvedScopes);
 		const now = new Date();
 		const expiresIn = Math.floor(federation.expiresAt - now.getTime() / 1000);
 		if (expiresIn <= 0)
 			throw createError(ErrorCodes.UNAUTHORIZED, "Federated token expired");
-		const clientRecordId = await federatedWorkloadCredentialId(
-			federation.accessToken,
+		const clientRecordId = await measureMcpIssuancePhase(
+			"federatedWorkloadCredentialId",
+			() => federatedWorkloadCredentialId(federation.accessToken),
 		);
-		await recordExternalAgentMcpCredential(context.db, {
-			id: crypto.randomUUID(),
-			organizationId,
-			principalId: input.principalId,
-			sessionId: input.sessionId,
-			clientRecordId,
-			mcpServerId,
-			mcpServerUrl,
-			issuedAt: now.toISOString(),
-			expiresAt: new Date(federation.expiresAt * 1000).toISOString(),
-		});
+		await measureMcpIssuancePhase("recordExternalAgentMcpCredential", () =>
+			recordExternalAgentMcpCredential(context.db, {
+				id: crypto.randomUUID(),
+				organizationId,
+				principalId: input.principalId,
+				sessionId: input.sessionId,
+				clientRecordId,
+				mcpServerId,
+				mcpServerUrl,
+				issuedAt: now.toISOString(),
+				expiresAt: new Date(federation.expiresAt * 1000).toISOString(),
+			}),
+		);
 		console.log(
 			JSON.stringify({
 				event: "external_agent_workload_credential_issued",
@@ -1809,12 +1852,16 @@ async function issueMcpCredentialForOrganization(
 		mcpServerId,
 		ownerToken: leaseOwnerToken,
 	};
-	const acquired = await acquireExternalAgentMcpIssuanceLease(context.db, {
-		...leaseInput,
-		id: crypto.randomUUID(),
-		now: leaseStartedAt.toISOString(),
-		expiresAt: new Date(leaseStartedAt.getTime() + 120_000).toISOString(),
-	});
+	const acquired = await measureMcpIssuancePhase(
+		"acquireExternalAgentMcpIssuanceLease",
+		() =>
+			acquireExternalAgentMcpIssuanceLease(context.db, {
+				...leaseInput,
+				id: crypto.randomUUID(),
+				now: leaseStartedAt.toISOString(),
+				expiresAt: new Date(leaseStartedAt.getTime() + 120_000).toISOString(),
+			}),
+	);
 	if (!acquired) {
 		throw createError(
 			ErrorCodes.CONFLICT,
@@ -1825,21 +1872,26 @@ async function issueMcpCredentialForOrganization(
 		null;
 	let reusedClientRecordId: string | null = null;
 	try {
-		const mcpServer = await loadMcpServerRegistration(aihEnv, mcpServerId, {
-			fresh,
-		});
+		const mcpServer = await measureMcpIssuancePhase(
+			"loadMcpServerRegistration",
+			() =>
+				loadMcpServerRegistration(aihEnv, mcpServerId, {
+					fresh,
+				}),
+		);
 		const desiredScopes = resolveExternalAgentMcpClientScopes(
 			input.scopes,
 			mcpServer.approvedScopes,
 		);
-		const activeCredentials = await listActiveExternalAgentMcpCredentials(
-			context.db,
-			{
-				organizationId,
-				principalId: input.principalId,
-				sessionId: input.sessionId,
-				mcpServerId,
-			},
+		const activeCredentials = await measureMcpIssuancePhase(
+			"listActiveExternalAgentMcpCredentials",
+			() =>
+				listActiveExternalAgentMcpCredentials(context.db, {
+					organizationId,
+					principalId: input.principalId,
+					sessionId: input.sessionId,
+					mcpServerId,
+				}),
 		);
 		const identityTags = [
 			"external-agent",
@@ -1864,9 +1916,13 @@ async function issueMcpCredentialForOrganization(
 		);
 		if (!reusable && activeCredentials.length) {
 			const mark = mcpServerClientsMark();
-			registeredClients = await searchDescopeMcpServerClients(aihEnv, {
-				mcpServerId,
-			});
+			registeredClients = await measureMcpIssuancePhase(
+				"searchDescopeMcpServerClients",
+				() =>
+					searchDescopeMcpServerClients(aihEnv, {
+						mcpServerId,
+					}),
+			);
 			if (!fresh)
 				rememberMcpServerClients(
 					mcpServerId,
@@ -1915,10 +1971,14 @@ async function issueMcpCredentialForOrganization(
 
 		if (reusable) {
 			reusedClientRecordId = reusable.clientRecordId;
-			const secret = await getDescopeMcpServerClientSecret(aihEnv, {
-				id: reusable.clientRecordId,
-				mcpServerId,
-			});
+			const secret = await measureMcpIssuancePhase(
+				"getDescopeMcpServerClientSecret",
+				() =>
+					getDescopeMcpServerClientSecret(aihEnv, {
+						id: reusable.clientRecordId,
+						mcpServerId,
+					}),
+			);
 			const registered = registeredClients.find(
 				(candidate) => candidate.id === reusable.clientRecordId,
 			);
@@ -1927,31 +1987,45 @@ async function issueMcpCredentialForOrganization(
 				throw baseErrorConstructors.BAD_GATEWAY({
 					message: "Reusable AIH MCP client is missing its client id",
 				});
-			const token = await exchangeAihClientCredentials(
-				{ DESCOPE_PROJECT_ID: aihEnv.DESCOPE_PROJECT_ID },
-				mcpServerUrl,
-				clientId,
-				secret,
+			const token = await measureMcpIssuancePhase(
+				"exchangeAihClientCredentials",
+				() =>
+					exchangeAihClientCredentials(
+						{ DESCOPE_PROJECT_ID: aihEnv.DESCOPE_PROJECT_ID },
+						mcpServerUrl,
+						clientId,
+						secret,
+					),
 			);
 			const issuedAt = new Date();
-			const lifetime = await resolveIssuedMcpLifetime(
-				context,
-				active.principal,
-				token.expiresIn,
-				issuedAt,
+			const lifetime = await measureMcpIssuancePhase(
+				"resolveIssuedMcpLifetime",
+				() =>
+					resolveIssuedMcpLifetime(
+						context,
+						active.principal,
+						token.expiresIn,
+						issuedAt,
+					),
 			);
-			await refreshExternalAgentMcpCredentialUnderLease(context.db, {
-				organizationId,
-				principalId: input.principalId,
-				sessionId: input.sessionId,
-				clientRecordId: reusable.clientRecordId,
-				mcpServerId,
-				leaseOwnerToken,
-				leaseNow: issuedAt.toISOString(),
-				issuedAt: issuedAt.toISOString(),
-				expiresAt: lifetime.expiresAt,
-			});
-			await invalidateMcpClientCache(context.env, mcpServerId).catch((error) =>
+			await measureMcpIssuancePhase(
+				"refreshExternalAgentMcpCredentialUnderLease",
+				() =>
+					refreshExternalAgentMcpCredentialUnderLease(context.db, {
+						organizationId,
+						principalId: input.principalId,
+						sessionId: input.sessionId,
+						clientRecordId: reusable.clientRecordId,
+						mcpServerId,
+						leaseOwnerToken,
+						leaseNow: issuedAt.toISOString(),
+						issuedAt: issuedAt.toISOString(),
+						expiresAt: lifetime.expiresAt,
+					}),
+			);
+			await measureMcpIssuancePhase("invalidateMcpClientCache", () =>
+				invalidateMcpClientCache(context.env, mcpServerId),
+			).catch((error) =>
 				console.error(
 					"[ExternalAgentIdentity] MCP client cache invalidation failed",
 					{ exception: safeExceptionTopology(error) },
@@ -1965,53 +2039,72 @@ async function issueMcpCredentialForOrganization(
 			};
 		}
 
-		client = await createDescopeMcpServerClient(aihEnv, {
-			forceAddAllAuthorizationInfo: true,
-			mcpServerId,
-			name:
-				input.clientName ??
-				`External agent ${active.principal.displayName} ${active.session.harness}`,
-			scopes: desiredScopes,
-			tags: identityTags,
-		});
-		const token = await exchangeAihClientCredentials(
-			{ DESCOPE_PROJECT_ID: aihEnv.DESCOPE_PROJECT_ID },
-			mcpServerUrl,
-			client.clientId,
-			client.clientSecret,
+		client = await measureMcpIssuancePhase("createDescopeMcpServerClient", () =>
+			createDescopeMcpServerClient(aihEnv, {
+				forceAddAllAuthorizationInfo: true,
+				mcpServerId,
+				name:
+					input.clientName ??
+					`External agent ${active.principal.displayName} ${active.session.harness}`,
+				scopes: desiredScopes,
+				tags: identityTags,
+			}),
+		);
+		const issuedClient = client;
+		const token = await measureMcpIssuancePhase(
+			"exchangeAihClientCredentials",
+			() =>
+				exchangeAihClientCredentials(
+					{ DESCOPE_PROJECT_ID: aihEnv.DESCOPE_PROJECT_ID },
+					mcpServerUrl,
+					issuedClient.clientId,
+					issuedClient.clientSecret,
+				),
 		);
 		const issuedAt = new Date();
-		const lifetime = await resolveIssuedMcpLifetime(
-			context,
-			active.principal,
-			token.expiresIn,
-			issuedAt,
+		const lifetime = await measureMcpIssuancePhase(
+			"resolveIssuedMcpLifetime",
+			() =>
+				resolveIssuedMcpLifetime(
+					context,
+					active.principal,
+					token.expiresIn,
+					issuedAt,
+				),
 		);
-		await bindPrincipalIdentity(context.db, {
-			organizationId,
-			principalType: "external_agent",
-			principalId: input.principalId,
-			provider: "descope",
-			issuer: descopeIssuer(
-				aihEnv.DESCOPE_PROJECT_ID,
-				DESCOPE_MANAGEMENT_BASE_URL,
-			),
-			subject: client.clientId,
-		});
-		await recordExternalAgentMcpCredentialUnderLease(context.db, {
-			id: crypto.randomUUID(),
-			organizationId,
-			principalId: input.principalId,
-			sessionId: input.sessionId,
-			clientRecordId: client.id,
-			mcpServerId,
-			mcpServerUrl,
-			leaseOwnerToken,
-			leaseNow: issuedAt.toISOString(),
-			issuedAt: issuedAt.toISOString(),
-			expiresAt: lifetime.expiresAt,
-		});
-		await invalidateMcpClientCache(context.env, mcpServerId).catch((error) =>
+		await measureMcpIssuancePhase("bindPrincipalIdentity", () =>
+			bindPrincipalIdentity(context.db, {
+				organizationId,
+				principalType: "external_agent",
+				principalId: input.principalId,
+				provider: "descope",
+				issuer: descopeIssuer(
+					aihEnv.DESCOPE_PROJECT_ID,
+					DESCOPE_MANAGEMENT_BASE_URL,
+				),
+				subject: issuedClient.clientId,
+			}),
+		);
+		await measureMcpIssuancePhase(
+			"recordExternalAgentMcpCredentialUnderLease",
+			() =>
+				recordExternalAgentMcpCredentialUnderLease(context.db, {
+					id: crypto.randomUUID(),
+					organizationId,
+					principalId: input.principalId,
+					sessionId: input.sessionId,
+					clientRecordId: issuedClient.id,
+					mcpServerId,
+					mcpServerUrl,
+					leaseOwnerToken,
+					leaseNow: issuedAt.toISOString(),
+					issuedAt: issuedAt.toISOString(),
+					expiresAt: lifetime.expiresAt,
+				}),
+		);
+		await measureMcpIssuancePhase("invalidateMcpClientCache", () =>
+			invalidateMcpClientCache(context.env, mcpServerId),
+		).catch((error) =>
 			console.error(
 				"[ExternalAgentIdentity] MCP client cache invalidation failed",
 				{ exception: safeExceptionTopology(error) },
@@ -2019,7 +2112,7 @@ async function issueMcpCredentialForOrganization(
 		);
 		return {
 			accessToken: token.accessToken,
-			clientRecordId: client.id,
+			clientRecordId: issuedClient.id,
 			expiresIn: lifetime.expiresIn,
 			mcpServerUrl,
 		};
@@ -2028,18 +2121,23 @@ async function issueMcpCredentialForOrganization(
 		if (reusedClientRecordId)
 			forgetMcpServerClients(mcpServerId, reusedClientRecordId);
 		if (client) {
-			await revokePrincipalIdentity(context.db, {
-				provider: "descope",
-				issuer: descopeIssuer(
-					aihEnv.DESCOPE_PROJECT_ID,
-					DESCOPE_MANAGEMENT_BASE_URL,
-				),
-				subject: client.clientId,
-			}).catch(() => undefined);
-			await deleteDescopeMcpServerClient(aihEnv, {
-				id: client.id,
-				mcpServerId,
-			}).catch(() => {});
+			const failedClient = client;
+			await measureMcpIssuancePhase("revokePrincipalIdentity", () =>
+				revokePrincipalIdentity(context.db, {
+					provider: "descope",
+					issuer: descopeIssuer(
+						aihEnv.DESCOPE_PROJECT_ID,
+						DESCOPE_MANAGEMENT_BASE_URL,
+					),
+					subject: failedClient.clientId,
+				}),
+			).catch(() => undefined);
+			await measureMcpIssuancePhase("deleteDescopeMcpServerClient", () =>
+				deleteDescopeMcpServerClient(aihEnv, {
+					id: failedClient.id,
+					mcpServerId,
+				}),
+			).catch(() => {});
 		}
 		if (error instanceof ORPCError) {
 			throw error;
@@ -2051,12 +2149,13 @@ async function issueMcpCredentialForOrganization(
 				: "External-agent MCP credential issuance failed",
 		);
 	} finally {
-		await releaseExternalAgentMcpIssuanceLease(context.db, leaseInput).catch(
-			(error) =>
-				console.error(
-					"[ExternalAgentIdentity] MCP issuance lease release failed",
-					{ exception: safeExceptionTopology(error) },
-				),
+		await measureMcpIssuancePhase("releaseExternalAgentMcpIssuanceLease", () =>
+			releaseExternalAgentMcpIssuanceLease(context.db, leaseInput),
+		).catch((error) =>
+			console.error(
+				"[ExternalAgentIdentity] MCP issuance lease release failed",
+				{ exception: safeExceptionTopology(error) },
+			),
 		);
 	}
 }
