@@ -328,6 +328,36 @@ export async function tedisDeniedUnifiedGatewayScope(params: {
 	organizationId: string;
 	scope: string;
 }): Promise<Set<string>> {
+	// The search returns every client on the gateway (17.5 MB, ~3 s on 24 Nov),
+	// so a reply turn reuses an answer from the last few minutes.
+	const key = JSON.stringify([params.organizationId, params.scope]);
+	const cached = deniedScopeCache.get(key);
+	if (cached && cached.expiresAt > Date.now()) return new Set(cached.denied);
+	const denied = await searchTedisDeniedUnifiedGatewayScope(params);
+	deniedScopeCache.set(key, {
+		denied: [...denied],
+		expiresAt: Date.now() + DENIED_SCOPE_CACHE_MS,
+	});
+	return denied;
+}
+
+const DENIED_SCOPE_CACHE_MS = 5 * 60_000;
+const deniedScopeCache = new Map<
+	string,
+	{ denied: string[]; expiresAt: number }
+>();
+
+/** Test hook: drop remembered denied-scope answers. */
+export function forgetTedisDeniedUnifiedGatewayScope(): void {
+	deniedScopeCache.clear();
+}
+
+async function searchTedisDeniedUnifiedGatewayScope(params: {
+	env: AihEnv;
+	db: DbClient;
+	organizationId: string;
+	scope: string;
+}): Promise<Set<string>> {
 	const serverIds = (
 		await getAppsByOrganization(params.db, params.organizationId)
 	)
@@ -337,7 +367,11 @@ export async function tedisDeniedUnifiedGatewayScope(params: {
 	const clients = (
 		await Promise.all(
 			serverIds.map((mcpServerId) =>
-				searchDescopeMcpServerClients(params.env, { mcpServerId }),
+				searchDescopeMcpServerClients(
+					params.env,
+					{ mcpServerId },
+					{ deadline: Date.now() + 12_000, timeoutMs: 10_000 },
+				),
 			),
 		)
 	).flat();

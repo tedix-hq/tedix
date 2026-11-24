@@ -65,7 +65,7 @@ CREATE TABLE external_agent_sessions (
 );
 CREATE TABLE external_agent_mcp_credentials (
  id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, principal_id TEXT NOT NULL,
- session_id TEXT NOT NULL, client_record_id TEXT NOT NULL, client_id TEXT,
+ session_id TEXT NOT NULL, client_record_id TEXT NOT NULL, client_id TEXT, provider_cleanup_attempted_at TEXT,
  mcp_server_id TEXT NOT NULL, mcp_server_url TEXT NOT NULL,
  status TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL,
  revoked_at TEXT, provider_cleanup_at TEXT

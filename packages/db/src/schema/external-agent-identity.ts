@@ -232,6 +232,11 @@ export const externalAgentMcpCredentials = sqliteTable(
 		 * federated (`wif:`) credentials, which own no Descope client.
 		 */
 		clientId: text("client_id"),
+		/**
+		 * Last failed reaper delete. Failed rows go to the back of the reaper
+		 * queue so one bad batch cannot block everything behind it.
+		 */
+		providerCleanupAttemptedAt: text("provider_cleanup_attempted_at"),
 	},
 	(table) => [
 		foreignKey({

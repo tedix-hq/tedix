@@ -235,8 +235,12 @@ export async function revokeExternalAgentMcpCredential(
 }
 
 /**
- * List expired active credentials and disabled principals' unfinished deletions.
- * Bounded and oldest-first so cleanup drains over successive reaper ticks.
+ * List credentials whose Descope client should be deleted: expired active
+ * ones, and revoked ones whose deletion never finished. Only clients minted
+ * for a credential row qualify, never an M2M principal's binding client.
+ * Rows that never failed come first, then the longest-ago failure, so a batch
+ * Descope keeps rejecting cannot block the rest of the queue. Bounded so
+ * cleanup drains over successive reaper ticks.
  */
 export async function listReapableExternalAgentMcpCredentials(
 	db: DbClient,
@@ -249,20 +253,46 @@ export async function listReapableExternalAgentMcpCredentials(
 		})
 		.from(externalAgentMcpCredentials)
 		.where(
-			or(
-				and(
-					eq(externalAgentMcpCredentials.status, "active"),
-					lt(externalAgentMcpCredentials.expiresAt, params.expiredBefore),
-				),
-				and(
+			and(
+				isNull(externalAgentMcpCredentials.providerCleanupAt),
+				or(
+					and(
+						eq(externalAgentMcpCredentials.status, "active"),
+						lt(externalAgentMcpCredentials.expiresAt, params.expiredBefore),
+					),
 					eq(externalAgentMcpCredentials.status, "revoked"),
-					isNull(externalAgentMcpCredentials.providerCleanupAt),
-					sql`EXISTS (SELECT 1 FROM ${externalAgentPrincipals} AS cleanup_principal WHERE cleanup_principal.organization_id = ${externalAgentMcpCredentials.organizationId} AND cleanup_principal.id = ${externalAgentMcpCredentials.principalId} AND json_extract(cleanup_principal.metadata, '$.providerCleanup') IN ('pending', 'failed'))`,
 				),
+				sql`NOT EXISTS (SELECT 1 FROM ${externalAgentPrincipals} AS binding_principal WHERE binding_principal.organization_id = ${externalAgentMcpCredentials.organizationId} AND binding_principal.credential_binding_type = 'aih_m2m' AND binding_principal.credential_binding_id = ${externalAgentMcpCredentials.clientRecordId})`,
 			),
 		)
-		.orderBy(externalAgentMcpCredentials.expiresAt)
+		.orderBy(
+			sql`${externalAgentMcpCredentials.providerCleanupAttemptedAt} IS NOT NULL`,
+			externalAgentMcpCredentials.providerCleanupAttemptedAt,
+			externalAgentMcpCredentials.expiresAt,
+		)
 		.limit(params.limit);
+}
+
+/**
+ * Record a failed provider delete so these rows move to the back of the
+ * reaper queue. Chunked to stay under D1's bound-parameter ceiling.
+ */
+export async function markExternalAgentMcpCredentialCleanupAttempted(
+	db: DbClient,
+	params: { clientRecordIds: string[]; attemptedAt: string },
+): Promise<void> {
+	for (let i = 0; i < params.clientRecordIds.length; i += 50) {
+		const chunk = params.clientRecordIds.slice(i, i + 50);
+		await db
+			.update(externalAgentMcpCredentials)
+			.set({ providerCleanupAttemptedAt: params.attemptedAt })
+			.where(
+				and(
+					inArray(externalAgentMcpCredentials.clientRecordId, chunk),
+					isNull(externalAgentMcpCredentials.providerCleanupAt),
+				),
+			);
+	}
 }
 
 /**

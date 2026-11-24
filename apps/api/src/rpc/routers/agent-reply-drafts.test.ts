@@ -21,6 +21,7 @@ vi.mock("@tedix/db/queries/data-residency", async (original) => ({
  */
 
 import { organizations } from "@tedix/db/schema/organizations";
+import { forgetTedisDeniedUnifiedGatewayScope } from "../../lib/tedi-aih-client-sync";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
@@ -889,6 +890,7 @@ describe("requestReplyDraft owner routing", () => {
 
 	it("never routes to a tedi whose gateway client cannot store a draft", async () => {
 		for (const scopes of [["mcp:work.write"], ["mcp:messaging.write"]]) {
+			forgetTedisDeniedUnifiedGatewayScope();
 			const f = routedFixture(0.9);
 			Object.assign(f.env, {
 				DESCOPE_PROJECT_ID: "P1",
@@ -910,6 +912,7 @@ describe("requestReplyDraft owner routing", () => {
 			expect(descopeClients.search).toHaveBeenLastCalledWith(
 				expect.anything(),
 				{ mcpServerId: "RS1" },
+				expect.anything(),
 			);
 			const first = f.send.mock.calls.at(-1) as [Record<string, unknown>];
 			expect(first[0].tediId).toBe(

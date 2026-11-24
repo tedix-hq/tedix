@@ -1188,6 +1188,36 @@ const recordKnowledgeDisposition = authed.recordKnowledgeDisposition.handler(
 	},
 );
 
+/**
+ * Delete a revoked credential's Descope client and record that cleanup
+ * finished. A failed delete leaves cleanup unfinished, so the hourly reaper
+ * retries it instead of orphaning the client.
+ */
+async function deleteRevokedExternalAgentMcpClient(
+	context: BaseContext,
+	aihEnv: ReturnType<typeof requireAihEnv> | null,
+	mcpServerId: string,
+	clientRecordId: string,
+): Promise<void> {
+	if (!aihEnv) return;
+	try {
+		if (!clientRecordId.startsWith("wif:"))
+			await deleteDescopeMcpServerClient(aihEnv, {
+				id: clientRecordId,
+				mcpServerId,
+			});
+		await markExternalAgentMcpCredentialsReaped(context.db, {
+			clientRecordIds: [clientRecordId],
+			revokedAt: new Date().toISOString(),
+		});
+	} catch (error) {
+		console.error(
+			"[ExternalAgentIdentity] revoked MCP client cleanup left for the reaper",
+			{ exception: safeExceptionTopology(error) },
+		);
+	}
+}
+
 const endSession = authed.endSession.handler(async ({ input, context }) => {
 	const organizationId = requireOrganization(context, input.organizationId);
 	const clientRecordId = requireGatewayVerifiedSession(context, input);
@@ -1222,12 +1252,12 @@ const endSession = authed.endSession.handler(async ({ input, context }) => {
 				? requireAihEnv(context.env)
 				: null;
 		forgetMcpServerClients(revoked.mcpServerId, clientRecordId);
-		if (aihEnv && !clientRecordId.startsWith("wif:")) {
-			await deleteDescopeMcpServerClient(aihEnv, {
-				id: clientRecordId,
-				mcpServerId: revoked.mcpServerId,
-			}).catch(() => undefined);
-		}
+		await deleteRevokedExternalAgentMcpClient(
+			context,
+			aihEnv,
+			revoked.mcpServerId,
+			clientRecordId,
+		);
 		await invalidateMcpClientCache(context.env, revoked.mcpServerId);
 		return ended;
 	} catch (error) {
@@ -2363,11 +2393,12 @@ const revokeMcpCredential = authed.revokeMcpCredential.handler(
 				? requireAihEnv(context.env)
 				: null;
 		forgetMcpServerClients(revoked.mcpServerId, input.clientRecordId);
-		if (aihEnv && !input.clientRecordId.startsWith("wif:"))
-			await deleteDescopeMcpServerClient(aihEnv, {
-				id: input.clientRecordId,
-				mcpServerId: revoked.mcpServerId,
-			}).catch(() => undefined);
+		await deleteRevokedExternalAgentMcpClient(
+			context,
+			aihEnv,
+			revoked.mcpServerId,
+			input.clientRecordId,
+		);
 		await invalidateMcpClientCache(context.env, revoked.mcpServerId);
 		return { success: true as const };
 	},

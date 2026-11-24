@@ -160,7 +160,7 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });
-function client() {
+function client(extraHeaders: Record<string, string> = {}) {
 	const ctx = {
 		db,
 		env: {
@@ -172,6 +172,7 @@ function client() {
 			"X-API-Key": rawKey,
 			"X-Service-Binding": "true",
 			"X-Tedix-Caller-Type": "mcp-edge-external-agent-session-exchange",
+			...extraHeaders,
 		}),
 		url: new URL("https://api/rpc/externalAgentIdentity/issueMcpCredential"),
 		waitUntil: (p: Promise<unknown>) => {
@@ -557,5 +558,42 @@ describe("client lookups without the server-wide list", () => {
 			"active",
 			"active",
 		]);
+	});
+});
+
+describe("revoked client cleanup", () => {
+	const revoke = (clientRecordId: string) =>
+		client({
+			"X-Tedix-Caller-Type": "mcp-edge-external-agent",
+			"X-Tedix-External-Agent-Principal-Id": PRINCIPAL,
+			"X-Tedix-External-Agent-Session-Id": SESSION,
+			"X-Tedix-External-Agent-Client-Record-Id": clientRecordId,
+			"X-Tedix-Org-Id": ORG,
+		}).revokeMcpCredential({
+			organizationId: ORG,
+			principalId: PRINCIPAL,
+			sessionId: SESSION,
+			clientRecordId,
+		});
+	const cleanup = () =>
+		sqlite
+			.prepare(
+				"SELECT status, provider_cleanup_at FROM external_agent_mcp_credentials",
+			)
+			.get() as { status: string; provider_cleanup_at: string | null };
+
+	it("records finished cleanup only after Descope deletes the client", async () => {
+		const issued = await client().issueMcpCredential(INPUT);
+		await revoke(issued.clientRecordId);
+		expect(mocks.remove).toHaveBeenCalledTimes(1);
+		expect(cleanup()).toEqual({ status: "revoked", provider_cleanup_at: NOW });
+	});
+
+	it("leaves a failed delete unfinished for the reaper", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const issued = await client().issueMcpCredential(INPUT);
+		mocks.remove.mockRejectedValueOnce(new Error("provider down"));
+		await revoke(issued.clientRecordId);
+		expect(cleanup()).toEqual({ status: "revoked", provider_cleanup_at: null });
 	});
 });

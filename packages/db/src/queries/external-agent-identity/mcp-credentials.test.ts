@@ -6,20 +6,21 @@ import {
 	listActiveExternalAgentMcpCredentialsByServer,
 	listActiveExternalAgentMcpCredentialsForSession,
 	listReapableExternalAgentMcpCredentials,
+	markExternalAgentMcpCredentialCleanupAttempted,
 	markExternalAgentMcpCredentialsReaped,
 } from "./mcp-credentials";
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
-		CREATE TABLE external_agent_principals (id TEXT, organization_id TEXT, metadata TEXT);
+		CREATE TABLE external_agent_principals (id TEXT, organization_id TEXT, metadata TEXT, credential_binding_type TEXT, credential_binding_id TEXT);
 		CREATE TABLE external_agent_mcp_credentials (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
 			principal_id TEXT NOT NULL,
 			session_id TEXT NOT NULL,
 			client_record_id TEXT NOT NULL,
-			client_id TEXT,
+			client_id TEXT, provider_cleanup_attempted_at TEXT,
 			mcp_server_id TEXT NOT NULL,
 			mcp_server_url TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'active',
@@ -162,7 +163,7 @@ describe("listActiveExternalAgentMcpCredentialsByServer", () => {
 });
 
 describe("listReapableExternalAgentMcpCredentials", () => {
-	it("returns only active rows whose token already expired, oldest-first and bounded", async () => {
+	it("returns expired and unfinished revoked rows, oldest-first, failures last", async () => {
 		const { sqlite, db } = fixture();
 		insert(sqlite, {
 			id: "1",
@@ -187,11 +188,40 @@ describe("listReapableExternalAgentMcpCredentials", () => {
 		});
 		insert(sqlite, {
 			id: "4",
-			client: "already-revoked",
+			client: "revoked-unfinished",
 			server: "srv-a",
 			status: "revoked",
 			expiresAt: "2026-08-01T00:00:00.000Z",
 			revokedAt: "2026-08-02T00:00:00.000Z",
+		});
+		insert(sqlite, {
+			id: "5",
+			client: "revoked-cleaned",
+			server: "srv-a",
+			status: "revoked",
+			expiresAt: "2026-08-01T00:00:00.000Z",
+			revokedAt: "2026-08-02T00:00:00.000Z",
+		});
+		sqlite
+			.prepare(
+				"UPDATE external_agent_mcp_credentials SET provider_cleanup_at = ? WHERE id = '5'",
+			)
+			.run(NOW);
+		insert(sqlite, {
+			id: "6",
+			client: "m2m-binding",
+			server: "srv-a",
+			status: "active",
+			expiresAt: "2026-08-01T00:00:00.000Z",
+		});
+		sqlite
+			.prepare(
+				"INSERT INTO external_agent_principals VALUES ('m2m', 'org', '{}', 'aih_m2m', 'm2m-binding')",
+			)
+			.run();
+		await markExternalAgentMcpCredentialCleanupAttempted(db, {
+			clientRecordIds: ["expired-old"],
+			attemptedAt: NOW,
 		});
 
 		const reapable = await listReapableExternalAgentMcpCredentials(db, {
@@ -200,10 +230,11 @@ describe("listReapableExternalAgentMcpCredentials", () => {
 		});
 
 		expect(reapable.map((r) => r.clientRecordId)).toEqual([
-			"expired-old",
+			"revoked-unfinished",
 			"expired-new",
+			"expired-old",
 		]);
-		expect(reapable[0]).toEqual({
+		expect(reapable[2]).toEqual({
 			clientRecordId: "expired-old",
 			mcpServerId: "srv-a",
 		});

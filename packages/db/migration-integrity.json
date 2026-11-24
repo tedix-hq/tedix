@@ -2012,6 +2012,10 @@
 		{
 			"name": "20261124184248_external_agent_mcp_credential_client_id/migration.sql",
 			"sha256": "78170fae2f212fdc7ee4bafc039ea647c81b3631cde97e5e95cef56def4d97c1"
+		},
+		{
+			"name": "20261124185129_external_agent_mcp_credential_cleanup_attempt/migration.sql",
+			"sha256": "db32acf43fa03f5eff5f8f82bef4a9f3794b59eeaaf45c91f1ac4c8159298474"
 		}
 	]
 }

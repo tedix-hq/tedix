@@ -3,7 +3,9 @@ import { runExternalAgentMcpClientReaperTick } from "./external-agent-mcp-client
 
 const listReapable = vi.hoisted(() => vi.fn());
 const markReaped = vi.hoisted(() => vi.fn());
+const markAttempted = vi.hoisted(() => vi.fn());
 const deleteClients = vi.hoisted(() => vi.fn());
+const deleteClient = vi.hoisted(() => vi.fn());
 
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("../rpc/routers/descope-aih-env", () => ({
@@ -14,10 +16,12 @@ vi.mock("../rpc/routers/descope-aih-env", () => ({
 }));
 vi.mock("@tedix/auth/aih-client", () => ({
 	deleteDescopeMcpServerClients: deleteClients,
+	deleteDescopeMcpServerClient: deleteClient,
 }));
 vi.mock("@tedix/db/queries/external-agent-identity/mcp-credentials", () => ({
 	listReapableExternalAgentMcpCredentials: listReapable,
 	markExternalAgentMcpCredentialsReaped: markReaped,
+	markExternalAgentMcpCredentialCleanupAttempted: markAttempted,
 }));
 
 const env = {
@@ -25,11 +29,12 @@ const env = {
 	DESCOPE_MANAGEMENT_KEY: "k",
 	DB: {},
 } as unknown as CloudflareEnv;
+const sleep = vi.fn(async () => {});
+const tick = () => runExternalAgentMcpClientReaperTick(env, "run-1", { sleep });
 
 afterEach(() => {
-	listReapable.mockReset();
-	markReaped.mockReset();
-	deleteClients.mockReset();
+	vi.resetAllMocks();
+	vi.restoreAllMocks();
 });
 
 describe("external-agent MCP client reaper", () => {
@@ -42,7 +47,7 @@ describe("external-agent MCP client reaper", () => {
 		expect(listReapable).not.toHaveBeenCalled();
 	});
 
-	it("batch-deletes expired clients per server and revokes exactly those rows", async () => {
+	it("batch-deletes clients per server, spaced apart, and revokes exactly those rows", async () => {
 		listReapable.mockResolvedValue([
 			{ clientRecordId: "a1", mcpServerId: "srv-a" },
 			{ clientRecordId: "a2", mcpServerId: "srv-a" },
@@ -53,9 +58,8 @@ describe("external-agent MCP client reaper", () => {
 			Promise.resolve(clientRecordIds.length),
 		);
 
-		const result = await runExternalAgentMcpClientReaperTick(env, "run-1");
+		const result = await tick();
 
-		// One batch call per server, each carrying only that server's ids.
 		expect(deleteClients).toHaveBeenCalledTimes(2);
 		expect(deleteClients).toHaveBeenCalledWith(expect.anything(), {
 			ids: ["a1", "a2"],
@@ -65,42 +69,88 @@ describe("external-agent MCP client reaper", () => {
 			ids: ["b1"],
 			mcpServerId: "srv-b",
 		});
-		const revokedIds = markReaped.mock.calls[0][1].clientRecordIds.sort();
-		expect(revokedIds).toEqual(["a1", "a2", "b1"]);
-		expect(result).toMatchObject({ candidates: 3, deleted: 3, revoked: 3 });
+		expect(sleep).toHaveBeenCalledTimes(1);
+		expect(markReaped.mock.calls[0][1].clientRecordIds.sort()).toEqual([
+			"a1",
+			"a2",
+			"b1",
+		]);
+		expect(markAttempted).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			candidates: 3,
+			deleted: 3,
+			revoked: 3,
+			managementCalls: 2,
+		});
 	});
 
-	it("leaves rows active when their Descope delete fails, so a later tick retries", async () => {
+	it("falls back to single deletes, counts gone clients as done and moves failures to the back", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
 		listReapable.mockResolvedValue([
-			{ clientRecordId: "a1", mcpServerId: "srv-a" },
-			{ clientRecordId: "b1", mcpServerId: "srv-b" },
+			{ clientRecordId: "ok", mcpServerId: "srv" },
+			{ clientRecordId: "gone", mcpServerId: "srv" },
+			{ clientRecordId: "bad", mcpServerId: "srv" },
 		]);
-		// srv-b delete fails; srv-a succeeds.
-		deleteClients.mockImplementation((_env, { mcpServerId }) =>
-			mcpServerId === "srv-b"
-				? Promise.reject(new Error("descope 500"))
-				: Promise.resolve(undefined),
+		deleteClients.mockRejectedValue(
+			new Error("AIH MCP server clients batch delete failed [400 Bad Request]"),
+		);
+		deleteClient.mockImplementation((_env, { id }) =>
+			id === "ok"
+				? Promise.resolve()
+				: Promise.reject(
+						new Error(
+							id === "gone"
+								? "AIH MCP server client delete failed [404 Not Found]: missing"
+								: "AIH MCP server client delete failed [500 Internal Server Error]",
+						),
+					),
 		);
 		markReaped.mockImplementation((_db, { clientRecordIds }) =>
 			Promise.resolve(clientRecordIds.length),
 		);
 
-		const result = await runExternalAgentMcpClientReaperTick(env, "run-1");
+		const result = await tick();
 
-		// Only the successfully-deleted client is revoked; the failed one is left
-		// active (not passed to markReaped).
-		expect(markReaped.mock.calls[0][1].clientRecordIds).toEqual(["a1"]);
+		expect(markReaped.mock.calls[0][1].clientRecordIds).toEqual(["ok", "gone"]);
+		expect(markAttempted).toHaveBeenCalledWith(expect.anything(), {
+			clientRecordIds: ["bad"],
+			attemptedAt: expect.any(String),
+		});
+		expect(JSON.stringify(vi.mocked(console.error).mock.calls)).toContain(
+			'\\"status\\":400',
+		);
 		expect(result).toMatchObject({
-			candidates: 2,
-			deleted: 1,
+			candidates: 3,
+			deleted: 2,
+			alreadyGone: 1,
 			deleteFailures: 1,
-			revoked: 1,
+			batchFailures: 1,
+			managementCalls: 4,
 		});
 	});
 
-	it("does no remote work when nothing is expired", async () => {
+	it("stops at the per-run call budget and leaves the rest for the next run", async () => {
+		listReapable.mockResolvedValue(
+			Array.from({ length: 7_000 }, (_, i) => ({
+				clientRecordId: `c${i}`,
+				mcpServerId: "srv",
+			})),
+		);
+		deleteClients.mockResolvedValue(undefined);
+		markReaped.mockImplementation((_db, { clientRecordIds }) =>
+			Promise.resolve(clientRecordIds.length),
+		);
+
+		const result = await tick();
+
+		expect(deleteClients).toHaveBeenCalledTimes(60);
+		expect(result).toMatchObject({ deleted: 6_000, deferred: 1_000 });
+		expect(markAttempted).not.toHaveBeenCalled();
+	});
+
+	it("does no remote work when nothing is due", async () => {
 		listReapable.mockResolvedValue([]);
-		const result = await runExternalAgentMcpClientReaperTick(env, "run-1");
+		const result = await tick();
 		expect(deleteClients).not.toHaveBeenCalled();
 		expect(markReaped).not.toHaveBeenCalled();
 		expect(result).toEqual({ candidates: 0, deleted: 0, revoked: 0 });
@@ -113,10 +163,7 @@ it("expires federated ledger entries without deleting the shared Descope client"
 		{ clientRecordId: id, mcpServerId: "resource" },
 	]);
 	markReaped.mockResolvedValue(1);
-	const result = await runExternalAgentMcpClientReaperTick(
-		env,
-		"federated-cleanup",
-	);
+	const result = await tick();
 	expect(deleteClients).not.toHaveBeenCalled();
 	expect(markReaped).toHaveBeenCalledWith(expect.anything(), {
 		clientRecordIds: [id],
