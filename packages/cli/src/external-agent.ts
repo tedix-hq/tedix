@@ -35,6 +35,7 @@ import {
 	writeExternalAgentProfile,
 	writeExternalAgentSession,
 	withExternalAgentStartLock,
+	withExternalAgentCredentialLock,
 } from "./external-agent-store";
 import { errorText } from "./format";
 import { TedixHomeClient } from "./home-client";
@@ -744,7 +745,7 @@ async function exchangeStoredSession(
 	workspace: string,
 	profile: StoredExternalAgentProfile,
 	stored: StoredExternalAgentSession,
-	options: { fetch?: FetchLike },
+	options: SessionExchangeOptions,
 ): Promise<ExternalAgentSessionExchangeOutput> {
 	try {
 		return await exchangeSession(
@@ -1269,7 +1270,7 @@ async function issueSessionCredential(
 	slot: string,
 	profile: StoredExternalAgentProfile,
 	stored: StoredExternalAgentSession,
-	options: { fetch?: FetchLike },
+	options: SessionExchangeOptions,
 	minimumMs = 0,
 ): Promise<{ accessToken: string; expiresAt?: number }> {
 	const cached = readExternalAgentCredentialEntry(slot, profile, stored);
@@ -1278,33 +1279,54 @@ async function issueSessionCredential(
 		throw new Error(
 			"[tedix] This lane's Tedix credential expired. The dispatcher renews it every minute; retry shortly, and report a stalled dispatcher if it stays expired.",
 		);
-	const exchangeStartedAt = Date.now();
-	const exchange = await exchangeStoredSession(slot, profile, stored, options);
-	const session = storedSession(exchange);
-	// Cache conservatively from request start, never from delayed response receipt.
-	// The gateway still checks live principal/session authority on every call.
-	if (
-		session.id !== stored.id ||
-		exchange.credential.mcpServerUrl !== profile.mcpUrl
-	)
-		return { accessToken: exchange.credential.accessToken };
-	const expiresAt =
-		exchangeStartedAt +
-		Math.min(exchange.credential.expiresIn * 1000, 300_000) -
-		60_000;
-	writeExternalAgentCredential(
+	const timeoutMs = options.sessionExchangeTimeoutMs ?? 30_000;
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+		throw new Error(
+			"Session exchange timeout must be a positive finite duration",
+		);
+	const deadline = Date.now() + timeoutMs;
+	return withExternalAgentCredentialLock(
 		slot,
 		profile,
 		stored,
-		exchange.credential.accessToken,
-		expiresAt,
+		deadline,
+		async () => {
+			// A process ahead of us may have populated the shared cache while we waited.
+			const refreshed = readExternalAgentCredentialEntry(slot, profile, stored);
+			if (refreshed && refreshed.expiresAt - Date.now() > minimumMs)
+				return refreshed;
+			const exchangeStartedAt = Date.now();
+			const exchange = await exchangeStoredSession(slot, profile, stored, {
+				...options,
+				sessionExchangeTimeoutMs: deadline - Date.now(),
+			});
+			const session = storedSession(exchange);
+			// Cache conservatively from request start, never from delayed response receipt.
+			// The gateway still checks live principal/session authority on every call.
+			if (
+				session.id !== stored.id ||
+				exchange.credential.mcpServerUrl !== profile.mcpUrl
+			)
+				return { accessToken: exchange.credential.accessToken };
+			const expiresAt =
+				exchangeStartedAt +
+				Math.min(exchange.credential.expiresIn * 1000, 300_000) -
+				60_000;
+			writeExternalAgentCredential(
+				slot,
+				profile,
+				stored,
+				exchange.credential.accessToken,
+				expiresAt,
+			);
+			// No `cleanup` revoke: the credential stays active after use so the next
+			// operation reuses THIS Descope MCP client (server-side reuse) instead of
+			// minting a fresh one on every call — the source of the TPA over-minting.
+			// Revocation happens only at session teardown (end_external_agent_session)
+			// or via the external-agent-mcp-client-reaper for abandoned sessions.
+			return { accessToken: exchange.credential.accessToken, expiresAt };
+		},
 	);
-	// No `cleanup` revoke: the credential stays active after use so the next
-	// operation reuses THIS Descope MCP client (server-side reuse) instead of
-	// minting a fresh one on every call — the source of the TPA over-minting.
-	// Revocation happens only at session teardown (end_external_agent_session)
-	// or via the external-agent-mcp-client-reaper for abandoned sessions.
-	return { accessToken: exchange.credential.accessToken, expiresAt };
 }
 
 /**

@@ -638,6 +638,34 @@ export function discardExternalAgentCredential(
 	});
 }
 
+/** Hold only this credential binding during network I/O; other sessions stay independent. */
+export async function withExternalAgentCredentialLock<T>(
+	workspace: string,
+	profile: StoredExternalAgentProfile,
+	session: StoredExternalAgentSession,
+	deadline: number,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const key = createHash("sha256")
+		.update(JSON.stringify([workspace, credentialBinding(profile, session)]))
+		.digest("hex");
+	const lock = beginFileLock(
+		join(resolveStoreDir(), "locks", `external-agent-exchange-${key}`),
+	);
+	try {
+		while (!lock.ready()) {
+			if (Date.now() >= deadline)
+				throw new Error(
+					"Timed out waiting for this session's credential exchange; retry shortly. No credentials were issued by this waiting command.",
+				);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		return await operation();
+	} finally {
+		lock.release();
+	}
+}
+
 // Credential secrets stay outside profile/session objects exposed by status commands.
 function credentialBinding(
 	profile: StoredExternalAgentProfile,

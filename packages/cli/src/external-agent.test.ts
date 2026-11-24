@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CAPABILITY_SCOPES } from "@tedix/mcp-shared/auth/scopes";
+import { ExternalAgentSessionExchangeOutputSchema } from "@tedix/api-contract/contracts/external-agent-identity";
 import {
 	mintExternalAgent,
 	defaultLocalPrincipal,
@@ -182,6 +183,118 @@ function m2mFetch(
 }
 
 describe("external-agent CLI session", () => {
+	test("parallel CLI processes share one session credential exchange", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		const callers = 6;
+		let ready = 0;
+		let exchanges = 0;
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const payload = ExternalAgentSessionExchangeOutputSchema.parse(
+			await exchangeResponse().json(),
+		);
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			async fetch(request) {
+				if (new URL(request.url).pathname === "/ready") {
+					if (++ready === callers) release();
+					await gate;
+					return new Response("ready");
+				}
+				exchanges++;
+				await Bun.sleep(250);
+				return Response.json(payload, { status: 201 });
+			},
+		});
+		const mcpUrl = new URL("/mcp", server.url).href;
+		payload.credential.mcpServerUrl = mcpUrl;
+		const {
+			id,
+			externalSessionKey,
+			harness,
+			harnessVersion,
+			modelProvider,
+			modelId,
+			modelVersion,
+			startedAt,
+		} = payload.session;
+		writeExternalAgentProfile("tedix", {
+			organizationId: ORG,
+			principalId: PRINCIPAL,
+			key: "codex-ada",
+			displayName: "Ada Codex",
+			apiKeyId: "22222222-2222-4222-8222-222222222222",
+			rawApiKey: "sk_external_test",
+			scopes: ["mcp:work.write"],
+			mcpUrl,
+			createdAt: startedAt,
+			sessions: {
+				[externalSessionKey]: {
+					id,
+					externalSessionKey,
+					harness,
+					harnessVersion,
+					modelProvider,
+					modelId,
+					modelVersion,
+					startedAt,
+				},
+			},
+		});
+		const modulePath = new URL("./external-agent.ts", import.meta.url).pathname;
+		const children = Array.from({ length: callers }, () =>
+			Bun.spawn(
+				[
+					process.execPath,
+					"-e",
+					`
+				import { resolveExternalAgentAuth } from ${JSON.stringify(modulePath)};
+				await fetch(${JSON.stringify(new URL("/ready", server.url).href)});
+				const auth = await resolveExternalAgentAuth({ workspace: "tedix", selector: "codex-ada", sessionKey: "codex:session-1" });
+				console.log(JSON.stringify(auth.headers));
+			`,
+				],
+				{
+					env: {
+						...process.env,
+						TEDIX_CONFIG_DIR: configDir,
+						TEDIX_LANE_AGENT_STORE: "",
+					},
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			),
+		);
+		try {
+			const results = await Promise.all(
+				children.map(async (child) => ({
+					code: await child.exited,
+					out: await new Response(child.stdout).text(),
+					err: await new Response(child.stderr).text(),
+				})),
+			);
+			expect(results).toEqual(
+				Array.from({ length: callers }, () => ({
+					code: 0,
+					out:
+						JSON.stringify({ Authorization: "Bearer short-lived-mcp-token" }) +
+						"\n",
+					err: "",
+				})),
+			);
+			expect(exchanges).toBe(1);
+		} finally {
+			for (const child of children) child.kill();
+			await Promise.all(children.map((child) => child.exited));
+			await server.stop(true);
+		}
+	}, 15_000);
+
 	test("agent finish refuses ambiguous native sessions before writing", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
