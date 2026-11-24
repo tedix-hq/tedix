@@ -32,6 +32,7 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 	const text = [
 		`Use only machine workspace ${JSON.stringify(values.get("--workspace"))} on machine ${JSON.stringify(values.get("--machine"))} for local work.`,
 		"Use your own machine tools and pass the workspace ID on every file or command call. Do not open or close workspaces or use Code Mode for machine calls. Commit as the brief says.",
+		"Keep your final reply under 1,500 characters and end it with the result line the brief asks for.",
 		"",
 		readFileSync(0, "utf8"),
 	].join("\n");
@@ -64,9 +65,8 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 	const namespace = slug.replaceAll("-", "_");
 	const code = (source: string) =>
 		client.callTool("code", { code: source }, { signal });
-	const call = async (method: string, input: Record<string, unknown>) => {
+	const run = async (method: string, source: string) => {
 		try {
-			const source = `async () => await ${namespace}.${method}(${codeModeLiteral(input)})`;
 			const result = await resolveCodeResult(code, await code(source));
 			if (result.failures?.length || result.truncated)
 				throw new Error(
@@ -80,13 +80,33 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 			);
 		}
 	};
+	/**
+	 * The newest message of the conversation. One gateway answer carries about
+	 * 3,000 tokens and cannot be narrowed, so the whole conversation, which
+	 * holds the brief, does not fit: only the last message is read. An answer
+	 * that still does not fit is the brief itself (no reply yet) or a reply
+	 * longer than the tedi was asked to write.
+	 */
+	const latest = async () => {
+		const value = await run(
+			"messages_read",
+			`async () => { const r = await ${namespace}.messages_read(${codeModeLiteral({ session_key: sessionKey, limit: 1 })}); if (r && r.__tedix_truncated) return /"messages":\\[\\{"role":"assistant"/.test(String(r.preview)) ? "long-reply" : null; const m = r && Array.isArray(r.messages) ? r.messages.at(-1) : undefined; return m ? { role: m.role, status: m.status, error: m.error, text: m.text, ts: m.ts } : null; }`,
+		);
+		return value;
+	};
 	let runId: string | undefined;
 	try {
-		const accepted = await call("run_tedi_turn", {
-			session_key: sessionKey,
-			client_request_id: randomUUID(),
-			text,
-		});
+		// A follow-up turn must not take the previous turn's reply for its own.
+		const earlier = await latest();
+		const before = isRecord(earlier) ? earlier.ts : undefined;
+		const accepted = await run(
+			"run_tedi_turn",
+			`async () => await ${namespace}.run_tedi_turn(${codeModeLiteral({
+				session_key: sessionKey,
+				client_request_id: randomUUID(),
+				text,
+			})})`,
+		);
 		if (
 			!isRecord(accepted) ||
 			accepted.accepted !== true ||
@@ -99,30 +119,23 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 		runId = accepted.run_id;
 		for (let delay = 3_000; ; delay = Math.min(delay * 1.5, 10_000)) {
 			await sleep(delay, undefined, { signal });
-			const result = await call("messages_read", {
-				session_key: sessionKey,
-				limit: 10,
-			});
-			if (!isRecord(result) || !Array.isArray(result.messages))
+			const reply = await latest();
+			if (reply === "long-reply")
 				throw new Error(
-					`Tedi ${slug} returned no message list for turn ${runId}`,
-				);
-			const reply = result.messages
-				.slice()
-				.reverse()
-				.find(
-					(message: unknown) =>
-						isRecord(message) &&
-						message.role === "assistant" &&
-						message.runId === runId,
+					`Tedi ${slug} turn ${runId} ended with a reply too long to read back`,
 				);
 			if (
 				!isRecord(reply) ||
+				reply.role !== "assistant" ||
+				reply.ts === before ||
 				reply.status === "pending" ||
 				reply.status === "streaming"
 			)
 				continue;
-			if (reply.status !== "completed" || typeof reply.text !== "string")
+			if (
+				(reply.status !== undefined && reply.status !== "completed") ||
+				typeof reply.text !== "string"
+			)
 				throw new Error(
 					`Tedi ${slug} turn ${runId} ended with ${reply.status ?? "no status"}: ${reply.error ?? reply.text ?? "no reply"}`,
 				);
