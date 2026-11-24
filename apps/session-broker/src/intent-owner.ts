@@ -9,19 +9,23 @@ import {
 	type SessionBrokerIntent,
 	type SessionBrokerSurface,
 } from "@tedix/auth/session-broker";
+import {
+	type SessionIntentRow,
+	beginSessionIntentReauthentication,
+	consumeGrantedSessionIntent,
+	consumePendingSessionIntent,
+	failSessionIntent,
+	grantSessionIntentLogout,
+	grantSessionIntentSession,
+	insertPendingSessionIntent,
+	readSessionIntent,
+} from "@tedix/db/queries/durable-sqlite/session-intent";
+import {
+	type SessionIntentStoreDb,
+	openSessionIntentStore,
+} from "@tedix/db/session-intent-store/store";
 
-type IntentRow = {
-	code_expires_at: number | null;
-	code_hash: string | null;
-	grant_kind: "session" | "logout" | null;
-	granted_tenant_id: string | null;
-	intent_json: string;
-	reauth_started_at: number | null;
-	session_expires_at: number | null;
-	session_jwt: string | null;
-	status: "failed" | "granted" | "pending" | "consumed";
-	subject: string | null;
-};
+type IntentRow = SessionIntentRow;
 
 export type StoreSessionGrantInput = {
 	codeExpiresAt: number;
@@ -43,7 +47,7 @@ function parseIntent(
 	now?: number,
 ): SessionBrokerIntent {
 	return assertSessionBrokerIntent(
-		JSON.parse(row.intent_json) as SessionBrokerIntent,
+		JSON.parse(row.intentJson) as SessionBrokerIntent,
 		now,
 		installationOsOrigin,
 	);
@@ -64,45 +68,11 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 			},
 		).osOrigin;
 	}
+	private db!: SessionIntentStoreDb;
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
 		ctx.blockConcurrencyWhile(() => {
-			ctx.storage.sql.exec(`
-				CREATE TABLE IF NOT EXISTS session_intent (
-					singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-					intent_json TEXT NOT NULL,
-					status TEXT NOT NULL CHECK (status IN ('pending', 'granted', 'consumed', 'failed')),
-					code_hash TEXT,
-					code_expires_at INTEGER,
-					grant_kind TEXT CHECK (grant_kind IN ('session', 'logout')),
-					granted_tenant_id TEXT,
-					session_jwt TEXT,
-					subject TEXT,
-					session_expires_at INTEGER,
-					updated_at INTEGER NOT NULL
-				)
-			`);
-			const columns = new Set(
-				ctx.storage.sql
-					.exec<{ name: string }>("PRAGMA table_info(session_intent)")
-					.toArray()
-					.map((column) => column.name),
-			);
-			if (!columns.has("grant_kind")) {
-				ctx.storage.sql.exec(
-					"ALTER TABLE session_intent ADD COLUMN grant_kind TEXT",
-				);
-			}
-			if (!columns.has("granted_tenant_id")) {
-				ctx.storage.sql.exec(
-					"ALTER TABLE session_intent ADD COLUMN granted_tenant_id TEXT",
-				);
-			}
-			if (!columns.has("reauth_started_at")) {
-				this.ctx.storage.sql.exec(
-					"ALTER TABLE session_intent ADD COLUMN reauth_started_at INTEGER",
-				);
-			}
+			this.db = openSessionIntentStore(ctx.storage);
 			return Promise.resolve();
 		});
 	}
@@ -111,13 +81,10 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 		assertSessionBrokerIntent(intent, undefined, this.osOrigin);
 		const existing = this.readRow();
 		if (existing) return false;
-		this.ctx.storage.sql.exec(
-			`INSERT INTO session_intent
-				(singleton, intent_json, status, updated_at)
-			 VALUES (1, ?, 'pending', ?)`,
-			JSON.stringify(intent),
-			Date.now(),
-		);
+		insertPendingSessionIntent(this.db, {
+			intentJson: JSON.stringify(intent),
+			nowMs: Date.now(),
+		});
 		await this.ctx.storage.setAlarm(intent.expiresAt * 1000);
 		return true;
 	}
@@ -141,14 +108,7 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 	 * state bindings while the browser visits the central Tedix login surface.
 	 */
 	async beginReauthentication(now = Date.now()): Promise<boolean> {
-		const changed = this.ctx.storage.sql.exec(
-			`UPDATE session_intent SET reauth_started_at = ?, updated_at = ?
-			 WHERE singleton = 1 AND status = 'pending'
-			   AND reauth_started_at IS NULL`,
-			now,
-			now,
-		).rowsWritten;
-		return changed === 1;
+		return beginSessionIntentReauthentication(this.db, now);
 	}
 
 	/**
@@ -169,12 +129,7 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 				return null;
 			}
 			if (parsed.operation !== "outbound_connect") return null;
-			const changed = this.ctx.storage.sql.exec(
-				`UPDATE session_intent SET status = 'consumed', updated_at = ?
-				 WHERE singleton = 1 AND status = 'pending'`,
-				Date.now(),
-			).rowsWritten;
-			return changed === 1 ? parsed : null;
+			return consumePendingSessionIntent(this.db, Date.now()) ? parsed : null;
 		});
 		if (intent) await this.ctx.storage.deleteAlarm();
 		return intent;
@@ -190,21 +145,16 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 		) {
 			return false;
 		}
-		const changed = this.ctx.storage.sql.exec(
-			`UPDATE session_intent SET
-				status = 'granted', code_hash = ?, code_expires_at = ?,
-				grant_kind = 'session', granted_tenant_id = ?, session_jwt = ?,
-				subject = ?, session_expires_at = ?, updated_at = ?
-			 WHERE singleton = 1 AND status = 'pending'`,
-			input.codeHash,
-			input.codeExpiresAt,
-			input.tenantId,
-			input.sessionJwt,
-			input.subject,
-			input.sessionExpiresAt,
-			Date.now(),
-		).rowsWritten;
-		if (changed !== 1) return false;
+		const changed = grantSessionIntentSession(this.db, {
+			codeHash: input.codeHash,
+			codeExpiresAt: input.codeExpiresAt,
+			tenantId: input.tenantId,
+			sessionJwt: input.sessionJwt,
+			subject: input.subject,
+			sessionExpiresAt: input.sessionExpiresAt,
+			nowMs: Date.now(),
+		});
+		if (!changed) return false;
 		await this.ctx.storage.setAlarm(input.codeExpiresAt * 1000);
 		return true;
 	}
@@ -216,31 +166,18 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 		) {
 			return false;
 		}
-		const changed = this.ctx.storage.sql.exec(
-			`UPDATE session_intent SET
-				status = 'granted', code_hash = ?, code_expires_at = ?,
-				grant_kind = 'logout', granted_tenant_id = NULL,
-				session_jwt = NULL, subject = NULL, session_expires_at = NULL,
-				updated_at = ?
-			 WHERE singleton = 1 AND status = 'pending'`,
-			input.codeHash,
-			input.codeExpiresAt,
-			Date.now(),
-		).rowsWritten;
-		if (changed !== 1) return false;
+		const changed = grantSessionIntentLogout(this.db, {
+			codeHash: input.codeHash,
+			codeExpiresAt: input.codeExpiresAt,
+			nowMs: Date.now(),
+		});
+		if (!changed) return false;
 		await this.ctx.storage.setAlarm(input.codeExpiresAt * 1000);
 		return true;
 	}
 
 	async fail(): Promise<void> {
-		this.ctx.storage.sql.exec(
-			`UPDATE session_intent SET status = 'failed', code_hash = NULL,
-				code_expires_at = NULL, grant_kind = NULL, granted_tenant_id = NULL,
-				session_jwt = NULL, subject = NULL,
-				session_expires_at = NULL, updated_at = ?
-			 WHERE singleton = 1 AND status IN ('pending', 'granted')`,
-			Date.now(),
-		);
+		failSessionIntent(this.db, Date.now());
 		await this.ctx.storage.deleteAlarm();
 	}
 
@@ -266,19 +203,19 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 				if (
 					!row ||
 					row.status !== "granted" ||
-					row.code_hash !== codeHash ||
-					(row.code_expires_at ?? 0) <= now
+					row.codeHash !== codeHash ||
+					(row.codeExpiresAt ?? 0) <= now
 				) {
 					return null;
 				}
-				const grantKind = row.grant_kind;
+				const grantKind = row.grantKind;
 				let intent: SessionBrokerIntent;
 				try {
 					intent = parseIntent(row, this.osOrigin);
 				} catch {
 					return null;
 				}
-				const grantedTenantId = row.granted_tenant_id;
+				const grantedTenantId = row.grantedTenantId;
 				if (
 					intent.surface !== surface ||
 					intent.intentId !== input.intentId ||
@@ -295,29 +232,23 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 					if (grantKind !== "logout") return null;
 				} else if (
 					grantKind !== "session" ||
-					!row.session_jwt ||
+					!row.sessionJwt ||
 					!row.subject ||
-					!row.session_expires_at ||
+					!row.sessionExpiresAt ||
 					(intent.operation === "issue_session" &&
 						(!grantedTenantId || grantedTenantId !== intent.tenantId))
 				) {
 					return null;
 				}
-				const changed = this.ctx.storage.sql.exec(
-					`UPDATE session_intent SET status = 'consumed', code_hash = NULL,
-					code_expires_at = NULL, grant_kind = NULL, granted_tenant_id = NULL,
-					session_jwt = NULL, subject = NULL,
-					session_expires_at = NULL, updated_at = ?
-					WHERE singleton = 1 AND status = 'granted' AND code_hash = ?`,
-					Date.now(),
-					codeHash,
-				).rowsWritten;
-				if (changed !== 1) return null;
+				if (
+					!consumeGrantedSessionIntent(this.db, { codeHash, nowMs: Date.now() })
+				)
+					return null;
 				if (intent.operation === "logout") return { kind: "logout" };
 				return {
-					expiresAt: row.session_expires_at!,
+					expiresAt: row.sessionExpiresAt!,
 					kind: "session",
-					sessionJwt: row.session_jwt!,
+					sessionJwt: row.sessionJwt!,
 					subject: row.subject!,
 					tenantId: grantedTenantId,
 				};
@@ -331,10 +262,6 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 	}
 
 	private readRow(): IntentRow | null {
-		return (
-			this.ctx.storage.sql
-				.exec<IntentRow>("SELECT * FROM session_intent WHERE singleton = 1")
-				.toArray()[0] ?? null
-		);
+		return readSessionIntent(this.db);
 	}
 }

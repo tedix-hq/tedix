@@ -53,6 +53,7 @@
 		"ai": "catalog:",
 		"chat": "catalog:",
 		"diff": "9.0.0",
+		"drizzle-orm": "catalog:",
 		"fast-xml-parser": "catalog:",
 		"isomorphic-git": "catalog:",
 		"just-bash": "^3.6.1",

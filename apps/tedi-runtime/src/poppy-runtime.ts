@@ -100,9 +100,7 @@ export class PoppyRuntime {
 	// Loaded on first use: the protocol schemas are too costly for Worker startup.
 	private async store() {
 		const { PoppyConversations } = await import("./poppy-conversations");
-		return new PoppyConversations(this.host.storage.sql, (operation) =>
-			this.host.storage.transactionSync(operation),
-		);
+		return new PoppyConversations(this.host.storage);
 	}
 	async kick() {
 		const store = await this.store();

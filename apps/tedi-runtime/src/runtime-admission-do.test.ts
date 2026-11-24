@@ -150,8 +150,16 @@ let wireTransactionDepth = 0;
 const wireStorage = {
 	sql: {
 		exec(q: string, ...v: unknown[]) {
-			const rows = wireDb.query(q).all(...(v as never[]));
-			return { toArray: () => rows };
+			const rows = wireDb.query(q).all(...(v as never[])) as object[];
+			// raw() is the column-value cursor drizzle-orm/durable-sqlite reads.
+			const values = rows.map((row) => Object.values(row));
+			return {
+				toArray: () => rows,
+				raw: () =>
+					Object.assign(values[Symbol.iterator](), {
+						toArray: () => values,
+					}),
+			};
 		},
 	},
 	transactionSync<T>(fn: () => T): T {

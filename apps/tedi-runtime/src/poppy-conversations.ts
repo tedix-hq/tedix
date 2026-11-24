@@ -3,6 +3,27 @@ import {
 	PoppyPostSchema,
 } from "@tedix/api-contract/schemas/personal-agent-conversation";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	closePoppyDesk,
+	closePoppyDesks,
+	escalatePoppyRequests,
+	findPoppyDesk,
+	findPoppyEventSequence,
+	findPoppyRequest,
+	getPoppyConversation,
+	hasPendingPoppyRequest,
+	insertPoppyEvent,
+	insertPoppyRequest,
+	listPendingPoppyConversations,
+	listPoppyDesks,
+	listPoppyEventsAfter,
+	listRecentPoppyEvents,
+	nextPoppyRequest,
+	openPoppyDesk,
+	savePoppyConversation,
+	settlePoppyRequests,
+} from "@tedix/db/queries/durable-sqlite/poppy-conversations";
+import { type PoppyStoreDb, openPoppyStore } from "@tedix/db/poppy-store/store";
 
 type Owner = {
 	organizationId: string;
@@ -26,17 +47,6 @@ type Event = { id: string; type: string; created_at: string } & Record<
 	string,
 	JsonValue
 >;
-type StoredRequest = {
-	id: string;
-	conversation: string;
-	path: string;
-	body: string;
-	status: number;
-	pending: number;
-	context: string;
-	through_sequence: number;
-	accepted_at: number;
-};
 export type PoppyReply = { httpStatus: number; body: JsonValue };
 export type PoppyJob = {
 	owner: string;
@@ -53,12 +63,6 @@ type PoppyDesk = {
 	pending: boolean;
 	transcript: JsonValue;
 };
-export interface PoppySql {
-	exec<T extends Record<string, SqlStorageValue>>(
-		query: string,
-		...bindings: SqlStorageValue[]
-	): { toArray(): T[] };
-}
 class ProtocolError extends Error {
 	constructor(
 		readonly code: string,
@@ -83,38 +87,17 @@ function canonical(value: JsonValue): string {
 
 /** Owns only protocol state in the tedi's local SQLite; no shared D1 statements. */
 export class PoppyConversations {
-	constructor(
-		private readonly sql: PoppySql,
-		private readonly atomic: <T>(operation: () => T) => T,
-	) {
-		sql.exec(
-			"CREATE TABLE IF NOT EXISTS poppy_conversations (id TEXT PRIMARY KEY, value TEXT NOT NULL)",
-		);
-		sql.exec(
-			"CREATE TABLE IF NOT EXISTS poppy_requests (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, id TEXT NOT NULL, conversation TEXT NOT NULL, path TEXT NOT NULL, body TEXT NOT NULL, status INTEGER NOT NULL, pending INTEGER NOT NULL, context TEXT NOT NULL, through_sequence INTEGER NOT NULL, accepted_at INTEGER NOT NULL, UNIQUE(owner,id))",
-		);
-		sql.exec(
-			"CREATE TABLE IF NOT EXISTS poppy_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation TEXT NOT NULL, id TEXT NOT NULL UNIQUE, value TEXT NOT NULL)",
-		);
-		sql.exec(
-			"CREATE INDEX IF NOT EXISTS poppy_events_conversation ON poppy_events(conversation,sequence)",
-		);
-		sql.exec(
-			"CREATE INDEX IF NOT EXISTS poppy_pending ON poppy_requests(pending,sequence)",
-		);
-		sql.exec(
-			"CREATE TABLE IF NOT EXISTS poppy_desks (id TEXT PRIMARY KEY, conversation TEXT NOT NULL, root TEXT NOT NULL, pending INTEGER NOT NULL, through_sequence INTEGER NOT NULL)",
-		);
+	private readonly db: PoppyStoreDb;
+	private readonly atomic: <T>(operation: () => T) => T;
+	constructor(storage: DurableObjectStorage) {
+		this.db = openPoppyStore(storage);
+		this.atomic = (operation) => storage.transactionSync(operation);
 	}
 	private load(conversationId: string): Conversation {
-		const row = this.sql
-			.exec<{ value: string }>(
-				"SELECT value FROM poppy_conversations WHERE id=?",
-				conversationId,
-			)
-			.toArray()[0];
-		if (!row) throw new ProtocolError("conversation_not_found", 404);
-		return JSON.parse(row.value) as Conversation;
+		const value = getPoppyConversation(this.db, conversationId);
+		if (value === undefined)
+			throw new ProtocolError("conversation_not_found", 404);
+		return JSON.parse(value) as Conversation;
 	}
 	private owned(conversationId: string, owner: Owner): Conversation {
 		const c = this.load(conversationId);
@@ -127,20 +110,15 @@ export class PoppyConversations {
 		return c;
 	}
 	private save(c: Conversation) {
-		this.sql.exec(
-			"INSERT INTO poppy_conversations(id,value) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",
-			c.id,
-			JSON.stringify(c),
-		);
+		savePoppyConversation(this.db, { id: c.id, value: JSON.stringify(c) });
 	}
 	private event(c: Conversation, value: Record<string, JsonValue>) {
 		const e = { ...value, id: id(), created_at: new Date().toISOString() };
-		this.sql.exec(
-			"INSERT INTO poppy_events(conversation,id,value) VALUES (?,?,?)",
-			c.id,
-			e.id,
-			JSON.stringify(e),
-		);
+		insertPoppyEvent(this.db, {
+			conversation: c.id,
+			id: e.id,
+			value: JSON.stringify(e),
+		});
 		return e.id;
 	}
 	private state(c: Conversation) {
@@ -153,29 +131,21 @@ export class PoppyConversations {
 		this.save(c);
 	}
 	private openDesk(c: Conversation, includesNewRequest = true) {
-		const interactionId = crypto.randomUUID();
-		this.sql.exec(
-			"INSERT INTO poppy_desks(id,conversation,root,pending,through_sequence) SELECT ?,?,?,1,COALESCE(MAX(sequence),0)+? FROM poppy_requests",
-			interactionId,
-			c.id,
-			c.parent ?? c.id,
-			includesNewRequest ? 1 : 0,
-		);
+		openPoppyDesk(this.db, {
+			id: crypto.randomUUID(),
+			conversation: c.id,
+			root: c.parent ?? c.id,
+			includesNewRequest,
+		});
 	}
 	private close(c: Conversation) {
 		if (c.closed) return;
 		if (c.direct) this.close(this.load(c.direct));
 		c.closed = true;
 		c.handoff = "none";
-		this.sql.exec(
-			"UPDATE poppy_desks SET pending=0 WHERE conversation=?",
-			c.id,
-		);
+		closePoppyDesks(this.db, c.id);
 		c.direct = null;
-		this.sql.exec(
-			"UPDATE poppy_requests SET pending=0 WHERE conversation=?",
-			c.id,
-		);
+		settlePoppyRequests(this.db, { conversation: c.id });
 		this.state(c);
 		if (c.parent) {
 			const p = this.load(c.parent);
@@ -241,13 +211,7 @@ export class PoppyConversations {
 		if (!parsed.success) throw new ProtocolError("invalid_request", 400);
 		const input = parsed.data;
 		const ownerId = ownerKey(owner);
-		const old = this.sql
-			.exec<StoredRequest>(
-				"SELECT id,conversation,path,body,status,pending,context,through_sequence,accepted_at FROM poppy_requests WHERE owner=? AND id=?",
-				ownerId,
-				input.id,
-			)
-			.toArray()[0];
+		const old = findPoppyRequest(this.db, { owner: ownerId, id: input.id });
 		const fingerprint = canonical(body!);
 		if (old) {
 			this.owned(old.conversation, owner);
@@ -326,27 +290,22 @@ export class PoppyConversations {
 				this.state(c);
 			} else if (action === "handoff/cancel" && c.handoff === "pending") {
 				c.handoff = "none";
-				this.sql.exec(
-					"UPDATE poppy_desks SET pending=0 WHERE conversation=?",
-					c.id,
-				);
+				closePoppyDesks(this.db, c.id);
 				this.state(c);
 			}
 		}
 		const status = parts.length ? 202 : 201;
-		this.sql.exec(
-			"INSERT INTO poppy_requests(owner,id,conversation,path,body,status,pending,context,through_sequence,accepted_at) VALUES (?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sequence),0) FROM poppy_events WHERE conversation=?),?)",
-			ownerId,
-			input.id,
-			c!.id,
+		insertPoppyRequest(this.db, {
+			owner: ownerId,
+			id: input.id,
+			conversation: c!.id,
 			path,
-			fingerprint,
+			body: fingerprint,
 			status,
 			pending,
-			JSON.stringify(c!.context),
-			c!.id,
-			Date.now(),
-		);
+			context: JSON.stringify(c!.context),
+			acceptedAt: Date.now(),
+		});
 		return { httpStatus: status, body: { conversation_id: c!.id } };
 	}
 	read(
@@ -360,34 +319,23 @@ export class PoppyConversations {
 			if (cursor !== null) {
 				if (!PoppyIdSchema.safeParse(cursor).success)
 					throw new ProtocolError("invalid_cursor", 400);
-				const row = this.sql
-					.exec<{ sequence: number }>(
-						"SELECT sequence FROM poppy_events WHERE conversation=? AND id=?",
-						c.id,
-						cursor,
-					)
-					.toArray()[0];
-				if (!row) throw new ProtocolError("invalid_cursor", 400);
-				after = row.sequence;
+				const sequence = findPoppyEventSequence(this.db, {
+					conversation: c.id,
+					id: cursor,
+				});
+				if (sequence === undefined)
+					throw new ProtocolError("invalid_cursor", 400);
+				after = sequence;
 			}
-			const events = this.sql
-				.exec<{ value: string }>(
-					"SELECT value FROM poppy_events WHERE conversation=? AND sequence>? ORDER BY sequence LIMIT 101",
-					c.id,
-					after,
-				)
-				.toArray();
+			const events = listPoppyEventsAfter(this.db, {
+				conversation: c.id,
+				afterSequence: after,
+				limit: 101,
+			});
 			const page = events
 				.slice(0, 100)
-				.map((row) => JSON.parse(row.value) as Event);
-			const working =
-				!c.closed &&
-				this.sql
-					.exec(
-						"SELECT id FROM poppy_requests WHERE conversation=? AND pending>0 LIMIT 1",
-						c.id,
-					)
-					.toArray().length > 0;
+				.map((value) => JSON.parse(value) as Event);
+			const working = !c.closed && hasPendingPoppyRequest(this.db, c.id);
 			return {
 				httpStatus: 200,
 				body: {
@@ -411,47 +359,28 @@ export class PoppyConversations {
 		}
 	}
 	pendingConversations(): string[] {
-		return this.sql
-			.exec<{ conversation: string }>(
-				"SELECT DISTINCT conversation FROM poppy_requests WHERE pending=1",
-			)
-			.toArray()
-			.map((row) => row.conversation);
+		return listPendingPoppyConversations(this.db);
 	}
 	nextJob(conversationId?: string): PoppyJob | null {
-		const r = this.sql
-			.exec<StoredRequest & { owner: string }>(
-				"SELECT owner,id,conversation,path,body,status,pending,context,through_sequence,accepted_at FROM poppy_requests WHERE pending=1 AND (? IS NULL OR conversation=?) ORDER BY sequence LIMIT 1",
-				conversationId ?? null,
-				conversationId ?? null,
-			)
-			.toArray()[0];
+		const r = nextPoppyRequest(this.db, conversationId);
 		if (!r) return null;
 		const c = this.load(r.conversation);
-		const history = this.sql
-			.exec<{ value: string }>(
-				"SELECT value FROM poppy_events WHERE conversation=? AND (sequence<=? OR json_extract(value,'$.message.role')='company') ORDER BY sequence DESC LIMIT 100",
-				c.id,
-				r.through_sequence,
-			)
-			.toArray()
-			.reverse()
-			.map((row) => JSON.parse(row.value) as Event);
+		const history = listRecentPoppyEvents(this.db, {
+			conversation: c.id,
+			throughSequence: r.throughSequence,
+			limit: 100,
+		}).map((value) => JSON.parse(value) as Event);
 		const parentHistory = c.parent
-			? this.sql
-					.exec<{ value: string }>(
-						"SELECT value FROM poppy_events WHERE conversation=? ORDER BY sequence DESC LIMIT 100",
-						c.parent,
-					)
-					.toArray()
-					.reverse()
-					.map((row) => JSON.parse(row.value) as Event)
+			? listRecentPoppyEvents(this.db, {
+					conversation: c.parent,
+					limit: 100,
+				}).map((value) => JSON.parse(value) as Event)
 			: [];
 		return {
 			owner: r.owner,
 			id: r.id,
 			conversation: c.id,
-			acceptedAt: r.accepted_at,
+			acceptedAt: r.acceptedAt,
 			context: JSON.parse(r.context) as JsonValue,
 			history: [...parentHistory, ...history],
 			publicInstructions: c.publicInstructions,
@@ -459,13 +388,7 @@ export class PoppyConversations {
 	}
 	finish(job: PoppyJob, text: string) {
 		this.atomic(() => {
-			const r = this.sql
-				.exec<{ pending: number }>(
-					"SELECT pending FROM poppy_requests WHERE owner=? AND id=?",
-					job.owner,
-					job.id,
-				)
-				.toArray()[0];
+			const r = findPoppyRequest(this.db, { owner: job.owner, id: job.id });
 			if (!r?.pending) return;
 			const c = this.load(job.conversation);
 			if (!c.closed)
@@ -479,37 +402,23 @@ export class PoppyConversations {
 						text,
 					},
 				});
-			this.sql.exec(
-				"UPDATE poppy_requests SET pending=0 WHERE owner=? AND id=?",
-				job.owner,
-				job.id,
-			);
+			settlePoppyRequests(this.db, { owner: job.owner, id: job.id });
 		});
 	}
 	desks(owner: Owner, conversationId: string): PoppyDesk[] {
 		const c = this.owned(conversationId, owner);
-		return this.sql
-			.exec<{ id: string; conversation: string; pending: number }>(
-				"SELECT id,conversation,pending FROM poppy_desks WHERE root=? OR conversation=?",
-				c.id,
-				c.id,
-			)
-			.toArray()
-			.map((row) => ({
-				conversationId: row.conversation,
-				interactionId: row.id,
-				pending: row.pending === 1,
-				transcript: {
-					events: this.sql
-						.exec<{ value: string }>(
-							"SELECT value FROM poppy_events WHERE conversation=? AND json_extract(value,'$.type')='message' ORDER BY sequence DESC LIMIT 20",
-							row.conversation,
-						)
-						.toArray()
-						.reverse()
-						.map((event) => JSON.parse(event.value) as JsonValue),
-				},
-			}));
+		return listPoppyDesks(this.db, c.id).map((row) => ({
+			conversationId: row.conversation,
+			interactionId: row.id,
+			pending: row.pending === 1,
+			transcript: {
+				events: listRecentPoppyEvents(this.db, {
+					conversation: row.conversation,
+					messagesOnly: true,
+					limit: 20,
+				}).map((event) => JSON.parse(event) as JsonValue),
+			},
+		}));
 	}
 	humanReply(
 		owner: Owner,
@@ -519,39 +428,21 @@ export class PoppyConversations {
 	) {
 		this.atomic(() => {
 			const c = this.owned(conversationId, owner);
-			const desk = this.sql
-				.exec<{ pending: number; through_sequence: number }>(
-					"SELECT pending,through_sequence FROM poppy_desks WHERE id=? AND conversation=?",
-					interactionId,
-					c.id,
-				)
-				.toArray()[0];
+			const desk = findPoppyDesk(this.db, {
+				id: interactionId,
+				conversation: c.id,
+			});
 			if (c.closed || !desk?.pending) return;
-			this.sql.exec(
-				"UPDATE poppy_desks SET pending=0 WHERE id=?",
-				interactionId,
-			);
-			this.sql.exec(
-				"UPDATE poppy_requests SET pending=0 WHERE conversation=? AND sequence<=?",
-				c.id,
-				desk.through_sequence,
-			);
+			closePoppyDesk(this.db, interactionId);
+			settlePoppyRequests(this.db, {
+				conversation: c.id,
+				throughSequence: desk.throughSequence,
+			});
 			c.handoff = "none";
 			c.responder = text === null ? "agent" : "human";
 			this.state(c);
-			if (
-				text !== null &&
-				this.sql
-					.exec(
-						"SELECT id FROM poppy_requests WHERE conversation=? AND pending>0 LIMIT 1",
-						c.id,
-					)
-					.toArray().length
-			) {
-				this.sql.exec(
-					"UPDATE poppy_requests SET pending=2 WHERE conversation=? AND pending>0",
-					c.id,
-				);
+			if (text !== null && hasPendingPoppyRequest(this.db, c.id)) {
+				escalatePoppyRequests(this.db, c.id);
 				this.openDesk(c, false);
 			}
 			this.event(c, {

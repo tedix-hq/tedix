@@ -1,0 +1,268 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "2e1c60d1-a221-418e-89a8-aa177fbe7c39",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "runtime_admission",
+			"entityType": "tables"
+		},
+		{
+			"name": "runtime_admission_evidence",
+			"entityType": "tables"
+		},
+		{
+			"name": "runtime_admission_identities",
+			"entityType": "tables"
+		},
+		{
+			"name": "runtime_admission_initialized",
+			"entityType": "tables"
+		},
+		{
+			"name": "runtime_admission_operations",
+			"entityType": "tables"
+		},
+		{
+			"name": "runtime_admission_receipts",
+			"entityType": "tables"
+		},
+		{
+			"name": "runtime_admission_turns",
+			"entityType": "tables"
+		},
+		{
+			"table": "runtime_admission",
+			"name": "id",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission",
+			"name": "record",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_evidence",
+			"name": "digest",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_evidence",
+			"name": "action",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_evidence",
+			"name": "snapshot",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_evidence",
+			"name": "claim",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_identities",
+			"name": "run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_identities",
+			"name": "record",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_identities",
+			"name": "input",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_initialized",
+			"name": "id",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_operations",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_operations",
+			"name": "input",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_operations",
+			"name": "result",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_receipts",
+			"name": "run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_receipts",
+			"name": "record",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_turns",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission_turns",
+			"name": "record",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "runtime_admission",
+			"name": "runtime_admission_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission_evidence",
+			"name": "runtime_admission_evidence_pk",
+			"columns": ["digest"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission_identities",
+			"name": "runtime_admission_identities_pk",
+			"columns": ["run_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission_initialized",
+			"name": "runtime_admission_initialized_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission_operations",
+			"name": "runtime_admission_operations_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission_receipts",
+			"name": "runtime_admission_receipts_pk",
+			"columns": ["run_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission_turns",
+			"name": "runtime_admission_turns_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "runtime_admission",
+			"name": "runtime_admission_singleton",
+			"value": "\"id\" = 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "runtime_admission_initialized",
+			"name": "runtime_admission_initialized_singleton",
+			"value": "\"id\" = 1",
+			"entityType": "checks"
+		}
+	],
+	"renames": []
+}

@@ -2,16 +2,28 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { RuntimeAdmission, type AdmissionEvidence } from "./runtime-admission";
 const db = new Database(":memory:");
+let depth = 0;
 const storage = {
 	sql: {
 		exec(query: string, ...values: unknown[]) {
 			const statement = db.query(query);
-			const rows = statement.all(...(values as never[]));
-			return { toArray: () => rows };
+			const rows = statement.all(...(values as never[])) as object[];
+			// raw() is the column-value cursor drizzle-orm/durable-sqlite reads.
+			const values_ = rows.map((row) => Object.values(row));
+			return {
+				toArray: () => rows,
+				raw: () =>
+					Object.assign(values_[Symbol.iterator](), {
+						toArray: () => values_,
+					}),
+			};
 		},
 	},
+	// Nested calls join the outer transaction, as Durable Object storage does.
 	transactionSync<T>(fn: () => T): T {
+		if (depth) return fn();
 		db.run("BEGIN");
+		depth++;
 		try {
 			const result = fn();
 			db.run("COMMIT");
@@ -19,6 +31,8 @@ const storage = {
 		} catch (error) {
 			db.run("ROLLBACK");
 			throw error;
+		} finally {
+			depth--;
 		}
 	},
 } as unknown as DurableObjectStorage;

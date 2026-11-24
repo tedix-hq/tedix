@@ -1,0 +1,158 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "bd7258ea-e18e-4f77-b80f-93117e25acb2",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "session_intent",
+			"entityType": "tables"
+		},
+		{
+			"table": "session_intent",
+			"name": "singleton",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "intent_json",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "code_hash",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "code_expires_at",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "grant_kind",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "granted_tenant_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "session_jwt",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "subject",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "session_expires_at",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "updated_at",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "reauth_started_at",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_intent",
+			"name": "session_intent_pk",
+			"columns": ["singleton"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "session_intent",
+			"name": "session_intent_singleton",
+			"value": "\"singleton\" = 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "session_intent",
+			"name": "session_intent_status",
+			"value": "\"status\" IN ('pending', 'granted', 'consumed', 'failed')",
+			"entityType": "checks"
+		},
+		{
+			"table": "session_intent",
+			"name": "session_intent_grant_kind",
+			"value": "\"grant_kind\" IN ('session', 'logout')",
+			"entityType": "checks"
+		}
+	],
+	"renames": []
+}

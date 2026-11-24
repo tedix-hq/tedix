@@ -22,8 +22,10 @@
 	"dependencies": {
 		"@tedix/api-client": "workspace:*",
 		"@tedix/auth": "workspace:*",
+		"@tedix/db": "workspace:*",
 		"@tedix/deploy-values": "workspace:*",
-		"@tedix/worker-kit": "workspace:*"
+		"@tedix/worker-kit": "workspace:*",
+		"drizzle-orm": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "catalog:",

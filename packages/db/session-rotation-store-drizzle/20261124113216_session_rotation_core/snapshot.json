@@ -1,0 +1,113 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "14f593b2-e23b-4d70-ac00-9688f824b3a5",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "logout_replay_fingerprints",
+			"entityType": "tables"
+		},
+		{
+			"name": "refresh_rotation_state",
+			"entityType": "tables"
+		},
+		{
+			"table": "logout_replay_fingerprints",
+			"name": "fingerprint",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "logout_replay_fingerprints",
+			"name": "logged_out_at",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "singleton",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "generation",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "current_fingerprint",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "updated_at",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "logout_replay_fingerprints",
+			"name": "logout_replay_fingerprints_pk",
+			"columns": ["fingerprint"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "refresh_rotation_state_pk",
+			"columns": ["singleton"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "refresh_rotation_state_singleton",
+			"value": "\"singleton\" = 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "refresh_rotation_state",
+			"name": "refresh_rotation_state_status",
+			"value": "\"status\" IN ('ready', 'reauth_required')",
+			"entityType": "checks"
+		}
+	],
+	"renames": []
+}

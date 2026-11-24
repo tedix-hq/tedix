@@ -1,4 +1,22 @@
 /** Permanent runtime-neutral admission. No lifecycle, scheduler or external dispatch. */
+import {
+	findRuntimeAdmissionOperation,
+	findRuntimeAdmissionTurn,
+	insertRuntimeAdmissionOperation,
+	insertRuntimeAdmissionTurn,
+	listRuntimeAdmissionTurnIds,
+	readRuntimeAdmissionRecord,
+	runtimeAdmissionTableExists,
+	saveRuntimeAdmissionRecord,
+	updateRuntimeAdmissionTurn,
+} from "@tedix/db/queries/durable-sqlite/runtime-admission";
+import {
+	ensureRuntimeAdmissionTables,
+	markRuntimeAdmissionInitialized,
+	runtimeAdmissionWasInitialized,
+	openRuntimeAdmissionStore,
+	type RuntimeAdmissionDb,
+} from "@tedix/db/runtime-admission-store/store";
 export type AdmissionState = "active" | "held" | "quarantined" | "retired";
 export interface AdmissionOwner {
 	tediId: string | null;
@@ -39,9 +57,6 @@ export type AdmissionVerifier = (
 	action: VerificationAction,
 	input: Readonly<Record<string, unknown>>,
 ) => AdmissionEvidence;
-const STATE = "runtime_admission",
-	TURNS = "runtime_admission_turns",
-	OPS = "runtime_admission_operations";
 function fail(message: string): never {
 	throw new Error(`Runtime admission: ${message}`);
 }
@@ -72,6 +87,7 @@ function same(a: unknown, b: unknown) {
 }
 export class RuntimeAdmission {
 	readonly owner: AdmissionOwner;
+	private readonly db: RuntimeAdmissionDb;
 	constructor(
 		private readonly storage: Pick<
 			DurableObjectStorage,
@@ -81,37 +97,33 @@ export class RuntimeAdmission {
 		private readonly verify: AdmissionVerifier,
 	) {
 		this.owner = Object.freeze(owner(ownerValue));
+		this.db = openRuntimeAdmissionStore(storage);
+	}
+	/**
+	 * The persisted snapshot record, or null for an object never initialized.
+	 * The state row is written in the same transaction that first needs the
+	 * tables, so a table without its row is also uninitialized: another
+	 * admission write may have applied the migration chain first.
+	 */
+	private record(): string | null {
+		const stored = runtimeAdmissionTableExists(this.db, "runtime_admission")
+			? readRuntimeAdmissionRecord(this.db)
+			: undefined;
+		if (stored !== undefined) return stored;
+		// Initialized once and the row is gone: fail closed, never look fresh.
+		if (runtimeAdmissionWasInitialized(this.storage))
+			fail("missing persisted state");
+		return null;
 	}
 	private exists(): boolean {
-		return (
-			this.storage.sql
-				.exec(
-					"SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-					STATE,
-				)
-				.toArray().length > 0
-		);
-	}
-	private setup() {
-		this.storage.sql.exec(
-			`CREATE TABLE IF NOT EXISTS ${STATE} (id INTEGER PRIMARY KEY CHECK(id=1),record TEXT NOT NULL)`,
-		);
-		this.storage.sql.exec(
-			`CREATE TABLE IF NOT EXISTS ${TURNS} (id TEXT PRIMARY KEY,record TEXT NOT NULL)`,
-		);
-		this.storage.sql.exec(
-			`CREATE TABLE IF NOT EXISTS ${OPS} (id TEXT PRIMARY KEY,input TEXT NOT NULL,result TEXT NOT NULL)`,
-		);
+		return this.record() !== null;
 	}
 	read(): AdmissionSnapshot | null {
-		if (!this.exists()) return null;
-		const row = this.storage.sql
-			.exec<{ record: string }>(`SELECT record FROM ${STATE} WHERE id=1`)
-			.toArray()[0];
-		if (!row) fail("missing persisted state");
+		const record = this.record();
+		if (record === null) return null;
 		let s: AdmissionSnapshot;
 		try {
-			s = JSON.parse(row.record);
+			s = JSON.parse(record);
 		} catch {
 			fail("malformed persisted state");
 		}
@@ -127,16 +139,11 @@ export class RuntimeAdmission {
 		bounded(turnId);
 		if (!this.exists()) return null;
 		this.known();
-		const r = this.storage.sql
-			.exec<{ record: string }>(
-				`SELECT record FROM ${TURNS} WHERE id=?`,
-				turnId,
-			)
-			.toArray()[0];
-		if (!r) return null;
+		const r = findRuntimeAdmissionTurn(this.db, turnId);
+		if (r === undefined) return null;
 		let c: TurnClaim;
 		try {
-			c = JSON.parse(r.record);
+			c = JSON.parse(r);
 		} catch {
 			fail("malformed claim");
 		}
@@ -152,10 +159,7 @@ export class RuntimeAdmission {
 		return this.read() ?? fail("unverified baseline");
 	}
 	private save(s: AdmissionSnapshot) {
-		this.storage.sql.exec(
-			`INSERT OR REPLACE INTO ${STATE} VALUES (1,?)`,
-			JSON.stringify(s),
-		);
+		saveRuntimeAdmissionRecord(this.db, JSON.stringify(s));
 	}
 	private evidence(
 		action: VerificationAction,
@@ -190,10 +194,8 @@ export class RuntimeAdmission {
 		return hash(e.digest);
 	}
 	private idle() {
-		for (const r of this.storage.sql
-			.exec<{ id: string }>(`SELECT id FROM ${TURNS}`)
-			.toArray())
-			if (this.claim(r.id)?.status !== "completed")
+		for (const id of listRuntimeAdmissionTurnIds(this.db))
+			if (this.claim(id)?.status !== "completed")
 				fail("unresolved accepted claim");
 	}
 	private operation(
@@ -205,12 +207,7 @@ export class RuntimeAdmission {
 		return this.storage.transactionSync(() => {
 			if (this.exists()) {
 				this.known();
-				const prior = this.storage.sql
-					.exec<{ input: string; result: string }>(
-						`SELECT input,result FROM ${OPS} WHERE id=?`,
-						id,
-					)
-					.toArray()[0];
+				const prior = findRuntimeAdmissionOperation(this.db, id);
 				if (prior) {
 					if (prior.input !== JSON.stringify(input))
 						fail("operation id conflict");
@@ -218,12 +215,11 @@ export class RuntimeAdmission {
 				}
 			}
 			const result = fn();
-			this.storage.sql.exec(
-				`INSERT INTO ${OPS} VALUES (?,?,?)`,
-				id,
-				JSON.stringify(input),
-				JSON.stringify(result),
-			);
+			insertRuntimeAdmissionOperation(this.db, {
+				operationId: id,
+				input: JSON.stringify(input),
+				result: JSON.stringify(result),
+			});
 			return result;
 		});
 	}
@@ -250,7 +246,8 @@ export class RuntimeAdmission {
 			if (input.state === "active" && evidence !== input.evidence)
 				fail("initial evidence mismatch");
 			const reason = input.reason === undefined ? null : bounded(input.reason);
-			this.setup();
+			ensureRuntimeAdmissionTables(this.storage);
+			markRuntimeAdmissionInitialized(this.storage);
 			const s = {
 				owner: this.owner,
 				state: input.state,
@@ -290,11 +287,10 @@ export class RuntimeAdmission {
 				status: "running",
 				completion: null,
 			};
-			this.storage.sql.exec(
-				`INSERT INTO ${TURNS} VALUES (?,?)`,
-				claim.turnId,
-				JSON.stringify(claim),
-			);
+			insertRuntimeAdmissionTurn(this.db, {
+				turnId: claim.turnId,
+				record: JSON.stringify(claim),
+			});
 			return { newlyAccepted: true, claim };
 		});
 	}
@@ -344,11 +340,10 @@ export class RuntimeAdmission {
 				status: "completed",
 				completion: digest,
 			};
-			this.storage.sql.exec(
-				`UPDATE ${TURNS} SET record=? WHERE id=?`,
-				JSON.stringify(completed),
-				c.turnId,
-			);
+			updateRuntimeAdmissionTurn(this.db, {
+				turnId: c.turnId,
+				record: JSON.stringify(completed),
+			});
 			return completed;
 		});
 	}

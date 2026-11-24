@@ -35,9 +35,15 @@ async function registryStorage(tediId: string, orgId: string) {
 		...memoryStorage(),
 		sql: {
 			exec(query: string, ...args: (string | number | null)[]) {
-				const rows = db.query(query).all(...args);
+				const rows = db.query(query).all(...args) as object[];
+				// raw() is the column-value cursor drizzle-orm/durable-sqlite reads.
+				const values = rows.map((row) => Object.values(row));
 				return {
 					toArray: () => rows,
+					raw: () =>
+						Object.assign(values[Symbol.iterator](), {
+							toArray: () => values,
+						}),
 					[Symbol.iterator]: () => rows[Symbol.iterator](),
 				};
 			},

@@ -9,10 +9,8 @@ import {
 } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import {
-	PoppyConversations,
-	type PoppySql,
-} from "../../../tedi-runtime/src/poppy-conversations";
+import { createDurableSqliteFixture } from "@tedix/db/test/durable-sqlite-fixture";
+import { PoppyConversations } from "../../../tedi-runtime/src/poppy-conversations";
 import { handlePoppyRuntime } from "../../../tedi-runtime/src/poppy-runtime";
 import { personalAgentConversation } from "./personal-agent-conversation";
 const mocks = vi.hoisted(() => ({
@@ -96,23 +94,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	interactions.clear();
 	sqlite = new DatabaseSync(":memory:");
-	const sql: PoppySql = {
-		exec<T>(query: string, ...values: SqlStorageValue[]) {
-			const rows = sqlite.prepare(query).all(...(values as never[])) as T[];
-			return { toArray: () => rows };
-		},
-	};
-	store = new PoppyConversations(sql, <T>(fn: () => T) => {
-		sqlite.exec("BEGIN");
-		try {
-			const value = fn();
-			sqlite.exec("COMMIT");
-			return value;
-		} catch (error) {
-			sqlite.exec("ROLLBACK");
-			throw error;
-		}
-	});
+	store = new PoppyConversations(createDurableSqliteFixture(sqlite));
 	mocks.organization.mockResolvedValue({
 		metadata: { personalAgentProtocol: config },
 	});

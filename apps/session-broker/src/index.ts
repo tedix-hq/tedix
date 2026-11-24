@@ -1,4 +1,14 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import {
+	isLogoutReplay,
+	readRefreshRotationState,
+	recordLogoutReplay,
+	writeRefreshRotationState,
+} from "@tedix/db/queries/durable-sqlite/session-rotation";
+import {
+	type SessionRotationStoreDb,
+	openSessionRotationStore,
+} from "@tedix/db/session-rotation-store/store";
 import { assertFreshCustomHost } from "./custom-host";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import {
@@ -387,25 +397,12 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 	private activeRefreshToken: string | null = null;
 	private readonly activeLineage = new Set<string>();
 	private pendingOperations = 0;
+	private db!: SessionRotationStoreDb;
 
 	constructor(ctx: DurableObjectState, env: BrokerEnv) {
 		super(ctx, env);
 		ctx.blockConcurrencyWhile(() => {
-			ctx.storage.sql.exec(`
-				CREATE TABLE IF NOT EXISTS refresh_rotation_state (
-					singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-					generation INTEGER NOT NULL,
-					current_fingerprint TEXT,
-					status TEXT NOT NULL CHECK (status IN ('ready', 'reauth_required')),
-					updated_at INTEGER NOT NULL
-				)
-			`);
-			ctx.storage.sql.exec(`
-				CREATE TABLE IF NOT EXISTS logout_replay_fingerprints (
-					fingerprint TEXT PRIMARY KEY,
-					logged_out_at INTEGER NOT NULL
-				)
-			`);
+			this.db = openSessionRotationStore(ctx.storage);
 			return Promise.resolve();
 		});
 	}
@@ -501,39 +498,11 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 	}
 
 	private readState(): RotationState | null {
-		const row = this.ctx.storage.sql
-			.exec<{
-				generation: number;
-				current_fingerprint: string | null;
-				status: RotationState["status"];
-			}>(
-				"SELECT generation, current_fingerprint, status FROM refresh_rotation_state WHERE singleton = 1",
-			)
-			.toArray()[0];
-		return row
-			? {
-					generation: row.generation,
-					currentFingerprint: row.current_fingerprint,
-					status: row.status,
-				}
-			: null;
+		return readRefreshRotationState(this.db);
 	}
 
 	private commitState(state: RotationState): void {
-		this.ctx.storage.sql.exec(
-			`INSERT INTO refresh_rotation_state
-				(singleton, generation, current_fingerprint, status, updated_at)
-			 VALUES (1, ?, ?, ?, ?)
-			 ON CONFLICT(singleton) DO UPDATE SET
-				generation = excluded.generation,
-				current_fingerprint = excluded.current_fingerprint,
-				status = excluded.status,
-				updated_at = excluded.updated_at`,
-			state.generation,
-			state.currentFingerprint,
-			state.status,
-			Date.now(),
-		);
+		writeRefreshRotationState(this.db, { ...state, nowMs: Date.now() });
 	}
 
 	private async executeRotation(
@@ -675,13 +644,7 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 		presentedFingerprint: string,
 	): Promise<LogoutSessionResult> {
 		const startedAt = Date.now();
-		const replay = this.ctx.storage.sql
-			.exec<{ fingerprint: string }>(
-				"SELECT fingerprint FROM logout_replay_fingerprints WHERE fingerprint = ?",
-				presentedFingerprint,
-			)
-			.toArray()[0];
-		if (replay) {
+		if (isLogoutReplay(this.db, presentedFingerprint)) {
 			event("session_logout", input, "already_invalid", startedAt);
 			return { ok: true, outcome: "already_invalid" };
 		}
@@ -728,13 +691,10 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 			presentedFingerprint,
 			activeFingerprint,
 		])) {
-			this.ctx.storage.sql.exec(
-				`INSERT INTO logout_replay_fingerprints (fingerprint, logged_out_at)
-				 VALUES (?, ?) ON CONFLICT(fingerprint) DO UPDATE SET
-				 logged_out_at = excluded.logged_out_at`,
-				replayFingerprint,
-				Date.now(),
-			);
+			recordLogoutReplay(this.db, {
+				fingerprint: replayFingerprint,
+				nowMs: Date.now(),
+			});
 		}
 		this.commitState({
 			generation: state?.generation ?? 0,

@@ -1,0 +1,323 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "ed7618fb-67b5-4df8-87f9-9c7061f746dc",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "poppy_conversations",
+			"entityType": "tables"
+		},
+		{
+			"name": "poppy_desks",
+			"entityType": "tables"
+		},
+		{
+			"name": "poppy_events",
+			"entityType": "tables"
+		},
+		{
+			"name": "poppy_requests",
+			"entityType": "tables"
+		},
+		{
+			"table": "poppy_conversations",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_conversations",
+			"name": "value",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_desks",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_desks",
+			"name": "conversation",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_desks",
+			"name": "root",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_desks",
+			"name": "pending",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_desks",
+			"name": "through_sequence",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_events",
+			"name": "sequence",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": true,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_events",
+			"name": "conversation",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_events",
+			"name": "id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_events",
+			"name": "value",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "sequence",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": true,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "owner",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "conversation",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "path",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "body",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "status",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "pending",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "context",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "through_sequence",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "accepted_at",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "poppy_events",
+			"name": "poppy_events_conversation",
+			"columns": [
+				{
+					"value": "conversation",
+					"isExpression": false
+				},
+				{
+					"value": "sequence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "poppy_pending",
+			"columns": [
+				{
+					"value": "pending",
+					"isExpression": false
+				},
+				{
+					"value": "sequence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "poppy_conversations",
+			"name": "poppy_conversations_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "poppy_desks",
+			"name": "poppy_desks_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "poppy_events",
+			"name": "poppy_events_pk",
+			"columns": ["sequence"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "poppy_requests_pk",
+			"columns": ["sequence"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "poppy_requests",
+			"name": "poppy_requests_owner_id_unique",
+			"columns": ["owner", "id"],
+			"nameExplicit": false,
+			"entityType": "uniques"
+		},
+		{
+			"table": "poppy_events",
+			"name": "poppy_events_id_unique",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "uniques"
+		}
+	],
+	"renames": []
+}

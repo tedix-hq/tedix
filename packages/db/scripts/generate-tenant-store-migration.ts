@@ -42,6 +42,34 @@ const STORES = {
 		exportName: "walletStoreMigrations",
 		label: "wallet store",
 	},
+	"session-intent-store": {
+		config: "drizzle.session-intent-store.config.ts",
+		folder: "session-intent-store-drizzle",
+		module: "src/session-intent-store/migrations.ts",
+		exportName: "sessionIntentStoreMigrations",
+		label: "session intent store",
+	},
+	"session-rotation-store": {
+		config: "drizzle.session-rotation-store.config.ts",
+		folder: "session-rotation-store-drizzle",
+		module: "src/session-rotation-store/migrations.ts",
+		exportName: "sessionRotationStoreMigrations",
+		label: "session rotation store",
+	},
+	"poppy-store": {
+		config: "drizzle.poppy-store.config.ts",
+		folder: "poppy-store-drizzle",
+		module: "src/poppy-store/migrations.ts",
+		exportName: "poppyStoreMigrations",
+		label: "Poppy store",
+	},
+	"runtime-admission-store": {
+		config: "drizzle.runtime-admission-store.config.ts",
+		folder: "runtime-admission-store-drizzle",
+		module: "src/runtime-admission-store/migrations.ts",
+		exportName: "runtimeAdmissionStoreMigrations",
+		label: "runtime admission store",
+	},
 } as const;
 type StoreName = keyof typeof STORES;
 

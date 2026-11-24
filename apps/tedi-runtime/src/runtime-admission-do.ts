@@ -1,4 +1,23 @@
 import { createHash } from "node:crypto";
+import {
+	findRuntimeAdmissionEvidence,
+	findRuntimeAdmissionIdentity,
+	findRuntimeAdmissionReceipt,
+	hasRuntimeAdmissionEvidence,
+	insertRuntimeAdmissionEvidence,
+	insertRuntimeAdmissionIdentity,
+	insertRuntimeAdmissionReceipt,
+	listRuntimeAdmissionIdentityInput,
+	listRuntimeAdmissionReceipt,
+	readRuntimeAdmissionRecord,
+	runtimeAdmissionTableExists,
+} from "@tedix/db/queries/durable-sqlite/runtime-admission";
+import {
+	ensureRuntimeAdmissionTables,
+	runtimeAdmissionWasInitialized,
+	openRuntimeAdmissionStore,
+	type RuntimeAdmissionDb,
+} from "@tedix/db/runtime-admission-store/store";
 import { buildRunId } from "./ledger-mirror";
 /** Storage adapter for permanent admission. Does not activate a runtime on construction. */
 import {
@@ -123,28 +142,24 @@ export function assertStoredTelegramDisposition(
 	)
 		fail("unknown external effect receipt");
 }
-const IDENTITIES = "runtime_admission_identities",
-	EVIDENCE = "runtime_admission_evidence",
-	RECEIPTS = "runtime_admission_receipts";
 /** Read-only constructor guard. Existence/state is not proof of tenant activation authority. */
 export function readStoredRuntimeAdmission(
 	storage: Pick<DurableObjectStorage, "sql" | "transactionSync">,
 	objectId: string,
 ): AdmissionSnapshot | null {
 	text(objectId);
-	if (
-		storage.sql
-			.exec(
-				"SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_admission'",
-			)
-			.toArray().length === 0
-	)
+	const db = openRuntimeAdmissionStore(storage);
+	const stored = runtimeAdmissionTableExists(db, "runtime_admission")
+		? readRuntimeAdmissionRecord(db)
+		: undefined;
+	if (stored === undefined) {
+		// Another admission write's migration may create the tables before
+		// `initialize`; only an object that was initialized fails closed.
+		if (runtimeAdmissionWasInitialized(storage))
+			fail("missing persisted admission");
 		return null;
-	const row = storage.sql
-		.exec<{ record: string }>("SELECT record FROM runtime_admission WHERE id=1")
-		.toArray()[0];
-	if (!row) fail("missing persisted admission");
-	const state = parse(row.record),
+	}
+	const state = parse(stored),
 		storedOwner = record(state.owner);
 	if (storedOwner.objectId !== objectId)
 		fail("physical object custody mismatch");
@@ -159,12 +174,14 @@ export function readStoredRuntimeAdmission(
 }
 export class RuntimeAdmissionDO {
 	readonly gate: RuntimeAdmission;
+	private readonly db: RuntimeAdmissionDb;
 	constructor(
 		private readonly storage: DurableObjectStorage,
 		readonly owner: AdmissionOwner,
 		private readonly facetCustody?: FacetAdmissionCustody,
 	) {
 		this.owner = Object.freeze({ ...owner });
+		this.db = openRuntimeAdmissionStore(storage);
 		this.gate = new RuntimeAdmission(storage, this.owner, (action, input) =>
 			this.verify(action, input),
 		);
@@ -172,6 +189,7 @@ export class RuntimeAdmissionDO {
 	read() {
 		return this.gate.read();
 	}
+	/** Every table name, for the native-state snapshot; admission tables are not facts. */
 	private tables(): Set<string> {
 		return new Set(
 			this.storage.sql
@@ -182,22 +200,17 @@ export class RuntimeAdmissionDO {
 				.map((r) => r.name),
 		);
 	}
-	private setup() {
-		this.storage.sql.exec(
-			`CREATE TABLE IF NOT EXISTS ${IDENTITIES} (run_id TEXT PRIMARY KEY,record TEXT NOT NULL,input TEXT NOT NULL)`,
-		);
-		this.storage.sql.exec(
-			`CREATE TABLE IF NOT EXISTS ${EVIDENCE} (digest TEXT PRIMARY KEY,action TEXT NOT NULL,snapshot TEXT NOT NULL,claim TEXT)`,
-		);
+	private hasTable(
+		table:
+			| "runtime_admission_identities"
+			| "runtime_admission_evidence"
+			| "runtime_admission_receipts",
+	): boolean {
+		return runtimeAdmissionTableExists(this.db, table);
 	}
 	/** Operation claims retain their immutable parent accounting owner across continuations. */
 	private accountingRunId(turnId: string): string {
-		const row = this.storage.sql
-			.exec<{ input: string }>(
-				`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-				turnId,
-			)
-			.toArray()[0];
+		const row = findRuntimeAdmissionIdentity(this.db, turnId);
 		if (!row) fail("missing accepted accounting owner");
 		const original = parse(row.input);
 		return original.parentRunId === undefined
@@ -216,19 +229,9 @@ export class RuntimeAdmissionDO {
 			owner: this.owner,
 			claim,
 			accepted: this.identity(claim!.turnId),
-			acceptedInput: this.storage.sql
-				.exec<{ input: string }>(
-					`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-					claim!.turnId,
-				)
-				.toArray(),
-			receipt: this.tables().has(RECEIPTS)
-				? this.storage.sql
-						.exec(
-							`SELECT record FROM ${RECEIPTS} WHERE run_id=?`,
-							claim!.turnId,
-						)
-						.toArray()
+			acceptedInput: listRuntimeAdmissionIdentityInput(this.db, claim!.turnId),
+			receipt: this.hasTable("runtime_admission_receipts")
+				? listRuntimeAdmissionReceipt(this.db, claim!.turnId)
 				: [],
 			imageCleanup: (() => {
 				const key = `workflow-image-cleanup:${accountingRunId}`,
@@ -327,12 +330,7 @@ export class RuntimeAdmissionDO {
 		const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 		const identity = (id: string) => {
 			const accepted = this.identity(id),
-				saved = this.storage.sql
-					.exec<{ record: string; input: string }>(
-						`SELECT record,input FROM ${IDENTITIES} WHERE run_id=?`,
-						id,
-					)
-					.toArray()[0]!;
+				saved = findRuntimeAdmissionIdentity(this.db, id)!;
 			const { requestHash, ...fields } = accepted;
 			const core = this.gate.claim(id);
 			if (
@@ -371,16 +369,14 @@ export class RuntimeAdmissionDO {
 			!cleanup.core.completion
 		)
 			fail("unsettled image cleanup obligation");
-		if (!this.tables().has(RECEIPTS) || !this.tables().has(EVIDENCE))
+		if (
+			!this.hasTable("runtime_admission_receipts") ||
+			!this.hasTable("runtime_admission_evidence")
+		)
 			fail("unsettled image cleanup obligation");
-		const storedReceipt = this.storage.sql
-			.exec<{ record: string }>(
-				`SELECT record FROM ${RECEIPTS} WHERE run_id=?`,
-				cleanupId,
-			)
-			.toArray()[0];
-		if (!storedReceipt) fail("unsettled image cleanup obligation");
-		const receipt = parse(storedReceipt.record),
+		const storedReceipt = findRuntimeAdmissionReceipt(this.db, cleanupId);
+		if (storedReceipt === undefined) fail("unsettled image cleanup obligation");
+		const receipt = parse(storedReceipt),
 			finalPage = {
 				keys: page.keys,
 				cursor: page.cursor,
@@ -402,12 +398,10 @@ export class RuntimeAdmissionDO {
 			})
 		)
 			fail("unsettled image cleanup obligation");
-		const evidence = this.storage.sql
-			.exec<{ action: string; snapshot: string; claim: string | null }>(
-				`SELECT action,snapshot,claim FROM ${EVIDENCE} WHERE digest=?`,
-				cleanup.core.completion,
-			)
-			.toArray()[0];
+		const evidence = findRuntimeAdmissionEvidence(
+			this.db,
+			cleanup.core.completion,
+		);
 		if (
 			!evidence ||
 			evidence.action !== "complete" ||
@@ -623,12 +617,7 @@ export class RuntimeAdmissionDO {
 						);
 					const accepted = this.identity(runId),
 						core = this.gate.claim(runId);
-					const row = this.storage.sql
-						.exec<{ input: string }>(
-							`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-							runId,
-						)
-						.toArray()[0];
+					const row = findRuntimeAdmissionIdentity(this.db, runId);
 					const { requestHash, ...fields } = accepted;
 					if (
 						!core ||
@@ -643,18 +632,14 @@ export class RuntimeAdmissionDO {
 							accepted.inputHash ||
 						createHash("sha256").update(canonical(fields)).digest("hex") !==
 							requestHash ||
-						!names.has(RECEIPTS)
+						!this.hasTable("runtime_admission_receipts")
 					)
 						fail("unknown external effect receipt");
-					const terminalRow = this.storage.sql
-						.exec<{ record: string }>(
-							`SELECT record FROM ${RECEIPTS} WHERE run_id=?`,
-							runId,
-						)
-						.toArray()[0];
-					const terminal = terminalRow
-						? parse(terminalRow.record)
-						: fail("unknown external effect receipt");
+					const terminalRow = findRuntimeAdmissionReceipt(this.db, runId);
+					const terminal =
+						terminalRow !== undefined
+							? parse(terminalRow)
+							: fail("unknown external effect receipt");
 					const completion = record(terminal.receipt),
 						settlement = record(
 							this.storage.kv.get(`runtime-admission-settlement:${runId}`),
@@ -743,22 +728,13 @@ export class RuntimeAdmissionDO {
 						fail("unknown external effect receipt");
 					runId = r.launchedByRunId;
 				}
-				if (!names.has(RECEIPTS)) fail("unknown external effect receipt");
-				const terminal = this.storage.sql
-					.exec<{ record: string }>(
-						`SELECT record FROM ${RECEIPTS} WHERE run_id=?`,
-						runId,
-					)
-					.toArray()[0];
-				if (!terminal) fail("unknown external effect receipt");
-				const receipt = parse(terminal.record),
+				if (!this.hasTable("runtime_admission_receipts"))
+					fail("unknown external effect receipt");
+				const terminal = findRuntimeAdmissionReceipt(this.db, runId);
+				if (terminal === undefined) fail("unknown external effect receipt");
+				const receipt = parse(terminal),
 					accepted = this.identity(runId);
-				const inputRow = this.storage.sql
-					.exec<{ input: string }>(
-						`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-						runId,
-					)
-					.toArray()[0];
+				const inputRow = findRuntimeAdmissionIdentity(this.db, runId);
 				const { requestHash, ...fields } = accepted;
 				if (
 					!inputRow ||
@@ -882,13 +858,8 @@ export class RuntimeAdmissionDO {
 			)
 				fail("baseline changed while hashing");
 			if (action === "complete") this.terminal(claim);
-			this.setup();
-			const existing = this.storage.sql
-				.exec<{ snapshot: string; action: string; claim: string | null }>(
-					`SELECT snapshot,action,claim FROM ${EVIDENCE} WHERE digest=?`,
-					hash,
-				)
-				.toArray()[0];
+			ensureRuntimeAdmissionTables(this.storage);
+			const existing = findRuntimeAdmissionEvidence(this.db, hash);
 			const claimText = claim ? canonical(claim) : null;
 			if (
 				existing &&
@@ -898,13 +869,12 @@ export class RuntimeAdmissionDO {
 			)
 				fail("evidence identity conflict");
 			if (!existing)
-				this.storage.sql.exec(
-					`INSERT INTO ${EVIDENCE} VALUES (?,?,?,?)`,
-					hash,
+				insertRuntimeAdmissionEvidence(this.db, {
+					digest: hash,
 					action,
 					snapshot,
-					claimText,
-				);
+					claim: claimText,
+				});
 		});
 		return hash;
 	}
@@ -970,15 +940,10 @@ export class RuntimeAdmissionDO {
 			core.generation !== claim.generation
 		)
 			fail("terminal ownership conflict");
-		if (this.tables().has(RECEIPTS)) {
-			const stored = this.storage.sql
-				.exec<{ record: string }>(
-					`SELECT record FROM ${RECEIPTS} WHERE run_id=?`,
-					claim.turnId,
-				)
-				.toArray()[0];
-			if (stored) {
-				const receipt = parse(stored.record);
+		if (this.hasTable("runtime_admission_receipts")) {
+			const stored = findRuntimeAdmissionReceipt(this.db, claim.turnId);
+			if (stored !== undefined) {
+				const receipt = parse(stored);
 				if (
 					canonical(receipt.accepted) !== canonical(accepted) ||
 					receipt.sourceId !== claim.submissionId
@@ -987,12 +952,7 @@ export class RuntimeAdmissionDO {
 				return;
 			}
 		}
-		const acceptedInput = this.storage.sql
-			.exec<{ input: string }>(
-				`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-				claim.turnId,
-			)
-			.toArray()[0];
+		const acceptedInput = findRuntimeAdmissionIdentity(this.db, claim.turnId);
 		const original = acceptedInput
 			? parse(acceptedInput.input)
 			: fail("missing accepted native input");
@@ -1030,14 +990,15 @@ export class RuntimeAdmissionDO {
 		action: VerificationAction,
 		input: Readonly<Record<string, unknown>>,
 	): AdmissionEvidence {
-		if (!this.tables().has(EVIDENCE) || typeof input.evidence !== "string")
+		// No evidence ever recorded. Before the migration chain this was a
+		// missing table; another admission write may now have created it empty.
+		if (
+			!this.hasTable("runtime_admission_evidence") ||
+			!hasRuntimeAdmissionEvidence(this.db) ||
+			typeof input.evidence !== "string"
+		)
 			fail("missing explicit baseline evidence");
-		const e = this.storage.sql
-			.exec<{ snapshot: string; action: string; claim: string | null }>(
-				`SELECT snapshot,action,claim FROM ${EVIDENCE} WHERE digest=?`,
-				input.evidence,
-			)
-			.toArray()[0];
+		const e = findRuntimeAdmissionEvidence(this.db, input.evidence);
 		if (!e || e.action !== action) fail("stale baseline evidence");
 		let original: AdmissionEvidence["claim"];
 		if (action === "complete") {
@@ -1088,13 +1049,9 @@ export class RuntimeAdmissionDO {
 	}
 	private identity(runId: string): AcceptedRuntimeTurn {
 		text(runId);
-		if (!this.tables().has(IDENTITIES)) fail("missing accepted identity");
-		const row = this.storage.sql
-			.exec<{ record: string }>(
-				`SELECT record FROM ${IDENTITIES} WHERE run_id=?`,
-				runId,
-			)
-			.toArray()[0];
+		if (!this.hasTable("runtime_admission_identities"))
+			fail("missing accepted identity");
+		const row = findRuntimeAdmissionIdentity(this.db, runId);
 		if (!row) fail("missing accepted identity");
 		const r = parse(row.record);
 		if (canonical(r.owner) !== canonical(this.owner) || r.runId !== runId)
@@ -1138,13 +1095,8 @@ export class RuntimeAdmissionDO {
 			requestHash: await digest(canonical(fields)),
 		};
 		return this.storage.transactionSync(() => {
-			this.setup();
-			const previous = this.storage.sql
-				.exec<{ record: string; input: string }>(
-					`SELECT record,input FROM ${IDENTITIES} WHERE run_id=?`,
-					accepted.runId,
-				)
-				.toArray()[0];
+			ensureRuntimeAdmissionTables(this.storage);
+			const previous = findRuntimeAdmissionIdentity(this.db, accepted.runId);
 			if (
 				previous &&
 				(previous.record !== canonical(accepted) ||
@@ -1157,12 +1109,11 @@ export class RuntimeAdmissionDO {
 				expectedGeneration: accepted.generation,
 			});
 			if (!previous)
-				this.storage.sql.exec(
-					`INSERT INTO ${IDENTITIES} VALUES (?,?,?)`,
-					accepted.runId,
-					canonical(accepted),
-					fullInput,
-				);
+				insertRuntimeAdmissionIdentity(this.db, {
+					runId: accepted.runId,
+					record: canonical(accepted),
+					input: fullInput,
+				});
 			return { ...result, accepted };
 		});
 	}
@@ -1171,12 +1122,7 @@ export class RuntimeAdmissionDO {
 			{ requestHash, ...fields } = a;
 		if ((await digest(canonical(fields))) !== requestHash)
 			fail("accepted identity hash mismatch");
-		const row = this.storage.sql
-			.exec<{ input: string }>(
-				`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-				runId,
-			)
-			.toArray()[0];
+		const row = findRuntimeAdmissionIdentity(this.db, runId);
 		if (!row || (await digest(row.input)) !== a.inputHash)
 			fail("accepted input hash mismatch");
 		const c = this.gate.claim(runId);
@@ -1222,22 +1168,12 @@ export class RuntimeAdmissionDO {
 		this.storage.transactionSync(() => {
 			if (canonical(this.identity(runId)) !== canonical(accepted))
 				fail("original accepted identity changed");
-			this.storage.sql.exec(
-				`CREATE TABLE IF NOT EXISTS ${RECEIPTS} (run_id TEXT PRIMARY KEY,record TEXT NOT NULL)`,
-			);
-			const prior = this.storage.sql
-				.exec<{ record: string }>(
-					`SELECT record FROM ${RECEIPTS} WHERE run_id=?`,
-					runId,
-				)
-				.toArray()[0];
-			if (prior && prior.record !== payload) fail("terminal receipt conflict");
-			if (!prior)
-				this.storage.sql.exec(
-					`INSERT INTO ${RECEIPTS} VALUES (?,?)`,
-					runId,
-					payload,
-				);
+			ensureRuntimeAdmissionTables(this.storage);
+			const prior = findRuntimeAdmissionReceipt(this.db, runId);
+			if (prior !== undefined && prior !== payload)
+				fail("terminal receipt conflict");
+			if (prior === undefined)
+				insertRuntimeAdmissionReceipt(this.db, { runId, record: payload });
 		});
 		return accepted;
 	}
@@ -1248,12 +1184,7 @@ export class RuntimeAdmissionDO {
 	}): AcceptedRuntimeTurn {
 		const a = this.identity(input.runId),
 			{ requestHash, ...fields } = a;
-		const row = this.storage.sql
-			.exec<{ input: string }>(
-				`SELECT input FROM ${IDENTITIES} WHERE run_id=?`,
-				input.runId,
-			)
-			.toArray()[0];
+		const row = findRuntimeAdmissionIdentity(this.db, input.runId);
 		if (
 			createHash("sha256").update(canonical(fields)).digest("hex") !==
 			requestHash

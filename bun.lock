@@ -390,8 +390,10 @@
       "dependencies": {
         "@tedix/api-client": "workspace:*",
         "@tedix/auth": "workspace:*",
+        "@tedix/db": "workspace:*",
         "@tedix/deploy-values": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
+        "drizzle-orm": "catalog:",
       },
       "devDependencies": {
         "@cloudflare/vite-plugin": "catalog:",
@@ -490,6 +492,7 @@
         "ai": "catalog:",
         "chat": "catalog:",
         "diff": "9.0.0",
+        "drizzle-orm": "catalog:",
         "fast-xml-parser": "catalog:",
         "isomorphic-git": "catalog:",
         "just-bash": "^3.6.1",

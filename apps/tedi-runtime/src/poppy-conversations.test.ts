@@ -1,22 +1,16 @@
 import assert from "node:assert/strict";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { Database } from "bun:sqlite";
-import {
-	PoppyConversations,
-	type PoppySql,
-	type PoppyReply,
-} from "./poppy-conversations";
+import { createDurableSqliteFixture } from "@tedix/db/test/durable-sqlite-fixture";
+import { PoppyConversations, type PoppyReply } from "./poppy-conversations";
 import { handlePoppyRuntime, poppyTurn, PoppyRuntime } from "./poppy-runtime";
 
 const db = new Database(":memory:");
-const sql: PoppySql = {
-	exec<T>(query: string, ...values: SqlStorageValue[]) {
-		const rows = db.query(query).all(...(values as never[])) as T[];
-		return { toArray: () => rows };
-	},
-};
-const atomic = <T>(fn: () => T) => db.transaction(fn)();
-let store = new PoppyConversations(sql, atomic);
+// bun:sqlite has the prepare/exec surface the fixture drives.
+const storage = createDurableSqliteFixture(
+	db as unknown as Parameters<typeof createDurableSqliteFixture>[0],
+);
+let store = new PoppyConversations(storage);
 const owner = {
 	organizationId: "org-example",
 	clientId: "https://agent.example/client",
@@ -57,7 +51,7 @@ assert.match(cid, /^[A-Za-z0-9_-]{1,256}$/);
 assert.equal(view(store.read(owner, cid, null)).working, true);
 
 // Restart against the same SQLite, with a new Session and Agent ID: ownership is client + user.
-store = new PoppyConversations(sql, atomic);
+store = new PoppyConversations(storage);
 const resumedOwner = { ...owner, sessionId: "new", agentId: "another" };
 assert.deepEqual(
 	store.request(resumedOwner, "POST", "", post("request1")),
@@ -321,7 +315,7 @@ assert.equal(foreign.status, 404);
 const queued: string[] = [];
 let failing = "";
 const runtime = new PoppyRuntime({
-	storage: { sql, transactionSync: atomic } as unknown as DurableObjectStorage,
+	storage,
 	organizationId: () => "org-example",
 	queue: async (cid) => {
 		queued.push(cid);
@@ -417,6 +411,44 @@ store.humanReply(
 );
 assert.equal(view(store.read(owner, contextConversation, null)).working, false);
 db.close();
+
+// An object whose Poppy tables predate the migration chain adopts it with its rows.
+const legacy = new Database(":memory:");
+// The DDL the tables were created with before the migration chain.
+for (const statement of [
+	"CREATE TABLE poppy_conversations (id TEXT PRIMARY KEY, value TEXT NOT NULL)",
+	"CREATE TABLE poppy_requests (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, id TEXT NOT NULL, conversation TEXT NOT NULL, path TEXT NOT NULL, body TEXT NOT NULL, status INTEGER NOT NULL, pending INTEGER NOT NULL, context TEXT NOT NULL, through_sequence INTEGER NOT NULL, accepted_at INTEGER NOT NULL, UNIQUE(owner,id))",
+	"CREATE TABLE poppy_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation TEXT NOT NULL, id TEXT NOT NULL UNIQUE, value TEXT NOT NULL)",
+	"CREATE INDEX poppy_events_conversation ON poppy_events(conversation,sequence)",
+	"CREATE INDEX poppy_pending ON poppy_requests(pending,sequence)",
+	"CREATE TABLE poppy_desks (id TEXT PRIMARY KEY, conversation TEXT NOT NULL, root TEXT NOT NULL, pending INTEGER NOT NULL, through_sequence INTEGER NOT NULL)",
+])
+	legacy.run(statement);
+const legacyStorage = createDurableSqliteFixture(
+	legacy as unknown as Parameters<typeof createDurableSqliteFixture>[0],
+);
+const before = new PoppyConversations(legacyStorage);
+const kept = view(before.request(owner, "POST", "", post("legacy1")))
+	.conversation_id as string;
+legacy.run("DELETE FROM __drizzle_migrations");
+const adopted = new PoppyConversations(legacyStorage);
+assert.equal(
+	view(adopted.request(owner, "POST", "", post("legacy1"))).conversation_id,
+	kept,
+	"a retried request still finds its conversation",
+);
+adopted.request(owner, "POST", `${kept}/messages`, post("legacy2"));
+const keptEvents = view(adopted.read(owner, kept, null)).events;
+assert.equal(keptEvents.length, 2);
+assert.equal(
+	(
+		legacy.query("SELECT count(*) AS n FROM __drizzle_migrations").all()[0] as {
+			n: number;
+		}
+	).n,
+	1,
+);
+legacy.close();
 console.log(
-	"Poppy durable ownership, deduplication, events, handoff, Direct Conversations, close, pagination, recovery and public-turn tests passed",
+	"Poppy durable ownership, deduplication, events, handoff, Direct Conversations, close, pagination, recovery, public-turn and migration adoption tests passed",
 );
