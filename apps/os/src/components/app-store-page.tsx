@@ -166,21 +166,21 @@ function AppCard({ app }: { app: CatalogApp }) {
 	);
 }
 
-const CONNECTOR_OPTIONS = [
-	"MCP",
-	"SERVICE",
-	"FIRST_PARTY_ECOSYSTEM",
-	"NATIVE",
-] as const;
+const CONNECTOR_OPTIONS = {
+	MCP: "MCP server",
+	SERVICE: "Service",
+	FIRST_PARTY_ECOSYSTEM: "First-party integration",
+	NATIVE: "Native app",
+} as const;
 const CATALOG_HEALTH_OPTIONS = Object.keys(
 	CATALOG_HEALTH,
 ) as CatalogRouteSearch["healthStatus"][];
-const SORT_OPTIONS = [
-	"name",
-	"sourceCreatedAt",
-	"updatedAt",
-	"lastSyncedAt",
-] as const;
+const SORT_OPTIONS = {
+	name: "Name",
+	sourceCreatedAt: "Date added",
+	updatedAt: "Last updated",
+	lastSyncedAt: "Last synced",
+} as const;
 
 export function AppStorePage(props: {
 	search: CatalogRouteSearch;
@@ -373,17 +373,13 @@ function CloudAppStorePage({
 							}
 						>
 							<SelectTrigger aria-label="Filter catalog by connector type">
-								<SelectValue>
-									{search.connectorType
-										? search.connectorType.replaceAll("_", " ")
-										: "All types"}
-								</SelectValue>
+								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">All types</SelectItem>
-								{CONNECTOR_OPTIONS.map((value) => (
+								<SelectItem value="all">All connector types</SelectItem>
+								{Object.entries(CONNECTOR_OPTIONS).map(([value, label]) => (
 									<SelectItem key={value} value={value}>
-										{value.replaceAll("_", " ")}
+										{label}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -401,14 +397,10 @@ function CloudAppStorePage({
 							}
 						>
 							<SelectTrigger aria-label="Filter catalog by health">
-								<SelectValue>
-									{search.healthStatus
-										? CATALOG_HEALTH[search.healthStatus].label
-										: "Any catalog status"}
-								</SelectValue>
+								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">All health</SelectItem>
+								<SelectItem value="all">All health states</SelectItem>
 								{CATALOG_HEALTH_OPTIONS.map((value) =>
 									value ? (
 										<SelectItem key={value} value={value}>
@@ -431,21 +423,13 @@ function CloudAppStorePage({
 							}
 						>
 							<SelectTrigger aria-label="Sort catalog apps">
-								<SelectValue>
-									{search.sortBy === "name"
-										? "A–Z"
-										: search.sortBy
-											? search.sortBy.replace(/([A-Z])/g, " $1")
-											: "Default order"}
-								</SelectValue>
+								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="default">Default sort</SelectItem>
-								{SORT_OPTIONS.map((value) => (
+								{Object.entries(SORT_OPTIONS).map(([value, label]) => (
 									<SelectItem key={value} value={value}>
-										{value === "name"
-											? "A–Z"
-											: value.replace(/([A-Z])/g, " $1")}
+										{label}
 									</SelectItem>
 								))}
 							</SelectContent>
