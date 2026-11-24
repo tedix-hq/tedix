@@ -6418,6 +6418,20 @@ export class LaneDispatcher {
 				throw new Error(
 					"Canonical history has a live Attempt; admission remains held",
 				);
+			if (!adopted) {
+				const readiness = await this.call<{
+					gates?: Array<{ gate: string; evaluation: string; detail: string }>;
+				}>(["work", "readiness", item.id]);
+				const dependency = readiness.gates?.find(
+					(gate) =>
+						gate.gate === "dependencies" && gate.evaluation === "failed",
+				);
+				if (dependency) {
+					this.log("skipped", item.id, dependency.detail);
+					preflightPaused = true;
+					return;
+				}
+			}
 			// Retry eligibility is the server's call: admission refuses a revision a
 			// verifier rejected and one whose crash budget is spent.
 			const rules = await this.rulesForRun();

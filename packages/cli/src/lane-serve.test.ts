@@ -252,7 +252,7 @@ function fixture({
 		} as {
 			ready: boolean;
 			reasons: Array<{ detail: string }>;
-			gates?: Array<{ gate: string; evaluation: string }>;
+			gates?: Array<{ gate: string; evaluation: string; detail?: string }>;
 		},
 		completeError: undefined as Error | undefined,
 		cooldownUntil: 0,
@@ -6734,6 +6734,54 @@ describe("dispatcher admission", () => {
 		await dispatcher.tick();
 		await until(() => releases.length === 1);
 		releases[0]!();
+		await dispatcher.drain();
+	});
+	it("skips native preparation across blocked dependency scans, then admits once when it clears", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const provision = spyOn(f.deps, "provision");
+		const dispatcher = f.restart();
+		f.control.readiness = {
+			ready: false,
+			reasons: [{ detail: "Blocked by fictional dependency" }],
+			gates: [
+				{
+					gate: "dependencies",
+					evaluation: "failed",
+					detail: "Blocked by fictional dependency",
+				},
+			],
+		};
+		const starts = () => f.events.filter((event) => event.verb === "start");
+		for (let scan = 0; scan < 3; scan++) {
+			await dispatcher.tick();
+			await dispatcher.drain();
+		}
+		expect(provision).not.toHaveBeenCalled();
+		expect(f.control.threadSessions).toEqual([]);
+		expect(starts()).toEqual([]);
+		expect(existsSync(join(f.dir, "runs", `${item(1).id}-2`))).toBe(false);
+
+		f.control.readiness = {
+			ready: true,
+			reasons: [],
+			gates: [{ gate: "dependencies", evaluation: "passed" }],
+		};
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		await dispatcher.tick();
+		expect(provision).toHaveBeenCalledTimes(1);
+		expect(f.control.threadSessions).toHaveLength(1);
+		const admission = starts().filter((event) => event.input);
+		expect(admission).toHaveLength(1);
+		expect(admission[0]!.env).toMatchObject({
+			TEDIX_AGENT_SESSION: expect.stringMatching(/^codex:/),
+			TEDIX_EXTERNAL_AGENT: "local-acme",
+		});
+		expect(
+			f.events.filter((event) => event.verb === "readiness").at(-1)!.env,
+		).toMatchObject(admission[0]!.env);
+		f.releases[0]!();
 		await dispatcher.drain();
 	});
 	it("stops before admission when the owner revises Work during preparation, then admits the new revision", async () => {
