@@ -182,6 +182,27 @@ function referencedCodeModeNamespaces(code: string): Set<string> {
 	return namespaces;
 }
 
+/**
+ * Names a program reaches as a namespace (`ns.tool`, `ns?.tool`, `ns["tool"]`)
+ * without declaring them itself. Unlike the hydration scan this leaves out
+ * local variables and property chains (`rows.map(`, `r.items.map(`), so a
+ * caller can tell a namespace nothing serves from ordinary program text.
+ */
+export function directlyCalledCodeModeNamespaces(code: string): Set<string> {
+	const { masked } = maskCodeModeLiterals(code, true);
+	const called = new Set<string>();
+	for (const match of masked.matchAll(
+		/(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?:\?\.|\.|\[)/g,
+	)) {
+		called.add(match[1]!);
+	}
+	const namespaces = new Set<string>();
+	for (const name of referencedCodeModeNamespaces(code)) {
+		if (called.has(name)) namespaces.add(name);
+	}
+	return namespaces;
+}
+
 /** Read constant syntax only; evaluating even one expression could run caller code. */
 function discoveryLiteralValue(node: Expression, depth = 0): unknown {
 	if (depth > 32) throw new Error("Discovery literal is too deeply nested");

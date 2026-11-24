@@ -6781,6 +6781,11 @@
 							}
 						]
 					},
+					"executorType": {
+						"description": "Match this executor type. When provided, executor names match exact IDs within the type.",
+						"type": "string",
+						"enum": ["human", "tedi", "external_agent", "team", "organization"]
+					},
 					"dispatchReadyOnly": {
 						"type": "boolean"
 					},
@@ -9962,6 +9967,7 @@
 									"claude-code",
 									"opencode",
 									"devin",
+									"tedi",
 									"any-local"
 								]
 							},

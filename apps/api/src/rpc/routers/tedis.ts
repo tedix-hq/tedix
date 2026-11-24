@@ -40,6 +40,7 @@ import {
 	getModelPolicy,
 	getRuntimeProjection,
 	ingestRuntimeProjection,
+	listCallableBySlugs,
 	listRuntimeMetaBySlugs,
 	syncConfig,
 } from "./tedis/config";
@@ -138,6 +139,7 @@ export const tedisContractRouter = tedisOs.router({
 	portableImportBegin: portableImportBeginProcedure,
 	get: getTedi,
 	listRuntimeMetaBySlugs,
+	listCallableBySlugs,
 	create: createTediProcedure,
 	update: updateTediProcedure,
 	delete: deleteTediProcedure,

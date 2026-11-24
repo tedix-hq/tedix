@@ -22,6 +22,7 @@ import {
 	refreshDiscoveryShard,
 	loadDiscoveryToolDefinition,
 } from "./aggregate-discovery-shards";
+import { resolveDefaultCallableTedis } from "./aggregate-default-tedis";
 import { withSelfTediSkills } from "./aggregate-self-tedi";
 import { AggregateAppEntry } from "./aggregate-types";
 import {
@@ -145,6 +146,7 @@ import {
 import { getAllowedMcpOrigins, normalizeOrigin } from "./mcp-origin";
 import {
 	extractDirectToolCallArguments,
+	extractDirectlyCalledCodeModeNamespaces,
 	extractRequestedCodeModeNamespaces,
 	maybeHandleCodeModeCompactMcp,
 	modernDiscoverInstructions,
@@ -677,32 +679,51 @@ export async function handleMcpRequest(
 		}
 	}
 
+	const configuredAggregateTedis = await withSelfTediSkills({
+		entries: multiOrgResource
+			? undefined
+			: (cachedData?.metadata?.mcpConfig?.aggregateTedis as
+					| AggregateTediEntry[]
+					| undefined),
+		caller: callerIdentity,
+		organizationId: resolvedApp.app.organizationId,
+		env,
+	});
 	const aggregateTedis = filterAggregateTedisForCodeNamespaces(
-		await withSelfTediSkills({
-			entries: multiOrgResource
-				? undefined
-				: (cachedData?.metadata?.mcpConfig?.aggregateTedis as
-						| AggregateTediEntry[]
-						| undefined),
-			caller: callerIdentity,
-			organizationId: resolvedApp.app.organizationId,
-			env,
-		}),
+		configuredAggregateTedis,
 		aggregateNamespaces,
 	);
+	// Tedis not on the explicit list, already hydrated by the API. Resolved only
+	// for a Code Mode program that calls a namespace nothing else serves.
+	const defaultCallableTedis =
+		requestedToolName === "code" && !multiOrgResource
+			? await resolveDefaultCallableTedis({
+					entries: configuredAggregateTedis,
+					caller: callerIdentity,
+					organizationId: resolvedApp.app.organizationId,
+					env,
+					calledNamespaces:
+						await extractDirectlyCalledCodeModeNamespaces(request),
+					tools: cachedData.tools,
+					mcpConfig: cachedData.metadata?.mcpConfig,
+				})
+			: [];
 	// Hydrated aggregate tedis (D1 tediId + runtime kind). Captured here so the
 	// completion/complete handler (below) can complete tedi-targeting arguments
 	// from the same resolved set the `tedi:*` tools were built from.
 	let hydratedAggregateTedis: AggregateTediEntry[] = [];
-	if (aggregateTedis?.length && !directHomeKernelCall) {
+	if (
+		(aggregateTedis?.length || defaultCallableTedis.length) &&
+		!directHomeKernelCall
+	) {
 		// Hydrate runtime_kind from D1 so the aggregator can hide
 		// container-only tools when an isolate tedi is in the surface.
 		// Operators don't annotate runtime_kind in metadata — it's
 		// authoritative in the `tedis` table.
-		const hydratedTedis = await hydrateAggregateRuntimeKinds(
-			aggregateTedis,
-			env,
-		);
+		const hydratedTedis = [
+			...(await hydrateAggregateRuntimeKinds(aggregateTedis ?? [], env)),
+			...defaultCallableTedis,
+		];
 		hydratedAggregateTedis = hydratedTedis;
 		const { buildAggregateTediTools } = await import("./mcp/aggregate-tedis");
 		const tediTools = buildAggregateTediTools(hydratedTedis, env);
@@ -712,7 +733,7 @@ export async function handleMcpRequest(
 				tools: [...cachedData.tools, ...tediTools],
 			};
 			console.log(
-				`[MCP] Aggregated ${tediTools.length} tedi tools from ${aggregateTedis.length} tedis into ${resolvedApp.app.slug}`,
+				`[MCP] Aggregated ${tediTools.length} tedi tools from ${hydratedTedis.length} tedis into ${resolvedApp.app.slug}`,
 			);
 		}
 	}

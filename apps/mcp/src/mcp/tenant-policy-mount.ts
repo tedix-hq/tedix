@@ -239,7 +239,12 @@ async function resolvePolicyMountPathFresh(input: PrepareMountInput) {
 		const { buildAggregateTediTools, sanitizeTediNamespace } =
 			await import("./aggregate-tedis");
 		const entries = aggregateTedis.filter(
-			(entry): entry is AggregateTediEntry =>
+			// Stored entries are full or collaboration; "turns" is request-local.
+			(
+				entry,
+			): entry is AggregateTediEntry & {
+				surface?: "full" | "collaboration";
+			} =>
 				isRecord(entry) &&
 				typeof entry.slug === "string" &&
 				entry.slug.length > 0,

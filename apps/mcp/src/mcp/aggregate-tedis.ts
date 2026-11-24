@@ -22,6 +22,13 @@ const {
 	outputs: Record<string, ToolJsonSchema | null>;
 };
 
+/** The "turns" surface: the two full-surface tools, under their own names. */
+const TURN_TOOLS = FULL_TEDI_TOOLS.filter(
+	(spec) =>
+		spec.name === spec.remoteName &&
+		(spec.name === "run_tedi_turn" || spec.name === "messages_read"),
+);
+
 export type { AggregateTediEntry } from "./aggregate-tedis-shared";
 
 export function buildTediCodeInvocation(
@@ -199,7 +206,9 @@ export function buildAggregateTediTools(
 			? SKILL_WORKFLOW_TOOLS
 			: entry.surface === "collaboration"
 				? COLLABORATION_TOOLS
-				: FULL_TEDI_TOOLS;
+				: entry.surface === "turns"
+					? TURN_TOOLS
+					: FULL_TEDI_TOOLS;
 		const runtimeSpecs = specs.filter(
 			(spec) => !spec.runtimeKinds || spec.runtimeKinds.includes(runtimeKind),
 		);

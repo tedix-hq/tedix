@@ -19,6 +19,7 @@ import {
 	createRuntimeSnapshot,
 	createUsageEvents,
 	getLatestRuntimeSnapshot,
+	listCallableTedisBySlugs,
 	listTediRuntimeMetaBySlugs,
 	listUsageEvents,
 	updateTediHeartbeat,
@@ -303,6 +304,17 @@ export const listRuntimeMetaBySlugs = tedisOs.listRuntimeMetaBySlugs
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const data = await listTediRuntimeMetaBySlugs(context.db, input.slugs);
+		return { data };
+	});
+
+// Tedis a gateway caller may reach directly when the gateway's explicit list
+// does not name them. Service-binding only: the gateway states the organization
+// it serves and the signed-in person, if any; the ownership rule is applied in
+// the query so another person's personal tedi never leaves the API.
+export const listCallableBySlugs = tedisOs.listCallableBySlugs
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		const data = await listCallableTedisBySlugs(context.db, input);
 		return { data };
 	});
 

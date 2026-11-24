@@ -15,8 +15,12 @@ export interface AggregateTediEntry {
 	sessionKey?: string;
 	/** Optional explicit MCP URL for unusual deployments. */
 	serverUrl?: string;
-	/** Tedi tool surface. Defaults to the full tedi MCP surface. */
-	surface?: "full" | "collaboration";
+	/**
+	 * Tedi tool surface. Defaults to the full tedi MCP surface. "turns" is only
+	 * `run_tedi_turn` and `messages_read`; the gateway sets it on a tedi mounted
+	 * by default, and stored `aggregateTedis` config does not accept it.
+	 */
+	surface?: "full" | "collaboration" | "turns";
 	/** Request-local self mount; never grants the full peer surface. */
 	selfSkillsOnly?: boolean;
 	/** Hydrated from D1; all aggregate tedis use the Agent runtime. */

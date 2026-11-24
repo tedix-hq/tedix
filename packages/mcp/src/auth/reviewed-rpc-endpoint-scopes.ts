@@ -886,6 +886,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tedis/inspectRuntimeOutbox": "platform:admin",
 	"tedis/inspectRuntimeRecovery": "platform:admin",
 	"tedis/list": "mcp:tedis.read",
+	"tedis/listCallableBySlugs": "platform:admin",
 	"tedis/listCustomDomains": "mcp:tedis.read",
 	"tedis/listDevices": "mcp:tedis.read",
 	"tedis/listEmbeddedConversationArtifactPins": "mcp:tedis.read",

@@ -8,7 +8,10 @@ import { clientSupportsMcpApps } from "./mcp/client-apps-capability";
 import { resolveToolWidgetRoute } from "./mcp/utils/render-widget";
 import { isCodeModeNativeOptIn } from "./mcp/code-mode-native-tools";
 import { z } from "zod";
-import { extractCodeModeProviderNamespacesFromCode } from "./mcp/code-mode-namespaces";
+import {
+	directlyCalledCodeModeNamespaces,
+	extractCodeModeProviderNamespacesFromCode,
+} from "./mcp/code-mode-namespaces";
 import { parseMcpCallerFromHeaders } from "./mcp-result-transform";
 import {
 	codeModeInputSchema,
@@ -164,6 +167,29 @@ export async function extractRequestedCodeModeNamespaces(
 				namespaces.add(namespace);
 	}
 	return namespaces;
+}
+
+/**
+ * Namespaces a `code` call reaches directly: the structured invocation's own
+ * namespace, or the undeclared names a program calls. Empty for anything else.
+ */
+export async function extractDirectlyCalledCodeModeNamespaces(
+	request: Request,
+): Promise<Set<string>> {
+	const body = await readJsonRpcBody(request);
+	if (body?.method !== "tools/call") return new Set();
+	const params = isRecord(body.params) ? body.params : {};
+	if (params.name !== "code") return new Set();
+	const args = isRecord(params.arguments) ? params.arguments : {};
+	if (args.invocation !== undefined) {
+		const invocation = McpStructuredInvocationSchema.safeParse(args.invocation);
+		return invocation.success && args.code === undefined
+			? new Set([invocation.data.callable.split(".")[0]!])
+			: new Set();
+	}
+	return typeof args.code === "string" && args.code
+		? directlyCalledCodeModeNamespaces(args.code)
+		: new Set();
 }
 
 export async function extractDirectToolCallArguments(

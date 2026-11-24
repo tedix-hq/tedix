@@ -22,6 +22,7 @@ import {
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { runtimeProfiles } from "../schema/control-plane";
+import { organizationMembers } from "../schema/organization-members";
 import { tediRoleAssignments } from "../schema/earned-delegation";
 import {
 	type NewTedi,
@@ -748,6 +749,88 @@ export async function listTediRuntimeMetaBySlugs(
 		);
 	}
 	return rows;
+}
+
+/** A tedi one caller may reach directly as a gateway namespace. */
+export interface CallableTediMeta {
+	slug: string;
+	id: string;
+	organizationId: string;
+	scope: "personal" | "organization";
+	runtimeKind: Tedi["runtimeKind"];
+}
+
+/**
+ * The active tedis of one organization, among `slugs`, that a caller may mount
+ * as a direct gateway namespace.
+ *
+ * An organization tedi is returned for any caller of the organization. A
+ * personal tedi is returned only when `callerUserId` resolves to an active
+ * member of the organization whose canonical user id is the tedi's owner; the
+ * caller id may be the canonical id or the sign-in subject, in the precedence
+ * `createTedi` uses to store the owner. Without `callerUserId`, or for a
+ * personal tedi with no owner, nothing personal is returned.
+ *
+ * Inactive follows the aggregate edge: archived, retired, or status
+ * error/paused/provisioning. A null scope is never returned.
+ */
+export async function listCallableTedisBySlugs(
+	db: DbClient,
+	input: { organizationId: string; slugs: string[]; callerUserId?: string },
+): Promise<CallableTediMeta[]> {
+	// One statement: the slugs plus about ten other bound values stay under D1's 100.
+	const slugs = Array.from(new Set(input.slugs)).slice(0, 40);
+	if (slugs.length === 0) return [];
+	const memberUserId = (subject: SQL) =>
+		db
+			.select({ memberUserId: organizationMembers.userId })
+			.from(organizationMembers)
+			.where(
+				and(
+					eq(organizationMembers.organizationId, input.organizationId),
+					subject,
+					isNotNull(organizationMembers.userId),
+					sql`coalesce(${organizationMembers.status}, 'active') = 'active'`,
+				),
+			)
+			.limit(1);
+	const mountable = input.callerUserId
+		? or(
+				eq(tedis.scope, "organization"),
+				and(
+					eq(tedis.scope, "personal"),
+					isNotNull(tedis.ownerUserId),
+					sql`${tedis.ownerUserId} = coalesce((${memberUserId(
+						eq(organizationMembers.userId, input.callerUserId),
+					)}), (${memberUserId(
+						eq(organizationMembers.descopeUserId, input.callerUserId),
+					)}))`,
+				),
+			)
+		: eq(tedis.scope, "organization");
+	const rows = await db
+		.select({
+			slug: tedis.slug,
+			id: tedis.id,
+			organizationId: tedis.organizationId,
+			scope: tedis.scope,
+			runtimeKind: tedis.runtimeKind,
+		})
+		.from(tedis)
+		.where(
+			and(
+				eq(tedis.organizationId, input.organizationId),
+				// bound-params: slugs is capped at 40 above
+				inArray(tedis.slug, slugs),
+				isNull(tedis.retiredAt),
+				sql`${tedis.runtimeState} <> 'archived'`,
+				sql`coalesce(${tedis.status}, 'active') not in ('error', 'paused', 'provisioning')`,
+				mountable,
+			),
+		);
+	return rows.flatMap((row) =>
+		row.scope ? [{ ...row, scope: row.scope }] : [],
+	);
 }
 
 /** Durable Object instance name for inbound Agent-runtime email routing. */

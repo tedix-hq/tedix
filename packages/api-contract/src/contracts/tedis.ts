@@ -52,6 +52,8 @@ import {
 	CreateTediInputSchema,
 	CustomDomainSchema,
 	IngestRuntimeProjectionInputSchema,
+	ListCallableTedisBySlugsInputSchema,
+	ListCallableTedisBySlugsResponseSchema,
 	ListTediRuntimeMetaBySlugsInputSchema,
 	ListTediRuntimeMetaBySlugsResponseSchema,
 	TediChannelConfigSchema,
@@ -414,6 +416,18 @@ export const tedisContract = oc
 			})
 			.input(ListTediRuntimeMetaBySlugsInputSchema)
 			.output(ListTediRuntimeMetaBySlugsResponseSchema),
+
+		listCallableBySlugs: oc
+			.route({
+				method: "POST",
+				path: "/callable-by-slugs",
+				summary: "List the tedis a caller may reach directly",
+				description:
+					"Internal service-binding lookup used by the MCP gateway to mount a tedi that is not on the gateway's explicit list. Returns the active tedis of one organization, among the given slugs, that the caller may mount: organization tedis, and personal tedis owned by callerUserId.",
+				tags: ["internal"],
+			})
+			.input(ListCallableTedisBySlugsInputSchema)
+			.output(ListCallableTedisBySlugsResponseSchema),
 
 		create: oc
 			.route({

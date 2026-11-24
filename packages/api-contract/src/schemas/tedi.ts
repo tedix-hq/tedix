@@ -432,6 +432,40 @@ export type ListTediRuntimeMetaBySlugsResponse = z.infer<
 	typeof ListTediRuntimeMetaBySlugsResponseSchema
 >;
 
+// A tedi one caller may reach directly as a gateway namespace. The API applies
+// the rule (organization tedi: any caller of the organization; personal tedi:
+// its owner only), so the MCP edge never receives another person's tedi.
+export const CallableTediMetaSchema = z.object({
+	slug: z.string(),
+	id: z.string(),
+	organizationId: z.string(),
+	scope: z.enum(["personal", "organization"]),
+	runtimeKind: RuntimeKindSchema,
+});
+export type CallableTediMeta = z.infer<typeof CallableTediMetaSchema>;
+
+export const ListCallableTedisBySlugsInputSchema = z.strictObject({
+	organizationId: z.string().min(1),
+	slugs: z.array(z.string().min(1).max(64)).min(1).max(40),
+	callerUserId: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"The signed-in person calling, when there is one. Omit for every other caller; personal tedis are then never returned.",
+		),
+});
+export type ListCallableTedisBySlugsInput = z.infer<
+	typeof ListCallableTedisBySlugsInputSchema
+>;
+
+export const ListCallableTedisBySlugsResponseSchema = z.object({
+	data: z.array(CallableTediMetaSchema),
+});
+export type ListCallableTedisBySlugsResponse = z.infer<
+	typeof ListCallableTedisBySlugsResponseSchema
+>;
+
 export const CreateTediInputSchema = z.object({
 	/**
 	 * Target organization. Defaults to the caller's org.
