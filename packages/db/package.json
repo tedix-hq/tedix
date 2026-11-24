@@ -86,6 +86,7 @@
 		"./runtime-admission-store/store": "./src/runtime-admission-store/store.ts",
 		"./runtime-admission-store/schema": "./src/runtime-admission-store/schema.ts",
 		"./query-client": "./src/query-client.ts",
+		"./slow-query": "./src/slow-query.ts",
 		"./schema": "./src/schema/index.ts",
 		"./schema/adapters": "./src/schema/adapters.ts",
 		"./schema/analytics": "./src/schema/analytics.ts",

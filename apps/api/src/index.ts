@@ -297,16 +297,26 @@ export default {
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<void> {
-		const { default: handlers } = await loadApp();
-		await handlers.scheduled(controller, env, ctx);
+		const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
+			loadApp(),
+			import("@tedix/db/slow-query"),
+		]);
+		await withD1Ledger(`cron ${controller.cron}`, async () =>
+			handlers.scheduled(controller, env, ctx),
+		);
 	},
 	async queue(
 		batch: { queue: string; messages: readonly unknown[] },
 		env: CloudflareEnv,
 		ctx: { waitUntil: (p: Promise<unknown>) => void },
 	): Promise<void> {
-		const { default: handlers } = await loadApp();
-		await handlers.queue(batch, env, ctx);
+		const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
+			loadApp(),
+			import("@tedix/db/slow-query"),
+		]);
+		await withD1Ledger(`queue ${batch.queue}`, async () =>
+			handlers.queue(batch, env, ctx),
+		);
 	},
 };
 

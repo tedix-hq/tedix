@@ -20,8 +20,12 @@ references are diagnostic metadata and confer no access. Input headers are
 validated before they can become references.
 
 The API emits `tedix.api.procedure` with a fixed `procedure`, `status`, `code`,
-`durationMs`, correlation identifiers and D1 counters. Errors are always logged;
-successful calls are sampled at 1%. The counters cover the procedure's shared
+`durationMs`, correlation identifiers and D1 counters. Errors are always logged.
+Successful calls are sampled at 1%, except heavy ones: 25 or more statements,
+5,000 or more known rows read, or 2 s or more. Those are always logged with
+`heavy: true`. Scheduled and queue invocations log `db.request` with their
+trigger, statement count, D1 wall time, known rows and rows returned when they
+cross similar thresholds. The counters cover the procedure's shared
 request session, including authorization performed inside that procedure.
 They exclude other clients, other requests and later background work.
 
@@ -49,6 +53,33 @@ measure a read. Logs contain no SQL, parameters, request or response bodies.
 5. Exercise the real query owner through `createD1Facade` and capture its plans.
    Assert the required bounded seeks or materialization. Demonstrate that removing
    the relevant index or window makes the assertion fail. Keep sample data fictional.
+
+## Trace an overload burst
+
+`D1 DB is overloaded. Too many resources consumed within a 10 second window`
+means D1 throttled the database after about ten seconds of CPU and memory use
+inside a ten-second window. While it is throttled, every request fails, so the
+routes in the error logs are victims. Find what ran just before the first error:
+
+- The D1 queries dataset (`events.d1Queries` through the SQL API) holds one row
+  per statement with time, rows read, written and returned, duration and replica
+  role. Group by 10-second interval to find the heavy window, then by query. It
+  is sampled, so one rare heavy statement can be missing.
+- The account audit log for D1 lists every query sent over the HTTP API
+  (wrangler, the Cloudflare CLI, deploy scripts) with its exact duration,
+  rows read and sender. It is not sampled.
+- Workers Logs: `heavy` procedure lines and `db.request` lines name the route or
+  job. Count distinct requestIds, not log lines.
+
+Rows read understates cost when a scan touches large columns stored before the
+filtered or sorted ones, such as a body or metadata column.
+
+Never run a heavy ad-hoc query against the production primary while you
+investigate: one 5-second `count(*)`, `sum(length(...))` or a filter on an
+unindexed column is enough to throttle production. Three bursts on
+24 November 2026 were diagnostic queries. Use the datasets above, run
+`EXPLAIN QUERY PLAN` before any remote read, and run unavoidable scans against
+a Time Travel restore or copy.
 
 Existing incident regressions live in
 `apps/api/src/jobs/commitment-wakes.test.ts` and

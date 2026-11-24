@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, createDbSession } from "./client";
 import { createDbQueryClient } from "./query-client";
-import { observeD1 } from "./slow-query";
+import { observeD1, withD1Ledger } from "./slow-query";
 import { createD1Facade } from "./test/d1-facade";
 import { createMigratedSqlite } from "./test/migrated-sqlite";
 
@@ -188,5 +188,32 @@ describe("slow D1 observation", () => {
 				expected,
 			);
 		}
+	});
+});
+
+describe("per-request D1 ledger", () => {
+	it("summarizes a request's statements once it crosses a threshold", async () => {
+		const { db } = fixture(30);
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		await withD1Ledger("POST /rpc/example", async () => {
+			for (let i = 0; i < 25; i++)
+				await db.prepare("SELECT 1 WHERE id = 'secret'").raw();
+		});
+		await withD1Ledger("GET /quiet", async () => {
+			await db.prepare("SELECT 1").raw();
+		});
+		const lines = info.mock.calls.map(
+			([line]) => line as Record<string, unknown>,
+		);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatchObject({
+			event: "db.request",
+			label: "POST /rpc/example",
+			statements: 25,
+			d1WallMs: 750,
+			rowsReturned: 25,
+		});
+		expect(String(lines[0]!.topShapes)).toContain("25x 750ms");
+		expect(String(lines[0]!.topShapes)).not.toContain("secret");
 	});
 });

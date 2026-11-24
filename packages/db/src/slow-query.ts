@@ -1,9 +1,135 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type {
 	D1Database,
 	D1PreparedStatement,
 	D1Result,
 } from "@cloudflare/workers-types";
 import { createLogger } from "@tedix/worker-kit/logger";
+
+const requestLogger = createLogger<{
+	label: string;
+	statements: number;
+	d1WallMs: number;
+	rowsRead: number;
+	rowsWritten: number;
+	rowsReturned: number;
+	maxInFlight: number;
+	overloaded: number;
+	topShapes: string;
+}>({ component: "db.request" });
+
+type Ledger = {
+	label: string;
+	statements: number;
+	d1WallMs: number;
+	rowsRead: number;
+	rowsWritten: number;
+	rowsReturned: number;
+	inFlight: number;
+	maxInFlight: number;
+	overloaded: number;
+	shapes: Map<string, { n: number; wallMs: number; rowsReturned: number }>;
+};
+const ledgers = new AsyncLocalStorage<Ledger>();
+
+/**
+ * One summary line per scheduled or queue invocation that used D1 heavily.
+ * oRPC calls already report their D1 counters in `tedix.api.procedure`; jobs
+ * had no equivalent. Workers Logs adds the trigger and requestId, so overload
+ * bursts can be traced to the job. Rows returned are not rows scanned.
+ */
+export async function withD1Ledger<T>(
+	label: string,
+	run: () => Promise<T>,
+): Promise<T> {
+	const ledger: Ledger = {
+		label,
+		statements: 0,
+		d1WallMs: 0,
+		rowsRead: 0,
+		rowsWritten: 0,
+		rowsReturned: 0,
+		inFlight: 0,
+		maxInFlight: 0,
+		overloaded: 0,
+		shapes: new Map(),
+	};
+	try {
+		return await ledgers.run(ledger, run);
+	} finally {
+		if (
+			ledger.statements >= 25 ||
+			ledger.d1WallMs >= 500 ||
+			ledger.rowsRead >= 5_000 ||
+			ledger.rowsReturned >= 2_000 ||
+			ledger.overloaded > 0
+		)
+			requestLogger.info("D1 use by one request", {
+				event: "db.request",
+				label,
+				statements: ledger.statements,
+				d1WallMs: Math.round(ledger.d1WallMs),
+				rowsRead: ledger.rowsRead,
+				rowsWritten: ledger.rowsWritten,
+				rowsReturned: ledger.rowsReturned,
+				maxInFlight: ledger.maxInFlight,
+				overloaded: ledger.overloaded,
+				topShapes: [...ledger.shapes]
+					.sort((a, b) => b[1].wallMs - a[1].wallMs)
+					.slice(0, 3)
+					.map(
+						([shape, s]) =>
+							`${s.n}x ${Math.round(s.wallMs)}ms ${s.rowsReturned}rows ${shape}`,
+					)
+					.join(" | "),
+			});
+	}
+}
+
+function begin(): Ledger | undefined {
+	const ledger = ledgers.getStore();
+	if (ledger) {
+		ledger.inFlight += 1;
+		ledger.maxInFlight = Math.max(ledger.maxInFlight, ledger.inFlight);
+	}
+	return ledger;
+}
+
+function tally(
+	ledger: Ledger | undefined,
+	sql: string,
+	wallMs: number,
+	result: D1Result | undefined,
+	returned: number,
+	error: unknown,
+): void {
+	if (!ledger) return;
+	ledger.inFlight -= 1;
+	ledger.statements += 1;
+	ledger.d1WallMs += wallMs;
+	ledger.rowsRead += result?.meta?.rows_read ?? 0;
+	ledger.rowsWritten += result?.meta?.rows_written ?? 0;
+	ledger.rowsReturned += returned;
+	if (error instanceof Error && /overloaded/i.test(error.message))
+		ledger.overloaded += 1;
+	const shape = sql.replace(SQL_TOKENS, (token) =>
+		/^["`\[]/.test(token) ? token : "?",
+	);
+	const key = shape.slice(0, 160);
+	const entry = ledger.shapes.get(key) ?? { n: 0, wallMs: 0, rowsReturned: 0 };
+	entry.n += 1;
+	entry.wallMs += wallMs;
+	entry.rowsReturned += returned;
+	if (ledger.shapes.size < 50 || ledger.shapes.has(key))
+		ledger.shapes.set(key, entry);
+}
+
+function returnedRows(value: unknown): number {
+	if (Array.isArray(value)) return value.length;
+	const rows = (value as { results?: unknown } | null)?.results;
+	if (Array.isArray(rows)) return rows.length;
+	return value == null ? 0 : 1;
+}
 
 const logger = createLogger<{
 	sqlShape: string;
@@ -86,14 +212,29 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 				if (["all", "run", "raw", "first"].includes(String(key)))
 					return async (...args: unknown[]) => {
 						const origin = caller();
+						const ledger = begin();
 						const start = performance.now();
 						let result: D1Result | undefined;
+						let returned = 0;
+						let failure: unknown;
 						try {
 							const valueResult = await Reflect.apply(value, target, args);
 							if (key === "all" || key === "run")
 								result = valueResult as D1Result;
+							if (key !== "run") returned = returnedRows(valueResult);
 							return valueResult;
+						} catch (error) {
+							failure = error;
+							throw error;
 						} finally {
+							tally(
+								ledger,
+								sql,
+								performance.now() - start,
+								result,
+								returned,
+								failure,
+							);
 							report(
 								sql,
 								origin,
@@ -126,13 +267,18 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 			if (key === "batch")
 				return async (batch: D1PreparedStatement[]) => {
 					const origin = caller();
+					const ledger = begin();
 					const start = performance.now();
 					let results: D1Result[] | undefined;
+					let failure: unknown;
 					try {
 						results = await target.batch(
 							batch.map((s) => statements.get(s)?.native ?? s),
 						);
 						return results;
+					} catch (error) {
+						failure = error;
+						throw error;
 					} finally {
 						const elapsed = performance.now() - start;
 						const sqlOf = (statement: D1PreparedStatement) =>
@@ -140,6 +286,18 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 						let untimed = 0;
 						batch.forEach((statement, index) => {
 							const result = results?.[index];
+							if (ledger) {
+								// One in-flight slot covers the whole batch.
+								if (index > 0) ledger.inFlight += 1;
+								tally(
+									ledger,
+									sqlOf(statement),
+									elapsed / batch.length,
+									result,
+									returnedRows(result),
+									index === 0 ? failure : undefined,
+								);
+							}
 							const duration = result?.meta?.duration;
 							if (duration === undefined) untimed += 1;
 							report(

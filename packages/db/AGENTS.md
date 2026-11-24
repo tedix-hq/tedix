@@ -51,6 +51,10 @@ owning schema, query module and tests before changing persistence behavior.
   mode, but D1 batch results use object rows and collapse duplicate names before
   Drizzle maps them. Use `prefixedColumns()` or an explicit alias.
 - Use `getColumns()`; `getTableColumns()` is deprecated in Drizzle v1.
+- Never run a heavy ad-hoc query against the production primary, including
+  while you investigate an incident. Run `EXPLAIN QUERY PLAN` before any remote
+  read. Use D1's query dataset and audit log to trace load instead of scanning
+  tables (see `docs/engineering/platform/observability.md`).
 
 ## Types And Names
 

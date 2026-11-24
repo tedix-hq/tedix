@@ -2394,13 +2394,23 @@ export async function logProcedureCall(options: {
 		});
 		if (isDev)
 			console.log(`[oRPC] ${route} - Completed in ${Date.now() - start}ms`);
-		else if (sampled)
-			console.log("[oRPC] procedure", {
-				...metrics(),
-				status: "ok",
-				code: "OK",
-				sampleRate: 0.01,
-			});
+		else {
+			const current = metrics();
+			// Heavy calls are always logged so D1 overload bursts can be traced to
+			// their callers; 1% sampling misses the few calls that cause them.
+			const heavy =
+				(current.d1Queries ?? 0) >= 25 ||
+				(current.d1KnownRowsRead ?? 0) >= 5_000 ||
+				current.durationMs >= 2_000;
+			if (sampled || (heavy && context.dbMetrics))
+				console.log("[oRPC] procedure", {
+					...current,
+					status: "ok",
+					code: "OK",
+					sampleRate: sampled ? 0.01 : 1,
+					...(heavy ? { heavy: true } : {}),
+				});
+		}
 		return result;
 	} catch (error) {
 		await auditGatewayInputRejection(context, path, error);

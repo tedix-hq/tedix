@@ -79,6 +79,13 @@
 			"binding": "RuntimeD1 db",
 			"reason": "This narrow typed facade is the sole platform-SQL owner for the certified tedi runtime, avoiding a second peer-specialized Drizzle instance in that Worker."
 		},
+		"packages/db/src/slow-query.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:d1-observability-wrapper",
+			"binding": "D1Database db",
+			"reason": "observeD1 only proxies the bound D1's prepare and batch to time each statement and count rows for heavy-use logging; it issues no SQL of its own, so every statement still comes from @tedix/db/queries/*."
+		},
 		"packages/provisioning/src/cms.ts": {
 			"storagePlane": "provisioning-control-plane",
 			"disposition": "approved",
