@@ -411,7 +411,9 @@ function tools(now: PanelState): Group[] {
 					: view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
-				view.ready && !limit ? READY_MARK() : view.action,
+				// Held back from tasks, its connection still works: say so, so the
+				// row does not look broken beside the line that says why.
+				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,

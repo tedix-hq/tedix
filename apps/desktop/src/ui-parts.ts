@@ -401,7 +401,8 @@ export const otherRunners = (state: PanelState): RunnerRow[] =>
 			!state.setup.tools.some((tool) => tool.executor === runner.executor),
 	);
 
-export const READY_MARK = () => el("span", "done", icon("check", 13), "Ready");
+export const READY_MARK = (label = "Ready") =>
+	el("span", "done", icon("check", 13), label);
 
 /* ------------------------------------------------------------------ */
 /* Sessions: one main switch, a tab per coding tool, a searchable list. */
