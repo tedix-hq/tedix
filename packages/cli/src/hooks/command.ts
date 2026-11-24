@@ -240,6 +240,8 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 			const { runSituationalRecall } = await import("./situational-recall");
 			await runSituationalRecall(deps);
 		} else if (name === "session-start") {
+			const { removeOldHookFiles } = await import("./old-files");
+			removeOldHookFiles(deps.env);
 			const { runSessionStart } = await import("./session-start");
 			await runSessionStart(deps);
 		} else if (name === "prompt-context") {
