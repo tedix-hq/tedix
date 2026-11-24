@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.9 (2026-11-24)
+
+### Patch Changes
+
+- cf68c6b: A runner over its checkout limit now removes the checkout of a run whose Attempt expired, even while that run's result is still waiting to be reported. The work is saved as a Git ref first and a later run of the same Work restores it. Before, such checkouts stayed for weeks and the limit could not be met. The earlier step that deleted dependency folders from kept checkouts is removed.
+- db4cfde: A runner whose folder is not a Git repository now runs tasks instead of failing: each task gets an empty folder to work in, and code tasks are left for a runner that has a project folder. This lets a computer with no code project run document, research and similar tasks.
+- 9bdd5e2: Share credential exchanges across CLI processes using the same session, so concurrent commands reuse the fresh credential instead of racing to issue it.
+
 ## 0.37.8 (2026-11-24)
 
 ### Patch Changes
