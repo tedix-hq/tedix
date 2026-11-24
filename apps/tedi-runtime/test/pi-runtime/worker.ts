@@ -893,16 +893,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 		const { TediSessionRepo } =
 			await import("@tedix/tedi-session/session-repo");
 		const repo = new TediSessionRepo({
-			sql: <T>(
-				strings: TemplateStringsArray,
-				...values: (string | number | boolean | null)[]
-			) =>
-				this.ctx.storage.sql
-					.exec(
-						strings.join("?"),
-						...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
-					)
-					.toArray() as T[],
+			storage: this.ctx.storage,
 			readDurable: async () => ({ entries: [], compaction: null }),
 		});
 		repo.appendTurn(
