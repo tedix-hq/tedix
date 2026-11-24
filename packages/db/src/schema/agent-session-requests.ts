@@ -209,6 +209,17 @@ export const agentSessionEvents = sqliteTable(
 			table.sourceAt,
 			table.id,
 		),
+		// The last turns of a session. Without it, every session report walked
+		// each turn's body (source_at follows body in the row) to return three.
+		index("idx_agent_session_events_session_kind_order").on(
+			table.organizationId,
+			table.userId,
+			table.harness,
+			table.sessionKey,
+			table.kind,
+			table.sourceAt,
+			table.sourceKey,
+		),
 		index("idx_agent_session_events_pending_heads").on(
 			table.organizationId,
 			table.userId,

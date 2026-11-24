@@ -2016,6 +2016,10 @@
 		{
 			"name": "20261124185129_external_agent_mcp_credential_cleanup_attempt/migration.sql",
 			"sha256": "db32acf43fa03f5eff5f8f82bef4a9f3794b59eeaaf45c91f1ac4c8159298474"
+		},
+		{
+			"name": "20261124192517_agent_session_events_kind_order/migration.sql",
+			"sha256": "488bda272d4a5b3e898de3a0678a92dddd44aa0cca1d17dc91f58ace89b5bbd6"
 		}
 	]
 }
