@@ -1984,6 +1984,10 @@
 		{
 			"name": "20261123234153_route_missing_owner/migration.sql",
 			"sha256": "a7770ab2fa85002da073b05ba6005edf3ed43f29c15cb654b3ab6e80b6ef7eb6"
+		},
+		{
+			"name": "20261124030318_interaction_review_wake_guard/migration.sql",
+			"sha256": "f091ec62e260835e9d8431cbefc3cb3470dfcd81a53b28567b479182ed317ee6"
 		}
 	]
 }

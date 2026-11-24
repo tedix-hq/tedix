@@ -54,7 +54,10 @@ import {
 	createWorkInteraction,
 } from "./interactions";
 import { flushWorkInteractionDigests } from "./interaction-digests";
-import { reviewWorkInteraction } from "./interaction-reviews";
+import {
+	reviewWorkInteraction,
+	recordWorkInteractionReviewWake,
+} from "./interaction-reviews";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
 import { nudgeLaneHandoffs, withdrawStaleLaneNudges } from "./lane-handoffs";
 import {
@@ -2241,6 +2244,75 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				"work:checkout:agent:mcp:historical-execution-session",
 		});
 	});
+});
+
+it("records a Work owner's review wake for a human ask without changing its decision", async () => {
+	const sqlite = migrated();
+	seedCore(sqlite);
+	seedTedi(sqlite);
+	sqlite.exec(
+		"UPDATE work_items SET disposition='accepted',accountable_owner_type='tedi',accountable_owner_id='tedi' WHERE id='work'",
+	);
+	sqlite.exec("UPDATE tedis SET status='active' WHERE id='tedi'");
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const ask = await createWorkInteraction(db, {
+		id: "human-ask",
+		orgId: "org",
+		workItemId: "work",
+		kind: "question",
+		subject: "Review the hold",
+		prompt: "A person must change the hold.",
+		creator: { type: "user", id: "user" },
+		targetType: "user",
+		targetId: "user",
+		metadata: { reason: "Execution remains held" },
+		now: "2026-08-20T00:00:00.000Z",
+	});
+	const now = "2026-08-24T00:00:00.000Z";
+	expect(
+		(await listDueWorkInteractionReviews(db, now)).map((row) => row.id),
+	).toEqual([ask.id]);
+	const before = sqlite
+		.prepare("SELECT * FROM work_interactions WHERE id=?")
+		.get(ask.id)!;
+	await recordWorkInteractionReviewWake(db, ask, now, "owner-review-run");
+	expect(
+		await listDueWorkInteractionReviews(db, "2026-08-24T00:02:00.000Z"),
+	).toEqual([]);
+	const after = sqlite
+		.prepare("SELECT * FROM work_interactions WHERE id=?")
+		.get(ask.id)!;
+	expect({ ...after, metadata: before.metadata }).toEqual(before);
+	expect(JSON.parse(String(after.metadata))).toEqual({
+		...ask.metadata,
+		followThrough: { reviewWakeVersion: 1, reviewRunId: "owner-review-run" },
+	});
+	expect(
+		sqlite
+			.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+			.get(),
+	).toEqual({ n: 0 });
+	for (const change of [
+		"target_id='other'",
+		"version=version+1",
+		"status='resolved'",
+		"prompt='changed'",
+	])
+		expectAbort(
+			() =>
+				sqlite.exec(
+					`UPDATE work_interactions SET ${change},metadata=json_set(metadata,'$.followThrough.reviewRunId','forged') WHERE id='human-ask'`,
+				),
+			/interaction/,
+		);
+	expectAbort(
+		() =>
+			sqlite.exec(
+				"UPDATE work_interactions SET metadata=json_set(metadata,'$.reason','changed','$.followThrough.reviewRunId','forged') WHERE id='human-ask'",
+			),
+		/interaction/,
+	);
+	sqlite.close();
 });
 
 it("runs digests and owner follow-through with migrated D1 guards", async () => {
