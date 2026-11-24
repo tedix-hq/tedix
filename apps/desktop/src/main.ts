@@ -54,6 +54,7 @@ import {
 	startRunners,
 	stopRunners,
 } from "./runners";
+import { startExitGuard } from "./quit-guard";
 import { setRunnerField } from "./runners-file";
 import {
 	type AppSignIn,
@@ -586,6 +587,9 @@ let question:
  * centred on the screen the Tedix window is on. Every button is a real,
  * reachable button, and closing the window answers `cancelId`.
  */
+/** Settles once the last answered question's window is gone. */
+let questionClosing: Promise<void> = Promise.resolve();
+
 async function ask(
 	options: Electron.MessageBoxOptions,
 ): Promise<Electron.MessageBoxReturnValue> {
@@ -638,7 +642,12 @@ async function ask(
 			answered = true;
 			if (question?.window === window) question = undefined;
 			resolve(answer);
-			if (!window.isDestroyed()) window.close();
+			if (!window.isDestroyed()) {
+				questionClosing = new Promise((closed) =>
+					window.once("closed", () => closed()),
+				);
+				window.close();
+			}
 		};
 		question = { window, view, settle };
 		window.on("closed", () =>
@@ -1816,7 +1825,10 @@ let quitTimer: ReturnType<typeof setTimeout> | undefined;
  * else gets five seconds, then the app exits anyway.
  */
 function exitSoon(): void {
-	quitTimer ??= setTimeout(() => {
+	if (quitTimer) return;
+	// From outside the app as well: a quit that stalls stops this timer too.
+	startExitGuard(process.pid, 8);
+	quitTimer = setTimeout(() => {
 		log("quit: still open five seconds after the runners stopped; exiting");
 		app.exit(0);
 	}, 5000);
@@ -1849,6 +1861,7 @@ async function askToQuit(): Promise<void> {
 	quitAsking = false;
 	if (quitting) return;
 	if (response !== 1) return log("quit: cancelled, tasks keep running");
+	log("quit: confirmed");
 	quitAgreed = true;
 	app.quit();
 }
@@ -2418,11 +2431,27 @@ else if (process.argv.includes("--local-model")) {
 			}
 			event.preventDefault();
 			log("quit: stopping this Mac's runners first");
-			void stopRunners().finally(() => {
+			void stopRunners().finally(async () => {
+				log("quit: runners stopped");
 				exitSoon();
+				// A question answered a moment ago is still closing its window;
+				// the quit waits for that, briefly, rather than run into it.
+				await Promise.race([
+					questionClosing,
+					new Promise((resolve) => setTimeout(resolve, 1000)),
+				]);
+				log("quit: closing the app");
 				app.quit();
 			});
 		});
+		// Each step of a quit is logged, so a stall shows where it stopped.
+		app.on("window-all-closed", () => {
+			if (quitting) log("quit: windows closed");
+		});
+		app.on("will-quit", () => {
+			if (quitting) log("quit: about to exit");
+		});
+		app.on("quit", () => log("quit: exited"));
 		onRunnersChange(() => void refresh());
 		setInterval(() => {
 			void refresh();
