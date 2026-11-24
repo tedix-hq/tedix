@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.13 (2026-11-24)
+
+### Patch Changes
+
+- d0531a0: A tedi runner task no longer fails when one gateway call is refused for a moment, such as a brief database overload: the call is tried again a few times first.
+
 ## 0.37.12 (2026-11-24)
 
 ### Patch Changes
