@@ -363,6 +363,18 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_workspace_output",
 		resourceId: ({ output }) => text(output.outputId),
 	},
+	"resources.linkConnections": {
+		action: "os.workspace_connections.linked",
+		resourceType: "os_workspace",
+		resourceId: ({ input }) => text(input.workspaceId),
+		metadata: ({ input, output }) => ({
+			requestedCount: Array.isArray(input.connections)
+				? input.connections.length
+				: 0,
+			addedCount: Array.isArray(output.added) ? output.added.length : 0,
+			failedCount: Array.isArray(output.failed) ? output.failed.length : 0,
+		}),
+	},
 	"resources.create": {
 		action: "os.workspace_resource.created",
 		resourceType: "os_workspace_resource",

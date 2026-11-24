@@ -79,19 +79,17 @@ it("uses the Connections page inventory while keeping personal accounts and opaq
 		["o", "admin", "org-1", "Shared account"],
 		["x", "admin", "org-2", "Other org account"],
 	] as const) {
-		await db
-			.insert(connectionInstances)
-			.values({
-				id,
-				ownerUserId,
-				organizationId,
-				providerId: "example",
-				label,
-				tokenIds: ["private-grant"],
-				tokenSub: "private-sub",
-				createdAt: "2026-01-01",
-				updatedAt: "2026-01-01",
-			});
+		await db.insert(connectionInstances).values({
+			id,
+			ownerUserId,
+			organizationId,
+			providerId: "example",
+			label,
+			tokenIds: ["private-grant"],
+			tokenSub: "private-sub",
+			createdAt: "2026-01-01",
+			updatedAt: "2026-01-01",
+		});
 	}
 	const read = (sub: string) =>
 		discoverWorkspaceConnections(
