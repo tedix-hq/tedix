@@ -4,6 +4,7 @@ import {
 	eq,
 	inArray,
 	isNull,
+	lt,
 	ne,
 	notExists,
 	or,
@@ -233,7 +234,7 @@ export async function listOsGadgetExecutions(
 	}
 	if (options.callId) {
 		conditions.push(
-			sql`json_extract(${osGadgetExecutions.output}, '$.callId') = ${options.callId}`,
+			sql`json_extract(coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output}), '$.callId') = ${options.callId}`,
 		);
 		conditions.push(eq(osGadgetExecutions.createdById, "workspace-app-host"));
 	}
@@ -248,10 +249,10 @@ export async function listOsGadgetExecutions(
 				...(options.callId
 					? [
 							desc(
-								sql`coalesce(json_extract(${osGadgetExecutions.output}, '$.events[0].live'), 0) = 0`,
+								sql`coalesce(json_extract(coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output}), '$.events[0].live'), 0) = 0`,
 							),
 							desc(
-								sql`json_extract(${osGadgetExecutions.output}, '$.events[0].sequence')`,
+								sql`json_extract(coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output}), '$.events[0].sequence')`,
 							),
 						]
 					: []),
@@ -424,4 +425,70 @@ export async function settleOsGadgetExecutionFromRun(
 		await announceOsWorkspaceChange(db, workspaceId, "runs");
 	}
 	return rows;
+}
+
+/** Keep receipt metadata in main; only immutable terminal bodies leave D1. */
+export function listOsGadgetExecutionBodiesToOffload(
+	db: DbQueryClient,
+	cutoff: string,
+) {
+	return db
+		.select()
+		.from(osGadgetExecutions)
+		.where(
+			and(
+				sql`${osGadgetExecutions.bodyR2Key} IS NULL AND (${osGadgetExecutions.input} IS NOT NULL OR ${osGadgetExecutions.output} IS NOT NULL) AND ${osGadgetExecutions.status} IN ('completed', 'failed', 'canceled', 'denied')`,
+				lt(
+					sql`coalesce(${osGadgetExecutions.completedAt}, ${osGadgetExecutions.createdAt})`,
+					cutoff,
+				),
+			),
+		)
+		.orderBy(
+			sql`coalesce(${osGadgetExecutions.completedAt}, ${osGadgetExecutions.createdAt})`,
+		)
+		.limit(20);
+}
+
+export async function offloadOsGadgetExecutionBody(
+	db: DbQueryClient,
+	row: OsGadgetExecutionRow,
+	bodyR2Key: string,
+	bodyBytes: number,
+	cutoff: string,
+): Promise<boolean> {
+	const updated = await db
+		.update(osGadgetExecutions)
+		.set({
+			input: null,
+			output: null,
+			bodyR2Key,
+			bodyBytes,
+			traceMetadata: sql`CASE WHEN ${osGadgetExecutions.createdById} = 'workspace-app-host' AND json_valid(${osGadgetExecutions.output}) THEN json_object('callId', json_extract(${osGadgetExecutions.output}, '$.callId'), 'events', json_array(json_object('live', json_extract(${osGadgetExecutions.output}, '$.events[0].live'), 'sequence', json_extract(${osGadgetExecutions.output}, '$.events[0].sequence')))) ELSE NULL END`,
+		})
+		.where(
+			and(
+				eq(osGadgetExecutions.organizationId, row.organizationId),
+				eq(osGadgetExecutions.id, row.id),
+				eq(osGadgetExecutions.status, row.status),
+				inArray(osGadgetExecutions.status, [
+					"completed",
+					"failed",
+					"canceled",
+					"denied",
+				]),
+				lt(
+					sql`coalesce(${osGadgetExecutions.completedAt}, ${osGadgetExecutions.createdAt})`,
+					cutoff,
+				),
+				eq(osGadgetExecutions.executionEpoch, row.executionEpoch),
+				isNull(osGadgetExecutions.bodyR2Key),
+				sql`${osGadgetExecutions.input} IS ${row.input}`,
+				sql`${osGadgetExecutions.output} IS ${row.output}`,
+				sql`${osGadgetExecutions.completedAt} IS ${row.completedAt}`,
+				sql`${osGadgetExecutions.workspaceOutputSha256} IS ${row.workspaceOutputSha256}`,
+			),
+		)
+		.returning({ id: osGadgetExecutions.id });
+	return updated.length === 1;
 }

@@ -1,0 +1,4 @@
+ALTER TABLE `os_gadget_executions` ADD `body_r2_key` text;--> statement-breakpoint
+ALTER TABLE `os_gadget_executions` ADD `body_bytes` integer;--> statement-breakpoint
+ALTER TABLE `os_gadget_executions` ADD `trace_metadata` text;--> statement-breakpoint
+CREATE INDEX `idx_os_gadget_executions_inline_bodies` ON `os_gadget_executions` (coalesce("completed_at", "created_at")) WHERE "os_gadget_executions"."body_r2_key" IS NULL AND ("os_gadget_executions"."input" IS NOT NULL OR "os_gadget_executions"."output" IS NOT NULL) AND "os_gadget_executions"."status" IN ('completed', 'failed', 'canceled', 'denied');

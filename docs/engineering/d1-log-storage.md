@@ -263,6 +263,31 @@ table, never charged) move once expired and are archived under the
 `_platform` owner in R2. A session report older than 90 days loses its cost
 rows in `work-agent-sessions.ts`, which reads main D1 only.
 
+## Gadget execution bodies
+
+The `d1-retention` tick moves gadget execution inputs and outputs to `R2_BUCKET`
+after seven days, measured from completion or, for historical terminal receipts
+without a completion time, creation. The cutoff is midnight UTC. Queued,
+running, paused and approval-waiting executions stay inline.
+
+Each gzip object under `os-gadget-executions/v1/` contains the original input
+and output strings. Its key includes the organization and SHA-256 digest. The
+job reads the object back and checks its size and digest before a conditional
+update clears the inline fields and records `body_r2_key` and `body_bytes`.
+Changed rows stay inline. Receipt metadata stays in main D1, including the
+small trace fields needed for filtering and ordering before pagination.
+Execution get and list restore the bodies from R2; missing or corrupt objects
+fail the read rather than returning an empty result. Existing workspace-output
+pointers keep their read path.
+
+The oldest-first partial index limits each tick to 500 receipts and 30 seconds
+of body work. Later ticks continue the backlog. R2 objects and receipt rows are
+retained. The tick reports `gadgetBodiesOffloaded` and
+`gadgetBodyBytesOffloaded`; those byte counts measure uncompressed body JSON,
+not a promised reduction in the database file size. Production uses the EU R2
+binding. Release the schema migration and reader together, then verify old
+inline bodies, historical reads and provider-reported D1 size separately.
+
 ## Capacity
 
 With the supplied measurements (audit 70 MB/day, 95 % `mcp.tool.execute`;

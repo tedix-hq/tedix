@@ -21,6 +21,7 @@ import {
 	reconcileD1SizeAlert,
 } from "../lib/d1-size-health";
 import { runD1Retention } from "../services/d1-retention-archive";
+import { retainGadgetExecutionBodies } from "../services/os-gadget-execution-body-store";
 
 /** The logs database binding is optional; its presence is the only switch. */
 export function logsDatabase(env: object): D1Database | undefined {
@@ -33,6 +34,11 @@ export async function runD1RetentionTick(
 ): Promise<Record<string, number>> {
 	const logs = logsDatabase(env);
 	const now = new Date(event.scheduledTime);
+	const gadgetBodies = await retainGadgetExecutionBodies(
+		createDbQueryClient(env.DB),
+		env.R2_BUCKET,
+		now,
+	);
 	const result = await runD1Retention({
 		db: createDbQueryClient(env.DB),
 		logsDb: logs ? createDbQueryClient(logs) : undefined,
@@ -71,6 +77,7 @@ export async function runD1RetentionTick(
 	);
 	return {
 		officeExpiredSnapshotsDeleted: officeDeleted,
+		...gadgetBodies,
 		d1RetentionArchivedRows: result.archivedRows,
 		d1RetentionMovedRows: result.movedRows,
 		d1RetentionConflictedRows: result.conflictedRows,

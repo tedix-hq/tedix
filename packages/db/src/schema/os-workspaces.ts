@@ -577,6 +577,11 @@ export const osGadgetExecutions = sqliteTable(
 		input: text("input"),
 		/** JSON: runtime-reported output recorded at settlement. */
 		output: text("output"),
+		/** Verified gzip JSON containing the original input and output strings. */
+		bodyR2Key: text("body_r2_key"),
+		bodyBytes: integer("body_bytes"),
+		/** Trace call id and first-event ordering fields needed before pagination. */
+		traceMetadata: text("trace_metadata"),
 		workspaceOutputSha256: text("workspace_output_sha256"),
 		error: text("error"),
 		/** JSON: runtime-reported cost summary recorded at settlement. */
@@ -614,6 +619,11 @@ export const osGadgetExecutions = sqliteTable(
 	},
 	(table) => [
 		index("idx_os_gadget_executions_completed").on(table.completedAt),
+		index("idx_os_gadget_executions_inline_bodies")
+			.on(sql`coalesce(${table.completedAt}, ${table.createdAt})`)
+			.where(
+				sql`${table.bodyR2Key} IS NULL AND (${table.input} IS NOT NULL OR ${table.output} IS NOT NULL) AND ${table.status} IN ('completed', 'failed', 'canceled', 'denied')`,
+			),
 		index("idx_os_gadget_executions_run").on(
 			table.organizationId,
 			table.runId,

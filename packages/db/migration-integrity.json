@@ -2024,6 +2024,10 @@
 		{
 			"name": "20261124210653_work-app-navigation/migration.sql",
 			"sha256": "c52fea2928907bcdb4eaec6989c47f93576083b1cf628ec35b044a3a11dd58e0"
+		},
+		{
+			"name": "20261124211730_gadget_execution_bodies/migration.sql",
+			"sha256": "67cb00e1ebf5ea7c938b8b15b79cf92ce30ced67196aae3c98b1853bc5999206"
 		}
 	]
 }

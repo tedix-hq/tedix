@@ -33,7 +33,7 @@ function fixture(withEvents = true) {
 			id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL,
 			workspace_id TEXT NOT NULL, gadget_id TEXT NOT NULL, revision_id TEXT,
 			revision INTEGER, status TEXT NOT NULL, granted_capabilities TEXT NOT NULL,
-			policy_decision TEXT NOT NULL, input TEXT, output TEXT, workspace_output_sha256 TEXT, error TEXT,
+			policy_decision TEXT NOT NULL, input TEXT, output TEXT, workspace_output_sha256 TEXT, body_r2_key TEXT, body_bytes INTEGER, trace_metadata TEXT, error TEXT,
 			costs TEXT, evidence_refs TEXT, run_id TEXT, workflow_instance_id TEXT,
 			tedi_id TEXT, work_item_id TEXT, trace_bundle_id TEXT,
 			billing_reservation_id TEXT, approval_request_id TEXT,

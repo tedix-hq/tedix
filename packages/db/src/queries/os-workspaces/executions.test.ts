@@ -10,6 +10,8 @@ import {
 	getOsGadgetExecution,
 	getOsGadgetExecutionByRunId,
 	listOsGadgetExecutions,
+	listOsGadgetExecutionBodiesToOffload,
+	offloadOsGadgetExecutionBody,
 	recordOsGadgetDispatch,
 	settleAwaitingApprovalOsGadgetExecution,
 	settleOsGadgetExecutionFromRun,
@@ -34,6 +36,7 @@ function fixture() {
 			input TEXT,
 			output TEXT,
 			workspace_output_sha256 TEXT,
+			body_r2_key TEXT, body_bytes INTEGER, trace_metadata TEXT,
 			error TEXT,
 			costs TEXT,
 			evidence_refs TEXT,
@@ -570,4 +573,93 @@ it("atomically archives detached output and keeps the inline body if the workspa
 		output: null,
 		workspaceOutputSha256: digest,
 	});
+});
+
+it("offloads only unchanged old terminal bodies and preserves trace filtering and order", async () => {
+	const { db, sqlite } = fixture();
+	try {
+		const first = await createOsGadgetExecution(
+			db,
+			executionParams("trace-old", {
+				status: "completed",
+				completedAt: "2026-08-14",
+				createdById: "workspace-app-host",
+				output: JSON.stringify({
+					callId: "call-1",
+					events: [{ live: false, sequence: 2, payload: "large body" }],
+				}),
+			}),
+		);
+		const racing = await createOsGadgetExecution(
+			db,
+			executionParams("changed", {
+				status: "completed",
+				completedAt: "2026-08-14",
+				output: '"before"',
+			}),
+		);
+		await createOsGadgetExecution(db, executionParams("active"));
+		await createOsGadgetExecution(
+			db,
+			executionParams("recent", {
+				status: "completed",
+				completedAt: "2026-11-23",
+			}),
+		);
+		await createOsGadgetExecution(
+			db,
+			executionParams("denied-no-completion", { status: "denied" }),
+		);
+		expect(
+			(await listOsGadgetExecutionBodiesToOffload(db, "2026-11-17"))
+				.map((row) => row.id)
+				.sort(),
+		).toEqual(["changed", "denied-no-completion", "trace-old"]);
+		sqlite
+			.prepare(
+				`UPDATE os_gadget_executions SET output = '"after"' WHERE id = 'changed'`,
+			)
+			.run();
+		expect(
+			await offloadOsGadgetExecutionBody(db, racing, "key", 10, "2026-11-17"),
+		).toBe(false);
+		expect(
+			await offloadOsGadgetExecutionBody(
+				db,
+				first,
+				"verified-key",
+				100,
+				"2026-11-17",
+			),
+		).toBe(true);
+		expect(
+			await getOsGadgetExecution(db, {
+				organizationId: "org-1",
+				executionId: first.id,
+			}),
+		).toMatchObject({
+			input: null,
+			output: null,
+			bodyR2Key: "verified-key",
+			bodyBytes: 100,
+		});
+		const traces = await listOsGadgetExecutions(
+			db,
+			{ organizationId: "org-1", gadgetId: "gd-1" },
+			{ callId: "call-1", limit: 1 },
+		);
+		expect(traces.map((row) => row.id)).toEqual(["trace-old"]);
+		expect(traces[0]!.traceMetadata).not.toContain("large body");
+		expect(
+			await offloadOsGadgetExecutionBody(
+				db,
+				first,
+				"other-key",
+				100,
+				"2026-11-17",
+			),
+		).toBe(false);
+	} finally {
+		sqlite.close();
+	}
 });

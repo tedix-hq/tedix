@@ -4,6 +4,7 @@ import { WorkFactoryError } from "@tedix/db/queries/work-items/factory-state";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { verifiedExternalAgent } from "./work-items-principal";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { readGadgetExecutionBody } from "../../services/os-gadget-execution-body-store";
 import { env } from "cloudflare:workers";
 import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
 import { sumRunCredits } from "@tedix/db/queries/billing/spending";
@@ -1155,6 +1156,7 @@ async function readWorkspaceExecutionOutput(
 	context: BaseContext,
 	row: OsGadgetExecutionRow,
 ) {
+	row = await readGadgetExecutionBody(row, env.R2_BUCKET);
 	if (!row.workspaceOutputSha256) return row;
 	const output = await executionWorkspaceRuntime(
 		context,
@@ -1205,7 +1207,10 @@ const executionsList = readOs.executions.list.handler(
 
 const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 	async ({ input, context }) => {
-		const execution = await requireExecution(context, input);
+		const execution = await readGadgetExecutionBody(
+			await requireExecution(context, input),
+			env.R2_BUCKET,
+		);
 		const agent = await verifiedExternalAgent(
 			context,
 			execution.organizationId,
@@ -1239,6 +1244,7 @@ const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 		const runtime = executionWorkspaceRuntime(context);
 		if (
 			input.cutover?.phase === "clear" &&
+			!execution.bodyR2Key &&
 			execution.workspaceOutputSha256 !== input.cutover.sha256
 		) {
 			throw createError(
@@ -1308,6 +1314,8 @@ const executionsCopyOutput = authorOs.executions.copyOutput.handler(
 				"Workspace output copy did not match the execution",
 			);
 		}
+		// R2 already owns this immutable body; there is no inline output to clear.
+		if (execution.bodyR2Key) return copy;
 		if (input.cutover) {
 			const updated = await cutOverOsGadgetExecutionOutput(
 				queryDb(context),
@@ -1394,7 +1402,7 @@ const archiveDetachedOutputs = authed.executions.archiveDetachedOutputs
 		const runtime = executionWorkspaceRuntime(context);
 		const verifiedExecutionIds: string[] = [];
 		for (const executionId of new Set(input.executionIds)) {
-			const row = await getOsGadgetExecution(db, {
+			let row = await getOsGadgetExecution(db, {
 				organizationId,
 				executionId,
 			});
@@ -1425,6 +1433,8 @@ const archiveDetachedOutputs = authed.executions.archiveDetachedOutputs
 					"Execution still has an ordinary workspace destination",
 				);
 			}
+			const completedAt = row.completedAt;
+			row = await readGadgetExecutionBody(row, env.R2_BUCKET);
 			const digest =
 				row.output === null
 					? row.workspaceOutputSha256
@@ -1454,9 +1464,10 @@ const archiveDetachedOutputs = authed.executions.archiveDetachedOutputs
 			}
 			if (
 				row.output !== null &&
+				!row.bodyR2Key &&
 				!(await cutOverOsGadgetExecutionOutput(
 					db,
-					{ ...row, output: row.output, completedAt: row.completedAt },
+					{ ...row, output: row.output, completedAt },
 					digest,
 					"archiveDetached",
 				))

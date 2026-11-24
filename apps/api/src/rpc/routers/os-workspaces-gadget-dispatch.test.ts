@@ -7,6 +7,9 @@
 
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { env as workerEnv } from "cloudflare:workers";
+import { retainGadgetExecutionBodies } from "../../services/os-gadget-execution-body-store";
 import { recordRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 // The same digest the export path records, so a lineage assertion compares
@@ -553,11 +556,30 @@ describe("governed gadget dispatch", () => {
 		});
 		expect(reread).toEqual(settled);
 
-		// The list surface settles through the same read path.
-		const { items } = await client.executions.list({ ...seeded, limit: 10 });
-		expect(items.find((item) => item.id === execution.id)?.status).toBe(
-			"completed",
+		const moved = await retainGadgetExecutionBodies(
+			createDbQueryClient(env.DB),
+			workerEnv.R2_BUCKET,
+			new Date(Date.now() + 9 * 86400000),
 		);
+		expect(moved.gadgetBodiesOffloaded).toBe(1);
+		expect(
+			await env.DB.prepare(
+				"SELECT input, output, body_r2_key FROM os_gadget_executions WHERE id = ?",
+			)
+				.bind(execution.id)
+				.first(),
+		).toMatchObject({
+			input: null,
+			output: null,
+			body_r2_key: expect.stringContaining("os-gadget-executions/v1/"),
+		});
+		expect(
+			(await client.executions.get({ ...seeded, executionId: execution.id }))
+				.execution,
+		).toEqual(settled);
+
+		const { items } = await client.executions.list({ ...seeded, limit: 10 });
+		expect(items.find((item) => item.id === execution.id)).toEqual(settled);
 	});
 
 	it("syncs a dispatched receipt to the run's lifecycle status without settling it", async () => {
