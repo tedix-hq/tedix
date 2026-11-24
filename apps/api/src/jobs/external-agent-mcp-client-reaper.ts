@@ -15,9 +15,16 @@
  * credential row names, so tedi clients, M2M binding clients and clients no
  * row recorded (Claude Code, ChatGPT, the Tedix CLI) are never touched; the
  * candidate query also excludes M2M binding ids. Unexpired active credentials
- * stay untouched. A cleanup timestamp is recorded only after deletion succeeds
- * or Descope says the client is already gone. A failed delete is marked so the
- * row moves to the back of the queue and the rest keeps draining.
+ * stay untouched.
+ *
+ * Descope fails a whole batch delete when one id no longer exists (400
+ * E113118), so each run first lists each server's clients once. Candidates
+ * missing from that list are recorded as cleaned without a Descope call; only
+ * the rest are batch-deleted. A batch that still fails is retried one client
+ * at a time. Rows left unresolved, or deferred by the call budget, are marked
+ * so they move to the back of the queue and the rest keeps draining. A
+ * cleanup timestamp is recorded only after deletion succeeds or Descope shows
+ * the client is gone.
  *
  * Descope allows about 100 management calls per 60 s across the project, and
  * credential issuance shares that budget, so each run spends at most
@@ -28,6 +35,10 @@ const MAX_REAP_PER_TICK = 2_000;
 const DELETE_CHUNK = 100;
 const MAX_CALLS_PER_TICK = 60;
 const CALL_INTERVAL_MS = 1_000;
+/** One attempt: the Tedix Unified list is ~17.5 MB and takes ~3 s. */
+const LIST_TIMEOUT_MS = 15_000;
+const WRITE_CHUNK = 50;
+const WRITE_INTERVAL_MS = 50;
 
 /** Status and a bounded slice of the provider's answer; never request data. */
 function describeDescopeError(error: unknown): {
@@ -44,7 +55,7 @@ function describeDescopeError(error: unknown): {
 
 function isDescopeNotFound(error: unknown): boolean {
 	const { status, detail } = describeDescopeError(error);
-	return status === 404 || /not[\s_-]?found/i.test(detail);
+	return status === 404 || /E113118|not[\s_-]?found/i.test(detail);
 }
 
 export async function runExternalAgentMcpClientReaperTick(
@@ -57,8 +68,11 @@ export async function runExternalAgentMcpClientReaperTick(
 
 	const { createDbClient } = await import("@tedix/db/client");
 	const { requireAihEnv } = await import("../rpc/routers/descope-aih-env");
-	const { deleteDescopeMcpServerClient, deleteDescopeMcpServerClients } =
-		await import("@tedix/auth/aih-client");
+	const {
+		deleteDescopeMcpServerClient,
+		deleteDescopeMcpServerClients,
+		searchDescopeMcpServerClients,
+	} = await import("@tedix/auth/aih-client");
 	const {
 		listReapableExternalAgentMcpCredentials,
 		markExternalAgentMcpCredentialCleanupAttempted,
@@ -71,22 +85,19 @@ export async function runExternalAgentMcpClientReaperTick(
 	const sleep =
 		options.sleep ??
 		((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	const log = (fields: Record<string, unknown>) =>
+		JSON.stringify({
+			job: "external-agent-mcp-client-reaper",
+			runId,
+			...fields,
+		});
 
 	const reapable = await listReapableExternalAgentMcpCredentials(db, {
 		expiredBefore: nowIso,
 		limit: MAX_REAP_PER_TICK,
 	});
 	if (reapable.length === 0) {
-		console.log(
-			JSON.stringify({
-				job: "external-agent-mcp-client-reaper",
-				runId,
-				asOf: nowIso,
-				candidates: 0,
-				deleted: 0,
-				revoked: 0,
-			}),
-		);
+		console.log(log({ asOf: nowIso, candidates: 0, deleted: 0, revoked: 0 }));
 		return { candidates: 0, deleted: 0, revoked: 0 };
 	}
 
@@ -111,15 +122,55 @@ export async function runExternalAgentMcpClientReaperTick(
 		return operation();
 	};
 	const deletedClientRecordIds: string[] = [];
-	const failedClientRecordIds: string[] = [];
+	const missingClientRecordIds: string[] = [];
+	const unresolvedClientRecordIds: string[] = [];
+	let listed = 0;
+	let listFailures = 0;
 	let batchFailures = 0;
 	let alreadyGone = 0;
+	let deleteFailures = 0;
 	let deferred = 0;
 	for (const [mcpServerId, ids] of idsByServer) {
-		for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
-			const chunk = ids.slice(i, i + DELETE_CHUNK);
+		let pending = ids;
+		if (calls < MAX_CALLS_PER_TICK) {
+			try {
+				const existing = new Set(
+					(
+						await call(() =>
+							searchDescopeMcpServerClients(
+								aihEnv,
+								{ mcpServerId },
+								{
+									deadline: Date.now() + LIST_TIMEOUT_MS,
+									timeoutMs: LIST_TIMEOUT_MS,
+								},
+							),
+						)
+					).map((client) => client.id),
+				);
+				// An empty answer is not trusted to mean every candidate is gone.
+				if (existing.size === 0)
+					throw new Error("MCP server client list came back empty");
+				listed += existing.size;
+				pending = ids.filter((id) => existing.has(id));
+				missingClientRecordIds.push(...ids.filter((id) => !existing.has(id)));
+			} catch (error) {
+				// Without the list, delete as before and resolve misses one by one.
+				listFailures++;
+				console.error(
+					log({
+						event: "client_list_failed",
+						mcpServerId,
+						...describeDescopeError(error),
+					}),
+				);
+			}
+		}
+		for (let i = 0; i < pending.length; i += DELETE_CHUNK) {
+			const chunk = pending.slice(i, i + DELETE_CHUNK);
 			if (calls >= MAX_CALLS_PER_TICK) {
 				deferred += chunk.length;
+				unresolvedClientRecordIds.push(...chunk);
 				continue;
 			}
 			try {
@@ -131,9 +182,7 @@ export async function runExternalAgentMcpClientReaperTick(
 			} catch (error) {
 				batchFailures++;
 				console.error(
-					JSON.stringify({
-						job: "external-agent-mcp-client-reaper",
-						runId,
+					log({
 						event: "batch_delete_failed",
 						mcpServerId,
 						ids: chunk.length,
@@ -141,10 +190,11 @@ export async function runExternalAgentMcpClientReaperTick(
 					}),
 				);
 			}
-			// One bad id must not hold back the other 99: delete one by one.
+			// One bad id must not hold back the others: delete one by one.
 			for (const id of chunk) {
 				if (calls >= MAX_CALLS_PER_TICK) {
 					deferred++;
+					unresolvedClientRecordIds.push(id);
 					continue;
 				}
 				try {
@@ -158,11 +208,10 @@ export async function runExternalAgentMcpClientReaperTick(
 						deletedClientRecordIds.push(id);
 						continue;
 					}
-					failedClientRecordIds.push(id);
+					deleteFailures++;
+					unresolvedClientRecordIds.push(id);
 					console.error(
-						JSON.stringify({
-							job: "external-agent-mcp-client-reaper",
-							runId,
+						log({
 							event: "client_delete_failed",
 							mcpServerId,
 							clientRecordId: id,
@@ -174,33 +223,52 @@ export async function runExternalAgentMcpClientReaperTick(
 		}
 	}
 
-	const revoked = await markExternalAgentMcpCredentialsReaped(db, {
-		clientRecordIds: [...deletedClientRecordIds, ...expiredFederatedIds],
-		revokedAt: nowIso,
-	});
-	if (failedClientRecordIds.length)
-		await markExternalAgentMcpCredentialCleanupAttempted(db, {
-			clientRecordIds: failedClientRecordIds,
+	// At most MAX_REAP_PER_TICK rows, written 50 at a time with a short pause.
+	let writes = 0;
+	const paced = async (
+		ids: string[],
+		write: (chunk: string[]) => Promise<unknown>,
+	) => {
+		for (let i = 0; i < ids.length; i += WRITE_CHUNK) {
+			if (writes++ > 0) await sleep(WRITE_INTERVAL_MS);
+			await write(ids.slice(i, i + WRITE_CHUNK));
+		}
+	};
+	let revoked = 0;
+	await paced(
+		[
+			...deletedClientRecordIds,
+			...missingClientRecordIds,
+			...expiredFederatedIds,
+		],
+		async (chunk) => {
+			revoked += await markExternalAgentMcpCredentialsReaped(db, {
+				clientRecordIds: chunk,
+				revokedAt: nowIso,
+			});
+		},
+	);
+	await paced(unresolvedClientRecordIds, (chunk) =>
+		markExternalAgentMcpCredentialCleanupAttempted(db, {
+			clientRecordIds: chunk,
 			attemptedAt: nowIso,
-		});
+		}),
+	);
 
 	const counts = {
 		candidates: reapable.length,
+		listed,
+		listFailures,
+		missingMarkedDone: missingClientRecordIds.length,
 		deleted: deletedClientRecordIds.length,
 		alreadyGone,
-		deleteFailures: failedClientRecordIds.length,
+		deleteFailures,
 		batchFailures,
 		deferred,
+		markedAttempted: unresolvedClientRecordIds.length,
 		managementCalls: calls,
 		revoked,
 	};
-	console.log(
-		JSON.stringify({
-			job: "external-agent-mcp-client-reaper",
-			runId,
-			asOf: nowIso,
-			...counts,
-		}),
-	);
+	console.log(log({ asOf: nowIso, ...counts }));
 	return counts;
 }

@@ -6,6 +6,7 @@ const markReaped = vi.hoisted(() => vi.fn());
 const markAttempted = vi.hoisted(() => vi.fn());
 const deleteClients = vi.hoisted(() => vi.fn());
 const deleteClient = vi.hoisted(() => vi.fn());
+const searchClients = vi.hoisted(() => vi.fn());
 
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("../rpc/routers/descope-aih-env", () => ({
@@ -17,6 +18,7 @@ vi.mock("../rpc/routers/descope-aih-env", () => ({
 vi.mock("@tedix/auth/aih-client", () => ({
 	deleteDescopeMcpServerClients: deleteClients,
 	deleteDescopeMcpServerClient: deleteClient,
+	searchDescopeMcpServerClients: searchClients,
 }));
 vi.mock("@tedix/db/queries/external-agent-identity/mcp-credentials", () => ({
 	listReapableExternalAgentMcpCredentials: listReapable,
@@ -31,6 +33,23 @@ const env = {
 } as unknown as CloudflareEnv;
 const sleep = vi.fn(async () => {});
 const tick = () => runExternalAgentMcpClientReaperTick(env, "run-1", { sleep });
+const rows = (server: string, ...ids: string[]) =>
+	ids.map((clientRecordId) => ({ clientRecordId, mcpServerId: server }));
+const listed = (...ids: string[]) => ids.map((id) => ({ id }));
+const reapedIds = () =>
+	markReaped.mock.calls.flatMap((call) => call[1].clientRecordIds).sort();
+const attemptedIds = () =>
+	markAttempted.mock.calls.flatMap((call) => call[1].clientRecordIds).sort();
+const notFound = () =>
+	new Error(
+		'AIH MCP server clients batch delete failed [400 Bad Request]: {"errorCode":"E113118","errorDescription":"MCP server client not found"}',
+	);
+
+function reapCounts() {
+	markReaped.mockImplementation((_db, { clientRecordIds }) =>
+		Promise.resolve(clientRecordIds.length),
+	);
+}
 
 afterEach(() => {
 	vi.resetAllMocks();
@@ -47,110 +66,148 @@ describe("external-agent MCP client reaper", () => {
 		expect(listReapable).not.toHaveBeenCalled();
 	});
 
-	it("batch-deletes clients per server, spaced apart, and revokes exactly those rows", async () => {
+	it("lists each server once, marks missing clients done without a call and deletes the rest", async () => {
 		listReapable.mockResolvedValue([
-			{ clientRecordId: "a1", mcpServerId: "srv-a" },
-			{ clientRecordId: "a2", mcpServerId: "srv-a" },
-			{ clientRecordId: "b1", mcpServerId: "srv-b" },
+			...rows("srv-a", "a1", "a2", "a-gone"),
+			...rows("srv-b", "b-gone"),
 		]);
-		deleteClients.mockResolvedValue(undefined);
-		markReaped.mockImplementation((_db, { clientRecordIds }) =>
-			Promise.resolve(clientRecordIds.length),
+		searchClients.mockImplementation((_env, { mcpServerId }) =>
+			Promise.resolve(
+				mcpServerId === "srv-a" ? listed("a1", "a2", "other") : listed("x"),
+			),
 		);
+		deleteClients.mockResolvedValue(undefined);
+		reapCounts();
 
 		const result = await tick();
 
-		expect(deleteClients).toHaveBeenCalledTimes(2);
+		expect(searchClients).toHaveBeenCalledTimes(2);
+		expect(searchClients).toHaveBeenCalledWith(
+			expect.anything(),
+			{ mcpServerId: "srv-a" },
+			expect.objectContaining({ timeoutMs: 15_000 }),
+		);
+		expect(deleteClients).toHaveBeenCalledTimes(1);
 		expect(deleteClients).toHaveBeenCalledWith(expect.anything(), {
 			ids: ["a1", "a2"],
 			mcpServerId: "srv-a",
 		});
-		expect(deleteClients).toHaveBeenCalledWith(expect.anything(), {
-			ids: ["b1"],
-			mcpServerId: "srv-b",
-		});
-		expect(sleep).toHaveBeenCalledTimes(1);
-		expect(markReaped.mock.calls[0][1].clientRecordIds.sort()).toEqual([
-			"a1",
-			"a2",
-			"b1",
-		]);
+		expect(deleteClient).not.toHaveBeenCalled();
+		expect(reapedIds()).toEqual(["a-gone", "a1", "a2", "b-gone"]);
 		expect(markAttempted).not.toHaveBeenCalled();
 		expect(result).toMatchObject({
-			candidates: 3,
-			deleted: 3,
-			revoked: 3,
-			managementCalls: 2,
+			candidates: 4,
+			listed: 4,
+			missingMarkedDone: 2,
+			deleted: 2,
+			batchFailures: 0,
+			deferred: 0,
+			managementCalls: 3,
+			revoked: 4,
 		});
 	});
 
-	it("falls back to single deletes, counts gone clients as done and moves failures to the back", async () => {
+	it("writes ledger updates fifty rows at a time", async () => {
+		const ids = Array.from({ length: 120 }, (_, i) => `gone-${i}`);
+		listReapable.mockResolvedValue(rows("srv", ...ids));
+		searchClients.mockResolvedValue(listed("someone-else"));
+		reapCounts();
+
+		const result = await tick();
+
+		expect(deleteClients).not.toHaveBeenCalled();
+		expect(
+			markReaped.mock.calls.map((call) => call[1].clientRecordIds.length),
+		).toEqual([50, 50, 20]);
+		expect(result).toMatchObject({ missingMarkedDone: 120, revoked: 120 });
+	});
+
+	it("falls back to single deletes when a batch races a removal and rotates what stays unresolved", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
-		listReapable.mockResolvedValue([
-			{ clientRecordId: "ok", mcpServerId: "srv" },
-			{ clientRecordId: "gone", mcpServerId: "srv" },
-			{ clientRecordId: "bad", mcpServerId: "srv" },
-		]);
-		deleteClients.mockRejectedValue(
-			new Error("AIH MCP server clients batch delete failed [400 Bad Request]"),
-		);
+		listReapable.mockResolvedValue(rows("srv", "ok", "gone", "bad"));
+		searchClients.mockResolvedValue(listed("ok", "gone", "bad"));
+		deleteClients.mockRejectedValue(notFound());
 		deleteClient.mockImplementation((_env, { id }) =>
 			id === "ok"
 				? Promise.resolve()
 				: Promise.reject(
-						new Error(
-							id === "gone"
-								? "AIH MCP server client delete failed [404 Not Found]: missing"
-								: "AIH MCP server client delete failed [500 Internal Server Error]",
-						),
+						id === "gone"
+							? notFound()
+							: new Error(
+									"AIH MCP server client delete failed [500 Internal Server Error]",
+								),
 					),
 		);
-		markReaped.mockImplementation((_db, { clientRecordIds }) =>
-			Promise.resolve(clientRecordIds.length),
-		);
+		reapCounts();
 
 		const result = await tick();
 
-		expect(markReaped.mock.calls[0][1].clientRecordIds).toEqual(["ok", "gone"]);
-		expect(markAttempted).toHaveBeenCalledWith(expect.anything(), {
-			clientRecordIds: ["bad"],
-			attemptedAt: expect.any(String),
-		});
+		expect(reapedIds()).toEqual(["gone", "ok"]);
+		expect(attemptedIds()).toEqual(["bad"]);
 		expect(JSON.stringify(vi.mocked(console.error).mock.calls)).toContain(
-			'\\"status\\":400',
+			"E113118",
 		);
 		expect(result).toMatchObject({
-			candidates: 3,
 			deleted: 2,
 			alreadyGone: 1,
 			deleteFailures: 1,
 			batchFailures: 1,
-			managementCalls: 4,
+			markedAttempted: 1,
+			managementCalls: 5,
 		});
 	});
 
-	it("stops at the per-run call budget and leaves the rest for the next run", async () => {
-		listReapable.mockResolvedValue(
-			Array.from({ length: 7_000 }, (_, i) => ({
-				clientRecordId: `c${i}`,
-				mcpServerId: "srv",
-			})),
+	it("deletes as before when the list fails or comes back empty", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		listReapable.mockResolvedValue([
+			...rows("srv-a", "a1"),
+			...rows("srv-b", "b1"),
+		]);
+		searchClients.mockImplementation((_env, { mcpServerId }) =>
+			mcpServerId === "srv-a"
+				? Promise.reject(new Error("list timeout"))
+				: Promise.resolve([]),
 		);
 		deleteClients.mockResolvedValue(undefined);
-		markReaped.mockImplementation((_db, { clientRecordIds }) =>
-			Promise.resolve(clientRecordIds.length),
-		);
+		reapCounts();
 
 		const result = await tick();
 
-		expect(deleteClients).toHaveBeenCalledTimes(60);
-		expect(result).toMatchObject({ deleted: 6_000, deferred: 1_000 });
-		expect(markAttempted).not.toHaveBeenCalled();
+		expect(deleteClients).toHaveBeenCalledTimes(2);
+		expect(reapedIds()).toEqual(["a1", "b1"]);
+		expect(result).toMatchObject({
+			listFailures: 2,
+			missingMarkedDone: 0,
+			deleted: 2,
+		});
+	});
+
+	it("marks rows deferred by the call budget so the queue rotates", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const ids = Array.from({ length: 100 }, (_, i) => `c${i}`);
+		listReapable.mockResolvedValue(rows("srv", ...ids));
+		searchClients.mockResolvedValue(listed(...ids));
+		deleteClients.mockRejectedValue(new Error("batch [500 Server Error]"));
+		deleteClient.mockRejectedValue(new Error("single [500 Server Error]"));
+		reapCounts();
+
+		const result = await tick();
+
+		// 1 list + 1 batch + 58 singles reach the 60-call budget.
+		expect(deleteClient).toHaveBeenCalledTimes(58);
+		expect(attemptedIds()).toHaveLength(100);
+		expect(result).toMatchObject({
+			deleteFailures: 58,
+			deferred: 42,
+			markedAttempted: 100,
+			managementCalls: 60,
+		});
 	});
 
 	it("does no remote work when nothing is due", async () => {
 		listReapable.mockResolvedValue([]);
 		const result = await tick();
+		expect(searchClients).not.toHaveBeenCalled();
 		expect(deleteClients).not.toHaveBeenCalled();
 		expect(markReaped).not.toHaveBeenCalled();
 		expect(result).toEqual({ candidates: 0, deleted: 0, revoked: 0 });
@@ -159,11 +216,10 @@ describe("external-agent MCP client reaper", () => {
 
 it("expires federated ledger entries without deleting the shared Descope client", async () => {
 	const id = `wif:${"a".repeat(64)}`;
-	listReapable.mockResolvedValue([
-		{ clientRecordId: id, mcpServerId: "resource" },
-	]);
+	listReapable.mockResolvedValue(rows("resource", id));
 	markReaped.mockResolvedValue(1);
 	const result = await tick();
+	expect(searchClients).not.toHaveBeenCalled();
 	expect(deleteClients).not.toHaveBeenCalled();
 	expect(markReaped).toHaveBeenCalledWith(expect.anything(), {
 		clientRecordIds: [id],
