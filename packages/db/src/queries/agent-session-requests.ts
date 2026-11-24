@@ -50,7 +50,47 @@ export const AGENT_SESSION_REQUEST_ACTIVE_STATUSES = [
 /** Rows per multi-row INSERT, under D1's 100 bound parameters. */
 const ROWS_PER_INSERT = 5;
 
+export type AgentSessionEventBody = Pick<
+	AgentSessionEventRow,
+	"body" | "activity" | "lessonReflection"
+>;
+
+/** Application-owned private object storage; D1 retains ordering and ownership. */
+export interface AgentSessionEventBodyStore {
+	read(
+		owner: { organizationId: string; userId: string },
+		key: string,
+	): Promise<AgentSessionEventBody>;
+	write(
+		owner: { organizationId: string; userId: string },
+		body: AgentSessionEventBody,
+	): Promise<string>;
+}
+
+export async function hydrateAgentSessionEventBody<
+	T extends {
+		body: string;
+		activity?: string | null;
+		lessonReflection?: AgentSessionEventRow["lessonReflection"];
+		bodyR2Key: string | null;
+	},
+>(row: T, owner: AgentSessionRequestOwner): Promise<T> {
+	if (!row.bodyR2Key) return row;
+	if (!owner.eventBodies)
+		throw new Error("Session event body store unavailable");
+	const body = await owner.eventBodies.read(owner, row.bodyR2Key);
+	return {
+		...row,
+		...body,
+		lessonReflection:
+			body.lessonReflection || row.lessonReflection
+				? { ...body.lessonReflection, ...row.lessonReflection }
+				: null,
+	};
+}
+
 export interface AgentSessionRequestOwner {
+	eventBodies?: AgentSessionEventBodyStore;
 	organizationId: string;
 	userId: string;
 }
@@ -223,18 +263,32 @@ export async function recordAgentSessionEvents(
 	db: DbQueryClient,
 	params: RecordAgentSessionEventsParams,
 ): Promise<number> {
-	const rows = params.events.map((event) => ({
-		id: crypto.randomUUID(),
-		organizationId: params.organizationId,
-		userId: params.userId,
-		...event,
-		sourceAt: new Date(event.sourceAt).toISOString(),
-		status: "pending" as const,
-		attempts: 0,
-		createdAt: new Date(params.now).toISOString(),
-	}));
+	const rows = await Promise.all(
+		params.events.map(async (event) => ({
+			id: crypto.randomUUID(),
+			organizationId: params.organizationId,
+			userId: params.userId,
+			...event,
+			...(params.eventBodies
+				? {
+						bodyR2Key: await params.eventBodies.write(params, {
+							body: event.body,
+							activity: event.activity,
+							lessonReflection: null,
+						}),
+						body: "",
+						activity: null,
+					}
+				: {}),
+			hasActivity: Boolean(event.activity),
+			sourceAt: new Date(event.sourceAt).toISOString(),
+			status: "pending" as const,
+			attempts: 0,
+			createdAt: new Date(params.now).toISOString(),
+		})),
+	);
 	let inserted = 0;
-	// 15 bound parameters per row: five rows stay under D1's 100.
+	// At most 19 bound parameters per row: five rows stay under D1's 100.
 	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT)) {
 		const result = await db
 			.insert(agentSessionEvents)
@@ -261,13 +315,66 @@ interface AgentSessionLessonReflectionParams extends AgentSessionRequestOwner {
 
 type AgentSessionInferencePhase = "status" | "intake";
 
+/** Receipt writes are serialized by the processor; CAS also protects replay/retention races. */
+async function storeAgentSessionReflection(
+	db: DbQueryClient,
+	params: AgentSessionLessonReflectionParams,
+	patch: Partial<NonNullable<AgentSessionEventRow["lessonReflection"]>>,
+): Promise<void> {
+	const scope = and(
+		eq(agentSessionEvents.id, params.id),
+		eq(agentSessionEvents.organizationId, params.organizationId),
+		eq(agentSessionEvents.userId, params.userId),
+		eq(agentSessionEvents.harness, params.harness),
+		eq(agentSessionEvents.sessionKey, params.sessionKey),
+		eq(agentSessionEvents.kind, "turn"),
+	);
+	const [row] = await db
+		.select()
+		.from(agentSessionEvents)
+		.where(scope)
+		.limit(1);
+	if (!row) return;
+	const body = await hydrateAgentSessionEventBody(row, params);
+	const key = await params.eventBodies!.write(params, {
+		body: body.body,
+		activity: body.activity,
+		lessonReflection: {
+			inputKey: "",
+			response: "",
+			...body.lessonReflection,
+			...patch,
+		},
+	});
+	const saved = await db
+		.update(agentSessionEvents)
+		.set({
+			bodyR2Key: key,
+			body: "",
+			activity: null,
+			lessonReflection: null,
+			hasActivity: row.hasActivity || Boolean(body.activity),
+			bodyArchivedAt: null,
+		})
+		.where(
+			and(
+				scope,
+				sql`${agentSessionEvents.bodyR2Key} IS ${row.bodyR2Key}`,
+				sql`${agentSessionEvents.lessonReflection} IS ${row.lessonReflection === null ? null : JSON.stringify(row.lessonReflection)}`,
+			),
+		)
+		.returning({ id: agentSessionEvents.id });
+	if (!saved.length)
+		throw new Error("Session reflection changed during body write");
+}
+
 export async function hasAgentSessionLessonCoverage(
 	db: DbQueryClient,
 	params: Omit<AgentSessionLessonReflectionParams, "id"> & { ids: string[] },
 ): Promise<boolean> {
 	if (!params.ids.length) return false;
-	const [row] = await db
-		.select({ id: agentSessionEvents.id })
+	const rows = await db
+		.select()
 		.from(agentSessionEvents)
 		.where(
 			and(
@@ -278,17 +385,24 @@ export async function hasAgentSessionLessonCoverage(
 				eq(agentSessionEvents.harness, params.harness),
 				eq(agentSessionEvents.sessionKey, params.sessionKey),
 				eq(agentSessionEvents.kind, "turn"),
-				sql`json_extract(${agentSessionEvents.lessonReflection}, '$.coverageInputKey') = ${params.inputKey}`,
 			),
 		)
-		.limit(1);
-	return Boolean(row);
+		.limit(3);
+	return (
+		await Promise.all(
+			rows.map((row) => hydrateAgentSessionEventBody(row, params)),
+		)
+	).some((row) => row.lessonReflection?.coverageInputKey === params.inputKey);
 }
 
 export async function recordAgentSessionLessonCoverage(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams,
 ): Promise<void> {
+	if (params.eventBodies)
+		return storeAgentSessionReflection(db, params, {
+			coverageInputKey: params.inputKey,
+		});
 	await db
 		.update(agentSessionEvents)
 		.set({
@@ -310,8 +424,8 @@ export async function getAgentSessionLessonReflection(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams,
 ): Promise<string | null> {
-	const [row] = await db
-		.select({ reflection: agentSessionEvents.lessonReflection })
+	const [stored] = await db
+		.select()
 		.from(agentSessionEvents)
 		.where(
 			and(
@@ -324,8 +438,11 @@ export async function getAgentSessionLessonReflection(
 			),
 		)
 		.limit(1);
-	return row?.reflection?.inputKey === params.inputKey
-		? row.reflection.response
+	const row = stored
+		? await hydrateAgentSessionEventBody(stored, params)
+		: undefined;
+	return row?.lessonReflection?.inputKey === params.inputKey
+		? row.lessonReflection.response
 		: null;
 }
 
@@ -333,6 +450,11 @@ export async function recordAgentSessionLessonReflection(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams & { response: string },
 ): Promise<void> {
+	if (params.eventBodies)
+		return storeAgentSessionReflection(db, params, {
+			inputKey: params.inputKey,
+			response: params.response,
+		});
 	await db
 		.update(agentSessionEvents)
 		.set({
@@ -356,8 +478,8 @@ export async function getAgentSessionInferenceReflection(
 		phase: AgentSessionInferencePhase;
 	},
 ): Promise<string | null> {
-	const [row] = await db
-		.select({ reflection: agentSessionEvents.lessonReflection })
+	const [stored] = await db
+		.select()
 		.from(agentSessionEvents)
 		.where(
 			and(
@@ -370,7 +492,10 @@ export async function getAgentSessionInferenceReflection(
 			),
 		)
 		.limit(1);
-	const reflection = row?.reflection?.[params.phase];
+	const row = stored
+		? await hydrateAgentSessionEventBody(stored, params)
+		: undefined;
+	const reflection = row?.lessonReflection?.[params.phase];
 	return reflection?.inputKey === params.inputKey ? reflection.response : null;
 }
 
@@ -381,6 +506,10 @@ export async function recordAgentSessionInferenceReflection(
 		response: string;
 	},
 ): Promise<void> {
+	if (params.eventBodies)
+		return storeAgentSessionReflection(db, params, {
+			[params.phase]: { inputKey: params.inputKey, response: params.response },
+		});
 	const path = `$.${params.phase}`;
 	const receipt = JSON.stringify({
 		inputKey: params.inputKey,
@@ -524,6 +653,7 @@ export async function retryFailedAgentSessionEvents(
 			.update(agentSessionEvents)
 			.set({
 				status: "pending",
+				bodyArchivedAt: null,
 				attempts: 0,
 				claimedAt: null,
 				processedAt: null,
@@ -608,6 +738,7 @@ export async function rebuildFailedAgentSession(
 			.update(agentSessionEvents)
 			.set({
 				status: "pending",
+				bodyArchivedAt: null,
 				attempts: 0,
 				claimedAt: null,
 				processedAt: null,
@@ -950,7 +1081,10 @@ export async function getPreviousAgentSessionTurn(
 	},
 ): Promise<string | null> {
 	const [row] = await db
-		.select({ body: agentSessionEvents.body })
+		.select({
+			body: agentSessionEvents.body,
+			bodyR2Key: agentSessionEvents.bodyR2Key,
+		})
 		.from(agentSessionEvents)
 		.where(
 			and(
@@ -967,7 +1101,7 @@ export async function getPreviousAgentSessionTurn(
 			desc(agentSessionEvents.sourceKey),
 		)
 		.limit(1);
-	return row?.body ?? null;
+	return row ? (await hydrateAgentSessionEventBody(row, params)).body : null;
 }
 
 /** Bounded prior responses for closure recovery; never reads ahead in a backfill. */
@@ -985,6 +1119,7 @@ export async function listRecentAgentSessionTurns(
 		.select({
 			id: agentSessionEvents.id,
 			body: agentSessionEvents.body,
+			bodyR2Key: agentSessionEvents.bodyR2Key,
 			activity: agentSessionEvents.activity,
 			sourceAt: agentSessionEvents.sourceAt,
 		})
@@ -1004,7 +1139,17 @@ export async function listRecentAgentSessionTurns(
 			desc(agentSessionEvents.sourceKey),
 		)
 		.limit(3);
-	return rows.reverse();
+	return Promise.all(
+		rows.reverse().map(async (row) => {
+			const body = await hydrateAgentSessionEventBody(row, params);
+			return {
+				id: row.id,
+				sourceAt: row.sourceAt,
+				body: body.body,
+				activity: body.activity,
+			};
+		}),
+	);
 }
 
 /**
@@ -1051,7 +1196,9 @@ export async function getAgentSessionRequestPrompts(
 				.select({
 					id: sql<string>`${agentSessionRequests.id}`.as("request_id"),
 					message: sql<string | null>`(${db
-						.select({ body: sql<string>`${agentSessionEvents.body}` })
+						.select({
+							body: sql<string>`json_object('body', ${agentSessionEvents.body}, 'bodyR2Key', ${agentSessionEvents.bodyR2Key})`,
+						})
 						.from(
 							sql`${agentSessionEvents} INDEXED BY idx_agent_session_events_session_order`,
 						)
@@ -1095,7 +1242,19 @@ export async function getAgentSessionRequestPrompts(
 				)),
 		);
 	}
-	return result;
+	return Promise.all(
+		result.map(async (row) => {
+			if (row.message === null) return row;
+			const payload = JSON.parse(row.message) as {
+				body: string;
+				bodyR2Key: string | null;
+			};
+			return {
+				id: row.id,
+				message: (await hydrateAgentSessionEventBody(payload, params)).body,
+			};
+		}),
+	);
 }
 
 /**
@@ -1166,6 +1325,7 @@ export async function listAgentSessionActivity(
 			kind: agentSessionEvents.kind,
 			sourceAt: agentSessionEvents.sourceAt,
 			body: agentSessionEvents.body,
+			bodyR2Key: agentSessionEvents.bodyR2Key,
 			activity: agentSessionEvents.activity,
 		})
 		.from(agentSessionEvents)
@@ -1193,7 +1353,9 @@ export async function listAgentSessionActivity(
 	const rows = hasMore ? data.slice(0, limit) : data;
 	const last = rows.at(-1);
 	return {
-		data: rows,
+		data: await Promise.all(
+			rows.map((row) => hydrateAgentSessionEventBody(row, input)),
+		),
 		nextCursor:
 			hasMore && last
 				? {
@@ -1220,7 +1382,7 @@ export async function listAgentSessionActivityCoverage(
 			date: sourceDay.as("source_day"),
 			eventCount: sql<number>`count(*)`.mapWith(Number).as("event_count"),
 			activityDigestCount:
-				sql<number>`sum(case when ${agentSessionEvents.activity} is not null then 1 else 0 end)`
+				sql<number>`sum(case when ${agentSessionEvents.activity} is not null or ${agentSessionEvents.hasActivity} = 1 then 1 else 0 end)`
 					.mapWith(Number)
 					.as("activity_digest_count"),
 		})
@@ -1282,4 +1444,57 @@ export async function fileAgentSessionRequest(
 		)
 		.returning();
 	return row ?? null;
+}
+
+/** A bounded indexed page; active/failed events and recent processed bodies stay untouched. */
+export async function listAgentSessionBodiesForRetention(
+	db: DbQueryClient,
+	before: string,
+	limit = 100,
+) {
+	return db
+		.select()
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.status, "processed"),
+				isNull(agentSessionEvents.bodyArchivedAt),
+				lt(agentSessionEvents.processedAt, before),
+			),
+		)
+		.orderBy(agentSessionEvents.processedAt, agentSessionEvents.id)
+		.limit(Math.min(100, Math.max(1, limit)));
+}
+
+/** Publish the uploaded snapshot only if no processor/replay changed it meanwhile. */
+export async function archiveAgentSessionEventBody(
+	db: DbQueryClient,
+	row: AgentSessionEventRow,
+	key: string,
+	now: string,
+) {
+	const rows = await db
+		.update(agentSessionEvents)
+		.set({
+			bodyR2Key: key,
+			body: "",
+			activity: null,
+			lessonReflection: null,
+			hasActivity: row.hasActivity || Boolean(row.activity),
+			bodyArchivedAt: now,
+		})
+		.where(
+			and(
+				eq(agentSessionEvents.id, row.id),
+				eq(agentSessionEvents.organizationId, row.organizationId),
+				eq(agentSessionEvents.userId, row.userId),
+				eq(agentSessionEvents.status, "processed"),
+				isNull(agentSessionEvents.bodyArchivedAt),
+				sql`${agentSessionEvents.processedAt} IS ${row.processedAt}`,
+				sql`${agentSessionEvents.bodyR2Key} IS ${row.bodyR2Key}`,
+				sql`${agentSessionEvents.lessonReflection} IS ${row.lessonReflection === null ? null : JSON.stringify(row.lessonReflection)}`,
+			),
+		)
+		.returning({ id: agentSessionEvents.id });
+	return rows.length === 1;
 }

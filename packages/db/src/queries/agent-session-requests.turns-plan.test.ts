@@ -4,7 +4,10 @@ import { createDbQueryClient } from "../query-client";
 import { agentSessionEvents } from "../schema/agent-session-requests";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listRecentAgentSessionTurns } from "./agent-session-requests";
+import {
+	listAgentSessionBodiesForRetention,
+	listRecentAgentSessionTurns,
+} from "./agent-session-requests";
 
 it("seeks a session's last turns without walking every turn body", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -46,6 +49,30 @@ it("seeks a session's last turns without walking every turn body", async () => {
 			.map((row) => String(row.detail))
 			.join(" | ");
 		expect(plan).toContain("idx_agent_session_events_session_kind_order");
+		expect(plan).not.toContain("TEMP B-TREE");
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("seeks old processed bodies through the partial retention index", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec(schemaDdl(agentSessionEvents));
+		const statements: string[] = [];
+		const db = createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare: (statement) => statements.push(statement),
+			}),
+		);
+		const before = "2026-10-01T00:00:00.000Z";
+		await listAgentSessionBodiesForRetention(db, before);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${statements[0]}`)
+			.all("processed", before, 100)
+			.map((row) => String(row.detail))
+			.join(" | ");
+		expect(plan).toContain("idx_agent_session_events_body_retention");
 		expect(plan).not.toContain("TEMP B-TREE");
 	} finally {
 		sqlite.close();

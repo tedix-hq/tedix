@@ -1,3 +1,23 @@
+import {
+	agentSessionEventBodies,
+	retainAgentSessionEventBodies,
+} from "./agent-session-event-bodies";
+import {
+	archiveAgentSessionEventBody,
+	getAgentSessionActivitySnapshot,
+	getAgentSessionRequestPrompts,
+	getAgentSessionLessonReflection,
+	getAgentSessionInferenceReflection,
+	getPreviousAgentSessionTurn,
+	hasAgentSessionLessonCoverage,
+	listAgentSessionActivity,
+	listAgentSessionActivityCoverage,
+	listRecentAgentSessionTurns,
+	recordAgentSessionLessonReflection,
+	recordAgentSessionInferenceReflection,
+	recordAgentSessionLessonCoverage,
+	recordAgentSessionEvents,
+} from "@tedix/db/queries/agent-session-requests";
 import { settleRequestsWithCompletedWork } from "./agent-session-request-completion";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";
@@ -3035,3 +3055,293 @@ it.each([
 		expect(run).not.toHaveBeenCalled();
 	},
 );
+
+function bodyBucket() {
+	const objects = new Map<string, ArrayBuffer>();
+	return {
+		objects,
+		put: vi.fn(async (key: string, value: ArrayBuffer) => {
+			objects.set(key, value);
+		}),
+		get: vi.fn(async (key: string) => {
+			const bytes = objects.get(key);
+			return bytes ? { arrayBuffer: async () => bytes } : null;
+		}),
+	};
+}
+
+it("stores new events in R2 and feeds the observer and reflector their full text", async () => {
+	const db = fixture();
+	const bucket = bodyBucket();
+	const eventBodies = agentSessionEventBodies(bucket);
+	const owner = { ...SCOPE, eventBodies };
+	bucket.put.mockRejectedValueOnce(new Error("R2 unavailable"));
+	await expect(
+		acceptAgentSessionEvents(db, {
+			...owner,
+			now: T0,
+			events: [
+				{
+					...SCOPE,
+					kind: "prompt",
+					sourceAt: T0,
+					text: "Add a dark mode toggle",
+				},
+			],
+		}),
+	).rejects.toThrow("R2 unavailable");
+	expect(await db.select().from(agentSessionEvents)).toEqual([]);
+	await acceptAgentSessionEvents(db, {
+		...owner,
+		now: T0,
+		events: [
+			{
+				...SCOPE,
+				kind: "prompt",
+				sourceAt: T0,
+				text: "Add a dark mode toggle",
+			},
+			{
+				...SCOPE,
+				kind: "turn",
+				sourceAt: "2026-10-06T10:01:00.000Z",
+				text: "The toggle is ready",
+				activity: "Edited settings",
+			},
+		],
+	});
+	const stored = await db.select().from(agentSessionEvents);
+	expect(stored).toHaveLength(2);
+	expect(
+		stored.every(
+			(row) =>
+				row.body === "" &&
+				row.activity === null &&
+				bucket.objects.has(row.bodyR2Key!),
+		),
+	).toBe(true);
+	const { model, prompts } = scripted(
+		'{"requests":[{"kind":"request","text":"Add a dark mode toggle"}]}',
+		'{"updates":[]}',
+	);
+	expect(
+		await processAgentSessionEvents(db, model, owner, { now: () => T0 }),
+	).toBe(2);
+	expect(prompts.join("\n")).toContain("Add a dark mode toggle");
+	expect(prompts.join("\n")).toContain("The toggle is ready");
+	expect(prompts.join("\n")).toContain("Edited settings");
+	const snapshotId = await getAgentSessionActivitySnapshot(db, owner);
+	const report = await listAgentSessionActivity(db, {
+		...owner,
+		since: "2026-10-01",
+		until: "2026-10-07",
+		snapshotId,
+	});
+	expect(report.data.map((row) => row.body)).toEqual([
+		"The toggle is ready",
+		"Add a dark mode toggle",
+	]);
+	expect(
+		(
+			await listAgentSessionActivityCoverage(db, {
+				...owner,
+				since: "2026-10-01",
+				until: "2026-10-07",
+				snapshotId,
+			})
+		)[0]?.activityDigestCount,
+	).toBe(1);
+	const requests = await listAgentSessionRequests(db, owner);
+	expect(
+		await getAgentSessionRequestPrompts(db, {
+			...owner,
+			ids: requests.map((row) => row.id),
+		}),
+	).toEqual([{ id: requests[0]!.id, message: "Add a dark mode toggle" }]);
+	const turn = stored.find((row) => row.kind === "turn")!;
+	await expect(
+		eventBodies.read({ ...owner, userId: "other-user" }, turn.bodyR2Key!),
+	).rejects.toThrow("Invalid session event body key");
+	bucket.objects.delete(turn.bodyR2Key!);
+	await expect(
+		listRecentAgentSessionTurns(db, { ...owner, before: "2026-10-07" }),
+	).rejects.toThrow("Session event body missing");
+});
+
+it("archives only old processed bodies and preserves cached reflections and report reads", async () => {
+	const db = fixture();
+	const bucket = bodyBucket();
+	const eventBodies = agentSessionEventBodies(bucket);
+	const owner = { ...SCOPE, eventBodies };
+	await recordAgentSessionEvents(db, {
+		...SCOPE,
+		now: T0,
+		events: [
+			{
+				...SCOPE,
+				repository: null,
+				kind: "prompt",
+				body: "Original request",
+				activity: null,
+				sourceAt: T0,
+				sourceKey: "prompt",
+			},
+			{
+				...SCOPE,
+				repository: null,
+				kind: "turn",
+				body: "Resolved failure",
+				activity: "Fixed upload",
+				sourceAt: "2026-10-06T10:01:00.000Z",
+				sourceKey: "turn",
+			},
+			{
+				...SCOPE,
+				repository: null,
+				kind: "turn",
+				body: "Pending event",
+				activity: null,
+				sourceAt: "2026-10-07T00:00:00.000Z",
+				sourceKey: "pending",
+			},
+		],
+	});
+	await db
+		.update(agentSessionEvents)
+		.set({
+			status: "processed",
+			processedAt: T0,
+			lessonReflection: {
+				inputKey: "lesson",
+				response: "cached lesson",
+				coverageInputKey: "coverage",
+				status: { inputKey: "status", response: "cached status" },
+			},
+		})
+		.where(eq(agentSessionEvents.sourceKey, "turn"));
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "processed", processedAt: "2026-11-24T00:00:00.000Z" })
+		.where(eq(agentSessionEvents.sourceKey, "prompt"));
+	const now = new Date("2026-11-24T12:00:00.000Z");
+	const [turn] = await db
+		.select()
+		.from(agentSessionEvents)
+		.where(eq(agentSessionEvents.sourceKey, "turn"));
+	bucket.put.mockRejectedValueOnce(new Error("R2 unavailable"));
+	await expect(
+		retainAgentSessionEventBodies(db, eventBodies, now),
+	).rejects.toThrow("R2 unavailable");
+	expect(
+		(
+			await db
+				.select()
+				.from(agentSessionEvents)
+				.where(eq(agentSessionEvents.id, turn!.id))
+		)[0],
+	).toEqual(turn);
+	await recordAgentSessionLessonReflection(db, {
+		...SCOPE,
+		id: turn!.id,
+		inputKey: "lesson",
+		response: "cached lesson updated",
+	});
+	expect(
+		await archiveAgentSessionEventBody(
+			db,
+			turn!,
+			"stale-key",
+			now.toISOString(),
+		),
+	).toBe(false);
+	const moved = await retainAgentSessionEventBodies(db, eventBodies, now);
+	expect(moved.moved).toBe(1);
+	expect(moved.inlineBytesMoved).toBeGreaterThan(100);
+	const rows = await db.select().from(agentSessionEvents);
+	expect(rows.find((row) => row.id === turn!.id)).toMatchObject({
+		body: "",
+		activity: null,
+		lessonReflection: null,
+		bodyR2Key: expect.any(String),
+	});
+	expect(rows.find((row) => row.sourceKey === "pending")?.body).toBe(
+		"Pending event",
+	);
+	expect(rows.find((row) => row.sourceKey === "prompt")?.body).toBe(
+		"Original request",
+	);
+	const lookup = { ...owner, id: turn!.id, inputKey: "lesson" };
+	expect(await getAgentSessionLessonReflection(db, lookup)).toBe(
+		"cached lesson updated",
+	);
+	expect(
+		await getAgentSessionInferenceReflection(db, {
+			...lookup,
+			inputKey: "status",
+			phase: "status",
+		}),
+	).toBe("cached status");
+	expect(
+		await hasAgentSessionLessonCoverage(db, {
+			...owner,
+			ids: [turn!.id],
+			inputKey: "coverage",
+		}),
+	).toBe(true);
+	expect(
+		await getPreviousAgentSessionTurn(db, {
+			...owner,
+			before: "2026-10-06T11:00:00.000Z",
+		}),
+	).toBe("Resolved failure");
+	expect(
+		(
+			await listRecentAgentSessionTurns(db, {
+				...owner,
+				before: "2026-10-06T11:00:00.000Z",
+			})
+		)[0],
+	).toMatchObject({ body: "Resolved failure", activity: "Fixed upload" });
+	expect(
+		(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
+	).toBe(0);
+	await recordAgentSessionLessonReflection(db, {
+		...lookup,
+		response: "new inference",
+	});
+	await recordAgentSessionInferenceReflection(db, {
+		...lookup,
+		phase: "intake",
+		inputKey: "intake",
+		response: "new intake",
+	});
+	await recordAgentSessionLessonCoverage(db, {
+		...lookup,
+		inputKey: "new coverage",
+	});
+	expect(
+		await getAgentSessionInferenceReflection(db, {
+			...lookup,
+			phase: "intake",
+			inputKey: "intake",
+		}),
+	).toBe("new intake");
+	expect(
+		await hasAgentSessionLessonCoverage(db, {
+			...owner,
+			ids: [turn!.id],
+			inputKey: "new coverage",
+		}),
+	).toBe(true);
+	expect(await getAgentSessionLessonReflection(db, lookup)).toBe(
+		"new inference",
+	);
+	expect(
+		(
+			await db
+				.select()
+				.from(agentSessionEvents)
+				.where(eq(agentSessionEvents.id, turn!.id))
+		)[0]?.lessonReflection,
+	).toBeNull();
+});

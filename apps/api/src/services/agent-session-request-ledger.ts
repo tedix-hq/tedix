@@ -39,6 +39,8 @@ import {
 } from "@tedix/context-core/request-ledger";
 import {
 	AGENT_SESSION_REQUEST_ACTIVE_STATUSES,
+	type AgentSessionEventBodyStore,
+	hydrateAgentSessionEventBody,
 	AGENT_SESSION_REQUEST_LIST_LIMIT,
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
@@ -305,6 +307,7 @@ export function workersAiLedgerModel(
 }
 
 interface SessionScope {
+	eventBodies?: AgentSessionEventBodyStore;
 	organizationId: string;
 	userId: string;
 	harness: WorkAgentSessionHarness;
@@ -959,6 +962,7 @@ export async function reflectAgentSessionRequests(
 export async function acceptAgentSessionEvents(
 	db: DbQueryClient,
 	input: {
+		eventBodies?: AgentSessionEventBodyStore;
 		organizationId: string;
 		userId: string;
 		retryFailed?: boolean;
@@ -1011,6 +1015,7 @@ export async function acceptAgentSessionEvents(
 		})),
 	);
 	const accepted = await recordAgentSessionEvents(db, {
+		eventBodies: input.eventBodies,
 		organizationId: input.organizationId,
 		userId: input.userId,
 		events,
@@ -1066,7 +1071,11 @@ export const EVENTS_PER_PASS = 4;
 export async function processAgentSessionEvents(
 	db: DbQueryClient,
 	model: LedgerProcessingModel,
-	owner: { organizationId: string; userId: string },
+	owner: {
+		organizationId: string;
+		userId: string;
+		eventBodies?: AgentSessionEventBodyStore;
+	},
 	options: {
 		limit?: number;
 		now?: () => string;
@@ -1077,12 +1086,13 @@ export async function processAgentSessionEvents(
 	let processed = 0;
 	await requeueFailedAgentSessionEvents(db, { ...owner, now: now() });
 	for (let index = 0; index < (options.limit ?? EVENTS_PER_PASS); index++) {
-		const [event] = await listPendingAgentSessionEvents(db, {
+		const [stored] = await listPendingAgentSessionEvents(db, {
 			...owner,
 			limit: 1,
 			now: now(),
 		});
-		if (!event) break;
+		if (!stored) break;
+		const event = { ...stored };
 		const claimed = await claimAgentSessionEvent(db, {
 			...owner,
 			id: event.id,
@@ -1098,6 +1108,7 @@ export async function processAgentSessionEvents(
 		let ok = false;
 		let reason = "model_unavailable";
 		try {
+			Object.assign(event, await hydrateAgentSessionEventBody(stored, owner));
 			const result =
 				event.kind === "prompt"
 					? await observeAgentSessionRequests(db, model, {

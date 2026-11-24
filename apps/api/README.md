@@ -139,6 +139,25 @@ before resolving current credentials and applying its own policy. Provider
 tokens stay inside that path. Human-required results are returned unchanged;
 the adapter never satisfies them or starts a consent flow.
 
+## Session event bodies
+
+Session uploads keep ordering, ownership and processing state in main D1.
+Message text, activity and inference receipts use immutable, compressed objects
+in the private `TEDI_R2_BUCKET` binding (EU in the production installation).
+Readers resolve the row's `body_r2_key`; a missing or corrupt object fails the
+read rather than returning empty transcript text. Legacy inline events remain
+readable during migration.
+
+The 15-minute D1 retention tick moves up to 100 processed events whose
+`processed_at` is older than 30 days. It uploads the complete payload before
+clearing inline fields, and compares the processing generation, pointer and
+reflection before publishing the pointer. Pending and failed events are kept.
+Event rows and archived objects are retained so reports and replay still work.
+The tick reports moved rows and inline bytes separately from measured main D1
+size; clearing inline bytes does not itself prove that D1 allocated size fell.
+Apply the generated D1 migration before releasing the API. Deployment, backlog
+movement and before/after D1 size measurements require installation operations.
+
 ## References
 
 - [Cloudflare architecture](../../docs/public/cloudflare-architecture.md)

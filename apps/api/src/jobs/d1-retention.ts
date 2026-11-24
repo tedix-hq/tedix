@@ -1,7 +1,7 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
  * D1 retention tick, every 15 minutes. Policy rows in `d1_retention_policies` decide
- * what runs; with no active row this reads one small table and returns.
+ * the table archives; processed session bodies use the shared 30-day window.
  * Archives go to the private tedi bucket under `d1-archive/v1/`; the
  * `move_to_logs_db` mode also needs the optional `LOGS_DB` binding.
  *
@@ -22,6 +22,10 @@ import {
 } from "../lib/d1-size-health";
 import { runD1Retention } from "../services/d1-retention-archive";
 import { retainGadgetExecutionBodies } from "../services/os-gadget-execution-body-store";
+import {
+	agentSessionEventBodies,
+	retainAgentSessionEventBodies,
+} from "../services/agent-session-event-bodies";
 
 /** The logs database binding is optional; its presence is the only switch. */
 export function logsDatabase(env: object): D1Database | undefined {
@@ -70,6 +74,25 @@ export async function runD1RetentionTick(
 			}),
 		);
 	}
+	let sessionBodyRetention: Record<string, number> = {};
+	try {
+		const bodies = await retainAgentSessionEventBodies(
+			createDbQueryClient(env.DB),
+			agentSessionEventBodies(env.TEDI_R2_BUCKET),
+			now,
+		);
+		sessionBodyRetention = {
+			agentSessionBodiesMoved: bodies.moved,
+			agentSessionBodyBytesMoved: bodies.inlineBytesMoved,
+		};
+	} catch (error) {
+		// Body storage failure must not suppress the D1 size alerts below.
+		sessionBodyRetention = { agentSessionBodyRetentionFailed: 1 };
+		console.error({
+			event: "agent_session_events.retention_failed",
+			exception: safeExceptionTopology(error),
+		});
+	}
 	const sizes = await runD1SizeCheck(env, now.toISOString());
 	const officeDeleted = await pruneExpiredOfficeSnapshots(
 		createDbQueryClient(env.DB),
@@ -78,6 +101,7 @@ export async function runD1RetentionTick(
 	return {
 		officeExpiredSnapshotsDeleted: officeDeleted,
 		...gadgetBodies,
+		...sessionBodyRetention,
 		d1RetentionArchivedRows: result.archivedRows,
 		d1RetentionMovedRows: result.movedRows,
 		d1RetentionConflictedRows: result.conflictedRows,

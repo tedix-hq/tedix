@@ -1,3 +1,4 @@
+import { agentSessionEventBodies } from "../../services/agent-session-event-bodies";
 import {
 	OfficeObservationSchema,
 	OfficeActivityRowSchema,
@@ -578,6 +579,7 @@ async function readSessionEvents(
 			}
 		: undefined;
 	const page = await listAgentSessionActivity(context.db, {
+		eventBodies: agentSessionEventBodies(context.env.TEDI_R2_BUCKET),
 		...owner,
 		since,
 		until,
@@ -621,6 +623,7 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 	async ({ input, context }) => {
 		const owner = requireBoardOwner(context);
 		const result = await acceptAgentSessionEvents(context.db, {
+			eventBodies: agentSessionEventBodies(context.env.TEDI_R2_BUCKET),
 			...owner,
 			events: input.events,
 			retryFailed: input.retryFailed,

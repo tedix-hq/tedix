@@ -156,6 +156,13 @@ export const agentSessionEvents = sqliteTable(
 		kind: text("kind", { enum: AGENT_SESSION_EVENT_KIND_VALUES }).notNull(),
 		/** The redacted message or turn text. */
 		body: text("body").notNull(),
+		/** Immutable private R2 payload; inline body is empty once offloaded. */
+		bodyR2Key: text("body_r2_key"),
+		hasActivity: integer("has_activity", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		/** Processing generation whose cached reflections have been archived. */
+		bodyArchivedAt: text("body_archived_at"),
 		/** Redacted activity digest of a turn, if any. */
 		activity: text("activity"),
 		sourceAt: text("source_at").notNull(),
@@ -220,6 +227,9 @@ export const agentSessionEvents = sqliteTable(
 			table.sourceAt,
 			table.sourceKey,
 		),
+		index("idx_agent_session_events_body_retention")
+			.on(table.processedAt, table.id)
+			.where(sql`status = 'processed' AND body_archived_at IS NULL`),
 		index("idx_agent_session_events_pending_heads").on(
 			table.organizationId,
 			table.userId,

@@ -1,3 +1,4 @@
+import { agentSessionEventBodies } from "./agent-session-event-bodies";
 import * as z from "zod";
 import { createDbClient } from "@tedix/db/client";
 import { getMemberByCanonicalUserId } from "@tedix/db/queries/organization-members";
@@ -75,10 +76,15 @@ export async function processAgentSessionEventQueue(
 				ledgerLessonNoveltyModel(modelEnv),
 			);
 	};
-	const processed = await processAgentSessionEvents(db, model, owner, {
-		onRecorded: (scope) =>
-			captureLocalKernelRequests({ db, userId: owner.userId }, scope),
-	});
+	const processed = await processAgentSessionEvents(
+		db,
+		model,
+		{ ...owner, eventBodies: agentSessionEventBodies(env.TEDI_R2_BUCKET) },
+		{
+			onRecorded: (scope) =>
+				captureLocalKernelRequests({ db, userId: owner.userId }, scope),
+		},
+	);
 	const [next] = await listPendingAgentSessionEvents(db, {
 		...owner,
 		limit: 1,
