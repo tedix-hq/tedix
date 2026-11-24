@@ -14,7 +14,7 @@ async function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(kernelRuntimeRuns));
+	sqlite.exec(schemaDdl({ expressionIndexes: true }, kernelRuntimeRuns));
 	const db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
 	const base = {
 		conversationId: "home:test",
@@ -117,5 +117,39 @@ describe("listQuietDelegatedRuns", () => {
 		const db = await fixture();
 		const rows = await listQuietDelegatedRuns(db, { before: BEFORE, limit: 1 });
 		expect(rows.map((row) => row.id)).toEqual(["never-started"]);
+	});
+
+	it("compares mixed timestamp spellings by instant and excludes the cutoff second", async () => {
+		const db = await fixture();
+		for (const [id, timestamp] of [
+			["sqlite-old", "2026-11-04 11:59:59"],
+			["offset-old", "2026-11-04T13:59:59+02:00"],
+			["sqlite-fresh", "2026-11-04 12:00:30"],
+			["offset-fresh", "2026-11-04T11:00:30-01:00"],
+			["cutoff-second", "2026-11-04T12:00:00.999Z"],
+		] as const) {
+			await db.insert(kernelRuntimeRuns).values({
+				id,
+				organizationId: "org-a",
+				conversationId: "home:test",
+				status: "running",
+				delegatedTediId: "tedi-cto",
+				childRunId: id,
+				startedAt: OLD,
+				createdAt: OLD,
+				updatedAt: timestamp,
+			});
+		}
+		const rows = await listQuietDelegatedRuns(db, {
+			before: BEFORE,
+			limit: 10,
+		});
+		expect(rows.map((row) => row.id)).toEqual([
+			"sqlite-old",
+			"never-started",
+			"quiet-running",
+			"quiet-queued",
+			"offset-old",
+		]);
 	});
 });

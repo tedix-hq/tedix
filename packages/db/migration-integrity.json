@@ -1992,6 +1992,10 @@
 		{
 			"name": "20261124085149_learning_event_scope_surface/migration.sql",
 			"sha256": "75d868113bde9a72af33f34250e65b703584d37c011dbeb4a51f5ec7b8cc3b4e"
+		},
+		{
+			"name": "20261124120829_kernel_quiet_delegated_index/migration.sql",
+			"sha256": "f57ee14f816773d411b0b00f50b96c968331232f03b2babd5c96cb84940e69ab"
 		}
 	]
 }

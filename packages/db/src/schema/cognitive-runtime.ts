@@ -439,6 +439,12 @@ export const kernelRuntimeRuns = sqliteTable(
 			table.status,
 			table.updatedAt,
 		),
+		// The cross-org quiet sweep compares mixed ISO and CURRENT_TIMESTAMP text.
+		index("idx_kernel_runtime_runs_quiet_delegated")
+			.on(table.status, sql`datetime(${table.updatedAt})`)
+			.where(
+				sql`${table.delegatedTediId} IS NOT NULL AND ${table.childRunId} IS NOT NULL`,
+			),
 		index("idx_kernel_runtime_runs_child").on(
 			table.delegatedTediId,
 			table.childRunId,

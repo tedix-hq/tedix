@@ -1,0 +1,1 @@
+CREATE INDEX `idx_kernel_runtime_runs_quiet_delegated` ON `kernel_runtime_runs` (`status`,datetime("updated_at")) WHERE "kernel_runtime_runs"."delegated_tedi_id" IS NOT NULL AND "kernel_runtime_runs"."child_run_id" IS NOT NULL;
