@@ -518,6 +518,7 @@ export const appCatalog = sqliteTable(
 		index("app_catalog_is_discoverable_idx").on(table.isDiscoverable),
 		index("app_catalog_developer_type_idx").on(table.developerType),
 		index("app_catalog_health_status_idx").on(table.healthStatus),
+		index("app_catalog_mcp_endpoint_idx").on(table.mcpEndpointNormalized),
 		index("app_catalog_tool_source_idx").on(table.toolSource),
 		// Unique index for MCP endpoint deduplication (NULLs are allowed and distinct)
 		uniqueIndex("app_catalog_mcp_endpoint_hash_unique").on(

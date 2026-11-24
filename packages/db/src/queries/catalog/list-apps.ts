@@ -420,7 +420,13 @@ export async function listCatalogApps(
 
 	const total = unfilteredPublicBrowse
 		? await getPublicBrowseTotal(db, hideShadowedVariants)
-		: await db.$count(appCatalog, whereClause);
+		: await db.$count(
+				// Contains search cannot seek text; narrow by status before matching it.
+				normalizedSearch && healthStatus
+					? sql`${appCatalog} INDEXED BY app_catalog_health_status_idx`
+					: appCatalog,
+				whereClause,
+			);
 
 	const browseTable =
 		unfilteredPublicBrowse && effectiveSortBy === "name"

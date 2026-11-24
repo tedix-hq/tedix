@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
+import { getCatalogHealthSummary } from "./health-metrics";
 import { listCatalogApps, type ListCatalogAppsOptions } from "./list-apps";
 
 const PUBLIC = `developer_type IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY')
@@ -245,7 +246,35 @@ describe.each([
 		expect(queries.every((query) => query.includes("count(*)"))).toBe(true);
 	});
 
-	it("leaves search and operator lists to the planner", async () => {
+	it("seeks the health status when counting lexical search matches", async () => {
+		const { sqlite, db, queries } = catalog;
+		const result = await listCatalogApps(db, {
+			search: " APP 000 ",
+			healthStatus: "healthy",
+			hideShadowedVariants: true,
+		});
+		const reference = sqlite
+			.prepare(`SELECT count(*) AS total FROM app_catalog
+			WHERE ${PUBLIC} AND explore_shadowed = 0 AND health_status = 'healthy'
+			AND LOWER(name) LIKE '%app 000%'`)
+			.get();
+		expect(result.total).toBe(reference!.total);
+		expect(explain(sqlite, queries[0]!)).toContain(
+			"SEARCH app_catalog USING INDEX app_catalog_health_status_idx (health_status=?)",
+		);
+	});
+
+	it("seeks non-null endpoints for health inventory and backlog reads", async () => {
+		const { sqlite, db, queries } = catalog;
+		await getCatalogHealthSummary(db);
+		expect(queries).toHaveLength(3);
+		for (const query of queries)
+			expect(explain(sqlite, query)).toContain(
+				"SEARCH app_catalog USING INDEX app_catalog_mcp_endpoint_idx (mcp_endpoint_normalized>?)",
+			);
+	});
+
+	it("leaves other search and operator lists to the planner", async () => {
 		const { db, queries } = catalog;
 		await listCatalogApps(db, { category: "FINANCE", search: "app 000" });
 		await listCatalogApps(db, { category: "FINANCE", includeAll: true });

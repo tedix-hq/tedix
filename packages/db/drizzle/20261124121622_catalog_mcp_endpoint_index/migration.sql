@@ -1,0 +1,1 @@
+CREATE INDEX `app_catalog_mcp_endpoint_idx` ON `app_catalog` (`mcp_endpoint_normalized`);

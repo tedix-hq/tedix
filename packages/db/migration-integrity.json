@@ -1996,6 +1996,10 @@
 		{
 			"name": "20261124120829_kernel_quiet_delegated_index/migration.sql",
 			"sha256": "f57ee14f816773d411b0b00f50b96c968331232f03b2babd5c96cb84940e69ab"
+		},
+		{
+			"name": "20261124121622_catalog_mcp_endpoint_index/migration.sql",
+			"sha256": "e4c8a6337a898a9018b5510860772ba46e783ab4965caea2874ebe8769415a9f"
 		}
 	]
 }

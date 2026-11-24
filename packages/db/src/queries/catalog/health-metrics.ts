@@ -25,6 +25,7 @@ import {
 	type TransportType,
 } from "../../schema/catalog";
 import { chunkForBoundParams } from "../../utils/batch";
+import { prefixedColumns } from "../../utils/select";
 import { getCatalogAppById } from "./get-app";
 import { calculateCatalogAppUptime } from "./health-history";
 import type { Database } from "./tool-source-policy";
@@ -516,7 +517,7 @@ export async function getCatalogScanBacklogSummary(
 				AND COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0) >= 3
 			) THEN 1 ELSE 0 END)`.as("unhealthy_zero_tool_candidates"),
 		})
-		.from(appCatalog)
+		.from(sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`)
 		.where(
 			and(
 				eq(appCatalog.status, "ENABLED"),
@@ -613,26 +614,27 @@ export async function getCatalogHealthSummary(db: Database): Promise<{
 	};
 	scanBacklog: CatalogScanBacklogSummary;
 }> {
+	const columns = prefixedColumns(appCatalog, "catalog");
 	const [result, protocolRows, scanBacklog] = await Promise.all([
 		db
 			.select({
-				status: appCatalog.healthStatus,
+				status: columns.healthStatus,
 				count: count(),
 			})
-			.from(appCatalog)
+			.from(sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`)
 			.where(sql`${appCatalog.mcpEndpointNormalized} IS NOT NULL`)
 			.groupBy(appCatalog.healthStatus),
 		db
 			.select({
-				slug: appCatalog.slug,
-				mcpEndpointNormalized: appCatalog.mcpEndpointNormalized,
-				protocolVersion: appCatalog.protocolVersion,
-				healthStatus: appCatalog.healthStatus,
-				status: appCatalog.status,
-				healthData: appCatalog.healthData,
-				mcpMetadata: appCatalog.mcpMetadata,
+				slug: columns.slug,
+				mcpEndpointNormalized: columns.mcpEndpointNormalized,
+				protocolVersion: columns.protocolVersion,
+				healthStatus: columns.healthStatus,
+				status: columns.status,
+				healthData: columns.healthData,
+				mcpMetadata: columns.mcpMetadata,
 			})
-			.from(appCatalog)
+			.from(sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`)
 			.where(sql`${appCatalog.mcpEndpointNormalized} IS NOT NULL`),
 		getCatalogScanBacklogSummary(db),
 	]);
