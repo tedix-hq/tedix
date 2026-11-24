@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.7 (2026-11-24)
+
+### Patch Changes
+
+- 3474a9f: Keep local runner data from growing without limit. When run folders exceed the checkout cap, a runner now deletes the dependency folders of checkouts it has to keep (result not yet reported, or work not pushed) before evicting anything; their files and commits stay. Background status commands no longer write their normal output into `agent-status/report.log`, and that log is rotated before they write.
+- ee5fb38: Say "could not start a task, trying again around <time>" instead of "native setup failed, back around <time>" when a runner backs off after a task failed to start, so the Mac app row says what happens next.
+
 ## 0.37.6 (2026-11-24)
 
 ### Patch Changes
