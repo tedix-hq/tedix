@@ -34,9 +34,38 @@ describe("organization Docs access", () => {
 		expect(response?.status).toBe(302);
 		const location = new URL(response?.headers.get("Location") ?? "");
 		expect(location.origin + location.pathname).toBe(
-			"https://acme-help.docs.tedix.dev/auth/session-broker/start",
+			"https://acme-help.docs.tedix.dev/auth/session-broker/continue",
 		);
 		expect(location.searchParams.get("redirect_to")).toBe("/guide");
+	});
+
+	it("sends a cross-site signed-out navigation through the same-origin continue bounce", async () => {
+		const response = await authorizeDocsSiteRequest(
+			new Request("https://acme-help.docs.tedix.dev/", {
+				headers: {
+					"Sec-Fetch-Site": "cross-site",
+					"Sec-Fetch-Mode": "navigate",
+				},
+			}),
+			env,
+			site,
+		);
+		expect(response?.status).toBe(302);
+		const location = new URL(response?.headers.get("Location") ?? "");
+		expect(location.pathname).toBe("/auth/session-broker/continue");
+	});
+
+	it("keeps non-navigation requests on the direct start redirect", async () => {
+		const response = await authorizeDocsSiteRequest(
+			new Request("https://acme-help.docs.tedix.dev/guide", {
+				headers: { "Sec-Fetch-Mode": "cors" },
+			}),
+			env,
+			site,
+		);
+		expect(response?.status).toBe(302);
+		const location = new URL(response?.headers.get("Location") ?? "");
+		expect(location.pathname).toBe("/auth/session-broker/start");
 	});
 
 	it("accepts a valid session only for the site's organization", async () => {
@@ -130,6 +159,27 @@ describe("Docs session broker", () => {
 				targetOrigin: "https://acme-help.docs.tedix.dev",
 				tenantId: "org_tedix",
 			}),
+		);
+	});
+
+	it("serves the continue bounce as a same-origin document that navigates to start", async () => {
+		const broker: SessionBrokerRpc = {
+			createIntent: vi.fn(),
+			exchangeCode: vi.fn(),
+		};
+		const response = await handleDocsSessionBroker(
+			new Request(
+				"https://acme-help.docs.tedix.dev/auth/session-broker/continue?redirect_to=%2Fguide%3Ftab%3Dapi",
+				{ headers: { "Sec-Fetch-Site": "cross-site" } },
+			),
+			{ ...env, DOCS_SESSION_BROKER: broker },
+			site,
+		);
+
+		expect(response?.status).toBe(200);
+		const body = await response?.text();
+		expect(body).toContain(
+			"/auth/session-broker/start?redirect_to=%2Fguide%3Ftab%3Dapi",
 		);
 	});
 });

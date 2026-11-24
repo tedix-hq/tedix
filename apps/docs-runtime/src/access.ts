@@ -23,12 +23,27 @@ function bearerToken(request: Request): string | null {
 	return extractBearerToken(request.headers.get("Authorization")?.trim());
 }
 
+function isTopLevelNavigation(request: Request): boolean {
+	if (request.method !== "GET" && request.method !== "HEAD") return false;
+	const mode = request.headers.get("Sec-Fetch-Mode");
+	if (mode) return mode === "navigate";
+	const accept = request.headers.get("Accept");
+	return !accept || accept.includes("text/html") || accept.includes("*/*");
+}
+
 function loginRedirect(request: Request) {
-	const loginUrl = new URL("/auth/session-broker/start", request.url);
-	loginUrl.searchParams.set(
-		"redirect_to",
-		`${new URL(request.url).pathname}${new URL(request.url).search}`,
+	const url = new URL(request.url);
+	// A signed-out top-level navigation can carry cross-site provenance (a
+	// link from Slack, email, or another site). `start` rejects that, so the
+	// navigation first lands on the same-origin `continue` bounce, which
+	// re-issues it to `start` with genuine same-origin headers.
+	const loginUrl = new URL(
+		isTopLevelNavigation(request)
+			? "/auth/session-broker/continue"
+			: "/auth/session-broker/start",
+		request.url,
 	);
+	loginUrl.searchParams.set("redirect_to", `${url.pathname}${url.search}`);
 	return new Response(null, {
 		status: 302,
 		headers: {
@@ -37,6 +52,23 @@ function loginRedirect(request: Request) {
 			Vary: "Cookie, Authorization",
 		},
 	});
+}
+
+function safeRedirectPath(url: URL): string {
+	const redirectTo = url.searchParams.get("redirect_to");
+	if (
+		redirectTo?.startsWith("/") &&
+		!redirectTo.startsWith("//") &&
+		!redirectTo.includes("\\") &&
+		!redirectTo.includes("\r") &&
+		!redirectTo.includes("\n")
+	) {
+		const target = new URL(redirectTo, url.origin);
+		if (target.origin === url.origin && !target.hash) {
+			return `${target.pathname}${target.search}`;
+		}
+	}
+	return "/";
 }
 
 export async function handleDocsSessionBroker(
@@ -55,24 +87,16 @@ export async function handleDocsSessionBroker(
 	}
 	const mounted = mountSessionBroker("docs", env.DOCS_SESSION_BROKER);
 	if (url.pathname === `${prefix}/callback`) return mounted.finish(request);
-	if (url.pathname !== `${prefix}/start`) return null;
-	const redirectTo = url.searchParams.get("redirect_to");
-	let redirectPath = "/";
-	if (
-		redirectTo?.startsWith("/") &&
-		!redirectTo.startsWith("//") &&
-		!redirectTo.includes("\\") &&
-		!redirectTo.includes("\r") &&
-		!redirectTo.includes("\n")
-	) {
-		const target = new URL(redirectTo, url.origin);
-		if (target.origin === url.origin && !target.hash) {
-			redirectPath = `${target.pathname}${target.search}`;
-		}
+	if (url.pathname === `${prefix}/continue`) {
+		return mounted.continue({
+			redirectPath: safeRedirectPath(url),
+			request,
+		});
 	}
+	if (url.pathname !== `${prefix}/start`) return null;
 	return mounted.start({
 		operation: "issue_session",
-		redirectPath,
+		redirectPath: safeRedirectPath(url),
 		request,
 		tenantId: site.descopeTenantId,
 	});
