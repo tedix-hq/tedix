@@ -167,6 +167,15 @@ type PrepareMountInput = {
 	mountedToolId: string;
 	env: CloudflareEnv;
 	ctx?: { waitUntil: (promise: Promise<unknown>) => void };
+	/**
+	 * Tedis the current request mounted by default on `rootAppId`, already past
+	 * the ownership rule for its caller. Only these resolve a tool that no stored
+	 * `aggregateTedis` entry serves; nothing is looked up by slug without a caller.
+	 */
+	requestTedis?: {
+		rootAppId: string;
+		entries: readonly AggregateTediEntry[];
+	};
 };
 
 /** Resolve an organization gateway mount without any aggregate cache tier. */
@@ -235,10 +244,16 @@ async function resolvePolicyMountPathFresh(input: PrepareMountInput) {
 	let aggregateTediTools: AppTool[] | undefined;
 	let aggregateTediClaimed = false;
 	let aggregateTediUnresolved = false;
-	if (Array.isArray(aggregateTedis)) {
+	const requestTedis =
+		input.requestTedis?.rootAppId === input.rootAppId
+			? input.requestTedis.entries
+			: [];
+	if (Array.isArray(aggregateTedis) || requestTedis.length > 0) {
 		const { buildAggregateTediTools, sanitizeTediNamespace } =
 			await import("./aggregate-tedis");
-		const entries = aggregateTedis.filter(
+		const entries = (
+			Array.isArray(aggregateTedis) ? aggregateTedis : []
+		).filter(
 			// Stored entries are full or collaboration; "turns" is request-local.
 			(
 				entry,
@@ -294,6 +309,28 @@ async function resolvePolicyMountPathFresh(input: PrepareMountInput) {
 				}),
 				input.env,
 			).filter((tool) => tool.toolId === input.mountedToolId);
+		}
+		// A default mount is hydrated and admitted for this caller by the request
+		// that carries it, so its tool is built from that entry as it was mounted.
+		// A stored entry for the same slug or namespace wins, as it does at mount.
+		const requestTools = buildAggregateTediTools(
+			requestTedis.filter(
+				(entry) =>
+					entry.surface === "turns" &&
+					!!entry.tediId &&
+					entry.organizationId === input.organizationId &&
+					input.mountedToolId.startsWith(`${sanitizeTediNamespace(entry)}__`) &&
+					!entries.some(
+						(stored) =>
+							stored.slug === entry.slug ||
+							sanitizeTediNamespace(stored) === sanitizeTediNamespace(entry),
+					),
+			),
+			input.env,
+		).filter((tool) => tool.toolId === input.mountedToolId);
+		if (requestTools.length > 0) {
+			aggregateTediClaimed = true;
+			aggregateTediTools = [...(aggregateTediTools ?? []), ...requestTools];
 		}
 	}
 	const surface = await aggregateAndPrefixTools(

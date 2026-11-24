@@ -30,6 +30,7 @@ import type {
 	ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
 import type { ApiClient } from "../lib/api-client";
+import type { AggregateTediEntry } from "./aggregate-tedis-shared";
 import type { ToolExecutionContext, ToolHandler } from "./handler";
 import type { McpApp, OpenAiWidgetCSP } from "./types";
 
@@ -217,6 +218,13 @@ export interface ServerContext {
 
 	// Caller identity (per-request, from JWT headers)
 	readonly callerIdentity: CallerIdentity | undefined;
+
+	/**
+	 * Tedis this request mounted by default for this caller, already past the
+	 * ownership rule. They are on no stored list, so the policy mount resolver
+	 * takes them from here; it never looks a tedi up without a caller.
+	 */
+	readonly defaultCallableTedis?: readonly AggregateTediEntry[];
 
 	// Per-request trace ID for cross-layer correlation
 	readonly traceId: string;

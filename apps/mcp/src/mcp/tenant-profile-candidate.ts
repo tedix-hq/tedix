@@ -55,6 +55,10 @@ export async function tenantProfileDiscoveryPotential(
 					mountedToolId: tool.toolId,
 					env: agent.env,
 					ctx: agent.ctx,
+					requestTedis: {
+						rootAppId: agent.appId,
+						entries: agent.defaultCallableTedis ?? [],
+					},
 				}),
 			]);
 			if (
@@ -150,6 +154,10 @@ export async function resolveMachineCandidate(
 		mountedToolId: tool.toolId,
 		env: agent.env,
 		ctx: agent.ctx,
+		requestTedis: {
+			rootAppId: agent.appId,
+			entries: agent.defaultCallableTedis ?? [],
+		},
 	};
 	const inputArgs = JSON.parse(JSON.stringify(args));
 	const argsDigest = await tenantPolicyDescriptorDigest(inputArgs);
@@ -387,6 +395,10 @@ export async function resolveTenantProfileCandidate(
 				mountedToolId: tool.toolId,
 				env: agent.env,
 				ctx: agent.ctx,
+				requestTedis: {
+					rootAppId: agent.appId,
+					entries: agent.defaultCallableTedis ?? [],
+				},
 			};
 			const [fresh, freshProbe] = await Promise.all([
 				prepareTenantIdentityProfileMount(mountInput),

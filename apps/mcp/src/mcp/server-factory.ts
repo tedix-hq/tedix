@@ -118,6 +118,8 @@ export interface CachedAppData {
 	capabilities: AppCapabilities;
 	organizationId: string | undefined;
 	expiresAt: number;
+	/** Set on one request's copy only: the tedis it mounted by default. */
+	defaultCallableTedis?: ServerContext["defaultCallableTedis"];
 }
 
 const appContextCache = new Map<string, CachedAppData>();
@@ -702,6 +704,7 @@ export function buildServerContext(
 		apiOrganizationId: cachedData.organizationId,
 		toolHandler,
 		callerIdentity,
+		defaultCallableTedis: cachedData.defaultCallableTedis,
 		traceId: traceId || crypto.randomUUID(),
 		tracestate,
 		requestMeta,

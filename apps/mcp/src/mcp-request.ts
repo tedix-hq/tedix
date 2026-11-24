@@ -731,6 +731,8 @@ export async function handleMcpRequest(
 			cachedData = {
 				...cachedData,
 				tools: [...cachedData.tools, ...tediTools],
+				// The policy mount resolver reads these from the request context.
+				...(defaultCallableTedis.length > 0 ? { defaultCallableTedis } : {}),
 			};
 			console.log(
 				`[MCP] Aggregated ${tediTools.length} tedi tools from ${hydratedTedis.length} tedis into ${resolvedApp.app.slug}`,

@@ -59,6 +59,10 @@ export async function resolveHumanPolicyReplay(
 		mountedToolId: binding.descriptor.mount.mountedToolId,
 		env: agent.env,
 		ctx: agent.ctx,
+		requestTedis: {
+			rootAppId: agent.appId,
+			entries: agent.defaultCallableTedis ?? [],
+		},
 	};
 	const snapshot = async () => {
 		if ((await tenantPolicyDescriptorDigest(args)) !== argsDigest) return null;

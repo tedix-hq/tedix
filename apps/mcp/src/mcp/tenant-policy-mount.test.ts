@@ -632,6 +632,96 @@ describe("tenant policy mount descriptor", () => {
 		expect(await resolveFreshPolicyMount(request)).toBeNull();
 	});
 
+	it("resolves a default tedi mount only from the request that mounted it", async () => {
+		const env = { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv;
+		const mounted = {
+			slug: "mira-lindqvist",
+			surface: "turns" as const,
+			tediId: "tedi-mira",
+			organizationId: "org",
+			runtimeKind: "agent" as const,
+		};
+		const [turn] = buildAggregateTediTools([mounted], env).filter(
+			(tool) => tool.toolId === "mira_lindqvist__run_tedi_turn",
+		);
+		// The same tool an explicit full entry for this tedi resolves to.
+		const explicit = buildAggregateTediTools(
+			[{ ...mounted, surface: "full" }],
+			env,
+		).find((tool) => tool.toolId === turn!.toolId);
+		expect(turn).toEqual(explicit);
+		const root = (aggregateTedis?: unknown[]) => ({
+			app: {
+				id: "root",
+				slug: "gateway",
+				organizationId: "org",
+				metadata: { mcpConfig: { aggregateTedis } },
+			},
+			tools: [],
+		});
+		mocks.getApp.mockResolvedValue(root());
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		mocks.listRuntimeMetaBySlugs.mockClear();
+		const request = {
+			organizationId: "org",
+			rootAppId: "root",
+			mountedToolId: turn!.toolId,
+			env,
+		};
+		const requestTedis = { rootAppId: "root", entries: [mounted] };
+
+		expect(
+			await resolveFreshPolicyMount({ ...request, requestTedis }),
+		).toMatchObject({
+			tool: explicit,
+			sourceAppId: "root",
+			sourceToolId: turn!.toolId,
+			mountAppIds: ["root"],
+			sourceKind: "aggregate-tedi",
+		});
+		// The mount is taken as the request resolved it, never looked up by slug.
+		expect(mocks.listRuntimeMetaBySlugs).not.toHaveBeenCalled();
+
+		for (const unresolved of [
+			request,
+			{ ...request, requestTedis: { rootAppId: "root", entries: [] } },
+			// Mounted on another gateway, in another organization, or not a
+			// default mount at all.
+			{ ...request, requestTedis: { ...requestTedis, rootAppId: "other" } },
+			{
+				...request,
+				requestTedis: {
+					rootAppId: "root",
+					entries: [{ ...mounted, organizationId: "org-other" }],
+				},
+			},
+			{
+				...request,
+				requestTedis: {
+					rootAppId: "root",
+					entries: [{ ...mounted, surface: "full" as const }],
+				},
+			},
+			// A tool the two-tool mount does not have.
+			{ ...request, mountedToolId: "mira_lindqvist__exec", requestTedis },
+		])
+			expect(await resolveFreshPolicyMount(unresolved)).toBeNull();
+
+		// A tool of the gateway's own apps with the same id is ambiguous.
+		mocks.resolve.mockResolvedValue({ tools: [turn], degraded: false });
+		expect(
+			await resolveFreshPolicyMount({ ...request, requestTedis }),
+		).toBeNull();
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+
+		// A stored entry for the tedi wins and is checked as stored entries are.
+		mocks.getApp.mockResolvedValue(root([{ slug: "mira-lindqvist" }]));
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({ data: [] });
+		expect(
+			await resolveFreshPolicyMount({ ...request, requestTedis }),
+		).toBeNull();
+	});
+
 	it("rejects an unresolved tedi alias that collides with an active tedi mount", async () => {
 		const env = { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv;
 		const entries = [
