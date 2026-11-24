@@ -152,6 +152,8 @@ function createExecutionRefs(): CodeModeExecutionRefs {
 		paymentExtra: undefined,
 		paymentResponses: [],
 		rpcCallCount: 0,
+		innerPayloadChars: 0,
+		payloadBudgetRefusalRecorded: false,
 		credentialMissingCalls: 0,
 		rpcNamespaces: new Set(),
 		sideEffectQueue: Promise.resolve(),
@@ -707,6 +709,8 @@ export async function registerCodeModeTools(
 				executionRefs.paymentExtra = buildPaymentExtra(extra, payment);
 				executionRefs.paymentResponses = [];
 				executionRefs.rpcCallCount = 0;
+				executionRefs.innerPayloadChars = 0;
+				executionRefs.payloadBudgetRefusalRecorded = false;
 				executionRefs.credentialMissingCalls = 0;
 				executionRefs.rpcNamespaces.clear();
 				executionRefs.discoverCalls = 0;
@@ -1114,6 +1118,8 @@ export async function registerCodeModeTools(
 					executionRefs.paymentExtra = undefined;
 					executionRefs.paymentResponses = [];
 					executionRefs.rpcCallCount = 0;
+					executionRefs.innerPayloadChars = 0;
+					executionRefs.payloadBudgetRefusalRecorded = false;
 					executionRefs.credentialMissingCalls = 0;
 					executionRefs.rpcNamespaces.clear();
 					executionRefs.discoverCalls = 0;

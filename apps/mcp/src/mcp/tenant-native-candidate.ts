@@ -80,6 +80,7 @@ export async function tenantMachinePolicyFallbackBlocked(
 			rootAppId,
 			mountedToolId: tool.toolId,
 			env: agent.env,
+			ctx: agent.ctx,
 		});
 		if (path && path.tool.id !== tool.id) return true;
 		if (generatedHomeId && path?.sourceKind !== "home-surface") return true;
@@ -185,6 +186,7 @@ export async function resolveNativePolicyCandidate(
 		rootAppId: agent.appId,
 		mountedToolId: tool.toolId,
 		env: agent.env,
+		ctx: agent.ctx,
 	};
 	// A native rule is a recorded policy, so without any policy fence in the
 	// organization no candidate can exist and the fresh mount traversal (a full

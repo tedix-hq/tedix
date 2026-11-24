@@ -166,7 +166,7 @@ type PrepareMountInput = {
 	rootAppId: string;
 	mountedToolId: string;
 	env: CloudflareEnv;
-	ctx?: ExecutionContext;
+	ctx?: { waitUntil: (promise: Promise<unknown>) => void };
 };
 
 /** Resolve an organization gateway mount without any aggregate cache tier. */
@@ -179,8 +179,41 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
  * Like `resolveFreshPolicyMount`, but also reports a mount whose source app this
  * organization cannot see, such as a shared provider app another organization owns.
  * No tenant policy can be prepared for such a source.
+ *
+ * One traversal per request per mounted tool: a Code Mode program's inner
+ * calls share the request's tool snapshot (`loadedTools` is fixed at request
+ * start), so re-resolving the same mount on every inner call only multiplies
+ * full-catalog reads — enough to exhaust the Worker on a dozen page-sized
+ * calls. The allow/deny decision is still evaluated fresh per call; only the
+ * mount identity lookup is shared inside the request. Callers without an
+ * execution context bypass the memo.
  */
-export async function resolvePolicyMountPath(input: PrepareMountInput) {
+const policyMountPathCache = new WeakMap<
+	object,
+	Map<string, ReturnType<typeof resolvePolicyMountPathFresh>>
+>();
+
+export function resolvePolicyMountPath(input: PrepareMountInput) {
+	if (!input.ctx) return resolvePolicyMountPathFresh(input);
+	let byKey = policyMountPathCache.get(input.ctx);
+	if (!byKey) {
+		byKey = new Map();
+		policyMountPathCache.set(input.ctx, byKey);
+	}
+	const key = `${input.organizationId}:${input.rootAppId}:${input.mountedToolId}`;
+	let pending = byKey.get(key);
+	if (!pending) {
+		pending = resolvePolicyMountPathFresh(input);
+		byKey.set(key, pending);
+		// A failed traversal must not poison the rest of the request.
+		pending.catch(() => {
+			if (byKey.get(key) === pending) byKey.delete(key);
+		});
+	}
+	return pending;
+}
+
+async function resolvePolicyMountPathFresh(input: PrepareMountInput) {
 	const client = getApiClient({
 		serviceFetch: input.env.API_SERVICE,
 		orgId: input.organizationId,
@@ -269,7 +302,7 @@ export async function resolvePolicyMountPath(input: PrepareMountInput) {
 		],
 		input.env,
 		new Set(),
-		input.ctx,
+		input.ctx as ExecutionContext | undefined,
 		root.app.slug,
 		{ value: "tenant-policy-fresh", cacheable: false },
 		false,
@@ -299,7 +332,7 @@ export async function resolvePolicyMountPath(input: PrepareMountInput) {
 					entries,
 					input.env,
 					new Set([root.app.slug]),
-					input.ctx,
+					input.ctx as ExecutionContext | undefined,
 					root.app.slug,
 					{ value: "tenant-policy-fresh", cacheable: false },
 					false,

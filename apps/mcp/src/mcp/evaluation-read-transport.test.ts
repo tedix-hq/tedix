@@ -5,6 +5,7 @@ import { unwrapJsonRpcToolResult } from "@tedix/mcp-shared/tool-result";
 import { buildAggregateTediTools } from "./aggregate-tedis";
 import {
 	buildNamespaceGroups,
+	CODEMODE_INNER_PAYLOAD_BUDGET_CHARS,
 	type CodeModeExecutionRefs,
 } from "./codemode-execution";
 import { ToolHandler } from "./handler";
@@ -123,6 +124,8 @@ it.each([false, true])(
 			paymentExtra: undefined,
 			paymentResponses: [],
 			rpcCallCount: 0,
+			innerPayloadChars: 0,
+			payloadBudgetRefusalRecorded: false,
 			credentialMissingCalls: 0,
 			rpcNamespaces: new Set(),
 			sideEffectQueue: Promise.resolve(),
@@ -207,3 +210,96 @@ it.each([false, true])(
 		expect(message.length).toBeLessThan(2000);
 	},
 );
+
+it("refuses an inner call that would cross the cumulative payload budget", async () => {
+	const env = {
+		MCP_URL: "https://mcp.tedix.dev",
+		ENVIRONMENT: "test",
+		GIT_SHA: "gateway-fixture",
+		API_SERVICE: { fetch: vi.fn(async () => Response.json({ json: {} })) },
+	} as unknown as CloudflareEnv;
+	const tool = buildAggregateTediTools(
+		[
+			{
+				slug: "fixture",
+				namespace: "fixture",
+				surface: "full",
+				tediId: "fixture-tedi",
+				organizationId: "fixture-org",
+				runtimeKind: "agent",
+			},
+		],
+		env,
+	).find((tool) => tool.toolId === "fixture__artifact_read_file")!;
+	const context = {
+		env,
+		ctx: { waitUntil: vi.fn() },
+		appId: "fixture-app",
+		appSlug: "fixture-app",
+		app: {
+			id: "fixture-app",
+			slug: "fixture-app",
+			name: "Fixture",
+			organizationId: "fixture-org",
+		},
+		appMetadata: {
+			mcpConfig: {
+				authMode: "public",
+				codeMode: true,
+				enforcePolicies: false,
+			},
+		},
+		appCapabilities: {},
+		apiClient: { audit: createGatewayLedgerApi() },
+		toolHandler: new ToolHandler(),
+		traceId: "fixture-trace",
+		callerIdentity: {
+			authType: "service",
+			tediId: "fixture-tedi",
+			organizationId: "fixture-org",
+			scopes: ["mcp:tools.call", "tedi:config.read", "connections.execute"],
+		},
+		loadedTools: new Map([[tool.toolId, tool]]),
+		registeredTools: new Map(),
+		registeredResources: new Map(),
+		registeredPrompts: new Map(),
+		toolOutputTemplates: new Map(),
+		toolSkillMap: new Map(),
+		appToolIds: new Set(),
+		appResourceIds: new Set(),
+		authRequiredTools: new Set(),
+	} as unknown as ServerContext;
+	const refs: CodeModeExecutionRefs = {
+		authorizationDenial: undefined,
+		approvalResult: undefined,
+		approvalExtra: undefined,
+		approvalSource: undefined,
+		replayUnsafeBuiltinCalls: 0,
+		executionId: "fixture-execution",
+		paymentExtra: undefined,
+		paymentResponses: [],
+		rpcCallCount: 0,
+		innerPayloadChars: CODEMODE_INNER_PAYLOAD_BUDGET_CHARS - 16,
+		payloadBudgetRefusalRecorded: false,
+		credentialMissingCalls: 0,
+		rpcNamespaces: new Set(),
+		sideEffectQueue: Promise.resolve(),
+		failureBudget: new IdenticalFailureBudget(),
+		discoverCalls: 0,
+		discoverParameterRequests: 0,
+		discoverResultChars: 0,
+		workerLoads: 0,
+		toolReceipts: [],
+		trust: { untrusted: new Set(), trusted: new Set() },
+		skillWorkflowRunIds: new Set(),
+		readObservations: [],
+		collectionReads: [],
+		ownerHostSession: undefined,
+	};
+	await expect(
+		buildNamespaceGroups(context, undefined, refs, new Set()).get("fixture")!
+			.fns.artifact_read_file!({ path: "AGENTS.md" }),
+	).rejects.toThrow("budget exceeded");
+	expect(refs.payloadBudgetRefusalRecorded).toBe(true);
+	expect(refs.toolReceipts[0]?.status).toBe("failed");
+});

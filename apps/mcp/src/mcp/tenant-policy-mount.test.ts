@@ -245,7 +245,14 @@ describe("tenant policy mount descriptor", () => {
 			cacheable: false,
 		});
 		sourceOrganization = "another-org";
-		expect(await prepareTenantPolicyMount(request)).toBeNull();
+		// Mount resolution is memoized per request context, matching the
+		// request-start tool snapshot; a new request re-reads the catalog.
+		expect(
+			await prepareTenantPolicyMount({
+				...request,
+				ctx: {} as ExecutionContext,
+			}),
+		).toBeNull();
 	});
 
 	it("resolves the canonical generated Home tool without inventing a stored row", async () => {

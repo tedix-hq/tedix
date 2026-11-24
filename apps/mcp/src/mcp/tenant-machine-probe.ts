@@ -129,6 +129,7 @@ export async function prepareMachineProviderProof(
 		rootAppId: profile.mount.rootAppId,
 		mountedToolId: profile.mount.mountedToolId,
 		env: agent.env,
+		ctx: agent.ctx,
 	};
 	const probeInput = {
 		...mountInput,

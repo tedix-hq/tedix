@@ -58,6 +58,7 @@ export async function resolveHumanPolicyReplay(
 		rootAppId: binding.descriptor.mount.rootAppId,
 		mountedToolId: binding.descriptor.mount.mountedToolId,
 		env: agent.env,
+		ctx: agent.ctx,
 	};
 	const snapshot = async () => {
 		if ((await tenantPolicyDescriptorDigest(args)) !== argsDigest) return null;
@@ -147,6 +148,7 @@ export async function resolveHumanPolicyReplay(
 		receiptId: probeReceiptId,
 		exampleArgs: inputArgs,
 		env: agent.env,
+		ctx: agent.ctx,
 	});
 	if (
 		accountDigest !== binding.descriptor.accountRevisionDigest ||

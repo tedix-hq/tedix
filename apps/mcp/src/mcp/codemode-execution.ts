@@ -136,6 +136,17 @@ const CODEMODE_PROVIDER_TYPES = [
 	"}",
 ].join("\n");
 
+/**
+ * Cumulative inner-call argument+result chars one Code Mode execution may
+ * move before the gateway refuses further calls. Sized well above a dozen
+ * page-sized CMS edits (~15 page payloads) while still bounding programs
+ * whose per-call serialization would exceed the Worker's resource limits.
+ */
+export const CODEMODE_INNER_PAYLOAD_BUDGET_CHARS = 32 * 1024 * 1024;
+
+/** Thrown when an inner call would cross {@link CODEMODE_INNER_PAYLOAD_BUDGET_CHARS}. */
+export class CodeModePayloadBudgetError extends Error {}
+
 export interface CodeModeExecutionRefs {
 	authorizationDenial: CodeModeAuthorizationError | undefined;
 	secretEgressError?: {
@@ -152,6 +163,18 @@ export interface CodeModeExecutionRefs {
 	paymentExtra: { _meta?: Record<string, unknown> } | undefined;
 	paymentResponses: Record<string, unknown>[];
 	rpcCallCount: number;
+	/**
+	 * Serialized chars of inner-call arguments and results this execution has
+	 * moved so far. Each inner result is serialized several times on the way
+	 * back to the sandbox (evidence walks, analytics sizing, the transport
+	 * copy), so a program of page-sized calls can exhaust the Worker's CPU or
+	 * memory and die as a bare 1102 with no result and no receipts. The budget
+	 * stops the run with a clear error while receipts still report which calls
+	 * already committed.
+	 */
+	innerPayloadChars: number;
+	/** The payload-budget refusal is recorded once per execution. */
+	payloadBudgetRefusalRecorded: boolean;
 	/** Inner calls that stopped because no credential was on file. */
 	credentialMissingCalls: number;
 	rpcNamespaces: Set<string>;
@@ -493,6 +516,20 @@ export function buildNamespaceGroups(
 				if (executionRefs.approvalResult)
 					throw new Error("Destructive approval pending");
 				const { toolArgs, inlineExtra } = splitToolArgs(args);
+				const callPayloadChars = getJsonSize(toolArgs);
+				if (
+					executionRefs.innerPayloadChars + callPayloadChars >
+					CODEMODE_INNER_PAYLOAD_BUDGET_CHARS
+				) {
+					if (!executionRefs.payloadBudgetRefusalRecorded) {
+						executionRefs.payloadBudgetRefusalRecorded = true;
+						await refuse(args, "budget", "payload_budget_exceeded");
+					}
+					throw new CodeModePayloadBudgetError(
+						`Code Mode execution budget exceeded: inner calls already moved ${executionRefs.innerPayloadChars} chars of arguments and results (limit ${CODEMODE_INNER_PAYLOAD_BUDGET_CHARS}); this call needs about ${callPayloadChars} more. Narrow the projections or split the program; calls that already ran are listed in toolReceipts.`,
+					);
+				}
+				executionRefs.innerPayloadChars += callPayloadChars;
 				const secretEgress = await preflightSecretEgress(
 					serverCtx,
 					tool,
@@ -688,6 +725,7 @@ export function buildNamespaceGroups(
 						}),
 					});
 					innerResultChars = callToolResultChars(result);
+					executionRefs.innerPayloadChars += innerResultChars;
 					if (result.isError) {
 						rpcSuccess = false;
 						throw innerToolError(result);
@@ -849,7 +887,7 @@ export function buildNamespaceGroups(
 						limit: updatedRetryState.limit,
 					});
 				} catch (error) {
-					if (!admitted) {
+					if (!admitted && !(error instanceof CodeModePayloadBudgetError)) {
 						// Stopped before the gates ran, so admission wrote no record.
 						const secretEgressDenied =
 							(error as { code?: unknown } | null)?.code ===

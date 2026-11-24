@@ -17,7 +17,7 @@ export async function probeReviewedProviderIdentity(input: {
 	receiptId: string;
 	exampleArgs: Record<string, unknown>;
 	env: CloudflareEnv;
-	ctx?: ExecutionContext;
+	ctx?: { waitUntil: (promise: Promise<unknown>) => void };
 	onCredentialSummary?: (summary: {
 		scope: "user" | "tenant";
 		connectionInstanceId?: string;

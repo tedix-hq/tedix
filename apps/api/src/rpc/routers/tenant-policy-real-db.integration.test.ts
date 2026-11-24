@@ -532,6 +532,8 @@ describe("owner policy against a real local D1 facade", () => {
 				paymentExtra: undefined,
 				paymentResponses: [],
 				rpcCallCount: 0,
+				innerPayloadChars: 0,
+				payloadBudgetRefusalRecorded: false,
 				rpcNamespaces: new Set(),
 				sideEffectQueue: Promise.resolve(),
 				failureBudget: new IdenticalFailureBudget(),
