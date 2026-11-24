@@ -1,3 +1,5 @@
+import type { FirstPartyRelease } from "@tedix/db/queries/catalog/sync-tools-to-app";
+import { verifyFirstPartyToolRelease } from "../../../services/first-party-tool-release";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { guardedFetch } from "@tedix/ssrf-guard";
 import { loadCatalogMaintenancePolicy } from "../../../lib/catalog-sync-source";
@@ -1206,6 +1208,7 @@ export async function scanUpstreamCatalogAppNow(
 	promptCount: number;
 	healthStatus: string;
 	driftReportSaved: boolean;
+	firstPartyRelease?: FirstPartyRelease;
 }> {
 	const { db } = context;
 	const { connectMcpServer } = await import("../../../lib/mcp-client");
@@ -1418,6 +1421,10 @@ export async function scanUpstreamCatalogAppNow(
 		promptCount: serverInfo?.prompts.length ?? 0,
 		healthStatus,
 		driftReportSaved,
+		firstPartyRelease:
+			fetchFn && listIsAuthoritative("tools")
+				? await verifyFirstPartyToolRelease(mcpServerUrl, context.env)
+				: undefined,
 	};
 }
 

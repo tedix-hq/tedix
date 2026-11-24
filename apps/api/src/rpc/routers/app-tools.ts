@@ -1035,7 +1035,11 @@ function mapToolToSchema(tool: Awaited<ReturnType<typeof getToolById>>) {
 		schemaSourceHash: tool.schemaSourceHash,
 		schemaSyncedAt: tool.schemaSyncedAt,
 		sortOrder: tool.sortOrder,
-		enabled: tool.enabled,
+		enabled:
+			tool.enabled &&
+			(tool.reviewState !== "pending" || tool.reviewPending != null),
+		reviewState: tool.reviewState,
+		hasPendingDefinition: tool.reviewPending != null,
 		createdAt: tool.createdAt,
 		updatedAt: tool.updatedAt,
 	};

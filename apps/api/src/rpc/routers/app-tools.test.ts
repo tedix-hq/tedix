@@ -157,7 +157,7 @@ describe("app-tools list", () => {
 	it("returns one server-owned page with filtered and inventory counts", async () => {
 		const { client } = makeHarness();
 		mocks.listToolsPage.mockResolvedValue({
-			rows: [makeToolRow({ toolId: "list_matching" })],
+			rows: [makeToolRow({ toolId: "list_matching", reviewState: "pending" })],
 			total: 1,
 			inventoryTotal: 908,
 		});
@@ -179,6 +179,11 @@ describe("app-tools list", () => {
 			},
 		);
 		expect(result.data.map((tool) => tool.toolId)).toEqual(["list_matching"]);
+		expect(result.data[0]).toMatchObject({
+			reviewState: "pending",
+			enabled: false,
+			hasPendingDefinition: false,
+		});
 		expect(result.pagination).toEqual({
 			limit: 25,
 			offset: 25,

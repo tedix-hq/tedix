@@ -17,6 +17,7 @@
  * @see apps/api/src/lib/mcp-client.ts for the direct MCP client
  */
 
+import { verifyFirstPartyToolRelease } from "../services/first-party-tool-release";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	WorkflowEntrypoint,
@@ -45,7 +46,10 @@ import {
 	syncCatalogMcpTools,
 } from "@tedix/db/queries/catalog/mcp-tools";
 import { syncCatalogMcpSkills } from "@tedix/db/queries/catalog/mcp-skills";
-import { syncCatalogToolsToApp } from "@tedix/db/queries/catalog/sync-tools-to-app";
+import {
+	syncCatalogToolsToApp,
+	type FirstPartyRelease,
+} from "@tedix/db/queries/catalog/sync-tools-to-app";
 import { refreshCatalogShadowedVariants } from "@tedix/db/queries/catalog/vendor-variants";
 import {
 	isTedixHostedMcpEndpoint,
@@ -743,7 +747,16 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 					// Existing reviews may be stale even when upstream has no new drift.
 					if (app.toolSource === "upstream_mcp") {
 						// Report a failed base-app sync only after the inventory below syncs.
-						baseAppSync = await this.syncAutoSyncBaseApps(db, app).then(
+						baseAppSync = await this.syncAutoSyncBaseApps(
+							db,
+							app,
+							fetchFn
+								? await verifyFirstPartyToolRelease(
+										app.mcpEndpointNormalized,
+										this.env,
+									)
+								: undefined,
+						).then(
 							() => ({ ok: true }) as const,
 							(error: unknown) => ({ ok: false, error }) as const,
 						);
@@ -870,6 +883,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 	private async syncAutoSyncBaseApps(
 		db: ReturnType<typeof createDbClient>,
 		app: AppScanInfo,
+		firstPartyRelease?: FirstPartyRelease,
 	): Promise<void> {
 		const mcpServerUrl = app.mcpEndpointNormalized || app.baseUrl;
 		if (!mcpServerUrl) return;
@@ -885,6 +899,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 		for (const baseApp of baseApps) {
 			if (!catalogBaseAppAutoSyncEnabled(baseApp.metadata)) continue;
 			const sync = await syncCatalogToolsToApp(db, {
+				firstPartyRelease,
 				catalogAppId: app.id,
 				appId: baseApp.id,
 				mcpServerUrl,

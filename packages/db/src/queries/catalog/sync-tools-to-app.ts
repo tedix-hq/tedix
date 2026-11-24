@@ -62,6 +62,33 @@ function writeCapabilityRank(capability: string | null | undefined) {
 	return capability ? (WRITE_CAPABILITY_RANK[capability] ?? 1) : 1;
 }
 
+export interface FirstPartyRelease {
+	mcpServerUrl: string;
+	deployedSha: string;
+}
+
+/** Fixed release boundary; tenant host settings cannot extend it. */
+export function firstPartyReleaseHost(endpoint: string): string | undefined {
+	const url = URL.parse(endpoint);
+	if (
+		!url ||
+		url.protocol !== "https:" ||
+		url.port ||
+		url.username ||
+		url.password ||
+		url.hash ||
+		url.pathname.replace(/\/+$/, "") !== "/mcp"
+	)
+		return undefined;
+	return [
+		"builder.tedix.dev",
+		"mcp.tedix.dev",
+		"tedix-unified.mcp.tedix.dev",
+	].includes(url.hostname)
+		? url.hostname
+		: undefined;
+}
+
 export interface SyncCatalogToolsToAppOptions {
 	catalogAppId: string;
 	appId: string;
@@ -76,6 +103,8 @@ export interface SyncCatalogToolsToAppOptions {
 	 * this option wins on a name collision.
 	 */
 	writeCapabilityOverrides?: Record<string, ToolWriteCapability>;
+	/** Internal proof from a platform-authenticated scan and main ancestry check; never caller input. */
+	firstPartyRelease?: FirstPartyRelease;
 	dryRun: boolean;
 	disableRemoved?: boolean;
 	/** Internal dry-run support for createBaseAppFromCatalog planning. */
@@ -252,6 +281,23 @@ export async function syncCatalogToolsToApp(
 	const errors: string[] = [];
 	const now = new Date().toISOString();
 	const reviewBatchId = crypto.randomUUID();
+	const release = options.firstPartyRelease;
+	const storedEndpoint = catalogApp.mcpEndpointNormalized ?? catalogApp.baseUrl;
+	const autoApprove =
+		catalogApp.toolSource === "upstream_mcp" &&
+		release &&
+		firstPartyReleaseHost(mcpServerUrl) &&
+		storedEndpoint &&
+		URL.parse(storedEndpoint)?.href === new URL(mcpServerUrl).href &&
+		release.mcpServerUrl === mcpServerUrl &&
+		/^[a-f0-9]{40}$/.test(release.deployedSha);
+	const approval = autoApprove
+		? {
+				approvedBy: "system:first-party-release" as const,
+				deployedSha: release.deployedSha,
+				approvedAt: now,
+			}
+		: undefined;
 
 	const authConfig = buildCatalogMcpConnectionAuth({
 		connectionProviderId: effectiveConnectionProviderId,
@@ -414,8 +460,8 @@ export async function syncCatalogToolsToApp(
 					schemaSourceHash,
 					schemaSyncedAt: now,
 					enabled: true,
-					reviewState: "pending",
-					reviewDiff: diff,
+					reviewState: approval ? "live" : "pending",
+					reviewDiff: { ...diff, ...(approval ? { approval } : {}) },
 					reviewBatchId,
 					sortOrder: 0,
 					visibility: "public",
@@ -536,6 +582,7 @@ export async function syncCatalogToolsToApp(
 			!descChanged &&
 			!metadataChanged &&
 			!provenanceChanged &&
+			!(approval && liveRow?.reviewState === "pending") &&
 			typeMatch
 		) {
 			results.push({
@@ -629,32 +676,41 @@ export async function syncCatalogToolsToApp(
 				(approved.config as Record<string, unknown> | null) ?? {};
 			plannedUpdates.push({
 				id: existing.id,
-				set: (keepApprovedLive
+				set: (approval
 					? {
-							// Never carry a read-only connection review across a change.
-							...(reviewInvalidated &&
-							approvedConfig.connectionReadOnly === true
-								? {
-										config: {
-											...approvedConfig,
-											connectionReadOnly: false,
-										},
-									}
-								: {}),
-							reviewState: "pending",
-							reviewDiff: diff,
-							reviewBatchId,
-							reviewPending: definition,
-							updatedAt: now,
-						}
-					: {
 							...definition,
-							reviewState: "pending",
-							reviewDiff: diff,
+							reviewState: "live",
+							reviewDiff: { ...diff, approval },
 							reviewBatchId,
 							reviewPending: null,
 							updatedAt: now,
-						}) as Partial<typeof appTools.$inferInsert>,
+						}
+					: keepApprovedLive
+						? {
+								// Never carry a read-only connection review across a change.
+								...(reviewInvalidated &&
+								approvedConfig.connectionReadOnly === true
+									? {
+											config: {
+												...approvedConfig,
+												connectionReadOnly: false,
+											},
+										}
+									: {}),
+								reviewState: "pending",
+								reviewDiff: diff,
+								reviewBatchId,
+								reviewPending: definition,
+								updatedAt: now,
+							}
+						: {
+								...definition,
+								reviewState: "pending",
+								reviewDiff: diff,
+								reviewBatchId,
+								reviewPending: null,
+								updatedAt: now,
+							}) as Partial<typeof appTools.$inferInsert>,
 			});
 			results.push({
 				toolName: ct.toolName,

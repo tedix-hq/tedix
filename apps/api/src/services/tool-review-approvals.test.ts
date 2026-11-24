@@ -1,4 +1,5 @@
-import { beforeEach, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { verifyFirstPartyToolRelease } from "./first-party-tool-release";
 
 const mocks = vi.hoisted(() => ({
 	anchor: vi.fn(),
@@ -44,4 +45,47 @@ it("supersedes obsolete cards when no tools remain pending", async () => {
 	);
 	expect(mocks.supersede).toHaveBeenCalledWith({}, input);
 	expect(mocks.reconcile).not.toHaveBeenCalled();
+});
+
+afterEach(() => vi.unstubAllGlobals());
+it("requires a fixed host, platform token and a deployed main ancestor before bypassing review", async () => {
+	const sha = "a".repeat(40);
+	const health = vi.fn(async (_request: Request) =>
+		Response.json({ deployedSha: sha }),
+	);
+	const github = vi.fn(async () =>
+		Response.json({ status: "ahead", merge_base_commit: { sha } }),
+	);
+	vi.stubGlobal("fetch", github);
+	const env = {
+		CMS: { fetch: health },
+		PLATFORM_SERVICE_TOKEN: "platform-token",
+	};
+	const endpoint = "https://builder.tedix.dev/mcp";
+	expect(await verifyFirstPartyToolRelease(endpoint, env)).toEqual({
+		mcpServerUrl: endpoint,
+		deployedSha: sha,
+	});
+	const request = health.mock.calls[0]?.[0] as Request | undefined;
+	expect(request?.headers.get("Authorization")).toBe("Bearer platform-token");
+	github.mockResolvedValueOnce(
+		Response.json({
+			status: "diverged",
+			merge_base_commit: { sha: "b".repeat(40) },
+		}),
+	);
+	expect(await verifyFirstPartyToolRelease(endpoint, env)).toBeUndefined();
+	health.mockClear();
+	github.mockClear();
+	expect(
+		await verifyFirstPartyToolRelease("https://upstream.example/mcp", env),
+	).toBeUndefined();
+	expect(
+		await verifyFirstPartyToolRelease(endpoint, {
+			...env,
+			PLATFORM_SERVICE_TOKEN: undefined,
+		}),
+	).toBeUndefined();
+	expect(health).not.toHaveBeenCalled();
+	expect(github).not.toHaveBeenCalled();
 });

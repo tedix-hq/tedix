@@ -47,6 +47,11 @@ export interface ToolReviewSnapshot {
 
 export interface ToolReviewDiff {
 	source: "upstream_mcp" | "openapi";
+	approval?: {
+		approvedBy: "system:first-party-release";
+		deployedSha: string;
+		approvedAt: string;
+	};
 	before: ToolReviewSnapshot | null;
 	after: ToolReviewSnapshot;
 }

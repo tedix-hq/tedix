@@ -1326,6 +1326,8 @@ export const AppToolSchema = z.object({
 	schemaSyncedAt: z.string().nullable(),
 	sortOrder: z.number().nullable(),
 	enabled: z.boolean().nullable(),
+	reviewState: z.enum(["live", "pending"]).optional(),
+	hasPendingDefinition: z.boolean().optional(),
 	createdAt: z.string().nullable(),
 	updatedAt: z.string().nullable(),
 	toolCspDomains: z.array(AppToolCspDomainSchema).optional(),

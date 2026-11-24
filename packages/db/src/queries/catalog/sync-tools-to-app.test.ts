@@ -927,3 +927,89 @@ describe("syncCatalogToolsToApp write capability", () => {
 		},
 	);
 });
+
+it.each(["https://builder.tedix.dev/mcp", "https://third-party.example/mcp"])(
+	"releases only first-party tools, including pending leftovers: %s",
+	async (endpoint) => {
+		const { db } = setup();
+		await db
+			.insert(appCatalog)
+			.values({
+				id: "catalog",
+				name: "Upstream",
+				slug: "upstream",
+				toolSource: "upstream_mcp",
+				connectorType: "MCP",
+				mcpEndpointNormalized: endpoint,
+				lastSyncedAt: "2026-11-24T00:00:00Z",
+			});
+		await db
+			.insert(apps)
+			.values({
+				id: "app",
+				organizationId: "org",
+				name: "Upstream",
+				slug: "upstream",
+				catalogAppId: "catalog",
+			});
+		await db
+			.insert(appCatalogMcpTools)
+			.values({
+				id: "tool",
+				catalogAppId: "catalog",
+				toolName: "read_records",
+				description: "Original",
+				inputSchema: { type: "object", properties: {} },
+				annotations: { readOnlyHint: true },
+				detectedAt: "2026-11-24T00:00:00Z",
+				lastSeenAt: "2026-11-24T00:00:00Z",
+			});
+		const options = {
+			catalogAppId: "catalog",
+			appId: "app",
+			mcpServerUrl: endpoint,
+			dryRun: false,
+		};
+		await syncCatalogToolsToApp(db, options);
+		expect(await getEnabledToolIdsForApp(db, "app")).toEqual([]);
+		const firstPartyRelease = {
+			mcpServerUrl: endpoint,
+			deployedSha: "a".repeat(40),
+		};
+		await syncCatalogToolsToApp(db, { ...options, firstPartyRelease });
+		const live = endpoint === "https://builder.tedix.dev/mcp";
+		let [row] = await db.select().from(appTools);
+		expect(row?.reviewState).toBe(live ? "live" : "pending");
+		expect(await getEnabledToolIdsForApp(db, "app")).toEqual(
+			live ? ["read_records"] : [],
+		);
+		if (live)
+			expect(row?.reviewDiff?.approval).toMatchObject({
+				approvedBy: "system:first-party-release",
+				deployedSha: firstPartyRelease.deployedSha,
+			});
+		await db.update(appCatalogMcpTools).set({ description: "Changed" });
+		await db
+			.insert(appCatalogMcpTools)
+			.values({
+				id: "new-tool",
+				catalogAppId: "catalog",
+				toolName: "read_new",
+				description: "New",
+				inputSchema: { type: "object", properties: {} },
+				annotations: { readOnlyHint: true },
+				detectedAt: "2026-11-24T00:00:00Z",
+				lastSeenAt: "2026-11-24T00:00:00Z",
+			});
+		await syncCatalogToolsToApp(db, { ...options, firstPartyRelease });
+		const rows = await db.select().from(appTools);
+		expect(
+			rows.every((tool) => tool.reviewState === (live ? "live" : "pending")),
+		).toBe(true);
+		if (live) {
+			[row] = rows.filter((tool) => tool.toolId === "read_records");
+			expect(row?.description).toBe("Changed");
+			expect(row?.reviewPending).toBeNull();
+		}
+	},
+);

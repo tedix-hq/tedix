@@ -6,7 +6,10 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { apps } from "../../schema/index";
 import { generateSlug, getCatalogAppById } from "./get-app";
-import { syncCatalogToolsToApp } from "./sync-tools-to-app";
+import {
+	syncCatalogToolsToApp,
+	type FirstPartyRelease,
+} from "./sync-tools-to-app";
 import {
 	type ConnectionScope,
 	catalogAppUsesConnection,
@@ -73,6 +76,7 @@ export interface CreateBaseAppFromCatalogOptions {
 	connectionProviderId?: string;
 	connectionScope?: ConnectionScope;
 	connectionScopes?: string[];
+	firstPartyRelease?: FirstPartyRelease;
 	dryRun?: boolean;
 }
 
@@ -291,6 +295,7 @@ export async function createBaseAppFromCatalog(
 	if (!baseApp) throw new Error("Failed to create base app");
 
 	const sync = await syncCatalogToolsToApp(db, {
+		firstPartyRelease: options.firstPartyRelease,
 		catalogAppId,
 		appId: baseApp.id,
 		mcpServerUrl,

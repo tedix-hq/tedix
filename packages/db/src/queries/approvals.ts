@@ -614,7 +614,7 @@ export async function supersedeToolReviewApprovals(
 			status: "cancelled",
 			resolvedAt: new Date().toISOString(),
 			resolution:
-				"Superseded: upstream tools changed. Review the latest card; no tools were approved.",
+				"Superseded: no upstream tools remain pending. See tool review history for release approvals.",
 		})
 		.where(
 			and(

@@ -273,6 +273,7 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 					`Upstream MCP catalog app ${catalogApp.slug} needs mcpServerUrl or a stored MCP endpoint`,
 				);
 			}
+			let firstPartyRelease;
 			if (dryRun) {
 				pushReconcileStage(
 					stages,
@@ -286,6 +287,7 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 					catalogApp,
 					mcpServerUrl,
 				);
+				firstPartyRelease = drift.firstPartyRelease;
 				pushReconcileStage(
 					stages,
 					"upstream_scan",
@@ -312,6 +314,7 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 					);
 				} else {
 					const created = await createBaseAppFromCatalog(db, {
+						firstPartyRelease,
 						catalogAppId: catalogApp.id,
 						organizationId: input.organizationId,
 						connectionProviderId: input.connectionProviderId,
@@ -353,6 +356,7 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 				}
 			} else if (baseApp) {
 				const sync = await syncCatalogToolsToApp(db, {
+					firstPartyRelease,
 					catalogAppId: catalogApp.id,
 					appId: baseApp.id,
 					mcpServerUrl,
