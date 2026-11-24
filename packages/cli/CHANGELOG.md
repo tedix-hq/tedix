@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.10 (2026-11-24)
+
+### Patch Changes
+
+- c0d9b97: Use `tedix lane serve --executor tedi --tedi <slug>` to run Work with a cloud tedi in a local checkout on a Mac with machine write tools enabled. Routing rules can also offer the configured tedi to automatically assigned Work.
+
 ## 0.37.9 (2026-11-24)
 
 ### Patch Changes
