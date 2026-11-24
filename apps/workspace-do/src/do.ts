@@ -115,6 +115,7 @@ import {
 } from "./adapters";
 import {
 	type ApprovalMode,
+	APPROVAL_MODES,
 	ApprovalModeSchema,
 	capApprovalMode,
 	DEFAULT_APPROVAL_MODE,
@@ -5262,6 +5263,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	) {
 		this.bindScope(scope);
 		const mode = ApprovalModeSchema.parse(input.mode);
+		// A pick above the limit this object remembers follows a change of the
+		// workspace's limit made a moment ago: read it again instead of capping
+		// the pick for up to a minute.
+		const held = this.#chatSettings;
+		if (
+			held &&
+			APPROVAL_MODES.indexOf(mode) >
+				APPROVAL_MODES.indexOf(held.highestApprovalMode)
+		)
+			this.#chatSettings = null;
 		this.#store.put(`approval-mode:${input.userId}`, mode);
 		return this.#approvalMode(scope, input.userId);
 	}

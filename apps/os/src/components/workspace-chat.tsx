@@ -119,6 +119,10 @@ import {
 	WorkspaceChatDropZone,
 } from "@/components/workspace-chat-attach";
 import { isImeComposing } from "@/lib/keyboard";
+import { toast } from "@/components/kumo/toast";
+import { osApi } from "@/lib/api";
+import { errorMessage } from "@/lib/orpc-error";
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import {
 	canvasGadgetsQueryOptions,
 	modelCatalogQueryOptions,
@@ -2201,6 +2205,28 @@ function Composer({
 		readWorkspaceChatDraft(workspaceId, draftConversationId),
 	);
 	const [pickedTediId, setPickedTediId] = useState<string | null>(null);
+	const composerQueryClient = useQueryClient();
+	const [raisingMode, setRaisingMode] = useState(false);
+	// Picking a mode above the workspace's limit raises the limit first; the
+	// server refuses it for someone who may not change the workspace.
+	const raiseApprovalMode = (mode: ApprovalMode) => {
+		if (!client) return;
+		setRaisingMode(true);
+		void osApi.osWorkspaces.workspaces
+			.setAgentAccess({ workspaceId, highestApprovalMode: mode })
+			.then(() => {
+				client.setApprovalMode(mode);
+				void composerQueryClient.invalidateQueries({
+					queryKey: osQueryKeys.workspaces(),
+				});
+			})
+			.catch((error: unknown) =>
+				toast.error(
+					errorMessage(error, "This workspace's approval limit wasn't changed"),
+				),
+			)
+			.finally(() => setRaisingMode(false));
+	};
 	const tedis = useQuery({
 		...tediRosterQueryOptions(100, { status: "active" }),
 		enabled: disabledReason === null && !pinnedTediId,
@@ -2795,7 +2821,8 @@ function Composer({
 									<ApprovalModePicker
 										state={state.approvalMode}
 										onChange={(mode) => client?.setApprovalMode(mode)}
-										disabled={client === null}
+										onRaise={raiseApprovalMode}
+										disabled={client === null || raisingMode}
 									/>
 								</>
 							) : null}

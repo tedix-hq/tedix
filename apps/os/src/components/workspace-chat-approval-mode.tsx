@@ -40,23 +40,31 @@ export const APPROVAL_MODE_TEXT: Record<
 
 /**
  * How often the agent asks this person before acting in this workspace.
- * Modes looser than the workspace allows are shown disabled with the reason;
- * the store remembers the pick for this person and applies the same cap.
+ * A mode looser than the workspace allows raises the workspace's limit when
+ * picked (`onRaise`; the server checks the person may), so nobody has to open
+ * the workspace's settings first. Without `onRaise` those modes are shown
+ * disabled with the reason. The store remembers the pick for this person.
  */
 export function ApprovalModePicker({
 	state,
 	onChange,
+	onRaise,
 	disabled,
 }: {
 	state: ApprovalModeState;
 	onChange: (mode: ApprovalMode) => void;
+	onRaise?: (mode: ApprovalMode) => void;
 	disabled?: boolean;
 }) {
 	const highest = APPROVAL_MODES.indexOf(state.highest);
 	return (
 		<Select
 			value={state.mode}
-			onValueChange={(mode) => onChange(mode as ApprovalMode)}
+			onValueChange={(value) => {
+				const mode = value as ApprovalMode;
+				if (APPROVAL_MODES.indexOf(mode) > highest) onRaise?.(mode);
+				else onChange(mode);
+			}}
 			disabled={disabled}
 		>
 			<SelectTrigger
@@ -74,15 +82,16 @@ export function ApprovalModePicker({
 						<SelectItem
 							key={mode}
 							value={mode}
-							disabled={capped}
+							disabled={capped && !onRaise}
 							title={APPROVAL_MODE_TEXT[mode].description}
 						>
 							<span className="grid">
 								<span>{APPROVAL_MODE_TEXT[mode].label}</span>
 								{capped ? (
 									<span className="text-kumo-subtle type-tedix-caption">
-										This workspace allows up to{" "}
-										{APPROVAL_MODE_TEXT[state.highest].label}
+										{onRaise
+											? "Also allows it for everyone in this workspace"
+											: `This workspace allows up to ${APPROVAL_MODE_TEXT[state.highest].label}`}
 									</span>
 								) : null}
 							</span>
