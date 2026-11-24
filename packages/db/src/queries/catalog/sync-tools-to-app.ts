@@ -265,12 +265,7 @@ export async function syncCatalogToolsToApp(
 		clientCredentialsTokenUrl: catalogApp.scanClientCredentialsTokenUrl,
 	});
 
-	// New tools whose capability nobody declared. Collected across the whole
-	// pass so an applied sync fails once, naming every tool that needs an
-	// explicit scope decision, instead of surfacing them one run at a time.
-	const undeclaredNewTools: string[] = [];
-
-	// Collect all planned mutations, then execute atomically in a transaction
+	// Collect all planned mutations, then execute atomically in a D1 batch.
 	const plannedInserts: (typeof appTools.$inferInsert)[] = [];
 	const plannedUpdates: Array<{
 		id: string;
@@ -286,6 +281,14 @@ export async function syncCatalogToolsToApp(
 		const existing = liveRow?.reviewPending
 			? ({ ...liveRow, ...liveRow.reviewPending } as typeof liveRow)
 			: liveRow;
+		const reject = (reason: string) => {
+			results.push({ toolName: ct.toolName, action: "skipped", reason });
+			errors.push(reason);
+			// A previously imported definition must not stay callable after rejection.
+			if (!dryRun && liveRow && ownsCatalogMcpTool(liveRow, catalogAppId)) {
+				plannedDisables.push(liveRow.id);
+			}
+		};
 		const inputSchema = normalizeMcpInputSchema(ct.inputSchema);
 		const title = ct.title ?? titleFromToolName(ct.toolName);
 		const icons = ct.icons ?? null;
@@ -319,8 +322,7 @@ export async function syncCatalogToolsToApp(
 			const parsed = ToolPolicyMetadataSchema.safeParse(policy);
 			if (!parsed.success) {
 				const reason = `Tool ${ct.toolName} has invalid policy: ${parsed.error.message}`;
-				results.push({ toolName: ct.toolName, action: "skipped", reason });
-				errors.push(reason);
+				reject(reason);
 				continue;
 			}
 		}
@@ -342,12 +344,8 @@ export async function syncCatalogToolsToApp(
 			meta,
 		});
 		if (gap && (declaredWriteCapability !== null || existing)) {
-			const reason = `Tool ${ct.toolName} ${gap}.`;
-			if (dryRun) {
-				results.push({ toolName: ct.toolName, action: "skipped", reason });
-				continue;
-			}
-			throw new Error(reason);
+			reject(`Tool ${ct.toolName} ${gap}.`);
+			continue;
 		}
 
 		const toolConfig = {
@@ -360,33 +358,18 @@ export async function syncCatalogToolsToApp(
 
 		if (existing && !ownsCatalogMcpTool(existing, catalogAppId)) {
 			const reason = `Tool id conflict: "${ct.toolName}" already exists on ${targetApp.name} but is not owned by catalog app ${catalogAppId}`;
-			if (dryRun) {
-				results.push({
-					toolName: ct.toolName,
-					action: "skipped",
-					reason,
-				});
-				continue;
-			}
-			throw new Error(reason);
+			reject(reason);
+			continue;
 		}
 
 		if (!existing) {
 			if (declaredWriteCapability === null) {
-				// Every gate treats an UNDECLARED row as write-capable, so a silent
-				// NULL read could never ship — but a backlog of unclassified rows is
-				// exactly the defect this sync must stop creating. Fail loudly and
-				// point at the two override surfaces.
 				const reason =
 					`Tool "${ct.toolName}" has no declared write capability: upstream ` +
 					`sent no classifying annotations and no override covers it. Declare ` +
 					`it via mcpConfig.writeCapabilityOverrides on the app or the ` +
 					`writeCapabilityOverrides sync option.`;
-				if (dryRun) {
-					results.push({ toolName: ct.toolName, action: "skipped", reason });
-					continue;
-				}
-				undeclaredNewTools.push(ct.toolName);
+				reject(reason);
 				continue;
 			}
 			const diff: ToolReviewDiff = {
@@ -683,16 +666,6 @@ export async function syncCatalogToolsToApp(
 		}
 	}
 
-	if (undeclaredNewTools.length > 0) {
-		throw new Error(
-			`Refusing to create ${undeclaredNewTools.length} tool row(s) with undeclared ` +
-				`write capability on ${targetApp.name}: ${undeclaredNewTools.join(", ")}. ` +
-				`Upstream annotations do not classify them; declare each via ` +
-				`mcpConfig.writeCapabilityOverrides on the app or the ` +
-				`writeCapabilityOverrides sync option.`,
-		);
-	}
-
 	if (disableRemoved) {
 		// Check for app_tools owned by this catalog app that are no longer in the
 		// catalog snapshot. Do not disable same-name tools from other upstreams or
@@ -827,7 +800,7 @@ export async function syncCatalogToolsToApp(
 	).length;
 	const skipped = results.filter((r) => r.action === "skipped").length;
 	const prefix = dryRun ? "[DRY RUN] " : "";
-	const summary = `${prefix}${created} created, ${updated} updated, ${disabled} disabled, ${skipped} skipped (${catalogTools.length} catalog tools)`;
+	const summary = `${prefix}${created} created, ${updated} updated, ${disabled} disabled, ${skipped} skipped, ${errors.length} rejected (${catalogTools.length} catalog tools)`;
 
 	return {
 		catalogAppId,

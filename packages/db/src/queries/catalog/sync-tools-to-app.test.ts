@@ -471,9 +471,13 @@ describe("syncCatalogToolsToApp write capability", () => {
 			);
 			const after = await db.select().from(appTools);
 			expect(after).toHaveLength(2);
-			expect(after.find((tool) => tool.toolId === "publish_page")).toEqual(
-				before.find((tool) => tool.toolId === "publish_page"),
-			);
+			expect(
+				after.find((tool) => tool.toolId === "publish_page"),
+			).toMatchObject({
+				...before.find((tool) => tool.toolId === "publish_page"),
+				enabled: dryRun,
+				updatedAt: expect.any(String),
+			});
 			if (dryRun) {
 				expect(after).toEqual(before);
 			} else {
@@ -575,14 +579,15 @@ describe("syncCatalogToolsToApp write capability", () => {
 			.insert(appCatalogMcpTools)
 			.values(catalogTool("ct-4", "createJiraIssue", null));
 
-		await expect(
-			syncCatalogToolsToApp(db, {
-				catalogAppId: "catalog-wc",
-				appId: "app-wc",
-				mcpServerUrl: "https://mcp.acme.test/mcp",
-				dryRun: false,
-			}),
-		).rejects.toThrow(/createJiraIssue.*writeCapabilityOverrides/s);
+		const result = await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: false,
+		});
+		expect(result.errors).toEqual([
+			expect.stringMatching(/createJiraIssue.*writeCapabilityOverrides/s),
+		]);
 
 		const rows = await db
 			.select({ toolId: appTools.toolId })
@@ -614,35 +619,48 @@ describe("syncCatalogToolsToApp write capability", () => {
 		]);
 	});
 
-	it("refuses a write import without a tier before applying any changes", async () => {
-		const { db, batchCalls, resetBatchCalls } = setup();
+	it("imports valid tools while rejecting destructive tools missing risk metadata", async () => {
+		const { db } = setup();
 		await seed(db);
-		await db.insert(appCatalogMcpTools).values({
-			...catalogTool("missing-tier", "tidy_notes", { readOnlyHint: false }),
-			meta: null,
-		});
-		resetBatchCalls();
+		await db.insert(appCatalogMcpTools).values([
+			catalogTool("valid-read", "list_notes", { readOnlyHint: true }),
+			{
+				...catalogTool("missing-tier", "delete_notes", {
+					destructiveHint: true,
+				}),
+				meta: null,
+			},
+		]);
 		const options = {
 			catalogAppId: "catalog-wc",
 			appId: "app-wc",
 			mcpServerUrl: "https://mcp.acme.test/mcp",
 			dryRun: false,
 		};
-		await expect(syncCatalogToolsToApp(db, options)).rejects.toThrow(
-			"Tool tidy_notes has no risk tier",
-		);
-		expect(batchCalls()).toBe(0);
-		expect(await db.select().from(appTools)).toEqual([]);
 		const preview = await syncCatalogToolsToApp(db, {
 			...options,
 			dryRun: true,
 		});
-		expect(preview.results).toMatchObject([
-			{
-				action: "skipped",
-				reason: expect.stringContaining("has no risk tier"),
-			},
-		]);
+		expect(await db.select().from(appTools)).toEqual([]);
+		const result = await syncCatalogToolsToApp(db, options);
+		expect(result.errors).toEqual(preview.errors);
+		expect(result.results).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ toolName: "list_notes", action: "created" }),
+				{
+					toolName: "delete_notes",
+					action: "skipped",
+					reason: expect.stringContaining(
+						'set riskTier and blastRadius under _meta["com.tedix/policy"]',
+					),
+				},
+			]),
+		);
+		expect(
+			(await db.select().from(appTools)).map((tool) => tool.toolId),
+		).toEqual(["list_notes"]);
+		await db.update(appTools).set({ reviewState: "live" });
+		expect(await getEnabledToolIdsForApp(db, "app-wc")).toEqual(["list_notes"]);
 	});
 
 	it("creates undeclared upstream tools through the override map", async () => {

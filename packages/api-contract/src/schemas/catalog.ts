@@ -2283,7 +2283,13 @@ export const ReconcileCatalogAppStageSchema = z.object({
 		"catalog_to_app",
 		"custom_fork_propagation",
 	]),
-	status: z.enum(["skipped", "would_run", "completed", "failed"]),
+	status: z.enum([
+		"skipped",
+		"would_run",
+		"completed",
+		"completed_with_rejections",
+		"failed",
+	]),
 	summary: z.string(),
 	data: z.record(z.string(), z.string()).optional(),
 });

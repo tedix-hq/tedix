@@ -306,6 +306,7 @@ describe("catalog reconcile aggregate cache activation", () => {
 		});
 		mocks.syncCatalogToolsToApp.mockResolvedValue({
 			results: [{ action: "updated" }],
+			errors: [],
 			summary: "1 updated",
 		});
 		mocks.resolveDriftReport.mockResolvedValue(undefined);
@@ -365,6 +366,33 @@ describe("catalog reconcile aggregate cache activation", () => {
 		expect(purges).toEqual(["catalog.reconcile_app schema sync"]);
 		await flush();
 	});
+	it("returns per-tool rejections after syncing the remaining catalog tools", async () => {
+		const reason =
+			'Tool delete_notes has no risk tier: set riskTier and blastRadius under _meta["com.tedix/policy"].';
+		mocks.syncCatalogToolsToApp.mockResolvedValueOnce({
+			results: [
+				{ toolName: "list_notes", action: "created" },
+				{ toolName: "delete_notes", action: "skipped", reason },
+			],
+			errors: [reason],
+			summary: "1 created, 1 skipped",
+		});
+		const { client, flush, purges } = makeHarness();
+		const result = await client.reconcileApp({
+			catalogAppId: CATALOG_APP_ID,
+			dryRun: false,
+			customForkAppIds: [],
+		});
+		const stage = result.stages.find(
+			(stage) => stage.stage === "catalog_to_app",
+		);
+		expect(stage?.status).toBe("completed_with_rejections");
+		expect(JSON.parse(stage?.data?.rejectedTools ?? "null")).toEqual([
+			{ toolName: "delete_notes", action: "skipped", reason },
+		]);
+		expect(purges).toEqual(["catalog.reconcile_app schema sync"]);
+		await flush();
+	});
 	it("does not invalidate caches for a dry-run reconciliation", async () => {
 		const { client, purges } = makeHarness();
 		await client.reconcileApp({
@@ -395,7 +423,7 @@ describe("catalog reconcile aggregate cache activation", () => {
 		mocks.getCatalogBaseApp.mockResolvedValueOnce(null);
 		mocks.createBaseAppFromCatalog.mockResolvedValueOnce({
 			app: { id: TARGET_APP_ID, name: "CMS", slug: "cms" },
-			sync: { results: [{ action: "created" }] },
+			sync: { results: [{ action: "created" }], errors: [] },
 		});
 		const { client, purges } = makeHarness();
 		await client.reconcileApp({

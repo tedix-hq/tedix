@@ -333,12 +333,21 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 					pushReconcileStage(
 						stages,
 						"catalog_to_app",
-						"completed",
-						`Created linked base app ${baseApp.slug} and synced ${created.sync.results.length} tools.`,
+						created.sync.errors.length > 0
+							? "completed_with_rejections"
+							: "completed",
+						`Created linked base app ${baseApp.slug}. ${created.sync.summary}`,
 						stageData({
 							baseAppId: baseApp.id,
 							baseAppSlug: baseApp.slug,
 							toolResults: created.sync.results.length,
+							rejectedTools: JSON.stringify(
+								created.sync.results.filter(
+									(result) =>
+										result.reason &&
+										created.sync.errors.includes(result.reason),
+								),
+							),
 						}),
 					);
 				}
@@ -371,10 +380,20 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 				pushReconcileStage(
 					stages,
 					"catalog_to_app",
-					dryRun ? "would_run" : "completed",
+					dryRun
+						? "would_run"
+						: sync.errors.length > 0
+							? "completed_with_rejections"
+							: "completed",
 					sync.summary,
 					stageData({
 						resultCount: sync.results.length,
+						rejectedTools: JSON.stringify(
+							sync.results.filter(
+								(result) =>
+									result.reason && sync.errors.includes(result.reason),
+							),
+						),
 					}),
 				);
 			} else {
@@ -455,7 +474,9 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 			);
 		}
 		const completed = stages.filter(
-			(stage) => stage.status === "completed",
+			(stage) =>
+				stage.status === "completed" ||
+				stage.status === "completed_with_rejections",
 		).length;
 		const wouldRun = stages.filter(
 			(stage) => stage.status === "would_run",
