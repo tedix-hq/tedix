@@ -66,7 +66,7 @@ export function toolAvailability(
 			available: !end,
 			until: end ? new Date(end).toISOString() : null,
 			description: end
-				? `${NAMES[executor]}: ${blocked[executor]?.backoffKind === "preparation" ? "native setup failed" : "out of credits or at its usage limit"}, back around ${new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+				? `${NAMES[executor]}: ${blocked[executor]?.backoffKind === "preparation" ? "could not start a task, trying again around" : "out of credits or at its usage limit, back around"} ${new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
 				: `${NAMES[executor]}: available`,
 			usage: usage || undefined,
 			nearLimit: nearUsageLimit(snapshots[executor]),
