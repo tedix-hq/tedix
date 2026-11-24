@@ -1,4 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { McpServer } from "@tedix/mcp-shared/server";
+import {
+	deriveToolWriteCapability,
+	type ToolAnnotations,
+} from "@tedix/api-contract/schemas/tools";
+import { toolClassDeclarationGap } from "@tedix/api-contract/utils/tool-declared-class";
+import { registerStarterTools } from "./tools-starter";
+import type { SiteBuilderToolContext } from "./tools-shared";
 import { GitMemoryFs } from "@tedix/worker-kit/git-memory-fs";
 import type { TreeEntry } from "isomorphic-git";
 import {
@@ -404,5 +412,33 @@ describe("starter source", () => {
 		expect(commits).toHaveLength(2);
 		expect(commits[0]!.commit).toMatch(/^[a-f0-9]{40}$/);
 		expect(commits[0]!.commit).toBe(repo.head());
+	});
+
+	it("passes catalog import classification for both starter tools", () => {
+		const classes = new Map<string, string | null>();
+		const server = {
+			registerTool(
+				name: string,
+				definition: {
+					annotations?: ToolAnnotations;
+					_meta?: Record<string, unknown>;
+				},
+			) {
+				const writeCapability = deriveToolWriteCapability(
+					definition.annotations,
+				);
+				expect(
+					toolClassDeclarationGap({ writeCapability, meta: definition._meta }),
+					name,
+				).toBeNull();
+				classes.set(name, writeCapability);
+			},
+		};
+		registerStarterTools(
+			server as unknown as McpServer,
+			{} as SiteBuilderToolContext,
+		);
+		expect(classes.get("theme_starter_diff")).toBe("read");
+		expect(classes.get("theme_starter_apply")).toBe("destructive");
 	});
 });

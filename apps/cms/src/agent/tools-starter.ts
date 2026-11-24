@@ -255,6 +255,12 @@ export function registerStarterTools(
 				}),
 			),
 			annotations: { destructiveHint: true },
+			_meta: {
+				"com.tedix/policy": {
+					riskTier: "high_impact_write",
+					blastRadius: "tenant",
+				},
+			},
 		},
 		async (args: {
 			summary?: string;
