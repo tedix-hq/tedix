@@ -1019,7 +1019,8 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			readAttentionFactoryLinks,
 		} = await import("@tedix/db/queries/work-attention");
 		const { buildAttention } = await import("../../lib/work-attention");
-		const { readContinuity } = await import("../../lib/stall-attention");
+		const { readContinuity, CONTINUITY_INVENTORY_REUSE_MS } =
+			await import("../../lib/stall-attention");
 		const { readFilingReview } =
 			await import("../../services/request-filing-review");
 		const [
@@ -1066,6 +1067,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				"",
 				owner.userId,
 				context.env.ENVIRONMENT,
+				CONTINUITY_INVENTORY_REUSE_MS,
 			),
 			readFilingReview(
 				context.db,

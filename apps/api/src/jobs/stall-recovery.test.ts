@@ -280,6 +280,34 @@ describe("autonomous stall recovery", () => {
 		expect(continuityPolicy('{"idleHours":48}').idleHours).toBe(48);
 		expect(continuityPolicy('{"idleHours":0}').idleHours).toBe(24);
 	});
+	it("reuses a recent inventory only when a read allows it, and only inside the window", async () => {
+		const { db, sqlite } = fixture();
+		const prepare = vi.spyOn(sqlite, "prepare");
+		const inventories = () =>
+			prepare.mock.calls.filter(([text]) => text.includes("project_page"))
+				.length;
+		const read = (at: number, reuseMs?: number) =>
+			readContinuity(
+				db,
+				"fictional-orchard",
+				new Date(at),
+				"",
+				undefined,
+				"production",
+				reuseMs,
+			);
+		const start = Date.parse(now);
+		const first = await read(start, 60_000);
+		const once = inventories();
+		expect(once).toBeGreaterThan(0);
+		expect(await read(start + 59_000, 60_000)).toEqual(first);
+		expect(inventories()).toBe(once);
+		// A read that does not allow reuse, and one past the window, read afresh.
+		await read(start + 1_000);
+		expect(inventories()).toBe(once * 2);
+		await read(start + 60_000, 60_000);
+		expect(inventories()).toBe(once * 3);
+	});
 	it("resumes once, keeps canonical IDs, and suppresses raw gaps until acceptance", async () => {
 		const { db, scope, send, recover } = fixture();
 		expect(

@@ -450,7 +450,8 @@ const getContinuityProcedure = authOs.getContinuity
 	.use(AUTHZ.objectiveRead)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgIdOrInput(context);
-		const { readContinuity } = await import("../../lib/stall-attention");
+		const { readContinuity, CONTINUITY_INVENTORY_REUSE_MS } =
+			await import("../../lib/stall-attention");
 		return readContinuity(
 			context.db,
 			orgId,
@@ -458,6 +459,7 @@ const getContinuityProcedure = authOs.getContinuity
 			input.after,
 			undefined,
 			context.env.ENVIRONMENT,
+			CONTINUITY_INVENTORY_REUSE_MS,
 		);
 	});
 
