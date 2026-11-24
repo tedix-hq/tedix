@@ -13,6 +13,13 @@
 			"owner": "apps/mcp:mcp-tasks-workflow-ledger",
 			"binding": "createDbClient(this.env.DB)",
 			"reason": "The generic task Workflow owns retry-safe terminal transitions in the documented mcp_tasks edge-enforcement ledger around its durable dispatch steps."
+		},
+		"packages/tedi-session/src/session-repo.ts": {
+			"storagePlane": "do-local-sqlite",
+			"disposition": "approved",
+			"owner": "packages/tedi-session:session-entries-projection",
+			"binding": "openSessionEntriesStore(deps.storage)",
+			"reason": "The compacted recent-turn projection over the tedi runtime object's own session_entries needs WITH ... AS MATERIALIZED, which Drizzle cannot build; session-repo-cost.workerd.test.ts proves the hint cuts Durable Object rows read. Every other statement uses @tedix/db/queries/durable-sqlite/session-entries."
 		}
 	},
 	"directD1": {

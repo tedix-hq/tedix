@@ -1,10 +1,7 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { expect, it } from "vite-plus/test";
-import {
-	TediSessionRepo,
-	type SessionRepoSql,
-} from "@tedix/tedi-session/session-repo";
+import { TediSessionRepo } from "@tedix/tedi-session/session-repo";
 
 const namespace = (env as unknown as { PI_TEST: DurableObjectNamespace })
 	.PI_TEST;
@@ -15,28 +12,32 @@ function measure(sql: SqlStorage, query: string, values: SqlStorageValue[]) {
 	return { rows, rowsRead: cursor.rowsRead, rowsWritten: cursor.rowsWritten };
 }
 
-function fixture(sql: SqlStorage, limit = 40) {
+/**
+ * The repo over this object's storage, with the compaction projection's
+ * statement measured as it runs (the cursor is consumed here, so the repo
+ * gets its rows from the measurement).
+ */
+function fixture(storage: DurableObjectStorage, limit = 40) {
+	const sql = storage.sql;
 	let projection:
 		| (ReturnType<typeof measure> & {
 				query: string;
 				values: SqlStorageValue[];
 		  })
 		| undefined;
-	const runner: SessionRepoSql = <T>(
-		strings: TemplateStringsArray,
-		...input: (string | number | boolean | null)[]
-	) => {
-		const query = strings.join("?");
-		const values = input.map((value) =>
-			typeof value === "boolean" ? Number(value) : value,
-		);
+	const exec = (query: string, ...values: SqlStorageValue[]) => {
+		if (!query.trimStart().startsWith("WITH latest_compactions AS"))
+			return sql.exec(query, ...values);
 		const measured = measure(sql, query, values);
-		if (query.trimStart().startsWith("WITH latest_compactions AS"))
-			projection = { ...measured, query, values };
-		return measured.rows as T[];
+		projection = { ...measured, query, values };
+		return { toArray: () => measured.rows };
+	};
+	const runner = {
+		sql: { exec },
+		transactionSync: <T>(closure: () => T) => storage.transactionSync(closure),
 	};
 	const repo = new TediSessionRepo({
-		sql: runner,
+		storage: runner,
 		readDurable: async () => ({ entries: [], compaction: null }),
 		maxRecentTurns: limit,
 	});
@@ -64,7 +65,7 @@ function fixture(sql: SqlStorage, limit = 40) {
 it("reuses the compaction projection across both branches with fewer DO rows read", async () => {
 	const stub = namespace.get(namespace.idFromName(crypto.randomUUID()));
 	const reads = await runInDurableObject(stub, async (_agent, state) => {
-		const f = fixture(state.storage.sql);
+		const f = fixture(state.storage);
 		state.storage.transactionSync(() => {
 			for (let session = 0; session < 30; session++) {
 				for (let message = 0; message < 200; message++)
@@ -105,7 +106,7 @@ it("reuses the compaction projection across both branches with fewer DO rows rea
 it("preserves latest-marker ties, scoped boundaries, missing boundaries and global limits", async () => {
 	const stub = namespace.get(namespace.idFromName(crypto.randomUUID()));
 	await runInDurableObject(stub, async (_agent, state) => {
-		const f = fixture(state.storage.sql);
+		const f = fixture(state.storage);
 		const insert = (
 			id: string,
 			session: string,
@@ -165,7 +166,7 @@ it("preserves latest-marker ties, scoped boundaries, missing boundaries and glob
 				"newest",
 			].sort(),
 		);
-		const bounded = fixture(state.storage.sql, 2).compare();
+		const bounded = fixture(state.storage, 2).compare();
 		// Equal timestamps have no specified cross-session tie-breaker.
 		for (const rows of [bounded.current.rows, bounded.baseline.rows]) {
 			expect(rows).toHaveLength(2);

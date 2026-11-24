@@ -9,6 +9,23 @@
  * while original messages remain stored.
  */
 
+import { sql } from "drizzle-orm";
+import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
+import {
+	type SessionEntryFullRow,
+	type SessionEntryMessageRow,
+	appendSessionEntry,
+	findSessionMessageByIdempotencyKey,
+	hasSessionCompaction,
+	listRecentSessionMessages,
+	listSessionEntries,
+} from "@tedix/db/queries/durable-sqlite/session-entries";
+import {
+	type SessionEntriesDb,
+	type SessionEntriesStorage,
+	ensureSessionEntriesTables,
+	openSessionEntriesStore,
+} from "@tedix/db/session-entries-store/store";
 import { selectRetainIndex } from "@tedix/context-core/compaction-boundary";
 import { countTokens } from "@tedix/context-core/tokens";
 import {
@@ -35,21 +52,9 @@ const DEFAULT_MAX_RECENT_TURNS = 40;
  */
 export const DEFAULT_KEEP_RECENT_TOKENS = 20_000;
 
-/**
- * DO-SQLite tagged-template runner port. Mirrors the exact call convention of the
- * DO's `this.sql` (see `DoSqlRunner` in `brain-bridge-do.ts` and the `getSqlRunner`
- * shim in `do.ts:695`): a tagged template that returns the result rows directly as
- * `T[]` (synchronous DO-SQLite exec). The integrator passes `this.sql` (or the
- * `getSqlRunner().sql` shim) straight in.
- */
-export type SessionRepoSql = <T = Record<string, unknown>>(
-	strings: TemplateStringsArray,
-	...values: (string | number | boolean | null)[]
-) => T[];
-
 export interface SessionRepoDeps {
-	/** DO-SQLite tagged-template runner — same shape as the DO's `this.sql`. */
-	sql: SessionRepoSql;
+	/** The Durable Object's storage; the repo owns its `session_entries` table. */
+	storage: SessionEntriesStorage;
 	/**
 	 * The durable, canonical per-conversation transcript read — the existing
 	 * `do.ts` `readDurableMessagesForSession`, passed in verbatim. The ledger
@@ -70,14 +75,7 @@ export interface SessionRepoDeps {
 }
 
 /** Raw message-row projection from `session_entries`. */
-interface SessionEntryRow {
-	session_key: string;
-	role: string;
-	content: string;
-	ts: number;
-	model_provider: string | null;
-	model_id: string | null;
-}
+type SessionEntryRow = SessionEntryMessageRow;
 
 /** Stored entry types used by branch projection and append-only compaction. */
 export type SessionEntryType = "message" | "compaction" | "branch_summary";
@@ -106,19 +104,7 @@ export interface SessionEntry {
 }
 
 /** Raw phase-2 row shape — the full column set including branch/compaction. */
-interface FullEntryRow {
-	id: string;
-	session_key: string;
-	parent_id: string | null;
-	type: string;
-	role: string;
-	content: string;
-	ts: number;
-	first_kept_entry_id: string | null;
-	tokens_before: number | null;
-	model_provider: string | null;
-	model_id: string | null;
-}
+type FullEntryRow = SessionEntryFullRow;
 
 /** Map a full phase-2 row to a {@link SessionEntry}. */
 function rowToEntry(row: FullEntryRow): SessionEntry {
@@ -445,14 +431,14 @@ export function findCutPoint(
  * `DoDedupStore.ensureSchema()`.
  */
 export class TediSessionRepo implements SessionHarnessBackend {
-	private readonly sql: SessionRepoSql;
+	private readonly db: SessionEntriesDb;
 	private readonly readDurable: SessionRepoDeps["readDurable"];
 	private readonly maxRecentTurns: number;
 	private readonly keepRecentTokens: number;
 	private schemaReady = false;
 
 	constructor(deps: SessionRepoDeps) {
-		this.sql = deps.sql;
+		this.db = openSessionEntriesStore(deps.storage);
 		this.readDurable = deps.readDurable;
 		this.maxRecentTurns = deps.maxRecentTurns ?? DEFAULT_MAX_RECENT_TURNS;
 		this.keepRecentTokens = deps.keepRecentTokens ?? DEFAULT_KEEP_RECENT_TOKENS;
@@ -460,52 +446,8 @@ export class TediSessionRepo implements SessionHarnessBackend {
 
 	private ensureSchema(): void {
 		if (this.schemaReady) return;
-		// `idempotency_key` is nullable: the partial unique index only constrains
-		// keyed appends for ledger-mirrored turns.
-		this.sql`
-			CREATE TABLE IF NOT EXISTS session_entries (
-				id TEXT PRIMARY KEY,
-				session_key TEXT NOT NULL,
-				parent_id TEXT,
-				type TEXT NOT NULL DEFAULT 'message',
-				role TEXT NOT NULL,
-				content TEXT NOT NULL,
-				idempotency_key TEXT,
-				ts INTEGER NOT NULL,
-				first_kept_entry_id TEXT,
-				tokens_before INTEGER,
-				model_provider TEXT,
-				model_id TEXT
-			)
-		`;
-		this.sql`
-			CREATE INDEX IF NOT EXISTS idx_session_entries_key_ts
-				ON session_entries (session_key, ts)
-		`;
-		this.sql`
-			CREATE UNIQUE INDEX IF NOT EXISTS uq_session_entries_key_idem
-				ON session_entries (session_key, idempotency_key)
-				WHERE idempotency_key IS NOT NULL
-		`;
-		this.migrateSessionColumns();
+		ensureSessionEntriesTables(this.db);
 		this.schemaReady = true;
-	}
-
-	/** Add missing columns without changing rows; a failed ALTER must stop initialization. */
-	private migrateSessionColumns(): void {
-		const columns = new Set(
-			this.sql<{ name: string }>`PRAGMA table_info(session_entries)`.map(
-				(column) => column.name,
-			),
-		);
-		if (!columns.has("first_kept_entry_id"))
-			this.sql`ALTER TABLE session_entries ADD COLUMN first_kept_entry_id TEXT`;
-		if (!columns.has("tokens_before"))
-			this.sql`ALTER TABLE session_entries ADD COLUMN tokens_before INTEGER`;
-		if (!columns.has("model_provider"))
-			this.sql`ALTER TABLE session_entries ADD COLUMN model_provider TEXT`;
-		if (!columns.has("model_id"))
-			this.sql`ALTER TABLE session_entries ADD COLUMN model_id TEXT`;
 	}
 
 	// ── SessionHarnessBackend ──────────────────────────────────────────────────
@@ -526,13 +468,7 @@ export class TediSessionRepo implements SessionHarnessBackend {
 		// phase-1 behaviour — and `mergeDurableAndCache` ts-boundary semantics — is
 		// byte-for-byte preserved whenever nothing has been compacted.
 		if (!this.hasCompaction()) {
-			const rowsDesc = this.sql<SessionEntryRow>`
-				SELECT session_key, role, content, ts, model_provider, model_id
-				FROM session_entries
-				WHERE type = 'message'
-				ORDER BY ts DESC
-				LIMIT ${this.maxRecentTurns}
-			`;
+			const rowsDesc = listRecentSessionMessages(this.db, this.maxRecentTurns);
 			return selectRecentWindow(rowsDesc, this.maxRecentTurns);
 		}
 		return this.listTurnsProjected();
@@ -540,13 +476,7 @@ export class TediSessionRepo implements SessionHarnessBackend {
 
 	/** Bounded probe for the phase-1 fast path in `listTurns`. */
 	private hasCompaction(): boolean {
-		const rows = this.sql<{ has_compaction: number }>`
-			SELECT 1 AS has_compaction
-			FROM session_entries
-			WHERE type = 'compaction'
-			LIMIT 1
-		`;
-		return rows.length > 0;
+		return hasSessionCompaction(this.db);
 	}
 
 	/**
@@ -557,7 +487,11 @@ export class TediSessionRepo implements SessionHarnessBackend {
 	 * the phase-1 window contract `mergeDurableAndCache` relies on.
 	 */
 	private listTurnsProjected(): TediSessionTurn[] {
-		const rowsDesc = this.sql<SessionEntryRow>`
+		// Hand-written on purpose: Drizzle cannot build `AS MATERIALIZED`, and
+		// session-repo-cost.workerd.test.ts shows the hint cuts the rows read by
+		// reusing the compaction projection in both branches.
+		const projection: Pick<DrizzleSqliteDODatabase, "all"> = this.db;
+		const rowsDesc = projection.all<SessionEntryRow>(sql`
 			WITH latest_compactions AS MATERIALIZED (
 				SELECT
 					compaction.session_key AS compacted_session_key,
@@ -627,20 +561,13 @@ export class TediSessionRepo implements SessionHarnessBackend {
 			FROM projected_turns
 			ORDER BY projected_ts DESC
 			LIMIT ${this.maxRecentTurns}
-		`;
+		`);
 		return selectRecentWindow(rowsDesc, this.maxRecentTurns);
 	}
 
 	/** Read one session's full branch, ts-ascending then id-stable. */
 	private readAllEntries(sessionKey: string): SessionEntry[] {
-		const rows = this.sql<FullEntryRow>`
-			SELECT id, session_key, parent_id, type, role, content, ts,
-				first_kept_entry_id, tokens_before, model_provider, model_id
-			FROM session_entries
-			WHERE session_key = ${sessionKey}
-			ORDER BY ts ASC
-		`;
-		return rows.map(rowToEntry);
+		return listSessionEntries(this.db, sessionKey).map(rowToEntry);
 	}
 
 	/** {@link SessionHarnessBackend.appendTurn} — threads the harness-supplied
@@ -663,7 +590,7 @@ export class TediSessionRepo implements SessionHarnessBackend {
 	 * `idempotencyKey`. Callers with a runId-style key (the WS/mesh turn families
 	 * in `do.ts` that already compute a `runId`, e.g. `commitAssistantTurn` /
 	 * `beforeTurn`) pass `deriveIdempotencyKey(runId, role)` so a retried turn is
-	 * inserted once — `INSERT OR IGNORE` on the partial UNIQUE
+	 * inserted once — `ON CONFLICT DO NOTHING` on the partial UNIQUE
 	 * `(session_key, idempotency_key)` index makes the second insert a no-op,
 	 * mirroring the ledger's conflict-do-nothing. The base `appendTurn` (key
 	 * undefined) dedups only on the derived PK (`${sessionKey}:${ts}:${role}`).
@@ -672,7 +599,7 @@ export class TediSessionRepo implements SessionHarnessBackend {
 	 * hit (the keyed/PK row already existed). The boolean is load-bearing — it is
 	 * the sole dedup signal callers gate per-turn side effects on (daily-log
 	 * enqueue, fan-out), replacing the old scan-based `.some(listTurns())` checks.
-	 * `INSERT OR IGNORE ... RETURNING id` yields the inserted id on a real insert
+	 * `ON CONFLICT DO NOTHING ... RETURNING id` yields the inserted id on a real insert
 	 * and zero rows when the conflict clause swallowed the row.
 	 */
 	appendTurnWithKey(turn: TediSessionTurn, idempotencyKey?: string): boolean {
@@ -680,25 +607,18 @@ export class TediSessionRepo implements SessionHarnessBackend {
 		const id = idempotencyKey
 			? `${turn.sessionKey ?? ""}:${idempotencyKey}`
 			: deriveEntryId(turn);
-		const rows = this.sql<{ id: string }>`
-			INSERT OR IGNORE INTO session_entries
-				(id, session_key, parent_id, type, role, content, idempotency_key, ts,
-				 model_provider, model_id)
-			VALUES (
-				${id},
-				${turn.sessionKey ?? ""},
-				${null},
-				${"message"},
-				${turn.role},
-				${turn.content},
-				${idempotencyKey ?? null},
-				${turn.ts},
-				${turn.modelIdentity?.provider ?? null},
-				${turn.modelIdentity?.model ?? null}
-			)
-			RETURNING id
-		`;
-		return rows.length > 0;
+		return appendSessionEntry(this.db, {
+			id,
+			sessionKey: turn.sessionKey ?? "",
+			parentId: null,
+			type: "message",
+			role: turn.role,
+			content: turn.content,
+			idempotencyKey: idempotencyKey ?? null,
+			ts: turn.ts,
+			modelProvider: turn.modelIdentity?.provider ?? null,
+			modelId: turn.modelIdentity?.model ?? null,
+		});
 	}
 
 	/**
@@ -716,13 +636,10 @@ export class TediSessionRepo implements SessionHarnessBackend {
 		idempotencyKey: string,
 	): TediSessionTurn | null {
 		this.ensureSchema();
-		const rows = this.sql<SessionEntryRow>`
-			SELECT session_key, role, content, ts, model_provider, model_id
-			FROM session_entries
-			WHERE session_key = ${sessionKey} AND idempotency_key = ${idempotencyKey}
-			LIMIT 1
-		`;
-		const row = rows[0];
+		const row = findSessionMessageByIdempotencyKey(this.db, {
+			sessionKey,
+			idempotencyKey,
+		});
 		return row ? rowToTurn(row) : null;
 	}
 
@@ -775,23 +692,18 @@ export class TediSessionRepo implements SessionHarnessBackend {
 		const ts =
 			entries.length > 0 ? entries[entries.length - 1]!.ts : Date.now();
 		const id = `${sessionKey}:compaction:${opts.firstKeptEntryId}`;
-		this.sql`
-			INSERT OR IGNORE INTO session_entries
-				(id, session_key, parent_id, type, role, content, idempotency_key, ts,
-					first_kept_entry_id, tokens_before)
-			VALUES (
-				${id},
-				${sessionKey},
-				${leaf},
-				${"compaction"},
-				${"assistant"},
-				${opts.summary},
-				${null},
-				${ts},
-				${opts.firstKeptEntryId},
-				${opts.tokensBefore}
-			)
-		`;
+		appendSessionEntry(this.db, {
+			id,
+			sessionKey,
+			parentId: leaf,
+			type: "compaction",
+			role: "assistant",
+			content: opts.summary,
+			idempotencyKey: null,
+			ts,
+			firstKeptEntryId: opts.firstKeptEntryId,
+			tokensBefore: opts.tokensBefore,
+		});
 		return { id, ts };
 	}
 

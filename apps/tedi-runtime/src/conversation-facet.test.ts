@@ -457,7 +457,15 @@ console.log("conversation-facet native projection OK");
 			kv: { get: () => ({ operationId: "operation" }) },
 			get: async () => pending,
 			sql: {
-				exec: () => ({ toArray: () => [{ input: JSON.stringify(source) }] }),
+				// The accepted identity row, as the Durable Object cursor Drizzle reads.
+				exec: () => {
+					const row = { record: "{}", input: JSON.stringify(source) };
+					return {
+						toArray: () => [row],
+						next: () => ({ value: row, done: false }),
+						raw: () => [[row.record, row.input]].values(),
+					};
+				},
 			},
 		},
 	};

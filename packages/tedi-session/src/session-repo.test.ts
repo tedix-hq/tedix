@@ -4,9 +4,9 @@
  * `node:assert`, no Worker harness, no DO import.
  * Run: `bun run src/session-repo.test.ts`.
  *
- * The DO-SQLite substrate is faked with a tiny in-memory `sql` port (a JS array of
- * rows + a minimal matcher for the handful of statements the repo emits), so the
- * repo is testable entirely offline. We also wire a `SessionHarness` over the repo
+ * The DO-SQLite substrate is a real in-memory `node:sqlite` database behind the
+ * shared Durable Object storage fixture, so the repo runs its actual Drizzle
+ * statements and migrations offline. We also wire a `SessionHarness` over the repo
  * to prove the frozen harness contract (ledger-first `buildContext`) still works
  * unchanged over this backend.
  */
@@ -27,17 +27,15 @@ import {
 	projectBranch,
 	rowToTurn,
 	type SessionEntry,
-	type SessionRepoSql,
 	selectRecentWindow,
 	TediSessionRepo,
 } from "./session-repo";
 
-// ── Tiny in-memory DO-SQLite fake ────────────────────────────────────────────
-// Models just enough of the `session_entries` table for the repo's statements:
-// CREATE (no-op), INSERT OR IGNORE (with partial-unique idempotency dedup +
-// PK dedup), and the SELECT … ORDER BY ts DESC LIMIT recent-window read.
+// ── Real in-memory DO-SQLite ──────────────────────────────────────────────────
+// `rows` is a live view of `session_entries`; `queries` records every statement
+// the repo sends to storage, in order.
 
-interface FakeRow {
+interface StoredRow {
 	id: string;
 	session_key: string;
 	parent_id: string | null;
@@ -52,257 +50,85 @@ interface FakeRow {
 	model_id: string | null;
 }
 
-function createFakeSql(): {
-	sql: SessionRepoSql;
-	rows: FakeRow[];
+type Storage = ConstructorParameters<typeof TediSessionRepo>[0]["storage"];
+type Bound = Parameters<ReturnType<DatabaseSync["prepare"]>["all"]>;
+
+/**
+ * The Durable Object storage slice drizzle-orm/durable-sqlite drives
+ * (`sql.exec` cursors with `toArray`/`raw`, and `transactionSync`) over
+ * `node:sqlite`. Records each statement and can fail on demand.
+ */
+function recordingStorage(
+	db: DatabaseSync,
+	queries: string[] = [],
+	failOn?: () => string | undefined,
+): Storage {
+	const exec = (query: string, ...params: unknown[]) => {
+		queries.push(query);
+		const failing = failOn?.();
+		if (failing && query.includes(failing))
+			throw new Error("injected storage failure");
+		const statement = db.prepare(query);
+		const bound = params.map((value) =>
+			typeof value === "boolean" ? Number(value) : value,
+		) as Bound;
+		const verb = query.trimStart().split(/\s+/, 1)[0]!.toUpperCase();
+		const rows =
+			verb === "SELECT" ||
+			verb === "WITH" ||
+			verb === "PRAGMA" ||
+			/\bRETURNING\b/i.test(query)
+				? (statement.all(...bound) as Record<string, unknown>[])
+				: (statement.run(...bound), []);
+		return {
+			toArray: () => rows,
+			raw: () => {
+				const values = rows.map((row) => Object.values(row));
+				const iterator = values[Symbol.iterator]();
+				return Object.assign(iterator, { toArray: () => values });
+			},
+		};
+	};
+	return {
+		sql: { exec },
+		transactionSync<T>(closure: () => T): T {
+			db.exec("BEGIN");
+			try {
+				const result = closure();
+				db.exec("COMMIT");
+				return result;
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		},
+	};
+}
+
+function createStore(): {
+	storage: Storage;
+	rows: StoredRow[];
 	queries: string[];
 } {
-	const rows: FakeRow[] = [];
+	const db = new DatabaseSync(":memory:");
 	const queries: string[] = [];
-	const addedColumns = new Set<string>();
-	const sql: SessionRepoSql = (<T>(
-		strings: TemplateStringsArray,
-		...values: (string | number | boolean | null)[]
-	): T[] => {
-		const text = strings.join("?").replace(/\s+/g, " ").trim();
-		queries.push(text);
-		if (text === "PRAGMA table_info(session_entries)") {
-			return [...addedColumns].map((name) => ({ name })) as T[];
+	const read = (): StoredRow[] => {
+		try {
+			return db
+				.prepare("SELECT * FROM session_entries")
+				.all() as unknown as StoredRow[];
+		} catch {
+			return [];
 		}
-		if (text.startsWith("CREATE TABLE IF NOT EXISTS session_entries")) {
-			for (const name of [
-				"first_kept_entry_id",
-				"tokens_before",
-				"model_provider",
-				"model_id",
-			]) {
-				if (text.includes(name)) addedColumns.add(name);
-			}
-		}
-
-		if (
-			text.startsWith("CREATE TABLE") ||
-			text.startsWith("CREATE INDEX") ||
-			text.startsWith("CREATE UNIQUE INDEX")
-		) {
-			return [] as T[];
-		}
-
-		if (text.startsWith("ALTER TABLE session_entries ADD COLUMN")) {
-			const col = /ADD COLUMN (\w+)/.exec(text)?.[1] ?? "";
-			if (addedColumns.has(col)) {
-				throw new Error(`duplicate column name: ${col}`);
-			}
-			addedColumns.add(col);
-			return [] as T[];
-		}
-
-		if (text.startsWith("INSERT OR IGNORE INTO session_entries")) {
-			// Message rows may carry model_provider + model_id; compaction/fork rows
-			// use their own trailing first_kept_entry_id + tokens_before columns.
-			const [
-				id,
-				session_key,
-				parent_id,
-				type,
-				role,
-				content,
-				idempotency_key,
-				ts,
-			] = values;
-			const isModelTurn = text.includes("model_provider, model_id");
-			const first_kept_entry_id =
-				!isModelTurn && values.length >= 10 ? values[8] : null;
-			const tokens_before =
-				!isModelTurn && values.length >= 10 ? values[9] : null;
-			const model_provider = isModelTurn ? values[8] : null;
-			const model_id = isModelTurn ? values[9] : null;
-			// PK conflict → ignore.
-			if (rows.some((r) => r.id === id)) return [] as T[];
-			// Partial UNIQUE (session_key, idempotency_key) WHERE idempotency_key IS NOT NULL.
-			if (
-				idempotency_key != null &&
-				rows.some(
-					(r) =>
-						r.session_key === session_key &&
-						r.idempotency_key === idempotency_key,
-				)
-			) {
-				return [] as T[];
-			}
-			rows.push({
-				id: id as string,
-				session_key: session_key as string,
-				parent_id: (parent_id as string | null) ?? null,
-				type: type as string,
-				role: role as string,
-				content: content as string,
-				idempotency_key: (idempotency_key as string | null) ?? null,
-				ts: ts as number,
-				first_kept_entry_id: (first_kept_entry_id as string | null) ?? null,
-				tokens_before: (tokens_before as number | null) ?? null,
-				model_provider: (model_provider as string | null) ?? null,
-				model_id: (model_id as string | null) ?? null,
-			});
-			// `RETURNING id` yields the inserted id on a real insert (the conflict
-			// branches above return `[]`), so `appendTurnWithKey` reads a non-empty
-			// row set as did-insert=true.
-			return (text.includes("RETURNING id") ? [{ id }] : []) as T[];
-		}
-
-		// Phase-2: bounded compaction presence probe.
-		if (
-			text.startsWith(
-				"SELECT 1 AS has_compaction FROM session_entries WHERE type = 'compaction' LIMIT 1",
-			)
-		) {
-			return (
-				rows.some((r) => r.type === "compaction") ? [{ has_compaction: 1 }] : []
-			) as T[];
-		}
-
-		// Phase-2: SQL-projected recent window. The production query keeps the
-		// compaction overlay in SQLite and returns only the configured LIMIT.
-		if (text.startsWith("WITH latest_compactions AS")) {
-			const limit = values[0] as number;
-			const latestBySession = new Map<string, FakeRow>();
-			for (const row of rows) {
-				if (row.type !== "compaction") continue;
-				const current = latestBySession.get(row.session_key);
-				if (
-					!current ||
-					row.ts > current.ts ||
-					(row.ts === current.ts && row.id > current.id)
-				) {
-					latestBySession.set(row.session_key, row);
-				}
-			}
-			const projected: Array<{
-				session_key: string;
-				role: string;
-				content: string;
-				ts: number;
-				model_provider: string | null;
-				model_id: string | null;
-			}> = [];
-			for (const row of rows) {
-				if (row.type !== "message") continue;
-				const latest = latestBySession.get(row.session_key);
-				const firstKept = latest
-					? rows.find(
-							(candidate) =>
-								candidate.id === latest.first_kept_entry_id &&
-								candidate.session_key === latest.session_key &&
-								candidate.type === "message",
-						)
-					: undefined;
-				if (
-					latest &&
-					!(firstKept ? row.ts >= firstKept.ts : row.ts > latest.ts)
-				) {
-					continue;
-				}
-				projected.push({ ...row });
-			}
-			for (const latest of latestBySession.values()) {
-				const firstKept = rows.find(
-					(candidate) =>
-						candidate.id === latest.first_kept_entry_id &&
-						candidate.session_key === latest.session_key &&
-						candidate.type === "message",
-				);
-				projected.push({
-					session_key: latest.session_key,
-					role: "assistant",
-					content: latest.content,
-					ts: firstKept ? firstKept.ts - 1 : latest.ts,
-					model_provider: null,
-					model_id: null,
-				});
-			}
-			return projected.sort((a, b) => b.ts - a.ts).slice(0, limit) as T[];
-		}
-
-		// Phase-2: full-column read (all sessions or one), ts-ascending.
-		if (
-			text.startsWith(
-				"SELECT id, session_key, parent_id, type, role, content, ts, first_kept_entry_id, tokens_before, model_provider, model_id FROM session_entries",
-			)
-		) {
-			const bySession = / WHERE session_key = \?/.test(text);
-			const wantKey = bySession ? (values[0] as string) : null;
-			const out = rows
-				.filter((r) => (bySession ? r.session_key === wantKey : true))
-				.sort((a, b) => a.ts - b.ts)
-				.map((r) => ({ ...r }));
-			return out as T[];
-		}
-
-		// Exact-keyed settle probe: WHERE session_key = ? AND idempotency_key = ? LIMIT 1
-		if (
-			text.startsWith(
-				"SELECT id, role, content, ts, model_provider, model_id FROM session_entries",
-			) &&
-			text.includes("idempotency_key = ?")
-		) {
-			const [wantKey, wantIdem] = values as [string, string];
-			return rows
-				.filter(
-					(r) =>
-						r.session_key === wantKey &&
-						r.idempotency_key === wantIdem &&
-						r.type === "message",
-				)
-				.slice(0, 1)
-				.map((r) => ({ ...r })) as T[];
-		}
-		if (
-			text.startsWith(
-				"SELECT session_key, role, content, ts, model_provider, model_id FROM session_entries",
-			) &&
-			text.includes("idempotency_key = ?")
-		) {
-			const [wantKey, wantIdem] = values as [string, string];
-			return rows
-				.filter(
-					(r) => r.session_key === wantKey && r.idempotency_key === wantIdem,
-				)
-				.slice(0, 1)
-				.map((r) => ({
-					session_key: r.session_key,
-					role: r.role,
-					content: r.content,
-					ts: r.ts,
-					model_provider: r.model_provider,
-					model_id: r.model_id,
-				})) as T[];
-		}
-
-		if (
-			text.startsWith(
-				"SELECT session_key, role, content, ts, model_provider, model_id FROM session_entries",
-			)
-		) {
-			// WHERE type = 'message' ORDER BY ts DESC LIMIT ?
-			const limit = values[values.length - 1] as number;
-			const out = rows
-				.filter((r) => r.type === "message")
-				.sort((a, b) => b.ts - a.ts)
-				.slice(0, limit)
-				.map((r) => ({
-					session_key: r.session_key,
-					role: r.role,
-					content: r.content,
-					ts: r.ts,
-					model_provider: r.model_provider,
-					model_id: r.model_id,
-				}));
-			return out as T[];
-		}
-
-		throw new Error(`fake sql: unhandled statement: ${text}`);
-	}) as SessionRepoSql;
-	return { sql, rows, queries };
+	};
+	const rows = new Proxy([] as StoredRow[], {
+		get(_target, property) {
+			const current = read();
+			const value = Reflect.get(current, property);
+			return typeof value === "function" ? value.bind(current) : value;
+		},
+	});
+	return { storage: recordingStorage(db, queries), rows, queries };
 }
 
 function durableState(
@@ -348,19 +174,8 @@ for (let existingColumns = 0; existingColumns <= 4; existingColumns++) {
 			.prepare("SELECT * FROM session_entries ORDER BY ts")
 			.all();
 		const queries: string[] = [];
-		const sql: SessionRepoSql = <T>(
-			strings: TemplateStringsArray,
-			...values: (string | number | boolean | null)[]
-		): T[] => {
-			const query = strings.join("?");
-			queries.push(query);
-			return db
-				.prepare(query)
-				.all(
-					...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
-				) as T[];
-		};
-		new TediSessionRepo({ sql, readDurable: noDurable }).listTurns();
+		const storage = recordingStorage(db, queries);
+		new TediSessionRepo({ storage, readDurable: noDurable }).listTurns();
 		assert.equal(
 			queries.filter((q) => q.startsWith("ALTER TABLE")).length,
 			4 - existingColumns,
@@ -382,12 +197,57 @@ for (let existingColumns = 0; existingColumns <= 4; existingColumns++) {
 					`preserves ${key} with ${existingColumns} columns`,
 				);
 		}
+		assert.ok(
+			new TediSessionRepo({ storage, readDurable: noDurable })
+				.getBranch("chat:old")
+				.some((entry) => entry.id === "original"),
+			`reads the preserved message with ${existingColumns} columns`,
+		);
 		queries.length = 0;
-		new TediSessionRepo({ sql, readDurable: noDurable }).listTurns();
+		new TediSessionRepo({ storage, readDurable: noDurable }).listTurns();
 		assert.equal(
 			queries.filter((q) => q.startsWith("ALTER TABLE")).length,
 			0,
 			"restart never re-adds columns",
+		);
+	} finally {
+		db.close();
+	}
+}
+
+// Another store in the same object may have recorded its migrations first;
+// this store still adopts its own older table.
+{
+	const db = new DatabaseSync(":memory:");
+	try {
+		db.exec(`CREATE TABLE session_entries (
+			id TEXT PRIMARY KEY, session_key TEXT NOT NULL, parent_id TEXT,
+			type TEXT NOT NULL DEFAULT 'message', role TEXT NOT NULL,
+			content TEXT NOT NULL, idempotency_key TEXT, ts INTEGER NOT NULL)`);
+		db.exec(`INSERT INTO session_entries (id, session_key, role, content, ts)
+			VALUES ('kept', 'chat:shared', 'user', 'Still here', 1)`);
+		db.exec(`CREATE TABLE __drizzle_migrations (
+			id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric,
+			name text, applied_at TEXT)`);
+		db.exec(`INSERT INTO __drizzle_migrations (hash, created_at, name)
+			VALUES ('', 0, '20261124113147_poppy_store_core')`);
+		const storage = recordingStorage(db);
+		const repo = new TediSessionRepo({ storage, readDurable: noDurable });
+		assert.deepEqual(
+			repo.listTurns().map((turn) => turn.content),
+			["Still here"],
+		);
+		repo.appendTurn({
+			role: "assistant",
+			content: "Reply",
+			sessionKey: "chat:shared",
+			ts: 2,
+			modelIdentity: { provider: "anthropic", model: "claude" },
+		});
+		assert.equal(
+			repo.getBranch("chat:shared").at(-1)?.modelIdentity?.model,
+			"claude",
+			"the adopted table has the model columns",
 		);
 	} finally {
 		db.close();
@@ -409,21 +269,19 @@ for (const failedStatement of [
 			type TEXT NOT NULL DEFAULT 'message', role TEXT NOT NULL,
 			content TEXT NOT NULL, idempotency_key TEXT, ts INTEGER NOT NULL)`);
 		let failAlter = true;
-		const sql: SessionRepoSql = <T>(
-			strings: TemplateStringsArray,
-			...values: (string | number | boolean | null)[]
-		): T[] => {
-			const query = strings.join("?");
-			if (failAlter && query.includes(failedStatement))
-				throw new Error("injected storage failure");
-			return db
-				.prepare(query)
-				.all(
-					...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
-				) as T[];
-		};
-		const repo = new TediSessionRepo({ sql, readDurable: noDurable });
-		assert.throws(() => repo.listTurns(), /injected storage failure/);
+		const storage = recordingStorage(db, [], () =>
+			failAlter ? failedStatement : undefined,
+		);
+		const repo = new TediSessionRepo({ storage, readDurable: noDurable });
+		// Drizzle wraps storage errors; the original is the cause.
+		assert.throws(
+			() => repo.listTurns(),
+			(error: Error & { cause?: Error }) =>
+				/injected storage failure/.test(
+					`${error.message} ${error.cause?.message ?? ""}`,
+				),
+			failedStatement,
+		);
 		failAlter = false;
 		assert.deepEqual(repo.listTurns(), []);
 	} finally {
@@ -434,24 +292,15 @@ for (const failedStatement of [
 {
 	const db = new DatabaseSync(":memory:");
 	try {
-		const sql: SessionRepoSql = <T>(
-			strings: TemplateStringsArray,
-			...values: (string | number | boolean | null)[]
-		): T[] => {
-			const query = strings.join("?");
-			assert.ok(
-				!query.startsWith("ALTER TABLE"),
-				"fresh stores use the current schema",
-			);
-			return db
-				.prepare(query)
-				.all(
-					...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
-				) as T[];
-		};
+		const queries: string[] = [];
+		const storage = recordingStorage(db, queries);
 		assert.deepEqual(
-			new TediSessionRepo({ sql, readDurable: noDurable }).listTurns(),
+			new TediSessionRepo({ storage, readDurable: noDurable }).listTurns(),
 			[],
+		);
+		assert.ok(
+			!queries.some((query) => query.startsWith("ALTER TABLE")),
+			"fresh stores use the current schema",
 		);
 	} finally {
 		db.close();
@@ -523,8 +372,8 @@ for (const failedStatement of [
 
 // ── append → listTurns round-trips ts-ordered ────────────────────────────────
 {
-	const { sql } = createFakeSql();
-	const repo = new TediSessionRepo({ sql, readDurable: noDurable });
+	const { storage } = createStore();
+	const repo = new TediSessionRepo({ storage, readDurable: noDurable });
 	repo.appendTurn({ role: "user", content: "hi", sessionKey: "chat:A", ts: 1 });
 	repo.appendTurn({
 		role: "assistant",
@@ -548,8 +397,8 @@ for (const failedStatement of [
 
 // ── idempotency: same key twice = one row, second append returns false ───────
 {
-	const { sql, rows } = createFakeSql();
-	const repo = new TediSessionRepo({ sql, readDurable: noDurable });
+	const { storage, rows } = createStore();
+	const repo = new TediSessionRepo({ storage, readDurable: noDurable });
 	const turn = {
 		role: "assistant" as const,
 		content: "answer",
@@ -587,8 +436,8 @@ for (const failedStatement of [
 // runtime — every harness append landed with idempotency_key = NULL and a
 // retried turn (different ts) double-inserted.
 {
-	const { sql, rows } = createFakeSql();
-	const repo = new TediSessionRepo({ sql, readDurable: noDurable });
+	const { storage, rows } = createStore();
+	const repo = new TediSessionRepo({ storage, readDurable: noDurable });
 	const harness = new SessionHarness(repo);
 	const key = deriveIdempotencyKey("tedi-1:mcp:req-7", "assistant");
 	const first = harness.appendTurn(
@@ -615,8 +464,8 @@ for (const failedStatement of [
 
 // ── findTurnByIdempotencyKey: exact-keyed settle probe ───────────────────────
 {
-	const { sql } = createFakeSql();
-	const repo = new TediSessionRepo({ sql, readDurable: noDurable });
+	const { storage } = createStore();
+	const repo = new TediSessionRepo({ storage, readDurable: noDurable });
 	const runId = "tedi-1:mcp:req-42";
 	const assistantKey = deriveIdempotencyKey(runId, "assistant");
 	assert.equal(
@@ -675,9 +524,9 @@ for (const failedStatement of [
 
 // ── bounded window: > max → only the recent `max` ────────────────────────────
 {
-	const { sql } = createFakeSql();
+	const { storage } = createStore();
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		maxRecentTurns: 3,
 	});
@@ -700,11 +549,11 @@ for (const failedStatement of [
 
 // ── readMessages delegates to the durable port ───────────────────────────────
 {
-	const { sql } = createFakeSql();
+	const { storage } = createStore();
 	let seenKey = "";
 	let seenLimit: number | undefined;
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: async (k, limit) => {
 			seenKey = k;
 			seenLimit = limit;
@@ -721,13 +570,13 @@ for (const failedStatement of [
 // Cold cache (nothing appended to the repo) MUST reconstruct full history from the
 // durable port — proves the frozen harness contract still holds over this backend.
 {
-	const { sql } = createFakeSql();
+	const { storage } = createStore();
 	const durable: TediSessionContextEntry[] = [
 		{ role: "user", content: "Q1", ts: 1 },
 		{ role: "assistant", content: "A1", ts: 2 },
 	];
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: async () => durableState(durable),
 	});
 	const harness = new SessionHarness(repo);
@@ -743,14 +592,14 @@ for (const failedStatement of [
 // Durable holds older history; the repo cache holds the in-flight tail. The
 // ts-keyed merge must back-fill the older durable prefix under the cache suffix.
 {
-	const { sql } = createFakeSql();
+	const { storage } = createStore();
 	const durable: TediSessionContextEntry[] = [
 		{ role: "user", content: "OLD-Q", ts: 1 },
 		{ role: "assistant", content: "OLD-A", ts: 2 },
 		{ role: "user", content: "NEW-Q", ts: 3 }, // also in cache → de-duped by merge
 	];
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: async () => durableState(durable),
 	});
 	// Only the recent tail (ts >= 3) is in the hot cache.
@@ -780,7 +629,7 @@ for (const failedStatement of [
 // The single durable read must therefore restore the persisted summary + kept
 // tail without leaking the pre-cut originals back into model context.
 {
-	const { sql } = createFakeSql();
+	const { storage } = createStore();
 	const durable: TediSessionContextEntry[] = [
 		{ role: "user", content: "OLD-Q", ts: 10 },
 		{ role: "assistant", content: "OLD-A", ts: 20 },
@@ -788,7 +637,7 @@ for (const failedStatement of [
 		{ role: "assistant", content: "KEPT-A", ts: 40 },
 	];
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: async () =>
 			durableState(durable, {
 				summary: "DURABLE-SUMMARY",
@@ -956,9 +805,9 @@ function msg(
 
 // ── Repo: compactSession appends a marker; non-destructive; projected read ────
 {
-	const { sql, rows } = createFakeSql();
+	const { storage, rows } = createStore();
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		keepRecentTokens: 25,
 	});
@@ -1013,9 +862,9 @@ function msg(
 
 // ── Repo: compactSession no-ops when summarize returns null ──────────────────
 {
-	const { sql, rows } = createFakeSql();
+	const { storage, rows } = createStore();
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		keepRecentTokens: 25,
 	});
@@ -1043,9 +892,9 @@ function msg(
 
 // ── Repo: compactSession no-ops + never throws when summarize throws ─────────
 {
-	const { sql, rows } = createFakeSql();
+	const { storage, rows } = createStore();
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		keepRecentTokens: 25,
 	});
@@ -1069,10 +918,10 @@ function msg(
 
 // ── Repo: compactSession no-ops when head fits under the keep budget ─────────
 {
-	const { sql, rows } = createFakeSql();
+	const { storage, rows } = createStore();
 	// Big budget ⇒ nothing to compact.
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		keepRecentTokens: 1_000_000,
 	});
@@ -1099,8 +948,8 @@ function msg(
 
 // ── Repo: getBranch returns the path-to-root for a session ───────────────────
 {
-	const { sql } = createFakeSql();
-	const repo = new TediSessionRepo({ sql, readDurable: noDurable });
+	const { storage } = createStore();
+	const repo = new TediSessionRepo({ storage, readDurable: noDurable });
 	repo.appendTurn({ role: "user", content: "q1", sessionKey: "chat:A", ts: 1 });
 	repo.appendTurn({
 		role: "assistant",
@@ -1120,10 +969,10 @@ function msg(
 // ── Repo: a synthetic LONG session compacts — projected = summary + protected
 //        tail; originals all retained in session_entries (non-destructive) ────
 {
-	const { sql, rows } = createFakeSql();
+	const { storage, rows } = createStore();
 	// keepRecentTokens = 20 ⇒ tail of ~2 length-40 turns (10 tokens each) is kept.
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		keepRecentTokens: 20,
 	});
@@ -1189,9 +1038,9 @@ function msg(
 
 // ── Repo: compacted recent reads stay SQL-bounded across all sessions ─────────
 {
-	const { sql, queries } = createFakeSql();
+	const { storage, queries } = createStore();
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		maxRecentTurns: 4,
 		keepRecentTokens: 8,
@@ -1228,15 +1077,17 @@ function msg(
 		"the bounded projection keeps the globally newest turns",
 	);
 	assert.ok(
-		readQueries.some((query) => query.startsWith("WITH latest_compactions AS")),
+		readQueries.some((query) =>
+			query.trimStart().startsWith("WITH latest_compactions AS"),
+		),
 		"compacted reads project and limit inside SQL",
 	);
 	assert.ok(
 		!readQueries.some(
 			(query) =>
-				query.startsWith(
-					"SELECT id, session_key, parent_id, type, role, content, ts, first_kept_entry_id, tokens_before, model_provider, model_id FROM session_entries",
-				) && !query.includes("WHERE session_key = ?"),
+				query.includes('"parent_id"') &&
+				query.includes('from "session_entries"') &&
+				!query.includes('"session_entries"."session_key" = ?'),
 		),
 		"recent reads never materialize every session entry",
 	);
@@ -1246,9 +1097,9 @@ function msg(
 //        + the `keepRecentTokens` FORCE override cuts a SHORT session ───────────
 {
 	// (a) Real cut under a small budget ⇒ rich result the ledger emitter consumes.
-	const { sql } = createFakeSql();
+	const { storage } = createStore();
 	const repo = new TediSessionRepo({
-		sql,
+		storage,
 		readDurable: noDurable,
 		keepRecentTokens: 25,
 	});
@@ -1307,8 +1158,8 @@ function msg(
 
 	// (b) FORCE: a SHORT session under the DEFAULT 20k budget normally no-ops,
 	//     but a `keepRecentTokens: 0` override always cuts — the proof hook path.
-	const { sql: sql2 } = createFakeSql();
-	const repo2 = new TediSessionRepo({ sql: sql2, readDurable: noDurable }); // default 20k budget
+	const { storage: sql2 } = createStore();
+	const repo2 = new TediSessionRepo({ storage: sql2, readDurable: noDurable }); // default 20k budget
 	for (let i = 1; i <= 4; i++) {
 		repo2.appendTurn({
 			role: i % 2 ? "user" : "assistant",
@@ -1338,15 +1189,15 @@ function msg(
 	assert.equal(forced?.summaryChars, "FORCED-SUMMARY".length);
 
 	// (c) No branch at all ⇒ null (emitter stays silent).
-	const { sql: sql3 } = createFakeSql();
-	const repo3 = new TediSessionRepo({ sql: sql3, readDurable: noDurable });
+	const { storage: sql3 } = createStore();
+	const repo3 = new TediSessionRepo({ storage: sql3, readDurable: noDurable });
 	const empty = await repo3.compactSession("chat:none", async () => "S");
 	assert.equal(empty, null, "empty session ⇒ null result");
 
 	// (d) Null summary ⇒ compacted=false (no marker, emitter stays silent).
-	const { sql: sql4 } = createFakeSql();
+	const { storage: sql4 } = createStore();
 	const repo4 = new TediSessionRepo({
-		sql: sql4,
+		storage: sql4,
 		readDurable: noDurable,
 		keepRecentTokens: 25,
 	});

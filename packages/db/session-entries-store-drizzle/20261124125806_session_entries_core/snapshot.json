@@ -1,0 +1,176 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "9379fa26-c1af-4d29-b59b-c4a91b6d43be",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "session_entries",
+			"entityType": "tables"
+		},
+		{
+			"table": "session_entries",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "session_key",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "parent_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'message'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "role",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "content",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "idempotency_key",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "ts",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "first_kept_entry_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "tokens_before",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "model_provider",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "model_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "session_entries",
+			"name": "idx_session_entries_key_ts",
+			"columns": [
+				{
+					"value": "session_key",
+					"isExpression": false
+				},
+				{
+					"value": "ts",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "session_entries",
+			"name": "uq_session_entries_key_idem",
+			"columns": [
+				{
+					"value": "session_key",
+					"isExpression": false
+				},
+				{
+					"value": "idempotency_key",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": "\"session_entries\".\"idempotency_key\" IS NOT NULL",
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "session_entries",
+			"name": "session_entries_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		}
+	],
+	"renames": []
+}

@@ -17,7 +17,9 @@
 		"test:ci": "bun run test:run"
 	},
 	"dependencies": {
-		"@tedix/context-core": "workspace:*"
+		"@tedix/context-core": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"drizzle-orm": "catalog:"
 	},
 	"devDependencies": {
 		"@tedix/tsconfig": "workspace:*",

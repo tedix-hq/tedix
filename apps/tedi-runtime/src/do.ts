@@ -3996,7 +3996,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * not in callers. The recent window is read via `this.sessionRepo.listTurns()`.
 	 */
 	private readonly sessionRepo = new TediSessionRepo({
-		sql: this.getSqlRunner().sql,
+		storage: this.ctx.storage,
 		readDurable: (sessionKey: string, limit?: number) => {
 			const tediId = this.state.tediId;
 			if (!tediId) return Promise.resolve({ entries: [], compaction: null });

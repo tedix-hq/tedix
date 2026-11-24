@@ -749,8 +749,7 @@ it("uses durable original compaction admission for skipped, modified and uncerta
 		parent.modelOverrideForSurface = () => null;
 		parent.sessionRepo = new TediSessionRepo({
 			readDurable: async () => ({ entries: [], compaction: null }),
-			sql: (strings, ...values) =>
-				state.storage.sql.exec(strings.join("?"), ...values).toArray() as never,
+			storage: state.storage,
 		});
 		let queued: { sessionKey: string; operationId: string } | undefined;
 		parent.queue = async (_callback: string, payload: typeof queued) => {
@@ -906,8 +905,7 @@ it("commits a known compaction summary and its original ledger receipt exactly o
 		parent.modelOverrideForSurface = () => null;
 		parent.sessionRepo = new TediSessionRepo({
 			readDurable: async () => ({ entries: [], compaction: null }),
-			sql: (strings, ...values) =>
-				state.storage.sql.exec(strings.join("?"), ...values).toArray() as never,
+			storage: state.storage,
 		});
 		for (let n = 0; n < 4; n++)
 			parent.sessionRepo.appendTurn({

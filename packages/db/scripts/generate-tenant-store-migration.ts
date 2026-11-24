@@ -70,6 +70,13 @@ const STORES = {
 		exportName: "runtimeAdmissionStoreMigrations",
 		label: "runtime admission store",
 	},
+	"session-entries-store": {
+		config: "drizzle.session-entries-store.config.ts",
+		folder: "session-entries-store-drizzle",
+		module: "src/session-entries-store/migrations.ts",
+		exportName: "sessionEntriesStoreMigrations",
+		label: "session entries store",
+	},
 } as const;
 type StoreName = keyof typeof STORES;
 

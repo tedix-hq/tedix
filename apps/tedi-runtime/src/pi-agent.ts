@@ -1,4 +1,6 @@
 import { BACKGROUND_CONTEXT as BACKGROUND } from "@earendil-works/chord/context";
+import { findRuntimeAdmissionIdentity } from "@tedix/db/queries/durable-sqlite/runtime-admission";
+import { openRuntimeAdmissionStore } from "@tedix/db/runtime-admission-store/store";
 import {
 	privateInferenceOriginGuard,
 	inferenceOriginHash,
@@ -83,6 +85,17 @@ import type {
 	PiApplicationProjection,
 	PiSubmissionInspection,
 } from "./pi-types";
+
+/** The accepted run identity row from runtime admission storage, if recorded. */
+function admissionIdentity(
+	storage: Pick<DurableObjectStorage, "sql" | "transactionSync">,
+	runId: string,
+): { record: string; input: string } | undefined {
+	return findRuntimeAdmissionIdentity(
+		openRuntimeAdmissionStore(storage),
+		runId,
+	);
+}
 
 function admissionJson(value: unknown): string | undefined {
 	return JSON.stringify(value, (_key, item: unknown) =>
@@ -336,12 +349,7 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 			runId: journal!.operationId,
 		});
 		const sourceRow = accepted
-			? storage.sql
-					.exec<{ input: string }>(
-						"SELECT input FROM runtime_admission_identities WHERE run_id=?",
-						accepted.runId,
-					)
-					.toArray()[0]
+			? admissionIdentity(storage, accepted.runId)
 			: null;
 		const source = sourceRow
 			? (JSON.parse(sourceRow.input) as {
@@ -610,12 +618,10 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 			const claim = adapter.gate.claim(previous.operationId);
 			if (!claim) throw new Error("Facet operation custody missing");
 			if (claim.status !== "completed") {
-				const record = this.ctx.storage.sql
-					.exec<{ input: string }>(
-						"SELECT input FROM runtime_admission_identities WHERE run_id=?",
-						previous.operationId,
-					)
-					.toArray()[0];
+				const record = admissionIdentity(
+					this.ctx.storage,
+					previous.operationId,
+				);
 				if (
 					!record ||
 					admissionJson(JSON.parse(record.input).configuration) !==
@@ -735,12 +741,8 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 				sessionKey,
 				configuration: saved?.operationId
 					? JSON.parse(
-							this.ctx.storage.sql
-								.exec<{ input: string }>(
-									"SELECT input FROM runtime_admission_identities WHERE run_id=?",
-									saved.operationId,
-								)
-								.toArray()[0]?.input ?? "null",
+							admissionIdentity(this.ctx.storage, saved.operationId)?.input ??
+								"null",
 						)?.configuration
 					: this.state,
 			});
@@ -759,12 +761,7 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		});
 		const accepted =
 			await this.admissionAdapter.lookupAcceptedTurn(operationId);
-		const raw = this.ctx.storage.sql
-			.exec<{ input: string }>(
-				"SELECT input FROM runtime_admission_identities WHERE run_id=?",
-				operationId,
-			)
-			.toArray()[0];
+		const raw = admissionIdentity(this.ctx.storage, operationId);
 		const persisted = raw
 			? (JSON.parse(raw.input) as {
 					parentGeneration?: number;
@@ -1154,12 +1151,7 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		const accepted = await this.admissionAdapter.lookupAcceptedTurn(
 			binding.operationId,
 		);
-		const row = this.ctx.storage.sql
-			.exec<{ input: string }>(
-				"SELECT input FROM runtime_admission_identities WHERE run_id=?",
-				binding.operationId,
-			)
-			.toArray()[0];
+		const row = admissionIdentity(this.ctx.storage, binding.operationId);
 		if (!row) throw new Error("Native input has no immutable accepted payload");
 		const source = JSON.parse(row.input) as {
 			parentRunId: string;

@@ -924,6 +924,8 @@
       "version": "0.0.1",
       "dependencies": {
         "@tedix/context-core": "workspace:*",
+        "@tedix/db": "workspace:*",
+        "drizzle-orm": "catalog:",
       },
       "devDependencies": {
         "@tedix/tsconfig": "workspace:*",
