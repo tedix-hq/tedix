@@ -595,6 +595,16 @@ function profileRead(value: unknown): boolean {
 	return false;
 }
 
+/**
+ * Claude Code loads one Tedix connection per address. With the Tedix connector
+ * also added on claude.ai, that connector takes the plugin's place and its
+ * tools carry the connector's name.
+ */
+const CLAUDE_PROFILE_TOOLS = [
+	"mcp__plugin_tedix_tedix__get_profile",
+	"mcp__claude_ai_tedix__get_profile",
+];
+
 /** Accept host tool results, never the model's claim that a read worked. */
 function claudeSetupReadSucceeded(output: string): boolean {
 	const calls = new Set<string>();
@@ -605,7 +615,7 @@ function claudeSetupReadSucceeded(output: string): boolean {
 				if (
 					event?.type === "assistant" &&
 					block.type === "tool_use" &&
-					block.name === "mcp__plugin_tedix_tedix__get_profile" &&
+					CLAUDE_PROFILE_TOOLS.includes(String(block.name)) &&
 					typeof block.id === "string"
 				)
 					calls.add(block.id);
@@ -642,7 +652,7 @@ async function verifyHost(
 	else {
 		const result = run(host, [
 			"-p",
-			"Call only mcp__plugin_tedix_tedix__get_profile with {} once to check the Tedix sign-in. Do not use other tools, change anything, or request consent. Stop after that read.",
+			`Call whichever one of these tools you have, with {} and only once, to check the Tedix sign-in: ${CLAUDE_PROFILE_TOOLS.join(" or ")}. Do not use other tools, change anything, or request consent. Stop after that read.`,
 			"--output-format",
 			"stream-json",
 			"--verbose",
@@ -651,7 +661,7 @@ async function verifyHost(
 			"--tools",
 			"",
 			"--allowedTools",
-			"mcp__plugin_tedix_tedix__get_profile",
+			CLAUDE_PROFILE_TOOLS.join(","),
 		]);
 		if (result.status !== 0 || !claudeSetupReadSucceeded(result.stdout))
 			throw new Error(
