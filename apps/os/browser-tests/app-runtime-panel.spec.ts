@@ -279,8 +279,9 @@ try {
 		});
 		// The draft sits above the code in Edit: what it changes, and its own
 		// preview.
-		const draft = page.getByRole("group", { name: "Draft 1" });
+		const draft = page.getByRole("group", { name: "Suggested change 1" });
 		await draft.waitFor();
+		await draft.getByRole("button", { name: /^See what changed/ }).click();
 		await draft.locator('[data-app-draft-file="client.js"]').waitFor();
 		assert.equal(
 			await draft.locator('[data-app-draft-file="server.js"]').count(),
@@ -288,7 +289,7 @@ try {
 			`${label}: unchanged files are left out`,
 		);
 		await draft.getByRole("button", { name: "Preview" }).click();
-		await guest(page, "Opportunity cards · Draft 1")
+		await guest(page, "Opportunity cards · Suggested change 1")
 			.getByRole("heading", { name: /reviewed · Maya/ })
 			.waitFor();
 		await noOverflow(page, `${label} drafts`);
@@ -316,8 +317,8 @@ try {
 			.getByRole("heading", { name: /opportunities for Maya/ })
 			.waitFor();
 		await tabs.getByRole("button", { name: /^Code/ }).click();
-		const draft = page.getByRole("group", { name: "Draft 1" });
-		await draft.getByRole("button", { name: "Accept" }).click();
+		const draft = page.getByRole("group", { name: "Suggested change 1" });
+		await draft.getByRole("button", { name: "Accept and publish" }).click();
 		await draft.waitFor({ state: "detached" });
 		// The Code tab drops its count once nothing waits there.
 		await tabs.getByRole("button", { name: "Code", exact: true }).waitFor();
@@ -359,7 +360,7 @@ try {
 		).code.files["client.js"];
 		await editor.fill(original + "\n// draft change\n");
 		await page.getByRole("button", { name: "Save as draft" }).click();
-		const draft = page.getByRole("group", { name: "Draft 1" });
+		const draft = page.getByRole("group", { name: "Suggested change 1" });
 		await draft.waitFor();
 		const current = await rpc("osWorkspaces/gadgets/get", {
 			workspaceId,
@@ -393,9 +394,11 @@ try {
 			.waitFor();
 		await draft.getByRole("button", { name: "Save as draft" }).click();
 		await draft
-			.getByRole("button", { name: "Accept", exact: true })
+			.getByRole("button", { name: "Accept and publish", exact: true })
 			.waitFor({ state: "visible" });
-		await draft.getByRole("button", { name: "Accept", exact: true }).click();
+		await draft
+			.getByRole("button", { name: "Accept and publish", exact: true })
+			.click();
 		await appView(page)
 			.getByRole("button", { name: "Code", exact: true })
 			.waitFor();
@@ -457,7 +460,9 @@ try {
 			),
 		);
 		await draft.getByRole("button", { name: "Save as draft" }).click();
-		await draft.getByRole("button", { name: "Accept", exact: true }).click();
+		await draft
+			.getByRole("button", { name: "Accept and publish", exact: true })
+			.click();
 		await appView(page)
 			.getByRole("button", { name: "Code", exact: true })
 			.waitFor();

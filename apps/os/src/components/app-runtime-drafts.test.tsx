@@ -115,10 +115,10 @@ describe("app draft stale status", () => {
 					/>
 				</QueryClientProvider>,
 			);
-			expect(view.textContent?.includes("Stale")).toBe(stale);
-			expect(view.textContent?.includes("Needs you")).toBe(!stale);
+			expect(view.textContent?.includes("Out of date")).toBe(stale);
+			expect(view.textContent?.includes("Waiting for you")).toBe(!stale);
 			const accept = [...view.querySelectorAll("button")].find(
-				(button) => button.textContent === "Accept",
+				(button) => button.textContent === "Accept and publish",
 			);
 			expect(accept).toBeDefined();
 			expect(accept?.disabled).toBe(false);
@@ -194,7 +194,7 @@ describe("app draft approval and application", () => {
 			.mockRejectedValueOnce(serviceUnavailable)
 			.mockResolvedValueOnce(next);
 
-		await click("Accept");
+		await click("Accept and publish");
 		expect(collaboration.merge).toHaveBeenCalledTimes(1);
 		await advance(250);
 
@@ -216,15 +216,15 @@ describe("app draft approval and application", () => {
 		const { click, onMerged, view } = mount();
 		collaboration.merge.mockRejectedValue(serviceUnavailable);
 
-		await click("Accept");
+		await click("Accept and publish");
 		await advance(751);
 
 		expect(collaboration.merge).toHaveBeenCalledTimes(3);
 		expect(view.querySelector('[role="alert"]')?.textContent).toContain(
-			"This draft is approved but hasn't been applied yet",
+			"This change is approved but not published yet",
 		);
 		collaboration.merge.mockResolvedValueOnce(next);
-		await click("Apply now");
+		await click("Publish now");
 
 		expect(collaboration.accept).toHaveBeenCalledTimes(1);
 		expect(collaboration.merge).toHaveBeenCalledTimes(4);
@@ -240,7 +240,7 @@ describe("app draft approval and application", () => {
 			Object.assign(new Error("The app version changed"), { code: "CONFLICT" }),
 		);
 
-		await click("Accept");
+		await click("Accept and publish");
 		await advance(751);
 
 		expect(collaboration.merge).toHaveBeenCalledTimes(1);

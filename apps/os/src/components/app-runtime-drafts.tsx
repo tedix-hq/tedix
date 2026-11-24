@@ -15,19 +15,24 @@ import { ProposalDiff } from "@/components/canvas-proposals";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import {
-	APP_DRAFT_SOURCE_LABELS,
 	APP_DRAFT_STATUSES,
 	type AppDraft,
 	type AppDraftFileChange,
 	appDraftFileChanges,
 	appDraftsFrom,
 } from "@/lib/app-runtime-drafts";
+import { relativeTime } from "@/lib/time";
 import {
 	appRuntimeCodeQueryOptions,
 	collaborationProposalsQueryOptions,
@@ -67,6 +72,14 @@ export function useAppDrafts(
 		[proposals.data],
 	);
 }
+
+/** Where a suggested change came from, as a person would say it. */
+const DRAFT_ORIGIN: Record<AppDraft["proposal"]["sourceKind"], string> = {
+	user: "Edited in Code",
+	chat: "Made in a chat",
+	run: "Made by a skill run",
+	agent_session: "Made by a coding agent",
+};
 
 const CHANGE_LABEL: Record<AppDraftFileChange["kind"], string> = {
 	added: "New file",
@@ -111,8 +124,10 @@ export function AppRuntimeDrafts({
 	return (
 		<section className="grid min-w-0 gap-3" aria-label="Drafts" data-app-drafts>
 			<Text as="p" role="label" tone="secondary" className="m-0">
-				Changes saved from Code, chat or an agent. The live app keeps running
-				version {revision.revision} until you accept one.
+				{drafts.length === 1
+					? "A change to this app is waiting for you."
+					: `${drafts.length} changes to this app are waiting for you.`}{" "}
+				Everyone keeps using version {revision.revision} until you publish one.
 			</Text>
 			{mergeBlockedReason && (
 				<Text as="p" role="label" tone="warning" className="m-0">
@@ -123,6 +138,7 @@ export function AppRuntimeDrafts({
 				<AppDraftCard
 					key={draft.proposal.id}
 					number={index + 1}
+					only={drafts.length === 1}
 					workspaceId={workspaceId}
 					gadget={gadget}
 					revision={revision}
@@ -142,6 +158,7 @@ export function AppRuntimeDrafts({
 
 function AppDraftCard({
 	number,
+	only,
 	workspaceId,
 	gadget,
 	revision,
@@ -153,6 +170,7 @@ function AppDraftCard({
 	onMerged,
 }: {
 	number: number;
+	only: boolean;
 	workspaceId: string;
 	gadget: OsGadget;
 	revision: OsGadgetRevision;
@@ -173,6 +191,7 @@ function AppDraftCard({
 			? approval
 			: draft.proposal;
 	const [reason, setReason] = useState("");
+	const [noting, setNoting] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const changes = useMemo(
 		() =>
@@ -241,7 +260,7 @@ function AppDraftCard({
 		mutationFn: async () => {
 			if (mergeBlockedReason) throw new Error(mergeBlockedReason);
 			const rationale =
-				reason.trim() || "Accepted after previewing the draft in the app.";
+				reason.trim() || "Accepted and published from the app's review.";
 			let sequence = proposal.sequence;
 			if (proposal.status === "open") {
 				const accepted = await osApi.osWorkspaces.collaboration.accept({
@@ -288,7 +307,7 @@ function AppDraftCard({
 			osApi.osWorkspaces.collaboration.reject({
 				proposalId: proposal.id,
 				expectedSequence: proposal.sequence,
-				rationale: reason.trim() || "Rejected after review in the app.",
+				rationale: reason.trim() || "Discarded from the app's review.",
 				evidenceRefs: [],
 			}),
 		onSuccess: settle,
@@ -297,7 +316,8 @@ function AppDraftCard({
 	const error = accept.error ?? reject.error ?? rebase.error;
 	const approved = proposal.status === "accepted";
 	const applyFailed = approved && accept.isError;
-	const title = `Draft ${number}`;
+	const title = `Suggested change ${number}`;
+	const made = relativeTime(proposal.updatedAt);
 
 	return (
 		<Surface
@@ -308,29 +328,20 @@ function AppDraftCard({
 		>
 			<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 				<Text as="h3" role="body" weight="semibold" className="m-0">
-					{title}
+					{only ? "Suggested change" : title}
 				</Text>
 				<Badge variant={proposal.status === "accepted" ? "info" : "secondary"}>
 					{baseMoved
-						? "Stale"
+						? "Out of date"
 						: proposal.status === "accepted"
-							? "Approved · not applied"
-							: "Needs you"}
+							? "Approved · not published yet"
+							: "Waiting for you"}
 				</Badge>
 				<Text as="span" role="label" tone="secondary">
-					{APP_DRAFT_SOURCE_LABELS[proposal.sourceKind]} · from version{" "}
-					{proposal.baseRevision}
+					{DRAFT_ORIGIN[proposal.sourceKind]}
+					{made ? ` · ${made}` : ""}
 				</Text>
 			</div>
-			{proposal.status === "open" && !baseMoved && !mergeBlockedReason && (
-				<Button
-					size="sm"
-					disabled={accept.isPending || reject.isPending}
-					onClick={() => setEditing(true)}
-				>
-					Edit together
-				</Button>
-			)}
 			{editing && (
 				<AppSharedDraftEditor
 					workspaceId={workspaceId}
@@ -342,9 +353,9 @@ function AppDraftCard({
 			)}
 			{baseMoved && (
 				<Text as="p" role="label" tone="warning" className="m-0">
-					The app changed since this draft was made. Accept rebases changes to
-					separate files automatically. If files overlap, ask the agent to
-					re-propose on the latest version.
+					The app was updated after this change was suggested. Publishing still
+					works when the two touched different files. If they overlap, ask the
+					agent to make the change again.
 				</Text>
 			)}
 			{baseMoved && (
@@ -386,38 +397,48 @@ function AppDraftCard({
 					/>
 				</div>
 			)}
-			<div className="grid min-w-0 gap-2" aria-label={`${title} files`}>
-				{changes.length === 0 ? (
-					<Text as="p" role="label" tone="secondary" className="m-0">
-						This draft matches the live app.
-					</Text>
-				) : (
-					changes.map((change) => (
+			{changes.length === 0 ? (
+				<Text as="p" role="label" tone="secondary" className="m-0">
+					This change matches the app as it is now.
+				</Text>
+			) : (
+				<Collapsible className="type-tedix-control">
+					<CollapsibleDefaultTrigger className="group/disclosure">
+						{`See what changed · ${changes.length} ${changes.length === 1 ? "file" : "files"}`}
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
 						<div
-							key={change.path}
-							className="grid min-w-0 gap-1"
-							data-app-draft-file={change.path}
+							className="grid min-w-0 gap-2 pt-2"
+							aria-label={`${title} files`}
 						>
-							<div className="flex min-w-0 flex-wrap items-center gap-2">
-								<code className="truncate text-sm">{change.path}</code>
-								<Badge variant={CHANGE_VARIANT[change.kind]}>
-									{CHANGE_LABEL[change.kind]}
-								</Badge>
-							</div>
-							<ProposalDiff
-								baseText={change.before}
-								previewTextValue={change.after}
-								baseMoved={false}
-							/>
+							{changes.map((change) => (
+								<div
+									key={change.path}
+									className="grid min-w-0 gap-1"
+									data-app-draft-file={change.path}
+								>
+									<div className="flex min-w-0 flex-wrap items-center gap-2">
+										<code className="truncate text-sm">{change.path}</code>
+										<Badge variant={CHANGE_VARIANT[change.kind]}>
+											{CHANGE_LABEL[change.kind]}
+										</Badge>
+									</div>
+									<ProposalDiff
+										baseText={change.before}
+										previewTextValue={change.after}
+										baseMoved={false}
+									/>
+								</div>
+							))}
 						</div>
-					))
-				)}
-			</div>
+					</CollapsibleDefaultContent>
+				</Collapsible>
+			)}
 			{previewing && (
 				<div className="grid min-w-0 gap-2" data-app-draft-preview>
 					<Text as="p" role="label" tone="secondary" className="m-0">
-						Preview runs with separate app storage. Changes here stay in this
-						draft.
+						This is the app with the change applied. The preview keeps its own
+						app storage, so what you save here stays out of the live app.
 					</Text>
 					<div className="min-w-0 overflow-hidden rounded-lg border border-kumo-line">
 						<AppRuntimeSandbox
@@ -434,14 +455,20 @@ function AppDraftCard({
 					</div>
 				</div>
 			)}
-			<Input
-				aria-label={`Reason for your decision on ${title}`}
-				placeholder="Reason (optional)"
-				value={reason}
-				onChange={(event) => setReason(event.target.value)}
-				maxLength={4000}
-			/>
-			<div className="flex flex-wrap gap-2">
+			<div className="flex flex-wrap items-center gap-2">
+				<Button
+					size="sm"
+					disabled={busy || !!mergeBlockedReason || (baseMoved && approved)}
+					onClick={() => accept.mutate()}
+				>
+					{approved
+						? accept.isPending
+							? "Publishing…"
+							: "Publish now"
+						: accept.isPending
+							? "Publishing…"
+							: "Accept and publish"}
+				</Button>
 				<Button
 					size="sm"
 					variant="secondary"
@@ -451,33 +478,48 @@ function AppDraftCard({
 				>
 					{previewing ? "Hide preview" : "Preview"}
 				</Button>
-				<Button
-					size="sm"
-					disabled={busy || !!mergeBlockedReason || (baseMoved && approved)}
-					onClick={() => accept.mutate()}
-				>
-					{approved
-						? accept.isPending
-							? "Applying…"
-							: "Apply now"
-						: accept.isPending
-							? "Accepting…"
-							: "Accept"}
-				</Button>
+				{proposal.status === "open" && !baseMoved && !mergeBlockedReason && (
+					<Button
+						size="sm"
+						variant="secondary"
+						disabled={busy}
+						onClick={() => setEditing(true)}
+					>
+						Edit
+					</Button>
+				)}
 				<Button
 					size="sm"
 					variant="ghost"
 					disabled={busy}
 					onClick={() => reject.mutate()}
 				>
-					{reject.isPending ? "Rejecting…" : "Reject"}
+					{reject.isPending ? "Discarding…" : "Discard"}
 				</Button>
+				{!noting && (
+					<Button size="sm" variant="ghost" onClick={() => setNoting(true)}>
+						Add a note
+					</Button>
+				)}
 			</div>
+			{noting && (
+				<Input
+					aria-label={`Note on your decision about ${title}`}
+					placeholder="Why you are publishing or discarding this (optional)"
+					value={reason}
+					onChange={(event) => setReason(event.target.value)}
+					maxLength={4000}
+				/>
+			)}
+			<Text as="p" role="label" tone="secondary" className="m-0">
+				Publishing updates the app for everyone in this workspace. Earlier
+				versions stay in History.
+			</Text>
 			{error && (
 				<Alert variant="destructive">
 					<AlertTitle>
 						{applyFailed
-							? "This draft is approved but hasn't been applied yet"
+							? "This change is approved but not published yet"
 							: "Could not complete your decision"}
 					</AlertTitle>
 					<AlertDescription>{(error as Error).message}</AlertDescription>
