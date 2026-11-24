@@ -1,3 +1,9 @@
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
+import {
+	MAINTENANCE_CRONS,
+	MAINTENANCE_TRIGGER,
+	maintenanceIsDue,
+} from "./staggered-maintenance";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { PlatformCronHealthResponseSchema } from "@tedix/api-contract/contracts/control-plane";
 import { runMcpEventWebhookDelivery } from "./mcp-event-webhooks";
@@ -15,6 +21,46 @@ const env = {
 } as unknown as CloudflareEnv;
 
 describe("platform cron health", () => {
+	it("keeps a full UTC day of maintenance starts apart from each other, labelling and billing", () => {
+		const start = Date.UTC(2026, 10, 25);
+		const end = start + 86_400_000;
+		const starts = new Map<number, string>();
+		for (const [id, cron] of Object.entries(MAINTENANCE_CRONS)) {
+			let at = Date.parse(nextSkillScheduleFireAt(cron, start - 1));
+			let count = 0;
+			while (at < end) {
+				expect(
+					starts.get(at),
+					`${id} collides at ${new Date(at).toISOString()}`,
+				).toBeUndefined();
+				expect(new Date(at).getUTCMinutes() % 2).toBe(1);
+				expect(new Date(at).getUTCMinutes() % 15).not.toBe(0);
+				starts.set(at, id);
+				expect(
+					maintenanceIsDue(id as keyof typeof MAINTENANCE_CRONS, {
+						cron: MAINTENANCE_TRIGGER,
+						scheduledTime: at,
+					}),
+				).toBe(true);
+				expect(
+					maintenanceIsDue(id as keyof typeof MAINTENANCE_CRONS, {
+						cron: "0 * * * *",
+						scheduledTime: at,
+					}),
+				).toBe(false);
+				count++;
+				at = Date.parse(nextSkillScheduleFireAt(cron, at));
+			}
+			const definition = PLATFORM_CRON_DEFINITIONS.find((d) => d.id === id)!;
+			expect(definition.cron).toBe(cron);
+			expect(count).toBe(
+				id === "d1-retention"
+					? 96
+					: Math.round(1440 / definition.intervalMinutes),
+			);
+		}
+	});
+
 	it("keeps provider notification maintenance available in self-hosted installations", () => {
 		expect(
 			PLATFORM_CRON_DEFINITIONS.find(

@@ -736,6 +736,8 @@ export async function pruneAcknowledgedGraphProjectionEvents(
 		const batchRemoved = getAffectedRows(result);
 		removed += batchRemoved;
 		if (batchRemoved < limit) break;
+		if (batch + 1 < maxBatches)
+			await new Promise((resolve) => setTimeout(resolve, 1_000));
 	}
 
 	if (removed > 0) {

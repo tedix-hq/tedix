@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import type { GraphProjectionOutboxEvent } from "../schema/graph-projection";
 import { organizations } from "../schema/organizations";
@@ -719,12 +719,25 @@ describe("graph projection ledger queries", () => {
 
 		const db = createDbClient(createD1Facade(sqlite));
 		const before = countRows();
-		const removed = await pruneAcknowledgedGraphProjectionEvents(db, {
-			now: new Date("2026-08-01T00:00:00.000Z"),
-			retentionDays: 7,
-			limit: 2,
-			maxBatches: 10,
-		});
+		vi.useFakeTimers();
+		const pauses = vi.spyOn(globalThis, "setTimeout");
+		let removed: number;
+		try {
+			const prune = pruneAcknowledgedGraphProjectionEvents(db, {
+				now: new Date("2026-08-01T00:00:00.000Z"),
+				retentionDays: 7,
+				limit: 2,
+				maxBatches: 10,
+			});
+			await vi.runAllTimersAsync();
+			removed = await prune;
+			expect(pauses.mock.calls.map((call) => call[1])).toEqual([
+				1000, 1000, 1000,
+			]);
+		} finally {
+			pauses.mockRestore();
+			vi.useRealTimers();
+		}
 
 		expect(removed).toBe(eligible.length);
 		expect(before - countRows()).toBe(removed);

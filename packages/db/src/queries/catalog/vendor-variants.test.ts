@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
 import {
 	appCatalog,
@@ -291,7 +291,19 @@ describe("catalog vendor variants", () => {
 				'2026-01-01T00:00:00Z', 'stale-key', 1 FROM n;
 		`);
 		const expected = await listedIds(db, true, { includeUnreleased: true });
-		await refreshCatalogShadowedVariants(db);
+		vi.useFakeTimers();
+		const pauses = vi.spyOn(globalThis, "setTimeout");
+		try {
+			const refresh = refreshCatalogShadowedVariants(db);
+			await vi.runAllTimersAsync();
+			await refresh;
+			expect(pauses.mock.calls.map((call) => call[1])).toEqual([
+				250, 250, 250, 250, 250,
+			]);
+		} finally {
+			pauses.mockRestore();
+			vi.useRealTimers();
+		}
 		expect(await listedIds(db, true)).toEqual(expected);
 		const statements = buildRefreshCatalogShadowedVariantsStatements(
 			db,

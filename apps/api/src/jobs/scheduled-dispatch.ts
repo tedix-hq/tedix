@@ -4,6 +4,7 @@ import {
 	safeExceptionTopology,
 } from "../lib/safe-log-metadata";
 import type { PlatformCronId } from "./platform-cron-catalog";
+import { maintenanceIsDue } from "./staggered-maintenance";
 
 async function trackPlatformCronPath(
 	env: CloudflareEnv,
@@ -32,37 +33,10 @@ async function trackPlatformCronPath(
 /**
  * Scheduled event handler for cron-triggered workflows.
  *
- * Cron schedule (from wrangler.jsonc). The two lists must stay in step: a
- * trigger with no branch below burns an invocation and does nothing, and a
- * branch with no trigger never fires.
- * (Cron literals containing a slash-star are spelled in words below: inside a
- * block comment they would close it.)
- * - Every 2 minutes → graph projection drain + GDS redrive (only when graph
- *   database config is present), Deck pipeline sweep (in the first two minutes
- *   of each quarter hour: retire expired, finished-Work and duplicate cards),
- *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
- *   lease sweep, kernel request reconcile, interaction review dispatch, work
- *   approval redrive, MCP event webhook delivery, gateway change record
- *   sealing, Work
- *   routing (every ten minutes: accepted non-coding Work to its steward tedi).
- * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
- *   reply-draft career ladder,
- *   workstation compute metering, D1 retention (policy rows in
- *   d1_retention_policies; none = no-op)
- * - 0 * * * * (hourly) → MCP endpoint freshness scan (bounded 200-row
- *   workflow), site reconciliation, external-agent MCP client reaper,
- *   code-like conversation title backfill, plus two
- *   hour-gated paths: platform-health digest (8am UTC) and cost-anomaly check
- *   (9am UTC)
- * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance,
- *   Cloudflare billable usage, ledger-vs-AI-Gateway cost reconciliation
- * - 0 3 * * * (3am UTC) → Retention cleanup, catalog integrity, Claude registry
- * - 0 4 * * * (4am UTC) → Memory reflection (confidence decay, archive, edge discovery)
- * - 0 6 * * * (6am UTC) → Tool testing and quality scores
- * - 0 7 * * * (7am UTC) → Content Sync, factory card weight update,
- *   decision-capture health heartbeat
- * - Every 6h (0,6,12,18 UTC) → Tedi MCP access-health workflow (repair enabled)
- *   and upstream drift detection (forked tools vs catalog)
+ * The existing two-minute installation and quarter-hour billing ticks retain
+ * their cadence. Daily, hourly and D1 retention jobs use the odd-minute trigger
+ * and distinct slots in staggered-maintenance.ts. Legacy top-of-hour triggers
+ * are harmless during provider rollout: no maintenance branch handles them.
  *
  * Private tenant skills own supplier feeds; the Claude registry is a supplemental
  * official source.
@@ -411,9 +385,8 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		// Every 15 minutes so the log move drains its backlog in short bounded
-		// runs instead of one long hourly pass.
-		if (fleetEnabled && cron === "*/15 * * * *") {
+		// Bounded log moves run between the quarter-hour billing ticks.
+		if (fleetEnabled && maintenanceIsDue("d1-retention", event)) {
 			const { runD1RetentionTick } = await import("./d1-retention");
 			await trackPlatformCronPath(env, event, "d1-retention", () =>
 				runD1RetentionTick(env, event),
@@ -422,7 +395,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 
 		if (
 			fleetEnabled &&
-			cron === "0 */6 * * *" &&
+			maintenanceIsDue("tedi-mcp-access-health", event) &&
 			env.TEDI_MCP_ACCESS_HEALTH_WORKFLOW
 		) {
 			const { queueTediMcpAccessHealthWorkflow } =
@@ -437,11 +410,17 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "0 2 * * *") {
+		if (fleetEnabled && maintenanceIsDue("site-versions", event)) {
 			const { runSiteVersionCheckTick } = await import("./site-versions");
 			await trackPlatformCronPath(env, event, "site-versions", () =>
 				runSiteVersionCheckTick(env),
 			);
+		}
+
+		if (
+			fleetEnabled &&
+			maintenanceIsDue("daily-billing-and-catalog-maintenance", event)
+		) {
 			const { runDailyBillingAndCatalogMaintenance } =
 				await import("./daily-billing-and-catalog-maintenance");
 			await trackPlatformCronPath(
@@ -450,15 +429,20 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				"daily-billing-and-catalog-maintenance",
 				() => runDailyBillingAndCatalogMaintenance(env, runId),
 			);
-			// Cloudflare refreshes billable usage daily, so this rides the
-			// existing daily tick rather than adding a cron entry.
+		}
+
+		if (fleetEnabled && maintenanceIsDue("cloudflare-billable-usage", event)) {
 			const { runCloudflareBillableUsageTick } =
 				await import("./cloudflare-billable-usage");
 			await trackPlatformCronPath(env, event, "cloudflare-billable-usage", () =>
 				runCloudflareBillableUsageTick(env),
 			);
-			// Compares the previous UTC day's ledger with AI Gateway analytics;
-			// the 08:00 health digest alerts on drift.
+		}
+
+		if (
+			fleetEnabled &&
+			maintenanceIsDue("gateway-cost-reconciliation", event)
+		) {
 			const { runGatewayCostReconciliationTick } =
 				await import("./gateway-cost-reconciliation");
 			await trackPlatformCronPath(
@@ -469,7 +453,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "0 3 * * *") {
+		if (fleetEnabled && maintenanceIsDue("output-asset-gc", event)) {
 			await trackPlatformCronPath(env, event, "output-asset-gc", async () => {
 				const { createDbClient } = await import("@tedix/db/client");
 				const { sweepDeletedOrganizationOutputAssets } =
@@ -481,26 +465,35 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 					}),
 				};
 			});
-			// The two short checks run before retention cleanup: when cleanup
-			// outlives the scheduled run it is cut off, and anything after it
-			// never started (16-20 Nov 2026).
+		}
+
+		if (fleetEnabled && maintenanceIsDue("machine-scope-drift", event)) {
 			const { runMachineScopeDriftTick } =
 				await import("./machine-scope-drift");
 			await trackPlatformCronPath(env, event, "machine-scope-drift", () =>
 				runMachineScopeDriftTick(env, runId),
 			);
+		}
+
+		if (fleetEnabled && maintenanceIsDue("tedi-access-key-rotation", event)) {
 			const { runTediAccessKeyRotationTick } =
 				await import("./tedi-access-key-rotation");
 			await trackPlatformCronPath(env, event, "tedi-access-key-rotation", () =>
 				runTediAccessKeyRotationTick(env, runId),
 			);
+		}
+
+		if (fleetEnabled && maintenanceIsDue("retention-cleanup", event)) {
 			const { runRetentionCleanupCron } = await import("./retention-cleanup");
 			await trackPlatformCronPath(env, event, "retention-cleanup", () =>
 				runRetentionCleanupCron(env, event, runId),
 			);
 		}
 
-		if (fleetEnabled && cron === "0 4 * * *") {
+		if (
+			fleetEnabled &&
+			maintenanceIsDue("memory-reflection-and-enrichment", event)
+		) {
 			const { runMemoryReflection } = await import("./memory-reflection");
 			await trackPlatformCronPath(
 				env,
@@ -510,14 +503,14 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "0 * * * *") {
+		if (fleetEnabled && maintenanceIsDue("mcp-scan", event)) {
 			const { runMcpScan } = await import("./catalog-scan-cron");
 			await trackPlatformCronPath(env, event, "mcp-scan", () =>
 				runMcpScan(env, runId),
 			);
 		}
 
-		if (fleetEnabled && cron === "0 * * * *") {
+		if (fleetEnabled && maintenanceIsDue("site-reconciliation", event)) {
 			const { runSiteReconciliationTick } =
 				await import("./site-reconciliation");
 			await trackPlatformCronPath(env, event, "site-reconciliation", () =>
@@ -525,7 +518,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "0 6 * * *") {
+		if (fleetEnabled && maintenanceIsDue("tool-test-and-quality", event)) {
 			const { runToolTestAndQualityScores } =
 				await import("./catalog-scan-cron");
 			await trackPlatformCronPath(env, event, "tool-test-and-quality", () =>
@@ -537,7 +530,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		// on its tedi owns the schedule, and the skill's executable workflow
 		// self-fetches its export from the tedi's Artifacts repo.
 
-		if (fleetEnabled && cron === "0 * * * *" && hour === 8) {
+		if (fleetEnabled && maintenanceIsDue("platform-health-digest", event)) {
 			const { runPlatformHealthDigestTick } =
 				await import("./platform-health-digest");
 			await trackPlatformCronPath(env, event, "platform-health-digest", () =>
@@ -545,20 +538,21 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "0 * * * *" && hour === 9) {
+		if (fleetEnabled && maintenanceIsDue("cost-anomaly-check", event)) {
 			const { runCostAnomalyCheck } = await import("./cost-anomaly");
 			await trackPlatformCronPath(env, event, "cost-anomaly-check", () =>
 				runCostAnomalyCheck(env, runId),
 			);
 		}
 
-		if (cron === "0 7 * * *") {
+		if (maintenanceIsDue("content-sync", event)) {
 			const { runContentSync } = await import("./catalog-scan-cron");
 			await trackPlatformCronPath(env, event, "content-sync", () =>
 				runContentSync(env, runId),
 			);
-			// Factory card weights: daily pass, weekly fit per source; tenant
-			// learning like the Deck sweep, so it runs on the installation tick.
+		}
+
+		if (maintenanceIsDue("factory-weight-update", event)) {
 			const { createDbClient } = await import("@tedix/db/client");
 			const { updateFactoryWeights } = await import("./factory-weight-update");
 			await trackPlatformCronPath(env, event, "factory-weight-update", () =>
@@ -571,7 +565,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 
 		// Daily decision-capture heartbeat. Fleet-gated only for the platform
 		// killswitch (disabled mode does no scheduled DB work).
-		if (fleetEnabled && cron === "0 7 * * *") {
+		if (fleetEnabled && maintenanceIsDue("capture-health-heartbeat", event)) {
 			const { runCaptureHealthHeartbeat } = await import("./capture-health");
 			await trackPlatformCronPath(env, event, "capture-health-heartbeat", () =>
 				runCaptureHealthHeartbeat(env, event.scheduledTime),
@@ -583,7 +577,10 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		// Gated on fleet-enabled only to honor the platform killswitch (disabled
 		// mode does no scheduled DB work); production runs co-located, so this
 		// runs there. No-op when Descope management creds are absent.
-		if (fleetEnabled && cron === "0 * * * *") {
+		if (
+			fleetEnabled &&
+			maintenanceIsDue("external-agent-mcp-client-reaper", event)
+		) {
 			const { runExternalAgentMcpClientReaperTick } =
 				await import("./external-agent-mcp-client-reaper");
 			await trackPlatformCronPath(
@@ -595,7 +592,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		// Project recurring Work: one item per template and month, idempotent.
-		if (fleetEnabled && cron === "0 * * * *") {
+		if (fleetEnabled && maintenanceIsDue("recurring-work", event)) {
 			const { fileRecurringWork } = await import("./recurring-work");
 			const { createDbClient } = await import("@tedix/db/client");
 			await trackPlatformCronPath(env, event, "recurring-work", () =>
@@ -608,7 +605,10 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 
 		// Rename open chats still carrying a first-message placeholder or code:
 		// one bounded page per hour, at most one title call per matching chat.
-		if (fleetEnabled && cron === "0 * * * *") {
+		if (
+			fleetEnabled &&
+			maintenanceIsDue("conversation-title-backfill", event)
+		) {
 			const { createContext } = await import("../rpc/context");
 			const { backfillPlaceholderConversationTitles } =
 				await import("../rpc/routers/kernel/conversation-title");
@@ -626,7 +626,10 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "0 */6 * * *") {
+		if (
+			fleetEnabled &&
+			maintenanceIsDue("active-provider-scan-and-drift", event)
+		) {
 			const { runActiveProviderScanAndDrift } =
 				await import("./catalog-scan-cron");
 			await trackPlatformCronPath(

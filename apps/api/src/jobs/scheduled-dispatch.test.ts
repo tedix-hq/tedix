@@ -14,6 +14,11 @@
 
 import { describe, expect, it, vi } from "vite-plus/test";
 import { scheduled } from "./scheduled-dispatch";
+import {
+	MAINTENANCE_CRONS,
+	MAINTENANCE_TRIGGER,
+} from "./staggered-maintenance";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 
 /** apps/api crons whose every branch is fleet-commercial authority. */
 const FLEET_COMMERCIAL_CRONS = [
@@ -79,6 +84,15 @@ vi.mock("./workspace-approval-push", () => ({
 }));
 vi.mock("./work-attempt-lease-sweeper", () => ({
 	runWorkAttemptLeaseSweeperTick: vi.fn(),
+}));
+vi.mock("./retention-cleanup", () => ({
+	runRetentionCleanupCron: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("./d1-retention", () => ({
+	runD1RetentionTick: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("../services/os-output-asset-gc", () => ({
+	sweepDeletedOrganizationOutputAssets: vi.fn().mockResolvedValue(0),
 }));
 vi.mock("./kernel-request-reconcile", () => ({
 	reconcileDueKernelRequests: vi.fn(),
@@ -146,6 +160,25 @@ function poisonedDisabledEnv(accessed: Array<string | symbol>): CloudflareEnv {
 }
 
 describe("scheduled dispatch under disabled fleet authority", () => {
+	it("keeps every staggered fleet job behind the authority gate", async () => {
+		const accessed: Array<string | symbol> = [];
+		for (const [id, cron] of Object.entries(MAINTENANCE_CRONS)) {
+			if (id === "content-sync" || id === "factory-weight-update") continue;
+			await scheduled(
+				{
+					cron: MAINTENANCE_TRIGGER,
+					scheduledTime: Date.parse(
+						nextSkillScheduleFireAt(cron, Date.UTC(2026, 0, 1) - 1),
+					),
+					noRetry: () => {},
+				},
+				poisonedDisabledEnv(accessed),
+				{} as ExecutionContext,
+			);
+		}
+		expect(accessed).toEqual([]);
+	});
+
 	for (const cron of FLEET_COMMERCIAL_CRONS) {
 		it(`dispatches nothing for "${cron}"`, async () => {
 			const accessed: Array<string | symbol> = [];
@@ -165,6 +198,45 @@ describe("scheduled dispatch under disabled fleet authority", () => {
 			expect(accessed).toEqual([]);
 		});
 	}
+});
+
+it("dispatches the former 03:00 jobs and D1 retention only in their new slots", async () => {
+	const env = {
+		TEDIX_FLEET_AUTHORITY_MODE: "co-located",
+		DB: {},
+	} as unknown as CloudflareEnv;
+	for (const [minute, expected] of [
+		[11, "d1-retention"],
+		[13, "output-asset-gc"],
+		[23, "retention-cleanup"],
+	] as const) {
+		catchup.paths.length = 0;
+		await scheduled(
+			{
+				cron: MAINTENANCE_TRIGGER,
+				scheduledTime: Date.UTC(2026, 10, 25, 3, minute),
+				noRetry: () => {},
+			},
+			env,
+			{} as ExecutionContext,
+		);
+		expect(catchup.paths).toEqual([expected]);
+		expect(catchup.outcomes.at(-1)).toEqual({
+			id: expected,
+			status: "success",
+		});
+	}
+	catchup.paths.length = 0;
+	await scheduled(
+		{
+			cron: "0 3 * * *",
+			scheduledTime: Date.UTC(2026, 10, 25, 3),
+			noRetry: () => {},
+		},
+		env,
+		{} as ExecutionContext,
+	);
+	expect(catchup.paths).toEqual([]);
 });
 
 it("runs bounded gateway-only catch-up on the existing two-minute trigger", async () => {

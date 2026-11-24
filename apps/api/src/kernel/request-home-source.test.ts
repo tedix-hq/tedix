@@ -24,6 +24,7 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
 	getHomeKernelRequest,
+	transitionKernelRequest,
 	listDueKernelRequestOrganizations,
 } from "@tedix/db/queries/kernel-requests";
 import type { BaseContext } from "../rpc/orpc";
@@ -35,6 +36,10 @@ import {
 	reconcileHomeKernelRequest,
 	reconcileDueHomeKernelRequests,
 } from "./request-home-source";
+const localRecovery = vi.hoisted(() => ({ reconcile: vi.fn() }));
+vi.mock("./request-local-source", () => ({
+	reconcileLocalKernelRequest: localRecovery.reconcile,
+}));
 const config = vi.hoisted(() => ({
 	value: {
 		version: 1,
@@ -376,6 +381,52 @@ describe("Home request source adapter", () => {
 			delete config.value.homeCaptureEnabled;
 			delete config.value.homeConversationIds;
 		}
+	});
+	it("defers the current version after a reader fails following a durable transition", async () => {
+		const { context, db } = await fixture();
+		await db
+			.update(kernelRequests)
+			.set({ sourceKind: "agent_session_request", nextDueAt: now });
+		localRecovery.reconcile.mockImplementationOnce(async (_context, row) => {
+			await transitionKernelRequest(db, {
+				...row,
+				expectedVersion: row.version,
+				eventId: `${row.id}:${row.version + 1}`,
+				nextAction: "read_source",
+				nextDueAt: now,
+				now,
+			});
+			throw new Error("source reader unavailable");
+		});
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			const [row] = await db.select().from(kernelRequests);
+			expect(row!.version).toBe(3);
+			expect(row!.nextAction).toBe("restore_request_reader");
+			expect(
+				await listDueKernelRequestOrganizations(db, new Date().toISOString()),
+			).toEqual([]);
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			expect(localRecovery.reconcile).toHaveBeenCalledTimes(1);
+		} finally {
+			warning.mockRestore();
+		}
+	});
+	it("does not count an unchanged request as recovered", async () => {
+		const { context, db } = await fixture();
+		await db.delete(kernelRuntimeRuns);
+		await db.update(kernelRequests).set({ nextDueAt: now });
+		expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+			0,
+		);
+		expect(
+			await listDueKernelRequestOrganizations(db, new Date().toISOString()),
+		).toEqual([]);
 	});
 	it("keeps paused requests owned while yielding the bounded tenant recovery scan", async () => {
 		const { context, db } = await fixture();

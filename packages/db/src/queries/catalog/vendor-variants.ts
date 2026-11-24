@@ -298,6 +298,7 @@ export async function refreshCatalogShadowedVariants(
 	for (const ids of pages) {
 		const [keys] = buildRefreshCatalogShadowedVariantsStatements(db, ids);
 		await db.batch([keys]);
+		await new Promise((resolve) => setTimeout(resolve, 250));
 	}
 	const result = { flagged: 0, cleared: 0 };
 	for (const ids of pages) {
@@ -308,6 +309,8 @@ export async function refreshCatalogShadowedVariants(
 		const [flagged, cleared] = await db.batch([flag, clear]);
 		result.flagged += flagged.length;
 		result.cleared += cleared.length;
+		if (ids !== pages[pages.length - 1])
+			await new Promise((resolve) => setTimeout(resolve, 250));
 	}
 	return result;
 }

@@ -333,6 +333,7 @@ export async function reconcileDueHomeKernelRequests(
 		return rows.length;
 	}
 	const deadline = Date.now() + policy.runBudgetMs;
+	let recovered = 0;
 	for (const row of rows) {
 		if (Date.now() >= deadline) break;
 		try {
@@ -346,6 +347,7 @@ export async function reconcileDueHomeKernelRequests(
 						: await (
 								await import("./request-local-source")
 							).reconcileLocalKernelRequest(context, row, policy);
+			if (updated.version !== row.version) recovered++;
 			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString())
 				await transitionKernelRequest(context.db, {
 					...updated,
@@ -355,19 +357,23 @@ export async function reconcileDueHomeKernelRequests(
 					now: new Date().toISOString(),
 				});
 		} catch (error) {
-			await transitionKernelRequest(context.db, {
-				...row,
-				expectedVersion: row.version,
-				eventId: `${row.id}:${row.version + 1}`,
-				nextAction: "restore_request_reader",
-				nextDueAt: new Date(Date.now() + policy.retryMs).toISOString(),
-				now: new Date().toISOString(),
-			});
+			// A reader can fail after a durable transition. Fence the current row,
+			// not the stale input, and never reopen a request closed meanwhile.
+			const current = await getKernelRequest(context.db, row);
+			if (current?.nextDueAt && current.nextDueAt <= new Date().toISOString())
+				await transitionKernelRequest(context.db, {
+					...current,
+					expectedVersion: current.version,
+					eventId: `${current.id}:${current.version + 1}`,
+					nextAction: "restore_request_reader",
+					nextDueAt: new Date(Date.now() + policy.retryMs).toISOString(),
+					now: new Date().toISOString(),
+				});
 			console.warn("[kernel-request] recovery deferred", {
 				requestId: row.id,
 				errorType: error instanceof Error ? error.name : "unknown",
 			});
 		}
 	}
-	return rows.length;
+	return recovered;
 }
