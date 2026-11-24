@@ -39,6 +39,9 @@ export function opencodeConnection(output: string): Connection {
 }
 
 export function devinConnection(line: string): Connection | undefined {
+	// Tedix refused the sign-in Devin stored; only a new sign-in gets past that.
+	if (/Streamable HTTP returned 40[13] for 'tedix'/.test(line))
+		return "signed-out";
 	const status =
 		/toolbox::tools::mcp: output_channel="MCP: tedix" MCP server 'tedix' (.*)$/.exec(
 			line,

@@ -92,6 +92,12 @@ test("Devin's Tedix connection has to finish successfully", () => {
 		"unknown",
 	);
 	assert.equal(
+		devinConnection(
+			`toolbox::tools::mcp::config: output_channel="MCP: tedix" server="tedix" Streamable HTTP returned 403 for 'tedix', falling back to SSE`,
+		),
+		"signed-out",
+	);
+	assert.equal(
 		devinConnection(`${origin}Connecting to MCP server 'tedix'`),
 		undefined,
 	);
