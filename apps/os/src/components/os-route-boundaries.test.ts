@@ -12,6 +12,9 @@ import {
 	clearOsChunkReloadGuard,
 	isStaleChunkError,
 	OS_CHUNK_RELOAD_GUARD_KEY,
+	OS_CHUNK_RETRY_DELAYS_MS,
+	nextStaleChunkRetryDelay,
+	reloadForStaleChunkRetry,
 	reloadOnceForStaleChunk,
 } from "./os-route-boundaries";
 import {
@@ -127,6 +130,39 @@ describe("reloadOnceForStaleChunk", () => {
 		expect(harness.store.get(OS_CHUNK_RELOAD_GUARD_KEY)).toBeUndefined();
 		expect(reloadOnceForStaleChunk(harness.win, staleChunk)).toBe(true);
 		expect(harness.reload).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("waited stale chunk retries", () => {
+	const staleChunk = new Error(
+		"Failed to fetch dynamically imported module: /assets/view-B1x9.js",
+	);
+
+	it("retries a bounded number of times with growing pauses, then stops", () => {
+		const now = 1_000_000;
+		for (const delay of OS_CHUNK_RETRY_DELAYS_MS) {
+			expect(nextStaleChunkRetryDelay(harness.win, staleChunk, now)).toBe(
+				delay,
+			);
+			expect(reloadForStaleChunkRetry(harness.win, now)).toBe(true);
+		}
+		// Re-arming the one-shot guard must not hand out more waited retries.
+		clearOsChunkReloadGuard(harness.win);
+		expect(nextStaleChunkRetryDelay(harness.win, staleChunk, now)).toBeNull();
+		expect(reloadForStaleChunkRetry(harness.win, now)).toBe(false);
+		expect(harness.reload).toHaveBeenCalledTimes(
+			OS_CHUNK_RETRY_DELAYS_MS.length,
+		);
+		// A failure long after gets its own tries.
+		expect(
+			nextStaleChunkRetryDelay(harness.win, staleChunk, now + 2 * 60 * 60_000),
+		).toBe(OS_CHUNK_RETRY_DELAYS_MS[0]);
+	});
+
+	it("does not retry a failure a reload cannot fix", () => {
+		expect(
+			nextStaleChunkRetryDelay(harness.win, new Error("undefined is not a fn")),
+		).toBeNull();
 	});
 });
 

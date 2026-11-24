@@ -176,6 +176,63 @@ export function reloadOnceForStaleChunk(
 }
 
 /**
+ * The asset server can refuse scripts for a short while, and the one reload
+ * above then fails too. Waiting and reloading again fixes that without a
+ * person, so the panel tries a few more times with growing pauses. The count
+ * lives apart from the one-shot guard, which is re-armed while the panel
+ * waits, and it lapses after an hour so a later failure gets its own tries.
+ */
+export const OS_CHUNK_RETRY_KEY = "tedix-os-chunk-retry";
+export const OS_CHUNK_RETRY_DELAYS_MS = [30_000, 120_000, 300_000];
+const OS_CHUNK_RETRY_WINDOW_MS = 60 * 60_000;
+
+/** How long to wait before the next automatic reload, or null when none is left. */
+export function nextStaleChunkRetryDelay(
+	win: Pick<ReloadWindow, "sessionStorage">,
+	error: unknown,
+	now = Date.now(),
+): number | null {
+	if (!isStaleChunkError(error)) return null;
+	try {
+		return OS_CHUNK_RETRY_DELAYS_MS[readChunkRetry(win, now)[0]] ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function readChunkRetry(
+	win: Pick<ReloadWindow, "sessionStorage">,
+	now: number,
+): [count: number, since: number] {
+	const [count, since] = (win.sessionStorage.getItem(OS_CHUNK_RETRY_KEY) ?? "")
+		.split(":")
+		.map(Number);
+	return Number.isInteger(count) &&
+		Number.isFinite(since) &&
+		now - since! < OS_CHUNK_RETRY_WINDOW_MS
+		? [count!, since!]
+		: [0, now];
+}
+
+/** Reload for a waited retry, unless that would lose input or no count can be kept. */
+export function reloadForStaleChunkRetry(
+	win: ReloadWindow,
+	now = Date.now(),
+): boolean {
+	if (isOsDocumentLeaving(document)) return true;
+	if (hasUnsavedOsInput(document)) return false;
+	try {
+		const [count, since] = readChunkRetry(win, now);
+		if (count >= OS_CHUNK_RETRY_DELAYS_MS.length) return false;
+		win.sessionStorage.setItem(OS_CHUNK_RETRY_KEY, `${count + 1}:${since}`);
+	} catch {
+		return false;
+	}
+	win.location.reload();
+	return true;
+}
+
+/**
  * Re-arm the one-shot after a document has stayed up. A looping reload hits the
  * boundary long before this fires, so the guard survives to break the loop.
  */
@@ -209,6 +266,13 @@ export function OsRouteError({ error, reset }: ErrorComponentProps) {
 		// A tab open across a deploy fails its next lazy import against retired
 		// asset URLs; Retry cannot fix that, only a reload onto the new manifest.
 		if (reloadOnceForStaleChunk(window, error)) return;
+		const retryIn = navigator.onLine
+			? nextStaleChunkRetryDelay(window, error)
+			: null;
+		const retrying =
+			retryIn === null
+				? undefined
+				: setTimeout(() => reloadForStaleChunkRetry(window), retryIn);
 		// The panel now carries the reload itself; a toast asking for the same
 		// thing beside it is noise.
 		if (isStaleChunkError(error)) osToastManager.close(OS_RELOAD_NOTICE_ID);
@@ -221,6 +285,7 @@ export function OsRouteError({ error, reset }: ErrorComponentProps) {
 			captureMechanism: "react",
 		});
 		queryErrorResetBoundary.reset();
+		return () => clearTimeout(retrying);
 	}, [error, queryErrorResetBoundary]);
 
 	const reload = () => {
