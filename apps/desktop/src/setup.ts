@@ -843,7 +843,8 @@ async function readToolFacts(): Promise<void> {
 	const versionOf = async (command: string) => {
 		const version = await run(command, ["--version"], { timeoutMs: 10_000 });
 		return version.ok
-			? (version.output.match(/\b\d+\.\d+\.\d+(?:-[\w.]+)?\b/)?.[0] ?? "")
+			? (version.output.match(/(?<![\d.])\d+\.\d+\.\d+(?:-[\w.]+)?\b/)?.[0] ??
+					"")
 			: "";
 	};
 	await Promise.all(
