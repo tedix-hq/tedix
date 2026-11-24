@@ -317,7 +317,10 @@ export const RunWorkspaceSkillNowInputSchema = z
 				(value) => JSON.stringify(value).length <= RUN_PARAMS_MAX_BYTES,
 				`Params must stay under ${RUN_PARAMS_MAX_BYTES} bytes`,
 			)
-			.describe("The run's params, as the skill's workflow reads them"),
+			.optional()
+			.describe(
+				"A card action's params; the server adds workspaceId and tediId. Leave out or empty to run the skill exactly as its schedule would",
+			),
 		needs: PersonalAccessLevelSchema.exclude(["none"])
 			.optional()
 			.describe(

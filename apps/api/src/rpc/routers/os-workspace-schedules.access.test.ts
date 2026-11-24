@@ -628,6 +628,39 @@ describe("run a linked skill now", () => {
 		expect(sources[0].toolIds).not.toContain("trash_thread");
 	});
 
+	it("runs a scheduled skill early with exactly its schedule's params", async () => {
+		const env = createEnv();
+		const { workspaceId } = await seed(env);
+		await createDbClient(env.DB)
+			.insert(skillSchedules)
+			.values({
+				id: "schedule-1",
+				organizationId: "org-1",
+				skillId: FACTORY,
+				tediId: TEDI,
+				cron: "0 8 * * *",
+				params: { mode: "research" },
+				nextFireAt: "2026-11-25T08:00:00.000Z",
+			});
+		const owner = member(env, OWNER);
+		const request = {
+			workspaceId,
+			skillId: FACTORY,
+			idempotencyKey: crypto.randomUUID(),
+		};
+		await owner.schedules.runNow(request);
+		await owner.schedules.runNow({
+			...request,
+			params: {},
+			idempotencyKey: crypto.randomUUID(),
+		});
+		// A strict skill rejects any key it does not know, so nothing is added.
+		expect(mocks.runtime.mock.calls.map((call) => call[2].params)).toEqual([
+			{ mode: "research" },
+			{ mode: "research" },
+		]);
+	});
+
 	it("files work without any personal access, and refuses an unlinked skill", async () => {
 		const env = createEnv();
 		const { workspaceId } = await seed(env);

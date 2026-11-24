@@ -1186,7 +1186,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/schedules/run-now",
 					summary: "Run one of the Workspace's skills now",
 					description:
-						"Starts a run of a skill the Workspace links under Skills and schedules, outside its schedule, with the given params, for example a Card review Do it ({cardSheetId, row, kind, action, columns}); the server adds workspaceId and the skill's tediId. The run carries the caller's own active grants for that skill and Workspace. With needs, the run starts only when those grants reach that level; otherwise the result is needs_access and nothing runs.",
+						"Starts a run of a skill the Workspace links under Skills and schedules, outside its schedule. With no or empty params it runs exactly as its schedule would, with the schedule's params and nothing added. With params, for example a Card review Do it ({cardSheetId, row, kind, action, columns}), the server adds workspaceId and the skill's tediId. The run carries the caller's own active grants for that skill and Workspace. With needs, the run starts only when those grants reach that level; otherwise the result is needs_access and nothing runs.",
 				})
 				.input(RunWorkspaceSkillNowInputSchema)
 				.output(RunWorkspaceSkillNowResultSchema),

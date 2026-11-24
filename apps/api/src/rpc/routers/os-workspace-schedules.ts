@@ -644,9 +644,10 @@ const setPersonalAccess = authorOs.schedules.setPersonalAccess.handler(
 );
 
 /**
- * Run a Workspace's linked skill now, for example a Card review Do it. The
- * run carries only the caller's own active grants for that skill and
- * Workspace, validated like a manual run's; with needs, a missing level stops
+ * Run a Workspace's linked skill now: its scheduled run early, or with
+ * params a Card review Do it. The run carries only the caller's own active
+ * grants for that skill and Workspace, validated like a manual run's; with
+ * needs, a missing level stops
  * it before anything runs.
  */
 const runNow = authorOs.schedules.runNow.handler(async ({ input, context }) => {
@@ -725,6 +726,13 @@ const runNow = authorOs.schedules.runNow.handler(async ({ input, context }) => {
 			})
 		: undefined;
 	const skillDoc = files?.["SKILL.md"] ?? skill.content ?? "";
+	// Without params this is the schedule's run, early: the workflow gets
+	// exactly what its scheduled fire would, so a skill that rejects unknown
+	// inputs still runs. A card action's params get the Workspace and tedi.
+	const params = Object.keys(input.params ?? {}).length
+		? { ...input.params, workspaceId: workspace.id, tediId: skill.tediId }
+		: ((await getSkillSchedule(context.db, skill.id, organizationId))?.params ??
+			{});
 	const dispatched = await callSkillRuntime<{ runId: string }>(
 		context,
 		"/run",
@@ -736,11 +744,7 @@ const runNow = authorOs.schedules.runNow.handler(async ({ input, context }) => {
 			skillRevision: skill.revision ?? null,
 			orgId: organizationId,
 			tediId: skill.tediId,
-			params: {
-				...input.params,
-				workspaceId: workspace.id,
-				tediId: skill.tediId,
-			},
+			params,
 			workflowSource,
 			skillDoc,
 			capabilityManifest: parseCapabilityManifest(skillDoc),
