@@ -952,11 +952,17 @@ function toolRows(): ToolRow[] {
 			(host?.account === "signed-in" || host?.account === "signed-out"
 				? host.account
 				: "unknown");
-		row.readVerified = recentConnectionCheck(
-			readVerified()[tool.id],
-			verificationTarget(tool.id, command),
-			Date.now(),
-		);
+		// Devin and OpenCode are checked by reading their own connection state,
+		// which every look already does: a signed-in read is that check, so the
+		// row needs no extra Check connection press after a sign-in.
+		row.readVerified =
+			((tool.id === "devin" || tool.id === "opencode") &&
+				facts.connection === "signed-in") ||
+			recentConnectionCheck(
+				readVerified()[tool.id],
+				verificationTarget(tool.id, command),
+				Date.now(),
+			);
 		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
 			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
