@@ -32,13 +32,12 @@ export function maintenanceIsDue(
 	id: keyof typeof MAINTENANCE_CRONS,
 	event: Pick<ScheduledController, "cron" | "scheduledTime">,
 ): boolean {
+	// Provider timestamps can include seconds; cron due decisions use UTC minutes.
+	const scheduledMinute = Math.floor(event.scheduledTime / 60_000) * 60_000;
 	return (
 		event.cron === MAINTENANCE_TRIGGER &&
 		Date.parse(
-			nextSkillScheduleFireAt(
-				MAINTENANCE_CRONS[id],
-				event.scheduledTime - 60_000,
-			),
-		) === event.scheduledTime
+			nextSkillScheduleFireAt(MAINTENANCE_CRONS[id], scheduledMinute - 60_000),
+		) === scheduledMinute
 	);
 }

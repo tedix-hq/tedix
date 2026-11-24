@@ -40,6 +40,7 @@ const catchup = vi.hoisted(() => ({
 	stall: vi.fn().mockResolvedValue(0),
 	thinning: vi.fn().mockResolvedValue({ status: "off" }),
 	paths: [] as string[],
+	receipts: [] as Array<{ id: string; scheduledTime: number }>,
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
 vi.mock("./decision-outcome-labeller", () => ({
@@ -122,11 +123,12 @@ vi.mock("../services/os-output-revision-thinning", () => ({
 vi.mock("./platform-cron-receipts", () => ({
 	runPlatformCronPath: async (
 		_env: unknown,
-		_event: unknown,
+		event: ScheduledController,
 		id: string,
 		run: () => Promise<unknown>,
 	) => {
 		catchup.paths.push(id);
+		catchup.receipts.push({ id, scheduledTime: event.scheduledTime });
 		try {
 			await run();
 			catchup.outcomes.push({ id, status: "success" });
@@ -205,26 +207,34 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 		TEDIX_FLEET_AUTHORITY_MODE: "co-located",
 		DB: {},
 	} as unknown as CloudflareEnv;
-	for (const [minute, expected] of [
-		[11, "d1-retention"],
-		[13, "output-asset-gc"],
-		[23, "retention-cleanup"],
-	] as const) {
-		catchup.paths.length = 0;
-		await scheduled(
-			{
-				cron: MAINTENANCE_TRIGGER,
-				scheduledTime: Date.UTC(2026, 10, 25, 3, minute),
-				noRetry: () => {},
-			},
-			env,
-			{} as ExecutionContext,
-		);
-		expect(catchup.paths).toEqual([expected]);
-		expect(catchup.outcomes.at(-1)).toEqual({
-			id: expected,
-			status: "success",
-		});
+	for (const offset of [0, 11_000, 11_292, 25_200, 59_999]) {
+		for (const [minute, expected] of [
+			[11, "d1-retention"],
+			[13, "output-asset-gc"],
+			[21, null],
+			[23, "retention-cleanup"],
+		] as const) {
+			catchup.paths.length = 0;
+			catchup.receipts.length = 0;
+			catchup.outcomes.length = 0;
+			const scheduledTime = Date.UTC(2026, 10, 25, 3, minute) + offset;
+			await scheduled(
+				{
+					cron: MAINTENANCE_TRIGGER,
+					scheduledTime,
+					noRetry: () => {},
+				},
+				env,
+				{} as ExecutionContext,
+			);
+			expect(catchup.paths).toEqual(expected ? [expected] : []);
+			expect(catchup.receipts).toEqual(
+				expected ? [{ id: expected, scheduledTime }] : [],
+			);
+			expect(catchup.outcomes).toEqual(
+				expected ? [{ id: expected, status: "success" }] : [],
+			);
+		}
 	}
 	catchup.paths.length = 0;
 	await scheduled(
