@@ -44,6 +44,7 @@ function rotatingServer(beforeReply?: () => Promise<void>) {
 		firstRequest = resolve;
 	});
 	const server = Bun.serve({
+		hostname: "127.0.0.1",
 		port: 0,
 		async fetch(request) {
 			if (new URL(request.url).pathname !== "/token")
