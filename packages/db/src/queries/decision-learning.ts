@@ -1,3 +1,4 @@
+import { advancePlatformCronCheckpoint } from "./platform-cron-executions";
 import type { WorkInteraction } from "../schema/work-factory";
 import type { TediApprovalRequest } from "../schema/approvals";
 import type { WorkItem } from "../schema/work-items";
@@ -235,17 +236,12 @@ export async function advanceDecisionLabelScanCheckpoint(
 	previous: string | null,
 	next: string,
 ) {
-	await db
-		.insert(platformCronCheckpoints)
-		.values({ scheduleId: LABEL_SCAN_CHECKPOINT + source, through: next })
-		.onConflictDoUpdate({
-			target: platformCronCheckpoints.scheduleId,
-			set: { through: next },
-			setWhere:
-				previous === null
-					? sql`0`
-					: eq(platformCronCheckpoints.through, previous),
-		});
+	await advancePlatformCronCheckpoint(db, {
+		scheduleId: LABEL_SCAN_CHECKPOINT + source,
+		through: next,
+		mode: "cas",
+		previous,
+	});
 }
 
 const unlabelledResponseColumns = {

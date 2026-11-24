@@ -17,6 +17,7 @@ import {
 	type DecisionGraphBackfillCursor,
 } from "@tedix/api-contract/schemas/decision-graph-backfill";
 import type { DbQueryClient } from "../query-client";
+import { advancePlatformCronCheckpoint } from "./platform-cron-executions";
 import { organizations } from "../schema/organizations";
 import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import { tediApprovalRequests } from "../schema/approvals";
@@ -572,17 +573,12 @@ export async function advanceDecisionGraphBackfillCheckpoint(
 	previous: string | null,
 	next: string,
 ) {
-	await db
-		.insert(platformCronCheckpoints)
-		.values({ scheduleId: CHECKPOINT + key, through: next })
-		.onConflictDoUpdate({
-			target: platformCronCheckpoints.scheduleId,
-			set: { through: next },
-			setWhere:
-				previous === null
-					? sql`0`
-					: eq(platformCronCheckpoints.through, previous),
-		});
+	await advancePlatformCronCheckpoint(db, {
+		scheduleId: CHECKPOINT + key,
+		through: next,
+		mode: "cas",
+		previous,
+	});
 }
 export async function nextDecisionGraphBackfillOrganization(
 	db: DbQueryClient,

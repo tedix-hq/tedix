@@ -132,7 +132,7 @@ export async function dispatchCommitmentWakes(
 	const oldestWakeMs = Math.max(scheduledTime, Date.now()) - MAX_WAKE_AGE_MS;
 	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
 	// Preserve the initial boundary even if the very first acceptance fails.
-	if (windows[0])
+	if (windows[0] && checkpoint !== windows[0].after)
 		await bounded(() => advanceCommitmentWakeCheckpoint(db, windows[0]!.after));
 	// Fresh work runs first so a poison retry cannot consume every run's budget.
 	const retryPages = await bounded(() => listCommitmentWakeRetryPages(db));

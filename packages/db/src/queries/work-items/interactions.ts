@@ -1,3 +1,4 @@
+import { advancePlatformCronCheckpoint } from "../platform-cron-executions";
 import { WorkInteractionConditionSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { buildWorkDecisionContinuationStatement } from "./comments";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -750,14 +751,12 @@ export async function reconcileWorkInteractionConditions(
 			key: lastOrg,
 			tediId: crypto.randomUUID(),
 		};
-		await db
-			.insert(platformCronCheckpoints)
-			.values({ scheduleId, through: p.now, cursor })
-			.onConflictDoUpdate({
-				target: platformCronCheckpoints.scheduleId,
-				set: { through: p.now, cursor },
-				setWhere: sql`${platformCronCheckpoints.through}<${p.now}`,
-			});
+		await advancePlatformCronCheckpoint(db, {
+			scheduleId,
+			through: p.now,
+			cursor,
+			mode: "newer",
+		});
 		return { closed };
 	}
 	const eligible = and(

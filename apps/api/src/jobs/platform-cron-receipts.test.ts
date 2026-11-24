@@ -1,11 +1,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { runPlatformCronPath } from "./platform-cron-receipts";
+import {
+	runPlatformCronPath,
+	withPlatformCronReceipts,
+} from "./platform-cron-receipts";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { advancePlatformCronCheckpoint } from "@tedix/db/queries/platform-cron-executions";
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
+		CREATE TABLE platform_cron_checkpoints (schedule_id TEXT PRIMARY KEY, through TEXT NOT NULL, cursor TEXT);
 		CREATE TABLE platform_cron_executions (
 			id TEXT PRIMARY KEY NOT NULL,
 			schedule_id TEXT NOT NULL,
@@ -34,6 +40,180 @@ function fixture() {
 }
 
 describe("platform cron path receipts", () => {
+	it.each([27, 51])(
+		"batches %i paths and flushes failure receipts before propagating dispatch errors",
+		async (paths) => {
+			const { env, event, sqlite } = fixture();
+			event.cron = "*/2 * * * *";
+			const db = createDbQueryClient(env.DB);
+			const batch = vi.spyOn(env.DB, "batch");
+			const failure = new Error("dispatch failed");
+			if (paths === 51)
+				batch.mockRejectedValueOnce(new Error("D1_ERROR: overloaded"));
+			const tick = () =>
+				withPlatformCronReceipts(env, async () => {
+					for (let i = 0; i < paths; i++) {
+						await runPlatformCronPath(env, event, `path-${i}`, async () => {
+							if (i === paths - 1) throw failure;
+							return { updated: i };
+						}).catch((error) => {
+							if (error !== failure) throw error;
+						});
+					}
+					for (let i = 0; i < 6; i++)
+						await advancePlatformCronCheckpoint(db, {
+							scheduleId: `checkpoint-${i}`,
+							through: "2",
+							mode: "cas",
+							previous: "1",
+						});
+					expect(
+						sqlite
+							.prepare("SELECT count(*) AS n FROM platform_cron_executions")
+							.get(),
+					).toEqual({ n: 0 });
+					throw failure;
+				});
+			await expect(tick()).rejects.toBe(failure);
+			expect(batch).toHaveBeenCalledTimes(paths === 51 ? 2 : 1);
+			expect(batch.mock.calls.at(-1)![0]).toHaveLength(
+				Math.ceil(paths / 50) + 1,
+			);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT status, count(*) AS n FROM platform_cron_executions GROUP BY status ORDER BY status",
+					)
+					.all(),
+			).toEqual([
+				{ status: "failure", n: 1 },
+				{ status: "success", n: paths - 1 },
+			]);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT count(*) AS n FROM platform_cron_checkpoints WHERE through = '2'",
+					)
+					.get(),
+			).toEqual({ n: 6 });
+			// A stale CAS must not overwrite a newer concurrently saved boundary.
+			sqlite.exec("UPDATE platform_cron_checkpoints SET through = '3'");
+			await withPlatformCronReceipts(env, async () => {
+				await advancePlatformCronCheckpoint(db, {
+					scheduleId: "checkpoint-0",
+					through: "4",
+					mode: "cas",
+					previous: "2",
+				});
+				await runPlatformCronPath(
+					env,
+					event,
+					`path-${paths - 1}`,
+					async () => ({
+						updated: 1,
+					}),
+				);
+			});
+			expect(
+				sqlite
+					.prepare(
+						"SELECT through FROM platform_cron_checkpoints WHERE schedule_id = 'checkpoint-0'",
+					)
+					.get(),
+			).toEqual({ through: "3" });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT status FROM platform_cron_executions WHERE schedule_id = ?",
+					)
+					.get(`path-${paths - 1}`),
+			).toEqual({ status: "failure" });
+		},
+	);
+
+	it("preserves monotonic checkpoint guards and cursor ownership in a batch", async () => {
+		const { env, sqlite } = fixture();
+		const db = createDbQueryClient(env.DB);
+		sqlite.exec(
+			`INSERT INTO platform_cron_checkpoints VALUES ('numeric', '9', '{"key":"keep"}'), ('newer', '3', NULL), ('cas', '3', NULL)`,
+		);
+		const cursor = { changedAt: "4", key: "new", tediId: "test" };
+		await withPlatformCronReceipts(env, async () => {
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "numeric",
+				through: "10",
+				mode: "numeric",
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "numeric",
+				through: "2",
+				mode: "numeric",
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "newer",
+				through: "2",
+				mode: "newer",
+				cursor,
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "cas",
+				through: "4",
+				mode: "cas",
+				previous: null,
+			});
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT schedule_id, through, cursor FROM platform_cron_checkpoints ORDER BY schedule_id",
+				)
+				.all(),
+		).toEqual([
+			{ schedule_id: "cas", through: "3", cursor: null },
+			{ schedule_id: "newer", through: "3", cursor: null },
+			{ schedule_id: "numeric", through: "10", cursor: '{"key":"keep"}' },
+		]);
+		await withPlatformCronReceipts(env, async () => {
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "newer",
+				through: "4",
+				mode: "newer",
+				cursor,
+			});
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT through, cursor FROM platform_cron_checkpoints WHERE schedule_id = 'newer'",
+				)
+				.get(),
+		).toEqual({ through: "4", cursor: JSON.stringify(cursor) });
+	});
+
+	it("does not replay maintenance when the final batch permanently fails", async () => {
+		const { env, event } = fixture();
+		event.cron = "*/2 * * * *";
+		const batch = vi
+			.spyOn(env.DB, "batch")
+			.mockRejectedValue(new Error("D1_ERROR: no such column"));
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		const run = vi.fn(async () => ({ updated: 1 }));
+		try {
+			await expect(
+				withPlatformCronReceipts(env, () =>
+					runPlatformCronPath(env, event, "path", run),
+				),
+			).resolves.toBeUndefined();
+			expect(batch).toHaveBeenCalledOnce();
+			expect(run).toHaveBeenCalledOnce();
+			expect(JSON.parse(String(log.mock.calls[0]?.[0])).event).toBe(
+				"platform.cron.receipt_batch_failed",
+			);
+		} finally {
+			log.mockRestore();
+		}
+	});
+
 	it.each(["success", "failure"])(
 		"writes one immutable %s receipt per frequent path",
 		async (status) => {

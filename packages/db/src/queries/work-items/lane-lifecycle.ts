@@ -1,3 +1,4 @@
+import { advancePlatformCronCheckpoint } from "../platform-cron-executions";
 import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
@@ -318,13 +319,10 @@ export async function notifyStoppedLanes(
 		rows.length < STOPPED_LANE_NOTICES_PER_CALL
 			? newest.sequence
 			: rows.at(-1)!.sequence;
-	await db
-		.insert(platformCronCheckpoints)
-		.values({ scheduleId: STOPPED_LANE_CHECKPOINT, through: String(examined) })
-		.onConflictDoUpdate({
-			target: platformCronCheckpoints.scheduleId,
-			set: { through: String(examined) },
-			setWhere: sql`CAST(${platformCronCheckpoints.through} AS INTEGER) < ${examined}`,
-		});
+	await advancePlatformCronCheckpoint(db, {
+		scheduleId: STOPPED_LANE_CHECKPOINT,
+		through: String(examined),
+		mode: "numeric",
+	});
 	return notified;
 }

@@ -46,11 +46,12 @@ async function trackPlatformCronPath(
  * `fleetEnabled &&` BEFORE its job module is imported, which is what
  * scheduled-dispatch.test.ts proves against the authority classification.
  */
-export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
-	event,
-	env,
-	ctx,
+const dispatchScheduled = async (
+	event: ScheduledController,
+	env: CloudflareEnv,
+	ctx: ExecutionContext,
 ) => {
+	const backgroundPaths: Promise<void>[] = [];
 	const hour = new Date(event.scheduledTime).getUTCHours();
 	const minute = new Date(event.scheduledTime).getUTCMinutes();
 	const cron = event.cron;
@@ -239,15 +240,20 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				const { createDbClient } = await import("@tedix/db/client");
 				const { dispatchStallRecovery } = await import("./stall-recovery");
 				// Recovery has its own receipt and lifetime; it must not hold replay or later paths.
-				ctx.waitUntil(
-					trackPlatformCronPath(env, event, "stall-recovery", async () => ({
+				const recovery = trackPlatformCronPath(
+					env,
+					event,
+					"stall-recovery",
+					async () => ({
 						resumeRequested: await dispatchStallRecovery(
 							createDbClient(env.DB),
 							env,
 							event.scheduledTime,
 						),
-					})),
+					}),
 				);
+				backgroundPaths.push(recovery);
+				ctx.waitUntil(recovery);
 			}
 			if (minute % 10 < 2) {
 				// Accepted non-coding Work with no executor goes to its steward tedi.
@@ -645,5 +651,20 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			{ exception: safeExceptionTopology(error) },
 		);
 		throw error; // Re-throw to mark the scheduled event as failed
+	} finally {
+		// Keep the final batch inside the invocation's db.request ledger.
+		await Promise.allSettled(backgroundPaths);
 	}
+};
+
+export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
+	event,
+	env,
+	ctx,
+) => {
+	if (event.cron !== "*/2 * * * *") return dispatchScheduled(event, env, ctx);
+	const { withPlatformCronReceipts } = await import("./platform-cron-receipts");
+	return withPlatformCronReceipts(env, () =>
+		dispatchScheduled(event, env, ctx),
+	);
 };

@@ -42,6 +42,42 @@ function boundedAffectedRows(
 	);
 }
 
+/** Flush even when dispatch fails; receipt retries never rerun maintenance. */
+export async function withPlatformCronReceipts<T>(
+	env: CloudflareEnv,
+	run: () => Promise<T>,
+): Promise<T> {
+	const { createDbClient } = await import("@tedix/db/client");
+	const { withPlatformCronWriteBatch } =
+		await import("@tedix/db/queries/platform-cron-executions");
+	return withPlatformCronWriteBatch(
+		createDbClient(env.DB),
+		run,
+		async (write) => {
+			for (let attempt = 0; ; attempt++) {
+				try {
+					await write();
+					return;
+				} catch (error) {
+					const delayMs = RECEIPT_FINISH_BACKOFF_MS[attempt];
+					if (delayMs !== undefined && isTransientD1ReadError(error)) {
+						await sleep(delayMs);
+						continue;
+					}
+					console.error(
+						JSON.stringify({
+							event: "platform.cron.receipt_batch_failed",
+							exception: safeExceptionTopology(error),
+						}),
+					);
+					// Replaying the trigger would repeat unrelated side effects.
+					return;
+				}
+			}
+		},
+	);
+}
+
 /** Track one logical maintenance path within a Cloudflare scheduled fire. */
 export async function runPlatformCronPath(
 	env: CloudflareEnv,

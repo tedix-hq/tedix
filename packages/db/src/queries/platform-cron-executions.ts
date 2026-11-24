@@ -1,6 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { eq, getColumns, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
+import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
 import {
 	platformCronCheckpoints,
 	platformCronExecutions,
@@ -24,6 +27,177 @@ export interface PlatformCronExecutionFinish extends PlatformCronExecutionStart 
 	durationMs: number;
 	affectedRowCounts: Record<string, number>;
 	error?: string | null;
+}
+
+type CheckpointAdvance = {
+	scheduleId: string;
+	through: string;
+	cursor?: typeof platformCronCheckpoints.$inferSelect.cursor;
+	mode: "newer" | "numeric" | "cas";
+	previous?: string | null;
+};
+type CronWrites = {
+	receipts: PlatformCronExecutionFinish[];
+	checkpoints: CheckpointAdvance[];
+};
+const cronWrites = new AsyncLocalStorage<CronWrites>();
+
+/** Scope collection to one invocation, including its awaited background paths. */
+export async function withPlatformCronWriteBatch<T>(
+	db: DbQueryClient,
+	run: () => Promise<T>,
+	flush: (write: () => Promise<void>) => Promise<void>,
+): Promise<T> {
+	const writes: CronWrites = { receipts: [], checkpoints: [] };
+	return cronWrites.run(writes, async () => {
+		let failed = false;
+		try {
+			return await run();
+		} catch (error) {
+			failed = true;
+			throw error;
+		} finally {
+			try {
+				await flush(() => writePlatformCronBatch(db, writes));
+			} catch (error) {
+				// The caller logs flush errors; preserve the original dispatch failure.
+				if (!failed) throw error;
+			}
+		}
+	});
+}
+
+function buildCheckpointStatement(
+	db: DbQueryClient,
+	advances: CheckpointAdvance[],
+) {
+	// JSON rows keep the parameter count independent of chunk length.
+	const rows = JSON.stringify(advances);
+	const incoming = (field: string) =>
+		sql`(SELECT json_extract(value, ${"$." + field}) FROM json_each(${rows}) WHERE json_extract(value, '$.scheduleId') = excluded.schedule_id LIMIT 1)`;
+	return db
+		.insert(platformCronCheckpoints)
+		.select(
+			db
+				.select({
+					scheduleId: sql<string>`json_extract(value, '$.scheduleId')`.as(
+						"schedule_id",
+					),
+					through: sql<string>`json_extract(value, '$.through')`.as("through"),
+					cursor: sql<
+						typeof platformCronCheckpoints.$inferSelect.cursor
+					>`json_extract(value, '$.cursor')`.as("cursor"),
+				})
+				.from(sql`json_each(${rows})`)
+				.where(sql`1`),
+		)
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: {
+				through: sql`excluded.through`,
+				cursor: sql`CASE WHEN ${incoming("cursor")} IS NOT NULL THEN excluded.cursor ELSE ${platformCronCheckpoints.cursor} END`,
+			},
+			setWhere: sql`CASE ${incoming("mode")}
+			WHEN 'newer' THEN ${platformCronCheckpoints.through} < excluded.through
+			WHEN 'numeric' THEN CAST(${platformCronCheckpoints.through} AS INTEGER) < CAST(excluded.through AS INTEGER)
+			WHEN 'cas' THEN ${platformCronCheckpoints.through} = ${incoming("previous")}
+			ELSE 0 END`,
+		});
+}
+
+export async function advancePlatformCronCheckpoint(
+	db: DbQueryClient,
+	advance: CheckpointAdvance,
+): Promise<void> {
+	const writes = cronWrites.getStore();
+	if (writes) {
+		const previous = writes.checkpoints.find(
+			(row) => row.scheduleId === advance.scheduleId,
+		);
+		if (previous) {
+			// Repeated monotonic advances collapse to the furthest boundary. CAS
+			// advances retain the original fence while moving the target forward.
+			if (
+				advance.mode === "cas"
+					? advance.previous === previous.through
+					: advance.mode === "numeric"
+						? Number(advance.through) > Number(previous.through)
+						: advance.through > previous.through
+			) {
+				Object.assign(
+					previous,
+					advance,
+					advance.mode === "cas" ? { previous: previous.previous } : {},
+				);
+			}
+		} else writes.checkpoints.push(advance);
+		return;
+	}
+	await buildCheckpointStatement(db, [advance]);
+}
+
+async function writePlatformCronBatch(
+	db: DbQueryClient,
+	writes: CronWrites,
+): Promise<void> {
+	const statements = chunkForBoundParams(writes.receipts, 50).map((receipts) =>
+		db
+			.insert(platformCronExecutions)
+			.select(
+				db
+					.select({
+						id: sql<string>`json_extract(value, '$.id')`.as("id"),
+						scheduleId: sql<string>`json_extract(value, '$.scheduleId')`.as(
+							"schedule_id",
+						),
+						cron: sql<string>`json_extract(value, '$.cron')`.as("cron"),
+						scheduledAt: sql<string>`json_extract(value, '$.scheduledAt')`.as(
+							"scheduled_at",
+						),
+						startedAt: sql<string>`json_extract(value, '$.startedAt')`.as(
+							"started_at",
+						),
+						finishedAt: sql<string>`json_extract(value, '$.finishedAt')`.as(
+							"finished_at",
+						),
+						status: sql<
+							"success" | "failure"
+						>`json_extract(value, '$.status')`.as("status"),
+						durationMs: sql<number>`json_extract(value, '$.durationMs')`.as(
+							"duration_ms",
+						),
+						affectedRowCounts: sql<
+							Record<string, number>
+						>`json_extract(value, '$.affectedRowCounts')`.as(
+							"affected_row_counts",
+						),
+						error: sql<string | null>`json_extract(value, '$.error')`.as(
+							"error",
+						),
+					})
+					.from(sql`json_each(${JSON.stringify(receipts)})`)
+					.where(sql`1`),
+			)
+			.onConflictDoUpdate({
+				target: [
+					platformCronExecutions.scheduleId,
+					platformCronExecutions.scheduledAt,
+				],
+				set: {
+					status: sql`excluded.status`,
+					finishedAt: sql`excluded.finished_at`,
+					durationMs: sql`excluded.duration_ms`,
+					affectedRowCounts: sql`excluded.affected_row_counts`,
+					error: sql`excluded.error`,
+				},
+				setWhere: eq(platformCronExecutions.status, "running"),
+			}),
+	);
+	const checkpoints = chunkForBoundParams(writes.checkpoints, 50).map((rows) =>
+		buildCheckpointStatement(db, rows),
+	);
+	const all = [...statements, ...checkpoints];
+	if (all.length) await db.batch(batchNonEmpty(all));
 }
 
 export interface PlatformCronExecutionSummary {
@@ -143,6 +317,12 @@ export async function recordPlatformCronExecutionFinish(
 	db: DbClient,
 	stamp: PlatformCronExecutionFinish,
 ): Promise<void> {
+	const writes = cronWrites.getStore();
+	if (writes) {
+		writes.receipts.push(stamp);
+		return;
+	}
+
 	await db
 		.insert(platformCronExecutions)
 		.values(stamp)

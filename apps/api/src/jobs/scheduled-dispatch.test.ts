@@ -121,6 +121,10 @@ vi.mock("../services/os-output-revision-thinning", () => ({
 	runOutputRevisionThinningTick: catchup.thinning,
 }));
 vi.mock("./platform-cron-receipts", () => ({
+	withPlatformCronReceipts: async (
+		_env: unknown,
+		run: () => Promise<unknown>,
+	) => run(),
 	runPlatformCronPath: async (
 		_env: unknown,
 		event: ScheduledController,
@@ -504,7 +508,7 @@ it("keeps commitment replay and later paths live while stall recovery is pending
 	const background: Promise<unknown>[] = [];
 	const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
-		await scheduled(
+		const invocation = scheduled(
 			{
 				cron: "*/2 * * * *",
 				scheduledTime: Date.UTC(2026, 9, 19),
@@ -523,10 +527,12 @@ it("keeps commitment replay and later paths live while stall recovery is pending
 				props: {},
 			} as unknown as ExecutionContext,
 		);
-		expect(catchup.outcomes).toContainEqual({
-			id: "commitment-wakes",
-			status: "success",
-		});
+		await vi.waitFor(() =>
+			expect(catchup.outcomes).toContainEqual({
+				id: "commitment-wakes",
+				status: "success",
+			}),
+		);
 		expect(catchup.outcomes).toContainEqual({
 			id: "repository-observer",
 			status: "success",
@@ -536,6 +542,7 @@ it("keeps commitment replay and later paths live while stall recovery is pending
 			status: "success",
 		});
 		rejectRecovery(new Error("recovery unavailable"));
+		await invocation;
 		await Promise.all(background);
 		expect(catchup.outcomes).toContainEqual({
 			id: "stall-recovery",
