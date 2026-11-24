@@ -573,6 +573,117 @@ export async function listContinuityScopes(
 	return scopes;
 }
 
+export interface StallRecoveryCursor {
+	after: string;
+	pending?: ContinuityScopeSlice[];
+	atEnd?: boolean;
+}
+
+/**
+ * One cron tick reads at most 1,000 Work Items, rather than draining every
+ * continuation of a 100-scope page in the same invocation. Partial counts
+ * stay in the durable checkpoint; only complete scopes may trigger recovery.
+ */
+export async function readStallRecoveryPage(
+	db: DbQueryClient,
+	cursor: StallRecoveryCursor,
+	environment: string,
+): Promise<StallRecoveryCursor & { scopes: ContinuityScope[] }> {
+	const workBudget = 1_000;
+	let slices: ContinuityScopeSlice[];
+	let after = cursor.after;
+	let atEnd = cursor.atEnd ?? false;
+	if (cursor.pending?.length) {
+		const [partial, ...rest] = cursor.pending;
+		const [more] = await readContinuityScopeSlice(db, {
+			after: "",
+			orgId: undefined,
+			environment,
+			scopeLimit: 1,
+			only: partial!.key,
+			workAfter: partial!.workEnd,
+			workLimit: workBudget,
+		});
+		slices = more
+			? [
+					...rest,
+					{
+						...more,
+						pendingCount: partial!.pendingCount + more.pendingCount,
+						failedCount: partial!.failedCount + more.failedCount,
+						lastActivityAt: laterActivity(
+							partial!.lastActivityAt,
+							more.lastActivityAt,
+						)!,
+					},
+				]
+			: rest;
+	} else {
+		slices = await readContinuityScopeSlice(db, {
+			after,
+			orgId: undefined,
+			environment,
+			scopeLimit: CONTINUITY_SCOPE_BATCH_SIZE,
+			workAfter: null,
+			workLimit: workBudget / CONTINUITY_SCOPE_BATCH_SIZE,
+		});
+		after = slices.at(-1)?.key ?? "";
+		atEnd = slices.length < CONTINUITY_SCOPE_BATCH_SIZE;
+	}
+	const pending = slices.filter((scope) => scope.workEnd !== null);
+	const complete = slices.filter((scope) => scope.workEnd === null);
+	const workspaces: ContinuityHistorySeen = new Map();
+	const objectives: ContinuityHistorySeen = new Map();
+	const sessions = new Map<string, string | null>();
+	const links: Array<{ key: string; owner: string }> = [];
+	if (complete.length) {
+		for (const row of await readContinuityHistory(
+			db,
+			complete,
+			environment,
+			workspaces,
+			objectives,
+		)) {
+			if (row.source === "session") sessions.set(row.key!, row.activity);
+			else if (row.source === "link")
+				links.push({ key: row.key!, owner: historyOwner(row.orgId!, row.id!) });
+			else
+				(row.source === "workspace" ? workspaces : objectives).set(
+					historyOwner(row.orgId!, row.id!),
+					laterActivity(row.activity, row.startedActivity),
+				);
+		}
+	}
+	const activity = new Map(sessions);
+	for (const link of links)
+		activity.set(
+			link.key,
+			laterActivity(
+				activity.get(link.key) ?? null,
+				workspaces.get(link.owner) ?? null,
+			),
+		);
+	const scopes = complete.map(
+		({ workEnd: _workEnd, objectiveId, ...scope }) => ({
+			...scope,
+			lastActivityAt: laterActivity(
+				scope.lastActivityAt,
+				laterActivity(
+					activity.get(scope.key) ?? null,
+					objectiveId === null
+						? null
+						: (objectives.get(historyOwner(scope.orgId, objectiveId)) ?? null),
+				),
+			)!,
+		}),
+	);
+	return {
+		after: atEnd && !pending.length ? "" : after,
+		...(pending.length ? { pending, atEnd } : {}),
+		scopes,
+	};
+}
+
 /** Environment-specific progress survives isolate recycling and cron receipt retention. */
 export async function getStallRecoveryCheckpoint(
 	db: DbQueryClient,

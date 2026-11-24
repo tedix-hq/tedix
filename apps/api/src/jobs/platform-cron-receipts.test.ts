@@ -25,7 +25,7 @@ function fixture() {
 	return {
 		env: { DB: createD1Facade(sqlite) } as CloudflareEnv,
 		event: {
-			cron: "*/2 * * * *",
+			cron: "1-59/2 * * * *",
 			scheduledTime: Date.parse("2026-08-09T02:00:00.000Z"),
 			noRetry: () => {},
 		} as ScheduledController,
@@ -34,6 +34,41 @@ function fixture() {
 }
 
 describe("platform cron path receipts", () => {
+	it.each(["success", "failure"])(
+		"writes one immutable %s receipt per frequent path",
+		async (status) => {
+			const { env, event, sqlite } = fixture();
+			event.cron = "*/2 * * * *";
+			const prepare = vi.spyOn(env.DB, "prepare");
+			const failure = new Error("job failed");
+			const run = () =>
+				runPlatformCronPath(env, event, "lease-expiry", async () => {
+					expect(
+						sqlite
+							.prepare("SELECT count(*) AS n FROM platform_cron_executions")
+							.get(),
+					).toEqual({ n: 0 });
+					if (status === "failure") throw failure;
+					return { updated: 1 };
+				});
+			if (status === "failure") await expect(run()).rejects.toBe(failure);
+			else await run();
+			expect(prepare).toHaveBeenCalledTimes(1);
+			await runPlatformCronPath(env, event, "lease-expiry", async () => ({
+				updated: 2,
+			}));
+			expect(
+				sqlite
+					.prepare(
+						"SELECT status, affected_row_counts AS counts FROM platform_cron_executions",
+					)
+					.get(),
+			).toEqual({
+				status,
+				counts: status === "success" ? '{"updated":1}' : "{}",
+			});
+		},
+	);
 	it("writes bounded affected-row counts on success", async () => {
 		const { env, event, sqlite } = fixture();
 		const counts = Object.fromEntries(

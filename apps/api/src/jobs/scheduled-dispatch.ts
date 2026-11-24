@@ -233,8 +233,8 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "work-approval-redrive", () =>
 				dispatchWorkApprovalRedrives(env, event.scheduledTime),
 			);
-			// Idle limits start at 15 minutes and each inventory page reads about
-			// 120k history rows, so one page every six minutes is enough.
+			// Each tick reads one bounded slice; the checkpoint carries unfinished
+			// scope counts to later ticks instead of draining the whole inventory.
 			if (minute % 6 < 2) {
 				const { createDbClient } = await import("@tedix/db/client");
 				const { dispatchStallRecovery } = await import("./stall-recovery");

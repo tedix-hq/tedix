@@ -9,7 +9,10 @@ import {
 	computeCostMicros,
 	type ProviderTokenUsage,
 } from "@tedix/db/utils/model-pricing";
-import { findProviderModelRates } from "@tedix/db/queries/billing/provider-model-rates";
+import {
+	createProviderModelRateLookup,
+	findProviderModelRates,
+} from "@tedix/db/queries/billing/provider-model-rates";
 
 /** Exact provider identity is required; no model-tail alias or mutable default. */
 export async function resolveProviderModelRate(
@@ -22,6 +25,7 @@ export async function resolveProviderModelRate(
 		/** Total prompt input tokens, including cache reads and writes. */
 		inputTokens?: number;
 	},
+	lookup = findProviderModelRates,
 ) {
 	if (input.deploymentScope === null || !input.deploymentScope.trim())
 		return { status: "unpriced", reason: "ambiguous_scope" } as const;
@@ -41,7 +45,7 @@ export async function resolveProviderModelRate(
 	// reprices a written row. Two quick retries ride out such a burst.
 	for (let attempt = 0; ; attempt++) {
 		try {
-			rows = await findProviderModelRates(db, {
+			rows = await lookup(db, {
 				...input,
 				deploymentScope: input.deploymentScope,
 			});
@@ -63,6 +67,7 @@ export async function priceProviderUsage(
 	env: FleetAuthorityEnv,
 	identity: Parameters<typeof resolveProviderModelRate>[1],
 	usage: ProviderTokenUsage,
+	lookup = findProviderModelRates,
 ) {
 	if (
 		[
@@ -85,10 +90,14 @@ export async function priceProviderUsage(
 			rateVersionId: null,
 			reason: "invalid_usage",
 		};
-	const resolved = await resolveProviderModelRate(env, {
-		...identity,
-		inputTokens: usage.inputTokens,
-	});
+	const resolved = await resolveProviderModelRate(
+		env,
+		{
+			...identity,
+			inputTokens: usage.inputTokens,
+		},
+		lookup,
+	);
 	if (resolved.status !== "resolved")
 		return {
 			costUsd: null,
@@ -104,6 +113,19 @@ export async function priceProviderUsage(
 		rateVersionId: resolved.rate.id,
 		reason: costUsd === null ? "invalid_usage" : null,
 	};
+}
+
+/** Discard the rate snapshot after this ingestion, so later corrections are seen. */
+export function createProviderUsagePricer(env: FleetAuthorityEnv) {
+	let cached: ReturnType<typeof createProviderModelRateLookup> | undefined;
+	const lookup: typeof findProviderModelRates = (db, input) => {
+		cached ??= createProviderModelRateLookup(db);
+		return cached(input);
+	};
+	return (
+		identity: Parameters<typeof resolveProviderModelRate>[1],
+		usage: ProviderTokenUsage,
+	) => priceProviderUsage(env, identity, usage, lookup);
 }
 
 /** Every admitted send contributes evidence, even if its output failed validation. */

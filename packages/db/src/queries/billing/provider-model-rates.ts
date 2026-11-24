@@ -131,6 +131,72 @@ export async function findProviderModelRates(
 		.limit(2);
 }
 
+/** One ingestion run's snapshot, scoped to one authority database. */
+export function createProviderModelRateLookup(db: DbQueryClient) {
+	const cache = new Map<
+		string,
+		Promise<Awaited<ReturnType<typeof findProviderModelRates>>>
+	>();
+	return async (input: Parameters<typeof findProviderModelRates>[1]) => {
+		const tokens = input.inputTokens ?? 0;
+		if (
+			!input.deploymentScope.trim() ||
+			!Number.isSafeInteger(tokens) ||
+			tokens < 0
+		)
+			return [];
+		const occurredAt = new Date(input.occurredAt).toISOString();
+		const key = JSON.stringify([
+			input.provider,
+			input.modelId,
+			input.deploymentScope,
+		]);
+		let pending = cache.get(key);
+		if (!pending) {
+			pending = db
+				.select()
+				.from(providerModelRateVersions)
+				.where(
+					and(
+						eq(providerModelRateVersions.provider, input.provider),
+						eq(providerModelRateVersions.modelId, input.modelId),
+						eq(
+							providerModelRateVersions.deploymentScope,
+							input.deploymentScope,
+						),
+					),
+				)
+				.limit(101)
+				.then((rows) => rows);
+			cache.set(key, pending);
+		}
+		let rows;
+		try {
+			rows = await pending;
+		} catch (error) {
+			cache.delete(key);
+			throw error;
+		}
+		// Do not resolve from a truncated history; the indexed lookup stays exact.
+		if (rows.length > 100) return findProviderModelRates(db, input);
+		const superseded = new Set(
+			rows
+				.filter((row) => row.effectiveFrom <= occurredAt)
+				.map((row) => row.supersedesRateVersionId),
+		);
+		return rows
+			.filter(
+				(row) =>
+					row.effectiveFrom <= occurredAt &&
+					row.inputTokenMin <= tokens &&
+					(row.inputTokenMax === null || row.inputTokenMax > tokens) &&
+					!superseded.has(row.id),
+			)
+			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+			.slice(0, 2);
+	};
+}
+
 /**
  * Resolve the governed price for one provider call directly against the rate
  * table — the dispatch-side equivalent of apps/api's `priceProviderUsage`,

@@ -61,23 +61,31 @@ export async function runPlatformCronPath(
 	const db = createDbClient(env.DB);
 	const base = { id, scheduleId, cron: event.cron, scheduledAt, startedAt };
 
-	try {
-		const inserted = await recordPlatformCronExecutionStart(db, base);
-		if (!inserted) {
-			console.log(
-				`[Scheduled] ${scheduleId} replay observed for ${scheduledAt}`,
+	// The frequent tick writes only the terminal upsert. Logs retain starts so
+	// a lost invocation is distinguishable from a path that was never due.
+	if (event.cron === "*/2 * * * *") {
+		console.info(
+			JSON.stringify({ event: "platform.cron.path_started", ...base }),
+		);
+	} else {
+		try {
+			const inserted = await recordPlatformCronExecutionStart(db, base);
+			if (!inserted) {
+				console.log(
+					`[Scheduled] ${scheduleId} replay observed for ${scheduledAt}`,
+				);
+			}
+		} catch (receiptStartError) {
+			// Evidence must not starve the maintenance path. The terminal write below
+			// can still upsert a complete receipt if this transient start write failed.
+			console.error(
+				JSON.stringify({
+					event: "platform.cron.receipt_start_failed",
+					scheduleId,
+					exception: safeExceptionTopology(receiptStartError),
+				}),
 			);
 		}
-	} catch (receiptStartError) {
-		// Evidence must not starve the maintenance path. The terminal write below
-		// can still upsert a complete receipt if this transient start write failed.
-		console.error(
-			JSON.stringify({
-				event: "platform.cron.receipt_start_failed",
-				scheduleId,
-				exception: safeExceptionTopology(receiptStartError),
-			}),
-		);
 	}
 
 	// The upsert only updates running receipts, so retrying the same stamp is safe.

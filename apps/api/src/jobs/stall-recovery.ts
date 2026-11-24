@@ -5,12 +5,12 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import { PlatformCronPathError } from "./platform-cron-receipts";
 import {
 	countContinuityResults,
-	CONTINUITY_SCOPE_BATCH_SIZE,
+	type StallRecoveryCursor,
 	getStallRecoveryCheckpoint,
 	advanceStallRecoveryCheckpoint,
 	getStallReceipt,
 	hasContinuityFix,
-	listContinuityScopes,
+	readStallRecoveryPage,
 	listStallIncidents,
 	type ContinuityScope,
 } from "@tedix/db/queries/work-items/stall-recovery";
@@ -211,7 +211,7 @@ export async function dispatchStallRecovery(
 	scheduledTime: number,
 ) {
 	const previous = await getStallRecoveryCheckpoint(db, env.ENVIRONMENT);
-	const checkpoint: { after: string; scheduledTime: number } = previous
+	const checkpoint: StallRecoveryCursor & { scheduledTime: number } = previous
 		? JSON.parse(previous)
 		: { after: "", scheduledTime: 0 };
 	if (checkpoint.scheduledTime >= scheduledTime) return 0;
@@ -219,10 +219,9 @@ export async function dispatchStallRecovery(
 	let skippedEmptyScopes = 0;
 	const failures: unknown[] = [];
 	const now = new Date(scheduledTime).toISOString();
-	const scopes = await listContinuityScopes(
+	const { scopes, ...next } = await readStallRecoveryPage(
 		db,
-		checkpoint.after,
-		undefined,
+		checkpoint,
 		env.ENVIRONMENT,
 	);
 	for (const scope of scopes) {
@@ -268,8 +267,7 @@ export async function dispatchStallRecovery(
 		env.ENVIRONMENT,
 		previous,
 		JSON.stringify({
-			after:
-				scopes.length === CONTINUITY_SCOPE_BATCH_SIZE ? scopes.at(-1)!.key : "",
+			...next,
 			scheduledTime,
 		}),
 	);

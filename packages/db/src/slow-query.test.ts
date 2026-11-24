@@ -192,12 +192,31 @@ describe("slow D1 observation", () => {
 });
 
 describe("per-request D1 ledger", () => {
+	it("finds a large read after many shapes even when it is not the slowest shape", async () => {
+		const { db, result } = fixture(30);
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		await withD1Ledger("cron example", async () => {
+			result.meta.rows_read = 1;
+			for (let i = 0; i < 60; i++)
+				await db.prepare(`SELECT "column_${i}"`).all();
+			for (let i = 0; i < 10; i++) await db.prepare('SELECT "column_0"').all();
+			result.meta.rows_read = 80_000;
+			await db.prepare('SELECT "large_read"').all();
+		});
+		const line = info.mock.calls[0]![0] as Record<string, unknown>;
+		expect(String(line.topReadShapes)).toMatch(
+			/^1x 80000read 1returned SELECT "large_read"/,
+		);
+		expect(String(line.topShapes)).toMatch(
+			/^11x 330ms 11rows SELECT "column_0"/,
+		);
+	});
 	it("summarizes a request's statements once it crosses a threshold", async () => {
 		const { db } = fixture(30);
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});
 		await withD1Ledger("POST /rpc/example", async () => {
 			for (let i = 0; i < 25; i++)
-				await db.prepare("SELECT 1 WHERE id = 'secret'").raw();
+				await db.prepare("SELECT 1 WHERE id = 'secret'").all();
 		});
 		await withD1Ledger("GET /quiet", async () => {
 			await db.prepare("SELECT 1").raw();
@@ -215,5 +234,9 @@ describe("per-request D1 ledger", () => {
 		});
 		expect(String(lines[0]!.topShapes)).toContain("25x 750ms");
 		expect(String(lines[0]!.topShapes)).not.toContain("secret");
+		expect(String(lines[0]!.topReadShapes)).toContain(
+			"25x 12500read 25returned",
+		);
+		expect(String(lines[0]!.topReadShapes)).not.toContain("secret");
 	});
 });

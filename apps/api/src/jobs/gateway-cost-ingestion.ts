@@ -46,7 +46,7 @@ import type { NewTediCallCost } from "@tedix/db/schema/tedis";
 import { getProviderExecutionsByIds } from "@tedix/db/queries/provider-executions";
 import type { ProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
 import { getBillingReservationTokenEstimates } from "@tedix/db/queries/billing/reservations";
-import { priceProviderUsage } from "../services/provider-model-pricing";
+import { createProviderUsagePricer } from "../services/provider-model-pricing";
 import type { FleetAuthorityEnv } from "../lib/fleet-authority";
 
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
@@ -633,6 +633,7 @@ async function ingestGateway(
 	env: GatewayCostIngestionEnv,
 	gatewayId: GatewayId,
 	maxPages: number,
+	priceUsage: ReturnType<typeof createProviderUsagePricer>,
 ): Promise<GatewayIngestionResult> {
 	const cursor = await getCursor(db, gatewayId);
 	let expectedCursor = cursor
@@ -765,8 +766,7 @@ async function ingestGateway(
 				: null;
 			const priced = execution
 				? {
-						...(await priceProviderUsage(
-							env,
+						...(await priceUsage(
 							{
 								provider: execution.provider,
 								modelId: routed?.modelId ?? execution.requestModel,
@@ -964,9 +964,10 @@ export async function ingestGatewayLogCosts(
 	}
 
 	const results: GatewayIngestionResult[] = [];
+	const priceUsage = createProviderUsagePricer(env);
 	// Sequential, not parallel — keeps D1 write pressure and CF API burst modest.
 	for (const gatewayId of gatewayIds) {
-		results.push(await ingestGateway(db, env, gatewayId, maxPages));
+		results.push(await ingestGateway(db, env, gatewayId, maxPages, priceUsage));
 	}
 
 	return results;

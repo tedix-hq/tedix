@@ -17,6 +17,7 @@ const requestLogger = createLogger<{
 	maxInFlight: number;
 	overloaded: number;
 	topShapes: string;
+	topReadShapes: string;
 }>({ component: "db.request" });
 
 type Ledger = {
@@ -29,7 +30,10 @@ type Ledger = {
 	inFlight: number;
 	maxInFlight: number;
 	overloaded: number;
-	shapes: Map<string, { n: number; wallMs: number; rowsReturned: number }>;
+	shapes: Map<
+		string,
+		{ n: number; wallMs: number; rowsReturned: number; rowsRead: number }
+	>;
 };
 const ledgers = new AsyncLocalStorage<Ledger>();
 
@@ -75,6 +79,14 @@ export async function withD1Ledger<T>(
 				rowsReturned: ledger.rowsReturned,
 				maxInFlight: ledger.maxInFlight,
 				overloaded: ledger.overloaded,
+				topReadShapes: [...ledger.shapes]
+					.sort((a, b) => b[1].rowsRead - a[1].rowsRead)
+					.slice(0, 3)
+					.map(
+						([shape, s]) =>
+							`${s.n}x ${s.rowsRead}read ${s.rowsReturned}returned ${shape}`,
+					)
+					.join(" | "),
 				topShapes: [...ledger.shapes]
 					.sort((a, b) => b[1].wallMs - a[1].wallMs)
 					.slice(0, 3)
@@ -117,12 +129,17 @@ function tally(
 		/^["`\[]/.test(token) ? token : "?",
 	);
 	const key = shape.slice(0, 160);
-	const entry = ledger.shapes.get(key) ?? { n: 0, wallMs: 0, rowsReturned: 0 };
+	const entry = ledger.shapes.get(key) ?? {
+		n: 0,
+		wallMs: 0,
+		rowsReturned: 0,
+		rowsRead: 0,
+	};
 	entry.n += 1;
 	entry.wallMs += wallMs;
 	entry.rowsReturned += returned;
-	if (ledger.shapes.size < 50 || ledger.shapes.has(key))
-		ledger.shapes.set(key, entry);
+	entry.rowsRead += result?.meta?.rows_read ?? 0;
+	ledger.shapes.set(key, entry);
 }
 
 function returnedRows(value: unknown): number {

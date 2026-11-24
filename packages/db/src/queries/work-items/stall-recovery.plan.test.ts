@@ -15,6 +15,8 @@ import {
 	CONTINUITY_SCOPES_PER_STATEMENT,
 	CONTINUITY_WORK_ITEMS_PER_STATEMENT,
 	listContinuityScopes,
+	readStallRecoveryPage,
+	type StallRecoveryCursor,
 	type ContinuityScope,
 } from "./stall-recovery";
 
@@ -599,6 +601,38 @@ describe.each([
 });
 
 describe("continuity inventory results", () => {
+	it("resumes a bounded cron slice without assessing partial counts or losing scopes", async () => {
+		const { db, sqlite, statements } = fixture(true);
+		const expected = await listContinuityScopes(db);
+		statements.length = 0;
+		let cursor: StallRecoveryCursor = { after: "" };
+		const observed: ContinuityScope[] = [];
+		let ticks = 0;
+		do {
+			const start = statements.length;
+			const { scopes, ...next } = await readStallRecoveryPage(
+				db,
+				JSON.parse(JSON.stringify(cursor)),
+				"production",
+			);
+			expect(statements.slice(start).filter((q) => !isHistory(q))).toHaveLength(
+				1,
+			);
+			for (const scope of scopes)
+				expect(next.pending?.some((p) => p.key === scope.key) ?? false).toBe(
+					false,
+				);
+			observed.push(...scopes);
+			cursor = next;
+			ticks++;
+			expect(ticks).toBeLessThan(30);
+		} while (cursor.after || cursor.pending?.length);
+		expect(ticks).toBeGreaterThan(2);
+		expect(observed.sort((a, b) => a.key.localeCompare(b.key))).toEqual(
+			expected.sort((a, b) => a.key.localeCompare(b.key)),
+		);
+		sqlite.close();
+	});
 	it("compares only the two latest timestamps even with 203k reports on the last day", async () => {
 		const { db, statements, bound } = fixture(true);
 		await listAll(db, ORG);

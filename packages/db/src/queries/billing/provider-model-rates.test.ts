@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { type NewProviderModelRateVersionRow } from "../../schema/provider-model-rates";
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	findProviderModelRates,
+	createProviderModelRateLookup,
 	listEffectiveProviderModelRates,
 	listProviderModelRates,
 	publishProviderModelRate,
@@ -83,6 +84,77 @@ const lookup = {
 };
 
 describe("immutable provider rates", () => {
+	it("uses the exact lookup when a model's correction history exceeds the snapshot bound", async () => {
+		const { db, sqlite } = fixture();
+		let previous: string | null = null;
+		for (let i = 0; i < 101; i++) {
+			const id = `version-${String(i).padStart(3, "0")}`;
+			await publishProviderModelRate(
+				db,
+				rate({
+					id,
+					supersedesRateVersionId: previous,
+					effectiveFrom: new Date(
+						Date.parse(lookup.occurredAt) + i * 86_400_000,
+					).toISOString(),
+				}),
+			);
+			previous = id;
+		}
+		const cached = createProviderModelRateLookup(db);
+		const select = vi.spyOn(db, "select");
+		expect((await cached(lookup))[0]?.id).toBe("version-000");
+		expect(select).toHaveBeenCalledTimes(2);
+		expect(
+			(await cached({ ...lookup, occurredAt: "2027-10-01T00:00:00.000Z" }))[0]
+				?.id,
+		).toBe("version-100");
+		expect(select).toHaveBeenCalledTimes(3);
+		sqlite.close();
+	});
+	it("reuses a snapshot across event times and token tiers, then sees corrections next run", async () => {
+		const { sqlite, db } = fixture();
+		const original = await publishProviderModelRate(
+			db,
+			rate({ id: "original" }),
+		);
+		const corrected = rate({
+			id: "corrected",
+			supersedesRateVersionId: "original",
+			effectiveFrom: "2026-11-01T00:00:00.000Z",
+		});
+		await publishProviderModelRate(db, corrected);
+		const tier = rate({ id: "tier", modelId: "tiered", inputTokenMin: 100 });
+		await publishProviderModelRate(db, tier);
+		const cached = createProviderModelRateLookup(db);
+		const select = vi.spyOn(db, "select");
+		const inputs = [
+			lookup,
+			{ ...lookup, occurredAt: "2026-11-02T00:00:00.000Z" },
+			{ ...lookup, modelId: "tiered", inputTokens: 99 },
+			{ ...lookup, modelId: "tiered", inputTokens: 100 },
+			{ ...lookup, provider: "other" },
+		];
+		const cachedRows = [];
+		for (const input of inputs) cachedRows.push(await cached(input));
+		expect(select).toHaveBeenCalledTimes(3);
+		for (const [i, input] of inputs.entries())
+			expect(cachedRows[i]).toEqual(await findProviderModelRates(db, input));
+		expect(cachedRows[0]).toEqual([original]);
+		await publishProviderModelRate(
+			db,
+			rate({
+				id: "new-correction",
+				supersedesRateVersionId: "corrected",
+				effectiveFrom: corrected.effectiveFrom,
+			}),
+		);
+		expect((await cached(inputs[1]!))[0]?.id).toBe("corrected");
+		expect((await createProviderModelRateLookup(db)(inputs[1]!))[0]?.id).toBe(
+			"new-correction",
+		);
+		sqlite.close();
+	});
 	it("migrates a populated correction chain without losing fields or references", async () => {
 		const { sqlite, db } = fixture(false);
 		try {

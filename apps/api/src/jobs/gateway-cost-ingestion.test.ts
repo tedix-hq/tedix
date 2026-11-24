@@ -36,6 +36,8 @@ vi.mock("@tedix/db/queries/provider-executions", () => ({
 }));
 vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
 	findProviderModelRates: cacheRates,
+	createProviderModelRateLookup: (db: unknown) => (input: unknown) =>
+		cacheRates(db, input),
 }));
 vi.mock("@tedix/db/queries/platform-job-storage", async (original) => ({
 	...(await original<
