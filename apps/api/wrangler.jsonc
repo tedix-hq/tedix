@@ -249,6 +249,10 @@
 			"tag": "v13",
 			"new_sqlite_classes": ["MachineConnectionDO"],
 		},
+		{
+			"tag": "v14",
+			"new_sqlite_classes": ["PlacedJobRunner"],
+		},
 	],
 	"ratelimits": [
 		{

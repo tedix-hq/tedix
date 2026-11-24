@@ -19,13 +19,15 @@
 import { bindMcpServicePrincipal } from "./service-principal";
 import { releaseManifest } from "@tedix/api-contract/utils/release-manifest";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
+import { isolateColo } from "@tedix/worker-kit/colo";
 import {
-	relayKind,
+	jobKind,
 	runQueuePlaced,
 	runScheduledPlaced,
 	serveRelay,
 } from "./placed-relay";
 import {
+	DurableObject,
 	WorkerEntrypoint,
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -336,19 +338,35 @@ async function runQueue(
 	);
 }
 
+/**
+ * Runs one cron event or queue batch near D1 for `placed-relay.ts`. Each run
+ * gets a fresh object created with a Western Europe location hint; it stores
+ * nothing and only this Worker can reach it.
+ */
+export class PlacedJobRunner extends DurableObject<CloudflareEnv> {
+	override async fetch(request: Request): Promise<Response> {
+		const kind = jobKind(request);
+		if (!kind) return new Response("Unknown job", { status: 404 });
+		console.log(
+			JSON.stringify({
+				_tr: "placed_job",
+				kind,
+				colo: isolateColo() ?? "pending",
+			}),
+		);
+		return serveRelay(kind, request, this.env, {
+			scheduled: runScheduled,
+			queue: runQueue,
+		});
+	}
+}
+
 export default {
 	fetch(
 		request: Request,
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<Response> {
-		// Cron and queue work this Worker relayed to itself (placed-relay.ts).
-		const relay = relayKind(ctx);
-		if (relay)
-			return serveRelay(relay, request, env, ctx, {
-				scheduled: runScheduled,
-				queue: runQueue,
-			});
 		return serveFetch(stripServiceBindingMarker(request), env, ctx);
 	},
 	async scheduled(

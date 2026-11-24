@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 // Same pattern as the workflow tests: `cloudflare:*` has no Node resolution.
 vi.mock("cloudflare:workers", () => ({
+	DurableObject: class {},
 	WorkflowEntrypoint: class {},
 	WorkerEntrypoint: class {
 		constructor(

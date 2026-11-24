@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-	relayKind,
+	PLACED_JOB_LOCATION,
+	jobKind,
 	runQueuePlaced,
 	runScheduledPlaced,
 	serveRelay,
@@ -13,41 +14,35 @@ const plainCtx = () =>
 		passThroughOnException: () => {},
 	}) as unknown as ExecutionContext;
 
-/** A context whose loopback runs the relay in-process, as the platform would. */
-function loopbackCtx(handlers: Parameters<typeof serveRelay>[4]) {
+/** A context whose runner namespace serves jobs in-process, as the object would. */
+function loopbackCtx(
+	handlers: Parameters<typeof serveRelay>[3],
+	hints: string[] = [],
+) {
 	return {
 		...plainCtx(),
 		exports: {
-			default: ({
-				props,
-			}: {
-				props: { tedixRelay?: "scheduled" | "queue" };
-			}) => ({
-				fetch: (url: string, init?: RequestInit) =>
-					serveRelay(
-						props.tedixRelay!,
-						new Request(url, init),
-						env,
-						{ ...plainCtx(), props } as unknown as ExecutionContext,
-						handlers,
-					),
-			}),
+			PlacedJobRunner: {
+				newUniqueId: () => ({}),
+				get: (_id: unknown, options: { locationHint: string }) => {
+					hints.push(options.locationHint);
+					return {
+						fetch: (url: string, init?: RequestInit) => {
+							const request = new Request(url, init);
+							return serveRelay(jobKind(request)!, request, env, handlers);
+						},
+					};
+				},
+			},
 		},
 	} as unknown as ExecutionContext;
 }
 
 describe("placed relay", () => {
-	it("treats only a loopback with relay props as a relay", () => {
-		expect(relayKind(plainCtx())).toBeUndefined();
-		expect(
-			relayKind({ ...plainCtx(), props: {} } as unknown as ExecutionContext),
-		).toBeUndefined();
-		expect(
-			relayKind({
-				...plainCtx(),
-				props: { tedixRelay: "queue" },
-			} as unknown as ExecutionContext),
-		).toBe("queue");
+	it("routes only known job paths", () => {
+		expect(jobKind(new Request("https://runner/scheduled"))).toBe("scheduled");
+		expect(jobKind(new Request("https://runner/queue"))).toBe("queue");
+		expect(jobKind(new Request("https://runner/other"))).toBeUndefined();
 	});
 
 	it("settles each real queue message with the relayed consumer's outcome", async () => {
@@ -91,28 +86,33 @@ describe("placed relay", () => {
 	it("finishes waitUntil work before a relayed cron returns, and fails without a local rerun", async () => {
 		let background = false;
 		let locally = 0;
+		const hints: string[] = [];
 		await runScheduledPlaced(
 			{ cron: "*/2 * * * *", scheduledTime: 1 } as ScheduledController,
 			env,
-			loopbackCtx({
-				scheduled: async (controller, _env, ctx) => {
-					expect(controller.cron).toBe("*/2 * * * *");
-					ctx.waitUntil(
-						new Promise<void>((resolve) =>
-							setTimeout(() => {
-								background = true;
-								resolve();
-							}, 5),
-						),
-					);
+			loopbackCtx(
+				{
+					scheduled: async (controller, _env, ctx) => {
+						expect(controller.cron).toBe("*/2 * * * *");
+						ctx.waitUntil(
+							new Promise<void>((resolve) =>
+								setTimeout(() => {
+									background = true;
+									resolve();
+								}, 5),
+							),
+						);
+					},
+					queue: async () => {},
 				},
-				queue: async () => {},
-			}),
+				hints,
+			),
 			async () => {
 				locally++;
 			},
 		);
 		expect(background).toBe(true);
+		expect(hints).toEqual([PLACED_JOB_LOCATION]);
 		await expect(
 			runScheduledPlaced(
 				{ cron: "0 * * * *", scheduledTime: 2 } as ScheduledController,

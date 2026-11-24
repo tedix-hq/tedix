@@ -2,25 +2,26 @@
  * Runs cron and queue work in this Worker's placed fetch path.
  *
  * Cloudflare starts cron and queue handlers in whichever data centre it picks,
- * and placement only moves fetch handlers, so that work paid a cross-ocean
- * round trip on every D1 call and wallet hold. The handler now hands its event
- * to this Worker's own fetch handler through the loopback binding
- * (`ctx.exports.default`), which smart placement runs near D1, and waits for
- * the result. The relay is recognised only by `ctx.props`, which a request
- * from the internet cannot set.
+ * and placement moves neither them nor a loopback call to this Worker's own
+ * fetch handler (measured 24 Nov: relayed work stayed in San Jose, Seattle,
+ * Atlanta), so that work paid a cross-ocean round trip on every D1 call and
+ * wallet hold. The handler now hands its event to a fresh `PlacedJobRunner`
+ * Durable Object created near D1 (location hint `weur`) and waits for the
+ * result. Only this Worker can reach that object.
  */
+
+import {
+	durableObjectNamespace,
+	durableObjectNewUniqueId,
+} from "@tedix/worker-kit/durable-objects";
 
 export type RelayKind = "scheduled" | "queue";
 
-type RelayProps = { tedixRelay?: RelayKind };
-
-type LoopbackFactory = (options: { props: RelayProps }) => {
-	fetch(input: string, init?: RequestInit): Promise<Response>;
-};
+/** Where the job runner objects are created: Western Europe, near D1. */
+export const PLACED_JOB_LOCATION: DurableObjectLocationHint = "weur";
 
 type RelayContext = ExecutionContext & {
-	props?: RelayProps;
-	exports?: { default?: LoopbackFactory };
+	exports?: { PlacedJobRunner?: DurableObjectNamespace };
 };
 
 type ScheduledRun = (
@@ -46,26 +47,31 @@ type QueueRun = (
 
 type Outcome = "ack" | "retry" | null;
 
-/** The relay this fetch is, when this Worker sent it to itself; otherwise undefined. */
-export function relayKind(ctx: ExecutionContext): RelayKind | undefined {
-	return (ctx as RelayContext).props?.tedixRelay;
+/** A fresh runner near D1 for one cron run or queue batch; none without the binding. */
+function runner(ctx: ExecutionContext, env: CloudflareEnv) {
+	const namespace = (ctx as RelayContext).exports?.PlacedJobRunner;
+	if (!namespace) return undefined;
+	// The jurisdiction helper keeps env.DO_JURISDICTION authoritative.
+	const scoped = durableObjectNamespace(namespace, env);
+	return scoped.get(durableObjectNewUniqueId(namespace, env), {
+		locationHint: PLACED_JOB_LOCATION,
+	});
 }
 
-function loopback(ctx: ExecutionContext, kind: RelayKind) {
-	const factory = (ctx as RelayContext).exports?.default;
-	return typeof factory === "function"
-		? factory({ props: { tedixRelay: kind } })
-		: undefined;
+/** The job a runner request asks for, from its path. */
+export function jobKind(request: Request): RelayKind | undefined {
+	const path = new URL(request.url).pathname.slice(1);
+	return path === "scheduled" || path === "queue" ? path : undefined;
 }
 
 /** Work handed to `waitUntil` finishes before the relayed response is sent. */
-function collectingContext(ctx: ExecutionContext) {
+function collectingContext() {
 	const pending: Promise<unknown>[] = [];
 	const relayCtx = {
 		waitUntil: (promise: Promise<unknown>) => {
 			pending.push(promise);
 		},
-		passThroughOnException: () => ctx.passThroughOnException(),
+		passThroughOnException: () => {},
 		props: {},
 	} as unknown as ExecutionContext;
 	return { relayCtx, settle: () => Promise.allSettled(pending) };
@@ -73,16 +79,20 @@ function collectingContext(ctx: ExecutionContext) {
 
 async function relayed(
 	ctx: ExecutionContext,
+	env: CloudflareEnv,
 	kind: RelayKind,
 	body: unknown,
 ): Promise<Response | undefined> {
-	const target = loopback(ctx, kind);
+	const target = runner(ctx, env);
 	if (!target) return undefined;
-	const response = await target.fetch(`https://placed-relay.internal/${kind}`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
+	const response = await target.fetch(
+		`https://placed-job-runner.internal/${kind}`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		},
+	);
 	// A failed relayed run fails this invocation, as a local failure would; it
 	// is never run a second time here.
 	if (!response.ok)
@@ -92,14 +102,14 @@ async function relayed(
 	return response;
 }
 
-/** Run a cron event in the placed fetch path, or here when no loopback exists. */
+/** Run a cron event in a runner near D1, or here when there is no runner binding. */
 export async function runScheduledPlaced(
 	controller: ScheduledController,
 	env: CloudflareEnv,
 	ctx: ExecutionContext,
 	run: ScheduledRun,
 ): Promise<void> {
-	const response = await relayed(ctx, "scheduled", {
+	const response = await relayed(ctx, env, "scheduled", {
 		cron: controller.cron,
 		scheduledTime: controller.scheduledTime,
 	});
@@ -107,7 +117,7 @@ export async function runScheduledPlaced(
 }
 
 /**
- * Run a queue batch in the placed fetch path, then settle each real message
+ * Run a queue batch in a runner near D1, then settle each real message
  * with the outcome the relayed consumer chose. A message it left unsettled
  * stays unsettled, so the platform acks it when this handler returns.
  */
@@ -117,7 +127,7 @@ export async function runQueuePlaced(
 	ctx: ExecutionContext,
 	run: QueueRun,
 ): Promise<void> {
-	const response = await relayed(ctx, "queue", {
+	const response = await relayed(ctx, env, "queue", {
 		queue: batch.queue,
 		messages: batch.messages.map((message) => ({
 			id: message.id,
@@ -137,15 +147,14 @@ export async function runQueuePlaced(
 	});
 }
 
-/** The fetch side: rebuild the event, run it here, and report the outcome. */
+/** The runner side: rebuild the event, run it here, and report the outcome. */
 export async function serveRelay(
 	kind: RelayKind,
 	request: Request,
 	env: CloudflareEnv,
-	ctx: ExecutionContext,
 	handlers: { scheduled: ScheduledRun; queue: QueueRun },
 ): Promise<Response> {
-	const { relayCtx, settle } = collectingContext(ctx);
+	const { relayCtx, settle } = collectingContext();
 	try {
 		if (kind === "scheduled") {
 			const event = (await request.json()) as {
