@@ -1,8 +1,8 @@
 # Native marketing scaffold
 
 Presentation and block schemas copied from emdash-cms/emdash commit
-00e535a030d49f43e291ed59b7be30fdc466c698, `templates/marketing-cloudflare`
-(upstream main checked 18 November 2026).
+b66d3d18df5ce8eb86fddba91d66ac3495c2cdfe, `templates/marketing-cloudflare`
+(upstream main checked 24 November 2026).
 
 Includes all 11 marketing block renderers, PageView, generic `[slug]` pages,
 the `/home` redirect, layout, styles and presentation utilities. The unused

@@ -1,3 +1,3 @@
 # Native blog scaffold
 
-Presentation and seed copied from emdash-cms/emdash commit aa7cc95e2f0037ef6ab80b8beb48704a733368ae, `templates/blog-cloudflare`. Shared Tedix files supply hosting, authentication and trusted plugin integration.
+Presentation and seed copied from emdash-cms/emdash commit b66d3d18df5ce8eb86fddba91d66ac3495c2cdfe, `templates/blog-cloudflare`. Shared Tedix files supply hosting, authentication and trusted plugin integration.

@@ -24,7 +24,7 @@ License: Apache-2.0 (`LICENSES/third-party/cloudflare-os-Apache-2.0.txt`)
 
 ## emdash-blog-scaffold
 
-Includes modified presentation and seed from EmDash templates/blog-cloudflare at revision aa7cc95e2f0037ef6ab80b8beb48704a733368ae, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/blog/UPSTREAM.md.
+Includes modified presentation and seed from EmDash templates/blog-cloudflare at revision b66d3d18df5ce8eb86fddba91d66ac3495c2cdfe, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/blog/UPSTREAM.md.
 
 License: MIT (`apps/cms/templates/blog/LICENSE`)
 
@@ -54,19 +54,19 @@ License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-native-marketing-scaffold
 
-Includes modified presentation and seed from EmDash templates/marketing-cloudflare at revision aa7cc95e2f0037ef6ab80b8beb48704a733368ae, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/native-marketing/UPSTREAM.md.
+Includes modified presentation and seed from EmDash templates/marketing-cloudflare at revision b66d3d18df5ce8eb86fddba91d66ac3495c2cdfe, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/native-marketing/UPSTREAM.md.
 
 License: MIT (`apps/cms/templates/native-marketing/LICENSE`)
 
 ## emdash-portfolio-scaffold
 
-Includes modified presentation and seed from EmDash templates/portfolio-cloudflare at revision aa7cc95e2f0037ef6ab80b8beb48704a733368ae, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/portfolio/UPSTREAM.md.
+Includes modified presentation and seed from EmDash templates/portfolio-cloudflare at revision b66d3d18df5ce8eb86fddba91d66ac3495c2cdfe, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/portfolio/UPSTREAM.md.
 
 License: MIT (`apps/cms/templates/portfolio/LICENSE`)
 
 ## emdash-starter-scaffold
 
-Includes modified presentation and seed from EmDash templates/starter-cloudflare at revision aa7cc95e2f0037ef6ab80b8beb48704a733368ae, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/starter/UPSTREAM.md.
+Includes modified presentation and seed from EmDash templates/starter-cloudflare at revision b66d3d18df5ce8eb86fddba91d66ac3495c2cdfe, Copyright 2026 Cloudflare Inc., under the MIT License. Tedix supplies hosting, authentication and trusted plugin integration; local provenance is recorded in apps/cms/templates/starter/UPSTREAM.md.
 
 License: MIT (`apps/cms/templates/starter/LICENSE`)
 
