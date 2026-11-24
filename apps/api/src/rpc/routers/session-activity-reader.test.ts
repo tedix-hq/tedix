@@ -129,6 +129,10 @@ describe("delegated session activity reader", () => {
 				snapshotId: 10,
 				cursor: undefined,
 				limit: 50,
+				eventBodies: expect.objectContaining({
+					read: expect.any(Function),
+					write: expect.any(Function),
+				}),
 			},
 		);
 		expect(auth).toHaveBeenCalledTimes(2);
