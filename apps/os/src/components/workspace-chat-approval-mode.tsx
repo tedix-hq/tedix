@@ -24,12 +24,12 @@ export const APPROVAL_MODE_TEXT: Record<
 	ask_every_time: {
 		label: "Ask every time",
 		description:
-			"Asks before changes, commands and reading a new web site. Edits to this workspace's files apply at once and can be undone.",
+			"Asks before commands, other changes and reading a new web site. New files, edits to this workspace's files and Work Items are staged for you to review on one card.",
 	},
 	ask_for_changes: {
 		label: "Ask for changes",
 		description:
-			"Reading runs without asking, new web sites included. Changes and commands ask first.",
+			"Reading runs without asking, new web sites included. New files, file edits and Work Items are staged for you to review on one card; other changes and commands ask first.",
 	},
 	auto: {
 		label: "Auto",

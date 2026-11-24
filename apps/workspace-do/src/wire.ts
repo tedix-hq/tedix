@@ -12,6 +12,22 @@ import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-a
 
 export type AuthorKind = "person" | "tedi";
 
+/** What the review card shows for one staged change. */
+export interface StagedCard {
+	kind: "output" | "work";
+	/** Nothing decided by then expires, and nothing is applied. */
+	expiresAt: string;
+	/** Lines the staged file adds and removes, at most a few of each. */
+	diff?: {
+		added: string[];
+		removed: string[];
+		moreAdded?: number;
+		moreRemoved?: number;
+	};
+	/** The staged change this one builds on. */
+	dependsOn?: string;
+}
+
 export interface WireEventBase {
 	/** Object-wide, monotonic, never reused. */
 	seq: number;
@@ -168,6 +184,16 @@ export type WireEventBody =
 			automatic?: true;
 			/** The card may offer "Approve all like this in this turn". */
 			approveAllInTurn?: true;
+			/** Staged for this conversation, shown on its one review card. */
+			staged?: StagedCard;
+	  }
+	| {
+			/** More edits folded into a staged change: its card row updates in place. */
+			type: "approval.restaged";
+			approvalId: string;
+			title: string;
+			input?: unknown;
+			staged: StagedCard;
 	  }
 	| {
 			type: "approval.decided";
@@ -177,6 +203,10 @@ export type WireEventBody =
 			at: string;
 			/** Recorded for a change that applied at once, not decided by hand. */
 			automatic?: true;
+			/** A staged change nobody decided in time; nothing was applied. */
+			expired?: true;
+			/** Rejected because the staged change it built on was rejected. */
+			dependsOnRejected?: true;
 	  }
 	| {
 			type: "approval.executed";

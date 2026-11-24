@@ -1,4 +1,5 @@
 import type { StagedAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
+import type { WorkspaceChatStagedCard } from "./workspace-chat-protocol";
 import type { WorkspaceChatAttachment } from "@tedix/api-contract/schemas/workspace-files";
 /**
  * Pure fold of workspace-object events into the chat view model.
@@ -61,6 +62,12 @@ export type ChatApproval = {
 	automatic?: boolean;
 	/** "Approve all like this in this turn" may be offered. */
 	approveAllInTurn?: boolean;
+	/** Staged for this conversation: listed on its one review card. */
+	staged?: WorkspaceChatStagedCard;
+	/** A staged change nobody decided in time; nothing was applied. */
+	expired?: boolean;
+	/** Rejected because the staged change it built on was rejected. */
+	dependsOnRejected?: boolean;
 	execution?: {
 		status: "applied" | "failed";
 		error?: string;
@@ -263,6 +270,8 @@ export type WorkspaceChatState = {
 			decidedBy: string;
 			decidedAt: string;
 			automatic?: boolean;
+			expired?: boolean;
+			dependsOnRejected?: boolean;
 		}
 	>;
 	approvalExecutions: Record<string, NonNullable<ChatApproval["execution"]>>;
@@ -895,6 +904,7 @@ export function applyWorkspaceChatEvent(
 									requester: event.requester,
 									actingTediId: event.actingTediId,
 									...(event.approveAllInTurn ? { approveAllInTurn: true } : {}),
+									...(event.staged ? { staged: event.staged } : {}),
 									// A change that applies at once never waits for a person,
 									// even before its decision arrives.
 									...(event.automatic
@@ -915,6 +925,8 @@ export function applyWorkspaceChatEvent(
 					decidedBy: event.by,
 					decidedAt: event.at,
 					...(event.automatic ? { automatic: true } : {}),
+					...(event.expired ? { expired: true } : {}),
+					...(event.dependsOnRejected ? { dependsOnRejected: true } : {}),
 				},
 			};
 			turns = turns.map((turn) => ({
@@ -927,6 +939,23 @@ export function applyWorkspaceChatEvent(
 								decidedBy: event.by,
 								decidedAt: event.at,
 								...(event.automatic ? { automatic: true } : {}),
+								...(event.expired ? { expired: true } : {}),
+								...(event.dependsOnRejected ? { dependsOnRejected: true } : {}),
+							}
+						: approval,
+				),
+			}));
+			break;
+		case "approval.restaged":
+			turns = turns.map((turn) => ({
+				...turn,
+				approvals: turn.approvals.map((approval) =>
+					approval.approvalId === event.approvalId
+						? {
+								...approval,
+								title: event.title,
+								input: event.input,
+								staged: event.staged,
 							}
 						: approval,
 				),

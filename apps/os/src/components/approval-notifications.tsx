@@ -291,9 +291,11 @@ export function ActivityPanel({
 									What applies without asking
 								</Text>
 								<Text as="p" className="m-0" role="caption" tone="secondary">
-									New files and edits the agent makes to docs, sheets and slides
-									here apply at once. Undo them from the reply or from the
-									file's version history. Removing content, deleting, sharing
+									In Auto, new files and edits the agent makes to docs, sheets
+									and slides here apply at once; undo them from the reply or
+									from the file's version history. In the asking modes they are
+									staged for your review on one card in the chat, and nothing
+									changes until you accept. Removing content, deleting, sharing
 									and anything outside this workspace always wait for you.
 								</Text>
 							</section>

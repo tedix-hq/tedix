@@ -928,7 +928,7 @@ describe("WorkspaceDO", () => {
 	});
 
 	test.each(["sheets", "presentations"] as const)(
-		"%s edits round-trip through the sandbox and apply in the turn with a receipt",
+		"%s edits apply in the turn when an app sent it, and stage for the person's review when they sent it",
 		async (binding) => {
 			await seedCore();
 			const workspaceScope = { ...scope, workspaceId: crypto.randomUUID() };
@@ -994,10 +994,12 @@ describe("WorkspaceDO", () => {
 				},
 				{ text: "Saved" },
 			]);
+			// Sent from an app: not the person's own turn, so nothing stages.
 			const started = await ws.sendTurn(workspaceScope, {
 				actorId: "u1",
 				actorKind: "user",
 				text: "Edit the gadget output",
+				fromAppId: "notes",
 			});
 			expect(
 				await ws.awaitTurn(workspaceScope, started.turnId, 20000),
@@ -1106,6 +1108,71 @@ describe("WorkspaceDO", () => {
 			expect(JSON.stringify(lifecycle.results)).not.toContain(
 				"Applied gadget edit",
 			);
+
+			// The person's own turn stages the edit; accepting applies it.
+			const restaged =
+				binding === "sheets"
+					? { startRow: 0, startColumn: 0, cells: [["Staged gadget edit"]] }
+					: {
+							ops: [
+								{
+									op: "replace",
+									index: 0,
+									slide: { title: "Staged gadget edit", bullets: [] },
+								},
+							],
+						};
+			await ws.scriptModel(workspaceScope, [
+				{
+					code: `export default async env=>{const output=await env.${binding}.read({outputId:${JSON.stringify(outputId)}});await env.${binding}.edit({outputId:output.id,expectedRevision:output.revision,...${JSON.stringify(restaged)}});return env.${binding}.read({outputId:${JSON.stringify(outputId)}});}`,
+				},
+				{ text: "Staged" },
+			]);
+			const own = await ws.sendTurn(workspaceScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Edit it again",
+			});
+			await ws.awaitTurn(workspaceScope, own.turnId, 20000);
+			const stagedEvent = (
+				await ws.readEvents(workspaceScope, {
+					conversationId: own.conversationId,
+					after: 0,
+				})
+			).find((event) => event.type === "approval.requested");
+			if (stagedEvent?.type !== "approval.requested")
+				throw new Error("The edit was not staged");
+			expect(stagedEvent.staged).toMatchObject({
+				kind: "output",
+				diff: { added: ["Staged gadget edit"] },
+			});
+			expect(
+				JSON.stringify(
+					(await ws.readMessages(workspaceScope, own.conversationId)).filter(
+						(message) => message.role === "toolResult",
+					),
+				),
+			).toContain("Staged gadget edit");
+			expect(
+				(await ws.outputQuery(workspaceScope, { op: "get", outputId }))
+					?.currentRevisionId,
+			).toBe(saved?.currentRevisionId);
+			await ws.scriptModel(workspaceScope, [{ text: "Thanks" }]);
+			const accepted = await ws.decideApproval(workspaceScope, {
+				approvalId: stagedEvent.approvalId,
+				decision: "approve",
+				by: "u1",
+			});
+			expect(accepted.applied).toBe(true);
+			await ws.awaitTurn(workspaceScope, accepted.turnId!, 20000);
+			expect(
+				(
+					await ws.readEvents(workspaceScope, {
+						conversationId: own.conversationId,
+						after: 0,
+					})
+				).find((event) => event.type === "approval.executed"),
+			).toMatchObject({ status: "applied", output: { outputId, revision: 3 } });
 		},
 	);
 
@@ -1782,6 +1849,8 @@ describe("WorkspaceDO", () => {
 		const started = await ws.sendTurn(own, {
 			actorId: "u1",
 			actorKind: "user",
+			// Sent from an app: these writes do not stage.
+			fromAppId: "notes",
 			text: "Build an app that shows the Trip budget sheet",
 		});
 		await ws.awaitTurn(own, started.turnId, 20000);
@@ -1865,19 +1934,22 @@ describe("WorkspaceDO", () => {
 		);
 	});
 
-	test("typed Doc edits use the canonical document; one that removes a block cannot run before approval", async () => {
+	test("a Doc edit in an asking mode is staged: the agent builds on it, nobody else sees it, and accepting applies it at its base", async () => {
 		await seedCore();
-		const ws = workspace();
+		const ws = workspace() as Stub & {
+			readSystemPrompts(scope: WorkspaceScope): Promise<string[]>;
+		};
 		await seedOutputs(ws);
 		const current = async () =>
 			(await ws.outputQuery(scope, { op: "get", outputId: "out-doc" }))
 				?.currentRevisionId;
 		expect(await current()).toBe("rev-doc");
+		// The edit stages, and the same run reads the staged state back.
 		await ws.scriptModel(scope, [
 			{
-				code: `export default async env => { const doc = await env.documents.read({outputId:"out-doc"}); return env.documents.edit({outputId:doc.id,expectedRevision:doc.revision,ops:[{op:"replace",index:0,block:{type:"heading",level:1,text:"Agent Doc edit"}}]}); }`,
+				code: `export default async env => { const doc = await env.documents.read({outputId:"out-doc"}); const staged = await env.documents.edit({outputId:doc.id,expectedRevision:doc.revision,ops:[{op:"replace",index:0,block:{type:"heading",level:1,text:"Agent Doc edit"}}]}); const again = await env.documents.read({outputId:"out-doc"}); return { note: staged.staged, heading: again.content.blocks[0].text, revision: again.revision }; }`,
 			},
-			{ text: "Saved" },
+			{ text: "Staged" },
 		]);
 		const started = await ws.sendTurn(scope, {
 			actorId: "u1",
@@ -1886,7 +1958,7 @@ describe("WorkspaceDO", () => {
 		});
 		expect(await ws.awaitTurn(scope, started.turnId, 20000)).toMatchObject({
 			status: "finished",
-			text: "Saved",
+			text: "Staged",
 		});
 		const events = await ws.readEvents(scope, {
 			conversationId: started.conversationId,
@@ -1896,28 +1968,128 @@ describe("WorkspaceDO", () => {
 			(event) => event.type === "approval.requested",
 		);
 		if (approval?.type !== "approval.requested")
-			throw new Error("Doc edit was not recorded");
-		// An edit that removes nothing applies in the turn; nobody is asked.
-		expect(approval.automatic).toBe(true);
+			throw new Error("Doc edit was not staged");
+		expect(approval).toMatchObject({
+			reason: "staged_for_review",
+			title: "Edit document “Priorities”",
+			target: { id: "out-doc", title: "Priorities" },
+			staged: {
+				kind: "output",
+				diff: { added: ["Agent Doc edit"], removed: ["Priorities"] },
+			},
+		});
+		expect(approval.automatic).toBeUndefined();
+		// Nothing real changed and nothing was decided.
 		expect(
-			events.find((event) => event.type === "approval.executed"),
-		).toMatchObject({ approvalId: approval.approvalId, status: "applied" });
-		const messages = await ws.readMessages(scope, started.conversationId);
-		expect(
-			JSON.stringify(
-				messages.filter((message) => message.role === "toolResult"),
+			events.filter(
+				(event) =>
+					event.type === "approval.decided" ||
+					event.type === "approval.executed",
 			),
-		).toContain("Agent Doc edit");
-		const records = await ws.readChangeRecords(scope, { resource: "output" });
-		const edits = records.filter((record) => record.operation === "edit");
-		expect(edits.map((record) => record.outcome)).toEqual([
-			"needs_approval",
-			"applied",
+		).toHaveLength(0);
+		expect(await current()).toBe("rev-doc");
+		const results = JSON.stringify(
+			(await ws.readMessages(scope, started.conversationId)).filter(
+				(message) => message.role === "toolResult",
+			),
+		);
+		expect(results).toContain('\\"heading\\": \\"Agent Doc edit\\"');
+		expect(results).toContain("Staged, not applied");
+		expect(
+			(await ws.readChangeRecords(scope, { resource: "output" }))
+				.filter((record) => record.operation === "edit")
+				.map((record) => record.outcome),
+		).toEqual(["needs_approval"]);
+
+		// Another conversation reads the real file, not the staged one.
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => (await env.documents.read({outputId:"out-doc"})).content.blocks[0].text`,
+			},
+			{ text: "Read" },
 		]);
-		expect(edits[1]?.before?.revisionId).toBe("rev-doc");
+		const other = await ws.sendTurn(scope, {
+			actorId: "u2",
+			actorKind: "user",
+			text: "Read the document",
+		});
+		await ws.awaitTurn(scope, other.turnId, 20000);
+		const otherResults = JSON.stringify(
+			(await ws.readMessages(scope, other.conversationId)).filter(
+				(message) => message.role === "toolResult",
+			),
+		);
+		expect(otherResults).toContain("Priorities");
+		expect(otherResults).not.toContain("Agent Doc edit");
+
+		// A later edit in the same conversation folds into the same change,
+		// still pinned to the revision the first edit read.
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => { const doc = await env.documents.read({outputId:"out-doc"}); return env.documents.edit({outputId:doc.id,expectedRevision:doc.revision,ops:[{op:"insert",index:2,block:{type:"paragraph",text:"Second staged line"}}]}); }`,
+			},
+			{ text: "Staged again" },
+		]);
+		const more = await ws.sendTurn(scope, {
+			conversationId: started.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Add a line",
+		});
+		await ws.awaitTurn(scope, more.turnId, 20000);
+		expect((await ws.readSystemPrompts(scope)).at(-1)).toContain(
+			"<staged_changes",
+		);
+		const later = await ws.readEvents(scope, {
+			conversationId: started.conversationId,
+			after: 0,
+		});
+		expect(
+			later.filter((event) => event.type === "approval.requested"),
+		).toHaveLength(1);
+		expect(
+			later.find((event) => event.type === "approval.restaged"),
+		).toMatchObject({
+			approvalId: approval.approvalId,
+			title: "Edit document “Priorities” (2 edits)",
+		});
+		expect(await current()).toBe("rev-doc");
+
+		// Accepting applies both edits as one revision on the pinned base.
+		await ws.scriptModel(scope, [{ text: "Thanks" }]);
+		const accepted = await ws.decideApproval(scope, {
+			approvalId: approval.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(accepted.applied).toBe(true);
+		await ws.awaitTurn(scope, accepted.turnId!, 20000);
 		const saved = await current();
 		expect(saved).not.toBe("rev-doc");
-		expect(edits[1]?.after?.revisionId).toBe(saved);
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => (await env.documents.read({outputId:"out-doc"})).content.blocks.map(b => b.text ?? "").join(" | ")`,
+			},
+			{ text: "Read" },
+		]);
+		const reread = await ws.sendTurn(scope, {
+			actorId: "u2",
+			actorKind: "user",
+			text: "Read it again",
+		});
+		await ws.awaitTurn(scope, reread.turnId, 20000);
+		const applied = JSON.stringify(
+			(await ws.readMessages(scope, reread.conversationId)).filter(
+				(message) => message.role === "toolResult",
+			),
+		);
+		expect(applied).toContain("Agent Doc edit");
+		expect(applied).toContain("Second staged line");
+		expect(
+			(await ws.readChangeRecords(scope, { resource: "output" }))
+				.filter((record) => record.operation === "revise")
+				.map((record) => record.outcome),
+		).toEqual(["applied"]);
 
 		// Removing a block waits on its card and changes nothing until decided.
 		await ws.scriptModel(scope, [
@@ -1943,6 +2115,8 @@ describe("WorkspaceDO", () => {
 			throw new Error("Removing a block did not ask");
 		expect(held.title).toBe("Editing document blocks");
 		expect(held.automatic).toBeUndefined();
+		// What Tedix always asks for is never staged.
+		expect(held.staged).toBeUndefined();
 		expect(
 			removalEvents.filter(
 				(event) =>
@@ -2097,6 +2271,8 @@ describe("WorkspaceDO", () => {
 		const { turnId, conversationId } = await ws.sendTurn(scope, {
 			actorId: "u1",
 			actorKind: "user",
+			// Sent from an app: these writes do not stage.
+			fromAppId: "notes",
 			text: "Create three documents and trim each",
 		});
 		await ws.awaitTurn(scope, turnId, 20_000);
@@ -2174,6 +2350,8 @@ describe("WorkspaceDO", () => {
 		const { turnId, conversationId } = await ws.sendTurn(scope, {
 			actorId: "u1",
 			actorKind: "user",
+			// Sent from an app: these writes do not stage.
+			fromAppId: "notes",
 			text: "Create three documents and trim each",
 		});
 		await ws.awaitTurn(scope, turnId, 20_000);
@@ -2265,6 +2443,8 @@ describe("WorkspaceDO", () => {
 			const started = await ws.sendTurn(scope, {
 				actorId: "u1",
 				actorKind: "user",
+				// Sent from an app: these writes do not stage.
+				fromAppId: "notes",
 				text: `Create ${title} and trim it`,
 			});
 			await ws.awaitTurn(scope, started.turnId, 20_000);
@@ -2462,6 +2642,8 @@ describe("WorkspaceDO", () => {
 		const { turnId, conversationId } = await ws.sendTurn(scope, {
 			actorId: "u1",
 			actorKind: "user",
+			// Sent from an app: these writes do not stage.
+			fromAppId: "notes",
 			text: "Create two documents and trim them",
 		});
 		await ws.awaitTurn(scope, turnId, 20_000);
@@ -3407,10 +3589,12 @@ describe("WorkspaceDO", () => {
 		expect(await ws.webFetchCount(scope)).toBe(2);
 	});
 
-	test("asking to file a Work Item shows a card and files it only after approval", async () => {
+	test("filing a Work Item stages it; a comment on it depends on it, and rejecting it rejects the comment", async () => {
+		await seedCore();
+		await testEnv.DB.prepare(ddl(workItemComments)).run();
 		const ws = workspace();
-		const FILE = `export default async (env) => env.work.create({ title: "Make the Work tab live", description: "Show live Work in the monitor app." })`;
-		await ws.scriptModel(scope, [{ code: FILE }, { text: "unreachable" }]);
+		const FILE = `export default async (env) => { const item = await env.work.create({ title: "Make the Work tab live", description: "Show live Work in the monitor app." }); const comment = await env.work.comment({ workItemId: item.id, body: "Start with the board" }); const read = await env.work.get(item.id); return { id: item.id, comment, disposition: read.disposition }; }`;
+		await ws.scriptModel(scope, [{ code: FILE }, { text: "Staged both." }]);
 		const { turnId, conversationId } = await ws.sendTurn(scope, {
 			actorId: "u1",
 			actorKind: "user",
@@ -3418,13 +3602,31 @@ describe("WorkspaceDO", () => {
 		});
 		await ws.awaitTurn(scope, turnId, 20_000);
 		const events = await ws.readEvents(scope, { conversationId, after: 0 });
-		const requested = events.find(
+		const [create, comment] = events.filter(
 			(event) => event.type === "approval.requested",
 		);
-		if (requested?.type !== "approval.requested")
-			throw new Error("no approval card");
-		expect(requested.title).toBe("Filing a Work Item");
-		expect(requested.input).toMatchObject({ title: "Make the Work tab live" });
+		if (
+			create?.type !== "approval.requested" ||
+			comment?.type !== "approval.requested"
+		)
+			throw new Error("not staged");
+		expect(create).toMatchObject({
+			title: "File Work Item “Make the Work tab live”",
+			input: { title: "Make the Work tab live" },
+			staged: { kind: "work" },
+		});
+		expect(comment).toMatchObject({
+			title: "Comment on “Make the Work tab live”: Start with the board",
+			staged: { kind: "work", dependsOn: create.approvalId },
+		});
+		// The agent read its staged item back; nothing was filed.
+		const results = JSON.stringify(
+			(await ws.readMessages(scope, conversationId)).filter(
+				(message) => message.role === "toolResult",
+			),
+		);
+		expect(results).toContain('\\"disposition\\": \\"staged\\"');
+		expect(results).not.toContain("Approval required");
 		const filed = () =>
 			testEnv.DB.prepare(
 				"SELECT id, project_id, objective_id, disposition, steward_type, steward_id FROM work_items WHERE title = ?",
@@ -3432,15 +3634,68 @@ describe("WorkspaceDO", () => {
 				.bind("Make the Work tab live")
 				.all();
 		expect((await filed()).results).toHaveLength(0);
+		// The comment cannot land before the item it is on.
+		expect(
+			await ws.decideApproval(scope, {
+				approvalId: comment.approvalId,
+				decision: "approve",
+				by: "u1",
+			}),
+		).toMatchObject({
+			applied: false,
+			stopped: {
+				reason: "failed",
+				error: expect.stringContaining("first"),
+			},
+		});
+		// Rejecting the item rejects the comment with it, flagged.
+		await ws.scriptModel(scope, [{ text: "Dropped." }]);
+		const rejected = await ws.decideApproval(scope, {
+			approvalId: create.approvalId,
+			decision: "deny",
+			by: "u1",
+		});
+		await ws.awaitTurn(scope, rejected.turnId!, 20_000);
+		expect(
+			(await ws.readEvents(scope, { conversationId, after: 0 })).find(
+				(event) =>
+					event.type === "approval.decided" &&
+					event.approvalId === comment.approvalId,
+			),
+		).toMatchObject({ decision: "deny", dependsOnRejected: true });
+		expect((await filed()).results).toHaveLength(0);
 
+		// Staged again and accepted, the item is filed as the person.
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async (env) => { const item = await env.work.create({ title: "Make the Work tab live", description: "Show live Work on the board." }); return env.work.comment({ workItemId: item.id, body: "Board first" }); }`,
+			},
+			{ text: "Staged." },
+		]);
+		const again = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "File it after all",
+		});
+		await ws.awaitTurn(scope, again.turnId, 20_000);
+		const staged = (
+			await ws.readEvents(scope, {
+				conversationId: again.conversationId,
+				after: 0,
+			})
+		).flatMap((event) =>
+			event.type === "approval.requested" ? [event.approvalId] : [],
+		);
+		expect(staged).toHaveLength(2);
+		// Accept all: the item first, then the comment lands on the filed item.
 		await ws.scriptModel(scope, [{ text: "Filed." }]);
-		const decided = await ws.decideApproval(scope, {
-			approvalId: requested.approvalId,
+		const decided = await ws.decideApprovals(scope, {
+			approvalIds: staged,
 			decision: "approve",
 			by: "u1",
 		});
-		expect(decided.applied).toBe(true);
-		await ws.awaitTurn(scope, decided.turnId!, 20_000);
+		expect(decided.map((result) => result.applied)).toEqual([true, true]);
+		await ws.awaitTurn(scope, decided[0]!.turnId!, 20_000);
 		const rows = (await filed()).results as Array<Record<string, unknown>>;
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({
@@ -4337,37 +4592,13 @@ describe("WorkspaceDO", () => {
 		const events = await ws.readEvents(scope, {
 			conversationId: started.conversationId,
 		});
-		const requested = events.find(
-			(event) => event.type === "approval.requested",
-		);
-		if (requested?.type !== "approval.requested")
-			throw new Error("The edit was not recorded");
-		expect(requested.automatic).toBe(true);
+		// Staging checks the revision too: nothing is staged or left waiting.
 		expect(
-			events
-				.filter((event) => event.type.startsWith("approval."))
-				.map((event) => event.type),
-		).toEqual(["approval.requested", "approval.decided", "approval.executed"]);
-		expect(
-			events.find((event) => event.type === "approval.decided"),
-		).toMatchObject({
-			approvalId: requested.approvalId,
-			decision: "approve",
-			by: "u1",
-			automatic: true,
-		});
-		expect(
-			events.find((event) => event.type === "approval.executed"),
-		).toMatchObject({
-			approvalId: requested.approvalId,
-			status: "failed",
-			error: expect.stringContaining("revision_conflict"),
-		});
-		// The model sees a failed call, not a change waiting for someone.
+			events.filter((event) => event.type.startsWith("approval.")),
+		).toEqual([]);
 		expect(events).toContainEqual(
 			expect.objectContaining({
 				type: "step.finished",
-				stepId: requested.stepId,
 				status: "error",
 				detail: expect.stringContaining("revision_conflict"),
 			}),
@@ -4382,17 +4613,6 @@ describe("WorkspaceDO", () => {
 		expect(
 			events.filter((event) => event.type === "turn.started"),
 		).toHaveLength(1);
-		// A decision by hand afterwards changes nothing and starts nothing.
-		expect(
-			await ws.decideApproval(scope, {
-				approvalId: requested.approvalId,
-				decision: "approve",
-				by: "u1",
-			}),
-		).toEqual({ applied: false, alreadyDecided: true });
-		expect(
-			await ws.readEvents(scope, { conversationId: started.conversationId }),
-		).toEqual(events);
 		expect(
 			(await ws.outputQuery(scope, { op: "get", outputId: "out-doc" }))
 				?.currentRevisionId,
@@ -4546,10 +4766,14 @@ describe("WorkspaceDO", () => {
 		const events = await ws.readEvents(scope, {
 			conversationId: started.conversationId,
 		});
-		// Nothing waits for a person, and the chat shows why each step failed.
+		// The corrected save is staged, so nothing else waits for a person,
+		// and the chat shows why each step failed.
 		expect(
 			events.filter(
-				(event) => event.type === "approval.requested" && !event.automatic,
+				(event) =>
+					event.type === "approval.requested" &&
+					!event.automatic &&
+					!event.staged,
 			),
 		).toEqual([]);
 		expect(
@@ -4621,7 +4845,7 @@ describe("WorkspaceDO", () => {
 			expect([...new Set(written)]).toEqual(["written in time"]);
 			expect(
 				events.filter(
-					(event) => event.type === "approval.executed" && event.output,
+					(event) => event.type === "approval.requested" && event.staged,
 				),
 			).toHaveLength(1);
 		},
@@ -4690,7 +4914,7 @@ describe("WorkspaceDO", () => {
 			status: "finished",
 			text: "Edited.",
 		});
-		// The edit applied in the turn itself; nobody was asked.
+		// Staged in the turn; it is saved when the person accepts it.
 		const events = await ws.readEvents(own, {
 			conversationId: started.conversationId,
 		});
@@ -4698,18 +4922,24 @@ describe("WorkspaceDO", () => {
 			(event) => event.type === "approval.requested",
 		);
 		if (requested?.type !== "approval.requested")
-			throw new Error("The edit was not recorded");
-		expect(requested.automatic).toBe(true);
+			throw new Error("The edit was not staged");
+		expect(requested.staged?.kind).toBe("output");
+		await ws.scriptModel(own, [{ text: "Saved." }]);
+		const accepted = await ws.decideApproval(own, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		await ws.awaitTurn(own, accepted.turnId!, 20_000);
 		expect(
-			events.find((event) => event.type === "approval.executed"),
+			(
+				await ws.readEvents(own, { conversationId: started.conversationId })
+			).find((event) => event.type === "approval.executed"),
 		).toMatchObject({
 			approvalId: requested.approvalId,
 			status: "applied",
 			output: { outputId: "out-doc", revision: 2 },
 		});
-		expect(
-			events.filter((event) => event.type === "turn.started"),
-		).toHaveLength(1);
 		const after = await ws.outputQuery(own, {
 			op: "get",
 			outputId: "out-doc",
@@ -8030,7 +8260,7 @@ describe("chat goes on while changes wait for approval", () => {
 		await ws.awaitTurn(waitingScope, continuation.turnId, 20_000);
 	});
 
-	test("new files and edits apply at once; removing content, a new app, a web page and Work still wait", async () => {
+	test("an app's new files and edits apply at once; for the person Work stages and removing content, a new app and a web page still wait", async () => {
 		const ws = await waitingWorkspace();
 		await testEnv.DB.batch(
 			[osGadgetRevisions, osGadgetCode, osGadgetCodeBlobs].map((table) =>
@@ -8047,10 +8277,12 @@ describe("chat goes on while changes wait for approval", () => {
 			},
 			{ text: "Created Auto plan." },
 		]);
+		// Sent from an app, so nothing stages: both writes apply in the turn.
 		const turn = await ws.sendTurn(waitingScope, {
 			actorId: "u1",
 			actorKind: "user",
 			text: "Create an Auto plan doc and add a line",
+			fromAppId: "notes",
 		});
 		expect(await ws.awaitTurn(waitingScope, turn.turnId, 20_000)).toMatchObject(
 			{ status: "finished", text: "Created Auto plan." },
@@ -8179,12 +8411,19 @@ describe("chat goes on while changes wait for approval", () => {
 			event.type === "approval.requested" ? [event] : [],
 		);
 		expect(held.map((event) => event.title)).toEqual([
-			"Filing a Work Item",
+			"File Work Item “Must not be filed without asking”",
 			"Editing document blocks",
 			"Creating a new app",
 			"Read example.com",
 		]);
 		for (const event of held) expect(event.automatic).toBeUndefined();
+		// Only the Work Item stages; what always asks and outside reads never do.
+		expect(held.map((event) => event.staged?.kind ?? null)).toEqual([
+			"work",
+			null,
+			null,
+			null,
+		]);
 		expect(
 			later.filter(
 				(event) =>
@@ -9547,6 +9786,73 @@ describe("approval modes and computer access", () => {
 		expect(held).toEqual([
 			expect.objectContaining({ title: "Saving to the workspace memory" }),
 		]);
+	});
+
+	test("a staged edit is not force-applied once its file moved, and a later Auto write cannot overwrite it", async () => {
+		const { own, ws } = await setup("private");
+		await seedOutputs(ws, own);
+		const revision = async () =>
+			(await ws.outputQuery(own, { op: "get", outputId: "out-doc" }))
+				?.currentRevisionId;
+		const before = await revision();
+		const edit = (text: string) =>
+			`export default async env => { const doc = await env.documents.read({outputId:"out-doc"}); return env.documents.edit({outputId:doc.id,expectedRevision:doc.revision,ops:[{op:"insert",index:0,block:{type:"paragraph",text:${JSON.stringify(text)}}}]}).catch(e => e.message); }`;
+		const send = async (code: string, conversationId?: string) => {
+			await ws.scriptModel(own, [{ code }, { text: "Done." }]);
+			const sent = await ws.sendTurn(own, {
+				...(conversationId ? { conversationId } : {}),
+				actorId: "u1",
+				actorKind: "user",
+				text: "Edit the doc",
+			});
+			await ws.awaitTurn(own, sent.turnId, 20_000);
+			return {
+				...sent,
+				results: JSON.stringify(
+					(await ws.readMessages(own, sent.conversationId)).filter(
+						(message) => message.role === "toolResult",
+					),
+				),
+			};
+		};
+		// "Ask for changes" is the private default: the edit stages.
+		const staged = await send(edit("Staged line"));
+		const [requested] = (
+			await ws.readEvents(own, { conversationId: staged.conversationId })
+		).filter((event) => event.type === "approval.requested");
+		if (requested?.type !== "approval.requested")
+			throw new Error("The edit was not staged");
+		expect(requested.staged?.kind).toBe("output");
+		expect(await revision()).toBe(before);
+		await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });
+		// In Auto the same chat may not write over its own staged change.
+		const blocked = await send(edit("Auto line"), staged.conversationId);
+		expect(blocked.results).toContain("has a staged change in this chat");
+		expect(await revision()).toBe(before);
+		// Another chat in Auto changes the real file at once.
+		await send(edit("Someone else's line"));
+		const moved = await revision();
+		expect(moved).not.toBe(before);
+		await ws.scriptModel(own, [{ text: "Understood." }]);
+		const accepted = await ws.decideApproval(own, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(accepted).toMatchObject({
+			applied: false,
+			stopped: { reason: "failed", error: expect.stringContaining("Stale") },
+		});
+		expect(await revision()).toBe(moved);
+		expect(
+			(
+				await ws.readEvents(own, { conversationId: staged.conversationId })
+			).find((event) => event.type === "approval.executed"),
+		).toMatchObject({
+			approvalId: requested.approvalId,
+			status: "failed",
+			error: expect.stringContaining("Stale"),
+		});
 	});
 
 	test("in a private workspace a read-only command on the sender's own computer runs without asking; a change asks", async () => {

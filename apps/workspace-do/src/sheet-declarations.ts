@@ -7,8 +7,8 @@ interface SheetContent {
 interface SheetDetail extends OutputSummary {content:SheetContent}
 interface Sheets {
   read(input:{outputId:string}):Promise<SheetDetail>;
-  /** Replaces the sheet at its current revision. Applied at once and recorded; the person can undo it. */
+  /** Replaces the sheet at its current revision. Applied at once in Auto; staged for the person's review in the asking modes. */
   replace(input:{outputId:string;expectedRevision:number;content:SheetContent}):Promise<SheetDetail>;
-  /** Writes a bounded rectangle into the active sheet, preserving other sheets and cell formats. Does not recalculate formula values. Applied at once and recorded; the person can undo it. */
+  /** Writes a bounded rectangle into the active sheet, preserving other sheets and cell formats. Does not recalculate formula values. Applied at once in Auto; staged for the person's review in the asking modes. */
   edit(input:{outputId:string;expectedRevision:number;startRow:number;startColumn:number;cells:Array<Array<string|number|boolean|null>>}):Promise<SheetDetail>;
 }`.trim();

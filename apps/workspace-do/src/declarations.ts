@@ -133,9 +133,9 @@ interface Views {
 /** Typed document operations on the same canonical outputs used by Doc apps. */
 interface Documents {
   read(input: { outputId: string }): Promise<DocumentDetail>;
-  /** Replaces content. Applied at once and recorded; the person can undo it. */
+  /** Replaces content. Applied at once in Auto (the person can undo it); in the asking modes it is staged and returns the staged document with a "staged" note. */
   replace(input: { outputId: string; expectedRevision: number; content: DocumentContent }): Promise<DocumentDetail>;
-  /** Applies ordered block edits. Applied at once and recorded; an edit with a delete op waits for the person's approval. */
+  /** Applies ordered block edits. Applied at once in Auto, staged in the asking modes; an edit with a delete op waits for the person's approval. */
   edit(input: { outputId: string; expectedRevision: number; ops: Array<{op:"insert" | "replace"; index:number; block:DocumentBlock} | {op:"delete"; index:number}> }): Promise<DocumentDetail>;
 }`.trim(),
 	outputs: `
@@ -163,7 +163,7 @@ interface Outputs {
     | { readable: false; outputId: string; title: string; reason: string }>;
   /** Create a new output. Writes revision 1 at once; recorded, and the person can undo it. */
   create(input: { title: string; content: OutputContent }): Promise<OutputDetail>;
-  /** Replace the body. expectedRevision must equal the current revision. Applied at once and recorded; the person can undo it. */
+  /** Replace the body. expectedRevision must equal the current revision (a staged file shows its staged revision). Applied at once in Auto, staged in the asking modes. */
   revise(input: { outputId: string; content: OutputContent; expectedRevision: number; note?: string }): Promise<OutputDetail>;
 }`.trim(),
 	apps: `

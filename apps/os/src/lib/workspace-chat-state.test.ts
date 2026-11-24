@@ -272,6 +272,69 @@ describe("applyWorkspaceChatEvent", () => {
 		expect(decided.turns[0]?.approvals[0]?.decision).toBe("approve");
 	});
 
+	it("keeps a staged change's row current as edits fold in and flags why it ended", () => {
+		const base = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			turn.slice(0, 2),
+		);
+		const staged = applyWorkspaceChatEvents(base, [
+			{
+				seq: 10,
+				at: at(5),
+				conversationId: "c1",
+				type: "approval.requested",
+				turnId: "t1",
+				stepId: "s2",
+				approvalId: "a1",
+				title: "File Work Item “Board”",
+				reason: "staged_for_review",
+				staged: { kind: "work", expiresAt: at(50) },
+			},
+			{
+				seq: 11,
+				at: at(6),
+				conversationId: "c1",
+				type: "approval.requested",
+				turnId: "t1",
+				stepId: "s3",
+				approvalId: "a2",
+				title: "Comment on “Board”: first",
+				reason: "staged_for_review",
+				staged: { kind: "work", expiresAt: at(50), dependsOn: "a1" },
+			},
+			{
+				seq: 12,
+				at: at(7),
+				conversationId: "c1",
+				type: "approval.restaged",
+				approvalId: "a1",
+				title: "File Work Item “Live board”",
+				staged: { kind: "work", expiresAt: at(60) },
+			},
+			{
+				seq: 13,
+				at: at(8),
+				conversationId: "c1",
+				type: "approval.decided",
+				approvalId: "a2",
+				decision: "deny",
+				by: "person:aaron",
+				dependsOnRejected: true,
+			},
+		]);
+		const [create, comment] = staged.turns[0]!.approvals;
+		expect(create).toMatchObject({
+			title: "File Work Item “Live board”",
+			staged: { expiresAt: at(60) },
+			decision: null,
+		});
+		expect(comment).toMatchObject({
+			decision: "deny",
+			dependsOnRejected: true,
+			staged: { dependsOn: "a1" },
+		});
+	});
+
 	it.each(["approve", "deny"] as const)(
 		"replays a %s decision before an older approval page without a phantom turn",
 		(decision) => {

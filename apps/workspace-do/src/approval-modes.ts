@@ -10,6 +10,7 @@ import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-p
 import { isDestructiveCommand } from "./destructive-commands";
 
 import type { ActionClass } from "@tedix/api-contract/utils/approval-holds";
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 
 /** Steps only a person takes, by gate resource and method. */
 const HUMAN_ONLY = new Set(["memory.review"]);
@@ -127,6 +128,44 @@ export function actionClass(call: {
 	if (HELD_READS.has(call.resource)) return "read";
 	// Publishing a conversation app draft is a bounded workspace change.
 	return call.riskTier === "bounded_write" ? "change" : "outside";
+}
+
+/**
+ * The gate's fourth outcome next to run, ask and refuse: the call is still
+ * held, and instead of waiting it is staged for this conversation. The agent
+ * keeps working on the staged state; the person accepts or rejects it on the
+ * conversation's review card, and nothing real changes before that.
+ */
+export const STAGED_REASON = "staged_for_review";
+
+/** Writes to data Tedix stores itself that stage, by gate resource. */
+const STAGED_WRITES: Record<string, readonly string[]> = {
+	output: ["create", "revise", "replace", "edit"],
+	work: ["create", "comment", "accept"],
+};
+
+/**
+ * Whether a held call stages instead of waiting on a card. Only a turn a
+ * signed-in person sent themself, only in the two asking modes, and only a
+ * change to a workspace file or a Work Item: what Tedix always asks for
+ * (removing content, deleting, outside messages, publishing, money, another
+ * organization) and every connected outside service keep asking.
+ */
+export function stagesCall(call: {
+	resource: string;
+	operation: string;
+	args: unknown[];
+	cls: ActionClass;
+	mode: ApprovalMode;
+	personSent: boolean;
+}): boolean {
+	return (
+		call.personSent &&
+		(call.mode === "ask_every_time" || call.mode === "ask_for_changes") &&
+		call.cls === "change" &&
+		!removesContent(call.args) &&
+		(STAGED_WRITES[call.resource]?.includes(call.operation) ?? false)
+	);
 }
 
 /** What a call refused by the mode returns, in place of the gate's reason. */

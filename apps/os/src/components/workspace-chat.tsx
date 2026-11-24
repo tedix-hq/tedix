@@ -72,6 +72,7 @@ import {
 import { Empty } from "@/components/kumo/empty";
 import { Loader } from "@/components/kumo/loader";
 import { ChatCard } from "@/components/workspace-chat-card";
+import { StagedChangesCard } from "@/components/workspace-chat-staged-changes";
 import {
 	Select,
 	SelectContent,
@@ -740,8 +741,8 @@ export function WorkspaceChat({
 				onDecide={(approvalId, decision, options) => {
 					if (!viewOnly) client?.decideApproval(approvalId, decision, options);
 				}}
-				onApproveAll={(approvalIds) => {
-					if (!viewOnly) client?.decideApprovals(approvalIds, "approve");
+				onApproveAll={(approvalIds, decision = "approve") => {
+					if (!viewOnly) client?.decideApprovals(approvalIds, decision);
 				}}
 				onContinue={
 					viewOnly || running || state.pendingSend
@@ -994,6 +995,7 @@ function Thread({
 		turns.flatMap((turn) => [...launchedRuns(turn).keys()]),
 	);
 	const reports = new Map<string, ChatTurn[]>();
+	const review = stagedReview(turns);
 	const visibleTurns = turns.filter((turn) => {
 		const id = turn.runReport?.workItemId;
 		if (!id || !launches.has(id) || !turn.reply || turn.status !== "done")
@@ -1097,6 +1099,8 @@ function Thread({
 							}
 							onDecide={onDecide}
 							onApproveAll={onApproveAll}
+							review={review?.turnId === turn.turnId ? review : null}
+							appDraftsInReview={review !== null && review.appDrafts.length > 0}
 							onContinue={last && stopped ? onContinue : null}
 							onRetry={last ? onRetry : null}
 							turn={turn}
@@ -1144,13 +1148,43 @@ function Thread({
 }
 
 /** Approves every listed proposal of one reply together. */
-type ApproveAll = (approvalIds: string[]) => void;
+type ApproveAll = (
+	approvalIds: string[],
+	decision?: "approve" | "deny",
+) => void;
 
 type RetryTurn = (turn: ChatTurn) => void;
 
 /** What Continue sends after a stopped or interrupted turn. */
 const CONTINUE_TEXT =
 	"Continue where you stopped. Check what already happened before repeating any change.";
+
+/**
+ * The conversation's one review card: every staged change and app draft,
+ * shown under the latest turn that staged a change.
+ */
+type StagedReview = {
+	turnId: string;
+	approvals: ChatApproval[];
+	appDrafts: NonNullable<ChatTurn["appDrafts"]>;
+};
+
+function stagedReview(turns: readonly ChatTurn[]): StagedReview | null {
+	const approvals = turns.flatMap((turn) =>
+		turn.approvals.filter((approval) => approval.staged),
+	);
+	if (!approvals.length) return null;
+	const last = turns.findLast((turn) =>
+		turn.approvals.some((approval) => approval.staged),
+	);
+	return last
+		? {
+				turnId: last.turnId,
+				approvals,
+				appDrafts: turns.flatMap((turn) => turn.appDrafts ?? []),
+			}
+		: null;
+}
 
 function createdGadgets(turn: ChatTurn) {
 	const gadgets = new Map<string, string>();
@@ -1192,6 +1226,8 @@ function TurnView({
 	modelLabel,
 	onDecide,
 	onApproveAll,
+	review,
+	appDraftsInReview,
 	onContinue,
 	onRetry,
 }: {
@@ -1207,6 +1243,10 @@ function TurnView({
 	modelLabel: string | undefined;
 	onDecide: DecideApproval;
 	onApproveAll: ApproveAll;
+	/** The conversation's review card, when it belongs under this turn. */
+	review: StagedReview | null;
+	/** App drafts are listed on the review card, not under their turns. */
+	appDraftsInReview: boolean;
 	onContinue: (() => void) | null;
 	/** Sends this turn's message again; only on the newest turn, `null` while busy. */
 	onRetry: RetryTurn | null;
@@ -1219,6 +1259,8 @@ function TurnView({
 	// A coding run's card says where it runs; only a direct call names the Mac.
 	const ranOn = agentRuns.size ? null : machineLabel(turn.steps);
 	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
+	// Staged changes are decided on the conversation's review card.
+	const held = turn.approvals.filter((approval) => !approval.staged);
 	const own =
 		turn.authorKind === "person" &&
 		(turn.authorId === "" || turn.authorId === viewerId);
@@ -1312,7 +1354,18 @@ function TurnView({
 						}
 					/>
 				))}
-				{turn.approvals.map((approval) => (
+				{review ? (
+					<StagedChangesCard
+						workspaceId={workspaceId}
+						approvals={review.approvals}
+						appDrafts={review.appDrafts}
+						onDecide={(approvalId, decision) => onDecide(approvalId, decision)}
+						onDecideAll={(approvalIds, decision) =>
+							onApproveAll(approvalIds, decision)
+						}
+					/>
+				) : null}
+				{held.map((approval) => (
 					<ApprovalCard
 						approval={approval}
 						workspaceId={workspaceId}
@@ -1322,8 +1375,8 @@ function TurnView({
 					/>
 				))}
 				<ReplyApprovalActions
-					approvals={turn.approvals}
-					approvingAll={turn.approvals.some(
+					approvals={held}
+					approvingAll={held.some(
 						(approval) =>
 							approval.decision === null &&
 							approvingAll.includes(approval.approvalId),
@@ -1377,7 +1430,7 @@ function TurnView({
 						request={request}
 					/>
 				))}
-				{turn.appDrafts?.map((draft) => (
+				{(appDraftsInReview ? [] : (turn.appDrafts ?? [])).map((draft) => (
 					<WorkspaceChatAppDraft
 						key={draft.proposalId}
 						workspaceId={workspaceId}

@@ -26,7 +26,7 @@ const WORKSPACE_RULES = `How to act:
 - To read or change anything, call ${RUN_CODE_TOOL} with a JavaScript module: \`export default async (env) => { ... return value }\`. The returned value (JSON) and console output come back to you. Prefer one ${RUN_CODE_TOOL} call that gathers everything you need over many small calls.
 - \`env\` is typed by the declarations below. If a declaration is unclear, call ${DESCRIBE_BINDING_TOOL} with the binding name; do not guess an API.
 - Choose where to work from the requested input. Read workspace files and connected sources here in Tedix Cloud. For a file or system fact on the person’s computer, list the permitted machines and use the matching machine’s read tool. If the computer or source is unavailable, explain what is missing. Never substitute another machine, a project runner or a cloud copy for a named source. Leave approval decisions to the workspace and machine rules. Read a pending machine call by its call ID before claiming a result.
-- Workspace file reads run at once. A new document, sheet or presentation and an edit to one apply at once: the call returns the saved file, and the person can undo it from your reply or from version history, so say what you changed. Removing content from a file, deleting, sharing, a new app, a web page and filing a proposed Work Item wait for the person: the call comes back with "Approval required", it is not applied yet, and the person approves or denies it on its card while the chat goes on. Do not retry it or work around it. Carry on with any part of the task that does not depend on it, then say in one sentence what is waiting for approval. Steps that need the held change wait until a later message tells you it was applied.
+- Workspace file reads run at once. A new document, sheet or presentation and an edit to one apply at once in Auto: the call returns the saved file, and the person can undo it from your reply or from version history, so say what you changed. In Ask every time and Ask for changes such a write, and filing, commenting on or accepting a Work Item, is staged instead when the person sent the message: the call returns the staged result with a "staged" note. Keep working on it (your later reads in this conversation show the staged state), but nothing is applied until the person accepts it on the review card; say what you staged for their review and never say it is done or saved. Removing content from a file, deleting, sharing, a new app, a web page and anything else that is not staged wait for the person: the call comes back with "Approval required", it is not applied yet, and the person approves or denies it on its card while the chat goes on. Do not retry it or work around it. Carry on with any part of the task that does not depend on it, then say in one sentence what is waiting for approval. Steps that need the held change wait until a later message tells you it was applied.
 - A long uploaded file reaches you as its first lines only, with a fileTextNote that says which lines you have. Before you answer about anything past them, read on with \`env.outputs.readFileText({ outputId, startLine })\` and follow \`nextStartLine\`, or find the lines first with \`env.outputs.searchFileText({ outputId, query })\`. Never guess what the unread part says. When a file has no readable text, such as a scanned PDF, tell the person so.
 - When asked to change an app, use \`env.apps.readFile\` and \`env.apps.grep\` to inspect its files, then \`env.apps.editFile\` for exact replacements. Use \`env.apps.writeFile\` for new files or full replacements only. Each edit updates the same chat draft on a pinned revision; preserve unrelated code. Pass the latest read's proposalId and sequence (as expectedSequence) on every edit of a pending draft; read again after a conflict. When approval is needed, the chat shows one draft card while you work. When the requested edits are ready, call \`env.apps.publishDraft\` with the returned proposalId and sequence as expectedSequence and a plain rationale. In Auto, a person's own turn publishes without asking, within the workspace's configured limit. Otherwise the same draft card waits for Accept and publish or Discard; do not create another approval or tell the person it is published. Staging is not saving a revision. After a successful publish, say plainly which app and changes you published and the new version. If the app changed, ask the person to rebase the draft. To go back to an earlier version, find it with \`env.apps.versions\` and call \`env.apps.restoreVersion\`: it stages that version's complete file set as the draft, and accepting it saves a new version, so nothing is lost. Do not approximate this by overwriting only existing files. The person can also restore a version themselves: open the app and click Version history (the clock button at the top). There is no Undo button for app changes; do not mention one. Use file tools instead of filing Work for an app edit.
 - When asked to build or create a new app, call \`env.apps.create({ name, files })\` once; do not file Work for it and do not use \`env.apps.writeFile\`, which only changes an app that exists. \`files\` needs two files. \`server.js\` exports \`class App\`: its constructor gets \`(ctx, env)\`, each public method is callable from the page, a new instance serves each call, and \`this.ctx.storage.kv.get/put/delete/list\` (synchronous) keeps data between calls. \`client.js\` is a plain module with no imports and no network that renders into \`document.getElementById("app")\` and calls the server with \`await tedix.call("app.call", { method, args: [...] })\`. Set text with \`textContent\`, color with \`var(--tedix-fg, CanvasText)\`, \`var(--tedix-surface, Canvas)\`, \`var(--tedix-border, GrayText)\` and \`var(--tedix-primary, Highlight)\`, and show errors on the page. Add a short \`README.md\` that says what the app does. When the app should show a workspace file such as a sheet, pass \`reads: { name: outputId }\` so it reads the file's current content; never copy the file's rows into the app. The \`create\` declaration shows how \`client.js\` reads it. The files are checked before the person is asked; fix what a failed check reports and call it again. Once creation succeeds, the person can select Open preview on its chat card. If approval is pending, wait for the decision.
@@ -90,9 +90,9 @@ const MODE_LINES: Record<ApprovalMode, string> = {
 	read_only:
 		"Read only: you only read; anything that would change something is refused.",
 	ask_every_time:
-		"Ask every time: changes, commands and reading a new web site wait for the person's approval; edits to this workspace's files apply at once and can be undone.",
+		"Ask every time: commands, other changes and reading a new web site wait for the person's approval; new files, edits to this workspace's files and Work Item writes are staged for the person's review.",
 	ask_for_changes:
-		"Ask for changes: reading runs without asking, new web sites included; changes and commands wait for the person's approval.",
+		"Ask for changes: reading runs without asking, new web sites included; new files, edits to this workspace's files and Work Item writes are staged for the person's review; other changes and commands wait for the person's approval.",
 	auto: "Auto: you decide; messages to outside people, money, deleting data and steps only a person may take still wait for the person.",
 };
 
@@ -127,6 +127,8 @@ export interface PendingApproval {
 	action: string;
 	/** The file or item it is for, when known. */
 	target?: string | null;
+	/** Staged in this conversation: the agent's reads already show it. */
+	staged?: true;
 }
 
 /** At most this many waiting changes are listed; the rest are counted. */
@@ -172,7 +174,15 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 		parts.push(
 			`<referenced_skill slug="${skill.slug}" title="${skill.title.replace(/["<>]/g, "")}" note="The person asked you to follow this organization skill for this message.">\n${skill.content.slice(0, REFERENCED_SKILL_MAX_CHARS)}\n</referenced_skill>`,
 		);
-	const pending = input.pendingApprovals ?? [];
+	const staged = (input.pendingApprovals ?? []).filter((item) => item.staged);
+	if (staged.length > 0)
+		parts.push(
+			`<staged_changes note="Changes you staged earlier in this conversation. Your reads here show them, nobody else sees them, and none is applied until the person accepts it on the review card. Never say they are done or saved.">\n${staged
+				.slice(0, PENDING_APPROVALS_LISTED)
+				.map((item) => `- ${item.action.replace(/[<>\n]/g, " ")}`)
+				.join("\n")}\n</staged_changes>`,
+		);
+	const pending = (input.pendingApprovals ?? []).filter((item) => !item.staged);
 	if (pending.length > 0) {
 		const lines = pending
 			.slice(0, PENDING_APPROVALS_LISTED)

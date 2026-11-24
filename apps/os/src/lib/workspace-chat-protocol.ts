@@ -1,4 +1,20 @@
 import type { StagedAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
+
+/** What the review card shows for one staged change. */
+export interface WorkspaceChatStagedCard {
+	kind: "output" | "work";
+	/** Nothing decided by then expires, and nothing is applied. */
+	expiresAt: string;
+	/** Lines the staged file adds and removes, at most a few of each. */
+	diff?: {
+		added: string[];
+		removed: string[];
+		moreAdded?: number;
+		moreRemoved?: number;
+	};
+	/** The staged change this one builds on. */
+	dependsOn?: string;
+}
 import type {
 	WorkspaceChatAttachment,
 	WorkspaceChatAttachmentInput,
@@ -328,6 +344,16 @@ export type WorkspaceChatLedgerEvent =
 			automatic?: true;
 			/** The card may offer "Approve all like this in this turn". */
 			approveAllInTurn?: true;
+			/** Staged for this conversation; shown on its one review card. */
+			staged?: WorkspaceChatStagedCard;
+	  })
+	| (Stamped & {
+			/** More edits folded into a staged change; its row updates in place. */
+			type: "approval.restaged";
+			approvalId: string;
+			title: string;
+			input?: unknown;
+			staged: WorkspaceChatStagedCard;
 	  })
 	| (Stamped & {
 			type: "approval.decided";
@@ -337,6 +363,10 @@ export type WorkspaceChatLedgerEvent =
 			by: string;
 			/** The change applied at once; nobody decided it by hand. */
 			automatic?: true;
+			/** A staged change nobody decided in time; nothing was applied. */
+			expired?: true;
+			/** Rejected because the staged change it built on was rejected. */
+			dependsOnRejected?: true;
 	  })
 	| (Stamped & {
 			type: "approval.executed";
@@ -526,6 +556,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"step.finished",
 	"conversation.summarized",
 	"approval.requested",
+	"approval.restaged",
 	"approval.decided",
 	"approval.executed",
 	"view.shown",

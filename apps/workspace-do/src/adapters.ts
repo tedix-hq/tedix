@@ -27,7 +27,7 @@ import {
 	type LedgerQuery,
 } from "@tedix/agent-governance/types";
 import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
-import { actionClass } from "./approval-modes";
+import { actionClass, STAGED_REASON, stagesCall } from "./approval-modes";
 import type { WorkspaceStorage } from "./runtime";
 
 export const LEDGER_SCHEMA = `
@@ -242,9 +242,14 @@ export interface TurnHolds {
 	computerReadsHeld: boolean;
 	/** "Approve all like this" covers this gate and class in this turn. */
 	approvedAll: (resource: string, cls: ActionClass) => boolean;
+	/** A signed-in person sent the turn themself: a held file or Work write stages. */
+	personSent?: boolean;
 }
 
-function holdFor(call: CallDescription, holds: TurnHolds): Hold | "granted" {
+function holdFor(
+	call: CallDescription,
+	holds: TurnHolds,
+): Hold | "granted" | "stage" {
 	const cls = actionClass({
 		...call,
 		args: Array.isArray(call.args) ? call.args : [call.args],
@@ -256,6 +261,17 @@ function holdFor(call: CallDescription, holds: TurnHolds): Hold | "granted" {
 	if (cls === "computer_read" && !holds.computerReadsHeld) return "run";
 	const hold = HOLDS[cls][holds.mode];
 	if (hold !== "ask") return hold;
+	if (
+		stagesCall({
+			resource: call.resource,
+			operation: call.operation,
+			args: Array.isArray(call.args) ? call.args : [call.args],
+			cls,
+			mode: holds.mode,
+			personSent: holds.personSent === true,
+		})
+	)
+		return "stage";
 	return holds.approvedAll(call.resource, cls) ? "granted" : "ask";
 }
 
@@ -301,6 +317,13 @@ export class SqlComplianceAdapter implements ComplianceAdapter {
 		if (hold === "run") return { state: "not_required" };
 		if (hold === "granted")
 			return { state: "granted", reason: "approved_for_this_turn" };
+		if (hold === "stage") {
+			// Accepting a staged change runs its call once with the receipt.
+			const receipt = await this.receiptFor(call);
+			if (receipt?.state === "approved") return { state: "granted" };
+			if (receipt?.state === "denied") return { state: "denied" };
+			return { state: "pending", reason: STAGED_REASON };
+		}
 		if (hold === "refuse") {
 			// A decision the person made on a card before still counts.
 			const receipt = await this.receiptFor(call);

@@ -17,8 +17,8 @@ its code runs beside the data.
    its `env.outputs`, `env.apps`, `env.resources` and `env.work` are stubs
    that call back into this object. Every call is checked and recorded by the
    shared adapters (`@tedix/agent-governance`): reads pass, and the agent's
-   own create or edit of a doc, sheet or deck applies at once (see below).
-   Other canonical writes hold for approval. App file tools stage changes in
+   own create or edit of a doc, sheet or deck is staged or applies at once
+   (see below). Other canonical writes hold for approval. App file tools stage changes in
    one conversation draft on a pinned revision. The draft files and sequence
    let clients preview edits while the turn runs. When approval is needed,
    one draft card in chat offers Review, Accept and publish, and Discard.
@@ -96,17 +96,41 @@ its code runs beside the data.
    the same request, from another person, another tab or a retry, changes
    nothing: it waits for the first to land and is answered `alreadyDecided`
    with what the first one did, so a change is never applied twice.
-   Creating or editing a doc, sheet or deck does not wait
-   (`src/auto-approval.ts`). The write is applied in the same turn and the
+   Staged changes (`src/staged-changes.ts`): in "Ask every time" and "Ask
+   for changes", on a turn a signed-in person sent themself, creating or
+   editing a doc, sheet or deck and filing, commenting on or accepting a
+   Work Item is staged instead of waiting. The gate's fourth outcome next to
+   run, ask and refuse (`stagesCall` in `src/approval-modes.ts`) still holds
+   the call; the write runs against the conversation's pending layer
+   (`staged_changes`, beside `approvals`). The agent gets the staged result
+   with a "staged" note, and its later reads in the same conversation show
+   the staged state; other conversations, people and the API see the real
+   data. Each staged change is an approval row holding the exact call that
+   accepting it runs (`outputs.revise` at the pinned base revision,
+   `outputs.create`, or the Work call as asked), so acceptance goes through
+   the same gate, receipt and change ledger as a card. Edits of one file in
+   one conversation fold into one change (`approval.restaged`). The chat
+   lists every staged change on one review card per conversation, with
+   Accept all, Discard all and per-row Accept or Reject; the conversation's
+   app drafts appear on that card too. A file whose revision moved is
+   reported stale and nothing is written. A Work call on a Work Item staged
+   in the same chat depends on it: it waits for that item, and rejecting the
+   item rejects it too (`dependsOnRejected`). Undecided staged changes expire
+   24 hours after their last edit (`expired`). Outside staging, a write to
+   something with a staged change in that chat is refused. Removing
+   content, deleting, sharing, another organization, outside messages,
+   publishing, money and connected outside services never stage.
+   Otherwise, creating or editing a doc, sheet or deck does not wait
+   (`src/auto-approval.ts`): in Auto, and on turns sent from an app, a tedi
+   or a schedule. The write is applied in the same turn and the
    model gets the saved file, or the error, as the call's result. It is
    recorded under whoever the turn acts for as `approval.requested`,
    `approval.decided` (both with `automatic: true`) and `approval.executed`,
    so the chat shows an applied change, not a card to decide, and the
    activity feed records `approval.automatic` instead of a request. Undo and
    version history are the way back. An edit that removes content (an `ops`
-   entry named delete, remove or archive), deleting, sharing, filing Work, a
-   new app, web pages and anything outside the workspace still wait for a
-   person. No setting changes this.
+   entry named delete, remove or archive), deleting, sharing, a new app, web
+   pages and anything outside the workspace still wait for a person.
 4. Steps and tokens land in an event ledger first and are pushed to
    WebSocket subscribers. A late subscriber replays from any sequence number.
 5. The user's message, each model message and each tool result are saved

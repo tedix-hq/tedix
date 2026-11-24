@@ -129,7 +129,27 @@ import {
 	workspaceMachineAccess,
 } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { readOnlyCommandList } from "./read-only-commands";
-import { actionClass, READ_ONLY_REFUSAL } from "./approval-modes";
+import {
+	actionClass,
+	READ_ONLY_REFUSAL,
+	STAGED_REASON,
+} from "./approval-modes";
+import {
+	contentDiff,
+	STAGED_NOTE,
+	STAGED_TTL_MS,
+	STAGED_WORK_PREFIX,
+	type StagedCapture,
+	StagedChanges,
+	type StagedOutputState,
+	type StagedRow,
+	type StagedWorkState,
+	stagedDataPort,
+	stagedTitle,
+	stagedWorkSummary,
+	stagingAccountability,
+	stagingCompliance,
+} from "./staged-changes";
 import { buildWorkspaceBindings, type ConnectionRequest } from "./bindings";
 import type { AvailableWorkspaceConnection } from "@tedix/api-contract/schemas/workspace-available-connections";
 import {
@@ -507,7 +527,8 @@ interface ApprovalRow {
 	actor_id: string;
 	actor_kind: ActorKind;
 	tedi_id: string | null;
-	status: "pending" | "approved" | "denied" | "applied" | "failed";
+	/** `expired`: a staged change nobody decided in time. */
+	status: "pending" | "approved" | "denied" | "applied" | "failed" | "expired";
 	/** Set when the gate held it; see `approval-modes.ts`. */
 	action_class: ActionClass | null;
 }
@@ -765,6 +786,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #ledger: SqlAccountabilityAdapter;
 	readonly #activityRecords: SqlActivityRecords;
 	readonly #compliance: SqlComplianceAdapter;
+	/** Each conversation's staged changes; see `staged-changes.ts`. */
+	readonly #staged: StagedChanges;
 	/**
 	 * Decisions still being applied, each resolving when it lands, so a second
 	 * decision on the same request can wait and report what the first did.
@@ -858,6 +881,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#compliance = new SqlComplianceAdapter(this.#store, {
 			writesNeedApproval: true,
 		});
+		this.#staged = new StagedChanges(this.#store);
 		// A turn interrupted by eviction is marked failed; the user sees it at once.
 		const now = new Date().toISOString();
 		let interrupted = 0;
@@ -2502,6 +2526,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				approvalId,
 			);
 			if (!approval) throw new Error("Unknown approval");
+			this.#expireStaged(approval.conversation_id);
 			if (!this.#mayDecide(approval, input.by))
 				throw new Error(
 					"Not decided: only the person who sent the message can approve using their computer.",
@@ -3113,6 +3138,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			note?: string;
 			/** A file write that applies at once, not a decision made by hand. */
 			automatic?: boolean;
+			dependsOnRejected?: boolean;
 		},
 	): Promise<{
 		applied: boolean;
@@ -3149,7 +3175,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (decision.status === "refused")
 					return { applied: false, summary: "", refusal: decision.message };
 			}
-			return await this.#applyDecision(scope, approval, input, state, now);
+			const staged = this.#staged.get(approvalId);
+			const prepared =
+				staged && input.decision === "approve"
+					? await this.#stagedReady(scope, approval, staged)
+					: undefined;
+			if (prepared && "wait" in prepared)
+				return { applied: false, summary: "", refusal: prepared.wait };
+			return await this.#applyDecision(
+				scope,
+				approval,
+				input,
+				state,
+				now,
+				staged,
+				prepared,
+			);
 		} finally {
 			this.#deciding.delete(approvalId);
 			landed();
@@ -3164,20 +3205,32 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			by: string;
 			note?: string;
 			automatic?: boolean;
+			/** Rejected because the staged change it builds on was rejected. */
+			dependsOnRejected?: boolean;
 		},
 		state: "approved" | "denied",
 		now: string,
+		staged?: StagedRow,
+		/** For a staged change: the call accepting it runs, or why it cannot. */
+		prepared?: { args: unknown[]; argsHash: string } | { error: string },
 	): Promise<{
 		applied: boolean;
 		summary: string;
 		outcome?: { ok: true; value: unknown } | { ok: false; error: string };
 	}> {
 		const approvalId = approval.approval_id;
+		const call =
+			prepared && "args" in prepared
+				? prepared
+				: {
+						args: JSON.parse(approval.args) as unknown[],
+						argsHash: approval.args_hash,
+					};
 		if (approval.binding !== "accounts")
 			this.#compliance.recordApproval(approvalId, state, input.by, {
 				resource: approval.resource,
 				operation: approval.method,
-				argsHash: approval.args_hash,
+				argsHash: call.argsHash,
 			});
 		this.#store.run(
 			"UPDATE approvals SET status = ?, decided_by = ?, decided_at = ? WHERE approval_id = ?",
@@ -3193,6 +3246,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			by: input.by,
 			at: now,
 			...(input.automatic ? { automatic: true as const } : {}),
+			...(input.dependsOnRejected ? { dependsOnRejected: true as const } : {}),
 		});
 		let summary: string;
 		let applied = false;
@@ -3201,24 +3255,31 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			| { ok: false; error: string }
 			| undefined;
 		if (input.decision === "approve") {
-			const outcome = await this.#invokeBinding(
-				scope,
-				{
-					turnId: approval.turn_id,
-					conversationId: approval.conversation_id,
-					actor:
-						approval.binding === "memory" && approval.method === "review"
-							? { id: input.by, kind: "user" }
-							: { id: approval.actor_id, kind: approval.actor_kind },
-				},
-				approval.binding,
-				approval.method,
-				JSON.parse(approval.args) as unknown[],
-				approval.binding === "accounts" ? approvalId : undefined,
-			).catch((error: unknown) => ({
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			}));
+			const refused =
+				prepared && "error" in prepared
+					? { ok: false as const, error: prepared.error }
+					: null;
+			const outcome =
+				refused ??
+				(await this.#invokeBinding(
+					scope,
+					{
+						turnId: approval.turn_id,
+						conversationId: approval.conversation_id,
+						actor:
+							approval.binding === "memory" && approval.method === "review"
+								? { id: input.by, kind: "user" }
+								: { id: approval.actor_id, kind: approval.actor_kind },
+					},
+					approval.binding,
+					approval.method,
+					call.args,
+					approval.binding === "accounts" ? approvalId : undefined,
+					true,
+				).catch((error: unknown) => ({
+					ok: false as const,
+					error: error instanceof Error ? error.message : String(error),
+				})));
 			applied = outcome.ok;
 			result = outcome;
 			const status = applied ? "applied" : "failed";
@@ -3244,11 +3305,40 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				...(app ? { app } : {}),
 			});
 			const resultText = outcome.ok ? JSON.stringify(outcome.value) : "";
-			summary = outcome.ok
-				? accountRead
-					? `The approved connected account read returned:\n${wrapUntrustedInput(resultText, "connected_account")}`
-					: `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${resultText.slice(0, 2_000)}`
-				: `Approved by ${input.by} but ${approval.binding}.${approval.method} failed: ${outcome.error}`;
+			const createdId =
+				outcome.ok && staged?.creates
+					? (outcome.value as { id?: unknown } | null)?.id
+					: undefined;
+			if (staged && typeof createdId === "string")
+				this.#staged.setResult(approvalId, createdId);
+			summary = staged
+				? outcome.ok
+					? `Accepted by ${input.by}; the staged change ${staged.title} is now applied: ${resultText.slice(0, 2_000)}`
+					: `Accepted by ${input.by}, but the staged change ${staged.title} was not applied: ${outcome.error}`
+				: outcome.ok
+					? accountRead
+						? `The approved connected account read returned:\n${wrapUntrustedInput(resultText, "connected_account")}`
+						: `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${resultText.slice(0, 2_000)}`
+					: `Approved by ${input.by} but ${approval.binding}.${approval.method} failed: ${outcome.error}`;
+		} else if (staged) {
+			summary = `Rejected by ${input.by}${input.note ? ` (${input.note})` : ""}: the staged change ${staged.title} was discarded and nothing was applied. Do not stage it again unless the person asks.`;
+			// What builds on a rejected change is rejected with it, flagged.
+			const dependents = this.#staged.dependents(approvalId);
+			for (const dependent of dependents) {
+				const [row] = this.#store.exec<ApprovalRow>(
+					"SELECT * FROM approvals WHERE approval_id = ?",
+					dependent.approval_id,
+				);
+				if (row)
+					await this.#settleApproval(scope, row, {
+						decision: "deny",
+						by: input.by,
+						note: `it builds on ${staged.title}, which was rejected`,
+						dependsOnRejected: true,
+					});
+			}
+			if (dependents.length)
+				summary += ` Also rejected because they built on it: ${dependents.map((row) => row.title).join("; ")}.`;
 		} else {
 			summary = `Denied by ${input.by}${input.note ? `: ${input.note}` : ""}. Do not retry this action.`;
 		}
@@ -3297,6 +3387,340 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			input.method,
 			input.args,
 		);
+	}
+
+	/**
+	 * Stage one held call for its conversation. A file write runs its binding
+	 * against the pending layer, so an edit changes the staged state exactly
+	 * as it would change the file; edits of one file fold into one staged
+	 * change pinned to the revision the first one read. A Work call is kept
+	 * as asked. The agent gets the staged state and a note that it is not
+	 * applied.
+	 */
+	async #stageCall(
+		scope: WorkspaceScope,
+		turn: {
+			turnId: string;
+			conversationId: string;
+			actor: { id: string; kind: ActorKind };
+			tediId?: string | null;
+		},
+		policy: TurnPolicy,
+		call: { binding: string; method: string; args: unknown[]; stepId: string },
+		approvalId: string,
+	): Promise<{ ok: true; value: unknown }> {
+		const now = new Date();
+		const expiresAt = new Date(now.getTime() + STAGED_TTL_MS).toISOString();
+		if (call.binding === "work")
+			return this.#stageWork(scope, turn, call, approvalId, now, expiresAt);
+		const capture: StagedCapture = { writes: [] };
+		const staging = this.#bindings(scope, turn, policy, undefined, capture)[
+			call.binding as BindingName
+		] as Record<string, (...args: unknown[]) => Promise<unknown>>;
+		const value = await staging[call.method]!(...call.args);
+		const [write, ...more] = capture.writes;
+		if (!write || more.length)
+			throw new Error("This change could not be staged; nothing was changed");
+		const existing = this.#staged.pendingFor(
+			turn.conversationId,
+			write.outputId,
+			"output",
+		);
+		const creates = write.op === "create";
+		const applyArgs = creates
+			? [{ title: write.output.title, content: write.output.content }]
+			: [
+					{
+						outputId: write.outputId,
+						content: write.output.content,
+						expectedRevision: write.baseRevision,
+					},
+				];
+		const argsHash = await hashArguments(applyArgs);
+		const state: StagedOutputState = { output: write.output };
+		const title = stagedTitle({
+			kind: "output",
+			creates,
+			output: write.output,
+			edits: (existing?.edits ?? 0) + 1,
+		});
+		const real = creates
+			? null
+			: await this.#tenantDataPort(scope, turn.actor.kind)
+					.getOutput(write.outputId)
+					.catch(() => null);
+		const card = {
+			kind: "output" as const,
+			expiresAt,
+			diff: contentDiff(real?.content, write.output.content),
+		};
+		const input = boundedEventInput({
+			title: write.output.title,
+			kind: write.output.kind,
+			...(creates ? {} : { outputId: write.outputId }),
+		});
+		if (existing) {
+			this.#store.run(
+				"UPDATE approvals SET args = ?, args_hash = ? WHERE approval_id = ?",
+				JSON.stringify(applyArgs),
+				argsHash,
+				existing.approval_id,
+			);
+			this.#staged.fold(existing.approval_id, {
+				title,
+				state: JSON.stringify(state),
+				expiresAt,
+			});
+			this.#events.append(turn.conversationId, {
+				type: "approval.restaged",
+				approvalId: existing.approval_id,
+				title,
+				input,
+				staged: card,
+			});
+		} else {
+			this.#insertStaged(turn, call.stepId, approvalId, {
+				binding: "outputs",
+				method: creates ? "create" : "revise",
+				args: applyArgs,
+				resource: "output",
+				argsHash,
+			});
+			this.#staged.insert({
+				approval_id: approvalId,
+				conversation_id: turn.conversationId,
+				kind: "output",
+				target_id: write.outputId,
+				creates: creates ? 1 : 0,
+				title,
+				base_revision: creates ? null : write.baseRevision,
+				edits: 1,
+				state: JSON.stringify(state),
+				depends_on: null,
+				staged_at: now.toISOString(),
+				expires_at: expiresAt,
+			});
+			this.#events.append(turn.conversationId, {
+				type: "approval.requested",
+				...approvalParties(this.#turn(turn.turnId)),
+				turnId: turn.turnId,
+				stepId: call.stepId,
+				approvalId,
+				title,
+				reason: STAGED_REASON,
+				input,
+				...(real ? { target: { id: real.id, title: real.title } } : {}),
+				staged: card,
+			});
+		}
+		return { ok: true, value };
+	}
+
+	async #stageWork(
+		scope: WorkspaceScope,
+		turn: {
+			turnId: string;
+			conversationId: string;
+			actor: { id: string; kind: ActorKind };
+		},
+		call: { method: string; args: unknown[]; stepId: string },
+		approvalId: string,
+		now: Date,
+		expiresAt: string,
+	): Promise<{ ok: true; value: unknown }> {
+		const method = call.method as StagedWorkState["method"];
+		const input = { ...(call.args[0] as Record<string, unknown>) };
+		let targetId: string;
+		let targetTitle: string;
+		let dependsOn: string | null = null;
+		if (method === "create") {
+			if (typeof input.title !== "string" || !input.title.trim())
+				throw new Error("A Work Item needs a title");
+			targetId = `${STAGED_WORK_PREFIX}${crypto.randomUUID()}`;
+			targetTitle = input.title;
+		} else {
+			const named = String(input.workItemId ?? "");
+			const created = named.startsWith(STAGED_WORK_PREFIX)
+				? this.#staged.creating(turn.conversationId, named)
+				: undefined;
+			if (named.startsWith(STAGED_WORK_PREFIX) && !created)
+				throw new Error("Work Item not found");
+			if (created?.result_id) input.workItemId = created.result_id;
+			else if (created && created.status !== "pending")
+				throw new Error(
+					"This Work Item was staged in this chat and is not filed: it was rejected or expired.",
+				);
+			else if (created) dependsOn = created.approval_id;
+			targetId = String(input.workItemId);
+			targetTitle =
+				created && !created.result_id
+					? created.title
+					: ((
+							await this.#tenantDataPort(scope, turn.actor.kind)
+								.getWork(targetId)
+								.catch(() => null)
+						)?.title ?? targetId);
+		}
+		const args = [input];
+		const title = stagedTitle({
+			kind: "work",
+			method,
+			title: targetTitle,
+			input,
+		});
+		this.#insertStaged(turn, call.stepId, approvalId, {
+			binding: "work",
+			method,
+			args,
+			resource: "work",
+			argsHash: await hashArguments(args),
+		});
+		const state: StagedWorkState = { method, input };
+		this.#staged.insert({
+			approval_id: approvalId,
+			conversation_id: turn.conversationId,
+			kind: "work",
+			target_id: targetId,
+			creates: method === "create" ? 1 : 0,
+			title: method === "create" ? targetTitle : title,
+			base_revision: null,
+			edits: 1,
+			state: JSON.stringify(state),
+			depends_on: dependsOn,
+			staged_at: now.toISOString(),
+			expires_at: expiresAt,
+		});
+		this.#events.append(turn.conversationId, {
+			type: "approval.requested",
+			...approvalParties(this.#turn(turn.turnId)),
+			turnId: turn.turnId,
+			stepId: call.stepId,
+			approvalId,
+			title,
+			reason: STAGED_REASON,
+			input: boundedEventInput(input),
+			staged: {
+				kind: "work",
+				expiresAt,
+				...(dependsOn ? { dependsOn } : {}),
+			},
+		});
+		const row = this.#staged.get(approvalId)!;
+		return {
+			ok: true,
+			value:
+				method === "create"
+					? { ...stagedWorkSummary(row), staged: STAGED_NOTE }
+					: { workItemId: targetId, change: title, staged: STAGED_NOTE },
+		};
+	}
+
+	#insertStaged(
+		turn: {
+			turnId: string;
+			conversationId: string;
+			actor: { id: string; kind: ActorKind };
+			tediId?: string | null;
+		},
+		stepId: string,
+		approvalId: string,
+		call: {
+			binding: string;
+			method: string;
+			args: unknown[];
+			resource: string;
+			argsHash: string;
+		},
+	) {
+		this.#store.run(
+			"INSERT INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, tedi_id, status, action_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'change')",
+			approvalId,
+			turn.turnId,
+			turn.conversationId,
+			stepId,
+			call.binding,
+			call.method,
+			JSON.stringify(call.args),
+			call.resource,
+			call.argsHash,
+			turn.actor.id,
+			turn.actor.kind,
+			turn.tediId ?? null,
+		);
+	}
+
+	/**
+	 * What accepting a staged change runs, or why it cannot run. A file must
+	 * still be at the revision the change was staged on: one that moved is
+	 * stale and is not force-applied. A change that builds on another waits
+	 * for that one; a Work call on a staged Work Item names the filed item.
+	 */
+	async #stagedReady(
+		scope: WorkspaceScope,
+		approval: ApprovalRow,
+		staged: StagedRow,
+	): Promise<
+		{ args: unknown[]; argsHash: string } | { error: string } | { wait: string }
+	> {
+		const args = JSON.parse(approval.args) as unknown[];
+		if (staged.kind === "output" && !staged.creates) {
+			const real = await this.#tenantDataPort(scope, approval.actor_kind)
+				.getOutput(staged.target_id)
+				.catch(() => null);
+			if (!real)
+				return {
+					error: `Not applied: “${staged.title}” can no longer be found.`,
+				};
+			if (real.revision !== staged.base_revision)
+				return {
+					error: `Stale, not applied: the file changed since this was staged (staged on revision ${staged.base_revision}, now revision ${real.revision}). Ask the agent to stage it again on the current file.`,
+				};
+		}
+		if (staged.depends_on) {
+			const base = this.#staged.get(staged.depends_on);
+			if (base?.status === "pending")
+				return {
+					wait: `Accept “${base.title}” first: this change builds on it.`,
+				};
+			if (!base?.result_id)
+				return {
+					error:
+						"Not applied: it builds on a staged change that was rejected or did not apply.",
+				};
+			const resolved = [
+				{ ...(args[0] as Record<string, unknown>), workItemId: base.result_id },
+			];
+			return { args: resolved, argsHash: await hashArguments(resolved) };
+		}
+		return { args, argsHash: approval.args_hash };
+	}
+
+	/**
+	 * Staged changes nobody decided in time expire with a notice on the
+	 * card; nothing is applied. What builds on an expired change expires
+	 * with it.
+	 */
+	#expireStaged(conversationId: string) {
+		const now = new Date().toISOString();
+		const expire = (row: StagedRow) => {
+			if (this.#staged.get(row.approval_id)?.status !== "pending") return;
+			this.#store.run(
+				"UPDATE approvals SET status = 'expired', decided_by = 'expired', decided_at = ? WHERE approval_id = ? AND status = 'pending'",
+				now,
+				row.approval_id,
+			);
+			this.#events.append(conversationId, {
+				type: "approval.decided",
+				approvalId: row.approval_id,
+				decision: "deny",
+				by: "expired",
+				at: now,
+				expired: true,
+			});
+			for (const dependent of this.#staged.dependents(row.approval_id))
+				expire(dependent);
+		};
+		for (const row of this.#staged.expired(conversationId, now)) expire(row);
 	}
 
 	/** Facet callback: messages a turn running elsewhere has finished. */
@@ -4624,7 +5048,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (key.startsWith(`${turnId}:`)) this.#connectionInventories.delete(key);
 	}
 
+	/**
+	 * The data a binding reads and writes. In a conversation it shows that
+	 * conversation's staged changes; with `staging`, file writes only reach
+	 * them.
+	 */
 	#dataPort(
+		scope: WorkspaceScope,
+		actorKind: ActorKind,
+		turn?: { conversationId: string; turnId: string },
+		policy?: TurnPolicy,
+		staging?: StagedCapture,
+	) {
+		const port = this.#tenantDataPort(scope, actorKind, turn, policy);
+		return turn
+			? stagedDataPort(port, this.#staged, turn.conversationId, staging)
+			: port;
+	}
+
+	#tenantDataPort(
 		scope: WorkspaceScope,
 		actorKind: ActorKind,
 		turn?: { conversationId: string; turnId: string },
@@ -4781,6 +5223,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		},
 		policy: TurnPolicy,
 		approvalRequestId?: string,
+		/** Run against the conversation's pending layer: file writes stage. */
+		staging?: StagedCapture,
 	) {
 		const source: Source = {
 			surface: "workspace_object",
@@ -4791,7 +5235,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			kind: turn.actor.kind === "external_agent" ? "agent" : turn.actor.kind,
 			organizationId: scope.organizationId,
 		};
-		const data = this.#dataPort(scope, turn.actor.kind, turn, policy);
+		const data = this.#dataPort(scope, turn.actor.kind, turn, policy, staging);
 		const started = this.#turn(turn.turnId);
 		const accountActor: Actor | undefined =
 			started?.actor_kind === "user"
@@ -4929,26 +5373,31 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							},
 						})
 					: undefined,
-			compliance: this.#compliance.under({
-				mode: policy.mode,
-				computerReadsHeld: policy.shared,
-				approvedAll: (resource, cls) =>
-					(
-						this.#store.get<string[]>(`approve-all:${turn.turnId}`) ?? []
-					).includes(`${resource}:${cls}`),
-			}),
-			accountability: {
-				append: async (input) => {
-					this.#store.put("activity-scope", scope);
-					const record = await this.#ledger.append(input);
-					await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
-					await this.#flushActivity();
-					return record;
-				},
-				list: (query) => this.#ledger.list(query),
-				get: (id) => this.#ledger.get(id),
-				export: () => this.#ledger.export(),
-			},
+			compliance: staging
+				? stagingCompliance
+				: this.#compliance.under({
+						mode: policy.mode,
+						computerReadsHeld: policy.shared,
+						personSent: policy.personSent,
+						approvedAll: (resource, cls) =>
+							(
+								this.#store.get<string[]>(`approve-all:${turn.turnId}`) ?? []
+							).includes(`${resource}:${cls}`),
+					}),
+			accountability: staging
+				? stagingAccountability
+				: {
+						append: async (input) => {
+							this.#store.put("activity-scope", scope);
+							const record = await this.#ledger.append(input);
+							await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+							await this.#flushActivity();
+							return record;
+						},
+						list: (query) => this.#ledger.list(query),
+						get: (id) => this.#ledger.get(id),
+						export: () => this.#ledger.export(),
+					},
 			actor,
 			source,
 			scheduleRegistered: (run) => {
@@ -4988,10 +5437,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		method: string,
 		args: unknown[],
 		approvalRequestId?: string,
+		/** The person decided this call: it runs or fails, it never stages. */
+		decided = false,
 	): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
 		if (!(BINDING_NAMES as readonly string[]).includes(binding))
 			return { ok: false, error: `Unknown binding ${binding}` };
 		const policy = await this.#turnPolicy(scope, turn.turnId);
+		if (!decided) this.#expireStaged(turn.conversationId);
 		const target = this.#bindings(scope, turn, policy, approvalRequestId)[
 			binding as BindingName
 		] as Record<string, unknown>;
@@ -5106,6 +5558,31 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						durationMs: Date.now() - started,
 						...(outcome.error ? stepFailure(outcome.error) : {}),
 					});
+				// Staged instead of waiting: the agent keeps working on the
+				// staged state and the person decides on the review card.
+				if (error.decision.reason === STAGED_REASON && !decided) {
+					const staged = await this.#stageCall(
+						scope,
+						turn,
+						policy,
+						{ binding, method, args, stepId },
+						error.record.id,
+					).catch((failure: unknown) => ({
+						ok: false as const,
+						error: callFailureText(failure),
+					}));
+					this.#events.append(turn.conversationId, {
+						type: "step.finished",
+						turnId: turn.turnId,
+						stepId,
+						status: staged.ok ? "ok" : "error",
+						durationMs: Date.now() - started,
+						...(staged.ok
+							? { summary: "Staged for review, not applied" }
+							: stepFailure(staged.error)),
+					});
+					return staged;
+				}
 				// The staged draft already owns the decision card and its sequence.
 				if (binding === "apps" && method === "publishDraft") {
 					const message =
@@ -5926,6 +6403,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const data = this.#dataPort(scope, actorKind);
 		return Promise.all(
 			rows.map(async (row) => {
+				const staged = this.#staged.get(row.approval_id);
+				if (staged) return { action: staged.title, staged: true };
 				const action = stepLabel(row.binding, row.method).label;
 				if (row.binding === "accounts") return { action };
 				const request = (JSON.parse(row.args) as unknown[])[0] as

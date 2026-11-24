@@ -151,15 +151,19 @@ describe("prompt", () => {
 		expect(prefix).not.toContain("needs approval and stop");
 	});
 
-	test("the agent is told which changes apply at once and which wait", () => {
+	test("the agent is told which changes apply at once, which stage and which wait", () => {
 		expect(STATIC_RULES).toContain(
-			"A new document, sheet or presentation and an edit to one apply at once",
+			"A new document, sheet or presentation and an edit to one apply at once in Auto",
 		);
 		expect(STATIC_RULES).toContain(
 			"undo it from your reply or from version history",
 		);
 		expect(STATIC_RULES).toContain(
-			"Removing content from a file, deleting, sharing, a new app, a web page and filing a proposed Work Item wait for the person",
+			"In Ask every time and Ask for changes such a write, and filing, commenting on or accepting a Work Item, is staged instead",
+		);
+		expect(STATIC_RULES).toContain("never say it is done or saved");
+		expect(STATIC_RULES).toContain(
+			"Removing content from a file, deleting, sharing, a new app, a web page and anything else that is not staged wait for the person",
 		);
 		const prefix = staticPromptPrefix();
 		expect(prefix).not.toContain("workspace rule");
@@ -173,8 +177,17 @@ describe("prompt", () => {
 			pendingApprovals: [
 				{ action: "Creating a new output", target: "Budget" },
 				{ action: "Filing a Work Item", target: null },
+				{ action: "Edit document “Plan”", staged: true },
 			],
 		});
+		// A staged change is listed as staged, never as waiting for a decision.
+		expect(suffix).toContain(
+			'<staged_changes note="Changes you staged earlier in this conversation.',
+		);
+		expect(suffix).toContain("- Edit document “Plan”\n</staged_changes>");
+		expect(suffix.slice(suffix.indexOf("<waiting_for_approval"))).not.toContain(
+			"Plan",
+		);
 		expect(suffix).toContain("<waiting_for_approval");
 		expect(suffix).toContain("- Creating a new output: Budget");
 		expect(suffix).toContain("- Filing a Work Item\n");
