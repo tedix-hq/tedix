@@ -2000,6 +2000,10 @@
 		{
 			"name": "20261124121622_catalog_mcp_endpoint_index/migration.sql",
 			"sha256": "e4c8a6337a898a9018b5510860772ba46e783ab4965caea2874ebe8769415a9f"
+		},
+		{
+			"name": "20261124122228_card_source_revision_index/migration.sql",
+			"sha256": "5184ed9554820556f005e849ac0f8430d1e2925ce2b18988c42506bf36c3f5ec"
 		}
 	]
 }

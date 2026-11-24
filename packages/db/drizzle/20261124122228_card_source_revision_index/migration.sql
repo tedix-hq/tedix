@@ -1,0 +1,1 @@
+CREATE INDEX `os_gadget_revisions_card_source_org_idx` ON `os_gadget_revisions` (`organization_id`,`gadget_id`,`id`) WHERE (json_extract(manifest, '$.entry') IN ('tedix:app/card-review', 'tedix:app/decision-deck') OR (json_extract(manifest, '$.entry') = 'tedix:runtime/v1' AND json_extract(manifest, '$.config.settings.workView') = 'deck'));

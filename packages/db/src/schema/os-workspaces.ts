@@ -345,6 +345,12 @@ export const osGadgetRevisions = sqliteTable(
 			table.revision,
 		),
 		index("os_gadget_revisions_org_idx").on(table.organizationId),
+		// Match listCardSourceApps so unrelated manifests are skipped before the join.
+		index("os_gadget_revisions_card_source_org_idx")
+			.on(table.organizationId, table.gadgetId, table.id)
+			.where(
+				sql`(json_extract(manifest, '$.entry') IN ('tedix:app/card-review', 'tedix:app/decision-deck') OR (json_extract(manifest, '$.entry') = 'tedix:runtime/v1' AND json_extract(manifest, '$.config.settings.workView') = 'deck'))`,
+			),
 	],
 );
 
