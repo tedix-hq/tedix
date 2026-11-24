@@ -520,8 +520,11 @@ Attempt. Event content carries identifiers, never instructions or credentials.
 
 ### Local dispatcher
 
-`tedix lane serve --executor <codex|claude-code|devin|any-local>` runs on a
-person's machine and picks up Work assigned to that executor. It filters by
+`tedix lane serve --executor <codex|claude-code|opencode|devin|tedi|any-local>` runs on a
+person's machine and picks up Work assigned to that executor. A tedi runner
+(`--executor tedi --tedi <slug>`) has a tedi do the task in the run checkout
+through the Mac's machine tools and needs the machine's write tools switched on.
+It filters by
 executor on the server before paging, so a large backlog for other executors
 cannot hide its own Work. Each lane starts as its own agent session, with its
 own Attempt and request budget.
