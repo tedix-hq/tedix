@@ -3917,7 +3917,11 @@ describe("dispatcher admission", () => {
 		const cli = f.deps.cli!;
 		let readinessFails = true;
 		f.deps.cli = async (args, ...rest) => {
-			if (args[5] === "readiness" && readinessFails)
+			if (
+				args[5] === "readiness" &&
+				rest[0]?.TEDIX_EXTERNAL_AGENT === "local-acme" &&
+				readinessFails
+			)
 				throw new Error(
 					"SERVICE_UNAVAILABLE: Database temporarily unavailable",
 				);
@@ -11532,7 +11536,11 @@ it("retries claim preflight deadlines inside one logged budget before admission"
 	let readiness = 0;
 	const timeouts: number[] = [];
 	f.deps.cli = async (args, ...rest) => {
-		if (args[5] === "readiness") {
+		// Exercise identity-bound admission, after dependency preflight.
+		if (
+			args[5] === "readiness" &&
+			rest[0]?.TEDIX_EXTERNAL_AGENT === "local-acme"
+		) {
 			timeouts.push(rest[3]!);
 			if (++readiness === 1) throw new Error("Tedix CLI read deadline elapsed");
 		}
@@ -11548,13 +11556,18 @@ it("retries claim preflight deadlines inside one logged budget before admission"
 		expect(
 			f.events.filter((row) => row.verb === "start" && row.input),
 		).toHaveLength(1);
-		const logs = readFileSync(join(f.dir, "dispatcher.log"), "utf8")
+		const reads = readFileSync(join(f.dir, "dispatcher.log"), "utf8")
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line))
 			.filter((row) => row.event === "read-budget")
 			.map((row) => JSON.parse(row.reason))
 			.filter((row) => row.operation === "work.readiness");
+		// The dependency preflight has its own successful read budget.
+		const admissionBudget = reads.find(
+			(row) => row.event === "read-retry",
+		)?.budgetId;
+		const logs = reads.filter((row) => row.budgetId === admissionBudget);
 		expect(new Set(logs.map((row) => row.budgetId)).size).toBe(1);
 		// One run in flight: the budget grows only with this runner's live runs.
 		expect(logs[0].budgetMs).toBe(60_000);
