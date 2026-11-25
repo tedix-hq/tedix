@@ -1,4 +1,7 @@
-import { MAINTENANCE_CRONS } from "./staggered-maintenance";
+import {
+	MAINTENANCE_CRONS,
+	MAINTENANCE_TRIGGER,
+} from "./staggered-maintenance";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import type { PlatformCronExecutionSummary } from "@tedix/db/queries/platform-cron-executions";
 
@@ -16,6 +19,7 @@ export const PLATFORM_CRON_IDS = [
 	"deck-pipeline-sweep",
 	"factory-weight-update",
 	"decision-outcome-labeller",
+	"card-summary-backfill",
 	"provider-event-maintenance",
 	"graph-projection-drain",
 	"graph-gds-redrive",
@@ -105,6 +109,11 @@ const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 
 export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	...everyTwoMinutes,
+	{
+		id: "card-summary-backfill",
+		cron: MAINTENANCE_TRIGGER,
+		intervalMinutes: 2,
+	},
 	{ id: "deck-pipeline-sweep", cron: "*/2 * * * *", intervalMinutes: 15 },
 	{
 		id: "agent-review-triage",

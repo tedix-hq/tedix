@@ -33,6 +33,7 @@ const FLEET_COMMERCIAL_CRONS = [
 
 const catchup = vi.hoisted(() => ({
 	sessionEvents: vi.fn().mockResolvedValue({ queued: 0 }),
+	summaries: vi.fn().mockResolvedValue({ summaryBackfillSaved: 0 }),
 	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
 	commitment: vi.fn().mockResolvedValue({ observed: 0, dispatched: 0 }),
 	ingest: vi.fn(),
@@ -44,6 +45,7 @@ const catchup = vi.hoisted(() => ({
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
 vi.mock("./decision-outcome-labeller", () => ({
+	runCardSummaryBackfill: catchup.summaries,
 	runDecisionOutcomeLabeller: vi
 		.fn()
 		.mockResolvedValue({ immediate: 0, delayed: 0 }),
@@ -231,12 +233,16 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 				env,
 				{} as ExecutionContext,
 			);
-			expect(catchup.paths).toEqual(expected ? [expected] : []);
+			const expectedPaths = [
+				"card-summary-backfill",
+				...(expected ? [expected] : []),
+			];
+			expect(catchup.paths).toEqual(expectedPaths);
 			expect(catchup.receipts).toEqual(
-				expected ? [{ id: expected, scheduledTime }] : [],
+				expectedPaths.map((id) => ({ id, scheduledTime })),
 			);
 			expect(catchup.outcomes).toEqual(
-				expected ? [{ id: expected, status: "success" }] : [],
+				expectedPaths.map((id) => ({ id, status: "success" })),
 			);
 		}
 	}
@@ -256,6 +262,7 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 it("runs bounded gateway-only catch-up on the existing two-minute trigger", async () => {
 	catchup.paths.length = 0;
 	catchup.outcomes.length = 0;
+	catchup.summaries.mockClear();
 	catchup.ingest.mockReset().mockResolvedValue([
 		{
 			gatewayId: "test-llm-gateway",
@@ -283,6 +290,7 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 		} as unknown as ExecutionContext,
 	);
 	expect(catchup.paths).toContain("gateway-cost-catchup");
+	expect(catchup.summaries).not.toHaveBeenCalled();
 	expect(catchup.ingest).toHaveBeenCalledWith(
 		expect.anything(),
 		expect.anything(),

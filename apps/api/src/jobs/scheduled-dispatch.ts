@@ -4,7 +4,7 @@ import {
 	safeExceptionTopology,
 } from "../lib/safe-log-metadata";
 import type { PlatformCronId } from "./platform-cron-catalog";
-import { maintenanceIsDue } from "./staggered-maintenance";
+import { MAINTENANCE_TRIGGER, maintenanceIsDue } from "./staggered-maintenance";
 
 async function trackPlatformCronPath(
 	env: CloudflareEnv,
@@ -83,6 +83,15 @@ const dispatchScheduled = async (
 				await import("./decision-outcome-labeller");
 			await trackPlatformCronPath(env, event, "decision-outcome-labeller", () =>
 				runDecisionOutcomeLabeller(env, event.scheduledTime),
+			);
+		}
+		// Keep the two-minute backfill cadence, one minute away from lease and
+		// dispatch maintenance. Each card can require several governed model calls.
+		if (cron === MAINTENANCE_TRIGGER) {
+			const { runCardSummaryBackfill } =
+				await import("./decision-outcome-labeller");
+			await trackPlatformCronPath(env, event, "card-summary-backfill", () =>
+				runCardSummaryBackfill(env, event.scheduledTime),
 			);
 		}
 
