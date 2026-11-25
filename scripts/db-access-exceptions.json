@@ -58,13 +58,6 @@
 			"binding": "D1Database d1.withSession",
 			"reason": "The canonical client factory opens D1 sessions and binds Drizzle to them so request-scoped reads preserve sequential consistency and bookmark propagation."
 		},
-		"packages/db/src/queries/graph-projection.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:graph-projection-canonical-store",
-			"binding": "DbClient.$client D1Database",
-			"reason": "Graph projection uses one affected-row readiness compare-and-set with a canonical outbox exclusion and one heterogeneous native D1 batch that hydrates entity-kind-specific canonical rows without reading Neo4j."
-		},
 		"packages/db/src/queries/memory-audit.ts": {
 			"storagePlane": "platform-d1",
 			"disposition": "approved",

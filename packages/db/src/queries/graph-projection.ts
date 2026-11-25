@@ -12,7 +12,6 @@ import {
 	eq,
 	gt,
 	getColumns,
-	getTableName,
 	inArray,
 	isNotNull,
 	isNull,
@@ -1021,52 +1020,81 @@ export async function hydrateCanonicalGraphProjectionRows(
 	if (!input.length) return result;
 	const postgres = coreStore(db) === "postgres";
 	const document = JSON.stringify(input);
-	const inputs = postgres
-		? sql`SELECT (value->>'position')::bigint AS position, value->>'kind' AS kind,
-			value->>'id' AS id, value->>'org' AS org FROM jsonb_array_elements(${document}::jsonb)`
-		: sql`SELECT json_extract(value, '$.position') AS position, json_extract(value, '$.kind') AS kind,
-			json_extract(value, '$.id') AS id, json_extract(value, '$.org') AS org FROM json_each(${document})`;
+	const inputs = db.$with("hydration_input").as(
+		db
+			.select({
+				position: jsonRead(db, sql`value`, ["position"], "number").as(
+					"position",
+				),
+				kind: jsonRead(db, sql`value`, ["kind"]).as("kind"),
+				id: jsonRead(db, sql`value`, ["id"]).as("id"),
+				org: jsonRead(db, sql`value`, ["org"]).as("org"),
+			})
+			.from(
+				postgres
+					? sql`jsonb_array_elements(${document}::jsonb) AS events(value)`
+					: sql`json_each(${document})`,
+			),
+	);
 	const branches = [...new Set(input.map((event) => event.kind))].map(
 		(kind) => {
-			const table = projectionHydrationTables[kind];
+			const canonical = alias(
+				coreTable(db, projectionHydrationTables[kind]),
+				"canonical",
+			);
+			const ownerFact = alias(coreTable(db, d1MemoryFacts), "owner_fact");
+			const ownerTedi = alias(coreTable(db, tedis), "owner_tedi");
 			const through = kind === "edge" || kind === "tedi_expertise";
-			const joins =
+			const organization =
 				kind === "edge"
-					? sql`JOIN memory_facts owner ON owner.id = canonical.source_fact_id`
+					? ownerFact.organizationId
 					: kind === "tedi_expertise"
-						? sql`JOIN tedis owner ON owner.id = canonical.tedi_id`
-						: sql``;
-			const organization = through
-				? sql`owner.organization_id`
-				: [
-							"decision",
-							"project",
-							"work_item",
-							"work_item_source",
-							"decision_edge",
-					  ].includes(kind)
-					? sql`canonical.org_id`
-					: sql`canonical.organization_id`;
-			const fields = Object.values(getColumns(table)).flatMap((column) => [
+						? ownerTedi.organizationId
+						: sql`canonical.${sql.identifier(["decision", "project", "work_item", "work_item_source", "decision_edge"].includes(kind) ? "org_id" : "organization_id")}`;
+			const fields = Object.values(getColumns(canonical)).flatMap((column) => [
 				sql.raw("'" + column.name.replaceAll("'", "''") + "'"),
 				sql`canonical.${sql.identifier(column.name)}`,
 			]);
-			if (through) fields.push(sql`'organization_id'`, organization);
+			if (through) fields.push(sql`'organization_id'`, sql`${organization}`);
 			const row = postgres
-				? sql`to_jsonb(canonical) ${through ? sql`|| jsonb_build_object('organization_id', ${organization})` : sql``}`
+				? sql`to_jsonb(${canonical}) ${through ? sql`|| jsonb_build_object('organization_id', ${organization})` : sql``}`
 				: sql`json_object(${sql.join(fields, sql`, `)})`;
-			return sql`SELECT input.position AS position, ${row} AS row
-			FROM input JOIN ${sql.identifier(getTableName(table))} AS canonical ON canonical.id = input.id
-			${joins} WHERE input.kind = ${kind} AND ${organization} = input.org`;
+			let query = db
+				.select({
+					position: sql<number>`${inputs.position}`.as("position"),
+					row: row.as("row"),
+				})
+				.from(inputs)
+				.innerJoin(canonical, eq(canonical.id, inputs.id))
+				.$dynamic();
+			if (kind === "edge")
+				query = query.innerJoin(
+					ownerFact,
+					sql`${ownerFact.id} = canonical.source_fact_id`,
+				);
+			if (kind === "tedi_expertise")
+				query = query.innerJoin(
+					ownerTedi,
+					sql`${ownerTedi.id} = canonical.tedi_id`,
+				);
+			return query.where(
+				and(eq(inputs.kind, kind), eq(sql`${organization}`, inputs.org)),
+			);
 		},
 	);
-	const rows = await db.all<{
-		position: number;
-		row: string | Record<string, unknown>;
-	}>(sql`WITH input AS (${inputs}) ${sql.join(branches, sql` UNION ALL `)}`);
+	const [first, ...rest] = branches;
+	const hydrated = rest
+		.reduce((query, branch) => query.unionAll(branch), first!)
+		.as("hydrated");
+	const rows = await db
+		.with(inputs)
+		.select({ position: hydrated.position, row: hydrated.row })
+		.from(hydrated);
 	for (const row of rows)
 		result[Number(row.position)] =
-			typeof row.row === "string" ? JSON.parse(row.row) : row.row;
+			typeof row.row === "string"
+				? JSON.parse(row.row)
+				: (row.row as Record<string, unknown>);
 	return result;
 }
 
