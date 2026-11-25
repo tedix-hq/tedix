@@ -5,6 +5,7 @@ import {
 } from "@tedix/mcp-shared/auth/consent-scopes";
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import {
+	claudeSetupRead,
 	parseAgentHostSetupArgs,
 	runAgentHostSetup,
 	type HostCommandRunner,
@@ -308,5 +309,59 @@ describe("agent host setup", () => {
 		const { calls, runner } = fakeRunner({ unavailable: "claude" });
 		expect(await runAgentHostSetup(["--claude", "--yes"], runner)).toBe(1);
 		expect(calls.some((call) => call.interactive)).toBe(false);
+	});
+});
+
+describe("Claude Code connection check", () => {
+	const lines = (...events: unknown[]) =>
+		events.map((event) => JSON.stringify(event)).join("\n");
+	const init = (status: string) => ({
+		type: "system",
+		subtype: "init",
+		mcp_servers: [{ name: "plugin:tedix:tedix", status }],
+	});
+	const call = {
+		type: "assistant",
+		message: {
+			content: [
+				{
+					type: "tool_use",
+					id: "t1",
+					name: "mcp__plugin_tedix_tedix__get_profile",
+				},
+			],
+		},
+	};
+	const result = (content: string, is_error = false) => ({
+		type: "user",
+		message: {
+			content: [{ type: "tool_result", tool_use_id: "t1", is_error, content }],
+		},
+	});
+
+	it("names the Tedix account the plugin connection read", () => {
+		expect(
+			claudeSetupRead(
+				lines(
+					init("connected"),
+					call,
+					result(JSON.stringify({ id: "U1", email: "person@example.com" })),
+				),
+			),
+		).toEqual({
+			loaded: true,
+			called: true,
+			failed: false,
+			account: "person@example.com",
+		});
+	});
+
+	it("tells a missing plugin connection apart from a failed sign-in", () => {
+		expect(claudeSetupRead(lines(init("pending"))).loaded).toBe(false);
+		const failed = claudeSetupRead(
+			lines(init("connected"), call, result("Unauthorized", true)),
+		);
+		expect(failed).toMatchObject({ loaded: true, failed: true });
+		expect(failed.account).toBeUndefined();
 	});
 });

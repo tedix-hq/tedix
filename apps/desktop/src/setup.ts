@@ -617,8 +617,20 @@ async function must(
 	const reason =
 		lines.find((line) => /✘|failed|error|could not|timed out/i.test(line)) ??
 		lines.at(-1);
+	// Tedix's own messages are already one plain sentence with a next step:
+	// show those as they are, and keep anything else behind Details.
+	if (reason && plainSentence(reason)) throw new Error(reason);
 	throw new StepFailure(
 		reason?.slice(0, 400) ?? "The command failed without a message.",
+	);
+}
+
+/** A short sentence for people, not a log line, stack frame, path or code. */
+export function plainSentence(line: string): boolean {
+	return (
+		line.length <= 300 &&
+		/^[A-Z][^{}<>[\]|`=\\]*[.!?]$/.test(line) &&
+		!/^\w*Error\b|:\/\/|(?:^|\s)[~.]?\/\w/.test(line)
 	);
 }
 
@@ -1586,7 +1598,7 @@ export async function setupAction(
 				return `${toolName} confirmed the Tedix connection.`;
 			}
 			say(`Checking a read inside ${tool.name}…`);
-			await must(
+			const output = await must(
 				tedix(
 					["-w", "connect", "setup", "agents", `--${tool.id}`, "--verify"],
 					{
@@ -1599,7 +1611,9 @@ export async function setupAction(
 				),
 			);
 			setVerified(tool.id, target);
-			return `A Tedix read succeeded inside ${toolName}.`;
+			// The CLI names the Tedix account it read, so a wrong one shows.
+			const account = /, as ([^\s,]+)\.\s*$/m.exec(output)?.[1];
+			return `A Tedix read succeeded inside ${toolName}${account ? `, as ${account}` : ""}.`;
 		});
 	if (action === "verify") {
 		await verify();

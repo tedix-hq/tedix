@@ -25,6 +25,7 @@ export type HostCommandRunner = (
 	command: AgentHost,
 	args: string[],
 	interactive?: boolean,
+	env?: Record<string, string>,
 ) => CommandResult;
 
 const HOSTS: readonly AgentHost[] = ["codex", "claude"];
@@ -116,6 +117,7 @@ export function runHostCommand(
 	command: AgentHost,
 	args: string[],
 	interactive = false,
+	env: Record<string, string> = {},
 ): CommandResult {
 	const result = spawnSync(command, args, {
 		encoding: "utf8",
@@ -127,6 +129,7 @@ export function runHostCommand(
 		env: {
 			CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS: "840000",
 			...process.env,
+			...env,
 			TEDIX_AGENT_SESSION: undefined,
 			TEDIX_EXTERNAL_AGENT: undefined,
 		},
@@ -604,50 +607,92 @@ function profileRead(value: unknown): boolean {
 }
 
 /**
- * Claude Code loads one Tedix connection per address. With the Tedix connector
- * also added on claude.ai, that connector takes the plugin's place and its
- * tools carry the connector's name.
+ * The check reads through the Tedix plugin's own connection. Claude Code
+ * loads one Tedix connection per address, and in a background run a Tedix
+ * connector added on claude.ai (often another account, often still
+ * connecting) takes the plugin's place, so the check turns claude.ai
+ * connectors off.
  */
-const CLAUDE_PROFILE_TOOLS = [
-	"mcp__plugin_tedix_tedix__get_profile",
-	"mcp__claude_ai_tedix__get_profile",
-];
+const CLAUDE_PROFILE_TOOL = "mcp__plugin_tedix_tedix__get_profile";
+const CLAUDE_CHECK_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
 
-/** Accept host tool results, never the model's claim that a read worked. */
-function claudeSetupReadSucceeded(output: string): boolean {
+/** What a background Claude Code run showed. Host tool results only, never the model's claim. */
+export function claudeSetupRead(output: string): {
+	loaded: boolean;
+	called: boolean;
+	account?: string;
+	failed: boolean;
+} {
+	const read = { loaded: false, called: false, failed: false } as {
+		loaded: boolean;
+		called: boolean;
+		account?: string;
+		failed: boolean;
+	};
 	const calls = new Set<string>();
 	for (const line of output.split(/\r?\n/)) {
 		try {
 			const event = asRecord(JSON.parse(line));
+			if (event?.type === "system" && event.subtype === "init")
+				read.loaded = records(event.mcp_servers).some(
+					(server) =>
+						server.name === "plugin:tedix:tedix" &&
+						server.status === "connected",
+				);
 			for (const block of records(asRecord(event?.message)?.content)) {
 				if (
 					event?.type === "assistant" &&
 					block.type === "tool_use" &&
-					CLAUDE_PROFILE_TOOLS.includes(String(block.name)) &&
+					block.name === CLAUDE_PROFILE_TOOL &&
 					typeof block.id === "string"
-				)
+				) {
 					calls.add(block.id);
+					read.called = true;
+				}
 				if (
 					event?.type === "user" &&
 					block.type === "tool_result" &&
 					typeof block.tool_use_id === "string" &&
-					calls.has(block.tool_use_id) &&
-					block.is_error !== true &&
-					profileRead(block.content)
-				)
-					return true;
+					calls.has(block.tool_use_id)
+				) {
+					if (block.is_error !== true && profileRead(block.content))
+						read.account = profileAccount(block.content) ?? "your account";
+					else read.failed = true;
+				}
 			}
 		} catch {
 			/* Not a host event. */
 		}
 	}
-	return false;
+	return read;
 }
 
+/** The email or id a profile read returned. */
+function profileAccount(value: unknown): string | undefined {
+	const record = asRecord(value);
+	if (record && typeof record.id === "string")
+		return typeof record.email === "string" ? record.email : record.id;
+	if (Array.isArray(value))
+		for (const item of records(value))
+			if (item.type === "text") {
+				const found = profileAccount(item.text);
+				if (found) return found;
+			}
+	if (typeof value === "string")
+		try {
+			return profileAccount(JSON.parse(value));
+		} catch {
+			return undefined;
+		}
+	return undefined;
+}
+
+/** Checks a read inside the host; returns the Tedix account it read, when known. */
 async function verifyHost(
 	host: AgentHost,
 	run: HostCommandRunner,
-): Promise<void> {
+): Promise<string | undefined> {
+	let account: string | undefined;
 	rmSync(proofPath(host), { force: true });
 	const status = await hostStatus(host, run);
 	if (!status.installed || !status.enabled)
@@ -658,23 +703,36 @@ async function verifyHost(
 		);
 	if (host === "codex") await codexSetup(true);
 	else {
-		const result = run(host, [
-			"-p",
-			`Call whichever one of these tools you have, with {} and only once, to check the Tedix sign-in: ${CLAUDE_PROFILE_TOOLS.join(" or ")}. Do not use other tools, change anything, or request consent. Stop after that read.`,
-			"--output-format",
-			"stream-json",
-			"--verbose",
-			"--max-turns",
-			"2",
-			"--tools",
-			"",
-			"--allowedTools",
-			CLAUDE_PROFILE_TOOLS.join(","),
-		]);
-		if (result.status !== 0 || !claudeSetupReadSucceeded(result.stdout))
+		const result = run(
+			host,
+			[
+				"-p",
+				`Call ${CLAUDE_PROFILE_TOOL} with {} once to check the Tedix sign-in. Do not use other tools, change anything, or request consent. Stop after that read.`,
+				"--output-format",
+				"stream-json",
+				"--verbose",
+				"--max-turns",
+				"2",
+				"--tools",
+				"",
+				"--allowedTools",
+				CLAUDE_PROFILE_TOOL,
+			],
+			false,
+			CLAUDE_CHECK_ENV,
+		);
+		const read = claudeSetupRead(result.stdout);
+		if (!read.loaded)
 			throw new Error(
-				"Claude Code could not read your Tedix profile. Sign in to Tedix in Claude Code and try again.",
+				"Claude Code did not load the Tedix plugin's connection. Open the Code tab in Claude once, then check again; if it stays, choose Connect.",
 			);
+		if (!read.account)
+			throw new Error(
+				read.failed
+					? "Claude Code's Tedix sign-in did not work. Choose Connect to sign in to Tedix again."
+					: "Claude Code did not read your Tedix profile. Check again in a moment.",
+			);
+		account = read.account;
 	}
 	const at = new Date().toISOString();
 	mkdirSync(credentialDirectory(), { recursive: true, mode: 0o700 });
@@ -683,6 +741,7 @@ async function verifyHost(
 		JSON.stringify({ at, fingerprint: proofFingerprint(host, status) }),
 		{ mode: 0o600 },
 	);
+	return account;
 }
 
 function devinStatus(): AgentHostStatus {
@@ -755,8 +814,10 @@ export async function runAgentHostSetup(
 				: undefined;
 		if (!host || args.length !== 2 || new Set(args).size !== 2)
 			throw new Error("Use --verify with exactly one of --codex or --claude.");
-		await verifyHost(host, run);
-		console.log(`${host}: a Tedix profile read succeeded inside the tool.`);
+		const account = await verifyHost(host, run);
+		console.log(
+			`${host}: a Tedix profile read succeeded inside the tool${account ? `, as ${account}` : ""}.`,
+		);
 		return 0;
 	}
 	if (
