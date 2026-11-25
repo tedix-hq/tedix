@@ -1220,6 +1220,45 @@ describe("ToolHandler RPC transport logging", () => {
 		},
 	);
 
+	it("binds aggregate mailbox reads to the selected tedi and drops mutation keys", async () => {
+		const tools = buildAggregateTediTools(
+			[{ slug: "cto", tediId: "aggregate_owner_tedi", runtimeKind: "agent" }],
+			{ MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv,
+		);
+		const tool = tools.find(
+			(entry) => entry.toolId === "cto__read_tedi_email_thread",
+		)!;
+		expect(tool).toBeDefined();
+		let params: Record<string, unknown> | undefined;
+		const apiFetch = vi.fn(
+			async (request: string | URL | Request, init?: RequestInit) => {
+				params = (await jsonFromFetch(request, init)).json;
+				return Response.json({ json: { thread: {}, messages: [] } });
+			},
+		);
+		await new ToolHandler().execute(
+			{
+				threadId: "11111111-1111-4111-8111-111111111111",
+				tediId: "caller_supplied_tedi",
+				markRead: true,
+			},
+			{
+				...ctx(tool.config as Record<string, unknown>),
+				toolId: tool.toolId,
+				toolInputSchema: tool.inputSchema,
+				env: {
+					ENVIRONMENT: "test",
+					API_SERVICE: { fetch: apiFetch },
+				} as unknown as CloudflareEnv,
+			},
+		);
+		expect(apiFetch).toHaveBeenCalledOnce();
+		expect(params).toEqual({
+			threadId: "11111111-1111-4111-8111-111111111111",
+			tediId: "aggregate_owner_tedi",
+		});
+	});
+
 	it.each(["create_work_item", "get_skill_portfolio_balance"])(
 		"preserves the generated org-scoped identity opt-out for %s",
 		async (name) => {

@@ -243,6 +243,18 @@ describe("reviewed RPC endpoint scopes", () => {
 		}
 	});
 
+	it("aligns mailbox read endpoints with the API's messaging read guard", () => {
+		for (const endpoint of [
+			"tediEmail/listInbox",
+			"tediEmail/readThread",
+			"tediEmail/search",
+			"tediEmail/getAttachment",
+			"tediEmail/getMessageSource",
+		]) {
+			expect(resolve(endpoint)).toEqual(["mcp:messaging.read"]);
+		}
+	});
+
 	it("locks decrypted secret reads to platform admins in every namespace", () => {
 		for (const [toolId, endpoint, namespace] of [
 			["get_secrets", "secrets/get", "secrets"],

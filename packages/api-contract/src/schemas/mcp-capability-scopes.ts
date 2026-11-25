@@ -297,6 +297,14 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// namespace. Keep this exact so an unrelated provider's email_* tool does
 	// not inherit the tedi messaging capability by name alone.
 	email_send: "mcp:messaging",
+	// First-party tedi mailbox reads, exposed through the aggregate tedi
+	// namespace beside email_send. Exact names only: an unrelated provider's
+	// email tool must not inherit the tedi messaging capability by prefix.
+	list_tedi_email_threads: "mcp:messaging",
+	read_tedi_email_thread: "mcp:messaging",
+	search_tedi_email: "mcp:messaging",
+	get_tedi_email_attachment: "mcp:messaging",
+	get_tedi_email_message_source: "mcp:messaging",
 	list_sites: "mcp:content",
 	create_cms_site: "mcp:content",
 	begin_cms_domain: "mcp:content",

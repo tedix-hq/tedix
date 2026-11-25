@@ -5994,6 +5994,157 @@
 			"rpcEndpoint": "tediEmail/sendEmail"
 		},
 		{
+			"name": "list_tedi_email_threads",
+			"remoteName": "list_tedi_email_threads",
+			"description": "List this tedi's mailbox threads with sender, subject, preview and verified senderTrust (trusted only when the sender passed DKIM/DMARC and is allowlisted, a member, or a same-organization tedi address).",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"status": {
+						"type": "string",
+						"enum": ["open", "archived", "spam", "all"]
+					},
+					"unread": {
+						"type": "boolean"
+					},
+					"query": {
+						"type": "string"
+					},
+					"cursor": {
+						"type": "string"
+					},
+					"limit": {
+						"type": "integer"
+					}
+				},
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "tediEmail/listInbox",
+			"allowExplicitTediId": false,
+			"paramMap": {
+				"status": "status",
+				"unread": "unread",
+				"query": "query",
+				"cursor": "cursor",
+				"limit": "limit"
+			}
+		},
+		{
+			"name": "read_tedi_email_thread",
+			"remoteName": "read_tedi_email_thread",
+			"description": "Read one of this tedi's mailbox threads and its messages. Read-only: it never marks mail read. Trust `senderTrust` on the thread for sender verification, not the From header.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"threadId": {
+						"type": "string",
+						"format": "uuid"
+					}
+				},
+				"required": ["threadId"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "tediEmail/readThread",
+			"allowExplicitTediId": false,
+			"paramMap": {
+				"threadId": "threadId"
+			}
+		},
+		{
+			"name": "search_tedi_email",
+			"remoteName": "search_tedi_email",
+			"description": "Search this tedi's mailbox by sender, subject, preview and stored text body. Read-only.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string"
+					},
+					"limit": {
+						"type": "integer"
+					}
+				},
+				"required": ["query"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "tediEmail/search",
+			"allowExplicitTediId": false,
+			"paramMap": {
+				"query": "query",
+				"limit": "limit"
+			}
+		},
+		{
+			"name": "get_tedi_email_attachment",
+			"remoteName": "get_tedi_email_attachment",
+			"description": "Read metadata and bounded base64 content for one of this tedi's email attachments. Read-only.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"attachmentId": {
+						"type": "string",
+						"format": "uuid"
+					},
+					"maxBytes": {
+						"type": "integer"
+					}
+				},
+				"required": ["attachmentId"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "tediEmail/getAttachment",
+			"allowExplicitTediId": false,
+			"paramMap": {
+				"attachmentId": "attachmentId",
+				"maxBytes": "maxBytes"
+			}
+		},
+		{
+			"name": "get_tedi_email_message_source",
+			"remoteName": "get_tedi_email_message_source",
+			"description": "Read the bounded stored raw MIME source or HTML body of one of this tedi's email messages for debugging. Read-only.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"messageId": {
+						"type": "string",
+						"format": "uuid"
+					},
+					"part": {
+						"type": "string",
+						"enum": ["raw", "html"]
+					},
+					"maxBytes": {
+						"type": "integer"
+					}
+				},
+				"required": ["messageId", "part"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "tediEmail/getMessageSource",
+			"allowExplicitTediId": false,
+			"paramMap": {
+				"messageId": "messageId",
+				"part": "part",
+				"maxBytes": "maxBytes"
+			}
+		},
+		{
 			"name": "list_tedi_email_addresses",
 			"remoteName": "list_tedi_email_addresses",
 			"description": "List this tedi's mailbox addresses ({slug}@tedix.tech, +tag aliases, custom domains) with status and routing policy. routingPolicy keys: allowedSenders = sender emails or @domain suffixes trusted only with a DKIM/DMARC pass; untrustedSenders = deliver (reply-only turn) | quarantine (stored as spam, no model) for everyone else; spamThreshold = spam score 0-20 (default 5) at or above which mail is quarantined.",

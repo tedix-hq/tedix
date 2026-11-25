@@ -21,11 +21,13 @@ const EMAIL_INBOX_LIST_SCHEMA: ToolInputJsonSchema = {
 	additionalProperties: false,
 };
 
+// Deliberately no `markRead`: the aggregate read tools are read-only, and a
+// paramMap whitelist (not the schema alone) keeps a caller-supplied markRead
+// from ever reaching `tediEmail/readThread`.
 const EMAIL_THREAD_READ_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
 	properties: {
 		threadId: { type: "string", format: "uuid" },
-		markRead: { type: "boolean" },
 	},
 	required: ["threadId"],
 	additionalProperties: false,
@@ -241,13 +243,81 @@ export const EMAIL_TOOLS: TediToolSpec[] = [
 		// Runtime-neutral. `rpcEndpoint` makes this an
 		// RPC-transport tool, so the aggregate config carries the selected tedi
 		// identity out of band and the handler resolves it to `tediId` for the
-		// contract. Mailbox-read tools still need a native provider or Agent-runtime route before aggregate advertisement.
+		// contract. Mailbox reads ride the same RPC route below.
 		name: "email_send",
 		remoteName: "email_send",
 		description: "Send a new outbound email as this tedi.",
 		inputSchema: EMAIL_SEND_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "tediEmail/sendEmail",
+	},
+	// Mailbox reads ride the same aggregate rpc transport as the address tools:
+	// the selected tedi is injected as `tediId` and `allowExplicitTediId:false`
+	// keeps the read bound to that tedi's own mailbox. `paramMap` whitelists the
+	// forwarded fields so no caller input can reach a mutating sibling key
+	// (e.g. `markRead` on readThread). Reviewed scopes match the API's
+	// AUTHZ.messagingRead guard; `senderTrust` on threads is the verified-sender
+	// verdict — a From header or routing allowlist alone is not authentication.
+	{
+		name: "list_tedi_email_threads",
+		remoteName: "list_tedi_email_threads",
+		description:
+			"List this tedi's mailbox threads with sender, subject, preview and verified senderTrust (trusted only when the sender passed DKIM/DMARC and is allowlisted, a member, or a same-organization tedi address).",
+		inputSchema: EMAIL_INBOX_LIST_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "tediEmail/listInbox",
+		allowExplicitTediId: false,
+		paramMap: {
+			status: "status",
+			unread: "unread",
+			query: "query",
+			cursor: "cursor",
+			limit: "limit",
+		},
+	},
+	{
+		name: "read_tedi_email_thread",
+		remoteName: "read_tedi_email_thread",
+		description:
+			"Read one of this tedi's mailbox threads and its messages. Read-only: it never marks mail read. Trust `senderTrust` on the thread for sender verification, not the From header.",
+		inputSchema: EMAIL_THREAD_READ_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "tediEmail/readThread",
+		allowExplicitTediId: false,
+		paramMap: { threadId: "threadId" },
+	},
+	{
+		name: "search_tedi_email",
+		remoteName: "search_tedi_email",
+		description:
+			"Search this tedi's mailbox by sender, subject, preview and stored text body. Read-only.",
+		inputSchema: EMAIL_SEARCH_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "tediEmail/search",
+		allowExplicitTediId: false,
+		paramMap: { query: "query", limit: "limit" },
+	},
+	{
+		name: "get_tedi_email_attachment",
+		remoteName: "get_tedi_email_attachment",
+		description:
+			"Read metadata and bounded base64 content for one of this tedi's email attachments. Read-only.",
+		inputSchema: EMAIL_ATTACHMENT_GET_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "tediEmail/getAttachment",
+		allowExplicitTediId: false,
+		paramMap: { attachmentId: "attachmentId", maxBytes: "maxBytes" },
+	},
+	{
+		name: "get_tedi_email_message_source",
+		remoteName: "get_tedi_email_message_source",
+		description:
+			"Read the bounded stored raw MIME source or HTML body of one of this tedi's email messages for debugging. Read-only.",
+		inputSchema: EMAIL_MESSAGE_SOURCE_GET_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "tediEmail/getMessageSource",
+		allowExplicitTediId: false,
+		paramMap: { messageId: "messageId", part: "part", maxBytes: "maxBytes" },
 	},
 	// Mailbox address self-serve. All four ride the aggregate rpc transport so
 	// the selected tedi is injected as `tediId` and the native dispatch gate

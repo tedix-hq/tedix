@@ -818,27 +818,29 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tediApprovals/dismissExecution": "mcp:tedis.write",
 	"tediApprovals/resolveReviewManifest": "mcp:tedis.write",
 	"tediApprovals/rollbackProvisionalOutcome": "mcp:tedis.write",
-	// Tenant mailbox self-serve: API guard is withAuthorization("tedis:update",
-	// "mcp:messaging.write"); listAddresses pairs with AUTHZ.messagingRead.
-	// Trusted recipients are settings:manage (owner/admin) and refuse tedis.
+	// Tenant mailbox self-serve and reads: the API guards are
+	// AUTHZ.messagingRead (withAuthorization("tedis:read", "mcp:messaging.read"))
+	// for the read endpoints and withAuthorization("tedis:update",
+	// "mcp:messaging.write") for address management. Trusted recipients are
+	// settings:manage (owner/admin) and refuse tedis.
 	"tediEmail/addTrustedRecipient": "mcp:messaging.admin",
 	"tediEmail/createAddress": "mcp:messaging.write",
 	"tediEmail/deleteAddress": "mcp:messaging.write",
-	"tediEmail/getAttachment": "mcp:tedis.read",
-	"tediEmail/getMessageSource": "mcp:tedis.read",
+	"tediEmail/getAttachment": "mcp:messaging.read",
+	"tediEmail/getMessageSource": "mcp:messaging.read",
 	"tediEmail/inboundEmail": "platform:admin",
 	"tediEmail/listAddressRequests": "platform:admin",
 	"tediEmail/listAddresses": "mcp:messaging.read",
-	"tediEmail/listInbox": "mcp:tedis.read",
+	"tediEmail/listInbox": "mcp:messaging.read",
 	"tediEmail/listTrustedRecipients": "mcp:messaging.read",
 	"tediEmail/mark": "mcp:tedis.write",
 	"tediEmail/provisionAddress": "platform:admin",
-	"tediEmail/readThread": "mcp:tedis.read",
+	"tediEmail/readThread": "mcp:messaging.read",
 	"tediEmail/replyEmail": "mcp:tedis.write",
 	// Service-binding only: the gateway and runtime pre-send check.
 	"tediEmail/resolveTrustedRecipientSend": "platform:admin",
 	"tediEmail/revokeTrustedRecipient": "mcp:messaging.admin",
-	"tediEmail/search": "mcp:tedis.read",
+	"tediEmail/search": "mcp:messaging.read",
 	"tediEmail/sendEmail": "mcp:tedis.write",
 	"tediEmail/updateAddress": "mcp:messaging.write",
 	"tediObjectives/create": "mcp:tedis.write",

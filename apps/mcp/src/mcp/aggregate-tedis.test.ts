@@ -1218,6 +1218,108 @@ describe("aggregate mailbox address tools", () => {
 	});
 });
 
+describe("aggregate mailbox read tools", () => {
+	const tools = buildAggregateTediTools(
+		[
+			{
+				slug: "cto",
+				namespace: "cto",
+				runtimeKind: "agent",
+				tediId: "cto-id",
+			},
+		],
+		env,
+	);
+	const byId = new Map(tools.map((tool) => [tool.toolId, tool]));
+	const EXPECTED: Record<string, { endpoint: string; paramMap: string[] }> = {
+		cto__list_tedi_email_threads: {
+			endpoint: "tediEmail/listInbox",
+			paramMap: ["status", "unread", "query", "cursor", "limit"],
+		},
+		cto__read_tedi_email_thread: {
+			endpoint: "tediEmail/readThread",
+			paramMap: ["threadId"],
+		},
+		cto__search_tedi_email: {
+			endpoint: "tediEmail/search",
+			paramMap: ["query", "limit"],
+		},
+		cto__get_tedi_email_attachment: {
+			endpoint: "tediEmail/getAttachment",
+			paramMap: ["attachmentId", "maxBytes"],
+		},
+		cto__get_tedi_email_message_source: {
+			endpoint: "tediEmail/getMessageSource",
+			paramMap: ["messageId", "part", "maxBytes"],
+		},
+	};
+
+	it("projects read-only tools bound to the selected tedi on the messaging read scope", () => {
+		for (const [id, expected] of Object.entries(EXPECTED)) {
+			const tool = byId.get(id);
+			expect(tool, id).toBeDefined();
+			expect(tool!.toolTypeId, id).toBe("rpc");
+			expect(tool!.config, id).toMatchObject({
+				endpoint: expected.endpoint,
+				allowExplicitTediId: false,
+				staticParams: expect.objectContaining({ tediId: "cto-id" }),
+				paramMap: expect.objectContaining(
+					Object.fromEntries(expected.paramMap.map((key) => [key, key])),
+				),
+			});
+			expect(tool!.annotations, id).toEqual({ readOnlyHint: true });
+			// The public schema never exposes tediId or mutation keys.
+			expect(tool!.inputSchema.properties, id).not.toHaveProperty("tediId");
+			expect(resolveMcpToolRequiredScopes(tool!, "cto", undefined), id).toEqual(
+				["mcp:messaging.read"],
+			);
+		}
+	});
+
+	it("keeps markRead out of the thread read so reads cannot mutate mail", () => {
+		const tool = byId.get("cto__read_tedi_email_thread")!;
+		expect(tool.inputSchema.properties).not.toHaveProperty("markRead");
+		expect(Object.keys(tool.config?.paramMap ?? {})).toEqual(["threadId"]);
+	});
+
+	it("denies callers without the messaging read scope and admits its holders only", () => {
+		for (const id of Object.keys(EXPECTED)) {
+			const tool = byId.get(id)!;
+			// Authenticated but scopeless → fail-closed.
+			expect(
+				isMcpToolVisibleToCaller(tool, "cto", undefined, {
+					authType: "oauth",
+					scopes: [],
+				}),
+				id,
+			).toBe(false);
+			// A neighbouring family grant does not substitute for messaging.read.
+			expect(
+				isMcpToolVisibleToCaller(tool, "cto", undefined, {
+					authType: "oauth",
+					scopes: ["mcp:tedis.read"],
+				}),
+				id,
+			).toBe(false);
+			expect(
+				isMcpToolVisibleToCaller(tool, "cto", undefined, {
+					authType: "oauth",
+					scopes: ["mcp:messaging.read"],
+				}),
+				id,
+			).toBe(true);
+		}
+	});
+
+	it("hides every mailbox read tool when the tedi identity is not hydrated", () => {
+		const ids = buildAggregateTediTools(
+			[{ slug: "cto", namespace: "cto", runtimeKind: "agent" }],
+			env,
+		).map((tool) => tool.toolId);
+		for (const id of Object.keys(EXPECTED)) expect(ids).not.toContain(id);
+	});
+});
+
 describe("hydrateAggregateRuntimeKinds — runtime-meta via apps/api binding", () => {
 	const activeRow = (slug: string): RuntimeMetaRow => ({
 		slug,
