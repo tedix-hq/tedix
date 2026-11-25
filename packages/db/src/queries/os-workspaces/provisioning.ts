@@ -1,5 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import { projects } from "../../schema/projects";
 import { workItems, workItemRelations } from "../../schema/work-items";
@@ -26,7 +28,39 @@ export interface BlueprintProvisioningRows {
 	schedules: (typeof skillSchedules.$inferInsert)[];
 }
 
-/** Single-row statements keep even wide Work rows below D1's 100-bind ceiling. */
+type ProvisioningStatement = BatchItem<"sqlite"> & {
+	toSQL(): { params: unknown[] };
+};
+
+/** Group by the actual bound values: wide Work rows need smaller D1 chunks. */
+function provisioningInserts<T>(
+	db: DbQueryClient,
+	rows: T[],
+	insert: (rows: T[]) => ProvisioningStatement,
+): ProvisioningStatement[] {
+	if (!rows.length) return [];
+	if (coreStore(db) === "postgres") return [insert(rows)];
+	const statements: ProvisioningStatement[] = [];
+	let group: T[] = [];
+	let pending: ProvisioningStatement | undefined;
+	for (const row of rows) {
+		const next = insert([...group, row]);
+		if (next.toSQL().params.length > 100 && pending) {
+			statements.push(pending);
+			group = [row];
+			pending = insert(group);
+		} else {
+			group.push(row);
+			pending = next;
+		}
+		if (pending.toSQL().params.length > 100)
+			throw new Error("A blueprint provisioning row exceeds the D1 bind limit");
+	}
+	if (pending) statements.push(pending);
+	return statements;
+}
+
+/** Every table's set inserts are constructed before submitting the owning batch. */
 export function buildBlueprintProvisioningStatements(
 	db: DbQueryClient,
 	rows: BlueprintProvisioningRows,
@@ -35,16 +69,35 @@ export function buildBlueprintProvisioningStatements(
 		throw new Error(
 			"Blueprint document writes require the workspace object service",
 		);
+	const projectsTable = coreTable(db, projects);
+	const projectLinks = coreTable(db, osWorkspaceProjects);
+	const cases = coreTable(db, workCases);
+	const items = coreTable(db, workItems);
+	const relations = coreTable(db, workItemRelations);
+	const caseItems = coreTable(db, workCaseItems);
+	const schedules = coreTable(db, skillSchedules);
 	return [
-		...rows.projects.map((row) => db.insert(projects).values(row)),
-		...rows.projectLinks.map((row) =>
-			db.insert(osWorkspaceProjects).values(row),
+		...provisioningInserts(db, rows.projects, (values) =>
+			db.insert(projectsTable).values(values),
 		),
-		...rows.epics.map((row) => db.insert(workCases).values(row)),
-		...rows.items.map((row) => db.insert(workItems).values(row)),
-		...rows.relations.map((row) => db.insert(workItemRelations).values(row)),
-		...rows.epicItems.map((row) => db.insert(workCaseItems).values(row)),
-		...rows.schedules.map((row) => db.insert(skillSchedules).values(row)),
+		...provisioningInserts(db, rows.projectLinks, (values) =>
+			db.insert(projectLinks).values(values),
+		),
+		...provisioningInserts(db, rows.epics, (values) =>
+			db.insert(cases).values(values),
+		),
+		...provisioningInserts(db, rows.items, (values) =>
+			db.insert(items).values(values),
+		),
+		...provisioningInserts(db, rows.relations, (values) =>
+			db.insert(relations).values(values),
+		),
+		...provisioningInserts(db, rows.epicItems, (values) =>
+			db.insert(caseItems).values(values),
+		),
+		...provisioningInserts(db, rows.schedules, (values) =>
+			db.insert(schedules).values(values),
+		),
 	];
 }
 
@@ -53,14 +106,15 @@ export async function getBlueprintApplyReceipt(
 	organizationId: string,
 	workspaceId: string,
 ) {
+	const osWorkspaceResourcesTable = coreTable(db, osWorkspaceResources);
 	const [row] = await db
-		.select({ metadata: osWorkspaceResources.metadata })
-		.from(osWorkspaceResources)
+		.select({ metadata: osWorkspaceResourcesTable.metadata })
+		.from(osWorkspaceResourcesTable)
 		.where(
 			and(
-				eq(osWorkspaceResources.organizationId, organizationId),
-				eq(osWorkspaceResources.workspaceId, workspaceId),
-				eq(osWorkspaceResources.slot, "blueprint-apply-receipt"),
+				eq(osWorkspaceResourcesTable.organizationId, organizationId),
+				eq(osWorkspaceResourcesTable.workspaceId, workspaceId),
+				eq(osWorkspaceResourcesTable.slot, "blueprint-apply-receipt"),
 			),
 		)
 		.limit(1);

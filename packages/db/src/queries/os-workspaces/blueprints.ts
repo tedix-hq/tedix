@@ -1,15 +1,16 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getColumns, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { changedRows, coreStore, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
-import { organizations } from "../../schema/organizations";
+import { organizations as d1Organizations } from "../../schema/organizations";
 import {
 	type NewOsBlueprintRevisionRow,
 	type NewOsBlueprintRow,
 	type OsBlueprintRevisionRow,
 	type OsBlueprintRow,
-	osBlueprintRevisions,
-	osBlueprints,
+	osBlueprintRevisions as d1OsBlueprintRevisions,
+	osBlueprints as d1OsBlueprints,
 } from "../../schema/os-workspaces";
-import { getAffectedRows } from "../../utils/d1-result";
 import { prefixedColumns } from "../../utils/select";
 
 export interface OsBlueprintScopeParams {
@@ -82,6 +83,7 @@ export async function createOsBlueprint(
 	db: DbQueryClient,
 	blueprint: NewOsBlueprintRow,
 ): Promise<OsBlueprintRow> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const [row] = await db.insert(osBlueprints).values(blueprint).returning();
 	if (!row) {
 		throw new Error("OS blueprint insert returned no row");
@@ -93,6 +95,7 @@ export async function getOsBlueprint(
 	db: DbQueryClient,
 	params: OsBlueprintScopeParams,
 ): Promise<OsBlueprintRow | undefined> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const [row] = await db
 		.select()
 		.from(osBlueprints)
@@ -111,6 +114,7 @@ export async function listOsBlueprints(
 	organizationId: string,
 	options: ListOsBlueprintsOptions = {},
 ): Promise<OsBlueprintRow[]> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const conditions = [eq(osBlueprints.organizationId, organizationId)];
 	if (options.status) {
 		conditions.push(eq(osBlueprints.status, options.status));
@@ -128,6 +132,11 @@ export async function updateOsBlueprint(
 	params: OsBlueprintScopeParams,
 	patch: UpdateOsBlueprintPatch,
 ): Promise<OsBlueprintRow | undefined> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const archivedFrom =
+		coreStore(db) === "postgres"
+			? sql`jsonb_build_object('status', ${osBlueprints.status}, 'visibility', ${osBlueprints.visibility})`
+			: sql`json_object('status', ${osBlueprints.status}, 'visibility', ${osBlueprints.visibility})`;
 	const [row] = await db
 		.update(osBlueprints)
 		.set({
@@ -135,7 +144,7 @@ export async function updateOsBlueprint(
 			updatedAt: new Date().toISOString(),
 			...(patch.status === "archived"
 				? {
-						archivedFrom: sql`case when ${osBlueprints.status} <> 'archived' then json_object('status', ${osBlueprints.status}, 'visibility', ${osBlueprints.visibility}) else ${osBlueprints.archivedFrom} end`,
+						archivedFrom: sql`case when ${osBlueprints.status} <> 'archived' then ${archivedFrom} else ${osBlueprints.archivedFrom} end`,
 					}
 				: {}),
 		})
@@ -153,11 +162,12 @@ export async function restoreOsBlueprint(
 	db: DbQueryClient,
 	params: OsBlueprintScopeParams,
 ): Promise<OsBlueprintRow | undefined> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const [row] = await db
 		.update(osBlueprints)
 		.set({
-			status: sql`json_extract(${osBlueprints.archivedFrom}, '$.status')`,
-			visibility: sql`json_extract(${osBlueprints.archivedFrom}, '$.visibility')`,
+			status: jsonRead(db, osBlueprints.archivedFrom, ["status"]),
+			visibility: jsonRead(db, osBlueprints.archivedFrom, ["visibility"]),
 			archivedFrom: null,
 			updatedAt: new Date().toISOString(),
 		})
@@ -177,6 +187,7 @@ export async function deleteOsBlueprint(
 	db: DbQueryClient,
 	params: OsBlueprintScopeParams,
 ): Promise<boolean> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const result = await db
 		.delete(osBlueprints)
 		.where(
@@ -184,8 +195,9 @@ export async function deleteOsBlueprint(
 				eq(osBlueprints.organizationId, params.organizationId),
 				eq(osBlueprints.id, params.blueprintId),
 			),
-		);
-	return getAffectedRows(result) > 0;
+		)
+		.returning({ id: osBlueprints.id });
+	return changedRows(result) > 0;
 }
 
 export interface ImportOsBlueprintParams {
@@ -208,6 +220,8 @@ export async function importOsBlueprint(
 	db: DbQueryClient,
 	params: ImportOsBlueprintParams,
 ): Promise<{ blueprint: OsBlueprintRow; revision: OsBlueprintRevisionRow }> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
 	const [blueprintRows, revisionRows] = await db.batch([
 		db.insert(osBlueprints).values(params.blueprint).returning(),
 		db.insert(osBlueprintRevisions).values(params.revision).returning(),
@@ -224,6 +238,7 @@ export async function getOsBlueprintRevision(
 	db: DbQueryClient,
 	params: { organizationId: string; revisionId: string },
 ): Promise<OsBlueprintRevisionRow | undefined> {
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
 	const [row] = await db
 		.select()
 		.from(osBlueprintRevisions)
@@ -242,6 +257,7 @@ export async function listOsBlueprintRevisions(
 	params: OsBlueprintScopeParams,
 	options: { limit?: number } = {},
 ): Promise<OsBlueprintRevisionRow[]> {
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
 	return db
 		.select()
 		.from(osBlueprintRevisions)
@@ -267,6 +283,8 @@ export async function createOsBlueprintRevision(
 	db: DbQueryClient,
 	params: CreateOsBlueprintRevisionParams,
 ): Promise<CreateOsBlueprintRevisionResult> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
 	const now = new Date().toISOString();
 	const currentMaxRevision = sql<number>`coalesce((select max(${osBlueprintRevisions.revision}) from ${osBlueprintRevisions} where ${osBlueprintRevisions.blueprintId} = ${params.blueprintId}), 0)`;
 	const selectedRevision = sql<number>`coalesce((select ${osBlueprintRevisions.revision} from ${osBlueprintRevisions} where ${osBlueprintRevisions.id} = ${osBlueprints.currentRevisionId} and ${osBlueprintRevisions.blueprintId} = ${osBlueprints.id} and ${osBlueprintRevisions.organizationId} = ${osBlueprints.organizationId}), 0)`;
@@ -302,6 +320,49 @@ export async function createOsBlueprintRevision(
 				.where(and(...sourceConditions)),
 		)
 		.returning();
+	if (coreStore(db) === "postgres") {
+		const inserted = db
+			.$with("inserted", getColumns(osBlueprintRevisions))
+			.as(insertRevision.getSQL());
+		const advanced = db.$with("advanced", { id: osBlueprints.id }).as(
+			db
+				.update(osBlueprints)
+				.set({ currentRevisionId: params.id, updatedAt: now })
+				.from(inserted)
+				.where(
+					and(
+						eq(osBlueprints.id, inserted.blueprintId),
+						eq(osBlueprints.organizationId, inserted.organizationId),
+					),
+				)
+				.returning({ id: osBlueprints.id })
+				.getSQL(),
+		);
+		const lockQuery = db
+			.select({ id: osBlueprints.id })
+			.from(osBlueprints)
+			.where(
+				and(
+					eq(osBlueprints.id, params.blueprintId),
+					eq(osBlueprints.organizationId, params.organizationId),
+				),
+			);
+		const lock = (
+			lockQuery as typeof lockQuery & {
+				for(strength: "update"): typeof lockQuery;
+			}
+		).for("update");
+		const [, revisions] = await db.batch([
+			lock,
+			db.with(inserted, advanced).select().from(inserted),
+		]);
+		if (revisions[0]) return { ok: true, revision: revisions[0] };
+		const blueprint = await getOsBlueprint(db, params);
+		return {
+			ok: false,
+			reason: blueprint ? "revision_conflict" : "blueprint_not_found",
+		};
+	}
 	const advancePointer = db
 		.update(osBlueprints)
 		.set({ currentRevisionId: params.id, updatedAt: now })
@@ -341,6 +402,8 @@ export async function publishOsBlueprintRevision(
 		revisionId: string;
 	},
 ): Promise<PublishOsBlueprintRevisionResult> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
 	const now = new Date().toISOString();
 	const stampRevision = db
 		.update(osBlueprintRevisions)
@@ -352,6 +415,45 @@ export async function publishOsBlueprintRevision(
 				eq(osBlueprintRevisions.id, params.revisionId),
 			),
 		);
+	if (coreStore(db) === "postgres") {
+		const stamped = db
+			.$with("stamped", getColumns(osBlueprintRevisions))
+			.as(stampRevision.returning().getSQL());
+		const write = db
+			.with(stamped)
+			.update(osBlueprints)
+			.set({
+				status: "published",
+				currentRevisionId: params.revisionId,
+				updatedAt: now,
+			})
+			.from(stamped)
+			.where(
+				and(
+					eq(osBlueprints.id, stamped.blueprintId),
+					eq(osBlueprints.organizationId, stamped.organizationId),
+				),
+			)
+			.returning();
+		const lockQuery = db
+			.select({ id: osBlueprints.id })
+			.from(osBlueprints)
+			.where(
+				and(
+					eq(osBlueprints.id, params.blueprintId),
+					eq(osBlueprints.organizationId, params.organizationId),
+				),
+			);
+		const lock = (
+			lockQuery as typeof lockQuery & {
+				for(strength: "update"): typeof lockQuery;
+			}
+		).for("update");
+		const [, blueprints] = await db.batch([lock, write]);
+		return blueprints[0]
+			? { ok: true, blueprint: blueprints[0] }
+			: { ok: false, reason: "revision_not_found" };
+	}
 	const publishBlueprint = db
 		.update(osBlueprints)
 		.set({
@@ -385,6 +487,7 @@ export async function setOsBlueprintVisibility(
 	params: OsBlueprintScopeParams,
 	visibility: OsBlueprintVisibility,
 ): Promise<OsBlueprintRow | undefined> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const [row] = await db
 		.update(osBlueprints)
 		.set({ visibility, updatedAt: new Date().toISOString() })
@@ -411,25 +514,33 @@ export async function listCatalogOsBlueprints(
 	db: DbQueryClient,
 	options: { limit?: number } = {},
 ): Promise<CatalogOsBlueprintListing[]> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
+	const organizations = coreTable(db, d1Organizations);
+	const gadgets = sql`${osBlueprintRevisions.definition}::jsonb -> 'gadgets'`;
+	const gadgetArray = sql`CASE WHEN jsonb_typeof(${gadgets}) = 'array' THEN ${gadgets} ELSE '[]'::jsonb END`;
+	const gadgetCount =
+		coreStore(db) === "postgres"
+			? sql<number>`jsonb_array_length(${gadgetArray})`
+			: sql<number>`coalesce(json_array_length(${osBlueprintRevisions.definition}, '$.gadgets'), 0)`;
+	const previewAppNames =
+		coreStore(db) === "postgres"
+			? sql<string>`(SELECT coalesce(jsonb_agg(preview.name ORDER BY preview.ordinal), '[]'::jsonb)::text
+			FROM (SELECT gadget.value -> 'name' AS name, gadget.ordinal
+				FROM jsonb_array_elements(${gadgetArray}) WITH ORDINALITY AS gadget(value, ordinal)
+				ORDER BY gadget.ordinal LIMIT ${CATALOG_PREVIEW_APP_LIMIT}) AS preview)`
+			: sql<string>`(select coalesce(json_group_array(preview.name), '[]')
+				from (select json_extract(gadget.value, '$.name') as name
+					from json_each(${osBlueprintRevisions.definition}, '$.gadgets') as gadget
+					order by gadget.key limit ${CATALOG_PREVIEW_APP_LIMIT}) as preview)`;
 	const rows = await db
 		.select({
 			blueprint: prefixedColumns(osBlueprints, "blueprint"),
 			organizationName: sql<string>`${organizations.name}`.as(
 				"organization_name",
 			),
-			gadgetCount:
-				sql<number>`coalesce(json_array_length(${osBlueprintRevisions.definition}, '$.gadgets'), 0)`.as(
-					"gadget_count",
-				),
-			previewAppNames: sql<string>`(
-				select coalesce(json_group_array(preview.name), '[]')
-				from (
-					select json_extract(gadget.value, '$.name') as name
-					from json_each(${osBlueprintRevisions.definition}, '$.gadgets') as gadget
-					order by gadget.key
-					limit ${CATALOG_PREVIEW_APP_LIMIT}
-				) as preview
-			)`.as("preview_app_names"),
+			gadgetCount: gadgetCount.as("gadget_count"),
+			previewAppNames: previewAppNames.as("preview_app_names"),
 			publishedAt: sql<string | null>`${osBlueprintRevisions.publishedAt}`.as(
 				"revision_published_at",
 			),
@@ -438,7 +549,11 @@ export async function listCatalogOsBlueprints(
 		.innerJoin(organizations, eq(organizations.id, osBlueprints.organizationId))
 		.innerJoin(
 			osBlueprintRevisions,
-			eq(osBlueprintRevisions.id, osBlueprints.currentRevisionId),
+			and(
+				eq(osBlueprintRevisions.id, osBlueprints.currentRevisionId),
+				eq(osBlueprintRevisions.blueprintId, osBlueprints.id),
+				eq(osBlueprintRevisions.organizationId, osBlueprints.organizationId),
+			),
 		)
 		.where(
 			and(
@@ -467,6 +582,8 @@ export async function getCatalogOsBlueprint(
 	db: DbQueryClient,
 	blueprintId: string,
 ): Promise<CatalogOsBlueprintSource | undefined> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({
 			blueprint: prefixedColumns(osBlueprints, "blueprint"),
@@ -504,6 +621,7 @@ export async function setCatalogOsBlueprintFeatured(
 	blueprintId: string,
 	featured: boolean,
 ): Promise<OsBlueprintRow | undefined> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const [row] = await db
 		.update(osBlueprints)
 		.set({
@@ -527,6 +645,7 @@ export async function findOsBlueprintIdByName(
 	db: DbQueryClient,
 	params: { organizationId: string; name: string },
 ): Promise<string | null> {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
 	const [row] = await db
 		.select({ id: osBlueprints.id })
 		.from(osBlueprints)
