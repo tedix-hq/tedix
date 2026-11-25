@@ -176,50 +176,105 @@ async function prefetchChangedWorkComments(
 		);
 	});
 	if (!pins.length) return;
+	const input = db.$with("changed_work_pins").as(
+		db
+			.selectDistinct({
+				requestIndex: sql<number>`json_extract(value, '$.requestIndex')`.as(
+					"request_index",
+				),
+				workId: sql<string>`json_extract(value, '$.workId')`.as("work_id"),
+				commentCount: sql<number>`json_extract(value, '$.commentCount')`.as(
+					"comment_count",
+				),
+				createdAt: sql<string | null>`json_extract(value, '$.createdAt')`.as(
+					"created_at",
+				),
+				creatorType: sql<
+					string | null
+				>`json_extract(value, '$.creatorType')`.as("creator_type"),
+				creatorId: sql<string | null>`json_extract(value, '$.creatorId')`.as(
+					"creator_id",
+				),
+			})
+			.from(sql`json_each(${JSON.stringify(pins)})`),
+	);
 	const relevant = decisionRelevantWorkCommentFields({
-		createdAt: sql`pins.created_at`,
-		creatorType: sql`pins.creator_type`,
-		creatorId: sql`pins.creator_id`,
+		createdAt: sql`${input.createdAt}`,
+		creatorType: sql`${input.creatorType}`,
+		creatorId: sql`${input.creatorId}`,
 	});
+	const counts = db.$with("changed_work_counts").as(
+		db
+			.select({
+				requestIndex: input.requestIndex,
+				workId: input.workId,
+				commentCount: input.commentCount,
+				baselineCount:
+					sql<number>`coalesce(sum(CASE WHEN ${workItemComments.createdAt} <= ${input.createdAt} THEN 1 ELSE 0 END), 0)`.as(
+						"baseline_count",
+					),
+				relevantCount:
+					sql<number>`coalesce(sum(CASE WHEN ${relevant} THEN 1 ELSE 0 END), 0)`.as(
+						"relevant_count",
+					),
+			})
+			.from(input)
+			.crossJoin(workItemComments)
+			.where(
+				and(
+					eq(workItemComments.orgId, orgId),
+					eq(workItemComments.workItemId, input.workId),
+				),
+			)
+			.groupBy(input.requestIndex, input.workId, input.commentCount),
+	);
+	const latestComment = db
+		.select({
+			latest:
+				sql<string>`json_object('through', ${workItemComments.createdAt}, 'note', substr(${workItemComments.body}, 1, 600))`.as(
+					"latest",
+				),
+		})
+		.from(workItemComments)
+		.where(
+			and(
+				eq(workItemComments.orgId, orgId),
+				eq(workItemComments.workItemId, input.workId),
+				sql`(${counts.baselineCount} <> ${input.commentCount} OR ${relevant})`,
+			),
+		)
+		.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
+		.limit(1);
 	// One JSON parameter holds the whole bounded inbox page, not one query per pin.
-	const rows = await db.all<{
-		request_index: number;
-		work_id: string;
-		comment_count: number;
-		latest: string | null;
-	}>(sql`WITH pins AS (
-		SELECT DISTINCT json_extract(value, '$.requestIndex') AS request_index,
-			json_extract(value, '$.workId') AS work_id,
-			json_extract(value, '$.commentCount') AS comment_count,
-			json_extract(value, '$.createdAt') AS created_at,
-			json_extract(value, '$.creatorType') AS creator_type,
-			json_extract(value, '$.creatorId') AS creator_id
-		FROM json_each(${JSON.stringify(pins)})
-	), counts AS (
-		SELECT pins.request_index, pins.work_id, pins.comment_count,
-			coalesce(sum(CASE WHEN ${workItemComments.createdAt} <= pins.created_at THEN 1 ELSE 0 END), 0) AS baseline_count,
-			coalesce(sum(CASE WHEN ${relevant} THEN 1 ELSE 0 END), 0) AS relevant_count
-		FROM pins CROSS JOIN ${workItemComments}
-		WHERE ${workItemComments.orgId} = ${orgId} AND ${workItemComments.workItemId} = pins.work_id
-		GROUP BY pins.request_index, pins.work_id, pins.comment_count
-	)
-	SELECT pins.request_index, pins.work_id, pins.comment_count,
-		CASE WHEN counts.baseline_count = pins.comment_count AND counts.relevant_count = pins.comment_count THEN NULL
-		ELSE (SELECT json_object('through', ${workItemComments.createdAt}, 'note', substr(${workItemComments.body}, 1, 600))
-			FROM ${workItemComments}
-			WHERE ${workItemComments.orgId} = ${orgId} AND ${workItemComments.workItemId} = pins.work_id
-				AND (counts.baseline_count <> pins.comment_count OR ${relevant})
-			ORDER BY ${workItemComments.createdAt} DESC, ${workItemComments.id} DESC LIMIT 1)
-		END AS latest
-	FROM pins INNER JOIN counts ON counts.request_index = pins.request_index AND counts.work_id = pins.work_id AND counts.comment_count = pins.comment_count`);
+	const rows = await db
+		.with(input, counts)
+		.select({
+			requestIndex: input.requestIndex,
+			workId: input.workId,
+			commentCount: input.commentCount,
+			latest: sql<
+				string | null
+			>`CASE WHEN ${counts.baselineCount} = ${input.commentCount} AND ${counts.relevantCount} = ${input.commentCount} THEN NULL ELSE (${latestComment}) END`.as(
+				"latest",
+			),
+		})
+		.from(input)
+		.innerJoin(
+			counts,
+			and(
+				eq(counts.requestIndex, input.requestIndex),
+				eq(counts.workId, input.workId),
+				eq(counts.commentCount, input.commentCount),
+			),
+		);
 	for (const row of rows) {
-		const request = requests[row.request_index]!;
+		const request = requests[row.requestIndex]!;
 		const reviews = prefetch.workReviews.get(request) ?? new Map();
 		const latest = row.latest
 			? (JSON.parse(row.latest) as { through: string; note: string })
 			: null;
 		reviews.set(
-			`${row.work_id}:${row.comment_count}`,
+			`${row.workId}:${row.commentCount}`,
 			latest ? { ...latest, note: latest.note.slice(0, 600) } : true,
 		);
 		prefetch.workReviews.set(request, reviews);

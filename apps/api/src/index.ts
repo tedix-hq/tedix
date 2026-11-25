@@ -116,6 +116,7 @@ async function serveFetch(
 	return withD1Ledger(
 		`${request.method} ${new URL(request.url).pathname}`,
 		async () => handlers.fetch(request, env, ctx),
+		{ maxInFlight: 6 },
 	);
 }
 

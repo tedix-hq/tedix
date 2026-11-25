@@ -236,7 +236,9 @@ const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
 		context.serverTiming?.push(`${name};dur=${now - mark}`);
 		mark = now;
 	};
-	if (input.workspaceId) await requireWorkspace(context, input.workspaceId);
+	const workspace = input.workspaceId
+		? await requireWorkspace(context, input.workspaceId)
+		: undefined;
 	lap("workspace");
 	const viewer = await resolveOsWorkspaceViewer(context);
 	lap("viewer");
@@ -250,6 +252,7 @@ const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
 			limit: input.limit + 1,
 			offset: input.offset,
 		},
+		workspace,
 	);
 	lap("query");
 	return {
@@ -554,20 +557,35 @@ const outputsHistory = readOs.outputs.history.handler(
 	},
 );
 
-const outputsGet = readOs.outputs.get.handler(async ({ input, context }) => {
-	const output = await requireOutput(context, input.outputId);
-	const mapped = mapOsOutputRow(output);
+/** Reuse a caller-authorized inventory row; source access is still checked on its revision. */
+export async function readVisibleOutputRevision(
+	context: BaseContext,
+	output: Pick<
+		OsOutput,
+		"id" | "organizationId" | "workspaceId" | "currentRevisionId"
+	>,
+) {
+	if (output.organizationId !== requireOrgId(context) || !output.workspaceId)
+		throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 	const currentRevision = await getOsOutputRevision(queryDb(context), {
 		organizationId: output.organizationId,
-		revisionId: mapped.currentRevisionId,
+		workspaceId: output.workspaceId,
+		revisionId: output.currentRevisionId,
 	});
-	if (!currentRevision) {
+	if (!currentRevision || currentRevision.outputId !== output.id) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
 			"OS output current revision was not readable",
 		);
 	}
 	await requireDerivedRevisionAccess(context, currentRevision);
+	return mapOsOutputRevisionRow(currentRevision);
+}
+
+const outputsGet = readOs.outputs.get.handler(async ({ input, context }) => {
+	const output = await requireOutput(context, input.outputId);
+	const mapped = mapOsOutputRow(output);
+	const currentRevision = await readVisibleOutputRevision(context, mapped);
 	const candidate = hasTedisReadAuthorization(context)
 		? await findKernelRuntimeRunForOutputRevision(queryDb(context), {
 				organizationId: output.organizationId,
@@ -585,7 +603,7 @@ const outputsGet = readOs.outputs.get.handler(async ({ input, context }) => {
 		: null;
 	return {
 		output: mapped,
-		currentRevision: mapOsOutputRevisionRow(currentRevision),
+		currentRevision,
 		authoringHomeRun:
 			candidate && access?.allowed ? { runId: candidate.id } : null,
 	};

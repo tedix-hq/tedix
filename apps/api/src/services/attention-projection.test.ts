@@ -35,6 +35,10 @@ vi.mock("../rpc/routers/os-workspaces", () => ({
 		schedules: { list: "schedules", runNow: "runNow" },
 	},
 }));
+vi.mock("../rpc/routers/os-workspace-outputs", () => ({
+	readVisibleOutputRevision: async () =>
+		(await mocks.call("output")).currentRevision,
+}));
 vi.mock("../rpc/routers/work-interactions", () => ({
 	workInteractionsContractRouter: { listInbox: "inbox" },
 }));

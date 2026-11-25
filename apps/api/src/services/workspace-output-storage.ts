@@ -20,6 +20,7 @@ import {
 	listWorkspaceOutputLibrary,
 } from "@tedix/db/queries/workspace-feed/read";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,
@@ -157,16 +158,25 @@ export async function listOsOutputs(
 		scope: TenantScope,
 		viewer: OsWorkspaceViewer,
 		options?: ListOsOutputsOptions,
+		workspace?: OsWorkspaceRow,
 	]
 ) {
-	const [db, scope, viewer, options = {}] = args;
+	const [db, scope, viewer, options = {}, knownWorkspace] = args;
 	let objectRows;
 	if (scope.workspaceId) {
-		const workspace = await getOsWorkspace(db, {
-			organizationId: scope.organizationId,
-			workspaceId: scope.workspaceId,
-		});
-		if (!workspace || !isOsWorkspaceVisibleTo(workspace, viewer)) return [];
+		const workspace =
+			knownWorkspace ??
+			(await getOsWorkspace(db, {
+				organizationId: scope.organizationId,
+				workspaceId: scope.workspaceId,
+			}));
+		if (
+			!workspace ||
+			workspace.id !== scope.workspaceId ||
+			workspace.organizationId !== scope.organizationId ||
+			!isOsWorkspaceVisibleTo(workspace, viewer)
+		)
+			return [];
 		const store = readRuntime();
 		objectRows = await store.outputQuery(
 			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },

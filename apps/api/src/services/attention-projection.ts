@@ -68,6 +68,7 @@ import {
 } from "@tedix/api-contract/utils/factory-class-autonomy";
 import { factoryCardDelivery } from "@tedix/api-contract/utils/decision-class-policy";
 import { osWorkspacesContractRouter } from "../rpc/routers/os-workspaces";
+import { readVisibleOutputRevision } from "../rpc/routers/os-workspace-outputs";
 import { userSettingsContractRouter } from "../rpc/routers/user-settings";
 import { workItemsContractRouter } from "../rpc/routers/work-items";
 import { internalDecisionFeed } from "./internal-decision-feed";
@@ -103,6 +104,7 @@ async function workAppInventory(context: BaseContext) {
 	const visible = new Set(spaces.items.map((space) => space.id));
 	return {
 		...apps,
+		spaces,
 		// Card review apps need no board navigation to contribute their sources.
 		reviewSources: sourceApps.flatMap(({ gadget, revision }) => {
 			if (!visible.has(gadget.workspaceId)) return [];
@@ -200,17 +202,13 @@ async function factoryCards(
 	sources: z.infer<typeof DecisionDeckConfigSchema>["factorySources"],
 	now: Date,
 	timeZone: string,
+	spaces: Awaited<ReturnType<typeof workAppInventory>>["spaces"],
 ) {
 	if (!sources.length)
 		return {
 			cards: [] as Array<{ card: ReviewCard; revision: number }>,
 			complete: true,
 		};
-	const spaces = await call(
-		osWorkspacesContractRouter.workspaces.list,
-		{ status: "active", limit: 200 },
-		{ context },
-	);
 	// Match useVisibleCardSources: shared apps may bind other people's workspaces.
 	// The caller's active, authorized workspace inventory defines which bindings apply.
 	const visible = new Set(spaces.items.map((space) => space.id));
@@ -242,12 +240,11 @@ async function factoryCards(
 					return true;
 				})
 				.map(async (sheet) => {
-					const detail = await call(
-						osWorkspacesContractRouter.outputs.get,
-						{ outputId: sheet.id },
-						{ context },
-					);
-					const body = detail.currentRevision.content;
+					const output = inventories
+						.get(source.workspaceId)!
+						.find((row) => row.id === sheet.id)!;
+					const revision = await readVisibleOutputRevision(context, output);
+					const body = revision.content;
 					if (body.kind !== "sheet")
 						throw createError(
 							ErrorCodes.CONFLICT,
@@ -270,7 +267,7 @@ async function factoryCards(
 						.filter((card) => cardIsDue(card, now, timeZone))
 						.map((card) => ({
 							card,
-							revision: detail.currentRevision.revision,
+							revision: revision.revision,
 						}));
 				}),
 		),
@@ -302,6 +299,7 @@ export async function loadDeckProjection(
 			DecisionDeckConfigSchema.parse(manifest!.config),
 			apps,
 		),
+		apps.spaces,
 		"deck",
 		undefined,
 		basics,
@@ -319,6 +317,7 @@ async function loadConfiguredDeckProjection(
 	context: BaseContext,
 	input: ViewInput,
 	config: z.infer<typeof DecisionDeckConfigSchema>,
+	spaces: Awaited<ReturnType<typeof workAppInventory>>["spaces"],
 	destination: "deck" | "all" = "deck",
 	onRoute?: (route: DeckRoutingReceipt) => void,
 	basics: ReturnType<typeof deckReadBasics> = deckReadBasics(context),
@@ -350,7 +349,7 @@ async function loadConfiguredDeckProjection(
 						{ status: "pending", decidableOnly: true },
 						{ context },
 					),
-			factoryCards(context, config.factorySources, now, timeZone),
+			factoryCards(context, config.factorySources, now, timeZone, spaces),
 			factoryAutonomyHistory(context, config.factorySources),
 		]);
 	const requests = [...first.data];
@@ -582,6 +581,7 @@ export async function loadForYouProjection(
 			context,
 			{ ...input, limit: 100 },
 			feedDeckConfig,
+			apps.spaces,
 			"all",
 			(route) => deckDestinations.set(route.id, route.destination),
 		),
@@ -623,6 +623,7 @@ export async function loadForYouProjection(
 			config.factorySources.map((binding) => binding.source),
 			now,
 			timeZone,
+			apps.spaces,
 		),
 		config.today
 			? call(
