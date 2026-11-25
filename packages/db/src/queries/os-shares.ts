@@ -1,25 +1,26 @@
-import { and, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
-import { chunkForBoundParams } from "../utils/batch";
+import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import { anyIds, changedRows, coreStore } from "../core-store/dialect";
+import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
 import type { DbQueryClient } from "../query-client";
-import { apiKeys } from "../schema/api-keys";
-import { externalAgentPrincipals } from "../schema/external-agent-identity";
-import { organizationMembers } from "../schema/organization-members";
-import { osWorkspaceCollaborators } from "../schema/os-collaborators";
-import { tedis } from "../schema/tedis";
+import { apiKeys as d1ApiKeys } from "../schema/api-keys";
+import { externalAgentPrincipals as d1ExternalAgentPrincipals } from "../schema/external-agent-identity";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
+import { osWorkspaceCollaborators as d1OsWorkspaceCollaborators } from "../schema/os-collaborators";
+import { tedis as d1Tedis } from "../schema/tedis";
 import {
 	type NewOsShareLinkInviteeRow,
 	type NewOsShareLinkRow,
 	type OsShareLinkInviteeRow,
 	type OsShareLinkRow,
 	type OsShareSessionRow,
-	osShareLinkInvitees,
-	osShareLinks,
-	osShareSessions,
-	osShareEmailCodes,
-	osShareSkillReadGrants,
+	osShareLinkInvitees as d1OsShareLinkInvitees,
+	osShareLinks as d1OsShareLinks,
+	osShareSessions as d1OsShareSessions,
+	osShareEmailCodes as d1OsShareEmailCodes,
+	osShareSkillReadGrants as d1OsShareSkillReadGrants,
 	type NewOsShareSkillReadGrantRow,
 } from "../schema/os-shares";
-import { getAffectedRows } from "../utils/d1-result";
 
 export interface OsShareLinkScopeParams {
 	organizationId: string;
@@ -32,11 +33,34 @@ export interface OsShareResourceScopeParams {
 	resourceId: string;
 }
 
+/** Serialize redemption with policy changes before their statement snapshots. */
+function buildOsShareLinkLockStatements(
+	db: DbQueryClient,
+	params: { shareLinkId: string; organizationId?: string },
+) {
+	if (coreStore(db) !== "postgres") return [];
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const scope = and(
+		eq(osShareLinks.id, params.shareLinkId),
+		params.organizationId === undefined
+			? undefined
+			: eq(osShareLinks.organizationId, params.organizationId),
+	);
+	return [
+		db
+			.select({ lock: sql<number>`1`.as("lock") })
+			.from(
+				sql`(select ${osShareLinks.id} from ${osShareLinks} where ${scope} for update) as locked_share`,
+			),
+	];
+}
+
 export async function getOsShareGrantApprover(
 	db: DbQueryClient,
 	organizationId: string,
 	userId: string,
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const [row] = await db
 		.select()
 		.from(organizationMembers)
@@ -57,6 +81,7 @@ export async function getOsShareSkillReadGrant(
 		slot: string;
 	},
 ) {
+	const osShareSkillReadGrants = coreTable(db, d1OsShareSkillReadGrants);
 	const [row] = await db
 		.select()
 		.from(osShareSkillReadGrants)
@@ -78,6 +103,7 @@ export async function setOsShareSkillReadGrants(
 	scope: OsShareLinkScopeParams,
 	grants: readonly NewOsShareSkillReadGrantRow[],
 ) {
+	const osShareSkillReadGrants = coreTable(db, d1OsShareSkillReadGrants);
 	if (
 		grants.some(
 			(grant) =>
@@ -86,6 +112,25 @@ export async function setOsShareSkillReadGrants(
 		)
 	)
 		throw new Error("Share approval scope mismatch");
+	const unique = new Map<string, NewOsShareSkillReadGrantRow>();
+	for (const grant of grants) {
+		const key = JSON.stringify([grant.revisionId, grant.slot]);
+		const previous = unique.get(key);
+		unique.set(
+			key,
+			previous
+				? {
+						...previous,
+						resourceId: grant.resourceId,
+						providerResourceId: grant.providerResourceId,
+						approvedByUserId: grant.approvedByUserId,
+						approvedAt: grant.approvedAt,
+						revokedAt: null,
+					}
+				: grant,
+		);
+	}
+	const size = coreStore(db) === "postgres" ? Math.max(unique.size, 1) : 6;
 	await db.batch([
 		db
 			.update(osShareSkillReadGrants)
@@ -96,10 +141,10 @@ export async function setOsShareSkillReadGrants(
 					eq(osShareSkillReadGrants.shareLinkId, scope.shareLinkId),
 				),
 			),
-		...grants.map((grant) =>
+		...chunkForBoundParams([...unique.values()], size).map((rows) =>
 			db
 				.insert(osShareSkillReadGrants)
-				.values(grant)
+				.values(rows)
 				.onConflictDoUpdate({
 					target: [
 						osShareSkillReadGrants.organizationId,
@@ -108,10 +153,10 @@ export async function setOsShareSkillReadGrants(
 						osShareSkillReadGrants.slot,
 					],
 					set: {
-						resourceId: grant.resourceId,
-						providerResourceId: grant.providerResourceId,
-						approvedByUserId: grant.approvedByUserId,
-						approvedAt: grant.approvedAt,
+						resourceId: sql`excluded.resource_id`,
+						providerResourceId: sql`excluded.provider_resource_id`,
+						approvedByUserId: sql`excluded.approved_by_user_id`,
+						approvedAt: sql`excluded.approved_at`,
 						revokedAt: null,
 					},
 				}),
@@ -123,6 +168,7 @@ export async function createOsShareLink(
 	db: DbQueryClient,
 	link: NewOsShareLinkRow,
 ): Promise<OsShareLinkRow> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const [row] = await db.insert(osShareLinks).values(link).returning();
 	if (!row) {
 		throw new Error("OS share link insert returned no row");
@@ -135,6 +181,7 @@ export async function listOsShareLinks(
 	db: DbQueryClient,
 	params: OsShareResourceScopeParams,
 ): Promise<OsShareLinkRow[]> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	return db
 		.select()
 		.from(osShareLinks)
@@ -157,22 +204,20 @@ export async function listOsShareResourceIdsWithActiveLinks(
 		resourceIds: string[];
 	},
 ): Promise<Set<string>> {
-	const found = new Set<string>();
-	for (const chunk of chunkForBoundParams(params.resourceIds, 90)) {
-		const rows = await db
-			.selectDistinct({ resourceId: osShareLinks.resourceId })
-			.from(osShareLinks)
-			.where(
-				and(
-					eq(osShareLinks.organizationId, params.organizationId),
-					eq(osShareLinks.resourceType, params.resourceType),
-					inArray(osShareLinks.resourceId, chunk),
-					isNull(osShareLinks.revokedAt),
-				),
-			);
-		for (const row of rows) found.add(row.resourceId);
-	}
-	return found;
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	if (!params.resourceIds.length) return new Set();
+	const rows = await db
+		.selectDistinct({ resourceId: osShareLinks.resourceId })
+		.from(osShareLinks)
+		.where(
+			and(
+				eq(osShareLinks.organizationId, params.organizationId),
+				eq(osShareLinks.resourceType, params.resourceType),
+				anyIds(db, osShareLinks.resourceId, params.resourceIds),
+				isNull(osShareLinks.revokedAt),
+			),
+		);
+	return new Set(rows.map((row) => row.resourceId));
 }
 
 /**
@@ -184,6 +229,8 @@ export async function revokeOsShareLink(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams,
 ): Promise<OsShareLinkRow | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const osShareSessions = coreTable(db, d1OsShareSessions);
 	const now = new Date().toISOString();
 	const updateLink = db
 		.update(osShareLinks)
@@ -212,13 +259,18 @@ export async function revokeOsShareLink(
 				)`,
 			),
 		);
-	const [rows] = await db.batch([updateLink, revokeSessions]);
+	const locks = buildOsShareLinkLockStatements(db, params);
+	const results = await db.batch(
+		batchNonEmpty([...locks, updateLink, revokeSessions]),
+	);
+	const rows = results[locks.length] as OsShareLinkRow[];
 	return rows[0];
 }
 
 const SHARE_ROLE_RANK = { viewer: 0, use: 1, edit: 2, build: 3 } as const;
 
-function effectiveShareRoleRankSql() {
+function effectiveShareRoleRankSql(db: DbQueryClient) {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	return sql<number>`case
 		when ${osShareLinks.policyMaxRole} = 'viewer' then 0
 		when ${osShareLinks.policyMaxRole} = 'use' then 1
@@ -245,12 +297,14 @@ export async function restrictOsShareLink(
 		now?: string;
 	},
 ): Promise<{ share: OsShareLinkRow; revokedSessionCount: number } | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const osShareSessions = coreTable(db, d1OsShareSessions);
 	const requestedRank = SHARE_ROLE_RANK[params.maxRole];
 	const now = params.now ?? new Date().toISOString();
 	const canStayOrTighten = and(
 		eq(osShareLinks.organizationId, params.organizationId),
 		eq(osShareLinks.id, params.shareLinkId),
-		sql`${requestedRank} <= ${effectiveShareRoleRankSql()}`,
+		sql`${requestedRank} <= ${effectiveShareRoleRankSql(db)}`,
 	);
 	const revokeSessions = db
 		.update(osShareSessions)
@@ -263,7 +317,7 @@ export async function restrictOsShareLink(
 				sql`exists (
 					select 1 from ${osShareLinks}
 					where ${canStayOrTighten}
-						and ${requestedRank} < ${effectiveShareRoleRankSql()}
+						and ${requestedRank} < ${effectiveShareRoleRankSql(db)}
 				)`,
 			),
 		)
@@ -277,7 +331,12 @@ export async function restrictOsShareLink(
 		})
 		.where(canStayOrTighten)
 		.returning();
-	const [revokedSessions, rows] = await db.batch([revokeSessions, updateLink]);
+	const locks = buildOsShareLinkLockStatements(db, params);
+	const results = await db.batch(
+		batchNonEmpty([...locks, revokeSessions, updateLink]),
+	);
+	const revokedSessions = results[locks.length] as { id: string }[];
+	const rows = results[locks.length + 1] as OsShareLinkRow[];
 	const share = rows[0];
 	return share
 		? { share, revokedSessionCount: revokedSessions.length }
@@ -304,6 +363,8 @@ export async function updateOsShareLinkSettings(
 		now?: string;
 	},
 ): Promise<{ share: OsShareLinkRow; revokedSessionCount: number } | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const osShareSessions = coreTable(db, d1OsShareSessions);
 	const now = params.now ?? new Date().toISOString();
 	const activeLink = and(
 		eq(osShareLinks.organizationId, params.organizationId),
@@ -327,11 +388,21 @@ export async function updateOsShareLinkSettings(
 		.set(params.set)
 		.where(activeLink)
 		.returning();
+	const locks = buildOsShareLinkLockStatements(db, params);
 	if (!params.endSessions) {
-		const [share] = await updateLink;
+		const rows = locks.length
+			? ((await db.batch(batchNonEmpty([...locks, updateLink])))[
+					locks.length
+				] as OsShareLinkRow[])
+			: await updateLink;
+		const [share] = rows;
 		return share ? { share, revokedSessionCount: 0 } : undefined;
 	}
-	const [revokedSessions, rows] = await db.batch([revokeSessions, updateLink]);
+	const results = await db.batch(
+		batchNonEmpty([...locks, revokeSessions, updateLink]),
+	);
+	const revokedSessions = results[locks.length] as { id: string }[];
+	const rows = results[locks.length + 1] as OsShareLinkRow[];
 	const share = rows[0];
 	return share
 		? { share, revokedSessionCount: revokedSessions.length }
@@ -347,6 +418,7 @@ export async function getOsShareLinkByTokenHash(
 	db: DbQueryClient,
 	tokenHash: string,
 ): Promise<OsShareLinkRow | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const [row] = await db
 		.select()
 		.from(osShareLinks)
@@ -364,6 +436,7 @@ export async function getOsShareLinkByPublicId(
 	db: DbQueryClient,
 	publicId: string,
 ): Promise<OsShareLinkRow | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const [row] = await db
 		.select()
 		.from(osShareLinks)
@@ -377,6 +450,7 @@ export async function getOsShareLinkById(
 	db: DbQueryClient,
 	shareLinkId: string,
 ): Promise<OsShareLinkRow | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const [row] = await db
 		.select()
 		.from(osShareLinks)
@@ -389,6 +463,7 @@ export async function getScopedOsShareLink(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams,
 ): Promise<OsShareLinkRow | undefined> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const [row] = await db
 		.select()
 		.from(osShareLinks)
@@ -406,6 +481,7 @@ export async function deleteOsShareLink(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams,
 ): Promise<boolean> {
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const result = await db
 		.delete(osShareLinks)
 		.where(
@@ -413,8 +489,9 @@ export async function deleteOsShareLink(
 				eq(osShareLinks.organizationId, params.organizationId),
 				eq(osShareLinks.id, params.shareLinkId),
 			),
-		);
-	return getAffectedRows(result) > 0;
+		)
+		.returning({ id: osShareLinks.id });
+	return changedRows(result) > 0;
 }
 
 /**
@@ -436,7 +513,9 @@ export async function createOsShareSession(
 		now: string;
 	},
 ): Promise<OsShareSessionRow | undefined> {
-	const [row] = await db
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const osShareSessions = coreTable(db, d1OsShareSessions);
+	const insertSession = db
 		.insert(osShareSessions)
 		.select(
 			db
@@ -461,11 +540,20 @@ export async function createOsShareSession(
 						isNull(osShareLinks.revokedAt),
 						isNull(osShareLinks.disabledAt),
 						sql`(${osShareLinks.expiresAt} is null or ${osShareLinks.expiresAt} > ${params.now})`,
-						sql`${SHARE_ROLE_RANK[params.expectedEffectiveRole]} = ${effectiveShareRoleRankSql()}`,
+						sql`${SHARE_ROLE_RANK[params.expectedEffectiveRole]} = ${effectiveShareRoleRankSql(db)}`,
 					),
 				),
 		)
 		.returning();
+	const locks = buildOsShareLinkLockStatements(db, {
+		shareLinkId: params.linkId,
+	});
+	const rows = locks.length
+		? ((await db.batch(batchNonEmpty([...locks, insertSession])))[
+				locks.length
+			] as OsShareSessionRow[])
+		: await insertSession;
+	const [row] = rows;
 	return row;
 }
 
@@ -475,6 +563,7 @@ export async function touchOsShareSession(
 	sessionTokenHash: string,
 	now: string,
 ): Promise<OsShareSessionRow | undefined> {
+	const osShareSessions = coreTable(db, d1OsShareSessions);
 	const [row] = await db
 		.update(osShareSessions)
 		.set({ lastSeenAt: now })
@@ -498,6 +587,7 @@ export async function getLiveOsShareSession(
 	sessionId: string,
 	now: string,
 ): Promise<OsShareSessionRow | undefined> {
+	const osShareSessions = coreTable(db, d1OsShareSessions);
 	const [row] = await db
 		.select()
 		.from(osShareSessions)
@@ -517,6 +607,7 @@ export async function listOsShareLinkInvitees(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams,
 ): Promise<OsShareLinkInviteeRow[]> {
+	const osShareLinkInvitees = coreTable(db, d1OsShareLinkInvitees);
 	return db
 		.select()
 		.from(osShareLinkInvitees)
@@ -538,6 +629,7 @@ export async function addOsShareLinkInvitee(
 	db: DbQueryClient,
 	invitee: NewOsShareLinkInviteeRow & { email: string },
 ): Promise<OsShareLinkInviteeRow> {
+	const osShareLinkInvitees = coreTable(db, d1OsShareLinkInvitees);
 	const [, rows] = await db.batch([
 		db.insert(osShareLinkInvitees).values(invitee).onConflictDoNothing(),
 		db
@@ -560,6 +652,7 @@ export async function removeOsShareLinkInvitee(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams & { inviteeId: string },
 ): Promise<boolean> {
+	const osShareLinkInvitees = coreTable(db, d1OsShareLinkInvitees);
 	const result = await db
 		.delete(osShareLinkInvitees)
 		.where(
@@ -568,8 +661,9 @@ export async function removeOsShareLinkInvitee(
 				eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
 				eq(osShareLinkInvitees.id, params.inviteeId),
 			),
-		);
-	return getAffectedRows(result) > 0;
+		)
+		.returning({ id: osShareLinkInvitees.id });
+	return changedRows(result) > 0;
 }
 
 /**
@@ -585,6 +679,8 @@ export async function isOsShareLinkInvitee(
 		email: string | null;
 	},
 ): Promise<boolean> {
+	const osShareLinkInvitees = coreTable(db, d1OsShareLinkInvitees);
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
 	const email = params.email?.trim().toLowerCase() || null;
 	const invitee = db
 		.select({ inviteeId: osShareLinkInvitees.id })
@@ -630,6 +726,10 @@ export async function getOsShareCreatorName(
 	>,
 	options: { personOnly?: boolean } = {},
 ): Promise<string | null> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const tedis = coreTable(db, d1Tedis);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const apiKeys = coreTable(db, d1ApiKeys);
 	if (options.personOnly && link.createdByKind !== "user") return null;
 	const scope = { organizationId: link.organizationId, id: link.createdById };
 	if (link.createdByKind === "user") {
@@ -696,6 +796,7 @@ export async function countActiveOsShareSessions(
 	shareLinkId: string,
 	now: string,
 ): Promise<number> {
+	const osShareSessions = coreTable(db, d1OsShareSessions);
 	const [row] = await db
 		.select({ value: count() })
 		.from(osShareSessions)
@@ -712,10 +813,12 @@ export async function countActiveOsShareSessions(
 /** Atomic rolling-window reservation: concurrent sends cannot exceed either limit. */
 export async function reserveOsShareEmailCode(
 	db: DbQueryClient,
-	params: typeof osShareEmailCodes.$inferInsert & { windowStart: string },
+	params: typeof d1OsShareEmailCodes.$inferInsert & { windowStart: string },
 ): Promise<boolean> {
+	const osShareEmailCodes = coreTable(db, d1OsShareEmailCodes);
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const { windowStart, ...code } = params;
-	const rows = await db
+	const reserve = db
 		.insert(osShareEmailCodes)
 		.select(
 			db
@@ -744,6 +847,26 @@ export async function reserveOsShareEmailCode(
 				),
 		)
 		.returning({ id: osShareEmailCodes.id });
+	// D1 serializes writers. Postgres needs transaction-held locks before the
+	// reservation statement takes its snapshot; both limits share one batch.
+	const rows =
+		coreStore(db) === "postgres"
+			? (
+					await db.batch([
+						db
+							.select({
+								lock: sql`pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["share-email", code.shareLinkId, code.email])}, 0))`,
+							})
+							.from(sql`(select 1) as lock_scope`),
+						db
+							.select({
+								lock: sql`pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["share-ip", code.ipHash])}, 0))`,
+							})
+							.from(sql`(select 1) as lock_scope`),
+						reserve,
+					])
+				)[2]
+			: await reserve;
 	return rows.length === 1;
 }
 
@@ -752,6 +875,7 @@ export async function consumeOsShareEmailCode(
 	db: DbQueryClient,
 	params: { linkId: string; email: string; codeHash: string; now: string },
 ): Promise<boolean> {
+	const osShareEmailCodes = coreTable(db, d1OsShareEmailCodes);
 	const latest = db
 		.select({ id: osShareEmailCodes.id })
 		.from(osShareEmailCodes)
@@ -787,6 +911,7 @@ export async function isOsShareEmailInvited(
 	linkId: string,
 	email: string,
 ): Promise<boolean> {
+	const osShareLinkInvitees = coreTable(db, d1OsShareLinkInvitees);
 	const rows = await db
 		.select({ id: osShareLinkInvitees.id })
 		.from(osShareLinkInvitees)
@@ -805,6 +930,8 @@ export async function listOsShareEmailOpens(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams,
 ) {
+	const osShareSessions = coreTable(db, d1OsShareSessions);
+	const osShareLinks = coreTable(db, d1OsShareLinks);
 	return db
 		.select({
 			email: osShareSessions.verifiedEmail,
@@ -833,11 +960,11 @@ export async function listOsShareSessionPeople(
 	db: DbQueryClient,
 	params: { organizationId: string; sessionIds: readonly string[] },
 ): Promise<Map<string, { email: string; name: string | null }>> {
+	const osShareSessions = coreTable(db, d1OsShareSessions);
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const people = new Map<string, { email: string; name: string | null }>();
-	for (const chunk of chunkForBoundParams(
-		[...new Set(params.sessionIds)],
-		90,
-	)) {
+	if (params.sessionIds.length) {
 		const rows = await db
 			.select({
 				sessionId: osShareSessions.id,
@@ -857,7 +984,7 @@ export async function listOsShareSessionPeople(
 			.where(
 				and(
 					eq(osShareLinks.organizationId, params.organizationId),
-					inArray(osShareSessions.id, chunk),
+					anyIds(db, osShareSessions.id, [...new Set(params.sessionIds)]),
 				),
 			);
 		for (const row of rows) {

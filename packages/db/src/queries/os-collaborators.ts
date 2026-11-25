@@ -3,7 +3,6 @@ import {
 	asc,
 	desc,
 	eq,
-	inArray,
 	isNotNull,
 	isNull,
 	ne,
@@ -11,21 +10,26 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { coreTable } from "../core-store/client";
+import { anyIds, coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
-import { tedis } from "../schema/tedis";
-import { organizationMembers } from "../schema/organization-members";
+import { tedis as d1Tedis } from "../schema/tedis";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
 import {
 	type OsWorkspaceAccessEdgeRow,
 	type OsWorkspaceCollaboratorRow,
 	type OsWorkspaceShareLinkRow,
-	osWorkspaceAccessEdges,
-	osWorkspaceCollaborators,
-	osWorkspaceShareKeys,
-	osWorkspaceShareLinks,
+	osWorkspaceAccessEdges as d1OsWorkspaceAccessEdges,
+	osWorkspaceCollaborators as d1OsWorkspaceCollaborators,
+	osWorkspaceShareKeys as d1OsWorkspaceShareKeys,
+	osWorkspaceShareLinks as d1OsWorkspaceShareLinks,
 } from "../schema/os-collaborators";
-import { type OsWorkspaceRow, osWorkspaces } from "../schema/os-workspaces";
-import { chunkForBoundParams } from "../utils/batch";
+import {
+	type OsWorkspaceRow,
+	osWorkspaces as d1OsWorkspaces,
+} from "../schema/os-workspaces";
 import { announceOsWorkspaceChange } from "./os-workspace-events";
+import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
@@ -45,6 +49,7 @@ export async function getOsWorkspaceForCollaboration(
 	db: DbQueryClient,
 	params: { workspaceId: string },
 ): Promise<OsWorkspaceRow | undefined> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.select()
 		.from(osWorkspaces)
@@ -67,6 +72,9 @@ export async function loadOsWorkspacePermissionRows(
 		collaborators?: boolean;
 	},
 ): Promise<OsWorkspacePermissionRows> {
+	const osWorkspaceAccessEdges = coreTable(db, d1OsWorkspaceAccessEdges);
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
 	const edgeRows = db
 		.select()
 		.from(osWorkspaceAccessEdges)
@@ -118,6 +126,7 @@ export async function findTedixPersonByEmail(
 	db: DbQueryClient,
 	email: string,
 ): Promise<TedixPersonResult | undefined> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const [row] = await db
 		.select({
 			userId: organizationMembers.descopeUserId,
@@ -140,6 +149,7 @@ export async function findWorkspaceTedi(
 	db: DbQueryClient,
 	params: { organizationId: string; tediId: string },
 ): Promise<TedixPersonResult | undefined> {
+	const tedis = coreTable(db, d1Tedis);
 	const [row] = await db
 		.select({
 			userId: tedis.id,
@@ -173,6 +183,7 @@ export async function listTedixPersonMemberships(
 	db: DbQueryClient,
 	descopeUserId: string,
 ): Promise<TedixPersonMembershipResult[]> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows = await db
 		.select({
 			organizationId: organizationMembers.organizationId,
@@ -200,20 +211,19 @@ export async function listTedixPeople(
 	db: DbQueryClient,
 	userIds: readonly string[],
 ): Promise<TedixPersonResult[]> {
-	const rows: TedixPersonResult[] = [];
-	for (const ids of chunkForBoundParams([...new Set(userIds)], 50)) {
-		rows.push(
-			...(await db
-				.select({
-					principalKind: sql<"user">`'user'`.as("principal_kind"),
-					userId: organizationMembers.descopeUserId,
-					email: organizationMembers.email,
-					name: organizationMembers.name,
-				})
-				.from(organizationMembers)
-				.where(inArray(organizationMembers.descopeUserId, ids))),
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	if (!userIds.length) return [];
+	const rows = await db
+		.select({
+			principalKind: sql<"user">`'user'`.as("principal_kind"),
+			userId: organizationMembers.descopeUserId,
+			email: organizationMembers.email,
+			name: organizationMembers.name,
+		})
+		.from(organizationMembers)
+		.where(
+			anyIds(db, organizationMembers.descopeUserId, [...new Set(userIds)]),
 		);
-	}
 	const seen = new Map<string, TedixPersonResult>();
 	for (const row of rows) if (!seen.has(row.userId)) seen.set(row.userId, row);
 	return [...seen.values()];
@@ -232,6 +242,8 @@ export async function searchOrganizationPeople(
 		limit: number;
 	},
 ): Promise<TedixPersonResult[]> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const tedis = coreTable(db, d1Tedis);
 	// The typed text is matched as written: % and _ are not wildcards.
 	const pattern = `%${params.query
 		.trim()
@@ -298,26 +310,24 @@ export async function listOsWorkspaceOrganizationMemberRoles(
 	db: DbQueryClient,
 	params: { organizationId: string; userIds: readonly string[] },
 ): Promise<OrganizationMemberRoleResult[]> {
-	const rows: OrganizationMemberRoleResult[] = [];
-	for (const ids of chunkForBoundParams([...new Set(params.userIds)], 50)) {
-		rows.push(
-			...(await db
-				.select({
-					userId: organizationMembers.descopeUserId,
-					role: organizationMembers.role,
-				})
-				.from(organizationMembers)
-				.where(
-					and(
-						eq(organizationMembers.organizationId, params.organizationId),
-						inArray(organizationMembers.descopeUserId, ids),
-						eq(organizationMembers.status, "active"),
-						eq(organizationMembers.kind, "human"),
-					),
-				)),
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	if (!params.userIds.length) return [];
+	return db
+		.select({
+			userId: organizationMembers.descopeUserId,
+			role: organizationMembers.role,
+		})
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, params.organizationId),
+				anyIds(db, organizationMembers.descopeUserId, [
+					...new Set(params.userIds),
+				]),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+			),
 		);
-	}
-	return rows;
 }
 
 export interface OsWorkspaceEdgeInput {
@@ -341,57 +351,84 @@ function edgeKey(edge: OsWorkspaceEdgeInput): string {
 function grantStatements(
 	db: DbQueryClient,
 	scope: OsWorkspaceGraphScopeParams,
-	edge: OsWorkspaceEdgeInput,
+	edges: readonly OsWorkspaceEdgeInput[],
 	now: string,
 ): BatchItem<"sqlite">[] {
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
+	const osWorkspaceAccessEdges = coreTable(db, d1OsWorkspaceAccessEdges);
+	const people = new Map<
+		string,
+		typeof osWorkspaceCollaborators.$inferInsert
+	>();
+	const grants = new Map<string, typeof osWorkspaceAccessEdges.$inferInsert>();
+	for (const edge of edges) {
+		const previous = people.get(edge.targetUserId);
+		people.set(edge.targetUserId, {
+			id: previous?.id ?? crypto.randomUUID(),
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+			userId: edge.targetUserId,
+			principalKind:
+				edge.targetKind ?? (edge.kind === "tedi" ? "tedi" : "user"),
+			email: edge.targetEmail ?? previous?.email,
+			name: edge.targetName ?? previous?.name,
+			createdAt: now,
+		});
+		const key = JSON.stringify([edge.targetUserId, edgeKey(edge)]);
+		const previousGrant = grants.get(key);
+		grants.set(
+			key,
+			previousGrant
+				? { ...previousGrant, role: edge.kind !== "link" ? edge.role : null }
+				: {
+						id: crypto.randomUUID(),
+						organizationId: scope.organizationId,
+						workspaceId: scope.workspaceId,
+						targetUserId: edge.targetUserId,
+						kind: edge.kind,
+						edgeKey: edgeKey(edge),
+						sharerUserId: edge.kind !== "link" ? edge.sharerUserId : null,
+						linkId: edge.kind === "link" ? edge.linkId : null,
+						role: edge.kind !== "link" ? edge.role : null,
+						note: edge.note ?? null,
+						createdAt: now,
+					},
+		);
+	}
+	if (!people.size) return [];
+	// Six rows fit even if every column is bound. Pg accepts the complete set.
+	const size =
+		coreStore(db) === "postgres" ? Math.max(people.size, grants.size) : 6;
 	return [
-		db
-			.insert(osWorkspaceCollaborators)
-			.values({
-				id: crypto.randomUUID(),
-				organizationId: scope.organizationId,
-				workspaceId: scope.workspaceId,
-				userId: edge.targetUserId,
-				principalKind:
-					edge.targetKind ?? (edge.kind === "tedi" ? "tedi" : "user"),
-				email: edge.targetEmail,
-				name: edge.targetName,
-				createdAt: now,
-			})
-			.onConflictDoUpdate({
-				target: [
-					osWorkspaceCollaborators.workspaceId,
-					osWorkspaceCollaborators.userId,
-				],
-				set: {
-					principalKind: sql`excluded.principal_kind`,
-					email: sql`coalesce(excluded.email, ${osWorkspaceCollaborators.email})`,
-					name: sql`coalesce(excluded.name, ${osWorkspaceCollaborators.name})`,
-				},
-			}),
-		db
-			.insert(osWorkspaceAccessEdges)
-			.values({
-				id: crypto.randomUUID(),
-				organizationId: scope.organizationId,
-				workspaceId: scope.workspaceId,
-				targetUserId: edge.targetUserId,
-				kind: edge.kind,
-				edgeKey: edgeKey(edge),
-				sharerUserId: edge.kind !== "link" ? edge.sharerUserId : null,
-				linkId: edge.kind === "link" ? edge.linkId : null,
-				role: edge.kind !== "link" ? edge.role : null,
-				note: edge.note ?? null,
-				createdAt: now,
-			})
-			.onConflictDoUpdate({
-				target: [
-					osWorkspaceAccessEdges.workspaceId,
-					osWorkspaceAccessEdges.targetUserId,
-					osWorkspaceAccessEdges.edgeKey,
-				],
-				set: { role: sql`excluded.role` },
-			}),
+		...chunkForBoundParams([...people.values()], size).map((rows) =>
+			db
+				.insert(osWorkspaceCollaborators)
+				.values(rows)
+				.onConflictDoUpdate({
+					target: [
+						osWorkspaceCollaborators.workspaceId,
+						osWorkspaceCollaborators.userId,
+					],
+					set: {
+						principalKind: sql`excluded.principal_kind`,
+						email: sql`coalesce(excluded.email, ${osWorkspaceCollaborators.email})`,
+						name: sql`coalesce(excluded.name, ${osWorkspaceCollaborators.name})`,
+					},
+				}),
+		),
+		...chunkForBoundParams([...grants.values()], size).map((rows) =>
+			db
+				.insert(osWorkspaceAccessEdges)
+				.values(rows)
+				.onConflictDoUpdate({
+					target: [
+						osWorkspaceAccessEdges.workspaceId,
+						osWorkspaceAccessEdges.targetUserId,
+						osWorkspaceAccessEdges.edgeKey,
+					],
+					set: { role: sql`excluded.role` },
+				}),
+		),
 	];
 }
 
@@ -403,9 +440,7 @@ export async function grantOsWorkspaceAccess(
 		now: string;
 	},
 ): Promise<void> {
-	const statements = params.edges.flatMap((edge) =>
-		grantStatements(db, params, edge, params.now),
-	);
+	const statements = grantStatements(db, params, params.edges, params.now);
 	if (statements.length === 0) return;
 	await db.batch(statements as Batch);
 	await announceOsWorkspaceChange(db, params.workspaceId, "access");
@@ -426,6 +461,7 @@ export async function severOsWorkspaceUserAccess(
 		now: string;
 	},
 ): Promise<void> {
+	const osWorkspaceAccessEdges = coreTable(db, d1OsWorkspaceAccessEdges);
 	const sever = db
 		.delete(osWorkspaceAccessEdges)
 		.where(
@@ -443,9 +479,7 @@ export async function severOsWorkspaceUserAccess(
 		);
 	await db.batch([
 		sever,
-		...params.keepEdges.flatMap((edge) =>
-			grantStatements(db, params, edge, params.now),
-		),
+		...grantStatements(db, params, params.keepEdges, params.now),
 	] as Batch);
 	await announceOsWorkspaceChange(db, params.workspaceId, "access");
 }
@@ -462,6 +496,8 @@ export async function revokeOsWorkspaceShareLink(
 		now: string;
 	},
 ): Promise<void> {
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceShareKeys = coreTable(db, d1OsWorkspaceShareKeys);
 	const scoped = and(
 		eq(osWorkspaceShareLinks.organizationId, params.organizationId),
 		eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
@@ -482,9 +518,7 @@ export async function revokeOsWorkspaceShareLink(
 					sql`exists (select 1 from ${osWorkspaceShareLinks} where ${scoped})`,
 				),
 			),
-		...params.keepEdges.flatMap((edge) =>
-			grantStatements(db, params, edge, params.now),
-		),
+		...grantStatements(db, params, params.keepEdges, params.now),
 	] as Batch);
 	await announceOsWorkspaceChange(db, params.workspaceId, "access");
 }
@@ -500,6 +534,8 @@ export async function createOsWorkspaceShareLink(
 		now: string;
 	},
 ): Promise<OsWorkspaceShareLinkRow> {
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceShareKeys = coreTable(db, d1OsWorkspaceShareKeys);
 	const [links] = await db.batch([
 		db
 			.insert(osWorkspaceShareLinks)
@@ -540,6 +576,8 @@ export async function createOrReuseOsWorkspaceDefaultShareLink(
 		now: string;
 	},
 ): Promise<OsWorkspaceShareLinkRow> {
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceShareKeys = coreTable(db, d1OsWorkspaceShareKeys);
 	const isDefault = and(
 		eq(osWorkspaceShareLinks.organizationId, params.organizationId),
 		eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
@@ -552,45 +590,60 @@ export async function createOrReuseOsWorkspaceDefaultShareLink(
 		asc(osWorkspaceShareLinks.createdAt),
 		asc(osWorkspaceShareLinks.id),
 	] as const;
-	const results = await db.batch([
-		db.insert(osWorkspaceShareLinks).values({
-			id: params.id,
-			organizationId: params.organizationId,
-			workspaceId: params.workspaceId,
-			creatorUserId: params.creatorUserId,
-			role: params.role,
-			label: null,
-			createdAt: params.now,
-		}),
-		// The new row goes again when the person already had a default link.
-		db
-			.delete(osWorkspaceShareLinks)
-			.where(
-				and(
-					eq(osWorkspaceShareLinks.id, params.id),
-					sql`exists (select 1 from ${osWorkspaceShareLinks} as earlier where earlier.organization_id = ${params.organizationId} and earlier.workspace_id = ${params.workspaceId} and earlier.creator_user_id = ${params.creatorUserId} and earlier.role = ${params.role} and earlier.label is null and earlier.revoked_at is null and earlier.id <> ${params.id})`,
-				),
-			),
-		db.insert(osWorkspaceShareKeys).select(
+	// Serialize default-link creation for this owner/role, as D1 does for
+	// writes. Keep the lock and all dependent statements in one round trip.
+	const lock =
+		coreStore(db) === "postgres"
+			? [
+					db
+						.select({
+							lock: sql`pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["workspace-default-share", params.organizationId, params.workspaceId, params.creatorUserId, params.role])}, 0))`,
+						})
+						.from(sql`(select 1) as lock_scope`),
+				]
+			: [];
+	const results = await db.batch(
+		batchNonEmpty([
+			...lock,
+			db.insert(osWorkspaceShareLinks).values({
+				id: params.id,
+				organizationId: params.organizationId,
+				workspaceId: params.workspaceId,
+				creatorUserId: params.creatorUserId,
+				role: params.role,
+				label: null,
+				createdAt: params.now,
+			}),
+			// The new row goes again when the person already had a default link.
 			db
-				.select({
-					keyHash: sql<string>`${params.keyHash}`.as("key_hash"),
-					linkId: osWorkspaceShareLinks.id,
-					createdAt: sql<string>`${params.now}`.as("created_at"),
-				})
+				.delete(osWorkspaceShareLinks)
+				.where(
+					and(
+						eq(osWorkspaceShareLinks.id, params.id),
+						sql`exists (select 1 from ${osWorkspaceShareLinks} as earlier where earlier.organization_id = ${params.organizationId} and earlier.workspace_id = ${params.workspaceId} and earlier.creator_user_id = ${params.creatorUserId} and earlier.role = ${params.role} and earlier.label is null and earlier.revoked_at is null and earlier.id <> ${params.id})`,
+					),
+				),
+			db.insert(osWorkspaceShareKeys).select(
+				db
+					.select({
+						keyHash: sql<string>`${params.keyHash}`.as("key_hash"),
+						linkId: osWorkspaceShareLinks.id,
+						createdAt: sql<string>`${params.now}`.as("created_at"),
+					})
+					.from(osWorkspaceShareLinks)
+					.where(isDefault)
+					.orderBy(...oldest)
+					.limit(1),
+			),
+			db
+				.select()
 				.from(osWorkspaceShareLinks)
 				.where(isDefault)
 				.orderBy(...oldest)
 				.limit(1),
-		),
-		db
-			.select()
-			.from(osWorkspaceShareLinks)
-			.where(isDefault)
-			.orderBy(...oldest)
-			.limit(1),
-	]);
-	const link = results[3][0];
+		]),
+	);
+	const link = (results[lock.length + 3] as OsWorkspaceShareLinkRow[])[0];
 	if (!link) throw new Error("Default share link was not stored");
 	return link;
 }
@@ -603,6 +656,7 @@ export async function updateOsWorkspaceShareLink(
 		set: { role?: OsCollaboratorRole; label?: string | null };
 	},
 ): Promise<OsWorkspaceShareLinkRow | undefined> {
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
 	const [row] = await db
 		.update(osWorkspaceShareLinks)
 		.set(params.set)
@@ -628,6 +682,8 @@ export async function addOsWorkspaceShareKey(
 		now: string;
 	},
 ): Promise<boolean> {
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceShareKeys = coreTable(db, d1OsWorkspaceShareKeys);
 	const result = await db
 		.insert(osWorkspaceShareKeys)
 		.select(
@@ -656,6 +712,8 @@ export async function getActiveOsWorkspaceShareLinkByKeyHash(
 	db: DbQueryClient,
 	params: { workspaceId: string; keyHash: string },
 ): Promise<OsWorkspaceShareLinkRow | undefined> {
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceShareKeys = coreTable(db, d1OsWorkspaceShareKeys);
 	const [row] = await db
 		.select({ link: osWorkspaceShareLinks })
 		.from(osWorkspaceShareKeys)
@@ -684,6 +742,7 @@ export async function recordOsWorkspaceCollaboratorOpen(
 		now: string;
 	},
 ): Promise<void> {
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
 	await db
 		.update(osWorkspaceCollaborators)
 		.set({
@@ -715,6 +774,7 @@ export async function recordOsWorkspaceShareNotice(
 		ownerName: string | null;
 	},
 ): Promise<void> {
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
 	await db
 		.update(osWorkspaceCollaborators)
 		.set({
@@ -743,6 +803,7 @@ export async function listOsSharedWorkspacesForUser(
 	db: DbQueryClient,
 	params: { userId: string; limit: number },
 ): Promise<OsWorkspaceCollaboratorRow[]> {
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
 	return db
 		.select()
 		.from(osWorkspaceCollaborators)
@@ -768,6 +829,7 @@ export async function dismissOsSharedWorkspace(
 	db: DbQueryClient,
 	params: { workspaceId: string; userId: string; now: string },
 ): Promise<void> {
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
 	await db
 		.update(osWorkspaceCollaborators)
 		.set({ dismissedAt: params.now })

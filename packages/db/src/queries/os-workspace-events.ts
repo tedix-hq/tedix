@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
 import type { DbQueryClient } from "../query-client";
 import {
 	type OsWorkspaceEventRow,
-	osWorkspaceEvents,
+	osWorkspaceEvents as d1OsWorkspaceEvents,
 } from "../schema/os-collaborators";
 
 export type OsWorkspaceEventKind = OsWorkspaceEventRow["kind"];
@@ -21,6 +22,7 @@ export async function recordOsWorkspaceEvent(
 	db: DbQueryClient,
 	params: { workspaceId: string; kind: OsWorkspaceEventKind },
 ): Promise<number> {
+	const osWorkspaceEvents = coreTable(db, d1OsWorkspaceEvents);
 	const [row] = await db
 		.insert(osWorkspaceEvents)
 		.values({ workspaceId: params.workspaceId, kind: params.kind })
@@ -47,6 +49,7 @@ export async function getLatestOsWorkspaceEventCursor(
 	db: DbQueryClient,
 	workspaceId: string,
 ): Promise<number> {
+	const osWorkspaceEvents = coreTable(db, d1OsWorkspaceEvents);
 	const [row] = await db
 		.select({ cursor: osWorkspaceEvents.seq })
 		.from(osWorkspaceEvents)
@@ -61,6 +64,7 @@ export async function listOsWorkspaceEventsAfter(
 	db: DbQueryClient,
 	params: { workspaceId: string; after: number; limit: number },
 ): Promise<Array<{ cursor: number; kind: OsWorkspaceEventKind }>> {
+	const osWorkspaceEvents = coreTable(db, d1OsWorkspaceEvents);
 	return db
 		.select({ cursor: osWorkspaceEvents.seq, kind: osWorkspaceEvents.kind })
 		.from(osWorkspaceEvents)

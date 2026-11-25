@@ -1,11 +1,12 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import { anyIds, changedRows } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import {
 	type NewOsApprovalRuleRow,
 	type OsApprovalRuleRow,
-	osApprovalRules,
+	osApprovalRules as d1OsApprovalRules,
 } from "../schema/os-approval-rules";
-import { getAffectedRows } from "../utils/d1-result";
 
 export interface OsApprovalRuleScopeParams {
 	organizationId: string;
@@ -16,13 +17,11 @@ export interface ListOsApprovalRulesOptions {
 	limit?: number;
 }
 
-/** Keep `IN (...)` well under the 100-bound-parameter D1 cap. */
-const KIND_CHUNK_SIZE = 50;
-
 export async function createOsApprovalRule(
 	db: DbQueryClient,
 	rule: NewOsApprovalRuleRow,
 ): Promise<OsApprovalRuleRow> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	const [row] = await db.insert(osApprovalRules).values(rule).returning();
 	if (!row) {
 		throw new Error("OS approval rule insert returned no row");
@@ -36,6 +35,7 @@ export async function findEnabledOsApprovalRuleByScope(
 	organizationId: string,
 	scope: { actionKind: string; toolSlug?: string; verb?: string },
 ): Promise<OsApprovalRuleRow | undefined> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	const [row] = await db
 		.select()
 		.from(osApprovalRules)
@@ -62,6 +62,7 @@ export async function listOsApprovalRules(
 	organizationId: string,
 	options: ListOsApprovalRulesOptions = {},
 ): Promise<OsApprovalRuleRow[]> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	return db
 		.select()
 		.from(osApprovalRules)
@@ -74,6 +75,7 @@ export async function getOsApprovalRule(
 	db: DbQueryClient,
 	params: OsApprovalRuleScopeParams,
 ): Promise<OsApprovalRuleRow | undefined> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	const [row] = await db
 		.select()
 		.from(osApprovalRules)
@@ -96,6 +98,7 @@ export async function setOsApprovalRuleEnabled(
 	params: OsApprovalRuleScopeParams,
 	enabled: boolean,
 ): Promise<OsApprovalRuleRow | undefined> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	const [row] = await db
 		.update(osApprovalRules)
 		.set({
@@ -116,6 +119,7 @@ export async function deleteOsApprovalRule(
 	db: DbQueryClient,
 	params: OsApprovalRuleScopeParams,
 ): Promise<boolean> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	const result = await db
 		.delete(osApprovalRules)
 		.where(
@@ -123,38 +127,32 @@ export async function deleteOsApprovalRule(
 				eq(osApprovalRules.organizationId, params.organizationId),
 				eq(osApprovalRules.id, params.ruleId),
 			),
-		);
-	return getAffectedRows(result) > 0;
+		)
+		.returning({ id: osApprovalRules.id });
+	return changedRows(result) > 0;
 }
 
 /**
  * The enabled rules matching any of the given action kinds — the sweep's
- * match set. Kinds are deduplicated and chunked to stay under the D1
- * bound-parameter cap.
+ * match set. One bound set keeps both stores under their parameter limits.
  */
 export async function findEnabledOsApprovalRulesByKind(
 	db: DbQueryClient,
 	organizationId: string,
 	kinds: readonly string[],
 ): Promise<OsApprovalRuleRow[]> {
+	const osApprovalRules = coreTable(db, d1OsApprovalRules);
 	const unique = [...new Set(kinds)];
 	if (unique.length === 0) return [];
-	const rows: OsApprovalRuleRow[] = [];
-	for (let start = 0; start < unique.length; start += KIND_CHUNK_SIZE) {
-		const chunk = unique.slice(start, start + KIND_CHUNK_SIZE);
-		rows.push(
-			...(await db
-				.select()
-				.from(osApprovalRules)
-				.where(
-					and(
-						eq(osApprovalRules.organizationId, organizationId),
-						eq(osApprovalRules.enabled, true),
-						inArray(osApprovalRules.actionKind, chunk),
-					),
-				)
-				.orderBy(desc(osApprovalRules.createdAt), desc(osApprovalRules.id))),
-		);
-	}
-	return rows;
+	return db
+		.select()
+		.from(osApprovalRules)
+		.where(
+			and(
+				eq(osApprovalRules.organizationId, organizationId),
+				eq(osApprovalRules.enabled, true),
+				anyIds(db, osApprovalRules.actionKind, unique),
+			),
+		)
+		.orderBy(desc(osApprovalRules.createdAt), desc(osApprovalRules.id));
 }
