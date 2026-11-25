@@ -3390,6 +3390,7 @@ export class LaneDispatcher {
 			? createLeaseWatch(
 					this.renewLease,
 					latestLeaseAttempt(options.scope, this.ownerEnv, this.deps.cli),
+					this.deps.darkWake,
 				)
 			: childLeaseWatch(options.scope, this.ownerEnv);
 		this.sendSteps = this.deps.createStepSender(options.scope);
@@ -8928,6 +8929,10 @@ ${firstBrief}`;
 		}
 	}
 	private async settleRun(receipt: Receipt, lease: { stop: () => void }) {
+		if (await this.deps.darkWake()) {
+			this.log("settlement-deferred", receipt.itemId, "macOS dark wake");
+			return;
+		}
 		const path = join(
 			this.directory,
 			`${receipt.itemId}-${receipt.version}.json`,
@@ -9192,6 +9197,10 @@ ${firstBrief}`;
 		const runnerChanges = receipt.repo
 			? await laneCommitChanges(receipt.repo, receipt.commits ?? [])
 			: null;
+		if (await this.deps.darkWake()) {
+			this.log("settlement-deferred", receipt.itemId, "macOS dark wake");
+			return;
+		}
 		// A renewal already waiting is sent before the settlement; none follows it.
 		lease.stop();
 		try {
@@ -9309,7 +9318,12 @@ ${firstBrief}`;
 				receipt.completionPending = false;
 				receipt.completionError = error.message.slice(0, 600);
 			}
-			this.log("settlement-retained", receipt.itemId, String(error));
+			const darkWake = await this.deps.darkWake();
+			this.log(
+				darkWake ? "settlement-deferred" : "settlement-retained",
+				receipt.itemId,
+				darkWake ? "macOS dark wake" : String(error),
+			);
 		}
 		this.save(path, receipt);
 	}

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { WorkAttemptSchema } from "@tedix/api-contract/schemas/work-items";
 import type { infer as Infer } from "zod";
 import type { createLaneHeartbeat } from "./lane-heartbeat";
+import { inDarkWake } from "./oauth-provider";
 import { LEASE_WORKER_ENV, selfCommand } from "./shared";
 
 type LeaseReceipt = Parameters<ReturnType<typeof createLaneHeartbeat>>[0];
@@ -31,10 +32,11 @@ export function createLeaseWatch(
 	latestAttempt: (
 		id: string,
 	) => Promise<Infer<typeof WorkAttemptSchema> | undefined>,
+	darkWake: () => boolean | Promise<boolean> = inDarkWake,
 ): LeaseWatch {
 	return (state, notify) => {
 		const { receipt } = state;
-		let { expiry, spawned, lastAgentEventAt } = state;
+		let { expiry, spawned } = state;
 		let lastLeaseCheck = Date.now();
 		let nextLeaseProbe = 0;
 		let renewing = false;
@@ -73,6 +75,7 @@ export function createLeaseWatch(
 				return;
 			checking = true;
 			try {
+				if (await darkWake()) return;
 				// A renewal may have reached the server even if its reply was lost.
 				const latest = await latestAttempt(receipt.itemId);
 				const confirmed = Date.parse(latest?.expiresAt ?? "");
@@ -89,12 +92,10 @@ export function createLeaseWatch(
 					emit({ kind: "confirmed", expiry });
 				} else lost();
 			} catch (error) {
+				if (await darkWake()) return;
 				log("lease-check-failed", String(error));
-				const now = Date.now();
-				if (now < expiry) return;
-				const idleAt = (lastAgentEventAt ?? -Infinity) + 60_000;
-				if (now >= idleAt) lost();
-				else nextLeaseProbe = Math.min(now + 10_000, idleAt);
+				// An unavailable authority cannot confirm that this Attempt ended.
+				nextLeaseProbe = Date.now() + 10_000;
 			} finally {
 				checking = false;
 			}
@@ -105,12 +106,14 @@ export function createLeaseWatch(
 			if (stopped || renewing) return;
 			renewing = true;
 			try {
+				if (await darkWake()) return;
 				const renewed = await renew(receipt);
 				const renewedExpiry = Date.parse(renewed.expiresAt);
 				if (Number.isFinite(renewedExpiry) && expiry !== undefined)
 					expiry = renewedExpiry;
 				emit({ kind: "renewed", expiry: renewedExpiry });
 			} catch (error) {
+				if (await darkWake()) return;
 				log("heartbeat-failed", String(error));
 				if (
 					error instanceof Error &&
@@ -130,7 +133,6 @@ export function createLeaseWatch(
 		return {
 			update: (state) => {
 				spawned = state.spawned;
-				lastAgentEventAt = state.lastAgentEventAt;
 			},
 			stop,
 		};

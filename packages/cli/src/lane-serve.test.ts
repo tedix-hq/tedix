@@ -174,6 +174,7 @@ function fixture({
 	const briefs: string[] = [];
 	const releases: Array<() => void> = [];
 	const control = {
+		darkWake: dark,
 		spawnPid: undefined as number | undefined,
 		uniqueAttempts: false,
 		deliverNote: undefined as string | undefined,
@@ -302,7 +303,7 @@ function fixture({
 			return { accepted: steps.length, pending: reply ?? [] };
 		},
 		waitForIdentity: async () => undefined,
-		darkWake: () => dark,
+		darkWake: () => control.darkWake,
 		gatewayCooldownUntil: (workspace) => {
 			control.cooldownWorkspaces.push(workspace);
 			return control.cooldownUntil;
@@ -1748,6 +1749,7 @@ describe("dispatcher admission", () => {
 						id: "attempt", externalSessionKey: "codex:test",
 						runtimeState: "running", expiresAt: new Date(${confirmed}).toISOString(),
 					}),
+					() => false,
 				));
 				`,
 			],
@@ -2375,7 +2377,6 @@ describe("dispatcher admission", () => {
 		"ended",
 		"expired",
 		"unreachable",
-		"unreachable with recent activity",
 	])(
 		"checks server authority before stopping a child: %s",
 		async (scenario) => {
@@ -2437,7 +2438,7 @@ describe("dispatcher admission", () => {
 							).toISOString(),
 						},
 					];
-					if (scenario.startsWith("unreachable"))
+					if (scenario === "unreachable")
 						f.control.historyError = new CliReadError(
 							"Gateway unavailable",
 							"GATEWAY_UNAVAILABLE",
@@ -2447,7 +2448,7 @@ describe("dispatcher admission", () => {
 					now += 50_000;
 					leaseCheck();
 				}
-				if (scenario === "unreachable with recent activity") {
+				if (scenario === "unreachable") {
 					await until(() =>
 						readFileSync(join(f.dir, "dispatcher.log"), "utf8").includes(
 							'"event":"lease-check-failed"',
@@ -2456,8 +2457,13 @@ describe("dispatcher admission", () => {
 					expect(kill).not.toHaveBeenCalledWith(-999999, "SIGTERM");
 					now += 10_001;
 					leaseCheck();
+					await new Promise((done) => setTimeout(done, 0));
+					expect(kill).not.toHaveBeenCalledWith(-999999, "SIGTERM");
+					f.control.historyError = undefined;
+					now += 10_001;
+					leaseCheck();
 				}
-				if (scenario === "outage") {
+				if (scenario === "outage" || scenario === "unreachable") {
 					await until(() =>
 						readFileSync(join(f.dir, "dispatcher.log"), "utf8").includes(
 							'"event":"lease-confirmed"',
@@ -7069,6 +7075,74 @@ describe("dispatcher admission", () => {
 		const { dispatcher, events } = fixture({ dark: true });
 		await dispatcher.tick();
 		expect(events).toHaveLength(0);
+	});
+	it("defers running heartbeat and settlement during dark wake, then resumes", async () => {
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		let heartbeat!: () => Promise<void>;
+		let leaseCheck!: () => Promise<void>;
+		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => Promise<void>,
+			ms: number,
+		) => {
+			if (ms === 60_000) heartbeat = callback;
+			if (ms === 1000) leaseCheck = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		const f = fixture();
+		f.items.splice(1);
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.control.darkWake = true;
+			now += 300_001;
+			const reads = f.events.filter(
+				(event) => event.verb === "dispatch-attempts",
+			).length;
+			await leaseCheck();
+			expect(
+				f.events.filter((event) => event.verb === "dispatch-attempts"),
+			).toHaveLength(reads);
+			await heartbeat();
+			expect(
+				f.events.filter((event) => event.verb === "heartbeat"),
+			).toHaveLength(0);
+			f.control.darkWake = false;
+			f.control.heartbeatExpiry = true;
+			await heartbeat();
+			expect(
+				f.events.filter((event) => event.verb === "heartbeat"),
+			).toHaveLength(1);
+			f.control.darkWake = true;
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
+				0,
+			);
+			const path = join(f.dir, `${item().id}-2.json`);
+			const retained = JSON.parse(readFileSync(path, "utf8"));
+			expect(retained.phase).toBe("settling");
+			f.control.history.data = [
+				{
+					id: retained.attemptId,
+					externalSessionKey: retained.session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+				},
+			];
+			f.control.darkWake = false;
+			await f.dispatcher.tick();
+			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
+				1,
+			);
+			expect(JSON.parse(readFileSync(path, "utf8")).phase).toBe("settled");
+		} finally {
+			f.control.darkWake = false;
+			for (const release of f.releases) release();
+			await f.dispatcher.drain();
+			timer.mockRestore();
+			clock.mockRestore();
+		}
 	});
 	it("waits out the login's shared gateway cooldown instead of queuing reads into it", async () => {
 		let now = 1_800_000_000_000;
