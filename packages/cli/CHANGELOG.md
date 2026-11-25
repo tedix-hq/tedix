@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.15 (2026-11-25)
+
+### Patch Changes
+
+- 38b38d6: Page through Attempt history so runners can admit Work Items with more than 100 Attempts and recover lost admission responses safely.
+
 ## 0.37.14 (2026-11-25)
 
 ### Patch Changes
