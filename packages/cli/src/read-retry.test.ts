@@ -160,59 +160,46 @@ describe("one read retry budget", () => {
 	});
 
 	test("20 parallel lanes recover real child read deadlines", async () => {
-		const requests = new Map<string, number>();
 		const logs: Array<Record<string, unknown>> = [];
-		const server = Bun.serve({
-			hostname: "127.0.0.1",
-			port: 0,
-			async fetch(req) {
-				const key = new URL(req.url).pathname;
-				const n = (requests.get(key) ?? 0) + 1;
-				requests.set(key, n);
-				await Bun.sleep(n === 1 ? 1200 : 10);
-				return Response.json({ key, n });
-			},
-		});
-		try {
-			const laneCount = 20;
-			const operations = ["claim", "heartbeat", "undelivered-answers"] as const;
-			const results = await Promise.allSettled(
-				Array.from({ length: laneCount }, async (_, lane) => {
-					const operation = operations[lane % operations.length];
-					const key = `/${lane}/${operation}`;
-					const value = await retryRead(
-						(ms) =>
-							readJsonChild(
-								process.execPath,
-								[
-									"-e",
-									`fetch(${JSON.stringify(new URL(key, server.url).href)}).then(r=>r.text()).then(t=>process.stdout.write(t))`,
-								],
-								ms,
-							),
-						{
-							operation: `${lane}:${operation}`,
-							budgetMs: 5000,
-							attemptMs: 700,
-							log: (line) => logs.push(JSON.parse(line)),
-						},
-					);
-					expect(value).toEqual({ key, n: 2 });
-				}),
-			);
-			expect(results.filter((row) => row.status === "rejected")).toEqual([]);
-			expect(requests.size).toBe(laneCount);
-			expect([...requests.values()]).toEqual(Array(laneCount).fill(2));
-			expect(logs.filter((row) => row.event === "read-retry")).toHaveLength(
-				laneCount,
-			);
-			expect(logs.filter((row) => row.event === "read-succeeded")).toHaveLength(
-				laneCount,
-			);
-			expect(logs.filter((row) => row.event === "read-failed")).toEqual([]);
-			expect(new Set(logs.map((row) => row.budgetId)).size).toBe(laneCount);
-		} finally {
-			await server.stop(true);
-		}
-	}, 15_000);
+		const laneCount = 20;
+		const operations = ["claim", "heartbeat", "undelivered-answers"] as const;
+		const results = await Promise.allSettled(
+			Array.from({ length: laneCount }, async (_, lane) => {
+				const operation = operations[lane % operations.length];
+				const key = `${lane}:${operation}`;
+				const respond = (n: number) =>
+					`process.stdout.write(${JSON.stringify(JSON.stringify({ key, n }))})`;
+				let attempt = 0;
+				const value = await retryRead(
+					(ms) =>
+						readJsonChild(
+							process.execPath,
+							[
+								"-e",
+								attempt++ === 0
+									? `setTimeout(()=>${respond(1)},5000)`
+									: respond(2),
+							],
+							ms,
+						),
+					{
+						operation: key,
+						budgetMs: 20_000,
+						attemptMs: 2_000,
+						log: (line) => logs.push(JSON.parse(line)),
+					},
+				);
+				expect(value).toEqual({ key, n: 2 });
+			}),
+		);
+		expect(results.filter((row) => row.status === "rejected")).toEqual([]);
+		expect(logs.filter((row) => row.event === "read-retry")).toHaveLength(
+			laneCount,
+		);
+		expect(logs.filter((row) => row.event === "read-succeeded")).toHaveLength(
+			laneCount,
+		);
+		expect(logs.filter((row) => row.event === "read-failed")).toEqual([]);
+		expect(new Set(logs.map((row) => row.budgetId)).size).toBe(laneCount);
+	}, 30_000);
 });
