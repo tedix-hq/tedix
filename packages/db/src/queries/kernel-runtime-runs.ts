@@ -208,13 +208,15 @@ export async function listPendingDelegationRuns(
  */
 export async function listQuietDelegatedRuns(
 	db: DbClient,
-	input: { before: string; limit: number },
+	input: { before: string; limit: number; dueIds?: string[] },
 ): Promise<KernelRuntimeRun[]> {
 	return db
 		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				input.dueIds ? inArray(kernelRuntimeRuns.id, input.dueIds) : undefined,
 				inArray(kernelRuntimeRuns.status, ["queued", "running"]),
 				sql`${kernelRuntimeRuns.delegatedTediId} IS NOT NULL`,
 				sql`${kernelRuntimeRuns.childRunId} IS NOT NULL`,

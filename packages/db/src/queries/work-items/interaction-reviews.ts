@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
 import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
@@ -240,12 +240,15 @@ export async function reviewWorkInteraction(
 export async function listDueWorkInteractionReviews(
 	db: DbQueryClient,
 	now: string,
+	dueIds?: string[],
 ) {
 	return db
 		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(
 			and(
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				dueIds ? inArray(workInteractions.id, dueIds) : undefined,
 				eq(workInteractions.targetType, "user"),
 				sql`${workInteractions.kind}<>'coordination'`,
 				sql`((${workInteractions.status}='open'

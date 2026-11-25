@@ -102,7 +102,7 @@ export interface PendingTediWorkApproval {
 /** Pending tedi-addressed admission decisions that need an agent wake. */
 export async function listPendingTediWorkApprovals(
 	db: DbQueryClient,
-	input: { observedAt: string; limit?: number },
+	input: { observedAt: string; limit?: number; dueIds?: string[] },
 ): Promise<PendingTediWorkApproval[]> {
 	const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
 	return db
@@ -134,6 +134,10 @@ export async function listPendingTediWorkApprovals(
 		)
 		.where(
 			and(
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				input.dueIds
+					? inArray(workApprovalProposals.id, input.dueIds)
+					: undefined,
 				eq(workApprovalProposals.status, "pending"),
 				eq(workApprovalProposals.approverType, "tedi"),
 				sql`${workApprovalProposals.expiresAt}>${input.observedAt}`,

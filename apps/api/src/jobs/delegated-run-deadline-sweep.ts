@@ -28,6 +28,7 @@ export type DelegatedRunDeadlineSweepResult = {
 export async function sweepDelegatedRunDeadlines(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	dueIds?: string[],
 ): Promise<DelegatedRunDeadlineSweepResult> {
 	const counts: DelegatedRunDeadlineSweepResult = {
 		delegatedRunsChecked: 0,
@@ -46,6 +47,7 @@ export async function sweepDelegatedRunDeadlines(
 		await import("../rpc/routers/kernel/run-store-reconciliation");
 	const db = createDbClient(env.DB);
 	const rows = await listQuietDelegatedRuns(db, {
+		dueIds,
 		before: new Date(
 			scheduledTime - KERNEL_DELEGATE_FIRST_EVENT_TIMEOUT_MS,
 		).toISOString(),

@@ -84,6 +84,7 @@ export async function superviseAgentRuns(input: {
 	env: TediHostEnv;
 	send: Send;
 	now: number;
+	dueIds?: string[];
 }): Promise<Record<string, number>> {
 	const { db, now } = input;
 	const deadline = Date.now() + RUN_BUDGET_MS;
@@ -98,6 +99,7 @@ export async function superviseAgentRuns(input: {
 		budgetExhausted: 0,
 	};
 	const supervisors = await listAgentRunSupervisors(db, {
+		dueIds: input.dueIds,
 		since: new Date(now - SUPERVISED_RUN_AGE_MS).toISOString(),
 		limit: SUPERVISORS_PER_TICK,
 	});
@@ -192,11 +194,13 @@ export async function superviseAgentRuns(input: {
 export function dispatchAgentRunSupervision(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	dueIds?: string[],
 ): Promise<Record<string, number>> {
 	return superviseAgentRuns({
 		db: createDbClient(env.DB),
 		env,
 		send: (request) => env.TEDI_SERVICE.fetch(request),
 		now: Math.max(scheduledTime, Date.now()),
+		dueIds,
 	});
 }

@@ -678,6 +678,7 @@ export async function findOrphanRuns(
 	options: {
 		now?: Date;
 		organizationId?: string;
+		dueIds?: string[];
 		orphanAgeMinutes?: number;
 		activityWindowMinutes?: number;
 		lookbackDays?: number;
@@ -781,6 +782,7 @@ export async function sweepOrphanRuns(
 	db: DbClient,
 	options: {
 		now?: Date;
+		dueIds?: string[];
 		orphanAgeMinutes?: number;
 		activityWindowMinutes?: number;
 		lookbackDays?: number;

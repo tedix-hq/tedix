@@ -346,7 +346,10 @@ describe.each<{ statistics: Statistics }>([
 		const before = snapshot(sqlite);
 		expect(await expireStaleApprovals(db)).toBe(12);
 		expect(changed(before, snapshot(sqlite))).toEqual([...expected].sort());
-		expect(plans).toEqual([
+		// Timer triggers may let SQLite use the same seek as a covering index.
+		expect(
+			plans.map((plan) => plan.replace("USING COVERING INDEX", "USING INDEX")),
+		).toEqual([
 			`SEARCH tedi_approval_requests USING INDEX ${PENDING} (expires_at<?)`,
 		]);
 		expect(
@@ -387,7 +390,7 @@ describe.each<{ statistics: Statistics }>([
 			`SEARCH tedi_approval_requests USING INDEX ${PENDING} (expires_at<?)`,
 			"SEARCH tedi_approval_requests USING INDEX idx_approval_requests_execution_attention (org_id=? AND status=?)",
 			"SEARCH tedi_approval_requests USING INDEX idx_approval_requests_status (org_id=? AND status=?)",
-		]).toContain(plans[0]);
+		]).toContain(plans[0]?.replace("USING COVERING INDEX", "USING INDEX"));
 		expect(
 			sqlite
 				.prepare(

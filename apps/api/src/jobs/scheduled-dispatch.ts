@@ -136,34 +136,43 @@ const dispatchScheduled = async (
 		}
 
 		if (cron === "*/2 * * * *") {
-			const { sweepOrphanRunsTick } = await import("./platform-tick");
-			await trackPlatformCronPath(env, event, "orphan-run-sweep", () =>
-				sweepOrphanRunsTick(env),
+			const { dispatchWorkDue } = await import("./work-due");
+			await trackPlatformCronPath(env, event, "work-due", () =>
+				dispatchWorkDue(env, event.scheduledTime, (kind, run) =>
+					trackPlatformCronPath(env, event, kind, run),
+				),
 			);
-			// Home-side counterpart: a delegated run whose child never published,
-			// or outlived its deadline, ends with a visible reason without a reader.
-			const { sweepDelegatedRunDeadlines } =
-				await import("./delegated-run-deadline-sweep");
+		}
+
+		if (cron === "*/2 * * * *") {
+			await trackPlatformCronPath(env, event, "work-maintenance", async () => {
+				const { runWorkMaintenanceTick } =
+					await import("./work-attempt-lease-sweeper");
+				return runWorkMaintenanceTick(env, event.scheduledTime);
+			});
+			await trackPlatformCronPath(env, event, "owner-tool-queue", async () => {
+				const { createContext } = await import("../rpc/context");
+				const { runQueuedOwnerToolApprovals } =
+					await import("../rpc/routers/kernel/owner-tool-approval-settlement");
+				return {
+					retried: await runQueuedOwnerToolApprovals(
+						createContext(
+							new Request("https://api.internal/approval-queue"),
+							env,
+						),
+					),
+				};
+			});
 			await trackPlatformCronPath(
 				env,
 				event,
-				"delegated-run-deadline-sweep",
-				() => sweepDelegatedRunDeadlines(env, event.scheduledTime),
-			);
-		}
-
-		if (cron === "*/2 * * * *") {
-			const { expireOverdueApprovals } = await import("./approval-expiry");
-			await trackPlatformCronPath(env, event, "approval-expiry", () =>
-				expireOverdueApprovals(env),
-			);
-		}
-
-		if (cron === "*/2 * * * *") {
-			const { runWorkAttemptLeaseSweeperTick } =
-				await import("./work-attempt-lease-sweeper");
-			await trackPlatformCronPath(env, event, "work-attempt-lease-sweep", () =>
-				runWorkAttemptLeaseSweeperTick(env, event.scheduledTime),
+				"orphan-workflow-cleanup",
+				async () => {
+					const { createDbClient } = await import("@tedix/db/client");
+					const { cleanupOrphanWorkflows } =
+						await import("./orphan-workflow-cleanup");
+					return cleanupOrphanWorkflows(createDbClient(env.DB), env);
+				},
 			);
 			// Remote follow-through keeps its own receipts: a wedged tedi or
 			// Durable Object must fail these paths, not the pure-D1 lease reaper.
@@ -171,14 +180,6 @@ const dispatchScheduled = async (
 				await import("./kernel-request-reconcile");
 			await trackPlatformCronPath(env, event, "kernel-request-reconcile", () =>
 				reconcileDueKernelRequests(env, event.scheduledTime),
-			);
-			const { dispatchInteractionReviews } =
-				await import("./interaction-follow-through");
-			await trackPlatformCronPath(
-				env,
-				event,
-				"interaction-review-dispatch",
-				() => dispatchInteractionReviews(env, event.scheduledTime),
 			);
 		}
 
@@ -231,11 +232,6 @@ const dispatchScheduled = async (
 		}
 
 		if (cron === "*/2 * * * *" && env.TEDI_SERVICE) {
-			const { dispatchWorkApprovalRedrives } =
-				await import("./work-approval-redrive");
-			await trackPlatformCronPath(env, event, "work-approval-redrive", () =>
-				dispatchWorkApprovalRedrives(env, event.scheduledTime),
-			);
 			// Each tick reads one bounded slice; the checkpoint carries unfinished
 			// scope counts to later ticks instead of draining the whole inventory.
 			if (minute % 6 < 2) {
@@ -274,12 +270,6 @@ const dispatchScheduled = async (
 			const { dispatchCommitmentWakes } = await import("./commitment-wakes");
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),
-			);
-			// A tedi with live agent runs it started gets a round to check on them.
-			const { dispatchAgentRunSupervision } =
-				await import("./agent-run-supervision");
-			await trackPlatformCronPath(env, event, "agent-run-supervision", () =>
-				dispatchAgentRunSupervision(env, event.scheduledTime),
 			);
 			await trackPlatformCronPath(
 				env,

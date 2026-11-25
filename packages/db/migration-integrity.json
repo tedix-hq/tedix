@@ -2040,6 +2040,10 @@
 		{
 			"name": "20261125101049_git_commit_aliases/migration.sql",
 			"sha256": "61c6b5088721c466f808013bcbc41d6d8f4a92d40de57477ac5309220f775dbb"
+		},
+		{
+			"name": "20261125155337_work_due/migration.sql",
+			"sha256": "73e0321604cd58976c0050e51aa8a5ad572ba80f2b60631572dc337ae1dd4441"
 		}
 	]
 }

@@ -364,7 +364,7 @@ export interface SweepElapsedWorkAttemptsResult {
  */
 export async function sweepElapsedWorkAttempts(
 	db: DbQueryClient,
-	options: { now?: string; limit?: number } = {},
+	options: { now?: string; limit?: number; dueIds?: string[] } = {},
 ): Promise<SweepElapsedWorkAttemptsResult> {
 	const at = options.now ?? new Date().toISOString();
 	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 200);
@@ -380,6 +380,8 @@ export async function sweepElapsedWorkAttempts(
 		.from(workAttempts)
 		.where(
 			and(
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				options.dueIds ? inArray(workAttempts.id, options.dueIds) : undefined,
 				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 				sql`${workAttempts.expiresAt} IS NOT NULL AND ${workAttempts.expiresAt} <= ${at}`,
 			),

@@ -18,7 +18,6 @@ import {
 } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
-import { organizations } from "../../schema/organizations";
 import { tedis } from "../../schema/tedis";
 import { workAdmissions } from "../../schema/work-factory";
 import {
@@ -340,13 +339,12 @@ export interface AgentRunSupervisor {
 }
 
 /**
- * Active tedis, in any organization, that have an accepted agent run they
- * started since `since`. One index seek per organization on
- * idx_work_items_metadata_source; no tenant is read beyond these columns.
+ * Active tedis with an accepted agent run started since `since`. Scheduled
+ * dispatch restricts this read to the Work ids claimed from work_due.
  */
 export async function listAgentRunSupervisors(
 	db: DbQueryClient,
-	params: { since: string; limit: number },
+	params: { since: string; limit: number; dueIds?: string[] },
 ): Promise<AgentRunSupervisor[]> {
 	return db
 		.select({
@@ -355,15 +353,7 @@ export async function listAgentRunSupervisors(
 			slug: tedis.slug,
 			runtimeOverrides: tedis.runtimeOverrides,
 		})
-		.from(organizations)
-		.innerJoin(
-			workItems,
-			and(
-				eq(workItems.orgId, organizations.id),
-				eq(workItems.metadataSource, AGENT_RUN_SOURCE),
-				gt(workItems.createdAt, params.since),
-			),
-		)
+		.from(workItems)
 		.innerJoin(
 			tedis,
 			and(
@@ -375,13 +365,17 @@ export async function listAgentRunSupervisors(
 		.where(
 			and(
 				eq(workItems.disposition, "accepted"),
+				eq(workItems.metadataSource, AGENT_RUN_SOURCE),
+				gt(workItems.createdAt, params.since),
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				params.dueIds ? inArray(workItems.id, params.dueIds) : undefined,
 				eq(workItems.executorType, "external_agent"),
 				eq(workItems.stewardType, "tedi"),
 				isNotNull(workItems.sourceSessionKey),
 			),
 		)
-		.groupBy(organizations.id, tedis.id)
-		.orderBy(organizations.id, tedis.id)
+		.groupBy(workItems.orgId, tedis.id)
+		.orderBy(workItems.orgId, tedis.id)
 		.limit(params.limit);
 }
 

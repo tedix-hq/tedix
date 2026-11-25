@@ -82,6 +82,29 @@ vi.mock("./approval-expiry", () => ({
 }));
 vi.mock("./work-attempt-lease-sweeper", () => ({
 	runWorkAttemptLeaseSweeperTick: vi.fn(),
+	runWorkMaintenanceTick: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("./work-due", () => ({
+	dispatchWorkDue: vi.fn().mockImplementation(async (_env, _time, track) => {
+		for (const kind of [
+			"approval-expiry",
+			"work-approval-redrive",
+			"interaction-review-dispatch",
+			"delegated-run-deadline-sweep",
+			"agent-run-supervision",
+			"orphan-run-sweep",
+			"work-attempt-lease-sweep",
+		])
+			await track(kind, async () => ({ due: 0 }));
+		return { due: 0 };
+	}),
+}));
+vi.mock("../rpc/routers/kernel/owner-tool-approval-settlement", () => ({
+	runQueuedOwnerToolApprovals: vi.fn().mockResolvedValue(0),
+}));
+vi.mock("../rpc/context", () => ({ createContext: vi.fn() }));
+vi.mock("./orphan-workflow-cleanup", () => ({
+	cleanupOrphanWorkflows: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("./retention-cleanup", () => ({
 	runRetentionCleanupCron: vi.fn().mockResolvedValue({}),

@@ -16,9 +16,8 @@ import {
 import { sweepStuckOutboundReviews } from "@tedix/db/queries/work-items/outbound";
 
 /**
- * Bounded per tick. The steady state is zero candidates — one index probe on
- * `idx_work_attempt_expiry` — and a backlog drains over consecutive ticks
- * instead of turning one cron invocation into an unbounded write burst.
+ * Also bounds explicit on-demand calls. Scheduled calls receive the smaller
+ * batch of Attempt ids claimed from work_due.
  */
 const MAX_ATTEMPTS_PER_TICK = 100;
 
@@ -71,20 +70,25 @@ export function interactionExpirySweepDue(scheduledTime: number): boolean {
 export async function runWorkAttemptLeaseSweeperTick(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	dueIds?: string[],
+): Promise<Record<string, number>> {
+	return {
+		...(await sweepElapsedWorkAttempts(createDbQueryClient(env.DB), {
+			now: new Date(scheduledTime).toISOString(),
+			limit: MAX_ATTEMPTS_PER_TICK,
+			dueIds,
+		})),
+	};
+}
+
+export async function runWorkMaintenanceTick(
+	env: CloudflareEnv,
+	scheduledTime: number,
 ): Promise<Record<string, number>> {
 	const lanesStale = await recordStaleLanes(
 		createDbQueryClient(env.DB),
 		new Date(scheduledTime).toISOString(),
 	);
-	const result = await sweepElapsedWorkAttempts(createDbQueryClient(env.DB), {
-		now: new Date(scheduledTime).toISOString(),
-		limit: MAX_ATTEMPTS_PER_TICK,
-	});
-	if (result.expired > 0) {
-		console.log(
-			`[WorkAttemptLeaseSweeper] retired ${result.expired} elapsed attempt lease(s)`,
-		);
-	}
 	// Closes kernel-delegation items whose failed Attempt nobody retried in a
 	// week. The search reads every Work Item (28k rows, 0.4 s on 2026-11-12), and
 	// a week-long window does not need a two-minute cadence: once an hour.
@@ -116,7 +120,6 @@ export async function runWorkAttemptLeaseSweeperTick(
 			})
 		: { observed: 0, expired: 0, candidates: 0, writes: 0, dryRun: 0 };
 	return {
-		...result,
 		...(await sweepStuckOutboundReviews(createDbQueryClient(env.DB), {
 			now: new Date(scheduledTime).toISOString(),
 			limit: MAX_INTERACTION_WRITES_PER_TICK,

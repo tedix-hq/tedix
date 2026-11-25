@@ -857,6 +857,7 @@ export async function findOrphanRuns(
 	options: {
 		now?: Date;
 		organizationId?: string;
+		dueIds?: string[];
 		orphanAgeMinutes?: number;
 		activityWindowMinutes?: number;
 		lookbackDays?: number;
@@ -943,12 +944,16 @@ export async function findOrphanRuns(
 			)}`.as("succeeded_lost"),
 		})
 		.from(
-			organizationId
-				? sql`${run} INDEXED BY idx_tedi_runtime_events_org_unfinished`
-				: sql`${run} INDEXED BY idx_tedi_runtime_events_unfinished`,
+			options.dueIds
+				? run
+				: organizationId
+					? sql`${run} INDEXED BY idx_tedi_runtime_events_org_unfinished`
+					: sql`${run} INDEXED BY idx_tedi_runtime_events_unfinished`,
 		)
 		.where(
 			and(
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				options.dueIds ? inArray(run.id, options.dueIds) : undefined,
 				sql`${run.kind} = 'run.started'`,
 				eq(run.terminalSeen, 0),
 				isNotNull(run.runId),

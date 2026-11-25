@@ -861,7 +861,11 @@ export async function resolveToolCatalogApprovalRequest(
  */
 export async function expireStaleApprovals(
 	db: DbClient,
-	options: { organizationId?: string; resolvedBy?: string } = {},
+	options: {
+		organizationId?: string;
+		resolvedBy?: string;
+		dueIds?: string[];
+	} = {},
 ): Promise<number> {
 	const now = new Date().toISOString();
 	const result = await db
@@ -881,7 +885,11 @@ export async function expireStaleApprovals(
 				// States idx_approval_requests_pending_expiry's condition, so the
 				// sweep reads the requests it closes instead of the whole table.
 				pendingApproval,
-				lt(tediApprovalRequests.expiresAt, now),
+				// bound-params: internal selector from claimWorkDue, LIMIT 50.
+				options.dueIds
+					? inArray(tediApprovalRequests.id, options.dueIds)
+					: undefined,
+				sql`${tediApprovalRequests.expiresAt} <= ${now}`,
 				options.organizationId
 					? eq(tediApprovalRequests.orgId, options.organizationId)
 					: undefined,

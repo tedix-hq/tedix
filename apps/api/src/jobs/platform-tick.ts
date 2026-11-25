@@ -322,6 +322,7 @@ export async function runAlwaysOnKeepalive(
 
 export async function sweepOrphanRunsTick(
 	env: CloudflareEnv,
+	dueIds?: string[],
 ): Promise<Record<string, number>> {
 	try {
 		const { createDbClient } = await import("@tedix/db/client");
@@ -339,6 +340,7 @@ export async function sweepOrphanRunsTick(
 			env,
 		} as unknown as import("../rpc/context").BaseContext;
 		const result = await sweepOrphanRuns(db, {
+			dueIds,
 			limit: 100,
 			// A dropped delegated child must not leave its parent Home run and
 			// delegation receipt saying "Running" forever: drive the parent through
@@ -366,7 +368,7 @@ export async function sweepOrphanRunsTick(
 			swept: result.swept,
 			skipped: result.skipped,
 			errors: result.errors.length,
-			...(await cleanupOrphanWorkflows(db, env)),
+			...(dueIds ? {} : await cleanupOrphanWorkflows(db, env)),
 		};
 	} catch (err) {
 		console.warn(

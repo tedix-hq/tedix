@@ -37,12 +37,13 @@ function interactionReviewPrompt(requestId: string, version: number): string {
 export async function dispatchInteractionReviews(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	dueIds?: string[],
 ) {
 	const db = createDbClient(env.DB);
 	const now = new Date(scheduledTime).toISOString();
 	let reviews = 0;
 	const failures: unknown[] = [];
-	for (const row of await listDueWorkInteractionReviews(db, now)) {
+	for (const row of await listDueWorkInteractionReviews(db, now, dueIds)) {
 		try {
 			if (
 				row.status === "resolved" &&

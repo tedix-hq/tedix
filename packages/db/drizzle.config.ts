@@ -28,6 +28,7 @@ export default defineConfig({
 	// complete canonical schema through this explicit source list.
 	schema: [
 		"./src/schema/git-commit-aliases.ts",
+		"./src/schema/work-due.ts",
 		"./src/schema/auth-context-cache.ts",
 		"./src/schema/data-residency.ts",
 		"./src/schema/kernel-requests.ts",

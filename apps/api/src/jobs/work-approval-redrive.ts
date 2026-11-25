@@ -150,10 +150,12 @@ export async function wakePendingWorkApproval(
 export async function dispatchWorkApprovalRedrives(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	dueIds?: string[],
 ): Promise<Record<string, number>> {
 	const db = createDbClient(env.DB);
 	const observedAt = new Date(scheduledTime).toISOString();
 	const candidates = await listPendingTediWorkApprovals(db, {
+		dueIds,
 		observedAt,
 		limit: 50,
 	});
