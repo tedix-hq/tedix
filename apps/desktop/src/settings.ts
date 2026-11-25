@@ -461,6 +461,7 @@ function tools(now: PanelState): Group[] {
 				items: [
 					{
 						title: "None found",
+						sub: "An agent is a coding tool on this Mac that Tedix can hand code tasks to. Tedix works for everything else without one. To add one, get Claude Code or Codex, then choose Check again.",
 						control: [
 							button(
 								"Get Claude Code",
